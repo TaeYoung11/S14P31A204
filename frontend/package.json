@@ -1,0 +1,47 @@
+{
+  "name": "bim-3d-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview",
+    "postinstall": "node -e \"const fs = require('fs'); const path = require('path'); const d = 'public/wasm'; if (!fs.existsSync(d)) fs.mkdirSync(d, {recursive: true}); fs.copyFileSync('node_modules/web-ifc/web-ifc.wasm', d+'/web-ifc.wasm'); fs.copyFileSync('node_modules/web-ifc/web-ifc-mt.wasm', d+'/web-ifc-mt.wasm');\""
+  },
+  "dependencies": {
+    "@thatopen/components": "3.4.0",
+    "@thatopen/components-front": "3.4.0",
+    "@thatopen/fragments": "3.4.0",
+    "@thatopen/ui": "3.4.0",
+    "@thatopen/ui-obc": "3.4.0",
+    "@types/d3": "^7.4.3",
+    "camera-controls": "3.1.2",
+    "clsx": "^2.1.1",
+    "d3": "^7.9.0",
+    "lucide-react": "^0.451.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.14.0",
+    "tailwind-merge": "^2.5.3",
+    "three": "0.182.0",
+    "web-ifc": "0.0.77",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.10",
+    "@types/react-dom": "^18.3.0",
+    "@types/three": "0.182.0",
+    "@vitejs/plugin-react": "^4.3.2",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8"
+  },
+  "overrides": {
+    "three": "0.182.0",
+    "camera-controls": "3.1.2"
+  }
+}
