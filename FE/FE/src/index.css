@@ -170,6 +170,33 @@ body {
          text-sm font-semibold text-[#374151];
 }
 
+.floating-panel {
+  @apply flex flex-col overflow-hidden select-none rounded-lg border border-[#e5e7eb]
+         bg-white shadow-[0_4px_20px_rgba(0,0,0,0.12)];
+}
+
+.floating-panel-header {
+  @apply flex shrink-0 cursor-move items-center gap-2 border-b border-[#e5e7eb]
+         bg-white px-3 py-2;
+}
+
+.floating-panel-title {
+  @apply flex-1 truncate text-xs font-semibold text-[#374151];
+}
+
+.floating-panel-controls {
+  @apply flex shrink-0 items-center gap-0.5;
+}
+
+.panel-control-btn {
+  @apply flex h-5 w-5 items-center justify-center rounded text-[#9ca3af]
+         transition-colors hover:bg-[#f3f4f6] hover:text-[#374151];
+}
+
+.panel-control-btn-danger {
+  @apply hover:bg-[#fef2f2] hover:text-[#dc2626];
+}
+
 /* =====================
    BADGE
    ===================== */
@@ -211,6 +238,25 @@ body {
   @apply bg-white rounded-xl border border-[#e5e7eb]
          shadow-[0_20px_60px_rgba(0,0,0,0.15)]
          p-6 w-full max-w-[480px] mx-4;
+}
+
+/* =====================
+   EMPTY STATE
+   ===================== */
+.empty-state {
+  @apply flex flex-col items-center justify-center px-8 py-16 text-center;
+}
+
+.empty-state-icon {
+  @apply mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[#f3f4f6];
+}
+
+.empty-state-title {
+  @apply mb-1 text-sm font-medium text-[#374151];
+}
+
+.empty-state-description {
+  @apply mb-4 max-w-xs text-xs text-[#9ca3af];
 }
 
 /* =====================
