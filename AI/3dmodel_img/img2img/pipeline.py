@@ -32,9 +32,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from PIL import Image
+
+if TYPE_CHECKING:
+    import torch
 
 from .config import (
     DEFAULT_GUIDANCE_SCALE,
@@ -79,7 +82,7 @@ class Img2ImgRenderer:
         self,
         model_id: str = DEFAULT_MODEL_ID,
         device: Optional[str] = None,
-        dtype=None,
+        dtype: Optional[torch.dtype] = None,
         warmup: bool = True,
     ):
         # diffusers / torch 지연 임포트: 모듈 임포트만으로 CUDA 로딩되지 않도록.
