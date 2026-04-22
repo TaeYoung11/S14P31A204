@@ -68,20 +68,43 @@ class LLM3DPipeline:
 
     async def execute_preview(self, user_text: str) -> Dict[str, Any]:
         command = await self.engine.parse_command(user_text)
+
+        # 재질문 — LLM이 모호하다고 판단한 경우
         if command.ambiguity_question:
             return {"status": "needs_clarification", "summary": command.ambiguity_question, "command": command.model_dump()}
+
+        # CREATE는 IFC 검색 불필요 — 별도 생성 파이프라인으로 위임 (1순위 수정 로직과 분리)
+        if command.command_type == LLM3DCommandType.CREATE:
+            return {
+                "status":  "create_not_supported",
+                "summary": "CREATE 명령은 생성 파이프라인에서 처리됩니다.",
+                "command": command.model_dump(),
+            }
+
+        # IFC 요소 검색
         matched = self.query_engine.find_elements(command)
-        if not matched: return {"status": "not_found", "summary": "대상 요소를 찾을 수 없습니다."}
-        quality_errors = command.validate_modeling_quality(current_dims=matched[0].get("dims"))
-        session = PreviewSession(str(uuid.uuid4()), command, matched, len(quality_errors) == 0, quality_errors)
+        if not matched:
+            return {"status": "not_found", "summary": "대상 요소를 찾을 수 없습니다."}
+
+        # 품질 검증 — select_all=True 이면 매칭된 모든 요소를 검사, 오류는 누적
+        all_quality_errors: List[str] = []
+        for elem in matched:
+            dims     = elem.get("dims", {})
+            current_z = dims.get("z_mm")          # IFC 요소의 Z 좌표 (없으면 None → validator 내부에서 0으로 처리)
+            errs = command.validate_modeling_quality(current_dims=dims, current_z=current_z)
+            for e in errs:
+                if e not in all_quality_errors:    # 동일 오류 중복 제거
+                    all_quality_errors.append(e)
+
+        session = PreviewSession(str(uuid.uuid4()), command, matched, len(all_quality_errors) == 0, all_quality_errors)
         self.store.save(session)
         return {
-            "status": "preview_ready" if session.quality_ok else "failed_quality_check",
-            "session_id": session.session_id,
-            "command": command.model_dump(),
+            "status":        "preview_ready" if session.quality_ok else "failed_quality_check",
+            "session_id":    session.session_id,
+            "command":       command.model_dump(),
             "matched_count": len(matched),
-            "quality_errors": quality_errors,
-            "summary": self._generate_summary(command, len(matched), quality_errors)
+            "quality_errors": all_quality_errors,
+            "summary":       self._generate_summary(command, len(matched), all_quality_errors),
         }
 
     async def execute_apply(self, session_id: str) -> Dict[str, Any]:

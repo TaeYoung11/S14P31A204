@@ -157,11 +157,22 @@ class LLM3DCommand(BaseModel):
 
     @model_validator(mode="after")
     def validate_command_integrity(self) -> "LLM3DCommand":
-        """질문이 없는 경우에만 타겟 식별자 필수 체크"""
+        """
+        구조적 정합성 검사.
+        ambiguity_question이 있으면 LLM이 의도적으로 재질문 중이므로 완화 적용.
+        """
         if not self.ambiguity_question:
-            t = self.target
-            if not any([t.global_id, t.name, t.tag, t.storey, t.space_name, t.direction, t.select_all]):
-                raise ValueError("타겟을 특정할 수 없습니다. 층, 공간, 방향, 이름 등 식별자가 필요합니다.")
+            # 1. 타겟 식별자 체크 — CREATE는 기존 요소 불필요하므로 제외
+            if self.command_type != LLM3DCommandType.CREATE:
+                t = self.target
+                if not any([t.global_id, t.name, t.tag, t.storey, t.space_name, t.direction, t.select_all]):
+                    raise ValueError("타겟을 특정할 수 없습니다. 층, 공간, 방향, 이름 등 식별자가 필요합니다.")
+
+            # 2. changes 필수 체크 — MODIFY/DELETE 모두 해당
+            if self.command_type in (LLM3DCommandType.MODIFY, LLM3DCommandType.DELETE) \
+                    and self.changes is None:
+                raise ValueError("MODIFY/DELETE 명령에는 반드시 changes가 필요합니다.")
+
         return self
 
     def validate_modeling_quality(
