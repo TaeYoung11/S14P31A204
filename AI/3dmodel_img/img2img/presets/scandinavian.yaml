@@ -1,0 +1,20 @@
+# 북유럽 스타일 건물 외관 프리셋.
+# 흰색 목재 사이딩 + 큰 창 + 플랫 루프 중심.
+# 필드 화이트리스트:
+#   prompt (필수), negative_prompt, strength, guidance_scale, num_inference_steps
+# seed 등 그 외 필드는 거부됨.
+
+prompt: >-
+  photorealistic scandinavian modern house exterior,
+  white wood siding, large windows, flat roof,
+  clean minimal architecture, architectural photography,
+  natural daylight, nordic design
+
+negative_prompt: >-
+  3d render, cgi, blender, untextured, plastic look, cartoon,
+  illustration, lowres, blurry, deformed,
+  interior, indoor, furniture, orange, swimming pool
+
+strength: 0.7
+guidance_scale: 9.5
+num_inference_steps: 25
