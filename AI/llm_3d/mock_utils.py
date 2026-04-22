@@ -9,6 +9,8 @@ def generate_mock_element(
     global_id: Optional[str] = None,
     element_type: Optional[LLM3DElementType] = None,
     storey: str = "1F",
+    space_name: Optional[str] = None,
+    direction: Optional[str] = None,
     name: str = "MockElement",
     tag: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -18,6 +20,8 @@ def generate_mock_element(
         "name":         name,
         "element_type": (element_type.value if element_type else "IfcWall"),
         "storey":       storey,
+        "space_name":   space_name,
+        "direction":    direction,
         "tag":          tag,
         "dims": {
             "height_mm": 2400.0,

@@ -33,15 +33,15 @@ class IFCQueryEngine:
         if target.tag:
             return self._query_by_tag(target.tag, target.element_type)
         storey = normalize_storey_name(target.storey) if target.storey else None
-        return self._query_by_filter(target.element_type, target.name, storey, target.select_all)
+        return self._query_by_filter(target.element_type, target.name, storey, target.space_name, target.direction, target.select_all)
 
     def _query_by_global_id(self, gid):
         return [generate_mock_element(global_id=gid)]
     def _query_by_tag(self, tag, etype):
         return [generate_mock_element(tag=tag, element_type=etype)]
-    def _query_by_filter(self, etype, name, storey, select_all):
+    def _query_by_filter(self, etype, name, storey, space_name, direction, select_all):
         count = 3 if select_all else 1
-        return [generate_mock_element(element_type=etype, storey=storey or "1F", name=f"{name or etype.value}_{i+1}") for i in range(count)]
+        return [generate_mock_element(element_type=etype, storey=storey or "1F", space_name=space_name, direction=direction, name=f"{name or etype.value}_{i+1}") for i in range(count)]
 
 @dataclass
 class PreviewSession:

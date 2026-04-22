@@ -68,6 +68,7 @@ class LLM3DChanges(BaseModel):
     width_mm:     Optional[LLM3DDimensionChange] = None
     position_mm:  Optional[LLM3DPosition]        = Field(None, description="Move Gizmo — XYZ 이동 (mm)")
     rotation_deg: Optional[float]                = Field(None, description="Rotate Gizmo — Z축 회전 (도)")
+    face_offset_mm: Optional[float]              = Field(None, description="특정 면 오프셋 (mm)")
     deletion:     bool                           = False
 
     @model_validator(mode="after")
@@ -75,7 +76,7 @@ class LLM3DChanges(BaseModel):
         has_other = any([
             self.material, self.color,
             self.length_mm, self.height_mm, self.width_mm,
-            self.position_mm, self.rotation_deg,
+            self.position_mm, self.rotation_deg, self.face_offset_mm,
         ])
         if self.deletion and has_other:
             raise ValueError("deletion은 다른 변경 사항과 동시에 지정할 수 없습니다.")
@@ -86,7 +87,7 @@ class LLM3DChanges(BaseModel):
         has_any = any([
             self.material, self.color,
             self.length_mm, self.height_mm, self.width_mm,
-            self.position_mm, self.rotation_deg,
+            self.position_mm, self.rotation_deg, self.face_offset_mm,
             self.deletion,
         ])
         if not has_any:
@@ -100,6 +101,8 @@ class LLM3DTarget(BaseModel):
     global_id:    Optional[str]    = Field(None, description="IFC GlobalId (22자)")
     name:         Optional[str]    = Field(None, description="부재 이름")
     storey:       Optional[str]    = Field(None, description="층 정보(B1, 1F 등)")
+    space_name:   Optional[str]    = Field(None, description="공간 이름(거실, 안방 등)")
+    direction:    Optional[str]    = Field(None, description="방향 (North, East, Left 등)")
     tag:          Optional[str]    = Field(None, description="사용자 정의 태그")
     select_all:   bool             = Field(False, description="동일 조건 전체 선택 여부")
 
@@ -114,9 +117,8 @@ class LLM3DTarget(BaseModel):
 
     @model_validator(mode="after")
     def must_have_identifier(self) -> "LLM3DTarget":
-        # GlobalId, 이름, 태그, 층, 혹은 전체 선택 중 하나라도 있어야 함
-        # (주의: element_type만으로는 부족함)
-        if not any([self.global_id, self.name, self.tag, self.storey, self.select_all]):
+        # GlobalId, 이름, 태그, 층, 공간, 방향 혹은 전체 선택 중 하나라도 있어야 함
+        if not any([self.global_id, self.name, self.tag, self.storey, self.space_name, self.direction, self.select_all]):
             # 이 검증은 나중에 LLM3DCommand 레벨에서 ambiguity_question과 함께 재검토됨
             pass
         return self
@@ -158,8 +160,8 @@ class LLM3DCommand(BaseModel):
         """질문이 없는 경우에만 타겟 식별자 필수 체크"""
         if not self.ambiguity_question:
             t = self.target
-            if not any([t.global_id, t.name, t.tag, t.storey, t.select_all]):
-                raise ValueError("타겟을 특정할 수 없습니다. 층 정보나 부재 이름 등 식별자가 필요합니다.")
+            if not any([t.global_id, t.name, t.tag, t.storey, t.space_name, t.direction, t.select_all]):
+                raise ValueError("타겟을 특정할 수 없습니다. 층, 공간, 방향, 이름 등 식별자가 필요합니다.")
         return self
 
     def validate_modeling_quality(

@@ -46,10 +46,13 @@ SYSTEM_PROMPT = """
 [3] Gizmo 명령 해석
 ════════════════════════════════════════
 ◆ Move Gizmo → changes.position_mm
-  - "오른쪽/동쪽"  → x 양수  |  "왼쪽/서쪽"  → x 음수
-  - "앞/남쪽"      → y 양수  |  "뒤/북쪽"    → y 음수
-  - "위로/올려"    → z 양수  |  "아래로/내려" → z 음수
+  - "오른쪽/왼쪽", "앞/뒤", "위/아래" 등 전체 부재 이동 시 사용
   - mode: RELATIVE (기본) / "~위치로 이동" → ABSOLUTE
+
+◆ Face Offset → changes.face_offset_mm (다각형 형상 대응)
+  - 다각형(ㄱ, ㄴ자 등) 부재의 **특정 면**만 밀거나 당길 때 사용
+  - target.direction 필드와 반드시 함께 사용하십시오.
+  - "밖으로 밀어줘/키워줘" → 양수 / "안으로 당겨줘/줄여줘" → 음수
 
 ◆ Rotate Gizmo → changes.rotation_deg
   - 시계방향: 양수 / 반시계방향: 음수
@@ -65,8 +68,11 @@ SYSTEM_PROMPT = """
 [5] 타겟 식별
 ════════════════════════════════════════
 - 층(1층, B1, 옥상) → storey: "1F" / "B1" / "RF"
-- 부재 이름(외벽, 거실 기둥) → name 필드
-- 층+이름 조합으로 충분 — global_id 불필요
+- 층(1층, B1, 옥상) → storey: "1F" / "B1" / "RF"
+- 공간 이름(거실, 침실, 주방, 욕실/화장실) → space_name 필드
+- 방향/방위(북쪽, 남동쪽, 왼쪽, 오른쪽 등) → direction 필드
+- 부재 이름(외벽, 지붕, 빔) → name 필드
+- 층+공간+방향 조합으로 다각형 부재의 특정 부위를 정확히 식별하십시오.
 
 ════════════════════════════════════════
 [6] 지능형 재질문 및 정책 거절 규칙
@@ -77,7 +83,7 @@ SYSTEM_PROMPT = """
   C. 이동 방향/거리 불명확
   D. 복합 명령 중 일부 불명확 → 불명확 부분만 질문, 명확한 부분은 채움
 
-※ 중요: 질문(ambiguity_question)을 작성할 때도, target 객체의 element_type과 name 필드는 본문에 언급된 정보를 바탕으로 최대한 채우십시오. (예: "기둥 다 없애줘" -> target.element_type: "IfcColumn")
+※ 중요: 질문(ambiguity_question)을 작성할 때도, target 객체의 element_type과 name 필드는 본문에 언급된 정보를 바탕으로 최대한 채우십시오. (예: "빔 다 없애줘" -> target.element_type: "IfcBeam")
 
 ════════════════════════════════════════
 [7] 재질 / 색상 매핑
@@ -122,9 +128,17 @@ SYSTEM_PROMPT = """
 입력: "2층 외벽을 반시계방향으로 90도 회전해줘"
 출력: {"command_type":"MODIFY","target":{"element_type":"IfcWall","storey":"2F","select_all":false},"changes":{"rotation_deg":-90.0},"confidence":0.93,"raw_instruction":"2층 외벽을 반시계방향으로 90도 회전해줘"}
 
-▶ 9. 재질문 — 대상 불명
-입력: "재질만 콘크리트로 바꿔줘"
-출력: {"command_type":"MODIFY","target":{"element_type":"IfcWall","select_all":false},"confidence":0.3,"ambiguity_question":"몇 층의 외벽 또는 지붕을 콘크리트로 변경할까요?","raw_instruction":"재질만 콘크리트로 바꿔줘"}
+▶ 9. 공간(Space) + 방향(Direction) 기반 타겟팅
+입력: "1층 거실 쪽 북쪽 외벽을 흰색으로 칠해줘"
+출력: {"command_type":"MODIFY","target":{"element_type":"IfcWall","storey":"1F","space_name":"Living Room","direction":"North"},"changes":{"color":"White"},"confidence":0.94,"raw_instruction":"1층 거실 쪽 북쪽 외벽을 흰색으로 칠해줘"}
+
+▶ 10. 다각형(ㄱ자) 형상 정밀 조작 (Face Offset)
+입력: "안방 ㄴ자 꺾인 부분의 서쪽 벽면을 500mm 밖으로 밀어줘"
+출력: {"command_type":"MODIFY","target":{"element_type":"IfcWall","space_name":"Bedroom","direction":"West"},"changes":{"face_offset_mm":500.0},"confidence":0.91,"raw_instruction":"안방 ㄴ자 꺾인 부분의 서쪽 벽면을 500mm 밖으로 밀어줘"}
+
+▶ 11. 재질문 — 다각형 형상 방향 확인
+입력: "거실 방 크기를 좀 더 키워줘"
+출력: {"command_type":"MODIFY","target":{"element_type":"IfcSlab","space_name":"Living Room"},"confidence":0.35,"ambiguity_question":"거실 공간의 어느 쪽 벽면(북쪽, 남쪽 등)을 확장하여 방 크기를 키울까요?","raw_instruction":"거실 방 크기를 좀 더 키워줘"}
 
 ▶ 10. 품질 위반 유도 (정상 파싱 — 검증기가 차단)
 입력: "외벽 높이를 15m로 올려줘"
