@@ -2,7 +2,7 @@
 
 공개 API:
     list_presets()      — 프리셋 이름 정렬 리스트.
-    load_preset(name)   — YAML → RenderParams (Step 3-2 에서 추가).
+    load_preset(name)   — YAML → RenderParams.
 
 설계 포인트:
     - 모든 로드 실패는 PresetNotFoundError 로 통합.
@@ -15,7 +15,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
+from .exceptions import PresetNotFoundError
+from .pipeline import RenderParams
+
 _PRESET_DIR = Path(__file__).parent / "presets"
+
+_ALLOWED_FIELDS = {
+    "prompt",
+    "negative_prompt",
+    "strength",
+    "guidance_scale",
+    "num_inference_steps",
+}
+_REQUIRED_FIELDS = {"prompt"}
 
 
 def list_presets() -> list[str]:
@@ -26,3 +40,47 @@ def list_presets() -> list[str]:
     if not _PRESET_DIR.exists():
         return []
     return sorted(p.stem for p in _PRESET_DIR.glob("*.yaml"))
+
+
+def load_preset(name: str) -> RenderParams:
+    """프리셋 이름 → RenderParams. 모든 실패는 PresetNotFoundError.
+
+    검증 순서:
+        1) 파일 존재
+        2) YAML 파싱 성공
+        3) 루트가 YAML mapping (dict)
+        4) 필수 필드 'prompt' 존재
+        5) 모든 키가 화이트리스트 안 (미지원/오타 필드 차단)
+    """
+    path = _PRESET_DIR / f"{name}.yaml"
+
+    if not path.exists():
+        raise PresetNotFoundError(
+            f"preset '{name}' not found. available: {list_presets()}"
+        )
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise PresetNotFoundError(f"preset '{name}' malformed YAML: {e}") from e
+
+    if not isinstance(cfg, dict):
+        raise PresetNotFoundError(
+            f"preset '{name}' must be a YAML mapping, got {type(cfg).__name__}"
+        )
+
+    missing = _REQUIRED_FIELDS - cfg.keys()
+    if missing:
+        raise PresetNotFoundError(
+            f"preset '{name}' missing required field(s): {sorted(missing)}"
+        )
+
+    unknown = cfg.keys() - _ALLOWED_FIELDS
+    if unknown:
+        raise PresetNotFoundError(
+            f"preset '{name}' has unknown fields: {sorted(unknown)}. "
+            f"allowed: {sorted(_ALLOWED_FIELDS)}"
+        )
+
+    return RenderParams(**cfg)
