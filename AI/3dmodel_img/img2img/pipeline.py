@@ -96,7 +96,9 @@ class Img2ImgRenderer:
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         if dtype is None:
-            dtype = torch.float16 if device == "cuda" else torch.float32
+            # "cuda:0" / torch.device("cuda") 같은 지정도 cuda 로 인식되도록 정규화.
+            is_cuda = torch.device(device).type == "cuda"
+            dtype = torch.float16 if is_cuda else torch.float32
 
         try:
             pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
