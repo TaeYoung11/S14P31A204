@@ -159,14 +159,13 @@ class Img2ImgRenderer:
         input_size = pil.size
         prepared = resize_for_sd(pil)
 
-        if params.seed is None:
-            generator = None
-        else:
-            generator = self._torch.Generator(device=self.device).manual_seed(
-                params.seed
-            )
-
         try:
+            if params.seed is None:
+                generator = None
+            else:
+                generator = self._torch.Generator(device=self.device).manual_seed(
+                    params.seed
+                )
             out = self.pipe(
                 prompt=params.prompt,
                 image=prepared,
