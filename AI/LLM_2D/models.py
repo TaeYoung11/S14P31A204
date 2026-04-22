@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Literal, Optional, List, Tuple
 
 class NewRoom(BaseModel):
@@ -29,6 +29,9 @@ class FloorNLPCommand(BaseModel):
     target_room_name: Optional[str] = Field(
         None, description="수정할 방 이름 (예: 안방, 거실)"
     )
+    target_floor: Optional[int] = Field(
+        None, description="대상 방의 층 번호 (같은 이름 방이 여러 층일 때)"
+    )
     new_room: Optional[NewRoom] = Field(
         None, description="추가할 방 정보 (action=add_room일 때)"
     )
@@ -39,7 +42,7 @@ class FloorNLPCommand(BaseModel):
         None, description="인접하게 할 방 이름"
     )
     adjacency_strength: Optional[float] = Field(
-        None, description="인접 강도 0.0 ~ 1.0"
+        None, ge=0.0, le=1.0, description="인접 강도 0.0 ~ 1.0"
     )
     confidence: float = Field(
         default=0.5, ge=0.0, le=1.0, description="명령 해석 확신도"
@@ -55,3 +58,21 @@ class FloorNLPCommand(BaseModel):
     )
     needs_clarification: bool = False
     clarification_question: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_action_fields(self):
+        if self.needs_clarification:
+            return self
+        if self.action == "add_room":
+            if self.new_room is None:
+                raise ValueError("add_room 액션에는 new_room이 필요합니다.")
+        if self.action == "resize_room":
+            if self.target_room_name is None:
+                raise ValueError("resize_room 액션에는 target_room_name이 필요합니다.")
+        if self.action == "set_adjacency":
+            if self.adjacency_target is None:
+                raise ValueError("set_adjacency 액션에는 adjacency_target이 필요합니다.")
+        if self.action in ("remove_room", "lock_room", "unlock_room"):
+            if self.target_room_name is None:
+                raise ValueError(f"{self.action} 액션에는 target_room_name이 필요합니다.")
+        return self
