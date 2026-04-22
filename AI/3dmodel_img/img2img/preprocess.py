@@ -1,9 +1,8 @@
 """SD img2img용 이미지 전처리 모듈.
 
 구성:
-    ImageInput       — Union[Path, str, PIL.Image, bytes]. 4가지 입력 타입을
-                       받아서 백엔드가 파일시스템을 거치지 않아도 되도록 함.
-    load_image()     — 어떤 ImageInput이든 RGB PIL.Image로 정규화.
+    ImageInput       — Union[Path, str]. 파일 경로만 허용.
+    load_image()     — 파일 경로를 RGB PIL.Image 로 정규화.
                        파일 없음, 디코드 실패, 미지원 타입은 InvalidInputError.
     resize_for_sd()  — max(w, h) == DEFAULT_LONG_SIDE (768) 이 되도록 스케일링,
                        양변 모두 8의 배수로 스냅 (SD UNet 요건). LANCZOS 다운샘플.
@@ -14,47 +13,34 @@ CUDA 없는 CI에서도 테스트 가능하도록 유지.
 
 from __future__ import annotations
 
-import io
 from pathlib import Path
 from typing import Union
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError
 
 from .config import DEFAULT_LONG_SIDE
 from .exceptions import InvalidInputError
 
-ImageInput = Union[Path, str, Image.Image, bytes]
+ImageInput = Union[Path, str]
 
 
 def load_image(source: ImageInput) -> Image.Image:
-    """`source` 를 RGB PIL.Image 로 변환.
+    """`source` 파일 경로를 RGB PIL.Image 로 변환.
 
-    Path, str, PIL.Image, 또는 PNG/JPEG 원시 bytes 를 허용.
-    파일이 없거나, 바이트 디코드 실패, 미지원 타입이면 InvalidInputError 발생.
+    Path 또는 str 만 허용. 파일이 없거나 디코드 실패 시 InvalidInputError.
     """
-    if isinstance(source, Image.Image):
-        img = source
-    elif isinstance(source, bytes):
-        try:
-            img = Image.open(io.BytesIO(source))
-            img.load()
-        except (UnidentifiedImageError, OSError) as e:
-            raise InvalidInputError(f"cannot decode bytes: {e}") from e
-    elif isinstance(source, (str, Path)):
-        path = Path(source)
-        if not path.exists():
-            raise InvalidInputError(f"file not found: {path}")
-        try:
-            img = Image.open(path)
-            img.load()
-        except (UnidentifiedImageError, OSError) as e:
-            raise InvalidInputError(f"cannot decode file {path}: {e}") from e
-    else:
+    if not isinstance(source, (str, Path)):
         raise InvalidInputError(
             f"unsupported input type: {type(source).__name__}"
         )
-
-    img = ImageOps.exif_transpose(img)
+    path = Path(source)
+    if not path.exists():
+        raise InvalidInputError(f"file not found: {path}")
+    try:
+        img = Image.open(path)
+        img.load()
+    except (UnidentifiedImageError, OSError) as e:
+        raise InvalidInputError(f"cannot decode file {path}: {e}") from e
     return img.convert("RGB")
 
 
