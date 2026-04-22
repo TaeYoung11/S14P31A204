@@ -19,7 +19,7 @@
         __init__(model_id, device, dtype, warmup)
             - from_pretrained → 스케줄러 교체 → .to(device) → 선택적 warmup
         _warmup()
-            - 64x64 회색 더미 2-step 추론으로 커널 예열
+            - 실제 추론 해상도 정사각 더미 2-step 추론으로 커널 캐시 예열
         render(source, params) -> RenderResult
             - load_image → resize_for_sd → self.pipe(...) → RenderResult
             - seed가 있으면 torch.Generator 로 고정, 없으면 None (랜덤)
@@ -41,6 +41,7 @@ if TYPE_CHECKING:
 
 from .config import (
     DEFAULT_GUIDANCE_SCALE,
+    DEFAULT_LONG_SIDE,
     DEFAULT_MODEL_ID,
     DEFAULT_NEGATIVE,
     DEFAULT_NUM_INFERENCE_STEPS,
@@ -126,8 +127,12 @@ class Img2ImgRenderer:
             self._warmup()
 
     def _warmup(self) -> None:
-        """64x64 회색 더미 2-step 추론으로 커널 예열."""
-        dummy = Image.new("RGB", (64, 64), (128, 128, 128))
+        """실제 추론 해상도(DEFAULT_LONG_SIDE 정사각)로 더미 2-step 추론 → 커널 캐시 예열."""
+        dummy = Image.new(
+            "RGB",
+            (DEFAULT_LONG_SIDE, DEFAULT_LONG_SIDE),
+            (128, 128, 128),
+        )
         try:
             self.pipe(
                 prompt="warmup",
