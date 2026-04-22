@@ -110,9 +110,12 @@ class Img2ImgRenderer:
         except Exception as e:
             raise RenderError(f"failed to load model {model_id}: {e}") from e
 
-        pipe.scheduler = DPMSolverMultistepScheduler.from_config(
-            pipe.scheduler.config, use_karras_sigmas=True,
-        )
+        try:
+            pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+                pipe.scheduler.config, use_karras_sigmas=True,
+            )
+        except Exception as e:
+            raise RenderError(f"failed to swap scheduler: {e}") from e
 
         try:
             pipe.to(device)
