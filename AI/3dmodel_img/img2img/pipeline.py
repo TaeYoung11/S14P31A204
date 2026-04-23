@@ -30,7 +30,7 @@ MR2 에서 render_with_presets(source, preset_names, **overrides) 추가.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -185,3 +185,24 @@ class Img2ImgRenderer:
             input_size=input_size,
             output_size=image.size,
         )
+
+    def render_with_presets(
+        self,
+        source: ImageInput,
+        preset_names: list[str],
+        **overrides,
+    ) -> dict[str, RenderResult]:
+        """각 프리셋마다 render() 독립 호출. dict[preset_name → RenderResult] 반환.
+
+        **overrides 는 모든 프리셋에 공통 적용 (예: seed=42 재현성, strength=0.6 튜닝).
+        첫 실패에서 즉시 예외 전파 — 부분 결과 보장 없음.
+        """
+        from .presets import load_preset  # 순환 임포트 회피용 지연 임포트
+
+        results: dict[str, RenderResult] = {}
+        for name in preset_names:
+            params = load_preset(name)
+            if overrides:
+                params = replace(params, **overrides)
+            results[name] = self.render(source, params)
+        return results
