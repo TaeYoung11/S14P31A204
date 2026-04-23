@@ -53,15 +53,21 @@ export default function EditorPage() {
     { id: '2', x: 340, y: 310, width: 130, height: 130, label: '거실', area: '45.0 m²', index: '02' },
     { id: '3', x: 310, y: 500, width: 110, height: 110, label: '주방/식당', area: '20.0 m²', index: '03' },
   ])
+  const [connections, setConnections] = useState([
+    { from: '1', to: '2', type: 'bold' },
+    { from: '1', to: '3', type: 'dashed' },
+    { from: '2', to: '3', type: 'thin' },
+  ])
   const [selectedId, setSelectedId] = useState<string | null>('1')
   
   const containerRef = useRef<HTMLDivElement>(null)
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 })
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
+  const [isLineStyleOpen, setIsLineStyleOpen] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
-    type: 'Living Room',
+    type: '거실',
     area: ''
   })
 
@@ -84,7 +90,7 @@ export default function EditorPage() {
   }
 
   const handleOpenAddModal = () => {
-    setFormData({ name: '', type: 'Living Room', area: '' })
+    setFormData({ name: '', type: '거실', area: '' })
     setIsAddModalOpen(true)
   }
 
@@ -102,6 +108,15 @@ export default function EditorPage() {
     }
     setBubbles([...bubbles, newBubble])
     setIsAddModalOpen(false)
+  }
+
+  const handleAddConnection = (type: string) => {
+    if (bubbles.length >= 2) {
+      const from = bubbles[bubbles.length - 2].id
+      const to = bubbles[bubbles.length - 1].id
+      setConnections([...connections, { from, to, type }])
+    }
+    setIsLineStyleOpen(false)
   }
 
   // 대지 다각형 좌표 (임의 설정)
@@ -142,11 +157,12 @@ export default function EditorPage() {
                       value={formData.type}
                       onChange={e => setFormData({...formData, type: e.target.value})}
                     >
-                      <option>Living Room</option>
-                      <option>Bedroom</option>
-                      <option>Kitchen</option>
-                      <option>Bathroom</option>
-                      <option>Entrance</option>
+                      <option>거실</option>
+                      <option>침실</option>
+                      <option>주방</option>
+                      <option>화장실</option>
+                      <option>방</option>
+                      <option>복도</option>
                     </select>
                     <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-[#3B45B3] pointer-events-none" />
                   </div>
@@ -243,7 +259,7 @@ export default function EditorPage() {
         {/* --- Left Sidebar --- */}
         <aside className="w-[72px] bg-white border border-[#E2E6EF] rounded-2xl flex flex-col items-center py-6 gap-4 shadow-sm shrink-0 self-start mt-0 h-full overflow-y-auto overflow-x-hidden">
           {/* Top Tools */}
-          <div className="flex flex-col items-center gap-2 w-full">
+          <div className="flex flex-col items-center gap-2 w-full relative">
             <button className="w-full flex flex-col items-center gap-1 py-2 group">
               <div className="p-2.5 text-[#3B45B3] bg-[#F0F2FF] rounded-xl transition-all shadow-sm group-hover:scale-105">
                 <MousePointer2 size={24} fill="#3B45B3" fillOpacity={0.1} />
@@ -261,12 +277,35 @@ export default function EditorPage() {
               <span className="text-[10px] font-bold text-[#8E95A3] group-hover:text-[#1C1C1E]">공간 추가</span>
             </button>
 
-            <button className="w-full flex flex-col items-center gap-1 py-1 group">
-              <div className="p-2 text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#1C1C1E] rounded-xl transition-all">
-                <TrendingUp size={24} />
-              </div>
-              <span className="text-[10px] font-bold text-[#8E95A3] group-hover:text-[#1C1C1E]">선 스타일</span>
-            </button>
+            <div className="relative w-full">
+              <button 
+                onClick={() => setIsLineStyleOpen(!isLineStyleOpen)}
+                className="w-full flex flex-col items-center gap-1 py-1 group"
+              >
+                <div className={`p-2 rounded-xl transition-all ${isLineStyleOpen ? 'bg-[#F0F2FF] text-[#3B45B3]' : 'text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#1C1C1E]'}`}>
+                  <TrendingUp size={24} />
+                </div>
+                <span className={`text-[10px] font-bold transition-all ${isLineStyleOpen ? 'text-[#3B45B3]' : 'text-[#8E95A3] group-hover:text-[#1C1C1E]'}`}>선 스타일</span>
+              </button>
+
+              {/* Line Style Popover */}
+              {isLineStyleOpen && (
+                <div className="absolute left-[72px] top-0 ml-2 bg-white border border-[#E2E6EF] rounded-2xl shadow-xl z-50 p-3 flex flex-col gap-2 min-w-[140px] animate-in slide-in-from-left-2 duration-200">
+                  <button onClick={() => handleAddConnection('bold')} className="flex items-center gap-3 p-2 hover:bg-[#F8F9FD] rounded-lg group transition-colors">
+                    <div className="w-8 h-[4px] bg-[#3B45B3] rounded-full" />
+                    <span className="text-[11px] font-bold text-[#505764] group-hover:text-[#1C1C1E]">굵은 실선</span>
+                  </button>
+                  <button onClick={() => handleAddConnection('thin')} className="flex items-center gap-3 p-2 hover:bg-[#F8F9FD] rounded-lg group transition-colors">
+                    <div className="w-8 h-[1.5px] bg-[#3B45B3] rounded-full" />
+                    <span className="text-[11px] font-bold text-[#505764] group-hover:text-[#1C1C1E]">얇은 실선</span>
+                  </button>
+                  <button onClick={() => handleAddConnection('dashed')} className="flex items-center gap-3 p-2 hover:bg-[#F8F9FD] rounded-lg group transition-colors">
+                    <div className="w-8 border-b-2 border-dashed border-[#ADB5BD]" />
+                    <span className="text-[11px] font-bold text-[#505764] group-hover:text-[#1C1C1E]">점선</span>
+                  </button>
+                </div>
+              )}
+            </div>
 
             <button className="w-full flex flex-col items-center gap-1 py-1 group">
               <div className="p-2 text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#E03131] rounded-xl transition-all">
@@ -304,6 +343,7 @@ export default function EditorPage() {
               width={stageSize.width} 
               height={stageSize.height}
               className="absolute inset-0"
+              onClick={() => setIsLineStyleOpen(false)}
             >
               <Layer>
                 {/* --- Site (Polygon) --- */}
@@ -314,30 +354,26 @@ export default function EditorPage() {
                   stroke="#3B45B333"
                   strokeWidth={1}
                 />
-                <Circle
-                  x={stageSize.width * 0.42}
-                  y={stageSize.height * 0.52}
-                  radius={8}
-                  fill="#3B45B322"
-                />
 
                 {/* --- Connections (Lines) --- */}
-                <Line
-                  points={[bubbles[0]?.x + 50, bubbles[0]?.y + 50, bubbles[1]?.x + 65, bubbles[1]?.y + 65]}
-                  stroke="#3B45B3"
-                  strokeWidth={2}
-                />
-                <Line
-                  points={[bubbles[0]?.x + 50, bubbles[0]?.y + 50, bubbles[2]?.x + 55, bubbles[2]?.y + 55]}
-                  stroke="#ADB5BD"
-                  strokeWidth={1}
-                  dash={[5, 5]}
-                />
-                <Line
-                  points={[bubbles[1]?.x + 65, bubbles[1]?.y + 65, bubbles[2]?.x + 55, bubbles[2]?.y + 55]}
-                  stroke="#3B45B3"
-                  strokeWidth={1.5}
-                />
+                {connections.map((conn, i) => {
+                  const fromBubble = bubbles.find(b => b.id === conn.from)
+                  const toBubble = bubbles.find(b => b.id === conn.to)
+                  if (!fromBubble || !toBubble) return null
+
+                  const isBold = conn.type === 'bold'
+                  const isDashed = conn.type === 'dashed'
+
+                  return (
+                    <Line
+                      key={`${conn.from}-${conn.to}-${i}`}
+                      points={[fromBubble.x + fromBubble.width / 2, fromBubble.y + fromBubble.height / 2, toBubble.x + toBubble.width / 2, toBubble.y + toBubble.height / 2]}
+                      stroke={isDashed ? "#ADB5BD" : "#3B45B3"}
+                      strokeWidth={isBold ? 3.5 : isDashed ? 1 : 1.5}
+                      dash={isDashed ? [6, 4] : undefined}
+                    />
+                  )
+                })}
 
                 {/* --- Bubbles --- */}
                 {bubbles.map((b) => (
@@ -352,7 +388,10 @@ export default function EditorPage() {
                       )
                       setBubbles(newBubbles)
                     }}
-                    onClick={() => setSelectedId(b.id)}
+                    onClick={(e) => {
+                      e.cancelBubble = true
+                      setSelectedId(b.id)
+                    }}
                   >
                     <Rect
                       width={b.width}
