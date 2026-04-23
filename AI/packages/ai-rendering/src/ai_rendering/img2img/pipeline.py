@@ -112,7 +112,9 @@ class Img2ImgRenderer:
 
         try:
             pipe.scheduler = DPMSolverMultistepScheduler.from_config(  # type: ignore[no-untyped-call]
-                pipe.scheduler.config, use_karras_sigmas=True,
+                pipe.scheduler.config,
+                use_karras_sigmas=True,
+                algorithm_type="dpmsolver++",  # checkpoint의 DEIS 등 상속 차단 (e.g. Realistic Vision)
             )
         except Exception as e:
             raise RenderError(f"failed to swap scheduler: {e}") from e
