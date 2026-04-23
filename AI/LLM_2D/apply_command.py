@@ -53,7 +53,8 @@ def apply_command(
         (수정된 project, 오류 메시지 or None)
     """
     if command.needs_clarification:
-        return project, command.clarification_question
+        question = command.clarification_question or "더 구체적으로 설명해주세요."
+        return project, question
 
     try:
         if command.action == "add_room":
