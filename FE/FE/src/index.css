@@ -1,0 +1,272 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =====================
+   DESIGN TOKENS
+   ===================== */
+:root {
+  /* Background */
+  --color-bg: #ffffff;
+  --color-bg-secondary: #f8f9fa;
+  --color-bg-tertiary: #f1f3f5;
+  --color-surface: #ffffff;
+
+  /* Border */
+  --color-border: #e5e7eb;
+  --color-border-strong: #d1d5db;
+
+  /* Text */
+  --color-text-primary: #111827;
+  --color-text-secondary: #6b7280;
+  --color-text-tertiary: #9ca3af;
+
+  /* Primary */
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-light: #eff6ff;
+
+  /* Semantic */
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --color-danger-light: #fef2f2;
+
+  /* Z-index */
+  --z-nav: 50;
+  --z-panel: 40;
+  --z-modal: 100;
+  --z-tooltip: 200;
+
+  /* Shadows */
+  --shadow-1: 0 1px 3px rgba(0,0,0,0.05);
+  --shadow-2: 0 4px 12px rgba(0,0,0,0.1);
+  --shadow-3: 0 20px 60px rgba(0,0,0,0.15);
+}
+
+/* =====================
+   RESET & BASE
+   ===================== */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  background-color: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* =====================
+   SCROLLBAR
+   ===================== */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
+/* =====================
+   BUTTONS
+   ===================== */
+.btn-primary {
+  @apply bg-[#2563eb] text-white px-3.5 py-1.5 rounded-md text-sm font-medium
+         hover:bg-[#1d4ed8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-secondary {
+  @apply bg-white text-[#374151] border border-[#e5e7eb] px-3.5 py-1.5 rounded-md text-sm font-medium
+         hover:bg-[#f9fafb] transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-danger {
+  @apply bg-white text-[#dc2626] border border-[#fecaca] px-3.5 py-1.5 rounded-md text-sm font-medium
+         hover:bg-[#fef2f2] transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-icon {
+  @apply w-8 h-8 flex items-center justify-center rounded-md border-none bg-transparent
+         text-[#9ca3af] hover:bg-[#f3f4f6] hover:text-[#374151] transition-colors;
+}
+
+/* =====================
+   INPUTS
+   ===================== */
+.input-base {
+  @apply w-full bg-white border border-[#e5e7eb] rounded-md px-3 py-2 text-sm text-[#111827]
+         placeholder-[#9ca3af]
+         focus:outline-none focus:border-[#2563eb]
+         focus:ring-2 focus:ring-[#2563eb]/10
+         transition-colors;
+}
+
+.input-auth {
+  @apply w-full bg-[#f8f9fa] border border-[#e5e7eb] rounded-lg px-3.5 py-2.5
+         text-sm text-[#111827] placeholder-[#9ca3af]
+         focus:outline-none focus:border-[#2563eb]
+         focus:ring-2 focus:ring-[#2563eb]/10
+         transition-colors;
+}
+
+/* =====================
+   AUTH FORM ELEMENTS
+   ===================== */
+.auth-label {
+  @apply block text-xs font-medium text-[#374151] mb-1.5;
+}
+
+.auth-heading {
+  @apply text-[1.75rem] font-bold text-[#111827] mb-1.5;
+}
+
+.auth-subtext {
+  @apply text-sm text-[#6b7280];
+}
+
+.auth-submit {
+  @apply w-full bg-[#4f46e5] hover:bg-[#4338ca] text-white font-medium
+         py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2
+         disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.form-error {
+  @apply text-xs text-[#dc2626] bg-[#fef2f2] border border-[#fecaca]
+         rounded-md px-3 py-2;
+}
+
+.link-auth {
+  @apply text-[#111827] font-semibold hover:underline;
+}
+
+/* =====================
+   CARDS
+   ===================== */
+.card {
+  @apply bg-white border border-[#e5e7eb] rounded-lg p-4
+         hover:border-[#d1d5db] hover:shadow-sm transition-all;
+}
+
+/* =====================
+   PANEL
+   ===================== */
+.panel-header {
+  @apply flex items-center justify-between px-4 py-3
+         border-b border-[#e5e7eb] bg-[#f9fafb]
+         text-sm font-semibold text-[#374151];
+}
+
+.floating-panel {
+  @apply flex flex-col overflow-hidden select-none rounded-lg border border-[#e5e7eb]
+         bg-white shadow-[0_4px_20px_rgba(0,0,0,0.12)];
+}
+
+.floating-panel-header {
+  @apply flex shrink-0 cursor-move items-center gap-2 border-b border-[#e5e7eb]
+         bg-white px-3 py-2;
+}
+
+.floating-panel-title {
+  @apply flex-1 truncate text-xs font-semibold text-[#374151];
+}
+
+.floating-panel-controls {
+  @apply flex shrink-0 items-center gap-0.5;
+}
+
+.panel-control-btn {
+  @apply flex h-5 w-5 items-center justify-center rounded text-[#9ca3af]
+         transition-colors hover:bg-[#f3f4f6] hover:text-[#374151];
+}
+
+.panel-control-btn-danger {
+  @apply hover:bg-[#fef2f2] hover:text-[#dc2626];
+}
+
+/* =====================
+   BADGE
+   ===================== */
+.badge {
+  @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold;
+}
+.badge-success { @apply bg-[#dcfce7] text-[#16a34a]; }
+.badge-danger  { @apply bg-[#fef2f2] text-[#dc2626]; }
+.badge-primary { @apply bg-[#eff6ff] text-[#2563eb]; }
+.badge-neutral { @apply bg-[#f3f4f6] text-[#374151]; }
+
+/* =====================
+   SIDEBAR ICON BUTTON
+   ===================== */
+.sidebar-icon {
+  @apply w-10 h-10 flex items-center justify-center rounded-md
+         text-[#9ca3af] hover:bg-[#f3f4f6] hover:text-[#374151]
+         transition-colors cursor-pointer;
+}
+.sidebar-icon.active {
+  @apply bg-[#eff6ff] text-[#2563eb];
+}
+
+/* =====================
+   TOOLBAR (pill)
+   ===================== */
+.toolbar-pill {
+  @apply flex items-center gap-1 bg-white border border-[#e5e7eb] rounded-full px-3 py-1.5
+         shadow-[0_2px_8px_rgba(0,0,0,0.08)];
+}
+
+/* =====================
+   MODAL OVERLAY
+   ===================== */
+.modal-overlay {
+  @apply fixed inset-0 bg-black/30 flex items-center justify-center z-[100];
+}
+.modal-content {
+  @apply bg-white rounded-xl border border-[#e5e7eb]
+         shadow-[0_20px_60px_rgba(0,0,0,0.15)]
+         p-6 w-full max-w-[480px] mx-4;
+}
+
+/* =====================
+   EMPTY STATE
+   ===================== */
+.empty-state {
+  @apply flex flex-col items-center justify-center px-8 py-16 text-center;
+}
+
+.empty-state-icon {
+  @apply mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[#f3f4f6];
+}
+
+.empty-state-title {
+  @apply mb-1 text-sm font-medium text-[#374151];
+}
+
+.empty-state-description {
+  @apply mb-4 max-w-xs text-xs text-[#9ca3af];
+}
+
+/* =====================
+   SKELETON ANIMATION
+   ===================== */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.skeleton {
+  @apply bg-[#f3f4f6] rounded animate-pulse;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
