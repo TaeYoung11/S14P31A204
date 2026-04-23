@@ -416,6 +416,7 @@ logs/
 # AI coding assistant
 CLAUDE.md
 GEMINI.md
+AGENTS.md
 .claude/
 .gemini/
 .cursor/
