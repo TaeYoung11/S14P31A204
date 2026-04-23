@@ -56,6 +56,9 @@ class FloorNLPCommand(BaseModel):
     resize_height: Optional[float] = Field(
         None, description="변경할 전체 세로 크기 (미터)"
     )
+    apply_to_all: bool = Field(
+        False, description="같은 이름 방 전체에 적용할지 여부"
+    )
     needs_clarification: bool = False
     clarification_question: Optional[str] = None
 

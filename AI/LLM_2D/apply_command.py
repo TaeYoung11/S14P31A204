@@ -12,13 +12,9 @@ class ApplyCommandError(Exception):
 def _find_room(
     project: FloorProject,
     name: str,
-    floor: Optional[int] = None
-) -> Room:
-    """
-    방 이름으로 찾기.
-    floor 지정 시 해당 층만 검색.
-    없거나 여러 개면 ApplyCommandError 발생.
-    """
+    floor: Optional[int] = None,
+    apply_to_all: bool = False
+) -> Room | list[Room]:
     candidates = [r for r in project.rooms if r.name == name]
 
     if floor is not None:
@@ -29,10 +25,12 @@ def _find_room(
         raise ApplyCommandError(f"{floor_str}'{name}' 방을 찾을 수 없어요.")
 
     if len(candidates) > 1:
-        floors = [str(r.floor) for r in candidates]
+        if apply_to_all:
+            return candidates
+        room_info = [f"{r.floor}층 {r.name}" for r in candidates]
         raise ApplyCommandError(
-            f"'{name}' 방이 {', '.join(floors)}층에 여러 개 있어요. "
-            f"몇 층 {name}을 수정할까요?"
+            f"'{', '.join(room_info)}'이 여러 개 있어요. "
+            f"어떤 방을 수정할까요? 또는 '전부 수정'이라고 말씀해주세요."
         )
 
     return candidates[0]
@@ -58,9 +56,17 @@ def apply_command(
             if not command.new_room.polygon:
                 raise ApplyCommandError("방의 polygon 정보가 없어요.")
 
+            base_name = command.new_room.name
+            same_name_same_floor = [
+                r for r in project.rooms
+                if r.name.startswith(base_name) and r.floor == command.new_room.floor
+            ]
+            count = len(same_name_same_floor) + 1
+            new_name = f"{base_name}{count}"
+
             new_room = Room(
                 id=str(uuid.uuid4()),
-                name=command.new_room.name,
+                name=new_name,
                 type=RoomType(command.new_room.type),
                 floor=command.new_room.floor,
                 polygon=command.new_room.polygon,
@@ -72,12 +78,15 @@ def apply_command(
             if not command.target_room_name:
                 raise ApplyCommandError("삭제할 방 이름이 없어요.")
 
-            room = _find_room(project, command.target_room_name, floor=command.target_floor)
-            project.rooms = [r for r in project.rooms if r.id != room.id]
-            # 관련 인접도도 제거
+            result = _find_room(project, command.target_room_name,
+                                floor=command.target_floor,
+                                apply_to_all=command.apply_to_all)
+            rooms = result if isinstance(result, list) else [result]
+            room_ids = {r.id for r in rooms}
+            project.rooms = [r for r in project.rooms if r.id not in room_ids]
             project.adjacency = [
                 a for a in project.adjacency
-                if a.from_room_id != room.id and a.to_room_id != room.id
+                if a.from_room_id not in room_ids and a.to_room_id not in room_ids
             ]
 
         elif command.action == "resize_room":
@@ -86,20 +95,27 @@ def apply_command(
             if not command.resize_polygon:
                 raise ApplyCommandError("변경할 polygon 정보가 없어요.")
 
-            room = _find_room(project, command.target_room_name, floor=command.target_floor)
-            room.polygon = command.resize_polygon
+            result = _find_room(project, command.target_room_name,
+                                floor=command.target_floor,
+                                apply_to_all=command.apply_to_all)
+            rooms = result if isinstance(result, list) else [result]
+            for room in rooms:
+                room.polygon = command.resize_polygon
 
         elif command.action == "set_adjacency":
             if not command.target_room_name or not command.adjacency_target:
                 raise ApplyCommandError("인접할 방 이름이 없어요.")
 
-            from_room = _find_room(project, command.target_room_name, floor=command.target_floor)
-            to_room = _find_room(project, command.adjacency_target, floor=command.target_floor)
-            strength = command.adjacency_strength or 1.0
+            from_room = _find_room(project, command.target_room_name,
+                                   floor=command.target_floor)
+            to_room = _find_room(project, command.adjacency_target,
+                                 floor=command.target_floor)
+            strength = command.adjacency_strength if command.adjacency_strength is not None else 1.0
 
             existing = next(
                 (a for a in project.adjacency
-                 if a.from_room_id == from_room.id and a.to_room_id == to_room.id),
+                 if (a.from_room_id == from_room.id and a.to_room_id == to_room.id)
+                 or (a.from_room_id == to_room.id and a.to_room_id == from_room.id)),
                 None
             )
             if existing:
@@ -114,14 +130,22 @@ def apply_command(
         elif command.action == "lock_room":
             if not command.target_room_name:
                 raise ApplyCommandError("고정할 방 이름이 없어요.")
-            room = _find_room(project, command.target_room_name, floor=command.target_floor)
-            room.locked = True
+            result = _find_room(project, command.target_room_name,
+                                floor=command.target_floor,
+                                apply_to_all=command.apply_to_all)
+            rooms = result if isinstance(result, list) else [result]
+            for room in rooms:
+                room.locked = True
 
         elif command.action == "unlock_room":
             if not command.target_room_name:
                 raise ApplyCommandError("고정 해제할 방 이름이 없어요.")
-            room = _find_room(project, command.target_room_name, floor=command.target_floor)
-            room.locked = False
+            result = _find_room(project, command.target_room_name,
+                                floor=command.target_floor,
+                                apply_to_all=command.apply_to_all)
+            rooms = result if isinstance(result, list) else [result]
+            for room in rooms:
+                room.locked = False
 
     except ApplyCommandError as e:
         return project, str(e)
