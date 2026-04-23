@@ -11,11 +11,11 @@ from typing import Any, Dict, List, Optional
 import ifcopenshell
 
 try:
-    from .command import LLM3DCommand, LLM3DCommandType
+    from .command import LLM3DCommand, LLM3DCommandType, LLM3DElementType
     from .engine import LLM3DEngine
     from .utils import normalize_storey_name
 except ImportError:
-    from command import LLM3DCommand, LLM3DCommandType
+    from command import LLM3DCommand, LLM3DCommandType, LLM3DElementType
     from engine import LLM3DEngine
     from utils import normalize_storey_name
 
@@ -204,8 +204,7 @@ class LLM3DPipeline:
         # IFC 요소 검색
         matched = self.query_engine.find_elements(command)
         if not matched:
-            # TODO: ReadOnly 타입(문, 창문 등)이면 검색 결과가 없더라도 정책 알림 우선 출력
-            from .command import LLM3DElementType
+            # ReadOnly 타입(문, 창문 등)이면 검색 결과가 없더라도 정책 알림 우선 출력
             readonly_types = {
                 LLM3DElementType.DOOR, LLM3DElementType.WINDOW, LLM3DElementType.STAIR,
                 LLM3DElementType.SLAB, LLM3DElementType.COLUMN, LLM3DElementType.BEAM,
