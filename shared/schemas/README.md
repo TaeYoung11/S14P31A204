@@ -1,0 +1,22 @@
+# Shared Schemas 안내
+
+이 디렉터리는 BE-AI 경계를 넘거나 여러 AI 워커 패키지가 공유하는 JSON
+계약의 단일 원본입니다.
+
+## 여기에 둘 것
+
+- `messages/*.schema.json` 같은 queue message payload schema
+- `building_plan.schema.json` 같은 공유 domain 계약
+- `authoring_operation.schema.json` 같은 워커 간 계약
+
+## 여기에 두지 않을 것
+
+- A1111 request body 같은 provider 전용 payload
+- 패키지 내부에서만 쓰는 schema
+- 아직 공유 계약이 아닌 prompt task output schema
+
+prompt task schema는 공유 계약으로 승격되기 전까지
+`AI/prompts/tasks/{group}/{task}/{version}/schema.json`에 둡니다.
+
+초기 codegen 대상은 shared schema로 한정하고, package-local schema는 포함하지
+않습니다.

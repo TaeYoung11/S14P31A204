@@ -420,3 +420,8 @@ GEMINI.md
 .cursor/
 .aider*
 .copilot/
+
+# Workspace 내부 uv 및 pytest 산출물
+.uv-cache/
+.uv-python/
+pytest-cache-files-*/

@@ -1,0 +1,85 @@
+[project]
+name = "ai-workspace"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "ai-authoring",
+    "ai-common",
+    "ai-domain",
+    "ai-evals",
+    "ai-planning",
+    "ai-rendering",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.18.0",
+    "pytest>=9.0.0",
+    "ruff>=0.14.0",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+ai-authoring = { workspace = true }
+ai-common = { workspace = true }
+ai-domain = { workspace = true }
+ai-evals = { workspace = true }
+ai-planning = { workspace = true }
+ai-rendering = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [
+    ".uv-cache",
+    ".uv-python",
+    ".venv",
+    "pytest-cache-files-*",
+]
+
+[tool.pytest.ini_options]
+addopts = ["-p", "no:cacheprovider"]
+testpaths = ["tests", "packages"]
+norecursedirs = [
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".uv-cache",
+    ".uv-python",
+    ".venv",
+    "pytest-cache-files-*",
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+
+[tool.pyrefly]
+python-version = "3.11"
+python-interpreter-path = ".venv/Scripts/python.exe"
+
+project-includes = [
+    "packages/*/src/**/*.py",
+    "packages/*/tests/**/*.py",
+    "tests/**/*.py",
+]
+
+project-excludes = [
+    ".venv/**",
+    ".uv-cache/**",
+    ".uv-python/**",
+    "pytest-cache-files-*/**",
+    "**/__pycache__/**",
+]
+
+search-path = [
+    "packages/ai-domain/src",
+    "packages/ai-common/src",
+    "packages/ai-planning/src",
+    "packages/ai-rendering/src",
+    "packages/ai-authoring/src",
+    "packages/ai-evals/src",
+]
