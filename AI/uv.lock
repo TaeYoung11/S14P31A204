@@ -63,12 +63,14 @@ source = { editable = "packages/ai-evals" }
 dependencies = [
     { name = "ai-common" },
     { name = "ai-domain" },
+    { name = "ai-rendering" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "ai-common", editable = "packages/ai-common" },
     { name = "ai-domain", editable = "packages/ai-domain" },
+    { name = "ai-rendering", editable = "packages/ai-rendering" },
 ]
 
 [[package]]
