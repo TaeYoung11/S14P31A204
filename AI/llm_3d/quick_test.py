@@ -2,6 +2,15 @@ import asyncio
 import os
 import sys
 import json
+import logging
+
+# Windows 한글 깨짐 방지
+if sys.platform == 'win32':
+    try:
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    except:
+        pass
 
 # AI/llm_3d 폴더 내부에서 파일들을 찾을 수 있도록 경로 설정
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -13,10 +22,21 @@ try:
 except ImportError:
     from .pipeline import LLM3DPipeline
 
+# ---- 테스트 설정 ----
+# 실제 IFC 파일이 있다면 아래 경로를 수정하세요.
+IFC_PATH = r"C:\Users\SSAFY\Downloads\batang_sample.ifc"
+
 async def main():
-    print("🚀 AI/llm_3d 지능형 파이프라인 테스트를 시작합니다...")
-    print("=" * 60)
-    pipeline = LLM3DPipeline(ifc_path="sample.ifc")
+    print("🚀 [AI/llm_3d] Intelligent Pipeline Test Start...", flush=True)
+    print("=" * 60, flush=True)
+    
+    if os.path.exists(IFC_PATH):
+        print(f"Using Real IFC: {IFC_PATH}", flush=True)
+        pipeline = LLM3DPipeline(ifc_path=IFC_PATH)
+    else:
+        print(f"File not found. Using Mock mode: {IFC_PATH}", flush=True)
+        # Mock 모드일 때는 ifc_model을 None으로 넘겨도 IFCQueryEngine이 경고를 띄웁니다.
+        pipeline = LLM3DPipeline(ifc_path=IFC_PATH)
 
     test_commands = [
         # ──── 정상 수정 (MODIFY) ────
@@ -37,35 +57,35 @@ async def main():
     ]
 
     for i, cmd in enumerate(test_commands, 1):
-        print(f"\n[{i}/{len(test_commands)}] 입력: '{cmd}'")
+        print(f"\n[{i}/{len(test_commands)}] 💬 입력: '{cmd}'", flush=True)
         try:
             preview = await pipeline.execute_preview(cmd)
             status = preview.get("status")
 
             # ── JSON 출력: LLM이 실제로 생성한 명령 구조 ──
             cmd_json = preview.get("command", {})
-            print(f"📋 JSON 출력:")
-            print(json.dumps(cmd_json, ensure_ascii=False, indent=2))
+            print(f"📋 JSON 출력:", flush=True)
+            print(json.dumps(cmd_json, ensure_ascii=False, indent=2), flush=True)
 
-            print(f"▶ 상태: {status}")
-            print(f"▶ 요약: {preview.get('summary')}")
+            print(f"▶ 상태: {status}", flush=True)
+            print(f"📝 요약: {preview.get('summary')}", flush=True)
 
             # 재질문이 있으면 표시
             if cmd_json.get("ambiguity_question"):
-                print(f"🤖 재질문: {cmd_json['ambiguity_question']}")
+                print(f"🤖 재질문: {cmd_json['ambiguity_question']}", flush=True)
 
             # 품질 오류 표시
             if preview.get("quality_errors"):
-                print(f"🚨 품질오류: {preview['quality_errors']}")
+                print(f"🚨 품질 오류: {preview['quality_errors']}", flush=True)
 
             # 정상이면 Apply 실행
             if status == "preview_ready":
                 res = await pipeline.execute_apply(preview.get("session_id"))
-                print(f"✅ 최종적용: {res.get('summary')}")
+                print(f"✅ 최종 적용: {res.get('summary')}", flush=True)
 
         except Exception as e:
-            print(f"❌ 에러: {e}")
-        print("-" * 60)
+            print(f"❌ 에러: {e}", flush=True)
+        print("-" * 60, flush=True)
 
 if __name__ == "__main__":
     asyncio.run(main())
