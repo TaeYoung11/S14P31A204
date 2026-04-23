@@ -10,12 +10,12 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 try:
-    from .command import LLM3DCommand
+    from .command import LLM3DCommand, LLM3DCommandType
     from .engine import LLM3DEngine
     from .utils import normalize_storey_name
     from .mock_utils import generate_mock_element
 except ImportError:
-    from command import LLM3DCommand
+    from command import LLM3DCommand, LLM3DCommandType
     from engine import LLM3DEngine
     from utils import normalize_storey_name
     from mock_utils import generate_mock_element
