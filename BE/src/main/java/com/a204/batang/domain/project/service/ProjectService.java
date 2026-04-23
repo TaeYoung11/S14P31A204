@@ -197,6 +197,29 @@ public class ProjectService {
     }
 
     /**
+     * VWorld 응답의 필수값 누락 여부를 검증한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param cadastralInfo VWorld 응답 데이터
+     */
+    private void validateCadastralInfoOrThrow(UUID projectId, VworldCadastralInfo cadastralInfo) {
+        if (!StringUtils.hasText(cadastralInfo.geometry())) {
+            log.warn("VWorld 응답 geometry 누락. projectId={}, pnu={}, address={}",
+                    projectId,
+                    StringUtils.hasText(cadastralInfo.pnu()) ? cadastralInfo.pnu() : "(없음)",
+                    StringUtils.hasText(cadastralInfo.address()) ? cadastralInfo.address() : "(없음)");
+            throw new CustomException(ErrorCode.PROJECT_SITE_INFO_FETCH_FAILED, "VWorld 응답에 geometry 값이 없습니다.");
+        }
+
+        if (!StringUtils.hasText(cadastralInfo.pnu()) && !StringUtils.hasText(cadastralInfo.address())) {
+            log.warn("VWorld 응답 pnu/address 누락. projectId={}, geometryPreview={}",
+                    projectId,
+                    truncate(cadastralInfo.geometry(), 200));
+            throw new CustomException(ErrorCode.PROJECT_SITE_INFO_FETCH_FAILED, "VWorld 응답에 지번 정보(pnu/address)가 없습니다.");
+        }
+    }
+
+    /**
      * description 값을 null 또는 trim된 값으로 정규화한다.
      *
      * @param description 원본 description
