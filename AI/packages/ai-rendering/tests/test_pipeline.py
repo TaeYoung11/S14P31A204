@@ -6,8 +6,8 @@ torch/diffusers 지연 임포트 덕에 의존성 미설치에서도 import 가�
 
 
 def test_public_api_imports() -> None:
-    """from img2img import ... — 8개 공식 심볼 모두 성공 + __all__ 일치."""
-    from img2img import (  # noqa: F401
+    """from ai_rendering.img2img import ... — 8개 공식 심볼 모두 성공 + __all__ 일치."""
+    from ai_rendering.img2img import (  # noqa: F401
         Img2ImgRenderer,
         InvalidInputError,
         PresetNotFoundError,
@@ -18,7 +18,7 @@ def test_public_api_imports() -> None:
         load_preset,
     )
 
-    import img2img
+    from ai_rendering import img2img
 
     expected = {
         "Img2ImgRenderer",
@@ -35,7 +35,7 @@ def test_public_api_imports() -> None:
 
 def test_renderer_has_render_with_presets_method() -> None:
     """MR2 에서 추가된 render_with_presets 가 클래스에 붙어있는지."""
-    from img2img import Img2ImgRenderer
+    from ai_rendering.img2img import Img2ImgRenderer
 
     assert hasattr(Img2ImgRenderer, "render_with_presets")
     assert callable(Img2ImgRenderer.render_with_presets)

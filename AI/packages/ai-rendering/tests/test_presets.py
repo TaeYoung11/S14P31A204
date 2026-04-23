@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from img2img import presets
-from img2img.exceptions import PresetNotFoundError
-from img2img.pipeline import RenderParams
+from ai_rendering.img2img import presets
+from ai_rendering.img2img.exceptions import PresetNotFoundError
+from ai_rendering.img2img.pipeline import RenderParams
 
 
 def test_list_presets_returns_sorted() -> None:

@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from img2img.exceptions import InvalidInputError
-from img2img.preprocess import load_image, resize_for_sd
+from ai_rendering.img2img.exceptions import InvalidInputError
+from ai_rendering.img2img.preprocess import load_image, resize_for_sd
 
 
 def test_load_image_accepts_path(input_dir: Path) -> None:
