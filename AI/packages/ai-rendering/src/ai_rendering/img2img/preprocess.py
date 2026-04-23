@@ -52,4 +52,4 @@ def resize_for_sd(image: Image.Image, long_side: int = DEFAULT_LONG_SIDE) -> Ima
     new_h = max(8, (round(h * scale) // 8) * 8)
     if (new_w, new_h) == (w, h):
         return image
-    return image.resize((new_w, new_h), Image.LANCZOS)
+    return image.resize((new_w, new_h), Image.Resampling.LANCZOS)

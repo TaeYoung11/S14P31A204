@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from PIL import Image
 
@@ -101,7 +101,7 @@ class Img2ImgRenderer:
             dtype = torch.float16 if is_cuda else torch.float32
 
         try:
-            pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
+            pipe = StableDiffusionImg2ImgPipeline.from_pretrained(  # type: ignore[no-untyped-call]
                 model_id,
                 torch_dtype=dtype,
                 safety_checker=None,
@@ -111,7 +111,7 @@ class Img2ImgRenderer:
             raise RenderError(f"failed to load model {model_id}: {e}") from e
 
         try:
-            pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+            pipe.scheduler = DPMSolverMultistepScheduler.from_config(  # type: ignore[no-untyped-call]
                 pipe.scheduler.config, use_karras_sigmas=True,
             )
         except Exception as e:
@@ -190,7 +190,7 @@ class Img2ImgRenderer:
         self,
         source: ImageInput,
         preset_names: list[str],
-        **overrides,
+        **overrides: Any,
     ) -> dict[str, RenderResult]:
         """각 프리셋마다 render() 독립 호출. dict[preset_name → RenderResult] 반환.
 
