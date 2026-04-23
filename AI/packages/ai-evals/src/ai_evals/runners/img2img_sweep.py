@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import time
 from dataclasses import replace
@@ -68,6 +69,25 @@ def create_run_dir(base: Path) -> Path:
     run_dir = base / f"run_{ts}"
     (run_dir / "results").mkdir(parents=True, exist_ok=True)
     return run_dir
+
+
+def _prune_old_runs(outputs_base: Path, keep: int = 5) -> None:
+    """outputs/ 아래 `run_*` 디렉토리 중 최근 keep 개만 유지, 나머지 삭제.
+
+    - mtime 기준 정렬 (이름 포맷 의존성 제거)
+    - glob `run_*` 이라 `_pinned/` 등은 자동으로 대상 밖
+    - 첫 sweep 실행 등 삭제 대상 없으면 조용히 no-op
+    """
+    if not outputs_base.exists():
+        return
+    runs = sorted(
+        (p for p in outputs_base.glob("run_*") if p.is_dir()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,  # 최신 먼저
+    )
+    for old in runs[keep:]:
+        shutil.rmtree(old)
+        print(f"[prune] removed old run: {old.name}")
 
 
 def render_one(
@@ -207,6 +227,9 @@ def main(argv: list[str] | None = None) -> int:
     total_combos = len(all_combos)
     if args.limit is not None:
         all_combos = all_combos[: args.limit]
+
+    # 새 run 만들기 전에 오래된 run 정리 (최근 5 유지)
+    _prune_old_runs(DEFAULT_OUTPUTS, keep=5)
 
     run_dir = create_run_dir(DEFAULT_OUTPUTS)
     print(f"[run] {run_dir}")
