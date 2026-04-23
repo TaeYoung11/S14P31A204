@@ -8,6 +8,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+import ifcopenshell
 
 try:
     from .command import LLM3DCommand, LLM3DCommandType
@@ -27,21 +28,113 @@ class IFCQueryEngine:
         self._model = ifc_model
 
     def find_elements(self, command: LLM3DCommand) -> List[Dict[str, Any]]:
+        if not self._model:
+            logger.warning("IFC 모델이 로드되지 않았습니다. 빈 결과를 반환합니다.")
+            return []
+
         target = command.target
         if target.global_id:
             return self._query_by_global_id(target.global_id)
         if target.tag:
             return self._query_by_tag(target.tag, target.element_type)
+        
         storey = normalize_storey_name(target.storey) if target.storey else None
-        return self._query_by_filter(target.element_type, target.name, storey, target.space_name, target.direction, target.select_all)
+        return self._query_by_filter(
+            target.element_type, 
+            target.name, 
+            storey, 
+            target.space_name, 
+            target.direction, 
+            target.select_all
+        )
 
-    def _query_by_global_id(self, gid):
-        return [generate_mock_element(global_id=gid)]
-    def _query_by_tag(self, tag, etype):
-        return [generate_mock_element(tag=tag, element_type=etype)]
-    def _query_by_filter(self, etype, name, storey, space_name, direction, select_all):
-        count = 3 if select_all else 1
-        return [generate_mock_element(element_type=etype, storey=storey or "1F", space_name=space_name, direction=direction, name=f"{name or etype.value}_{i+1}") for i in range(count)]
+    def _query_by_global_id(self, gid: str) -> List[Dict[str, Any]]:
+        try:
+            element = self._model.by_guid(gid)
+            if element:
+                return [self._get_element_info(element)]
+        except Exception as e:
+            logger.error(f"GlobalId {gid} 조회 중 오류: {e}")
+        return []
+
+    def _query_by_tag(self, tag: str, etype: Optional[str]) -> List[Dict[str, Any]]:
+        # Tag는 보통 IfcPropertySet이나 특정 속성에 저장됨. 
+        # 여기서는 단순화를 위해 Name이나 특정 속성에 tag가 포함된 경우를 검색 (실제 환경에 맞게 조정 가능)
+        elements = self._model.by_type(etype.value if hasattr(etype, 'value') else etype)
+        matched = []
+        for el in elements:
+            if tag.lower() in (el.Name or "").lower():
+                matched.append(self._get_element_info(el))
+        return matched
+
+    def _query_by_filter(self, etype, name, storey, space_name, direction, select_all) -> List[Dict[str, Any]]:
+        type_str = etype.value if hasattr(etype, 'value') else etype
+        elements = self._model.by_type(type_str)
+        matched = []
+
+        for el in elements:
+            # 1. 이름 필터링
+            if name and name.lower() not in (el.Name or "").lower():
+                continue
+            
+            # 2. 층(Storey) 필터링
+            if storey:
+                el_storey = self._get_storey_name(el)
+                if not el_storey or storey.lower() not in el_storey.lower():
+                    continue
+
+            # 3. 공간(Space) 필터링
+            if space_name:
+                el_space = self._get_space_name(el)
+                if not el_space or space_name.lower() not in el_space.lower():
+                    continue
+
+            # 4. 방향(Direction) 필터링 (간이 구현: 이름이나 속성에 방향 정보가 있는 경우)
+            if direction:
+                # 방향은 프로젝트마다 정의 방식이 다르므로 우선 Name에서 검색
+                if direction.lower() not in (el.Name or "").lower():
+                    continue
+
+            matched.append(self._get_element_info(el))
+            if not select_all and len(matched) >= 1:
+                break
+
+        return matched
+
+    def _get_storey_name(self, element) -> Optional[str]:
+        """부재가 속한 IfcBuildingStorey의 이름을 반환"""
+        for rel in getattr(element, "ContainedInStructure", []):
+            if rel.is_a("IfcRelContainedInSpatialStructure"):
+                parent = rel.RelatingStructure
+                if parent.is_a("IfcBuildingStorey"):
+                    return normalize_storey_name(parent.Name)
+        return None
+
+    def _get_space_name(self, element) -> Optional[str]:
+        """부재가 속한 IfcSpace의 이름을 반환"""
+        # 부재가 공간에 포함되는 방식은 여러 가지가 있으나, 주로 ContainedInStructure 사용
+        for rel in getattr(element, "ContainedInStructure", []):
+            if rel.is_a("IfcRelContainedInSpatialStructure"):
+                parent = rel.RelatingStructure
+                if parent.is_a("IfcSpace"):
+                    return parent.Name
+        return None
+
+    def _get_element_info(self, element) -> Dict[str, Any]:
+        """IFC 객체를 딕셔너리 정보로 변환 (Mock 규격 대응)"""
+        # 실제 환경에서는 Geometry 정보를 계산해야 하지만, 우선 속성 위주로 추출
+        return {
+            "global_id": element.GlobalId,
+            "element_type": element.is_a(),
+            "name": element.Name,
+            "storey": self._get_storey_name(element) or "1F",
+            "space_name": self._get_space_name(element),
+            "dims": {
+                # 기본값 제공 (실제로는 QuantitySet이나 Geometry 분석 필요)
+                "x_mm": 0, "y_mm": 0, "z_mm": 0,
+                "length_mm": 3000, "height_mm": 2400, "width_mm": 200
+            }
+        }
 
 @dataclass
 class PreviewSession:
@@ -63,6 +156,15 @@ class LLM3DPipeline:
     def __init__(self, ifc_path: str, ifc_model=None, engine=None):
         self.ifc_path = ifc_path
         self.engine = engine or LLM3DEngine()
+        
+        # IFC 모델 로드 (전달받은 모델이 없으면 경로에서 로드)
+        if ifc_model is None and ifc_path:
+            try:
+                ifc_model = ifcopenshell.open(ifc_path)
+                logger.info(f"IFC 모델 로드 성공: {ifc_path}")
+            except Exception as e:
+                logger.error(f"IFC 모델 로드 실패 ({ifc_path}): {e}")
+
         self.query_engine = IFCQueryEngine(ifc_model=ifc_model)
         self.store = _session_store
 

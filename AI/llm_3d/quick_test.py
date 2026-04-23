@@ -2,6 +2,15 @@ import asyncio
 import os
 import sys
 import json
+import logging
+
+# Windows 한글 깨짐 방지
+if sys.platform == 'win32':
+    try:
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    except:
+        pass
 
 # AI/llm_3d 폴더 내부에서 파일들을 찾을 수 있도록 경로 설정
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -13,10 +22,22 @@ try:
 except ImportError:
     from .pipeline import LLM3DPipeline
 
+# ---- 테스트 설정 ----
+# 실제 IFC 파일이 있다면 아래 경로를 수정하세요.
+# 예: r"C:\Users\SSAFY\Downloads\AC20-FZK-Haus.ifc"
+IFC_PATH = r"C:\Users\SSAFY\Downloads\AC20-FZK-Haus.ifc"
+
 async def main():
-    print("🚀 AI/llm_3d 지능형 파이프라인 테스트를 시작합니다...")
+    print("[AI/llm_3d] Intelligent Pipeline Test Start...")
     print("=" * 60)
-    pipeline = LLM3DPipeline(ifc_path="sample.ifc")
+    
+    if os.path.exists(IFC_PATH):
+        print(f"Using Real IFC: {IFC_PATH}")
+        pipeline = LLM3DPipeline(ifc_path=IFC_PATH)
+    else:
+        print(f"File not found. Using Mock mode: {IFC_PATH}")
+        # Mock 모드일 때는 ifc_model을 None으로 넘겨도 IFCQueryEngine이 경고를 띄웁니다.
+        pipeline = LLM3DPipeline(ifc_path=IFC_PATH)
 
     test_commands = [
         # ──── 정상 수정 (MODIFY) ────
@@ -47,24 +68,24 @@ async def main():
             print(f"📋 JSON 출력:")
             print(json.dumps(cmd_json, ensure_ascii=False, indent=2))
 
-            print(f"▶ 상태: {status}")
-            print(f"▶ 요약: {preview.get('summary')}")
+            print(f"[*] Status: {status}")
+            print(f"[*] Summary: {preview.get('summary')}")
 
             # 재질문이 있으면 표시
             if cmd_json.get("ambiguity_question"):
-                print(f"🤖 재질문: {cmd_json['ambiguity_question']}")
+                print(f"[?] Question: {cmd_json['ambiguity_question']}")
 
             # 품질 오류 표시
             if preview.get("quality_errors"):
-                print(f"🚨 품질오류: {preview['quality_errors']}")
+                print(f"[!] Quality Errors: {preview['quality_errors']}")
 
             # 정상이면 Apply 실행
             if status == "preview_ready":
                 res = await pipeline.execute_apply(preview.get("session_id"))
-                print(f"✅ 최종적용: {res.get('summary')}")
+                print(f"[*] Final Apply: {res.get('summary')}")
 
         except Exception as e:
-            print(f"❌ 에러: {e}")
+            print(f"[!] Error: {e}")
         print("-" * 60)
 
 if __name__ == "__main__":
