@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import ifcopenshell
 
 try:
@@ -86,11 +86,10 @@ class IFCQueryEngine:
 
             # 3. 공간(Space) 필터링 (Name과 LongName 둘 다 비교)
             if space_name:
-                el_space_name = self._get_space_name(el)
-                el_space_long = self._get_space_longname(el)
+                s_name, s_long = self._get_space_info(el)
                 sn_lower = space_name.lower()
-                name_match = el_space_name and sn_lower in el_space_name.lower()
-                long_match = el_space_long and sn_lower in el_space_long.lower()
+                name_match = s_name and sn_lower in s_name.lower()
+                long_match = s_long and sn_lower in s_long.lower()
                 if not (name_match or long_match):
                     continue
 
@@ -106,7 +105,8 @@ class IFCQueryEngine:
         if not matched and len(elements) > 0:
             # 하나도 못 찾았을 때 첫 번째 부재의 정보를 샘플로 출력하여 원인 파악 도움
             sample_el = elements[0]
-            print(f"  [Debug] No match found. Sample Element: Name='{sample_el.Name}', Storey='{self._get_storey_name(sample_el)}', Space='{self._get_space_name(sample_el)}'", flush=True)
+            s_name, _ = self._get_space_info(sample_el)
+            print(f"  [Debug] No match found. Sample Element: Name='{sample_el.Name}', Storey='{self._get_storey_name(sample_el)}', Space='{s_name}'", flush=True)
 
         return matched
 
@@ -119,24 +119,14 @@ class IFCQueryEngine:
                     return normalize_storey_name(parent.Name)
         return None
 
-    def _get_space_name(self, element) -> Optional[str]:
-        """부재가 속한 IfcSpace의 이름을 반환 (Name 우선)"""
+    def _get_space_info(self, element) -> Tuple[Optional[str], Optional[str]]:
+        """부재가 속한 IfcSpace의 (Name, LongName) 튜플을 반환"""
         for rel in getattr(element, "ContainedInStructure", []):
             if rel.is_a("IfcRelContainedInSpatialStructure"):
                 parent = rel.RelatingStructure
                 if parent.is_a("IfcSpace"):
-                    # Name(한국어 등)이 있으면 우선 사용, 없으면 LongName 사용
-                    return parent.Name or parent.LongName
-        return None
-
-    def _get_space_longname(self, element) -> Optional[str]:
-        """부재가 속한 IfcSpace의 LongName을 반환"""
-        for rel in getattr(element, "ContainedInStructure", []):
-            if rel.is_a("IfcRelContainedInSpatialStructure"):
-                parent = rel.RelatingStructure
-                if parent.is_a("IfcSpace"):
-                    return parent.LongName
-        return None
+                    return parent.Name, parent.LongName
+        return None, None
 
     def _get_element_info(self, element) -> Dict[str, Any]:
         """IFC 객체를 딕셔너리 정보로 변환 (Mock 규격 대응)"""
@@ -147,7 +137,7 @@ class IFCQueryEngine:
             "element_type": element.is_a(),
             "name": element.Name,
             "storey": self._get_storey_name(element) or "1F",
-            "space_name": self._get_space_name(element),
+            "space_name": self._get_space_info(element)[0],
             "dims": {
                 "x_mm": 0, "y_mm": 0, "z_mm": 0,
                 "length_mm": 3000, "height_mm": 2400, "width_mm": 200
@@ -193,6 +183,18 @@ class LLM3DPipeline:
         if command.ambiguity_question:
             return {"status": "needs_clarification", "summary": command.ambiguity_question, "command": command.model_dump()}
 
+        # 0. 특정 부재(수정 불가) 체크 (검색 전 우선 수행)
+        readonly_types = {
+            LLM3DElementType.DOOR, LLM3DElementType.WINDOW, LLM3DElementType.STAIR,
+            LLM3DElementType.SLAB, LLM3DElementType.COLUMN, LLM3DElementType.BEAM,
+        }
+        if command.target.element_type in readonly_types:
+            return {
+                "status": "readonly_element",
+                "summary": "[수정불가] 문, 창문, 계단, 슬래브, 기둥, 보는 수정할 수 없는 특정 부재입니다.",
+                "command": command.model_dump(),
+            }
+
         # CREATE는 IFC 검색 불필요 — 별도 생성 파이프라인으로 위임 (1순위 수정 로직과 분리)
         if command.command_type == LLM3DCommandType.CREATE:
             return {
@@ -204,17 +206,6 @@ class LLM3DPipeline:
         # IFC 요소 검색
         matched = self.query_engine.find_elements(command)
         if not matched:
-            # ReadOnly 타입(문, 창문 등)이면 검색 결과가 없더라도 정책 알림 우선 출력
-            readonly_types = {
-                LLM3DElementType.DOOR, LLM3DElementType.WINDOW, LLM3DElementType.STAIR,
-                LLM3DElementType.SLAB, LLM3DElementType.COLUMN, LLM3DElementType.BEAM,
-            }
-            if command.target.element_type in readonly_types:
-                return {
-                    "status": "readonly_element",
-                    "summary": "[수정불가] 문, 창문, 계단, 슬래브, 기둥, 보는 수정할 수 없는 고정 요소입니다.",
-                    "command": command.model_dump(),
-                }
             return {"status": "not_found", "summary": "대상 요소를 찾을 수 없습니다.", "command": command.model_dump()}
 
         # 품질 검증 — select_all=True 이면 매칭된 모든 요소를 검사, 오류는 누적
