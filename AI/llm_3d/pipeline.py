@@ -72,21 +72,19 @@ class IFCQueryEngine:
 
         for el in elements:
             el_name = el.Name or ""
+            # 부재의 공간 정보 미리 조회 (한 번의 순회로 층/공간 정보 획득)
+            s_storey, s_name, s_long = self._get_spatial_context(el)
+
             # 1. 이름 필터링
             if name and name.lower() not in el_name.lower():
                 continue
             
             # 2. 층(Storey) 필터링
-            if storey:
-                el_storey = self._get_storey_name(el)
-                if not el_storey or storey.lower() not in el_storey.lower():
-                    # 디버깅용: 층이 일치하지 않아 제외된 경우 로그 (너무 많을 수 있으니 주의)
-                    # print(f"  [Debug] Element {el_name} excluded: Storey '{el_storey}' != target '{storey}'")
-                    continue
+            if storey and (not s_storey or storey.lower() not in s_storey.lower()):
+                continue
 
             # 3. 공간(Space) 필터링 (Name과 LongName 둘 다 비교)
             if space_name:
-                s_name, s_long = self._get_space_info(el)
                 sn_lower = space_name.lower()
                 name_match = s_name and sn_lower in s_name.lower()
                 long_match = s_long and sn_lower in s_long.lower()
@@ -98,46 +96,45 @@ class IFCQueryEngine:
                 if direction.lower() not in el_name.lower():
                     continue
 
-            matched.append(self._get_element_info(el))
+            matched.append(self._get_element_info(el, s_storey, s_name))
             if not select_all and len(matched) >= 1:
                 break
 
         if not matched and len(elements) > 0:
             # 하나도 못 찾았을 때 첫 번째 부재의 정보를 샘플로 출력하여 원인 파악 도움
             sample_el = elements[0]
-            s_name, _ = self._get_space_info(sample_el)
-            print(f"  [Debug] No match found. Sample Element: Name='{sample_el.Name}', Storey='{self._get_storey_name(sample_el)}', Space='{s_name}'", flush=True)
+            s_storey, s_name, _ = self._get_spatial_context(sample_el)
+            print(f"  [Debug] No match found. Sample Element: Name='{sample_el.Name}', Storey='{s_storey}', Space='{s_name}'", flush=True)
 
         return matched
 
-    def _get_storey_name(self, element) -> Optional[str]:
-        """부재가 속한 IfcBuildingStorey의 이름을 반환"""
+    def _get_spatial_context(self, element) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """부재의 공간 컨텍스트(StoreyName, SpaceName, SpaceLongName)를 한 번에 반환"""
+        storey_name, space_name, space_long = None, None, None
         for rel in getattr(element, "ContainedInStructure", []):
             if rel.is_a("IfcRelContainedInSpatialStructure"):
                 parent = rel.RelatingStructure
                 if parent.is_a("IfcBuildingStorey"):
-                    return normalize_storey_name(parent.Name)
-        return None
+                    storey_name = normalize_storey_name(parent.Name)
+                elif parent.is_a("IfcSpace"):
+                    space_name = parent.Name
+                    space_long = parent.LongName
+        return storey_name, space_name, space_long
 
-    def _get_space_info(self, element) -> Tuple[Optional[str], Optional[str]]:
-        """부재가 속한 IfcSpace의 (Name, LongName) 튜플을 반환"""
-        for rel in getattr(element, "ContainedInStructure", []):
-            if rel.is_a("IfcRelContainedInSpatialStructure"):
-                parent = rel.RelatingStructure
-                if parent.is_a("IfcSpace"):
-                    return parent.Name, parent.LongName
-        return None, None
-
-    def _get_element_info(self, element) -> Dict[str, Any]:
+    def _get_element_info(self, element, storey: str = None, space: str = None) -> Dict[str, Any]:
         """IFC 객체를 딕셔너리 정보로 변환 (Mock 규격 대응)"""
-        # TODO: QuantitySet(Qto_*) 분석 및 Geometry 엔진 연동을 통한 실측 치수 데이터 추출 로직 추가 예정
-        # 현재는 부재 식별 테스트를 위해 기본 규격 정보(Dummy)를 반환
+        # 공간 정보가 제공되지 않은 경우에만 직접 조회 (이중 순회 방지)
+        if storey is None or space is None:
+            s_storey, s_name, _ = self._get_spatial_context(element)
+            storey = storey or s_storey
+            space = space or s_name
+
         return {
             "global_id": element.GlobalId,
             "element_type": element.is_a(),
             "name": element.Name,
-            "storey": self._get_storey_name(element) or "1F",
-            "space_name": self._get_space_info(element)[0],
+            "storey": storey or "1F",
+            "space_name": space,
             "dims": {
                 "x_mm": 0, "y_mm": 0, "z_mm": 0,
                 "length_mm": 3000, "height_mm": 2400, "width_mm": 200
