@@ -236,10 +236,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[combos] running {len(all_combos)} / {total_combos}"
           f"{' (limited)' if args.limit is not None else ''}")
 
-    print("[init] Img2ImgRenderer loading...")
+    model_id: str | None = (config.get("model") or {}).get("id")
+    print(f"[init] Img2ImgRenderer loading (model_id={model_id or 'default'})...")
     t_init = time.perf_counter()
-    renderer = Img2ImgRenderer()
-    print(f"[init] done in {time.perf_counter() - t_init:.1f}s (device={renderer.device})")
+    renderer = (
+        Img2ImgRenderer(model_id=model_id) if model_id else Img2ImgRenderer()
+    )
+    print(f"[init] done in {time.perf_counter() - t_init:.1f}s "
+          f"(device={renderer.device}, model={renderer.model_id})")
 
     manifest: list[dict[str, Any]] = []
     t_sweep_start = time.perf_counter()
