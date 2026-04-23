@@ -8,8 +8,8 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
- * Swagger 관련 경로를 인증 없이 열어두기 위한 보안 설정이다.
- * 나머지 경로는 기존처럼 인증이 필요하도록 유지한다.
+ * 현재 인증/회원 기능이 미구현 상태이므로 API를 임시로 모두 열어두는 보안 설정이다.
+ * 추후 인증 도입 시 엔드포인트별 권한 정책으로 전환한다.
  */
 @Configuration
 public class SecurityConfig {
@@ -31,7 +31,8 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**"
                         ).permitAll()
-                        .anyRequest().authenticated()
+                        // TODO: 회원/인증 기능 도입 후 프로젝트별 권한 체크로 전환
+                        .anyRequest().permitAll()
                 )
                 .httpBasic(Customizer.withDefaults());
 

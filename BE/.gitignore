@@ -38,3 +38,4 @@ out/
 
 ### Codex ###
 AGENTS.md
+docker-compose.local.yml
