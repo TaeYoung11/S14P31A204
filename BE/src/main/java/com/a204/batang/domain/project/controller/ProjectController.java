@@ -5,6 +5,8 @@ import com.a204.batang.domain.project.dto.CreateProjectResponse;
 import com.a204.batang.domain.project.dto.ProjectListResponse;
 import com.a204.batang.domain.project.dto.ProjectSiteResponse;
 import com.a204.batang.domain.project.dto.RegisterProjectSiteRequest;
+import com.a204.batang.domain.project.dto.UpdateProjectRequest;
+import com.a204.batang.domain.project.dto.UpdateProjectResponse;
 import com.a204.batang.domain.project.service.ProjectService;
 import com.a204.batang.global.common.ApiResponse;
 import jakarta.validation.Valid;
@@ -14,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -24,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.UUID;
 
 /**
- * 프로젝트 생성/목록 조회/대지정보 등록 API를 제공하는 컨트롤러이다.
+ * 프로젝트 생성/수정/목록 조회/대지정보 등록 API를 제공하는 컨트롤러이다.
  */
 @Validated
 @RestController
@@ -48,6 +51,24 @@ public class ProjectController {
         CreateProjectResponse response = projectService.createProject(request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.created("프로젝트 생성 완료", response));
+    }
+
+    /**
+     * 프로젝트 이름/설명을 수정한다.
+     * 회원 기능 미구현 상태에서는 ownerUserId가 null인 프로젝트만 수정 가능하다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param request 프로젝트 수정 요청
+     * @return 프로젝트 수정 응답
+     */
+    @PatchMapping("/{projectId}")
+    public ApiResponse<UpdateProjectResponse> updateProject(
+            @PathVariable UUID projectId,
+            @Valid @RequestBody UpdateProjectRequest request
+            // TODO: 회원 기능 도입 후 @AuthenticationPrincipal 기반 사용자 ID 전달
+    ) {
+        UpdateProjectResponse response = projectService.updateProject(projectId, request);
+        return ApiResponse.success("프로젝트 수정 완료", response);
     }
 
     /**

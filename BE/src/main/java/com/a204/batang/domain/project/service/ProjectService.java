@@ -7,6 +7,8 @@ import com.a204.batang.domain.project.dto.ProjectListResponse;
 import com.a204.batang.domain.project.dto.ProjectSiteResponse;
 import com.a204.batang.domain.project.dto.ProjectSummaryResponse;
 import com.a204.batang.domain.project.dto.RegisterProjectSiteRequest;
+import com.a204.batang.domain.project.dto.UpdateProjectRequest;
+import com.a204.batang.domain.project.dto.UpdateProjectResponse;
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.infrastructure.VworldCadastralClient;
 import com.a204.batang.domain.project.infrastructure.dto.VworldCadastralInfo;
@@ -24,10 +26,11 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
- * 프로젝트 생성, 목록 조회, 대지 정보 등록을 처리하는 서비스이다.
+ * 프로젝트 생성, 수정, 목록 조회, 대지 정보 등록을 처리하는 서비스이다.
  */
 @Service
 @Slf4j
@@ -60,6 +63,34 @@ public class ProjectService {
 
         log.info("프로젝트 생성 완료. projectId={}", savedProject.getProjectId());
         return CreateProjectResponse.from(savedProject);
+    }
+
+    /**
+     * 프로젝트 이름/설명을 수정한다.
+     * 삭제되지 않았고 현재 사용자가 소유한 프로젝트만 수정할 수 있다.
+     * 회원 기능 미구현 상태에서는 ownerUserId가 null인 프로젝트만 수정할 수 있다.
+     *
+     * @param projectId 대상 프로젝트 ID
+     * @param request 프로젝트 수정 요청
+     * @return 수정된 프로젝트 응답
+     */
+    @Transactional
+    public UpdateProjectResponse updateProject(UUID projectId, UpdateProjectRequest request) {
+        UUID currentUserId = resolveCurrentUserId();
+
+        Project project = projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)
+                .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
+
+        validateProjectOwnerOrThrow(project, currentUserId);
+
+        String normalizedName = request.name().trim();
+        String normalizedDescription = normalizeDescription(request.description());
+
+        project.updateBasicInfo(normalizedName, normalizedDescription);
+        Project savedProject = projectRepository.save(project);
+
+        log.info("프로젝트 수정 완료. projectId={}", savedProject.getProjectId());
+        return UpdateProjectResponse.from(savedProject);
     }
 
     /**
@@ -172,7 +203,25 @@ public class ProjectService {
         }
         return projectRepository.findByDeletedAtIsNullAndOwnerUserId(currentUserId, pageable);
     }
-    
+
+    /**
+     * 프로젝트 수정 권한을 검증한다.
+     *
+     * @param project 수정 대상 프로젝트
+     * @param currentUserId 현재 사용자 ID
+     */
+    private void validateProjectOwnerOrThrow(Project project, UUID currentUserId) {
+        if (currentUserId == null) {
+            if (project.getOwnerUserId() != null) {
+                throw new CustomException(ErrorCode.FORBIDDEN_ACCESS, "본인이 생성한 프로젝트만 수정할 수 있습니다.");
+            }
+            return;
+        }
+
+        if (!Objects.equals(currentUserId, project.getOwnerUserId())) {
+            throw new CustomException(ErrorCode.FORBIDDEN_ACCESS, "본인이 생성한 프로젝트만 수정할 수 있습니다.");
+        }
+    }
 
     /**
      * VWorld 응답의 필수값 누락 여부를 검증한다.

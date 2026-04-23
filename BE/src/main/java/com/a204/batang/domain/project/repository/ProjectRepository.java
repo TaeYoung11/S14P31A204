@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -29,4 +30,12 @@ public interface ProjectRepository extends JpaRepository<Project, UUID> {
      * @return 프로젝트 페이지
      */
     Page<Project> findByDeletedAtIsNullAndOwnerUserId(UUID ownerUserId, Pageable pageable);
+
+    /**
+     * 삭제되지 않은 프로젝트를 단건 조회한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @return 프로젝트 Optional
+     */
+    Optional<Project> findByProjectIdAndDeletedAtIsNull(UUID projectId);
 }
