@@ -89,12 +89,12 @@ def apply_command(
                     continue
                 if not room.name.startswith(base_name):
                     continue
-                match = re.match(rf"^{re.escape(base_name)}(\d+)$", room.name)
+                match = re.match(rf"^{re.escape(base_name)}_(\d+)$", room.name)
                 if match:
                     existing_numbers.append(int(match.group(1)))
 
             next_number = max(existing_numbers, default=0) + 1
-            new_name = f"{base_name}{next_number}"
+            new_name = f"{base_name}_{next_number}"
 
             new_room = Room(
                 id=str(uuid.uuid4()),
