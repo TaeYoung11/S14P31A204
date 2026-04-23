@@ -219,7 +219,12 @@ public class VworldCadastralClient {
                 .orElse("");
 
         String address = StringUtils.hasText(addr) ? addr : jibun;
-        if (!StringUtils.hasText(pnu) && !StringUtils.hasText(address) && !StringUtils.hasText(geometry)) {
+        if (!StringUtils.hasText(geometry)) {
+            log.warn("VWorld 응답에 geometry(ag_geom) 값이 없습니다.");
+            return Optional.empty();
+        }
+        if (!StringUtils.hasText(pnu) && !StringUtils.hasText(address)) {
+            log.warn("VWorld 응답에 pnu/주소 값이 없습니다.");
             return Optional.empty();
         }
 
