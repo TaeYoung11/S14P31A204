@@ -1,0 +1,413 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/engine_request.schema.json",
+  "title": "EngineRequest",
+  "description": "Normalized request consumed by the pure 3D Engine Service.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "mode",
+    "project_id",
+    "base_revision_id",
+    "operations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["preview", "apply"]
+    },
+    "project_id": {
+      "$ref": "#/$defs/safeId"
+    },
+    "base_revision_id": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/safeId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/engineOperation"
+      }
+    }
+  },
+  "$defs": {
+    "safeId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "operationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "globalId": {
+      "type": "string",
+      "description": "IFC GlobalId, normally a compressed 22-character identifier.",
+      "pattern": "^[0-9A-Za-z_$]{22}$"
+    },
+    "elementType": {
+      "type": "string",
+      "enum": [
+        "IfcWall",
+        "IfcSlab",
+        "IfcColumn",
+        "IfcBeam",
+        "IfcDoor",
+        "IfcWindow",
+        "IfcStair",
+        "IfcRoof",
+        "IfcSpace",
+        "IfcOpeningElement"
+      ]
+    },
+    "color": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(#[0-9A-Fa-f]{6}|[A-Za-z][A-Za-z0-9 _-]{0,63})$"
+    },
+    "point3Mm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      }
+    },
+    "translationMm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      }
+    },
+    "dimensionsMm": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "length": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "global_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/globalId"
+          }
+        },
+        "element_type": {
+          "$ref": "#/$defs/elementType"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "storey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "select_all": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "anyOf": [
+        {
+          "required": ["global_ids"]
+        },
+        {
+          "required": ["element_type"]
+        },
+        {
+          "required": ["name"]
+        },
+        {
+          "required": ["storey"]
+        },
+        {
+          "required": ["tag"]
+        },
+        {
+          "required": ["select_all"],
+          "properties": {
+            "select_all": {
+              "const": true
+            }
+          }
+        }
+      ]
+    },
+    "createWallParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_mm", "end_mm", "height_mm", "thickness_mm"],
+      "properties": {
+        "start_mm": {
+          "$ref": "#/$defs/point3Mm"
+        },
+        "end_mm": {
+          "$ref": "#/$defs/point3Mm"
+        },
+        "height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "thickness_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "storey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "material": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        }
+      }
+    },
+    "updateElementPropertiesParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "dimensions_mm": {
+          "$ref": "#/$defs/dimensionsMm"
+        },
+        "material": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        }
+      }
+    },
+    "transformElementsParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "translation_mm": {
+          "$ref": "#/$defs/translationMm"
+        },
+        "rotation_deg": {
+          "type": "number"
+        }
+      }
+    },
+    "deleteElementsParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        }
+      }
+    },
+    "engineOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "parameters"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/operationId"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "create_wall",
+            "update_element_properties",
+            "transform_elements",
+            "delete_elements"
+          ]
+        },
+        "selector": {
+          "$ref": "#/$defs/selector"
+        },
+        "parameters": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "create_wall"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/createWallParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "update_element_properties"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["selector"],
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/updateElementPropertiesParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "transform_elements"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["selector"],
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/transformElementsParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "delete_elements"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["selector"],
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/deleteElementsParameters"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "v1",
+      "request_id": "req-001",
+      "mode": "preview",
+      "project_id": "project-001",
+      "base_revision_id": "rev_20260423T120000Z_ab12cd34",
+      "operations": [
+        {
+          "id": "op-001",
+          "type": "update_element_properties",
+          "selector": {
+            "global_ids": ["0J$AbcDEfGhijkLMNOpqrs"],
+            "element_type": "IfcWall",
+            "select_all": false
+          },
+          "parameters": {
+            "dimensions_mm": {
+              "height": 3000,
+              "width": 200
+            },
+            "material": "Concrete",
+            "color": "#ffffff"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/engine_preview_result.schema.json",
+  "title": "EnginePreviewResult",
+  "description": "Result returned by the 3D Engine Service for preview requests. Preview never writes IFC files or revisions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "mode",
+    "project_id",
+    "base_revision_id",
+    "status",
+    "ok",
+    "operation_previews",
+    "issues"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "mode": {
+      "const": "preview"
+    },
+    "project_id": {
+      "$ref": "#/$defs/safeId"
+    },
+    "base_revision_id": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/safeId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["preview_ready", "invalid_request", "not_found", "rejected"]
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "operation_previews": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/operationPreview"
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/engineIssue"
+      }
+    }
+  },
+  "$defs": {
+    "safeId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "globalId": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z_$]{22}$"
+    },
+    "elementType": {
+      "type": "string",
+      "enum": [
+        "IfcWall",
+        "IfcSlab",
+        "IfcColumn",
+        "IfcBeam",
+        "IfcDoor",
+        "IfcWindow",
+        "IfcStair",
+        "IfcRoof",
+        "IfcSpace",
+        "IfcOpeningElement"
+      ]
+    },
+    "jsonValue": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "array"
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
+    "engineIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["info", "warning", "error"]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "matchedElement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["global_id", "element_type"],
+      "properties": {
+        "global_id": {
+          "$ref": "#/$defs/globalId"
+        },
+        "element_type": {
+          "$ref": "#/$defs/elementType"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "storey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "changePreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "summary"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "before": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "after": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "operationPreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "operation_type",
+        "target_count",
+        "matched_elements",
+        "expected_changes",
+        "issues"
+      ],
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "operation_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "target_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "matched_elements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/matchedElement"
+          }
+        },
+        "expected_changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/changePreview"
+          }
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/engineIssue"
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "v1",
+      "request_id": "req-001",
+      "mode": "preview",
+      "project_id": "project-001",
+      "base_revision_id": "rev_20260423T120000Z_ab12cd34",
+      "status": "preview_ready",
+      "ok": true,
+      "operation_previews": [
+        {
+          "operation_id": "op-001",
+          "operation_type": "update_element_properties",
+          "target_count": 1,
+          "matched_elements": [
+            {
+              "global_id": "0J$AbcDEfGhijkLMNOpqrs",
+              "element_type": "IfcWall",
+              "name": "Wall-001",
+              "storey": "1F"
+            }
+          ],
+          "expected_changes": [
+            {
+              "path": "dimensions_mm.height",
+              "before": 2800,
+              "after": 3000,
+              "summary": "Set wall height to 3000 mm."
+            }
+          ],
+          "issues": []
+        }
+      ],
+      "issues": []
+    }
+  ]
+}

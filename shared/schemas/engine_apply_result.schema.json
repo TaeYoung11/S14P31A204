@@ -1,0 +1,252 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/engine_apply_result.schema.json",
+  "title": "EngineApplyResult",
+  "description": "Result returned by the 3D Engine Service for apply requests. Successful apply writes a new immutable IFC revision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "mode",
+    "project_id",
+    "base_revision_id",
+    "status",
+    "ok",
+    "revision_id",
+    "ifc_path",
+    "metadata_path",
+    "sha256",
+    "operation_results",
+    "issues"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "mode": {
+      "const": "apply"
+    },
+    "project_id": {
+      "$ref": "#/$defs/safeId"
+    },
+    "base_revision_id": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/safeId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["applied", "invalid_request", "not_found", "rejected", "failed"]
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "revision_id": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/safeId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ifc_path": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "metadata_path": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "sha256": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "operation_results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/operationApply"
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/engineIssue"
+      }
+    }
+  },
+  "$defs": {
+    "safeId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "globalId": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z_$]{22}$"
+    },
+    "elementType": {
+      "type": "string",
+      "enum": [
+        "IfcWall",
+        "IfcSlab",
+        "IfcColumn",
+        "IfcBeam",
+        "IfcDoor",
+        "IfcWindow",
+        "IfcStair",
+        "IfcRoof",
+        "IfcSpace",
+        "IfcOpeningElement"
+      ]
+    },
+    "engineIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["info", "warning", "error"]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "matchedElement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["global_id", "element_type"],
+      "properties": {
+        "global_id": {
+          "$ref": "#/$defs/globalId"
+        },
+        "element_type": {
+          "$ref": "#/$defs/elementType"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "storey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "operationApply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "operation_type",
+        "status",
+        "target_count",
+        "matched_elements",
+        "issues"
+      ],
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "operation_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "status": {
+          "type": "string",
+          "enum": ["applied", "skipped", "rejected"]
+        },
+        "target_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "matched_elements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/matchedElement"
+          }
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/engineIssue"
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "v1",
+      "request_id": "req-001",
+      "mode": "apply",
+      "project_id": "project-001",
+      "base_revision_id": "rev_20260423T120000Z_ab12cd34",
+      "status": "applied",
+      "ok": true,
+      "revision_id": "rev_20260423T121500Z_cd34ef56",
+      "ifc_path": "storage/projects/project-001/revisions/rev_20260423T121500Z_cd34ef56/model.ifc",
+      "metadata_path": "storage/projects/project-001/revisions/rev_20260423T121500Z_cd34ef56/revision.json",
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "operation_results": [
+        {
+          "operation_id": "op-001",
+          "operation_type": "update_element_properties",
+          "status": "applied",
+          "target_count": 1,
+          "matched_elements": [
+            {
+              "global_id": "0J$AbcDEfGhijkLMNOpqrs",
+              "element_type": "IfcWall",
+              "name": "Wall-001",
+              "storey": "1F"
+            }
+          ],
+          "issues": []
+        }
+      ],
+      "issues": []
+    }
+  ]
+}
