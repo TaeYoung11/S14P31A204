@@ -14,12 +14,10 @@ try:
     from .command import LLM3DCommand, LLM3DCommandType
     from .engine import LLM3DEngine
     from .utils import normalize_storey_name
-    from .mock_utils import generate_mock_element
 except ImportError:
     from command import LLM3DCommand, LLM3DCommandType
     from engine import LLM3DEngine
     from utils import normalize_storey_name
-    from mock_utils import generate_mock_element
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +56,8 @@ class IFCQueryEngine:
         return []
 
     def _query_by_tag(self, tag: str, etype: Optional[str]) -> List[Dict[str, Any]]:
-        # Tag는 보통 IfcPropertySet이나 특정 속성에 저장됨. 
-        # 여기서는 단순화를 위해 Name이나 특정 속성에 tag가 포함된 경우를 검색 (실제 환경에 맞게 조정 가능)
+        # TODO: IfcPropertySet 또는 사용자 정의 속성(Pset) 기반의 상세 태그 검색 로직 확장 예정
+        # 현재는 검색 편의를 위해 Name 속성에 해당 태그가 포함되어 있는지 확인
         elements = self._model.by_type(etype.value if hasattr(etype, 'value') else etype)
         matched = []
         for el in elements:
@@ -73,31 +71,42 @@ class IFCQueryEngine:
         matched = []
 
         for el in elements:
+            el_name = el.Name or ""
             # 1. 이름 필터링
-            if name and name.lower() not in (el.Name or "").lower():
+            if name and name.lower() not in el_name.lower():
                 continue
             
             # 2. 층(Storey) 필터링
             if storey:
                 el_storey = self._get_storey_name(el)
                 if not el_storey or storey.lower() not in el_storey.lower():
+                    # 디버깅용: 층이 일치하지 않아 제외된 경우 로그 (너무 많을 수 있으니 주의)
+                    # print(f"  [Debug] Element {el_name} excluded: Storey '{el_storey}' != target '{storey}'")
                     continue
 
-            # 3. 공간(Space) 필터링
+            # 3. 공간(Space) 필터링 (Name과 LongName 둘 다 비교)
             if space_name:
-                el_space = self._get_space_name(el)
-                if not el_space or space_name.lower() not in el_space.lower():
+                el_space_name = self._get_space_name(el)
+                el_space_long = self._get_space_longname(el)
+                sn_lower = space_name.lower()
+                name_match = el_space_name and sn_lower in el_space_name.lower()
+                long_match = el_space_long and sn_lower in el_space_long.lower()
+                if not (name_match or long_match):
                     continue
 
-            # 4. 방향(Direction) 필터링 (간이 구현: 이름이나 속성에 방향 정보가 있는 경우)
+            # 4. 방향(Direction) 필터링
             if direction:
-                # 방향은 프로젝트마다 정의 방식이 다르므로 우선 Name에서 검색
-                if direction.lower() not in (el.Name or "").lower():
+                if direction.lower() not in el_name.lower():
                     continue
 
             matched.append(self._get_element_info(el))
             if not select_all and len(matched) >= 1:
                 break
+
+        if not matched and len(elements) > 0:
+            # 하나도 못 찾았을 때 첫 번째 부재의 정보를 샘플로 출력하여 원인 파악 도움
+            sample_el = elements[0]
+            print(f"  [Debug] No match found. Sample Element: Name='{sample_el.Name}', Storey='{self._get_storey_name(sample_el)}', Space='{self._get_space_name(sample_el)}'", flush=True)
 
         return matched
 
@@ -111,18 +120,28 @@ class IFCQueryEngine:
         return None
 
     def _get_space_name(self, element) -> Optional[str]:
-        """부재가 속한 IfcSpace의 이름을 반환"""
-        # 부재가 공간에 포함되는 방식은 여러 가지가 있으나, 주로 ContainedInStructure 사용
+        """부재가 속한 IfcSpace의 이름을 반환 (Name 우선)"""
         for rel in getattr(element, "ContainedInStructure", []):
             if rel.is_a("IfcRelContainedInSpatialStructure"):
                 parent = rel.RelatingStructure
                 if parent.is_a("IfcSpace"):
-                    return parent.Name
+                    # Name(한국어 등)이 있으면 우선 사용, 없으면 LongName 사용
+                    return parent.Name or parent.LongName
+        return None
+
+    def _get_space_longname(self, element) -> Optional[str]:
+        """부재가 속한 IfcSpace의 LongName을 반환"""
+        for rel in getattr(element, "ContainedInStructure", []):
+            if rel.is_a("IfcRelContainedInSpatialStructure"):
+                parent = rel.RelatingStructure
+                if parent.is_a("IfcSpace"):
+                    return parent.LongName
         return None
 
     def _get_element_info(self, element) -> Dict[str, Any]:
         """IFC 객체를 딕셔너리 정보로 변환 (Mock 규격 대응)"""
-        # 실제 환경에서는 Geometry 정보를 계산해야 하지만, 우선 속성 위주로 추출
+        # TODO: QuantitySet(Qto_*) 분석 및 Geometry 엔진 연동을 통한 실측 치수 데이터 추출 로직 추가 예정
+        # 현재는 부재 식별 테스트를 위해 기본 규격 정보(Dummy)를 반환
         return {
             "global_id": element.GlobalId,
             "element_type": element.is_a(),
@@ -130,7 +149,6 @@ class IFCQueryEngine:
             "storey": self._get_storey_name(element) or "1F",
             "space_name": self._get_space_name(element),
             "dims": {
-                # 기본값 제공 (실제로는 QuantitySet이나 Geometry 분석 필요)
                 "x_mm": 0, "y_mm": 0, "z_mm": 0,
                 "length_mm": 3000, "height_mm": 2400, "width_mm": 200
             }
@@ -186,7 +204,19 @@ class LLM3DPipeline:
         # IFC 요소 검색
         matched = self.query_engine.find_elements(command)
         if not matched:
-            return {"status": "not_found", "summary": "대상 요소를 찾을 수 없습니다."}
+            # TODO: ReadOnly 타입(문, 창문 등)이면 검색 결과가 없더라도 정책 알림 우선 출력
+            from .command import LLM3DElementType
+            readonly_types = {
+                LLM3DElementType.DOOR, LLM3DElementType.WINDOW, LLM3DElementType.STAIR,
+                LLM3DElementType.SLAB, LLM3DElementType.COLUMN, LLM3DElementType.BEAM,
+            }
+            if command.target.element_type in readonly_types:
+                return {
+                    "status": "readonly_element",
+                    "summary": "[수정불가] 문, 창문, 계단, 슬래브, 기둥, 보는 수정할 수 없는 고정 요소입니다.",
+                    "command": command.model_dump(),
+                }
+            return {"status": "not_found", "summary": "대상 요소를 찾을 수 없습니다.", "command": command.model_dump()}
 
         # 품질 검증 — select_all=True 이면 매칭된 모든 요소를 검사, 오류는 누적
         all_quality_errors: List[str] = []
