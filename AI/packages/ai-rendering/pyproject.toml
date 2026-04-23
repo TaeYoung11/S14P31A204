@@ -5,6 +5,12 @@ requires-python = ">=3.11,<3.12"
 dependencies = [
     "ai-common",
     "ai-domain",
+    "torch",
+    "diffusers>=0.25",
+    "transformers",
+    "accelerate",
+    "pillow",
+    "pyyaml",
 ]
 
 [build-system]
