@@ -1,0 +1,255 @@
+"""Img2img 파라미터 스윕 실행기 — 평가 리그 본체.
+
+사용:
+    uv run python -m ai_evals.runners.img2img_sweep --config <yaml path>
+    uv run python -m ai_evals.runners.img2img_sweep --config <yaml> --limit 3
+
+동작:
+    1. YAML config 로드 (fixtures, presets, sweep grid, seed)
+    2. presets × fixtures × (strength × guidance × steps) 조합 전개
+    3. Img2ImgRenderer 1회 로드
+    4. 각 조합 render → outputs/run_{ts}/results/ 에 저장, 파일명에 파라미터 인코딩
+    5. manifest.json 에 각 render 기록 (증분 저장 — 중간 크래시 대비)
+    6. 종료 시 summary (ok/failed/duration/avg)
+
+현재 (1-A-4):
+    전체 스윕 루프 + tqdm + 증분 manifest + --limit 옵션.
+    1-A-5 에서 make_grid.py 로 contact sheet 합성 예정.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from dataclasses import replace
+from datetime import datetime
+from itertools import product
+from pathlib import Path
+from typing import Any
+
+import yaml  # type: ignore[import-untyped]
+from tqdm import tqdm  # type: ignore[import-untyped]
+
+from ai_rendering.img2img import Img2ImgRenderer, RenderParams, load_preset
+
+# 이 스크립트 기준 ai-evals 패키지 루트 (outputs/ 위치 앵커)
+_AI_EVALS_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_OUTPUTS = _AI_EVALS_ROOT / "outputs"
+
+# 조합 튜플: (preset, fixture_idx, fixture_path, strength, guidance, steps)
+_ComboTuple = tuple[str, int, Path, float, float, int]
+
+
+def encode_filename(preset: str, params: RenderParams, fixture_idx: int) -> str:
+    """파일명에 파라미터 인코딩 — lex 정렬 가능한 고정폭 포맷.
+
+    형식: {preset}_s{strength*100:03d}_g{guidance*10:03d}_step{steps:02d}_seed{seed:05d}_f{idx}.png
+    예:   scandinavian_s050_g070_step30_seed00042_f0.png
+    """
+    s = int(round(params.strength * 100))
+    g = int(round(params.guidance_scale * 10))
+    steps = params.num_inference_steps
+    seed = params.seed if params.seed is not None else 0
+    return (
+        f"{preset}"
+        f"_s{s:03d}"
+        f"_g{g:03d}"
+        f"_step{steps:02d}"
+        f"_seed{seed:05d}"
+        f"_f{fixture_idx}.png"
+    )
+
+
+def create_run_dir(base: Path) -> Path:
+    """outputs/run_YYYYMMDD_HHMMSS/results/ 생성 후 run_dir 반환."""
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = base / f"run_{ts}"
+    (run_dir / "results").mkdir(parents=True, exist_ok=True)
+    return run_dir
+
+
+def render_one(
+    renderer: Img2ImgRenderer,
+    fixture_path: Path,
+    preset_name: str,
+    sweep_overrides: dict[str, Any],
+    seed: int,
+    fixture_idx: int,
+    run_dir: Path,
+) -> dict[str, Any]:
+    """1개 조합 render + 저장. manifest entry dict 반환.
+
+    preset YAML 기본값 위에 sweep_overrides (strength/guidance/steps) + seed 덮어씀.
+    render 실패 시 status='failed' + error 메시지로 기록, 파일 저장 없음.
+    """
+    base_params = load_preset(preset_name)
+    params = replace(base_params, seed=seed, **sweep_overrides)
+
+    filename = encode_filename(preset_name, params, fixture_idx)
+    out_path = run_dir / "results" / filename
+
+    t0 = time.perf_counter()
+    status = "ok"
+    error: str | None = None
+    try:
+        result = renderer.render(fixture_path, params)
+        result.save(out_path)
+    except Exception as e:
+        status = "failed"
+        error = f"{type(e).__name__}: {e}"
+    duration = time.perf_counter() - t0
+
+    return {
+        "filename": filename,
+        "preset": preset_name,
+        "fixture": str(fixture_path),
+        "fixture_idx": fixture_idx,
+        "params": {
+            "prompt": params.prompt,
+            "negative_prompt": params.negative_prompt,
+            "strength": params.strength,
+            "guidance_scale": params.guidance_scale,
+            "num_inference_steps": params.num_inference_steps,
+            "seed": params.seed,
+        },
+        "duration_sec": round(duration, 1),
+        "status": status,
+        "error": error,
+    }
+
+
+def _enumerate_combos(config: dict[str, Any]) -> list[_ComboTuple]:
+    """(preset, fx_idx, fx_path, strength, guidance, steps) 조합 flat list 전개.
+
+    순서: preset → fixture → (strength × guidance × steps product).
+    Contact sheet 합성 시 (preset, fixture) 그룹별로 모이는 순서가 편함.
+    """
+    presets: list[str] = config["presets"]
+    fixtures: list[Path] = [Path(fx) for fx in config["fixtures"]]
+    strengths: list[float] = config["sweep"]["strength"]
+    guidances: list[float] = config["sweep"]["guidance_scale"]
+    steps_list: list[int] = config["sweep"]["num_inference_steps"]
+
+    return [
+        (preset, fx_idx, fx, s, g, t)
+        for preset in presets
+        for fx_idx, fx in enumerate(fixtures)
+        for s, g, t in product(strengths, guidances, steps_list)
+    ]
+
+
+def _save_manifest(run_dir: Path, entries: list[dict[str, Any]]) -> None:
+    """manifest.json 에 현재까지의 entries 기록 (증분 저장)."""
+    with open(run_dir / "manifest.json", "w", encoding="utf-8") as f:
+        json.dump(entries, f, ensure_ascii=False, indent=2)
+
+
+def _print_summary(entries: list[dict[str, Any]], total_duration_sec: float) -> None:
+    """실행 종료 시 ok/failed/duration/avg 출력."""
+    total = len(entries)
+    ok = sum(1 for e in entries if e["status"] == "ok")
+    failed = sum(1 for e in entries if e["status"] == "failed")
+    avg = total_duration_sec / total if total else 0.0
+
+    hours = int(total_duration_sec // 3600)
+    minutes = int((total_duration_sec % 3600) // 60)
+    seconds = int(total_duration_sec % 60)
+
+    print()
+    print("=== summary ===")
+    print(f"total:    {total}")
+    print(f"ok:       {ok}")
+    print(f"failed:   {failed}")
+    print(f"duration: {hours}h {minutes:02d}m {seconds:02d}s")
+    print(f"avg:      {avg:.1f}s/render")
+
+    if failed > 0:
+        print()
+        print("failed combos:")
+        for e in entries:
+            if e["status"] == "failed":
+                print(f"  {e['filename']}: {e['error']}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Img2img parameter sweep runner")
+    parser.add_argument(
+        "--config",
+        required=True,
+        type=Path,
+        help="스윕 설정 YAML 경로",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="앞에서부터 N개 조합만 실행 (축소 sweep 용)",
+    )
+    args = parser.parse_args(argv)
+
+    if not args.config.exists():
+        print(f"[error] config not found: {args.config}", file=sys.stderr)
+        return 2
+
+    with open(args.config, encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    # 사전 검증: 모든 fixture 파일 존재 확인
+    for fx_str in config["fixtures"]:
+        if not Path(fx_str).exists():
+            print(f"[error] fixture missing: {fx_str}", file=sys.stderr)
+            return 2
+
+    seed = int(config["seed"])
+    all_combos = _enumerate_combos(config)
+    total_combos = len(all_combos)
+    if args.limit is not None:
+        all_combos = all_combos[: args.limit]
+
+    run_dir = create_run_dir(DEFAULT_OUTPUTS)
+    print(f"[run] {run_dir}")
+    print(f"[combos] running {len(all_combos)} / {total_combos}"
+          f"{' (limited)' if args.limit is not None else ''}")
+
+    print("[init] Img2ImgRenderer loading...")
+    t_init = time.perf_counter()
+    renderer = Img2ImgRenderer()
+    print(f"[init] done in {time.perf_counter() - t_init:.1f}s (device={renderer.device})")
+
+    manifest: list[dict[str, Any]] = []
+    t_sweep_start = time.perf_counter()
+
+    with tqdm(total=len(all_combos), unit="render", dynamic_ncols=True) as pbar:
+        for preset, fx_idx, fx_path, strength, guidance, steps in all_combos:
+            overrides: dict[str, Any] = {
+                "strength": strength,
+                "guidance_scale": guidance,
+                "num_inference_steps": steps,
+            }
+            entry = render_one(
+                renderer,
+                fx_path,
+                preset,
+                overrides,
+                seed=seed,
+                fixture_idx=fx_idx,
+                run_dir=run_dir,
+            )
+            manifest.append(entry)
+            _save_manifest(run_dir, manifest)  # 증분 저장
+            pbar.update(1)
+            pbar.set_postfix(
+                preset=preset, f=fx_idx, status=entry["status"]
+            )
+
+    total_duration = time.perf_counter() - t_sweep_start
+    _print_summary(manifest, total_duration)
+
+    failed_count = sum(1 for e in manifest if e["status"] == "failed")
+    return 0 if failed_count == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
