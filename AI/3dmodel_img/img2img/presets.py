@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -30,6 +31,7 @@ _ALLOWED_FIELDS = {
     "num_inference_steps",
 }
 _REQUIRED_FIELDS = {"prompt"}
+_VALID_NAME = re.compile(r"[A-Za-z0-9_-]+")
 
 
 def list_presets() -> list[str]:
@@ -46,12 +48,19 @@ def load_preset(name: str) -> RenderParams:
     """프리셋 이름 → RenderParams. 모든 실패는 PresetNotFoundError.
 
     검증 순서:
-        1) 파일 존재
-        2) YAML 파싱 성공
-        3) 루트가 YAML mapping (dict)
-        4) 필수 필드 'prompt' 존재
-        5) 모든 키가 화이트리스트 안 (미지원/오타 필드 차단)
+        1) 이름 유효성 (영문/숫자/'_'/'-' 만, 경로 구분자·상대경로 차단)
+        2) 파일 존재
+        3) YAML 파싱 성공
+        4) 루트가 YAML mapping (dict)
+        5) 필수 필드 'prompt' 존재
+        6) 모든 키가 화이트리스트 안 (미지원/오타 필드 차단)
     """
+    if not _VALID_NAME.fullmatch(name):
+        raise PresetNotFoundError(
+            f"invalid preset name: '{name}'. "
+            "allowed characters: letters, digits, '_', '-'"
+        )
+
     path = _PRESET_DIR / f"{name}.yaml"
 
     if not path.exists():
