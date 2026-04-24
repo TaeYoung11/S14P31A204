@@ -26,5 +26,5 @@ presets:
 sweep:
   strength: [0.65, 0.70]
   guidance_scale: [7, 9]
-  controlnet_conditioning_scale: [0.7, 0.8, 0.9]
+  controlnet_conditioning_scale: [0.3, 0.6, 0.9, 1.2]
   num_inference_steps: [25]
