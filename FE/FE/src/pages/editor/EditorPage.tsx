@@ -70,8 +70,8 @@ export default function EditorPage() {
                 key={m}
                 onClick={() => setMode(m)}
                 className={`px-4 py-1.5 rounded-full text-[11px] font-bold transition-all ${mode === m
-                    ? 'bg-white text-[#3B45B3] shadow-sm'
-                    : 'text-[#8E95A3] hover:text-[#505764]'
+                  ? 'bg-white text-[#3B45B3] shadow-sm'
+                  : 'text-[#8E95A3] hover:text-[#505764]'
                   }`}
               >
                 {m === 'bubble' ? 'Bubble' : m === '2d' ? '2D Plan' : '3D View'}
