@@ -413,6 +413,9 @@ scratch_*.py
 # 로그 디렉토리
 logs/
 
+# ai-evals 스윕 결과 (렌더 output)
+packages/ai-evals/outputs/
+
 # AI coding assistant
 CLAUDE.md
 GEMINI.md

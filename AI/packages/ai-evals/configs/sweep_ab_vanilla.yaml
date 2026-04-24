@@ -1,0 +1,21 @@
+# A/B 체크포인트 비교용 — vanilla SD 1.5 측
+# 1 fixture × 1 preset × 2 strength × 1 guidance × 1 steps = 2 renders
+#
+# 실행:
+#   uv run python -m ai_evals.runners.img2img_sweep \
+#     --config packages/ai-evals/configs/sweep_ab_vanilla.yaml
+
+model:
+  id: runwayml/stable-diffusion-v1-5
+
+seed: 42
+
+fixtures:
+  - packages/ai-rendering/tests/fixtures/input/image (17).png
+
+presets: [scandinavian]
+
+sweep:
+  strength: [0.65, 0.78]
+  guidance_scale: [9.5]
+  num_inference_steps: [25]

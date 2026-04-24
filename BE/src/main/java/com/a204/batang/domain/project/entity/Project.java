@@ -76,7 +76,7 @@ public class Project extends BaseEntity {
     }
 
     /**
-     * 프로젝트 기본 정보를 수정한다.
+     * 프로젝트 기본 정보(이름, 설명)를 수정한다.
      *
      * @param name 프로젝트 이름
      * @param description 프로젝트 설명
@@ -89,13 +89,22 @@ public class Project extends BaseEntity {
     /**
      * VWorld에서 조회한 지적도 정보를 프로젝트에 반영한다.
      *
-     * @param pnu 지번 고유번호
+     * @param pnu 필지 고유번호
      * @param address 지번 주소
-     * @param geometry 지적도 geometry(WKT)
+     * @param geometry 지적도 좌표(MultiPolygon)
      */
     public void applyCadastralInfo(String pnu, String address, List<List<List<List<Double>>>> geometry) {
         this.cadastralPnu = pnu;
         this.cadastralAddress = address;
         this.cadastralGeometry = geometry;
+    }
+
+    /**
+     * 프로젝트를 삭제 상태(소프트 삭제)로 변경한다.
+     *
+     * @param deletedAt 삭제 시각
+     */
+    public void softDelete(LocalDateTime deletedAt) {
+        this.deletedAt = deletedAt;
     }
 }

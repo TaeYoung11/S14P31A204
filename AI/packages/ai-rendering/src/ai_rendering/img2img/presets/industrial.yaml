@@ -1,20 +1,5 @@
-# 인더스트리얼 스타일 건물 외관 프리셋.
-# 노출 콘크리트 + 스틸 빔 + 유리 파사드 중심.
-# 필드 화이트리스트:
-#   prompt (필수), negative_prompt, strength, guidance_scale, num_inference_steps
-# seed 등 그 외 필드는 거부됨.
-
-prompt: >-
-  photorealistic industrial modern building exterior,
-  exposed raw concrete walls, steel beams, large glass facade,
-  urban architecture, architectural photography,
-  overcast daylight, contemporary industrial design
-
-negative_prompt: >-
-  3d render, cgi, blender, untextured, plastic look, cartoon,
-  illustration, lowres, blurry, deformed,
-  interior, indoor, furniture, orange, swimming pool,
-  wood siding, cottage, rustic, traditional
+# 인더스트리얼 스타일 건물 외관 렌더링 파라미터.
+# 프롬프트 자산은 prompts/tasks/rendering/img2img/v1/presets/industrial.yaml 에서 관리.
 
 strength: 0.7
 guidance_scale: 9.5
