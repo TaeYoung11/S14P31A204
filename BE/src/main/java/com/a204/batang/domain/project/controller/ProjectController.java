@@ -13,6 +13,7 @@ import com.a204.batang.domain.project.service.ProjectService;
 import com.a204.batang.global.common.ApiResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -30,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.UUID;
 
 /**
- * 프로젝트 생성/수정/조회/삭제 및 대지정보 등록 API를 제공한다.
+ * 프로젝트 생성/수정/조회/검색/삭제 및 대지정보 등록 API를 제공한다.
  */
 @Validated
 @RestController
@@ -86,6 +87,23 @@ public class ProjectController {
     ) {
         ProjectListResponse response = projectService.getMyProjects(page);
         return ApiResponse.success("프로젝트 목록 조회 성공", response);
+    }
+
+    /**
+     * 내 프로젝트를 이름으로 검색한다.
+     *
+     * @param keyword 검색어
+     * @param page 1-base 페이지 번호
+     * @return 검색 결과
+     */
+    @GetMapping("/search")
+    public ApiResponse<ProjectListResponse> searchMyProjects(
+            @RequestParam @NotBlank(message = "keyword는 필수입니다.") String keyword,
+            @RequestParam(defaultValue = "1") @Min(value = 1, message = "page는 1 이상이어야 합니다.") int page
+            // TODO: 인증 구현 후 @AuthenticationPrincipal 기반 사용자 ID 연동
+    ) {
+        ProjectListResponse response = projectService.searchMyProjects(keyword, page);
+        return ApiResponse.success("프로젝트 검색 성공", response);
     }
 
     /**
