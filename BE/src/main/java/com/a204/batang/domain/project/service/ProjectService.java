@@ -3,6 +3,8 @@ package com.a204.batang.domain.project.service;
 import com.a204.batang.domain.project.dto.CadastralPolygonResponse;
 import com.a204.batang.domain.project.dto.CreateProjectRequest;
 import com.a204.batang.domain.project.dto.CreateProjectResponse;
+import com.a204.batang.domain.project.dto.DeleteProjectsRequest;
+import com.a204.batang.domain.project.dto.DeleteProjectsResponse;
 import com.a204.batang.domain.project.dto.ProjectListResponse;
 import com.a204.batang.domain.project.dto.ProjectSiteResponse;
 import com.a204.batang.domain.project.dto.ProjectSummaryResponse;
@@ -25,8 +27,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -101,6 +107,32 @@ public class ProjectService {
      * @param page 1-base 페이지 번호
      * @return 프로젝트 목록 응답
      */
+    /**
+     * 프로젝트를 다건 삭제(soft delete)한다.
+     *
+     * @param request 프로젝트 삭제 요청
+     * @return 프로젝트 다건 삭제 결과
+     */
+    @Transactional
+    public DeleteProjectsResponse deleteProjects(DeleteProjectsRequest request) {
+        UUID currentUserId = resolveCurrentUserId();
+        List<UUID> targetProjectIds = normalizeProjectIds(request.projectIds());
+
+        List<Project> projects = projectRepository.findByProjectIdInAndDeletedAtIsNull(targetProjectIds);
+        validateDeleteTargetsOrThrow(targetProjectIds, projects);
+
+        LocalDateTime deletedAt = LocalDateTime.now();
+        for (Project project : projects) {
+            validateProjectOwnerOrThrow(project, currentUserId);
+            project.softDelete(deletedAt);
+        }
+
+        projectRepository.saveAll(projects);
+
+        log.info("프로젝트 다건 삭제 완료. deletedCount={}, projectIds={}", targetProjectIds.size(), targetProjectIds);
+        return DeleteProjectsResponse.from(targetProjectIds);
+    }
+
     @Transactional(readOnly = true)
     public ProjectListResponse getMyProjects(int page) {
         if (page < 1) {
@@ -258,6 +290,41 @@ public class ProjectService {
             return null;
         }
         return description.trim();
+    }
+
+    /**
+     * 삭제 대상 프로젝트 ID 목록을 중복 제거 후 반환한다.
+     *
+     * @param projectIds 프로젝트 ID 목록
+     * @return 중복 제거된 프로젝트 ID 목록
+     */
+    private List<UUID> normalizeProjectIds(List<UUID> projectIds) {
+        return new ArrayList<>(new LinkedHashSet<>(projectIds));
+    }
+
+    /**
+     * 삭제 대상 프로젝트 존재 여부를 검증한다.
+     *
+     * @param targetProjectIds 삭제 대상 프로젝트 ID 목록
+     * @param projects 조회된 프로젝트 목록
+     */
+    private void validateDeleteTargetsOrThrow(List<UUID> targetProjectIds, List<Project> projects) {
+        if (projects.size() == targetProjectIds.size()) {
+            return;
+        }
+
+        Set<UUID> foundProjectIds = projects.stream()
+                .map(Project::getProjectId)
+                .collect(LinkedHashSet::new, Set::add, Set::addAll);
+
+        List<UUID> missingProjectIds = targetProjectIds.stream()
+                .filter(projectId -> !foundProjectIds.contains(projectId))
+                .toList();
+
+        throw new CustomException(
+                ErrorCode.PROJECT_DELETE_TARGET_NOT_FOUND,
+                "삭제 대상 프로젝트를 찾을 수 없습니다. missingProjectIds=" + missingProjectIds
+        );
     }
 
     private String truncate(String value, int maxLength) {
