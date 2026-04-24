@@ -9,7 +9,9 @@ import com.a204.batang.domain.project.dto.ProjectSiteResponse;
 import com.a204.batang.domain.project.dto.RegisterProjectSiteRequest;
 import com.a204.batang.domain.project.dto.UpdateProjectRequest;
 import com.a204.batang.domain.project.dto.UpdateProjectResponse;
+import com.a204.batang.domain.project.service.ProjectQueryService;
 import com.a204.batang.domain.project.service.ProjectService;
+import com.a204.batang.domain.project.service.ProjectSiteService;
 import com.a204.batang.global.common.ApiResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -40,6 +42,8 @@ import java.util.UUID;
 public class ProjectController {
 
     private final ProjectService projectService;
+    private final ProjectQueryService projectQueryService;
+    private final ProjectSiteService projectSiteService;
 
     /**
      * 새 프로젝트를 생성한다.
@@ -50,7 +54,7 @@ public class ProjectController {
     @PostMapping
     public ResponseEntity<ApiResponse<CreateProjectResponse>> createProject(
             @Valid @RequestBody CreateProjectRequest request
-            // TODO: 인증 구현 후 사용자 정보 연동
+            // TODO: 인증 구현 시 사용자 정보 연동
     ) {
         CreateProjectResponse response = projectService.createProject(request);
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -68,7 +72,7 @@ public class ProjectController {
     public ApiResponse<UpdateProjectResponse> updateProject(
             @PathVariable UUID projectId,
             @Valid @RequestBody UpdateProjectRequest request
-            // TODO: 인증 구현 후 @AuthenticationPrincipal 기반 사용자 ID 연동
+            // TODO: 인증 구현 시 @AuthenticationPrincipal 기반 사용자 ID 연동
     ) {
         UpdateProjectResponse response = projectService.updateProject(projectId, request);
         return ApiResponse.success("프로젝트 수정 완료", response);
@@ -83,9 +87,9 @@ public class ProjectController {
     @GetMapping
     public ApiResponse<ProjectListResponse> getMyProjects(
             @RequestParam(defaultValue = "1") @Min(value = 1, message = "page는 1 이상이어야 합니다.") int page
-            // TODO: 인증 구현 후 @AuthenticationPrincipal 기반 사용자 ID 연동
+            // TODO: 인증 구현 시 @AuthenticationPrincipal 기반 사용자 ID 연동
     ) {
-        ProjectListResponse response = projectService.getMyProjects(page);
+        ProjectListResponse response = projectQueryService.getMyProjects(page);
         return ApiResponse.success("프로젝트 목록 조회 성공", response);
     }
 
@@ -100,9 +104,9 @@ public class ProjectController {
     public ApiResponse<ProjectListResponse> searchMyProjects(
             @RequestParam @NotBlank(message = "keyword는 필수입니다.") String keyword,
             @RequestParam(defaultValue = "1") @Min(value = 1, message = "page는 1 이상이어야 합니다.") int page
-            // TODO: 인증 구현 후 @AuthenticationPrincipal 기반 사용자 ID 연동
+            // TODO: 인증 구현 시 @AuthenticationPrincipal 기반 사용자 ID 연동
     ) {
-        ProjectListResponse response = projectService.searchMyProjects(keyword, page);
+        ProjectListResponse response = projectQueryService.searchMyProjects(keyword, page);
         return ApiResponse.success("프로젝트 검색 성공", response);
     }
 
@@ -115,7 +119,7 @@ public class ProjectController {
     @DeleteMapping
     public ApiResponse<DeleteProjectsResponse> deleteProjects(
             @Valid @RequestBody DeleteProjectsRequest request
-            // TODO: 인증 구현 후 @AuthenticationPrincipal 기반 사용자 ID 연동
+            // TODO: 인증 구현 시 @AuthenticationPrincipal 기반 사용자 ID 연동
     ) {
         DeleteProjectsResponse response = projectService.deleteProjects(request);
         return ApiResponse.success("프로젝트 삭제 완료", response);
@@ -132,9 +136,9 @@ public class ProjectController {
     public ApiResponse<ProjectSiteResponse> registerProjectSite(
             @PathVariable UUID projectId,
             @Valid @RequestBody RegisterProjectSiteRequest request
-            // TODO: 인증 구현 후 사용자 정보 연동
+            // TODO: 인증 구현 시 사용자 정보 연동
     ) {
-        ProjectSiteResponse response = projectService.registerProjectSite(projectId, request);
+        ProjectSiteResponse response = projectSiteService.registerProjectSite(projectId, request);
         return ApiResponse.success("대지정보 등록 완료", response);
     }
 }

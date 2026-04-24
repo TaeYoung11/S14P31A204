@@ -15,6 +15,6 @@ import java.util.UUID;
 public record DeleteProjectsRequest(
         @NotEmpty(message = "projectIds는 1개 이상이어야 합니다.")
         @Size(max = 100, message = "한 번에 삭제할 수 있는 프로젝트는 최대 100개입니다.")
-        List<@NotNull(message = "projectIds 항목에 null은 허용되지 않습니다.") UUID> projectIds
+        List<@NotNull(message = "projectIds 항목은 null일 수 없습니다.") UUID> projectIds
 ) {
 }

@@ -37,7 +37,7 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 파라미터 검증(예: @RequestParam, @PathVariable) 실패를 처리한다.
+     * 파라미터 검증 실패(예: @RequestParam, @PathVariable)를 처리한다.
      *
      * @param e ConstraintViolationException
      * @return 400 에러 응답
@@ -67,7 +67,7 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 타입 변환 실패(예: 숫자 파라미터에 문자 전달)를 처리한다.
+     * 타입 변환 실패(예: 숫자 파라미터에 문자열 전달)를 처리한다.
      *
      * @param e MethodArgumentTypeMismatchException
      * @return 400 에러 응답

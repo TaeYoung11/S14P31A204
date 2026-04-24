@@ -28,7 +28,7 @@ public class ApiResponse<T> {
     }
 
     /**
-     * 데이터가 없는 성공 응답 (예: 삭제, 단순 상태 변경 완료 시)
+     * 데이터가 없는 성공 응답 (예: 삭제, 단순 상태 변경 완료)
      */
     public static ApiResponse<Void> success(String message) {
         return new ApiResponse<>(HttpStatus.OK.value(), message, null);

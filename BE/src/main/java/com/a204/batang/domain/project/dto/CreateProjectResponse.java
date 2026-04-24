@@ -6,7 +6,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * 새 프로젝트 생성 응답 DTO.
+ * 프로젝트 생성 응답 DTO.
  *
  * @param projectId 프로젝트 ID
  * @param name 프로젝트 이름
