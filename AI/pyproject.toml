@@ -9,6 +9,10 @@ dependencies = [
     "ai-evals",
     "ai-planning",
     "ai-rendering",
+    "ifcopenshell>=0.8.5",
+    "instructor>=1.15.1",
+    "openai>=2.32.0",
+    "pydantic>=2.13.3",
 ]
 
 [dependency-groups]
