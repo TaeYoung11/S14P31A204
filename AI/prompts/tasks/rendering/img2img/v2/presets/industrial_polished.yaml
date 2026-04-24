@@ -1,0 +1,14 @@
+base_preset: industrial
+
+prompt: >-
+  RAW photo, contemporary industrial building exterior,
+  polished smooth concrete facade, sleek steel frame,
+  large reflective glass curtain wall, premium urban architecture,
+  8k uhd, DSLR, sharp focus,
+  architectural photography, dramatic cloudy sky with light break
+
+negative_prompt: >-
+  (worst quality, low quality:1.4), (deformed, distorted:1.3),
+  (cgi, 3d, render, blender:1.4), cartoon, anime, illustration,
+  text, watermark, signature,
+  interior, indoor, furniture, rustic, weathered, brick wall, wood cladding, warm tones

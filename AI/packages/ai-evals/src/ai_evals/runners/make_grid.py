@@ -139,6 +139,12 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="스윕 결과 디렉토리 (outputs/run_YYYYMMDD_HHMMSS)",
     )
+    parser.add_argument(
+        "--fixture",
+        type=int,
+        default=None,
+        help="특정 fixture index 만 처리 (예: --fixture 0 → f0 만)",
+    )
     args = parser.parse_args(argv)
 
     if not args.run.exists() or not args.run.is_dir():
@@ -156,6 +162,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     groups = _group_by_preset_fixture(manifest)
+    if args.fixture is not None:
+        groups = {k: v for k, v in groups.items() if k[1] == args.fixture}
     results_dir = args.run / "results"
     grids_dir = args.run / "grids"
     grids_dir.mkdir(exist_ok=True)

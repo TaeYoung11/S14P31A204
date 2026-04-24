@@ -9,6 +9,7 @@ dependencies = [
     "ai-evals",
     "ai-planning",
     "ai-rendering",
+    "httpx>=0.28.1",
     "ifcopenshell>=0.8.5",
     "instructor>=1.15.1",
     "openai>=2.32.0",
