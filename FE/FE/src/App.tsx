@@ -16,6 +16,7 @@ import NotFoundPage from './pages/NotFoundPage'
 function RootRedirect() {
   const token = useAuthStore((s) => s.token)
   return <Navigate to="/projects" replace />
+}
 
 export default function App() {
   return (
