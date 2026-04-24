@@ -43,11 +43,19 @@ public class ProjectSiteService {
                 null
         );
 
-        project.applyCadastralInfo(
-                vworldSiteInfo.pnu(),
-                vworldSiteInfo.address(),
-                vworldSiteInfo.polygon().coordinates()
-        );
+        try {
+            project.applyCadastralInfo(
+                    vworldSiteInfo.pnu(),
+                    vworldSiteInfo.address(),
+                    vworldSiteInfo.polygon().coordinates()
+            );
+        } catch (RuntimeException e) {
+            log.warn("프로젝트 대지정보 반영 중 예외 발생. projectId={}", projectId, e);
+            throw new CustomException(
+                    ErrorCode.PROJECT_SITE_INFO_FETCH_FAILED,
+                    "대지정보 저장 처리 중 오류가 발생했습니다."
+            );
+        }
 
         Project savedProject = projectRepository.save(project);
         log.info("대지정보 등록 완료. projectId={}", savedProject.getProjectId());

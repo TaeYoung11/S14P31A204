@@ -39,19 +39,7 @@ public class VworldService {
                 ));
 
         validateCadastralInfoOrThrow(projectId, cadastralInfo);
-
-        CadastralPolygonResponse polygon = CadastralPolygonResponse.fromRawGeometry(cadastralInfo.geometry());
-        if (polygon == null) {
-            log.warn("대지 geometry 변환 실패. projectId={}, pnu={}, address={}, geometryPreview={}",
-                    projectId,
-                    StringUtils.hasText(cadastralInfo.pnu()) ? cadastralInfo.pnu() : "(없음)",
-                    StringUtils.hasText(cadastralInfo.address()) ? cadastralInfo.address() : "(없음)",
-                    truncate(cadastralInfo.geometry(), 300));
-            throw new CustomException(
-                    ErrorCode.PROJECT_SITE_INFO_FETCH_FAILED,
-                    "대지 geometry 변환 중 오류가 발생했습니다."
-            );
-        }
+        CadastralPolygonResponse polygon = parsePolygonOrThrow(projectId, cadastralInfo);
 
         return new VworldSiteInfo(cadastralInfo.pnu(), cadastralInfo.address(), polygon);
     }
@@ -77,6 +65,45 @@ public class VworldService {
                     truncate(cadastralInfo.geometry(), 200));
             throw new CustomException(ErrorCode.PROJECT_SITE_INFO_FETCH_FAILED, "VWorld 응답에 대지 식별 정보(pnu/address)가 없습니다.");
         }
+    }
+
+    /**
+     * geometry 원문을 안전하게 파싱하고 유효한 좌표가 존재하는지 검증한다.
+     * 파싱 중 RuntimeException이 발생해도 CustomException으로 변환해 일관된 에러 응답을 유지한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param cadastralInfo VWorld 응답 정보
+     * @return 파싱된 다각형 응답
+     */
+    private CadastralPolygonResponse parsePolygonOrThrow(UUID projectId, VworldCadastralInfo cadastralInfo) {
+        final CadastralPolygonResponse polygon;
+        try {
+            polygon = CadastralPolygonResponse.fromRawGeometry(cadastralInfo.geometry());
+        } catch (RuntimeException e) {
+            log.warn("대지 geometry 파싱 예외 발생. projectId={}, pnu={}, geometryPreview={}",
+                    projectId,
+                    StringUtils.hasText(cadastralInfo.pnu()) ? cadastralInfo.pnu() : "(없음)",
+                    truncate(cadastralInfo.geometry(), 300),
+                    e);
+            throw new CustomException(
+                    ErrorCode.PROJECT_SITE_INFO_FETCH_FAILED,
+                    "대지 geometry 파싱 중 오류가 발생했습니다."
+            );
+        }
+
+        if (polygon == null || polygon.coordinates() == null || polygon.coordinates().isEmpty()) {
+            log.warn("대지 geometry 변환 실패. projectId={}, pnu={}, address={}, geometryPreview={}",
+                    projectId,
+                    StringUtils.hasText(cadastralInfo.pnu()) ? cadastralInfo.pnu() : "(없음)",
+                    StringUtils.hasText(cadastralInfo.address()) ? cadastralInfo.address() : "(없음)",
+                    truncate(cadastralInfo.geometry(), 300));
+            throw new CustomException(
+                    ErrorCode.PROJECT_SITE_INFO_FETCH_FAILED,
+                    "대지 geometry 변환 중 오류가 발생했습니다."
+            );
+        }
+
+        return polygon;
     }
 
     private String truncate(String value, int maxLength) {
