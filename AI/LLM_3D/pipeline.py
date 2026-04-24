@@ -129,12 +129,16 @@ class IFCQueryEngine:
                 f"[NoMatch] type={type_str} storey={storey} space={space_name} dir={direction} | "
                 f"sample: name='{s0.Name}' storey='{st0}' space='{sn0}'"
             )
-            print(
-                f"  [Debug] No match. Sample: Name='{s0.Name}', Storey='{st0}', Space='{sn0}'",
-                flush=True,
-            )
 
         return matched
+
+    def get_spatial_context(self, element) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """public wrapper — Pipeline 등 외부에서 사용"""
+        return self._get_spatial_context(element)
+
+    def get_model(self):
+        """모델 직접 노출 대신 getter 제공"""
+        return self._model
 
     # ── 공간 컨텍스트 ────────────────────────────────────────────────────────
 
@@ -234,7 +238,7 @@ class IFCQueryEngine:
                         dims["length_mm"] = yd
                         dims["width_mm"]  = xd
                     dims["height_mm"] = depth
-                return dims   # 첫 번째 Body 솔리드만 읽음
+                    return dims   # 첫 번째 직사각형 솔리드만 읽음
 
         return dims
 
@@ -299,12 +303,8 @@ class LLM3DPipeline:
                 "command": command.model_dump(),
             }
 
-        # ReadOnly 부재 차단
-        _RO = {
-            LLM3DElementType.DOOR, LLM3DElementType.WINDOW, LLM3DElementType.STAIR,
-            LLM3DElementType.SLAB, LLM3DElementType.COLUMN, LLM3DElementType.BEAM,
-        }
-        if command.target.element_type in _RO:
+        # ReadOnly 부재 차단 (LLM3DCommand 정책과 동기화)
+        if command.target.element_type in LLM3DCommand._READ_ONLY_TYPES:
             return {
                 "status":  "readonly_element",
                 "summary": "[수정불가] 문, 창문, 계단, 슬래브, 기둥, 보는 수정할 수 없는 고정 부재입니다.",
@@ -369,7 +369,7 @@ class LLM3DPipeline:
         if not session.quality_ok:
             return {"status": "quality_not_passed", "errors": session.quality_errors}
 
-        model = self.query_engine._model
+        model = self.query_engine.get_model()
         if not model:
             return {"status": "error", "summary": "IFC 모델이 로드되지 않았습니다."}
 
@@ -407,7 +407,7 @@ class LLM3DPipeline:
                     element.Name = f"AI_MODIFIED_{orig}"
 
                 if changes.width_mm:
-                    if self._modify_thickness(model, element, changes.width_mm):
+                    if self._modify_thickness(element, changes.width_mm):
                         applied_any = True
                         logger.info(f"[{gid[:8]}] width 수정 완료")
                     else:
@@ -470,15 +470,14 @@ class LLM3DPipeline:
     # 수정 헬퍼
     # ──────────────────────────────────────────────────────────────────────────
 
-    def _modify_thickness(self, model, element, width_change) -> bool:
+    def _modify_thickness(self, element, width_change) -> bool:
         """
         두께(폭) 수정. 우선순위:
           1. IfcMaterialLayerSetUsage.LayerThickness
           2. IfcPropertySet Width/Thickness 속성
           3. IfcExtrudedAreaSolid 프로파일의 짧은 변
         """
-        mode_relative = (width_change.mode == LLM3DSizeMode.RELATIVE
-                         or getattr(width_change.mode, "value", "") == "RELATIVE")
+        mode_relative = (width_change.mode == LLM3DSizeMode.RELATIVE)
 
         def calc(current):
             return current + width_change.value if mode_relative else width_change.value
@@ -525,8 +524,7 @@ class LLM3DPipeline:
 
     def _modify_height(self, element, height_change) -> bool:
         """IfcExtrudedAreaSolid.Depth(= 벽 높이) 수정"""
-        mode_relative = (height_change.mode == LLM3DSizeMode.RELATIVE
-                         or getattr(height_change.mode, "value", "") == "RELATIVE")
+        mode_relative = (height_change.mode == LLM3DSizeMode.RELATIVE)
 
         if not element.Representation:
             return False
@@ -546,38 +544,78 @@ class LLM3DPipeline:
     def _modify_position(self, element, position_change) -> bool:
         """
         ObjectPlacement의 Location 좌표 수정.
-        IFC 단위 = mm이므로 단위 변환 없음.
+        벽(Wall) 이동 시 같은 층의 슬래브(Slab/Roof)도 delta만큼 함께 이동시켜 벌어짐 방지.
+        슬래브는 항상 RELATIVE(delta) 이동만 적용 (ABSOLUTE 모드에서도 동일).
         """
-        mode_relative = (position_change.mode == LLM3DSizeMode.RELATIVE
-                         or getattr(position_change.mode, "value", "") == "RELATIVE")
+        mode_relative = (position_change.mode == LLM3DSizeMode.RELATIVE)
 
-        placement = getattr(element, "ObjectPlacement", None)
-        if not (placement and placement.is_a("IfcLocalPlacement")):
-            return False
+        def _get_coords(el):
+            """요소의 Location 좌표 리스트를 반환, 없으면 None"""
+            placement = getattr(el, "ObjectPlacement", None)
+            if not (placement and placement.is_a("IfcLocalPlacement")):
+                return None, None
+            rel = placement.RelativePlacement
+            if not (rel and rel.is_a("IfcAxis2Placement3D")):
+                return None, None
+            loc = rel.Location
+            if not (loc and loc.is_a("IfcCartesianPoint")):
+                return None, None
+            coords = list(loc.Coordinates)
+            while len(coords) < 3:
+                coords.append(0.0)
+            return loc, coords
 
-        rel = placement.RelativePlacement
-        if not (rel and rel.is_a("IfcAxis2Placement3D")):
-            return False
+        def apply_absolute(el, x, y, z) -> bool:
+            """절대 좌표로 이동"""
+            loc, coords = _get_coords(el)
+            if loc is None:
+                return False
+            coords[0] = x
+            coords[1] = y
+            coords[2] = z
+            loc.Coordinates = tuple(coords)
+            return True
 
-        loc = rel.Location
-        if not (loc and loc.is_a("IfcCartesianPoint")):
-            return False
+        def apply_delta(el, dx, dy, dz) -> bool:
+            """상대 delta만큼 이동 (슬래브 동반 이동 전용)"""
+            loc, coords = _get_coords(el)
+            if loc is None:
+                return False
+            coords[0] += dx
+            coords[1] += dy
+            coords[2] += dz
+            loc.Coordinates = tuple(coords)
+            return True
 
-        coords = list(loc.Coordinates)
-        while len(coords) < 3:
-            coords.append(0.0)
-
+        # 1. 대상 요소(벽) 이동
         if mode_relative:
-            coords[0] += position_change.x
-            coords[1] += position_change.y
-            coords[2] += position_change.z
+            success = apply_delta(element, position_change.x, position_change.y, position_change.z)
+            delta_x, delta_y, delta_z = position_change.x, position_change.y, position_change.z
         else:
-            coords[0] = position_change.x
-            coords[1] = position_change.y
-            coords[2] = position_change.z
+            # ABSOLUTE 모드: 이전 좌표와의 차이를 계산해서 delta를 구해야 슬래브에 적용 가능
+            _, old_coords = _get_coords(element)
+            success = apply_absolute(element, position_change.x, position_change.y, position_change.z)
+            if success and old_coords is not None:
+                delta_x = position_change.x - old_coords[0]
+                delta_y = position_change.y - old_coords[1]
+                delta_z = position_change.z - old_coords[2]
+            else:
+                delta_x = delta_y = delta_z = 0.0
 
-        loc.Coordinates = tuple(coords)
-        return True
+        # 2. 벽 이동 시 연관 부재(슬래브/지붕) 동반 delta 이동 (벌어짐 방지)
+        if success and element.is_a("IfcWall"):
+            qe = self.query_engine
+            storey_name, _, _ = qe.get_spatial_context(element)
+            if storey_name and (delta_x or delta_y or delta_z):
+                model = qe.get_model()
+                for rel_el in list(model.by_type("IfcSlab")) + list(model.by_type("IfcRoof")):
+                    s_st, _, _ = qe.get_spatial_context(rel_el)
+                    if s_st == storey_name:
+                        apply_delta(rel_el, delta_x, delta_y, delta_z)
+                        logger.info(f"동반 이동 적용: {rel_el.is_a()} ({rel_el.Name})")
+
+        return success
+
 
     def _modify_material(self, model, element, material_change) -> bool:
         """IfcMaterial 교체 (기존 재질 연결 해제 후 새 재질 연결)"""
@@ -586,8 +624,8 @@ class LLM3DPipeline:
             if rel.is_a("IfcRelAssociatesMaterial"):
                 try:
                     model.remove(rel)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"기존 재질 관계 제거 실패 (무시): {e}")
 
         mat_name = material_change.name
         if material_change.grade:

@@ -1,9 +1,10 @@
 import instructor
+from instructor.core.exceptions import InstructorRetryException
 from openai import AsyncOpenAI
 try:
-    from .command import LLM3DCommand
+    from .command import LLM3DCommand, LLM3DCommandType, LLM3DTarget, LLM3DElementType
 except ImportError:
-    from command import LLM3DCommand
+    from command import LLM3DCommand, LLM3DCommandType, LLM3DTarget, LLM3DElementType
 import logging
 
 logger = logging.getLogger(__name__)
@@ -161,6 +162,23 @@ class LLM3DEngine:
                 max_retries=3,
             )
             return command
+        except InstructorRetryException:
+            # 3회 재시도 모두 스키마 검증 실패 → 명령이 애매함으로 판단하고 graceful fallback
+            logger.warning(f"[LLM3DEngine] 파싱 실패 (3회 재시도 후 포기) → 재질문 응답으로 대체: {user_text!r}")
+            return LLM3DCommand(
+                command_type=LLM3DCommandType.MODIFY,
+                target=LLM3DTarget(
+                    element_type=LLM3DElementType.WALL,
+                    select_all=False,
+                ),
+                changes=None,
+                confidence=0.1,
+                raw_instruction=user_text,
+                ambiguity_question=(
+                    "명령을 정확히 이해하지 못했습니다. "
+                    "수정할 대상의 위치(층, 공간, 방향)를 더 구체적으로 알려주세요."
+                ),
+            )
         except Exception as exc:
             logger.error(f"[LLM3DEngine] 파싱 실패: {exc}", exc_info=True)
             raise
