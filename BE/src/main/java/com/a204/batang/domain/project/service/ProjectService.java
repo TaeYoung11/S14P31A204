@@ -44,6 +44,7 @@ import java.util.UUID;
 public class ProjectService {
 
     private static final int PROJECT_PAGE_SIZE = 6;
+    private static final double PROJECT_SEARCH_SIMILARITY_THRESHOLD = 0.2d;
 
     private final ProjectRepository projectRepository;
     private final VworldCadastralClient vworldCadastralClient;
@@ -131,6 +132,43 @@ public class ProjectService {
 
         log.info("프로젝트 다건 삭제 완료. deletedCount={}, projectIds={}", targetProjectIds.size(), targetProjectIds);
         return DeleteProjectsResponse.from(targetProjectIds);
+    }
+
+    /**
+     * 로그인 사용자의 프로젝트를 이름으로 검색한다.
+     * pg_trgm 유사도와 부분일치 검색을 함께 사용해 오타를 일부 허용한다.
+     *
+     * @param keyword 검색어
+     * @param page 1-base 페이지 번호
+     * @return 프로젝트 목록 응답
+     */
+    @Transactional(readOnly = true)
+    public ProjectListResponse searchMyProjects(String keyword, int page) {
+        if (!StringUtils.hasText(keyword)) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST, "keyword는 필수입니다.");
+        }
+        if (page < 1) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST, "page는 1 이상이어야 합니다.");
+        }
+
+        String normalizedKeyword = keyword.trim();
+        UUID currentUserId = resolveCurrentUserId();
+        Pageable pageable = PageRequest.of(page - 1, PROJECT_PAGE_SIZE);
+
+        Page<Project> projectPage = searchProjectsByCurrentUser(currentUserId, normalizedKeyword, pageable);
+        List<ProjectSummaryResponse> projects = projectPage.getContent()
+                .stream()
+                .map(ProjectSummaryResponse::from)
+                .toList();
+
+        return ProjectListResponse.of(
+                projects,
+                page,
+                PROJECT_PAGE_SIZE,
+                projectPage.getTotalElements(),
+                projectPage.getTotalPages(),
+                projectPage.hasNext()
+        );
     }
 
     @Transactional(readOnly = true)
@@ -235,6 +273,31 @@ public class ProjectService {
             return projectRepository.findByDeletedAtIsNullAndOwnerUserIdIsNull(pageable);
         }
         return projectRepository.findByDeletedAtIsNullAndOwnerUserId(currentUserId, pageable);
+    }
+
+    /**
+     * 현재 사용자 기준으로 프로젝트 이름 유사 검색을 수행한다.
+     *
+     * @param currentUserId 현재 사용자 ID
+     * @param keyword 검색어
+     * @param pageable 페이지 정보
+     * @return 검색 결과 페이지
+     */
+    private Page<Project> searchProjectsByCurrentUser(UUID currentUserId, String keyword, Pageable pageable) {
+        if (currentUserId == null) {
+            return projectRepository.searchByNameForAnonymous(
+                    keyword,
+                    PROJECT_SEARCH_SIMILARITY_THRESHOLD,
+                    pageable
+            );
+        }
+
+        return projectRepository.searchByNameForOwner(
+                currentUserId,
+                keyword,
+                PROJECT_SEARCH_SIMILARITY_THRESHOLD,
+                pageable
+        );
     }
 
     /**
