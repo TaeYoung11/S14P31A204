@@ -9,7 +9,7 @@
 #     --controlnet
 #
 # 스윕 규모: fixtures × presets × strength × guidance × conditioning_scale × steps
-# 예: 3 × 4 × 3 × 3 × 3 × 1 = 324 렌더/run (~GPU 60분)
+# 1 × 2 × 2 × 2 × 3 × 1 = 24 렌더/run (~GPU 5분)
 
 model:
   id: SG161222/Realistic_Vision_V6.0_B1_noVAE
@@ -18,17 +18,13 @@ seed: 42
 
 fixtures:
   - packages/ai-rendering/tests/fixtures/input/input (1).jpg
-  - packages/ai-rendering/tests/fixtures/input/input (2).jpg
-  - packages/ai-rendering/tests/fixtures/input/input (3).jpg
 
 presets:
   - scandinavian
-  - industrial
-  - japanese
   - korean
 
 sweep:
-  strength: [0.65, 0.70, 0.75]
-  guidance_scale: [7, 9, 11]
+  strength: [0.65, 0.70]
+  guidance_scale: [7, 9]
   controlnet_conditioning_scale: [0.7, 0.8, 0.9]
   num_inference_steps: [25]
