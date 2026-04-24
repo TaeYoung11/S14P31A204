@@ -171,6 +171,31 @@ class IFCQueryEngine:
 
         return storey_name, space_name, space_long
 
+    def _get_length_scale(self, model) -> float:
+        """IFC 단위(LENGTHUNIT)가 m인지 mm인지 판별하여 mm 변환 배율 반환"""
+        if not model:
+            return 1.0
+        try:
+            projects = model.by_type("IfcProject")
+            if not projects:
+                return 1.0
+            project = projects[0]
+            if not getattr(project, "UnitsInContext", None):
+                return 1.0
+            
+            for unit in getattr(project.UnitsInContext, "Units", []):
+                if unit.is_a("IfcSIUnit") and getattr(unit, "UnitType", "") == "LENGTHUNIT":
+                    prefix = getattr(unit, "Prefix", None)
+                    if prefix == "MILLI":
+                        return 1.0
+                    elif prefix == "CENTI":
+                        return 10.0
+                    elif prefix is None:
+                        return 1000.0
+        except Exception as e:
+            logger.warning(f"단위 스케일 파악 실패, 기본값(1.0) 사용: {e}")
+        return 1.0
+
     # ── 요소 정보 변환 ────────────────────────────────────────────────────────
 
     def _get_element_info(
@@ -186,7 +211,9 @@ class IFCQueryEngine:
             storey = storey or s_st
             space = space or s_sp
 
-        dims = self._read_geometry(element)
+        model = self._model
+        scale = self._get_length_scale(model)
+        dims = self._read_geometry(element, scale)
 
         return {
             "global_id":   element.GlobalId,
@@ -197,7 +224,7 @@ class IFCQueryEngine:
             "dims":        dims,
         }
 
-    def _read_geometry(self, element) -> Dict[str, float]:
+    def _read_geometry(self, element, scale: float = 1.0) -> Dict[str, float]:
         """
         IfcExtrudedAreaSolid + IfcRectangleProfileDef 기반 치수 읽기.
         못 읽으면 안전한 기본값 반환.
@@ -214,7 +241,7 @@ class IFCQueryEngine:
             if rel and rel.is_a("IfcAxis2Placement3D"):
                 loc = rel.Location
                 if loc and loc.is_a("IfcCartesianPoint") and len(loc.Coordinates) > 2:
-                    dims["z_mm"] = float(loc.Coordinates[2])
+                    dims["z_mm"] = float(loc.Coordinates[2]) * scale
 
         # 지오메트리 치수 읽기
         if not element.Representation:
@@ -228,8 +255,8 @@ class IFCQueryEngine:
                     continue
                 profile = item.SweptArea
                 if profile.is_a("IfcRectangleProfileDef"):
-                    xd, yd = float(profile.XDim), float(profile.YDim)
-                    depth  = float(item.Depth)
+                    xd, yd = float(profile.XDim) * scale, float(profile.YDim) * scale
+                    depth  = float(item.Depth) * scale
                     # 긴 쪽 = length, 짧은 쪽 = thickness(width)
                     if xd >= yd:
                         dims["length_mm"] = xd
@@ -375,6 +402,10 @@ class LLM3DPipeline:
 
         command       = session.command
         applied_count = 0
+        scale         = self.query_engine._get_length_scale(model)
+
+        # 리뷰 반영: 1회성 세션이므로 실행 즉시 삭제하여 에러 발생 시 재실행(중복 적용)되는 버그 방지
+        self.store.delete(session_id)
 
         try:
             for item in session.matched:
@@ -407,21 +438,21 @@ class LLM3DPipeline:
                     element.Name = f"AI_MODIFIED_{orig}"
 
                 if changes.width_mm:
-                    if self._modify_thickness(element, changes.width_mm):
+                    if self._modify_thickness(element, changes.width_mm, scale):
                         applied_any = True
                         logger.info(f"[{gid[:8]}] width 수정 완료")
                     else:
                         logger.warning(f"[{gid[:8]}] width 수정 실패")
 
                 if changes.height_mm:
-                    if self._modify_height(element, changes.height_mm):
+                    if self._modify_height(element, changes.height_mm, scale):
                         applied_any = True
                         logger.info(f"[{gid[:8]}] height 수정 완료")
                     else:
                         logger.warning(f"[{gid[:8]}] height 수정 실패")
 
                 if changes.position_mm:
-                    if self._modify_position(element, changes.position_mm):
+                    if self._modify_position(element, changes.position_mm, scale):
                         applied_any = True
                         logger.info(f"[{gid[:8]}] position 수정 완료")
                     else:
@@ -444,7 +475,7 @@ class LLM3DPipeline:
                         logger.info(f"[{gid[:8]}] rotation 수정 완료")
 
                 if changes.face_offset_mm is not None:
-                    if self._modify_face_offset(element, changes.face_offset_mm):
+                    if self._modify_face_offset(element, changes.face_offset_mm, scale):
                         applied_any = True
                         logger.info(f"[{gid[:8]}] face_offset 수정 완료")
 
@@ -458,7 +489,6 @@ class LLM3DPipeline:
             logger.error(f"IFC 반영 중 오류: {e}", exc_info=True)
             return {"status": "error", "summary": f"반영 실패: {e}"}
 
-        self.store.delete(session_id)
         return {
             "status":        "applied",
             "applied_count": applied_count,
@@ -470,7 +500,7 @@ class LLM3DPipeline:
     # 수정 헬퍼
     # ──────────────────────────────────────────────────────────────────────────
 
-    def _modify_thickness(self, element, width_change) -> bool:
+    def _modify_thickness(self, element, width_change, scale: float = 1.0) -> bool:
         """
         두께(폭) 수정. 우선순위:
           1. IfcMaterialLayerSetUsage.LayerThickness
@@ -480,7 +510,9 @@ class LLM3DPipeline:
         mode_relative = (width_change.mode == LLM3DSizeMode.RELATIVE)
 
         def calc(current):
-            return current + width_change.value if mode_relative else width_change.value
+            current_mm = current * scale
+            new_mm = current_mm + width_change.value if mode_relative else width_change.value
+            return new_mm / scale
 
         # 1. MaterialLayerSet
         for rel in getattr(element, "HasAssociations", []):
@@ -522,7 +554,7 @@ class LLM3DPipeline:
 
         return False
 
-    def _modify_height(self, element, height_change) -> bool:
+    def _modify_height(self, element, height_change, scale: float = 1.0) -> bool:
         """IfcExtrudedAreaSolid.Depth(= 벽 높이) 수정"""
         mode_relative = (height_change.mode == LLM3DSizeMode.RELATIVE)
 
@@ -534,14 +566,13 @@ class LLM3DPipeline:
                 continue
             for item in rep.Items:
                 if item.is_a("IfcExtrudedAreaSolid"):
-                    cur = item.Depth
-                    item.Depth = float(
-                        cur + height_change.value if mode_relative else height_change.value
-                    )
+                    cur_mm = float(item.Depth) * scale
+                    new_mm = cur_mm + height_change.value if mode_relative else height_change.value
+                    item.Depth = float(new_mm / scale)
                     return True
         return False
 
-    def _modify_position(self, element, position_change) -> bool:
+    def _modify_position(self, element, position_change, scale: float = 1.0) -> bool:
         """
         ObjectPlacement의 Location 좌표 수정.
         벽(Wall) 이동 시 같은 층의 슬래브(Slab/Roof)도 delta만큼 함께 이동시켜 벌어짐 방지.
@@ -587,18 +618,23 @@ class LLM3DPipeline:
             loc.Coordinates = tuple(coords)
             return True
 
+        # LLM 지시값(mm)을 IFC Native 단위로 변환
+        dx = position_change.x / scale
+        dy = position_change.y / scale
+        dz = position_change.z / scale
+
         # 1. 대상 요소(벽) 이동
         if mode_relative:
-            success = apply_delta(element, position_change.x, position_change.y, position_change.z)
-            delta_x, delta_y, delta_z = position_change.x, position_change.y, position_change.z
+            success = apply_delta(element, dx, dy, dz)
+            delta_x, delta_y, delta_z = dx, dy, dz
         else:
             # ABSOLUTE 모드: 이전 좌표와의 차이를 계산해서 delta를 구해야 슬래브에 적용 가능
             _, old_coords = _get_coords(element)
-            success = apply_absolute(element, position_change.x, position_change.y, position_change.z)
+            success = apply_absolute(element, dx, dy, dz)
             if success and old_coords is not None:
-                delta_x = position_change.x - old_coords[0]
-                delta_y = position_change.y - old_coords[1]
-                delta_z = position_change.z - old_coords[2]
+                delta_x = dx - old_coords[0]
+                delta_y = dy - old_coords[1]
+                delta_z = dz - old_coords[2]
             else:
                 delta_x = delta_y = delta_z = 0.0
 
@@ -672,12 +708,14 @@ class LLM3DPipeline:
         ref.DirectionRatios = (new_x, new_y, dr[2])
         return True
 
-    def _modify_face_offset(self, element, offset_mm: float) -> bool:
+    def _modify_face_offset(self, element, offset_mm: float, scale: float = 1.0) -> bool:
         """
         특정 면(face) 오프셋 — IfcExtrudedAreaSolid의 단면 크기 변경으로 근사.
         실제 다각형 형상 편집(IfcArbitraryClosedProfileDef)은 추후 확장 예정.
         현재는 length(긴 변)를 offset만큼 증감하여 면 이동을 근사한다.
         """
+        offset_native = offset_mm / scale
+
         if not element.Representation:
             return False
 
@@ -690,9 +728,9 @@ class LLM3DPipeline:
                 p = item.SweptArea
                 if p.is_a("IfcRectangleProfileDef"):
                     if p.XDim >= p.YDim:
-                        p.XDim = float(p.XDim + offset_mm)
+                        p.XDim = float(p.XDim + offset_native)
                     else:
-                        p.YDim = float(p.YDim + offset_mm)
+                        p.YDim = float(p.YDim + offset_native)
                     return True
         return False
 
