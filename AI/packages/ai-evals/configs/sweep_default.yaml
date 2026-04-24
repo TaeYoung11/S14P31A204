@@ -23,7 +23,6 @@ presets:
   - scandinavian
   - industrial
   - japanese
-  - korean
 
 # 스윕할 파라미터 — itertools.product 로 조합 생성
 # A/B 결과 sweet spot ~0.70 기준으로 strength 범위 집중

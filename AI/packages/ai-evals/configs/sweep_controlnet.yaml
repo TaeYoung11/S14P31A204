@@ -18,10 +18,10 @@ seed: 42
 
 fixtures:
   - packages/ai-rendering/tests/fixtures/input/input (1).jpg
+  - packages/ai-rendering/tests/fixtures/input/input (2).jpg
 
 presets:
   - scandinavian
-  - korean
 
 sweep:
   strength: [0.65, 0.70]

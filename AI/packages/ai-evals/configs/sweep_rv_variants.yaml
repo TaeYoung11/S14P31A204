@@ -27,7 +27,6 @@ presets:
   - scandinavian
   - industrial
   - japanese
-  - korean
   # 변형 프리셋 — scandinavian
   - scandinavian_minimal
   - scandinavian_warm
@@ -37,9 +36,6 @@ presets:
   # 변형 프리셋 — japanese
   - japanese_traditional
   - japanese_modern
-  # 변형 프리셋 — korean
-  - korean_classic
-  - korean_contemporary
 
 # sweep_default.yaml 결과 분석 후 best (strength, guidance) 로 교체
 sweep:

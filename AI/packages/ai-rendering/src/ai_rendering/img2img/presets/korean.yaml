@@ -1,6 +1,0 @@
-# 한국 평범한 주택 외관 렌더링 파라미터.
-# 프롬프트 자산은 prompts/tasks/rendering/img2img/v1/presets/korean.yaml 에서 관리.
-
-strength: 0.7
-guidance_scale: 9.5
-num_inference_steps: 25
