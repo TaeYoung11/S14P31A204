@@ -144,6 +144,7 @@ def render_one(
             "guidance_scale": params.guidance_scale,
             "num_inference_steps": params.num_inference_steps,
             "seed": params.seed,
+            "controlnet_conditioning_scale": params.controlnet_conditioning_scale,
         },
         "duration_sec": round(duration, 1),
         "status": status,
