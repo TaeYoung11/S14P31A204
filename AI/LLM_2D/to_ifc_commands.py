@@ -21,7 +21,7 @@ def to_ifc_commands(
         return CommandBatch(
             commands=[],
             requires_clarification=True,
-            clarification_question=command.clarification_question or "더 구체적으로 설명해주세요.",
+            clarification_question=command.clarification_question,
         )
 
     if command.action == "add_room":
@@ -41,7 +41,7 @@ def to_ifc_commands(
                         "name": command.new_room.name,
                         "type": command.new_room.type,
                         "floor": command.new_room.floor,
-                        "polygon": command.new_room.polygon,
+                        "rects": command.new_room.rects,
                     },
                     confidence=command.confidence,
                 )
@@ -50,7 +50,14 @@ def to_ifc_commands(
         )
 
     if command.action == "remove_room":
-        target_id = _find_space_id(command.target_room_name) or command.target_room_name
+        target_id = _find_space_id(command.target_room_name)
+        if target_id is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=f"'{command.target_room_name}' 방을 현재 IFC에서 찾을 수 없습니다.",
+            )
+
         return CommandBatch(
             commands=[
                 IFCCommand(
@@ -64,14 +71,21 @@ def to_ifc_commands(
         )
 
     if command.action == "resize_room":
-        target_id = _find_space_id(command.target_room_name) or command.target_room_name
+        target_id = _find_space_id(command.target_room_name)
+        if target_id is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=f"'{command.target_room_name}' 방을 현재 IFC에서 찾을 수 없습니다.",
+            )
+
         return CommandBatch(
             commands=[
                 IFCCommand(
                     action=ActionType.UPDATE_SPACE,
                     target_id=target_id,
                     params={
-                        "polygon": command.resize_polygon,
+                        "rects": command.resize_rects,
                         "shape": command.resize_shape,
                         "width": command.resize_width,
                         "height": command.resize_height,

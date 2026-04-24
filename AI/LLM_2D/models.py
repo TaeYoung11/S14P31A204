@@ -20,6 +20,10 @@ class NewRoom(BaseModel):
     )
     width: int = Field(..., description="밀리미터(mm) 단위 정수")
     height: int = Field(..., description="밀리미터(mm) 단위 정수")
+    rects: Optional[list[dict]] = Field(
+        None,
+        description="rect 조합 리스트. shape_to_rects()가 자동 생성. 각 dict: {x: int, y: int, width: int, height: int} (mm 단위)",
+    )
     floor: int = Field(..., description="층 번호")
 
 
@@ -58,6 +62,10 @@ class FloorNLPCommand(BaseModel):
     )
     resize_height: Optional[int] = Field(
         None, description="밀리미터(mm) 단위 정수"
+    )
+    resize_rects: Optional[list[dict]] = Field(
+        None,
+        description="resize_room 시 rect 조합 리스트. shape_to_rects()가 자동 생성.",
     )
     apply_to_all: bool = Field(
         False, description="동일 이름 방 전체 적용 여부"

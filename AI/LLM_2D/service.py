@@ -135,9 +135,7 @@ async def parse_command(
             height = getattr(command.new_room, "height", None)
 
             if width and height:
-                rects = shape_to_rects(shape, width, height)
-                # TODO: rects 필드 추가 후 연결 예정
-                # command.new_room.rects = rects
+                command.new_room.rects = shape_to_rects(shape, width, height)
             else:
                 command.needs_clarification = True
                 command.clarification_question = "방 크기를 다시 알려주세요. 예: 4000x5000"
@@ -148,9 +146,7 @@ async def parse_command(
             height = getattr(command, "resize_height", None)
 
             if width and height:
-                rects = shape_to_rects(shape, width, height)
-                # TODO: resize_rects 필드 추가 후 연결 예정
-                # command.resize_rects = rects
+                command.resize_rects = shape_to_rects(shape, width, height)
             else:
                 command.needs_clarification = True
                 command.clarification_question = "변경할 방 크기를 다시 알려주세요. 예: 4000x5000"
