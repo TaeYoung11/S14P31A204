@@ -172,28 +172,9 @@ class IFCQueryEngine:
         return storey_name, space_name, space_long
 
     def _get_length_scale(self, model) -> float:
-        """IFC 단위(LENGTHUNIT)가 m인지 mm인지 판별하여 mm 변환 배율 반환"""
-        if not model:
-            return 1.0
-        try:
-            projects = model.by_type("IfcProject")
-            if not projects:
-                return 1.0
-            project = projects[0]
-            if not getattr(project, "UnitsInContext", None):
-                return 1.0
-            
-            for unit in getattr(project.UnitsInContext, "Units", []):
-                if unit.is_a("IfcSIUnit") and getattr(unit, "UnitType", "") == "LENGTHUNIT":
-                    prefix = getattr(unit, "Prefix", None)
-                    if prefix == "MILLI":
-                        return 1.0
-                    elif prefix == "CENTI":
-                        return 10.0
-                    elif prefix is None:
-                        return 1000.0
-        except Exception as e:
-            logger.warning(f"단위 스케일 파악 실패, 기본값(1.0) 사용: {e}")
+        """
+        팀 컨벤션에 따라 IFC 단위 변환(m/mm) 없이 무조건 mm(1.0) 배율로 고정하여 처리합니다.
+        """
         return 1.0
 
     # ── 요소 정보 변환 ────────────────────────────────────────────────────────
