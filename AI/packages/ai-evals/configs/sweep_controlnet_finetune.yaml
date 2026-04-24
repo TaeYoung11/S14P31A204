@@ -9,7 +9,8 @@
 #     --config packages/ai-evals/configs/sweep_controlnet_finetune.yaml \
 #     --controlnet
 #
-# 스윕 규모: 1 × 1 × 1 × 5 × 1 × 1 = 5 렌더/run (~GPU 1분)
+# 확정 파라미터로 input 1~3 전체 검증
+# 스윕 규모: 3 × 1 × 1 × 1 × 1 × 1 = 3 렌더/run (~GPU 1분 미만)
 
 model:
   id: SG161222/Realistic_Vision_V6.0_B1_noVAE
@@ -17,6 +18,8 @@ model:
 seed: 42
 
 fixtures:
+  - packages/ai-rendering/tests/fixtures/input/input (1).jpg
+  - packages/ai-rendering/tests/fixtures/input/input (2).jpg
   - packages/ai-rendering/tests/fixtures/input/input (3).jpg
 
 presets:
@@ -24,6 +27,6 @@ presets:
 
 sweep:
   strength: [0.67]
-  guidance_scale: [5, 7, 9, 11, 13]
+  guidance_scale: [7]
   controlnet_conditioning_scale: [0.3]
   num_inference_steps: [25]
