@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from ai_evals.runners.img2img_sweep import _enumerate_combos, encode_filename
+from unittest.mock import patch
+
+from ai_evals.runners.img2img_sweep import _enumerate_combos, encode_filename, main
 from ai_rendering.img2img import RenderParams
 
 
@@ -138,3 +140,92 @@ def test_enumerate_combos_fixture_path_preserved() -> None:
     _, _, fx_path, *_ = combos[0]
     assert isinstance(fx_path, Path)
     assert fx_path == Path("some/path/img.jpg")
+
+
+# ========== main() — controlnet mismatch 검증 ==========
+
+
+def test_main_errors_when_cn_scale_in_yaml_but_no_controlnet_flag(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """controlnet_conditioning_scale 있는 YAML + --controlnet 없음 → exit 2 + mismatch 메시지."""
+    cfg_file = tmp_path / "bad.yaml"
+    cfg_file.write_text(
+        "fixtures: []\n"
+        "presets: [scandinavian]\n"
+        "sweep:\n"
+        "  strength: [0.67]\n"
+        "  guidance_scale: [7]\n"
+        "  num_inference_steps: [25]\n"
+        "  controlnet_conditioning_scale: [0.3]\n",
+        encoding="utf-8",
+    )
+    result = main(["--config", str(cfg_file)])
+    assert result == 2
+    assert "controlnet_conditioning_scale" in capsys.readouterr().err
+
+
+def test_main_passes_mismatch_check_when_cn_scale_absent(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """controlnet_conditioning_scale 없는 YAML → mismatch 검증 통과 (fixture 단계에서 멈춰야 함)."""
+    cfg_file = tmp_path / "ok.yaml"
+    cfg_file.write_text(
+        "fixtures: [nonexistent_file.jpg]\n"
+        "presets: [scandinavian]\n"
+        "sweep:\n"
+        "  strength: [0.67]\n"
+        "  guidance_scale: [7]\n"
+        "  num_inference_steps: [25]\n",
+        encoding="utf-8",
+    )
+    main(["--config", str(cfg_file)])
+    # mismatch 에러 메시지가 없어야 함 — fixture missing 에러만 출력
+    assert "controlnet_conditioning_scale" not in capsys.readouterr().err
+
+
+# ========== main() — grid_rc 반환값 처리 검증 ==========
+
+
+def test_main_returns_nonzero_when_grid_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """make_grid_main 이 실패(non-zero)를 반환하면 main() 도 non-zero 반환 + 경고 출력."""
+    cfg_file = tmp_path / "cfg.yaml"
+    fixture = tmp_path / "img.jpg"
+    from PIL import Image
+    Image.new("RGB", (64, 48), "gray").save(fixture, format="JPEG")
+    cfg_file.write_text(
+        f"fixtures: [{fixture}]\n"
+        "presets: [scandinavian]\n"
+        "seed: 42\n"
+        "sweep:\n"
+        "  strength: [0.67]\n"
+        "  guidance_scale: [7]\n"
+        "  num_inference_steps: [25]\n",
+        encoding="utf-8",
+    )
+    with (
+        patch("ai_evals.runners.img2img_sweep.Img2ImgRenderer") as mock_renderer_cls,
+        patch("ai_evals.runners.img2img_sweep.make_grid_main", return_value=2) as mock_grid,
+        patch("ai_evals.runners.img2img_sweep._prune_old_runs"),
+        patch("ai_evals.runners.img2img_sweep.DEFAULT_OUTPUTS", tmp_path / "outputs"),
+    ):
+        from PIL import Image as _Image
+        from ai_rendering.img2img import RenderResult, RenderParams
+        mock_instance = mock_renderer_cls.return_value
+        mock_instance.device = "cpu"
+        mock_instance.model_id = "mock"
+        dummy_result = RenderResult(
+            image=_Image.new("RGB", (64, 48)),
+            params=RenderParams(prompt="x", seed=42),
+            input_size=(64, 48),
+            output_size=(64, 48),
+        )
+        mock_instance.render.return_value = dummy_result
+
+        result = main(["--config", str(cfg_file)])
+
+    mock_grid.assert_called_once()
+    assert result != 0
+    assert "grid generation failed" in capsys.readouterr().err

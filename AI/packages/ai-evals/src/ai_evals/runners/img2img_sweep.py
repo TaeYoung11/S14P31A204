@@ -234,6 +234,16 @@ def main(argv: list[str] | None = None) -> int:
     with open(args.config, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
+    # 사전 검증: controlnet_conditioning_scale 이 있으면 --controlnet 필수
+    if not args.controlnet and "controlnet_conditioning_scale" in config.get("sweep", {}):
+        print(
+            "[error] sweep config 에 controlnet_conditioning_scale 이 있지만 --controlnet 플래그가 없습니다.\n"
+            "        ControlNet 사용:      --controlnet 추가\n"
+            "        plain img2img 사용:   sweep 에서 controlnet_conditioning_scale 제거",
+            file=sys.stderr,
+        )
+        return 2
+
     # 사전 검증: 모든 fixture 파일 존재 확인
     for fx_str in config["fixtures"]:
         if not Path(fx_str).exists():
@@ -301,10 +311,12 @@ def main(argv: list[str] | None = None) -> int:
     _print_summary(manifest, total_duration)
 
     print("\n[grid] generating contact sheets...")
-    make_grid_main(["--run", str(run_dir)])
+    grid_rc = make_grid_main(["--run", str(run_dir)])
+    if grid_rc != 0:
+        print(f"[warn] grid generation failed (exit {grid_rc}) — renders saved, grids 미생성", file=sys.stderr)
 
     failed_count = sum(1 for e in manifest if e["status"] == "failed")
-    return 0 if failed_count == 0 else 1
+    return 0 if (failed_count == 0 and grid_rc == 0) else 1
 
 
 if __name__ == "__main__":
