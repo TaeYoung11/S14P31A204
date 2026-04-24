@@ -9,10 +9,12 @@ export default function LoginPage() {
     email,
     password,
     showPw,
+    rememberEmail,
     loginError,
     isLoggingIn,
     setEmail,
     setPassword,
+    setRememberEmail,
     togglePasswordVisibility,
     handleSubmit,
   } = useLoginPage()
@@ -66,6 +68,16 @@ export default function LoginPage() {
             </button>
           </div>
         </div>
+
+        <label className="flex items-center gap-2 text-sm text-[#6b7280]">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-[#d1d5db] text-[#4f46e5] focus:ring-[#4f46e5]/20"
+            checked={rememberEmail}
+            onChange={(e) => setRememberEmail(e.target.checked)}
+          />
+          아이디 기억하기
+        </label>
 
         {loginError && <p className="form-error">{(loginError as Error).message}</p>}
 
