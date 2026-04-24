@@ -1,4 +1,4 @@
-import { Navigate, Outlet } from 'react-router-dom'
+import { Outlet } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 
 // 인증된 사용자만 접근 가능한 라우트 가드
