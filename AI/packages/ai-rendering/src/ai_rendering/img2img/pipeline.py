@@ -5,7 +5,7 @@
         호출자용 하이퍼파라미터. 기본값은 config.py 에서 가져오므로 MR3의
         튜닝 후에도 한 파일만 고치면 됨.
         필드: prompt, negative_prompt, strength, guidance_scale,
-              num_inference_steps, seed.
+              num_inference_steps, seed, controlnet_conditioning_scale.
 
     RenderResult (dataclass)
         결과 래퍼. image (PIL), params, input_size, output_size 보관.
@@ -24,6 +24,11 @@
             - load_image → resize_for_sd → self.pipe(...) → RenderResult
             - seed가 있으면 torch.Generator 로 고정, 없으면 None (랜덤)
             - diffusers 쪽 실패는 모두 RenderError 로 래핑
+
+    ControlNetRenderer
+        ControlNet Canny + SD img2img 파이프라인.
+        Img2ImgRenderer와 동일한 render() 인터페이스.
+        render() 내부에서 extract_canny()로 control_image 자동 생성.
 
 MR2 에서 render_with_presets(source, preset_names, **overrides) 추가.
 """
@@ -48,7 +53,7 @@ from .config import (
     DEFAULT_STRENGTH,
 )
 from .exceptions import RenderError
-from .preprocess import ImageInput, load_image, resize_for_sd
+from .preprocess import ImageInput, extract_canny, load_image, resize_for_sd
 
 
 @dataclass
@@ -59,6 +64,7 @@ class RenderParams:
     guidance_scale: float = DEFAULT_GUIDANCE_SCALE
     num_inference_steps: int = DEFAULT_NUM_INFERENCE_STEPS
     seed: Optional[int] = None
+    controlnet_conditioning_scale: float = 0.8
 
 
 @dataclass
@@ -208,3 +214,134 @@ class Img2ImgRenderer:
                 params = replace(params, **overrides)
             results[name] = self.render(source, params)
         return results
+
+
+DEFAULT_CONTROLNET_MODEL_ID = "lllyasviel/control_v11p_sd15_canny"
+
+
+class ControlNetRenderer:
+    """ControlNet Canny + SD img2img 파이프라인.
+
+    Img2ImgRenderer와 동일한 render() 인터페이스를 제공.
+    render() 내부에서 extract_canny()로 control_image를 자동 생성하므로
+    호출자는 별도 전처리 불필요.
+    """
+
+    def __init__(
+        self,
+        model_id: str = DEFAULT_MODEL_ID,
+        controlnet_model_id: str = DEFAULT_CONTROLNET_MODEL_ID,
+        device: Optional[str] = None,
+        dtype: Optional[torch.dtype] = None,
+        warmup: bool = True,
+    ):
+        import torch as _torch
+        from diffusers import (
+            ControlNetModel,
+            DPMSolverMultistepScheduler,
+            StableDiffusionControlNetImg2ImgPipeline,
+        )
+
+        if device is None:
+            device = "cuda" if _torch.cuda.is_available() else "cpu"
+        if dtype is None:
+            is_cuda = _torch.device(device).type == "cuda"
+            dtype = _torch.float16 if is_cuda else _torch.float32
+
+        try:
+            controlnet = ControlNetModel.from_pretrained(
+                controlnet_model_id,
+                torch_dtype=dtype,
+            )
+        except Exception as e:
+            raise RenderError(f"failed to load ControlNet {controlnet_model_id}: {e}") from e
+
+        try:
+            pipe = StableDiffusionControlNetImg2ImgPipeline.from_pretrained(
+                model_id,
+                controlnet=controlnet,
+                torch_dtype=dtype,
+                safety_checker=None,
+                requires_safety_checker=False,
+            )
+        except Exception as e:
+            raise RenderError(f"failed to load model {model_id}: {e}") from e
+
+        try:
+            pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+                pipe.scheduler.config,
+                use_karras_sigmas=True,
+                algorithm_type="dpmsolver++",
+            )
+        except Exception as e:
+            raise RenderError(f"failed to swap scheduler: {e}") from e
+
+        try:
+            pipe.to(device)
+        except Exception as e:
+            raise RenderError(f"failed to move pipe to {device}: {e}") from e
+
+        self.model_id = model_id
+        self.controlnet_model_id = controlnet_model_id
+        self.device = device
+        self.dtype = dtype
+        self.pipe = pipe
+        self._torch = _torch
+
+        if warmup:
+            self._warmup()
+
+    def _warmup(self) -> None:
+        dummy = Image.new("RGB", (DEFAULT_LONG_SIDE, DEFAULT_LONG_SIDE), (128, 128, 128))
+        canny_dummy = extract_canny(dummy)
+        try:
+            self.pipe(
+                prompt="warmup",
+                image=dummy,
+                control_image=canny_dummy,
+                num_inference_steps=2,
+                strength=0.5,
+                guidance_scale=1.0,
+                controlnet_conditioning_scale=0.8,
+            )
+        except Exception as e:
+            raise RenderError(f"warmup failed: {e}") from e
+
+    def render(self, source: ImageInput, params: RenderParams) -> RenderResult:
+        """ControlNet Canny img2img 1회 추론.
+
+        extract_canny()로 control_image를 자동 생성. 호출자 전처리 불필요.
+        """
+        pil = load_image(source)
+        input_size = pil.size
+        prepared = resize_for_sd(pil)
+        control_image = extract_canny(prepared)
+
+        try:
+            if params.seed is None:
+                generator = None
+            else:
+                generator = self._torch.Generator(device=self.device).manual_seed(
+                    params.seed
+                )
+            out = self.pipe(
+                prompt=params.prompt,
+                image=prepared,
+                control_image=control_image,
+                negative_prompt=params.negative_prompt,
+                strength=params.strength,
+                guidance_scale=params.guidance_scale,
+                num_inference_steps=params.num_inference_steps,
+                controlnet_conditioning_scale=params.controlnet_conditioning_scale,
+                generator=generator,
+            )
+            image = out.images[0]
+        except Exception as e:
+            raise RenderError(f"render failed: {e}") from e
+
+        return RenderResult(
+            image=image,
+            params=params,
+            input_size=input_size,
+            output_size=image.size,
+        )

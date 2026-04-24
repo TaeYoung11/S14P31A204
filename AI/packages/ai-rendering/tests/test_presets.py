@@ -27,14 +27,28 @@ def preset_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # type: ignor
 
 
 def test_list_presets_returns_sorted() -> None:
-    assert presets.list_presets() == ["industrial", "japanese", "korean", "scandinavian"]
+    assert presets.list_presets() == ["industrial", "japanese", "scandinavian"]
 
 
 def test_load_preset_returns_renderparams() -> None:
     p = presets.load_preset("scandinavian")
     assert isinstance(p, RenderParams)
     assert p.prompt
-    assert p.strength == 0.7
+    assert p.strength == 0.67
+    assert p.controlnet_conditioning_scale == pytest.approx(0.3)
+
+
+def test_load_preset_base_preset_uses_base_params(
+    preset_dirs: tuple[Path, Path],
+) -> None:
+    params_dir, prompts_dir = preset_dirs
+    (params_dir / "base.yaml").write_text("strength: 0.65\n", encoding="utf-8")
+    (prompts_dir / "variant.yaml").write_text(
+        "base_preset: base\nprompt: variant prompt\n", encoding="utf-8"
+    )
+    p = presets.load_preset("variant")
+    assert p.prompt == "variant prompt"
+    assert p.strength == 0.65
 
 
 def test_load_preset_missing_raises() -> None:

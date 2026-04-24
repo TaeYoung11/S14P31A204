@@ -1,34 +1,32 @@
-# Img2img 파라미터 스윕 기본 설정
+# Img2img 파라미터 스윕 기본 설정 — Realistic Vision V6 기준
 #
 # 스윕 규모: len(fixtures) × len(presets) × strength × guidance × steps
-# 예: 4 × 3 × 4 × 3 × 1 = 144 렌더/run
+# 예: 4 × 4 × 5 × 3 × 1 = 240 렌더/run
 #
 # 사용법:
 #   uv run python -m ai_evals.runners.img2img_sweep \
 #     --config packages/ai-evals/configs/sweep_default.yaml
 
 model:
-  id: runwayml/stable-diffusion-v1-5
-  # Tier 2-F 체크포인트 교체 시 여기만 바꿈 (예: SG161222/Realistic_Vision_V6.0_B1_noVAE)
+  id: SG161222/Realistic_Vision_V6.0_B1_noVAE
 
 seed: 42
 
 # 평가용 입력 이미지 (repo root 상대 경로)
 # 다양성 기준으로 선정: 정면/3-4각도/복잡매싱/소형 중 4개
 fixtures:
-  - packages/ai-rendering/tests/fixtures/input/image (17).png
-  - packages/ai-rendering/tests/fixtures/input/image (18).png
-  - packages/ai-rendering/tests/fixtures/input/image (19).png
-  - packages/ai-rendering/tests/fixtures/input/image (20).png
+  - packages/ai-rendering/tests/fixtures/input/input (1).jpg
+  - packages/ai-rendering/tests/fixtures/input/input (2).jpg
+  - packages/ai-rendering/tests/fixtures/input/input (3).jpg
 
 presets:
   - scandinavian
   - industrial
   - japanese
-  - korean
 
 # 스윕할 파라미터 — itertools.product 로 조합 생성
+# A/B 결과 sweet spot ~0.70 기준으로 strength 범위 집중
 sweep:
-  strength: [0.5, 0.6, 0.7, 0.78]
-  guidance_scale: [7, 10, 12]
-  num_inference_steps: [30]
+  strength: [0.65, 0.68, 0.70, 0.72, 0.75]
+  guidance_scale: [7, 9, 11]
+  num_inference_steps: [25]

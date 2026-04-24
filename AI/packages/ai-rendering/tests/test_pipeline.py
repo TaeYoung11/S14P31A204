@@ -6,6 +6,7 @@ torch/diffusers 지연 임포트 덕에 의존성 미설치에서도 import 가�
 
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from ai_rendering.img2img import RenderParams, RenderResult, config
@@ -28,6 +29,7 @@ def test_public_api_imports() -> None:
 
     expected = {
         "Img2ImgRenderer",
+        "ControlNetRenderer",
         "RenderParams",
         "RenderResult",
         "RenderError",
@@ -103,7 +105,7 @@ def test_render_result_save_accepts_str_path(tmp_path: Path) -> None:
 
 def test_renderer_render_returns_render_result(mock_renderer, input_dir: Path) -> None:  # type: ignore[no-untyped-def]
     """mocked pipe 로 render() 호출 시 RenderResult 반환, pipe 1회 호출."""
-    src = input_dir / "image (17).png"
+    src = input_dir / "input (1).jpg"
     result = mock_renderer.render(src, RenderParams(prompt="test"))
     assert isinstance(result, RenderResult)
     assert result.input_size[0] > 0
@@ -114,7 +116,7 @@ def test_renderer_render_returns_render_result(mock_renderer, input_dir: Path) -
 
 def test_render_with_presets_iterates_all_names(mock_renderer, input_dir: Path) -> None:  # type: ignore[no-untyped-def]
     """3 프리셋 전부 처리 → dict 키 일치 + pipe 3회 호출."""
-    src = input_dir / "image (17).png"
+    src = input_dir / "input (1).jpg"
     results = mock_renderer.render_with_presets(
         src, preset_names=["scandinavian", "industrial", "japanese"]
     )
@@ -124,8 +126,62 @@ def test_render_with_presets_iterates_all_names(mock_renderer, input_dir: Path) 
 
 def test_render_with_presets_applies_overrides(mock_renderer, input_dir: Path) -> None:  # type: ignore[no-untyped-def]
     """overrides (seed=42 등) 가 각 RenderResult.params 에 반영되어야."""
-    src = input_dir / "image (17).png"
+    src = input_dir / "input (1).jpg"
     results = mock_renderer.render_with_presets(
         src, preset_names=["scandinavian"], seed=42
     )
     assert results["scandinavian"].params.seed == 42
+
+
+# ========== ControlNetRenderer ==========
+
+
+def test_controlnet_renderer_has_render_method() -> None:
+    from ai_rendering.img2img import ControlNetRenderer
+
+    assert hasattr(ControlNetRenderer, "render")
+    assert callable(ControlNetRenderer.render)
+
+
+def test_controlnet_renderer_render_returns_render_result(
+    mock_controlnet_renderer, input_dir: Path  # type: ignore[no-untyped-def]
+) -> None:
+    """mocked pipe 로 render() 호출 시 RenderResult 반환, pipe 1회 호출."""
+    src = input_dir / "input (1).jpg"
+    result = mock_controlnet_renderer.render(src, RenderParams(prompt="test", seed=42))
+    assert isinstance(result, RenderResult)
+    assert result.input_size[0] > 0
+    assert result.output_size == (768, 448)
+    mock_controlnet_renderer.pipe.assert_called_once()
+
+
+def test_controlnet_renderer_passes_control_image_to_pipe(
+    mock_controlnet_renderer, input_dir: Path  # type: ignore[no-untyped-def]
+) -> None:
+    """pipe 호출 시 control_image 키워드 인자가 반드시 전달되어야."""
+    src = input_dir / "input (1).jpg"
+    mock_controlnet_renderer.render(src, RenderParams(prompt="test", seed=1))
+    call_kwargs = mock_controlnet_renderer.pipe.call_args.kwargs
+    assert "control_image" in call_kwargs
+    assert call_kwargs["control_image"] is not None
+
+
+def test_controlnet_renderer_passes_conditioning_scale_to_pipe(
+    mock_controlnet_renderer, input_dir: Path  # type: ignore[no-untyped-def]
+) -> None:
+    """RenderParams.controlnet_conditioning_scale 값이 pipe 에 그대로 전달되어야."""
+    src = input_dir / "input (1).jpg"
+    params = RenderParams(prompt="test", seed=1, controlnet_conditioning_scale=0.3)
+    mock_controlnet_renderer.render(src, params)
+    call_kwargs = mock_controlnet_renderer.pipe.call_args.kwargs
+    assert call_kwargs["controlnet_conditioning_scale"] == pytest.approx(0.3)
+
+
+def test_controlnet_renderer_result_params_preserve_cn_scale(
+    mock_controlnet_renderer, input_dir: Path  # type: ignore[no-untyped-def]
+) -> None:
+    """render() 결과 RenderResult.params 에 controlnet_conditioning_scale 보존."""
+    src = input_dir / "input (1).jpg"
+    params = RenderParams(prompt="test", seed=1, controlnet_conditioning_scale=0.6)
+    result = mock_controlnet_renderer.render(src, params)
+    assert result.params.controlnet_conditioning_scale == pytest.approx(0.6)

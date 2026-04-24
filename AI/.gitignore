@@ -405,11 +405,6 @@ $RECYCLE.BIN/
 *.gguf
 models/
 
-# 임시 테스트 스크립트
-test_*.py
-scratch_*.py
-!**/tests/test_*.py
-
 # 로그 디렉토리
 logs/
 

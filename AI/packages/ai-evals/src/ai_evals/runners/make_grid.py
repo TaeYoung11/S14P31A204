@@ -39,14 +39,16 @@ def _load_manifest(run_dir: Path) -> list[dict[str, Any]]:
 
 def _group_by_preset_fixture(
     entries: list[dict[str, Any]],
-) -> dict[tuple[str, int, int], list[dict[str, Any]]]:
-    """(preset, fixture_idx, seed) 별로 entries 묶음.
+) -> dict[tuple[str, int, int, float], list[dict[str, Any]]]:
+    """(preset, fixture_idx, seed, controlnet_conditioning_scale) 별로 entries 묶음.
 
-    seed 를 키에 포함해 seed 가 다른 entry 가 같은 격자 셀을 덮어쓰는 문제 방지.
+    cn_scale 이 다른 entry 가 같은 격자 셀을 덮어쓰지 않도록 키에 포함.
+    plain img2img 는 모든 entry 의 cn_scale 이 동일(0.8)하므로 동작 변화 없음.
     """
-    groups: defaultdict[tuple[str, int, int], list[dict[str, Any]]] = defaultdict(list)
+    groups: defaultdict[tuple[str, int, int, float], list[dict[str, Any]]] = defaultdict(list)
     for e in entries:
-        key = (e["preset"], e["fixture_idx"], int(e["params"]["seed"]))
+        cn_scale = float(e["params"].get("controlnet_conditioning_scale", 0.8))
+        key = (e["preset"], e["fixture_idx"], int(e["params"]["seed"]), cn_scale)
         groups[key].append(e)
     return dict(groups)
 
@@ -139,6 +141,12 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="스윕 결과 디렉토리 (outputs/run_YYYYMMDD_HHMMSS)",
     )
+    parser.add_argument(
+        "--fixture",
+        type=int,
+        default=None,
+        help="특정 fixture index 만 처리 (예: --fixture 0 → f0 만)",
+    )
     args = parser.parse_args(argv)
 
     if not args.run.exists() or not args.run.is_dir():
@@ -156,13 +164,19 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     groups = _group_by_preset_fixture(manifest)
+    if args.fixture is not None:
+        groups = {k: v for k, v in groups.items() if k[1] == args.fixture}
     results_dir = args.run / "results"
     grids_dir = args.run / "grids"
     grids_dir.mkdir(exist_ok=True)
 
-    for (preset, fx_idx, seed), entries in sorted(groups.items()):
+    distinct_cn_scales = {k[3] for k in groups}
+    multi_cn = len(distinct_cn_scales) > 1
+
+    for (preset, fx_idx, seed, cn_scale), entries in sorted(groups.items()):
         grid = _render_grid(entries, results_dir)
-        out_path = grids_dir / f"grid_{preset}_f{fx_idx}_seed{seed:05d}.png"
+        cn_part = f"_cn{int(round(cn_scale * 10)):02d}" if multi_cn else ""
+        out_path = grids_dir / f"grid_{preset}_f{fx_idx}_seed{seed:05d}{cn_part}.png"
         grid.save(out_path, format="PNG")
         size_kb = out_path.stat().st_size / 1024
         print(

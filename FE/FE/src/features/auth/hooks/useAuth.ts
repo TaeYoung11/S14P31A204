@@ -12,6 +12,7 @@ export const useAuth = () => {
     queryFn: () => authService.getMe(token!),
     enabled: !!token,
     retry: false,
+    staleTime: 1000 * 60 * 5,
   })
 
   const loginMutation = useMutation({
@@ -19,11 +20,7 @@ export const useAuth = () => {
     onSuccess: ({ access_token, user }) => {
       setToken(access_token)
       setUser(user)
-      if (user.user_type === 'CLIENT') {
-        navigate('/projects')
-      } else {
-        navigate('/projects')
-      }
+      navigate('/projects')
     },
   })
 
