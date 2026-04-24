@@ -166,7 +166,7 @@ Store는 상태를 저장하고 업데이트하는 역할만 한다.
 API 호출, 비즈니스 로직, 사이드이펙트가 들어가면 안 된다.
 
 ```typescript
-// stores/projectStore.ts
+// shared/stores/projectStore.ts
 interface ProjectStore {
   currentProject: Project | null
   setCurrentProject: (project: Project | null) => void  // 단순 setter
@@ -186,7 +186,7 @@ export const useProjectStore = create<ProjectStore>()(
 
 **스토어 분리 (도메인별):**
 ```
-stores/
+shared/stores/
 ├── authStore.ts        → user, token
 ├── projectStore.ts     → currentProject
 ├── viewerStore.ts      → selectedElementId, activeTool, presence, locks, previews, authoringDraft
@@ -198,6 +198,7 @@ stores/
 - action은 단순 setter만 (복잡한 로직 금지)
 - store 안에서 다른 store를 import 금지
 - persist 대상: authStore(user, token), projectStore(currentProject)
+- import 경로: `@/shared/stores/xxxStore`
 
 ---
 
@@ -343,25 +344,45 @@ STOMP 연결은 `useWebSocket` 훅 하나에서만 관리한다.
 
 ```
 src/
-├── app/                   # 라우트 페이지 — 레이아웃과 조합만
-│   ├── (auth)/
-│   └── (main)/
-├── components/            # UI 렌더링만
-│   ├── viewer-3d/         # @thatopen 3D 뷰어
-│   ├── planner-2d/        # Konva 2D 평면도
-│   ├── diagram-bubble/    # D3 버블 다이어그램
-│   ├── comment-pin/       # 댓글 핀
-│   ├── project/           # 프로젝트 관리
-│   └── common/            # 2곳 이상에서 쓰는 공통 컴포넌트
-├── hooks/                 # 비즈니스 로직 (TanStack Query)
-├── services/              # Mock ↔ API 전환점
-├── mocks/                 # Mock 데이터 (API 완성 후 삭제)
-├── stores/                # Zustand 상태 저장
-├── types/                 # TypeScript 타입
-├── lib/
-│   ├── axios.ts           # axios 인스턴스 + JWT 인터셉터
-│   └── stomp.ts           # STOMP 클라이언트
-└── utils/                 # 순수 함수만 (사이드이펙트 없음)
+├── pages/                 # 라우트 페이지 — 레이아웃과 조합만
+│   ├── auth/
+│   │   ├── LoginPage.tsx
+│   │   └── RegisterPage.tsx
+│   ├── projects/
+│   │   ├── ProjectListPage.tsx
+│   │   ├── ProjectNewPage.tsx
+│   │   └── SiteInfoPage.tsx
+│   ├── editor/
+│   │   └── EditorPage.tsx
+│   ├── renders/
+│   │   └── RendersPage.tsx
+│   ├── view/
+│   │   └── ViewerPage.tsx
+│   ├── invite/
+│   │   └── InviteAcceptPage.tsx
+│   └── NotFoundPage.tsx
+├── features/              # 도메인별 기능 묶음
+│   └── auth/
+│       ├── hooks/         # useAuth 등 비즈니스 로직
+│       ├── services/      # Mock ↔ API 전환점
+│       └── mocks/         # Mock 데이터 (API 완성 후 삭제)
+└── shared/                # 누구나 import 가능한 공유 자원
+    ├── components/        # 공통 UI 컴포넌트 (2곳 이상에서 사용)
+    │   ├── ProtectedRoute.tsx
+    │   ├── Modal.tsx
+    │   ├── Spinner.tsx
+    │   └── ...
+    ├── stores/            # Zustand 전역 상태
+    │   ├── authStore.ts
+    │   ├── projectStore.ts
+    │   ├── viewerStore.ts
+    │   ├── chatStore.ts
+    │   └── notificationStore.ts
+    ├── lib/
+    │   ├── axios.ts       # axios 인스턴스 + JWT 인터셉터
+    │   └── stomp.ts       # STOMP 클라이언트
+    ├── types/             # TypeScript 타입
+    └── utils/             # 순수 함수만 (사이드이펙트 없음)
 ```
 
 ---
