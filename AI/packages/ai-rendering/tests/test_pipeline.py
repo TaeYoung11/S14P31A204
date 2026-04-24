@@ -28,6 +28,7 @@ def test_public_api_imports() -> None:
 
     expected = {
         "Img2ImgRenderer",
+        "ControlNetRenderer",
         "RenderParams",
         "RenderResult",
         "RenderError",
@@ -103,7 +104,7 @@ def test_render_result_save_accepts_str_path(tmp_path: Path) -> None:
 
 def test_renderer_render_returns_render_result(mock_renderer, input_dir: Path) -> None:  # type: ignore[no-untyped-def]
     """mocked pipe 로 render() 호출 시 RenderResult 반환, pipe 1회 호출."""
-    src = input_dir / "image (17).png"
+    src = input_dir / "input (1).jpg"
     result = mock_renderer.render(src, RenderParams(prompt="test"))
     assert isinstance(result, RenderResult)
     assert result.input_size[0] > 0
@@ -114,7 +115,7 @@ def test_renderer_render_returns_render_result(mock_renderer, input_dir: Path) -
 
 def test_render_with_presets_iterates_all_names(mock_renderer, input_dir: Path) -> None:  # type: ignore[no-untyped-def]
     """3 프리셋 전부 처리 → dict 키 일치 + pipe 3회 호출."""
-    src = input_dir / "image (17).png"
+    src = input_dir / "input (1).jpg"
     results = mock_renderer.render_with_presets(
         src, preset_names=["scandinavian", "industrial", "japanese"]
     )
@@ -124,7 +125,7 @@ def test_render_with_presets_iterates_all_names(mock_renderer, input_dir: Path) 
 
 def test_render_with_presets_applies_overrides(mock_renderer, input_dir: Path) -> None:  # type: ignore[no-untyped-def]
     """overrides (seed=42 등) 가 각 RenderResult.params 에 반영되어야."""
-    src = input_dir / "image (17).png"
+    src = input_dir / "input (1).jpg"
     results = mock_renderer.render_with_presets(
         src, preset_names=["scandinavian"], seed=42
     )
