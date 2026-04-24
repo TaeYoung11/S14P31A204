@@ -134,7 +134,7 @@ async def parse_command(
             width = getattr(command.new_room, "width", None)
             height = getattr(command.new_room, "height", None)
 
-            if width and height:
+            if width is not None and height is not None:
                 command.new_room.rects = shape_to_rects(shape, width, height)
             else:
                 command.needs_clarification = True
@@ -145,7 +145,7 @@ async def parse_command(
             width = getattr(command, "resize_width", None)
             height = getattr(command, "resize_height", None)
 
-            if width and height:
+            if width is not None and height is not None:
                 command.resize_rects = shape_to_rects(shape, width, height)
             else:
                 command.needs_clarification = True

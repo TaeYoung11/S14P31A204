@@ -21,7 +21,7 @@ def to_ifc_commands(
         return CommandBatch(
             commands=[],
             requires_clarification=True,
-            clarification_question=command.clarification_question,
+            clarification_question=command.clarification_question or "더 구체적으로 설명해주세요.",
         )
 
     if command.action == "add_room":
@@ -30,6 +30,13 @@ def to_ifc_commands(
                 commands=[],
                 requires_clarification=True,
                 clarification_question="추가할 방 정보가 부족합니다.",
+            )
+
+        if command.new_room.rects is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question="방 형태와 크기 정보가 부족합니다. 예: 직사각형 4000x5000",
             )
 
         return CommandBatch(
@@ -77,6 +84,13 @@ def to_ifc_commands(
                 commands=[],
                 requires_clarification=True,
                 clarification_question=f"'{command.target_room_name}' 방을 현재 IFC에서 찾을 수 없습니다.",
+            )
+
+        if command.resize_rects is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question="변경할 방 형태와 크기 정보가 부족합니다. 예: L자 6000x8000",
             )
 
         return CommandBatch(
