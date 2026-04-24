@@ -1,0 +1,30 @@
+# ControlNet Canny 파라미터 스윕 — Realistic Vision V6
+#
+# 목적: plain img2img 대비 ControlNet Canny 구도 보존 효과 확인
+#       conditioning_scale 최적값 탐색
+#
+# 사용법:
+#   uv run python -m ai_evals.runners.img2img_sweep \
+#     --config packages/ai-evals/configs/sweep_controlnet.yaml \
+#     --controlnet
+#
+# 스윕 규모: fixtures × presets × strength × guidance × conditioning_scale × steps
+# 1 × 2 × 2 × 2 × 3 × 1 = 24 렌더/run (~GPU 5분)
+
+model:
+  id: SG161222/Realistic_Vision_V6.0_B1_noVAE
+
+seed: 42
+
+fixtures:
+  - packages/ai-rendering/tests/fixtures/input/input (1).jpg
+  - packages/ai-rendering/tests/fixtures/input/input (2).jpg
+
+presets:
+  - scandinavian
+
+sweep:
+  strength: [0.65, 0.70]
+  guidance_scale: [7, 9]
+  controlnet_conditioning_scale: [0.3, 0.6, 0.9, 1.2]
+  num_inference_steps: [25]

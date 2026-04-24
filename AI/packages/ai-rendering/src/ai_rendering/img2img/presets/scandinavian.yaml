@@ -1,6 +1,7 @@
 # 북유럽 스타일 건물 외관 렌더링 파라미터.
 # 프롬프트 자산은 prompts/tasks/rendering/img2img/v1/presets/scandinavian.yaml 에서 관리.
 
-strength: 0.7
-guidance_scale: 9.5
+strength: 0.67
+guidance_scale: 7
 num_inference_steps: 25
+controlnet_conditioning_scale: 0.3
