@@ -1,8 +1,8 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { useAuthStore } from './shared/store/authStore'
+import { useAuthStore } from '@/shared/stores/authStore'
 import { ProtectedRoute } from './shared/components/ProtectedRoute'
-import LoginPage from './pages/LoginPage'
-import RegisterPage from './pages/RegisterPage'
+import LoginPage from './pages/auth/LoginPage'
+import RegisterPage from './pages/auth/RegisterPage'
 import ProjectListPage from './pages/projects/ProjectListPage'
 import ProjectNewPage from './pages/projects/ProjectNewPage'
 import SiteInfoPage from './pages/projects/SiteInfoPage'
@@ -12,9 +12,9 @@ import ViewerPage from './pages/view/ViewerPage'
 import InviteAcceptPage from './pages/invite/InviteAcceptPage'
 import NotFoundPage from './pages/NotFoundPage'
 
-// 로그인 여부에 따라 /projects 또는 /login 으로 리다이렉트
 function RootRedirect() {
-  return <Navigate to="/projects" replace />
+  const token = useAuthStore((state) => state.token)
+  return <Navigate to={token ? '/projects' : '/login'} replace />
 }
 
 export default function App() {
@@ -23,13 +23,11 @@ export default function App() {
       <Routes>
         <Route path="/" element={<RootRedirect />} />
 
-        {/* 비인증 공개 라우트 */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/view/:token" element={<ViewerPage />} />
         <Route path="/invite/accept" element={<InviteAcceptPage />} />
 
-        {/* 인증 필요 라우트 */}
         <Route element={<ProtectedRoute />}>
           <Route path="/projects" element={<ProjectListPage />} />
           <Route path="/projects/new" element={<ProjectNewPage />} />
@@ -38,7 +36,6 @@ export default function App() {
           <Route path="/projects/:projectId/renders" element={<RendersPage />} />
         </Route>
 
-        {/* 존재하지 않는 경로 */}
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </BrowserRouter>

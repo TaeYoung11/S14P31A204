@@ -124,6 +124,39 @@ body {
 }
 
 /* =====================
+   AUTH LAYOUT (left panel)
+   ===================== */
+.auth-panel-left {
+  background: linear-gradient(160deg, #e8e4f5 0%, #dfd9f0 20%, #eae6f3 40%, #f0eff5 60%, #f5f5f5 100%);
+  @apply relative hidden overflow-hidden lg:flex lg:w-[54%] lg:flex-col lg:px-8 lg:py-6;
+}
+
+.auth-logo-text {
+  @apply mb-8 shrink-0 text-base font-semibold tracking-tight text-[#111827];
+}
+
+.auth-hero-title {
+  @apply mb-4 text-[2.35rem] font-bold leading-[1.15] tracking-tight text-[#111827] xl:text-[2.55rem];
+}
+
+.auth-hero-desc {
+  @apply mb-6 max-w-md text-sm leading-relaxed text-[#6b7280];
+}
+
+.auth-hero-img-wrapper {
+  @apply w-full max-w-[420px] overflow-hidden rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.1)] xl:max-w-[460px];
+}
+
+.auth-keyword {
+  @apply text-xs font-semibold uppercase tracking-[0.2em] text-[#9ca3af];
+}
+
+.auth-watermark {
+  @apply select-none text-[4rem] font-bold leading-none tracking-tight text-[#e5e7eb];
+  opacity: 0.5;
+}
+
+/* =====================
    AUTH FORM ELEMENTS
    ===================== */
 .auth-label {

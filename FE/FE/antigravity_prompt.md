@@ -24,61 +24,52 @@ UI는 DESIGN.md, 코드 규칙은 AGENT.md, 기능 범위는 REQUIREMENTS.md 기
 
 ```json
 {
-  "dependencies": {
+"dependencies": {
+    "@stomp/stompjs": "^7.3.0",
+    "@tanstack/react-query": "^5.99.2",
+    "@tanstack/react-query-devtools": "^5.99.2",
+    "@thatopen/components": "^3.4.0",
+    "@thatopen/components-front": "^3.4.0",
+    "@thatopen/fragments": "^3.4.0",
+    "axios": "^1.15.2",
+    "camera-controls": "3.1.2",
+    "clsx": "^2.1.1",
+    "d3": "^7.9.0",
+    "html2canvas": "^1.4.1",
+    "immer": "^10.2.0",
+    "jspdf": "^2.5.2",
+    "konva": "^9.3.22",
+    "lucide-react": "^0.451.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "typescript": "^5.6.2",
-
-    "vite": "^5.4.8",
-    "@vitejs/plugin-react": "^4.3.2",
-
-    "react-router-dom": "^6.28.0",
-
-    "@thatopen/components": "3.4.0",
-    "@thatopen/components-front": "3.4.0",
-    "@thatopen/fragments": "3.4.0",
-    "three": "0.182.0",
-    "web-ifc": "0.0.77",
-    "camera-controls": "3.1.2",
-
-    "d3": "^7.9.0",
-    "konva": "^9.3.0",
-    "react-konva": "^18.2.10",
-
-    "zustand": "^5.0.0",
-    "immer": "^10.1.1",
-
-    "@tanstack/react-query": "^5.56.0",
-    "@tanstack/react-query-devtools": "^5.56.0",
-    "axios": "^1.7.0",
-
-    "@stomp/stompjs": "^7.0.0",
+    "react-hotkeys-hook": "^4.6.2",
+    "react-konva": "^18.2.14",
+    "react-router-dom": "^6.30.3",
     "sockjs-client": "^1.6.1",
-
-    "react-hotkeys-hook": "^4.5.0",
-
-    "tailwindcss": "^3.4.13",
-    "tailwind-merge": "^2.5.3",
-    "clsx": "^2.1.1",
-    "lucide-react": "^0.451.0",
-
-    "jspdf": "^2.5.1",
-    "html2canvas": "^1.4.1",
-
-    "zustand": "^5.0.0"
+    "tailwind-merge": "^2.6.1",
+    "tailwindcss": "^3.4.19",
+    "three": "^0.182.0",
+    "web-ifc": "^0.0.77",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@types/react": "^18.3.10",
-    "@types/react-dom": "^18.3.0",
-    "@types/three": "0.182.0",
+    "@eslint/js": "^10.0.1",
     "@types/d3": "^7.4.3",
+    "@types/node": "^25.6.0",
+    "@types/react": "^18.3.28",
+    "@types/react-dom": "^18.3.7",
     "@types/sockjs-client": "^1.5.4",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.47"
-  },
-  "overrides": {
-    "three": "0.182.0",
-    "camera-controls": "3.1.2"
+    "@types/three": "0.182.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.5.0",
+    "eslint": "^10.2.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.5.0",
+    "postcss": "^8.5.10",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.0",
+    "vite": "^5.4.21"
   }
 }
 ```
@@ -111,33 +102,36 @@ UI는 DESIGN.md, 코드 규칙은 AGENT.md, 기능 범위는 REQUIREMENTS.md 기
 
 ```
 src/
-├── app/                      # 라우트 페이지 (로직 없음)
-│   ├── (auth)/
-│   │   ├── login/page.tsx
-│   │   └── register/page.tsx
-│   └── (main)/
-│       ├── projects/page.tsx
-│       └── projects/[id]/
-│           ├── page.tsx
-│           ├── bubble/page.tsx
-│           ├── floor/page.tsx
-│           └── viewer/page.tsx
-├── components/
-│   ├── viewer-3d/            # @thatopen 3D 뷰어
-│   ├── planner-2d/           # Konva 2D 평면도
-│   ├── diagram-bubble/       # D3 버블 다이어그램
-│   ├── comment-pin/          # 댓글 핀
-│   ├── project/              # 프로젝트 관리
-│   └── common/               # 공통 컴포넌트
-├── hooks/                    # TanStack Query 훅
-├── services/                 # Service Layer (mock ↔ API 전환점)
-├── mocks/                    # Mock 데이터 (API 완성 후 삭제)
-├── stores/                   # Zustand + Immer
-├── types/                    # TypeScript 타입
-├── lib/
-│   ├── axios.ts              # axios 인스턴스 + JWT 인터셉터
-│   └── stomp.ts              # STOMP 클라이언트 설정
-└── utils/
+├── pages/                    # 라우트 페이지 (로직 없음)
+│   ├── auth/
+│   │   ├── LoginPage.tsx
+│   │   └── RegisterPage.tsx
+│   ├── projects/
+│   │   ├── ProjectListPage.tsx
+│   │   ├── ProjectNewPage.tsx
+│   │   └── SiteInfoPage.tsx
+│   ├── editor/
+│   │   └── EditorPage.tsx
+│   ├── renders/
+│   │   └── RendersPage.tsx
+│   ├── view/
+│   │   └── ViewerPage.tsx
+│   ├── invite/
+│   │   └── InviteAcceptPage.tsx
+│   └── NotFoundPage.tsx
+├── features/                 # 도메인별 기능 묶음
+│   └── auth/
+│       ├── hooks/            # useAuth 등 비즈니스 로직
+│       ├── services/         # Service Layer (mock ↔ API 전환점)
+│       └── mocks/            # Mock 데이터 (API 완성 후 삭제)
+└── shared/                   # 누구나 import 가능한 공유 자원
+    ├── components/           # 공통 UI 컴포넌트
+    ├── stores/               # Zustand + Immer 전역 상태
+    ├── lib/
+    │   ├── axios.ts          # axios 인스턴스 + JWT 인터셉터
+    │   └── stomp.ts          # STOMP 클라이언트 설정
+    ├── types/                # TypeScript 타입
+    └── utils/
 ```
 
 ---
@@ -381,6 +375,8 @@ const useViewerStore = create<ViewerStore>((set) => ({
 ```
 
 ### 스토어 분리
+모두 `shared/stores/` 아래에 위치. import 경로: `@/shared/stores/xxxStore`
+
 - `authStore`: user, token
 - `projectStore`: currentProject
 - `viewerStore`: selectedElementId, selectedElementProperties, modelRevision, authoringSession, presence, locks, previews, activeTool, activeStoreyGuid, authoringDraft
