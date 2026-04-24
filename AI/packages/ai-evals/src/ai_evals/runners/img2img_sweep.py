@@ -49,10 +49,12 @@ def encode_filename(preset: str, params: RenderParams, fixture_idx: int) -> str:
     형식: {preset}_s{strength*100:03d}_g{guidance*10:03d}_step{steps:02d}_seed{seed:05d}_f{idx}.png
     예:   scandinavian_s050_g070_step30_seed00042_f0.png
     """
+    if params.seed is None:
+        raise ValueError("seed must be set before encoding filename")
     s = int(round(params.strength * 100))
     g = int(round(params.guidance_scale * 10))
     steps = params.num_inference_steps
-    seed = params.seed if params.seed is not None else 0
+    seed = params.seed
     return (
         f"{preset}"
         f"_s{s:03d}"
