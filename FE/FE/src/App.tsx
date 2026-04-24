@@ -14,8 +14,8 @@ import NotFoundPage from './pages/NotFoundPage'
 
 // 로그인 여부에 따라 /projects 또는 /login 으로 리다이렉트
 function RootRedirect() {
-  const token = useAuthStore((s) => s.token)
   return <Navigate to="/projects" replace />
+}
 
 export default function App() {
   return (
