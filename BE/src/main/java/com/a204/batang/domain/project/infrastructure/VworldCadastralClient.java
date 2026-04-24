@@ -2,19 +2,25 @@ package com.a204.batang.domain.project.infrastructure;
 
 import com.a204.batang.domain.project.infrastructure.dto.VworldCadastralInfo;
 import com.fasterxml.jackson.databind.JsonNode;
+import io.netty.channel.ChannelOption;
+import io.netty.handler.timeout.ReadTimeoutHandler;
+import io.netty.handler.timeout.WriteTimeoutHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.http.client.HttpClient;
 
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Iterator;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 /**
@@ -73,15 +79,27 @@ public class VworldCadastralClient {
     public Optional<VworldCadastralInfo> fetchByCoordinates(double latitude, double longitude, String emdCd) {
         String normalizedApiKey = normalizeApiKey(apiKey);
         if (!StringUtils.hasText(normalizedApiKey)) {
-            log.warn("VWorld API 키가 비어 있어 지적도 조회를 건너뜁니다. VWORLD_API_KEY를 확인하세요.");
+            log.warn("VWorld API 키가 비어 있어 지적도 조회를 건너뜁니다. VWORLD_API_KEY를 확인해 주세요.");
             return Optional.empty();
         }
 
         try {
+            long effectiveTimeoutSeconds = normalizeTimeoutSeconds(timeoutSeconds);
+            Duration timeout = Duration.ofSeconds(effectiveTimeoutSeconds);
+            int connectTimeoutMillis = (int) Math.min(timeout.toMillis(), Integer.MAX_VALUE);
+
+            HttpClient httpClient = HttpClient.create()
+                    .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, connectTimeoutMillis)
+                    .responseTimeout(timeout)
+                    .doOnConnected(connection -> connection
+                            .addHandlerLast(new ReadTimeoutHandler(effectiveTimeoutSeconds, TimeUnit.SECONDS))
+                            .addHandlerLast(new WriteTimeoutHandler(effectiveTimeoutSeconds, TimeUnit.SECONDS)));
+
             Optional<String> normalizedEmdCd = normalizeEmdCd(emdCd);
             String geometry = String.format("POINT(%s %s)", longitude, latitude);
 
             WebClient.RequestHeadersSpec<?> requestSpec = webClientBuilder.baseUrl(baseUrl)
+                    .clientConnector(new ReactorClientHttpConnector(httpClient))
                     .build()
                     .get()
                     .uri(uriBuilder -> uriBuilder
@@ -101,19 +119,21 @@ public class VworldCadastralClient {
                 requestSpec = requestSpec.header(HttpHeaders.REFERER, referer.trim());
             }
 
-            log.info("VWorld 지적도 조회 요청. endpoint={}{}?apiKey=****, geometry={}, emdCd={}, referer={}, srsName={}, propertyName={}",
+            log.info(
+                    "VWorld 지적도 조회 요청. endpoint={}{}?apiKey=****, geometry={}, emdCd={}, referer={}, srsName={}, propertyName={}",
                     baseUrl,
                     cadastralPath,
                     geometry,
                     normalizedEmdCd.orElse("(없음)"),
                     StringUtils.hasText(referer) ? referer : "(없음)",
                     srsName,
-                    propertyName);
+                    propertyName
+            );
 
             JsonNode root = requestSpec
                     .retrieve()
                     .bodyToMono(JsonNode.class)
-                    .block(Duration.ofSeconds(timeoutSeconds));
+                    .block(timeout);
 
             if (root == null) {
                 log.warn("VWorld 응답 본문이 비어 있습니다. latitude={}, longitude={}, emdCd={}",
@@ -135,7 +155,7 @@ public class VworldCadastralClient {
                         StringUtils.hasText(referer) ? referer : "(없음)");
 
                 if (headerResultMsg.orElse("").contains("referer")) {
-                    log.error("등록된 URL과 Referer가 다릅니다. VWORLD_REFERER를 VWorld에 등록한 URL과 동일하게 설정하세요.");
+                    log.error("등록한 URL과 Referer가 다릅니다. VWORLD_REFERER를 VWorld 등록 URL과 동일하게 설정해 주세요.");
                 }
                 return Optional.empty();
             }
@@ -153,7 +173,7 @@ public class VworldCadastralClient {
                         normalizedEmdCd.orElse("(없음)"));
 
                 if ("INCORRECT_KEY".equalsIgnoreCase(errorCode.orElse(""))) {
-                    log.error("VWorld 인증키가 거부되었습니다. 발급키 타입/허용 URL·IP/실행환경 반영 여부를 확인하세요.");
+                    log.error("VWorld 인증키가 거절되었습니다. 발급 키의 허용 URL/IP 및 실행 환경을 확인해 주세요.");
                 }
                 return Optional.empty();
             }
@@ -328,6 +348,10 @@ public class VworldCadastralClient {
 
         String code = resultCode.get().trim();
         return !("0".equals(code) || "00".equals(code) || "200".equals(code));
+    }
+
+    private long normalizeTimeoutSeconds(long configuredTimeoutSeconds) {
+        return configuredTimeoutSeconds > 0 ? configuredTimeoutSeconds : 3L;
     }
 
     private String truncate(String value, int maxLength) {

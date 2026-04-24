@@ -22,7 +22,7 @@ public class SwaggerConfig {
     @Bean
     public OpenAPI openAPI() {
 
-        // 추후 로그인 기능 추가시 사용
+        // 추후 로그인 기능 추가 시 사용
         String jwtSchemeName = "jwtAuth";
         SecurityRequirement securityRequirement = new SecurityRequirement().addList(jwtSchemeName);
         Components components = new Components()
@@ -39,7 +39,7 @@ public class SwaggerConfig {
 
         return new OpenAPI()
                 .info(info)
-                //.addSecurityItem(securityRequirement)     추후 로그인 기능 추가시 사용
+                //.addSecurityItem(securityRequirement) // 추후 로그인 기능 추가 시 사용
                 .components(components);
     }
 }

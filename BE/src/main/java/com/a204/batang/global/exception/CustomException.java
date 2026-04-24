@@ -18,7 +18,7 @@ public class CustomException extends RuntimeException {
     }
 
     /**
-     * ErrorCode는 유지하되 메시지를 오버라이드한 커스텀 예외를 생성한다.
+     * ErrorCode와 별도 메시지를 함께 사용하는 커스텀 예외를 생성한다.
      *
      * @param errorCode 에러 코드
      * @param message 예외 메시지
@@ -28,4 +28,3 @@ public class CustomException extends RuntimeException {
         this.errorCode = errorCode;
     }
 }
-
