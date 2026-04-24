@@ -2,7 +2,7 @@ import json
 
 import instructor
 from openai import AsyncOpenAI
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from models import FloorNLPCommand
 
@@ -37,8 +37,8 @@ SYSTEM_PROMPT = """
 - O: 중정형
 
 ## 단위 규칙
-치수는 항상 미터(m) 기준 float로 변환한다.
-예: "300cm" -> 3.0, "1500mm" -> 1.5
+치수는 항상 밀리미터(mm) 기준 정수로 변환한다.
+예: "3m" -> 3000, "300cm" -> 3000, "1500mm" -> 1500
 
 ## 해석 규칙
 - 대상 방 이름이 불명확하면 needs_clarification=true
@@ -47,66 +47,55 @@ SYSTEM_PROMPT = """
 
 ## 예시
 사용자 요청: "침실 4x5 크기로 추가해줘"
-출력: {"action": "add_room", "new_room": {"name": "침실", "type": "bedroom", "shape": "rect", "width": 4.0, "height": 5.0, "floor": 1}, "confidence": 0.95, "needs_clarification": false}
+출력: {"action": "add_room", "new_room": {"name": "침실", "type": "bedroom", "shape": "rect", "width": 4000, "height": 5000, "floor": 1}, "confidence": 0.95, "needs_clarification": false}
 
 사용자 요청: "작은방 삭제해줘"
 출력: {"action": "remove_room", "target_room_name": "작은방", "confidence": 0.95, "needs_clarification": false}
 
 사용자 요청: "거실을 L자 6x8로 바꿔줘"
-출력: {"action": "resize_room", "target_room_name": "거실", "resize_shape": "L", "resize_width": 6.0, "resize_height": 8.0, "confidence": 0.95, "needs_clarification": false}
+출력: {"action": "resize_room", "target_room_name": "거실", "resize_shape": "L", "resize_width": 6000, "resize_height": 8000, "confidence": 0.95, "needs_clarification": false}
 
 사용자 요청: "방 하나 추가해줘"
 출력: {"action": "add_room", "confidence": 0.3, "needs_clarification": true, "clarification_question": "어떤 방을 어떤 크기로 추가할까요?"}
 """
 
 
-def shape_to_polygon(
+def shape_to_rects(
     shape: str,
-    width: float,
-    height: float,
-) -> List[Tuple[float, float]]:
+    width: int,
+    height: int,
+) -> list[dict]:
     """
-    shape와 치수를 방 polygon으로 변환한다.
-    width: 가로 길이(m)
-    height: 세로 길이(m)
+    shape와 치수(mm)를 rect 조합 리스트로 변환한다.
+    반환값: [{"x": int, "y": int, "width": int, "height": int}, ...]
     """
     w, h = width, height
-    hw, hh = w / 2, h / 2
 
     if shape == "rect":
-        return [(0, 0), (w, 0), (w, h), (0, h)]
+        return [{"x": 0, "y": 0, "width": w, "height": h}]
 
     if shape == "L":
         return [
-            (0, 0),
-            (w, 0),
-            (w, hh),
-            (hw, hh),
-            (hw, h),
-            (0, h),
+            {"x": 0, "y": 0, "width": w, "height": h // 2},
+            {"x": 0, "y": h // 2, "width": w // 2, "height": h // 2},
         ]
 
     if shape == "U":
         return [
-            (0, 0),
-            (w, 0),
-            (w, h),
-            (hw + hw * 0.2, h),
-            (hw + hw * 0.2, hh),
-            (hw - hw * 0.2, hh),
-            (hw - hw * 0.2, h),
-            (0, h),
+            {"x": 0, "y": 0, "width": w // 4, "height": h},
+            {"x": 3 * w // 4, "y": 0, "width": w // 4, "height": h},
+            {"x": w // 4, "y": 0, "width": w // 2, "height": h // 3},
         ]
 
     if shape == "O":
         return [
-            (0, 0),
-            (w, 0),
-            (w, h),
-            (0, h),
+            {"x": 0, "y": 0, "width": w, "height": h // 4},
+            {"x": 0, "y": 3 * h // 4, "width": w, "height": h // 4},
+            {"x": 0, "y": h // 4, "width": w // 4, "height": h // 2},
+            {"x": 3 * w // 4, "y": h // 4, "width": w // 4, "height": h // 2},
         ]
 
-    return [(0, 0), (w, 0), (w, h), (0, h)]
+    return [{"x": 0, "y": 0, "width": w, "height": h}]
 
 
 async def parse_command(
@@ -146,10 +135,12 @@ async def parse_command(
             height = getattr(command.new_room, "height", None)
 
             if width and height:
-                command.new_room.polygon = shape_to_polygon(shape, width, height)
+                rects = shape_to_rects(shape, width, height)
+                # TODO: rects 필드 추가 후 연결 예정
+                # command.new_room.rects = rects
             else:
                 command.needs_clarification = True
-                command.clarification_question = "방 크기를 다시 알려주세요. 예: 4x5"
+                command.clarification_question = "방 크기를 다시 알려주세요. 예: 4000x5000"
 
         if command.action == "resize_room":
             shape = getattr(command, "resize_shape", "rect")
@@ -157,10 +148,12 @@ async def parse_command(
             height = getattr(command, "resize_height", None)
 
             if width and height:
-                command.resize_polygon = shape_to_polygon(shape, width, height)
+                rects = shape_to_rects(shape, width, height)
+                # TODO: resize_rects 필드 추가 후 연결 예정
+                # command.resize_rects = rects
             else:
                 command.needs_clarification = True
-                command.clarification_question = "변경할 방 크기를 다시 알려주세요. 예: 4x5"
+                command.clarification_question = "변경할 방 크기를 다시 알려주세요. 예: 4000x5000"
 
         if command.confidence < 0.7 and not command.needs_clarification:
             command.needs_clarification = True
