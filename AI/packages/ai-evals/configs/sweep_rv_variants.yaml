@@ -18,10 +18,9 @@ model:
 seed: 42
 
 fixtures:
-  - packages/ai-rendering/tests/fixtures/input/image (17).png
-  - packages/ai-rendering/tests/fixtures/input/image (18).png
-  - packages/ai-rendering/tests/fixtures/input/image (19).png
-  - packages/ai-rendering/tests/fixtures/input/image (20).png
+  - packages/ai-rendering/tests/fixtures/input/input (1).jpg
+  - packages/ai-rendering/tests/fixtures/input/input (2).jpg
+  - packages/ai-rendering/tests/fixtures/input/input (3).jpg
 
 presets:
   # 기본 프리셋

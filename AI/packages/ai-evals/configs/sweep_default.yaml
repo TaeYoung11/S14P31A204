@@ -15,10 +15,9 @@ seed: 42
 # 평가용 입력 이미지 (repo root 상대 경로)
 # 다양성 기준으로 선정: 정면/3-4각도/복잡매싱/소형 중 4개
 fixtures:
-  - packages/ai-rendering/tests/fixtures/input/image (17).png
-  - packages/ai-rendering/tests/fixtures/input/image (18).png
-  - packages/ai-rendering/tests/fixtures/input/image (19).png
-  - packages/ai-rendering/tests/fixtures/input/image (20).png
+  - packages/ai-rendering/tests/fixtures/input/input (1).jpg
+  - packages/ai-rendering/tests/fixtures/input/input (2).jpg
+  - packages/ai-rendering/tests/fixtures/input/input (3).jpg
 
 presets:
   - scandinavian
