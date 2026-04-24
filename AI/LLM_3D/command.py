@@ -1,7 +1,7 @@
 from __future__ import annotations
 import logging
 from enum import Enum
-from typing import Optional, List
+from typing import ClassVar, Dict, Optional, List, Set, Tuple
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
@@ -71,12 +71,42 @@ class LLM3DChanges(BaseModel):
     face_offset_mm: Optional[float]              = Field(None, description="특정 면 오프셋 (mm)")
     deletion:     bool                           = False
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_llm_field_names(cls, data: dict) -> dict:
+        """
+        LLM hallucination 방어: 잘못된 필드명을 올바른 필드명으로 변환.
+        - material_change / materialChange → material
+        - face_offset → face_offset_mm (단위 누락 대응)
+        """
+        if not isinstance(data, dict):
+            return data
+        # material 계열 잘못된 필드명 정규화
+        for bad_key in ("material_change", "materialChange", "material_info"):
+            if bad_key in data and "material" not in data:
+                data["material"] = data.pop(bad_key)
+            elif bad_key in data:
+                data.pop(bad_key)  # 중복이면 버림
+        # face_offset 단위 누락 대응
+        if "face_offset" in data and "face_offset_mm" not in data:
+            data["face_offset_mm"] = data.pop("face_offset")
+        # 알 수 없는 필드 조용히 제거 (스키마 오염 방지)
+        known = {
+            "material", "color", "length_mm", "height_mm", "width_mm",
+            "position_mm", "rotation_deg", "face_offset_mm", "deletion",
+        }
+        for key in list(data.keys()):
+            if key not in known:
+                logger.debug(f"[LLM3DChanges] 알 수 없는 필드 제거: {key}={data[key]!r}")
+                data.pop(key)
+        return data
+
     @model_validator(mode="after")
     def deletion_is_exclusive(self) -> "LLM3DChanges":
         has_other = any([
-            self.material, self.color,
-            self.length_mm, self.height_mm, self.width_mm,
-            self.position_mm, self.rotation_deg, self.face_offset_mm,
+            self.material is not None, self.color is not None,
+            self.length_mm is not None, self.height_mm is not None, self.width_mm is not None,
+            self.position_mm is not None, self.rotation_deg is not None, self.face_offset_mm is not None,
         ])
         if self.deletion and has_other:
             raise ValueError("deletion은 다른 변경 사항과 동시에 지정할 수 없습니다.")
@@ -84,15 +114,22 @@ class LLM3DChanges(BaseModel):
 
     @model_validator(mode="after")
     def at_least_one_change(self) -> "LLM3DChanges":
+        # 0.0은 falsy이므로 is not None으로 체크 (rotation_deg=0, face_offset_mm=0 정상 허용)
         has_any = any([
-            self.material, self.color,
-            self.length_mm, self.height_mm, self.width_mm,
-            self.position_mm, self.rotation_deg, self.face_offset_mm,
+            self.material is not None,
+            self.color is not None,
+            self.length_mm is not None,
+            self.height_mm is not None,
+            self.width_mm is not None,
+            self.position_mm is not None,
+            self.rotation_deg is not None,
+            self.face_offset_mm is not None,
             self.deletion,
         ])
         if not has_any:
             raise ValueError("하나 이상의 변경 사항을 지정해야 합니다.")
         return self
+
 
 
 class LLM3DTarget(BaseModel):
@@ -115,13 +152,7 @@ class LLM3DTarget(BaseModel):
             return v
         return None
 
-    @model_validator(mode="after")
-    def must_have_identifier(self) -> "LLM3DTarget":
-        # GlobalId, 이름, 태그, 층, 공간, 방향 혹은 전체 선택 중 하나라도 있어야 함
-        if not any([self.global_id, self.name, self.tag, self.storey, self.space_name, self.direction, self.select_all]):
-            # 이 검증은 나중에 LLM3DCommand 레벨에서 ambiguity_question과 함께 재검토됨
-            pass
-        return self
+
 
 
 class LLM3DCommand(BaseModel):
@@ -137,7 +168,8 @@ class LLM3DCommand(BaseModel):
     # 운영 정책: 수정 가능 Whitelist → IfcWall, IfcRoof 만 허용
     # 나머지는 모두 ReadOnly (문, 창문, 계단, 슬래브, 기둥, 보)
     # -------------------------------------------------------------------------
-    _READ_ONLY_TYPES = {
+    # ClassVar로 선언 → Pydantic v2가 ModelPrivateAttr로 처리하지 않음
+    _READ_ONLY_TYPES: ClassVar[Set["LLM3DElementType"]] = {
         LLM3DElementType.DOOR,
         LLM3DElementType.WINDOW,
         LLM3DElementType.STAIR,
@@ -147,13 +179,13 @@ class LLM3DCommand(BaseModel):
     }
 
     # 부재별 치수 제약 (mm)
-    _DIM_CONSTRAINTS = {
+    _DIM_CONSTRAINTS: ClassVar[Dict["LLM3DElementType", Dict[str, Tuple[float, float]]]] = {
         LLM3DElementType.WALL: {"height_mm": (150.0, 5000.0), "width_mm": (50.0, 1000.0)},
         LLM3DElementType.ROOF: {"height_mm": (100.0, 10000.0)},
     }
 
     # 층 Z 범위 제약 (지하 5층 ~ 50층 수준)
-    _Z_RANGE_MM = (-20_000.0, 200_000.0)
+    _Z_RANGE_MM: ClassVar[Tuple[float, float]] = (-20_000.0, 200_000.0)
 
     @model_validator(mode="after")
     def validate_command_integrity(self) -> "LLM3DCommand":
@@ -193,12 +225,20 @@ class LLM3DCommand(BaseModel):
         if self.command_type not in (LLM3DCommandType.MODIFY, LLM3DCommandType.DELETE):
             return errors
 
-        # 1. 수정 불가 부재 차단
+        # 1. 고정 부재(창문, 문, 기둥 등)의 치수/형태 수정 차단
         if self.target.element_type in self._READ_ONLY_TYPES:
-            errors.append(
-                "[수정불가] 문, 창문, 계단 등은 수정할 수 없는 고정 요소입니다."
-            )
-            return errors  # 이후 검증 불필요
+            if self.command_type == LLM3DCommandType.MODIFY and self.changes:
+                has_shape_change = any([
+                    self.changes.length_mm is not None,
+                    self.changes.height_mm is not None,
+                    self.changes.width_mm is not None,
+                    self.changes.face_offset_mm is not None
+                ])
+                if has_shape_change:
+                    errors.append(
+                        "[수정불가] 문, 창문, 기둥 등은 치수/형태를 변경할 수 없는 고정 요소입니다. (위치, 색상, 재질만 변경 가능)"
+                    )
+                    return errors
 
         if self.command_type != LLM3DCommandType.MODIFY or not self.changes:
             return errors
