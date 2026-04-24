@@ -87,7 +87,8 @@ public class ProjectService {
         String normalizedDescription = normalizeDescription(request.description());
 
         project.updateBasicInfo(normalizedName, normalizedDescription);
-        Project savedProject = projectRepository.save(project);
+        // Auditing(@LastModifiedDate)은 flush 시점에 반영되므로 응답에 최신 updatedAt을 담기 위해 즉시 flush한다.
+        Project savedProject = projectRepository.saveAndFlush(project);
 
         log.info("프로젝트 수정 완료. projectId={}", savedProject.getProjectId());
         return UpdateProjectResponse.from(savedProject);
