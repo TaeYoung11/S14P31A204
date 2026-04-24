@@ -35,6 +35,7 @@ def test_load_preset_returns_renderparams() -> None:
     assert isinstance(p, RenderParams)
     assert p.prompt
     assert p.strength == 0.67
+    assert p.controlnet_conditioning_scale == pytest.approx(0.3)
 
 
 def test_load_preset_base_preset_uses_base_params(

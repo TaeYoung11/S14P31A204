@@ -4,3 +4,4 @@
 strength: 0.67
 guidance_scale: 7
 num_inference_steps: 25
+controlnet_conditioning_scale: 0.3
