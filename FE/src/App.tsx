@@ -4,8 +4,6 @@ import { ProtectedRoute } from './shared/components/ProtectedRoute'
 import LoginPage from './pages/auth/LoginPage'
 import RegisterPage from './pages/auth/RegisterPage'
 import ProjectListPage from './pages/projects/ProjectListPage'
-import ProjectNewPage from './pages/projects/ProjectNewPage'
-import SiteInfoPage from './pages/projects/SiteInfoPage'
 import EditorPage from './pages/editor/EditorPage'
 import RendersPage from './pages/renders/RendersPage'
 import ViewerPage from './pages/view/ViewerPage'
@@ -30,8 +28,10 @@ export default function App() {
 
         <Route element={<ProtectedRoute />}>
           <Route path="/projects" element={<ProjectListPage />} />
-          <Route path="/projects/new" element={<ProjectNewPage />} />
-          <Route path="/projects/:projectId/site-info" element={<SiteInfoPage />} />
+          <Route path="/projects/:projectId" element={<EditorPage />} />
+          <Route path="/projects/:projectId/bubble" element={<EditorPage />} />
+          <Route path="/projects/:projectId/floor" element={<EditorPage />} />
+          <Route path="/projects/:projectId/viewer" element={<EditorPage />} />
           <Route path="/projects/:projectId/editor" element={<EditorPage />} />
           <Route path="/projects/:projectId/renders" element={<RendersPage />} />
         </Route>
