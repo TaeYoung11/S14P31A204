@@ -12,7 +12,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * 프로젝트 영속성 처리를 담당하는 Repository이다.
+ * 프로젝트 영속성 처리를 담당하는 Repository다.
  */
 public interface ProjectRepository extends JpaRepository<Project, UUID> {
 

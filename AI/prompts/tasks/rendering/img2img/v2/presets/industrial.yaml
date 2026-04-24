@@ -1,0 +1,11 @@
+prompt: >-
+  RAW photo, industrial modern building exterior,
+  exposed raw concrete walls, steel beams, large glass facade,
+  urban architecture, 8k uhd, DSLR, sharp focus,
+  architectural photography, overcast urban daylight, contemporary industrial design
+
+negative_prompt: >-
+  (worst quality, low quality:1.4), (deformed, distorted:1.3),
+  (cgi, 3d, render, blender:1.4), cartoon, anime, illustration,
+  text, watermark, signature,
+  interior, indoor, furniture, wood siding, cottage, rustic, traditional

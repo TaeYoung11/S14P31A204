@@ -2,6 +2,12 @@ package com.a204.batang.domain.project.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.MultiPolygon;
+import org.locationtech.jts.geom.Polygon;
+import org.locationtech.jts.io.WKTReader;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
@@ -9,7 +15,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 지적도 geometry(WKT)를 프런트에서 바로 사용할 수 있는 MultiPolygon 좌표 구조로 변환한 DTO.
+ * 지적도 geometry(WKT/GeoJSON)를 프런트에서 바로 사용할 수 있는 MultiPolygon 좌표 구조로 변환한 DTO.
  *
  * @param type GeoJSON 타입
  * @param coordinates MultiPolygon 좌표
@@ -23,9 +29,9 @@ public record CadastralPolygonResponse(
 
     /**
      * geometry 문자열을 MultiPolygon 좌표 구조로 변환한다.
-     * WKT(POLYGON/MULTIPOLYGON)와 GeoJSON(type/coordinates) 모두 지원한다.
+     * WKT(POLYGON/MULTIPOLYGON)와 GeoJSON(type/coordinates)을 모두 지원한다.
      *
-     * @param rawGeometry VWorld 응답의 geometry 원문
+     * @param rawGeometry VWorld 응답 geometry 원문
      * @return 변환된 MultiPolygon DTO, 변환 실패 시 null
      */
     public static CadastralPolygonResponse fromRawGeometry(String rawGeometry) {
@@ -45,11 +51,16 @@ public record CadastralPolygonResponse(
      * WKT(Polygon/MultiPolygon)를 MultiPolygon 좌표로 변환한다.
      *
      * @param geometryWkt VWorld에서 전달받은 geometry 문자열
-     * @return 변환된 폴리곤 DTO. 변환 실패 시 null
+     * @return 변환된 다각형 DTO, 변환 실패 시 null
      */
     public static CadastralPolygonResponse fromWkt(String geometryWkt) {
         if (!StringUtils.hasText(geometryWkt)) {
             return null;
+        }
+
+        CadastralPolygonResponse fromJts = fromWktWithJts(geometryWkt);
+        if (fromJts != null) {
+            return fromJts;
         }
 
         String normalized = normalizeWktPrefix(geometryWkt);
@@ -130,6 +141,97 @@ public record CadastralPolygonResponse(
         }
 
         return null;
+    }
+
+    private static CadastralPolygonResponse fromWktWithJts(String geometryWkt) {
+        String normalized = normalizeWktPrefix(geometryWkt);
+        if (!StringUtils.hasText(normalized)) {
+            return null;
+        }
+
+        if (!startsWithIgnoreCase(normalized, "POLYGON")
+                && !startsWithIgnoreCase(normalized, "MULTIPOLYGON")) {
+            return null;
+        }
+
+        try {
+            Geometry geometry = new WKTReader().read(normalized);
+            List<List<List<List<Double>>>> multiPolygon = toMultiPolygonCoordinates(geometry);
+            if (multiPolygon.isEmpty()) {
+                return null;
+            }
+            return new CadastralPolygonResponse("MultiPolygon", List.copyOf(multiPolygon));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static List<List<List<List<Double>>>> toMultiPolygonCoordinates(Geometry geometry) {
+        if (geometry == null) {
+            return Collections.emptyList();
+        }
+
+        List<List<List<List<Double>>>> multiPolygon = new ArrayList<>();
+        if (geometry instanceof Polygon polygon) {
+            List<List<List<Double>>> polygonCoordinates = toPolygonCoordinates(polygon);
+            if (!polygonCoordinates.isEmpty()) {
+                multiPolygon.add(List.copyOf(polygonCoordinates));
+            }
+            return multiPolygon;
+        }
+
+        if (geometry instanceof MultiPolygon multiPolygonGeometry) {
+            for (int i = 0; i < multiPolygonGeometry.getNumGeometries(); i++) {
+                Geometry child = multiPolygonGeometry.getGeometryN(i);
+                if (!(child instanceof Polygon polygon)) {
+                    continue;
+                }
+
+                List<List<List<Double>>> polygonCoordinates = toPolygonCoordinates(polygon);
+                if (!polygonCoordinates.isEmpty()) {
+                    multiPolygon.add(List.copyOf(polygonCoordinates));
+                }
+            }
+        }
+
+        return multiPolygon;
+    }
+
+    private static List<List<List<Double>>> toPolygonCoordinates(Polygon polygon) {
+        List<List<List<Double>>> polygonCoordinates = new ArrayList<>();
+        List<List<Double>> exteriorRing = toRingCoordinates(polygon.getExteriorRing());
+        if (!exteriorRing.isEmpty()) {
+            polygonCoordinates.add(List.copyOf(exteriorRing));
+        }
+
+        for (int i = 0; i < polygon.getNumInteriorRing(); i++) {
+            List<List<Double>> interiorRing = toRingCoordinates(polygon.getInteriorRingN(i));
+            if (!interiorRing.isEmpty()) {
+                polygonCoordinates.add(List.copyOf(interiorRing));
+            }
+        }
+
+        return polygonCoordinates;
+    }
+
+    private static List<List<Double>> toRingCoordinates(LineString ring) {
+        if (ring == null) {
+            return Collections.emptyList();
+        }
+
+        Coordinate[] coordinates = ring.getCoordinates();
+        if (coordinates == null || coordinates.length == 0) {
+            return Collections.emptyList();
+        }
+
+        List<List<Double>> ringCoordinates = new ArrayList<>(coordinates.length);
+        for (Coordinate coordinate : coordinates) {
+            if (coordinate == null || Double.isNaN(coordinate.x) || Double.isNaN(coordinate.y)) {
+                continue;
+            }
+            ringCoordinates.add(List.of(coordinate.x, coordinate.y));
+        }
+        return ringCoordinates;
     }
 
     private static List<List<List<List<Double>>>> parseMultiPolygonCoordinates(JsonNode coordinatesNode) {

@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "img2img 프리셋용 프롬프트 자산 스키마 v2. 변형 프리셋의 base_preset 참조 지원.",
+  "type": "object",
+  "required": ["prompt"],
+  "additionalProperties": false,
+  "properties": {
+    "base_preset": {
+      "type": "string",
+      "description": "렌더링 파라미터를 참조할 기본 프리셋 이름. 변형 프리셋에서만 사용 (예: scandinavian_warm → base_preset: scandinavian)."
+    },
+    "prompt": {
+      "type": "string",
+      "description": "Stable Diffusion positive prompt — 생성할 외관 스타일 묘사"
+    },
+    "negative_prompt": {
+      "type": "string",
+      "description": "Stable Diffusion negative prompt — 억제할 요소 묘사"
+    }
+  }
+}
