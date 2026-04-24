@@ -1,0 +1,12 @@
+prompt: >-
+  photorealistic japanese modern house exterior,
+  dark wood cladding, low sloped tiled roof,
+  sliding wooden screens, minimalist zen architecture,
+  architectural photography, soft diffused daylight,
+  traditional japanese design
+
+negative_prompt: >-
+  3d render, cgi, blender, untextured, plastic look, cartoon,
+  illustration, lowres, blurry, deformed,
+  interior, indoor, furniture, orange, swimming pool,
+  western style, exposed concrete, steel beam, brick wall

@@ -25,6 +25,7 @@ presets:
   - scandinavian
   - industrial
   - japanese
+  - korean
 
 # 스윕할 파라미터 — itertools.product 로 조합 생성
 sweep:
