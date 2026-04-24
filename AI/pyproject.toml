@@ -9,6 +9,7 @@ dependencies = [
     "ai-evals",
     "ai-planning",
     "ai-rendering",
+    "httpx>=0.28.1",
 ]
 
 [dependency-groups]
