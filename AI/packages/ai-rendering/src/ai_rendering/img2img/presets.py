@@ -6,8 +6,10 @@
 
 설계 포인트:
     - 프롬프트 자산(prompt/negative_prompt): AI_PROMPTS_DIR 환경변수 경로
-      (기본값: presets.py 기준으로 AI 루트의 prompts/tasks/rendering/img2img/v1/presets/)
+      (기본값: presets.py 기준으로 AI 루트의 prompts/tasks/rendering/img2img/v2/presets/)
     - 렌더링 파라미터(strength 등): 패키지 내부 img2img/presets/
+    - 변형 프리셋(예: scandinavian_warm)은 prompt YAML 의 base_preset 필드로
+      파라미터 참조 대상을 지정. base_preset 없으면 name 그대로 사용.
     - 두 소스를 머지해 RenderParams 반환.
     - 모든 로드 실패는 PresetNotFoundError 로 통합.
     - 화이트리스트 기반 필드 검증으로 조용한 실패 차단.
@@ -29,9 +31,9 @@ _PRESET_DIR = Path(__file__).parent / "presets"
 _AI_ROOT = Path(__file__).parents[5]
 _PROMPTS_DIR = Path(
     os.getenv("AI_PROMPTS_DIR", str(_AI_ROOT / "prompts"))
-) / "tasks/rendering/img2img/v1/presets"
+) / "tasks/rendering/img2img/v2/presets"
 
-_PROMPT_FIELDS = {"prompt", "negative_prompt"}
+_PROMPT_FIELDS = {"prompt", "negative_prompt", "base_preset"}
 _REQUIRED_PROMPT_FIELDS = {"prompt"}
 _PARAMS_FIELDS = {"strength", "guidance_scale", "num_inference_steps"}
 
@@ -73,9 +75,10 @@ def load_preset(name: str) -> RenderParams:
         1) 이름 유효성 (영문/숫자/'_'/'-' 만, 경로 구분자·상대경로 차단)
         2) 프롬프트 YAML 존재 및 파싱 (_PROMPTS_DIR)
         3) 필수 필드 'prompt' 존재, 모든 키가 prompt 화이트리스트 안
-        4) 파라미터 YAML 존재 및 파싱 (_PRESET_DIR)
-        5) 모든 키가 params 화이트리스트 안
-        6) 두 소스 머지 → RenderParams
+        4) base_preset 추출 → 파라미터 참조 이름 결정 (없으면 name 그대로)
+        5) 파라미터 YAML 존재 및 파싱 (_PRESET_DIR)
+        6) 모든 키가 params 화이트리스트 안
+        7) 두 소스 머지 (base_preset 제외) → RenderParams
     """
     if not _VALID_NAME.fullmatch(name):
         raise PresetNotFoundError(
@@ -96,7 +99,8 @@ def load_preset(name: str) -> RenderParams:
             f"allowed: {sorted(_PROMPT_FIELDS)}"
         )
 
-    params_cfg = _load_yaml_mapping(_PRESET_DIR / f"{name}.yaml", name)
+    params_name = prompt_cfg.pop("base_preset", name)
+    params_cfg = _load_yaml_mapping(_PRESET_DIR / f"{params_name}.yaml", name)
     unknown_params = params_cfg.keys() - _PARAMS_FIELDS
     if unknown_params:
         raise PresetNotFoundError(

@@ -37,6 +37,19 @@ def test_load_preset_returns_renderparams() -> None:
     assert p.strength == 0.7
 
 
+def test_load_preset_base_preset_uses_base_params(
+    preset_dirs: tuple[Path, Path],
+) -> None:
+    params_dir, prompts_dir = preset_dirs
+    (params_dir / "base.yaml").write_text("strength: 0.65\n", encoding="utf-8")
+    (prompts_dir / "variant.yaml").write_text(
+        "base_preset: base\nprompt: variant prompt\n", encoding="utf-8"
+    )
+    p = presets.load_preset("variant")
+    assert p.prompt == "variant prompt"
+    assert p.strength == 0.65
+
+
 def test_load_preset_missing_raises() -> None:
     with pytest.raises(PresetNotFoundError, match="not found"):
         presets.load_preset("nonexistent_preset_xyz")
