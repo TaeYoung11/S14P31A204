@@ -3,18 +3,16 @@
 사용:
     uv run python -m ai_evals.runners.img2img_sweep --config <yaml path>
     uv run python -m ai_evals.runners.img2img_sweep --config <yaml> --limit 3
+    uv run python -m ai_evals.runners.img2img_sweep --config <yaml> --controlnet
 
 동작:
     1. YAML config 로드 (fixtures, presets, sweep grid, seed)
-    2. presets × fixtures × (strength × guidance × steps) 조합 전개
-    3. Img2ImgRenderer 1회 로드
+    2. presets × fixtures × (strength × guidance × steps × cn_scale) 조합 전개
+    3. Img2ImgRenderer 또는 ControlNetRenderer 1회 로드
     4. 각 조합 render → outputs/run_{ts}/results/ 에 저장, 파일명에 파라미터 인코딩
     5. manifest.json 에 각 render 기록 (증분 저장 — 중간 크래시 대비)
     6. 종료 시 summary (ok/failed/duration/avg)
-
-현재 (1-A-4):
-    전체 스윕 루프 + tqdm + 증분 manifest + --limit 옵션.
-    1-A-5 에서 make_grid.py 로 contact sheet 합성 예정.
+    7. make_grid 자동 실행 → outputs/run_{ts}/grids/ 에 contact sheet 저장
 """
 
 from __future__ import annotations
@@ -34,6 +32,7 @@ import yaml  # type: ignore[import-untyped]
 from tqdm import tqdm  # type: ignore[import-untyped]
 
 from ai_rendering.img2img import ControlNetRenderer, Img2ImgRenderer, RenderParams, load_preset
+from ai_evals.runners.make_grid import main as make_grid_main
 
 # 이 스크립트 기준 ai-evals 패키지 루트 (outputs/ 위치 앵커)
 _AI_EVALS_ROOT = Path(__file__).resolve().parents[3]
@@ -300,6 +299,9 @@ def main(argv: list[str] | None = None) -> int:
 
     total_duration = time.perf_counter() - t_sweep_start
     _print_summary(manifest, total_duration)
+
+    print("\n[grid] generating contact sheets...")
+    make_grid_main(["--run", str(run_dir)])
 
     failed_count = sum(1 for e in manifest if e["status"] == "failed")
     return 0 if failed_count == 0 else 1
