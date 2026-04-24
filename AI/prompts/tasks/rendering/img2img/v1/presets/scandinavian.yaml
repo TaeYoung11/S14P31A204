@@ -1,0 +1,10 @@
+prompt: >-
+  photorealistic scandinavian modern house exterior,
+  white wood siding, large windows, flat roof,
+  clean minimal architecture, architectural photography,
+  natural daylight, nordic design
+
+negative_prompt: >-
+  3d render, cgi, blender, untextured, plastic look, cartoon,
+  illustration, lowres, blurry, deformed,
+  interior, indoor, furniture, orange, swimming pool

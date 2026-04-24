@@ -25,6 +25,12 @@ dev = [
 [tool.uv.workspace]
 members = ["packages/*"]
 
+# PyTorch CUDA 12.6 wheel index — torch 만 이 인덱스에서 당김 (explicit=true)
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
 [tool.uv.sources]
 ai-authoring = { workspace = true }
 ai-common = { workspace = true }
@@ -32,6 +38,7 @@ ai-domain = { workspace = true }
 ai-evals = { workspace = true }
 ai-planning = { workspace = true }
 ai-rendering = { workspace = true }
+torch = { index = "pytorch-cu126" }
 
 [tool.ruff]
 line-length = 100
