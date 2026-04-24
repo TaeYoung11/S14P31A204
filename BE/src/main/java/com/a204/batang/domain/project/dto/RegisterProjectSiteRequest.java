@@ -5,7 +5,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
 
 /**
- * 프로젝트 대지 정보 등록 요청 DTO.
+ * 프로젝트 대지정보 등록 요청 DTO.
  *
  * @param latitude 위도
  * @param longitude 경도
