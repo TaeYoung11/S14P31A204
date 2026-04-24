@@ -224,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[error] fixture missing: {fx_str}", file=sys.stderr)
             return 2
 
-    seed = int(config["seed"])
+    seed = int(config.get("seed", 42))
     all_combos = _enumerate_combos(config)
     total_combos = len(all_combos)
     if args.limit is not None:
