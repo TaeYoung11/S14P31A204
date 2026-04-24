@@ -225,12 +225,20 @@ class LLM3DCommand(BaseModel):
         if self.command_type not in (LLM3DCommandType.MODIFY, LLM3DCommandType.DELETE):
             return errors
 
-        # 1. 수정 불가 부재 차단
+        # 1. 고정 부재(창문, 문, 기둥 등)의 치수/형태 수정 차단
         if self.target.element_type in self._READ_ONLY_TYPES:
-            errors.append(
-                "[수정불가] 문, 창문, 계단 등은 수정할 수 없는 고정 요소입니다."
-            )
-            return errors  # 이후 검증 불필요
+            if self.command_type == LLM3DCommandType.MODIFY and self.changes:
+                has_shape_change = any([
+                    self.changes.length_mm is not None,
+                    self.changes.height_mm is not None,
+                    self.changes.width_mm is not None,
+                    self.changes.face_offset_mm is not None
+                ])
+                if has_shape_change:
+                    errors.append(
+                        "[수정불가] 문, 창문, 기둥 등은 치수/형태를 변경할 수 없는 고정 요소입니다. (위치, 색상, 재질만 변경 가능)"
+                    )
+                    return errors
 
         if self.command_type != LLM3DCommandType.MODIFY or not self.changes:
             return errors
