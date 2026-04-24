@@ -1,5 +1,6 @@
+from enum import Enum
 from pydantic import BaseModel, Field, model_validator
-from typing import Literal, Optional, List, Tuple
+from typing import Any, Literal, Optional, List, Tuple
 
 class NewRoom(BaseModel):
     name: str = Field(..., description="방 이름")
@@ -78,4 +79,75 @@ class FloorNLPCommand(BaseModel):
         if self.action in ("remove_room", "lock_room", "unlock_room"):
             if self.target_room_name is None:
                 raise ValueError(f"{self.action} 액션에는 target_room_name이 필요합니다.")
+        return self
+
+
+class ActionType(str, Enum):
+    CREATE_SPACE = "create_space"
+    UPDATE_SPACE = "update_space"
+    DELETE_SPACE = "delete_space"
+    CREATE_WALL = "create_wall"
+    UPDATE_WALL = "update_wall"
+    DELETE_WALL = "delete_wall"
+    CREATE_DOOR = "create_door"
+    UPDATE_DOOR = "update_door"
+    DELETE_DOOR = "delete_door"
+    CREATE_WINDOW = "create_window"
+    UPDATE_WINDOW = "update_window"
+    DELETE_WINDOW = "delete_window"
+    CREATE_STAIR = "create_stair"
+    UPDATE_STAIR = "update_stair"
+    DELETE_STAIR = "delete_stair"
+
+
+class IFCCommand(BaseModel):
+    action: ActionType
+    target_id: Optional[str] = Field(
+        None,
+        description="Target IFC GlobalId. Use None when creating a new element.",
+    )
+    params: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Action-specific parameters such as geometry, placement, dimensions, "
+            "host ids, storey ids, or semantic type."
+        ),
+    )
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    reason: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_target_id(self):
+        create_actions = {
+            ActionType.CREATE_SPACE,
+            ActionType.CREATE_WALL,
+            ActionType.CREATE_DOOR,
+            ActionType.CREATE_WINDOW,
+            ActionType.CREATE_STAIR,
+        }
+        if self.action in create_actions:
+            if self.target_id is not None:
+                raise ValueError("Create action must use target_id=None.")
+        elif self.target_id is None:
+            raise ValueError("Non-create action requires target_id.")
+        return self
+
+
+class CommandBatch(BaseModel):
+    commands: list[IFCCommand] = Field(default_factory=list)
+    requires_clarification: bool
+    clarification_question: Optional[str] = None
+    failed_command_indices: list[int] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_clarification(self):
+        if self.requires_clarification:
+            if not self.clarification_question:
+                raise ValueError(
+                    "clarification_question is required when requires_clarification is True."
+                )
+        elif self.clarification_question is not None:
+            raise ValueError(
+                "clarification_question must be None when requires_clarification is False."
+            )
         return self
