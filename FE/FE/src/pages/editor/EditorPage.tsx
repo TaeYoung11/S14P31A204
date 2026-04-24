@@ -64,12 +64,17 @@ export default function EditorPage() {
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 })
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
-  const [isLineStyleOpen, setIsLineStyleOpen] = useState(false)
+  const [isLineModalOpen, setIsLineModalOpen] = useState(false)
+  const [drawingConnection, setDrawingConnection] = useState<{ from: string | null, type: string } | null>(null)
+  
   const [formData, setFormData] = useState({
     name: '',
     type: '거실',
     area: ''
   })
+
+  const [freeLines, setFreeLines] = useState<{ id: string; x1: number; y1: number; x2: number; y2: number; type: string }[]>([])
+  const [selectedLineId, setSelectedLineId] = useState<string | null>(null)
 
   useEffect(() => {
     const updateSize = () => {
@@ -110,13 +115,40 @@ export default function EditorPage() {
     setIsAddModalOpen(false)
   }
 
-  const handleAddConnection = (type: string) => {
-    if (bubbles.length >= 2) {
-      const from = bubbles[bubbles.length - 2].id
-      const to = bubbles[bubbles.length - 1].id
-      setConnections([...connections, { from, to, type }])
+  const handleOpenLineModal = () => {
+    setIsLineModalOpen(true)
+  }
+
+  const handleSelectLineType = (type: string) => {
+    const cx = stageSize.width / 2
+    const cy = stageSize.height / 2
+    const newLine = {
+      id: Date.now().toString(),
+      x1: cx - 80, y1: cy,
+      x2: cx + 80, y2: cy,
+      type
     }
-    setIsLineStyleOpen(false)
+    setFreeLines(prev => [...prev, newLine])
+    setSelectedLineId(newLine.id)
+    setIsLineModalOpen(false)
+  }
+
+  const handleBubbleClick = (id: string) => {
+    if (drawingConnection) {
+      if (drawingConnection.from === null) {
+        // First bubble selected
+        setDrawingConnection({ ...drawingConnection, from: id })
+      } else if (drawingConnection.from !== id) {
+        // Second bubble selected - create connection
+        setConnections([...connections, { from: drawingConnection.from, to: id, type: drawingConnection.type }])
+        setDrawingConnection(null) // Drawing complete
+      } else {
+        // Clicking same bubble cancels
+        setDrawingConnection(null)
+      }
+    } else {
+      setSelectedId(id)
+    }
   }
 
   // 대지 다각형 좌표 (임의 설정)
@@ -194,6 +226,58 @@ export default function EditorPage() {
               >
                 공간 생성하기
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- Line Style Modal --- */}
+      {isLineModalOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[24px] shadow-2xl w-full max-w-[400px] overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="px-8 pt-8 pb-6">
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="text-[18px] font-black text-[#1C1C1E]">선 스타일 선택</h2>
+                <button onClick={() => setIsLineModalOpen(false)} className="text-[#ADB5BD] hover:text-[#1C1C1E] transition-colors">
+                  <X size={20} />
+                </button>
+              </div>
+              <p className="text-[11px] font-bold text-[#ADB5BD] mb-8">선택하면 캔버스에 선이 즉시 생성됩니다. 끝점을 드래그해 위치를 조정하세요.</p>
+
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={() => handleSelectLineType('bold')}
+                  className="w-full flex items-center justify-between p-4 bg-[#F8F9FD] hover:bg-[#F0F2FF] rounded-2xl group transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-[4px] bg-[#3B45B3] rounded-full" />
+                    <span className="text-xs font-bold text-[#1C1C1E]">굵은 실선</span>
+                  </div>
+                  <PlusCircle size={16} className="text-[#ADB5BD] group-hover:text-[#3B45B3]" />
+                </button>
+
+                <button
+                  onClick={() => handleSelectLineType('thin')}
+                  className="w-full flex items-center justify-between p-4 bg-[#F8F9FD] hover:bg-[#F0F2FF] rounded-2xl group transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-[1.5px] bg-[#3B45B3] rounded-full" />
+                    <span className="text-xs font-bold text-[#1C1C1E]">얇은 실선</span>
+                  </div>
+                  <PlusCircle size={16} className="text-[#ADB5BD] group-hover:text-[#3B45B3]" />
+                </button>
+
+                <button
+                  onClick={() => handleSelectLineType('dashed')}
+                  className="w-full flex items-center justify-between p-4 bg-[#F8F9FD] hover:bg-[#F0F2FF] rounded-2xl group transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 border-b-2 border-dashed border-[#ADB5BD]" />
+                    <span className="text-xs font-bold text-[#1C1C1E]">점선</span>
+                  </div>
+                  <PlusCircle size={16} className="text-[#ADB5BD] group-hover:text-[#3B45B3]" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -279,32 +363,14 @@ export default function EditorPage() {
 
             <div className="relative w-full">
               <button 
-                onClick={() => setIsLineStyleOpen(!isLineStyleOpen)}
+                onClick={handleOpenLineModal}
                 className="w-full flex flex-col items-center gap-1 py-1 group"
               >
-                <div className={`p-2 rounded-xl transition-all ${isLineStyleOpen ? 'bg-[#F0F2FF] text-[#3B45B3]' : 'text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#1C1C1E]'}`}>
+                <div className={`p-2 rounded-xl transition-all ${isLineModalOpen || drawingConnection ? 'bg-[#F0F2FF] text-[#3B45B3]' : 'text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#1C1C1E]'}`}>
                   <TrendingUp size={24} />
                 </div>
-                <span className={`text-[10px] font-bold transition-all ${isLineStyleOpen ? 'text-[#3B45B3]' : 'text-[#8E95A3] group-hover:text-[#1C1C1E]'}`}>선 스타일</span>
+                <span className={`text-[10px] font-bold transition-all ${isLineModalOpen || drawingConnection ? 'text-[#3B45B3]' : 'text-[#8E95A3] group-hover:text-[#1C1C1E]'}`}>선 스타일</span>
               </button>
-
-              {/* Line Style Popover */}
-              {isLineStyleOpen && (
-                <div className="absolute left-[72px] top-0 ml-2 bg-white border border-[#E2E6EF] rounded-2xl shadow-xl z-50 p-3 flex flex-col gap-2 min-w-[140px] animate-in slide-in-from-left-2 duration-200">
-                  <button onClick={() => handleAddConnection('bold')} className="flex items-center gap-3 p-2 hover:bg-[#F8F9FD] rounded-lg group transition-colors">
-                    <div className="w-8 h-[4px] bg-[#3B45B3] rounded-full" />
-                    <span className="text-[11px] font-bold text-[#505764] group-hover:text-[#1C1C1E]">굵은 실선</span>
-                  </button>
-                  <button onClick={() => handleAddConnection('thin')} className="flex items-center gap-3 p-2 hover:bg-[#F8F9FD] rounded-lg group transition-colors">
-                    <div className="w-8 h-[1.5px] bg-[#3B45B3] rounded-full" />
-                    <span className="text-[11px] font-bold text-[#505764] group-hover:text-[#1C1C1E]">얇은 실선</span>
-                  </button>
-                  <button onClick={() => handleAddConnection('dashed')} className="flex items-center gap-3 p-2 hover:bg-[#F8F9FD] rounded-lg group transition-colors">
-                    <div className="w-8 border-b-2 border-dashed border-[#ADB5BD]" />
-                    <span className="text-[11px] font-bold text-[#505764] group-hover:text-[#1C1C1E]">점선</span>
-                  </button>
-                </div>
-              )}
             </div>
 
             <button className="w-full flex flex-col items-center gap-1 py-1 group">
@@ -343,7 +409,10 @@ export default function EditorPage() {
               width={stageSize.width} 
               height={stageSize.height}
               className="absolute inset-0"
-              onClick={() => setIsLineStyleOpen(false)}
+              onClick={() => {
+                if (drawingConnection) setDrawingConnection(null)
+                setSelectedLineId(null)
+              }}
             >
               <Layer>
                 {/* --- Site (Polygon) --- */}
@@ -354,6 +423,71 @@ export default function EditorPage() {
                   stroke="#3B45B333"
                   strokeWidth={1}
                 />
+
+                {/* --- Free Lines --- */}
+                {freeLines.map(line => {
+                  const isSelected = selectedLineId === line.id
+                  const isBold = line.type === 'bold'
+                  const isDashed = line.type === 'dashed'
+                  return (
+                    <Group
+                      key={line.id}
+                      onClick={(e) => { e.cancelBubble = true; setSelectedLineId(line.id) }}
+                    >
+                      {/* Visible line — draggable to move whole line */}
+                      <Line
+                        points={[line.x1, line.y1, line.x2, line.y2]}
+                        stroke={isDashed ? "#ADB5BD" : "#3B45B3"}
+                        strokeWidth={isBold ? 3.5 : isDashed ? 1 : 1.5}
+                        dash={isDashed ? [6, 4] : undefined}
+                        hitStrokeWidth={14}
+                        draggable
+                        onDragMove={(e) => {
+                          const ox = e.target.x()
+                          const oy = e.target.y()
+                          if (ox === 0 && oy === 0) return
+                          e.target.position({ x: 0, y: 0 })
+                          setFreeLines(prev => prev.map(l =>
+                            l.id === line.id
+                              ? { ...l, x1: l.x1 + ox, y1: l.y1 + oy, x2: l.x2 + ox, y2: l.y2 + oy }
+                              : l
+                          ))
+                        }}
+                      />
+                      {/* Endpoint handles (visible when selected) */}
+                      {isSelected && (
+                        <>
+                          <Circle
+                            x={line.x1} y={line.y1}
+                            radius={7}
+                            fill="white"
+                            stroke="#3B45B3"
+                            strokeWidth={2.5}
+                            draggable
+                            onDragMove={(e) => {
+                              setFreeLines(prev => prev.map(l =>
+                                l.id === line.id ? { ...l, x1: e.target.x(), y1: e.target.y() } : l
+                              ))
+                            }}
+                          />
+                          <Circle
+                            x={line.x2} y={line.y2}
+                            radius={7}
+                            fill="white"
+                            stroke="#3B45B3"
+                            strokeWidth={2.5}
+                            draggable
+                            onDragMove={(e) => {
+                              setFreeLines(prev => prev.map(l =>
+                                l.id === line.id ? { ...l, x2: e.target.x(), y2: e.target.y() } : l
+                              ))
+                            }}
+                          />
+                        </>
+                      )}
+                    </Group>
+                  )
+                })}
 
                 {/* --- Connections (Lines) --- */}
                 {connections.map((conn, i) => {
@@ -376,73 +510,78 @@ export default function EditorPage() {
                 })}
 
                 {/* --- Bubbles --- */}
-                {bubbles.map((b) => (
-                  <Group
-                    key={b.id}
-                    x={b.x}
-                    y={b.y}
-                    draggable
-                    onDragMove={(e) => {
-                      const newBubbles = bubbles.map(bubble => 
-                        bubble.id === b.id ? { ...bubble, x: e.target.x(), y: e.target.y() } : bubble
-                      )
-                      setBubbles(newBubbles)
-                    }}
-                    onClick={(e) => {
-                      e.cancelBubble = true
-                      setSelectedId(b.id)
-                    }}
-                  >
-                    <Rect
-                      width={b.width}
-                      height={b.height}
-                      fill="white"
-                      cornerRadius={15}
-                      stroke={selectedId === b.id ? "#3B45B3" : "#E2E6EF"}
-                      strokeWidth={selectedId === b.id ? 2 : 1}
-                      shadowColor="black"
-                      shadowBlur={selectedId === b.id ? 10 : 2}
-                      shadowOpacity={0.05}
-                      shadowOffset={{ x: 0, y: 4 }}
-                    />
-                    
-                    {selectedId === b.id && (
-                      <>
-                        <Circle x={0} y={0} radius={3.5} fill="#3B45B3" />
-                        <Circle x={b.width} y={0} radius={3.5} fill="#3B45B3" />
-                        <Circle x={0} y={b.height} radius={3.5} fill="#3B45B3" />
-                        <Circle x={b.width} y={b.height} radius={3.5} fill="#3B45B3" />
-                      </>
-                    )}
+                {/* --- Bubbles --- */}
+                {bubbles.map((b) => {
+                  const isFirstSelected = drawingConnection?.from === b.id
+                  
+                  return (
+                    <Group
+                      key={b.id}
+                      x={b.x}
+                      y={b.y}
+                      draggable={!drawingConnection}
+                      onDragMove={(e) => {
+                        const newBubbles = bubbles.map(bubble => 
+                          bubble.id === b.id ? { ...bubble, x: e.target.x(), y: e.target.y() } : bubble
+                        )
+                        setBubbles(newBubbles)
+                      }}
+                      onClick={(e) => {
+                        e.cancelBubble = true
+                        handleBubbleClick(b.id)
+                      }}
+                    >
+                      <Rect
+                        width={b.width}
+                        height={b.height}
+                        fill="white"
+                        cornerRadius={15}
+                        stroke={isFirstSelected ? "#3B45B3" : (selectedId === b.id ? "#3B45B3" : "#E2E6EF")}
+                        strokeWidth={(isFirstSelected || selectedId === b.id) ? 2.5 : 1}
+                        shadowColor="black"
+                        shadowBlur={(isFirstSelected || selectedId === b.id) ? 10 : 2}
+                        shadowOpacity={0.05}
+                        shadowOffset={{ x: 0, y: 4 }}
+                      />
+                      
+                      {selectedId === b.id && !drawingConnection && (
+                        <>
+                          <Circle x={0} y={0} radius={3.5} fill="#3B45B3" />
+                          <Circle x={b.width} y={0} radius={3.5} fill="#3B45B3" />
+                          <Circle x={0} y={b.height} radius={3.5} fill="#3B45B3" />
+                          <Circle x={b.width} y={b.height} radius={3.5} fill="#3B45B3" />
+                        </>
+                      )}
 
-                    <Text
-                      text={b.index}
-                      fontSize={11}
-                      fontStyle="bold"
-                      fill="#3B45B3"
-                      x={b.width / 2 - 5}
-                      y={b.height / 2 - 30}
-                    />
-                    <Text
-                      text={b.label}
-                      fontSize={14}
-                      fontStyle="bold"
-                      fill="#1C1C1E"
-                      width={b.width}
-                      align="center"
-                      y={b.height / 2 - 10}
-                    />
-                    <Text
-                      text={b.area}
-                      fontSize={10}
-                      fontStyle="bold"
-                      fill="#ADB5BD"
-                      width={b.width}
-                      align="center"
-                      y={b.height / 2 + 10}
-                    />
-                  </Group>
-                ))}
+                      <Text
+                        text={b.index}
+                        fontSize={11}
+                        fontStyle="bold"
+                        fill="#3B45B3"
+                        x={b.width / 2 - 5}
+                        y={b.height / 2 - 30}
+                      />
+                      <Text
+                        text={b.label}
+                        fontSize={14}
+                        fontStyle="bold"
+                        fill="#1C1C1E"
+                        width={b.width}
+                        align="center"
+                        y={b.height / 2 - 10}
+                      />
+                      <Text
+                        text={b.area}
+                        fontSize={10}
+                        fontStyle="bold"
+                        fill="#ADB5BD"
+                        width={b.width}
+                        align="center"
+                        y={b.height / 2 + 10}
+                      />
+                    </Group>
+                  )
+                })}
               </Layer>
             </Stage>
           ) : (
