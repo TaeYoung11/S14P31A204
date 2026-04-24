@@ -98,4 +98,13 @@ public class Project extends BaseEntity {
         this.cadastralAddress = address;
         this.cadastralGeometry = geometry;
     }
+
+    /**
+     * 프로젝트를 삭제 상태(휴지통)로 변경한다.
+     *
+     * @param deletedAt 삭제 시각
+     */
+    public void softDelete(LocalDateTime deletedAt) {
+        this.deletedAt = deletedAt;
+    }
 }

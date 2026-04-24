@@ -1,21 +1,5 @@
-# 일본풍 현대 건물 외관 프리셋.
-# 진한 목재 외장 + 낮은 경사 지붕 + 젠(zen) 미니멀리즘 중심.
-# 필드 화이트리스트:
-#   prompt (필수), negative_prompt, strength, guidance_scale, num_inference_steps
-# seed 등 그 외 필드는 거부됨.
-
-prompt: >-
-  photorealistic japanese modern house exterior,
-  dark wood cladding, low sloped tiled roof,
-  sliding wooden screens, minimalist zen architecture,
-  architectural photography, soft diffused daylight,
-  traditional japanese design
-
-negative_prompt: >-
-  3d render, cgi, blender, untextured, plastic look, cartoon,
-  illustration, lowres, blurry, deformed,
-  interior, indoor, furniture, orange, swimming pool,
-  western style, exposed concrete, steel beam, brick wall
+# 일본풍 현대 건물 외관 렌더링 파라미터.
+# 프롬프트 자산은 prompts/tasks/rendering/img2img/v1/presets/japanese.yaml 에서 관리.
 
 strength: 0.7
 guidance_scale: 9.5
