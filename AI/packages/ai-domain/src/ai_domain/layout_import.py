@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class LayoutImportBaseModel(BaseModel):
     """layout import 입력 모델 공통 설정."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
 class RoomType(str, Enum):
@@ -71,7 +71,12 @@ class RoomInput(LayoutImportBaseModel):
     y: float
     angle: float
     locked: bool
-    zoneId: str | None = Field(default=None, min_length=1, max_length=128)
+    zone_id: str | None = Field(
+        default=None,
+        alias="zoneId",
+        min_length=1,
+        max_length=128,
+    )
 
 
 class LayoutImportV1(LayoutImportBaseModel):
