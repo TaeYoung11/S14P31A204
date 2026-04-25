@@ -7,15 +7,15 @@ def to_ifc_commands(
     command: FloorNLPCommand,
     ifc_context: Optional[Dict] = None,
 ) -> CommandBatch:
-    def _find_space_id(target_name: Optional[str]) -> Optional[str]:
+    def _find_space_ids(target_name: Optional[str]) -> list[str]:
         if not ifc_context or not target_name:
-            return None
-
+            return []
         spaces = ifc_context.get("spaces", [])
-        for space in spaces:
-            if space.get("name") == target_name:
-                return space.get("id")
-        return None
+        return [
+            space.get("id")
+            for space in spaces
+            if space.get("name") == target_name and space.get("id")
+        ]
 
     if command.needs_clarification:
         return CommandBatch(
@@ -57,33 +57,49 @@ def to_ifc_commands(
         )
 
     if command.action == "remove_room":
-        target_id = _find_space_id(command.target_room_name)
-        if target_id is None:
+        target_ids = _find_space_ids(command.target_room_name)
+        if not target_ids:
             return CommandBatch(
                 commands=[],
                 requires_clarification=True,
                 clarification_question=f"'{command.target_room_name}' 방을 현재 IFC에서 찾을 수 없습니다.",
             )
 
+        if len(target_ids) > 1 and not command.apply_to_all:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question="같은 이름의 방이 여러 개 있습니다. 몇 층 방을 삭제할까요?",
+            )
+
+        commands = [
+            IFCCommand(
+                action=ActionType.DELETE_SPACE,
+                target_id=tid,
+                params={"name": command.target_room_name},
+                confidence=command.confidence,
+            )
+            for tid in target_ids
+        ]
         return CommandBatch(
-            commands=[
-                IFCCommand(
-                    action=ActionType.DELETE_SPACE,
-                    target_id=target_id,
-                    params={"name": command.target_room_name},
-                    confidence=command.confidence,
-                )
-            ],
+            commands=commands,
             requires_clarification=False,
         )
 
     if command.action == "resize_room":
-        target_id = _find_space_id(command.target_room_name)
-        if target_id is None:
+        target_ids = _find_space_ids(command.target_room_name)
+        if not target_ids:
             return CommandBatch(
                 commands=[],
                 requires_clarification=True,
                 clarification_question=f"'{command.target_room_name}' 방을 현재 IFC에서 찾을 수 없습니다.",
+            )
+
+        if len(target_ids) > 1 and not command.apply_to_all:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question="같은 이름의 방이 여러 개 있습니다. 몇 층 방을 변경할까요?",
             )
 
         if command.resize_rects is None:
@@ -93,20 +109,22 @@ def to_ifc_commands(
                 clarification_question="변경할 방 형태와 크기 정보가 부족합니다. 예: L자 6000x8000",
             )
 
+        commands = [
+            IFCCommand(
+                action=ActionType.UPDATE_SPACE,
+                target_id=tid,
+                params={
+                    "rects": command.resize_rects,
+                    "shape": command.resize_shape,
+                    "width": command.resize_width,
+                    "height": command.resize_height,
+                },
+                confidence=command.confidence,
+            )
+            for tid in target_ids
+        ]
         return CommandBatch(
-            commands=[
-                IFCCommand(
-                    action=ActionType.UPDATE_SPACE,
-                    target_id=target_id,
-                    params={
-                        "rects": command.resize_rects,
-                        "shape": command.resize_shape,
-                        "width": command.resize_width,
-                        "height": command.resize_height,
-                    },
-                    confidence=command.confidence,
-                )
-            ],
+            commands=commands,
             requires_clarification=False,
         )
 
