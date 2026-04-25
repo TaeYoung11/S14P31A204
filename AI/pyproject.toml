@@ -3,6 +3,7 @@ name = "ai-workspace"
 version = "0.1.0"
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "ai-layout-import",
     "ai-authoring",
     "ai-common",
     "ai-domain",
@@ -37,6 +38,7 @@ ai-authoring = { workspace = true }
 ai-common = { workspace = true }
 ai-domain = { workspace = true }
 ai-evals = { workspace = true }
+ai-layout-import = { workspace = true }
 ai-planning = { workspace = true }
 ai-rendering = { workspace = true }
 torch = { index = "pytorch-cu126" }
@@ -89,6 +91,7 @@ project-excludes = [
 
 search-path = [
     "packages/ai-domain/src",
+    "packages/ai-layout-import/src",
     "packages/ai-common/src",
     "packages/ai-planning/src",
     "packages/ai-rendering/src",
