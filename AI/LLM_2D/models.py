@@ -15,7 +15,7 @@ class NewRoom(BaseModel):
         "corridor",
         "other",
     ]
-    shape: Literal["rect", "L", "U", "O"] = Field(
+    shape: Literal["rect", "L", "U"] = Field(
         "rect", description="방 형태"
     )
     width: int = Field(..., description="밀리미터(mm) 단위 정수")
@@ -54,7 +54,7 @@ class FloorNLPCommand(BaseModel):
     confidence: float = Field(
         default=0.5, ge=0.0, le=1.0, description="명령 해석 신뢰도"
     )
-    resize_shape: Literal["rect", "L", "U", "O"] = Field(
+    resize_shape: Literal["rect", "L", "U"] = Field(
         "rect", description="변경할 방 형태"
     )
     resize_width: Optional[int] = Field(

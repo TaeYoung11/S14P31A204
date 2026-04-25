@@ -34,7 +34,6 @@ SYSTEM_PROMPT = """
 - rect: 직사각형
 - L: L자
 - U: U자
-- O: 중정형
 
 ## 단위 규칙
 치수는 항상 밀리미터(mm) 기준 정수로 변환한다.
@@ -68,6 +67,7 @@ def shape_to_rects(
     """
     shape와 치수(mm)를 rect 조합 리스트로 변환한다.
     반환값: [{"x": int, "y": int, "width": int, "height": int}, ...]
+    홀수 치수는 마지막 rect가 나머지를 흡수한다.
     """
     w, h = width, height
 
@@ -75,24 +75,18 @@ def shape_to_rects(
         return [{"x": 0, "y": 0, "width": w, "height": h}]
 
     if shape == "L":
+        half_h = h // 2
         return [
-            {"x": 0, "y": 0, "width": w, "height": h // 2},
-            {"x": 0, "y": h // 2, "width": w // 2, "height": h // 2},
+            {"x": 0, "y": 0,      "width": w,      "height": half_h},
+            {"x": 0, "y": half_h, "width": w // 2, "height": h - half_h},
         ]
 
     if shape == "U":
+        quarter_w = w // 4
         return [
-            {"x": 0, "y": 0, "width": w // 4, "height": h},
-            {"x": 3 * w // 4, "y": 0, "width": w // 4, "height": h},
-            {"x": w // 4, "y": 0, "width": w // 2, "height": h // 3},
-        ]
-
-    if shape == "O":
-        return [
-            {"x": 0, "y": 0, "width": w, "height": h // 4},
-            {"x": 0, "y": 3 * h // 4, "width": w, "height": h // 4},
-            {"x": 0, "y": h // 4, "width": w // 4, "height": h // 2},
-            {"x": 3 * w // 4, "y": h // 4, "width": w // 4, "height": h // 2},
+            {"x": 0,             "y": 0, "width": quarter_w,          "height": h},
+            {"x": w - quarter_w, "y": 0, "width": quarter_w,          "height": h},
+            {"x": quarter_w,     "y": 0, "width": w - 2 * quarter_w,  "height": h // 3},
         ]
 
     return [{"x": 0, "y": 0, "width": w, "height": h}]
