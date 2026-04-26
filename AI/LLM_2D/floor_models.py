@@ -38,6 +38,6 @@ class FloorBoundary(BaseModel):
 class FloorProject(BaseModel):
     id: str
     name: str
-    rooms: List[Room] = []
-    adjacency: List[AdjacencyEntry] = []
-    boundaries: List[FloorBoundary] = []
+    rooms: List[Room] = Field(default_factory=list)
+    adjacency: List[AdjacencyEntry] = Field(default_factory=list)
+    boundaries: List[FloorBoundary] = Field(default_factory=list)
