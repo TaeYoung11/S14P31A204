@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
@@ -16,8 +17,10 @@ def convert_layout_to_ifc(request: LayoutImportV1, output_path: str | Path) -> N
     output = Path(output_path)
     _validate_zone_references(request)
     model = _create_ifc_file()
-    owner_history, context, storeys = _create_project_tree(model, request)
+    owner_history, context, project, storeys = _create_project_tree(model, request)
     zones = _create_zones(model, owner_history, request)
+    _attach_project_metadata_property_set(model, owner_history, project, request)
+    _attach_storey_metadata_property_sets(model, owner_history, storeys, request)
     _create_spaces(model, owner_history, context, request, storeys, zones)
     output.parent.mkdir(parents=True, exist_ok=True)
     model.write(str(output))
@@ -39,6 +42,7 @@ def _create_ifc_file() -> ifcopenshell.file:
 def _create_project_tree(
     model: ifcopenshell.file, request: LayoutImportV1
 ) -> tuple[
+    ifcopenshell.entity_instance,
     ifcopenshell.entity_instance,
     ifcopenshell.entity_instance,
     dict[int, ifcopenshell.entity_instance],
@@ -88,7 +92,7 @@ def _create_project_tree(
         list(storeys.values()),
         "Building-Storeys",
     )
-    return owner_history, context, storeys
+    return owner_history, context, project, storeys
 
 
 def _create_owner_history(model: ifcopenshell.file) -> ifcopenshell.entity_instance:
@@ -296,6 +300,61 @@ def _attach_zone_metadata_property_set(
             _create_property_single_value(model, "ZoneColor", zone.color),
         ],
     )
+
+
+def _attach_project_metadata_property_set(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    project: ifcopenshell.entity_instance,
+    request: LayoutImportV1,
+) -> None:
+    if not request.adjacency:
+        return
+    _attach_property_set(
+        model,
+        owner_history,
+        project,
+        "Pset_BatangLayoutImportProject",
+        [
+            _create_property_single_value(
+                model,
+                "AdjacencyJson",
+                json.dumps(
+                    [adjacency.model_dump(mode="json") for adjacency in request.adjacency],
+                    ensure_ascii=False,
+                ),
+            )
+        ],
+    )
+
+
+def _attach_storey_metadata_property_sets(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    storeys: dict[int, ifcopenshell.entity_instance],
+    request: LayoutImportV1,
+) -> None:
+    if not request.boundaries:
+        return
+
+    boundaries_by_floor = {boundary.floor: boundary for boundary in request.boundaries}
+    for floor, storey in storeys.items():
+        boundary = boundaries_by_floor.get(floor)
+        if boundary is None:
+            continue
+        _attach_property_set(
+            model,
+            owner_history,
+            storey,
+            "Pset_BatangLayoutImportStorey",
+            [
+                _create_property_single_value(
+                    model,
+                    "BoundaryJson",
+                    json.dumps(boundary.model_dump(mode="json"), ensure_ascii=False),
+                )
+            ],
+        )
 
 
 def _attach_property_set(
