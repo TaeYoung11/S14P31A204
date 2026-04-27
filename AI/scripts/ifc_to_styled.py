@@ -25,12 +25,15 @@ import sys
 import time
 from pathlib import Path
 
-# Windows cp949 콘솔에서도 한글/이모지 출력 가능하도록.
+# Windows cp949 콘솔에서도 한글/이모지 출력 가능하도록 stdout/stderr 둘 다 래핑.
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     import io
 
     sys.stdout = io.TextIOWrapper(
         sys.stdout.buffer, encoding="utf-8", errors="replace"
+    )
+    sys.stderr = io.TextIOWrapper(
+        sys.stderr.buffer, encoding="utf-8", errors="replace"
     )
 
 from ai_rendering.ifc2img import (
@@ -132,7 +135,7 @@ def _render_styles(
 
     from ai_rendering.ifc2img import DepthStyleRenderer
 
-    print(f"\n[SD] DepthStyleRenderer 로드 중 (수 십초 소요)...")
+    print("\n[SD] DepthStyleRenderer 로드 중 (수 십초 소요)...")
     t0 = time.time()
     style_renderer = DepthStyleRenderer()
     print(f"  로드 완료 ({time.time() - t0:.1f}s) device={style_renderer.device}")

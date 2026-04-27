@@ -5,20 +5,20 @@ from pathlib import Path
 import ifcopenshell
 import ifcopenshell.geom
 import numpy as np
-import open3d as o3d
+import open3d as o3d  # type: ignore[import-untyped]
 
 from .exceptions import IFCRenderError
 
 
 def load_mesh(ifc_path: Path) -> tuple[o3d.geometry.TriangleMesh, np.ndarray]:
-    """IFC 파일을 파싱해 mesh와 AABB center를 반환한다.
+    """IFC4 파일을 파싱해 mesh와 AABB center를 반환한다.
 
     Returns:
         (mesh, center) — mesh는 vertex normals 계산 완료 상태.
         center는 shape (3,) ndarray.
 
     Raises:
-        IFCRenderError: 파일 열기 실패, geometry 없음, vertex 없음.
+        IFCRenderError: 파일 열기 실패, IFC4 외 스키마, geometry 없음, vertex 없음.
     """
     try:
         model = ifcopenshell.open(str(ifc_path))

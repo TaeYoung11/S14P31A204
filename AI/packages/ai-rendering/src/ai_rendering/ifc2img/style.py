@@ -5,7 +5,7 @@ depth map (PIL.Image, mode="L") → 스타일 변환 PIL.Image.
 설계 원칙:
 - img2img 모듈에서 어떤 코드도 import하지 않는다 (병렬 모듈, 폐기 시 영향 차단).
 - diffusers/torch 는 __init__ 시점에만 import (모듈 import만으로 GPU 점유 안 함).
-- txt2img + ControlNet 사용 — IFC2img에는 init 이미지가 없고 depth가 조건일 뿐.
+- txt2img + ControlNet 사용 — ifc2img에는 init 이미지가 없고 depth가 조건일 뿐.
   StableDiffusionControlNetPipeline (img2img 변형 아님). 따라서 strength 파라미터는 없다.
 """
 

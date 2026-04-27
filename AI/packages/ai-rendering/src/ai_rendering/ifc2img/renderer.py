@@ -1,9 +1,9 @@
-"""IFC → PIL Image 렌더러."""
+"""IFC → grayscale depth map (PIL Image, mode="L") 렌더러."""
 
 from pathlib import Path
 
 import numpy as np
-import open3d as o3d
+import open3d as o3d  # type: ignore[import-untyped]
 from PIL import Image
 
 from .exceptions import IFCRenderError
@@ -12,11 +12,13 @@ from .views import VIEW_CAMERAS, CameraParams, IFCView
 
 
 class IFCRenderer:
-    """IFC 파일을 지정된 뷰로 렌더해 PIL Image를 반환한다.
+    """IFC 파일을 지정된 뷰로 렌더해 depth map PIL Image(mode="L")를 반환한다.
 
-    Open3D Visualizer(visible=False) + capture_screen_float_buffer 방식.
+    Open3D Visualizer(visible=False) + capture_depth_float_buffer 방식.
     Windows에서 OffscreenRenderer가 EGL을 요구해 동작하지 않으므로
     native Win32 OpenGL context를 쓰는 이 방식을 사용한다.
+
+    출력 규약: 배경=0(검정), 가까운 면=255(밝음), 먼 면=0 근처. ControlNet-depth 입력 호환.
     """
 
     def __init__(self, width: int = 768, height: int = 448) -> None:

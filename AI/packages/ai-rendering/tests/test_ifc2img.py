@@ -9,11 +9,9 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
-from PIL import Image
 
 from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
 from ai_rendering.ifc2img.geometry import load_mesh
-from ai_rendering.ifc2img.renderer import IFCRenderer as RendererClass
 
 
 # --- _depth_to_image 순수 함수 단위 테스트 (mock 불필요) ---
@@ -24,7 +22,7 @@ def test_depth_to_image_shape_preserved() -> None:
     h, w = 448, 768
     depth = np.full((h, w), 5.0, dtype=np.float32)
 
-    img = RendererClass._depth_to_image(depth)
+    img = IFCRenderer._depth_to_image(depth)
 
     assert img.mode == "L"
     assert img.size == (w, h)  # PIL.size 는 (width, height)
@@ -36,7 +34,7 @@ def test_depth_to_image_background_is_black() -> None:
     depth[5, 5] = 3.0  # 단일 geometry 픽셀
     depth[5, 6] = 7.0
 
-    img = RendererClass._depth_to_image(depth)
+    img = IFCRenderer._depth_to_image(depth)
     arr = np.array(img)
 
     # 0 인 입력은 배경 → 결과도 0
@@ -51,7 +49,7 @@ def test_depth_to_image_closer_is_brighter() -> None:
     depth[0, 1] = 5.0  # 중간
     depth[0, 2] = 10.0  # 멀음
 
-    img = RendererClass._depth_to_image(depth)
+    img = IFCRenderer._depth_to_image(depth)
     arr = np.array(img)
 
     assert arr[0, 0] > arr[0, 1] > arr[0, 2]
@@ -64,7 +62,7 @@ def test_depth_to_image_uniform_depth() -> None:
     depth = np.zeros((4, 4), dtype=np.float32)
     depth[1:3, 1:3] = 5.0  # 동일 거리의 geometry 영역
 
-    img = RendererClass._depth_to_image(depth)
+    img = IFCRenderer._depth_to_image(depth)
     arr = np.array(img)
 
     geom_mask = depth > 0
@@ -77,7 +75,7 @@ def test_depth_to_image_all_background_raises() -> None:
     depth = np.zeros((10, 10), dtype=np.float32)
 
     with pytest.raises(IFCRenderError, match="geometry"):
-        RendererClass._depth_to_image(depth)
+        IFCRenderer._depth_to_image(depth)
 
 
 # --- IFCRenderer Visualizer 호출 흐름 (mock 필요) ---
