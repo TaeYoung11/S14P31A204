@@ -41,6 +41,32 @@ def _open_generated_ifc(
     return ifcopenshell.open(str(output))
 
 
+def _property_sets_by_name(
+    entity: ifcopenshell.entity_instance,
+) -> dict[str, ifcopenshell.entity_instance]:
+    psets: dict[str, ifcopenshell.entity_instance] = {}
+    for rel in getattr(entity, "IsDefinedBy", []) or []:
+        if not rel.is_a("IfcRelDefinesByProperties"):
+            continue
+        pset = rel.RelatingPropertyDefinition
+        if pset is not None and pset.is_a("IfcPropertySet"):
+            psets[pset.Name] = pset
+    return psets
+
+
+def _properties_by_name(
+    pset: ifcopenshell.entity_instance,
+) -> dict[str, ifcopenshell.entity_instance]:
+    return {prop.Name: prop for prop in pset.HasProperties or []}
+
+
+def _unwrap_property_value(prop: ifcopenshell.entity_instance) -> str | bool:
+    nominal = prop.NominalValue
+    if hasattr(nominal, "wrappedValue"):
+        return nominal.wrappedValue
+    return nominal
+
+
 def test_convert_layout_to_ifc_creates_single_room_space(tmp_path: Path) -> None:
     request = _make_request(
         rooms=[
@@ -75,6 +101,13 @@ def test_convert_layout_to_ifc_creates_single_room_space(tmp_path: Path) -> None
     assert body.SweptArea.YDim == pytest.approx(3.8)
     assert len(model.by_type("IfcZone")) == 0
     assert len(model.by_type("IfcRelAssignsToGroup")) == 0
+
+    room_pset = _property_sets_by_name(space)["Pset_BatangLayoutImportRoom"]
+    room_props = _properties_by_name(room_pset)
+    assert _unwrap_property_value(room_props["RoomId"]) == "room-living-01"
+    assert _unwrap_property_value(room_props["RoomType"]) == "living"
+    assert _unwrap_property_value(room_props["Locked"]) is False
+    assert "ZoneId" not in room_props
 
 
 def test_convert_layout_to_ifc_creates_zone_and_assigns_space(tmp_path: Path) -> None:
@@ -117,6 +150,18 @@ def test_convert_layout_to_ifc_creates_zone_and_assigns_space(tmp_path: Path) ->
     assert group_assignments[0].RelatingGroup == zones[0]
     assert list(group_assignments[0].RelatedObjects) == [spaces[0]]
 
+    room_pset = _property_sets_by_name(spaces[0])["Pset_BatangLayoutImportRoom"]
+    room_props = _properties_by_name(room_pset)
+    assert _unwrap_property_value(room_props["RoomId"]) == "room-living-01"
+    assert _unwrap_property_value(room_props["RoomType"]) == "living"
+    assert _unwrap_property_value(room_props["Locked"]) is False
+    assert _unwrap_property_value(room_props["ZoneId"]) == "zone-common"
+
+    zone_pset = _property_sets_by_name(zones[0])["Pset_BatangLayoutImportZone"]
+    zone_props = _properties_by_name(zone_pset)
+    assert _unwrap_property_value(zone_props["ZoneId"]) == "zone-common"
+    assert _unwrap_property_value(zone_props["ZoneColor"]) == "#FF5733"
+
 
 def test_convert_layout_to_ifc_keeps_unzoned_room_without_group_assignment(
     tmp_path: Path,
@@ -151,6 +196,12 @@ def test_convert_layout_to_ifc_keeps_unzoned_room_without_group_assignment(
     assert len(model.by_type("IfcZone")) == 1
     assert len(model.by_type("IfcSpace")) == 1
     assert len(model.by_type("IfcRelAssignsToGroup")) == 0
+
+    room_pset = _property_sets_by_name(model.by_type("IfcSpace")[0])[
+        "Pset_BatangLayoutImportRoom"
+    ]
+    room_props = _properties_by_name(room_pset)
+    assert "ZoneId" not in room_props
 
 
 def test_convert_layout_to_ifc_creates_multi_floor_storeys_and_space_links(
