@@ -25,6 +25,11 @@ def load_mesh(ifc_path: Path) -> tuple[o3d.geometry.TriangleMesh, np.ndarray]:
     except Exception as e:
         raise IFCRenderError(f"IFC 파일 열기 실패: {e}") from e
 
+    if model.schema != "IFC4":
+        raise IFCRenderError(
+            f"IFC4 스키마만 지원합니다 (입력 파일 스키마: {model.schema})"
+        )
+
     settings = ifcopenshell.geom.settings()
     settings.set(settings.USE_WORLD_COORDS, True)
     settings.set(settings.WELD_VERTICES, True)
