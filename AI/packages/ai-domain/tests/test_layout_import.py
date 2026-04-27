@@ -84,3 +84,35 @@ def test_layout_import_v1_rejects_unknown_schema_version() -> None:
                 ],
             }
         )
+
+
+def test_layout_import_v1_rejects_self_adjacency() -> None:
+    with pytest.raises(ValidationError, match="서로 달라야"):
+        LayoutImportV1.model_validate(
+            {
+                "schema_version": "v1",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [
+                    {
+                        "id": "room-living-01",
+                        "name": "거실",
+                        "type": "living",
+                        "width": 4.2,
+                        "height": 3.8,
+                        "floor": 1,
+                        "x": 5.0,
+                        "y": 4.0,
+                        "angle": 0.0,
+                        "locked": False,
+                    }
+                ],
+                "adjacency": [
+                    {
+                        "from_room_id": "room-living-01",
+                        "to_room_id": "room-living-01",
+                        "strength": 0.8,
+                    }
+                ],
+            }
+        )
