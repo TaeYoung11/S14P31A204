@@ -388,6 +388,8 @@ def _create_property_single_value(
 ) -> ifcopenshell.entity_instance:
     if isinstance(value, bool):
         nominal_value = model.create_entity("IfcBoolean", value)
+    elif name.endswith("Json"):
+        nominal_value = model.create_entity("IfcText", value)
     else:
         nominal_value = model.create_entity("IfcLabel", value)
     return model.create_entity(
