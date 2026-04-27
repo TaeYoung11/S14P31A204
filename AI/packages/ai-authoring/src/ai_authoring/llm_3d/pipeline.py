@@ -385,9 +385,6 @@ class LLM3DPipeline:
         applied_count = 0
         scale         = self.query_engine._get_length_scale(model)
 
-        # 리뷰 반영: 1회성 세션이므로 실행 즉시 삭제하여 에러 발생 시 재실행(중복 적용)되는 버그 방지
-        self.store.delete(session_id)
-
         try:
             for item in session.matched:
                 gid = item.get("global_id")
@@ -438,13 +435,9 @@ class LLM3DPipeline:
 
                         # ── 비즈니스 로직: 벽 이동 시 슬래브/지붕 동반 이동 (벌어짐 방지) ──
                         if etype_str == "IfcWall":
-                            mode_relative = (changes.position_mm.mode == LLM3DSizeMode.RELATIVE)
                             dx = changes.position_mm.x / scale
                             dy = changes.position_mm.y / scale
                             dz = changes.position_mm.z / scale
-                            
-                            # ABSOLUTE인 경우에도 슬래브는 '이 벽의 이동량만큼' delta 이동해야 함
-                            # (샘플 IFC에서는 벽 이동량 자체가 delta이므로 단순화하여 처리)
                             delta_pos = {"mode": "RELATIVE", "x": dx * scale, "y": dy * scale, "z": dz * scale}
 
                             qe = self.query_engine
@@ -475,9 +468,11 @@ class LLM3DPipeline:
                         logger.info(f"[{gid[:8]}] rotation 수정 완료")
 
                 if changes.face_offset_mm is not None:
-                    if modify_face_offset(element, changes.face_offset_mm, scale):
+                    # 리뷰 반영: 이름 유추 대신 파싱된 방향 정보를 직접 전달
+                    target_dir = command.target.direction or ""
+                    if modify_face_offset(element, changes.face_offset_mm, target_dir, scale):
                         applied_any = True
-                        logger.info(f"[{gid[:8]}] face_offset 수정 완료")
+                        logger.info(f"[{gid[:8]}] face_offset 수정 완료 (방향: {target_dir})")
 
                 if applied_any:
                     applied_count += 1
@@ -485,16 +480,20 @@ class LLM3DPipeline:
             model.write(output_path)
             logger.info(f"IFC 파일 저장: {output_path}")
 
+            return {
+                "status":        "applied",
+                "applied_count": applied_count,
+                "output_path":   output_path,
+                "summary":       f"{applied_count}개 요소에 변경사항이 반영되었습니다. → {output_path}",
+            }
+
         except Exception as e:
             logger.error(f"IFC 반영 중 오류: {e}", exc_info=True)
             return {"status": "error", "summary": f"반영 실패: {e}"}
-
-        return {
-            "status":        "applied",
-            "applied_count": applied_count,
-            "output_path":   output_path,
-            "summary":       f"{applied_count}개 요소에 변경사항이 반영되었습니다. → {output_path}",
-        }
+        finally:
+            # 리뷰 반영: finally에서 확실하게 세션 삭제하여 좀비 세션 방지
+            self.store.delete(session_id)
+            logger.info(f"세션 정리 완료: {session_id}")
 
 
     # ── 요약 생성 ─────────────────────────────────────────────────────────────

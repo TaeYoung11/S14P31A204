@@ -229,16 +229,21 @@ def modify_material(model: ifcopenshell.file, element: ifcopenshell.entity_insta
         logger.error(f"재질 수정 오류: {e}")
         return False
 
-def modify_face_offset(element: ifcopenshell.entity_instance, offset_mm: float, scale: float = 1.0) -> bool:
-    """특정 면을 밀거나 당기기 (현재는 Position 이동으로 단순화하여 처리)"""
-    # 벽의 이름에서 방향을 유추하여 이동 방향 결정
-    name = (element.Name or "").lower()
+def modify_face_offset(element: ifcopenshell.entity_instance, offset_mm: float, direction: str, scale: float = 1.0) -> bool:
+    """
+    특정 면(face)을 밀거나 당긴다. (현재는 Position 이동으로 단순화하여 처리)
+    방향(direction)을 직접 전달받아 처리한다.
+    """
+    if not direction:
+        return False
+
+    dir_upper = direction.upper()
     pos_change = {"mode": "RELATIVE", "x": 0.0, "y": 0.0, "z": 0.0}
     
-    if "north" in name: pos_change["y"] = offset_mm
-    elif "south" in name: pos_change["y"] = -offset_mm
-    elif "east" in name: pos_change["x"] = offset_mm
-    elif "west" in name: pos_change["x"] = -offset_mm
+    if dir_upper == "NORTH": pos_change["y"] = offset_mm
+    elif dir_upper == "SOUTH": pos_change["y"] = -offset_mm
+    elif dir_upper == "EAST": pos_change["x"] = offset_mm
+    elif dir_upper == "WEST": pos_change["x"] = -offset_mm
     else: return False
 
     return modify_position(element, pos_change, scale)
