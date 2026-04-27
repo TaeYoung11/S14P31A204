@@ -59,6 +59,21 @@ CREATE INDEX IF NOT EXISTS idx_pin_comment_read_states_user
 CREATE INDEX IF NOT EXISTS idx_pin_comment_read_states_last_read_at
     ON pin_comment_read_states (last_read_at);
 
+CREATE TABLE IF NOT EXISTS project_pin_read_states (
+    project_id UUID NOT NULL,
+    user_id UUID NOT NULL,
+    last_read_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    PRIMARY KEY (project_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_pin_read_states_user
+    ON project_pin_read_states (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_project_pin_read_states_last_read_at
+    ON project_pin_read_states (last_read_at);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_project_type_created_at
     ON jobs (project_id, job_type, created_at DESC);
 

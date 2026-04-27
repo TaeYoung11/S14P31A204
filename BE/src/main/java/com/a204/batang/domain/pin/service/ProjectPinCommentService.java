@@ -15,6 +15,10 @@ import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -61,25 +65,35 @@ public class ProjectPinCommentService {
     }
 
     /**
-     * 핀 댓글 목록을 조회하고 사용자별 읽음 상태를 갱신한다.
-     * 사용자 기능이 아직 없는 단계(currentUserId == null)에서는 읽음 상태 갱신을 건너뛴다.
+     * 특정 핀의 댓글 목록을 페이지 단위로 조회한다.
+     * GET API에서는 상태를 변경하지 않고 읽기 전용으로 처리한다.
      *
      * @param projectId 프로젝트 ID
      * @param pinId 핀 ID
+     * @param page 1-base 페이지 번호
+     * @param size 페이지 크기
      * @return 댓글 목록 응답
      */
-    @Transactional
-    public GetPinCommentsResponse getComments(UUID projectId, UUID pinId) {
+    @Transactional(readOnly = true)
+    public GetPinCommentsResponse getComments(UUID projectId, UUID pinId, int page, int size) {
+        validatePaginationOrThrow(page, size);
+
         ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
 
         UUID currentUserId = projectAccessService.resolveCurrentUserId();
         projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
 
-        List<ProjectPinComment> comments = projectPinCommentRepository
-                .findActiveCommentsByPinId(pinId);
+        Pageable pageable = PageRequest.of(
+                page - 1,
+                size,
+                Sort.by(Sort.Direction.ASC, "createdAt")
+        );
+        Page<ProjectPinComment> commentPage = projectPinCommentRepository.findActiveCommentsByPinId(pinId, pageable);
 
         LocalDateTime lastReadAt = resolveLastReadAt(pinId, currentUserId);
-        List<PinCommentResponse> commentResponses = comments.stream()
+        CommentUnreadSummary unreadSummary = resolveCommentUnreadSummary(pinId, currentUserId, lastReadAt);
+
+        List<PinCommentResponse> commentResponses = commentPage.getContent().stream()
                 .map(comment -> PinCommentResponse.from(
                         comment,
                         pinId,
@@ -89,17 +103,46 @@ public class ProjectPinCommentService {
                 ))
                 .toList();
 
-        GetPinCommentsResponse response = GetPinCommentsResponse.of(pinId, commentResponses);
-        updateReadStateOnView(pinId, currentUserId, comments);
+        GetPinCommentsResponse response = GetPinCommentsResponse.of(
+                pinId,
+                unreadSummary.hasCommentByOtherUser(),
+                unreadSummary.unreadCommentCount(),
+                page,
+                size,
+                commentPage.getTotalElements(),
+                commentPage.getTotalPages(),
+                commentPage.hasNext(),
+                commentResponses
+        );
 
         log.info(
-                "핀 댓글 목록 조회 완료. projectId={}, pinId={}, count={}, unreadCount={}",
+                "핀 댓글 목록 조회 완료. projectId={}, pinId={}, page={}, size={}, pageCount={}, totalCount={}, unreadCount={}",
                 projectId,
                 pinId,
+                page,
+                size,
                 commentResponses.size(),
+                commentPage.getTotalElements(),
                 response.unreadCommentCount()
         );
         return response;
+    }
+
+    /**
+     * 특정 핀의 댓글 목록을 읽음 처리한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     */
+    @Transactional
+    public void markCommentsAsRead(UUID projectId, UUID pinId) {
+        ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
+
+        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
+
+        updateReadStateOnView(pinId, currentUserId);
+        log.info("핀 댓글 읽음 처리 완료. projectId={}, pinId={}, userId={}", projectId, pinId, currentUserId);
     }
 
     /**
@@ -112,6 +155,21 @@ public class ProjectPinCommentService {
     private ProjectPin getProjectPinOrThrow(UUID projectId, UUID pinId) {
         return projectPinRepository.findActivePinByProjectId(pinId, projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PIN_NOT_FOUND));
+    }
+
+    /**
+     * 페이지 파라미터를 검증한다.
+     *
+     * @param page 페이지 번호(1-base)
+     * @param size 페이지 크기
+     */
+    private void validatePaginationOrThrow(int page, int size) {
+        if (page < 1) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST, "page는 1 이상이어야 합니다.");
+        }
+        if (size < 1) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST, "size는 1 이상이어야 합니다.");
+        }
     }
 
     /**
@@ -131,26 +189,51 @@ public class ProjectPinCommentService {
     }
 
     /**
-     * 댓글 목록 조회 이후 읽음 상태를 최신 시각으로 저장한다.
-     * 조회를 읽음 행위로 간주하며, 사용자별로 독립 관리한다.
+     * 사용자 기준 타인 댓글 집계 정보를 계산한다.
      *
      * @param pinId 핀 ID
      * @param currentUserId 현재 사용자 ID
-     * @param comments 조회된 댓글 목록
+     * @param lastReadAt 마지막 읽음 시각
+     * @return 타인 댓글 집계 정보
      */
-    private void updateReadStateOnView(UUID pinId, UUID currentUserId, List<ProjectPinComment> comments) {
+    private CommentUnreadSummary resolveCommentUnreadSummary(UUID pinId, UUID currentUserId, LocalDateTime lastReadAt) {
+        if (currentUserId == null) {
+            return new CommentUnreadSummary(false, 0);
+        }
+
+        long hasCommentCount = projectPinCommentRepository.countActiveOtherUserComments(pinId, currentUserId);
+        if (hasCommentCount == 0L) {
+            return new CommentUnreadSummary(false, 0);
+        }
+
+        long unreadCount = lastReadAt == null
+                ? hasCommentCount
+                : projectPinCommentRepository.countUnreadOtherUserComments(pinId, currentUserId, lastReadAt);
+
+        return new CommentUnreadSummary(true, Math.toIntExact(unreadCount));
+    }
+
+    /**
+     * 댓글 읽음 상태를 사용자별로 저장한다.
+     *
+     * @param pinId 핀 ID
+     * @param currentUserId 현재 사용자 ID
+     */
+    private void updateReadStateOnView(UUID pinId, UUID currentUserId) {
         if (currentUserId == null) {
             return;
         }
 
-        UUID lastReadCommentId = comments.isEmpty() ? null : comments.get(comments.size() - 1).getCommentId();
         LocalDateTime now = LocalDateTime.now();
         pinCommentReadStateRepository.upsertLastReadState(
                 pinId,
                 currentUserId,
-                lastReadCommentId,
+                null,
                 now,
                 now
         );
+    }
+
+    private record CommentUnreadSummary(boolean hasCommentByOtherUser, int unreadCommentCount) {
     }
 }
