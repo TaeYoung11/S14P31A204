@@ -23,13 +23,14 @@ import ifcopenshell.api.pset
 import ifcopenshell.api.root
 import ifcopenshell.util.element
 
-# CommandBatch에서 사용하는 ActionType 값 (models.py 참고)
-_CREATE_SPACE = "create_space"
-_UPDATE_SPACE = "update_space"
-_DELETE_SPACE = "delete_space"
-_CREATE_WALL = "create_wall"
-_UPDATE_WALL = "update_wall"
-_DELETE_WALL = "delete_wall"
+from models import ActionType
+
+_CREATE_SPACE = ActionType.CREATE_SPACE.value
+_UPDATE_SPACE = ActionType.UPDATE_SPACE.value
+_DELETE_SPACE = ActionType.DELETE_SPACE.value
+_CREATE_WALL = ActionType.CREATE_WALL.value
+_UPDATE_WALL = ActionType.UPDATE_WALL.value
+_DELETE_WALL = ActionType.DELETE_WALL.value
 
 
 @dataclass
@@ -248,7 +249,8 @@ def execute_batch(
             errors[idx] = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
 
     # 하나라도 성공한 command가 있으면 저장
-    if len(failed_indices) < len(commands):
+    file_was_written = len(failed_indices) < len(commands)
+    if file_was_written:
         try:
             ifc.write(output_ifc_path)
         except Exception as e:
@@ -262,7 +264,7 @@ def execute_batch(
     return ExecutionResult(
         success=success,
         failed_command_indices=failed_indices,
-        output_ifc_path=output_ifc_path if success or failed_indices else None,
+        output_ifc_path=output_ifc_path if file_was_written else None,
         errors=errors,
     )
 

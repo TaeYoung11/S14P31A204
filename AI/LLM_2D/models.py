@@ -18,8 +18,8 @@ class NewRoom(BaseModel):
     shape: Literal["rect", "L", "U"] = Field(
         "rect", description="방 형태"
     )
-    width: int = Field(..., description="밀리미터(mm) 단위 정수")
-    height: int = Field(..., description="밀리미터(mm) 단위 정수")
+    width: int = Field(..., gt=0, description="밀리미터(mm) 단위 양의 정수")
+    height: int = Field(..., gt=0, description="밀리미터(mm) 단위 양의 정수")
     rects: Optional[list[dict]] = Field(
         None,
         description="rect 조합 리스트. shape_to_rects()가 자동 생성. 각 dict: {x: int, y: int, width: int, height: int} (mm 단위)",

@@ -11,11 +11,14 @@ def to_ifc_commands(
         if not ifc_context or not target_name:
             return []
         spaces = ifc_context.get("spaces", [])
-        return [
-            space.get("id")
-            for space in spaces
+        matched = [
+            space for space in spaces
             if space.get("name") == target_name and space.get("id")
         ]
+        # target_floor가 명시된 경우 해당 층만 반환
+        if command.target_floor is not None:
+            matched = [s for s in matched if s.get("floor") == command.target_floor]
+        return [s.get("id") for s in matched]
 
     def _find_storey_id(floor: int) -> Optional[str]:
         """층 번호로 IfcBuildingStorey GlobalId를 조회한다."""
