@@ -38,7 +38,10 @@ def to_ifc_commands(
             return None
         for space in ifc_context.get("spaces", []):
             if space.get("id") == space_id:
-                return _find_storey_id(space.get("floor", 1))
+                floor_num = space.get("floor")
+                if floor_num is None:
+                    return None
+                return _find_storey_id(floor_num)
         return None
 
     if command.needs_clarification:
