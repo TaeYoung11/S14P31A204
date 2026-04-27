@@ -122,3 +122,16 @@ class LayoutImportV1(LayoutImportBaseModel):
     adjacency: list[AdjacencyInput] | None = None
     boundaries: list[BoundaryInput] | None = None
     modeling_defaults: ModelingDefaults | None = None
+
+    @model_validator(mode="after")
+    def validate_unique_entity_ids(self) -> LayoutImportV1:
+        room_ids = [room.id for room in self.rooms]
+        if len(room_ids) != len(set(room_ids)):
+            raise ValueError("room.id는 중복될 수 없습니다.")
+
+        if self.zones is not None:
+            zone_ids = [zone.id for zone in self.zones]
+            if len(zone_ids) != len(set(zone_ids)):
+                raise ValueError("zone.id는 중복될 수 없습니다.")
+
+        return self
