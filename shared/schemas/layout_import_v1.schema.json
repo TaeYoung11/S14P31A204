@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/layout_import_v1.schema.json",
+  "title": "LayoutImportV1",
+  "description": "Project layout JSON contract used to import a new IFC model from room-centric data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "name", "rooms"],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "rooms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/room"
+      }
+    },
+    "zones": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/zone"
+      }
+    },
+    "adjacency": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/adjacency"
+      }
+    },
+    "boundaries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/boundary"
+      }
+    },
+    "modeling_defaults": {
+      "$ref": "#/$defs/modelingDefaults"
+    }
+  },
+  "$defs": {
+    "roomType": {
+      "type": "string",
+      "enum": [
+        "living",
+        "bedroom",
+        "kitchen",
+        "bathroom",
+        "office",
+        "corridor",
+        "other"
+      ]
+    },
+    "hexColor": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$"
+    },
+    "coordinatePair": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "room": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "type",
+        "width",
+        "height",
+        "floor",
+        "x",
+        "y",
+        "angle",
+        "locked"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "type": {
+          "$ref": "#/$defs/roomType"
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "floor": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "angle": {
+          "type": "number"
+        },
+        "locked": {
+          "type": "boolean"
+        },
+        "zoneId": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "zone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "color"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "color": {
+          "$ref": "#/$defs/hexColor"
+        }
+      }
+    },
+    "adjacency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_room_id", "to_room_id", "strength"],
+      "properties": {
+        "from_room_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "to_room_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "strength": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["floor", "polygon"],
+      "properties": {
+        "floor": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "polygon": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/coordinatePair"
+          }
+        }
+      }
+    },
+    "modelingDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "space_height_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "v1",
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "sample-project",
+      "rooms": [
+        {
+          "id": "room-living-01",
+          "name": "거실",
+          "type": "living",
+          "width": 4.2,
+          "height": 3.8,
+          "floor": 1,
+          "x": 5.0,
+          "y": 4.0,
+          "angle": 0.0,
+          "locked": false,
+          "zoneId": "zone-common"
+        }
+      ],
+      "zones": [
+        {
+          "id": "zone-common",
+          "name": "공용존",
+          "color": "#FF5733"
+        }
+      ],
+      "adjacency": [
+        {
+          "from_room_id": "room-living-01",
+          "to_room_id": "room-bed-01",
+          "strength": 0.6
+        }
+      ],
+      "boundaries": [
+        {
+          "floor": 1,
+          "polygon": [
+            [0.0, 0.0],
+            [14.0, 0.0],
+            [14.0, 9.0],
+            [0.0, 9.0]
+          ]
+        }
+      ],
+      "modeling_defaults": {
+        "space_height_m": 2.7
+      }
+    }
+  ]
+}

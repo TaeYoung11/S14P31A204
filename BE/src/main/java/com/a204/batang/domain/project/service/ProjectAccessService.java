@@ -13,8 +13,8 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * 프로젝트 접근 제어(소유자 검증, 사용자별 조회 분기)를 담당하는 서비스다.
- * 인증 기능이 없는 현재 단계에서는 ownerUserId가 null인 프로젝트를 익명 사용자 프로젝트로 간주한다.
+ * 프로젝트 접근 제어(소유자 검증, 사용자 기준 조회 분기)를 담당한다.
+ * 현재 인증 미구현 단계에서는 ownerUserId가 null인 프로젝트를 기본 접근 대상으로 본다.
  */
 @Service
 @RequiredArgsConstructor
@@ -24,9 +24,9 @@ public class ProjectAccessService {
 
     /**
      * 현재 로그인 사용자 ID를 조회한다.
-     * 인증 기능이 없는 현재 단계에서는 null을 반환한다.
+     * 현재 인증 미구현 단계에서는 null을 반환한다.
      *
-     * @return 현재 사용자 ID (미인증 단계에서는 null)
+     * @return 현재 사용자 ID(미인증 단계에서는 null)
      */
     public UUID resolveCurrentUserId() {
         // TODO: 인증/회원 기능 도입 시 SecurityContext 또는 @AuthenticationPrincipal 기반으로 사용자 ID를 조회한다.
@@ -54,9 +54,22 @@ public class ProjectAccessService {
     }
 
     /**
+     * 핀 작성 권한을 검증한다.
+     * 요구사항상 건축가와 클라이언트 모두 작성 가능해야 하므로 owner 전용 제한을 적용하지 않는다.
+     * 현재 인증/참여자 도메인 미구현 단계에서는 프로젝트 존재 검증만 통과하면 작성을 허용한다.
+     *
+     * @param project 프로젝트
+     * @param currentUserId 현재 사용자 ID
+     */
+    public void validateProjectPinWriterOrThrow(Project project, UUID currentUserId) {
+        // TODO: 참여자(건축가/클라이언트) 모델 도입 시
+        // validateProjectParticipantOrThrow(project, currentUserId, allowedRoles)로 교체한다.
+    }
+
+    /**
      * 현재 사용자 기준으로 프로젝트 목록을 조회한다.
      *
-     * @param pageable 페이징 정보
+     * @param pageable 페이지 정보
      * @return 프로젝트 페이지
      */
     public Page<Project> fetchProjectsByCurrentUser(Pageable pageable) {
@@ -72,7 +85,7 @@ public class ProjectAccessService {
      *
      * @param keyword 검색어
      * @param threshold trigram 유사도 임계치
-     * @param pageable 페이징 정보
+     * @param pageable 페이지 정보
      * @return 검색 결과 페이지
      */
     public Page<Project> searchProjectsByCurrentUser(String keyword, double threshold, Pageable pageable) {

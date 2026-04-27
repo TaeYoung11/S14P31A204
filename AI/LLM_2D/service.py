@@ -1,7 +1,10 @@
+import json
+
 import instructor
 from openai import AsyncOpenAI
-from typing import List, Dict, Optional, Tuple
-from models import FloorNLPCommand, NewRoom
+from typing import Dict, List, Optional
+
+from models import FloorNLPCommand
 
 _raw_client = AsyncOpenAI(
     base_url="http://localhost:11434/v1",
@@ -11,100 +14,105 @@ _raw_client = AsyncOpenAI(
 client = instructor.from_openai(_raw_client, mode=instructor.Mode.JSON)
 
 SYSTEM_PROMPT = """
-당신은 2D 평면도 수정 전문 어시스턴트입니다.
-사용자의 자연어 명령을 분석하여 평면도 수정 명령 JSON으로 변환하세요.
+당신은 2D 평면도 편집 요청을 구조화된 명령으로 변환하는 파서다.
+사용자 요청을 읽고 FloorNLPCommand JSON 하나만 정확하게 반환한다.
 
-## 지원하는 명령
-- add_room: 새 방 추가
+## IFC 컨텍스트 활용
+- [현재 IFC 상태]가 주어지면 spaces, walls, doors, windows, stairs 목록을 우선 참고한다.
+- 기존 요소를 수정하거나 삭제하는 요청은 IFC 컨텍스트 안의 현재 상태를 기준으로 해석한다.
+- IFC 전체를 추측하지 말고, 주어진 IFC 컨텍스트 안에서만 target을 식별한다.
+
+## 지원 액션
+- add_room: 방 추가
 - remove_room: 방 삭제
 - resize_room: 방 크기 변경
-- set_adjacency: 방 인접도 설정
-- lock_room: 방 위치 고정
-- unlock_room: 방 위치 고정 해제
+- set_adjacency: 방 인접 관계 설정
+- lock_room: 방 잠금
+- unlock_room: 방 잠금 해제
 
-## 방 형태 (shape)
+## 방 형태(shape)
 - rect: 직사각형
-- L: ㄱ자
-- U: ㄷ자
-- O: ㅁ자 (가운데 빈 공간)
+- L: L자
+- U: U자
 
-## 단위
-모든 크기는 미터(m) 단위로 변환하세요.
-예: "300cm" → 3.0, "1500mm" → 1.5
+## 단위 규칙
+치수는 항상 밀리미터(mm) 기준 정수로 변환한다.
+예: "3m" -> 3000, "300cm" -> 3000, "1500mm" -> 1500
 
-## 주의사항
-- 방 이름이 불명확하면 needs_clarification=true
-- 크기 정보가 없으면 needs_clarification=true
-- confidence는 0.0~1.0 (0.7 미만이면 재질문)
+## 해석 규칙
+- 대상 방 이름이 불명확하면 needs_clarification=true
+- 치수 정보가 부족하면 needs_clarification=true
+- confidence는 0.0~1.0 범위로 반환한다.
 
-## 예제
-입력: "안방을 4x5 크기로 추가해줘"
-출력: {"action": "add_room", "new_room": {"name": "안방", "type": "bedroom", "shape": "rect", "width": 4.0, "height": 5.0, "floor": 1}, "confidence": 0.95, "needs_clarification": false}
+## 예시
+사용자 요청: "침실 4x5 크기로 추가해줘"
+출력: {"action": "add_room", "new_room": {"name": "침실", "type": "bedroom", "shape": "rect", "width": 4000, "height": 5000, "floor": 1}, "confidence": 0.95, "needs_clarification": false}
 
-입력: "주방 없애줘"
-출력: {"action": "remove_room", "target_room_name": "주방", "confidence": 0.95, "needs_clarification": false}
+사용자 요청: "작은방 삭제해줘"
+출력: {"action": "remove_room", "target_room_name": "작은방", "confidence": 0.95, "needs_clarification": false}
 
-입력: "거실을 ㄱ자 6x8로 바꿔줘"
-출력: {"action": "resize_room", "target_room_name": "거실", "resize_shape": "L", "resize_width": 6.0, "resize_height": 8.0, "confidence": 0.95, "needs_clarification": false}
+사용자 요청: "거실을 L자 6x8로 바꿔줘"
+출력: {"action": "resize_room", "target_room_name": "거실", "resize_shape": "L", "resize_width": 6000, "resize_height": 8000, "confidence": 0.95, "needs_clarification": false}
 
-입력: "방 좀 바꿔줘"
-출력: {"action": "add_room", "confidence": 0.3, "needs_clarification": true, "clarification_question": "어떤 방을 어떻게 바꿀까요?"}
+사용자 요청: "방 하나 추가해줘"
+출력: {"action": "add_room", "confidence": 0.3, "needs_clarification": true, "clarification_question": "어떤 방을 어떤 크기로 추가할까요?"}
 """
 
-# shape → polygon 변환 알고리즘
-def shape_to_polygon(
+
+def shape_to_rects(
     shape: str,
-    width: float,
-    height: float
-) -> List[Tuple[float, float]]:
+    width: int,
+    height: int,
+) -> list[dict]:
     """
-    shape 문자열과 크기를 받아서 polygon 좌표로 변환
-    width: 전체 가로 (m)
-    height: 전체 세로 (m)
+    shape와 치수(mm)를 rect 조합 리스트로 변환한다.
+    반환값: [{"x": int, "y": int, "width": int, "height": int}, ...]
+    홀수 치수는 마지막 rect가 나머지를 흡수한다.
     """
     w, h = width, height
-    hw, hh = w / 2, h / 2  # 절반 크기
 
     if shape == "rect":
-        return [(0,0), (w,0), (w,h), (0,h)]
+        return [{"x": 0, "y": 0, "width": w, "height": h}]
 
-    elif shape == "L":  # ㄱ자
+    if shape == "L":
+        half_h = h // 2
         return [
-            (0,0), (w,0), (w,hh),
-            (hw,hh), (hw,h), (0,h)
+            {"x": 0, "y": 0,      "width": w,      "height": half_h},
+            {"x": 0, "y": half_h, "width": w // 2, "height": h - half_h},
         ]
 
-    elif shape == "U":  # ㄷ자
+    if shape == "U":
+        quarter_w = w // 4
         return [
-            (0,0), (w,0), (w,h),
-            (hw+hw*0.2, h), (hw+hw*0.2, hh),
-            (hw-hw*0.2, hh), (hw-hw*0.2, h),
-            (0,h)
+            {"x": 0,             "y": 0, "width": quarter_w,          "height": h},
+            {"x": w - quarter_w, "y": 0, "width": quarter_w,          "height": h},
+            {"x": quarter_w,     "y": 0, "width": w - 2 * quarter_w,  "height": h // 3},
         ]
 
-    elif shape == "O":  # ㅁ자
-        thickness = min(w, h) * 0.25
-        return [
-            (0,0), (w,0), (w,h), (0,h),  # 외곽
-            # 내부 구멍은 FE에서 처리
-        ]
-
-    else:
-        # 기본값: 직사각형
-        return [(0,0), (w,0), (w,h), (0,h)]
+    return [{"x": 0, "y": 0, "width": w, "height": h}]
 
 
 async def parse_command(
     user_text: str,
+    ifc_context: Optional[Dict] = None,
     conversation_history: Optional[List[Dict]] = None,
 ) -> FloorNLPCommand:
-
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     if conversation_history:
         messages.extend(conversation_history[-8:])
 
-    messages.append({"role": "user", "content": user_text})
+    if ifc_context is not None:
+        user_content = (
+            f"[현재 IFC 상태]\n"
+            f"{json.dumps(ifc_context, ensure_ascii=False)}\n\n"
+            f"[사용자 요청]\n"
+            f"{user_text}"
+        )
+    else:
+        user_content = user_text
+
+    messages.append({"role": "user", "content": user_content})
 
     try:
         command = await client.chat.completions.create(
@@ -115,34 +123,32 @@ async def parse_command(
             max_tokens=1024,
         )
 
-        # polygon 변환 처리
         if command.action == "add_room" and command.new_room:
             shape = getattr(command.new_room, "shape", "rect")
             width = getattr(command.new_room, "width", None)
             height = getattr(command.new_room, "height", None)
 
-            if width and height:
-                command.new_room.polygon = shape_to_polygon(shape, width, height)
+            if width is not None and height is not None:
+                command.new_room.rects = shape_to_rects(shape, width, height)
             else:
                 command.needs_clarification = True
-                command.clarification_question = "방의 크기를 알려주세요. 예: 4x5"
+                command.clarification_question = "방 크기를 다시 알려주세요. 예: 4000x5000"
 
         if command.action == "resize_room":
             shape = getattr(command, "resize_shape", "rect")
             width = getattr(command, "resize_width", None)
             height = getattr(command, "resize_height", None)
 
-            if width and height:
-                command.resize_polygon = shape_to_polygon(shape, width, height)
+            if width is not None and height is not None:
+                command.resize_rects = shape_to_rects(shape, width, height)
             else:
                 command.needs_clarification = True
-                command.clarification_question = "변경할 크기를 알려주세요. 예: 4x5"
+                command.clarification_question = "변경할 방 크기를 다시 알려주세요. 예: 4000x5000"
 
-        # confidence 낮으면 재질문
         if command.confidence < 0.7 and not command.needs_clarification:
             command.needs_clarification = True
             if not command.clarification_question:
-                command.clarification_question = "명령이 불명확합니다. 더 구체적으로 설명해주세요."
+                command.clarification_question = "요청을 정확히 해석하지 못했습니다. 조금 더 구체적으로 설명해 주세요."
 
         return command
 
@@ -151,5 +157,5 @@ async def parse_command(
             action="add_room",
             confidence=0.0,
             needs_clarification=True,
-            clarification_question=f"명령 분석 중 오류가 발생했습니다: {str(e)}"
+            clarification_question=f"명령 해석 중 오류가 발생했습니다: {str(e)}",
         )
