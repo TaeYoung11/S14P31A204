@@ -41,6 +41,21 @@ class LLM3DMaterialChange(BaseModel):
     grade:  Optional[str] = None
     finish: Optional[str] = None
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def translate_hallucination(cls, v: str) -> str:
+        """Qwen 등 모델의 한자 출력(환각) 방어"""
+        mapping = {
+            "铝": "Aluminum",
+            "混凝土": "Concrete",
+            "钢": "Steel",
+            "木": "Timber",
+            "玻璃": "Glass",
+            "砖": "Brick",
+            "钢筋混凝土": "Reinforced Concrete",
+        }
+        return mapping.get(v, v)
+
 
 class LLM3DPosition(BaseModel):
     """
