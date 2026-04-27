@@ -63,6 +63,26 @@ class BoundaryInput(LayoutImportBaseModel):
     floor: int = Field(ge=1)
     polygon: list[tuple[float, float]] = Field(min_length=3)
 
+    @model_validator(mode="after")
+    def validate_polygon_shape(self) -> "BoundaryInput":
+        points = self.polygon
+        if len(points) > 1 and points[0] == points[-1]:
+            points = points[:-1]
+
+        unique_points = set(points)
+        if len(unique_points) < 3:
+            raise ValueError("polygon은 서로 다른 점이 최소 3개 이상이어야 합니다.")
+
+        doubled_area = 0.0
+        for index, (x1, y1) in enumerate(points):
+            x2, y2 = points[(index + 1) % len(points)]
+            doubled_area += x1 * y2 - x2 * y1
+
+        if doubled_area == 0:
+            raise ValueError("polygon은 면적이 0이면 안 됩니다.")
+
+        return self
+
 
 class RoomInput(LayoutImportBaseModel):
     """방/공간 입력."""
