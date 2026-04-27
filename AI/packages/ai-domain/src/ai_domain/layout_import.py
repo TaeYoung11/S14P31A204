@@ -6,7 +6,7 @@ schema codegen 도입 시 generated 모델로 대체할 수 있다.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
@@ -19,7 +19,7 @@ class LayoutImportBaseModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
-class RoomType(str, Enum):
+class RoomType(StrEnum):
     LIVING = "living"
     BEDROOM = "bedroom"
     KITCHEN = "kitchen"
@@ -51,7 +51,7 @@ class AdjacencyInput(LayoutImportBaseModel):
     strength: float = Field(ge=0, le=1)
 
     @model_validator(mode="after")
-    def validate_distinct_room_ids(self) -> "AdjacencyInput":
+    def validate_distinct_room_ids(self) -> AdjacencyInput:
         if self.from_room_id == self.to_room_id:
             raise ValueError("from_room_id와 to_room_id는 서로 달라야 합니다.")
         return self
@@ -64,7 +64,7 @@ class BoundaryInput(LayoutImportBaseModel):
     polygon: list[tuple[float, float]] = Field(min_length=3)
 
     @model_validator(mode="after")
-    def validate_polygon_shape(self) -> "BoundaryInput":
+    def validate_polygon_shape(self) -> BoundaryInput:
         points = self.polygon
         if len(points) > 1 and points[0] == points[-1]:
             points = points[:-1]
