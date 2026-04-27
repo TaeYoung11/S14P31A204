@@ -49,6 +49,8 @@ public class ProjectPin extends BaseEntity {
     @JoinColumn(name = "project_id", nullable = false)
     private Project project;
 
+
+    //Todo: user 구현 후 수정 예정
     @Column(name = "author_user_id")
     private UUID authorUserId;
 
