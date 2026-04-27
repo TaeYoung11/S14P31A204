@@ -18,13 +18,13 @@ class NewRoom(BaseModel):
     shape: Literal["rect", "L", "U"] = Field(
         "rect", description="방 형태"
     )
-    width: int = Field(..., description="밀리미터(mm) 단위 정수")
-    height: int = Field(..., description="밀리미터(mm) 단위 정수")
+    width: int = Field(..., gt=0, description="밀리미터(mm) 단위 양의 정수")
+    height: int = Field(..., gt=0, description="밀리미터(mm) 단위 양의 정수")
     rects: Optional[list[dict]] = Field(
         None,
         description="rect 조합 리스트. shape_to_rects()가 자동 생성. 각 dict: {x: int, y: int, width: int, height: int} (mm 단위)",
     )
-    floor: int = Field(..., description="층 번호")
+    floor: int = Field(..., ge=1, description="층 번호")
 
 
 class FloorNLPCommand(BaseModel):
@@ -40,7 +40,7 @@ class FloorNLPCommand(BaseModel):
         None, description="대상 방 이름"
     )
     target_floor: Optional[int] = Field(
-        None, description="대상 층 번호"
+        None, ge=1, description="대상 층 번호"
     )
     new_room: Optional[NewRoom] = Field(
         None, description="새로 추가할 방 정보"
@@ -58,10 +58,10 @@ class FloorNLPCommand(BaseModel):
         "rect", description="변경할 방 형태"
     )
     resize_width: Optional[int] = Field(
-        None, description="밀리미터(mm) 단위 정수"
+        None, gt=0, description="밀리미터(mm) 단위 정수"
     )
     resize_height: Optional[int] = Field(
-        None, description="밀리미터(mm) 단위 정수"
+        None, gt=0, description="밀리미터(mm) 단위 정수"
     )
     resize_rects: Optional[list[dict]] = Field(
         None,

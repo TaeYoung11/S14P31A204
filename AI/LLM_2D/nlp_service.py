@@ -4,7 +4,10 @@ import instructor
 from openai import AsyncOpenAI
 from typing import Dict, List, Optional
 
-from models import FloorNLPCommand
+try:
+    from .models import FloorNLPCommand
+except ImportError:
+    from models import FloorNLPCommand  # type: ignore[no-redef]
 
 _raw_client = AsyncOpenAI(
     base_url="http://localhost:11434/v1",
