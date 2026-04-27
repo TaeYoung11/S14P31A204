@@ -48,6 +48,9 @@ public class ProjectPinController {
         SseEmitter emitter = projectPinSseService.subscribe(projectId);
         return ResponseEntity.ok()
                 .header("X-Accel-Buffering", "no")
+                .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                .header("Pragma", "no-cache")
+                .header("Expires", "0")
                 .body(emitter);
     }
 

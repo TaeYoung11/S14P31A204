@@ -11,7 +11,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -45,7 +44,6 @@ public class ProjectPinSseService {
      * @param projectId 프로젝트 ID
      * @return SSE emitter
      */
-    @Transactional(readOnly = true)
     public SseEmitter subscribe(UUID projectId) {
         Project project = projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
