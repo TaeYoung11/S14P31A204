@@ -10,7 +10,7 @@ from enum import Enum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class LayoutImportBaseModel(BaseModel):
@@ -49,6 +49,12 @@ class AdjacencyInput(LayoutImportBaseModel):
     from_room_id: str = Field(min_length=1, max_length=128)
     to_room_id: str = Field(min_length=1, max_length=128)
     strength: float = Field(ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_distinct_room_ids(self) -> "AdjacencyInput":
+        if self.from_room_id == self.to_room_id:
+            raise ValueError("from_room_id와 to_room_id는 서로 달라야 합니다.")
+        return self
 
 
 class BoundaryInput(LayoutImportBaseModel):
