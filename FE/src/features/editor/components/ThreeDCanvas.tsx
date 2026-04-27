@@ -22,6 +22,8 @@ interface ThreeDCanvasProps {
   isGridVisible?: boolean
   rooms?: FloorRoom[]
   scale?: number
+  selectedId?: string | null
+  onSelect?: (id: string | null) => void
   /** 현재 활성 도구 ('selection' | 'hand' | ...) */
   selectedTool?: string
 }
@@ -40,6 +42,8 @@ export function ThreeDCanvas({
   isGridVisible = false,
   rooms = [],
   scale = 1,
+  selectedId,
+  onSelect,
   selectedTool = 'selection',
 }: ThreeDCanvasProps) {
   const [selectedCategory, setSelectedCategory] = useState('지붕')
@@ -79,9 +83,10 @@ export function ThreeDCanvas({
         <div className="absolute left-8 top-[10%] w-[500px] h-[70%] bg-white/80 backdrop-blur-xl border border-white/40 rounded-[32px] shadow-2xl z-50 flex overflow-hidden animate-in fade-in slide-in-from-left-4 duration-300">
           <button
             onClick={onToggleLibrary}
-            className="absolute top-6 right-6 p-2 text-[#ADB5BD] hover:text-[#1C1C1E] transition-colors z-10"
+            className="absolute top-5 right-5 flex items-center gap-1.5 px-3 py-1.5 bg-[#F0F2F9] hover:bg-[#E2E6EF] text-[#6B7A99] hover:text-[#1C1C1E] rounded-xl transition-all z-10"
           >
-            <X size={20} />
+            <X size={14} />
+            <span className="text-[11px] font-bold">닫기</span>
           </button>
 
           {/* 카테고리 사이드바 */}
@@ -160,7 +165,14 @@ export function ThreeDCanvas({
 
           {/* 방(공간) 박스 렌더링 */}
           {rooms.map((room) => (
-            <Room3D key={room.id} room={room} height={WALL_HEIGHT} />
+            <Room3D
+              key={room.id}
+              room={room}
+              height={WALL_HEIGHT}
+              isSelected={selectedId === room.bubbleId}
+              onSelect={onSelect}
+              selectedTool={selectedTool}
+            />
           ))}
 
           {/* 협업 모드 핀 오버레이 */}
@@ -191,29 +203,49 @@ export function ThreeDCanvas({
 interface Room3DProps {
   room: FloorRoom
   height: number
+  isSelected?: boolean
+  onSelect?: (id: string | null) => void
+  selectedTool?: string
 }
 
 /** CSS 3D Transform 기반 방 박스 렌더러 — 상단·하단·4면 벽체로 구성 */
-function Room3D({ room, height }: Room3DProps) {
+function Room3D({ room, height, isSelected, onSelect, selectedTool = 'selection' }: Room3DProps) {
   const color = room.color || '#3B45B3'
   const lightColor = hexToRgba(color, 0.4)
   const darkColor = hexToRgba(color, 0.8)
 
+  const isHand = selectedTool === 'hand'
+
   return (
     <div
-      className="absolute preserve-3d transition-all duration-500 hover:translate-z-4 group"
-      style={{ left: room.x, top: room.y, width: room.width, height: room.height }}
+      className={`absolute preserve-3d transition-all duration-500 group ${
+        isHand ? 'cursor-inherit' : 'cursor-pointer'
+      } ${isSelected && !isHand ? 'translate-z-6' : !isHand ? 'hover:translate-z-4' : ''}`}
+      style={{ left: room.x, top: room.y, width: room.width, height: room.height, pointerEvents: 'auto' }}
+      onClick={(e) => {
+        if (isHand) return
+        e.stopPropagation()
+        onSelect?.(isSelected ? null : room.bubbleId)
+      }}
     >
       {/* 바닥 */}
       <div
         className="absolute inset-0 shadow-inner"
-        style={{ backgroundColor: hexToRgba(color, 0.1), border: `1px solid ${hexToRgba(color, 0.2)}` }}
+        style={{ 
+          backgroundColor: isSelected ? hexToRgba(color, 0.2) : hexToRgba(color, 0.1), 
+          border: `1px solid ${isSelected ? color : hexToRgba(color, 0.2)}` 
+        }}
       />
 
       {/* 천장 (라벨 표시) */}
       <div
         className="absolute inset-0 flex items-center justify-center overflow-hidden"
-        style={{ transform: `translateZ(${height}px)`, backgroundColor: hexToRgba(color, 0.05), border: `2px solid ${color}` }}
+        style={{ 
+          transform: `translateZ(${height}px)`, 
+          backgroundColor: isSelected ? hexToRgba(color, 0.1) : hexToRgba(color, 0.05), 
+          border: isSelected ? `3px solid #3B45B3` : `2px solid ${color}`,
+          boxShadow: isSelected ? '0 0 15px rgba(59,69,179,0.4)' : 'none'
+        }}
       >
         <div className="flex flex-col items-center gap-0.5">
           <span className="text-[10px] font-black text-[#1C1C1E]">{room.label}</span>

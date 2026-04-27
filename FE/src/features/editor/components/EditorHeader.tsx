@@ -14,7 +14,7 @@ export default function EditorHeader({ onOpenInvite, mode, onModeChange, onSave 
   const isViewer = mode === 'view'
 
   return (
-    <header className="h-12 bg-white border-b border-[#E2E6EF] flex items-center justify-between px-6 shrink-0 z-50 shadow-sm">
+    <header className="h-12 bg-white border-b border-[#E2E6EF] flex items-center justify-between px-6 shrink-0 z-50 shadow-sm relative">
       <div className="flex items-center gap-8">
         <Link to="/projects" className="text-sm font-black tracking-tighter text-[#1C1C1E] hover:opacity-80 transition-opacity cursor-pointer">
           <span className="opacity-60">바탕:</span> BATANG

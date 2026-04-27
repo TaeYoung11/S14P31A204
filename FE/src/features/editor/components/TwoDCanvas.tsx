@@ -205,7 +205,7 @@ export function TwoDCanvas({
 
         {/* 방(Room) 렌더링 */}
         {rooms.map((room) => {
-          const isSelected = selectedId === room.id
+          const isSelected = selectedId === room.bubbleId
           const fill = getRoomFill(room.color)
           const labelFontSize = Math.max(9, Math.min(13, room.width / 8))
           const areaFontSize = Math.max(8, Math.min(11, room.width / 10))
@@ -215,7 +215,7 @@ export function TwoDCanvas({
               key={room.id}
               onClick={(e) => {
                 e.cancelBubble = true
-                onSelect?.(isSelected ? null : room.id)
+                onSelect?.(isSelected ? null : room.bubbleId)
               }}
               onMouseEnter={handleMouseEnter}
               onMouseLeave={handleMouseLeave}

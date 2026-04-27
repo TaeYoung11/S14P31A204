@@ -4,15 +4,16 @@ import type { BubbleInfo } from './BubbleAttributePanel'
 
 interface ThreeDAttributePanelProps {
   selectedBubble: BubbleInfo | null
+  onLabelChange: (id: string, label: string) => void
   onColorChange: (id: string, color: string) => void
 }
 
 /**
  * 3D 뷰어 모드 속성 패널
- * 선택된 공간의 색상을 변경할 수 있으며,
+ * 선택된 공간의 이름·색상을 변경할 수 있으며,
  * 벽체 치수(길이·높이·두께)와 재질은 기본값으로 표시된다.
  */
-export function ThreeDAttributePanel({ selectedBubble, onColorChange }: ThreeDAttributePanelProps) {
+export function ThreeDAttributePanel({ selectedBubble, onLabelChange, onColorChange }: ThreeDAttributePanelProps) {
   if (!selectedBubble) {
     return (
       <div className="p-5 text-center text-[#ADB5BD] text-xs font-medium">
@@ -24,6 +25,17 @@ export function ThreeDAttributePanel({ selectedBubble, onColorChange }: ThreeDAt
   return (
     <div className="p-5 flex flex-col gap-5">
       <div className="flex flex-col gap-4">
+        {/* 공간 이름 */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">공간 이름</span>
+          <input
+            type="text"
+            value={selectedBubble.label}
+            onChange={(e) => onLabelChange(selectedBubble.id, e.target.value)}
+            className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
+          />
+        </div>
+
         {/* 길이 */}
         <div className="flex flex-col gap-1.5">
           <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">길이 (MM)</span>

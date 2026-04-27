@@ -95,6 +95,13 @@ export function useEditorPage() {
     }
   }, [bubbles, connections, stageSize.width, stageSize.height, isFloorPlanGenerated, refreshFloorPlan])
 
+  // 버블이 1개 이상 생기면 평면도가 없을 때 즉시 자동 생성 (모드 무관)
+  useEffect(() => {
+    if (!isFloorPlanGenerated && bubbles.length > 0 && stageSize.width > 0) {
+      generateFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
+    }
+  }, [isFloorPlanGenerated, bubbles.length, stageSize.width])
+
   // UI 전용 상태
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [addSpaceFormData, setAddSpaceFormData] = useState<AddSpaceFormData>(INITIAL_ADD_SPACE_FORM)
@@ -107,6 +114,7 @@ export function useEditorPage() {
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
   const [isExportSelectionModalOpen, setIsExportSelectionModalOpen] = useState(false)
+  const [isIFCExportModalOpen, setIsIFCExportModalOpen] = useState(false)
   const [zoom, setZoom] = useState(100)
 
   // 파생 상태: 선택된 버블 객체
@@ -204,7 +212,9 @@ export function useEditorPage() {
   const handleZoomIn = () => setZoom((prev) => Math.min(prev + 10, 300))
   const handleZoomOut = () => setZoom((prev) => Math.max(prev - 10, 10))
   const handleZoomChange = (value: string) => {
-    const num = parseInt(value.replace('%', ''))
+    const cleaned = value.replace(/[^0-9]/g, '')
+    if (cleaned === '') return
+    const num = parseInt(cleaned, 10)
     if (!isNaN(num)) setZoom(Math.min(Math.max(num, 10), 300))
   }
 
@@ -287,6 +297,7 @@ export function useEditorPage() {
     handleZoomIn,
     handleZoomOut,
     handleZoomChange,
+    setZoom,
     // 라이브러리
     isLibraryOpen,
     setIsLibraryOpen,
@@ -317,5 +328,9 @@ export function useEditorPage() {
     isExportSelectionModalOpen,
     handleOpenExportSelectionModal: () => setIsExportSelectionModalOpen(true),
     onCloseExportSelectionModal: () => setIsExportSelectionModalOpen(false),
+    // IFC 내보내기 모달
+    isIFCExportModalOpen,
+    handleOpenIFCExportModal: () => setIsIFCExportModalOpen(true),
+    onCloseIFCExportModal: () => setIsIFCExportModalOpen(false),
   }
 }

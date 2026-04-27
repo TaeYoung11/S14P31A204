@@ -1,5 +1,5 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import type { EditorMode, PanelKey, PanelOffset, PanelResizeAxis, ZoneData } from '../types'
+import type { EditorMode, FloorLayer, PanelKey, PanelOffset, PanelResizeAxis, ZoneData } from '../types'
 import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from './BubbleAttributePanel'
 import { CollaborationPanel } from './CollaborationPanel'
 import { AttributesPanel } from './AttributesPanel'
@@ -29,6 +29,11 @@ interface EditorRightPanelsProps {
   onHeightChange: (id: string, height: number) => void
   onRatioChange: (id: string, ratio: number) => void
   onColorChange: (id: string, color: string) => void
+  floorLayers?: FloorLayer[]
+  activeFloorLayerId?: string | null
+  isFloorPlanGenerated?: boolean
+  onAddFloorLayer?: () => void
+  onSelectFloorLayer?: (id: string) => void
   onOpenZoningModal: () => void
   onOpenEditZoningModal: (zone: ZoneData) => void
   onDeleteZoning: (zoneId: string) => void
@@ -59,6 +64,11 @@ export function EditorRightPanels({
   onHeightChange,
   onRatioChange,
   onColorChange,
+  floorLayers,
+  activeFloorLayerId,
+  isFloorPlanGenerated,
+  onAddFloorLayer,
+  onSelectFloorLayer,
   onOpenZoningModal,
   onOpenEditZoningModal,
   onDeleteZoning,
@@ -124,6 +134,11 @@ export function EditorRightPanels({
             offset={panelOffsets.floorView}
             width={panelWidths.floorView}
             height={panelHeights.floorView}
+            layers={floorLayers}
+            activeLayerId={activeFloorLayerId}
+            isGenerated={isFloorPlanGenerated}
+            onSelectLayer={onSelectFloorLayer}
+            onAddLayer={onAddFloorLayer}
             onDragStart={onPanelDragStart}
             onResizeStart={onPanelResizeStart}
             onToggle={onTogglePanel}

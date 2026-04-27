@@ -83,6 +83,7 @@ export function AttributesPanel({
       {mode === '3d' && (
         <ThreeDAttributePanel
           selectedBubble={selectedBubble}
+          onLabelChange={onLabelChange}
           onColorChange={onColorChange}
         />
       )}

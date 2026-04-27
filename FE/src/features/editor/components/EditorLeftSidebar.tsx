@@ -52,16 +52,15 @@ interface ToolButtonBaseProps {
 
 /**
  * 선택/패닝 토글 버튼
- * - 'hand' 도구일 때: 손 아이콘 + "패닝" 레이블 표시
- * - 그 외: 화살표 아이콘 + "선택" 레이블 표시
- * - 클릭하면 항상 'selection' 도구로 복귀
+ * - 'hand' 도구일 때: 손 아이콘 + "패닝" 레이블 표시 → 클릭 시 'selection' 복귀
+ * - 그 외: 화살표 아이콘 + "선택" 레이블 표시 → 클릭 시 'hand' 전환
  */
 function SelectionToolButton({ selectedTool, onToolSelect }: ToolButtonBaseProps) {
   const isActive = selectedTool === 'selection' || selectedTool === 'hand'
   const style = getToolStyle(isActive)
 
   return (
-    <button onClick={() => onToolSelect('selection')} className="w-full flex flex-col items-center gap-1 py-1 group">
+    <button onClick={() => onToolSelect(selectedTool === 'hand' ? 'selection' : 'hand')} className="w-full flex flex-col items-center gap-1 py-1 group">
       <div className={style.container}>
         {selectedTool === 'hand' ? (
           <Hand size={24} />

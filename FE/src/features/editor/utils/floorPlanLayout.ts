@@ -167,6 +167,7 @@ export function generateFloorPlanLayout(
     const rect = placedMap.get(bubble.id)!
     return {
       id: bubble.id,
+      bubbleId: bubble.id,
       label: bubble.label,
       type: bubble.type,
       x: rect.x * scale + offsetX,
