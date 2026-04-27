@@ -18,7 +18,6 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,6 +27,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
@@ -52,13 +52,13 @@ public class ProjectController {
      * @return 생성 결과
      */
     @PostMapping
-    public ResponseEntity<ApiResponse<CreateProjectResponse>> createProject(
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<CreateProjectResponse> createProject(
             @Valid @RequestBody CreateProjectRequest request
             // TODO: 인증 구현 시 사용자 정보 연동
     ) {
         CreateProjectResponse response = projectService.createProject(request);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.created("프로젝트 생성 완료", response));
+        return ApiResponse.created("프로젝트 생성 완료", response);
     }
 
     /**
