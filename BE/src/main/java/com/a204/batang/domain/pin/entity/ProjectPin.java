@@ -17,6 +17,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -113,6 +114,13 @@ public class ProjectPin extends BaseEntity {
 
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
+
+    /**
+     * 댓글 메타데이터 갱신 시 동시성 충돌 감지를 위한 버전 값이다.
+     */
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
 
     private ProjectPin(
             Project project,

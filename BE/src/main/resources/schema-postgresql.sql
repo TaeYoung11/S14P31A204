@@ -30,6 +30,35 @@ CREATE INDEX IF NOT EXISTS idx_projects_name_lower_trgm
     USING gin (lower(name) gin_trgm_ops)
     WHERE deleted_at IS NULL;
 
+ALTER TABLE IF EXISTS project_pins
+    ADD COLUMN IF NOT EXISTS version BIGINT;
+
+UPDATE project_pins
+SET version = 0
+WHERE version IS NULL;
+
+ALTER TABLE IF EXISTS project_pins
+    ALTER COLUMN version SET DEFAULT 0;
+
+ALTER TABLE IF EXISTS project_pins
+    ALTER COLUMN version SET NOT NULL;
+
+CREATE TABLE IF NOT EXISTS pin_comment_read_states (
+    pin_id UUID NOT NULL,
+    user_id UUID NOT NULL,
+    last_read_comment_id UUID NULL,
+    last_read_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    PRIMARY KEY (pin_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pin_comment_read_states_user
+    ON pin_comment_read_states (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_pin_comment_read_states_last_read_at
+    ON pin_comment_read_states (last_read_at);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_project_type_created_at
     ON jobs (project_id, job_type, created_at DESC);
 
