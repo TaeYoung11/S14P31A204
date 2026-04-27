@@ -19,8 +19,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.time.LocalDateTime;
 import java.lang.reflect.Constructor;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -157,7 +157,8 @@ class RenderQueryServiceTest {
         assertThat(first.renderId()).isEqualTo(firstJobId);
         assertThat(first.imageUrl()).isEqualTo("https://minio.local/renderings/render-latest.png");
         assertThat(first.status()).isEqualTo("SUCCESS");
-        assertThat(first.completedAt()).isEqualTo(LocalDateTime.of(2026, 4, 15, 16, 50, 28));
+        assertThat(first.createdAt()).isEqualTo("2026-04-15T07:50:00Z");
+        assertThat(first.completedAt()).isEqualTo("2026-04-15T07:50:28Z");
         assertThat(first.style()).isNotNull();
         assertThat(first.style().timeOfDay()).isEqualTo("EVENING");
         assertThat(first.style().viewpoint()).isEqualTo("EXTERIOR");
@@ -168,6 +169,7 @@ class RenderQueryServiceTest {
         assertThat(second.renderId()).isEqualTo(secondJobId);
         assertThat(second.imageUrl()).isNull();
         assertThat(second.status()).isEqualTo("RUNNING");
+        assertThat(second.createdAt()).isEqualTo("2026-04-14T01:00:00Z");
         assertThat(second.completedAt()).isNull();
         assertThat(second.style()).isNotNull();
         assertThat(second.style().timeOfDay()).isEqualTo("MORNING");

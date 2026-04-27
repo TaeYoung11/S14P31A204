@@ -15,7 +15,6 @@ import org.springframework.data.jpa.mapping.JpaMetamodelMappingContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -47,8 +46,8 @@ class RenderControllerTest {
                 new ProjectRenderStyleResponse("EVENING", "EXTERIOR", "SPRING", "CLEAR"),
                 "https://minio.local/renderings/render-001.png",
                 "SUCCESS",
-                LocalDateTime.of(2026, 4, 15, 16, 50, 0),
-                LocalDateTime.of(2026, 4, 15, 16, 50, 28)
+                "2026-04-15T07:50:00Z",
+                "2026-04-15T07:50:28Z"
         );
         given(renderQueryService.getProjectRenders(projectId)).willReturn(List.of(response));
 
@@ -59,7 +58,9 @@ class RenderControllerTest {
                 .andExpect(jsonPath("$.data[0].renderId").value(projectId.toString()))
                 .andExpect(jsonPath("$.data[0].style.timeOfDay").value("EVENING"))
                 .andExpect(jsonPath("$.data[0].imageUrl").value("https://minio.local/renderings/render-001.png"))
-                .andExpect(jsonPath("$.data[0].status").value("SUCCESS"));
+                .andExpect(jsonPath("$.data[0].status").value("SUCCESS"))
+                .andExpect(jsonPath("$.data[0].createdAt").value("2026-04-15T07:50:00Z"))
+                .andExpect(jsonPath("$.data[0].completedAt").value("2026-04-15T07:50:28Z"));
     }
 
     @Test
