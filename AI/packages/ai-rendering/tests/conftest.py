@@ -20,6 +20,12 @@ def ifc4_fixture() -> Path:
 
 
 @pytest.fixture
+def ifc4_sample_house_fixture() -> Path:
+    """추가 IFC4 fixture (Ifc4_SampleHouse). 다양한 IFC4 샘플 회귀 검증용."""
+    return Path(__file__).parent / "fixtures" / "ifc" / "Ifc4_SampleHouse.ifc"
+
+
+@pytest.fixture
 def ifc2x3_fixture() -> Path:
     """IFC 2x3 스키마 부정 경로 fixture — load_mesh가 IFCRenderError로 거부해야 한다."""
     return Path(__file__).parent / "fixtures" / "ifc" / "RE16_E3D_Building_2x3_Testversion.ifc"
