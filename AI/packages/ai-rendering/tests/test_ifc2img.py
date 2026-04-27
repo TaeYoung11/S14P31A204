@@ -12,7 +12,12 @@ import pytest
 
 from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
 from ai_rendering.ifc2img.geometry import load_mesh
-from ai_rendering.ifc2img.views import AutoZoomMode, compute_auto_zoom
+from ai_rendering.ifc2img.views import (
+    AutoZoomMode,
+    compute_auto_zoom,
+    compute_dynamic_front,
+    compute_principal_axes,
+)
 
 
 # --- _depth_to_image 순수 함수 단위 테스트 (mock 불필요) ---
@@ -133,8 +138,9 @@ def test_render_views_loads_mesh_once() -> None:
         results = renderer.render_views(Path("dummy.ifc"))
 
     assert mock_load.call_count == 1
-    assert set(results.keys()) == {IFCView.FRONT, IFCView.SIDE, IFCView.TOP}
-    assert vis.capture_depth_float_buffer.call_count == 3  # 뷰마다 1번씩
+    # render_views(views=None) → 등록된 모든 IFCView. 등각 뷰 추가 후 8개.
+    assert set(results.keys()) == set(IFCView)
+    assert vis.capture_depth_float_buffer.call_count == len(IFCView)  # 뷰마다 1번씩
 
 
 # --- IFC4 schema 가드 (정상 경로는 실제 fixture, 부정 경로는 mock) ---
@@ -327,6 +333,102 @@ def test_iterative_zoom_bool_true_maps_to_iterative() -> None:
 
     renderer_off = IFCRenderer(auto_zoom=False)
     assert renderer_off.auto_zoom == AutoZoomMode.OFF
+
+
+# --- 카드 B + γ: PCA 기반 동적 front + 등각 뷰 ---
+
+
+def test_pca_returns_orthogonal_axes_for_long_mesh() -> None:
+    """길쭉한 mesh의 PCA — long ⊥ mid, 단위벡터, valid=True."""
+    # x축으로 길쭉, y축으로 짧음
+    rng = np.random.default_rng(42)
+    n = 500
+    pts_x = rng.uniform(-50, 50, n)
+    pts_y = rng.uniform(-5, 5, n)
+    pts_z = rng.uniform(0, 10, n)
+    vertices = np.stack([pts_x, pts_y, pts_z], axis=1)
+
+    long_axis, mid_axis, valid = compute_principal_axes(vertices)
+
+    assert valid is True
+    # long_axis는 x 방향에 가까워야 함
+    assert abs(long_axis[0]) > 0.9
+    assert abs(long_axis[1]) < 0.3
+    # 직교 검증
+    assert abs(np.dot(long_axis, mid_axis)) < 1e-6
+    # 단위벡터
+    assert abs(np.linalg.norm(long_axis) - 1.0) < 1e-6
+    assert abs(np.linalg.norm(mid_axis) - 1.0) < 1e-6
+    # z 성분은 0 (xy 평면 PCA)
+    assert long_axis[2] == 0.0
+    assert mid_axis[2] == 0.0
+
+
+def test_pca_fallback_when_eigenvalues_close() -> None:
+    """정사각 평면 mesh — eigenvalue 격차 작음 → valid=False → fallback 권장."""
+    rng = np.random.default_rng(42)
+    n = 500
+    pts = rng.uniform(-10, 10, (n, 2))
+    pts_z = rng.uniform(0, 10, n)
+    vertices = np.stack([pts[:, 0], pts[:, 1], pts_z], axis=1)
+
+    _, _, valid = compute_principal_axes(vertices)
+    assert valid is False
+
+
+def test_compute_dynamic_front_iso_ne_combines_axes() -> None:
+    """ISO_NE는 PCA 좌표계에서 두 축 결합 + z."""
+    long_axis = np.array([1.0, 0.0, 0.0])
+    mid_axis = np.array([0.0, 1.0, 0.0])
+
+    front = compute_dynamic_front(IFCView.ISO_NE, long_axis, mid_axis)
+
+    # ISO_NE 계수 = (-0.7, -0.7, 0.5)
+    assert abs(front[0] - (-0.7)) < 1e-6  # long 성분
+    assert abs(front[1] - (-0.7)) < 1e-6  # mid 성분
+    assert abs(front[2] - 0.5) < 1e-6     # z 성분
+
+
+def test_iso_views_all_in_enum() -> None:
+    """등각 뷰 5개가 IFCView enum에 모두 등록됨."""
+    assert IFCView.ISO_NE in IFCView
+    assert IFCView.ISO_NW in IFCView
+    assert IFCView.ISO_SE in IFCView
+    assert IFCView.CORNER_LOW in IFCView
+    assert IFCView.BIRDS_EYE in IFCView
+    assert len(list(IFCView)) == 8  # FRONT/SIDE/TOP + 5등각
+
+
+def test_renderer_pca_align_off_uses_static_front() -> None:
+    """pca_align=False 시 동적 front 계산 안 함, VIEW_CAMERAS 정적값 그대로."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5], [20, 0, 5]])
+    fake_center = np.array([10.0, 5.0, 2.5])
+
+    with (
+        patch(
+            "ai_rendering.ifc2img.renderer.load_mesh",
+            return_value=(fake_mesh, fake_center),
+        ),
+        patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
+        patch(
+            "ai_rendering.ifc2img.renderer.compute_principal_axes"
+        ) as mock_pca,
+    ):
+        vis = MagicMock()
+        mock_o3d.visualization.Visualizer.return_value = vis
+        depth = np.zeros((448, 768), dtype=np.float32)
+        depth[100:300, 200:500] = 5.0
+        vis.capture_depth_float_buffer.return_value = depth
+
+        renderer = IFCRenderer(pca_align=False)
+        renderer.render(Path("dummy.ifc"), IFCView.FRONT)
+
+    mock_pca.assert_not_called()
+    # set_front은 IFCView.FRONT의 정적 vector (-1.0, 0.0, 0.2)로 호출
+    set_front_calls = vis.get_view_control.return_value.set_front.call_args_list
+    assert len(set_front_calls) == 1
+    assert set_front_calls[0].args[0] == [-1.0, 0.0, 0.2]
 
 
 @pytest.mark.parametrize("schema_name", ["IFC4", "IFC4X1", "IFC4X2", "IFC4X3"])
