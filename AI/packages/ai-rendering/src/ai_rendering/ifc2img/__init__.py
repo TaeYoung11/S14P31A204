@@ -2,6 +2,14 @@
 
 from .exceptions import IFCRenderError
 from .renderer import IFCRenderer
+from .style import DepthStyleParams, DepthStyleRenderer, DepthStyleResult
 from .views import IFCView
 
-__all__ = ["IFCRenderer", "IFCView", "IFCRenderError"]
+__all__ = [
+    "IFCRenderer",
+    "IFCView",
+    "IFCRenderError",
+    "DepthStyleParams",
+    "DepthStyleResult",
+    "DepthStyleRenderer",
+]
