@@ -109,11 +109,11 @@
           "$ref": "#/$defs/roomType"
         },
         "width": {
-          "type": "number",
+          "type": "integer",
           "exclusiveMinimum": 0
         },
         "height": {
-          "type": "number",
+          "type": "integer",
           "exclusiveMinimum": 0
         },
         "floor": {
@@ -210,8 +210,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "space_height_m": {
-          "type": "number",
+        "space_height_mm": {
+          "type": "integer",
           "exclusiveMinimum": 0
         }
       }
@@ -227,11 +227,11 @@
           "id": "room-living-01",
           "name": "거실",
           "type": "living",
-          "width": 4.2,
-          "height": 3.8,
+          "width": 4200,
+          "height": 3800,
           "floor": 1,
-          "x": 5.0,
-          "y": 4.0,
+          "x": 5000.0,
+          "y": 4000.0,
           "angle": 0.0,
           "locked": false,
           "zoneId": "zone-common"
@@ -263,7 +263,7 @@
         }
       ],
       "modeling_defaults": {
-        "space_height_m": 2.7
+        "space_height_mm": 2700
       }
     }
   ]

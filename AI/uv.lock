@@ -102,10 +102,14 @@ version = "0.1.0"
 source = { editable = "packages/ai-layout-import" }
 dependencies = [
     { name = "ai-domain" },
+    { name = "ifcopenshell" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "ai-domain", editable = "packages/ai-domain" }]
+requires-dist = [
+    { name = "ai-domain", editable = "packages/ai-domain" },
+    { name = "ifcopenshell", specifier = ">=0.8.5" },
+]
 
 [[package]]
 name = "ai-planning"

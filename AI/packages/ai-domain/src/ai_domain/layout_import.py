@@ -6,7 +6,7 @@ schema codegen 도입 시 generated 모델로 대체할 수 있다.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
@@ -19,7 +19,7 @@ class LayoutImportBaseModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
-class RoomType(str, Enum):
+class RoomType(StrEnum):
     LIVING = "living"
     BEDROOM = "bedroom"
     KITCHEN = "kitchen"
@@ -32,7 +32,7 @@ class RoomType(str, Enum):
 class ModelingDefaults(LayoutImportBaseModel):
     """v1에서 허용하는 선택적 모델링 기본값."""
 
-    space_height_m: float | None = Field(default=None, gt=0)
+    space_height_mm: int | None = Field(default=None, gt=0, strict=True)
 
 
 class ZoneInput(LayoutImportBaseModel):
@@ -51,7 +51,7 @@ class AdjacencyInput(LayoutImportBaseModel):
     strength: float = Field(ge=0, le=1)
 
     @model_validator(mode="after")
-    def validate_distinct_room_ids(self) -> "AdjacencyInput":
+    def validate_distinct_room_ids(self) -> AdjacencyInput:
         if self.from_room_id == self.to_room_id:
             raise ValueError("from_room_id와 to_room_id는 서로 달라야 합니다.")
         return self
@@ -64,8 +64,14 @@ class BoundaryInput(LayoutImportBaseModel):
     polygon: list[tuple[float, float]] = Field(min_length=3)
 
     @model_validator(mode="after")
-    def validate_polygon_shape(self) -> "BoundaryInput":
+    def validate_polygon_shape(self) -> BoundaryInput:
         points = self.polygon
+        # NOTE:
+        # 마지막 점이 첫 점과 같은 닫힌 polygon은 현재 검증 단계에서만 허용합니다.
+        # 즉, 검증 시에는 마지막 중복 점을 제외해 검사하지만 self.polygon 자체는
+        # 아직 정규화하지 않습니다.
+        # 이후 boundaries를 geometry 생성에 사용하게 되면, 마지막 중복 점을 제거한
+        # canonical form으로 저장할지 별도 정책 결정을 해야 합니다.
         if len(points) > 1 and points[0] == points[-1]:
             points = points[:-1]
 
@@ -90,8 +96,8 @@ class RoomInput(LayoutImportBaseModel):
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=255)
     type: RoomType
-    width: float = Field(gt=0)
-    height: float = Field(gt=0)
+    width: int = Field(gt=0, strict=True)
+    height: int = Field(gt=0, strict=True)
     floor: int = Field(ge=1)
     x: float
     y: float
