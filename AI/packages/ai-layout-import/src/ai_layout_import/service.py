@@ -391,7 +391,7 @@ def _create_property_single_value(
     elif name.endswith("Json"):
         nominal_value = model.create_entity("IfcText", value)
     else:
-        nominal_value = model.create_entity("IfcLabel", value)
+        nominal_value = model.create_entity("IfcLabel", str(value))
     return model.create_entity(
         "IfcPropertySingleValue",
         Name=name,
