@@ -8,6 +8,7 @@
 - `messages/*.schema.json` 같은 queue message payload schema
 - `building_plan.schema.json` 같은 공유 domain 계약
 - `authoring_operation.schema.json` 같은 워커 간 계약
+- `layout_import_v1.schema.json` 같은 신규 IFC import 계약
 - `engine_request.schema.json` 같은 3D Engine Service 입력/결과 계약
 
 ## 여기에 두지 않을 것
