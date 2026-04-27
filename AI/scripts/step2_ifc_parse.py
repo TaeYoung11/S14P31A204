@@ -8,8 +8,11 @@ Open3D / 렌더링 없이 파서만 격리해서 검증.
     uv run python scripts/step2_ifc_parse.py  # fixtures/ifc/ 전체 순회
 """
 
+import io
 import sys
 from pathlib import Path
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 import ifcopenshell
 import ifcopenshell.geom
