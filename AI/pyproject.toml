@@ -53,6 +53,9 @@ extend-exclude = [
     "pytest-cache-files-*",
 ]
 
+[tool.ruff.lint]
+select = ["E", "F", "UP"]
+
 [tool.pytest.ini_options]
 addopts = ["-p", "no:cacheprovider"]
 testpaths = ["tests", "packages"]
