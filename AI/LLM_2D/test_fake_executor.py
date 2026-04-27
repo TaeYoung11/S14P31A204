@@ -1,5 +1,7 @@
 """
-test_fake_executor.py — CommandBatch → fake_executor → IFC 파일 E2E 검증 (10가지 시나리오)
+test_fake_executor.py — CommandBatch → fake_executor → IFC 파일 E2E 검증 (11가지 시나리오)
+
+IFC 스키마: IFC4 고정 (IFC2x3 미지원)
 
 시나리오 목록:
   01. CREATE_SPACE rect — 1층에 침실 추가
@@ -12,6 +14,7 @@ test_fake_executor.py — CommandBatch → fake_executor → IFC 파일 E2E 검�
   08. requires_clarification=True — 즉시 실패 반환, IFC 파일 미생성
   09. DELETE_SPACE 잘못된 target_id — failed_command_indices 확인
   10. UPDATE_SPACE 잘못된 target_id — failed_command_indices 확인
+  11. IFC2x3 파일 입력 — IFC4 스키마 검증 실패 확인
 
 샘플 IFC: AI/LLM_2D/.claude/batang_sample.ifc
   - Storeys: 1F (04B8lmwHP278bHp9vokefn), 2F (0kx47RPWT8NBDXHlCjFrx0), RF (2upBSvyVv1BPXqLep2f3mW)
@@ -32,6 +35,7 @@ from fake_executor import ExecutionResult, execute_batch
 # ──────────────────────────────────────────────
 
 SAMPLE_IFC = Path(__file__).parent / ".claude" / "batang_sample.ifc"
+SAMPLE_IFC_2X3 = Path(__file__).parent / ".claude" / "RE16_E3D_Building_2x3_Testversion.ifc"
 
 STOREY_1F = "04B8lmwHP278bHp9vokefn"
 STOREY_2F = "0kx47RPWT8NBDXHlCjFrx0"
@@ -447,3 +451,33 @@ def test_10_update_space_invalid_target(sample_ifc_path: Path, tmp_path: Path) -
     assert not result.success
     assert 0 in result.failed_command_indices
     assert 0 in result.errors
+
+
+# ──────────────────────────────────────────────
+# 시나리오 11 — IFC2x3 파일 입력 → 스키마 검증 실패
+# ──────────────────────────────────────────────
+
+def test_11_ifc2x3_schema_rejected(tmp_path: Path) -> None:
+    """IFC2x3 파일을 입력하면 스키마 검증에서 즉시 실패해야 한다. IFC4만 지원한다."""
+    ifc2x3_path = SAMPLE_IFC_2X3
+    assert ifc2x3_path.exists(), f"IFC2x3 샘플 파일이 없습니다: {ifc2x3_path}"
+
+    output = tmp_path / "out.ifc"
+    batch = _batch(
+        _create_space_cmd(
+            storey_id="any_storey_id",
+            name="테스트방",
+            space_type="bedroom",
+            shape="rect",
+            width=3000,
+            height=4000,
+            rects=[{"x": 0, "y": 0, "width": 3000, "height": 4000}],
+        )
+    )
+
+    result = execute_batch(str(ifc2x3_path), str(output), batch)
+
+    assert not result.success
+    assert not output.exists()
+    assert -1 in result.errors
+    assert "IFC4" in result.errors[-1]

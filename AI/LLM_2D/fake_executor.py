@@ -230,6 +230,12 @@ def execute_batch(
     except Exception as e:
         return ExecutionResult(success=False, errors={-1: f"IFC 파일 로드 실패: {e}"})
 
+    if ifc.schema != "IFC4":
+        return ExecutionResult(
+            success=False,
+            errors={-1: f"지원하지 않는 IFC 스키마: '{ifc.schema}'. IFC4만 지원합니다."},
+        )
+
     commands: list[dict] = command_batch.get("commands", [])
     failed_indices: list[int] = []
     errors: dict[int, str] = {}
