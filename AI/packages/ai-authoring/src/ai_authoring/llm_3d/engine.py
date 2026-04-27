@@ -1,10 +1,7 @@
 import instructor
 from instructor.core.exceptions import InstructorRetryException
 from openai import AsyncOpenAI
-try:
-    from .command import LLM3DCommand, LLM3DCommandType, LLM3DTarget, LLM3DElementType
-except ImportError:
-    from command import LLM3DCommand, LLM3DCommandType, LLM3DTarget, LLM3DElementType
+from .command import LLM3DCommand, LLM3DCommandType, LLM3DTarget, LLM3DElementType
 import logging
 
 logger = logging.getLogger(__name__)
@@ -33,14 +30,16 @@ SYSTEM_PROMPT = """
 ════════════════════════════════════════
 [0] 운영 정책 — 수정 권한
 ════════════════════════════════════════
-수정 가능 부재 (Whitelist): IfcWall(외벽), IfcRoof(지붕) 만 허용
-수정 불가 부재 (ReadOnly) : IfcDoor(문), IfcWindow(창문), IfcStair(계단),
+수정 가능 부재 (Whitelist): IfcWall(외벽), IfcRoof(지붕) — 모든 변경 허용
+수정 제한 부재 (Limited)  : IfcDoor(문), IfcWindow(창문), IfcStair(계단),
                             IfcSlab(바닥/슬래브), IfcColumn(기둥), IfcBeam(보)
+  → 위치(position_mm) · 회전(rotation_deg) · 재질(material) · 색상(color) 변경은 허용
+  → 치수/형태 변경(height_mm · width_mm · length_mm · face_offset_mm)은 절대 금지
 
-수정 불가 부재에 MODIFY 또는 DELETE 명령이 들어올 경우:
+치수/형태 변경 요청 시:
   - confidence: 0.1 이하
-  - ambiguity_question: "해당 부재는 고정 요소라 수정이 불가능합니다. 외벽이나 지붕 수정이 필요하신가요?"
-  - changes: null (절대 채우지 않음)
+  - ambiguity_question: "해당 부재는 치수/형태를 변경할 수 없는 고정 요소입니다. 위치 이동이나 재질 변경이 필요하신가요?"
+  - changes: null
 
 ════════════════════════════════════════
 [1] 필수 출력 규칙
@@ -119,9 +118,13 @@ SYSTEM_PROMPT = """
 입력: "지붕을 강재로 바꿔줘"
 출력: {"command_type":"MODIFY","target":{"element_type":"IfcRoof","select_all":true},"changes":{"material":{"name":"Steel"}},"confidence":0.92,"raw_instruction":"지붕을 강재로 바꿔줘"}
 
-▶ 3. 정책 거절 — 창문 수정 시도
+▶ 3-A. 정책 거절 — 창문 치수 변경 시도 (형태 변경 금지)
 입력: "2층 창문 크기를 키워줘"
-출력: {"command_type":"MODIFY","target":{"element_type":"IfcWindow","storey":"2F","select_all":true},"confidence":0.05,"ambiguity_question":"창문은 고정 요소라 수정이 불가능합니다. 외벽이나 지붕 수정이 필요하신가요?","raw_instruction":"2층 창문 크기를 키워줘"}
+출력: {"command_type":"MODIFY","target":{"element_type":"IfcWindow","storey":"2F","select_all":true},"confidence":0.05,"ambiguity_question":"창문은 치수/형태를 변경할 수 없는 고정 요소입니다. 위치 이동이나 재질 변경이 필요하신가요?","raw_instruction":"2층 창문 크기를 키워줘"}
+
+▶ 3-B. 정상 — 창문 위치 이동 (허용)
+입력: "2층 북쪽 창문을 오른쪽으로 500mm 이동해줘"
+출력: {"command_type":"MODIFY","target":{"element_type":"IfcWindow","storey":"2F","direction":"North","select_all":false},"changes":{"position_mm":{"mode":"RELATIVE","x":500.0,"y":0.0,"z":0.0}},"confidence":0.91,"raw_instruction":"2층 북쪽 창문을 오른쪽으로 500mm 이동해줘"}
 
 ▶ 4. 공간(Space) + 방향(Direction) 기반 타겟팅
 입력: "1층 거실 쪽 북쪽 외벽을 흰색으로 칠해줘"
@@ -138,6 +141,10 @@ SYSTEM_PROMPT = """
 ▶ 7. 품질 위반 유도 (정상 파싱 — 검증기가 차단)
 입력: "외벽 높이를 15m로 올려줘"
 출력: {"command_type":"MODIFY","target":{"element_type":"IfcWall","select_all":true},"changes":{"height_mm":{"mode":"ABSOLUTE","value":15000.0}},"confidence":0.9,"raw_instruction":"외벽 높이를 15m로 올려줘"}
+
+▶ 8. 정상 — 부재 삭제 (DELETE)
+입력: "1층 거실 남쪽 외벽을 삭제해줘"
+출력: {"command_type":"DELETE","target":{"element_type":"IfcWall","storey":"1F","space_name":"Living Room","direction":"South"},"changes":{"deletion":true},"confidence":0.98,"raw_instruction":"1층 거실 남쪽 외벽을 삭제해줘"}
 """
 
 class LLM3DEngine:

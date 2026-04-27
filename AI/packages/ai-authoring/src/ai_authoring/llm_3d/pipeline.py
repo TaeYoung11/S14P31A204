@@ -18,14 +18,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import ifcopenshell
 import ifcopenshell.guid
 
-try:
-    from .command import LLM3DCommand, LLM3DCommandType, LLM3DElementType, LLM3DSizeMode
-    from .engine import LLM3DEngine
-    from .utils import normalize_storey_name, normalize_space_name
-except ImportError:
-    from command import LLM3DCommand, LLM3DCommandType, LLM3DElementType, LLM3DSizeMode
-    from engine import LLM3DEngine
-    from utils import normalize_storey_name, normalize_space_name
+from .command import LLM3DCommand, LLM3DCommandType, LLM3DElementType, LLM3DSizeMode
+from .engine import LLM3DEngine
+from .utils import normalize_storey_name, normalize_space_name
 
 logger = logging.getLogger(__name__)
 
@@ -311,13 +306,9 @@ class LLM3DPipeline:
                 "command": command.model_dump(),
             }
 
-        # ReadOnly 부재 차단 (LLM3DCommand 정책과 동기화)
-        if command.target.element_type in LLM3DCommand._READ_ONLY_TYPES:
-            return {
-                "status":  "readonly_element",
-                "summary": "[수정불가] 문, 창문, 계단, 슬래브, 기둥, 보는 수정할 수 없는 고정 부재입니다.",
-                "command": command.model_dump(),
-            }
+        # ── ReadOnly 부재 — 형태(치수) 변경만 차단, 위치/회전/재질/색상은 허용 ──────
+        # command.py의 validate_modeling_quality()와 정책 일치.
+        # 전면 차단은 기획안 위반이므로 제거; 세부 위반은 품질 검증 단계에서 걸러진다.
 
         # CREATE → 별도 파이프라인
         if command.command_type == LLM3DCommandType.CREATE:
@@ -397,26 +388,25 @@ class LLM3DPipeline:
                 if not element:
                     continue
 
-                # ── DELETE ────────────────────────────────────────────────────
+                etype_str = element.is_a()
+                changes   = command.changes  # ← MODIFY/DELETE 분기 전에 반드시 할당
+
+                # ── DELETE 처리 ──────────────────────────────────────────────
                 if command.command_type == LLM3DCommandType.DELETE:
-                    model.remove(element)
-                    applied_count += 1
+                    if self._delete_element(model, element, etype_str):
+                        applied_count += 1
                     continue
 
-                # ── MODIFY ────────────────────────────────────────────────────
-                if command.command_type != LLM3DCommandType.MODIFY:
-                    continue
-
-                changes = command.changes
+                # ── MODIFY 처리 ──────────────────────────────────────────────
                 if not changes:
                     continue
 
-                applied_any = False
+                # 요소 이름 마킹 (수정된 요소 추적용 — MODIFY 전용)
+                orig_name = element.Name or ""
+                if not orig_name.startswith("AI_MODIFIED_"):
+                    element.Name = f"AI_MODIFIED_{orig_name}"
 
-                # 요소 이름 마킹 (중복 방지)
-                orig = element.Name or ""
-                if not orig.startswith("AI_MODIFIED_"):
-                    element.Name = f"AI_MODIFIED_{orig}"
+                applied_any = False
 
                 if changes.width_mm:
                     if self._modify_thickness(element, changes.width_mm, scale):
@@ -715,6 +705,76 @@ class LLM3DPipeline:
                     return True
         return False
 
+    # ── 삭제 헬퍼 ────────────────────────────────────────────────────────────────
+
+    def _delete_element(self, model, element, etype_str: str) -> bool:
+        """
+        IFC 요소를 관계 엔티티까지 깔끔하게 정리하여 삭제한다.
+
+        정리 순서:
+          1. 공간 포함 관계  (IfcRelContainedInSpatialStructure)
+          2. 재질 연결       (IfcRelAssociatesMaterial)
+          3. 속성 세트 연결  (IfcRelDefinesByProperties)
+          4. 타입 연결       (IfcRelDefinesByType)
+          5. 요소 본체       model.remove(element)
+
+        각 Rel* 엔티티는 RelatedObjects/RelatedElements에서 이 요소만 제거하고,
+        리스트가 비면 Rel* 자체도 함께 삭제하여 고아(orphan) 관계 방지.
+        """
+        gid_short = element.GlobalId[:8] if element.GlobalId else "?"
+
+        # 1. 공간 포함 관계 (ContainedInStructure → IfcRelContainedInSpatialStructure)
+        for rel in list(getattr(element, "ContainedInStructure", [])):
+            if not rel.is_a("IfcRelContainedInSpatialStructure"):
+                continue
+            try:
+                remaining = [e for e in rel.RelatedElements if e != element]
+                if remaining:
+                    rel.RelatedElements = remaining
+                else:
+                    model.remove(rel)
+                logger.debug(f"[{gid_short}] ContainedInStructure 정리 완료")
+            except Exception as exc:
+                logger.warning(f"[{gid_short}] ContainedInStructure 정리 실패 (무시): {exc}")
+
+        # 2. 재질 연결 (HasAssociations → IfcRelAssociatesMaterial)
+        for rel in list(getattr(element, "HasAssociations", [])):
+            if not rel.is_a("IfcRelAssociatesMaterial"):
+                continue
+            try:
+                remaining = [o for o in rel.RelatedObjects if o != element]
+                if remaining:
+                    rel.RelatedObjects = remaining
+                else:
+                    model.remove(rel)
+                logger.debug(f"[{gid_short}] RelAssociatesMaterial 정리 완료")
+            except Exception as exc:
+                logger.warning(f"[{gid_short}] RelAssociatesMaterial 정리 실패 (무시): {exc}")
+
+        # 3. 속성 세트 연결 (IsDefinedBy → IfcRelDefinesByProperties)
+        # 4. 타입 연결     (IsDefinedBy → IfcRelDefinesByType)
+        for rel in list(getattr(element, "IsDefinedBy", [])):
+            if not rel.is_a(("IfcRelDefinesByProperties", "IfcRelDefinesByType")):
+                continue
+            try:
+                remaining = [o for o in rel.RelatedObjects if o != element]
+                if remaining:
+                    rel.RelatedObjects = remaining
+                else:
+                    model.remove(rel)
+                logger.debug(f"[{gid_short}] {rel.is_a()} 정리 완료")
+            except Exception as exc:
+                logger.warning(f"[{gid_short}] {rel.is_a()} 정리 실패 (무시): {exc}")
+
+        # 5. 요소 본체 삭제
+        try:
+            model.remove(element)
+            logger.info(f"[{gid_short}] 요소 삭제 완료 ({etype_str})")
+            return True
+        except Exception as exc:
+            logger.error(f"[{gid_short}] 요소 본체 삭제 실패: {exc}", exc_info=True)
+            return False
+
     # ── 요약 생성 ─────────────────────────────────────────────────────────────
 
     def _generate_summary(
@@ -722,4 +782,6 @@ class LLM3DPipeline:
     ) -> str:
         if errors:
             return f"품질 검증 실패: {errors[0]}"
+        if command.command_type == LLM3DCommandType.DELETE:
+            return f"[DELETE] {count}개 요소 삭제 준비 완료. (관계 엔티티 포함 정리)"
         return f"[{command.command_type.value}] {count}개 요소 수정 준비 완료."
