@@ -10,6 +10,11 @@ class IFCView(Enum):
     FRONT = "front"
     SIDE = "side"
     TOP = "top"
+    ISO_NE = "iso_ne"            # 북동 위쪽 등각
+    ISO_NW = "iso_nw"            # 북서 위쪽 등각
+    ISO_SE = "iso_se"            # 남동 위쪽 등각
+    CORNER_LOW = "corner_low"    # 낮은 시점 코너 (사람 시야 가까움)
+    BIRDS_EYE = "birds_eye"      # 조감도 (top과 다른 약간 기울인 위)
 
 
 class AutoZoomMode(Enum):
@@ -43,10 +48,90 @@ class CameraParams:
 
 
 VIEW_CAMERAS: dict[IFCView, CameraParams] = {
+    # 기본 3뷰 — PCA fallback 시 사용되는 정적 vector.
     IFCView.FRONT: CameraParams(front=(-1.0,  0.0,  0.2), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.SIDE:  CameraParams(front=( 0.0, -1.0,  0.2), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.TOP:   CameraParams(front=(-0.6, -0.6,  1.0), up=(0.0, 0.0, 1.0), zoom=0.5),
+    # 등각 5뷰 (PCA 정렬과 결합 시 *건물 주축 기준* 모서리 시점).
+    IFCView.ISO_NE:     CameraParams(front=(-0.7, -0.7,  0.5), up=(0.0, 0.0, 1.0), zoom=0.5),
+    IFCView.ISO_NW:     CameraParams(front=(-0.7,  0.7,  0.5), up=(0.0, 0.0, 1.0), zoom=0.5),
+    IFCView.ISO_SE:     CameraParams(front=( 0.7, -0.7,  0.5), up=(0.0, 0.0, 1.0), zoom=0.5),
+    IFCView.CORNER_LOW: CameraParams(front=(-0.7, -0.7,  0.15), up=(0.0, 0.0, 1.0), zoom=0.5),
+    IFCView.BIRDS_EYE:  CameraParams(front=(-0.4, -0.4,  1.5), up=(0.0, 0.0, 1.0), zoom=0.5),
 }
+
+
+# PCA 정렬 활성 시 각 view의 front 벡터를 (long_coef, mid_coef, z_coef)로 표현.
+# 즉 front = long_coef × long_axis + mid_coef × mid_axis + z_coef × (0,0,1).
+# - FRONT: 건물 정면 (mid_axis 따라 봄)
+# - SIDE:  long_axis 따라 봄
+# - 등각:  두 축 결합 + 위에서 약간
+VIEW_PCA_COEFFICIENTS: dict[IFCView, tuple[float, float, float]] = {
+    IFCView.FRONT:      ( 0.0, -1.0,  0.2),
+    IFCView.SIDE:       (-1.0,  0.0,  0.2),
+    IFCView.TOP:        (-0.6, -0.6,  1.0),
+    IFCView.ISO_NE:     (-0.7, -0.7,  0.5),
+    IFCView.ISO_NW:     (-0.7,  0.7,  0.5),
+    IFCView.ISO_SE:     ( 0.7, -0.7,  0.5),
+    IFCView.CORNER_LOW: (-0.7, -0.7,  0.15),
+    IFCView.BIRDS_EYE:  (-0.4, -0.4,  1.5),
+}
+
+
+# eigenvalue 격차 임계값 — 두 주축의 분산비가 이 값보다 작으면 PCA fallback.
+PCA_EIGENVALUE_RATIO_MIN = 1.2
+
+
+def compute_principal_axes(
+    vertices: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, bool]:
+    """xy 평면에서 PCA로 mesh의 주축(long/mid)을 검출. z축은 (0,0,1) 고정.
+
+    Args:
+        vertices: shape (N, 3) ndarray.
+
+    Returns:
+        (long_axis_xy, mid_axis_xy, valid):
+            long_axis_xy, mid_axis_xy — shape (3,) 단위벡터, z 성분 0.
+            valid — eigenvalue 격차가 충분(PCA_EIGENVALUE_RATIO_MIN 초과)이면 True.
+                False면 정적 fallback 권장.
+    """
+    if len(vertices) < 3:
+        # 데이터 부족 — fallback
+        return (
+            np.array([1.0, 0.0, 0.0]),
+            np.array([0.0, 1.0, 0.0]),
+            False,
+        )
+    xy = vertices[:, :2]
+    centered = xy - xy.mean(axis=0)
+    cov = np.cov(centered.T)  # shape (2, 2)
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    # eigh는 eigenvalue 오름차순 → 큰 쪽이 long
+    if eigvals[0] < 1e-12:
+        valid = False
+    else:
+        valid = bool((eigvals[1] / eigvals[0]) >= PCA_EIGENVALUE_RATIO_MIN)
+    long_xy = eigvecs[:, 1]
+    mid_xy = eigvecs[:, 0]
+    long_axis = np.array([float(long_xy[0]), float(long_xy[1]), 0.0])
+    mid_axis = np.array([float(mid_xy[0]), float(mid_xy[1]), 0.0])
+    return long_axis, mid_axis, valid
+
+
+def compute_dynamic_front(
+    view: IFCView,
+    long_axis: np.ndarray,
+    mid_axis: np.ndarray,
+) -> tuple[float, float, float]:
+    """PCA 주축에 정렬된 view 별 front 벡터 산출 (호출자가 valid=True 보장)."""
+    coefs = VIEW_PCA_COEFFICIENTS[view]
+    front = (
+        coefs[0] * long_axis
+        + coefs[1] * mid_axis
+        + coefs[2] * np.array([0.0, 0.0, 1.0])
+    )
+    return float(front[0]), float(front[1]), float(front[2])
 
 
 def compute_auto_zoom(

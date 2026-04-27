@@ -15,6 +15,8 @@ from .views import (
     CameraParams,
     IFCView,
     compute_auto_zoom,
+    compute_dynamic_front,
+    compute_principal_axes,
 )
 
 
@@ -46,6 +48,7 @@ class IFCRenderer:
         target_screen_ratio: float = 0.55,
         iter_tolerance: float = 0.10,
         iter_max: int = 4,
+        pca_align: bool = True,
     ) -> None:
         self.width = width
         self.height = height
@@ -57,10 +60,12 @@ class IFCRenderer:
         self.target_screen_ratio = target_screen_ratio
         self.iter_tolerance = iter_tolerance
         self.iter_max = iter_max
+        self.pca_align = pca_align
 
     def render(self, ifc_path: Path, view: IFCView = IFCView.FRONT) -> Image.Image:
         mesh, center = load_mesh(ifc_path)
-        return self._render_mesh(mesh, center, VIEW_CAMERAS[view])
+        camera = self._resolve_camera(mesh, view)
+        return self._render_mesh(mesh, center, camera)
 
     def render_views(
         self,
@@ -72,9 +77,27 @@ class IFCRenderer:
             views = list(IFCView)
         mesh, center = load_mesh(ifc_path)
         return {
-            view: self._render_mesh(mesh, center, VIEW_CAMERAS[view])
+            view: self._render_mesh(mesh, center, self._resolve_camera(mesh, view))
             for view in views
         }
+
+    def _resolve_camera(
+        self,
+        mesh: o3d.geometry.TriangleMesh,
+        view: IFCView,
+    ) -> CameraParams:
+        """view에 대한 카메라 파라미터 결정. pca_align=True 이고 PCA 유효하면 동적 front."""
+        static = VIEW_CAMERAS[view]
+        if not self.pca_align:
+            return static
+        verts = np.asarray(mesh.vertices)
+        if len(verts) < 3:
+            return static
+        long_axis, mid_axis, valid = compute_principal_axes(verts)
+        if not valid:
+            return static
+        front = compute_dynamic_front(view, long_axis, mid_axis)
+        return CameraParams(front=front, up=static.up, zoom=static.zoom)
 
     def _initial_zoom(
         self,
