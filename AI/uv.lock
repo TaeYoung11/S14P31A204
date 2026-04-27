@@ -8,6 +8,7 @@ members = [
     "ai-common",
     "ai-domain",
     "ai-evals",
+    "ai-layout-import",
     "ai-planning",
     "ai-rendering",
     "ai-workspace",
@@ -96,6 +97,17 @@ requires-dist = [
 ]
 
 [[package]]
+name = "ai-layout-import"
+version = "0.1.0"
+source = { editable = "packages/ai-layout-import" }
+dependencies = [
+    { name = "ai-domain" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "ai-domain", editable = "packages/ai-domain" }]
+
+[[package]]
 name = "ai-planning"
 version = "0.1.0"
 source = { editable = "packages/ai-planning" }
@@ -158,6 +170,7 @@ dependencies = [
     { name = "ai-common" },
     { name = "ai-domain" },
     { name = "ai-evals" },
+    { name = "ai-layout-import" },
     { name = "ai-planning" },
     { name = "ai-rendering" },
     { name = "httpx" },
@@ -180,6 +193,7 @@ requires-dist = [
     { name = "ai-common", editable = "packages/ai-common" },
     { name = "ai-domain", editable = "packages/ai-domain" },
     { name = "ai-evals", editable = "packages/ai-evals" },
+    { name = "ai-layout-import", editable = "packages/ai-layout-import" },
     { name = "ai-planning", editable = "packages/ai-planning" },
     { name = "ai-rendering", editable = "packages/ai-rendering" },
     { name = "httpx", specifier = ">=0.28.1" },
