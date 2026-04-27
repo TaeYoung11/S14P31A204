@@ -18,14 +18,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import ifcopenshell
 import ifcopenshell.guid
 
-try:
-    from .command import LLM3DCommand, LLM3DCommandType, LLM3DElementType, LLM3DSizeMode
-    from .engine import LLM3DEngine
-    from .utils import normalize_storey_name, normalize_space_name
-except ImportError:
-    from command import LLM3DCommand, LLM3DCommandType, LLM3DElementType, LLM3DSizeMode
-    from engine import LLM3DEngine
-    from utils import normalize_storey_name, normalize_space_name
+from .command import LLM3DCommand, LLM3DCommandType, LLM3DElementType, LLM3DSizeMode
+from .engine import LLM3DEngine
+from .utils import normalize_storey_name, normalize_space_name
 
 logger = logging.getLogger(__name__)
 
