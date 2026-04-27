@@ -6,7 +6,8 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
+from collections.abc import Sequence
 
 from ai_layout_import.worker import run_layout_import_job
 
