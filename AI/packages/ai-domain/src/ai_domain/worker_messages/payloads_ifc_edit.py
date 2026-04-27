@@ -21,7 +21,7 @@ class IfcEditCommandPayload(BaseModel):
     commandJsonStorageUrl: str | None = Field(default=None, min_length=1, max_length=2048)
 
     @model_validator(mode="after")
-    def validate_command_source(self) -> "IfcEditCommandPayload":
+    def validate_command_source(self) -> IfcEditCommandPayload:
         if self.engineRequest is None and self.commandJsonStorageUrl is None:
             raise ValueError("engineRequest or commandJsonStorageUrl must be provided")
         if self.engineRequest is not None and self.commandJsonStorageUrl is not None:

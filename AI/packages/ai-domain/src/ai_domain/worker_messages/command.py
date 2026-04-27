@@ -35,7 +35,7 @@ class ExpectedOutputRef(BaseModel):
     errorDetailStorageUrl: StorageUrl | None = None
 
     @model_validator(mode="after")
-    def validate_has_output(self) -> "ExpectedOutputRef":
+    def validate_has_output(self) -> ExpectedOutputRef:
         if not self.model_dump(exclude_none=True):
             raise ValueError("expectedOutput must contain at least one storage URL")
         return self
@@ -72,7 +72,7 @@ class CommandMessage(BaseModel):
     createdAt: datetime
 
     @model_validator(mode="after")
-    def validate_payload(self) -> "CommandMessage":
+    def validate_payload(self) -> CommandMessage:
         adapters = {
             "TWO_D_LLM_GENERATE": TypeAdapter(TwoDLlmCommandPayload),
             "THREE_D_LLM_GENERATE": TypeAdapter(ThreeDLlmCommandPayload),
