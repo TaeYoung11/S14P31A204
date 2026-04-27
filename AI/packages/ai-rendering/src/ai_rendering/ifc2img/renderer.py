@@ -65,8 +65,35 @@ class IFCRenderer:
             vis.poll_events()
             vis.update_renderer()
 
-            img_o3d = vis.capture_screen_float_buffer(do_render=True)
-            arr = (np.asarray(img_o3d) * 255).astype(np.uint8)
-            return Image.fromarray(arr).convert("RGB")
+            depth = np.asarray(
+                vis.capture_depth_float_buffer(do_render=True),
+                dtype=np.float32,
+            )
         finally:
             vis.destroy_window()
+
+        return self._depth_to_image(depth)
+
+    @staticmethod
+    def _depth_to_image(depth: np.ndarray) -> Image.Image:
+        """Open3D depth buffer를 grayscale PIL Image로 변환.
+
+        Open3D 규약: background = 0, geometry = 양수 거리.
+        ControlNet-depth 규약에 맞춰 가까운 면을 밝게(255), 먼 면·배경을 어둡게(0).
+        """
+        geometry_mask = depth > 0
+        if not geometry_mask.any():
+            raise IFCRenderError("depth buffer에 geometry가 없습니다.")
+
+        depth_vals = depth[geometry_mask]
+        d_min = float(depth_vals.min())
+        d_max = float(depth_vals.max())
+
+        norm = np.zeros_like(depth, dtype=np.float32)
+        if d_max > d_min:
+            norm[geometry_mask] = 1.0 - (depth[geometry_mask] - d_min) / (d_max - d_min)
+        else:
+            norm[geometry_mask] = 1.0
+
+        gray = (norm * 255.0).astype(np.uint8)
+        return Image.fromarray(gray, mode="L")
