@@ -121,6 +121,13 @@ def to_ifc_commands(
                 clarification_question="같은 이름의 방이 여러 개 있습니다. 몇 층 방을 삭제할까요?",
             )
 
+        if ifc_context and any(_find_storey_id_for_space(tid) is None for tid in target_ids):
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=f"'{command.target_room_name}' 방의 층 정보를 현재 IFC에서 찾을 수 없습니다.",
+            )
+
         commands = [
             IFCCommand(
                 action=ActionType.DELETE_SPACE,
@@ -164,6 +171,13 @@ def to_ifc_commands(
                 commands=[],
                 requires_clarification=True,
                 clarification_question="변경할 방 형태와 크기 정보가 부족합니다. 예: L자 6000x8000",
+            )
+
+        if ifc_context and any(_find_storey_id_for_space(tid) is None for tid in target_ids):
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=f"'{command.target_room_name}' 방의 층 정보를 현재 IFC에서 찾을 수 없습니다.",
             )
 
         commands = [
