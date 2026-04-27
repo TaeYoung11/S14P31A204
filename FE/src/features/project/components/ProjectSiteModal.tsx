@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { Search, X } from 'lucide-react'
 import DaumPostcode from 'react-daum-postcode'
 import Modal from '@/shared/components/Modal'
@@ -75,9 +76,9 @@ export default function ProjectSiteModal({
             </button>
           </div>
 
-          {showPostcode && (
+          {showPostcode && createPortal(
             <div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+              className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50"
               onClick={() => setShowPostcode(false)}
             >
               <div
@@ -96,7 +97,8 @@ export default function ProjectSiteModal({
                 </div>
                 <DaumPostcode onComplete={handleAddressSelect} />
               </div>
-            </div>
+            </div>,
+            document.body
           )}
 
           <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
