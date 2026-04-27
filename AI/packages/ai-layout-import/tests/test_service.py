@@ -73,6 +73,84 @@ def test_convert_layout_to_ifc_creates_single_room_space(tmp_path: Path) -> None
     assert body.SweptArea.is_a("IfcRectangleProfileDef")
     assert body.SweptArea.XDim == pytest.approx(4.2)
     assert body.SweptArea.YDim == pytest.approx(3.8)
+    assert len(model.by_type("IfcZone")) == 0
+    assert len(model.by_type("IfcRelAssignsToGroup")) == 0
+
+
+def test_convert_layout_to_ifc_creates_zone_and_assigns_space(tmp_path: Path) -> None:
+    request = _make_request(
+        rooms=[
+            {
+                "id": "room-living-01",
+                "name": "거실",
+                "type": "living",
+                "width": 4200,
+                "height": 3800,
+                "floor": 1,
+                "x": 5000.0,
+                "y": 4000.0,
+                "angle": 0.0,
+                "locked": False,
+                "zoneId": "zone-common",
+            }
+        ],
+        zones=[
+            {
+                "id": "zone-common",
+                "name": "공용존",
+                "color": "#FF5733",
+            }
+        ],
+        modeling_defaults={"space_height_mm": 3000},
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "zone-assignment.ifc")
+
+    zones = model.by_type("IfcZone")
+    spaces = model.by_type("IfcSpace")
+    assert len(zones) == 1
+    assert len(spaces) == 1
+    assert zones[0].Name == "공용존"
+
+    group_assignments = model.by_type("IfcRelAssignsToGroup")
+    assert len(group_assignments) == 1
+    assert group_assignments[0].RelatingGroup == zones[0]
+    assert list(group_assignments[0].RelatedObjects) == [spaces[0]]
+
+
+def test_convert_layout_to_ifc_keeps_unzoned_room_without_group_assignment(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        rooms=[
+            {
+                "id": "room-living-01",
+                "name": "거실",
+                "type": "living",
+                "width": 4200,
+                "height": 3800,
+                "floor": 1,
+                "x": 5000.0,
+                "y": 4000.0,
+                "angle": 0.0,
+                "locked": False,
+            }
+        ],
+        zones=[
+            {
+                "id": "zone-common",
+                "name": "공용존",
+                "color": "#FF5733",
+            }
+        ],
+        modeling_defaults={"space_height_mm": 3000},
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "unzoned-room.ifc")
+
+    assert len(model.by_type("IfcZone")) == 1
+    assert len(model.by_type("IfcSpace")) == 1
+    assert len(model.by_type("IfcRelAssignsToGroup")) == 0
 
 
 def test_convert_layout_to_ifc_creates_multi_floor_storeys_and_space_links(
@@ -210,5 +288,5 @@ def test_convert_layout_to_ifc_rejects_unknown_zone_reference(tmp_path: Path) ->
         ]
     )
 
-    with pytest.raises(ValueError, match="알 수 없는 zone 참조"):
+    with pytest.raises(ValueError, match="알 수 없는 zone 참조입니다"):
         convert_layout_to_ifc(request, tmp_path / "invalid-zone.ifc")
