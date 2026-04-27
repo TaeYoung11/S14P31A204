@@ -136,7 +136,7 @@ def test_result_save_creates_parent_dir(tmp_path: Path) -> None:
 
 
 def test_public_api_exports() -> None:
-    """ifc2img 공개 심볼: 기존 3개 + style 3개 = 6개."""
+    """ifc2img 공개 심볼: IFC 렌더 3 + style 3 + presets 2 = 8개."""
     from ai_rendering import ifc2img
 
     expected = {
@@ -146,5 +146,7 @@ def test_public_api_exports() -> None:
         "DepthStyleParams",
         "DepthStyleResult",
         "DepthStyleRenderer",
+        "list_presets",
+        "load_preset",
     }
     assert set(ifc2img.__all__) == expected
