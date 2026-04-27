@@ -12,27 +12,27 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * ?ъ슜?먮퀎 ?꾨줈?앺듃 ? 紐⑸줉 ?쎌쓬 ?곹깭 ?곸냽?깆쓣 ?대떦?쒕떎.
+ * 사용자별 프로젝트 핀 목록 읽음 상태 영속성을 담당한다.
  */
 public interface ProjectPinReadStateRepository extends JpaRepository<ProjectPinReadState, ProjectPinReadStateId> {
 
     /**
-     * ?꾨줈?앺듃? ?ъ슜?먯뿉 ?대떦?섎뒗 ?쎌쓬 ?곹깭瑜?議고쉶?쒕떎.
+     * 프로젝트와 사용자에 해당하는 읽음 상태를 조회한다.
      *
-     * @param projectId ?꾨줈?앺듃 ID
-     * @param userId ?ъ슜??ID
-     * @return ?쎌쓬 ?곹깭
+     * @param projectId 프로젝트 ID
+     * @param userId 사용자 ID
+     * @return 읽음 상태
      */
     Optional<ProjectPinReadState> findByProjectIdAndUserId(UUID projectId, UUID userId);
 
     /**
-     * ?ъ슜?먮퀎 ?꾨줈?앺듃 ? 紐⑸줉 ?쎌쓬 ?곹깭瑜?UPSERT濡???ν븳??
-     * ?숈떆 ?붿껌?먯꽌??異⑸룎 ?놁씠 留덉?留??쎌쓬 ?쒓컖???먯옄?곸쑝濡?媛깆떊?쒕떎.
+     * 사용자별 프로젝트 핀 목록 읽음 상태를 UPSERT로 저장한다.
+     * 동시 요청에서도 충돌 없이 마지막 읽음 시각을 원자적으로 갱신한다.
      *
-     * @param projectId ?꾨줈?앺듃 ID
-     * @param userId ?ъ슜??ID
-     * @param lastReadAt 留덉?留??쎌쓬 ?쒓컖
-     * @param now ?앹꽦/?섏젙 ?쒓컖
+     * @param projectId 프로젝트 ID
+     * @param userId 사용자 ID
+     * @param lastReadAt 마지막 읽음 시각
+     * @param now 생성/수정 시각
      */
     @Modifying
     @Query(

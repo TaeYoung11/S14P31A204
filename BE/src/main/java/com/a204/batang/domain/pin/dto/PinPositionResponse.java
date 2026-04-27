@@ -3,11 +3,11 @@ package com.a204.batang.domain.pin.dto;
 import com.a204.batang.domain.pin.entity.PinPosition;
 
 /**
- * ? 醫뚰몴 ?묐떟 DTO.
+ * 핀 좌표 응답 DTO.
  *
- * @param x x 醫뚰몴
- * @param y y 醫뚰몴
- * @param z z 醫뚰몴
+ * @param x x 좌표
+ * @param y y 좌표
+ * @param z z 좌표
  */
 public record PinPositionResponse(
         Double x,
@@ -16,10 +16,10 @@ public record PinPositionResponse(
 ) {
 
     /**
-     * ? 醫뚰몴 ?꾨쿋?붾뱶 媛믪쓣 ?묐떟 DTO濡?蹂?섑븳??
+     * 핀 좌표 임베디드 값을 응답 DTO로 변환한다.
      *
-     * @param position ? 醫뚰몴
-     * @return ? 醫뚰몴 ?묐떟 DTO
+     * @param position 핀 좌표
+     * @return 핀 좌표 응답 DTO
      */
     public static PinPositionResponse from(PinPosition position) {
         return new PinPositionResponse(

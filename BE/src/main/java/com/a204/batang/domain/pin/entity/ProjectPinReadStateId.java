@@ -5,7 +5,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * ?꾨줈?앺듃 ? 紐⑸줉 ?쎌쓬 ?곹깭 蹂듯빀 ??projectId, userId)?대떎.
+ * 프로젝트 핀 목록 읽음 상태 복합 키(projectId, userId)이다.
  */
 public class ProjectPinReadStateId implements Serializable {
 
