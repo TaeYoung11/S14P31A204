@@ -1,8 +1,6 @@
-// 편집기 최상단 헤더
-// 프로젝트명(브랜드), 탭 내비게이션, 공유 및 저장 버튼을 포함한다.
-
 import { Share2, Save } from 'lucide-react'
 
+/** 에디터 최상단 헤더 — 프로젝트명, 네비게이션, 저장/공유 */
 export default function EditorHeader() {
   return (
     <header className="h-12 bg-white border-b border-[#E2E6EF] flex items-center justify-between px-6 shrink-0 z-50 shadow-sm">
