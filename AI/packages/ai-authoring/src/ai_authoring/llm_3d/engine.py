@@ -1,10 +1,7 @@
 import instructor
 from instructor.core.exceptions import InstructorRetryException
 from openai import AsyncOpenAI
-try:
-    from .command import LLM3DCommand, LLM3DCommandType, LLM3DTarget, LLM3DElementType
-except ImportError:
-    from command import LLM3DCommand, LLM3DCommandType, LLM3DTarget, LLM3DElementType
+from .command import LLM3DCommand, LLM3DCommandType, LLM3DTarget, LLM3DElementType
 import logging
 
 logger = logging.getLogger(__name__)
