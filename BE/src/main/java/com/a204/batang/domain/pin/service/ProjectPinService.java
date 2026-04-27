@@ -6,6 +6,7 @@ import com.a204.batang.domain.pin.dto.GetProjectPinsResponse;
 import com.a204.batang.domain.pin.dto.ProjectPinResponse;
 import com.a204.batang.domain.pin.entity.ProjectPin;
 import com.a204.batang.domain.pin.entity.ProjectPinReadState;
+import com.a204.batang.domain.pin.event.PinCreatedEvent;
 import com.a204.batang.domain.pin.repository.ProjectPinCommentRepository;
 import com.a204.batang.domain.pin.repository.ProjectPinReadStateRepository;
 import com.a204.batang.domain.pin.repository.ProjectPinRepository;
@@ -16,6 +17,7 @@ import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -43,6 +45,7 @@ public class ProjectPinService {
     private final ProjectPinCommentRepository projectPinCommentRepository;
     private final ProjectPinReadStateRepository projectPinReadStateRepository;
     private final ProjectAccessService projectAccessService;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     /**
      * 프로젝트에 새 핀을 등록한다.
@@ -71,6 +74,7 @@ public class ProjectPinService {
         );
 
         ProjectPin savedPin = projectPinRepository.save(projectPin);
+        applicationEventPublisher.publishEvent(PinCreatedEvent.from(projectId, savedPin));
         log.info("새 핀 등록 완료. projectId={}, pinId={}", projectId, savedPin.getPinId());
 
         return CreatePinResponse.from(savedPin);
