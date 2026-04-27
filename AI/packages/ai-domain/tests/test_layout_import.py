@@ -116,3 +116,65 @@ def test_layout_import_v1_rejects_self_adjacency() -> None:
                 ],
             }
         )
+
+
+def test_layout_import_v1_rejects_boundary_with_repeated_points_only() -> None:
+    with pytest.raises(ValidationError, match="서로 다른 점이 최소 3개"):
+        LayoutImportV1.model_validate(
+            {
+                "schema_version": "v1",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [
+                    {
+                        "id": "room-living-01",
+                        "name": "거실",
+                        "type": "living",
+                        "width": 4.2,
+                        "height": 3.8,
+                        "floor": 1,
+                        "x": 5.0,
+                        "y": 4.0,
+                        "angle": 0.0,
+                        "locked": False,
+                    }
+                ],
+                "boundaries": [
+                    {
+                        "floor": 1,
+                        "polygon": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                    }
+                ],
+            }
+        )
+
+
+def test_layout_import_v1_rejects_collinear_boundary_points() -> None:
+    with pytest.raises(ValidationError, match="면적이 0"):
+        LayoutImportV1.model_validate(
+            {
+                "schema_version": "v1",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [
+                    {
+                        "id": "room-living-01",
+                        "name": "거실",
+                        "type": "living",
+                        "width": 4.2,
+                        "height": 3.8,
+                        "floor": 1,
+                        "x": 5.0,
+                        "y": 4.0,
+                        "angle": 0.0,
+                        "locked": False,
+                    }
+                ],
+                "boundaries": [
+                    {
+                        "floor": 1,
+                        "polygon": [[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]],
+                    }
+                ],
+            }
+        )
