@@ -12,6 +12,7 @@ import pytest
 
 from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
 from ai_rendering.ifc2img.geometry import load_mesh
+from ai_rendering.ifc2img.views import compute_auto_zoom
 
 
 # --- _depth_to_image 순수 함수 단위 테스트 (mock 불필요) ---
@@ -163,6 +164,85 @@ def test_load_mesh_accepts_ifc4(ifc4_fixture: Path) -> None:
     assert center.shape == (3,)
     assert len(mesh.vertices) > 0
     assert len(mesh.triangles) > 0
+
+
+# --- 카메라 zoom 동적 조정 (카드 A) ---
+
+
+def test_compute_auto_zoom_smaller_mesh_returns_zoom() -> None:
+    """compute_auto_zoom은 mesh AABB와 카메라 시선으로 유효한 zoom 값을 반환."""
+    aabb_min = np.array([0.0, 0.0, 0.0])
+    aabb_max = np.array([10.0, 10.0, 5.0])
+    z = compute_auto_zoom(
+        aabb_min, aabb_max,
+        camera_front=(-1.0, 0.0, 0.2),
+        camera_up=(0.0, 0.0, 1.0),
+        target_screen_ratio=0.7,
+    )
+    assert 0.05 <= z <= 2.0  # clip 범위 안
+
+
+def test_compute_auto_zoom_target_ratio_inverse() -> None:
+    """target_screen_ratio가 클수록 zoom 값은 작아진다 (inverse 관계 — Open3D 의미)."""
+    aabb_min = np.array([0.0, 0.0, 0.0])
+    aabb_max = np.array([10.0, 10.0, 5.0])
+    z_small = compute_auto_zoom(aabb_min, aabb_max, (-1.0, 0.0, 0.0), (0.0, 0.0, 1.0), target_screen_ratio=0.3)
+    z_large = compute_auto_zoom(aabb_min, aabb_max, (-1.0, 0.0, 0.0), (0.0, 0.0, 1.0), target_screen_ratio=0.9)
+    assert z_small > z_large  # ratio 높음 = mesh 크게 = zoom 작음
+
+
+def test_renderer_auto_zoom_opt_in_uses_dynamic() -> None:
+    """IFCRenderer(auto_zoom=True) 명시 시 _resolve_zoom이 동적 계산 함수 호출."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])  # 비어있지 않은 vertices
+    fake_center = np.array([5.0, 5.0, 2.5])
+
+    with (
+        patch(
+            "ai_rendering.ifc2img.renderer.load_mesh",
+            return_value=(fake_mesh, fake_center),
+        ),
+        patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
+        patch("ai_rendering.ifc2img.renderer.compute_auto_zoom", return_value=0.42) as mock_compute,
+    ):
+        vis = MagicMock()
+        mock_o3d.visualization.Visualizer.return_value = vis
+        depth = np.zeros((448, 768), dtype=np.float32)
+        depth[100:300, 200:500] = 5.0
+        vis.capture_depth_float_buffer.return_value = depth
+
+        renderer = IFCRenderer(auto_zoom=True)
+        renderer.render(Path("dummy.ifc"), IFCView.FRONT)
+
+    mock_compute.assert_called_once()
+    vis.get_view_control.return_value.set_zoom.assert_called_once_with(0.42)
+
+
+def test_renderer_default_uses_static_zoom() -> None:
+    """기본 auto_zoom=False — views.py의 정적 zoom(0.5) 그대로 전달."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+
+    with (
+        patch(
+            "ai_rendering.ifc2img.renderer.load_mesh",
+            return_value=(fake_mesh, fake_center),
+        ),
+        patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
+        patch("ai_rendering.ifc2img.renderer.compute_auto_zoom") as mock_compute,
+    ):
+        vis = MagicMock()
+        mock_o3d.visualization.Visualizer.return_value = vis
+        depth = np.zeros((448, 768), dtype=np.float32)
+        depth[100:300, 200:500] = 5.0
+        vis.capture_depth_float_buffer.return_value = depth
+
+        renderer = IFCRenderer()  # default auto_zoom=False
+        renderer.render(Path("dummy.ifc"), IFCView.FRONT)
+
+    mock_compute.assert_not_called()
+    vis.get_view_control.return_value.set_zoom.assert_called_once_with(0.5)  # FRONT 정적값
 
 
 @pytest.mark.parametrize("schema_name", ["IFC4", "IFC4X1", "IFC4X2", "IFC4X3"])
