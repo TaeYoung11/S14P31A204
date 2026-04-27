@@ -12,6 +12,21 @@ class IFCView(Enum):
     TOP = "top"
 
 
+class AutoZoomMode(Enum):
+    """카메라 zoom 자동 조정 모드.
+
+    OFF        — views.py의 정적 zoom 사용 (기본). 안전 baseline.
+    ANALYTIC   — v1: AABB 기반 분석 수식 (현재 시점에 실험적, 회귀 발생).
+                 보존만 — 향후 수식 보정 시 활용. default 비추천.
+    ITERATIVE  — v2: render → fill% 측정 → zoom 조정 반복.
+                 분석 수식 실패 학습 후 채택한 측정 기반 접근.
+    """
+
+    OFF = "off"
+    ANALYTIC = "analytic"
+    ITERATIVE = "iterative"
+
+
 @dataclass(frozen=True)
 class CameraParams:
     """Open3D ViewControl 파라미터.
