@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import type { Address } from 'react-daum-postcode'
 import { useRegisterProjectSite } from '@/features/project/hooks/useProjects'
 
 declare global {
@@ -93,19 +93,16 @@ export const useProjectSiteModal = ({
   projectId,
   onClose,
 }: UseProjectSiteModalParams) => {
-  const navigate = useNavigate()
   const registerSite = useRegisterProjectSite()
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<KakaoMap | null>(null)
   const markerRef = useRef<KakaoMarker | null>(null)
 
   const [sdkError, setSdkError] = useState('')
-  const [address, setAddress] = useState('')
+  const [showPostcode, setShowPostcode] = useState(false)
   const [selectedAddress, setSelectedAddress] = useState('')
-  const [latitude, setLatitude] = useState<number | null>(null)
-  const [longitude, setLongitude] = useState<number | null>(null)
   const [searchError, setSearchError] = useState('')
-  const [isSearching, setIsSearching] = useState(false)
+  const [polygonCoords, setPolygonCoords] = useState<number[][] | null>(null)
 
   useEffect(() => {
     if (!isOpen) return
@@ -125,17 +122,18 @@ export const useProjectSiteModal = ({
       })
   }, [isOpen])
 
+  const resetRegisterSite = registerSite.reset
+
   useEffect(() => {
     if (!isOpen) {
-      setAddress('')
+      setShowPostcode(false)
       setSelectedAddress('')
-      setLatitude(null)
-      setLongitude(null)
       setSearchError('')
       setSdkError('')
-      registerSite.reset()
+      setPolygonCoords(null)
+      resetRegisterSite()
     }
-  }, [isOpen, registerSite])
+  }, [isOpen, resetRegisterSite])
 
   const updateMap = (lat: number, lng: number) => {
     if (!window.kakao?.maps || !mapRef.current) return
@@ -152,44 +150,8 @@ export const useProjectSiteModal = ({
     markerRef.current.setPosition(position)
   }
 
-  const handleSearchAddress = () => {
-    setSearchError('')
-    setSdkError('')
-
-    if (!address.trim()) {
-      setSearchError('검색할 주소를 입력해주세요.')
-      return
-    }
-
-    if (!window.kakao?.maps?.services) {
-      setSearchError('카카오맵 서비스를 아직 불러오지 못했습니다.')
-      return
-    }
-
-    setIsSearching(true)
-
-    const geocoder = new window.kakao.maps.services.Geocoder()
-    geocoder.addressSearch(address, (result, status) => {
-      setIsSearching(false)
-
-      if (status !== window.kakao?.maps.services.Status.OK || result.length === 0) {
-        setSearchError('주소 검색 결과를 찾지 못했습니다.')
-        return
-      }
-
-      const firstResult = result[0]
-      const nextLatitude = Number(firstResult.y)
-      const nextLongitude = Number(firstResult.x)
-
-      setSelectedAddress(firstResult.address_name)
-      setLatitude(nextLatitude)
-      setLongitude(nextLongitude)
-      updateMap(nextLatitude, nextLongitude)
-    })
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleAddressSelect = (data: Address) => {
+    setShowPostcode(false)
     setSearchError('')
 
     if (!projectId) {
@@ -197,34 +159,49 @@ export const useProjectSiteModal = ({
       return
     }
 
-    if (latitude === null || longitude === null) {
-      setSearchError('먼저 주소를 검색해서 위치를 선택해주세요.')
+    if (!window.kakao?.maps?.services) {
+      setSearchError('카카오맵 서비스를 불러오지 못했습니다.')
       return
     }
 
-    await registerSite.mutateAsync({
-      projectId,
-      latitude,
-      longitude,
-    })
+    const geocoder = new window.kakao.maps.services.Geocoder()
+    geocoder.addressSearch(data.address, async (result, status) => {
+      if (status !== window.kakao?.maps.services.Status.OK || result.length === 0) {
+        setSearchError('주소 좌표를 가져오지 못했습니다.')
+        return
+      }
 
-    onClose()
-    navigate(`/projects/${projectId}/editor`)
+      const { x, y } = result[0]
+      const latitude = Number(y)
+      const longitude = Number(x)
+
+      setSelectedAddress(data.address)
+      updateMap(latitude, longitude)
+
+      try {
+        const siteResult = await registerSite.mutateAsync({ projectId, latitude, longitude })
+        const outerRing = siteResult.cadastralInfo?.polygon?.coordinates?.[0]?.[0]
+        if (outerRing && outerRing.length > 0) {
+          setPolygonCoords(outerRing)
+        } else {
+          onClose()
+        }
+      } catch {
+        setSearchError('대지 정보 저장에 실패했습니다. 다시 시도해주세요.')
+      }
+    })
   }
 
   return {
     mapContainerRef,
-    address,
+    showPostcode,
+    setShowPostcode,
     selectedAddress,
-    latitude,
-    longitude,
+    polygonCoords,
     sdkError,
     searchError,
-    submitError: registerSite.error,
-    isSearching,
-    isSubmitting: registerSite.isPending,
-    setAddress,
-    handleSearchAddress,
-    handleSubmit,
+    registerError: registerSite.error,
+    isRegistering: registerSite.isPending,
+    handleAddressSelect,
   }
 }

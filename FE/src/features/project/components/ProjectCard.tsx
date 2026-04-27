@@ -188,7 +188,7 @@ export default function ProjectCard({
               <div className="relative shrink-0">
                 <button
                   id={`project-menu-${project.id}`}
-                  className={`${isListView ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} flex h-7 w-7 items-center justify-center rounded-md text-[#9ca3af] transition-all hover:bg-[#f3f4f6] hover:text-[#374151]`}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-[#9ca3af] transition-all hover:bg-[#f3f4f6] hover:text-[#374151]"
                   onClick={(e) => {
                     e.preventDefault()
                     setMenuOpen(!menuOpen)

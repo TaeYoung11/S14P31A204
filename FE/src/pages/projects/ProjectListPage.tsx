@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, FolderOpen, LayoutGrid, List, Search, CheckSquare, Share2, Trash2, X } from 'lucide-react'
 import {
   useProjects,
+  useAllProjects,
   useCreateProject,
   useUpdateProject,
   useDeleteProject,
@@ -23,7 +24,7 @@ type ViewMode = 'grid' | 'list'
 export default function ProjectsPage() {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
-  const { data: projects, isLoading } = useProjects()
+  const { data, isLoading, isFetchingNextPage, fetchNextPage, hasNextPage } = useProjects()
   const createProject = useCreateProject()
   const updateProject = useUpdateProject()
   const deleteProject = useDeleteProject()
@@ -33,18 +34,44 @@ export default function ProjectsPage() {
   const [editProject, setEditProject] = useState<Project | null>(null)
   const [shareProjects, setShareProjects] = useState<Project[]>([])
   const [search, setSearch] = useState('')
+
+  const { data: allData, isLoading: isSearchLoading } = useAllProjects(search.length > 0)
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([])
   const [siteProject, setSiteProject] = useState<Project | null>(null)
-  const allProjects = projects ?? []
 
-  const filteredProjects =
-    allProjects.filter(
-      (project) =>
-        project.name.toLowerCase().includes(search.toLowerCase()) ||
-        project.description.toLowerCase().includes(search.toLowerCase()),
+  const sentinelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current
+    if (!sentinel || !hasNextPage) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !isFetchingNextPage) {
+          fetchNextPage()
+        }
+      },
+      { threshold: 0.1 },
     )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+
+  const filteredProjects = useMemo(() => {
+    if (search) {
+      const regex = (() => {
+        try { return new RegExp(search, 'i') }
+        catch { return new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }
+      })()
+      return (allData ?? []).filter(p => regex.test(p.name) || regex.test(p.description))
+    }
+    return data?.pages.flatMap((p) => p.projects) ?? []
+  }, [search, allData, data])
+
+  const allProjects = filteredProjects
 
   const selectedProjects = useMemo(
     () => allProjects.filter((project) => selectedProjectIds.includes(project.id)),
@@ -218,7 +245,7 @@ export default function ProjectsPage() {
           </div>
         )}
 
-        {isLoading ? (
+        {isLoading || isSearchLoading ? (
           <div className="flex justify-center py-20">
             <Spinner size="lg" />
           </div>
@@ -270,6 +297,12 @@ export default function ProjectsPage() {
                 </span>
               </button>
             )}
+          </div>
+        )}
+        {!search && <div ref={sentinelRef} className="h-1" />}
+        {!search && isFetchingNextPage && (
+          <div className="flex justify-center py-6">
+            <Spinner size="lg" />
           </div>
         )}
       </main>

@@ -1,11 +1,22 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { projectService } from '@/features/project/services/project.service'
 import type { CreateProjectDto, UpdateProjectDto } from '@/shared/types'
 
 export const useProjects = () => {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['projects'],
-    queryFn: () => projectService.getList(),
+    queryFn: ({ pageParam }) => projectService.getList(pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => lastPage.hasNext ? lastPage.page : undefined,
+  })
+}
+
+export const useAllProjects = (enabled: boolean) => {
+  return useQuery({
+    queryKey: ['projects', 'all'],
+    queryFn: () => projectService.getAll(),
+    enabled,
+    staleTime: 60 * 1000,
   })
 }
 

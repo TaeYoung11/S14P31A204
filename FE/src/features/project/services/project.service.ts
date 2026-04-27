@@ -48,8 +48,18 @@ interface RegisterProjectSiteDto {
   longitude: number
 }
 
+interface CadastralPolygon {
+  type: string
+  coordinates: number[][][][]
+}
+
+interface CadastralInfo {
+  polygon: CadastralPolygon
+}
+
 export interface ProjectSiteResponse {
   projectId: string
+  cadastralInfo?: CadastralInfo
   createdAt: string
 }
 
@@ -103,15 +113,40 @@ const createMockProject = (data: CreateProjectDto): Project => ({
   ifc_uploaded: false,
 })
 
+export interface ProjectListPageResult {
+  projects: Project[]
+  hasNext: boolean
+  page: number
+}
+
 export const projectService = {
-  getList: async (): Promise<Project[]> => {
+  getAll: async (): Promise<Project[]> => {
+    const all: Project[] = []
+    let page = 0
+    const MAX_PAGES = 100
+
+    while (page <= MAX_PAGES) {
+      const response = await api.get<ApiResponse<ProjectListResponse>>('/projects', { params: { page, size: 6 } })
+      const data = response.data.data
+      all.push(...data.projects.map(mapProjectSummary))
+      if (!data.hasNext) break
+      page++
+    }
+
+    return all
+  },
+
+  getList: async (page: number = 0): Promise<ProjectListPageResult> => {
     try {
-      const response = await api.get<ApiResponse<ProjectListResponse>>('/projects')
-      const mappedProjects = response.data.data.projects.map(mapProjectSummary)
-      projects = mappedProjects
-      return mappedProjects
+      const response = await api.get<ApiResponse<ProjectListResponse>>('/projects', {
+        params: { page, size: 6 },
+      })
+      const data = response.data.data
+      const mappedProjects = data.projects.map(mapProjectSummary)
+      projects = page === 0 ? mappedProjects : [...projects, ...mappedProjects]
+      return { projects: mappedProjects, hasNext: data.hasNext, page: data.page }
     } catch {
-      return projects
+      return { projects, hasNext: false, page }
     }
   },
 
@@ -164,15 +199,8 @@ export const projectService = {
   },
 
   registerSite: async (projectId: string, data: RegisterProjectSiteDto): Promise<ProjectSiteResponse> => {
-    try {
-      const response = await api.post<ApiResponse<ProjectSiteResponse>>(`/projects/${projectId}/site`, data)
-      return response.data.data
-    } catch {
-      return {
-        projectId,
-        createdAt: new Date().toISOString(),
-      }
-    }
+    const response = await api.post<ApiResponse<ProjectSiteResponse>>(`/projects/${projectId}/site`, data)
+    return response.data.data
   },
 
   invite: async (_projectId: string, email: string): Promise<void> => {
