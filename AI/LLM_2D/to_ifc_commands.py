@@ -66,6 +66,14 @@ def to_ifc_commands(
                 clarification_question="방 형태와 크기 정보가 부족합니다. 예: 직사각형 4000x5000",
             )
 
+        storey_id = _find_storey_id(command.new_room.floor)
+        if ifc_context and storey_id is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=f"{command.new_room.floor}층 정보를 현재 IFC에서 찾을 수 없습니다.",
+            )
+
         return CommandBatch(
             commands=[
                 IFCCommand(
@@ -74,7 +82,7 @@ def to_ifc_commands(
                     params={
                         "entity_type": "Space",
                         "metadata": {
-                            "storey_id": _find_storey_id(command.new_room.floor),
+                            "storey_id": storey_id,
                         },
                         "geometry": {
                             "location": [0.0, 0.0, 0.0],
