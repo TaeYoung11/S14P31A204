@@ -7,7 +7,7 @@ from pathlib import Path
 
 import ifcopenshell
 import ifcopenshell.guid
-from ai_domain import LayoutImportV1
+from ai_domain import LayoutImportV1, RoomInput, ZoneInput
 
 
 def convert_layout_to_ifc(request: LayoutImportV1, output_path: str | Path) -> None:
@@ -81,7 +81,13 @@ def _create_project_tree(
     )
     _create_aggregate(model, owner_history, project, [site], "Project-Site")
     _create_aggregate(model, owner_history, site, [building], "Site-Building")
-    _create_aggregate(model, owner_history, building, list(storeys.values()), "Building-Storeys")
+    _create_aggregate(
+        model,
+        owner_history,
+        building,
+        list(storeys.values()),
+        "Building-Storeys",
+    )
     return owner_history, context, storeys
 
 
@@ -203,6 +209,7 @@ def _create_spaces(
                 space_height_m,
             ),
         )
+        _attach_room_metadata_property_set(model, owner_history, space, room)
         model.create_entity(
             "IfcRelContainedInSpatialStructure",
             GlobalId=ifcopenshell.guid.new(),
@@ -220,16 +227,18 @@ def _create_zones(
     owner_history: ifcopenshell.entity_instance,
     request: LayoutImportV1,
 ) -> dict[str, ifcopenshell.entity_instance]:
-    return {
-        zone.id: model.create_entity(
+    zones: dict[str, ifcopenshell.entity_instance] = {}
+    for zone in request.zones or []:
+        zone_entity = model.create_entity(
             "IfcZone",
             GlobalId=ifcopenshell.guid.new(),
             OwnerHistory=owner_history,
             Name=zone.name,
             ObjectType="Zone",
         )
-        for zone in request.zones or []
-    }
+        _attach_zone_metadata_property_set(model, owner_history, zone_entity, zone)
+        zones[zone.id] = zone_entity
+    return zones
 
 
 def _assign_space_to_zone(
@@ -246,6 +255,86 @@ def _assign_space_to_zone(
         Name=f"{room_id}-ZoneAssignment",
         RelatedObjects=[space],
         RelatingGroup=zone,
+    )
+
+
+def _attach_room_metadata_property_set(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    space: ifcopenshell.entity_instance,
+    room: RoomInput,
+) -> None:
+    properties = [
+        _create_property_single_value(model, "RoomId", room.id),
+        _create_property_single_value(model, "RoomType", room.type.value),
+        _create_property_single_value(model, "Locked", room.locked),
+    ]
+    if room.zone_id is not None:
+        properties.append(_create_property_single_value(model, "ZoneId", room.zone_id))
+    _attach_property_set(
+        model,
+        owner_history,
+        space,
+        "Pset_BatangLayoutImportRoom",
+        properties,
+    )
+
+
+def _attach_zone_metadata_property_set(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    zone_entity: ifcopenshell.entity_instance,
+    zone: ZoneInput,
+) -> None:
+    _attach_property_set(
+        model,
+        owner_history,
+        zone_entity,
+        "Pset_BatangLayoutImportZone",
+        [
+            _create_property_single_value(model, "ZoneId", zone.id),
+            _create_property_single_value(model, "ZoneColor", zone.color),
+        ],
+    )
+
+
+def _attach_property_set(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    target: ifcopenshell.entity_instance,
+    pset_name: str,
+    properties: list[ifcopenshell.entity_instance],
+) -> ifcopenshell.entity_instance:
+    property_set = model.create_entity(
+        "IfcPropertySet",
+        GlobalId=ifcopenshell.guid.new(),
+        OwnerHistory=owner_history,
+        Name=pset_name,
+        HasProperties=properties,
+    )
+    return model.create_entity(
+        "IfcRelDefinesByProperties",
+        GlobalId=ifcopenshell.guid.new(),
+        OwnerHistory=owner_history,
+        Name=f"{pset_name}-Assignment",
+        RelatedObjects=[target],
+        RelatingPropertyDefinition=property_set,
+    )
+
+
+def _create_property_single_value(
+    model: ifcopenshell.file,
+    name: str,
+    value: str | bool,
+) -> ifcopenshell.entity_instance:
+    if isinstance(value, bool):
+        nominal_value = model.create_entity("IfcBoolean", value)
+    else:
+        nominal_value = model.create_entity("IfcLabel", value)
+    return model.create_entity(
+        "IfcPropertySingleValue",
+        Name=name,
+        NominalValue=nominal_value,
     )
 
 
