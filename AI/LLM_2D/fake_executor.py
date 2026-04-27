@@ -23,7 +23,10 @@ import ifcopenshell.api.pset
 import ifcopenshell.api.root
 import ifcopenshell.util.element
 
-from models import ActionType
+try:
+    from .models import ActionType
+except ImportError:
+    from models import ActionType  # type: ignore[no-redef]
 
 _CREATE_SPACE = ActionType.CREATE_SPACE.value
 _UPDATE_SPACE = ActionType.UPDATE_SPACE.value
@@ -49,15 +52,17 @@ class ExecutionResult:
         }
 
 
-def _get_storey(ifc: ifcopenshell.file, storey_id: Optional[str]) -> Optional[ifcopenshell.entity_instance]:
-    """storey_id(GlobalId)로 IfcBuildingStorey를 조회한다. None이면 첫 번째 층 반환."""
-    if storey_id:
-        try:
-            return ifc.by_guid(storey_id)
-        except Exception:
-            pass
-    storeys = ifc.by_type("IfcBuildingStorey")
-    return storeys[0] if storeys else None
+def _get_storey(ifc: ifcopenshell.file, storey_id: Optional[str]) -> ifcopenshell.entity_instance:
+    """storey_id(GlobalId)로 IfcBuildingStorey를 조회한다. 실패하면 RuntimeError를 발생시킨다."""
+    if not storey_id:
+        raise RuntimeError("metadata.storey_id가 누락되었습니다. 모든 IFCCommand에 storey_id가 필요합니다.")
+    try:
+        storey = ifc.by_guid(storey_id)
+    except Exception:
+        raise RuntimeError(f"storey_id '{storey_id}'를 IFC 파일에서 찾을 수 없습니다.")
+    if not storey.is_a("IfcBuildingStorey"):
+        raise RuntimeError(f"storey_id '{storey_id}'는 IfcBuildingStorey가 아닙니다: {storey.is_a()}")
+    return storey
 
 
 def _apply_create_space(ifc: ifcopenshell.file, params: dict) -> ifcopenshell.entity_instance:
@@ -248,24 +253,26 @@ def execute_batch(
             failed_indices.append(idx)
             errors[idx] = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
 
-    # 하나라도 성공한 command가 있으면 저장
-    file_was_written = len(failed_indices) < len(commands)
-    if file_was_written:
-        try:
-            ifc.write(output_ifc_path)
-        except Exception as e:
-            return ExecutionResult(
-                success=False,
-                failed_command_indices=failed_indices,
-                errors={**errors, -1: f"IFC 저장 실패: {e}"},
-            )
+    # all-or-nothing: 하나라도 실패하면 IFC 저장 안 함
+    if failed_indices:
+        return ExecutionResult(
+            success=False,
+            failed_command_indices=failed_indices,
+            output_ifc_path=None,
+            errors=errors,
+        )
 
-    success = len(failed_indices) == 0
+    try:
+        ifc.write(output_ifc_path)
+    except Exception as e:
+        return ExecutionResult(
+            success=False,
+            errors={-1: f"IFC 저장 실패: {e}"},
+        )
+
     return ExecutionResult(
-        success=success,
-        failed_command_indices=failed_indices,
-        output_ifc_path=output_ifc_path if file_was_written else None,
-        errors=errors,
+        success=True,
+        output_ifc_path=output_ifc_path,
     )
 
 

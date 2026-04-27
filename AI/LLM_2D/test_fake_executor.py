@@ -411,7 +411,7 @@ def test_08_requires_clarification(sample_ifc_path: Path, tmp_path: Path) -> Non
 # ──────────────────────────────────────────────
 
 def test_09_delete_space_invalid_target(sample_ifc_path: Path, tmp_path: Path) -> None:
-    """존재하지 않는 target_id로 DELETE_SPACE를 시도하면 failed_command_indices=[0]여야 한다."""
+    """존재하지 않는 target_id로 DELETE_SPACE를 시도하면 실패하고 IFC 파일이 생성되지 않아야 한다."""
     output = tmp_path / "out.ifc"
     batch = _batch(
         _delete_space_cmd(
@@ -426,6 +426,7 @@ def test_09_delete_space_invalid_target(sample_ifc_path: Path, tmp_path: Path) -
     assert not result.success
     assert 0 in result.failed_command_indices
     assert 0 in result.errors
+    assert not output.exists()  # all-or-nothing: 실패 시 파일 미생성
 
 
 # ──────────────────────────────────────────────
@@ -433,7 +434,7 @@ def test_09_delete_space_invalid_target(sample_ifc_path: Path, tmp_path: Path) -
 # ──────────────────────────────────────────────
 
 def test_10_update_space_invalid_target(sample_ifc_path: Path, tmp_path: Path) -> None:
-    """존재하지 않는 target_id로 UPDATE_SPACE를 시도하면 failed_command_indices=[0]여야 한다."""
+    """존재하지 않는 target_id로 UPDATE_SPACE를 시도하면 실패하고 IFC 파일이 생성되지 않아야 한다."""
     output = tmp_path / "out.ifc"
     batch = _batch(
         _update_space_cmd(
@@ -451,6 +452,41 @@ def test_10_update_space_invalid_target(sample_ifc_path: Path, tmp_path: Path) -
     assert not result.success
     assert 0 in result.failed_command_indices
     assert 0 in result.errors
+    assert not output.exists()  # all-or-nothing: 실패 시 파일 미생성
+
+
+# ──────────────────────────────────────────────
+# 시나리오 12 — all-or-nothing: 배치 중 일부 실패 시 전체 롤백
+# ──────────────────────────────────────────────
+
+def test_12_batch_partial_failure_rollback(sample_ifc_path: Path, tmp_path: Path) -> None:
+    """배치 내 첫 command가 성공하고 두 번째가 실패해도 IFC 파일이 생성되지 않아야 한다."""
+    output = tmp_path / "out.ifc"
+    batch = _batch(
+        # command 0: 정상 CREATE
+        _create_space_cmd(
+            storey_id=STOREY_1F,
+            name="주방",
+            space_type="kitchen",
+            shape="rect",
+            width=3000,
+            height=4000,
+            rects=[{"x": 0, "y": 0, "width": 3000, "height": 4000}],
+        ),
+        # command 1: 잘못된 target_id DELETE → 실패 유도
+        _delete_space_cmd(
+            target_id="INVALID_GUID_DOES_NOT_EXIST",
+            storey_id=STOREY_1F,
+            name="없는방",
+        ),
+    )
+
+    result = execute_batch(str(sample_ifc_path), str(output), batch)
+
+    assert not result.success
+    assert 1 in result.failed_command_indices
+    assert result.output_ifc_path is None
+    assert not output.exists()  # 첫 command 성공했어도 파일 미생성
 
 
 # ──────────────────────────────────────────────

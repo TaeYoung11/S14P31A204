@@ -1,6 +1,9 @@
 from typing import Dict, Optional
 
-from models import FloorNLPCommand, ActionType, IFCCommand, CommandBatch
+try:
+    from .models import FloorNLPCommand, ActionType, IFCCommand, CommandBatch
+except ImportError:
+    from models import FloorNLPCommand, ActionType, IFCCommand, CommandBatch  # type: ignore[no-redef]
 
 
 def to_ifc_commands(
