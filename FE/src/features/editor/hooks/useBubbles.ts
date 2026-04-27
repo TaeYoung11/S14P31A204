@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { BubbleData, AddSpaceFormData } from '../types'
-import { INITIAL_BUBBLES } from '../constants'
+import { bubbleService } from '../services/bubble.service'
 import {
   calcAreaM2FromMm,
   calcMmDimensionsByAreaAndAspect,
@@ -10,8 +10,15 @@ import {
 
 /** 버블(공간) 상태와 모든 변경 핸들러를 제공하는 훅 */
 export function useBubbles() {
-  const [bubbles, setBubbles] = useState<BubbleData[]>(INITIAL_BUBBLES)
-  const [selectedId, setSelectedId] = useState<string | null>('1')
+  const [bubbles, setBubbles] = useState<BubbleData[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  useEffect(() => {
+    bubbleService.getList().then((data) => {
+      setBubbles(data)
+      if (data.length > 0) setSelectedId(data[0].id)
+    })
+  }, [])
   const [previousSelectedId, setPreviousSelectedId] = useState<string | null>(null)
 
   /** 버블 선택 — 이전 선택 ID를 추적해 연결선 생성에 활용 */

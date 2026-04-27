@@ -1,179 +1,48 @@
-import { useMemo, useState } from 'react'
 import { Hand, ZoomIn, ZoomOut, Users, RotateCw } from 'lucide-react'
-import { useSearchParams } from 'react-router-dom'
-import { AddSpaceModal } from './components/AddSpaceModal'
-import { BubbleCanvas } from './components/BubbleCanvas'
-import { TwoDCanvas } from './components/TwoDCanvas'
-import { ThreeDCanvas } from './components/ThreeDCanvas'
-import { TwoDLeftPanels } from './components/TwoDLeftPanels'
-import EditorHeader from './components/EditorHeader'
-import EditorLeftSidebar from './components/EditorLeftSidebar'
-import { EditorRightPanels } from './components/EditorRightPanels'
-import EditorToolbar from './components/EditorToolbar'
-import { LineStyleModal } from './components/LineStyleModal'
-import { ZoningModal } from './components/ZoningModal'
-import { INITIAL_ADD_SPACE_FORM, SITE_RAW_POINTS } from './constants'
-import { useBubbles } from './hooks/useBubbles'
-import { useConnections } from './hooks/useConnections'
-import { usePanels } from './hooks/usePanels'
-import { useStageSize } from './hooks/useStageSize'
-import { useZones } from './hooks/useZones'
-import type { AddSpaceFormData, EditorMode } from './types'
-import { centerSitePoints } from './utils/bubbleCalc'
-
-const EDITOR_MODES: EditorMode[] = ['bubble', '2d', '3d']
-
-function resolveMode(value: string | null): EditorMode {
-  return EDITOR_MODES.includes(value as EditorMode) ? (value as EditorMode) : 'bubble'
-}
+import { AddSpaceModal } from '../../features/editor/components/AddSpaceModal'
+import { BubbleCanvas } from '../../features/editor/components/BubbleCanvas'
+import { TwoDCanvas } from '../../features/editor/components/TwoDCanvas'
+import { ThreeDCanvas } from '../../features/editor/components/ThreeDCanvas'
+import { TwoDLeftPanels } from '../../features/editor/components/TwoDLeftPanels'
+import EditorHeader from '../../features/editor/components/EditorHeader'
+import EditorLeftSidebar from '../../features/editor/components/EditorLeftSidebar'
+import { EditorRightPanels } from '../../features/editor/components/EditorRightPanels'
+import EditorToolbar from '../../features/editor/components/EditorToolbar'
+import { LineStyleModal } from '../../features/editor/components/LineStyleModal'
+import { ZoningModal } from '../../features/editor/components/ZoningModal'
+import { useEditorPage } from '../../features/editor/hooks/useEditorPage'
 
 export default function EditorPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
-  const mode = resolveMode(searchParams.get('mode'))
-
-  const { containerRef, stageSize } = useStageSize()
   const {
-    bubbles,
-    selectedId,
-    previousSelectedId,
-    handleBubbleSelect,
-    handleBubbleDrag,
-    handleLabelChange,
-    handleTypeChange,
-    handleWidthChange,
-    handleHeightChange,
-    handleRatioChange,
-    handleColorChange,
-    addBubble,
-  } = useBubbles()
-  const {
-    connections,
-    isModalOpen: isLineStyleModalOpen,
-    selectedStyle: selectedLineStyle,
-    connectionPair: lineConnectionPair,
-    openModal,
-    confirmModal,
-    closeModal,
-    setSelectedStyle,
-  } = useConnections()
-  const {
-    zones,
-    isModalOpen: isZoningModalOpen,
-    editingZoneId,
-    formData: zoningFormData,
-    setFormData: setZoningFormData,
-    autoColorPreview: zoningAutoColorPreview,
-    openAddModal: openZoningModal,
-    openEditModal,
-    closeModal: closeZoningModal,
-    toggleBubble: toggleZoningBubble,
-    confirmModal: confirmZoningModal,
-    deleteZone,
-  } = useZones(bubbles)
-  const {
-    panelOffsets,
-    panelOpenState,
-    panelHeights,
-    panelWidths,
-    startDrag,
-    startResize,
-    togglePanel,
-  } = usePanels(mode)
-
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false)
-  const [addSpaceFormData, setAddSpaceFormData] = useState<AddSpaceFormData>(INITIAL_ADD_SPACE_FORM)
-
-  // Collaboration State
-  const [isCollaborationMode, setIsCollaborationMode] = useState(false)
-  const [selectedPinId, setSelectedPinId] = useState<string | null>(null)
-  const [collaborationTab, setCollaborationTab] = useState<'history' | 'thread'>('history')
-
-  const selectedBubble = useMemo(
-    () => bubbles.find((bubble) => bubble.id === selectedId) ?? null,
-    [bubbles, selectedId]
-  )
-
-  const selectedBubbleConnections = useMemo(() => {
-    if (!selectedId) return []
-
-    return connections
-      .filter((connection) => connection.from === selectedId || connection.to === selectedId)
-      .map((connection) => {
-        const targetId = connection.from === selectedId ? connection.to : connection.from
-        const targetBubble = bubbles.find((bubble) => bubble.id === targetId)
-        return {
-          targetId,
-          targetLabel: targetBubble?.label ?? targetId,
-          style: connection.type,
-        }
-      })
-  }, [bubbles, connections, selectedId])
-
-  const autoZones = useMemo(() => zones.filter((zone) => zone.source === 'auto'), [zones])
-  const manualZones = useMemo(() => zones.filter((zone) => zone.source === 'manual'), [zones])
-
-  const selectedBubbleZones = useMemo(() => {
-    if (!selectedId) return []
-    return zones
-      .filter((zone) => zone.bubbleIds.includes(selectedId))
-      .map((zone) => ({
-        id: zone.id,
-        name: zone.name,
-        color: zone.color,
-        source: zone.source,
-      }))
-  }, [selectedId, zones])
-
-  const zoningListItems = useMemo(() => [...autoZones, ...manualZones], [autoZones, manualZones])
-
-  const sitePoints = useMemo(
-    () => centerSitePoints(SITE_RAW_POINTS, stageSize.width, stageSize.height),
-    [stageSize.height, stageSize.width]
-  )
-
-  const setMode = (nextMode: EditorMode) => {
-    setSearchParams({ mode: nextMode })
-    if (nextMode !== '2d') {
-      setIsCollaborationMode(false)
-    }
-  }
-
-  const handleOpenAddModal = () => {
-    setAddSpaceFormData(INITIAL_ADD_SPACE_FORM)
-    setIsAddModalOpen(true)
-  }
-
-  const handleConfirmAddSpace = () => {
-    addBubble(addSpaceFormData)
-    setIsAddModalOpen(false)
-  }
-
-  const handleOpenLineStyleModal = () => {
-    openModal(selectedId, previousSelectedId)
-  }
-
-  const handleToggleCollaboration = () => {
-    setIsCollaborationMode(prev => !prev)
-    // 모드가 켜지면 기본적으로 'history' 탭
-    if (!isCollaborationMode) {
-      setCollaborationTab('history')
-      setSelectedPinId(null)
-    }
-  }
-
-  const handlePinClick = (pinId: string) => {
-    setSelectedPinId(pinId)
-    setCollaborationTab('thread')
-  }
-
-  const getBubbleLabel = (bubbleId: string) => bubbles.find((bubble) => bubble.id === bubbleId)?.label ?? bubbleId
+    mode, setMode,
+    containerRef, stageSize, sitePoints,
+    bubbles, selectedId, selectedBubble,
+    handleBubbleSelect, handleBubbleDrag,
+    handleLabelChange, handleTypeChange,
+    handleWidthChange, handleHeightChange, handleRatioChange, handleColorChange,
+    connections, selectedBubbleConnections,
+    isLineStyleModalOpen, selectedLineStyle, lineConnectionPair,
+    confirmLineStyleModal, closeLineStyleModal, setSelectedStyle,
+    handleOpenLineStyleModal, getBubbleLabel,
+    autoZones, manualZones, selectedBubbleZones, zoningListItems,
+    isZoningModalOpen, editingZoneId, zoningFormData, setZoningFormData,
+    zoningAutoColorPreview, openZoningModal, openEditModal,
+    closeZoningModal, toggleZoningBubble, confirmZoningModal, deleteZone,
+    panelOffsets, panelOpenState, panelHeights, panelWidths,
+    startDrag, startResize, togglePanel,
+    isAddModalOpen, addSpaceFormData, setAddSpaceFormData,
+    handleOpenAddModal, handleConfirmAddSpace, onCloseAddModal,
+    isCollaborationMode, selectedPinId, setSelectedPinId,
+    collaborationTab, setCollaborationTab,
+    handleToggleCollaboration, handlePinClick,
+  } = useEditorPage()
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#F0F2F9] text-[#1D1E20] overflow-hidden font-sans">
       <AddSpaceModal
         isOpen={isAddModalOpen}
         formData={addSpaceFormData}
-        onClose={() => setIsAddModalOpen(false)}
+        onClose={onCloseAddModal}
         onConfirm={handleConfirmAddSpace}
         onChange={setAddSpaceFormData}
       />
@@ -194,8 +63,8 @@ export default function EditorPage() {
         isOpen={isLineStyleModalOpen}
         lineConnectionPair={lineConnectionPair}
         selectedStyle={selectedLineStyle}
-        onClose={closeModal}
-        onConfirm={confirmModal}
+        onClose={closeLineStyleModal}
+        onConfirm={confirmLineStyleModal}
         onChangeStyle={setSelectedStyle}
         getBubbleLabel={getBubbleLabel}
       />
@@ -230,14 +99,14 @@ export default function EditorPage() {
               onBubbleSelect={handleBubbleSelect}
             />
           ) : mode === '2d' ? (
-            <TwoDCanvas 
-              stageSize={stageSize} 
+            <TwoDCanvas
+              stageSize={stageSize}
               isCollaborationMode={isCollaborationMode}
               selectedPinId={selectedPinId}
               onPinClick={handlePinClick}
             />
           ) : mode === '3d' ? (
-            <ThreeDCanvas 
+            <ThreeDCanvas
               isCollaborationMode={isCollaborationMode}
               selectedPinId={selectedPinId}
               onPinClick={handlePinClick}
@@ -248,10 +117,8 @@ export default function EditorPage() {
             </div>
           )}
 
-          {/* Floating Panels for 2D Mode (Hidden in Collaboration Mode) */}
           {mode === '2d' && !isCollaborationMode && <TwoDLeftPanels />}
 
-          {/* Canvas Overlay Controls */}
           <div className="absolute bottom-6 left-6 flex items-center bg-white border border-[#E2E6EF] rounded-2xl px-2 py-2 shadow-md z-10 transition-all">
             <button className="p-2.5 text-[#6B7A99] hover:text-[#1C1C1E] transition-colors rounded-xl hover:bg-[#F0F2F9]">
               <ZoomOut size={20} />
@@ -264,7 +131,7 @@ export default function EditorPage() {
             <button className="p-2.5 text-[#6B7A99] hover:text-[#1C1C1E] transition-colors rounded-xl hover:bg-[#F0F2F9]">
               <Hand size={20} />
             </button>
-            
+
             {mode === '3d' && (
               <>
                 <div className="w-px h-5 bg-[#E2E6EF] mx-2" />
@@ -279,10 +146,9 @@ export default function EditorPage() {
             )}
           </div>
 
-          {/* Collaboration Mode Toggle (Bottom Center Overlay for 2D/3D Mode) */}
           {(mode === '2d' || mode === '3d') && isCollaborationMode && (
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10">
-              <button 
+              <button
                 onClick={handleToggleCollaboration}
                 className="bg-white border border-[#E2E6EF] rounded-2xl px-6 py-2.5 shadow-lg flex items-center gap-3 hover:bg-[#F8F9FD] transition-all"
               >
