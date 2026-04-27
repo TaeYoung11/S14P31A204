@@ -136,13 +136,24 @@ def test_render_views_loads_mesh_once() -> None:
     assert vis.capture_depth_float_buffer.call_count == 3  # 뷰마다 1번씩
 
 
-# --- IFC4 schema 가드 (실제 fixtures, ifcopenshell 만 사용) ---
+# --- IFC4 schema 가드 (정상 경로는 실제 fixture, 부정 경로는 mock) ---
 
 
-def test_load_mesh_rejects_non_ifc4(ifc2x3_fixture: Path) -> None:
-    """IFC 2x3 입력 → IFCRenderError, 메시지에 입력 스키마 포함."""
-    with pytest.raises(IFCRenderError, match="IFC2X3"):
-        load_mesh(ifc2x3_fixture)
+def test_load_mesh_rejects_non_ifc4() -> None:
+    """비IFC4 스키마 → IFCRenderError, 메시지에 입력 스키마 포함.
+
+    IFC 2x3 fixture 파일은 보유하지 않으므로 ifcopenshell.open을 mock해
+    schema 가드만 격리 검증. 가드 함수 자체는 실제 비IFC4 입력에도 작동.
+    """
+    fake_model = MagicMock()
+    fake_model.schema = "IFC2X3"
+
+    with patch(
+        "ai_rendering.ifc2img.geometry.ifcopenshell.open",
+        return_value=fake_model,
+    ):
+        with pytest.raises(IFCRenderError, match="IFC2X3"):
+            load_mesh(Path("dummy.ifc"))
 
 
 def test_load_mesh_accepts_ifc4(ifc4_fixture: Path) -> None:
@@ -152,3 +163,140 @@ def test_load_mesh_accepts_ifc4(ifc4_fixture: Path) -> None:
     assert center.shape == (3,)
     assert len(mesh.vertices) > 0
     assert len(mesh.triangles) > 0
+
+
+# --- 건물 구성요소 화이트리스트 (mock 기반) ---
+
+
+def _make_mock_entity(type_name: str) -> MagicMock:
+    """is_a(t)가 type_name과 매치 시 True 반환하는 fake IFC entity."""
+    e = MagicMock()
+    e.is_a.side_effect = lambda t: t == type_name
+    return e
+
+
+def _make_mock_shape(entity_id: int, verts: tuple, faces: tuple = (0, 1, 2)) -> MagicMock:  # type: ignore[type-arg]
+    s = MagicMock()
+    s.id = entity_id
+    s.geometry.verts = verts
+    s.geometry.faces = faces
+    return s
+
+
+def _patch_iterator_with_shapes(shapes: list[MagicMock]):  # type: ignore[no-untyped-def]
+    """주어진 shape 시퀀스를 yield하는 가짜 ifcopenshell iterator를 만든다."""
+    fake_iter = MagicMock()
+    fake_iter.initialize.return_value = True
+    # get()은 매 호출마다 다음 shape, next()는 마지막을 제외하고 True
+    fake_iter.get.side_effect = shapes
+    fake_iter.next.side_effect = [True] * (len(shapes) - 1) + [False]
+    return fake_iter
+
+
+def test_default_includes_only_building_elements() -> None:
+    """기본 호출(`load_mesh(path)`)은 IfcBuildingElement만 포함, IfcSite는 제외."""
+    fake_model = MagicMock()
+    fake_model.schema = "IFC4"
+
+    wall = _make_mock_entity("IfcBuildingElement")
+    site = _make_mock_entity("IfcSite")
+    fake_model.by_id.side_effect = lambda eid: {1: wall, 2: site}[eid]
+
+    wall_shape = _make_mock_shape(1, verts=(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0))
+    site_shape = _make_mock_shape(
+        2, verts=(-1000.0, -1000.0, 0.0, 1000.0, -1000.0, 0.0, 0.0, 1000.0, 0.0)
+    )
+
+    with (
+        patch("ai_rendering.ifc2img.geometry.ifcopenshell.open", return_value=fake_model),
+        patch(
+            "ai_rendering.ifc2img.geometry.ifcopenshell.geom.iterator",
+            return_value=_patch_iterator_with_shapes([wall_shape, site_shape]),
+        ),
+        patch("ai_rendering.ifc2img.geometry.ifcopenshell.geom.settings"),
+    ):
+        _, center = load_mesh(Path("dummy.ifc"))
+
+    # IfcSite(±1000)가 포함됐다면 center가 멀리 떨어짐. wall만 포함이면 ~ (0.33, 0.33, 0).
+    assert abs(center[0]) < 5
+    assert abs(center[1]) < 5
+
+
+def test_extra_types_extends_inclusion() -> None:
+    """extra_types에 IfcFurnishingElement 전달 시 가구도 포함된다."""
+    fake_model = MagicMock()
+    fake_model.schema = "IFC4"
+
+    wall = _make_mock_entity("IfcBuildingElement")
+    chair = _make_mock_entity("IfcFurnishingElement")
+    fake_model.by_id.side_effect = lambda eid: {1: wall, 2: chair}[eid]
+
+    wall_shape = _make_mock_shape(1, verts=(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0))
+    chair_shape = _make_mock_shape(
+        2, verts=(10.0, 10.0, 0.0, 11.0, 10.0, 0.0, 10.0, 11.0, 0.0)
+    )
+
+    with (
+        patch("ai_rendering.ifc2img.geometry.ifcopenshell.open", return_value=fake_model),
+        patch(
+            "ai_rendering.ifc2img.geometry.ifcopenshell.geom.iterator",
+            return_value=_patch_iterator_with_shapes([wall_shape, chair_shape]),
+        ),
+        patch("ai_rendering.ifc2img.geometry.ifcopenshell.geom.settings"),
+    ):
+        mesh, _ = load_mesh(
+            Path("dummy.ifc"),
+            extra_types=frozenset({"IfcFurnishingElement"}),
+        )
+
+    # 두 entity 모두 포함되면 vertex 6개. wall만 포함이면 3개.
+    assert len(mesh.vertices) == 6
+
+
+def test_included_base_ifcproduct_includes_everything() -> None:
+    """included_base='IfcProduct'는 escape hatch — IfcSite도 포함된다 (전체 씬 모드)."""
+    fake_model = MagicMock()
+    fake_model.schema = "IFC4"
+
+    # IfcSite는 IfcProduct 서브타입. is_a("IfcProduct") → True.
+    site = MagicMock()
+    site.is_a.side_effect = lambda t: t in {"IfcSite", "IfcProduct"}
+    fake_model.by_id.return_value = site
+
+    site_shape = _make_mock_shape(1, verts=(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0))
+
+    with (
+        patch("ai_rendering.ifc2img.geometry.ifcopenshell.open", return_value=fake_model),
+        patch(
+            "ai_rendering.ifc2img.geometry.ifcopenshell.geom.iterator",
+            return_value=_patch_iterator_with_shapes([site_shape]),
+        ),
+        patch("ai_rendering.ifc2img.geometry.ifcopenshell.geom.settings"),
+    ):
+        mesh, _ = load_mesh(Path("dummy.ifc"), included_base="IfcProduct")
+
+    assert len(mesh.vertices) == 3  # site가 포함됨
+
+
+def test_no_building_element_raises() -> None:
+    """IfcBuildingElement가 0개인 IFC → IFCRenderError, 메시지에 included_base 포함."""
+    fake_model = MagicMock()
+    fake_model.schema = "IFC4"
+
+    site = _make_mock_entity("IfcSite")
+    annotation = _make_mock_entity("IfcAnnotation")
+    fake_model.by_id.side_effect = lambda eid: {1: site, 2: annotation}[eid]
+
+    s1 = _make_mock_shape(1, verts=(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0))
+    s2 = _make_mock_shape(2, verts=(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0))
+
+    with (
+        patch("ai_rendering.ifc2img.geometry.ifcopenshell.open", return_value=fake_model),
+        patch(
+            "ai_rendering.ifc2img.geometry.ifcopenshell.geom.iterator",
+            return_value=_patch_iterator_with_shapes([s1, s2]),
+        ),
+        patch("ai_rendering.ifc2img.geometry.ifcopenshell.geom.settings"),
+    ):
+        with pytest.raises(IFCRenderError, match="IfcBuildingElement"):
+            load_mesh(Path("dummy.ifc"))
