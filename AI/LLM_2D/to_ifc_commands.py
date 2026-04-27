@@ -17,6 +17,24 @@ def to_ifc_commands(
             if space.get("name") == target_name and space.get("id")
         ]
 
+    def _find_storey_id(floor: int) -> Optional[str]:
+        """층 번호로 IfcBuildingStorey GlobalId를 조회한다."""
+        if not ifc_context:
+            return None
+        for storey in ifc_context.get("storeys", []):
+            if storey.get("floor") == floor:
+                return storey.get("id")
+        return None
+
+    def _find_storey_id_for_space(space_id: str) -> Optional[str]:
+        """space GlobalId로 해당 공간의 storey GlobalId를 조회한다."""
+        if not ifc_context:
+            return None
+        for space in ifc_context.get("spaces", []):
+            if space.get("id") == space_id:
+                return _find_storey_id(space.get("floor", 1))
+        return None
+
     if command.needs_clarification:
         return CommandBatch(
             commands=[],
@@ -45,10 +63,24 @@ def to_ifc_commands(
                     action=ActionType.CREATE_SPACE,
                     target_id=None,
                     params={
-                        "name": command.new_room.name,
-                        "type": command.new_room.type,
-                        "floor": command.new_room.floor,
-                        "rects": command.new_room.rects,
+                        "entity_type": "Space",
+                        "metadata": {
+                            "storey_id": _find_storey_id(command.new_room.floor),
+                        },
+                        "geometry": {
+                            "location": [0.0, 0.0, 0.0],
+                            "direction": [1.0, 0.0, 0.0],
+                            "dimensions": {
+                                "width": command.new_room.width,
+                                "height": command.new_room.height,
+                            },
+                        },
+                        "properties": {
+                            "name": command.new_room.name,
+                            "type": command.new_room.type,
+                            "shape": command.new_room.shape,
+                            "rects": command.new_room.rects,
+                        },
                     },
                     confidence=command.confidence,
                 )
@@ -76,7 +108,15 @@ def to_ifc_commands(
             IFCCommand(
                 action=ActionType.DELETE_SPACE,
                 target_id=tid,
-                params={"name": command.target_room_name},
+                params={
+                    "entity_type": "Space",
+                    "metadata": {
+                        "storey_id": _find_storey_id_for_space(tid),
+                    },
+                    "properties": {
+                        "name": command.target_room_name,
+                    },
+                },
                 confidence=command.confidence,
             )
             for tid in target_ids
@@ -114,10 +154,22 @@ def to_ifc_commands(
                 action=ActionType.UPDATE_SPACE,
                 target_id=tid,
                 params={
-                    "rects": command.resize_rects,
-                    "shape": command.resize_shape,
-                    "width": command.resize_width,
-                    "height": command.resize_height,
+                    "entity_type": "Space",
+                    "metadata": {
+                        "storey_id": _find_storey_id_for_space(tid),
+                    },
+                    "geometry": {
+                        "location": [0.0, 0.0, 0.0],
+                        "direction": [1.0, 0.0, 0.0],
+                        "dimensions": {
+                            "width": command.resize_width,
+                            "height": command.resize_height,
+                        },
+                    },
+                    "properties": {
+                        "shape": command.resize_shape,
+                        "rects": command.resize_rects,
+                    },
                 },
                 confidence=command.confidence,
             )
