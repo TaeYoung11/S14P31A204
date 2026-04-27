@@ -1,12 +1,18 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import { ChevronDown, ChevronUp, GripVertical, Sparkles, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, GripVertical, Sparkles, X, History, MessageSquare, Plus } from 'lucide-react'
 import { BubbleAttributePanel, type BubbleConnectionInfo, type BubbleInfo, type BubbleZoneInfo } from './BubbleAttributePanel'
 import { TwoDAttributePanel } from './TwoDAttributePanel'
 import { ThreeDAttributePanel } from './ThreeDAttributePanel'
+import { CollaborationPanel } from './CollaborationPanel'
 import type { EditorMode, PanelKey, PanelOffset, PanelResizeAxis, ZoneData } from '../types'
 
 interface EditorRightPanelsProps {
   mode: EditorMode
+  isCollaborationMode?: boolean
+  collaborationTab?: 'history' | 'thread'
+  onCollaborationTabChange?: (tab: 'history' | 'thread') => void
+  selectedPinId?: string | null
+  onSelectPin?: (id: string | null) => void
   selectedBubble: BubbleInfo | null
   selectedBubbleConnections: BubbleConnectionInfo[]
   selectedBubbleZones: BubbleZoneInfo[]
@@ -77,6 +83,11 @@ function PanelResizeHandles({ panelKey, theme, onPanelResizeStart }: PanelResize
 /** 에디터 우측 패널 영역 */
 export function EditorRightPanels({
   mode,
+  isCollaborationMode,
+  collaborationTab,
+  onCollaborationTabChange,
+  selectedPinId,
+  onSelectPin,
   selectedBubble,
   selectedBubbleConnections,
   selectedBubbleZones,
@@ -98,58 +109,75 @@ export function EditorRightPanels({
   onPanelResizeStart,
   onTogglePanel,
 }: EditorRightPanelsProps) {
+  if (isCollaborationMode) {
+    return (
+      <div className="w-[340px] flex flex-col shrink-0 min-h-0 bg-white border border-[#E2E6EF] rounded-2xl shadow-sm overflow-hidden">
+        <CollaborationPanel 
+          activeTab={collaborationTab || 'history'}
+          onTabChange={onCollaborationTabChange || (() => {})}
+          selectedPinId={selectedPinId || null}
+          onSelectPin={onSelectPin || (() => {})}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="w-[300px] flex flex-col gap-4 shrink-0 min-h-0 overflow-y-auto overflow-x-visible pb-1">
-      <section
-        className="relative bg-white border border-[#E2E6EF] rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-0 shrink-0"
-        style={{
-          transform: `translate(${panelOffsets.attributes.x}px, ${panelOffsets.attributes.y}px)`,
-          width: panelWidths.attributes,
-          height: panelOpenState.attributes ? panelHeights.attributes : undefined,
-          maxHeight: 'calc(100vh - 180px)',
-        }}
-      >
-        <div className="px-5 py-4 border-b border-[#F0F2F9] flex items-center justify-between">
-          <div className="flex items-center gap-2">
+      {/* 속성 관리자 패널 - Bubble, 2D, 3D 모드에서 사용 */}
+      {(mode === 'bubble' || mode === '2d' || mode === '3d') && (
+        <section
+          className="relative bg-white border border-[#E2E6EF] rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-0 shrink-0"
+          style={{
+            transform: `translate(${panelOffsets.attributes.x}px, ${panelOffsets.attributes.y}px)`,
+            width: panelWidths.attributes,
+            height: panelOpenState.attributes ? panelHeights.attributes : undefined,
+            maxHeight: 'calc(100vh - 180px)',
+          }}
+        >
+          <div className="px-5 py-4 border-b border-[#F0F2F9] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                onMouseDown={(event) => onPanelDragStart('attributes', event)}
+                className="w-5 h-5 rounded-md bg-[#F3F5FA] text-[#9AA4B5] hover:text-[#505764] transition-colors flex items-center justify-center cursor-grab active:cursor-grabbing"
+                aria-label="속성 관리자 패널 이동"
+              >
+                <GripVertical size={12} />
+              </button>
+              <h2 className="text-xs font-extrabold text-[#1C1C1E]">속성 관리자</h2>
+            </div>
             <button
-              onMouseDown={(event) => onPanelDragStart('attributes', event)}
-              className="w-5 h-5 rounded-md bg-[#F3F5FA] text-[#9AA4B5] hover:text-[#505764] transition-colors flex items-center justify-center cursor-grab active:cursor-grabbing"
-              aria-label="속성 관리자 패널 이동"
+              onClick={() => onTogglePanel('attributes')}
+              className="text-[#ADB5BD] hover:text-[#505764] transition-colors"
+              aria-label={panelOpenState.attributes ? '속성 관리자 닫기' : '속성 관리자 열기'}
             >
-              <GripVertical size={12} />
+              {panelOpenState.attributes ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </button>
-            <h2 className="text-xs font-extrabold text-[#1C1C1E]">속성 관리자</h2>
           </div>
-          <button
-            onClick={() => onTogglePanel('attributes')}
-            className="text-[#ADB5BD] hover:text-[#505764] transition-colors"
-            aria-label={panelOpenState.attributes ? '속성 관리자 닫기' : '속성 관리자 열기'}
-          >
-            {panelOpenState.attributes ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          </button>
-        </div>
-        {panelOpenState.attributes && (
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {mode === 'bubble' && (
-              <BubbleAttributePanel
-                selectedBubble={selectedBubble}
-                onLabelChange={onLabelChange}
-                onTypeChange={onTypeChange}
-                onWidthChange={onWidthChange}
-                onHeightChange={onHeightChange}
-                onRatioChange={onRatioChange}
-                onColorChange={onColorChange}
-                connections={selectedBubbleConnections}
-                zones={selectedBubbleZones}
-              />
-            )}
-            {mode === '2d' && <TwoDAttributePanel />}
-            {mode === '3d' && <ThreeDAttributePanel />}
-          </div>
-        )}
-        <PanelResizeHandles panelKey="attributes" theme="light" onPanelResizeStart={onPanelResizeStart} />
-      </section>
+          {panelOpenState.attributes && (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {mode === 'bubble' && (
+                <BubbleAttributePanel
+                  selectedBubble={selectedBubble}
+                  onLabelChange={onLabelChange}
+                  onTypeChange={onTypeChange}
+                  onWidthChange={onWidthChange}
+                  onHeightChange={onHeightChange}
+                  onRatioChange={onRatioChange}
+                  onColorChange={onColorChange}
+                  connections={selectedBubbleConnections}
+                  zones={selectedBubbleZones}
+                />
+              )}
+              {mode === '2d' && <TwoDAttributePanel />}
+              {mode === '3d' && <ThreeDAttributePanel />}
+            </div>
+          )}
+          <PanelResizeHandles panelKey="attributes" theme="light" onPanelResizeStart={onPanelResizeStart} />
+        </section>
+      )}
 
+      {/* 조닝 영역 패널 (Bubble 전용) */}
       {mode === 'bubble' && (
         <section
           className="relative bg-white border border-[#E2E6EF] rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-0 shrink-0"
@@ -261,48 +289,51 @@ export function EditorRightPanels({
         </section>
       )}
 
-      <section
-        className="relative bg-[#3B45B3] rounded-2xl shadow-lg shadow-[#3B45B3]/20 overflow-hidden flex flex-col min-h-0 shrink-0"
-        style={{
-          transform: `translate(${panelOffsets.assistant.x}px, ${panelOffsets.assistant.y}px)`,
-          width: panelWidths.assistant,
-          height: panelOpenState.assistant ? panelHeights.assistant : undefined,
-          maxHeight: 'calc(100vh - 180px)',
-        }}
-      >
-        <div className="px-5 py-3 border-b border-white/10 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-white">
+      {/* AI 어시스턴트 패널 - Bubble, 2D, 3D 모드에서 사용 */}
+      {(mode === 'bubble' || mode === '2d' || mode === '3d') && (
+        <section
+          className="relative bg-[#3B45B3] rounded-2xl shadow-lg shadow-[#3B45B3]/20 overflow-hidden flex flex-col min-h-0 shrink-0"
+          style={{
+            transform: `translate(${panelOffsets.assistant.x}px, ${panelOffsets.assistant.y}px)`,
+            width: panelWidths.assistant,
+            height: panelOpenState.assistant ? panelHeights.assistant : undefined,
+            maxHeight: 'calc(100vh - 180px)',
+          }}
+        >
+          <div className="px-5 py-3 border-b border-white/10 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-white">
+              <button
+                onMouseDown={(event) => onPanelDragStart('assistant', event)}
+                className="w-5 h-5 rounded-md bg-white/10 text-white/70 hover:text-white transition-colors flex items-center justify-center cursor-grab active:cursor-grabbing"
+                aria-label="AI 어시스턴트 패널 이동"
+              >
+                <GripVertical size={12} />
+              </button>
+              <Sparkles size={14} fill="white" />
+              <h2 className="text-[11px] font-extrabold uppercase tracking-wider">AI 어시스턴트</h2>
+            </div>
             <button
-              onMouseDown={(event) => onPanelDragStart('assistant', event)}
-              className="w-5 h-5 rounded-md bg-white/10 text-white/70 hover:text-white transition-colors flex items-center justify-center cursor-grab active:cursor-grabbing"
-              aria-label="AI 어시스턴트 패널 이동"
+              onClick={() => onTogglePanel('assistant')}
+              className="text-white/40 hover:text-white/80 transition-colors"
+              aria-label={panelOpenState.assistant ? 'AI 어시스턴트 닫기' : 'AI 어시스턴트 열기'}
             >
-              <GripVertical size={12} />
+              {panelOpenState.assistant ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </button>
-            <Sparkles size={14} fill="white" />
-            <h2 className="text-[11px] font-extrabold uppercase tracking-wider">AI 어시스턴트</h2>
           </div>
-          <button
-            onClick={() => onTogglePanel('assistant')}
-            className="text-white/40 hover:text-white/80 transition-colors"
-            aria-label={panelOpenState.assistant ? 'AI 어시스턴트 닫기' : 'AI 어시스턴트 열기'}
-          >
-            {panelOpenState.assistant ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          </button>
-        </div>
-        {panelOpenState.assistant && (
-          <div className="p-4 min-h-0 flex-1 overflow-y-auto">
-            <div className="bg-white rounded-xl p-4 shadow-inner relative">
-              <div className="text-[11px] leading-relaxed text-[#1C1C1E] font-medium">
-                거실 공간에 비해 창문 크기가 작습니다.
-                <br />
-                채광 효율을 위해 창문 너비를 1200mm에서 <span className="text-[#3B45B3] font-bold">1800mm</span>로 확장할까요?
+          {panelOpenState.assistant && (
+            <div className="p-4 min-h-0 flex-1 overflow-y-auto">
+              <div className="bg-white rounded-xl p-4 shadow-inner relative">
+                <div className="text-[11px] leading-relaxed text-[#1C1C1E] font-medium">
+                  거실 공간에 비해 창문 크기가 작습니다.
+                  <br />
+                  채광 효율을 위해 창문 너비를 1200mm에서 <span className="text-[#3B45B3] font-bold">1800mm</span>로 확장할까요?
+                </div>
               </div>
             </div>
-          </div>
-        )}
-        <PanelResizeHandles panelKey="assistant" theme="dark" onPanelResizeStart={onPanelResizeStart} />
-      </section>
+          )}
+          <PanelResizeHandles panelKey="assistant" theme="dark" onPanelResizeStart={onPanelResizeStart} />
+        </section>
+      )}
     </div>
   )
 }
