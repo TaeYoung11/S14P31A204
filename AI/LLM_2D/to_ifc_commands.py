@@ -142,7 +142,7 @@ def to_ifc_commands(
                 clarification_question="같은 이름의 방이 여러 개 있습니다. 몇 층 방을 변경할까요?",
             )
 
-        if command.resize_rects is None:
+        if command.resize_rects is None or command.resize_width is None or command.resize_height is None:
             return CommandBatch(
                 commands=[],
                 requires_clarification=True,
