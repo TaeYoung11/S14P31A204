@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Modal from '@/shared/components/Modal'
 import Spinner from '@/shared/components/Spinner'
 import type { Project } from '@/shared/types'
@@ -16,6 +16,13 @@ export default function ProjectCreateModal({
 }: ProjectCreateModalProps) {
   const [name, setName] = useState(editProject?.name ?? '')
   const [description, setDescription] = useState(editProject?.description ?? '')
+
+  useEffect(() => {
+    if (isOpen) {
+      setName(editProject?.name ?? '')
+      setDescription(editProject?.description ?? '')
+    }
+  }, [isOpen, editProject])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()

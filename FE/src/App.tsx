@@ -28,10 +28,6 @@ export default function App() {
 
         <Route element={<ProtectedRoute />}>
           <Route path="/projects" element={<ProjectListPage />} />
-          <Route path="/projects/:projectId" element={<EditorPage />} />
-          <Route path="/projects/:projectId/bubble" element={<EditorPage />} />
-          <Route path="/projects/:projectId/floor" element={<EditorPage />} />
-          <Route path="/projects/:projectId/viewer" element={<EditorPage />} />
           <Route path="/projects/:projectId/editor" element={<EditorPage />} />
           <Route path="/projects/:projectId/renders" element={<RendersPage />} />
         </Route>
