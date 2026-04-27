@@ -165,6 +165,39 @@ def test_load_mesh_accepts_ifc4(ifc4_fixture: Path) -> None:
     assert len(mesh.triangles) > 0
 
 
+@pytest.mark.parametrize("schema_name", ["IFC4", "IFC4X1", "IFC4X2", "IFC4X3"])
+def test_load_mesh_accepts_ifc4_variants(schema_name: str) -> None:
+    """IFC4 계열(IFC4X1/IFC4X3 등) 모두 schema 가드 통과 — prefix='IFC4'."""
+    fake_model = MagicMock()
+    fake_model.schema = schema_name
+
+    wall = MagicMock()
+    wall.is_a.side_effect = lambda t: t == "IfcBuildingElement"
+    fake_model.by_id.return_value = wall
+
+    wall_shape = MagicMock()
+    wall_shape.id = 1
+    wall_shape.geometry.verts = (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0)
+    wall_shape.geometry.faces = (0, 1, 2)
+
+    fake_iter = MagicMock()
+    fake_iter.initialize.return_value = True
+    fake_iter.get.return_value = wall_shape
+    fake_iter.next.return_value = False
+
+    with (
+        patch("ai_rendering.ifc2img.geometry.ifcopenshell.open", return_value=fake_model),
+        patch(
+            "ai_rendering.ifc2img.geometry.ifcopenshell.geom.iterator",
+            return_value=fake_iter,
+        ),
+        patch("ai_rendering.ifc2img.geometry.ifcopenshell.geom.settings"),
+    ):
+        # 예외 없이 통과해야 한다.
+        mesh, _ = load_mesh(Path("dummy.ifc"))
+        assert len(mesh.vertices) == 3
+
+
 # --- 건물 구성요소 화이트리스트 (mock 기반) ---
 
 

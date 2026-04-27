@@ -47,7 +47,7 @@ from ai_rendering.ifc2img import (
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="IFC → depth → 스타일 풀 파이프라인")
-    p.add_argument("--ifc", required=True, type=Path, help="IFC4 파일 경로")
+    p.add_argument("--ifc", required=True, type=Path, help="IFC4 계열 파일 경로 (IFC4 / IFC4X1 / IFC4X3 등)")
     p.add_argument(
         "--preset",
         default="all",
