@@ -17,7 +17,8 @@ def convert_layout_to_ifc(request: LayoutImportV1, output_path: str | Path) -> N
     _validate_zone_references(request)
     model = _create_ifc_file()
     owner_history, context, storeys = _create_project_tree(model, request)
-    _create_spaces(model, owner_history, context, request, storeys)
+    zones = _create_zones(model, owner_history, request)
+    _create_spaces(model, owner_history, context, request, storeys, zones)
     output.parent.mkdir(parents=True, exist_ok=True)
     model.write(str(output))
 
@@ -176,6 +177,7 @@ def _create_spaces(
     context: ifcopenshell.entity_instance,
     request: LayoutImportV1,
     storeys: dict[int, ifcopenshell.entity_instance],
+    zones: dict[str, ifcopenshell.entity_instance],
 ) -> None:
     space_height_m = _effective_space_height_m(request)
     for room in request.rooms:
@@ -209,6 +211,42 @@ def _create_spaces(
             RelatedElements=[space],
             RelatingStructure=storey,
         )
+        if room.zone_id is not None:
+            _assign_space_to_zone(model, owner_history, space, zones[room.zone_id], room.id)
+
+
+def _create_zones(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    request: LayoutImportV1,
+) -> dict[str, ifcopenshell.entity_instance]:
+    return {
+        zone.id: model.create_entity(
+            "IfcZone",
+            GlobalId=ifcopenshell.guid.new(),
+            OwnerHistory=owner_history,
+            Name=zone.name,
+            ObjectType="Zone",
+        )
+        for zone in request.zones or []
+    }
+
+
+def _assign_space_to_zone(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    space: ifcopenshell.entity_instance,
+    zone: ifcopenshell.entity_instance,
+    room_id: str,
+) -> ifcopenshell.entity_instance:
+    return model.create_entity(
+        "IfcRelAssignsToGroup",
+        GlobalId=ifcopenshell.guid.new(),
+        OwnerHistory=owner_history,
+        Name=f"{room_id}-ZoneAssignment",
+        RelatedObjects=[space],
+        RelatingGroup=zone,
+    )
 
 
 def _create_space_representation(
