@@ -32,7 +32,7 @@ class RoomType(str, Enum):
 class ModelingDefaults(LayoutImportBaseModel):
     """v1에서 허용하는 선택적 모델링 기본값."""
 
-    space_height_m: float | None = Field(default=None, gt=0)
+    space_height_mm: int | None = Field(default=None, gt=0, strict=True)
 
 
 class ZoneInput(LayoutImportBaseModel):
@@ -90,8 +90,8 @@ class RoomInput(LayoutImportBaseModel):
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=255)
     type: RoomType
-    width: float = Field(gt=0)
-    height: float = Field(gt=0)
+    width: int = Field(gt=0, strict=True)
+    height: int = Field(gt=0, strict=True)
     floor: int = Field(ge=1)
     x: float
     y: float
