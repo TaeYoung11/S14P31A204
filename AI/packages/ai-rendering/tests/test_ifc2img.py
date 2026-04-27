@@ -12,7 +12,7 @@ import pytest
 
 from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
 from ai_rendering.ifc2img.geometry import load_mesh
-from ai_rendering.ifc2img.views import compute_auto_zoom
+from ai_rendering.ifc2img.views import AutoZoomMode, compute_auto_zoom
 
 
 # --- _depth_to_image 순수 함수 단위 테스트 (mock 불필요) ---
@@ -191,10 +191,10 @@ def test_compute_auto_zoom_target_ratio_inverse() -> None:
     assert z_small > z_large  # ratio 높음 = mesh 크게 = zoom 작음
 
 
-def test_renderer_auto_zoom_opt_in_uses_dynamic() -> None:
-    """IFCRenderer(auto_zoom=True) 명시 시 _resolve_zoom이 동적 계산 함수 호출."""
+def test_renderer_analytic_mode_uses_compute_auto_zoom() -> None:
+    """AutoZoomMode.ANALYTIC 시 compute_auto_zoom 함수 호출 + 1회 capture (v1)."""
     fake_mesh = MagicMock()
-    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])  # 비어있지 않은 vertices
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
     fake_center = np.array([5.0, 5.0, 2.5])
 
     with (
@@ -211,15 +211,16 @@ def test_renderer_auto_zoom_opt_in_uses_dynamic() -> None:
         depth[100:300, 200:500] = 5.0
         vis.capture_depth_float_buffer.return_value = depth
 
-        renderer = IFCRenderer(auto_zoom=True)
+        renderer = IFCRenderer(auto_zoom=AutoZoomMode.ANALYTIC)
         renderer.render(Path("dummy.ifc"), IFCView.FRONT)
 
     mock_compute.assert_called_once()
-    vis.get_view_control.return_value.set_zoom.assert_called_once_with(0.42)
+    # ANALYTIC 모드는 반복 안 함 — set_zoom/capture 1회씩
+    assert vis.capture_depth_float_buffer.call_count == 1
 
 
 def test_renderer_default_uses_static_zoom() -> None:
-    """기본 auto_zoom=False — views.py의 정적 zoom(0.5) 그대로 전달."""
+    """기본 auto_zoom=OFF — views.py의 정적 zoom(0.5) 그대로 전달."""
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
     fake_center = np.array([5.0, 5.0, 2.5])
@@ -238,11 +239,94 @@ def test_renderer_default_uses_static_zoom() -> None:
         depth[100:300, 200:500] = 5.0
         vis.capture_depth_float_buffer.return_value = depth
 
-        renderer = IFCRenderer()  # default auto_zoom=False
+        renderer = IFCRenderer()  # default auto_zoom=AutoZoomMode.OFF
         renderer.render(Path("dummy.ifc"), IFCView.FRONT)
 
     mock_compute.assert_not_called()
-    vis.get_view_control.return_value.set_zoom.assert_called_once_with(0.5)  # FRONT 정적값
+    # OFF 모드: 1회 set_zoom + 1회 capture
+    vis.get_view_control.return_value.set_zoom.assert_called_once_with(0.5)
+    assert vis.capture_depth_float_buffer.call_count == 1
+
+
+def _make_depth_with_fill(fill_ratio: float, h: int = 448, w: int = 768) -> np.ndarray:
+    """주어진 fill 비율을 갖는 depth 배열 합성 (geom>0 픽셀 비율 = fill_ratio)."""
+    arr = np.zeros((h, w), dtype=np.float32)
+    n_geom = int(h * w * fill_ratio)
+    arr.flat[:n_geom] = 5.0
+    return arr
+
+
+def test_iterative_zoom_converges_when_target_reached() -> None:
+    """ITERATIVE 모드 — fill이 target tolerance 안에 들면 즉시 종료."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+
+    # 첫 capture부터 target 0.55 ± 0.10 = [0.45, 0.65] 안 (fill=0.55)
+    target_depth = _make_depth_with_fill(0.55)
+
+    with (
+        patch(
+            "ai_rendering.ifc2img.renderer.load_mesh",
+            return_value=(fake_mesh, fake_center),
+        ),
+        patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
+    ):
+        vis = MagicMock()
+        mock_o3d.visualization.Visualizer.return_value = vis
+        vis.capture_depth_float_buffer.return_value = target_depth
+
+        renderer = IFCRenderer(
+            auto_zoom=AutoZoomMode.ITERATIVE,
+            target_screen_ratio=0.55,
+            iter_tolerance=0.10,
+            iter_max=4,
+        )
+        renderer.render(Path("dummy.ifc"), IFCView.FRONT)
+
+    # 첫 iteration에서 수렴 → capture 1회
+    assert vis.capture_depth_float_buffer.call_count == 1
+
+
+def test_iterative_zoom_max_iter_caps() -> None:
+    """ITERATIVE — 수렴 안 해도 iter_max에서 반드시 종료 (무한루프 방지)."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+
+    # 의도적으로 target 밖 fill — 수렴 안 함
+    far_from_target = _make_depth_with_fill(0.05)
+
+    with (
+        patch(
+            "ai_rendering.ifc2img.renderer.load_mesh",
+            return_value=(fake_mesh, fake_center),
+        ),
+        patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
+    ):
+        vis = MagicMock()
+        mock_o3d.visualization.Visualizer.return_value = vis
+        vis.capture_depth_float_buffer.return_value = far_from_target
+
+        renderer = IFCRenderer(
+            auto_zoom=AutoZoomMode.ITERATIVE,
+            target_screen_ratio=0.55,
+            iter_tolerance=0.10,
+            iter_max=3,
+        )
+        renderer.render(Path("dummy.ifc"), IFCView.FRONT)
+
+    # iter_max=3 ⇒ capture 정확히 3회
+    assert vis.capture_depth_float_buffer.call_count == 3
+
+
+def test_iterative_zoom_bool_true_maps_to_iterative() -> None:
+    """auto_zoom=True (bool) → AutoZoomMode.ITERATIVE 자동 매핑 (backward compat)."""
+    renderer = IFCRenderer(auto_zoom=True)
+    assert renderer.auto_zoom == AutoZoomMode.ITERATIVE
+
+    renderer_off = IFCRenderer(auto_zoom=False)
+    assert renderer_off.auto_zoom == AutoZoomMode.OFF
 
 
 @pytest.mark.parametrize("schema_name", ["IFC4", "IFC4X1", "IFC4X2", "IFC4X3"])
