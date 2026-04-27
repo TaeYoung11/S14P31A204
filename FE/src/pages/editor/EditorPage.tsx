@@ -10,6 +10,9 @@ import { EditorRightPanels } from '../../features/editor/components/EditorRightP
 import EditorToolbar from '../../features/editor/components/EditorToolbar'
 import { LineStyleModal } from '../../features/editor/components/LineStyleModal'
 import { ZoningModal } from '../../features/editor/components/ZoningModal'
+import { InviteModal } from '../../features/editor/components/InviteModal'
+import { ExportModal } from '../../features/editor/components/ExportModal'
+import { ExportSelectionModal } from '../../features/editor/components/ExportSelectionModal'
 import { useEditorPage } from '../../features/editor/hooks/useEditorPage'
 
 export default function EditorPage() {
@@ -32,9 +35,18 @@ export default function EditorPage() {
     startDrag, startResize, togglePanel,
     isAddModalOpen, addSpaceFormData, setAddSpaceFormData,
     handleOpenAddModal, handleConfirmAddSpace, onCloseAddModal,
+    handleDeleteBubble,
+    isFloorPlanGenerated, isFloorPlanGenerating, floorRooms, handleGenerateFloorPlan,
     isCollaborationMode, selectedPinId, setSelectedPinId,
     collaborationTab, setCollaborationTab,
     handleToggleCollaboration, handlePinClick,
+    zoom, handleZoomIn, handleZoomOut,
+    selectedTool, setSelectedTool,
+    isLibraryOpen, setIsLibraryOpen,
+    isGridVisible, toggleGrid,
+    isInviteModalOpen, handleOpenInviteModal, onCloseInviteModal,
+    isExportModalOpen, handleOpenExportModal, onCloseExportModal,
+    isExportSelectionModalOpen, handleOpenExportSelectionModal, onCloseExportSelectionModal,
   } = useEditorPage()
 
   return (
@@ -69,16 +81,52 @@ export default function EditorPage() {
         getBubbleLabel={getBubbleLabel}
       />
 
-      <EditorHeader />
+      <InviteModal
+        isOpen={isInviteModalOpen}
+        onClose={onCloseInviteModal}
+        onInvite={(userIds) => {
+          console.log('Inviting users:', userIds)
+          onCloseInviteModal()
+        }}
+      />
+
+      <ExportModal
+        isOpen={isExportModalOpen}
+        onClose={onCloseExportModal}
+      />
+
+      <ExportSelectionModal
+        isOpen={isExportSelectionModalOpen}
+        onClose={onCloseExportSelectionModal}
+        onStartExport={(type) => {
+          console.log('Starting export:', type)
+          onCloseExportSelectionModal()
+          handleOpenExportModal()
+        }}
+      />
+
+      <EditorHeader 
+        mode={mode} 
+        onModeChange={setMode} 
+        onOpenInvite={handleOpenInviteModal}
+        onSave={handleOpenExportSelectionModal}
+      />
       <EditorToolbar mode={mode} onModeChange={setMode} />
 
       <div className="flex flex-1 relative overflow-hidden px-6 pb-6 gap-6">
         <EditorLeftSidebar
           mode={mode}
           isLineStyleModalOpen={isLineStyleModalOpen}
+          isLibraryOpen={isLibraryOpen}
+          isGridVisible={isGridVisible}
+          selectedTool={selectedTool}
+          onToolSelect={setSelectedTool}
           onAddSpace={handleOpenAddModal}
           onLineStyle={handleOpenLineStyleModal}
           onToggleCollaboration={handleToggleCollaboration}
+          onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
+          onToggleGrid={toggleGrid}
+          onExportIFC={handleOpenExportSelectionModal}
         />
 
         <main
@@ -94,9 +142,12 @@ export default function EditorPage() {
               autoZones={autoZones}
               manualZones={manualZones}
               selectedId={selectedId}
+              selectedTool={selectedTool}
               onEditZone={openEditModal}
               onBubbleDrag={handleBubbleDrag}
               onBubbleSelect={handleBubbleSelect}
+              onDeleteBubble={handleDeleteBubble}
+              scale={zoom / 100}
             />
           ) : mode === '2d' ? (
             <TwoDCanvas
@@ -104,12 +155,26 @@ export default function EditorPage() {
               isCollaborationMode={isCollaborationMode}
               selectedPinId={selectedPinId}
               onPinClick={handlePinClick}
+              rooms={floorRooms}
+              connections={connections}
+              isGenerated={isFloorPlanGenerated}
+              isGenerating={isFloorPlanGenerating}
+              onGenerate={handleGenerateFloorPlan}
+              isGridVisible={isGridVisible}
+              selectedTool={selectedTool}
+              scale={zoom / 100}
             />
           ) : mode === '3d' ? (
             <ThreeDCanvas
               isCollaborationMode={isCollaborationMode}
+              isLibraryOpen={isLibraryOpen}
+              onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
               selectedPinId={selectedPinId}
               onPinClick={handlePinClick}
+              isGridVisible={isGridVisible}
+              rooms={floorRooms}
+              selectedTool={selectedTool}
+              scale={zoom / 100}
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-[#ADB5BD] font-medium opacity-50 text-center px-10 whitespace-pre-line">
@@ -120,15 +185,26 @@ export default function EditorPage() {
           {mode === '2d' && !isCollaborationMode && <TwoDLeftPanels />}
 
           <div className="absolute bottom-6 left-6 flex items-center bg-white border border-[#E2E6EF] rounded-2xl px-2 py-2 shadow-md z-10 transition-all">
-            <button className="p-2.5 text-[#6B7A99] hover:text-[#1C1C1E] transition-colors rounded-xl hover:bg-[#F0F2F9]">
+            <button 
+              onClick={handleZoomOut}
+              className="p-2.5 text-[#6B7A99] hover:text-[#1C1C1E] transition-colors rounded-xl hover:bg-[#F0F2F9]"
+            >
               <ZoomOut size={20} />
             </button>
-            <span className="text-[13px] font-semibold text-[#1C1C1E] min-w-[52px] text-center select-none">100%</span>
-            <button className="p-2.5 text-[#6B7A99] hover:text-[#1C1C1E] transition-colors rounded-xl hover:bg-[#F0F2F9]">
+            <span className="text-[13px] font-semibold text-[#1C1C1E] min-w-[52px] text-center select-none">{zoom}%</span>
+            <button 
+              onClick={handleZoomIn}
+              className="p-2.5 text-[#6B7A99] hover:text-[#1C1C1E] transition-colors rounded-xl hover:bg-[#F0F2F9]"
+            >
               <ZoomIn size={20} />
             </button>
             <div className="w-px h-5 bg-[#E2E6EF] mx-2" />
-            <button className="p-2.5 text-[#6B7A99] hover:text-[#1C1C1E] transition-colors rounded-xl hover:bg-[#F0F2F9]">
+            <button 
+              onClick={() => setSelectedTool(selectedTool === 'hand' ? 'selection' : 'hand')}
+              className={`p-2.5 transition-colors rounded-xl ${
+                selectedTool === 'hand' ? 'text-[#3B45B3] bg-[#F0F2FF]' : 'text-[#6B7A99] hover:text-[#1C1C1E] hover:bg-[#F0F2F9]'
+              }`}
+            >
               <Hand size={20} />
             </button>
 

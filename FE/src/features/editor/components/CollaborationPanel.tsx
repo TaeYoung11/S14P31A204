@@ -75,7 +75,7 @@ export function CollaborationPanel({
 }: CollaborationPanelProps) {
   return (
     <div className="flex flex-col h-full bg-white relative">
-      {/* Tabs */}
+      {/* 탭 메뉴 (펀치 기록 / 핀 스레드) */}
       <div className="flex border-b border-[#F0F2F9] shrink-0">
         <button 
           onClick={() => onTabChange('history')}
@@ -152,7 +152,7 @@ export function CollaborationPanel({
       ) : (
         // 핀 스레드 상세 뷰
         <div className="flex-1 flex flex-col min-h-0">
-          {/* Thread Header */}
+          {/* 스레드 헤더 */}
           <div className="p-4 border-b border-[#F0F2F9] flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               <div className="p-1.5 bg-[#F0F2FF] text-[#3B45B3] rounded-lg">
@@ -168,7 +168,7 @@ export function CollaborationPanel({
             </button>
           </div>
 
-          {/* Chat Area */}
+          {/* 채팅 메시지 영역 */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#F8F9FD]/50">
             <div className="text-center">
               <button className="text-[10px] font-bold text-[#ADB5BD] hover:text-[#3B45B3] transition-colors">
@@ -200,7 +200,7 @@ export function CollaborationPanel({
             ))}
           </div>
 
-          {/* Input Area */}
+          {/* 메시지 입력 영역 */}
           <div className="p-3 border-t border-[#F0F2F9] bg-white shrink-0">
             <div className="flex gap-2 mb-2 px-1">
               <button className="text-[#ADB5BD] hover:text-[#505764] transition-colors">

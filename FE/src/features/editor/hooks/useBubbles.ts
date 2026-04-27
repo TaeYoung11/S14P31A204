@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import type { BubbleData, AddSpaceFormData } from '../types'
-import { bubbleService } from '../services/bubble.service'
+import { INITIAL_BUBBLES } from '../constants'
 import {
   calcAreaM2FromMm,
   calcMmDimensionsByAreaAndAspect,
@@ -10,15 +10,8 @@ import {
 
 /** 버블(공간) 상태와 모든 변경 핸들러를 제공하는 훅 */
 export function useBubbles() {
-  const [bubbles, setBubbles] = useState<BubbleData[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-
-  useEffect(() => {
-    bubbleService.getList().then((data) => {
-      setBubbles(data)
-      if (data.length > 0) setSelectedId(data[0].id)
-    })
-  }, [])
+  const [bubbles, setBubbles] = useState<BubbleData[]>(INITIAL_BUBBLES)
+  const [selectedId, setSelectedId] = useState<string | null>('1')
   const [previousSelectedId, setPreviousSelectedId] = useState<string | null>(null)
 
   /** 버블 선택 — 이전 선택 ID를 추적해 연결선 생성에 활용 */
@@ -86,6 +79,12 @@ export function useBubbles() {
   /** 색상 변경 */
   const handleColorChange = (id: string, color: string) => {
     setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, color } : b)))
+  }
+
+  /** 버블 삭제 — 선택 상태도 함께 초기화 */
+  const deleteBubble = (id: string) => {
+    setBubbles((prev) => prev.filter((b) => b.id !== id))
+    if (selectedId === id) setSelectedId(null)
   }
 
   /**
@@ -159,5 +158,6 @@ export function useBubbles() {
     handleRatioChange,
     handleColorChange,
     addBubble,
+    deleteBubble,
   }
 }

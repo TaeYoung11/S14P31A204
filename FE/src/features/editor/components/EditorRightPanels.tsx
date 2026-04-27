@@ -5,6 +5,8 @@ import { CollaborationPanel } from './CollaborationPanel'
 import { AttributesPanel } from './AttributesPanel'
 import { ZoningPanel } from './ZoningPanel'
 import { AssistantPanel } from './AssistantPanel'
+import { FloorViewPanel } from './FloorViewPanel'
+import { HierarchyPanel } from './HierarchyPanel'
 
 interface EditorRightPanelsProps {
   mode: EditorMode
@@ -64,7 +66,7 @@ export function EditorRightPanels({
   onPanelResizeStart,
   onTogglePanel,
 }: EditorRightPanelsProps) {
-  if (isCollaborationMode) {
+  if (isCollaborationMode && mode !== 'bubble') {
     return (
       <div className="w-[340px] flex flex-col shrink-0 min-h-0 bg-white border border-[#E2E6EF] rounded-2xl shadow-sm overflow-hidden">
         <CollaborationPanel
@@ -115,15 +117,40 @@ export function EditorRightPanels({
         />
       )}
 
-      <AssistantPanel
-        isOpen={panelOpenState.assistant}
-        offset={panelOffsets.assistant}
-        width={panelWidths.assistant}
-        height={panelHeights.assistant}
-        onDragStart={onPanelDragStart}
-        onResizeStart={onPanelResizeStart}
-        onToggle={onTogglePanel}
-      />
+      {mode === '3d' && (
+        <>
+          <FloorViewPanel
+            isOpen={panelOpenState.floorView}
+            offset={panelOffsets.floorView}
+            width={panelWidths.floorView}
+            height={panelHeights.floorView}
+            onDragStart={onPanelDragStart}
+            onResizeStart={onPanelResizeStart}
+            onToggle={onTogglePanel}
+          />
+          <HierarchyPanel
+            isOpen={panelOpenState.hierarchy}
+            offset={panelOffsets.hierarchy}
+            width={panelWidths.hierarchy}
+            height={panelHeights.hierarchy}
+            onDragStart={onPanelDragStart}
+            onResizeStart={onPanelResizeStart}
+            onToggle={onTogglePanel}
+          />
+        </>
+      )}
+
+      {mode !== 'bubble' && (
+        <AssistantPanel
+          isOpen={panelOpenState.assistant}
+          offset={panelOffsets.assistant}
+          width={panelWidths.assistant}
+          height={panelHeights.assistant}
+          onDragStart={onPanelDragStart}
+          onResizeStart={onPanelResizeStart}
+          onToggle={onTogglePanel}
+        />
+      )}
     </div>
   )
 }

@@ -1,220 +1,249 @@
-import { 
-  Square, 
-  DoorOpen, 
-  Layout, 
-  Home, 
-  Box, 
-  Layers, 
-  ChevronDown, 
-  ChevronRight, 
-  Minus,
-  Maximize2,
-  Users
-} from 'lucide-react'
+import { useState } from 'react'
+import { Square, DoorOpen, LayoutGrid, Home, Box, Layers, X } from 'lucide-react'
+import type { FloorRoom } from '../types'
+import { hexToRgba } from '../utils/bubbleCalc'
+
+// ── 라이브러리 패널 카테고리 목록 ────────────────────────────────────────────
+const LIBRARY_CATEGORIES = [
+  { id: '벽', icon: Square },
+  { id: '문', icon: DoorOpen },
+  { id: '창문', icon: LayoutGrid },
+  { id: '지붕', icon: Home },
+  { id: '바닥', icon: Layers },
+  { id: '가구', icon: Box },
+] as const
 
 interface ThreeDCanvasProps {
   isCollaborationMode?: boolean
+  isLibraryOpen?: boolean
+  onToggleLibrary?: () => void
   selectedPinId?: string | null
   onPinClick?: (id: string) => void
+  isGridVisible?: boolean
+  rooms?: FloorRoom[]
+  scale?: number
+  /** 현재 활성 도구 ('selection' | 'hand' | ...) */
+  selectedTool?: string
 }
 
-export function ThreeDCanvas({ isCollaborationMode, selectedPinId, onPinClick }: ThreeDCanvasProps) {
+/**
+ * 3D 뷰 캔버스
+ * 2D 평면도 데이터를 기반으로 CSS 3D Transform 박스 모델을 렌더링.
+ * 손 도구(hand) 선택 시 마우스 드래그로 뷰를 이동(패닝)할 수 있다.
+ */
+export function ThreeDCanvas({
+  isCollaborationMode,
+  isLibraryOpen,
+  onToggleLibrary,
+  selectedPinId: _selectedPinId,
+  onPinClick: _onPinClick,
+  isGridVisible = false,
+  rooms = [],
+  scale = 1,
+  selectedTool = 'selection',
+}: ThreeDCanvasProps) {
+  const [selectedCategory, setSelectedCategory] = useState('지붕')
+  const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const [isDragging, setIsDragging] = useState(false)
+  const [startPos, setStartPos] = useState({ x: 0, y: 0 })
+
+  const WALL_HEIGHT = 60
+
+  // ── 패닝 핸들러 (손 도구일 때만 활성화) ────────────────────────────────
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (selectedTool !== 'hand') return
+    setIsDragging(true)
+    setStartPos({ x: e.clientX - offset.x, y: e.clientY - offset.y })
+  }
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || selectedTool !== 'hand') return
+    setOffset({ x: e.clientX - startPos.x, y: e.clientY - startPos.y })
+  }
+
+  const handleMouseUp = () => setIsDragging(false)
+
+  const cursorStyle = selectedTool === 'hand' ? (isDragging ? 'grabbing' : 'grab') : 'default'
+
   return (
-    <div className="absolute inset-0 bg-[#F0F2F9] overflow-hidden flex items-center justify-center">
-      {/* Mockup 3D Background - Stylized placeholder */}
-      <div className={`absolute inset-0 transition-all duration-700 ${isCollaborationMode ? 'bg-[#4B5563]' : 'bg-gradient-to-br from-[#E2E6EF] to-[#BEC4D1] opacity-40'}`} />
-      
-      {/* Center 3D Model Placeholder - Stylized Architectural Mockup */}
-      <div className="relative w-full h-full flex items-center justify-center p-20">
-        <div className={`relative w-[400px] h-[500px] preserve-3d transform -rotate-x-12 rotate-y-45 transition-all duration-700 ${isCollaborationMode ? 'scale-110' : 'hover:rotate-y-[60deg]'}`}>
-          {/* Main Building Block */}
-          <div className={`absolute inset-0 backdrop-blur-sm border transition-all duration-700 ${
-            isCollaborationMode 
-              ? 'bg-transparent border-[#3B45B3]/40 border-2' 
-              : 'bg-white/40 border-white/60 shadow-2xl rounded-sm'
-          }`}>
-            {/* Grid Windows / Wireframe */}
-            <div className={`absolute inset-0 grid grid-cols-6 grid-rows-10 gap-1 p-4 transition-opacity duration-700 ${isCollaborationMode ? 'opacity-60' : 'opacity-30'}`}>
-              {Array.from({ length: 60 }).map((_, i) => (
-                <div key={i} className={`rounded-sm border ${isCollaborationMode ? 'border-[#3B45B3]/30 bg-transparent' : 'bg-[#3B45B3]/20 border-transparent'}`} />
+    <div
+      className="absolute inset-0 bg-[#F0F2F9] overflow-hidden flex items-center justify-center select-none"
+      style={{ cursor: cursorStyle }}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+    >
+      {/* 라이브러리 팝업 패널 */}
+      {isLibraryOpen && (
+        <div className="absolute left-8 top-[10%] w-[500px] h-[70%] bg-white/80 backdrop-blur-xl border border-white/40 rounded-[32px] shadow-2xl z-50 flex overflow-hidden animate-in fade-in slide-in-from-left-4 duration-300">
+          <button
+            onClick={onToggleLibrary}
+            className="absolute top-6 right-6 p-2 text-[#ADB5BD] hover:text-[#1C1C1E] transition-colors z-10"
+          >
+            <X size={20} />
+          </button>
+
+          {/* 카테고리 사이드바 */}
+          <div className="w-[120px] bg-white/40 border-r border-[#F0F2F9] flex flex-col items-center py-8 gap-6 overflow-y-auto">
+            <div className="w-[72px] h-[72px] bg-[#3B45B3]/20 rounded-2xl flex items-center justify-center text-[#3B45B3] font-black text-lg shadow-inner mb-4">
+              {selectedCategory}
+            </div>
+            <div className="w-full px-3 flex flex-col gap-1">
+              {LIBRARY_CATEGORIES.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setSelectedCategory(item.id)}
+                  className={`w-full flex flex-col items-center py-3 rounded-2xl transition-all ${
+                    selectedCategory === item.id
+                      ? 'bg-white shadow-md text-[#3B45B3]'
+                      : 'text-[#ADB5BD] hover:bg-white/50'
+                  }`}
+                >
+                  <item.icon size={20} />
+                  <span className="text-[10px] font-bold mt-1.5">{item.id}</span>
+                </button>
               ))}
             </div>
           </div>
-          
-          {/* Side Face */}
-          <div className={`absolute top-0 right-0 w-[100px] h-full backdrop-blur-sm border-l origin-left transform rotate-y-90 translate-x-[100px] transition-all duration-700 ${
-            isCollaborationMode ? 'bg-transparent border-[#3B45B3]/20' : 'bg-black/5 border-white/20'
-          }`} />
-          
-          {/* Top Face */}
-          <div className={`absolute top-0 left-0 w-full h-[100px] backdrop-blur-md border-b origin-top transform -rotate-x-90 -translate-y-[100px] transition-all duration-700 ${
-            isCollaborationMode ? 'bg-transparent border-[#3B45B3]/20' : 'bg-white/60 border-white/40'
-          }`} />
 
-          {/* Secondary Block / Detail (Only in non-collab) */}
-          {!isCollaborationMode && (
-            <div className="absolute -bottom-4 -left-10 w-[450px] h-[60px] bg-[#1C1C1E]/5 backdrop-blur-sm border border-white/20 rounded-sm" />
-          )}
+          {/* 라이브러리 콘텐츠 영역 */}
+          <div className="flex-1 p-8 bg-gradient-to-br from-white/20 to-transparent">
+            <h3 className="text-2xl font-black text-[#1C1C1E] mb-8">{selectedCategory} 라이브러리</h3>
+            <div className="flex flex-col items-center justify-center h-[60%] text-[#ADB5BD] opacity-50 italic">
+              준비 중인 기능입니다...
+            </div>
+          </div>
+        </div>
+      )}
 
-          {/* Pins in Collaboration Mode */}
+      {/* 배경 */}
+      <div
+        className={`absolute inset-0 transition-all duration-1000 ${
+          isCollaborationMode
+            ? 'bg-[#2A2E35]'
+            : 'bg-gradient-to-br from-[#E2E6EF] to-[#BEC4D1]'
+        }`}
+      />
+
+      {/* 원근감 그리드 (그리드 토글 활성 시) */}
+      {isGridVisible && (
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          <div
+            className="absolute bottom-[-20%] left-[-20%] right-[-20%] top-[-20%]"
+            style={{
+              backgroundImage: `
+                linear-gradient(rgba(59,69,179,0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(59,69,179,0.1) 1px, transparent 1px)
+              `,
+              backgroundSize: '40px 40px',
+              transform: 'perspective(1200px) rotateX(60deg)',
+              transformOrigin: 'center center',
+            }}
+          />
+        </div>
+      )}
+
+      {/* 3D 뷰포트 */}
+      <div
+        className="relative w-full h-full flex items-center justify-center p-20 preserve-3d"
+        style={{ pointerEvents: 'none' }}
+      >
+        <div
+          className="relative w-full h-full preserve-3d"
+          style={{
+            transform: `perspective(2000px) rotateX(60deg) rotateZ(-35deg) scale(${scale * 0.85}) translate(${offset.x}px, ${offset.y}px)`,
+            transition: isDragging ? 'none' : 'transform 0.7s ease-out',
+          }}
+        >
+          <div className="absolute inset-0 bg-black/5 blur-3xl transform translate-z-[-10px]" />
+
+          {/* 방(공간) 박스 렌더링 */}
+          {rooms.map((room) => (
+            <Room3D key={room.id} room={room} height={WALL_HEIGHT} />
+          ))}
+
+          {/* 협업 모드 핀 오버레이 */}
           {isCollaborationMode && (
-            <>
-              {/* Pin #042 */}
-              <div 
-                onClick={() => onPinClick?.('042')}
-                className={`absolute top-[20%] left-[40%] -translate-x-1/2 -translate-y-1/2 z-20 cursor-pointer transition-all ${selectedPinId === '042' ? 'scale-110' : 'hover:scale-105'}`}
+            <div className="absolute inset-0 preserve-3d pointer-events-none">
+              <div
+                className="absolute z-50 pointer-events-auto"
+                style={{
+                  transform: `translate3d(${rooms[0]?.x ?? 0}px, ${rooms[0]?.y ?? 0}px, ${WALL_HEIGHT + 20}px) rotateZ(35deg) rotateX(-60deg)`,
+                }}
               >
-                <div className="bg-[#5D4AD8] text-white px-3 py-1 rounded-lg text-[11px] font-black shadow-lg flex items-center gap-1.5 border border-white/20">
+                <div className="bg-[#3B45B3] text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-lg flex items-center gap-1.5 border border-white/20">
                   <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
-                  #042
-                </div>
-                <div className="w-px h-12 bg-gradient-to-b from-[#5D4AD8] to-transparent mx-auto" />
-              </div>
-
-              {/* Pin #041 */}
-              <div 
-                onClick={() => onPinClick?.('041')}
-                className={`absolute top-[40%] left-[80%] -translate-x-1/2 -translate-y-1/2 z-20 cursor-pointer transition-all ${selectedPinId === '041' ? 'scale-110' : 'hover:scale-105'}`}
-              >
-                <div className="bg-white/90 text-[#6B7A99] px-2.5 py-1 rounded-lg text-[10px] font-bold shadow-md border border-[#E2E6EF]">
                   #041
                 </div>
-                <div className="w-px h-8 bg-gradient-to-b from-[#ADB5BD] to-transparent mx-auto" />
+                <div className="w-px h-10 bg-gradient-to-b from-[#3B45B3] to-transparent mx-auto" />
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>
-
-      {/* Default Floating Toolbars - Only visible in non-collaboration mode */}
-      {!isCollaborationMode && (
-        <>
-          {/* Floating Toolbar 1: 지붕 (Top Left) */}
-          <div className="absolute top-8 left-8 flex gap-3 p-4 bg-white/80 backdrop-blur-md rounded-2xl border border-white/40 shadow-xl z-10">
-            <div className="flex flex-col items-center gap-2 group cursor-pointer">
-              <div className="p-3 bg-[#3B45B3]/10 text-[#3B45B3] rounded-xl transition-all group-hover:bg-[#3B45B3]/20">
-                <Home size={28} />
-              </div>
-              <span className="text-[11px] font-extrabold text-[#3B45B3]">지붕</span>
-            </div>
-            <div className="flex flex-col items-center gap-2 group cursor-pointer">
-              <div className="p-3 bg-white text-[#ADB5BD] rounded-xl border border-[#E2E6EF] transition-all group-hover:border-[#3B45B3]/50">
-                <div className="w-7 h-7 bg-[#BEC4D1] rounded-sm transform -skew-x-12" />
-              </div>
-              <span className="text-[11px] font-bold text-[#8E95A3]">평지붕</span>
-            </div>
-            <div className="flex flex-col items-center gap-2 group cursor-pointer">
-              <div className="p-3 bg-white text-[#ADB5BD] rounded-xl border border-[#E2E6EF] transition-all group-hover:border-[#3B45B3]/50">
-                 <div className="w-7 h-7 border-l-[14px] border-r-[14px] border-b-[20px] border-l-transparent border-r-transparent border-b-[#BEC4D1]" />
-              </div>
-              <span className="text-[11px] font-bold text-[#8E95A3]">박공지붕</span>
-            </div>
-          </div>
-
-          {/* Floating Toolbar 2: 외벽 (Left Center) */}
-          <div className="absolute top-[200px] left-8 w-[64px] bg-white/80 backdrop-blur-md rounded-2xl border border-white/40 shadow-xl p-2 flex flex-col items-center gap-4 z-10">
-            <div className="w-full text-center pb-2 border-b border-[#F0F2F9] mb-1">
-              <span className="text-[10px] font-black text-[#1C1C1E]">외벽</span>
-            </div>
-            <button className="flex flex-col items-center gap-1 group">
-              <div className="p-2 text-[#ADB5BD] group-hover:text-[#3B45B3] transition-colors">
-                <Square size={20} />
-              </div>
-              <span className="text-[9px] font-bold text-[#ADB5BD]">벽</span>
-            </button>
-            <button className="flex flex-col items-center gap-1 group">
-              <div className="p-2 text-[#ADB5BD] group-hover:text-[#3B45B3] transition-colors">
-                <DoorOpen size={20} />
-              </div>
-              <span className="text-[9px] font-bold text-[#ADB5BD]">문</span>
-            </button>
-            <button className="flex flex-col items-center gap-1 group">
-              <div className="p-2 bg-[#F0F2FF] text-[#3B45B3] rounded-lg shadow-sm">
-                <Layout size={20} />
-              </div>
-              <span className="text-[9px] font-black text-[#3B45B3]">창문</span>
-            </button>
-            <button className="flex flex-col items-center gap-1 group">
-              <div className="p-2 text-[#ADB5BD] group-hover:text-[#3B45B3] transition-colors">
-                <Home size={20} />
-              </div>
-              <span className="text-[9px] font-bold text-[#ADB5BD]">지붕</span>
-            </button>
-            <button className="flex flex-col items-center gap-1 group">
-              <div className="p-2 text-[#ADB5BD] group-hover:text-[#3B45B3] transition-colors">
-                <Layers size={20} />
-              </div>
-              <span className="text-[9px] font-bold text-[#ADB5BD]">바닥</span>
-            </button>
-            <button className="flex flex-col items-center gap-1 group">
-              <div className="p-2 text-[#ADB5BD] group-hover:text-[#3B45B3] transition-colors">
-                <TrendingUp size={20} />
-              </div>
-              <span className="text-[9px] font-bold text-[#ADB5BD]">계단</span>
-            </button>
-            <button className="flex flex-col items-center gap-1 group">
-              <div className="p-2 text-[#ADB5BD] group-hover:text-[#3B45B3] transition-colors">
-                <div className="w-4 h-5 border-2 border-[#ADB5BD] rounded-sm group-hover:border-[#3B45B3]" />
-              </div>
-              <span className="text-[9px] font-bold text-[#ADB5BD]">기둥</span>
-            </button>
-          </div>
-
-          {/* Hierarchy Panel (Bottom Left) */}
-          <div className="absolute bottom-8 left-8 w-[200px] bg-white border border-[#E2E6EF] rounded-2xl shadow-xl overflow-hidden z-10">
-            <div className="px-4 py-3 flex items-center justify-between border-b border-[#F0F2F9]">
-              <span className="text-[11px] font-extrabold text-[#1C1C1E]">계층 구조</span>
-              <ChevronDown size={14} className="text-[#ADB5BD]" />
-            </div>
-            <div className="p-4 flex flex-col gap-2">
-              {/* Living Room */}
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-1.5">
-                  <ChevronDown size={12} className="text-[#1C1C1E]" />
-                  <div className="w-1 h-3 bg-[#1C1C1E] rounded-sm mr-1" />
-                  <span className="text-[11px] font-bold text-[#1C1C1E]">[Living Room]</span>
-                </div>
-                <div className="pl-6 flex flex-col gap-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <Minus size={12} className="text-[#ADB5BD]" />
-                    <div className="w-0.5 h-3 bg-[#1C1C1E] rounded-sm mr-1" />
-                    <span className="text-[11px] font-bold text-[#1C1C1E]">_01</span>
-                  </div>
-                  <div className="pl-5 flex items-center gap-1.5">
-                    <div className="w-2 h-2 border border-[#ADB5BD] rounded-sm" />
-                    <span className="text-[10px] font-medium text-[#6B7A99]">메인 현관문</span>
-                  </div>
-                </div>
-              </div>
-              {/* 01 */}
-              <div className="flex items-center gap-1.5 mt-1">
-                <ChevronRight size={12} className="text-[#ADB5BD]" />
-                <div className="w-1 h-3 bg-[#ADB5BD] rounded-sm mr-1" />
-                <span className="text-[11px] font-bold text-[#1C1C1E]">01</span>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
     </div>
   )
 }
 
-function TrendingUp({ size, className }: { size: number; className?: string }) {
+// ── 방(공간) 하나를 3D 박스로 표현하는 서브 컴포넌트 ─────────────────────────
+
+interface Room3DProps {
+  room: FloorRoom
+  height: number
+}
+
+/** CSS 3D Transform 기반 방 박스 렌더러 — 상단·하단·4면 벽체로 구성 */
+function Room3D({ room, height }: Room3DProps) {
+  const color = room.color || '#3B45B3'
+  const lightColor = hexToRgba(color, 0.4)
+  const darkColor = hexToRgba(color, 0.8)
+
   return (
-    <svg 
-      width={size} 
-      height={size} 
-      viewBox="0 0 24 24" 
-      fill="none" 
-      stroke="currentColor" 
-      strokeWidth="2" 
-      strokeLinecap="round" 
-      strokeLinejoin="round" 
-      className={className}
+    <div
+      className="absolute preserve-3d transition-all duration-500 hover:translate-z-4 group"
+      style={{ left: room.x, top: room.y, width: room.width, height: room.height }}
     >
-      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
-      <polyline points="17 6 23 6 23 12" />
-    </svg>
+      {/* 바닥 */}
+      <div
+        className="absolute inset-0 shadow-inner"
+        style={{ backgroundColor: hexToRgba(color, 0.1), border: `1px solid ${hexToRgba(color, 0.2)}` }}
+      />
+
+      {/* 천장 (라벨 표시) */}
+      <div
+        className="absolute inset-0 flex items-center justify-center overflow-hidden"
+        style={{ transform: `translateZ(${height}px)`, backgroundColor: hexToRgba(color, 0.05), border: `2px solid ${color}` }}
+      >
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-[10px] font-black text-[#1C1C1E]">{room.label}</span>
+          <span className="text-[8px] font-bold text-[#ADB5BD]">{room.area.toFixed(1)}m²</span>
+        </div>
+      </div>
+
+      {/* 앞면 벽 */}
+      <div
+        className="absolute w-full origin-bottom"
+        style={{ height, bottom: 0, transform: 'rotateX(-90deg)', background: `linear-gradient(to top, ${darkColor}, ${lightColor})`, border: `1px solid ${hexToRgba('#000', 0.1)}` }}
+      />
+      {/* 뒷면 벽 */}
+      <div
+        className="absolute w-full origin-top"
+        style={{ height, top: 0, transform: 'rotateX(90deg)', background: `linear-gradient(to bottom, ${darkColor}, ${lightColor})` }}
+      />
+      {/* 오른쪽 벽 */}
+      <div
+        className="absolute h-full origin-right"
+        style={{ width: height, right: 0, top: 0, transform: 'rotateY(90deg)', background: `linear-gradient(to right, ${darkColor}, ${lightColor})` }}
+      />
+      {/* 왼쪽 벽 */}
+      <div
+        className="absolute h-full origin-left"
+        style={{ width: height, left: 0, top: 0, transform: 'rotateY(-90deg)', background: `linear-gradient(to left, ${darkColor}, ${lightColor})` }}
+      />
+
+      {/* 호버 글로우 */}
+      <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+    </div>
   )
 }

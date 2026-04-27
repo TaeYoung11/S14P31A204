@@ -12,9 +12,12 @@ interface BubbleCanvasProps {
   autoZones: ZoneData[]
   manualZones: ZoneData[]
   selectedId: string | null
+  selectedTool: string
   onEditZone: (zone: ZoneData) => void
   onBubbleDrag: (bubbleId: string, x: number, y: number) => void
   onBubbleSelect: (bubbleId: string) => void
+  onDeleteBubble?: (bubbleId: string) => void
+  scale?: number
 }
 
 /** 버블 모드 전용 Konva 캔버스 */
@@ -26,14 +29,42 @@ export function BubbleCanvas({
   autoZones,
   manualZones,
   selectedId,
+  selectedTool,
   onEditZone,
   onBubbleDrag,
   onBubbleSelect,
+  onDeleteBubble,
+  scale = 1,
 }: BubbleCanvasProps) {
   const bubbleMap = useMemo(() => new Map(bubbles.map((bubble) => [bubble.id, bubble])), [bubbles])
 
+  const handleMouseEnter = (e: any) => {
+    const container = e.target.getStage().container()
+    if (selectedTool === 'selection') container.style.cursor = 'move'
+    else if (selectedTool === 'delete') container.style.cursor = 'crosshair'
+    else if (selectedTool === 'hand') container.style.cursor = 'grab'
+    else container.style.cursor = 'pointer'
+  }
+
+  const handleMouseLeave = (e: any) => {
+    e.target.getStage().container().style.cursor = 'default'
+  }
+
   return (
-    <Stage width={stageSize.width} height={stageSize.height} className="absolute inset-0">
+    <Stage 
+      width={stageSize.width} 
+      height={stageSize.height} 
+      className="absolute inset-0"
+      scaleX={scale}
+      scaleY={scale}
+      draggable={selectedTool === 'hand'}
+      onDragStart={(e) => {
+        if (selectedTool === 'hand') e.target.getStage().container().style.cursor = 'grabbing'
+      }}
+      onDragEnd={(e) => {
+        if (selectedTool === 'hand') e.target.getStage().container().style.cursor = 'grab'
+      }}
+    >
       <Layer>
         <Line
           points={sitePoints}
@@ -149,14 +180,20 @@ export function BubbleCanvas({
             key={bubble.id}
             x={bubble.x}
             y={bubble.y}
-            draggable
+            draggable={selectedTool === 'selection'}
             onDragMove={(event) => {
               onBubbleDrag(bubble.id, event.target.x(), event.target.y())
             }}
             onClick={(event) => {
               event.cancelBubble = true
-              onBubbleSelect(bubble.id)
+              if (selectedTool === 'delete') {
+                onDeleteBubble?.(bubble.id)
+              } else {
+                onBubbleSelect(bubble.id)
+              }
             }}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
           >
             <Rect
               width={bubble.width}

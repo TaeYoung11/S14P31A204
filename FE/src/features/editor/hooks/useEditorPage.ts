@@ -1,28 +1,32 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import type { AddSpaceFormData, EditorMode, ZoneData } from '../types'
+import type { AddSpaceFormData, EditorMode } from '../types'
 import { INITIAL_ADD_SPACE_FORM, SITE_RAW_POINTS } from '../constants'
 import { useBubbles } from './useBubbles'
 import { useConnections } from './useConnections'
 import { usePanels } from './usePanels'
 import { useStageSize } from './useStageSize'
 import { useZones } from './useZones'
+import { useFloorPlan } from './useFloorPlan'
 import { centerSitePoints } from '../utils/bubbleCalc'
 
-const EDITOR_MODES: EditorMode[] = ['bubble', '2d', '3d']
-
+/** EditorPage URL 파라미터에서 모드 파싱 — 허용 목록 외 값은 기본값('bubble')으로 처리 */
+const EDITOR_MODES: EditorMode[] = ['bubble', '2d', '3d', 'view']
 function resolveMode(value: string | null): EditorMode {
   return EDITOR_MODES.includes(value as EditorMode) ? (value as EditorMode) : 'bubble'
 }
 
-/** EditorPage의 모든 비즈니스 로직과 상태를 관리하는 훅 */
+/**
+ * EditorPage 전체 비즈니스 로직 훅
+ * 버블·연결선·조닝·패널·평면도·UI 상태를 하위 훅에서 합성해 관리
+ */
 export function useEditorPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const mode = resolveMode(searchParams.get('mode'))
 
   const { containerRef, stageSize } = useStageSize()
 
-  const bubblesHook = useBubbles()
+  // 버블(공간) 상태
   const {
     bubbles,
     selectedId,
@@ -36,9 +40,10 @@ export function useEditorPage() {
     handleRatioChange,
     handleColorChange,
     addBubble,
-  } = bubblesHook
+    deleteBubble,
+  } = useBubbles()
 
-  const connectionsHook = useConnections()
+  // 연결선 상태
   const {
     connections,
     isModalOpen: isLineStyleModalOpen,
@@ -48,9 +53,10 @@ export function useEditorPage() {
     confirmModal: confirmLineStyleModal,
     closeModal: closeLineStyleModal,
     setSelectedStyle,
-  } = connectionsHook
+    removeConnectionsForBubble,
+  } = useConnections()
 
-  const zonesHook = useZones(bubbles)
+  // 조닝 상태
   const {
     zones,
     isModalOpen: isZoningModalOpen,
@@ -64,10 +70,30 @@ export function useEditorPage() {
     toggleBubble: toggleZoningBubble,
     confirmModal: confirmZoningModal,
     deleteZone,
-  } = zonesHook
+  } = useZones(bubbles)
 
-  const panelsHook = usePanels(mode)
-  const { panelOffsets, panelOpenState, panelHeights, panelWidths, startDrag, startResize, togglePanel } = panelsHook
+  // 우측 패널 드래그·리사이즈 상태
+  const { panelOffsets, panelOpenState, panelHeights, panelWidths, startDrag, startResize, togglePanel } = usePanels(mode)
+
+  // 2D 평면도 층 상태
+  const {
+    isGenerated: isFloorPlanGenerated,
+    isGenerating: isFloorPlanGenerating,
+    layers: floorLayers,
+    activeLayerId: activeFloorLayerId,
+    activeRooms: floorRooms,
+    generateFloorPlan,
+    refreshFloorPlan,
+    addFloorLayer,
+    setActiveLayerId: setActiveFloorLayerId,
+  } = useFloorPlan()
+
+  // 버블·연결선 변경 시 이미 생성된 평면도를 조용히 갱신 (로딩 없음)
+  useEffect(() => {
+    if (isFloorPlanGenerated && bubbles.length > 0 && stageSize.width > 0) {
+      refreshFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
+    }
+  }, [bubbles, connections, stageSize.width, stageSize.height, isFloorPlanGenerated, refreshFloorPlan])
 
   // UI 전용 상태
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
@@ -75,13 +101,21 @@ export function useEditorPage() {
   const [isCollaborationMode, setIsCollaborationMode] = useState(false)
   const [selectedPinId, setSelectedPinId] = useState<string | null>(null)
   const [collaborationTab, setCollaborationTab] = useState<'history' | 'thread'>('history')
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false)
+  const [isGridVisible, setIsGridVisible] = useState(false)
+  const [selectedTool, setSelectedTool] = useState<string>('selection')
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false)
+  const [isExportSelectionModalOpen, setIsExportSelectionModalOpen] = useState(false)
+  const [zoom, setZoom] = useState(100)
 
-  // 파생 상태
+  // 파생 상태: 선택된 버블 객체
   const selectedBubble = useMemo(
-    () => bubbles.find((bubble) => bubble.id === selectedId) ?? null,
-    [bubbles, selectedId]
+    () => bubbles.find((b) => b.id === selectedId) ?? null,
+    [bubbles, selectedId],
   )
 
+  // 파생 상태: 선택된 버블의 연결선 목록 (라벨 포함)
   const selectedBubbleConnections = useMemo(() => {
     if (!selectedId) return []
     return connections
@@ -96,6 +130,7 @@ export function useEditorPage() {
   const autoZones = useMemo(() => zones.filter((z) => z.source === 'auto'), [zones])
   const manualZones = useMemo(() => zones.filter((z) => z.source === 'manual'), [zones])
 
+  // 파생 상태: 선택된 버블이 속한 조닝 목록
   const selectedBubbleZones = useMemo(() => {
     if (!selectedId) return []
     return zones
@@ -105,15 +140,19 @@ export function useEditorPage() {
 
   const zoningListItems = useMemo(() => [...autoZones, ...manualZones], [autoZones, manualZones])
 
+  // 파생 상태: 대지 외곽선 포인트 (캔버스 중앙 정렬)
   const sitePoints = useMemo(
     () => centerSitePoints(SITE_RAW_POINTS, stageSize.width, stageSize.height),
-    [stageSize.height, stageSize.width]
+    [stageSize.width, stageSize.height],
   )
 
-  // 핸들러
+  // ── 핸들러 ────────────────────────────────────────────────────────────────
+
+  /** 편집 모드 전환 — 협업 모드·라이브러리는 모드 이탈 시 닫힘 */
   const setMode = (nextMode: EditorMode) => {
     setSearchParams({ mode: nextMode })
     if (nextMode !== '2d') setIsCollaborationMode(false)
+    setIsLibraryOpen(false)
   }
 
   const handleOpenAddModal = () => {
@@ -126,10 +165,12 @@ export function useEditorPage() {
     setIsAddModalOpen(false)
   }
 
+  /** 선 스타일 모달 열기 — 현재·이전 선택 버블 쌍으로 연결 대상 자동 설정 */
   const handleOpenLineStyleModal = () => {
     openModal(selectedId, previousSelectedId)
   }
 
+  /** 협업 모드 토글 — 진입 시 탭·핀 상태 초기화 */
   const handleToggleCollaboration = () => {
     setIsCollaborationMode((prev) => {
       if (!prev) {
@@ -140,6 +181,7 @@ export function useEditorPage() {
     })
   }
 
+  /** 협업 핀 클릭 — 해당 핀의 스레드 탭으로 이동 */
   const handlePinClick = (pinId: string) => {
     setSelectedPinId(pinId)
     setCollaborationTab('thread')
@@ -148,11 +190,31 @@ export function useEditorPage() {
   const getBubbleLabel = (bubbleId: string) =>
     bubbles.find((b) => b.id === bubbleId)?.label ?? bubbleId
 
+  /** 버블 삭제 — 연결선도 함께 제거 */
+  const handleDeleteBubble = (id: string) => {
+    deleteBubble(id)
+    removeConnectionsForBubble(id)
+  }
+
+  /** 2D 평면도 생성 버튼 핸들러 — 로딩 애니메이션 포함 */
+  const handleGenerateFloorPlan = () => {
+    generateFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
+  }
+
+  const handleZoomIn = () => setZoom((prev) => Math.min(prev + 10, 300))
+  const handleZoomOut = () => setZoom((prev) => Math.max(prev - 10, 10))
+  const handleZoomChange = (value: string) => {
+    const num = parseInt(value.replace('%', ''))
+    if (!isNaN(num)) setZoom(Math.min(Math.max(num, 10), 300))
+  }
+
+  const toggleGrid = () => setIsGridVisible((prev) => !prev)
+
   return {
     // 모드
     mode,
     setMode,
-    // 캔버스
+    // 캔버스 크기·대지
     containerRef,
     stageSize,
     sitePoints,
@@ -168,6 +230,7 @@ export function useEditorPage() {
     handleHeightChange,
     handleRatioChange,
     handleColorChange,
+    handleDeleteBubble,
     // 연결선
     connections,
     selectedBubbleConnections,
@@ -196,7 +259,7 @@ export function useEditorPage() {
     toggleZoningBubble,
     confirmZoningModal,
     deleteZone,
-    // 패널
+    // 우측 패널
     panelOffsets,
     panelOpenState,
     panelHeights,
@@ -219,5 +282,40 @@ export function useEditorPage() {
     setCollaborationTab,
     handleToggleCollaboration,
     handlePinClick,
+    // 줌
+    zoom,
+    handleZoomIn,
+    handleZoomOut,
+    handleZoomChange,
+    // 라이브러리
+    isLibraryOpen,
+    setIsLibraryOpen,
+    // 2D 평면도
+    isFloorPlanGenerated,
+    isFloorPlanGenerating,
+    floorLayers,
+    activeFloorLayerId,
+    floorRooms,
+    handleGenerateFloorPlan,
+    addFloorLayer,
+    setActiveFloorLayerId,
+    // 그리드
+    isGridVisible,
+    toggleGrid,
+    // 도구 선택
+    selectedTool,
+    setSelectedTool,
+    // 초대 모달
+    isInviteModalOpen,
+    handleOpenInviteModal: () => setIsInviteModalOpen(true),
+    onCloseInviteModal: () => setIsInviteModalOpen(false),
+    // 내보내기 모달
+    isExportModalOpen,
+    handleOpenExportModal: () => setIsExportModalOpen(true),
+    onCloseExportModal: () => setIsExportModalOpen(false),
+    // 내보내기 선택 모달
+    isExportSelectionModalOpen,
+    handleOpenExportSelectionModal: () => setIsExportSelectionModalOpen(true),
+    onCloseExportSelectionModal: () => setIsExportSelectionModalOpen(false),
   }
 }

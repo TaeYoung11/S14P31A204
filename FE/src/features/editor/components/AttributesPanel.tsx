@@ -70,8 +70,22 @@ export function AttributesPanel({
           zones={zones}
         />
       )}
-      {mode === '2d' && <TwoDAttributePanel />}
-      {mode === '3d' && <ThreeDAttributePanel />}
+      {mode === '2d' && (
+        <TwoDAttributePanel 
+          selectedBubble={selectedBubble}
+          onLabelChange={onLabelChange}
+          onTypeChange={onTypeChange}
+          onWidthChange={onWidthChange}
+          onHeightChange={onHeightChange}
+          onRatioChange={onRatioChange}
+        />
+      )}
+      {mode === '3d' && (
+        <ThreeDAttributePanel
+          selectedBubble={selectedBubble}
+          onColorChange={onColorChange}
+        />
+      )}
     </PanelFrame>
   )
 }
