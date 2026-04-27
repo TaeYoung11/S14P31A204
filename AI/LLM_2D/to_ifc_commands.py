@@ -1,6 +1,9 @@
 from typing import Dict, Optional
 
-from models import FloorNLPCommand, ActionType, IFCCommand, CommandBatch
+try:
+    from .models import FloorNLPCommand, ActionType, IFCCommand, CommandBatch
+except ImportError:
+    from models import FloorNLPCommand, ActionType, IFCCommand, CommandBatch  # type: ignore[no-redef]
 
 
 def to_ifc_commands(
@@ -11,11 +14,35 @@ def to_ifc_commands(
         if not ifc_context or not target_name:
             return []
         spaces = ifc_context.get("spaces", [])
-        return [
-            space.get("id")
-            for space in spaces
+        matched = [
+            space for space in spaces
             if space.get("name") == target_name and space.get("id")
         ]
+        # target_floor가 명시된 경우 해당 층만 반환
+        if command.target_floor is not None:
+            matched = [s for s in matched if s.get("floor") == command.target_floor]
+        return [s.get("id") for s in matched]
+
+    def _find_storey_id(floor: int) -> Optional[str]:
+        """층 번호로 IfcBuildingStorey GlobalId를 조회한다."""
+        if not ifc_context:
+            return None
+        for storey in ifc_context.get("storeys", []):
+            if storey.get("floor") == floor:
+                return storey.get("id")
+        return None
+
+    def _find_storey_id_for_space(space_id: str) -> Optional[str]:
+        """space GlobalId로 해당 공간의 storey GlobalId를 조회한다."""
+        if not ifc_context:
+            return None
+        for space in ifc_context.get("spaces", []):
+            if space.get("id") == space_id:
+                floor_num = space.get("floor")
+                if floor_num is None:
+                    return None
+                return _find_storey_id(floor_num)
+        return None
 
     if command.needs_clarification:
         return CommandBatch(
@@ -39,16 +66,38 @@ def to_ifc_commands(
                 clarification_question="방 형태와 크기 정보가 부족합니다. 예: 직사각형 4000x5000",
             )
 
+        storey_id = _find_storey_id(command.new_room.floor)
+        if ifc_context and storey_id is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=f"{command.new_room.floor}층 정보를 현재 IFC에서 찾을 수 없습니다.",
+            )
+
         return CommandBatch(
             commands=[
                 IFCCommand(
                     action=ActionType.CREATE_SPACE,
                     target_id=None,
                     params={
-                        "name": command.new_room.name,
-                        "type": command.new_room.type,
-                        "floor": command.new_room.floor,
-                        "rects": command.new_room.rects,
+                        "entity_type": "Space",
+                        "metadata": {
+                            "storey_id": storey_id,
+                        },
+                        "geometry": {
+                            "location": [0.0, 0.0, 0.0],
+                            "direction": [1.0, 0.0, 0.0],
+                            "dimensions": {
+                                "width": command.new_room.width,
+                                "height": command.new_room.height,
+                            },
+                        },
+                        "properties": {
+                            "name": command.new_room.name,
+                            "type": command.new_room.type,
+                            "shape": command.new_room.shape,
+                            "rects": command.new_room.rects,
+                        },
                     },
                     confidence=command.confidence,
                 )
@@ -72,11 +121,26 @@ def to_ifc_commands(
                 clarification_question="같은 이름의 방이 여러 개 있습니다. 몇 층 방을 삭제할까요?",
             )
 
+        if ifc_context and any(_find_storey_id_for_space(tid) is None for tid in target_ids):
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=f"'{command.target_room_name}' 방의 층 정보를 현재 IFC에서 찾을 수 없습니다.",
+            )
+
         commands = [
             IFCCommand(
                 action=ActionType.DELETE_SPACE,
                 target_id=tid,
-                params={"name": command.target_room_name},
+                params={
+                    "entity_type": "Space",
+                    "metadata": {
+                        "storey_id": _find_storey_id_for_space(tid),
+                    },
+                    "properties": {
+                        "name": command.target_room_name,
+                    },
+                },
                 confidence=command.confidence,
             )
             for tid in target_ids
@@ -102,11 +166,18 @@ def to_ifc_commands(
                 clarification_question="같은 이름의 방이 여러 개 있습니다. 몇 층 방을 변경할까요?",
             )
 
-        if command.resize_rects is None:
+        if command.resize_rects is None or command.resize_width is None or command.resize_height is None:
             return CommandBatch(
                 commands=[],
                 requires_clarification=True,
                 clarification_question="변경할 방 형태와 크기 정보가 부족합니다. 예: L자 6000x8000",
+            )
+
+        if ifc_context and any(_find_storey_id_for_space(tid) is None for tid in target_ids):
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=f"'{command.target_room_name}' 방의 층 정보를 현재 IFC에서 찾을 수 없습니다.",
             )
 
         commands = [
@@ -114,10 +185,22 @@ def to_ifc_commands(
                 action=ActionType.UPDATE_SPACE,
                 target_id=tid,
                 params={
-                    "rects": command.resize_rects,
-                    "shape": command.resize_shape,
-                    "width": command.resize_width,
-                    "height": command.resize_height,
+                    "entity_type": "Space",
+                    "metadata": {
+                        "storey_id": _find_storey_id_for_space(tid),
+                    },
+                    "geometry": {
+                        "location": [0.0, 0.0, 0.0],
+                        "direction": [1.0, 0.0, 0.0],
+                        "dimensions": {
+                            "width": command.resize_width,
+                            "height": command.resize_height,
+                        },
+                    },
+                    "properties": {
+                        "shape": command.resize_shape,
+                        "rects": command.resize_rects,
+                    },
                 },
                 confidence=command.confidence,
             )

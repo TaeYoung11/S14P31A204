@@ -400,6 +400,8 @@ $RECYCLE.BIN/
 # 환경변수
 .env.*
 !.env.example
+configs/*.env
+!configs/*.env.example
 
 # AI 모델 가중치
 *.gguf
@@ -410,6 +412,10 @@ logs/
 
 # ai-evals 스윕 결과 (렌더 output)
 packages/ai-evals/outputs/
+
+# PoC 렌더 출력
+outputs/
+scripts/poc_*.png
 
 # AI coding assistant
 CLAUDE.md
