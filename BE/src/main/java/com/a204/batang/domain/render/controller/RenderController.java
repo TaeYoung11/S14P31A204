@@ -40,7 +40,7 @@ public class RenderController {
      */
     @Operation(
             summary = "프로젝트 렌더링 결과 목록 조회",
-            description = "특정 프로젝트의 렌더링 결과 목록을 최신 요청순으로 조회합니다."
+            description = "특정 프로젝트의 렌더링 결과 목록을 최신 요청순으로 조회하며 createdAt/completedAt은 UTC ISO-8601(Z) 형식으로 반환합니다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(

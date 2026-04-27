@@ -16,6 +16,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -32,6 +36,7 @@ public class RenderQueryService {
 
     private static final String RENDER_JOB_TYPE = "RENDER";
     private static final String RENDER_IMAGE_ARTIFACT_TYPE = "RENDER_IMAGE";
+    private static final ZoneId KOREA_ZONE_ID = ZoneId.of("Asia/Seoul");
 
     private final ProjectRepository projectRepository;
     private final ProjectAccessService projectAccessService;
@@ -80,8 +85,8 @@ public class RenderQueryService {
                 extractStyle(job.getRequestPayload()),
                 artifact != null ? artifact.getStorageUrl() : null,
                 normalizeUpper(job.getStatus()),
-                job.getCreatedAt(),
-                job.getFinishedAt()
+                toUtcIso(job.getCreatedAt()),
+                toUtcIso(job.getFinishedAt())
         );
     }
 
@@ -131,5 +136,15 @@ public class RenderQueryService {
             return null;
         }
         return normalized.toUpperCase(Locale.ROOT);
+    }
+
+    private String toUtcIso(LocalDateTime value) {
+        if (value == null) {
+            return null;
+        }
+
+        return value.atZone(KOREA_ZONE_ID)
+                .withZoneSameInstant(ZoneOffset.UTC)
+                .format(DateTimeFormatter.ISO_INSTANT);
     }
 }

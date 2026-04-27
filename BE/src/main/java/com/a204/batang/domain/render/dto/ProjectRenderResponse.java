@@ -2,7 +2,6 @@ package com.a204.batang.domain.render.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
@@ -25,9 +24,9 @@ public record ProjectRenderResponse(
         String imageUrl,
         @Schema(description = "렌더링 상태", example = "SUCCESS")
         String status,
-        @Schema(description = "렌더링 요청 시각", example = "2026-04-15T16:50:00")
-        LocalDateTime createdAt,
-        @Schema(description = "렌더링 완료 시각", example = "2026-04-15T16:50:28", nullable = true)
-        LocalDateTime completedAt
+        @Schema(description = "렌더링 요청 시각 (UTC ISO-8601)", example = "2026-04-15T07:50:00Z")
+        String createdAt,
+        @Schema(description = "렌더링 완료 시각 (UTC ISO-8601)", example = "2026-04-15T07:50:28Z", nullable = true)
+        String completedAt
 ) {
 }
