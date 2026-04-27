@@ -19,6 +19,7 @@ export default function ProjectShareModal({ isOpen, onClose, projects, onInvite 
 
   useEffect(() => {
     if (!isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setEmail('')
       setError('')
       setSuccess(false)

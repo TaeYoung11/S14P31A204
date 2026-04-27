@@ -24,7 +24,7 @@ declare global {
   }
 }
 
-interface KakaoLatLng {}
+type KakaoLatLng = object
 interface KakaoMap {
   setCenter: (latLng: KakaoLatLng) => void
 }
@@ -126,6 +126,7 @@ export const useProjectSiteModal = ({
 
   useEffect(() => {
     if (!isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowPostcode(false)
       setSelectedAddress('')
       setSearchError('')
