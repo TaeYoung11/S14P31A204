@@ -66,6 +66,12 @@ class BoundaryInput(LayoutImportBaseModel):
     @model_validator(mode="after")
     def validate_polygon_shape(self) -> BoundaryInput:
         points = self.polygon
+        # NOTE:
+        # 마지막 점이 첫 점과 같은 닫힌 polygon은 현재 검증 단계에서만 허용합니다.
+        # 즉, 검증 시에는 마지막 중복 점을 제외해 검사하지만 self.polygon 자체는
+        # 아직 정규화하지 않습니다.
+        # 이후 boundaries를 geometry 생성에 사용하게 되면, 마지막 중복 점을 제거한
+        # canonical form으로 저장할지 별도 정책 결정을 해야 합니다.
         if len(points) > 1 and points[0] == points[-1]:
             points = points[:-1]
 
