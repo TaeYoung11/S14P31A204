@@ -28,10 +28,10 @@ public record CreatePinCommentResponse(
      * @param comment 댓글 엔티티
      * @return 댓글 생성 응답
      */
-    public static CreatePinCommentResponse from(ProjectPinComment comment) {
+    public static CreatePinCommentResponse from(ProjectPinComment comment, UUID pinId) {
         return new CreatePinCommentResponse(
                 comment.getCommentId(),
-                comment.getProjectPin().getPinId(),
+                pinId,
                 comment.getAuthorUserId(),
                 comment.getContent(),
                 comment.getCreatedAt()

@@ -48,9 +48,10 @@ public class ProjectPinCommentService {
         ProjectPinComment savedComment = projectPinCommentRepository.save(projectPinComment);
 
         projectPin.recordComment(currentUserId);
+        projectPinRepository.save(projectPin);
 
         log.info("핀 댓글 등록 완료. projectId={}, pinId={}, commentId={}", projectId, pinId, savedComment.getCommentId());
-        return CreatePinCommentResponse.from(savedComment);
+        return CreatePinCommentResponse.from(savedComment, projectPin.getPinId());
     }
 
     /**
