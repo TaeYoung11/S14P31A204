@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 from uuid import UUID
@@ -17,6 +18,8 @@ def _make_request(
     rooms: list[dict],
     modeling_defaults: dict | None = None,
     zones: list[dict] | None = None,
+    adjacency: list[dict] | None = None,
+    boundaries: list[dict] | None = None,
 ) -> LayoutImportV1:
     return LayoutImportV1.model_validate(
         {
@@ -25,6 +28,8 @@ def _make_request(
             "name": name,
             "rooms": rooms,
             "zones": zones,
+            "adjacency": adjacency,
+            "boundaries": boundaries,
             "modeling_defaults": modeling_defaults,
         }
     )
@@ -292,6 +297,83 @@ def test_convert_layout_to_ifc_uses_default_space_height_fallback(tmp_path: Path
     space = model.by_type("IfcSpace")[0]
     body = space.Representation.Representations[0].Items[0]
     assert body.Depth == pytest.approx(2.7)
+
+
+def test_convert_layout_to_ifc_persists_project_and_storey_metadata_as_json(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        rooms=[
+            {
+                "id": "room-living-01",
+                "name": "거실",
+                "type": "living",
+                "width": 4200,
+                "height": 3800,
+                "floor": 1,
+                "x": 5000.0,
+                "y": 4000.0,
+                "angle": 0.0,
+                "locked": False,
+            },
+            {
+                "id": "room-bed-01",
+                "name": "안방",
+                "type": "bedroom",
+                "width": 3600,
+                "height": 3200,
+                "floor": 2,
+                "x": 9000.0,
+                "y": 4000.0,
+                "angle": 0.0,
+                "locked": False,
+            },
+        ],
+        adjacency=[
+            {
+                "from_room_id": "room-living-01",
+                "to_room_id": "room-bed-01",
+                "strength": 0.6,
+            }
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [[0.0, 0.0], [4.2, 0.0], [4.2, 3.8], [0.0, 3.8]],
+            }
+        ],
+        modeling_defaults={"space_height_mm": 3000},
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "metadata-json.ifc")
+
+    project = model.by_type("IfcProject")[0]
+    project_pset = _property_sets_by_name(project)["Pset_BatangLayoutImportProject"]
+    project_props = _properties_by_name(project_pset)
+    adjacency_json = _unwrap_property_value(project_props["AdjacencyJson"])
+    assert isinstance(adjacency_json, str)
+    assert json.loads(adjacency_json) == [
+        {
+            "from_room_id": "room-living-01",
+            "to_room_id": "room-bed-01",
+            "strength": 0.6,
+        }
+    ]
+
+    storeys = {storey.Name: storey for storey in model.by_type("IfcBuildingStorey")}
+    storey_1_pset = _property_sets_by_name(storeys["1F"])["Pset_BatangLayoutImportStorey"]
+    storey_1_props = _properties_by_name(storey_1_pset)
+    boundary_json = _unwrap_property_value(storey_1_props["BoundaryJson"])
+    assert isinstance(boundary_json, str)
+    assert json.loads(boundary_json) == {
+        "floor": 1,
+        "polygon": [[0.0, 0.0], [4.2, 0.0], [4.2, 3.8], [0.0, 3.8]],
+    }
+    assert "Pset_BatangLayoutImportStorey" not in _property_sets_by_name(storeys["2F"])
+
+    assert len(model.by_type("IfcWall")) == 0
+    assert len(model.by_type("IfcSlab")) == 0
+    assert len(model.by_type("IfcRoof")) == 0
 
 
 def test_convert_layout_to_ifc_does_not_create_walls_slabs_or_roofs(tmp_path: Path) -> None:
