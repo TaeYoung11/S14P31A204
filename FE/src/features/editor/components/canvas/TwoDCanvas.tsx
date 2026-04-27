@@ -2,10 +2,10 @@ import { useMemo } from 'react'
 import { Layer, Line, Stage, Arc, Group, Circle, Text, Rect } from 'react-konva'
 import { LayoutDashboard, Sparkles } from 'lucide-react'
 import type { KonvaEventObject } from 'konva/lib/Node'
-import Spinner from '../../../shared/components/Spinner'
-import type { ConnectionData, FloorRoom } from '../types'
-import { findSharedWall } from '../utils/floorPlanLayout'
-import { hexToRgba } from '../utils/bubbleCalc'
+import Spinner from '../../../../shared/components/Spinner'
+import type { ConnectionData, FloorRoom } from '../../types'
+import { findSharedWall } from '../../utils/floorPlanLayout'
+import { hexToRgba } from '../../utils/bubbleCalc'
 
 // ── 유틸 ─────────────────────────────────────────────────────────────────────
 
@@ -253,28 +253,33 @@ export function TwoDCanvas({
         {/* 문(Door) 렌더링 — 공유 벽 위치에 호(Arc) 기호로 표현 */}
         {doorList.map((door) => {
           if (!door) return null
+
+          // 수직 공유벽: 벽 x 기준, 문 중심 y 기준
           if (door.direction === 'vertical' && door.wallX !== undefined && door.doorCenterY !== undefined) {
             const { wallX, doorCenterY, doorW } = door
-            const doorTop = doorCenterY - doorW / 2
+            const start = doorCenterY - doorW / 2
             return (
               <Group key={door.key}>
-                <Line points={[wallX, doorTop, wallX, doorTop + doorW]} stroke="white" strokeWidth={5} />
-                <Circle x={wallX} y={doorTop} radius={2} fill="#3B45B3" />
-                <Arc x={wallX} y={doorTop} innerRadius={0} outerRadius={doorW} angle={90} rotation={0} stroke="#3B45B3" strokeWidth={1.5} fill="rgba(59,69,179,0.05)" />
+                <Line points={[wallX, start, wallX, start + doorW]} stroke="white" strokeWidth={5} />
+                <Circle x={wallX} y={start} radius={2} fill="#3B45B3" />
+                <Arc x={wallX} y={start} innerRadius={0} outerRadius={doorW} angle={90} rotation={0} stroke="#3B45B3" strokeWidth={1.5} fill="rgba(59,69,179,0.05)" />
               </Group>
             )
           }
+
+          // 수평 공유벽: 벽 y 기준, 문 중심 x 기준
           if (door.direction === 'horizontal' && door.wallY !== undefined && door.doorCenterX !== undefined) {
             const { wallY, doorCenterX, doorW } = door
-            const doorLeft = doorCenterX - doorW / 2
+            const start = doorCenterX - doorW / 2
             return (
               <Group key={door.key}>
-                <Line points={[doorLeft, wallY, doorLeft + doorW, wallY]} stroke="white" strokeWidth={5} />
-                <Circle x={doorLeft} y={wallY} radius={2} fill="#3B45B3" />
-                <Arc x={doorLeft} y={wallY} innerRadius={0} outerRadius={doorW} angle={90} rotation={0} stroke="#3B45B3" strokeWidth={1.5} fill="rgba(59,69,179,0.05)" />
+                <Line points={[start, wallY, start + doorW, wallY]} stroke="white" strokeWidth={5} />
+                <Circle x={start} y={wallY} radius={2} fill="#3B45B3" />
+                <Arc x={start} y={wallY} innerRadius={0} outerRadius={doorW} angle={90} rotation={0} stroke="#3B45B3" strokeWidth={1.5} fill="rgba(59,69,179,0.05)" />
               </Group>
             )
           }
+
           return null
         })}
 

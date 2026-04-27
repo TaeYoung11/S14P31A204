@@ -1,5 +1,5 @@
 import { Eye, Lock, ChevronDown, ChevronRight, Plus, Minus } from 'lucide-react'
-import type { FloorLayer } from '../types'
+import type { FloorLayer } from '../../types'
 
 interface TwoDLeftPanelsProps {
   /** 생성된 층 목록 (빈 배열이면 미생성 상태 UI) */

@@ -1,6 +1,6 @@
 import { Share2, Save } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import type { EditorMode } from '../types'
+import type { EditorMode } from '../../types'
 
 interface EditorHeaderProps {
   onOpenInvite?: () => void

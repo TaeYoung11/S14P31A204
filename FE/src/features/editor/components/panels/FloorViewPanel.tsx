@@ -1,7 +1,7 @@
 import React from 'react'
 import { Layers, Plus } from 'lucide-react'
-import type { FloorLayer, PanelKey, PanelOffset, PanelResizeAxis } from '../types'
-import { PanelFrame } from './PanelFrame'
+import type { FloorLayer, PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
+import { PanelFrame } from '../shared/PanelFrame'
 
 interface FloorViewPanelProps {
   isOpen: boolean

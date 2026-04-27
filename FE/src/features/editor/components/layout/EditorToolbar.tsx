@@ -1,5 +1,5 @@
 import { Undo2, Redo2 } from 'lucide-react'
-import type { EditorMode } from '../types'
+import type { EditorMode } from '../../types'
 
 interface EditorToolbarProps {
   mode: EditorMode

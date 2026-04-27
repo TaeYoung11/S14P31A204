@@ -1,6 +1,6 @@
-import { ColorSelector } from './ColorSelector'
-import { ROOM_TYPES } from '../constants'
-import type { ConnectionStyle } from '../types'
+import { ColorSelector } from '../shared/ColorSelector'
+import { ROOM_TYPES } from '../../constants'
+import type { ConnectionStyle } from '../../types'
 
 export interface BubbleInfo {
   id: string

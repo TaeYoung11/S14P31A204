@@ -1,6 +1,6 @@
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react'
-import type { PanelKey, PanelOffset, PanelResizeAxis } from '../types'
+import type { PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
 
 interface ResizeHandlesProps {
   panelKey: PanelKey

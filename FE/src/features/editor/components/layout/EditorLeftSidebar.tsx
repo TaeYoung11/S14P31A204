@@ -13,7 +13,7 @@ import {
   Download,
   Hand,
 } from 'lucide-react'
-import type { EditorMode } from '../types'
+import type { EditorMode } from '../../types'
 
 // ── 스타일 유틸 ───────────────────────────────────────────────────────────────
 

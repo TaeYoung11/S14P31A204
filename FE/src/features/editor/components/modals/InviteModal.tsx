@@ -1,4 +1,5 @@
 import { X, Search, CheckCircle2 } from 'lucide-react'
+import type { MouseEvent } from 'react'
 import { useState, useMemo } from 'react'
 
 interface User {
@@ -25,47 +26,45 @@ const INITIAL_USERS: User[] = [
 export function InviteModal({ isOpen, onClose, onInvite }: InviteModalProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [users, setUsers] = useState<User[]>(INITIAL_USERS)
-  // 초기 대표 고객 설정 (MOCK 데이터에서 id: 1인 사용자를 예시로 설정)
+  /** 초대할 사람 중 대표 고객으로 지정할 id (목업 기준 id: 1 기본값) */
   const [representativeId, setRepresentativeId] = useState<string | null>('1')
 
-  // 검색 필터링
+  /** 이름·이메일 검색어로 사용자 목록 필터링 */
   const filteredUsers = useMemo(() => {
-    if (!searchQuery.trim()) return users
-    return users.filter(user => 
-      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase())
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return INITIAL_USERS
+    return INITIAL_USERS.filter(
+      (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
     )
-  }, [users, searchQuery])
+  }, [searchQuery])
 
   if (!isOpen) return null
 
-  // 사용자 선택/해제 (이미 공유된 사용자는 선택 대상에서 제외 - 이미 멤버이므로)
+  /** 사용자 선택/해제 — 이미 공유된 멤버는 선택 불가 */
   const toggleSelect = (user: User) => {
-    if (user.isAlreadyShared) return 
-    
+    if (user.isAlreadyShared) return
     setSelectedIds((prev) =>
-      prev.includes(user.id) ? prev.filter((i) => i !== user.id) : [...prev, user.id]
+      prev.includes(user.id) ? prev.filter((i) => i !== user.id) : [...prev, user.id],
     )
   }
 
-  // 대표 고객 지정 (이미 공유된 사람 + 새로 초대할 사람 모두 가능하지만 단 한 명만)
-  const handleAssignRepresentative = (e: React.MouseEvent, user: User) => {
-    e.stopPropagation() 
+  /**
+   * 대표 고객 지정 — 기존 멤버·신규 초대 모두 가능, 단 한 명만 지정
+   * 신규 초대 대상을 대표로 지정하면 자동으로 초대 목록에 추가됨
+   */
+  const handleAssignRepresentative = (e: MouseEvent, user: User) => {
+    e.stopPropagation()
     setRepresentativeId(user.id)
-    
-    // 만약 새로 초대할 사람을 대표로 지정했다면, 자동으로 체크박스도 선택됨
     if (!user.isAlreadyShared && !selectedIds.includes(user.id)) {
-      setSelectedIds(prev => [...prev, user.id])
+      setSelectedIds((prev) => [...prev, user.id])
     }
   }
 
+  /** 초대 제출 — 선택된 사용자 id 목록을 부모로 전달 후 상태 초기화 */
   const handleInviteSubmit = () => {
     onInvite(selectedIds)
     setSelectedIds([])
     setSearchQuery('')
-    // 대표 고객은 유지하거나 서버 연동에 따라 처리 (여기선 UI 초기화)
-    // setRepresentativeId(null)
   }
 
   return (
@@ -137,16 +136,15 @@ export function InviteModal({ isOpen, onClose, onInvite }: InviteModalProps) {
                   >
                     <div className="flex items-center gap-4">
                       {/* 체크박스: 이미 공유된 사람은 항상 체크된 상태로 보여주거나, 혹은 체크 불가능한 상태로 표현 */}
+                      {/* 체크박스: 기존 멤버=회색, 신규 선택=파란색, 미선택=흰색 */}
                       <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
                         isAlready
                           ? 'bg-[#E2E6EF] border-[#E2E6EF]'
-                          : isSelected 
-                            ? 'bg-[#3B45B3] border-[#3B45B3]' 
-                            : 'bg-white border-[#E2E6EF]'
+                          : isSelected
+                          ? 'bg-[#3B45B3] border-[#3B45B3]'
+                          : 'bg-white border-[#E2E6EF]'
                       }`}>
-                        {isAlready ? (
-                          <CheckCircle2 size={14} className="text-white" />
-                        ) : isSelected && (
+                        {(isAlready || isSelected) && (
                           <CheckCircle2 size={14} className="text-white" />
                         )}
                       </div>

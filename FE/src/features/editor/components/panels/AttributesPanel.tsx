@@ -1,9 +1,9 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import type { EditorMode, PanelKey, PanelOffset, PanelResizeAxis } from '../types'
+import type { EditorMode, PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
 import { BubbleAttributePanel, type BubbleConnectionInfo, type BubbleInfo, type BubbleZoneInfo } from './BubbleAttributePanel'
 import { TwoDAttributePanel } from './TwoDAttributePanel'
 import { ThreeDAttributePanel } from './ThreeDAttributePanel'
-import { PanelFrame } from './PanelFrame'
+import { PanelFrame } from '../shared/PanelFrame'
 
 interface AttributesPanelProps {
   mode: EditorMode

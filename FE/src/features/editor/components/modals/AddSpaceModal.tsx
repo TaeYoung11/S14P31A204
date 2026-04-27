@@ -1,8 +1,8 @@
 import { ChevronDown } from 'lucide-react'
-import type { AddSpaceFormData } from '../types'
-import { ROOM_TYPES } from '../constants'
-import { ColorSelector } from './ColorSelector'
-import EditorModal from './EditorModal'
+import type { AddSpaceFormData } from '../../types'
+import { ROOM_TYPES } from '../../constants'
+import { ColorSelector } from '../shared/ColorSelector'
+import EditorModal from '../shared/EditorModal'
 
 interface AddSpaceModalProps {
   isOpen: boolean

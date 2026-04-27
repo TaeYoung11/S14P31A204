@@ -1,12 +1,12 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import type { EditorMode, FloorLayer, PanelKey, PanelOffset, PanelResizeAxis, ZoneData } from '../types'
-import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from './BubbleAttributePanel'
-import { CollaborationPanel } from './CollaborationPanel'
-import { AttributesPanel } from './AttributesPanel'
-import { ZoningPanel } from './ZoningPanel'
-import { AssistantPanel } from './AssistantPanel'
-import { FloorViewPanel } from './FloorViewPanel'
-import { HierarchyPanel } from './HierarchyPanel'
+import type { EditorMode, FloorLayer, PanelKey, PanelOffset, PanelResizeAxis, ZoneData } from '../../types'
+import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from '../panels/BubbleAttributePanel'
+import { CollaborationPanel } from '../panels/CollaborationPanel'
+import { AttributesPanel } from '../panels/AttributesPanel'
+import { ZoningPanel } from '../panels/ZoningPanel'
+import { AssistantPanel } from '../panels/AssistantPanel'
+import { FloorViewPanel } from '../panels/FloorViewPanel'
+import { HierarchyPanel } from '../panels/HierarchyPanel'
 
 interface EditorRightPanelsProps {
   mode: EditorMode

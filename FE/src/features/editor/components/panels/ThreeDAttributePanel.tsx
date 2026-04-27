@@ -1,5 +1,5 @@
 import { ChevronDown } from 'lucide-react'
-import { ColorSelector } from './ColorSelector'
+import { ColorSelector } from '../shared/ColorSelector'
 import type { BubbleInfo } from './BubbleAttributePanel'
 
 interface ThreeDAttributePanelProps {

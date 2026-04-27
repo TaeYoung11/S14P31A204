@@ -1,6 +1,6 @@
 import { ChevronDown } from 'lucide-react'
 import type { BubbleInfo } from './BubbleAttributePanel'
-import { ROOM_TYPES } from '../constants'
+import { ROOM_TYPES } from '../../constants'
 
 interface TwoDAttributePanelProps {
   selectedBubble: BubbleInfo | null

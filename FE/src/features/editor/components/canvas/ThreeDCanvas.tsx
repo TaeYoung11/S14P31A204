@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Square, DoorOpen, LayoutGrid, Home, Box, Layers, X } from 'lucide-react'
-import type { FloorRoom } from '../types'
-import { hexToRgba } from '../utils/bubbleCalc'
+import type { FloorRoom } from '../../types'
+import { hexToRgba } from '../../utils/bubbleCalc'
 
 // ── 라이브러리 패널 카테고리 목록 ────────────────────────────────────────────
 const LIBRARY_CATEGORIES = [

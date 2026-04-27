@@ -35,13 +35,16 @@ export function useBubbles() {
     setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, type } : b)))
   }
 
-  /** 가로 치수 변경 → 면적 자동 재계산 */
-  const handleWidthChange = (id: string, width: number) => {
+  /**
+   * mm 치수(가로 또는 세로) 변경 → 면적 및 px 크기 자동 재계산
+   * @param axis 변경할 치수 축 ('width' | 'height')
+   */
+  const applyDimensionChange = (id: string, axis: 'width' | 'height', value: number) => {
     setBubbles((prev) =>
       prev.map((b) => {
         if (b.id !== id) return b
-        const nextWidthMm = width > 0 ? width : b.widthMm
-        const nextHeightMm = b.heightMm > 0 ? b.heightMm : 1000
+        const nextWidthMm = axis === 'width' ? (value > 0 ? value : b.widthMm) : (b.widthMm > 0 ? b.widthMm : 1000)
+        const nextHeightMm = axis === 'height' ? (value > 0 ? value : b.heightMm) : (b.heightMm > 0 ? b.heightMm : 1000)
         const ratio = calcAreaM2FromMm(nextWidthMm, nextHeightMm)
         const px = calcPxDimensionsByAreaAndAspect(ratio, nextWidthMm / nextHeightMm)
         return { ...b, width: px.width, height: px.height, widthMm: nextWidthMm, heightMm: nextHeightMm, ratio, area: `${ratio.toFixed(1)} m²` }
@@ -49,19 +52,11 @@ export function useBubbles() {
     )
   }
 
+  /** 가로 치수 변경 → 면적 자동 재계산 */
+  const handleWidthChange = (id: string, width: number) => applyDimensionChange(id, 'width', width)
+
   /** 세로 치수 변경 → 면적 자동 재계산 */
-  const handleHeightChange = (id: string, height: number) => {
-    setBubbles((prev) =>
-      prev.map((b) => {
-        if (b.id !== id) return b
-        const nextHeightMm = height > 0 ? height : b.heightMm
-        const nextWidthMm = b.widthMm > 0 ? b.widthMm : 1000
-        const ratio = calcAreaM2FromMm(nextWidthMm, nextHeightMm)
-        const px = calcPxDimensionsByAreaAndAspect(ratio, nextWidthMm / nextHeightMm)
-        return { ...b, width: px.width, height: px.height, widthMm: nextWidthMm, heightMm: nextHeightMm, ratio, area: `${ratio.toFixed(1)} m²` }
-      })
-    )
-  }
+  const handleHeightChange = (id: string, height: number) => applyDimensionChange(id, 'height', height)
 
   /** 면적 직접 변경 → 치수 자동 재계산 */
   const handleRatioChange = (id: string, ratio: number) => {

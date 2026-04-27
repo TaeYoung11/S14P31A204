@@ -1,6 +1,6 @@
-import type { ConnectionPair, ConnectionStyle } from '../types'
-import { LINE_STYLE_OPTIONS } from '../constants'
-import EditorModal from './EditorModal'
+import type { ConnectionPair, ConnectionStyle } from '../../types'
+import { LINE_STYLE_OPTIONS } from '../../constants'
+import EditorModal from '../shared/EditorModal'
 
 interface LineStyleModalProps {
   isOpen: boolean

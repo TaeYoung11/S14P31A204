@@ -1,20 +1,20 @@
 import { Hand, ZoomIn, ZoomOut, Users } from 'lucide-react'
-import { AddSpaceModal } from '../../features/editor/components/AddSpaceModal'
-import { BubbleCanvas } from '../../features/editor/components/BubbleCanvas'
-import { TwoDCanvas } from '../../features/editor/components/TwoDCanvas'
-import { ThreeDCanvas } from '../../features/editor/components/ThreeDCanvas'
-import { RealisticViewer } from '../../features/editor/components/RealisticViewer'
-import { TwoDLeftPanels } from '../../features/editor/components/TwoDLeftPanels'
-import EditorHeader from '../../features/editor/components/EditorHeader'
-import EditorLeftSidebar from '../../features/editor/components/EditorLeftSidebar'
-import { EditorRightPanels } from '../../features/editor/components/EditorRightPanels'
-import EditorToolbar from '../../features/editor/components/EditorToolbar'
-import { LineStyleModal } from '../../features/editor/components/LineStyleModal'
-import { ZoningModal } from '../../features/editor/components/ZoningModal'
-import { InviteModal } from '../../features/editor/components/InviteModal'
-import { ExportModal } from '../../features/editor/components/ExportModal'
-import { ExportSelectionModal } from '../../features/editor/components/ExportSelectionModal'
-import { IFCExportModal } from '../../features/editor/components/IFCExportModal'
+import { AddSpaceModal } from '../../features/editor/components/modals/AddSpaceModal'
+import { BubbleCanvas } from '../../features/editor/components/canvas/BubbleCanvas'
+import { TwoDCanvas } from '../../features/editor/components/canvas/TwoDCanvas'
+import { ThreeDCanvas } from '../../features/editor/components/canvas/ThreeDCanvas'
+import { RealisticViewer } from '../../features/editor/components/canvas/RealisticViewer'
+import { TwoDLeftPanels } from '../../features/editor/components/layout/TwoDLeftPanels'
+import EditorHeader from '../../features/editor/components/layout/EditorHeader'
+import EditorLeftSidebar from '../../features/editor/components/layout/EditorLeftSidebar'
+import { EditorRightPanels } from '../../features/editor/components/layout/EditorRightPanels'
+import EditorToolbar from '../../features/editor/components/layout/EditorToolbar'
+import { LineStyleModal } from '../../features/editor/components/modals/LineStyleModal'
+import { ZoningModal } from '../../features/editor/components/modals/ZoningModal'
+import { InviteModal } from '../../features/editor/components/modals/InviteModal'
+import { ExportModal } from '../../features/editor/components/modals/ExportModal'
+import { ExportSelectionModal } from '../../features/editor/components/modals/ExportSelectionModal'
+import { IFCExportModal } from '../../features/editor/components/modals/IFCExportModal'
 import { useEditorPage } from '../../features/editor/hooks/useEditorPage'
 
 export default function EditorPage() {
@@ -257,17 +257,13 @@ export default function EditorPage() {
               {mode === '3d' && (
                 <>
                   <div className="w-px h-5 bg-[#E2E6EF] mx-2" />
-                  <button className="p-1.5 text-[#3B45B3] bg-[#F0F2FF] rounded-xl shadow-sm">
+                  {/* 3D 뷰 회전 아이콘 — 두 개의 호 + "3D" 텍스트 */}
+                  <button aria-label="3D 뷰 회전" className="p-1.5 text-[#3B45B3] bg-[#F0F2FF] rounded-xl shadow-sm">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                      {/* 위쪽 화살표 (오른쪽 방향) */}
                       <path d="M20.5 5.5C18.6 3.6 16 2.5 13 2.5V0.5L9.5 3.5L13 6.5V4.5C15.4 4.5 17.6 5.4 19.1 6.9L20.5 5.5Z" />
-                      {/* 아래쪽 화살표 (왼쪽 방향) */}
                       <path d="M3.5 18.5C5.4 20.4 8 21.5 11 21.5V23.5L14.5 20.5L11 17.5V19.5C8.6 19.5 6.4 18.6 4.9 17.1L3.5 18.5Z" />
-                      {/* 위쪽 호 */}
                       <path d="M21.5 7.5C22.4 9 23 10.5 23 12H21C21 10.9 20.6 9.8 19.9 8.8L21.5 7.5Z" />
-                      {/* 아래쪽 호 */}
                       <path d="M2.5 16.5C1.6 15 1 13.5 1 12H3C3 13.1 3.4 14.2 4.1 15.2L2.5 16.5Z" />
-                      {/* 3D 텍스트 */}
                       <text x="12" y="15.5" textAnchor="middle" fontSize="8" fontWeight="900" fontFamily="Arial, sans-serif" fill="currentColor">3D</text>
                     </svg>
                   </button>

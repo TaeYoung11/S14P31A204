@@ -96,6 +96,9 @@ export function useEditorPage() {
   }, [bubbles, connections, stageSize.width, stageSize.height, isFloorPlanGenerated, refreshFloorPlan])
 
   // 버블이 1개 이상 생기면 평면도가 없을 때 즉시 자동 생성 (모드 무관)
+  // deps에 bubbles.length만 포함하는 것은 의도적: 버블 위치/속성 변경은 refreshFloorPlan이 담당하므로
+  // 최초 생성(버블 개수 변화)에만 반응하도록 제한함
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!isFloorPlanGenerated && bubbles.length > 0 && stageSize.width > 0) {
       generateFloorPlan(bubbles, connections, stageSize.width, stageSize.height)

@@ -5,37 +5,39 @@ interface ExportModalProps {
   onClose: () => void
 }
 
+/** 파일 내보내기 진행 상태 모달 — 원형 프로그레스 바 애니메이션 포함 */
 export function ExportModal({ isOpen, onClose }: ExportModalProps) {
   const [progress, setProgress] = useState(0)
-  const [currentSize, setCurrentSize] = useState(0)
-  const totalSize = 64.8
+  const TOTAL_SIZE_MB = 64.8
 
+  // 파일 크기는 progress에서 직접 계산 (별도 state 불필요)
+  const currentSizeMb = (progress / 100) * TOTAL_SIZE_MB
+
+  /** 모달이 열릴 때마다 progress를 0부터 시뮬레이션, 완료 시 자동 닫힘 */
   useEffect(() => {
-    if (isOpen) {
-      setProgress(0)
-      setCurrentSize(0)
-      
-      const interval = setInterval(() => {
-        setProgress((prev) => {
-          if (prev >= 100) {
-            clearInterval(interval)
-            setTimeout(onClose, 1000)
-            return 100
-          }
-          const next = prev + Math.random() * 5
-          return next > 100 ? 100 : next
-        })
-      }, 150)
+    if (!isOpen) return
 
-      return () => clearInterval(interval)
-    }
+    setProgress(0)
+
+    const interval = setInterval(() => {
+      setProgress((prev) => {
+        const next = prev + Math.random() * 5
+        if (next >= 100) {
+          clearInterval(interval)
+          setTimeout(onClose, 1000)
+          return 100
+        }
+        return next
+      })
+    }, 150)
+
+    return () => clearInterval(interval)
   }, [isOpen, onClose])
 
-  useEffect(() => {
-    setCurrentSize((progress / 100) * totalSize)
-  }, [progress])
-
   if (!isOpen) return null
+
+  // SVG 원형 프로그레스: 반지름 100 기준 둘레 ≈ 628
+  const circumference = 628
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center">
@@ -47,17 +49,9 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
 
         {/* 원형 진행 표시기 */}
         <div className="relative w-64 h-64 mb-12 flex items-center justify-center">
-          {/* 배경 원 */}
           <svg className="w-full h-full transform -rotate-90">
-            <circle
-              cx="128"
-              cy="128"
-              r="100"
-              stroke="#F0F2F9"
-              strokeWidth="16"
-              fill="transparent"
-              strokeLinecap="round"
-            />
+            {/* 배경 트랙 */}
+            <circle cx="128" cy="128" r="100" stroke="#F0F2F9" strokeWidth="16" fill="transparent" strokeLinecap="round" />
             {/* 진행률 원 */}
             <circle
               cx="128"
@@ -66,19 +60,19 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
               stroke="#3B45B3"
               strokeWidth="16"
               fill="transparent"
-              strokeDasharray={`${(progress / 100) * 628} 628`}
+              strokeDasharray={`${(progress / 100) * circumference} ${circumference}`}
               strokeDashoffset="0"
               strokeLinecap="round"
               className="transition-all duration-300 ease-out"
             />
           </svg>
-          
+
           {/* 진행률 텍스트 */}
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <span className="text-[44px] font-black text-[#3B45B3] leading-none mb-1">
               {Math.round(progress)}%
             </span>
-            <span className="text-[11px] font-extrabold text-[#ADB5BD] tracking-[0.2em]">COMPLETED</span>
+            <span className="text-[11px] font-extrabold text-[#ADB5BD] tracking-[0.2em]">완료</span>
           </div>
         </div>
 
@@ -95,12 +89,12 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
         <div className="w-full flex items-center justify-between px-2 pt-8 border-t border-[#E2E6EF]">
           <div className="flex items-center gap-3">
             <div className="w-2.5 h-2.5 bg-[#3B45B3] rounded-full animate-pulse" />
-            <span className="text-[11px] font-black text-[#ADB5BD] tracking-wider uppercase">Archiving Assets</span>
+            <span className="text-[11px] font-black text-[#ADB5BD] tracking-wider uppercase">에셋 아카이빙 중</span>
           </div>
           <div className="text-[11px] font-black text-[#8E95A3]">
-            <span className="text-[#1C1C1E]">{currentSize.toFixed(1)} MB</span>
+            <span className="text-[#1C1C1E]">{currentSizeMb.toFixed(1)} MB</span>
             <span className="mx-1">/</span>
-            <span>{totalSize} MB</span>
+            <span>{TOTAL_SIZE_MB} MB</span>
           </div>
         </div>
       </div>
