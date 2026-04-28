@@ -1,5 +1,5 @@
-from enum import Enum
-from typing import Any, Literal, Optional
+from enum import StrEnum
+from typing import Any, Literal, TypedDict
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -20,9 +20,9 @@ class NewRoom(BaseModel):
     )
     width: int = Field(..., gt=0, description="밀리미터(mm) 단위 양의 정수")
     height: int = Field(..., gt=0, description="밀리미터(mm) 단위 양의 정수")
-    rects: Optional[list[dict]] = Field(
+    rects: list[dict] | None = Field(
         None,
-        description="rect 조합 리스트. shape_to_rects()가 자동 생성. 각 dict: {x: int, y: int, width: int, height: int} (mm 단위)",
+        description="shape_to_rects() 자동 생성. 각 dict: {x, y, width, height} (mm 단위)",
     )
     floor: int = Field(..., ge=1, description="층 번호")
 
@@ -36,19 +36,19 @@ class FloorNLPCommand(BaseModel):
         "lock_room",
         "unlock_room",
     ]
-    target_room_name: Optional[str] = Field(
+    target_room_name: str | None = Field(
         None, description="대상 방 이름"
     )
-    target_floor: Optional[int] = Field(
+    target_floor: int | None = Field(
         None, ge=1, description="대상 층 번호"
     )
-    new_room: Optional[NewRoom] = Field(
+    new_room: NewRoom | None = Field(
         None, description="새로 추가할 방 정보"
     )
-    adjacency_target: Optional[str] = Field(
+    adjacency_target: str | None = Field(
         None, description="인접 관계 대상 방 이름"
     )
-    adjacency_strength: Optional[float] = Field(
+    adjacency_strength: float | None = Field(
         None, ge=0.0, le=1.0, description="인접 강도 0.0 ~ 1.0"
     )
     confidence: float = Field(
@@ -57,13 +57,13 @@ class FloorNLPCommand(BaseModel):
     resize_shape: Literal["rect", "L", "U"] = Field(
         "rect", description="변경할 방 형태"
     )
-    resize_width: Optional[int] = Field(
+    resize_width: int | None = Field(
         None, gt=0, description="밀리미터(mm) 단위 정수"
     )
-    resize_height: Optional[int] = Field(
+    resize_height: int | None = Field(
         None, gt=0, description="밀리미터(mm) 단위 정수"
     )
-    resize_rects: Optional[list[dict]] = Field(
+    resize_rects: list[dict] | None = Field(
         None,
         description="resize_room 시 rect 조합 리스트. shape_to_rects()가 자동 생성.",
     )
@@ -71,7 +71,7 @@ class FloorNLPCommand(BaseModel):
         False, description="동일 이름 방 전체 적용 여부"
     )
     needs_clarification: bool = False
-    clarification_question: Optional[str] = None
+    clarification_question: str | None = None
 
     @model_validator(mode="after")
     def validate_action_fields(self):
@@ -92,7 +92,7 @@ class FloorNLPCommand(BaseModel):
         return self
 
 
-class ActionType(str, Enum):
+class ActionType(StrEnum):
     CREATE_SPACE = "create_space"
     UPDATE_SPACE = "update_space"
     DELETE_SPACE = "delete_space"
@@ -112,7 +112,7 @@ class ActionType(str, Enum):
 
 class IFCCommand(BaseModel):
     action: ActionType
-    target_id: Optional[str] = Field(
+    target_id: str | None = Field(
         None,
         description="Target IFC GlobalId. Use None when creating a new element.",
     )
@@ -124,7 +124,7 @@ class IFCCommand(BaseModel):
         ),
     )
     confidence: float = Field(..., ge=0.0, le=1.0)
-    reason: Optional[str] = None
+    reason: str | None = None
 
     @model_validator(mode="after")
     def validate_target_id(self):
@@ -146,7 +146,7 @@ class IFCCommand(BaseModel):
 class CommandBatch(BaseModel):
     commands: list[IFCCommand] = Field(default_factory=list)
     requires_clarification: bool
-    clarification_question: Optional[str] = None
+    clarification_question: str | None = None
     failed_command_indices: list[int] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -161,3 +161,23 @@ class CommandBatch(BaseModel):
                 "clarification_question must be None when requires_clarification is False."
             )
         return self
+
+
+# ---------------------------------------------------------------------------
+# IFC Context TypedDicts — ifc_context 딕셔너리의 타입 명세
+# ---------------------------------------------------------------------------
+
+class SpaceContext(TypedDict):
+    id: str
+    name: str
+    floor: int
+
+
+class StoreyContext(TypedDict):
+    id: str
+    floor: int
+
+
+class IFCContext(TypedDict):
+    spaces: list[SpaceContext]
+    storeys: list[StoreyContext]
