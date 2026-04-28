@@ -605,6 +605,51 @@ def test_renderer_resolves_view_specific_target() -> None:
         assert renderer._resolve_target_ratio(v) == VIEW_TARGET_RATIOS[v]
 
 
+def test_render_views_computes_pca_once_per_mesh() -> None:
+    """render_views(N뷰) 호출 시 PCA는 mesh당 1회만 계산되어야 한다 (성능 보장).
+
+    PCA 결과는 view-invariant — 같은 mesh에서 매 view마다 재계산하면 낭비.
+    """
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array(
+        [[0, 0, 0], [10, 0, 0], [10, 5, 0], [0, 5, 0],
+         [0, 0, 3], [10, 0, 3], [10, 5, 3], [0, 5, 3]]
+    )
+    fake_center = np.array([5.0, 2.5, 1.5])
+
+    with (
+        patch(
+            "ai_rendering.ifc2img.renderer.load_mesh",
+            return_value=(fake_mesh, fake_center),
+        ),
+        patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
+        patch(
+            "ai_rendering.ifc2img.renderer.compute_principal_axes",
+            return_value=(
+                np.array([1.0, 0.0, 0.0]),
+                np.array([0.0, 1.0, 0.0]),
+                True,
+            ),
+        ) as mock_pca,
+    ):
+        vis = MagicMock()
+        mock_o3d.visualization.Visualizer.return_value = vis
+        depth = np.zeros((448, 768), dtype=np.float32)
+        depth[100:300, 200:500] = 5.0
+        vis.capture_depth_float_buffer.return_value = depth
+
+        renderer = IFCRenderer(pca_align=True)
+        results = renderer.render_views(
+            Path("dummy.ifc"),
+            views=[IFCView.FRONT, IFCView.SIDE, IFCView.ISO_NE,
+                   IFCView.ISO_NW, IFCView.ISO_SE],
+        )
+
+    assert len(results) == 5
+    # 핵심 — PCA는 mesh당 1회만 (5뷰 호출이지만 1회).
+    assert mock_pca.call_count == 1
+
+
 def test_renderer_pca_align_off_uses_static_front() -> None:
     """pca_align=False 시 동적 front 계산 안 함, VIEW_CAMERAS 정적값 그대로."""
     fake_mesh = MagicMock()

@@ -84,8 +84,12 @@ class IFCRenderer:
         if views is None:
             views = list(DEFAULT_RENDER_VIEWS)
         mesh, center = load_mesh(ifc_path)
+        # PCA는 view-invariant — mesh당 1회만 계산해 모든 view에서 재사용.
+        pca_axes = self._compute_pca_axes(mesh)
         return {
-            view: self._render_mesh(mesh, center, self._resolve_camera(mesh, view), view)
+            view: self._render_mesh(
+                mesh, center, self._camera_for_view(view, pca_axes), view
+            )
             for view in views
         }
 
@@ -96,23 +100,44 @@ class IFCRenderer:
         """
         return VIEW_TARGET_RATIOS.get(view, self.target_screen_ratio)
 
+    def _compute_pca_axes(
+        self,
+        mesh: o3d.geometry.TriangleMesh,
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """mesh PCA 1회 계산. None이면 호출자는 정적 fallback 사용.
+
+        반환 None 조건: pca_align=False / vertex 3개 미만 / eigenvalue 격차 부족.
+        """
+        if not self.pca_align:
+            return None
+        verts = np.asarray(mesh.vertices)
+        if len(verts) < 3:
+            return None
+        long_axis, mid_axis, valid = compute_principal_axes(verts)
+        if not valid:
+            return None
+        return long_axis, mid_axis
+
+    def _camera_for_view(
+        self,
+        view: IFCView,
+        pca_axes: tuple[np.ndarray, np.ndarray] | None,
+    ) -> CameraParams:
+        """미리 계산된 PCA 결과로 view 카메라 산출. None이면 정적 fallback."""
+        static = VIEW_CAMERAS[view]
+        if pca_axes is None:
+            return static
+        long_axis, mid_axis = pca_axes
+        front = compute_dynamic_front(view, long_axis, mid_axis)
+        return CameraParams(front=front, up=static.up, zoom=static.zoom)
+
     def _resolve_camera(
         self,
         mesh: o3d.geometry.TriangleMesh,
         view: IFCView,
     ) -> CameraParams:
-        """view에 대한 카메라 파라미터 결정. pca_align=True 이고 PCA 유효하면 동적 front."""
-        static = VIEW_CAMERAS[view]
-        if not self.pca_align:
-            return static
-        verts = np.asarray(mesh.vertices)
-        if len(verts) < 3:
-            return static
-        long_axis, mid_axis, valid = compute_principal_axes(verts)
-        if not valid:
-            return static
-        front = compute_dynamic_front(view, long_axis, mid_axis)
-        return CameraParams(front=front, up=static.up, zoom=static.zoom)
+        """단일 호출 진입점 — PCA 1회 계산 후 view 카메라 결정. render() 등 1회성용."""
+        return self._camera_for_view(view, self._compute_pca_axes(mesh))
 
     def _initial_zoom(
         self,
