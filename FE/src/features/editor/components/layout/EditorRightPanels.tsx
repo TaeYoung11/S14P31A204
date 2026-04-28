@@ -1,5 +1,6 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { EditorMode, FloorLayer, PanelKey, PanelOffset, PanelResizeAxis, ZoneData } from '../../types'
+import type { LlmEditPreview, LlmEditStatus } from '../../types/llmEdit.types'
 import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from '../panels/BubbleAttributePanel'
 import { CollaborationPanel } from '../panels/CollaborationPanel'
 import { AttributesPanel } from '../panels/AttributesPanel'
@@ -37,6 +38,21 @@ interface EditorRightPanelsProps {
   onOpenZoningModal: () => void
   onOpenEditZoningModal: (zone: ZoneData) => void
   onDeleteZoning: (zoneId: string) => void
+  llmProvider: 'mock' | 'api'
+  llmPrompt: string
+  llmStatus: LlmEditStatus
+  llmIsLoading: boolean
+  llmMessage: string
+  llmSuggestions: string[]
+  llmPreview: LlmEditPreview | null
+  llmCanRun: boolean
+  onLlmPromptChange: (value: string) => void
+  onRunLlmEdit: () => void
+  onApplyLlmEdit: () => void
+  onDiscardLlmEdit: () => void
+  floorProjectImportMessage: string
+  onImportFloorProjectJson: (rawJson: string) => Promise<void>
+  onImportSampleFloorProject: () => void
   onPanelDragStart: (panelKey: PanelKey, event: ReactMouseEvent<HTMLButtonElement>) => void
   onPanelResizeStart: (panelKey: PanelKey, axis: PanelResizeAxis, event: ReactMouseEvent<HTMLButtonElement>) => void
   onTogglePanel: (panelKey: PanelKey) => void
@@ -72,6 +88,21 @@ export function EditorRightPanels({
   onOpenZoningModal,
   onOpenEditZoningModal,
   onDeleteZoning,
+  llmPrompt,
+  llmProvider,
+  llmStatus,
+  llmIsLoading,
+  llmMessage,
+  llmSuggestions,
+  llmPreview,
+  llmCanRun,
+  onLlmPromptChange,
+  onRunLlmEdit,
+  onApplyLlmEdit,
+  onDiscardLlmEdit,
+  floorProjectImportMessage,
+  onImportFloorProjectJson,
+  onImportSampleFloorProject,
   onPanelDragStart,
   onPanelResizeStart,
   onTogglePanel,
@@ -155,12 +186,27 @@ export function EditorRightPanels({
         </>
       )}
 
-      {mode !== 'bubble' && (
+      {mode !== 'view' && (
         <AssistantPanel
           isOpen={panelOpenState.assistant}
           offset={panelOffsets.assistant}
           width={panelWidths.assistant}
           height={panelHeights.assistant}
+          provider={llmProvider}
+          prompt={llmPrompt}
+          status={llmStatus}
+          isLoading={llmIsLoading}
+          message={llmMessage}
+          suggestions={llmSuggestions}
+          preview={llmPreview}
+          canRun={llmCanRun}
+          onPromptChange={onLlmPromptChange}
+          onRun={onRunLlmEdit}
+          onApply={onApplyLlmEdit}
+          onDiscard={onDiscardLlmEdit}
+          floorProjectImportMessage={floorProjectImportMessage}
+          onImportFloorProjectJson={onImportFloorProjectJson}
+          onImportSampleFloorProject={onImportSampleFloorProject}
           onDragStart={onPanelDragStart}
           onResizeStart={onPanelResizeStart}
           onToggle={onTogglePanel}

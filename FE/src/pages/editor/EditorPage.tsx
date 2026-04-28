@@ -28,7 +28,7 @@ export default function EditorPage() {
     handleMarqueeSelect, clearSelection, handleBubbleResize,
     handleLabelChange, handleTypeChange,
     handleWidthChange, handleHeightChange, handleRatioChange, handleColorChange,
-    connections, selectedBubbleConnections,
+    connections, floorPlanConnections, selectedBubbleConnections,
     selectedConnectionPair,
     isLineStyleModalOpen, selectedLineStyle, lineConnectionPair,
     confirmLineStyleModal, closeLineStyleModal, setSelectedStyle,
@@ -44,6 +44,7 @@ export default function EditorPage() {
     handleDeleteBubble,
     isFloorPlanGenerated, isFloorPlanGenerating, floorRooms, handleGenerateFloorPlan,
     floorLayers, activeFloorLayerId, addFloorLayer, setActiveFloorLayerId,
+    floorProjectImportMessage, importFloorProjectFromJson, importSampleFloorProject,
     isCollaborationMode, selectedPinId, setSelectedPinId,
     collaborationTab, setCollaborationTab,
     handleToggleCollaboration, handlePinClick,
@@ -58,6 +59,8 @@ export default function EditorPage() {
     isExportModalOpen, handleOpenExportModal, onCloseExportModal,
     isExportSelectionModalOpen, handleOpenExportSelectionModal, onCloseExportSelectionModal,
     isIFCExportModalOpen, handleOpenIFCExportModal, onCloseIFCExportModal,
+    llmProvider, llmPrompt, setLlmPrompt, llmStatus, llmIsLoading, llmMessage, llmSuggestions, llmPreview, llmCanRun,
+    runLlmEdit, applyLlmEdit, discardLlmEdit,
   } = useEditorPage()
 
   return (
@@ -183,7 +186,7 @@ export default function EditorPage() {
               selectedPinId={selectedPinId}
               onPinClick={handlePinClick}
               rooms={floorRooms}
-              connections={connections}
+              connections={floorPlanConnections}
               isGenerated={isFloorPlanGenerated}
               isGenerating={isFloorPlanGenerating}
               onGenerate={handleGenerateFloorPlan}
@@ -281,6 +284,21 @@ export default function EditorPage() {
             onOpenZoningModal={openZoningModal}
             onOpenEditZoningModal={openEditModal}
             onDeleteZoning={deleteZone}
+            llmProvider={llmProvider}
+            llmPrompt={llmPrompt}
+            llmStatus={llmStatus}
+            llmIsLoading={llmIsLoading}
+            llmMessage={llmMessage}
+            llmSuggestions={llmSuggestions}
+            llmPreview={llmPreview}
+            llmCanRun={llmCanRun}
+            onLlmPromptChange={setLlmPrompt}
+            onRunLlmEdit={runLlmEdit}
+            onApplyLlmEdit={applyLlmEdit}
+            onDiscardLlmEdit={discardLlmEdit}
+            floorProjectImportMessage={floorProjectImportMessage}
+            onImportFloorProjectJson={importFloorProjectFromJson}
+            onImportSampleFloorProject={importSampleFloorProject}
             onPanelDragStart={startDrag}
             onPanelResizeStart={startResize}
             onTogglePanel={togglePanel}

@@ -236,6 +236,16 @@ export function useBubbles() {
     return newBubble
   }
 
+  /** 외부 연산(예: AI 미리보기 적용) 결과로 버블 목록 일괄 교체 */
+  const replaceBubbles = (nextBubbles: BubbleData[]) => {
+    setBubbles(nextBubbles)
+    const idSet = new Set(nextBubbles.map((bubble) => bubble.id))
+    const nextSelectedIds = selectedIdsRef.current.filter((id) => idSet.has(id))
+    updateSelectedIds(nextSelectedIds)
+    if (selectedId && !idSet.has(selectedId)) setSelectedId(nextSelectedIds[nextSelectedIds.length - 1] ?? null)
+    if (previousSelectedId && !idSet.has(previousSelectedId)) setPreviousSelectedId(null)
+  }
+
   return {
     bubbles,
     selectedId,
@@ -254,6 +264,7 @@ export function useBubbles() {
     handleColorChange,
     addBubble,
     addBubbleAt,
+    replaceBubbles,
     deleteBubble,
   }
 }

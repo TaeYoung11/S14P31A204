@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import type { AddSpaceFormData, EditorMode } from '../types'
+import { useParams, useSearchParams } from 'react-router-dom'
+import type { AddSpaceFormData, BubbleData, ConnectionData, EditorMode } from '../types'
 import { INITIAL_ADD_SPACE_FORM, SITE_RAW_POINTS } from '../constants'
 import { useBubbles } from './useBubbles'
 import { useConnections } from './useConnections'
@@ -8,8 +8,12 @@ import { usePanels } from './usePanels'
 import { useStageSize } from './useStageSize'
 import { useZones } from './useZones'
 import { useFloorPlan } from './useFloorPlan'
+import { useLlmEdit } from './useLlmEdit'
+import { useFloorProjectImport } from './useFloorProjectImport'
 import { centerSitePoints } from '../utils/bubbleCalc'
 import type { EmptyCanvasDblClickInfo } from '../components/canvas/BubbleCanvas'
+import { mapAdjacencyToConnections, mapFloorProjectToBubbles } from '../utils/floorProjectMapper'
+import type { FloorProject } from '../types/floorProject.types'
 
 /** 에디터 모드 허용 목록 — URL 파라미터 검증용 */
 const EDITOR_MODES: EditorMode[] = ['bubble', '2d', '3d', 'view']
@@ -32,6 +36,7 @@ function isSameConnection(
  * 버블·연결선·조닝·패널·평면도·UI 상태를 하위 훅에서 합성해 관리
  */
 export function useEditorPage() {
+  const { projectId } = useParams<{ projectId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const mode = resolveMode(searchParams.get('mode'))
 
@@ -56,6 +61,7 @@ export function useEditorPage() {
     handleColorChange,
     addBubble,
     addBubbleAt,
+    replaceBubbles,
     deleteBubble,
   } = useBubbles()
 
@@ -72,6 +78,7 @@ export function useEditorPage() {
     setSelectedStyle,
     removeConnectionsForBubble,
     removeConnection,
+    replaceConnections,
   } = useConnections()
 
   /** 선택된 연결선 (Delete 키/삭제 도구 대상) */
@@ -100,6 +107,7 @@ export function useEditorPage() {
   const {
     isGenerated: isFloorPlanGenerated,
     isGenerating: isFloorPlanGenerating,
+    layoutSource: floorPlanLayoutSource,
     layers: floorLayers,
     activeLayerId: activeFloorLayerId,
     activeRooms: floorRooms,
@@ -107,14 +115,15 @@ export function useEditorPage() {
     refreshFloorPlan,
     addFloorLayer,
     setActiveLayerId: setActiveFloorLayerId,
+    syncFloorPlanFromBubbles,
   } = useFloorPlan()
 
   // 버블·연결선 변경 시 이미 생성된 평면도를 조용히 갱신 (로딩 없음)
   useEffect(() => {
-    if (isFloorPlanGenerated && bubbles.length > 0 && stageSize.width > 0) {
+    if (floorPlanLayoutSource === 'bubble' && isFloorPlanGenerated && bubbles.length > 0 && stageSize.width > 0) {
       refreshFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
     }
-  }, [bubbles, connections, stageSize.width, stageSize.height, isFloorPlanGenerated, refreshFloorPlan])
+  }, [bubbles, connections, stageSize.width, stageSize.height, isFloorPlanGenerated, floorPlanLayoutSource, refreshFloorPlan])
 
   // 버블이 1개 이상 생기면 평면도가 없을 때 즉시 자동 생성 (모드 무관)
   useEffect(() => {
@@ -358,6 +367,65 @@ export function useEditorPage() {
 
   const toggleGrid = () => setIsGridVisible((prev) => !prev)
 
+  /**
+   * 공통 선택 상태 초기화
+   * - 버블 선택
+   * - 연결 생성 대기 상태
+   * - 연결선 선택 상태
+   */
+  const resetInteractionSelection = useCallback(() => {
+    setSelectedConnectionPair(null)
+    setConnectingFromId(null)
+    clearSelection()
+  }, [clearSelection])
+
+  /** 표준 FloorProject를 버블/2D/3D 공통 상태로 반영 */
+  const applyFloorProject = useCallback((project: FloorProject) => {
+    const nextBubbles = mapFloorProjectToBubbles(project, {
+      width: stageSize.width,
+      height: stageSize.height,
+    })
+    const bubbleIdSet = new Set(nextBubbles.map((bubble) => bubble.id))
+    const nextConnections = mapAdjacencyToConnections(project.adjacency).filter((connection) => {
+      return bubbleIdSet.has(connection.from) && bubbleIdSet.has(connection.to)
+    })
+    replaceBubbles(nextBubbles)
+    replaceConnections(nextConnections)
+    syncFloorPlanFromBubbles(nextBubbles, nextConnections, stageSize.width, stageSize.height)
+    resetInteractionSelection()
+  }, [stageSize.width, stageSize.height, replaceBubbles, replaceConnections, syncFloorPlanFromBubbles, resetInteractionSelection])
+
+  /** BATANG 2D JSON import 상태/핸들러 */
+  const {
+    floorProjectImportMessage,
+    importFloorProjectFromJson,
+    importSampleFloorProject,
+    clearImportMessage,
+  } = useFloorProjectImport({
+    stageSize,
+    onApplyProject: applyFloorProject,
+  })
+
+  /** AI 미리보기 적용 — 버블/연결선 일괄 반영 후 선택 상태 정리 */
+  const applyLlmPreview = useCallback(
+    (nextBubbles: BubbleData[], nextConnections: ConnectionData[]) => {
+      replaceBubbles(nextBubbles)
+      replaceConnections(nextConnections)
+      clearImportMessage()
+      syncFloorPlanFromBubbles(nextBubbles, nextConnections, stageSize.width, stageSize.height)
+      resetInteractionSelection()
+    },
+    [replaceBubbles, replaceConnections, clearImportMessage, syncFloorPlanFromBubbles, stageSize.width, stageSize.height, resetInteractionSelection],
+  )
+
+  /** AI 어시스턴트 편집 상태 */
+  const llmEdit = useLlmEdit({
+    projectId: projectId ?? null,
+    bubbles,
+    connections,
+    onApply: applyLlmPreview,
+  })
+
   return {
     // 모드
     mode,
@@ -452,6 +520,10 @@ export function useEditorPage() {
     handleGenerateFloorPlan,
     addFloorLayer,
     setActiveFloorLayerId,
+    floorPlanConnections: connections,
+    floorProjectImportMessage,
+    importFloorProjectFromJson,
+    importSampleFloorProject,
     // 그리드
     isGridVisible,
     toggleGrid,
@@ -488,5 +560,18 @@ export function useEditorPage() {
     isIFCExportModalOpen,
     handleOpenIFCExportModal: () => setIsIFCExportModalOpen(true),
     onCloseIFCExportModal: () => setIsIFCExportModalOpen(false),
+    // AI 어시스턴트
+    llmProvider: llmEdit.provider,
+    llmPrompt: llmEdit.prompt,
+    setLlmPrompt: llmEdit.setPrompt,
+    llmStatus: llmEdit.status,
+    llmIsLoading: llmEdit.isLoading,
+    llmMessage: llmEdit.message,
+    llmSuggestions: llmEdit.suggestions,
+    llmPreview: llmEdit.preview,
+    llmCanRun: llmEdit.canRun,
+    runLlmEdit: llmEdit.run,
+    applyLlmEdit: llmEdit.apply,
+    discardLlmEdit: llmEdit.discard,
   }
 }
