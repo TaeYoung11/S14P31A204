@@ -17,7 +17,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
 BEFORE_DIR = ROOT / "outputs" / "ifc2img_seed_sweep" / "seed_0007"
-AFTER_DIR = ROOT / "outputs" / "ifc2img_option_c1"
+V1_DIR = ROOT / "outputs" / "ifc2img_option_c1_v1"
+V2_DIR = ROOT / "outputs" / "ifc2img_option_c1"
 OUT_DIR = ROOT / "outputs" / "ifc2img_option_c1_grids"
 
 VIEWS = ["front", "side", "iso_ne", "iso_nw", "iso_se"]
@@ -26,7 +27,8 @@ PADDING = 4
 
 COLUMNS = [
     ("Before (base neg)", BEFORE_DIR),
-    ("After (C-1 view neg)", AFTER_DIR),
+    ("C-1 v1 (8 tokens)", V1_DIR),
+    ("C-1 v2 (2 tokens)", V2_DIR),
 ]
 
 
@@ -88,8 +90,9 @@ def _make_all_views(cw: int, ch: int) -> Image.Image:
 
 
 def main() -> int:
-    if not BEFORE_DIR.exists() or not AFTER_DIR.exists():
-        print(f"[error] missing: {BEFORE_DIR} or {AFTER_DIR}")
+    missing = [d for _, d in COLUMNS if not d.exists()]
+    if missing:
+        print(f"[error] missing: {missing}")
         return 2
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)

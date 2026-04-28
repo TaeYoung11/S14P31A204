@@ -173,16 +173,17 @@ def build_view_prompt(base_prompt: str, view: IFCView) -> str:
 # *해당 형상이 덜 그려지게* 유도.
 #
 # 빈 문자열 = 추가 차단 없음 (FRONT/SIDE는 facade만 보여 hallucinate 적음).
+#
+# C-1 1차 시도(8 토큰: additional building, second house, basement, underground level,
+# extra floor, lower level, duplicate building, attached annex)는 CLIP 77 토큰 한계
+# 초과(`85 > 77` 경고) + 'building'/'floor'/'level' 일반 명사가 *집 자체*도 약화 →
+# 형상 더 일그러짐. 재시도 — 토큰 2개로 압축, 일반 명사 회피.
 VIEW_NEGATIVE_SUFFIXES: dict[IFCView, str] = {
     IFCView.FRONT: "",
     IFCView.SIDE: "",
     IFCView.ISO_NE: "",
-    IFCView.ISO_NW: ", additional building behind, second house, "
-                     "basement, underground level, extra floor, lower level, "
-                     "duplicate building, attached annex",
-    IFCView.ISO_SE: ", additional building behind, second house, "
-                     "basement, underground level, extra floor, lower level, "
-                     "duplicate building, attached annex",
+    IFCView.ISO_NW: ", additional building, basement",
+    IFCView.ISO_SE: ", additional building, basement",
     IFCView.TOP: "",
     IFCView.BIRDS_EYE: "",
     IFCView.CORNER_LOW: "",
