@@ -193,6 +193,66 @@ def test_layout_import_v1_rejects_duplicate_zone_ids() -> None:
         )
 
 
+def test_layout_import_v1_rejects_duplicate_boundary_floors() -> None:
+    with pytest.raises(ValidationError, match="duplicate floor values"):
+        LayoutImportV1.model_validate(
+            {
+                "schema_version": "v1",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [_base_room()],
+                "boundaries": [
+                    {
+                        "floor": 1,
+                        "polygon": [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]],
+                    },
+                    {
+                        "floor": 1,
+                        "polygon": [[2.0, 2.0], [3.0, 2.0], [3.0, 3.0]],
+                    },
+                ],
+            }
+        )
+
+
+def test_layout_import_v1_rejects_unknown_adjacency_from_room() -> None:
+    with pytest.raises(ValidationError, match="from_room_id must reference an existing room"):
+        LayoutImportV1.model_validate(
+            {
+                "schema_version": "v1",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [_base_room()],
+                "adjacency": [
+                    {
+                        "from_room_id": "missing-room",
+                        "to_room_id": "room-living-01",
+                        "strength": 0.8,
+                    }
+                ],
+            }
+        )
+
+
+def test_layout_import_v1_rejects_unknown_adjacency_to_room() -> None:
+    with pytest.raises(ValidationError, match="to_room_id must reference an existing room"):
+        LayoutImportV1.model_validate(
+            {
+                "schema_version": "v1",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [_base_room()],
+                "adjacency": [
+                    {
+                        "from_room_id": "room-living-01",
+                        "to_room_id": "missing-room",
+                        "strength": 0.8,
+                    }
+                ],
+            }
+        )
+
+
 def test_layout_import_v2_accepts_defaults_and_generation_policy() -> None:
     request = LayoutImportV2.model_validate(
         {
@@ -245,6 +305,25 @@ def test_layout_import_v2_rejects_unsupported_generation_policy() -> None:
                 "rooms": [_base_room()],
                 "generation_policy": {
                     "boundary_wall_mode": "centerline"
+                },
+            }
+        )
+
+
+def test_layout_import_v2_rejects_generate_openings_true() -> None:
+    with pytest.raises(ValidationError, match="opening rules are not supported"):
+        LayoutImportV2.model_validate(
+            {
+                "schema_version": "v2",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [_base_room()],
+                "generation_options": {
+                    "generate_spaces": True,
+                    "generate_walls": True,
+                    "generate_slabs": True,
+                    "generate_roof": True,
+                    "generate_openings": True,
                 },
             }
         )
