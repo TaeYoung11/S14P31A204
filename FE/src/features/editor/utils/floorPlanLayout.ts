@@ -243,7 +243,7 @@ export function findSharedWall(a: FloorRoom, b: FloorRoom, key: string): DoorInf
     if (overlapRight - overlapLeft > 20) {
       const doorCenterX = (overlapLeft + overlapRight) / 2
       const doorW = Math.min(50, (overlapRight - overlapLeft) * 0.45)
-      return { key, direction: 'horizontal', wallY: b.y + a.height, doorCenterX, doorW }
+      return { key, direction: 'horizontal', wallY: b.y + b.height, doorCenterX, doorW }
     }
   }
   return null

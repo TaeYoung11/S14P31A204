@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import type { BubbleData, ConnectionData, FloorLayer, FloorRoom } from '../types'
 import { generateFloorPlanLayout } from '../utils/floorPlanLayout'
 
@@ -8,6 +8,13 @@ export function useFloorPlan() {
   const [isGenerating, setIsGenerating] = useState(false)
   const [layers, setLayers] = useState<FloorLayer[]>([])
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) clearTimeout(timerRef.current)
+    }
+  }, [])
 
   /** 현재 활성 층의 방 목록 */
   const activeRooms: FloorRoom[] = layers.find((l) => l.id === activeLayerId)?.rooms ?? []
@@ -28,7 +35,8 @@ export function useFloorPlan() {
       setIsGenerating(true)
 
       // React가 로딩 상태를 렌더링할 수 있도록 setTimeout으로 레이아웃 계산 지연
-      setTimeout(() => {
+      if (timerRef.current !== null) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => {
         const rooms = generateFloorPlanLayout(bubbles, connections, canvasWidth, canvasHeight)
         const firstLayer: FloorLayer = { id: 'floor-1', name: '1층 평면도', rooms }
         setLayers([firstLayer])
