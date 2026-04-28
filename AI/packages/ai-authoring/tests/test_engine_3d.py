@@ -65,6 +65,10 @@ async def main():
         # ── DELETE 파이프라인 ──────────────────────────────────────────────
         ("12", "1층 거실 남쪽 외벽을 삭제해줘", "preview_ready", "DELETE — 1F LivingRoom South"),
         ("13", "옥상 지붕 삭제해줘", "preview_ready", "DELETE — RF Roof"),
+
+        # ── CREATE 파이프라인 (Phase 3) ───────────────────────────────────
+        ("14", "1층 거실 북쪽에 흰색 벽 하나 세워줘", "preview_ready", "CREATE — 1F LivingRoom North + White"),
+        ("15", "옥상에 빨간색 박공지붕 만들어줘", "preview_ready", "CREATE — RF Roof + Red + GABLED"),
     ]
 
     for num, cmd, expected_status, note in test_commands:

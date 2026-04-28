@@ -1,7 +1,7 @@
-from typing import Dict, Optional
+from __future__ import annotations
 
 # ── 층 이름 매핑 ──────────────────────────────────────────────────────────────
-STOREY_ALIAS: Dict[str, str] = {
+STOREY_ALIAS: dict[str, str] = {
     "b2": "B2", "b1": "B1",
     "지하2층": "B2", "지하2": "B2",
     "지하1층": "B1", "지하1": "B1",
@@ -16,14 +16,18 @@ STOREY_ALIAS: Dict[str, str] = {
     "地下一层": "B1", "地下二层": "B2",
 }
 
+
 def normalize_storey_name(storey: str) -> str:
-    if not storey: return storey
+    if not storey:
+        return storey
     direct = STOREY_ALIAS.get(storey.strip())
-    if direct: return direct
+    if direct:
+        return direct
     return STOREY_ALIAS.get(storey.strip().lower(), storey.upper())
 
-# ── 공간 이름 매핑 ─────────────────────────────────
-SPACE_ALIAS: Dict[str, str] = {
+
+# ── 공간 이름 매핑 ─────────────────────────────────────────────────────────────
+SPACE_ALIAS: dict[str, str] = {
     "거실": "Living Room", "리빙룸": "Living Room", "living room": "Living Room",
     "안방": "Bedroom", "침실": "Bedroom", "마스터룸": "Bedroom", "bedroom": "Bedroom",
     "화장실": "Bathroom", "욕실": "Bathroom", "변기실": "Bathroom",
@@ -34,7 +38,9 @@ SPACE_ALIAS: Dict[str, str] = {
     "옥상": "Roof", "루프": "Roof", "roof": "Roof",
 }
 
-def normalize_space_name(space: Optional[str]) -> Optional[str]:
-    if not space: return space
+
+def normalize_space_name(space: str | None) -> str | None:
+    if not space:
+        return space
     key = space.strip().lower()
     return SPACE_ALIAS.get(key, space)
