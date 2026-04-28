@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Optional
 from PIL import Image
 
 from .exceptions import IFCRenderError
+from .views import IFCView, build_view_prompt
 
 if TYPE_CHECKING:
     import torch
@@ -153,14 +154,23 @@ class DepthStyleRenderer:
         self,
         depth_image: Image.Image,
         params: DepthStyleParams,
+        view: IFCView | None = None,
     ) -> DepthStyleResult:
         """depth PIL 1장 + prompt → 스타일 변환 PIL 1장 (1회 추론).
 
-        depth_image: mode="L" 또는 "RGB". 내부에서 3채널로 변환됨.
+        Args:
+            depth_image: mode="L" 또는 "RGB". 내부에서 3채널로 변환됨.
+            params: prompt + 하이퍼파라미터
+            view: 옵션 B-1 — view 전달 시 VIEW_PROMPT_SUFFIXES로 자동 환경 suffix 합성.
+                None이면 params.prompt 그대로 사용 (backward compat).
         """
         depth_size = depth_image.size  # (W, H)
         control = _depth_to_control(depth_image)
         width, height = control.size
+        prompt = (
+            build_view_prompt(params.prompt, view) if view is not None
+            else params.prompt
+        )
 
         try:
             if params.seed is None:
@@ -170,7 +180,7 @@ class DepthStyleRenderer:
                     params.seed
                 )
             out = self.pipe(
-                prompt=params.prompt,
+                prompt=prompt,
                 image=control,
                 negative_prompt=params.negative_prompt,
                 guidance_scale=params.guidance_scale,

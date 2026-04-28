@@ -121,6 +121,49 @@ DEFAULT_RENDER_VIEWS: list[IFCView] = [
 ]
 
 
+# View 별 prompt suffix — 옵션 B (per-view prompt suffix)의 공통 자산.
+#
+# 등각·기타 시점은 화면에 *건물 주변 환경*(잔디·길)도 들어옴. facade-위주 prompt
+# (scandinavian/industrial/japanese)에는 환경 단서가 없어 SD가 임의 환경을 그려
+# *옆 건물 환각·어색한 정원* 등 발생.
+# → view-별 환경 묘사 단어를 prompt 끝에 덧붙여 SD에 시점 맥락 전달.
+#
+# 빈 문자열 = suffix 없음 (FRONT/SIDE는 facade만 보여 환경 단서 불필요).
+VIEW_PROMPT_SUFFIXES: dict[IFCView, str] = {
+    IFCView.FRONT: "",
+    IFCView.SIDE: "",
+    IFCView.ISO_NE: ", surrounded by clean grass lawn, single residential "
+                    "building, no other buildings nearby",
+    IFCView.ISO_NW: ", surrounded by clean grass lawn, single residential "
+                    "building, no other buildings nearby",
+    IFCView.ISO_SE: ", surrounded by clean grass lawn, single residential "
+                    "building, no other buildings nearby",
+    # default 제외된 시점 — 명시 호출 시 환경 더 강조
+    IFCView.TOP: ", aerial top-down view, building roof from above, "
+                 "surrounded by grass lawn",
+    IFCView.BIRDS_EYE: ", aerial bird's-eye view from above, single "
+                        "residential building, surrounded by grass lawn",
+    IFCView.CORNER_LOW: ", low angle view, single residential building, "
+                        "surrounded by grass lawn",
+}
+
+
+def build_view_prompt(base_prompt: str, view: IFCView) -> str:
+    """기존 prompt 끝에 view-별 환경 suffix를 덧붙인다.
+
+    Args:
+        base_prompt: 프리셋의 원본 prompt (예: scandinavian facade 묘사)
+        view: 합성할 시점
+
+    Returns:
+        suffix가 빈 문자열이면 base_prompt 그대로, 아니면 "base + suffix" 합성.
+    """
+    suffix = VIEW_PROMPT_SUFFIXES.get(view, "")
+    if not suffix:
+        return base_prompt
+    return f"{base_prompt}{suffix}"
+
+
 def compute_principal_axes(
     vertices: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, bool]:
