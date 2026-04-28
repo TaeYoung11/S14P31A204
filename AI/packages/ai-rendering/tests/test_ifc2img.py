@@ -14,8 +14,10 @@ from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
 from ai_rendering.ifc2img.geometry import load_mesh
 from ai_rendering.ifc2img.views import (
     DEFAULT_RENDER_VIEWS,
+    VIEW_PROMPT_SUFFIXES,
     VIEW_TARGET_RATIOS,
     AutoZoomMode,
+    build_view_prompt,
     compute_auto_zoom,
     compute_dynamic_front,
     compute_principal_axes,
@@ -419,6 +421,53 @@ def test_default_render_views_excludes_hallucination_prone() -> None:
     assert len(DEFAULT_RENDER_VIEWS) == 5
     expected = set(IFCView) - excluded
     assert set(DEFAULT_RENDER_VIEWS) == expected
+
+
+# --- 옵션 B 공통 자산 — VIEW_PROMPT_SUFFIXES + build_view_prompt ---
+
+
+def test_view_prompt_suffixes_iso_have_environment_words() -> None:
+    """ISO_NE/NW/SE 모두 비어있지 않은 suffix, 환경 단서('grass'/'lawn') 포함."""
+    for v in (IFCView.ISO_NE, IFCView.ISO_NW, IFCView.ISO_SE):
+        suffix = VIEW_PROMPT_SUFFIXES[v]
+        assert suffix, f"{v} suffix should not be empty"
+        assert "grass" in suffix or "lawn" in suffix
+
+
+def test_view_prompt_suffixes_front_side_empty() -> None:
+    """FRONT/SIDE는 빈 suffix — facade 시점에서는 환경 단서 불필요."""
+    assert VIEW_PROMPT_SUFFIXES[IFCView.FRONT] == ""
+    assert VIEW_PROMPT_SUFFIXES[IFCView.SIDE] == ""
+
+
+def test_build_view_prompt_appends_suffix_for_iso() -> None:
+    """ISO_NE에 base prompt 합성 시 suffix 덧붙음."""
+    base = "RAW photo, scandinavian house"
+    result = build_view_prompt(base, IFCView.ISO_NE)
+    assert result.startswith(base)
+    assert len(result) > len(base)
+    assert "grass" in result or "lawn" in result
+
+
+def test_build_view_prompt_returns_base_for_empty_suffix() -> None:
+    """FRONT/SIDE처럼 suffix가 빈 문자열이면 base 그대로 반환."""
+    base = "RAW photo, scandinavian house"
+    assert build_view_prompt(base, IFCView.FRONT) == base
+    assert build_view_prompt(base, IFCView.SIDE) == base
+
+
+# --- B-3 — build_view_prompt 공개 API export ---
+
+
+def test_build_view_prompt_in_public_api() -> None:
+    """B-3 — build_view_prompt가 ifc2img.__all__에 등록되어 외부에서 직접 import 가능."""
+    from ai_rendering import ifc2img
+    from ai_rendering.ifc2img import build_view_prompt as exported
+
+    assert "build_view_prompt" in ifc2img.__all__
+    # 동일 함수 레퍼런스 (재정의 X)
+    from ai_rendering.ifc2img.views import build_view_prompt as internal
+    assert exported is internal
 
 
 def test_excluded_views_still_callable_explicitly() -> None:

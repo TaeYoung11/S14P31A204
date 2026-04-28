@@ -15,6 +15,7 @@ from ai_rendering.ifc2img import (
     DepthStyleRenderer,
     DepthStyleResult,
     IFCRenderError,
+    IFCView,
 )
 
 
@@ -136,7 +137,7 @@ def test_result_save_creates_parent_dir(tmp_path: Path) -> None:
 
 
 def test_public_api_exports() -> None:
-    """ifc2img 공개 심볼: IFC 렌더 3 + style 3 + presets 2 = 8개."""
+    """ifc2img 공개 심볼: IFC 렌더 3 + style 3 + presets 2 + build_view_prompt = 9개."""
     from ai_rendering import ifc2img
 
     expected = {
@@ -148,5 +149,53 @@ def test_public_api_exports() -> None:
         "DepthStyleRenderer",
         "list_presets",
         "load_preset",
+        "build_view_prompt",
     }
     assert set(ifc2img.__all__) == expected
+
+
+# --- B-1 — DepthStyleRenderer.render(view=...) 인자 ---
+
+
+def test_render_with_view_appends_suffix_to_prompt(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """B-1 — view=ISO_NE 전달 시 pipe 호출 prompt에 환경 suffix 포함."""
+    depth = Image.new("L", (768, 448), 100)
+    base_prompt = "RAW photo, scandinavian house"
+    params = DepthStyleParams(prompt=base_prompt)
+
+    mock_depth_renderer.render(depth, params, view=IFCView.ISO_NE)
+
+    call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
+    assert call_prompt.startswith(base_prompt)
+    assert len(call_prompt) > len(base_prompt)
+    assert "grass" in call_prompt or "lawn" in call_prompt
+
+
+def test_render_without_view_uses_raw_prompt(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """B-1 — view=None (default) 시 prompt 그대로 (backward compat)."""
+    depth = Image.new("L", (768, 448), 100)
+    base_prompt = "RAW photo, scandinavian house"
+    params = DepthStyleParams(prompt=base_prompt)
+
+    mock_depth_renderer.render(depth, params)  # view=None (default)
+
+    call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
+    assert call_prompt == base_prompt
+
+
+def test_render_with_view_front_no_change(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """B-1 — view=FRONT (suffix='') 전달 시 prompt 그대로."""
+    depth = Image.new("L", (768, 448), 100)
+    base_prompt = "RAW photo, scandinavian house"
+    params = DepthStyleParams(prompt=base_prompt)
+
+    mock_depth_renderer.render(depth, params, view=IFCView.FRONT)
+
+    call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
+    assert call_prompt == base_prompt
