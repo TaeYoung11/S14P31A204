@@ -99,22 +99,25 @@ VIEW_TARGET_RATIOS: dict[IFCView, float] = {
 }
 
 
-# render_views(views=None) 기본값 — TOP 의도적 제외.
+# render_views(views=None) 기본값 — 환각 발생 시점들 의도적 제외.
 #
-# 사유: TOP은 *지붕만* 보여주는 도면 시점. ControlNet-depth는 perspective facade 분포에
-# 학습됐고, scandinavian/industrial/japanese 프리셋 prompt도 *facade* 묘사 위주.
-# → TOP에서는 prompt-시점 불일치로 SD가 환각 빌딩 생성. 마케팅 사진 시점에 부적합.
+# 제외 사유 (사용자 시각 검수 기반, 2026-04-28):
+# - TOP: 지붕만 보여주는 도면 시점. facade prompt와 불일치 → 환각 빌딩
+# - BIRDS_EYE: 거의 위에서 봄(z=1.5) → TOP과 동일 메커니즘으로 환각
+# - CORNER_LOW: target_ratio=0.15로 가장 낮음 + z=0.15 어색한 시점 →
+#               화면 87%가 background로 prompt 환각 우세
 #
-# TOP enum/VIEW_CAMERAS/VIEW_PCA_COEFFICIENTS/VIEW_TARGET_RATIOS는 모두 *유지* —
-# 호출자가 `views=[IFCView.TOP]` 명시 전달 시 여전히 사용 가능 (디버그/실험용).
+# ISO_*는 facade 일부 보여 집 자체는 잘 그려짐. 주변 배경 어색함은 *옵션 B*
+# (per-view prompt suffix)에서 환경 묘사 보강으로 처리 예정.
+#
+# 모든 시점의 enum/VIEW_CAMERAS/VIEW_PCA_COEFFICIENTS/VIEW_TARGET_RATIOS는 *유지* —
+# 호출자가 명시 전달 시 여전히 사용 가능 (디버그/실험용).
 DEFAULT_RENDER_VIEWS: list[IFCView] = [
     IFCView.FRONT,
     IFCView.SIDE,
     IFCView.ISO_NE,
     IFCView.ISO_NW,
     IFCView.ISO_SE,
-    IFCView.CORNER_LOW,
-    IFCView.BIRDS_EYE,
 ]
 
 
