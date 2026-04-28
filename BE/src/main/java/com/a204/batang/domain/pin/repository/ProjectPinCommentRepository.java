@@ -3,6 +3,7 @@ package com.a204.batang.domain.pin.repository;
 import com.a204.batang.domain.pin.entity.ProjectPinComment;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -71,6 +72,25 @@ public interface ProjectPinCommentRepository extends JpaRepository<ProjectPinCom
      * @return 가장 최근 댓글
      */
     Optional<ProjectPinComment> findTopByProjectPinPinIdAndDeletedAtIsNullOrderByCreatedAtDescCommentIdDesc(UUID pinId);
+
+    /**
+     * 특정 핀의 활성 댓글을 모두 소프트 삭제한다.
+     *
+     * @param pinId 핀 ID
+     * @param deletedAt 삭제 시각
+     * @return 삭제 처리된 댓글 수
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE ProjectPinComment comment
+            SET comment.deletedAt = :deletedAt
+            WHERE comment.projectPin.pinId = :pinId
+              AND comment.deletedAt IS NULL
+            """)
+    int softDeleteByPinId(
+            @Param("pinId") UUID pinId,
+            @Param("deletedAt") LocalDateTime deletedAt
+    );
 
     /**
      * 현재 사용자 기준 타인 미확인 댓글이 존재하는 핀 ID 목록을 조회한다.

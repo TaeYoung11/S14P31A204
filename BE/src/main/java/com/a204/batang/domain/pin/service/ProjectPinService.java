@@ -27,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -78,6 +79,33 @@ public class ProjectPinService {
         log.info("새 핀 등록 완료. projectId={}, pinId={}", projectId, savedPin.getPinId());
 
         return CreatePinResponse.from(savedPin);
+    }
+
+    /**
+     * 프로젝트의 특정 핀을 소프트 삭제한다.
+     * 핀 삭제 시 해당 핀의 활성 댓글도 함께 소프트 삭제한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     */
+    @Transactional
+    public void deletePin(UUID projectId, UUID pinId) {
+        ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
+
+        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
+        validatePinAuthorOrThrow(projectPin, currentUserId);
+
+        LocalDateTime deletedAt = LocalDateTime.now();
+        projectPin.softDelete(deletedAt);
+        int deletedCommentCount = projectPinCommentRepository.softDeleteByPinId(pinId, deletedAt);
+
+        log.info(
+                "핀 삭제 완료. projectId={}, pinId={}, deletedCommentCount={}",
+                projectId,
+                pinId,
+                deletedCommentCount
+        );
     }
 
     /**
@@ -175,6 +203,32 @@ public class ProjectPinService {
     private Project getProjectOrThrow(UUID projectId) {
         return projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
+    }
+
+    /**
+     * 프로젝트/핀에 해당하는 활성 핀을 조회한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @return 조회된 핀
+     */
+    private ProjectPin getProjectPinOrThrow(UUID projectId, UUID pinId) {
+        return projectPinRepository.findActivePinByProjectId(pinId, projectId)
+                .orElseThrow(() -> new CustomException(ErrorCode.PIN_NOT_FOUND));
+    }
+
+    /**
+     * 핀 삭제 권한(작성자 본인 여부)을 검증한다.
+     *
+     * @param pin 핀 엔티티
+     * @param currentUserId 현재 사용자 ID
+     */
+    private void validatePinAuthorOrThrow(ProjectPin pin, UUID currentUserId) {
+        if (Objects.equals(pin.getAuthorUserId(), currentUserId)) {
+            return;
+        }
+
+        throw new CustomException(ErrorCode.FORBIDDEN_ACCESS, "본인이 작성한 핀만 삭제할 수 있습니다.");
     }
 
     /**
