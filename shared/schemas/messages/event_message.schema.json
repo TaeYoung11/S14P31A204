@@ -128,6 +128,19 @@
       "if": {
         "properties": {
           "status": {
+            "const": "completed"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["output"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
             "enum": ["failed", "clarification_required"]
           }
         },
