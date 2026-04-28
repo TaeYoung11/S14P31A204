@@ -76,8 +76,10 @@ class IFCRenderer:
     ) -> dict[IFCView, Image.Image]:
         """여러 뷰를 한 번의 파싱으로 렌더한다.
 
-        views=None 시 DEFAULT_RENDER_VIEWS (TOP 제외 7뷰)를 사용 — TOP은 perspective
-        SD 입력으로 부적합해 환각 출력 위험. TOP을 포함하려면 명시적 list 전달.
+        views=None 시 DEFAULT_RENDER_VIEWS (5뷰: front / side / iso_ne / iso_nw / iso_se)
+        를 사용. TOP / BIRDS_EYE / CORNER_LOW는 perspective SD 입력으로 부적합해 환각
+        출력 위험으로 default 제외 — 포함하려면 명시적 list 전달
+        (예: `views=[IFCView.TOP]`).
         """
         if views is None:
             views = list(DEFAULT_RENDER_VIEWS)

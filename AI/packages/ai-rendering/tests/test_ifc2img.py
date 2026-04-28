@@ -146,7 +146,8 @@ def test_render_views_loads_mesh_once() -> None:
         results = renderer.render_views(Path("dummy.ifc"))
 
     assert mock_load.call_count == 1
-    # render_views(views=None) → DEFAULT_RENDER_VIEWS (TOP 제외 7뷰).
+    # render_views(views=None) → DEFAULT_RENDER_VIEWS
+    # (5뷰: front/side/iso_ne/iso_nw/iso_se. TOP/BIRDS_EYE/CORNER_LOW 제외).
     assert set(results.keys()) == set(DEFAULT_RENDER_VIEWS)
     assert vis.capture_depth_float_buffer.call_count == len(DEFAULT_RENDER_VIEWS)
 
