@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import ifcopenshell
 
-from .command import LLM3DCommand, LLM3DElementType
+# authoring 패키지 내의 유틸리티 참조
 from .utils import normalize_space_name, normalize_storey_name
+
+if TYPE_CHECKING:
+    from ai_planning_3d.command import LLM3DCommand
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +19,19 @@ class IFCQueryEngine:
 
     def __init__(self, ifc_model: ifcopenshell.file | None = None) -> None:
         self._model = ifc_model
+        self._last_query_reason = ""
 
     def get_model(self) -> ifcopenshell.file | None:
         return self._model
 
-    def find_elements(self, command: LLM3DCommand) -> list[dict[str, Any]]:
+    def get_last_query_reason(self) -> str:
+        return self._last_query_reason
+
+    def find_elements(self, command: "LLM3DCommand") -> list[dict[str, Any]]:
         if not self._model:
+            self._last_query_reason = "IFC 모델이 로드되지 않았습니다."
             return []
+        self._last_query_reason = ""
         target = command.target
         if target.global_id:
             return self._query_by_global_id(target.global_id)
@@ -43,13 +52,16 @@ class IFCQueryEngine:
     def _query_by_global_id(self, gid: str) -> list[dict[str, Any]]:
         try:
             el = self._model.by_guid(gid)
+            if not el:
+                self._last_query_reason = f"GlobalId={gid} 요소를 찾을 수 없습니다."
             return [self._get_element_info(el)] if el else []
         except Exception:
+            self._last_query_reason = f"GlobalId={gid} 조회 중 오류가 발생했습니다."
             return []
 
     def _query_by_filter(
         self,
-        etype: LLM3DElementType,
+        etype: Any,
         name: str | None,
         storey: str | None,
         space: str | None,
@@ -57,36 +69,85 @@ class IFCQueryEngine:
         select_all: bool,
     ) -> list[dict[str, Any]]:
         type_str = etype.value if hasattr(etype, "value") else str(etype)
-        elements = self._model.by_type(type_str)
         matched: list[dict[str, Any]] = []
+        total = 0
+        rejected = {"name": 0, "storey": 0, "space": 0, "direction": 0}
+        name_lower = name.lower() if name else None
+        storey_lower = storey.lower() if storey else None
+        space_lower = space.lower() if space else None
+        direction_lower = direction.lower() if direction else None
 
-        for el in elements:
-            # 1. 이름 필터 (가벼운 연산 우선)
-            if name and name.lower() not in (el.Name or "").lower():
+        for el in self._model.by_type(type_str):
+            total += 1
+            element_name = (el.Name or "").lower()
+            if name_lower and name_lower not in element_name:
+                rejected["name"] += 1
                 continue
 
-            # 2. 공간 컨텍스트 조회 (무거운 연산)
             s_st, s_sp, spl = self._get_spatial_context(el)
 
-            if storey and (not s_st or storey.lower() not in s_st.lower()):
+            if storey_lower and (not s_st or storey_lower not in s_st.lower()):
+                rejected["storey"] += 1
                 continue
-            if space:
-                sn = space.lower()
+            if space_lower:
                 hits = [
-                    s_sp and sn in s_sp.lower(),
-                    spl and sn in spl.lower(),
-                    sn in (el.Name or "").lower(),
+                    s_sp and space_lower in s_sp.lower(),
+                    spl and space_lower in spl.lower(),
+                    space_lower in element_name,
                 ]
                 if not any(hits):
+                    rejected["space"] += 1
                     continue
-            if direction and direction.lower() not in (el.Name or "").lower():
+            if direction_lower and direction_lower not in element_name:
+                rejected["direction"] += 1
                 continue
 
             matched.append(self._get_element_info(el, s_st, s_sp))
             if not select_all:
                 break
 
+        if not matched:
+            self._last_query_reason = self._format_miss_reason(
+                type_str,
+                total,
+                rejected,
+                storey,
+                space,
+                direction,
+                name,
+            )
         return matched
+
+    def _format_miss_reason(
+        self,
+        type_str: str,
+        total: int,
+        rejected: dict[str, int],
+        storey: str | None,
+        space: str | None,
+        direction: str | None,
+        name: str | None,
+    ) -> str:
+        if total == 0:
+            return f"{type_str} 요소가 IFC 모델에 없습니다."
+        filters = []
+        if storey:
+            filters.append(f"층={storey}")
+        if space:
+            filters.append(f"공간={space}")
+        if direction:
+            filters.append(f"방향={direction}")
+        if name:
+            filters.append(f"이름~={name}")
+        detail = ", ".join(filters) if filters else "필터 없음"
+        rejected_parts = [
+            f"{key}:{count}" for key, count in rejected.items() if count
+        ]
+        rejected_detail = ", ".join(rejected_parts) if rejected_parts else "조건 불일치"
+        return (
+            f"{type_str} {total}개를 검사했지만 매칭되지 않았습니다 "
+            f"({detail}; 제외 사유 {rejected_detail})."
+        )
 
     def _get_spatial_context(
         self, element: ifcopenshell.entity_instance

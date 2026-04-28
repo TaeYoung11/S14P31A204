@@ -276,12 +276,161 @@ def modify_face_offset(
 # 2. 생성 (CREATE) 및 시각화 (Color/Material)
 # ──────────────────────────────────────────────────────────────────────────────
 
-_DIRECTION_VECTORS = {
-    "north": ((0.0, 1.0, 0.0), (1.0, 0.0, 0.0)),
-    "south": ((0.0, -1.0, 0.0), (-1.0, 0.0, 0.0)),
-    "east": ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
-    "west": ((-1.0, 0.0, 0.0), (0.0, -1.0, 0.0)),
+_DIRECTION_REF_DIRECTIONS = {
+    "north": (0.0, 1.0, 0.0),
+    "south": (0.0, -1.0, 0.0),
+    "east": (1.0, 0.0, 0.0),
+    "west": (-1.0, 0.0, 0.0),
 }
+
+_COLOR_RGB = {
+    "white": (1.0, 1.0, 1.0),
+    "red": (1.0, 0.0, 0.0),
+    "gray": (0.8, 0.8, 0.8),
+    "grey": (0.8, 0.8, 0.8),
+}
+
+
+def _mm_to_model_units(
+    model: ifcopenshell.file,
+    value_mm: int | float | None,
+    default_mm: float,
+) -> float:
+    """mm 입력값을 현재 IFC LENGTHUNIT의 native unit으로 변환한다."""
+    value = float(value_mm if value_mm is not None else default_mm)
+    for unit in model.by_type("IfcSIUnit"):
+        if getattr(unit, "UnitType", None) != "LENGTHUNIT":
+            continue
+        prefix = getattr(unit, "Prefix", None)
+        if prefix == "MILLI":
+            return value
+        if prefix == "CENTI":
+            return value / 10.0
+        if prefix == "DECI":
+            return value / 100.0
+        if prefix is None:
+            return value / 1000.0
+    return value
+
+
+def _body_context(model: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    contexts = model.by_type("IfcGeometricRepresentationSubContext")
+    for context in contexts:
+        if getattr(context, "ContextIdentifier", None) == "Body":
+            return context
+    contexts = model.by_type("IfcGeometricRepresentationContext")
+    if not contexts:
+        raise ValueError("IFC 모델에 GeometricRepresentationContext가 없습니다.")
+    return contexts[0]
+
+
+def _axis_placement_2d(model: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    return model.create_entity(
+        "IfcAxis2Placement2D",
+        Location=model.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0)),
+        RefDirection=model.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0)),
+    )
+
+
+def _axis_placement_3d(
+    model: ifcopenshell.file,
+    location: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    axis: tuple[float, float, float] = (0.0, 0.0, 1.0),
+    ref_direction: tuple[float, float, float] = (1.0, 0.0, 0.0),
+) -> ifcopenshell.entity_instance:
+    return model.create_entity(
+        "IfcAxis2Placement3D",
+        Location=model.create_entity("IfcCartesianPoint", Coordinates=location),
+        Axis=model.create_entity("IfcDirection", DirectionRatios=axis),
+        RefDirection=model.create_entity("IfcDirection", DirectionRatios=ref_direction),
+    )
+
+
+def _box_representation(
+    model: ifcopenshell.file,
+    length_m: float,
+    width_m: float,
+    height_m: float,
+) -> ifcopenshell.entity_instance:
+    profile = model.create_entity(
+        "IfcRectangleProfileDef",
+        ProfileType="AREA",
+        XDim=length_m,
+        YDim=width_m,
+        Position=_axis_placement_2d(model),
+    )
+    body = model.create_entity(
+        "IfcExtrudedAreaSolid",
+        SweptArea=profile,
+        Position=_axis_placement_3d(model),
+        ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        Depth=height_m,
+    )
+    shape = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=_body_context(model),
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=[body],
+    )
+    return model.create_entity("IfcProductDefinitionShape", Representations=[shape])
+
+
+def _face(
+    model: ifcopenshell.file,
+    points: list[tuple[float, float, float]],
+) -> ifcopenshell.entity_instance:
+    loop = model.create_entity(
+        "IfcPolyLoop",
+        Polygon=[model.create_entity("IfcCartesianPoint", Coordinates=p) for p in points],
+    )
+    bound = model.create_entity("IfcFaceOuterBound", Bound=loop, Orientation=True)
+    return model.create_entity("IfcFace", Bounds=[bound])
+
+
+def _gabled_roof_representation(
+    model: ifcopenshell.file,
+    length_m: float,
+    width_m: float,
+    ridge_height_m: float,
+) -> ifcopenshell.entity_instance:
+    half_l = length_m / 2.0
+    half_w = width_m / 2.0
+    points = {
+        "a": (-half_l, -half_w, 0.0),
+        "b": (half_l, -half_w, 0.0),
+        "c": (half_l, half_w, 0.0),
+        "d": (-half_l, half_w, 0.0),
+        "e": (-half_l, 0.0, ridge_height_m),
+        "f": (half_l, 0.0, ridge_height_m),
+    }
+    faces = [
+        _face(model, [points["a"], points["b"], points["c"], points["d"]]),
+        _face(model, [points["a"], points["e"], points["f"], points["b"]]),
+        _face(model, [points["d"], points["c"], points["f"], points["e"]]),
+        _face(model, [points["a"], points["d"], points["e"]]),
+        _face(model, [points["b"], points["f"], points["c"]]),
+    ]
+    brep = model.create_entity(
+        "IfcFacetedBrep",
+        Outer=model.create_entity("IfcClosedShell", CfsFaces=faces),
+    )
+    shape = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=_body_context(model),
+        RepresentationIdentifier="Body",
+        RepresentationType="Brep",
+        Items=[brep],
+    )
+    return model.create_entity("IfcProductDefinitionShape", Representations=[shape])
+
+
+def _color_to_rgb(color_value: str) -> tuple[float, float, float]:
+    raw = color_value.strip()
+    hex_val = raw.lstrip("#")
+    if len(hex_val) == 6:
+        return tuple(int(hex_val[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+    return _COLOR_RGB.get(raw.lower(), _COLOR_RGB["gray"])
 
 
 def _apply_color_and_material(
@@ -293,12 +442,7 @@ def _apply_color_and_material(
     """부재에 색상(RGB) 및 재질 정보를 부여한다."""
     try:
         if color_hex:
-            hex_val = color_hex.lstrip("#")
-            if len(hex_val) == 6:
-                r, g, b = [int(hex_val[i : i + 2], 16) / 255.0 for i in (0, 2, 4)]
-            else:
-                r, g, b = (0.8, 0.8, 0.8)
-
+            r, g, b = _color_to_rgb(color_hex)
             color = model.create_entity("IfcColourRgb", Name=color_hex, Red=r, Green=g, Blue=b)
             rendering = model.create_entity("IfcSurfaceStyleRendering", SurfaceColour=color)
             style = model.create_entity(
@@ -326,33 +470,58 @@ def _apply_color_and_material(
         logger.warning(f"색상/재질 적용 중 오류 (무시 가능): {e}")
 
 
+def _assign_to_storey(
+    model: ifcopenshell.file,
+    element: ifcopenshell.entity_instance,
+    storey: ifcopenshell.entity_instance,
+) -> None:
+    """IfcOpenShell 0.8.x API에 맞춰 생성 부재를 층에 배치한다."""
+    ifcopenshell.api.run(
+        "spatial.assign_container",
+        model,
+        products=[element],
+        relating_structure=storey,
+    )
+
+
+def _placement_from_create_info(
+    model: ifcopenshell.file,
+    storey: ifcopenshell.entity_instance,
+    ci: dict[str, Any],
+) -> ifcopenshell.entity_instance:
+    sp = ci.get("start_point") or {"x": 0.0, "y": 0.0, "z": 0.0}
+    direction = str(ci.get("direction") or "north").lower()
+    return model.create_entity(
+        "IfcLocalPlacement",
+        PlacementRelTo=storey.ObjectPlacement,
+        RelativePlacement=_axis_placement_3d(
+            model,
+            location=(
+                _mm_to_model_units(model, sp.get("x"), 0.0),
+                _mm_to_model_units(model, sp.get("y"), 0.0),
+                _mm_to_model_units(model, sp.get("z"), 0.0),
+            ),
+            axis=(0.0, 0.0, 1.0),
+            ref_direction=_DIRECTION_REF_DIRECTIONS.get(
+                direction,
+                _DIRECTION_REF_DIRECTIONS["north"],
+            ),
+        ),
+    )
+
+
 def create_wall(
     model: ifcopenshell.file, storey: ifcopenshell.entity_instance, ci: dict[str, Any]
 ) -> ifcopenshell.entity_instance | None:
     """신규 벽체 생성"""
     try:
         wall = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWall")
-
-        # 위치 설정
-        sp = ci.get("start_point") or {"x": 0.0, "y": 0.0, "z": 0.0}
-        ifc_origin = model.create_entity(
-            "IfcCartesianPoint",
-            Coordinates=(
-                float(sp.get("x", 0)) / 1000.0,
-                float(sp.get("y", 0)) / 1000.0,
-                float(sp.get("z", 0)) / 1000.0,
-            ),
-        )
-        dir_key = ci.get("direction", "north").lower()
-        axis, ref_dir = _DIRECTION_VECTORS.get(dir_key, _DIRECTION_VECTORS["north"])
-
-        ifc_axis = model.create_entity("IfcDirection", DirectionRatios=axis)
-        ifc_ref = model.create_entity("IfcDirection", DirectionRatios=ref_dir)
-        axis2 = model.create_entity(
-            "IfcAxis2Placement3D", Location=ifc_origin, Axis=ifc_axis, RefDirection=ifc_ref
-        )
-        wall.ObjectPlacement = model.create_entity(
-            "IfcLocalPlacement", PlacementRelTo=storey.ObjectPlacement, RelativePlacement=axis2
+        wall.ObjectPlacement = _placement_from_create_info(model, storey, ci)
+        wall.Representation = _box_representation(
+            model,
+            _mm_to_model_units(model, ci.get("length_mm"), 3000.0),
+            _mm_to_model_units(model, ci.get("width_mm"), 200.0),
+            _mm_to_model_units(model, ci.get("height_mm"), 2400.0),
         )
 
         # 색상/재질
@@ -363,9 +532,7 @@ def create_wall(
             ci.get("material", {}).get("name") if ci.get("material") else None,
         )
 
-        ifcopenshell.api.run(
-            "spatial.assign_container", model, product=wall, relating_structure=storey
-        )
+        _assign_to_storey(model, wall, storey)
         return wall
     except Exception as e:
         logger.error(f"Wall 생성 오류: {e}")
@@ -378,15 +545,20 @@ def create_slab(
     """신규 슬래브 생성"""
     try:
         slab = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcSlab")
+        slab.ObjectPlacement = _placement_from_create_info(model, storey, ci)
+        slab.Representation = _box_representation(
+            model,
+            _mm_to_model_units(model, ci.get("length_mm"), 3000.0),
+            _mm_to_model_units(model, ci.get("width_mm"), 3000.0),
+            _mm_to_model_units(model, ci.get("height_mm"), 200.0),
+        )
         _apply_color_and_material(
             model,
             slab,
             ci.get("color"),
             ci.get("material", {}).get("name") if ci.get("material") else None,
         )
-        ifcopenshell.api.run(
-            "spatial.assign_container", model, product=slab, relating_structure=storey
-        )
+        _assign_to_storey(model, slab, storey)
         return slab
     except Exception as e:
         logger.error(f"Slab 생성 오류: {e}")
@@ -399,16 +571,30 @@ def create_roof(
     """신규 지붕 생성 (평지붕/박공지붕)"""
     try:
         roof = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcRoof")
-        # shape_preset 로직은 향후 상세 지오메트리 구현 시 확장
+        roof.ObjectPlacement = _placement_from_create_info(model, storey, ci)
+        length = _mm_to_model_units(model, ci.get("length_mm"), 4000.0)
+        width = _mm_to_model_units(model, ci.get("width_mm"), 3000.0)
+        if ci.get("shape_preset") == "GABLED":
+            roof.Representation = _gabled_roof_representation(
+                model,
+                length,
+                width,
+                _mm_to_model_units(model, ci.get("ridge_height_mm"), 1200.0),
+            )
+        else:
+            roof.Representation = _box_representation(
+                model,
+                length,
+                width,
+                _mm_to_model_units(model, ci.get("height_mm"), 300.0),
+            )
         _apply_color_and_material(
             model,
             roof,
             ci.get("color"),
             ci.get("material", {}).get("name") if ci.get("material") else None,
         )
-        ifcopenshell.api.run(
-            "spatial.assign_container", model, product=roof, relating_structure=storey
-        )
+        _assign_to_storey(model, roof, storey)
         return roof
     except Exception as e:
         logger.error(f"Roof 생성 오류: {e}")
@@ -424,15 +610,20 @@ def create_generic_element(
     """기타 부재 (Column, Beam, Door, Window) 생성"""
     try:
         element = ifcopenshell.api.run("root.create_entity", model, ifc_class=element_type)
+        element.ObjectPlacement = _placement_from_create_info(model, storey, ci)
+        element.Representation = _box_representation(
+            model,
+            _mm_to_model_units(model, ci.get("length_mm"), 500.0),
+            _mm_to_model_units(model, ci.get("width_mm"), 500.0),
+            _mm_to_model_units(model, ci.get("height_mm"), 2400.0),
+        )
         _apply_color_and_material(
             model,
             element,
             ci.get("color"),
             ci.get("material", {}).get("name") if ci.get("material") else None,
         )
-        ifcopenshell.api.run(
-            "spatial.assign_container", model, product=element, relating_structure=storey
-        )
+        _assign_to_storey(model, element, storey)
         return element
     except Exception as e:
         logger.error(f"{element_type} 생성 오류: {e}")
