@@ -77,3 +77,22 @@ def test_step_no_cannot_exceed_total_steps() -> None:
     except ValueError:
         return
     raise AssertionError("stepNo greater than totalSteps must be rejected")
+
+
+def test_ifc_edit_inline_engine_request_rejects_invalid_operation_shape() -> None:
+    data = load_json(SAMPLE_ROOT / "command_ifc_edit.json")
+    data["payload"] = {
+        "engineRequest": {
+            "schema_version": "v1",
+            "request_id": "req-001",
+            "mode": "preview",
+            "project_id": "project-001",
+            "base_revision_id": "rev-001",
+            "operations": [{}],
+        }
+    }
+    try:
+        CommandMessage.model_validate(data)
+    except ValueError:
+        return
+    raise AssertionError("ifc_edit inline engineRequest must reject invalid operation items")
