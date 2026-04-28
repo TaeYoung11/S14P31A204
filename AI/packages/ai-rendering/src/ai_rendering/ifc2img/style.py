@@ -11,13 +11,19 @@ depth map (PIL.Image, mode="L") → 스타일 변환 PIL.Image.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dc_replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from PIL import Image
 
 from .exceptions import IFCRenderError
+from .views import (
+    IFCView,
+    build_view_negative_prompt,
+    build_view_prompt,
+    resolve_view_cn_scale,
+)
 
 if TYPE_CHECKING:
     import torch
@@ -39,7 +45,7 @@ class DepthStyleParams:
     guidance_scale: float = 7.0
     num_inference_steps: int = 25
     controlnet_conditioning_scale: float = 0.7
-    seed: Optional[int] = None
+    seed: int | None = None
 
 
 @dataclass
@@ -71,8 +77,8 @@ class DepthStyleRenderer:
         self,
         model_id: str = DEFAULT_MODEL_ID,
         controlnet_model_id: str = DEFAULT_CONTROLNET_DEPTH_ID,
-        device: Optional[str] = None,
-        dtype: Optional["torch.dtype"] = None,
+        device: str | None = None,
+        dtype: torch.dtype | None = None,
         warmup: bool = True,
     ) -> None:
         import torch as _torch
@@ -153,14 +159,39 @@ class DepthStyleRenderer:
         self,
         depth_image: Image.Image,
         params: DepthStyleParams,
+        view: IFCView | None = None,
     ) -> DepthStyleResult:
         """depth PIL 1장 + prompt → 스타일 변환 PIL 1장 (1회 추론).
 
-        depth_image: mode="L" 또는 "RGB". 내부에서 3채널로 변환됨.
+        Args:
+            depth_image: mode="L" 또는 "RGB". 내부에서 3채널로 변환됨.
+            params: prompt + 하이퍼파라미터
+            view: 옵션 B-1 — view 전달 시 VIEW_PROMPT_SUFFIXES로 자동 환경 suffix 합성.
+                None이면 params.prompt 그대로 사용 (backward compat).
         """
         depth_size = depth_image.size  # (W, H)
         control = _depth_to_control(depth_image)
         width, height = control.size
+        if view is not None:
+            prompt = build_view_prompt(params.prompt, view)
+            negative_prompt = build_view_negative_prompt(params.negative_prompt, view)
+            cn_scale = resolve_view_cn_scale(
+                params.controlnet_conditioning_scale, view
+            )
+            # 실제 SD pipe에 전달된 값으로 갱신된 params — result.params로 반환해
+            # 호출자가 *어떤 합성/override가 적용됐는지* 추적 가능 (디버깅/로그/재현성).
+            applied_params = dc_replace(
+                params,
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                controlnet_conditioning_scale=cn_scale,
+            )
+        else:
+            prompt = params.prompt
+            negative_prompt = params.negative_prompt
+            cn_scale = params.controlnet_conditioning_scale
+            # view 미사용 — 합성/override 없음, identity 보존 (backward compat).
+            applied_params = params
 
         try:
             if params.seed is None:
@@ -170,12 +201,12 @@ class DepthStyleRenderer:
                     params.seed
                 )
             out = self.pipe(
-                prompt=params.prompt,
+                prompt=prompt,
                 image=control,
-                negative_prompt=params.negative_prompt,
+                negative_prompt=negative_prompt,
                 guidance_scale=params.guidance_scale,
                 num_inference_steps=params.num_inference_steps,
-                controlnet_conditioning_scale=params.controlnet_conditioning_scale,
+                controlnet_conditioning_scale=cn_scale,
                 width=width,
                 height=height,
                 generator=generator,
@@ -186,7 +217,7 @@ class DepthStyleRenderer:
 
         return DepthStyleResult(
             image=image,
-            params=params,
+            params=applied_params,
             depth_size=depth_size,
             output_size=image.size,
         )

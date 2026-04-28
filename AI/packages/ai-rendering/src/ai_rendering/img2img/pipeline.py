@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from PIL import Image
 
@@ -63,7 +63,7 @@ class RenderParams:
     strength: float = DEFAULT_STRENGTH
     guidance_scale: float = DEFAULT_GUIDANCE_SCALE
     num_inference_steps: int = DEFAULT_NUM_INFERENCE_STEPS
-    seed: Optional[int] = None
+    seed: int | None = None
     controlnet_conditioning_scale: float = 0.8
 
 
@@ -88,8 +88,8 @@ class Img2ImgRenderer:
     def __init__(
         self,
         model_id: str = DEFAULT_MODEL_ID,
-        device: Optional[str] = None,
-        dtype: Optional[torch.dtype] = None,
+        device: str | None = None,
+        dtype: torch.dtype | None = None,
         warmup: bool = True,
     ):
         # diffusers / torch 지연 임포트: 모듈 임포트만으로 CUDA 로딩되지 않도록.
@@ -120,7 +120,8 @@ class Img2ImgRenderer:
             pipe.scheduler = DPMSolverMultistepScheduler.from_config(  # type: ignore[no-untyped-call]
                 pipe.scheduler.config,
                 use_karras_sigmas=True,
-                algorithm_type="dpmsolver++",  # checkpoint의 DEIS 등 상속 차단 (e.g. Realistic Vision)
+                # checkpoint의 DEIS 등 상속 차단 (e.g. Realistic Vision)
+                algorithm_type="dpmsolver++",
             )
         except Exception as e:
             raise RenderError(f"failed to swap scheduler: {e}") from e
@@ -231,8 +232,8 @@ class ControlNetRenderer:
         self,
         model_id: str = DEFAULT_MODEL_ID,
         controlnet_model_id: str = DEFAULT_CONTROLNET_MODEL_ID,
-        device: Optional[str] = None,
-        dtype: Optional[torch.dtype] = None,
+        device: str | None = None,
+        dtype: torch.dtype | None = None,
         warmup: bool = True,
     ):
         import torch as _torch
