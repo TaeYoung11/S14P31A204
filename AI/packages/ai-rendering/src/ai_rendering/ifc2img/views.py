@@ -166,24 +166,26 @@ def build_view_prompt(base_prompt: str, view: IFCView) -> str:
 
 # View 별 negative prompt suffix — 옵션 C-1 (per-view negative).
 #
-# iso_nw / iso_se 시드 스윕 검수(2026-04-28)에서 "집 형상이 안정적이지 않음" 보고 —
-# 집 뒤에 추가 건물, 지하층, 1층이 더 생기는 hallucinate 다발. seed=7 고정 후에도
-# 일정 비율 발생 → SD가 등각 시점의 깊이 연속성을 *추가 매스*로 해석.
-# negative_prompt에 이 hallucinate 토큰을 명시 차단해 같은 noise에서 출발해도
-# *해당 형상이 덜 그려지게* 유도.
+# 폐기됨 (2026-04-28). 모든 시점 빈 문자열 — *기능 비활성*.
+# 헬퍼·공개 API·통합 코드는 보존 (`build_view_negative_prompt`, `render(view=)`) —
+# 향후 다른 시점/실험에서 재사용 가능. 본 dict만 비활성으로 두면 동작 = 기존 negative.
 #
-# 빈 문자열 = 추가 차단 없음 (FRONT/SIDE는 facade만 보여 hallucinate 적음).
+# 폐기 사유 (2회 시도 모두 *집 형상 더 일그러짐*):
+# - v1 (8 토큰: additional building behind / second house / basement / underground
+#   level / extra floor / lower level / duplicate building / attached annex)
+#   → CLIP 77 토큰 한계 초과(`85 > 77` 경고), `building`/`floor`/`level` 일반
+#   명사가 *집 자체*도 약화. iso_nw/iso_se 모두 baseline보다 일그러짐.
+# - v2 (2 토큰: additional building / basement) → 토큰 한계는 해결되었으나
+#   여전히 iso_nw/iso_se 일그러짐. 'building' 일반 명사 노출 자체가 문제로 추정.
 #
-# C-1 1차 시도(8 토큰: additional building, second house, basement, underground level,
-# extra floor, lower level, duplicate building, attached annex)는 CLIP 77 토큰 한계
-# 초과(`85 > 77` 경고) + 'building'/'floor'/'level' 일반 명사가 *집 자체*도 약화 →
-# 형상 더 일그러짐. 재시도 — 토큰 2개로 압축, 일반 명사 회피.
+# 결론: per-view negative는 SD 1.5 + ControlNet-depth 조합에서 hallucinate 억제
+# 메커니즘으로 *역효과*. 다른 접근(C-2 per-view cn_scale, C-3 positive 단언)으로 전환.
 VIEW_NEGATIVE_SUFFIXES: dict[IFCView, str] = {
     IFCView.FRONT: "",
     IFCView.SIDE: "",
     IFCView.ISO_NE: "",
-    IFCView.ISO_NW: ", additional building, basement",
-    IFCView.ISO_SE: ", additional building, basement",
+    IFCView.ISO_NW: "",
+    IFCView.ISO_SE: "",
     IFCView.TOP: "",
     IFCView.BIRDS_EYE: "",
     IFCView.CORNER_LOW: "",
