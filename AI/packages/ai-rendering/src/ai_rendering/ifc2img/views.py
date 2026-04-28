@@ -164,6 +164,50 @@ def build_view_prompt(base_prompt: str, view: IFCView) -> str:
     return f"{base_prompt}{suffix}"
 
 
+# View 별 negative prompt suffix — 옵션 C-1 (per-view negative).
+#
+# iso_nw / iso_se 시드 스윕 검수(2026-04-28)에서 "집 형상이 안정적이지 않음" 보고 —
+# 집 뒤에 추가 건물, 지하층, 1층이 더 생기는 hallucinate 다발. seed=7 고정 후에도
+# 일정 비율 발생 → SD가 등각 시점의 깊이 연속성을 *추가 매스*로 해석.
+# negative_prompt에 이 hallucinate 토큰을 명시 차단해 같은 noise에서 출발해도
+# *해당 형상이 덜 그려지게* 유도.
+#
+# 빈 문자열 = 추가 차단 없음 (FRONT/SIDE는 facade만 보여 hallucinate 적음).
+VIEW_NEGATIVE_SUFFIXES: dict[IFCView, str] = {
+    IFCView.FRONT: "",
+    IFCView.SIDE: "",
+    IFCView.ISO_NE: "",
+    IFCView.ISO_NW: ", additional building behind, second house, "
+                     "basement, underground level, extra floor, lower level, "
+                     "duplicate building, attached annex",
+    IFCView.ISO_SE: ", additional building behind, second house, "
+                     "basement, underground level, extra floor, lower level, "
+                     "duplicate building, attached annex",
+    IFCView.TOP: "",
+    IFCView.BIRDS_EYE: "",
+    IFCView.CORNER_LOW: "",
+}
+
+
+def build_view_negative_prompt(base_negative: str, view: IFCView) -> str:
+    """기존 negative_prompt 끝에 view-별 차단 토큰 suffix를 덧붙인다.
+
+    Args:
+        base_negative: 프리셋의 원본 negative_prompt
+        view: 합성할 시점
+
+    Returns:
+        suffix가 빈 문자열이면 base_negative 그대로, 아니면 "base + suffix" 합성.
+        base_negative가 빈 문자열이고 suffix가 비어있지 않으면 suffix의 ", " 접두사 제거.
+    """
+    suffix = VIEW_NEGATIVE_SUFFIXES.get(view, "")
+    if not suffix:
+        return base_negative
+    if not base_negative:
+        return suffix.lstrip(", ")
+    return f"{base_negative}{suffix}"
+
+
 def compute_principal_axes(
     vertices: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, bool]:

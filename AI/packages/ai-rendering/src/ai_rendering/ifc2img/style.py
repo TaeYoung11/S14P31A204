@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Optional
 from PIL import Image
 
 from .exceptions import IFCRenderError
-from .views import IFCView, build_view_prompt
+from .views import IFCView, build_view_negative_prompt, build_view_prompt
 
 if TYPE_CHECKING:
     import torch
@@ -167,10 +167,12 @@ class DepthStyleRenderer:
         depth_size = depth_image.size  # (W, H)
         control = _depth_to_control(depth_image)
         width, height = control.size
-        prompt = (
-            build_view_prompt(params.prompt, view) if view is not None
-            else params.prompt
-        )
+        if view is not None:
+            prompt = build_view_prompt(params.prompt, view)
+            negative_prompt = build_view_negative_prompt(params.negative_prompt, view)
+        else:
+            prompt = params.prompt
+            negative_prompt = params.negative_prompt
 
         try:
             if params.seed is None:
@@ -182,7 +184,7 @@ class DepthStyleRenderer:
             out = self.pipe(
                 prompt=prompt,
                 image=control,
-                negative_prompt=params.negative_prompt,
+                negative_prompt=negative_prompt,
                 guidance_scale=params.guidance_scale,
                 num_inference_steps=params.num_inference_steps,
                 controlnet_conditioning_scale=params.controlnet_conditioning_scale,

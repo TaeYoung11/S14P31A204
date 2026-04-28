@@ -137,7 +137,7 @@ def test_result_save_creates_parent_dir(tmp_path: Path) -> None:
 
 
 def test_public_api_exports() -> None:
-    """ifc2img 공개 심볼: IFC 렌더 3 + style 3 + presets 2 + build_view_prompt = 9개."""
+    """ifc2img 공개 심볼: IFC 렌더 3 + style 3 + presets 2 + view helpers 2 = 10개."""
     from ai_rendering import ifc2img
 
     expected = {
@@ -150,6 +150,7 @@ def test_public_api_exports() -> None:
         "list_presets",
         "load_preset",
         "build_view_prompt",
+        "build_view_negative_prompt",
     }
     assert set(ifc2img.__all__) == expected
 
@@ -199,3 +200,59 @@ def test_render_with_view_front_no_change(
 
     call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
     assert call_prompt == base_prompt
+
+
+# --- C-1 — DepthStyleRenderer.render(view=...) negative_prompt 합성 ---
+
+
+def test_render_with_view_iso_nw_appends_negative_block_tokens(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """C-1 — view=ISO_NW 전달 시 pipe 호출 negative_prompt에 차단 토큰 포함."""
+    depth = Image.new("L", (768, 448), 100)
+    base_negative = "(worst quality:1.4), interior"
+    params = DepthStyleParams(
+        prompt="RAW photo, scandinavian house",
+        negative_prompt=base_negative,
+    )
+
+    mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
+
+    call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
+    assert call_negative.startswith(base_negative)
+    assert "additional building" in call_negative
+    assert "basement" in call_negative
+
+
+def test_render_with_view_iso_ne_does_not_append_negative(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """C-1 — ISO_NE는 차단 토큰 없음 (사용자 검수에서 안정적 판정)."""
+    depth = Image.new("L", (768, 448), 100)
+    base_negative = "(worst quality:1.4)"
+    params = DepthStyleParams(
+        prompt="RAW photo, scandinavian house",
+        negative_prompt=base_negative,
+    )
+
+    mock_depth_renderer.render(depth, params, view=IFCView.ISO_NE)
+
+    call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
+    assert call_negative == base_negative
+
+
+def test_render_without_view_uses_raw_negative(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """view=None (default) 시 negative_prompt 그대로 (backward compat)."""
+    depth = Image.new("L", (768, 448), 100)
+    base_negative = "(worst quality:1.4), interior"
+    params = DepthStyleParams(
+        prompt="x",
+        negative_prompt=base_negative,
+    )
+
+    mock_depth_renderer.render(depth, params)  # view=None
+
+    call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
+    assert call_negative == base_negative

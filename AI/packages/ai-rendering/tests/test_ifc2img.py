@@ -14,9 +14,11 @@ from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
 from ai_rendering.ifc2img.geometry import load_mesh
 from ai_rendering.ifc2img.views import (
     DEFAULT_RENDER_VIEWS,
+    VIEW_NEGATIVE_SUFFIXES,
     VIEW_PROMPT_SUFFIXES,
     VIEW_TARGET_RATIOS,
     AutoZoomMode,
+    build_view_negative_prompt,
     build_view_prompt,
     compute_auto_zoom,
     compute_dynamic_front,
@@ -467,6 +469,64 @@ def test_build_view_prompt_in_public_api() -> None:
     assert "build_view_prompt" in ifc2img.__all__
     # 동일 함수 레퍼런스 (재정의 X)
     from ai_rendering.ifc2img.views import build_view_prompt as internal
+    assert exported is internal
+
+
+# --- 옵션 C-1 — VIEW_NEGATIVE_SUFFIXES + build_view_negative_prompt ---
+
+
+def test_view_negative_suffixes_iso_nw_se_block_extra_building() -> None:
+    """ISO_NW/SE 차단 토큰에 'additional building'/'basement' 등 hallucinate 단어 포함."""
+    for v in (IFCView.ISO_NW, IFCView.ISO_SE):
+        suffix = VIEW_NEGATIVE_SUFFIXES[v]
+        assert suffix, f"{v} negative suffix should not be empty"
+        assert "additional building" in suffix
+        assert "basement" in suffix
+        assert "extra floor" in suffix
+
+
+def test_view_negative_suffixes_other_views_empty() -> None:
+    """C-1 1차 처방 — iso_nw/iso_se만 적용. 다른 시점은 비어있음."""
+    for v in (
+        IFCView.FRONT, IFCView.SIDE, IFCView.ISO_NE,
+        IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW,
+    ):
+        assert VIEW_NEGATIVE_SUFFIXES[v] == "", f"{v} should be empty"
+
+
+def test_build_view_negative_prompt_appends_for_iso_nw() -> None:
+    """ISO_NW에 base negative 합성 시 차단 토큰 덧붙음, base 보존."""
+    base = "(worst quality:1.4), interior"
+    result = build_view_negative_prompt(base, IFCView.ISO_NW)
+    assert result.startswith(base)
+    assert "additional building" in result
+    assert "basement" in result
+
+
+def test_build_view_negative_prompt_returns_base_for_empty_suffix() -> None:
+    """FRONT/SIDE/ISO_NE 등 빈 suffix는 base 그대로 반환."""
+    base = "(worst quality:1.4)"
+    assert build_view_negative_prompt(base, IFCView.FRONT) == base
+    assert build_view_negative_prompt(base, IFCView.SIDE) == base
+    assert build_view_negative_prompt(base, IFCView.ISO_NE) == base
+
+
+def test_build_view_negative_prompt_strips_leading_comma_when_base_empty() -> None:
+    """base가 빈 문자열일 때 suffix의 ', ' 접두사 제거되어 부자연스러운 시작 방지."""
+    result = build_view_negative_prompt("", IFCView.ISO_NW)
+    assert not result.startswith(",")
+    assert result.startswith("additional building")
+
+
+def test_build_view_negative_prompt_in_public_api() -> None:
+    """C-1 — build_view_negative_prompt가 ifc2img.__all__에 등록되어 외부 import 가능."""
+    from ai_rendering import ifc2img
+    from ai_rendering.ifc2img import build_view_negative_prompt as exported
+
+    assert "build_view_negative_prompt" in ifc2img.__all__
+    from ai_rendering.ifc2img.views import (
+        build_view_negative_prompt as internal,
+    )
     assert exported is internal
 
 
