@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { AddSpaceFormData, EditorMode } from '../types'
 import { INITIAL_ADD_SPACE_FORM, SITE_RAW_POINTS } from '../constants'
@@ -9,11 +9,22 @@ import { useStageSize } from './useStageSize'
 import { useZones } from './useZones'
 import { useFloorPlan } from './useFloorPlan'
 import { centerSitePoints } from '../utils/bubbleCalc'
+import type { EmptyCanvasDblClickInfo } from '../components/canvas/BubbleCanvas'
 
-/** EditorPage URL 파라미터에서 모드 파싱 — 허용 목록 외 값은 기본값('bubble')으로 처리 */
+/** 에디터 모드 허용 목록 — URL 파라미터 검증용 */
 const EDITOR_MODES: EditorMode[] = ['bubble', '2d', '3d', 'view']
+
+/** URL 파라미터에서 모드 파싱 — 허용 목록 외 값은 'bubble'(기본값)으로 처리 */
 function resolveMode(value: string | null): EditorMode {
   return EDITOR_MODES.includes(value as EditorMode) ? (value as EditorMode) : 'bubble'
+}
+
+/** 두 연결선 쌍이 동일한지 비교 (방향 무관) */
+function isSameConnection(
+  a: { from: string; to: string },
+  b: { from: string; to: string },
+): boolean {
+  return (a.from === b.from && a.to === b.to) || (a.from === b.to && a.to === b.from)
 }
 
 /**
@@ -30,9 +41,13 @@ export function useEditorPage() {
   const {
     bubbles,
     selectedId,
+    selectedIds,
     previousSelectedId,
     handleBubbleSelect,
     handleBubbleDrag,
+    handleMarqueeSelect,
+    clearSelection,
+    handleBubbleResize,
     handleLabelChange,
     handleTypeChange,
     handleWidthChange,
@@ -40,6 +55,7 @@ export function useEditorPage() {
     handleRatioChange,
     handleColorChange,
     addBubble,
+    addBubbleAt,
     deleteBubble,
   } = useBubbles()
 
@@ -55,7 +71,11 @@ export function useEditorPage() {
     closeModal: closeLineStyleModal,
     setSelectedStyle,
     removeConnectionsForBubble,
+    removeConnection,
   } = useConnections()
+
+  /** 선택된 연결선 (Delete 키/삭제 도구 대상) */
+  const [selectedConnectionPair, setSelectedConnectionPair] = useState<{ from: string; to: string } | null>(null)
 
   // 조닝 상태
   const {
@@ -97,14 +117,33 @@ export function useEditorPage() {
   }, [bubbles, connections, stageSize.width, stageSize.height, isFloorPlanGenerated, refreshFloorPlan])
 
   // 버블이 1개 이상 생기면 평면도가 없을 때 즉시 자동 생성 (모드 무관)
-  // deps에 bubbles.length만 포함하는 것은 의도적: 버블 위치/속성 변경은 refreshFloorPlan이 담당하므로
-  // 최초 생성(버블 개수 변화)에만 반응하도록 제한함
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!isFloorPlanGenerated && bubbles.length > 0 && stageSize.width > 0) {
       generateFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
     }
-  }, [isFloorPlanGenerated, bubbles.length, stageSize.width])
+  }, [isFloorPlanGenerated, bubbles, connections, stageSize.width, stageSize.height, generateFloorPlan])
+
+  // Delete/Backspace 키로 선택된 버블 또는 연결선 삭제 (input 포커스 중엔 무시)
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedConnectionPair) {
+      removeConnection(selectedConnectionPair.from, selectedConnectionPair.to)
+      setSelectedConnectionPair(null)
+      return
+    }
+    selectedIds.forEach((id) => {
+      deleteBubble(id)
+      removeConnectionsForBubble(id)
+    })
+  }, [selectedConnectionPair, selectedIds, deleteBubble, removeConnectionsForBubble, removeConnection])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === 'Delete' || e.key === 'Backspace') handleDeleteSelected()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [handleDeleteSelected])
 
   // UI 전용 상태
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
@@ -212,14 +251,18 @@ export function useEditorPage() {
   const handleDeleteBubble = (id: string) => {
     deleteBubble(id)
     removeConnectionsForBubble(id)
+    if (selectedConnectionPair && (selectedConnectionPair.from === id || selectedConnectionPair.to === id)) {
+      setSelectedConnectionPair(null)
+    }
   }
 
   /**
    * 캔버스 버블 클릭 통합 핸들러
    * - connect 도구: 두 버블을 순서대로 선택하면 스타일 모달 표시
-   * - 그 외: 기존 선택 로직 유지
+   * - 그 외: 기존 선택 로직 유지 (Shift 키 다중 선택 지원)
    */
-  const handleBubbleSelectWithTool = (id: string) => {
+  const handleBubbleSelectWithTool = (id: string, isShift = false) => {
+    setSelectedConnectionPair(null)
     if (selectedTool === 'connect') {
       if (!connectingFromId) {
         setConnectingFromId(id)
@@ -232,13 +275,35 @@ export function useEditorPage() {
         setConnectingFromId(null)
       }
     } else {
-      handleBubbleSelect(id)
+      handleBubbleSelect(id, isShift)
     }
   }
 
   /** 연결선 클릭 — 해당 연결선의 스타일 변경 모달 열기 */
   const handleConnectionClick = (conn: import('../types').ConnectionData) => {
+    if (selectedTool === 'delete') {
+      removeConnection(conn.from, conn.to)
+      setSelectedConnectionPair(null)
+      return
+    }
+    if (selectedTool === 'selection') {
+      const nextPair = { from: conn.from, to: conn.to }
+      if (selectedConnectionPair && isSameConnection(selectedConnectionPair, nextPair)) {
+        openModalWithPair(conn.from, conn.to, conn.type)
+        return
+      }
+      setSelectedConnectionPair(nextPair)
+      return
+    }
+    setSelectedConnectionPair(null)
     openModalWithPair(conn.from, conn.to, conn.type)
+  }
+
+  /** 연결 포인트 드래그 완료 — 선스타일 모달로 연결 생성/수정 */
+  const handleConnectionCreate = (fromId: string, toId: string) => {
+    openModalWithPair(fromId, toId)
+    setConnectingFromId(null)
+    setSelectedConnectionPair(null)
   }
 
   /** 도구 선택 — connect 도구에서 벗어날 때 연결 대기 상태 초기화 */
@@ -247,9 +312,28 @@ export function useEditorPage() {
     if (tool !== 'connect') setConnectingFromId(null)
   }
 
+  const handleClearCanvasSelection = () => {
+    clearSelection()
+    setSelectedConnectionPair(null)
+  }
+
   /** 버블 더블클릭 → 인라인 라벨 편집 시작 */
   const handleBubbleLabelEdit = (info: { id: string; label: string; x: number; y: number; width: number; height: number }) => {
     setLabelEditState(info)
+  }
+
+  /** 빈 캔버스 더블클릭 → 버블 생성 후 즉시 라벨 편집 */
+  const handleEmptyCanvasDblClick = (info: EmptyCanvasDblClickInfo) => {
+    const newBubble = addBubbleAt(info.x, info.y)
+    const scale = zoom / 100
+    setLabelEditState({
+      id: newBubble.id,
+      label: newBubble.label,
+      x: info.screenX - (newBubble.width * scale) / 2,
+      y: info.screenY - (newBubble.height * scale) / 2,
+      width: newBubble.width * scale,
+      height: newBubble.height * scale,
+    })
   }
 
   /** 인라인 라벨 편집 확정 */
@@ -270,12 +354,7 @@ export function useEditorPage() {
 
   const handleZoomIn = () => setZoom((prev) => Math.min(prev + 10, 300))
   const handleZoomOut = () => setZoom((prev) => Math.max(prev - 10, 10))
-  const handleZoomChange = (value: string) => {
-    const cleaned = value.replace(/[^0-9]/g, '')
-    if (cleaned === '') return
-    const num = parseInt(cleaned, 10)
-    if (!isNaN(num)) setZoom(Math.min(Math.max(num, 10), 300))
-  }
+  const handleZoomChange = (value: number) => setZoom(Math.min(Math.max(Math.round(value), 10), 300))
 
   const toggleGrid = () => setIsGridVisible((prev) => !prev)
 
@@ -290,9 +369,13 @@ export function useEditorPage() {
     // 버블
     bubbles,
     selectedId,
+    selectedIds,
     selectedBubble,
     handleBubbleSelect,
     handleBubbleDrag,
+    handleMarqueeSelect,
+    clearSelection: handleClearCanvasSelection,
+    handleBubbleResize,
     handleLabelChange,
     handleTypeChange,
     handleWidthChange,
@@ -302,6 +385,7 @@ export function useEditorPage() {
     handleDeleteBubble,
     // 연결선
     connections,
+    selectedConnectionPair,
     selectedBubbleConnections,
     isLineStyleModalOpen,
     selectedLineStyle,
@@ -356,7 +440,6 @@ export function useEditorPage() {
     handleZoomIn,
     handleZoomOut,
     handleZoomChange,
-    setZoom,
     // 라이브러리
     isLibraryOpen,
     setIsLibraryOpen,
@@ -380,9 +463,11 @@ export function useEditorPage() {
     connectingFromId,
     handleBubbleSelectWithTool,
     handleConnectionClick,
+    handleConnectionCreate,
     // 인라인 라벨 편집
     labelEditState,
     handleBubbleLabelEdit,
+    handleEmptyCanvasDblClick,
     confirmLabelEdit,
     closeLabelEdit: () => setLabelEditState(null),
     // 스크롤 휠 줌

@@ -8,7 +8,8 @@ interface TwoDAttributePanelProps {
   onTypeChange: (id: string, type: string) => void
   onWidthChange: (id: string, width: number) => void
   onHeightChange: (id: string, height: number) => void
-  onRatioChange: (id: string, ratio: number) => void
+  /** 면적 직접 변경 핸들러 — 현재 UI에서 미사용, 추후 면적 입력 필드 추가 시 활용 */
+  onRatioChange?: (id: string, ratio: number) => void
 }
 
 /** 2D 평면도 모드 전용 속성 패널 — 버블 데이터와 연동 */
@@ -18,7 +19,6 @@ export function TwoDAttributePanel({
   onTypeChange,
   onWidthChange,
   onHeightChange,
-  onRatioChange,
 }: TwoDAttributePanelProps) {
   if (!selectedBubble) {
     return (

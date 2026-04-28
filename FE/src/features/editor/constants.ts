@@ -10,12 +10,12 @@ export const PANEL_MIN_HEIGHT = 160
 export const PANEL_MAX_HEIGHT = 720
 
 /** 방 종류 선택지 */
-export const ROOM_TYPES = ['거실', '침실', '주방', '화장실', '방', '복도', '현관'] as const
+export const ROOM_TYPES = ['미선택', '거실', '침실', '주방', '화장실', '방', '복도', '현관'] as const
 
 /** 공간 추가 모달 초기값 */
 export const INITIAL_ADD_SPACE_FORM: AddSpaceFormData = {
   name: '',
-  type: '거실',
+  type: '미선택',
   width: '',
   height: '',
   ratio: '',
@@ -28,14 +28,14 @@ export const SITE_RAW_POINTS = [420, 310, 560, 310, 560, 550, 330, 720, 300, 480
 /** 선 스타일 옵션 목록 */
 export const LINE_STYLE_OPTIONS: LineStyleOption[] = [
   {
-    value: 'bold',
-    title: '직접 인접 (Direct Adjacency)',
-    description: '두 영역이 벽을 공유하거나 직접 연결됨',
-  },
-  {
     value: 'thin',
     title: '일반 연결 (Normal Connection)',
     description: '통로 또는 문으로 연결된 표준 관계',
+  },
+  {
+    value: 'bold',
+    title: '직접 인접 (Direct Adjacency)',
+    description: '두 영역이 벽을 공유하거나 직접 연결됨',
   },
   {
     value: 'dashed',

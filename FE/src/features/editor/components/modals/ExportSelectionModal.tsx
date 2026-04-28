@@ -1,4 +1,4 @@
-import { X, FileCode, Image as ImageIcon, Lock, Clock } from 'lucide-react'
+import { FileCode, Lock, Clock } from 'lucide-react'
 import { useState } from 'react'
 
 // ── 내보내기 포맷 정의 ────────────────────────────────────────────────────────

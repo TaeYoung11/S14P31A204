@@ -56,6 +56,13 @@ export function useConnections() {
     setConnections((prev) => prev.filter((c) => c.from !== id && c.to !== id))
   }
 
+  /** 연결선 1개 삭제 (from/to 순서 무관) */
+  const removeConnection = (from: string, to: string) => {
+    setConnections((prev) =>
+      prev.filter((c) => !((c.from === from && c.to === to) || (c.from === to && c.to === from)))
+    )
+  }
+
   return {
     connections,
     isModalOpen,
@@ -67,5 +74,6 @@ export function useConnections() {
     closeModal: () => setIsModalOpen(false),
     setSelectedStyle,
     removeConnectionsForBubble,
+    removeConnection,
   }
 }

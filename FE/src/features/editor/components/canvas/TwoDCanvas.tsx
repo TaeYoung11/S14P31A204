@@ -1,11 +1,13 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Layer, Line, Stage, Arc, Group, Circle, Text, Rect } from 'react-konva'
 import { LayoutDashboard, Sparkles } from 'lucide-react'
 import type { KonvaEventObject } from 'konva/lib/Node'
+import type Konva from 'konva'
 import Spinner from '../../../../shared/components/Spinner'
 import type { ConnectionData, FloorRoom } from '../../types'
 import { findSharedWall } from '../../utils/floorPlanLayout'
 import { hexToRgba } from '../../utils/bubbleCalc'
+import { useSpacePanning } from '../../hooks/useSpacePanning'
 
 // ── 유틸 ─────────────────────────────────────────────────────────────────────
 
@@ -14,6 +16,140 @@ function getRoomFill(color: string): string {
   const normalized = color.trim().toUpperCase()
   if (normalized === '#FFFFFF' || normalized === '#FFF') return '#F0F4FF'
   return hexToRgba(color, 0.14)
+}
+
+// ── 평면도 생성 전 안내 화면 ─────────────────────────────────────────────────
+
+interface FloorPlanEmptyProps {
+  onGenerate?: () => void
+}
+
+/**
+ * 평면도가 아직 생성되지 않은 경우 표시되는 안내 화면
+ * "평면도 생성 시작" 버튼 클릭 시 onGenerate 호출
+ */
+function FloorPlanEmpty({ onGenerate }: FloorPlanEmptyProps) {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-white">
+      <div className="flex flex-col items-center gap-5 text-center px-10">
+        <div className="w-20 h-20 rounded-3xl bg-[#F0F2FF] flex items-center justify-center shadow-sm">
+          <LayoutDashboard size={36} className="text-[#3B45B3]" />
+        </div>
+        <div className="flex flex-col gap-2">
+          <h3 className="text-[15px] font-extrabold text-[#1C1C1E]">2D 평면도 자동 생성</h3>
+          <p className="text-[12px] text-[#6B7A99] leading-relaxed max-w-[260px]">
+            버블 다이어그램의 공간 크기와 연결 관계를 바탕으로<br />
+            2D 평면도 초안을 자동으로 생성합니다.
+          </p>
+        </div>
+        <button
+          onClick={onGenerate}
+          className="flex items-center gap-2 bg-[#3B45B3] hover:bg-[#2D3599] text-white text-[12px] font-extrabold px-6 py-3 rounded-2xl transition-all shadow-md hover:shadow-lg active:scale-95"
+        >
+          <Sparkles size={15} />
+          평면도 생성 시작
+        </button>
+        <p className="text-[10px] text-[#ADB5BD]">
+          버블 다이어그램 탭에서 공간을 추가하면 더 풍부한 평면도가 생성됩니다.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// ── 평면도 생성 중 로딩 화면 ──────────────────────────────────────────────────
+
+/**
+ * 평면도 생성 중에 표시되는 로딩 화면
+ * 진행 애니메이션 바를 포함한다.
+ */
+function FloorPlanLoading() {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-white">
+      <div className="flex flex-col items-center gap-5">
+        <div className="relative">
+          <div className="w-20 h-20 rounded-3xl bg-[#F0F2FF] flex items-center justify-center">
+            <LayoutDashboard size={36} className="text-[#3B45B3] opacity-40" />
+          </div>
+          <div className="absolute -bottom-2 -right-2">
+            <Spinner size="md" className="text-[#3B45B3]" />
+          </div>
+        </div>
+        <div className="flex flex-col items-center gap-1.5">
+          <p className="text-[13px] font-extrabold text-[#3B45B3]">평면도 생성 중...</p>
+          <p className="text-[11px] text-[#6B7A99]">버블 다이어그램을 분석하고 레이아웃을 배치하는 중입니다</p>
+        </div>
+        <div className="w-48 h-1.5 bg-[#E2E6EF] rounded-full overflow-hidden">
+          <div className="h-full bg-[#3B45B3] rounded-full animate-[progress_1.8s_ease-in-out_forwards]" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── 협업 모드 핀 오버레이 ────────────────────────────────────────────────────
+
+interface CollaborationPinOverlayProps {
+  cx: number
+  cy: number
+  selectedPinId?: string | null
+  onPinClick?: (id: string) => void
+  onMouseEnter: (e: KonvaEventObject<MouseEvent>) => void
+  onMouseLeave: (e: KonvaEventObject<MouseEvent>) => void
+}
+
+/**
+ * 2D 협업 모드에서 평면도 위에 렌더링되는 핀·치수선 오버레이
+ * 핀 클릭 시 해당 스레드 탭으로 이동한다.
+ */
+function CollaborationPinOverlay({
+  cx,
+  cy,
+  selectedPinId,
+  onPinClick,
+  onMouseEnter,
+  onMouseLeave,
+}: CollaborationPinOverlayProps) {
+  return (
+    <>
+      {/* 치수선 */}
+      <Group>
+        <Line points={[cx - 160, cy - 230, cx + 160, cy - 230]} stroke="#ADB5BD" strokeWidth={1} />
+        <Line points={[cx - 160, cy - 235, cx - 160, cy - 225]} stroke="#ADB5BD" strokeWidth={1} />
+        <Line points={[cx + 160, cy - 235, cx + 160, cy - 225]} stroke="#ADB5BD" strokeWidth={1} />
+        <Text text="12,400mm" x={cx - 28} y={cy - 242} fontSize={10} fill="#ADB5BD" fontStyle="bold" />
+        <Line points={[cx - 180, cy - 210, cx - 180, cy + 210]} stroke="#ADB5BD" strokeWidth={1} />
+        <Line points={[cx - 185, cy - 210, cx - 175, cy - 210]} stroke="#ADB5BD" strokeWidth={1} />
+        <Line points={[cx - 185, cy + 210, cx - 175, cy + 210]} stroke="#ADB5BD" strokeWidth={1} />
+        <Text text="16,200mm" x={cx - 195} y={cy + 25} fontSize={10} fill="#ADB5BD" fontStyle="bold" rotation={-90} />
+      </Group>
+
+      {/* 핀 1 */}
+      <Group x={cx - 112} y={cy - 147} onClick={() => onPinClick?.('041')} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
+        <Circle radius={12} fill="#1C1C1E" />
+        <Text text="1" x={-3} y={-5} fill="white" fontSize={11} fontStyle="bold" />
+      </Group>
+      {/* 핀 2 */}
+      <Group x={cx + 16} y={cy - 21} onClick={() => onPinClick?.('042')} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
+        <Circle radius={14} fill={selectedPinId === '042' ? '#3B45B3' : '#1C1C1E'} />
+        <Text text="2" x={-3.5} y={-5} fill="white" fontSize={11} fontStyle="bold" />
+      </Group>
+      {/* 핀 3 */}
+      <Group x={cx + 112} y={cy + 126} onClick={() => onPinClick?.('040')} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
+        <Circle radius={12} fill="#1C1C1E" />
+        <Text text="3" x={-3} y={-5} fill="white" fontSize={11} fontStyle="bold" />
+      </Group>
+
+      {/* 핀 2 말풍선 */}
+      {(selectedPinId === '042' || !selectedPinId) && (
+        <Group x={cx + 16 - 45} y={cy - 21 - 45}>
+          <Rect width={90} height={24} fill="white" stroke="#D9DEF0" cornerRadius={8} shadowBlur={4} shadowOpacity={0.1} />
+          <Text text="창호 위치 변경 요청" x={8} y={7} fontSize={8} fill="#3B45B3" fontStyle="bold" />
+          <Line points={[45, 24, 45, 38]} stroke="#3B45B3" strokeWidth={1.5} />
+        </Group>
+      )}
+    </>
+  )
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -36,6 +172,7 @@ interface TwoDCanvasProps {
   onSelect?: (id: string | null) => void
   scale?: number
   selectedTool?: string
+  onWheelZoom?: (factor: number) => void
 }
 
 /**
@@ -60,8 +197,28 @@ export function TwoDCanvas({
   onSelect,
   scale = 1,
   selectedTool = 'selection',
+  onWheelZoom,
 }: TwoDCanvasProps) {
-  // ── 그리드 라인 (minor: 50px, major: 250px 간격) ──────────────────────────
+  const stageRef = useRef<Konva.Stage | null>(null)
+  const isSpacePressed = useSpacePanning()
+  const [isMiddlePanning, setIsMiddlePanning] = useState(false)
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 })
+  const isPanMode = selectedTool === 'hand' || isSpacePressed || isMiddlePanning
+  const baseOffsetX = (stageSize.width * (1 - scale)) / 2
+  const baseOffsetY = (stageSize.height * (1 - scale)) / 2
+
+  /** 패닝 모드 진입·해제 시 Stage 커서 동기화 */
+  useEffect(() => {
+    const container = stageRef.current?.container()
+    if (!container) return
+    if (isPanMode) {
+      container.style.cursor = isMiddlePanning ? 'grabbing' : 'grab'
+      return
+    }
+    container.style.cursor = 'default'
+  }, [isPanMode, isMiddlePanning])
+
+  // ── 그리드 라인 (보조: 50px 간격, 주요: 250px 간격) ──────────────────────
   const gridLines = useMemo(() => {
     if (!isGridVisible || stageSize.width === 0) return { minor: [] as number[][], major: [] as number[][] }
     const MINOR = 50
@@ -101,11 +258,12 @@ export function TwoDCanvas({
     return doors
   }, [isGenerated, rooms, connections])
 
-  // Konva 커서 처리
+  /** 방 위에 마우스가 올라왔을 때 현재 도구에 맞는 커서 적용 */
   const handleMouseEnter = (e: KonvaEventObject<MouseEvent>) => {
     const container = e.target.getStage()?.container()
-    if (container) container.style.cursor = selectedTool === 'hand' ? 'grab' : 'pointer'
+    if (container) container.style.cursor = isPanMode ? 'grab' : 'pointer'
   }
+  /** 방에서 마우스가 벗어날 때 기본 커서로 복원 */
   const handleMouseLeave = (e: KonvaEventObject<MouseEvent>) => {
     const container = e.target.getStage()?.container()
     if (container) container.style.cursor = 'default'
@@ -114,80 +272,61 @@ export function TwoDCanvas({
   const cx = stageSize.width / 2
   const cy = stageSize.height / 2
 
-  // ── 생성 전: 변환 안내 화면 ──────────────────────────────────────────────
-  if (!isGenerated && !isGenerating) {
-    return (
-      <div className="absolute inset-0 flex items-center justify-center bg-white">
-        <div className="flex flex-col items-center gap-5 text-center px-10">
-          <div className="w-20 h-20 rounded-3xl bg-[#F0F2FF] flex items-center justify-center shadow-sm">
-            <LayoutDashboard size={36} className="text-[#3B45B3]" />
-          </div>
-          <div className="flex flex-col gap-2">
-            <h3 className="text-[15px] font-extrabold text-[#1C1C1E]">2D 평면도 자동 생성</h3>
-            <p className="text-[12px] text-[#6B7A99] leading-relaxed max-w-[260px]">
-              버블 다이어그램의 공간 크기와 연결 관계를 바탕으로<br />
-              2D 평면도 초안을 자동으로 생성합니다.
-            </p>
-          </div>
-          <button
-            onClick={onGenerate}
-            className="flex items-center gap-2 bg-[#3B45B3] hover:bg-[#2D3599] text-white text-[12px] font-extrabold px-6 py-3 rounded-2xl transition-all shadow-md hover:shadow-lg active:scale-95"
-          >
-            <Sparkles size={15} />
-            평면도 생성 시작
-          </button>
-          <p className="text-[10px] text-[#ADB5BD]">
-            버블 다이어그램 탭에서 공간을 추가하면 더 풍부한 평면도가 생성됩니다.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  // ── 생성 중: 로딩 화면 ───────────────────────────────────────────────────
-  if (isGenerating) {
-    return (
-      <div className="absolute inset-0 flex items-center justify-center bg-white">
-        <div className="flex flex-col items-center gap-5">
-          <div className="relative">
-            <div className="w-20 h-20 rounded-3xl bg-[#F0F2FF] flex items-center justify-center">
-              <LayoutDashboard size={36} className="text-[#3B45B3] opacity-40" />
-            </div>
-            <div className="absolute -bottom-2 -right-2">
-              <Spinner size="md" className="text-[#3B45B3]" />
-            </div>
-          </div>
-          <div className="flex flex-col items-center gap-1.5">
-            <p className="text-[13px] font-extrabold text-[#3B45B3]">평면도 생성 중...</p>
-            <p className="text-[11px] text-[#6B7A99]">버블 다이어그램을 분석하고 레이아웃을 배치하는 중입니다</p>
-          </div>
-          {/* 진행 애니메이션 바 */}
-          <div className="w-48 h-1.5 bg-[#E2E6EF] rounded-full overflow-hidden">
-            <div className="h-full bg-[#3B45B3] rounded-full animate-[progress_1.8s_ease-in-out_forwards]" />
-          </div>
-        </div>
-      </div>
-    )
-  }
+  // ── 생성 전 / 생성 중 화면 ───────────────────────────────────────────────
+  if (!isGenerated && !isGenerating) return <FloorPlanEmpty onGenerate={onGenerate} />
+  if (isGenerating) return <FloorPlanLoading />
 
   // ── 생성 완료: Konva 평면도 렌더링 ───────────────────────────────────────
   return (
     <Stage
+      ref={stageRef}
       width={stageSize.width}
       height={stageSize.height}
       className="absolute inset-0"
       scaleX={scale}
       scaleY={scale}
-      x={(stageSize.width * (1 - scale)) / 2}
-      y={(stageSize.height * (1 - scale)) / 2}
-      draggable={selectedTool === 'hand'}
+      x={baseOffsetX + panOffset.x}
+      y={baseOffsetY + panOffset.y}
+      draggable={isPanMode}
+      onDragMove={(e) => {
+        if (e.target.getType() !== 'Stage') return
+        setPanOffset({
+          x: e.target.x() - baseOffsetX,
+          y: e.target.y() - baseOffsetY,
+        })
+      }}
       onDragStart={(e) => {
+        if (e.target.getType() !== 'Stage') return
         const container = e.target.getStage()?.container()
-        if (container && selectedTool === 'hand') container.style.cursor = 'grabbing'
+        if (container && isPanMode) container.style.cursor = 'grabbing'
       }}
       onDragEnd={(e) => {
+        if (e.target.getType() !== 'Stage') return
         const container = e.target.getStage()?.container()
-        if (container && selectedTool === 'hand') container.style.cursor = 'grab'
+        if (container && isPanMode) container.style.cursor = 'grab'
+      }}
+      onMouseDown={(e) => {
+        if (e.evt.button !== 1) return
+        e.evt.preventDefault()
+        const stage = e.target.getStage()
+        if (!stage) return
+        setIsMiddlePanning(true)
+        stage.draggable(true)
+        stage.startDrag()
+        stage.container().style.cursor = 'grabbing'
+      }}
+      onMouseUp={(e) => {
+        if (!isMiddlePanning) return
+        const stage = e.target.getStage()
+        if (!stage) return
+        stage.stopDrag()
+        stage.container().style.cursor = isSpacePressed || selectedTool === 'hand' ? 'grab' : 'default'
+        setIsMiddlePanning(false)
+      }}
+      onWheel={(e) => {
+        if (!e.evt.ctrlKey && !e.evt.metaKey) return
+        e.evt.preventDefault()
+        onWheelZoom?.(e.evt.deltaY < 0 ? 1.1 : 0.9)
       }}
     >
       <Layer>
@@ -214,6 +353,7 @@ export function TwoDCanvas({
             <Group
               key={room.id}
               onClick={(e) => {
+                if (isPanMode) return
                 e.cancelBubble = true
                 onSelect?.(isSelected ? null : room.bubbleId)
               }}
@@ -285,44 +425,14 @@ export function TwoDCanvas({
 
         {/* 협업 모드 오버레이: 치수선 + 핀 */}
         {isCollaborationMode && (
-          <>
-            {/* 치수선 */}
-            <Group>
-              <Line points={[cx - 160, cy - 230, cx + 160, cy - 230]} stroke="#ADB5BD" strokeWidth={1} />
-              <Line points={[cx - 160, cy - 235, cx - 160, cy - 225]} stroke="#ADB5BD" strokeWidth={1} />
-              <Line points={[cx + 160, cy - 235, cx + 160, cy - 225]} stroke="#ADB5BD" strokeWidth={1} />
-              <Text text="12,400mm" x={cx - 28} y={cy - 242} fontSize={10} fill="#ADB5BD" fontStyle="bold" />
-              <Line points={[cx - 180, cy - 210, cx - 180, cy + 210]} stroke="#ADB5BD" strokeWidth={1} />
-              <Line points={[cx - 185, cy - 210, cx - 175, cy - 210]} stroke="#ADB5BD" strokeWidth={1} />
-              <Line points={[cx - 185, cy + 210, cx - 175, cy + 210]} stroke="#ADB5BD" strokeWidth={1} />
-              <Text text="16,200mm" x={cx - 195} y={cy + 25} fontSize={10} fill="#ADB5BD" fontStyle="bold" rotation={-90} />
-            </Group>
-
-            {/* 핀 1 */}
-            <Group x={cx - 112} y={cy - 147} onClick={() => onPinClick?.('041')} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
-              <Circle radius={12} fill="#1C1C1E" />
-              <Text text="1" x={-3} y={-5} fill="white" fontSize={11} fontStyle="bold" />
-            </Group>
-            {/* 핀 2 */}
-            <Group x={cx + 16} y={cy - 21} onClick={() => onPinClick?.('042')} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
-              <Circle radius={14} fill={selectedPinId === '042' ? '#3B45B3' : '#1C1C1E'} />
-              <Text text="2" x={-3.5} y={-5} fill="white" fontSize={11} fontStyle="bold" />
-            </Group>
-            {/* 핀 3 */}
-            <Group x={cx + 112} y={cy + 126} onClick={() => onPinClick?.('040')} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
-              <Circle radius={12} fill="#1C1C1E" />
-              <Text text="3" x={-3} y={-5} fill="white" fontSize={11} fontStyle="bold" />
-            </Group>
-
-            {/* 핀 2 말풍선 */}
-            {(selectedPinId === '042' || !selectedPinId) && (
-              <Group x={cx + 16 - 45} y={cy - 21 - 45}>
-                <Rect width={90} height={24} fill="white" stroke="#D9DEF0" cornerRadius={8} shadowBlur={4} shadowOpacity={0.1} />
-                <Text text="창호 위치 변경 요청" x={8} y={7} fontSize={8} fill="#3B45B3" fontStyle="bold" />
-                <Line points={[45, 24, 45, 38]} stroke="#3B45B3" strokeWidth={1.5} />
-              </Group>
-            )}
-          </>
+          <CollaborationPinOverlay
+            cx={cx}
+            cy={cy}
+            selectedPinId={selectedPinId}
+            onPinClick={onPinClick}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+          />
         )}
       </Layer>
     </Stage>

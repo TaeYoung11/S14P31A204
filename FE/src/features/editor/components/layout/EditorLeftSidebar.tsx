@@ -12,10 +12,11 @@ import {
   Home,
   Download,
   Hand,
+  type LucideIcon,
 } from 'lucide-react'
 import type { EditorMode } from '../../types'
 
-// ── 스타일 유틸 ───────────────────────────────────────────────────────────────
+// ── 스타일 헬퍼 ───────────────────────────────────────────────────────────────
 
 /** 일반 도구 버튼 활성/비활성 스타일 */
 function getToolStyle(isActive: boolean) {
@@ -43,6 +44,21 @@ function getDeleteStyle(isActive: boolean) {
       }
 }
 
+// ── 2D 모드 도구 목록 (반복 JSX 최소화) ──────────────────────────────────────
+
+interface Tool2DItem {
+  id: string
+  icon: LucideIcon
+  label: string
+}
+
+/** 2D 평면도 모드에서 사용 가능한 도구 목록 */
+const TOOLS_2D: Tool2DItem[] = [
+  { id: 'wall',   icon: Square,     label: '벽체' },
+  { id: 'door',   icon: DoorOpen,   label: '문' },
+  { id: 'window', icon: LayoutGrid, label: '창문' },
+]
+
 // ── 공통 서브컴포넌트 ─────────────────────────────────────────────────────────
 
 interface ToolButtonBaseProps {
@@ -51,16 +67,16 @@ interface ToolButtonBaseProps {
 }
 
 /**
- * 선택/패닝 토글 버튼
- * - 'hand' 도구일 때: 손 아이콘 + "패닝" 레이블 표시 → 클릭 시 'selection' 복귀
- * - 그 외: 화살표 아이콘 + "선택" 레이블 표시 → 클릭 시 'hand' 전환
+ * 선택 도구 버튼
+ * - hand 도구 활성 중에는 '패닝' 레이블로 표시
+ * - 클릭 시 항상 selection 도구로 복귀
  */
 function SelectionToolButton({ selectedTool, onToolSelect }: ToolButtonBaseProps) {
   const isActive = selectedTool === 'selection' || selectedTool === 'hand'
   const style = getToolStyle(isActive)
 
   return (
-    <button onClick={() => onToolSelect(selectedTool === 'hand' ? 'selection' : 'hand')} className="w-full flex flex-col items-center gap-1 py-1 group">
+    <button onClick={() => onToolSelect('selection')} className="w-full flex flex-col items-center gap-1 py-1 group">
       <div className={style.container}>
         {selectedTool === 'hand' ? (
           <Hand size={24} />
@@ -122,7 +138,6 @@ interface EditorLeftSidebarProps {
   selectedTool: string
   onToolSelect: (tool: string) => void
   onAddSpace: () => void
-  onLineStyle: () => void
   onToggleCollaboration?: () => void
   onToggleLibrary?: () => void
   onToggleGrid?: () => void
@@ -142,7 +157,6 @@ export default function EditorLeftSidebar({
   selectedTool,
   onToolSelect,
   onAddSpace,
-  onLineStyle,
   onToggleCollaboration,
   onToggleLibrary,
   onToggleGrid,
@@ -191,26 +205,15 @@ export default function EditorLeftSidebar({
             <>
               <SelectionToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
 
-              <button onClick={() => onToolSelect('wall')} className="w-full flex flex-col items-center gap-1 py-1 group">
-                <div className={getToolStyle(selectedTool === 'wall').container}>
-                  <Square size={24} />
-                </div>
-                <span className={getToolStyle(selectedTool === 'wall').text}>벽체</span>
-              </button>
-
-              <button onClick={() => onToolSelect('door')} className="w-full flex flex-col items-center gap-1 py-1 group">
-                <div className={getToolStyle(selectedTool === 'door').container}>
-                  <DoorOpen size={24} />
-                </div>
-                <span className={getToolStyle(selectedTool === 'door').text}>문</span>
-              </button>
-
-              <button onClick={() => onToolSelect('window')} className="w-full flex flex-col items-center gap-1 py-1 group">
-                <div className={getToolStyle(selectedTool === 'window').container}>
-                  <LayoutGrid size={24} />
-                </div>
-                <span className={getToolStyle(selectedTool === 'window').text}>창문</span>
-              </button>
+              {TOOLS_2D.map(({ id, icon: Icon, label }) => {
+                const style = getToolStyle(selectedTool === id)
+                return (
+                  <button key={id} onClick={() => onToolSelect(id)} className="w-full flex flex-col items-center gap-1 py-1 group">
+                    <div className={style.container}><Icon size={24} /></div>
+                    <span className={style.text}>{label}</span>
+                  </button>
+                )
+              })}
 
               <DeleteToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
               <GridToggleButton isGridVisible={isGridVisible} onToggleGrid={onToggleGrid} />
