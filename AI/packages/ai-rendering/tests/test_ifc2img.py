@@ -200,8 +200,10 @@ def test_compute_auto_zoom_target_ratio_inverse() -> None:
     """target_screen_ratio가 클수록 zoom 값은 작아진다 (inverse 관계 — Open3D 의미)."""
     aabb_min = np.array([0.0, 0.0, 0.0])
     aabb_max = np.array([10.0, 10.0, 5.0])
-    z_small = compute_auto_zoom(aabb_min, aabb_max, (-1.0, 0.0, 0.0), (0.0, 0.0, 1.0), target_screen_ratio=0.3)
-    z_large = compute_auto_zoom(aabb_min, aabb_max, (-1.0, 0.0, 0.0), (0.0, 0.0, 1.0), target_screen_ratio=0.9)
+    front = (-1.0, 0.0, 0.0)
+    up = (0.0, 0.0, 1.0)
+    z_small = compute_auto_zoom(aabb_min, aabb_max, front, up, target_screen_ratio=0.3)
+    z_large = compute_auto_zoom(aabb_min, aabb_max, front, up, target_screen_ratio=0.9)
     assert z_small > z_large  # ratio 높음 = mesh 크게 = zoom 작음
 
 

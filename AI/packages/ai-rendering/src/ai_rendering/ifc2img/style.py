@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from PIL import Image
 
@@ -45,7 +45,7 @@ class DepthStyleParams:
     guidance_scale: float = 7.0
     num_inference_steps: int = 25
     controlnet_conditioning_scale: float = 0.7
-    seed: Optional[int] = None
+    seed: int | None = None
 
 
 @dataclass
@@ -77,8 +77,8 @@ class DepthStyleRenderer:
         self,
         model_id: str = DEFAULT_MODEL_ID,
         controlnet_model_id: str = DEFAULT_CONTROLNET_DEPTH_ID,
-        device: Optional[str] = None,
-        dtype: Optional["torch.dtype"] = None,
+        device: str | None = None,
+        dtype: torch.dtype | None = None,
         warmup: bool = True,
     ) -> None:
         import torch as _torch
