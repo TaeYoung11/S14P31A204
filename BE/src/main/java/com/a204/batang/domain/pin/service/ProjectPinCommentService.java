@@ -4,9 +4,11 @@ import com.a204.batang.domain.pin.dto.CreatePinCommentRequest;
 import com.a204.batang.domain.pin.dto.CreatePinCommentResponse;
 import com.a204.batang.domain.pin.dto.GetPinCommentsResponse;
 import com.a204.batang.domain.pin.dto.PinCommentResponse;
+import com.a204.batang.domain.pin.dto.ResolvePinCommentResponse;
 import com.a204.batang.domain.pin.dto.UpdatePinCommentRequest;
 import com.a204.batang.domain.pin.dto.UpdatePinCommentResponse;
 import com.a204.batang.domain.pin.entity.PinCommentReadState;
+import com.a204.batang.domain.pin.entity.PinStatus;
 import com.a204.batang.domain.pin.entity.ProjectPin;
 import com.a204.batang.domain.pin.entity.ProjectPinComment;
 import com.a204.batang.domain.pin.event.PinCommentCreatedEvent;
@@ -64,6 +66,10 @@ public class ProjectPinCommentService {
 
         String normalizedContent = request.content().trim();
         ProjectPinComment projectPinComment = ProjectPinComment.create(projectPin, currentUserId, normalizedContent);
+        if (projectPin.getStatus() == PinStatus.RESOLVED) {
+            // 완료된 핀에 신규 댓글이 달리더라도 핀 완료 상태와 정합성을 유지한다.
+            projectPinComment.markResolved(currentUserId);
+        }
         ProjectPinComment savedComment = projectPinCommentRepository.save(projectPinComment);
 
         projectPin.recordComment(currentUserId);
@@ -102,6 +108,32 @@ public class ProjectPinCommentService {
 
         log.info("핀 댓글 수정 완료. projectId={}, pinId={}, commentId={}", projectId, pinId, commentId);
         return UpdatePinCommentResponse.from(comment, pinId);
+    }
+
+    /**
+     * 댓글을 완료 처리한다.
+     * 완료 처리는 프로젝트 접근 권한이 있는 사용자라면 누구나 가능하다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @param commentId 댓글 ID
+     * @return 댓글 완료 처리 응답
+     */
+    @Transactional
+    public ResolvePinCommentResponse resolveComment(UUID projectId, UUID pinId, UUID commentId) {
+        ProjectPinComment comment = getActiveCommentOrThrow(projectId, pinId, commentId);
+
+        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        projectAccessService.validateProjectPinWriterOrThrow(comment.getProjectPin().getProject(), currentUserId);
+
+        if (comment.getStatus() != PinStatus.RESOLVED) {
+            comment.markResolved(currentUserId);
+            entityManager.flush();
+        }
+
+        log.info("댓글 완료 처리 완료. projectId={}, pinId={}, commentId={}, resolverUserId={}",
+                projectId, pinId, commentId, currentUserId);
+        return ResolvePinCommentResponse.from(comment);
     }
 
     /**
@@ -160,7 +192,6 @@ public class ProjectPinCommentService {
                 .map(comment -> PinCommentResponse.from(
                         comment,
                         pinId,
-                        projectPin.getStatus(),
                         currentUserId,
                         lastReadAt
                 ))

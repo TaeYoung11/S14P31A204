@@ -43,6 +43,25 @@ ALTER TABLE IF EXISTS project_pins
 ALTER TABLE IF EXISTS project_pins
     ALTER COLUMN version SET NOT NULL;
 
+ALTER TABLE IF EXISTS comments
+    ADD COLUMN IF NOT EXISTS status VARCHAR(20);
+
+UPDATE comments
+SET status = 'OPEN'
+WHERE status IS NULL;
+
+ALTER TABLE IF EXISTS comments
+    ALTER COLUMN status SET DEFAULT 'OPEN';
+
+ALTER TABLE IF EXISTS comments
+    ALTER COLUMN status SET NOT NULL;
+
+ALTER TABLE IF EXISTS comments
+    ADD COLUMN IF NOT EXISTS resolved_by_user_id UUID;
+
+ALTER TABLE IF EXISTS comments
+    ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP;
+
 CREATE TABLE IF NOT EXISTS pin_comment_read_states (
     pin_id UUID NOT NULL,
     user_id UUID NOT NULL,

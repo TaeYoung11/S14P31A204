@@ -1,5 +1,6 @@
 package com.a204.batang.domain.pin.repository;
 
+import com.a204.batang.domain.pin.entity.PinStatus;
 import com.a204.batang.domain.pin.entity.ProjectPinComment;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -90,6 +91,32 @@ public interface ProjectPinCommentRepository extends JpaRepository<ProjectPinCom
     int softDeleteByPinId(
             @Param("pinId") UUID pinId,
             @Param("deletedAt") LocalDateTime deletedAt
+    );
+
+    /**
+     * 특정 핀의 활성 댓글을 모두 완료 처리한다.
+     *
+     * @param pinId 핀 ID
+     * @param resolvedStatus 완료 상태 값
+     * @param resolverUserId 완료 처리자 사용자 ID
+     * @param resolvedAt 완료 처리 시각
+     * @return 완료 처리된 댓글 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE ProjectPinComment comment
+            SET comment.status = :resolvedStatus,
+                comment.resolvedByUserId = :resolverUserId,
+                comment.resolvedAt = :resolvedAt
+            WHERE comment.projectPin.pinId = :pinId
+              AND comment.deletedAt IS NULL
+              AND comment.status <> :resolvedStatus
+            """)
+    int resolveActiveCommentsByPinId(
+            @Param("pinId") UUID pinId,
+            @Param("resolvedStatus") PinStatus resolvedStatus,
+            @Param("resolverUserId") UUID resolverUserId,
+            @Param("resolvedAt") LocalDateTime resolvedAt
     );
 
     /**
