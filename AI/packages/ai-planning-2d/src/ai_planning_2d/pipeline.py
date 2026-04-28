@@ -122,6 +122,10 @@ def to_ifc_commands(
             )
 
         if ifc_context and any(_find_storey_id_for_space(tid) is None for tid in target_ids):
+            if len(target_ids) == 1:
+                raise RuntimeError(
+                    f"IFC 데이터 오류: '{command.target_room_name}' 방의 storey 정보가 누락됨."
+                )
             return CommandBatch(
                 commands=[],
                 requires_clarification=True,
@@ -182,6 +186,10 @@ def to_ifc_commands(
             )
 
         if ifc_context and any(_find_storey_id_for_space(tid) is None for tid in target_ids):
+            if len(target_ids) == 1:
+                raise RuntimeError(
+                    f"IFC 데이터 오류: '{command.target_room_name}' 방의 storey 정보가 누락됨."
+                )
             return CommandBatch(
                 commands=[],
                 requires_clarification=True,
