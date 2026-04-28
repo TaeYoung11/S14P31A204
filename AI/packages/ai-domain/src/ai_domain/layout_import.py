@@ -163,6 +163,37 @@ class LayoutImportCommon(LayoutImportBaseModel):
 
         return self
 
+    @model_validator(mode="after")
+    def validate_boundary_floor_uniqueness(self) -> LayoutImportCommon:
+        if self.boundaries is None:
+            return self
+
+        boundary_floors = [boundary.floor for boundary in self.boundaries]
+        if len(boundary_floors) != len(set(boundary_floors)):
+            raise ValueError("boundaries must not contain duplicate floor values")
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_adjacency_room_references(self) -> LayoutImportCommon:
+        if self.adjacency is None:
+            return self
+
+        room_ids = {room.id for room in self.rooms}
+        for adjacency in self.adjacency:
+            if adjacency.from_room_id not in room_ids:
+                raise ValueError(
+                    "adjacency.from_room_id must reference an existing room: "
+                    f"{adjacency.from_room_id}"
+                )
+            if adjacency.to_room_id not in room_ids:
+                raise ValueError(
+                    "adjacency.to_room_id must reference an existing room: "
+                    f"{adjacency.to_room_id}"
+                )
+
+        return self
+
 
 class LayoutImportV1(LayoutImportCommon):
     """v1 request model for new IFC import."""
@@ -178,6 +209,13 @@ class LayoutImportV2(LayoutImportCommon):
     generation_options: GenerationOptionsV2 = Field(default_factory=GenerationOptionsV2)
     modeling_defaults: ModelingDefaultsV2 | None = None
     generation_policy: GenerationPolicyV2 = Field(default_factory=GenerationPolicyV2)
+
+    @model_validator(mode="after")
+    def validate_unsupported_generation_options(self) -> LayoutImportV2:
+        if self.generation_options.generate_openings:
+            raise ValueError("opening rules are not supported in this ticket")
+
+        return self
 
 
 LayoutImportRequest: TypeAlias = Annotated[
