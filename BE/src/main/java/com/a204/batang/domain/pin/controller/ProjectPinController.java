@@ -4,11 +4,14 @@ import com.a204.batang.domain.pin.dto.CreatePinRequest;
 import com.a204.batang.domain.pin.dto.CreatePinResponse;
 import com.a204.batang.domain.pin.dto.GetProjectPinsResponse;
 import com.a204.batang.domain.pin.service.ProjectPinService;
+import com.a204.batang.domain.pin.service.ProjectPinSseService;
 import com.a204.batang.global.common.ApiResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -18,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.UUID;
 
@@ -31,6 +35,24 @@ import java.util.UUID;
 public class ProjectPinController {
 
     private final ProjectPinService projectPinService;
+    private final ProjectPinSseService projectPinSseService;
+
+    /**
+     * 프로젝트 핀 생성 이벤트를 SSE로 구독한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @return SSE emitter
+     */
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<SseEmitter> subscribePinEvents(@PathVariable UUID projectId) {
+        SseEmitter emitter = projectPinSseService.subscribe(projectId);
+        return ResponseEntity.ok()
+                .header("X-Accel-Buffering", "no")
+                .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                .header("Pragma", "no-cache")
+                .header("Expires", "0")
+                .body(emitter);
+    }
 
     /**
      * 프로젝트의 핀 목록을 페이지 단위로 조회한다.
