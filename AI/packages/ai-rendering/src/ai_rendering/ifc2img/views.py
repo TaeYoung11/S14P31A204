@@ -287,7 +287,17 @@ def compute_dynamic_front(
     long_axis: np.ndarray,
     mid_axis: np.ndarray,
 ) -> tuple[float, float, float]:
-    """PCA 주축에 정렬된 view 별 front 벡터 산출 (호출자가 valid=True 보장)."""
+    """PCA 주축에 정렬된 view 별 front 벡터 산출 (호출자가 valid=True 보장).
+
+    반환값을 정규화하지 않는 사유:
+    - Open3D `ViewControl.set_front()`이 자체 정규화 → 동작 영향 0.
+    - 합성 norm = sqrt(sum(coef²)) — VIEW_PCA_COEFFICIENTS와 VIEW_CAMERAS가
+      *같은 coef*를 사용하므로 동적/정적 fallback의 magnitude가 자동 일치.
+      여기서만 정규화하면 PCA 활성/비활성에 따라 magnitude가 달라져
+      *오히려 일관성이 깨짐* (정적은 비단위인데 동적만 단위).
+    - 둘 다 정규화하려면 VIEW_PCA_COEFFICIENTS / VIEW_CAMERAS coef의
+      직관적 비율 표현(예: "0.7×long + 0.7×mid + 0.5×z")이 손상됨.
+    """
     coefs = VIEW_PCA_COEFFICIENTS[view]
     front = (
         coefs[0] * long_axis
