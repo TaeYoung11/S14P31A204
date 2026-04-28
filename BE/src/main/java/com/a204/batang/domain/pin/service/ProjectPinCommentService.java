@@ -4,6 +4,8 @@ import com.a204.batang.domain.pin.dto.CreatePinCommentRequest;
 import com.a204.batang.domain.pin.dto.CreatePinCommentResponse;
 import com.a204.batang.domain.pin.dto.GetPinCommentsResponse;
 import com.a204.batang.domain.pin.dto.PinCommentResponse;
+import com.a204.batang.domain.pin.dto.UpdatePinCommentRequest;
+import com.a204.batang.domain.pin.dto.UpdatePinCommentResponse;
 import com.a204.batang.domain.pin.entity.PinCommentReadState;
 import com.a204.batang.domain.pin.entity.ProjectPin;
 import com.a204.batang.domain.pin.entity.ProjectPinComment;
@@ -13,6 +15,7 @@ import com.a204.batang.domain.pin.repository.ProjectPinRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -24,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -38,6 +42,7 @@ public class ProjectPinCommentService {
     private final ProjectPinCommentRepository projectPinCommentRepository;
     private final PinCommentReadStateRepository pinCommentReadStateRepository;
     private final ProjectAccessService projectAccessService;
+    private final EntityManager entityManager;
 
     /**
      * 핀에 댓글을 등록한다.
@@ -62,6 +67,37 @@ public class ProjectPinCommentService {
 
         log.info("핀 댓글 등록 완료. projectId={}, pinId={}, commentId={}", projectId, pinId, savedComment.getCommentId());
         return CreatePinCommentResponse.from(savedComment, projectPin.getPinId());
+    }
+
+    /**
+     * 핀 댓글 본문을 수정한다.
+     * 읽음 상태(last_read_at)는 수정하지 않아 기존 읽음/안읽음 상태를 그대로 유지한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @param commentId 댓글 ID
+     * @param request 댓글 수정 요청
+     * @return 댓글 수정 응답
+     */
+    @Transactional
+    public UpdatePinCommentResponse updateComment(
+            UUID projectId,
+            UUID pinId,
+            UUID commentId,
+            UpdatePinCommentRequest request
+    ) {
+        ProjectPinComment comment = getActiveCommentOrThrow(projectId, pinId, commentId);
+
+        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        projectAccessService.validateProjectPinWriterOrThrow(comment.getProjectPin().getProject(), currentUserId);
+        validateCommentAuthorOrThrow(comment, currentUserId);
+
+        String normalizedContent = request.content().trim();
+        comment.updateContent(normalizedContent);
+        entityManager.flush();
+
+        log.info("핀 댓글 수정 완료. projectId={}, pinId={}, commentId={}", projectId, pinId, commentId);
+        return UpdatePinCommentResponse.from(comment, pinId);
     }
 
     /**
@@ -155,6 +191,33 @@ public class ProjectPinCommentService {
     private ProjectPin getProjectPinOrThrow(UUID projectId, UUID pinId) {
         return projectPinRepository.findActivePinByProjectId(pinId, projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PIN_NOT_FOUND));
+    }
+
+    /**
+     * 프로젝트/핀에 속한 활성 댓글을 조회한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @param commentId 댓글 ID
+     * @return 조회된 댓글
+     */
+    private ProjectPinComment getActiveCommentOrThrow(UUID projectId, UUID pinId, UUID commentId) {
+        return projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId)
+                .orElseThrow(() -> new CustomException(ErrorCode.COMMENT_NOT_FOUND));
+    }
+
+    /**
+     * 댓글 수정 권한(작성자 본인 여부)을 검증한다.
+     *
+     * @param comment 댓글 엔티티
+     * @param currentUserId 현재 사용자 ID
+     */
+    private void validateCommentAuthorOrThrow(ProjectPinComment comment, UUID currentUserId) {
+        if (Objects.equals(comment.getAuthorUserId(), currentUserId)) {
+            return;
+        }
+
+        throw new CustomException(ErrorCode.FORBIDDEN_ACCESS, "본인이 작성한 댓글만 수정할 수 있습니다.");
     }
 
     /**

@@ -9,12 +9,37 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
  * 핀 댓글 영속성 처리를 담당한다.
  */
 public interface ProjectPinCommentRepository extends JpaRepository<ProjectPinComment, UUID> {
+
+    /**
+     * 프로젝트/핀에 속한 활성 댓글 단건을 조회한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @param commentId 댓글 ID
+     * @return 댓글 조회 결과
+     */
+    @Query("""
+            SELECT comment
+            FROM ProjectPinComment comment
+            JOIN FETCH comment.projectPin pin
+            JOIN FETCH pin.project project
+            WHERE project.projectId = :projectId
+              AND pin.pinId = :pinId
+              AND comment.commentId = :commentId
+              AND comment.deletedAt IS NULL
+            """)
+    Optional<ProjectPinComment> findActiveCommentByProjectPin(
+            @Param("projectId") UUID projectId,
+            @Param("pinId") UUID pinId,
+            @Param("commentId") UUID commentId
+    );
 
     /**
      * 핀에 속한 삭제되지 않은 댓글 목록을 페이지 단위로 조회한다.

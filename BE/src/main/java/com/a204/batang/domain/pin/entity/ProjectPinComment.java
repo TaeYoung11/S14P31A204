@@ -71,6 +71,15 @@ public class ProjectPinComment extends BaseEntity {
     }
 
     /**
+     * 댓글 본문을 수정한다.
+     *
+     * @param content 수정할 댓글 본문
+     */
+    public void updateContent(String content) {
+        this.content = content;
+    }
+
+    /**
      * 댓글을 소프트 삭제한다.
      *
      * @param deletedAt 삭제 시각
