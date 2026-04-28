@@ -517,6 +517,31 @@ def test_build_view_negative_prompt_helper_still_composes_with_nonempty_suffix()
         views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = original
 
 
+def test_build_view_negative_prompt_only_strips_exact_comma_space_prefix() -> None:
+    """접두사 제거는 정확히 ', ' 패턴만 — 콤마/공백 반복 제거(lstrip 동작) 회귀 방어.
+
+    이 회귀 방어 테스트는 dict에 비표준 suffix가 들어왔을 때 헬퍼가 *과도하게*
+    제거하지 않음을 보장. lstrip(", ")으로 구현했을 때 발생하던 케이스들.
+    """
+    from ai_rendering.ifc2img import views as views_module
+
+    original = views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW]
+    try:
+        # case 1: 콤마만 있고 공백 없음 → prefix 매치 안 됨, 그대로 보존
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = ",no_space"
+        assert build_view_negative_prompt("", IFCView.ISO_NW) == ",no_space"
+
+        # case 2: 다중 공백 → 정확히 ", "(2자) 1회만 제거 (lstrip이면 모두 제거됐을 것)
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = ",  extra_spaces"
+        assert build_view_negative_prompt("", IFCView.ISO_NW) == " extra_spaces"
+
+        # case 3: 정상 prefix → 정확히 ", "만 제거
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = ", clean"
+        assert build_view_negative_prompt("", IFCView.ISO_NW) == "clean"
+    finally:
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = original
+
+
 def test_build_view_negative_prompt_in_public_api() -> None:
     """헬퍼는 폐기 후에도 공개 API 유지 — 외부에서 직접 합성 사용 가능."""
     from ai_rendering import ifc2img

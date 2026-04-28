@@ -241,7 +241,9 @@ def build_view_negative_prompt(base_negative: str, view: IFCView) -> str:
     if not suffix:
         return base_negative
     if not base_negative:
-        return suffix.lstrip(", ")
+        # ", "만 정확히 제거 — lstrip(", ")은 콤마/공백을 *반복* 제거해 의도치 않은 문자
+        # 손실 가능 (예: ",basement" → "basement"). removeprefix는 prefix 정확 제거만.
+        return suffix.removeprefix(", ")
     return f"{base_negative}{suffix}"
 
 
