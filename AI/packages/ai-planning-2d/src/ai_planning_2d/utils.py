@@ -3,6 +3,7 @@ def shape_to_rects(shape: str, width: int, height: int) -> list[dict]:
 
     반환값: [{"x": int, "y": int, "width": int, "height": int}, ...]
     홀수 치수는 마지막 rect가 나머지를 흡수한다.
+    호출 전 validator.MIN_DIM_MM(500mm) 이상이 보장되어야 한다.
     """
     w, h = width, height
 

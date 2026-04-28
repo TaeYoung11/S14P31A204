@@ -1,5 +1,6 @@
 
 from .command import ActionType, CommandBatch, FloorNLPCommand, IFCCommand, IFCContext
+from .validator import validate_command_batch
 
 
 def to_ifc_commands(
@@ -72,7 +73,7 @@ def to_ifc_commands(
                 ),
             )
 
-        return CommandBatch(
+        return validate_command_batch(CommandBatch(
             commands=[
                 IFCCommand(
                     action=ActionType.CREATE_SPACE,
@@ -101,7 +102,7 @@ def to_ifc_commands(
                 )
             ],
             requires_clarification=False,
-        )
+        ))
 
     if command.action == "remove_room":
         target_ids = _find_space_ids(command.target_room_name)
@@ -123,6 +124,8 @@ def to_ifc_commands(
 
         if ifc_context and any(_find_storey_id_for_space(tid) is None for tid in target_ids):
             if len(target_ids) == 1:
+                # 단일 대상에서 storey 누락은 사용자가 해결할 수 없는 IFC 데이터
+                # 무결성 문제다. FastAPI 레이어에서 500으로 처리되도록 의도적으로 예외를 던진다.
                 raise RuntimeError(
                     f"IFC 데이터 오류: '{command.target_room_name}' 방의 storey 정보가 누락됨."
                 )
@@ -187,6 +190,8 @@ def to_ifc_commands(
 
         if ifc_context and any(_find_storey_id_for_space(tid) is None for tid in target_ids):
             if len(target_ids) == 1:
+                # 단일 대상에서 storey 누락은 사용자가 해결할 수 없는 IFC 데이터
+                # 무결성 문제다. FastAPI 레이어에서 500으로 처리되도록 의도적으로 예외를 던진다.
                 raise RuntimeError(
                     f"IFC 데이터 오류: '{command.target_room_name}' 방의 storey 정보가 누락됨."
                 )
@@ -224,10 +229,10 @@ def to_ifc_commands(
             )
             for tid in target_ids
         ]
-        return CommandBatch(
+        return validate_command_batch(CommandBatch(
             commands=commands,
             requires_clarification=False,
-        )
+        ))
 
     if command.action == "set_adjacency":
         return CommandBatch(

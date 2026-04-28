@@ -6,6 +6,7 @@ dependencies = [
     "ai-domain",
     "instructor>=1.15.1",
     "openai>=2.32.0",
+    "shapely>=2.1.2",
 ]
 
 [build-system]
