@@ -1,9 +1,11 @@
 package com.a204.batang.domain.pin.service;
 
 import com.a204.batang.domain.pin.dto.PinPositionRequest;
+import com.a204.batang.domain.pin.dto.ResolvePinResponse;
 import com.a204.batang.domain.pin.dto.UpdatePinPositionRequest;
 import com.a204.batang.domain.pin.dto.UpdatePinPositionResponse;
 import com.a204.batang.domain.pin.entity.PinPosition;
+import com.a204.batang.domain.pin.entity.PinStatus;
 import com.a204.batang.domain.pin.entity.ProjectPin;
 import com.a204.batang.domain.pin.repository.ProjectPinCommentRepository;
 import com.a204.batang.domain.pin.repository.ProjectPinReadStateRepository;
@@ -162,6 +164,97 @@ class ProjectPinServiceTest {
                 .isEqualTo(ErrorCode.PIN_NOT_FOUND);
 
         verify(projectAccessService, never()).validateProjectPinWriterOrThrow(any(Project.class), any(UUID.class));
+        verifyNoInteractions(projectPinCommentRepository);
+        verifyNoInteractions(projectPinReadStateRepository);
+    }
+
+    @Test
+    void resolvePin_marksResolved_whenCurrentUserIsAuthor() {
+        LocalDateTime updatedAt = LocalDateTime.of(2026, 4, 28, 10, 0, 0);
+
+        given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
+                .willReturn(Optional.of(pin));
+        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        ReflectionTestUtils.setField(pin, "updatedAt", updatedAt);
+
+        ResolvePinResponse response = projectPinService.resolvePin(projectId, pinId);
+
+        assertThat(pin.getStatus()).isEqualTo(PinStatus.RESOLVED);
+        assertThat(pin.getResolvedByUserId()).isEqualTo(authorUserId);
+        assertThat(pin.getResolvedAt()).isNotNull();
+
+        assertThat(response.pinId()).isEqualTo(pinId);
+        assertThat(response.status()).isEqualTo(PinStatus.RESOLVED);
+        assertThat(response.resolvedByUserId()).isEqualTo(authorUserId);
+        assertThat(response.resolvedAt()).isNotNull();
+        assertThat(response.updatedAt()).isEqualTo(updatedAt);
+
+        verify(projectPinRepository).flush();
+        verify(projectAccessService).validateProjectPinWriterOrThrow(project, authorUserId);
+        verifyNoInteractions(projectPinCommentRepository);
+        verifyNoInteractions(projectPinReadStateRepository);
+    }
+
+    @Test
+    void resolvePin_isIdempotent_whenAlreadyResolved() {
+        LocalDateTime resolvedAt = LocalDateTime.of(2026, 4, 28, 9, 40, 0);
+        ReflectionTestUtils.setField(pin, "status", PinStatus.RESOLVED);
+        ReflectionTestUtils.setField(pin, "resolvedByUserId", authorUserId);
+        ReflectionTestUtils.setField(pin, "resolvedAt", resolvedAt);
+
+        given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
+                .willReturn(Optional.of(pin));
+        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+
+        ResolvePinResponse response = projectPinService.resolvePin(projectId, pinId);
+
+        assertThat(response.pinId()).isEqualTo(pinId);
+        assertThat(response.status()).isEqualTo(PinStatus.RESOLVED);
+        assertThat(response.resolvedByUserId()).isEqualTo(authorUserId);
+        assertThat(response.resolvedAt()).isEqualTo(resolvedAt);
+
+        verify(projectPinRepository, never()).flush();
+        verifyNoInteractions(projectPinCommentRepository);
+        verifyNoInteractions(projectPinReadStateRepository);
+    }
+
+    @Test
+    void resolvePin_marksResolved_whenCurrentUserCanAccessProjectEvenIfNotAuthor() {
+        UUID otherUserId = UUID.randomUUID();
+        LocalDateTime updatedAt = LocalDateTime.of(2026, 4, 28, 10, 5, 0);
+
+        given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
+                .willReturn(Optional.of(pin));
+        given(projectAccessService.resolveCurrentUserId()).willReturn(otherUserId);
+        ReflectionTestUtils.setField(pin, "updatedAt", updatedAt);
+
+        ResolvePinResponse response = projectPinService.resolvePin(projectId, pinId);
+
+        assertThat(pin.getStatus()).isEqualTo(PinStatus.RESOLVED);
+        assertThat(pin.getResolvedByUserId()).isEqualTo(otherUserId);
+        assertThat(pin.getResolvedAt()).isNotNull();
+        assertThat(response.status()).isEqualTo(PinStatus.RESOLVED);
+        assertThat(response.resolvedByUserId()).isEqualTo(otherUserId);
+        assertThat(response.updatedAt()).isEqualTo(updatedAt);
+
+        verify(projectPinRepository).flush();
+        verify(projectAccessService).validateProjectPinWriterOrThrow(project, otherUserId);
+        verifyNoInteractions(projectPinCommentRepository);
+        verifyNoInteractions(projectPinReadStateRepository);
+    }
+
+    @Test
+    void resolvePin_throwsPinNotFound_whenPinDoesNotExist() {
+        given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> projectPinService.resolvePin(projectId, pinId))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.PIN_NOT_FOUND);
+
+        verify(projectAccessService, never()).validateProjectPinWriterOrThrow(any(Project.class), any(UUID.class));
+        verify(projectPinRepository, never()).flush();
         verifyNoInteractions(projectPinCommentRepository);
         verifyNoInteractions(projectPinReadStateRepository);
     }

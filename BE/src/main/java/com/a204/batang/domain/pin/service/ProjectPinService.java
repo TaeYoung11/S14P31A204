@@ -4,8 +4,10 @@ import com.a204.batang.domain.pin.dto.CreatePinRequest;
 import com.a204.batang.domain.pin.dto.CreatePinResponse;
 import com.a204.batang.domain.pin.dto.GetProjectPinsResponse;
 import com.a204.batang.domain.pin.dto.ProjectPinResponse;
+import com.a204.batang.domain.pin.dto.ResolvePinResponse;
 import com.a204.batang.domain.pin.dto.UpdatePinPositionRequest;
 import com.a204.batang.domain.pin.dto.UpdatePinPositionResponse;
+import com.a204.batang.domain.pin.entity.PinStatus;
 import com.a204.batang.domain.pin.entity.ProjectPin;
 import com.a204.batang.domain.pin.entity.ProjectPinReadState;
 import com.a204.batang.domain.pin.event.PinCreatedEvent;
@@ -107,6 +109,31 @@ public class ProjectPinService {
 
         log.info("핀 위치 수정 완료. projectId={}, pinId={}", projectId, pinId);
         return UpdatePinPositionResponse.from(projectPin);
+    }
+
+    /**
+     * 프로젝트의 특정 핀을 완료 처리한다.
+     * 댓글 상태는 핀 상태를 상속하므로, 핀 완료 처리 시 해당 핀의 댓글도 완료 상태로 노출된다.
+     * 완료 처리는 프로젝트 접근 권한이 있는 사용자라면 누구나 가능하다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @return 핀 완료 처리 응답
+     */
+    @Transactional
+    public ResolvePinResponse resolvePin(UUID projectId, UUID pinId) {
+        ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
+
+        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
+
+        if (projectPin.getStatus() != PinStatus.RESOLVED) {
+            projectPin.markResolved(currentUserId);
+            projectPinRepository.flush();
+        }
+
+        log.info("핀 완료 처리 완료. projectId={}, pinId={}, resolverUserId={}", projectId, pinId, currentUserId);
+        return ResolvePinResponse.from(projectPin);
     }
 
     /**
