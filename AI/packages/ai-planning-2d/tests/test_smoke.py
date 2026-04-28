@@ -352,6 +352,79 @@ def test_validate_update_space_also_checked(ifc_ctx):
     assert "작습니다" in batch.clarification_question
 
 
+def test_validate_L_shape_normal(ifc_ctx):
+    """L shape shape_to_rects 결과가 bounds 안에 있고 검증 통과"""
+    cmd = FloorNLPCommand(
+        action="add_room",
+        new_room={
+            "name": "거실", "type": "living",
+            "shape": "L", "width": 6000, "height": 8000,
+            "floor": 1,
+            "rects": shape_to_rects("L", 6000, 8000),
+        },
+        confidence=0.95,
+    )
+    batch = to_ifc_commands(cmd, ifc_ctx)
+    assert not batch.requires_clarification
+
+
+def test_validate_U_shape_normal(ifc_ctx):
+    """U shape shape_to_rects 결과가 연결되어 있고 검증 통과"""
+    cmd = FloorNLPCommand(
+        action="add_room",
+        new_room={
+            "name": "복도", "type": "corridor",
+            "shape": "U", "width": 8000, "height": 6000,
+            "floor": 1,
+            "rects": shape_to_rects("U", 8000, 6000),
+        },
+        confidence=0.95,
+    )
+    batch = to_ifc_commands(cmd, ifc_ctx)
+    assert not batch.requires_clarification
+
+
+def test_validate_rects_none_passes():
+    """rects=None이면 rect 검증을 건너뛰고 통과"""
+    from ai_planning_2d.command import ActionType, IFCCommand
+    batch = CommandBatch(
+        commands=[
+            IFCCommand(
+                action=ActionType.CREATE_SPACE,
+                target_id=None,
+                params={
+                    "entity_type": "Space",
+                    "metadata": {"storey_id": "st-001"},
+                    "geometry": {
+                        "location": [0, 0, 0], "direction": [1, 0, 0],
+                        "dimensions": {"width": 3000, "height": 4000},
+                    },
+                    "properties": {"name": "테스트", "shape": "rect", "rects": None},
+                },
+                confidence=0.9,
+            )
+        ],
+        requires_clarification=False,
+    )
+    result = validate_command_batch(batch)
+    assert not result.requires_clarification
+
+
+def test_validate_resize_L_shape_bounds(ifc_ctx):
+    """resize_room L shape도 bounds 검증 통과"""
+    cmd = FloorNLPCommand(
+        action="resize_room",
+        target_room_name="거실",
+        resize_shape="L",
+        resize_width=6000,
+        resize_height=8000,
+        resize_rects=shape_to_rects("L", 6000, 8000),
+        confidence=0.95,
+    )
+    batch = to_ifc_commands(cmd, ifc_ctx)
+    assert not batch.requires_clarification
+
+
 # ---------------------------------------------------------------------------
 # LLM 테스트 (Ollama 실행 필요)
 # ---------------------------------------------------------------------------
