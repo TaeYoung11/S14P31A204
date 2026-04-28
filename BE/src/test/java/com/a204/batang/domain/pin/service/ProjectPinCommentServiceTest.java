@@ -2,9 +2,11 @@ package com.a204.batang.domain.pin.service;
 
 import com.a204.batang.domain.pin.dto.CreatePinCommentRequest;
 import com.a204.batang.domain.pin.dto.CreatePinCommentResponse;
+import com.a204.batang.domain.pin.dto.ResolvePinCommentResponse;
 import com.a204.batang.domain.pin.dto.UpdatePinCommentRequest;
 import com.a204.batang.domain.pin.dto.UpdatePinCommentResponse;
 import com.a204.batang.domain.pin.entity.PinPosition;
+import com.a204.batang.domain.pin.entity.PinStatus;
 import com.a204.batang.domain.pin.entity.ProjectPin;
 import com.a204.batang.domain.pin.entity.ProjectPinComment;
 import com.a204.batang.domain.pin.event.PinCommentCreatedEvent;
@@ -190,6 +192,76 @@ class ProjectPinCommentServiceTest {
                 .willReturn(Optional.empty());
 
         assertThatThrownBy(() -> projectPinCommentService.updateComment(projectId, pinId, commentId, request))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.COMMENT_NOT_FOUND);
+
+        verify(entityManager, never()).flush();
+        verifyNoInteractions(pinCommentReadStateRepository);
+    }
+
+    @Test
+    void resolveComment_marksCommentResolved_whenCurrentUserCanAccessProjectEvenIfNotCommentAuthor() {
+        UUID otherUserId = UUID.randomUUID();
+        LocalDateTime updatedAt = LocalDateTime.of(2026, 4, 28, 9, 40, 0);
+        LocalDateTime resolvedAt = LocalDateTime.of(2026, 4, 28, 9, 41, 0);
+
+        given(projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId))
+                .willReturn(Optional.of(comment));
+        given(projectAccessService.resolveCurrentUserId()).willReturn(otherUserId);
+        doAnswer(invocation -> {
+            ReflectionTestUtils.setField(comment, "updatedAt", updatedAt);
+            ReflectionTestUtils.setField(comment, "resolvedAt", resolvedAt);
+            return null;
+        }).when(entityManager).flush();
+
+        ResolvePinCommentResponse response = projectPinCommentService.resolveComment(projectId, pinId, commentId);
+
+        assertThat(comment.getStatus()).isEqualTo(PinStatus.RESOLVED);
+        assertThat(comment.getResolvedByUserId()).isEqualTo(otherUserId);
+        assertThat(comment.getResolvedAt()).isEqualTo(resolvedAt);
+        assertThat(pin.getStatus()).isEqualTo(PinStatus.OPEN);
+
+        assertThat(response.commentId()).isEqualTo(commentId);
+        assertThat(response.pinId()).isEqualTo(pinId);
+        assertThat(response.status()).isEqualTo(PinStatus.RESOLVED);
+        assertThat(response.resolvedByUserId()).isEqualTo(otherUserId);
+        assertThat(response.resolvedAt()).isEqualTo(resolvedAt);
+        assertThat(response.updatedAt()).isEqualTo(updatedAt);
+
+        verify(projectAccessService).validateProjectPinWriterOrThrow(project, otherUserId);
+        verify(entityManager).flush();
+        verifyNoInteractions(pinCommentReadStateRepository);
+    }
+
+    @Test
+    void resolveComment_isIdempotent_whenCommentAlreadyResolved() {
+        UUID resolverUserId = UUID.randomUUID();
+        LocalDateTime resolvedAt = LocalDateTime.of(2026, 4, 28, 9, 35, 0);
+        ReflectionTestUtils.setField(comment, "status", PinStatus.RESOLVED);
+        ReflectionTestUtils.setField(comment, "resolvedByUserId", resolverUserId);
+        ReflectionTestUtils.setField(comment, "resolvedAt", resolvedAt);
+
+        given(projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId))
+                .willReturn(Optional.of(comment));
+        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+
+        ResolvePinCommentResponse response = projectPinCommentService.resolveComment(projectId, pinId, commentId);
+
+        assertThat(response.status()).isEqualTo(PinStatus.RESOLVED);
+        assertThat(response.resolvedByUserId()).isEqualTo(resolverUserId);
+        assertThat(response.resolvedAt()).isEqualTo(resolvedAt);
+
+        verify(entityManager, never()).flush();
+        verifyNoInteractions(pinCommentReadStateRepository);
+    }
+
+    @Test
+    void resolveComment_throwsCommentNotFound_whenCommentDoesNotExist() {
+        given(projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> projectPinCommentService.resolveComment(projectId, pinId, commentId))
                 .isInstanceOf(CustomException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.COMMENT_NOT_FOUND);

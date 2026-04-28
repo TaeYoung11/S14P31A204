@@ -175,6 +175,12 @@ class ProjectPinServiceTest {
         given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
                 .willReturn(Optional.of(pin));
         given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectPinCommentRepository.resolveActiveCommentsByPinId(
+                eq(pinId),
+                eq(PinStatus.RESOLVED),
+                eq(authorUserId),
+                any(LocalDateTime.class)
+        )).willReturn(2);
         ReflectionTestUtils.setField(pin, "updatedAt", updatedAt);
 
         ResolvePinResponse response = projectPinService.resolvePin(projectId, pinId);
@@ -190,8 +196,13 @@ class ProjectPinServiceTest {
         assertThat(response.updatedAt()).isEqualTo(updatedAt);
 
         verify(projectPinRepository).flush();
+        verify(projectPinCommentRepository).resolveActiveCommentsByPinId(
+                eq(pinId),
+                eq(PinStatus.RESOLVED),
+                eq(authorUserId),
+                any(LocalDateTime.class)
+        );
         verify(projectAccessService).validateProjectPinWriterOrThrow(project, authorUserId);
-        verifyNoInteractions(projectPinCommentRepository);
         verifyNoInteractions(projectPinReadStateRepository);
     }
 
@@ -205,6 +216,12 @@ class ProjectPinServiceTest {
         given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
                 .willReturn(Optional.of(pin));
         given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectPinCommentRepository.resolveActiveCommentsByPinId(
+                eq(pinId),
+                eq(PinStatus.RESOLVED),
+                eq(authorUserId),
+                any(LocalDateTime.class)
+        )).willReturn(0);
 
         ResolvePinResponse response = projectPinService.resolvePin(projectId, pinId);
 
@@ -213,8 +230,13 @@ class ProjectPinServiceTest {
         assertThat(response.resolvedByUserId()).isEqualTo(authorUserId);
         assertThat(response.resolvedAt()).isEqualTo(resolvedAt);
 
-        verify(projectPinRepository, never()).flush();
-        verifyNoInteractions(projectPinCommentRepository);
+        verify(projectPinRepository).flush();
+        verify(projectPinCommentRepository).resolveActiveCommentsByPinId(
+                eq(pinId),
+                eq(PinStatus.RESOLVED),
+                eq(authorUserId),
+                any(LocalDateTime.class)
+        );
         verifyNoInteractions(projectPinReadStateRepository);
     }
 
@@ -226,6 +248,12 @@ class ProjectPinServiceTest {
         given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
                 .willReturn(Optional.of(pin));
         given(projectAccessService.resolveCurrentUserId()).willReturn(otherUserId);
+        given(projectPinCommentRepository.resolveActiveCommentsByPinId(
+                eq(pinId),
+                eq(PinStatus.RESOLVED),
+                eq(otherUserId),
+                any(LocalDateTime.class)
+        )).willReturn(1);
         ReflectionTestUtils.setField(pin, "updatedAt", updatedAt);
 
         ResolvePinResponse response = projectPinService.resolvePin(projectId, pinId);
@@ -238,8 +266,13 @@ class ProjectPinServiceTest {
         assertThat(response.updatedAt()).isEqualTo(updatedAt);
 
         verify(projectPinRepository).flush();
+        verify(projectPinCommentRepository).resolveActiveCommentsByPinId(
+                eq(pinId),
+                eq(PinStatus.RESOLVED),
+                eq(otherUserId),
+                any(LocalDateTime.class)
+        );
         verify(projectAccessService).validateProjectPinWriterOrThrow(project, otherUserId);
-        verifyNoInteractions(projectPinCommentRepository);
         verifyNoInteractions(projectPinReadStateRepository);
     }
 
@@ -255,6 +288,12 @@ class ProjectPinServiceTest {
 
         verify(projectAccessService, never()).validateProjectPinWriterOrThrow(any(Project.class), any(UUID.class));
         verify(projectPinRepository, never()).flush();
+        verify(projectPinCommentRepository, never()).resolveActiveCommentsByPinId(
+                any(UUID.class),
+                any(PinStatus.class),
+                any(UUID.class),
+                any(LocalDateTime.class)
+        );
         verifyNoInteractions(projectPinCommentRepository);
         verifyNoInteractions(projectPinReadStateRepository);
     }

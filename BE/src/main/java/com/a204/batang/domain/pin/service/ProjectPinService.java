@@ -113,7 +113,7 @@ public class ProjectPinService {
 
     /**
      * 프로젝트의 특정 핀을 완료 처리한다.
-     * 댓글 상태는 핀 상태를 상속하므로, 핀 완료 처리 시 해당 핀의 댓글도 완료 상태로 노출된다.
+     * 핀 완료 처리 시 해당 핀의 활성 댓글도 모두 완료 처리한다.
      * 완료 처리는 프로젝트 접근 권한이 있는 사용자라면 누구나 가능하다.
      *
      * @param projectId 프로젝트 ID
@@ -126,13 +126,27 @@ public class ProjectPinService {
 
         UUID currentUserId = projectAccessService.resolveCurrentUserId();
         projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
+        LocalDateTime resolvedAt = LocalDateTime.now();
 
         if (projectPin.getStatus() != PinStatus.RESOLVED) {
             projectPin.markResolved(currentUserId);
-            projectPinRepository.flush();
         }
 
-        log.info("핀 완료 처리 완료. projectId={}, pinId={}, resolverUserId={}", projectId, pinId, currentUserId);
+        int resolvedCommentCount = projectPinCommentRepository.resolveActiveCommentsByPinId(
+                pinId,
+                PinStatus.RESOLVED,
+                currentUserId,
+                resolvedAt
+        );
+        projectPinRepository.flush();
+
+        log.info(
+                "핀 완료 처리 완료. projectId={}, pinId={}, resolverUserId={}, resolvedCommentCount={}",
+                projectId,
+                pinId,
+                currentUserId,
+                resolvedCommentCount
+        );
         return ResolvePinResponse.from(projectPin);
     }
 

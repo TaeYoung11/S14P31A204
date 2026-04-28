@@ -3,6 +3,7 @@ package com.a204.batang.domain.pin.controller;
 import com.a204.batang.domain.pin.dto.CreatePinCommentRequest;
 import com.a204.batang.domain.pin.dto.CreatePinCommentResponse;
 import com.a204.batang.domain.pin.dto.GetPinCommentsResponse;
+import com.a204.batang.domain.pin.dto.ResolvePinCommentResponse;
 import com.a204.batang.domain.pin.dto.UpdatePinCommentRequest;
 import com.a204.batang.domain.pin.dto.UpdatePinCommentResponse;
 import com.a204.batang.domain.pin.service.ProjectPinCommentService;
@@ -99,6 +100,25 @@ public class ProjectPinCommentController {
     ) {
         UpdatePinCommentResponse response = projectPinCommentService.updateComment(projectId, pinId, commentId, request);
         return ApiResponse.success("댓글 수정 완료", response);
+    }
+
+    /**
+     * 댓글을 완료 처리한다.
+     * 완료 처리는 프로젝트 접근 권한이 있는 사용자라면 누구나 가능하다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @param commentId 댓글 ID
+     * @return 완료 처리 결과
+     */
+    @PatchMapping("/{commentId}/resolve")
+    public ApiResponse<ResolvePinCommentResponse> resolveComment(
+            @PathVariable UUID projectId,
+            @PathVariable UUID pinId,
+            @PathVariable UUID commentId
+    ) {
+        ResolvePinCommentResponse response = projectPinCommentService.resolveComment(projectId, pinId, commentId);
+        return ApiResponse.success("댓글 완료 처리 완료", response);
     }
 
     /**
