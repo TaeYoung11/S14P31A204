@@ -339,7 +339,12 @@ def test_convert_layout_to_ifc_persists_project_and_storey_metadata_as_json(
         boundaries=[
             {
                 "floor": 1,
-                "polygon": [[0.0, 0.0], [4.2, 0.0], [4.2, 3.8], [0.0, 3.8]],
+                "polygon": [
+                    [0.0, 0.0],
+                    [4200.0, 0.0],
+                    [4200.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
             }
         ],
         modeling_defaults={"space_height_mm": 3000},
@@ -367,7 +372,12 @@ def test_convert_layout_to_ifc_persists_project_and_storey_metadata_as_json(
     assert isinstance(boundary_json, str)
     assert json.loads(boundary_json) == {
         "floor": 1,
-        "polygon": [[0.0, 0.0], [4.2, 0.0], [4.2, 3.8], [0.0, 3.8]],
+        "polygon": [
+            [0.0, 0.0],
+            [4200.0, 0.0],
+            [4200.0, 3800.0],
+            [0.0, 3800.0],
+        ],
     }
     assert "Pset_BatangLayoutImportStorey" not in _property_sets_by_name(storeys["2F"])
 
