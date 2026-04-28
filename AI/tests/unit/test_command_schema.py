@@ -12,6 +12,7 @@ SCHEMA_ROOT = ROOT / "shared" / "schemas"
 COMMAND_SCHEMA_PATH = SCHEMA_ROOT / "messages" / "command_message.schema.json"
 SAMPLE_ROOT = ROOT / "AI" / "sample_messages"
 
+
 def test_sample_commands_pass_json_schema_validation() -> None:
     schema = json.loads(COMMAND_SCHEMA_PATH.read_text(encoding="utf-8"))
     store = {
@@ -65,3 +66,14 @@ def test_ifc_edit_payload_rejects_layout_import_fields() -> None:
     except ValueError:
         return
     raise AssertionError("ifc_edit payload must reject layout import fields")
+
+
+def test_step_no_cannot_exceed_total_steps() -> None:
+    data = load_json(SAMPLE_ROOT / "command_2d_llm.json")
+    data["stepNo"] = 4
+    data["totalSteps"] = 3
+    try:
+        CommandMessage.model_validate(data)
+    except ValueError:
+        return
+    raise AssertionError("stepNo greater than totalSteps must be rejected")
