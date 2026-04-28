@@ -1,5 +1,6 @@
 
 from .command import ActionType, CommandBatch, FloorNLPCommand, IFCCommand, IFCContext
+from .validator import validate_command_batch
 
 
 def to_ifc_commands(
@@ -72,7 +73,7 @@ def to_ifc_commands(
                 ),
             )
 
-        return CommandBatch(
+        return validate_command_batch(CommandBatch(
             commands=[
                 IFCCommand(
                     action=ActionType.CREATE_SPACE,
@@ -101,7 +102,7 @@ def to_ifc_commands(
                 )
             ],
             requires_clarification=False,
-        )
+        ))
 
     if command.action == "remove_room":
         target_ids = _find_space_ids(command.target_room_name)
@@ -228,10 +229,10 @@ def to_ifc_commands(
             )
             for tid in target_ids
         ]
-        return CommandBatch(
+        return validate_command_batch(CommandBatch(
             commands=commands,
             requires_clarification=False,
-        )
+        ))
 
     if command.action == "set_adjacency":
         return CommandBatch(
