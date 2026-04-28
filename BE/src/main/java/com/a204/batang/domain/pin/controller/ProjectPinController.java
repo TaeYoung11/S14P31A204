@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -104,5 +105,23 @@ public class ProjectPinController {
     ) {
         CreatePinResponse response = projectPinService.createPin(projectId, request);
         return ApiResponse.created("리뷰 코멘트가 등록되었습니다.", response);
+    }
+
+    /**
+     * 프로젝트의 특정 핀을 삭제한다.
+     * 핀 삭제 시 핀에 속한 댓글도 함께 삭제된다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @return 삭제 결과
+     */
+    @DeleteMapping("/{pinId}")
+    public ApiResponse<Void> deletePin(
+            @PathVariable UUID projectId,
+            @PathVariable UUID pinId
+            // TODO: 인증 구현 시 @AuthenticationPrincipal 기반 사용자 검증 연동
+    ) {
+        projectPinService.deletePin(projectId, pinId);
+        return ApiResponse.success("핀 삭제 완료");
     }
 }
