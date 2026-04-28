@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
 import ifcopenshell
 import ifcopenshell.guid
-from ai_domain import LayoutImportV1
+from ai_domain import LayoutImportV1, RoomInput, ZoneInput
 
 
 def convert_layout_to_ifc(request: LayoutImportV1, output_path: str | Path) -> None:
@@ -16,8 +17,11 @@ def convert_layout_to_ifc(request: LayoutImportV1, output_path: str | Path) -> N
     output = Path(output_path)
     _validate_zone_references(request)
     model = _create_ifc_file()
-    owner_history, context, storeys = _create_project_tree(model, request)
-    _create_spaces(model, owner_history, context, request, storeys)
+    owner_history, context, project, storeys = _create_project_tree(model, request)
+    zones = _create_zones(model, owner_history, request)
+    _attach_project_metadata_property_set(model, owner_history, project, request)
+    _attach_storey_metadata_property_sets(model, owner_history, storeys, request)
+    _create_spaces(model, owner_history, context, request, storeys, zones)
     output.parent.mkdir(parents=True, exist_ok=True)
     model.write(str(output))
 
@@ -38,6 +42,7 @@ def _create_ifc_file() -> ifcopenshell.file:
 def _create_project_tree(
     model: ifcopenshell.file, request: LayoutImportV1
 ) -> tuple[
+    ifcopenshell.entity_instance,
     ifcopenshell.entity_instance,
     ifcopenshell.entity_instance,
     dict[int, ifcopenshell.entity_instance],
@@ -80,8 +85,14 @@ def _create_project_tree(
     )
     _create_aggregate(model, owner_history, project, [site], "Project-Site")
     _create_aggregate(model, owner_history, site, [building], "Site-Building")
-    _create_aggregate(model, owner_history, building, list(storeys.values()), "Building-Storeys")
-    return owner_history, context, storeys
+    _create_aggregate(
+        model,
+        owner_history,
+        building,
+        list(storeys.values()),
+        "Building-Storeys",
+    )
+    return owner_history, context, project, storeys
 
 
 def _create_owner_history(model: ifcopenshell.file) -> ifcopenshell.entity_instance:
@@ -176,6 +187,7 @@ def _create_spaces(
     context: ifcopenshell.entity_instance,
     request: LayoutImportV1,
     storeys: dict[int, ifcopenshell.entity_instance],
+    zones: dict[str, ifcopenshell.entity_instance],
 ) -> None:
     space_height_m = _effective_space_height_m(request)
     for room in request.rooms:
@@ -201,6 +213,7 @@ def _create_spaces(
                 space_height_m,
             ),
         )
+        _attach_room_metadata_property_set(model, owner_history, space, room)
         model.create_entity(
             "IfcRelContainedInSpatialStructure",
             GlobalId=ifcopenshell.guid.new(),
@@ -209,6 +222,181 @@ def _create_spaces(
             RelatedElements=[space],
             RelatingStructure=storey,
         )
+        if room.zone_id is not None:
+            _assign_space_to_zone(model, owner_history, space, zones[room.zone_id], room.id)
+
+
+def _create_zones(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    request: LayoutImportV1,
+) -> dict[str, ifcopenshell.entity_instance]:
+    zones: dict[str, ifcopenshell.entity_instance] = {}
+    for zone in request.zones or []:
+        zone_entity = model.create_entity(
+            "IfcZone",
+            GlobalId=ifcopenshell.guid.new(),
+            OwnerHistory=owner_history,
+            Name=zone.name,
+            ObjectType="Zone",
+        )
+        _attach_zone_metadata_property_set(model, owner_history, zone_entity, zone)
+        zones[zone.id] = zone_entity
+    return zones
+
+
+def _assign_space_to_zone(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    space: ifcopenshell.entity_instance,
+    zone: ifcopenshell.entity_instance,
+    room_id: str,
+) -> ifcopenshell.entity_instance:
+    return model.create_entity(
+        "IfcRelAssignsToGroup",
+        GlobalId=ifcopenshell.guid.new(),
+        OwnerHistory=owner_history,
+        Name=f"{room_id}-ZoneAssignment",
+        RelatedObjects=[space],
+        RelatingGroup=zone,
+    )
+
+
+def _attach_room_metadata_property_set(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    space: ifcopenshell.entity_instance,
+    room: RoomInput,
+) -> None:
+    properties = [
+        _create_property_single_value(model, "RoomId", room.id),
+        _create_property_single_value(model, "RoomType", room.type.value),
+        _create_property_single_value(model, "Locked", room.locked),
+    ]
+    if room.zone_id is not None:
+        properties.append(_create_property_single_value(model, "ZoneId", room.zone_id))
+    _attach_property_set(
+        model,
+        owner_history,
+        space,
+        "Pset_BatangLayoutImportRoom",
+        properties,
+    )
+
+
+def _attach_zone_metadata_property_set(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    zone_entity: ifcopenshell.entity_instance,
+    zone: ZoneInput,
+) -> None:
+    _attach_property_set(
+        model,
+        owner_history,
+        zone_entity,
+        "Pset_BatangLayoutImportZone",
+        [
+            _create_property_single_value(model, "ZoneId", zone.id),
+            _create_property_single_value(model, "ZoneColor", zone.color),
+        ],
+    )
+
+
+def _attach_project_metadata_property_set(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    project: ifcopenshell.entity_instance,
+    request: LayoutImportV1,
+) -> None:
+    if not request.adjacency:
+        return
+    _attach_property_set(
+        model,
+        owner_history,
+        project,
+        "Pset_BatangLayoutImportProject",
+        [
+            _create_property_single_value(
+                model,
+                "AdjacencyJson",
+                json.dumps(
+                    [adjacency.model_dump(mode="json") for adjacency in request.adjacency],
+                    ensure_ascii=False,
+                ),
+            )
+        ],
+    )
+
+
+def _attach_storey_metadata_property_sets(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    storeys: dict[int, ifcopenshell.entity_instance],
+    request: LayoutImportV1,
+) -> None:
+    if not request.boundaries:
+        return
+
+    boundaries_by_floor = {boundary.floor: boundary for boundary in request.boundaries}
+    for floor, storey in storeys.items():
+        boundary = boundaries_by_floor.get(floor)
+        if boundary is None:
+            continue
+        _attach_property_set(
+            model,
+            owner_history,
+            storey,
+            "Pset_BatangLayoutImportStorey",
+            [
+                _create_property_single_value(
+                    model,
+                    "BoundaryJson",
+                    json.dumps(boundary.model_dump(mode="json"), ensure_ascii=False),
+                )
+            ],
+        )
+
+
+def _attach_property_set(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    target: ifcopenshell.entity_instance,
+    pset_name: str,
+    properties: list[ifcopenshell.entity_instance],
+) -> ifcopenshell.entity_instance:
+    property_set = model.create_entity(
+        "IfcPropertySet",
+        GlobalId=ifcopenshell.guid.new(),
+        OwnerHistory=owner_history,
+        Name=pset_name,
+        HasProperties=properties,
+    )
+    return model.create_entity(
+        "IfcRelDefinesByProperties",
+        GlobalId=ifcopenshell.guid.new(),
+        OwnerHistory=owner_history,
+        Name=f"{pset_name}-Assignment",
+        RelatedObjects=[target],
+        RelatingPropertyDefinition=property_set,
+    )
+
+
+def _create_property_single_value(
+    model: ifcopenshell.file,
+    name: str,
+    value: str | bool,
+) -> ifcopenshell.entity_instance:
+    if isinstance(value, bool):
+        nominal_value = model.create_entity("IfcBoolean", value)
+    elif name.endswith("Json"):
+        nominal_value = model.create_entity("IfcText", value)
+    else:
+        nominal_value = model.create_entity("IfcLabel", str(value))
+    return model.create_entity(
+        "IfcPropertySingleValue",
+        Name=name,
+        NominalValue=nominal_value,
+    )
 
 
 def _create_space_representation(
