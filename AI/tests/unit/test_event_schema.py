@@ -74,3 +74,23 @@ def test_failed_event_requires_error_for_json_schema_and_pydantic() -> None:
         pass
     else:
         raise AssertionError("failed event without error must be rejected by pydantic")
+
+
+def test_completed_event_requires_output_for_json_schema_and_pydantic() -> None:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    payload = _event("completed")
+    payload.pop("output")
+
+    try:
+        validate_json_schema(payload, schema)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("completed event without output must be rejected by schema")
+
+    try:
+        EventMessage.model_validate(payload)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("completed event without output must be rejected by pydantic")
