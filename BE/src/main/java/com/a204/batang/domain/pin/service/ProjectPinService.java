@@ -4,6 +4,8 @@ import com.a204.batang.domain.pin.dto.CreatePinRequest;
 import com.a204.batang.domain.pin.dto.CreatePinResponse;
 import com.a204.batang.domain.pin.dto.GetProjectPinsResponse;
 import com.a204.batang.domain.pin.dto.ProjectPinResponse;
+import com.a204.batang.domain.pin.dto.UpdatePinPositionRequest;
+import com.a204.batang.domain.pin.dto.UpdatePinPositionResponse;
 import com.a204.batang.domain.pin.entity.ProjectPin;
 import com.a204.batang.domain.pin.entity.ProjectPinReadState;
 import com.a204.batang.domain.pin.event.PinCreatedEvent;
@@ -79,6 +81,32 @@ public class ProjectPinService {
         log.info("새 핀 등록 완료. projectId={}, pinId={}", projectId, savedPin.getPinId());
 
         return CreatePinResponse.from(savedPin);
+    }
+
+    /**
+     * 프로젝트의 특정 핀 위치(카메라/월드 좌표)를 수정한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @param request 핀 위치 수정 요청
+     * @return 핀 위치 수정 응답
+     */
+    @Transactional
+    public UpdatePinPositionResponse updatePinPosition(UUID projectId, UUID pinId, UpdatePinPositionRequest request) {
+        ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
+
+        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
+        validatePinAuthorOrThrow(projectPin, currentUserId);
+
+        projectPin.updatePosition(
+                request.cameraPosition().toPinPosition(),
+                request.worldPosition().toPinPosition()
+        );
+        projectPinRepository.flush();
+
+        log.info("핀 위치 수정 완료. projectId={}, pinId={}", projectId, pinId);
+        return UpdatePinPositionResponse.from(projectPin);
     }
 
     /**
@@ -218,7 +246,7 @@ public class ProjectPinService {
     }
 
     /**
-     * 핀 삭제 권한(작성자 본인 여부)을 검증한다.
+     * 핀 수정/삭제 권한(작성자 본인 여부)을 검증한다.
      *
      * @param pin 핀 엔티티
      * @param currentUserId 현재 사용자 ID
@@ -228,7 +256,7 @@ public class ProjectPinService {
             return;
         }
 
-        throw new CustomException(ErrorCode.FORBIDDEN_ACCESS, "본인이 작성한 핀만 삭제할 수 있습니다.");
+        throw new CustomException(ErrorCode.FORBIDDEN_ACCESS, "본인이 작성한 핀만 수정하거나 삭제할 수 있습니다.");
     }
 
     /**
