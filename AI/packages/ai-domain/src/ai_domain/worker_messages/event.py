@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 StorageUrl = Annotated[str, Field(min_length=1, max_length=2048)]
 
@@ -51,3 +51,9 @@ class EventMessage(BaseModel):
     idempotencyKey: str = Field(min_length=1, max_length=255)
     correlationId: str = Field(min_length=1, max_length=255)
     occurredAt: datetime
+
+    @model_validator(mode="after")
+    def validate_status_requirements(self) -> EventMessage:
+        if self.status in {"failed", "clarification_required"} and self.error is None:
+            raise ValueError("error is required when status is failed or clarification_required")
+        return self
