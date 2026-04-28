@@ -1,5 +1,8 @@
 package com.a204.batang.domain.pin.service;
 
+import com.a204.batang.domain.pin.dto.PinPositionRequest;
+import com.a204.batang.domain.pin.dto.UpdatePinPositionRequest;
+import com.a204.batang.domain.pin.dto.UpdatePinPositionResponse;
 import com.a204.batang.domain.pin.entity.PinPosition;
 import com.a204.batang.domain.pin.entity.ProjectPin;
 import com.a204.batang.domain.pin.repository.ProjectPinCommentRepository;
@@ -83,6 +86,84 @@ class ProjectPinServiceTest {
         );
         ReflectionTestUtils.setField(pin, "pinId", pinId);
         ReflectionTestUtils.setField(pin, "createdAt", LocalDateTime.of(2026, 4, 28, 9, 0, 0));
+    }
+
+    @Test
+    void updatePinPosition_updatesCameraAndWorldPosition_whenCurrentUserIsAuthor() {
+        UpdatePinPositionRequest request = new UpdatePinPositionRequest(
+                new PinPositionRequest(5.0, 6.0, 7.0),
+                new PinPositionRequest(50.0, 60.0, 70.0)
+        );
+        LocalDateTime updatedAt = LocalDateTime.of(2026, 4, 28, 9, 30, 0);
+
+        given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
+                .willReturn(Optional.of(pin));
+        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        ReflectionTestUtils.setField(pin, "updatedAt", updatedAt);
+
+        UpdatePinPositionResponse response = projectPinService.updatePinPosition(projectId, pinId, request);
+
+        assertThat(pin.getCameraPosition().getX()).isEqualTo(5.0);
+        assertThat(pin.getCameraPosition().getY()).isEqualTo(6.0);
+        assertThat(pin.getCameraPosition().getZ()).isEqualTo(7.0);
+        assertThat(pin.getWorldPosition().getX()).isEqualTo(50.0);
+        assertThat(pin.getWorldPosition().getY()).isEqualTo(60.0);
+        assertThat(pin.getWorldPosition().getZ()).isEqualTo(70.0);
+
+        assertThat(response.pinId()).isEqualTo(pinId);
+        assertThat(response.cameraPosition().x()).isEqualTo(5.0);
+        assertThat(response.cameraPosition().y()).isEqualTo(6.0);
+        assertThat(response.cameraPosition().z()).isEqualTo(7.0);
+        assertThat(response.worldPosition().x()).isEqualTo(50.0);
+        assertThat(response.worldPosition().y()).isEqualTo(60.0);
+        assertThat(response.worldPosition().z()).isEqualTo(70.0);
+        assertThat(response.updatedAt()).isEqualTo(updatedAt);
+
+        verify(projectPinRepository).flush();
+        verify(projectAccessService).validateProjectPinWriterOrThrow(project, authorUserId);
+        verifyNoInteractions(projectPinCommentRepository);
+        verifyNoInteractions(projectPinReadStateRepository);
+    }
+
+    @Test
+    void updatePinPosition_throwsForbidden_whenCurrentUserIsNotAuthor() {
+        UUID otherUserId = UUID.randomUUID();
+        UpdatePinPositionRequest request = new UpdatePinPositionRequest(
+                new PinPositionRequest(5.0, 6.0, 7.0),
+                new PinPositionRequest(50.0, 60.0, 70.0)
+        );
+
+        given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
+                .willReturn(Optional.of(pin));
+        given(projectAccessService.resolveCurrentUserId()).willReturn(otherUserId);
+
+        assertThatThrownBy(() -> projectPinService.updatePinPosition(projectId, pinId, request))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.FORBIDDEN_ACCESS);
+
+        verify(projectPinCommentRepository, never()).softDeleteByPinId(any(UUID.class), any(LocalDateTime.class));
+        verifyNoInteractions(projectPinReadStateRepository);
+    }
+
+    @Test
+    void updatePinPosition_throwsPinNotFound_whenPinDoesNotExist() {
+        UpdatePinPositionRequest request = new UpdatePinPositionRequest(
+                new PinPositionRequest(5.0, 6.0, 7.0),
+                new PinPositionRequest(50.0, 60.0, 70.0)
+        );
+
+        given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> projectPinService.updatePinPosition(projectId, pinId, request))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.PIN_NOT_FOUND);
+
+        verify(projectAccessService, never()).validateProjectPinWriterOrThrow(any(Project.class), any(UUID.class));
+        verifyNoInteractions(projectPinCommentRepository);
+        verifyNoInteractions(projectPinReadStateRepository);
     }
 
     @Test

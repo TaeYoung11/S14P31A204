@@ -3,6 +3,8 @@ package com.a204.batang.domain.pin.controller;
 import com.a204.batang.domain.pin.dto.CreatePinRequest;
 import com.a204.batang.domain.pin.dto.CreatePinResponse;
 import com.a204.batang.domain.pin.dto.GetProjectPinsResponse;
+import com.a204.batang.domain.pin.dto.UpdatePinPositionRequest;
+import com.a204.batang.domain.pin.dto.UpdatePinPositionResponse;
 import com.a204.batang.domain.pin.service.ProjectPinService;
 import com.a204.batang.domain.pin.service.ProjectPinSseService;
 import com.a204.batang.global.common.ApiResponse;
@@ -15,6 +17,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -105,6 +108,25 @@ public class ProjectPinController {
     ) {
         CreatePinResponse response = projectPinService.createPin(projectId, request);
         return ApiResponse.created("리뷰 코멘트가 등록되었습니다.", response);
+    }
+
+    /**
+     * 프로젝트의 특정 핀 위치(카메라/월드 좌표)를 수정한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @param request 핀 위치 수정 요청
+     * @return 위치 수정 결과
+     */
+    @PatchMapping("/{pinId}/position")
+    public ApiResponse<UpdatePinPositionResponse> updatePinPosition(
+            @PathVariable UUID projectId,
+            @PathVariable UUID pinId,
+            @Valid @RequestBody UpdatePinPositionRequest request
+            // TODO: 인증 구현 시 @AuthenticationPrincipal 기반 사용자 검증 연동
+    ) {
+        UpdatePinPositionResponse response = projectPinService.updatePinPosition(projectId, pinId, request);
+        return ApiResponse.success("핀 위치 수정 완료", response);
     }
 
     /**
