@@ -235,3 +235,77 @@ def test_layout_import_v1_rejects_collinear_boundary_points() -> None:
                 ],
             }
         )
+
+
+def test_layout_import_v1_rejects_duplicate_room_ids() -> None:
+    with pytest.raises(ValidationError, match="room.id는 중복될 수 없습니다."):
+        LayoutImportV1.model_validate(
+            {
+                "schema_version": "v1",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [
+                    {
+                        "id": "room-01",
+                        "name": "거실",
+                        "type": "living",
+                        "width": 4200,
+                        "height": 3800,
+                        "floor": 1,
+                        "x": 5000.0,
+                        "y": 4000.0,
+                        "angle": 0.0,
+                        "locked": False,
+                    },
+                    {
+                        "id": "room-01",
+                        "name": "안방",
+                        "type": "bedroom",
+                        "width": 3600,
+                        "height": 3200,
+                        "floor": 1,
+                        "x": 9000.0,
+                        "y": 4000.0,
+                        "angle": 0.0,
+                        "locked": False,
+                    },
+                ],
+            }
+        )
+
+
+def test_layout_import_v1_rejects_duplicate_zone_ids() -> None:
+    with pytest.raises(ValidationError, match="zone.id는 중복될 수 없습니다."):
+        LayoutImportV1.model_validate(
+            {
+                "schema_version": "v1",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [
+                    {
+                        "id": "room-01",
+                        "name": "거실",
+                        "type": "living",
+                        "width": 4200,
+                        "height": 3800,
+                        "floor": 1,
+                        "x": 5000.0,
+                        "y": 4000.0,
+                        "angle": 0.0,
+                        "locked": False,
+                    }
+                ],
+                "zones": [
+                    {
+                        "id": "zone-common",
+                        "name": "공용존",
+                        "color": "#FF5733",
+                    },
+                    {
+                        "id": "zone-common",
+                        "name": "개인존",
+                        "color": "#335CFF",
+                    },
+                ],
+            }
+        )

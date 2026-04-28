@@ -41,6 +41,11 @@ export function useConnections() {
     setIsModalOpen(false)
   }
 
+  /** 특정 버블과 연결된 모든 연결선 삭제 (버블 삭제 시 호출) */
+  const removeConnectionsForBubble = (id: string) => {
+    setConnections((prev) => prev.filter((c) => c.from !== id && c.to !== id))
+  }
+
   return {
     connections,
     isModalOpen,
@@ -50,5 +55,6 @@ export function useConnections() {
     confirmModal,
     closeModal: () => setIsModalOpen(false),
     setSelectedStyle,
+    removeConnectionsForBubble,
   }
 }

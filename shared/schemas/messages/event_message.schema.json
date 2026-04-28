@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/messages/event_message.schema.json",
+  "title": "WorkerEventMessage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "schemaVersion",
+    "messageType",
+    "eventType",
+    "routingKey",
+    "jobId",
+    "jobStepId",
+    "stepNo",
+    "totalSteps",
+    "projectId",
+    "workerType",
+    "workerId",
+    "status",
+    "idempotencyKey",
+    "correlationId",
+    "occurredAt"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "schemaVersion": {
+      "const": "v1"
+    },
+    "messageType": {
+      "type": "string",
+      "enum": ["EVENT"]
+    },
+    "eventType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "routingKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "jobId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "jobStepId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "stepNo": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "totalSteps": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "workerType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "workerId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "sourceRevisionId": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "targetRevisionId": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "outputArtifactId": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "status": {
+      "type": "string",
+      "enum": ["started", "progress", "completed", "failed", "clarification_required"]
+    },
+    "progress": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "output": {
+      "$ref": "#/$defs/eventOutputRef"
+    },
+    "error": {
+      "$ref": "#/$defs/eventError"
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "correlationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "completed"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["output"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": ["failed", "clarification_required"]
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["error"]
+      }
+    }
+  ],
+  "$defs": {
+    "storageUrl": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "eventOutputRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "storageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "validationReportStorageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "errorDetailStorageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        }
+      }
+    },
+    "eventError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable", "clarificationPossible"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "clarificationPossible": {
+          "type": "boolean"
+        },
+        "detailStorageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        }
+      }
+    }
+  }
+}

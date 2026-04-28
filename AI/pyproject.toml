@@ -10,6 +10,7 @@ dependencies = [
     "ai-evals",
     "ai-planning",
     "ai-planning-2d",
+    "ai-planning-3d",
     "ai-rendering",
     "httpx>=0.28.1",
     "ifcopenshell>=0.8.5",
@@ -43,6 +44,7 @@ ai-evals = { workspace = true }
 ai-layout-import = { workspace = true }
 ai-planning = { workspace = true }
 ai-planning-2d = { workspace = true }
+ai-planning-3d = { workspace = true }
 ai-rendering = { workspace = true }
 torch = { index = "pytorch-cu126" }
 
