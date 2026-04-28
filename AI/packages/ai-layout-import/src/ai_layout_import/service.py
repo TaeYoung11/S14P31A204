@@ -8,14 +8,14 @@ from pathlib import Path
 
 import ifcopenshell
 import ifcopenshell.guid
-from ai_domain import LayoutImportV1, RoomInput, ZoneInput
+from ai_domain import LayoutImportV1, LayoutImportV2, RoomInput, ZoneInput
 
 
-def convert_layout_to_ifc(request: LayoutImportV1, output_path: str | Path) -> None:
-    """Write a v1 space-only IFC file from the validated layout import request."""
+def convert_layout_to_ifc(request: LayoutImportV1 | LayoutImportV2, output_path: str | Path) -> None:
+    """Write a space-only IFC file from the validated layout import request."""
 
     output = Path(output_path)
-    _validate_zone_references(request)
+    _validate_request(request)
     model = _create_ifc_file()
     owner_history, context, project, storeys = _create_project_tree(model, request)
     zones = _create_zones(model, owner_history, request)
@@ -26,13 +26,54 @@ def convert_layout_to_ifc(request: LayoutImportV1, output_path: str | Path) -> N
     model.write(str(output))
 
 
-def _validate_zone_references(request: LayoutImportV1) -> None:
+def _validate_request(request: LayoutImportV1 | LayoutImportV2) -> None:
+    _validate_zone_references(request)
+    if isinstance(request, LayoutImportV2):
+        _validate_v2_generation_prerequisites(request)
+
+
+def _validate_zone_references(request: LayoutImportV1 | LayoutImportV2) -> None:
     zone_ids = {zone.id for zone in request.zones or []}
     for room in request.rooms:
         if room.zone_id is None:
             continue
         if room.zone_id not in zone_ids:
-            raise ValueError(f"알 수 없는 zone 참조입니다: {room.zone_id}")
+            raise ValueError(f"unknown zone reference: {room.zone_id}")
+
+
+def _validate_v2_generation_prerequisites(request: LayoutImportV2) -> None:
+    boundaries_by_floor = {boundary.floor: boundary for boundary in request.boundaries or []}
+    room_floors = sorted({room.floor for room in request.rooms})
+
+    if request.generation_options.generate_walls:
+        _require_modeling_default(request, "wall_thickness_mm")
+        _require_boundaries_for_floors(boundaries_by_floor, room_floors, "walls")
+
+    if request.generation_options.generate_slabs:
+        _require_modeling_default(request, "slab_thickness_mm")
+        _require_boundaries_for_floors(boundaries_by_floor, room_floors, "slabs")
+
+    if request.generation_options.generate_roof:
+        _require_modeling_default(request, "roof_height_mm")
+        top_floor = max(room_floors)
+        if top_floor not in boundaries_by_floor:
+            raise ValueError(f"missing boundary for roof generation on floor {top_floor}")
+
+
+def _require_modeling_default(request: LayoutImportV2, field_name: str) -> None:
+    if request.modeling_defaults is None or getattr(request.modeling_defaults, field_name) is None:
+        raise ValueError(f"{field_name} is required when its generation option is enabled")
+
+
+def _require_boundaries_for_floors(
+    boundaries_by_floor: dict[int, object],
+    floors: list[int],
+    feature_name: str,
+) -> None:
+    missing_floors = [floor for floor in floors if floor not in boundaries_by_floor]
+    if missing_floors:
+        missing_text = ", ".join(str(floor) for floor in missing_floors)
+        raise ValueError(f"missing boundaries for {feature_name} on floors: {missing_text}")
 
 
 def _create_ifc_file() -> ifcopenshell.file:
@@ -40,7 +81,8 @@ def _create_ifc_file() -> ifcopenshell.file:
 
 
 def _create_project_tree(
-    model: ifcopenshell.file, request: LayoutImportV1
+    model: ifcopenshell.file,
+    request: LayoutImportV1 | LayoutImportV2,
 ) -> tuple[
     ifcopenshell.entity_instance,
     ifcopenshell.entity_instance,
@@ -185,7 +227,7 @@ def _create_spaces(
     model: ifcopenshell.file,
     owner_history: ifcopenshell.entity_instance,
     context: ifcopenshell.entity_instance,
-    request: LayoutImportV1,
+    request: LayoutImportV1 | LayoutImportV2,
     storeys: dict[int, ifcopenshell.entity_instance],
     zones: dict[str, ifcopenshell.entity_instance],
 ) -> None:
@@ -229,7 +271,7 @@ def _create_spaces(
 def _create_zones(
     model: ifcopenshell.file,
     owner_history: ifcopenshell.entity_instance,
-    request: LayoutImportV1,
+    request: LayoutImportV1 | LayoutImportV2,
 ) -> dict[str, ifcopenshell.entity_instance]:
     zones: dict[str, ifcopenshell.entity_instance] = {}
     for zone in request.zones or []:
@@ -306,7 +348,7 @@ def _attach_project_metadata_property_set(
     model: ifcopenshell.file,
     owner_history: ifcopenshell.entity_instance,
     project: ifcopenshell.entity_instance,
-    request: LayoutImportV1,
+    request: LayoutImportV1 | LayoutImportV2,
 ) -> None:
     if not request.adjacency:
         return
@@ -332,7 +374,7 @@ def _attach_storey_metadata_property_sets(
     model: ifcopenshell.file,
     owner_history: ifcopenshell.entity_instance,
     storeys: dict[int, ifcopenshell.entity_instance],
-    request: LayoutImportV1,
+    request: LayoutImportV1 | LayoutImportV2,
 ) -> None:
     if not request.boundaries:
         return
@@ -489,7 +531,7 @@ def _create_axis_placement_2d(model: ifcopenshell.file) -> ifcopenshell.entity_i
     )
 
 
-def _effective_space_height_m(request: LayoutImportV1) -> float:
+def _effective_space_height_m(request: LayoutImportV1 | LayoutImportV2) -> float:
     effective_space_height_mm = 2700
     if (
         request.modeling_defaults is not None

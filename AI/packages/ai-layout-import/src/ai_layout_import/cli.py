@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
-from collections.abc import Sequence
 
 from ai_layout_import.worker import run_layout_import_job
 
@@ -24,20 +24,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     except json.JSONDecodeError as exc:
         return _print_error(
             code="input_error",
-            message="입력 JSON 파싱에 실패했습니다.",
+            message="input JSON parse failed",
             details=[{"type": "json_decode_error", "msg": str(exc)}],
         )
     except OSError as exc:
         return _print_error(
             code="input_error",
-            message="입력 파일을 읽을 수 없습니다.",
+            message="input file could not be read",
             details=[{"type": type(exc).__name__, "msg": str(exc)}],
         )
 
     if not isinstance(payload, dict):
         return _print_error(
             code="input_error",
-            message="입력 JSON의 최상위 구조는 object여야 합니다.",
+            message="input JSON must be an object",
             details=[{"type": "invalid_payload_type", "msg": type(payload).__name__}],
         )
 
