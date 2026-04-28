@@ -476,13 +476,16 @@ def test_build_view_prompt_in_public_api() -> None:
 
 
 def test_view_negative_suffixes_iso_nw_se_block_extra_building() -> None:
-    """ISO_NW/SE 차단 토큰에 'additional building'/'basement' 등 hallucinate 단어 포함."""
+    """ISO_NW/SE 차단 토큰에 'additional building'/'basement' hallucinate 단어 포함.
+
+    토큰 수는 의도적으로 2개로 압축 — CLIP 77 토큰 한계 + 일반 명사(building/floor)
+    과부하로 집 자체가 약화되던 회귀(C-1 1차) 회피.
+    """
     for v in (IFCView.ISO_NW, IFCView.ISO_SE):
         suffix = VIEW_NEGATIVE_SUFFIXES[v]
         assert suffix, f"{v} negative suffix should not be empty"
         assert "additional building" in suffix
         assert "basement" in suffix
-        assert "extra floor" in suffix
 
 
 def test_view_negative_suffixes_other_views_empty() -> None:
