@@ -50,6 +50,7 @@ export function useEditorPage() {
     selectedStyle: selectedLineStyle,
     connectionPair: lineConnectionPair,
     openModal,
+    openModalWithPair,
     confirmModal: confirmLineStyleModal,
     closeModal: closeLineStyleModal,
     setSelectedStyle,
@@ -114,6 +115,8 @@ export function useEditorPage() {
   const [isLibraryOpen, setIsLibraryOpen] = useState(false)
   const [isGridVisible, setIsGridVisible] = useState(false)
   const [selectedTool, setSelectedTool] = useState<string>('selection')
+  /** 연결 도구에서 첫 번째로 선택된 버블 id */
+  const [connectingFromId, setConnectingFromId] = useState<string | null>(null)
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
   const [isExportSelectionModalOpen, setIsExportSelectionModalOpen] = useState(false)
@@ -205,6 +208,39 @@ export function useEditorPage() {
   const handleDeleteBubble = (id: string) => {
     deleteBubble(id)
     removeConnectionsForBubble(id)
+  }
+
+  /**
+   * 캔버스 버블 클릭 통합 핸들러
+   * - connect 도구: 두 버블을 순서대로 선택하면 스타일 모달 표시
+   * - 그 외: 기존 선택 로직 유지
+   */
+  const handleBubbleSelectWithTool = (id: string) => {
+    if (selectedTool === 'connect') {
+      if (!connectingFromId) {
+        setConnectingFromId(id)
+        handleBubbleSelect(id)
+      } else if (connectingFromId !== id) {
+        openModalWithPair(connectingFromId, id)
+        setConnectingFromId(null)
+      } else {
+        // 같은 버블 재클릭 → 연결 취소
+        setConnectingFromId(null)
+      }
+    } else {
+      handleBubbleSelect(id)
+    }
+  }
+
+  /** 연결선 클릭 — 해당 연결선의 스타일 변경 모달 열기 */
+  const handleConnectionClick = (conn: import('../types').ConnectionData) => {
+    openModalWithPair(conn.from, conn.to, conn.type)
+  }
+
+  /** 도구 선택 — connect 도구에서 벗어날 때 연결 대기 상태 초기화 */
+  const handleSetSelectedTool = (tool: string) => {
+    setSelectedTool(tool)
+    if (tool !== 'connect') setConnectingFromId(null)
   }
 
   /** 2D 평면도 생성 버튼 핸들러 — 로딩 애니메이션 포함 */
@@ -319,6 +355,11 @@ export function useEditorPage() {
     // 도구 선택
     selectedTool,
     setSelectedTool,
+    handleSetSelectedTool,
+    // 연결 도구
+    connectingFromId,
+    handleBubbleSelectWithTool,
+    handleConnectionClick,
     // 초대 모달
     isInviteModalOpen,
     handleOpenInviteModal: () => setIsInviteModalOpen(true),

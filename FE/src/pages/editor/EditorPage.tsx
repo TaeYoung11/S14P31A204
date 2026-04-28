@@ -44,7 +44,8 @@ export default function EditorPage() {
     collaborationTab, setCollaborationTab,
     handleToggleCollaboration, handlePinClick,
     zoom, handleZoomIn, handleZoomOut, setZoom,
-    selectedTool, setSelectedTool,
+    selectedTool, setSelectedTool, handleSetSelectedTool,
+    connectingFromId, handleBubbleSelectWithTool, handleConnectionClick,
     isLibraryOpen, setIsLibraryOpen,
     isGridVisible, toggleGrid,
     isInviteModalOpen, handleOpenInviteModal, onCloseInviteModal,
@@ -130,7 +131,7 @@ export default function EditorPage() {
             isLibraryOpen={isLibraryOpen}
             isGridVisible={isGridVisible}
             selectedTool={selectedTool}
-            onToolSelect={setSelectedTool}
+            onToolSelect={handleSetSelectedTool}
             onAddSpace={handleOpenAddModal}
             onLineStyle={handleOpenLineStyleModal}
             onToggleCollaboration={handleToggleCollaboration}
@@ -156,10 +157,12 @@ export default function EditorPage() {
               manualZones={manualZones}
               selectedId={selectedId}
               selectedTool={selectedTool}
+              connectingFromId={connectingFromId}
               onEditZone={openEditModal}
               onBubbleDrag={handleBubbleDrag}
-              onBubbleSelect={handleBubbleSelect}
+              onBubbleSelect={handleBubbleSelectWithTool}
               onDeleteBubble={handleDeleteBubble}
+              onConnectionClick={handleConnectionClick}
               scale={zoom / 100}
             />
           ) : mode === '2d' ? (
@@ -246,7 +249,7 @@ export default function EditorPage() {
               </button>
               <div className="w-px h-5 bg-[#E2E6EF] mx-1.5" />
               <button
-                onClick={() => setSelectedTool(selectedTool === 'hand' ? 'selection' : 'hand')}
+                onClick={() => handleSetSelectedTool(selectedTool === 'hand' ? 'selection' : 'hand')}
                 className={`p-1.5 transition-colors rounded-xl ${
                   selectedTool === 'hand' ? 'text-[#3B45B3] bg-[#F0F2FF]' : 'text-[#6B7A99] hover:text-[#1C1C1E] hover:bg-[#F0F2F9]'
                 }`}

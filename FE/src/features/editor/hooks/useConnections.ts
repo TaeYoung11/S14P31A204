@@ -34,6 +34,16 @@ export function useConnections() {
     setIsModalOpen(true)
   }
 
+  /**
+   * 연결 쌍을 직접 지정해 모달 열기
+   * 연결 도구로 두 버블 선택 시 / 연결선 클릭으로 스타일 변경 시 사용
+   */
+  const openModalWithPair = (from: string, to: string, existingStyle?: ConnectionStyle) => {
+    setSelectedStyle(existingStyle ?? 'thin')
+    setConnectionPair({ from, to })
+    setIsModalOpen(true)
+  }
+
   /** 선 스타일 적용 확인 */
   const confirmModal = () => {
     if (!connectionPair) return
@@ -52,6 +62,7 @@ export function useConnections() {
     selectedStyle,
     connectionPair,
     openModal,
+    openModalWithPair,
     confirmModal,
     closeModal: () => setIsModalOpen(false),
     setSelectedStyle,

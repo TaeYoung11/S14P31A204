@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Circle, Group, Layer, Line, Rect, Stage, Text } from 'react-konva'
+import { Circle, Ellipse, Group, Layer, Line, Stage, Text } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import type { BubbleData, ConnectionData, ZoneData } from '../../types'
 import { getZoneOrganicShape } from '../../utils/zoneShape'
@@ -111,10 +111,13 @@ interface BubbleCanvasProps {
   manualZones: ZoneData[]
   selectedId: string | null
   selectedTool: string
+  /** 연결 도구에서 첫 번째로 선택된 버블 id (두 번째 선택 대기 중 하이라이트) */
+  connectingFromId?: string | null
   onEditZone: (zone: ZoneData) => void
   onBubbleDrag: (bubbleId: string, x: number, y: number) => void
   onBubbleSelect: (bubbleId: string) => void
   onDeleteBubble?: (bubbleId: string) => void
+  onConnectionClick?: (conn: ConnectionData) => void
   scale?: number
 }
 
@@ -133,10 +136,12 @@ export function BubbleCanvas({
   manualZones,
   selectedId,
   selectedTool,
+  connectingFromId,
   onEditZone,
   onBubbleDrag,
   onBubbleSelect,
   onDeleteBubble,
+  onConnectionClick,
   scale = 1,
 }: BubbleCanvasProps) {
   /** id → BubbleData 빠른 조회 맵 */
@@ -195,20 +200,26 @@ export function BubbleCanvas({
           const to = bubbleMap.get(conn.to)
           if (!from || !to) return null
 
+          const fromX = from.x + from.width / 2
+          const fromY = from.y + from.height / 2
+          const toX = to.x + to.width / 2
+          const toY = to.y + to.height / 2
+
           const isBold = conn.type === 'bold'
           const isDashed = conn.type === 'dashed'
+
           return (
             <Line
-              key={`${conn.from}-${conn.to}-${index}`}
-              points={[
-                from.x + from.width / 2,
-                from.y + from.height / 2,
-                to.x + to.width / 2,
-                to.y + to.height / 2,
-              ]}
+              key={`conn-${conn.from}-${conn.to}-${index}`}
+              points={[fromX, fromY, toX, toY]}
               stroke={isDashed ? '#ADB5BD' : '#3B45B3'}
               strokeWidth={isBold ? 3.5 : isDashed ? 1 : 1.5}
               dash={isDashed ? [6, 4] : undefined}
+              hitStrokeWidth={14}
+              onClick={(e) => {
+                e.cancelBubble = true
+                onConnectionClick?.(conn)
+              }}
             />
           )
         })}
@@ -216,6 +227,7 @@ export function BubbleCanvas({
         {/* 버블(공간) 목록 */}
         {bubbles.map((bubble) => {
           const isSelected = selectedId === bubble.id
+          const isConnectingFrom = connectingFromId === bubble.id
           return (
             <Group
               key={bubble.id}
@@ -231,27 +243,28 @@ export function BubbleCanvas({
               onMouseEnter={handleMouseEnter}
               onMouseLeave={handleMouseLeave}
             >
-              {/* 버블 배경 */}
-              <Rect
-                width={bubble.width}
-                height={bubble.height}
+              {/* 버블 배경 (타원) */}
+              <Ellipse
+                x={bubble.width / 2}
+                y={bubble.height / 2}
+                radiusX={bubble.width / 2}
+                radiusY={bubble.height / 2}
                 fill={bubble.color}
-                cornerRadius={15}
-                stroke={isSelected ? '#3B45B3' : '#E2E6EF'}
-                strokeWidth={isSelected ? 2 : 1}
-                shadowColor="black"
-                shadowBlur={isSelected ? 10 : 2}
-                shadowOpacity={0.05}
+                stroke={isConnectingFrom ? '#F59F00' : isSelected ? '#3B45B3' : '#E2E6EF'}
+                strokeWidth={isConnectingFrom ? 2.5 : isSelected ? 2 : 1}
+                shadowColor={isConnectingFrom ? '#F59F00' : 'black'}
+                shadowBlur={isConnectingFrom ? 12 : isSelected ? 10 : 2}
+                shadowOpacity={isConnectingFrom ? 0.25 : 0.05}
                 shadowOffset={{ x: 0, y: 4 }}
               />
 
-              {/* 선택 핸들 (모서리 점) */}
+              {/* 선택 핸들 (타원 4방향 극점) */}
               {isSelected && (
                 <>
-                  <Circle x={0} y={0} radius={3.5} fill="#3B45B3" />
-                  <Circle x={bubble.width} y={0} radius={3.5} fill="#3B45B3" />
-                  <Circle x={0} y={bubble.height} radius={3.5} fill="#3B45B3" />
-                  <Circle x={bubble.width} y={bubble.height} radius={3.5} fill="#3B45B3" />
+                  <Circle x={bubble.width / 2} y={0} radius={3.5} fill="#3B45B3" />
+                  <Circle x={bubble.width / 2} y={bubble.height} radius={3.5} fill="#3B45B3" />
+                  <Circle x={0} y={bubble.height / 2} radius={3.5} fill="#3B45B3" />
+                  <Circle x={bubble.width} y={bubble.height / 2} radius={3.5} fill="#3B45B3" />
                 </>
               )}
 

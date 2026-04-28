@@ -166,16 +166,17 @@ export default function EditorLeftSidebar({
                 <span className="text-[10px] font-bold text-[#8E95A3] group-hover:text-[#1C1C1E]">공간추가</span>
               </button>
 
-              <button onClick={onLineStyle} className="w-full flex flex-col items-center gap-1 py-1 group">
+              {/* 선스타일 = 연결 도구 + 관계 유형 설정 통합 */}
+              <button onClick={() => onToolSelect(selectedTool === 'connect' ? 'selection' : 'connect')} className="w-full flex flex-col items-center gap-1 py-1 group">
                 <div className={`p-2 rounded-xl transition-all ${
-                  isLineStyleModalOpen
-                    ? 'bg-[#F0F2FF] text-[#3B45B3]'
+                  selectedTool === 'connect' || isLineStyleModalOpen
+                    ? 'bg-[#F0F2FF] text-[#3B45B3] shadow-sm'
                     : 'text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#1C1C1E]'
                 }`}>
                   <TrendingUp size={24} />
                 </div>
                 <span className={`text-[10px] font-bold transition-all ${
-                  isLineStyleModalOpen ? 'text-[#3B45B3]' : 'text-[#8E95A3] group-hover:text-[#1C1C1E]'
+                  selectedTool === 'connect' || isLineStyleModalOpen ? 'text-[#3B45B3]' : 'text-[#8E95A3] group-hover:text-[#1C1C1E]'
                 }`}>
                   선스타일
                 </span>
