@@ -13,6 +13,7 @@ import pytest
 from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
 from ai_rendering.ifc2img.geometry import load_mesh
 from ai_rendering.ifc2img.views import (
+    VIEW_TARGET_RATIOS,
     AutoZoomMode,
     compute_auto_zoom,
     compute_dynamic_front,
@@ -263,13 +264,16 @@ def _make_depth_with_fill(fill_ratio: float, h: int = 448, w: int = 768) -> np.n
 
 
 def test_iterative_zoom_converges_when_target_reached() -> None:
-    """ITERATIVE 모드 — fill이 target tolerance 안에 들면 즉시 종료."""
+    """ITERATIVE 모드 — fill이 view-별 target tolerance 안에 들면 즉시 종료.
+
+    IFCView.FRONT는 VIEW_TARGET_RATIOS[FRONT]=0.40이 적용된다.
+    fill=0.40 ± 0.10 = [0.30, 0.50] 안 → 1회 capture로 수렴.
+    """
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
     fake_center = np.array([5.0, 5.0, 2.5])
 
-    # 첫 capture부터 target 0.55 ± 0.10 = [0.45, 0.65] 안 (fill=0.55)
-    target_depth = _make_depth_with_fill(0.55)
+    target_depth = _make_depth_with_fill(0.40)  # FRONT의 view-별 target
 
     with (
         patch(
@@ -284,7 +288,6 @@ def test_iterative_zoom_converges_when_target_reached() -> None:
 
         renderer = IFCRenderer(
             auto_zoom=AutoZoomMode.ITERATIVE,
-            target_screen_ratio=0.55,
             iter_tolerance=0.10,
             iter_max=4,
         )
@@ -399,6 +402,26 @@ def test_iso_views_all_in_enum() -> None:
     assert len(list(IFCView)) == 8  # FRONT/SIDE/TOP + 5등각
 
 
+def test_view_target_ratios_cropping_resistant() -> None:
+    """잘림 위험 큰 시점들이 측면(FRONT/SIDE)보다 작은 target ratio 가져야 — cropping 방어."""
+    front_ratio = VIEW_TARGET_RATIOS[IFCView.FRONT]
+    # 위/등각 시점은 모두 측면보다 작아야
+    for v in (IFCView.TOP, IFCView.BIRDS_EYE, IFCView.ISO_NE, IFCView.ISO_NW, IFCView.ISO_SE):
+        assert VIEW_TARGET_RATIOS[v] < front_ratio
+    # CORNER_LOW는 가장 잘리던 시점 → 등각보다도 작거나 같아야
+    assert VIEW_TARGET_RATIOS[IFCView.CORNER_LOW] <= VIEW_TARGET_RATIOS[IFCView.ISO_NE]
+
+
+def test_renderer_resolves_view_specific_target() -> None:
+    """_resolve_target_ratio가 view-별 매핑값을 반환하고 fallback이 동작."""
+    renderer = IFCRenderer(target_screen_ratio=0.99)  # fallback
+    # TOP은 매핑 등록됨 → 매핑값 우선
+    assert renderer._resolve_target_ratio(IFCView.TOP) == VIEW_TARGET_RATIOS[IFCView.TOP]
+    # 모든 등록 view의 매핑값이 fallback과 다름을 가정 (현재 매핑 값 0.25~0.40, fallback 0.99)
+    for v in IFCView:
+        assert renderer._resolve_target_ratio(v) == VIEW_TARGET_RATIOS[v]
+
+
 def test_renderer_pca_align_off_uses_static_front() -> None:
     """pca_align=False 시 동적 front 계산 안 함, VIEW_CAMERAS 정적값 그대로."""
     fake_mesh = MagicMock()
@@ -425,10 +448,10 @@ def test_renderer_pca_align_off_uses_static_front() -> None:
         renderer.render(Path("dummy.ifc"), IFCView.FRONT)
 
     mock_pca.assert_not_called()
-    # set_front은 IFCView.FRONT의 정적 vector (-1.0, 0.0, 0.2)로 호출
+    # set_front은 IFCView.FRONT의 정적 vector (-1.0, 0.0, 0.0)로 호출 — z=0 완전 수평
     set_front_calls = vis.get_view_control.return_value.set_front.call_args_list
     assert len(set_front_calls) == 1
-    assert set_front_calls[0].args[0] == [-1.0, 0.0, 0.2]
+    assert set_front_calls[0].args[0] == [-1.0, 0.0, 0.0]
 
 
 @pytest.mark.parametrize("schema_name", ["IFC4", "IFC4X1", "IFC4X2", "IFC4X3"])
