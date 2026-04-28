@@ -58,6 +58,7 @@ class ProjectPinCommentServiceTest {
     private UUID pinId;
     private UUID commentId;
     private UUID authorUserId;
+    private LocalDateTime pinCreatedAt;
 
     private Project project;
     private ProjectPin pin;
@@ -82,6 +83,11 @@ class ProjectPinCommentServiceTest {
                 "pin-content"
         );
         ReflectionTestUtils.setField(pin, "pinId", pinId);
+        pinCreatedAt = LocalDateTime.of(2026, 4, 28, 8, 0, 0);
+        ReflectionTestUtils.setField(pin, "createdAt", pinCreatedAt);
+        ReflectionTestUtils.setField(pin, "lastCommentAt", LocalDateTime.of(2026, 4, 28, 9, 0, 0));
+        ReflectionTestUtils.setField(pin, "lastCommentAuthorUserId", authorUserId);
+        ReflectionTestUtils.setField(pin, "commentCount", 2);
 
         comment = ProjectPinComment.create(pin, authorUserId, "기존 댓글");
         ReflectionTestUtils.setField(comment, "commentId", commentId);
@@ -146,6 +152,83 @@ class ProjectPinCommentServiceTest {
                 .isEqualTo(ErrorCode.COMMENT_NOT_FOUND);
 
         verify(entityManager, never()).flush();
+        verifyNoInteractions(pinCommentReadStateRepository);
+    }
+
+    @Test
+    void deleteComment_softDeletesComment_andRecalculatesPinSummary_whenNoActiveCommentRemains() {
+        given(projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId))
+                .willReturn(Optional.of(comment));
+        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectPinCommentRepository.countByProjectPinPinIdAndDeletedAtIsNull(pinId)).willReturn(0L);
+        given(projectPinCommentRepository.findTopByProjectPinPinIdAndDeletedAtIsNullOrderByCreatedAtDescCommentIdDesc(pinId))
+                .willReturn(Optional.empty());
+
+        projectPinCommentService.deleteComment(projectId, pinId, commentId);
+
+        assertThat(comment.getDeletedAt()).isNotNull();
+        assertThat(pin.getCommentCount()).isEqualTo(1);
+        assertThat(pin.getLastCommentAt()).isEqualTo(pinCreatedAt);
+        assertThat(pin.getLastCommentAuthorUserId()).isEqualTo(authorUserId);
+        verify(projectAccessService).validateProjectPinWriterOrThrow(project, authorUserId);
+        verifyNoInteractions(pinCommentReadStateRepository);
+    }
+
+    @Test
+    void deleteComment_recalculatesPinSummaryWithLatestActiveComment_whenAnotherCommentExists() {
+        UUID otherAuthorId = UUID.randomUUID();
+        ProjectPinComment latestComment = ProjectPinComment.create(pin, otherAuthorId, "another-comment");
+        LocalDateTime latestCreatedAt = LocalDateTime.of(2026, 4, 28, 10, 0, 0);
+        ReflectionTestUtils.setField(latestComment, "createdAt", latestCreatedAt);
+
+        given(projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId))
+                .willReturn(Optional.of(comment));
+        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectPinCommentRepository.countByProjectPinPinIdAndDeletedAtIsNull(pinId)).willReturn(1L);
+        given(projectPinCommentRepository.findTopByProjectPinPinIdAndDeletedAtIsNullOrderByCreatedAtDescCommentIdDesc(pinId))
+                .willReturn(Optional.of(latestComment));
+
+        projectPinCommentService.deleteComment(projectId, pinId, commentId);
+
+        assertThat(pin.getCommentCount()).isEqualTo(2);
+        assertThat(pin.getLastCommentAt()).isEqualTo(latestCreatedAt);
+        assertThat(pin.getLastCommentAuthorUserId()).isEqualTo(otherAuthorId);
+        verifyNoInteractions(pinCommentReadStateRepository);
+    }
+
+    @Test
+    void deleteComment_throwsForbidden_whenCurrentUserIsNotAuthor() {
+        UUID otherUserId = UUID.randomUUID();
+
+        given(projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId))
+                .willReturn(Optional.of(comment));
+        given(projectAccessService.resolveCurrentUserId()).willReturn(otherUserId);
+
+        assertThatThrownBy(() -> projectPinCommentService.deleteComment(projectId, pinId, commentId))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.FORBIDDEN_ACCESS);
+
+        assertThat(comment.getDeletedAt()).isNull();
+        verify(projectPinCommentRepository, never()).countByProjectPinPinIdAndDeletedAtIsNull(pinId);
+        verify(projectPinCommentRepository, never())
+                .findTopByProjectPinPinIdAndDeletedAtIsNullOrderByCreatedAtDescCommentIdDesc(pinId);
+        verifyNoInteractions(pinCommentReadStateRepository);
+    }
+
+    @Test
+    void deleteComment_throwsCommentNotFound_whenCommentDoesNotExist() {
+        given(projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> projectPinCommentService.deleteComment(projectId, pinId, commentId))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.COMMENT_NOT_FOUND);
+
+        verify(projectPinCommentRepository, never()).countByProjectPinPinIdAndDeletedAtIsNull(pinId);
+        verify(projectPinCommentRepository, never())
+                .findTopByProjectPinPinIdAndDeletedAtIsNullOrderByCreatedAtDescCommentIdDesc(pinId);
         verifyNoInteractions(pinCommentReadStateRepository);
     }
 }

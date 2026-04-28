@@ -57,6 +57,22 @@ public interface ProjectPinCommentRepository extends JpaRepository<ProjectPinCom
     Page<ProjectPinComment> findActiveCommentsByPinId(@Param("pinId") UUID pinId, Pageable pageable);
 
     /**
+     * 핀에 남아있는 활성 댓글 수를 조회한다.
+     *
+     * @param pinId 핀 ID
+     * @return 활성 댓글 수
+     */
+    long countByProjectPinPinIdAndDeletedAtIsNull(UUID pinId);
+
+    /**
+     * 핀에 남아있는 활성 댓글 중 가장 최근 댓글을 조회한다.
+     *
+     * @param pinId 핀 ID
+     * @return 가장 최근 댓글
+     */
+    Optional<ProjectPinComment> findTopByProjectPinPinIdAndDeletedAtIsNullOrderByCreatedAtDescCommentIdDesc(UUID pinId);
+
+    /**
      * 현재 사용자 기준 타인 미확인 댓글이 존재하는 핀 ID 목록을 조회한다.
      * Native Query의 IN 바인딩 이슈를 피하기 위해 JPQL + 서브쿼리 방식으로 처리한다.
      *
