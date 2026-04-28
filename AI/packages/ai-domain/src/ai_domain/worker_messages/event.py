@@ -56,4 +56,6 @@ class EventMessage(BaseModel):
     def validate_status_requirements(self) -> EventMessage:
         if self.status in {"failed", "clarification_required"} and self.error is None:
             raise ValueError("error is required when status is failed or clarification_required")
+        if self.status == "completed" and self.output is None:
+            raise ValueError("output is required when status is completed")
         return self
