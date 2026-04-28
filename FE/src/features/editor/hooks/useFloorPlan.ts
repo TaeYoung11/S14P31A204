@@ -123,6 +123,22 @@ export function useFloorPlan() {
   )
 
   /**
+   * 평면도 상태를 초기화한다.
+   * 버블이 모두 삭제된 경우 2D/3D에 남아 있는 이전 레이아웃을 제거할 때 사용한다.
+   */
+  const clearFloorPlan = useCallback(() => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    setLayers([])
+    setActiveLayerId(null)
+    setIsGenerated(false)
+    setIsGenerating(false)
+    setLayoutSource(null)
+  }, [])
+
+  /**
    * AI 수정 등으로 버블 데이터가 즉시 바뀔 때 2D/3D 레이어를 동기화한다.
    * 로딩 애니메이션 없이 즉시 반영하며, 소스를 bubble로 전환한다.
    */
@@ -156,5 +172,6 @@ export function useFloorPlan() {
     setActiveLayerId,
     setFloorPlanFromProject,
     syncFloorPlanFromBubbles,
+    clearFloorPlan,
   }
 }

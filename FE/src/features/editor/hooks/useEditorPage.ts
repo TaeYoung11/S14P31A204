@@ -116,6 +116,7 @@ export function useEditorPage() {
     addFloorLayer,
     setActiveLayerId: setActiveFloorLayerId,
     syncFloorPlanFromBubbles,
+    clearFloorPlan,
   } = useFloorPlan()
 
   // 버블·연결선 변경 시 이미 생성된 평면도를 조용히 갱신 (로딩 없음)
@@ -127,10 +128,17 @@ export function useEditorPage() {
 
   // 버블이 1개 이상 생기면 평면도가 없을 때 즉시 자동 생성 (모드 무관)
   useEffect(() => {
-    if (!isFloorPlanGenerated && bubbles.length > 0 && stageSize.width > 0) {
+    if (!isFloorPlanGenerated && !isFloorPlanGenerating && bubbles.length > 0 && stageSize.width > 0) {
       generateFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
     }
-  }, [isFloorPlanGenerated, bubbles, connections, stageSize.width, stageSize.height, generateFloorPlan])
+  }, [isFloorPlanGenerated, isFloorPlanGenerating, bubbles, connections, stageSize.width, stageSize.height, generateFloorPlan])
+
+  // 버블이 모두 삭제되면 2D/3D 레이어도 함께 초기화
+  useEffect(() => {
+    if (bubbles.length > 0) return
+    if (!isFloorPlanGenerated && !isFloorPlanGenerating) return
+    clearFloorPlan()
+  }, [bubbles.length, isFloorPlanGenerated, isFloorPlanGenerating, clearFloorPlan])
 
   // Delete/Backspace 키로 선택된 버블 또는 연결선 삭제 (input 포커스 중엔 무시)
   const handleDeleteSelected = useCallback(() => {
@@ -361,6 +369,19 @@ export function useEditorPage() {
     generateFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
   }
 
+  /**
+   * 버블 다이어그램 기준 2D 평면도 생성 진입점
+   * - 버블이 있을 때만 생성
+   * - 생성 시작 직후 2D 모드로 전환해 로딩/결과를 확인할 수 있게 한다.
+   */
+  const handleGenerateFloorPlanFromBubble = () => {
+    if (bubbles.length === 0) return
+    setSelectedTool('selection')
+    setConnectingFromId(null)
+    handleGenerateFloorPlan()
+    setMode('2d')
+  }
+
   const handleZoomIn = () => setZoom((prev) => Math.min(prev + 10, 300))
   const handleZoomOut = () => setZoom((prev) => Math.max(prev - 10, 10))
   const handleZoomChange = (value: number) => setZoom(Math.min(Math.max(Math.round(value), 10), 300))
@@ -518,6 +539,8 @@ export function useEditorPage() {
     activeFloorLayerId,
     floorRooms,
     handleGenerateFloorPlan,
+    handleGenerateFloorPlanFromBubble,
+    canGenerateFloorPlanFromBubble: bubbles.length > 0,
     addFloorLayer,
     setActiveFloorLayerId,
     floorPlanConnections: connections,

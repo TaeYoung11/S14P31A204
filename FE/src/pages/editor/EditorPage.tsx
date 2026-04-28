@@ -43,6 +43,7 @@ export default function EditorPage() {
     handleOpenAddModal, handleConfirmAddSpace, onCloseAddModal,
     handleDeleteBubble,
     isFloorPlanGenerated, isFloorPlanGenerating, floorRooms, handleGenerateFloorPlan,
+    handleGenerateFloorPlanFromBubble, canGenerateFloorPlanFromBubble,
     floorLayers, activeFloorLayerId, addFloorLayer, setActiveFloorLayerId,
     floorProjectImportMessage, importFloorProjectFromJson, importSampleFloorProject,
     isCollaborationMode, selectedPinId, setSelectedPinId,
@@ -143,6 +144,8 @@ export default function EditorPage() {
             onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
             onToggleGrid={toggleGrid}
             onExportIFC={handleOpenExportSelectionModal}
+            onGenerateFloorPlan={handleGenerateFloorPlanFromBubble}
+            canGenerateFloorPlan={canGenerateFloorPlanFromBubble}
           />
         )}
 
@@ -190,6 +193,7 @@ export default function EditorPage() {
               isGenerated={isFloorPlanGenerated}
               isGenerating={isFloorPlanGenerating}
               onGenerate={handleGenerateFloorPlan}
+              canGenerate={canGenerateFloorPlanFromBubble}
               isGridVisible={isGridVisible}
               selectedId={selectedId}
               onSelect={(id) => (id ? handleBubbleSelect(id) : clearSelection())}

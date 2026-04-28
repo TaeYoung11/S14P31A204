@@ -22,36 +22,52 @@ function getRoomFill(color: string): string {
 
 interface FloorPlanEmptyProps {
   onGenerate?: () => void
+  canGenerate?: boolean
 }
 
 /**
  * 평면도가 아직 생성되지 않은 경우 표시되는 안내 화면
  * "평면도 생성 시작" 버튼 클릭 시 onGenerate 호출
  */
-function FloorPlanEmpty({ onGenerate }: FloorPlanEmptyProps) {
+function FloorPlanEmpty({ onGenerate, canGenerate = true }: FloorPlanEmptyProps) {
+  const description = canGenerate
+    ? '버블 다이어그램의 공간 크기와 연결 관계를 바탕으로\n2D 평면도 초안을 자동 생성합니다.'
+    : '버블 다이어그램에서 공간을 1개 이상 추가하면\n2D 평면도를 생성할 수 있습니다.'
+
+  const helper = canGenerate
+    ? '생성 후 바로 2D 편집 모드로 이어집니다.'
+    : '먼저 버블 탭에서 공간을 추가한 뒤 다시 시도해 주세요.'
+
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-white">
-      <div className="flex flex-col items-center gap-5 text-center px-10">
-        <div className="w-20 h-20 rounded-3xl bg-[#F0F2FF] flex items-center justify-center shadow-sm">
-          <LayoutDashboard size={36} className="text-[#3B45B3]" />
-        </div>
-        <div className="flex flex-col gap-2">
-          <h3 className="text-[15px] font-extrabold text-[#1C1C1E]">2D 평면도 자동 생성</h3>
-          <p className="text-[12px] text-[#6B7A99] leading-relaxed max-w-[260px]">
-            버블 다이어그램의 공간 크기와 연결 관계를 바탕으로<br />
-            2D 평면도 초안을 자동으로 생성합니다.
+      <div className="w-full max-w-[440px] mx-6 rounded-3xl border border-[#E8ECF8] bg-[#FCFDFF] shadow-sm">
+        <div className="px-8 pt-8 pb-7 flex flex-col items-center gap-5 text-center">
+          <div className="w-20 h-20 rounded-3xl bg-[#F0F2FF] flex items-center justify-center shadow-sm">
+            <LayoutDashboard size={36} className="text-[#3B45B3]" />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <h3 className="text-[16px] font-extrabold text-[#1C1C1E] tracking-[-0.01em]">
+              2D 평면도 자동 생성
+            </h3>
+            <p className="text-[12px] text-[#637190] leading-relaxed whitespace-pre-line">
+              {description}
+            </p>
+          </div>
+
+          <button
+            onClick={onGenerate}
+            disabled={!canGenerate}
+            className="inline-flex items-center gap-2 bg-[#3B45B3] hover:bg-[#2D3599] text-white text-[12px] font-extrabold px-6 py-3 rounded-2xl transition-all shadow-md hover:shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Sparkles size={15} />
+            평면도 생성 시작
+          </button>
+
+          <p className={`text-[11px] leading-relaxed ${canGenerate ? 'text-[#8A94AB]' : 'text-[#D14343]'}`}>
+            {helper}
           </p>
         </div>
-        <button
-          onClick={onGenerate}
-          className="flex items-center gap-2 bg-[#3B45B3] hover:bg-[#2D3599] text-white text-[12px] font-extrabold px-6 py-3 rounded-2xl transition-all shadow-md hover:shadow-lg active:scale-95"
-        >
-          <Sparkles size={15} />
-          평면도 생성 시작
-        </button>
-        <p className="text-[10px] text-[#ADB5BD]">
-          버블 다이어그램 탭에서 공간을 추가하면 더 풍부한 평면도가 생성됩니다.
-        </p>
       </div>
     </div>
   )
@@ -167,6 +183,8 @@ interface TwoDCanvasProps {
   isGenerating?: boolean
   /** "평면도 생성" 버튼 클릭 핸들러 */
   onGenerate?: () => void
+  /** 생성 가능 여부(버블 존재 여부) */
+  canGenerate?: boolean
   isGridVisible?: boolean
   selectedId?: string | null
   onSelect?: (id: string | null) => void
@@ -192,6 +210,7 @@ export function TwoDCanvas({
   isGenerated = false,
   isGenerating = false,
   onGenerate,
+  canGenerate = true,
   isGridVisible = false,
   selectedId,
   onSelect,
@@ -273,7 +292,7 @@ export function TwoDCanvas({
   const cy = stageSize.height / 2
 
   // ── 생성 전 / 생성 중 화면 ───────────────────────────────────────────────
-  if (!isGenerated && !isGenerating) return <FloorPlanEmpty onGenerate={onGenerate} />
+  if (!isGenerated && !isGenerating) return <FloorPlanEmpty onGenerate={onGenerate} canGenerate={canGenerate} />
   if (isGenerating) return <FloorPlanLoading />
 
   // ── 생성 완료: Konva 평면도 렌더링 ───────────────────────────────────────

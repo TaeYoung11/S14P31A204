@@ -12,6 +12,7 @@ import {
   Home,
   Download,
   Hand,
+  LayoutDashboard,
   type LucideIcon,
 } from 'lucide-react'
 import type { EditorMode } from '../../types'
@@ -142,6 +143,8 @@ interface EditorLeftSidebarProps {
   onToggleLibrary?: () => void
   onToggleGrid?: () => void
   onExportIFC?: () => void
+  onGenerateFloorPlan?: () => void
+  canGenerateFloorPlan?: boolean
 }
 
 /**
@@ -161,6 +164,8 @@ export default function EditorLeftSidebar({
   onToggleLibrary,
   onToggleGrid,
   onExportIFC,
+  onGenerateFloorPlan,
+  canGenerateFloorPlan = false,
 }: EditorLeftSidebarProps) {
   return (
     <aside className="w-[72px] bg-white border border-[#E2E6EF] rounded-2xl py-4 shadow-sm shrink-0 self-start mt-0 h-full flex flex-col overflow-hidden">
@@ -193,6 +198,26 @@ export default function EditorLeftSidebar({
                   selectedTool === 'connect' || isLineStyleModalOpen ? 'text-[#3B45B3]' : 'text-[#8E95A3] group-hover:text-[#1C1C1E]'
                 }`}>
                   선스타일
+                </span>
+              </button>
+
+              <button
+                onClick={onGenerateFloorPlan}
+                disabled={!canGenerateFloorPlan}
+                title={canGenerateFloorPlan ? '버블 기반 2D 평면도 생성' : '버블을 1개 이상 추가해 주세요'}
+                className="w-full flex flex-col items-center gap-1 py-1 group disabled:cursor-not-allowed"
+              >
+                <div className={`p-2 rounded-xl transition-all ${
+                  canGenerateFloorPlan
+                    ? 'text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#3B45B3]'
+                    : 'text-[#D9DEF0]'
+                }`}>
+                  <LayoutDashboard size={24} />
+                </div>
+                <span className={`text-[10px] font-bold transition-all ${
+                  canGenerateFloorPlan ? 'text-[#8E95A3] group-hover:text-[#3B45B3]' : 'text-[#D9DEF0]'
+                }`}>
+                  평면도 생성
                 </span>
               </button>
 

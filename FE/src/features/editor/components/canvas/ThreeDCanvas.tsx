@@ -236,6 +236,16 @@ export function ThreeDCanvas({
         className="relative w-full h-full flex items-center justify-center p-20 preserve-3d"
         style={{ pointerEvents: 'none' }}
       >
+        {rooms.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+            <div className="px-6 py-4 rounded-2xl bg-white/80 border border-white/50 shadow-sm text-center">
+              <p className="text-[13px] font-extrabold text-[#1C1C1E]">표시할 3D 공간이 없습니다</p>
+              <p className="text-[11px] text-[#6B7A99] mt-1">
+                버블 다이어그램에서 공간을 추가하거나 평면도를 생성해 주세요.
+              </p>
+            </div>
+          </div>
+        )}
         <div
           className="relative w-full h-full preserve-3d"
           style={{
