@@ -403,29 +403,37 @@ def test_iso_views_all_in_enum() -> None:
     assert len(list(IFCView)) == 8  # FRONT/SIDE/TOP + 5등각
 
 
-def test_default_render_views_excludes_top() -> None:
-    """기본 render_views()는 TOP 제외 — perspective SD 입력 부적합 사유.
+def test_default_render_views_excludes_hallucination_prone() -> None:
+    """기본 render_views()는 환각 발생 시점(TOP/BIRDS_EYE/CORNER_LOW) 제외.
 
-    TOP enum/매핑은 보존 — 호출자가 명시적 list 전달 시 여전히 사용 가능.
+    제외 사유 (사용자 시각 검수 2026-04-28):
+    - TOP: 지붕만 → facade prompt 불일치
+    - BIRDS_EYE: 거의 위에서 봄 → TOP과 동일 환각
+    - CORNER_LOW: 낮은 fill(0.15)로 prompt 환각 우세
+
+    enum/매핑은 보존 — 호출자가 명시 전달 시 여전히 사용 가능.
     """
-    assert IFCView.TOP not in DEFAULT_RENDER_VIEWS
-    assert len(DEFAULT_RENDER_VIEWS) == 7
-    expected = set(IFCView) - {IFCView.TOP}
+    excluded = {IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW}
+    for v in excluded:
+        assert v not in DEFAULT_RENDER_VIEWS
+    assert len(DEFAULT_RENDER_VIEWS) == 5
+    expected = set(IFCView) - excluded
     assert set(DEFAULT_RENDER_VIEWS) == expected
 
 
-def test_top_still_callable_explicitly() -> None:
-    """TOP 명시 전달 시 여전히 사용 가능 — enum/카메라/매핑 보존."""
+def test_excluded_views_still_callable_explicitly() -> None:
+    """제외된 시점 모두 명시 전달 시 사용 가능 — enum/카메라/매핑 보존."""
     from ai_rendering.ifc2img.views import (
         VIEW_CAMERAS,
         VIEW_PCA_COEFFICIENTS,
         VIEW_TARGET_RATIOS,
     )
 
-    # TOP은 모든 매핑에 등록돼있어야 한다 (default 제외 ≠ enum 제거)
-    assert IFCView.TOP in VIEW_CAMERAS
-    assert IFCView.TOP in VIEW_PCA_COEFFICIENTS
-    assert IFCView.TOP in VIEW_TARGET_RATIOS
+    # 제외된 3개 view 모두 매핑에 등록돼있어야 한다 (default 제외 ≠ enum 제거)
+    for v in (IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW):
+        assert v in VIEW_CAMERAS
+        assert v in VIEW_PCA_COEFFICIENTS
+        assert v in VIEW_TARGET_RATIOS
 
 
 def test_view_target_ratios_cropping_resistant() -> None:
