@@ -105,6 +105,10 @@ def validate_json_schema(
     if "allOf" in schema:
         for sub_schema in schema["allOf"]:
             if "if" in sub_schema and "then" in sub_schema:
+                # NOTE:
+                # 이 헬퍼는 현재 worker message schema에서 사용하는 `if`/`then`
+                # 패턴만 지원합니다. 이후 schema에서 `else`를 사용하기 시작하면
+                # 해당 분기도 평가할 수 있도록 validator를 함께 확장해야 합니다.
                 if _is_valid(instance, sub_schema["if"], root_schema, store):
                     validate_json_schema(instance, sub_schema["then"], root_schema=root_schema, store=store)
             else:
