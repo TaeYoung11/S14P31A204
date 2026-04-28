@@ -345,3 +345,43 @@ def test_render_without_view_uses_params_cn_scale(
 
     sent_cn = mock_depth_renderer.pipe.call_args.kwargs["controlnet_conditioning_scale"]
     assert sent_cn == 0.85
+
+
+def test_render_result_params_reflect_applied_view_composition(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """C-2 결과 params 반영 — view 전달 시 result.params에 합성/override된 값이 들어감.
+
+    호출자가 result.params.prompt / .negative_prompt / .controlnet_conditioning_scale
+    로 *실제 SD pipe에 전달된 값*을 추적할 수 있어야 함 (디버깅/로그/재현성).
+    """
+    depth = Image.new("L", (768, 448), 100)
+    base_prompt = "RAW photo, scandinavian house"
+    params = DepthStyleParams(
+        prompt=base_prompt,
+        negative_prompt="(worst quality:1.4)",
+        controlnet_conditioning_scale=0.7,
+    )
+
+    result = mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
+
+    # ISO_NW은 prompt suffix 적용 + cn_scale=1.0 override 대상
+    assert result.params is not params  # 새 인스턴스 (view-aware 합성 적용)
+    assert result.params.prompt.startswith(base_prompt)
+    assert len(result.params.prompt) > len(base_prompt)  # suffix 추가됨
+    assert result.params.controlnet_conditioning_scale == 1.0
+    # 원본 params는 변경 없음 (immutability 보장 — dc_replace는 새 인스턴스 반환)
+    assert params.controlnet_conditioning_scale == 0.7
+    assert params.prompt == base_prompt
+
+
+def test_render_result_params_identity_preserved_when_view_none(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """view=None 시 result.params는 input params와 동일 인스턴스 (backward compat)."""
+    depth = Image.new("L", (768, 448), 100)
+    params = DepthStyleParams(prompt="x")
+
+    result = mock_depth_renderer.render(depth, params)  # view=None
+
+    assert result.params is params

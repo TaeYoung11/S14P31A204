@@ -11,7 +11,7 @@ depth map (PIL.Image, mode="L") → 스타일 변환 PIL.Image.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dc_replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -178,10 +178,20 @@ class DepthStyleRenderer:
             cn_scale = resolve_view_cn_scale(
                 params.controlnet_conditioning_scale, view
             )
+            # 실제 SD pipe에 전달된 값으로 갱신된 params — result.params로 반환해
+            # 호출자가 *어떤 합성/override가 적용됐는지* 추적 가능 (디버깅/로그/재현성).
+            applied_params = dc_replace(
+                params,
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                controlnet_conditioning_scale=cn_scale,
+            )
         else:
             prompt = params.prompt
             negative_prompt = params.negative_prompt
             cn_scale = params.controlnet_conditioning_scale
+            # view 미사용 — 합성/override 없음, identity 보존 (backward compat).
+            applied_params = params
 
         try:
             if params.seed is None:
@@ -207,7 +217,7 @@ class DepthStyleRenderer:
 
         return DepthStyleResult(
             image=image,
-            params=params,
+            params=applied_params,
             depth_size=depth_size,
             output_size=image.size,
         )
