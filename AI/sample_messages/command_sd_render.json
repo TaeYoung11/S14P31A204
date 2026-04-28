@@ -1,0 +1,34 @@
+{
+  "messageId": "msg-sd-001",
+  "schemaVersion": "v1",
+  "messageType": "COMMAND",
+  "commandType": "SD_RENDER_GENERATE",
+  "routingKey": "command.sd-render.generate",
+  "jobId": "job-sd-001",
+  "jobStepId": "job-step-sd-001",
+  "stepNo": 3,
+  "totalSteps": 3,
+  "projectId": "project-alpha",
+  "requestedBy": "user-001",
+  "sourceRevisionId": "rev-source-003",
+  "sourceSceneStateId": "scene-state-003",
+  "sourceSceneType": "SCENE_RENDER",
+  "targetRevisionId": "rev-target-003",
+  "expectedOutputArtifactId": "artifact-render-001",
+  "input": {
+    "sourceImageStorageUrl": "s3://batang-artifacts/jobs/job-sd-001/steps/3/source-image.png"
+  },
+  "expectedOutput": {
+    "renderImageStorageUrl": "s3://batang-artifacts/projects/project-alpha/renders/artifact-render-001.png"
+  },
+  "payload": {
+    "prompt": "Scandinavian living room with warm daylight",
+    "negativePrompt": "low quality, blurry",
+    "sourceImageStorageUrl": "s3://batang-artifacts/jobs/job-sd-001/steps/3/source-image.png"
+  },
+  "attemptNo": 0,
+  "maxAttempts": 3,
+  "idempotencyKey": "job-sd-001:3",
+  "correlationId": "corr-sd-001",
+  "createdAt": "2026-04-27T09:10:00Z"
+}
