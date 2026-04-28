@@ -14,6 +14,7 @@ from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
 from ai_rendering.ifc2img.geometry import load_mesh
 from ai_rendering.ifc2img.views import (
     DEFAULT_RENDER_VIEWS,
+    VIEW_CN_SCALE_OVERRIDES,
     VIEW_NEGATIVE_SUFFIXES,
     VIEW_PROMPT_SUFFIXES,
     VIEW_TARGET_RATIOS,
@@ -23,6 +24,7 @@ from ai_rendering.ifc2img.views import (
     compute_auto_zoom,
     compute_dynamic_front,
     compute_principal_axes,
+    resolve_view_cn_scale,
 )
 
 
@@ -475,54 +477,45 @@ def test_build_view_prompt_in_public_api() -> None:
 # --- 옵션 C-1 — VIEW_NEGATIVE_SUFFIXES + build_view_negative_prompt ---
 
 
-def test_view_negative_suffixes_iso_nw_se_block_extra_building() -> None:
-    """ISO_NW/SE 차단 토큰에 'additional building'/'basement' hallucinate 단어 포함.
+def test_view_negative_suffixes_all_empty_after_c1_rollback() -> None:
+    """C-1 폐기 — 모든 시점 빈 문자열. 인프라(dict/헬퍼)는 보존, 적용 토큰만 비움.
 
-    토큰 수는 의도적으로 2개로 압축 — CLIP 77 토큰 한계 + 일반 명사(building/floor)
-    과부하로 집 자체가 약화되던 회귀(C-1 1차) 회피.
+    C-1 v1(8 토큰) / v2(2 토큰) 모두 iso_nw/iso_se에서 baseline보다 *집 형상 더
+    일그러짐* → 폐기. 'building' 등 일반 명사 negative는 SD 1.5+ControlNet-depth
+    조합에서 *주 매스*도 약화시키는 역효과로 추정.
     """
-    for v in (IFCView.ISO_NW, IFCView.ISO_SE):
-        suffix = VIEW_NEGATIVE_SUFFIXES[v]
-        assert suffix, f"{v} negative suffix should not be empty"
-        assert "additional building" in suffix
-        assert "basement" in suffix
+    for v in IFCView:
+        assert VIEW_NEGATIVE_SUFFIXES[v] == "", f"{v} should be empty after rollback"
 
 
-def test_view_negative_suffixes_other_views_empty() -> None:
-    """C-1 1차 처방 — iso_nw/iso_se만 적용. 다른 시점은 비어있음."""
-    for v in (
-        IFCView.FRONT, IFCView.SIDE, IFCView.ISO_NE,
-        IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW,
-    ):
-        assert VIEW_NEGATIVE_SUFFIXES[v] == "", f"{v} should be empty"
-
-
-def test_build_view_negative_prompt_appends_for_iso_nw() -> None:
-    """ISO_NW에 base negative 합성 시 차단 토큰 덧붙음, base 보존."""
+def test_build_view_negative_prompt_returns_base_for_all_views() -> None:
+    """C-1 비활성 — 모든 시점에서 헬퍼는 base 그대로 반환 (suffix 빈 문자열)."""
     base = "(worst quality:1.4), interior"
-    result = build_view_negative_prompt(base, IFCView.ISO_NW)
-    assert result.startswith(base)
-    assert "additional building" in result
-    assert "basement" in result
+    for v in IFCView:
+        assert build_view_negative_prompt(base, v) == base
 
 
-def test_build_view_negative_prompt_returns_base_for_empty_suffix() -> None:
-    """FRONT/SIDE/ISO_NE 등 빈 suffix는 base 그대로 반환."""
-    base = "(worst quality:1.4)"
-    assert build_view_negative_prompt(base, IFCView.FRONT) == base
-    assert build_view_negative_prompt(base, IFCView.SIDE) == base
-    assert build_view_negative_prompt(base, IFCView.ISO_NE) == base
+def test_build_view_negative_prompt_helper_still_composes_with_nonempty_suffix() -> None:
+    """헬퍼 자체는 보존 — 미래의 다른 시점/실험에서 dict에 토큰 채우면 즉시 동작.
 
+    monkeypatch로 임시 suffix 주입 후 합성 동작 확인 (인프라 보존 회귀 방어).
+    """
+    from ai_rendering.ifc2img import views as views_module
 
-def test_build_view_negative_prompt_strips_leading_comma_when_base_empty() -> None:
-    """base가 빈 문자열일 때 suffix의 ', ' 접두사 제거되어 부자연스러운 시작 방지."""
-    result = build_view_negative_prompt("", IFCView.ISO_NW)
-    assert not result.startswith(",")
-    assert result.startswith("additional building")
+    original = views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW]
+    try:
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = ", test_token"
+        result = build_view_negative_prompt("base", IFCView.ISO_NW)
+        assert result == "base, test_token"
+        # base 빈 문자열일 때 ', ' 접두사 제거도 헬퍼 책임
+        result_empty = build_view_negative_prompt("", IFCView.ISO_NW)
+        assert result_empty == "test_token"
+    finally:
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = original
 
 
 def test_build_view_negative_prompt_in_public_api() -> None:
-    """C-1 — build_view_negative_prompt가 ifc2img.__all__에 등록되어 외부 import 가능."""
+    """헬퍼는 폐기 후에도 공개 API 유지 — 외부에서 직접 합성 사용 가능."""
     from ai_rendering import ifc2img
     from ai_rendering.ifc2img import build_view_negative_prompt as exported
 
@@ -530,6 +523,47 @@ def test_build_view_negative_prompt_in_public_api() -> None:
     from ai_rendering.ifc2img.views import (
         build_view_negative_prompt as internal,
     )
+    assert exported is internal
+
+
+# --- 옵션 C-2 — VIEW_CN_SCALE_OVERRIDES + resolve_view_cn_scale ---
+
+
+def test_view_cn_scale_overrides_iso_nw_se_set_to_1() -> None:
+    """ISO_NW/SE — sweep 검수에서 1.0/1.15 모두 안정. 1.0 채택(canonical full strength)."""
+    assert VIEW_CN_SCALE_OVERRIDES[IFCView.ISO_NW] == 1.0
+    assert VIEW_CN_SCALE_OVERRIDES[IFCView.ISO_SE] == 1.0
+
+
+def test_view_cn_scale_overrides_other_views_none() -> None:
+    """C-2 처방 — iso_nw/iso_se만 적용. 다른 시점은 None → params 값 그대로."""
+    for v in (
+        IFCView.FRONT, IFCView.SIDE, IFCView.ISO_NE,
+        IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW,
+    ):
+        assert VIEW_CN_SCALE_OVERRIDES[v] is None, f"{v} should be None"
+
+
+def test_resolve_view_cn_scale_returns_override_for_iso_nw() -> None:
+    """ISO_NW에 base 0.7 전달해도 override 1.0 반환."""
+    assert resolve_view_cn_scale(0.7, IFCView.ISO_NW) == 1.0
+    assert resolve_view_cn_scale(0.7, IFCView.ISO_SE) == 1.0
+
+
+def test_resolve_view_cn_scale_returns_base_for_unset_views() -> None:
+    """override가 None인 시점은 base 그대로 (front/side/iso_ne)."""
+    assert resolve_view_cn_scale(0.7, IFCView.FRONT) == 0.7
+    assert resolve_view_cn_scale(0.85, IFCView.SIDE) == 0.85
+    assert resolve_view_cn_scale(0.5, IFCView.ISO_NE) == 0.5
+
+
+def test_resolve_view_cn_scale_in_public_api() -> None:
+    """C-2 — resolve_view_cn_scale가 ifc2img.__all__에 등록되어 외부 import 가능."""
+    from ai_rendering import ifc2img
+    from ai_rendering.ifc2img import resolve_view_cn_scale as exported
+
+    assert "resolve_view_cn_scale" in ifc2img.__all__
+    from ai_rendering.ifc2img.views import resolve_view_cn_scale as internal
     assert exported is internal
 
 

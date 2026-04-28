@@ -137,7 +137,7 @@ def test_result_save_creates_parent_dir(tmp_path: Path) -> None:
 
 
 def test_public_api_exports() -> None:
-    """ifc2img 공개 심볼: IFC 렌더 3 + style 3 + presets 2 + view helpers 2 = 10개."""
+    """ifc2img 공개 심볼: IFC 렌더 3 + style 3 + presets 2 + view helpers 3 = 11개."""
     from ai_rendering import ifc2img
 
     expected = {
@@ -151,6 +151,7 @@ def test_public_api_exports() -> None:
         "load_preset",
         "build_view_prompt",
         "build_view_negative_prompt",
+        "resolve_view_cn_scale",
     }
     assert set(ifc2img.__all__) == expected
 
@@ -202,13 +203,13 @@ def test_render_with_view_front_no_change(
     assert call_prompt == base_prompt
 
 
-# --- C-1 — DepthStyleRenderer.render(view=...) negative_prompt 합성 ---
+# --- C-1 폐기 후 — render(view=...) negative 합성 인프라 보존 회귀 방어 ---
 
 
-def test_render_with_view_iso_nw_appends_negative_block_tokens(
+def test_render_with_view_iso_nw_keeps_base_negative_after_c1_rollback(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """C-1 — view=ISO_NW 전달 시 pipe 호출 negative_prompt에 차단 토큰 포함."""
+    """C-1 폐기 — view=ISO_NW 전달해도 suffix 비어있어 base negative 그대로."""
     depth = Image.new("L", (768, 448), 100)
     base_negative = "(worst quality:1.4), interior"
     params = DepthStyleParams(
@@ -219,15 +220,13 @@ def test_render_with_view_iso_nw_appends_negative_block_tokens(
     mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
 
     call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
-    assert call_negative.startswith(base_negative)
-    assert "additional building" in call_negative
-    assert "basement" in call_negative
+    assert call_negative == base_negative
 
 
-def test_render_with_view_iso_ne_does_not_append_negative(
+def test_render_with_view_iso_ne_keeps_base_negative(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """C-1 — ISO_NE는 차단 토큰 없음 (사용자 검수에서 안정적 판정)."""
+    """ISO_NE도 빈 suffix → base 그대로 (안정 판정 시점)."""
     depth = Image.new("L", (768, 448), 100)
     base_negative = "(worst quality:1.4)"
     params = DepthStyleParams(
@@ -256,3 +255,93 @@ def test_render_without_view_uses_raw_negative(
 
     call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
     assert call_negative == base_negative
+
+
+def test_render_with_view_iso_nw_composes_when_suffix_present(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """인프라 보존 회귀 방어 — suffix 채우면 즉시 합성되어 pipe에 전달.
+
+    C-1은 폐기되어 dict 비어있지만, 향후 다른 시점 토큰 채울 시 *render 통합 경로*가
+    여전히 동작해야 함을 보장.
+    """
+    from ai_rendering.ifc2img import views as views_module
+
+    original = views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW]
+    try:
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = ", test_token"
+        depth = Image.new("L", (768, 448), 100)
+        base = "(worst quality:1.4)"
+        params = DepthStyleParams(prompt="x", negative_prompt=base)
+        mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
+        call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
+        assert call_negative == f"{base}, test_token"
+    finally:
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = original
+
+
+# --- C-2 — DepthStyleRenderer.render(view=...) cn_scale override ---
+
+
+def test_render_with_view_iso_nw_overrides_cn_scale(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """C-2 — view=ISO_NW 전달 시 params.cn_scale=0.7 무시하고 override(1.0) 사용."""
+    depth = Image.new("L", (768, 448), 100)
+    params = DepthStyleParams(
+        prompt="x",
+        controlnet_conditioning_scale=0.7,
+    )
+
+    mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
+
+    sent_cn = mock_depth_renderer.pipe.call_args.kwargs["controlnet_conditioning_scale"]
+    assert sent_cn == 1.0
+
+
+def test_render_with_view_iso_se_overrides_cn_scale(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """C-2 — ISO_SE도 동일하게 1.0 override."""
+    depth = Image.new("L", (768, 448), 100)
+    params = DepthStyleParams(
+        prompt="x",
+        controlnet_conditioning_scale=0.7,
+    )
+
+    mock_depth_renderer.render(depth, params, view=IFCView.ISO_SE)
+
+    sent_cn = mock_depth_renderer.pipe.call_args.kwargs["controlnet_conditioning_scale"]
+    assert sent_cn == 1.0
+
+
+def test_render_with_view_front_keeps_base_cn_scale(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """C-2 — FRONT는 override None → params 값 그대로(0.7)."""
+    depth = Image.new("L", (768, 448), 100)
+    params = DepthStyleParams(
+        prompt="x",
+        controlnet_conditioning_scale=0.7,
+    )
+
+    mock_depth_renderer.render(depth, params, view=IFCView.FRONT)
+
+    sent_cn = mock_depth_renderer.pipe.call_args.kwargs["controlnet_conditioning_scale"]
+    assert sent_cn == 0.7
+
+
+def test_render_without_view_uses_params_cn_scale(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """view=None (default) 시 params.cn_scale 그대로 (backward compat)."""
+    depth = Image.new("L", (768, 448), 100)
+    params = DepthStyleParams(
+        prompt="x",
+        controlnet_conditioning_scale=0.85,
+    )
+
+    mock_depth_renderer.render(depth, params)  # view=None
+
+    sent_cn = mock_depth_renderer.pipe.call_args.kwargs["controlnet_conditioning_scale"]
+    assert sent_cn == 0.85
