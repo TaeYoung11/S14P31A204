@@ -15,6 +15,7 @@ members = [
     "ai-evals",
     "ai-layout-import",
     "ai-planning",
+    "ai-planning-2d",
     "ai-rendering",
     "ai-workspace",
 ]
@@ -149,6 +150,23 @@ requires-dist = [
 ]
 
 [[package]]
+name = "ai-planning-2d"
+version = "0.1.0"
+source = { editable = "packages/ai-planning-2d" }
+dependencies = [
+    { name = "ai-domain" },
+    { name = "instructor" },
+    { name = "openai" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "ai-domain", editable = "packages/ai-domain" },
+    { name = "instructor", specifier = ">=1.15.1" },
+    { name = "openai", specifier = ">=2.32.0" },
+]
+
+[[package]]
 name = "ai-rendering"
 version = "0.1.0"
 source = { editable = "packages/ai-rendering" }
@@ -194,6 +212,7 @@ dependencies = [
     { name = "ai-evals" },
     { name = "ai-layout-import" },
     { name = "ai-planning" },
+    { name = "ai-planning-2d" },
     { name = "ai-rendering" },
     { name = "httpx" },
     { name = "ifcopenshell" },
@@ -217,6 +236,7 @@ requires-dist = [
     { name = "ai-evals", editable = "packages/ai-evals" },
     { name = "ai-layout-import", editable = "packages/ai-layout-import" },
     { name = "ai-planning", editable = "packages/ai-planning" },
+    { name = "ai-planning-2d", editable = "packages/ai-planning-2d" },
     { name = "ai-rendering", editable = "packages/ai-rendering" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "ifcopenshell", specifier = ">=0.8.5" },

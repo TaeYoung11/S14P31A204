@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, TypedDict
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -161,3 +161,23 @@ class CommandBatch(BaseModel):
                 "clarification_question must be None when requires_clarification is False."
             )
         return self
+
+
+# ---------------------------------------------------------------------------
+# IFC Context TypedDicts — ifc_context 딕셔너리의 타입 명세
+# ---------------------------------------------------------------------------
+
+class SpaceContext(TypedDict):
+    id: str
+    name: str
+    floor: int
+
+
+class StoreyContext(TypedDict):
+    id: str
+    floor: int
+
+
+class IFCContext(TypedDict):
+    spaces: list[SpaceContext]
+    storeys: list[StoreyContext]

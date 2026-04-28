@@ -9,6 +9,7 @@ dependencies = [
     "ai-domain",
     "ai-evals",
     "ai-planning",
+    "ai-planning-2d",
     "ai-rendering",
     "httpx>=0.28.1",
     "ifcopenshell>=0.8.5",
@@ -40,6 +41,7 @@ ai-domain = { workspace = true }
 ai-evals = { workspace = true }
 ai-layout-import = { workspace = true }
 ai-planning = { workspace = true }
+ai-planning-2d = { workspace = true }
 ai-rendering = { workspace = true }
 torch = { index = "pytorch-cu126" }
 
@@ -58,7 +60,7 @@ select = ["E", "F", "UP"]
 
 [tool.pytest.ini_options]
 addopts = ["-p", "no:cacheprovider"]
-testpaths = ["tests", "packages", "LLM_2D"]
+testpaths = ["tests", "packages"]
 norecursedirs = [
     ".git",
     ".mypy_cache",
@@ -100,4 +102,5 @@ search-path = [
     "packages/ai-rendering/src",
     "packages/ai-authoring/src",
     "packages/ai-evals/src",
+    "packages/ai-planning-2d/src",
 ]

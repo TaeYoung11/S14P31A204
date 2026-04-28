@@ -1,16 +1,8 @@
+from typing import List, Optional, Tuple
+
 from pydantic import BaseModel, Field
-from typing import Optional, List, Tuple
-from enum import Enum
 
-
-class RoomType(str, Enum):
-    LIVING = "living"
-    BEDROOM = "bedroom"
-    KITCHEN = "kitchen"
-    BATHROOM = "bathroom"
-    OFFICE = "office"
-    CORRIDOR = "corridor"
-    OTHER = "other"
+from ai_domain import RoomType
 
 
 class Room(BaseModel):

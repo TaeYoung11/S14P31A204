@@ -1,14 +1,11 @@
-from typing import Dict, Optional
+from typing import Optional
 
-try:
-    from .models import FloorNLPCommand, ActionType, IFCCommand, CommandBatch
-except ImportError:
-    from models import FloorNLPCommand, ActionType, IFCCommand, CommandBatch  # type: ignore[no-redef]
+from .command import ActionType, CommandBatch, FloorNLPCommand, IFCCommand, IFCContext
 
 
 def to_ifc_commands(
     command: FloorNLPCommand,
-    ifc_context: Optional[Dict] = None,
+    ifc_context: Optional[IFCContext] = None,
 ) -> CommandBatch:
     def _find_space_ids(target_name: Optional[str]) -> list[str]:
         if not ifc_context or not target_name:
