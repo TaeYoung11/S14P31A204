@@ -6,11 +6,14 @@ import com.a204.batang.domain.pin.dto.GetPinCommentsResponse;
 import com.a204.batang.domain.pin.dto.UpdatePinCommentRequest;
 import com.a204.batang.domain.pin.dto.UpdatePinCommentResponse;
 import com.a204.batang.domain.pin.service.ProjectPinCommentService;
+import com.a204.batang.domain.pin.service.ProjectPinCommentSseService;
 import com.a204.batang.global.common.ApiResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.UUID;
 
@@ -35,6 +39,28 @@ import java.util.UUID;
 public class ProjectPinCommentController {
 
     private final ProjectPinCommentService projectPinCommentService;
+    private final ProjectPinCommentSseService projectPinCommentSseService;
+
+    /**
+     * 핀 댓글 생성 이벤트를 SSE로 구독한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @return SSE emitter
+     */
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<SseEmitter> subscribeCommentEvents(
+            @PathVariable UUID projectId,
+            @PathVariable UUID pinId
+    ) {
+        SseEmitter emitter = projectPinCommentSseService.subscribe(projectId, pinId);
+        return ResponseEntity.ok()
+                .header("X-Accel-Buffering", "no")
+                .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                .header("Pragma", "no-cache")
+                .header("Expires", "0")
+                .body(emitter);
+    }
 
     /**
      * 핀 댓글을 등록한다.
