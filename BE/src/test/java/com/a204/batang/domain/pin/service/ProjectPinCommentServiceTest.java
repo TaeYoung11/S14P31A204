@@ -22,6 +22,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -37,6 +38,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -137,6 +139,34 @@ class ProjectPinCommentServiceTest {
                 "새 댓글",
                 createdAt
         )));
+        ArgumentCaptor<ProjectPinComment> savedCaptor = ArgumentCaptor.forClass(ProjectPinComment.class);
+        verify(projectPinCommentRepository).save(savedCaptor.capture());
+        assertThat(savedCaptor.getValue().getStatus()).isEqualTo(PinStatus.OPEN);
+        verifyNoInteractions(pinCommentReadStateRepository);
+    }
+
+    @Test
+    void createComment_createsResolvedComment_whenPinAlreadyResolved() {
+        CreatePinCommentRequest request = new CreatePinCommentRequest("완료된 핀의 댓글");
+        LocalDateTime createdAt = LocalDateTime.of(2026, 4, 28, 9, 12, 0);
+        ReflectionTestUtils.setField(pin, "status", PinStatus.RESOLVED);
+
+        given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
+                .willReturn(Optional.of(pin));
+        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectPinCommentRepository.save(any(ProjectPinComment.class)))
+                .willAnswer(invocation -> {
+                    ProjectPinComment savedComment = invocation.getArgument(0);
+                    ReflectionTestUtils.setField(savedComment, "commentId", commentId);
+                    ReflectionTestUtils.setField(savedComment, "createdAt", createdAt);
+                    return savedComment;
+                });
+
+        projectPinCommentService.createComment(projectId, pinId, request);
+
+        ArgumentCaptor<ProjectPinComment> savedCaptor = ArgumentCaptor.forClass(ProjectPinComment.class);
+        verify(projectPinCommentRepository).save(savedCaptor.capture());
+        assertThat(savedCaptor.getValue().getStatus()).isEqualTo(PinStatus.RESOLVED);
         verifyNoInteractions(pinCommentReadStateRepository);
     }
 

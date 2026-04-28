@@ -102,7 +102,7 @@ public interface ProjectPinCommentRepository extends JpaRepository<ProjectPinCom
      * @param resolvedAt 완료 처리 시각
      * @return 완료 처리된 댓글 수
      */
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE ProjectPinComment comment
             SET comment.status = :resolvedStatus,
