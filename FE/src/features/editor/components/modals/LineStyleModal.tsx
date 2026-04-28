@@ -1,6 +1,6 @@
-import type { ConnectionPair, ConnectionStyle } from '../types'
-import { LINE_STYLE_OPTIONS } from '../constants'
-import EditorModal from './EditorModal'
+import type { ConnectionPair, ConnectionStyle } from '../../types'
+import { LINE_STYLE_OPTIONS } from '../../constants'
+import EditorModal from '../shared/EditorModal'
 
 interface LineStyleModalProps {
   isOpen: boolean
@@ -53,10 +53,11 @@ export function LineStyleModal({
               key={option.value}
               type="button"
               onClick={() => onChangeStyle(option.value)}
-              className={`w-full rounded-[18px] border px-4 py-4 flex items-center justify-between transition-all ${isSelected
+              className={`w-full rounded-[18px] border px-4 py-4 flex items-center justify-between transition-all ${
+                isSelected
                   ? 'border-[2px] border-[#6268F2] bg-white shadow-[0_6px_22px_rgba(98,104,242,0.08)]'
                   : 'border border-transparent bg-[#F6F8FC] hover:border-[#E1E8F5]'
-                }`}
+              }`}
             >
               <div className="flex items-center gap-4">
                 <div className="w-[52px] h-[52px] rounded-[12px] border border-[#D8E1EF] bg-[#F9FBFF] flex items-center justify-center shadow-sm shrink-0">
@@ -83,8 +84,9 @@ export function LineStyleModal({
                 </div>
               </div>
               <div
-                className={`w-[28px] h-[28px] rounded-full border-[3px] flex items-center justify-center transition-colors shrink-0 ${isSelected ? 'border-[#5F63F2]' : 'border-[#C0CCDB]'
-                  }`}
+                className={`w-[28px] h-[28px] rounded-full border-[3px] flex items-center justify-center transition-colors shrink-0 ${
+                  isSelected ? 'border-[#5F63F2]' : 'border-[#C0CCDB]'
+                }`}
               >
                 {isSelected && <div className="w-[12px] h-[12px] rounded-full bg-[#5F63F2]" />}
               </div>

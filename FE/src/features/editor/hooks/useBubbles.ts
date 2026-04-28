@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import type { BubbleData, AddSpaceFormData } from '../types'
-import { bubbleService } from '../services/bubble.service'
+import { INITIAL_BUBBLES } from '../constants'
 import {
   calcAreaM2FromMm,
   calcMmDimensionsByAreaAndAspect,
@@ -10,15 +10,10 @@ import {
 
 /** 버블(공간) 상태와 모든 변경 핸들러를 제공하는 훅 */
 export function useBubbles() {
-  const [bubbles, setBubbles] = useState<BubbleData[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-
-  useEffect(() => {
-    bubbleService.getList().then((data) => {
-      setBubbles(data)
-      if (data.length > 0) setSelectedId(data[0].id)
-    })
-  }, [])
+  const [bubbles, setBubbles] = useState<BubbleData[]>(INITIAL_BUBBLES)
+  const [selectedId, setSelectedId] = useState<string | null>(
+    INITIAL_BUBBLES.length > 0 ? INITIAL_BUBBLES[0].id : null
+  )
   const [previousSelectedId, setPreviousSelectedId] = useState<string | null>(null)
 
   /** 버블 선택 — 이전 선택 ID를 추적해 연결선 생성에 활용 */
@@ -42,13 +37,16 @@ export function useBubbles() {
     setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, type } : b)))
   }
 
-  /** 가로 치수 변경 → 면적 자동 재계산 */
-  const handleWidthChange = (id: string, width: number) => {
+  /**
+   * mm 치수(가로 또는 세로) 변경 → 면적 및 px 크기 자동 재계산
+   * @param axis 변경할 치수 축 ('width' | 'height')
+   */
+  const applyDimensionChange = (id: string, axis: 'width' | 'height', value: number) => {
     setBubbles((prev) =>
       prev.map((b) => {
         if (b.id !== id) return b
-        const nextWidthMm = width > 0 ? width : b.widthMm
-        const nextHeightMm = b.heightMm > 0 ? b.heightMm : 1000
+        const nextWidthMm = axis === 'width' ? (value > 0 ? value : b.widthMm) : (b.widthMm > 0 ? b.widthMm : 1000)
+        const nextHeightMm = axis === 'height' ? (value > 0 ? value : b.heightMm) : (b.heightMm > 0 ? b.heightMm : 1000)
         const ratio = calcAreaM2FromMm(nextWidthMm, nextHeightMm)
         const px = calcPxDimensionsByAreaAndAspect(ratio, nextWidthMm / nextHeightMm)
         return { ...b, width: px.width, height: px.height, widthMm: nextWidthMm, heightMm: nextHeightMm, ratio, area: `${ratio.toFixed(1)} m²` }
@@ -56,19 +54,11 @@ export function useBubbles() {
     )
   }
 
+  /** 가로 치수 변경 → 면적 자동 재계산 */
+  const handleWidthChange = (id: string, width: number) => applyDimensionChange(id, 'width', width)
+
   /** 세로 치수 변경 → 면적 자동 재계산 */
-  const handleHeightChange = (id: string, height: number) => {
-    setBubbles((prev) =>
-      prev.map((b) => {
-        if (b.id !== id) return b
-        const nextHeightMm = height > 0 ? height : b.heightMm
-        const nextWidthMm = b.widthMm > 0 ? b.widthMm : 1000
-        const ratio = calcAreaM2FromMm(nextWidthMm, nextHeightMm)
-        const px = calcPxDimensionsByAreaAndAspect(ratio, nextWidthMm / nextHeightMm)
-        return { ...b, width: px.width, height: px.height, widthMm: nextWidthMm, heightMm: nextHeightMm, ratio, area: `${ratio.toFixed(1)} m²` }
-      })
-    )
-  }
+  const handleHeightChange = (id: string, height: number) => applyDimensionChange(id, 'height', height)
 
   /** 면적 직접 변경 → 치수 자동 재계산 */
   const handleRatioChange = (id: string, ratio: number) => {
@@ -86,6 +76,12 @@ export function useBubbles() {
   /** 색상 변경 */
   const handleColorChange = (id: string, color: string) => {
     setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, color } : b)))
+  }
+
+  /** 버블 삭제 — 선택 상태도 함께 초기화 */
+  const deleteBubble = (id: string) => {
+    setBubbles((prev) => prev.filter((b) => b.id !== id))
+    if (selectedId === id) setSelectedId(null)
   }
 
   /**
@@ -159,5 +155,6 @@ export function useBubbles() {
     handleRatioChange,
     handleColorChange,
     addBubble,
+    deleteBubble,
   }
 }

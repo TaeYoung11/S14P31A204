@@ -1,10 +1,12 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import type { EditorMode, PanelKey, PanelOffset, PanelResizeAxis, ZoneData } from '../types'
-import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from './BubbleAttributePanel'
-import { CollaborationPanel } from './CollaborationPanel'
-import { AttributesPanel } from './AttributesPanel'
-import { ZoningPanel } from './ZoningPanel'
-import { AssistantPanel } from './AssistantPanel'
+import type { EditorMode, FloorLayer, PanelKey, PanelOffset, PanelResizeAxis, ZoneData } from '../../types'
+import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from '../panels/BubbleAttributePanel'
+import { CollaborationPanel } from '../panels/CollaborationPanel'
+import { AttributesPanel } from '../panels/AttributesPanel'
+import { ZoningPanel } from '../panels/ZoningPanel'
+import { AssistantPanel } from '../panels/AssistantPanel'
+import { FloorViewPanel } from '../panels/FloorViewPanel'
+import { HierarchyPanel } from '../panels/HierarchyPanel'
 
 interface EditorRightPanelsProps {
   mode: EditorMode
@@ -27,6 +29,11 @@ interface EditorRightPanelsProps {
   onHeightChange: (id: string, height: number) => void
   onRatioChange: (id: string, ratio: number) => void
   onColorChange: (id: string, color: string) => void
+  floorLayers?: FloorLayer[]
+  activeFloorLayerId?: string | null
+  isFloorPlanGenerated?: boolean
+  onAddFloorLayer?: () => void
+  onSelectFloorLayer?: (id: string) => void
   onOpenZoningModal: () => void
   onOpenEditZoningModal: (zone: ZoneData) => void
   onDeleteZoning: (zoneId: string) => void
@@ -57,6 +64,11 @@ export function EditorRightPanels({
   onHeightChange,
   onRatioChange,
   onColorChange,
+  floorLayers,
+  activeFloorLayerId,
+  isFloorPlanGenerated,
+  onAddFloorLayer,
+  onSelectFloorLayer,
   onOpenZoningModal,
   onOpenEditZoningModal,
   onDeleteZoning,
@@ -64,7 +76,7 @@ export function EditorRightPanels({
   onPanelResizeStart,
   onTogglePanel,
 }: EditorRightPanelsProps) {
-  if (isCollaborationMode) {
+  if (isCollaborationMode && mode !== 'bubble') {
     return (
       <div className="w-[340px] flex flex-col shrink-0 min-h-0 bg-white border border-[#E2E6EF] rounded-2xl shadow-sm overflow-hidden">
         <CollaborationPanel
@@ -115,15 +127,45 @@ export function EditorRightPanels({
         />
       )}
 
-      <AssistantPanel
-        isOpen={panelOpenState.assistant}
-        offset={panelOffsets.assistant}
-        width={panelWidths.assistant}
-        height={panelHeights.assistant}
-        onDragStart={onPanelDragStart}
-        onResizeStart={onPanelResizeStart}
-        onToggle={onTogglePanel}
-      />
+      {mode === '3d' && (
+        <>
+          <FloorViewPanel
+            isOpen={panelOpenState.floorView}
+            offset={panelOffsets.floorView}
+            width={panelWidths.floorView}
+            height={panelHeights.floorView}
+            layers={floorLayers}
+            activeLayerId={activeFloorLayerId}
+            isGenerated={isFloorPlanGenerated}
+            onSelectLayer={onSelectFloorLayer}
+            onAddLayer={onAddFloorLayer}
+            onDragStart={onPanelDragStart}
+            onResizeStart={onPanelResizeStart}
+            onToggle={onTogglePanel}
+          />
+          <HierarchyPanel
+            isOpen={panelOpenState.hierarchy}
+            offset={panelOffsets.hierarchy}
+            width={panelWidths.hierarchy}
+            height={panelHeights.hierarchy}
+            onDragStart={onPanelDragStart}
+            onResizeStart={onPanelResizeStart}
+            onToggle={onTogglePanel}
+          />
+        </>
+      )}
+
+      {mode !== 'bubble' && (
+        <AssistantPanel
+          isOpen={panelOpenState.assistant}
+          offset={panelOffsets.assistant}
+          width={panelWidths.assistant}
+          height={panelHeights.assistant}
+          onDragStart={onPanelDragStart}
+          onResizeStart={onPanelResizeStart}
+          onToggle={onTogglePanel}
+        />
+      )}
     </div>
   )
 }

@@ -1,6 +1,6 @@
-import { ColorSelector } from './ColorSelector'
-import { ROOM_TYPES } from '../constants'
-import type { ConnectionStyle } from '../types'
+import { ColorSelector } from '../shared/ColorSelector'
+import { ROOM_TYPES } from '../../constants'
+import type { ConnectionStyle } from '../../types'
 
 export interface BubbleInfo {
   id: string
@@ -178,10 +178,11 @@ export function BubbleAttributePanel({
                     <span className="text-xs font-bold text-[#1C1C1E] truncate">{zone.name}</span>
                   </div>
                   <span
-                    className={`text-[10px] font-black px-2 py-1 rounded-md ${zone.source === 'auto'
+                    className={`text-[10px] font-black px-2 py-1 rounded-md ${
+                      zone.source === 'auto'
                         ? 'text-[#5D4AD8] bg-[#EEE9FF]'
                         : 'text-[#3B45B3] bg-[#EAF0FF]'
-                      }`}
+                    }`}
                   >
                     {zone.source === 'auto' ? '자동' : '수동'}
                   </span>

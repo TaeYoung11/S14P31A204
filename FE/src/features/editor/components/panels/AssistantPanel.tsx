@@ -1,7 +1,7 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { Sparkles } from 'lucide-react'
-import type { PanelKey, PanelOffset, PanelResizeAxis } from '../types'
-import { PanelFrame } from './PanelFrame'
+import type { PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
+import { PanelFrame } from '../shared/PanelFrame'
 
 interface AssistantPanelProps {
   isOpen: boolean

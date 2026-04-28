@@ -1,7 +1,7 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { X } from 'lucide-react'
-import type { PanelKey, PanelOffset, PanelResizeAxis, ZoneData } from '../types'
-import { PanelFrame } from './PanelFrame'
+import type { PanelKey, PanelOffset, PanelResizeAxis, ZoneData } from '../../types'
+import { PanelFrame } from '../shared/PanelFrame'
 
 interface ZoningPanelProps {
   isOpen: boolean

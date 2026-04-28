@@ -1,6 +1,6 @@
-import type { BubbleData, ZoningFormData } from '../types'
-import { ColorSelector } from './ColorSelector'
-import EditorModal from './EditorModal'
+import type { BubbleData, ZoningFormData } from '../../types'
+import { ColorSelector } from '../shared/ColorSelector'
+import EditorModal from '../shared/EditorModal'
 
 interface ZoningModalProps {
   isOpen: boolean

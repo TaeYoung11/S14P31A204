@@ -1,9 +1,9 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import type { EditorMode, PanelKey, PanelOffset, PanelResizeAxis } from '../types'
+import type { EditorMode, PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
 import { BubbleAttributePanel, type BubbleConnectionInfo, type BubbleInfo, type BubbleZoneInfo } from './BubbleAttributePanel'
 import { TwoDAttributePanel } from './TwoDAttributePanel'
 import { ThreeDAttributePanel } from './ThreeDAttributePanel'
-import { PanelFrame } from './PanelFrame'
+import { PanelFrame } from '../shared/PanelFrame'
 
 interface AttributesPanelProps {
   mode: EditorMode
@@ -70,8 +70,23 @@ export function AttributesPanel({
           zones={zones}
         />
       )}
-      {mode === '2d' && <TwoDAttributePanel />}
-      {mode === '3d' && <ThreeDAttributePanel />}
+      {mode === '2d' && (
+        <TwoDAttributePanel 
+          selectedBubble={selectedBubble}
+          onLabelChange={onLabelChange}
+          onTypeChange={onTypeChange}
+          onWidthChange={onWidthChange}
+          onHeightChange={onHeightChange}
+          onRatioChange={onRatioChange}
+        />
+      )}
+      {mode === '3d' && (
+        <ThreeDAttributePanel
+          selectedBubble={selectedBubble}
+          onLabelChange={onLabelChange}
+          onColorChange={onColorChange}
+        />
+      )}
     </PanelFrame>
   )
 }

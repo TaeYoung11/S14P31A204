@@ -1,7 +1,7 @@
 /** 에디터 화면 전체에서 공유하는 타입 정의 */
 
 /** 편집 모드: 버블 다이어그램 / 2D 평면도 / 3D 뷰어 */
-export type EditorMode = 'bubble' | '2d' | '3d'
+export type EditorMode = 'bubble' | '2d' | '3d' | 'view'
 
 /** 연결선 스타일 */
 export type ConnectionStyle = 'bold' | 'thin' | 'dashed'
@@ -10,7 +10,7 @@ export type ConnectionStyle = 'bold' | 'thin' | 'dashed'
 export type ZoneColorMode = 'auto' | 'manual'
 
 /** 우측 패널 식별자 */
-export type PanelKey = 'attributes' | 'zoning' | 'assistant'
+export type PanelKey = 'attributes' | 'zoning' | 'assistant' | 'floorView' | 'hierarchy'
 
 /** 우측 패널 좌표 오프셋 */
 export interface PanelOffset {
@@ -89,4 +89,26 @@ export interface ZoningFormData {
   color: string
   bubbleIds: string[]
   colorMode: ZoneColorMode
+}
+
+/** 2D 평면도 위의 방(공간) 한 칸 */
+export interface FloorRoom {
+  id: string
+  bubbleId: string
+  label: string
+  type: string
+  x: number      // 캔버스 px
+  y: number
+  width: number  // 캔버스 px
+  height: number
+  area: number   // m²
+  color: string  // 원본 버블 색상
+  connectedIds: string[]  // 연결된 방 id 목록
+}
+
+/** 평면도 층(레이어) */
+export interface FloorLayer {
+  id: string
+  name: string
+  rooms: FloorRoom[]
 }
