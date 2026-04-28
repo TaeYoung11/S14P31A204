@@ -112,9 +112,12 @@ async def main():
     print(f"\n🏁 테스트 완료: {passed}/{total} PASS", flush=True)
     print(f"📂 출력 파일: {OUTPUT_PATH}", flush=True)
 
-    with open(JSON_LOG_PATH, "w", encoding="utf-8") as f:
-        json.dump(json_logs, f, ensure_ascii=False, indent=2)
-    print(f"📄 JSON 로그: {JSON_LOG_PATH}", flush=True)
+    try:
+        with open(JSON_LOG_PATH, "w", encoding="utf-8") as f:
+            json.dump(json_logs, f, ensure_ascii=False, indent=2)
+        print(f"📄 JSON 로그: {JSON_LOG_PATH}", flush=True)
+    except Exception as e:
+        print(f"❌ JSON 로그 저장 실패: {e}", flush=True)
 
 if __name__ == "__main__":
     asyncio.run(main())

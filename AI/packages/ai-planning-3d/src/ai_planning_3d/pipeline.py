@@ -128,7 +128,11 @@ class LLM3DPipeline:
     def __init__(self, ifc_path: str = None, ifc_model=None, engine=None):
         self.engine = engine or LLM3DEngine()
         if ifc_model is None and ifc_path:
-            ifc_model = ifcopenshell.open(ifc_path)
+            try:
+                ifc_model = ifcopenshell.open(ifc_path)
+            except Exception as e:
+                logger.error(f"IFC 파일을 열 수 없습니다 ({ifc_path}): {e}")
+                ifc_model = None
         self.query_engine = IFCQueryEngine(ifc_model=ifc_model)
         self.store: Dict[str, PreviewSession] = {}
 
@@ -166,6 +170,14 @@ class LLM3DPipeline:
         session = self.store.get(session_id)
         if not session: return {"status": "session_not_found"}
         
+        # 품질 검증에 실패한 세션은 실행 차단
+        if not session.quality_ok:
+            return {
+                "status": "failed_quality_check", 
+                "summary": "품질 검증을 통과하지 못한 명령은 적용할 수 없습니다.",
+                "errors": session.quality_errors
+            }
+
         command = session.command
         model = self.query_engine.get_model()
         

@@ -75,11 +75,12 @@ async def test_planning_only():
             logger.error(f"❌ Error parsing '{text}': {e}")
 
     # JSON 결과 저장
-    with open(json_log_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, ensure_ascii=False, indent=2)
-    
-    logger.info("\n" + "=" * 70)
-    logger.info(f"📄 JSON Log saved to: {json_log_path}")
+    try:
+        with open(json_log_path, "w", encoding="utf-8") as f:
+            json.dump(results, f, ensure_ascii=False, indent=2)
+        logger.info(f"📄 JSON Log saved to: {json_log_path}")
+    except Exception as e:
+        logger.error(f"❌ JSON 로그 저장 실패: {e}")
 
 if __name__ == "__main__":
     asyncio.run(test_planning_only())

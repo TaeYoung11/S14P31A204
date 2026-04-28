@@ -154,7 +154,12 @@ def modify_position(element: ifcopenshell.entity_instance, pos_mm: Dict[str, Any
 def modify_rotation(model: ifcopenshell.file, element: ifcopenshell.entity_instance, rotation_deg: float) -> bool:
     try:
         placement = element.ObjectPlacement
+        # placement 또는 RelativePlacement가 없으면 NoneType AttributeError 발생 방지
+        if not placement or not placement.is_a("IfcLocalPlacement"):
+            return False
         rel_p = placement.RelativePlacement
+        if not rel_p:
+            return False
         rad = math.radians(rotation_deg)
         cos_a, sin_a = math.cos(rad), math.sin(rad)
         ref_dir = rel_p.RefDirection
@@ -172,22 +177,29 @@ def modify_rotation(model: ifcopenshell.file, element: ifcopenshell.entity_insta
         return False
 
 def modify_material(model: ifcopenshell.file, element: ifcopenshell.entity_instance, mat_change: Dict[str, Any]) -> bool:
-    """재질(Material) 수정"""
+    """재질(Material) 수정 — 공유 재질 변경 방지: 기존 연결을 끊고 이 요소에만 새 재질을 연결한다.
+    기존처럼 mat.Name을 직접 수정하면 같은 재질을 공유하는 모든 요소가 일괄 변경되는 부작용이 생긴다."""
     try:
         new_name = mat_change.get("name", "Unknown")
-        for rel in getattr(element, "HasAssociations", []):
+
+        # 기존 재질 관계에서 이 요소만 분리 (공유 엔티티 직접 수정 금지)
+        for rel in list(getattr(element, "HasAssociations", [])):
             if rel.is_a("IfcRelAssociatesMaterial"):
-                mat = rel.RelatingMaterial
-                if mat.is_a("IfcMaterial"):
-                    mat.Name = new_name
-                    return True
-                elif mat.is_a("IfcMaterialLayerSetUsage"):
-                    ls = mat.ForLayerSet
-                    if ls and ls.MaterialLayers:
-                        ls.MaterialLayers[0].Material.Name = new_name
-                        return True
+                remaining = [o for o in rel.RelatedObjects if o != element]
+                if remaining:
+                    rel.RelatedObjects = remaining
+                else:
+                    model.remove(rel)
+                break
+
+        # 이 요소 전용 새 재질 엔티티 생성 및 연결
         new_mat = model.create_entity("IfcMaterial", Name=new_name)
-        model.create_entity("IfcRelAssociatesMaterial", GlobalId=ifcopenshell.guid.new(), RelatingMaterial=new_mat, RelatedObjects=[element])
+        model.create_entity(
+            "IfcRelAssociatesMaterial",
+            GlobalId=ifcopenshell.guid.new(),
+            RelatingMaterial=new_mat,
+            RelatedObjects=[element],
+        )
         return True
     except Exception as e:
         logger.error(f"재질 수정 오류: {e}")
