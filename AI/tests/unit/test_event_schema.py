@@ -54,3 +54,23 @@ def test_event_fixtures_pass_pydantic_validation() -> None:
     for status in ["started", "progress", "completed", "failed", "clarification_required"]:
         model = EventMessage.model_validate(_event(status))
         assert model.status == status
+
+
+def test_failed_event_requires_error_for_json_schema_and_pydantic() -> None:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    payload = _event("failed")
+    payload.pop("error")
+
+    try:
+        validate_json_schema(payload, schema)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("failed event without error must be rejected by schema")
+
+    try:
+        EventMessage.model_validate(payload)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("failed event without error must be rejected by pydantic")
