@@ -5,6 +5,7 @@ from typing import Optional
 
 import instructor
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionMessageParam
 
 from .command import FloorNLPCommand, IFCContext
 from .utils import shape_to_rects
@@ -77,9 +78,9 @@ class FloorPlanEngine:
         self,
         user_text: str,
         ifc_context: Optional[IFCContext] = None,
-        conversation_history: Optional[list[dict]] = None,
+        conversation_history: Optional[list[ChatCompletionMessageParam]] = None,
     ) -> FloorNLPCommand:
-        messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages: list[ChatCompletionMessageParam] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
         if conversation_history:
             messages.extend(conversation_history[-8:])
