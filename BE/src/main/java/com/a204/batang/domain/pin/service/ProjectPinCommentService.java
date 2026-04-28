@@ -101,6 +101,29 @@ public class ProjectPinCommentService {
     }
 
     /**
+     * 핀 댓글을 소프트 삭제한다.
+     * 댓글 삭제 후 핀 댓글 요약(commentCount/lastCommentAt/lastCommentAuthorUserId)을 현재 상태로 갱신한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @param commentId 댓글 ID
+     */
+    @Transactional
+    public void deleteComment(UUID projectId, UUID pinId, UUID commentId) {
+        ProjectPinComment comment = getActiveCommentOrThrow(projectId, pinId, commentId);
+
+        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        ProjectPin projectPin = comment.getProjectPin();
+        projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
+        validateCommentAuthorOrThrow(comment, currentUserId);
+
+        comment.softDelete(LocalDateTime.now());
+        refreshPinCommentSummaryAfterDelete(projectPin);
+
+        log.info("핀 댓글 삭제 완료. projectId={}, pinId={}, commentId={}", projectId, pinId, commentId);
+    }
+
+    /**
      * 특정 핀의 댓글 목록을 페이지 단위로 조회한다.
      * GET API에서는 상태를 변경하지 않고 읽기 전용으로 처리한다.
      *
@@ -207,7 +230,7 @@ public class ProjectPinCommentService {
     }
 
     /**
-     * 댓글 수정 권한(작성자 본인 여부)을 검증한다.
+     * 댓글 수정/삭제 권한(작성자 본인 여부)을 검증한다.
      *
      * @param comment 댓글 엔티티
      * @param currentUserId 현재 사용자 ID
@@ -217,7 +240,32 @@ public class ProjectPinCommentService {
             return;
         }
 
-        throw new CustomException(ErrorCode.FORBIDDEN_ACCESS, "본인이 작성한 댓글만 수정할 수 있습니다.");
+        throw new CustomException(ErrorCode.FORBIDDEN_ACCESS, "본인이 작성한 댓글만 수정하거나 삭제할 수 있습니다.");
+    }
+
+    /**
+     * 댓글 삭제 이후 핀 댓글 요약 메타데이터를 갱신한다.
+     *
+     * @param projectPin 삭제 대상 댓글이 속한 핀
+     */
+    private void refreshPinCommentSummaryAfterDelete(ProjectPin projectPin) {
+        UUID targetPinId = projectPin.getPinId();
+        long activeCommentCount = projectPinCommentRepository.countByProjectPinPinIdAndDeletedAtIsNull(targetPinId);
+        int totalCommentCount = Math.toIntExact(activeCommentCount + 1L);
+
+        projectPinCommentRepository.findTopByProjectPinPinIdAndDeletedAtIsNullOrderByCreatedAtDescCommentIdDesc(targetPinId)
+                .ifPresentOrElse(
+                        latestComment -> projectPin.updateCommentSummary(
+                                totalCommentCount,
+                                latestComment.getCreatedAt(),
+                                latestComment.getAuthorUserId()
+                        ),
+                        () -> projectPin.updateCommentSummary(
+                                totalCommentCount,
+                                projectPin.getCreatedAt(),
+                                projectPin.getAuthorUserId()
+                        )
+                );
     }
 
     /**

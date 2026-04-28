@@ -12,6 +12,7 @@ import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -72,6 +73,24 @@ public class ProjectPinCommentController {
     ) {
         UpdatePinCommentResponse response = projectPinCommentService.updateComment(projectId, pinId, commentId, request);
         return ApiResponse.success("댓글 수정 완료", response);
+    }
+
+    /**
+     * 핀 댓글을 삭제한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @param commentId 댓글 ID
+     * @return 삭제 결과
+     */
+    @DeleteMapping("/{commentId}")
+    public ApiResponse<Void> deleteComment(
+            @PathVariable UUID projectId,
+            @PathVariable UUID pinId,
+            @PathVariable UUID commentId
+    ) {
+        projectPinCommentService.deleteComment(projectId, pinId, commentId);
+        return ApiResponse.success("댓글 삭제 완료");
     }
 
     /**

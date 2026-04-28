@@ -197,6 +197,19 @@ public class ProjectPin extends BaseEntity {
     }
 
     /**
+     * 댓글 메타데이터를 현재 상태에 맞게 갱신한다.
+     *
+     * @param commentCount 반영할 전체 댓글 수(핀 본문 포함)
+     * @param lastCommentAt 마지막 댓글 시각
+     * @param lastCommentAuthorUserId 마지막 댓글 작성자 ID
+     */
+    public void updateCommentSummary(int commentCount, LocalDateTime lastCommentAt, UUID lastCommentAuthorUserId) {
+        this.commentCount = commentCount;
+        this.lastCommentAt = lastCommentAt;
+        this.lastCommentAuthorUserId = lastCommentAuthorUserId;
+    }
+
+    /**
      * 핀을 논리 삭제한다.
      *
      * @param deletedAt 삭제 시각
