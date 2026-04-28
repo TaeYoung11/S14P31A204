@@ -13,6 +13,7 @@ import pytest
 from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
 from ai_rendering.ifc2img.geometry import load_mesh
 from ai_rendering.ifc2img.views import (
+    DEFAULT_RENDER_VIEWS,
     VIEW_TARGET_RATIOS,
     AutoZoomMode,
     compute_auto_zoom,
@@ -139,9 +140,9 @@ def test_render_views_loads_mesh_once() -> None:
         results = renderer.render_views(Path("dummy.ifc"))
 
     assert mock_load.call_count == 1
-    # render_views(views=None) → 등록된 모든 IFCView. 등각 뷰 추가 후 8개.
-    assert set(results.keys()) == set(IFCView)
-    assert vis.capture_depth_float_buffer.call_count == len(IFCView)  # 뷰마다 1번씩
+    # render_views(views=None) → DEFAULT_RENDER_VIEWS (TOP 제외 7뷰).
+    assert set(results.keys()) == set(DEFAULT_RENDER_VIEWS)
+    assert vis.capture_depth_float_buffer.call_count == len(DEFAULT_RENDER_VIEWS)
 
 
 # --- IFC4 schema 가드 (정상 경로는 실제 fixture, 부정 경로는 mock) ---
@@ -400,6 +401,31 @@ def test_iso_views_all_in_enum() -> None:
     assert IFCView.CORNER_LOW in IFCView
     assert IFCView.BIRDS_EYE in IFCView
     assert len(list(IFCView)) == 8  # FRONT/SIDE/TOP + 5등각
+
+
+def test_default_render_views_excludes_top() -> None:
+    """기본 render_views()는 TOP 제외 — perspective SD 입력 부적합 사유.
+
+    TOP enum/매핑은 보존 — 호출자가 명시적 list 전달 시 여전히 사용 가능.
+    """
+    assert IFCView.TOP not in DEFAULT_RENDER_VIEWS
+    assert len(DEFAULT_RENDER_VIEWS) == 7
+    expected = set(IFCView) - {IFCView.TOP}
+    assert set(DEFAULT_RENDER_VIEWS) == expected
+
+
+def test_top_still_callable_explicitly() -> None:
+    """TOP 명시 전달 시 여전히 사용 가능 — enum/카메라/매핑 보존."""
+    from ai_rendering.ifc2img.views import (
+        VIEW_CAMERAS,
+        VIEW_PCA_COEFFICIENTS,
+        VIEW_TARGET_RATIOS,
+    )
+
+    # TOP은 모든 매핑에 등록돼있어야 한다 (default 제외 ≠ enum 제거)
+    assert IFCView.TOP in VIEW_CAMERAS
+    assert IFCView.TOP in VIEW_PCA_COEFFICIENTS
+    assert IFCView.TOP in VIEW_TARGET_RATIOS
 
 
 def test_view_target_ratios_cropping_resistant() -> None:
