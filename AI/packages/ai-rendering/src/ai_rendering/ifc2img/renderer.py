@@ -11,6 +11,7 @@ from .exceptions import IFCRenderError
 from .geometry import load_mesh
 from .views import (
     VIEW_CAMERAS,
+    VIEW_TARGET_RATIOS,
     AutoZoomMode,
     CameraParams,
     IFCView,
@@ -65,7 +66,7 @@ class IFCRenderer:
     def render(self, ifc_path: Path, view: IFCView = IFCView.FRONT) -> Image.Image:
         mesh, center = load_mesh(ifc_path)
         camera = self._resolve_camera(mesh, view)
-        return self._render_mesh(mesh, center, camera)
+        return self._render_mesh(mesh, center, camera, view)
 
     def render_views(
         self,
@@ -77,9 +78,16 @@ class IFCRenderer:
             views = list(IFCView)
         mesh, center = load_mesh(ifc_path)
         return {
-            view: self._render_mesh(mesh, center, self._resolve_camera(mesh, view))
+            view: self._render_mesh(mesh, center, self._resolve_camera(mesh, view), view)
             for view in views
         }
+
+    def _resolve_target_ratio(self, view: IFCView) -> float:
+        """view-별 target_screen_ratio 결정.
+
+        VIEW_TARGET_RATIOS에 등록된 시점은 그 값, 없으면 self.target_screen_ratio.
+        """
+        return VIEW_TARGET_RATIOS.get(view, self.target_screen_ratio)
 
     def _resolve_camera(
         self,
@@ -143,13 +151,17 @@ class IFCRenderer:
         camera: CameraParams,
         center: np.ndarray,
         initial_zoom: float,
+        target_ratio: float,
     ) -> np.ndarray:
-        """zoom 반복 조정 — fill% 가 target_screen_ratio ± tolerance 안에 들 때까지."""
+        """zoom 반복 조정 — fill% 가 target_ratio ± tolerance 안에 들 때까지.
+
+        target_ratio는 view-별로 다를 수 있어 호출자가 명시 전달한다.
+        """
         zoom = initial_zoom
         depth = self._capture_depth(vis, zoom, camera, center)
         for _ in range(self.iter_max - 1):
             fill = float((depth > 0).mean())
-            if abs(fill - self.target_screen_ratio) <= self.iter_tolerance:
+            if abs(fill - target_ratio) <= self.iter_tolerance:
                 return depth
             if fill < 1e-6:
                 # 화면에 mesh가 거의 없음 — zoom 큰 폭 감소.
@@ -157,7 +169,7 @@ class IFCRenderer:
             else:
                 zoom = float(
                     np.clip(
-                        zoom * math.sqrt(fill / self.target_screen_ratio),
+                        zoom * math.sqrt(fill / target_ratio),
                         0.05,
                         2.0,
                     )
@@ -170,8 +182,10 @@ class IFCRenderer:
         mesh: o3d.geometry.TriangleMesh,
         center: np.ndarray,
         camera: CameraParams,
+        view: IFCView,
     ) -> Image.Image:
         initial_zoom = self._initial_zoom(mesh, camera)
+        target_ratio = self._resolve_target_ratio(view)
 
         vis = o3d.visualization.Visualizer()
         vis.create_window(visible=False, width=self.width, height=self.height)
@@ -182,7 +196,9 @@ class IFCRenderer:
             opt.light_on = True
 
             if self.auto_zoom == AutoZoomMode.ITERATIVE:
-                depth = self._iterative_zoom_loop(vis, camera, center, initial_zoom)
+                depth = self._iterative_zoom_loop(
+                    vis, camera, center, initial_zoom, target_ratio
+                )
             else:
                 depth = self._capture_depth(vis, initial_zoom, camera, center)
         finally:

@@ -49,8 +49,9 @@ class CameraParams:
 
 VIEW_CAMERAS: dict[IFCView, CameraParams] = {
     # 기본 3뷰 — PCA fallback 시 사용되는 정적 vector.
-    IFCView.FRONT: CameraParams(front=(-1.0,  0.0,  0.2), up=(0.0, 0.0, 1.0), zoom=0.5),
-    IFCView.SIDE:  CameraParams(front=( 0.0, -1.0,  0.2), up=(0.0, 0.0, 1.0), zoom=0.5),
+    # FRONT/SIDE는 z=0 으로 완전 수평 (건축 입면도 표준 — 기울어짐 방지).
+    IFCView.FRONT: CameraParams(front=(-1.0,  0.0,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
+    IFCView.SIDE:  CameraParams(front=( 0.0, -1.0,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.TOP:   CameraParams(front=(-0.6, -0.6,  1.0), up=(0.0, 0.0, 1.0), zoom=0.5),
     # 등각 5뷰 (PCA 정렬과 결합 시 *건물 주축 기준* 모서리 시점).
     IFCView.ISO_NE:     CameraParams(front=(-0.7, -0.7,  0.5), up=(0.0, 0.0, 1.0), zoom=0.5),
@@ -67,8 +68,9 @@ VIEW_CAMERAS: dict[IFCView, CameraParams] = {
 # - SIDE:  long_axis 따라 봄
 # - 등각:  두 축 결합 + 위에서 약간
 VIEW_PCA_COEFFICIENTS: dict[IFCView, tuple[float, float, float]] = {
-    IFCView.FRONT:      ( 0.0, -1.0,  0.2),
-    IFCView.SIDE:       (-1.0,  0.0,  0.2),
+    # FRONT/SIDE는 z=0 (완전 수평, 건축 입면도 — 기울어짐 방지).
+    IFCView.FRONT:      ( 0.0, -1.0,  0.0),
+    IFCView.SIDE:       (-1.0,  0.0,  0.0),
     IFCView.TOP:        (-0.6, -0.6,  1.0),
     IFCView.ISO_NE:     (-0.7, -0.7,  0.5),
     IFCView.ISO_NW:     (-0.7,  0.7,  0.5),
@@ -80,6 +82,21 @@ VIEW_PCA_COEFFICIENTS: dict[IFCView, tuple[float, float, float]] = {
 
 # eigenvalue 격차 임계값 — 두 주축의 분산비가 이 값보다 작으면 PCA fallback.
 PCA_EIGENVALUE_RATIO_MIN = 1.2
+
+
+# View 별 target_screen_ratio override — 시점에 따라 잘림 위험이 다름.
+# 위에서 봄(top/birds_eye)은 footprint 폭이 화면을 잡아 더 잘리므로 작게.
+# 등각은 약간 작게. 측면은 표준값.
+VIEW_TARGET_RATIOS: dict[IFCView, float] = {
+    IFCView.FRONT:      0.40,
+    IFCView.SIDE:       0.40,
+    IFCView.TOP:        0.20,   # 위에서 봄 → 더 작게 (잘림 방지)
+    IFCView.ISO_NE:     0.20,   # 등각 — top과 동일 수준
+    IFCView.ISO_NW:     0.20,
+    IFCView.ISO_SE:     0.20,
+    IFCView.CORNER_LOW: 0.15,   # 가장 잘리던 view → 가장 작게
+    IFCView.BIRDS_EYE:  0.20,
+}
 
 
 def compute_principal_axes(
