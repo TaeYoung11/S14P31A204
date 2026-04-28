@@ -8,10 +8,13 @@ from pathlib import Path
 
 import ifcopenshell
 import ifcopenshell.guid
-from ai_domain import LayoutImportV1, LayoutImportV2, RoomInput, ZoneInput
+from ai_domain import BoundaryInput, LayoutImportV1, LayoutImportV2, RoomInput, ZoneInput
 
 
-def convert_layout_to_ifc(request: LayoutImportV1 | LayoutImportV2, output_path: str | Path) -> None:
+def convert_layout_to_ifc(
+    request: LayoutImportV1 | LayoutImportV2,
+    output_path: str | Path,
+) -> None:
     """Write a space-only IFC file from the validated layout import request."""
 
     output = Path(output_path)
@@ -66,7 +69,7 @@ def _require_modeling_default(request: LayoutImportV2, field_name: str) -> None:
 
 
 def _require_boundaries_for_floors(
-    boundaries_by_floor: dict[int, object],
+    boundaries_by_floor: dict[int, BoundaryInput],
     floors: list[int],
     feature_name: str,
 ) -> None:
@@ -433,7 +436,7 @@ def _create_property_single_value(
     elif name.endswith("Json"):
         nominal_value = model.create_entity("IfcText", value)
     else:
-        nominal_value = model.create_entity("IfcLabel", str(value))
+        nominal_value = model.create_entity("IfcLabel", value)
     return model.create_entity(
         "IfcPropertySingleValue",
         Name=name,
