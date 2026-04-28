@@ -23,9 +23,9 @@ from ai_planning_2d import (
 def ifc_ctx() -> IFCContext:
     return {
         "spaces": [
-            {"id": "sp-001", "name": "거실", "floor": 1},
-            {"id": "sp-002", "name": "침실", "floor": 1},
-            {"id": "sp-003", "name": "침실", "floor": 2},
+            {"id": "sp-001", "name": "거실", "floor": 1, "width": 5000, "height": 7000},
+            {"id": "sp-002", "name": "침실", "floor": 1, "width": 3000, "height": 4000},
+            {"id": "sp-003", "name": "침실", "floor": 2, "width": 3000, "height": 4000},
         ],
         "storeys": [
             {"id": "st-001", "floor": 1},
@@ -227,3 +227,35 @@ async def test_engine_full_pipeline(ifc_ctx):
     cmd = await engine.parse_command("거실 없애줘", ifc_ctx)
     batch = to_ifc_commands(cmd, ifc_ctx)
     assert isinstance(batch, CommandBatch)
+
+
+@pytest.mark.llm
+@pytest.mark.asyncio
+async def test_engine_relative_resize_with_context(ifc_ctx):
+    """ifc_context 치수 기반 상대적 크기 조정"""
+    engine = FloorPlanEngine()
+    result = await engine.parse_command("침실을 조금 더 넓게 해줘", ifc_ctx)
+    assert result.action == "resize_room"
+    assert result.target_room_name == "침실"
+    assert not result.needs_clarification
+    assert result.resize_width is not None and result.resize_width > 3000
+    assert result.resize_height is not None and result.resize_height > 4000
+
+
+
+@pytest.mark.llm
+@pytest.mark.asyncio
+async def test_engine_compound_command_clarification():
+    """복합 명령 → clarification"""
+    engine = FloorPlanEngine()
+    result = await engine.parse_command("거실 없애고 서재 추가해줘")
+    assert result.needs_clarification
+
+
+@pytest.mark.llm
+@pytest.mark.asyncio
+async def test_engine_no_dimension_clarification():
+    """치수 없이 방 추가 → clarification"""
+    engine = FloorPlanEngine()
+    result = await engine.parse_command("2층에 방 하나 추가해줘")
+    assert result.needs_clarification

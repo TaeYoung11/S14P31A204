@@ -171,6 +171,8 @@ class SpaceContext(TypedDict):
     id: str
     name: str
     floor: int
+    width: int | None   # mm. BE가 Batang_SpaceDimensions pset에서 읽어 제공
+    height: int | None  # mm. 없으면 None
 
 
 class StoreyContext(TypedDict):
