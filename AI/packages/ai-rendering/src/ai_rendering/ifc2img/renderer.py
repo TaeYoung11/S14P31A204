@@ -10,6 +10,7 @@ from PIL import Image
 from .exceptions import IFCRenderError
 from .geometry import load_mesh
 from .views import (
+    DEFAULT_RENDER_VIEWS,
     VIEW_CAMERAS,
     VIEW_TARGET_RATIOS,
     AutoZoomMode,
@@ -73,9 +74,13 @@ class IFCRenderer:
         ifc_path: Path,
         views: list[IFCView] | None = None,
     ) -> dict[IFCView, Image.Image]:
-        """여러 뷰를 한 번의 파싱으로 렌더한다."""
+        """여러 뷰를 한 번의 파싱으로 렌더한다.
+
+        views=None 시 DEFAULT_RENDER_VIEWS (TOP 제외 7뷰)를 사용 — TOP은 perspective
+        SD 입력으로 부적합해 환각 출력 위험. TOP을 포함하려면 명시적 list 전달.
+        """
         if views is None:
-            views = list(IFCView)
+            views = list(DEFAULT_RENDER_VIEWS)
         mesh, center = load_mesh(ifc_path)
         return {
             view: self._render_mesh(mesh, center, self._resolve_camera(mesh, view), view)
