@@ -29,8 +29,15 @@ test_file_logger.setLevel(logging.INFO)
 
 
 def emit(message: str = "") -> None:
-    print(message, flush=True)
-    test_file_logger.info(message)
+    try:
+        print(message, flush=True)
+    except UnicodeEncodeError:
+        # 이모지 등 cp949에서 출력 불가능한 문자가 있을 경우 안전하게 무시하고 출력
+        print(message.encode("ascii", "ignore").decode("ascii"), flush=True)
+    try:
+        test_file_logger.info(message)
+    except Exception:
+        pass
 
 # 새 패키지 구조에서 임포트
 from ai_planning_3d.pipeline import LLM3DPipeline

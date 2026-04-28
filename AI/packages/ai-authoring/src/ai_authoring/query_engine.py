@@ -68,6 +68,9 @@ class IFCQueryEngine:
         direction: str | None,
         select_all: bool,
     ) -> list[dict[str, Any]]:
+        if not etype:
+            self._last_query_reason = "검색할 타입이 지정되지 않았습니다."
+            return []
         type_str = etype.value if hasattr(etype, "value") else str(etype)
         matched: list[dict[str, Any]] = []
         total = 0
@@ -197,6 +200,6 @@ class IFCQueryEngine:
             "element_type": element.is_a(),
             "name": element.Name,
             "storey": storey or "1F",
-            "space_name": space,
+            "space_name": normalize_space_name(space) if space else None,
             "dims": dims,
         }

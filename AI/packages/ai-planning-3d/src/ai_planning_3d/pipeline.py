@@ -315,6 +315,8 @@ class LLM3DPipeline:
                 if command.command_type == LLM3DCommandType.DELETE:
                     if delete_element(model, element):
                         applied_count += 1
+                    else:
+                        failed_ids.append(item["global_id"])
                     continue
 
                 changes = command.changes

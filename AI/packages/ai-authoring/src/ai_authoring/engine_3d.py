@@ -70,7 +70,7 @@ def delete_element(
         logger.info(f"[{gid_short}] 요소 삭제 완료 ({etype_str})")
         return True
     except Exception as exc:
-        logger.error(f"[{gid_short}] 요소 삭제 실패: {exc}")
+        logger.error(f"[{gid_short}] 요소 삭제 실패: {exc}", exc_info=True)
         return False
 
 
@@ -133,6 +133,8 @@ def modify_position(
         if not (rel_placement and rel_placement.is_a("IfcAxis2Placement3D")):
             return False
         location = rel_placement.Location
+        if not (location and location.is_a("IfcCartesianPoint")):
+            return False
 
         mode_relative = pos_mm.get("mode") == "RELATIVE"
         dx, dy, dz = (
