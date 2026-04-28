@@ -192,6 +192,40 @@ VIEW_NEGATIVE_SUFFIXES: dict[IFCView, str] = {
 }
 
 
+# View 별 controlnet_conditioning_scale override — 옵션 C-2 (per-view depth 구속).
+#
+# iso_nw / iso_se 시점에서 SD가 depth 연속성을 *추가 매스*로 hallucinate. cn_scale
+# sweep(0.7~1.3, 2026-04-28) 결과 1.0 / 1.15 모두 안정적 — 1.0 채택 (canonical
+# full strength, 텍스처 단조화 위험 낮음).
+#
+# 다른 시점은 None → params.controlnet_conditioning_scale 그대로 사용.
+# preset base는 0.7 유지 (front/side/iso_ne가 안정적이고 텍스처 다양성 확보).
+VIEW_CN_SCALE_OVERRIDES: dict[IFCView, float | None] = {
+    IFCView.FRONT: None,
+    IFCView.SIDE: None,
+    IFCView.ISO_NE: None,
+    IFCView.ISO_NW: 1.0,
+    IFCView.ISO_SE: 1.0,
+    IFCView.TOP: None,
+    IFCView.BIRDS_EYE: None,
+    IFCView.CORNER_LOW: None,
+}
+
+
+def resolve_view_cn_scale(base_cn_scale: float, view: IFCView) -> float:
+    """view-별 override가 있으면 그 값을, 없으면 base 그대로 반환.
+
+    Args:
+        base_cn_scale: 호출자가 전달한 cn_scale (보통 preset 값)
+        view: 합성할 시점
+
+    Returns:
+        VIEW_CN_SCALE_OVERRIDES[view]가 None이면 base_cn_scale, 아니면 override 값.
+    """
+    override = VIEW_CN_SCALE_OVERRIDES.get(view)
+    return override if override is not None else base_cn_scale
+
+
 def build_view_negative_prompt(base_negative: str, view: IFCView) -> str:
     """기존 negative_prompt 끝에 view-별 차단 토큰 suffix를 덧붙인다.
 

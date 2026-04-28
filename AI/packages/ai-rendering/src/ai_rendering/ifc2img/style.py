@@ -18,7 +18,12 @@ from typing import TYPE_CHECKING, Optional
 from PIL import Image
 
 from .exceptions import IFCRenderError
-from .views import IFCView, build_view_negative_prompt, build_view_prompt
+from .views import (
+    IFCView,
+    build_view_negative_prompt,
+    build_view_prompt,
+    resolve_view_cn_scale,
+)
 
 if TYPE_CHECKING:
     import torch
@@ -170,9 +175,13 @@ class DepthStyleRenderer:
         if view is not None:
             prompt = build_view_prompt(params.prompt, view)
             negative_prompt = build_view_negative_prompt(params.negative_prompt, view)
+            cn_scale = resolve_view_cn_scale(
+                params.controlnet_conditioning_scale, view
+            )
         else:
             prompt = params.prompt
             negative_prompt = params.negative_prompt
+            cn_scale = params.controlnet_conditioning_scale
 
         try:
             if params.seed is None:
@@ -187,7 +196,7 @@ class DepthStyleRenderer:
                 negative_prompt=negative_prompt,
                 guidance_scale=params.guidance_scale,
                 num_inference_steps=params.num_inference_steps,
-                controlnet_conditioning_scale=params.controlnet_conditioning_scale,
+                controlnet_conditioning_scale=cn_scale,
                 width=width,
                 height=height,
                 generator=generator,
