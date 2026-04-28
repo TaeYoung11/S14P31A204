@@ -247,6 +247,20 @@ def build_view_negative_prompt(base_negative: str, view: IFCView) -> str:
     return f"{base_negative}{suffix}"
 
 
+def _orient_axis_positive(axis: np.ndarray) -> np.ndarray:
+    """PCA eigenvector 부호 결정론화 — 첫 유의미한 nonzero 성분이 양수가 되도록.
+
+    `np.linalg.eigh`는 eigenvector 부호를 보장하지 않음(LAPACK/BLAS 의존).
+    같은 mesh도 환경에 따라 ±v 중 어느 쪽이 나올지 비결정적이라 그대로 사용 시
+    `compute_dynamic_front`의 카메라 방향이 *정반대로 뒤집힐 위험*이 있음.
+    이 헬퍼로 부호를 정규화해 결정적 동작 보장.
+    """
+    for v in axis:
+        if abs(v) > 1e-9:
+            return -axis if v < 0 else axis
+    return axis
+
+
 def compute_principal_axes(
     vertices: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, bool]:
@@ -258,6 +272,8 @@ def compute_principal_axes(
     Returns:
         (long_axis_xy, mid_axis_xy, valid):
             long_axis_xy, mid_axis_xy — shape (3,) 단위벡터, z 성분 0.
+            부호는 `_orient_axis_positive`로 결정론화되며, (long, mid, z=+1)이
+            오른손 좌표계(RHS)를 이루도록 mid를 보정 — 위에서 봤을 때 CCW.
             valid — eigenvalue 격차가 충분(PCA_EIGENVALUE_RATIO_MIN 초과)이면 True.
                 False면 정적 fallback 권장.
     """
@@ -281,6 +297,15 @@ def compute_principal_axes(
     mid_xy = eigvecs[:, 0]
     long_axis = np.array([float(long_xy[0]), float(long_xy[1]), 0.0])
     mid_axis = np.array([float(mid_xy[0]), float(mid_xy[1]), 0.0])
+
+    # 부호 결정론화 — eigh의 ±v 비결정성 제거.
+    long_axis = _orient_axis_positive(long_axis)
+    mid_axis = _orient_axis_positive(mid_axis)
+    # RHS 보장: (long × mid)·z >= 0 (위에서 봤을 때 CCW). 음수면 mid 뒤집기.
+    cross_z = long_axis[0] * mid_axis[1] - long_axis[1] * mid_axis[0]
+    if cross_z < 0:
+        mid_axis = -mid_axis
+
     return long_axis, mid_axis, valid
 
 

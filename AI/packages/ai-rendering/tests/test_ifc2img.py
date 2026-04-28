@@ -389,6 +389,40 @@ def test_pca_fallback_when_eigenvalues_close() -> None:
     assert valid is False
 
 
+def test_pca_axis_signs_are_deterministic() -> None:
+    """eigh가 ±v 둘 중 어느 쪽을 반환해도 부호 정규화 후 동일 결과 보장.
+
+    회귀 방어 — 부호 정규화 미적용 시 카메라 방향이 정반대로 뒤집힐 위험.
+    같은 mesh를 좌우/상하 반전(부호 다름)해도 PCA 주축은 같은 부호로 정렬되어야 함.
+    """
+    # 좌측 변형: x축으로 길쭉
+    rng = np.random.default_rng(42)
+    n = 500
+    base_x = rng.uniform(-50, 50, n)
+    base_y = rng.uniform(-5, 5, n)
+    base_z = rng.uniform(0, 10, n)
+    verts_a = np.stack([base_x, base_y, base_z], axis=1)
+    # 같은 mesh의 평행 이동 (PCA covariance에서 mean 빼므로 결과 동일해야 함)
+    verts_b = verts_a + np.array([100.0, 200.0, 0.0])
+
+    long_a, mid_a, _ = compute_principal_axes(verts_a)
+    long_b, mid_b, _ = compute_principal_axes(verts_b)
+
+    # 평행 이동은 PCA 결과 변화 없어야 함 (centroid 빼므로).
+    np.testing.assert_allclose(long_a, long_b, atol=1e-9)
+    np.testing.assert_allclose(mid_a, mid_b, atol=1e-9)
+
+    # 핵심 — 부호 정규화 (첫 nonzero 성분 양수)
+    # long_axis가 양의 x축 방향에 정렬됨 (x 성분이 가장 크므로 그게 첫 nonzero).
+    assert long_a[0] > 0
+    # mid_axis도 첫 nonzero가 양수 (y 성분이 가장 클 것).
+    assert mid_a[1] > 0 or (abs(mid_a[1]) < 1e-9 and mid_a[0] > 0)
+
+    # RHS 보장 — (long × mid)·z >= 0 (위에서 봤을 때 CCW).
+    cross_z = long_a[0] * mid_a[1] - long_a[1] * mid_a[0]
+    assert cross_z >= -1e-9
+
+
 def test_compute_dynamic_front_iso_ne_combines_axes() -> None:
     """ISO_NE는 PCA 좌표계에서 두 축 결합 + z."""
     long_axis = np.array([1.0, 0.0, 0.0])
