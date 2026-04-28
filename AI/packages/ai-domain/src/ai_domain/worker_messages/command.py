@@ -72,6 +72,12 @@ class CommandMessage(BaseModel):
     createdAt: datetime
 
     @model_validator(mode="after")
+    def validate_step_range(self) -> CommandMessage:
+        if self.stepNo > self.totalSteps:
+            raise ValueError("stepNo cannot be greater than totalSteps")
+        return self
+
+    @model_validator(mode="after")
     def validate_payload(self) -> CommandMessage:
         adapters = {
             "TWO_D_LLM_GENERATE": TypeAdapter(TwoDLlmCommandPayload),
