@@ -1,10 +1,13 @@
 package com.a204.batang.domain.pin.service;
 
+import com.a204.batang.domain.pin.dto.CreatePinCommentRequest;
+import com.a204.batang.domain.pin.dto.CreatePinCommentResponse;
 import com.a204.batang.domain.pin.dto.UpdatePinCommentRequest;
 import com.a204.batang.domain.pin.dto.UpdatePinCommentResponse;
 import com.a204.batang.domain.pin.entity.PinPosition;
 import com.a204.batang.domain.pin.entity.ProjectPin;
 import com.a204.batang.domain.pin.entity.ProjectPinComment;
+import com.a204.batang.domain.pin.event.PinCommentCreatedEvent;
 import com.a204.batang.domain.pin.repository.PinCommentReadStateRepository;
 import com.a204.batang.domain.pin.repository.ProjectPinCommentRepository;
 import com.a204.batang.domain.pin.repository.ProjectPinRepository;
@@ -13,6 +16,7 @@ import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import jakarta.persistence.EntityManager;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -50,6 +55,9 @@ class ProjectPinCommentServiceTest {
 
     @Mock
     private EntityManager entityManager;
+
+    @Mock
+    private ApplicationEventPublisher applicationEventPublisher;
 
     @InjectMocks
     private ProjectPinCommentService projectPinCommentService;
@@ -93,6 +101,41 @@ class ProjectPinCommentServiceTest {
         ReflectionTestUtils.setField(comment, "commentId", commentId);
         ReflectionTestUtils.setField(comment, "createdAt", LocalDateTime.of(2026, 4, 28, 9, 0, 0));
         ReflectionTestUtils.setField(comment, "updatedAt", LocalDateTime.of(2026, 4, 28, 9, 0, 0));
+    }
+
+    @Test
+    void createComment_publishesCommentCreatedEvent() {
+        CreatePinCommentRequest request = new CreatePinCommentRequest("  새 댓글  ");
+        LocalDateTime createdAt = LocalDateTime.of(2026, 4, 28, 9, 10, 0);
+
+        given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
+                .willReturn(Optional.of(pin));
+        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectPinCommentRepository.save(org.mockito.ArgumentMatchers.any(ProjectPinComment.class)))
+                .willAnswer(invocation -> {
+                    ProjectPinComment savedComment = invocation.getArgument(0);
+                    ReflectionTestUtils.setField(savedComment, "commentId", commentId);
+                    ReflectionTestUtils.setField(savedComment, "createdAt", createdAt);
+                    return savedComment;
+                });
+
+        CreatePinCommentResponse response = projectPinCommentService.createComment(projectId, pinId, request);
+
+        assertThat(response.commentId()).isEqualTo(commentId);
+        assertThat(response.pinId()).isEqualTo(pinId);
+        assertThat(response.authorUserId()).isEqualTo(authorUserId);
+        assertThat(response.content()).isEqualTo("새 댓글");
+        assertThat(response.createdAt()).isEqualTo(createdAt);
+
+        verify(applicationEventPublisher).publishEvent(eq(new PinCommentCreatedEvent(
+                projectId,
+                pinId,
+                commentId,
+                authorUserId,
+                "새 댓글",
+                createdAt
+        )));
+        verifyNoInteractions(pinCommentReadStateRepository);
     }
 
     @Test

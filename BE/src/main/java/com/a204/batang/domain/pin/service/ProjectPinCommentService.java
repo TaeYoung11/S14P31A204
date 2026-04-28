@@ -9,6 +9,7 @@ import com.a204.batang.domain.pin.dto.UpdatePinCommentResponse;
 import com.a204.batang.domain.pin.entity.PinCommentReadState;
 import com.a204.batang.domain.pin.entity.ProjectPin;
 import com.a204.batang.domain.pin.entity.ProjectPinComment;
+import com.a204.batang.domain.pin.event.PinCommentCreatedEvent;
 import com.a204.batang.domain.pin.repository.PinCommentReadStateRepository;
 import com.a204.batang.domain.pin.repository.ProjectPinCommentRepository;
 import com.a204.batang.domain.pin.repository.ProjectPinRepository;
@@ -18,6 +19,7 @@ import com.a204.batang.global.exception.ErrorCode;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -43,6 +45,7 @@ public class ProjectPinCommentService {
     private final PinCommentReadStateRepository pinCommentReadStateRepository;
     private final ProjectAccessService projectAccessService;
     private final EntityManager entityManager;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     /**
      * 핀에 댓글을 등록한다.
@@ -64,6 +67,7 @@ public class ProjectPinCommentService {
         ProjectPinComment savedComment = projectPinCommentRepository.save(projectPinComment);
 
         projectPin.recordComment(currentUserId);
+        applicationEventPublisher.publishEvent(PinCommentCreatedEvent.from(projectId, pinId, savedComment));
 
         log.info("핀 댓글 등록 완료. projectId={}, pinId={}, commentId={}", projectId, pinId, savedComment.getCommentId());
         return CreatePinCommentResponse.from(savedComment, projectPin.getPinId());
