@@ -3,6 +3,7 @@ package com.a204.batang.domain.pin.controller;
 import com.a204.batang.domain.pin.dto.CreatePinRequest;
 import com.a204.batang.domain.pin.dto.CreatePinResponse;
 import com.a204.batang.domain.pin.dto.GetProjectPinsResponse;
+import com.a204.batang.domain.pin.dto.ResolvePinResponse;
 import com.a204.batang.domain.pin.dto.UpdatePinPositionRequest;
 import com.a204.batang.domain.pin.dto.UpdatePinPositionResponse;
 import com.a204.batang.domain.pin.service.ProjectPinService;
@@ -127,6 +128,24 @@ public class ProjectPinController {
     ) {
         UpdatePinPositionResponse response = projectPinService.updatePinPosition(projectId, pinId, request);
         return ApiResponse.success("핀 위치 수정 완료", response);
+    }
+
+    /**
+     * 프로젝트의 특정 핀을 완료 처리한다.
+     * 댓글 상태는 핀 상태를 상속하므로, 핀 완료 처리 시 해당 핀의 댓글도 완료 상태로 노출된다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @return 완료 처리 결과
+     */
+    @PatchMapping("/{pinId}/resolve")
+    public ApiResponse<ResolvePinResponse> resolvePin(
+            @PathVariable UUID projectId,
+            @PathVariable UUID pinId
+            // TODO: 인증 구현 시 @AuthenticationPrincipal 기반 사용자 검증 연동
+    ) {
+        ResolvePinResponse response = projectPinService.resolvePin(projectId, pinId);
+        return ApiResponse.success("핀 완료 처리 완료", response);
     }
 
     /**
