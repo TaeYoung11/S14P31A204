@@ -28,6 +28,7 @@ export interface Project {
   thumbnail_url?: string
   member_count: number
   ifc_uploaded: boolean
+  unread_comment_count: number
 }
 
 export interface ProjectMember {

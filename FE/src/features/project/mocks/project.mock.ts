@@ -10,6 +10,7 @@ export const MOCK_PROJECTS: Project[] = [
     updated_at: '2025-04-10T14:30:00Z',
     member_count: 3,
     ifc_uploaded: true,
+    unread_comment_count: 2,
   },
   {
     id: 'mock-project-2',
@@ -20,6 +21,7 @@ export const MOCK_PROJECTS: Project[] = [
     updated_at: '2025-04-05T16:00:00Z',
     member_count: 2,
     ifc_uploaded: false,
+    unread_comment_count: 0,
   },
   {
     id: 'mock-project-3',
@@ -30,6 +32,7 @@ export const MOCK_PROJECTS: Project[] = [
     updated_at: '2025-03-28T11:00:00Z',
     member_count: 4,
     ifc_uploaded: true,
+    unread_comment_count: 5,
   },
 ]
 

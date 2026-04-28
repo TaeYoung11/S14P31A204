@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Modal from '@/shared/components/Modal'
 import Spinner from '@/shared/components/Spinner'
 import { UserPlus, Check } from 'lucide-react'
@@ -16,15 +16,28 @@ export default function ProjectShareModal({ isOpen, onClose, projects, onInvite 
   const [isPending, setIsPending] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
+  const timeoutRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (!isOpen) {
+      if (timeoutRef.current !== null) {
+        clearTimeout(timeoutRef.current)
+        timeoutRef.current = null
+      }
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setEmail('')
       setError('')
       setSuccess(false)
     }
   }, [isOpen])
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current !== null) {
+        clearTimeout(timeoutRef.current)
+      }
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -34,7 +47,13 @@ export default function ProjectShareModal({ isOpen, onClose, projects, onInvite 
       await onInvite(email)
       setSuccess(true)
       setEmail('')
-      setTimeout(() => setSuccess(false), 2000)
+      if (timeoutRef.current !== null) {
+        clearTimeout(timeoutRef.current)
+      }
+      timeoutRef.current = window.setTimeout(() => {
+        setSuccess(false)
+        timeoutRef.current = null
+      }, 2000)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -51,18 +70,18 @@ export default function ProjectShareModal({ isOpen, onClose, projects, onInvite 
           <p className="text-xs text-[#6b7280]">{isBulkShare ? '선택된 프로젝트' : '프로젝트'}</p>
           {isBulkShare ? (
             <div className="mt-2 space-y-1">
-              <p className="text-sm font-medium text-[#111827]">{projects.length}개 프로젝트에 초대합니다.</p>
+              <p className="text-sm font-medium text-[#111827]">{projects.length}개 프로젝트를 초대합니다.</p>
               <div className="flex flex-wrap gap-1.5">
                 {projects.slice(0, 4).map((project) => (
                   <span
                     key={project.id}
-                    className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-[#374151] border border-[#e5e7eb]"
+                    className="rounded-full border border-[#e5e7eb] bg-white px-2.5 py-1 text-xs font-medium text-[#374151]"
                   >
                     {project.name}
                   </span>
                 ))}
                 {projects.length > 4 && (
-                  <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-[#6b7280] border border-[#e5e7eb]">
+                  <span className="rounded-full border border-[#e5e7eb] bg-white px-2.5 py-1 text-xs font-medium text-[#6b7280]">
                     +{projects.length - 4}
                   </span>
                 )}
@@ -77,7 +96,7 @@ export default function ProjectShareModal({ isOpen, onClose, projects, onInvite 
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
           <label htmlFor="invite-email" className="mb-1.5 block text-xs font-medium text-[#374151]">
-            초대할 이메일 (CLIENT)
+            초대할 이메일(CLIENT)
           </label>
           <div className="flex gap-2">
             <input
@@ -104,7 +123,7 @@ export default function ProjectShareModal({ isOpen, onClose, projects, onInvite 
       </form>
 
       <p className="mt-4 text-xs text-[#9ca3af]">
-        초대받은 CLIENT는 3D 뷰어 조회 및 의견 작성에 참여할 수 있습니다.
+        초대받은 CLIENT는 3D 뷰어 조회 및 댓글 작성에 참여할 수 있습니다.
       </p>
     </Modal>
   )

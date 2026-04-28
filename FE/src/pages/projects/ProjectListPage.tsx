@@ -1,142 +1,66 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Plus, FolderOpen, LayoutGrid, List, Search, CheckSquare, Share2, Trash2, X } from 'lucide-react'
-import {
-  useProjects,
-  useAllProjects,
-  useCreateProject,
-  useUpdateProject,
-  useDeleteProject,
-  useInviteToProject,
-} from '@/features/project/hooks/useProjects'
-import { useAuth } from '@/features/auth/hooks/useAuth'
-import ProjectCard from '@/features/project/components/ProjectCard'
 import ProjectCreateModal from '@/features/project/components/ProjectCreateModal'
+import ProjectCard from '@/features/project/components/ProjectCard'
 import ProjectListHeader from '@/features/project/components/ProjectListHeader'
 import ProjectShareModal from '@/features/project/components/ProjectShareModal'
 import ProjectSiteModal from '@/features/project/components/ProjectSiteModal'
+import { useProjectListPage } from '@/features/project/hooks/useProjectListPage'
 import EmptyState from '@/shared/components/EmptyState'
+import Modal from '@/shared/components/Modal'
 import Spinner from '@/shared/components/Spinner'
-import type { Project } from '@/shared/types'
-
-type ViewMode = 'grid' | 'list'
 
 export default function ProjectsPage() {
-  const navigate = useNavigate()
-  const { user, logout } = useAuth()
-  const { data, isLoading, isFetchingNextPage, fetchNextPage, hasNextPage } = useProjects()
-  const createProject = useCreateProject()
-  const updateProject = useUpdateProject()
-  const deleteProject = useDeleteProject()
-  const inviteToProject = useInviteToProject()
-
-  const [createOpen, setCreateOpen] = useState(false)
-  const [editProject, setEditProject] = useState<Project | null>(null)
-  const [shareProjects, setShareProjects] = useState<Project[]>([])
-  const [search, setSearch] = useState('')
-
-  const { data: allData, isLoading: isSearchLoading } = useAllProjects(search.length > 0)
-  const [viewMode, setViewMode] = useState<ViewMode>('grid')
-  const [isSelectionMode, setIsSelectionMode] = useState(false)
-  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([])
-  const [siteProject, setSiteProject] = useState<Project | null>(null)
-
-  const sentinelRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const sentinel = sentinelRef.current
-    if (!sentinel || !hasNextPage) return
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !isFetchingNextPage) {
-          fetchNextPage()
-        }
-      },
-      { threshold: 0.1 },
-    )
-
-    observer.observe(sentinel)
-    return () => observer.disconnect()
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
-
-  const filteredProjects = useMemo(() => {
-    if (search) {
-      const regex = (() => {
-        try { return new RegExp(search, 'i') }
-        catch { return new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }
-      })()
-      return (allData ?? []).filter(p => regex.test(p.name) || regex.test(p.description))
-    }
-    return data?.pages.flatMap((p) => p.projects) ?? []
-  }, [search, allData, data])
-
-  const allProjects = filteredProjects
-
-  const selectedProjects = useMemo(
-    () => allProjects.filter((project) => selectedProjectIds.includes(project.id)),
-    [allProjects, selectedProjectIds],
-  )
-
-  const isDesigner = user?.user_type === 'DESIGNER'
-
-  const toggleSelectionMode = () => {
-    setIsSelectionMode((prev) => {
-      if (prev) {
-        setSelectedProjectIds([])
-      }
-      return !prev
-    })
-  }
-
-  const handleToggleProjectSelect = (projectId: string) => {
-    setSelectedProjectIds((prev) =>
-      prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId],
-    )
-  }
-
-  const handleSelectAllVisible = () => {
-    const visibleProjectIds = filteredProjects.map((project) => project.id)
-    const isAllVisibleSelected =
-      visibleProjectIds.length > 0 &&
-      visibleProjectIds.every((id) => selectedProjectIds.includes(id))
-
-    if (isAllVisibleSelected) {
-      setSelectedProjectIds((prev) => prev.filter((id) => !visibleProjectIds.includes(id)))
-      return
-    }
-
-    setSelectedProjectIds((prev) => Array.from(new Set([...prev, ...visibleProjectIds])))
-  }
-
-  const handleBulkDelete = async () => {
-    if (selectedProjectIds.length === 0) return
-
-    await Promise.all(selectedProjectIds.map((id) => deleteProject.mutateAsync(id)))
-    setSelectedProjectIds([])
-    setIsSelectionMode(false)
-  }
-
-  const handleBulkShareOpen = () => {
-    if (selectedProjects.length === 0) return
-    setShareProjects(selectedProjects)
-  }
-
-  const handleInvite = async (email: string) => {
-    await Promise.all(
-      shareProjects.map((project) =>
-        inviteToProject.mutateAsync({ projectId: project.id, email }),
-      ),
-    )
-  }
+  const {
+    createProject,
+    deleteConfirmName,
+    deleteConfirmText,
+    deleteProject,
+    deleteProjects,
+    editProject,
+    filteredProjects,
+    handleBulkShareOpen,
+    handleConfirmDelete,
+    handleCreateSubmit,
+    handleDeleteOpen,
+    handleProjectDelete,
+    handleSelectAllVisible,
+    handleToggleProjectSelect,
+    isCreateModalOpen,
+    isDeleteConfirmValid,
+    isDeleteModalOpen,
+    isDesigner,
+    isFetchingNextPage,
+    isLoading,
+    isSearchLoading,
+    isSelectionMode,
+    logout,
+    onCloseCreateModal,
+    onCloseDeleteModal,
+    onCloseShareModal,
+    onCloseSiteModal,
+    onOpenCreateModal,
+    onOpenEditModal,
+    onOpenShareModal,
+    search,
+    selectedProjectIds,
+    selectedProjects,
+    sentinelRef,
+    setDeleteConfirmName,
+    setSearch,
+    setViewMode,
+    shareProjects,
+    siteProject,
+    toggleSelectionMode,
+    updateProject,
+    userInitial,
+    userName,
+    viewMode,
+    handleInvite,
+  } = useProjectListPage()
 
   return (
     <div className="min-h-screen bg-[#fafafa]">
-      <ProjectListHeader
-        userName={user?.name}
-        userInitial={user?.name?.[0] ?? 'U'}
-        onLogout={logout}
-      />
+      <ProjectListHeader userName={userName} userInitial={userInitial} onLogout={logout} />
 
       <main className="mx-auto max-w-[1200px] px-8 py-8">
         <div className="mb-8 flex items-center justify-between">
@@ -145,7 +69,7 @@ export default function ProjectsPage() {
             <button
               id="create-project-btn"
               className="flex items-center gap-2 rounded-lg bg-[#4f46e5] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#4338ca]"
-              onClick={() => setCreateOpen(true)}
+              onClick={onOpenCreateModal}
               disabled={isSelectionMode}
             >
               <Plus className="h-4 w-4" />
@@ -173,19 +97,21 @@ export default function ProjectsPage() {
             <div className="flex items-center gap-1 rounded-lg bg-[#f3f4f6] p-1">
               <button
                 onClick={() => setViewMode('grid')}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${viewMode === 'grid'
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+                  viewMode === 'grid'
                     ? 'bg-white text-[#111827] shadow-sm'
                     : 'text-[#6b7280] hover:text-[#374151]'
-                  }`}
+                }`}
               >
                 <LayoutGrid className="h-3.5 w-3.5" />
               </button>
               <button
                 onClick={() => setViewMode('list')}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${viewMode === 'list'
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+                  viewMode === 'list'
                     ? 'bg-white text-[#111827] shadow-sm'
                     : 'text-[#6b7280] hover:text-[#374151]'
-                  }`}
+                }`}
               >
                 <List className="h-3.5 w-3.5" />
               </button>
@@ -194,10 +120,11 @@ export default function ProjectsPage() {
             {isDesigner && (
               <button
                 type="button"
-                className={`flex h-10 w-10 items-center justify-center rounded-lg transition-colors ${isSelectionMode
+                className={`flex h-10 w-10 items-center justify-center rounded-lg transition-colors ${
+                  isSelectionMode
                     ? 'bg-[#111827] text-white hover:bg-[#1f2937]'
                     : 'border border-[#e5e7eb] bg-white text-[#374151] hover:bg-[#f9fafb]'
-                  }`}
+                }`}
                 onClick={toggleSelectionMode}
                 title={isSelectionMode ? '선택 모드 종료' : '선택 모드'}
                 aria-label={isSelectionMode ? '선택 모드 종료' : '선택 모드'}
@@ -235,7 +162,7 @@ export default function ProjectsPage() {
                 type="button"
                 className="btn-danger flex h-11 w-11 items-center justify-center px-0"
                 disabled={selectedProjectIds.length === 0 || deleteProject.isPending}
-                onClick={handleBulkDelete}
+                onClick={() => handleDeleteOpen(selectedProjects)}
                 title={selectedProjectIds.length === 1 ? '선택 프로젝트 삭제' : '선택 항목 삭제'}
                 aria-label={selectedProjectIds.length === 1 ? '선택 프로젝트 삭제' : '선택 항목 삭제'}
               >
@@ -258,25 +185,22 @@ export default function ProjectsPage() {
                 ? '다른 검색어로 다시 시도해보세요.'
                 : '새 프로젝트를 생성해서 작업을 시작해보세요.'
             }
-            action={
-              isDesigner && !search
-                ? { label: '새 프로젝트 만들기', onClick: () => setCreateOpen(true) }
-                : undefined
-            }
+            action={isDesigner && !search ? { label: '새 프로젝트 만들기', onClick: onOpenCreateModal } : undefined}
           />
         ) : (
           <div
-            className={`grid gap-5 ${viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'
-              }`}
+            className={`grid gap-5 ${
+              viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'
+            }`}
           >
             {filteredProjects.map((project) => (
               <ProjectCard
                 key={project.id}
                 project={project}
-                userType={user?.user_type ?? 'CLIENT'}
-                onDelete={(id) => deleteProject.mutate(id)}
-                onEdit={(nextProject) => setEditProject(nextProject)}
-                onShare={(nextProject) => setShareProjects([nextProject])}
+                userType={isDesigner ? 'DESIGNER' : 'CLIENT'}
+                onDelete={handleProjectDelete}
+                onEdit={onOpenEditModal}
+                onShare={onOpenShareModal}
                 viewMode={viewMode}
                 isSelectionMode={isSelectionMode}
                 isSelected={selectedProjectIds.includes(project.id)}
@@ -286,7 +210,7 @@ export default function ProjectsPage() {
 
             {isDesigner && !isSelectionMode && (
               <button
-                onClick={() => setCreateOpen(true)}
+                onClick={onOpenCreateModal}
                 className="group flex min-h-[280px] cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-[#e5e7eb] bg-white transition-all duration-300 hover:border-[#4f46e5] hover:bg-[#faf5ff]"
               >
                 <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-[#e5e7eb] transition-colors group-hover:border-[#4f46e5]">
@@ -299,6 +223,7 @@ export default function ProjectsPage() {
             )}
           </div>
         )}
+
         {!search && <div ref={sentinelRef} className="h-1" />}
         {!search && isFetchingNextPage && (
           <div className="flex justify-center py-6">
@@ -308,50 +233,94 @@ export default function ProjectsPage() {
       </main>
 
       <ProjectCreateModal
-        isOpen={createOpen || !!editProject}
-        onClose={() => {
-          setCreateOpen(false)
-          setEditProject(null)
-        }}
-        onSubmit={({ name, description }) => {
-          if (editProject) {
-            updateProject.mutate(
-              { id: editProject.id, data: { name, description } },
-              { onSuccess: () => setEditProject(null) },
-            )
-          } else {
-            createProject.mutate(
-              { name, description },
-              {
-                onSuccess: (project) => {
-                  setCreateOpen(false)
-                  setSiteProject(project)
-                },
-              },
-            )
-          }
-        }}
+        key={`${editProject?.id ?? 'create'}-${isCreateModalOpen ? 'open' : 'closed'}`}
+        isOpen={isCreateModalOpen}
+        onClose={onCloseCreateModal}
+        onSubmit={handleCreateSubmit}
         isPending={createProject.isPending || updateProject.isPending}
         editProject={editProject}
       />
 
       <ProjectShareModal
         isOpen={shareProjects.length > 0}
-        onClose={() => setShareProjects([])}
+        onClose={onCloseShareModal}
         projects={shareProjects}
         onInvite={handleInvite}
       />
+
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={onCloseDeleteModal}
+        title={deleteProjects.length > 1 ? '프로젝트 삭제 확인' : '프로젝트 삭제'}
+        maxWidth="max-w-[440px]"
+      >
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <p className="text-sm text-[#374151]">
+              {deleteProjects.length > 1
+                ? `선택한 ${deleteProjects.length}개 프로젝트를 삭제하시겠습니까?`
+                : '이 프로젝트를 삭제하시겠습니까?'}
+            </p>
+            <p className="text-xs text-[#9ca3af]">삭제 후에는 되돌릴 수 없습니다.</p>
+          </div>
+
+          <div className="rounded-lg bg-[#f8f9fa] px-3 py-3">
+            {deleteProjects.length > 1 ? (
+              <div className="space-y-1.5">
+                {deleteProjects.slice(0, 5).map((project) => (
+                  <p key={project.id} className="truncate text-sm font-medium text-[#111827]">
+                    {project.name}
+                  </p>
+                ))}
+                {deleteProjects.length > 5 && (
+                  <p className="text-xs text-[#6b7280]">외 {deleteProjects.length - 5}개</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm font-medium text-[#111827]">{deleteProjects[0]?.name}</p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="delete-project-confirm" className="block text-xs font-medium text-[#374151]">
+              삭제를 진행하려면 <span className="font-semibold text-[#dc2626]">{deleteConfirmText}</span> 를 입력하세요.
+            </label>
+            <input
+              id="delete-project-confirm"
+              type="text"
+              className="input-base w-full"
+              placeholder={deleteConfirmText}
+              value={deleteConfirmName}
+              onChange={(e) => setDeleteConfirmName(e.target.value)}
+            />
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={onCloseDeleteModal}
+              disabled={deleteProject.isPending}
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              className="btn-danger"
+              onClick={handleConfirmDelete}
+              disabled={deleteProject.isPending || !isDeleteConfirmValid}
+            >
+              {deleteProject.isPending ? '삭제 중...' : '삭제'}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       <ProjectSiteModal
         isOpen={!!siteProject}
         projectId={siteProject?.id ?? null}
         projectName={siteProject?.name}
-        onClose={() => {
-          if (siteProject) {
-            navigate(`/projects/${siteProject.id}/editor`)
-          }
-          setSiteProject(null)
-        }}
+        onClose={onCloseSiteModal}
       />
     </div>
   )

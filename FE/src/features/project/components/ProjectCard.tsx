@@ -16,12 +16,8 @@ interface ProjectCardProps {
   onToggleSelect?: (projectId: string) => void
 }
 
-function getStatusBadge(project: Project) {
-  if (project.ifc_uploaded) {
-    return { label: '확정안', bg: '#4f46e5', text: '#ffffff' }
-  }
-
-  return { label: '초안', bg: '#f59e0b', text: '#ffffff' }
+function getProjectMetaText(project: Project) {
+  return `최종수정일 ${new Date(project.updated_at).toLocaleDateString('ko-KR')}`
 }
 
 export default function ProjectCard({
@@ -37,7 +33,6 @@ export default function ProjectCard({
 }: ProjectCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const isDesigner = userType === 'DESIGNER'
-  const status = getStatusBadge(project)
   const isListView = viewMode === 'list'
 
   const handleToggleSelect = (e: React.MouseEvent) => {
@@ -77,13 +72,6 @@ export default function ProjectCard({
               </div>
             )}
 
-            <span
-              className="absolute left-3 top-3 rounded-md px-2.5 py-1 text-xs font-semibold"
-              style={{ backgroundColor: status.bg, color: status.text }}
-            >
-              {status.label}
-            </span>
-
             {isSelectionMode ? (
               <button
                 type="button"
@@ -118,15 +106,6 @@ export default function ProjectCard({
       <div className="p-4">
         <div className="mb-1 flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-1 items-start gap-3">
-            {isListView && (
-              <span
-                className="shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold"
-                style={{ backgroundColor: status.bg, color: status.text }}
-              >
-                {status.label}
-              </span>
-            )}
-
             {isListView && isSelectionMode && (
               <button
                 type="button"
@@ -180,8 +159,13 @@ export default function ProjectCard({
           </div>
 
           <div className="flex items-center gap-2">
+            {project.unread_comment_count > 0 && (
+              <span className="rounded-full bg-[#eef2ff] px-2 py-1 text-[11px] font-semibold text-[#4f46e5]">
+                댓글 {project.unread_comment_count}
+              </span>
+            )}
             <span className="text-xs text-[#9ca3af]">
-              {project.ifc_uploaded ? '8,500 SQM' : `최종수정일 ${new Date(project.updated_at).toLocaleDateString('ko-KR')}`}
+              {getProjectMetaText(project)}
             </span>
 
             {isDesigner && !isSelectionMode && (

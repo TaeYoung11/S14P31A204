@@ -76,7 +76,7 @@ const loadKakaoMapSdk = () =>
     const script = document.createElement('script')
     script.id = KAKAO_SCRIPT_ID
     script.async = true
-    script.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoApiKey}&libraries=services&autoload=false`
+    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoApiKey}&libraries=services&autoload=false`
     script.addEventListener('load', boot, { once: true })
     script.addEventListener('error', () => reject(new Error('카카오맵 SDK 로드에 실패했습니다.')), { once: true })
     document.head.appendChild(script)
