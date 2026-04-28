@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 
@@ -24,12 +24,6 @@ export const useLoginPage = () => {
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [rememberEmail, setRememberEmail] = useState(Boolean(locationState?.email ?? rememberedEmail))
-
-  useEffect(() => {
-    if (!locationState?.email) return
-    setEmail(locationState.email)
-    setRememberEmail(true)
-  }, [locationState?.email])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()

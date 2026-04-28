@@ -270,7 +270,7 @@ body {
 .modal-content {
   @apply bg-white rounded-xl border border-[#e5e7eb]
          shadow-[0_20px_60px_rgba(0,0,0,0.15)]
-         p-6 w-full max-w-[480px] mx-4;
+         p-6 w-full mx-4;
 }
 
 /* =====================
