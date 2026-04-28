@@ -1,0 +1,31 @@
+{
+  "messageId": "msg-ifc-edit-001",
+  "schemaVersion": "v1",
+  "messageType": "COMMAND",
+  "commandType": "IFC_EDIT_APPLY",
+  "routingKey": "command.ifc-edit.apply",
+  "jobId": "job-ifc-edit-001",
+  "jobStepId": "job-step-ifc-edit-001",
+  "stepNo": 2,
+  "totalSteps": 2,
+  "projectId": "project-layout-001",
+  "requestedBy": "user-002",
+  "sourceRevisionId": "rev-layout-target-001",
+  "targetRevisionId": "rev-layout-edit-001",
+  "expectedOutputArtifactId": "artifact-ifc-edit-001",
+  "input": {
+    "sourceIfcStorageUrl": "s3://batang-artifacts/projects/project-layout-001/revisions/rev-layout-target-001/model.ifc"
+  },
+  "expectedOutput": {
+    "ifcStorageUrl": "s3://batang-artifacts/projects/project-layout-001/revisions/rev-layout-edit-001/model.ifc",
+    "validationReportStorageUrl": "s3://batang-artifacts/jobs/job-ifc-edit-001/steps/2/validation-report.json"
+  },
+  "payload": {
+    "commandJsonStorageUrl": "s3://batang-artifacts/jobs/job-ifc-edit-001/steps/2/ifc-command.json"
+  },
+  "attemptNo": 0,
+  "maxAttempts": 3,
+  "idempotencyKey": "job-ifc-edit-001:2",
+  "correlationId": "corr-ifc-edit-001",
+  "createdAt": "2026-04-27T09:20:00Z"
+}

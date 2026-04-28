@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/messages/command_message.schema.json",
+  "title": "WorkerCommandMessage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "messageId",
+    "schemaVersion",
+    "messageType",
+    "commandType",
+    "routingKey",
+    "jobId",
+    "jobStepId",
+    "stepNo",
+    "totalSteps",
+    "projectId",
+    "requestedBy",
+    "expectedOutputArtifactId",
+    "expectedOutput",
+    "payload",
+    "attemptNo",
+    "maxAttempts",
+    "idempotencyKey",
+    "correlationId",
+    "createdAt"
+  ],
+  "properties": {
+    "messageId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "schemaVersion": {
+      "const": "v1"
+    },
+    "messageType": {
+      "type": "string",
+      "enum": ["COMMAND"]
+    },
+    "commandType": {
+      "type": "string",
+      "enum": [
+        "TWO_D_LLM_GENERATE",
+        "THREE_D_LLM_GENERATE",
+        "SD_RENDER_GENERATE",
+        "IFC_GENERATE_FROM_BUBBLE",
+        "IFC_EDIT_APPLY"
+      ]
+    },
+    "routingKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "jobId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "jobStepId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "stepNo": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "totalSteps": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "requestedBy": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "sourceRevisionId": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "sourceSceneStateId": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "sourceSceneType": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "targetRevisionId": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "expectedOutputArtifactId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "input": {
+      "$ref": "#/$defs/commandInputRef"
+    },
+    "expectedOutput": {
+      "$ref": "#/$defs/expectedOutputRef"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "attemptNo": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "maxAttempts": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "correlationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "commandType": {
+            "const": "IFC_GENERATE_FROM_BUBBLE"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/ifcGeneratePayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "commandType": {
+            "const": "IFC_EDIT_APPLY"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/ifcEditPayload"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "storageUrl": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "commandInputRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sourceSceneStorageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "sourceImageStorageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "sourceIfcStorageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "commandJsonStorageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        }
+      }
+    },
+    "expectedOutputRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "editPlanStorageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "draftPlanStorageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "threeDPlanStorageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "renderImageStorageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "ifcStorageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "validationReportStorageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "errorDetailStorageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        }
+      }
+    },
+    "ifcEditPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "engineRequest": {
+          "$ref": "https://a204.batang/shared/schemas/engine_request.schema.json"
+        },
+        "commandJsonStorageUrl": {
+          "$ref": "#/$defs/storageUrl"
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["engineRequest"]
+        },
+        {
+          "required": ["commandJsonStorageUrl"]
+        }
+      ]
+    },
+    "ifcGeneratePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layoutImport"],
+      "properties": {
+        "layoutImport": {
+          "$ref": "https://a204.batang/shared/schemas/layout_import_v1.schema.json"
+        }
+      }
+    }
+  }
+}

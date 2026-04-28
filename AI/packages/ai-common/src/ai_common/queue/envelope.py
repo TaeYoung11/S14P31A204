@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any, cast
 from uuid import uuid4
 
@@ -51,7 +51,7 @@ def context_from_envelope(message: dict[str, Any]) -> RequestContext:
 
 
 def _now_utc() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _required_str(envelope: dict[str, Any], key: str) -> str:

@@ -1,0 +1,76 @@
+{
+  "messageId": "msg-ifc-generate-001",
+  "schemaVersion": "v1",
+  "messageType": "COMMAND",
+  "commandType": "IFC_GENERATE_FROM_BUBBLE",
+  "routingKey": "command.ifc-generate.from-bubble",
+  "jobId": "job-ifc-generate-001",
+  "jobStepId": "job-step-ifc-generate-001",
+  "stepNo": 1,
+  "totalSteps": 2,
+  "projectId": "project-layout-001",
+  "requestedBy": "user-002",
+  "sourceRevisionId": "rev-layout-source-001",
+  "sourceSceneStateId": "layout-scene-001",
+  "sourceSceneType": "LAYOUT_IMPORT",
+  "targetRevisionId": "rev-layout-target-001",
+  "expectedOutputArtifactId": "artifact-ifc-generate-001",
+  "expectedOutput": {
+    "ifcStorageUrl": "s3://batang-artifacts/projects/project-layout-001/revisions/rev-layout-target-001/model.ifc"
+  },
+  "payload": {
+    "layoutImport": {
+      "schema_version": "v1",
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "sample-project",
+      "rooms": [
+        {
+          "id": "room-living-01",
+          "name": "거실",
+          "type": "living",
+          "width": 4200,
+          "height": 3800,
+          "floor": 1,
+          "x": 5000.0,
+          "y": 4000.0,
+          "angle": 0.0,
+          "locked": false,
+          "zoneId": "zone-common"
+        }
+      ],
+      "zones": [
+        {
+          "id": "zone-common",
+          "name": "공용존",
+          "color": "#FF5733"
+        }
+      ],
+      "adjacency": [
+        {
+          "from_room_id": "room-living-01",
+          "to_room_id": "room-bed-01",
+          "strength": 0.6
+        }
+      ],
+      "boundaries": [
+        {
+          "floor": 1,
+          "polygon": [
+            [0.0, 0.0],
+            [14.0, 0.0],
+            [14.0, 9.0],
+            [0.0, 9.0]
+          ]
+        }
+      ],
+      "modeling_defaults": {
+        "space_height_mm": 2700
+      }
+    }
+  },
+  "attemptNo": 0,
+  "maxAttempts": 3,
+  "idempotencyKey": "job-ifc-generate-001:1",
+  "correlationId": "corr-ifc-generate-001",
+  "createdAt": "2026-04-27T09:15:00Z"
+}

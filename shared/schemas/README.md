@@ -11,6 +11,15 @@
 - `layout_import_v1.schema.json` 같은 신규 IFC import 계약
 - `engine_request.schema.json` 같은 3D Engine Service 입력/결과 계약
 
+## Worker Message Contracts
+
+- `messages/command_message.schema.json`: Worker command message 전체 계약
+- `messages/event_message.schema.json`: Worker event message 전체 계약
+- Worker message 필드는 외부 MQ 계약과 동일하게 camelCase를 사용합니다.
+- `ifc_generate`와 `ifc_edit` payload는 의도적으로 분리합니다.
+- `ifc_generate`는 `layout_import_v1.schema.json` 기반 layout import 입력을 사용합니다.
+- `ifc_edit`는 IFC edit command JSON 참조 또는 inline engine request shape를 사용합니다.
+
 ## 여기에 두지 않을 것
 
 - A1111 request body 같은 provider 전용 payload
