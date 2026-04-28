@@ -1,4 +1,3 @@
-from typing import List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -10,10 +9,10 @@ class Room(BaseModel):
     name: str
     type: RoomType
     floor: int
-    x: Optional[float] = None
-    y: Optional[float] = None
+    x: float | None = None
+    y: float | None = None
     locked: bool = False
-    polygon: List[Tuple[float, float]]  # 필수
+    polygon: list[tuple[float, float]]  # 필수
 
 
 class AdjacencyEntry(BaseModel):
@@ -24,12 +23,12 @@ class AdjacencyEntry(BaseModel):
 
 class FloorBoundary(BaseModel):
     floor: int
-    polygon: List[Tuple[float, float]]
+    polygon: list[tuple[float, float]]
 
 
 class FloorProject(BaseModel):
     id: str
     name: str
-    rooms: List[Room] = Field(default_factory=list)
-    adjacency: List[AdjacencyEntry] = Field(default_factory=list)
-    boundaries: List[FloorBoundary] = Field(default_factory=list)
+    rooms: list[Room] = Field(default_factory=list)
+    adjacency: list[AdjacencyEntry] = Field(default_factory=list)
+    boundaries: list[FloorBoundary] = Field(default_factory=list)

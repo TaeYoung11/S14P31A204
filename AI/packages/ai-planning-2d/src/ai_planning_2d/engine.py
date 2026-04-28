@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from typing import Optional
 
 import instructor
 from openai import AsyncOpenAI
@@ -43,16 +42,22 @@ SYSTEM_PROMPT = """
 
 ## 예시
 사용자 요청: "침실 4x5 크기로 추가해줘"
-출력: {"action": "add_room", "new_room": {"name": "침실", "type": "bedroom", "shape": "rect", "width": 4000, "height": 5000, "floor": 1}, "confidence": 0.95, "needs_clarification": false}
+출력: {"action": "add_room", "new_room": {"name": "침실", "type": "bedroom",
+  "shape": "rect", "width": 4000, "height": 5000, "floor": 1},
+  "confidence": 0.95, "needs_clarification": false}
 
 사용자 요청: "작은방 삭제해줘"
-출력: {"action": "remove_room", "target_room_name": "작은방", "confidence": 0.95, "needs_clarification": false}
+출력: {"action": "remove_room", "target_room_name": "작은방",
+  "confidence": 0.95, "needs_clarification": false}
 
 사용자 요청: "거실을 L자 6x8로 바꿔줘"
-출력: {"action": "resize_room", "target_room_name": "거실", "resize_shape": "L", "resize_width": 6000, "resize_height": 8000, "confidence": 0.95, "needs_clarification": false}
+출력: {"action": "resize_room", "target_room_name": "거실",
+  "resize_shape": "L", "resize_width": 6000, "resize_height": 8000,
+  "confidence": 0.95, "needs_clarification": false}
 
 사용자 요청: "방 하나 추가해줘"
-출력: {"action": "add_room", "confidence": 0.3, "needs_clarification": true, "clarification_question": "어떤 방을 어떤 크기로 추가할까요?"}
+출력: {"action": "add_room", "confidence": 0.3, "needs_clarification": true,
+  "clarification_question": "어떤 방을 어떤 크기로 추가할까요?"}
 """
 
 
@@ -77,8 +82,8 @@ class FloorPlanEngine:
     async def parse_command(
         self,
         user_text: str,
-        ifc_context: Optional[IFCContext] = None,
-        conversation_history: Optional[list[ChatCompletionMessageParam]] = None,
+        ifc_context: IFCContext | None = None,
+        conversation_history: list[ChatCompletionMessageParam] | None = None,
     ) -> FloorNLPCommand:
         messages: list[ChatCompletionMessageParam] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
@@ -118,7 +123,9 @@ class FloorPlanEngine:
                     )
                 else:
                     command.needs_clarification = True
-                    command.clarification_question = "변경할 방 크기를 다시 알려주세요. 예: 4000x5000"
+                    command.clarification_question = (
+                        "변경할 방 크기를 다시 알려주세요. 예: 4000x5000"
+                    )
 
             if command.confidence < 0.7 and not command.needs_clarification:
                 command.needs_clarification = True

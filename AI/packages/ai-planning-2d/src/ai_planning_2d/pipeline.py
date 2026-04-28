@@ -1,13 +1,12 @@
-from typing import Optional
 
 from .command import ActionType, CommandBatch, FloorNLPCommand, IFCCommand, IFCContext
 
 
 def to_ifc_commands(
     command: FloorNLPCommand,
-    ifc_context: Optional[IFCContext] = None,
+    ifc_context: IFCContext | None = None,
 ) -> CommandBatch:
-    def _find_space_ids(target_name: Optional[str]) -> list[str]:
+    def _find_space_ids(target_name: str | None) -> list[str]:
         if not ifc_context or not target_name:
             return []
         spaces = ifc_context.get("spaces", [])
@@ -20,7 +19,7 @@ def to_ifc_commands(
             matched = [s for s in matched if s.get("floor") == command.target_floor]
         return [s.get("id") for s in matched]
 
-    def _find_storey_id(floor: int) -> Optional[str]:
+    def _find_storey_id(floor: int) -> str | None:
         """층 번호로 IfcBuildingStorey GlobalId를 조회한다."""
         if not ifc_context:
             return None
@@ -29,7 +28,7 @@ def to_ifc_commands(
                 return storey.get("id")
         return None
 
-    def _find_storey_id_for_space(space_id: str) -> Optional[str]:
+    def _find_storey_id_for_space(space_id: str) -> str | None:
         """space GlobalId로 해당 공간의 storey GlobalId를 조회한다."""
         if not ifc_context:
             return None
@@ -68,7 +67,9 @@ def to_ifc_commands(
             return CommandBatch(
                 commands=[],
                 requires_clarification=True,
-                clarification_question=f"{command.new_room.floor}층 정보를 현재 IFC에서 찾을 수 없습니다.",
+                clarification_question=(
+                    f"{command.new_room.floor}층 정보를 현재 IFC에서 찾을 수 없습니다."
+                ),
             )
 
         return CommandBatch(
@@ -108,7 +109,9 @@ def to_ifc_commands(
             return CommandBatch(
                 commands=[],
                 requires_clarification=True,
-                clarification_question=f"'{command.target_room_name}' 방을 현재 IFC에서 찾을 수 없습니다.",
+                clarification_question=(
+                    f"'{command.target_room_name}' 방을 현재 IFC에서 찾을 수 없습니다."
+                ),
             )
 
         if len(target_ids) > 1 and not command.apply_to_all:
@@ -122,7 +125,9 @@ def to_ifc_commands(
             return CommandBatch(
                 commands=[],
                 requires_clarification=True,
-                clarification_question=f"'{command.target_room_name}' 방의 층 정보를 현재 IFC에서 찾을 수 없습니다.",
+                clarification_question=(
+                    f"'{command.target_room_name}' 방의 층 정보를 현재 IFC에서 찾을 수 없습니다."
+                ),
             )
 
         commands = [
@@ -153,7 +158,9 @@ def to_ifc_commands(
             return CommandBatch(
                 commands=[],
                 requires_clarification=True,
-                clarification_question=f"'{command.target_room_name}' 방을 현재 IFC에서 찾을 수 없습니다.",
+                clarification_question=(
+                    f"'{command.target_room_name}' 방을 현재 IFC에서 찾을 수 없습니다."
+                ),
             )
 
         if len(target_ids) > 1 and not command.apply_to_all:
@@ -163,7 +170,11 @@ def to_ifc_commands(
                 clarification_question="같은 이름의 방이 여러 개 있습니다. 몇 층 방을 변경할까요?",
             )
 
-        if command.resize_rects is None or command.resize_width is None or command.resize_height is None:
+        if (
+            command.resize_rects is None
+            or command.resize_width is None
+            or command.resize_height is None
+        ):
             return CommandBatch(
                 commands=[],
                 requires_clarification=True,
@@ -174,7 +185,9 @@ def to_ifc_commands(
             return CommandBatch(
                 commands=[],
                 requires_clarification=True,
-                clarification_question=f"'{command.target_room_name}' 방의 층 정보를 현재 IFC에서 찾을 수 없습니다.",
+                clarification_question=(
+                    f"'{command.target_room_name}' 방의 층 정보를 현재 IFC에서 찾을 수 없습니다."
+                ),
             )
 
         commands = [
