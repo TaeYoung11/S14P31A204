@@ -1,6 +1,7 @@
 import { Hand, ZoomIn, ZoomOut, Users } from 'lucide-react'
 import { AddSpaceModal } from '../../features/editor/components/modals/AddSpaceModal'
 import { BubbleCanvas } from '../../features/editor/components/canvas/BubbleCanvas'
+import type { BubbleLabelEditInfo } from '../../features/editor/components/canvas/BubbleCanvas'
 import { TwoDCanvas } from '../../features/editor/components/canvas/TwoDCanvas'
 import { ThreeDCanvas } from '../../features/editor/components/canvas/ThreeDCanvas'
 import { RealisticViewer } from '../../features/editor/components/canvas/RealisticViewer'
@@ -16,6 +17,47 @@ import { ExportModal } from '../../features/editor/components/modals/ExportModal
 import { ExportSelectionModal } from '../../features/editor/components/modals/ExportSelectionModal'
 import { IFCExportModal } from '../../features/editor/components/modals/IFCExportModal'
 import { useEditorPage } from '../../features/editor/hooks/useEditorPage'
+
+// ── 인라인 라벨 편집 오버레이 ─────────────────────────────────────────────────
+
+/**
+ * 버블 더블클릭 시 캔버스 위에 표시되는 라벨 편집 입력창
+ * 포커스 이탈(blur) 또는 Enter 키로 저장, Escape 키로 취소
+ */
+function LabelEditOverlay({
+  info,
+  onConfirm,
+  onCancel,
+}: {
+  info: BubbleLabelEditInfo
+  onConfirm: (id: string, label: string) => void
+  onCancel: () => void
+}) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: info.x + info.width * 0.15,
+        top: info.y + info.height * 0.35,
+        width: info.width * 0.7,
+        zIndex: 100,
+        pointerEvents: 'auto',
+      }}
+    >
+      <input
+        autoFocus
+        type="text"
+        defaultValue={info.label}
+        onBlur={(e) => onConfirm(info.id, e.target.value.trim() || info.label)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur()
+          if (e.key === 'Escape') { e.preventDefault(); onCancel() }
+        }}
+        className="w-full text-center text-sm font-bold bg-white/95 border-2 border-[#3B45B3] rounded-lg px-2 py-1 outline-none shadow-lg"
+      />
+    </div>
+  )
+}
 
 export default function EditorPage() {
   const {
@@ -46,6 +88,8 @@ export default function EditorPage() {
     zoom, handleZoomIn, handleZoomOut, setZoom,
     selectedTool, setSelectedTool, handleSetSelectedTool,
     connectingFromId, handleBubbleSelectWithTool, handleConnectionClick,
+    labelEditState, handleBubbleLabelEdit, confirmLabelEdit, closeLabelEdit,
+    handleWheelZoom,
     isLibraryOpen, setIsLibraryOpen,
     isGridVisible, toggleGrid,
     isInviteModalOpen, handleOpenInviteModal, onCloseInviteModal,
@@ -163,6 +207,8 @@ export default function EditorPage() {
               onBubbleSelect={handleBubbleSelectWithTool}
               onDeleteBubble={handleDeleteBubble}
               onConnectionClick={handleConnectionClick}
+              onBubbleLabelEdit={handleBubbleLabelEdit}
+              onWheelZoom={handleWheelZoom}
               scale={zoom / 100}
             />
           ) : mode === '2d' ? (
@@ -202,6 +248,15 @@ export default function EditorPage() {
             <div className="absolute inset-0 flex items-center justify-center text-[#ADB5BD] font-medium opacity-50 text-center px-10 whitespace-pre-line">
               캔버스 준비 중...
             </div>
+          )}
+
+          {/* 인라인 라벨 편집 오버레이 — 버블 더블클릭 시 표시 */}
+          {mode === 'bubble' && labelEditState && (
+            <LabelEditOverlay
+              info={labelEditState}
+              onConfirm={confirmLabelEdit}
+              onCancel={closeLabelEdit}
+            />
           )}
 
           {mode === '2d' && !isCollaborationMode && (

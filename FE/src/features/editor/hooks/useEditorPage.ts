@@ -117,6 +117,10 @@ export function useEditorPage() {
   const [selectedTool, setSelectedTool] = useState<string>('selection')
   /** 연결 도구에서 첫 번째로 선택된 버블 id */
   const [connectingFromId, setConnectingFromId] = useState<string | null>(null)
+  /** 인라인 라벨 편집 상태 */
+  const [labelEditState, setLabelEditState] = useState<{
+    id: string; label: string; x: number; y: number; width: number; height: number
+  } | null>(null)
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
   const [isExportSelectionModalOpen, setIsExportSelectionModalOpen] = useState(false)
@@ -243,6 +247,22 @@ export function useEditorPage() {
     if (tool !== 'connect') setConnectingFromId(null)
   }
 
+  /** 버블 더블클릭 → 인라인 라벨 편집 시작 */
+  const handleBubbleLabelEdit = (info: { id: string; label: string; x: number; y: number; width: number; height: number }) => {
+    setLabelEditState(info)
+  }
+
+  /** 인라인 라벨 편집 확정 */
+  const confirmLabelEdit = (id: string, label: string) => {
+    handleLabelChange(id, label)
+    setLabelEditState(null)
+  }
+
+  /** 스크롤 휠 줌 — 배율을 기존 줌 값에 곱해 적용 */
+  const handleWheelZoom = (factor: number) => {
+    setZoom((prev) => Math.min(Math.max(Math.round(prev * factor), 10), 300))
+  }
+
   /** 2D 평면도 생성 버튼 핸들러 — 로딩 애니메이션 포함 */
   const handleGenerateFloorPlan = () => {
     generateFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
@@ -360,6 +380,13 @@ export function useEditorPage() {
     connectingFromId,
     handleBubbleSelectWithTool,
     handleConnectionClick,
+    // 인라인 라벨 편집
+    labelEditState,
+    handleBubbleLabelEdit,
+    confirmLabelEdit,
+    closeLabelEdit: () => setLabelEditState(null),
+    // 스크롤 휠 줌
+    handleWheelZoom,
     // 초대 모달
     isInviteModalOpen,
     handleOpenInviteModal: () => setIsInviteModalOpen(true),

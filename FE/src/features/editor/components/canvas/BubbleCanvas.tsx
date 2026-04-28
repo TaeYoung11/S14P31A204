@@ -102,6 +102,18 @@ function ZoneLayer({ zones, bubbles, style, onEditZone }: ZoneLayerProps) {
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
+/** 라벨 인라인 편집 시 캔버스 내 버블 위치 정보 */
+export interface BubbleLabelEditInfo {
+  id: string
+  label: string
+  /** 캔버스 컨테이너 기준 left (px) */
+  x: number
+  /** 캔버스 컨테이너 기준 top (px) */
+  y: number
+  width: number
+  height: number
+}
+
 interface BubbleCanvasProps {
   stageSize: { width: number; height: number }
   sitePoints: number[]
@@ -118,6 +130,10 @@ interface BubbleCanvasProps {
   onBubbleSelect: (bubbleId: string) => void
   onDeleteBubble?: (bubbleId: string) => void
   onConnectionClick?: (conn: ConnectionData) => void
+  /** 버블 더블클릭 → 인라인 라벨 편집 요청 */
+  onBubbleLabelEdit?: (info: BubbleLabelEditInfo) => void
+  /** 스크롤 휠 줌 배율 (1.1 = 확대, 0.9 = 축소) */
+  onWheelZoom?: (factor: number) => void
   scale?: number
 }
 
@@ -142,6 +158,8 @@ export function BubbleCanvas({
   onBubbleSelect,
   onDeleteBubble,
   onConnectionClick,
+  onBubbleLabelEdit,
+  onWheelZoom,
   scale = 1,
 }: BubbleCanvasProps) {
   /** id → BubbleData 빠른 조회 맵 */
@@ -153,6 +171,7 @@ export function BubbleCanvas({
     if (!container) return
     if (selectedTool === 'selection') container.style.cursor = 'move'
     else if (selectedTool === 'delete') container.style.cursor = 'crosshair'
+    else if (selectedTool === 'connect') container.style.cursor = 'crosshair'
     else if (selectedTool === 'hand') container.style.cursor = 'grab'
     else container.style.cursor = 'pointer'
   }
@@ -182,6 +201,10 @@ export function BubbleCanvas({
           const container = e.target.getStage()?.container()
           if (container) container.style.cursor = 'grab'
         }
+      }}
+      onWheel={(e) => {
+        e.evt.preventDefault()
+        onWheelZoom?.(e.evt.deltaY < 0 ? 1.1 : 0.9)
       }}
     >
       <Layer>
@@ -239,6 +262,20 @@ export function BubbleCanvas({
                 e.cancelBubble = true
                 if (selectedTool === 'delete') onDeleteBubble?.(bubble.id)
                 else onBubbleSelect(bubble.id)
+              }}
+              onDblClick={(e) => {
+                e.cancelBubble = true
+                const stage = e.target.getStage()
+                if (!stage) return
+                const s = stage.scaleX()
+                onBubbleLabelEdit?.({
+                  id: bubble.id,
+                  label: bubble.label,
+                  x: stage.x() + bubble.x * s,
+                  y: stage.y() + bubble.y * s,
+                  width: bubble.width * s,
+                  height: bubble.height * s,
+                })
               }}
               onMouseEnter={handleMouseEnter}
               onMouseLeave={handleMouseLeave}
