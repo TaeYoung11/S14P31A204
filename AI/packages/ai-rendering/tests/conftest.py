@@ -14,6 +14,18 @@ def input_dir() -> Path:
 
 
 @pytest.fixture
+def ifc4_fixture() -> Path:
+    """IFC4 스키마 정상 경로 fixture — load_mesh가 통과시켜야 한다."""
+    return Path(__file__).parent / "fixtures" / "ifc" / "AC-20-Smiley-West-10-Bldg.ifc"
+
+
+@pytest.fixture
+def ifc4_sample_house_fixture() -> Path:
+    """추가 IFC4 fixture (Ifc4_SampleHouse). 다양한 IFC4 샘플 회귀 검증용."""
+    return Path(__file__).parent / "fixtures" / "ifc" / "Ifc4_SampleHouse.ifc"
+
+
+@pytest.fixture
 def mock_renderer():  # type: ignore[no-untyped-def]
     """Img2ImgRenderer — 실제 SD 로드 없이 로직만 테스트용.
 

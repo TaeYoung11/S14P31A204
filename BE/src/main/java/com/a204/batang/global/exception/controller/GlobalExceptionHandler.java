@@ -6,8 +6,10 @@ import com.a204.batang.global.exception.ErrorResponse;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -104,6 +106,18 @@ public class GlobalExceptionHandler {
 
         log.warn("CustomException - code: {}, message: {}", errorCode.getCode(), message);
         return toResponse(errorCode, message);
+    }
+
+    /**
+     * 동시성 충돌(낙관적 락)을 처리한다.
+     *
+     * @param e ObjectOptimisticLockingFailureException
+     * @return 409 에러 응답
+     */
+    @ExceptionHandler({ObjectOptimisticLockingFailureException.class, OptimisticLockingFailureException.class})
+    public ResponseEntity<ErrorResponse> handleOptimisticLockingException(Exception e) {
+        log.warn("OptimisticLockingFailureException: {}", e.getMessage());
+        return toResponse(ErrorCode.CONCURRENT_MODIFICATION, ErrorCode.CONCURRENT_MODIFICATION.getMessage());
     }
 
     /**
