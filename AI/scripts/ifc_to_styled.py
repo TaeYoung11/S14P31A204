@@ -153,7 +153,8 @@ def _render_styles(
             done += 1
             t1 = time.time()
             params = load_preset(preset_name)
-            result = style_renderer.render(depth, params)
+            # view 인자 — baseline view-aware 합성 (prompt suffix + cn_scale override).
+            result = style_renderer.render(depth, params, view=view)
             out_path = output_dir / f"style_{view.value}_{preset_name}.png"
             result.save(out_path)
             print(
