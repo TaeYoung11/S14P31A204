@@ -252,8 +252,10 @@ def modify_face_offset(
                 # ── 임의 폴리라인 프로파일 (ㄴ자 벽 등) ──────────────────────
                 if profile.is_a("IfcArbitraryClosedProfileDef"):
                     dir_normal: dict[str, tuple[float, float]] = {
-                        "north": (0.0, 1.0), "south": (0.0, -1.0),
-                        "east": (1.0, 0.0), "west": (-1.0, 0.0),
+                        "north": (0.0, 1.0),
+                        "south": (0.0, -1.0),
+                        "east": (1.0, 0.0),
+                        "west": (-1.0, 0.0),
                     }
                     nx, ny = dir_normal.get(dir_key, (0.0, 1.0))
                     curve = profile.OuterCurve
@@ -456,9 +458,7 @@ def _apply_color_and_material(
             if element.Representation and element.Representation.Representations:
                 rep = element.Representation.Representations[0]
                 if rep.Items:
-                    model.create_entity(
-                        "IfcStyledItem", Item=rep.Items[0], Styles=[assignment]
-                    )
+                    model.create_entity("IfcStyledItem", Item=rep.Items[0], Styles=[assignment])
 
         if mat_name:
             material = model.create_entity("IfcMaterial", Name=mat_name)

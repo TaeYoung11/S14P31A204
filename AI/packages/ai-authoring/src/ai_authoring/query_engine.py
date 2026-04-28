@@ -27,7 +27,7 @@ class IFCQueryEngine:
     def get_last_query_reason(self) -> str:
         return self._last_query_reason
 
-    def find_elements(self, command: "LLM3DCommand") -> list[dict[str, Any]]:
+    def find_elements(self, command: LLM3DCommand) -> list[dict[str, Any]]:
         if not self._model:
             self._last_query_reason = "IFC 모델이 로드되지 않았습니다."
             return []
@@ -143,9 +143,7 @@ class IFCQueryEngine:
         if name:
             filters.append(f"이름~={name}")
         detail = ", ".join(filters) if filters else "필터 없음"
-        rejected_parts = [
-            f"{key}:{count}" for key, count in rejected.items() if count
-        ]
+        rejected_parts = [f"{key}:{count}" for key, count in rejected.items() if count]
         rejected_detail = ", ".join(rejected_parts) if rejected_parts else "조건 불일치"
         return (
             f"{type_str} {total}개를 검사했지만 매칭되지 않았습니다 "
@@ -165,9 +163,7 @@ class IFCQueryEngine:
             elif p.is_a("IfcSpace"):
                 sp, spl = p.Name, p.LongName
                 for d in getattr(p, "Decomposes", []):
-                    if d.is_a("IfcRelAggregates") and d.RelatingObject.is_a(
-                        "IfcBuildingStorey"
-                    ):
+                    if d.is_a("IfcRelAggregates") and d.RelatingObject.is_a("IfcBuildingStorey"):
                         st = normalize_storey_name(d.RelatingObject.Name)
         return st, sp, spl
 
@@ -184,8 +180,10 @@ class IFCQueryEngine:
 
         # Z 좌표 추출 (품질 검증용)
         dims: dict[str, float] = {
-            "z_mm": 0.0, "height_mm": 2400.0,
-            "width_mm": 200.0, "length_mm": 3000.0,
+            "z_mm": 0.0,
+            "height_mm": 2400.0,
+            "width_mm": 200.0,
+            "length_mm": 3000.0,
         }
         placement = getattr(element, "ObjectPlacement", None)
         if placement and placement.is_a("IfcLocalPlacement"):

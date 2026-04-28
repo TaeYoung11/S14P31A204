@@ -3,6 +3,7 @@ import os
 import json
 import logging
 from datetime import datetime
+from ai_planning_3d.pipeline import LLM3DPipeline
 
 # 로그 설정
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -14,8 +15,8 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
     handlers=[
         logging.FileHandler(log_file, mode="w", encoding="utf-8"),
-        logging.StreamHandler()
-    ]
+        logging.StreamHandler(),
+    ],
 )
 logger = logging.getLogger("LLM_3D_Test")
 test_file_logger = logging.getLogger("LLM_3D_Test.detail")
@@ -39,13 +40,14 @@ def emit(message: str = "") -> None:
     except Exception:
         pass
 
-# 새 패키지 구조에서 임포트
-from ai_planning_3d.pipeline import LLM3DPipeline
+
+# 새 패키지 구조에서 임포트 (상단 이동 완료)
 
 # ── 경로 설정 ────────────────────────────────────────────────────────────────
-IFC_PATH    = os.path.join(os.path.expanduser("~"), "Downloads", "batang_sample.ifc")
+IFC_PATH = os.path.join(os.path.expanduser("~"), "Downloads", "batang_sample.ifc")
 OUTPUT_PATH = os.path.join(LOG_DIR, f"batang_sample_modified_{TIMESTAMP}.ifc")
 JSON_LOG_PATH = os.path.join(LOG_DIR, f"test_3d_logs_{TIMESTAMP}.json")
+
 
 async def main():
     emit("\n🚀 [LLM_3D] Intelligent Pipeline Test")
@@ -68,7 +70,6 @@ async def main():
             "preview_ready",
             "rotation + Glass material",
         ),
-
         # ── 다각형/방향 조작 ───────────────────────────────
         (
             "03",
@@ -76,29 +77,74 @@ async def main():
             "preview_ready",
             "Bedroom West face_offset +500",
         ),
-        ("04", "2층 화장실 북쪽 벽을 300mm 안으로 당겨줘", "preview_ready", "Bathroom North face_offset -300"),
-
+        (
+            "04",
+            "2층 화장실 북쪽 벽을 300mm 안으로 당겨줘",
+            "preview_ready",
+            "Bathroom North face_offset -300",
+        ),
         # ── ReadOnly 부재 — 치수 변경은 차단, 이동은 허용 ────────────────
-        ("05", "거실 기둥 높이를 3.5m로 맞춰줄래?", "not_found", "IfcColumn → IFC에 없어 not_found"),
-        ("06", "빔 높이를 2100mm로 설정하고 목재로 바꿔줘", "not_found", "IfcBeam → IFC에 없어 not_found"),
-        ("07", "2층 화장실 동쪽 슬래브를 오른쪽으로 200mm 이동해줘", "not_found", "IfcSlab 이동 (파싱은 정상)"),
-
+        (
+            "05",
+            "거실 기둥 높이를 3.5m로 맞춰줄래?",
+            "not_found",
+            "IfcColumn → IFC에 없어 not_found",
+        ),
+        (
+            "06",
+            "빔 높이를 2100mm로 설정하고 목재로 바꿔줘",
+            "not_found",
+            "IfcBeam → IFC에 없어 not_found",
+        ),
+        (
+            "07",
+            "2층 화장실 동쪽 슬래브를 오른쪽으로 200mm 이동해줘",
+            "not_found",
+            "IfcSlab 이동 (파싱은 정상)",
+        ),
         # ── 모호성 → 재질문 ───────────────────────────────────────────────
         ("08", "거실 방 크기를 좀 더 키워줘", "needs_clarification", "방향 누락"),
         ("09", "이쪽 면 재질만 콘크리트로 바꿔줘", "needs_clarification", "대상 불명"),
-
         # ── 품질 위반 ────────────────────────────────────────────────────
-        ("10", "외벽 높이를 10m 넘게 아주 높게 만들어줘", "needs_clarification", "수치 모호/품질 차단"),
-        ("11", "담장 벽 높이를 20m로 설정해줘", "failed_quality_check", "20000mm → 범위 초과"),
-
+        (
+            "10",
+            "외벽 높이를 10m 넘게 아주 높게 만들어줘",
+            "needs_clarification",
+            "수치 모호/품질 차단",
+        ),
+        (
+            "11",
+            "담장 벽 높이를 20m로 설정해줘",
+            "failed_quality_check",
+            "20000mm → 범위 초과",
+        ),
         # ── DELETE 파이프라인 ──────────────────────────────────────────────
-        ("12", "1층 거실 남쪽 외벽을 삭제해줘", "preview_ready", "DELETE — 1F LivingRoom South"),
+        (
+            "12",
+            "1층 거실 남쪽 외벽을 삭제해줘",
+            "preview_ready",
+            "DELETE — 1F LivingRoom South",
+        ),
         ("13", "옥상 지붕 삭제해줘", "preview_ready", "DELETE — RF Roof"),
-
         # ── CREATE 파이프라인 ───────────────────────────────────
-        ("14", "1층 거실 북쪽에 검정색 벽 하나 세워줘", "preview_ready", "CREATE — 1F LivingRoom North + Black"),
-        ("15", "옥상에 빨간색 박공지붕 만들어줘", "preview_ready", "CREATE — RF Roof + Red + GABLED"),
-        ("16", "지붕 재질을 알루미늄으로 해줘", "needs_clarification", "Aluminum unsupported"),
+        (
+            "14",
+            "1층 거실 북쪽에 검정색 벽 하나 세워줘",
+            "preview_ready",
+            "CREATE — 1F LivingRoom North + Black",
+        ),
+        (
+            "15",
+            "옥상에 빨간색 박공지붕 만들어줘",
+            "preview_ready",
+            "CREATE — RF Roof + Red + GABLED",
+        ),
+        (
+            "16",
+            "지붕 재질을 알루미늄으로 해줘",
+            "needs_clarification",
+            "Aluminum unsupported",
+        ),
     ]
 
     for num, cmd, expected_status, note in test_commands:
@@ -113,19 +159,21 @@ async def main():
             emit("📋 LLM JSON:")
             emit(json.dumps(cmd_json, ensure_ascii=False, indent=2))
 
-            json_logs.append({
-                "test_case": num,
-                "instruction": cmd,
-                "expected": expected_status,
-                "status": status,
-                "pass": status == expected_status,
-                "llm_response": cmd_json,
-                "summary": preview.get("summary"),
-            })
+            json_logs.append(
+                {
+                    "test_case": num,
+                    "instruction": cmd,
+                    "expected": expected_status,
+                    "status": status,
+                    "pass": status == expected_status,
+                    "llm_response": cmd_json,
+                    "summary": preview.get("summary"),
+                }
+            )
 
             status_icon = "✅" if status == expected_status else "⚠️ "
             emit(f"{status_icon} 상태: {status} (기대: {expected_status})")
-            
+
             if cmd_json.get("ambiguity_question"):
                 emit(f"🤔 재질문: {cmd_json['ambiguity_question']}")
 
@@ -152,6 +200,7 @@ async def main():
         emit(f"📄 JSON 로그: {JSON_LOG_PATH}")
     except Exception as e:
         emit(f"❌ JSON 로그 저장 실패: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
