@@ -102,7 +102,8 @@ class LLM3DEngine:
             raise
 
     def _repair_or_replace(self, user_text: str, command: LLM3DCommand) -> LLM3DCommand:
-        command.raw_instruction = command.raw_instruction or user_text
+        if not command.raw_instruction:
+            command = command.model_copy(update={"raw_instruction": user_text})
         requested_type = self._command_type(user_text)
 
         invalid_material = self._invalid_material(user_text)
@@ -117,46 +118,56 @@ class LLM3DEngine:
             if command.create_info is None:
                 return self._heuristic_parse(user_text)
             heuristic_info: LLM3DCreateInfo | None = None
-            if command.create_info.storey is None:
+            create_info = command.create_info
+            if create_info.storey is None:
                 heuristic_info = heuristic_info or self._create_info(user_text)
-                command.create_info.storey = heuristic_info.storey
-            if command.create_info.direction is None:
+                create_info = create_info.model_copy(update={"storey": heuristic_info.storey})
+            if create_info.direction is None:
                 heuristic_info = heuristic_info or self._create_info(user_text)
-                command.create_info.direction = heuristic_info.direction
-            if command.create_info.space_name is None:
+                create_info = create_info.model_copy(update={"direction": heuristic_info.direction})
+            if create_info.space_name is None:
                 heuristic_info = heuristic_info or self._create_info(user_text)
-                command.create_info.space_name = heuristic_info.space_name
-            if command.create_info.color is None:
+                create_info = create_info.model_copy(
+                    update={"space_name": heuristic_info.space_name}
+                )
+            if create_info.color is None:
                 heuristic_info = heuristic_info or self._create_info(user_text)
-                command.create_info.color = heuristic_info.color
-            if command.create_info.shape_preset is None:
+                create_info = create_info.model_copy(update={"color": heuristic_info.color})
+            if create_info.shape_preset is None:
                 heuristic_info = heuristic_info or self._create_info(user_text)
-                command.create_info.shape_preset = heuristic_info.shape_preset
-            if command.create_info.storey is None or command.create_info.direction is None:
+                create_info = create_info.model_copy(
+                    update={"shape_preset": heuristic_info.shape_preset}
+                )
+            if create_info is not command.create_info:
+                command = command.model_copy(update={"create_info": create_info})
+            if create_info.storey is None or create_info.direction is None:
                 return self._ambiguous(user_text, "CREATE에는 층과 방향 정보가 필요합니다.")
             return command
 
         if command.command_type == LLM3DCommandType.DELETE:
             if command.changes is None or not command.changes.deletion:
-                command.changes = LLM3DChanges(deletion=True)
+                command = command.model_copy(update={"changes": LLM3DChanges(deletion=True)})
             return command
 
         if command.command_type == LLM3DCommandType.MODIFY:
             if command.changes is None:
                 return self._heuristic_parse(user_text)
             heuristic_target: LLM3DTarget | None = None
-            if command.target.storey is None:
+            target = command.target
+            if target.storey is None:
                 heuristic_target = heuristic_target or self._target(user_text)
-                command.target.storey = heuristic_target.storey
-            if command.target.space_name is None:
+                target = target.model_copy(update={"storey": heuristic_target.storey})
+            if target.space_name is None:
                 heuristic_target = heuristic_target or self._target(user_text)
-                command.target.space_name = heuristic_target.space_name
-            if command.target.direction is None:
+                target = target.model_copy(update={"space_name": heuristic_target.space_name})
+            if target.direction is None:
                 heuristic_target = heuristic_target or self._target(user_text)
-                command.target.direction = heuristic_target.direction
-            if command.target.element_type == LLM3DElementType.WALL:
+                target = target.model_copy(update={"direction": heuristic_target.direction})
+            if target.element_type == LLM3DElementType.WALL:
                 heuristic_target = heuristic_target or self._target(user_text)
-                command.target.element_type = heuristic_target.element_type
+                target = target.model_copy(update={"element_type": heuristic_target.element_type})
+            if target is not command.target:
+                command = command.model_copy(update={"target": target})
 
         if command.ambiguity_question:
             heuristic = self._heuristic_parse(user_text)
@@ -307,17 +318,18 @@ class LLM3DEngine:
         return None
 
     def _element_type(self, text: str) -> LLM3DElementType:
-        if "지붕" in text:
+        import re
+        if re.search(r"지붕|루프|roof", text, re.I):
             return LLM3DElementType.ROOF
-        if "기둥" in text:
+        if re.search(r"기둥|column", text, re.I):
             return LLM3DElementType.COLUMN
-        if "빔" in text or "보 " in text:
+        if re.search(r"빔|(?<![가-힣])보(?![가-힣])|beam", text, re.I):
             return LLM3DElementType.BEAM
-        if "슬래브" in text or "바닥" in text:
+        if re.search(r"슬래브|바닥|slab", text, re.I):
             return LLM3DElementType.SLAB
-        if "문" in text:
+        if re.search(r"(?<![가-힣])문(?![가-힣])|door", text, re.I):
             return LLM3DElementType.DOOR
-        if "창" in text:
+        if re.search(r"창문|창측|window", text, re.I):
             return LLM3DElementType.WINDOW
         return LLM3DElementType.WALL
 
@@ -388,16 +400,21 @@ class LLM3DEngine:
     def _number_mm(self, text: str) -> float | None:
         import re
 
+        # 1. 단위가 명시된 숫자 우선 검색 (mm, m, 미터)
         match = re.search(r"(\d+(?:\.\d+)?)\s*(mm|m|미터)", text)
-        if not match:
-            match = re.search(r"(\d+(?:\.\d+)?)(?!\s*층)", text)
-            if not match:
-                return None
-        value = float(match.group(1))
-        unit = match.group(2) if len(match.groups()) > 1 else None
-        if unit in ("m", "미터"):
-            value *= 1000.0
-        return value
+        if match:
+            value = float(match.group(1))
+            unit = match.group(2)
+            if unit in ("m", "미터"):
+                value *= 1000.0
+            return value
+
+        # 2. 단위가 없지만 층 번호가 아닌 숫자 검색 (부정 후방 탐색으로 '층' 제외)
+        match = re.search(r"(\d+(?:\.\d+)?)(?!\s*층)", text)
+        if match:
+            return float(match.group(1))
+
+        return None
 
     def _is_ambiguous(self, text: str) -> bool:
         return (

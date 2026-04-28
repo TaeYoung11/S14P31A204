@@ -100,7 +100,7 @@ class LLM3DWallCategory(StrEnum):
 class LLM3DDimensionChange(BaseModel):
     """치수 변경 정보 (mode: 절대/상대, value: mm 단위)"""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     mode: LLM3DSizeMode
     value: float
@@ -122,7 +122,7 @@ class LLM3DDimensionChange(BaseModel):
 class LLM3DMaterialChange(BaseModel):
     """재질 변경 정보 (name: 재료명)"""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     name: str
 
@@ -149,7 +149,7 @@ class LLM3DPosition(BaseModel):
     RELATIVE: 현재 위치 delta / ABSOLUTE: 절대 좌표
     """
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     mode: LLM3DSizeMode = LLM3DSizeMode.RELATIVE
     x: float = Field(0.0, description="X축 이동량 (mm)")
@@ -166,7 +166,7 @@ class LLM3DPosition(BaseModel):
 class LLM3DPoint3D(BaseModel):
     """파이프라인 내부 계산용 좌표. LLM은 보통 채우지 않는다."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     x: float = 0.0
     y: float = 0.0
@@ -182,16 +182,18 @@ class LLM3DCreateInfo(BaseModel):
     LLM이 좌표를 직접 추측하는 것은 설계상 금지한다.
     """
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     element_type: LLM3DElementType = Field(LLM3DElementType.WALL, description="생성할 부재 타입")
     start_point: LLM3DPoint3D | None = None
     length_mm: float | None = Field(
         None,
+        ge=100.0,
+        le=20000.0,
         description="부재 길이 (mm) — end_point 없을 때 사용",
     )
-    height_mm: float = Field(2400.0, description="생성 높이/두께 (mm)")
-    width_mm: float = Field(200.0, description="두께/단면 폭 (mm)")
+    height_mm: float = Field(2400.0, ge=100.0, le=10000.0, description="생성 높이/두께 (mm)")
+    width_mm: float = Field(200.0, ge=50.0, le=2000.0, description="두께/단면 폭 (mm)")
     direction: str | None = Field(
         None,
         description="배치 방향 — 반드시 명시 (North/South/East/West)",
@@ -222,14 +224,16 @@ class LLM3DCreateInfo(BaseModel):
                 "[CREATE] 내벽/파티션은 재질(material) 변경 정책 제한"
                 " — material 필드를 무시합니다."
             )
-            self.material = None
+            # v2에서는 속성 직접 수정 후 self 반환이 허용되지만, 
+            # 명시적으로 새 상태를 반영하기 위해 필드를 업데이트합니다.
+            return self.model_copy(update={"material": None})
         return self
 
 
 class LLM3DChanges(BaseModel):
     """수정 대상의 변경 속성 집합"""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     material: LLM3DMaterialChange | None = None
     color: str | None = Field(None, description="색상 (Name 또는 HEX)")
@@ -247,19 +251,29 @@ class LLM3DChanges(BaseModel):
         """LLM hallucination 방어: 잘못된 필드명을 올바른 필드명으로 변환."""
         if not isinstance(data, dict):
             return data
+        
+        # 1. 필드명 정규화
         for bad_key in ("material_change", "materialChange", "material_info"):
             if bad_key in data and "material" not in data:
                 data["material"] = data.pop(bad_key)
         if "face_offset" in data and "face_offset_mm" not in data:
             data["face_offset_mm"] = data.pop("face_offset")
+        
+        # 2. 타입 정규화 (문자열 재질을 객체로 변환)
         if isinstance(data.get("material"), str):
             data["material"] = {"name": data["material"]}
+            
+        # 3. Hallucination 방어: 스키마 외 필드 제거
+        # extra="forbid"를 썼으므로 여기서 미리 알려지지 않은 필드를 제거하여 
+        # 불필요한 유효성 에러를 방지하거나, 혹은 그대로 두어 에러를 유도할 수 있습니다.
+        # 여기서는 LLM의 사소한 실수는 봐주되(ignore) 명시적인 에러 감지를 위해 
+        # 알려지지 않은 필드 중 빈 값인 것들만 정리합니다.
         known = {
             "material", "color", "length_mm", "height_mm", "width_mm",
             "position_mm", "rotation_deg", "face_offset_mm", "deletion",
         }
         for key in list(data.keys()):
-            if key not in known:
+            if key not in known and data[key] in (None, "", [], {}):
                 data.pop(key)
         return data
 
@@ -292,7 +306,7 @@ class LLM3DChanges(BaseModel):
 class LLM3DTarget(BaseModel):
     """수정 대상을 식별하기 위한 정보"""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     element_type: LLM3DElementType = Field(LLM3DElementType.WALL, description="대상 부재 타입")
     global_id: str | None = Field(None, description="IFC GlobalId (22자)")
@@ -316,7 +330,7 @@ class LLM3DTarget(BaseModel):
 class LLM3DCommand(BaseModel):
     """LLM이 파싱한 최종 수정 명령 구조체"""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     command_type: LLM3DCommandType
     target: LLM3DTarget = Field(default_factory=LLM3DTarget)
@@ -405,24 +419,30 @@ class LLM3DCommand(BaseModel):
         여기서는 최소한의 스키마 정합성만 확인하고
         상세한 타겟 특정 여부는 파이프라인(pipeline.py)에서 처리합니다.
         """
+        updates: dict[str, Any] = {}
+
         if self.command_type == LLM3DCommandType.CREATE and self.create_info is None:
-            self.ambiguity_question = "어떤 부재를 어디에 생성할까요?"
-            self.confidence = 0.1
+            updates["ambiguity_question"] = "어떤 부재를 어디에 생성할까요?"
+            updates["confidence"] = 0.1
         if self.command_type == LLM3DCommandType.CREATE and self.create_info is not None:
-            self.target.element_type = self.create_info.element_type
+            updates["target"] = self.target.model_copy(
+                update={"element_type": self.create_info.element_type}
+            )
         if self.command_type == LLM3DCommandType.DELETE and self.changes is None:
-            self.changes = LLM3DChanges(deletion=True)
+            updates["changes"] = LLM3DChanges(deletion=True)
         if self.command_type == LLM3DCommandType.MODIFY and self.changes is None:
-            self.ambiguity_question = self.ambiguity_question or "무엇을 어떻게 수정할까요?"
-            self.confidence = min(self.confidence, 0.1)
+            updates["ambiguity_question"] = (
+                self.ambiguity_question or "무엇을 어떻게 수정할까요?"
+            )
+            updates["confidence"] = min(self.confidence, 0.1)
         unsupported = self._unsupported_material_name()
         if unsupported:
-            self.ambiguity_question = (
+            updates["ambiguity_question"] = (
                 f"{unsupported} 재질은 지원하지 않습니다. 사용 가능한 재질은 "
                 f"{SUPPORTED_MATERIAL_LIST} 입니다."
             )
-            self.confidence = 0.1
-        return self
+            updates["confidence"] = 0.1
+        return self.model_copy(update=updates) if updates else self
 
     def _unsupported_material_name(self) -> str | None:
         materials = []
