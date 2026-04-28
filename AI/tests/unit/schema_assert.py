@@ -91,7 +91,12 @@ def validate_json_schema(
             for index, item_schema in enumerate(prefix_items):
                 if index >= len(instance):
                     break
-                validate_json_schema(instance[index], item_schema, root_schema=root_schema, store=store)
+                validate_json_schema(
+                    instance[index],
+                    item_schema,
+                    root_schema=root_schema,
+                    store=store,
+                )
             if schema.get("items") is False and len(instance) != len(prefix_items):
                 raise SchemaValidationError("array length does not match prefixItems")
         elif "items" in schema:
@@ -110,7 +115,12 @@ def validate_json_schema(
                 # 패턴만 지원합니다. 이후 schema에서 `else`를 사용하기 시작하면
                 # 해당 분기도 평가할 수 있도록 validator를 함께 확장해야 합니다.
                 if _is_valid(instance, sub_schema["if"], root_schema, store):
-                    validate_json_schema(instance, sub_schema["then"], root_schema=root_schema, store=store)
+                    validate_json_schema(
+                        instance,
+                        sub_schema["then"],
+                        root_schema=root_schema,
+                        store=store,
+                    )
             else:
                 validate_json_schema(instance, sub_schema, root_schema=root_schema, store=store)
 
@@ -156,14 +166,23 @@ def _validate_type(instance: Any, schema_type: str | list[str]) -> None:
             return
         if candidate == "integer" and isinstance(instance, int) and not isinstance(instance, bool):
             return
-        if candidate == "number" and isinstance(instance, (int, float)) and not isinstance(instance, bool):
+        if (
+            candidate == "number"
+            and isinstance(instance, (int, float))
+            and not isinstance(instance, bool)
+        ):
             return
         if candidate == "boolean" and isinstance(instance, bool):
             return
     raise SchemaValidationError(f"value {instance!r} does not match type {schema_type!r}")
 
 
-def _is_valid(instance: Any, schema: dict[str, Any], root_schema: dict[str, Any], store: dict[str, dict[str, Any]]) -> bool:
+def _is_valid(
+    instance: Any,
+    schema: dict[str, Any],
+    root_schema: dict[str, Any],
+    store: dict[str, dict[str, Any]],
+) -> bool:
     try:
         validate_json_schema(instance, schema, root_schema=root_schema, store=store)
     except Exception:
