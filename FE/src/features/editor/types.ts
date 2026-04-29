@@ -35,6 +35,7 @@ export interface BubbleData {
   ratio: number     // 면적 (m²)
   area: string      // 버블 내 표시 문자열
   color: string     // 버블 배경 색상
+  material?: string // 주요 재질
   index: string     // 표시 번호 (예: '01')
 }
 
@@ -73,6 +74,14 @@ export interface Point2D {
   y: number
 }
 
+/** 2D 벽 타입 분류 */
+export type FloorWallType = 'general' | 'exterior' | 'loadBearing' | 'partition'
+export type FloorOpeningType = 'door' | 'window'
+export type FloorDoorHingeSide = 'left' | 'right'
+export type FloorDoorSwingDirection = 'inward' | 'outward' | 'sliding'
+export type CollaborationUserType = 'DESIGNER' | 'CLIENT'
+export type FloorCommentAttachmentKind = 'image' | 'file'
+
 /** 공간 추가 모달 폼 데이터 */
 export interface AddSpaceFormData {
   name: string
@@ -101,8 +110,11 @@ export interface FloorRoom {
   y: number
   width: number  // 캔버스 px
   height: number
+  widthMm: number  // 실제 가로(mm)
+  heightMm: number // 실제 세로(mm)
   area: number   // m²
   color: string  // 원본 버블 색상
+  material?: string // 주요 재질
   connectedIds: string[]  // 연결된 방 id 목록
 }
 
@@ -111,4 +123,90 @@ export interface FloorLayer {
   id: string
   name: string
   rooms: FloorRoom[]
+}
+
+/** 층 겹쳐보기 렌더링용 선택 레이어 정보 */
+export interface FloorLayerOverlay {
+  layerId: string
+  layerName: string
+  opacity: number
+  rooms: FloorRoom[]
+}
+
+/** 2D 평면도 편집용 벽(선분) 데이터 */
+export interface FloorWall {
+  id: string
+  start: Point2D
+  end: Point2D
+  type: FloorWallType
+  thickness: number // 실제 두께(mm)
+  heightMm: number  // 실제 높이(mm)
+}
+
+/** 2D 평면도 편집용 벽 부착 개구부(문/창문) */
+export interface FloorOpening {
+  id: string
+  type: FloorOpeningType
+  wallId: string
+  wallPosition: number // 벽 start~end 정규화 위치(0~1)
+  widthMm: number
+  heightMm: number
+  sillHeightMm?: number // 창문 창턱 높이(mm)
+  doorHingeSide?: FloorDoorHingeSide
+  doorSwingDirection?: FloorDoorSwingDirection
+}
+
+/** 2D 협업 핀 내 댓글(스레드 단위의 메시지) */
+export interface FloorCommentAttachment {
+  id: string
+  kind: FloorCommentAttachmentKind
+  name: string
+  mimeType: string
+  sizeBytes: number
+  url: string
+}
+
+/** 댓글 작성 시 임시 첨부 입력(백엔드 연동 전 FE 로컬 전용) */
+export interface FloorCommentAttachmentInput {
+  kind: FloorCommentAttachmentKind
+  name: string
+  mimeType: string
+  sizeBytes: number
+  url: string
+}
+
+/** 2D 협업 핀 내 댓글(스레드 단위의 메시지) */
+export interface FloorCommentMessage {
+  id: string
+  pinId: string
+  authorId: string
+  authorName: string
+  authorType: CollaborationUserType
+  content: string
+  attachments: FloorCommentAttachment[]
+  createdAt: string
+}
+
+/** 2D 평면도 핀 + 스레드 */
+export interface FloorCommentPin {
+  id: string
+  x: number
+  y: number
+  createdAt: string
+  createdById: string
+  createdByName: string
+  createdByType: CollaborationUserType
+  messages: FloorCommentMessage[]
+}
+
+/** 협업 알림 (백엔드 연동 전 FE 로컬 시뮬레이션용) */
+export interface FloorCommentNotification {
+  id: string
+  pinId: string
+  senderName: string
+  recipientType: CollaborationUserType
+  type: 'pin_new' | 'comment_new'
+  message: string
+  createdAt: string
+  isRead: boolean
 }
