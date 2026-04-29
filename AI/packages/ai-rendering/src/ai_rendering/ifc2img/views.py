@@ -87,15 +87,25 @@ PCA_EIGENVALUE_RATIO_MIN = 1.2
 # View 별 target_screen_ratio override — 시점에 따라 잘림 위험이 다름.
 # 위에서 봄(top/birds_eye)은 footprint 폭이 화면을 잡아 더 잘리므로 작게.
 # 등각은 약간 작게. 측면은 표준값.
+#
+# 다양성 검증 1차(2026-04-29) — haus 외 fixture(Smiley/SampleHouse)에서 잘림 발생 →
+# 전 시점 25% 축소: FRONT/SIDE 0.40→0.30, ISO_*/TOP/BIRDS_EYE 0.20→0.15,
+# CORNER_LOW 0.15→0.12. 보수적 축소 — haus는 약간 작아질 뿐 잘림 미발생 기대.
+# 다양성 검증 2차(2026-04-29) — Smiley/SampleHouse FRONT 여전히 잘림 → FRONT/SIDE
+# 추가 축소 0.30→0.25. 다른 시점은 1차에서 적정이라 유지.
+# 다양성 검증 3차(2026-04-29) — Smiley FRONT *만* 여전히 잘림(SampleHouse 해소) →
+# FRONT/SIDE 0.25→0.20 (ISO와 동일 수준). 전역 단순 축소의 *한계점* — 70m 대형
+# fixture 의존성 강함. 이번 시도 후에도 미해결이면 fixture별 dispatch(mesh
+# max_extent 기반) 도입 검토.
 VIEW_TARGET_RATIOS: dict[IFCView, float] = {
-    IFCView.FRONT:      0.40,
-    IFCView.SIDE:       0.40,
-    IFCView.TOP:        0.20,   # 위에서 봄 → 더 작게 (잘림 방지)
-    IFCView.ISO_NE:     0.20,   # 등각 — top과 동일 수준
-    IFCView.ISO_NW:     0.20,
-    IFCView.ISO_SE:     0.20,
-    IFCView.CORNER_LOW: 0.15,   # 가장 잘리던 view → 가장 작게
-    IFCView.BIRDS_EYE:  0.20,
+    IFCView.FRONT:      0.20,
+    IFCView.SIDE:       0.20,
+    IFCView.TOP:        0.15,   # 위에서 봄 → 더 작게 (잘림 방지)
+    IFCView.ISO_NE:     0.15,   # 등각 — top과 동일 수준
+    IFCView.ISO_NW:     0.15,
+    IFCView.ISO_SE:     0.15,
+    IFCView.CORNER_LOW: 0.12,   # 가장 잘리던 view → 가장 작게
+    IFCView.BIRDS_EYE:  0.15,
 }
 
 

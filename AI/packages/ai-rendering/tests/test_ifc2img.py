@@ -276,14 +276,14 @@ def _make_depth_with_fill(fill_ratio: float, h: int = 448, w: int = 768) -> np.n
 def test_iterative_zoom_converges_when_target_reached() -> None:
     """ITERATIVE 모드 — fill이 view-별 target tolerance 안에 들면 즉시 종료.
 
-    IFCView.FRONT는 VIEW_TARGET_RATIOS[FRONT]=0.40이 적용된다.
-    fill=0.40 ± 0.10 = [0.30, 0.50] 안 → 1회 capture로 수렴.
+    IFCView.FRONT는 VIEW_TARGET_RATIOS[FRONT]=0.20이 적용된다.
+    fill=0.20 ± 0.10 = [0.10, 0.30] 안 → 1회 capture로 수렴.
     """
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
     fake_center = np.array([5.0, 5.0, 2.5])
 
-    target_depth = _make_depth_with_fill(0.40)  # FRONT의 view-별 target
+    target_depth = _make_depth_with_fill(0.20)  # FRONT의 view-별 target
 
     with (
         patch(
