@@ -11,6 +11,8 @@ import com.a204.batang.domain.pin.entity.PinStatus;
 import com.a204.batang.domain.pin.entity.ProjectPin;
 import com.a204.batang.domain.pin.entity.ProjectPinReadState;
 import com.a204.batang.domain.pin.event.PinCreatedEvent;
+import com.a204.batang.domain.pin.event.PinPositionUpdatedEvent;
+import com.a204.batang.domain.pin.event.PinResolvedEvent;
 import com.a204.batang.domain.pin.repository.ProjectPinCommentRepository;
 import com.a204.batang.domain.pin.repository.ProjectPinReadStateRepository;
 import com.a204.batang.domain.pin.repository.ProjectPinRepository;
@@ -106,6 +108,7 @@ public class ProjectPinService {
                 request.worldPosition().toPinPosition()
         );
         projectPinRepository.flush();
+        applicationEventPublisher.publishEvent(PinPositionUpdatedEvent.from(projectId, currentUserId, projectPin));
 
         log.info("핀 위치 수정 완료. projectId={}, pinId={}", projectId, pinId);
         return UpdatePinPositionResponse.from(projectPin);
@@ -128,7 +131,8 @@ public class ProjectPinService {
         projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
         LocalDateTime resolvedAt = LocalDateTime.now();
 
-        if (projectPin.getStatus() != PinStatus.RESOLVED) {
+        boolean pinResolvedNow = projectPin.getStatus() != PinStatus.RESOLVED;
+        if (pinResolvedNow) {
             projectPin.markResolved(currentUserId);
         }
 
@@ -139,6 +143,9 @@ public class ProjectPinService {
                 resolvedAt
         );
         projectPinRepository.flush();
+        if (pinResolvedNow) {
+            applicationEventPublisher.publishEvent(PinResolvedEvent.from(projectId, projectPin));
+        }
 
         log.info(
                 "핀 완료 처리 완료. projectId={}, pinId={}, resolverUserId={}, resolvedCommentCount={}",
@@ -199,7 +206,7 @@ public class ProjectPinService {
                 size,
                 Sort.by(Sort.Direction.ASC, "createdAt")
         );
-        Page<ProjectPin> pinPage = projectPinRepository.findActivePinsByProjectId(projectId, pageable);
+        Page<ProjectPin> pinPage = projectPinRepository.findActivePinsByProjectId(projectId, PinStatus.RESOLVED, pageable);
         List<ProjectPin> pins = pinPage.getContent();
 
         LocalDateTime lastPinReadAt = resolveLastPinReadAt(projectId, currentUserId);
@@ -345,14 +352,14 @@ public class ProjectPinService {
             return new PinUnreadSummary(false, 0);
         }
 
-        long hasPinCount = projectPinRepository.countActiveOtherUserPins(projectId, currentUserId);
+        long hasPinCount = projectPinRepository.countActiveOtherUserPins(projectId, currentUserId, PinStatus.RESOLVED);
         if (hasPinCount == 0L) {
             return new PinUnreadSummary(false, 0);
         }
 
         long unreadCount = lastPinReadAt == null
                 ? hasPinCount
-                : projectPinRepository.countUnreadOtherUserPins(projectId, currentUserId, lastPinReadAt);
+                : projectPinRepository.countUnreadOtherUserPins(projectId, currentUserId, lastPinReadAt, PinStatus.RESOLVED);
 
         return new PinUnreadSummary(true, Math.toIntExact(unreadCount));
     }
@@ -372,7 +379,8 @@ public class ProjectPinService {
         long count = projectPinCommentRepository.countUnreadCommentPins(
                 projectId,
                 currentUserId,
-                UNREAD_FALLBACK_AT
+                UNREAD_FALLBACK_AT,
+                PinStatus.RESOLVED
         );
         return Math.toIntExact(count);
     }
@@ -396,7 +404,8 @@ public class ProjectPinService {
         return Set.copyOf(projectPinCommentRepository.findUnreadCommentPinIdsByUser(
                 pinIds,
                 currentUserId,
-                UNREAD_FALLBACK_AT
+                UNREAD_FALLBACK_AT,
+                PinStatus.RESOLVED
         ));
     }
 

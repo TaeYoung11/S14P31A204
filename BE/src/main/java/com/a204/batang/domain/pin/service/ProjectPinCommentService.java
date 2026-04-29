@@ -12,6 +12,8 @@ import com.a204.batang.domain.pin.entity.PinStatus;
 import com.a204.batang.domain.pin.entity.ProjectPin;
 import com.a204.batang.domain.pin.entity.ProjectPinComment;
 import com.a204.batang.domain.pin.event.PinCommentCreatedEvent;
+import com.a204.batang.domain.pin.event.PinCommentResolvedEvent;
+import com.a204.batang.domain.pin.event.PinCommentUpdatedEvent;
 import com.a204.batang.domain.pin.repository.PinCommentReadStateRepository;
 import com.a204.batang.domain.pin.repository.ProjectPinCommentRepository;
 import com.a204.batang.domain.pin.repository.ProjectPinRepository;
@@ -105,6 +107,7 @@ public class ProjectPinCommentService {
         String normalizedContent = request.content().trim();
         comment.updateContent(normalizedContent);
         entityManager.flush();
+        applicationEventPublisher.publishEvent(PinCommentUpdatedEvent.from(projectId, pinId, comment));
 
         log.info("핀 댓글 수정 완료. projectId={}, pinId={}, commentId={}", projectId, pinId, commentId);
         return UpdatePinCommentResponse.from(comment, pinId);
@@ -126,9 +129,11 @@ public class ProjectPinCommentService {
         UUID currentUserId = projectAccessService.resolveCurrentUserId();
         projectAccessService.validateProjectPinWriterOrThrow(comment.getProjectPin().getProject(), currentUserId);
 
-        if (comment.getStatus() != PinStatus.RESOLVED) {
+        boolean commentResolvedNow = comment.getStatus() != PinStatus.RESOLVED;
+        if (commentResolvedNow) {
             comment.markResolved(currentUserId);
             entityManager.flush();
+            applicationEventPublisher.publishEvent(PinCommentResolvedEvent.from(projectId, pinId, comment));
         }
 
         log.info("댓글 완료 처리 완료. projectId={}, pinId={}, commentId={}, resolverUserId={}",

@@ -5,40 +5,40 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "messageId",
-    "schemaVersion",
-    "messageType",
-    "commandType",
-    "routingKey",
-    "jobId",
-    "jobStepId",
-    "stepNo",
-    "totalSteps",
-    "projectId",
-    "requestedBy",
-    "expectedOutputArtifactId",
-    "expectedOutput",
+    "message_id",
+    "schema_version",
+    "message_type",
+    "command_type",
+    "routing_key",
+    "job_id",
+    "job_step_id",
+    "step_no",
+    "total_steps",
+    "project_id",
+    "requested_by",
+    "expected_output_artifact_id",
+    "expected_output",
     "payload",
-    "attemptNo",
-    "maxAttempts",
-    "idempotencyKey",
-    "correlationId",
-    "createdAt"
+    "attempt_no",
+    "max_attempts",
+    "idempotency_key",
+    "correlation_id",
+    "created_at"
   ],
   "properties": {
-    "messageId": {
+    "message_id": {
       "type": "string",
       "minLength": 1,
       "maxLength": 128
     },
-    "schemaVersion": {
+    "schema_version": {
       "const": "v1"
     },
-    "messageType": {
+    "message_type": {
       "type": "string",
       "enum": ["COMMAND"]
     },
-    "commandType": {
+    "command_type": {
       "type": "string",
       "enum": [
         "TWO_D_LLM_GENERATE",
@@ -48,60 +48,60 @@
         "IFC_EDIT_APPLY"
       ]
     },
-    "routingKey": {
+    "routing_key": {
       "type": "string",
       "minLength": 1,
       "maxLength": 255
     },
-    "jobId": {
+    "job_id": {
       "type": "string",
       "minLength": 1,
       "maxLength": 128
     },
-    "jobStepId": {
+    "job_step_id": {
       "type": "string",
       "minLength": 1,
       "maxLength": 128
     },
-    "stepNo": {
+    "step_no": {
       "type": "integer",
       "minimum": 1
     },
-    "totalSteps": {
+    "total_steps": {
       "type": "integer",
       "minimum": 1
     },
-    "projectId": {
+    "project_id": {
       "type": "string",
       "minLength": 1,
       "maxLength": 128
     },
-    "requestedBy": {
+    "requested_by": {
       "type": "string",
       "minLength": 1,
       "maxLength": 128
     },
-    "sourceRevisionId": {
+    "source_revision_id": {
       "type": ["string", "null"],
       "minLength": 1,
       "maxLength": 128
     },
-    "sourceSceneStateId": {
+    "source_scene_state_id": {
       "type": ["string", "null"],
       "minLength": 1,
       "maxLength": 128
     },
-    "sourceSceneType": {
+    "source_scene_type": {
       "type": ["string", "null"],
       "minLength": 1,
       "maxLength": 64
     },
-    "targetRevisionId": {
+    "target_revision_id": {
       "type": ["string", "null"],
       "minLength": 1,
       "maxLength": 128
     },
-    "expectedOutputArtifactId": {
+    "expected_output_artifact_id": {
       "type": "string",
       "minLength": 1,
       "maxLength": 128
@@ -109,31 +109,31 @@
     "input": {
       "$ref": "#/$defs/commandInputRef"
     },
-    "expectedOutput": {
+    "expected_output": {
       "$ref": "#/$defs/expectedOutputRef"
     },
     "payload": {
       "type": "object"
     },
-    "attemptNo": {
+    "attempt_no": {
       "type": "integer",
       "minimum": 0
     },
-    "maxAttempts": {
+    "max_attempts": {
       "type": "integer",
       "minimum": 1
     },
-    "idempotencyKey": {
+    "idempotency_key": {
       "type": "string",
       "minLength": 1,
       "maxLength": 255
     },
-    "correlationId": {
+    "correlation_id": {
       "type": "string",
       "minLength": 1,
       "maxLength": 255
     },
-    "createdAt": {
+    "created_at": {
       "type": "string",
       "format": "date-time"
     }
@@ -142,10 +142,62 @@
     {
       "if": {
         "properties": {
-          "commandType": {
-            "const": "IFC_GENERATE_FROM_BUBBLE"
+          "command_type": {
+            "const": "TWO_D_LLM_GENERATE"
+          }
+        },
+        "required": ["command_type"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "https://a204.batang/shared/schemas/two_d_llm_generate.payload.schema.json"
           }
         }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_type": {
+            "const": "THREE_D_LLM_GENERATE"
+          }
+        },
+        "required": ["command_type"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "https://a204.batang/shared/schemas/three_d_llm_generate.payload.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_type": {
+            "const": "SD_RENDER_GENERATE"
+          }
+        },
+        "required": ["command_type"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "https://a204.batang/shared/schemas/sd_render_generate.payload.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_type": {
+            "const": "IFC_GENERATE_FROM_BUBBLE"
+          }
+        },
+        "required": ["command_type"]
       },
       "then": {
         "properties": {
@@ -158,10 +210,11 @@
     {
       "if": {
         "properties": {
-          "commandType": {
+          "command_type": {
             "const": "IFC_EDIT_APPLY"
           }
-        }
+        },
+        "required": ["command_type"]
       },
       "then": {
         "properties": {
@@ -182,16 +235,16 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "sourceSceneStorageUrl": {
+        "source_scene_storage_url": {
           "$ref": "#/$defs/storageUrl"
         },
-        "sourceImageStorageUrl": {
+        "source_image_storage_url": {
           "$ref": "#/$defs/storageUrl"
         },
-        "sourceIfcStorageUrl": {
+        "source_ifc_storage_url": {
           "$ref": "#/$defs/storageUrl"
         },
-        "commandJsonStorageUrl": {
+        "command_json_storage_url": {
           "$ref": "#/$defs/storageUrl"
         }
       }
@@ -201,25 +254,25 @@
       "additionalProperties": false,
       "minProperties": 1,
       "properties": {
-        "editPlanStorageUrl": {
+        "edit_plan_storage_url": {
           "$ref": "#/$defs/storageUrl"
         },
-        "draftPlanStorageUrl": {
+        "draft_plan_storage_url": {
           "$ref": "#/$defs/storageUrl"
         },
-        "threeDPlanStorageUrl": {
+        "three_d_plan_storage_url": {
           "$ref": "#/$defs/storageUrl"
         },
-        "renderImageStorageUrl": {
+        "render_image_storage_url": {
           "$ref": "#/$defs/storageUrl"
         },
-        "ifcStorageUrl": {
+        "ifc_storage_url": {
           "$ref": "#/$defs/storageUrl"
         },
-        "validationReportStorageUrl": {
+        "validation_report_storage_url": {
           "$ref": "#/$defs/storageUrl"
         },
-        "errorDetailStorageUrl": {
+        "error_detail_storage_url": {
           "$ref": "#/$defs/storageUrl"
         }
       }
@@ -228,28 +281,28 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "engineRequest": {
-          "$ref": "https://a204.batang/shared/schemas/engine_request.schema.json"
+        "engine_request": {
+          "$ref": "https://a204.batang/shared/schemas/engine_request.v2.schema.json"
         },
-        "commandJsonStorageUrl": {
+        "command_json_storage_url": {
           "$ref": "#/$defs/storageUrl"
         }
       },
       "oneOf": [
         {
-          "required": ["engineRequest"]
+          "required": ["engine_request"]
         },
         {
-          "required": ["commandJsonStorageUrl"]
+          "required": ["command_json_storage_url"]
         }
       ]
     },
     "ifcGeneratePayload": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["layoutImport"],
+      "required": ["layout_import"],
       "properties": {
-        "layoutImport": {
+        "layout_import": {
           "$ref": "https://a204.batang/shared/schemas/layout_import_v1.schema.json"
         }
       }

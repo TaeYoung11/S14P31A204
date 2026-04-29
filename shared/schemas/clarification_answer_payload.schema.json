@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/clarification_answer_payload.schema.json",
+  "title": "ClarificationAnswerPayload",
+  "description": "Structured clarification answer submitted by FE or orchestration layer.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "clarification_request_id",
+    "answered_by",
+    "answered_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "clarification_request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "answered_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "selected_option_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "answer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "answer_payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "answered_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "anyOf": [
+    {
+      "required": ["selected_option_id"]
+    },
+    {
+      "required": ["answer"]
+    },
+    {
+      "required": ["answer_payload"]
+    }
+  ],
+  "examples": [
+    {
+      "schema_version": "v1",
+      "clarification_request_id": "clar-001",
+      "answered_by": "user-001",
+      "selected_option_id": "opt-1",
+      "answered_at": "2026-04-28T10:02:00Z"
+    }
+  ]
+}

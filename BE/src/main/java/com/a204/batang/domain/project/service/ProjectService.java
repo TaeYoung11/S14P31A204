@@ -8,6 +8,8 @@ import com.a204.batang.domain.project.dto.UpdateProjectRequest;
 import com.a204.batang.domain.project.dto.UpdateProjectResponse;
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.repository.ProjectRepository;
+import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
+import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +34,7 @@ import java.util.UUID;
 public class ProjectService {
 
     private final ProjectRepository projectRepository;
+    private final ProjectWorkspaceRepository projectWorkspaceRepository;
     private final ProjectAccessService projectAccessService;
 
     /**
@@ -47,6 +50,7 @@ public class ProjectService {
 
         Project project = Project.create(normalizedName, normalizedDescription);
         Project savedProject = projectRepository.save(project);
+        projectWorkspaceRepository.save(ProjectWorkspace.create(savedProject));
 
         log.info("프로젝트 생성 완료. projectId={}", savedProject.getProjectId());
         return CreateProjectResponse.from(savedProject);
