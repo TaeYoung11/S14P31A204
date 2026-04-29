@@ -5,10 +5,12 @@ import logging
 from datetime import datetime
 from ai_planning_3d.pipeline import LLM3DPipeline
 
-# 로그 설정
-TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
-LOG_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
-log_file = os.path.join(LOG_DIR, f"test_3d_engine_{TIMESTAMP}.log")
+# 로그 설정 (Downloads/batang_history 저장)
+TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M")
+LOG_DIR = os.path.join(os.path.expanduser("~"), "Downloads", "batang_history")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+log_file = os.path.join(LOG_DIR, f"IFC추출테스트_{TIMESTAMP}.log")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,9 +46,9 @@ def emit(message: str = "") -> None:
 # 새 패키지 구조에서 임포트 (상단 이동 완료)
 
 # ── 경로 설정 ────────────────────────────────────────────────────────────────
-IFC_PATH = os.path.join(os.path.expanduser("~"), "Downloads", "batang_sample.ifc")
-OUTPUT_PATH = os.path.join(LOG_DIR, f"batang_sample_modified_{TIMESTAMP}.ifc")
-JSON_LOG_PATH = os.path.join(LOG_DIR, f"test_3d_logs_{TIMESTAMP}.json")
+IFC_PATH = os.path.normpath(os.path.join(os.path.expanduser("~"), "Downloads", "batang_sample.ifc"))
+OUTPUT_PATH = os.path.join(LOG_DIR, f"IFC추출테스트_결과_{TIMESTAMP}.ifc")
+JSON_LOG_PATH = os.path.join(LOG_DIR, f"IFC추출테스트_로그_{TIMESTAMP}.json")
 
 
 async def main():
