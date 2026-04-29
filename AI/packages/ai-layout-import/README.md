@@ -7,7 +7,6 @@
 - Supported input contracts:
   - `ai_domain.LayoutImportV1`
   - `ai_domain.LayoutImportV2`
-- Current IFC output remains `space-only`.
 - Generated IFC entities:
   - `IfcProject`
   - `IfcSite`
@@ -15,16 +14,16 @@
   - `IfcBuildingStorey`
   - `IfcSpace`
   - `IfcZone`
-- Still not generated:
   - `IfcWall`
   - `IfcSlab`
   - `IfcRoof`
+- Still not generated:
   - `IfcDoor`
   - `IfcWindow`
 
 ## V2 contract boundaries
 
-`v2` adds contract fields for future wall/slab/roof generation:
+`v2` adds contract fields and boundary-driven generation for wall/slab/roof:
 
 - `generation_options`
 - extended `modeling_defaults`
@@ -41,6 +40,12 @@ When a `v2` generation option is enabled, the service validates prerequisites be
 - `generate_walls=true` requires `wall_thickness_mm` and floor boundaries
 - `generate_slabs=true` requires `slab_thickness_mm` and floor boundaries
 - `generate_roof=true` requires `roof_height_mm` and a boundary on the top floor
+
+When enabled, generated elements follow these rules:
+
+- wall: one `IfcWall` per floor boundary edge
+- slab: one `IfcSlab` per floor boundary
+- roof: one `IfcRoof` from the top-floor boundary
 
 Opening rules are not part of this ticket and are not validated here.
 
@@ -91,5 +96,5 @@ On validation failure, stderr prints:
 ## Notes
 
 - `v1` input behavior remains unchanged.
-- `v2` currently locks contract shape and validation only.
-- Passing `v2` prerequisites does not cause wall/slab/roof generation yet.
+- `v2` now generates `IfcWall`, `IfcSlab`, and `IfcRoof` from `boundaries`.
+- Shared walls and openings are still not generated.
