@@ -1,0 +1,447 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/scene_2d_snapshot_v1.schema.json",
+  "title": "Scene2DSnapshotV1",
+  "description": "Editable 2D scene snapshot used by FE, Spring Boot, and 2D planner. All geometry is project-global absolute mm coordinates.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scene_type",
+    "scene_id",
+    "name",
+    "units",
+    "coordinate_frame",
+    "floors",
+    "rooms"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "scene_type": {
+      "const": "SCENE_2D"
+    },
+    "scene_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "units": {
+      "const": "mm"
+    },
+    "coordinate_frame": {
+      "$ref": "#/$defs/coordinateFrame"
+    },
+    "floors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/floor"
+      }
+    },
+    "rooms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/room"
+      }
+    },
+    "adjacency": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/adjacency"
+      }
+    },
+    "walls": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/wall"
+      }
+    },
+    "openings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/opening"
+      }
+    },
+    "annotations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/annotation"
+      }
+    },
+    "metadata": {
+      "$ref": "#/$defs/metadata"
+    }
+  },
+  "$defs": {
+    "safeId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "point2Mm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      }
+    },
+    "point3Mm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      }
+    },
+    "coordinateFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "origin_mm", "x_axis", "y_axis"],
+      "properties": {
+        "type": {
+          "const": "PROJECT_GLOBAL_2D_MM"
+        },
+        "origin_mm": {
+          "$ref": "#/$defs/point3Mm"
+        },
+        "x_axis": {
+          "const": "EAST"
+        },
+        "y_axis": {
+          "const": "NORTH"
+        }
+      }
+    },
+    "polygon2d": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "$ref": "#/$defs/point2Mm"
+      }
+    },
+    "rect2dMm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "roomType": {
+      "type": "string",
+      "enum": [
+        "living",
+        "bedroom",
+        "kitchen",
+        "bathroom",
+        "office",
+        "corridor",
+        "other"
+      ]
+    },
+    "shapePreset": {
+      "type": "string",
+      "enum": ["RECT", "L", "U", "POLYGON", "OTHER"]
+    },
+    "floor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "index", "name", "elevation_mm", "default_height_mm"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/safeId"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "elevation_mm": {
+          "type": "number"
+        },
+        "boundary_polygon_mm": {
+          "$ref": "#/$defs/polygon2d"
+        },
+        "default_height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "room": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "type", "floor_id", "shape", "locked"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/safeId"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "type": {
+          "$ref": "#/$defs/roomType"
+        },
+        "floor_id": {
+          "$ref": "#/$defs/safeId"
+        },
+        "shape": {
+          "$ref": "#/$defs/shapePreset"
+        },
+        "locked": {
+          "type": "boolean"
+        },
+        "rects_mm": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/rect2dMm"
+          }
+        },
+        "polygon_mm": {
+          "$ref": "#/$defs/polygon2d"
+        },
+        "bbox_mm": {
+          "$ref": "#/$defs/rect2dMm"
+        },
+        "centroid_mm": {
+          "$ref": "#/$defs/point2Mm"
+        },
+        "space_height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["rects_mm"]
+        },
+        {
+          "required": ["polygon_mm"]
+        }
+      ]
+    },
+    "adjacency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_room_id", "to_room_id", "strength"],
+      "properties": {
+        "from_room_id": {
+          "$ref": "#/$defs/safeId"
+        },
+        "to_room_id": {
+          "$ref": "#/$defs/safeId"
+        },
+        "strength": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "wall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "floor_id", "start_mm", "end_mm", "thickness_mm"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/safeId"
+        },
+        "floor_id": {
+          "$ref": "#/$defs/safeId"
+        },
+        "start_mm": {
+          "$ref": "#/$defs/point2Mm"
+        },
+        "end_mm": {
+          "$ref": "#/$defs/point2Mm"
+        },
+        "thickness_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["EXTERIOR", "INTERIOR", "PARTITION"]
+        }
+      }
+    },
+    "opening": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "floor_id", "type", "host_wall_id", "width_mm"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/safeId"
+        },
+        "floor_id": {
+          "$ref": "#/$defs/safeId"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["door", "window", "opening"]
+        },
+        "host_wall_id": {
+          "$ref": "#/$defs/safeId"
+        },
+        "center_mm": {
+          "$ref": "#/$defs/point2Mm"
+        },
+        "width_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "text"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/safeId"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["label", "dimension", "note"]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "anchor_mm": {
+          "$ref": "#/$defs/point2Mm"
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "source_revision_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "source_scene_state_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "updated_by": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "v1",
+      "scene_type": "SCENE_2D",
+      "scene_id": "scene-state-001",
+      "name": "sample-floor-plan",
+      "units": "mm",
+      "coordinate_frame": {
+        "type": "PROJECT_GLOBAL_2D_MM",
+        "origin_mm": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "x_axis": "EAST",
+        "y_axis": "NORTH"
+      },
+      "floors": [
+        {
+          "id": "floor-1",
+          "index": 1,
+          "name": "1F",
+          "elevation_mm": 0,
+          "default_height_mm": 2700
+        }
+      ],
+      "rooms": [
+        {
+          "id": "room-living-01",
+          "name": "거실",
+          "type": "living",
+          "floor_id": "floor-1",
+          "shape": "RECT",
+          "locked": false,
+          "rects_mm": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 4200,
+              "height": 3800
+            }
+          ],
+          "bbox_mm": {
+            "x": 0,
+            "y": 0,
+            "width": 4200,
+            "height": 3800
+          }
+        }
+      ]
+    }
+  ]
+}

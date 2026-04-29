@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/engine_request_v2.schema.json",
+  "title": "EngineRequestV2LegacyAlias",
+  "description": "Legacy alias. Use engine_request.v2.schema.json as the canonical entrypoint.",
+  "$ref": "https://a204.batang/shared/schemas/engine_request.v2.schema.json"
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/planner_3d_result_v1.schema.json",
+  "title": "Planner3DResultV1LegacyAlias",
+  "description": "Legacy alias. Use planner_3d_result.v1.schema.json as the canonical versioned entrypoint.",
+  "$ref": "https://a204.batang/shared/schemas/planner_3d_result.v1.schema.json"
+}
