@@ -11,6 +11,7 @@
     "scene_id",
     "name",
     "units",
+    "coordinate_frame",
     "storeys",
     "elements"
   ],
@@ -33,6 +34,9 @@
     },
     "units": {
       "const": "mm"
+    },
+    "coordinate_frame": {
+      "const": "PROJECT_GLOBAL_3D_MM"
     },
     "storeys": {
       "type": "array",
@@ -147,6 +151,23 @@
         }
       }
     },
+    "supportRole": {
+      "type": "string",
+      "enum": ["load_bearing", "supporting", "non_structural", "unknown"]
+    },
+    "structural": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["is_load_bearing", "support_role"],
+      "properties": {
+        "is_load_bearing": {
+          "type": ["boolean", "null"]
+        },
+        "support_role": {
+          "$ref": "#/$defs/supportRole"
+        }
+      }
+    },
     "storey": {
       "type": "object",
       "additionalProperties": false,
@@ -200,6 +221,7 @@
           "$ref": "#/$defs/bbox3dMm"
         },
         "centroid_mm": {
+          "description": "Absolute centroid in IFC project/world coordinates, measured in millimeters.",
           "$ref": "#/$defs/point3Mm"
         }
       }
@@ -255,9 +277,11 @@
           "maxLength": 128
         },
         "placement_mm": {
+          "description": "Absolute placement in IFC project/world coordinates, measured in millimeters.",
           "$ref": "#/$defs/point3Mm"
         },
         "bbox_mm": {
+          "description": "Absolute world-space bounding box in IFC project/world coordinates, measured in millimeters.",
           "$ref": "#/$defs/bbox3dMm"
         },
         "dimensions_mm": {
@@ -270,8 +294,26 @@
         },
         "color": {
           "$ref": "#/$defs/color"
+        },
+        "structural": {
+          "$ref": "#/$defs/structural"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "element_type": {
+                "enum": ["IfcWall", "IfcSlab", "IfcColumn", "IfcBeam", "IfcRoof"]
+              }
+            },
+            "required": ["element_type"]
+          },
+          "then": {
+            "required": ["structural"]
+          }
+        }
+      ]
     },
     "metadata": {
       "type": "object",
@@ -318,6 +360,7 @@
       "scene_id": "scene-state-3d-001",
       "name": "sample-3d-context",
       "units": "mm",
+      "coordinate_frame": "PROJECT_GLOBAL_3D_MM",
       "storeys": [
         {
           "id": "storey-1",
@@ -335,10 +378,19 @@
           "storey": "1F",
           "direction": "North",
           "azimuth_deg": 0,
+          "placement_mm": {
+            "x": 5000,
+            "y": 2000,
+            "z": 0
+          },
           "dimensions_mm": {
             "length": 5000,
             "width": 200,
             "height": 2800
+          },
+          "structural": {
+            "is_load_bearing": true,
+            "support_role": "load_bearing"
           }
         }
       ],

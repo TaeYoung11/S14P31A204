@@ -114,6 +114,10 @@
       "type": "string",
       "enum": ["FLAT", "GABLED"]
     },
+    "coordinateSpace": {
+      "type": "string",
+      "enum": ["PROJECT_ABSOLUTE_MM"]
+    },
     "point2Mm": {
       "type": "object",
       "additionalProperties": false,
@@ -136,6 +140,7 @@
     },
     "point3Mm": {
       "type": "object",
+      "description": "3D point in IFC project/world coordinates, measured in millimeters unless overridden by a field-specific description.",
       "additionalProperties": false,
       "required": ["x", "y", "z"],
       "properties": {
@@ -152,6 +157,7 @@
     },
     "translationMm": {
       "type": "object",
+      "description": "World-axis translation delta in millimeters.",
       "additionalProperties": false,
       "required": ["x", "y", "z"],
       "properties": {
@@ -386,6 +392,7 @@
           "$ref": "#/$defs/absoluteDimensionsMm"
         },
         "location_mm": {
+          "description": "Absolute IFC project/world coordinate in millimeters.",
           "$ref": "#/$defs/point3Mm"
         },
         "space_height_mm": {
@@ -580,7 +587,7 @@
     "createElementParameters": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["element_type", "storey"],
+      "required": ["element_type", "storey", "coordinate_space"],
       "properties": {
         "element_type": {
           "$ref": "#/$defs/createableElementType"
@@ -603,10 +610,15 @@
         "direction": {
           "$ref": "#/$defs/direction"
         },
+        "coordinate_space": {
+          "$ref": "#/$defs/coordinateSpace"
+        },
         "start_mm": {
+          "description": "Absolute IFC project/world coordinate in millimeters. The z value must already include storey elevation.",
           "$ref": "#/$defs/point3Mm"
         },
         "end_mm": {
+          "description": "Absolute IFC project/world coordinate in millimeters. The z value must already include storey elevation.",
           "$ref": "#/$defs/point3Mm"
         },
         "azimuth_deg": {

@@ -197,6 +197,10 @@
       "type": "string",
       "enum": ["FLAT", "GABLED"]
     },
+    "coordinateSpace": {
+      "type": "string",
+      "enum": ["PROJECT_ABSOLUTE_MM"]
+    },
     "color": {
       "type": "string",
       "minLength": 1,
@@ -445,7 +449,7 @@
     "threeDCreateInfo": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["element_type", "storey"],
+      "required": ["element_type", "storey", "coordinate_space"],
       "properties": {
         "element_type": {
           "$ref": "#/$defs/createableElementType"
@@ -463,10 +467,15 @@
         "direction": {
           "$ref": "#/$defs/direction"
         },
+        "coordinate_space": {
+          "$ref": "#/$defs/coordinateSpace"
+        },
         "start_point_mm": {
+          "description": "Absolute IFC project/world coordinate in millimeters. The z value must already include storey elevation.",
           "$ref": "#/$defs/point3Mm"
         },
         "end_point_mm": {
+          "description": "Absolute IFC project/world coordinate in millimeters. The z value must already include storey elevation.",
           "$ref": "#/$defs/point3Mm"
         },
         "azimuth_deg": {
