@@ -101,7 +101,9 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     if (!isFloorPlanGenerated && bubbles.length > 0 && stageSize.width > 0) {
       generateFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
     }
-  }, [isFloorPlanGenerated, bubbles, connections, stageSize.width, stageSize.height, generateFloorPlan])
+    // Only auto-generate on initial availability; later geometry updates use refreshFloorPlan.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFloorPlanGenerated, bubbles.length, stageSize.width])
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [addSpaceFormData, setAddSpaceFormData] = useState<AddSpaceFormData>(INITIAL_ADD_SPACE_FORM)
@@ -117,7 +119,7 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
   const [isIFCExportModalOpen, setIsIFCExportModalOpen] = useState(false)
   const [zoom, setZoom] = useState(100)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
-  const [autosaveReady, setAutosaveReady] = useState(false)
+  const [autosaveReadyProjectId, setAutosaveReadyProjectId] = useState<string | null>(null)
 
   const localVersionRef = useRef(initialDraft ? 1 : 0)
   const previousSnapshotRef = useRef<string | null>(null)
@@ -183,11 +185,9 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
   useEffect(() => {
     let isCancelled = false
 
-    setAutosaveReady(false)
     previousSnapshotRef.current = null
 
     if (!projectId) {
-      setAutosaveReady(true)
       return () => {
         isCancelled = true
       }
@@ -197,11 +197,11 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
       .then((draft) => {
         if (isCancelled) return
         localVersionRef.current = draft?.versionNo ?? 0
-        setAutosaveReady(true)
+        setAutosaveReadyProjectId(projectId)
       })
       .catch(() => {
         if (isCancelled) return
-        setAutosaveReady(true)
+        setAutosaveReadyProjectId(projectId)
       })
 
     return () => {
@@ -210,14 +210,14 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
   }, [projectId])
 
   useEffect(() => {
-    if (!projectId || !autosaveReady) return
+    if (!projectId || autosaveReadyProjectId !== projectId) return
 
     const serializedSnapshot = JSON.stringify(draftSnapshot)
 
     // 최초 준비 시: 현재 스냅샷을 기준선으로만 설정하고 저장은 건너뜀
     if (previousSnapshotRef.current === null) {
       previousSnapshotRef.current = serializedSnapshot
-      return
+      if (!hasUserEditedRef.current) return
     }
 
     if (previousSnapshotRef.current === serializedSnapshot) return
@@ -250,7 +250,7 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
           setSaveStatus('error')
         })
     }, 1000)
-  }, [draftSnapshot, projectId, autosaveReady])
+  }, [draftSnapshot, projectId, autosaveReadyProjectId])
 
   const markLocalDraftDirty = () => {
     hasUserEditedRef.current = true
@@ -472,6 +472,5 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     isIFCExportModalOpen,
     handleOpenIFCExportModal: () => setIsIFCExportModalOpen(true),
     onCloseIFCExportModal: () => setIsIFCExportModalOpen(false),
-    draftSnapshot,
   }
 }

@@ -96,6 +96,7 @@ export default function EditorPage() {
       />
 
       <ExportModal
+        key={isExportModalOpen ? 'export-open' : 'export-closed'}
         isOpen={isExportModalOpen}
         onClose={onCloseExportModal}
       />
@@ -111,6 +112,7 @@ export default function EditorPage() {
       />
 
       <IFCExportModal
+        key={isIFCExportModalOpen ? 'ifc-export-open' : 'ifc-export-closed'}
         isOpen={isIFCExportModalOpen}
         onClose={onCloseIFCExportModal}
       />
