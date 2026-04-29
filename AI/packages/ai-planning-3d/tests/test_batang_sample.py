@@ -9,6 +9,7 @@ from ai_planning_3d.command import (
     LLM3DCommandType,
     LLM3DCreateInfo,
     LLM3DElementType,
+    LLM3DTarget,
 )
 from ai_planning_3d.pipeline import LLM3DPipeline
 
@@ -77,7 +78,7 @@ async def run_sample_test() -> None:
             height_mm=3000,
         ),
     )
-    res_create = await pipeline._execute_create_preview(cmd_create)
+    res_create = await pipeline.execute_command_preview(cmd_create)
     if res_create.get("collision_warnings"):
         log_result("Detected: collision with an existing 1F wall.")
         for warn in res_create["collision_warnings"]:
@@ -112,9 +113,9 @@ async def run_sample_test() -> None:
 
     cmd_del = LLM3DCommand(
         command_type=LLM3DCommandType.DELETE,
-        targets=[{"global_id": target_wall.GlobalId, "name": target_wall.Name}],
+        target=LLM3DTarget(global_id=target_wall.GlobalId, name=target_wall.Name),
     )
-    res_del = await pipeline._execute_delete_preview(cmd_del)
+    res_del = await pipeline.execute_command_preview(cmd_del)
     log_result(f"Result: {res_del.get('status')}")
     if res_del.get("structural_warnings"):
         log_result("Detected: load-bearing wall deletion was blocked.")

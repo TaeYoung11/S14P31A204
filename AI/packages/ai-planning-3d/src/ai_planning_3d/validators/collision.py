@@ -1,8 +1,4 @@
 ﻿"""Collision and space-boundary validation for IFC CREATE previews.
-
-Ticket #208:
-- Detect physical overlap between a newly requested element and existing IFC products.
-- Detect whether the new element is outside the requested IfcSpace boundary.
 """
 
 from __future__ import annotations

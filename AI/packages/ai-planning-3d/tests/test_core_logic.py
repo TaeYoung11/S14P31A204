@@ -4,7 +4,13 @@ import ifcopenshell
 import ifcopenshell.api
 import ifcopenshell.guid
 from ai_planning_3d.pipeline import LLM3DPipeline
-from ai_planning_3d.command import LLM3DCommand, LLM3DCommandType, LLM3DElementType, LLM3DCreateInfo
+from ai_planning_3d.command import (
+    LLM3DCommand,
+    LLM3DCommandType,
+    LLM3DCreateInfo,
+    LLM3DElementType,
+    LLM3DTarget,
+)
 
 # 로그 설정 (Downloads/batang_history 저장)
 from datetime import datetime
@@ -83,7 +89,7 @@ async def run_test():
         product=wall1, representation=wall1_rep
     )
     
-    # 내력벽 속성 추가 (#209 테스트용)
+    # 내력벽 속성 추가
     pset = ifcopenshell.api.run("pset.add_pset", model, product=wall1, name="Pset_WallCommon")
     ifcopenshell.api.run("pset.edit_pset", model, pset=pset, properties={"LoadBearing": True})
 
@@ -96,8 +102,10 @@ async def run_test():
     )
     # 위치: X=4000 (wall1에서 1000mm 정도 떨어짐)
     # 단위행렬 + X 방향 이동 (numpy 의존성 제거)
+    # Position: X=4000mm. ifcopenshell placement matrix uses model units (meters here).
+    wall2_offset_m = 4000.0 / 1000.0
     wall2_matrix = [
-        [1.0, 0.0, 0.0, 4.0],
+        [1.0, 0.0, 0.0, wall2_offset_m],
         [0.0, 1.0, 0.0, 0.0],
         [0.0, 0.0, 1.0, 0.0],
         [0.0, 0.0, 0.0, 1.0],
@@ -126,9 +134,9 @@ async def run_test():
     # AI 해석 없이 삭제 명령 객체 직접 생성 (wall1의 ID 지정)
     cmd_del = LLM3DCommand(
         command_type=LLM3DCommandType.DELETE,
-        targets=[{"global_id": wall1.GlobalId, "name": wall1.Name}]
+        target=LLM3DTarget(global_id=wall1.GlobalId, name=wall1.Name),
     )
-    res_del = await pipeline._execute_delete_preview(cmd_del)
+    res_del = await pipeline.execute_command_preview(cmd_del)
     log_result(f"명령 결과: {res_del.get('status')}")
     if res_del.get("structural_warnings"):
         log_result("✅ 차단 성공: 내력벽 삭제 시도를 감지하고 차단했습니다.")
@@ -149,7 +157,7 @@ async def run_test():
         )
     )
     # AI 해석 단계를 건너뛰고 생성 로직만 직접 테스트
-    res_create = await pipeline._execute_create_preview(cmd_create)
+    res_create = await pipeline.execute_command_preview(cmd_create)
     log_result(f"명령 결과: {res_create.get('status')}")
     if res_create.get("collision_warnings"):
         log_result("✅ 감지 성공: 기존 벽과의 물리적 충돌을 찾아냈습니다.")

@@ -1,6 +1,5 @@
 """
 AdjacencyQueryEngine — 공간 인접성 기반 컨텍스트 참조 고도화
-Ticket #210: 다중 부재 편집을 위한 공간 인접성 기반 컨텍스트 참조 고도화
 """
 from __future__ import annotations
 
@@ -129,19 +128,12 @@ class AdjacencyQueryEngine:
         placement = getattr(element, "ObjectPlacement", None)
         if not placement or not placement.is_a("IfcLocalPlacement"):
             return None
-
-        coords_sum = [0.0, 0.0, 0.0]
-        current = placement
-        while current and current.is_a("IfcLocalPlacement"):
-            rel = getattr(current, "RelativePlacement", None)
-            loc = getattr(rel, "Location", None) if rel else None
-            coords = tuple(getattr(loc, "Coordinates", ()) or ())
-            if len(coords) >= 3:
-                coords_sum[0] += float(coords[0]) * self._scale
-                coords_sum[1] += float(coords[1]) * self._scale
-                coords_sum[2] += float(coords[2]) * self._scale
-            current = getattr(current, "PlacementRelTo", None)
-        return tuple(coords_sum)
+        matrix = self._placement_matrix(placement)
+        return (
+            matrix[0][3] * self._scale,
+            matrix[1][3] * self._scale,
+            matrix[2][3] * self._scale,
+        )
 
     def _distance_and_dot(self, ref, target, direction) -> tuple[float, float]:
         dx, dy = target[0] - ref[0], target[1] - ref[1]
@@ -162,11 +154,91 @@ class AdjacencyQueryEngine:
             "center_mm": {"x": cx, "y": cy, "z": cz},
             "dims": {
                 "z_mm": cz,
+                "x_axis_mm": lx,
+                "y_axis_mm": ly,
+                "z_axis_mm": lz,
                 "height_mm": lz,
                 "width_mm": ly,
                 "length_mm": lx,
             },
         }
+
+    def _placement_matrix(
+        self,
+        placement: ifcopenshell.entity_instance | None,
+    ) -> list[list[float]]:
+        if not placement or not placement.is_a("IfcLocalPlacement"):
+            return self._identity_matrix()
+
+        parent = self._placement_matrix(getattr(placement, "PlacementRelTo", None))
+        local = self._axis2placement_matrix(getattr(placement, "RelativePlacement", None))
+        return self._matmul(parent, local)
+
+    def _axis2placement_matrix(
+        self,
+        placement: ifcopenshell.entity_instance | None,
+    ) -> list[list[float]]:
+        loc = getattr(placement, "Location", None) if placement else None
+        coords = tuple(getattr(loc, "Coordinates", ()) or ())
+        origin = self._pad3(coords, default=0.0)
+
+        axis = getattr(placement, "Axis", None) if placement else None
+        ref = getattr(placement, "RefDirection", None) if placement else None
+        z_axis = self._normalize(self._pad3(getattr(axis, "DirectionRatios", (0, 0, 1))))
+        x_axis = self._normalize(self._pad3(getattr(ref, "DirectionRatios", (1, 0, 0))))
+        y_axis = self._normalize(self._cross(z_axis, x_axis))
+        x_axis = self._normalize(self._cross(y_axis, z_axis))
+
+        return [
+            [x_axis[0], y_axis[0], z_axis[0], origin[0]],
+            [x_axis[1], y_axis[1], z_axis[1], origin[1]],
+            [x_axis[2], y_axis[2], z_axis[2], origin[2]],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+
+    def _identity_matrix(self) -> list[list[float]]:
+        return [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+
+    def _matmul(
+        self,
+        a: list[list[float]],
+        b: list[list[float]],
+    ) -> list[list[float]]:
+        return [
+            [sum(a[row][i] * b[i][col] for i in range(4)) for col in range(4)]
+            for row in range(4)
+        ]
+
+    def _pad3(self, values: Any, default: float = 0.0) -> tuple[float, float, float]:
+        coords = list(values or ())
+        while len(coords) < 3:
+            coords.append(default)
+        return float(coords[0]), float(coords[1]), float(coords[2])
+
+    def _normalize(
+        self,
+        vector: tuple[float, float, float],
+    ) -> tuple[float, float, float]:
+        length = math.sqrt(sum(component * component for component in vector))
+        if length < 1e-9:
+            return 0.0, 0.0, 0.0
+        return tuple(component / length for component in vector)
+
+    def _cross(
+        self,
+        a: tuple[float, float, float],
+        b: tuple[float, float, float],
+    ) -> tuple[float, float, float]:
+        return (
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        )
 
     def _element_dims_mm(
         self,

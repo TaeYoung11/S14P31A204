@@ -1,6 +1,5 @@
 """
 StructuralSafetyValidator — 건축적 유효성 및 구조 안정성 사후 검증
-Ticket #209: 건축적 유효성 및 구조 안정성 사후 검증 필터 구현
 """
 from __future__ import annotations
 

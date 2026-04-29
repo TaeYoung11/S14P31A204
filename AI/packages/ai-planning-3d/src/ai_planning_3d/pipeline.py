@@ -291,6 +291,10 @@ class LLM3DPipeline:
 
     async def execute_preview(self, user_text: str) -> dict[str, Any]:
         command = await self.engine.parse_command(user_text)
+        return await self.execute_command_preview(command)
+
+    async def execute_command_preview(self, command: LLM3DCommand) -> dict[str, Any]:
+        """Run preview validation for an already parsed command object."""
         if command.ambiguity_question:
             return {
                 "status": "needs_clarification",
@@ -310,7 +314,7 @@ class LLM3DPipeline:
                 "command": command.model_dump(),
             }
 
-        # ── [#209] DELETE: 내력벽 구조 차단 검사 ──────────────────────────
+        # ── DELETE: 내력벽 구조 차단 검사 ──────────────────────────
         if command.command_type == LLM3DCommandType.DELETE:
             structural_result = self._run_structural_delete_check(matched)
             if structural_result.blocked:
@@ -337,7 +341,7 @@ class LLM3DPipeline:
         )
         self.store[session.session_id] = session
 
-        # ── [#209] MODIFY/DELETE: 구조 경고 수집 (차단 없음) ─────────────
+        # ── MODIFY/DELETE: 구조 경고 수집 (차단 없음) ─────────────
         if command.command_type == LLM3DCommandType.DELETE and self._structural_validator:
             session.structural_warnings = structural_result.to_summary_lines()
 
@@ -446,7 +450,7 @@ class LLM3DPipeline:
         finally:
             self.store.pop(session_id, None)
 
-    # ── [#208/#209] CREATE 미리보기 — 충돌 + 구조 검증 통합 ──────────────
+    # ── CREATE 미리보기 — 충돌 + 구조 검증 통합 ──────────────
 
     async def _execute_delete_preview(self, command: LLM3DCommand) -> dict[str, Any]:
         model = self.query_engine.get_model()
@@ -543,7 +547,7 @@ class LLM3DPipeline:
         if ci_dump.get("ridge_height_mm") is not None:
             ci.ridge_height_mm = ci_dump["ridge_height_mm"]
 
-        # ── [#208] 충돌 검사 ────────────────────────────────────────────
+        # ── 충돌 검사 ────────────────────────────────────────────
         collision_warnings: list[str] = []
         if self._collision_validator:
             collision_result: CollisionResult = self._collision_validator.validate(
@@ -555,7 +559,7 @@ class LLM3DPipeline:
                     f"[Pipeline] CREATE 충돌 감지: {collision_warnings}"
                 )
 
-        # ── [#209] 구조 지지체 검사 (슬래브/지붕) ─────────────────────
+        # ── 구조 지지체 검사 (슬래브/지붕) ─────────────────────
         structural_warnings: list[str] = []
         if self._structural_validator:
             structural_result: StructuralCheckResult = (
@@ -626,7 +630,7 @@ class LLM3DPipeline:
             }
         return {"status": "error", "summary": "생성 실패"}
 
-    # ── [#209] DELETE 구조 검사 헬퍼 ─────────────────────────────────────
+    # ── DELETE 구조 검사 헬퍼 ─────────────────────────────────────
 
     def _run_structural_delete_check(
         self, matched: list[dict[str, Any]]
@@ -655,7 +659,7 @@ class LLM3DPipeline:
 
         return StructuralCheckResult(safe=True, warnings=all_warnings)
 
-    # ── [#210] 인접 부재 탐색 공개 메서드 ────────────────────────────────
+    # ── 인접 부재 탐색 공개 메서드 ────────────────────────────────
 
     def find_adjacent_elements(
         self,
