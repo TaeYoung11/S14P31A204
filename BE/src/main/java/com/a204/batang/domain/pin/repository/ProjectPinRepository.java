@@ -1,5 +1,6 @@
 package com.a204.batang.domain.pin.repository;
 
+import com.a204.batang.domain.pin.entity.PinStatus;
 import com.a204.batang.domain.pin.entity.ProjectPin;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -28,8 +29,13 @@ public interface ProjectPinRepository extends JpaRepository<ProjectPin, UUID> {
             FROM ProjectPin pin
             WHERE pin.project.projectId = :projectId
               AND pin.deletedAt IS NULL
+              AND pin.status <> :resolvedStatus
             """)
-    Page<ProjectPin> findActivePinsByProjectId(@Param("projectId") UUID projectId, Pageable pageable);
+    Page<ProjectPin> findActivePinsByProjectId(
+            @Param("projectId") UUID projectId,
+            @Param("resolvedStatus") PinStatus resolvedStatus,
+            Pageable pageable
+    );
 
     /**
      * 현재 사용자 기준 타인이 작성한 핀 개수를 조회한다.
@@ -43,12 +49,14 @@ public interface ProjectPinRepository extends JpaRepository<ProjectPin, UUID> {
             FROM ProjectPin pin
             WHERE pin.project.projectId = :projectId
               AND pin.deletedAt IS NULL
+              AND pin.status <> :resolvedStatus
               AND pin.authorUserId IS NOT NULL
               AND pin.authorUserId <> :currentUserId
             """)
     long countActiveOtherUserPins(
             @Param("projectId") UUID projectId,
-            @Param("currentUserId") UUID currentUserId
+            @Param("currentUserId") UUID currentUserId,
+            @Param("resolvedStatus") PinStatus resolvedStatus
     );
 
     /**
@@ -64,6 +72,7 @@ public interface ProjectPinRepository extends JpaRepository<ProjectPin, UUID> {
             FROM ProjectPin pin
             WHERE pin.project.projectId = :projectId
               AND pin.deletedAt IS NULL
+              AND pin.status <> :resolvedStatus
               AND pin.authorUserId IS NOT NULL
               AND pin.authorUserId <> :currentUserId
               AND pin.createdAt > :lastReadAt
@@ -71,7 +80,8 @@ public interface ProjectPinRepository extends JpaRepository<ProjectPin, UUID> {
     long countUnreadOtherUserPins(
             @Param("projectId") UUID projectId,
             @Param("currentUserId") UUID currentUserId,
-            @Param("lastReadAt") LocalDateTime lastReadAt
+            @Param("lastReadAt") LocalDateTime lastReadAt,
+            @Param("resolvedStatus") PinStatus resolvedStatus
     );
 
     /**

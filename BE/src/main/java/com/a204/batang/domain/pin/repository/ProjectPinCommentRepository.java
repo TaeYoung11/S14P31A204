@@ -132,6 +132,7 @@ public interface ProjectPinCommentRepository extends JpaRepository<ProjectPinCom
             SELECT DISTINCT comment.projectPin.pinId
             FROM ProjectPinComment comment
             WHERE comment.projectPin.pinId IN :pinIds
+              AND comment.projectPin.status <> :resolvedStatus
               AND comment.deletedAt IS NULL
               AND comment.authorUserId IS NOT NULL
               AND comment.authorUserId <> :userId
@@ -148,7 +149,8 @@ public interface ProjectPinCommentRepository extends JpaRepository<ProjectPinCom
     List<UUID> findUnreadCommentPinIdsByUser(
             @Param("pinIds") List<UUID> pinIds,
             @Param("userId") UUID userId,
-            @Param("fallbackReadAt") LocalDateTime fallbackReadAt
+            @Param("fallbackReadAt") LocalDateTime fallbackReadAt,
+            @Param("resolvedStatus") PinStatus resolvedStatus
     );
 
     /**
@@ -206,6 +208,7 @@ public interface ProjectPinCommentRepository extends JpaRepository<ProjectPinCom
             SELECT COUNT(DISTINCT comment.projectPin.pinId)
             FROM ProjectPinComment comment
             WHERE comment.projectPin.project.projectId = :projectId
+              AND comment.projectPin.status <> :resolvedStatus
               AND comment.deletedAt IS NULL
               AND comment.authorUserId IS NOT NULL
               AND comment.authorUserId <> :userId
@@ -222,6 +225,7 @@ public interface ProjectPinCommentRepository extends JpaRepository<ProjectPinCom
     long countUnreadCommentPins(
             @Param("projectId") UUID projectId,
             @Param("userId") UUID userId,
-            @Param("fallbackReadAt") LocalDateTime fallbackReadAt
+            @Param("fallbackReadAt") LocalDateTime fallbackReadAt,
+            @Param("resolvedStatus") PinStatus resolvedStatus
     );
 }
