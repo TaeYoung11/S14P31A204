@@ -483,13 +483,53 @@ def test_align_walls_skips_for_empty_triangles() -> None:
 
 
 def test_iso_views_all_in_enum() -> None:
-    """등각 뷰 5개가 IFCView enum에 모두 등록됨."""
+    """등각 뷰 5개 + EYE 수평 등각 3개가 IFCView enum에 모두 등록됨."""
     assert IFCView.ISO_NE in IFCView
     assert IFCView.ISO_NW in IFCView
     assert IFCView.ISO_SE in IFCView
     assert IFCView.CORNER_LOW in IFCView
     assert IFCView.BIRDS_EYE in IFCView
-    assert len(list(IFCView)) == 8  # FRONT/SIDE/TOP + 5등각
+    assert IFCView.EYE_NE in IFCView
+    assert IFCView.EYE_NW in IFCView
+    assert IFCView.EYE_SE in IFCView
+    # FRONT/SIDE/TOP + ISO_*×3 + CORNER_LOW + BIRDS_EYE + EYE_*×3
+    assert len(list(IFCView)) == 11
+
+
+def test_eye_views_all_in_enum() -> None:
+    """EYE_NE/NW/SE 3개가 IFCView enum에 등록 + 5 dict 모두 매핑 보유.
+
+    Phase 3 회귀 방어 — 신규 view 추가 시 dict 매핑 누락하면 KeyError.
+    """
+    from ai_rendering.ifc2img.views import VIEW_CAMERAS
+
+    eye_views = (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE)
+    for v in eye_views:
+        assert v in IFCView
+        assert v in VIEW_CAMERAS
+        assert v in VIEW_TARGET_RATIOS
+        assert v in VIEW_PROMPT_SUFFIXES
+        assert v in VIEW_NEGATIVE_SUFFIXES
+        assert v in VIEW_CN_SCALE_OVERRIDES
+
+
+def test_eye_views_have_zero_z_for_horizontal() -> None:
+    """EYE_*의 카메라 front 벡터 z 성분이 0.0 — 사람 시선 *완전 수평*.
+
+    ISO_*은 z=0.5(위에서 등각)이라 *대조*. EYE는 z=0 보장이 핵심 정체성.
+    """
+    from ai_rendering.ifc2img.views import VIEW_CAMERAS
+
+    for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
+        cam = VIEW_CAMERAS[v]
+        assert cam.front[2] == 0.0, f"{v} front.z must be 0 for horizontal eye view"
+
+
+def test_default_render_views_includes_eye() -> None:
+    """기본 render_views()에 EYE_* 3개 모두 포함 — 8뷰 default."""
+    for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
+        assert v in DEFAULT_RENDER_VIEWS
+    assert len(DEFAULT_RENDER_VIEWS) == 8
 
 
 def test_default_render_views_excludes_hallucination_prone() -> None:
@@ -505,7 +545,7 @@ def test_default_render_views_excludes_hallucination_prone() -> None:
     excluded = {IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW}
     for v in excluded:
         assert v not in DEFAULT_RENDER_VIEWS
-    assert len(DEFAULT_RENDER_VIEWS) == 5
+    assert len(DEFAULT_RENDER_VIEWS) == 8  # FRONT/SIDE/ISO_*×3 + EYE_*×3
     expected = set(IFCView) - excluded
     assert set(DEFAULT_RENDER_VIEWS) == expected
 
