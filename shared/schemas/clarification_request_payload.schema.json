@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/clarification_request_payload.schema.json",
+  "title": "ClarificationRequestPayload",
+  "description": "Structured clarification request stored in DB and optionally delivered to FE.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "clarification_request_id",
+    "job_id",
+    "job_step_id",
+    "project_id",
+    "requested_by",
+    "status",
+    "question",
+    "asked_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "clarification_request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "job_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "job_step_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "requested_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source_worker_type": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "answered", "cancelled", "expired"]
+    },
+    "question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "options": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/clarificationOption"
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "asked_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "clarificationOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "value": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "v1",
+      "clarification_request_id": "clar-001",
+      "job_id": "job-001",
+      "job_step_id": "step-001",
+      "project_id": "project-001",
+      "requested_by": "user-001",
+      "source_worker_type": "planning-3d",
+      "status": "pending",
+      "question": "Which floor should be modified?",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "1F"
+        },
+        {
+          "id": "opt-2",
+          "label": "2F"
+        }
+      ],
+      "asked_at": "2026-04-28T10:00:00Z"
+    }
+  ]
+}

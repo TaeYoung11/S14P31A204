@@ -1,0 +1,761 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/planner_3d_result.v1.schema.json",
+  "title": "Planner3DResultV1",
+  "description": "Normalized result returned by ai-planning-3d before wrapper maps it to EngineRequestV2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "planner_type",
+    "request_id",
+    "project_id",
+    "base_revision_id",
+    "source_scene_type",
+    "status",
+    "commands",
+    "issues"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "planner_type": {
+      "const": "3d"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "project_id": {
+      "$ref": "#/$defs/safeId"
+    },
+    "base_revision_id": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/safeId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source_scene_type": {
+      "const": "SCENE_3D"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ready", "clarification_required", "invalid_instruction"]
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/planner3dCommand"
+      }
+    },
+    "clarification": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/clarification"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/plannerIssue"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "ready"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "commands": {
+            "minItems": 1
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/$defs/nonErrorPlannerIssue"
+            }
+          },
+          "clarification": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "clarification_required"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["clarification"],
+        "properties": {
+          "commands": {
+            "maxItems": 0
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/$defs/nonErrorPlannerIssue"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "invalid_instruction"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "commands": {
+            "maxItems": 0
+          },
+          "issues": {
+            "minItems": 1,
+            "contains": {
+              "$ref": "#/$defs/errorPlannerIssue"
+            }
+          },
+          "clarification": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "safeId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "globalId": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z_$]{22}$"
+    },
+    "selectableElementType": {
+      "type": "string",
+      "enum": [
+        "IfcWall",
+        "IfcSlab",
+        "IfcColumn",
+        "IfcBeam",
+        "IfcDoor",
+        "IfcWindow",
+        "IfcStair",
+        "IfcRoof",
+        "IfcOpeningElement"
+      ]
+    },
+    "createableElementType": {
+      "type": "string",
+      "enum": [
+        "IfcWall",
+        "IfcSlab",
+        "IfcColumn",
+        "IfcBeam",
+        "IfcDoor",
+        "IfcWindow",
+        "IfcStair",
+        "IfcRoof"
+      ]
+    },
+    "sizeMode": {
+      "type": "string",
+      "enum": ["ABSOLUTE", "RELATIVE"]
+    },
+    "direction": {
+      "type": "string",
+      "enum": ["North", "South", "East", "West"]
+    },
+    "roofShapePreset": {
+      "type": "string",
+      "enum": ["FLAT", "GABLED"]
+    },
+    "color": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(#[0-9A-Fa-f]{6}|[A-Za-z][A-Za-z0-9 _-]{0,63})$"
+    },
+    "point3Mm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      }
+    },
+    "rotationDeg3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      }
+    },
+    "positionChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "x", "y", "z"],
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/sizeMode"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      }
+    },
+    "dimensionChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "value"],
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/sizeMode"
+        },
+        "value": {
+          "type": "number"
+        }
+      }
+    },
+    "plannerIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["info", "warning", "error"]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "nonErrorPlannerIssue": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/plannerIssue"
+        },
+        {
+          "properties": {
+            "severity": {
+              "enum": ["info", "warning"]
+            }
+          }
+        }
+      ]
+    },
+    "errorPlannerIssue": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/plannerIssue"
+        },
+        {
+          "properties": {
+            "severity": {
+              "const": "error"
+            }
+          }
+        }
+      ]
+    },
+    "clarification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["question"],
+      "properties": {
+        "question": {
+          "type": "string",
+          "minLength": 1
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          }
+        }
+      }
+    },
+    "threeDTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["element_type"],
+      "properties": {
+        "element_type": {
+          "$ref": "#/$defs/selectableElementType"
+        },
+        "global_id": {
+          "$ref": "#/$defs/globalId"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "storey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "space_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "direction": {
+          "$ref": "#/$defs/direction"
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "select_all": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "threeDTargetMatchRule": {
+      "anyOf": [
+        {
+          "required": ["global_id"]
+        },
+        {
+          "required": ["name"]
+        },
+        {
+          "required": ["storey"]
+        },
+        {
+          "required": ["space_name"]
+        },
+        {
+          "required": ["direction"]
+        },
+        {
+          "required": ["tag"]
+        },
+        {
+          "required": ["select_all"],
+          "properties": {
+            "select_all": {
+              "const": true
+            }
+          }
+        }
+      ]
+    },
+    "threeDChanges": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "material": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "length_mm": {
+          "$ref": "#/$defs/dimensionChange"
+        },
+        "height_mm": {
+          "$ref": "#/$defs/dimensionChange"
+        },
+        "width_mm": {
+          "$ref": "#/$defs/dimensionChange"
+        },
+        "position_mm": {
+          "$ref": "#/$defs/positionChange"
+        },
+        "rotation_deg": {
+          "$ref": "#/$defs/rotationDeg3"
+        },
+        "face_offset_mm": {
+          "type": "number"
+        }
+      }
+    },
+    "threeDCreateInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["element_type", "storey"],
+      "properties": {
+        "element_type": {
+          "$ref": "#/$defs/createableElementType"
+        },
+        "storey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "space_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "direction": {
+          "$ref": "#/$defs/direction"
+        },
+        "start_point_mm": {
+          "$ref": "#/$defs/point3Mm"
+        },
+        "end_point_mm": {
+          "$ref": "#/$defs/point3Mm"
+        },
+        "azimuth_deg": {
+          "type": "number"
+        },
+        "length_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "width_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "material": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "roof_shape_preset": {
+          "$ref": "#/$defs/roofShapePreset"
+        },
+        "ridge_height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "element_type": {
+                "enum": ["IfcWall", "IfcBeam"]
+              }
+            },
+            "required": ["element_type"]
+          },
+          "then": {
+            "oneOf": [
+              {
+                "required": ["start_point_mm", "end_point_mm"],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": ["azimuth_deg"]
+                    },
+                    {
+                      "required": ["length_mm"]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": ["start_point_mm", "azimuth_deg", "length_mm"],
+                "not": {
+                  "required": ["end_point_mm"]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "element_type": {
+                "enum": [
+                  "IfcSlab",
+                  "IfcColumn",
+                  "IfcDoor",
+                  "IfcWindow",
+                  "IfcStair"
+                ]
+              }
+            },
+            "required": ["element_type"]
+          },
+          "then": {
+            "required": ["start_point_mm"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "element_type": {
+                "const": "IfcRoof"
+              }
+            },
+            "required": ["element_type"]
+          },
+          "then": {
+            "required": [
+              "start_point_mm",
+              "length_mm",
+              "width_mm",
+              "height_mm",
+              "roof_shape_preset"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "roof_shape_preset": {
+                      "const": "FLAT"
+                    }
+                  },
+                  "required": ["roof_shape_preset"]
+                },
+                "then": {
+                  "not": {
+                    "required": ["ridge_height_mm"]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "roof_shape_preset": {
+                      "const": "GABLED"
+                    }
+                  },
+                  "required": ["roof_shape_preset"]
+                },
+                "then": {
+                  "required": ["ridge_height_mm"]
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "planner3dCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command_type", "target", "confidence", "raw_instruction"],
+      "properties": {
+        "command_type": {
+          "type": "string",
+          "enum": ["CREATE", "MODIFY", "DELETE"]
+        },
+        "target": {
+          "$ref": "#/$defs/threeDTarget"
+        },
+        "changes": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/threeDChanges"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "create_info": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/threeDCreateInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "raw_instruction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "command_type": {
+                "const": "CREATE"
+              }
+            },
+            "required": ["command_type"]
+          },
+          "then": {
+            "required": ["create_info"],
+            "properties": {
+              "changes": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "command_type": {
+                "const": "MODIFY"
+              }
+            },
+            "required": ["command_type"]
+          },
+          "then": {
+            "required": ["changes"],
+            "properties": {
+              "target": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/threeDTarget"
+                  },
+                  {
+                    "$ref": "#/$defs/threeDTargetMatchRule"
+                  }
+                ]
+              },
+              "create_info": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "command_type": {
+                "const": "DELETE"
+              }
+            },
+            "required": ["command_type"]
+          },
+          "then": {
+            "properties": {
+              "target": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/threeDTarget"
+                  },
+                  {
+                    "$ref": "#/$defs/threeDTargetMatchRule"
+                  }
+                ]
+              },
+              "changes": {
+                "type": "null"
+              },
+              "create_info": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "v1",
+      "planner_type": "3d",
+      "request_id": "req-3d-001",
+      "project_id": "project-001",
+      "base_revision_id": "rev_20260423T120000Z_ab12cd34",
+      "source_scene_type": "SCENE_3D",
+      "status": "ready",
+      "commands": [
+        {
+          "command_type": "MODIFY",
+          "target": {
+            "element_type": "IfcWall",
+            "storey": "1F",
+            "direction": "North",
+            "select_all": false
+          },
+          "changes": {
+            "width_mm": {
+              "mode": "RELATIVE",
+              "value": 50
+            }
+          },
+          "confidence": 0.97,
+          "raw_instruction": "Increase north wall thickness on 1F by 50mm"
+        }
+      ],
+      "issues": []
+    }
+  ]
+}
