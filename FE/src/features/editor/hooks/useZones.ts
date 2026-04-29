@@ -14,8 +14,8 @@ const INITIAL_FORM: ZoningFormData = {
  * 조닝 상태와 조닝 모달 폼 핸들러를 제공하는 훅
  * @param bubbles 자동 색상 계산에 필요한 버블 목록
  */
-export function useZones(bubbles: BubbleData[]) {
-  const [zones, setZones] = useState<ZoneData[]>([])
+export function useZones(bubbles: BubbleData[], initialZones: ZoneData[] = []) {
+  const [zones, setZones] = useState<ZoneData[]>(initialZones)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingZoneId, setEditingZoneId] = useState<string | null>(null)
   const [formData, setFormData] = useState<ZoningFormData>(INITIAL_FORM)

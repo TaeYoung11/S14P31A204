@@ -8,39 +8,41 @@ import {
   parsePositiveNumber,
 } from '../utils/bubbleCalc'
 
-/** 버블(공간) 상태와 모든 변경 핸들러를 제공하는 훅 */
-export function useBubbles() {
-  const [bubbles, setBubbles] = useState<BubbleData[]>(INITIAL_BUBBLES)
+/** 버블 상태와 편집 동작을 관리한다. */
+export function useBubbles(initialBubbles: BubbleData[] = INITIAL_BUBBLES) {
+  const [bubbles, setBubbles] = useState<BubbleData[]>(initialBubbles)
   const [selectedId, setSelectedId] = useState<string | null>(
-    INITIAL_BUBBLES.length > 0 ? INITIAL_BUBBLES[0].id : null
+    initialBubbles.length > 0 ? initialBubbles[0].id : null,
   )
   const [previousSelectedId, setPreviousSelectedId] = useState<string | null>(null)
 
-  /** 버블 선택 — 이전 선택 ID를 추적해 연결선 생성에 활용 */
-  const handleBubbleSelect = (id: string) => {
+  /** 현재 선택된 버블과 이전 선택 버블을 갱신한다. */
+  const handleBubbleSelect = (id: string | null) => {
+    if (id === null) {
+      setSelectedId(null)
+      return
+    }
+
     if (selectedId && selectedId !== id) setPreviousSelectedId(selectedId)
     setSelectedId(id)
   }
 
-  /** 드래그 이동 */
+  /** 버블 위치를 이동한다. */
   const handleBubbleDrag = (id: string, x: number, y: number) => {
     setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, x, y } : b)))
   }
 
-  /** 공간 이름 변경 */
+  /** 버블 라벨을 변경한다. */
   const handleLabelChange = (id: string, label: string) => {
     setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, label } : b)))
   }
 
-  /** 방 종류 변경 */
+  /** 버블 타입을 변경한다. */
   const handleTypeChange = (id: string, type: string) => {
     setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, type } : b)))
   }
 
-  /**
-   * mm 치수(가로 또는 세로) 변경 → 면적 및 px 크기 자동 재계산
-   * @param axis 변경할 치수 축 ('width' | 'height')
-   */
+  /** mm 단위 치수 변경을 반영하고 면적과 px 크기를 다시 계산한다. */
   const applyDimensionChange = (id: string, axis: 'width' | 'height', value: number) => {
     setBubbles((prev) =>
       prev.map((b) => {
@@ -49,18 +51,26 @@ export function useBubbles() {
         const nextHeightMm = axis === 'height' ? (value > 0 ? value : b.heightMm) : (b.heightMm > 0 ? b.heightMm : 1000)
         const ratio = calcAreaM2FromMm(nextWidthMm, nextHeightMm)
         const px = calcPxDimensionsByAreaAndAspect(ratio, nextWidthMm / nextHeightMm)
-        return { ...b, width: px.width, height: px.height, widthMm: nextWidthMm, heightMm: nextHeightMm, ratio, area: `${ratio.toFixed(1)} m²` }
-      })
+        return {
+          ...b,
+          width: px.width,
+          height: px.height,
+          widthMm: nextWidthMm,
+          heightMm: nextHeightMm,
+          ratio,
+          area: `${ratio.toFixed(1)} m²`,
+        }
+      }),
     )
   }
 
-  /** 가로 치수 변경 → 면적 자동 재계산 */
+  /** 버블 너비를 변경한다. */
   const handleWidthChange = (id: string, width: number) => applyDimensionChange(id, 'width', width)
 
-  /** 세로 치수 변경 → 면적 자동 재계산 */
+  /** 버블 높이를 변경한다. */
   const handleHeightChange = (id: string, height: number) => applyDimensionChange(id, 'height', height)
 
-  /** 면적 직접 변경 → 치수 자동 재계산 */
+  /** 버블 면적을 변경하고 크기를 다시 계산한다. */
   const handleRatioChange = (id: string, ratio: number) => {
     setBubbles((prev) =>
       prev.map((b) => {
@@ -68,26 +78,31 @@ export function useBubbles() {
         const aspect = b.widthMm > 0 && b.heightMm > 0 ? b.widthMm / b.heightMm : 1
         const mm = calcMmDimensionsByAreaAndAspect(ratio, aspect)
         const px = calcPxDimensionsByAreaAndAspect(ratio, aspect)
-        return { ...b, ratio, area: `${ratio.toFixed(1)} m²`, width: px.width, height: px.height, widthMm: mm.widthMm, heightMm: mm.heightMm }
-      })
+        return {
+          ...b,
+          ratio,
+          area: `${ratio.toFixed(1)} m²`,
+          width: px.width,
+          height: px.height,
+          widthMm: mm.widthMm,
+          heightMm: mm.heightMm,
+        }
+      }),
     )
   }
 
-  /** 색상 변경 */
+  /** 버블 색상을 변경한다. */
   const handleColorChange = (id: string, color: string) => {
     setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, color } : b)))
   }
 
-  /** 버블 삭제 — 선택 상태도 함께 초기화 */
+  /** 버블을 삭제하고 선택 상태를 정리한다. */
   const deleteBubble = (id: string) => {
     setBubbles((prev) => prev.filter((b) => b.id !== id))
     if (selectedId === id) setSelectedId(null)
   }
 
-  /**
-   * 공간 추가 모달 폼 데이터로 새 버블 생성
-   * 입력 우선순위: (가로+세로) > 면적 > 기본값(10m²)
-   */
+  /** 입력값을 기반으로 새 버블을 추가한다. */
   const addBubble = (formData: AddSpaceFormData) => {
     const widthMmInput = parsePositiveNumber(formData.width)
     const heightMmInput = parsePositiveNumber(formData.height)
@@ -132,13 +147,14 @@ export function useBubbles() {
       height: px.height,
       widthMm: widthMmValue,
       heightMm: heightMmValue,
-      label: formData.name || '새 공간',
+      label: formData.name || '새 버블',
       type: formData.type,
       ratio: ratioValue,
       area: `${ratioValue.toFixed(1)} m²`,
       color: formData.color,
       index: (bubbles.length + 1).toString().padStart(2, '0'),
     }
+
     setBubbles((prev) => [...prev, newBubble])
   }
 

@@ -2,12 +2,24 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import type { BubbleData, ConnectionData, FloorLayer, FloorRoom } from '../types'
 import { generateFloorPlanLayout } from '../utils/floorPlanLayout'
 
+interface UseFloorPlanOptions {
+  initialIsGenerated?: boolean
+  initialLayers?: FloorLayer[]
+  initialActiveLayerId?: string | null
+}
+
 /** 2D 평면도 층·생성 상태를 관리하는 훅 */
-export function useFloorPlan() {
-  const [isGenerated, setIsGenerated] = useState(false)
+export function useFloorPlan(options: UseFloorPlanOptions = {}) {
+  const {
+    initialIsGenerated = false,
+    initialLayers = [],
+    initialActiveLayerId = null,
+  } = options
+
+  const [isGenerated, setIsGenerated] = useState(initialIsGenerated)
   const [isGenerating, setIsGenerating] = useState(false)
-  const [layers, setLayers] = useState<FloorLayer[]>([])
-  const [activeLayerId, setActiveLayerId] = useState<string | null>(null)
+  const [layers, setLayers] = useState<FloorLayer[]>(initialLayers)
+  const [activeLayerId, setActiveLayerId] = useState<string | null>(initialActiveLayerId)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {

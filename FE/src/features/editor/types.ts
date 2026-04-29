@@ -112,3 +112,31 @@ export interface FloorLayer {
   name: string
   rooms: FloorRoom[]
 }
+
+/** 에디터 자동저장에서 UI가 참조하는 저장 상태 */
+export type SaveStatus =
+  | 'idle'
+  | 'dirty'
+  | 'saving-local'
+  | 'saved-local'
+  | 'syncing-remote'
+  | 'saved-remote'
+  | 'error'
+
+/** 프로젝트별로 로컬 초안에 저장하는 에디터 상태 스냅샷 */
+export interface EditorDraftSnapshot {
+  bubbles: BubbleData[]
+  connections: ConnectionData[]
+  zones: ZoneData[]
+  floorLayers: FloorLayer[]
+  activeFloorLayerId: string | null
+  isFloorPlanGenerated: boolean
+}
+
+/** IndexedDB에 저장되는 자동저장 레코드 */
+export interface EditorDraftRecord {
+  projectId: string
+  versionNo: number
+  data: EditorDraftSnapshot
+  savedAt: string
+}

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import type { AddSpaceFormData, EditorMode } from '../types'
+import type { AddSpaceFormData, EditorDraftSnapshot, EditorMode } from '../types'
 import { INITIAL_ADD_SPACE_FORM, SITE_RAW_POINTS } from '../constants'
 import { useBubbles } from './useBubbles'
 import { useConnections } from './useConnections'
@@ -20,7 +20,7 @@ function resolveMode(value: string | null): EditorMode {
  * EditorPage 전체 비즈니스 로직 훅
  * 버블·연결선·조닝·패널·평면도·UI 상태를 하위 훅에서 합성해 관리
  */
-export function useEditorPage() {
+export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
   const [searchParams, setSearchParams] = useSearchParams()
   const mode = resolveMode(searchParams.get('mode'))
 
@@ -41,7 +41,7 @@ export function useEditorPage() {
     handleColorChange,
     addBubble,
     deleteBubble,
-  } = useBubbles()
+  } = useBubbles(initialDraft?.bubbles)
 
   // 연결선 상태
   const {
@@ -54,7 +54,7 @@ export function useEditorPage() {
     closeModal: closeLineStyleModal,
     setSelectedStyle,
     removeConnectionsForBubble,
-  } = useConnections()
+  } = useConnections(initialDraft?.connections)
 
   // 조닝 상태
   const {
@@ -70,7 +70,7 @@ export function useEditorPage() {
     toggleBubble: toggleZoningBubble,
     confirmModal: confirmZoningModal,
     deleteZone,
-  } = useZones(bubbles)
+  } = useZones(bubbles, initialDraft?.zones)
 
   // 우측 패널 드래그·리사이즈 상태
   const { panelOffsets, panelOpenState, panelHeights, panelWidths, startDrag, startResize, togglePanel } = usePanels(mode)
@@ -86,7 +86,11 @@ export function useEditorPage() {
     refreshFloorPlan,
     addFloorLayer,
     setActiveLayerId: setActiveFloorLayerId,
-  } = useFloorPlan()
+  } = useFloorPlan({
+    initialIsGenerated: initialDraft?.isFloorPlanGenerated,
+    initialLayers: initialDraft?.floorLayers,
+    initialActiveLayerId: initialDraft?.activeFloorLayerId,
+  })
 
   // 버블·연결선 변경 시 이미 생성된 평면도를 조용히 갱신 (로딩 없음)
   useEffect(() => {
@@ -155,6 +159,19 @@ export function useEditorPage() {
   const sitePoints = useMemo(
     () => centerSitePoints(SITE_RAW_POINTS, stageSize.width, stageSize.height),
     [stageSize.width, stageSize.height],
+  )
+
+  /** 자동저장과 복구에 사용하는 에디터 상태 스냅샷 */
+  const draftSnapshot = useMemo<EditorDraftSnapshot>(
+    () => ({
+      bubbles,
+      connections,
+      zones,
+      floorLayers,
+      activeFloorLayerId,
+      isFloorPlanGenerated,
+    }),
+    [bubbles, connections, zones, floorLayers, activeFloorLayerId, isFloorPlanGenerated],
   )
 
   // ── 핸들러 ────────────────────────────────────────────────────────────────
@@ -335,5 +352,7 @@ export function useEditorPage() {
     isIFCExportModalOpen,
     handleOpenIFCExportModal: () => setIsIFCExportModalOpen(true),
     onCloseIFCExportModal: () => setIsIFCExportModalOpen(false),
+    /** 자동저장과 복구에 사용하는 에디터 상태 스냅샷 */
+    draftSnapshot,
   }
 }

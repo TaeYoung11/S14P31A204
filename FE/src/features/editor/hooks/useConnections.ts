@@ -2,8 +2,8 @@ import { useState } from 'react'
 import type { ConnectionData, ConnectionStyle, ConnectionPair } from '../types'
 
 /** 연결선 상태와 선 스타일 모달 핸들러를 제공하는 훅 */
-export function useConnections() {
-  const [connections, setConnections] = useState<ConnectionData[]>([])
+export function useConnections(initialConnections: ConnectionData[] = []) {
+  const [connections, setConnections] = useState<ConnectionData[]>(initialConnections)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedStyle, setSelectedStyle] = useState<ConnectionStyle>('thin')
   const [connectionPair, setConnectionPair] = useState<ConnectionPair | null>(null)
