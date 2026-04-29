@@ -12,7 +12,7 @@ public class RedisService {
 
     private static final long EMAIL_CODE_TTL_MINUTES = 5L;
 
-    private final RedisTemplate<String, String> redisTemplate;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     public void saveRefreshToken(String userId, String token, long ttlMs) {
         redisTemplate.opsForValue()
@@ -20,7 +20,7 @@ public class RedisService {
     }
 
     public String getRefreshToken(String userId) {
-        return redisTemplate.opsForValue().get("refresh:" + userId);
+        return getStringValue("refresh:" + userId);
     }
 
     public void deleteRefreshToken(String userId) {
@@ -43,7 +43,7 @@ public class RedisService {
     }
 
     public String getEmailCode(String email) {
-        return redisTemplate.opsForValue().get("email:code:" + email);
+        return getStringValue("email:code:" + email);
     }
 
     public void deleteEmailCode(String email) {
@@ -68,10 +68,15 @@ public class RedisService {
     }
 
     public String getVerifiedEmail(String token) {
-        return redisTemplate.opsForValue().get("email:verified:" + token);
+        return getStringValue("email:verified:" + token);
     }
 
     public void deleteVerifiedToken(String token) {
         redisTemplate.delete("email:verified:" + token);
+    }
+
+    private String getStringValue(String key) {
+        Object value = redisTemplate.opsForValue().get(key);
+        return value == null ? null : value.toString();
     }
 }
