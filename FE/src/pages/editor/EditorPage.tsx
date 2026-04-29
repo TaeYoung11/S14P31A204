@@ -1,4 +1,5 @@
 import { Hand, ZoomIn, ZoomOut, Users } from 'lucide-react'
+import { useParams } from 'react-router-dom'
 import { AddSpaceModal } from '../../features/editor/components/modals/AddSpaceModal'
 import { BubbleCanvas } from '../../features/editor/components/canvas/BubbleCanvas'
 import { TwoDCanvas } from '../../features/editor/components/canvas/TwoDCanvas'
@@ -17,12 +18,12 @@ import { ExportSelectionModal } from '../../features/editor/components/modals/Ex
 import { IFCExportModal } from '../../features/editor/components/modals/IFCExportModal'
 import { useEditorPage } from '../../features/editor/hooks/useEditorPage'
 
-export default function EditorPage() {
+function EditorPageContent() {
   const {
     mode, setMode,
     containerRef, stageSize, sitePoints,
     bubbles, selectedId, selectedBubble,
-    handleBubbleSelect, handleBubbleDrag,
+    handleBubbleSelect, handleBubbleDragStart, handleBubbleDrag, handleBubbleDragEnd,
     handleLabelChange, handleTypeChange,
     handleWidthChange, handleHeightChange, handleRatioChange, handleColorChange,
     connections, selectedBubbleConnections,
@@ -44,6 +45,7 @@ export default function EditorPage() {
     collaborationTab, setCollaborationTab,
     handleToggleCollaboration, handlePinClick,
     saveStatus,
+    canUndo, canRedo, handleUndo, handleRedo,
     zoom, handleZoomIn, handleZoomOut, setZoom,
     selectedTool, setSelectedTool,
     isLibraryOpen, setIsLibraryOpen,
@@ -124,7 +126,14 @@ export default function EditorPage() {
         saveStatus={saveStatus}
         onSave={mode === '3d' ? handleOpenIFCExportModal : handleOpenExportSelectionModal}
       />
-      <EditorToolbar mode={mode} onModeChange={setMode} />
+      <EditorToolbar
+        mode={mode}
+        onModeChange={setMode}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+      />
 
       <div className={`flex flex-1 relative overflow-hidden ${mode === 'view' ? '' : 'px-6 pb-6 gap-6'}`}>
         {mode !== 'view' && (
@@ -161,7 +170,9 @@ export default function EditorPage() {
               selectedId={selectedId}
               selectedTool={selectedTool}
               onEditZone={openEditModal}
+              onBubbleDragStart={handleBubbleDragStart}
               onBubbleDrag={handleBubbleDrag}
+              onBubbleDragEnd={handleBubbleDragEnd}
               onBubbleSelect={handleBubbleSelect}
               onDeleteBubble={handleDeleteBubble}
               scale={zoom / 100}
@@ -332,4 +343,9 @@ export default function EditorPage() {
       </div>
     </div>
   )
+}
+
+export default function EditorPage() {
+  const { projectId } = useParams<{ projectId: string }>()
+  return <EditorPageContent key={projectId ?? 'editor'} />
 }

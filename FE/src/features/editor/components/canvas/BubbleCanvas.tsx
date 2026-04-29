@@ -112,7 +112,9 @@ interface BubbleCanvasProps {
   selectedId: string | null
   selectedTool: string
   onEditZone: (zone: ZoneData) => void
+  onBubbleDragStart: () => void
   onBubbleDrag: (bubbleId: string, x: number, y: number) => void
+  onBubbleDragEnd: (bubbleId: string, x: number, y: number) => void
   onBubbleSelect: (bubbleId: string) => void
   onDeleteBubble?: (bubbleId: string) => void
   scale?: number
@@ -134,7 +136,9 @@ export function BubbleCanvas({
   selectedId,
   selectedTool,
   onEditZone,
+  onBubbleDragStart,
   onBubbleDrag,
+  onBubbleDragEnd,
   onBubbleSelect,
   onDeleteBubble,
   scale = 1,
@@ -222,7 +226,9 @@ export function BubbleCanvas({
               x={bubble.x}
               y={bubble.y}
               draggable={selectedTool === 'selection'}
+              onDragStart={() => onBubbleDragStart()}
               onDragMove={(e) => onBubbleDrag(bubble.id, e.target.x(), e.target.y())}
+              onDragEnd={(e) => onBubbleDragEnd(bubble.id, e.target.x(), e.target.y())}
               onClick={(e) => {
                 e.cancelBubble = true
                 if (selectedTool === 'delete') onDeleteBubble?.(bubble.id)

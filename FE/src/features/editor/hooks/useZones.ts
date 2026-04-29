@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { ZoneData, ZoningFormData, BubbleData } from '../types'
 import { DEFAULT_AUTO_ZONE_COLOR } from '../constants'
 import { normalizeColorValue, resolveAutoZoneColor } from '../utils/bubbleCalc'
@@ -98,6 +98,13 @@ export function useZones(bubbles: BubbleData[], initialZones: ZoneData[] = []) {
     if (editingZoneId === zoneId) closeModal()
   }
 
+  const replaceZonesState = useCallback((nextZones: ZoneData[]) => {
+    setZones(nextZones)
+    setIsModalOpen(false)
+    setEditingZoneId(null)
+    setFormData(INITIAL_FORM)
+  }, [])
+
   return {
     zones,
     isModalOpen,
@@ -111,5 +118,6 @@ export function useZones(bubbles: BubbleData[], initialZones: ZoneData[] = []) {
     toggleBubble,
     confirmModal,
     deleteZone,
+    replaceZonesState,
   }
 }

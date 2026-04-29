@@ -100,6 +100,20 @@ export function useFloorPlan(options: UseFloorPlanOptions = {}) {
     setActiveLayerId(newId)
   }, [layers, activeLayerId])
 
+  const replaceFloorPlanState = useCallback(
+    (nextState: {
+      isGenerated: boolean
+      layers: FloorLayer[]
+      activeLayerId: string | null
+    }) => {
+      setIsGenerated(nextState.isGenerated)
+      setIsGenerating(false)
+      setLayers(nextState.layers)
+      setActiveLayerId(nextState.activeLayerId)
+    },
+    [],
+  )
+
   return {
     isGenerated,
     isGenerating,
@@ -110,5 +124,6 @@ export function useFloorPlan(options: UseFloorPlanOptions = {}) {
     refreshFloorPlan,
     addFloorLayer,
     setActiveLayerId,
+    replaceFloorPlanState,
   }
 }

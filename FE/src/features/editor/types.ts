@@ -134,9 +134,27 @@ export interface EditorDraftSnapshot {
 }
 
 /** IndexedDB에 저장되는 자동저장 레코드 */
+export interface BubbleHistorySnapshot {
+  bubbles: BubbleData[]
+  connections: ConnectionData[]
+  selectedId: string | null
+  previousSelectedId: string | null
+}
+
+export interface BubbleHistoryEntry {
+  undo: BubbleHistorySnapshot
+  redo: BubbleHistorySnapshot
+}
+
+export interface EditorDraftHistory {
+  bubbleUndoHistory: BubbleHistoryEntry[]
+  bubbleRedoHistory: BubbleHistoryEntry[]
+}
+
 export interface EditorDraftRecord {
   projectId: string
   versionNo: number
   data: EditorDraftSnapshot
+  history: EditorDraftHistory
   savedAt: string
 }

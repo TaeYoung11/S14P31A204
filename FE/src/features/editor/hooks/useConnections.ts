@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import type { ConnectionData, ConnectionStyle, ConnectionPair } from '../types'
 
 /** 연결선 상태와 선 스타일 모달 핸들러를 제공하는 훅 */
@@ -47,6 +47,10 @@ export function useConnections(initialConnections: ConnectionData[] = []) {
     setConnections((prev) => prev.filter((c) => c.from !== id && c.to !== id))
   }
 
+  const replaceConnectionsState = useCallback((nextConnections: ConnectionData[]) => {
+    setConnections(nextConnections)
+  }, [])
+
   return {
     connections,
     isModalOpen,
@@ -57,5 +61,6 @@ export function useConnections(initialConnections: ConnectionData[] = []) {
     closeModal: () => setIsModalOpen(false),
     setSelectedStyle,
     removeConnectionsForBubble,
+    replaceConnectionsState,
   }
 }
