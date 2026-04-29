@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
+from typing import Any
 from uuid import uuid4
 
 
@@ -31,6 +32,31 @@ class RequestContext:
             "correlation_id": self.correlation_id,
             **self._optional_fields(),
         }
+
+    def to_canonical_log_fields(
+        self,
+        *,
+        idempotency_key: str | None = None,
+        worker_type: str | None = None,
+        worker_id: str | None = None,
+        environment: str | None = None,
+    ) -> dict[str, Any]:
+        """Build camelCase log fields for runtime logging."""
+
+        fields: dict[str, Any] = {
+            "requestId": self.request_id,
+            "correlationId": self.correlation_id,
+            "projectId": self.project_id,
+            "jobId": self.job_id,
+            "revisionId": self.revision_id,
+            "messageId": self.message_id,
+            "causationId": self.causation_id,
+            "idempotencyKey": idempotency_key,
+            "workerType": worker_type,
+            "workerId": worker_id,
+            "environment": environment,
+        }
+        return {key: value for key, value in fields.items() if value is not None}
 
     def to_message_envelope(self) -> dict[str, str]:
         return self.to_log_fields()
