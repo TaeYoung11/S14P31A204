@@ -14,6 +14,8 @@ from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
 from ai_rendering.ifc2img.geometry import load_mesh
 from ai_rendering.ifc2img.views import (
     DEFAULT_RENDER_VIEWS,
+    DISPATCH_LARGE_FACTOR,
+    DISPATCH_MEDIUM_FACTOR,
     VIEW_CN_SCALE_OVERRIDES,
     VIEW_NEGATIVE_SUFFIXES,
     VIEW_PROMPT_SUFFIXES,
@@ -24,6 +26,7 @@ from ai_rendering.ifc2img.views import (
     compute_auto_zoom,
     compute_dynamic_front,
     compute_principal_axes,
+    resolve_target_ratio_for_mesh,
     resolve_view_cn_scale,
 )
 
@@ -655,13 +658,75 @@ def test_view_target_ratios_cropping_resistant() -> None:
 
 
 def test_renderer_resolves_view_specific_target() -> None:
-    """_resolve_target_ratio가 view-별 매핑값을 반환하고 fallback이 동작."""
+    """_resolve_target_ratio가 view-별 매핑값을 반환 + small mesh에서 base 그대로.
+
+    small mesh(extent <20m, dispatch 임계값 미만)에서는 dispatch 배율 적용 안 됨 →
+    `VIEW_TARGET_RATIOS[view]` 그대로 반환. 큰 mesh의 dispatch 동작은 별도 테스트
+    (`test_resolve_target_ratio_for_*_mesh`)에서 검증.
+    """
     renderer = IFCRenderer(target_screen_ratio=0.99)  # fallback
+    # extent ~10m mesh — dispatch 임계값(20m) 미만 → base 그대로
+    small_mesh = MagicMock()
+    small_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 5.0, 3.0]])
+
     # TOP은 매핑 등록됨 → 매핑값 우선
-    assert renderer._resolve_target_ratio(IFCView.TOP) == VIEW_TARGET_RATIOS[IFCView.TOP]
-    # 모든 등록 view의 매핑값이 fallback과 다름을 가정 (현재 매핑 값 0.25~0.40, fallback 0.99)
+    assert renderer._resolve_target_ratio(IFCView.TOP, small_mesh) == VIEW_TARGET_RATIOS[IFCView.TOP]
+    # 모든 등록 view의 매핑값이 fallback과 다름을 가정 (현재 매핑 값 0.12~0.20, fallback 0.99)
     for v in IFCView:
-        assert renderer._resolve_target_ratio(v) == VIEW_TARGET_RATIOS[v]
+        assert renderer._resolve_target_ratio(v, small_mesh) == VIEW_TARGET_RATIOS[v]
+
+
+# --- 옵션 B — fixture별 dispatch (resolve_target_ratio_for_mesh) ---
+
+
+def test_resolve_target_ratio_for_small_mesh_returns_base() -> None:
+    """small mesh(extent ≤ 20m, haus/SampleHouse 시나리오) → base 그대로.
+
+    임계값 미만이라 dispatch 배율 적용 안 됨. base_ratio 명시도 작동 검증.
+    """
+    # 명시적 base_ratio
+    assert resolve_target_ratio_for_mesh(IFCView.FRONT, 13.0, base_ratio=0.20) == 0.20
+    assert resolve_target_ratio_for_mesh(IFCView.SIDE, 17.0, base_ratio=0.20) == 0.20
+    # base_ratio 미지정 → VIEW_TARGET_RATIOS 사용
+    assert (
+        resolve_target_ratio_for_mesh(IFCView.FRONT, 10.0)
+        == VIEW_TARGET_RATIOS[IFCView.FRONT]
+    )
+    # 경계값 — 정확히 20.0은 medium 분기 미적용 (`>` 사용) → base 그대로
+    assert resolve_target_ratio_for_mesh(IFCView.FRONT, 20.0, base_ratio=0.20) == 0.20
+
+
+def test_resolve_target_ratio_for_medium_mesh_scales_down() -> None:
+    """medium mesh(20 < extent ≤ 50m) → base × DISPATCH_MEDIUM_FACTOR (=0.8)."""
+    base = 0.20
+    assert resolve_target_ratio_for_mesh(IFCView.FRONT, 30.0, base_ratio=base) == (
+        base * DISPATCH_MEDIUM_FACTOR
+    )
+    # 경계값 — 50.0 정확히 medium 분기 (`> 50` 사용) → 여전히 medium
+    assert resolve_target_ratio_for_mesh(IFCView.FRONT, 50.0, base_ratio=base) == (
+        base * DISPATCH_MEDIUM_FACTOR
+    )
+    # ISO 기본값에서도 작동
+    iso_base = VIEW_TARGET_RATIOS[IFCView.ISO_NE]
+    assert resolve_target_ratio_for_mesh(IFCView.ISO_NE, 35.0) == (
+        iso_base * DISPATCH_MEDIUM_FACTOR
+    )
+
+
+def test_resolve_target_ratio_for_large_mesh_scales_more() -> None:
+    """large mesh(extent > 50m, Smiley 75m 시나리오) → base × DISPATCH_LARGE_FACTOR (=0.6)."""
+    base = 0.20
+    assert resolve_target_ratio_for_mesh(IFCView.FRONT, 75.0, base_ratio=base) == (
+        base * DISPATCH_LARGE_FACTOR
+    )
+    assert resolve_target_ratio_for_mesh(IFCView.SIDE, 100.0, base_ratio=base) == (
+        base * DISPATCH_LARGE_FACTOR
+    )
+    # ISO 기본값에서도 작동
+    iso_base = VIEW_TARGET_RATIOS[IFCView.ISO_NE]
+    assert resolve_target_ratio_for_mesh(IFCView.ISO_NE, 75.0) == (
+        iso_base * DISPATCH_LARGE_FACTOR
+    )
 
 
 def test_render_views_computes_pca_once_per_mesh() -> None:
