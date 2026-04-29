@@ -63,7 +63,7 @@ function LibraryPanel({ selectedCategory, onSelectCategory, onClose }: LibraryPa
       {/* 라이브러리 콘텐츠 영역 */}
       <div className="flex-1 p-8 bg-gradient-to-br from-white/20 to-transparent">
         <h3 className="text-2xl font-black text-[#1C1C1E] mb-8">{selectedCategory} 라이브러리</h3>
-        {/* TODO: 실제 라이브러리 요소 목록 렌더링 */}
+        {/* 실제 라이브러리 요소 목록은 API 연동 완료 후 이 영역에 렌더링한다. */}
         <div className="flex flex-col items-center justify-center h-[60%] text-[#ADB5BD] opacity-50 italic">
           준비 중인 기능입니다...
         </div>

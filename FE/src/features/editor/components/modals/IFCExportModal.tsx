@@ -169,7 +169,7 @@ export function IFCExportModal({ isOpen, onClose }: IFCExportModalProps) {
               </button>
               <button
                 onClick={() => {
-                  // TODO: 실제 API 연동 시 서버에서 받은 Blob URL로 교체
+                  // API 연동 전 임시 다운로드 동작: 추후 서버 Blob URL로 교체 예정
                   const a = document.createElement('a')
                   a.href = '#'
                   a.download = 'project_export.ifc'

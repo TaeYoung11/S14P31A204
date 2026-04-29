@@ -175,7 +175,7 @@ export function ZoomControlBar({
             </svg>
           </button>
           <div className="w-px h-5 bg-[#E2E6EF] mx-2" />
-          {/* TODO: 실제 3D 뷰포트 포인터 좌표로 교체 (현재 목업 고정값) */}
+          {/* 3D 포인터 좌표 연동 전까지는 샘플 좌표를 표시한다. */}
           <span className="text-[11px] font-bold text-[#6B7A99] px-2 tabular-nums">
             X Y Z: 142.4, 33.1, 0.0
           </span>
