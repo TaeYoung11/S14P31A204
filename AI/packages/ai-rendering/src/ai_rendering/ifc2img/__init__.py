@@ -4,7 +4,12 @@ from .exceptions import IFCRenderError
 from .presets import list_presets, load_preset
 from .renderer import IFCRenderer
 from .style import DepthStyleParams, DepthStyleRenderer, DepthStyleResult
-from .views import IFCView
+from .views import (
+    IFCView,
+    build_view_negative_prompt,
+    build_view_prompt,
+    resolve_view_cn_scale,
+)
 
 __all__ = [
     "IFCRenderer",
@@ -15,4 +20,7 @@ __all__ = [
     "DepthStyleRenderer",
     "list_presets",
     "load_preset",
+    "build_view_prompt",
+    "build_view_negative_prompt",
+    "resolve_view_cn_scale",
 ]

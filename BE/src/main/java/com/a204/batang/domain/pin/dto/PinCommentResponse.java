@@ -14,7 +14,7 @@ import java.util.UUID;
  * @param pinId 핀 ID
  * @param authorUserId 작성자 사용자 ID
  * @param content 댓글 본문
- * @param status 핀 상태
+ * @param status 댓글 상태
  * @param commentedByOtherUser 현재 사용자 기준 타인 댓글 여부
  * @param unreadByCurrentUser 현재 사용자 기준 미확인 댓글 여부
  * @param createdAt 댓글 생성 시각
@@ -37,7 +37,6 @@ public record PinCommentResponse(
      *
      * @param comment 댓글 엔티티
      * @param pinId 핀 ID
-     * @param status 핀 상태
      * @param currentUserId 현재 사용자 ID
      * @param lastReadAt 현재 사용자의 마지막 읽음 시각
      * @return 댓글 응답 DTO
@@ -45,7 +44,6 @@ public record PinCommentResponse(
     public static PinCommentResponse from(
             ProjectPinComment comment,
             UUID pinId,
-            PinStatus status,
             UUID currentUserId,
             LocalDateTime lastReadAt
     ) {
@@ -61,7 +59,7 @@ public record PinCommentResponse(
                 pinId,
                 comment.getAuthorUserId(),
                 comment.getContent(),
-                status,
+                comment.getStatus(),
                 commentedByOtherUser,
                 unreadByCurrentUser,
                 comment.getCreatedAt(),

@@ -35,7 +35,12 @@ _PROMPTS_DIR = Path(
 
 _PROMPT_FIELDS = {"prompt", "negative_prompt", "base_preset"}
 _REQUIRED_PROMPT_FIELDS = {"prompt"}
-_PARAMS_FIELDS = {"strength", "guidance_scale", "num_inference_steps", "controlnet_conditioning_scale"}
+_PARAMS_FIELDS = {
+    "strength",
+    "guidance_scale",
+    "num_inference_steps",
+    "controlnet_conditioning_scale",
+}
 
 _VALID_NAME = re.compile(r"[A-Za-z0-9_-]+")
 

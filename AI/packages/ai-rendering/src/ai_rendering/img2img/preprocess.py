@@ -17,15 +17,13 @@ CUDA 없는 CI에서도 테스트 가능하도록 유지.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Union
-
 import numpy as np
 from PIL import Image, UnidentifiedImageError
 
 from .config import DEFAULT_LONG_SIDE
 from .exceptions import InvalidInputError
 
-ImageInput = Union[Path, str]
+ImageInput = Path | str
 
 
 def load_image(source: ImageInput) -> Image.Image:

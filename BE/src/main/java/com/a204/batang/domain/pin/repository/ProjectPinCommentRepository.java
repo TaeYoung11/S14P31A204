@@ -1,8 +1,10 @@
 package com.a204.batang.domain.pin.repository;
 
+import com.a204.batang.domain.pin.entity.PinStatus;
 import com.a204.batang.domain.pin.entity.ProjectPinComment;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -57,6 +59,67 @@ public interface ProjectPinCommentRepository extends JpaRepository<ProjectPinCom
     Page<ProjectPinComment> findActiveCommentsByPinId(@Param("pinId") UUID pinId, Pageable pageable);
 
     /**
+     * 핀에 남아있는 활성 댓글 수를 조회한다.
+     *
+     * @param pinId 핀 ID
+     * @return 활성 댓글 수
+     */
+    long countByProjectPinPinIdAndDeletedAtIsNull(UUID pinId);
+
+    /**
+     * 핀에 남아있는 활성 댓글 중 가장 최근 댓글을 조회한다.
+     *
+     * @param pinId 핀 ID
+     * @return 가장 최근 댓글
+     */
+    Optional<ProjectPinComment> findTopByProjectPinPinIdAndDeletedAtIsNullOrderByCreatedAtDescCommentIdDesc(UUID pinId);
+
+    /**
+     * 특정 핀의 활성 댓글을 모두 소프트 삭제한다.
+     *
+     * @param pinId 핀 ID
+     * @param deletedAt 삭제 시각
+     * @return 삭제 처리된 댓글 수
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE ProjectPinComment comment
+            SET comment.deletedAt = :deletedAt
+            WHERE comment.projectPin.pinId = :pinId
+              AND comment.deletedAt IS NULL
+            """)
+    int softDeleteByPinId(
+            @Param("pinId") UUID pinId,
+            @Param("deletedAt") LocalDateTime deletedAt
+    );
+
+    /**
+     * 특정 핀의 활성 댓글을 모두 완료 처리한다.
+     *
+     * @param pinId 핀 ID
+     * @param resolvedStatus 완료 상태 값
+     * @param resolverUserId 완료 처리자 사용자 ID
+     * @param resolvedAt 완료 처리 시각
+     * @return 완료 처리된 댓글 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE ProjectPinComment comment
+            SET comment.status = :resolvedStatus,
+                comment.resolvedByUserId = :resolverUserId,
+                comment.resolvedAt = :resolvedAt
+            WHERE comment.projectPin.pinId = :pinId
+              AND comment.deletedAt IS NULL
+              AND comment.status <> :resolvedStatus
+            """)
+    int resolveActiveCommentsByPinId(
+            @Param("pinId") UUID pinId,
+            @Param("resolvedStatus") PinStatus resolvedStatus,
+            @Param("resolverUserId") UUID resolverUserId,
+            @Param("resolvedAt") LocalDateTime resolvedAt
+    );
+
+    /**
      * 현재 사용자 기준 타인 미확인 댓글이 존재하는 핀 ID 목록을 조회한다.
      * Native Query의 IN 바인딩 이슈를 피하기 위해 JPQL + 서브쿼리 방식으로 처리한다.
      *
@@ -69,6 +132,7 @@ public interface ProjectPinCommentRepository extends JpaRepository<ProjectPinCom
             SELECT DISTINCT comment.projectPin.pinId
             FROM ProjectPinComment comment
             WHERE comment.projectPin.pinId IN :pinIds
+              AND comment.projectPin.status <> :resolvedStatus
               AND comment.deletedAt IS NULL
               AND comment.authorUserId IS NOT NULL
               AND comment.authorUserId <> :userId
@@ -85,7 +149,8 @@ public interface ProjectPinCommentRepository extends JpaRepository<ProjectPinCom
     List<UUID> findUnreadCommentPinIdsByUser(
             @Param("pinIds") List<UUID> pinIds,
             @Param("userId") UUID userId,
-            @Param("fallbackReadAt") LocalDateTime fallbackReadAt
+            @Param("fallbackReadAt") LocalDateTime fallbackReadAt,
+            @Param("resolvedStatus") PinStatus resolvedStatus
     );
 
     /**
@@ -143,6 +208,7 @@ public interface ProjectPinCommentRepository extends JpaRepository<ProjectPinCom
             SELECT COUNT(DISTINCT comment.projectPin.pinId)
             FROM ProjectPinComment comment
             WHERE comment.projectPin.project.projectId = :projectId
+              AND comment.projectPin.status <> :resolvedStatus
               AND comment.deletedAt IS NULL
               AND comment.authorUserId IS NOT NULL
               AND comment.authorUserId <> :userId
@@ -159,6 +225,7 @@ public interface ProjectPinCommentRepository extends JpaRepository<ProjectPinCom
     long countUnreadCommentPins(
             @Param("projectId") UUID projectId,
             @Param("userId") UUID userId,
-            @Param("fallbackReadAt") LocalDateTime fallbackReadAt
+            @Param("fallbackReadAt") LocalDateTime fallbackReadAt,
+            @Param("resolvedStatus") PinStatus resolvedStatus
     );
 }

@@ -4,9 +4,15 @@ import com.a204.batang.domain.pin.dto.CreatePinRequest;
 import com.a204.batang.domain.pin.dto.CreatePinResponse;
 import com.a204.batang.domain.pin.dto.GetProjectPinsResponse;
 import com.a204.batang.domain.pin.dto.ProjectPinResponse;
+import com.a204.batang.domain.pin.dto.ResolvePinResponse;
+import com.a204.batang.domain.pin.dto.UpdatePinPositionRequest;
+import com.a204.batang.domain.pin.dto.UpdatePinPositionResponse;
+import com.a204.batang.domain.pin.entity.PinStatus;
 import com.a204.batang.domain.pin.entity.ProjectPin;
 import com.a204.batang.domain.pin.entity.ProjectPinReadState;
 import com.a204.batang.domain.pin.event.PinCreatedEvent;
+import com.a204.batang.domain.pin.event.PinPositionUpdatedEvent;
+import com.a204.batang.domain.pin.event.PinResolvedEvent;
 import com.a204.batang.domain.pin.repository.ProjectPinCommentRepository;
 import com.a204.batang.domain.pin.repository.ProjectPinReadStateRepository;
 import com.a204.batang.domain.pin.repository.ProjectPinRepository;
@@ -27,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -81,6 +88,103 @@ public class ProjectPinService {
     }
 
     /**
+     * 프로젝트의 특정 핀 위치(카메라/월드 좌표)를 수정한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @param request 핀 위치 수정 요청
+     * @return 핀 위치 수정 응답
+     */
+    @Transactional
+    public UpdatePinPositionResponse updatePinPosition(UUID projectId, UUID pinId, UpdatePinPositionRequest request) {
+        ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
+
+        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
+        validatePinAuthorOrThrow(projectPin, currentUserId);
+
+        projectPin.updatePosition(
+                request.cameraPosition().toPinPosition(),
+                request.worldPosition().toPinPosition()
+        );
+        projectPinRepository.flush();
+        applicationEventPublisher.publishEvent(PinPositionUpdatedEvent.from(projectId, currentUserId, projectPin));
+
+        log.info("핀 위치 수정 완료. projectId={}, pinId={}", projectId, pinId);
+        return UpdatePinPositionResponse.from(projectPin);
+    }
+
+    /**
+     * 프로젝트의 특정 핀을 완료 처리한다.
+     * 핀 완료 처리 시 해당 핀의 활성 댓글도 모두 완료 처리한다.
+     * 완료 처리는 프로젝트 접근 권한이 있는 사용자라면 누구나 가능하다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @return 핀 완료 처리 응답
+     */
+    @Transactional
+    public ResolvePinResponse resolvePin(UUID projectId, UUID pinId) {
+        ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
+
+        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
+        LocalDateTime resolvedAt = LocalDateTime.now();
+
+        boolean pinResolvedNow = projectPin.getStatus() != PinStatus.RESOLVED;
+        if (pinResolvedNow) {
+            projectPin.markResolved(currentUserId);
+        }
+
+        int resolvedCommentCount = projectPinCommentRepository.resolveActiveCommentsByPinId(
+                pinId,
+                PinStatus.RESOLVED,
+                currentUserId,
+                resolvedAt
+        );
+        projectPinRepository.flush();
+        if (pinResolvedNow) {
+            applicationEventPublisher.publishEvent(PinResolvedEvent.from(projectId, projectPin));
+        }
+
+        log.info(
+                "핀 완료 처리 완료. projectId={}, pinId={}, resolverUserId={}, resolvedCommentCount={}",
+                projectId,
+                pinId,
+                currentUserId,
+                resolvedCommentCount
+        );
+        return ResolvePinResponse.from(projectPin);
+    }
+
+    /**
+     * 프로젝트의 특정 핀을 소프트 삭제한다.
+     * 핀 삭제 시 해당 핀의 활성 댓글도 함께 소프트 삭제한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     */
+    @Transactional
+    public void deletePin(UUID projectId, UUID pinId) {
+        ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
+
+        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
+        validatePinAuthorOrThrow(projectPin, currentUserId);
+
+        LocalDateTime deletedAt = LocalDateTime.now();
+        projectPin.softDelete(deletedAt);
+        int deletedCommentCount = projectPinCommentRepository.softDeleteByPinId(pinId, deletedAt);
+
+        log.info(
+                "핀 삭제 완료. projectId={}, pinId={}, deletedCommentCount={}",
+                projectId,
+                pinId,
+                deletedCommentCount
+        );
+    }
+
+    /**
      * 프로젝트의 핀 목록을 페이지 단위로 조회한다.
      * GET API에서는 상태를 변경하지 않고 읽기 전용으로 처리한다.
      *
@@ -102,7 +206,7 @@ public class ProjectPinService {
                 size,
                 Sort.by(Sort.Direction.ASC, "createdAt")
         );
-        Page<ProjectPin> pinPage = projectPinRepository.findActivePinsByProjectId(projectId, pageable);
+        Page<ProjectPin> pinPage = projectPinRepository.findActivePinsByProjectId(projectId, PinStatus.RESOLVED, pageable);
         List<ProjectPin> pins = pinPage.getContent();
 
         LocalDateTime lastPinReadAt = resolveLastPinReadAt(projectId, currentUserId);
@@ -178,6 +282,32 @@ public class ProjectPinService {
     }
 
     /**
+     * 프로젝트/핀에 해당하는 활성 핀을 조회한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @return 조회된 핀
+     */
+    private ProjectPin getProjectPinOrThrow(UUID projectId, UUID pinId) {
+        return projectPinRepository.findActivePinByProjectId(pinId, projectId)
+                .orElseThrow(() -> new CustomException(ErrorCode.PIN_NOT_FOUND));
+    }
+
+    /**
+     * 핀 수정/삭제 권한(작성자 본인 여부)을 검증한다.
+     *
+     * @param pin 핀 엔티티
+     * @param currentUserId 현재 사용자 ID
+     */
+    private void validatePinAuthorOrThrow(ProjectPin pin, UUID currentUserId) {
+        if (Objects.equals(pin.getAuthorUserId(), currentUserId)) {
+            return;
+        }
+
+        throw new CustomException(ErrorCode.FORBIDDEN_ACCESS, "본인이 작성한 핀만 수정하거나 삭제할 수 있습니다.");
+    }
+
+    /**
      * 페이지 파라미터를 검증한다.
      *
      * @param page 페이지 번호(1-base)
@@ -222,14 +352,14 @@ public class ProjectPinService {
             return new PinUnreadSummary(false, 0);
         }
 
-        long hasPinCount = projectPinRepository.countActiveOtherUserPins(projectId, currentUserId);
+        long hasPinCount = projectPinRepository.countActiveOtherUserPins(projectId, currentUserId, PinStatus.RESOLVED);
         if (hasPinCount == 0L) {
             return new PinUnreadSummary(false, 0);
         }
 
         long unreadCount = lastPinReadAt == null
                 ? hasPinCount
-                : projectPinRepository.countUnreadOtherUserPins(projectId, currentUserId, lastPinReadAt);
+                : projectPinRepository.countUnreadOtherUserPins(projectId, currentUserId, lastPinReadAt, PinStatus.RESOLVED);
 
         return new PinUnreadSummary(true, Math.toIntExact(unreadCount));
     }
@@ -249,7 +379,8 @@ public class ProjectPinService {
         long count = projectPinCommentRepository.countUnreadCommentPins(
                 projectId,
                 currentUserId,
-                UNREAD_FALLBACK_AT
+                UNREAD_FALLBACK_AT,
+                PinStatus.RESOLVED
         );
         return Math.toIntExact(count);
     }
@@ -273,7 +404,8 @@ public class ProjectPinService {
         return Set.copyOf(projectPinCommentRepository.findUnreadCommentPinIdsByUser(
                 pinIds,
                 currentUserId,
-                UNREAD_FALLBACK_AT
+                UNREAD_FALLBACK_AT,
+                PinStatus.RESOLVED
         ));
     }
 

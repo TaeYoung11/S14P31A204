@@ -9,6 +9,7 @@ dependencies = [
     "ai-domain",
     "ai-evals",
     "ai-planning",
+    "ai-planning-2d",
     "ai-planning-3d",
     "ai-rendering",
     "httpx>=0.28.1",
@@ -22,6 +23,7 @@ dependencies = [
 dev = [
     "mypy>=1.18.0",
     "pytest>=9.0.0",
+    "pytest-asyncio>=1.3.0",
     "ruff>=0.14.0",
 ]
 
@@ -41,6 +43,7 @@ ai-domain = { workspace = true }
 ai-evals = { workspace = true }
 ai-layout-import = { workspace = true }
 ai-planning = { workspace = true }
+ai-planning-2d = { workspace = true }
 ai-planning-3d = { workspace = true }
 ai-rendering = { workspace = true }
 torch = { index = "pytorch-cu126" }
@@ -60,7 +63,10 @@ select = ["E", "F", "UP"]
 
 [tool.pytest.ini_options]
 addopts = ["-p", "no:cacheprovider"]
-testpaths = ["tests", "packages", "LLM_2D"]
+testpaths = ["tests", "packages"]
+markers = [
+    "llm: Ollama 실행이 필요한 LLM 통합 테스트",
+]
 norecursedirs = [
     ".git",
     ".mypy_cache",
@@ -102,4 +108,5 @@ search-path = [
     "packages/ai-rendering/src",
     "packages/ai-authoring/src",
     "packages/ai-evals/src",
+    "packages/ai-planning-2d/src",
 ]
