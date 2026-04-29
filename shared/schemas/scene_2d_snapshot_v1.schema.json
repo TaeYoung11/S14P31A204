@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://a204.batang/shared/schemas/scene_2d_snapshot_v1.schema.json",
   "title": "Scene2DSnapshotV1",
-  "description": "Editable 2D scene snapshot used by FE, Spring Boot, and 2D planner. All geometry is project-global absolute mm coordinates.",
+  "description": "FE, Spring Boot, 2D 플래너가 공유하는 편집 가능한 2D 장면 스냅샷. 모든 기하 값은 프로젝트 전역 절대 좌표계(mm).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -136,6 +136,7 @@
       }
     },
     "polygon2d": {
+      "description": "절대 프로젝트 전역 좌표계(mm)의 표준 polygon ring. open ring으로 직렬화한다(첫 점을 마지막에 반복하지 않음). outer boundary는 CCW(반시계) winding으로 저장한다. 연속된 중복/collinear 점은 제거하고 self-intersection을 피한다.",
       "type": "array",
       "minItems": 3,
       "items": {
@@ -200,13 +201,38 @@
           "type": "number"
         },
         "boundary_polygon_mm": {
+          "description": "더 이상 권장하지 않는 단일 ring 층 외곽 경계. 새로 작성하는 경우 boundary_outer_polygon_mm과 boundary_holes_mm을 사용할 것.",
           "$ref": "#/$defs/polygon2d"
+        },
+        "boundary_outer_polygon_mm": {
+          "description": "표준 층 외곽 경계. polygon2d와 동일하게 CCW winding, open ring 규칙을 적용한다.",
+          "$ref": "#/$defs/polygon2d"
+        },
+        "boundary_holes_mm": {
+          "description": "층 경계 내부의 빈 공간(중정, 제외 구역 등). 각 hole ring은 CW(시계) winding의 open ring으로 직렬화해야 한다.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/polygon2d"
+          }
         },
         "default_height_mm": {
           "type": "number",
           "exclusiveMinimum": 0
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["boundary_holes_mm"]
+          },
+          "then": {
+            "required": ["boundary_outer_polygon_mm"],
+            "not": {
+              "required": ["boundary_polygon_mm"]
+            }
+          }
+        }
+      ]
     },
     "room": {
       "type": "object",
@@ -244,9 +270,11 @@
           "$ref": "#/$defs/polygon2d"
         },
         "bbox_mm": {
+          "description": "절대 좌표계(mm) 기준 파생 bounding box. bbox_mm이 rects_mm 또는 polygon_mm과 충돌하면 rects_mm/polygon_mm이 기준이다.",
           "$ref": "#/$defs/rect2dMm"
         },
         "centroid_mm": {
+          "description": "절대 좌표계(mm) 기준 파생 무게중심 좌표.",
           "$ref": "#/$defs/point2Mm"
         },
         "space_height_mm": {
@@ -264,14 +292,23 @@
       ]
     },
     "adjacency": {
+      "description": "방향이 없는 방 인접 의도값. 새로 작성하는 경우 space_a_id/space_b_id를 사용할 것. 한 쌍당 정확히 1개만 저장하며 사전순 정렬로 space_a_id < space_b_id를 유지한다. 하위 호환을 위해 기존 from_room_id/to_room_id도 허용된다.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["from_room_id", "to_room_id", "strength"],
+      "required": ["strength"],
       "properties": {
+        "space_a_id": {
+          "$ref": "#/$defs/safeId"
+        },
+        "space_b_id": {
+          "$ref": "#/$defs/safeId"
+        },
         "from_room_id": {
+          "description": "더 이상 권장하지 않는 레거시 필드. space_a_id를 사용할 것.",
           "$ref": "#/$defs/safeId"
         },
         "to_room_id": {
+          "description": "더 이상 권장하지 않는 레거시 필드. space_b_id를 사용할 것.",
           "$ref": "#/$defs/safeId"
         },
         "strength": {
@@ -279,9 +316,18 @@
           "minimum": 0,
           "maximum": 1
         }
-      }
+      },
+      "anyOf": [
+        {
+          "required": ["space_a_id", "space_b_id"]
+        },
+        {
+          "required": ["from_room_id", "to_room_id"]
+        }
+      ]
     },
     "wall": {
+      "description": "start_mm은 항상 사전순으로 더 작은 점이어야 한다: x를 먼저 비교하고 x가 같으면 y를 비교한다. 이 규칙이 있어야 법선 계산과 개구부 위치 오프셋에 사용되는 벽 방향 벡터가 안정적으로 결정된다.",
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "floor_id", "start_mm", "end_mm", "thickness_mm"],
@@ -293,6 +339,7 @@
           "$ref": "#/$defs/safeId"
         },
         "start_mm": {
+          "description": "정규화된 벽 시작점: 항상 x가 더 작은 점(x가 같으면 y가 더 작은 점).",
           "$ref": "#/$defs/point2Mm"
         },
         "end_mm": {
@@ -305,10 +352,61 @@
         "kind": {
           "type": "string",
           "enum": ["EXTERIOR", "INTERIOR", "PARTITION"]
+        },
+        "room_ids": {
+          "description": "이 벽을 공유하는 방 ID 목록. 외벽은 정확히 1개, 내벽은 정확히 2개. 2D 플래너가 자연어로 된 벽 및 개구부 참조를 해석할 때 사용된다.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/safeId"
+          }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "EXTERIOR"
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": ["room_ids"],
+            "properties": {
+              "room_ids": {
+                "minItems": 1,
+                "maxItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": ["INTERIOR", "PARTITION"]
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": ["room_ids"],
+            "properties": {
+              "room_ids": {
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          }
+        }
+      ]
     },
     "opening": {
+      "description": "벽의 개구부(문/창문/오픈). type별 허용 필드가 다르며 스키마 레벨에서 강제된다. 문 전용 필드(door_opening_type, hinge_side, swing_into_room_id, from_room_id, to_room_id)는 type=window와 type=opening에서 금지된다. 창문 전용 필드(sill_height_mm)는 type=door와 type=opening에서 금지된다.",
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "floor_id", "type", "host_wall_id", "width_mm"],
@@ -327,6 +425,7 @@
           "$ref": "#/$defs/safeId"
         },
         "center_mm": {
+          "description": "프로젝트 전역 절대 좌표계(mm)에서의 개구부 중심 2D 위치.",
           "$ref": "#/$defs/point2Mm"
         },
         "width_mm": {
@@ -336,8 +435,159 @@
         "height_mm": {
           "type": "number",
           "exclusiveMinimum": 0
+        },
+        "from_room_id": {
+          "description": "문 전용. host wall의 법선 양(+) 방향에 있는 방 ID. 벽 법선은 (start→end) 방향 벡터를 CCW 90도 회전한 벡터로 정의한다.",
+          "$ref": "#/$defs/safeId"
+        },
+        "to_room_id": {
+          "description": "문 전용. host wall의 법선 음(-) 방향에 있는 방 ID.",
+          "$ref": "#/$defs/safeId"
+        },
+        "door_opening_type": {
+          "description": "문 전용. `swing`은 여닫이, `sliding`은 미닫이.",
+          "type": "string",
+          "enum": ["swing", "sliding"]
+        },
+        "swing_into_room_id": {
+          "description": "문 전용, 그중 여닫이 문 전용. 문짝이 열려 들어가는 방 ID. 반드시 `from_room_id` 또는 `to_room_id` 중 하나여야 하며, 미닫이 문에는 없어야 한다.",
+          "$ref": "#/$defs/safeId"
+        },
+        "hinge_side": {
+          "description": "문 전용, 그중 여닫이 문 전용. 벽의 start→end 방향을 바라볼 때 경첩이 있는 쪽. 미닫이 문에는 없어야 한다.",
+          "type": "string",
+          "enum": ["left", "right"]
+        },
+        "sill_height_mm": {
+          "description": "창문 전용. 마감 바닥 기준 창틀 하단까지의 높이(mm).",
+          "type": "number",
+          "minimum": 0
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "door"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["door_opening_type", "from_room_id", "to_room_id"],
+            "not": {
+              "required": ["sill_height_mm"]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "window"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["door_opening_type"]
+                },
+                {
+                  "required": ["from_room_id"]
+                },
+                {
+                  "required": ["to_room_id"]
+                },
+                {
+                  "required": ["swing_into_room_id"]
+                },
+                {
+                  "required": ["hinge_side"]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "opening"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["door_opening_type"]
+                },
+                {
+                  "required": ["from_room_id"]
+                },
+                {
+                  "required": ["to_room_id"]
+                },
+                {
+                  "required": ["swing_into_room_id"]
+                },
+                {
+                  "required": ["hinge_side"]
+                },
+                {
+                  "required": ["sill_height_mm"]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "door"
+              },
+              "door_opening_type": {
+                "const": "swing"
+              }
+            },
+            "required": ["type", "door_opening_type"]
+          },
+          "then": {
+            "required": ["swing_into_room_id", "hinge_side"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "door"
+              },
+              "door_opening_type": {
+                "const": "sliding"
+              }
+            },
+            "required": ["type", "door_opening_type"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["swing_into_room_id"]
+                },
+                {
+                  "required": ["hinge_side"]
+                }
+              ]
+            }
+          }
+        }
+      ]
     },
     "annotation": {
       "type": "object",
