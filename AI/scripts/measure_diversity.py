@@ -32,6 +32,7 @@ from ai_rendering.ifc2img.views import (
     DEFAULT_RENDER_VIEWS,
     VIEW_TARGET_RATIOS,
     compute_principal_axes,
+    resolve_target_ratio_for_mesh,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,8 +55,8 @@ def measure_fill_percent(png_path: Path) -> float:
 
 def main() -> int:
     print(f"{'fixture':30s}  {'max_ext':>7s}  {'PCA':>5s}  {'view':7s}  "
-          f"{'target':>6s}  {'fill%':>6s}  {'Δ':>5s}")
-    print("─" * 80)
+          f"{'base':>5s}  {'applied':>7s}  {'fill%':>6s}  {'Δ':>5s}")
+    print("─" * 92)
 
     for fixture in FIXTURES:
         stem = fixture.stem
@@ -75,8 +76,9 @@ def main() -> int:
             if not png.exists():
                 continue
             fill = measure_fill_percent(png)
-            target = VIEW_TARGET_RATIOS[view]
-            diff = fill - target
+            base = VIEW_TARGET_RATIOS[view]
+            applied = resolve_target_ratio_for_mesh(view, max_extent, base_ratio=base)
+            diff = fill - applied
             mark = "✓" if abs(diff) <= 0.10 else ("↑" if diff > 0 else "↓")
 
             # 첫 view에만 fixture/extent/PCA 출력 (가독성)
@@ -91,12 +93,14 @@ def main() -> int:
 
             print(
                 f"{fixture_col:30s}  {extent_col:>7s}  {pca_col:>5s}  "
-                f"{view.value:7s}  {target:>6.2f}  {fill:>6.3f}  {diff:>+5.3f} {mark}"
+                f"{view.value:7s}  {base:>5.2f}  {applied:>7.3f}  "
+                f"{fill:>6.3f}  {diff:>+5.3f} {mark}"
             )
         print()
 
-    print("범례: target = VIEW_TARGET_RATIOS, fill% = (depth > 0).mean(), "
-          "Δ = fill - target. ✓ = ±0.10 안 (수렴), ↑/↓ = 초과/미달.")
+    print("범례: base = VIEW_TARGET_RATIOS[view], applied = dispatch 적용 후 target "
+          "(`resolve_target_ratio_for_mesh`), fill% = (depth > 0).mean(), "
+          "Δ = fill - applied. ✓ = ±0.10 안 (수렴), ↑/↓ = 초과/미달.")
     return 0
 
 

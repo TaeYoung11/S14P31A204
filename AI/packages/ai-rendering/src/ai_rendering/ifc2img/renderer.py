@@ -19,6 +19,7 @@ from .views import (
     compute_auto_zoom,
     compute_dynamic_front,
     compute_principal_axes,
+    resolve_target_ratio_for_mesh,
 )
 
 
@@ -93,12 +94,27 @@ class IFCRenderer:
             for view in views
         }
 
-    def _resolve_target_ratio(self, view: IFCView) -> float:
-        """view-별 target_screen_ratio 결정.
+    def _resolve_target_ratio(
+        self,
+        view: IFCView,
+        mesh: o3d.geometry.TriangleMesh,
+    ) -> float:
+        """view + mesh 크기에 따라 target_screen_ratio 결정.
 
-        VIEW_TARGET_RATIOS에 등록된 시점은 그 값, 없으면 self.target_screen_ratio.
+        1) base = VIEW_TARGET_RATIOS[view] (없으면 self.target_screen_ratio).
+        2) mesh AABB max_extent에 따라 dispatch — `resolve_target_ratio_for_mesh`:
+           - extent > 50m → base × 0.6 (대형 fixture)
+           - extent > 20m → base × 0.8 (중대형)
+           - 그 외        → base 그대로 (보통)
+
+        빈 mesh면 base 그대로 (방어적 fallback — 정상 조건 아님).
         """
-        return VIEW_TARGET_RATIOS.get(view, self.target_screen_ratio)
+        base = VIEW_TARGET_RATIOS.get(view, self.target_screen_ratio)
+        verts = np.asarray(mesh.vertices)
+        if len(verts) == 0:
+            return base
+        max_extent = float(np.max(verts.max(axis=0) - verts.min(axis=0)))
+        return resolve_target_ratio_for_mesh(view, max_extent, base_ratio=base)
 
     def _compute_pca_axes(
         self,
@@ -217,7 +233,7 @@ class IFCRenderer:
         view: IFCView,
     ) -> Image.Image:
         initial_zoom = self._initial_zoom(mesh, camera)
-        target_ratio = self._resolve_target_ratio(view)
+        target_ratio = self._resolve_target_ratio(view, mesh)
 
         vis = o3d.visualization.Visualizer()
         vis.create_window(visible=False, width=self.width, height=self.height)
