@@ -7,7 +7,10 @@ from dataclasses import dataclass
 
 @dataclass(slots=True)
 class WorkerContext:
-    """Normalized runtime metadata extracted from a Python command model."""
+    """Normalized runtime metadata extracted from a Python command model.
+
+    This context is runtime metadata only, not a payload container.
+    """
 
     message_id: str
     command_type: str

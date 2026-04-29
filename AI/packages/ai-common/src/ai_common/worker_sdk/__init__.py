@@ -1,6 +1,7 @@
 """Namespace package for worker runtime building blocks."""
 
 from ai_common.worker_sdk import base_worker, context, event_factory, lifecycle
+from ai_common.worker_sdk.base_worker import BaseWorker, EventPublisher
 from ai_common.worker_sdk.context import WorkerContext
 from ai_common.worker_sdk.event_factory import (
     ClarificationResult,
@@ -25,7 +26,9 @@ from ai_common.worker_sdk.lifecycle import (
 
 __all__ = [
     "ClarificationResult",
+    "BaseWorker",
     "CompletedResult",
+    "EventPublisher",
     "FailedResult",
     "LifecycleStatus",
     "ProgressResult",
