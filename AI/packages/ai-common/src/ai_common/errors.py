@@ -56,6 +56,11 @@ class ClarificationRequiredError(WorkerError):
     retryable: bool = False
     clarification_possible: bool = True
 
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if not self.clarification_request_id:
+            raise ValueError("clarification_request_id is required")
+
 
 def to_event_error_payload(error: WorkerError) -> dict[str, object]:
     """Convert a shared worker error into the EventError payload shape."""

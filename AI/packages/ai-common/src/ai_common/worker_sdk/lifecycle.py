@@ -66,13 +66,19 @@ def build_event_routing_key(worker_type: str, status: LifecycleStatus) -> str:
     """Build a stable event routing key from workerType and lifecycle status."""
 
     routing_segment = _lookup_worker_type(worker_type)["routing_segment"]
-    return f"event.{routing_segment}.{status.replace('_', '-')}"
+    return f"event.{routing_segment}.{normalize_status_segment(status)}"
 
 
 def is_terminal_status(status: LifecycleStatus) -> bool:
     """Return whether a lifecycle status is terminal."""
 
     return status in TERMINAL_STATUSES
+
+
+def normalize_status_segment(status: LifecycleStatus) -> str:
+    """Normalize a lifecycle status for routing-key segments."""
+
+    return status.replace("_", "-")
 
 
 def _lookup_command_type(command_type: str) -> dict[str, str]:
@@ -101,4 +107,5 @@ __all__ = [
     "build_event_type",
     "build_worker_type",
     "is_terminal_status",
+    "normalize_status_segment",
 ]
