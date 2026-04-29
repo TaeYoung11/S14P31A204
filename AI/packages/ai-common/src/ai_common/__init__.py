@@ -2,9 +2,11 @@
 
 from ai_common import config, errors, health, idempotency, logging, worker_sdk
 from ai_common.config import WorkerSettings, load_worker_settings
+from ai_common.health import HealthServer, start_health_server
 from ai_common.logging import configure_logging, get_logger
 
 __all__ = [
+    "HealthServer",
     "WorkerSettings",
     "config",
     "configure_logging",
@@ -14,5 +16,6 @@ __all__ = [
     "idempotency",
     "load_worker_settings",
     "logging",
+    "start_health_server",
     "worker_sdk",
 ]
