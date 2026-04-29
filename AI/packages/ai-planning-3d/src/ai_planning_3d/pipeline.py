@@ -4,6 +4,7 @@ from typing import Any
 import ifcopenshell
 from .engine import LLM3DEngine
 from .command import LLM3DCommand, LLM3DCommandType, LLM3DElementType, LLM3DPoint3D
+
 # ai_authoring 공용 패키지에서 검색 엔진 및 유틸리티 참조
 from ai_authoring.query_engine import IFCQueryEngine
 from ai_authoring.utils import normalize_storey_name
@@ -21,7 +22,21 @@ from ai_authoring.engine_3d import (
     create_generic_element,
 )
 
+# ── [신규] 검증 모듈 임포트 ─────────────────────────────────────────────────
+from .validators import (
+    CollisionValidator,
+    CollisionResult,
+    StructuralSafetyValidator,
+    StructuralCheckResult,
+)
+from .query.adjacency import AdjacencyQueryEngine, AdjacencyResult
+
 logger = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 세션 / 요약 데이터 클래스
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 class PreviewSession:
@@ -32,12 +47,25 @@ class PreviewSession:
         matched: list[dict[str, Any]],
         quality_ok: bool = True,
         quality_errors: list[str] | None = None,
+        # ── [신규] 검증 결과 필드 ──────────────────────────────────────────
+        collision_warnings: list[str] | None = None,
+        structural_warnings: list[str] | None = None,
+        structural_blocked: bool = False,
     ):
         self.session_id = session_id
         self.command = command
         self.matched = matched
         self.quality_ok = quality_ok
         self.quality_errors = quality_errors or []
+        # 충돌/구조 검증 결과 — 파이프라인 리포팅용
+        self.collision_warnings: list[str] = collision_warnings or []
+        self.structural_warnings: list[str] = structural_warnings or []
+        self.structural_blocked: bool = structural_blocked
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 파이프라인 메인 클래스
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 class LLM3DPipeline:
@@ -49,8 +77,39 @@ class LLM3DPipeline:
                 ifc_model = ifcopenshell.open(ifc_path)
             except Exception as e:
                 logger.error(f"IFC 파일을 열 수 없습니다 ({ifc_path}): {e}")
+
         self.query_engine = IFCQueryEngine(ifc_model=ifc_model)
         self.store: dict[str, PreviewSession] = {}
+
+        # ── [신규] 검증기 및 인접 탐색 엔진 초기화 ─────────────────────────
+        scale = self._detect_scale_factor(ifc_model)
+        self._collision_validator = (
+            CollisionValidator(ifc_model, scale_to_mm=scale) if ifc_model else None
+        )
+        self._structural_validator = (
+            StructuralSafetyValidator(ifc_model, scale_to_mm=scale) if ifc_model else None
+        )
+        self._adjacency_engine = (
+            AdjacencyQueryEngine(ifc_model, scale_to_mm=scale) if ifc_model else None
+        )
+
+    # ── 단위 변환 헬퍼 ────────────────────────────────────────────────────
+
+    def _detect_scale_factor(self, model: ifcopenshell.file | None) -> float:
+        """IFC 모델의 LENGTHUNIT 프리픽스로부터 native → mm 변환 배율을 반환한다."""
+        if not model:
+            return 1.0
+        for unit in model.by_type("IfcSIUnit"):
+            if getattr(unit, "UnitType", None) != "LENGTHUNIT":
+                continue
+            prefix = getattr(unit, "Prefix", None)
+            if prefix == "MILLI":
+                return 1.0
+            if prefix == "CENTI":
+                return 10.0
+            if prefix is None:
+                return 1000.0
+        return 1.0
 
     def _model_units_to_mm(self, value: float) -> float:
         model = self.query_engine.get_model()
@@ -157,12 +216,9 @@ class LLM3DPipeline:
         if not xs or not ys or not zs:
             return None
         return {
-            "min_x": min(xs),
-            "max_x": max(xs),
-            "min_y": min(ys),
-            "max_y": max(ys),
-            "min_z": min(zs),
-            "max_z": max(zs),
+            "min_x": min(xs), "max_x": max(xs),
+            "min_y": min(ys), "max_y": max(ys),
+            "min_z": min(zs), "max_z": max(zs),
         }
 
     def _storey_bbox_mm(self, storey: ifcopenshell.entity_instance) -> dict[str, float] | None:
@@ -225,10 +281,13 @@ class LLM3DPipeline:
         elif direction == "west":
             start_point["x"] = min_x - offset
 
+        length_val = float(create_info.get("length_mm") or wall_length)
         return {
             "start_point": start_point,
-            "length_mm": max(float(create_info.get("length_mm") or wall_length), 3000.0),
+            "length_mm": max(length_val, 3000.0),
         }
+
+    # ── [핵심] execute_preview — 검증 통합 ────────────────────────────────
 
     async def execute_preview(self, user_text: str) -> dict[str, Any]:
         command = await self.engine.parse_command(user_text)
@@ -251,6 +310,18 @@ class LLM3DPipeline:
                 "command": command.model_dump(),
             }
 
+        # ── [#209] DELETE: 내력벽 구조 차단 검사 ──────────────────────────
+        if command.command_type == LLM3DCommandType.DELETE:
+            structural_result = self._run_structural_delete_check(matched)
+            if structural_result.blocked:
+                return {
+                    "status": "failed_structural_check",
+                    "summary": structural_result.warnings[0],
+                    "structural_warnings": structural_result.to_summary_lines(),
+                    "command": command.model_dump(),
+                }
+
+        # ── [기존] ModelingQualityValidator 품질 검증 ────────────────────
         all_errors = []
         for elem in matched:
             errs = command.validate_modeling_quality(
@@ -266,12 +337,18 @@ class LLM3DPipeline:
         )
         self.store[session.session_id] = session
 
+        # ── [#209] MODIFY/DELETE: 구조 경고 수집 (차단 없음) ─────────────
+        if command.command_type == LLM3DCommandType.DELETE and self._structural_validator:
+            session.structural_warnings = structural_result.to_summary_lines()
+
         return {
             "status": "preview_ready" if quality_ok else "failed_quality_check",
             "session_id": session.session_id,
             "command": command.model_dump(),
             "matched_count": len(matched),
             "summary": self._generate_summary(command, len(matched), all_errors),
+            # ── [신규] 검증 결과 포함 ────────────────────────────────────
+            "structural_warnings": session.structural_warnings,
         }
 
     async def execute_apply(
@@ -355,9 +432,7 @@ class LLM3DPipeline:
                     "status": "not_applied",
                     "applied_count": 0,
                     "summary": self._generate_apply_failure_summary(
-                        command,
-                        missing_ids,
-                        failed_ids,
+                        command, missing_ids, failed_ids
                     ),
                     "missing_ids": missing_ids,
                     "failed_ids": failed_ids,
@@ -371,6 +446,68 @@ class LLM3DPipeline:
         finally:
             self.store.pop(session_id, None)
 
+    # ── [#208/#209] CREATE 미리보기 — 충돌 + 구조 검증 통합 ──────────────
+
+    async def _execute_delete_preview(self, command: LLM3DCommand) -> dict[str, Any]:
+        model = self.query_engine.get_model()
+        if not model:
+            return {
+                "status": "error",
+                "summary": "IFC 모델이 로드되지 않았습니다.",
+                "command": command.model_dump(),
+            }
+
+        matched: list[dict[str, Any]] = []
+        if command.target.global_id:
+            element = model.by_guid(command.target.global_id)
+            if element:
+                matched.append(
+                    {
+                        "global_id": element.GlobalId,
+                        "element_type": element.is_a(),
+                        "name": element.Name,
+                        "dims": {},
+                    }
+                )
+
+        if not matched:
+            matched = self.query_engine.find_elements(command)
+
+        if not matched:
+            return {
+                "status": "not_found",
+                "summary": self.query_engine.get_last_query_reason()
+                or "삭제 대상 부재를 찾을 수 없습니다.",
+                "command": command.model_dump(),
+            }
+
+        structural_result = self._run_structural_delete_check(matched)
+        if structural_result.blocked:
+            return {
+                "status": "failed_structural_check",
+                "summary": structural_result.warnings[0],
+                "structural_warnings": structural_result.to_summary_lines(),
+                "command": command.model_dump(),
+            }
+
+        session = PreviewSession(
+            session_id=str(uuid.uuid4()),
+            command=command,
+            matched=matched,
+            quality_ok=True,
+            structural_warnings=structural_result.to_summary_lines(),
+        )
+        self.store[session.session_id] = session
+
+        return {
+            "status": "preview_ready",
+            "session_id": session.session_id,
+            "command": command.model_dump(),
+            "matched_count": len(matched),
+            "summary": self._generate_summary(command, len(matched), []),
+            "structural_warnings": session.structural_warnings,
+        }
+
     async def _execute_create_preview(self, command: LLM3DCommand) -> dict[str, Any]:
         ci = command.create_info
         if not ci:
@@ -379,7 +516,7 @@ class LLM3DPipeline:
         model = self.query_engine.get_model()
         if not model:
             return {"status": "error", "message": "IFC 모델이 로드되지 않았습니다."}
-        # 1. 층(Storey) 매칭 로직 (ai_authoring.utils에서 가져온 함수 사용)
+
         target_name = normalize_storey_name(ci.storey or "1F")
         storeys = [
             s
@@ -390,7 +527,12 @@ class LLM3DPipeline:
 
         ci_dump = ci.model_dump()
         inferred = self._infer_create_geometry(ci_dump, target_storey)
-        ci_dump.update({k: v for k, v in inferred.items() if v is not None})
+        explicit_create_fields = ci.model_fields_set
+        for key, value in inferred.items():
+            if value is not None and (
+                key not in explicit_create_fields or ci_dump.get(key) in (None, "", [], {})
+            ):
+                ci_dump[key] = value
         start_point = ci_dump["start_point"]
 
         ci.start_point = LLM3DPoint3D(**start_point)
@@ -401,6 +543,32 @@ class LLM3DPipeline:
         if ci_dump.get("ridge_height_mm") is not None:
             ci.ridge_height_mm = ci_dump["ridge_height_mm"]
 
+        # ── [#208] 충돌 검사 ────────────────────────────────────────────
+        collision_warnings: list[str] = []
+        if self._collision_validator:
+            collision_result: CollisionResult = self._collision_validator.validate(
+                ci_dump, target_storey
+            )
+            collision_warnings = collision_result.to_summary_lines()
+            if not collision_result.is_ok:
+                logger.warning(
+                    f"[Pipeline] CREATE 충돌 감지: {collision_warnings}"
+                )
+
+        # ── [#209] 구조 지지체 검사 (슬래브/지붕) ─────────────────────
+        structural_warnings: list[str] = []
+        if self._structural_validator:
+            structural_result: StructuralCheckResult = (
+                self._structural_validator.check_create_support(ci_dump, target_storey)
+            )
+            structural_warnings = structural_result.to_summary_lines()
+            if not structural_result.safe:
+                logger.warning(
+                    f"[Pipeline] CREATE 구조 경고: {structural_warnings}"
+                )
+
+        # 충돌이 있어도 preview_ready는 유지 (사용자에게 경고만 표시)
+        # 정책에 따라 collision_result.has_collision 이면 차단으로 변경 가능
         session = PreviewSession(
             session_id=str(uuid.uuid4()),
             command=command,
@@ -412,13 +580,19 @@ class LLM3DPipeline:
                 }
             ],
             quality_ok=True,
+            collision_warnings=collision_warnings,
+            structural_warnings=structural_warnings,
         )
         self.store[session.session_id] = session
+
         return {
             "status": "preview_ready",
             "session_id": session.session_id,
             "command": command.model_dump(),
             "summary": f"{target_storey.Name}에 {ci.element_type} 생성 준비 완료",
+            # ── [신규] 검증 결과 포함 ─────────────────────────────────
+            "collision_warnings": collision_warnings,
+            "structural_warnings": structural_warnings,
         }
 
     async def _execute_create_apply(
@@ -452,7 +626,84 @@ class LLM3DPipeline:
             }
         return {"status": "error", "summary": "생성 실패"}
 
-    def _generate_summary(self, command, count, errors):
+    # ── [#209] DELETE 구조 검사 헬퍼 ─────────────────────────────────────
+
+    def _run_structural_delete_check(
+        self, matched: list[dict[str, Any]]
+    ) -> StructuralCheckResult:
+        """
+        DELETE 대상 부재 목록에 내력벽이 포함되어 있는지 검사한다.
+        하나라도 blocked이면 전체를 차단한다.
+        """
+        if not self._structural_validator:
+            return StructuralCheckResult(safe=True)
+
+        model = self.query_engine.get_model()
+        if not model:
+            return StructuralCheckResult(safe=True)
+
+        all_warnings: list[str] = []
+        for item in matched:
+            element = model.by_guid(item["global_id"])
+            if not element:
+                continue
+            result = self._structural_validator.check_delete(element)
+            if result.blocked:
+                # 첫 번째 차단 발견 시 즉시 반환 (fast-fail)
+                return result
+            all_warnings.extend(result.warnings)
+
+        return StructuralCheckResult(safe=True, warnings=all_warnings)
+
+    # ── [#210] 인접 부재 탐색 공개 메서드 ────────────────────────────────
+
+    def find_adjacent_elements(
+        self,
+        reference_matched_item: dict[str, Any],
+        direction: str | None = None,
+        element_type: str = "IfcWall",
+        threshold_mm: float = 500.0,
+        max_results: int = 5,
+    ) -> AdjacencyResult:
+        """
+        기존 matched 항목을 기준으로 인접 부재를 탐색한다.
+        """
+        if not self._adjacency_engine:
+            return AdjacencyResult(
+                reference_id=reference_matched_item.get("global_id", ""),
+                message="[인접탐색] AdjacencyQueryEngine이 초기화되지 않았습니다.",
+            )
+        return self._adjacency_engine.find_adjacent(
+            reference_info=reference_matched_item,
+            direction=direction,
+            element_type=element_type,
+            threshold_mm=threshold_mm,
+            max_results=max_results,
+        )
+
+    def find_adjacent_by_text(
+        self,
+        reference_matched_item: dict[str, Any],
+        text: str,
+        element_type: str = "IfcWall",
+    ) -> AdjacencyResult:
+        """
+        자연어 텍스트에서 방향을 추출하여 인접 부재를 탐색한다.
+        """
+        if not self._adjacency_engine:
+            return AdjacencyResult(
+                reference_id=reference_matched_item.get("global_id", ""),
+                message="[인접탐색] AdjacencyQueryEngine이 초기화되지 않았습니다.",
+            )
+        return self._adjacency_engine.find_adjacent_by_text(
+            reference_info=reference_matched_item,
+            text=text,
+            element_type=element_type,
+        )
+
+    # ── 요약 생성 헬퍼 ────────────────────────────────────────────────────
+
+    def _generate_summary(self, command, count, errors) -> str:
         if errors:
             return f"품질 검증 실패: {errors[0]}"
         return f"[{command.command_type.value}] {count}개 요소 준비 완료"
