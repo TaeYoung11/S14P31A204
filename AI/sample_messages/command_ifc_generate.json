@@ -36,6 +36,19 @@
           "angle": 0.0,
           "locked": false,
           "zoneId": "zone-common"
+        },
+        {
+          "id": "room-bed-01",
+          "name": "Bedroom",
+          "type": "bedroom",
+          "width": 3600,
+          "height": 3200,
+          "floor": 1,
+          "x": 9800.0,
+          "y": 4000.0,
+          "angle": 0.0,
+          "locked": false,
+          "zoneId": "zone-common"
         }
       ],
       "zones": [

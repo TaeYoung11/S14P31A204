@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 StorageUrl = Annotated[str, Field(min_length=1, max_length=2048)]
 
@@ -83,8 +83,8 @@ class EventMessage(BaseModel):
     def validate_status_requirements(self) -> EventMessage:
         if self.status == "progress" and self.progress is None:
             raise ValueError("progress is required when status is progress")
-        if self.status in {"failed", "clarification_required"} and self.error is None:
-            raise ValueError("error is required when status is failed or clarification_required")
+        if self.status == "failed" and self.error is None:
+            raise ValueError("error is required when status is failed")
         if self.status == "clarification_required" and self.clarificationRequestId is None:
             raise ValueError(
                 "clarificationRequestId is required when status is clarification_required"
@@ -92,3 +92,7 @@ class EventMessage(BaseModel):
         if self.status == "completed" and self.output is None:
             raise ValueError("output is required when status is completed")
         return self
+
+    @field_serializer("occurredAt", when_used="always")
+    def serialize_occurred_at(self, value: datetime) -> str:
+        return value.isoformat().replace("+00:00", "Z")

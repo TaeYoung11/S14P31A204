@@ -57,7 +57,7 @@ class ClarificationRequiredError(WorkerError):
     clarification_possible: bool = True
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        WorkerError.__post_init__(self)
         if not self.clarification_request_id:
             raise ValueError("clarification_request_id is required")
 

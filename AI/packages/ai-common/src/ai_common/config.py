@@ -16,7 +16,7 @@ EnvironmentField = Annotated[EnvironmentName, Field(alias="ENVIRONMENT")]
 LogLevelField = Annotated[LogLevelName, Field(alias="LOG_LEVEL")]
 LogJsonField = Annotated[bool, Field(alias="LOG_JSON")]
 HealthHostField = Annotated[str, Field(alias="HEALTH_HOST", min_length=1)]
-HealthPortField = Annotated[int, Field(alias="HEALTH_PORT", ge=1, le=65535)]
+HealthPortField = Annotated[int, Field(alias="HEALTH_PORT", ge=0, le=65535)]
 
 
 class WorkerSettings(BaseSettings):
@@ -26,6 +26,7 @@ class WorkerSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     worker_type: WorkerTypeField
