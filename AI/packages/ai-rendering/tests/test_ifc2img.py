@@ -24,8 +24,6 @@ from ai_rendering.ifc2img.views import (
     build_view_negative_prompt,
     build_view_prompt,
     compute_auto_zoom,
-    compute_dynamic_front,
-    compute_principal_axes,
     resolve_target_ratio_for_mesh,
     resolve_view_cn_scale,
 )
@@ -354,78 +352,6 @@ def test_iterative_zoom_bool_true_maps_to_iterative() -> None:
 # --- 카드 B + γ: PCA 기반 동적 front + 등각 뷰 ---
 
 
-def test_pca_returns_orthogonal_axes_for_long_mesh() -> None:
-    """길쭉한 mesh의 PCA — long ⊥ mid, 단위벡터, valid=True."""
-    # x축으로 길쭉, y축으로 짧음
-    rng = np.random.default_rng(42)
-    n = 500
-    pts_x = rng.uniform(-50, 50, n)
-    pts_y = rng.uniform(-5, 5, n)
-    pts_z = rng.uniform(0, 10, n)
-    vertices = np.stack([pts_x, pts_y, pts_z], axis=1)
-
-    long_axis, mid_axis, valid = compute_principal_axes(vertices)
-
-    assert valid is True
-    # long_axis는 x 방향에 가까워야 함
-    assert abs(long_axis[0]) > 0.9
-    assert abs(long_axis[1]) < 0.3
-    # 직교 검증
-    assert abs(np.dot(long_axis, mid_axis)) < 1e-6
-    # 단위벡터
-    assert abs(np.linalg.norm(long_axis) - 1.0) < 1e-6
-    assert abs(np.linalg.norm(mid_axis) - 1.0) < 1e-6
-    # z 성분은 0 (xy 평면 PCA)
-    assert long_axis[2] == 0.0
-    assert mid_axis[2] == 0.0
-
-
-def test_pca_fallback_when_eigenvalues_close() -> None:
-    """정사각 평면 mesh — eigenvalue 격차 작음 → valid=False → fallback 권장."""
-    rng = np.random.default_rng(42)
-    n = 500
-    pts = rng.uniform(-10, 10, (n, 2))
-    pts_z = rng.uniform(0, 10, n)
-    vertices = np.stack([pts[:, 0], pts[:, 1], pts_z], axis=1)
-
-    _, _, valid = compute_principal_axes(vertices)
-    assert valid is False
-
-
-def test_pca_axis_signs_are_deterministic() -> None:
-    """eigh가 ±v 둘 중 어느 쪽을 반환해도 부호 정규화 후 동일 결과 보장.
-
-    회귀 방어 — 부호 정규화 미적용 시 카메라 방향이 정반대로 뒤집힐 위험.
-    같은 mesh를 좌우/상하 반전(부호 다름)해도 PCA 주축은 같은 부호로 정렬되어야 함.
-    """
-    # 좌측 변형: x축으로 길쭉
-    rng = np.random.default_rng(42)
-    n = 500
-    base_x = rng.uniform(-50, 50, n)
-    base_y = rng.uniform(-5, 5, n)
-    base_z = rng.uniform(0, 10, n)
-    verts_a = np.stack([base_x, base_y, base_z], axis=1)
-    # 같은 mesh의 평행 이동 (PCA covariance에서 mean 빼므로 결과 동일해야 함)
-    verts_b = verts_a + np.array([100.0, 200.0, 0.0])
-
-    long_a, mid_a, _ = compute_principal_axes(verts_a)
-    long_b, mid_b, _ = compute_principal_axes(verts_b)
-
-    # 평행 이동은 PCA 결과 변화 없어야 함 (centroid 빼므로).
-    np.testing.assert_allclose(long_a, long_b, atol=1e-9)
-    np.testing.assert_allclose(mid_a, mid_b, atol=1e-9)
-
-    # 핵심 — 부호 정규화 (첫 nonzero 성분 양수)
-    # long_axis가 양의 x축 방향에 정렬됨 (x 성분이 가장 크므로 그게 첫 nonzero).
-    assert long_a[0] > 0
-    # mid_axis도 첫 nonzero가 양수 (y 성분이 가장 클 것).
-    assert mid_a[1] > 0 or (abs(mid_a[1]) < 1e-9 and mid_a[0] > 0)
-
-    # RHS 보장 — (long × mid)·z >= 0 (위에서 봤을 때 CCW).
-    cross_z = long_a[0] * mid_a[1] - long_a[1] * mid_a[0]
-    assert cross_z >= -1e-9
-
-
 def _build_wall_mesh(
     n_walls: int, theta_deg: float = 0.0, seed: int = 42
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -553,19 +479,6 @@ def test_align_walls_skips_for_empty_triangles() -> None:
 
     assert did_rotate is False
     np.testing.assert_array_equal(rotated, verts)
-
-
-def test_compute_dynamic_front_iso_ne_combines_axes() -> None:
-    """ISO_NE는 PCA 좌표계에서 두 축 결합 + z."""
-    long_axis = np.array([1.0, 0.0, 0.0])
-    mid_axis = np.array([0.0, 1.0, 0.0])
-
-    front = compute_dynamic_front(IFCView.ISO_NE, long_axis, mid_axis)
-
-    # ISO_NE 계수 = (-0.7, -0.7, 0.5)
-    assert abs(front[0] - (-0.7)) < 1e-6  # long 성분
-    assert abs(front[1] - (-0.7)) < 1e-6  # mid 성분
-    assert abs(front[2] - 0.5) < 1e-6     # z 성분
 
 
 def test_iso_views_all_in_enum() -> None:
@@ -763,16 +676,11 @@ def test_resolve_view_cn_scale_in_public_api() -> None:
 
 def test_excluded_views_still_callable_explicitly() -> None:
     """제외된 시점 모두 명시 전달 시 사용 가능 — enum/카메라/매핑 보존."""
-    from ai_rendering.ifc2img.views import (
-        VIEW_CAMERAS,
-        VIEW_PCA_COEFFICIENTS,
-        VIEW_TARGET_RATIOS,
-    )
+    from ai_rendering.ifc2img.views import VIEW_CAMERAS, VIEW_TARGET_RATIOS
 
     # 제외된 3개 view 모두 매핑에 등록돼있어야 한다 (default 제외 ≠ enum 제거)
     for v in (IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW):
         assert v in VIEW_CAMERAS
-        assert v in VIEW_PCA_COEFFICIENTS
         assert v in VIEW_TARGET_RATIOS
 
 
@@ -859,53 +767,8 @@ def test_resolve_target_ratio_for_large_mesh_scales_more() -> None:
     )
 
 
-def test_render_views_computes_pca_once_per_mesh() -> None:
-    """render_views(N뷰) 호출 시 PCA는 mesh당 1회만 계산되어야 한다 (성능 보장).
-
-    PCA 결과는 view-invariant — 같은 mesh에서 매 view마다 재계산하면 낭비.
-    """
-    fake_mesh = MagicMock()
-    fake_mesh.vertices = np.array(
-        [[0, 0, 0], [10, 0, 0], [10, 5, 0], [0, 5, 0],
-         [0, 0, 3], [10, 0, 3], [10, 5, 3], [0, 5, 3]]
-    )
-    fake_center = np.array([5.0, 2.5, 1.5])
-
-    with (
-        patch(
-            "ai_rendering.ifc2img.renderer.load_mesh",
-            return_value=(fake_mesh, fake_center),
-        ),
-        patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
-        patch(
-            "ai_rendering.ifc2img.renderer.compute_principal_axes",
-            return_value=(
-                np.array([1.0, 0.0, 0.0]),
-                np.array([0.0, 1.0, 0.0]),
-                True,
-            ),
-        ) as mock_pca,
-    ):
-        vis = MagicMock()
-        mock_o3d.visualization.Visualizer.return_value = vis
-        depth = np.zeros((448, 768), dtype=np.float32)
-        depth[100:300, 200:500] = 5.0
-        vis.capture_depth_float_buffer.return_value = depth
-
-        renderer = IFCRenderer(pca_align=True)
-        results = renderer.render_views(
-            Path("dummy.ifc"),
-            views=[IFCView.FRONT, IFCView.SIDE, IFCView.ISO_NE,
-                   IFCView.ISO_NW, IFCView.ISO_SE],
-        )
-
-    assert len(results) == 5
-    # 핵심 — PCA는 mesh당 1회만 (5뷰 호출이지만 1회).
-    assert mock_pca.call_count == 1
-
-
-def test_renderer_pca_align_off_uses_static_front() -> None:
-    """pca_align=False 시 동적 front 계산 안 함, VIEW_CAMERAS 정적값 그대로."""
+def test_render_uses_static_view_camera() -> None:
+    """render() 시 VIEW_CAMERAS의 정적 vector가 그대로 카메라 front로 사용됨."""
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5], [20, 0, 5]])
     fake_center = np.array([10.0, 5.0, 2.5])
@@ -916,9 +779,6 @@ def test_renderer_pca_align_off_uses_static_front() -> None:
             return_value=(fake_mesh, fake_center),
         ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
-        patch(
-            "ai_rendering.ifc2img.renderer.compute_principal_axes"
-        ) as mock_pca,
     ):
         vis = MagicMock()
         mock_o3d.visualization.Visualizer.return_value = vis
@@ -926,10 +786,9 @@ def test_renderer_pca_align_off_uses_static_front() -> None:
         depth[100:300, 200:500] = 5.0
         vis.capture_depth_float_buffer.return_value = depth
 
-        renderer = IFCRenderer(pca_align=False)
+        renderer = IFCRenderer()
         renderer.render(Path("dummy.ifc"), IFCView.FRONT)
 
-    mock_pca.assert_not_called()
     # set_front은 IFCView.FRONT의 정적 vector (-1.0, 0.0, 0.0)로 호출 — z=0 완전 수평
     set_front_calls = vis.get_view_control.return_value.set_front.call_args_list
     assert len(set_front_calls) == 1

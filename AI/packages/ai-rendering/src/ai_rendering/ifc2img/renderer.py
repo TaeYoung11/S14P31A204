@@ -17,8 +17,6 @@ from .views import (
     CameraParams,
     IFCView,
     compute_auto_zoom,
-    compute_dynamic_front,
-    compute_principal_axes,
     resolve_target_ratio_for_mesh,
 )
 
@@ -51,7 +49,6 @@ class IFCRenderer:
         target_screen_ratio: float = 0.55,
         iter_tolerance: float = 0.10,
         iter_max: int = 4,
-        pca_align: bool = False,
     ) -> None:
         self.width = width
         self.height = height
@@ -63,12 +60,10 @@ class IFCRenderer:
         self.target_screen_ratio = target_screen_ratio
         self.iter_tolerance = iter_tolerance
         self.iter_max = iter_max
-        self.pca_align = pca_align
 
     def render(self, ifc_path: Path, view: IFCView = IFCView.FRONT) -> Image.Image:
         mesh, center = load_mesh(ifc_path)
-        camera = self._resolve_camera(mesh, view)
-        return self._render_mesh(mesh, center, camera, view)
+        return self._render_mesh(mesh, center, VIEW_CAMERAS[view], view)
 
     def render_views(
         self,
@@ -85,12 +80,8 @@ class IFCRenderer:
         if views is None:
             views = list(DEFAULT_RENDER_VIEWS)
         mesh, center = load_mesh(ifc_path)
-        # PCA는 view-invariant — mesh당 1회만 계산해 모든 view에서 재사용.
-        pca_axes = self._compute_pca_axes(mesh)
         return {
-            view: self._render_mesh(
-                mesh, center, self._camera_for_view(view, pca_axes), view
-            )
+            view: self._render_mesh(mesh, center, VIEW_CAMERAS[view], view)
             for view in views
         }
 
@@ -115,45 +106,6 @@ class IFCRenderer:
             return base
         max_extent = float(np.max(verts.max(axis=0) - verts.min(axis=0)))
         return resolve_target_ratio_for_mesh(view, max_extent, base_ratio=base)
-
-    def _compute_pca_axes(
-        self,
-        mesh: o3d.geometry.TriangleMesh,
-    ) -> tuple[np.ndarray, np.ndarray] | None:
-        """mesh PCA 1회 계산. None이면 호출자는 정적 fallback 사용.
-
-        반환 None 조건: pca_align=False / vertex 3개 미만 / eigenvalue 격차 부족.
-        """
-        if not self.pca_align:
-            return None
-        verts = np.asarray(mesh.vertices)
-        if len(verts) < 3:
-            return None
-        long_axis, mid_axis, valid = compute_principal_axes(verts)
-        if not valid:
-            return None
-        return long_axis, mid_axis
-
-    def _camera_for_view(
-        self,
-        view: IFCView,
-        pca_axes: tuple[np.ndarray, np.ndarray] | None,
-    ) -> CameraParams:
-        """미리 계산된 PCA 결과로 view 카메라 산출. None이면 정적 fallback."""
-        static = VIEW_CAMERAS[view]
-        if pca_axes is None:
-            return static
-        long_axis, mid_axis = pca_axes
-        front = compute_dynamic_front(view, long_axis, mid_axis)
-        return CameraParams(front=front, up=static.up, zoom=static.zoom)
-
-    def _resolve_camera(
-        self,
-        mesh: o3d.geometry.TriangleMesh,
-        view: IFCView,
-    ) -> CameraParams:
-        """단일 호출 진입점 — PCA 1회 계산 후 view 카메라 결정. render() 등 1회성용."""
-        return self._camera_for_view(view, self._compute_pca_axes(mesh))
 
     def _initial_zoom(
         self,
