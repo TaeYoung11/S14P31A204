@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://a204.batang/shared/schemas/layout_import_v1.schema.json",
   "title": "LayoutImportV1",
-  "description": "Project layout JSON contract used to import a new IFC model from room-centric data with explicit mm units.",
+  "description": "room 중심 데이터로 새 IFC 모델을 임포트할 때 사용하는 프로젝트 레이아웃 JSON 계약. 단위는 mm.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "id", "name", "unit_system", "floors", "rooms"],
@@ -201,16 +201,29 @@
       }
     },
     "adjacency": {
+      "description": "방향이 없는 방 인접 의도값. 새로 작성하는 경우 room_a_id/room_b_id를 사용할 것. 한 쌍당 정확히 1개만 저장하며 사전순 정렬로 room_a_id < room_b_id를 유지한다. 하위 호환을 위해 기존 from_room_id/to_room_id도 허용된다.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["from_room_id", "to_room_id", "strength"],
+      "required": ["strength"],
       "properties": {
+        "room_a_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "room_b_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
         "from_room_id": {
+          "description": "더 이상 권장하지 않는 레거시 필드. room_a_id를 사용할 것.",
           "type": "string",
           "minLength": 1,
           "maxLength": 128
         },
         "to_room_id": {
+          "description": "더 이상 권장하지 않는 레거시 필드. room_b_id를 사용할 것.",
           "type": "string",
           "minLength": 1,
           "maxLength": 128
@@ -220,25 +233,62 @@
           "minimum": 0,
           "maximum": 1
         }
-      }
+      },
+      "anyOf": [
+        {
+          "required": ["room_a_id", "room_b_id"]
+        },
+        {
+          "required": ["from_room_id", "to_room_id"]
+        }
+      ]
     },
     "boundary": {
+      "description": "층 단위 배치 경계. 새로 작성하는 경우 outer_polygon_mm과 holes_mm을 사용할 것. 레거시 polygon_mm은 구멍 없는 단일 외곽 ring으로 허용된다.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["floor", "polygon_mm"],
+      "required": ["floor"],
       "properties": {
         "floor": {
           "type": "integer",
           "minimum": 1
         },
         "polygon_mm": {
+          "description": "더 이상 권장하지 않는 단일 ring 외곽 경계. open ring으로 직렬화하며 CCW winding을 적용하고 첫 점을 마지막에 반복하지 않는다.",
           "type": "array",
           "minItems": 3,
           "items": {
             "$ref": "#/$defs/coordinatePairMm"
           }
+        },
+        "outer_polygon_mm": {
+          "description": "표준 외곽 경계 ring. open ring으로 직렬화하며 CCW winding을 적용하고 첫 점을 마지막에 반복하지 않는다.",
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/coordinatePairMm"
+          }
+        },
+        "holes_mm": {
+          "description": "중정이나 제외 구역 등 내부 구멍. 각 ring은 CW winding의 open ring으로 직렬화해야 한다.",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 3,
+            "items": {
+              "$ref": "#/$defs/coordinatePairMm"
+            }
+          }
         }
-      }
+      },
+      "anyOf": [
+        {
+          "required": ["outer_polygon_mm"]
+        },
+        {
+          "required": ["polygon_mm"]
+        }
+      ]
     },
     "modelingDefaults": {
       "type": "object",
@@ -289,20 +339,21 @@
       ],
       "adjacency": [
         {
-          "from_room_id": "room-living-01",
-          "to_room_id": "room-bed-01",
+          "room_a_id": "room-bed-01",
+          "room_b_id": "room-living-01",
           "strength": 0.6
         }
       ],
       "boundaries": [
         {
           "floor": 1,
-          "polygon_mm": [
+          "outer_polygon_mm": [
             [0.0, 0.0],
             [14000.0, 0.0],
             [14000.0, 9000.0],
             [0.0, 9000.0]
-          ]
+          ],
+          "holes_mm": []
         }
       ],
       "modeling_defaults": {
