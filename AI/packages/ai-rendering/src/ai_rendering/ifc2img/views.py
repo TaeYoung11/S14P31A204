@@ -164,6 +164,21 @@ DEFAULT_RENDER_VIEWS: list[IFCView] = [
 ]
 
 
+# View-aware ground plane 정책 — 옵션 OO (2026-04-29).
+#
+# `load_mesh`는 building geometry만 반환. `IFCRenderer`가 view별로 ground plane을
+# 추가/제외해 시점에 맞는 시각 단서 전달:
+#   - ISO_*(z=0.5 위쪽 등각): mesh 외부 영역이 *대각선 원근*으로 자연스럽게 인식되어
+#     ground plane 추가 시 거대 평면이 framing 망가짐 → 제외.
+#   - FRONT/SIDE/EYE_*/TOP/BIRDS_EYE/CORNER_LOW: mesh 외부 영역이 depth=0 빈 배경이라
+#     SD가 prompt 편향으로 *추가 층/지하* 환각 → ground plane 추가로 차단.
+#
+# `IFCRenderer._mesh_for_view`가 이 frozenset 검사로 분기.
+VIEWS_WITHOUT_GROUND: frozenset[IFCView] = frozenset(
+    {IFCView.ISO_NE, IFCView.ISO_NW, IFCView.ISO_SE}
+)
+
+
 # View 별 prompt suffix — 옵션 B (per-view prompt suffix)의 공통 자산.
 #
 # 등각·기타 시점은 화면에 *건물 주변 환경*(잔디·길)도 들어옴. facade-위주 prompt

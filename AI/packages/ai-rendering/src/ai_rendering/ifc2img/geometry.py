@@ -144,7 +144,6 @@ def load_mesh(
         raise IFCRenderError("추출된 geometry가 없습니다.")
 
     vertices, _rotated = _align_walls_to_axes(vertices, faces)
-    vertices, faces = _add_ground_plane(vertices, faces)
 
     mesh = o3d.geometry.TriangleMesh()
     mesh.vertices = o3d.utility.Vector3dVector(vertices)
@@ -153,6 +152,31 @@ def load_mesh(
 
     center = (vertices.min(axis=0) + vertices.max(axis=0)) / 2
     return mesh, center
+
+
+def attach_ground_plane_to_mesh(
+    mesh: o3d.geometry.TriangleMesh,
+) -> o3d.geometry.TriangleMesh:
+    """기존 mesh에 ground plane을 추가한 새 mesh 반환 (view-aware ground 진입점).
+
+    배경 (2026-04-29 옵션 OO): `load_mesh`가 모든 view 공통 ground 추가 시 iso/eye
+    시점에서 framing 망가짐. ground 추가 책임을 view-aware로 이동 — 호출자(`IFCRenderer`)가
+    `VIEWS_WITHOUT_GROUND` 정책에 따라 ISO_*는 base mesh 사용, 나머지는 ground 추가.
+
+    Args:
+        mesh: ground 없는 base mesh (load_mesh 산출물).
+
+    Returns:
+        ground plane(2 triangle, +z normal) 추가한 새 mesh. 입력 mesh는 변경 없음.
+    """
+    vertices = np.asarray(mesh.vertices)
+    triangles = np.asarray(mesh.triangles)
+    new_verts, new_tris = _add_ground_plane(vertices, triangles)
+    new_mesh = o3d.geometry.TriangleMesh()
+    new_mesh.vertices = o3d.utility.Vector3dVector(new_verts)
+    new_mesh.triangles = o3d.utility.Vector3iVector(new_tris)
+    new_mesh.compute_vertex_normals()
+    return new_mesh
 
 
 def _add_ground_plane(

@@ -15,6 +15,7 @@ from ai_rendering.ifc2img.geometry import (
     GROUND_EXTENT_FACTOR,
     _add_ground_plane,
     _align_walls_to_axes,
+    attach_ground_plane_to_mesh,
     load_mesh,
 )
 from ai_rendering.ifc2img.views import (
@@ -25,6 +26,7 @@ from ai_rendering.ifc2img.views import (
     VIEW_NEGATIVE_SUFFIXES,
     VIEW_PROMPT_SUFFIXES,
     VIEW_TARGET_RATIOS,
+    VIEWS_WITHOUT_GROUND,
     AutoZoomMode,
     build_view_negative_prompt,
     build_view_prompt,
@@ -117,6 +119,10 @@ def test_renderer_calls_depth_buffer() -> None:
             "ai_rendering.ifc2img.renderer.load_mesh",
             return_value=(fake_mesh, fake_center),
         ),
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            side_effect=lambda m: m,
+        ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
         vis = MagicMock()
@@ -142,6 +148,10 @@ def test_render_views_loads_mesh_once() -> None:
             "ai_rendering.ifc2img.renderer.load_mesh",
             return_value=(fake_mesh, fake_center),
         ) as mock_load,
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            side_effect=lambda m: m,
+        ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
         vis = MagicMock()
@@ -225,6 +235,10 @@ def test_renderer_analytic_mode_uses_compute_auto_zoom() -> None:
             "ai_rendering.ifc2img.renderer.load_mesh",
             return_value=(fake_mesh, fake_center),
         ),
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            side_effect=lambda m: m,
+        ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
         patch("ai_rendering.ifc2img.renderer.compute_auto_zoom", return_value=0.42) as mock_compute,
     ):
@@ -252,6 +266,10 @@ def test_renderer_default_uses_static_zoom() -> None:
         patch(
             "ai_rendering.ifc2img.renderer.load_mesh",
             return_value=(fake_mesh, fake_center),
+        ),
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            side_effect=lambda m: m,
         ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
         patch("ai_rendering.ifc2img.renderer.compute_auto_zoom") as mock_compute,
@@ -296,6 +314,10 @@ def test_iterative_zoom_converges_when_target_reached() -> None:
             "ai_rendering.ifc2img.renderer.load_mesh",
             return_value=(fake_mesh, fake_center),
         ),
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            side_effect=lambda m: m,
+        ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
         vis = MagicMock()
@@ -326,6 +348,10 @@ def test_iterative_zoom_max_iter_caps() -> None:
         patch(
             "ai_rendering.ifc2img.renderer.load_mesh",
             return_value=(fake_mesh, fake_center),
+        ),
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            side_effect=lambda m: m,
         ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
@@ -534,8 +560,11 @@ def test_add_ground_plane_normal_points_up() -> None:
         assert normal[2] > 0.999, f"ground normal[2] should be +1, got {normal[2]}"
 
 
-def test_add_ground_plane_extent_2x_aabb_xy() -> None:
-    """ground plane xy 범위 = mesh AABB xy extent × GROUND_EXTENT_FACTOR(2.0)."""
+def test_add_ground_plane_extent_matches_aabb_factor() -> None:
+    """ground plane xy 범위 = mesh AABB xy extent × GROUND_EXTENT_FACTOR.
+
+    factor 변경 시(예: 2.0→1.2 옵션 EE) 자동 반영 — hard-coded 수치 회귀 방어.
+    """
     verts = np.array(
         [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [10.0, 6.0, 0.0], [0.0, 6.0, 3.0]],
         dtype=np.float64,
@@ -547,9 +576,65 @@ def test_add_ground_plane_extent_2x_aabb_xy() -> None:
     g_x_extent = ground_verts[:, 0].max() - ground_verts[:, 0].min()
     g_y_extent = ground_verts[:, 1].max() - ground_verts[:, 1].min()
 
-    # 입력 AABB xy extent: 10, 6 → ground 2배: 20, 12
+    # 입력 AABB xy extent: 10, 6 → ground = factor × 입력
     assert abs(g_x_extent - 10.0 * GROUND_EXTENT_FACTOR) < 1e-9
     assert abs(g_y_extent - 6.0 * GROUND_EXTENT_FACTOR) < 1e-9
+
+
+def test_attach_ground_plane_to_mesh_appends_4_vertices() -> None:
+    """`attach_ground_plane_to_mesh` — Open3D mesh wrapper, vertex 4 + triangle 2 추가.
+
+    `_add_ground_plane`(numpy 단계) 호출 후 새 TriangleMesh 구성. 입력 mesh는 변경 없음.
+    """
+    import open3d as o3d
+    base = o3d.geometry.TriangleMesh()
+    base.vertices = o3d.utility.Vector3dVector(
+        np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [10.0, 6.0, 3.0]])
+    )
+    base.triangles = o3d.utility.Vector3iVector(np.array([[0, 1, 2]]))
+    base.compute_vertex_normals()
+
+    new_mesh = attach_ground_plane_to_mesh(base)
+
+    assert len(new_mesh.vertices) == len(base.vertices) + 4
+    assert len(new_mesh.triangles) == len(base.triangles) + 2
+    # 입력 mesh 보존
+    assert len(base.vertices) == 3
+
+
+def test_views_without_ground_contains_iso_only() -> None:
+    """ISO_*만 ground 제외 (옵션 OO) — front/side/eye/top 등은 ground 추가 대상."""
+    assert IFCView.ISO_NE in VIEWS_WITHOUT_GROUND
+    assert IFCView.ISO_NW in VIEWS_WITHOUT_GROUND
+    assert IFCView.ISO_SE in VIEWS_WITHOUT_GROUND
+
+    for v in (
+        IFCView.FRONT, IFCView.SIDE, IFCView.TOP, IFCView.BIRDS_EYE,
+        IFCView.CORNER_LOW, IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE,
+    ):
+        assert v not in VIEWS_WITHOUT_GROUND, f"{v} should NOT be in VIEWS_WITHOUT_GROUND"
+
+
+def test_renderer_mesh_for_view_skips_ground_for_iso() -> None:
+    """`IFCRenderer._mesh_for_view` — ISO_*는 base mesh 그대로, 다른 시점은 ground 추가.
+
+    옵션 OO 회귀 방어 — view-aware ground 정책 유지.
+    """
+    renderer = IFCRenderer()
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 6.0, 3.0]])
+
+    # ISO는 base 그대로 (identity)
+    iso_result = renderer._mesh_for_view(fake_mesh, IFCView.ISO_NE)
+    assert iso_result is fake_mesh
+
+    # FRONT 등은 attach_ground_plane_to_mesh 호출 (id 다름)
+    with patch(
+        "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+        return_value=MagicMock(),
+    ) as mock_attach:
+        renderer._mesh_for_view(fake_mesh, IFCView.FRONT)
+    mock_attach.assert_called_once_with(fake_mesh)
 
 
 def test_iso_views_all_in_enum() -> None:
@@ -880,6 +965,10 @@ def test_render_uses_static_view_camera() -> None:
             "ai_rendering.ifc2img.renderer.load_mesh",
             return_value=(fake_mesh, fake_center),
         ),
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            side_effect=lambda m: m,
+        ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
         vis = MagicMock()
@@ -925,10 +1014,10 @@ def test_load_mesh_accepts_ifc4_variants(schema_name: str) -> None:
         ),
         patch("ai_rendering.ifc2img.geometry.ifcopenshell.geom.settings"),
     ):
-        # 예외 없이 통과해야 한다.
+        # 예외 없이 통과해야 한다. load_mesh는 building geometry만 반환
+        # (ground plane은 view-aware로 IFCRenderer에서 추가, 옵션 OO).
         mesh, _ = load_mesh(Path("dummy.ifc"))
-        # mesh 3 vertices + ground plane 4 vertices (옵션 P, 2026-04-29) = 7
-        assert len(mesh.vertices) == 7
+        assert len(mesh.vertices) == 3
 
 
 # --- 건물 구성요소 화이트리스트 (mock 기반) ---
@@ -1015,8 +1104,8 @@ def test_extra_types_extends_inclusion() -> None:
             extra_types=frozenset({"IfcFurnishingElement"}),
         )
 
-    # 두 entity 모두 포함되면 mesh vertex 6개. + ground plane 4 = 10.
-    assert len(mesh.vertices) == 10
+    # 두 entity 모두 포함되면 mesh vertex 6개. wall만 포함이면 3개.
+    assert len(mesh.vertices) == 6
 
 
 def test_included_base_ifcproduct_includes_everything() -> None:
@@ -1041,8 +1130,7 @@ def test_included_base_ifcproduct_includes_everything() -> None:
     ):
         mesh, _ = load_mesh(Path("dummy.ifc"), included_base="IfcProduct")
 
-    # site mesh 3 vertices + ground plane 4 = 7
-    assert len(mesh.vertices) == 7  # site가 포함됨
+    assert len(mesh.vertices) == 3  # site가 포함됨
 
 
 def test_no_building_element_raises() -> None:
