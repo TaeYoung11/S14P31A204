@@ -799,7 +799,8 @@ def test_renderer_resolves_view_specific_target() -> None:
     small_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 5.0, 3.0]])
 
     # TOP은 매핑 등록됨 → 매핑값 우선
-    assert renderer._resolve_target_ratio(IFCView.TOP, small_mesh) == VIEW_TARGET_RATIOS[IFCView.TOP]
+    top_resolved = renderer._resolve_target_ratio(IFCView.TOP, small_mesh)
+    assert top_resolved == VIEW_TARGET_RATIOS[IFCView.TOP]
     # 모든 등록 view의 매핑값이 fallback과 다름을 가정 (현재 매핑 값 0.12~0.20, fallback 0.99)
     for v in IFCView:
         assert renderer._resolve_target_ratio(v, small_mesh) == VIEW_TARGET_RATIOS[v]
