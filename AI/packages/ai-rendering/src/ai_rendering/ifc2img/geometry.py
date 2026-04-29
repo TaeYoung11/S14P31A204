@@ -10,7 +10,7 @@ import open3d as o3d  # type: ignore[import-untyped]
 
 from .exceptions import IFCRenderError
 
-GROUND_EXTENT_FACTOR = 2.0
+GROUND_EXTENT_FACTOR = 1.2
 """ground plane xy extent 배율 — mesh AABB xy extent의 N배.
 
 배경 (2026-04-29 옵션 P): front/side 정면 입면도에서 mesh 외부 영역이 depth=0(빈
@@ -18,9 +18,9 @@ GROUND_EXTENT_FACTOR = 2.0
 ground plane을 mesh 바닥 z=AABB.z_min에 추가하면 SD가 *지면*을 시각 단서로
 인식해 빈 영역 환각 차단.
 
-배율은 사방으로 확장 — 카메라가 mesh 가까이 framing해도 ground가 화면 하단을
-덮을 정도. 너무 크면 dispatch max_extent 측정에 영향 (현재는 GROUND_EXTENT_FACTOR
-xy 확장만 → z extent는 그대로라 max_extent 영향 0).
+2026-04-29 옵션 EE 조정: 2.0 → 1.2 — 2.0이 iso/eye 시점에서 거대 평면으로
+화면을 차지해 빌딩 framing 망가짐. 1.2는 사방 *약간 확장*만 하여 iso 회복 +
+front/side 빌딩 폭의 1.2배라 bottom 지면은 충분 노출.
 """
 
 

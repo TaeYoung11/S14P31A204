@@ -24,7 +24,8 @@ _NEGATIVE_BASE = (
     "text, watermark, signature, "
     "interior, indoor, furniture, "
     "basement, underground, "
-    "lower level, walkout basement, additional floor below, sunken story"
+    "lower level, walkout basement, additional floor below, sunken story, "
+    "water, lake, pond, swimming pool, river"
 )
 
 
