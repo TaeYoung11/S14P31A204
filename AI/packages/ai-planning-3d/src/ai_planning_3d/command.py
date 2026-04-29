@@ -44,6 +44,52 @@ class LLM3DMaterialName(StrEnum):
 SUPPORTED_MATERIAL_NAMES = frozenset(material.value for material in LLM3DMaterialName)
 SUPPORTED_MATERIAL_LIST = "Concrete, Brick, Steel, Wood, Glass, Stone, Tile"
 
+COLOR_ALIASES: dict[str, str] = {
+    "black": "Black",
+    "검정": "Black",
+    "검정색": "Black",
+    "검은색": "Black",
+    "블랙": "Black",
+    "white": "White",
+    "흰색": "White",
+    "하얀색": "White",
+    "화이트": "White",
+    "red": "Red",
+    "빨강": "Red",
+    "빨간색": "Red",
+    "빨강색": "Red",
+    "레드": "Red",
+    "blue": "Blue",
+    "파랑": "Blue",
+    "파란색": "Blue",
+    "블루": "Blue",
+    "green": "Green",
+    "초록": "Green",
+    "초록색": "Green",
+    "그린": "Green",
+    "gray": "Gray",
+    "grey": "Gray",
+    "회색": "Gray",
+    "그레이": "Gray",
+}
+
+
+def _raw_name(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        value = value.get("name") or value.get("material") or value.get("color")
+    text = str(value).strip()
+    return text or None
+
+
+def color_from_alias(value: Any) -> str | None:
+    text = _raw_name(value)
+    if text is None:
+        return None
+    return COLOR_ALIASES.get(text) or COLOR_ALIASES.get(text.lower())
+
+
 MATERIAL_ALIASES: dict[str, str] = {
     "混凝土": "Concrete",
     "钢": "Steel",
@@ -215,18 +261,36 @@ class LLM3DCreateInfo(BaseModel):
         description="벽 카테고리 (외벽 EXTERIOR / 내벽 INTERIOR / 파티션 PARTITION)",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_color_like_material(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        color = color_from_alias(data.get("material"))
+        if color is not None:
+            data = dict(data)
+            data["material"] = None
+            if not data.get("color"):
+                data["color"] = color
+        return data
+
     @model_validator(mode="after")
     def validate_color_policy(self) -> LLM3DCreateInfo:
         """내벽/파티션에 재질 지정 시 경고 로그만 남기고 material을 None으로 초기화한다."""
+        material_color = color_from_alias(self.material)
+        if material_color is not None:
+            if self.color is None:
+                self.color = material_color
+            self.material = None
+
         interior_cats = {LLM3DWallCategory.INTERIOR, LLM3DWallCategory.PARTITION}
         if self.wall_category in interior_cats and self.material is not None:
             logger.warning(
                 "[CREATE] 내벽/파티션은 재질(material) 변경 정책 제한"
                 " — material 필드를 무시합니다."
             )
-            # v2에서는 속성 직접 수정 후 self 반환이 허용되지만, 
-            # 명시적으로 새 상태를 반영하기 위해 필드를 업데이트합니다.
-            return self.model_copy(update={"material": None})
+            # v2에서는 속성 직접 수정 후 self를 반환합니다.
+            self.material = None
         return self
 
 
@@ -262,7 +326,12 @@ class LLM3DChanges(BaseModel):
         # 2. 타입 정규화 (문자열 재질을 객체로 변환)
         if isinstance(data.get("material"), str):
             data["material"] = {"name": data["material"]}
-            
+        color = color_from_alias(data.get("material"))
+        if color is not None:
+            data["material"] = None
+            if not data.get("color"):
+                data["color"] = color
+
         # 3. Hallucination 방어: 스키마 외 필드 제거
         # extra="forbid"를 썼으므로 여기서 미리 알려지지 않은 필드를 제거하여 
         # 불필요한 유효성 에러를 방지하거나, 혹은 그대로 두어 에러를 유도할 수 있습니다.
@@ -366,6 +435,11 @@ class LLM3DCommand(BaseModel):
         target = data.get("target")
         if not isinstance(target, dict):
             target = {}
+        targets = data.pop("targets", None)
+        if not target and isinstance(targets, list) and targets:
+            first_target = targets[0]
+            if isinstance(first_target, dict):
+                target = dict(first_target)
         changes = data.get("changes")
         if not isinstance(changes, dict):
             changes = {}
@@ -414,35 +488,26 @@ class LLM3DCommand(BaseModel):
 
     @model_validator(mode="after")
     def validate_command_integrity(self) -> LLM3DCommand:
-        """
-        검증 에러(ValueError)를 던지면 Instructor가 무한 재시도를 하므로,
-        여기서는 최소한의 스키마 정합성만 확인하고
-        상세한 타겟 특정 여부는 파이프라인(pipeline.py)에서 처리합니다.
-        """
-        updates: dict[str, Any] = {}
-
         if self.command_type == LLM3DCommandType.CREATE and self.create_info is None:
-            updates["ambiguity_question"] = "어떤 부재를 어디에 생성할까요?"
-            updates["confidence"] = 0.1
+            self.ambiguity_question = "어떤 부재를 어디에 생성할까요?"
+            self.confidence = 0.1
         if self.command_type == LLM3DCommandType.CREATE and self.create_info is not None:
-            updates["target"] = self.target.model_copy(
-                update={"element_type": self.create_info.element_type}
-            )
+            self.target.element_type = self.create_info.element_type
         if self.command_type == LLM3DCommandType.DELETE and self.changes is None:
-            updates["changes"] = LLM3DChanges(deletion=True)
+            self.changes = LLM3DChanges(deletion=True)
         if self.command_type == LLM3DCommandType.MODIFY and self.changes is None:
-            updates["ambiguity_question"] = (
+            self.ambiguity_question = (
                 self.ambiguity_question or "무엇을 어떻게 수정할까요?"
             )
-            updates["confidence"] = min(self.confidence, 0.1)
+            self.confidence = min(self.confidence, 0.1)
         unsupported = self._unsupported_material_name()
         if unsupported:
-            updates["ambiguity_question"] = (
+            self.ambiguity_question = (
                 f"{unsupported} 재질은 지원하지 않습니다. 사용 가능한 재질은 "
                 f"{SUPPORTED_MATERIAL_LIST} 입니다."
             )
-            updates["confidence"] = 0.1
-        return self.model_copy(update=updates) if updates else self
+            self.confidence = 0.1
+        return self
 
     def _unsupported_material_name(self) -> str | None:
         materials = []
