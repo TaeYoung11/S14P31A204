@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
+from ai_common.worker_sdk.context import WorkerContext
+
 
 def _new_id() -> str:
     return str(uuid4())
@@ -70,6 +72,19 @@ class RequestContext:
             "causation_id": self.causation_id,
         }
         return {key: value for key, value in fields.items() if value is not None}
+
+    @classmethod
+    def from_worker_context(cls, worker_context: WorkerContext) -> RequestContext:
+        """Project worker runtime metadata into request lineage fields."""
+
+        return cls(
+            request_id=worker_context.message_id,
+            correlation_id=worker_context.correlation_id,
+            project_id=worker_context.project_id,
+            job_id=worker_context.job_id,
+            revision_id=worker_context.target_revision_id or worker_context.source_revision_id,
+            message_id=worker_context.message_id,
+        )
 
 
 _current_context: ContextVar[RequestContext | None] = ContextVar(
