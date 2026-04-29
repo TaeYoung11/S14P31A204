@@ -288,6 +288,19 @@
         {
           "required": ["polygon_mm"]
         }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "required": ["holes_mm"]
+          },
+          "then": {
+            "required": ["outer_polygon_mm"],
+            "not": {
+              "required": ["polygon_mm"]
+            }
+          }
+        }
       ]
     },
     "modelingDefaults": {

@@ -219,7 +219,20 @@
           "type": "number",
           "exclusiveMinimum": 0
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["boundary_holes_mm"]
+          },
+          "then": {
+            "required": ["boundary_outer_polygon_mm"],
+            "not": {
+              "required": ["boundary_polygon_mm"]
+            }
+          }
+        }
+      ]
     },
     "room": {
       "type": "object",
