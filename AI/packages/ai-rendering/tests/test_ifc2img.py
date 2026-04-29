@@ -450,11 +450,12 @@ def test_align_walls_idempotent_on_already_aligned_mesh() -> None:
 
 
 def test_align_walls_skips_when_too_few_walls() -> None:
-    """벽 면 < WALL_NORMAL_MIN_COUNT(100) → 무회전 (통계 신뢰 불가).
+    """벽 면 < WALL_NORMAL_MIN_COUNT(4) → 무회전 (데이터 부족).
 
-    소규모 mesh에서 강제 회전 시 noise로 임의 방향 정렬되어 위험.
+    직사각형 단순 박스 mesh도 4면 보유 — 4 미만은 비정상 mesh.
+    분포 신뢰도는 별도(`WALL_NORMAL_MIN_MAGNITUDE`)가 가드.
     """
-    verts, tris = _build_wall_mesh(n_walls=50, theta_deg=10.0)
+    verts, tris = _build_wall_mesh(n_walls=3, theta_deg=10.0)
     rotated, did_rotate = _align_walls_to_axes(verts, tris)
 
     assert did_rotate is False
