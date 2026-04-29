@@ -109,6 +109,48 @@ VIEW_TARGET_RATIOS: dict[IFCView, float] = {
 }
 
 
+# fixture별 dispatch — mesh 크기에 따라 VIEW_TARGET_RATIOS를 자동 축소.
+#
+# 배경 (2026-04-29 다양성 검증 Step 2): fixture 크기 5~6배 차이(haus 13m /
+# SampleHouse 17m / Smiley 75m)에서 단일 ratio가 모두 만족 못 함. Smiley
+# side fill 0.991 outlier — `_iterative_zoom_loop` 수렴 실패. 임계값/배율은
+# Step 2 측정값에서 직접 도출 — `<20m` 모두 ✓ 수렴, `>50m` outlier.
+#
+# 적용 규칙 — `resolve_target_ratio_for_mesh(view, max_extent, base)`:
+#   max_extent > 50m  → base × 0.6  (대형, Smiley 같은 사무실 빌딩)
+#   max_extent > 20m  → base × 0.8  (중대형)
+#   그 외             → base 그대로 (보통, haus·SampleHouse 같은 단독 주택)
+DISPATCH_LARGE_THRESHOLD_M: float = 50.0
+DISPATCH_MEDIUM_THRESHOLD_M: float = 20.0
+DISPATCH_LARGE_FACTOR: float = 0.6
+DISPATCH_MEDIUM_FACTOR: float = 0.8
+
+
+def resolve_target_ratio_for_mesh(
+    view: IFCView,
+    max_extent: float,
+    base_ratio: float | None = None,
+) -> float:
+    """mesh max_extent에 따라 view의 target_screen_ratio를 자동 축소.
+
+    Args:
+        view: 적용 시점.
+        max_extent: mesh AABB 최장변 길이 (m).
+        base_ratio: 기본값. None이면 VIEW_TARGET_RATIOS[view] 사용.
+
+    Returns:
+        dispatch 적용 후 ratio. extent가 임계값 미만이면 base 그대로.
+        extent ≥ DISPATCH_LARGE_THRESHOLD_M → base × DISPATCH_LARGE_FACTOR.
+        DISPATCH_MEDIUM_THRESHOLD_M ≤ extent < LARGE → base × MEDIUM_FACTOR.
+    """
+    base = base_ratio if base_ratio is not None else VIEW_TARGET_RATIOS[view]
+    if max_extent > DISPATCH_LARGE_THRESHOLD_M:
+        return base * DISPATCH_LARGE_FACTOR
+    if max_extent > DISPATCH_MEDIUM_THRESHOLD_M:
+        return base * DISPATCH_MEDIUM_FACTOR
+    return base
+
+
 # render_views(views=None) 기본값 — 환각 발생 시점들 의도적 제외.
 #
 # 제외 사유 (사용자 시각 검수 기반, 2026-04-28):
