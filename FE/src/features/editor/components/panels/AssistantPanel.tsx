@@ -13,6 +13,7 @@ interface AssistantPanelProps {
   offset: PanelOffset
   width: number
   height: number
+  zIndex?: number
   provider: 'mock' | 'api'
   prompt: string
   status: LlmEditStatus
@@ -28,7 +29,7 @@ interface AssistantPanelProps {
   floorProjectImportMessage: string
   onImportFloorProjectJson: (rawJson: string) => Promise<void>
   onImportSampleFloorProject: () => void
-  onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLButtonElement>) => void
+  onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLElement>) => void
   onResizeStart: (key: PanelKey, axis: PanelResizeAxis, e: ReactMouseEvent<HTMLButtonElement>) => void
   onToggle: (key: PanelKey) => void
 }
@@ -43,6 +44,7 @@ export function AssistantPanel({
   offset,
   width,
   height,
+  zIndex,
   provider,
   prompt,
   status,
@@ -92,6 +94,7 @@ export function AssistantPanel({
       offset={offset}
       width={width}
       height={height}
+      zIndex={zIndex}
       theme="dark"
       onDragStart={onDragStart}
       onResizeStart={onResizeStart}

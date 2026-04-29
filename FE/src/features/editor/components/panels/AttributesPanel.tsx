@@ -1,5 +1,6 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import type { EditorMode, PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
+import { SlidersHorizontal } from 'lucide-react'
+import type { EditorMode, FloorOpening, FloorWall, PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
 import { BubbleAttributePanel, type BubbleConnectionInfo, type BubbleInfo, type BubbleZoneInfo } from './BubbleAttributePanel'
 import { TwoDAttributePanel } from './TwoDAttributePanel'
 import { ThreeDAttributePanel } from './ThreeDAttributePanel'
@@ -11,16 +12,29 @@ interface AttributesPanelProps {
   offset: PanelOffset
   width: number
   height: number
+  zIndex?: number
   selectedBubble: BubbleInfo | null
+  selectedWall?: FloorWall | null
+  selectedOpening?: FloorOpening | null
   connections: BubbleConnectionInfo[]
   zones: BubbleZoneInfo[]
   onLabelChange: (id: string, label: string) => void
   onTypeChange: (id: string, type: string) => void
   onWidthChange: (id: string, width: number) => void
   onHeightChange: (id: string, height: number) => void
+  onWidthCommit?: (id: string, width: number) => void
+  onHeightCommit?: (id: string, height: number) => void
   onRatioChange: (id: string, ratio: number) => void
   onColorChange: (id: string, color: string) => void
-  onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLButtonElement>) => void
+  onMaterialChange?: (id: string, material: string) => void
+  onWallTypeChange?: (id: string, type: FloorWall['type']) => void
+  onWallThicknessChange?: (id: string, thicknessMm: number) => void
+  onWallHeightChange?: (id: string, heightMm: number) => void
+  onOpeningSizeChange?: (id: string, widthMm: number, heightMm: number) => void
+  onWindowSillHeightChange?: (id: string, sillHeightMm: number) => void
+  onDoorSwingDirectionChange?: (id: string, swingDirection: NonNullable<FloorOpening['doorSwingDirection']>) => void
+  onDoorHingeSideChange?: (id: string, hingeSide: NonNullable<FloorOpening['doorHingeSide']>) => void
+  onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLElement>) => void
   onResizeStart: (key: PanelKey, axis: PanelResizeAxis, e: ReactMouseEvent<HTMLButtonElement>) => void
   onToggle: (key: PanelKey) => void
 }
@@ -32,15 +46,28 @@ export function AttributesPanel({
   offset,
   width,
   height,
+  zIndex,
   selectedBubble,
+  selectedWall,
+  selectedOpening,
   connections,
   zones,
   onLabelChange,
   onTypeChange,
   onWidthChange,
   onHeightChange,
+  onWidthCommit,
+  onHeightCommit,
   onRatioChange,
   onColorChange,
+  onMaterialChange,
+  onWallTypeChange,
+  onWallThicknessChange,
+  onWallHeightChange,
+  onOpeningSizeChange,
+  onWindowSillHeightChange,
+  onDoorSwingDirectionChange,
+  onDoorHingeSideChange,
   onDragStart,
   onResizeStart,
   onToggle,
@@ -49,10 +76,12 @@ export function AttributesPanel({
     <PanelFrame
       panelKey="attributes"
       title="속성 관리자"
+      titleIcon={<SlidersHorizontal size={14} className="text-[#3B45B3]" />}
       isOpen={isOpen}
       offset={offset}
       width={width}
       height={height}
+      zIndex={zIndex}
       onDragStart={onDragStart}
       onResizeStart={onResizeStart}
       onToggle={onToggle}
@@ -73,11 +102,23 @@ export function AttributesPanel({
       {mode === '2d' && (
         <TwoDAttributePanel 
           selectedBubble={selectedBubble}
+          selectedWall={selectedWall}
+          selectedOpening={selectedOpening}
           onLabelChange={onLabelChange}
           onTypeChange={onTypeChange}
           onWidthChange={onWidthChange}
           onHeightChange={onHeightChange}
+          onWidthCommit={onWidthCommit}
+          onHeightCommit={onHeightCommit}
+          onMaterialChange={onMaterialChange}
           onRatioChange={onRatioChange}
+          onWallTypeChange={onWallTypeChange}
+          onWallThicknessChange={onWallThicknessChange}
+          onWallHeightChange={onWallHeightChange}
+          onOpeningSizeChange={onOpeningSizeChange}
+          onWindowSillHeightChange={onWindowSillHeightChange}
+          onDoorSwingDirectionChange={onDoorSwingDirectionChange}
+          onDoorHingeSideChange={onDoorHingeSideChange}
         />
       )}
       {mode === '3d' && (
@@ -85,6 +126,7 @@ export function AttributesPanel({
           selectedBubble={selectedBubble}
           onLabelChange={onLabelChange}
           onColorChange={onColorChange}
+          onMaterialChange={onMaterialChange}
         />
       )}
     </PanelFrame>

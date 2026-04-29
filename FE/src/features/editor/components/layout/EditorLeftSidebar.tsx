@@ -8,6 +8,7 @@ import {
   Square,
   DoorOpen,
   LayoutGrid,
+  Scaling,
   Grid3X3,
   Home,
   Download,
@@ -58,6 +59,7 @@ const TOOLS_2D: Tool2DItem[] = [
   { id: 'wall',   icon: Square,     label: '벽체' },
   { id: 'door',   icon: DoorOpen,   label: '문' },
   { id: 'window', icon: LayoutGrid, label: '창문' },
+  { id: 'resize', icon: Scaling,    label: '크기조정' },
 ]
 
 // ── 공통 서브컴포넌트 ─────────────────────────────────────────────────────────
@@ -65,6 +67,8 @@ const TOOLS_2D: Tool2DItem[] = [
 interface ToolButtonBaseProps {
   selectedTool: string
   onToolSelect: (tool: string) => void
+  hasDeletableSelection?: boolean
+  onDeleteSelected?: () => void
 }
 
 /**
@@ -91,11 +95,21 @@ function SelectionToolButton({ selectedTool, onToolSelect }: ToolButtonBaseProps
 }
 
 /** 삭제 도구 버튼 */
-function DeleteToolButton({ selectedTool, onToolSelect }: ToolButtonBaseProps) {
-  const style = getDeleteStyle(selectedTool === 'delete')
+function DeleteToolButton({ selectedTool, onToolSelect, hasDeletableSelection = false, onDeleteSelected }: ToolButtonBaseProps) {
+  const style = getDeleteStyle(selectedTool === 'delete' || hasDeletableSelection)
 
   return (
-    <button onClick={() => onToolSelect('delete')} className="w-full flex flex-col items-center gap-1 py-1 group">
+    <button
+      onClick={() => {
+        if (hasDeletableSelection && onDeleteSelected) {
+          onDeleteSelected()
+          onToolSelect('selection')
+          return
+        }
+        onToolSelect(selectedTool === 'delete' ? 'selection' : 'delete')
+      }}
+      className="w-full flex flex-col items-center gap-1 py-1 group"
+    >
       <div className={style.container}>
         <Trash2 size={24} />
       </div>
@@ -145,6 +159,9 @@ interface EditorLeftSidebarProps {
   onExportIFC?: () => void
   onGenerateFloorPlan?: () => void
   canGenerateFloorPlan?: boolean
+  isBubbleReadOnly?: boolean
+  hasDeletableSelection?: boolean
+  onDeleteSelected?: () => void
 }
 
 /**
@@ -166,6 +183,9 @@ export default function EditorLeftSidebar({
   onExportIFC,
   onGenerateFloorPlan,
   canGenerateFloorPlan = false,
+  isBubbleReadOnly = false,
+  hasDeletableSelection = false,
+  onDeleteSelected,
 }: EditorLeftSidebarProps) {
   return (
     <aside className="w-[72px] bg-white border border-[#E2E6EF] rounded-2xl py-4 shadow-sm shrink-0 self-start mt-0 h-full flex flex-col overflow-hidden">
@@ -178,7 +198,11 @@ export default function EditorLeftSidebar({
             <>
               <SelectionToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
 
-              <button onClick={onAddSpace} className="w-full flex flex-col items-center gap-1 py-1 group">
+              <button
+                onClick={isBubbleReadOnly ? undefined : onAddSpace}
+                disabled={isBubbleReadOnly}
+                className="w-full flex flex-col items-center gap-1 py-1 group disabled:cursor-not-allowed"
+              >
                 <div className="p-2 text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#1C1C1E] rounded-xl transition-all">
                   <PlusCircle size={24} />
                 </div>
@@ -186,16 +210,26 @@ export default function EditorLeftSidebar({
               </button>
 
               {/* 선스타일 = 연결 도구 + 관계 유형 설정 통합 */}
-              <button onClick={() => onToolSelect(selectedTool === 'connect' ? 'selection' : 'connect')} className="w-full flex flex-col items-center gap-1 py-1 group">
+              <button
+                onClick={isBubbleReadOnly ? undefined : () => onToolSelect(selectedTool === 'connect' ? 'selection' : 'connect')}
+                disabled={isBubbleReadOnly}
+                className="w-full flex flex-col items-center gap-1 py-1 group disabled:cursor-not-allowed"
+              >
                 <div className={`p-2 rounded-xl transition-all ${
-                  selectedTool === 'connect' || isLineStyleModalOpen
+                  !isBubbleReadOnly && (selectedTool === 'connect' || isLineStyleModalOpen)
                     ? 'bg-[#F0F2FF] text-[#3B45B3] shadow-sm'
-                    : 'text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#1C1C1E]'
+                    : isBubbleReadOnly
+                      ? 'text-[#D9DEF0]'
+                      : 'text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#1C1C1E]'
                 }`}>
                   <TrendingUp size={24} />
                 </div>
                 <span className={`text-[10px] font-bold transition-all ${
-                  selectedTool === 'connect' || isLineStyleModalOpen ? 'text-[#3B45B3]' : 'text-[#8E95A3] group-hover:text-[#1C1C1E]'
+                  !isBubbleReadOnly && (selectedTool === 'connect' || isLineStyleModalOpen)
+                    ? 'text-[#3B45B3]'
+                    : isBubbleReadOnly
+                      ? 'text-[#D9DEF0]'
+                      : 'text-[#8E95A3] group-hover:text-[#1C1C1E]'
                 }`}>
                   선스타일
                 </span>
@@ -221,7 +255,21 @@ export default function EditorLeftSidebar({
                 </span>
               </button>
 
-              <DeleteToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
+              {isBubbleReadOnly ? (
+                <button disabled className="w-full flex flex-col items-center gap-1 py-1 cursor-not-allowed">
+                  <div className="p-2 text-[#D9DEF0] rounded-xl transition-all">
+                    <Trash2 size={24} />
+                  </div>
+                  <span className="text-[10px] font-bold text-[#D9DEF0]">삭제</span>
+                </button>
+              ) : (
+                <DeleteToolButton
+                  selectedTool={selectedTool}
+                  onToolSelect={onToolSelect}
+                  hasDeletableSelection={hasDeletableSelection}
+                  onDeleteSelected={onDeleteSelected}
+                />
+              )}
             </>
           )}
 
@@ -240,7 +288,12 @@ export default function EditorLeftSidebar({
                 )
               })}
 
-              <DeleteToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
+              <DeleteToolButton
+                selectedTool={selectedTool}
+                onToolSelect={onToolSelect}
+                hasDeletableSelection={hasDeletableSelection}
+                onDeleteSelected={onDeleteSelected}
+              />
               <GridToggleButton isGridVisible={isGridVisible} onToggleGrid={onToggleGrid} />
             </>
           )}
@@ -249,7 +302,12 @@ export default function EditorLeftSidebar({
           {mode === '3d' && (
             <>
               <SelectionToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
-              <DeleteToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
+              <DeleteToolButton
+                selectedTool={selectedTool}
+                onToolSelect={onToolSelect}
+                hasDeletableSelection={hasDeletableSelection}
+                onDeleteSelected={onDeleteSelected}
+              />
               <GridToggleButton isGridVisible={isGridVisible} onToggleGrid={onToggleGrid} />
 
               <button onClick={onToggleLibrary} className="w-full flex flex-col items-center gap-1 py-1 group">

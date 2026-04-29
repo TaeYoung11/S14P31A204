@@ -1,5 +1,5 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import { X } from 'lucide-react'
+import { LayoutGrid, X } from 'lucide-react'
 import type { PanelKey, PanelOffset, PanelResizeAxis, ZoneData } from '../../types'
 import { PanelFrame } from '../shared/PanelFrame'
 
@@ -8,11 +8,12 @@ interface ZoningPanelProps {
   offset: PanelOffset
   width: number
   height: number
+  zIndex?: number
   zoningListItems: ZoneData[]
   onOpenZoningModal: () => void
   onOpenEditZoningModal: (zone: ZoneData) => void
   onDeleteZoning: (zoneId: string) => void
-  onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLButtonElement>) => void
+  onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLElement>) => void
   onResizeStart: (key: PanelKey, axis: PanelResizeAxis, e: ReactMouseEvent<HTMLButtonElement>) => void
   onToggle: (key: PanelKey) => void
 }
@@ -23,6 +24,7 @@ export function ZoningPanel({
   offset,
   width,
   height,
+  zIndex,
   zoningListItems,
   onOpenZoningModal,
   onOpenEditZoningModal,
@@ -35,10 +37,12 @@ export function ZoningPanel({
     <PanelFrame
       panelKey="zoning"
       title="조닝 영역"
+      titleIcon={<LayoutGrid size={14} className="text-[#3B45B3]" />}
       isOpen={isOpen}
       offset={offset}
       width={width}
       height={height}
+      zIndex={zIndex}
       headerExtra={
         <button
           onClick={onOpenZoningModal}

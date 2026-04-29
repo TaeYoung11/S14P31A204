@@ -1,14 +1,22 @@
-import { Hand, ZoomIn, ZoomOut } from 'lucide-react'
+import { useEffect, useRef } from 'react'
+import { Grid3X3, GripVertical, Hand, ZoomIn, ZoomOut } from 'lucide-react'
 import type { EditorMode } from '../../types'
+import { useFloatingPanelDrag } from '../../hooks/useFloatingPanelDrag'
 
 interface ZoomControlBarProps {
   zoom: number
   mode: EditorMode
   selectedTool: string
+  isGridVisible?: boolean
+  isGridSnapEnabled?: boolean
+  gridSnapIntervalMm?: number
   onZoomIn: () => void
   onZoomOut: () => void
   onSetZoom: (value: number) => void
   onSetTool: (tool: string) => void
+  onToggleGrid?: () => void
+  onToggleGridSnap?: () => void
+  onGridSnapIntervalChange?: (value: number) => void
 }
 
 /**
@@ -20,13 +28,61 @@ export function ZoomControlBar({
   zoom,
   mode,
   selectedTool,
+  isGridVisible = false,
+  isGridSnapEnabled = true,
+  gridSnapIntervalMm = 250,
   onZoomIn,
   onZoomOut,
   onSetZoom,
   onSetTool,
+  onToggleGrid,
+  onToggleGridSnap,
+  onGridSnapIntervalChange,
 }: ZoomControlBarProps) {
+  const { panelRef, offset, setOffset, startDrag } = useFloatingPanelDrag({ x: 24, y: 24 }, 12)
+  const didInitPositionRef = useRef(false)
+
+  useEffect(() => {
+    if (didInitPositionRef.current) return
+    const panelEl = panelRef.current
+    const parentEl = (panelEl?.offsetParent as HTMLElement | null) ?? panelEl?.parentElement
+    if (!panelEl || !parentEl) return
+    didInitPositionRef.current = true
+    const nextY = Math.max(12, parentEl.clientHeight - panelEl.offsetHeight - 24)
+    setOffset((prev) => ({ ...prev, y: nextY }))
+  }, [panelRef, setOffset])
+
+  const handleGridSnapToggle = () => {
+    const nextSnapEnabled = !isGridSnapEnabled
+    onToggleGridSnap?.()
+    // 2D에서는 그리드 표시 상태를 "다음 스냅 상태"와 맞춰 좌측/하단 상태를 동기화한다.
+    if (mode === '2d' && isGridVisible !== nextSnapEnabled) onToggleGrid?.()
+  }
+
+  const isGridControlActive = mode === '2d'
+    ? (isGridSnapEnabled && isGridVisible)
+    : isGridSnapEnabled
+  const gridSnapTitle = mode === '2d'
+    ? `그리드 스냅 토글 (그리드 ${isGridVisible ? '표시 중' : '숨김'})`
+    : '그리드 스냅 토글'
+
   return (
-    <div className="absolute bottom-6 left-6 flex items-center bg-white border border-[#E2E6EF] rounded-2xl px-1.5 py-1.5 shadow-md z-10 transition-all">
+    <div
+      ref={panelRef}
+      className="absolute flex items-center bg-white border border-[#E2E6EF] rounded-2xl px-1.5 py-1.5 shadow-md z-10 transition-all"
+      style={{ left: offset.x, top: offset.y }}
+    >
+      <button
+        onMouseDown={startDrag}
+        title="패널 이동"
+        aria-label="줌 컨트롤 패널 이동"
+        className="p-1.5 text-[#9AA4B5] hover:text-[#505764] transition-colors rounded-xl hover:bg-[#F3F5FA] cursor-grab active:cursor-grabbing"
+      >
+        <GripVertical size={18} />
+      </button>
+
+      <div className="w-px h-5 bg-[#E2E6EF] mx-1.5" />
+
       {/* 줌 아웃 버튼 */}
       <button
         onClick={onZoomOut}
@@ -77,6 +133,33 @@ export function ZoomControlBar({
       >
         <Hand size={20} />
       </button>
+
+      {(mode === '2d' || mode === '3d') && (
+        <>
+          <div className="w-px h-5 bg-[#E2E6EF] mx-1.5" />
+          <button
+            onClick={handleGridSnapToggle}
+            title={gridSnapTitle}
+            className={`p-1.5 transition-colors rounded-xl ${
+              isGridControlActive
+                ? 'text-[#3B45B3] bg-[#F0F2FF]'
+                : 'text-[#6B7A99] hover:text-[#1C1C1E] hover:bg-[#F0F2F9]'
+            }`}
+          >
+            <Grid3X3 size={20} />
+          </button>
+          <select
+            value={gridSnapIntervalMm}
+            onChange={(e) => onGridSnapIntervalChange?.(Number(e.target.value))}
+            className="ml-1 h-8 rounded-lg border border-[#E2E6EF] bg-white px-2 text-[11px] font-semibold text-[#505764] outline-none focus:border-[#3B45B3]"
+            title="그리드 스냅 간격(mm)"
+          >
+            <option value={100}>100mm</option>
+            <option value={250}>250mm</option>
+            <option value={500}>500mm</option>
+          </select>
+        </>
+      )}
 
       {/* 3D 모드 전용: 회전 버튼 + 좌표 표시 */}
       {mode === '3d' && (
