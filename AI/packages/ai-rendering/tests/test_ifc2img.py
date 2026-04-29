@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
-from ai_rendering.ifc2img.geometry import load_mesh
+from ai_rendering.ifc2img.geometry import _align_walls_to_axes, load_mesh
 from ai_rendering.ifc2img.views import (
     DEFAULT_RENDER_VIEWS,
     DISPATCH_LARGE_FACTOR,
@@ -424,6 +424,135 @@ def test_pca_axis_signs_are_deterministic() -> None:
     # RHS 보장 — (long × mid)·z >= 0 (위에서 봤을 때 CCW).
     cross_z = long_a[0] * mid_a[1] - long_a[1] * mid_a[0]
     assert cross_z >= -1e-9
+
+
+def _build_wall_mesh(
+    n_walls: int, theta_deg: float = 0.0, seed: int = 42
+) -> tuple[np.ndarray, np.ndarray]:
+    """n_walls개 axis-aligned 벽 triangle 합성 mesh + theta_deg yaw 회전.
+
+    각 triangle은 normal=+x인 단위 quad 절반 (3 vertex)로 axis-aligned 벽 면 시뮬레이션.
+    위치는 무작위 분산 → AABB 분포 다양. theta_deg!=0이면 mesh 전체 yaw 회전 적용 →
+    벽 normal mean이 그만큼 어긋난 mesh를 만듦 (회전 보정 검증용).
+    """
+    rng = np.random.default_rng(seed)
+    vertices: list[list[float]] = []
+    triangles: list[list[int]] = []
+    for _ in range(n_walls):
+        offset = rng.uniform(-50, 50, 3)
+        # cross((0,1,0), (0,0,1)) = (1, 0, 0) → normal=+x
+        v0 = offset + np.array([0.0, 0.0, 0.0])
+        v1 = offset + np.array([0.0, 1.0, 0.0])
+        v2 = offset + np.array([0.0, 0.0, 1.0])
+        idx = len(vertices)
+        vertices.extend([v0.tolist(), v1.tolist(), v2.tolist()])
+        triangles.append([idx, idx + 1, idx + 2])
+    verts_arr = np.array(vertices, dtype=np.float64)
+    tris_arr = np.array(triangles, dtype=np.int64)
+
+    if abs(theta_deg) > 1e-9:
+        theta_rad = np.radians(theta_deg)
+        cos_t, sin_t = np.cos(theta_rad), np.sin(theta_rad)
+        rot = np.array(
+            [
+                [cos_t, -sin_t, 0.0],
+                [sin_t, cos_t, 0.0],
+                [0.0, 0.0, 1.0],
+            ]
+        )
+        verts_arr = verts_arr @ rot.T
+    return verts_arr, tris_arr
+
+
+def _measure_wall_mean_deg(vertices: np.ndarray, triangles: np.ndarray) -> float:
+    """벽 normal 4× wrap circular mean — [-22.5°, 22.5°] signed.
+
+    `_align_walls_to_axes` land 검증용. 헬퍼 출력 mesh의 wall normal이
+    axis-aligned에 정렬됐는지 정량 측정.
+    """
+    v0 = vertices[triangles[:, 0]]
+    v1 = vertices[triangles[:, 1]]
+    v2 = vertices[triangles[:, 2]]
+    raw_n = np.cross(v1 - v0, v2 - v0)
+    nz = np.linalg.norm(raw_n, axis=1)
+    valid = nz > 1e-12
+    raw_n = raw_n[valid]
+    nz = nz[valid]
+    area = 0.5 * nz
+    normal = raw_n / nz[:, None]
+    wall_mask = np.abs(normal[:, 2]) < 0.1
+    wall_normal = normal[wall_mask]
+    wall_area = area[wall_mask]
+    if len(wall_normal) == 0:
+        return float("nan")
+    angles = np.arctan2(wall_normal[:, 1], wall_normal[:, 0])
+    quad = angles * 4.0
+    weights = wall_area / wall_area.sum()
+    mx = float(np.sum(np.cos(quad) * weights))
+    my = float(np.sum(np.sin(quad) * weights))
+    return float(np.degrees(np.arctan2(my, mx) / 4.0))
+
+
+def test_align_walls_rotates_tilted_mesh_to_axis_aligned() -> None:
+    """10° CCW 기울어진 벽 mesh — 회전 보정 후 wall mean ≈ 0°.
+
+    Phase 1+2 Step 11 회귀 방어 — IFC 좌표계 회전(haus +3.7° / SampleHouse +10°)
+    이 mesh 단계에서 벽 normal 기준으로 정확히 보정되는지 정량 검증.
+    """
+    verts, tris = _build_wall_mesh(n_walls=128, theta_deg=10.0)
+    pre_mean = _measure_wall_mean_deg(verts, tris)
+    assert abs(pre_mean - 10.0) < 0.5  # 10° 어긋난 상태 시작
+
+    rotated, did_rotate = _align_walls_to_axes(verts, tris)
+
+    assert did_rotate is True
+    post_mean = _measure_wall_mean_deg(rotated, tris)
+    assert abs(post_mean) < 0.1  # axis-aligned 정렬
+
+
+def test_align_walls_idempotent_on_already_aligned_mesh() -> None:
+    """이미 axis-aligned 벽 mesh — 회전 적용되어도 wall mean 0° 유지."""
+    verts, tris = _build_wall_mesh(n_walls=128, theta_deg=0.0)
+    pre_mean = _measure_wall_mean_deg(verts, tris)
+    assert abs(pre_mean) < 0.1  # 시작 정렬
+
+    rotated, _ = _align_walls_to_axes(verts, tris)
+    post_mean = _measure_wall_mean_deg(rotated, tris)
+
+    # axis-aligned 보존 — 회전 적용 여부 무관하게 mean ≈ 0
+    assert abs(post_mean) < 0.1
+
+
+def test_align_walls_skips_when_too_few_walls() -> None:
+    """벽 면 < WALL_NORMAL_MIN_COUNT(100) → 무회전 (통계 신뢰 불가).
+
+    소규모 mesh에서 강제 회전 시 noise로 임의 방향 정렬되어 위험.
+    """
+    verts, tris = _build_wall_mesh(n_walls=50, theta_deg=10.0)
+    rotated, did_rotate = _align_walls_to_axes(verts, tris)
+
+    assert did_rotate is False
+    np.testing.assert_array_equal(rotated, verts)
+
+
+def test_align_walls_skips_for_vertex_shortage() -> None:
+    """vertex 수 < 3 → 무회전 (face 정의 불가)."""
+    verts = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    tris = np.empty((0, 3), dtype=np.int64)
+    rotated, did_rotate = _align_walls_to_axes(verts, tris)
+
+    assert did_rotate is False
+    np.testing.assert_array_equal(rotated, verts)
+
+
+def test_align_walls_skips_for_empty_triangles() -> None:
+    """triangle 0개 → 무회전 (face normal 산출 불가)."""
+    verts = np.random.default_rng(42).uniform(-10, 10, (50, 3))
+    tris = np.empty((0, 3), dtype=np.int64)
+    rotated, did_rotate = _align_walls_to_axes(verts, tris)
+
+    assert did_rotate is False
+    np.testing.assert_array_equal(rotated, verts)
 
 
 def test_compute_dynamic_front_iso_ne_combines_axes() -> None:

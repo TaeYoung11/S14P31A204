@@ -51,7 +51,7 @@ class IFCRenderer:
         target_screen_ratio: float = 0.55,
         iter_tolerance: float = 0.10,
         iter_max: int = 4,
-        pca_align: bool = True,
+        pca_align: bool = False,
     ) -> None:
         self.width = width
         self.height = height
