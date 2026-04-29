@@ -10,11 +10,11 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /**
- * 프로젝트 접근 제어(소유자 검증, 사용자 기준 조회 분기)를 담당한다.
- * 현재 인증 미구현 단계에서는 ownerUserId가 null인 프로젝트를 기본 접근 대상으로 본다.
+ * 프로젝트 접근 권한/조회 범위와 관련된 공통 로직을 제공한다.
  */
 @Service
 @RequiredArgsConstructor
@@ -24,20 +24,18 @@ public class ProjectAccessService {
 
     /**
      * 현재 로그인 사용자 ID를 조회한다.
-     * 현재 인증 미구현 단계에서는 null을 반환한다.
      *
-     * @return 현재 사용자 ID(미인증 단계에서는 null)
+     * @return 현재 사용자 ID, 인증 미구현 상태에서는 null
      */
     public UUID resolveCurrentUserId() {
-        // TODO: 인증/회원 기능 도입 시 SecurityContext 또는 @AuthenticationPrincipal 기반으로 사용자 ID를 조회한다.
+        // TODO: 인증 연동 후 SecurityContext 또는 @AuthenticationPrincipal 기반으로 사용자 ID를 반환한다.
         return null;
     }
 
     /**
-     * 프로젝트 소유자 여부를 검증한다.
-     * 현재 미인증 단계에서는 ownerUserId가 null인 프로젝트만 접근을 허용한다.
+     * 프로젝트 소유자 권한을 검증한다.
      *
-     * @param project 검증 대상 프로젝트
+     * @param project 프로젝트
      * @param currentUserId 현재 사용자 ID
      */
     public void validateProjectOwnerOrThrow(Project project, UUID currentUserId) {
@@ -54,20 +52,33 @@ public class ProjectAccessService {
     }
 
     /**
-     * 핀 작성 권한을 검증한다.
-     * 요구사항상 건축가와 클라이언트 모두 작성 가능해야 하므로 owner 전용 제한을 적용하지 않는다.
-     * 현재 인증/참여자 도메인 미구현 단계에서는 프로젝트 존재 검증만 통과하면 작성을 허용한다.
+     * 핀/댓글 작성 가능 권한을 검증한다.
+     * 현재는 기존 구조를 유지하기 위해 no-op이며, 추후 멤버십/역할 모델 도입 시 구현한다.
      *
      * @param project 프로젝트
      * @param currentUserId 현재 사용자 ID
      */
     public void validateProjectPinWriterOrThrow(Project project, UUID currentUserId) {
-        // TODO: 참여자(건축가/클라이언트) 모델 도입 시
-        // validateProjectParticipantOrThrow(project, currentUserId, allowedRoles)로 교체한다.
+        // TODO: 프로젝트 참여자 및 역할 기반 권한 검증을 추가한다.
     }
 
     /**
-     * 현재 사용자 기준으로 프로젝트 목록을 조회한다.
+     * 프로젝트 멤버 사용자 ID 집합을 조회한다.
+     * 현재는 owner 기반으로 반환하며, 추후 참여자 모델 도입 시 확장한다.
+     *
+     * @param project 프로젝트
+     * @return 프로젝트 멤버 사용자 ID 집합
+     */
+    public Set<UUID> resolveProjectMemberUserIds(Project project) {
+        if (project.getOwnerUserId() == null) {
+            return Set.of();
+        }
+
+        return Set.of(project.getOwnerUserId());
+    }
+
+    /**
+     * 현재 사용자 기준 프로젝트 목록을 조회한다.
      *
      * @param pageable 페이지 정보
      * @return 프로젝트 페이지
@@ -81,10 +92,10 @@ public class ProjectAccessService {
     }
 
     /**
-     * 현재 사용자 기준으로 프로젝트 이름 검색을 수행한다.
+     * 현재 사용자 기준 프로젝트 이름 검색을 수행한다.
      *
      * @param keyword 검색어
-     * @param threshold trigram 유사도 임계치
+     * @param threshold trigram 유사도 임계값
      * @param pageable 페이지 정보
      * @return 검색 결과 페이지
      */

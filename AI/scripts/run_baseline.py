@@ -57,7 +57,6 @@ def main() -> int:
         width=768,
         height=448,
         auto_zoom=AutoZoomMode.ITERATIVE,
-        pca_align=True,
     )
     depth_images = ifc_renderer.render_views(IFC_PATH)  # views=None → DEFAULT_RENDER_VIEWS
     for view, img in depth_images.items():

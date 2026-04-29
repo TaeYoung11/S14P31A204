@@ -17,8 +17,7 @@ from .views import (
     CameraParams,
     IFCView,
     compute_auto_zoom,
-    compute_dynamic_front,
-    compute_principal_axes,
+    resolve_target_ratio_for_mesh,
 )
 
 
@@ -50,7 +49,6 @@ class IFCRenderer:
         target_screen_ratio: float = 0.55,
         iter_tolerance: float = 0.10,
         iter_max: int = 4,
-        pca_align: bool = True,
     ) -> None:
         self.width = width
         self.height = height
@@ -62,12 +60,10 @@ class IFCRenderer:
         self.target_screen_ratio = target_screen_ratio
         self.iter_tolerance = iter_tolerance
         self.iter_max = iter_max
-        self.pca_align = pca_align
 
     def render(self, ifc_path: Path, view: IFCView = IFCView.FRONT) -> Image.Image:
         mesh, center = load_mesh(ifc_path)
-        camera = self._resolve_camera(mesh, view)
-        return self._render_mesh(mesh, center, camera, view)
+        return self._render_mesh(mesh, center, VIEW_CAMERAS[view], view)
 
     def render_views(
         self,
@@ -84,60 +80,32 @@ class IFCRenderer:
         if views is None:
             views = list(DEFAULT_RENDER_VIEWS)
         mesh, center = load_mesh(ifc_path)
-        # PCA는 view-invariant — mesh당 1회만 계산해 모든 view에서 재사용.
-        pca_axes = self._compute_pca_axes(mesh)
         return {
-            view: self._render_mesh(
-                mesh, center, self._camera_for_view(view, pca_axes), view
-            )
+            view: self._render_mesh(mesh, center, VIEW_CAMERAS[view], view)
             for view in views
         }
 
-    def _resolve_target_ratio(self, view: IFCView) -> float:
-        """view-별 target_screen_ratio 결정.
-
-        VIEW_TARGET_RATIOS에 등록된 시점은 그 값, 없으면 self.target_screen_ratio.
-        """
-        return VIEW_TARGET_RATIOS.get(view, self.target_screen_ratio)
-
-    def _compute_pca_axes(
+    def _resolve_target_ratio(
         self,
+        view: IFCView,
         mesh: o3d.geometry.TriangleMesh,
-    ) -> tuple[np.ndarray, np.ndarray] | None:
-        """mesh PCA 1회 계산. None이면 호출자는 정적 fallback 사용.
+    ) -> float:
+        """view + mesh 크기에 따라 target_screen_ratio 결정.
 
-        반환 None 조건: pca_align=False / vertex 3개 미만 / eigenvalue 격차 부족.
+        1) base = VIEW_TARGET_RATIOS[view] (없으면 self.target_screen_ratio).
+        2) mesh AABB max_extent에 따라 dispatch — `resolve_target_ratio_for_mesh`:
+           - extent > 50m → base × 0.6 (대형 fixture)
+           - extent > 20m → base × 0.8 (중대형)
+           - 그 외        → base 그대로 (보통)
+
+        빈 mesh면 base 그대로 (방어적 fallback — 정상 조건 아님).
         """
-        if not self.pca_align:
-            return None
+        base = VIEW_TARGET_RATIOS.get(view, self.target_screen_ratio)
         verts = np.asarray(mesh.vertices)
-        if len(verts) < 3:
-            return None
-        long_axis, mid_axis, valid = compute_principal_axes(verts)
-        if not valid:
-            return None
-        return long_axis, mid_axis
-
-    def _camera_for_view(
-        self,
-        view: IFCView,
-        pca_axes: tuple[np.ndarray, np.ndarray] | None,
-    ) -> CameraParams:
-        """미리 계산된 PCA 결과로 view 카메라 산출. None이면 정적 fallback."""
-        static = VIEW_CAMERAS[view]
-        if pca_axes is None:
-            return static
-        long_axis, mid_axis = pca_axes
-        front = compute_dynamic_front(view, long_axis, mid_axis)
-        return CameraParams(front=front, up=static.up, zoom=static.zoom)
-
-    def _resolve_camera(
-        self,
-        mesh: o3d.geometry.TriangleMesh,
-        view: IFCView,
-    ) -> CameraParams:
-        """단일 호출 진입점 — PCA 1회 계산 후 view 카메라 결정. render() 등 1회성용."""
-        return self._camera_for_view(view, self._compute_pca_axes(mesh))
+        if len(verts) == 0:
+            return base
+        max_extent = float(np.max(verts.max(axis=0) - verts.min(axis=0)))
+        return resolve_target_ratio_for_mesh(view, max_extent, base_ratio=base)
 
     def _initial_zoom(
         self,
@@ -217,7 +185,7 @@ class IFCRenderer:
         view: IFCView,
     ) -> Image.Image:
         initial_zoom = self._initial_zoom(mesh, camera)
-        target_ratio = self._resolve_target_ratio(view)
+        target_ratio = self._resolve_target_ratio(view, mesh)
 
         vis = o3d.visualization.Visualizer()
         vis.create_window(visible=False, width=self.width, height=self.height)

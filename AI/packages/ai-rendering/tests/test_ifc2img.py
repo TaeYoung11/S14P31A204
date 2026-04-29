@@ -11,9 +11,11 @@ import numpy as np
 import pytest
 
 from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
-from ai_rendering.ifc2img.geometry import load_mesh
+from ai_rendering.ifc2img.geometry import _align_walls_to_axes, load_mesh
 from ai_rendering.ifc2img.views import (
     DEFAULT_RENDER_VIEWS,
+    DISPATCH_LARGE_FACTOR,
+    DISPATCH_MEDIUM_FACTOR,
     VIEW_CN_SCALE_OVERRIDES,
     VIEW_NEGATIVE_SUFFIXES,
     VIEW_PROMPT_SUFFIXES,
@@ -22,8 +24,7 @@ from ai_rendering.ifc2img.views import (
     build_view_negative_prompt,
     build_view_prompt,
     compute_auto_zoom,
-    compute_dynamic_front,
-    compute_principal_axes,
+    resolve_target_ratio_for_mesh,
     resolve_view_cn_scale,
 )
 
@@ -276,14 +277,14 @@ def _make_depth_with_fill(fill_ratio: float, h: int = 448, w: int = 768) -> np.n
 def test_iterative_zoom_converges_when_target_reached() -> None:
     """ITERATIVE 모드 — fill이 view-별 target tolerance 안에 들면 즉시 종료.
 
-    IFCView.FRONT는 VIEW_TARGET_RATIOS[FRONT]=0.40이 적용된다.
-    fill=0.40 ± 0.10 = [0.30, 0.50] 안 → 1회 capture로 수렴.
+    IFCView.FRONT는 VIEW_TARGET_RATIOS[FRONT]=0.20이 적용된다.
+    fill=0.20 ± 0.10 = [0.10, 0.30] 안 → 1회 capture로 수렴.
     """
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
     fake_center = np.array([5.0, 5.0, 2.5])
 
-    target_depth = _make_depth_with_fill(0.40)  # FRONT의 view-별 target
+    target_depth = _make_depth_with_fill(0.20)  # FRONT의 view-별 target
 
     with (
         patch(
@@ -351,89 +352,133 @@ def test_iterative_zoom_bool_true_maps_to_iterative() -> None:
 # --- 카드 B + γ: PCA 기반 동적 front + 등각 뷰 ---
 
 
-def test_pca_returns_orthogonal_axes_for_long_mesh() -> None:
-    """길쭉한 mesh의 PCA — long ⊥ mid, 단위벡터, valid=True."""
-    # x축으로 길쭉, y축으로 짧음
-    rng = np.random.default_rng(42)
-    n = 500
-    pts_x = rng.uniform(-50, 50, n)
-    pts_y = rng.uniform(-5, 5, n)
-    pts_z = rng.uniform(0, 10, n)
-    vertices = np.stack([pts_x, pts_y, pts_z], axis=1)
+def _build_wall_mesh(
+    n_walls: int, theta_deg: float = 0.0, seed: int = 42
+) -> tuple[np.ndarray, np.ndarray]:
+    """n_walls개 axis-aligned 벽 triangle 합성 mesh + theta_deg yaw 회전.
 
-    long_axis, mid_axis, valid = compute_principal_axes(vertices)
-
-    assert valid is True
-    # long_axis는 x 방향에 가까워야 함
-    assert abs(long_axis[0]) > 0.9
-    assert abs(long_axis[1]) < 0.3
-    # 직교 검증
-    assert abs(np.dot(long_axis, mid_axis)) < 1e-6
-    # 단위벡터
-    assert abs(np.linalg.norm(long_axis) - 1.0) < 1e-6
-    assert abs(np.linalg.norm(mid_axis) - 1.0) < 1e-6
-    # z 성분은 0 (xy 평면 PCA)
-    assert long_axis[2] == 0.0
-    assert mid_axis[2] == 0.0
-
-
-def test_pca_fallback_when_eigenvalues_close() -> None:
-    """정사각 평면 mesh — eigenvalue 격차 작음 → valid=False → fallback 권장."""
-    rng = np.random.default_rng(42)
-    n = 500
-    pts = rng.uniform(-10, 10, (n, 2))
-    pts_z = rng.uniform(0, 10, n)
-    vertices = np.stack([pts[:, 0], pts[:, 1], pts_z], axis=1)
-
-    _, _, valid = compute_principal_axes(vertices)
-    assert valid is False
-
-
-def test_pca_axis_signs_are_deterministic() -> None:
-    """eigh가 ±v 둘 중 어느 쪽을 반환해도 부호 정규화 후 동일 결과 보장.
-
-    회귀 방어 — 부호 정규화 미적용 시 카메라 방향이 정반대로 뒤집힐 위험.
-    같은 mesh를 좌우/상하 반전(부호 다름)해도 PCA 주축은 같은 부호로 정렬되어야 함.
+    각 triangle은 normal=+x인 단위 quad 절반 (3 vertex)로 axis-aligned 벽 면 시뮬레이션.
+    위치는 무작위 분산 → AABB 분포 다양. theta_deg!=0이면 mesh 전체 yaw 회전 적용 →
+    벽 normal mean이 그만큼 어긋난 mesh를 만듦 (회전 보정 검증용).
     """
-    # 좌측 변형: x축으로 길쭉
-    rng = np.random.default_rng(42)
-    n = 500
-    base_x = rng.uniform(-50, 50, n)
-    base_y = rng.uniform(-5, 5, n)
-    base_z = rng.uniform(0, 10, n)
-    verts_a = np.stack([base_x, base_y, base_z], axis=1)
-    # 같은 mesh의 평행 이동 (PCA covariance에서 mean 빼므로 결과 동일해야 함)
-    verts_b = verts_a + np.array([100.0, 200.0, 0.0])
+    rng = np.random.default_rng(seed)
+    vertices: list[list[float]] = []
+    triangles: list[list[int]] = []
+    for _ in range(n_walls):
+        offset = rng.uniform(-50, 50, 3)
+        # cross((0,1,0), (0,0,1)) = (1, 0, 0) → normal=+x
+        v0 = offset + np.array([0.0, 0.0, 0.0])
+        v1 = offset + np.array([0.0, 1.0, 0.0])
+        v2 = offset + np.array([0.0, 0.0, 1.0])
+        idx = len(vertices)
+        vertices.extend([v0.tolist(), v1.tolist(), v2.tolist()])
+        triangles.append([idx, idx + 1, idx + 2])
+    verts_arr = np.array(vertices, dtype=np.float64)
+    tris_arr = np.array(triangles, dtype=np.int64)
 
-    long_a, mid_a, _ = compute_principal_axes(verts_a)
-    long_b, mid_b, _ = compute_principal_axes(verts_b)
-
-    # 평행 이동은 PCA 결과 변화 없어야 함 (centroid 빼므로).
-    np.testing.assert_allclose(long_a, long_b, atol=1e-9)
-    np.testing.assert_allclose(mid_a, mid_b, atol=1e-9)
-
-    # 핵심 — 부호 정규화 (첫 nonzero 성분 양수)
-    # long_axis가 양의 x축 방향에 정렬됨 (x 성분이 가장 크므로 그게 첫 nonzero).
-    assert long_a[0] > 0
-    # mid_axis도 첫 nonzero가 양수 (y 성분이 가장 클 것).
-    assert mid_a[1] > 0 or (abs(mid_a[1]) < 1e-9 and mid_a[0] > 0)
-
-    # RHS 보장 — (long × mid)·z >= 0 (위에서 봤을 때 CCW).
-    cross_z = long_a[0] * mid_a[1] - long_a[1] * mid_a[0]
-    assert cross_z >= -1e-9
+    if abs(theta_deg) > 1e-9:
+        theta_rad = np.radians(theta_deg)
+        cos_t, sin_t = np.cos(theta_rad), np.sin(theta_rad)
+        rot = np.array(
+            [
+                [cos_t, -sin_t, 0.0],
+                [sin_t, cos_t, 0.0],
+                [0.0, 0.0, 1.0],
+            ]
+        )
+        verts_arr = verts_arr @ rot.T
+    return verts_arr, tris_arr
 
 
-def test_compute_dynamic_front_iso_ne_combines_axes() -> None:
-    """ISO_NE는 PCA 좌표계에서 두 축 결합 + z."""
-    long_axis = np.array([1.0, 0.0, 0.0])
-    mid_axis = np.array([0.0, 1.0, 0.0])
+def _measure_wall_mean_deg(vertices: np.ndarray, triangles: np.ndarray) -> float:
+    """벽 normal 4× wrap circular mean — [-22.5°, 22.5°] signed.
 
-    front = compute_dynamic_front(IFCView.ISO_NE, long_axis, mid_axis)
+    `_align_walls_to_axes` land 검증용. 헬퍼 출력 mesh의 wall normal이
+    axis-aligned에 정렬됐는지 정량 측정.
+    """
+    v0 = vertices[triangles[:, 0]]
+    v1 = vertices[triangles[:, 1]]
+    v2 = vertices[triangles[:, 2]]
+    raw_n = np.cross(v1 - v0, v2 - v0)
+    nz = np.linalg.norm(raw_n, axis=1)
+    valid = nz > 1e-12
+    raw_n = raw_n[valid]
+    nz = nz[valid]
+    area = 0.5 * nz
+    normal = raw_n / nz[:, None]
+    wall_mask = np.abs(normal[:, 2]) < 0.1
+    wall_normal = normal[wall_mask]
+    wall_area = area[wall_mask]
+    if len(wall_normal) == 0:
+        return float("nan")
+    angles = np.arctan2(wall_normal[:, 1], wall_normal[:, 0])
+    quad = angles * 4.0
+    weights = wall_area / wall_area.sum()
+    mx = float(np.sum(np.cos(quad) * weights))
+    my = float(np.sum(np.sin(quad) * weights))
+    return float(np.degrees(np.arctan2(my, mx) / 4.0))
 
-    # ISO_NE 계수 = (-0.7, -0.7, 0.5)
-    assert abs(front[0] - (-0.7)) < 1e-6  # long 성분
-    assert abs(front[1] - (-0.7)) < 1e-6  # mid 성분
-    assert abs(front[2] - 0.5) < 1e-6     # z 성분
+
+def test_align_walls_rotates_tilted_mesh_to_axis_aligned() -> None:
+    """10° CCW 기울어진 벽 mesh — 회전 보정 후 wall mean ≈ 0°.
+
+    Phase 1+2 Step 11 회귀 방어 — IFC 좌표계 회전(haus +3.7° / SampleHouse +10°)
+    이 mesh 단계에서 벽 normal 기준으로 정확히 보정되는지 정량 검증.
+    """
+    verts, tris = _build_wall_mesh(n_walls=128, theta_deg=10.0)
+    pre_mean = _measure_wall_mean_deg(verts, tris)
+    assert abs(pre_mean - 10.0) < 0.5  # 10° 어긋난 상태 시작
+
+    rotated, did_rotate = _align_walls_to_axes(verts, tris)
+
+    assert did_rotate is True
+    post_mean = _measure_wall_mean_deg(rotated, tris)
+    assert abs(post_mean) < 0.1  # axis-aligned 정렬
+
+
+def test_align_walls_idempotent_on_already_aligned_mesh() -> None:
+    """이미 axis-aligned 벽 mesh — 회전 적용되어도 wall mean 0° 유지."""
+    verts, tris = _build_wall_mesh(n_walls=128, theta_deg=0.0)
+    pre_mean = _measure_wall_mean_deg(verts, tris)
+    assert abs(pre_mean) < 0.1  # 시작 정렬
+
+    rotated, _ = _align_walls_to_axes(verts, tris)
+    post_mean = _measure_wall_mean_deg(rotated, tris)
+
+    # axis-aligned 보존 — 회전 적용 여부 무관하게 mean ≈ 0
+    assert abs(post_mean) < 0.1
+
+
+def test_align_walls_skips_when_too_few_walls() -> None:
+    """벽 면 < WALL_NORMAL_MIN_COUNT(100) → 무회전 (통계 신뢰 불가).
+
+    소규모 mesh에서 강제 회전 시 noise로 임의 방향 정렬되어 위험.
+    """
+    verts, tris = _build_wall_mesh(n_walls=50, theta_deg=10.0)
+    rotated, did_rotate = _align_walls_to_axes(verts, tris)
+
+    assert did_rotate is False
+    np.testing.assert_array_equal(rotated, verts)
+
+
+def test_align_walls_skips_for_vertex_shortage() -> None:
+    """vertex 수 < 3 → 무회전 (face 정의 불가)."""
+    verts = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    tris = np.empty((0, 3), dtype=np.int64)
+    rotated, did_rotate = _align_walls_to_axes(verts, tris)
+
+    assert did_rotate is False
+    np.testing.assert_array_equal(rotated, verts)
+
+
+def test_align_walls_skips_for_empty_triangles() -> None:
+    """triangle 0개 → 무회전 (face normal 산출 불가)."""
+    verts = np.random.default_rng(42).uniform(-10, 10, (50, 3))
+    tris = np.empty((0, 3), dtype=np.int64)
+    rotated, did_rotate = _align_walls_to_axes(verts, tris)
+
+    assert did_rotate is False
+    np.testing.assert_array_equal(rotated, verts)
 
 
 def test_iso_views_all_in_enum() -> None:
@@ -631,16 +676,11 @@ def test_resolve_view_cn_scale_in_public_api() -> None:
 
 def test_excluded_views_still_callable_explicitly() -> None:
     """제외된 시점 모두 명시 전달 시 사용 가능 — enum/카메라/매핑 보존."""
-    from ai_rendering.ifc2img.views import (
-        VIEW_CAMERAS,
-        VIEW_PCA_COEFFICIENTS,
-        VIEW_TARGET_RATIOS,
-    )
+    from ai_rendering.ifc2img.views import VIEW_CAMERAS, VIEW_TARGET_RATIOS
 
     # 제외된 3개 view 모두 매핑에 등록돼있어야 한다 (default 제외 ≠ enum 제거)
     for v in (IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW):
         assert v in VIEW_CAMERAS
-        assert v in VIEW_PCA_COEFFICIENTS
         assert v in VIEW_TARGET_RATIOS
 
 
@@ -655,62 +695,80 @@ def test_view_target_ratios_cropping_resistant() -> None:
 
 
 def test_renderer_resolves_view_specific_target() -> None:
-    """_resolve_target_ratio가 view-별 매핑값을 반환하고 fallback이 동작."""
-    renderer = IFCRenderer(target_screen_ratio=0.99)  # fallback
-    # TOP은 매핑 등록됨 → 매핑값 우선
-    assert renderer._resolve_target_ratio(IFCView.TOP) == VIEW_TARGET_RATIOS[IFCView.TOP]
-    # 모든 등록 view의 매핑값이 fallback과 다름을 가정 (현재 매핑 값 0.25~0.40, fallback 0.99)
-    for v in IFCView:
-        assert renderer._resolve_target_ratio(v) == VIEW_TARGET_RATIOS[v]
+    """_resolve_target_ratio가 view-별 매핑값을 반환 + small mesh에서 base 그대로.
 
-
-def test_render_views_computes_pca_once_per_mesh() -> None:
-    """render_views(N뷰) 호출 시 PCA는 mesh당 1회만 계산되어야 한다 (성능 보장).
-
-    PCA 결과는 view-invariant — 같은 mesh에서 매 view마다 재계산하면 낭비.
+    small mesh(extent <20m, dispatch 임계값 미만)에서는 dispatch 배율 적용 안 됨 →
+    `VIEW_TARGET_RATIOS[view]` 그대로 반환. 큰 mesh의 dispatch 동작은 별도 테스트
+    (`test_resolve_target_ratio_for_*_mesh`)에서 검증.
     """
-    fake_mesh = MagicMock()
-    fake_mesh.vertices = np.array(
-        [[0, 0, 0], [10, 0, 0], [10, 5, 0], [0, 5, 0],
-         [0, 0, 3], [10, 0, 3], [10, 5, 3], [0, 5, 3]]
+    renderer = IFCRenderer(target_screen_ratio=0.99)  # fallback
+    # extent ~10m mesh — dispatch 임계값(20m) 미만 → base 그대로
+    small_mesh = MagicMock()
+    small_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 5.0, 3.0]])
+
+    # TOP은 매핑 등록됨 → 매핑값 우선
+    top_resolved = renderer._resolve_target_ratio(IFCView.TOP, small_mesh)
+    assert top_resolved == VIEW_TARGET_RATIOS[IFCView.TOP]
+    # 모든 등록 view의 매핑값이 fallback과 다름을 가정 (현재 매핑 값 0.12~0.20, fallback 0.99)
+    for v in IFCView:
+        assert renderer._resolve_target_ratio(v, small_mesh) == VIEW_TARGET_RATIOS[v]
+
+
+# --- 옵션 B — fixture별 dispatch (resolve_target_ratio_for_mesh) ---
+
+
+def test_resolve_target_ratio_for_small_mesh_returns_base() -> None:
+    """small mesh(extent ≤ 20m, haus/SampleHouse 시나리오) → base 그대로.
+
+    임계값 미만이라 dispatch 배율 적용 안 됨. base_ratio 명시도 작동 검증.
+    """
+    # 명시적 base_ratio
+    assert resolve_target_ratio_for_mesh(IFCView.FRONT, 13.0, base_ratio=0.20) == 0.20
+    assert resolve_target_ratio_for_mesh(IFCView.SIDE, 17.0, base_ratio=0.20) == 0.20
+    # base_ratio 미지정 → VIEW_TARGET_RATIOS 사용
+    assert (
+        resolve_target_ratio_for_mesh(IFCView.FRONT, 10.0)
+        == VIEW_TARGET_RATIOS[IFCView.FRONT]
     )
-    fake_center = np.array([5.0, 2.5, 1.5])
-
-    with (
-        patch(
-            "ai_rendering.ifc2img.renderer.load_mesh",
-            return_value=(fake_mesh, fake_center),
-        ),
-        patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
-        patch(
-            "ai_rendering.ifc2img.renderer.compute_principal_axes",
-            return_value=(
-                np.array([1.0, 0.0, 0.0]),
-                np.array([0.0, 1.0, 0.0]),
-                True,
-            ),
-        ) as mock_pca,
-    ):
-        vis = MagicMock()
-        mock_o3d.visualization.Visualizer.return_value = vis
-        depth = np.zeros((448, 768), dtype=np.float32)
-        depth[100:300, 200:500] = 5.0
-        vis.capture_depth_float_buffer.return_value = depth
-
-        renderer = IFCRenderer(pca_align=True)
-        results = renderer.render_views(
-            Path("dummy.ifc"),
-            views=[IFCView.FRONT, IFCView.SIDE, IFCView.ISO_NE,
-                   IFCView.ISO_NW, IFCView.ISO_SE],
-        )
-
-    assert len(results) == 5
-    # 핵심 — PCA는 mesh당 1회만 (5뷰 호출이지만 1회).
-    assert mock_pca.call_count == 1
+    # 경계값 — 정확히 20.0은 medium 분기 미적용 (`>` 사용) → base 그대로
+    assert resolve_target_ratio_for_mesh(IFCView.FRONT, 20.0, base_ratio=0.20) == 0.20
 
 
-def test_renderer_pca_align_off_uses_static_front() -> None:
-    """pca_align=False 시 동적 front 계산 안 함, VIEW_CAMERAS 정적값 그대로."""
+def test_resolve_target_ratio_for_medium_mesh_scales_down() -> None:
+    """medium mesh(20 < extent ≤ 50m) → base × DISPATCH_MEDIUM_FACTOR (=0.8)."""
+    base = 0.20
+    assert resolve_target_ratio_for_mesh(IFCView.FRONT, 30.0, base_ratio=base) == (
+        base * DISPATCH_MEDIUM_FACTOR
+    )
+    # 경계값 — 50.0 정확히 medium 분기 (`> 50` 사용) → 여전히 medium
+    assert resolve_target_ratio_for_mesh(IFCView.FRONT, 50.0, base_ratio=base) == (
+        base * DISPATCH_MEDIUM_FACTOR
+    )
+    # ISO 기본값에서도 작동
+    iso_base = VIEW_TARGET_RATIOS[IFCView.ISO_NE]
+    assert resolve_target_ratio_for_mesh(IFCView.ISO_NE, 35.0) == (
+        iso_base * DISPATCH_MEDIUM_FACTOR
+    )
+
+
+def test_resolve_target_ratio_for_large_mesh_scales_more() -> None:
+    """large mesh(extent > 50m, Smiley 75m 시나리오) → base × DISPATCH_LARGE_FACTOR (=0.6)."""
+    base = 0.20
+    assert resolve_target_ratio_for_mesh(IFCView.FRONT, 75.0, base_ratio=base) == (
+        base * DISPATCH_LARGE_FACTOR
+    )
+    assert resolve_target_ratio_for_mesh(IFCView.SIDE, 100.0, base_ratio=base) == (
+        base * DISPATCH_LARGE_FACTOR
+    )
+    # ISO 기본값에서도 작동
+    iso_base = VIEW_TARGET_RATIOS[IFCView.ISO_NE]
+    assert resolve_target_ratio_for_mesh(IFCView.ISO_NE, 75.0) == (
+        iso_base * DISPATCH_LARGE_FACTOR
+    )
+
+
+def test_render_uses_static_view_camera() -> None:
+    """render() 시 VIEW_CAMERAS의 정적 vector가 그대로 카메라 front로 사용됨."""
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5], [20, 0, 5]])
     fake_center = np.array([10.0, 5.0, 2.5])
@@ -721,9 +779,6 @@ def test_renderer_pca_align_off_uses_static_front() -> None:
             return_value=(fake_mesh, fake_center),
         ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
-        patch(
-            "ai_rendering.ifc2img.renderer.compute_principal_axes"
-        ) as mock_pca,
     ):
         vis = MagicMock()
         mock_o3d.visualization.Visualizer.return_value = vis
@@ -731,10 +786,9 @@ def test_renderer_pca_align_off_uses_static_front() -> None:
         depth[100:300, 200:500] = 5.0
         vis.capture_depth_float_buffer.return_value = depth
 
-        renderer = IFCRenderer(pca_align=False)
+        renderer = IFCRenderer()
         renderer.render(Path("dummy.ifc"), IFCView.FRONT)
 
-    mock_pca.assert_not_called()
     # set_front은 IFCView.FRONT의 정적 vector (-1.0, 0.0, 0.0)로 호출 — z=0 완전 수평
     set_front_calls = vis.get_view_control.return_value.set_front.call_args_list
     assert len(set_front_calls) == 1
