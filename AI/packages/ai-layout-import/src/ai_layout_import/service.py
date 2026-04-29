@@ -30,18 +30,8 @@ def convert_layout_to_ifc(
 
 
 def _validate_request(request: LayoutImportV1 | LayoutImportV2) -> None:
-    _validate_zone_references(request)
     if isinstance(request, LayoutImportV2):
         _validate_v2_generation_prerequisites(request)
-
-
-def _validate_zone_references(request: LayoutImportV1 | LayoutImportV2) -> None:
-    zone_ids = {zone.id for zone in request.zones or []}
-    for room in request.rooms:
-        if room.zone_id is None:
-            continue
-        if room.zone_id not in zone_ids:
-            raise ValueError(f"unknown zone reference: {room.zone_id}")
 
 
 def _validate_v2_generation_prerequisites(request: LayoutImportV2) -> None:

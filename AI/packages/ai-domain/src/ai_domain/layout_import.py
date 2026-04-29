@@ -194,6 +194,19 @@ class LayoutImportCommon(LayoutImportBaseModel):
 
         return self
 
+    @model_validator(mode="after")
+    def validate_zone_references(self) -> LayoutImportCommon:
+        zone_ids = {zone.id for zone in self.zones or []}
+        for room in self.rooms:
+            if room.zone_id is None:
+                continue
+            if room.zone_id not in zone_ids:
+                raise ValueError(
+                    f"room.zoneId must reference an existing zone: {room.zone_id}"
+                )
+
+        return self
+
 
 class LayoutImportV1(LayoutImportCommon):
     """v1 request model for new IFC import."""
