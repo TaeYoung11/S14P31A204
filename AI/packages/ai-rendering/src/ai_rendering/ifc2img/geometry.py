@@ -8,6 +8,7 @@ import numpy as np
 import open3d as o3d  # type: ignore[import-untyped]
 
 from .exceptions import IFCRenderError
+from .views import PCA_EIGENVALUE_RATIO_MIN
 
 SUPPORTED_SCHEMA_PREFIX = "IFC4"
 """지원 스키마 prefix — IFC4 계열 (IFC4, IFC4X1, IFC4X2, IFC4X3, ...).
@@ -107,6 +108,8 @@ def load_mesh(
     if len(vertices) == 0:
         raise IFCRenderError("추출된 geometry가 없습니다.")
 
+    vertices, _rotated = _align_long_axis_to_x(vertices)
+
     mesh = o3d.geometry.TriangleMesh()
     mesh.vertices = o3d.utility.Vector3dVector(vertices)
     mesh.triangles = o3d.utility.Vector3iVector(faces)
@@ -114,3 +117,54 @@ def load_mesh(
 
     center = (vertices.min(axis=0) + vertices.max(axis=0)) / 2
     return mesh, center
+
+
+def _align_long_axis_to_x(
+    vertices: np.ndarray,
+) -> tuple[np.ndarray, bool]:
+    """xy 평면 PCA long_axis가 +x에 정렬되도록 mesh 전체에 yaw 회전을 적용.
+
+    배경 (2026-04-29 다양성 검증 Phase 1+2 진단):
+    - haus(3.73°)·SampleHouse(10.03°) IFC 모델이 좌표계 자체가 회전된 상태로
+      저장돼 있어 front/side 입면도가 좌측으로 기울어 보임.
+    - Smiley(0.02°)는 표준 좌표계라 영향 없음.
+    - 모든 fixture eig_ratio ≥ 3.2 ≫ 1.2 — PCA 자체는 신뢰 가능.
+
+    설계:
+    - vertex 부족(<3)·eigenvalue 격차 부족(<PCA_EIGENVALUE_RATIO_MIN)이면 무회전.
+    - 그 외 long_axis가 +x에 수렴하도록 z축 기준 yaw 회전 행렬 적용 (xy만 회전,
+      z 보존). center는 vertices에서 다시 계산되므로 별도 처리 불필요.
+
+    Returns:
+        (rotated_vertices, did_rotate) — did_rotate는 진단·테스트용.
+    """
+    if len(vertices) < 3:
+        return vertices, False
+    xy = vertices[:, :2]
+    centered = xy - xy.mean(axis=0)
+    cov = np.cov(centered.T)
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    if eigvals[0] < 1e-12:
+        return vertices, False
+    if (eigvals[1] / eigvals[0]) < PCA_EIGENVALUE_RATIO_MIN:
+        return vertices, False
+    long_xy = eigvecs[:, 1]
+    cos_t = float(long_xy[0])
+    sin_t = float(long_xy[1])
+    norm = (cos_t * cos_t + sin_t * sin_t) ** 0.5
+    if norm < 1e-9:
+        return vertices, False
+    cos_t /= norm
+    sin_t /= norm
+    # long_axis가 +x로 가도록 회전 — 역행렬 (cos, sin; -sin, cos)을 xy에 곱.
+    # [x']   [ cos_t  sin_t] [x]
+    # [y'] = [-sin_t  cos_t] [y]
+    rot = np.array(
+        [
+            [cos_t, sin_t, 0.0],
+            [-sin_t, cos_t, 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    rotated = vertices @ rot.T
+    return rotated, True
