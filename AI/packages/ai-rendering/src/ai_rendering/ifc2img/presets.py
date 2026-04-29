@@ -22,17 +22,19 @@ _NEGATIVE_BASE = (
     "(worst quality, low quality:1.4), (deformed, distorted:1.3), "
     "(cgi, 3d, render, blender:1.4), cartoon, anime, illustration, "
     "text, watermark, signature, "
-    "interior, indoor, furniture"
+    "interior, indoor, furniture, "
+    "basement, underground"
 )
 
 
 _PRESETS: dict[str, DepthStyleParams] = {
     "scandinavian": DepthStyleParams(
         prompt=(
-            "RAW photo, scandinavian modern house exterior, "
+            "RAW photo, scandinavian modern house exterior at ground level, "
             "white rendered facade, large panoramic windows, flat roof, "
             "clean minimal architecture, 8k uhd, DSLR, sharp focus, "
-            "architectural photography, bright natural daylight, nordic design"
+            "architectural photography, bright natural daylight, nordic design, "
+            "ground floor visible, building stands on flat ground"
         ),
         negative_prompt=(
             f"{_NEGATIVE_BASE}, dark moody, industrial concrete"

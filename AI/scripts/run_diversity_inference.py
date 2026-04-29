@@ -7,7 +7,12 @@ iso_nw/se override 1.0, view-aware prompt suffix).
 기본 preset = scandinavian (옵션 A — EYE_* 품질 빠르게 확인 → 미세 조정 →
 필요 시 다른 preset 확장).
 
-출력: outputs/ifc2img_diversity/{stem}/styled_{preset}_{view}.png  (3 × 8 = 24장)
+사용:
+    python scripts/run_diversity_inference.py
+    python scripts/run_diversity_inference.py outputs/ifc2img_diversity_v2
+
+CLI 인자로 출력 경로를 덮어쓸 수 있다 — 처방 전후 비교에 활용.
+출력: <out_dir>/{stem}/styled_{preset}_{view}.png  (3 × 8 = 24장)
 """
 
 from __future__ import annotations
@@ -30,7 +35,7 @@ from ai_rendering.ifc2img.views import DEFAULT_RENDER_VIEWS, AutoZoomMode
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES_DIR = ROOT / "packages" / "ai-rendering" / "tests" / "fixtures" / "ifc"
-OUT_ROOT = ROOT / "outputs" / "ifc2img_diversity"
+DEFAULT_OUT_ROOT = ROOT / "outputs" / "ifc2img_diversity"
 PRESET = "scandinavian"
 
 FIXTURES = [
@@ -41,6 +46,8 @@ FIXTURES = [
 
 
 def main() -> int:
+    out_root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else DEFAULT_OUT_ROOT
+
     missing = [f for f in FIXTURES if not f.exists()]
     if missing:
         print("[error] fixtures not found:", file=sys.stderr)
@@ -53,7 +60,7 @@ def main() -> int:
         print(f"  - {f.name}")
     print(f"[preset] {PRESET}")
     print(f"[views] {[v.value for v in DEFAULT_RENDER_VIEWS]}")
-    print(f"[output] {OUT_ROOT}\n")
+    print(f"[output] {out_root}\n")
 
     print("[depth] IFCRenderer 로드...")
     t0 = time.time()
@@ -80,7 +87,7 @@ def main() -> int:
     total_styled = 0
     for fixture in FIXTURES:
         stem = fixture.stem
-        out_dir = OUT_ROOT / stem
+        out_dir = out_root / stem
         out_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"[{stem}] depth {len(DEFAULT_RENDER_VIEWS)}뷰 렌더링...")
@@ -104,7 +111,7 @@ def main() -> int:
         f"완료: {total_styled}장 ({len(FIXTURES)} fixtures × "
         f"{len(DEFAULT_RENDER_VIEWS)} 뷰), 총 {time.time() - grand_t0:.1f}s"
     )
-    print(f"산출물: {OUT_ROOT}")
+    print(f"산출물: {out_root}")
     return 0
 
 
