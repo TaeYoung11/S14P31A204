@@ -16,10 +16,12 @@ WALL_NORMAL_VERTICAL_TOLERANCE = 0.1
 지붕/슬래브(z 성분 큼) 제외하고 *facade 벽*만 사용해 axis-aligned 정렬 기준 산출.
 """
 
-WALL_NORMAL_MIN_COUNT = 100
+WALL_NORMAL_MIN_COUNT = 4
 """회전 보정 적용 최소 벽 면 개수.
 
-이보다 적으면 통계적으로 신뢰 가능한 모드 검출 어려움 → fallback(무회전).
+직사각형 단순 박스 mesh도 4면(±x/±y) 최소 보유. 이보다 적으면 데이터 부족.
+*분포 신뢰도*는 `WALL_NORMAL_MIN_MAGNITUDE`가 별도 가드 — 4중 대칭 circular
+mean magnitude가 낮으면(둥근 건물 / 비표준 격자) 회전 미적용.
 """
 
 WALL_NORMAL_MIN_MAGNITUDE = 0.3
