@@ -2,7 +2,7 @@ import { useMemo, useRef, useEffect, useState } from 'react'
 import { Circle, Ellipse, Group, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import type Konva from 'konva'
-import type { BubbleData, ConnectionData, ZoneData } from '../../types'
+import type { BubbleData, ConnectionData, FloorLayerOverlay, ZoneData } from '../../types'
 import { getZoneOrganicShape } from '../../utils/zoneShape'
 import { hexToRgba } from '../../utils/bubbleCalc'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
@@ -134,6 +134,7 @@ interface BubbleCanvasProps {
   stageSize: { width: number; height: number }
   sitePoints: number[]
   bubbles: BubbleData[]
+  overlayLayers?: FloorLayerOverlay[]
   connections: ConnectionData[]
   autoZones: ZoneData[]
   manualZones: ZoneData[]
@@ -156,14 +157,16 @@ interface BubbleCanvasProps {
   onBubbleLabelEdit?: (info: BubbleLabelEditInfo) => void
   /** 스크롤 휠 줌 배율 (1.1 = 확대, 0.9 = 축소) */
   onWheelZoom?: (factor: number) => void
-  /** 마퀴 선택 완료 시 선택된 id 목록 전달 */
-  onMarqueeSelect?: (ids: string[]) => void
+  /** 마퀴 선택 완료 시 선택된 id 목록 전달 (append=true면 기존 선택에 추가) */
+  onMarqueeSelect?: (ids: string[], append?: boolean) => void
   /** 빈 캔버스 클릭 → 선택 해제 */
   onClearSelection?: () => void
   /** 빈 캔버스 더블클릭 → 새 버블 생성 요청 */
   onEmptyCanvasDblClick?: (info: EmptyCanvasDblClickInfo) => void
   /** Transformer resize 완료 후 버블 크기·위치 업데이트 */
   onBubbleResize?: (id: string, x: number, y: number, width: number, height: number) => void
+  /** 버블 편집 잠금(보기 전용) */
+  isReadOnly?: boolean
   scale?: number
 }
 
@@ -177,6 +180,7 @@ export function BubbleCanvas({
   stageSize,
   sitePoints,
   bubbles,
+  overlayLayers = [],
   connections,
   autoZones,
   manualZones,
@@ -197,6 +201,7 @@ export function BubbleCanvas({
   onClearSelection,
   onEmptyCanvasDblClick,
   onBubbleResize,
+  isReadOnly = false,
   scale = 1,
 }: BubbleCanvasProps) {
   /** id → BubbleData 빠른 조회 맵 */
@@ -226,6 +231,7 @@ export function BubbleCanvas({
     endY: number
   } | null>(null)
   const isPanMode = selectedTool === 'hand' || isSpacePressed || isMiddlePanning
+  const isBubbleEditable = !isReadOnly
   const baseOffsetX = (stageSize.width * (1 - scale)) / 2
   const baseOffsetY = (stageSize.height * (1 - scale)) / 2
 
@@ -374,8 +380,10 @@ export function BubbleCanvas({
           container.style.cursor = 'grabbing'
           return
         }
+        if (e.evt.button !== 0) return
         // 빈 캔버스(Stage/Layer)에서만 마퀴 시작
         if (isPanMode) return
+        if (!isBubbleEditable) return
         if (selectedTool !== 'selection') return
         const targetType = e.target.getType()
         if (targetType !== 'Stage' && e.target.getParent()?.getType() !== 'Stage') {
@@ -456,7 +464,7 @@ export function BubbleCanvas({
               return b.x < mRight && bRight > marquee.x && b.y < mBottom && bBottom > marquee.y
             })
             .map((b) => b.id)
-          onMarqueeSelect?.(selected)
+          onMarqueeSelect?.(selected, e.evt.shiftKey)
         }
         setMarquee(null)
       }}
@@ -477,6 +485,10 @@ export function BubbleCanvas({
 
         // 빈 캔버스 단일 클릭: 선택 해제
         onClearSelection?.()
+        if (!isBubbleEditable) {
+          lastEmptyCanvasClickRef.current = null
+          return
+        }
         if (!pos || !containerPos) return
 
         // 빈 캔버스 더블클릭에서만 새 버블 생성
@@ -504,6 +516,32 @@ export function BubbleCanvas({
       <Layer>
         {/* 대지 외곽선 */}
         <Line points={sitePoints} closed fill="#3B45B311" stroke="#3B45B333" strokeWidth={1} />
+
+        {/* 층 겹쳐보기 오버레이 (버블 다이어그램 확인용) */}
+        {overlayLayers.map((overlay) => (
+          <Group key={`overlay-${overlay.layerId}`} listening={false}>
+            {overlay.rooms.map((room) => (
+              <Group key={`overlay-room-${overlay.layerId}-${room.id}`} listening={false}>
+                <Rect
+                  x={room.x}
+                  y={room.y}
+                  width={room.width}
+                  height={room.height}
+                  fill={hexToRgba(room.color, Math.min(Math.max(overlay.opacity * 0.45, 0.08), 0.45))}
+                />
+                <Rect
+                  x={room.x}
+                  y={room.y}
+                  width={room.width}
+                  height={room.height}
+                  stroke="#3B45B3"
+                  strokeWidth={1}
+                  dash={[6, 4]}
+                />
+              </Group>
+            ))}
+          </Group>
+        ))}
 
         {/* 자동 조닝 영역 */}
         <ZoneLayer zones={autoZones} bubbles={bubbles} style={AUTO_ZONE_STYLE} onEditZone={onEditZone} />
@@ -544,6 +582,7 @@ export function BubbleCanvas({
               hitStrokeWidth={16}
               onClick={(e) => {
                 e.cancelBubble = true
+                if (!isBubbleEditable) return
                 onConnectionClick?.(conn)
               }}
             />
@@ -566,10 +605,23 @@ export function BubbleCanvas({
               }}
               x={bubble.x}
               y={bubble.y}
-              draggable={selectedTool === 'selection' && !isPanMode}
-              onDragMove={(e) => onBubbleDrag(bubble.id, e.target.x(), e.target.y())}
+              draggable={isBubbleEditable && selectedTool === 'selection' && !isPanMode}
+              onDragStart={(e) => {
+                if (!isBubbleEditable || selectedTool !== 'selection' || isPanMode) return
+                e.cancelBubble = true
+                // 다중 선택 이동 시점 일관성:
+                // 선택되지 않은 버블을 바로 드래그하면 먼저 단일 선택으로 맞춘다.
+                if (!selectedIds.includes(bubble.id)) {
+                  onBubbleSelect(bubble.id, false)
+                }
+              }}
+              onDragMove={(e) => {
+                if (!isBubbleEditable) return
+                onBubbleDrag(bubble.id, e.target.x(), e.target.y())
+              }}
               onMouseDown={(e) => {
                 if (isPanMode) return
+                if (!isBubbleEditable) return
                 if (selectedTool !== 'connect') return
                 const stage = e.target.getStage()
                 const pos = stage?.getRelativePointerPosition()
@@ -586,10 +638,11 @@ export function BubbleCanvas({
               }}
               onClick={(e) => {
                 e.cancelBubble = true
-                if (selectedTool === 'delete') onDeleteBubble?.(bubble.id)
+                if (selectedTool === 'delete' && isBubbleEditable) onDeleteBubble?.(bubble.id)
                 else onBubbleSelect(bubble.id, e.evt.shiftKey)
               }}
               onDblClick={(e) => {
+                if (!isBubbleEditable) return
                 e.cancelBubble = true
                 const stage = e.target.getStage()
                 if (!stage) return
@@ -609,7 +662,7 @@ export function BubbleCanvas({
                 if (!connectionDrag) setHoveredBubbleId((prev) => (prev === bubble.id ? null : prev))
               }}
               onMouseOver={() => {
-                if (selectedTool === 'connect') setHoveredBubbleId(bubble.id)
+                if (isBubbleEditable && selectedTool === 'connect') setHoveredBubbleId(bubble.id)
               }}
             >
               {/* 버블 배경 (타원) */}
@@ -671,7 +724,7 @@ export function BubbleCanvas({
         })}
 
         {/* 연결 포인트 (connect 도구 + 버블 호버 시 표시) */}
-        {selectedTool === 'connect' && hoveredBubbleId && !connectionDrag && (() => {
+        {isBubbleEditable && selectedTool === 'connect' && hoveredBubbleId && !connectionDrag && (() => {
           const hovered = bubbleMap.get(hoveredBubbleId)
           if (!hovered) return null
           const anchors = getAnchorPoints(hovered)
@@ -713,7 +766,7 @@ export function BubbleCanvas({
         )}
 
         {/* Transformer — selection 도구 + 단일 선택일 때만 활성 */}
-        {selectedTool === 'selection' && (
+        {isBubbleEditable && selectedTool === 'selection' && (
           <Transformer
             ref={trRef}
             rotateEnabled={false}

@@ -127,6 +127,8 @@ export function mapFloorProjectToLayers(project: FloorProject, options: MapperOp
     const floorRooms = roomsByFloor.get(room.floor) ?? []
     const roomWidth = (bounds.maxX - bounds.minX) * scale
     const roomHeight = (bounds.maxY - bounds.minY) * scale
+    const roomWidthMm = Math.max((bounds.maxX - bounds.minX) * 1000, 100)
+    const roomHeightMm = Math.max((bounds.maxY - bounds.minY) * 1000, 100)
 
     floorRooms.push({
       id: room.id,
@@ -137,8 +139,11 @@ export function mapFloorProjectToLayers(project: FloorProject, options: MapperOp
       y: bounds.minY * scale + offsetY,
       width: clamp(roomWidth, 20, Number.MAX_SAFE_INTEGER),
       height: clamp(roomHeight, 20, Number.MAX_SAFE_INTEGER),
+      widthMm: roomWidthMm,
+      heightMm: roomHeightMm,
       area: computeRoomAreaM2(room.polygon),
       color: room.color ?? DEFAULT_ROOM_COLOR,
+      material: room.floor_material ?? '콘크리트',
       connectedIds: connectedMap.get(room.id) ?? [],
     })
 
@@ -240,6 +245,7 @@ export function mapFloorProjectToBubbles(project: FloorProject, options: MapperO
       ratio: safeRatio,
       area: `${safeRatio.toFixed(1)} m²`,
       color: room.color ?? '#ffffff',
+      material: room.floor_material ?? '콘크리트',
       index: createBubbleIndex(index),
     }
   })

@@ -1,4 +1,4 @@
-import type { BubbleData, ConnectionData } from '../types'
+import type { BubbleData, ConnectionData, FloorOpening, FloorWall } from '../types'
 import type { LlmEditOperation } from '../types/llmEdit.types'
 
 /** LLM 수정 API 요청 본문 (프론트 -> 백엔드) */
@@ -7,6 +7,8 @@ export interface LlmEditApiRequestBody {
   context: {
     bubbles: BubbleData[]
     connections: ConnectionData[]
+    floorWalls?: FloorWall[]
+    floorOpenings?: FloorOpening[]
   }
 }
 

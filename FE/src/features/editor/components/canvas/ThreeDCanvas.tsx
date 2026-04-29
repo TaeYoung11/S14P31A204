@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Square, DoorOpen, LayoutGrid, Home, Box, Layers, X } from 'lucide-react'
-import type { FloorRoom } from '../../types'
+import type { FloorLayerOverlay, FloorRoom } from '../../types'
 import { hexToRgba } from '../../utils/bubbleCalc'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
 
@@ -78,6 +78,7 @@ interface ThreeDCanvasProps {
   onToggleLibrary?: () => void
   isGridVisible?: boolean
   rooms?: FloorRoom[]
+  overlayLayers?: FloorLayerOverlay[]
   scale?: number
   selectedId?: string | null
   onSelect?: (id: string | null) => void
@@ -98,6 +99,7 @@ export function ThreeDCanvas({
   onToggleLibrary,
   isGridVisible = false,
   rooms = [],
+  overlayLayers = [],
   scale = 1,
   selectedId,
   onSelect,
@@ -256,6 +258,21 @@ export function ThreeDCanvas({
           <div className="absolute inset-0 bg-black/5 blur-3xl transform translate-z-[-10px]" />
 
           {/* 방(공간) 박스 렌더링 */}
+          {overlayLayers.map((overlay) =>
+            overlay.rooms.map((room) => (
+              <Room3D
+                key={`overlay-${overlay.layerId}-${room.id}`}
+                room={room}
+                height={WALL_HEIGHT}
+                selectedTool={selectedTool}
+                isPanActive={isPanMode}
+                isOverlay
+                overlayOpacity={overlay.opacity}
+              />
+            )),
+          )}
+
+          {/* 활성층 방 렌더링 */}
           {rooms.map((room) => (
             <Room3D
               key={room.id}
@@ -269,7 +286,7 @@ export function ThreeDCanvas({
           ))}
 
           {/* 협업 모드 핀 오버레이 */}
-          {isCollaborationMode && (
+          {isCollaborationMode && rooms.length > 0 && (
             <div className="absolute inset-0 preserve-3d pointer-events-none">
               <div
                 className="absolute z-50 pointer-events-auto"
@@ -300,6 +317,8 @@ interface Room3DProps {
   onSelect?: (id: string | null) => void
   selectedTool?: string
   isPanActive?: boolean
+  isOverlay?: boolean
+  overlayOpacity?: number
 }
 
 /** CSS 3D Transform 기반 방 박스 렌더러 — 상단·하단·4면 벽체로 구성 */
@@ -310,6 +329,8 @@ function Room3D({
   onSelect,
   selectedTool = 'selection',
   isPanActive = false,
+  isOverlay = false,
+  overlayOpacity = 0.35,
 }: Room3DProps) {
   const color = room.color || '#3B45B3'
   const lightColor = hexToRgba(color, 0.4)
@@ -322,8 +343,16 @@ function Room3D({
       className={`absolute preserve-3d transition-all duration-500 group ${
         isHand ? 'cursor-inherit' : 'cursor-pointer'
       } ${isSelected && !isHand ? 'translate-z-6' : !isHand ? 'hover:translate-z-4' : ''}`}
-      style={{ left: room.x, top: room.y, width: room.width, height: room.height, pointerEvents: 'auto' }}
+      style={{
+        left: room.x,
+        top: room.y,
+        width: room.width,
+        height: room.height,
+        pointerEvents: isOverlay ? 'none' : 'auto',
+        opacity: isOverlay ? Math.min(Math.max(overlayOpacity, 0.1), 0.9) : 1,
+      }}
       onClick={(e) => {
+        if (isOverlay) return
         if (isHand) return
         e.stopPropagation()
         onSelect?.(isSelected ? null : room.bubbleId)
@@ -333,8 +362,8 @@ function Room3D({
       <div
         className="absolute inset-0 shadow-inner"
         style={{ 
-          backgroundColor: isSelected ? hexToRgba(color, 0.2) : hexToRgba(color, 0.1), 
-          border: `1px solid ${isSelected ? color : hexToRgba(color, 0.2)}` 
+          backgroundColor: isOverlay ? hexToRgba(color, 0.06) : isSelected ? hexToRgba(color, 0.2) : hexToRgba(color, 0.1), 
+          border: `1px solid ${isOverlay ? hexToRgba('#3B45B3', 0.45) : isSelected ? color : hexToRgba(color, 0.2)}` 
         }}
       />
 
@@ -343,8 +372,8 @@ function Room3D({
         className="absolute inset-0 flex items-center justify-center overflow-hidden"
         style={{ 
           transform: `translateZ(${height}px)`, 
-          backgroundColor: isSelected ? hexToRgba(color, 0.1) : hexToRgba(color, 0.05), 
-          border: isSelected ? `3px solid #3B45B3` : `2px solid ${color}`,
+          backgroundColor: isOverlay ? hexToRgba(color, 0.03) : isSelected ? hexToRgba(color, 0.1) : hexToRgba(color, 0.05), 
+          border: isOverlay ? `1px dashed ${hexToRgba('#3B45B3', 0.7)}` : isSelected ? `3px solid #3B45B3` : `2px solid ${color}`,
           boxShadow: isSelected ? '0 0 15px rgba(59,69,179,0.4)' : 'none'
         }}
       >

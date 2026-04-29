@@ -63,10 +63,21 @@ export function useBubbles() {
     })
   }
 
-  /** 마퀴(드래그) 선택 — 영역 내 버블 id 목록으로 selectedIds 갱신 */
-  const handleMarqueeSelect = (ids: string[]) => {
-    updateSelectedIds(ids)
-    setSelectedId(ids[ids.length - 1] ?? null)
+  /** 단일 버블 위치 이동 (크기/면적/치수는 유지) */
+  const handleBubbleMove = (id: string, x: number, y: number) => {
+    setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, x, y } : b)))
+  }
+
+  /** 마퀴(드래그) 선택 — 기본은 교체 선택, append=true면 기존 선택에 추가 */
+  const handleMarqueeSelect = (ids: string[], append = false) => {
+    if (!append) {
+      updateSelectedIds(ids)
+      setSelectedId(ids[ids.length - 1] ?? null)
+      return
+    }
+    const merged = Array.from(new Set([...selectedIdsRef.current, ...ids]))
+    updateSelectedIds(merged)
+    if (ids.length > 0) setSelectedId(ids[ids.length - 1] ?? selectedId)
   }
 
   /** 선택 해제 */
@@ -141,6 +152,11 @@ export function useBubbles() {
     setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, color } : b)))
   }
 
+  /** 주요 재질 변경 */
+  const handleMaterialChange = (id: string, material: string) => {
+    setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, material } : b)))
+  }
+
   /** 버블 삭제 — 선택 상태도 함께 초기화 */
   const deleteBubble = (id: string) => {
     setBubbles((prev) => prev.filter((b) => b.id !== id))
@@ -202,6 +218,7 @@ export function useBubbles() {
       ratio: ratioValue,
       area: `${ratioValue.toFixed(1)} m²`,
       color: formData.color,
+      material: '콘크리트',
       index: getNextBubbleIndex(bubbles.length),
     }
     setBubbles((prev) => [...prev, newBubble])
@@ -227,6 +244,7 @@ export function useBubbles() {
       ratio: ratioValue,
       area: `${ratioValue.toFixed(1)} m²`,
       color: INITIAL_ADD_SPACE_FORM.color,
+      material: '콘크리트',
       index: nextIndex,
     }
     if (selectedId && selectedId !== id) setPreviousSelectedId(selectedId)
@@ -253,6 +271,7 @@ export function useBubbles() {
     previousSelectedId,
     handleBubbleSelect,
     handleBubbleDrag,
+    handleBubbleMove,
     handleMarqueeSelect,
     clearSelection,
     handleBubbleResize,
@@ -262,6 +281,7 @@ export function useBubbles() {
     handleHeightChange,
     handleRatioChange,
     handleColorChange,
+    handleMaterialChange,
     addBubble,
     addBubbleAt,
     replaceBubbles,

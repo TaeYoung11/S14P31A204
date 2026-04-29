@@ -1,4 +1,4 @@
-import type { BubbleData, ConnectionData } from '../types'
+import type { BubbleData, ConnectionData, FloorOpening, FloorWall } from '../types'
 import type { LlmEditOperation, LlmEditResponse } from '../types/llmEdit.types'
 import { api } from '@/shared/lib/axios'
 import type {
@@ -11,6 +11,8 @@ export interface LlmEditRequest {
   prompt: string
   bubbles: BubbleData[]
   connections: ConnectionData[]
+  floorWalls: FloorWall[]
+  floorOpenings: FloorOpening[]
 }
 
 export type LlmEditProvider = 'mock' | 'api'
@@ -28,6 +30,8 @@ async function requestLlmEditMock({
   prompt,
   bubbles,
   connections,
+  floorWalls,
+  floorOpenings,
 }: LlmEditRequest): Promise<LlmEditResponse> {
   await new Promise((resolve) => setTimeout(resolve, SIMULATED_DELAY_MS))
 
@@ -46,6 +50,9 @@ async function requestLlmEditMock({
   const includesConnect = normalizedPrompt.includes('연결')
   const includesAdd = normalizedPrompt.includes('추가')
   const includesRemove = normalizedPrompt.includes('삭제') || normalizedPrompt.includes('제거')
+  const includesWall = normalizedPrompt.includes('벽') || normalizedPrompt.includes('벽체')
+  const includesDoor = normalizedPrompt.includes('문')
+  const includesWindow = normalizedPrompt.includes('창문') || normalizedPrompt.includes('창')
 
   if (includesConnect && includesAdd) {
     if (referenced.length < 2) {
@@ -149,6 +156,101 @@ async function requestLlmEditMock({
     }
   }
 
+  if (includesWall && includesAdd) {
+    if (bubbles.length === 0) {
+      return {
+        kind: 'ambiguous',
+        message: '벽체를 추가할 기준 공간이 없습니다. 먼저 공간을 1개 이상 배치해 주세요.',
+        suggestions: ['거실 공간 추가해줘'],
+      }
+    }
+    const nearBubble = referenced[0] ?? bubbles[0]
+    const start = { x: nearBubble.x + 20, y: nearBubble.y + nearBubble.height + 20 }
+    const end = { x: nearBubble.x + nearBubble.width - 20, y: nearBubble.y + nearBubble.height + 20 }
+    return {
+      kind: 'ok',
+      summary: '요청한 위치에 벽체를 추가합니다.',
+      operations: [
+        {
+          kind: 'add_wall',
+          start,
+          end,
+          type: 'general',
+        },
+      ],
+    }
+  }
+
+  if ((includesDoor || includesWindow) && includesAdd) {
+    if (floorWalls.length === 0) {
+      return {
+        kind: 'ambiguous',
+        message: '문/창문을 추가할 벽체가 없습니다. 벽체를 먼저 추가해 주세요.',
+        suggestions: ['벽체 추가해줘'],
+      }
+    }
+    const targetWallId = floorWalls[0].id
+    const openingType: 'door' | 'window' = includesWindow ? 'window' : 'door'
+    return {
+      kind: 'ok',
+      summary: openingType === 'door' ? '선택한 벽체에 문을 추가합니다.' : '선택한 벽체에 창문을 추가합니다.',
+      operations: [
+        {
+          kind: 'add_opening',
+          openingType,
+          wallId: targetWallId,
+          wallPosition: 0.5,
+        },
+      ],
+    }
+  }
+
+  if (includesDoor && includesRemove) {
+    if (floorOpenings.filter((opening) => opening.type === 'door').length === 0) {
+      return {
+        kind: 'ambiguous',
+        message: '삭제할 문이 없습니다.',
+        suggestions: ['문 추가해줘'],
+      }
+    }
+    const target = floorOpenings.find((opening) => opening.type === 'door')
+    if (!target) {
+      return {
+        kind: 'ambiguous',
+        message: '삭제할 문을 찾지 못했습니다.',
+        suggestions: ['문 추가해줘'],
+      }
+    }
+    return {
+      kind: 'ok',
+      summary: '문을 삭제합니다.',
+      operations: [{ kind: 'delete_opening', openingId: target.id }],
+    }
+  }
+
+  if (includesWindow && includesRemove) {
+    if (floorOpenings.filter((opening) => opening.type === 'window').length === 0) {
+      return {
+        kind: 'ambiguous',
+        message: '삭제할 창문이 없습니다.',
+        suggestions: ['창문 추가해줘'],
+      }
+    }
+    const target = floorOpenings.find((opening) => opening.type === 'window')
+    if (!target) {
+      return {
+        kind: 'ambiguous',
+        message: '삭제할 창문을 찾지 못했습니다.',
+        suggestions: ['창문 추가해줘'],
+      }
+    }
+    return {
+      kind: 'ok',
+      summary: '창문을 삭제합니다.',
+      operations: [{ kind: 'delete_opening', openingId: target.id }],
+    }
+  }
+
   return {
     kind: 'ambiguous',
     message: '요청을 명확하게 해석하지 못했습니다. 공간 이름과 동작을 구체적으로 입력해 주세요.',
@@ -157,6 +259,9 @@ async function requestLlmEditMock({
       '거실과 주방 연결 삭제해줘',
       '현관/로비를 현관으로 이름 변경해줘',
       '서재 공간 추가해줘',
+      '벽체 추가해줘',
+      '문 추가해줘',
+      '창문 추가해줘',
     ],
   }
 }
@@ -188,6 +293,75 @@ const isOperation = (value: unknown): value is LlmEditOperation => {
       (value.type === undefined || typeof value.type === 'string') &&
       (value.nearBubbleId === undefined || typeof value.nearBubbleId === 'string')
     )
+  }
+  if (value.kind === 'add_wall') {
+    return (
+      isRecord(value.start) &&
+      typeof value.start.x === 'number' &&
+      typeof value.start.y === 'number' &&
+      isRecord(value.end) &&
+      typeof value.end.x === 'number' &&
+      typeof value.end.y === 'number' &&
+      (value.type === undefined ||
+        value.type === 'general' ||
+        value.type === 'exterior' ||
+        value.type === 'loadBearing' ||
+        value.type === 'partition') &&
+      (value.thickness === undefined || typeof value.thickness === 'number') &&
+      (value.heightMm === undefined || typeof value.heightMm === 'number')
+    )
+  }
+  if (value.kind === 'update_wall') {
+    return (
+      typeof value.wallId === 'string' &&
+      (value.start === undefined ||
+        (isRecord(value.start) && typeof value.start.x === 'number' && typeof value.start.y === 'number')) &&
+      (value.end === undefined ||
+        (isRecord(value.end) && typeof value.end.x === 'number' && typeof value.end.y === 'number')) &&
+      (value.type === undefined ||
+        value.type === 'general' ||
+        value.type === 'exterior' ||
+        value.type === 'loadBearing' ||
+        value.type === 'partition') &&
+      (value.thickness === undefined || typeof value.thickness === 'number') &&
+      (value.heightMm === undefined || typeof value.heightMm === 'number')
+    )
+  }
+  if (value.kind === 'delete_wall') {
+    return typeof value.wallId === 'string'
+  }
+  if (value.kind === 'add_opening') {
+    return (
+      (value.openingType === 'door' || value.openingType === 'window') &&
+      typeof value.wallId === 'string' &&
+      typeof value.wallPosition === 'number' &&
+      (value.widthMm === undefined || typeof value.widthMm === 'number') &&
+      (value.heightMm === undefined || typeof value.heightMm === 'number') &&
+      (value.sillHeightMm === undefined || typeof value.sillHeightMm === 'number') &&
+      (value.doorHingeSide === undefined || value.doorHingeSide === 'left' || value.doorHingeSide === 'right') &&
+      (value.doorSwingDirection === undefined ||
+        value.doorSwingDirection === 'inward' ||
+        value.doorSwingDirection === 'outward' ||
+        value.doorSwingDirection === 'sliding')
+    )
+  }
+  if (value.kind === 'update_opening') {
+    return (
+      typeof value.openingId === 'string' &&
+      (value.wallId === undefined || typeof value.wallId === 'string') &&
+      (value.wallPosition === undefined || typeof value.wallPosition === 'number') &&
+      (value.widthMm === undefined || typeof value.widthMm === 'number') &&
+      (value.heightMm === undefined || typeof value.heightMm === 'number') &&
+      (value.sillHeightMm === undefined || typeof value.sillHeightMm === 'number') &&
+      (value.doorHingeSide === undefined || value.doorHingeSide === 'left' || value.doorHingeSide === 'right') &&
+      (value.doorSwingDirection === undefined ||
+        value.doorSwingDirection === 'inward' ||
+        value.doorSwingDirection === 'outward' ||
+        value.doorSwingDirection === 'sliding')
+    )
+  }
+  if (value.kind === 'delete_opening') {
+    return typeof value.openingId === 'string'
   }
   return false
 }
@@ -286,6 +460,8 @@ async function requestLlmEditApi(request: LlmEditRequest): Promise<LlmEditRespon
       context: {
         bubbles: request.bubbles,
         connections: request.connections,
+        floorWalls: request.floorWalls,
+        floorOpenings: request.floorOpenings,
       },
     }
     const response = await api.post<LlmEditApiResponse>(endpoint, payload)

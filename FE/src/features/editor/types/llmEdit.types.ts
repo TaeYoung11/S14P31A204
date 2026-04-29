@@ -1,4 +1,14 @@
-import type { BubbleData, ConnectionData, ConnectionStyle } from '../types'
+import type {
+  BubbleData,
+  ConnectionData,
+  ConnectionStyle,
+  FloorDoorHingeSide,
+  FloorDoorSwingDirection,
+  FloorOpening,
+  FloorWall,
+  FloorWallType,
+  Point2D,
+} from '../types'
 
 /** LLM 편집 요청 진행 상태 */
 export type LlmEditStatus = 'idle' | 'loading' | 'preview' | 'ambiguous' | 'error' | 'applied'
@@ -27,6 +37,53 @@ export type LlmEditOperation =
       type?: string
       nearBubbleId?: string
     }
+  | {
+      kind: 'add_wall'
+      start: Point2D
+      end: Point2D
+      type?: FloorWallType
+      thickness?: number
+      heightMm?: number
+    }
+  | {
+      kind: 'update_wall'
+      wallId: string
+      start?: Point2D
+      end?: Point2D
+      type?: FloorWallType
+      thickness?: number
+      heightMm?: number
+    }
+  | {
+      kind: 'delete_wall'
+      wallId: string
+    }
+  | {
+      kind: 'add_opening'
+      openingType: FloorOpening['type']
+      wallId: string
+      wallPosition: number
+      widthMm?: number
+      heightMm?: number
+      sillHeightMm?: number
+      doorHingeSide?: FloorDoorHingeSide
+      doorSwingDirection?: FloorDoorSwingDirection
+    }
+  | {
+      kind: 'update_opening'
+      openingId: string
+      wallId?: string
+      wallPosition?: number
+      widthMm?: number
+      heightMm?: number
+      sillHeightMm?: number
+      doorHingeSide?: FloorDoorHingeSide
+      doorSwingDirection?: FloorDoorSwingDirection
+    }
+  | {
+      kind: 'delete_opening'
+      openingId: string
+    }
 
 /** LLM 편집 결과 요약 항목 (UI 표시용) */
 export interface LlmEditChangeItem {
@@ -40,6 +97,8 @@ export interface LlmEditPreview {
   changes: LlmEditChangeItem[]
   bubbles: BubbleData[]
   connections: ConnectionData[]
+  floorWalls: FloorWall[]
+  floorOpenings: FloorOpening[]
 }
 
 /** LLM 서비스 성공 응답 */

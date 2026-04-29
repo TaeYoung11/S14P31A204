@@ -25,15 +25,25 @@ export function useFloorPlan() {
   /**
    * 첫 번째 층 레이어를 생성하거나 갱신한다.
    * - 기존 레이어가 없으면 `floor-1`을 생성한다.
-   * - 기존 레이어가 있으면 첫 번째 레이어의 rooms만 교체한다.
+   * - `floor-1`이 이미 있으면 해당 레이어 rooms를 교체한다.
+   * - `floor-1`이 없으면 레이어 목록 맨 앞에 `floor-1`을 추가한다.
+   * - 버블 기반 레이아웃은 1층을 기준으로 갱신하므로 활성층도 `floor-1`로 맞춘다.
    */
   const upsertPrimaryLayer = useCallback((rooms: FloorRoom[]) => {
     const firstLayer: FloorLayer = { id: 'floor-1', name: '1층 평면도', rooms }
     setLayers((prev) => {
       if (prev.length === 0) return [firstLayer]
-      return prev.map((layer, index) => (index === 0 ? { ...layer, rooms } : layer))
+      const hasPrimary = prev.some((layer) => layer.id === 'floor-1')
+      if (hasPrimary) {
+        return prev.map((layer) =>
+          layer.id === 'floor-1'
+            ? { ...layer, rooms }
+            : layer,
+        )
+      }
+      return [firstLayer, ...prev]
     })
-    setActiveLayerId((prev) => prev ?? 'floor-1')
+    setActiveLayerId('floor-1')
   }, [])
 
   /**
@@ -102,6 +112,33 @@ export function useFloorPlan() {
     setActiveLayerId(newId)
   }, [layers, activeLayerId])
 
+  /** 층 이름 수정 */
+  const renameFloorLayer = useCallback((layerId: string, name: string) => {
+    const normalized = name.trim()
+    if (!normalized) return
+    setLayers((prev) =>
+      prev.map((layer) => (layer.id === layerId ? { ...layer, name: normalized } : layer)),
+    )
+  }, [])
+
+  /**
+   * 층 삭제
+   * - 최소 1개 층은 유지한다.
+   * - 활성층 삭제 시 남아있는 첫 층으로 활성층을 전환한다.
+   */
+  const deleteFloorLayer = useCallback((layerId: string) => {
+    setLayers((prev) => {
+      if (prev.length <= 1) return prev
+      const next = prev.filter((layer) => layer.id !== layerId)
+      if (next.length === prev.length) return prev
+      setActiveLayerId((current) => {
+        if (current && current !== layerId) return current
+        return next[0]?.id ?? null
+      })
+      return next
+    })
+  }, [])
+
   /**
    * 외부 BATANG 2D(FloorProject) 데이터로 2D/3D 레이어를 직접 설정한다.
    * 백엔드 API 연동 시 이 경로를 사용하면 버블 기반 자동 생성 로직과 분리할 수 있다.
@@ -159,6 +196,78 @@ export function useFloorPlan() {
     [upsertPrimaryLayer],
   )
 
+  /**
+   * 활성 층의 Room 위치를 직접 이동한다.
+   * 2D 배치 편집 전용 경로로, 버블 원본 데이터는 건드리지 않는다.
+   */
+  const moveActiveRoom = useCallback(
+    (bubbleId: string, x: number, y: number) => {
+      if (!activeLayerId) return
+      setLayers((prev) =>
+        prev.map((layer) =>
+          layer.id !== activeLayerId
+            ? layer
+            : {
+                ...layer,
+                rooms: layer.rooms.map((room) =>
+                  room.bubbleId === bubbleId
+                    ? { ...room, x, y }
+                    : room,
+                ),
+              },
+        ),
+      )
+    },
+    [activeLayerId],
+  )
+
+  /**
+   * 활성 층의 Room 속성을 직접 갱신한다.
+   * 2D 속성 패널 입력값(이름/타입/재질/크기 등) 반영 경로로 사용한다.
+   */
+  const updateActiveRoom = useCallback(
+    (bubbleId: string, updater: (room: FloorRoom) => FloorRoom) => {
+      if (!activeLayerId) return
+      setLayers((prev) =>
+        prev.map((layer) =>
+          layer.id !== activeLayerId
+            ? layer
+            : {
+                ...layer,
+                rooms: layer.rooms.map((room) =>
+                  room.bubbleId === bubbleId
+                    ? updater(room)
+                    : room,
+                ),
+              },
+        ),
+      )
+    },
+    [activeLayerId],
+  )
+
+  /**
+   * 활성 층에서 지정한 Room(들)을 제거한다.
+   * 2D 편집 모드 삭제 키 동작에서 버블 상태와 층 상태를 함께 맞출 때 사용한다.
+   */
+  const removeActiveRooms = useCallback(
+    (bubbleIds: string[]) => {
+      if (!activeLayerId || bubbleIds.length === 0) return
+      const idSet = new Set(bubbleIds)
+      setLayers((prev) =>
+        prev.map((layer) =>
+          layer.id !== activeLayerId
+            ? layer
+            : {
+                ...layer,
+                rooms: layer.rooms.filter((room) => !idSet.has(room.bubbleId)),
+              },
+        ),
+      )
+    },
+    [activeLayerId],
+  )
+
   return {
     isGenerated,
     isGenerating,
@@ -169,9 +278,14 @@ export function useFloorPlan() {
     generateFloorPlan,
     refreshFloorPlan,
     addFloorLayer,
+    renameFloorLayer,
+    deleteFloorLayer,
     setActiveLayerId,
     setFloorPlanFromProject,
     syncFloorPlanFromBubbles,
+    moveActiveRoom,
+    updateActiveRoom,
+    removeActiveRooms,
     clearFloorPlan,
   }
 }
