@@ -40,6 +40,7 @@ _PRESETS: dict[str, DepthStyleParams] = {
         guidance_scale=7.0,
         num_inference_steps=25,
         controlnet_conditioning_scale=0.7,
+        seed=7,
     ),
     "industrial": DepthStyleParams(
         prompt=(
@@ -54,6 +55,7 @@ _PRESETS: dict[str, DepthStyleParams] = {
         guidance_scale=7.0,
         num_inference_steps=25,
         controlnet_conditioning_scale=0.7,
+        seed=7,
     ),
     "japanese": DepthStyleParams(
         prompt=(
@@ -69,6 +71,7 @@ _PRESETS: dict[str, DepthStyleParams] = {
         guidance_scale=7.0,
         num_inference_steps=25,
         controlnet_conditioning_scale=0.7,
+        seed=7,
     ),
 }
 

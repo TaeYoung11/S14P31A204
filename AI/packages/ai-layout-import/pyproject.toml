@@ -7,6 +7,9 @@ dependencies = [
     "ifcopenshell>=0.8.5",
 ]
 
+[project.scripts]
+layout-import-json-to-ifc = "ai_layout_import.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

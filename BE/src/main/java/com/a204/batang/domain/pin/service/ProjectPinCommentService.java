@@ -4,11 +4,16 @@ import com.a204.batang.domain.pin.dto.CreatePinCommentRequest;
 import com.a204.batang.domain.pin.dto.CreatePinCommentResponse;
 import com.a204.batang.domain.pin.dto.GetPinCommentsResponse;
 import com.a204.batang.domain.pin.dto.PinCommentResponse;
+import com.a204.batang.domain.pin.dto.ResolvePinCommentResponse;
 import com.a204.batang.domain.pin.dto.UpdatePinCommentRequest;
 import com.a204.batang.domain.pin.dto.UpdatePinCommentResponse;
 import com.a204.batang.domain.pin.entity.PinCommentReadState;
+import com.a204.batang.domain.pin.entity.PinStatus;
 import com.a204.batang.domain.pin.entity.ProjectPin;
 import com.a204.batang.domain.pin.entity.ProjectPinComment;
+import com.a204.batang.domain.pin.event.PinCommentCreatedEvent;
+import com.a204.batang.domain.pin.event.PinCommentResolvedEvent;
+import com.a204.batang.domain.pin.event.PinCommentUpdatedEvent;
 import com.a204.batang.domain.pin.repository.PinCommentReadStateRepository;
 import com.a204.batang.domain.pin.repository.ProjectPinCommentRepository;
 import com.a204.batang.domain.pin.repository.ProjectPinRepository;
@@ -18,6 +23,7 @@ import com.a204.batang.global.exception.ErrorCode;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -43,6 +49,7 @@ public class ProjectPinCommentService {
     private final PinCommentReadStateRepository pinCommentReadStateRepository;
     private final ProjectAccessService projectAccessService;
     private final EntityManager entityManager;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     /**
      * 핀에 댓글을 등록한다.
@@ -61,9 +68,14 @@ public class ProjectPinCommentService {
 
         String normalizedContent = request.content().trim();
         ProjectPinComment projectPinComment = ProjectPinComment.create(projectPin, currentUserId, normalizedContent);
+        if (projectPin.getStatus() == PinStatus.RESOLVED) {
+            // 완료된 핀에 신규 댓글이 달리더라도 핀 완료 상태와 정합성을 유지한다.
+            projectPinComment.markResolved(currentUserId);
+        }
         ProjectPinComment savedComment = projectPinCommentRepository.save(projectPinComment);
 
         projectPin.recordComment(currentUserId);
+        applicationEventPublisher.publishEvent(PinCommentCreatedEvent.from(projectId, pinId, savedComment));
 
         log.info("핀 댓글 등록 완료. projectId={}, pinId={}, commentId={}", projectId, pinId, savedComment.getCommentId());
         return CreatePinCommentResponse.from(savedComment, projectPin.getPinId());
@@ -95,9 +107,61 @@ public class ProjectPinCommentService {
         String normalizedContent = request.content().trim();
         comment.updateContent(normalizedContent);
         entityManager.flush();
+        applicationEventPublisher.publishEvent(PinCommentUpdatedEvent.from(projectId, pinId, comment));
 
         log.info("핀 댓글 수정 완료. projectId={}, pinId={}, commentId={}", projectId, pinId, commentId);
         return UpdatePinCommentResponse.from(comment, pinId);
+    }
+
+    /**
+     * 댓글을 완료 처리한다.
+     * 완료 처리는 프로젝트 접근 권한이 있는 사용자라면 누구나 가능하다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @param commentId 댓글 ID
+     * @return 댓글 완료 처리 응답
+     */
+    @Transactional
+    public ResolvePinCommentResponse resolveComment(UUID projectId, UUID pinId, UUID commentId) {
+        ProjectPinComment comment = getActiveCommentOrThrow(projectId, pinId, commentId);
+
+        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        projectAccessService.validateProjectPinWriterOrThrow(comment.getProjectPin().getProject(), currentUserId);
+
+        boolean commentResolvedNow = comment.getStatus() != PinStatus.RESOLVED;
+        if (commentResolvedNow) {
+            comment.markResolved(currentUserId);
+            entityManager.flush();
+            applicationEventPublisher.publishEvent(PinCommentResolvedEvent.from(projectId, pinId, comment));
+        }
+
+        log.info("댓글 완료 처리 완료. projectId={}, pinId={}, commentId={}, resolverUserId={}",
+                projectId, pinId, commentId, currentUserId);
+        return ResolvePinCommentResponse.from(comment);
+    }
+
+    /**
+     * 핀 댓글을 소프트 삭제한다.
+     * 댓글 삭제 후 핀 댓글 요약(commentCount/lastCommentAt/lastCommentAuthorUserId)을 현재 상태로 갱신한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param pinId 핀 ID
+     * @param commentId 댓글 ID
+     */
+    @Transactional
+    public void deleteComment(UUID projectId, UUID pinId, UUID commentId) {
+        ProjectPinComment comment = getActiveCommentOrThrow(projectId, pinId, commentId);
+
+        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        ProjectPin projectPin = comment.getProjectPin();
+        projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
+        validateCommentAuthorOrThrow(comment, currentUserId);
+
+        comment.softDelete(LocalDateTime.now());
+        refreshPinCommentSummaryAfterDelete(projectPin);
+
+        log.info("핀 댓글 삭제 완료. projectId={}, pinId={}, commentId={}", projectId, pinId, commentId);
     }
 
     /**
@@ -133,7 +197,6 @@ public class ProjectPinCommentService {
                 .map(comment -> PinCommentResponse.from(
                         comment,
                         pinId,
-                        projectPin.getStatus(),
                         currentUserId,
                         lastReadAt
                 ))
@@ -207,7 +270,7 @@ public class ProjectPinCommentService {
     }
 
     /**
-     * 댓글 수정 권한(작성자 본인 여부)을 검증한다.
+     * 댓글 수정/삭제 권한(작성자 본인 여부)을 검증한다.
      *
      * @param comment 댓글 엔티티
      * @param currentUserId 현재 사용자 ID
@@ -217,7 +280,32 @@ public class ProjectPinCommentService {
             return;
         }
 
-        throw new CustomException(ErrorCode.FORBIDDEN_ACCESS, "본인이 작성한 댓글만 수정할 수 있습니다.");
+        throw new CustomException(ErrorCode.FORBIDDEN_ACCESS, "본인이 작성한 댓글만 수정하거나 삭제할 수 있습니다.");
+    }
+
+    /**
+     * 댓글 삭제 이후 핀 댓글 요약 메타데이터를 갱신한다.
+     *
+     * @param projectPin 삭제 대상 댓글이 속한 핀
+     */
+    private void refreshPinCommentSummaryAfterDelete(ProjectPin projectPin) {
+        UUID targetPinId = projectPin.getPinId();
+        long activeCommentCount = projectPinCommentRepository.countByProjectPinPinIdAndDeletedAtIsNull(targetPinId);
+        int totalCommentCount = Math.toIntExact(activeCommentCount + 1L);
+
+        projectPinCommentRepository.findTopByProjectPinPinIdAndDeletedAtIsNullOrderByCreatedAtDescCommentIdDesc(targetPinId)
+                .ifPresentOrElse(
+                        latestComment -> projectPin.updateCommentSummary(
+                                totalCommentCount,
+                                latestComment.getCreatedAt(),
+                                latestComment.getAuthorUserId()
+                        ),
+                        () -> projectPin.updateCommentSummary(
+                                totalCommentCount,
+                                projectPin.getCreatedAt(),
+                                projectPin.getAuthorUserId()
+                        )
+                );
     }
 
     /**
