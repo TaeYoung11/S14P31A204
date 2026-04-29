@@ -225,6 +225,9 @@ class LayoutImportV2(LayoutImportCommon):
 
     @model_validator(mode="after")
     def validate_unsupported_generation_options(self) -> LayoutImportV2:
+        if not self.generation_options.generate_spaces:
+            raise ValueError("generate_spaces=false is not supported in this ticket")
+
         if self.generation_options.generate_openings:
             raise ValueError("opening rules are not supported in this ticket")
 
