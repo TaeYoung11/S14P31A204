@@ -244,22 +244,22 @@ VIEW_NEGATIVE_SUFFIXES: dict[IFCView, str] = {
 
 # View 별 controlnet_conditioning_scale override — 옵션 C-2 (per-view depth 구속).
 #
-# iso_nw / iso_se 시점에서 SD가 depth 연속성을 *추가 매스*로 hallucinate. cn_scale
-# sweep(0.7~1.3, 2026-04-28) 결과 1.0 / 1.15 모두 안정적 — 1.0 채택 (canonical
-# full strength, 텍스처 단조화 위험 낮음).
+# 2026-04-28 옵션 C-2: iso_nw/iso_se 1.0 override (다른 view는 base 0.7) — 추가 매스
+# 환각 해소.
+# 2026-04-29 옵션 E (E-clean): preset base를 0.7 → 1.0으로 인상해 *모든 view에서*
+# 수직 매스 환각(빌딩 아래로 추가 층) 차단. base 1.0과 동일한 iso_nw/se override는
+# redundant라 제거 — 모든 view가 None(base 그대로 사용).
 #
-# 다른 시점은 None → params.controlnet_conditioning_scale 그대로 사용.
-# preset base는 0.7 유지 (front/side/iso_ne가 안정적이고 텍스처 다양성 확보).
+# 호출자가 view별 추가 cn_scale 보정이 필요하면 override를 설정 가능 (메커니즘 보존).
 VIEW_CN_SCALE_OVERRIDES: dict[IFCView, float | None] = {
     IFCView.FRONT: None,
     IFCView.SIDE: None,
     IFCView.ISO_NE: None,
-    IFCView.ISO_NW: 1.0,
-    IFCView.ISO_SE: 1.0,
+    IFCView.ISO_NW: None,
+    IFCView.ISO_SE: None,
     IFCView.TOP: None,
     IFCView.BIRDS_EYE: None,
     IFCView.CORNER_LOW: None,
-    # Phase 3 — 수평 등각 (사용자 요구: None default, 향후 고도화)
     IFCView.EYE_NE: None,
     IFCView.EYE_NW: None,
     IFCView.EYE_SE: None,

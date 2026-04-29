@@ -23,7 +23,8 @@ _NEGATIVE_BASE = (
     "(cgi, 3d, render, blender:1.4), cartoon, anime, illustration, "
     "text, watermark, signature, "
     "interior, indoor, furniture, "
-    "basement, underground"
+    "basement, underground, "
+    "lower level, walkout basement, additional floor below, sunken story"
 )
 
 
@@ -34,14 +35,15 @@ _PRESETS: dict[str, DepthStyleParams] = {
             "white rendered facade, large panoramic windows, flat roof, "
             "clean minimal architecture, 8k uhd, DSLR, sharp focus, "
             "architectural photography, bright natural daylight, nordic design, "
-            "ground floor visible, building stands on flat ground"
+            "ground floor visible, building stands on flat ground, "
+            "no floor below ground, single ground floor only"
         ),
         negative_prompt=(
             f"{_NEGATIVE_BASE}, dark moody, industrial concrete"
         ),
         guidance_scale=7.0,
         num_inference_steps=25,
-        controlnet_conditioning_scale=0.7,
+        controlnet_conditioning_scale=1.15,
         seed=7,
     ),
     "industrial": DepthStyleParams(
@@ -56,7 +58,7 @@ _PRESETS: dict[str, DepthStyleParams] = {
         ),
         guidance_scale=7.0,
         num_inference_steps=25,
-        controlnet_conditioning_scale=0.7,
+        controlnet_conditioning_scale=1.15,
         seed=7,
     ),
     "japanese": DepthStyleParams(
@@ -72,7 +74,7 @@ _PRESETS: dict[str, DepthStyleParams] = {
         ),
         guidance_scale=7.0,
         num_inference_steps=25,
-        controlnet_conditioning_scale=0.7,
+        controlnet_conditioning_scale=1.15,
         seed=7,
     ),
 }

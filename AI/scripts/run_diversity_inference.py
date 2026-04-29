@@ -10,9 +10,13 @@ iso_nw/se override 1.0, view-aware prompt suffix).
 사용:
     python scripts/run_diversity_inference.py
     python scripts/run_diversity_inference.py outputs/ifc2img_diversity_v2
+    python scripts/run_diversity_inference.py outputs/diversity_v4_haus --fixture=Haus
 
-CLI 인자로 출력 경로를 덮어쓸 수 있다 — 처방 전후 비교에 활용.
-출력: <out_dir>/{stem}/styled_{preset}_{view}.png  (3 × 8 = 24장)
+CLI 인자:
+  positional out_dir : 출력 경로(default `outputs/ifc2img_diversity/`).
+  --fixture=<substr> : fixture 이름에 substr 포함하는 fixture만 처리(부분 일치).
+                       빠른 처방 검증에 활용 (3 fixture → 1 fixture, ~6분 → ~2분).
+출력: <out_dir>/{stem}/styled_{preset}_{view}.png  (필터 없으면 3 × 8 = 24장)
 """
 
 from __future__ import annotations
@@ -46,17 +50,38 @@ FIXTURES = [
 
 
 def main() -> int:
-    out_root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else DEFAULT_OUT_ROOT
+    fixture_filter: str | None = None
+    positional: list[str] = []
+    for arg in sys.argv[1:]:
+        if arg.startswith("--fixture="):
+            fixture_filter = arg.split("=", 1)[1]
+        else:
+            positional.append(arg)
 
-    missing = [f for f in FIXTURES if not f.exists()]
+    out_root = Path(positional[0]).resolve() if positional else DEFAULT_OUT_ROOT
+    fixtures = (
+        [f for f in FIXTURES if fixture_filter.lower() in f.name.lower()]
+        if fixture_filter
+        else FIXTURES
+    )
+    if not fixtures:
+        print(
+            f"[error] no fixture matches --fixture={fixture_filter!r}",
+            file=sys.stderr,
+        )
+        return 2
+
+    missing = [f for f in fixtures if not f.exists()]
     if missing:
         print("[error] fixtures not found:", file=sys.stderr)
         for m in missing:
             print(f"  {m}", file=sys.stderr)
         return 2
 
-    print(f"[fixtures] {len(FIXTURES)}개")
-    for f in FIXTURES:
+    print(f"[fixtures] {len(fixtures)}개" + (
+        f" (필터 --fixture={fixture_filter})" if fixture_filter else ""
+    ))
+    for f in fixtures:
         print(f"  - {f.name}")
     print(f"[preset] {PRESET}")
     print(f"[views] {[v.value for v in DEFAULT_RENDER_VIEWS]}")
@@ -85,7 +110,7 @@ def main() -> int:
 
     grand_t0 = time.time()
     total_styled = 0
-    for fixture in FIXTURES:
+    for fixture in fixtures:
         stem = fixture.stem
         out_dir = out_root / stem
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -108,7 +133,7 @@ def main() -> int:
         print()
 
     print(
-        f"완료: {total_styled}장 ({len(FIXTURES)} fixtures × "
+        f"완료: {total_styled}장 ({len(fixtures)} fixtures × "
         f"{len(DEFAULT_RENDER_VIEWS)} 뷰), 총 {time.time() - grand_t0:.1f}s"
     )
     print(f"산출물: {out_root}")

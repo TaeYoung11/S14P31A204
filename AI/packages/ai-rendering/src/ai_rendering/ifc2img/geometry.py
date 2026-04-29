@@ -10,6 +10,20 @@ import open3d as o3d  # type: ignore[import-untyped]
 
 from .exceptions import IFCRenderError
 
+GROUND_EXTENT_FACTOR = 2.0
+"""ground plane xy extent 배율 — mesh AABB xy extent의 N배.
+
+배경 (2026-04-29 옵션 P): front/side 정면 입면도에서 mesh 외부 영역이 depth=0(빈
+배경)으로 들어가, SD prompt 편향("modern house")으로 *추가 층/지하* 환각 발생.
+ground plane을 mesh 바닥 z=AABB.z_min에 추가하면 SD가 *지면*을 시각 단서로
+인식해 빈 영역 환각 차단.
+
+배율은 사방으로 확장 — 카메라가 mesh 가까이 framing해도 ground가 화면 하단을
+덮을 정도. 너무 크면 dispatch max_extent 측정에 영향 (현재는 GROUND_EXTENT_FACTOR
+xy 확장만 → z extent는 그대로라 max_extent 영향 0).
+"""
+
+
 WALL_NORMAL_VERTICAL_TOLERANCE = 0.1
 """수직 면(벽) 필터 임계값 — |face_normal_z| < 이 값이면 벽으로 분류.
 
@@ -130,6 +144,7 @@ def load_mesh(
         raise IFCRenderError("추출된 geometry가 없습니다.")
 
     vertices, _rotated = _align_walls_to_axes(vertices, faces)
+    vertices, faces = _add_ground_plane(vertices, faces)
 
     mesh = o3d.geometry.TriangleMesh()
     mesh.vertices = o3d.utility.Vector3dVector(vertices)
@@ -138,6 +153,57 @@ def load_mesh(
 
     center = (vertices.min(axis=0) + vertices.max(axis=0)) / 2
     return mesh, center
+
+
+def _add_ground_plane(
+    vertices: np.ndarray, triangles: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """mesh AABB의 z_min에 axis-aligned ground plane(2 triangles, normal +z) 추가.
+
+    배경 (2026-04-29 옵션 P): front/side 정면 입면도에서 mesh 외부 영역이 depth=0
+    빈 배경 → SD가 prompt 편향으로 *추가 층/지하* 환각. ground plane을 추가하면
+    depth 이미지에 *지면 영역*이 명시되어 SD가 빈 영역을 ground로 인식 → 환각 차단.
+
+    구성:
+    - 위치: AABB z_min (mesh 바닥과 정렬)
+    - 크기: xy extent × GROUND_EXTENT_FACTOR(2.0) — 사방 확장
+    - normal: +z (위쪽) — `_align_walls_to_axes` wall_mask(|n_z|<0.1)에 안 걸려
+      회전 보정에 영향 없음
+
+    Returns:
+        (new_vertices, new_triangles) — 4 vertex + 2 triangle 추가.
+    """
+    if len(vertices) < 3:
+        return vertices, triangles
+    aabb_min = vertices.min(axis=0)
+    aabb_max = vertices.max(axis=0)
+    z_ground = float(aabb_min[2])
+    cx = float((aabb_min[0] + aabb_max[0]) / 2)
+    cy = float((aabb_min[1] + aabb_max[1]) / 2)
+    half_x = float((aabb_max[0] - aabb_min[0]) / 2 * GROUND_EXTENT_FACTOR)
+    half_y = float((aabb_max[1] - aabb_min[1]) / 2 * GROUND_EXTENT_FACTOR)
+
+    ground_verts = np.array(
+        [
+            [cx - half_x, cy - half_y, z_ground],  # 0: SW
+            [cx + half_x, cy - half_y, z_ground],  # 1: SE
+            [cx + half_x, cy + half_y, z_ground],  # 2: NE
+            [cx - half_x, cy + half_y, z_ground],  # 3: NW
+        ],
+        dtype=np.float64,
+    )
+    offset = len(vertices)
+    # 2 triangles, CCW from +z direction → cross((1)-(0), (2)-(0)) = +z normal.
+    ground_tris = np.array(
+        [
+            [offset + 0, offset + 1, offset + 2],
+            [offset + 0, offset + 2, offset + 3],
+        ],
+        dtype=np.int64,
+    )
+    new_vertices = np.vstack([vertices, ground_verts])
+    new_triangles = np.vstack([triangles, ground_tris])
+    return new_vertices, new_triangles
 
 
 def _align_walls_to_axes(

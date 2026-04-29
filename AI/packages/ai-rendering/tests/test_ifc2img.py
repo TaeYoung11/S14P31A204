@@ -11,7 +11,12 @@ import numpy as np
 import pytest
 
 from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
-from ai_rendering.ifc2img.geometry import _align_walls_to_axes, load_mesh
+from ai_rendering.ifc2img.geometry import (
+    GROUND_EXTENT_FACTOR,
+    _add_ground_plane,
+    _align_walls_to_axes,
+    load_mesh,
+)
 from ai_rendering.ifc2img.views import (
     DEFAULT_RENDER_VIEWS,
     DISPATCH_LARGE_FACTOR,
@@ -482,6 +487,71 @@ def test_align_walls_skips_for_empty_triangles() -> None:
     np.testing.assert_array_equal(rotated, verts)
 
 
+def test_add_ground_plane_appends_4_vertices_and_2_triangles() -> None:
+    """ground plane 추가 — 4 vertex(quad corners) + 2 triangle 누적."""
+    verts = np.array(
+        [[0.0, 0.0, 0.0], [10.0, 5.0, 0.0], [5.0, 0.0, 3.0]], dtype=np.float64
+    )
+    tris = np.array([[0, 1, 2]], dtype=np.int64)
+
+    new_verts, new_tris = _add_ground_plane(verts, tris)
+
+    assert len(new_verts) == len(verts) + 4
+    assert len(new_tris) == len(tris) + 2
+
+
+def test_add_ground_plane_z_at_aabb_min() -> None:
+    """ground plane z = 입력 mesh AABB.z_min — 바닥에 정렬."""
+    verts = np.array(
+        [[0.0, 0.0, 1.5], [10.0, 5.0, 1.5], [5.0, 0.0, 4.5]], dtype=np.float64
+    )
+    tris = np.array([[0, 1, 2]], dtype=np.int64)
+
+    new_verts, _ = _add_ground_plane(verts, tris)
+    ground_verts = new_verts[len(verts):]
+
+    assert np.allclose(ground_verts[:, 2], 1.5), "ground z should match AABB.z_min"
+
+
+def test_add_ground_plane_normal_points_up() -> None:
+    """ground plane 두 triangle 모두 normal +z (위쪽) — wall_mask에 안 걸림.
+
+    `_align_walls_to_axes`의 `|n_z| < 0.1` 필터에 안 걸려야 회전 보정에 영향 없음.
+    """
+    verts = np.array(
+        [[0.0, 0.0, 0.0], [10.0, 5.0, 0.0], [5.0, 0.0, 3.0]], dtype=np.float64
+    )
+    tris = np.array([[0, 1, 2]], dtype=np.int64)
+
+    new_verts, new_tris = _add_ground_plane(verts, tris)
+    ground_tris = new_tris[len(tris):]
+
+    for t in ground_tris:
+        v0, v1, v2 = new_verts[t[0]], new_verts[t[1]], new_verts[t[2]]
+        normal = np.cross(v1 - v0, v2 - v0)
+        normal /= np.linalg.norm(normal)
+        # normal[2] should be ~+1 (pointing straight up)
+        assert normal[2] > 0.999, f"ground normal[2] should be +1, got {normal[2]}"
+
+
+def test_add_ground_plane_extent_2x_aabb_xy() -> None:
+    """ground plane xy 범위 = mesh AABB xy extent × GROUND_EXTENT_FACTOR(2.0)."""
+    verts = np.array(
+        [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [10.0, 6.0, 0.0], [0.0, 6.0, 3.0]],
+        dtype=np.float64,
+    )
+    tris = np.array([[0, 1, 2]], dtype=np.int64)
+
+    new_verts, _ = _add_ground_plane(verts, tris)
+    ground_verts = new_verts[len(verts):]
+    g_x_extent = ground_verts[:, 0].max() - ground_verts[:, 0].min()
+    g_y_extent = ground_verts[:, 1].max() - ground_verts[:, 1].min()
+
+    # 입력 AABB xy extent: 10, 6 → ground 2배: 20, 12
+    assert abs(g_x_extent - 10.0 * GROUND_EXTENT_FACTOR) < 1e-9
+    assert abs(g_y_extent - 6.0 * GROUND_EXTENT_FACTOR) < 1e-9
+
+
 def test_iso_views_all_in_enum() -> None:
     """등각 뷰 5개 + EYE 수평 등각 3개가 IFCView enum에 모두 등록됨."""
     assert IFCView.ISO_NE in IFCView
@@ -677,32 +747,23 @@ def test_build_view_negative_prompt_in_public_api() -> None:
 # --- 옵션 C-2 — VIEW_CN_SCALE_OVERRIDES + resolve_view_cn_scale ---
 
 
-def test_view_cn_scale_overrides_iso_nw_se_set_to_1() -> None:
-    """ISO_NW/SE — sweep 검수에서 1.0/1.15 모두 안정. 1.0 채택(canonical full strength)."""
-    assert VIEW_CN_SCALE_OVERRIDES[IFCView.ISO_NW] == 1.0
-    assert VIEW_CN_SCALE_OVERRIDES[IFCView.ISO_SE] == 1.0
+def test_view_cn_scale_overrides_all_none_after_base_lifted() -> None:
+    """옵션 E (E-clean, 2026-04-29) — preset base 0.7→1.0으로 인상.
+
+    이전 iso_nw/se=1.0 override는 base 1.0과 redundant라 제거.
+    *호출자가 추가 보정 필요 시 override 설정 가능* — 메커니즘은 보존.
+    """
+    for v in IFCView:
+        assert VIEW_CN_SCALE_OVERRIDES[v] is None, f"{v} should be None (base 1.0)"
 
 
-def test_view_cn_scale_overrides_other_views_none() -> None:
-    """C-2 처방 — iso_nw/iso_se만 적용. 다른 시점은 None → params 값 그대로."""
-    for v in (
-        IFCView.FRONT, IFCView.SIDE, IFCView.ISO_NE,
-        IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW,
-    ):
-        assert VIEW_CN_SCALE_OVERRIDES[v] is None, f"{v} should be None"
-
-
-def test_resolve_view_cn_scale_returns_override_for_iso_nw() -> None:
-    """ISO_NW에 base 0.7 전달해도 override 1.0 반환."""
-    assert resolve_view_cn_scale(0.7, IFCView.ISO_NW) == 1.0
-    assert resolve_view_cn_scale(0.7, IFCView.ISO_SE) == 1.0
-
-
-def test_resolve_view_cn_scale_returns_base_for_unset_views() -> None:
-    """override가 None인 시점은 base 그대로 (front/side/iso_ne)."""
-    assert resolve_view_cn_scale(0.7, IFCView.FRONT) == 0.7
+def test_resolve_view_cn_scale_returns_base_when_no_override() -> None:
+    """override가 None인 모든 시점은 base 그대로 — 기본 동작 검증."""
+    assert resolve_view_cn_scale(1.0, IFCView.FRONT) == 1.0
     assert resolve_view_cn_scale(0.85, IFCView.SIDE) == 0.85
     assert resolve_view_cn_scale(0.5, IFCView.ISO_NE) == 0.5
+    assert resolve_view_cn_scale(1.0, IFCView.ISO_NW) == 1.0
+    assert resolve_view_cn_scale(1.0, IFCView.EYE_NE) == 1.0
 
 
 def test_resolve_view_cn_scale_in_public_api() -> None:
@@ -866,7 +927,8 @@ def test_load_mesh_accepts_ifc4_variants(schema_name: str) -> None:
     ):
         # 예외 없이 통과해야 한다.
         mesh, _ = load_mesh(Path("dummy.ifc"))
-        assert len(mesh.vertices) == 3
+        # mesh 3 vertices + ground plane 4 vertices (옵션 P, 2026-04-29) = 7
+        assert len(mesh.vertices) == 7
 
 
 # --- 건물 구성요소 화이트리스트 (mock 기반) ---
@@ -953,8 +1015,8 @@ def test_extra_types_extends_inclusion() -> None:
             extra_types=frozenset({"IfcFurnishingElement"}),
         )
 
-    # 두 entity 모두 포함되면 vertex 6개. wall만 포함이면 3개.
-    assert len(mesh.vertices) == 6
+    # 두 entity 모두 포함되면 mesh vertex 6개. + ground plane 4 = 10.
+    assert len(mesh.vertices) == 10
 
 
 def test_included_base_ifcproduct_includes_everything() -> None:
@@ -979,7 +1041,8 @@ def test_included_base_ifcproduct_includes_everything() -> None:
     ):
         mesh, _ = load_mesh(Path("dummy.ifc"), included_base="IfcProduct")
 
-    assert len(mesh.vertices) == 3  # site가 포함됨
+    # site mesh 3 vertices + ground plane 4 = 7
+    assert len(mesh.vertices) == 7  # site가 포함됨
 
 
 def test_no_building_element_raises() -> None:
