@@ -341,6 +341,28 @@ def test_layout_import_v2_rejects_generate_openings_true() -> None:
         )
 
 
+def test_layout_import_v2_rejects_generate_spaces_false() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="generate_spaces=false is not supported",
+    ):
+        LayoutImportV2.model_validate(
+            {
+                "schema_version": "v2",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [_base_room()],
+                "generation_options": {
+                    "generate_spaces": False,
+                    "generate_walls": True,
+                    "generate_slabs": True,
+                    "generate_roof": True,
+                    "generate_openings": False,
+                },
+            }
+        )
+
+
 def test_parse_layout_import_discriminates_between_versions() -> None:
     request_v1 = parse_layout_import(
         {
