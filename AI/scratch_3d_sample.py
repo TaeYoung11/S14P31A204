@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 BATANG Sample IFC Generator  (v2 - geometry fix)
 ==================================================
@@ -23,7 +22,9 @@ import ifcopenshell.guid
 import os
 
 # ── 출력 경로: Downloads 폴더 ──────────────────────────
-OUT_PATH = os.path.normpath(os.path.join(os.environ["USERPROFILE"], "Downloads", "batang_sample.ifc"))
+OUT_PATH = os.path.normpath(
+    os.path.join(os.environ["USERPROFILE"], "Downloads", "batang_sample.ifc")
+)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -37,8 +38,10 @@ def _dir(m, x, y, z=0.0):
 
 def _a2p(m, origin, axis=None, ref=None):
     kw = {"Location": origin}
-    if axis: kw["Axis"] = axis
-    if ref:  kw["RefDirection"] = ref
+    if axis:
+        kw["Axis"] = axis
+    if ref:
+        kw["RefDirection"] = ref
     return m.create_entity("IfcAxis2Placement3D", **kw)
 
 def _local_placement(m, x=0.0, y=0.0, z=0.0, relative_to=None):
