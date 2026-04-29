@@ -60,10 +60,10 @@ export function useZones(bubbles: BubbleData[], initialZones: ZoneData[] = []) {
     }))
   }
 
-  /** 조닝 생성 또는 수정 확정 */
-  const confirmModal = () => {
+  /** 조닝 생성 또는 수정 확정 — 실제 변경이 발생하면 true 반환 */
+  const confirmModal = (): boolean => {
     const uniqueIds = Array.from(new Set(formData.bubbleIds))
-    if (uniqueIds.length === 0) return
+    if (uniqueIds.length === 0) return false
 
     const bubble = bubbles.find((b) => uniqueIds.includes(b.id))
     const zoneColor =
@@ -89,6 +89,7 @@ export function useZones(bubbles: BubbleData[], initialZones: ZoneData[] = []) {
       })
     }
     closeModal()
+    return true
   }
 
   /** 조닝 삭제 (수정 중인 조닝이면 모달도 닫기) */

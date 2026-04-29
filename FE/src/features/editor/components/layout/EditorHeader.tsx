@@ -46,7 +46,7 @@ export default function EditorHeader({
           to="/projects"
           className="text-sm font-black tracking-tighter text-[#1C1C1E] hover:opacity-80 transition-opacity cursor-pointer"
         >
-          <span className="opacity-60">BATANG:</span> BATANG
+          <span className="opacity-60">바탕:</span> BATANG
         </Link>
         <nav className="flex items-center gap-6">
           <button
@@ -57,7 +57,7 @@ export default function EditorHeader({
                 : 'font-medium text-[#8E95A3] hover:text-[#3B45B3]'
             }`}
           >
-            Editor
+            워크스페이스
           </button>
           <button
             onClick={() => onModeChange('view')}
@@ -67,7 +67,7 @@ export default function EditorHeader({
                 : 'font-medium text-[#8E95A3] hover:text-[#3B45B3]'
             }`}
           >
-            Viewer
+            뷰어
           </button>
         </nav>
       </div>

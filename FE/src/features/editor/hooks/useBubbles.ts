@@ -147,7 +147,7 @@ export function useBubbles(initialBubbles: BubbleData[] = INITIAL_BUBBLES) {
       height: px.height,
       widthMm: widthMmValue,
       heightMm: heightMmValue,
-      label: formData.name || '새 버블',
+      label: formData.name || '새 공간',
       type: formData.type,
       ratio: ratioValue,
       area: `${ratioValue.toFixed(1)} m²`,

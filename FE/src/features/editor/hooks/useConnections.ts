@@ -34,11 +34,12 @@ export function useConnections(initialConnections: ConnectionData[] = []) {
     setIsModalOpen(true)
   }
 
-  /** 선 스타일 적용 확인 */
-  const confirmModal = () => {
-    if (!connectionPair) return
+  /** 선 스타일 적용 확인 — 실제 변경이 발생하면 true 반환 */
+  const confirmModal = (): boolean => {
+    if (!connectionPair) return false
     upsertConnection(connectionPair.from, connectionPair.to, selectedStyle)
     setIsModalOpen(false)
+    return true
   }
 
   /** 특정 버블과 연결된 모든 연결선 삭제 (버블 삭제 시 호출) */

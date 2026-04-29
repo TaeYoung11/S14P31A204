@@ -117,10 +117,10 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
   const [isIFCExportModalOpen, setIsIFCExportModalOpen] = useState(false)
   const [zoom, setZoom] = useState(100)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const [autosaveReady, setAutosaveReady] = useState(false)
 
   const localVersionRef = useRef(initialDraft ? 1 : 0)
   const previousSnapshotRef = useRef<string | null>(null)
-  const autosaveReadyRef = useRef(false)
   const hasUserEditedRef = useRef(false)
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -179,12 +179,15 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     }
   }, [])
 
+  // projectId가 바뀔 때만 실행: 저장 버전 로드 및 autosave 준비 완료 신호
   useEffect(() => {
     let isCancelled = false
 
+    setAutosaveReady(false)
+    previousSnapshotRef.current = null
+
     if (!projectId) {
-      previousSnapshotRef.current = JSON.stringify(draftSnapshot)
-      autosaveReadyRef.current = true
+      setAutosaveReady(true)
       return () => {
         isCancelled = true
       }
@@ -194,24 +197,29 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
       .then((draft) => {
         if (isCancelled) return
         localVersionRef.current = draft?.versionNo ?? 0
-        previousSnapshotRef.current = JSON.stringify(draftSnapshot)
-        autosaveReadyRef.current = true
+        setAutosaveReady(true)
       })
       .catch(() => {
         if (isCancelled) return
-        previousSnapshotRef.current = JSON.stringify(draftSnapshot)
-        autosaveReadyRef.current = true
+        setAutosaveReady(true)
       })
 
     return () => {
       isCancelled = true
     }
-  }, [projectId, draftSnapshot])
+  }, [projectId])
 
   useEffect(() => {
-    if (!projectId || !autosaveReadyRef.current) return
+    if (!projectId || !autosaveReady) return
 
     const serializedSnapshot = JSON.stringify(draftSnapshot)
+
+    // 최초 준비 시: 현재 스냅샷을 기준선으로만 설정하고 저장은 건너뜀
+    if (previousSnapshotRef.current === null) {
+      previousSnapshotRef.current = serializedSnapshot
+      return
+    }
+
     if (previousSnapshotRef.current === serializedSnapshot) return
 
     previousSnapshotRef.current = serializedSnapshot
@@ -242,7 +250,7 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
           setSaveStatus('error')
         })
     }, 1000)
-  }, [draftSnapshot, projectId])
+  }, [draftSnapshot, projectId, autosaveReady])
 
   const markLocalDraftDirty = () => {
     hasUserEditedRef.current = true
@@ -253,10 +261,6 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     setSearchParams({ mode: nextMode })
     if (nextMode !== '2d') setIsCollaborationMode(false)
     setIsLibraryOpen(false)
-  }
-
-  const handleBubbleSelect = (id: string | null) => {
-    selectBubble(id)
   }
 
   const handleBubbleDrag = (id: string, x: number, y: number) => {
@@ -310,8 +314,7 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
   }
 
   const confirmLineStyleModal = () => {
-    markLocalDraftDirty()
-    applyLineStyleModal()
+    if (applyLineStyleModal()) markLocalDraftDirty()
   }
 
   const handleToggleCollaboration = () => {
@@ -339,8 +342,7 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
   }
 
   const confirmZoningModal = () => {
-    markLocalDraftDirty()
-    applyZoningModal()
+    if (applyZoningModal()) markLocalDraftDirty()
   }
 
   const deleteZone = (zoneId: string) => {
@@ -383,7 +385,7 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     bubbles,
     selectedId,
     selectedBubble,
-    handleBubbleSelect,
+    handleBubbleSelect: selectBubble,
     handleBubbleDrag,
     handleLabelChange,
     handleTypeChange,
