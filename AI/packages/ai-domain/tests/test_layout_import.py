@@ -193,6 +193,18 @@ def test_layout_import_v1_rejects_duplicate_zone_ids() -> None:
         )
 
 
+def test_layout_import_v1_rejects_unknown_zone_reference() -> None:
+    with pytest.raises(ValidationError, match="zoneId must reference an existing zone"):
+        LayoutImportV1.model_validate(
+            {
+                "schema_version": "v1",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [_base_room(zone_id="missing-zone")],
+            }
+        )
+
+
 def test_layout_import_v1_rejects_duplicate_boundary_floors() -> None:
     with pytest.raises(ValidationError, match="duplicate floor values"):
         LayoutImportV1.model_validate(

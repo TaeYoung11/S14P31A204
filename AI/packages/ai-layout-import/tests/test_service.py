@@ -7,6 +7,7 @@ from uuid import UUID
 
 import ifcopenshell
 import pytest
+from pydantic import ValidationError
 
 from ai_domain import LayoutImportV1, LayoutImportV2, parse_layout_import
 from ai_layout_import import convert_layout_to_ifc
@@ -384,13 +385,11 @@ def test_convert_layout_to_ifc_accepts_v2_request_and_remains_space_only(tmp_pat
     assert len(model.by_type("IfcRoof")) == 0
 
 
-def test_convert_layout_to_ifc_rejects_unknown_zone_reference(tmp_path: Path) -> None:
-    request = _make_request(
-        rooms=[_base_room(zone_id="missing-zone")],
-    )
-
-    with pytest.raises(ValueError, match="unknown zone reference"):
-        convert_layout_to_ifc(request, tmp_path / "invalid-zone.ifc")
+def test_layout_import_request_rejects_unknown_zone_reference_before_conversion() -> None:
+    with pytest.raises(ValidationError, match="zoneId must reference an existing zone"):
+        _make_request(
+            rooms=[_base_room(zone_id="missing-zone")],
+        )
 
 
 def test_convert_layout_to_ifc_rejects_v2_missing_wall_default(tmp_path: Path) -> None:
