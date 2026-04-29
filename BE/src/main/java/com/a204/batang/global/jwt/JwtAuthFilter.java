@@ -1,6 +1,9 @@
 package com.a204.batang.global.jwt;
 
+import com.a204.batang.global.exception.ErrorCode;
+import com.a204.batang.global.exception.ErrorResponse;
 import com.a204.batang.global.redis.RedisService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
@@ -25,6 +28,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
     private final RedisService redisService;
+    private final ObjectMapper objectMapper;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -36,7 +40,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (token != null) {
             try {
                 if (redisService.isBlacklisted(token)) {
-                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "로그아웃된 토큰입니다.");
+                    writeUnauthorizedResponse(response, "로그아웃된 토큰입니다.");
                     return;
                 }
 
@@ -54,10 +58,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 SecurityContextHolder.getContext().setAuthentication(auth);
 
             } catch (ExpiredJwtException e) {
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "만료된 토큰입니다.");
+                writeUnauthorizedResponse(response, "만료된 토큰입니다.");
                 return;
             } catch (JwtException | IllegalArgumentException e) {
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "유효하지 않은 토큰입니다.");
+                writeUnauthorizedResponse(response, "유효하지 않은 토큰입니다.");
                 return;
             }
         }
@@ -71,5 +75,18 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return header.substring(7);
         }
         return null;
+    }
+
+    private void writeUnauthorizedResponse(HttpServletResponse response, String message) throws IOException {
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .status(ErrorCode.UNAUTHORIZED.getStatus().value())
+                .code(ErrorCode.UNAUTHORIZED.getCode())
+                .message(message)
+                .build();
+
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        objectMapper.writeValue(response.getWriter(), errorResponse);
     }
 }

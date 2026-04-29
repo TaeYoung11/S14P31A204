@@ -10,6 +10,8 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class RedisService {
 
+    private static final long EMAIL_CODE_TTL_MINUTES = 5L;
+
     private final RedisTemplate<String, String> redisTemplate;
 
     public void saveRefreshToken(String userId, String token, long ttlMs) {
@@ -36,7 +38,8 @@ public class RedisService {
 
     public void saveEmailCode(String email, String code) {
         redisTemplate.opsForValue()
-                .set("email:code:" + email, code, 5, TimeUnit.MINUTES);
+                .set("email:code:" + email, code, EMAIL_CODE_TTL_MINUTES, TimeUnit.MINUTES);
+        deleteEmailCodeAttempts(email);
     }
 
     public String getEmailCode(String email) {
@@ -45,6 +48,18 @@ public class RedisService {
 
     public void deleteEmailCode(String email) {
         redisTemplate.delete("email:code:" + email);
+    }
+
+    public long incrementEmailCodeAttempts(String email) {
+        Long attempts = redisTemplate.opsForValue().increment("email:attempts:" + email);
+        if (attempts != null && attempts == 1L) {
+            redisTemplate.expire("email:attempts:" + email, EMAIL_CODE_TTL_MINUTES, TimeUnit.MINUTES);
+        }
+        return attempts == null ? 0L : attempts;
+    }
+
+    public void deleteEmailCodeAttempts(String email) {
+        redisTemplate.delete("email:attempts:" + email);
     }
 
     public void saveVerifiedToken(String token, String email) {

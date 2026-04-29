@@ -17,6 +17,8 @@ import com.a204.batang.domain.auth.entity.UserStatus;
 import com.a204.batang.domain.auth.entity.UserType;
 import com.a204.batang.domain.auth.repository.MemberRepository;
 import com.a204.batang.global.email.EmailService;
+import com.a204.batang.global.exception.CustomException;
+import com.a204.batang.global.exception.ErrorCode;
 import com.a204.batang.global.jwt.JwtUtil;
 import com.a204.batang.global.redis.RedisService;
 import io.jsonwebtoken.Claims;
@@ -81,7 +83,7 @@ class AuthServiceImplTest {
 
             assertThatThrownBy(() -> authService.sendEmailCode(request))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessage("이미 가입된 이메일입니다.");
+                    .hasMessage("이미 가입한 이메일입니다.");
 
             verify(redisService, never()).saveEmailCode(any(), any());
             verify(emailService, never()).sendVerifyCode(any(), any());
@@ -103,6 +105,7 @@ class AuthServiceImplTest {
             assertThat(response.verifiedToken()).isNotNull();
             assertThat(response.expiresIn()).isEqualTo(600);
             verify(redisService).deleteEmailCode("test@test.com");
+            verify(redisService).deleteEmailCodeAttempts("test@test.com");
             verify(redisService).saveVerifiedToken(any(), eq("test@test.com"));
         }
 
@@ -122,10 +125,26 @@ class AuthServiceImplTest {
         void failWrongCode() {
             VerifyEmailCodeRequest request = new VerifyEmailCodeRequest("test@test.com", "000000");
             given(redisService.getEmailCode("test@test.com")).willReturn("482910");
+            given(redisService.incrementEmailCodeAttempts("test@test.com")).willReturn(1L);
 
             assertThatThrownBy(() -> authService.verifyEmailCode(request))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessage("인증 코드가 일치하지 않습니다.");
+        }
+
+        @Test
+        @DisplayName("실패 - 인증 시도 횟수 초과")
+        void failTooManyAttempts() {
+            VerifyEmailCodeRequest request = new VerifyEmailCodeRequest("test@test.com", "000000");
+            given(redisService.getEmailCode("test@test.com")).willReturn("482910");
+            given(redisService.incrementEmailCodeAttempts("test@test.com")).willReturn(5L);
+
+            assertThatThrownBy(() -> authService.verifyEmailCode(request))
+                    .isInstanceOf(CustomException.class)
+                    .hasMessage("인증 코드 입력 횟수를 초과했습니다. 인증 코드를 다시 요청해주세요.");
+
+            verify(redisService).deleteEmailCode("test@test.com");
+            verify(redisService).deleteEmailCodeAttempts("test@test.com");
         }
     }
 
@@ -197,7 +216,7 @@ class AuthServiceImplTest {
 
             assertThatThrownBy(() -> authService.signup(request))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessage("이미 가입된 이메일입니다.");
+                    .hasMessage("이미 가입한 이메일입니다.");
         }
     }
 
