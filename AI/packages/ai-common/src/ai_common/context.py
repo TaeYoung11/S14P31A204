@@ -11,7 +11,7 @@ def _new_id() -> str:
 
 @dataclass(slots=True)
 class RequestContext:
-    """로그와 큐 메시지로 전파되는 요청 단위 ID 묶음."""
+    """Request-scoped identifiers shared across logs and message envelopes."""
 
     request_id: str = field(default_factory=_new_id)
     correlation_id: str = ""
