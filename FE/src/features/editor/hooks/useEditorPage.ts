@@ -41,18 +41,19 @@ import { calcAreaM2FromMm, centerSitePoints } from '../utils/bubbleCalc'
 import type { EmptyCanvasDblClickInfo } from '../components/canvas/BubbleCanvas'
 import { mapAdjacencyToConnections, mapFloorProjectToBubbles } from '../utils/floorProjectMapper'
 import { deriveAutoWallsFromRooms } from '../utils/autoWalls'
+import { lineIntersectsRect, insetRect, type AxisAlignedRect } from '../utils/geometry2d'
+import { deriveConnectionsFromRooms, toConnectionKey } from '../utils/roomAdjacency'
+import {
+  buildWallOutsideOverlapSegments,
+  getWallGeometryKey,
+  getWallOverlapInterval,
+  projectAxisAlignedWall,
+} from '../utils/wallGeometry'
 import type { FloorProject } from '../types/floorProject.types'
 import { useAuthStore } from '@/shared/stores/authStore'
 
 /** 에디터 모드 허용 목록 — URL 파라미터 검증용 */
 const EDITOR_MODES: EditorMode[] = ['bubble', '2d', '3d', 'view']
-
-interface AxisAlignedRect {
-  x: number
-  y: number
-  width: number
-  height: number
-}
 
 interface DrawingSnapshot {
   bubbles: BubbleData[]
@@ -62,12 +63,8 @@ interface DrawingSnapshot {
 }
 
 const WALL_ROOM_COLLISION_INSET_PX = 2
-const ROOM_ADJACENCY_TOLERANCE_PX = 2
-const ROOM_ADJACENCY_MIN_OVERLAP_PX = 8
 const OPENING_MIN_WIDTH_MM = 1
 const OPENING_MAX_WIDTH_MM = 4000
-const AUTO_WALL_OVERLAP_TOLERANCE_PX = 1.5
-const AUTO_WALL_MIN_SEGMENT_LENGTH_PX = 8
 
 const DEFAULT_DESIGNER_NAME = '설계자'
 const DEFAULT_CLIENT_NAME = '고객사 담당자'
@@ -87,220 +84,8 @@ function normalizeCommentAttachments(attachments: FloorCommentAttachmentInput[] 
   }))
 }
 
-function lineIntersectsRect(start: Point2D, end: Point2D, rect: AxisAlignedRect): boolean {
-  const LEFT = 1
-  const RIGHT = 2
-  const BOTTOM = 4
-  const TOP = 8
-  const xMin = rect.x
-  const xMax = rect.x + rect.width
-  const yMin = rect.y
-  const yMax = rect.y + rect.height
-
-  const computeCode = (x: number, y: number) => {
-    let code = 0
-    if (x < xMin) code |= LEFT
-    else if (x > xMax) code |= RIGHT
-    if (y < yMin) code |= TOP
-    else if (y > yMax) code |= BOTTOM
-    return code
-  }
-
-  let x1 = start.x
-  let y1 = start.y
-  let x2 = end.x
-  let y2 = end.y
-  let code1 = computeCode(x1, y1)
-  let code2 = computeCode(x2, y2)
-
-  while (true) {
-    if ((code1 | code2) === 0) return true
-    if ((code1 & code2) !== 0) return false
-
-    const outCode = code1 !== 0 ? code1 : code2
-    let x = 0
-    let y = 0
-
-    if (outCode & TOP) {
-      x = x1 + ((x2 - x1) * (yMin - y1)) / (y2 - y1 || 1)
-      y = yMin
-    } else if (outCode & BOTTOM) {
-      x = x1 + ((x2 - x1) * (yMax - y1)) / (y2 - y1 || 1)
-      y = yMax
-    } else if (outCode & RIGHT) {
-      y = y1 + ((y2 - y1) * (xMax - x1)) / (x2 - x1 || 1)
-      x = xMax
-    } else if (outCode & LEFT) {
-      y = y1 + ((y2 - y1) * (xMin - x1)) / (x2 - x1 || 1)
-      x = xMin
-    }
-
-    if (outCode === code1) {
-      x1 = x
-      y1 = y
-      code1 = computeCode(x1, y1)
-    } else {
-      x2 = x
-      y2 = y
-      code2 = computeCode(x2, y2)
-    }
-  }
-}
-
-function toInnerRoomRect(rect: AxisAlignedRect, inset: number): AxisAlignedRect | null {
-  const width = rect.width - inset * 2
-  const height = rect.height - inset * 2
-  if (width <= 0 || height <= 0) return null
-  return {
-    x: rect.x + inset,
-    y: rect.y + inset,
-    width,
-    height,
-  }
-}
-
-function roomsTouchEachOther(a: FloorRoom, b: FloorRoom): boolean {
-  const aLeft = a.x
-  const aRight = a.x + a.width
-  const aTop = a.y
-  const aBottom = a.y + a.height
-  const bLeft = b.x
-  const bRight = b.x + b.width
-  const bTop = b.y
-  const bBottom = b.y + b.height
-
-  const verticalOverlap = Math.min(aBottom, bBottom) - Math.max(aTop, bTop)
-  if (
-    verticalOverlap >= ROOM_ADJACENCY_MIN_OVERLAP_PX &&
-    (Math.abs(aRight - bLeft) <= ROOM_ADJACENCY_TOLERANCE_PX ||
-      Math.abs(bRight - aLeft) <= ROOM_ADJACENCY_TOLERANCE_PX)
-  ) {
-    return true
-  }
-
-  const horizontalOverlap = Math.min(aRight, bRight) - Math.max(aLeft, bLeft)
-  if (
-    horizontalOverlap >= ROOM_ADJACENCY_MIN_OVERLAP_PX &&
-    (Math.abs(aBottom - bTop) <= ROOM_ADJACENCY_TOLERANCE_PX ||
-      Math.abs(bBottom - aTop) <= ROOM_ADJACENCY_TOLERANCE_PX)
-  ) {
-    return true
-  }
-
-  return false
-}
-
-function toConnectionKey(from: string, to: string): string {
-  return [from, to].sort().join('::')
-}
-
-function deriveConnectionsFromRooms(rooms: FloorRoom[]): Array<{ from: string; to: string }> {
-  const pairs: Array<{ from: string; to: string }> = []
-  const seen = new Set<string>()
-
-  for (let i = 0; i < rooms.length; i += 1) {
-    for (let j = i + 1; j < rooms.length; j += 1) {
-      const first = rooms[i]
-      const second = rooms[j]
-      if (!first || !second) continue
-      if (!roomsTouchEachOther(first, second)) continue
-      const from = first.bubbleId
-      const to = second.bubbleId
-      if (!from || !to || from === to) continue
-      const key = toConnectionKey(from, to)
-      if (seen.has(key)) continue
-      seen.add(key)
-      pairs.push({ from, to })
-    }
-  }
-
-  return pairs
-}
-
 function getWallLengthMm(wall: FloorWall): number {
   return Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y) * FLOOR_MM_PER_PX
-}
-
-type AxisAlignedWallProjection =
-  | { axis: 'vertical'; fixed: number; min: number; max: number }
-  | { axis: 'horizontal'; fixed: number; min: number; max: number }
-
-function projectAxisAlignedWall(
-  wall: FloorWall,
-  tolerance = AUTO_WALL_OVERLAP_TOLERANCE_PX,
-): AxisAlignedWallProjection | null {
-  const dx = wall.end.x - wall.start.x
-  const dy = wall.end.y - wall.start.y
-  if (Math.abs(dx) <= tolerance) {
-    return {
-      axis: 'vertical',
-      fixed: (wall.start.x + wall.end.x) / 2,
-      min: Math.min(wall.start.y, wall.end.y),
-      max: Math.max(wall.start.y, wall.end.y),
-    }
-  }
-  if (Math.abs(dy) <= tolerance) {
-    return {
-      axis: 'horizontal',
-      fixed: (wall.start.y + wall.end.y) / 2,
-      min: Math.min(wall.start.x, wall.end.x),
-      max: Math.max(wall.start.x, wall.end.x),
-    }
-  }
-  return null
-}
-
-function getWallOverlapInterval(
-  a: AxisAlignedWallProjection,
-  b: AxisAlignedWallProjection,
-  tolerance = AUTO_WALL_OVERLAP_TOLERANCE_PX,
-): { start: number; end: number } | null {
-  if (a.axis !== b.axis) return null
-  if (Math.abs(a.fixed - b.fixed) > tolerance) return null
-  const start = Math.max(a.min, b.min)
-  const end = Math.min(a.max, b.max)
-  return end - start > tolerance ? { start, end } : null
-}
-
-function buildWallOutsideOverlapSegments(
-  wall: FloorWall,
-  overlapStart: number,
-  overlapEnd: number,
-  minLength = AUTO_WALL_MIN_SEGMENT_LENGTH_PX,
-): Array<{ start: Point2D; end: Point2D }> {
-  const projection = projectAxisAlignedWall(wall)
-  if (!projection) return []
-
-  const segments: Array<{ start: Point2D; end: Point2D }> = []
-  if (projection.axis === 'vertical') {
-    if (overlapStart - projection.min >= minLength) {
-      segments.push({
-        start: { x: projection.fixed, y: projection.min },
-        end: { x: projection.fixed, y: overlapStart },
-      })
-    }
-    if (projection.max - overlapEnd >= minLength) {
-      segments.push({
-        start: { x: projection.fixed, y: overlapEnd },
-        end: { x: projection.fixed, y: projection.max },
-      })
-    }
-    return segments
-  }
-
-  if (overlapStart - projection.min >= minLength) {
-    segments.push({
-      start: { x: projection.min, y: projection.fixed },
-      end: { x: overlapStart, y: projection.fixed },
-    })
-  }
-  if (projection.max - overlapEnd >= minLength) {
-    segments.push({
-      start: { x: overlapEnd, y: projection.fixed },
-      end: { x: projection.max, y: projection.fixed },
-    })
-  }
-  return segments
 }
 
 /**
@@ -1562,7 +1347,7 @@ export function useEditorPage() {
   const getIntersectingFloorRoomIds = (start: Point2D, end: Point2D) => {
     const intersectingIds = new Set<string>()
     floorRooms.forEach((room) => {
-      const innerRect = toInnerRoomRect(
+      const innerRect = insetRect(
         {
           x: room.x,
           y: room.y,
@@ -1776,25 +1561,9 @@ export function useEditorPage() {
         if (autoWall) ensured.push(autoWall)
       })
       const next = ensured.filter((wall) => !hiddenIds.has(wall.id))
-      const geometryKeySet = new Set(
-        next.map((wall) => {
-          const ax = Math.round(wall.start.x)
-          const ay = Math.round(wall.start.y)
-          const bx = Math.round(wall.end.x)
-          const by = Math.round(wall.end.y)
-          const forward = `${ax},${ay}|${bx},${by}`
-          const backward = `${bx},${by}|${ax},${ay}`
-          return forward < backward ? forward : backward
-        }),
-      )
+      const geometryKeySet = new Set(next.map(getWallGeometryKey))
       manualResidualWalls.forEach((wall) => {
-        const ax = Math.round(wall.start.x)
-        const ay = Math.round(wall.start.y)
-        const bx = Math.round(wall.end.x)
-        const by = Math.round(wall.end.y)
-        const forward = `${ax},${ay}|${bx},${by}`
-        const backward = `${bx},${by}|${ax},${ay}`
-        const key = forward < backward ? forward : backward
+        const key = getWallGeometryKey(wall)
         if (geometryKeySet.has(key)) return
         geometryKeySet.add(key)
         next.push(wall)

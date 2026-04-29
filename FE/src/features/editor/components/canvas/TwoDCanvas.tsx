@@ -27,6 +27,8 @@ import { deriveAutoWallsFromRooms } from '../../utils/autoWalls'
 import { findSharedWall, type DoorInfo } from '../../utils/floorPlanLayout'
 import { hexToRgba } from '../../utils/bubbleCalc'
 import { computeDimensionGuides } from '../../utils/dimensionGuides'
+import { lineIntersectsRect, pointInRect, type AxisAlignedRect } from '../../utils/geometry2d'
+import { getWallGeometryKey, shouldRemoveAsContainedOverlap } from '../../utils/wallGeometry'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
 import { DimensionGuidesLayer } from './DimensionGuidesLayer'
 
@@ -44,12 +46,18 @@ const OPENING_MIN_CLEARANCE_MM = 300
 const ROOM_ADJACENT_SNAP_DISTANCE = 14
 const ROOM_EDGE_ALIGN_SNAP_DISTANCE = 14
 
-/** 벽 생성 중 포인터 위치를 그리드에 스냅 */
-function snapToGrid(point: Point2D, gridSizePx: number): Point2D {
+/** 단일 좌표값을 그리드에 스냅 — enabled=false이면 원본 값 반환 */
+function snapCoordinate(value: number, enabled: boolean, gridSizePx: number): number {
+  if (!enabled) return value
   const step = Math.max(gridSizePx, 0.1)
+  return Math.round(value / step) * step
+}
+
+/** 2D 포인트를 그리드에 스냅 (항상 스냅 적용) */
+function snapToGrid(point: Point2D, gridSizePx: number): Point2D {
   return {
-    x: Math.round(point.x / step) * step,
-    y: Math.round(point.y / step) * step,
+    x: snapCoordinate(point.x, true, gridSizePx),
+    y: snapCoordinate(point.y, true, gridSizePx),
   }
 }
 
@@ -63,18 +71,6 @@ function openingWidthMmToPx(widthMm: number): number {
   return Math.min(Math.max(Math.round(widthMm / FLOOR_MM_PER_PX), OPENING_MIN_PX), OPENING_MAX_PX)
 }
 
-function snapCoordinate(value: number, enabled: boolean, gridSizePx: number): number {
-  if (!enabled) return value
-  const step = Math.max(gridSizePx, 0.1)
-  return Math.round(value / step) * step
-}
-
-function snapRoomResizeCoordinate(value: number, enabled: boolean, gridSizePx: number): number {
-  if (!enabled) return value
-  const step = Math.max(gridSizePx, 0.1)
-  return Math.round(value / step) * step
-}
-
 function getWallPointAtPosition(wall: FloorWall, t: number): Point2D {
   return {
     x: wall.start.x + (wall.end.x - wall.start.x) * t,
@@ -82,72 +78,6 @@ function getWallPointAtPosition(wall: FloorWall, t: number): Point2D {
   }
 }
 
-function getWallGeometryKey(wall: FloorWall): string {
-  const sx = Math.round(wall.start.x)
-  const sy = Math.round(wall.start.y)
-  const ex = Math.round(wall.end.x)
-  const ey = Math.round(wall.end.y)
-  const forward = `${sx},${sy}|${ex},${ey}`
-  const backward = `${ex},${ey}|${sx},${sy}`
-  return forward < backward ? forward : backward
-}
-
-type WallAxisProjection =
-  | { axis: 'vertical'; line: number; min: number; max: number }
-  | { axis: 'horizontal'; line: number; min: number; max: number }
-
-const WALL_OVERLAP_TOLERANCE = 1.5
-
-function getWallAxisProjection(wall: FloorWall, tolerance = WALL_OVERLAP_TOLERANCE): WallAxisProjection | null {
-  const dx = wall.end.x - wall.start.x
-  const dy = wall.end.y - wall.start.y
-  if (Math.abs(dx) <= tolerance) {
-    return {
-      axis: 'vertical',
-      line: (wall.start.x + wall.end.x) / 2,
-      min: Math.min(wall.start.y, wall.end.y),
-      max: Math.max(wall.start.y, wall.end.y),
-    }
-  }
-  if (Math.abs(dy) <= tolerance) {
-    return {
-      axis: 'horizontal',
-      line: (wall.start.y + wall.end.y) / 2,
-      min: Math.min(wall.start.x, wall.end.x),
-      max: Math.max(wall.start.x, wall.end.x),
-    }
-  }
-  return null
-}
-
-function getOverlapLength(minA: number, maxA: number, minB: number, maxB: number): number {
-  return Math.min(maxA, maxB) - Math.max(minA, minB)
-}
-
-function shouldRemoveAsContainedOverlap(
-  candidate: FloorWall,
-  reference: FloorWall,
-  tolerance = WALL_OVERLAP_TOLERANCE,
-): boolean {
-  const a = getWallAxisProjection(candidate, tolerance)
-  const b = getWallAxisProjection(reference, tolerance)
-  if (!a || !b) return false
-  if (a.axis !== b.axis) return false
-  if (Math.abs(a.line - b.line) > tolerance) return false
-
-  const overlap = getOverlapLength(a.min, a.max, b.min, b.max)
-  if (overlap <= tolerance) return false
-
-  const aLength = Math.max(a.max - a.min, 0)
-  const bLength = Math.max(b.max - b.min, 0)
-  if (aLength <= tolerance || bLength <= tolerance) return false
-
-  const aContainedByB = a.min >= b.min - tolerance && a.max <= b.max + tolerance
-  if (!aContainedByB) return false
-
-  // 완전 동일 길이는 앞선 exact dedup 단계에서 이미 처리된다.
-  return aLength < bLength - tolerance
-}
 
 function getProjectedWallPosition(point: Point2D, wall: FloorWall): number {
   const vx = wall.end.x - wall.start.x
@@ -177,13 +107,6 @@ interface OpeningSnapResult {
   guidePosition: number | null
 }
 
-interface AxisAlignedRect {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
 function rectsOverlap(a: AxisAlignedRect, b: AxisAlignedRect, padding = 0): boolean {
   return (
     a.x + padding < b.x + b.width &&
@@ -197,75 +120,6 @@ function rangesOverlap(minA: number, maxA: number, minB: number, maxB: number): 
   return minA < maxB && maxA > minB
 }
 
-function pointInRect(point: Point2D, rect: AxisAlignedRect): boolean {
-  return (
-    point.x >= rect.x &&
-    point.x <= rect.x + rect.width &&
-    point.y >= rect.y &&
-    point.y <= rect.y + rect.height
-  )
-}
-
-function lineIntersectsRect(start: Point2D, end: Point2D, rect: AxisAlignedRect): boolean {
-  if (pointInRect(start, rect) || pointInRect(end, rect)) return true
-  const LEFT = 1
-  const RIGHT = 2
-  const BOTTOM = 4
-  const TOP = 8
-  const xMin = rect.x
-  const xMax = rect.x + rect.width
-  const yMin = rect.y
-  const yMax = rect.y + rect.height
-
-  const computeCode = (x: number, y: number) => {
-    let code = 0
-    if (x < xMin) code |= LEFT
-    else if (x > xMax) code |= RIGHT
-    if (y < yMin) code |= TOP
-    else if (y > yMax) code |= BOTTOM
-    return code
-  }
-
-  let x1 = start.x
-  let y1 = start.y
-  let x2 = end.x
-  let y2 = end.y
-  let code1 = computeCode(x1, y1)
-  let code2 = computeCode(x2, y2)
-
-  while (true) {
-    if ((code1 | code2) === 0) return true
-    if ((code1 & code2) !== 0) return false
-
-    const outCode = code1 !== 0 ? code1 : code2
-    let x = 0
-    let y = 0
-
-    if (outCode & TOP) {
-      x = x1 + ((x2 - x1) * (yMin - y1)) / (y2 - y1 || 1)
-      y = yMin
-    } else if (outCode & BOTTOM) {
-      x = x1 + ((x2 - x1) * (yMax - y1)) / (y2 - y1 || 1)
-      y = yMax
-    } else if (outCode & RIGHT) {
-      y = y1 + ((y2 - y1) * (xMax - x1)) / (x2 - x1 || 1)
-      x = xMax
-    } else if (outCode & LEFT) {
-      y = y1 + ((y2 - y1) * (xMin - x1)) / (x2 - x1 || 1)
-      x = xMin
-    }
-
-    if (outCode === code1) {
-      x1 = x
-      y1 = y
-      code1 = computeCode(x1, y1)
-    } else {
-      x2 = x
-      y2 = y
-      code2 = computeCode(x2, y2)
-    }
-  }
-}
 
 type RoomEdgeKey = 'top' | 'right' | 'bottom' | 'left'
 
@@ -712,7 +566,7 @@ export function TwoDCanvas({
   // 리사이즈도 이동/벽 생성과 동일한 전역 스냅 간격을 사용한다.
   const resizeSnapStepPx = gridSnapStepPx
   const snapResizeHandle = (value: number) =>
-    snapRoomResizeCoordinate(value, isGridSnapEnabled, resizeSnapStepPx)
+    snapCoordinate(value, isGridSnapEnabled, resizeSnapStepPx)
   const wallDraftType = wallCreatePreset?.type ?? 'general'
   const wallDraftThicknessMm = Math.min(
     Math.max(
