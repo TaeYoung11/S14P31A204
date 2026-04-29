@@ -32,6 +32,7 @@ def convert_layout_to_ifc(
     _attach_project_metadata_property_set(model, owner_history, project, request)
     _attach_storey_metadata_property_sets(model, owner_history, storeys, request)
     _create_v2_walls(model, owner_history, context, request, storeys)
+    _create_v2_slabs(model, owner_history, context, request, storeys)
     _create_spaces(model, owner_history, context, request, storeys, zones)
     output.parent.mkdir(parents=True, exist_ok=True)
     model.write(str(output))
@@ -329,14 +330,54 @@ def _create_v2_walls(
             )
 
 
+def _create_v2_slabs(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    request: LayoutImportV1 | LayoutImportV2,
+    storeys: dict[int, ifcopenshell.entity_instance],
+) -> None:
+    if not isinstance(request, LayoutImportV2) or not request.generation_options.generate_slabs:
+        return
+
+    if request.boundaries is None or request.modeling_defaults is None:
+        return
+
+    slab_thickness_m = _mm_to_m(request.modeling_defaults.slab_thickness_mm or 0)
+
+    for boundary in request.boundaries:
+        storey = storeys.get(boundary.floor)
+        if storey is None:
+            continue
+        slab = _create_slab_from_boundary(
+            model,
+            owner_history,
+            context,
+            storey,
+            boundary,
+            slab_thickness_m,
+        )
+        _contain_in_storey(
+            model,
+            owner_history,
+            slab,
+            storey,
+            f"slab-boundary-{boundary.floor}-StoreyContainment",
+        )
+
+
 def _boundary_segments_m(
     boundary: BoundaryInput,
 ) -> list[tuple[tuple[float, float], tuple[float, float]]]:
-    points = [(_mm_to_m(x), _mm_to_m(y)) for x, y in boundary.polygon]
+    points = _boundary_polygon_points_m(boundary)
     return [
         (points[index], points[(index + 1) % len(points)])
         for index in range(len(points))
     ]
+
+
+def _boundary_polygon_points_m(boundary: BoundaryInput) -> list[tuple[float, float]]:
+    return [(_mm_to_m(x), _mm_to_m(y)) for x, y in boundary.polygon]
 
 
 def _create_wall_from_segment(
@@ -399,6 +440,67 @@ def _create_wall_from_segment(
             "IfcProductDefinitionShape",
             Representations=[representation],
         ),
+    )
+
+
+def _create_slab_from_boundary(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    storey: ifcopenshell.entity_instance,
+    boundary: BoundaryInput,
+    thickness_m: float,
+) -> ifcopenshell.entity_instance:
+    profile = model.create_entity(
+        "IfcArbitraryClosedProfileDef",
+        ProfileType="AREA",
+        OuterCurve=_create_closed_polyline(
+            model,
+            _boundary_polygon_points_m(boundary),
+        ),
+    )
+    body = model.create_entity(
+        "IfcExtrudedAreaSolid",
+        SweptArea=profile,
+        Position=_create_axis_placement_3d(model),
+        ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        Depth=thickness_m,
+    )
+    representation = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=context,
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=[body],
+    )
+    return model.create_entity(
+        "IfcSlab",
+        GlobalId=ifcopenshell.guid.new(),
+        OwnerHistory=owner_history,
+        Name=f"Boundary Slab {boundary.floor}",
+        PredefinedType="FLOOR",
+        ObjectPlacement=_create_local_placement(
+            model,
+            relative_to=storey.ObjectPlacement,
+        ),
+        Representation=model.create_entity(
+            "IfcProductDefinitionShape",
+            Representations=[representation],
+        ),
+    )
+
+
+def _create_closed_polyline(
+    model: ifcopenshell.file,
+    points: list[tuple[float, float]],
+) -> ifcopenshell.entity_instance:
+    closed_points = points + [points[0]]
+    return model.create_entity(
+        "IfcPolyline",
+        Points=[
+            model.create_entity("IfcCartesianPoint", Coordinates=(x, y))
+            for x, y in closed_points
+        ],
     )
 
 
