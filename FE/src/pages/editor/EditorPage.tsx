@@ -43,6 +43,7 @@ export default function EditorPage() {
     isCollaborationMode, selectedPinId, setSelectedPinId,
     collaborationTab, setCollaborationTab,
     handleToggleCollaboration, handlePinClick,
+    saveStatus,
     zoom, handleZoomIn, handleZoomOut, setZoom,
     selectedTool, setSelectedTool,
     isLibraryOpen, setIsLibraryOpen,
@@ -118,6 +119,7 @@ export default function EditorPage() {
         mode={mode} 
         onModeChange={setMode} 
         onOpenInvite={handleOpenInviteModal}
+        saveStatus={saveStatus}
         onSave={mode === '3d' ? handleOpenIFCExportModal : handleOpenExportSelectionModal}
       />
       <EditorToolbar mode={mode} onModeChange={setMode} />

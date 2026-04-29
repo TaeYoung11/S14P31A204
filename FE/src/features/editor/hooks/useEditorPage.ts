@@ -1,6 +1,12 @@
-import { useState, useMemo, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import type { AddSpaceFormData, EditorDraftSnapshot, EditorMode } from '../types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useParams, useSearchParams } from 'react-router-dom'
+import type {
+  AddSpaceFormData,
+  EditorDraftRecord,
+  EditorDraftSnapshot,
+  EditorMode,
+  SaveStatus,
+} from '../types'
 import { INITIAL_ADD_SPACE_FORM, SITE_RAW_POINTS } from '../constants'
 import { useBubbles } from './useBubbles'
 import { useConnections } from './useConnections'
@@ -9,54 +15,49 @@ import { useStageSize } from './useStageSize'
 import { useZones } from './useZones'
 import { useFloorPlan } from './useFloorPlan'
 import { centerSitePoints } from '../utils/bubbleCalc'
+import { getDraft, setDraft } from '../lib/draftDb'
 
-/** EditorPage URL 파라미터에서 모드 파싱 — 허용 목록 외 값은 기본값('bubble')으로 처리 */
 const EDITOR_MODES: EditorMode[] = ['bubble', '2d', '3d', 'view']
+
 function resolveMode(value: string | null): EditorMode {
   return EDITOR_MODES.includes(value as EditorMode) ? (value as EditorMode) : 'bubble'
 }
 
-/**
- * EditorPage 전체 비즈니스 로직 훅
- * 버블·연결선·조닝·패널·평면도·UI 상태를 하위 훅에서 합성해 관리
- */
 export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
+  const { projectId } = useParams<{ projectId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const mode = resolveMode(searchParams.get('mode'))
 
   const { containerRef, stageSize } = useStageSize()
 
-  // 버블(공간) 상태
   const {
     bubbles,
     selectedId,
     previousSelectedId,
-    handleBubbleSelect,
-    handleBubbleDrag,
-    handleLabelChange,
-    handleTypeChange,
-    handleWidthChange,
-    handleHeightChange,
-    handleRatioChange,
-    handleColorChange,
+    handleBubbleSelect: selectBubble,
+    handleBubbleDrag: dragBubble,
+    handleLabelChange: changeBubbleLabel,
+    handleTypeChange: changeBubbleType,
+    handleWidthChange: changeBubbleWidth,
+    handleHeightChange: changeBubbleHeight,
+    handleRatioChange: changeBubbleRatio,
+    handleColorChange: changeBubbleColor,
     addBubble,
-    deleteBubble,
+    deleteBubble: removeBubble,
   } = useBubbles(initialDraft?.bubbles)
 
-  // 연결선 상태
   const {
     connections,
     isModalOpen: isLineStyleModalOpen,
     selectedStyle: selectedLineStyle,
     connectionPair: lineConnectionPair,
     openModal,
-    confirmModal: confirmLineStyleModal,
+    confirmModal: applyLineStyleModal,
     closeModal: closeLineStyleModal,
     setSelectedStyle,
     removeConnectionsForBubble,
   } = useConnections(initialDraft?.connections)
 
-  // 조닝 상태
   const {
     zones,
     isModalOpen: isZoningModalOpen,
@@ -68,14 +69,12 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     openEditModal,
     closeModal: closeZoningModal,
     toggleBubble: toggleZoningBubble,
-    confirmModal: confirmZoningModal,
-    deleteZone,
+    confirmModal: applyZoningModal,
+    deleteZone: removeZone,
   } = useZones(bubbles, initialDraft?.zones)
 
-  // 우측 패널 드래그·리사이즈 상태
   const { panelOffsets, panelOpenState, panelHeights, panelWidths, startDrag, startResize, togglePanel } = usePanels(mode)
 
-  // 2D 평면도 층 상태
   const {
     isGenerated: isFloorPlanGenerated,
     isGenerating: isFloorPlanGenerating,
@@ -84,32 +83,26 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     activeRooms: floorRooms,
     generateFloorPlan,
     refreshFloorPlan,
-    addFloorLayer,
-    setActiveLayerId: setActiveFloorLayerId,
+    addFloorLayer: appendFloorLayer,
+    setActiveLayerId: selectActiveFloorLayerId,
   } = useFloorPlan({
     initialIsGenerated: initialDraft?.isFloorPlanGenerated,
     initialLayers: initialDraft?.floorLayers,
     initialActiveLayerId: initialDraft?.activeFloorLayerId,
   })
 
-  // 버블·연결선 변경 시 이미 생성된 평면도를 조용히 갱신 (로딩 없음)
   useEffect(() => {
     if (isFloorPlanGenerated && bubbles.length > 0 && stageSize.width > 0) {
       refreshFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
     }
   }, [bubbles, connections, stageSize.width, stageSize.height, isFloorPlanGenerated, refreshFloorPlan])
 
-  // 버블이 1개 이상 생기면 평면도가 없을 때 즉시 자동 생성 (모드 무관)
-  // deps에 bubbles.length만 포함하는 것은 의도적: 버블 위치/속성 변경은 refreshFloorPlan이 담당하므로
-  // 최초 생성(버블 개수 변화)에만 반응하도록 제한함
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!isFloorPlanGenerated && bubbles.length > 0 && stageSize.width > 0) {
       generateFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
     }
-  }, [isFloorPlanGenerated, bubbles.length, stageSize.width])
+  }, [isFloorPlanGenerated, bubbles, connections, stageSize.width, stageSize.height, generateFloorPlan])
 
-  // UI 전용 상태
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [addSpaceFormData, setAddSpaceFormData] = useState<AddSpaceFormData>(INITIAL_ADD_SPACE_FORM)
   const [isCollaborationMode, setIsCollaborationMode] = useState(false)
@@ -123,45 +116,49 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
   const [isExportSelectionModalOpen, setIsExportSelectionModalOpen] = useState(false)
   const [isIFCExportModalOpen, setIsIFCExportModalOpen] = useState(false)
   const [zoom, setZoom] = useState(100)
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
 
-  // 파생 상태: 선택된 버블 객체
+  const localVersionRef = useRef(initialDraft ? 1 : 0)
+  const previousSnapshotRef = useRef<string | null>(null)
+  const autosaveReadyRef = useRef(false)
+  const hasUserEditedRef = useRef(false)
+  const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const selectedBubble = useMemo(
-    () => bubbles.find((b) => b.id === selectedId) ?? null,
+    () => bubbles.find((bubble) => bubble.id === selectedId) ?? null,
     [bubbles, selectedId],
   )
 
-  // 파생 상태: 선택된 버블의 연결선 목록 (라벨 포함)
   const selectedBubbleConnections = useMemo(() => {
     if (!selectedId) return []
+
     return connections
-      .filter((c) => c.from === selectedId || c.to === selectedId)
-      .map((c) => {
-        const targetId = c.from === selectedId ? c.to : c.from
-        const targetBubble = bubbles.find((b) => b.id === targetId)
-        return { targetId, targetLabel: targetBubble?.label ?? targetId, style: c.type }
+      .filter((connection) => connection.from === selectedId || connection.to === selectedId)
+      .map((connection) => {
+        const targetId = connection.from === selectedId ? connection.to : connection.from
+        const targetBubble = bubbles.find((bubble) => bubble.id === targetId)
+        return { targetId, targetLabel: targetBubble?.label ?? targetId, style: connection.type }
       })
   }, [bubbles, connections, selectedId])
 
-  const autoZones = useMemo(() => zones.filter((z) => z.source === 'auto'), [zones])
-  const manualZones = useMemo(() => zones.filter((z) => z.source === 'manual'), [zones])
+  const autoZones = useMemo(() => zones.filter((zone) => zone.source === 'auto'), [zones])
+  const manualZones = useMemo(() => zones.filter((zone) => zone.source === 'manual'), [zones])
 
-  // 파생 상태: 선택된 버블이 속한 조닝 목록
   const selectedBubbleZones = useMemo(() => {
     if (!selectedId) return []
+
     return zones
-      .filter((z) => z.bubbleIds.includes(selectedId))
-      .map((z) => ({ id: z.id, name: z.name, color: z.color, source: z.source }))
+      .filter((zone) => zone.bubbleIds.includes(selectedId))
+      .map((zone) => ({ id: zone.id, name: zone.name, color: zone.color, source: zone.source }))
   }, [selectedId, zones])
 
   const zoningListItems = useMemo(() => [...autoZones, ...manualZones], [autoZones, manualZones])
 
-  // 파생 상태: 대지 외곽선 포인트 (캔버스 중앙 정렬)
   const sitePoints = useMemo(
     () => centerSitePoints(SITE_RAW_POINTS, stageSize.width, stageSize.height),
     [stageSize.width, stageSize.height],
   )
 
-  /** 자동저장과 복구에 사용하는 에디터 상태 스냅샷 */
   const draftSnapshot = useMemo<EditorDraftSnapshot>(
     () => ({
       bubbles,
@@ -174,13 +171,127 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     [bubbles, connections, zones, floorLayers, activeFloorLayerId, isFloorPlanGenerated],
   )
 
-  // ── 핸들러 ────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (localSaveTimerRef.current !== null) {
+        clearTimeout(localSaveTimerRef.current)
+      }
+    }
+  }, [])
 
-  /** 편집 모드 전환 — 협업 모드·라이브러리는 모드 이탈 시 닫힘 */
+  useEffect(() => {
+    let isCancelled = false
+
+    if (!projectId) {
+      previousSnapshotRef.current = JSON.stringify(draftSnapshot)
+      autosaveReadyRef.current = true
+      return () => {
+        isCancelled = true
+      }
+    }
+
+    void getDraft(projectId)
+      .then((draft) => {
+        if (isCancelled) return
+        localVersionRef.current = draft?.versionNo ?? 0
+        previousSnapshotRef.current = JSON.stringify(draftSnapshot)
+        autosaveReadyRef.current = true
+      })
+      .catch(() => {
+        if (isCancelled) return
+        previousSnapshotRef.current = JSON.stringify(draftSnapshot)
+        autosaveReadyRef.current = true
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [projectId, draftSnapshot])
+
+  useEffect(() => {
+    if (!projectId || !autosaveReadyRef.current) return
+
+    const serializedSnapshot = JSON.stringify(draftSnapshot)
+    if (previousSnapshotRef.current === serializedSnapshot) return
+
+    previousSnapshotRef.current = serializedSnapshot
+    if (!hasUserEditedRef.current) return
+
+    const nextVersionNo = localVersionRef.current + 1
+    const draftRecord: EditorDraftRecord = {
+      projectId,
+      versionNo: nextVersionNo,
+      data: draftSnapshot,
+      savedAt: new Date().toISOString(),
+    }
+
+    localVersionRef.current = nextVersionNo
+
+    if (localSaveTimerRef.current !== null) {
+      clearTimeout(localSaveTimerRef.current)
+    }
+
+    localSaveTimerRef.current = setTimeout(() => {
+      setSaveStatus('saving-local')
+
+      void setDraft(projectId, draftRecord)
+        .then(() => {
+          setSaveStatus('saved-local')
+        })
+        .catch(() => {
+          setSaveStatus('error')
+        })
+    }, 1000)
+  }, [draftSnapshot, projectId])
+
+  const markLocalDraftDirty = () => {
+    hasUserEditedRef.current = true
+    setSaveStatus('dirty')
+  }
+
   const setMode = (nextMode: EditorMode) => {
     setSearchParams({ mode: nextMode })
     if (nextMode !== '2d') setIsCollaborationMode(false)
     setIsLibraryOpen(false)
+  }
+
+  const handleBubbleSelect = (id: string | null) => {
+    selectBubble(id)
+  }
+
+  const handleBubbleDrag = (id: string, x: number, y: number) => {
+    markLocalDraftDirty()
+    dragBubble(id, x, y)
+  }
+
+  const handleLabelChange = (id: string, label: string) => {
+    markLocalDraftDirty()
+    changeBubbleLabel(id, label)
+  }
+
+  const handleTypeChange = (id: string, type: string) => {
+    markLocalDraftDirty()
+    changeBubbleType(id, type)
+  }
+
+  const handleWidthChange = (id: string, width: number) => {
+    markLocalDraftDirty()
+    changeBubbleWidth(id, width)
+  }
+
+  const handleHeightChange = (id: string, height: number) => {
+    markLocalDraftDirty()
+    changeBubbleHeight(id, height)
+  }
+
+  const handleRatioChange = (id: string, ratio: number) => {
+    markLocalDraftDirty()
+    changeBubbleRatio(id, ratio)
+  }
+
+  const handleColorChange = (id: string, color: string) => {
+    markLocalDraftDirty()
+    changeBubbleColor(id, color)
   }
 
   const handleOpenAddModal = () => {
@@ -189,16 +300,20 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
   }
 
   const handleConfirmAddSpace = () => {
+    markLocalDraftDirty()
     addBubble(addSpaceFormData)
     setIsAddModalOpen(false)
   }
 
-  /** 선 스타일 모달 열기 — 현재·이전 선택 버블 쌍으로 연결 대상 자동 설정 */
   const handleOpenLineStyleModal = () => {
     openModal(selectedId, previousSelectedId)
   }
 
-  /** 협업 모드 토글 — 진입 시 탭·핀 상태 초기화 */
+  const confirmLineStyleModal = () => {
+    markLocalDraftDirty()
+    applyLineStyleModal()
+  }
+
   const handleToggleCollaboration = () => {
     setIsCollaborationMode((prev) => {
       if (!prev) {
@@ -209,24 +324,43 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     })
   }
 
-  /** 협업 핀 클릭 — 해당 핀의 스레드 탭으로 이동 */
   const handlePinClick = (pinId: string) => {
     setSelectedPinId(pinId)
     setCollaborationTab('thread')
   }
 
   const getBubbleLabel = (bubbleId: string) =>
-    bubbles.find((b) => b.id === bubbleId)?.label ?? bubbleId
+    bubbles.find((bubble) => bubble.id === bubbleId)?.label ?? bubbleId
 
-  /** 버블 삭제 — 연결선도 함께 제거 */
   const handleDeleteBubble = (id: string) => {
-    deleteBubble(id)
+    markLocalDraftDirty()
+    removeBubble(id)
     removeConnectionsForBubble(id)
   }
 
-  /** 2D 평면도 생성 버튼 핸들러 — 로딩 애니메이션 포함 */
+  const confirmZoningModal = () => {
+    markLocalDraftDirty()
+    applyZoningModal()
+  }
+
+  const deleteZone = (zoneId: string) => {
+    markLocalDraftDirty()
+    removeZone(zoneId)
+  }
+
   const handleGenerateFloorPlan = () => {
+    markLocalDraftDirty()
     generateFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
+  }
+
+  const addFloorLayer = () => {
+    markLocalDraftDirty()
+    appendFloorLayer()
+  }
+
+  const setActiveFloorLayerId = (layerId: string | null) => {
+    markLocalDraftDirty()
+    selectActiveFloorLayerId(layerId)
   }
 
   const handleZoomIn = () => setZoom((prev) => Math.min(prev + 10, 300))
@@ -241,14 +375,11 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
   const toggleGrid = () => setIsGridVisible((prev) => !prev)
 
   return {
-    // 모드
     mode,
     setMode,
-    // 캔버스 크기·대지
     containerRef,
     stageSize,
     sitePoints,
-    // 버블
     bubbles,
     selectedId,
     selectedBubble,
@@ -261,7 +392,6 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     handleRatioChange,
     handleColorChange,
     handleDeleteBubble,
-    // 연결선
     connections,
     selectedBubbleConnections,
     isLineStyleModalOpen,
@@ -272,7 +402,6 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     setSelectedStyle,
     handleOpenLineStyleModal,
     getBubbleLabel,
-    // 조닝
     zones,
     autoZones,
     manualZones,
@@ -289,7 +418,6 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     toggleZoningBubble,
     confirmZoningModal,
     deleteZone,
-    // 우측 패널
     panelOffsets,
     panelOpenState,
     panelHeights,
@@ -297,14 +425,12 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     startDrag,
     startResize,
     togglePanel,
-    // 공간 추가 모달
     isAddModalOpen,
     addSpaceFormData,
     setAddSpaceFormData,
     handleOpenAddModal,
     handleConfirmAddSpace,
     onCloseAddModal: () => setIsAddModalOpen(false),
-    // 협업
     isCollaborationMode,
     selectedPinId,
     setSelectedPinId,
@@ -312,16 +438,13 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     setCollaborationTab,
     handleToggleCollaboration,
     handlePinClick,
-    // 줌
     zoom,
     handleZoomIn,
     handleZoomOut,
     handleZoomChange,
     setZoom,
-    // 라이브러리
     isLibraryOpen,
     setIsLibraryOpen,
-    // 2D 평면도
     isFloorPlanGenerated,
     isFloorPlanGenerating,
     floorLayers,
@@ -330,29 +453,23 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     handleGenerateFloorPlan,
     addFloorLayer,
     setActiveFloorLayerId,
-    // 그리드
     isGridVisible,
     toggleGrid,
-    // 도구 선택
+    saveStatus,
     selectedTool,
     setSelectedTool,
-    // 초대 모달
     isInviteModalOpen,
     handleOpenInviteModal: () => setIsInviteModalOpen(true),
     onCloseInviteModal: () => setIsInviteModalOpen(false),
-    // 내보내기 모달
     isExportModalOpen,
     handleOpenExportModal: () => setIsExportModalOpen(true),
     onCloseExportModal: () => setIsExportModalOpen(false),
-    // 내보내기 선택 모달
     isExportSelectionModalOpen,
     handleOpenExportSelectionModal: () => setIsExportSelectionModalOpen(true),
     onCloseExportSelectionModal: () => setIsExportSelectionModalOpen(false),
-    // IFC 내보내기 모달
     isIFCExportModalOpen,
     handleOpenIFCExportModal: () => setIsIFCExportModalOpen(true),
     onCloseIFCExportModal: () => setIsIFCExportModalOpen(false),
-    /** 자동저장과 복구에 사용하는 에디터 상태 스냅샷 */
     draftSnapshot,
   }
 }
