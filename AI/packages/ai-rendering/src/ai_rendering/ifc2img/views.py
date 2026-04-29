@@ -15,6 +15,9 @@ class IFCView(Enum):
     ISO_SE = "iso_se"            # 남동 위쪽 등각
     CORNER_LOW = "corner_low"    # 낮은 시점 코너 (사람 시야 가까움)
     BIRDS_EYE = "birds_eye"      # 조감도 (top과 다른 약간 기울인 위)
+    EYE_NE = "eye_ne"            # 북동 사람 시선 (z=0 완전 수평)
+    EYE_NW = "eye_nw"            # 북서 사람 시선 (z=0 완전 수평)
+    EYE_SE = "eye_se"            # 남동 사람 시선 (z=0 완전 수평)
 
 
 class AutoZoomMode(Enum):
@@ -59,6 +62,10 @@ VIEW_CAMERAS: dict[IFCView, CameraParams] = {
     IFCView.ISO_SE:     CameraParams(front=( 0.7, -0.7,  0.5), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.CORNER_LOW: CameraParams(front=(-0.7, -0.7,  0.15), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.BIRDS_EYE:  CameraParams(front=(-0.4, -0.4,  1.5), up=(0.0, 0.0, 1.0), zoom=0.5),
+    # 수평 등각 3뷰 — ISO_*과 좌표 동일하되 z=0 (사람 시선, 위에서 내려보지 않음).
+    IFCView.EYE_NE:     CameraParams(front=(-0.7, -0.7,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
+    IFCView.EYE_NW:     CameraParams(front=(-0.7,  0.7,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
+    IFCView.EYE_SE:     CameraParams(front=( 0.7, -0.7,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
 }
 
 
@@ -84,6 +91,9 @@ VIEW_TARGET_RATIOS: dict[IFCView, float] = {
     IFCView.ISO_SE:     0.15,
     IFCView.CORNER_LOW: 0.12,   # 가장 잘리던 view → 가장 작게
     IFCView.BIRDS_EYE:  0.15,
+    IFCView.EYE_NE:     0.15,   # 수평 등각 — ISO_*과 동일 시작점 (Phase 3)
+    IFCView.EYE_NW:     0.15,
+    IFCView.EYE_SE:     0.15,
 }
 
 
@@ -148,6 +158,9 @@ DEFAULT_RENDER_VIEWS: list[IFCView] = [
     IFCView.ISO_NE,
     IFCView.ISO_NW,
     IFCView.ISO_SE,
+    IFCView.EYE_NE,
+    IFCView.EYE_NW,
+    IFCView.EYE_SE,
 ]
 
 
@@ -175,6 +188,10 @@ VIEW_PROMPT_SUFFIXES: dict[IFCView, str] = {
                         "residential building, surrounded by grass lawn",
     IFCView.CORNER_LOW: ", low angle view, single residential building, "
                         "surrounded by grass lawn",
+    # Phase 3 — 수평 등각 (사용자 요구: 빈 값으로 시작, 향후 고도화)
+    IFCView.EYE_NE: "",
+    IFCView.EYE_NW: "",
+    IFCView.EYE_SE: "",
 }
 
 
@@ -219,6 +236,9 @@ VIEW_NEGATIVE_SUFFIXES: dict[IFCView, str] = {
     IFCView.TOP: "",
     IFCView.BIRDS_EYE: "",
     IFCView.CORNER_LOW: "",
+    IFCView.EYE_NE: "",
+    IFCView.EYE_NW: "",
+    IFCView.EYE_SE: "",
 }
 
 
@@ -239,6 +259,10 @@ VIEW_CN_SCALE_OVERRIDES: dict[IFCView, float | None] = {
     IFCView.TOP: None,
     IFCView.BIRDS_EYE: None,
     IFCView.CORNER_LOW: None,
+    # Phase 3 — 수평 등각 (사용자 요구: None default, 향후 고도화)
+    IFCView.EYE_NE: None,
+    IFCView.EYE_NW: None,
+    IFCView.EYE_SE: None,
 }
 
 
