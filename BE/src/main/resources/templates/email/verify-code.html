@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>이메일 인증</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F1F5F9;">
+<table width="100%" cellpadding="0" cellspacing="0"
+       style="background-color: #F1F5F9; padding: 40px 0;">
+    <tr>
+        <td align="center">
+            <table width="600" cellpadding="0" cellspacing="0"
+                   style="background-color: #FFFFFF; border-radius: 12px;
+                              padding: 48px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+
+                <!-- 로고 / 헤더 -->
+                <tr>
+                    <td align="center" style="padding-bottom: 32px;
+                                                  border-bottom: 1px solid #E2E8F0;">
+                        <h1 style="margin: 0; font-size: 24px;
+                                       color: #1E40AF; font-family: Arial, sans-serif;">
+                            바탕: BATANG
+                        </h1>
+                    </td>
+                </tr>
+
+                <!-- 본문 -->
+                <tr>
+                    <td style="padding: 32px 0;">
+                        <h2 style="margin: 0 0 16px 0; font-size: 20px;
+                                       color: #1E293B; font-family: Arial, sans-serif;">
+                            이메일 인증 코드
+                        </h2>
+                        <p style="margin: 0 0 24px 0; font-size: 15px;
+                                      color: #64748B; font-family: Arial, sans-serif;
+                                      line-height: 1.6;">
+                            아래 인증 코드를 입력해주세요.<br>
+                            코드는 <strong style="color: #1E293B;">5분간</strong> 유효합니다.
+                        </p>
+
+                        <!-- 인증 코드 박스 -->
+                        <table width="100%" cellpadding="0" cellspacing="0">
+                            <tr>
+                                <td align="center"
+                                    style="background-color: #EFF6FF;
+                                               border: 2px solid #BFDBFE;
+                                               border-radius: 8px; padding: 24px;">
+                                        <span th:text="${code}"
+                                              style="font-size: 40px; font-weight: bold;
+                                                     letter-spacing: 12px; color: #1E40AF;
+                                                     font-family: 'Courier New', monospace;">
+                                            482910
+                                        </span>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- 주의사항 -->
+                <tr>
+                    <td style="padding: 24px; background-color: #FFF7ED;
+                                   border-radius: 8px; border: 1px solid #FED7AA;">
+                        <p style="margin: 0; font-size: 13px; color: #92400E;
+                                      font-family: Arial, sans-serif; line-height: 1.6;">
+                            ⚠️ 본인이 요청하지 않은 경우 이 이메일을 무시하세요.<br>
+                            인증 코드를 타인과 절대 공유하지 마세요.
+                        </p>
+                    </td>
+                </tr>
+
+                <!-- 푸터 -->
+                <tr>
+                    <td align="center"
+                        style="padding-top: 32px; border-top: 1px solid #E2E8F0;
+                                   margin-top: 32px;">
+                        <p style="margin: 0; font-size: 12px; color: #94A3B8;
+                                      font-family: Arial, sans-serif;">
+                            © 2026 BATANG. All rights reserved.
+                        </p>
+                    </td>
+                </tr>
+
+            </table>
+        </td>
+    </tr>
+</table>
+</body>
+</html>
