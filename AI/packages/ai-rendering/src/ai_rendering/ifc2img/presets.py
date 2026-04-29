@@ -36,7 +36,8 @@ _NEGATIVE_BASE = (
     "interior, indoor, furniture, "
     "basement, underground, "
     "lower level, walkout basement, additional floor below, sunken story, "
-    "water, lake, pond, swimming pool, river"
+    "water, lake, pond, swimming pool, river, "
+    "plaster, stucco, vinyl siding, cladding panels, render coating"
 )
 
 
