@@ -14,6 +14,7 @@ from ai_domain import (
     LayoutImportV1,
     LayoutImportV2,
     RoomInput,
+    RoofShape,
     ZoneInput,
 )
 
@@ -33,6 +34,7 @@ def convert_layout_to_ifc(
     _attach_storey_metadata_property_sets(model, owner_history, storeys, request)
     _create_v2_walls(model, owner_history, context, request, storeys)
     _create_v2_slabs(model, owner_history, context, request, storeys)
+    _create_v2_roof(model, owner_history, context, request, storeys)
     _create_spaces(model, owner_history, context, request, storeys, zones)
     output.parent.mkdir(parents=True, exist_ok=True)
     model.write(str(output))
@@ -366,6 +368,48 @@ def _create_v2_slabs(
         )
 
 
+def _create_v2_roof(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    request: LayoutImportV1 | LayoutImportV2,
+    storeys: dict[int, ifcopenshell.entity_instance],
+) -> None:
+    if not isinstance(request, LayoutImportV2) or not request.generation_options.generate_roof:
+        return
+
+    if request.generation_policy.roof_shape is not RoofShape.FLAT:
+        raise ValueError("roof generation requires roof_shape=flat")
+
+    if request.boundaries is None or request.modeling_defaults is None:
+        return
+
+    boundary = _top_floor_boundary(request)
+    if boundary is None:
+        return
+
+    storey = storeys.get(boundary.floor)
+    if storey is None:
+        return
+
+    roof = _create_roof_from_boundary(
+        model,
+        owner_history,
+        context,
+        storey,
+        boundary,
+        _mm_to_m(request.modeling_defaults.roof_height_mm or 0),
+        _effective_space_height_m(request),
+    )
+    _contain_in_storey(
+        model,
+        owner_history,
+        roof,
+        storey,
+        f"roof-boundary-{boundary.floor}-StoreyContainment",
+    )
+
+
 def _boundary_segments_m(
     boundary: BoundaryInput,
 ) -> list[tuple[tuple[float, float], tuple[float, float]]]:
@@ -378,6 +422,13 @@ def _boundary_segments_m(
 
 def _boundary_polygon_points_m(boundary: BoundaryInput) -> list[tuple[float, float]]:
     return [(_mm_to_m(x), _mm_to_m(y)) for x, y in boundary.polygon]
+
+
+def _top_floor_boundary(request: LayoutImportV2) -> BoundaryInput | None:
+    if not request.boundaries:
+        return None
+    top_floor = max(room.floor for room in request.rooms)
+    return next((boundary for boundary in request.boundaries if boundary.floor == top_floor), None)
 
 
 def _create_wall_from_segment(
@@ -482,6 +533,54 @@ def _create_slab_from_boundary(
         ObjectPlacement=_create_local_placement(
             model,
             relative_to=storey.ObjectPlacement,
+        ),
+        Representation=model.create_entity(
+            "IfcProductDefinitionShape",
+            Representations=[representation],
+        ),
+    )
+
+
+def _create_roof_from_boundary(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    storey: ifcopenshell.entity_instance,
+    boundary: BoundaryInput,
+    thickness_m: float,
+    roof_base_z_m: float,
+) -> ifcopenshell.entity_instance:
+    profile = model.create_entity(
+        "IfcArbitraryClosedProfileDef",
+        ProfileType="AREA",
+        OuterCurve=_create_closed_polyline(
+            model,
+            _boundary_polygon_points_m(boundary),
+        ),
+    )
+    body = model.create_entity(
+        "IfcExtrudedAreaSolid",
+        SweptArea=profile,
+        Position=_create_axis_placement_3d(model),
+        ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        Depth=thickness_m,
+    )
+    representation = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=context,
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=[body],
+    )
+    return model.create_entity(
+        "IfcRoof",
+        GlobalId=ifcopenshell.guid.new(),
+        OwnerHistory=owner_history,
+        Name=f"Boundary Roof {boundary.floor}",
+        ObjectPlacement=_create_local_placement(
+            model,
+            relative_to=storey.ObjectPlacement,
+            location=(0.0, 0.0, roof_base_z_m),
         ),
         Representation=model.create_entity(
             "IfcProductDefinitionShape",
