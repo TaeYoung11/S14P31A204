@@ -185,6 +185,17 @@ public class ProjectPin extends BaseEntity {
     }
 
     /**
+     * 핀의 카메라/월드 좌표를 수정한다.
+     *
+     * @param cameraPosition 변경할 카메라 좌표
+     * @param worldPosition 변경할 월드 좌표
+     */
+    public void updatePosition(PinPosition cameraPosition, PinPosition worldPosition) {
+        this.cameraPosition = cameraPosition;
+        this.worldPosition = worldPosition;
+    }
+
+    /**
      * 댓글 등록 이벤트 메타데이터를 반영한다.
      * 댓글 테이블 도입 후 댓글 생성 시점에 호출할 수 있다.
      *
@@ -194,6 +205,19 @@ public class ProjectPin extends BaseEntity {
         this.commentCount = this.commentCount + 1;
         this.lastCommentAuthorUserId = commenterUserId;
         this.lastCommentAt = LocalDateTime.now();
+    }
+
+    /**
+     * 댓글 메타데이터를 현재 상태에 맞게 갱신한다.
+     *
+     * @param commentCount 반영할 전체 댓글 수(핀 본문 포함)
+     * @param lastCommentAt 마지막 댓글 시각
+     * @param lastCommentAuthorUserId 마지막 댓글 작성자 ID
+     */
+    public void updateCommentSummary(int commentCount, LocalDateTime lastCommentAt, UUID lastCommentAuthorUserId) {
+        this.commentCount = commentCount;
+        this.lastCommentAt = lastCommentAt;
+        this.lastCommentAuthorUserId = lastCommentAuthorUserId;
     }
 
     /**

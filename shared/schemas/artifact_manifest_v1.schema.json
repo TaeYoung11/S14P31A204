@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/artifact_manifest_v1.schema.json",
+  "title": "ArtifactManifestV1",
+  "description": "Canonical metadata manifest for a single stored artifact.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_id",
+    "project_id",
+    "artifact_type",
+    "file_name",
+    "mime_type",
+    "storage_url",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "artifact_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "revision_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "job_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "job_step_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "artifact_type": {
+      "type": "string",
+      "enum": [
+        "scene_2d_snapshot",
+        "scene_3d_context",
+        "planner_2d_result",
+        "planner_3d_result",
+        "engine_request",
+        "engine_preview_result",
+        "engine_apply_result",
+        "validation_report",
+        "ifc_model",
+        "render_image",
+        "revision_manifest"
+      ]
+    },
+    "file_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "mime_type": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "storage_url": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "sha256": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "size_bytes": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "content_schema": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "content_schema_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

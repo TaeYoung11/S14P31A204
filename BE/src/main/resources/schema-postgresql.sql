@@ -43,6 +43,25 @@ ALTER TABLE IF EXISTS project_pins
 ALTER TABLE IF EXISTS project_pins
     ALTER COLUMN version SET NOT NULL;
 
+ALTER TABLE IF EXISTS comments
+    ADD COLUMN IF NOT EXISTS status VARCHAR(20);
+
+UPDATE comments
+SET status = 'OPEN'
+WHERE status IS NULL;
+
+ALTER TABLE IF EXISTS comments
+    ALTER COLUMN status SET DEFAULT 'OPEN';
+
+ALTER TABLE IF EXISTS comments
+    ALTER COLUMN status SET NOT NULL;
+
+ALTER TABLE IF EXISTS comments
+    ADD COLUMN IF NOT EXISTS resolved_by_user_id UUID;
+
+ALTER TABLE IF EXISTS comments
+    ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP;
+
 CREATE TABLE IF NOT EXISTS pin_comment_read_states (
     pin_id UUID NOT NULL,
     user_id UUID NOT NULL,
@@ -79,3 +98,18 @@ CREATE INDEX IF NOT EXISTS idx_jobs_project_type_created_at
 
 CREATE INDEX IF NOT EXISTS idx_artifacts_project_job_type_created_at
     ON artifacts (project_id, job_id, artifact_type, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS project_workspaces (
+    project_id UUID PRIMARY KEY,
+    phase_status VARCHAR(30) NOT NULL,
+    bubble_snapshot_json JSONB,
+    ifc_storage_url VARCHAR(2048),
+    current_revision VARCHAR(50),
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    CONSTRAINT fk_project_workspaces_project
+        FOREIGN KEY (project_id) REFERENCES projects(project_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_workspaces_phase_status
+    ON project_workspaces (phase_status);

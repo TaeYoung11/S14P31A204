@@ -3,6 +3,8 @@ package com.a204.batang.domain.pin.entity;
 import com.a204.batang.global.common.entity.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -49,6 +51,16 @@ public class ProjectPinComment extends BaseEntity {
     @Column(name = "content", nullable = false, columnDefinition = "TEXT")
     private String content;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 20)
+    private PinStatus status;
+
+    @Column(name = "resolved_by_user_id")
+    private UUID resolvedByUserId;
+
+    @Column(name = "resolved_at")
+    private LocalDateTime resolvedAt;
+
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
@@ -56,6 +68,7 @@ public class ProjectPinComment extends BaseEntity {
         this.projectPin = projectPin;
         this.authorUserId = authorUserId;
         this.content = content;
+        this.status = PinStatus.OPEN;
     }
 
     /**
@@ -68,6 +81,26 @@ public class ProjectPinComment extends BaseEntity {
      */
     public static ProjectPinComment create(ProjectPin projectPin, UUID authorUserId, String content) {
         return new ProjectPinComment(projectPin, authorUserId, content);
+    }
+
+    /**
+     * 댓글 본문을 수정한다.
+     *
+     * @param content 수정할 댓글 본문
+     */
+    public void updateContent(String content) {
+        this.content = content;
+    }
+
+    /**
+     * 댓글 상태를 완료로 변경한다.
+     *
+     * @param resolverUserId 완료 처리 사용자 ID
+     */
+    public void markResolved(UUID resolverUserId) {
+        this.status = PinStatus.RESOLVED;
+        this.resolvedByUserId = resolverUserId;
+        this.resolvedAt = LocalDateTime.now();
     }
 
     /**

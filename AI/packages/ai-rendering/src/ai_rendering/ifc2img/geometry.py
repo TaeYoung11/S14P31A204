@@ -1,5 +1,6 @@
 """IFC 파일 → Open3D TriangleMesh 변환."""
 
+import math
 from pathlib import Path
 
 import ifcopenshell
@@ -8,6 +9,27 @@ import numpy as np
 import open3d as o3d  # type: ignore[import-untyped]
 
 from .exceptions import IFCRenderError
+
+WALL_NORMAL_VERTICAL_TOLERANCE = 0.1
+"""수직 면(벽) 필터 임계값 — |face_normal_z| < 이 값이면 벽으로 분류.
+
+지붕/슬래브(z 성분 큼) 제외하고 *facade 벽*만 사용해 axis-aligned 정렬 기준 산출.
+"""
+
+WALL_NORMAL_MIN_COUNT = 4
+"""회전 보정 적용 최소 벽 면 개수.
+
+직사각형 단순 박스 mesh도 4면(±x/±y) 최소 보유. 이보다 적으면 데이터 부족.
+*분포 신뢰도*는 `WALL_NORMAL_MIN_MAGNITUDE`가 별도 가드 — 4중 대칭 circular
+mean magnitude가 낮으면(둥근 건물 / 비표준 격자) 회전 미적용.
+"""
+
+WALL_NORMAL_MIN_MAGNITUDE = 0.3
+"""4× wrap circular mean magnitude 임계값.
+
+벽 면이 ±x/±y에 잘 정렬되면 magnitude → 1.0, 균등 분산이면 0.0.
+이보다 낮으면 둥근 건물 / 비표준 격자(45°) → fallback(무회전).
+"""
 
 SUPPORTED_SCHEMA_PREFIX = "IFC4"
 """지원 스키마 prefix — IFC4 계열 (IFC4, IFC4X1, IFC4X2, IFC4X3, ...).
@@ -107,6 +129,8 @@ def load_mesh(
     if len(vertices) == 0:
         raise IFCRenderError("추출된 geometry가 없습니다.")
 
+    vertices, _rotated = _align_walls_to_axes(vertices, faces)
+
     mesh = o3d.geometry.TriangleMesh()
     mesh.vertices = o3d.utility.Vector3dVector(vertices)
     mesh.triangles = o3d.utility.Vector3iVector(faces)
@@ -114,3 +138,83 @@ def load_mesh(
 
     center = (vertices.min(axis=0) + vertices.max(axis=0)) / 2
     return mesh, center
+
+
+def _align_walls_to_axes(
+    vertices: np.ndarray,
+    triangles: np.ndarray,
+) -> tuple[np.ndarray, bool]:
+    """수직 면(벽) 면법선이 ±x/±y에 정렬되도록 mesh 전체에 yaw 회전을 적용.
+
+    배경 (2026-04-29 Phase 1+2 Step 10 진단):
+    - PCA long_axis 정렬이 footprint 외곽 비대칭(부속/돌출/요철)에 끌려
+      facade 벽 axis와 정확히 어긋남 (haus +3.73° / SampleHouse +10.03° CCW 잔존).
+    - 벽 면법선의 4× wrap circular mean이 *시각적 facade 정렬*과 정합 →
+      PCA 대신 벽 normal mean을 정렬 기준으로 사용.
+
+    알고리즘:
+    1. mesh.triangles → face normal + face area 계산
+    2. 수직 면 필터 (|n_z| < WALL_NORMAL_VERTICAL_TOLERANCE) — 벽만, 지붕 제외
+    3. xy 면법선 각도 atan2 → 4× wrap (90° 4중 대칭) → 면적 가중 circular mean
+    4. ÷4 되돌림 → signed yaw 각도 [-22.5°, 22.5°]
+    5. mesh 전체를 -signed_yaw로 회전 (벽이 axis-aligned되도록)
+
+    Fallback (무회전):
+    - vertex 또는 face 부족
+    - 수직 면 < WALL_NORMAL_MIN_COUNT
+    - circular mean magnitude < WALL_NORMAL_MIN_MAGNITUDE (둥근 건물 / 45° 격자)
+
+    Returns:
+        (rotated_vertices, did_rotate) — did_rotate는 진단·테스트용.
+    """
+    if len(vertices) < 3 or len(triangles) == 0:
+        return vertices, False
+
+    v0 = vertices[triangles[:, 0]]
+    v1 = vertices[triangles[:, 1]]
+    v2 = vertices[triangles[:, 2]]
+    raw_n = np.cross(v1 - v0, v2 - v0)
+    nz_norm = np.linalg.norm(raw_n, axis=1)
+    valid = nz_norm > 1e-12
+    if not np.any(valid):
+        return vertices, False
+    raw_n = raw_n[valid]
+    nz_norm = nz_norm[valid]
+    area = 0.5 * nz_norm
+    normal = raw_n / nz_norm[:, None]
+
+    wall_mask = np.abs(normal[:, 2]) < WALL_NORMAL_VERTICAL_TOLERANCE
+    wall_normal = normal[wall_mask]
+    wall_area = area[wall_mask]
+    if len(wall_normal) < WALL_NORMAL_MIN_COUNT:
+        return vertices, False
+
+    angles_rad = np.arctan2(wall_normal[:, 1], wall_normal[:, 0])
+    quad_rad = angles_rad * 4.0
+    weights = wall_area / wall_area.sum()
+    mean_x = float(np.sum(np.cos(quad_rad) * weights))
+    mean_y = float(np.sum(np.sin(quad_rad) * weights))
+    magnitude = (mean_x * mean_x + mean_y * mean_y) ** 0.5
+    if magnitude < WALL_NORMAL_MIN_MAGNITUDE:
+        return vertices, False
+
+    signed_yaw = math.atan2(mean_y, mean_x) / 4.0
+    # mesh를 -signed_yaw 만큼 회전 (벽 normal이 axis-aligned되도록).
+    # centroid 기준 회전 — origin 기준이면 mean이 (0,0)이 아닐 때 mesh가 이동.
+    cos_t = math.cos(-signed_yaw)
+    sin_t = math.sin(-signed_yaw)
+    rot = np.array(
+        [
+            [cos_t, -sin_t, 0.0],
+            [sin_t, cos_t, 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    mean_xy = vertices[:, :2].mean(axis=0)
+    centered_3d = vertices.copy()
+    centered_3d[:, 0] -= mean_xy[0]
+    centered_3d[:, 1] -= mean_xy[1]
+    rotated = centered_3d @ rot.T
+    rotated[:, 0] += mean_xy[0]
+    rotated[:, 1] += mean_xy[1]
+    return rotated, True

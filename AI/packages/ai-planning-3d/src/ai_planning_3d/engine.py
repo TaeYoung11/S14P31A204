@@ -1,44 +1,79 @@
+from __future__ import annotations
+
+import logging
+
 import instructor
 from instructor.core.exceptions import InstructorRetryException
 from openai import AsyncOpenAI
-from .command import LLM3DCommand, LLM3DCommandType, LLM3DTarget, LLM3DElementType
-import logging
+
+from .command import (
+    COLOR_ALIASES,
+    LLM3DChanges,
+    LLM3DCommand,
+    LLM3DCommandType,
+    LLM3DCreateInfo,
+    LLM3DDimensionChange,
+    LLM3DElementType,
+    LLM3DMaterialChange,
+    LLM3DPosition,
+    LLM3DRoofShape,
+    LLM3DSizeMode,
+    LLM3DTarget,
+    MATERIAL_ALIASES,
+    SUPPORTED_MATERIAL_LIST,
+    UNSUPPORTED_MATERIAL_ALIASES,
+)
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """
-당신은 BIM(Building Information Modeling) 전문 AI입니다. 사용자의 자연어 명령을 분석하여 LLM3DCommand 스키마로 변환합니다.
+SYSTEM_PROMPT = (
+    "### ROLE: BIM DATA ARCHITECT & IFC COMMAND GENERATOR\n"
+    "You convert Korean natural language into one compact JSON object.\n"
+    "Return JSON only. Do not wrap it in markdown. Do not add unknown fields.\n"
+    "\n"
+    "### SMALL SCHEMA\n"
+    "Required top fields: command_type, target, changes, create_info, confidence, "
+    "raw_instruction, ambiguity_question.\n"
+    "Use null for unused objects.\n"
+    "\n"
+    "### NORMALIZATION\n"
+    "element_type values: IfcWall, IfcRoof, IfcColumn, IfcBeam, IfcSlab, IfcDoor, IfcWindow.\n"
+    "storey: 1층=1F, 2층=2F, 옥상/RF=RF.\n"
+    "space_name: 거실=Living Room, 안방/침실=Bedroom, 화장실/욕실=Bathroom.\n"
+    "direction: 북쪽=North, 남쪽=South, 동쪽/오른쪽=East, 서쪽/왼쪽=West.\n"
+    "color: 흰색=White, 빨간색=Red.\n"
+    f"material allowed values only: {SUPPORTED_MATERIAL_LIST}.\n"
+    "material aliases: 콘크리트=Concrete, 벽돌=Brick, 강철/철=Steel, "
+    "목재/나무=Wood, 유리=Glass, 석재/돌=Stone, 타일=Tile.\n"
+    "\n"
+    "### RULES\n"
+    "MODIFY dimension fields must be objects: {\"mode\":\"ABSOLUTE|RELATIVE\",\"value\":number}.\n"
+    "두껍게/더/올려/높게 without fixed final size means RELATIVE. 설정/맞춰/로 means ABSOLUTE.\n"
+    "DELETE must include changes {\"deletion\":true}.\n"
+    "CREATE must fill create_info. If storey or direction is missing, ask ambiguity_question, "
+    "except roof on 옥상 may use storey RF and direction North.\n"
+    "박공지붕 means create_info.shape_preset=\"GABLED\".\n"
+    "If target or numeric value is too vague, set ambiguity_question and confidence 0.1.\n"
+    "\n"
+    "### EXAMPLES\n"
+    "{\"command_type\":\"MODIFY\",\"target\":{\"element_type\":\"IfcWall\",\"storey\":\"1F\"},"
+    "\"changes\":{\"width_mm\":{\"mode\":\"RELATIVE\",\"value\":50}},"
+    "\"create_info\":null,\"confidence\":1,\"raw_instruction\":\"1층 외벽 두께 50mm 더\","
+    "\"ambiguity_question\":null}\n"
+    "{\"command_type\":\"CREATE\",\"target\":{\"element_type\":\"IfcRoof\"},\"changes\":null,"
+    "\"create_info\":{\"element_type\":\"IfcRoof\",\"storey\":\"RF\",\"direction\":\"North\","
+    "\"color\":\"Red\",\"shape_preset\":\"GABLED\"},\"confidence\":1,"
+    "\"raw_instruction\":\"옥상에 빨간색 박공지붕 만들어줘\",\"ambiguity_question\":null}\n"
+)
 
-[경고: 절대 규칙]
-- 정보가 조금이라도 부족하면 1초도 고민하지 말고 즉시 `ambiguity_question` 필드를 채우십시오.
-- 단, '모든', '전체', '건물 전체'와 같이 대상을 전체로 지정한 경우는 위치(층, 공간) 정보가 없어도 즉시 파싱하십시오.
-- 절대 층(storey)이나 공간(space_name)을 마음대로 지어내지 마십시오.
-- 타겟을 특정할 수 없다면 `command_type: "MODIFY"`, `confidence: 0.1`로 고정하고 질문만 던지십시오.
-2. [생성(CREATE) 규칙]: 
-   - '어디에(storey, space_name)'와 '어느 쪽(direction: North/South/East/West)'이 필수입니다.
-   - 방향이 없으면 절대 생성하지 말고 물으십시오.
-3. [수정 제한]: 문(IfcDoor), 창문(IfcWindow)의 치수 변경(키워줘, 높여줘 등) 요청은 정책상 금지됩니다.
-   - 이 경우 `ambiguity_question`으로 거절 사유를 밝히십시오.
-
-▶ 예시: 타겟 불명확 (재질문 유도)
-입력: "벽 두껍게 해줘"
-출력: {"command_type":"MODIFY","target":{"element_type":"IfcWall"},"confidence":0.2,"ambiguity_question":"어느 위치(층, 공간)에 있는 벽을 두껍게 할까요?","raw_instruction":"벽 두껍게 해줘"}
-
-▶ 예시: 삭제 요청 (공간 인식)
-입력: "현관 중문 삭제해줘"
-출력: {"command_type":"DELETE","target":{"element_type":"IfcDoor","space_name":"Entrance"},"changes":{"deletion":true},"confidence":0.9,"raw_instruction":"현관 중문 삭제해줘"}
-
-▶ 예시: 층 정보 포함 삭제
-입력: "B1층 창고 서쪽 벽 삭제"
-출력: {"command_type":"DELETE","target":{"element_type":"IfcWall","storey":"B1","space_name":"Storage","direction":"West"},"changes":{"deletion":true},"confidence":0.95,"raw_instruction":"B1층 창고 서쪽 벽 삭제"}
-
-▶ 예시: 생성 요청 (CREATE)
-입력: "1층 거실 동쪽에 3m 벽 생성"
-출력: {"command_type":"CREATE","target":{"element_type":"IfcWall"},"create_info":{"element_type":"IfcWall","length_mm":3000,"direction":"East","storey":"1F","space_name":"Living Room"},"confidence":0.95,"raw_instruction":"1층 거실 동쪽에 3m 벽 생성"}
-"""
 
 class LLM3DEngine:
-    def __init__(self, model="qwen2.5:7b", base_url=None, api_key=None):
+    def __init__(
+        self,
+        model: str = "qwen2.5:7b",
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ):
         self._raw_client = AsyncOpenAI(
             base_url=base_url or "http://localhost:11434/v1",
             api_key=api_key or "ollama",
@@ -53,21 +88,378 @@ class LLM3DEngine:
                 response_model=LLM3DCommand,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user",   "content": user_text},
+                    {"role": "user", "content": user_text},
                 ],
-                temperature=0.05,
+                temperature=0.0,
+                top_p=0.1,
                 max_retries=1,
             )
-            return command
+            return self._repair_or_replace(user_text, command)
         except InstructorRetryException:
             logger.warning(f"[LLM3DEngine] 파싱 실패 → 재질문 응답으로 대체: {user_text!r}")
-            return LLM3DCommand(
-                command_type=LLM3DCommandType.MODIFY,
-                target=LLM3DTarget(element_type=LLM3DElementType.WALL),
-                confidence=0.1,
-                raw_instruction=user_text,
-                ambiguity_question="명령을 정확히 이해하지 못했습니다. 더 구체적으로 말씀해 주세요.",
-            )
+            return self._heuristic_parse(user_text)
         except Exception as exc:
             logger.error(f"[LLM3DEngine] 파싱 실패: {exc}", exc_info=True)
             raise
+
+    def _repair_or_replace(self, user_text: str, command: LLM3DCommand) -> LLM3DCommand:
+        if not command.raw_instruction:
+            command = command.model_copy(update={"raw_instruction": user_text})
+        requested_type = self._command_type(user_text)
+
+        invalid_material = self._invalid_material(user_text)
+        if invalid_material:
+            return self._unsupported_material(user_text, invalid_material)
+        if self._is_ambiguous(user_text):
+            return self._ambiguous(user_text, self._ambiguity_reason(user_text))
+        if command.command_type != requested_type:
+            return self._heuristic_parse(user_text)
+
+        if command.command_type == LLM3DCommandType.CREATE:
+            if command.create_info is None:
+                return self._heuristic_parse(user_text)
+            heuristic_info: LLM3DCreateInfo | None = None
+            create_info = command.create_info
+            if create_info.storey is None:
+                heuristic_info = heuristic_info or self._create_info(user_text)
+                create_info = create_info.model_copy(update={"storey": heuristic_info.storey})
+            if create_info.direction is None:
+                heuristic_info = heuristic_info or self._create_info(user_text)
+                create_info = create_info.model_copy(update={"direction": heuristic_info.direction})
+            if create_info.space_name is None:
+                heuristic_info = heuristic_info or self._create_info(user_text)
+                create_info = create_info.model_copy(
+                    update={"space_name": heuristic_info.space_name}
+                )
+            if create_info.color is None:
+                heuristic_info = heuristic_info or self._create_info(user_text)
+                create_info = create_info.model_copy(update={"color": heuristic_info.color})
+            if create_info.shape_preset is None:
+                heuristic_info = heuristic_info or self._create_info(user_text)
+                create_info = create_info.model_copy(
+                    update={"shape_preset": heuristic_info.shape_preset}
+                )
+            if create_info is not command.create_info:
+                command = command.model_copy(update={"create_info": create_info})
+            if create_info.storey is None or create_info.direction is None:
+                return self._ambiguous(user_text, "CREATE에는 층과 방향 정보가 필요합니다.")
+            if command.ambiguity_question:
+                command = command.model_copy(
+                    update={
+                        "ambiguity_question": None,
+                        "confidence": max(command.confidence, 1.0),
+                    }
+                )
+            return command
+
+        if command.command_type == LLM3DCommandType.DELETE:
+            if command.changes is None or not command.changes.deletion:
+                command = command.model_copy(update={"changes": LLM3DChanges(deletion=True)})
+            return command
+
+        if command.command_type == LLM3DCommandType.MODIFY:
+            if command.changes is None:
+                return self._heuristic_parse(user_text)
+            heuristic_target: LLM3DTarget | None = None
+            target = command.target
+            if target.storey is None:
+                heuristic_target = heuristic_target or self._target(user_text)
+                target = target.model_copy(update={"storey": heuristic_target.storey})
+            if target.space_name is None:
+                heuristic_target = heuristic_target or self._target(user_text)
+                target = target.model_copy(update={"space_name": heuristic_target.space_name})
+            if target.direction is None:
+                heuristic_target = heuristic_target or self._target(user_text)
+                target = target.model_copy(update={"direction": heuristic_target.direction})
+            if target.element_type == LLM3DElementType.WALL:
+                heuristic_target = heuristic_target or self._target(user_text)
+                target = target.model_copy(update={"element_type": heuristic_target.element_type})
+            if target is not command.target:
+                command = command.model_copy(update={"target": target})
+
+        if command.ambiguity_question:
+            heuristic = self._heuristic_parse(user_text)
+            if heuristic.confidence > command.confidence:
+                return heuristic
+        return command
+
+    def _heuristic_parse(self, text: str) -> LLM3DCommand:
+        invalid_material = self._invalid_material(text)
+        if invalid_material:
+            return self._unsupported_material(text, invalid_material)
+
+        if self._is_ambiguous(text):
+            return self._ambiguous(text, self._ambiguity_reason(text))
+
+        command_type = self._command_type(text)
+        target = self._target(text)
+
+        if command_type == LLM3DCommandType.CREATE:
+            create_info = self._create_info(text)
+            missing = []
+            if not create_info.storey:
+                missing.append("층")
+            if not create_info.direction:
+                missing.append("방향")
+            if missing:
+                return self._ambiguous(text, f"CREATE에는 {', '.join(missing)} 정보가 필요합니다.")
+            return LLM3DCommand(
+                command_type=command_type,
+                target=LLM3DTarget(element_type=create_info.element_type),
+                changes=None,
+                create_info=create_info,
+                confidence=1.0,
+                raw_instruction=text,
+            )
+
+        if command_type == LLM3DCommandType.DELETE:
+            return LLM3DCommand(
+                command_type=command_type,
+                target=target,
+                changes=LLM3DChanges(deletion=True),
+                create_info=None,
+                confidence=1.0,
+                raw_instruction=text,
+            )
+
+        changes = self._changes(text)
+        if changes is None:
+            return self._ambiguous(text, "수정할 속성이나 수치가 명확하지 않습니다.")
+        return LLM3DCommand(
+            command_type=command_type,
+            target=target,
+            changes=changes,
+            create_info=None,
+            confidence=1.0,
+            raw_instruction=text,
+        )
+
+    def _command_type(self, text: str) -> LLM3DCommandType:
+        if any(word in text for word in ("삭제", "지워", "제거")):
+            return LLM3DCommandType.DELETE
+        if any(word in text for word in ("만들", "생성", "세워", "추가")):
+            return LLM3DCommandType.CREATE
+        return LLM3DCommandType.MODIFY
+
+    def _target(self, text: str) -> LLM3DTarget:
+        return LLM3DTarget(
+            element_type=self._element_type(text),
+            storey=self._storey(text),
+            space_name=self._space(text),
+            direction=self._direction(text),
+            select_all=False,
+        )
+
+    def _create_info(self, text: str) -> LLM3DCreateInfo:
+        element_type = self._element_type(text)
+        storey = self._storey(text)
+        direction = self._direction(text)
+        if element_type == LLM3DElementType.ROOF and "옥상" in text:
+            storey = storey or "RF"
+            direction = direction or "North"
+
+        return LLM3DCreateInfo(
+            element_type=element_type,
+            storey=storey,
+            space_name=self._space(text),
+            direction=direction,
+            color=self._color(text),
+            material=self._material(text),
+            shape_preset=LLM3DRoofShape.GABLED if "박공지붕" in text else None,
+            length_mm=3000.0 if element_type == LLM3DElementType.WALL else None,
+        )
+
+    def _changes(self, text: str) -> LLM3DChanges | None:
+        material = self._material(text)
+        color = self._color(text)
+
+        if "두께" in text or "두껍" in text:
+            value = self._number_mm(text)
+            if value is None:
+                return None
+            return LLM3DChanges(
+                width_mm=LLM3DDimensionChange(mode=LLM3DSizeMode.RELATIVE, value=value),
+                material=material,
+                color=color,
+            )
+
+        if "높이" in text or "높게" in text:
+            value = self._number_mm(text)
+            if value is None:
+                return None
+            mode = (
+                LLM3DSizeMode.ABSOLUTE
+                if any(w in text for w in ("설정", "맞춰", "로"))
+                else LLM3DSizeMode.RELATIVE
+            )
+            return LLM3DChanges(
+                height_mm=LLM3DDimensionChange(mode=mode, value=value),
+                material=material,
+                color=color,
+            )
+
+        if "밀어" in text or "당겨" in text:
+            value = self._number_mm(text)
+            if value is None:
+                return None
+            if "당겨" in text or "안으로" in text:
+                value = -abs(value)
+            return LLM3DChanges(face_offset_mm=value, material=material, color=color)
+
+        if "이동" in text or "오른쪽" in text or "왼쪽" in text:
+            value = self._number_mm(text)
+            if value is None:
+                return None
+            x = value if "오른쪽" in text or "동쪽" in text else -value
+            return LLM3DChanges(
+                position_mm=LLM3DPosition(mode=LLM3DSizeMode.RELATIVE, x=x, y=0.0, z=0.0),
+                material=material,
+                color=color,
+            )
+
+        if "돌리" in text or "회전" in text:
+            value = self._number(text)
+            return LLM3DChanges(rotation_deg=value or 0.0, material=material, color=color)
+
+        if material or color:
+            return LLM3DChanges(material=material, color=color)
+        return None
+
+    def _element_type(self, text: str) -> LLM3DElementType:
+        import re
+        if re.search(r"지붕|루프|roof", text, re.I):
+            return LLM3DElementType.ROOF
+        if re.search(r"기둥|column", text, re.I):
+            return LLM3DElementType.COLUMN
+        if re.search(r"빔|(?<![가-힣])보(?![가-힣])|beam", text, re.I):
+            return LLM3DElementType.BEAM
+        if re.search(r"슬래브|바닥|slab", text, re.I):
+            return LLM3DElementType.SLAB
+        if re.search(r"(?<![가-힣])문(?![가-힣])|door", text, re.I):
+            return LLM3DElementType.DOOR
+        if re.search(r"창문|창측|window", text, re.I):
+            return LLM3DElementType.WINDOW
+        return LLM3DElementType.WALL
+
+    def _storey(self, text: str) -> str | None:
+        if "지하2" in text:
+            return "B2"
+        if "지하1" in text:
+            return "B1"
+        if "1층" in text:
+            return "1F"
+        if "2층" in text:
+            return "2F"
+        if "3층" in text:
+            return "3F"
+        if "옥상" in text or "옥탑" in text or "루프" in text:
+            return "RF"
+        return None
+
+    def _space(self, text: str) -> str | None:
+        if "거실" in text:
+            return "Living Room"
+        if "안방" in text or "침실" in text:
+            return "Bedroom"
+        if "화장실" in text or "욕실" in text:
+            return "Bathroom"
+        if "주방" in text or "부엌" in text:
+            return "Kitchen"
+        return None
+
+    def _direction(self, text: str) -> str | None:
+        if "북쪽" in text or "북측" in text:
+            return "North"
+        if "남쪽" in text or "남측" in text:
+            return "South"
+        if "동쪽" in text or "동측" in text or "오른쪽" in text:
+            return "East"
+        if "서쪽" in text or "서측" in text or "왼쪽" in text:
+            return "West"
+        return None
+
+    def _color(self, text: str) -> str | None:
+        lower_text = text.lower()
+        for alias, color_name in COLOR_ALIASES.items():
+            if alias in text or alias.lower() in lower_text:
+                return color_name
+        if "흰색" in text or "하얀" in text:
+            return "White"
+        if "빨간" in text or "빨강" in text:
+            return "Red"
+        return None
+
+    def _material(self, text: str) -> LLM3DMaterialChange | None:
+        lower_text = text.lower()
+        for alias, material_name in MATERIAL_ALIASES.items():
+            if alias in text or alias.lower() in lower_text:
+                return LLM3DMaterialChange(name=material_name)
+        return None
+
+    def _invalid_material(self, text: str) -> str | None:
+        lower_text = text.lower()
+        for keyword, label in UNSUPPORTED_MATERIAL_ALIASES.items():
+            if keyword in text or keyword.lower() in lower_text:
+                return label
+        return None
+
+    def _number(self, text: str) -> float | None:
+        import re
+
+        match = re.search(r"(\d+(?:\.\d+)?)", text)
+        return float(match.group(1)) if match else None
+
+    def _number_mm(self, text: str) -> float | None:
+        import re
+
+        # 1. 단위가 명시된 숫자 우선 검색 (mm, m, 미터)
+        match = re.search(r"(\d+(?:\.\d+)?)\s*(mm|m|미터)", text)
+        if match:
+            value = float(match.group(1))
+            unit = match.group(2)
+            if unit in ("m", "미터"):
+                value *= 1000.0
+            return value
+
+        # 2. 단위가 없지만 층 번호가 아닌 숫자 검색 (부정 후방 탐색으로 '층' 제외)
+        match = re.search(r"(\d+(?:\.\d+)?)(?!\s*층)", text)
+        if match:
+            return float(match.group(1))
+
+        return None
+
+    def _is_ambiguous(self, text: str) -> bool:
+        return (
+            "좀 더" in text
+            or "이쪽" in text
+            or "10m 넘게" in text
+            or ("크기" in text and not self._direction(text))
+        )
+
+    def _ambiguity_reason(self, text: str) -> str:
+        if "이쪽" in text:
+            return "지시어만으로는 대상 면을 특정할 수 없습니다."
+        if "10m 넘게" in text:
+            return "최종 높이 수치가 모호하고 허용 범위를 넘을 수 있습니다."
+        if "크기" in text:
+            return "방 크기 변경에는 늘릴 방향과 수치가 필요합니다."
+        return "명령을 정확히 이해하지 못했습니다. 더 구체적으로 말씀해 주세요."
+
+    def _ambiguous(self, text: str, question: str) -> LLM3DCommand:
+        return LLM3DCommand(
+            command_type=LLM3DCommandType.MODIFY,
+            target=LLM3DTarget(element_type=LLM3DElementType.WALL),
+            changes=None,
+            confidence=0.1,
+            raw_instruction=text,
+            ambiguity_question=question,
+        )
+
+    def _unsupported_material(self, text: str, material: str) -> LLM3DCommand:
+        return self._ambiguous(
+            text,
+            (
+                f"{material} 재질은 지원하지 않습니다. 사용 가능한 재질은 "
+                f"{SUPPORTED_MATERIAL_LIST} 입니다."
+            ),
+        )

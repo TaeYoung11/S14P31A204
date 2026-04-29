@@ -111,7 +111,8 @@ def render_one(
 ) -> dict[str, Any]:
     """1개 조합 render + 저장. manifest entry dict 반환.
 
-    preset YAML 기본값 위에 sweep_overrides (strength/guidance/steps/conditioning_scale) + seed 덮어씀.
+    preset YAML 기본값 위에 sweep_overrides
+    (strength/guidance/steps/conditioning_scale) + seed 덮어씀.
     render 실패 시 status='failed' + error 메시지로 기록, 파일 저장 없음.
     """
     base_params = load_preset(preset_name)
@@ -237,7 +238,8 @@ def main(argv: list[str] | None = None) -> int:
     # 사전 검증: controlnet_conditioning_scale 이 있으면 --controlnet 필수
     if not args.controlnet and "controlnet_conditioning_scale" in config.get("sweep", {}):
         print(
-            "[error] sweep config 에 controlnet_conditioning_scale 이 있지만 --controlnet 플래그가 없습니다.\n"
+            "[error] sweep config 에 controlnet_conditioning_scale 이 있지만 "
+            "--controlnet 플래그가 없습니다.\n"
             "        ControlNet 사용:      --controlnet 추가\n"
             "        plain img2img 사용:   sweep 에서 controlnet_conditioning_scale 제거",
             file=sys.stderr,
@@ -313,7 +315,11 @@ def main(argv: list[str] | None = None) -> int:
     print("\n[grid] generating contact sheets...")
     grid_rc = make_grid_main(["--run", str(run_dir)])
     if grid_rc != 0:
-        print(f"[warn] grid generation failed (exit {grid_rc}) — renders saved, grids 미생성", file=sys.stderr)
+        print(
+            f"[warn] grid generation failed (exit {grid_rc}) — "
+            "renders saved, grids 미생성",
+            file=sys.stderr,
+        )
 
     failed_count = sum(1 for e in manifest if e["status"] == "failed")
     return 0 if (failed_count == 0 and grid_rc == 0) else 1

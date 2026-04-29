@@ -87,6 +87,42 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "applied"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": ["invalid_request", "not_found", "rejected", "failed"]
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "ok": {
+            "const": false
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "safeId": {
       "type": "string",

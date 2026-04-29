@@ -47,7 +47,12 @@ from ai_rendering.ifc2img import (
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="IFC → depth → 스타일 풀 파이프라인")
-    p.add_argument("--ifc", required=True, type=Path, help="IFC4 계열 파일 경로 (IFC4 / IFC4X1 / IFC4X3 등)")
+    p.add_argument(
+        "--ifc",
+        required=True,
+        type=Path,
+        help="IFC4 계열 파일 경로 (IFC4 / IFC4X1 / IFC4X3 등)",
+    )
     p.add_argument(
         "--preset",
         default="all",
@@ -148,7 +153,8 @@ def _render_styles(
             done += 1
             t1 = time.time()
             params = load_preset(preset_name)
-            result = style_renderer.render(depth, params)
+            # view 인자 — baseline view-aware 합성 (prompt suffix + cn_scale override).
+            result = style_renderer.render(depth, params, view=view)
             out_path = output_dir / f"style_{view.value}_{preset_name}.png"
             result.save(out_path)
             print(
