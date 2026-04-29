@@ -359,9 +359,10 @@
                 "const": "EXTERIOR"
               }
             },
-            "required": ["kind", "room_ids"]
+            "required": ["kind"]
           },
           "then": {
+            "required": ["room_ids"],
             "properties": {
               "room_ids": {
                 "minItems": 1,
@@ -377,9 +378,10 @@
                 "enum": ["INTERIOR", "PARTITION"]
               }
             },
-            "required": ["kind", "room_ids"]
+            "required": ["kind"]
           },
           "then": {
+            "required": ["room_ids"],
             "properties": {
               "room_ids": {
                 "minItems": 2,
