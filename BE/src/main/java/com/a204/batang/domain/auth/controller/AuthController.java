@@ -14,6 +14,8 @@ import com.a204.batang.domain.auth.dto.response.SignupResponse;
 import com.a204.batang.domain.auth.dto.response.VerifyEmailCodeResponse;
 import com.a204.batang.domain.auth.service.AuthService;
 import com.a204.batang.global.common.ApiResponse;
+import com.a204.batang.global.exception.CustomException;
+import com.a204.batang.global.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -162,7 +164,7 @@ public class AuthController {
 
     private String extractAccessToken(String bearerToken) {
         if (bearerToken == null || !bearerToken.startsWith("Bearer ")) {
-            throw new IllegalArgumentException("Authorization 헤더가 필요합니다.");
+            throw new CustomException(ErrorCode.UNAUTHORIZED, "Authorization 헤더가 필요합니다.");
         }
         return bearerToken.substring(7);
     }

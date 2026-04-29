@@ -24,6 +24,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.util.UUID;
 
 /**
@@ -35,6 +36,7 @@ import java.util.UUID;
 public class AuthServiceImpl implements AuthService {
 
     private static final long REFRESH_TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000L;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final MemberRepository memberRepository;
     private final JwtUtil jwtUtil;
@@ -55,7 +57,7 @@ public class AuthServiceImpl implements AuthService {
             throw new IllegalArgumentException("이미 가입된 이메일입니다.");
         }
 
-        String code = String.format("%06d", (int) (Math.random() * 1_000_000));
+        String code = String.format("%06d", SECURE_RANDOM.nextInt(1_000_000));
         redisService.saveEmailCode(request.email(), code);
         emailService.sendVerifyCode(request.email(), code);
 

@@ -56,7 +56,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             } catch (ExpiredJwtException e) {
                 response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "만료된 토큰입니다.");
                 return;
-            } catch (JwtException e) {
+            } catch (JwtException | IllegalArgumentException e) {
                 response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "유효하지 않은 토큰입니다.");
                 return;
             }
