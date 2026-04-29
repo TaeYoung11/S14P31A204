@@ -141,7 +141,8 @@ def _align_long_axis_to_x(
     if len(vertices) < 3:
         return vertices, False
     xy = vertices[:, :2]
-    centered = xy - xy.mean(axis=0)
+    mean_xy = xy.mean(axis=0)
+    centered = xy - mean_xy
     cov = np.cov(centered.T)
     eigvals, eigvecs = np.linalg.eigh(cov)
     if eigvals[0] < 1e-12:
@@ -156,9 +157,16 @@ def _align_long_axis_to_x(
         return vertices, False
     cos_t /= norm
     sin_t /= norm
+    # eigh의 ±v 비결정성 정규화 — long_xy를 +x 쪽으로 고정해 같은 입력에
+    # 같은 결과 보장. cos_t<0 또는 cos_t≈0이면서 sin_t<0이면 뒤집기.
+    if cos_t < 0 or (abs(cos_t) < 1e-9 and sin_t < 0):
+        cos_t = -cos_t
+        sin_t = -sin_t
     # long_axis가 +x로 가도록 회전 — 역행렬 (cos, sin; -sin, cos)을 xy에 곱.
-    # [x']   [ cos_t  sin_t] [x]
-    # [y'] = [-sin_t  cos_t] [y]
+    # mean을 빼고 회전 후 다시 더함 (centroid 기준 회전) — origin 기준 회전 시
+    # mean이 (0,0)이 아니면 mesh 전체가 이동해 카메라/AABB 정렬이 깨짐.
+    # [x']   [ cos_t  sin_t] [x - mean_x]   [mean_x]
+    # [y'] = [-sin_t  cos_t] [y - mean_y] + [mean_y]
     rot = np.array(
         [
             [cos_t, sin_t, 0.0],
@@ -166,5 +174,10 @@ def _align_long_axis_to_x(
             [0.0, 0.0, 1.0],
         ]
     )
-    rotated = vertices @ rot.T
+    centered_3d = vertices.copy()
+    centered_3d[:, 0] -= mean_xy[0]
+    centered_3d[:, 1] -= mean_xy[1]
+    rotated = centered_3d @ rot.T
+    rotated[:, 0] += mean_xy[0]
+    rotated[:, 1] += mean_xy[1]
     return rotated, True
