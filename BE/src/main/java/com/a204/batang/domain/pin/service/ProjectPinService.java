@@ -206,7 +206,7 @@ public class ProjectPinService {
                 size,
                 Sort.by(Sort.Direction.ASC, "createdAt")
         );
-        Page<ProjectPin> pinPage = projectPinRepository.findActivePinsByProjectId(projectId, pageable);
+        Page<ProjectPin> pinPage = projectPinRepository.findActivePinsByProjectId(projectId, PinStatus.RESOLVED, pageable);
         List<ProjectPin> pins = pinPage.getContent();
 
         LocalDateTime lastPinReadAt = resolveLastPinReadAt(projectId, currentUserId);
@@ -352,14 +352,14 @@ public class ProjectPinService {
             return new PinUnreadSummary(false, 0);
         }
 
-        long hasPinCount = projectPinRepository.countActiveOtherUserPins(projectId, currentUserId);
+        long hasPinCount = projectPinRepository.countActiveOtherUserPins(projectId, currentUserId, PinStatus.RESOLVED);
         if (hasPinCount == 0L) {
             return new PinUnreadSummary(false, 0);
         }
 
         long unreadCount = lastPinReadAt == null
                 ? hasPinCount
-                : projectPinRepository.countUnreadOtherUserPins(projectId, currentUserId, lastPinReadAt);
+                : projectPinRepository.countUnreadOtherUserPins(projectId, currentUserId, lastPinReadAt, PinStatus.RESOLVED);
 
         return new PinUnreadSummary(true, Math.toIntExact(unreadCount));
     }
@@ -379,7 +379,8 @@ public class ProjectPinService {
         long count = projectPinCommentRepository.countUnreadCommentPins(
                 projectId,
                 currentUserId,
-                UNREAD_FALLBACK_AT
+                UNREAD_FALLBACK_AT,
+                PinStatus.RESOLVED
         );
         return Math.toIntExact(count);
     }
@@ -403,7 +404,8 @@ public class ProjectPinService {
         return Set.copyOf(projectPinCommentRepository.findUnreadCommentPinIdsByUser(
                 pinIds,
                 currentUserId,
-                UNREAD_FALLBACK_AT
+                UNREAD_FALLBACK_AT,
+                PinStatus.RESOLVED
         ));
     }
 
