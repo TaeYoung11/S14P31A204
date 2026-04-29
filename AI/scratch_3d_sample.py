@@ -22,9 +22,8 @@ import ifcopenshell.guid
 import os
 
 # ── 출력 경로: Downloads 폴더 ──────────────────────────
-OUT_PATH = os.path.normpath(
-    os.path.join(os.environ["USERPROFILE"], "Downloads", "batang_sample.ifc")
-)
+UP = os.environ["USERPROFILE"]
+OUT_PATH = os.path.normpath(os.path.join(UP, "Downloads", "batang_sample.ifc"))
 
 
 # ══════════════════════════════════════════════════════════════════════════════

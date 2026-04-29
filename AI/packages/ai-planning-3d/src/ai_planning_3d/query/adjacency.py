@@ -14,7 +14,10 @@ import ifcopenshell
 logger = logging.getLogger(__name__)
 
 DIRECTION_VECTORS: dict[str, tuple[float, float]] = {
-    "north": (0.0, 1.0), "south": (0.0, -1.0), "east": (1.0, 0.0), "west": (-1.0, 0.0),
+    "north": (0.0, 1.0),
+    "south": (0.0, -1.0),
+    "east": (1.0, 0.0),
+    "west": (-1.0, 0.0),
 }
 
 DIRECTION_KO_ALIASES: dict[str, str] = {
@@ -151,11 +154,70 @@ class AdjacencyQueryEngine:
     def _element_to_dict(self, element: ifcopenshell.entity_instance) -> dict[str, Any]:
         center = self._element_center_mm(element) or (0.0, 0.0, 0.0)
         cx, cy, cz = center
+        lx, ly, lz = self._element_dims_mm(element)
         return {
-            "global_id": element.GlobalId, "element_type": element.is_a(), "name": element.Name,
+            "global_id": element.GlobalId,
+            "element_type": element.is_a(),
+            "name": element.Name,
             "center_mm": {"x": cx, "y": cy, "z": cz},
-            "dims": {"z_mm": cz, "height_mm": 2400.0, "width_mm": 200.0, "length_mm": 3000.0}
+            "dims": {
+                "z_mm": cz,
+                "height_mm": lz,
+                "width_mm": ly,
+                "length_mm": lx,
+            },
         }
+
+    def _element_dims_mm(
+        self,
+        element: ifcopenshell.entity_instance,
+    ) -> tuple[float, float, float]:
+        rep = getattr(element, "Representation", None)
+        if not rep:
+            return 0.0, 0.0, 0.0
+
+        for representation in getattr(rep, "Representations", []) or []:
+            if getattr(representation, "RepresentationIdentifier", None) != "Body":
+                continue
+            for item in getattr(representation, "Items", []) or []:
+                if item.is_a("IfcExtrudedAreaSolid"):
+                    profile = getattr(item, "SweptArea", None)
+                    if profile and profile.is_a("IfcRectangleProfileDef"):
+                        return (
+                            float(profile.XDim) * self._scale,
+                            float(profile.YDim) * self._scale,
+                            float(item.Depth) * self._scale,
+                        )
+                    dims = self._profile_dims_mm(profile)
+                    if dims is not None:
+                        return dims[0], dims[1], float(item.Depth) * self._scale
+        return 0.0, 0.0, 0.0
+
+    def _profile_dims_mm(
+        self,
+        profile: ifcopenshell.entity_instance | None,
+    ) -> tuple[float, float] | None:
+        if not profile or not profile.is_a("IfcArbitraryClosedProfileDef"):
+            return None
+
+        curve = getattr(profile, "OuterCurve", None)
+        points: list[tuple[float, float]] = []
+        if curve and curve.is_a("IfcIndexedPolyCurve"):
+            point_list = getattr(curve, "Points", None)
+            for coords in getattr(point_list, "CoordList", []) or []:
+                if len(coords) >= 2:
+                    points.append((float(coords[0]), float(coords[1])))
+        elif curve and curve.is_a("IfcPolyline"):
+            for point in getattr(curve, "Points", []) or []:
+                coords = tuple(getattr(point, "Coordinates", ()) or ())
+                if len(coords) >= 2:
+                    points.append((float(coords[0]), float(coords[1])))
+
+        if not points:
+            return None
+        xs = [point[0] for point in points]
+        ys = [point[1] for point in points]
+        return (max(xs) - min(xs)) * self._scale, (max(ys) - min(ys)) * self._scale
 
     def _normalize_direction(self, direction: str | None) -> str | None:
         if not direction:
@@ -165,7 +227,9 @@ class AdjacencyQueryEngine:
         return normalized if normalized in DIRECTION_VECTORS else None
 
     def _extract_direction_from_text(self, text: str) -> str | None:
-        for alias in DIRECTION_KO_ALIASES:
-            if alias in text:
-                return DIRECTION_KO_ALIASES[alias]
+        key = text.strip().lower()
+        combined = {**DIRECTION_KO_ALIASES, **{name: name for name in DIRECTION_VECTORS}}
+        for alias, normalized in combined.items():
+            if alias in key:
+                return normalized
         return None
