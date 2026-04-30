@@ -131,7 +131,7 @@ def _validated_shared_wall_segments(request: LayoutImportV2) -> list[SharedWallS
         candidate_segments = [
             segment
             for segment in _shared_segments_for_candidate(candidate)
-            if segment[1] not in boundary_edges
+            if not _is_segment_on_any_boundary_edge_mm(segment[1], boundary_edges)
         ]
         if not candidate_segments:
             floor, from_room_id, to_room_id, _, _ = candidate
@@ -207,6 +207,44 @@ def _shared_segment_key(
     floor, edge = segment
     start_point, end_point = edge
     return floor, start_point, end_point
+
+
+def _is_segment_on_any_boundary_edge_mm(
+    shared_edge: RoomEdgeMm,
+    boundary_edges: set[RoomEdgeMm],
+) -> bool:
+    return any(
+        _is_segment_on_boundary_edge_mm(shared_edge, boundary_edge)
+        for boundary_edge in boundary_edges
+    )
+
+
+def _is_segment_on_boundary_edge_mm(
+    shared_edge: RoomEdgeMm,
+    boundary_edge: RoomEdgeMm,
+) -> bool:
+    (sx1, sy1), (sx2, sy2) = shared_edge
+    (bx1, by1), (bx2, by2) = boundary_edge
+
+    shared_is_horizontal = math.isclose(sy1, sy2, abs_tol=1.0e-9)
+    boundary_is_horizontal = math.isclose(by1, by2, abs_tol=1.0e-9)
+    if shared_is_horizontal and boundary_is_horizontal:
+        return (
+            math.isclose(sy1, by1, abs_tol=1.0e-9)
+            and bx1 <= sx1 <= bx2
+            and bx1 <= sx2 <= bx2
+        )
+
+    shared_is_vertical = math.isclose(sx1, sx2, abs_tol=1.0e-9)
+    boundary_is_vertical = math.isclose(bx1, bx2, abs_tol=1.0e-9)
+    if shared_is_vertical and boundary_is_vertical:
+        return (
+            math.isclose(sx1, bx1, abs_tol=1.0e-9)
+            and by1 <= sy1 <= by2
+            and by1 <= sy2 <= by2
+        )
+
+    return False
 
 
 def _rooms_by_id(rooms: list[RoomInput]) -> dict[str, RoomInput]:
