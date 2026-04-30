@@ -58,7 +58,7 @@ export default function ProjectCard({
         <div className="pointer-events-none absolute inset-0 z-10 rounded-xl ring-2 ring-[#93c5fd]" />
       )}
       {!isListView && (
-        <Link to={`/projects/${project.id}`} className={`block ${isSelectionMode ? 'pointer-events-none' : ''}`}>
+        <Link to={`/projects/${project.id}/editor`} className={`block ${isSelectionMode ? 'pointer-events-none' : ''}`}>
           <div className="relative h-44 overflow-hidden bg-gradient-to-br from-[#f1f3f5] to-[#e5e7eb]">
             {project.thumbnail_url ? (
               <img
@@ -121,7 +121,7 @@ export default function ProjectCard({
               </button>
             )}
 
-            <Link to={`/projects/${project.id}`} className={`min-w-0 flex-1 ${isSelectionMode ? 'pointer-events-none' : ''}`}>
+            <Link to={`/projects/${project.id}/editor`} className={`min-w-0 flex-1 ${isSelectionMode ? 'pointer-events-none' : ''}`}>
               <h3 className="truncate text-sm font-bold text-[#111827] transition-colors group-hover:text-[#4f46e5]">
                 {project.name}
               </h3>
