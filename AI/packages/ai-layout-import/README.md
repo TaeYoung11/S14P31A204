@@ -52,6 +52,7 @@ Shared wall generation rules are currently:
 
 - only `axis-aligned` rooms with `angle = 0`
 - actual room-edge overlap is required
+- segments that lie on the exterior boundary line are not generated as interior shared walls
 - `A->B` and `B->A` adjacency pairs are deduped
 - `strength` remains metadata only in project `AdjacencyJson`
 - cross-floor adjacency and rotated rooms fail validation
