@@ -59,9 +59,10 @@ public class Project extends BaseEntity {
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
-    private Project(String name, String description) {
+    private Project(String name, String description, UUID ownerUserId) {
         this.name = name;
         this.description = description;
+        this.ownerUserId = ownerUserId;
     }
 
     /**
@@ -72,7 +73,19 @@ public class Project extends BaseEntity {
      * @return 생성된 프로젝트 엔티티
      */
     public static Project create(String name, String description) {
-        return new Project(name, description);
+        return new Project(name, description, null);
+    }
+
+    /**
+     * 소유자와 함께 프로젝트를 생성한다.
+     *
+     * @param name 프로젝트 이름
+     * @param description 프로젝트 설명
+     * @param ownerUserId 프로젝트 소유자 사용자 ID
+     * @return 생성된 프로젝트 엔티티
+     */
+    public static Project create(String name, String description, UUID ownerUserId) {
+        return new Project(name, description, ownerUserId);
     }
 
     /**
