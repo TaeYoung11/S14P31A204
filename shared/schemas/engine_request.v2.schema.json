@@ -1,0 +1,1072 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/engine_request.v2.schema.json",
+  "title": "EngineRequestV2",
+  "description": "플래너 출력 및 FE 직접 편집을 위해 ai-authoring이 소비하는 통합 실행 요청.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "mode",
+    "project_id",
+    "base_revision_id",
+    "operations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v2"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["preview", "apply"]
+    },
+    "project_id": {
+      "$ref": "#/$defs/safeId"
+    },
+    "base_revision_id": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/safeId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/engineOperation"
+      }
+    }
+  },
+  "$defs": {
+    "safeId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "operationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "globalId": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z_$]{22}$"
+    },
+    "selectableElementType": {
+      "type": "string",
+      "enum": [
+        "IfcWall",
+        "IfcSlab",
+        "IfcColumn",
+        "IfcBeam",
+        "IfcDoor",
+        "IfcWindow",
+        "IfcStair",
+        "IfcRoof",
+        "IfcSpace",
+        "IfcOpeningElement"
+      ]
+    },
+    "createableElementType": {
+      "type": "string",
+      "enum": [
+        "IfcWall",
+        "IfcSlab",
+        "IfcColumn",
+        "IfcBeam",
+        "IfcDoor",
+        "IfcWindow",
+        "IfcStair",
+        "IfcRoof",
+        "IfcSpace"
+      ]
+    },
+    "sizeMode": {
+      "type": "string",
+      "enum": ["ABSOLUTE", "RELATIVE"]
+    },
+    "color": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(#[0-9A-Fa-f]{6}|[A-Za-z][A-Za-z0-9 _-]{0,63})$"
+    },
+    "direction": {
+      "type": "string",
+      "enum": ["North", "South", "East", "West"]
+    },
+    "roomShapePreset": {
+      "type": "string",
+      "enum": ["RECT", "L", "U", "POLYGON", "OTHER"]
+    },
+    "roofShapePreset": {
+      "type": "string",
+      "enum": ["FLAT", "GABLED"]
+    },
+    "coordinateSpace": {
+      "type": "string",
+      "enum": ["PROJECT_ABSOLUTE_MM"]
+    },
+    "point2Mm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      }
+    },
+    "polygon2d": {
+      "description": "절대 IFC 프로젝트/월드 좌표계(mm)의 표준 polygon ring. open ring으로 직렬화한다(첫 점을 마지막에 반복하지 않음). outer boundary는 CCW(반시계) winding으로 저장한다. 연속된 중복/collinear 점은 제거하고 self-intersection을 피한다.",
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "$ref": "#/$defs/point2Mm"
+      }
+    },
+    "point3Mm": {
+      "type": "object",
+      "description": "IFC 프로젝트/월드 좌표계 기준 3D 좌표점(mm). 개별 필드 description에 별도 명시가 있으면 그에 따른다.",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      }
+    },
+    "translationMm": {
+      "type": "object",
+      "description": "월드 좌표축 기준 이동 델타값(mm).",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      }
+    },
+    "rotationDeg3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      }
+    },
+    "rect2dMm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "absoluteDimensionsMm": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "length": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "dimensionChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "value"],
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/sizeMode"
+        },
+        "value": {
+          "type": "number"
+        }
+      }
+    },
+    "dimensionChangesMm": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "length": {
+          "$ref": "#/$defs/dimensionChange"
+        },
+        "width": {
+          "$ref": "#/$defs/dimensionChange"
+        },
+        "height": {
+          "$ref": "#/$defs/dimensionChange"
+        }
+      }
+    },
+    "selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "global_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/globalId"
+          }
+        },
+        "element_type": {
+          "$ref": "#/$defs/selectableElementType"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "storey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "space_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "direction": {
+          "$ref": "#/$defs/direction"
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "select_all": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "anyOf": [
+        {
+          "required": ["global_ids"]
+        },
+        {
+          "required": ["element_type"]
+        },
+        {
+          "required": ["name"]
+        },
+        {
+          "required": ["storey"]
+        },
+        {
+          "required": ["space_name"]
+        },
+        {
+          "required": ["tag"]
+        },
+        {
+          "required": ["select_all"],
+          "properties": {
+            "select_all": {
+              "const": true
+            }
+          }
+        }
+      ]
+    },
+    "spaceBoundaryLink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["space_id", "element_global_id"],
+      "properties": {
+        "space_id": {
+          "$ref": "#/$defs/safeId"
+        },
+        "element_global_id": {
+          "$ref": "#/$defs/globalId"
+        }
+      }
+    },
+    "spaceCreateParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "room_type",
+        "storey",
+        "room_shape_preset",
+        "dimensions_mm"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "room_type": {
+          "type": "string",
+          "enum": [
+            "living",
+            "bedroom",
+            "kitchen",
+            "bathroom",
+            "office",
+            "corridor",
+            "other"
+          ]
+        },
+        "storey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "room_shape_preset": {
+          "$ref": "#/$defs/roomShapePreset"
+        },
+        "rects_mm": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/rect2dMm"
+          }
+        },
+        "polygon_mm": {
+          "$ref": "#/$defs/polygon2d"
+        },
+        "dimensions_mm": {
+          "$ref": "#/$defs/absoluteDimensionsMm"
+        },
+        "location_mm": {
+          "description": "절대 IFC 프로젝트/월드 좌표계(mm).",
+          "$ref": "#/$defs/point3Mm"
+        },
+        "space_height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "space_boundary_links": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/spaceBoundaryLink"
+          }
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "material": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "room_shape_preset": {
+                "enum": ["RECT", "L", "U"]
+              }
+            },
+            "required": ["room_shape_preset"]
+          },
+          "then": {
+            "required": ["rects_mm"],
+            "not": {
+              "required": ["polygon_mm"]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "room_shape_preset": {
+                "enum": ["POLYGON", "OTHER"]
+              }
+            },
+            "required": ["room_shape_preset"]
+          },
+          "then": {
+            "required": ["polygon_mm"],
+            "not": {
+              "required": ["rects_mm"]
+            }
+          }
+        }
+      ]
+    },
+    "spaceUpdateParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "room_type": {
+          "type": "string",
+          "enum": [
+            "living",
+            "bedroom",
+            "kitchen",
+            "bathroom",
+            "office",
+            "corridor",
+            "other"
+          ]
+        },
+        "room_shape_preset": {
+          "$ref": "#/$defs/roomShapePreset"
+        },
+        "rects_mm": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/rect2dMm"
+          }
+        },
+        "polygon_mm": {
+          "$ref": "#/$defs/polygon2d"
+        },
+        "dimensions_mm": {
+          "$ref": "#/$defs/dimensionChangesMm"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "material": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "allOf": [
+              {
+                "required": ["rects_mm"]
+              },
+              {
+                "required": ["polygon_mm"]
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "room_shape_preset": {
+                "enum": ["RECT", "L", "U"]
+              }
+            },
+            "required": ["room_shape_preset"]
+          },
+          "then": {
+            "required": ["rects_mm"],
+            "not": {
+              "required": ["polygon_mm"]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "room_shape_preset": {
+                "enum": ["POLYGON", "OTHER"]
+              }
+            },
+            "required": ["room_shape_preset"]
+          },
+          "then": {
+            "required": ["polygon_mm"],
+            "not": {
+              "required": ["rects_mm"]
+            }
+          }
+        }
+      ]
+    },
+    "linearElementGeometry": {
+      "type": "object",
+      "required": ["start_mm", "end_mm"],
+      "properties": {
+        "start_mm": {
+          "$ref": "#/$defs/point3Mm"
+        },
+        "end_mm": {
+          "$ref": "#/$defs/point3Mm"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": ["azimuth_deg"]
+          },
+          {
+            "required": ["length_mm"]
+          }
+        ]
+      }
+    },
+    "polarElementGeometry": {
+      "type": "object",
+      "required": ["start_mm", "azimuth_deg", "length_mm"],
+      "properties": {
+        "start_mm": {
+          "$ref": "#/$defs/point3Mm"
+        },
+        "azimuth_deg": {
+          "type": "number"
+        },
+        "length_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "not": {
+        "required": ["end_mm"]
+      }
+    },
+    "createElementParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["element_type", "storey", "coordinate_space"],
+      "properties": {
+        "element_type": {
+          "$ref": "#/$defs/createableElementType"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "storey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "space_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "direction": {
+          "$ref": "#/$defs/direction"
+        },
+        "coordinate_space": {
+          "$ref": "#/$defs/coordinateSpace"
+        },
+        "start_mm": {
+          "description": "절대 IFC 프로젝트/월드 좌표계(mm). z값에는 층 elevation이 이미 포함되어 있어야 한다.",
+          "$ref": "#/$defs/point3Mm"
+        },
+        "end_mm": {
+          "description": "절대 IFC 프로젝트/월드 좌표계(mm). z값에는 층 elevation이 이미 포함되어 있어야 한다.",
+          "$ref": "#/$defs/point3Mm"
+        },
+        "azimuth_deg": {
+          "type": "number"
+        },
+        "length_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "dimensions_mm": {
+          "$ref": "#/$defs/absoluteDimensionsMm"
+        },
+        "roof_shape_preset": {
+          "$ref": "#/$defs/roofShapePreset"
+        },
+        "ridge_height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "material": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        }
+      }
+    },
+    "updateElementPropertiesParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "dimensions_mm": {
+          "$ref": "#/$defs/dimensionChangesMm"
+        },
+        "material": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "face_offset_mm": {
+          "type": "number"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        }
+      }
+    },
+    "transformElementsParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "translation_mm": {
+          "$ref": "#/$defs/translationMm"
+        },
+        "rotation_deg": {
+          "$ref": "#/$defs/rotationDeg3"
+        }
+      }
+    },
+    "deleteParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        }
+      }
+    },
+    "engineOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "parameters"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/operationId"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "create_space",
+            "update_space",
+            "delete_space",
+            "create_element",
+            "update_element_properties",
+            "transform_elements",
+            "delete_elements"
+          ]
+        },
+        "selector": {
+          "$ref": "#/$defs/selector"
+        },
+        "parameters": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "create_space"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/spaceCreateParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "update_space"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["selector"],
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/spaceUpdateParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "delete_space"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["selector"],
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/deleteParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "create_element"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/createElementParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "type": {
+                    "const": "create_element"
+                  }
+                },
+                "required": ["type"]
+              },
+              {
+                "properties": {
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "element_type": {
+                        "enum": ["IfcWall", "IfcBeam"]
+                      }
+                    },
+                    "required": ["element_type"]
+                  }
+                },
+                "required": ["parameters"]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "oneOf": [
+                  {
+                    "allOf": [
+                      {
+                        "$ref": "#/$defs/createElementParameters"
+                      },
+                      {
+                        "$ref": "#/$defs/linearElementGeometry"
+                      }
+                    ]
+                  },
+                  {
+                    "allOf": [
+                      {
+                        "$ref": "#/$defs/createElementParameters"
+                      },
+                      {
+                        "$ref": "#/$defs/polarElementGeometry"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "type": {
+                    "const": "create_element"
+                  }
+                },
+                "required": ["type"]
+              },
+              {
+                "properties": {
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "element_type": {
+                        "enum": [
+                          "IfcSlab",
+                          "IfcColumn",
+                          "IfcDoor",
+                          "IfcWindow",
+                          "IfcStair"
+                        ]
+                      }
+                    },
+                    "required": ["element_type"]
+                  }
+                },
+                "required": ["parameters"]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/createElementParameters"
+                  },
+                  {
+                    "required": ["start_mm"]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "type": {
+                    "const": "create_element"
+                  }
+                },
+                "required": ["type"]
+              },
+              {
+                "properties": {
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "element_type": {
+                        "const": "IfcRoof"
+                      }
+                    },
+                    "required": ["element_type"]
+                  }
+                },
+                "required": ["parameters"]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/createElementParameters"
+                  },
+                  {
+                    "required": [
+                      "start_mm",
+                      "length_mm",
+                      "dimensions_mm",
+                      "roof_shape_preset"
+                    ],
+                    "properties": {
+                      "dimensions_mm": {
+                        "type": "object",
+                        "required": ["width", "height"]
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "roof_shape_preset": {
+                          "const": "FLAT"
+                        }
+                      },
+                      "required": ["roof_shape_preset"]
+                    },
+                    "then": {
+                      "not": {
+                        "required": ["ridge_height_mm"]
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "roof_shape_preset": {
+                          "const": "GABLED"
+                        }
+                      },
+                      "required": ["roof_shape_preset"]
+                    },
+                    "then": {
+                      "required": ["ridge_height_mm"]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "update_element_properties"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["selector"],
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/updateElementPropertiesParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "transform_elements"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["selector"],
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/transformElementsParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "delete_elements"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["selector"],
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/deleteParameters"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "v2",
+      "request_id": "req-001",
+      "mode": "preview",
+      "project_id": "project-001",
+      "base_revision_id": "rev_20260423T120000Z_ab12cd34",
+      "operations": [
+        {
+          "id": "op-001",
+          "type": "update_element_properties",
+          "selector": {
+            "element_type": "IfcWall",
+            "storey": "1F",
+            "direction": "North",
+            "select_all": false
+          },
+          "parameters": {
+            "dimensions_mm": {
+              "width": {
+                "mode": "RELATIVE",
+                "value": 50
+              }
+            },
+            "material": "Concrete"
+          }
+        }
+      ]
+    }
+  ]
+}

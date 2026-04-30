@@ -61,6 +61,42 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "preview_ready"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": ["invalid_request", "not_found", "rejected"]
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "ok": {
+            "const": false
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "safeId": {
       "type": "string",
@@ -109,15 +145,24 @@
         }
       ]
     },
+    "engineIssueCode": {
+      "type": "string",
+      "enum": [
+        "INVALID_REQUEST",
+        "TARGET_NOT_FOUND",
+        "LOAD_BEARING_DELETE_BLOCKED",
+        "COLLISION_DETECTED",
+        "MISSING_VERTICAL_SUPPORT",
+        "ADJACENCY_REFERENCE_NOT_FOUND"
+      ]
+    },
     "engineIssue": {
       "type": "object",
       "additionalProperties": false,
       "required": ["code", "severity", "message"],
       "properties": {
         "code": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
+          "$ref": "#/$defs/engineIssueCode"
         },
         "severity": {
           "type": "string",

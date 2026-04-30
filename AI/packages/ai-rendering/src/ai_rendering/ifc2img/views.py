@@ -62,41 +62,71 @@ VIEW_CAMERAS: dict[IFCView, CameraParams] = {
 }
 
 
-# PCA 정렬 활성 시 각 view의 front 벡터를 (long_coef, mid_coef, z_coef)로 표현.
-# 즉 front = long_coef × long_axis + mid_coef × mid_axis + z_coef × (0,0,1).
-# - FRONT: 건물 정면 (mid_axis 따라 봄)
-# - SIDE:  long_axis 따라 봄
-# - 등각:  두 축 결합 + 위에서 약간
-VIEW_PCA_COEFFICIENTS: dict[IFCView, tuple[float, float, float]] = {
-    # FRONT/SIDE는 z=0 (완전 수평, 건축 입면도 — 기울어짐 방지).
-    IFCView.FRONT:      ( 0.0, -1.0,  0.0),
-    IFCView.SIDE:       (-1.0,  0.0,  0.0),
-    IFCView.TOP:        (-0.6, -0.6,  1.0),
-    IFCView.ISO_NE:     (-0.7, -0.7,  0.5),
-    IFCView.ISO_NW:     (-0.7,  0.7,  0.5),
-    IFCView.ISO_SE:     ( 0.7, -0.7,  0.5),
-    IFCView.CORNER_LOW: (-0.7, -0.7,  0.15),
-    IFCView.BIRDS_EYE:  (-0.4, -0.4,  1.5),
-}
-
-
-# eigenvalue 격차 임계값 — 두 주축의 분산비가 이 값보다 작으면 PCA fallback.
-PCA_EIGENVALUE_RATIO_MIN = 1.2
-
-
 # View 별 target_screen_ratio override — 시점에 따라 잘림 위험이 다름.
 # 위에서 봄(top/birds_eye)은 footprint 폭이 화면을 잡아 더 잘리므로 작게.
 # 등각은 약간 작게. 측면은 표준값.
+#
+# 다양성 검증 1차(2026-04-29) — haus 외 fixture(Smiley/SampleHouse)에서 잘림 발생 →
+# 전 시점 25% 축소: FRONT/SIDE 0.40→0.30, ISO_*/TOP/BIRDS_EYE 0.20→0.15,
+# CORNER_LOW 0.15→0.12. 보수적 축소 — haus는 약간 작아질 뿐 잘림 미발생 기대.
+# 다양성 검증 2차(2026-04-29) — Smiley/SampleHouse FRONT 여전히 잘림 → FRONT/SIDE
+# 추가 축소 0.30→0.25. 다른 시점은 1차에서 적정이라 유지.
+# 다양성 검증 3차(2026-04-29) — Smiley FRONT *만* 여전히 잘림(SampleHouse 해소) →
+# FRONT/SIDE 0.25→0.20 (ISO와 동일 수준). 전역 단순 축소의 *한계점* — 70m 대형
+# fixture 의존성 강함. 이번 시도 후에도 미해결이면 fixture별 dispatch(mesh
+# max_extent 기반) 도입 검토.
 VIEW_TARGET_RATIOS: dict[IFCView, float] = {
-    IFCView.FRONT:      0.40,
-    IFCView.SIDE:       0.40,
-    IFCView.TOP:        0.20,   # 위에서 봄 → 더 작게 (잘림 방지)
-    IFCView.ISO_NE:     0.20,   # 등각 — top과 동일 수준
-    IFCView.ISO_NW:     0.20,
-    IFCView.ISO_SE:     0.20,
-    IFCView.CORNER_LOW: 0.15,   # 가장 잘리던 view → 가장 작게
-    IFCView.BIRDS_EYE:  0.20,
+    IFCView.FRONT:      0.20,
+    IFCView.SIDE:       0.20,
+    IFCView.TOP:        0.15,   # 위에서 봄 → 더 작게 (잘림 방지)
+    IFCView.ISO_NE:     0.15,   # 등각 — top과 동일 수준
+    IFCView.ISO_NW:     0.15,
+    IFCView.ISO_SE:     0.15,
+    IFCView.CORNER_LOW: 0.12,   # 가장 잘리던 view → 가장 작게
+    IFCView.BIRDS_EYE:  0.15,
 }
+
+
+# fixture별 dispatch — mesh 크기에 따라 VIEW_TARGET_RATIOS를 자동 축소.
+#
+# 배경 (2026-04-29 다양성 검증 Step 2): fixture 크기 5~6배 차이(haus 13m /
+# SampleHouse 17m / Smiley 75m)에서 단일 ratio가 모두 만족 못 함. Smiley
+# side fill 0.991 outlier — `_iterative_zoom_loop` 수렴 실패. 임계값/배율은
+# Step 2 측정값에서 직접 도출 — `<20m` 모두 ✓ 수렴, `>50m` outlier.
+#
+# 적용 규칙 — `resolve_target_ratio_for_mesh(view, max_extent, base)`:
+#   max_extent > 50m  → base × 0.6  (대형, Smiley 같은 사무실 빌딩)
+#   max_extent > 20m  → base × 0.8  (중대형)
+#   그 외             → base 그대로 (보통, haus·SampleHouse 같은 단독 주택)
+DISPATCH_LARGE_THRESHOLD_M: float = 50.0
+DISPATCH_MEDIUM_THRESHOLD_M: float = 20.0
+DISPATCH_LARGE_FACTOR: float = 0.6
+DISPATCH_MEDIUM_FACTOR: float = 0.8
+
+
+def resolve_target_ratio_for_mesh(
+    view: IFCView,
+    max_extent: float,
+    base_ratio: float | None = None,
+) -> float:
+    """mesh max_extent에 따라 view의 target_screen_ratio를 자동 축소.
+
+    Args:
+        view: 적용 시점.
+        max_extent: mesh AABB 최장변 길이 (m).
+        base_ratio: 기본값. None이면 VIEW_TARGET_RATIOS[view] 사용.
+
+    Returns:
+        dispatch 적용 후 ratio. extent가 임계값 미만이면 base 그대로.
+        extent ≥ DISPATCH_LARGE_THRESHOLD_M → base × DISPATCH_LARGE_FACTOR.
+        DISPATCH_MEDIUM_THRESHOLD_M ≤ extent < LARGE → base × MEDIUM_FACTOR.
+    """
+    base = base_ratio if base_ratio is not None else VIEW_TARGET_RATIOS[view]
+    if max_extent > DISPATCH_LARGE_THRESHOLD_M:
+        return base * DISPATCH_LARGE_FACTOR
+    if max_extent > DISPATCH_MEDIUM_THRESHOLD_M:
+        return base * DISPATCH_MEDIUM_FACTOR
+    return base
 
 
 # render_views(views=None) 기본값 — 환각 발생 시점들 의도적 제외.
@@ -110,7 +140,7 @@ VIEW_TARGET_RATIOS: dict[IFCView, float] = {
 # ISO_*는 facade 일부 보여 집 자체는 잘 그려짐. 주변 배경 어색함은 *옵션 B*
 # (per-view prompt suffix)에서 환경 묘사 보강으로 처리 예정.
 #
-# 모든 시점의 enum/VIEW_CAMERAS/VIEW_PCA_COEFFICIENTS/VIEW_TARGET_RATIOS는 *유지* —
+# 모든 시점의 enum/VIEW_CAMERAS/VIEW_TARGET_RATIOS는 *유지* —
 # 호출자가 명시 전달 시 여전히 사용 가능 (디버그/실험용).
 DEFAULT_RENDER_VIEWS: list[IFCView] = [
     IFCView.FRONT,
@@ -245,93 +275,6 @@ def build_view_negative_prompt(base_negative: str, view: IFCView) -> str:
         # 손실 가능 (예: ",basement" → "basement"). removeprefix는 prefix 정확 제거만.
         return suffix.removeprefix(", ")
     return f"{base_negative}{suffix}"
-
-
-def _orient_axis_positive(axis: np.ndarray) -> np.ndarray:
-    """PCA eigenvector 부호 결정론화 — 첫 유의미한 nonzero 성분이 양수가 되도록.
-
-    `np.linalg.eigh`는 eigenvector 부호를 보장하지 않음(LAPACK/BLAS 의존).
-    같은 mesh도 환경에 따라 ±v 중 어느 쪽이 나올지 비결정적이라 그대로 사용 시
-    `compute_dynamic_front`의 카메라 방향이 *정반대로 뒤집힐 위험*이 있음.
-    이 헬퍼로 부호를 정규화해 결정적 동작 보장.
-    """
-    for v in axis:
-        if abs(v) > 1e-9:
-            return -axis if v < 0 else axis
-    return axis
-
-
-def compute_principal_axes(
-    vertices: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, bool]:
-    """xy 평면에서 PCA로 mesh의 주축(long/mid)을 검출. z축은 (0,0,1) 고정.
-
-    Args:
-        vertices: shape (N, 3) ndarray.
-
-    Returns:
-        (long_axis_xy, mid_axis_xy, valid):
-            long_axis_xy, mid_axis_xy — shape (3,) 단위벡터, z 성분 0.
-            부호는 `_orient_axis_positive`로 결정론화되며, (long, mid, z=+1)이
-            오른손 좌표계(RHS)를 이루도록 mid를 보정 — 위에서 봤을 때 CCW.
-            valid — eigenvalue 격차가 충분(PCA_EIGENVALUE_RATIO_MIN 초과)이면 True.
-                False면 정적 fallback 권장.
-    """
-    if len(vertices) < 3:
-        # 데이터 부족 — fallback
-        return (
-            np.array([1.0, 0.0, 0.0]),
-            np.array([0.0, 1.0, 0.0]),
-            False,
-        )
-    xy = vertices[:, :2]
-    centered = xy - xy.mean(axis=0)
-    cov = np.cov(centered.T)  # shape (2, 2)
-    eigvals, eigvecs = np.linalg.eigh(cov)
-    # eigh는 eigenvalue 오름차순 → 큰 쪽이 long
-    if eigvals[0] < 1e-12:
-        valid = False
-    else:
-        valid = bool((eigvals[1] / eigvals[0]) >= PCA_EIGENVALUE_RATIO_MIN)
-    long_xy = eigvecs[:, 1]
-    mid_xy = eigvecs[:, 0]
-    long_axis = np.array([float(long_xy[0]), float(long_xy[1]), 0.0])
-    mid_axis = np.array([float(mid_xy[0]), float(mid_xy[1]), 0.0])
-
-    # 부호 결정론화 — eigh의 ±v 비결정성 제거.
-    long_axis = _orient_axis_positive(long_axis)
-    mid_axis = _orient_axis_positive(mid_axis)
-    # RHS 보장: (long × mid)·z >= 0 (위에서 봤을 때 CCW). 음수면 mid 뒤집기.
-    cross_z = long_axis[0] * mid_axis[1] - long_axis[1] * mid_axis[0]
-    if cross_z < 0:
-        mid_axis = -mid_axis
-
-    return long_axis, mid_axis, valid
-
-
-def compute_dynamic_front(
-    view: IFCView,
-    long_axis: np.ndarray,
-    mid_axis: np.ndarray,
-) -> tuple[float, float, float]:
-    """PCA 주축에 정렬된 view 별 front 벡터 산출 (호출자가 valid=True 보장).
-
-    반환값을 정규화하지 않는 사유:
-    - Open3D `ViewControl.set_front()`이 자체 정규화 → 동작 영향 0.
-    - 합성 norm = sqrt(sum(coef²)) — VIEW_PCA_COEFFICIENTS와 VIEW_CAMERAS가
-      *같은 coef*를 사용하므로 동적/정적 fallback의 magnitude가 자동 일치.
-      여기서만 정규화하면 PCA 활성/비활성에 따라 magnitude가 달라져
-      *오히려 일관성이 깨짐* (정적은 비단위인데 동적만 단위).
-    - 둘 다 정규화하려면 VIEW_PCA_COEFFICIENTS / VIEW_CAMERAS coef의
-      직관적 비율 표현(예: "0.7×long + 0.7×mid + 0.5×z")이 손상됨.
-    """
-    coefs = VIEW_PCA_COEFFICIENTS[view]
-    front = (
-        coefs[0] * long_axis
-        + coefs[1] * mid_axis
-        + coefs[2] * np.array([0.0, 0.0, 1.0])
-    )
-    return float(front[0]), float(front[1]), float(front[2])
 
 
 def compute_auto_zoom(

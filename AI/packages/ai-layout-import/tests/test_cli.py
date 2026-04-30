@@ -18,7 +18,7 @@ def test_cli_creates_ifc_from_json_input(tmp_path: Path, capsys) -> None:
                 "rooms": [
                     {
                         "id": "room-living-01",
-                        "name": "거실",
+                        "name": "Living Room",
                         "type": "living",
                         "width": 4200,
                         "height": 3800,
@@ -47,16 +47,37 @@ def test_cli_creates_ifc_from_json_input(tmp_path: Path, capsys) -> None:
     assert captured.err == ""
 
 
-def test_cli_returns_validation_error_as_json(tmp_path: Path, capsys) -> None:
+def test_cli_returns_validation_error_as_json_for_v2_missing_boundary(
+    tmp_path: Path,
+    capsys,
+) -> None:
     input_path = tmp_path / "invalid-layout.json"
     output_path = tmp_path / "model.ifc"
     input_path.write_text(
         json.dumps(
             {
-                "schema_version": "v1",
+                "schema_version": "v2",
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "name": "sample-project",
-                "rooms": [],
+                "rooms": [
+                    {
+                        "id": "room-living-01",
+                        "name": "Living Room",
+                        "type": "living",
+                        "width": 4200,
+                        "height": 3800,
+                        "floor": 1,
+                        "x": 5000.0,
+                        "y": 4000.0,
+                        "angle": 0.0,
+                        "locked": False,
+                    }
+                ],
+                "modeling_defaults": {
+                    "wall_thickness_mm": 200,
+                    "slab_thickness_mm": 180,
+                    "roof_height_mm": 400
+                }
             },
             ensure_ascii=False,
         ),
@@ -70,5 +91,5 @@ def test_cli_returns_validation_error_as_json(tmp_path: Path, capsys) -> None:
     result = json.loads(captured.err)
     assert result["ok"] is False
     assert result["code"] == "validation_error"
-    assert result["message"] == "입력 검증에 실패했습니다."
+    assert "missing boundaries for walls" in str(result["details"])
     assert output_path.exists() is False
