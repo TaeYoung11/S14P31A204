@@ -135,7 +135,16 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
   const previousSnapshotRef = useRef<string | null>(null)
   const hasUserEditedRef = useRef(false)
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingDraftRecordRef = useRef<EditorDraftRecord | null>(null)
+  const draftLoadTokenRef = useRef(0)
   const bubbleDragStartSnapshotRef = useRef<BubbleHistorySnapshot | null>(null)
+  const bubblesRef = useRef(bubbles)
+  const connectionsRef = useRef(connections)
+  const selectedIdRef = useRef(selectedId)
+  const previousSelectedIdRef = useRef(previousSelectedId)
+  const undoHistoryRef = useRef(undoHistory)
+  const redoHistoryRef = useRef(redoHistory)
+  const draftSnapshotRef = useRef<EditorDraftSnapshot | null>(null)
 
   const selectedBubble = useMemo(
     () => bubbles.find((bubble) => bubble.id === selectedId) ?? null,
@@ -187,13 +196,23 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
   const canUndo = undoHistory.length > 0
   const canRedo = redoHistory.length > 0
 
+  useEffect(() => {
+    bubblesRef.current = bubbles
+    connectionsRef.current = connections
+    selectedIdRef.current = selectedId
+    previousSelectedIdRef.current = previousSelectedId
+    undoHistoryRef.current = undoHistory
+    redoHistoryRef.current = redoHistory
+    draftSnapshotRef.current = draftSnapshot
+  }, [bubbles, connections, selectedId, previousSelectedId, undoHistory, redoHistory, draftSnapshot])
+
   const createBubbleHistorySnapshot = (
     overrides?: Partial<Pick<BubbleHistorySnapshot, 'bubbles' | 'connections' | 'selectedId' | 'previousSelectedId'>>,
   ): BubbleHistorySnapshot => ({
-    bubbles: overrides?.bubbles ?? bubbles,
-    connections: overrides?.connections ?? connections,
-    selectedId: overrides?.selectedId ?? selectedId,
-    previousSelectedId: overrides?.previousSelectedId ?? previousSelectedId,
+    bubbles: overrides?.bubbles ?? bubblesRef.current,
+    connections: overrides?.connections ?? connectionsRef.current,
+    selectedId: overrides?.selectedId ?? selectedIdRef.current,
+    previousSelectedId: overrides?.previousSelectedId ?? previousSelectedIdRef.current,
   })
 
   const applyBubbleHistorySnapshot = (snapshot: BubbleHistorySnapshot) => {
@@ -209,20 +228,52 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     setRedoHistory([])
   }
 
+  const flushPendingDraftSave = () => {
+    if (localSaveTimerRef.current !== null) {
+      clearTimeout(localSaveTimerRef.current)
+      localSaveTimerRef.current = null
+    }
+
+    const pendingDraftRecord = pendingDraftRecordRef.current
+    if (!pendingDraftRecord) return
+
+    pendingDraftRecordRef.current = null
+    void setDraft(pendingDraftRecord.projectId, pendingDraftRecord).catch(() => {
+      setSaveStatus('error')
+    })
+  }
+
+  const commitBubbleHistoryChange = (
+    before: BubbleHistorySnapshot,
+    after: BubbleHistorySnapshot,
+    applyChange: () => void,
+  ) => {
+    markLocalDraftDirty()
+    applyChange()
+    pushBubbleHistory({
+      undo: before,
+      redo: after,
+    })
+  }
+
   useEffect(() => {
     return () => {
-      if (localSaveTimerRef.current !== null) {
-        clearTimeout(localSaveTimerRef.current)
-      }
+      flushPendingDraftSave()
     }
   }, [])
 
   useEffect(() => {
     let isCancelled = false
+    const loadToken = draftLoadTokenRef.current + 1
+    draftLoadTokenRef.current = loadToken
+
+    flushPendingDraftSave()
 
     setAutosaveReadyProjectId(null)
     setSaveStatus('idle')
     previousSnapshotRef.current = null
+    pendingDraftRecordRef.current = null
+    hasUserEditedRef.current = false
 
     if (!projectId) {
       return () => {
@@ -232,6 +283,7 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
 
     if (initialDraft) {
       previousSnapshotRef.current = JSON.stringify(initialDraft)
+      localVersionRef.current = 1
       setUndoHistory([])
       setRedoHistory([])
       setAutosaveReadyProjectId(projectId)
@@ -242,7 +294,16 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
 
     void getDraft(projectId)
       .then((draft) => {
-        if (isCancelled) return
+        if (isCancelled || draftLoadTokenRef.current !== loadToken) return
+
+        localVersionRef.current = draft?.versionNo ?? 0
+        setUndoHistory(draft?.history?.bubbleUndoHistory ?? [])
+        setRedoHistory(draft?.history?.bubbleRedoHistory ?? [])
+
+        if (hasUserEditedRef.current) {
+          setAutosaveReadyProjectId(projectId)
+          return
+        }
 
         if (draft?.data) {
           const { data } = draft
@@ -261,13 +322,10 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
           })
         }
 
-        localVersionRef.current = draft?.versionNo ?? 0
-        setUndoHistory(draft?.history?.bubbleUndoHistory ?? [])
-        setRedoHistory(draft?.history?.bubbleRedoHistory ?? [])
         setAutosaveReadyProjectId(projectId)
       })
       .catch(() => {
-        if (isCancelled) return
+        if (isCancelled || draftLoadTokenRef.current !== loadToken) return
         setUndoHistory([])
         setRedoHistory([])
         setAutosaveReadyProjectId(projectId)
@@ -313,16 +371,19 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     }
 
     localVersionRef.current = nextVersionNo
+    pendingDraftRecordRef.current = draftRecord
 
     if (localSaveTimerRef.current !== null) {
       clearTimeout(localSaveTimerRef.current)
     }
 
     localSaveTimerRef.current = setTimeout(() => {
+      localSaveTimerRef.current = null
       setSaveStatus('saving-local')
 
       void setDraft(projectId, draftRecord)
         .then(() => {
+          pendingDraftRecordRef.current = null
           setSaveStatus('saved-local')
         })
         .catch(() => {
@@ -347,9 +408,13 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     if (!entry) return
 
     markLocalDraftDirty()
+    const before = createBubbleHistorySnapshot()
     applyBubbleHistorySnapshot(entry.undo)
     setUndoHistory((prev) => prev.slice(0, -1))
-    setRedoHistory((prev) => [...prev.slice(-(MAX_BUBBLE_HISTORY - 1)), entry])
+    setRedoHistory((prev) => [
+      ...prev.slice(-(MAX_BUBBLE_HISTORY - 1)),
+      { undo: entry.undo, redo: before },
+    ])
   }
 
   const handleRedo = () => {
@@ -357,9 +422,13 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     if (!entry) return
 
     markLocalDraftDirty()
+    const before = createBubbleHistorySnapshot()
     applyBubbleHistorySnapshot(entry.redo)
     setRedoHistory((prev) => prev.slice(0, -1))
-    setUndoHistory((prev) => [...prev.slice(-(MAX_BUBBLE_HISTORY - 1)), entry])
+    setUndoHistory((prev) => [
+      ...prev.slice(-(MAX_BUBBLE_HISTORY - 1)),
+      { undo: before, redo: entry.redo },
+    ])
   }
 
   const handleBubbleDragStart = () => {
@@ -374,7 +443,7 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     const dragStartSnapshot = bubbleDragStartSnapshotRef.current
     bubbleDragStartSnapshotRef.current = null
 
-    const nextBubbles = bubbles.map((bubble) => (bubble.id === id ? { ...bubble, x, y } : bubble))
+    const nextBubbles = bubblesRef.current.map((bubble) => (bubble.id === id ? { ...bubble, x, y } : bubble))
     const previousBubble = dragStartSnapshot?.bubbles.find((bubble) => bubble.id === id)
     const nextBubble = nextBubbles.find((bubble) => bubble.id === id)
 
@@ -382,10 +451,6 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     if (previousBubble.x === nextBubble.x && previousBubble.y === nextBubble.y) return
 
     markLocalDraftDirty()
-    replaceBubbleState(nextBubbles, {
-      selectedId,
-      previousSelectedId,
-    })
     pushBubbleHistory({
       undo: dragStartSnapshot,
       redo: createBubbleHistorySnapshot({ bubbles: nextBubbles }),
@@ -397,12 +462,9 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     const currentBubble = bubbles.find((bubble) => bubble.id === id)
     if (!currentBubble || currentBubble.label === label) return
 
-    markLocalDraftDirty()
-    changeBubbleLabel(id, label)
-    pushBubbleHistory({
-      undo: createBubbleHistorySnapshot(),
-      redo: createBubbleHistorySnapshot({ bubbles: nextBubbles }),
-    })
+    const before = createBubbleHistorySnapshot()
+    const after = createBubbleHistorySnapshot({ bubbles: nextBubbles })
+    commitBubbleHistoryChange(before, after, () => changeBubbleLabel(id, label))
   }
 
   const handleTypeChange = (id: string, type: string) => {
@@ -410,12 +472,9 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     const currentBubble = bubbles.find((bubble) => bubble.id === id)
     if (!currentBubble || currentBubble.type === type) return
 
-    markLocalDraftDirty()
-    changeBubbleType(id, type)
-    pushBubbleHistory({
-      undo: createBubbleHistorySnapshot(),
-      redo: createBubbleHistorySnapshot({ bubbles: nextBubbles }),
-    })
+    const before = createBubbleHistorySnapshot()
+    const after = createBubbleHistorySnapshot({ bubbles: nextBubbles })
+    commitBubbleHistoryChange(before, after, () => changeBubbleType(id, type))
   }
 
   const handleWidthChange = (id: string, width: number) => {
@@ -428,12 +487,9 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     const nextBubble = nextBubbles.find((bubble) => bubble.id === id)
     if (!nextBubble || nextBubble.widthMm === currentBubble.widthMm) return
 
-    markLocalDraftDirty()
-    changeBubbleWidth(id, width)
-    pushBubbleHistory({
-      undo: createBubbleHistorySnapshot(),
-      redo: createBubbleHistorySnapshot({ bubbles: nextBubbles }),
-    })
+    const before = createBubbleHistorySnapshot()
+    const after = createBubbleHistorySnapshot({ bubbles: nextBubbles })
+    commitBubbleHistoryChange(before, after, () => changeBubbleWidth(id, width))
   }
 
   const handleHeightChange = (id: string, height: number) => {
@@ -446,12 +502,9 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     const nextBubble = nextBubbles.find((bubble) => bubble.id === id)
     if (!nextBubble || nextBubble.heightMm === currentBubble.heightMm) return
 
-    markLocalDraftDirty()
-    changeBubbleHeight(id, height)
-    pushBubbleHistory({
-      undo: createBubbleHistorySnapshot(),
-      redo: createBubbleHistorySnapshot({ bubbles: nextBubbles }),
-    })
+    const before = createBubbleHistorySnapshot()
+    const after = createBubbleHistorySnapshot({ bubbles: nextBubbles })
+    commitBubbleHistoryChange(before, after, () => changeBubbleHeight(id, height))
   }
 
   const handleRatioChange = (id: string, ratio: number) => {
@@ -464,12 +517,9 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     const nextBubble = nextBubbles.find((bubble) => bubble.id === id)
     if (!nextBubble || nextBubble.ratio === currentBubble.ratio) return
 
-    markLocalDraftDirty()
-    changeBubbleRatio(id, ratio)
-    pushBubbleHistory({
-      undo: createBubbleHistorySnapshot(),
-      redo: createBubbleHistorySnapshot({ bubbles: nextBubbles }),
-    })
+    const before = createBubbleHistorySnapshot()
+    const after = createBubbleHistorySnapshot({ bubbles: nextBubbles })
+    commitBubbleHistoryChange(before, after, () => changeBubbleRatio(id, ratio))
   }
 
   const handleColorChange = (id: string, color: string) => {
@@ -477,12 +527,9 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     if (!currentBubble || currentBubble.color === color) return
 
     const nextBubbles = bubbles.map((bubble) => (bubble.id === id ? { ...bubble, color } : bubble))
-    markLocalDraftDirty()
-    changeBubbleColor(id, color)
-    pushBubbleHistory({
-      undo: createBubbleHistorySnapshot(),
-      redo: createBubbleHistorySnapshot({ bubbles: nextBubbles }),
-    })
+    const before = createBubbleHistorySnapshot()
+    const after = createBubbleHistorySnapshot({ bubbles: nextBubbles })
+    commitBubbleHistoryChange(before, after, () => changeBubbleColor(id, color))
   }
 
   const handleOpenAddModal = () => {
@@ -490,14 +537,11 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
     setIsAddModalOpen(true)
   }
 
-  const handleConfirmAddSpace = () => {
+    const handleConfirmAddSpace = () => {
     const newBubble = createBubbleFromFormData(addSpaceFormData, bubbles.length)
-    markLocalDraftDirty()
-    addBubble(addSpaceFormData, newBubble)
-    pushBubbleHistory({
-      undo: createBubbleHistorySnapshot(),
-      redo: createBubbleHistorySnapshot({ bubbles: [...bubbles, newBubble] }),
-    })
+    const before = createBubbleHistorySnapshot()
+    const after = createBubbleHistorySnapshot({ bubbles: [...bubblesRef.current, newBubble] })
+    commitBubbleHistoryChange(before, after, () => addBubble(addSpaceFormData, newBubble))
     setIsAddModalOpen(false)
   }
 
@@ -533,16 +577,16 @@ export function useEditorPage(initialDraft?: EditorDraftSnapshot) {
 
     if (nextBubbles.length === bubbles.length) return
 
-    markLocalDraftDirty()
-    removeBubble(id)
-    removeConnectionsForBubble(id)
-    pushBubbleHistory({
-      undo: createBubbleHistorySnapshot(),
-      redo: createBubbleHistorySnapshot({
-        bubbles: nextBubbles,
-        connections: nextConnections,
-        selectedId: selectedId === id ? null : selectedId,
-      }),
+    const before = createBubbleHistorySnapshot()
+    const after = createBubbleHistorySnapshot({
+      bubbles: nextBubbles,
+      connections: nextConnections,
+      selectedId: selectedIdRef.current === id ? null : selectedIdRef.current,
+      previousSelectedId: previousSelectedIdRef.current,
+    })
+    commitBubbleHistoryChange(before, after, () => {
+      removeBubble(id)
+      removeConnectionsForBubble(id)
     })
   }
 
