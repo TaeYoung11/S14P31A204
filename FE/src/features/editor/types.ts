@@ -106,16 +106,52 @@ export interface FloorRoom {
   bubbleId: string
   label: string
   type: string
-  x: number      // 캔버스 px
-  y: number
-  width: number  // 캔버스 px
-  height: number
+  x: number      // 캔버스 px — 바운딩 박스 좌상단 X
+  y: number      // 캔버스 px — 바운딩 박스 좌상단 Y
+  width: number  // 캔버스 px — 바운딩 박스 너비
+  height: number // 캔버스 px — 바운딩 박스 높이
   widthMm: number  // 실제 가로(mm)
   heightMm: number // 실제 세로(mm)
   area: number   // m²
   color: string  // 원본 버블 색상
   material?: string // 주요 재질
   connectedIds: string[]  // 연결된 방 id 목록
+  /**
+   * IFC IfcSpace 임의 폴리곤 형상 (캔버스 px 좌표).
+   * 존재하면 직사각형 대신 폴리곤으로 렌더링한다.
+   * 편집(이동/리사이즈)은 bbox 기준으로 유지된다.
+   */
+  polygon?: { x: number; y: number }[]
+  /** 렌더링용 경계 세그먼트(캔버스 px) */
+  contour?: FloorRoomContourSegment[]
+  /** 렌더링용 2D transform(캔버스 px) */
+  transform?: FloorRoomTransform2D
+}
+
+export interface FloorRoomLineSegment {
+  type: 'line'
+  from: Point2D
+  to: Point2D
+}
+
+export interface FloorRoomArcSegment {
+  type: 'arc'
+  center: Point2D
+  radius: number
+  startAngleDeg: number
+  endAngleDeg: number
+  clockwise?: boolean
+}
+
+export type FloorRoomContourSegment = FloorRoomLineSegment | FloorRoomArcSegment
+
+export interface FloorRoomTransform2D {
+  translationX?: number
+  translationY?: number
+  rotationDeg?: number
+  scaleX?: number
+  scaleY?: number
+  origin?: Point2D
 }
 
 /** 평면도 층(레이어) */
@@ -136,6 +172,7 @@ export interface FloorLayerOverlay {
 /** 2D 평면도 편집용 벽(선분) 데이터 */
 export interface FloorWall {
   id: string
+  sourceIfcClass?: 'IfcWall' | 'IfcWallStandardCase'
   start: Point2D
   end: Point2D
   type: FloorWallType
@@ -146,6 +183,7 @@ export interface FloorWall {
 /** 2D 평면도 편집용 벽 부착 개구부(문/창문) */
 export interface FloorOpening {
   id: string
+  sourceIfcClass?: 'IfcDoor' | 'IfcWindow'
   type: FloorOpeningType
   wallId: string
   wallPosition: number // 벽 start~end 정규화 위치(0~1)

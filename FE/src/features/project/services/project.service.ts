@@ -14,6 +14,7 @@ interface ProjectSummaryResponse {
   name: string
   description?: string
   cadastralAddress?: string
+  currentIfcUrl?: string
   createdAt: string
   updatedAt: string
   unreadCommentCount?: number
@@ -75,7 +76,7 @@ const mapProjectSummary = (project: ProjectSummaryResponse): Project => ({
   updated_at: project.updatedAt,
   thumbnail_url: undefined,
   member_count: 0,
-  ifc_uploaded: false,
+  ifc_uploaded: !!project.currentIfcUrl,
   unread_comment_count: project.unreadCommentCount ?? 0,
 })
 
@@ -141,6 +142,23 @@ export const projectService = {
   getById: async (id: string): Promise<Project> => {
     const response = await api.get<ApiResponse<ProjectSummaryResponse>>(`/projects/${id}`)
     return mapProjectSummary(response.data.data)
+  },
+
+  getIfcModelText: async (projectId: string): Promise<string | null> => {
+    try {
+      const response = await api.get<ArrayBuffer>(`/projects/${projectId}/model`, {
+        responseType: 'arraybuffer',
+        headers: {
+          Accept: 'application/octet-stream,text/plain',
+        },
+      })
+      const ifcText = new TextDecoder('utf-8').decode(response.data)
+      return ifcText.trim().length > 0 ? ifcText : null
+    } catch (error: unknown) {
+      const status = (error as { response?: { status?: number } })?.response?.status
+      if (status === 404) return null
+      throw error
+    }
   },
 
   create: async (data: CreateProjectDto): Promise<Project> => {

@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import type { BubbleData, ConnectionData, FloorLayer, FloorRoom } from '../types'
 import { generateFloorPlanLayout } from '../utils/floorPlanLayout'
 import { mapFloorProjectToLayers } from '../utils/floorProjectMapper'
+import { translateFloorRoom } from '../utils/floorRoomTransform'
 import type { FloorProject } from '../types/floorProject.types'
 
 /** 2D 평면도 층·생성 상태를 관리하는 훅 */
@@ -101,12 +102,20 @@ export function useFloorPlan() {
     const newId = `floor-${Date.now()}`
     const floorNum = layers.length + 1
     const baseRooms = layers.find((l) => l.id === activeLayerId)?.rooms ?? []
+    const bubbleIdMap = new Map<string, string>(
+      baseRooms.map((room) => [room.bubbleId, `${room.bubbleId}-${newId}`] as const),
+    )
 
     const newLayer: FloorLayer = {
       id: newId,
       name: `${floorNum}층 평면도`,
-      // 방 id만 새로 부여하고 레이아웃은 복사
-      rooms: baseRooms.map((r) => ({ ...r, id: `${r.id}-${newId}` })),
+      // 레이어 간 식별자 충돌을 막기 위해 room.id / room.bubbleId를 모두 재발급한다.
+      rooms: baseRooms.map((room) => ({
+        ...room,
+        id: `${room.id}-${newId}`,
+        bubbleId: bubbleIdMap.get(room.bubbleId) ?? `${room.bubbleId}-${newId}`,
+        connectedIds: room.connectedIds.map((id) => bubbleIdMap.get(id) ?? `${id}-${newId}`),
+      })),
     }
     setLayers((prev) => [...prev, newLayer])
     setActiveLayerId(newId)
@@ -211,7 +220,7 @@ export function useFloorPlan() {
                 ...layer,
                 rooms: layer.rooms.map((room) =>
                   room.bubbleId === bubbleId
-                    ? { ...room, x, y }
+                    ? translateFloorRoom(room, x - room.x, y - room.y, { x, y })
                     : room,
                 ),
               },

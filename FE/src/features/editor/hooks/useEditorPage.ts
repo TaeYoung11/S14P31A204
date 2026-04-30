@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import type {
   AddSpaceFormData,
@@ -37,12 +37,19 @@ import { useZones } from './useZones'
 import { useFloorPlan } from './useFloorPlan'
 import { useLlmEdit } from './useLlmEdit'
 import { useFloorProjectImport } from './useFloorProjectImport'
+import { useWorkspaceCommandPublisher } from './useWorkspaceCommandPublisher'
 import { calcAreaM2FromMm, centerSitePoints } from '../utils/bubbleCalc'
 import type { EmptyCanvasDblClickInfo } from '../components/canvas/BubbleCanvas'
-import { mapAdjacencyToConnections, mapFloorProjectToBubbles } from '../utils/floorProjectMapper'
+import {
+  mapAdjacencyToConnections,
+  mapFloorProjectToBubbles,
+  mapFloorProjectToWalls,
+  mapFloorProjectToOpenings,
+} from '../utils/floorProjectMapper'
 import { deriveAutoWallsFromRooms } from '../utils/autoWalls'
 import { lineIntersectsRect, insetRect, type AxisAlignedRect } from '../utils/geometry2d'
 import { deriveConnectionsFromRooms, toConnectionKey } from '../utils/roomAdjacency'
+import { toRectFloorRoom, translateFloorRoom } from '../utils/floorRoomTransform'
 import {
   buildWallOutsideOverlapSegments,
   getWallGeometryKey,
@@ -51,6 +58,7 @@ import {
 } from '../utils/wallGeometry'
 import type { FloorProject } from '../types/floorProject.types'
 import { useAuthStore } from '@/shared/stores/authStore'
+import { projectService } from '@/features/project/services/project.service'
 
 /** 에디터 모드 허용 목록 — URL 파라미터 검증용 */
 const EDITOR_MODES: EditorMode[] = ['bubble', '2d', '3d', 'view']
@@ -71,6 +79,16 @@ const DEFAULT_CLIENT_NAME = '고객사 담당자'
 
 function createLocalId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+/** 2D 벽 고유 ID 생성 */
+function createFloorWallId(): string {
+  return `wall-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+}
+
+/** 2D 개구부 고유 ID 생성 */
+function createFloorOpeningId(): string {
+  return `opening-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
 }
 
 function normalizeCommentAttachments(attachments: FloorCommentAttachmentInput[] = []) {
@@ -174,6 +192,10 @@ export function useEditorPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const mode = resolveMode(searchParams.get('mode'))
+  const workspaceCommandPublisher = useWorkspaceCommandPublisher({
+    projectId,
+    source: mode,
+  })
 
   const { containerRef, stageSize } = useStageSize()
 
@@ -229,6 +251,11 @@ export function useEditorPage() {
   const [selectedFloorWallIds, setSelectedFloorWallIds] = useState<string[]>([])
   /** 2D 개구부(문/창문) 목록 */
   const [floorOpenings, setFloorOpenings] = useState<FloorOpening[]>([])
+  /**
+   * IFC FloorProject에 walls/openings가 포함된 경우 true.
+   * true일 때는 자동 추론(autoWalls/autoOpenings)보다 IFC 직접 매핑 데이터를 우선한다.
+   */
+  const [isProjectStructurePreferred, setIsProjectStructurePreferred] = useState(false)
   /** 사용자가 숨긴 자동 파생 개구부 ID 목록 */
   const [hiddenAutoOpeningIds, setHiddenAutoOpeningIds] = useState<string[]>([])
   /** 2D에서 선택된 개구부 */
@@ -273,14 +300,17 @@ export function useEditorPage() {
     renameFloorLayer,
     deleteFloorLayer,
     setActiveLayerId: setActiveFloorLayerId,
+    setFloorPlanFromProject,
     syncFloorPlanFromBubbles,
     moveActiveRoom,
     updateActiveRoom,
     removeActiveRooms,
     clearFloorPlan,
   } = useFloorPlan()
-  /** 버블 → 2D 변환 완료 후 버블 편집 잠금(보기 전용) */
-  const isBubbleReadOnly = isFloorPlanGenerated
+  /** 버블 편집 잠금은 2D 생성 여부와 분리해 별도 상태로 관리한다. */
+  const [isBubbleEditLocked] = useState(false)
+  const isBubbleReadOnly = isBubbleEditLocked
+  const canSyncBubbleStateFrom2D = floorPlanLayoutSource === 'bubble' && activeFloorLayerId === 'floor-1'
 
   // 버블·연결선 변경 시 이미 생성된 평면도를 조용히 갱신 (로딩 없음)
   useEffect(() => {
@@ -303,6 +333,7 @@ export function useEditorPage() {
     if (!isFloorPlanGenerated && !isFloorPlanGenerating) return
     clearFloorPlan()
     const timer = window.setTimeout(() => {
+      setIsProjectStructurePreferred(false)
       setFloorWalls([])
       setHiddenAutoWallIds([])
       setSelectedFloorWallId(null)
@@ -326,10 +357,14 @@ export function useEditorPage() {
 
       if (selectedFloorOpeningIds.length === 0 && selectedFloorWallIds.length === 0 && !selectedFloorOpeningId && !selectedFloorWallId && selectedRoomIds.length > 0) {
         removeActiveRooms(selectedRoomIds)
-        selectedRoomIds.forEach((id) => {
-          deleteBubble(id)
-          removeConnectionsForBubble(id)
-        })
+        if (canSyncBubbleStateFrom2D) {
+          selectedRoomIds.forEach((id) => {
+            deleteBubble(id)
+            removeConnectionsForBubble(id)
+          })
+        } else {
+          clearSelection()
+        }
         setSelectedConnectionPair(null)
         return
       }
@@ -359,11 +394,12 @@ export function useEditorPage() {
           return pair ? `auto-door-${pair}` : null
         })
         .filter((id): id is string => Boolean(id))
-      const hiddenAutoOpeningIds = Array.from(new Set([...autoOpeningIdsToHide, ...autoOpeningIdsFromDeletedWalls]))
-      if (hiddenAutoOpeningIds.length > 0) {
+      // 외부 state hiddenAutoOpeningIds와 이름 충돌을 피하기 위해 newHiddenOpeningIds로 명명
+      const newHiddenOpeningIds = Array.from(new Set([...autoOpeningIdsToHide, ...autoOpeningIdsFromDeletedWalls]))
+      if (newHiddenOpeningIds.length > 0) {
         setHiddenAutoOpeningIds((prev) => {
           const merged = new Set(prev)
-          hiddenAutoOpeningIds.forEach((id) => merged.add(id))
+          newHiddenOpeningIds.forEach((id) => merged.add(id))
           return Array.from(merged)
         })
       }
@@ -396,6 +432,7 @@ export function useEditorPage() {
       removeConnectionsForBubble(id)
     })
   }, [
+    canSyncBubbleStateFrom2D,
     mode,
     isBubbleReadOnly,
     selectedFloorOpeningId,
@@ -405,6 +442,7 @@ export function useEditorPage() {
     selectedConnectionPair,
     selectedId,
     selectedIds,
+    clearSelection,
     removeActiveRooms,
     deleteBubble,
     removeConnectionsForBubble,
@@ -474,6 +512,7 @@ export function useEditorPage() {
   const [isLayerOverlayMode, setIsLayerOverlayMode] = useState(false)
   const [overlayLayerIds, setOverlayLayerIds] = useState<string[]>([])
   const [overlayOpacityByLayerId, setOverlayOpacityByLayerId] = useState<Record<string, number>>({})
+  const attemptedInitialIfcImportProjectIdRef = useRef<string | null>(null)
   const authUser = useAuthStore((state) => state.user)
   const currentUserType: CollaborationUserType = authUser?.user_type === 'CLIENT' ? 'CLIENT' : 'DESIGNER'
   const counterpartType: CollaborationUserType = currentUserType === 'DESIGNER' ? 'CLIENT' : 'DESIGNER'
@@ -518,15 +557,21 @@ export function useEditorPage() {
   /** 자동 생성된 2D 방 경계선을 벽 데이터로 파생 (속성 편집 승격용) */
   // 자동 벽 파생은 단일 유틸 구현을 사용해 2D 캔버스와 동일 규칙을 유지한다.
   const autoFloorWalls = deriveAutoWallsFromRooms(floorRooms)
+  const shouldUseAutoWalls = !isProjectStructurePreferred || floorWalls.length === 0
+  const autoFloorWallsForMerge = useMemo(
+    () => (shouldUseAutoWalls ? autoFloorWalls : []),
+    [shouldUseAutoWalls, autoFloorWalls],
+  )
   const visibleAutoFloorWalls = useMemo(() => {
-    if (hiddenAutoWallIds.length === 0) return autoFloorWalls
+    if (hiddenAutoWallIds.length === 0) return autoFloorWallsForMerge
     const hiddenSet = new Set(hiddenAutoWallIds)
-    return autoFloorWalls.filter((wall) => !hiddenSet.has(wall.id))
-  }, [autoFloorWalls, hiddenAutoWallIds])
+    return autoFloorWallsForMerge.filter((wall) => !hiddenSet.has(wall.id))
+  }, [autoFloorWallsForMerge, hiddenAutoWallIds])
   /** 연결선 기반 자동 문(개구부) 파생 */
+  const shouldUseAutoOpenings = !isProjectStructurePreferred || floorOpenings.length === 0
   const autoFloorOpeningsRaw = useMemo(
-    () => deriveAutoOpeningsFromConnections(connections, visibleAutoFloorWalls),
-    [connections, visibleAutoFloorWalls],
+    () => (shouldUseAutoOpenings ? deriveAutoOpeningsFromConnections(connections, visibleAutoFloorWalls) : []),
+    [connections, visibleAutoFloorWalls, shouldUseAutoOpenings],
   )
   const autoFloorOpenings = useMemo(() => {
     if (hiddenAutoOpeningIds.length === 0) return autoFloorOpeningsRaw
@@ -546,13 +591,13 @@ export function useEditorPage() {
     const pruneTimer = window.setTimeout(() => {
       setHiddenAutoWallIds((prev) => {
         if (prev.length === 0) return prev
-        const autoIdSet = new Set(autoFloorWalls.map((wall) => wall.id))
+        const autoIdSet = new Set(autoFloorWallsForMerge.map((wall) => wall.id))
         const next = prev.filter((wallId) => autoIdSet.has(wallId))
         return next.length === prev.length ? prev : next
       })
     }, 0)
     return () => window.clearTimeout(pruneTimer)
-  }, [autoFloorWalls])
+  }, [autoFloorWallsForMerge])
 
   // 자동 개구부 재계산으로 사라진 ID는 숨김 목록에서 정리한다.
   useEffect(() => {
@@ -641,8 +686,24 @@ export function useEditorPage() {
 
   // 파생 상태: 선택된 버블 객체
   const selectedBubble = useMemo(
-    () => bubbles.find((b) => b.id === selectedId) ?? null,
-    [bubbles, selectedId],
+    () => {
+      const matchedBubble = bubbles.find((bubble) => bubble.id === selectedId)
+      if (matchedBubble) return matchedBubble
+      if (!selectedId) return null
+      const matchedRoom = floorRooms.find((room) => room.bubbleId === selectedId)
+      if (!matchedRoom) return null
+      return {
+        id: matchedRoom.bubbleId,
+        label: matchedRoom.label,
+        type: matchedRoom.type,
+        widthMm: matchedRoom.widthMm,
+        heightMm: matchedRoom.heightMm,
+        ratio: matchedRoom.area,
+        color: matchedRoom.color,
+        material: matchedRoom.material,
+      }
+    },
+    [bubbles, floorRooms, selectedId],
   )
   const selectedFloorWall = useMemo(
     () =>
@@ -660,6 +721,10 @@ export function useEditorPage() {
     mergedFloorWalls.forEach((wall) => map.set(wall.id, wall))
     return map
   }, [mergedFloorWalls])
+  const normalizeOpeningByCurrentWall = useCallback((opening: FloorOpening): FloorOpening => {
+    const wall = openingTargetWallById.get(opening.wallId)
+    return wall ? normalizeOpeningWithinWall(opening, wall) : opening
+  }, [openingTargetWallById])
 
   // 과거 좌표-hash 기반 auto-room wallId를 안정 ID 체계로 마이그레이션한다.
   useEffect(() => {
@@ -794,6 +859,7 @@ export function useEditorPage() {
   )
 
   const syncBubbleConnectionsFromRooms = useCallback((nextRooms: FloorRoom[]) => {
+    if (!canSyncBubbleStateFrom2D) return
     const roomBubbleIds = new Set(nextRooms.map((room) => room.bubbleId))
     const derivedPairs = deriveConnectionsFromRooms(nextRooms)
     const connectionByKey = new Map(connections.map((connection) => [toConnectionKey(connection.from, connection.to), connection] as const))
@@ -820,7 +886,7 @@ export function useEditorPage() {
     }
 
     replaceConnections(nextConnections)
-  }, [connections, replaceConnections])
+  }, [canSyncBubbleStateFrom2D, connections, replaceConnections])
 
   /**
    * Room 배치 변경 시, 수동 목록으로 승격된 auto-wall의 좌표를 최신 Room 경계로 동기화한다.
@@ -1108,8 +1174,10 @@ export function useEditorPage() {
     setCollaborationTab('thread')
   }, [authUser?.id, currentUserName, currentUserType, counterpartType])
 
-  const getBubbleLabel = (bubbleId: string) =>
-    bubbles.find((b) => b.id === bubbleId)?.label ?? bubbleId
+  const getBubbleLabel = useCallback(
+    (bubbleId: string) => bubbles.find((b) => b.id === bubbleId)?.label ?? bubbleId,
+    [bubbles],
+  )
 
   const handleOpenZoningModal = () => {
     if (isBubbleReadOnly) return
@@ -1174,7 +1242,7 @@ export function useEditorPage() {
   }
 
   /** 연결선 클릭 — 해당 연결선의 스타일 변경 모달 열기 */
-  const handleConnectionClick = (conn: import('../types').ConnectionData) => {
+  const handleConnectionClick = (conn: ConnectionData) => {
     if (isBubbleReadOnly) return
     if (selectedTool === 'delete') {
       removeConnection(conn.from, conn.to)
@@ -1341,8 +1409,6 @@ export function useEditorPage() {
     setOverlayOpacityByLayerId((prev) => ({ ...prev, [layerId]: next }))
   }
 
-  const createFloorWallId = () => `wall-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-
   /** 벽 선분이 방 내부(inset 영역)와 교차하는 방 id 목록 */
   const getIntersectingFloorRoomIds = (start: Point2D, end: Point2D) => {
     const intersectingIds = new Set<string>()
@@ -1394,6 +1460,7 @@ export function useEditorPage() {
       thickness: nextThickness,
       heightMm: nextHeightMm,
     }
+    workspaceCommandPublisher.createWall(newWall)
     setFloorWalls((prev) => [...prev, newWall])
     setWallCreatePreset({
       type: nextType,
@@ -1434,22 +1501,20 @@ export function useEditorPage() {
 
   /** 2D 벽 전체 이동 */
   const handleMoveFloorWall = (wallId: string, dx: number, dy: number) => {
-    setFloorWalls((prev) => {
-      const ensured = prev.some((wall) => wall.id === wallId)
-        ? prev
-        : (() => {
-            const autoWall = visibleAutoFloorWalls.find((wall) => wall.id === wallId)
-            return autoWall ? [...prev, autoWall] : prev
-          })()
-      const targetWall = ensured.find((wall) => wall.id === wallId)
-      if (!targetWall) return prev
-      const nextStart = { x: targetWall.start.x + dx, y: targetWall.start.y + dy }
-      const nextEnd = { x: targetWall.end.x + dx, y: targetWall.end.y + dy }
-      const prevCollisions = getIntersectingFloorRoomIds(targetWall.start, targetWall.end)
-      const nextCollisions = getIntersectingFloorRoomIds(nextStart, nextEnd)
-      const hasNewCollision = Array.from(nextCollisions).some((roomId) => !prevCollisions.has(roomId))
-      if (hasNewCollision) return prev
-      return ensured.map((wall) =>
+    const targetWall =
+      floorWalls.find((wall) => wall.id === wallId) ??
+      visibleAutoFloorWalls.find((wall) => wall.id === wallId)
+    if (!targetWall) return
+    const nextStart = { x: targetWall.start.x + dx, y: targetWall.start.y + dy }
+    const nextEnd = { x: targetWall.end.x + dx, y: targetWall.end.y + dy }
+    const prevCollisions = getIntersectingFloorRoomIds(targetWall.start, targetWall.end)
+    const nextCollisions = getIntersectingFloorRoomIds(nextStart, nextEnd)
+    const hasNewCollision = Array.from(nextCollisions).some((roomId) => !prevCollisions.has(roomId))
+    if (hasNewCollision) return
+
+    ensureFloorWallInManual(wallId)
+    setFloorWalls((prev) =>
+      prev.map((wall) =>
         wall.id === wallId
           ? {
               ...wall,
@@ -1457,8 +1522,9 @@ export function useEditorPage() {
               end: nextEnd,
             }
           : wall,
-      )
-    })
+      ),
+    )
+    workspaceCommandPublisher.updateWallGeometry(wallId, nextStart, nextEnd)
   }
 
   /** 2D 벽 끝점 편집 */
@@ -1467,23 +1533,20 @@ export function useEditorPage() {
     endpoint: 'start' | 'end',
     point: Point2D,
   ) => {
-    setFloorWalls((prev) => {
-      const ensured = prev.some((wall) => wall.id === wallId)
-        ? prev
-        : (() => {
-            const autoWall = visibleAutoFloorWalls.find((wall) => wall.id === wallId)
-            return autoWall ? [...prev, autoWall] : prev
-          })()
-      const targetWall = ensured.find((wall) => wall.id === wallId)
-      if (!targetWall) return prev
-      const nextStart = endpoint === 'start' ? point : targetWall.start
-      const nextEnd = endpoint === 'end' ? point : targetWall.end
-      const prevCollisions = getIntersectingFloorRoomIds(targetWall.start, targetWall.end)
-      const nextCollisions = getIntersectingFloorRoomIds(nextStart, nextEnd)
-      const hasNewCollision = Array.from(nextCollisions).some((roomId) => !prevCollisions.has(roomId))
-      if (hasNewCollision) return prev
-      return ensured.map((wall) => (wall.id === wallId ? { ...wall, [endpoint]: point } : wall))
-    })
+    const targetWall =
+      floorWalls.find((wall) => wall.id === wallId) ??
+      visibleAutoFloorWalls.find((wall) => wall.id === wallId)
+    if (!targetWall) return
+    const nextStart = endpoint === 'start' ? point : targetWall.start
+    const nextEnd = endpoint === 'end' ? point : targetWall.end
+    const prevCollisions = getIntersectingFloorRoomIds(targetWall.start, targetWall.end)
+    const nextCollisions = getIntersectingFloorRoomIds(nextStart, nextEnd)
+    const hasNewCollision = Array.from(nextCollisions).some((roomId) => !prevCollisions.has(roomId))
+    if (hasNewCollision) return
+
+    ensureFloorWallInManual(wallId)
+    setFloorWalls((prev) => prev.map((wall) => (wall.id === wallId ? { ...wall, [endpoint]: point } : wall)))
+    workspaceCommandPublisher.updateWallEndpoint(wallId, endpoint, point)
   }
 
   /** 2D 벽 삭제 */
@@ -1570,12 +1633,10 @@ export function useEditorPage() {
       })
       return next
     })
+    workspaceCommandPublisher.deleteWall(wallId)
     if (selectedFloorWallId && hiddenIds.has(selectedFloorWallId)) setSelectedFloorWallId(null)
     setSelectedFloorWallIds((prev) => prev.filter((id) => !hiddenIds.has(id)))
   }
-
-  /** 2D 개구부 ID 생성 */
-  const createFloorOpeningId = () => `opening-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
 
   /** 2D 벽 위 개구부 생성 */
   const handleCreateFloorOpening = (
@@ -1598,13 +1659,14 @@ export function useEditorPage() {
       doorHingeSide: type === 'door' ? 'left' : undefined,
       doorSwingDirection: type === 'door' ? 'inward' : undefined,
     }
-    const wall = openingTargetWallById.get(wallId)
-    const newOpening = wall ? normalizeOpeningWithinWall(rawOpening, wall) : rawOpening
+    const newOpening = normalizeOpeningByCurrentWall(rawOpening)
+    const existingOpening = mergedFloorOpenings.find((opening) => opening.id === newOpening.id)
     setFloorOpenings((prev) => {
       const exists = prev.some((opening) => opening.id === newOpening.id)
       if (exists) return prev.map((opening) => (opening.id === newOpening.id ? newOpening : opening))
       return [...prev, newOpening]
     })
+    workspaceCommandPublisher.upsertOpening(newOpening, Boolean(existingOpening))
     setHiddenAutoOpeningIds((prev) => prev.filter((id) => id !== newOpening.id))
     setSelectedFloorWallId(null)
     setSelectedFloorWallIds([])
@@ -1642,43 +1704,53 @@ export function useEditorPage() {
   /** 2D 개구부 위치(벽 따라) 변경 */
   const handleMoveFloorOpening = (openingId: string, wallPosition: number, wallId?: string) => {
     if (!Number.isFinite(wallPosition)) return
+    const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
+    if (!targetOpening) return
     const clamped = Math.min(Math.max(wallPosition, 0), 1)
-    updateFloorOpeningFromEditable(openingId, (opening) => {
-      const nextOpening: FloorOpening = {
-        ...opening,
-        wallPosition: clamped,
-        wallId: wallId ?? opening.wallId,
-      }
-      const wall = openingTargetWallById.get(nextOpening.wallId)
-      return wall ? normalizeOpeningWithinWall(nextOpening, wall) : nextOpening
+    const nextOpeningPreNormalized: FloorOpening = {
+      ...targetOpening,
+      wallPosition: clamped,
+      wallId: wallId ?? targetOpening.wallId,
+    }
+    const nextOpening = normalizeOpeningByCurrentWall(nextOpeningPreNormalized)
+    updateFloorOpeningFromEditable(openingId, () => nextOpening)
+    workspaceCommandPublisher.updateOpening(nextOpening.type, openingId, {
+      wall_id: nextOpening.wallId,
+      wall_position: nextOpening.wallPosition,
     })
   }
 
   /** 2D 개구부 크기 변경 */
   const handleUpdateFloorOpeningSize = (openingId: string, widthMm: number, heightMm: number) => {
     if (!Number.isFinite(widthMm) || !Number.isFinite(heightMm)) return
+    const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
+    if (!targetOpening) return
     const nextWidth = Math.min(Math.max(Math.round(widthMm), 300), 4000)
     const nextHeight = Math.min(Math.max(Math.round(heightMm), 300), 4000)
-    updateFloorOpeningFromEditable(openingId, (opening) => {
-      const nextOpening: FloorOpening = {
-        ...opening,
-        widthMm: nextWidth,
-        heightMm: nextHeight,
-      }
-      const wall = openingTargetWallById.get(nextOpening.wallId)
-      return wall ? normalizeOpeningWithinWall(nextOpening, wall) : nextOpening
+    const nextOpeningPreNormalized: FloorOpening = {
+      ...targetOpening,
+      widthMm: nextWidth,
+      heightMm: nextHeight,
+    }
+    const nextOpening = normalizeOpeningByCurrentWall(nextOpeningPreNormalized)
+    updateFloorOpeningFromEditable(openingId, () => nextOpening)
+    workspaceCommandPublisher.updateOpening(nextOpening.type, openingId, {
+      width: nextOpening.widthMm,
+      height: nextOpening.heightMm,
+      wall_position: nextOpening.wallPosition,
     })
   }
 
   /** 2D 창문 창턱 높이 변경 */
   const handleUpdateFloorWindowSillHeight = (openingId: string, sillHeightMm: number) => {
     if (!Number.isFinite(sillHeightMm)) return
+    const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
+    if (!targetOpening || targetOpening.type !== 'window') return
     const next = Math.min(Math.max(Math.round(sillHeightMm), 0), 2500)
-    updateFloorOpeningFromEditable(openingId, (opening) =>
-      opening.type === 'window'
-        ? { ...opening, sillHeightMm: next }
-        : opening,
-    )
+    updateFloorOpeningFromEditable(openingId, (opening) => ({ ...opening, sillHeightMm: next }))
+    workspaceCommandPublisher.updateOpening('window', openingId, {
+      sill_height: next,
+    })
   }
 
   /** 2D 문 개폐 방향 변경 */
@@ -1686,11 +1758,12 @@ export function useEditorPage() {
     openingId: string,
     swingDirection: NonNullable<FloorOpening['doorSwingDirection']>,
   ) => {
-    updateFloorOpeningFromEditable(openingId, (opening) =>
-      opening.type === 'door'
-        ? { ...opening, doorSwingDirection: swingDirection }
-        : opening,
-    )
+    const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
+    if (!targetOpening || targetOpening.type !== 'door') return
+    updateFloorOpeningFromEditable(openingId, (opening) => ({ ...opening, doorSwingDirection: swingDirection }))
+    workspaceCommandPublisher.updateOpening('door', openingId, {
+      door_swing_direction: swingDirection,
+    })
   }
 
   /** 2D 문 경첩 위치 변경 */
@@ -1698,21 +1771,26 @@ export function useEditorPage() {
     openingId: string,
     hingeSide: NonNullable<FloorOpening['doorHingeSide']>,
   ) => {
-    updateFloorOpeningFromEditable(openingId, (opening) =>
-      opening.type === 'door'
-        ? { ...opening, doorHingeSide: hingeSide }
-        : opening,
-    )
+    const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
+    if (!targetOpening || targetOpening.type !== 'door') return
+    updateFloorOpeningFromEditable(openingId, (opening) => ({ ...opening, doorHingeSide: hingeSide }))
+    workspaceCommandPublisher.updateOpening('door', openingId, {
+      door_hinge_side: hingeSide,
+    })
   }
 
   /** 2D 개구부 삭제 */
   const handleDeleteFloorOpening = (openingId: string) => {
+    const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
     setFloorOpenings((prev) => prev.filter((opening) => opening.id !== openingId))
     if (openingId.startsWith('auto-door-')) {
       setHiddenAutoOpeningIds((prev) => {
         if (prev.includes(openingId)) return prev
         return [...prev, openingId]
       })
+    }
+    if (targetOpening) {
+      workspaceCommandPublisher.deleteOpening(targetOpening)
     }
     if (selectedFloorOpeningId === openingId) setSelectedFloorOpeningId(null)
     setSelectedFloorOpeningIds((prev) => prev.filter((id) => id !== openingId))
@@ -1735,30 +1813,33 @@ export function useEditorPage() {
       height: targetRoom.height,
     }
     const nextRect: AxisAlignedRect = { x, y, width: safeNextWidthPx, height: safeNextHeightPx }
-    handleWidthChange(bubbleId, nextWidthMm)
-    handleHeightChange(bubbleId, nextHeightMm)
-    updateActiveRoom(bubbleId, (room) => ({
-      ...room,
-      x,
-      y,
-      width: safeNextWidthPx,
-      height: safeNextHeightPx,
-      widthMm: nextWidthMm,
-      heightMm: nextHeightMm,
-      area: calcAreaM2FromMm(nextWidthMm, nextHeightMm),
-    }))
+    if (canSyncBubbleStateFrom2D) {
+      handleWidthChange(bubbleId, nextWidthMm)
+      handleHeightChange(bubbleId, nextHeightMm)
+    }
+    const nextArea = calcAreaM2FromMm(nextWidthMm, nextHeightMm)
+    updateActiveRoom(bubbleId, (room) =>
+      toRectFloorRoom(room, {
+        x,
+        y,
+        width: safeNextWidthPx,
+        height: safeNextHeightPx,
+        widthMm: nextWidthMm,
+        heightMm: nextHeightMm,
+        area: nextArea,
+      }),
+    )
     const nextRooms = floorRooms.map((room) =>
       room.bubbleId === bubbleId
-        ? {
-            ...room,
+        ? toRectFloorRoom(room, {
             x,
             y,
             width: safeNextWidthPx,
             height: safeNextHeightPx,
             widthMm: nextWidthMm,
             heightMm: nextHeightMm,
-            area: calcAreaM2FromMm(nextWidthMm, nextHeightMm),
-          }
+            area: nextArea,
+          })
         : room,
     )
     syncPerimeterManualWallsForRoomResize(bubbleId, prevRect, nextRect)
@@ -1777,10 +1858,10 @@ export function useEditorPage() {
     const dy = y - targetRoom.y
     const nextRooms = floorRooms.map((room) => {
       if (shouldMoveMulti && selectedSet.has(room.bubbleId)) {
-        return { ...room, x: room.x + dx, y: room.y + dy }
+        return translateFloorRoom(room, dx, dy)
       }
       if (!shouldMoveMulti && room.bubbleId === bubbleId) {
-        return { ...room, x, y }
+        return translateFloorRoom(room, dx, dy, { x, y })
       }
       return room
     })
@@ -1807,6 +1888,11 @@ export function useEditorPage() {
       thickness: preset.thickness,
       heightMm: preset.heightMm,
     }))
+    workspaceCommandPublisher.updateWallStyle(wallId, {
+      wallType: type,
+      thickness: preset.thickness,
+      height: preset.heightMm,
+    })
     setWallCreatePreset({
       type,
       thickness: preset.thickness,
@@ -1822,6 +1908,7 @@ export function useEditorPage() {
       FLOOR_WALL_THICKNESS_MAX_MM,
     )
     updateFloorWallFromEditable(wallId, (wall) => ({ ...wall, thickness: next }))
+    workspaceCommandPublisher.updateWallStyle(wallId, { thickness: next })
     setWallCreatePreset((prev) => ({ ...prev, thickness: next }))
   }
 
@@ -1833,6 +1920,7 @@ export function useEditorPage() {
       FLOOR_WALL_HEIGHT_MAX_MM,
     )
     updateFloorWallFromEditable(wallId, (wall) => ({ ...wall, heightMm: next }))
+    workspaceCommandPublisher.updateWallStyle(wallId, { height: next })
     setWallCreatePreset((prev) => ({ ...prev, heightMm: next }))
   }
 
@@ -1855,46 +1943,92 @@ export function useEditorPage() {
   /** 도면 변경 공통 반영 파이프라인 */
   const applyDrawingSnapshot = useCallback(
     ({ bubbles: nextBubbles, connections: nextConnections, floorWalls: nextFloorWalls, floorOpenings: nextFloorOpenings }: DrawingSnapshot) => {
+      setIsProjectStructurePreferred(false)
       replaceBubbles(nextBubbles)
       replaceConnections(nextConnections)
-      syncFloorPlanFromBubbles(nextBubbles, nextConnections, stageSize.width, stageSize.height)
+      // project-origin 레이아웃은 버블 자동 배치로 덮어쓰지 않는다.
+      if (floorPlanLayoutSource !== 'project') {
+        syncFloorPlanFromBubbles(nextBubbles, nextConnections, stageSize.width, stageSize.height)
+      }
       setFloorWalls(nextFloorWalls)
       setHiddenAutoWallIds([])
       setFloorOpenings(nextFloorOpenings)
       setHiddenAutoOpeningIds([])
       resetInteractionSelection()
     },
-    [replaceBubbles, replaceConnections, syncFloorPlanFromBubbles, stageSize.width, stageSize.height, resetInteractionSelection],
+    [floorPlanLayoutSource, replaceBubbles, replaceConnections, syncFloorPlanFromBubbles, stageSize.width, stageSize.height, resetInteractionSelection],
   )
 
-  /** 표준 FloorProject를 버블/2D/3D 공통 상태로 반영 */
+  /** 표준 FloorProject를 버블/2D/3D 공통 상태로 반영
+   *  walls/openings 필드가 있으면(IFC 경로) 직접 매핑, 없으면 빈 배열 → autoWalls/autoOpenings 폴백
+   */
   const applyFloorProject = useCallback((project: FloorProject) => {
-    const nextBubbles = mapFloorProjectToBubbles(project, {
-      width: stageSize.width,
-      height: stageSize.height,
-    })
+    const stageOptions = { width: stageSize.width, height: stageSize.height }
+    const mappedWalls = mapFloorProjectToWalls(project, stageOptions)
+    const mappedOpenings = mapFloorProjectToOpenings(project)
+    setIsProjectStructurePreferred(mappedWalls.length > 0 || mappedOpenings.length > 0)
+    const nextBubbles = mapFloorProjectToBubbles(project, stageOptions)
     const bubbleIdSet = new Set(nextBubbles.map((bubble) => bubble.id))
     const nextConnections = mapAdjacencyToConnections(project.adjacency).filter((connection) => {
       return bubbleIdSet.has(connection.from) && bubbleIdSet.has(connection.to)
     })
-    applyDrawingSnapshot({
-      bubbles: nextBubbles,
-      connections: nextConnections,
-      floorWalls: [],
-      floorOpenings: [],
-    })
-  }, [stageSize.width, stageSize.height, applyDrawingSnapshot])
+    replaceBubbles(nextBubbles)
+    replaceConnections(nextConnections)
+    // IFC 원좌표/회전 정보를 유지하기 위해 버블 재배치 경로(syncFloorPlanFromBubbles)를 타지 않는다.
+    setFloorPlanFromProject(project, stageSize.width, stageSize.height)
+    setFloorWalls(mappedWalls)
+    setHiddenAutoWallIds([])
+    setFloorOpenings(mappedOpenings)
+    setHiddenAutoOpeningIds([])
+    resetInteractionSelection()
+  }, [
+    stageSize.width,
+    stageSize.height,
+    replaceBubbles,
+    replaceConnections,
+    setFloorPlanFromProject,
+    resetInteractionSelection,
+  ])
 
-  /** BATANG 2D JSON import 상태/핸들러 */
+  /** IFC import 상태/핸들러 */
   const {
     floorProjectImportMessage,
-    importFloorProjectFromJson,
-    importSampleFloorProject,
+    importFloorProjectFromIfc,
     clearImportMessage,
   } = useFloorProjectImport({
     stageSize,
     onApplyProject: applyFloorProject,
   })
+
+  // 프로젝트가 가진 IFC 모델을 2D/3D 공통 데이터로 1회 자동 로드한다.
+  useEffect(() => {
+    if (!projectId) return
+    if (attemptedInitialIfcImportProjectIdRef.current === projectId) return
+    if (stageSize.width <= 0 || stageSize.height <= 0) return
+
+    let cancelled = false
+    attemptedInitialIfcImportProjectIdRef.current = projectId
+
+    ;(async () => {
+      try {
+        const ifcText = await projectService.getIfcModelText(projectId)
+        if (cancelled || !ifcText) return
+        await importFloorProjectFromIfc(ifcText, `${projectId}.ifc`)
+      } catch (error) {
+        if (cancelled) return
+        console.error('[editor] failed to auto-import IFC model:', error)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    projectId,
+    stageSize.width,
+    stageSize.height,
+    importFloorProjectFromIfc,
+  ])
 
   /** AI 미리보기 적용 — 버블/연결선/2D 벽·개구부 일괄 반영 후 선택 상태 정리 */
   const applyLlmPreview = useCallback(
@@ -1926,22 +2060,31 @@ export function useEditorPage() {
   })
 
   const handleLabelChangeForPanel = useCallback((id: string, label: string) => {
-    handleLabelChange(id, label)
-    if (mode !== '2d') return
+    if (mode !== '2d') {
+      handleLabelChange(id, label)
+      return
+    }
+    if (canSyncBubbleStateFrom2D) handleLabelChange(id, label)
     updateActiveRoom(id, (room) => ({ ...room, label }))
-  }, [handleLabelChange, mode, updateActiveRoom])
+  }, [canSyncBubbleStateFrom2D, handleLabelChange, mode, updateActiveRoom])
 
   const handleTypeChangeForPanel = useCallback((id: string, type: string) => {
-    handleTypeChange(id, type)
-    if (mode !== '2d') return
+    if (mode !== '2d') {
+      handleTypeChange(id, type)
+      return
+    }
+    if (canSyncBubbleStateFrom2D) handleTypeChange(id, type)
     updateActiveRoom(id, (room) => ({ ...room, type }))
-  }, [handleTypeChange, mode, updateActiveRoom])
+  }, [canSyncBubbleStateFrom2D, handleTypeChange, mode, updateActiveRoom])
 
   const handleMaterialChangeForPanel = useCallback((id: string, material: string) => {
-    handleMaterialChange(id, material)
-    if (mode !== '2d') return
+    if (mode !== '2d') {
+      handleMaterialChange(id, material)
+      return
+    }
+    if (canSyncBubbleStateFrom2D) handleMaterialChange(id, material)
     updateActiveRoom(id, (room) => ({ ...room, material }))
-  }, [handleMaterialChange, mode, updateActiveRoom])
+  }, [canSyncBubbleStateFrom2D, handleMaterialChange, mode, updateActiveRoom])
 
   /**
    * 2D 속성 패널의 mm 입력값을 전역 Grid Snap 간격에 맞춰 보정한다.
@@ -1982,10 +2125,12 @@ export function useEditorPage() {
         width: nextWidthPx,
         height: nextHeightPx,
       }
-      if (axis === 'width') {
-        handleWidthChange(bubbleId, nextWidthMm)
-      } else {
-        handleHeightChange(bubbleId, nextHeightMm)
+      if (canSyncBubbleStateFrom2D) {
+        if (axis === 'width') {
+          handleWidthChange(bubbleId, nextWidthMm)
+        } else {
+          handleHeightChange(bubbleId, nextHeightMm)
+        }
       }
 
       const nextRooms = floorRooms.map((item) =>
@@ -1997,6 +2142,10 @@ export function useEditorPage() {
               widthMm: nextWidthMm,
               heightMm: nextHeightMm,
               area: nextArea,
+              // 임의 폴리곤 치수 편집은 미지원이므로 bbox 모드로 전환한다.
+              polygon: undefined,
+              contour: undefined,
+              transform: undefined,
             }
           : item,
       )
@@ -2008,12 +2157,15 @@ export function useEditorPage() {
         widthMm: nextWidthMm,
         heightMm: nextHeightMm,
         area: nextArea,
+        polygon: undefined,
+        contour: undefined,
+        transform: undefined,
       }))
       syncPerimeterManualWallsForRoomResize(bubbleId, prevRect, nextRect)
       syncManualAutoWallsFromRooms(nextRooms)
       syncBubbleConnectionsFromRooms(nextRooms)
     },
-    [mode, floorRooms, handleWidthChange, handleHeightChange, updateActiveRoom, syncPerimeterManualWallsForRoomResize, syncManualAutoWallsFromRooms, syncBubbleConnectionsFromRooms, snapDimensionMm],
+    [mode, floorRooms, canSyncBubbleStateFrom2D, handleWidthChange, handleHeightChange, updateActiveRoom, syncPerimeterManualWallsForRoomResize, syncManualAutoWallsFromRooms, syncBubbleConnectionsFromRooms, snapDimensionMm],
   )
 
   const handleWidthChangeForPanel = useCallback((id: string, widthMm: number) => {
@@ -2181,8 +2333,7 @@ export function useEditorPage() {
     handleSetOverlayLayerOpacity,
     floorPlanConnections: connections,
     floorProjectImportMessage,
-    importFloorProjectFromJson,
-    importSampleFloorProject,
+    importFloorProjectFromIfc,
     // 그리드
     isGridVisible,
     isGridSnapEnabled,
