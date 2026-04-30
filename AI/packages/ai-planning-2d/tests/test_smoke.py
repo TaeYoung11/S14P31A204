@@ -307,7 +307,7 @@ def test_resize_unlocked_room_passes(unlocked_ifc_ctx):
 
 
 # ---------------------------------------------------------------------------
-# to_ifc_commands - needs_clarification ?꾨떖
+# to_ifc_commands - needs_clarification 전달
 # ---------------------------------------------------------------------------
 
 def test_needs_clarification_passthrough():
@@ -323,7 +323,7 @@ def test_needs_clarification_passthrough():
 
 
 # ---------------------------------------------------------------------------
-# validate_command_batch - 臾쇰━ 寃利?# ---------------------------------------------------------------------------
+# validate_command_batch - 물리 검증
 
 def test_validate_normal_batch(ifc_ctx):
     cmd = FloorNLPCommand(
@@ -550,7 +550,7 @@ def test_validate_resize_L_shape_bounds(ifc_ctx):
 
 
 # ---------------------------------------------------------------------------
-# LLM ?뚯뒪??(Ollama ?ㅽ뻾 ?꾩슂)
+# LLM 테스트 (Ollama 실행 필요)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.llm
