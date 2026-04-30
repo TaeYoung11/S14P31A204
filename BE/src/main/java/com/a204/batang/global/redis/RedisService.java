@@ -12,7 +12,7 @@ public class RedisService {
 
     private static final long EMAIL_CODE_TTL_MINUTES = 5L;
 
-    private final RedisTemplate<String, Object> redisTemplate;
+    private final RedisTemplate<String, String> redisTemplate;
 
     public void saveRefreshToken(String userId, String token, long ttlMs) {
         redisTemplate.opsForValue()
@@ -76,7 +76,7 @@ public class RedisService {
     }
 
     private String getStringValue(String key) {
-        Object value = redisTemplate.opsForValue().get(key);
+        String value = redisTemplate.opsForValue().get(key);
         return value == null ? null : value.toString();
     }
 }
