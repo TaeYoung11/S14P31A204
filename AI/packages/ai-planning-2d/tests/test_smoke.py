@@ -1,7 +1,6 @@
-"""
-ai-planning-2d 스모크 테스트
-실행: uv run pytest packages/ai-planning-2d/tests/test_smoke.py -v
-LLM 포함: uv run pytest packages/ai-planning-2d/tests/test_smoke.py -v -m llm
+﻿"""
+ai-planning-2d ?ㅻえ???뚯뒪???ㅽ뻾: uv run pytest packages/ai-planning-2d/tests/test_smoke.py -v
+LLM ?ы븿: uv run pytest packages/ai-planning-2d/tests/test_smoke.py -v -m llm
 """
 import pytest
 
@@ -69,6 +68,34 @@ def unlocked_ifc_ctx() -> IFCContext:
         ],
         "storeys": [
             {"id": "st-001", "floor": 1},
+        ],
+    }
+
+
+@pytest.fixture
+def partial_locked_ifc_ctx() -> IFCContext:
+    return {
+        "spaces": [
+            {
+                "id": "sp-002",
+                "name": "\uce68\uc2e4",
+                "floor": 1,
+                "width": 3000,
+                "height": 4000,
+                "locked": False,
+            },
+            {
+                "id": "sp-003",
+                "name": "\uce68\uc2e4",
+                "floor": 2,
+                "width": 3000,
+                "height": 4000,
+                "locked": True,
+            },
+        ],
+        "storeys": [
+            {"id": "st-001", "floor": 1},
+            {"id": "st-002", "floor": 2},
         ],
     }
 
@@ -202,6 +229,19 @@ def test_remove_room_apply_to_all(ifc_ctx):
     assert len(batch.commands) == 2
 
 
+def test_remove_locked_room_apply_to_all_blocked(partial_locked_ifc_ctx):
+    cmd = FloorNLPCommand(
+        action="remove_room",
+        target_room_name="\uce68\uc2e4",
+        apply_to_all=True,
+        confidence=0.95,
+    )
+    batch = to_ifc_commands(cmd, partial_locked_ifc_ctx)
+    assert batch.requires_clarification
+    assert batch.clarification_question is not None
+    assert "\uce68\uc2e4" in batch.clarification_question
+
+
 def test_remove_room_not_found(ifc_ctx):
     cmd = FloorNLPCommand(
         action="remove_room",
@@ -248,8 +288,25 @@ def test_resize_locked_room(locked_ifc_ctx):
     assert "\uc7a0\uaca8 \uc788\uc5b4 \ud06c\uae30\ub97c \ubcc0\uacbd\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4" in batch.clarification_question
 
 
+def test_resize_unlocked_room_passes(unlocked_ifc_ctx):
+    cmd = FloorNLPCommand(
+        action="resize_room",
+        target_room_name="\uac70\uc2e4",
+        resize_shape="rect",
+        resize_width=6000,
+        resize_height=8000,
+        resize_rects=shape_to_rects("rect", 6000, 8000),
+        confidence=0.95,
+    )
+    batch = to_ifc_commands(cmd, unlocked_ifc_ctx)
+    assert not batch.requires_clarification
+    assert len(batch.commands) == 1
+    assert batch.commands[0].target_id == "sp-001"
+    assert batch.commands[0].params["geometry"]["dimensions"]["width"] == 6000
+
+
 # ---------------------------------------------------------------------------
-# to_ifc_commands - needs_clarification 전달
+# to_ifc_commands - needs_clarification ?꾨떖
 # ---------------------------------------------------------------------------
 
 def test_needs_clarification_passthrough():
@@ -265,8 +322,7 @@ def test_needs_clarification_passthrough():
 
 
 # ---------------------------------------------------------------------------
-# validate_command_batch - 물리 검증
-# ---------------------------------------------------------------------------
+# validate_command_batch - 臾쇰━ 寃利?# ---------------------------------------------------------------------------
 
 def test_validate_normal_batch(ifc_ctx):
     cmd = FloorNLPCommand(
@@ -493,7 +549,7 @@ def test_validate_resize_L_shape_bounds(ifc_ctx):
 
 
 # ---------------------------------------------------------------------------
-# LLM 테스트 (Ollama 실행 필요)
+# LLM ?뚯뒪??(Ollama ?ㅽ뻾 ?꾩슂)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.llm
@@ -519,7 +575,7 @@ async def test_engine_remove_room():
 @pytest.mark.asyncio
 async def test_engine_clarification():
     engine = FloorPlanEngine()
-    result = await engine.parse_command("\ubc29 \uc880 \ubc14꿔줘")
+    result = await engine.parse_command("\ubc29 \uc880 \ubc14\uafcd\uc918")
     assert result.needs_clarification
 
 
