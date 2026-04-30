@@ -24,7 +24,7 @@ public record BubbleUpdateRequest(
         @NotNull(message = "baseIndex is required.")
         @Min(value = -1, message = "baseIndex must be greater than or equal to -1.")
         Integer baseIndex
-) {
+) implements BubbleSnapshotPayload {
 
     /**
      * 버블 다이어그램 단일 버블 데이터.
