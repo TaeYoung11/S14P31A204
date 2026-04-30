@@ -16,12 +16,12 @@ interface TwoDAttributePanelProps {
   onHeightChange: (id: string, height: number) => void
   onWidthCommit?: (id: string, width: number) => void
   onHeightCommit?: (id: string, height: number) => void
-  onMaterialChange?: (id: string, material: string) => void
   /** 면적 직접 변경 핸들러 — 현재 UI에서 미사용, 추후 면적 입력 필드 추가 시 활용 */
   onRatioChange?: (id: string, ratio: number) => void
   onWallTypeChange?: (id: string, type: FloorWall['type']) => void
   onWallThicknessChange?: (id: string, thicknessMm: number) => void
   onWallHeightChange?: (id: string, heightMm: number) => void
+  onWallMaterialChange?: (id: string, material: string) => void
   onOpeningSizeChange?: (id: string, widthMm: number, heightMm: number) => void
   onWindowSillHeightChange?: (id: string, sillHeightMm: number) => void
   onDoorSwingDirectionChange?: (id: string, swingDirection: NonNullable<FloorOpening['doorSwingDirection']>) => void
@@ -39,10 +39,10 @@ export function TwoDAttributePanel({
   onHeightChange,
   onWidthCommit,
   onHeightCommit,
-  onMaterialChange,
   onWallTypeChange,
   onWallThicknessChange,
   onWallHeightChange,
+  onWallMaterialChange,
   onOpeningSizeChange,
   onWindowSillHeightChange,
   onDoorSwingDirectionChange,
@@ -179,6 +179,7 @@ export function TwoDAttributePanel({
         onWallTypeChange={onWallTypeChange}
         onWallThicknessChange={onWallThicknessChange}
         onWallHeightChange={onWallHeightChange}
+        onWallMaterialChange={onWallMaterialChange}
       />
     )
   }
@@ -198,7 +199,6 @@ export function TwoDAttributePanel({
       roomHeightDraft={roomHeightDraft}
       onLabelChange={onLabelChange}
       onTypeChange={onTypeChange}
-      onMaterialChange={onMaterialChange}
       onRoomWidthDraftChange={(value) => {
         setRoomWidthDraft(value)
         queueRoomWidthCommit(value)

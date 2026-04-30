@@ -407,16 +407,22 @@ const extractWallGeometry = (
         if (points.length < 2) continue
         const xs = points.map((point) => point.x)
         const ys = points.map((point) => point.y)
+        if (xs.length === 0 || ys.length === 0) continue
+        if (!xs.every(Number.isFinite) || !ys.every(Number.isFinite)) continue
         const minX = Math.min(...xs)
         const maxX = Math.max(...xs)
         const minY = Math.min(...ys)
         const maxY = Math.max(...ys)
+        if (![minX, maxX, minY, maxY].every(Number.isFinite)) continue
         const length = maxX - minX
         const nextThickness = maxY - minY
+        if (!Number.isFinite(length) || !Number.isFinite(nextThickness)) continue
         if (nextThickness > 0) thickness = nextThickness
         if (length <= 0) continue
-        bodyStart = applyAffine(matrix, { x: minX, y: (minY + maxY) / 2 })
-        bodyEnd = applyAffine(matrix, { x: maxX, y: (minY + maxY) / 2 })
+        const centerY = (minY + maxY) / 2
+        if (!Number.isFinite(centerY)) continue
+        bodyStart = applyAffine(matrix, { x: minX, y: centerY })
+        bodyEnd = applyAffine(matrix, { x: maxX, y: centerY })
       }
     }
   }

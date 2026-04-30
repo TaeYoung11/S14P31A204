@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { EditorMode, FloorOpening, FloorWall, Point2D } from '../types'
 import {
   createEntityCommand,
@@ -19,11 +19,32 @@ interface UseWorkspaceCommandPublisherOptions {
  * 백엔드 실시간 라우트가 없거나 연결이 끊긴 경우에도 편집 UX는 유지된다.
  */
 export function useWorkspaceCommandPublisher({ projectId, source }: UseWorkspaceCommandPublisherOptions) {
+  const pendingCommandQueueRef = useRef<Array<ReturnType<typeof createWorkspaceCommandEnvelope>>>([])
+
+  useEffect(() => {
+    pendingCommandQueueRef.current = []
+  }, [projectId])
+
   const publishSafely = useCallback((build: () => ReturnType<typeof createWorkspaceCommandEnvelope>) => {
     if (!projectId) return
+    const nextEnvelope = build()
+    const queued = pendingCommandQueueRef.current
     try {
-      publishWorkspaceCommand(projectId, build())
-    } catch {
+      if (queued.length > 0) {
+        while (queued.length > 0) {
+          const pendingEnvelope = queued[0]
+          publishWorkspaceCommand(projectId, pendingEnvelope)
+          queued.shift()
+        }
+      }
+      publishWorkspaceCommand(projectId, nextEnvelope)
+    } catch (error) {
+      queued.push(nextEnvelope)
+      console.warn('[editor] workspace command publish failed; queued for retry', {
+        projectId,
+        queueSize: queued.length,
+        error,
+      })
       // 실시간 연결 상태와 무관하게 편집 기능은 계속 동작해야 한다.
     }
   }, [projectId])

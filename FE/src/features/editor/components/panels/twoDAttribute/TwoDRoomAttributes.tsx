@@ -1,7 +1,6 @@
 import { ChevronDown } from 'lucide-react'
 import type { BubbleInfo } from '../BubbleAttributePanel'
 import { ROOM_TYPES } from '../../../constants'
-import { MaterialSelector } from '../../shared/MaterialSelector'
 
 interface TwoDRoomAttributesProps {
   selectedBubble: BubbleInfo
@@ -9,7 +8,6 @@ interface TwoDRoomAttributesProps {
   roomHeightDraft: string
   onLabelChange: (id: string, label: string) => void
   onTypeChange: (id: string, type: string) => void
-  onMaterialChange?: (id: string, material: string) => void
   onRoomWidthDraftChange: (value: string) => void
   onRoomHeightDraftChange: (value: string) => void
   onRoomWidthFocus: () => void
@@ -25,7 +23,6 @@ export function TwoDRoomAttributes({
   roomHeightDraft,
   onLabelChange,
   onTypeChange,
-  onMaterialChange,
   onRoomWidthDraftChange,
   onRoomHeightDraftChange,
   onRoomWidthFocus,
@@ -100,10 +97,6 @@ export function TwoDRoomAttributes({
           </div>
         </div>
 
-        <MaterialSelector
-          value={selectedBubble.material}
-          onChange={(material) => onMaterialChange?.(selectedBubble.id, material)}
-        />
       </div>
 
       <div className="pt-4 border-t border-[#F0F2F9] flex items-center justify-between">

@@ -30,6 +30,7 @@ interface AttributesPanelProps {
   onWallTypeChange?: (id: string, type: FloorWall['type']) => void
   onWallThicknessChange?: (id: string, thicknessMm: number) => void
   onWallHeightChange?: (id: string, heightMm: number) => void
+  onWallMaterialChange?: (id: string, material: string) => void
   onOpeningSizeChange?: (id: string, widthMm: number, heightMm: number) => void
   onWindowSillHeightChange?: (id: string, sillHeightMm: number) => void
   onDoorSwingDirectionChange?: (id: string, swingDirection: NonNullable<FloorOpening['doorSwingDirection']>) => void
@@ -64,6 +65,7 @@ export function AttributesPanel({
   onWallTypeChange,
   onWallThicknessChange,
   onWallHeightChange,
+  onWallMaterialChange,
   onOpeningSizeChange,
   onWindowSillHeightChange,
   onDoorSwingDirectionChange,
@@ -110,11 +112,11 @@ export function AttributesPanel({
           onHeightChange={onHeightChange}
           onWidthCommit={onWidthCommit}
           onHeightCommit={onHeightCommit}
-          onMaterialChange={onMaterialChange}
           onRatioChange={onRatioChange}
           onWallTypeChange={onWallTypeChange}
           onWallThicknessChange={onWallThicknessChange}
           onWallHeightChange={onWallHeightChange}
+          onWallMaterialChange={onWallMaterialChange}
           onOpeningSizeChange={onOpeningSizeChange}
           onWindowSillHeightChange={onWindowSillHeightChange}
           onDoorSwingDirectionChange={onDoorSwingDirectionChange}

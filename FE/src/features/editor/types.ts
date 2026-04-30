@@ -178,6 +178,7 @@ export interface FloorWall {
   type: FloorWallType
   thickness: number // 실제 두께(mm)
   heightMm: number  // 실제 높이(mm)
+  material?: string // 주요 재질
 }
 
 /** 2D 평면도 편집용 벽 부착 개구부(문/창문) */

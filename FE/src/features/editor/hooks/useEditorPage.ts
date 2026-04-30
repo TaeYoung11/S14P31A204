@@ -76,6 +76,7 @@ const OPENING_MAX_WIDTH_MM = 4000
 
 const DEFAULT_DESIGNER_NAME = '설계자'
 const DEFAULT_CLIENT_NAME = '고객사 담당자'
+const DEFAULT_WALL_MATERIAL = '콘크리트'
 
 function createLocalId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -307,8 +308,8 @@ export function useEditorPage() {
     removeActiveRooms,
     clearFloorPlan,
   } = useFloorPlan()
-  /** 버블 편집 잠금은 2D 생성 여부와 분리해 별도 상태로 관리한다. */
-  const [isBubbleEditLocked] = useState(false)
+  /** 버블 편집 잠금은 현재 비활성 상태(false 고정) */
+  const isBubbleEditLocked = false
   const isBubbleReadOnly = isBubbleEditLocked
   const canSyncBubbleStateFrom2D = floorPlanLayoutSource === 'bubble' && activeFloorLayerId === 'floor-1'
 
@@ -688,7 +689,9 @@ export function useEditorPage() {
   const selectedBubble = useMemo(
     () => {
       const matchedBubble = bubbles.find((bubble) => bubble.id === selectedId)
-      if (matchedBubble) return matchedBubble
+      if (matchedBubble) {
+        return mode === '2d' ? { ...matchedBubble, material: undefined } : matchedBubble
+      }
       if (!selectedId) return null
       const matchedRoom = floorRooms.find((room) => room.bubbleId === selectedId)
       if (!matchedRoom) return null
@@ -700,10 +703,10 @@ export function useEditorPage() {
         heightMm: matchedRoom.heightMm,
         ratio: matchedRoom.area,
         color: matchedRoom.color,
-        material: matchedRoom.material,
+        material: mode === '2d' ? undefined : matchedRoom.material,
       }
     },
-    [bubbles, floorRooms, selectedId],
+    [bubbles, floorRooms, mode, selectedId],
   )
   const selectedFloorWall = useMemo(
     () =>
@@ -731,7 +734,8 @@ export function useEditorPage() {
     const migrateTimer = window.setTimeout(() => {
       setFloorOpenings((prev) => {
         let changed = false
-        const next = prev.map((opening) => {
+        let orphanedOpeningCount = 0
+        const next = prev.map((opening): FloorOpening | null => {
           if (!opening.wallId.startsWith('auto-room-')) return opening
           if (openingTargetWallById.has(opening.wallId)) return opening
           const match = opening.wallId.match(/^auto-room-(.+?)-(top|right|bottom|left)-/)
@@ -746,11 +750,21 @@ export function useEditorPage() {
           const fallback = mergedFloorWalls.find(
             (wall) => wall.id === baseId || wall.id.startsWith(`${baseId}-seg-`),
           )
-          if (!fallback) return opening
+          if (!fallback) {
+            changed = true
+            orphanedOpeningCount += 1
+            return null
+          }
           changed = true
           return { ...opening, wallId: fallback.id }
         })
-        return changed ? next : prev
+        const filtered = next.filter((opening): opening is FloorOpening => opening !== null)
+        if (orphanedOpeningCount > 0) {
+          console.warn('[editor] dropped orphaned floor openings after wallId migration', {
+            orphanedOpeningCount,
+          })
+        }
+        return changed ? filtered : prev
       })
     }, 0)
     return () => window.clearTimeout(migrateTimer)
@@ -1459,6 +1473,7 @@ export function useEditorPage() {
       end,
       thickness: nextThickness,
       heightMm: nextHeightMm,
+      material: DEFAULT_WALL_MATERIAL,
     }
     workspaceCommandPublisher.createWall(newWall)
     setFloorWalls((prev) => [...prev, newWall])
@@ -1583,6 +1598,7 @@ export function useEditorPage() {
               type: candidate.type,
               thickness: candidate.thickness,
               heightMm: candidate.heightMm,
+              material: candidate.material,
             })
           })
         })
@@ -1924,6 +1940,13 @@ export function useEditorPage() {
     setWallCreatePreset((prev) => ({ ...prev, heightMm: next }))
   }
 
+  /** 2D 벽 재질 변경 */
+  const handleUpdateFloorWallMaterial = (wallId: string, material: string) => {
+    const next = material.trim()
+    if (!next) return
+    updateFloorWallFromEditable(wallId, (wall) => ({ ...wall, material: next }))
+  }
+
   /**
    * 공통 선택 상태 초기화
    * - 버블 선택
@@ -2078,13 +2101,9 @@ export function useEditorPage() {
   }, [canSyncBubbleStateFrom2D, handleTypeChange, mode, updateActiveRoom])
 
   const handleMaterialChangeForPanel = useCallback((id: string, material: string) => {
-    if (mode !== '2d') {
-      handleMaterialChange(id, material)
-      return
-    }
-    if (canSyncBubbleStateFrom2D) handleMaterialChange(id, material)
-    updateActiveRoom(id, (room) => ({ ...room, material }))
-  }, [canSyncBubbleStateFrom2D, handleMaterialChange, mode, updateActiveRoom])
+    if (mode === '2d') return
+    handleMaterialChange(id, material)
+  }, [handleMaterialChange, mode])
 
   /**
    * 2D 속성 패널의 mm 입력값을 전역 Grid Snap 간격에 맞춰 보정한다.
@@ -2354,6 +2373,7 @@ export function useEditorPage() {
     handleUpdateFloorWallType,
     handleUpdateFloorWallThickness,
     handleUpdateFloorWallHeight,
+    handleUpdateFloorWallMaterial,
     handleCreateFloorOpening,
     handleSelectFloorOpening,
     handleMoveFloorOpening,

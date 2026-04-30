@@ -7,12 +7,14 @@ import {
   FLOOR_WALL_TYPE_OPTIONS,
 } from '../../../constants'
 import type { FloorWall } from '../../../types'
+import { MaterialSelector } from '../../shared/MaterialSelector'
 
 interface TwoDWallAttributesProps {
   selectedWall: FloorWall
   onWallTypeChange?: (id: string, type: FloorWall['type']) => void
   onWallThicknessChange?: (id: string, thicknessMm: number) => void
   onWallHeightChange?: (id: string, heightMm: number) => void
+  onWallMaterialChange?: (id: string, material: string) => void
 }
 
 /** 2D 벽 선택 시 표시되는 속성 섹션 */
@@ -21,6 +23,7 @@ export function TwoDWallAttributes({
   onWallTypeChange,
   onWallThicknessChange,
   onWallHeightChange,
+  onWallMaterialChange,
 }: TwoDWallAttributesProps) {
   return (
     <div className="p-5 flex flex-col gap-5">
@@ -74,6 +77,11 @@ export function TwoDWallAttributes({
           />
         </div>
       </div>
+
+      <MaterialSelector
+        value={selectedWall.material}
+        onChange={(material) => onWallMaterialChange?.(selectedWall.id, material)}
+      />
     </div>
   )
 }

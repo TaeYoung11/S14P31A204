@@ -39,6 +39,7 @@ type RightPanelViewModel = Pick<
   | 'handleUpdateFloorWallType'
   | 'handleUpdateFloorWallThickness'
   | 'handleUpdateFloorWallHeight'
+  | 'handleUpdateFloorWallMaterial'
   | 'handleUpdateFloorOpeningSize'
   | 'handleUpdateFloorWindowSillHeight'
   | 'handleUpdateFloorDoorSwingDirection'
@@ -121,6 +122,7 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
     onWallTypeChange: vm.handleUpdateFloorWallType,
     onWallThicknessChange: vm.handleUpdateFloorWallThickness,
     onWallHeightChange: vm.handleUpdateFloorWallHeight,
+    onWallMaterialChange: vm.handleUpdateFloorWallMaterial,
     onOpeningSizeChange: vm.handleUpdateFloorOpeningSize,
     onWindowSillHeightChange: vm.handleUpdateFloorWindowSillHeight,
     onDoorSwingDirectionChange: vm.handleUpdateFloorDoorSwingDirection,
