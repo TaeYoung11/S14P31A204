@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import instructor
 from openai import AsyncOpenAI
@@ -8,6 +9,56 @@ from openai.types.chat import ChatCompletionMessageParam
 
 from .command import FloorNLPCommand, IFCContext
 from .utils import shape_to_rects
+
+# 상대적 크기 표현 → 배율 (우선순위 순서로 정렬)
+_RELATIVE_SIZE_PATTERNS: list[tuple[str, float]] = [
+    (r"절반", 0.5),
+    (r"두\s*배", 2.0),
+    (r"많이|훨씬", 1.3),
+    (r"조금", 1.1),
+    (r"더\s*(넓게|크게|길게|높게)", 1.2),
+]
+
+
+def _apply_relative_adjustment(
+    command: FloorNLPCommand,
+    user_text: str,
+    ifc_context: IFCContext | None,
+) -> FloorNLPCommand:
+    """LLM이 상대적 크기를 적용하지 못한 경우 Python에서 직접 계산한다."""
+    if command.action != "resize_room" or command.needs_clarification:
+        return command
+    if ifc_context is None or command.target_room_name is None:
+        return command
+
+    factor = None
+    for pattern, f in _RELATIVE_SIZE_PATTERNS:
+        if re.search(pattern, user_text):
+            factor = f
+            break
+
+    if factor is None:
+        return command
+
+    spaces = ifc_context.get("spaces", [])
+    current = next(
+        (s for s in spaces if s.get("name") == command.target_room_name),
+        None,
+    )
+    if current is None:
+        return command
+
+    current_w = current.get("width")
+    current_h = current.get("height")
+    if current_w is None or current_h is None:
+        return command
+
+    # LLM이 현재 치수를 그대로 반환했을 때만 보정한다
+    if command.resize_width == current_w and command.resize_height == current_h:
+        command.resize_width = int(current_w * factor)
+        command.resize_height = int(current_h * factor)
+
+    return command
 
 SYSTEM_PROMPT = """
 당신은 2D 평면 수정 요청을 구조화된 명령으로 변환하는 파서다.
@@ -182,6 +233,7 @@ class FloorPlanEngine:
                 )
 
             if command.action == "resize_room":
+                command = _apply_relative_adjustment(command, user_text, ifc_context)
                 if command.resize_width is not None and command.resize_height is not None:
                     command.resize_rects = shape_to_rects(
                         command.resize_shape, command.resize_width, command.resize_height
