@@ -1,11 +1,12 @@
-import { ChevronDown } from 'lucide-react'
 import { ColorSelector } from '../shared/ColorSelector'
 import type { BubbleInfo } from './BubbleAttributePanel'
+import { MaterialSelector } from '../shared/MaterialSelector'
 
 interface ThreeDAttributePanelProps {
   selectedBubble: BubbleInfo | null
   onLabelChange: (id: string, label: string) => void
   onColorChange: (id: string, color: string) => void
+  onMaterialChange?: (id: string, material: string) => void
 }
 
 /**
@@ -13,7 +14,7 @@ interface ThreeDAttributePanelProps {
  * 선택된 공간의 이름·색상을 변경할 수 있으며,
  * 벽체 치수(길이·높이·두께)와 재질은 기본값으로 표시된다.
  */
-export function ThreeDAttributePanel({ selectedBubble, onLabelChange, onColorChange }: ThreeDAttributePanelProps) {
+export function ThreeDAttributePanel({ selectedBubble, onLabelChange, onColorChange, onMaterialChange }: ThreeDAttributePanelProps) {
   if (!selectedBubble) {
     return (
       <div className="p-5 text-center text-[#ADB5BD] text-xs font-medium">
@@ -69,22 +70,10 @@ export function ThreeDAttributePanel({ selectedBubble, onLabelChange, onColorCha
           </div>
         </div>
 
-        {/* 재질 */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">재질</span>
-          <div className="relative group">
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 bg-[#BEC4D1] rounded-sm z-10" />
-            <select className="w-full bg-[#F8F9FD] border-none rounded-lg pl-9 pr-8 py-2.5 text-xs font-bold text-[#1C1C1E] appearance-none focus:ring-1 focus:ring-[#3B45B3] outline-none cursor-pointer">
-              <option>콘크리트</option>
-              <option>목재</option>
-              <option>벽돌</option>
-            </select>
-            <ChevronDown
-              size={14}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#ADB5BD] pointer-events-none group-hover:text-[#3B45B3] transition-colors"
-            />
-          </div>
-        </div>
+        <MaterialSelector
+          value={selectedBubble.material}
+          onChange={(material) => onMaterialChange?.(selectedBubble.id, material)}
+        />
 
         {/* 색상 — 실제 버블 색상과 연동 */}
         <ColorSelector

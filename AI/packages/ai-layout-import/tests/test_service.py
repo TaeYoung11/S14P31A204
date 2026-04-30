@@ -111,6 +111,29 @@ def _unwrap_property_value(prop: ifcopenshell.entity_instance) -> str | bool:
     return nominal
 
 
+def _body_item(entity: ifcopenshell.entity_instance) -> ifcopenshell.entity_instance:
+    return entity.Representation.Representations[0].Items[0]
+
+
+def _named_entities(
+    model: ifcopenshell.file,
+    ifc_type: str,
+) -> dict[str, ifcopenshell.entity_instance]:
+    return {entity.Name: entity for entity in model.by_type(ifc_type)}
+
+
+def _containment_map_for_types(
+    model: ifcopenshell.file,
+    ifc_types: set[str],
+) -> dict[str, str]:
+    containment: dict[str, str] = {}
+    for rel in model.by_type("IfcRelContainedInSpatialStructure"):
+        for element in rel.RelatedElements or []:
+            if element.is_a() in ifc_types:
+                containment[element.Name] = rel.RelatingStructure.Name
+    return containment
+
+
 def test_convert_layout_to_ifc_creates_single_room_space(tmp_path: Path) -> None:
     request = _make_request(
         rooms=[_base_room()],
@@ -354,7 +377,9 @@ def test_convert_layout_to_ifc_does_not_create_walls_slabs_or_roofs(tmp_path: Pa
     assert len(model.by_type("IfcRoof")) == 0
 
 
-def test_convert_layout_to_ifc_accepts_v2_request_and_remains_space_only(tmp_path: Path) -> None:
+def test_convert_layout_to_ifc_generates_v2_boundary_elements_for_single_floor(
+    tmp_path: Path,
+) -> None:
     request = _make_request(
         schema_version="v2",
         rooms=[_base_room()],
@@ -377,11 +402,233 @@ def test_convert_layout_to_ifc_accepts_v2_request_and_remains_space_only(tmp_pat
         },
     )
 
-    model = _open_generated_ifc(tmp_path, request, "v2-space-only.ifc")
+    model = _open_generated_ifc(tmp_path, request, "v2-single-floor-elements.ifc")
 
     assert len(model.by_type("IfcSpace")) == 1
+    assert len(model.by_type("IfcWall")) == 4
+    assert len(model.by_type("IfcSlab")) == 1
+    assert len(model.by_type("IfcRoof")) == 1
+
+    walls = _named_entities(model, "IfcWall")
+    wall = walls["Boundary Wall 1-1"]
+    wall_body = _body_item(wall)
+    assert wall_body.is_a("IfcExtrudedAreaSolid")
+    assert wall_body.Depth == pytest.approx(3.0)
+    assert wall_body.SweptArea.is_a("IfcRectangleProfileDef")
+    assert wall_body.SweptArea.XDim == pytest.approx(4.2)
+    assert wall_body.SweptArea.YDim == pytest.approx(0.2)
+
+    slab = _named_entities(model, "IfcSlab")["Boundary Slab 1"]
+    slab_body = _body_item(slab)
+    assert slab_body.is_a("IfcExtrudedAreaSolid")
+    assert slab_body.Depth == pytest.approx(0.18)
+    assert slab_body.SweptArea.is_a("IfcArbitraryClosedProfileDef")
+
+    roof = _named_entities(model, "IfcRoof")["Boundary Roof 1"]
+    roof_body = _body_item(roof)
+    assert roof_body.is_a("IfcExtrudedAreaSolid")
+    assert roof_body.Depth == pytest.approx(0.4)
+    assert roof_body.SweptArea.is_a("IfcArbitraryClosedProfileDef")
+    roof_location = tuple(roof.ObjectPlacement.RelativePlacement.Location.Coordinates)
+    assert roof_location == pytest.approx((0.0, 0.0, 3.0))
+
+    containment = _containment_map_for_types(model, {"IfcWall", "IfcSlab", "IfcRoof"})
+    assert containment == {
+        "Boundary Wall 1-1": "1F",
+        "Boundary Wall 1-2": "1F",
+        "Boundary Wall 1-3": "1F",
+        "Boundary Wall 1-4": "1F",
+        "Boundary Slab 1": "1F",
+        "Boundary Roof 1": "1F",
+    }
+
+
+def test_convert_layout_to_ifc_generates_v2_boundary_elements_for_multiple_floors(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            _base_room(floor=1),
+            _base_room(
+                room_id="room-bed-01",
+                name="Bedroom",
+                room_type="bedroom",
+                floor=2,
+                x=9000.0,
+                y=4000.0,
+            ),
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [4200.0, 0.0],
+                    [4200.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            },
+            {
+                "floor": 2,
+                "polygon": [
+                    [0.0, 0.0],
+                    [3600.0, 0.0],
+                    [3600.0, 3200.0],
+                    [0.0, 3200.0],
+                ],
+            },
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v2-multi-floor-elements.ifc")
+
+    assert len(model.by_type("IfcWall")) == 8
+    assert len(model.by_type("IfcSlab")) == 2
+    assert len(model.by_type("IfcRoof")) == 1
+
+    containment = _containment_map_for_types(model, {"IfcWall", "IfcSlab", "IfcRoof"})
+    assert containment == {
+        "Boundary Wall 1-1": "1F",
+        "Boundary Wall 1-2": "1F",
+        "Boundary Wall 1-3": "1F",
+        "Boundary Wall 1-4": "1F",
+        "Boundary Wall 2-1": "2F",
+        "Boundary Wall 2-2": "2F",
+        "Boundary Wall 2-3": "2F",
+        "Boundary Wall 2-4": "2F",
+        "Boundary Slab 1": "1F",
+        "Boundary Slab 2": "2F",
+        "Boundary Roof 2": "2F",
+    }
+
+    roof = _named_entities(model, "IfcRoof")["Boundary Roof 2"]
+    roof_body = _body_item(roof)
+    assert roof_body.Depth == pytest.approx(0.4)
+    roof_location = tuple(roof.ObjectPlacement.RelativePlacement.Location.Coordinates)
+    assert roof_location == pytest.approx((0.0, 0.0, 3.0))
+
+
+def test_convert_layout_to_ifc_skips_walls_when_generate_walls_is_false(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[_base_room()],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [4200.0, 0.0],
+                    [4200.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": False,
+            "generate_slabs": True,
+            "generate_roof": True,
+            "generate_openings": False,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v2-no-walls.ifc")
+
     assert len(model.by_type("IfcWall")) == 0
+    assert len(model.by_type("IfcSlab")) == 1
+    assert len(model.by_type("IfcRoof")) == 1
+
+
+def test_convert_layout_to_ifc_skips_slabs_when_generate_slabs_is_false(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[_base_room()],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [4200.0, 0.0],
+                    [4200.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": False,
+            "generate_roof": True,
+            "generate_openings": False,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v2-no-slabs.ifc")
+
+    assert len(model.by_type("IfcWall")) == 4
     assert len(model.by_type("IfcSlab")) == 0
+    assert len(model.by_type("IfcRoof")) == 1
+
+
+def test_convert_layout_to_ifc_skips_roof_when_generate_roof_is_false(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[_base_room()],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [4200.0, 0.0],
+                    [4200.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": True,
+            "generate_roof": False,
+            "generate_openings": False,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v2-no-roof.ifc")
+
+    assert len(model.by_type("IfcWall")) == 4
+    assert len(model.by_type("IfcSlab")) == 1
     assert len(model.by_type("IfcRoof")) == 0
 
 

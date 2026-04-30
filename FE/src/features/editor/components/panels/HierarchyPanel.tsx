@@ -24,7 +24,8 @@ interface HierarchyPanelProps {
   offset: PanelOffset
   width: number
   height: number
-  onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLButtonElement>) => void
+  zIndex?: number
+  onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLElement>) => void
   onResizeStart: (key: PanelKey, axis: PanelResizeAxis, e: ReactMouseEvent<HTMLButtonElement>) => void
   onToggle: (key: PanelKey) => void
 }
@@ -39,6 +40,7 @@ export function HierarchyPanel({
   offset,
   width,
   height,
+  zIndex,
   onDragStart,
   onResizeStart,
   onToggle,
@@ -52,6 +54,7 @@ export function HierarchyPanel({
       offset={offset}
       width={width}
       height={height}
+      zIndex={zIndex}
       onDragStart={onDragStart}
       onResizeStart={onResizeStart}
       onToggle={onToggle}
