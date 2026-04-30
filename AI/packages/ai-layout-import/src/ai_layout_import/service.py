@@ -22,6 +22,7 @@ from ai_domain import (
 Point2DMm = tuple[float, float]
 RoomEdgeMm = tuple[Point2DMm, Point2DMm]
 SharedWallCandidate = tuple[int, str, str, tuple[RoomEdgeMm, ...], tuple[RoomEdgeMm, ...]]
+SharedWallSegment = tuple[int, RoomEdgeMm]
 
 
 def convert_layout_to_ifc(
@@ -48,7 +49,7 @@ def convert_layout_to_ifc(
 def _validate_request(request: LayoutImportV1 | LayoutImportV2) -> None:
     if isinstance(request, LayoutImportV2):
         _validate_v2_generation_prerequisites(request)
-        _derive_shared_wall_candidates(request)
+        _validated_shared_wall_segments(request)
 
 
 def _validate_v2_generation_prerequisites(request: LayoutImportV2) -> None:
@@ -115,6 +116,96 @@ def _derive_shared_wall_candidates(request: LayoutImportV2) -> list[SharedWallCa
             )
         )
     return candidates
+
+
+def _validated_shared_wall_segments(request: LayoutImportV2) -> list[SharedWallSegment]:
+    candidates = _derive_shared_wall_candidates(request)
+    if not candidates:
+        return []
+
+    boundary_edges = _boundary_edge_set_mm(request.boundaries or [])
+    deduped_segments: dict[tuple[int, Point2DMm, Point2DMm], SharedWallSegment] = {}
+
+    for candidate in candidates:
+        candidate_segments = [
+            segment
+            for segment in _shared_segments_for_candidate(candidate)
+            if segment[1] not in boundary_edges
+        ]
+        if not candidate_segments:
+            floor, from_room_id, to_room_id, _, _ = candidate
+            raise ValueError(
+                "shared wall adjacency must resolve to an interior shared segment: "
+                f"{from_room_id}->{to_room_id} on floor {floor}"
+            )
+
+        for segment in candidate_segments:
+            deduped_segments[_shared_segment_key(segment)] = segment
+
+    return list(deduped_segments.values())
+
+
+def _shared_segments_for_candidate(
+    candidate: SharedWallCandidate,
+) -> list[SharedWallSegment]:
+    floor, _, _, from_edges, to_edges = candidate
+    shared_segments: list[SharedWallSegment] = []
+    for from_edge in from_edges:
+        for to_edge in to_edges:
+            shared_edge = _overlapping_collinear_segment_mm(from_edge, to_edge)
+            if shared_edge is not None:
+                shared_segments.append((floor, shared_edge))
+    return shared_segments
+
+
+def _overlapping_collinear_segment_mm(
+    edge_a: RoomEdgeMm,
+    edge_b: RoomEdgeMm,
+) -> RoomEdgeMm | None:
+    (ax1, ay1), (ax2, ay2) = edge_a
+    (bx1, by1), (bx2, by2) = edge_b
+
+    edge_a_is_horizontal = math.isclose(ay1, ay2, abs_tol=1.0e-9)
+    edge_b_is_horizontal = math.isclose(by1, by2, abs_tol=1.0e-9)
+    if edge_a_is_horizontal and edge_b_is_horizontal:
+        if not math.isclose(ay1, by1, abs_tol=1.0e-9):
+            return None
+        start_x = max(ax1, bx1)
+        end_x = min(ax2, bx2)
+        if end_x - start_x <= 0:
+            return None
+        return _canonical_edge_mm((start_x, ay1), (end_x, ay1))
+
+    edge_a_is_vertical = math.isclose(ax1, ax2, abs_tol=1.0e-9)
+    edge_b_is_vertical = math.isclose(bx1, bx2, abs_tol=1.0e-9)
+    if edge_a_is_vertical and edge_b_is_vertical:
+        if not math.isclose(ax1, bx1, abs_tol=1.0e-9):
+            return None
+        start_y = max(ay1, by1)
+        end_y = min(ay2, by2)
+        if end_y - start_y <= 0:
+            return None
+        return _canonical_edge_mm((ax1, start_y), (ax1, end_y))
+
+    return None
+
+
+def _boundary_edge_set_mm(boundaries: list[BoundaryInput]) -> set[RoomEdgeMm]:
+    boundary_edges: set[RoomEdgeMm] = set()
+    for boundary in boundaries:
+        polygon = boundary.polygon
+        for index, start_point in enumerate(polygon):
+            end_point = polygon[(index + 1) % len(polygon)]
+            boundary_edges.add(_canonical_edge_mm(start_point, end_point))
+    return boundary_edges
+
+
+def _shared_segment_key(
+    segment: SharedWallSegment,
+) -> tuple[int, Point2DMm, Point2DMm]:
+    floor, edge = segment
+    start_point, end_point = edge
+    return floor, start_point, end_point
 
 
 def _rooms_by_id(rooms: list[RoomInput]) -> dict[str, RoomInput]:
