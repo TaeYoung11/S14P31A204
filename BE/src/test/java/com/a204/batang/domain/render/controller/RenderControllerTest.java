@@ -6,6 +6,7 @@ import com.a204.batang.domain.render.service.RenderQueryService;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import com.a204.batang.global.exception.controller.GlobalExceptionHandler;
+import com.a204.batang.global.jwt.JwtAuthFilter;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -37,6 +38,9 @@ class RenderControllerTest {
 
     @MockitoBean
     private JpaMetamodelMappingContext jpaMetamodelMappingContext;
+
+    @MockitoBean
+    private JwtAuthFilter jwtAuthFilter;
 
     @Test
     void getProjectRenders_returnsWrappedResponse() throws Exception {
