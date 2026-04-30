@@ -46,7 +46,9 @@ def emit(message: str = "") -> None:
 # 새 패키지 구조에서 임포트 (상단 이동 완료)
 
 # ── 경로 설정 ────────────────────────────────────────────────────────────────
-IFC_PATH = os.path.normpath(os.path.join(os.path.expanduser("~"), "Downloads", "batang_sample.ifc"))
+IFC_PATH = os.path.normpath(
+    os.path.join(os.path.expanduser("~"), "Downloads", "sample_highkick.ifc")
+)
 OUTPUT_PATH = os.path.join(LOG_DIR, f"IFC추출테스트_결과_{TIMESTAMP}.ifc")
 JSON_LOG_PATH = os.path.join(LOG_DIR, f"IFC추출테스트_로그_{TIMESTAMP}.json")
 
