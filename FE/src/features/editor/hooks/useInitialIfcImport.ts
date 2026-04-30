@@ -6,13 +6,17 @@ interface UseInitialIfcImportParams {
   stageWidth: number
   stageHeight: number
   importFloorProjectFromIfc: (ifcText: string, fileName: string) => Promise<void>
+  /** projectId별 IFC 임포트 1회 보장을 위한 시도 기록 ref */
   attemptedInitialIfcImportProjectIdRef: MutableRefObject<string | null>
 }
 
 /**
- * 프로젝트별 IFC를 에디터 진입 시 1회 자동 로드한다.
- * - stage 크기가 준비된 이후에만 실행한다.
- * - 동일 projectId에 대해서는 중복 import를 방지한다.
+ * 에디터 첫 진입 시 프로젝트 IFC 모델을 자동으로 1회 로드한다.
+ *
+ * - stage 크기(width/height)가 0보다 커야 실행된다 (캔버스 미준비 방지).
+ * - projectId당 중복 임포트를 ref로 차단한다.
+ * - stageWidth/stageHeight 변경(창 리사이즈 등)에는 재임포트하지 않는다.
+ * - projectId 변경 또는 언마운트 시 ref를 초기화해 다음 마운트에서 정상 임포트한다.
  */
 export function useInitialIfcImport({
   projectId,
@@ -21,6 +25,14 @@ export function useInitialIfcImport({
   importFloorProjectFromIfc,
   attemptedInitialIfcImportProjectIdRef,
 }: UseInitialIfcImportParams) {
+  // projectId 변경·언마운트 시에만 ref 초기화 (stageWidth/Height 변경은 제외)
+  useEffect(() => {
+    return () => {
+      attemptedInitialIfcImportProjectIdRef.current = null
+    }
+  }, [projectId, attemptedInitialIfcImportProjectIdRef])
+
+  // IFC 파일을 가져와 캔버스에 반영한다
   useEffect(() => {
     if (!projectId) return
     if (attemptedInitialIfcImportProjectIdRef.current === projectId) return
@@ -29,15 +41,16 @@ export function useInitialIfcImport({
     let cancelled = false
     attemptedInitialIfcImportProjectIdRef.current = projectId
 
-    void projectService.getIfcModelText(projectId)
-      .then(async (ifcText) => {
-        if (cancelled || !ifcText) return
-        await importFloorProjectFromIfc(ifcText, `${projectId}.ifc`)
-      })
-      .catch((error) => {
-        if (cancelled) return
-        console.error('[editor] failed to auto-import IFC model:', error)
-      })
+    const loadIfc = async () => {
+      const ifcText = await projectService.getIfcModelText(projectId)
+      if (cancelled || !ifcText) return
+      await importFloorProjectFromIfc(ifcText, `${projectId}.ifc`)
+    }
+
+    void loadIfc().catch((error: unknown) => {
+      if (cancelled) return
+      console.error('[editor] IFC 자동 로드 실패:', error)
+    })
 
     return () => {
       cancelled = true
