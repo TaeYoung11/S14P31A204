@@ -60,8 +60,17 @@ export function useAuthSessionGuard() {
   }
 
   if (meQuery.isError) {
+    const status = (meQuery.error as AppError | null)?.status
+
+    if (status === 401) {
+      return {
+        status: 'unauthenticated' as const,
+        isLoading: false,
+      }
+    }
+
     return {
-      status: 'unauthenticated' as const,
+      status: 'authenticated' as const,
       isLoading: false,
     }
   }

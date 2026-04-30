@@ -109,6 +109,8 @@ export const useRegisterPage = () => {
   const handleOpenEmailVerification = () => {
     setValidationError('')
     setEmailVerificationError('')
+    setIsEmailVerified(false)
+    setVerifiedToken('')
 
     if (!form.email.trim()) {
       setValidationError('이메일을 먼저 입력해 주세요.')
