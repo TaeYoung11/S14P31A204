@@ -1,6 +1,7 @@
 import { Suspense, lazy } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { useAuthStore } from '@/shared/stores/authStore'
+import Spinner from '@/shared/components/Spinner'
+import { useAuthSessionGuard } from '@/features/auth/hooks/useAuthSessionGuard'
 import { ProtectedRoute } from './shared/components/ProtectedRoute'
 import RouteLoadingFallback from './shared/components/RouteLoadingFallback'
 
@@ -14,8 +15,17 @@ const InviteAcceptPage = lazy(() => import('./pages/invite/InviteAcceptPage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 
 function RootRedirect() {
-  const token = useAuthStore((state) => state.token)
-  return <Navigate to={token ? '/projects' : '/login'} replace />
+  const { status, isLoading } = useAuthSessionGuard()
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-white">
+        <Spinner size="lg" />
+      </div>
+    )
+  }
+
+  return <Navigate to={status === 'authenticated' ? '/projects' : '/login'} replace />
 }
 
 export default function App() {

@@ -34,6 +34,7 @@ export default function ProjectsPage() {
     isSearchLoading,
     isSelectionMode,
     logout,
+    withdraw,
     onCloseCreateModal,
     onCloseDeleteModal,
     onCloseShareModal,
@@ -52,15 +53,30 @@ export default function ProjectsPage() {
     siteProject,
     toggleSelectionMode,
     updateProject,
+    userEmail,
     userInitial,
+    userId,
     userName,
+    userType,
+    withdrawError,
+    isWithdrawing,
     viewMode,
     handleInvite,
   } = useProjectListPage()
 
   return (
     <div className="min-h-screen bg-[#fafafa]">
-      <ProjectListHeader userName={userName} userInitial={userInitial} onLogout={logout} />
+      <ProjectListHeader
+        userName={userName}
+        userEmail={userEmail}
+        userInitial={userInitial}
+        userId={userId}
+        userType={userType}
+        onLogout={logout}
+        onWithdraw={(password) => withdraw({ password })}
+        withdrawError={withdrawError ? (withdrawError as Error).message : ''}
+        isWithdrawing={isWithdrawing}
+      />
 
       <main className="mx-auto max-w-[1200px] px-8 py-8">
         <div className="mb-8 flex items-center justify-between">

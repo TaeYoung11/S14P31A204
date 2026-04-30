@@ -79,7 +79,7 @@ export type FloorWallType = 'general' | 'exterior' | 'loadBearing' | 'partition'
 export type FloorOpeningType = 'door' | 'window'
 export type FloorDoorHingeSide = 'left' | 'right'
 export type FloorDoorSwingDirection = 'inward' | 'outward' | 'sliding'
-export type CollaborationUserType = 'DESIGNER' | 'CLIENT'
+export type CollaborationUserType = 'DESIGNER' | 'CUSTOMER'
 export type FloorCommentAttachmentKind = 'image' | 'file'
 
 /** 공간 추가 모달 폼 데이터 */
@@ -248,4 +248,41 @@ export interface FloorCommentNotification {
   message: string
   createdAt: string
   isRead: boolean
+}
+
+export type SaveStatus =
+  | 'idle'
+  | 'dirty'
+  | 'saving-local'
+  | 'saved-local'
+  | 'syncing-remote'
+  | 'saved-remote'
+  | 'error'
+
+export interface EditorDraftSnapshot {
+  bubbles: BubbleData[]
+  connections: ConnectionData[]
+  zones: ZoneData[]
+  floorLayers: FloorLayer[]
+  activeFloorLayerId: string | null
+  isFloorPlanGenerated: boolean
+  floorPlanLayoutSource?: 'bubble' | 'project' | null
+  floorWalls?: FloorWall[]
+  floorOpenings?: FloorOpening[]
+  hiddenAutoWallIds?: string[]
+  hiddenAutoOpeningIds?: string[]
+  isProjectStructurePreferred?: boolean
+}
+
+export interface EditorDraftHistory {
+  bubbleUndoHistory: unknown[]
+  bubbleRedoHistory: unknown[]
+}
+
+export interface EditorDraftRecord {
+  projectId: string
+  versionNo: number
+  data: EditorDraftSnapshot
+  history?: EditorDraftHistory
+  savedAt: string
 }

@@ -29,6 +29,7 @@ export default function EditorPage() {
         onModeChange={vm.setMode}
         onOpenInvite={vm.handleOpenInviteModal}
         onSave={vm.mode === '3d' ? vm.handleOpenIFCExportModal : vm.handleOpenExportSelectionModal}
+        saveStatus={vm.saveStatus}
       />
       <EditorToolbar mode={vm.mode} onModeChange={vm.setMode} />
 

@@ -17,7 +17,7 @@ const DELETE_CONFIRM_TEXT = '삭제'
 
 export function useProjectListPage() {
   const navigate = useNavigate()
-  const { user, logout } = useAuth()
+  const { user, logout, withdraw, withdrawError, isWithdrawing } = useAuth()
   const { data, isLoading, isFetchingNextPage, fetchNextPage, hasNextPage } = useProjects()
   const createProject = useCreateProject()
   const updateProject = useUpdateProject()
@@ -204,6 +204,7 @@ export function useProjectListPage() {
     isSearchLoading,
     isSelectionMode,
     logout,
+    withdraw,
     onCloseCreateModal: () => {
       setCreateOpen(false)
       setEditProject(null)
@@ -225,8 +226,13 @@ export function useProjectListPage() {
     siteProject,
     toggleSelectionMode,
     updateProject,
+    userId: user?.id,
     userInitial: user?.name?.[0] ?? 'U',
+    userEmail: user?.email,
     userName: user?.name,
+    userType: user?.user_type,
+    withdrawError,
+    isWithdrawing,
     viewMode,
     deleteConfirmText: DELETE_CONFIRM_TEXT,
   }
