@@ -15,6 +15,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -85,6 +86,7 @@ public class Project extends BaseEntity {
      * @return 생성된 프로젝트 엔티티
      */
     public static Project create(String name, String description, UUID ownerUserId) {
+        Objects.requireNonNull(ownerUserId, "ownerUserId must not be null");
         return new Project(name, description, ownerUserId);
     }
 
