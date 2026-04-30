@@ -53,11 +53,13 @@ class WorkspaceRealtimeServiceTest {
 
     @BeforeEach
     void setUp() {
+        BubbleSnapshotHelper bubbleSnapshotHelper = new BubbleSnapshotHelper(new ObjectMapper());
+
         workspaceRealtimeService = new WorkspaceRealtimeService(
                 projectWorkspaceRepository,
                 workspaceBubbleSnapshotRedisRepository,
-                simpMessagingTemplate,
-                new ObjectMapper()
+                bubbleSnapshotHelper,
+                simpMessagingTemplate
         );
 
         projectId = UUID.randomUUID();
