@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { useAuthStore } from '@/shared/stores/authStore'
+import Spinner from '@/shared/components/Spinner'
+import { useAuthSessionGuard } from '@/features/auth/hooks/useAuthSessionGuard'
 import { ProtectedRoute } from './shared/components/ProtectedRoute'
 import LoginPage from './pages/auth/LoginPage'
 import RegisterPage from './pages/auth/RegisterPage'
@@ -11,8 +12,17 @@ import InviteAcceptPage from './pages/invite/InviteAcceptPage'
 import NotFoundPage from './pages/NotFoundPage'
 
 function RootRedirect() {
-  const token = useAuthStore((state) => state.token)
-  return <Navigate to={token ? '/projects' : '/login'} replace />
+  const { status, isLoading } = useAuthSessionGuard()
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-white">
+        <Spinner size="lg" />
+      </div>
+    )
+  }
+
+  return <Navigate to={status === 'authenticated' ? '/projects' : '/login'} replace />
 }
 
 export default function App() {
