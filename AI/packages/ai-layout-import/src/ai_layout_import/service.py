@@ -39,6 +39,7 @@ def convert_layout_to_ifc(
     _attach_project_metadata_property_set(model, owner_history, project, request)
     _attach_storey_metadata_property_sets(model, owner_history, storeys, request)
     _create_v2_walls(model, owner_history, context, request, storeys)
+    _create_v2_shared_walls(model, owner_history, context, request, storeys)
     _create_v2_slabs(model, owner_history, context, request, storeys)
     _create_v2_roof(model, owner_history, context, request, storeys)
     _create_spaces(model, owner_history, context, request, storeys, zones)
@@ -531,6 +532,63 @@ def _create_v2_slabs(
         )
 
 
+def _create_v2_shared_walls(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    request: LayoutImportV1 | LayoutImportV2,
+    storeys: dict[int, ifcopenshell.entity_instance],
+) -> None:
+    if not isinstance(request, LayoutImportV2) or not request.generation_options.generate_walls:
+        return
+
+    if request.generation_policy.shared_wall_policy.value != "from_adjacency":
+        return
+
+    if request.modeling_defaults is None:
+        return
+
+    wall_thickness_m = _mm_to_m(request.modeling_defaults.wall_thickness_mm or 0)
+    wall_height_m = _effective_space_height_m(request)
+    shared_segments = sorted(
+        _validated_shared_wall_segments(request),
+        key=lambda segment: (
+            segment[0],
+            segment[1][0][0],
+            segment[1][0][1],
+            segment[1][1][0],
+            segment[1][1][1],
+        ),
+    )
+    floor_indices: dict[int, int] = {}
+
+    for floor, edge in shared_segments:
+        storey = storeys.get(floor)
+        if storey is None:
+            continue
+
+        floor_indices[floor] = floor_indices.get(floor, 0) + 1
+        segment_index = floor_indices[floor]
+        wall = _create_shared_wall_from_segment(
+            model,
+            owner_history,
+            context,
+            storey,
+            floor,
+            segment_index,
+            edge,
+            wall_thickness_m,
+            wall_height_m,
+        )
+        _contain_in_storey(
+            model,
+            owner_history,
+            wall,
+            storey,
+            f"shared-wall-{floor}-{segment_index}-StoreyContainment",
+        )
+
+
 def _create_v2_roof(
     model: ifcopenshell.file,
     owner_history: ifcopenshell.entity_instance,
@@ -750,6 +808,34 @@ def _create_roof_from_boundary(
             Representations=[representation],
         ),
     )
+
+
+def _create_shared_wall_from_segment(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    storey: ifcopenshell.entity_instance,
+    floor: int,
+    segment_index: int,
+    edge: RoomEdgeMm,
+    thickness_m: float,
+    height_m: float,
+) -> ifcopenshell.entity_instance:
+    start_point_mm, end_point_mm = edge
+    wall = _create_wall_from_segment(
+        model,
+        owner_history,
+        context,
+        storey,
+        floor,
+        segment_index,
+        (_mm_to_m(start_point_mm[0]), _mm_to_m(start_point_mm[1])),
+        (_mm_to_m(end_point_mm[0]), _mm_to_m(end_point_mm[1])),
+        thickness_m,
+        height_m,
+    )
+    wall.Name = f"Shared Wall {floor}-{segment_index}"
+    return wall
 
 
 def _create_closed_polyline(
