@@ -5,6 +5,8 @@ import type {
   BubbleData,
   CollaborationUserType,
   ConnectionData,
+  EditorDraftRecord,
+  EditorDraftSnapshot,
   EditorMode,
   FloorCommentAttachmentInput,
   FloorCommentNotification,
@@ -14,6 +16,7 @@ import type {
   FloorRoom,
   FloorWall,
   Point2D,
+  SaveStatus,
   ZoneData,
 } from '../types'
 import {
@@ -57,6 +60,7 @@ import {
   projectAxisAlignedWall,
 } from '../utils/wallGeometry'
 import type { FloorProject } from '../types/floorProject.types'
+import { getDraft, setDraft } from '../lib/draftDb'
 import { useAuthStore } from '@/shared/stores/authStore'
 import { projectService } from '@/features/project/services/project.service'
 
@@ -282,6 +286,7 @@ export function useEditorPage() {
     toggleBubble: toggleZoningBubble,
     confirmModal: confirmZoningModal,
     deleteZone,
+    replaceZonesState,
   } = useZones(bubbles)
 
   // 우측 패널 드래그·리사이즈 상태
@@ -307,6 +312,7 @@ export function useEditorPage() {
     updateActiveRoom,
     removeActiveRooms,
     clearFloorPlan,
+    replaceFloorPlanState,
   } = useFloorPlan()
   /** 버블 편집 잠금은 현재 비활성 상태(false 고정) */
   const isBubbleEditLocked = false
@@ -513,10 +519,34 @@ export function useEditorPage() {
   const [isLayerOverlayMode, setIsLayerOverlayMode] = useState(false)
   const [overlayLayerIds, setOverlayLayerIds] = useState<string[]>([])
   const [overlayOpacityByLayerId, setOverlayOpacityByLayerId] = useState<Record<string, number>>({})
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const [autosaveReadyProjectId, setAutosaveReadyProjectId] = useState<string | null>(null)
   const attemptedInitialIfcImportProjectIdRef = useRef<string | null>(null)
+  const localVersionRef = useRef(0)
+  const previousSnapshotRef = useRef<string | null>(null)
+  const hasUserEditedRef = useRef(false)
+  const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingDraftRecordRef = useRef<EditorDraftRecord | null>(null)
+  const draftLoadTokenRef = useRef(0)
+  const draftLoadBaselineRef = useRef<string | null>(null)
+  const latestDraftSnapshotRef = useRef<EditorDraftSnapshot | null>(null)
+  const flushPendingDraftSave = useCallback(() => {
+    if (localSaveTimerRef.current !== null) {
+      clearTimeout(localSaveTimerRef.current)
+      localSaveTimerRef.current = null
+    }
+
+    const pendingDraftRecord = pendingDraftRecordRef.current
+    if (!pendingDraftRecord) return
+
+    pendingDraftRecordRef.current = null
+    void setDraft(pendingDraftRecord.projectId, pendingDraftRecord).catch(() => {
+      setSaveStatus('error')
+    })
+  }, [])
   const authUser = useAuthStore((state) => state.user)
-  const currentUserType: CollaborationUserType = authUser?.user_type === 'CLIENT' ? 'CLIENT' : 'DESIGNER'
-  const counterpartType: CollaborationUserType = currentUserType === 'DESIGNER' ? 'CLIENT' : 'DESIGNER'
+  const currentUserType: CollaborationUserType = authUser?.user_type === 'CUSTOMER' ? 'CUSTOMER' : 'DESIGNER'
+  const counterpartType: CollaborationUserType = currentUserType === 'DESIGNER' ? 'CUSTOMER' : 'DESIGNER'
   const currentUserName = authUser?.name?.trim()
     ? authUser.name.trim()
     : (currentUserType === 'DESIGNER' ? DEFAULT_DESIGNER_NAME : DEFAULT_CLIENT_NAME)
@@ -620,6 +650,171 @@ export function useEditorPage() {
     floorOpenings.forEach((opening) => merged.set(opening.id, opening))
     return Array.from(merged.values())
   }, [autoFloorOpenings, floorOpenings])
+
+  const draftSnapshot = useMemo<EditorDraftSnapshot>(() => ({
+    bubbles,
+    connections,
+    zones,
+    floorLayers,
+    activeFloorLayerId,
+    isFloorPlanGenerated,
+    floorPlanLayoutSource,
+    floorWalls,
+    floorOpenings,
+    hiddenAutoWallIds,
+    hiddenAutoOpeningIds,
+    isProjectStructurePreferred,
+  }), [
+    bubbles,
+    connections,
+    zones,
+    floorLayers,
+    activeFloorLayerId,
+    isFloorPlanGenerated,
+    floorPlanLayoutSource,
+    floorWalls,
+    floorOpenings,
+    hiddenAutoWallIds,
+    hiddenAutoOpeningIds,
+    isProjectStructurePreferred,
+  ])
+
+  useEffect(() => {
+    latestDraftSnapshotRef.current = draftSnapshot
+  }, [draftSnapshot])
+
+  useEffect(() => {
+    return () => {
+      flushPendingDraftSave()
+    }
+  }, [flushPendingDraftSave])
+
+  useEffect(() => {
+    if (!projectId || autosaveReadyProjectId === projectId) return
+    const baselineSnapshot = draftLoadBaselineRef.current
+    if (baselineSnapshot === null) return
+    if (JSON.stringify(draftSnapshot) !== baselineSnapshot) {
+      hasUserEditedRef.current = true
+    }
+  }, [draftSnapshot, projectId, autosaveReadyProjectId])
+
+  useEffect(() => {
+    let isCancelled = false
+    const loadToken = draftLoadTokenRef.current + 1
+    draftLoadTokenRef.current = loadToken
+
+    flushPendingDraftSave()
+
+    setAutosaveReadyProjectId(null)
+    setSaveStatus('idle')
+    previousSnapshotRef.current = null
+    pendingDraftRecordRef.current = null
+    hasUserEditedRef.current = false
+    draftLoadBaselineRef.current = JSON.stringify(latestDraftSnapshotRef.current ?? draftSnapshot)
+
+    if (!projectId) {
+      return () => {
+        isCancelled = true
+      }
+    }
+
+    void getDraft(projectId)
+      .then((draft) => {
+        if (isCancelled || draftLoadTokenRef.current !== loadToken) return
+
+        localVersionRef.current = draft?.versionNo ?? 0
+
+        if (hasUserEditedRef.current) {
+          setAutosaveReadyProjectId(projectId)
+          return
+        }
+
+        if (draft?.data) {
+          const data = draft.data
+          previousSnapshotRef.current = JSON.stringify(data)
+          replaceBubbles(data.bubbles)
+          replaceConnections(data.connections)
+          replaceZonesState(data.zones)
+          replaceFloorPlanState({
+            isGenerated: data.isFloorPlanGenerated,
+            layoutSource: data.floorPlanLayoutSource,
+            layers: data.floorLayers,
+            activeLayerId: data.activeFloorLayerId,
+          })
+          setFloorWalls(data.floorWalls ?? [])
+          setFloorOpenings(data.floorOpenings ?? [])
+          setHiddenAutoWallIds(data.hiddenAutoWallIds ?? [])
+          setHiddenAutoOpeningIds(data.hiddenAutoOpeningIds ?? [])
+          setIsProjectStructurePreferred(data.isProjectStructurePreferred ?? false)
+        } else {
+          previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current ?? draftSnapshot)
+        }
+
+        setAutosaveReadyProjectId(projectId)
+      })
+      .catch(() => {
+        if (isCancelled || draftLoadTokenRef.current !== loadToken) return
+        previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current ?? draftSnapshot)
+        setAutosaveReadyProjectId(projectId)
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [
+    flushPendingDraftSave,
+    projectId,
+    replaceBubbles,
+    replaceConnections,
+    replaceFloorPlanState,
+    replaceZonesState,
+  ])
+
+  useEffect(() => {
+    if (!projectId || autosaveReadyProjectId !== projectId) return
+
+    const serializedSnapshot = JSON.stringify(draftSnapshot)
+
+    if (previousSnapshotRef.current !== null && previousSnapshotRef.current === serializedSnapshot) {
+      return
+    }
+
+    if (previousSnapshotRef.current === null && !hasUserEditedRef.current) {
+      previousSnapshotRef.current = serializedSnapshot
+      return
+    }
+
+    const nextVersionNo = localVersionRef.current + 1
+    const draftRecord: EditorDraftRecord = {
+      projectId,
+      versionNo: nextVersionNo,
+      data: draftSnapshot,
+      savedAt: new Date().toISOString(),
+    }
+
+    localVersionRef.current = nextVersionNo
+    pendingDraftRecordRef.current = draftRecord
+    setSaveStatus('dirty')
+
+    if (localSaveTimerRef.current !== null) {
+      clearTimeout(localSaveTimerRef.current)
+    }
+
+    localSaveTimerRef.current = setTimeout(() => {
+      localSaveTimerRef.current = null
+      setSaveStatus('saving-local')
+
+      void setDraft(projectId, draftRecord)
+        .then(() => {
+          pendingDraftRecordRef.current = null
+          previousSnapshotRef.current = serializedSnapshot
+          setSaveStatus('saved-local')
+        })
+        .catch(() => {
+          setSaveStatus('error')
+        })
+    }, 1000)
+  }, [autosaveReadyProjectId, draftSnapshot, projectId])
 
   const updateFloorWallFromEditable = useCallback((wallId: string, updater: (wall: FloorWall) => FloorWall) => {
     setFloorWalls((prev) => {
@@ -2361,6 +2556,7 @@ export function useEditorPage() {
     toggleGridSnap,
     handleSetGridSnapIntervalMm,
     // 도구 선택
+    saveStatus,
     selectedTool,
     setSelectedTool,
     handleSetSelectedTool,

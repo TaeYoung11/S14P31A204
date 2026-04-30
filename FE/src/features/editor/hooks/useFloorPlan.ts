@@ -277,6 +277,25 @@ export function useFloorPlan() {
     [activeLayerId],
   )
 
+  const replaceFloorPlanState = useCallback((
+    next: {
+      isGenerated: boolean
+      layoutSource?: 'bubble' | 'project' | null
+      layers: FloorLayer[]
+      activeLayerId: string | null
+    },
+  ) => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    setIsGenerated(next.isGenerated)
+    setIsGenerating(false)
+    setLayoutSource(next.layoutSource ?? (next.isGenerated ? 'project' : null))
+    setLayers(next.layers)
+    setActiveLayerId(next.activeLayerId ?? next.layers[0]?.id ?? null)
+  }, [])
+
   return {
     isGenerated,
     isGenerating,
@@ -296,5 +315,6 @@ export function useFloorPlan() {
     updateActiveRoom,
     removeActiveRooms,
     clearFloorPlan,
+    replaceFloorPlanState,
   }
 }
