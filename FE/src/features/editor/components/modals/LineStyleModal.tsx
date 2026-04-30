@@ -35,11 +35,11 @@ export function LineStyleModal({
       <div className="rounded-xl bg-[#F6F8FC] px-4 py-3">
         {lineConnectionPair ? (
           <p className="text-[11px] font-bold text-[#4A5A74]">
-            선택된 연결: {getBubbleLabel(lineConnectionPair.from)} ↔ {getBubbleLabel(lineConnectionPair.to)}
+            연결할 공간: {getBubbleLabel(lineConnectionPair.from)} ↔ {getBubbleLabel(lineConnectionPair.to)}
           </p>
         ) : (
           <p className="text-[11px] font-bold text-[#8A97AD]">
-            선 연결을 만들려면 캔버스에서 공간 2개를 순서대로 선택하세요.
+            먼저 연결할 공간 2개를 선택하거나, 연결 포인트를 드래그해 선을 만드세요.
           </p>
         )}
       </div>
@@ -62,18 +62,11 @@ export function LineStyleModal({
               <div className="flex items-center gap-4">
                 <div className="w-[52px] h-[52px] rounded-[12px] border border-[#D8E1EF] bg-[#F9FBFF] flex items-center justify-center shadow-sm shrink-0">
                   {option.value === 'bold' && (
-                    <div className="flex flex-col gap-1.5">
-                      <div className="w-7 h-[3px] bg-[#3B45B3] rounded-full" />
-                      <div className="w-7 h-[3px] bg-[#3B45B3] rounded-full" />
-                    </div>
+                    <div className="w-8 h-[5px] bg-[#2F3BAE] rounded-full" />
                   )}
-                  {option.value === 'thin' && <div className="w-7 h-[3px] bg-[#3B45B3] rounded-full" />}
+                  {option.value === 'thin' && <div className="w-8 h-[2px] bg-[#3B45B3] rounded-full" />}
                   {option.value === 'dashed' && (
-                    <div className="flex items-center gap-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-[#3B45B3]" />
-                      <div className="w-1.5 h-1.5 rounded-full bg-[#3B45B3]" />
-                      <div className="w-1.5 h-1.5 rounded-full bg-[#3B45B3]" />
-                    </div>
+                    <div className="w-8 border-t-2 border-dashed border-[#8B95A7]" />
                   )}
                 </div>
                 <div className="text-left flex-1">

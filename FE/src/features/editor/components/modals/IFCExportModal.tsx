@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react'
 import { CheckCircle2, Download, FileCode2, Cpu, Layers, Box } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+
+/** 전체 파일 크기 (시뮬레이션용 고정값) */
+const TOTAL_SIZE_MB = 64.8
 
 // ── 내보내기 단계 정의 ────────────────────────────────────────────────────────
 
 interface ExportStep {
-  icon: React.ComponentType<{ size?: number; className?: string }>
+  icon: LucideIcon
   label: string
 }
 
@@ -30,21 +34,14 @@ interface IFCExportModalProps {
  */
 export function IFCExportModal({ isOpen, onClose }: IFCExportModalProps) {
   const [progress, setProgress] = useState(0)
-  const [stepIndex, setStepIndex] = useState(0)
   const [done, setDone] = useState(false)
-  const TOTAL_SIZE_MB = 64.8
 
   // 파일 크기는 progress에서 직접 계산 (별도 state 불필요)
   const fileSizeMb = (progress / 100) * TOTAL_SIZE_MB
 
-  /** 모달 열릴 때 진행 상태 초기화 및 시뮬레이션 시작 */
+  /** 모달이 열릴 때마다 progress·완료 상태를 초기화 후 시뮬레이션 시작 */
   useEffect(() => {
-    if (!isOpen) {
-      setProgress(0)
-      setStepIndex(0)
-      setDone(false)
-      return
-    }
+    if (!isOpen) return
 
     const interval = setInterval(() => {
       setProgress((prev) => {
@@ -61,16 +58,9 @@ export function IFCExportModal({ isOpen, onClose }: IFCExportModalProps) {
     return () => clearInterval(interval)
   }, [isOpen])
 
-  /** progress 구간별로 현재 단계 업데이트 */
-  useEffect(() => {
-    if (progress < 25) setStepIndex(0)
-    else if (progress < 55) setStepIndex(1)
-    else if (progress < 80) setStepIndex(2)
-    else setStepIndex(3)
-  }, [progress])
-
   if (!isOpen) return null
 
+  const stepIndex = progress < 25 ? 0 : progress < 55 ? 1 : progress < 80 ? 2 : 3
   const circumference = 2 * Math.PI * 90
   const dashOffset = circumference - (progress / 100) * circumference
   const CurrentStepIcon = STEPS[stepIndex].icon
@@ -179,7 +169,7 @@ export function IFCExportModal({ isOpen, onClose }: IFCExportModalProps) {
               </button>
               <button
                 onClick={() => {
-                  // 실제 다운로드 링크 연결 전 임시 트리거
+                  // API 연동 전 임시 다운로드 동작: 추후 서버 Blob URL로 교체 예정
                   const a = document.createElement('a')
                   a.href = '#'
                   a.download = 'project_export.ifc'

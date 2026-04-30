@@ -1,135 +1,222 @@
-import { ChevronDown } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import type { MutableRefObject } from 'react'
 import type { BubbleInfo } from './BubbleAttributePanel'
-import { ROOM_TYPES } from '../../constants'
+import type { FloorOpening, FloorWall } from '../../types'
+import { TwoDOpeningAttributes } from './twoDAttribute/TwoDOpeningAttributes'
+import { TwoDWallAttributes } from './twoDAttribute/TwoDWallAttributes'
+import { TwoDRoomAttributes } from './twoDAttribute/TwoDRoomAttributes'
 
 interface TwoDAttributePanelProps {
   selectedBubble: BubbleInfo | null
+  selectedWall?: FloorWall | null
+  selectedOpening?: FloorOpening | null
   onLabelChange: (id: string, label: string) => void
   onTypeChange: (id: string, type: string) => void
   onWidthChange: (id: string, width: number) => void
   onHeightChange: (id: string, height: number) => void
-  onRatioChange: (id: string, ratio: number) => void
+  onWidthCommit?: (id: string, width: number) => void
+  onHeightCommit?: (id: string, height: number) => void
+  /** 면적 직접 변경 핸들러 — 현재 UI에서 미사용, 추후 면적 입력 필드 추가 시 활용 */
+  onRatioChange?: (id: string, ratio: number) => void
+  onWallTypeChange?: (id: string, type: FloorWall['type']) => void
+  onWallThicknessChange?: (id: string, thicknessMm: number) => void
+  onWallHeightChange?: (id: string, heightMm: number) => void
+  onWallMaterialChange?: (id: string, material: string) => void
+  onOpeningSizeChange?: (id: string, widthMm: number, heightMm: number) => void
+  onWindowSillHeightChange?: (id: string, sillHeightMm: number) => void
+  onDoorSwingDirectionChange?: (id: string, swingDirection: NonNullable<FloorOpening['doorSwingDirection']>) => void
+  onDoorHingeSideChange?: (id: string, hingeSide: NonNullable<FloorOpening['doorHingeSide']>) => void
 }
 
 /** 2D 평면도 모드 전용 속성 패널 — 버블 데이터와 연동 */
 export function TwoDAttributePanel({
   selectedBubble,
+  selectedWall = null,
+  selectedOpening = null,
   onLabelChange,
   onTypeChange,
   onWidthChange,
   onHeightChange,
-  onRatioChange,
+  onWidthCommit,
+  onHeightCommit,
+  onWallTypeChange,
+  onWallThicknessChange,
+  onWallHeightChange,
+  onWallMaterialChange,
+  onOpeningSizeChange,
+  onWindowSillHeightChange,
+  onDoorSwingDirectionChange,
+  onDoorHingeSideChange,
 }: TwoDAttributePanelProps) {
+  const ROOM_DIMENSION_DEBOUNCE_MS = 220
+  const [roomWidthDraft, setRoomWidthDraft] = useState('')
+  const [roomHeightDraft, setRoomHeightDraft] = useState('')
+  const [isWidthEditing, setIsWidthEditing] = useState(false)
+  const [isHeightEditing, setIsHeightEditing] = useState(false)
+  const widthDebounceRef = useRef<number | null>(null)
+  const heightDebounceRef = useRef<number | null>(null)
+
+  const clearDebounceTimer = (timerRef: MutableRefObject<number | null>) => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }
+
+  const queueRoomDimensionCommit = (
+    value: string,
+    timerRef: MutableRefObject<number | null>,
+    onChange: (id: string, valueMm: number) => void,
+  ) => {
+    if (!selectedBubble) return
+    clearDebounceTimer(timerRef)
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed) || parsed < 100) return
+    timerRef.current = window.setTimeout(() => {
+      onChange(selectedBubble.id, parsed)
+      timerRef.current = null
+    }, ROOM_DIMENSION_DEBOUNCE_MS)
+  }
+
+  const commitRoomDimension = (params: {
+    draftValue: string
+    fallbackValueMm: number
+    timerRef: MutableRefObject<number | null>
+    onCommit: (id: string, valueMm: number) => void
+    setDraft: (next: string) => void
+    setEditing: (next: boolean) => void
+  }) => {
+    if (!selectedBubble) return
+    clearDebounceTimer(params.timerRef)
+    const parsed = Number(params.draftValue)
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      params.setDraft(String(Math.round(params.fallbackValueMm)))
+      return
+    }
+    params.onCommit(selectedBubble.id, parsed)
+    params.setEditing(false)
+  }
+
+  useEffect(() => {
+    const syncTimer = window.setTimeout(() => {
+      if (!selectedBubble) {
+        setRoomWidthDraft('')
+        setRoomHeightDraft('')
+        return
+      }
+      if (!isWidthEditing) {
+        setRoomWidthDraft(String(Math.round(selectedBubble.widthMm)))
+      }
+      if (!isHeightEditing) {
+        setRoomHeightDraft(String(Math.round(selectedBubble.heightMm)))
+      }
+    }, 0)
+    return () => window.clearTimeout(syncTimer)
+  }, [selectedBubble, isWidthEditing, isHeightEditing])
+
+  useEffect(() => {
+    return () => {
+      clearDebounceTimer(widthDebounceRef)
+      clearDebounceTimer(heightDebounceRef)
+    }
+  }, []) // unmount 시 디바운스 정리
+
+  // Grid Snap ON/OFF 또는 간격 변경으로 핸들러 참조가 바뀌면
+  // 기존 디바운스 타이머가 이전 스냅 규칙으로 늦게 적용되지 않도록 정리한다.
+  useEffect(() => {
+    clearDebounceTimer(widthDebounceRef)
+    clearDebounceTimer(heightDebounceRef)
+  }, [onWidthChange, onHeightChange])
+
+  const queueRoomWidthCommit = (value: string) => {
+    queueRoomDimensionCommit(value, widthDebounceRef, onWidthChange)
+  }
+
+  const queueRoomHeightCommit = (value: string) => {
+    queueRoomDimensionCommit(value, heightDebounceRef, onHeightChange)
+  }
+
+  const commitRoomWidth = () => {
+    if (!selectedBubble) return
+    commitRoomDimension({
+      draftValue: roomWidthDraft,
+      fallbackValueMm: selectedBubble.widthMm,
+      timerRef: widthDebounceRef,
+      onCommit: onWidthCommit ?? onWidthChange,
+      setDraft: setRoomWidthDraft,
+      setEditing: setIsWidthEditing,
+    })
+  }
+
+  const commitRoomHeight = () => {
+    if (!selectedBubble) return
+    commitRoomDimension({
+      draftValue: roomHeightDraft,
+      fallbackValueMm: selectedBubble.heightMm,
+      timerRef: heightDebounceRef,
+      onCommit: onHeightCommit ?? onHeightChange,
+      setDraft: setRoomHeightDraft,
+      setEditing: setIsHeightEditing,
+    })
+  }
+
+  if (selectedOpening) {
+    return (
+      <TwoDOpeningAttributes
+        selectedOpening={selectedOpening}
+        onOpeningSizeChange={onOpeningSizeChange}
+        onWindowSillHeightChange={onWindowSillHeightChange}
+        onDoorSwingDirectionChange={onDoorSwingDirectionChange}
+        onDoorHingeSideChange={onDoorHingeSideChange}
+      />
+    )
+  }
+
+  if (selectedWall) {
+    return (
+      <TwoDWallAttributes
+        selectedWall={selectedWall}
+        onWallTypeChange={onWallTypeChange}
+        onWallThicknessChange={onWallThicknessChange}
+        onWallHeightChange={onWallHeightChange}
+        onWallMaterialChange={onWallMaterialChange}
+      />
+    )
+  }
+
   if (!selectedBubble) {
     return (
       <div className="p-5 text-center text-[#ADB5BD] text-[11px] font-medium">
-        공간을 선택하세요
+        공간, 벽, 문/창문을 선택하세요
       </div>
     )
   }
 
   return (
-    <div className="p-5 flex flex-col gap-5">
-      <div className="flex flex-col gap-4">
-        {/* 방 이름 */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">공간 이름</span>
-          <input
-            type="text"
-            value={selectedBubble.label}
-            onChange={(e) => onLabelChange(selectedBubble.id, e.target.value)}
-            className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
-          />
-        </div>
-
-        {/* 방 종류 */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">공간 유형</span>
-          <div className="relative group">
-            <select
-              value={selectedBubble.type}
-              onChange={(e) => onTypeChange(selectedBubble.id, e.target.value)}
-              className="w-full bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] appearance-none focus:ring-1 focus:ring-[#3B45B3] outline-none cursor-pointer"
-            >
-              {ROOM_TYPES.map((type) => (
-                <option key={type}>{type}</option>
-              ))}
-            </select>
-            <ChevronDown
-              size={14}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#ADB5BD] pointer-events-none group-hover:text-[#3B45B3] transition-colors"
-            />
-          </div>
-        </div>
-
-        {/* 가로/세로 */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">가로 (MM)</span>
-            <input
-              type="number"
-              value={Math.round(selectedBubble.widthMm)}
-              onChange={(e) => onWidthChange(selectedBubble.id, Number(e.target.value))}
-              className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">세로 (MM)</span>
-            <input
-              type="number"
-              value={Math.round(selectedBubble.heightMm)}
-              onChange={(e) => onHeightChange(selectedBubble.id, Number(e.target.value))}
-              className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
-            />
-          </div>
-        </div>
-
-        {/* 높이 & 두께 (2D/건축 특화 속성) */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">벽체 높이 (MM)</span>
-            <input
-              type="text"
-              value="2,400"
-              readOnly
-              className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] opacity-60 cursor-not-allowed"
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">벽 두께 (MM)</span>
-            <input
-              type="text"
-              value="200"
-              readOnly
-              className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] opacity-60 cursor-not-allowed"
-            />
-          </div>
-        </div>
-
-        {/* 재질 */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">주요 재질</span>
-          <div className="relative group">
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 bg-[#BEC4D1] rounded-sm z-10 shadow-sm" />
-            <select className="w-full bg-[#F8F9FD] border-none rounded-lg pl-9 pr-8 py-2.5 text-xs font-bold text-[#1C1C1E] appearance-none focus:ring-1 focus:ring-[#3B45B3] outline-none cursor-pointer">
-              <option>콘크리트</option>
-              <option>목재 (Oak)</option>
-              <option>벽돌 (Red)</option>
-              <option>철골 구조</option>
-            </select>
-            <ChevronDown
-              size={14}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#ADB5BD] pointer-events-none group-hover:text-[#3B45B3] transition-colors"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* 면적 요약 */}
-      <div className="pt-4 border-t border-[#F0F2F9] flex items-center justify-between">
-        <span className="text-[10px] font-bold text-[#ADB5BD]">계산 면적</span>
-        <span className="text-sm font-black text-[#3B45B3]">{selectedBubble.ratio.toFixed(2)} m²</span>
-      </div>
-    </div>
+    <TwoDRoomAttributes
+      selectedBubble={selectedBubble}
+      roomWidthDraft={roomWidthDraft}
+      roomHeightDraft={roomHeightDraft}
+      onLabelChange={onLabelChange}
+      onTypeChange={onTypeChange}
+      onRoomWidthDraftChange={(value) => {
+        setRoomWidthDraft(value)
+        queueRoomWidthCommit(value)
+      }}
+      onRoomHeightDraftChange={(value) => {
+        setRoomHeightDraft(value)
+        queueRoomHeightCommit(value)
+      }}
+      onRoomWidthFocus={() => setIsWidthEditing(true)}
+      onRoomHeightFocus={() => setIsHeightEditing(true)}
+      onRoomWidthBlur={() => {
+        commitRoomWidth()
+        setIsWidthEditing(false)
+      }}
+      onRoomHeightBlur={() => {
+        commitRoomHeight()
+        setIsHeightEditing(false)
+      }}
+    />
   )
 }

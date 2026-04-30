@@ -174,8 +174,11 @@ export function generateFloorPlanLayout(
       y: rect.y * scale + offsetY,
       width: rect.w * scale,
       height: rect.h * scale,
+      widthMm: bubble.widthMm,
+      heightMm: bubble.heightMm,
       area: bubble.ratio,
       color: bubble.color,
+      material: bubble.material,
       connectedIds: adjacency.get(bubble.id) ?? [],
     }
   })

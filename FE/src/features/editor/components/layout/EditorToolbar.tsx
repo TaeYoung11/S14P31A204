@@ -10,6 +10,7 @@ const MODE_LABELS: Record<EditorMode, string> = {
   bubble: 'Bubble',
   '2d': '2D Plan',
   '3d': '3D View',
+  view: 'View',
 }
 
 /** 에디터 모드 전환 탭 + 실행취소/다시실행 버튼 */
@@ -19,6 +20,7 @@ export default function EditorToolbar({ mode, onModeChange }: EditorToolbarProps
   return (
     <div className={`h-14 flex items-center justify-between px-6 shrink-0 z-40 ${isView ? 'bg-[#0A0A0B] border-b border-white/10' : ''}`}>
       <div className="flex items-center gap-4">
+        {/* 현재는 기본 프로젝트명 목업을 표시한다. */}
         <h1 className={`text-lg font-bold ${isView ? 'text-white/80' : 'text-[#1C1C1E]'}`}>판교 테크 센터</h1>
       </div>
 

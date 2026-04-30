@@ -1,5 +1,5 @@
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react'
+import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react'
 import type { PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
 
 interface ResizeHandlesProps {
@@ -56,8 +56,9 @@ interface PanelFrameProps {
   offset: PanelOffset
   width: number
   height?: number
+  zIndex?: number
   theme?: 'light' | 'dark'
-  onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLButtonElement>) => void
+  onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLElement>) => void
   onResizeStart: (key: PanelKey, axis: PanelResizeAxis, e: ReactMouseEvent<HTMLButtonElement>) => void
   onToggle: (key: PanelKey) => void
   children: ReactNode
@@ -73,16 +74,18 @@ export function PanelFrame({
   offset,
   width,
   height,
+  zIndex = 10,
   theme = 'light',
   onDragStart,
   onResizeStart,
   onToggle,
   children,
 }: PanelFrameProps) {
+  const COLLAPSED_SIZE = 44
   const isDark = theme === 'dark'
   const sectionClass = isDark
-    ? 'relative bg-[#3B45B3] rounded-2xl shadow-lg shadow-[#3B45B3]/20 overflow-hidden flex flex-col min-h-0 shrink-0'
-    : 'relative bg-white border border-[#E2E6EF] rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-0 shrink-0'
+    ? 'relative bg-[#3B45B3] rounded-2xl shadow-lg shadow-[#3B45B3]/20 overflow-hidden flex flex-col min-h-0 shrink-0 transition-[width,height] duration-200'
+    : 'relative bg-white border border-[#E2E6EF] rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-0 shrink-0 transition-[width,height] duration-200'
   const headerClass = isDark
     ? 'px-5 py-3 border-b border-white/10 flex items-center justify-between'
     : 'px-5 py-4 border-b border-[#F0F2F9] flex items-center justify-between'
@@ -98,46 +101,74 @@ export function PanelFrame({
   const toggleBtnClass = isDark
     ? 'text-white/40 hover:text-white/80 transition-colors'
     : 'text-[#ADB5BD] hover:text-[#505764] transition-colors'
+  const collapsedButtonClass = isDark
+    ? 'h-8 w-8 rounded-lg bg-white/10 text-white/80 hover:bg-white/20 hover:text-white transition-colors flex items-center justify-center'
+    : 'h-8 w-8 rounded-lg bg-[#F3F5FA] text-[#5B6A85] hover:bg-[#E8EDF8] hover:text-[#3B45B3] transition-colors flex items-center justify-center'
 
   return (
     <section
+      data-panel-key={panelKey}
       className={sectionClass}
       style={{
         transform: `translate(${offset.x}px, ${offset.y}px)`,
-        width,
-        height: isOpen ? height : undefined,
-        maxHeight: 'calc(100vh - 180px)',
+        width: isOpen ? width : COLLAPSED_SIZE,
+        height: isOpen ? height : COLLAPSED_SIZE,
+        maxHeight: isOpen ? 'calc(100vh - 180px)' : COLLAPSED_SIZE,
+        zIndex,
       }}
     >
-      <div className={headerClass}>
-        <div className={titleClass}>
-          <button
+      {isOpen ? (
+        <>
+          <div
+            className={`${headerClass} cursor-grab active:cursor-grabbing`}
             onMouseDown={(e) => onDragStart(panelKey, e)}
-            className={dragBtnClass}
-            aria-label={`${title} 패널 이동`}
           >
-            <GripVertical size={12} />
-          </button>
-          {titleIcon}
-          <h2 className={titleTextClass}>{title}</h2>
-        </div>
-        <div className="flex items-center gap-2">
-          {headerExtra}
+            <div className={titleClass}>
+              {!titleIcon && (
+                <button
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className={dragBtnClass}
+                  aria-label={`${title} 패널 이동`}
+                >
+                  <GripVertical size={12} />
+                </button>
+              )}
+              {titleIcon}
+              <h2 className={titleTextClass}>{title}</h2>
+            </div>
+            <div className="flex items-center gap-2" onMouseDown={(e) => e.stopPropagation()}>
+              {headerExtra}
+              <button
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => onToggle(panelKey)}
+                className={toggleBtnClass}
+                aria-label={`${title} 닫기`}
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {children}
+          </div>
+          <ResizeHandles panelKey={panelKey} theme={theme} onResizeStart={onResizeStart} />
+        </>
+      ) : (
+        <div
+          onMouseDown={(e) => onDragStart(panelKey, e)}
+          className="h-full w-full flex items-center justify-center cursor-grab active:cursor-grabbing"
+          title={`${title} 이동`}
+        >
           <button
             onClick={() => onToggle(panelKey)}
-            className={toggleBtnClass}
-            aria-label={isOpen ? `${title} 닫기` : `${title} 열기`}
+            className={collapsedButtonClass}
+            aria-label={`${title} 열기`}
+            title={title}
           >
-            {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            {titleIcon ?? <ChevronLeft size={16} />}
           </button>
         </div>
-      </div>
-      {isOpen && (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {children}
-        </div>
       )}
-      <ResizeHandles panelKey={panelKey} theme={theme} onResizeStart={onResizeStart} />
     </section>
   )
 }
