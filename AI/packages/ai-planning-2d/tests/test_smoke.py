@@ -164,6 +164,7 @@ def test_remove_locked_room(locked_ifc_ctx):
     assert batch.requires_clarification
     assert batch.clarification_question is not None
     assert "\uac70\uc2e4" in batch.clarification_question
+    assert "\uc7a0\uaca8 \uc788\uc5b4 \uc0ad\uc81c\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4" in batch.clarification_question
 
 
 def test_remove_unlocked_room_passes(unlocked_ifc_ctx):
@@ -244,6 +245,7 @@ def test_resize_locked_room(locked_ifc_ctx):
     assert batch.requires_clarification
     assert batch.clarification_question is not None
     assert "\uac70\uc2e4" in batch.clarification_question
+    assert "\uc7a0\uaca8 \uc788\uc5b4 \ud06c\uae30\ub97c \ubcc0\uacbd\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4" in batch.clarification_question
 
 
 # ---------------------------------------------------------------------------

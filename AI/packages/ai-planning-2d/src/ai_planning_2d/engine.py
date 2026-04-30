@@ -127,7 +127,7 @@ IFC 상태: {"spaces": [{"id": "sp-001", "name": "거실", "floor": 1, "width": 
 
 
 class FloorPlanEngine:
-    """?먯뿰??2D ?됰㈃???섏젙 紐낅졊??FloorNLPCommand濡??뚯떛?섎뒗 ?붿쭊."""
+    """자연어 2D 평면도 수정 명령을 FloorNLPCommand로 파싱하는 엔진."""
 
     DEFAULT_MODEL = "gemma3:4b"
     DEFAULT_BASE_URL = "http://localhost:11434/v1"
@@ -157,9 +157,9 @@ class FloorPlanEngine:
 
         if ifc_context is not None:
             user_content = (
-                f"[?꾩옱 IFC ?곹깭]\n"
+                f"[현재 IFC 상태]\n"
                 f"{json.dumps(ifc_context, ensure_ascii=False)}\n\n"
-                f"[?ъ슜???붿껌]\n"
+                f"[사용자 요청]\n"
                 f"{user_text}"
             )
         else:
@@ -189,14 +189,14 @@ class FloorPlanEngine:
                 else:
                     command.needs_clarification = True
                     command.clarification_question = (
-                        "蹂寃쏀븷 諛??ш린瑜??ㅼ떆 ?뚮젮二쇱꽭?? ?? 4000x5000"
+                        "변경할 방 크기를 다시 알려주세요. 예: 4000x5000"
                     )
 
             if command.confidence < 0.7 and not command.needs_clarification:
                 command.needs_clarification = True
                 if not command.clarification_question:
                     command.clarification_question = (
-                        "?붿껌???뺥솗???댁꽍?섏? 紐삵뻽?듬땲?? 議곌툑 ??援ъ껜?곸쑝濡??ㅻ챸??二쇱꽭??"
+                        "요청을 정확히 해석하지 못했습니다. 조금 더 구체적으로 설명해 주세요."
                     )
 
             return command
@@ -206,5 +206,5 @@ class FloorPlanEngine:
                 action="add_room",
                 confidence=0.0,
                 needs_clarification=True,
-                clarification_question=f"紐낅졊 ?댁꽍 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎: {e}",
+                clarification_question=f"명령 해석 중 오류가 발생했습니다: {e}",
             )
