@@ -1,3 +1,4 @@
+import axios from 'axios'
 import { MOCK_MEMBERS } from '@/features/project/mocks/project.mock'
 import { api } from '@/shared/lib/axios'
 
@@ -67,6 +68,37 @@ export interface ProjectSiteResponse {
   createdAt: string
 }
 
+interface ProjectMemberSummaryResponse {
+  userId: string
+  name: string
+}
+
+interface CurrentProjectResponse {
+  projectId: string
+  name: string
+  description?: string
+  status?: string
+  owner?: ProjectMemberSummaryResponse
+  primaryClient?: ProjectMemberSummaryResponse
+  currentVersionNo?: number
+  currentIfcUrl?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CurrentProjectMetadata {
+  projectId: string
+  name: string
+  description: string
+  status: string
+  owner: ProjectMemberSummaryResponse | null
+  primaryClient: ProjectMemberSummaryResponse | null
+  currentVersionNo: number
+  currentIfcUrl: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 const mapProjectSummary = (project: ProjectSummaryResponse): Project => ({
   id: project.projectId,
   name: project.name,
@@ -104,6 +136,19 @@ const mapUpdatedProject = (project: UpdateProjectResponse, fallback?: Project): 
   member_count: fallback?.member_count ?? 0,
   ifc_uploaded: fallback?.ifc_uploaded ?? false,
   unread_comment_count: project.unreadCommentCount ?? fallback?.unread_comment_count ?? 0,
+})
+
+const mapCurrentProject = (project: CurrentProjectResponse): CurrentProjectMetadata => ({
+  projectId: project.projectId,
+  name: project.name,
+  description: project.description ?? '',
+  status: project.status ?? '',
+  owner: project.owner ?? null,
+  primaryClient: project.primaryClient ?? null,
+  currentVersionNo: project.currentVersionNo ?? 0,
+  currentIfcUrl: project.currentIfcUrl ?? null,
+  createdAt: project.createdAt,
+  updatedAt: project.updatedAt,
 })
 
 export interface ProjectListPageResult {
@@ -147,6 +192,30 @@ export const projectService = {
   getIfcModelText: async (projectId: string): Promise<string | null> => {
     try {
       const response = await api.get<ArrayBuffer>(`/projects/${projectId}/model`, {
+        responseType: 'arraybuffer',
+        headers: {
+          Accept: 'application/octet-stream,text/plain',
+        },
+      })
+      const ifcText = new TextDecoder('utf-8').decode(response.data)
+      return ifcText.trim().length > 0 ? ifcText : null
+    } catch (error: unknown) {
+      const status = (error as { response?: { status?: number } })?.response?.status
+      if (status === 404) return null
+      throw error
+    }
+  },
+
+  getCurrentByName: async (projectName: string): Promise<CurrentProjectMetadata> => {
+    const response = await api.get<ApiResponse<CurrentProjectResponse>>('/projects/current', {
+      params: { name: projectName },
+    })
+    return mapCurrentProject(response.data.data)
+  },
+
+  getIfcModelTextFromUrl: async (ifcUrl: string): Promise<string | null> => {
+    try {
+      const response = await axios.get<ArrayBuffer>(ifcUrl, {
         responseType: 'arraybuffer',
         headers: {
           Accept: 'application/octet-stream,text/plain',
