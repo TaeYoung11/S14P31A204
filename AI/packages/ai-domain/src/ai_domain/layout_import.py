@@ -6,7 +6,14 @@ from enum import StrEnum
 from typing import Annotated, Literal, TypeAlias
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    model_validator,
+)
 
 
 class LayoutImportBaseModel(BaseModel):
@@ -78,15 +85,45 @@ class ZoneInput(LayoutImportBaseModel):
     color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
+PolygonRing: TypeAlias = list[tuple[float, float]]
+PolygonHoles: TypeAlias = list[Annotated[PolygonRing, Field(min_length=3)]]
+
+
 class AdjacencyInput(LayoutImportBaseModel):
     """Adjacency relationship between rooms."""
 
-    from_room_id: str = Field(min_length=1, max_length=128)
-    to_room_id: str = Field(min_length=1, max_length=128)
+    from_room_id: str | None = Field(default=None, min_length=1, max_length=128)
+    to_room_id: str | None = Field(default=None, min_length=1, max_length=128)
+    room_a_id: str | None = Field(default=None, min_length=1, max_length=128)
+    room_b_id: str | None = Field(default=None, min_length=1, max_length=128)
     strength: float = Field(ge=0, le=1)
 
     @model_validator(mode="after")
+    def validate_room_id_pair(self) -> AdjacencyInput:
+        has_canonical_pair = self.room_a_id is not None or self.room_b_id is not None
+        has_legacy_pair = self.from_room_id is not None or self.to_room_id is not None
+
+        if self.room_a_id is None and self.room_b_id is not None:
+            raise ValueError("room_a_id and room_b_id must both be provided together")
+        if self.room_a_id is not None and self.room_b_id is None:
+            raise ValueError("room_a_id and room_b_id must both be provided together")
+        if self.from_room_id is None and self.to_room_id is not None:
+            raise ValueError("from_room_id and to_room_id must both be provided together")
+        if self.from_room_id is not None and self.to_room_id is None:
+            raise ValueError("from_room_id and to_room_id must both be provided together")
+        if not has_canonical_pair and not has_legacy_pair:
+            raise ValueError(
+                "either room_a_id/room_b_id or from_room_id/to_room_id must be provided"
+            )
+        return self
+
+    @model_validator(mode="after")
     def validate_distinct_room_ids(self) -> AdjacencyInput:
+        if self.room_a_id is not None:
+            if self.room_a_id == self.room_b_id:
+                raise ValueError("room_a_id and room_b_id must be different")
+            return self
+
         if self.from_room_id == self.to_room_id:
             raise ValueError("from_room_id and to_room_id must be different")
         return self
@@ -96,11 +133,25 @@ class BoundaryInput(LayoutImportBaseModel):
     """Floor boundary polygon input."""
 
     floor: int = Field(ge=1)
-    polygon: list[tuple[float, float]] = Field(min_length=3)
+    polygon_mm: PolygonRing | None = Field(
+        default=None,
+        min_length=3,
+        validation_alias=AliasChoices("polygon_mm", "polygon"),
+    )
+    outer_polygon_mm: PolygonRing | None = Field(default=None, min_length=3)
+    holes_mm: PolygonHoles | None = None
 
     @model_validator(mode="after")
     def validate_polygon_shape(self) -> BoundaryInput:
-        points = self.polygon
+        if self.outer_polygon_mm is None and self.polygon_mm is None:
+            raise ValueError("either outer_polygon_mm or polygon_mm must be provided")
+        if self.holes_mm is not None:
+            if self.outer_polygon_mm is None:
+                raise ValueError("holes_mm requires outer_polygon_mm")
+            if self.polygon_mm is not None:
+                raise ValueError("holes_mm cannot be used with polygon_mm")
+
+        points = self.outer_polygon_mm if self.outer_polygon_mm is not None else self.polygon_mm
         if len(points) > 1 and points[0] == points[-1]:
             points = points[:-1]
 
@@ -181,6 +232,19 @@ class LayoutImportCommon(LayoutImportBaseModel):
 
         room_ids = {room.id for room in self.rooms}
         for adjacency in self.adjacency:
+            if adjacency.room_a_id is not None:
+                if adjacency.room_a_id not in room_ids:
+                    raise ValueError(
+                        "adjacency.room_a_id must reference an existing room: "
+                        f"{adjacency.room_a_id}"
+                    )
+                if adjacency.room_b_id not in room_ids:
+                    raise ValueError(
+                        "adjacency.room_b_id must reference an existing room: "
+                        f"{adjacency.room_b_id}"
+                    )
+                continue
+
             if adjacency.from_room_id not in room_ids:
                 raise ValueError(
                     "adjacency.from_room_id must reference an existing room: "
