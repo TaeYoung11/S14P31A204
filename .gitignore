@@ -33,6 +33,7 @@ FE/dist/
 FE/build/
 FE/.vite/
 FE/*.log
+FE/.env.local
 
 # =========================
 # AI - Python
