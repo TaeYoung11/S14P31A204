@@ -9,6 +9,7 @@ from pathlib import Path
 import ifcopenshell
 import ifcopenshell.guid
 from ai_domain import (
+    AdjacencyInput,
     BoundaryInput,
     BoundaryWallMode,
     LayoutImportV1,
@@ -17,6 +18,10 @@ from ai_domain import (
     RoofShape,
     ZoneInput,
 )
+
+Point2DMm = tuple[float, float]
+RoomEdgeMm = tuple[Point2DMm, Point2DMm]
+SharedWallCandidate = tuple[int, str, str, tuple[RoomEdgeMm, ...], tuple[RoomEdgeMm, ...]]
 
 
 def convert_layout_to_ifc(
@@ -43,6 +48,7 @@ def convert_layout_to_ifc(
 def _validate_request(request: LayoutImportV1 | LayoutImportV2) -> None:
     if isinstance(request, LayoutImportV2):
         _validate_v2_generation_prerequisites(request)
+        _derive_shared_wall_candidates(request)
 
 
 def _validate_v2_generation_prerequisites(request: LayoutImportV2) -> None:
@@ -78,6 +84,72 @@ def _require_boundaries_for_floors(
     if missing_floors:
         missing_text = ", ".join(str(floor) for floor in missing_floors)
         raise ValueError(f"missing boundaries for {feature_name} on floors: {missing_text}")
+
+
+def _derive_shared_wall_candidates(request: LayoutImportV2) -> list[SharedWallCandidate]:
+    if not request.generation_options.generate_walls:
+        return []
+    if request.generation_policy.shared_wall_policy.value != "from_adjacency":
+        return []
+    if not request.adjacency:
+        return []
+
+    rooms_by_id = _rooms_by_id(request.rooms)
+    candidates: list[SharedWallCandidate] = []
+    for adjacency in request.adjacency:
+        from_room, to_room = _resolve_adjacency_pair(adjacency, rooms_by_id)
+        if from_room.floor != to_room.floor:
+            raise ValueError("shared wall adjacency rooms must be on the same floor")
+        if not math.isclose(from_room.angle, 0.0, abs_tol=1.0e-9):
+            raise ValueError(f"shared wall adjacency does not support rotated room: {from_room.id}")
+        if not math.isclose(to_room.angle, 0.0, abs_tol=1.0e-9):
+            raise ValueError(f"shared wall adjacency does not support rotated room: {to_room.id}")
+
+        candidates.append(
+            (
+                from_room.floor,
+                from_room.id,
+                to_room.id,
+                _room_rectangle_edges_mm(from_room),
+                _room_rectangle_edges_mm(to_room),
+            )
+        )
+    return candidates
+
+
+def _rooms_by_id(rooms: list[RoomInput]) -> dict[str, RoomInput]:
+    return {room.id: room for room in rooms}
+
+
+def _resolve_adjacency_pair(
+    adjacency: AdjacencyInput,
+    rooms_by_id: dict[str, RoomInput],
+) -> tuple[RoomInput, RoomInput]:
+    return rooms_by_id[adjacency.from_room_id], rooms_by_id[adjacency.to_room_id]
+
+
+def _room_rectangle_edges_mm(room: RoomInput) -> tuple[RoomEdgeMm, ...]:
+    half_width = room.width / 2.0
+    half_height = room.height / 2.0
+    left = room.x - half_width
+    right = room.x + half_width
+    bottom = room.y - half_height
+    top = room.y + half_height
+
+    return (
+        _canonical_edge_mm((left, bottom), (right, bottom)),
+        _canonical_edge_mm((right, bottom), (right, top)),
+        _canonical_edge_mm((left, top), (right, top)),
+        _canonical_edge_mm((left, bottom), (left, top)),
+    )
+
+
+def _canonical_edge_mm(start: Point2DMm, end: Point2DMm) -> RoomEdgeMm:
+    x1, y1 = start
+    x2, y2 = end
+    if math.isclose(y1, y2, abs_tol=1.0e-9):
+        return ((min(x1, x2), y1), (max(x1, x2), y1))
+    return ((x1, min(y1, y2)), (x1, max(y1, y2)))
 
 
 def _create_ifc_file() -> ifcopenshell.file:
