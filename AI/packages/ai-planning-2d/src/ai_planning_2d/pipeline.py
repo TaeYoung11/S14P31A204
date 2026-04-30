@@ -115,6 +115,18 @@ def to_ifc_commands(
                 ),
             )
 
+        if ifc_context:
+            spaces = ifc_context.get("spaces", [])
+            target_spaces = [space for space in spaces if space.get("id") in target_ids]
+            if any(space.get("locked") or False for space in target_spaces):
+                return CommandBatch(
+                    commands=[],
+                    requires_clarification=True,
+                    clarification_question=(
+                        f"'{command.target_room_name}' 방은 잠겨 있어 삭제할 수 없습니다."
+                    ),
+                )
+
         if len(target_ids) > 1 and not command.apply_to_all:
             return CommandBatch(
                 commands=[],
@@ -169,6 +181,18 @@ def to_ifc_commands(
                     f"'{command.target_room_name}' 방을 현재 IFC에서 찾을 수 없습니다."
                 ),
             )
+
+        if ifc_context:
+            spaces = ifc_context.get("spaces", [])
+            target_spaces = [space for space in spaces if space.get("id") in target_ids]
+            if any(space.get("locked") or False for space in target_spaces):
+                return CommandBatch(
+                    commands=[],
+                    requires_clarification=True,
+                    clarification_question=(
+                        f"'{command.target_room_name}' 방은 잠겨 있어 크기를 변경할 수 없습니다."
+                    ),
+                )
 
         if len(target_ids) > 1 and not command.apply_to_all:
             return CommandBatch(

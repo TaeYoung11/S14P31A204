@@ -16,14 +16,18 @@ class Room(BaseModel):
 
 
 class AdjacencyEntry(BaseModel):
-    from_room_id: str
-    to_room_id: str
+    space_a_id: str | None = None
+    space_b_id: str | None = None
+    from_room_id: str | None = None
+    to_room_id: str | None = None
     strength: float
 
 
 class FloorBoundary(BaseModel):
     floor: int
-    polygon: list[tuple[float, float]]
+    polygon: list[tuple[float, float]] | None = None
+    outer_polygon: list[tuple[float, float]] | None = None
+    holes: list[list[tuple[float, float]]] = Field(default_factory=list)
 
 
 class FloorProject(BaseModel):
