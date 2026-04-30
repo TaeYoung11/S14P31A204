@@ -599,6 +599,28 @@ class LLM3DPipeline:
             "structural_warnings": structural_warnings,
         }
 
+    @staticmethod
+    def _unpack_create_info(
+        ci: dict[str, Any],
+        start_point: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """LLM3DCreateInfo dict → engine_3d primitive 파라미터로 변환."""
+        sp = start_point or ci.get("start_point") or {}
+        mat = ci.get("material") or {}
+        return {
+            "length_mm":      ci.get("length_mm"),
+            "width_mm":       ci.get("width_mm"),
+            "height_mm":      ci.get("height_mm"),
+            "ridge_height_mm": ci.get("ridge_height_mm"),
+            "x_mm":           sp.get("x", 0.0),
+            "y_mm":           sp.get("y", 0.0),
+            "z_mm":           sp.get("z", 0.0),
+            "direction":      str(ci.get("direction") or "north"),
+            "shape_preset":   str(ci.get("shape_preset") or "FLAT"),
+            "color":          ci.get("color"),
+            "material_name":  mat.get("name") if mat else None,
+        }
+
     async def _execute_create_apply(
         self, session_id: str, output_path: str
     ) -> dict[str, Any]:
@@ -608,18 +630,21 @@ class LLM3DPipeline:
         model = self.query_engine.get_model()
         info = session.matched[0]
         ci = info["create_info"]
-        ci["start_point"] = info["start_point"]
         storey = model.by_guid(info["storey_guid"])
+        params = self._unpack_create_info(ci, start_point=info.get("start_point"))
+        # roof 전용 키를 제외한 공통 파라미터
+        base_params = {k: v for k, v in params.items()
+                       if k not in ("ridge_height_mm", "shape_preset")}
 
         etype = ci["element_type"]
         if etype == LLM3DElementType.WALL:
-            entity = create_wall(model, storey, ci)
+            entity = create_wall(model, storey, **base_params)
         elif etype == LLM3DElementType.SLAB:
-            entity = create_slab(model, storey, ci)
+            entity = create_slab(model, storey, **base_params)
         elif etype == LLM3DElementType.ROOF:
-            entity = create_roof(model, storey, ci)
+            entity = create_roof(model, storey, **params)
         else:
-            entity = create_generic_element(model, storey, etype, ci)
+            entity = create_generic_element(model, storey, etype.value, **base_params)
 
         if entity:
             model.write(output_path)
