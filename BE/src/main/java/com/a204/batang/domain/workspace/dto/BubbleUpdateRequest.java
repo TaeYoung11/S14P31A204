@@ -1,6 +1,7 @@
 package com.a204.batang.domain.workspace.dto;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -13,12 +14,16 @@ import java.util.List;
  *
  * @param bubbles 버블 목록
  * @param connections 연결 목록
+ * @param baseIndex 이번 변경이 파생된 기준 스냅샷 인덱스(-1이면 빈 히스토리 기준)
  */
 public record BubbleUpdateRequest(
         @NotNull(message = "bubbles is required.")
         List<@Valid BubbleData> bubbles,
         @NotNull(message = "connections is required.")
-        List<@Valid ConnectionData> connections
+        List<@Valid ConnectionData> connections,
+        @NotNull(message = "baseIndex is required.")
+        @Min(value = -1, message = "baseIndex must be greater than or equal to -1.")
+        Integer baseIndex
 ) {
 
     /**
