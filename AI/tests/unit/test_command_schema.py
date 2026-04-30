@@ -19,6 +19,9 @@ def test_sample_commands_pass_json_schema_validation() -> None:
         "https://a204.batang/shared/schemas/layout_import_v1.schema.json": load_json(
             SCHEMA_ROOT / "layout_import_v1.schema.json"
         ),
+        "https://a204.batang/shared/schemas/layout_import_v2.schema.json": load_json(
+            SCHEMA_ROOT / "layout_import_v2.schema.json"
+        ),
         "https://a204.batang/shared/schemas/engine_request.schema.json": load_json(
             SCHEMA_ROOT / "engine_request.schema.json"
         ),
@@ -56,6 +59,43 @@ def test_ifc_generate_payload_rejects_ifc_edit_fields() -> None:
     except ValueError:
         return
     raise AssertionError("ifc_generate payload must reject ifc_edit fields")
+
+
+def test_ifc_generate_payload_accepts_v2_layout_import() -> None:
+    data = load_json(SAMPLE_ROOT / "command_ifc_generate.json")
+    data["payload"]["layoutImport"] = {
+        "schema_version": "v2",
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "name": "sample-project",
+        "rooms": [
+            {
+                "id": "room-living-01",
+                "name": "Living Room",
+                "type": "living",
+                "width": 4200,
+                "height": 3800,
+                "floor": 1,
+                "x": 5000.0,
+                "y": 4000.0,
+                "angle": 0.0,
+                "locked": False,
+            }
+        ],
+        "boundaries": [
+            {
+                "floor": 1,
+                "polygon": [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]],
+            }
+        ],
+        "modeling_defaults": {
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    }
+
+    model = CommandMessage.model_validate(data)
+    assert model.commandType == "IFC_GENERATE_FROM_BUBBLE"
 
 
 def test_ifc_edit_payload_rejects_layout_import_fields() -> None:

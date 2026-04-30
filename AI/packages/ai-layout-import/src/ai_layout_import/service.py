@@ -8,31 +8,76 @@ from pathlib import Path
 
 import ifcopenshell
 import ifcopenshell.guid
-from ai_domain import LayoutImportV1, RoomInput, ZoneInput
+from ai_domain import (
+    BoundaryInput,
+    BoundaryWallMode,
+    LayoutImportV1,
+    LayoutImportV2,
+    RoomInput,
+    RoofShape,
+    ZoneInput,
+)
 
 
-def convert_layout_to_ifc(request: LayoutImportV1, output_path: str | Path) -> None:
-    """Write a v1 space-only IFC file from the validated layout import request."""
+def convert_layout_to_ifc(
+    request: LayoutImportV1 | LayoutImportV2,
+    output_path: str | Path,
+) -> None:
+    """Write a space-only IFC file from the validated layout import request."""
 
     output = Path(output_path)
-    _validate_zone_references(request)
+    _validate_request(request)
     model = _create_ifc_file()
     owner_history, context, project, storeys = _create_project_tree(model, request)
     zones = _create_zones(model, owner_history, request)
     _attach_project_metadata_property_set(model, owner_history, project, request)
     _attach_storey_metadata_property_sets(model, owner_history, storeys, request)
+    _create_v2_walls(model, owner_history, context, request, storeys)
+    _create_v2_slabs(model, owner_history, context, request, storeys)
+    _create_v2_roof(model, owner_history, context, request, storeys)
     _create_spaces(model, owner_history, context, request, storeys, zones)
     output.parent.mkdir(parents=True, exist_ok=True)
     model.write(str(output))
 
 
-def _validate_zone_references(request: LayoutImportV1) -> None:
-    zone_ids = {zone.id for zone in request.zones or []}
-    for room in request.rooms:
-        if room.zone_id is None:
-            continue
-        if room.zone_id not in zone_ids:
-            raise ValueError(f"알 수 없는 zone 참조입니다: {room.zone_id}")
+def _validate_request(request: LayoutImportV1 | LayoutImportV2) -> None:
+    if isinstance(request, LayoutImportV2):
+        _validate_v2_generation_prerequisites(request)
+
+
+def _validate_v2_generation_prerequisites(request: LayoutImportV2) -> None:
+    boundaries_by_floor = {boundary.floor: boundary for boundary in request.boundaries or []}
+    room_floors = sorted({room.floor for room in request.rooms})
+
+    if request.generation_options.generate_walls:
+        _require_modeling_default(request, "wall_thickness_mm")
+        _require_boundaries_for_floors(boundaries_by_floor, room_floors, "walls")
+
+    if request.generation_options.generate_slabs:
+        _require_modeling_default(request, "slab_thickness_mm")
+        _require_boundaries_for_floors(boundaries_by_floor, room_floors, "slabs")
+
+    if request.generation_options.generate_roof:
+        _require_modeling_default(request, "roof_height_mm")
+        top_floor = max(room_floors)
+        if top_floor not in boundaries_by_floor:
+            raise ValueError(f"missing boundary for roof generation on floor {top_floor}")
+
+
+def _require_modeling_default(request: LayoutImportV2, field_name: str) -> None:
+    if request.modeling_defaults is None or getattr(request.modeling_defaults, field_name) is None:
+        raise ValueError(f"{field_name} is required when its generation option is enabled")
+
+
+def _require_boundaries_for_floors(
+    boundaries_by_floor: dict[int, BoundaryInput],
+    floors: list[int],
+    feature_name: str,
+) -> None:
+    missing_floors = [floor for floor in floors if floor not in boundaries_by_floor]
+    if missing_floors:
+        missing_text = ", ".join(str(floor) for floor in missing_floors)
+        raise ValueError(f"missing boundaries for {feature_name} on floors: {missing_text}")
 
 
 def _create_ifc_file() -> ifcopenshell.file:
@@ -40,7 +85,8 @@ def _create_ifc_file() -> ifcopenshell.file:
 
 
 def _create_project_tree(
-    model: ifcopenshell.file, request: LayoutImportV1
+    model: ifcopenshell.file,
+    request: LayoutImportV1 | LayoutImportV2,
 ) -> tuple[
     ifcopenshell.entity_instance,
     ifcopenshell.entity_instance,
@@ -185,7 +231,7 @@ def _create_spaces(
     model: ifcopenshell.file,
     owner_history: ifcopenshell.entity_instance,
     context: ifcopenshell.entity_instance,
-    request: LayoutImportV1,
+    request: LayoutImportV1 | LayoutImportV2,
     storeys: dict[int, ifcopenshell.entity_instance],
     zones: dict[str, ifcopenshell.entity_instance],
 ) -> None:
@@ -214,14 +260,7 @@ def _create_spaces(
             ),
         )
         _attach_room_metadata_property_set(model, owner_history, space, room)
-        model.create_entity(
-            "IfcRelContainedInSpatialStructure",
-            GlobalId=ifcopenshell.guid.new(),
-            OwnerHistory=owner_history,
-            Name=f"{room.id}-StoreyContainment",
-            RelatedElements=[space],
-            RelatingStructure=storey,
-        )
+        _contain_in_storey(model, owner_history, space, storey, f"{room.id}-StoreyContainment")
         if room.zone_id is not None:
             _assign_space_to_zone(model, owner_history, space, zones[room.zone_id], room.id)
 
@@ -229,7 +268,7 @@ def _create_spaces(
 def _create_zones(
     model: ifcopenshell.file,
     owner_history: ifcopenshell.entity_instance,
-    request: LayoutImportV1,
+    request: LayoutImportV1 | LayoutImportV2,
 ) -> dict[str, ifcopenshell.entity_instance]:
     zones: dict[str, ifcopenshell.entity_instance] = {}
     for zone in request.zones or []:
@@ -243,6 +282,332 @@ def _create_zones(
         _attach_zone_metadata_property_set(model, owner_history, zone_entity, zone)
         zones[zone.id] = zone_entity
     return zones
+
+
+def _create_v2_walls(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    request: LayoutImportV1 | LayoutImportV2,
+    storeys: dict[int, ifcopenshell.entity_instance],
+) -> None:
+    if not isinstance(request, LayoutImportV2) or not request.generation_options.generate_walls:
+        return
+
+    if request.generation_policy.boundary_wall_mode is not BoundaryWallMode.OUTER_BOUNDARY:
+        raise ValueError("wall generation requires boundary_wall_mode=outer_boundary")
+
+    if request.boundaries is None or request.modeling_defaults is None:
+        return
+
+    wall_thickness_m = _mm_to_m(request.modeling_defaults.wall_thickness_mm or 0)
+    wall_height_m = _effective_space_height_m(request)
+
+    for boundary in request.boundaries:
+        storey = storeys.get(boundary.floor)
+        if storey is None:
+            continue
+        for segment_index, (start_point, end_point) in enumerate(
+            _boundary_segments_m(boundary),
+            start=1,
+        ):
+            wall = _create_wall_from_segment(
+                model,
+                owner_history,
+                context,
+                storey,
+                boundary.floor,
+                segment_index,
+                start_point,
+                end_point,
+                wall_thickness_m,
+                wall_height_m,
+            )
+            _contain_in_storey(
+                model,
+                owner_history,
+                wall,
+                storey,
+                f"wall-boundary-{boundary.floor}-seg-{segment_index}-StoreyContainment",
+            )
+
+
+def _create_v2_slabs(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    request: LayoutImportV1 | LayoutImportV2,
+    storeys: dict[int, ifcopenshell.entity_instance],
+) -> None:
+    if not isinstance(request, LayoutImportV2) or not request.generation_options.generate_slabs:
+        return
+
+    if request.boundaries is None or request.modeling_defaults is None:
+        return
+
+    slab_thickness_m = _mm_to_m(request.modeling_defaults.slab_thickness_mm or 0)
+
+    for boundary in request.boundaries:
+        storey = storeys.get(boundary.floor)
+        if storey is None:
+            continue
+        slab = _create_slab_from_boundary(
+            model,
+            owner_history,
+            context,
+            storey,
+            boundary,
+            slab_thickness_m,
+        )
+        _contain_in_storey(
+            model,
+            owner_history,
+            slab,
+            storey,
+            f"slab-boundary-{boundary.floor}-StoreyContainment",
+        )
+
+
+def _create_v2_roof(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    request: LayoutImportV1 | LayoutImportV2,
+    storeys: dict[int, ifcopenshell.entity_instance],
+) -> None:
+    if not isinstance(request, LayoutImportV2) or not request.generation_options.generate_roof:
+        return
+
+    if request.generation_policy.roof_shape is not RoofShape.FLAT:
+        raise ValueError("roof generation requires roof_shape=flat")
+
+    if request.boundaries is None or request.modeling_defaults is None:
+        return
+
+    boundary = _top_floor_boundary(request)
+    if boundary is None:
+        return
+
+    storey = storeys.get(boundary.floor)
+    if storey is None:
+        return
+
+    roof = _create_roof_from_boundary(
+        model,
+        owner_history,
+        context,
+        storey,
+        boundary,
+        _mm_to_m(request.modeling_defaults.roof_height_mm or 0),
+        _effective_space_height_m(request),
+    )
+    _contain_in_storey(
+        model,
+        owner_history,
+        roof,
+        storey,
+        f"roof-boundary-{boundary.floor}-StoreyContainment",
+    )
+
+
+def _boundary_segments_m(
+    boundary: BoundaryInput,
+) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+    points = _boundary_polygon_points_m(boundary)
+    return [
+        (points[index], points[(index + 1) % len(points)])
+        for index in range(len(points))
+    ]
+
+
+def _boundary_polygon_points_m(boundary: BoundaryInput) -> list[tuple[float, float]]:
+    return [(_mm_to_m(x), _mm_to_m(y)) for x, y in boundary.polygon]
+
+
+def _top_floor_boundary(request: LayoutImportV2) -> BoundaryInput | None:
+    if not request.boundaries:
+        return None
+    top_floor = max(room.floor for room in request.rooms)
+    return next((boundary for boundary in request.boundaries if boundary.floor == top_floor), None)
+
+
+def _create_wall_from_segment(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    storey: ifcopenshell.entity_instance,
+    floor: int,
+    segment_index: int,
+    start_point: tuple[float, float],
+    end_point: tuple[float, float],
+    thickness_m: float,
+    height_m: float,
+) -> ifcopenshell.entity_instance:
+    dx = end_point[0] - start_point[0]
+    dy = end_point[1] - start_point[1]
+    length_m = math.hypot(dx, dy)
+    ref_direction = _unit_direction(dx, dy)
+
+    profile = model.create_entity(
+        "IfcRectangleProfileDef",
+        ProfileType="AREA",
+        XDim=length_m,
+        YDim=thickness_m,
+        Position=model.create_entity(
+            "IfcAxis2Placement2D",
+            Location=model.create_entity(
+                "IfcCartesianPoint",
+                Coordinates=(length_m / 2.0, 0.0),
+            ),
+            RefDirection=model.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0)),
+        ),
+    )
+    body = model.create_entity(
+        "IfcExtrudedAreaSolid",
+        SweptArea=profile,
+        Position=_create_axis_placement_3d(model),
+        ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        Depth=height_m,
+    )
+    representation = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=context,
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=[body],
+    )
+    return model.create_entity(
+        "IfcWall",
+        GlobalId=ifcopenshell.guid.new(),
+        OwnerHistory=owner_history,
+        Name=f"Boundary Wall {floor}-{segment_index}",
+        ObjectPlacement=_create_local_placement(
+            model,
+            relative_to=storey.ObjectPlacement,
+            location=(start_point[0], start_point[1], 0.0),
+            ref_direction=(ref_direction[0], ref_direction[1], 0.0),
+        ),
+        Representation=model.create_entity(
+            "IfcProductDefinitionShape",
+            Representations=[representation],
+        ),
+    )
+
+
+def _create_slab_from_boundary(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    storey: ifcopenshell.entity_instance,
+    boundary: BoundaryInput,
+    thickness_m: float,
+) -> ifcopenshell.entity_instance:
+    profile = model.create_entity(
+        "IfcArbitraryClosedProfileDef",
+        ProfileType="AREA",
+        OuterCurve=_create_closed_polyline(
+            model,
+            _boundary_polygon_points_m(boundary),
+        ),
+    )
+    body = model.create_entity(
+        "IfcExtrudedAreaSolid",
+        SweptArea=profile,
+        Position=_create_axis_placement_3d(model),
+        ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        Depth=thickness_m,
+    )
+    representation = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=context,
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=[body],
+    )
+    return model.create_entity(
+        "IfcSlab",
+        GlobalId=ifcopenshell.guid.new(),
+        OwnerHistory=owner_history,
+        Name=f"Boundary Slab {boundary.floor}",
+        PredefinedType="FLOOR",
+        ObjectPlacement=_create_local_placement(
+            model,
+            relative_to=storey.ObjectPlacement,
+        ),
+        Representation=model.create_entity(
+            "IfcProductDefinitionShape",
+            Representations=[representation],
+        ),
+    )
+
+
+def _create_roof_from_boundary(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    storey: ifcopenshell.entity_instance,
+    boundary: BoundaryInput,
+    thickness_m: float,
+    roof_base_z_m: float,
+) -> ifcopenshell.entity_instance:
+    profile = model.create_entity(
+        "IfcArbitraryClosedProfileDef",
+        ProfileType="AREA",
+        OuterCurve=_create_closed_polyline(
+            model,
+            _boundary_polygon_points_m(boundary),
+        ),
+    )
+    body = model.create_entity(
+        "IfcExtrudedAreaSolid",
+        SweptArea=profile,
+        Position=_create_axis_placement_3d(model),
+        ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        Depth=thickness_m,
+    )
+    representation = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=context,
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=[body],
+    )
+    return model.create_entity(
+        "IfcRoof",
+        GlobalId=ifcopenshell.guid.new(),
+        OwnerHistory=owner_history,
+        Name=f"Boundary Roof {boundary.floor}",
+        ObjectPlacement=_create_local_placement(
+            model,
+            relative_to=storey.ObjectPlacement,
+            location=(0.0, 0.0, roof_base_z_m),
+        ),
+        Representation=model.create_entity(
+            "IfcProductDefinitionShape",
+            Representations=[representation],
+        ),
+    )
+
+
+def _create_closed_polyline(
+    model: ifcopenshell.file,
+    points: list[tuple[float, float]],
+) -> ifcopenshell.entity_instance:
+    closed_points = points + [points[0]]
+    return model.create_entity(
+        "IfcPolyline",
+        Points=[
+            model.create_entity("IfcCartesianPoint", Coordinates=(x, y))
+            for x, y in closed_points
+        ],
+    )
+
+
+def _unit_direction(dx: float, dy: float) -> tuple[float, float]:
+    length = math.hypot(dx, dy)
+    if length == 0:
+        raise ValueError("boundary segments must have non-zero length")
+    return dx / length, dy / length
 
 
 def _assign_space_to_zone(
@@ -259,6 +624,23 @@ def _assign_space_to_zone(
         Name=f"{room_id}-ZoneAssignment",
         RelatedObjects=[space],
         RelatingGroup=zone,
+    )
+
+
+def _contain_in_storey(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    element: ifcopenshell.entity_instance,
+    storey: ifcopenshell.entity_instance,
+    name: str,
+) -> ifcopenshell.entity_instance:
+    return model.create_entity(
+        "IfcRelContainedInSpatialStructure",
+        GlobalId=ifcopenshell.guid.new(),
+        OwnerHistory=owner_history,
+        Name=name,
+        RelatedElements=[element],
+        RelatingStructure=storey,
     )
 
 
@@ -306,7 +688,7 @@ def _attach_project_metadata_property_set(
     model: ifcopenshell.file,
     owner_history: ifcopenshell.entity_instance,
     project: ifcopenshell.entity_instance,
-    request: LayoutImportV1,
+    request: LayoutImportV1 | LayoutImportV2,
 ) -> None:
     if not request.adjacency:
         return
@@ -332,7 +714,7 @@ def _attach_storey_metadata_property_sets(
     model: ifcopenshell.file,
     owner_history: ifcopenshell.entity_instance,
     storeys: dict[int, ifcopenshell.entity_instance],
-    request: LayoutImportV1,
+    request: LayoutImportV1 | LayoutImportV2,
 ) -> None:
     if not request.boundaries:
         return
@@ -391,7 +773,7 @@ def _create_property_single_value(
     elif name.endswith("Json"):
         nominal_value = model.create_entity("IfcText", value)
     else:
-        nominal_value = model.create_entity("IfcLabel", str(value))
+        nominal_value = model.create_entity("IfcLabel", value)
     return model.create_entity(
         "IfcPropertySingleValue",
         Name=name,
@@ -489,7 +871,7 @@ def _create_axis_placement_2d(model: ifcopenshell.file) -> ifcopenshell.entity_i
     )
 
 
-def _effective_space_height_m(request: LayoutImportV1) -> float:
+def _effective_space_height_m(request: LayoutImportV1 | LayoutImportV2) -> float:
     effective_space_height_mm = 2700
     if (
         request.modeling_defaults is not None

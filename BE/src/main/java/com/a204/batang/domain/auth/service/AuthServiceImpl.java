@@ -1,0 +1,222 @@
+package com.a204.batang.domain.auth.service;
+
+import com.a204.batang.domain.auth.dto.request.LoginRequest;
+import com.a204.batang.domain.auth.dto.request.RefreshTokenRequest;
+import com.a204.batang.domain.auth.dto.request.SendEmailCodeRequest;
+import com.a204.batang.domain.auth.dto.request.SignupRequest;
+import com.a204.batang.domain.auth.dto.request.VerifyEmailCodeRequest;
+import com.a204.batang.domain.auth.dto.request.WithdrawRequest;
+import com.a204.batang.domain.auth.dto.response.LoginResponse;
+import com.a204.batang.domain.auth.dto.response.MemberInfoResponse;
+import com.a204.batang.domain.auth.dto.response.RefreshTokenResponse;
+import com.a204.batang.domain.auth.dto.response.SendEmailCodeResponse;
+import com.a204.batang.domain.auth.dto.response.SignupResponse;
+import com.a204.batang.domain.auth.dto.response.VerifyEmailCodeResponse;
+import com.a204.batang.domain.auth.entity.Member;
+import com.a204.batang.domain.auth.entity.UserStatus;
+import com.a204.batang.domain.auth.repository.MemberRepository;
+import com.a204.batang.global.email.EmailService;
+import com.a204.batang.global.exception.CustomException;
+import com.a204.batang.global.exception.ErrorCode;
+import com.a204.batang.global.jwt.JwtUtil;
+import com.a204.batang.global.redis.RedisService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.security.SecureRandom;
+import java.util.UUID;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class AuthServiceImpl implements AuthService {
+
+    private static final int MAX_EMAIL_CODE_ATTEMPTS = 5;
+    private static final long REFRESH_TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000L;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+    private final MemberRepository memberRepository;
+    private final JwtUtil jwtUtil;
+    private final RedisService redisService;
+    private final EmailService emailService;
+    private final PasswordEncoder passwordEncoder;
+
+    @Override
+    @Transactional(readOnly = true)
+    public SendEmailCodeResponse sendEmailCode(SendEmailCodeRequest request) {
+        if (memberRepository.existsByEmailAndStatus(request.email(), UserStatus.ACTIVE)) {
+            throw new IllegalArgumentException("이미 가입한 이메일입니다.");
+        }
+
+        String code = String.format("%06d", SECURE_RANDOM.nextInt(1_000_000));
+        redisService.saveEmailCode(request.email(), code);
+        emailService.sendVerifyCode(request.email(), code);
+
+        log.info("이메일 인증 코드 발송 완료. email={}", request.email());
+        return new SendEmailCodeResponse(request.email(), 300);
+    }
+
+    @Override
+    public VerifyEmailCodeResponse verifyEmailCode(VerifyEmailCodeRequest request) {
+        String savedCode = redisService.getEmailCode(request.email());
+        if (savedCode == null) {
+            throw new IllegalArgumentException("만료된 인증 코드입니다.");
+        }
+        if (!savedCode.equals(request.code())) {
+            long attempts = redisService.incrementEmailCodeAttempts(request.email());
+            if (attempts >= MAX_EMAIL_CODE_ATTEMPTS) {
+                redisService.deleteEmailCode(request.email());
+                redisService.deleteEmailCodeAttempts(request.email());
+                throw new CustomException(
+                        ErrorCode.TOO_MANY_REQUESTS,
+                        "인증 코드 입력 횟수를 초과했습니다. 인증 코드를 다시 요청해주세요.");
+            }
+            throw new IllegalArgumentException("인증 코드가 일치하지 않습니다.");
+        }
+
+        redisService.deleteEmailCode(request.email());
+        redisService.deleteEmailCodeAttempts(request.email());
+
+        String verifiedToken = UUID.randomUUID().toString();
+        redisService.saveVerifiedToken(verifiedToken, request.email());
+
+        return new VerifyEmailCodeResponse(verifiedToken, 600);
+    }
+
+    @Override
+    @Transactional
+    public SignupResponse signup(SignupRequest request) {
+        String verifiedEmail = redisService.getVerifiedEmail(request.verifiedToken());
+        if (verifiedEmail == null) {
+            throw new IllegalArgumentException("이메일 인증이 필요합니다.");
+        }
+        if (!verifiedEmail.equals(request.email())) {
+            throw new IllegalArgumentException("이메일이 일치하지 않습니다.");
+        }
+        if (memberRepository.existsByEmailAndStatus(request.email(), UserStatus.ACTIVE)) {
+            throw new IllegalArgumentException("이미 가입한 이메일입니다.");
+        }
+
+        String passwordHash = passwordEncoder.encode(request.password());
+        Member member = Member.create(request.email(), passwordHash, request.name(), request.userType());
+        memberRepository.save(member);
+
+        redisService.deleteVerifiedToken(request.verifiedToken());
+
+        String accessToken = jwtUtil.generateAccessToken(
+                member.getUserId().toString(), member.getEmail(), member.getUserType().name());
+        String refreshToken = jwtUtil.generateRefreshToken(member.getUserId().toString());
+        redisService.saveRefreshToken(member.getUserId().toString(), refreshToken, REFRESH_TOKEN_TTL_MS);
+
+        log.info("회원가입 완료. userId={}", member.getUserId());
+        return new SignupResponse(
+                member.getUserId(),
+                member.getEmail(),
+                member.getName(),
+                member.getUserType(),
+                accessToken,
+                refreshToken);
+    }
+
+    @Override
+    @Transactional
+    public LoginResponse login(LoginRequest request) {
+        Member member = memberRepository.findByEmail(request.email())
+                .orElseThrow(() -> new IllegalArgumentException("이메일 또는 비밀번호가 올바르지 않습니다."));
+
+        if (!passwordEncoder.matches(request.password(), member.getPasswordHash())) {
+            throw new IllegalArgumentException("이메일 또는 비밀번호가 올바르지 않습니다.");
+        }
+        if (member.getStatus() != UserStatus.ACTIVE) {
+            throw new IllegalArgumentException("사용할 수 없는 계정입니다.");
+        }
+
+        String accessToken = jwtUtil.generateAccessToken(
+                member.getUserId().toString(), member.getEmail(), member.getUserType().name());
+        String refreshToken = jwtUtil.generateRefreshToken(member.getUserId().toString());
+        redisService.saveRefreshToken(member.getUserId().toString(), refreshToken, REFRESH_TOKEN_TTL_MS);
+
+        member.updateLastLoginAt();
+
+        log.info("로그인 완료. userId={}", member.getUserId());
+        return new LoginResponse(
+                accessToken,
+                refreshToken,
+                new LoginResponse.UserInfo(
+                        member.getUserId(),
+                        member.getEmail(),
+                        member.getName(),
+                        member.getUserType()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public RefreshTokenResponse refresh(RefreshTokenRequest request) {
+        String userId = jwtUtil.validateAndGetClaims(request.refreshToken()).getSubject();
+
+        String savedToken = redisService.getRefreshToken(userId);
+        if (savedToken == null || !savedToken.equals(request.refreshToken())) {
+            throw new IllegalArgumentException("유효하지 않은 Refresh Token입니다.");
+        }
+
+        Member member = memberRepository.findById(UUID.fromString(userId))
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 회원입니다."));
+
+        redisService.deleteRefreshToken(userId);
+
+        String newAccessToken = jwtUtil.generateAccessToken(
+                userId, member.getEmail(), member.getUserType().name());
+        String newRefreshToken = jwtUtil.generateRefreshToken(userId);
+        redisService.saveRefreshToken(userId, newRefreshToken, REFRESH_TOKEN_TTL_MS);
+
+        return new RefreshTokenResponse(newAccessToken, newRefreshToken, 900, 1209600);
+    }
+
+    @Override
+    public void logout(String accessToken) {
+        String userId = jwtUtil.validateAndGetClaims(accessToken).getSubject();
+
+        redisService.deleteRefreshToken(userId);
+
+        long remainingMs = jwtUtil.getRemainingExpiry(accessToken);
+        redisService.addToBlacklist(accessToken, remainingMs);
+
+        log.info("로그아웃 완료. userId={}", userId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public MemberInfoResponse getMyInfo(UUID userId) {
+        Member member = memberRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 회원입니다."));
+
+        return new MemberInfoResponse(
+                member.getUserId(),
+                member.getEmail(),
+                member.getName(),
+                member.getUserType());
+    }
+
+    @Override
+    @Transactional
+    public void withdraw(UUID userId, String accessToken, WithdrawRequest request) {
+        Member member = memberRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 회원입니다."));
+
+        if (!passwordEncoder.matches(request.password(), member.getPasswordHash())) {
+            throw new IllegalArgumentException("비밀번호가 올바르지 않습니다.");
+        }
+
+        redisService.deleteRefreshToken(userId.toString());
+
+        long remainingMs = jwtUtil.getRemainingExpiry(accessToken);
+        redisService.addToBlacklist(accessToken, remainingMs);
+
+        member.deactivate();
+
+        log.info("회원 탈퇴 완료. userId={}", userId);
+    }
+}
