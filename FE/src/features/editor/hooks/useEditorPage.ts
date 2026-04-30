@@ -62,8 +62,8 @@ import {
 import type { FloorProject } from '../types/floorProject.types'
 import { getDraft, setDraft } from '../lib/draftDb'
 import { useAuthStore } from '@/shared/stores/authStore'
-import { projectService } from '@/features/project/services/project.service'
-import { useProjectStore } from '@/features/project/stores/projectStore'
+import { useEditorProjectName } from './useEditorProjectName'
+import { useInitialIfcImport } from './useInitialIfcImport'
 
 /** 에디터 모드 허용 목록 — URL 파라미터 검증용 */
 const EDITOR_MODES: EditorMode[] = ['bubble', '2d', '3d', 'view']
@@ -197,9 +197,7 @@ function isSameConnection(
 export function useEditorPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
-  const currentProject = useProjectStore((state) => state.currentProject)
-  const savedProjectName = currentProject?.name?.trim() ?? ''
-  const currentProjectName = savedProjectName || '프로젝트'
+  const { currentProjectName } = useEditorProjectName(projectId)
   const mode = resolveMode(searchParams.get('mode'))
   const workspaceCommandPublisher = useWorkspaceCommandPublisher({
     projectId,
@@ -525,7 +523,7 @@ export function useEditorPage() {
   const [overlayOpacityByLayerId, setOverlayOpacityByLayerId] = useState<Record<string, number>>({})
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [autosaveReadyProjectId, setAutosaveReadyProjectId] = useState<string | null>(null)
-  const attemptedInitialIfcImportKeyRef = useRef<string | null>(null)
+  const attemptedInitialIfcImportProjectIdRef = useRef<string | null>(null)
   const localVersionRef = useRef(0)
   const previousSnapshotRef = useRef<string | null>(null)
   const hasUserEditedRef = useRef(false)
@@ -2226,61 +2224,14 @@ export function useEditorPage() {
     onApplyProject: applyFloorProject,
   })
 
-  // 프로젝트가 가진 IFC 모델을 2D/3D 공통 데이터로 1회 자동 로드한다.
-  useEffect(() => {
-    const importKey = `${projectId ?? ''}::${savedProjectName}`
-    if (!projectId && !savedProjectName) return
-    if (attemptedInitialIfcImportKeyRef.current === importKey) return
-    if (!projectId) return
-    if (stageSize.width <= 0 || stageSize.height <= 0) return
-
-    let cancelled = false
-    attemptedInitialIfcImportKeyRef.current = importKey
-
-    ;(async () => {
-      try {
-        let ifcText: string | null = null
-        let importFileName = `${projectId}.ifc`
-
-        if (savedProjectName) {
-          try {
-            const metadata = await projectService.getCurrentByName(savedProjectName)
-            if (cancelled) return
-
-            if (metadata.projectId) {
-              importFileName = `${metadata.projectId}.ifc`
-            }
-            if (metadata.currentIfcUrl) {
-              ifcText = await projectService.getIfcModelTextFromUrl(metadata.currentIfcUrl)
-            }
-          } catch (error) {
-            if (cancelled) return
-            console.warn('[editor] failed to load current IFC by project name, fallback to projectId:', error)
-          }
-        }
-
-        if (!ifcText) {
-          ifcText = await projectService.getIfcModelText(projectId)
-        }
-
-        if (cancelled || !ifcText) return
-        await importFloorProjectFromIfc(ifcText, importFileName)
-      } catch (error) {
-        if (cancelled) return
-        console.error('[editor] failed to auto-import IFC model:', error)
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [
+  // 에디터 첫 진입 시 프로젝트 IFC를 1회 로드한다.
+  useInitialIfcImport({
     projectId,
-    savedProjectName,
-    stageSize.width,
-    stageSize.height,
+    stageWidth: stageSize.width,
+    stageHeight: stageSize.height,
     importFloorProjectFromIfc,
-  ])
+    attemptedInitialIfcImportProjectIdRef,
+  })
 
   /** AI 미리보기 적용 — 버블/연결선/2D 벽·개구부 일괄 반영 후 선택 상태 정리 */
   const applyLlmPreview = useCallback(
