@@ -18,10 +18,10 @@ import static org.mockito.Mockito.verify;
 class RedisServiceTest {
 
     @Mock
-    private RedisTemplate<String, Object> redisTemplate;
+    private RedisTemplate<String, String> redisTemplate;
 
     @Mock
-    private ValueOperations<String, Object> valueOperations;
+    private ValueOperations<String, String> valueOperations;
 
     @Test
     @DisplayName("문자열 토큰은 Object 템플릿에서도 문자열로 복원한다")
