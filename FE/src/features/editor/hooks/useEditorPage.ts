@@ -545,8 +545,8 @@ export function useEditorPage() {
     })
   }, [])
   const authUser = useAuthStore((state) => state.user)
-  const currentUserType: CollaborationUserType = authUser?.user_type === 'CLIENT' ? 'CLIENT' : 'DESIGNER'
-  const counterpartType: CollaborationUserType = currentUserType === 'DESIGNER' ? 'CLIENT' : 'DESIGNER'
+  const currentUserType: CollaborationUserType = authUser?.user_type === 'CUSTOMER' ? 'CUSTOMER' : 'DESIGNER'
+  const counterpartType: CollaborationUserType = currentUserType === 'DESIGNER' ? 'CUSTOMER' : 'DESIGNER'
   const currentUserName = authUser?.name?.trim()
     ? authUser.name.trim()
     : (currentUserType === 'DESIGNER' ? DEFAULT_DESIGNER_NAME : DEFAULT_CLIENT_NAME)

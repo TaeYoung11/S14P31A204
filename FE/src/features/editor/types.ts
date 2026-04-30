@@ -79,7 +79,7 @@ export type FloorWallType = 'general' | 'exterior' | 'loadBearing' | 'partition'
 export type FloorOpeningType = 'door' | 'window'
 export type FloorDoorHingeSide = 'left' | 'right'
 export type FloorDoorSwingDirection = 'inward' | 'outward' | 'sliding'
-export type CollaborationUserType = 'DESIGNER' | 'CLIENT'
+export type CollaborationUserType = 'DESIGNER' | 'CUSTOMER'
 export type FloorCommentAttachmentKind = 'image' | 'file'
 
 /** 공간 추가 모달 폼 데이터 */
