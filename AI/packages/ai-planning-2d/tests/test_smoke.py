@@ -1,6 +1,7 @@
-﻿"""
-ai-planning-2d ?ㅻえ???뚯뒪???ㅽ뻾: uv run pytest packages/ai-planning-2d/tests/test_smoke.py -v
-LLM ?ы븿: uv run pytest packages/ai-planning-2d/tests/test_smoke.py -v -m llm
+"""
+ai-planning-2d 스모크 테스트
+실행: uv run pytest packages/ai-planning-2d/tests/test_smoke.py -v
+LLM 포함: uv run pytest packages/ai-planning-2d/tests/test_smoke.py -v -m llm
 """
 import pytest
 
