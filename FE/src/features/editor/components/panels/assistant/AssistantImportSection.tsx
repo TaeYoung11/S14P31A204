@@ -2,43 +2,34 @@ import type { ChangeEvent, MutableRefObject } from 'react'
 
 interface AssistantImportSectionProps {
   isImporting: boolean
-  fileInputRef: MutableRefObject<HTMLInputElement | null>
-  onSampleImport: () => void
-  onPickJsonFile: () => void
-  onJsonFileChange: (event: ChangeEvent<HTMLInputElement>) => Promise<void>
+  ifcFileInputRef: MutableRefObject<HTMLInputElement | null>
+  onPickIfcFile: () => void
+  onIfcFileChange: (event: ChangeEvent<HTMLInputElement>) => Promise<void>
 }
 
-/** BATANG 2D JSON 임시 import 영역 */
+/** IFC import 영역 */
 export function AssistantImportSection({
   isImporting,
-  fileInputRef,
-  onSampleImport,
-  onPickJsonFile,
-  onJsonFileChange,
+  ifcFileInputRef,
+  onPickIfcFile,
+  onIfcFileChange,
 }: AssistantImportSectionProps) {
   return (
     <>
       <input
-        ref={fileInputRef}
+        ref={ifcFileInputRef}
         type="file"
-        accept="application/json,.json"
+        accept=".ifc,text/plain"
         className="hidden"
-        onChange={onJsonFileChange}
+        onChange={onIfcFileChange}
       />
       <div className="mt-2 flex items-center gap-2">
         <button
-          onClick={onSampleImport}
+          onClick={onPickIfcFile}
           disabled={isImporting}
           className="rounded-lg border border-[#E2E6EF] px-3 py-1.5 text-[11px] font-bold text-[#334155] disabled:opacity-50"
         >
-          샘플 2D 불러오기
-        </button>
-        <button
-          onClick={onPickJsonFile}
-          disabled={isImporting}
-          className="rounded-lg border border-[#E2E6EF] px-3 py-1.5 text-[11px] font-bold text-[#334155] disabled:opacity-50"
-        >
-          2D JSON 파일 불러오기
+          IFC 파일 불러오기
         </button>
       </div>
     </>

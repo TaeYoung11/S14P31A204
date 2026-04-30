@@ -18,8 +18,6 @@ import {
 } from 'lucide-react'
 import type { EditorMode } from '../../types'
 
-// ── 스타일 헬퍼 ───────────────────────────────────────────────────────────────
-
 /** 일반 도구 버튼 활성/비활성 스타일 */
 function getToolStyle(isActive: boolean) {
   return isActive
@@ -46,8 +44,6 @@ function getDeleteStyle(isActive: boolean) {
       }
 }
 
-// ── 2D 모드 도구 목록 (반복 JSX 최소화) ──────────────────────────────────────
-
 interface Tool2DItem {
   id: string
   icon: LucideIcon
@@ -61,8 +57,6 @@ const TOOLS_2D: Tool2DItem[] = [
   { id: 'window', icon: LayoutGrid, label: '창문' },
   { id: 'resize', icon: Scaling,    label: '크기조정' },
 ]
-
-// ── 공통 서브컴포넌트 ─────────────────────────────────────────────────────────
 
 interface ToolButtonBaseProps {
   selectedTool: string
@@ -143,8 +137,6 @@ function GridToggleButton({ isGridVisible, onToggleGrid }: GridToggleButtonProps
   )
 }
 
-// ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
-
 interface EditorLeftSidebarProps {
   mode: EditorMode
   isLineStyleModalOpen: boolean
@@ -159,6 +151,7 @@ interface EditorLeftSidebarProps {
   onExportIFC?: () => void
   onGenerateFloorPlan?: () => void
   canGenerateFloorPlan?: boolean
+  isFloorPlanGenerated?: boolean
   isBubbleReadOnly?: boolean
   hasDeletableSelection?: boolean
   onDeleteSelected?: () => void
@@ -183,17 +176,24 @@ export default function EditorLeftSidebar({
   onExportIFC,
   onGenerateFloorPlan,
   canGenerateFloorPlan = false,
+  isFloorPlanGenerated = false,
   isBubbleReadOnly = false,
   hasDeletableSelection = false,
   onDeleteSelected,
 }: EditorLeftSidebarProps) {
+  const canStartFloorPlanGeneration = canGenerateFloorPlan && !isFloorPlanGenerated
+  const floorPlanGenerateTitle = isFloorPlanGenerated
+    ? '평면도는 이미 생성되었습니다. 2D 편집 모드를 사용해 주세요.'
+    : canGenerateFloorPlan
+      ? '버블 기반 2D 평면도 생성'
+      : '버블을 1개 이상 추가해 주세요'
+
   return (
     <aside className="w-[72px] bg-white border border-[#E2E6EF] rounded-2xl py-4 shadow-sm shrink-0 self-start mt-0 h-full flex flex-col overflow-hidden">
       {/* 스크롤 가능한 도구 영역 */}
       <div className="w-full flex-1 flex flex-col items-center overflow-y-auto overflow-x-hidden scrollbar-hide py-2">
         <div className="flex flex-col items-center gap-2 w-full px-1">
-
-          {/* ── 버블 다이어그램 모드 도구 ─────────────────────────────────── */}
+          {/* 버블 다이어그램 모드 도구 */}
           {mode === 'bubble' && (
             <>
               <SelectionToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
@@ -237,19 +237,19 @@ export default function EditorLeftSidebar({
 
               <button
                 onClick={onGenerateFloorPlan}
-                disabled={!canGenerateFloorPlan}
-                title={canGenerateFloorPlan ? '버블 기반 2D 평면도 생성' : '버블을 1개 이상 추가해 주세요'}
+                disabled={!canStartFloorPlanGeneration}
+                title={floorPlanGenerateTitle}
                 className="w-full flex flex-col items-center gap-1 py-1 group disabled:cursor-not-allowed"
               >
                 <div className={`p-2 rounded-xl transition-all ${
-                  canGenerateFloorPlan
+                  canStartFloorPlanGeneration
                     ? 'text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#3B45B3]'
                     : 'text-[#D9DEF0]'
                 }`}>
                   <LayoutDashboard size={24} />
                 </div>
                 <span className={`text-[10px] font-bold transition-all ${
-                  canGenerateFloorPlan ? 'text-[#8E95A3] group-hover:text-[#3B45B3]' : 'text-[#D9DEF0]'
+                  canStartFloorPlanGeneration ? 'text-[#8E95A3] group-hover:text-[#3B45B3]' : 'text-[#D9DEF0]'
                 }`}>
                   평면도 생성
                 </span>
@@ -273,7 +273,7 @@ export default function EditorLeftSidebar({
             </>
           )}
 
-          {/* ── 2D 평면도 모드 도구 ───────────────────────────────────────── */}
+          {/* 2D 평면도 모드 도구 */}
           {mode === '2d' && (
             <>
               <SelectionToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
@@ -298,7 +298,7 @@ export default function EditorLeftSidebar({
             </>
           )}
 
-          {/* ── 3D 뷰어 모드 도구 ────────────────────────────────────────── */}
+          {/* 3D 뷰어 모드 도구 */}
           {mode === '3d' && (
             <>
               <SelectionToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />

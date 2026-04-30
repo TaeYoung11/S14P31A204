@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Layer, Line, Stage, Arc, Group, Circle, Text, Rect } from 'react-konva'
+import { Layer, Line, Stage, Arc, Group, Circle, Text, Rect, Shape } from 'react-konva'
 import { FileText, Image as ImageIcon, LayoutDashboard, Paperclip, Sparkles, X } from 'lucide-react'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import type Konva from 'konva'
@@ -78,7 +78,6 @@ function getWallPointAtPosition(wall: FloorWall, t: number): Point2D {
   }
 }
 
-
 function getProjectedWallPosition(point: Point2D, wall: FloorWall): number {
   const vx = wall.end.x - wall.start.x
   const vy = wall.end.y - wall.start.y
@@ -119,7 +118,6 @@ function rectsOverlap(a: AxisAlignedRect, b: AxisAlignedRect, padding = 0): bool
 function rangesOverlap(minA: number, maxA: number, minB: number, maxB: number): boolean {
   return minA < maxB && maxA > minB
 }
-
 
 type RoomEdgeKey = 'top' | 'right' | 'bottom' | 'left'
 
@@ -266,12 +264,112 @@ function getSnappedRoomPosition(
   return { x: snappedX, y: snappedY }
 }
 
-
 /** 흰색 계열 방은 연한 파란 계열로, 나머지는 원색 14% 투명도로 채우기 */
 function getRoomFill(color: string): string {
   const normalized = color.trim().toUpperCase()
   if (normalized === '#FFFFFF' || normalized === '#FFF') return '#F0F4FF'
   return hexToRgba(color, 0.14)
+}
+
+function toPolygonPoints(points?: { x: number; y: number }[]): number[] | null {
+  if (!points || points.length < 3) return null
+  return points.flatMap((point) => [point.x, point.y])
+}
+
+function renderRoomContourPath(
+  context: {
+    beginPath: () => void
+    moveTo: (x: number, y: number) => void
+    lineTo: (x: number, y: number) => void
+    arc: (
+      x: number,
+      y: number,
+      radius: number,
+      startAngle: number,
+      endAngle: number,
+      anticlockwise?: boolean,
+    ) => void
+    closePath: () => void
+  },
+  contour: NonNullable<FloorRoom['contour']>,
+) {
+  if (contour.length === 0) return
+  let hasStarted = false
+  let currentX = 0
+  let currentY = 0
+  const epsilon = 0.001
+  const degToRad = Math.PI / 180
+
+  contour.forEach((segment) => {
+    if (segment.type === 'line') {
+      if (!hasStarted) {
+        context.moveTo(segment.from.x, segment.from.y)
+        hasStarted = true
+      } else if (
+        Math.abs(currentX - segment.from.x) > epsilon ||
+        Math.abs(currentY - segment.from.y) > epsilon
+      ) {
+        context.lineTo(segment.from.x, segment.from.y)
+      }
+      context.lineTo(segment.to.x, segment.to.y)
+      currentX = segment.to.x
+      currentY = segment.to.y
+      return
+    }
+
+    const startRad = segment.startAngleDeg * degToRad
+    const endRad = segment.endAngleDeg * degToRad
+    const arcStartX = segment.center.x + Math.cos(startRad) * segment.radius
+    const arcStartY = segment.center.y + Math.sin(startRad) * segment.radius
+    const arcEndX = segment.center.x + Math.cos(endRad) * segment.radius
+    const arcEndY = segment.center.y + Math.sin(endRad) * segment.radius
+
+    if (!hasStarted) {
+      context.moveTo(arcStartX, arcStartY)
+      hasStarted = true
+    } else if (Math.abs(currentX - arcStartX) > epsilon || Math.abs(currentY - arcStartY) > epsilon) {
+      context.lineTo(arcStartX, arcStartY)
+    }
+
+    context.arc(
+      segment.center.x,
+      segment.center.y,
+      segment.radius,
+      startRad,
+      endRad,
+      !(segment.clockwise ?? false),
+    )
+    currentX = arcEndX
+    currentY = arcEndY
+  })
+}
+
+function getRoomTransformProps(room: FloorRoom) {
+  if (!room.transform) {
+    return {
+      x: 0,
+      y: 0,
+      offsetX: 0,
+      offsetY: 0,
+      rotation: 0,
+      scaleX: 1,
+      scaleY: 1,
+    }
+  }
+
+  const originX = room.transform.origin?.x ?? room.x + room.width / 2
+  const originY = room.transform.origin?.y ?? room.y + room.height / 2
+  const tx = room.transform.translationX ?? 0
+  const ty = room.transform.translationY ?? 0
+  return {
+    x: originX + tx,
+    y: originY + ty,
+    offsetX: originX,
+    offsetY: originY,
+    rotation: room.transform.rotationDeg ?? 0,
+    scaleX: room.transform.scaleX ?? 1,
+    scaleY: room.transform.scaleY ?? 1,
+  }
 }
 
 // ── 평면도 생성 전 안내 화면 ─────────────────────────────────────────────────
@@ -1420,24 +1518,65 @@ export function TwoDCanvas({
         {overlayLayers.map((overlay) => (
           <Group key={`overlay-${overlay.layerId}`} listening={false}>
             {overlay.rooms.map((room) => (
-              <Group key={`overlay-room-${overlay.layerId}-${room.id}`} listening={false}>
-                <Rect
-                  x={room.x}
-                  y={room.y}
-                  width={room.width}
-                  height={room.height}
-                  fill={hexToRgba(room.color, Math.min(Math.max(overlay.opacity * 0.35, 0.06), 0.35))}
-                />
-                <Rect
-                  x={room.x}
-                  y={room.y}
-                  width={room.width}
-                  height={room.height}
-                  stroke="#6B7A99"
-                  strokeWidth={1}
-                  dash={[6, 4]}
-                  fill="transparent"
-                />
+              <Group
+                key={`overlay-room-${overlay.layerId}-${room.id}`}
+                listening={false}
+                {...getRoomTransformProps(room)}
+              >
+                {(() => {
+                  const polygonPoints = toPolygonPoints(room.polygon)
+                  const contour = room.contour
+                  if (contour && contour.length > 0) {
+                    return (
+                      <Shape
+                        sceneFunc={(context, shape) => {
+                          context.beginPath()
+                          renderRoomContourPath(context, contour)
+                          context.closePath()
+                          context.fillStrokeShape(shape)
+                        }}
+                        fill={hexToRgba(room.color, Math.min(Math.max(overlay.opacity * 0.35, 0.06), 0.35))}
+                        stroke="#6B7A99"
+                        strokeWidth={1}
+                        dash={[6, 4]}
+                      />
+                    )
+                  }
+                  if (polygonPoints) {
+                    return (
+                      <Line
+                        points={polygonPoints}
+                        closed
+                        fill={hexToRgba(room.color, Math.min(Math.max(overlay.opacity * 0.35, 0.06), 0.35))}
+                        stroke="#6B7A99"
+                        strokeWidth={1}
+                        dash={[6, 4]}
+                        lineJoin="round"
+                      />
+                    )
+                  }
+                  return (
+                    <>
+                      <Rect
+                        x={room.x}
+                        y={room.y}
+                        width={room.width}
+                        height={room.height}
+                        fill={hexToRgba(room.color, Math.min(Math.max(overlay.opacity * 0.35, 0.06), 0.35))}
+                      />
+                      <Rect
+                        x={room.x}
+                        y={room.y}
+                        width={room.width}
+                        height={room.height}
+                        stroke="#6B7A99"
+                        strokeWidth={1}
+                        dash={[6, 4]}
+                        fill="transparent"
+                      />
+                    </>
+                  )
+                })()}
                 <Text
                   x={room.x}
                   y={room.y + room.height / 2 - 6}
@@ -1456,7 +1595,17 @@ export function TwoDCanvas({
         {/* 방(Room) 렌더링 */}
         {rooms.map((room) => {
           const isSelected = selectedIds.includes(room.bubbleId) || selectedId === room.bubbleId
-          const canResizeSelectedRoom = isSelected && (selectedTool === 'selection' || isResizeTool)
+          const contour = room.contour
+          const hasContourShape = !!contour && contour.length > 0
+          const polygonPoints = toPolygonPoints(room.polygon)
+          const hasPolygonShape = polygonPoints !== null
+          const hasTransform = !!room.transform
+          const hasAdvancedShape = hasContourShape || hasTransform
+          const canResizeSelectedRoom =
+            isSelected &&
+            (selectedTool === 'selection' || isResizeTool) &&
+            !hasPolygonShape &&
+            !hasAdvancedShape
           const fill = getRoomFill(room.color)
           const labelFontSize = Math.max(9, Math.min(13, room.width / 8))
           const areaFontSize = Math.max(8, Math.min(11, room.width / 10))
@@ -1484,7 +1633,8 @@ export function TwoDCanvas({
                 isSelected &&
                 selectedTool === 'selection' &&
                 !isPanMode &&
-                resizingRoomBubbleId !== room.bubbleId
+                resizingRoomBubbleId !== room.bubbleId &&
+                !hasTransform
               }
               onDragStart={(e) => {
                 e.cancelBubble = true
@@ -1534,51 +1684,78 @@ export function TwoDCanvas({
               onMouseEnter={handleMouseEnter}
               onMouseLeave={handleMouseLeave}
             >
-              {/* 배경 채우기 */}
-              <Rect x={room.x} y={room.y} width={room.width} height={room.height} fill={fill} />
-              {/* Room 경계선(회색 실선): 벽이 있는 엣지는 숨겨 이중선 느낌을 줄인다. */}
-              {!edgeCoveredByWall.top && (
-                <Line
-                  points={[room.x, room.y, room.x + room.width, room.y]}
-                  stroke="#B8BFCC"
-                  strokeWidth={1.5}
+              <Group {...getRoomTransformProps(room)}>
+                {hasContourShape ? (
+                  <Shape
+                    sceneFunc={(context, shape) => {
+                      context.beginPath()
+                      renderRoomContourPath(context, contour)
+                      context.closePath()
+                      context.fillStrokeShape(shape)
+                    }}
+                    fill={fill}
+                    stroke={isSelected ? '#3B45B3' : '#B8BFCC'}
+                    strokeWidth={isSelected ? 2 : 1.5}
+                  />
+                ) : hasPolygonShape ? (
+                  <Line
+                    points={polygonPoints}
+                    closed
+                    fill={fill}
+                    stroke={isSelected ? '#3B45B3' : '#B8BFCC'}
+                    strokeWidth={isSelected ? 2 : 1.5}
+                    lineJoin="round"
+                  />
+                ) : (
+                  <>
+                    {/* 배경 채우기 */}
+                    <Rect x={room.x} y={room.y} width={room.width} height={room.height} fill={fill} />
+                    {/* Room 경계선(회색 실선): 벽이 있는 엣지는 숨겨 이중선 느낌을 줄인다. */}
+                    {!edgeCoveredByWall.top && (
+                      <Line
+                        points={[room.x, room.y, room.x + room.width, room.y]}
+                        stroke="#B8BFCC"
+                        strokeWidth={1.5}
+                      />
+                    )}
+                    {!edgeCoveredByWall.right && (
+                      <Line
+                        points={[room.x + room.width, room.y, room.x + room.width, room.y + room.height]}
+                        stroke="#B8BFCC"
+                        strokeWidth={1.5}
+                      />
+                    )}
+                    {!edgeCoveredByWall.bottom && (
+                      <Line
+                        points={[room.x + room.width, room.y + room.height, room.x, room.y + room.height]}
+                        stroke="#B8BFCC"
+                        strokeWidth={1.5}
+                      />
+                    )}
+                    {!edgeCoveredByWall.left && (
+                      <Line
+                        points={[room.x, room.y + room.height, room.x, room.y]}
+                        stroke="#B8BFCC"
+                        strokeWidth={1.5}
+                      />
+                    )}
+                  </>
+                )}
+                {/* 공간 이름 */}
+                <Text
+                  x={room.x} y={room.y + room.height / 2 - labelFontSize - 3}
+                  width={room.width} align="center"
+                  text={room.label} fontSize={labelFontSize} fontStyle="bold"
+                  fill={isSelected ? '#3B45B3' : '#1C1C1E'}
                 />
-              )}
-              {!edgeCoveredByWall.right && (
-                <Line
-                  points={[room.x + room.width, room.y, room.x + room.width, room.y + room.height]}
-                  stroke="#B8BFCC"
-                  strokeWidth={1.5}
+                {/* 면적 */}
+                <Text
+                  x={room.x} y={room.y + room.height / 2 + 3}
+                  width={room.width} align="center"
+                  text={`${room.area.toFixed(1)} m²`} fontSize={areaFontSize} fontStyle="bold"
+                  fill="#ADB5BD"
                 />
-              )}
-              {!edgeCoveredByWall.bottom && (
-                <Line
-                  points={[room.x + room.width, room.y + room.height, room.x, room.y + room.height]}
-                  stroke="#B8BFCC"
-                  strokeWidth={1.5}
-                />
-              )}
-              {!edgeCoveredByWall.left && (
-                <Line
-                  points={[room.x, room.y + room.height, room.x, room.y]}
-                  stroke="#B8BFCC"
-                  strokeWidth={1.5}
-                />
-              )}
-              {/* 공간 이름 */}
-              <Text
-                x={room.x} y={room.y + room.height / 2 - labelFontSize - 3}
-                width={room.width} align="center"
-                text={room.label} fontSize={labelFontSize} fontStyle="bold"
-                fill={isSelected ? '#3B45B3' : '#1C1C1E'}
-              />
-              {/* 면적 */}
-              <Text
-                x={room.x} y={room.y + room.height / 2 + 3}
-                width={room.width} align="center"
-                text={`${room.area.toFixed(1)} m²`} fontSize={areaFontSize} fontStyle="bold"
-                fill="#ADB5BD"
-              />
+              </Group>
 
               {/* 2D 방 리사이즈 핸들 */}
               {canResizeSelectedRoom && (

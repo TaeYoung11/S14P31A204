@@ -7,6 +7,7 @@ import { AssistantImportSection } from './assistant/AssistantImportSection'
 import { AssistantNoticeCard } from './assistant/AssistantNoticeCard'
 import { AssistantPreviewCard } from './assistant/AssistantPreviewCard'
 import { AssistantPromptSection } from './assistant/AssistantPromptSection'
+import { AssistantSuggestionsCard } from './assistant/AssistantSuggestionsCard'
 
 interface AssistantPanelProps {
   isOpen: boolean
@@ -27,8 +28,7 @@ interface AssistantPanelProps {
   onApply: () => void
   onDiscard: () => void
   floorProjectImportMessage: string
-  onImportFloorProjectJson: (rawJson: string) => Promise<void>
-  onImportSampleFloorProject: () => void
+  onImportFloorProjectIfc: (rawIfc: string, sourceName: string) => Promise<void>
   onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLElement>) => void
   onResizeStart: (key: PanelKey, axis: PanelResizeAxis, e: ReactMouseEvent<HTMLButtonElement>) => void
   onToggle: (key: PanelKey) => void
@@ -37,7 +37,7 @@ interface AssistantPanelProps {
 /**
  * AI 어시스턴트 패널
  * - 자연어 수정 명령 실행/적용
- * - BATANG 2D 샘플/JSON import
+ * - IFC import
  */
 export function AssistantPanel({
   isOpen,
@@ -58,27 +58,26 @@ export function AssistantPanel({
   onApply,
   onDiscard,
   floorProjectImportMessage,
-  onImportFloorProjectJson,
-  onImportSampleFloorProject,
+  onImportFloorProjectIfc,
   onDragStart,
   onResizeStart,
   onToggle,
 }: AssistantPanelProps) {
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const ifcFileInputRef = useRef<HTMLInputElement | null>(null)
   const [isImporting, setIsImporting] = useState(false)
 
-  const handlePickJsonFile = () => {
+  const handlePickIfcFile = () => {
     if (isImporting) return
-    fileInputRef.current?.click()
+    ifcFileInputRef.current?.click()
   }
 
-  const handleJsonFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+  const handleIfcFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
     setIsImporting(true)
     try {
-      const rawJson = await file.text()
-      await onImportFloorProjectJson(rawJson)
+      const rawIfc = await file.text()
+      await onImportFloorProjectIfc(rawIfc, file.name)
     } finally {
       setIsImporting(false)
       event.target.value = ''
@@ -116,10 +115,9 @@ export function AssistantPanel({
           />
           <AssistantImportSection
             isImporting={isImporting}
-            fileInputRef={fileInputRef}
-            onSampleImport={onImportSampleFloorProject}
-            onPickJsonFile={handlePickJsonFile}
-            onJsonFileChange={handleJsonFileChange}
+            ifcFileInputRef={ifcFileInputRef}
+            onPickIfcFile={handlePickIfcFile}
+            onIfcFileChange={handleIfcFileChange}
           />
         </div>
 
@@ -135,22 +133,8 @@ export function AssistantPanel({
           <AssistantNoticeCard message={floorProjectImportMessage} />
         )}
 
-        {status === 'ambiguous' && suggestions.length > 0 && (
-          <div className="rounded-xl bg-white px-3 py-2">
-            <p className="text-[10px] font-bold text-[#64748B] mb-1">재입력 예시</p>
-            <ul className="space-y-1">
-              {suggestions.map((suggestion) => (
-                <li key={suggestion}>
-                  <button
-                    onClick={() => onPromptChange(suggestion)}
-                    className="text-left text-[11px] text-[#3B45B3] hover:underline"
-                  >
-                    {suggestion}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
+        {status === 'ambiguous' && (
+          <AssistantSuggestionsCard suggestions={suggestions} onSelect={onPromptChange} />
         )}
 
         {preview && (

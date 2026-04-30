@@ -93,8 +93,7 @@ interface EditorRightPanelsProps {
   onApplyLlmEdit: () => void
   onDiscardLlmEdit: () => void
   floorProjectImportMessage: string
-  onImportFloorProjectJson: (rawJson: string) => Promise<void>
-  onImportSampleFloorProject: () => void
+  onImportFloorProjectIfc: (rawIfc: string, sourceName: string) => Promise<void>
   onPanelDragStart: (panelKey: PanelKey, event: ReactMouseEvent<HTMLElement>) => void
   onPanelResizeStart: (panelKey: PanelKey, axis: PanelResizeAxis, event: ReactMouseEvent<HTMLButtonElement>) => void
   onTogglePanel: (panelKey: PanelKey) => void
@@ -172,8 +171,7 @@ export function EditorRightPanels({
   onApplyLlmEdit,
   onDiscardLlmEdit,
   floorProjectImportMessage,
-  onImportFloorProjectJson,
-  onImportSampleFloorProject,
+  onImportFloorProjectIfc,
   onPanelDragStart,
   onPanelResizeStart,
   onTogglePanel,
@@ -330,8 +328,7 @@ export function EditorRightPanels({
           onApply={onApplyLlmEdit}
           onDiscard={onDiscardLlmEdit}
           floorProjectImportMessage={floorProjectImportMessage}
-          onImportFloorProjectJson={onImportFloorProjectJson}
-          onImportSampleFloorProject={onImportSampleFloorProject}
+          onImportFloorProjectIfc={onImportFloorProjectIfc}
           onDragStart={onPanelDragStart}
           onResizeStart={onPanelResizeStart}
           onToggle={onTogglePanel}

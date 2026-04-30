@@ -12,8 +12,27 @@ interface ComputeDimensionGuidesParams {
   walls: FloorWall[]
 }
 
-function formatDimensionMm(lengthPx: number): string {
-  return Math.max(Math.round(lengthPx * FLOOR_MM_PER_PX), 0).toLocaleString()
+/**
+ * 방 데이터에서 실제 mm/px 비율을 역산한다.
+ * - FloorRoom.widthMm / room.width 로 계산 (모든 방이 동일한 transform을 공유하므로 한 방으로 충분)
+ * - 방이 없을 경우 고정 상수 FLOOR_MM_PER_PX 폴백
+ */
+function deriveMmPerPx(rooms: FloorRoom[]): number {
+  for (const room of rooms) {
+    if (room.width > 1 && room.widthMm > 0) return room.widthMm / room.width
+    if (room.height > 1 && room.heightMm > 0) return room.heightMm / room.height
+  }
+  return FLOOR_MM_PER_PX
+}
+
+/**
+ * 픽셀 길이를 mm 치수 문자열로 변환한다.
+ * 1mm 단위로 반올림, 천 단위 구분 기호를 적용한다.
+ * 예: 3000 → "3,000"
+ */
+function formatDimensionMm(lengthPx: number, mmPerPx: number): string {
+  const mm = Math.max(Math.round(lengthPx * mmPerPx), 0)
+  return mm.toLocaleString()
 }
 
 function collectGuides(values: number[], tolerance: number): number[] {
@@ -38,6 +57,9 @@ export function computeDimensionGuides({
 }: ComputeDimensionGuidesParams): DimensionGuideRenderData {
   if (!isGenerated) return { lines: [], labels: [] }
   if (rooms.length === 0 && walls.length === 0) return { lines: [], labels: [] }
+
+  /** 실제 렌더 scale에서 역산한 mm/px 비율 — 고정 상수(25) 대신 사용 */
+  const mmPerPx = deriveMmPerPx(rooms)
 
   const rectBounds = rooms.length > 0
     ? {
@@ -112,7 +134,7 @@ export function computeDimensionGuides({
       if (total >= minSegmentPx) {
         labels.push({
           key: `${keyPrefix}-total`,
-          text: formatDimensionMm(total),
+          text: formatDimensionMm(total, mmPerPx),
           x: (first + last) / 2,
           y: guideY - 12,
         })
@@ -128,7 +150,7 @@ export function computeDimensionGuides({
       if (widthPx >= labelSegmentPx) {
         labels.push({
           key: `${keyPrefix}-seg-${i}`,
-          text: formatDimensionMm(widthPx),
+          text: formatDimensionMm(widthPx, mmPerPx),
           x: (a + b) / 2,
           y: guideY - 12,
         })
@@ -152,7 +174,7 @@ export function computeDimensionGuides({
       if (total >= minSegmentPx) {
         labels.push({
           key: `${keyPrefix}-total`,
-          text: formatDimensionMm(total),
+          text: formatDimensionMm(total, mmPerPx),
           x: guideX - 12,
           y: (first + last) / 2,
           rotation: -90,
@@ -169,7 +191,7 @@ export function computeDimensionGuides({
       if (heightPx >= labelSegmentPx) {
         labels.push({
           key: `${keyPrefix}-seg-${i}`,
-          text: formatDimensionMm(heightPx),
+          text: formatDimensionMm(heightPx, mmPerPx),
           x: guideX - 12,
           y: (a + b) / 2,
           rotation: -90,
