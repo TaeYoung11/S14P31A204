@@ -8,6 +8,7 @@ import type {
   EditorDraftRecord,
   EditorDraftSnapshot,
   EditorMode,
+  PhaseStatus,
   FloorCommentAttachmentInput,
   FloorCommentNotification,
   FloorCommentPin,
@@ -60,7 +61,7 @@ import {
   projectAxisAlignedWall,
 } from '../utils/wallGeometry'
 import type { FloorProject } from '../types/floorProject.types'
-import { getDraft, setDraft } from '../lib/draftDb'
+import { workspaceDraftRepository } from '../services/workspaceDraft.repository'
 import { useAuthStore } from '@/shared/stores/authStore'
 import { projectService } from '@/features/project/services/project.service'
 
@@ -179,6 +180,11 @@ function deriveAutoOpeningsFromConnections(
 /** URL 파라미터에서 모드 파싱 — 허용 목록 외 값은 'bubble'(기본값)으로 처리 */
 function resolveMode(value: string | null): EditorMode {
   return EDITOR_MODES.includes(value as EditorMode) ? (value as EditorMode) : 'bubble'
+}
+
+function resolveDraftPhaseStatus(draft: Partial<EditorDraftSnapshot> | null | undefined): PhaseStatus {
+  if (draft?.phaseStatus) return draft.phaseStatus
+  return draft?.isFloorPlanGenerated ? 'IFC_EDIT' : 'BUBBLE_DRAFT'
 }
 
 /** 두 연결선 쌍이 동일한지 비교 (방향 무관) */
@@ -316,7 +322,6 @@ export function useEditorPage() {
   } = useFloorPlan()
   /** 버블 편집 잠금은 현재 비활성 상태(false 고정) */
   const isBubbleEditLocked = false
-  const isBubbleReadOnly = isBubbleEditLocked
   const canSyncBubbleStateFrom2D = floorPlanLayoutSource === 'bubble' && activeFloorLayerId === 'floor-1'
 
   // 버블·연결선 변경 시 이미 생성된 평면도를 조용히 갱신 (로딩 없음)
@@ -355,7 +360,7 @@ export function useEditorPage() {
 
   // Delete/Backspace 키로 선택된 버블 또는 연결선 삭제 (input 포커스 중엔 무시)
   const handleDeleteSelected = useCallback(() => {
-    if (mode === 'bubble' && isBubbleReadOnly) return
+    if (mode === 'bubble' && isBubbleEditLocked) return
     if (mode === '2d') {
       const selectedRoomIds = Array.from(new Set([
         ...selectedIds,
@@ -441,7 +446,7 @@ export function useEditorPage() {
   }, [
     canSyncBubbleStateFrom2D,
     mode,
-    isBubbleReadOnly,
+    isBubbleEditLocked,
     selectedFloorOpeningId,
     selectedFloorWallId,
     selectedFloorOpeningIds,
@@ -521,6 +526,7 @@ export function useEditorPage() {
   const [overlayOpacityByLayerId, setOverlayOpacityByLayerId] = useState<Record<string, number>>({})
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [autosaveReadyProjectId, setAutosaveReadyProjectId] = useState<string | null>(null)
+  const [workspacePhaseStatus, setWorkspacePhaseStatus] = useState<PhaseStatus>('BUBBLE_DRAFT')
   const attemptedInitialIfcImportProjectIdRef = useRef<string | null>(null)
   const localVersionRef = useRef(0)
   const previousSnapshotRef = useRef<string | null>(null)
@@ -540,7 +546,12 @@ export function useEditorPage() {
     if (!pendingDraftRecord) return
 
     pendingDraftRecordRef.current = null
-    void setDraft(pendingDraftRecord.projectId, pendingDraftRecord).catch(() => {
+    void workspaceDraftRepository.saveLocalFallbackDraft({
+      projectId: pendingDraftRecord.projectId,
+      versionNo: pendingDraftRecord.versionNo,
+      snapshot: pendingDraftRecord.data,
+      savedAt: pendingDraftRecord.savedAt,
+    }).catch(() => {
       setSaveStatus('error')
     })
   }, [])
@@ -652,6 +663,7 @@ export function useEditorPage() {
   }, [autoFloorOpenings, floorOpenings])
 
   const draftSnapshot = useMemo<EditorDraftSnapshot>(() => ({
+    phaseStatus: workspacePhaseStatus,
     bubbles,
     connections,
     zones,
@@ -665,6 +677,7 @@ export function useEditorPage() {
     hiddenAutoOpeningIds,
     isProjectStructurePreferred,
   }), [
+    workspacePhaseStatus,
     bubbles,
     connections,
     zones,
@@ -678,6 +691,20 @@ export function useEditorPage() {
     hiddenAutoOpeningIds,
     isProjectStructurePreferred,
   ])
+
+  useEffect(() => {
+    if (isFloorPlanGenerating) {
+      setWorkspacePhaseStatus('CONVERTING')
+      return
+    }
+
+    if (isFloorPlanGenerated) {
+      setWorkspacePhaseStatus('IFC_EDIT')
+      return
+    }
+
+    setWorkspacePhaseStatus('BUBBLE_DRAFT')
+  }, [isFloorPlanGenerated, isFloorPlanGenerating])
 
   useEffect(() => {
     latestDraftSnapshotRef.current = draftSnapshot
@@ -718,7 +745,7 @@ export function useEditorPage() {
       }
     }
 
-    void getDraft(projectId)
+    void workspaceDraftRepository.loadLocalFallbackDraft(projectId)
       .then((draft) => {
         if (isCancelled || draftLoadTokenRef.current !== loadToken) return
 
@@ -732,6 +759,7 @@ export function useEditorPage() {
         if (draft?.data) {
           const data = draft.data
           previousSnapshotRef.current = JSON.stringify(data)
+          setWorkspacePhaseStatus(resolveDraftPhaseStatus(data))
           replaceBubbles(data.bubbles)
           replaceConnections(data.connections)
           replaceZonesState(data.zones)
@@ -747,6 +775,7 @@ export function useEditorPage() {
           setHiddenAutoOpeningIds(data.hiddenAutoOpeningIds ?? [])
           setIsProjectStructurePreferred(data.isProjectStructurePreferred ?? false)
         } else {
+          setWorkspacePhaseStatus('BUBBLE_DRAFT')
           previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current ?? draftSnapshot)
         }
 
@@ -754,6 +783,7 @@ export function useEditorPage() {
       })
       .catch(() => {
         if (isCancelled || draftLoadTokenRef.current !== loadToken) return
+        setWorkspacePhaseStatus('BUBBLE_DRAFT')
         previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current ?? draftSnapshot)
         setAutosaveReadyProjectId(projectId)
       })
@@ -802,19 +832,30 @@ export function useEditorPage() {
 
     localSaveTimerRef.current = setTimeout(() => {
       localSaveTimerRef.current = null
-      setSaveStatus('saving-local')
+      setSaveStatus('syncing')
 
-      void setDraft(projectId, draftRecord)
+      void workspaceDraftRepository.saveLocalFallbackDraft({
+        projectId,
+        versionNo: draftRecord.versionNo,
+        snapshot: draftRecord.data,
+        savedAt: draftRecord.savedAt,
+      })
         .then(() => {
           pendingDraftRecordRef.current = null
           previousSnapshotRef.current = serializedSnapshot
-          setSaveStatus('saved-local')
+          setSaveStatus('synced')
         })
         .catch(() => {
           setSaveStatus('error')
         })
     }, 1000)
   }, [autosaveReadyProjectId, draftSnapshot, projectId])
+
+  const phaseStatus = workspacePhaseStatus
+  const canEditBubble = phaseStatus === 'BUBBLE_DRAFT' && !isBubbleEditLocked
+  const canEditIfc = phaseStatus === 'IFC_EDIT'
+  const isConverting = phaseStatus === 'CONVERTING'
+  const isBubbleReadOnly = !canEditBubble
 
   const updateFloorWallFromEditable = useCallback((wallId: string, updater: (wall: FloorWall) => FloorWall) => {
     setFloorWalls((prev) => {
@@ -2418,6 +2459,10 @@ export function useEditorPage() {
     // 모드
     mode,
     setMode,
+    phaseStatus,
+    canEditBubble,
+    canEditIfc,
+    isConverting,
     // 캔버스 크기·대지
     containerRef,
     stageSize,
