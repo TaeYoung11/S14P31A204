@@ -151,6 +151,35 @@ def test_layout_import_v1_accepts_canonical_adjacency() -> None:
     assert request.adjacency[0].room_b_id == "room-living-01"
 
 
+def test_layout_import_v1_accepts_legacy_adjacency() -> None:
+    request = LayoutImportV1.model_validate(
+        {
+            "schema_version": "v1",
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "sample-project",
+            "rooms": [
+                _base_room(),
+                {
+                    **_base_room(),
+                    "id": "room-bed-01",
+                    "name": "\uce68\uc2e4",
+                    "type": "bedroom",
+                },
+            ],
+            "adjacency": [
+                {
+                    "from_room_id": "room-bed-01",
+                    "to_room_id": "room-living-01",
+                    "strength": 0.5,
+                }
+            ],
+        }
+    )
+
+    assert request.adjacency is not None
+    assert request.adjacency[0].from_room_id == "room-bed-01"
+
+
 def test_layout_import_v1_rejects_partial_canonical_adjacency() -> None:
     with pytest.raises(ValidationError):
         LayoutImportV1.model_validate(
@@ -191,6 +220,35 @@ def test_layout_import_v1_rejects_unknown_canonical_adjacency_room() -> None:
         )
 
 
+def test_layout_import_v1_rejects_mixed_adjacency_formats() -> None:
+    with pytest.raises(ValidationError):
+        LayoutImportV1.model_validate(
+            {
+                "schema_version": "v1",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [
+                    _base_room(),
+                    {
+                        **_base_room(),
+                        "id": "room-bed-01",
+                        "name": "Bedroom",
+                        "type": "bedroom",
+                    },
+                ],
+                "adjacency": [
+                    {
+                        "room_a_id": "room-bed-01",
+                        "room_b_id": "room-living-01",
+                        "from_room_id": "room-bed-01",
+                        "to_room_id": "room-living-01",
+                        "strength": 0.8,
+                    }
+                ],
+            }
+        )
+
+
 def test_layout_import_v1_rejects_boundary_with_repeated_points_only() -> None:
     with pytest.raises(ValidationError, match="at least 3 distinct points"):
         LayoutImportV1.model_validate(
@@ -207,6 +265,31 @@ def test_layout_import_v1_rejects_boundary_with_repeated_points_only() -> None:
                 ],
             }
         )
+
+
+def test_layout_import_v1_accepts_legacy_polygon_boundary() -> None:
+    request = LayoutImportV1.model_validate(
+        {
+            "schema_version": "v1",
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "sample-project",
+            "rooms": [_base_room()],
+            "boundaries": [
+                {
+                    "floor": 1,
+                    "polygon": [
+                        [0.0, 0.0],
+                        [10000.0, 0.0],
+                        [10000.0, 8000.0],
+                        [0.0, 8000.0],
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert request.boundaries is not None
+    assert request.boundaries[0].polygon_mm is not None
 
 
 def test_layout_import_v1_accepts_outer_polygon_mm() -> None:

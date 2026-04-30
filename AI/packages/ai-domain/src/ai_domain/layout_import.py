@@ -111,6 +111,11 @@ class AdjacencyInput(LayoutImportBaseModel):
             raise ValueError("from_room_id and to_room_id must both be provided together")
         if self.from_room_id is not None and self.to_room_id is None:
             raise ValueError("from_room_id and to_room_id must both be provided together")
+        if has_canonical_pair and has_legacy_pair:
+            raise ValueError(
+                "room_a_id/room_b_id and from_room_id/to_room_id "
+                "cannot be provided together"
+            )
         if not has_canonical_pair and not has_legacy_pair:
             raise ValueError(
                 "either room_a_id/room_b_id or from_room_id/to_room_id must be provided"
