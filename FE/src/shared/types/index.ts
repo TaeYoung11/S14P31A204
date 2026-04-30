@@ -1,7 +1,7 @@
 // =====================
 // 사용자
 // =====================
-export type UserType = 'DESIGNER' | 'CLIENT'
+export type UserType = 'DESIGNER' | 'CUSTOMER' | 'CLIENT'
 
 export interface User {
   id: string
@@ -13,6 +13,7 @@ export interface User {
 
 export interface AuthTokens {
   access_token: string
+  refresh_token?: string
 }
 
 // =====================

@@ -115,7 +115,7 @@ export interface ProjectListPageResult {
 export const projectService = {
   getAll: async (): Promise<Project[]> => {
     const all: Project[] = []
-    let page = 0
+    let page = 1
     const maxPages = 100
 
     while (page <= maxPages) {
@@ -125,13 +125,13 @@ export const projectService = {
       const data = response.data.data
       all.push(...data.projects.map(mapProjectSummary))
       if (!data.hasNext) break
-      page++
+      page = data.page + 1
     }
 
     return all
   },
 
-  getList: async (page: number = 0): Promise<ProjectListPageResult> => {
+  getList: async (page: number = 1): Promise<ProjectListPageResult> => {
     const response = await api.get<ApiResponse<ProjectListResponse>>('/projects', {
       params: { page, size: 6 },
     })
