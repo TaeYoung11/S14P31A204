@@ -150,6 +150,8 @@ class BoundaryInput(LayoutImportBaseModel):
     def validate_polygon_shape(self) -> BoundaryInput:
         if self.outer_polygon_mm is None and self.polygon_mm is None:
             raise ValueError("either outer_polygon_mm or polygon_mm must be provided")
+        if self.outer_polygon_mm is not None and self.polygon_mm is not None:
+            raise ValueError("outer_polygon_mm and polygon_mm cannot be provided together")
         if self.holes_mm is not None:
             if self.outer_polygon_mm is None:
                 raise ValueError("holes_mm requires outer_polygon_mm")

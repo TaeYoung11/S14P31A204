@@ -317,6 +317,38 @@ def test_layout_import_v1_accepts_outer_polygon_mm() -> None:
     assert request.boundaries[0].outer_polygon_mm is not None
 
 
+def test_layout_import_v1_rejects_mixed_boundary_formats() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="outer_polygon_mm and polygon_mm cannot be provided together",
+    ):
+        LayoutImportV1.model_validate(
+            {
+                "schema_version": "v1",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [_base_room()],
+                "boundaries": [
+                    {
+                        "floor": 1,
+                        "polygon": [
+                            [0.0, 0.0],
+                            [10000.0, 0.0],
+                            [10000.0, 8000.0],
+                            [0.0, 8000.0],
+                        ],
+                        "outer_polygon_mm": [
+                            [0.0, 0.0],
+                            [10000.0, 0.0],
+                            [10000.0, 8000.0],
+                            [0.0, 8000.0],
+                        ],
+                    }
+                ],
+            }
+        )
+
+
 def test_layout_import_v1_accepts_outer_polygon_with_holes() -> None:
     request = LayoutImportV1.model_validate(
         {
