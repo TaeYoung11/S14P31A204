@@ -44,8 +44,17 @@ When a `v2` generation option is enabled, the service validates prerequisites be
 When enabled, generated elements follow these rules:
 
 - wall: one `IfcWall` per floor boundary edge
+- shared wall: one `IfcWall` per deduped room-edge overlap when `shared_wall_policy=from_adjacency`
 - slab: one `IfcSlab` per floor boundary
 - roof: one `IfcRoof` from the top-floor boundary
+
+Shared wall generation rules are currently:
+
+- only `axis-aligned` rooms with `angle = 0`
+- actual room-edge overlap is required
+- `A->B` and `B->A` adjacency pairs are deduped
+- `strength` remains metadata only in project `AdjacencyJson`
+- cross-floor adjacency and rotated rooms fail validation
 
 Opening rules are not part of this ticket and are not validated here.
 
@@ -97,4 +106,5 @@ On validation failure, stderr prints:
 
 - `v1` input behavior remains unchanged.
 - `v2` now generates `IfcWall`, `IfcSlab`, and `IfcRoof` from `boundaries`.
-- Shared walls and openings are still not generated.
+- `v2` also generates interior shared walls from `adjacency` when `shared_wall_policy=from_adjacency`.
+- Openings are still not generated.
