@@ -34,7 +34,7 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class RenderQueryService {
 
-    private static final String RENDER_JOB_TYPE = "RENDER";
+    private static final String RENDER_JOB_TYPE = "SD_RENDER";
     private static final String RENDER_IMAGE_ARTIFACT_TYPE = "RENDER_IMAGE";
     private static final ZoneId KOREA_ZONE_ID = ZoneId.of("Asia/Seoul");
 
@@ -43,6 +43,9 @@ public class RenderQueryService {
     private final RenderJobRepository renderJobRepository;
     private final RenderArtifactRepository renderArtifactRepository;
 
+    /**
+     * 프로젝트의 렌더링 결과 목록을 조회한다.
+     */
     public List<ProjectRenderResponse> getProjectRenders(UUID projectId) {
         Project project = projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
@@ -79,6 +82,9 @@ public class RenderQueryService {
                 .toList();
     }
 
+    /**
+     * job과 artifact를 응답 DTO로 변환한다.
+     */
     private ProjectRenderResponse toResponse(RenderJob job, RenderArtifact artifact) {
         return new ProjectRenderResponse(
                 job.getJobId(),
@@ -90,6 +96,9 @@ public class RenderQueryService {
         );
     }
 
+    /**
+     * request payload에서 style 정보를 방어적으로 추출한다.
+     */
     private ProjectRenderStyleResponse extractStyle(JsonNode requestPayload) {
         if (requestPayload == null) {
             return null;
@@ -116,6 +125,9 @@ public class RenderQueryService {
         );
     }
 
+    /**
+     * 우선순위가 있는 두 문자열 중 첫 번째 유효값을 반환한다.
+     */
     private String firstNonBlank(String primary, String fallback) {
         if (primary != null && !primary.isBlank()) {
             return primary;
@@ -126,6 +138,9 @@ public class RenderQueryService {
         return null;
     }
 
+    /**
+     * 문자열을 trim 후 대문자로 정규화한다.
+     */
     private String normalizeUpper(String value) {
         if (value == null) {
             return null;
@@ -138,6 +153,9 @@ public class RenderQueryService {
         return normalized.toUpperCase(Locale.ROOT);
     }
 
+    /**
+     * 로컬 시각을 UTC ISO-8601 문자열로 변환한다.
+     */
     private String toUtcIso(LocalDateTime value) {
         if (value == null) {
             return null;
