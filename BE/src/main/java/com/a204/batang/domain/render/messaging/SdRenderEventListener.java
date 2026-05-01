@@ -18,6 +18,7 @@ import com.a204.batang.global.exception.ErrorCode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +32,7 @@ import java.util.UUID;
 /**
  * SD render worker event를 수신해 DB 상태와 SSE를 갱신한다.
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class SdRenderEventListener {
@@ -58,6 +60,8 @@ public class SdRenderEventListener {
         if (event == null || event.eventType() == null) {
             throw new CustomException(ErrorCode.RENDER_EVENT_INVALID);
         }
+
+        log.info("[📥 RabbitMQ] 이벤트 수신 - Type: {}, JobId: {}", event.eventType(), event.jobId());
 
         if (!event.eventType().startsWith("SD_RENDER_")) {
             return;

@@ -20,6 +20,7 @@ import com.a204.batang.global.exception.ErrorCode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +34,7 @@ import java.util.UUID;
 /**
  * 렌더링 요청을 생성하고 worker command를 발행한다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RenderCommandService {
@@ -137,6 +139,7 @@ public class RenderCommandService {
                 OffsetDateTime.now()
         );
 
+        log.info("[📤 RabbitMQ] 명령 발행 - JobId: {}, ProjectId: {}", jobId, projectId);
         sdRenderCommandPublisher.publish(command);
 
         sendRenderSse(project, "RENDER_QUEUED", new RenderStatusSseResponse(
