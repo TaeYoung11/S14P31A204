@@ -10,6 +10,7 @@ import com.a204.batang.domain.render.messaging.dto.SdRenderError;
 import com.a204.batang.domain.render.messaging.dto.SdRenderEventMessage;
 import com.a204.batang.domain.render.messaging.event.RenderStatusChangedEvent;
 import com.a204.batang.domain.render.repository.RenderArtifactRepository;
+import com.a204.batang.domain.notification.service.NotificationSseService;
 import com.a204.batang.domain.render.repository.RenderJobRepository;
 import com.a204.batang.domain.render.repository.RenderJobStepRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -55,6 +56,8 @@ class SdRenderEventListenerTest {
     private RenderJobStepRepository renderJobStepRepository;
     @Mock
     private RenderArtifactRepository renderArtifactRepository;
+    @Mock
+    private SdRenderCommandPublisher sdRenderCommandPublisher;
     @Mock
     private NotificationSseService notificationSseService;
     @Mock
