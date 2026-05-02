@@ -9,6 +9,7 @@ import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.annotation.EnableRabbit;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import com.a204.batang.domain.render.messaging.SdRenderCorrelationData;
@@ -24,6 +25,7 @@ import org.springframework.context.annotation.Configuration;
  */
 @Slf4j
 @EnableRabbit
+@EnableAsync
 @Configuration
 public class RabbitMqConfig {
 
