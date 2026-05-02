@@ -1,6 +1,5 @@
 package com.a204.batang.domain.render.service;
 
-import com.a204.batang.domain.notification.service.NotificationSseService;
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
@@ -54,8 +53,6 @@ class RenderCommandServiceTest {
     private RenderJobStepRepository renderJobStepRepository;
     @Mock
     private SdRenderCommandPublisher sdRenderCommandPublisher;
-    @Mock
-    private NotificationSseService notificationSseService;
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
