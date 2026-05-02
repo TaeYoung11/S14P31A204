@@ -4,6 +4,7 @@ import com.a204.batang.domain.render.entity.RenderJob;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -12,4 +13,8 @@ import java.util.UUID;
 public interface RenderJobRepository extends JpaRepository<RenderJob, UUID> {
 
     List<RenderJob> findByProjectIdAndJobTypeOrderByCreatedAtDescJobIdDesc(UUID projectId, String jobType);
+
+    Optional<RenderJob> findByJobIdAndProjectId(UUID jobId, UUID projectId);
+
+    Optional<RenderJob> findByJobIdAndJobType(UUID jobId, String jobType);
 }
