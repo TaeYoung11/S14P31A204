@@ -15,6 +15,8 @@ public interface FloorPlanArtifactRepository extends JpaRepository<FloorPlanArti
 
     Optional<FloorPlanArtifact> findByArtifactId(UUID artifactId);
 
+    boolean existsByProjectIdAndJobIdAndArtifactType(UUID projectId, UUID jobId, String artifactType);
+
     List<FloorPlanArtifact> findByProjectIdAndJobIdInAndArtifactTypeOrderByCreatedAtDescArtifactIdDesc(
             UUID projectId,
             Collection<UUID> jobIds,
