@@ -20,6 +20,22 @@ CREATE TABLE IF NOT EXISTS jobs (
         FOREIGN KEY (project_id) REFERENCES projects(project_id)
 );
 
+CREATE TABLE IF NOT EXISTS revisions (
+    revision_id UUID PRIMARY KEY,
+    project_id UUID NOT NULL,
+    parent_revision_id UUID,
+    revision_no INTEGER NOT NULL,
+    created_by UUID,
+    status VARCHAR(50) NOT NULL,
+    title TEXT,
+    summary TEXT,
+    created_at TIMESTAMP NOT NULL,
+    CONSTRAINT fk_revisions_project
+        FOREIGN KEY (project_id) REFERENCES projects(project_id),
+    CONSTRAINT uq_revisions_project_revision_no
+        UNIQUE (project_id, revision_no)
+);
+
 ALTER TABLE IF EXISTS jobs
     ADD COLUMN IF NOT EXISTS requested_by UUID;
 ALTER TABLE IF EXISTS jobs
@@ -154,6 +170,12 @@ CREATE INDEX IF NOT EXISTS idx_project_pin_read_states_last_read_at
 
 CREATE INDEX IF NOT EXISTS idx_jobs_project_type_created_at
     ON jobs (project_id, job_type, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_revisions_project_created_at
+    ON revisions (project_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_revisions_project_status
+    ON revisions (project_id, status);
 
 CREATE INDEX IF NOT EXISTS idx_artifacts_project_job_type_created_at
     ON artifacts (project_id, job_id, artifact_type, created_at DESC);
