@@ -223,7 +223,7 @@ public class SdRenderEventListener {
         job.markSucceeded(outputPayload, now);
 
         // artifact 저장은 멱등하게 처리한다.
-        if (!renderArtifactRepository.existsByArtifactId(artifactId)) {
+        if (!renderArtifactRepository.existsById(artifactId)) {
             RenderArtifact artifact = RenderArtifact.createRenderImage(
                     artifactId,
                     event.projectId(),

@@ -19,7 +19,5 @@ public interface RenderArtifactRepository extends JpaRepository<RenderArtifact, 
             String artifactType
     );
 
-    boolean existsByArtifactId(UUID artifactId);
-
     Optional<RenderArtifact> findByArtifactId(UUID artifactId);
 }
