@@ -14,6 +14,7 @@ import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.a204.batang.domain.render.messaging.event.RenderStatusChangedEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
@@ -31,7 +33,6 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
@@ -55,6 +56,8 @@ class RenderCommandServiceTest {
     private SdRenderCommandPublisher sdRenderCommandPublisher;
     @Mock
     private NotificationSseService notificationSseService;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
@@ -112,7 +115,9 @@ class RenderCommandServiceTest {
         verify(renderJobRepository, times(1)).save(any());
         verify(renderJobStepRepository, times(1)).save(any());
         verify(sdRenderCommandPublisher, times(1)).publish(any());
-        verify(notificationSseService, times(1)).sendToUsers(any(), eq("RENDER_QUEUED"), any());
+        // sendRenderSse()는 RenderStatusSseResponse를 받으면 직접 SSE 발송하지 않고
+        // ApplicationEventPublisher를 통해 트랜잭션 커밋 후 발송을 위임한다.
+        verify(eventPublisher, times(1)).publishEvent(any(RenderStatusChangedEvent.class));
     }
 
     @Test
