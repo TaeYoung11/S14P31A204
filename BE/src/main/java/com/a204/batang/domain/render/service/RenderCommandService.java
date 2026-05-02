@@ -139,8 +139,13 @@ public class RenderCommandService {
                 OffsetDateTime.now()
         );
 
-        log.info("[📤 RabbitMQ] 명령 발행 - JobId: {}, ProjectId: {}", jobId, projectId);
-        sdRenderCommandPublisher.publish(command);
+        try {
+            log.info("[📤 RabbitMQ] 명령 발행 - JobId: {}, ProjectId: {}", jobId, projectId);
+            sdRenderCommandPublisher.publish(command);
+        } catch (Exception e) {
+            log.error("[❌ RabbitMQ] 명령 발행 중 예외 발생 - JobId: {}", jobId, e);
+            throw e;
+        }
 
         sendRenderSse(project, "RENDER_QUEUED", new RenderStatusSseResponse(
                 "RENDER_QUEUED",
