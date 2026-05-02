@@ -9,6 +9,7 @@ import com.a204.batang.domain.render.entity.RenderArtifact;
 import com.a204.batang.domain.render.entity.RenderJob;
 import com.a204.batang.domain.render.entity.RenderJobStep;
 import com.a204.batang.domain.render.messaging.dto.SdRenderEventMessage;
+import com.a204.batang.domain.render.messaging.event.SdRenderPublishFailedEvent;
 import com.a204.batang.domain.render.repository.RenderArtifactRepository;
 import com.a204.batang.domain.render.repository.RenderJobRepository;
 import com.a204.batang.domain.render.repository.RenderJobStepRepository;
@@ -20,6 +21,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +50,7 @@ public class SdRenderEventListener {
     private final RenderJobRepository renderJobRepository;
     private final RenderJobStepRepository renderJobStepRepository;
     private final RenderArtifactRepository renderArtifactRepository;
+    private final SdRenderCommandPublisher sdRenderCommandPublisher;
     private final NotificationSseService notificationSseService;
     private final ObjectMapper objectMapper;
 
@@ -74,6 +77,70 @@ public class SdRenderEventListener {
             case EVENT_FAILED -> handleFailed(event);
             default -> {
             }
+        }
+    }
+
+    /**
+     * RabbitMQ 발행 실패(NACK 등) 이벤트를 수신하여 재시도하거나 실패 처리한다.
+     */
+    @EventListener
+    @Transactional
+    public void handlePublishFailed(SdRenderPublishFailedEvent event) {
+        var message = event.getMessage();
+        log.warn("[⚠️ RabbitMQ] 발행 실패 이벤트 감지 - JobId: {}, Cause: {}", message.jobId(), event.getCause());
+
+        RenderJob job = renderJobRepository.findById(message.jobId()).orElse(null);
+        if (job == null || job.isTerminal()) {
+            return;
+        }
+
+        // 재시도 횟수 확인 (SdRenderCommandMessage에 이미 attemptNo 정보가 있음)
+        if (message.attemptNo() < message.maxAttempts()) {
+            log.info("[🔄 RabbitMQ] 재시도 시도 중... ({} / {})", message.attemptNo() + 1, message.maxAttempts());
+            
+            // 재시도 횟수가 증가된 새 메시지 생성 (record이므로 새로 생성)
+            var retryMessage = new com.a204.batang.domain.render.messaging.dto.SdRenderCommandMessage(
+                    message.messageId(),
+                    message.schemaVersion(),
+                    message.messageType(),
+                    message.commandType(),
+                    message.routingKey(),
+                    message.jobId(),
+                    message.jobStepId(),
+                    message.stepNo(),
+                    message.totalSteps(),
+                    message.projectId(),
+                    message.requestedBy(),
+                    message.sourceRevisionId(),
+                    message.sourceSceneType(),
+                    message.expectedOutputArtifactId(),
+                    message.input(),
+                    message.expectedOutput(),
+                    message.payload(),
+                    message.attemptNo() + 1,
+                    message.maxAttempts(),
+                    message.idempotencyKey(),
+                    message.correlationId(),
+                    message.createdAt()
+            );
+            
+            sdRenderCommandPublisher.publish(retryMessage);
+        } else {
+            log.error("[💀 RabbitMQ] 최대 재시도 횟수 초과. 작업을 실패 상태로 변경합니다.");
+            
+            String errorMessage = "메시지 발행 실패: " + event.getCause();
+            job.markFailed(errorMessage, null, LocalDateTime.now());
+            
+            sendSse(job.getProjectId(), "RENDER_FAILED", new RenderStatusSseResponse(
+                    "RENDER_FAILED",
+                    job.getProjectId(),
+                    job.getJobId(),
+                    null,
+                    "FAILED",
+                    0,
+                    null,
+                    "메시지 전송 실패로 인해 작업을 중단합니다."
+            ));
         }
     }
 

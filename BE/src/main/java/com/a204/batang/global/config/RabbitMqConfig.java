@@ -11,8 +11,11 @@ import org.springframework.amqp.rabbit.annotation.EnableRabbit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import com.a204.batang.domain.render.messaging.SdRenderCorrelationData;
+import com.a204.batang.domain.render.messaging.event.SdRenderPublishFailedEvent;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -69,6 +72,8 @@ public class RabbitMqConfig {
     @Bean
     public Queue beJobEventsQueue() {
         return QueueBuilder.durable(BE_JOB_EVENTS_QUEUE)
+                .deadLetterExchange(DLX_EXCHANGE)
+                .deadLetterRoutingKey(SD_RENDER_DEAD_ROUTING_KEY)
                 .build();
     }
 
@@ -111,7 +116,7 @@ public class RabbitMqConfig {
      * Publisher Confirm 및 Return 설정을 포함한 RabbitTemplate 빈을 정의한다.
      */
     @Bean
-    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory) {
+    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory, ApplicationEventPublisher eventPublisher) {
         RabbitTemplate template = new RabbitTemplate(connectionFactory);
         template.setMessageConverter(rabbitMessageConverter());
 
@@ -121,7 +126,10 @@ public class RabbitMqConfig {
                 log.info("[✅ RabbitMQ] 메시지 발행 성공 (ACK)");
             } else {
                 log.error("[❌ RabbitMQ] 메시지 발행 실패 (NACK): {}", cause);
-                // 필요 시 재시도 로직이나 DB 상태 실패 업데이트 등을 여기서 처리할 수 있습니다.
+                if (correlationData instanceof SdRenderCorrelationData sdCorrelationData) {
+                    eventPublisher.publishEvent(new SdRenderPublishFailedEvent(
+                            sdCorrelationData.getMessage(), cause, false));
+                }
             }
         });
 
@@ -130,6 +138,9 @@ public class RabbitMqConfig {
             log.error("[⚠️ RabbitMQ] 메시지 반환(Returned): code={}, text={}, exchange={}, routingKey={}, message={}",
                     returned.getReplyCode(), returned.getReplyText(), returned.getExchange(),
                     returned.getRoutingKey(), returned.getMessage());
+            
+            // Returned 메시지는 별도의 CorrelationData 매핑이 어렵지만, 
+            // body를 역직렬화하여 이벤트를 발행할 수 있습니다. (여기서는 로그 우선)
         });
 
         return template;

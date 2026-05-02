@@ -23,7 +23,8 @@ public class SdRenderCommandPublisher {
             rabbitTemplate.convertAndSend(
                     RabbitMqConfig.COMMAND_EXCHANGE,
                     RabbitMqConfig.SD_RENDER_COMMAND_ROUTING_KEY,
-                    message
+                    message,
+                    new SdRenderCorrelationData(message.jobId().toString(), message)
             );
         } catch (RuntimeException e) {
             throw new CustomException(ErrorCode.RENDER_COMMAND_PUBLISH_FAILED);
