@@ -8,6 +8,7 @@ import com.a204.batang.domain.render.dto.RenderStatusSseResponse;
 import com.a204.batang.domain.render.entity.RenderArtifact;
 import com.a204.batang.domain.render.entity.RenderJob;
 import com.a204.batang.domain.render.entity.RenderJobStep;
+import com.a204.batang.domain.render.messaging.dto.SdRenderError;
 import com.a204.batang.domain.render.messaging.dto.SdRenderEventMessage;
 import com.a204.batang.domain.render.messaging.event.RenderStatusChangedEvent;
 import com.a204.batang.domain.render.messaging.event.SdRenderPublishFailedEvent;
@@ -24,6 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.event.TransactionPhase;
@@ -86,8 +88,26 @@ public class SdRenderEventListener {
     }
 
     /**
-     * RabbitMQ 발행 실패(NACK 등) 이벤트를 수신하여 재시도하거나 실패 처리한다.
+     * DLQ 메시지를 소비하여 무한 재전달을 방지하고 운영 알림용 로그를 남긴다.
+     *
+     * <p>DLQ에 도달한 메시지는 이미 재시도가 소진된 것이므로 재처리하지 않는다.
+     * 실제 운영에서는 이 로그를 기반으로 알림 시스템(Slack, PagerDuty 등)과 연동할 수 있다.
      */
+    @RabbitListener(queues = RabbitMqConfig.SD_RENDER_DLQ)
+    public void handleDlq(org.springframework.amqp.core.Message message) {
+        log.error("[💀 DLQ] 처리 불가 메시지 수신 - queue={}, routingKey={}, body={}",
+                RabbitMqConfig.SD_RENDER_DLQ,
+                message.getMessageProperties().getReceivedRoutingKey(),
+                new String(message.getBody()));
+    }
+
+    /**
+     * RabbitMQ 발행 실패(NACK 등) 이벤트를 수신하여 재시도하거나 실패 처리한다.
+     *
+     * <p>{@code SdRenderPublishFailedEvent}는 RabbitMQ Confirm 콜백(IO 스레드)에서 발행된다.
+     * {@code @Async}로 즉시 Spring 스레드풀로 분리하여 RabbitMQ IO 스레드를 점유하지 않는다.
+     */
+    @Async
     @EventListener
     @Transactional
     public void handlePublishFailed(SdRenderPublishFailedEvent event) {
@@ -260,16 +280,26 @@ public class SdRenderEventListener {
             return;
         }
 
-        String errorCode = event.error() != null && event.error().code() != null
-                ? event.error().code()
+        SdRenderError error = event.error();
+        String errorCode = error != null && error.code() != null
+                ? error.code()
                 : "SD_RENDER_FAILED";
-        String errorMessage = event.error() != null && event.error().message() != null
-                ? event.error().message()
+        // retryable=true인 경우 사용자에게 재시도 가능함을 안내한다.
+        // TODO: SdRenderEventMessage에 원본 커맨드 정보가 없어 자동 재시도 불가.
+        //       자동 재시도가 필요하다면 correlationId로 원본 커맨드를 DB에서 조회하거나
+        //       SdRenderCommandMessage를 event payload에 포함시키는 구조 변경이 필요하다.
+        boolean retryable = error != null && Boolean.TRUE.equals(error.retryable());
+        String errorMessage = error != null && error.message() != null
+                ? error.message()
                 : "렌더링에 실패했습니다.";
+        String userMessage = retryable
+                ? errorMessage + " (재시도 가능)"
+                : errorMessage;
 
         Map<String, Object> output = new LinkedHashMap<>();
         output.put("errorCode", errorCode);
         output.put("errorMessage", errorMessage);
+        output.put("retryable", retryable);
         JsonNode outputPayload = objectMapper.valueToTree(output);
 
         step.markFailed(errorCode, errorMessage, outputPayload, now);
@@ -283,7 +313,7 @@ public class SdRenderEventListener {
                 "FAILED",
                 safeProgress(event.progress(), 0),
                 null,
-                errorMessage
+                userMessage
         ));
     }
 
