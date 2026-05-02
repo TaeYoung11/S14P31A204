@@ -3,6 +3,7 @@ package com.a204.batang.domain.workspace.service;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest.BubbleData;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest.ConnectionData;
 import com.a204.batang.domain.workspace.dto.BubbleSnapshotPayload;
+import com.a204.batang.domain.workspace.dto.SaveBubbleSnapshotRequest;
 import com.a204.batang.domain.workspace.entity.PhaseStatus;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
@@ -93,5 +94,42 @@ public class BubbleSnapshotHelper {
         root.set("bubbles", objectMapper.valueToTree(payload.bubbles()));
         root.set("connections", objectMapper.valueToTree(payload.connections()));
         return root;
+    }
+
+    /**
+     * workspace snapshot JSON이 mapper 입력으로 사용할 수 있는 구조인지 검증한다.
+     *
+     * @param snapshotNode workspace snapshot JSON
+     * @return 검증 및 변환된 snapshot payload
+     */
+    public BubbleSnapshotPayload readSnapshotPayloadOrThrow(JsonNode snapshotNode) {
+        if (snapshotNode == null || snapshotNode.isNull() || !snapshotNode.isObject()) {
+            throw new CustomException(
+                    ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
+                    "workspace snapshot은 JSON object여야 합니다."
+            );
+        }
+
+        JsonNode bubblesNode = snapshotNode.get("bubbles");
+        JsonNode connectionsNode = snapshotNode.get("connections");
+        if (bubblesNode == null || connectionsNode == null || !bubblesNode.isArray() || !connectionsNode.isArray()) {
+            throw new CustomException(
+                    ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
+                    "workspace snapshot에는 bubbles, connections 배열이 모두 있어야 합니다."
+            );
+        }
+
+        try {
+            SaveBubbleSnapshotRequest payload = objectMapper.treeToValue(snapshotNode, SaveBubbleSnapshotRequest.class);
+            validatePayloadOrThrow(payload);
+            return payload;
+        } catch (CustomException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new CustomException(
+                    ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
+                    "workspace snapshot을 bubble snapshot payload로 변환할 수 없습니다."
+            );
+        }
     }
 }

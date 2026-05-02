@@ -1,0 +1,341 @@
+package com.a204.batang.domain.floorplan.service;
+
+import com.a204.batang.domain.floorplan.dto.LayoutImportV2Payload;
+import com.a204.batang.domain.workspace.dto.BubbleSnapshotPayload;
+import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest.BubbleData;
+import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest.ConnectionData;
+import com.a204.batang.domain.workspace.service.BubbleSnapshotHelper;
+import com.a204.batang.global.exception.CustomException;
+import com.a204.batang.global.exception.ErrorCode;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class FloorPlanLayoutImportMapper {
+
+    private static final double DEFAULT_MM_PER_PX = 25.0;
+
+    private final ObjectMapper objectMapper;
+    private final Validator validator;
+    private final BubbleSnapshotHelper bubbleSnapshotHelper;
+
+    /**
+     * raw 요청의 layoutImport를 layout_import_v2 DTO로 검증 및 정규화한다.
+     *
+     * @param projectId 프로젝트 식별자
+     * @param projectName 프로젝트 이름
+     * @param layoutImportNode raw layoutImport JSON
+     * @return 검증된 layout_import_v2 payload
+     */
+    public LayoutImportV2Payload fromRawRequest(UUID projectId, String projectName, JsonNode layoutImportNode) {
+        Objects.requireNonNull(projectId, "projectId must not be null");
+        String resolvedProjectName = requireProjectName(projectName);
+
+        if (layoutImportNode == null || layoutImportNode.isNull() || !layoutImportNode.isObject()) {
+            throw new CustomException(ErrorCode.FLOOR_PLAN_LAYOUT_INVALID, "layoutImport는 JSON object여야 합니다.");
+        }
+
+        try {
+            LayoutImportV2Payload payload = objectMapper.treeToValue(layoutImportNode, LayoutImportV2Payload.class);
+            validateRawPayload(payload, projectId, resolvedProjectName);
+            log.info(
+                    "Floor-plan raw 요청을 layout import로 정규화했습니다. projectId={}, inputSource={}, roomCount={}, connectionCount={}",
+                    projectId,
+                    "RAW_REQUEST",
+                    payload.rooms().size(),
+                    payload.adjacency() == null ? 0 : payload.adjacency().size()
+            );
+            return payload;
+        } catch (CustomException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new CustomException(ErrorCode.FLOOR_PLAN_LAYOUT_INVALID, "layoutImport를 파싱할 수 없습니다.");
+        }
+    }
+
+    /**
+     * workspace snapshot을 layout_import_v2 DTO로 변환한다.
+     *
+     * @param projectId 프로젝트 식별자
+     * @param projectName 프로젝트 이름
+     * @param snapshotNode workspace snapshot JSON
+     * @return 변환된 layout_import_v2 payload
+     */
+    public LayoutImportV2Payload fromBubbleSnapshot(UUID projectId, String projectName, JsonNode snapshotNode) {
+        Objects.requireNonNull(projectId, "projectId must not be null");
+        String resolvedProjectName = requireProjectName(projectName);
+
+        BubbleSnapshotPayload payload;
+        try {
+            payload = bubbleSnapshotHelper.readSnapshotPayloadOrThrow(snapshotNode);
+        } catch (CustomException e) {
+            throw new CustomException(
+                    ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
+                    e.getMessage()
+            );
+        }
+        List<BubbleData> bubbles = payload.bubbles();
+        List<ConnectionData> connections = payload.connections();
+
+        if (bubbles == null || bubbles.isEmpty()) {
+            throw new CustomException(
+                    ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
+                    "workspace snapshot에는 최소 하나의 bubble이 있어야 합니다."
+            );
+        }
+
+        validateSnapshotBubblesOrThrow(bubbles);
+        validateSnapshotConnectionsOrThrow(bubbles, connections);
+
+        double mmPerPx = resolveMmPerPx(bubbles);
+        int unmappedRoomTypeCount = 0;
+        List<LayoutImportV2Payload.Room> rooms = new ArrayList<>();
+        for (BubbleData bubble : bubbles) {
+            String normalizedType = normalizeRoomType(bubble.type());
+            if ("other".equals(normalizedType) && !isKnownMappedRoomType(bubble.type())) {
+                unmappedRoomTypeCount++;
+            }
+
+            rooms.add(new LayoutImportV2Payload.Room(
+                    bubble.id(),
+                    bubble.label(),
+                    normalizedType,
+                    roundPositiveMillimeter(bubble.widthMm(), "bubble widthMm"),
+                    roundPositiveMillimeter(bubble.heightMm(), "bubble heightMm"),
+                    1,
+                    bubble.x() * mmPerPx,
+                    bubble.y() * mmPerPx,
+                    0.0,
+                    false,
+                    null
+            ));
+        }
+
+        List<LayoutImportV2Payload.Adjacency> adjacency = connections.stream()
+                .map(connection -> new LayoutImportV2Payload.Adjacency(
+                        connection.from(),
+                        connection.to(),
+                        mapConnectionStrength(connection.type())
+                ))
+                .toList();
+
+        LayoutImportV2Payload mapped = new LayoutImportV2Payload(
+                "v2",
+                projectId.toString(),
+                resolvedProjectName,
+                rooms,
+                null,
+                adjacency.isEmpty() ? null : adjacency,
+                null,
+                defaultGenerationOptions(),
+                null,
+                defaultGenerationPolicy()
+        );
+
+        validateGeneratedPayload(mapped, ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED);
+
+        log.info(
+                "Workspace snapshot을 layout import로 변환했습니다. projectId={}, inputSource={}, roomCount={}, connectionCount={}, unmappedRoomTypeCount={}, mmPerPx={}",
+                projectId,
+                "WORKSPACE_SNAPSHOT",
+                rooms.size(),
+                adjacency.size(),
+                unmappedRoomTypeCount,
+                mmPerPx
+        );
+
+        return mapped;
+    }
+
+    private void validateRawPayload(LayoutImportV2Payload payload, UUID projectId, String projectName) {
+        if (payload == null) {
+            throw new CustomException(ErrorCode.FLOOR_PLAN_LAYOUT_INVALID, "layoutImport는 필수입니다.");
+        }
+        if (!"v2".equals(payload.schemaVersion())) {
+            throw new CustomException(ErrorCode.FLOOR_PLAN_LAYOUT_INVALID, "schema_version은 v2여야 합니다.");
+        }
+        if (payload.rooms() == null || payload.rooms().isEmpty()) {
+            throw new CustomException(ErrorCode.FLOOR_PLAN_LAYOUT_INVALID, "rooms는 비어 있을 수 없습니다.");
+        }
+        validateGeneratedPayload(payload, ErrorCode.FLOOR_PLAN_LAYOUT_INVALID);
+
+        log.debug(
+                "Raw floor-plan layout import payload 검증이 완료되었습니다. projectId={}, projectName={}, roomCount={}",
+                projectId,
+                projectName,
+                payload.rooms().size()
+        );
+    }
+
+    private void validateGeneratedPayload(LayoutImportV2Payload payload, ErrorCode errorCode) {
+        Set<ConstraintViolation<LayoutImportV2Payload>> violations = validator.validate(payload);
+        if (!violations.isEmpty()) {
+            String message = violations.stream()
+                    .map(ConstraintViolation::getMessage)
+                    .sorted()
+                    .collect(Collectors.joining(", "));
+            throw new CustomException(errorCode, message);
+        }
+    }
+
+    private void validateSnapshotBubblesOrThrow(List<BubbleData> bubbles) {
+        Set<String> bubbleIds = new HashSet<>();
+        for (BubbleData bubble : bubbles) {
+            if (!bubbleIds.add(bubble.id())) {
+                throw new CustomException(
+                        ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
+                        "중복 bubble id는 허용되지 않습니다."
+                );
+            }
+            requireFinitePositive(bubble.width(), "bubble width");
+            requireFinitePositive(bubble.height(), "bubble height");
+            requireFinitePositive(bubble.widthMm(), "bubble widthMm");
+            requireFinitePositive(bubble.heightMm(), "bubble heightMm");
+            requireFinite(bubble.x(), "bubble x");
+            requireFinite(bubble.y(), "bubble y");
+        }
+    }
+
+    private void validateSnapshotConnectionsOrThrow(List<BubbleData> bubbles, List<ConnectionData> connections) {
+        Set<String> bubbleIds = bubbles.stream().map(BubbleData::id).collect(Collectors.toSet());
+        for (ConnectionData connection : connections) {
+            if (!bubbleIds.contains(connection.from()) || !bubbleIds.contains(connection.to())) {
+                throw new CustomException(
+                        ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
+                        "connection이 존재하지 않는 bubble id를 참조하고 있습니다."
+                );
+            }
+            mapConnectionStrength(connection.type());
+        }
+    }
+
+    private int roundPositiveMillimeter(Double millimeter, String fieldName) {
+        requireFinitePositive(millimeter, fieldName);
+        long rounded = Math.round(millimeter);
+        if (rounded <= 0L || rounded > Integer.MAX_VALUE) {
+            throw new CustomException(
+                    ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
+                    fieldName + "는 범위 내 양의 정수여야 합니다."
+            );
+        }
+        return (int) rounded;
+    }
+
+    private double resolveMmPerPx(List<BubbleData> bubbles) {
+        for (BubbleData bubble : bubbles) {
+            if (isFinitePositive(bubble.widthMm()) && isFinitePositive(bubble.width())) {
+                return bubble.widthMm() / bubble.width();
+            }
+            if (isFinitePositive(bubble.heightMm()) && isFinitePositive(bubble.height())) {
+                return bubble.heightMm() / bubble.height();
+            }
+        }
+        return DEFAULT_MM_PER_PX;
+    }
+
+    private String normalizeRoomType(String rawType) {
+        if (rawType == null || rawType.isBlank()) {
+            return "other";
+        }
+
+        String normalized = rawType.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "거실", "living" -> "living";
+            case "침실", "bedroom", "방" -> "bedroom";
+            case "주방", "kitchen" -> "kitchen";
+            case "화장실", "bathroom" -> "bathroom";
+            case "복도", "corridor", "현관" -> "corridor";
+            case "사무실", "office" -> "office";
+            case "미선택", "other" -> "other";
+            default -> "other";
+        };
+    }
+
+    private boolean isKnownMappedRoomType(String rawType) {
+        if (rawType == null || rawType.isBlank()) {
+            return false;
+        }
+        String normalized = rawType.trim().toLowerCase(Locale.ROOT);
+        return Set.of(
+                "거실", "living",
+                "침실", "bedroom", "방",
+                "주방", "kitchen",
+                "화장실", "bathroom",
+                "복도", "corridor", "현관",
+                "사무실", "office",
+                "미선택", "other"
+        ).contains(normalized);
+    }
+
+    private double mapConnectionStrength(String type) {
+        if (type == null) {
+            throw new CustomException(
+                    ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
+                    "connection type은 필수입니다."
+            );
+        }
+
+        return switch (type.trim().toLowerCase(Locale.ROOT)) {
+            case "bold" -> 1.0;
+            case "thin" -> 0.6;
+            case "dashed" -> 0.3;
+            default -> throw new CustomException(
+                    ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
+                    "지원하지 않는 connection type입니다: " + type
+            );
+        };
+    }
+
+    private LayoutImportV2Payload.GenerationOptions defaultGenerationOptions() {
+        return new LayoutImportV2Payload.GenerationOptions(true, true, true, true, false);
+    }
+
+    private LayoutImportV2Payload.GenerationPolicy defaultGenerationPolicy() {
+        return new LayoutImportV2Payload.GenerationPolicy("outer_boundary", "from_adjacency", "flat");
+    }
+
+    private String requireProjectName(String projectName) {
+        if (projectName == null || projectName.isBlank()) {
+            throw new CustomException(ErrorCode.FLOOR_PLAN_LAYOUT_INVALID, "project name은 비어 있을 수 없습니다.");
+        }
+        return projectName;
+    }
+
+    private void requireFinite(Double value, String fieldName) {
+        if (value == null || !Double.isFinite(value)) {
+            throw new CustomException(
+                    ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
+                    fieldName + "는 유한한 숫자여야 합니다."
+            );
+        }
+    }
+
+    private void requireFinitePositive(Double value, String fieldName) {
+        if (!isFinitePositive(value)) {
+            throw new CustomException(
+                    ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
+                    fieldName + "는 양수이면서 유한한 숫자여야 합니다."
+            );
+        }
+    }
+
+    private boolean isFinitePositive(Double value) {
+        return value != null && Double.isFinite(value) && value > 0.0;
+    }
+}
