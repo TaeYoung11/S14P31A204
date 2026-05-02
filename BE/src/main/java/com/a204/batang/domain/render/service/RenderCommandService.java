@@ -1,6 +1,5 @@
 package com.a204.batang.domain.render.service;
 
-import com.a204.batang.domain.notification.service.NotificationSseService;
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
@@ -16,6 +15,7 @@ import com.a204.batang.domain.render.repository.RenderJobRepository;
 import com.a204.batang.domain.render.repository.RenderJobStepRepository;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
+import com.a204.batang.global.config.RabbitMqConfig;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -30,7 +30,6 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -44,7 +43,6 @@ public class RenderCommandService {
     private static final String JOB_TYPE_SD_RENDER = "SD_RENDER";
     private static final String WORKER_TYPE_SD_RENDER = "SD_RENDER";
     private static final String SOURCE_SCENE_TYPE_IFC_MODEL = "IFC_MODEL";
-    private static final String COMMAND_ROUTING_KEY = "command.sd-render.generate";
 
     private final ProjectRepository projectRepository;
     private final ProjectAccessService projectAccessService;
@@ -52,7 +50,6 @@ public class RenderCommandService {
     private final RenderJobRepository renderJobRepository;
     private final RenderJobStepRepository renderJobStepRepository;
     private final SdRenderCommandPublisher sdRenderCommandPublisher;
-    private final NotificationSseService notificationSseService;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
@@ -108,7 +105,7 @@ public class RenderCommandService {
                 jobId,
                 1,
                 WORKER_TYPE_SD_RENDER,
-                COMMAND_ROUTING_KEY,
+                RabbitMqConfig.SD_RENDER_COMMAND_ROUTING_KEY,
                 idempotencyKey,
                 inputPayload,
                 now
@@ -122,7 +119,7 @@ public class RenderCommandService {
                 1,
                 "COMMAND",
                 "SD_RENDER_GENERATE",
-                COMMAND_ROUTING_KEY,
+                RabbitMqConfig.SD_RENDER_COMMAND_ROUTING_KEY,
                 jobId,
                 jobStepId,
                 1,
@@ -150,7 +147,7 @@ public class RenderCommandService {
             throw e;
         }
 
-        sendRenderSse(project, "RENDER_QUEUED", new RenderStatusSseResponse(
+        sendRenderSse("RENDER_QUEUED", new RenderStatusSseResponse(
                 "RENDER_QUEUED",
                 projectId,
                 jobId,
@@ -229,13 +226,9 @@ public class RenderCommandService {
         return "s3://batang/projects/%s/renders/%s.png".formatted(projectId, artifactId);
     }
 
-    private void sendRenderSse(Project project, String eventName, Object payload) {
-        // 트랜잭션 정합성을 위해 이 이벤트를 발행하고, 트랜잭션 커밋 후에 실제로 발송되도록 유도한다.
-        if (payload instanceof RenderStatusSseResponse ssePayload) {
-            eventPublisher.publishEvent(new RenderStatusChangedEvent(project.getProjectId(), eventName, ssePayload));
-        } else {
-            Set<UUID> targetUserIds = projectAccessService.resolveProjectMemberUserIds(project);
-            notificationSseService.sendToUsers(targetUserIds, eventName, payload);
-        }
+    private void sendRenderSse(String eventName, RenderStatusSseResponse payload) {
+        // 트랜잭션 정합성을 위해 커밋 후 SSE 발송되도록 이벤트로 위임한다.
+        eventPublisher.publishEvent(new RenderStatusChangedEvent(
+                payload.projectId(), eventName, payload));
     }
 }
