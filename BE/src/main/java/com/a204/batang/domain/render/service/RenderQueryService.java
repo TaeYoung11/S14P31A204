@@ -155,6 +155,10 @@ public class RenderQueryService {
 
     /**
      * 로컬 시각을 UTC ISO-8601 문자열로 변환한다.
+     *
+     * <p>DB 컬럼 타입이 {@code TIMESTAMP WITHOUT TIME ZONE}이고,
+     * JVM timezone 및 PostgreSQL timezone이 모두 Asia/Seoul(KST)로 설정된 환경을
+     * 전제로 한다. 환경 타임존이 변경되면 이 변환 로직도 함께 검토해야 한다.
      */
     private String toUtcIso(LocalDateTime value) {
         if (value == null) {
