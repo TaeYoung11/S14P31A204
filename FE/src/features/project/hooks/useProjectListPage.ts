@@ -9,6 +9,7 @@ import {
   useProjects,
   useUpdateProject,
 } from '@/features/project/hooks/useProjects'
+import { useProjectStore } from '@/features/project/stores/projectStore'
 import type { Project } from '@/shared/types'
 
 type ViewMode = 'grid' | 'list'
@@ -17,6 +18,7 @@ const DELETE_CONFIRM_TEXT = '삭제'
 
 export function useProjectListPage() {
   const navigate = useNavigate()
+  const setCurrentProject = useProjectStore((state) => state.setCurrentProject)
   const { user, logout, withdraw, withdrawError, isWithdrawing } = useAuth()
   const { data, isLoading, isFetchingNextPage, fetchNextPage, hasNextPage } = useProjects()
   const createProject = useCreateProject()
@@ -171,6 +173,7 @@ export function useProjectListPage() {
 
   const handleCloseSiteModal = () => {
     if (siteProject) {
+      setCurrentProject(siteProject)
       navigate(`/projects/${siteProject.id}/editor`)
     }
     setSiteProject(null)

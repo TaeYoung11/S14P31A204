@@ -31,7 +31,7 @@ export default function EditorPage() {
         onSave={vm.mode === '3d' ? vm.handleOpenIFCExportModal : vm.handleOpenExportSelectionModal}
         saveStatus={vm.saveStatus}
       />
-      <EditorToolbar mode={vm.mode} onModeChange={vm.setMode} />
+      <EditorToolbar mode={vm.mode} projectName={vm.currentProjectName} onModeChange={vm.setMode} />
 
       <div className={`flex flex-1 relative overflow-hidden ${vm.mode === 'view' ? '' : 'px-6 pb-6 gap-6'}`}>
         {vm.mode !== 'view' && (
