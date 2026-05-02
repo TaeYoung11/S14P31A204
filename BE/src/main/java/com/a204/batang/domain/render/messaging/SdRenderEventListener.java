@@ -9,6 +9,7 @@ import com.a204.batang.domain.render.entity.RenderArtifact;
 import com.a204.batang.domain.render.entity.RenderJob;
 import com.a204.batang.domain.render.entity.RenderJobStep;
 import com.a204.batang.domain.render.messaging.dto.SdRenderEventMessage;
+import com.a204.batang.domain.render.messaging.event.RenderStatusChangedEvent;
 import com.a204.batang.domain.render.messaging.event.SdRenderPublishFailedEvent;
 import com.a204.batang.domain.render.repository.RenderArtifactRepository;
 import com.a204.batang.domain.render.repository.RenderJobRepository;
@@ -21,9 +22,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -52,6 +56,7 @@ public class SdRenderEventListener {
     private final RenderArtifactRepository renderArtifactRepository;
     private final SdRenderCommandPublisher sdRenderCommandPublisher;
     private final NotificationSseService notificationSseService;
+    private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
     /**
@@ -366,11 +371,8 @@ public class SdRenderEventListener {
     }
 
     private void sendSse(UUID projectId, String eventName, RenderStatusSseResponse payload) {
-        Project project = projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)
-                .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
-        // 렌더링 이벤트는 별도 채널을 만들지 않고 기존 notification SSE를 재사용한다.
-        Set<UUID> targetUserIds = projectAccessService.resolveProjectMemberUserIds(project);
-        notificationSseService.sendToUsers(targetUserIds, eventName, payload);
+        // 즉시 발송하지 않고 이벤트를 발행하여 트랜잭션 커밋 후 처리를 유도한다.
+        eventPublisher.publishEvent(new RenderStatusChangedEvent(projectId, eventName, payload));
     }
 
     private Integer safeProgress(Integer progress, Integer fallback) {
@@ -419,5 +421,20 @@ public class SdRenderEventListener {
         if (value != null) {
             metadata.put(key, value);
         }
+    }
+    /**
+     * 트랜잭션 커밋 후 실제 SSE 알림을 발송한다.
+     */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleRenderStatusChanged(RenderStatusChangedEvent event) {
+        log.info("[🔔 SSE] 트랜잭션 커밋 후 알림 발송 - ProjectId: {}, Event: {}", event.getProjectId(), event.getEventName());
+
+        Project project = projectRepository.findByProjectIdAndDeletedAtIsNull(event.getProjectId()).orElse(null);
+        if (project == null) {
+            return;
+        }
+
+        Set<UUID> targetUserIds = projectAccessService.resolveProjectMemberUserIds(project);
+        notificationSseService.sendToUsers(targetUserIds, event.getEventName(), event.getPayload());
     }
 }

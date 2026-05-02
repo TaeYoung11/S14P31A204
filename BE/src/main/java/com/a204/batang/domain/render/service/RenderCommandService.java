@@ -11,6 +11,7 @@ import com.a204.batang.domain.render.entity.RenderJob;
 import com.a204.batang.domain.render.entity.RenderJobStep;
 import com.a204.batang.domain.render.messaging.SdRenderCommandPublisher;
 import com.a204.batang.domain.render.messaging.dto.SdRenderCommandMessage;
+import com.a204.batang.domain.render.messaging.event.RenderStatusChangedEvent;
 import com.a204.batang.domain.render.repository.RenderJobRepository;
 import com.a204.batang.domain.render.repository.RenderJobStepRepository;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
@@ -21,6 +22,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,6 +53,7 @@ public class RenderCommandService {
     private final RenderJobStepRepository renderJobStepRepository;
     private final SdRenderCommandPublisher sdRenderCommandPublisher;
     private final NotificationSseService notificationSseService;
+    private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
     /**
@@ -227,8 +230,12 @@ public class RenderCommandService {
     }
 
     private void sendRenderSse(Project project, String eventName, Object payload) {
-        // 렌더링 SSE는 기존 notification 스트림으로 전송한다.
-        Set<UUID> targetUserIds = projectAccessService.resolveProjectMemberUserIds(project);
-        notificationSseService.sendToUsers(targetUserIds, eventName, payload);
+        // 트랜잭션 정합성을 위해 이 이벤트를 발행하고, 트랜잭션 커밋 후에 실제로 발송되도록 유도한다.
+        if (payload instanceof RenderStatusSseResponse ssePayload) {
+            eventPublisher.publishEvent(new RenderStatusChangedEvent(project.getProjectId(), eventName, ssePayload));
+        } else {
+            Set<UUID> targetUserIds = projectAccessService.resolveProjectMemberUserIds(project);
+            notificationSseService.sendToUsers(targetUserIds, eventName, payload);
+        }
     }
 }
