@@ -26,7 +26,6 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -97,7 +96,6 @@ class RenderCommandServiceTest {
         given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
         given(projectAccessService.resolveCurrentUserId()).willReturn(userId);
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)).willReturn(Optional.of(workspace));
-        given(projectAccessService.resolveProjectMemberUserIds(project)).willReturn(Set.of(userId));
         doNothing().when(sdRenderCommandPublisher).publish(any());
 
         CreateRenderResponse response = renderCommandService.createRender(projectId, request);

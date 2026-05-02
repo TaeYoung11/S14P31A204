@@ -1,6 +1,5 @@
 package com.a204.batang.domain.render.messaging;
 
-import com.a204.batang.domain.notification.service.NotificationSseService;
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
@@ -9,6 +8,7 @@ import com.a204.batang.domain.render.entity.RenderJob;
 import com.a204.batang.domain.render.entity.RenderJobStep;
 import com.a204.batang.domain.render.messaging.dto.SdRenderError;
 import com.a204.batang.domain.render.messaging.dto.SdRenderEventMessage;
+import com.a204.batang.domain.render.messaging.event.RenderStatusChangedEvent;
 import com.a204.batang.domain.render.repository.RenderArtifactRepository;
 import com.a204.batang.domain.render.repository.RenderJobRepository;
 import com.a204.batang.domain.render.repository.RenderJobStepRepository;
@@ -36,7 +36,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -119,7 +118,7 @@ class SdRenderEventListenerTest {
 
         assertThat(job.getStatus()).isEqualTo("RUNNING");
         assertThat(step.getStatus()).isEqualTo("RUNNING");
-        verify(notificationSseService, times(1)).sendToUsers(any(), eq("RENDER_STARTED"), any());
+        verify(eventPublisher, times(1)).publishEvent(any(RenderStatusChangedEvent.class));
     }
 
     @Test
@@ -136,7 +135,7 @@ class SdRenderEventListenerTest {
         assertThat(step.getStatus()).isEqualTo("RUNNING");
         assertThat(job.getProgress()).isEqualTo(45);
         assertThat(step.getProgress()).isEqualTo(45);
-        verify(notificationSseService, times(1)).sendToUsers(any(), eq("RENDER_PROGRESS"), any());
+        verify(eventPublisher, times(1)).publishEvent(any(RenderStatusChangedEvent.class));
     }
 
     @Test
@@ -147,7 +146,7 @@ class SdRenderEventListenerTest {
         output.put("width", 1024);
         output.put("height", 1024);
         output.put("summary", "실사 렌더링 이미지 생성 완료");
-        given(renderArtifactRepository.existsByArtifactId(artifactId)).willReturn(false);
+        given(renderArtifactRepository.existsById(artifactId)).willReturn(false);
 
         listener.handle(event("SD_RENDER_COMPLETED", "event.sd-render.completed", 100, output, null));
 
@@ -167,7 +166,7 @@ class SdRenderEventListenerTest {
         assertThat(metadata.path("style").path("timeOfDay").asText()).isEqualTo("DAY");
         assertThat(metadata.path("style").path("viewpoint").asText()).isEqualTo("EXTERIOR");
 
-        verify(notificationSseService, times(1)).sendToUsers(any(), eq("RENDER_COMPLETED"), any());
+        verify(eventPublisher, times(1)).publishEvent(any(RenderStatusChangedEvent.class));
     }
 
     @Test
@@ -183,7 +182,7 @@ class SdRenderEventListenerTest {
         assertThat(job.getStatus()).isEqualTo("FAILED");
         assertThat(step.getStatus()).isEqualTo("FAILED");
         verify(renderArtifactRepository, never()).save(any());
-        verify(notificationSseService, times(1)).sendToUsers(any(), eq("RENDER_FAILED"), any());
+        verify(eventPublisher, times(1)).publishEvent(any(RenderStatusChangedEvent.class));
     }
 
     @Test
@@ -200,7 +199,7 @@ class SdRenderEventListenerTest {
         assertThat(job.getStatus()).isEqualTo("SUCCEEDED");
         assertThat(step.getStatus()).isEqualTo("SUCCEEDED");
         verify(renderArtifactRepository, never()).save(any());
-        verify(notificationSseService, never()).sendToUsers(any(), eq("RENDER_COMPLETED"), any());
+        verify(eventPublisher, never()).publishEvent(any(RenderStatusChangedEvent.class));
     }
 
     @Test
@@ -219,7 +218,7 @@ class SdRenderEventListenerTest {
         assertThat(job.getStatus()).isEqualTo("FAILED");
         assertThat(step.getStatus()).isEqualTo("FAILED");
         verify(renderArtifactRepository, never()).save(any());
-        verify(notificationSseService, never()).sendToUsers(any(), eq("RENDER_FAILED"), any());
+        verify(eventPublisher, never()).publishEvent(any(RenderStatusChangedEvent.class));
     }
 
     @Test
@@ -248,7 +247,7 @@ class SdRenderEventListenerTest {
                 OffsetDateTime.now()
         ));
 
-        verify(notificationSseService, never()).sendToUsers(any(), any(), any());
+        verify(eventPublisher, never()).publishEvent(any(RenderStatusChangedEvent.class));
     }
 
     private SdRenderEventMessage event(
