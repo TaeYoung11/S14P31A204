@@ -16,7 +16,6 @@ interface UseInitialIfcImportParams {
  * - stage 크기(width/height)가 0보다 커야 실행된다 (캔버스 미준비 방지).
  * - projectId당 중복 임포트를 ref로 차단한다.
  * - stageWidth/stageHeight 변경(창 리사이즈 등)에는 재임포트하지 않는다.
- * - projectId 변경 또는 언마운트 시 ref를 초기화해 다음 마운트에서 정상 임포트한다.
  */
 export function useInitialIfcImport({
   projectId,
@@ -25,13 +24,6 @@ export function useInitialIfcImport({
   importFloorProjectFromIfc,
   attemptedInitialIfcImportProjectIdRef,
 }: UseInitialIfcImportParams) {
-  // projectId 변경·언마운트 시에만 ref 초기화 (stageWidth/Height 변경은 제외)
-  useEffect(() => {
-    return () => {
-      attemptedInitialIfcImportProjectIdRef.current = null
-    }
-  }, [projectId, attemptedInitialIfcImportProjectIdRef])
-
   // IFC 파일을 가져와 캔버스에 반영한다
   useEffect(() => {
     if (!projectId) return

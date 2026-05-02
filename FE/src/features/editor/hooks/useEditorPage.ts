@@ -531,6 +531,7 @@ export function useEditorPage() {
   const pendingDraftRecordRef = useRef<EditorDraftRecord | null>(null)
   const draftLoadTokenRef = useRef(0)
   const draftLoadBaselineRef = useRef<string | null>(null)
+  const draftLoadingProjectIdRef = useRef<string | null>(null)
   const latestDraftSnapshotRef = useRef<EditorDraftSnapshot | null>(null)
   const flushPendingDraftSave = useCallback(() => {
     if (localSaveTimerRef.current !== null) {
@@ -692,13 +693,15 @@ export function useEditorPage() {
   }, [flushPendingDraftSave])
 
   useEffect(() => {
-    if (!projectId || autosaveReadyProjectId === projectId) return
+    if (!projectId) return
+    if (draftLoadingProjectIdRef.current !== projectId) return
     const baselineSnapshot = draftLoadBaselineRef.current
     if (baselineSnapshot === null) return
     if (JSON.stringify(draftSnapshot) !== baselineSnapshot) {
       hasUserEditedRef.current = true
+      draftLoadingProjectIdRef.current = null
     }
-  }, [draftSnapshot, projectId, autosaveReadyProjectId])
+  }, [draftSnapshot, projectId])
 
   useEffect(() => {
     let isCancelled = false
@@ -707,19 +710,16 @@ export function useEditorPage() {
 
     flushPendingDraftSave()
 
-    const resetStateTimer = window.setTimeout(() => {
-      setAutosaveReadyProjectId(null)
-      setSaveStatus('idle')
-    }, 0)
+    draftLoadingProjectIdRef.current = projectId ?? null
     previousSnapshotRef.current = null
     pendingDraftRecordRef.current = null
     hasUserEditedRef.current = false
     draftLoadBaselineRef.current = JSON.stringify(latestDraftSnapshotRef.current)
 
     if (!projectId) {
+      draftLoadingProjectIdRef.current = null
       return () => {
         isCancelled = true
-        window.clearTimeout(resetStateTimer)
       }
     }
 
@@ -755,17 +755,19 @@ export function useEditorPage() {
           previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current)
         }
 
+        draftLoadingProjectIdRef.current = null
         setAutosaveReadyProjectId(projectId)
       })
       .catch(() => {
         if (isCancelled || draftLoadTokenRef.current !== loadToken) return
         previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current)
+        draftLoadingProjectIdRef.current = null
         setAutosaveReadyProjectId(projectId)
       })
 
     return () => {
       isCancelled = true
-      window.clearTimeout(resetStateTimer)
+      draftLoadingProjectIdRef.current = null
     }
   }, [
     flushPendingDraftSave,
@@ -778,6 +780,7 @@ export function useEditorPage() {
 
   useEffect(() => {
     if (!projectId || autosaveReadyProjectId !== projectId) return
+    if (draftLoadingProjectIdRef.current === projectId) return
 
     const serializedSnapshot = JSON.stringify(draftSnapshot)
 
