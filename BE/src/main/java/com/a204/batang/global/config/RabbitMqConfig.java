@@ -133,6 +133,10 @@ public class RabbitMqConfig {
             }
         });
 
+        // mandatory=true: Exchange→Queue 라우팅 실패 시 메시지를 반환하도록 Broker에 알림.
+        // 이 플래그 없이는 setReturnsCallback()이 등록되어 있어도 절대 호출되지 않음.
+        template.setMandatory(true);
+
         // Publisher Return: 메시지가 익스체인지에는 도달했으나 큐(Queue)로 라우팅되지 못한 경우
         template.setReturnsCallback(returned -> {
             log.error("[⚠️ RabbitMQ] 메시지 반환(Returned): code={}, text={}, exchange={}, routingKey={}, message={}",
