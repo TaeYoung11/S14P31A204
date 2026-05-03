@@ -1,22 +1,22 @@
-"""IFC 다양성 검증 — SD 추론 (3 fixture × 8뷰 × 1 preset).
+"""IFC 다양성 검증 — SD 추론 (3 fixture × 5뷰 × 1 preset).
 
-`run_diversity_check.py`로 추출한 depth 24장을 SD 1.5 + ControlNet-depth로
-추론. baseline 설정 그대로 (seed=7, guidance=7, steps=25, cn_base=0.7,
-iso_nw/se override 1.0, view-aware prompt suffix).
+`run_diversity_check.py`로 추출한 depth를 SD 1.5 + ControlNet-depth로 추론.
+baseline 설정(seed=7, guidance=7, steps=25, cn=1.15, view-aware prompt suffix).
+Phase 4 Step 4.5(2026-05-03) 이후 default 5뷰 — front/side/eye_ne/eye_nw/eye_se.
 
-기본 preset = scandinavian (옵션 A — EYE_* 품질 빠르게 확인 → 미세 조정 →
-필요 시 다른 preset 확장).
+기본 preset = scandinavian (Phase 4 — korean_villa/korean_house 사용 가능,
+산출물 품질 빠르게 확인 → 미세 조정 → 필요 시 다른 preset 확장).
 
 사용:
     python scripts/run_diversity_inference.py
     python scripts/run_diversity_inference.py outputs/ifc2img_diversity_v2
-    python scripts/run_diversity_inference.py outputs/diversity_v4_haus --fixture=Haus
+    python scripts/run_diversity_inference.py outputs/diversity_haus --fixture=Haus
 
 CLI 인자:
   positional out_dir : 출력 경로(default `outputs/ifc2img_diversity/`).
   --fixture=<substr> : fixture 이름에 substr 포함하는 fixture만 처리(부분 일치).
-                       빠른 처방 검증에 활용 (3 fixture → 1 fixture, ~6분 → ~2분).
-출력: <out_dir>/{stem}/styled_{preset}_{view}.png  (필터 없으면 3 × 8 = 24장)
+                       빠른 처방 검증에 활용 (3 fixture → 1 fixture).
+출력: <out_dir>/{stem}/styled_{preset}_{view}.png  (필터 없으면 3 × 5 = 15장)
 """
 
 from __future__ import annotations

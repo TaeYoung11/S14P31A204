@@ -1,12 +1,14 @@
-"""ifc2img v2 baseline 풀 렌더 — IFC → depth 5뷰 → SD 5장.
+"""ifc2img baseline 풀 렌더 — IFC → depth 5뷰 → SD 5장.
 
-baseline 정의 (2026-04-28 확정):
+baseline 정의 (Phase 4 land 후, 2026-05-03):
 - seed=7 (presets.py 명시)
 - guidance=7, steps=25
-- cn_scale base 0.7, iso_nw/iso_se override 1.0
-- view-aware prompt suffix (iso_ne/nw/se 환경 묘사)
+- cn_scale 1.15 base (preset 일관)
+- view-aware prompt suffix (default views는 빈 suffix; TOP/BIRDS_EYE/CORNER_LOW는
+  명시 호출 시 환경 단서 합성)
 - view-aware negative suffix 비활성 (C-1 폐기)
-- DEFAULT_RENDER_VIEWS 5개: front/side/iso_ne/iso_nw/iso_se
+- DEFAULT_RENDER_VIEWS 5개: front/side/eye_ne/eye_nw/eye_se (Phase 4 Step 4.5
+  이후 — ISO_* 제거, EYE_*가 사람 시선 + 대각선 코너 커버)
 - render(depth, params, view=v) 단일 진입점
 
 호출 진입점만 사용 — 모든 view-aware 합성/override 자동.

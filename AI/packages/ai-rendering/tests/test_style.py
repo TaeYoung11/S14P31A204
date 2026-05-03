@@ -210,10 +210,10 @@ def test_render_with_view_front_no_change(
 # --- C-1 폐기 후 — render(view=...) negative 합성 인프라 보존 회귀 방어 ---
 
 
-def test_render_with_view_iso_nw_keeps_base_negative_after_c1_rollback(
+def test_render_with_view_eye_nw_keeps_base_negative_after_c1_rollback(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """C-1 폐기 — view=ISO_NW 전달해도 suffix 비어있어 base negative 그대로."""
+    """C-1 폐기 — view=EYE_NW 전달해도 suffix 비어있어 base negative 그대로."""
     depth = Image.new("L", (768, 448), 100)
     base_negative = "(worst quality:1.4), interior"
     params = DepthStyleParams(
@@ -227,10 +227,10 @@ def test_render_with_view_iso_nw_keeps_base_negative_after_c1_rollback(
     assert call_negative == base_negative
 
 
-def test_render_with_view_iso_ne_keeps_base_negative(
+def test_render_with_view_eye_ne_keeps_base_negative(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """ISO_NE도 빈 suffix → base 그대로 (안정 판정 시점)."""
+    """EYE_NE도 빈 suffix → base 그대로 (안정 판정 시점)."""
     depth = Image.new("L", (768, 448), 100)
     base_negative = "(worst quality:1.4)"
     params = DepthStyleParams(
@@ -261,7 +261,7 @@ def test_render_without_view_uses_raw_negative(
     assert call_negative == base_negative
 
 
-def test_render_with_view_iso_nw_composes_when_suffix_present(
+def test_render_with_view_eye_nw_composes_when_suffix_present(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
     """인프라 보존 회귀 방어 — suffix 채우면 즉시 합성되어 pipe에 전달.
