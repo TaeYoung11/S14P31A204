@@ -45,6 +45,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -178,6 +179,42 @@ class FloorPlanGenerateEventListenerTest {
     }
 
     @Test
+    void handleStarted_ignoresWhenJobAndStepAreAlreadyTerminal() {
+        job.markSucceeded(objectMapper.createObjectNode(), LocalDateTime.now());
+        step.markSucceeded(objectMapper.createObjectNode(), LocalDateTime.now());
+        FloorPlanGenerateEventMessage event = startedEvent(0.2);
+
+        given(floorPlanJobRepository.findByJobIdAndJobType(jobId, FloorPlanConstants.JOB_TYPE_IFC_GENERATE_FROM_BUBBLE))
+                .willReturn(Optional.of(job));
+        given(floorPlanJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId))
+                .willReturn(Optional.of(step));
+
+        listener.handle(event);
+
+        verify(eventPublisher, never()).publishEvent(any());
+        assertThat(job.getStatus()).isEqualTo("SUCCEEDED");
+        assertThat(step.getStatus()).isEqualTo("SUCCEEDED");
+    }
+
+    @Test
+    void handleProgress_ignoresWhenJobAndStepAreAlreadyTerminal() {
+        job.markFailed("failed", objectMapper.createObjectNode(), LocalDateTime.now());
+        step.markFailed("failed", "failed", objectMapper.createObjectNode(), LocalDateTime.now());
+        FloorPlanGenerateEventMessage event = progressEvent(0.56);
+
+        given(floorPlanJobRepository.findByJobIdAndJobType(jobId, FloorPlanConstants.JOB_TYPE_IFC_GENERATE_FROM_BUBBLE))
+                .willReturn(Optional.of(job));
+        given(floorPlanJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId))
+                .willReturn(Optional.of(step));
+
+        listener.handle(event);
+
+        verify(eventPublisher, never()).publishEvent(any());
+        assertThat(job.getProgress()).isEqualTo(0);
+        assertThat(step.getProgress()).isEqualTo(0);
+    }
+
+    @Test
     void handleCompleted_updatesStateAndSavesArtifacts() {
         FloorPlanGenerateEventMessage event = completedEvent(
                 "projects/" + projectId + "/revisions/" + revisionId + "/model.ifc",
@@ -205,6 +242,26 @@ class FloorPlanGenerateEventListenerTest {
         assertThat(workspace.getCurrentRevision()).isEqualTo(revisionId.toString());
         verify(floorPlanArtifactRepository, times(2)).save(any(FloorPlanArtifact.class));
         verify(eventPublisher).publishEvent(any(FloorPlanStatusChangedEvent.class));
+    }
+
+    @Test
+    void handleCompleted_savesIfcArtifactOnlyWhenValidationReportIsMissing() {
+        FloorPlanGenerateEventMessage event = completedEvent(
+                "projects/" + projectId + "/revisions/" + revisionId + "/model.ifc",
+                null
+        );
+        given(floorPlanJobRepository.findByJobIdAndJobType(jobId, FloorPlanConstants.JOB_TYPE_IFC_GENERATE_FROM_BUBBLE))
+                .willReturn(Optional.of(job));
+        given(floorPlanJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId))
+                .willReturn(Optional.of(step));
+        given(revisionRepository.findByRevisionId(revisionId)).willReturn(Optional.of(revision));
+        given(floorPlanArtifactRepository.findByArtifactId(artifactId)).willReturn(Optional.empty());
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)).willReturn(Optional.of(workspace));
+
+        listener.handle(event);
+
+        verify(floorPlanArtifactRepository, times(1)).save(any(FloorPlanArtifact.class));
     }
 
     @Test
@@ -411,6 +468,32 @@ class FloorPlanGenerateEventListenerTest {
     }
 
     @Test
+    void handleFloorPlanStatusChanged_ignoresSseSendFailure() {
+        FloorPlanStatusChangedEvent event = new FloorPlanStatusChangedEvent(
+                projectId,
+                FloorPlanConstants.SSE_FLOOR_PLAN_FAILED,
+                new com.a204.batang.domain.floorplan.dto.FloorPlanStatusSseResponse(
+                        FloorPlanConstants.SSE_FLOOR_PLAN_FAILED,
+                        projectId,
+                        jobId,
+                        jobStepId,
+                        revisionId,
+                        "FAILED",
+                        0,
+                        "publish failed"
+                )
+        );
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectAccessService.resolveProjectMemberUserIds(project)).willReturn(Set.of(UUID.randomUUID()));
+        doThrow(new RuntimeException("sse down"))
+                .when(notificationSseService).sendToUsers(any(), eq(FloorPlanConstants.SSE_FLOOR_PLAN_FAILED), eq(event.payload()));
+
+        listener.handleFloorPlanStatusChanged(event);
+
+        verify(notificationSseService).sendToUsers(any(), eq(FloorPlanConstants.SSE_FLOOR_PLAN_FAILED), eq(event.payload()));
+    }
+
+    @Test
     void handlePublishFailed_retriesWhenNackAndAttemptsRemain() {
         FloorPlanPublishFailedEvent event = new FloorPlanPublishFailedEvent(commandMessage(1, 3), "nack", false);
         given(floorPlanJobRepository.findByJobIdAndJobType(jobId, FloorPlanConstants.JOB_TYPE_IFC_GENERATE_FROM_BUBBLE))
@@ -443,6 +526,9 @@ class FloorPlanGenerateEventListenerTest {
         assertThat(job.getStatus()).isEqualTo("FAILED");
         assertThat(step.getStatus()).isEqualTo("FAILED");
         assertThat(revision.getStatus()).isEqualTo("FAILED");
+        assertThat(project.getLatestRevisionId()).isNull();
+        assertThat(workspace.getIfcStorageUrl()).isNull();
+        assertThat(workspace.getCurrentRevision()).isNull();
     }
 
     @Test
@@ -461,6 +547,9 @@ class FloorPlanGenerateEventListenerTest {
         assertThat(job.getStatus()).isEqualTo("FAILED");
         assertThat(step.getStatus()).isEqualTo("FAILED");
         assertThat(revision.getStatus()).isEqualTo("FAILED");
+        assertThat(project.getLatestRevisionId()).isNull();
+        assertThat(workspace.getIfcStorageUrl()).isNull();
+        assertThat(workspace.getCurrentRevision()).isNull();
     }
 
     @Test

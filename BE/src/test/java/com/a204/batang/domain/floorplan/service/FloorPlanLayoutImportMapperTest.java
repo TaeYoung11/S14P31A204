@@ -18,6 +18,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class FloorPlanLayoutImportMapperTest {
 
+    /*
+     * NOTE:
+     * 계획상 mmPerPx 최종 fallback 25가 있었지만, 현재 구현은 bubble width/height/widthMm/heightMm
+     * 양수 검증을 먼저 수행하므로 해당 fallback 경로에 도달하지 않는다.
+     * fail-fast 동작을 테스트로 고정하고, fallback 25 정책은 별도 정책 변경 후보로 남긴다.
+     */
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private FloorPlanLayoutImportMapper mapper;
@@ -84,6 +91,39 @@ class FloorPlanLayoutImportMapperTest {
                       "locked": false
                     }
                   ]
+                }
+                """);
+
+        assertThatThrownBy(() -> mapper.fromRawRequest(UUID.randomUUID(), "project-name", raw))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.FLOOR_PLAN_LAYOUT_INVALID);
+    }
+
+    @Test
+    void fromRawRequest_throwsWhenPayloadIsNotObject() throws Exception {
+        JsonNode raw = objectMapper.readTree("""
+                [
+                  {
+                    "schema_version": "v2"
+                  }
+                ]
+                """);
+
+        assertThatThrownBy(() -> mapper.fromRawRequest(UUID.randomUUID(), "project-name", raw))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.FLOOR_PLAN_LAYOUT_INVALID);
+    }
+
+    @Test
+    void fromRawRequest_throwsWhenRoomsAreEmpty() throws Exception {
+        JsonNode raw = objectMapper.readTree("""
+                {
+                  "schema_version": "v2",
+                  "id": "550e8400-e29b-41d4-a716-446655440000",
+                  "name": "sample-project",
+                  "rooms": []
                 }
                 """);
 
@@ -198,6 +238,21 @@ class FloorPlanLayoutImportMapperTest {
     }
 
     @Test
+    void fromBubbleSnapshot_throwsWhenShapeIsMalformed() throws Exception {
+        JsonNode snapshot = objectMapper.readTree("""
+                {
+                  "bubbles": {},
+                  "connections": []
+                }
+                """);
+
+        assertThatThrownBy(() -> mapper.fromBubbleSnapshot(UUID.randomUUID(), "sample", snapshot))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED);
+    }
+
+    @Test
     void fromBubbleSnapshot_throwsWhenBubbleIdIsDuplicated() throws Exception {
         JsonNode snapshot = objectMapper.readTree("""
                 {
@@ -300,6 +355,35 @@ class FloorPlanLayoutImportMapperTest {
         LayoutImportV2Payload payload = mapper.fromBubbleSnapshot(UUID.randomUUID(), "sample", snapshot);
 
         assertThat(payload.rooms()).singleElement().extracting(LayoutImportV2Payload.Room::type).isEqualTo("other");
+    }
+
+    @Test
+    void fromBubbleSnapshot_throwsWhenDimensionsAreNonPositive() throws Exception {
+        JsonNode snapshot = objectMapper.readTree("""
+                {
+                  "bubbles": [
+                    {
+                      "id": "bubble-1",
+                      "x": 10.0,
+                      "y": 20.0,
+                      "width": 0.0,
+                      "height": 80.0,
+                      "widthMm": 2500.0,
+                      "heightMm": 2000.0,
+                      "label": "거실",
+                      "type": "거실",
+                      "ratio": 5.0,
+                      "color": "#ffffff"
+                    }
+                  ],
+                  "connections": []
+                }
+                """);
+
+        assertThatThrownBy(() -> mapper.fromBubbleSnapshot(UUID.randomUUID(), "sample", snapshot))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED);
     }
 
     @Test

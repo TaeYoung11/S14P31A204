@@ -45,6 +45,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -265,6 +266,9 @@ class FloorPlanGenerateCommandServiceTest {
 
         assertThat(response.inputSource()).isEqualTo(FloorPlanConstants.INPUT_SOURCE_WORKSPACE_SNAPSHOT);
         verify(floorPlanLayoutImportMapper).fromBubbleSnapshot(projectId, project.getName(), workspace.getBubbleSnapshotJson());
+        assertThat(project.getLatestRevisionId()).isNotNull();
+        assertThat(workspace.getIfcStorageUrl()).isNull();
+        assertThat(workspace.getCurrentRevision()).isNull();
     }
 
     @Test
@@ -310,6 +314,39 @@ class FloorPlanGenerateCommandServiceTest {
                 .isInstanceOf(CustomException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.FLOOR_PLAN_SNAPSHOT_NOT_FOUND);
+    }
+
+    @Test
+    void createFloorPlanGenerate_throwsWhenSnapshotNodeIsNull() {
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)).willReturn(Optional.of(workspace));
+        ReflectionTestUtils.setField(workspace, "bubbleSnapshotJson", null);
+
+        assertThatThrownBy(() -> floorPlanGenerateCommandService.createFloorPlanGenerate(projectId, userId, null))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.FLOOR_PLAN_SNAPSHOT_NOT_FOUND);
+    }
+
+    @Test
+    void createFloorPlanGenerate_doesNotFallbackWhenRawRequestIsInvalid() throws Exception {
+        CreateFloorPlanGenerateRequest request = new CreateFloorPlanGenerateRequest(objectMapper.readTree("""
+                {
+                  "schema_version": "v1"
+                }
+                """));
+
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        doThrow(new CustomException(ErrorCode.FLOOR_PLAN_LAYOUT_INVALID))
+                .when(floorPlanLayoutImportMapper).fromRawRequest(eq(projectId), eq(project.getName()), any());
+
+        assertThatThrownBy(() -> floorPlanGenerateCommandService.createFloorPlanGenerate(projectId, userId, request))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.FLOOR_PLAN_LAYOUT_INVALID);
+
+        verify(projectWorkspaceRepository, never()).findByProjectIdAndProject_DeletedAtIsNull(any());
+        verify(floorPlanLayoutImportMapper, never()).fromBubbleSnapshot(any(), any(), any());
     }
 
     @Test

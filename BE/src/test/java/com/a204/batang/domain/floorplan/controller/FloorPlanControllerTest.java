@@ -2,6 +2,8 @@ package com.a204.batang.domain.floorplan.controller;
 
 import com.a204.batang.domain.floorplan.dto.CreateFloorPlanGenerateResponse;
 import com.a204.batang.domain.floorplan.service.FloorPlanGenerateCommandService;
+import com.a204.batang.global.exception.CustomException;
+import com.a204.batang.global.exception.ErrorCode;
 import com.a204.batang.global.exception.controller.GlobalExceptionHandler;
 import com.a204.batang.global.jwt.JwtAuthFilter;
 import org.junit.jupiter.api.Test;
@@ -110,5 +112,60 @@ class FloorPlanControllerTest {
                 .andExpect(jsonPath("$.data.inputSource").value("RAW_REQUEST"))
                 .andExpect(jsonPath("$.data.status").value("QUEUED"))
                 .andExpect(jsonPath("$.data.progress").value(0));
+    }
+
+    @Test
+    void createFloorPlanGenerateJob_returnsBadRequestWhenJsonIsMalformed() throws Exception {
+        UUID projectId = UUID.randomUUID();
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/floor-plans/generate", projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutImport": {
+                                    "schema_version": "v2",
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("COMMON_INVALID_REQUEST"));
+    }
+
+    @Test
+    void createFloorPlanGenerateJob_mapsProjectNotFound() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        given(floorPlanGenerateCommandService.createFloorPlanGenerate(eq(projectId), any(), any()))
+                .willThrow(new CustomException(ErrorCode.PROJECT_NOT_FOUND));
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/floor-plans/generate", projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PROJECT_NOT_FOUND"));
+    }
+
+    @Test
+    void createFloorPlanGenerateJob_mapsForbiddenAccess() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        given(floorPlanGenerateCommandService.createFloorPlanGenerate(eq(projectId), any(), any()))
+                .willThrow(new CustomException(ErrorCode.FORBIDDEN_ACCESS));
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/floor-plans/generate", projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON_FORBIDDEN_ACCESS"));
+    }
+
+    @Test
+    void createFloorPlanGenerateJob_mapsPublishFailure() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        given(floorPlanGenerateCommandService.createFloorPlanGenerate(eq(projectId), any(), any()))
+                .willThrow(new CustomException(ErrorCode.FLOOR_PLAN_COMMAND_PUBLISH_FAILED));
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/floor-plans/generate", projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("FLOOR_PLAN_COMMAND_PUBLISH_FAILED"));
     }
 }
