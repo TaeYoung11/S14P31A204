@@ -316,7 +316,7 @@ public class FloorPlanGenerateEventListener {
         Revision revision = findRevision(event.targetRevisionId());
         // reserved revision/artifact id와 worker 결과를 대조하는 최종 방어선이다.
         // 여기서 mismatch를 놓치면 잘못된 결과를 다른 작업에 반영할 수 있다.
-        validateCompletionIds(event, revision, job);
+        validateCompletionIds(event, revision, job, step);
 
         String storageUrl = extractRequiredString(event.output(), "storage_url");
         String validationReportStorageUrl = extractString(event.output(), "validation_report_storage_url");
@@ -532,7 +532,12 @@ public class FloorPlanGenerateEventListener {
                 .orElseThrow(() -> new CustomException(ErrorCode.FLOOR_PLAN_REVISION_NOT_FOUND));
     }
 
-    private void validateCompletionIds(FloorPlanGenerateEventMessage event, Revision revision, FloorPlanJob job) {
+    private void validateCompletionIds(
+            FloorPlanGenerateEventMessage event,
+            Revision revision,
+            FloorPlanJob job,
+            FloorPlanJobStep step
+    ) {
         if (event.outputArtifactId() == null) {
             throw new CustomException(ErrorCode.FLOOR_PLAN_EVENT_INVALID);
         }
@@ -541,7 +546,7 @@ public class FloorPlanGenerateEventListener {
             throw new CustomException(ErrorCode.FLOOR_PLAN_EVENT_INVALID, "target revision의 프로젝트가 이벤트와 일치하지 않습니다.");
         }
 
-        JsonNode inputPayload = findStep(event).getInputPayload();
+        JsonNode inputPayload = step.getInputPayload();
         String expectedTargetRevisionId = extractJsonText(inputPayload, "targetRevisionId");
         String expectedArtifactId = extractJsonText(inputPayload, "expectedOutputArtifactId");
 
