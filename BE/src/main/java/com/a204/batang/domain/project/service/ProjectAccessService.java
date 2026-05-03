@@ -60,6 +60,19 @@ public class ProjectAccessService {
     }
 
     /**
+     * 현재 로그인한 사용자 ID를 조회하고, 없으면 인증 예외를 발생시킨다.
+     *
+     * @return 현재 사용자 ID
+     */
+    public UUID resolveCurrentUserIdOrThrow() {
+        UUID currentUserId = resolveCurrentUserId();
+        if (currentUserId == null) {
+            throw new CustomException(ErrorCode.UNAUTHORIZED, "로그인이 필요합니다.");
+        }
+        return currentUserId;
+    }
+
+    /**
      * 현재 사용자가 건축가(DESIGNER)인지 검증한다.
      */
     public void validateDesignerOrThrow() {
