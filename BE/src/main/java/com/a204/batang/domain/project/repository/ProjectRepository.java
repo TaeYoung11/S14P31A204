@@ -1,9 +1,11 @@
 package com.a204.batang.domain.project.repository;
 
 import com.a204.batang.domain.project.entity.Project;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -41,6 +43,15 @@ public interface ProjectRepository extends JpaRepository<Project, UUID> {
      * @return 프로젝트 Optional
      */
     Optional<Project> findByProjectIdAndDeletedAtIsNull(UUID projectId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT p
+            FROM Project p
+            WHERE p.projectId = :projectId
+              AND p.deletedAt IS NULL
+            """)
+    Optional<Project> findByProjectIdAndDeletedAtIsNullForUpdate(@Param("projectId") UUID projectId);
 
     /**
      * 삭제되지 않은 프로젝트 중 전달한 ID 목록에 해당하는 프로젝트를 조회한다.

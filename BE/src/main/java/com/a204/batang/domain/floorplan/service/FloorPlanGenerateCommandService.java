@@ -86,7 +86,7 @@ public class FloorPlanGenerateCommandService {
             UUID userId,
             CreateFloorPlanGenerateRequest request
     ) {
-        Project project = projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)
+        Project project = projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
 
         UUID currentUserId = Optional.ofNullable(userId)
