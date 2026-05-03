@@ -5,7 +5,9 @@ import com.a204.batang.domain.floorplan.entity.FloorPlanArtifact;
 import com.a204.batang.domain.floorplan.entity.FloorPlanJob;
 import com.a204.batang.domain.floorplan.entity.FloorPlanJobStep;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateEventMessage;
+import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateCommandMessage;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanWorkerError;
+import com.a204.batang.domain.floorplan.messaging.event.FloorPlanPublishFailedEvent;
 import com.a204.batang.domain.floorplan.messaging.event.FloorPlanStatusChangedEvent;
 import com.a204.batang.domain.floorplan.repository.FloorPlanArtifactRepository;
 import com.a204.batang.domain.floorplan.repository.FloorPlanJobRepository;
@@ -66,6 +68,8 @@ class FloorPlanGenerateEventListenerTest {
     private FloorPlanArtifactRepository floorPlanArtifactRepository;
     @Mock
     private NotificationSseService notificationSseService;
+    @Mock
+    private FloorPlanGenerateCommandPublisher floorPlanGenerateCommandPublisher;
     @Mock
     private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
@@ -406,6 +410,77 @@ class FloorPlanGenerateEventListenerTest {
         verify(notificationSseService).sendToUsers(any(), eq(FloorPlanConstants.SSE_FLOOR_PLAN_COMPLETED), eq(event.payload()));
     }
 
+    @Test
+    void handlePublishFailed_retriesWhenNackAndAttemptsRemain() {
+        FloorPlanPublishFailedEvent event = new FloorPlanPublishFailedEvent(commandMessage(1, 3), "nack", false);
+        given(floorPlanJobRepository.findByJobIdAndJobType(jobId, FloorPlanConstants.JOB_TYPE_IFC_GENERATE_FROM_BUBBLE))
+                .willReturn(Optional.of(job));
+        given(floorPlanJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId))
+                .willReturn(Optional.of(step));
+        given(revisionRepository.findByRevisionId(revisionId)).willReturn(Optional.of(revision));
+
+        listener.handlePublishFailed(event);
+
+        verify(floorPlanGenerateCommandPublisher).publish(any(FloorPlanGenerateCommandMessage.class));
+        assertThat(job.getStatus()).isEqualTo("QUEUED");
+        assertThat(step.getStatus()).isEqualTo("QUEUED");
+        assertThat(revision.getStatus()).isEqualTo("CREATING");
+    }
+
+    @Test
+    void handlePublishFailed_marksFailedWhenNackExceedsMaxAttempts() {
+        FloorPlanPublishFailedEvent event = new FloorPlanPublishFailedEvent(commandMessage(3, 3), "nack", false);
+        given(floorPlanJobRepository.findByJobIdAndJobType(jobId, FloorPlanConstants.JOB_TYPE_IFC_GENERATE_FROM_BUBBLE))
+                .willReturn(Optional.of(job));
+        given(floorPlanJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId))
+                .willReturn(Optional.of(step));
+        given(revisionRepository.findByRevisionId(revisionId)).willReturn(Optional.of(revision));
+
+        listener.handlePublishFailed(event);
+
+        verify(floorPlanGenerateCommandPublisher, never()).publish(any());
+        verify(eventPublisher).publishEvent(any(FloorPlanStatusChangedEvent.class));
+        assertThat(job.getStatus()).isEqualTo("FAILED");
+        assertThat(step.getStatus()).isEqualTo("FAILED");
+        assertThat(revision.getStatus()).isEqualTo("FAILED");
+    }
+
+    @Test
+    void handlePublishFailed_marksFailedImmediatelyWhenReturned() {
+        FloorPlanPublishFailedEvent event = new FloorPlanPublishFailedEvent(commandMessage(1, 3), "returned", true);
+        given(floorPlanJobRepository.findByJobIdAndJobType(jobId, FloorPlanConstants.JOB_TYPE_IFC_GENERATE_FROM_BUBBLE))
+                .willReturn(Optional.of(job));
+        given(floorPlanJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId))
+                .willReturn(Optional.of(step));
+        given(revisionRepository.findByRevisionId(revisionId)).willReturn(Optional.of(revision));
+
+        listener.handlePublishFailed(event);
+
+        verify(floorPlanGenerateCommandPublisher, never()).publish(any());
+        verify(eventPublisher).publishEvent(any(FloorPlanStatusChangedEvent.class));
+        assertThat(job.getStatus()).isEqualTo("FAILED");
+        assertThat(step.getStatus()).isEqualTo("FAILED");
+        assertThat(revision.getStatus()).isEqualTo("FAILED");
+    }
+
+    @Test
+    void handlePublishFailed_ignoresTerminalState() {
+        job.markFailed("failed", objectMapper.createObjectNode(), LocalDateTime.now());
+        step.markFailed("failed", "failed", objectMapper.createObjectNode(), LocalDateTime.now());
+        revision.markFailed();
+        FloorPlanPublishFailedEvent event = new FloorPlanPublishFailedEvent(commandMessage(1, 3), "nack", false);
+        given(floorPlanJobRepository.findByJobIdAndJobType(jobId, FloorPlanConstants.JOB_TYPE_IFC_GENERATE_FROM_BUBBLE))
+                .willReturn(Optional.of(job));
+        given(floorPlanJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId))
+                .willReturn(Optional.of(step));
+        given(revisionRepository.findByRevisionId(revisionId)).willReturn(Optional.of(revision));
+
+        listener.handlePublishFailed(event);
+
+        verify(floorPlanGenerateCommandPublisher, never()).publish(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
     private FloorPlanGenerateEventMessage startedEvent(double progress) {
         return new FloorPlanGenerateEventMessage(
                 UUID.randomUUID(),
@@ -549,6 +624,35 @@ class FloorPlanGenerateEventListenerTest {
                 null,
                 null,
                 UUID.randomUUID(),
+                jobId + ":step-1:ifc-generate",
+                UUID.randomUUID(),
+                OffsetDateTime.now(ZoneOffset.UTC)
+        );
+    }
+
+    private FloorPlanGenerateCommandMessage commandMessage(int attemptNo, int maxAttempts) {
+        return new FloorPlanGenerateCommandMessage(
+                UUID.randomUUID(),
+                "v1",
+                "COMMAND",
+                FloorPlanConstants.COMMAND_TYPE_IFC_GENERATE_FROM_BUBBLE,
+                FloorPlanConstants.COMMAND_ROUTING_KEY_IFC_GENERATE_FROM_BUBBLE,
+                jobId,
+                jobStepId,
+                1,
+                1,
+                projectId,
+                UUID.randomUUID(),
+                null,
+                null,
+                FloorPlanConstants.SOURCE_SCENE_TYPE_LAYOUT_IMPORT,
+                revisionId,
+                artifactId,
+                null,
+                new FloorPlanGenerateCommandMessage.ExpectedOutput("projects/" + projectId + "/revisions/" + revisionId + "/model.ifc", null),
+                new FloorPlanGenerateCommandMessage.Payload(null),
+                attemptNo,
+                maxAttempts,
                 jobId + ":step-1:ifc-generate",
                 UUID.randomUUID(),
                 OffsetDateTime.now(ZoneOffset.UTC)
