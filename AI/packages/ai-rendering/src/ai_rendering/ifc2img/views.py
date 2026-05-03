@@ -149,6 +149,58 @@ DEFAULT_RENDER_VIEWS: list[IFCView] = [
 ]
 
 
+# View-aware lookat z ratio — Phase 5 옵션 AAA (2026-05-03).
+#
+# `vc.set_lookat`의 z 좌표를 view별로 다르게 — 카메라 시선이 위로 약간 올려보는
+# 구도를 만들어 화면 아래쪽에 ground 비중 ↑, 하늘 비중 ↓.
+#
+# 값 = mesh AABB height 기준 z 비율 (0.0 = mesh 바닥, 0.5 = center, 1.0 = top).
+# - EYE_*/FRONT/SIDE: 0.3 (mesh 아래 1/3 지점) → 카메라가 위로 올려보는 구도
+# - TOP/BIRDS_EYE/CORNER_LOW: 0.5 (center, 변경 없음)
+#
+# 검수 보고 (2026-05-03 Step 8): eye 배경 전체가 하늘/구름, front/side 집 밑 1층
+# 추가 또는 허공에 떠 있음 → 모두 화면 내 ground/하늘 비율 부족이 근본 원인.
+# 카메라 위치(VIEW_CAMERAS.front)는 보존 — 시선 방향만 lookat으로 보정.
+VIEW_LOOKAT_Z_RATIO: dict[IFCView, float] = {
+    IFCView.FRONT:      0.3,
+    IFCView.SIDE:       0.3,
+    IFCView.TOP:        0.5,
+    IFCView.CORNER_LOW: 0.5,
+    IFCView.BIRDS_EYE:  0.5,
+    IFCView.EYE_NE:     0.3,
+    IFCView.EYE_NW:     0.3,
+    IFCView.EYE_SE:     0.3,
+}
+
+
+def compute_view_lookat(
+    base_center: np.ndarray,
+    mesh_min_z: float,
+    mesh_max_z: float,
+    view: IFCView,
+) -> np.ndarray:
+    """view별 lookat z를 계산해 새 lookat 좌표 반환.
+
+    xy는 base_center 그대로. z만 `VIEW_LOOKAT_Z_RATIO[view]` 비율로 도출:
+        new_z = mesh_min_z + ratio * (mesh_max_z - mesh_min_z)
+
+    ratio가 0.5(default)이면 base_center.z와 같은 값 반환(변화 없음). 0.5 미만이면
+    카메라 시선이 mesh 아래쪽을 향해 — *위로 올려보는 구도*.
+
+    Args:
+        base_center: AABB center (load_mesh 반환값).
+        mesh_min_z: mesh AABB.z 최소.
+        mesh_max_z: mesh AABB.z 최대.
+        view: 합성할 시점.
+
+    Returns:
+        np.ndarray shape=(3,) — [base_center.x, base_center.y, new_z].
+    """
+    ratio = VIEW_LOOKAT_Z_RATIO.get(view, 0.5)
+    new_z = mesh_min_z + ratio * (mesh_max_z - mesh_min_z)
+    return np.array([base_center[0], base_center[1], new_z], dtype=np.float64)
+
+
 # View-aware ground plane 정책 — 옵션 OO (2026-04-29).
 #
 # `load_mesh`는 building geometry만 반환. `IFCRenderer`가 view별로 ground plane을
