@@ -7,6 +7,7 @@ import com.a204.batang.domain.floorplan.entity.FloorPlanJobStep;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateEventMessage;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateCommandMessage;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanWorkerError;
+import com.a204.batang.domain.floorplan.messaging.event.FloorPlanCommandPublishRequestedEvent;
 import com.a204.batang.domain.floorplan.messaging.event.FloorPlanPublishFailedEvent;
 import com.a204.batang.domain.floorplan.messaging.event.FloorPlanStatusChangedEvent;
 import com.a204.batang.domain.floorplan.repository.FloorPlanArtifactRepository;
@@ -69,8 +70,6 @@ class FloorPlanGenerateEventListenerTest {
     private FloorPlanArtifactRepository floorPlanArtifactRepository;
     @Mock
     private NotificationSseService notificationSseService;
-    @Mock
-    private FloorPlanGenerateCommandPublisher floorPlanGenerateCommandPublisher;
     @Mock
     private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
@@ -278,6 +277,8 @@ class FloorPlanGenerateEventListenerTest {
         assertThat(job.getStatus()).isEqualTo("FAILED");
         assertThat(step.getStatus()).isEqualTo("FAILED");
         assertThat(revision.getStatus()).isEqualTo("FAILED");
+        assertThat(job.getProgress()).isZero();
+        assertThat(step.getProgress()).isZero();
         verify(eventPublisher).publishEvent(any(FloorPlanStatusChangedEvent.class));
         verify(projectRepository, never()).findByProjectIdAndDeletedAtIsNull(projectId);
     }
@@ -504,7 +505,7 @@ class FloorPlanGenerateEventListenerTest {
 
         listener.handlePublishFailed(event);
 
-        verify(floorPlanGenerateCommandPublisher).publish(any(FloorPlanGenerateCommandMessage.class));
+        verify(eventPublisher).publishEvent(any(FloorPlanCommandPublishRequestedEvent.class));
         assertThat(job.getStatus()).isEqualTo("QUEUED");
         assertThat(step.getStatus()).isEqualTo("QUEUED");
         assertThat(revision.getStatus()).isEqualTo("CREATING");
@@ -521,11 +522,13 @@ class FloorPlanGenerateEventListenerTest {
 
         listener.handlePublishFailed(event);
 
-        verify(floorPlanGenerateCommandPublisher, never()).publish(any());
+        verify(eventPublisher, never()).publishEvent(any(FloorPlanCommandPublishRequestedEvent.class));
         verify(eventPublisher).publishEvent(any(FloorPlanStatusChangedEvent.class));
         assertThat(job.getStatus()).isEqualTo("FAILED");
         assertThat(step.getStatus()).isEqualTo("FAILED");
         assertThat(revision.getStatus()).isEqualTo("FAILED");
+        assertThat(job.getProgress()).isZero();
+        assertThat(step.getProgress()).isZero();
         assertThat(project.getLatestRevisionId()).isNull();
         assertThat(workspace.getIfcStorageUrl()).isNull();
         assertThat(workspace.getCurrentRevision()).isNull();
@@ -542,11 +545,13 @@ class FloorPlanGenerateEventListenerTest {
 
         listener.handlePublishFailed(event);
 
-        verify(floorPlanGenerateCommandPublisher, never()).publish(any());
+        verify(eventPublisher, never()).publishEvent(any(FloorPlanCommandPublishRequestedEvent.class));
         verify(eventPublisher).publishEvent(any(FloorPlanStatusChangedEvent.class));
         assertThat(job.getStatus()).isEqualTo("FAILED");
         assertThat(step.getStatus()).isEqualTo("FAILED");
         assertThat(revision.getStatus()).isEqualTo("FAILED");
+        assertThat(job.getProgress()).isZero();
+        assertThat(step.getProgress()).isZero();
         assertThat(project.getLatestRevisionId()).isNull();
         assertThat(workspace.getIfcStorageUrl()).isNull();
         assertThat(workspace.getCurrentRevision()).isNull();
@@ -566,7 +571,7 @@ class FloorPlanGenerateEventListenerTest {
 
         listener.handlePublishFailed(event);
 
-        verify(floorPlanGenerateCommandPublisher, never()).publish(any());
+        verify(eventPublisher, never()).publishEvent(any(FloorPlanCommandPublishRequestedEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
     }
 

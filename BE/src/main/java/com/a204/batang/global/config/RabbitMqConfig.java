@@ -2,6 +2,7 @@ package com.a204.batang.global.config;
 
 import com.a204.batang.domain.floorplan.FloorPlanConstants;
 import com.a204.batang.domain.floorplan.messaging.FloorPlanGenerateCorrelationData;
+import com.a204.batang.domain.floorplan.messaging.FloorPlanGenerateCommandPublisher;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateCommandMessage;
 import com.a204.batang.domain.floorplan.messaging.event.FloorPlanPublishFailedEvent;
 import com.a204.batang.domain.render.messaging.SdRenderCorrelationData;
@@ -12,6 +13,7 @@ import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.ExchangeBuilder;
+import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
@@ -26,6 +28,10 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
+import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 
 /**
@@ -219,7 +225,7 @@ public class RabbitMqConfig {
         template.setMandatory(true);
         template.setReturnsCallback(returned -> {
             log.error(
-                    "[RabbitMQ] 메시지 returned. code={}, text={}, exchange={}, routingKey={}",
+                    "[RabbitMQ] message returned. code={}, text={}, exchange={}, routingKey={}",
                     returned.getReplyCode(),
                     returned.getReplyText(),
                     returned.getExchange(),
@@ -233,10 +239,7 @@ public class RabbitMqConfig {
             try {
                 // floor-plan은 returned를 라우팅 실패로 간주하고 즉시 실패 처리한다.
                 // 같은 메시지를 재발행해도 설정 오류면 반복 실패할 가능성이 크기 때문이다.
-                FloorPlanGenerateCommandMessage message = objectMapper.readValue(
-                        returned.getMessage().getBody(),
-                        FloorPlanGenerateCommandMessage.class
-                );
+                FloorPlanGenerateCommandMessage message = readReturnedFloorPlanMessage(objectMapper, returned.getMessage());
                 String cause = "returned: code=%s, text=%s, exchange=%s, routingKey=%s".formatted(
                         returned.getReplyCode(),
                         returned.getReplyText(),
@@ -245,10 +248,83 @@ public class RabbitMqConfig {
                 );
                 eventPublisher.publishEvent(new FloorPlanPublishFailedEvent(message, cause, true));
             } catch (Exception e) {
-                log.error("[RabbitMQ] Floor-plan returned 메시지 복원에 실패했습니다.", e);
+                log.error(
+                        "[RabbitMQ] Floor-plan returned 메시지 복원에 실패했습니다. exchange={}, routingKey={}, headers={}, body={}",
+                        returned.getExchange(),
+                        returned.getRoutingKey(),
+                        returned.getMessage().getMessageProperties().getHeaders(),
+                        new String(returned.getMessage().getBody(), StandardCharsets.UTF_8),
+                        e
+                );
             }
         });
 
         return template;
+    }
+
+    private FloorPlanGenerateCommandMessage readReturnedFloorPlanMessage(ObjectMapper objectMapper, Message returnedMessage)
+            throws Exception {
+        try {
+            return objectMapper.readValue(returnedMessage.getBody(), FloorPlanGenerateCommandMessage.class);
+        } catch (Exception ignored) {
+            return reconstructFloorPlanMessageFromHeaders(returnedMessage.getMessageProperties().getHeaders());
+        }
+    }
+
+    private FloorPlanGenerateCommandMessage reconstructFloorPlanMessageFromHeaders(Map<String, Object> headers) {
+        return new FloorPlanGenerateCommandMessage(
+                readUuidHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_MESSAGE_ID),
+                readStringHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_SCHEMA_VERSION),
+                readStringHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_MESSAGE_TYPE),
+                readStringHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_COMMAND_TYPE),
+                readStringHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_ROUTING_KEY),
+                readUuidHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_JOB_ID),
+                readUuidHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_JOB_STEP_ID),
+                readIntegerHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_STEP_NO),
+                readIntegerHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_TOTAL_STEPS),
+                readUuidHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_PROJECT_ID),
+                readUuidHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_REQUESTED_BY),
+                null,
+                null,
+                readStringHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_SOURCE_SCENE_TYPE),
+                readUuidHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_TARGET_REVISION_ID),
+                readUuidHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_EXPECTED_OUTPUT_ARTIFACT_ID),
+                null,
+                new FloorPlanGenerateCommandMessage.ExpectedOutput(
+                        readStringHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_IFC_STORAGE_URL),
+                        readNullableStringHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_VALIDATION_REPORT_STORAGE_URL)
+                ),
+                null,
+                readIntegerHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_ATTEMPT_NO),
+                readIntegerHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_MAX_ATTEMPTS),
+                readStringHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_IDEMPOTENCY_KEY),
+                readUuidHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_CORRELATION_ID),
+                OffsetDateTime.parse(readStringHeader(headers, FloorPlanGenerateCommandPublisher.HEADER_CREATED_AT))
+        );
+    }
+
+    private UUID readUuidHeader(Map<String, Object> headers, String key) {
+        return UUID.fromString(readStringHeader(headers, key));
+    }
+
+    private Integer readIntegerHeader(Map<String, Object> headers, String key) {
+        Object value = headers.get(key);
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        return Integer.valueOf(String.valueOf(value));
+    }
+
+    private String readStringHeader(Map<String, Object> headers, String key) {
+        Object value = headers.get(key);
+        if (value == null) {
+            throw new IllegalArgumentException("Missing RabbitMQ header: " + key);
+        }
+        return String.valueOf(value);
+    }
+
+    private String readNullableStringHeader(Map<String, Object> headers, String key) {
+        Object value = headers.get(key);
+        return value == null ? null : String.valueOf(value);
     }
 }

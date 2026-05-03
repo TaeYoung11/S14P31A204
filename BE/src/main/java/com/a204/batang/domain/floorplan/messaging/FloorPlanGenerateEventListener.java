@@ -8,6 +8,7 @@ import com.a204.batang.domain.floorplan.entity.FloorPlanJobStep;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateCommandMessage;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateEventMessage;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanWorkerError;
+import com.a204.batang.domain.floorplan.messaging.event.FloorPlanCommandPublishRequestedEvent;
 import com.a204.batang.domain.floorplan.messaging.event.FloorPlanPublishFailedEvent;
 import com.a204.batang.domain.floorplan.messaging.event.FloorPlanStatusChangedEvent;
 import com.a204.batang.domain.floorplan.repository.FloorPlanArtifactRepository;
@@ -73,7 +74,6 @@ public class FloorPlanGenerateEventListener {
     private final FloorPlanJobRepository floorPlanJobRepository;
     private final FloorPlanJobStepRepository floorPlanJobStepRepository;
     private final FloorPlanArtifactRepository floorPlanArtifactRepository;
-    private final FloorPlanGenerateCommandPublisher floorPlanGenerateCommandPublisher;
     private final NotificationSseService notificationSseService;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
@@ -162,7 +162,7 @@ public class FloorPlanGenerateEventListener {
                     message.routingKey()
             );
 
-            floorPlanGenerateCommandPublisher.publish(new FloorPlanGenerateCommandMessage(
+            eventPublisher.publishEvent(new FloorPlanCommandPublishRequestedEvent(new FloorPlanGenerateCommandMessage(
                     message.messageId(),
                     message.schemaVersion(),
                     message.messageType(),
@@ -187,7 +187,7 @@ public class FloorPlanGenerateEventListener {
                     message.idempotencyKey(),
                     message.correlationId(),
                     message.createdAt()
-            ));
+            )));
             return;
         }
 
