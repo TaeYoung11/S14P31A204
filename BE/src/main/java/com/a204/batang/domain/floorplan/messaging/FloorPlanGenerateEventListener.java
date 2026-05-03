@@ -7,6 +7,7 @@ import com.a204.batang.domain.floorplan.entity.FloorPlanJob;
 import com.a204.batang.domain.floorplan.entity.FloorPlanJobStep;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateEventMessage;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanWorkerError;
+import com.a204.batang.domain.floorplan.messaging.event.FloorPlanPublishFailedEvent;
 import com.a204.batang.domain.floorplan.messaging.event.FloorPlanStatusChangedEvent;
 import com.a204.batang.domain.floorplan.repository.FloorPlanArtifactRepository;
 import com.a204.batang.domain.floorplan.repository.FloorPlanJobRepository;
@@ -28,6 +29,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.event.TransactionPhase;
@@ -48,6 +51,7 @@ import java.util.UUID;
 public class FloorPlanGenerateEventListener {
 
     private static final String EVENT_PREFIX = "IFC_GENERATE_FROM_BUBBLE_";
+    private static final String EVENT_PUBLISH_FAILED = "PUBLISH_FAILED";
     private static final String EVENT_STARTED = FloorPlanConstants.EVENT_TYPE_IFC_GENERATE_STARTED;
     private static final String EVENT_PROGRESS = FloorPlanConstants.EVENT_TYPE_IFC_GENERATE_PROGRESS;
     private static final String EVENT_COMPLETED = FloorPlanConstants.EVENT_TYPE_IFC_GENERATE_COMPLETED;
@@ -61,6 +65,7 @@ public class FloorPlanGenerateEventListener {
     private final FloorPlanJobRepository floorPlanJobRepository;
     private final FloorPlanJobStepRepository floorPlanJobStepRepository;
     private final FloorPlanArtifactRepository floorPlanArtifactRepository;
+    private final FloorPlanGenerateCommandPublisher floorPlanGenerateCommandPublisher;
     private final NotificationSseService notificationSseService;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
@@ -88,6 +93,99 @@ public class FloorPlanGenerateEventListener {
             default -> {
             }
         }
+    }
+
+    @Async
+    @EventListener
+    @Transactional
+    public void handlePublishFailed(FloorPlanPublishFailedEvent event) {
+        var message = event.message();
+        log.warn(
+                "Floor-plan command publish 실패 이벤트를 처리합니다. jobId={}, jobStepId={}, returned={}, cause={}",
+                message.jobId(),
+                message.jobStepId(),
+                event.returned(),
+                event.cause()
+        );
+
+        FloorPlanJob job = floorPlanJobRepository.findByJobIdAndJobType(
+                        message.jobId(),
+                        FloorPlanConstants.JOB_TYPE_IFC_GENERATE_FROM_BUBBLE
+                )
+                .orElse(null);
+        if (job == null) {
+            return;
+        }
+
+        FloorPlanJobStep step = floorPlanJobStepRepository.findByJobStepIdAndJobId(message.jobStepId(), message.jobId())
+                .orElse(null);
+        Revision revision = revisionRepository.findByRevisionId(message.targetRevisionId()).orElse(null);
+
+        if (step == null || revision == null || job.isTerminal() || step.isTerminal() || revision.isTerminal()) {
+            return;
+        }
+
+        if (!event.returned() && message.attemptNo() < message.maxAttempts()) {
+            log.info(
+                    "Floor-plan command NACK 재시도를 수행합니다. jobId={}, jobStepId={}, nextAttempt={}, maxAttempts={}",
+                    message.jobId(),
+                    message.jobStepId(),
+                    message.attemptNo() + 1,
+                    message.maxAttempts()
+            );
+
+            floorPlanGenerateCommandPublisher.publish(new com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateCommandMessage(
+                    message.messageId(),
+                    message.schemaVersion(),
+                    message.messageType(),
+                    message.commandType(),
+                    message.routingKey(),
+                    message.jobId(),
+                    message.jobStepId(),
+                    message.stepNo(),
+                    message.totalSteps(),
+                    message.projectId(),
+                    message.requestedBy(),
+                    message.sourceRevisionId(),
+                    message.sourceSceneStateId(),
+                    message.sourceSceneType(),
+                    message.targetRevisionId(),
+                    message.expectedOutputArtifactId(),
+                    message.input(),
+                    message.expectedOutput(),
+                    message.payload(),
+                    message.attemptNo() + 1,
+                    message.maxAttempts(),
+                    message.idempotencyKey(),
+                    message.correlationId(),
+                    message.createdAt()
+            ));
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        String errorCode = event.returned()
+                ? ErrorCode.FLOOR_PLAN_COMMAND_RETURNED.getCode()
+                : ErrorCode.FLOOR_PLAN_COMMAND_CONFIRM_NACK.getCode();
+        String errorMessage = event.returned()
+                ? "메시지가 큐로 라우팅되지 않아 작업이 중단되었습니다."
+                : "메시지 발행 실패로 작업이 중단되었습니다.";
+        JsonNode outputPayload = objectMapper.valueToTree(buildPublishFailedPayload(event));
+
+        step.markFailed(errorCode, errorMessage, outputPayload, now);
+        job.markFailed(errorMessage, outputPayload, now);
+        revision.markFailed();
+
+        publishStatusEvent(message.projectId(), FloorPlanConstants.SSE_FLOOR_PLAN_FAILED, new FloorPlanStatusSseResponse(
+                FloorPlanConstants.SSE_FLOOR_PLAN_FAILED,
+                message.projectId(),
+                message.jobId(),
+                message.jobStepId(),
+                message.targetRevisionId(),
+                "FAILED",
+                0,
+                errorMessage
+        ));
     }
 
     private void handleStarted(FloorPlanGenerateEventMessage event) {
@@ -379,6 +477,22 @@ public class FloorPlanGenerateEventListener {
             payload.put("detailStorageUrl", error.detailStorageUrl());
             payload.put("clarificationPossible", error.clarificationPossible());
         }
+        return payload;
+    }
+
+    private Map<String, Object> buildPublishFailedPayload(FloorPlanPublishFailedEvent event) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("eventType", EVENT_PUBLISH_FAILED);
+        payload.put("failureType", event.returned() ? "RETURNED" : "NACK");
+        payload.put("errorCode", event.returned()
+                ? ErrorCode.FLOOR_PLAN_COMMAND_RETURNED.getCode()
+                : ErrorCode.FLOOR_PLAN_COMMAND_CONFIRM_NACK.getCode());
+        payload.put("errorMessage", event.cause());
+        payload.put("returned", event.returned());
+        payload.put("attemptNo", event.message().attemptNo());
+        payload.put("maxAttempts", event.message().maxAttempts());
+        payload.put("routingKey", event.message().routingKey());
+        payload.put("jobStepId", event.message().jobStepId());
         return payload;
     }
 

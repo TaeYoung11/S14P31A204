@@ -22,11 +22,13 @@ public class FloorPlanGenerateCommandPublisher {
     public void publish(FloorPlanGenerateCommandMessage message) {
         try {
             log.info(
-                    "Floor-plan command 발행을 시도합니다. projectId={}, jobId={}, jobStepId={}, correlationId={}",
+                    "Floor-plan command 발행을 시도합니다. projectId={}, jobId={}, jobStepId={}, correlationId={}, attemptNo={}, maxAttempts={}",
                     message.projectId(),
                     message.jobId(),
                     message.jobStepId(),
-                    message.correlationId()
+                    message.correlationId(),
+                    message.attemptNo(),
+                    message.maxAttempts()
             );
 
             rabbitTemplate.convertAndSend(
@@ -37,11 +39,13 @@ public class FloorPlanGenerateCommandPublisher {
             );
         } catch (RuntimeException e) {
             log.error(
-                    "Floor-plan command 발행에 실패했습니다. projectId={}, jobId={}, jobStepId={}, correlationId={}",
+                    "Floor-plan command 발행에 실패했습니다. projectId={}, jobId={}, jobStepId={}, correlationId={}, attemptNo={}, maxAttempts={}",
                     message.projectId(),
                     message.jobId(),
                     message.jobStepId(),
                     message.correlationId(),
+                    message.attemptNo(),
+                    message.maxAttempts(),
                     e
             );
             throw new CustomException(ErrorCode.FLOOR_PLAN_COMMAND_PUBLISH_FAILED);
