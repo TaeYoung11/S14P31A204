@@ -110,7 +110,7 @@ public class FloorPlanGenerateEventListener {
         }
     }
 
-    @Async
+    @Async("floorPlanPublishFailureExecutor")
     @EventListener
     @Transactional
     public void handlePublishFailed(FloorPlanPublishFailedEvent event) {
