@@ -37,8 +37,17 @@ _NEGATIVE_BASE = (
     "basement, underground, "
     "lower level, walkout basement, additional floor below, sunken story, "
     "water, lake, pond, swimming pool, river, "
+    "sky background, only sky, floating in air, suspended in air, "
     "plaster, stucco, vinyl siding, cladding panels, render coating"
 )
+"""Phase 5 옵션 CCC (2026-05-03) — sky/floating 차단 phrase 4개 추가.
+
+검수 보고: eye 배경 전체가 하늘/구름, front/side 집이 허공에 떠 있음.
+phrase 위치: water 차단 다음 + 소재 차단 앞 — negative 토큰 한계로 truncate 시
+sky/floating은 보존, 소재는 끝쪽이라 truncate 시 positive `concrete/brick`이 대체.
+`hovering building` 같은 일반 명사 단독 phrase는 C-1 폐기 학습으로 *집 자체* 약화
+위험 → 수식어 동반 phrase만 채택.
+"""
 
 
 _PRESETS: dict[str, DepthStyleParams] = {
