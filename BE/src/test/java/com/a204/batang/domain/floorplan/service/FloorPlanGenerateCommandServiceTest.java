@@ -186,7 +186,7 @@ class FloorPlanGenerateCommandServiceTest {
                 }
                 """));
 
-        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId)).willReturn(Optional.of(project));
         given(revisionRepository.findTopByProjectIdOrderByRevisionNoDesc(projectId)).willReturn(Optional.empty());
         given(floorPlanLayoutImportMapper.fromRawRequest(eq(projectId), eq(project.getName()), any())).willReturn(layoutImportPayload);
         given(floorPlanStoragePathBuilder.buildIfcStorageUrl(eq(projectId), any()))
@@ -253,7 +253,7 @@ class FloorPlanGenerateCommandServiceTest {
 
     @Test
     void createFloorPlanGenerate_usesSnapshotFallbackWhenRawBodyIsMissing() {
-        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId)).willReturn(Optional.of(project));
         given(revisionRepository.findTopByProjectIdOrderByRevisionNoDesc(projectId)).willReturn(Optional.empty());
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)).willReturn(Optional.of(workspace));
         given(floorPlanLayoutImportMapper.fromBubbleSnapshot(projectId, project.getName(), workspace.getBubbleSnapshotJson()))
@@ -275,7 +275,7 @@ class FloorPlanGenerateCommandServiceTest {
 
     @Test
     void createFloorPlanGenerate_throwsWhenProjectDoesNotExist() {
-        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.empty());
+        given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> floorPlanGenerateCommandService.createFloorPlanGenerate(projectId, userId, null))
                 .isInstanceOf(CustomException.class)
@@ -285,7 +285,7 @@ class FloorPlanGenerateCommandServiceTest {
 
     @Test
     void createFloorPlanGenerate_throwsWhenCurrentUserCannotBeResolved() {
-        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId)).willReturn(Optional.of(project));
         doThrow(new CustomException(ErrorCode.UNAUTHORIZED))
                 .when(projectAccessService).resolveCurrentUserIdOrThrow();
 
@@ -297,7 +297,7 @@ class FloorPlanGenerateCommandServiceTest {
 
     @Test
     void createFloorPlanGenerate_propagatesForbiddenAccess() {
-        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId)).willReturn(Optional.of(project));
         doThrow(new CustomException(ErrorCode.FORBIDDEN_ACCESS))
                 .when(projectAccessService).validateProjectOwnerOrThrow(project, userId);
 
@@ -309,7 +309,7 @@ class FloorPlanGenerateCommandServiceTest {
 
     @Test
     void createFloorPlanGenerate_throwsWhenSnapshotIsMissing() {
-        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId)).willReturn(Optional.of(project));
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> floorPlanGenerateCommandService.createFloorPlanGenerate(projectId, userId, null))
@@ -320,7 +320,7 @@ class FloorPlanGenerateCommandServiceTest {
 
     @Test
     void createFloorPlanGenerate_throwsWhenSnapshotNodeIsNull() {
-        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId)).willReturn(Optional.of(project));
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)).willReturn(Optional.of(workspace));
         ReflectionTestUtils.setField(workspace, "bubbleSnapshotJson", null);
 
@@ -338,7 +338,7 @@ class FloorPlanGenerateCommandServiceTest {
                 }
                 """));
 
-        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId)).willReturn(Optional.of(project));
         doThrow(new CustomException(ErrorCode.FLOOR_PLAN_LAYOUT_INVALID))
                 .when(floorPlanLayoutImportMapper).fromRawRequest(eq(projectId), eq(project.getName()), any());
 
