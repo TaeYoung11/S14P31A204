@@ -50,6 +50,7 @@ public class RabbitMqConfig {
     public static final String BE_JOB_EVENTS_QUEUE = "batang.be.job-events.queue";
     public static final String SD_RENDER_DLQ = "batang.sd-render.dlq";
     public static final String IFC_GENERATE_DLQ = "batang.ifc-generate.dlq";
+    public static final String BE_JOB_EVENTS_DLQ = "batang.be.job-events.dlq";
 
     public static final String SD_RENDER_COMMAND_ROUTING_KEY = "command.sd-render.generate";
     public static final String SD_RENDER_COMMAND_BINDING_PATTERN = "command.sd-render.*";
@@ -60,6 +61,7 @@ public class RabbitMqConfig {
     public static final String BE_EVENTS_BINDING_PATTERN = "event.#";
     public static final String SD_RENDER_DEAD_ROUTING_KEY = "dead.sd-render";
     public static final String IFC_GENERATE_DEAD_ROUTING_KEY = "dead.ifc-generate";
+    public static final String BE_JOB_EVENTS_DEAD_ROUTING_KEY = "dead.be.job-events";
 
     @Bean
     public TopicExchange commandExchange() {
@@ -104,7 +106,7 @@ public class RabbitMqConfig {
         // 도메인별 필터링은 listener 쪽에서 수행한다.
         return QueueBuilder.durable(BE_JOB_EVENTS_QUEUE)
                 .deadLetterExchange(DLX_EXCHANGE)
-                .deadLetterRoutingKey(SD_RENDER_DEAD_ROUTING_KEY)
+                .deadLetterRoutingKey(BE_JOB_EVENTS_DEAD_ROUTING_KEY)
                 .build();
     }
 
@@ -116,6 +118,11 @@ public class RabbitMqConfig {
     @Bean
     public Queue ifcGenerateDlq() {
         return QueueBuilder.durable(IFC_GENERATE_DLQ).build();
+    }
+
+    @Bean
+    public Queue beJobEventsDlq() {
+        return QueueBuilder.durable(BE_JOB_EVENTS_DLQ).build();
     }
 
     @Bean
@@ -151,6 +158,13 @@ public class RabbitMqConfig {
         return BindingBuilder.bind(ifcGenerateDlq)
                 .to(deadLetterExchange)
                 .with(IFC_GENERATE_DEAD_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding beJobEventsDlqBinding(Queue beJobEventsDlq, DirectExchange deadLetterExchange) {
+        return BindingBuilder.bind(beJobEventsDlq)
+                .to(deadLetterExchange)
+                .with(BE_JOB_EVENTS_DEAD_ROUTING_KEY);
     }
 
     @Bean
