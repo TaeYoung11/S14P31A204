@@ -23,6 +23,7 @@ from ai_rendering.ifc2img.views import (
     DISPATCH_LARGE_FACTOR,
     DISPATCH_MEDIUM_FACTOR,
     VIEW_CN_SCALE_OVERRIDES,
+    VIEW_LOOKAT_Z_RATIO,
     VIEW_NEGATIVE_SUFFIXES,
     VIEW_PROMPT_SUFFIXES,
     VIEW_TARGET_RATIOS,
@@ -31,6 +32,7 @@ from ai_rendering.ifc2img.views import (
     build_view_negative_prompt,
     build_view_prompt,
     compute_auto_zoom,
+    compute_view_lookat,
     resolve_target_ratio_for_mesh,
     resolve_view_cn_scale,
 )
@@ -1153,3 +1155,84 @@ def test_no_building_element_raises() -> None:
     ):
         with pytest.raises(IFCRenderError, match="IfcBuildingElement"):
             load_mesh(Path("dummy.ifc"))
+
+
+# --- Phase 5 옵션 AAA — view-aware lookat z (2026-05-03) ---
+
+
+def test_view_lookat_z_ratio_eye_front_side_below_center() -> None:
+    """검수 보고 처방 — eye/front/side 시점은 lookat z가 mesh 아래쪽(0.5 미만)."""
+    for v in (
+        IFCView.FRONT, IFCView.SIDE,
+        IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE,
+    ):
+        assert VIEW_LOOKAT_Z_RATIO[v] < 0.5, (
+            f"{v.name}: lookat z ratio가 0.5 이상이면 카메라 위로 올려보는 효과 없음"
+        )
+
+
+def test_view_lookat_z_ratio_top_birds_eye_corner_at_center() -> None:
+    """TOP/BIRDS_EYE/CORNER_LOW는 0.5 (변경 없음) — 검수 대상 아닌 시점."""
+    for v in (IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW):
+        assert VIEW_LOOKAT_Z_RATIO[v] == 0.5
+
+
+def test_compute_view_lookat_xy_unchanged() -> None:
+    """어떤 view든 lookat의 xy는 base_center.xy와 동일 (시점 회전·offset 없음)."""
+    base_center = np.array([5.0, -3.0, 2.0])
+    for v in IFCView:
+        result = compute_view_lookat(
+            base_center=base_center,
+            mesh_min_z=0.0,
+            mesh_max_z=10.0,
+            view=v,
+        )
+        assert result[0] == 5.0
+        assert result[1] == -3.0
+
+
+def test_compute_view_lookat_z_uses_min_plus_ratio_height() -> None:
+    """z = mesh_min_z + ratio * (mesh_max_z - mesh_min_z) 공식 검증.
+
+    EYE_NE (ratio=0.3), height=10 → z = 0 + 0.3 * 10 = 3.0.
+    TOP (ratio=0.5), height=10 → z = 0 + 0.5 * 10 = 5.0.
+    """
+    base_center = np.array([0.0, 0.0, 5.0])
+    eye_lookat = compute_view_lookat(
+        base_center=base_center,
+        mesh_min_z=0.0,
+        mesh_max_z=10.0,
+        view=IFCView.EYE_NE,
+    )
+    assert eye_lookat[2] == pytest.approx(3.0)
+    top_lookat = compute_view_lookat(
+        base_center=base_center,
+        mesh_min_z=0.0,
+        mesh_max_z=10.0,
+        view=IFCView.TOP,
+    )
+    assert top_lookat[2] == pytest.approx(5.0)
+
+
+def test_compute_view_lookat_handles_negative_min_z() -> None:
+    """mesh_min_z가 음수여도 ratio 공식 정상 (예: 지하 포함 mesh)."""
+    base_center = np.array([0.0, 0.0, 0.0])
+    result = compute_view_lookat(
+        base_center=base_center,
+        mesh_min_z=-2.0,
+        mesh_max_z=8.0,  # height = 10
+        view=IFCView.EYE_NE,
+    )
+    # z = -2 + 0.3 * 10 = 1.0
+    assert result[2] == pytest.approx(1.0)
+
+
+def test_renderer_compute_lookat_falls_back_to_center_for_empty_mesh() -> None:
+    """빈 mesh(.vertices=[])일 때 base center 그대로 반환 — 방어적 fallback."""
+    empty_mesh = MagicMock()
+    empty_mesh.vertices = []
+    center = np.array([1.0, 2.0, 3.0])
+
+    result = IFCRenderer._compute_lookat(center, empty_mesh, IFCView.EYE_NE)
+
+    assert np.array_equal(result, center)

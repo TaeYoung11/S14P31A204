@@ -123,3 +123,47 @@ def test_preset_prompts_use_only_whitelisted_materials() -> None:
             assert word.lower() not in prompt, (
                 f"preset {name!r} prompt should not contain {word!r}: {prompt!r}"
             )
+
+
+# --- Phase 5 옵션 CCC — sky/floating negative 강화 (2026-05-03) ---
+
+
+def test_negative_blocks_sky_only_background_for_all_presets() -> None:
+    """검수 보고 처방 — eye 배경 전체 하늘 차단 phrase가 모든 preset negative에 포함."""
+    for name in list_presets():
+        negative = load_preset(name).negative_prompt
+        assert "sky background" in negative, (
+            f"preset {name!r} negative missing 'sky background': {negative!r}"
+        )
+        assert "only sky" in negative, (
+            f"preset {name!r} negative missing 'only sky': {negative!r}"
+        )
+
+
+def test_negative_blocks_floating_in_air_for_all_presets() -> None:
+    """검수 보고 처방 — front/side 떠있음 차단 phrase가 모든 preset negative에 포함."""
+    for name in list_presets():
+        negative = load_preset(name).negative_prompt
+        assert "floating in air" in negative, (
+            f"preset {name!r} negative missing 'floating in air': {negative!r}"
+        )
+        assert "suspended in air" in negative, (
+            f"preset {name!r} negative missing 'suspended in air': {negative!r}"
+        )
+
+
+def test_negative_sky_floating_phrases_appear_before_material_phrases() -> None:
+    """sky/floating phrase가 plaster/stucco 앞쪽 — negative 토큰 한계 truncate 시 보존.
+
+    토큰이 잘리면 *끝쪽* 단어부터 사라지므로, 핵심 차단(sky/floating)은 앞쪽,
+    소재 차단(positive `concrete/brick`이 대체 가능)은 뒤쪽이 안전.
+    """
+    for name in list_presets():
+        negative = load_preset(name).negative_prompt
+        sky_pos = negative.find("sky background")
+        plaster_pos = negative.find("plaster")
+        assert sky_pos != -1 and plaster_pos != -1
+        assert sky_pos < plaster_pos, (
+            f"preset {name!r}: 'sky background' should appear before 'plaster' "
+            f"(sky_pos={sky_pos}, plaster_pos={plaster_pos})"
+        )
