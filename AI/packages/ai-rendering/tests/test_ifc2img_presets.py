@@ -14,8 +14,11 @@ from ai_rendering.ifc2img import (
 
 
 def test_list_presets_returns_three() -> None:
-    """등록된 프리셋이 정확히 scandinavian/industrial/japanese 3개 + 정렬됨."""
-    assert list_presets() == ["industrial", "japanese", "scandinavian"]
+    """등록된 프리셋이 정확히 scandinavian/korean_villa/korean_house 3개 + 정렬됨.
+
+    Phase 4 (2026-04-29) 옵션 A — industrial/japanese 제거, korean 2개 추가.
+    """
+    assert list_presets() == ["korean_house", "korean_villa", "scandinavian"]
 
 
 def test_load_preset_returns_depth_style_params() -> None:
@@ -61,3 +64,62 @@ def test_no_strength_field_on_params() -> None:
     field_names = {f.name for f in fields(DepthStyleParams)}
     assert "strength" not in field_names
     assert "controlnet_conditioning_scale" in field_names
+
+
+# --- Phase 4 (2026-04-29) — time_of_day variant ---
+
+
+def test_load_preset_day_appends_day_suffix() -> None:
+    """load_preset(name, "day") prompt 끝에 day suffix가 합성됨."""
+    p = load_preset("scandinavian", "day")
+    assert "during sunny daytime" in p.prompt
+    assert "natural sunlight" in p.prompt
+
+
+def test_load_preset_night_appends_night_suffix() -> None:
+    """load_preset(name, "night") prompt 끝에 night suffix가 합성됨."""
+    p = load_preset("korean_villa", "night")
+    assert "at night" in p.prompt
+    assert "warm interior lights" in p.prompt
+    # 동시에 base prompt 단어 보존
+    assert "korean residential villa" in p.prompt
+
+
+def test_load_preset_default_time_is_day() -> None:
+    """load_preset(name) — time_of_day default "day" → day suffix 합성 (backward compat)."""
+    p_default = load_preset("scandinavian")
+    p_day = load_preset("scandinavian", "day")
+
+    assert p_default.prompt == p_day.prompt
+
+
+def test_load_preset_invalid_time_raises() -> None:
+    """day/night 외 time_of_day → IFCRenderError, 메시지에 사용 가능 목록 포함."""
+    with pytest.raises(IFCRenderError, match="알 수 없는 time_of_day"):
+        load_preset("scandinavian", "noon")
+    with pytest.raises(IFCRenderError, match="알 수 없는 time_of_day"):
+        load_preset("korean_house", "")
+
+
+# --- Phase 4 — 7 소재 화이트리스트 검증 ---
+
+
+def test_preset_prompts_use_only_whitelisted_materials() -> None:
+    """preset prompt에 비허용 소재 단어가 부재.
+
+    7 소재 화이트리스트: concrete / brick / steel / wood / glass / stone / tile.
+    비허용 대표 단어가 prompt에 들어가면 회귀 — 화이트리스트 외 소재 합성 위험.
+    """
+    forbidden = (
+        "rendered",       # scandinavian 이전 단어 (Step 1에서 concrete로 교체)
+        "plaster",
+        "stucco",
+        "vinyl siding",
+        "render coating",
+    )
+    for name in list_presets():
+        prompt = load_preset(name).prompt.lower()
+        for word in forbidden:
+            assert word.lower() not in prompt, (
+                f"preset {name!r} prompt should not contain {word!r}: {prompt!r}"
+            )

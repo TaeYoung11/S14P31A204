@@ -10,9 +10,6 @@ class IFCView(Enum):
     FRONT = "front"
     SIDE = "side"
     TOP = "top"
-    ISO_NE = "iso_ne"            # 북동 위쪽 등각
-    ISO_NW = "iso_nw"            # 북서 위쪽 등각
-    ISO_SE = "iso_se"            # 남동 위쪽 등각
     CORNER_LOW = "corner_low"    # 낮은 시점 코너 (사람 시야 가까움)
     BIRDS_EYE = "birds_eye"      # 조감도 (top과 다른 약간 기울인 위)
     EYE_NE = "eye_ne"            # 북동 사람 시선 (z=0 완전 수평)
@@ -51,18 +48,15 @@ class CameraParams:
 
 
 VIEW_CAMERAS: dict[IFCView, CameraParams] = {
-    # 기본 3뷰 — PCA fallback 시 사용되는 정적 vector.
+    # 기본 3뷰 — 정적 vector.
     # FRONT/SIDE는 z=0 으로 완전 수평 (건축 입면도 표준 — 기울어짐 방지).
     IFCView.FRONT: CameraParams(front=(-1.0,  0.0,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.SIDE:  CameraParams(front=( 0.0, -1.0,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.TOP:   CameraParams(front=(-0.6, -0.6,  1.0), up=(0.0, 0.0, 1.0), zoom=0.5),
-    # 등각 5뷰 (PCA 정렬과 결합 시 *건물 주축 기준* 모서리 시점).
-    IFCView.ISO_NE:     CameraParams(front=(-0.7, -0.7,  0.5), up=(0.0, 0.0, 1.0), zoom=0.5),
-    IFCView.ISO_NW:     CameraParams(front=(-0.7,  0.7,  0.5), up=(0.0, 0.0, 1.0), zoom=0.5),
-    IFCView.ISO_SE:     CameraParams(front=( 0.7, -0.7,  0.5), up=(0.0, 0.0, 1.0), zoom=0.5),
+    # 명시 호출용 — default 제외 (환각 발생 시점).
     IFCView.CORNER_LOW: CameraParams(front=(-0.7, -0.7,  0.15), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.BIRDS_EYE:  CameraParams(front=(-0.4, -0.4,  1.5), up=(0.0, 0.0, 1.0), zoom=0.5),
-    # 수평 등각 3뷰 — ISO_*과 좌표 동일하되 z=0 (사람 시선, 위에서 내려보지 않음).
+    # 수평 등각 3뷰 — 사람 시선(z=0), 대각선 코너 + facade 4면 커버.
     IFCView.EYE_NE:     CameraParams(front=(-0.7, -0.7,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.EYE_NW:     CameraParams(front=(-0.7,  0.7,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.EYE_SE:     CameraParams(front=( 0.7, -0.7,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
@@ -86,12 +80,9 @@ VIEW_TARGET_RATIOS: dict[IFCView, float] = {
     IFCView.FRONT:      0.20,
     IFCView.SIDE:       0.20,
     IFCView.TOP:        0.15,   # 위에서 봄 → 더 작게 (잘림 방지)
-    IFCView.ISO_NE:     0.15,   # 등각 — top과 동일 수준
-    IFCView.ISO_NW:     0.15,
-    IFCView.ISO_SE:     0.15,
     IFCView.CORNER_LOW: 0.12,   # 가장 잘리던 view → 가장 작게
     IFCView.BIRDS_EYE:  0.15,
-    IFCView.EYE_NE:     0.15,   # 수평 등각 — ISO_*과 동일 시작점 (Phase 3)
+    IFCView.EYE_NE:     0.15,   # 수평 등각 (Phase 3)
     IFCView.EYE_NW:     0.15,
     IFCView.EYE_SE:     0.15,
 }
@@ -147,17 +138,11 @@ def resolve_target_ratio_for_mesh(
 # - CORNER_LOW: target_ratio=0.15로 가장 낮음 + z=0.15 어색한 시점 →
 #               화면 87%가 background로 prompt 환각 우세
 #
-# ISO_*는 facade 일부 보여 집 자체는 잘 그려짐. 주변 배경 어색함은 *옵션 B*
-# (per-view prompt suffix)에서 환경 묘사 보강으로 처리 예정.
-#
-# 모든 시점의 enum/VIEW_CAMERAS/VIEW_TARGET_RATIOS는 *유지* —
-# 호출자가 명시 전달 시 여전히 사용 가능 (디버그/실험용).
+# Phase 4 Step 4.5 (2026-05-03) — ISO_NE/ISO_NW/ISO_SE 완전 제거. EYE_*만으로
+# 사람 시선 + 대각선 코너 시점 충분 커버라 사용자가 ISO 폐기 결정.
 DEFAULT_RENDER_VIEWS: list[IFCView] = [
     IFCView.FRONT,
     IFCView.SIDE,
-    IFCView.ISO_NE,
-    IFCView.ISO_NW,
-    IFCView.ISO_SE,
     IFCView.EYE_NE,
     IFCView.EYE_NW,
     IFCView.EYE_SE,
@@ -167,16 +152,12 @@ DEFAULT_RENDER_VIEWS: list[IFCView] = [
 # View-aware ground plane 정책 — 옵션 OO (2026-04-29).
 #
 # `load_mesh`는 building geometry만 반환. `IFCRenderer`가 view별로 ground plane을
-# 추가/제외해 시점에 맞는 시각 단서 전달:
-#   - ISO_*(z=0.5 위쪽 등각): mesh 외부 영역이 *대각선 원근*으로 자연스럽게 인식되어
-#     ground plane 추가 시 거대 평면이 framing 망가짐 → 제외.
-#   - FRONT/SIDE/EYE_*/TOP/BIRDS_EYE/CORNER_LOW: mesh 외부 영역이 depth=0 빈 배경이라
-#     SD가 prompt 편향으로 *추가 층/지하* 환각 → ground plane 추가로 차단.
+# 추가/제외해 시점에 맞는 시각 단서 전달.
 #
-# `IFCRenderer._mesh_for_view`가 이 frozenset 검사로 분기.
-VIEWS_WITHOUT_GROUND: frozenset[IFCView] = frozenset(
-    {IFCView.ISO_NE, IFCView.ISO_NW, IFCView.ISO_SE}
-)
+# Phase 4 Step 4.5 (2026-05-03) — ISO 제거 후 모든 view에 ground 추가 (FRONT/SIDE/
+# EYE_*/TOP/BIRDS_EYE/CORNER_LOW). frozenset은 빈 상태로 유지 — 향후 view별 ground
+# 제외 정책이 다시 필요할 때 진입점 보존.
+VIEWS_WITHOUT_GROUND: frozenset[IFCView] = frozenset()
 
 
 # View 별 prompt suffix — 옵션 B (per-view prompt suffix)의 공통 자산.
@@ -190,12 +171,6 @@ VIEWS_WITHOUT_GROUND: frozenset[IFCView] = frozenset(
 VIEW_PROMPT_SUFFIXES: dict[IFCView, str] = {
     IFCView.FRONT: "",
     IFCView.SIDE: "",
-    IFCView.ISO_NE: ", surrounded by clean grass lawn, single residential "
-                    "building, no other buildings nearby",
-    IFCView.ISO_NW: ", surrounded by clean grass lawn, single residential "
-                    "building, no other buildings nearby",
-    IFCView.ISO_SE: ", surrounded by clean grass lawn, single residential "
-                    "building, no other buildings nearby",
     # default 제외된 시점 — 명시 호출 시 환경 더 강조
     IFCView.TOP: ", aerial top-down view, building roof from above, "
                  "surrounded by grass lawn",
@@ -245,9 +220,6 @@ def build_view_prompt(base_prompt: str, view: IFCView) -> str:
 VIEW_NEGATIVE_SUFFIXES: dict[IFCView, str] = {
     IFCView.FRONT: "",
     IFCView.SIDE: "",
-    IFCView.ISO_NE: "",
-    IFCView.ISO_NW: "",
-    IFCView.ISO_SE: "",
     IFCView.TOP: "",
     IFCView.BIRDS_EYE: "",
     IFCView.CORNER_LOW: "",
@@ -269,9 +241,6 @@ VIEW_NEGATIVE_SUFFIXES: dict[IFCView, str] = {
 VIEW_CN_SCALE_OVERRIDES: dict[IFCView, float | None] = {
     IFCView.FRONT: None,
     IFCView.SIDE: None,
-    IFCView.ISO_NE: None,
-    IFCView.ISO_NW: None,
-    IFCView.ISO_SE: None,
     IFCView.TOP: None,
     IFCView.BIRDS_EYE: None,
     IFCView.CORNER_LOW: None,

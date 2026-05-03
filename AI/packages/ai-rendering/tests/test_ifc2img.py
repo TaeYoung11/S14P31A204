@@ -602,53 +602,42 @@ def test_attach_ground_plane_to_mesh_appends_4_vertices() -> None:
     assert len(base.vertices) == 3
 
 
-def test_views_without_ground_contains_iso_only() -> None:
-    """ISO_*만 ground 제외 (옵션 OO) — front/side/eye/top 등은 ground 추가 대상."""
-    assert IFCView.ISO_NE in VIEWS_WITHOUT_GROUND
-    assert IFCView.ISO_NW in VIEWS_WITHOUT_GROUND
-    assert IFCView.ISO_SE in VIEWS_WITHOUT_GROUND
+def test_views_without_ground_is_empty_after_iso_removal() -> None:
+    """ISO 제거(Phase 4 Step 4.5, 2026-05-03) 후 모든 default view에 ground 추가.
 
-    for v in (
-        IFCView.FRONT, IFCView.SIDE, IFCView.TOP, IFCView.BIRDS_EYE,
-        IFCView.CORNER_LOW, IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE,
-    ):
-        assert v not in VIEWS_WITHOUT_GROUND, f"{v} should NOT be in VIEWS_WITHOUT_GROUND"
-
-
-def test_renderer_mesh_for_view_skips_ground_for_iso() -> None:
-    """`IFCRenderer._mesh_for_view` — ISO_*는 base mesh 그대로, 다른 시점은 ground 추가.
-
-    옵션 OO 회귀 방어 — view-aware ground 정책 유지.
+    `VIEWS_WITHOUT_GROUND` frozenset은 빈 상태로 유지 — view-aware ground 진입점은
+    보존(향후 view별 제외 정책이 다시 필요할 때 재사용).
     """
+    assert VIEWS_WITHOUT_GROUND == frozenset()
+
+    # 모든 enum view가 ground 추가 대상
+    for v in IFCView:
+        assert v not in VIEWS_WITHOUT_GROUND
+
+
+def test_renderer_mesh_for_view_attaches_ground_for_all_views() -> None:
+    """ISO 제거 후 `_mesh_for_view`는 모든 view에 `attach_ground_plane_to_mesh` 호출."""
     renderer = IFCRenderer()
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 6.0, 3.0]])
 
-    # ISO는 base 그대로 (identity)
-    iso_result = renderer._mesh_for_view(fake_mesh, IFCView.ISO_NE)
-    assert iso_result is fake_mesh
-
-    # FRONT 등은 attach_ground_plane_to_mesh 호출 (id 다름)
-    with patch(
-        "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
-        return_value=MagicMock(),
-    ) as mock_attach:
-        renderer._mesh_for_view(fake_mesh, IFCView.FRONT)
-    mock_attach.assert_called_once_with(fake_mesh)
+    for view in (IFCView.FRONT, IFCView.SIDE, IFCView.EYE_NE, IFCView.TOP):
+        with patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            return_value=MagicMock(),
+        ) as mock_attach:
+            renderer._mesh_for_view(fake_mesh, view)
+        mock_attach.assert_called_once_with(fake_mesh)
 
 
-def test_iso_views_all_in_enum() -> None:
-    """등각 뷰 5개 + EYE 수평 등각 3개가 IFCView enum에 모두 등록됨."""
-    assert IFCView.ISO_NE in IFCView
-    assert IFCView.ISO_NW in IFCView
-    assert IFCView.ISO_SE in IFCView
-    assert IFCView.CORNER_LOW in IFCView
-    assert IFCView.BIRDS_EYE in IFCView
-    assert IFCView.EYE_NE in IFCView
-    assert IFCView.EYE_NW in IFCView
-    assert IFCView.EYE_SE in IFCView
-    # FRONT/SIDE/TOP + ISO_*×3 + CORNER_LOW + BIRDS_EYE + EYE_*×3
-    assert len(list(IFCView)) == 11
+def test_iso_views_removed_from_enum() -> None:
+    """ISO_NE/ISO_NW/ISO_SE는 enum에서 완전 제거됨 (Phase 4 Step 4.5)."""
+    enum_names = {v.name for v in IFCView}
+    assert "ISO_NE" not in enum_names
+    assert "ISO_NW" not in enum_names
+    assert "ISO_SE" not in enum_names
+    # FRONT/SIDE/TOP/CORNER_LOW/BIRDS_EYE + EYE_*×3 = 8
+    assert len(list(IFCView)) == 8
 
 
 def test_eye_views_all_in_enum() -> None:
@@ -681,10 +670,10 @@ def test_eye_views_have_zero_z_for_horizontal() -> None:
 
 
 def test_default_render_views_includes_eye() -> None:
-    """기본 render_views()에 EYE_* 3개 모두 포함 — 8뷰 default."""
+    """기본 render_views()에 EYE_* 3개 모두 포함 — Phase 4 Step 4.5 후 5뷰 default."""
     for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
         assert v in DEFAULT_RENDER_VIEWS
-    assert len(DEFAULT_RENDER_VIEWS) == 8
+    assert len(DEFAULT_RENDER_VIEWS) == 5
 
 
 def test_default_render_views_excludes_hallucination_prone() -> None:
@@ -700,7 +689,8 @@ def test_default_render_views_excludes_hallucination_prone() -> None:
     excluded = {IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW}
     for v in excluded:
         assert v not in DEFAULT_RENDER_VIEWS
-    assert len(DEFAULT_RENDER_VIEWS) == 8  # FRONT/SIDE/ISO_*×3 + EYE_*×3
+    # Phase 4 Step 4.5 (2026-05-03): ISO 제거 → DEFAULT 5뷰 (FRONT/SIDE + EYE_*×3)
+    assert len(DEFAULT_RENDER_VIEWS) == 5
     expected = set(IFCView) - excluded
     assert set(DEFAULT_RENDER_VIEWS) == expected
 
@@ -708,34 +698,42 @@ def test_default_render_views_excludes_hallucination_prone() -> None:
 # --- 옵션 B 공통 자산 — VIEW_PROMPT_SUFFIXES + build_view_prompt ---
 
 
-def test_view_prompt_suffixes_iso_have_environment_words() -> None:
-    """ISO_NE/NW/SE 모두 비어있지 않은 suffix, 환경 단서('grass'/'lawn') 포함."""
-    for v in (IFCView.ISO_NE, IFCView.ISO_NW, IFCView.ISO_SE):
+def test_view_prompt_suffixes_top_birds_eye_have_environment_words() -> None:
+    """default 제외된 시점(TOP/BIRDS_EYE/CORNER_LOW)은 명시 호출 시 환경 단서 포함.
+
+    Phase 4 Step 4.5(2026-05-03) — ISO_* 제거 후 환경 단서가 있는 시점은 *명시 호출*
+    시점만 남음. EYE_*는 빈 suffix(향후 고도화).
+    """
+    for v in (IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW):
         suffix = VIEW_PROMPT_SUFFIXES[v]
         assert suffix, f"{v} suffix should not be empty"
-        assert "grass" in suffix or "lawn" in suffix
+        assert "grass" in suffix or "lawn" in suffix or "view" in suffix
 
 
-def test_view_prompt_suffixes_front_side_empty() -> None:
-    """FRONT/SIDE는 빈 suffix — facade 시점에서는 환경 단서 불필요."""
-    assert VIEW_PROMPT_SUFFIXES[IFCView.FRONT] == ""
-    assert VIEW_PROMPT_SUFFIXES[IFCView.SIDE] == ""
+def test_view_prompt_suffixes_default_views_empty() -> None:
+    """default(FRONT/SIDE/EYE_*) 시점은 빈 suffix — Phase 4 정책 (시간대 suffix는 preset 단계)."""
+    for v in (
+        IFCView.FRONT, IFCView.SIDE,
+        IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE,
+    ):
+        assert VIEW_PROMPT_SUFFIXES[v] == ""
 
 
-def test_build_view_prompt_appends_suffix_for_iso() -> None:
-    """ISO_NE에 base prompt 합성 시 suffix 덧붙음."""
+def test_build_view_prompt_appends_suffix_for_top() -> None:
+    """TOP에 base prompt 합성 시 suffix 덧붙음 (명시 호출용 시점)."""
     base = "RAW photo, scandinavian house"
-    result = build_view_prompt(base, IFCView.ISO_NE)
+    result = build_view_prompt(base, IFCView.TOP)
     assert result.startswith(base)
     assert len(result) > len(base)
-    assert "grass" in result or "lawn" in result
+    assert "aerial" in result or "roof" in result
 
 
 def test_build_view_prompt_returns_base_for_empty_suffix() -> None:
-    """FRONT/SIDE처럼 suffix가 빈 문자열이면 base 그대로 반환."""
+    """FRONT/SIDE/EYE_*처럼 suffix가 빈 문자열이면 base 그대로 반환."""
     base = "RAW photo, scandinavian house"
     assert build_view_prompt(base, IFCView.FRONT) == base
     assert build_view_prompt(base, IFCView.SIDE) == base
+    assert build_view_prompt(base, IFCView.EYE_NE) == base
 
 
 # --- B-3 — build_view_prompt 공개 API export ---
@@ -780,16 +778,16 @@ def test_build_view_negative_prompt_helper_still_composes_with_nonempty_suffix()
     """
     from ai_rendering.ifc2img import views as views_module
 
-    original = views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW]
+    original = views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW]
     try:
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = ", test_token"
-        result = build_view_negative_prompt("base", IFCView.ISO_NW)
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = ", test_token"
+        result = build_view_negative_prompt("base", IFCView.EYE_NW)
         assert result == "base, test_token"
         # base 빈 문자열일 때 ', ' 접두사 제거도 헬퍼 책임
-        result_empty = build_view_negative_prompt("", IFCView.ISO_NW)
+        result_empty = build_view_negative_prompt("", IFCView.EYE_NW)
         assert result_empty == "test_token"
     finally:
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = original
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = original
 
 
 def test_build_view_negative_prompt_only_strips_exact_comma_space_prefix() -> None:
@@ -800,21 +798,21 @@ def test_build_view_negative_prompt_only_strips_exact_comma_space_prefix() -> No
     """
     from ai_rendering.ifc2img import views as views_module
 
-    original = views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW]
+    original = views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW]
     try:
         # case 1: 콤마만 있고 공백 없음 → prefix 매치 안 됨, 그대로 보존
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = ",no_space"
-        assert build_view_negative_prompt("", IFCView.ISO_NW) == ",no_space"
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = ",no_space"
+        assert build_view_negative_prompt("", IFCView.EYE_NW) == ",no_space"
 
         # case 2: 다중 공백 → 정확히 ", "(2자) 1회만 제거 (lstrip이면 모두 제거됐을 것)
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = ",  extra_spaces"
-        assert build_view_negative_prompt("", IFCView.ISO_NW) == " extra_spaces"
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = ",  extra_spaces"
+        assert build_view_negative_prompt("", IFCView.EYE_NW) == " extra_spaces"
 
         # case 3: 정상 prefix → 정확히 ", "만 제거
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = ", clean"
-        assert build_view_negative_prompt("", IFCView.ISO_NW) == "clean"
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = ", clean"
+        assert build_view_negative_prompt("", IFCView.EYE_NW) == "clean"
     finally:
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = original
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = original
 
 
 def test_build_view_negative_prompt_in_public_api() -> None:
@@ -846,8 +844,8 @@ def test_resolve_view_cn_scale_returns_base_when_no_override() -> None:
     """override가 None인 모든 시점은 base 그대로 — 기본 동작 검증."""
     assert resolve_view_cn_scale(1.0, IFCView.FRONT) == 1.0
     assert resolve_view_cn_scale(0.85, IFCView.SIDE) == 0.85
-    assert resolve_view_cn_scale(0.5, IFCView.ISO_NE) == 0.5
-    assert resolve_view_cn_scale(1.0, IFCView.ISO_NW) == 1.0
+    assert resolve_view_cn_scale(0.5, IFCView.EYE_NE) == 0.5
+    assert resolve_view_cn_scale(1.0, IFCView.EYE_NW) == 1.0
     assert resolve_view_cn_scale(1.0, IFCView.EYE_NE) == 1.0
 
 
@@ -875,10 +873,10 @@ def test_view_target_ratios_cropping_resistant() -> None:
     """잘림 위험 큰 시점들이 측면(FRONT/SIDE)보다 작은 target ratio 가져야 — cropping 방어."""
     front_ratio = VIEW_TARGET_RATIOS[IFCView.FRONT]
     # 위/등각 시점은 모두 측면보다 작아야
-    for v in (IFCView.TOP, IFCView.BIRDS_EYE, IFCView.ISO_NE, IFCView.ISO_NW, IFCView.ISO_SE):
+    for v in (IFCView.TOP, IFCView.BIRDS_EYE, IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
         assert VIEW_TARGET_RATIOS[v] < front_ratio
     # CORNER_LOW는 가장 잘리던 시점 → 등각보다도 작거나 같아야
-    assert VIEW_TARGET_RATIOS[IFCView.CORNER_LOW] <= VIEW_TARGET_RATIOS[IFCView.ISO_NE]
+    assert VIEW_TARGET_RATIOS[IFCView.CORNER_LOW] <= VIEW_TARGET_RATIOS[IFCView.EYE_NE]
 
 
 def test_renderer_resolves_view_specific_target() -> None:
@@ -932,8 +930,8 @@ def test_resolve_target_ratio_for_medium_mesh_scales_down() -> None:
         base * DISPATCH_MEDIUM_FACTOR
     )
     # ISO 기본값에서도 작동
-    iso_base = VIEW_TARGET_RATIOS[IFCView.ISO_NE]
-    assert resolve_target_ratio_for_mesh(IFCView.ISO_NE, 35.0) == (
+    iso_base = VIEW_TARGET_RATIOS[IFCView.EYE_NE]
+    assert resolve_target_ratio_for_mesh(IFCView.EYE_NE, 35.0) == (
         iso_base * DISPATCH_MEDIUM_FACTOR
     )
 
@@ -948,8 +946,8 @@ def test_resolve_target_ratio_for_large_mesh_scales_more() -> None:
         base * DISPATCH_LARGE_FACTOR
     )
     # ISO 기본값에서도 작동
-    iso_base = VIEW_TARGET_RATIOS[IFCView.ISO_NE]
-    assert resolve_target_ratio_for_mesh(IFCView.ISO_NE, 75.0) == (
+    iso_base = VIEW_TARGET_RATIOS[IFCView.EYE_NE]
+    assert resolve_target_ratio_for_mesh(IFCView.EYE_NE, 75.0) == (
         iso_base * DISPATCH_LARGE_FACTOR
     )
 

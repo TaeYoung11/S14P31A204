@@ -162,17 +162,21 @@ def test_public_api_exports() -> None:
 def test_render_with_view_appends_suffix_to_prompt(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """B-1 — view=ISO_NE 전달 시 pipe 호출 prompt에 환경 suffix 포함."""
+    """B-1 — view=TOP 전달 시 pipe 호출 prompt에 환경 suffix 포함.
+
+    Phase 4 Step 4.5(2026-05-03) — ISO 제거 후 EYE_*는 빈 suffix라 합성 검증
+    부적합 → 명시 호출 시점(TOP) 사용. suffix 합성 메커니즘 자체는 동일.
+    """
     depth = Image.new("L", (768, 448), 100)
     base_prompt = "RAW photo, scandinavian house"
     params = DepthStyleParams(prompt=base_prompt)
 
-    mock_depth_renderer.render(depth, params, view=IFCView.ISO_NE)
+    mock_depth_renderer.render(depth, params, view=IFCView.TOP)
 
     call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
     assert call_prompt.startswith(base_prompt)
     assert len(call_prompt) > len(base_prompt)
-    assert "grass" in call_prompt or "lawn" in call_prompt
+    assert "aerial" in call_prompt or "roof" in call_prompt
 
 
 def test_render_without_view_uses_raw_prompt(
@@ -217,7 +221,7 @@ def test_render_with_view_iso_nw_keeps_base_negative_after_c1_rollback(
         negative_prompt=base_negative,
     )
 
-    mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
+    mock_depth_renderer.render(depth, params, view=IFCView.EYE_NW)
 
     call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
     assert call_negative == base_negative
@@ -234,7 +238,7 @@ def test_render_with_view_iso_ne_keeps_base_negative(
         negative_prompt=base_negative,
     )
 
-    mock_depth_renderer.render(depth, params, view=IFCView.ISO_NE)
+    mock_depth_renderer.render(depth, params, view=IFCView.EYE_NE)
 
     call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
     assert call_negative == base_negative
@@ -267,17 +271,17 @@ def test_render_with_view_iso_nw_composes_when_suffix_present(
     """
     from ai_rendering.ifc2img import views as views_module
 
-    original = views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW]
+    original = views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW]
     try:
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = ", test_token"
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = ", test_token"
         depth = Image.new("L", (768, 448), 100)
         base = "(worst quality:1.4)"
         params = DepthStyleParams(prompt="x", negative_prompt=base)
-        mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
+        mock_depth_renderer.render(depth, params, view=IFCView.EYE_NW)
         call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
         assert call_negative == f"{base}, test_token"
     finally:
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = original
+        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = original
 
 
 # --- C-2 — DepthStyleRenderer.render(view=...) cn_scale override ---
@@ -293,23 +297,23 @@ def test_render_with_view_uses_override_when_set(
     """
     from ai_rendering.ifc2img import views as views_module
 
-    original = views_module.VIEW_CN_SCALE_OVERRIDES[IFCView.ISO_NW]
+    original = views_module.VIEW_CN_SCALE_OVERRIDES[IFCView.EYE_NW]
     try:
-        views_module.VIEW_CN_SCALE_OVERRIDES[IFCView.ISO_NW] = 1.15
+        views_module.VIEW_CN_SCALE_OVERRIDES[IFCView.EYE_NW] = 1.15
         depth = Image.new("L", (768, 448), 100)
         params = DepthStyleParams(
             prompt="x",
             controlnet_conditioning_scale=1.0,
         )
 
-        mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
+        mock_depth_renderer.render(depth, params, view=IFCView.EYE_NW)
 
         sent_cn = mock_depth_renderer.pipe.call_args.kwargs[
             "controlnet_conditioning_scale"
         ]
         assert sent_cn == 1.15
     finally:
-        views_module.VIEW_CN_SCALE_OVERRIDES[IFCView.ISO_NW] = original
+        views_module.VIEW_CN_SCALE_OVERRIDES[IFCView.EYE_NW] = original
 
 
 def test_render_with_view_falls_back_to_params_when_no_override(
@@ -352,8 +356,8 @@ def test_render_result_params_reflect_applied_view_composition(
     호출자가 result.params.prompt / .negative_prompt / .controlnet_conditioning_scale
     로 *실제 SD pipe에 전달된 값*을 추적할 수 있어야 함 (디버깅/로그/재현성).
 
-    옵션 E (E-clean) 후 cn_scale override가 default None — view 전달해도
-    cn_scale은 base 그대로. prompt suffix는 ISO_NW에 여전히 적용.
+    Phase 4 Step 4.5(2026-05-03) — ISO 제거 후 EYE_*는 빈 suffix라 합성 검증
+    부적합 → TOP(명시 호출 시점, suffix 보유)으로 검증.
     """
     depth = Image.new("L", (768, 448), 100)
     base_prompt = "RAW photo, scandinavian house"
@@ -363,9 +367,9 @@ def test_render_result_params_reflect_applied_view_composition(
         controlnet_conditioning_scale=1.0,
     )
 
-    result = mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
+    result = mock_depth_renderer.render(depth, params, view=IFCView.TOP)
 
-    # ISO_NW은 prompt suffix 적용 대상 (cn_scale override는 None default)
+    # TOP은 prompt suffix 적용 대상 (cn_scale override는 None default)
     assert result.params is not params  # 새 인스턴스 (view-aware 합성 적용)
     assert result.params.prompt.startswith(base_prompt)
     assert len(result.params.prompt) > len(base_prompt)  # suffix 추가됨
