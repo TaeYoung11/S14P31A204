@@ -1,8 +1,9 @@
 """IFC 다양성 검증 — SD 추론 (3 fixture × 8뷰 × 1 preset).
 
 `run_diversity_check.py`로 추출한 depth 24장을 SD 1.5 + ControlNet-depth로
-추론. baseline 설정 그대로 (seed=7, guidance=7, steps=25, cn_base=0.7,
-iso_nw/se override 1.0, view-aware prompt suffix).
+추론. baseline 설정 그대로 (seed=7, guidance=7, steps=25, cn_base=1.15,
+view-aware prompt suffix). cn_scale은 옵션 N(2026-04-29) 후 1.15 일관 —
+view별 override는 모두 None(VIEW_CN_SCALE_OVERRIDES 정책).
 
 기본 preset = scandinavian (옵션 A — EYE_* 품질 빠르게 확인 → 미세 조정 →
 필요 시 다른 preset 확장).
