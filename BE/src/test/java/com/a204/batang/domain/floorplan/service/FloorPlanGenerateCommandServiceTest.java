@@ -8,6 +8,8 @@ import com.a204.batang.domain.floorplan.entity.FloorPlanJob;
 import com.a204.batang.domain.floorplan.entity.FloorPlanJobStep;
 import com.a204.batang.domain.floorplan.messaging.FloorPlanGenerateCommandPublisher;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateCommandMessage;
+import com.a204.batang.domain.floorplan.messaging.event.FloorPlanCommandPublishRequestedEvent;
+import com.a204.batang.domain.floorplan.messaging.event.FloorPlanPublishFailedEvent;
 import com.a204.batang.domain.floorplan.messaging.event.FloorPlanStatusChangedEvent;
 import com.a204.batang.domain.floorplan.repository.FloorPlanJobRepository;
 import com.a204.batang.domain.floorplan.repository.FloorPlanJobStepRepository;
@@ -34,6 +36,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -43,7 +46,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -147,7 +149,7 @@ class FloorPlanGenerateCommandServiceTest {
     }
 
     @Test
-    void createFloorPlanGenerate_createsReservedRowsAndPublishesCommand_forRawRequest() throws Exception {
+    void createFloorPlanGenerate_createsReservedRowsAndSchedulesPublish_forRawRequest() throws Exception {
         CreateFloorPlanGenerateRequest request = new CreateFloorPlanGenerateRequest(objectMapper.readTree("""
                 {
                   "schema_version": "v2",
@@ -191,7 +193,6 @@ class FloorPlanGenerateCommandServiceTest {
                 .willAnswer(invocation -> "projects/" + projectId + "/revisions/" + invocation.getArgument(1) + "/model.ifc");
         given(floorPlanStoragePathBuilder.buildValidationReportStorageUrl(any(), eq(1)))
                 .willAnswer(invocation -> "jobs/" + invocation.getArgument(0) + "/steps/1/validation-report.json");
-        doNothing().when(floorPlanGenerateCommandPublisher).publish(any());
 
         CreateFloorPlanGenerateResponse response =
                 floorPlanGenerateCommandService.createFloorPlanGenerate(projectId, userId, request);
@@ -199,19 +200,20 @@ class FloorPlanGenerateCommandServiceTest {
         ArgumentCaptor<Revision> revisionCaptor = ArgumentCaptor.forClass(Revision.class);
         ArgumentCaptor<FloorPlanJob> jobCaptor = ArgumentCaptor.forClass(FloorPlanJob.class);
         ArgumentCaptor<FloorPlanJobStep> stepCaptor = ArgumentCaptor.forClass(FloorPlanJobStep.class);
-        ArgumentCaptor<FloorPlanGenerateCommandMessage> commandCaptor =
-                ArgumentCaptor.forClass(FloorPlanGenerateCommandMessage.class);
+        ArgumentCaptor<FloorPlanCommandPublishRequestedEvent> publishEventCaptor =
+                ArgumentCaptor.forClass(FloorPlanCommandPublishRequestedEvent.class);
 
         verify(revisionRepository).save(revisionCaptor.capture());
         verify(floorPlanJobRepository).save(jobCaptor.capture());
         verify(floorPlanJobStepRepository).save(stepCaptor.capture());
-        verify(floorPlanGenerateCommandPublisher).publish(commandCaptor.capture());
+        verify(eventPublisher).publishEvent(publishEventCaptor.capture());
         verify(eventPublisher).publishEvent(any(FloorPlanStatusChangedEvent.class));
+        verify(floorPlanGenerateCommandPublisher, never()).publish(any());
 
         Revision savedRevision = revisionCaptor.getValue();
         FloorPlanJob savedJob = jobCaptor.getValue();
         FloorPlanJobStep savedStep = stepCaptor.getValue();
-        FloorPlanGenerateCommandMessage command = commandCaptor.getValue();
+        FloorPlanGenerateCommandMessage command = publishEventCaptor.getValue().message();
 
         assertThat(response.projectId()).isEqualTo(projectId);
         assertThat(response.inputSource()).isEqualTo(FloorPlanConstants.INPUT_SOURCE_RAW_REQUEST);
@@ -350,56 +352,51 @@ class FloorPlanGenerateCommandServiceTest {
     }
 
     @Test
-    void createFloorPlanGenerate_throwsWhenPublishFails() throws Exception {
-        CreateFloorPlanGenerateRequest request = new CreateFloorPlanGenerateRequest(objectMapper.readTree("""
-                {
-                  "schema_version": "v2",
-                  "id": "raw-id",
-                  "name": "raw-name",
-                  "rooms": [
-                    {
-                      "id": "room-1",
-                      "name": "거실",
-                      "type": "living",
-                      "width": 4000,
-                      "height": 3200,
-                      "floor": 1,
-                      "x": 1000.0,
-                      "y": 1500.0,
-                      "angle": 0.0,
-                      "locked": false,
-                      "zoneId": null
-                    }
-                  ],
-                  "adjacency": [],
-                  "generation_options": {
-                    "generate_spaces": true,
-                    "generate_walls": true,
-                    "generate_slabs": true,
-                    "generate_roof": true,
-                    "generate_openings": false
-                  },
-                  "generation_policy": {
-                    "boundary_wall_mode": "outer_boundary",
-                    "shared_wall_policy": "from_adjacency",
-                    "roof_shape": "flat"
-                  }
-                }
-                """));
+    void handleCommandPublishRequested_publishesAfterCommit() {
+        FloorPlanGenerateCommandMessage message = createCommandMessage();
 
-        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
-        given(revisionRepository.findTopByProjectIdOrderByRevisionNoDesc(projectId)).willReturn(Optional.empty());
-        given(floorPlanLayoutImportMapper.fromRawRequest(eq(projectId), eq(project.getName()), any())).willReturn(layoutImportPayload);
-        given(floorPlanStoragePathBuilder.buildIfcStorageUrl(eq(projectId), any()))
-                .willAnswer(invocation -> "projects/" + projectId + "/revisions/" + invocation.getArgument(1) + "/model.ifc");
-        given(floorPlanStoragePathBuilder.buildValidationReportStorageUrl(any(), eq(1)))
-                .willAnswer(invocation -> "jobs/" + invocation.getArgument(0) + "/steps/1/validation-report.json");
+        floorPlanGenerateCommandService.handleCommandPublishRequested(new FloorPlanCommandPublishRequestedEvent(message));
+
+        verify(floorPlanGenerateCommandPublisher).publish(message);
+    }
+
+    @Test
+    void handleCommandPublishRequested_emitsPublishFailedEventWhenPublisherThrows() {
+        FloorPlanGenerateCommandMessage message = createCommandMessage();
         doThrow(new CustomException(ErrorCode.FLOOR_PLAN_COMMAND_PUBLISH_FAILED))
-                .when(floorPlanGenerateCommandPublisher).publish(any());
+                .when(floorPlanGenerateCommandPublisher).publish(message);
 
-        assertThatThrownBy(() -> floorPlanGenerateCommandService.createFloorPlanGenerate(projectId, userId, request))
-                .isInstanceOf(CustomException.class)
-                .extracting("errorCode")
-                .isEqualTo(ErrorCode.FLOOR_PLAN_COMMAND_PUBLISH_FAILED);
+        floorPlanGenerateCommandService.handleCommandPublishRequested(new FloorPlanCommandPublishRequestedEvent(message));
+
+        verify(eventPublisher).publishEvent(any(FloorPlanPublishFailedEvent.class));
+    }
+
+    private FloorPlanGenerateCommandMessage createCommandMessage() {
+        return new FloorPlanGenerateCommandMessage(
+                UUID.randomUUID(),
+                "v1",
+                "COMMAND",
+                FloorPlanConstants.COMMAND_TYPE_IFC_GENERATE_FROM_BUBBLE,
+                RabbitMqConfig.IFC_GENERATE_COMMAND_ROUTING_KEY,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                1,
+                1,
+                projectId,
+                userId,
+                null,
+                null,
+                FloorPlanConstants.SOURCE_SCENE_TYPE_LAYOUT_IMPORT,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                null,
+                new FloorPlanGenerateCommandMessage.ExpectedOutput("model.ifc", "validation.json"),
+                new FloorPlanGenerateCommandMessage.Payload(layoutImportPayload),
+                1,
+                3,
+                "idempotency",
+                UUID.randomUUID(),
+                OffsetDateTime.now()
+        );
     }
 }
