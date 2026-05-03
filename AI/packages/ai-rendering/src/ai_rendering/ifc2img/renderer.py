@@ -18,7 +18,6 @@ from .views import (
     CameraParams,
     IFCView,
     compute_auto_zoom,
-    compute_view_lookat,
     resolve_target_ratio_for_mesh,
 )
 
@@ -151,13 +150,13 @@ class IFCRenderer:
         vis: o3d.visualization.Visualizer,
         zoom: float,
         camera: CameraParams,
-        lookat: np.ndarray,
+        center: np.ndarray,
     ) -> np.ndarray:
         """zoom 변경 후 depth buffer 1회 캡처. viz는 호출자가 관리."""
         vc = vis.get_view_control()
         vc.set_front(list(camera.front))
         vc.set_up(list(camera.up))
-        vc.set_lookat(lookat.tolist())
+        vc.set_lookat(center.tolist())
         vc.set_zoom(zoom)
         vis.poll_events()
         vis.update_renderer()
@@ -170,7 +169,7 @@ class IFCRenderer:
         self,
         vis: o3d.visualization.Visualizer,
         camera: CameraParams,
-        lookat: np.ndarray,
+        center: np.ndarray,
         initial_zoom: float,
         target_ratio: float,
     ) -> np.ndarray:
@@ -179,7 +178,7 @@ class IFCRenderer:
         target_ratio는 view-별로 다를 수 있어 호출자가 명시 전달한다.
         """
         zoom = initial_zoom
-        depth = self._capture_depth(vis, zoom, camera, lookat)
+        depth = self._capture_depth(vis, zoom, camera, center)
         for _ in range(self.iter_max - 1):
             fill = float((depth > 0).mean())
             if abs(fill - target_ratio) <= self.iter_tolerance:
@@ -195,7 +194,7 @@ class IFCRenderer:
                         2.0,
                     )
                 )
-            depth = self._capture_depth(vis, zoom, camera, lookat)
+            depth = self._capture_depth(vis, zoom, camera, center)
         return depth
 
     def _render_mesh(
@@ -207,7 +206,6 @@ class IFCRenderer:
     ) -> Image.Image:
         initial_zoom = self._initial_zoom(mesh, camera)
         target_ratio = self._resolve_target_ratio(view, mesh)
-        lookat = self._compute_lookat(center, mesh, view)
 
         vis = o3d.visualization.Visualizer()
         vis.create_window(visible=False, width=self.width, height=self.height)
@@ -219,35 +217,14 @@ class IFCRenderer:
 
             if self.auto_zoom == AutoZoomMode.ITERATIVE:
                 depth = self._iterative_zoom_loop(
-                    vis, camera, lookat, initial_zoom, target_ratio
+                    vis, camera, center, initial_zoom, target_ratio
                 )
             else:
-                depth = self._capture_depth(vis, initial_zoom, camera, lookat)
+                depth = self._capture_depth(vis, initial_zoom, camera, center)
         finally:
             vis.destroy_window()
 
         return self._depth_to_image(depth)
-
-    @staticmethod
-    def _compute_lookat(
-        center: np.ndarray,
-        mesh: o3d.geometry.TriangleMesh,
-        view: IFCView,
-    ) -> np.ndarray:
-        """view-aware lookat 좌표 계산 — Phase 5 옵션 AAA.
-
-        mesh AABB의 z extent로부터 `compute_view_lookat`에 위임. 빈 mesh면 base
-        center 그대로 (방어적 fallback — 정상 조건 아님).
-        """
-        verts = np.asarray(mesh.vertices)
-        if len(verts) == 0:
-            return center
-        return compute_view_lookat(
-            base_center=center,
-            mesh_min_z=float(verts[:, 2].min()),
-            mesh_max_z=float(verts[:, 2].max()),
-            view=view,
-        )
 
     @staticmethod
     def _depth_to_image(depth: np.ndarray) -> Image.Image:
