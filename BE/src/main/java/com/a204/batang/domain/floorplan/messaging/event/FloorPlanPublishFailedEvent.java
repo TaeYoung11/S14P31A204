@@ -3,8 +3,8 @@ package com.a204.batang.domain.floorplan.messaging.event;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateCommandMessage;
 
 /**
- * Floor-plan command publish 실패를 표현하는 내부 이벤트이다.
- * 실제 confirm/returned 후처리는 이후 커밋에서 연결한다.
+ * Floor-plan command publish 실패를 전달하는 내부 이벤트다.
+ * confirm NACK과 returned message 후처리에서 공통으로 사용한다.
  */
 public record FloorPlanPublishFailedEvent(
         FloorPlanGenerateCommandMessage message,
