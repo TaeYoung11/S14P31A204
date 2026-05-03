@@ -9,6 +9,8 @@ import com.a204.batang.domain.floorplan.entity.FloorPlanJob;
 import com.a204.batang.domain.floorplan.entity.FloorPlanJobStep;
 import com.a204.batang.domain.floorplan.messaging.FloorPlanGenerateCommandPublisher;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateCommandMessage;
+import com.a204.batang.domain.floorplan.messaging.event.FloorPlanCommandPublishRequestedEvent;
+import com.a204.batang.domain.floorplan.messaging.event.FloorPlanPublishFailedEvent;
 import com.a204.batang.domain.floorplan.messaging.event.FloorPlanStatusChangedEvent;
 import com.a204.batang.domain.floorplan.repository.FloorPlanJobRepository;
 import com.a204.batang.domain.floorplan.repository.FloorPlanJobStepRepository;
@@ -29,6 +31,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -39,7 +43,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Floor-plan generate command 예약과 RabbitMQ 발행을 담당한다.
+ * Floor-plan generate command 예약과 커밋 이후 RabbitMQ 발행을 담당한다.
  *
  * request_payload에는 FE 원본 body가 아니라 worker에 실제로 전달할 정규화된
  * layout_import_v2 payload를 저장한다. 그래야 저장된 예약 정보와 실제 발행 메시지가
@@ -47,6 +51,9 @@ import java.util.UUID;
  *
  * input_payload에는 예약 시점에 확정된 revision/artifact/storage path를 함께 저장한다.
  * 이후 worker event가 들어왔을 때 reserved id와 결과를 대조하는 최종 방어선으로 쓴다.
+ *
+ * 실제 RabbitMQ publish는 AFTER_COMMIT에서 수행한다. 그래야 publish 성공 후 DB rollback으로
+ * 예약 row가 사라지는 orphan message 문제를 피할 수 있다.
  */
 @Slf4j
 @Service
@@ -192,7 +199,7 @@ public class FloorPlanGenerateCommandService {
                 resolution.inputSource()
         );
         log.info(
-                "Floor-plan command 발행을 준비합니다. projectId={}, jobId={}, jobStepId={}, routingKey={}, correlationId={}",
+                "Floor-plan command 발행을 예약합니다. projectId={}, jobId={}, jobStepId={}, routingKey={}, correlationId={}",
                 projectId,
                 jobId,
                 jobStepId,
@@ -200,10 +207,8 @@ public class FloorPlanGenerateCommandService {
                 correlationId
         );
 
-        floorPlanGenerateCommandPublisher.publish(commandMessage);
+        eventPublisher.publishEvent(new FloorPlanCommandPublishRequestedEvent(commandMessage));
 
-        // SSE는 트랜잭션 안에서 직접 보내지 않고 내부 상태 이벤트만 발행한다.
-        // 실제 전송은 AFTER_COMMIT 경계에서 처리해 DB commit 이전 성공처럼 보이지 않게 한다.
         FloorPlanStatusSseResponse statusPayload = new FloorPlanStatusSseResponse(
                 FloorPlanConstants.SSE_FLOOR_PLAN_QUEUED,
                 projectId,
@@ -230,6 +235,20 @@ public class FloorPlanGenerateCommandService {
                 STATUS_QUEUED,
                 0
         );
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleCommandPublishRequested(FloorPlanCommandPublishRequestedEvent event) {
+        FloorPlanGenerateCommandMessage message = event.message();
+        try {
+            floorPlanGenerateCommandPublisher.publish(message);
+        } catch (CustomException e) {
+            eventPublisher.publishEvent(new FloorPlanPublishFailedEvent(
+                    message,
+                    e.getMessage(),
+                    false
+            ));
+        }
     }
 
     private LayoutImportResolution resolveLayoutImport(Project project, CreateFloorPlanGenerateRequest request) {
