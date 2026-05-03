@@ -146,6 +146,7 @@ public class FloorPlanJobStep {
      */
     public void markFailed(String errorCode, String errorMessage, JsonNode outputPayload, LocalDateTime now) {
         this.status = "FAILED";
+        this.progress = 0;
         this.outputPayload = outputPayload;
         this.errorCode = errorCode;
         this.errorMessage = errorMessage;

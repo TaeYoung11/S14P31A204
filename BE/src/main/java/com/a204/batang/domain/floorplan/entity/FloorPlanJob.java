@@ -143,6 +143,7 @@ public class FloorPlanJob {
      */
     public void markFailed(String errorMessage, JsonNode resultPayload, LocalDateTime now) {
         this.status = "FAILED";
+        this.progress = 0;
         this.resultPayload = resultPayload;
         this.errorMessage = errorMessage;
         if (startedAt == null) {
