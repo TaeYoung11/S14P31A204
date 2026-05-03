@@ -4,7 +4,7 @@ import { INITIAL_BUBBLES, INITIAL_ADD_SPACE_FORM } from '../constants'
 import {
   calcAreaM2FromMm,
   calcMmDimensionsByAreaAndAspect,
-  calcPxDimensionsByAreaAndAspect,
+  calcPxDimensionsFromMm,
   parsePositiveNumber,
 } from '../utils/bubbleCalc'
 
@@ -55,11 +55,31 @@ export function useBubbles() {
         if (!dragged) return prev
         const dx = x - dragged.x
         const dy = y - dragged.y
-        return prev.map((b) =>
-          currentSelectedIds.includes(b.id) ? { ...b, x: b.x + dx, y: b.y + dy } : b
-        )
+        if (dx === 0 && dy === 0) return prev
+
+        const selectedSet = new Set(currentSelectedIds)
+        const next = [...prev]
+        let changed = false
+
+        for (let index = 0; index < prev.length; index += 1) {
+          const bubble = prev[index]
+          if (!bubble || !selectedSet.has(bubble.id)) continue
+          next[index] = { ...bubble, x: bubble.x + dx, y: bubble.y + dy }
+          changed = true
+        }
+
+        return changed ? next : prev
       }
-      return prev.map((b) => (b.id === id ? { ...b, x, y } : b))
+
+      const targetIndex = prev.findIndex((bubble) => bubble.id === id)
+      if (targetIndex < 0) return prev
+      const target = prev[targetIndex]
+      if (!target) return prev
+      if (target.x === x && target.y === y) return prev
+
+      const next = [...prev]
+      next[targetIndex] = { ...target, x, y }
+      return next
     })
   }
 
@@ -91,12 +111,13 @@ export function useBubbles() {
     setBubbles((prev) =>
       prev.map((b) => {
         if (b.id !== id) return b
-        const newW = Math.max(width, 40)
-        const newH = Math.max(height, 40)
+        const newW = Math.max(width, 1)
+        const newH = Math.max(height, 1)
         const newWidthMm = Math.max(b.widthMm * (newW / b.width), 100)
         const newHeightMm = Math.max(b.heightMm * (newH / b.height), 100)
         const ratio = calcAreaM2FromMm(newWidthMm, newHeightMm)
-        return { ...b, x, y, width: newW, height: newH, widthMm: newWidthMm, heightMm: newHeightMm, ratio, area: `${ratio.toFixed(1)} m²` }
+        const px = calcPxDimensionsFromMm(newWidthMm, newHeightMm)
+        return { ...b, x, y, width: px.width, height: px.height, widthMm: newWidthMm, heightMm: newHeightMm, ratio, area: `${ratio.toFixed(1)} m²` }
       })
     )
   }
@@ -122,7 +143,7 @@ export function useBubbles() {
         const nextWidthMm = axis === 'width' ? (value > 0 ? value : b.widthMm) : (b.widthMm > 0 ? b.widthMm : 1000)
         const nextHeightMm = axis === 'height' ? (value > 0 ? value : b.heightMm) : (b.heightMm > 0 ? b.heightMm : 1000)
         const ratio = calcAreaM2FromMm(nextWidthMm, nextHeightMm)
-        const px = calcPxDimensionsByAreaAndAspect(ratio, nextWidthMm / nextHeightMm)
+        const px = calcPxDimensionsFromMm(nextWidthMm, nextHeightMm)
         return { ...b, width: px.width, height: px.height, widthMm: nextWidthMm, heightMm: nextHeightMm, ratio, area: `${ratio.toFixed(1)} m²` }
       })
     )
@@ -141,7 +162,7 @@ export function useBubbles() {
         if (b.id !== id) return b
         const aspect = b.widthMm > 0 && b.heightMm > 0 ? b.widthMm / b.heightMm : 1
         const mm = calcMmDimensionsByAreaAndAspect(ratio, aspect)
-        const px = calcPxDimensionsByAreaAndAspect(ratio, aspect)
+        const px = calcPxDimensionsFromMm(mm.widthMm, mm.heightMm)
         return { ...b, ratio, area: `${ratio.toFixed(1)} m²`, width: px.width, height: px.height, widthMm: mm.widthMm, heightMm: mm.heightMm }
       })
     )
@@ -202,8 +223,7 @@ export function useBubbles() {
       heightMmValue = mm.heightMm
     }
 
-    const aspect = widthMmValue > 0 && heightMmValue > 0 ? widthMmValue / heightMmValue : 1
-    const px = calcPxDimensionsByAreaAndAspect(ratioValue, aspect)
+    const px = calcPxDimensionsFromMm(widthMmValue, heightMmValue)
 
     const newBubble: BubbleData = {
       id: createBubbleId(),
@@ -228,7 +248,7 @@ export function useBubbles() {
   const addBubbleAt = (x: number, y: number) => {
     const ratioValue = 10
     const mm = calcMmDimensionsByAreaAndAspect(ratioValue, 1)
-    const px = calcPxDimensionsByAreaAndAspect(ratioValue, 1)
+    const px = calcPxDimensionsFromMm(mm.widthMm, mm.heightMm)
     const id = createBubbleId()
     const nextIndex = getNextBubbleIndex(bubbles.length)
     const newBubble: BubbleData = {

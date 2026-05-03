@@ -63,6 +63,7 @@ function buildBubbleCanvasProps(
   | 'isBubbleReadOnly'
 > {
   return {
+    // 버블 모드는 화면 맞춤 좌표를 사용해야 과도한 실측 스케일 확대를 피할 수 있다.
     sitePoints: vm.sitePoints,
     bubbles: vm.bubbles,
     connections: vm.connections,
@@ -91,6 +92,7 @@ function buildBubbleCanvasProps(
 function buildFloorPlanProps(
   vm: EditorPageViewModel,
 ): CanvasPropsSubset<
+  | 'sitePlanPoints'
   | 'floorRooms'
   | 'floorLayerOverlayItems'
   | 'floorPlanConnections'
@@ -101,6 +103,7 @@ function buildFloorPlanProps(
   | 'handleBubbleSelect'
 > {
   return {
+    sitePlanPoints: vm.sitePlanPoints,
     floorRooms: vm.floorRooms,
     floorLayerOverlayItems: vm.floorLayerOverlayItems,
     floorPlanConnections: vm.floorPlanConnections,

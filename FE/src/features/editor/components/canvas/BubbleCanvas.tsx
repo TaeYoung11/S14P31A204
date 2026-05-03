@@ -3,104 +3,11 @@ import { Circle, Ellipse, Group, Layer, Line, Rect, Stage, Text, Transformer } f
 import type { KonvaEventObject } from 'konva/lib/Node'
 import type Konva from 'konva'
 import type { BubbleData, ConnectionData, FloorLayerOverlay, ZoneData } from '../../types'
-import { getZoneOrganicShape } from '../../utils/zoneShape'
-import { hexToRgba } from '../../utils/bubbleCalc'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
-
-// ── 조닝 영역 시각화 설정 ─────────────────────────────────────────────────────
-
-interface ZoneStyle {
-  /** 영역 바깥쪽 여백 (px) */
-  padding: number
-  /** 채우기 투명도 */
-  fillOpacity: number
-  /** 외곽선 두께 */
-  strokeWidth: number
-  /** 점선 패턴 [선 길이, 간격] */
-  dash: [number, number]
-  /** 경계선 텐션 (0=직선, 1=최대 곡률) */
-  tension: number
-  /** 이름 레이블 폰트 크기 */
-  fontSize: number
-}
-
-/** 자동 조닝: 넓은 여백, 얇은 선, 작은 레이블 */
-const AUTO_ZONE_STYLE: ZoneStyle = {
-  padding: 22,
-  fillOpacity: 0.08,
-  strokeWidth: 1.5,
-  dash: [6, 6],
-  tension: 0.45,
-  fontSize: 10,
-}
-
-/** 수동 조닝: 좁은 여백, 굵은 선, 큰 레이블 */
-const MANUAL_ZONE_STYLE: ZoneStyle = {
-  padding: 28,
-  fillOpacity: 0.12,
-  strokeWidth: 2,
-  dash: [10, 6],
-  tension: 0.5,
-  fontSize: 11,
-}
-
-// ── 서브컴포넌트 ──────────────────────────────────────────────────────────────
-
-interface ZoneLayerProps {
-  zones: ZoneData[]
-  bubbles: BubbleData[]
-  style: ZoneStyle
-  onEditZone: (zone: ZoneData) => void
-}
-
-/**
- * 조닝 영역 목록을 유기적 도형으로 렌더링하는 서브 레이어
- * 자동/수동 조닝 모두 동일 로직을 사용하며, 시각적 스타일만 다르다.
- */
-function ZoneLayer({ zones, bubbles, style, onEditZone }: ZoneLayerProps) {
-  return (
-    <>
-      {zones.map((zone) => {
-        const shape = getZoneOrganicShape(zone, bubbles, style.padding)
-        if (!shape) return null
-
-        return (
-          <Group
-            key={zone.id}
-            onClick={(e) => {
-              e.cancelBubble = true
-              onEditZone(zone)
-            }}
-            onTap={(e) => {
-              e.cancelBubble = true
-              onEditZone(zone)
-            }}
-          >
-            <Line
-              points={shape.points}
-              closed
-              fill={hexToRgba(zone.color, style.fillOpacity)}
-              stroke={zone.color}
-              strokeWidth={style.strokeWidth}
-              dash={style.dash}
-              tension={style.tension}
-              lineJoin="round"
-              lineCap="round"
-            />
-            <Text
-              text={zone.name}
-              x={shape.labelX}
-              y={shape.labelY}
-              fontSize={style.fontSize}
-              fontStyle="bold"
-              fill={zone.color}
-            />
-          </Group>
-        )
-      })}
-    </>
-  )
-}
+import { hexToRgba } from '../../utils/bubbleCalc'
+import { validateBubblesInSiteBoundary } from '../../utils/siteBoundaryValidation'
+import BubbleZoneLayer from './BubbleZoneLayer'
+import { AUTO_ZONE_STYLE, MANUAL_ZONE_STYLE } from './bubbleZoneStyles'
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -126,9 +33,12 @@ export interface EmptyCanvasDblClickInfo {
   screenY: number
 }
 
-const MIN_BUBBLE_SIZE = 40
+const MIN_BUBBLE_SIZE = 8
 const EMPTY_CANVAS_DBLCLICK_MS = 320
 const EMPTY_CANVAS_DBLCLICK_DIST = 8
+const SITE_GUIDE_STROKE = '#3B45B3'
+const SITE_OUTSIDE_WARNING = '#DC2626'
+const SITE_WARNING_TEXT_FILL = '#991B1B'
 
 interface BubbleCanvasProps {
   stageSize: { width: number; height: number }
@@ -206,6 +116,12 @@ export function BubbleCanvas({
 }: BubbleCanvasProps) {
   /** id → BubbleData 빠른 조회 맵 */
   const bubbleMap = useMemo(() => new Map(bubbles.map((b) => [b.id, b])), [bubbles])
+  const siteValidation = useMemo(
+    () => validateBubblesInSiteBoundary(sitePoints, bubbles),
+    [bubbles, sitePoints],
+  )
+  const outsideBubbleIdSet = siteValidation.outsideBubbleIds
+  const outsideBubbleCount = siteValidation.outsideCount
 
   /** 각 버블 Group ref — Transformer 연결용 */
   const groupRefs = useRef<Map<string, Konva.Group>>(new Map())
@@ -515,7 +431,19 @@ export function BubbleCanvas({
     >
       <Layer>
         {/* 대지 외곽선 */}
-        <Line points={sitePoints} closed fill="#3B45B311" stroke="#3B45B333" strokeWidth={1} />
+        <Line points={sitePoints} closed fill="#3B45B319" stroke={SITE_GUIDE_STROKE} strokeWidth={1.8} />
+        <Line points={sitePoints} closed stroke="#2D359980" strokeWidth={1} dash={[8, 6]} listening={false} />
+        {outsideBubbleCount > 0 && (
+          <Text
+            x={14}
+            y={12}
+            text={`대지 경계 밖 배치 ${outsideBubbleCount}개`}
+            fontSize={12}
+            fontStyle="bold"
+            fill={SITE_WARNING_TEXT_FILL}
+            listening={false}
+          />
+        )}
 
         {/* 층 겹쳐보기 오버레이 (버블 다이어그램 확인용) */}
         {overlayLayers.map((overlay) => (
@@ -544,10 +472,10 @@ export function BubbleCanvas({
         ))}
 
         {/* 자동 조닝 영역 */}
-        <ZoneLayer zones={autoZones} bubbles={bubbles} style={AUTO_ZONE_STYLE} onEditZone={onEditZone} />
+        <BubbleZoneLayer zones={autoZones} bubbles={bubbles} style={AUTO_ZONE_STYLE} onEditZone={onEditZone} />
 
         {/* 수동 조닝 영역 */}
-        <ZoneLayer zones={manualZones} bubbles={bubbles} style={MANUAL_ZONE_STYLE} onEditZone={onEditZone} />
+        <BubbleZoneLayer zones={manualZones} bubbles={bubbles} style={MANUAL_ZONE_STYLE} onEditZone={onEditZone} />
 
         {/* 연결선 */}
         {connections.map((conn) => {
@@ -594,6 +522,7 @@ export function BubbleCanvas({
           const isSelected = selectedIds.includes(bubble.id)
           const isSingleSelected = selectedId === bubble.id
           const isConnectingFrom = connectingFromId === bubble.id
+          const isOutsideSite = outsideBubbleIdSet.has(bubble.id)
           // Transformer 기준 박스가 shadowBlur를 포함하면 리사이즈 체감과 실제 크기 반영이 어긋난다.
           const disableShadowForResize = selectedTool === 'selection' && isSingleSelected
           return (
@@ -672,13 +601,32 @@ export function BubbleCanvas({
                 radiusX={bubble.width / 2}
                 radiusY={bubble.height / 2}
                 fill={bubble.color}
-                stroke={isConnectingFrom ? '#F59F00' : isSelected ? '#3B45B3' : '#E2E6EF'}
+                stroke={
+                  isConnectingFrom
+                    ? '#F59F00'
+                    : isSelected
+                      ? '#3B45B3'
+                      : isOutsideSite
+                        ? SITE_OUTSIDE_WARNING
+                        : '#E2E6EF'
+                }
                 strokeWidth={isConnectingFrom ? 2.5 : isSelected ? 2 : 1}
                 shadowColor={isConnectingFrom ? '#F59F00' : 'black'}
                 shadowBlur={disableShadowForResize ? 0 : isConnectingFrom ? 12 : isSingleSelected ? 10 : 2}
                 shadowOpacity={disableShadowForResize ? 0 : isConnectingFrom ? 0.25 : 0.05}
                 shadowOffset={{ x: 0, y: 4 }}
               />
+              {isOutsideSite && (
+                <Text
+                  text="대지 밖"
+                  fontSize={10}
+                  fontStyle="bold"
+                  fill={SITE_OUTSIDE_WARNING}
+                  width={bubble.width}
+                  align="center"
+                  y={Math.max(4, bubble.height / 2 - 44)}
+                />
+              )}
 
               {/* 선택 핸들 (타원 4방향 극점) — Transformer 없을 때만 표시 */}
               {isSingleSelected && selectedIds.length !== 1 && (

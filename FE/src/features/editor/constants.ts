@@ -32,6 +32,8 @@ export const INITIAL_ADD_SPACE_FORM: AddSpaceFormData = {
 
 /** 대지 다각형 원본 좌표 (스테이지 중앙 정렬 전 기준값) */
 export const SITE_RAW_POINTS = [420, 310, 560, 310, 560, 550, 330, 720, 300, 480]
+/** 대지 가이드는 편집 대상이 아니므로 포인터 이벤트를 받지 않는다. */
+export const SITE_BOUNDARY_LISTENING = false
 
 /** 선 스타일 옵션 목록 */
 export const LINE_STYLE_OPTIONS: LineStyleOption[] = [
@@ -77,6 +79,10 @@ export const FLOOR_WALL_HEIGHT_MAX_MM = 20000
 /** 2D 픽셀 ↔ mm 환산 계수 (현 편집기 기준) */
 export const FLOOR_MM_PER_PX = 25
 
+/** 에디터 줌 범위(%) */
+export const MIN_EDITOR_ZOOM_PERCENT = 1
+export const MAX_EDITOR_ZOOM_PERCENT = 300
+
 /** 전역 그리드 스냅 간격 옵션(mm) */
 export const GRID_SNAP_INTERVAL_OPTIONS_MM = [100, 250, 500] as const
 export const DEFAULT_GRID_SNAP_INTERVAL_MM = 250
@@ -105,7 +111,7 @@ export const INITIAL_BUBBLES: BubbleData[] = [
   {
     id: '1',
     x: 230, y: 250,
-    width: 100, height: 100,
+    width: 141.4, height: 141.4,
     widthMm: 3535, heightMm: 3535,
     label: '현관/로비', type: '현관',
     ratio: 12.5, area: '12.5 m²',
@@ -114,7 +120,7 @@ export const INITIAL_BUBBLES: BubbleData[] = [
   {
     id: '2',
     x: 340, y: 310,
-    width: 130, height: 130,
+    width: 268.3, height: 268.3,
     widthMm: 6708, heightMm: 6708,
     label: '거실', type: '거실',
     ratio: 45.0, area: '45.0 m²',
@@ -123,7 +129,7 @@ export const INITIAL_BUBBLES: BubbleData[] = [
   {
     id: '3',
     x: 310, y: 500,
-    width: 110, height: 110,
+    width: 178.9, height: 178.9,
     widthMm: 4472, heightMm: 4472,
     label: '주방/식당', type: '주방',
     ratio: 20.0, area: '20.0 m²',

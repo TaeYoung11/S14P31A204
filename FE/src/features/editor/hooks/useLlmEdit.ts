@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import type { BubbleData, ConnectionData, FloorOpening, FloorWall } from '../types'
 import { FLOOR_OPENING_PRESETS, FLOOR_WALL_PRESETS, INITIAL_ADD_SPACE_FORM } from '../constants'
-import { calcMmDimensionsByAreaAndAspect, calcPxDimensionsByAreaAndAspect } from '../utils/bubbleCalc'
+import { calcMmDimensionsByAreaAndAspect, calcPxDimensionsFromMm } from '../utils/bubbleCalc'
 import { getLlmEditProvider, requestLlmEdit } from '../services/llmEdit.service'
 import type { LlmEditChangeItem, LlmEditOperation, LlmEditPreview, LlmEditStatus } from '../types/llmEdit.types'
 
@@ -40,7 +40,7 @@ const getNextBubbleIndex = (bubbles: BubbleData[]) => {
 
 function buildNewBubble(label: string, type: string, near: BubbleData | undefined): BubbleData {
   const mm = calcMmDimensionsByAreaAndAspect(DEFAULT_AREA_M2, 1)
-  const px = calcPxDimensionsByAreaAndAspect(DEFAULT_AREA_M2, 1)
+  const px = calcPxDimensionsFromMm(mm.widthMm, mm.heightMm)
   const x = near ? near.x + near.width + 30 : 220
   const y = near ? near.y + 20 : 220
 

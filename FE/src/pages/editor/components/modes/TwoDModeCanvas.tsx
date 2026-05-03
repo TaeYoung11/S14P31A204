@@ -15,6 +15,7 @@ export default function TwoDModeCanvas({ editorProps, scale }: TwoDModeCanvasPro
   return (
     <TwoDCanvas
       stageSize={editorProps.stageSize}
+      sitePoints={editorProps.sitePlanPoints}
       isCollaborationMode={editorProps.isCollaborationMode}
       selectedPinId={editorProps.selectedPinId}
       commentPins={editorProps.commentPins}
@@ -59,4 +60,3 @@ export default function TwoDModeCanvas({ editorProps, scale }: TwoDModeCanvasPro
     />
   )
 }
-

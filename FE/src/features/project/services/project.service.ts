@@ -1,4 +1,14 @@
 import { MOCK_MEMBERS } from '@/features/project/mocks/project.mock'
+import {
+  getProjectSitePolygonEntry,
+  PROJECT_SITE_CACHE_TTL_MS,
+  saveProjectSitePolygon,
+} from '@/features/project/utils/projectSiteCache'
+import {
+  resolveProjectSiteFallback,
+  type ProjectSitePolygonResult,
+} from '@/features/project/utils/projectSiteFallback'
+import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
 import { api } from '@/shared/lib/axios'
 
 import type { Project, ProjectMember, CreateProjectDto, UpdateProjectDto } from '@/shared/types'
@@ -18,6 +28,7 @@ interface ProjectSummaryResponse {
   name: string
   description?: string
   cadastralAddress?: string
+  cadastralInfo?: CadastralInfo
   currentIfcUrl?: string
   createdAt: string
   updatedAt: string
@@ -64,6 +75,18 @@ interface CadastralPolygon {
 interface CadastralInfo {
   polygon: CadastralPolygon
 }
+
+const MOCK_SITE_POLYGON_RING: number[][] = [
+  [127.0281304, 37.4981036],
+  [127.0283847, 37.4981036],
+  [127.0283847, 37.4983271],
+  [127.0281304, 37.4983271],
+]
+
+const shouldUseSiteMock =
+  import.meta.env.VITE_USE_SITE_MOCK === 'true' ||
+  (import.meta.env.DEV && import.meta.env.VITE_USE_SITE_MOCK !== 'false')
+const SITE_CACHE_TTL_MS = PROJECT_SITE_CACHE_TTL_MS
 
 export interface ProjectSiteResponse {
   projectId: string
@@ -128,6 +151,16 @@ async function fetchProjectListPage(page: number): Promise<ProjectListResponse> 
   return response.data.data
 }
 
+/**
+ * 프로젝트 상세 응답에서 대지 폴리곤을 읽어온다.
+ * - 응답에 대지 정보가 없거나 형식이 맞지 않으면 null
+ * - 네트워크/서버 오류는 상위 fallback 체인에서 처리
+ */
+async function fetchSitePolygonFromProjectDetail(projectId: string): Promise<number[][] | null> {
+  const response = await api.get<ApiResponse<ProjectSummaryResponse>>(`/projects/${projectId}`)
+  return extractOuterRingFromCoordinates(response.data.data?.cadastralInfo?.polygon?.coordinates)
+}
+
 export interface ProjectListPageResult {
   projects: Project[]
   hasNext: boolean
@@ -157,6 +190,36 @@ export const projectService = {
   getById: async (id: string): Promise<Project> => {
     const response = await api.get<ApiResponse<ProjectSummaryResponse>>(`/projects/${id}`)
     return mapProjectSummary(response.data.data)
+  },
+
+  getSitePolygon: async (projectId: string): Promise<ProjectSitePolygonResult> => {
+    if (!projectId) return { polygonRing: null, source: 'none' }
+
+    let apiPolygonRing: number[][] | null = null
+
+    try {
+      apiPolygonRing = await fetchSitePolygonFromProjectDetail(projectId)
+      if (apiPolygonRing) {
+        saveProjectSitePolygon(projectId, apiPolygonRing)
+      }
+    } catch {
+      // API가 미구현이거나 일시 실패해도 fallback 체인으로 진행한다.
+    }
+
+    const cacheCandidate = getProjectSitePolygonEntry(projectId, { ttlMs: SITE_CACHE_TTL_MS })
+    const resolved = resolveProjectSiteFallback({
+      apiPolygonRing,
+      cacheCandidate,
+      mockPolygonRing: MOCK_SITE_POLYGON_RING,
+      useMock: shouldUseSiteMock,
+      allowStaleCache: true,
+    })
+
+    if (resolved.source === 'mock' && resolved.polygonRing) {
+      saveProjectSitePolygon(projectId, resolved.polygonRing)
+    }
+
+    return resolved
   },
 
   getIfcModelText: async (projectId: string): Promise<string | null> => {
