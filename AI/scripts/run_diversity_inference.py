@@ -1,22 +1,27 @@
-"""IFC 다양성 검증 — SD 추론 (3 fixture × 5뷰 × 1 preset).
+"""IFC 다양성 검증 — SD 추론 (N fixture × 5뷰 × preset × time-of-day).
 
 `run_diversity_check.py`로 추출한 depth를 SD 1.5 + ControlNet-depth로 추론.
 baseline 설정(seed=7, guidance=7, steps=25, cn=1.15, view-aware prompt suffix).
 Phase 4 Step 4.5(2026-05-03) 이후 default 5뷰 — front/side/eye_ne/eye_nw/eye_se.
 
-기본 preset = scandinavian (Phase 4 — korean_villa/korean_house 사용 가능,
-산출물 품질 빠르게 확인 → 미세 조정 → 필요 시 다른 preset 확장).
+기본 preset = scandinavian, 기본 time = day (Phase 4 — korean_villa/korean_house 및
+night variant 사용 가능, 산출물 품질 빠르게 확인 → 미세 조정 → 필요 시 확장).
 
 사용:
     python scripts/run_diversity_inference.py
     python scripts/run_diversity_inference.py outputs/ifc2img_diversity_v2
     python scripts/run_diversity_inference.py outputs/diversity_haus --fixture=Haus
+    python scripts/run_diversity_inference.py outputs/haus_night --fixture=Haus --time=night
+    python scripts/run_diversity_inference.py outputs/haus_korean --fixture=Haus --preset=korean_villa
 
 CLI 인자:
   positional out_dir : 출력 경로(default `outputs/ifc2img_diversity/`).
   --fixture=<substr> : fixture 이름에 substr 포함하는 fixture만 처리(부분 일치).
                        빠른 처방 검증에 활용 (3 fixture → 1 fixture).
-출력: <out_dir>/{stem}/styled_{preset}_{view}.png  (필터 없으면 3 × 5 = 15장)
+  --preset=<name>    : preset 선택(default `scandinavian`).
+                       사용 가능 — `scandinavian` / `korean_villa` / `korean_house`.
+  --time=<day|night> : 시간대 선택(default `day`). night는 야간 조명 단서 합성.
+출력: <out_dir>/{stem}/styled_{preset}_{time}_{view}.png  (필터 없으면 3 × 5 = 15장)
 """
 
 from __future__ import annotations
@@ -33,6 +38,8 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 from ai_rendering.ifc2img import (
     DepthStyleRenderer,
     IFCRenderer,
+    IFCRenderError,
+    list_presets,
     load_preset,
 )
 from ai_rendering.ifc2img.views import DEFAULT_RENDER_VIEWS, AutoZoomMode
@@ -40,7 +47,8 @@ from ai_rendering.ifc2img.views import DEFAULT_RENDER_VIEWS, AutoZoomMode
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES_DIR = ROOT / "packages" / "ai-rendering" / "tests" / "fixtures" / "ifc"
 DEFAULT_OUT_ROOT = ROOT / "outputs" / "ifc2img_diversity"
-PRESET = "scandinavian"
+DEFAULT_PRESET = "scandinavian"
+DEFAULT_TIME = "day"
 
 FIXTURES = [
     FIXTURES_DIR / "AC20-FZK-Haus.ifc",
@@ -51,12 +59,26 @@ FIXTURES = [
 
 def main() -> int:
     fixture_filter: str | None = None
+    preset_name = DEFAULT_PRESET
+    time_of_day = DEFAULT_TIME
     positional: list[str] = []
     for arg in sys.argv[1:]:
         if arg.startswith("--fixture="):
             fixture_filter = arg.split("=", 1)[1]
+        elif arg.startswith("--preset="):
+            preset_name = arg.split("=", 1)[1]
+        elif arg.startswith("--time="):
+            time_of_day = arg.split("=", 1)[1]
         else:
             positional.append(arg)
+
+    try:
+        params = load_preset(preset_name, time_of_day=time_of_day)
+    except IFCRenderError as e:
+        print(f"[error] {e}", file=sys.stderr)
+        print(f"  --preset 사용 가능: {list_presets()}", file=sys.stderr)
+        print("  --time 사용 가능: ['day', 'night']", file=sys.stderr)
+        return 2
 
     out_root = Path(positional[0]).resolve() if positional else DEFAULT_OUT_ROOT
     fixtures = (
@@ -83,7 +105,8 @@ def main() -> int:
     ))
     for f in fixtures:
         print(f"  - {f.name}")
-    print(f"[preset] {PRESET}")
+    print(f"[preset] {preset_name}")
+    print(f"[time] {time_of_day}")
     print(f"[views] {[v.value for v in DEFAULT_RENDER_VIEWS]}")
     print(f"[output] {out_root}\n")
 
@@ -101,7 +124,6 @@ def main() -> int:
     style_renderer = DepthStyleRenderer()
     print(f"  로드 완료 ({time.time() - t1:.1f}s) device={style_renderer.device}\n")
 
-    params = load_preset(PRESET)
     print(
         f"[params] seed={params.seed} guidance={params.guidance_scale} "
         f"steps={params.num_inference_steps} "
@@ -123,7 +145,7 @@ def main() -> int:
         for i, (view, depth) in enumerate(depth_images.items(), start=1):
             ts = time.time()
             result = style_renderer.render(depth, params, view=view)
-            out_path = out_dir / f"styled_{PRESET}_{view.value}.png"
+            out_path = out_dir / f"styled_{preset_name}_{time_of_day}_{view.value}.png"
             result.save(out_path)
             total_styled += 1
             print(
