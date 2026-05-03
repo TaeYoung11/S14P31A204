@@ -24,6 +24,9 @@ import java.util.UUID;
 
 /**
  * Floor-plan 생성 작업 등록 API를 제공한다.
+ *
+ * 요청 본문을 wrapper DTO로 유지하는 이유는 raw {@code layout_import_v2}와
+ * workspace snapshot fallback을 같은 엔드포인트 계약으로 묶기 위해서다.
  */
 @Tag(name = "Floor Plan", description = "Floor-plan 생성 API")
 @Validated
@@ -36,9 +39,10 @@ public class FloorPlanController {
 
     @Operation(
             summary = "Floor-plan 생성 작업 등록",
-            description = "비동기 floor-plan 생성 작업을 등록합니다. "
+            description = "비동기 floor-plan 생성 작업을 등록한다. "
                     + "요청 본문에 layoutImport가 있으면 raw layout_import_v2 payload를 우선 사용하고, "
-                    + "요청 본문이 없거나 layoutImport가 null이면 저장된 workspace bubble snapshot으로 대체합니다."
+                    + "요청 본문이 없거나 layoutImport가 null이면 저장된 workspace bubble snapshot을 fallback 입력으로 사용한다. "
+                    + "응답의 jobId, jobStepId, targetRevisionId, expectedOutputArtifactId는 이후 상태 추적에 사용되는 식별자다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
@@ -70,7 +74,7 @@ public class FloorPlanController {
     @PostMapping("/{projectId}/floor-plans/generate")
     public ApiResponse<CreateFloorPlanGenerateResponse> createFloorPlanGenerateJob(
             @Parameter(
-                    description = "Floor-plan 생성 작업을 등록할 프로젝트 식별자입니다.",
+                    description = "Floor-plan 생성 작업을 등록할 프로젝트 식별자다.",
                     required = true,
                     example = "96e243de-0abd-41e5-b97f-7c68afea4fa5"
             )

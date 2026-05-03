@@ -1,5 +1,6 @@
 package com.a204.batang.domain.floorplan.service;
 
+import com.a204.batang.domain.floorplan.FloorPlanConstants;
 import com.a204.batang.domain.floorplan.dto.LayoutImportV2Payload;
 import com.a204.batang.domain.workspace.dto.BubbleSnapshotPayload;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest.BubbleData;
@@ -24,6 +25,13 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * Floor-plan 입력을 layout_import_v2로 정규화하는 순수 변환 + 검증 레이어다.
+ *
+ * 이 클래스는 repository를 직접 보지 않는다. raw 요청과 snapshot fallback을
+ * 같은 payload 형태로 맞추는 데만 집중해야 이후 command/service/event 계층의
+ * 책임이 섞이지 않기 때문이다.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -36,12 +44,10 @@ public class FloorPlanLayoutImportMapper {
     private final BubbleSnapshotHelper bubbleSnapshotHelper;
 
     /**
-     * raw 요청의 layoutImport를 layout_import_v2 DTO로 검증 및 정규화한다.
+     * raw 요청의 layoutImport를 검증하고 layout_import_v2 DTO로 정규화한다.
      *
-     * @param projectId 프로젝트 식별자
-     * @param projectName 프로젝트 이름
-     * @param layoutImportNode raw layoutImport JSON
-     * @return 검증된 layout_import_v2 payload
+     * raw 요청이 존재하면 snapshot fallback으로 우회하지 않는다.
+     * 잘못된 raw 요청은 입력 오류로 바로 종료해야 호출자가 우선순위를 오해하지 않는다.
      */
     public LayoutImportV2Payload fromRawRequest(UUID projectId, String projectName, JsonNode layoutImportNode) {
         Objects.requireNonNull(projectId, "projectId must not be null");
@@ -57,7 +63,7 @@ public class FloorPlanLayoutImportMapper {
             log.info(
                     "Floor-plan raw 요청을 layout import로 정규화했습니다. projectId={}, inputSource={}, roomCount={}, connectionCount={}",
                     projectId,
-                    "RAW_REQUEST",
+                    FloorPlanConstants.INPUT_SOURCE_RAW_REQUEST,
                     payload.rooms().size(),
                     payload.adjacency() == null ? 0 : payload.adjacency().size()
             );
@@ -72,10 +78,9 @@ public class FloorPlanLayoutImportMapper {
     /**
      * workspace snapshot을 layout_import_v2 DTO로 변환한다.
      *
-     * @param projectId 프로젝트 식별자
-     * @param projectName 프로젝트 이름
-     * @param snapshotNode workspace snapshot JSON
-     * @return 변환된 layout_import_v2 payload
+     * snapshot fallback은 raw 요청이 없을 때만 사용한다. snapshot source에 없는
+     * zones/boundaries/modeling_defaults를 억지로 만들지 않고, aggregate 정보만
+     * 보강해서 worker가 이해할 수 있는 최소 payload로 정규화한다.
      */
     public LayoutImportV2Payload fromBubbleSnapshot(UUID projectId, String projectName, JsonNode snapshotNode) {
         Objects.requireNonNull(projectId, "projectId must not be null");
@@ -85,18 +90,16 @@ public class FloorPlanLayoutImportMapper {
         try {
             payload = bubbleSnapshotHelper.readSnapshotPayloadOrThrow(snapshotNode);
         } catch (CustomException e) {
-            throw new CustomException(
-                    ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
-                    e.getMessage()
-            );
+            throw new CustomException(ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED, e.getMessage());
         }
+
         List<BubbleData> bubbles = payload.bubbles();
         List<ConnectionData> connections = payload.connections();
 
         if (bubbles == null || bubbles.isEmpty()) {
             throw new CustomException(
                     ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
-                    "workspace snapshot에는 최소 하나의 bubble이 있어야 합니다."
+                    "workspace snapshot에는 최소 하나 이상의 bubble이 있어야 합니다."
             );
         }
 
@@ -153,7 +156,7 @@ public class FloorPlanLayoutImportMapper {
         log.info(
                 "Workspace snapshot을 layout import로 변환했습니다. projectId={}, inputSource={}, roomCount={}, connectionCount={}, unmappedRoomTypeCount={}, mmPerPx={}",
                 projectId,
-                "WORKSPACE_SNAPSHOT",
+                FloorPlanConstants.INPUT_SOURCE_WORKSPACE_SNAPSHOT,
                 rooms.size(),
                 adjacency.size(),
                 unmappedRoomTypeCount,
@@ -237,6 +240,12 @@ public class FloorPlanLayoutImportMapper {
         return (int) rounded;
     }
 
+    /*
+     * NOTE:
+     * 계획상 mmPerPx의 최종 fallback 25가 있었지만, 현재 구현은 bubble width/height/widthMm/heightMm
+     * 양수 검증을 먼저 수행하므로 그 경로에 도달하지 않는다. 현재는 fail-fast 정책을 유지하고,
+     * fallback 25는 별도 정책 변경 후보로 남긴다.
+     */
     private double resolveMmPerPx(List<BubbleData> bubbles) {
         for (BubbleData bubble : bubbles) {
             if (isFinitePositive(bubble.widthMm()) && isFinitePositive(bubble.width())) {
@@ -297,7 +306,7 @@ public class FloorPlanLayoutImportMapper {
             case "dashed" -> 0.3;
             default -> throw new CustomException(
                     ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
-                    "지원하지 않는 connection type입니다: " + type
+                    "지원하지 않는 connection type입니다. " + type
             );
         };
     }

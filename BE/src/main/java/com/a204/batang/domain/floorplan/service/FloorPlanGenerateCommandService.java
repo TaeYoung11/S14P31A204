@@ -40,6 +40,13 @@ import java.util.UUID;
 
 /**
  * Floor-plan generate command 예약과 RabbitMQ 발행을 담당한다.
+ *
+ * request_payload에는 FE 원본 body가 아니라 worker에 실제로 전달할 정규화된
+ * layout_import_v2 payload를 저장한다. 그래야 저장된 예약 정보와 실제 발행 메시지가
+ * 달라지는 문제를 막을 수 있다.
+ *
+ * input_payload에는 예약 시점에 확정된 revision/artifact/storage path를 함께 저장한다.
+ * 이후 worker event가 들어왔을 때 reserved id와 결과를 대조하는 최종 방어선으로 쓴다.
  */
 @Slf4j
 @Service
@@ -96,6 +103,8 @@ public class FloorPlanGenerateCommandService {
         String ifcStorageUrl = floorPlanStoragePathBuilder.buildIfcStorageUrl(projectId, targetRevisionId);
         String validationReportStorageUrl = floorPlanStoragePathBuilder.buildValidationReportStorageUrl(jobId, STEP_NO);
 
+        // request_payload와 실제 worker payload를 같은 정규화 결과로 고정해
+        // 저장된 예약 정보와 실제 발행 메시지의 불일치를 막는다.
         FloorPlanGenerateCommandMessage.Payload commandPayload =
                 new FloorPlanGenerateCommandMessage.Payload(layoutImportPayload);
         JsonNode requestPayload = objectMapper.valueToTree(commandPayload);
@@ -174,16 +183,27 @@ public class FloorPlanGenerateCommandService {
         );
 
         log.info(
-                "Floor-plan generate 작업을 예약합니다. projectId={}, jobId={}, jobStepId={}, targetRevisionId={}, inputSource={}",
+                "Floor-plan generate 작업을 예약합니다. projectId={}, jobId={}, jobStepId={}, targetRevisionId={}, correlationId={}, inputSource={}",
                 projectId,
                 jobId,
                 jobStepId,
                 targetRevisionId,
+                correlationId,
                 resolution.inputSource()
+        );
+        log.info(
+                "Floor-plan command 발행을 준비합니다. projectId={}, jobId={}, jobStepId={}, routingKey={}, correlationId={}",
+                projectId,
+                jobId,
+                jobStepId,
+                RabbitMqConfig.IFC_GENERATE_COMMAND_ROUTING_KEY,
+                correlationId
         );
 
         floorPlanGenerateCommandPublisher.publish(commandMessage);
 
+        // SSE는 트랜잭션 안에서 직접 보내지 않고 내부 상태 이벤트만 발행한다.
+        // 실제 전송은 AFTER_COMMIT 경계에서 처리해 DB commit 이전 성공처럼 보이지 않게 한다.
         FloorPlanStatusSseResponse statusPayload = new FloorPlanStatusSseResponse(
                 FloorPlanConstants.SSE_FLOOR_PLAN_QUEUED,
                 projectId,
@@ -214,6 +234,11 @@ public class FloorPlanGenerateCommandService {
 
     private LayoutImportResolution resolveLayoutImport(Project project, CreateFloorPlanGenerateRequest request) {
         if (request != null && request.layoutImport() != null && !request.layoutImport().isNull()) {
+            log.info(
+                    "Floor-plan 입력원으로 raw layoutImport를 사용합니다. projectId={}, inputSource={}",
+                    project.getProjectId(),
+                    FloorPlanConstants.INPUT_SOURCE_RAW_REQUEST
+            );
             return new LayoutImportResolution(
                     FloorPlanConstants.INPUT_SOURCE_RAW_REQUEST,
                     floorPlanLayoutImportMapper.fromRawRequest(
@@ -230,6 +255,12 @@ public class FloorPlanGenerateCommandService {
         if (snapshotNode == null || snapshotNode.isNull()) {
             throw new CustomException(ErrorCode.FLOOR_PLAN_SNAPSHOT_NOT_FOUND);
         }
+
+        log.info(
+                "Floor-plan 입력원으로 workspace snapshot fallback을 사용합니다. projectId={}, inputSource={}",
+                project.getProjectId(),
+                FloorPlanConstants.INPUT_SOURCE_WORKSPACE_SNAPSHOT
+        );
 
         return new LayoutImportResolution(
                 FloorPlanConstants.INPUT_SOURCE_WORKSPACE_SNAPSHOT,

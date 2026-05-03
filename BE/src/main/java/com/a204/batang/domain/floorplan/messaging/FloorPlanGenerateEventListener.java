@@ -5,6 +5,7 @@ import com.a204.batang.domain.floorplan.dto.FloorPlanStatusSseResponse;
 import com.a204.batang.domain.floorplan.entity.FloorPlanArtifact;
 import com.a204.batang.domain.floorplan.entity.FloorPlanJob;
 import com.a204.batang.domain.floorplan.entity.FloorPlanJobStep;
+import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateCommandMessage;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateEventMessage;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanWorkerError;
 import com.a204.batang.domain.floorplan.messaging.event.FloorPlanPublishFailedEvent;
@@ -43,7 +44,14 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * IFC generate worker event를 수신해 floor-plan 상태와 결과물을 반영한다.
+ * IFC generate worker event와 publish failure를 floor-plan 상태 반영으로 연결한다.
+ *
+ * worker event 처리와 publish failure 처리를 한 클래스에 둔 이유는 job/job_step/revision의
+ * 상태 전이 규칙을 한 곳에서 유지하기 위해서다. publish failure와 worker failed event는
+ * 서로 독립 경로이며, 둘 중 하나가 먼저 terminal 상태를 만들면 나머지는 무시한다.
+ *
+ * SSE는 AFTER_COMMIT에서만 전송한다. DB 상태 반영이 끝나기 전에 성공 알림이 먼저 나가면
+ * 운영자가 상태를 잘못 해석할 수 있기 때문이다.
  */
 @Slf4j
 @Component
@@ -81,8 +89,15 @@ public class FloorPlanGenerateEventListener {
             return;
         }
 
-        log.info("Floor-plan worker 이벤트를 수신했습니다. eventType={}, jobId={}, jobStepId={}",
-                event.eventType(), event.jobId(), event.jobStepId());
+        log.info(
+                "Floor-plan worker 이벤트를 수신했습니다. eventType={}, projectId={}, jobId={}, jobStepId={}, targetRevisionId={}, correlationId={}",
+                event.eventType(),
+                event.projectId(),
+                event.jobId(),
+                event.jobStepId(),
+                event.targetRevisionId(),
+                event.correlationId()
+        );
 
         switch (event.eventType()) {
             case EVENT_STARTED -> handleStarted(event);
@@ -99,12 +114,17 @@ public class FloorPlanGenerateEventListener {
     @EventListener
     @Transactional
     public void handlePublishFailed(FloorPlanPublishFailedEvent event) {
-        var message = event.message();
+        FloorPlanGenerateCommandMessage message = event.message();
         log.warn(
-                "Floor-plan command publish 실패 이벤트를 처리합니다. jobId={}, jobStepId={}, returned={}, cause={}",
+                "Floor-plan command publish 실패 이벤트를 처리합니다. projectId={}, jobId={}, jobStepId={}, targetRevisionId={}, returned={}, attemptNo={}, maxAttempts={}, routingKey={}, cause={}",
+                message.projectId(),
                 message.jobId(),
                 message.jobStepId(),
+                message.targetRevisionId(),
                 event.returned(),
+                message.attemptNo(),
+                message.maxAttempts(),
+                message.routingKey(),
                 event.cause()
         );
 
@@ -122,19 +142,27 @@ public class FloorPlanGenerateEventListener {
         Revision revision = revisionRepository.findByRevisionId(message.targetRevisionId()).orElse(null);
 
         if (step == null || revision == null || job.isTerminal() || step.isTerminal() || revision.isTerminal()) {
+            log.info(
+                    "Floor-plan publish failure를 무시합니다. projectId={}, jobId={}, jobStepId={}, reason=missing-state-or-terminal",
+                    message.projectId(),
+                    message.jobId(),
+                    message.jobStepId()
+            );
             return;
         }
 
         if (!event.returned() && message.attemptNo() < message.maxAttempts()) {
             log.info(
-                    "Floor-plan command NACK 재시도를 수행합니다. jobId={}, jobStepId={}, nextAttempt={}, maxAttempts={}",
+                    "Floor-plan command NACK 재시도를 수행합니다. projectId={}, jobId={}, jobStepId={}, nextAttempt={}, maxAttempts={}, routingKey={}",
+                    message.projectId(),
                     message.jobId(),
                     message.jobStepId(),
                     message.attemptNo() + 1,
-                    message.maxAttempts()
+                    message.maxAttempts(),
+                    message.routingKey()
             );
 
-            floorPlanGenerateCommandPublisher.publish(new com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateCommandMessage(
+            floorPlanGenerateCommandPublisher.publish(new FloorPlanGenerateCommandMessage(
                     message.messageId(),
                     message.schemaVersion(),
                     message.messageType(),
@@ -194,6 +222,12 @@ public class FloorPlanGenerateEventListener {
         FloorPlanJobStep step = findStep(event);
 
         if (job.isTerminal() || step.isTerminal()) {
+            log.info(
+                    "Floor-plan started 이벤트를 무시합니다. projectId={}, jobId={}, jobStepId={}, reason=terminal-state",
+                    event.projectId(),
+                    event.jobId(),
+                    event.jobStepId()
+            );
             return;
         }
 
@@ -203,6 +237,15 @@ public class FloorPlanGenerateEventListener {
         Integer progress = resolveProgress(event.progress(), 1);
         job.updateProgress(progress);
         step.updateProgress(progress);
+
+        log.info(
+                "Floor-plan started 이벤트를 반영했습니다. projectId={}, jobId={}, jobStepId={}, targetRevisionId={}, progress={}",
+                event.projectId(),
+                event.jobId(),
+                event.jobStepId(),
+                event.targetRevisionId(),
+                progress
+        );
 
         publishStatusEvent(event.projectId(), FloorPlanConstants.SSE_FLOOR_PLAN_STARTED, new FloorPlanStatusSseResponse(
                 FloorPlanConstants.SSE_FLOOR_PLAN_STARTED,
@@ -221,12 +264,27 @@ public class FloorPlanGenerateEventListener {
         FloorPlanJobStep step = findStep(event);
 
         if (job.isTerminal() || step.isTerminal()) {
+            log.info(
+                    "Floor-plan progress 이벤트를 무시합니다. projectId={}, jobId={}, jobStepId={}, reason=terminal-state",
+                    event.projectId(),
+                    event.jobId(),
+                    event.jobStepId()
+            );
             return;
         }
 
         Integer progress = resolveProgress(event.progress(), 0);
         job.updateProgress(progress);
         step.updateProgress(progress);
+
+        log.info(
+                "Floor-plan progress 이벤트를 반영했습니다. projectId={}, jobId={}, jobStepId={}, targetRevisionId={}, progress={}",
+                event.projectId(),
+                event.jobId(),
+                event.jobStepId(),
+                event.targetRevisionId(),
+                progress
+        );
 
         publishStatusEvent(event.projectId(), FloorPlanConstants.SSE_FLOOR_PLAN_PROGRESS, new FloorPlanStatusSseResponse(
                 FloorPlanConstants.SSE_FLOOR_PLAN_PROGRESS,
@@ -246,10 +304,18 @@ public class FloorPlanGenerateEventListener {
         FloorPlanJobStep step = findStep(event);
 
         if (job.isTerminal() || step.isTerminal()) {
+            log.info(
+                    "Floor-plan completed 이벤트를 무시합니다. projectId={}, jobId={}, jobStepId={}, reason=terminal-state",
+                    event.projectId(),
+                    event.jobId(),
+                    event.jobStepId()
+            );
             return;
         }
 
         Revision revision = findRevision(event.targetRevisionId());
+        // reserved revision/artifact id와 worker 결과를 대조하는 최종 방어선이다.
+        // 여기서 mismatch를 놓치면 잘못된 결과를 다른 작업에 반영할 수 있다.
         validateCompletionIds(event, revision, job);
 
         String storageUrl = extractRequiredString(event.output(), "storage_url");
@@ -260,7 +326,7 @@ public class FloorPlanGenerateEventListener {
         job.markSucceeded(outputPayload, now);
         revision.markSucceeded();
 
-        if (!floorPlanArtifactRepository.findByArtifactId(event.outputArtifactId()).isPresent()) {
+        if (floorPlanArtifactRepository.findByArtifactId(event.outputArtifactId()).isEmpty()) {
             floorPlanArtifactRepository.save(FloorPlanArtifact.createIfcModel(
                     event.outputArtifactId(),
                     event.projectId(),
@@ -306,6 +372,16 @@ public class FloorPlanGenerateEventListener {
         project.updateLatestRevisionId(revision.getRevisionId());
         workspace.updateIfcOutput(storageUrl, revision.getRevisionId());
 
+        log.info(
+                "Floor-plan completed 이벤트를 반영했습니다. projectId={}, jobId={}, jobStepId={}, targetRevisionId={}, outputArtifactId={}, validationReportIncluded={}",
+                event.projectId(),
+                event.jobId(),
+                event.jobStepId(),
+                revision.getRevisionId(),
+                event.outputArtifactId(),
+                validationReportStorageUrl != null && !validationReportStorageUrl.isBlank()
+        );
+
         publishStatusEvent(event.projectId(), FloorPlanConstants.SSE_FLOOR_PLAN_COMPLETED, new FloorPlanStatusSseResponse(
                 FloorPlanConstants.SSE_FLOOR_PLAN_COMPLETED,
                 event.projectId(),
@@ -324,6 +400,12 @@ public class FloorPlanGenerateEventListener {
         FloorPlanJobStep step = findStep(event);
 
         if (job.isTerminal() || step.isTerminal()) {
+            log.info(
+                    "Floor-plan failed 이벤트를 무시합니다. projectId={}, jobId={}, jobStepId={}, reason=terminal-state",
+                    event.projectId(),
+                    event.jobId(),
+                    event.jobStepId()
+            );
             return;
         }
 
@@ -340,6 +422,15 @@ public class FloorPlanGenerateEventListener {
         step.markFailed(errorCode, errorMessage, outputPayload, now);
         job.markFailed(errorMessage, outputPayload, now);
         revision.markFailed();
+
+        log.warn(
+                "Floor-plan failed 이벤트를 반영했습니다. projectId={}, jobId={}, jobStepId={}, targetRevisionId={}, errorCode={}",
+                event.projectId(),
+                event.jobId(),
+                event.jobStepId(),
+                revision.getRevisionId(),
+                errorCode
+        );
 
         publishStatusEvent(event.projectId(), FloorPlanConstants.SSE_FLOOR_PLAN_FAILED, new FloorPlanStatusSseResponse(
                 FloorPlanConstants.SSE_FLOOR_PLAN_FAILED,
@@ -359,6 +450,12 @@ public class FloorPlanGenerateEventListener {
         FloorPlanJobStep step = findStep(event);
 
         if (job.isTerminal() || step.isTerminal()) {
+            log.info(
+                    "Floor-plan clarification_required 이벤트를 무시합니다. projectId={}, jobId={}, jobStepId={}, reason=terminal-state",
+                    event.projectId(),
+                    event.jobId(),
+                    event.jobStepId()
+            );
             return;
         }
 
@@ -369,10 +466,22 @@ public class FloorPlanGenerateEventListener {
         payload.put("errorMessage", "clarification_required 이벤트는 아직 지원하지 않습니다.");
         JsonNode outputPayload = objectMapper.valueToTree(payload);
 
-        step.markFailed(ErrorCode.FLOOR_PLAN_EVENT_INVALID.getCode(),
-                "clarification_required 이벤트는 아직 지원하지 않습니다.", outputPayload, now);
+        step.markFailed(
+                ErrorCode.FLOOR_PLAN_EVENT_INVALID.getCode(),
+                "clarification_required 이벤트는 아직 지원하지 않습니다.",
+                outputPayload,
+                now
+        );
         job.markFailed("clarification_required 이벤트는 아직 지원하지 않습니다.", outputPayload, now);
         revision.markFailed();
+
+        log.warn(
+                "Floor-plan clarification_required 이벤트를 실패로 닫았습니다. projectId={}, jobId={}, jobStepId={}, targetRevisionId={}",
+                event.projectId(),
+                event.jobId(),
+                event.jobStepId(),
+                revision.getRevisionId()
+        );
 
         publishStatusEvent(event.projectId(), FloorPlanConstants.SSE_FLOOR_PLAN_FAILED, new FloorPlanStatusSseResponse(
                 FloorPlanConstants.SSE_FLOOR_PLAN_FAILED,
@@ -397,8 +506,7 @@ public class FloorPlanGenerateEventListener {
             Set<UUID> targetUserIds = projectAccessService.resolveProjectMemberUserIds(project);
             notificationSseService.sendToUsers(targetUserIds, event.eventName(), event.payload());
         } catch (Exception e) {
-            log.warn("Floor-plan SSE 전송에 실패했습니다. projectId={}, eventName={}",
-                    event.projectId(), event.eventName(), e);
+            log.warn("Floor-plan SSE 전송에 실패했습니다. projectId={}, eventName={}", event.projectId(), event.eventName(), e);
         }
     }
 
@@ -430,7 +538,7 @@ public class FloorPlanGenerateEventListener {
         }
 
         if (!revision.getProjectId().equals(event.projectId())) {
-            throw new CustomException(ErrorCode.FLOOR_PLAN_EVENT_INVALID, "target revision이 예약된 프로젝트와 일치하지 않습니다.");
+            throw new CustomException(ErrorCode.FLOOR_PLAN_EVENT_INVALID, "target revision의 프로젝트가 이벤트와 일치하지 않습니다.");
         }
 
         JsonNode inputPayload = findStep(event).getInputPayload();

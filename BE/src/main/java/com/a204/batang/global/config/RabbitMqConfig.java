@@ -26,7 +26,11 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
 
 /**
- * RabbitMQ exchange, queue, callback 설정을 담당한다.
+ * RabbitMQ exchange, queue, binding, callback 구성을 담당한다.
+ *
+ * render와 floor-plan은 같은 RabbitTemplate을 공유하지만, publish failure 후속 처리는
+ * correlation data 타입으로 분리한다. 그래야 callback 책임이 섞이지 않고 각 도메인의
+ * 재시도/실패 정책을 독립적으로 유지할 수 있다.
  */
 @Slf4j
 @EnableRabbit
@@ -93,6 +97,8 @@ public class RabbitMqConfig {
 
     @Bean
     public Queue beJobEventsQueue() {
+        // worker event는 render/floor-plan이 같은 BE consumer queue에서 함께 받는다.
+        // 도메인별 필터링은 listener 쪽에서 수행한다.
         return QueueBuilder.durable(BE_JOB_EVENTS_QUEUE)
                 .deadLetterExchange(DLX_EXCHANGE)
                 .deadLetterRoutingKey(SD_RENDER_DEAD_ROUTING_KEY)
@@ -160,11 +166,11 @@ public class RabbitMqConfig {
 
         template.setConfirmCallback((correlationData, ack, cause) -> {
             if (ack) {
-                log.info("[RabbitMQ] 메시지 발행 성공 (ACK)");
+                log.debug("[RabbitMQ] 메시지 발행 ACK를 확인했습니다.");
                 return;
             }
 
-            log.error("[RabbitMQ] 메시지 발행 실패 (NACK): {}", cause);
+            log.error("[RabbitMQ] 메시지 발행 NACK. cause={}", cause);
             if (correlationData instanceof SdRenderCorrelationData sdCorrelationData) {
                 eventPublisher.publishEvent(new SdRenderPublishFailedEvent(
                         sdCorrelationData.getMessage(),
@@ -172,6 +178,7 @@ public class RabbitMqConfig {
                         false
                 ));
             } else if (correlationData instanceof FloorPlanGenerateCorrelationData floorPlanCorrelationData) {
+                // floor-plan은 confirm NACK를 publish 실패 경로로 명시적으로 전이한다.
                 eventPublisher.publishEvent(new FloorPlanPublishFailedEvent(
                         floorPlanCorrelationData.getMessage(),
                         cause,
@@ -183,7 +190,7 @@ public class RabbitMqConfig {
         template.setMandatory(true);
         template.setReturnsCallback(returned -> {
             log.error(
-                    "[RabbitMQ] 메시지 반환(Returned): code={}, text={}, exchange={}, routingKey={}",
+                    "[RabbitMQ] 메시지 returned. code={}, text={}, exchange={}, routingKey={}",
                     returned.getReplyCode(),
                     returned.getReplyText(),
                     returned.getExchange(),
@@ -195,6 +202,8 @@ public class RabbitMqConfig {
             }
 
             try {
+                // floor-plan은 returned를 라우팅 실패로 간주하고 즉시 실패 처리한다.
+                // 같은 메시지를 재발행해도 설정 오류면 반복 실패할 가능성이 크기 때문이다.
                 FloorPlanGenerateCommandMessage message = objectMapper.readValue(
                         returned.getMessage().getBody(),
                         FloorPlanGenerateCommandMessage.class
