@@ -122,4 +122,13 @@ public class Project extends BaseEntity {
     public void softDelete(LocalDateTime deletedAt) {
         this.deletedAt = deletedAt;
     }
+
+    /**
+     * 프로젝트의 최신 revision ID를 갱신한다.
+     *
+     * @param revisionId 최신 revision ID
+     */
+    public void updateLatestRevisionId(UUID revisionId) {
+        this.latestRevisionId = Objects.requireNonNull(revisionId, "revisionId must not be null");
+    }
 }
