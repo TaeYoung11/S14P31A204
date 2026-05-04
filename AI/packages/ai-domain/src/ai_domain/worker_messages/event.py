@@ -89,8 +89,13 @@ class EventMessage(BaseModel):
             raise ValueError(
                 "clarificationRequestId is required when status is clarification_required"
             )
-        if self.status == "completed" and self.output is None:
-            raise ValueError("output is required when status is completed")
+        if self.status == "completed":
+            if self.output is None:
+                raise ValueError("output is required when status is completed")
+            if self.progress is not None and self.progress != 1.0:
+                raise ValueError("progress must be 1.0 when status is completed")
+        if self.status == "started" and self.progress is not None and self.progress != 0.0:
+            raise ValueError("progress must be 0.0 or None when status is started")
         return self
 
     @field_serializer("occurredAt", when_used="always")
