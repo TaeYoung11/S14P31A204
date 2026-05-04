@@ -29,7 +29,7 @@ class ClarificationOption:
 class ClarificationQuestion:
     trigger: ClarificationTrigger
     question_ko: str
-    options: list[ClarificationOption]
+    options: tuple[ClarificationOption, ...]
     context: dict[str, Any]
     is_blocking: bool = False
 
@@ -61,28 +61,28 @@ class ClarificationGenerator:
                 questions.append(ClarificationQuestion(
                     trigger=ClarificationTrigger.DUPLICATE_ELEMENT,
                     question_ko="신규 부재가 기존 부재와 면 접촉합니다. 어떻게 처리할까요?",
-                    options=[
+                    options=(
                         ClarificationOption(
                             id="share_wall", label="공유벽으로 처리", value="share_wall"
                         ),
                         _FORCE_CREATE,
                         _CANCEL,
-                    ],
+                    ),
                     context=ctx,
                 ))
             else:
                 questions.append(ClarificationQuestion(
                     trigger=ClarificationTrigger.DUPLICATE_ELEMENT,
                     question_ko="신규 부재가 기존 부재와 겹칩니다. 강제로 생성할까요?",
-                    options=[_FORCE_CREATE, _CANCEL],
+                    options=(_FORCE_CREATE, _CANCEL),
                     context=ctx,
                 ))
 
-        if structural_result and not structural_result.safe:
+        if structural_result and not structural_result.safe and not structural_result.blocked:
             questions.append(ClarificationQuestion(
                 trigger=ClarificationTrigger.NO_SUPPORT_BELOW,
                 question_ko="하부에 지지 부재(벽/기둥)가 없습니다. 강제로 생성할까요?",
-                options=[_FORCE_CREATE, _CANCEL],
+                options=(_FORCE_CREATE, _CANCEL),
                 context={"warnings": structural_result.to_summary_lines()},
             ))
 
