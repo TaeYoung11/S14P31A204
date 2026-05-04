@@ -47,7 +47,17 @@ public enum ErrorCode {
     FLOOR_PLAN_COMMAND_CONFIRM_NACK(HttpStatus.BAD_GATEWAY, "FLOOR_PLAN_COMMAND_CONFIRM_NACK", "Floor-plan command가 RabbitMQ exchange로 전달되지 못했습니다."),
     FLOOR_PLAN_COMMAND_RETURNED(HttpStatus.BAD_GATEWAY, "FLOOR_PLAN_COMMAND_RETURNED", "Floor-plan command가 queue로 라우팅되지 못하고 반환되었습니다."),
     FLOOR_PLAN_EVENT_INVALID(HttpStatus.BAD_REQUEST, "FLOOR_PLAN_EVENT_INVALID", "Floor-plan worker event가 올바르지 않습니다."),
-    FLOOR_PLAN_EVENT_SCHEMA_MISMATCH(HttpStatus.BAD_REQUEST, "FLOOR_PLAN_EVENT_SCHEMA_MISMATCH", "Floor-plan worker event schema가 기대 값과 일치하지 않습니다.");
+    FLOOR_PLAN_EVENT_SCHEMA_MISMATCH(HttpStatus.BAD_REQUEST, "FLOOR_PLAN_EVENT_SCHEMA_MISMATCH", "Floor-plan worker event schema가 기대 값과 일치하지 않습니다."),
+
+    IFC_EDIT_JOB_CONFLICT(HttpStatus.CONFLICT, "IFC_EDIT_JOB_CONFLICT", "진행 중인 IFC 편집 작업이 이미 존재합니다."),
+    IFC_EDIT_JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "IFC_EDIT_JOB_NOT_FOUND", "IFC 편집 작업을 찾을 수 없습니다."),
+    IFC_EDIT_STEP_NOT_FOUND(HttpStatus.NOT_FOUND, "IFC_EDIT_STEP_NOT_FOUND", "IFC 편집 작업 단계를 찾을 수 없습니다."),
+    IFC_EDIT_REVISION_NOT_FOUND(HttpStatus.NOT_FOUND, "IFC_EDIT_REVISION_NOT_FOUND", "IFC 편집 revision을 찾을 수 없습니다."),
+    IFC_EDIT_SOURCE_NOT_FOUND(HttpStatus.CONFLICT, "IFC_EDIT_SOURCE_NOT_FOUND", "IFC 편집에 필요한 소스 revision이 없습니다."),
+    IFC_EDIT_COMMAND_PUBLISH_FAILED(HttpStatus.BAD_GATEWAY, "IFC_EDIT_COMMAND_PUBLISH_FAILED", "IFC 편집 작업 요청 발행에 실패했습니다."),
+    IFC_EDIT_COMMAND_CONFIRM_NACK(HttpStatus.BAD_GATEWAY, "IFC_EDIT_COMMAND_CONFIRM_NACK", "IFC 편집 command가 RabbitMQ exchange로 전달되지 못했습니다."),
+    IFC_EDIT_COMMAND_RETURNED(HttpStatus.BAD_GATEWAY, "IFC_EDIT_COMMAND_RETURNED", "IFC 편집 command가 queue로 라우팅되지 못하고 반환되었습니다."),
+    IFC_EDIT_EVENT_INVALID(HttpStatus.BAD_REQUEST, "IFC_EDIT_EVENT_INVALID", "IFC 편집 worker event가 올바르지 않습니다.");
 
     private final HttpStatus status;
     private final String code;

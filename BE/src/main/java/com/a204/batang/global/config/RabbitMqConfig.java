@@ -5,6 +5,9 @@ import com.a204.batang.domain.floorplan.messaging.FloorPlanGenerateCorrelationDa
 import com.a204.batang.domain.floorplan.messaging.FloorPlanGenerateCommandPublisher;
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateCommandMessage;
 import com.a204.batang.domain.floorplan.messaging.event.FloorPlanPublishFailedEvent;
+import com.a204.batang.domain.ifcedit.messaging.IfcEditCommandCorrelationData;
+import com.a204.batang.domain.ifcedit.messaging.dto.IfcEditCommandMessage;
+import com.a204.batang.domain.ifcedit.messaging.event.IfcEditPublishFailedEvent;
 import com.a204.batang.domain.render.messaging.SdRenderCorrelationData;
 import com.a204.batang.domain.render.messaging.event.SdRenderPublishFailedEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -69,6 +72,23 @@ public class RabbitMqConfig {
     public static final String IFC_GENERATE_DEAD_ROUTING_KEY = "dead.ifc-generate";
     public static final String BE_JOB_EVENTS_DEAD_ROUTING_KEY = "dead.be.job-events";
 
+    public static final String IFC_EDIT_COMMAND_QUEUE = "batang.ifc-edit.command.queue";
+    public static final String TWO_D_LLM_COMMAND_QUEUE = "batang.two-d-llm.command.queue";
+    public static final String THREE_D_LLM_COMMAND_QUEUE = "batang.three-d-llm.command.queue";
+    public static final String IFC_EDIT_DLQ = "batang.ifc-edit.dlq";
+    public static final String TWO_D_LLM_DLQ = "batang.two-d-llm.dlq";
+    public static final String THREE_D_LLM_DLQ = "batang.three-d-llm.dlq";
+
+    public static final String IFC_EDIT_COMMAND_ROUTING_KEY = "command.ifc-edit.apply";
+    public static final String TWO_D_LLM_COMMAND_ROUTING_KEY = "command.two-d-llm.generate";
+    public static final String THREE_D_LLM_COMMAND_ROUTING_KEY = "command.three-d-llm.generate";
+    public static final String IFC_EDIT_COMMAND_BINDING_PATTERN = "command.ifc-edit.*";
+    public static final String TWO_D_LLM_COMMAND_BINDING_PATTERN = "command.two-d-llm.*";
+    public static final String THREE_D_LLM_COMMAND_BINDING_PATTERN = "command.three-d-llm.*";
+    public static final String IFC_EDIT_DEAD_ROUTING_KEY = "dead.ifc-edit";
+    public static final String TWO_D_LLM_DEAD_ROUTING_KEY = "dead.two-d-llm";
+    public static final String THREE_D_LLM_DEAD_ROUTING_KEY = "dead.three-d-llm";
+
     @Bean
     public TopicExchange commandExchange() {
         return ExchangeBuilder.topicExchange(COMMAND_EXCHANGE)
@@ -108,11 +128,35 @@ public class RabbitMqConfig {
 
     @Bean
     public Queue beJobEventsQueue() {
-        // worker event는 render/floor-plan이 같은 BE consumer queue에서 함께 받는다.
+        // worker event는 render/floor-plan/ifc-edit이 같은 BE consumer queue에서 함께 받는다.
         // 도메인별 필터링은 listener 쪽에서 수행한다.
         return QueueBuilder.durable(BE_JOB_EVENTS_QUEUE)
                 .deadLetterExchange(DLX_EXCHANGE)
                 .deadLetterRoutingKey(BE_JOB_EVENTS_DEAD_ROUTING_KEY)
+                .build();
+    }
+
+    @Bean
+    public Queue ifcEditCommandQueue() {
+        return QueueBuilder.durable(IFC_EDIT_COMMAND_QUEUE)
+                .deadLetterExchange(DLX_EXCHANGE)
+                .deadLetterRoutingKey(IFC_EDIT_DEAD_ROUTING_KEY)
+                .build();
+    }
+
+    @Bean
+    public Queue twoDLlmCommandQueue() {
+        return QueueBuilder.durable(TWO_D_LLM_COMMAND_QUEUE)
+                .deadLetterExchange(DLX_EXCHANGE)
+                .deadLetterRoutingKey(TWO_D_LLM_DEAD_ROUTING_KEY)
+                .build();
+    }
+
+    @Bean
+    public Queue threeDLlmCommandQueue() {
+        return QueueBuilder.durable(THREE_D_LLM_COMMAND_QUEUE)
+                .deadLetterExchange(DLX_EXCHANGE)
+                .deadLetterRoutingKey(THREE_D_LLM_DEAD_ROUTING_KEY)
                 .build();
     }
 
@@ -129,6 +173,21 @@ public class RabbitMqConfig {
     @Bean
     public Queue beJobEventsDlq() {
         return QueueBuilder.durable(BE_JOB_EVENTS_DLQ).build();
+    }
+
+    @Bean
+    public Queue ifcEditDlq() {
+        return QueueBuilder.durable(IFC_EDIT_DLQ).build();
+    }
+
+    @Bean
+    public Queue twoDLlmDlq() {
+        return QueueBuilder.durable(TWO_D_LLM_DLQ).build();
+    }
+
+    @Bean
+    public Queue threeDLlmDlq() {
+        return QueueBuilder.durable(THREE_D_LLM_DLQ).build();
     }
 
     @Bean
@@ -174,6 +233,48 @@ public class RabbitMqConfig {
     }
 
     @Bean
+    public Binding ifcEditCommandBinding(Queue ifcEditCommandQueue, TopicExchange commandExchange) {
+        return BindingBuilder.bind(ifcEditCommandQueue)
+                .to(commandExchange)
+                .with(IFC_EDIT_COMMAND_BINDING_PATTERN);
+    }
+
+    @Bean
+    public Binding twoDLlmCommandBinding(Queue twoDLlmCommandQueue, TopicExchange commandExchange) {
+        return BindingBuilder.bind(twoDLlmCommandQueue)
+                .to(commandExchange)
+                .with(TWO_D_LLM_COMMAND_BINDING_PATTERN);
+    }
+
+    @Bean
+    public Binding threeDLlmCommandBinding(Queue threeDLlmCommandQueue, TopicExchange commandExchange) {
+        return BindingBuilder.bind(threeDLlmCommandQueue)
+                .to(commandExchange)
+                .with(THREE_D_LLM_COMMAND_BINDING_PATTERN);
+    }
+
+    @Bean
+    public Binding ifcEditDlqBinding(Queue ifcEditDlq, DirectExchange deadLetterExchange) {
+        return BindingBuilder.bind(ifcEditDlq)
+                .to(deadLetterExchange)
+                .with(IFC_EDIT_DEAD_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding twoDLlmDlqBinding(Queue twoDLlmDlq, DirectExchange deadLetterExchange) {
+        return BindingBuilder.bind(twoDLlmDlq)
+                .to(deadLetterExchange)
+                .with(TWO_D_LLM_DEAD_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding threeDLlmDlqBinding(Queue threeDLlmDlq, DirectExchange deadLetterExchange) {
+        return BindingBuilder.bind(threeDLlmDlq)
+                .to(deadLetterExchange)
+                .with(THREE_D_LLM_DEAD_ROUTING_KEY);
+    }
+
+    @Bean
     public MessageConverter rabbitMessageConverter() {
         return new Jackson2JsonMessageConverter();
     }
@@ -185,6 +286,18 @@ public class RabbitMqConfig {
         executor.setMaxPoolSize(4);
         executor.setQueueCapacity(200);
         executor.setThreadNamePrefix("floor-plan-publish-failure-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.initialize();
+        return executor;
+    }
+
+    @Bean(name = "ifcEditPublishFailureExecutor")
+    public Executor ifcEditPublishFailureExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(200);
+        executor.setThreadNamePrefix("ifc-edit-publish-failure-");
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.initialize();
         return executor;
@@ -219,6 +332,12 @@ public class RabbitMqConfig {
                         cause,
                         false
                 ));
+            } else if (correlationData instanceof IfcEditCommandCorrelationData ifcEditCorrelationData) {
+                eventPublisher.publishEvent(new IfcEditPublishFailedEvent(
+                        ifcEditCorrelationData.getMessage(),
+                        cause,
+                        false
+                ));
             }
         });
 
@@ -232,30 +351,51 @@ public class RabbitMqConfig {
                     returned.getRoutingKey()
             );
 
-            if (!IFC_GENERATE_COMMAND_ROUTING_KEY.equals(returned.getRoutingKey())) {
-                return;
-            }
-
-            try {
-                // floor-plan은 returned를 라우팅 실패로 간주하고 즉시 실패 처리한다.
-                // 같은 메시지를 재발행해도 설정 오류면 반복 실패할 가능성이 크기 때문이다.
-                FloorPlanGenerateCommandMessage message = readReturnedFloorPlanMessage(objectMapper, returned.getMessage());
-                String cause = "returned: code=%s, text=%s, exchange=%s, routingKey=%s".formatted(
-                        returned.getReplyCode(),
-                        returned.getReplyText(),
-                        returned.getExchange(),
-                        returned.getRoutingKey()
-                );
-                eventPublisher.publishEvent(new FloorPlanPublishFailedEvent(message, cause, true));
-            } catch (Exception e) {
-                log.error(
-                        "[RabbitMQ] Floor-plan returned 메시지 복원에 실패했습니다. exchange={}, routingKey={}, headers={}, body={}",
-                        returned.getExchange(),
-                        returned.getRoutingKey(),
-                        returned.getMessage().getMessageProperties().getHeaders(),
-                        new String(returned.getMessage().getBody(), StandardCharsets.UTF_8),
-                        e
-                );
+            String routingKey = returned.getRoutingKey();
+            if (IFC_GENERATE_COMMAND_ROUTING_KEY.equals(routingKey)) {
+                try {
+                    // floor-plan은 returned를 라우팅 실패로 간주하고 즉시 실패 처리한다.
+                    // 같은 메시지를 재발행해도 설정 오류면 반복 실패할 가능성이 크기 때문이다.
+                    FloorPlanGenerateCommandMessage message = readReturnedFloorPlanMessage(objectMapper, returned.getMessage());
+                    String cause = "returned: code=%s, text=%s, exchange=%s, routingKey=%s".formatted(
+                            returned.getReplyCode(),
+                            returned.getReplyText(),
+                            returned.getExchange(),
+                            returned.getRoutingKey()
+                    );
+                    eventPublisher.publishEvent(new FloorPlanPublishFailedEvent(message, cause, true));
+                } catch (Exception e) {
+                    log.error(
+                            "[RabbitMQ] Floor-plan returned 메시지 복원에 실패했습니다. exchange={}, routingKey={}, headers={}, body={}",
+                            returned.getExchange(),
+                            returned.getRoutingKey(),
+                            returned.getMessage().getMessageProperties().getHeaders(),
+                            new String(returned.getMessage().getBody(), StandardCharsets.UTF_8),
+                            e
+                    );
+                }
+            } else if (IFC_EDIT_COMMAND_ROUTING_KEY.equals(routingKey)
+                    || TWO_D_LLM_COMMAND_ROUTING_KEY.equals(routingKey)
+                    || THREE_D_LLM_COMMAND_ROUTING_KEY.equals(routingKey)) {
+                try {
+                    IfcEditCommandMessage message = readReturnedIfcEditMessage(objectMapper, returned.getMessage());
+                    String cause = "returned: code=%s, text=%s, exchange=%s, routingKey=%s".formatted(
+                            returned.getReplyCode(),
+                            returned.getReplyText(),
+                            returned.getExchange(),
+                            returned.getRoutingKey()
+                    );
+                    eventPublisher.publishEvent(new IfcEditPublishFailedEvent(message, cause, true));
+                } catch (Exception e) {
+                    log.error(
+                            "[RabbitMQ] IFC Edit returned 메시지 복원에 실패했습니다. exchange={}, routingKey={}, headers={}, body={}",
+                            returned.getExchange(),
+                            returned.getRoutingKey(),
+                            returned.getMessage().getMessageProperties().getHeaders(),
+                            new String(returned.getMessage().getBody(), StandardCharsets.UTF_8),
+                            e
+                    );
+                }
             }
         });
 
@@ -326,5 +466,47 @@ public class RabbitMqConfig {
     private String readNullableStringHeader(Map<String, Object> headers, String key) {
         Object value = headers.get(key);
         return value == null ? null : String.valueOf(value);
+    }
+
+    private IfcEditCommandMessage readReturnedIfcEditMessage(ObjectMapper objectMapper, Message returnedMessage)
+            throws Exception {
+        try {
+            return objectMapper.readValue(returnedMessage.getBody(), IfcEditCommandMessage.class);
+        } catch (Exception ignored) {
+            return reconstructIfcEditMessageFromHeaders(returnedMessage.getMessageProperties().getHeaders());
+        }
+    }
+
+    private IfcEditCommandMessage reconstructIfcEditMessageFromHeaders(Map<String, Object> headers) {
+        return new IfcEditCommandMessage(
+                readUuidHeader(headers, "x-ifc-edit-message-id"),
+                readStringHeader(headers, "x-ifc-edit-schema-version"),
+                readStringHeader(headers, "x-ifc-edit-message-type"),
+                readStringHeader(headers, "x-ifc-edit-command-type"),
+                readStringHeader(headers, "x-ifc-edit-routing-key"),
+                readUuidHeader(headers, "x-ifc-edit-job-id"),
+                readUuidHeader(headers, "x-ifc-edit-job-step-id"),
+                readIntegerHeader(headers, "x-ifc-edit-step-no"),
+                readIntegerHeader(headers, "x-ifc-edit-total-steps"),
+                readUuidHeader(headers, "x-ifc-edit-project-id"),
+                readUuidHeader(headers, "x-ifc-edit-requested-by"),
+                null,
+                null,
+                readStringHeader(headers, "x-ifc-edit-source-scene-type"),
+                readUuidHeader(headers, "x-ifc-edit-target-revision-id"),
+                readUuidHeader(headers, "x-ifc-edit-expected-output-artifact-id"),
+                null,
+                new IfcEditCommandMessage.ExpectedOutput(
+                        readStringHeader(headers, "x-ifc-edit-ifc-storage-url"),
+                        readNullableStringHeader(headers, "x-ifc-edit-validation-report-storage-url"),
+                        readNullableStringHeader(headers, "x-ifc-edit-edit-plan-storage-url")
+                ),
+                null,
+                readIntegerHeader(headers, "x-ifc-edit-attempt-no"),
+                readIntegerHeader(headers, "x-ifc-edit-max-attempts"),
+                readStringHeader(headers, "x-ifc-edit-idempotency-key"),
+                readUuidHeader(headers, "x-ifc-edit-correlation-id"),
+                OffsetDateTime.parse(readStringHeader(headers, "x-ifc-edit-created-at"))
+        );
     }
 }
