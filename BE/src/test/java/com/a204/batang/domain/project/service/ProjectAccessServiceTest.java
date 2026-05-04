@@ -1,6 +1,7 @@
 package com.a204.batang.domain.project.service;
 
 import com.a204.batang.domain.project.entity.Project;
+import com.a204.batang.domain.project.repository.ProjectMemberRepository;
 import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
@@ -15,12 +16,16 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.BDDMockito.given;
 
 @ExtendWith(MockitoExtension.class)
 class ProjectAccessServiceTest {
 
     @Mock
     private ProjectRepository projectRepository;
+
+    @Mock
+    private ProjectMemberRepository projectMemberRepository;
 
     @InjectMocks
     private ProjectAccessService projectAccessService;
@@ -54,6 +59,23 @@ class ProjectAccessServiceTest {
                 .isInstanceOf(CustomException.class)
                 .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
                         .isEqualTo(ErrorCode.FORBIDDEN_ACCESS));
+    }
+
+    @Test
+    void validateProjectPinWriterOrThrow_doesNotThrow_whenCurrentUserIsInvitedMember() throws Exception {
+        UUID ownerUserId = UUID.randomUUID();
+        UUID invitedUserId = UUID.randomUUID();
+        UUID projectId = UUID.randomUUID();
+
+        Project project = Project.create("test-project", "desc", ownerUserId);
+        var projectIdField = Project.class.getDeclaredField("projectId");
+        projectIdField.setAccessible(true);
+        projectIdField.set(project, projectId);
+
+        given(projectMemberRepository.existsByProjectProjectIdAndUserId(projectId, invitedUserId)).willReturn(true);
+
+        assertThatCode(() -> projectAccessService.validateProjectPinWriterOrThrow(project, invitedUserId))
+                .doesNotThrowAnyException();
     }
 
     @Test
