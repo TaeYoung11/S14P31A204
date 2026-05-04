@@ -32,14 +32,14 @@ def convert_layout_to_ifc(
     """Write a space-only IFC file from the validated layout import request."""
 
     output = Path(output_path)
-    _validate_request(request)
+    shared_wall_segments = _validate_request(request)
     model = _create_ifc_file()
     owner_history, context, project, storeys = _create_project_tree(model, request)
     zones = _create_zones(model, owner_history, request)
     _attach_project_metadata_property_set(model, owner_history, project, request)
     _attach_storey_metadata_property_sets(model, owner_history, storeys, request)
     _create_v2_walls(model, owner_history, context, request, storeys)
-    _create_v2_shared_walls(model, owner_history, context, request, storeys)
+    _create_v2_shared_walls(model, owner_history, context, request, storeys, shared_wall_segments)
     _create_v2_slabs(model, owner_history, context, request, storeys)
     _create_v2_roof(model, owner_history, context, request, storeys)
     _create_spaces(model, owner_history, context, request, storeys, zones)
@@ -47,10 +47,11 @@ def convert_layout_to_ifc(
     model.write(str(output))
 
 
-def _validate_request(request: LayoutImportV1 | LayoutImportV2) -> None:
+def _validate_request(request: LayoutImportV1 | LayoutImportV2) -> list[SharedWallSegment]:
     if isinstance(request, LayoutImportV2):
         _validate_v2_generation_prerequisites(request)
-        _validated_shared_wall_segments(request)
+        return _validated_shared_wall_segments(request)
+    return []
 
 
 def _validate_v2_generation_prerequisites(request: LayoutImportV2) -> None:
@@ -194,7 +195,8 @@ def _overlapping_collinear_segment_mm(
 def _boundary_edge_set_mm(boundaries: list[BoundaryInput]) -> set[RoomEdgeMm]:
     boundary_edges: set[RoomEdgeMm] = set()
     for boundary in boundaries:
-        polygon = boundary.polygon
+        polygon = boundary.polygon_mm or boundary.outer_polygon_mm
+        assert polygon is not None
         for index, start_point in enumerate(polygon):
             end_point = polygon[(index + 1) % len(polygon)]
             boundary_edges.add(_canonical_edge_mm(start_point, end_point))
@@ -576,20 +578,16 @@ def _create_v2_shared_walls(
     context: ifcopenshell.entity_instance,
     request: LayoutImportV1 | LayoutImportV2,
     storeys: dict[int, ifcopenshell.entity_instance],
+    shared_wall_segments: list[SharedWallSegment],
 ) -> None:
-    if not isinstance(request, LayoutImportV2) or not request.generation_options.generate_walls:
+    if not shared_wall_segments:
         return
 
-    if request.generation_policy.shared_wall_policy.value != "from_adjacency":
-        return
-
-    if request.modeling_defaults is None:
-        return
-
+    assert isinstance(request, LayoutImportV2)
     wall_thickness_m = _mm_to_m(request.modeling_defaults.wall_thickness_mm or 0)
     wall_height_m = _effective_space_height_m(request)
     shared_segments = sorted(
-        _validated_shared_wall_segments(request),
+        shared_wall_segments,
         key=lambda segment: (
             segment[0],
             segment[1][0][0],
@@ -680,7 +678,9 @@ def _boundary_segments_m(
 
 
 def _boundary_polygon_points_m(boundary: BoundaryInput) -> list[tuple[float, float]]:
-    return [(_mm_to_m(x), _mm_to_m(y)) for x, y in boundary.polygon]
+    polygon = boundary.polygon_mm or boundary.outer_polygon_mm
+    assert polygon is not None
+    return [(_mm_to_m(x), _mm_to_m(y)) for x, y in polygon]
 
 
 def _top_floor_boundary(request: LayoutImportV2) -> BoundaryInput | None:
@@ -989,7 +989,10 @@ def _attach_project_metadata_property_set(
                 model,
                 "AdjacencyJson",
                 json.dumps(
-                    [adjacency.model_dump(mode="json") for adjacency in request.adjacency],
+                    [
+                        adjacency.model_dump(mode="json", exclude_none=True, by_alias=True)
+                        for adjacency in request.adjacency
+                    ],
                     ensure_ascii=False,
                 ),
             )
@@ -1020,7 +1023,10 @@ def _attach_storey_metadata_property_sets(
                 _create_property_single_value(
                     model,
                     "BoundaryJson",
-                    json.dumps(boundary.model_dump(mode="json"), ensure_ascii=False),
+                    json.dumps(
+                        boundary.model_dump(mode="json", exclude_none=True, by_alias=True),
+                        ensure_ascii=False,
+                    ),
                 )
             ],
         )

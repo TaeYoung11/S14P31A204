@@ -141,6 +141,7 @@ class BoundaryInput(LayoutImportBaseModel):
     polygon_mm: PolygonRing | None = Field(
         default=None,
         min_length=3,
+        serialization_alias="polygon",
         validation_alias=AliasChoices("polygon_mm", "polygon"),
     )
     outer_polygon_mm: PolygonRing | None = Field(default=None, min_length=3)
