@@ -19,7 +19,6 @@ from ai_common.worker_sdk.event_factory import (
 from ai_common.worker_sdk.lifecycle import (
     build_event_routing_key,
     build_event_type,
-    build_worker_type,
 )
 from ai_domain.worker_messages.event import EventOutputRef
 from tests.unit.schema_assert import validate_json_schema
@@ -63,7 +62,7 @@ def test_build_started_event_creates_schema_valid_event() -> None:
     assert event.status == "started"
     assert event.eventType == build_event_type(context.command_type, "started")
     assert event.routingKey == build_event_routing_key(
-        build_worker_type(context.command_type),
+        context.command_type,
         "started",
     )
     assert event.workerType == "TWO_D_LLM"
