@@ -12,9 +12,12 @@ export default function LoginPage() {
     rememberEmail,
     loginError,
     isLoggingIn,
+    emailTemplates,
+    loginNotice,
     setEmail,
     setPassword,
     setRememberEmail,
+    selectEmailTemplate,
     togglePasswordVisibility,
     handleSubmit,
   } = useLoginPage()
@@ -27,6 +30,8 @@ export default function LoginPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {loginNotice && <p className="rounded-md border border-[#bbf7d0] bg-[#f0fdf4] px-3 py-2 text-xs text-[#15803d]">{loginNotice}</p>}
+
         <div>
           <label htmlFor="login-email" className="auth-label">
             이메일
@@ -35,12 +40,30 @@ export default function LoginPage() {
             id="login-email"
             type="email"
             className="input-auth"
-            placeholder="your@example.com"
+            placeholder="name@company.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
             autoComplete="email"
+            list="login-email-templates"
           />
+          <datalist id="login-email-templates">
+            {emailTemplates.map((template) => (
+              <option key={template} value={template} />
+            ))}
+          </datalist>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {emailTemplates.map((template) => (
+              <button
+                key={template}
+                type="button"
+                onClick={() => selectEmailTemplate(template)}
+                className="rounded-full border border-[#e5e7eb] bg-white px-3 py-1 text-xs font-medium text-[#4b5563] transition-colors hover:border-[#c7d2fe] hover:bg-[#eef2ff] hover:text-[#4338ca]"
+              >
+                {template}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div>
@@ -52,7 +75,7 @@ export default function LoginPage() {
               id="login-password"
               type={showPw ? 'text' : 'password'}
               className="input-auth pr-11"
-              placeholder="비밀번호를 입력하세요"
+              placeholder="비밀번호를 입력해 주세요"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -76,7 +99,7 @@ export default function LoginPage() {
             checked={rememberEmail}
             onChange={(e) => setRememberEmail(e.target.checked)}
           />
-          아이디 기억하기
+          이메일 기억하기
         </label>
 
         {loginError && <p className="form-error">{(loginError as Error).message}</p>}
@@ -99,21 +122,6 @@ export default function LoginPage() {
             회원가입
           </Link>
         </p>
-      </div>
-
-      <div className="mt-4 rounded-lg border border-[#e5e7eb] bg-[#f8f9fa] p-3">
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#9ca3af]">테스트 계정</p>
-        <div className="space-y-0.5">
-          <p className="text-xs text-[#6b7280]">
-            <span className="font-medium text-[#374151]">설계자:</span> designer@batang.io
-          </p>
-          <p className="text-xs text-[#6b7280]">
-            <span className="font-medium text-[#374151]">클라이언트:</span> client@batang.io
-          </p>
-          <p className="text-xs text-[#6b7280]">
-            <span className="font-medium text-[#374151]">비밀번호:</span> password123
-          </p>
-        </div>
       </div>
     </AuthLayout>
   )

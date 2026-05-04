@@ -45,10 +45,13 @@ public class ProjectService {
      */
     @Transactional
     public CreateProjectResponse createProject(CreateProjectRequest request) {
+        projectAccessService.validateDesignerOrThrow();
+        UUID currentUserId = resolveCurrentUserIdOrThrow();
+
         String normalizedName = normalizeNameOrThrow(request.name());
         String normalizedDescription = normalizeDescription(request.description());
 
-        Project project = Project.create(normalizedName, normalizedDescription);
+        Project project = Project.create(normalizedName, normalizedDescription, currentUserId);
         Project savedProject = projectRepository.save(project);
         projectWorkspaceRepository.save(ProjectWorkspace.create(savedProject));
 
@@ -66,7 +69,8 @@ public class ProjectService {
      */
     @Transactional
     public UpdateProjectResponse updateProject(UUID projectId, UpdateProjectRequest request) {
-        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        projectAccessService.validateDesignerOrThrow();
+        UUID currentUserId = resolveCurrentUserIdOrThrow();
 
         Project project = projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
@@ -91,7 +95,8 @@ public class ProjectService {
      */
     @Transactional
     public DeleteProjectsResponse deleteProjects(DeleteProjectsRequest request) {
-        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        projectAccessService.validateDesignerOrThrow();
+        UUID currentUserId = resolveCurrentUserIdOrThrow();
         List<UUID> targetProjectIds = normalizeProjectIds(request.projectIds());
 
         List<Project> projects = projectRepository.findByProjectIdInAndDeletedAtIsNull(targetProjectIds);
@@ -170,5 +175,19 @@ public class ProjectService {
                 ErrorCode.PROJECT_DELETE_TARGET_NOT_FOUND,
                 "삭제 대상 프로젝트를 찾을 수 없습니다. missingProjectIds=" + missingProjectIds
         );
+    }
+
+    /**
+     * 인증된 현재 사용자 ID를 조회한다.
+     *
+     * @return 현재 사용자 ID
+     * @throws CustomException 인증 정보가 없는 경우
+     */
+    private UUID resolveCurrentUserIdOrThrow() {
+        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        if (currentUserId == null) {
+            throw new CustomException(ErrorCode.UNAUTHORIZED, "로그인이 필요합니다.");
+        }
+        return currentUserId;
     }
 }

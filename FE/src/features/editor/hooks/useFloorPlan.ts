@@ -1,11 +1,15 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import type { BubbleData, ConnectionData, FloorLayer, FloorRoom } from '../types'
 import { generateFloorPlanLayout } from '../utils/floorPlanLayout'
+import { mapFloorProjectToLayers } from '../utils/floorProjectMapper'
+import { translateFloorRoom } from '../utils/floorRoomTransform'
+import type { FloorProject } from '../types/floorProject.types'
 
 /** 2D 평면도 층·생성 상태를 관리하는 훅 */
 export function useFloorPlan() {
   const [isGenerated, setIsGenerated] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [layoutSource, setLayoutSource] = useState<'bubble' | 'project' | null>(null)
   const [layers, setLayers] = useState<FloorLayer[]>([])
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -18,6 +22,30 @@ export function useFloorPlan() {
 
   /** 현재 활성 층의 방 목록 */
   const activeRooms: FloorRoom[] = layers.find((l) => l.id === activeLayerId)?.rooms ?? []
+
+  /**
+   * 첫 번째 층 레이어를 생성하거나 갱신한다.
+   * - 기존 레이어가 없으면 `floor-1`을 생성한다.
+   * - `floor-1`이 이미 있으면 해당 레이어 rooms를 교체한다.
+   * - `floor-1`이 없으면 레이어 목록 맨 앞에 `floor-1`을 추가한다.
+   * - 버블 기반 레이아웃은 1층을 기준으로 갱신하므로 활성층도 `floor-1`로 맞춘다.
+   */
+  const upsertPrimaryLayer = useCallback((rooms: FloorRoom[]) => {
+    const firstLayer: FloorLayer = { id: 'floor-1', name: '1층 평면도', rooms }
+    setLayers((prev) => {
+      if (prev.length === 0) return [firstLayer]
+      const hasPrimary = prev.some((layer) => layer.id === 'floor-1')
+      if (hasPrimary) {
+        return prev.map((layer) =>
+          layer.id === 'floor-1'
+            ? { ...layer, rooms }
+            : layer,
+        )
+      }
+      return [firstLayer, ...prev]
+    })
+    setActiveLayerId('floor-1')
+  }, [])
 
   /**
    * 버블 다이어그램 → 2D 평면도 변환 (로딩 애니메이션 포함)
@@ -38,14 +66,13 @@ export function useFloorPlan() {
       if (timerRef.current !== null) clearTimeout(timerRef.current)
       timerRef.current = setTimeout(() => {
         const rooms = generateFloorPlanLayout(bubbles, connections, canvasWidth, canvasHeight)
-        const firstLayer: FloorLayer = { id: 'floor-1', name: '1층 평면도', rooms }
-        setLayers([firstLayer])
-        setActiveLayerId('floor-1')
+        upsertPrimaryLayer(rooms)
         setIsGenerated(true)
         setIsGenerating(false)
+        setLayoutSource('bubble')
       }, 1800)
     },
-    [],
+    [upsertPrimaryLayer],
   )
 
   /**
@@ -59,14 +86,12 @@ export function useFloorPlan() {
       canvasWidth: number,
       canvasHeight: number,
     ) => {
+      if (layoutSource !== 'bubble') return
       if (bubbles.length === 0 || canvasWidth === 0) return
       const rooms = generateFloorPlanLayout(bubbles, connections, canvasWidth, canvasHeight)
-      setLayers((prev) => {
-        if (prev.length === 0) return prev
-        return prev.map((l, i) => (i === 0 ? { ...l, rooms } : l))
-      })
+      upsertPrimaryLayer(rooms)
     },
-    [],
+    [layoutSource, upsertPrimaryLayer],
   )
 
   /**
@@ -77,26 +102,219 @@ export function useFloorPlan() {
     const newId = `floor-${Date.now()}`
     const floorNum = layers.length + 1
     const baseRooms = layers.find((l) => l.id === activeLayerId)?.rooms ?? []
+    const bubbleIdMap = new Map<string, string>(
+      baseRooms.map((room) => [room.bubbleId, `${room.bubbleId}-${newId}`] as const),
+    )
 
     const newLayer: FloorLayer = {
       id: newId,
       name: `${floorNum}층 평면도`,
-      // 방 id만 새로 부여하고 레이아웃은 복사
-      rooms: baseRooms.map((r) => ({ ...r, id: `${r.id}-${newId}` })),
+      // 레이어 간 식별자 충돌을 막기 위해 room.id / room.bubbleId를 모두 재발급한다.
+      rooms: baseRooms.map((room) => ({
+        ...room,
+        id: `${room.id}-${newId}`,
+        bubbleId: bubbleIdMap.get(room.bubbleId) ?? `${room.bubbleId}-${newId}`,
+        connectedIds: room.connectedIds.map((id) => bubbleIdMap.get(id) ?? `${id}-${newId}`),
+      })),
     }
     setLayers((prev) => [...prev, newLayer])
     setActiveLayerId(newId)
   }, [layers, activeLayerId])
 
+  /** 층 이름 수정 */
+  const renameFloorLayer = useCallback((layerId: string, name: string) => {
+    const normalized = name.trim()
+    if (!normalized) return
+    setLayers((prev) =>
+      prev.map((layer) => (layer.id === layerId ? { ...layer, name: normalized } : layer)),
+    )
+  }, [])
+
+  /**
+   * 층 삭제
+   * - 최소 1개 층은 유지한다.
+   * - 활성층 삭제 시 남아있는 첫 층으로 활성층을 전환한다.
+   */
+  const deleteFloorLayer = useCallback((layerId: string) => {
+    setLayers((prev) => {
+      if (prev.length <= 1) return prev
+      const next = prev.filter((layer) => layer.id !== layerId)
+      if (next.length === prev.length) return prev
+      setActiveLayerId((current) => {
+        if (current && current !== layerId) return current
+        return next[0]?.id ?? null
+      })
+      return next
+    })
+  }, [])
+
+  /**
+   * 외부 BATANG 2D(FloorProject) 데이터로 2D/3D 레이어를 직접 설정한다.
+   * 백엔드 API 연동 시 이 경로를 사용하면 버블 기반 자동 생성 로직과 분리할 수 있다.
+   */
+  const setFloorPlanFromProject = useCallback(
+    (project: FloorProject, canvasWidth: number, canvasHeight: number) => {
+      const mappedLayers = mapFloorProjectToLayers(project, {
+        width: canvasWidth,
+        height: canvasHeight,
+      })
+      if (mappedLayers.length === 0) return
+      setLayers(mappedLayers)
+      setActiveLayerId(mappedLayers[0].id)
+      setIsGenerated(true)
+      setIsGenerating(false)
+      setLayoutSource('project')
+    },
+    [],
+  )
+
+  /**
+   * 평면도 상태를 초기화한다.
+   * 버블이 모두 삭제된 경우 2D/3D에 남아 있는 이전 레이아웃을 제거할 때 사용한다.
+   */
+  const clearFloorPlan = useCallback(() => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    setLayers([])
+    setActiveLayerId(null)
+    setIsGenerated(false)
+    setIsGenerating(false)
+    setLayoutSource(null)
+  }, [])
+
+  /**
+   * AI 수정 등으로 버블 데이터가 즉시 바뀔 때 2D/3D 레이어를 동기화한다.
+   * 로딩 애니메이션 없이 즉시 반영하며, 소스를 bubble로 전환한다.
+   */
+  const syncFloorPlanFromBubbles = useCallback(
+    (
+      bubbles: BubbleData[],
+      connections: ConnectionData[],
+      canvasWidth: number,
+      canvasHeight: number,
+    ) => {
+      if (bubbles.length === 0 || canvasWidth === 0) return
+      const rooms = generateFloorPlanLayout(bubbles, connections, canvasWidth, canvasHeight)
+      upsertPrimaryLayer(rooms)
+      setIsGenerated(true)
+      setIsGenerating(false)
+      setLayoutSource('bubble')
+    },
+    [upsertPrimaryLayer],
+  )
+
+  /**
+   * 활성 층의 Room 위치를 직접 이동한다.
+   * 2D 배치 편집 전용 경로로, 버블 원본 데이터는 건드리지 않는다.
+   */
+  const moveActiveRoom = useCallback(
+    (bubbleId: string, x: number, y: number) => {
+      if (!activeLayerId) return
+      setLayers((prev) =>
+        prev.map((layer) =>
+          layer.id !== activeLayerId
+            ? layer
+            : {
+                ...layer,
+                rooms: layer.rooms.map((room) =>
+                  room.bubbleId === bubbleId
+                    ? translateFloorRoom(room, x - room.x, y - room.y, { x, y })
+                    : room,
+                ),
+              },
+        ),
+      )
+    },
+    [activeLayerId],
+  )
+
+  /**
+   * 활성 층의 Room 속성을 직접 갱신한다.
+   * 2D 속성 패널 입력값(이름/타입/재질/크기 등) 반영 경로로 사용한다.
+   */
+  const updateActiveRoom = useCallback(
+    (bubbleId: string, updater: (room: FloorRoom) => FloorRoom) => {
+      if (!activeLayerId) return
+      setLayers((prev) =>
+        prev.map((layer) =>
+          layer.id !== activeLayerId
+            ? layer
+            : {
+                ...layer,
+                rooms: layer.rooms.map((room) =>
+                  room.bubbleId === bubbleId
+                    ? updater(room)
+                    : room,
+                ),
+              },
+        ),
+      )
+    },
+    [activeLayerId],
+  )
+
+  /**
+   * 활성 층에서 지정한 Room(들)을 제거한다.
+   * 2D 편집 모드 삭제 키 동작에서 버블 상태와 층 상태를 함께 맞출 때 사용한다.
+   */
+  const removeActiveRooms = useCallback(
+    (bubbleIds: string[]) => {
+      if (!activeLayerId || bubbleIds.length === 0) return
+      const idSet = new Set(bubbleIds)
+      setLayers((prev) =>
+        prev.map((layer) =>
+          layer.id !== activeLayerId
+            ? layer
+            : {
+                ...layer,
+                rooms: layer.rooms.filter((room) => !idSet.has(room.bubbleId)),
+              },
+        ),
+      )
+    },
+    [activeLayerId],
+  )
+
+  const replaceFloorPlanState = useCallback((
+    next: {
+      isGenerated: boolean
+      layoutSource?: 'bubble' | 'project' | null
+      layers: FloorLayer[]
+      activeLayerId: string | null
+    },
+  ) => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    setIsGenerated(next.isGenerated)
+    setIsGenerating(false)
+    setLayoutSource(next.layoutSource ?? (next.isGenerated ? 'project' : null))
+    setLayers(next.layers)
+    setActiveLayerId(next.activeLayerId ?? next.layers[0]?.id ?? null)
+  }, [])
+
   return {
     isGenerated,
     isGenerating,
+    layoutSource,
     layers,
     activeLayerId,
     activeRooms,
     generateFloorPlan,
     refreshFloorPlan,
     addFloorLayer,
+    renameFloorLayer,
+    deleteFloorLayer,
     setActiveLayerId,
+    setFloorPlanFromProject,
+    syncFloorPlanFromBubbles,
+    moveActiveRoom,
+    updateActiveRoom,
+    removeActiveRooms,
+    clearFloorPlan,
+    replaceFloorPlanState,
   }
 }

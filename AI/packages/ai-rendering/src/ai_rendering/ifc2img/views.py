@@ -15,6 +15,9 @@ class IFCView(Enum):
     ISO_SE = "iso_se"            # 남동 위쪽 등각
     CORNER_LOW = "corner_low"    # 낮은 시점 코너 (사람 시야 가까움)
     BIRDS_EYE = "birds_eye"      # 조감도 (top과 다른 약간 기울인 위)
+    EYE_NE = "eye_ne"            # 북동 사람 시선 (z=0 완전 수평)
+    EYE_NW = "eye_nw"            # 북서 사람 시선 (z=0 완전 수평)
+    EYE_SE = "eye_se"            # 남동 사람 시선 (z=0 완전 수평)
 
 
 class AutoZoomMode(Enum):
@@ -48,17 +51,22 @@ class CameraParams:
 
 
 VIEW_CAMERAS: dict[IFCView, CameraParams] = {
-    # 기본 3뷰 — PCA fallback 시 사용되는 정적 vector.
+    # 기본 3뷰 — 정적 vector (모든 시점 공통).
     # FRONT/SIDE는 z=0 으로 완전 수평 (건축 입면도 표준 — 기울어짐 방지).
+    # PCA 정렬은 Step 18c(2026-04-29)에 완전 제거 — 카메라는 정적 좌표계만 사용.
     IFCView.FRONT: CameraParams(front=(-1.0,  0.0,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.SIDE:  CameraParams(front=( 0.0, -1.0,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.TOP:   CameraParams(front=(-0.6, -0.6,  1.0), up=(0.0, 0.0, 1.0), zoom=0.5),
-    # 등각 5뷰 (PCA 정렬과 결합 시 *건물 주축 기준* 모서리 시점).
+    # 등각 5뷰 — *world 좌표계 기준* 모서리 시점.
     IFCView.ISO_NE:     CameraParams(front=(-0.7, -0.7,  0.5), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.ISO_NW:     CameraParams(front=(-0.7,  0.7,  0.5), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.ISO_SE:     CameraParams(front=( 0.7, -0.7,  0.5), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.CORNER_LOW: CameraParams(front=(-0.7, -0.7,  0.15), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.BIRDS_EYE:  CameraParams(front=(-0.4, -0.4,  1.5), up=(0.0, 0.0, 1.0), zoom=0.5),
+    # 수평 등각 3뷰 — ISO_*과 좌표 동일하되 z=0 (사람 시선, 위에서 내려보지 않음).
+    IFCView.EYE_NE:     CameraParams(front=(-0.7, -0.7,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
+    IFCView.EYE_NW:     CameraParams(front=(-0.7,  0.7,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
+    IFCView.EYE_SE:     CameraParams(front=( 0.7, -0.7,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
 }
 
 
@@ -84,6 +92,9 @@ VIEW_TARGET_RATIOS: dict[IFCView, float] = {
     IFCView.ISO_SE:     0.15,
     IFCView.CORNER_LOW: 0.12,   # 가장 잘리던 view → 가장 작게
     IFCView.BIRDS_EYE:  0.15,
+    IFCView.EYE_NE:     0.15,   # 수평 등각 — ISO_*과 동일 시작점 (Phase 3)
+    IFCView.EYE_NW:     0.15,
+    IFCView.EYE_SE:     0.15,
 }
 
 
@@ -148,7 +159,25 @@ DEFAULT_RENDER_VIEWS: list[IFCView] = [
     IFCView.ISO_NE,
     IFCView.ISO_NW,
     IFCView.ISO_SE,
+    IFCView.EYE_NE,
+    IFCView.EYE_NW,
+    IFCView.EYE_SE,
 ]
+
+
+# View-aware ground plane 정책 — 옵션 OO (2026-04-29).
+#
+# `load_mesh`는 building geometry만 반환. `IFCRenderer`가 view별로 ground plane을
+# 추가/제외해 시점에 맞는 시각 단서 전달:
+#   - ISO_*(z=0.5 위쪽 등각): mesh 외부 영역이 *대각선 원근*으로 자연스럽게 인식되어
+#     ground plane 추가 시 거대 평면이 framing 망가짐 → 제외.
+#   - FRONT/SIDE/EYE_*/TOP/BIRDS_EYE/CORNER_LOW: mesh 외부 영역이 depth=0 빈 배경이라
+#     SD가 prompt 편향으로 *추가 층/지하* 환각 → ground plane 추가로 차단.
+#
+# `IFCRenderer._mesh_for_view`가 이 frozenset 검사로 분기.
+VIEWS_WITHOUT_GROUND: frozenset[IFCView] = frozenset(
+    {IFCView.ISO_NE, IFCView.ISO_NW, IFCView.ISO_SE}
+)
 
 
 # View 별 prompt suffix — 옵션 B (per-view prompt suffix)의 공통 자산.
@@ -175,6 +204,10 @@ VIEW_PROMPT_SUFFIXES: dict[IFCView, str] = {
                         "residential building, surrounded by grass lawn",
     IFCView.CORNER_LOW: ", low angle view, single residential building, "
                         "surrounded by grass lawn",
+    # Phase 3 — 수평 등각 (사용자 요구: 빈 값으로 시작, 향후 고도화)
+    IFCView.EYE_NE: "",
+    IFCView.EYE_NW: "",
+    IFCView.EYE_SE: "",
 }
 
 
@@ -219,26 +252,35 @@ VIEW_NEGATIVE_SUFFIXES: dict[IFCView, str] = {
     IFCView.TOP: "",
     IFCView.BIRDS_EYE: "",
     IFCView.CORNER_LOW: "",
+    IFCView.EYE_NE: "",
+    IFCView.EYE_NW: "",
+    IFCView.EYE_SE: "",
 }
 
 
 # View 별 controlnet_conditioning_scale override — 옵션 C-2 (per-view depth 구속).
 #
-# iso_nw / iso_se 시점에서 SD가 depth 연속성을 *추가 매스*로 hallucinate. cn_scale
-# sweep(0.7~1.3, 2026-04-28) 결과 1.0 / 1.15 모두 안정적 — 1.0 채택 (canonical
-# full strength, 텍스처 단조화 위험 낮음).
+# 2026-04-28 옵션 C-2: iso_nw/iso_se 1.0 override (다른 view는 base 0.7) — 추가 매스
+# 환각 해소.
+# 2026-04-29 옵션 E (E-clean): preset base를 0.7 → 1.0으로 인상해 *모든 view에서*
+# 수직 매스 환각(빌딩 아래로 추가 층) 차단. base 1.0과 동일한 iso_nw/se override는
+# redundant라 제거 — 모든 view가 None(base 그대로 사용).
+# 2026-04-29 옵션 N: preset base 1.0 → 1.15 추가 인상 (front/side 잔존 환각 처방).
+# override는 None 유지 — 모든 view가 base 1.15 그대로 사용. presets.py와 동기화 상태.
 #
-# 다른 시점은 None → params.controlnet_conditioning_scale 그대로 사용.
-# preset base는 0.7 유지 (front/side/iso_ne가 안정적이고 텍스처 다양성 확보).
+# 호출자가 view별 추가 cn_scale 보정이 필요하면 override를 설정 가능 (메커니즘 보존).
 VIEW_CN_SCALE_OVERRIDES: dict[IFCView, float | None] = {
     IFCView.FRONT: None,
     IFCView.SIDE: None,
     IFCView.ISO_NE: None,
-    IFCView.ISO_NW: 1.0,
-    IFCView.ISO_SE: 1.0,
+    IFCView.ISO_NW: None,
+    IFCView.ISO_SE: None,
     IFCView.TOP: None,
     IFCView.BIRDS_EYE: None,
     IFCView.CORNER_LOW: None,
+    IFCView.EYE_NE: None,
+    IFCView.EYE_NW: None,
+    IFCView.EYE_SE: None,
 }
 
 

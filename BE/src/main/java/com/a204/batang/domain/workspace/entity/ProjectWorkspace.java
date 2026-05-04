@@ -19,6 +19,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -75,5 +76,34 @@ public class ProjectWorkspace extends BaseEntity {
      */
     public void updateBubbleSnapshot(JsonNode bubbleSnapshotJson) {
         this.bubbleSnapshotJson = bubbleSnapshotJson;
+    }
+
+    /**
+     * 최신 IFC storage 경로를 갱신한다.
+     *
+     * @param ifcStorageUrl 최신 IFC storage URL
+     */
+    public void updateIfcStorageUrl(String ifcStorageUrl) {
+        this.ifcStorageUrl = ifcStorageUrl;
+    }
+
+    /**
+     * 현재 revision 식별자를 UUID 문자열로 갱신한다.
+     *
+     * @param revisionId 최신 revision ID
+     */
+    public void updateCurrentRevision(UUID revisionId) {
+        this.currentRevision = Objects.requireNonNull(revisionId, "revisionId must not be null").toString();
+    }
+
+    /**
+     * 최신 IFC 출력 정보와 revision 식별자를 함께 갱신한다.
+     *
+     * @param ifcStorageUrl 최신 IFC storage URL
+     * @param revisionId 최신 revision ID
+     */
+    public void updateIfcOutput(String ifcStorageUrl, UUID revisionId) {
+        updateIfcStorageUrl(ifcStorageUrl);
+        updateCurrentRevision(revisionId);
     }
 }

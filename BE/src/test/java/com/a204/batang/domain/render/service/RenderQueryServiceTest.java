@@ -92,7 +92,7 @@ class RenderQueryServiceTest {
     void getProjectRenders_returnsEmptyListWhenNoJobsExist() {
         given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
         given(projectAccessService.resolveCurrentUserId()).willReturn(null);
-        given(renderJobRepository.findByProjectIdAndJobTypeOrderByCreatedAtDescJobIdDesc(projectId, "RENDER"))
+        given(renderJobRepository.findByProjectIdAndJobTypeOrderByCreatedAtDescJobIdDesc(projectId, "SD_RENDER"))
                 .willReturn(List.of());
 
         List<ProjectRenderResponse> result = renderQueryService.getProjectRenders(projectId);
@@ -110,7 +110,7 @@ class RenderQueryServiceTest {
         RenderJob firstJob = createJob(
                 firstJobId,
                 projectId,
-                "success",
+                "succeeded",
                 "{\"style\":{\"time_of_day\":\"evening\",\"viewpoint\":\"exterior\",\"season\":\"spring\",\"weather\":\"clear\"}}",
                 LocalDateTime.of(2026, 4, 15, 16, 50, 0),
                 LocalDateTime.of(2026, 4, 15, 16, 50, 28)
@@ -141,7 +141,7 @@ class RenderQueryServiceTest {
 
         given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
         given(projectAccessService.resolveCurrentUserId()).willReturn(null);
-        given(renderJobRepository.findByProjectIdAndJobTypeOrderByCreatedAtDescJobIdDesc(projectId, "RENDER"))
+        given(renderJobRepository.findByProjectIdAndJobTypeOrderByCreatedAtDescJobIdDesc(projectId, "SD_RENDER"))
                 .willReturn(List.of(firstJob, secondJob));
         given(renderArtifactRepository.findByProjectIdAndJobIdInAndArtifactTypeOrderByCreatedAtDescArtifactIdDesc(
                 eq(projectId),
@@ -156,7 +156,7 @@ class RenderQueryServiceTest {
         ProjectRenderResponse first = result.get(0);
         assertThat(first.renderId()).isEqualTo(firstJobId);
         assertThat(first.imageUrl()).isEqualTo("https://minio.local/renderings/render-latest.png");
-        assertThat(first.status()).isEqualTo("SUCCESS");
+        assertThat(first.status()).isEqualTo("SUCCEEDED");
         assertThat(first.createdAt()).isEqualTo("2026-04-15T07:50:00Z");
         assertThat(first.completedAt()).isEqualTo("2026-04-15T07:50:28Z");
         assertThat(first.style()).isNotNull();
@@ -189,7 +189,7 @@ class RenderQueryServiceTest {
         RenderJob job = instantiate(RenderJob.class);
         ReflectionTestUtils.setField(job, "jobId", jobId);
         ReflectionTestUtils.setField(job, "projectId", projectId);
-        ReflectionTestUtils.setField(job, "jobType", "RENDER");
+        ReflectionTestUtils.setField(job, "jobType", "SD_RENDER");
         ReflectionTestUtils.setField(job, "status", status);
         ReflectionTestUtils.setField(job, "requestPayload", objectMapper.readTree(requestPayload));
         ReflectionTestUtils.setField(job, "createdAt", createdAt);

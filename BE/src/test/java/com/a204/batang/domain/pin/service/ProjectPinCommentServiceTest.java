@@ -1,5 +1,9 @@
 package com.a204.batang.domain.pin.service;
 
+import com.a204.batang.domain.auth.entity.Member;
+import com.a204.batang.domain.auth.entity.UserStatus;
+import com.a204.batang.domain.auth.entity.UserType;
+import com.a204.batang.domain.auth.repository.MemberRepository;
 import com.a204.batang.domain.pin.dto.CreatePinCommentRequest;
 import com.a204.batang.domain.pin.dto.CreatePinCommentResponse;
 import com.a204.batang.domain.pin.dto.ResolvePinCommentResponse;
@@ -41,6 +45,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class ProjectPinCommentServiceTest {
@@ -53,6 +58,9 @@ class ProjectPinCommentServiceTest {
 
     @Mock
     private PinCommentReadStateRepository pinCommentReadStateRepository;
+
+    @Mock
+    private MemberRepository memberRepository;
 
     @Mock
     private ProjectAccessService projectAccessService;
@@ -101,20 +109,34 @@ class ProjectPinCommentServiceTest {
         ReflectionTestUtils.setField(pin, "lastCommentAuthorUserId", authorUserId);
         ReflectionTestUtils.setField(pin, "commentCount", 2);
 
-        comment = ProjectPinComment.create(pin, authorUserId, "기존 댓글");
+        comment = ProjectPinComment.create(pin, authorUserId, "existing-comment");
         ReflectionTestUtils.setField(comment, "commentId", commentId);
         ReflectionTestUtils.setField(comment, "createdAt", LocalDateTime.of(2026, 4, 28, 9, 0, 0));
         ReflectionTestUtils.setField(comment, "updatedAt", LocalDateTime.of(2026, 4, 28, 9, 0, 0));
+        lenient().when(memberRepository.findByUserIdAndStatus(any(UUID.class), eq(UserStatus.ACTIVE)))
+                .thenAnswer(invocation -> Optional.of(createActiveMember(invocation.getArgument(0))));
+    }
+
+    private Member createActiveMember(UUID userId) {
+        Member member = Member.create(
+                "member-" + userId + "@example.com",
+                "encoded-password",
+                "test-member",
+                UserType.DESIGNER
+        );
+        ReflectionTestUtils.setField(member, "userId", userId);
+        ReflectionTestUtils.setField(member, "status", UserStatus.ACTIVE);
+        return member;
     }
 
     @Test
     void createComment_publishesCommentCreatedEvent() {
-        CreatePinCommentRequest request = new CreatePinCommentRequest("  새 댓글  ");
+        CreatePinCommentRequest request = new CreatePinCommentRequest("  new-comment  ");
         LocalDateTime createdAt = LocalDateTime.of(2026, 4, 28, 9, 10, 0);
 
         given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
                 .willReturn(Optional.of(pin));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(authorUserId);
         given(projectPinCommentRepository.save(org.mockito.ArgumentMatchers.any(ProjectPinComment.class)))
                 .willAnswer(invocation -> {
                     ProjectPinComment savedComment = invocation.getArgument(0);
@@ -128,7 +150,7 @@ class ProjectPinCommentServiceTest {
         assertThat(response.commentId()).isEqualTo(commentId);
         assertThat(response.pinId()).isEqualTo(pinId);
         assertThat(response.authorUserId()).isEqualTo(authorUserId);
-        assertThat(response.content()).isEqualTo("새 댓글");
+        assertThat(response.content()).isEqualTo("new-comment");
         assertThat(response.createdAt()).isEqualTo(createdAt);
 
         verify(applicationEventPublisher).publishEvent(eq(new PinCommentCreatedEvent(
@@ -136,7 +158,7 @@ class ProjectPinCommentServiceTest {
                 pinId,
                 commentId,
                 authorUserId,
-                "새 댓글",
+                "new-comment",
                 createdAt
         )));
         ArgumentCaptor<ProjectPinComment> savedCaptor = ArgumentCaptor.forClass(ProjectPinComment.class);
@@ -147,13 +169,13 @@ class ProjectPinCommentServiceTest {
 
     @Test
     void createComment_createsResolvedComment_whenPinAlreadyResolved() {
-        CreatePinCommentRequest request = new CreatePinCommentRequest("완료된 핀의 댓글");
+        CreatePinCommentRequest request = new CreatePinCommentRequest("resolved-pin-comment");
         LocalDateTime createdAt = LocalDateTime.of(2026, 4, 28, 9, 12, 0);
         ReflectionTestUtils.setField(pin, "status", PinStatus.RESOLVED);
 
         given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
                 .willReturn(Optional.of(pin));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(authorUserId);
         given(projectPinCommentRepository.save(any(ProjectPinComment.class)))
                 .willAnswer(invocation -> {
                     ProjectPinComment savedComment = invocation.getArgument(0);
@@ -172,12 +194,12 @@ class ProjectPinCommentServiceTest {
 
     @Test
     void updateComment_updatesOnlyContent_andDoesNotTouchReadState() {
-        UpdatePinCommentRequest request = new UpdatePinCommentRequest("  수정된 댓글  ");
+        UpdatePinCommentRequest request = new UpdatePinCommentRequest("  updated-comment  ");
         LocalDateTime updatedAt = LocalDateTime.of(2026, 4, 28, 9, 30, 0);
 
         given(projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId))
                 .willReturn(Optional.of(comment));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(authorUserId);
         doAnswer(invocation -> {
             ReflectionTestUtils.setField(comment, "updatedAt", updatedAt);
             return null;
@@ -185,10 +207,10 @@ class ProjectPinCommentServiceTest {
 
         UpdatePinCommentResponse response = projectPinCommentService.updateComment(projectId, pinId, commentId, request);
 
-        assertThat(comment.getContent()).isEqualTo("수정된 댓글");
+        assertThat(comment.getContent()).isEqualTo("updated-comment");
         assertThat(response.commentId()).isEqualTo(commentId);
         assertThat(response.pinId()).isEqualTo(pinId);
-        assertThat(response.content()).isEqualTo("수정된 댓글");
+        assertThat(response.content()).isEqualTo("updated-comment");
         assertThat(response.updatedAt()).isEqualTo(updatedAt);
 
         verify(projectAccessService).validateProjectPinWriterOrThrow(project, authorUserId);
@@ -199,11 +221,11 @@ class ProjectPinCommentServiceTest {
     @Test
     void updateComment_throwsForbidden_whenCurrentUserIsNotAuthor() {
         UUID otherUserId = UUID.randomUUID();
-        UpdatePinCommentRequest request = new UpdatePinCommentRequest("수정 시도");
+        UpdatePinCommentRequest request = new UpdatePinCommentRequest("update-attempt");
 
         given(projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId))
                 .willReturn(Optional.of(comment));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(otherUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(otherUserId);
 
         assertThatThrownBy(() -> projectPinCommentService.updateComment(projectId, pinId, commentId, request))
                 .isInstanceOf(CustomException.class)
@@ -216,7 +238,7 @@ class ProjectPinCommentServiceTest {
 
     @Test
     void updateComment_throwsCommentNotFound_whenCommentDoesNotExist() {
-        UpdatePinCommentRequest request = new UpdatePinCommentRequest("수정 시도");
+        UpdatePinCommentRequest request = new UpdatePinCommentRequest("update-attempt");
 
         given(projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId))
                 .willReturn(Optional.empty());
@@ -238,7 +260,7 @@ class ProjectPinCommentServiceTest {
 
         given(projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId))
                 .willReturn(Optional.of(comment));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(otherUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(otherUserId);
         doAnswer(invocation -> {
             ReflectionTestUtils.setField(comment, "updatedAt", updatedAt);
             ReflectionTestUtils.setField(comment, "resolvedAt", resolvedAt);
@@ -274,7 +296,7 @@ class ProjectPinCommentServiceTest {
 
         given(projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId))
                 .willReturn(Optional.of(comment));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(authorUserId);
 
         ResolvePinCommentResponse response = projectPinCommentService.resolveComment(projectId, pinId, commentId);
 
@@ -304,7 +326,7 @@ class ProjectPinCommentServiceTest {
     void deleteComment_softDeletesComment_andRecalculatesPinSummary_whenNoActiveCommentRemains() {
         given(projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId))
                 .willReturn(Optional.of(comment));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(authorUserId);
         given(projectPinCommentRepository.countByProjectPinPinIdAndDeletedAtIsNull(pinId)).willReturn(0L);
         given(projectPinCommentRepository.findTopByProjectPinPinIdAndDeletedAtIsNullOrderByCreatedAtDescCommentIdDesc(pinId))
                 .willReturn(Optional.empty());
@@ -328,7 +350,7 @@ class ProjectPinCommentServiceTest {
 
         given(projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId))
                 .willReturn(Optional.of(comment));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(authorUserId);
         given(projectPinCommentRepository.countByProjectPinPinIdAndDeletedAtIsNull(pinId)).willReturn(1L);
         given(projectPinCommentRepository.findTopByProjectPinPinIdAndDeletedAtIsNullOrderByCreatedAtDescCommentIdDesc(pinId))
                 .willReturn(Optional.of(latestComment));
@@ -347,7 +369,7 @@ class ProjectPinCommentServiceTest {
 
         given(projectPinCommentRepository.findActiveCommentByProjectPin(projectId, pinId, commentId))
                 .willReturn(Optional.of(comment));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(otherUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(otherUserId);
 
         assertThatThrownBy(() -> projectPinCommentService.deleteComment(projectId, pinId, commentId))
                 .isInstanceOf(CustomException.class)
