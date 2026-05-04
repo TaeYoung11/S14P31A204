@@ -5,10 +5,13 @@ import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
+import com.a204.batang.domain.workspace.dto.PublishFloorPlanUpdatedRequest;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
+import com.a204.batang.domain.workspace.repository.WorkspaceBubbleSnapshotRedisRepository;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,6 +44,9 @@ class WorkspaceFloorPlanRealtimeServiceTest {
     @Mock
     private ProjectAccessService projectAccessService;
 
+    @Mock
+    private WorkspaceBubbleSnapshotRedisRepository workspaceBubbleSnapshotRedisRepository;
+
     private WorkspaceFloorPlanRealtimeService workspaceFloorPlanRealtimeService;
     private ObjectMapper objectMapper;
 
@@ -56,6 +62,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 projectWorkspaceRepository,
                 projectAccessService,
                 bubbleSnapshotHelper,
+                workspaceBubbleSnapshotRedisRepository,
                 simpMessagingTemplate,
                 objectMapper
         );
@@ -152,5 +159,54 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 .isInstanceOf(CustomException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID);
+    }
+
+    @Test
+    void publishFloorPlanUpdated_savesRedisAndBroadcastsUpdatedMessage() throws Exception {
+        UUID previousRevisionId = UUID.randomUUID();
+        ReflectionTestUtils.setField(workspace, "currentRevision", previousRevisionId.toString());
+
+        PublishFloorPlanUpdatedRequest request = new PublishFloorPlanUpdatedRequest(
+                null,
+                objectMapper.readTree("""
+                        {
+                          "baseIndex": 2,
+                          "bubbles": [{"id": "bubble-1"}],
+                          "connections": []
+                        }
+                        """),
+                "s3://bucket/projects/%s/model-new.ifc".formatted(projectId)
+        );
+
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+
+        workspaceFloorPlanRealtimeService.publishFloorPlanUpdated(projectId, request);
+
+        ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
+        verify(simpMessagingTemplate).convertAndSend(
+                eq("/topic/project/%s/floor-plan/sync".formatted(projectId)),
+                responseCaptor.capture()
+        );
+
+        FloorPlanProjectSyncResponse response = responseCaptor.getValue();
+        assertThat(response.action()).isEqualTo("FLOOR_PLAN_UPDATED");
+        assertThat(response.projectId()).isEqualTo(projectId);
+        assertThat(response.s3Url()).isEqualTo(request.s3Url());
+        assertThat(response.revisionId()).isNotBlank();
+        assertThat(UUID.fromString(response.revisionId())).isNotNull();
+        assertThat(response.floorPlanPayloadJson().get("revisionId").asText()).isEqualTo(response.revisionId());
+        assertThat(response.floorPlanPayloadJson().get("parentRevisionId").asText()).isEqualTo(previousRevisionId.toString());
+
+        ArgumentCaptor<JsonNode> snapshotCaptor = ArgumentCaptor.forClass(JsonNode.class);
+        verify(workspaceBubbleSnapshotRedisRepository).saveFloorPlanSnapshot(
+                eq(projectId),
+                snapshotCaptor.capture(),
+                eq(2)
+        );
+
+        JsonNode historySnapshot = snapshotCaptor.getValue();
+        assertThat(historySnapshot.get("s3Url").asText()).isEqualTo(request.s3Url());
+        assertThat(historySnapshot.get("floorPlanPayloadJson").get("revisionId").asText()).isEqualTo(response.revisionId());
     }
 }

@@ -6,16 +6,18 @@ import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
 import com.a204.batang.domain.workspace.dto.PublishFloorPlanUpdatedRequest;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
+import com.a204.batang.domain.workspace.repository.WorkspaceBubbleSnapshotRedisRepository;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -35,6 +37,7 @@ public class WorkspaceFloorPlanRealtimeService {
     private final ProjectWorkspaceRepository projectWorkspaceRepository;
     private final ProjectAccessService projectAccessService;
     private final BubbleSnapshotHelper bubbleSnapshotHelper;
+    private final WorkspaceBubbleSnapshotRedisRepository workspaceBubbleSnapshotRedisRepository;
     private final SimpMessagingTemplate simpMessagingTemplate;
     private final ObjectMapper objectMapper;
 
@@ -84,22 +87,34 @@ public class WorkspaceFloorPlanRealtimeService {
      * @param projectId 프로젝트 ID
      * @param request 파이썬 완료 콜백 payload
      */
-    @Transactional
     public void publishFloorPlanUpdated(UUID projectId, PublishFloorPlanUpdatedRequest request) {
         ProjectWorkspace workspace = projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
 
-        workspace.updateIfcStorageUrl(request.s3Url().trim());
+        int baseIndex = extractBaseIndexOrThrow(request.floorPlanPayloadJson());
+        String parentRevisionSource = resolveRevisionId(request.revisionId(), workspace.getCurrentRevision());
+        UUID parentRevisionId = parseRevisionIdOrNull(parentRevisionSource);
+        UUID nextRevisionId = UUID.randomUUID();
+        LocalDateTime now = LocalDateTime.now();
 
-        String resolvedRevisionId = resolveRevisionId(request.revisionId(), workspace.getCurrentRevision());
+        String normalizedS3Url = request.s3Url().trim();
+
+        JsonNode payloadWithRevision = enrichFloorPlanPayloadWithRevision(
+                request.floorPlanPayloadJson(),
+                nextRevisionId,
+                parentRevisionId
+        );
+        JsonNode floorPlanHistorySnapshot = buildFloorPlanHistorySnapshot(payloadWithRevision, normalizedS3Url);
+        saveFloorPlanSnapshotToRedisOrThrow(projectId, floorPlanHistorySnapshot, baseIndex);
+
         FloorPlanProjectSyncResponse response = new FloorPlanProjectSyncResponse(
                 ACTION_FLOOR_PLAN_UPDATED,
                 projectId,
                 workspace.getPhaseStatus(),
-                resolvedRevisionId,
-                request.floorPlanPayloadJson(),
-                request.s3Url().trim(),
-                LocalDateTime.now()
+                nextRevisionId.toString(),
+                payloadWithRevision,
+                normalizedS3Url,
+                now
         );
 
         simpMessagingTemplate.convertAndSend(
@@ -107,7 +122,12 @@ public class WorkspaceFloorPlanRealtimeService {
                 response
         );
 
-        log.info("Floor-plan updated event relayed. projectId={}, revisionId={}", projectId, resolvedRevisionId);
+        log.info(
+                "Floor-plan updated event relayed. projectId={}, revisionId={}, parentRevisionId={}",
+                projectId,
+                nextRevisionId,
+                parentRevisionId
+        );
     }
 
     private void requestPythonRenderAsync(UUID projectId, String revisionId, JsonNode syncPayload) {
@@ -144,5 +164,90 @@ public class WorkspaceFloorPlanRealtimeService {
             root.putNull("layout");
         }
         return root;
+    }
+
+    private int extractBaseIndexOrThrow(JsonNode floorPlanPayloadJson) {
+        if (floorPlanPayloadJson == null || floorPlanPayloadJson.isNull()) {
+            throw new CustomException(ErrorCode.FLOOR_PLAN_OUTPUT_VALIDATION_FAILED, "floorPlanPayloadJson is required.");
+        }
+        JsonNode baseIndexNode = floorPlanPayloadJson.get("baseIndex");
+        if (baseIndexNode == null || !baseIndexNode.canConvertToInt()) {
+            throw new CustomException(
+                    ErrorCode.FLOOR_PLAN_OUTPUT_VALIDATION_FAILED,
+                    "floorPlanPayloadJson.baseIndex must be an integer."
+            );
+        }
+        int baseIndex = baseIndexNode.asInt();
+        if (baseIndex < -1) {
+            throw new CustomException(
+                    ErrorCode.FLOOR_PLAN_OUTPUT_VALIDATION_FAILED,
+                    "floorPlanPayloadJson.baseIndex must be greater than or equal to -1."
+            );
+        }
+        return baseIndex;
+    }
+
+    private UUID parseRevisionIdOrNull(String revisionId) {
+        if (revisionId == null || revisionId.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(revisionId.trim());
+        } catch (IllegalArgumentException exception) {
+            log.warn("Current revision is not UUID format. revisionId={}", revisionId);
+            return null;
+        }
+    }
+
+    private JsonNode enrichFloorPlanPayloadWithRevision(
+            JsonNode floorPlanPayloadJson,
+            UUID revisionId,
+            UUID parentRevisionId
+    ) {
+        if (floorPlanPayloadJson == null || floorPlanPayloadJson.isNull() || !floorPlanPayloadJson.isObject()) {
+            throw new CustomException(
+                    ErrorCode.FLOOR_PLAN_OUTPUT_VALIDATION_FAILED,
+                    "floorPlanPayloadJson must be a JSON object."
+            );
+        }
+
+        ObjectNode payload = floorPlanPayloadJson.deepCopy();
+        payload.put("revisionId", revisionId.toString());
+        if (parentRevisionId != null) {
+            payload.put("parentRevisionId", parentRevisionId.toString());
+        } else {
+            payload.putNull("parentRevisionId");
+        }
+        return payload;
+    }
+
+    private JsonNode buildFloorPlanHistorySnapshot(JsonNode floorPlanPayloadJson, String s3Url) {
+        ObjectNode snapshot = objectMapper.createObjectNode();
+        snapshot.set("floorPlanPayloadJson", floorPlanPayloadJson);
+        snapshot.put("s3Url", s3Url);
+        return snapshot;
+    }
+
+    private void saveFloorPlanSnapshotToRedisOrThrow(UUID projectId, JsonNode snapshot, int baseIndex) {
+        try {
+            workspaceBubbleSnapshotRedisRepository.saveFloorPlanSnapshot(projectId, snapshot, baseIndex);
+        } catch (IllegalArgumentException exception) {
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
+                    "Floor-plan Undo/Redo 기준 인덱스가 현재 히스토리와 일치하지 않습니다."
+            );
+        } catch (JsonProcessingException exception) {
+            log.error("Failed to serialize floor-plan snapshot. projectId={}", projectId, exception);
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_FLOOR_PLAN_CACHE_SAVE_FAILED,
+                    "Floor-plan 스냅샷 직렬화에 실패했습니다."
+            );
+        } catch (DataAccessException exception) {
+            log.error("Failed to save floor-plan snapshot to redis. projectId={}", projectId, exception);
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_FLOOR_PLAN_CACHE_SAVE_FAILED,
+                    "Redis 저장 중 오류가 발생했습니다."
+            );
+        }
     }
 }
