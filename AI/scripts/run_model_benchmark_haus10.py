@@ -59,6 +59,7 @@ class ModelSpec:
     label: str
     family: str
     model_id: str
+    variant: str | None = None
 
 
 MODEL_SPECS: dict[str, ModelSpec] = {
@@ -73,6 +74,7 @@ MODEL_SPECS: dict[str, ModelSpec] = {
         label="Juggernaut XL v9",
         family="sdxl",
         model_id="RunDiffusion/Juggernaut-XL-v9",
+        variant="fp16",
     ),
 }
 
@@ -108,7 +110,7 @@ class SD15BenchmarkRenderer:
 class SDXLBenchmarkRenderer:
     """Local SDXL + ControlNet-depth benchmark path."""
 
-    def __init__(self, model_id: str) -> None:
+    def __init__(self, model_id: str, variant: str | None = None) -> None:
         import torch
         from diffusers import (
             AutoencoderKL,
@@ -136,6 +138,7 @@ class SDXLBenchmarkRenderer:
                 torch_dtype=dtype,
                 add_watermarker=False,
                 use_safetensors=True,
+                variant=variant,
             )
             pipe.scheduler = DPMSolverMultistepScheduler.from_config(
                 pipe.scheduler.config,
@@ -215,7 +218,7 @@ def _build_renderer(spec: ModelSpec) -> BenchmarkRenderer:
     if spec.family == "sd15":
         return SD15BenchmarkRenderer(spec.model_id)
     if spec.family == "sdxl":
-        return SDXLBenchmarkRenderer(spec.model_id)
+        return SDXLBenchmarkRenderer(spec.model_id, variant=spec.variant)
     raise IFCRenderError(f"unsupported benchmark family: {spec.family}")
 
 
