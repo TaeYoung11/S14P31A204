@@ -27,7 +27,6 @@ _AZIMUTH_THRESHOLDS: list[tuple[float, str]] = [
     (135.0, "east"),
     (225.0, "south"),
     (315.0, "west"),
-    (360.0, "north"),
 ]
 
 
@@ -61,7 +60,10 @@ class CreateElementHandler:
         storey: ifcopenshell.entity_instance,
         parameters: dict[str, Any],
     ) -> ifcopenshell.entity_instance | None:
-        element_type: str = parameters["element_type"]
+        element_type: str = parameters.get("element_type") or ""
+        if not element_type:
+            logger.error("create_element handler: element_type 파라미터 누락")
+            return None
         dims: dict[str, Any] = parameters.get("dimensions_mm") or {}
         start: dict[str, Any] = parameters.get("start_mm") or {}
         end: dict[str, Any] | None = parameters.get("end_mm")
