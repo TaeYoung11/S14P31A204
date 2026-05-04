@@ -8,11 +8,12 @@ import open3d as o3d  # type: ignore[import-untyped]
 from PIL import Image
 
 from .exceptions import IFCRenderError
-from .geometry import load_mesh
+from .geometry import attach_ground_plane_to_mesh, load_mesh
 from .views import (
     DEFAULT_RENDER_VIEWS,
     VIEW_CAMERAS,
     VIEW_TARGET_RATIOS,
+    VIEWS_WITHOUT_GROUND,
     AutoZoomMode,
     CameraParams,
     IFCView,
@@ -62,8 +63,9 @@ class IFCRenderer:
         self.iter_max = iter_max
 
     def render(self, ifc_path: Path, view: IFCView = IFCView.FRONT) -> Image.Image:
-        mesh, center = load_mesh(ifc_path)
-        return self._render_mesh(mesh, center, VIEW_CAMERAS[view], view)
+        base_mesh, center = load_mesh(ifc_path)
+        view_mesh = self._mesh_for_view(base_mesh, view)
+        return self._render_mesh(view_mesh, base_mesh, center, VIEW_CAMERAS[view], view)
 
     def render_views(
         self,
@@ -72,18 +74,37 @@ class IFCRenderer:
     ) -> dict[IFCView, Image.Image]:
         """여러 뷰를 한 번의 파싱으로 렌더한다.
 
-        views=None 시 DEFAULT_RENDER_VIEWS (5뷰: front / side / iso_ne / iso_nw / iso_se)
-        를 사용. TOP / BIRDS_EYE / CORNER_LOW는 perspective SD 입력으로 부적합해 환각
-        출력 위험으로 default 제외 — 포함하려면 명시적 list 전달
-        (예: `views=[IFCView.TOP]`).
+        views=None 시 DEFAULT_RENDER_VIEWS (8뷰)를 사용. ISO_*는 ground plane 없이,
+        나머지(front/side/eye/top/birds_eye/corner_low)는 ground plane 추가
+        (`VIEWS_WITHOUT_GROUND` 정책, 옵션 OO).
         """
         if views is None:
             views = list(DEFAULT_RENDER_VIEWS)
-        mesh, center = load_mesh(ifc_path)
+        base_mesh, center = load_mesh(ifc_path)
         return {
-            view: self._render_mesh(mesh, center, VIEW_CAMERAS[view], view)
+            view: self._render_mesh(
+                self._mesh_for_view(base_mesh, view),
+                base_mesh,
+                center,
+                VIEW_CAMERAS[view],
+                view,
+            )
             for view in views
         }
+
+    def _mesh_for_view(
+        self,
+        base_mesh: o3d.geometry.TriangleMesh,
+        view: IFCView,
+    ) -> o3d.geometry.TriangleMesh:
+        """view-aware ground plane 정책 적용.
+
+        ISO_*은 base mesh 그대로(대각선 시점이라 ground 단서 불필요), 나머지 시점은
+        `attach_ground_plane_to_mesh`로 ground plane 추가한 새 mesh 반환.
+        """
+        if view in VIEWS_WITHOUT_GROUND:
+            return base_mesh
+        return attach_ground_plane_to_mesh(base_mesh)
 
     def _resolve_target_ratio(
         self,
@@ -180,12 +201,16 @@ class IFCRenderer:
     def _render_mesh(
         self,
         mesh: o3d.geometry.TriangleMesh,
+        base_mesh: o3d.geometry.TriangleMesh,
         center: np.ndarray,
         camera: CameraParams,
         view: IFCView,
     ) -> Image.Image:
+        # dispatch 임계값(20m/50m)은 *건물 본체* 크기 기준이라
+        # ground 포함 view_mesh가 아니라 base_mesh로 판단해야 한다.
+        # ex: SampleHouse 17m → ground 포함 ~20m → MEDIUM 잘못 트리거 위험.
         initial_zoom = self._initial_zoom(mesh, camera)
-        target_ratio = self._resolve_target_ratio(view, mesh)
+        target_ratio = self._resolve_target_ratio(view, base_mesh)
 
         vis = o3d.visualization.Visualizer()
         vis.create_window(visible=False, width=self.width, height=self.height)
