@@ -207,6 +207,22 @@ def test_render_with_view_front_no_change(
 
 # --- C-1 폐기 후 — render(view=...) negative 합성 인프라 보존 회귀 방어 ---
 
+def test_render_with_view_eye_appends_ground_sky_suffix(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """EYE_* view prompt includes diagonal ground and sky placement cues."""
+    depth = Image.new("L", (768, 448), 100)
+    base_prompt = "RAW photo, scandinavian house"
+    params = DepthStyleParams(prompt=base_prompt)
+
+    mock_depth_renderer.render(depth, params, view=IFCView.EYE_NE)
+
+    call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
+    assert call_prompt.startswith(base_prompt)
+    assert "visible ground plane" in call_prompt
+    assert "sky only above the roofline" in call_prompt
+    assert "not aerial" in call_prompt
+
 
 def test_render_with_view_eye_nw_keeps_base_negative_after_c1_rollback(
     mock_depth_renderer: DepthStyleRenderer,

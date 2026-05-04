@@ -615,13 +615,21 @@ def test_view_prompt_suffixes_top_birds_eye_have_environment_words() -> None:
         assert "grass" in suffix or "lawn" in suffix or "view" in suffix
 
 
-def test_view_prompt_suffixes_default_views_empty() -> None:
+def test_view_prompt_suffixes_front_side_empty() -> None:
     """default(FRONT/SIDE/EYE_*) 시점은 빈 suffix — 시간대 suffix는 preset 단계 책임."""
-    for v in (
-        IFCView.FRONT, IFCView.SIDE,
-        IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE,
-    ):
+    for v in (IFCView.FRONT, IFCView.SIDE):
         assert VIEW_PROMPT_SUFFIXES[v] == ""
+
+
+def test_view_prompt_suffixes_eye_describe_ground_and_sky_position() -> None:
+    """EYE_* view suffix adds diagonal ground and sky placement cues."""
+    for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
+        suffix = VIEW_PROMPT_SUFFIXES[v]
+        assert "eye-level diagonal" in suffix
+        assert "visible ground plane" in suffix
+        assert "sky only above the roofline" in suffix
+        assert "not aerial" in suffix
+        assert "not top-down" in suffix
 
 
 def test_build_view_prompt_appends_suffix_for_top() -> None:
@@ -633,12 +641,23 @@ def test_build_view_prompt_appends_suffix_for_top() -> None:
     assert "aerial" in result or "roof" in result
 
 
-def test_build_view_prompt_returns_base_for_empty_suffix() -> None:
+def test_build_view_prompt_returns_base_for_front_side_empty_suffix() -> None:
     """FRONT/SIDE/EYE_*처럼 suffix가 빈 문자열이면 base 그대로 반환."""
     base = "RAW photo, scandinavian house"
     assert build_view_prompt(base, IFCView.FRONT) == base
     assert build_view_prompt(base, IFCView.SIDE) == base
-    assert build_view_prompt(base, IFCView.EYE_NE) == base
+
+
+def test_build_view_prompt_appends_suffix_for_eye() -> None:
+    """EYE_* prompt includes diagonal ground and sky placement cues."""
+    base = "RAW photo, scandinavian house"
+    result = build_view_prompt(base, IFCView.EYE_NE)
+
+    assert result.startswith(base)
+    assert len(result) > len(base)
+    assert "visible ground plane" in result
+    assert "sky only above the roofline" in result
+    assert "not aerial" in result
 
 
 # --- B-3 — build_view_prompt 공개 API export ---

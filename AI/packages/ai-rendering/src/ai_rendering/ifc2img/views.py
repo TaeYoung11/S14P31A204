@@ -138,9 +138,12 @@ VIEW_PROMPT_SUFFIXES: dict[IFCView, str] = {
                         "residential building, surrounded by grass lawn",
     IFCView.CORNER_LOW: ", low angle view, single residential building, "
                         "surrounded by grass lawn",
-    IFCView.EYE_NE: "",
-    IFCView.EYE_NW: "",
-    IFCView.EYE_SE: "",
+    IFCView.EYE_NE: ", eye-level diagonal exterior view, visible ground plane, "
+                    "sky only above the roofline, not aerial, not top-down",
+    IFCView.EYE_NW: ", eye-level diagonal exterior view, visible ground plane, "
+                    "sky only above the roofline, not aerial, not top-down",
+    IFCView.EYE_SE: ", eye-level diagonal exterior view, visible ground plane, "
+                    "sky only above the roofline, not aerial, not top-down",
 }
 
 
