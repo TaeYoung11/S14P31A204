@@ -130,7 +130,13 @@ async def run_test():
     # 2. 파이프라인 로드
     pipeline = LLM3DPipeline(ifc_path=test_ifc)
 
-    log_result("\n--- [테스트 1: 내력벽 삭제 차단] ---")
+    log_result("\n--- [테스트 1: IFC 컨텍스트 추출] ---")
+    if pipeline._ifc_context_text:
+        log_result(f"✅ 컨텍스트 생성 성공:\n{pipeline._ifc_context_text}")
+    else:
+        log_result("❌ 컨텍스트 생성 실패")
+
+    log_result("\n--- [테스트 2: 내력벽 삭제 차단] ---")
     # AI 해석 없이 삭제 명령 객체 직접 생성 (wall1의 ID 지정)
     cmd_del = LLM3DCommand(
         command_type=LLM3DCommandType.DELETE,
@@ -143,7 +149,7 @@ async def run_test():
         for warn in res_del["structural_warnings"]:
             log_result(f"  - 경고: {warn}")
 
-    log_result("\n--- [테스트 2: 신규 부재 간섭 감지] ---")
+    log_result("\n--- [테스트 3: 신규 부재 간섭 감지] ---")
     # 기존 벽과 같은 위치에 벽 생성 명령 시뮬레이션
     # (실제 LLM 없이 내부 create_preview 로직 직접 호출)
     
@@ -164,7 +170,7 @@ async def run_test():
         for warn in res_create["collision_warnings"]:
             log_result(f"  - 경고: {warn}")
 
-    log_result("\n--- [테스트 3: 인접 부재 탐색] ---")
+    log_result("\n--- [테스트 4: 인접 부재 탐색] ---")
     # 기준 정보 설정
     ref_info = {"global_id": wall1.GlobalId, "name": wall1.Name}
     adj_res = pipeline.find_adjacent_elements(ref_info, direction="east", threshold_mm=5000)

@@ -9,6 +9,8 @@ from typing import Any
 
 import ifcopenshell
 
+from ._utils import spatial_elements
+
 logger = logging.getLogger(__name__)
 
 COLLIDABLE_TYPES: frozenset[str] = frozenset(
@@ -368,7 +370,7 @@ class CollisionValidator:
         storey: ifcopenshell.entity_instance,
     ) -> list[dict[str, Any]]:
         colliders: list[dict[str, Any]] = []
-        for element in self._spatial_elements(storey):
+        for element in spatial_elements(storey):
             if element.is_a() not in self.COLLIDABLE_TYPES:
                 continue
             el_bbox = self._bbox_from_element(element)
@@ -383,30 +385,6 @@ class CollisionValidator:
                     }
                 )
         return colliders
-
-    def _spatial_elements(
-        self,
-        spatial: ifcopenshell.entity_instance,
-    ) -> list[ifcopenshell.entity_instance]:
-        elements: list[ifcopenshell.entity_instance] = []
-        seen: set[int] = set()
-
-        def add_element(element: ifcopenshell.entity_instance) -> None:
-            element_id = int(element.id())
-            if element_id not in seen:
-                seen.add(element_id)
-                elements.append(element)
-
-        def visit(node: ifcopenshell.entity_instance) -> None:
-            for rel in getattr(node, "ContainsElements", []) or []:
-                for element in getattr(rel, "RelatedElements", []) or []:
-                    add_element(element)
-            for rel in getattr(node, "IsDecomposedBy", []) or []:
-                for child in getattr(rel, "RelatedObjects", []) or []:
-                    visit(child)
-
-        visit(spatial)
-        return elements
 
     def _check_space_boundary(
         self,
@@ -459,7 +437,7 @@ class CollisionValidator:
     ) -> BoundingBox | None:
         bboxes = [
             bbox
-            for element in self._spatial_elements(spatial)
+            for element in spatial_elements(spatial)
             if element.is_a() in self.COLLIDABLE_TYPES
             for bbox in [self._bbox_from_element(element)]
             if bbox is not None

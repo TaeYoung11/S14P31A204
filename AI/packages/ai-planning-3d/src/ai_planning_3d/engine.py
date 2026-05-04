@@ -39,7 +39,7 @@ SYSTEM_PROMPT = (
     "### NORMALIZATION\n"
     "element_type values: IfcWall, IfcRoof, IfcColumn, IfcBeam, IfcSlab, IfcDoor, IfcWindow.\n"
     "storey: 1층=1F, 2층=2F, 옥상/RF=RF.\n"
-    "space_name: 거실=Living Room, 안방/침실=Bedroom, 화장실/욕실=Bathroom.\n"
+    "space_name: 거실=LivingRoom, 안방=MasterBedroom, 침실=Bedroom, 화장실/욕실=Bathroom.\n"
     "direction: 북쪽=North, 남쪽=South, 동쪽/오른쪽=East, 서쪽/왼쪽=West.\n"
     "color: 흰색=White, 빨간색=Red.\n"
     f"material allowed values only: {SUPPORTED_MATERIAL_LIST}.\n"
@@ -81,13 +81,18 @@ class LLM3DEngine:
         self.client = instructor.from_openai(self._raw_client, mode=instructor.Mode.JSON)
         self.model = model
 
-    async def parse_command(self, user_text: str) -> LLM3DCommand:
+    async def parse_command(
+        self, user_text: str, ifc_context: str | None = None
+    ) -> LLM3DCommand:
+        system_content = (
+            SYSTEM_PROMPT + "\n\n" + ifc_context if ifc_context else SYSTEM_PROMPT
+        )
         try:
             command: LLM3DCommand = await self.client.chat.completions.create(
                 model=self.model,
                 response_model=LLM3DCommand,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": system_content},
                     {"role": "user", "content": user_text},
                 ],
                 temperature=0.0,
@@ -358,8 +363,10 @@ class LLM3DEngine:
 
     def _space(self, text: str) -> str | None:
         if "거실" in text:
-            return "Living Room"
-        if "안방" in text or "침실" in text:
+            return "LivingRoom"
+        if "안방" in text:
+            return "MasterBedroom"
+        if "침실" in text:
             return "Bedroom"
         if "화장실" in text or "욕실" in text:
             return "Bathroom"

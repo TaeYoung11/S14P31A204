@@ -2,7 +2,7 @@
 3D Engine Module (Low-level)
 ===========================
 IFC 부재의 기하 정보 및 속성을 수정하거나 신규 부재를 생성하는 저수준 연산 엔진입니다.
-Phase 3: 생성(CREATE) 기능 및 색상/재질 적용 로직 포함.
+생성(CREATE) 기능 및 색상/재질 적용 로직 포함.
 """
 
 import logging
