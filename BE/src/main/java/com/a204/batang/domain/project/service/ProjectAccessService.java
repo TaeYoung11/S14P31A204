@@ -113,13 +113,20 @@ public class ProjectAccessService {
 
     /**
      * 핀/댓글 작성 가능 권한을 검증한다.
-     * 현재는 기존 구조를 유지하기 위해 no-op이며, 추후 멤버십/역할 모델 도입 시 구현한다.
+     * 현재 프로젝트 구조에서는 owner를 프로젝트 멤버로 간주하여 검증한다.
      *
      * @param project 프로젝트
      * @param currentUserId 현재 사용자 ID
      */
     public void validateProjectPinWriterOrThrow(Project project, UUID currentUserId) {
-        // TODO: 프로젝트 참여자 및 역할 기반 권한 검증을 추가한다.
+        if (currentUserId == null) {
+            throw new CustomException(ErrorCode.UNAUTHORIZED, "로그인이 필요합니다.");
+        }
+
+        Set<UUID> projectMemberUserIds = resolveProjectMemberUserIds(project);
+        if (!projectMemberUserIds.contains(currentUserId)) {
+            throw new CustomException(ErrorCode.FORBIDDEN_ACCESS, "해당 프로젝트에 접근할 권한이 없습니다.");
+        }
     }
 
     /**
