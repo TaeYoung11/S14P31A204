@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace as dc_replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from PIL import Image
@@ -30,6 +30,12 @@ ADE20K_BACKGROUND_RGB = (0, 0, 0)
 ADE20K_BUILDING_RGB = (180, 120, 120)
 ADE20K_SKY_RGB = (6, 230, 230)
 ADE20K_GRASS_RGB = (4, 250, 7)
+ADE20K_ROAD_RGB = (140, 140, 140)
+FrontSideGroundClass = Literal["grass", "neutral"]
+FRONT_SIDE_GROUND_CLASS_RGB = {
+    "grass": ADE20K_GRASS_RGB,
+    "neutral": ADE20K_ROAD_RGB,
+}
 FRONT_SIDE_MASK_BASE_PERCENTILE = 75
 FRONT_SIDE_MASK_BAND_RATIO = 0.045
 FRONT_SIDE_MASK_SIDE_EXPAND_RATIO = 0.025
@@ -165,8 +171,14 @@ def _apply_front_side_semantic_mask_to_control(
     return Image.fromarray(np.clip(np.rint(arr), 0, 255).astype(np.uint8), mode="RGB")
 
 
-def _build_front_side_seg_control(control: Image.Image) -> Image.Image:
+def _build_front_side_seg_control(
+    control: Image.Image,
+    ground_class: FrontSideGroundClass = "grass",
+) -> Image.Image:
     """Map the localized front/side mask into ADE20K colors for seg ControlNet."""
+    if ground_class not in FRONT_SIDE_GROUND_CLASS_RGB:
+        raise ValueError(f"unsupported front/side ground class: {ground_class}")
+
     semantic_mask = _build_front_side_semantic_mask(control)
     mask_arr = np.asarray(semantic_mask, dtype=np.uint8)
     building_mask = np.all(mask_arr == SEMANTIC_BUILDING_RGB, axis=2)
@@ -176,7 +188,10 @@ def _build_front_side_seg_control(control: Image.Image) -> Image.Image:
     seg = np.zeros((height, width, 3), dtype=np.uint8)
     seg[:, :] = np.array(ADE20K_BACKGROUND_RGB, dtype=np.uint8)
     seg[building_mask] = np.array(ADE20K_BUILDING_RGB, dtype=np.uint8)
-    seg[ground_mask] = np.array(ADE20K_GRASS_RGB, dtype=np.uint8)
+    seg[ground_mask] = np.array(
+        FRONT_SIDE_GROUND_CLASS_RGB[ground_class],
+        dtype=np.uint8,
+    )
 
     if np.any(building_mask):
         ys, _ = np.nonzero(building_mask)
@@ -295,6 +310,8 @@ class DepthStyleRenderer:
         view: IFCView | None = None,
         use_front_side_semantic_mask: bool = False,
         use_front_side_semantic_control: bool = False,
+        front_side_ground_class: FrontSideGroundClass = "grass",
+        front_side_semantic_control_scale: float = FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
     ) -> DepthStyleResult:
         depth_size = depth_image.size
         control = _depth_to_control(depth_image)
@@ -307,10 +324,16 @@ class DepthStyleRenderer:
                 raise IFCRenderError(
                     "front/side semantic control requires semantic_controlnet_model_id"
                 )
-            control_image = [control, _build_front_side_seg_control(control)]
+            control_image = [
+                control,
+                _build_front_side_seg_control(
+                    control,
+                    ground_class=front_side_ground_class,
+                ),
+            ]
             conditioning_scale = [
                 params.controlnet_conditioning_scale,
-                FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
+                front_side_semantic_control_scale,
             ]
         width, height = control.size
 

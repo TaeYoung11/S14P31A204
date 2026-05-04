@@ -21,6 +21,7 @@ from ai_rendering.ifc2img import (
 from ai_rendering.ifc2img.style import (
     ADE20K_BUILDING_RGB,
     ADE20K_GRASS_RGB,
+    ADE20K_ROAD_RGB,
     ADE20K_SKY_RGB,
     FRONT_SIDE_MASK_CONTROL_RGB,
     FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
@@ -433,6 +434,26 @@ def test_build_front_side_seg_control_uses_ade20k_colors() -> None:
     assert np.all(seg_arr[int(ground_y[0]), int(ground_x[0])] == ADE20K_GRASS_RGB)
 
 
+def test_build_front_side_seg_control_can_use_neutral_ground() -> None:
+    """Mini-sweep support: ground can be encoded as neutral road-like color."""
+    control = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(control)
+    arr[4:14, 8:16] = [255, 255, 255]
+
+    seg = _build_front_side_seg_control(
+        Image.fromarray(arr, mode="RGB"),
+        ground_class="neutral",
+    )
+    ground_pixels = np.all(
+        np.array(_build_front_side_semantic_mask(Image.fromarray(arr, mode="RGB")))
+        == SEMANTIC_GROUND_RGB,
+        axis=2,
+    )
+    ground_y, ground_x = np.nonzero(ground_pixels)
+
+    assert np.all(np.array(seg)[int(ground_y[0]), int(ground_x[0])] == ADE20K_ROAD_RGB)
+
+
 def test_render_front_side_semantic_control_requires_semantic_model(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
@@ -465,6 +486,8 @@ def test_render_front_side_semantic_control_passes_two_control_images(
         params,
         view=IFCView.FRONT,
         use_front_side_semantic_control=True,
+        front_side_ground_class="neutral",
+        front_side_semantic_control_scale=0.55,
     )
 
     call_kwargs = mock_depth_renderer.pipe.call_args.kwargs
@@ -473,7 +496,7 @@ def test_render_front_side_semantic_control_passes_two_control_images(
     assert call_kwargs["image"][1].size == (24, 24)
     assert call_kwargs["controlnet_conditioning_scale"] == [
         1.15,
-        FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
+        0.55,
     ]
 
 
