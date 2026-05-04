@@ -13,11 +13,9 @@ from .views import (
     DEFAULT_RENDER_VIEWS,
     VIEW_CAMERAS,
     VIEW_TARGET_RATIOS,
-    VIEWS_WITHOUT_GROUND,
     AutoZoomMode,
     CameraParams,
     IFCView,
-    compute_auto_zoom,
     resolve_target_ratio_for_mesh,
 )
 
@@ -34,7 +32,6 @@ class IFCRenderer:
     auto_zoom 모드 (AutoZoomMode 또는 bool):
       OFF/False (기본) — views.py의 정적 zoom 사용. 안전 baseline.
       ITERATIVE/True   — render → fill% 측정 → zoom 조정 반복으로 target_screen_ratio 수렴.
-      ANALYTIC         — v1 분석 수식 (실험적, 회귀 있음). 비추천.
 
     iter 파라미터:
       target_screen_ratio (default 0.55) — geom 픽셀이 차지하는 화면 비율 목표
@@ -53,7 +50,6 @@ class IFCRenderer:
     ) -> None:
         self.width = width
         self.height = height
-        # bool ↔ enum 양방향 호환 (기존 외부 코드 호환).
         if isinstance(auto_zoom, bool):
             self.auto_zoom = AutoZoomMode.ITERATIVE if auto_zoom else AutoZoomMode.OFF
         else:
@@ -64,7 +60,7 @@ class IFCRenderer:
 
     def render(self, ifc_path: Path, view: IFCView = IFCView.FRONT) -> Image.Image:
         base_mesh, center = load_mesh(ifc_path)
-        view_mesh = self._mesh_for_view(base_mesh, view)
+        view_mesh = attach_ground_plane_to_mesh(base_mesh)
         return self._render_mesh(view_mesh, base_mesh, center, VIEW_CAMERAS[view], view)
 
     def render_views(
@@ -74,16 +70,16 @@ class IFCRenderer:
     ) -> dict[IFCView, Image.Image]:
         """여러 뷰를 한 번의 파싱으로 렌더한다.
 
-        views=None 시 DEFAULT_RENDER_VIEWS (8뷰)를 사용. ISO_*는 ground plane 없이,
-        나머지(front/side/eye/top/birds_eye/corner_low)는 ground plane 추가
-        (`VIEWS_WITHOUT_GROUND` 정책, 옵션 OO).
+        views=None 시 DEFAULT_RENDER_VIEWS 사용. 모든 view에 ground plane 추가
+        (옵션 P 처방 — 정면 입면도 빈 배경 환각 차단).
         """
         if views is None:
             views = list(DEFAULT_RENDER_VIEWS)
         base_mesh, center = load_mesh(ifc_path)
+        view_mesh = attach_ground_plane_to_mesh(base_mesh)
         return {
             view: self._render_mesh(
-                self._mesh_for_view(base_mesh, view),
+                view_mesh,
                 base_mesh,
                 center,
                 VIEW_CAMERAS[view],
@@ -91,20 +87,6 @@ class IFCRenderer:
             )
             for view in views
         }
-
-    def _mesh_for_view(
-        self,
-        base_mesh: o3d.geometry.TriangleMesh,
-        view: IFCView,
-    ) -> o3d.geometry.TriangleMesh:
-        """view-aware ground plane 정책 적용.
-
-        ISO_*은 base mesh 그대로(대각선 시점이라 ground 단서 불필요), 나머지 시점은
-        `attach_ground_plane_to_mesh`로 ground plane 추가한 새 mesh 반환.
-        """
-        if view in VIEWS_WITHOUT_GROUND:
-            return base_mesh
-        return attach_ground_plane_to_mesh(base_mesh)
 
     def _resolve_target_ratio(
         self,
@@ -127,24 +109,6 @@ class IFCRenderer:
             return base
         max_extent = float(np.max(verts.max(axis=0) - verts.min(axis=0)))
         return resolve_target_ratio_for_mesh(view, max_extent, base_ratio=base)
-
-    def _initial_zoom(
-        self,
-        mesh: o3d.geometry.TriangleMesh,
-        camera: CameraParams,
-    ) -> float:
-        """초기 zoom 결정 — ANALYTIC 모드이면 분석 수식, 그 외는 정적 값."""
-        if self.auto_zoom == AutoZoomMode.ANALYTIC:
-            verts = np.asarray(mesh.vertices)
-            if len(verts) > 0:
-                return compute_auto_zoom(
-                    aabb_min=verts.min(axis=0),
-                    aabb_max=verts.max(axis=0),
-                    camera_front=camera.front,
-                    camera_up=camera.up,
-                    target_screen_ratio=self.target_screen_ratio,
-                )
-        return camera.zoom
 
     @staticmethod
     def _capture_depth(
@@ -209,7 +173,7 @@ class IFCRenderer:
         # dispatch 임계값(20m/50m)은 *건물 본체* 크기 기준이라
         # ground 포함 view_mesh가 아니라 base_mesh로 판단해야 한다.
         # ex: SampleHouse 17m → ground 포함 ~20m → MEDIUM 잘못 트리거 위험.
-        initial_zoom = self._initial_zoom(mesh, camera)
+        initial_zoom = camera.zoom
         target_ratio = self._resolve_target_ratio(view, base_mesh)
 
         vis = o3d.visualization.Visualizer()

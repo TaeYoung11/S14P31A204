@@ -18,12 +18,7 @@ from typing import TYPE_CHECKING
 from PIL import Image
 
 from .exceptions import IFCRenderError
-from .views import (
-    IFCView,
-    build_view_negative_prompt,
-    build_view_prompt,
-    resolve_view_cn_scale,
-)
+from .views import IFCView, build_view_prompt
 
 if TYPE_CHECKING:
     import torch
@@ -174,24 +169,15 @@ class DepthStyleRenderer:
         width, height = control.size
         if view is not None:
             prompt = build_view_prompt(params.prompt, view)
-            negative_prompt = build_view_negative_prompt(params.negative_prompt, view)
-            cn_scale = resolve_view_cn_scale(
-                params.controlnet_conditioning_scale, view
-            )
-            # 실제 SD pipe에 전달된 값으로 갱신된 params — result.params로 반환해
-            # 호출자가 *어떤 합성/override가 적용됐는지* 추적 가능 (디버깅/로그/재현성).
-            applied_params = dc_replace(
-                params,
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                controlnet_conditioning_scale=cn_scale,
-            )
+            # 실제 SD pipe에 전달된 prompt로 갱신된 params — result.params로 반환해
+            # 호출자가 *어떤 view suffix가 합성됐는지* 추적 가능 (디버깅/로그/재현성).
+            applied_params = dc_replace(params, prompt=prompt)
         else:
             prompt = params.prompt
-            negative_prompt = params.negative_prompt
-            cn_scale = params.controlnet_conditioning_scale
-            # view 미사용 — 합성/override 없음, identity 보존 (backward compat).
+            # view 미사용 — 합성 없음, identity 보존 (backward compat).
             applied_params = params
+        negative_prompt = params.negative_prompt
+        cn_scale = params.controlnet_conditioning_scale
 
         try:
             if params.seed is None:

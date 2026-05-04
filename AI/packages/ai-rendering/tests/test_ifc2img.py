@@ -22,17 +22,11 @@ from ai_rendering.ifc2img.views import (
     DEFAULT_RENDER_VIEWS,
     DISPATCH_LARGE_FACTOR,
     DISPATCH_MEDIUM_FACTOR,
-    VIEW_CN_SCALE_OVERRIDES,
-    VIEW_NEGATIVE_SUFFIXES,
     VIEW_PROMPT_SUFFIXES,
     VIEW_TARGET_RATIOS,
-    VIEWS_WITHOUT_GROUND,
     AutoZoomMode,
-    build_view_negative_prompt,
     build_view_prompt,
-    compute_auto_zoom,
     resolve_target_ratio_for_mesh,
-    resolve_view_cn_scale,
 )
 
 
@@ -197,63 +191,7 @@ def test_load_mesh_accepts_ifc4(ifc4_fixture: Path) -> None:
     assert len(mesh.triangles) > 0
 
 
-# --- 카메라 zoom 동적 조정 (카드 A) ---
-
-
-def test_compute_auto_zoom_smaller_mesh_returns_zoom() -> None:
-    """compute_auto_zoom은 mesh AABB와 카메라 시선으로 유효한 zoom 값을 반환."""
-    aabb_min = np.array([0.0, 0.0, 0.0])
-    aabb_max = np.array([10.0, 10.0, 5.0])
-    z = compute_auto_zoom(
-        aabb_min, aabb_max,
-        camera_front=(-1.0, 0.0, 0.2),
-        camera_up=(0.0, 0.0, 1.0),
-        target_screen_ratio=0.7,
-    )
-    assert 0.05 <= z <= 2.0  # clip 범위 안
-
-
-def test_compute_auto_zoom_target_ratio_inverse() -> None:
-    """target_screen_ratio가 클수록 zoom 값은 작아진다 (inverse 관계 — Open3D 의미)."""
-    aabb_min = np.array([0.0, 0.0, 0.0])
-    aabb_max = np.array([10.0, 10.0, 5.0])
-    front = (-1.0, 0.0, 0.0)
-    up = (0.0, 0.0, 1.0)
-    z_small = compute_auto_zoom(aabb_min, aabb_max, front, up, target_screen_ratio=0.3)
-    z_large = compute_auto_zoom(aabb_min, aabb_max, front, up, target_screen_ratio=0.9)
-    assert z_small > z_large  # ratio 높음 = mesh 크게 = zoom 작음
-
-
-def test_renderer_analytic_mode_uses_compute_auto_zoom() -> None:
-    """AutoZoomMode.ANALYTIC 시 compute_auto_zoom 함수 호출 + 1회 capture (v1)."""
-    fake_mesh = MagicMock()
-    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
-    fake_center = np.array([5.0, 5.0, 2.5])
-
-    with (
-        patch(
-            "ai_rendering.ifc2img.renderer.load_mesh",
-            return_value=(fake_mesh, fake_center),
-        ),
-        patch(
-            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
-            side_effect=lambda m: m,
-        ),
-        patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
-        patch("ai_rendering.ifc2img.renderer.compute_auto_zoom", return_value=0.42) as mock_compute,
-    ):
-        vis = MagicMock()
-        mock_o3d.visualization.Visualizer.return_value = vis
-        depth = np.zeros((448, 768), dtype=np.float32)
-        depth[100:300, 200:500] = 5.0
-        vis.capture_depth_float_buffer.return_value = depth
-
-        renderer = IFCRenderer(auto_zoom=AutoZoomMode.ANALYTIC)
-        renderer.render(Path("dummy.ifc"), IFCView.FRONT)
-
-    mock_compute.assert_called_once()
-    # ANALYTIC 모드는 반복 안 함 — set_zoom/capture 1회씩
-    assert vis.capture_depth_float_buffer.call_count == 1
+# --- 카메라 zoom 모드 (AutoZoomMode.OFF / ITERATIVE) ---
 
 
 def test_renderer_default_uses_static_zoom() -> None:
@@ -272,7 +210,6 @@ def test_renderer_default_uses_static_zoom() -> None:
             side_effect=lambda m: m,
         ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
-        patch("ai_rendering.ifc2img.renderer.compute_auto_zoom") as mock_compute,
     ):
         vis = MagicMock()
         mock_o3d.visualization.Visualizer.return_value = vis
@@ -283,8 +220,7 @@ def test_renderer_default_uses_static_zoom() -> None:
         renderer = IFCRenderer()  # default auto_zoom=AutoZoomMode.OFF
         renderer.render(Path("dummy.ifc"), IFCView.FRONT)
 
-    mock_compute.assert_not_called()
-    # OFF 모드: 1회 set_zoom + 1회 capture
+    # OFF 모드: 1회 set_zoom + 1회 capture, VIEW_CAMERAS[FRONT].zoom=0.5
     vis.get_view_control.return_value.set_zoom.assert_called_once_with(0.5)
     assert vis.capture_depth_float_buffer.call_count == 1
 
@@ -602,36 +538,8 @@ def test_attach_ground_plane_to_mesh_appends_4_vertices() -> None:
     assert len(base.vertices) == 3
 
 
-def test_views_without_ground_is_empty_after_iso_removal() -> None:
-    """ISO 제거(Phase 4 Step 4.5, 2026-05-03) 후 모든 default view에 ground 추가.
-
-    `VIEWS_WITHOUT_GROUND` frozenset은 빈 상태로 유지 — view-aware ground 진입점은
-    보존(향후 view별 제외 정책이 다시 필요할 때 재사용).
-    """
-    assert VIEWS_WITHOUT_GROUND == frozenset()
-
-    # 모든 enum view가 ground 추가 대상
-    for v in IFCView:
-        assert v not in VIEWS_WITHOUT_GROUND
-
-
-def test_renderer_mesh_for_view_attaches_ground_for_all_views() -> None:
-    """ISO 제거 후 `_mesh_for_view`는 모든 view에 `attach_ground_plane_to_mesh` 호출."""
-    renderer = IFCRenderer()
-    fake_mesh = MagicMock()
-    fake_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 6.0, 3.0]])
-
-    for view in (IFCView.FRONT, IFCView.SIDE, IFCView.EYE_NE, IFCView.TOP):
-        with patch(
-            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
-            return_value=MagicMock(),
-        ) as mock_attach:
-            renderer._mesh_for_view(fake_mesh, view)
-        mock_attach.assert_called_once_with(fake_mesh)
-
-
 def test_iso_views_removed_from_enum() -> None:
-    """ISO_NE/ISO_NW/ISO_SE는 enum에서 완전 제거됨 (Phase 4 Step 4.5)."""
+    """ISO_NE/ISO_NW/ISO_SE는 enum에서 완전 제거됨."""
     enum_names = {v.name for v in IFCView}
     assert "ISO_NE" not in enum_names
     assert "ISO_NW" not in enum_names
@@ -641,7 +549,7 @@ def test_iso_views_removed_from_enum() -> None:
 
 
 def test_eye_views_all_in_enum() -> None:
-    """EYE_NE/NW/SE 3개가 IFCView enum에 등록 + 5 dict 모두 매핑 보유.
+    """EYE_NE/NW/SE 3개가 IFCView enum에 등록 + 활성 dict 모두 매핑 보유.
 
     Phase 3 회귀 방어 — 신규 view 추가 시 dict 매핑 누락하면 KeyError.
     """
@@ -653,8 +561,6 @@ def test_eye_views_all_in_enum() -> None:
         assert v in VIEW_CAMERAS
         assert v in VIEW_TARGET_RATIOS
         assert v in VIEW_PROMPT_SUFFIXES
-        assert v in VIEW_NEGATIVE_SUFFIXES
-        assert v in VIEW_CN_SCALE_OVERRIDES
 
 
 def test_eye_views_have_zero_z_for_horizontal() -> None:
@@ -670,7 +576,7 @@ def test_eye_views_have_zero_z_for_horizontal() -> None:
 
 
 def test_default_render_views_includes_eye() -> None:
-    """기본 render_views()에 EYE_* 3개 모두 포함 — Phase 4 Step 4.5 후 5뷰 default."""
+    """기본 render_views()에 EYE_* 3개 모두 포함 — DEFAULT 5뷰."""
     for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
         assert v in DEFAULT_RENDER_VIEWS
     assert len(DEFAULT_RENDER_VIEWS) == 5
@@ -679,7 +585,7 @@ def test_default_render_views_includes_eye() -> None:
 def test_default_render_views_excludes_hallucination_prone() -> None:
     """기본 render_views()는 환각 발생 시점(TOP/BIRDS_EYE/CORNER_LOW) 제외.
 
-    제외 사유 (사용자 시각 검수 2026-04-28):
+    제외 사유:
     - TOP: 지붕만 → facade prompt 불일치
     - BIRDS_EYE: 거의 위에서 봄 → TOP과 동일 환각
     - CORNER_LOW: 낮은 fill(0.15)로 prompt 환각 우세
@@ -689,7 +595,7 @@ def test_default_render_views_excludes_hallucination_prone() -> None:
     excluded = {IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW}
     for v in excluded:
         assert v not in DEFAULT_RENDER_VIEWS
-    # Phase 4 Step 4.5 (2026-05-03): ISO 제거 → DEFAULT 5뷰 (FRONT/SIDE + EYE_*×3)
+    # DEFAULT = FRONT/SIDE + EYE_*×3 = 5뷰
     assert len(DEFAULT_RENDER_VIEWS) == 5
     expected = set(IFCView) - excluded
     assert set(DEFAULT_RENDER_VIEWS) == expected
@@ -701,8 +607,7 @@ def test_default_render_views_excludes_hallucination_prone() -> None:
 def test_view_prompt_suffixes_top_birds_eye_have_environment_words() -> None:
     """default 제외된 시점(TOP/BIRDS_EYE/CORNER_LOW)은 명시 호출 시 환경 단서 포함.
 
-    Phase 4 Step 4.5(2026-05-03) — ISO_* 제거 후 환경 단서가 있는 시점은 *명시 호출*
-    시점만 남음. EYE_*는 빈 suffix(향후 고도화).
+    환경 단서가 있는 시점은 *명시 호출* 시점만 — EYE_*는 빈 suffix(향후 고도화).
     """
     for v in (IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW):
         suffix = VIEW_PROMPT_SUFFIXES[v]
@@ -711,7 +616,7 @@ def test_view_prompt_suffixes_top_birds_eye_have_environment_words() -> None:
 
 
 def test_view_prompt_suffixes_default_views_empty() -> None:
-    """default(FRONT/SIDE/EYE_*) 시점은 빈 suffix — Phase 4 정책 (시간대 suffix는 preset 단계)."""
+    """default(FRONT/SIDE/EYE_*) 시점은 빈 suffix — 시간대 suffix는 preset 단계 책임."""
     for v in (
         IFCView.FRONT, IFCView.SIDE,
         IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE,
@@ -747,115 +652,6 @@ def test_build_view_prompt_in_public_api() -> None:
     assert "build_view_prompt" in ifc2img.__all__
     # 동일 함수 레퍼런스 (재정의 X)
     from ai_rendering.ifc2img.views import build_view_prompt as internal
-    assert exported is internal
-
-
-# --- 옵션 C-1 — VIEW_NEGATIVE_SUFFIXES + build_view_negative_prompt ---
-
-
-def test_view_negative_suffixes_all_empty_after_c1_rollback() -> None:
-    """C-1 폐기 — 모든 시점 빈 문자열. 인프라(dict/헬퍼)는 보존, 적용 토큰만 비움.
-
-    C-1 v1(8 토큰) / v2(2 토큰) 모두 iso_nw/iso_se에서 baseline보다 *집 형상 더
-    일그러짐* → 폐기. 'building' 등 일반 명사 negative는 SD 1.5+ControlNet-depth
-    조합에서 *주 매스*도 약화시키는 역효과로 추정.
-    """
-    for v in IFCView:
-        assert VIEW_NEGATIVE_SUFFIXES[v] == "", f"{v} should be empty after rollback"
-
-
-def test_build_view_negative_prompt_returns_base_for_all_views() -> None:
-    """C-1 비활성 — 모든 시점에서 헬퍼는 base 그대로 반환 (suffix 빈 문자열)."""
-    base = "(worst quality:1.4), interior"
-    for v in IFCView:
-        assert build_view_negative_prompt(base, v) == base
-
-
-def test_build_view_negative_prompt_helper_still_composes_with_nonempty_suffix() -> None:
-    """헬퍼 자체는 보존 — 미래의 다른 시점/실험에서 dict에 토큰 채우면 즉시 동작.
-
-    monkeypatch로 임시 suffix 주입 후 합성 동작 확인 (인프라 보존 회귀 방어).
-    """
-    from ai_rendering.ifc2img import views as views_module
-
-    original = views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW]
-    try:
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = ", test_token"
-        result = build_view_negative_prompt("base", IFCView.EYE_NW)
-        assert result == "base, test_token"
-        # base 빈 문자열일 때 ', ' 접두사 제거도 헬퍼 책임
-        result_empty = build_view_negative_prompt("", IFCView.EYE_NW)
-        assert result_empty == "test_token"
-    finally:
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = original
-
-
-def test_build_view_negative_prompt_only_strips_exact_comma_space_prefix() -> None:
-    """접두사 제거는 정확히 ', ' 패턴만 — 콤마/공백 반복 제거(lstrip 동작) 회귀 방어.
-
-    이 회귀 방어 테스트는 dict에 비표준 suffix가 들어왔을 때 헬퍼가 *과도하게*
-    제거하지 않음을 보장. lstrip(", ")으로 구현했을 때 발생하던 케이스들.
-    """
-    from ai_rendering.ifc2img import views as views_module
-
-    original = views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW]
-    try:
-        # case 1: 콤마만 있고 공백 없음 → prefix 매치 안 됨, 그대로 보존
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = ",no_space"
-        assert build_view_negative_prompt("", IFCView.EYE_NW) == ",no_space"
-
-        # case 2: 다중 공백 → 정확히 ", "(2자) 1회만 제거 (lstrip이면 모두 제거됐을 것)
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = ",  extra_spaces"
-        assert build_view_negative_prompt("", IFCView.EYE_NW) == " extra_spaces"
-
-        # case 3: 정상 prefix → 정확히 ", "만 제거
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = ", clean"
-        assert build_view_negative_prompt("", IFCView.EYE_NW) == "clean"
-    finally:
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = original
-
-
-def test_build_view_negative_prompt_in_public_api() -> None:
-    """헬퍼는 폐기 후에도 공개 API 유지 — 외부에서 직접 합성 사용 가능."""
-    from ai_rendering import ifc2img
-    from ai_rendering.ifc2img import build_view_negative_prompt as exported
-
-    assert "build_view_negative_prompt" in ifc2img.__all__
-    from ai_rendering.ifc2img.views import (
-        build_view_negative_prompt as internal,
-    )
-    assert exported is internal
-
-
-# --- 옵션 C-2 — VIEW_CN_SCALE_OVERRIDES + resolve_view_cn_scale ---
-
-
-def test_view_cn_scale_overrides_all_none_after_base_lifted() -> None:
-    """옵션 E (E-clean, 2026-04-29) — preset base 0.7→1.0으로 인상.
-
-    이전 iso_nw/se=1.0 override는 base 1.0과 redundant라 제거.
-    *호출자가 추가 보정 필요 시 override 설정 가능* — 메커니즘은 보존.
-    """
-    for v in IFCView:
-        assert VIEW_CN_SCALE_OVERRIDES[v] is None, f"{v} should be None (base 1.0)"
-
-
-def test_resolve_view_cn_scale_returns_base_when_no_override() -> None:
-    """override가 None인 모든 시점은 base 그대로 — 기본 동작 검증."""
-    assert resolve_view_cn_scale(1.0, IFCView.FRONT) == 1.0
-    assert resolve_view_cn_scale(0.85, IFCView.SIDE) == 0.85
-    assert resolve_view_cn_scale(0.5, IFCView.EYE_NE) == 0.5
-    assert resolve_view_cn_scale(1.0, IFCView.EYE_NW) == 1.0
-    assert resolve_view_cn_scale(1.0, IFCView.EYE_NE) == 1.0
-
-
-def test_resolve_view_cn_scale_in_public_api() -> None:
-    """C-2 — resolve_view_cn_scale가 ifc2img.__all__에 등록되어 외부 import 가능."""
-    from ai_rendering import ifc2img
-    from ai_rendering.ifc2img import resolve_view_cn_scale as exported
-
-    assert "resolve_view_cn_scale" in ifc2img.__all__
-    from ai_rendering.ifc2img.views import resolve_view_cn_scale as internal
     assert exported is internal
 
 
@@ -952,20 +748,18 @@ def test_resolve_target_ratio_for_large_mesh_scales_more() -> None:
     )
 
 
-# --- 피드백 1 (외부 코드 리뷰 라운드 3) — dispatch base_mesh 분리 ---
+# --- dispatch base_mesh 분리 (ground 포함 mesh 아닌 건물 본체로 임계값 판단) ---
 
 
 def test_render_mesh_dispatch_uses_base_mesh_not_ground_extended() -> None:
     """`_render_mesh`는 dispatch 임계값 판단을 *base_mesh*(건물 본체)로 한다.
 
-    피드백 1 (2026-05-04 외부 코드 리뷰 라운드 3): 이전 구현은 *렌더용 view_mesh*
-    (ground 포함)로 `_resolve_target_ratio` 호출 → ground × 1.2 배가 max_extent에
-    포함돼 dispatch 임계값(20m/50m)이 *건물 본체*가 아닌 ground 포함 결과 기준으로
-    잘못 트리거. ex: SampleHouse 17m → ground ~20.4m → MEDIUM 잘못 분류 위험.
-
-    이 테스트: base_mesh(small, 13m × 13m × 5m) + view_mesh(ground 인플레이션
-    시뮬, 25m × 25m × 5m) 분리 전달 → dispatch는 base 기준이라 base * 1.0(=base
-    그대로) 반환. view_mesh 기준이면 25m > 20m → MEDIUM(× 0.8) 적용됐을 것.
+    *렌더용 view_mesh*(ground 포함)로 `_resolve_target_ratio`를 호출하면 ground ×
+    factor가 max_extent에 포함돼 dispatch 임계값(20m/50m)이 *건물 본체*가 아닌
+    ground 포함 결과 기준으로 잘못 트리거된다(예: 17m → ground 포함 ~20m → MEDIUM
+    잘못 분류). 이 테스트: base_mesh(13m) + view_mesh(25m 인플레이션 시뮬) 분리
+    전달 → dispatch는 base 기준이라 base * 1.0 반환. view_mesh 기준이면 MEDIUM(×
+    0.8) 적용됐을 것.
     """
     renderer = IFCRenderer()
     base_mesh = MagicMock()
@@ -1230,7 +1024,6 @@ def test_no_building_element_raises() -> None:
             load_mesh(Path("dummy.ifc"))
 
 
-# Phase 5 옵션 GGG (depth 후처리 상단 background fill) 폐기됨 — 단위 테스트 7건 제거.
-# 이유: Step 2 검수에서 *상단 1/3이 지붕처럼* 부작용 발견. SD가 mid-raw 회색 띠를
-# *수평선 구조물*이 아니라 *건물 자체의 지붕*으로 해석. depth 후처리 단서가 SD prior
-# (건물 구조의 일부)에 흡수되어 의도와 다른 결과.
+# depth 후처리 상단 background fill 시도 폐기 — SD가 mid-raw 회색 띠를 *수평선
+# 구조물*이 아니라 *건물 자체의 지붕*으로 해석해 사진 위 1/3이 지붕처럼 나옴.
+# depth 후처리 단서가 SD prior에 흡수되어 의도와 다른 결과.

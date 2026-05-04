@@ -14,10 +14,7 @@ from ai_rendering.ifc2img import (
 
 
 def test_list_presets_returns_three() -> None:
-    """등록된 프리셋이 정확히 scandinavian/korean_villa/korean_house 3개 + 정렬됨.
-
-    Phase 4 (2026-04-29) 옵션 A — industrial/japanese 제거, korean 2개 추가.
-    """
+    """등록된 프리셋이 정확히 scandinavian/korean_villa/korean_house 3개 + 정렬됨."""
     assert list_presets() == ["korean_house", "korean_villa", "scandinavian"]
 
 
@@ -66,7 +63,7 @@ def test_no_strength_field_on_params() -> None:
     assert "controlnet_conditioning_scale" in field_names
 
 
-# --- Phase 4 (2026-04-29) — time_of_day variant ---
+# --- time_of_day variant (day/night) ---
 
 
 def test_load_preset_day_appends_day_suffix() -> None:
@@ -101,7 +98,7 @@ def test_load_preset_invalid_time_raises() -> None:
         load_preset("korean_house", "")
 
 
-# --- Phase 4 — 7 소재 화이트리스트 검증 ---
+# --- 7 소재 화이트리스트 검증 ---
 
 
 def test_preset_prompts_use_only_whitelisted_materials() -> None:
@@ -111,7 +108,7 @@ def test_preset_prompts_use_only_whitelisted_materials() -> None:
     비허용 대표 단어가 prompt에 들어가면 회귀 — 화이트리스트 외 소재 합성 위험.
     """
     forbidden = (
-        "rendered",       # scandinavian 이전 단어 (Step 1에서 concrete로 교체)
+        "rendered",       # 일반 facade 단어 — concrete/brick 등 화이트리스트로 대체
         "plaster",
         "stucco",
         "vinyl siding",
@@ -125,6 +122,5 @@ def test_preset_prompts_use_only_whitelisted_materials() -> None:
             )
 
 
-# Phase 5 옵션 CCC (sky/floating negative) 폐기됨 — 단위 테스트 3건 제거.
-# 이유: 효과 0 (Step 5-4·5-5b) + GGG 동시 land 후 검수에서 *빌딩 떠있음* 잔존.
-# text-side 처방 무력 학습 누적 (C-1 + CCC).
+# sky/floating negative phrase 시도 폐기 — 효과 0, text-side 처방은 SD prior를
+# 못 이긴다는 학습.

@@ -137,7 +137,7 @@ def test_result_save_creates_parent_dir(tmp_path: Path) -> None:
 
 
 def test_public_api_exports() -> None:
-    """ifc2img 공개 심볼: IFC 렌더 3 + style 3 + presets 2 + view helpers 3 = 11개."""
+    """ifc2img 공개 심볼: IFC 렌더 3 + style 3 + presets 2 + view helper 1 = 9개."""
     from ai_rendering import ifc2img
 
     expected = {
@@ -150,8 +150,6 @@ def test_public_api_exports() -> None:
         "list_presets",
         "load_preset",
         "build_view_prompt",
-        "build_view_negative_prompt",
-        "resolve_view_cn_scale",
     }
     assert set(ifc2img.__all__) == expected
 
@@ -164,8 +162,8 @@ def test_render_with_view_appends_suffix_to_prompt(
 ) -> None:
     """B-1 — view=TOP 전달 시 pipe 호출 prompt에 환경 suffix 포함.
 
-    Phase 4 Step 4.5(2026-05-03) — ISO 제거 후 EYE_*는 빈 suffix라 합성 검증
-    부적합 → 명시 호출 시점(TOP) 사용. suffix 합성 메커니즘 자체는 동일.
+    EYE_*/FRONT/SIDE는 빈 suffix이므로 합성 검증에는 명시 호출용 시점(TOP) 사용.
+    suffix 합성 메커니즘 자체는 모든 view에서 동일.
     """
     depth = Image.new("L", (768, 448), 100)
     base_prompt = "RAW photo, scandinavian house"
@@ -261,75 +259,8 @@ def test_render_without_view_uses_raw_negative(
     assert call_negative == base_negative
 
 
-def test_render_with_view_eye_nw_composes_when_suffix_present(
-    mock_depth_renderer: DepthStyleRenderer,
-) -> None:
-    """인프라 보존 회귀 방어 — suffix 채우면 즉시 합성되어 pipe에 전달.
-
-    C-1은 폐기되어 dict 비어있지만, 향후 다른 시점 토큰 채울 시 *render 통합 경로*가
-    여전히 동작해야 함을 보장.
-    """
-    from ai_rendering.ifc2img import views as views_module
-
-    original = views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW]
-    try:
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = ", test_token"
-        depth = Image.new("L", (768, 448), 100)
-        base = "(worst quality:1.4)"
-        params = DepthStyleParams(prompt="x", negative_prompt=base)
-        mock_depth_renderer.render(depth, params, view=IFCView.EYE_NW)
-        call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
-        assert call_negative == f"{base}, test_token"
-    finally:
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.EYE_NW] = original
-
-
-# --- C-2 — DepthStyleRenderer.render(view=...) cn_scale override ---
-
-
-def test_render_with_view_uses_override_when_set(
-    mock_depth_renderer: DepthStyleRenderer,
-) -> None:
-    """view에 cn_scale override가 설정돼 있으면 params.cn_scale 무시하고 override 사용.
-
-    옵션 E (E-clean, 2026-04-29) — preset base 1.0 인상 후 iso_nw/se override 제거.
-    호출자가 향후 view-별 override를 다시 설정해도 메커니즘이 동작하는지 검증.
-    """
-    from ai_rendering.ifc2img import views as views_module
-
-    original = views_module.VIEW_CN_SCALE_OVERRIDES[IFCView.EYE_NW]
-    try:
-        views_module.VIEW_CN_SCALE_OVERRIDES[IFCView.EYE_NW] = 1.15
-        depth = Image.new("L", (768, 448), 100)
-        params = DepthStyleParams(
-            prompt="x",
-            controlnet_conditioning_scale=1.0,
-        )
-
-        mock_depth_renderer.render(depth, params, view=IFCView.EYE_NW)
-
-        sent_cn = mock_depth_renderer.pipe.call_args.kwargs[
-            "controlnet_conditioning_scale"
-        ]
-        assert sent_cn == 1.15
-    finally:
-        views_module.VIEW_CN_SCALE_OVERRIDES[IFCView.EYE_NW] = original
-
-
-def test_render_with_view_falls_back_to_params_when_no_override(
-    mock_depth_renderer: DepthStyleRenderer,
-) -> None:
-    """모든 view override가 None인 default 상태(옵션 E E-clean) — params 값 그대로."""
-    depth = Image.new("L", (768, 448), 100)
-    params = DepthStyleParams(
-        prompt="x",
-        controlnet_conditioning_scale=1.0,
-    )
-
-    mock_depth_renderer.render(depth, params, view=IFCView.FRONT)
-
-    sent_cn = mock_depth_renderer.pipe.call_args.kwargs["controlnet_conditioning_scale"]
-    assert sent_cn == 1.0
+# per-view negative suffix infra (C-1) + cn_scale override infra (C-2) 폐기.
+# 두 인프라 모두 render() 경로에서 호출 자체가 제거된 dead code.
 
 
 def test_render_without_view_uses_params_cn_scale(
@@ -351,13 +282,11 @@ def test_render_without_view_uses_params_cn_scale(
 def test_render_result_params_reflect_applied_view_composition(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """결과 params 반영 — view 전달 시 result.params에 합성/override된 값이 들어감.
+    """결과 params 반영 — view 전달 시 result.params에 합성된 값이 들어감.
 
-    호출자가 result.params.prompt / .negative_prompt / .controlnet_conditioning_scale
-    로 *실제 SD pipe에 전달된 값*을 추적할 수 있어야 함 (디버깅/로그/재현성).
-
-    Phase 4 Step 4.5(2026-05-03) — ISO 제거 후 EYE_*는 빈 suffix라 합성 검증
-    부적합 → TOP(명시 호출 시점, suffix 보유)으로 검증.
+    호출자가 result.params.prompt로 *실제 SD pipe에 전달된 값*을 추적할 수 있어야
+    함 (디버깅/로그/재현성). EYE_*/FRONT/SIDE는 빈 suffix이므로 검증에는 명시
+    호출 시점(TOP, suffix 보유)을 사용.
     """
     depth = Image.new("L", (768, 448), 100)
     base_prompt = "RAW photo, scandinavian house"

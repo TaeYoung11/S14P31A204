@@ -38,8 +38,7 @@ def mock_renderer() -> DepthStyleRenderer:
 
 
 BASE_PROMPT = "RAW photo, scandinavian house"
-# Phase 4 Step 4.5 (2026-05-03) — ISO 제거 후 EYE_NE로 교체. ISO와 동일하게 suffix
-# 합성 메커니즘 검증 가능 (현재 EYE_*는 빈 suffix이지만 합성 흐름은 동일).
+# TOP은 명시 호출용 시점이라 suffix가 비어있지 않아 합성 흐름 검증에 적합.
 TARGET_VIEW = IFCView.TOP
 
 

@@ -4,9 +4,8 @@ img2img 프리셋과 *값을 복제* — 코드 import는 하지 않는다.
 복제 정책:
   - prompt / negative_prompt: 동일 (스타일 정의는 conditioning 무관)
   - guidance_scale=7, num_inference_steps=25: 동일
-  - controlnet_conditioning_scale=1.15: 옵션 N(2026-04-29) 후 확정값.
-    Canny=0.3과 다름 — depth는 더 강한 구속이 필요했음. 옵션 E(0.7→1.0)
-    → 옵션 N(1.0→1.15)으로 단계적 인상해 수직 매스/추가 층 환각 차단.
+  - controlnet_conditioning_scale=1.15: depth는 Canny(0.3)보다 강한 구속이 필요해
+    수직 매스/추가 층 환각 차단을 위해 단계적으로 인상한 확정값.
   - strength: 제외 — txt2img + ControlNet에는 init 이미지가 없으므로 적용 불가
 
 신규 변형(예: scandinavian_warm)을 추가하려면 이 모듈에 직접 항목을 더한다.
@@ -24,7 +23,7 @@ _TIME_SUFFIXES: dict[str, str] = {
     "day": "during sunny daytime, natural sunlight, blue sky",
     "night": "at night, evening scene, warm interior lights, dramatic night lighting",
 }
-"""시간대(낮/밤) prompt suffix — Phase 4 (2026-04-29).
+"""시간대(낮/밤) prompt suffix.
 
 `load_preset(name, time_of_day)`이 base prompt 끝에 합성. preset 자체는 *소재 +
 스타일*만 책임 — 시간대는 호출 시점 결정. day/night 외 값은 IFCRenderError.
@@ -41,14 +40,6 @@ _NEGATIVE_BASE = (
     "water, lake, pond, swimming pool, river, "
     "plaster, stucco, vinyl siding, cladding panels, render coating"
 )
-"""Phase 5 옵션 CCC (2026-05-03 → 2026-05-04 폐기) — sky/floating 차단 phrase 4개
-추가 시도(`sky background, only sky, floating in air, suspended in air`).
-Step 5-4·5-5b 검수에서 *효과 0* 검증, Step 2(GGG land 후) 재검수에서 *빌딩이
-하늘 허공에 떠 있음* 잔존 보고로 사용자 결정 폐기.
-
-학습: text-side(prompt/negative) 처방 전체가 SD 1.5 + ControlNet-depth 환각에
-*무력* (C-1 폐기 + CCC 폐기 누적 학습). 향후 처방은 입력-side(depth/init/모델)에서.
-"""
 
 
 _PRESETS: dict[str, DepthStyleParams] = {
