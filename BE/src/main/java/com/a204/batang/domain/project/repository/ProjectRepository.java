@@ -142,4 +142,78 @@ public interface ProjectRepository extends JpaRepository<Project, UUID> {
             @Param("threshold") double threshold,
             Pageable pageable
     );
+
+    /**
+     * 특정 사용자가 접근 가능한 프로젝트(소유 + 초대 멤버)를 조회한다.
+     *
+     * @param userId 사용자 ID
+     * @param pageable 페이지 정보
+     * @return 프로젝트 페이지
+     */
+    @Query(
+            value = """
+                    SELECT DISTINCT p.*
+                    FROM projects p
+                    LEFT JOIN project_members pm ON pm.project_id = p.project_id
+                    WHERE p.deleted_at IS NULL
+                      AND (p.owner_user_id = :userId OR pm.user_id = :userId)
+                    ORDER BY p.updated_at DESC
+                    """,
+            countQuery = """
+                    SELECT COUNT(DISTINCT p.project_id)
+                    FROM projects p
+                    LEFT JOIN project_members pm ON pm.project_id = p.project_id
+                    WHERE p.deleted_at IS NULL
+                      AND (p.owner_user_id = :userId OR pm.user_id = :userId)
+                    """,
+            nativeQuery = true
+    )
+    Page<Project> findAccessibleProjectsByUserId(
+            @Param("userId") UUID userId,
+            Pageable pageable
+    );
+
+    /**
+     * 특정 사용자가 접근 가능한 프로젝트에서 이름 유사 검색을 수행한다.
+     *
+     * @param userId 사용자 ID
+     * @param keyword 검색어
+     * @param threshold 유사도 임계값
+     * @param pageable 페이지 정보
+     * @return 검색 결과 페이지
+     */
+    @Query(
+            value = """
+                    SELECT DISTINCT p.*
+                    FROM projects p
+                    LEFT JOIN project_members pm ON pm.project_id = p.project_id
+                    WHERE p.deleted_at IS NULL
+                      AND (p.owner_user_id = :userId OR pm.user_id = :userId)
+                      AND (
+                          LOWER(p.name) LIKE CONCAT('%', LOWER(:keyword), '%')
+                          OR similarity(LOWER(p.name), LOWER(:keyword)) >= :threshold
+                          OR LOWER(p.name) % LOWER(:keyword)
+                      )
+                    ORDER BY similarity(LOWER(p.name), LOWER(:keyword)) DESC, p.updated_at DESC
+                    """,
+            countQuery = """
+                    SELECT COUNT(DISTINCT p.project_id)
+                    FROM projects p
+                    LEFT JOIN project_members pm ON pm.project_id = p.project_id
+                    WHERE p.deleted_at IS NULL
+                      AND (p.owner_user_id = :userId OR pm.user_id = :userId)
+                      AND (
+                          LOWER(p.name) LIKE CONCAT('%', LOWER(:keyword), '%')
+                          OR similarity(LOWER(p.name), LOWER(:keyword)) >= :threshold
+                          OR LOWER(p.name) % LOWER(:keyword)
+                      )
+                    """,
+            nativeQuery = true
+    )
+    Page<Project> searchAccessibleProjectsByUserId(
+            @Param("userId") UUID userId,
+            @Param("keyword") String keyword,
+            @Param("threshold") double threshold,
+            Pageable pageable
+    );
 }
