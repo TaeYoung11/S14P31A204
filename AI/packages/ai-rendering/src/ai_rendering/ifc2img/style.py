@@ -15,15 +15,11 @@ from dataclasses import dataclass, replace as dc_replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
 from PIL import Image
 
 from .exceptions import IFCRenderError
-from .views import (
-    IFCView,
-    build_view_negative_prompt,
-    build_view_prompt,
-    resolve_view_cn_scale,
-)
+from .views import IFCView, build_view_prompt
 
 if TYPE_CHECKING:
     import torch
@@ -31,6 +27,15 @@ if TYPE_CHECKING:
 
 DEFAULT_MODEL_ID = "runwayml/stable-diffusion-v1-5"
 DEFAULT_CONTROLNET_DEPTH_ID = "lllyasviel/sd-controlnet-depth"
+EYE_GROUND_SEGMENTATION_NEGATIVE = "pool, terrace, deck"
+GROUND_LEVEL_ATTACHMENT_NEGATIVE = (
+    "stone wall, retaining wall, raised foundation, pedestal, plinth"
+)
+EYE_GROUND_ANCHOR_START_RATIO = 0.58
+EYE_GROUND_HORIZON_BAND_RATIO = 0.06
+EYE_GROUND_MASK_START_RATIO = 0.52
+EYE_GROUND_MASK_EDGE_RISE_RATIO = 0.12
+GROUND_LEVEL_MIN_START_RATIO = 0.48
 
 
 @dataclass
@@ -68,6 +73,196 @@ def _depth_to_control(depth: Image.Image) -> Image.Image:
     if depth.mode != "RGB":
         return depth.convert("RGB")
     return depth
+
+
+def _apply_eye_ground_anchor(control: Image.Image) -> Image.Image:
+    """Fill lower empty background with muted ground cues for EYE views."""
+    arr = np.asarray(control.convert("RGB"), dtype=np.uint8).copy()
+    bg_mask = np.all(arr == 0, axis=2)
+    height, _width = arr.shape[:2]
+    start_y = int(height * EYE_GROUND_ANCHOR_START_RATIO)
+    horizon_band = max(1, int(height * EYE_GROUND_HORIZON_BAND_RATIO))
+
+    horizon_color = np.array([124, 124, 118], dtype=np.float32)
+    ground_far = np.array([152, 148, 136], dtype=np.float32)
+    ground_near = np.array([176, 168, 146], dtype=np.float32)
+
+    for y in range(start_y, height):
+        row_mask = bg_mask[y]
+        if not np.any(row_mask):
+            continue
+        if y < start_y + horizon_band:
+            color = horizon_color
+        elif height - start_y <= 1:
+            color = ground_near
+        else:
+            t = (y - start_y) / (height - start_y - 1)
+            color = ground_far * (1.0 - t) + ground_near * t
+        arr[y, row_mask] = color.astype(np.uint8)
+
+    return Image.fromarray(arr, mode="RGB")
+
+
+def _compute_eye_ground_line(bg_mask: np.ndarray) -> np.ndarray:
+    """Estimate a perspective ground start line for EYE views."""
+    height, width = bg_mask.shape
+    geom_mask = ~bg_mask
+    if not np.any(geom_mask):
+        base_y = int(height * EYE_GROUND_MASK_START_RATIO)
+        return np.full(width, base_y, dtype=np.int32)
+
+    ys, xs = np.nonzero(geom_mask)
+    left = int(xs.min())
+    right = int(xs.max())
+    center = (left + right) / 2.0
+    half_span = max(1.0, (right - left) / 2.0)
+    fallback_base = int(height * EYE_GROUND_MASK_START_RATIO)
+    line = np.full(width, fallback_base, dtype=np.int32)
+
+    bottom_by_x = np.full(width, -1, dtype=np.int32)
+    for x in np.unique(xs):
+        bottom_by_x[x] = int(ys[xs == x].max())
+
+    support = bottom_by_x >= 0
+    if np.any(support):
+        support_bottoms = bottom_by_x[support]
+        facade_base = int(np.percentile(support_bottoms, 70))
+        facade_base = max(facade_base, fallback_base)
+    else:
+        facade_base = fallback_base
+
+    edge_rise = max(1, int(height * EYE_GROUND_MASK_EDGE_RISE_RATIO))
+    edge_y = min(height - 1, facade_base + edge_rise)
+
+    for x in range(width):
+        dx = abs(x - center) / half_span
+        t = min(1.0, dx)
+        curve = t * t
+        line[x] = int(facade_base * (1.0 - curve) + edge_y * curve)
+
+    return np.clip(line, 0, height - 1)
+
+
+def _apply_eye_ground_segmentation(control: Image.Image) -> Image.Image:
+    """Fill a perspective ground mask below the facade with textured ground cues."""
+    arr = np.asarray(control.convert("RGB"), dtype=np.uint8).copy()
+    bg_mask = np.all(arr == 0, axis=2)
+    height, width = bg_mask.shape
+    ground_line = _compute_eye_ground_line(bg_mask)
+
+    xs = np.arange(width, dtype=np.float32)[None, :]
+    ys = np.arange(height, dtype=np.float32)[:, None]
+    line_2d = ground_line[None, :]
+    ground_mask = bg_mask & (ys >= line_2d)
+    if not np.any(ground_mask):
+        return Image.fromarray(arr, mode="RGB")
+
+    depth_ratio = np.clip(
+        (ys - line_2d) / np.maximum(1.0, height - 1 - line_2d),
+        0.0,
+        1.0,
+    )
+    center_x = (width - 1) / 2.0
+    lateral = np.abs(xs - center_x) / max(1.0, center_x)
+
+    far_color = np.array([128, 126, 110], dtype=np.float32)
+    near_color = np.array([154, 148, 118], dtype=np.float32)
+    tint_color = np.array([118, 126, 104], dtype=np.float32)
+
+    base = far_color[None, None, :] * (1.0 - depth_ratio[:, :, None])
+    base += near_color[None, None, :] * depth_ratio[:, :, None]
+
+    grass_mix = np.clip(0.35 - 0.2 * lateral + 0.25 * depth_ratio, 0.0, 0.45)
+    base = base * (1.0 - grass_mix[:, :, None]) + tint_color[None, None, :] * (
+        grass_mix[:, :, None]
+    )
+
+    x_wave = np.sin(xs / 13.0) + np.sin(xs / 29.0)
+    y_wave = np.cos(ys / 11.0) + np.sin(ys / 23.0)
+    texture = (x_wave + y_wave)[:, :, None] * 6.0
+    grain = np.sin((xs * 0.31) + (ys * 0.17))[:, :, None] * 4.0
+    textured = np.clip(base + texture + grain, 0.0, 255.0).astype(np.uint8)
+
+    horizon_band = np.abs(ys - line_2d) <= 2.0
+    horizon_color = np.array([120, 120, 112], dtype=np.uint8)
+    textured[horizon_band] = horizon_color
+
+    arr[ground_mask] = textured[ground_mask]
+    return Image.fromarray(arr, mode="RGB")
+
+
+def _append_negative_terms(base_negative: str, extra_negative: str) -> str:
+    """Append short negative terms while preserving empty/base formatting."""
+    if not extra_negative:
+        return base_negative
+    if not base_negative:
+        return extra_negative
+    return f"{base_negative}, {extra_negative}"
+
+
+def _compute_ground_level_base_y(bg_mask: np.ndarray) -> int:
+    """Estimate the facade base row for front/side views."""
+    height, _width = bg_mask.shape
+    geom_mask = ~bg_mask
+    if not np.any(geom_mask):
+        return int(height * GROUND_LEVEL_MIN_START_RATIO)
+
+    ys, xs = np.nonzero(geom_mask)
+    bottom_by_x: dict[int, int] = {}
+    for x in np.unique(xs):
+        bottom_by_x[int(x)] = int(ys[xs == x].max())
+
+    if not bottom_by_x:
+        return int(height * GROUND_LEVEL_MIN_START_RATIO)
+
+    bottoms = np.array(list(bottom_by_x.values()), dtype=np.int32)
+    facade_base = int(np.percentile(bottoms, 70))
+    return max(facade_base, int(height * GROUND_LEVEL_MIN_START_RATIO))
+
+
+def _apply_ground_level_attachment(control: Image.Image) -> Image.Image:
+    """Attach front/side facades directly to a textured ground plane."""
+    arr = np.asarray(control.convert("RGB"), dtype=np.uint8).copy()
+    bg_mask = np.all(arr == 0, axis=2)
+    height, width = bg_mask.shape
+    base_y = _compute_ground_level_base_y(bg_mask)
+
+    xs = np.arange(width, dtype=np.float32)[None, :]
+    ys = np.arange(height, dtype=np.float32)[:, None]
+    ground_mask = bg_mask & (ys >= float(base_y))
+    if not np.any(ground_mask):
+        return Image.fromarray(arr, mode="RGB")
+
+    depth_ratio = np.clip((ys - base_y) / max(1.0, height - 1 - base_y), 0.0, 1.0)
+    center_x = (width - 1) / 2.0
+    lateral = np.abs(xs - center_x) / max(1.0, center_x)
+
+    far_color = np.array([136, 132, 114], dtype=np.float32)
+    near_color = np.array([158, 150, 120], dtype=np.float32)
+    grass_tint = np.array([112, 126, 96], dtype=np.float32)
+
+    base = far_color[None, None, :] * (1.0 - depth_ratio[:, :, None])
+    base += near_color[None, None, :] * depth_ratio[:, :, None]
+    grass_mix = np.clip(0.28 + 0.18 * depth_ratio - 0.1 * lateral, 0.0, 0.42)
+    base = base * (1.0 - grass_mix[:, :, None]) + grass_tint[None, None, :] * (
+        grass_mix[:, :, None]
+    )
+
+    x_wave = np.sin(xs / 15.0) + np.sin(xs / 37.0)
+    y_wave = np.cos(ys / 9.0) + np.sin(ys / 21.0)
+    texture = (x_wave + y_wave)[:, :, None] * 5.0
+    grain = np.sin((xs * 0.27) + (ys * 0.19))[:, :, None] * 3.0
+    textured = np.clip(base + texture + grain, 0.0, 255.0).astype(np.uint8)
+
+    ground_line_band = np.broadcast_to(
+        np.abs(ys - float(base_y)) <= 1.0,
+        (height, width),
+    )
+    ground_line_color = np.array([118, 116, 106], dtype=np.uint8)
+    textured[ground_line_band] = ground_line_color
+
+    arr[ground_mask] = textured[ground_mask]
+    return Image.fromarray(arr, mode="RGB")
 
 
 class DepthStyleRenderer:
@@ -160,6 +355,9 @@ class DepthStyleRenderer:
         depth_image: Image.Image,
         params: DepthStyleParams,
         view: IFCView | None = None,
+        use_eye_ground_anchor: bool = False,
+        use_eye_ground_segmentation: bool = False,
+        use_ground_level_attachment: bool = False,
     ) -> DepthStyleResult:
         """depth PIL 1장 + prompt → 스타일 변환 PIL 1장 (1회 추론).
 
@@ -171,27 +369,40 @@ class DepthStyleRenderer:
         """
         depth_size = depth_image.size  # (W, H)
         control = _depth_to_control(depth_image)
+        is_eye_view = view in {
+            IFCView.EYE_NE,
+            IFCView.EYE_NW,
+            IFCView.EYE_SE,
+        }
+        is_ground_level_view = view in {IFCView.FRONT, IFCView.SIDE}
+        if use_ground_level_attachment and is_ground_level_view:
+            control = _apply_ground_level_attachment(control)
+        if use_eye_ground_segmentation and is_eye_view:
+            control = _apply_eye_ground_segmentation(control)
+        elif use_eye_ground_anchor and is_eye_view:
+            control = _apply_eye_ground_anchor(control)
         width, height = control.size
         if view is not None:
             prompt = build_view_prompt(params.prompt, view)
-            negative_prompt = build_view_negative_prompt(params.negative_prompt, view)
-            cn_scale = resolve_view_cn_scale(
-                params.controlnet_conditioning_scale, view
-            )
-            # 실제 SD pipe에 전달된 값으로 갱신된 params — result.params로 반환해
-            # 호출자가 *어떤 합성/override가 적용됐는지* 추적 가능 (디버깅/로그/재현성).
-            applied_params = dc_replace(
-                params,
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                controlnet_conditioning_scale=cn_scale,
-            )
+            # 실제 SD pipe에 전달된 prompt로 갱신된 params — result.params로 반환해
+            # 호출자가 *어떤 view suffix가 합성됐는지* 추적 가능 (디버깅/로그/재현성).
+            applied_params = dc_replace(params, prompt=prompt)
         else:
             prompt = params.prompt
-            negative_prompt = params.negative_prompt
-            cn_scale = params.controlnet_conditioning_scale
-            # view 미사용 — 합성/override 없음, identity 보존 (backward compat).
+            # view 미사용 — 합성 없음, identity 보존 (backward compat).
             applied_params = params
+        negative_prompt = params.negative_prompt
+        if use_ground_level_attachment and is_ground_level_view:
+            negative_prompt = _append_negative_terms(
+                negative_prompt,
+                GROUND_LEVEL_ATTACHMENT_NEGATIVE,
+            )
+        if use_eye_ground_segmentation and is_eye_view:
+            negative_prompt = _append_negative_terms(
+                negative_prompt,
+                EYE_GROUND_SEGMENTATION_NEGATIVE,
+            )
+        cn_scale = params.controlnet_conditioning_scale
 
         try:
             if params.seed is None:

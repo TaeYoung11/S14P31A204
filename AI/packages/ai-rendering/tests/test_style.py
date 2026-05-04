@@ -7,6 +7,7 @@ torch/diffusers 지연 임포트 덕에 의존성 미설치에서도 import 가�
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -16,6 +17,16 @@ from ai_rendering.ifc2img import (
     DepthStyleResult,
     IFCRenderError,
     IFCView,
+)
+from ai_rendering.ifc2img.style import (
+    EYE_GROUND_SEGMENTATION_NEGATIVE,
+    GROUND_LEVEL_ATTACHMENT_NEGATIVE,
+    _apply_eye_ground_anchor,
+    _apply_eye_ground_segmentation,
+    _apply_ground_level_attachment,
+    _append_negative_terms,
+    _compute_ground_level_base_y,
+    _compute_eye_ground_line,
 )
 
 
@@ -137,7 +148,7 @@ def test_result_save_creates_parent_dir(tmp_path: Path) -> None:
 
 
 def test_public_api_exports() -> None:
-    """ifc2img 공개 심볼: IFC 렌더 3 + style 3 + presets 2 + view helpers 3 = 11개."""
+    """ifc2img 공개 심볼: IFC 렌더 3 + style 3 + presets 2 + view helper 1 = 9개."""
     from ai_rendering import ifc2img
 
     expected = {
@@ -150,8 +161,6 @@ def test_public_api_exports() -> None:
         "list_presets",
         "load_preset",
         "build_view_prompt",
-        "build_view_negative_prompt",
-        "resolve_view_cn_scale",
     }
     assert set(ifc2img.__all__) == expected
 
@@ -162,17 +171,21 @@ def test_public_api_exports() -> None:
 def test_render_with_view_appends_suffix_to_prompt(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """B-1 — view=ISO_NE 전달 시 pipe 호출 prompt에 환경 suffix 포함."""
+    """B-1 — view=TOP 전달 시 pipe 호출 prompt에 환경 suffix 포함.
+
+    EYE_*/FRONT/SIDE는 빈 suffix이므로 합성 검증에는 명시 호출용 시점(TOP) 사용.
+    suffix 합성 메커니즘 자체는 모든 view에서 동일.
+    """
     depth = Image.new("L", (768, 448), 100)
     base_prompt = "RAW photo, scandinavian house"
     params = DepthStyleParams(prompt=base_prompt)
 
-    mock_depth_renderer.render(depth, params, view=IFCView.ISO_NE)
+    mock_depth_renderer.render(depth, params, view=IFCView.TOP)
 
     call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
     assert call_prompt.startswith(base_prompt)
     assert len(call_prompt) > len(base_prompt)
-    assert "grass" in call_prompt or "lawn" in call_prompt
+    assert "aerial" in call_prompt or "roof" in call_prompt
 
 
 def test_render_without_view_uses_raw_prompt(
@@ -205,11 +218,47 @@ def test_render_with_view_front_no_change(
 
 # --- C-1 폐기 후 — render(view=...) negative 합성 인프라 보존 회귀 방어 ---
 
-
-def test_render_with_view_iso_nw_keeps_base_negative_after_c1_rollback(
+def test_render_with_view_eye_prepends_ground_sky_prefix(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """C-1 폐기 — view=ISO_NW 전달해도 suffix 비어있어 base negative 그대로."""
+    """EYE_* view prompt front-loads diagonal ground and sky placement cues."""
+    depth = Image.new("L", (768, 448), 100)
+    base_prompt = "RAW photo, scandinavian house"
+    params = DepthStyleParams(prompt=base_prompt)
+
+    mock_depth_renderer.render(depth, params, view=IFCView.EYE_NE)
+
+    call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
+    assert call_prompt.startswith("eye-level diagonal view")
+    assert call_prompt.endswith(base_prompt)
+    assert "building on flat ground" in call_prompt
+    assert "foreground ground fills frame" in call_prompt
+    assert "horizon behind house" in call_prompt
+    assert "not aerial" in call_prompt
+
+
+def test_render_with_view_eye_removes_blue_sky_prior(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """EYE_* view prompt removes the preset day blue-sky prior before pipe call."""
+    depth = Image.new("L", (768, 448), 100)
+    base_prompt = (
+        "RAW photo, scandinavian house, during sunny daytime, natural sunlight, blue sky"
+    )
+    params = DepthStyleParams(prompt=base_prompt)
+
+    mock_depth_renderer.render(depth, params, view=IFCView.EYE_NE)
+
+    call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
+    assert "blue sky" not in call_prompt
+    assert "building on flat ground" in call_prompt
+    assert "natural sunlight" in call_prompt
+
+
+def test_render_with_view_eye_nw_keeps_base_negative_after_c1_rollback(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """C-1 폐기 — view=EYE_NW 전달해도 suffix 비어있어 base negative 그대로."""
     depth = Image.new("L", (768, 448), 100)
     base_negative = "(worst quality:1.4), interior"
     params = DepthStyleParams(
@@ -217,16 +266,16 @@ def test_render_with_view_iso_nw_keeps_base_negative_after_c1_rollback(
         negative_prompt=base_negative,
     )
 
-    mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
+    mock_depth_renderer.render(depth, params, view=IFCView.EYE_NW)
 
     call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
     assert call_negative == base_negative
 
 
-def test_render_with_view_iso_ne_keeps_base_negative(
+def test_render_with_view_eye_ne_keeps_base_negative(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """ISO_NE도 빈 suffix → base 그대로 (안정 판정 시점)."""
+    """EYE_NE도 빈 suffix → base 그대로 (안정 판정 시점)."""
     depth = Image.new("L", (768, 448), 100)
     base_negative = "(worst quality:1.4)"
     params = DepthStyleParams(
@@ -234,7 +283,7 @@ def test_render_with_view_iso_ne_keeps_base_negative(
         negative_prompt=base_negative,
     )
 
-    mock_depth_renderer.render(depth, params, view=IFCView.ISO_NE)
+    mock_depth_renderer.render(depth, params, view=IFCView.EYE_NE)
 
     call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
     assert call_negative == base_negative
@@ -257,75 +306,8 @@ def test_render_without_view_uses_raw_negative(
     assert call_negative == base_negative
 
 
-def test_render_with_view_iso_nw_composes_when_suffix_present(
-    mock_depth_renderer: DepthStyleRenderer,
-) -> None:
-    """인프라 보존 회귀 방어 — suffix 채우면 즉시 합성되어 pipe에 전달.
-
-    C-1은 폐기되어 dict 비어있지만, 향후 다른 시점 토큰 채울 시 *render 통합 경로*가
-    여전히 동작해야 함을 보장.
-    """
-    from ai_rendering.ifc2img import views as views_module
-
-    original = views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW]
-    try:
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = ", test_token"
-        depth = Image.new("L", (768, 448), 100)
-        base = "(worst quality:1.4)"
-        params = DepthStyleParams(prompt="x", negative_prompt=base)
-        mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
-        call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
-        assert call_negative == f"{base}, test_token"
-    finally:
-        views_module.VIEW_NEGATIVE_SUFFIXES[IFCView.ISO_NW] = original
-
-
-# --- C-2 — DepthStyleRenderer.render(view=...) cn_scale override ---
-
-
-def test_render_with_view_uses_override_when_set(
-    mock_depth_renderer: DepthStyleRenderer,
-) -> None:
-    """view에 cn_scale override가 설정돼 있으면 params.cn_scale 무시하고 override 사용.
-
-    옵션 E (E-clean, 2026-04-29) — preset base 1.0 인상 후 iso_nw/se override 제거.
-    호출자가 향후 view-별 override를 다시 설정해도 메커니즘이 동작하는지 검증.
-    """
-    from ai_rendering.ifc2img import views as views_module
-
-    original = views_module.VIEW_CN_SCALE_OVERRIDES[IFCView.ISO_NW]
-    try:
-        views_module.VIEW_CN_SCALE_OVERRIDES[IFCView.ISO_NW] = 1.15
-        depth = Image.new("L", (768, 448), 100)
-        params = DepthStyleParams(
-            prompt="x",
-            controlnet_conditioning_scale=1.0,
-        )
-
-        mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
-
-        sent_cn = mock_depth_renderer.pipe.call_args.kwargs[
-            "controlnet_conditioning_scale"
-        ]
-        assert sent_cn == 1.15
-    finally:
-        views_module.VIEW_CN_SCALE_OVERRIDES[IFCView.ISO_NW] = original
-
-
-def test_render_with_view_falls_back_to_params_when_no_override(
-    mock_depth_renderer: DepthStyleRenderer,
-) -> None:
-    """모든 view override가 None인 default 상태(옵션 E E-clean) — params 값 그대로."""
-    depth = Image.new("L", (768, 448), 100)
-    params = DepthStyleParams(
-        prompt="x",
-        controlnet_conditioning_scale=1.0,
-    )
-
-    mock_depth_renderer.render(depth, params, view=IFCView.FRONT)
-
-    sent_cn = mock_depth_renderer.pipe.call_args.kwargs["controlnet_conditioning_scale"]
-    assert sent_cn == 1.0
+# per-view negative suffix infra (C-1) + cn_scale override infra (C-2) 폐기.
+# 두 인프라 모두 render() 경로에서 호출 자체가 제거된 dead code.
 
 
 def test_render_without_view_uses_params_cn_scale(
@@ -347,13 +329,11 @@ def test_render_without_view_uses_params_cn_scale(
 def test_render_result_params_reflect_applied_view_composition(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """결과 params 반영 — view 전달 시 result.params에 합성/override된 값이 들어감.
+    """결과 params 반영 — view 전달 시 result.params에 합성된 값이 들어감.
 
-    호출자가 result.params.prompt / .negative_prompt / .controlnet_conditioning_scale
-    로 *실제 SD pipe에 전달된 값*을 추적할 수 있어야 함 (디버깅/로그/재현성).
-
-    옵션 E (E-clean) 후 cn_scale override가 default None — view 전달해도
-    cn_scale은 base 그대로. prompt suffix는 ISO_NW에 여전히 적용.
+    호출자가 result.params.prompt로 *실제 SD pipe에 전달된 값*을 추적할 수 있어야
+    함 (디버깅/로그/재현성). EYE_*/FRONT/SIDE는 빈 suffix이므로 검증에는 명시
+    호출 시점(TOP, suffix 보유)을 사용.
     """
     depth = Image.new("L", (768, 448), 100)
     base_prompt = "RAW photo, scandinavian house"
@@ -363,9 +343,9 @@ def test_render_result_params_reflect_applied_view_composition(
         controlnet_conditioning_scale=1.0,
     )
 
-    result = mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
+    result = mock_depth_renderer.render(depth, params, view=IFCView.TOP)
 
-    # ISO_NW은 prompt suffix 적용 대상 (cn_scale override는 None default)
+    # TOP은 prompt suffix 적용 대상 (cn_scale override는 None default)
     assert result.params is not params  # 새 인스턴스 (view-aware 합성 적용)
     assert result.params.prompt.startswith(base_prompt)
     assert len(result.params.prompt) > len(base_prompt)  # suffix 추가됨
@@ -384,3 +364,224 @@ def test_render_result_params_identity_preserved_when_view_none(
     result = mock_depth_renderer.render(depth, params)  # view=None
 
     assert result.params is params
+
+
+def test_apply_eye_ground_anchor_preserves_geometry_pixels() -> None:
+    """Ground anchor only fills empty background and keeps geometry pixels intact."""
+    control = Image.new("RGB", (8, 8), (0, 0, 0))
+    arr = np.array(control)
+    arr[2:4, 2:4] = [255, 255, 255]
+    anchored = _apply_eye_ground_anchor(Image.fromarray(arr, mode="RGB"))
+    anchored_arr = np.array(anchored)
+
+    np.testing.assert_array_equal(anchored_arr[2:4, 2:4], arr[2:4, 2:4])
+
+
+def test_apply_eye_ground_anchor_fills_lower_background_only() -> None:
+    """Ground anchor fills lower empty background while leaving upper background black."""
+    control = Image.new("RGB", (20, 20), (0, 0, 0))
+    anchored = _apply_eye_ground_anchor(control)
+    arr = np.array(anchored)
+
+    assert np.all(arr[2, 2] == [0, 0, 0])
+    assert not np.all(arr[18, 2] == [0, 0, 0])
+
+
+def test_render_with_eye_ground_anchor_modifies_control_image(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Optional B1 path changes the control image only when explicitly enabled."""
+    depth = Image.new("L", (32, 32), 0)
+    params = DepthStyleParams(prompt="RAW photo, scandinavian house")
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.EYE_NE,
+        use_eye_ground_anchor=True,
+    )
+
+    control = mock_depth_renderer.pipe.call_args.kwargs["image"]
+    arr = np.array(control)
+    assert not np.all(arr[30, 2] == [0, 0, 0])
+    assert np.all(arr[2, 2] == [0, 0, 0])
+
+
+def test_compute_eye_ground_line_rises_toward_edges() -> None:
+    """Ground line should start lower near image edges than near the facade center."""
+    control = Image.new("RGB", (20, 20), (0, 0, 0))
+    arr = np.array(control)
+    arr[5:12, 7:13] = [255, 255, 255]
+    line = _compute_eye_ground_line(np.all(arr == 0, axis=2))
+
+    assert line[0] > line[10]
+    assert line[-1] > line[10]
+
+
+def test_apply_eye_ground_segmentation_preserves_geometry_pixels() -> None:
+    """B2 segmentation path should only color empty background below the facade."""
+    control = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(control)
+    arr[6:14, 8:16] = [255, 255, 255]
+    segmented = _apply_eye_ground_segmentation(Image.fromarray(arr, mode="RGB"))
+    segmented_arr = np.array(segmented)
+
+    np.testing.assert_array_equal(segmented_arr[6:14, 8:16], arr[6:14, 8:16])
+
+
+def test_apply_eye_ground_segmentation_fills_below_ground_line_only() -> None:
+    """B2 segmentation should leave upper sky blank and fill lower ground background."""
+    control = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(control)
+    arr[6:14, 8:16] = [255, 255, 255]
+    segmented = _apply_eye_ground_segmentation(Image.fromarray(arr, mode="RGB"))
+    segmented_arr = np.array(segmented)
+
+    assert np.all(segmented_arr[3, 3] == [0, 0, 0])
+    assert not np.all(segmented_arr[22, 3] == [0, 0, 0])
+
+
+def test_render_with_eye_ground_segmentation_modifies_control_image(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Optional B2 path should send a segmented ground-aware control image to the pipe."""
+    depth = Image.new("L", (32, 32), 0)
+    params = DepthStyleParams(prompt="RAW photo, scandinavian house")
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.EYE_NE,
+        use_eye_ground_segmentation=True,
+    )
+
+    control = mock_depth_renderer.pipe.call_args.kwargs["image"]
+    arr = np.array(control)
+    assert np.all(arr[2, 2] == [0, 0, 0])
+    assert not np.all(arr[30, 2] == [0, 0, 0])
+
+
+def test_render_with_eye_ground_segmentation_takes_precedence_over_anchor(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """When both B1 and B2 flags are on, B2 should win."""
+    depth = Image.new("L", (32, 32), 0)
+    params = DepthStyleParams(prompt="RAW photo, scandinavian house")
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.EYE_NE,
+        use_eye_ground_anchor=True,
+        use_eye_ground_segmentation=True,
+    )
+
+    control = mock_depth_renderer.pipe.call_args.kwargs["image"]
+    arr = np.array(control)
+    assert tuple(arr[30, 2]) != (176, 168, 146)
+
+
+def test_append_negative_terms_handles_empty_and_nonempty_base() -> None:
+    """Negative helper should preserve formatting for empty and nonempty inputs."""
+    assert _append_negative_terms("", "pool") == "pool"
+    assert _append_negative_terms("a, b", "pool") == "a, b, pool"
+
+
+def test_render_with_eye_ground_segmentation_appends_short_negative_terms(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """B2.1 should add terrace/pool/deck negatives only on the B2 eye path."""
+    depth = Image.new("L", (32, 32), 0)
+    params = DepthStyleParams(
+        prompt="RAW photo, scandinavian house",
+        negative_prompt="(worst quality:1.4)",
+    )
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.EYE_NE,
+        use_eye_ground_segmentation=True,
+    )
+
+    negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
+    assert negative.endswith(EYE_GROUND_SEGMENTATION_NEGATIVE)
+
+
+def test_render_without_eye_ground_segmentation_keeps_base_negative_prompt(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Non-B2 paths should not receive the extra pool/terrace/deck negatives."""
+    depth = Image.new("L", (32, 32), 0)
+    params = DepthStyleParams(
+        prompt="RAW photo, scandinavian house",
+        negative_prompt="(worst quality:1.4)",
+    )
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.EYE_NE,
+        use_eye_ground_anchor=True,
+    )
+
+    negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
+    assert negative == "(worst quality:1.4)"
+
+
+def test_compute_ground_level_base_y_uses_facade_bottom() -> None:
+    """Front/side base row should track the lower geometry envelope."""
+    control = Image.new("RGB", (20, 20), (0, 0, 0))
+    arr = np.array(control)
+    arr[5:13, 6:14] = [255, 255, 255]
+    base_y = _compute_ground_level_base_y(np.all(arr == 0, axis=2))
+
+    assert base_y >= 12
+
+
+def test_apply_ground_level_attachment_preserves_geometry_pixels() -> None:
+    """Ground-level attachment should not overwrite facade geometry."""
+    control = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(control)
+    arr[6:14, 8:16] = [255, 255, 255]
+    attached = _apply_ground_level_attachment(Image.fromarray(arr, mode="RGB"))
+    attached_arr = np.array(attached)
+
+    np.testing.assert_array_equal(attached_arr[6:14, 8:16], arr[6:14, 8:16])
+
+
+def test_apply_ground_level_attachment_fills_lower_background_only() -> None:
+    """Ground-level attachment should keep upper sky blank and fill below the facade."""
+    control = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(control)
+    arr[6:14, 8:16] = [255, 255, 255]
+    attached = _apply_ground_level_attachment(Image.fromarray(arr, mode="RGB"))
+    attached_arr = np.array(attached)
+
+    assert np.all(attached_arr[3, 3] == [0, 0, 0])
+    assert not np.all(attached_arr[22, 3] == [0, 0, 0])
+
+
+def test_render_with_ground_level_attachment_modifies_control_and_negative(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Optional front/side path should attach ground and append wall/foundation negatives."""
+    depth = Image.new("L", (32, 32), 0)
+    params = DepthStyleParams(
+        prompt="RAW photo, scandinavian house",
+        negative_prompt="(worst quality:1.4)",
+    )
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.FRONT,
+        use_ground_level_attachment=True,
+    )
+
+    control = mock_depth_renderer.pipe.call_args.kwargs["image"]
+    negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
+    arr = np.array(control)
+    assert np.all(arr[2, 2] == [0, 0, 0])
+    assert not np.all(arr[30, 2] == [0, 0, 0])
+    assert negative.endswith(GROUND_LEVEL_ATTACHMENT_NEGATIVE)
