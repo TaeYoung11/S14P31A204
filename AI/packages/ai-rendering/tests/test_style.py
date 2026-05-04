@@ -19,8 +19,10 @@ from ai_rendering.ifc2img import (
     IFCView,
 )
 from ai_rendering.ifc2img.style import (
+    EYE_GROUND_SEGMENTATION_NEGATIVE,
     _apply_eye_ground_anchor,
     _apply_eye_ground_segmentation,
+    _append_negative_terms,
     _compute_eye_ground_line,
 )
 
@@ -474,3 +476,51 @@ def test_render_with_eye_ground_segmentation_takes_precedence_over_anchor(
     control = mock_depth_renderer.pipe.call_args.kwargs["image"]
     arr = np.array(control)
     assert tuple(arr[30, 2]) != (176, 168, 146)
+
+
+def test_append_negative_terms_handles_empty_and_nonempty_base() -> None:
+    """Negative helper should preserve formatting for empty and nonempty inputs."""
+    assert _append_negative_terms("", "pool") == "pool"
+    assert _append_negative_terms("a, b", "pool") == "a, b, pool"
+
+
+def test_render_with_eye_ground_segmentation_appends_short_negative_terms(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """B2.1 should add terrace/pool/deck negatives only on the B2 eye path."""
+    depth = Image.new("L", (32, 32), 0)
+    params = DepthStyleParams(
+        prompt="RAW photo, scandinavian house",
+        negative_prompt="(worst quality:1.4)",
+    )
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.EYE_NE,
+        use_eye_ground_segmentation=True,
+    )
+
+    negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
+    assert negative.endswith(EYE_GROUND_SEGMENTATION_NEGATIVE)
+
+
+def test_render_without_eye_ground_segmentation_keeps_base_negative_prompt(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Non-B2 paths should not receive the extra pool/terrace/deck negatives."""
+    depth = Image.new("L", (32, 32), 0)
+    params = DepthStyleParams(
+        prompt="RAW photo, scandinavian house",
+        negative_prompt="(worst quality:1.4)",
+    )
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.EYE_NE,
+        use_eye_ground_anchor=True,
+    )
+
+    negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
+    assert negative == "(worst quality:1.4)"

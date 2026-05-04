@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 DEFAULT_MODEL_ID = "runwayml/stable-diffusion-v1-5"
 DEFAULT_CONTROLNET_DEPTH_ID = "lllyasviel/sd-controlnet-depth"
+EYE_GROUND_SEGMENTATION_NEGATIVE = "pool, terrace, deck"
 EYE_GROUND_ANCHOR_START_RATIO = 0.58
 EYE_GROUND_HORIZON_BAND_RATIO = 0.06
 EYE_GROUND_MASK_START_RATIO = 0.52
@@ -186,6 +187,15 @@ def _apply_eye_ground_segmentation(control: Image.Image) -> Image.Image:
     return Image.fromarray(arr, mode="RGB")
 
 
+def _append_negative_terms(base_negative: str, extra_negative: str) -> str:
+    """Append short negative terms while preserving empty/base formatting."""
+    if not extra_negative:
+        return base_negative
+    if not base_negative:
+        return extra_negative
+    return f"{base_negative}, {extra_negative}"
+
+
 class DepthStyleRenderer:
     """SD 1.5 + ControlNet-depth (txt2img). 한 번 로드 후 여러 번 렌더."""
 
@@ -309,6 +319,11 @@ class DepthStyleRenderer:
             # view 미사용 — 합성 없음, identity 보존 (backward compat).
             applied_params = params
         negative_prompt = params.negative_prompt
+        if use_eye_ground_segmentation and is_eye_view:
+            negative_prompt = _append_negative_terms(
+                negative_prompt,
+                EYE_GROUND_SEGMENTATION_NEGATIVE,
+            )
         cn_scale = params.controlnet_conditioning_scale
 
         try:
