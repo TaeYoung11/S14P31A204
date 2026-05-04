@@ -1228,3 +1228,9 @@ def test_no_building_element_raises() -> None:
     ):
         with pytest.raises(IFCRenderError, match="IfcBuildingElement"):
             load_mesh(Path("dummy.ifc"))
+
+
+# Phase 5 옵션 GGG (depth 후처리 상단 background fill) 폐기됨 — 단위 테스트 7건 제거.
+# 이유: Step 2 검수에서 *상단 1/3이 지붕처럼* 부작용 발견. SD가 mid-raw 회색 띠를
+# *수평선 구조물*이 아니라 *건물 자체의 지붕*으로 해석. depth 후처리 단서가 SD prior
+# (건물 구조의 일부)에 흡수되어 의도와 다른 결과.

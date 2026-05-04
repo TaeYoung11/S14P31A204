@@ -13,7 +13,6 @@ from .views import (
     DEFAULT_RENDER_VIEWS,
     VIEW_CAMERAS,
     VIEW_TARGET_RATIOS,
-    VIEWS_WITH_TOP_BG_FILL,
     VIEWS_WITHOUT_GROUND,
     AutoZoomMode,
     CameraParams,
@@ -21,15 +20,6 @@ from .views import (
     compute_auto_zoom,
     resolve_target_ratio_for_mesh,
 )
-
-
-# Phase 5 옵션 GGG (2026-05-04) — depth 후처리 상단 background fill.
-#
-# `BG_FILL_TOP_RATIO`: 화면 상단 N 비율 영역에 fill 적용 (0.0~1.0).
-# `BG_FILL_VALUE`: depth 정규화 후 채울 값 (0.0=먼/배경, 1.0=가까운/면).
-#   0.5 = 중간 회색 → SD가 *수평선 방향 구조물*로 해석 기대.
-BG_FILL_TOP_RATIO: float = 0.3
-BG_FILL_VALUE: float = 0.5
 
 
 class IFCRenderer:
@@ -239,64 +229,7 @@ class IFCRenderer:
         finally:
             vis.destroy_window()
 
-        depth = self._apply_top_bg_fill_for_view(depth, view)
         return self._depth_to_image(depth)
-
-    @staticmethod
-    def _apply_top_bg_fill_for_view(
-        depth: np.ndarray, view: IFCView
-    ) -> np.ndarray:
-        """view 정책에 따라 _fill_top_background_in_raw 호출 — Phase 5 옵션 GGG.
-
-        VIEWS_WITH_TOP_BG_FILL(FRONT/SIDE/EYE_*)만 fill, 그 외는 변경 없음.
-        """
-        if view not in VIEWS_WITH_TOP_BG_FILL:
-            return depth
-        return IFCRenderer._fill_top_background_in_raw(
-            depth, BG_FILL_TOP_RATIO, BG_FILL_VALUE
-        )
-
-    @staticmethod
-    def _fill_top_background_in_raw(
-        depth: np.ndarray, ratio: float, fill_value_norm: float
-    ) -> np.ndarray:
-        """화면 상단 ratio 영역의 background(=0) 픽셀을 mid-raw로 채워 SD에
-        *수평선 방향 구조물* 단서 전달 (Phase 5 옵션 GGG, 2026-05-04).
-
-        `_depth_to_image`의 정규화 공식 `gray = (1 - (d-min)/(max-min)) * 255`에
-        역산해 *정규화 후* fill_value_norm(0~1) 회색이 나오는 raw depth 값으로 채움:
-            fill_raw = d_min + (1 - fill_value_norm) * (d_max - d_min)
-        예: fill_value_norm=0.5 → fill_raw = (d_min + d_max) / 2 → 결과 mid gray.
-
-        Args:
-            depth: raw depth array shape=(H, W). background=0, geometry>0.
-            ratio: 화면 상단 비율 [0.0, 1.0]. 예: 0.3 = 상단 30%.
-            fill_value_norm: 정규화 결과 회색 [0.0, 1.0]. 0.5 = mid gray.
-
-        Returns:
-            새 ndarray (입력 수정 없음). geometry 픽셀 보존, 상단 ratio의
-            background(=0)만 fill_raw로 변경.
-        """
-        if depth.size == 0:
-            return depth
-        geometry_mask = depth > 0
-        if not geometry_mask.any():
-            return depth
-        d_min = float(depth[geometry_mask].min())
-        d_max = float(depth[geometry_mask].max())
-        if d_max <= d_min:
-            return depth
-        fill_raw = d_min + (1.0 - fill_value_norm) * (d_max - d_min)
-
-        height = depth.shape[0]
-        top_h = int(height * ratio)
-        if top_h <= 0:
-            return depth
-
-        out = depth.copy()
-        top_band = out[:top_h]
-        top_band[top_band == 0] = fill_raw
-        return out
 
     @staticmethod
     def _depth_to_image(depth: np.ndarray) -> Image.Image:

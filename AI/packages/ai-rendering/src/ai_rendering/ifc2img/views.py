@@ -161,25 +161,6 @@ DEFAULT_RENDER_VIEWS: list[IFCView] = [
 VIEWS_WITHOUT_GROUND: frozenset[IFCView] = frozenset()
 
 
-# View-aware top background fill 정책 — Phase 5 옵션 GGG (2026-05-04).
-#
-# 검수 보고: eye 5뷰 배경이 *전체가 하늘/구름* — depth background(=0)를 SD가
-# *제약 없는 영역*으로 해석 → sky 환각. 처방: 화면 *상단* 일부 background를
-# 중간 회색(0.5 정규화)으로 채워 SD에 *수평선 방향 구조물* 단서 전달.
-#
-# 적용 view: 사람 시선/입면도 시점만 (위에서 본 시점은 화면 상단이 *지붕/평면*
-# 이라 회색 채우면 부자연).
-VIEWS_WITH_TOP_BG_FILL: frozenset[IFCView] = frozenset(
-    {
-        IFCView.FRONT,
-        IFCView.SIDE,
-        IFCView.EYE_NE,
-        IFCView.EYE_NW,
-        IFCView.EYE_SE,
-    }
-)
-
-
 # View 별 prompt suffix — 옵션 B (per-view prompt suffix)의 공통 자산.
 #
 # 등각·기타 시점은 화면에 *건물 주변 환경*(잔디·길)도 들어옴. facade-위주 prompt
