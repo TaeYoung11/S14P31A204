@@ -182,10 +182,6 @@ function resolveMode(value: string | null): EditorMode {
   return EDITOR_MODES.includes(value as EditorMode) ? (value as EditorMode) : 'bubble'
 }
 
-function resolveDraftPhaseStatus(draft: Partial<EditorDraftSnapshot> | null | undefined): PhaseStatus {
-  if (draft?.phaseStatus) return draft.phaseStatus
-  return draft?.isFloorPlanGenerated ? 'IFC_EDIT' : 'BUBBLE_DRAFT'
-}
 
 /** 두 연결선 쌍이 동일한지 비교 (방향 무관) */
 function isSameConnection(
@@ -526,7 +522,11 @@ export function useEditorPage() {
   const [overlayOpacityByLayerId, setOverlayOpacityByLayerId] = useState<Record<string, number>>({})
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [autosaveReadyProjectId, setAutosaveReadyProjectId] = useState<string | null>(null)
-  const [workspacePhaseStatus, setWorkspacePhaseStatus] = useState<PhaseStatus>('BUBBLE_DRAFT')
+  const workspacePhaseStatus: PhaseStatus = isFloorPlanGenerating
+    ? 'CONVERTING'
+    : isFloorPlanGenerated
+      ? 'IFC_EDIT'
+      : 'BUBBLE_DRAFT'
   const attemptedInitialIfcImportProjectIdRef = useRef<string | null>(null)
   const localVersionRef = useRef(0)
   const previousSnapshotRef = useRef<string | null>(null)
@@ -535,7 +535,6 @@ export function useEditorPage() {
   const pendingDraftRecordRef = useRef<EditorDraftRecord | null>(null)
   const draftLoadTokenRef = useRef(0)
   const draftLoadBaselineRef = useRef<string | null>(null)
-  const latestDraftSnapshotRef = useRef<EditorDraftSnapshot | null>(null)
   const flushPendingDraftSave = useCallback(() => {
     if (localSaveTimerRef.current !== null) {
       clearTimeout(localSaveTimerRef.current)
@@ -692,20 +691,7 @@ export function useEditorPage() {
     isProjectStructurePreferred,
   ])
 
-  useEffect(() => {
-    if (isFloorPlanGenerating) {
-      setWorkspacePhaseStatus('CONVERTING')
-      return
-    }
-
-    if (isFloorPlanGenerated) {
-      setWorkspacePhaseStatus('IFC_EDIT')
-      return
-    }
-
-    setWorkspacePhaseStatus('BUBBLE_DRAFT')
-  }, [isFloorPlanGenerated, isFloorPlanGenerating])
-
+  const latestDraftSnapshotRef = useRef(draftSnapshot)
   useEffect(() => {
     latestDraftSnapshotRef.current = draftSnapshot
   }, [draftSnapshot])
@@ -737,7 +723,7 @@ export function useEditorPage() {
     previousSnapshotRef.current = null
     pendingDraftRecordRef.current = null
     hasUserEditedRef.current = false
-    draftLoadBaselineRef.current = JSON.stringify(latestDraftSnapshotRef.current ?? draftSnapshot)
+    draftLoadBaselineRef.current = JSON.stringify(latestDraftSnapshotRef.current)
 
     if (!projectId) {
       return () => {
@@ -759,7 +745,6 @@ export function useEditorPage() {
         if (draft?.data) {
           const data = draft.data
           previousSnapshotRef.current = JSON.stringify(data)
-          setWorkspacePhaseStatus(resolveDraftPhaseStatus(data))
           replaceBubbles(data.bubbles)
           replaceConnections(data.connections)
           replaceZonesState(data.zones)
@@ -775,16 +760,14 @@ export function useEditorPage() {
           setHiddenAutoOpeningIds(data.hiddenAutoOpeningIds ?? [])
           setIsProjectStructurePreferred(data.isProjectStructurePreferred ?? false)
         } else {
-          setWorkspacePhaseStatus('BUBBLE_DRAFT')
-          previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current ?? draftSnapshot)
+          previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current)
         }
 
         setAutosaveReadyProjectId(projectId)
       })
       .catch(() => {
         if (isCancelled || draftLoadTokenRef.current !== loadToken) return
-        setWorkspacePhaseStatus('BUBBLE_DRAFT')
-        previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current ?? draftSnapshot)
+        previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current)
         setAutosaveReadyProjectId(projectId)
       })
 
