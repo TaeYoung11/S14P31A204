@@ -8,10 +8,15 @@ const ThreeDCanvas = lazy(() =>
 interface ThreeDModeCanvasProps {
   editorProps: EditorCanvasContentProps
   scale: number
+  isRotationLocked: boolean
 }
 
 /** 3D 모드 캔버스 렌더링 전용 컴포넌트 */
-export default function ThreeDModeCanvas({ editorProps, scale }: ThreeDModeCanvasProps) {
+export default function ThreeDModeCanvas({
+  editorProps,
+  scale,
+  isRotationLocked,
+}: ThreeDModeCanvasProps) {
   return (
     <ThreeDCanvas
       sitePoints={editorProps.sitePlanPoints}
@@ -26,6 +31,10 @@ export default function ThreeDModeCanvas({ editorProps, scale }: ThreeDModeCanva
       selectedTool={editorProps.selectedTool}
       scale={scale}
       onWheelZoom={editorProps.handleWheelZoom}
+      isRotationLocked={isRotationLocked}
+      ifcElementChanges={editorProps.ifcElementChanges}
+      selectedIfcElement={editorProps.selectedIfcElement}
+      onIfcElementSelect={editorProps.handleSelectIfcElement}
     />
   )
 }

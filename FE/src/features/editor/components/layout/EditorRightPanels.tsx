@@ -9,6 +9,7 @@ import type {
   FloorLayer,
   FloorOpening,
   FloorWall,
+  IfcElementInfo,
   PanelKey,
   PanelOffset,
   PanelResizeAxis,
@@ -40,6 +41,7 @@ interface EditorRightPanelsProps {
   selectedBubble: BubbleInfo | null
   selectedWall?: FloorWall | null
   selectedOpening?: FloorOpening | null
+  selectedIfcElement?: IfcElementInfo | null
   selectedBubbleConnections: BubbleConnectionInfo[]
   selectedBubbleZones: BubbleZoneInfo[]
   zoningListItems: ZoneData[]
@@ -52,6 +54,7 @@ interface EditorRightPanelsProps {
   onTypeChange: (id: string, type: string) => void
   onWidthChange: (id: string, width: number) => void
   onHeightChange: (id: string, height: number) => void
+  onThicknessChange?: (id: string, thickness: number) => void
   onWidthCommit?: (id: string, width: number) => void
   onHeightCommit?: (id: string, height: number) => void
   onRatioChange: (id: string, ratio: number) => void
@@ -119,6 +122,7 @@ export function EditorRightPanels({
   selectedBubble,
   selectedWall,
   selectedOpening,
+  selectedIfcElement,
   selectedBubbleConnections,
   selectedBubbleZones,
   zoningListItems,
@@ -131,6 +135,7 @@ export function EditorRightPanels({
   onTypeChange,
   onWidthChange,
   onHeightChange,
+  onThicknessChange,
   onWidthCommit,
   onHeightCommit,
   onRatioChange,
@@ -232,12 +237,14 @@ export function EditorRightPanels({
         selectedBubble={selectedBubble}
         selectedWall={selectedWall}
         selectedOpening={selectedOpening}
+        selectedIfcElement={selectedIfcElement}
         connections={selectedBubbleConnections}
         zones={selectedBubbleZones}
         onLabelChange={onLabelChange}
         onTypeChange={onTypeChange}
         onWidthChange={onWidthChange}
         onHeightChange={onHeightChange}
+        onThicknessChange={onThicknessChange}
         onWidthCommit={onWidthCommit}
         onHeightCommit={onHeightCommit}
         onRatioChange={onRatioChange}

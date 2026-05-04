@@ -55,6 +55,9 @@ type FloorPlanCanvasProps = Pick<
   | 'handleGenerateFloorPlan'
   | 'canGenerateFloorPlanFromBubble'
   | 'handleBubbleSelect'
+  | 'handleSelectIfcElement'
+  | 'selectedIfcElement'
+  | 'ifcElementChanges'
 >
 
 /** 2D 벽/개구부 편집 상호작용 */

@@ -1,91 +1,141 @@
 import { ColorSelector } from '../shared/ColorSelector'
-import type { BubbleInfo } from './BubbleAttributePanel'
 import { MaterialSelector } from '../shared/MaterialSelector'
+import type { IfcElementInfo } from '../../types'
+import type { BubbleInfo } from './BubbleAttributePanel'
 
 interface ThreeDAttributePanelProps {
   selectedBubble: BubbleInfo | null
+  selectedIfcElement?: IfcElementInfo | null
   onLabelChange: (id: string, label: string) => void
+  onWidthChange: (id: string, width: number) => void
+  onHeightChange: (id: string, height: number) => void
+  onThicknessChange?: (id: string, thickness: number) => void
   onColorChange: (id: string, color: string) => void
   onMaterialChange?: (id: string, material: string) => void
 }
 
-/**
- * 3D 뷰어 모드 속성 패널
- * 선택된 공간의 이름·색상을 변경할 수 있으며,
- * 벽체 치수(길이·높이·두께)와 재질은 기본값으로 표시된다.
- */
-export function ThreeDAttributePanel({ selectedBubble, onLabelChange, onColorChange, onMaterialChange }: ThreeDAttributePanelProps) {
+function ReadOnlyInput({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">{label}</span>
+      <input
+        type="text"
+        value={value}
+        readOnly
+        className="rounded-lg border-none bg-[#F8F9FD] px-3 py-2.5 text-xs font-bold text-[#1C1C1E] opacity-75 outline-none"
+      />
+    </div>
+  )
+}
+
+function NumberInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value?: number
+  onChange: (value: number) => void
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">{label}</span>
+      <input
+        type="number"
+        min={1}
+        value={value ?? ''}
+        onChange={(event) => {
+          const next = Number(event.target.value)
+          if (Number.isFinite(next) && next > 0) onChange(next)
+        }}
+        className="rounded-lg border-none bg-[#F8F9FD] px-3 py-2.5 text-xs font-bold text-[#1C1C1E] outline-none focus:ring-1 focus:ring-[#3B45B3]"
+      />
+    </div>
+  )
+}
+
+function ElementMetricFields({
+  element,
+  onLengthChange,
+  onHeightChange,
+  onThicknessChange,
+  onColorChange,
+  onMaterialChange,
+}: {
+  element: IfcElementInfo
+  onLengthChange: (id: string, length: number) => void
+  onHeightChange: (id: string, height: number) => void
+  onThicknessChange?: (id: string, thickness: number) => void
+  onColorChange: (id: string, color: string) => void
+  onMaterialChange?: (id: string, material: string) => void
+}) {
+  return (
+    <div className="flex flex-col gap-5 p-5">
+      <div className="grid grid-cols-3 gap-3">
+        <NumberInput label="길이 (mm)" value={element.lengthMm} onChange={(value) => onLengthChange(element.id, value)} />
+        <NumberInput label="높이 (mm)" value={element.heightMm} onChange={(value) => onHeightChange(element.id, value)} />
+        <NumberInput label="두께 (mm)" value={element.thicknessMm} onChange={(value) => onThicknessChange?.(element.id, value)} />
+      </div>
+
+      <MaterialSelector value={element.material} onChange={(material) => onMaterialChange?.(element.id, material)} />
+      <ColorSelector value={element.color ?? '#D8DDE8'} onChange={(color) => onColorChange(element.id, color)} />
+    </div>
+  )
+}
+
+export function ThreeDAttributePanel({
+  selectedBubble,
+  selectedIfcElement,
+  onLabelChange,
+  onWidthChange,
+  onHeightChange,
+  onThicknessChange,
+  onColorChange,
+  onMaterialChange,
+}: ThreeDAttributePanelProps) {
+  if (selectedIfcElement) {
+    return (
+      <ElementMetricFields
+        element={selectedIfcElement}
+        onLengthChange={onWidthChange}
+        onHeightChange={onHeightChange}
+        onThicknessChange={onThicknessChange}
+        onColorChange={onColorChange}
+        onMaterialChange={onMaterialChange}
+      />
+    )
+  }
+
   if (!selectedBubble) {
     return (
-      <div className="p-5 text-center text-[#ADB5BD] text-xs font-medium">
-        공간을 선택하세요
+      <div className="p-5 text-center text-xs font-medium text-[#ADB5BD]">
+        선택된 3D 요소가 없습니다.
       </div>
     )
   }
 
   return (
-    <div className="p-5 flex flex-col gap-5">
+    <div className="flex flex-col gap-5 p-5">
       <div className="flex flex-col gap-4">
-        {/* 공간 이름 */}
         <div className="flex flex-col gap-1.5">
-          <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">공간 이름</span>
+          <span className="text-[9px] font-bold uppercase tracking-wider text-[#ADB5BD]">이름</span>
           <input
             type="text"
             value={selectedBubble.label}
-            onChange={(e) => onLabelChange(selectedBubble.id, e.target.value)}
-            className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
+            onChange={(event) => onLabelChange(selectedBubble.id, event.target.value)}
+            className="rounded-lg border-none bg-[#F8F9FD] px-3 py-2.5 text-xs font-bold text-[#1C1C1E] outline-none focus:ring-1 focus:ring-[#3B45B3]"
           />
         </div>
 
-        {/* 길이 */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">길이 (MM)</span>
-          <input
-            type="text"
-            value={Math.round(selectedBubble.widthMm).toLocaleString()}
-            readOnly
-            className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] outline-none opacity-75"
-          />
-        </div>
+        <ReadOnlyInput label="길이 (mm)" value={Math.round(selectedBubble.widthMm).toLocaleString()} />
 
-        {/* 높이 & 두께 */}
         <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">높이 (MM)</span>
-            <input
-              type="text"
-              value="2,400"
-              readOnly
-              className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] outline-none opacity-75"
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[9px] font-bold text-[#ADB5BD] uppercase tracking-wider">두께</span>
-            <input
-              type="text"
-              value="200"
-              readOnly
-              className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] outline-none opacity-75"
-            />
-          </div>
+          <ReadOnlyInput label="높이 (mm)" value="2,400" />
+          <ReadOnlyInput label="두께 (mm)" value="200" />
         </div>
 
-        <MaterialSelector
-          value={selectedBubble.material}
-          onChange={(material) => onMaterialChange?.(selectedBubble.id, material)}
-        />
-
-        {/* 색상 — 실제 버블 색상과 연동 */}
-        <ColorSelector
-          value={selectedBubble.color}
-          onChange={(color) => onColorChange(selectedBubble.id, color)}
-        />
-      </div>
-
-      {/* 면적 요약 — 실제 버블 면적 반영 */}
-      <div className="pt-4 border-t border-[#F0F2F9] flex items-center justify-between">
-        <span className="text-[10px] font-bold text-[#ADB5BD]">계산 면적</span>
-        <span className="text-sm font-black text-[#3B45B3]">{selectedBubble.ratio.toFixed(2)} m²</span>
+        <MaterialSelector value={selectedBubble.material} onChange={(material) => onMaterialChange?.(selectedBubble.id, material)} />
+        <ColorSelector value={selectedBubble.color} onChange={(color) => onColorChange(selectedBubble.id, color)} />
       </div>
     </div>
   )

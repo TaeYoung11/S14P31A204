@@ -13,7 +13,6 @@ type SidebarViewModel = Pick<
   | 'handleToggleCollaboration'
   | 'setIsLibraryOpen'
   | 'toggleGrid'
-  | 'handleOpenExportSelectionModal'
   | 'handleGenerateFloorPlanFromBubble'
   | 'handleAutoLayoutBubbles'
   | 'canGenerateFloorPlanFromBubble'
@@ -40,7 +39,6 @@ export function buildEditorLeftSidebarProps(vm: SidebarViewModel): EditorLeftSid
     onToggleCollaboration: vm.handleToggleCollaboration,
     onToggleLibrary: () => vm.setIsLibraryOpen(!vm.isLibraryOpen),
     onToggleGrid: vm.toggleGrid,
-    onExportIFC: vm.handleOpenExportSelectionModal,
     onAutoLayoutBubbles: vm.handleAutoLayoutBubbles,
     canAutoLayoutBubbles: vm.canAutoLayoutBubbles,
     onGenerateFloorPlan: vm.handleGenerateFloorPlanFromBubble,

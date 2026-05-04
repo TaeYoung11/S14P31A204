@@ -101,6 +101,9 @@ function buildFloorPlanProps(
   | 'handleGenerateFloorPlan'
   | 'canGenerateFloorPlanFromBubble'
   | 'handleBubbleSelect'
+  | 'handleSelectIfcElement'
+  | 'selectedIfcElement'
+  | 'ifcElementChanges'
 > {
   return {
     sitePlanPoints: vm.sitePlanPoints,
@@ -112,6 +115,9 @@ function buildFloorPlanProps(
     handleGenerateFloorPlan: vm.handleGenerateFloorPlan,
     canGenerateFloorPlanFromBubble: vm.canGenerateFloorPlanFromBubble,
     handleBubbleSelect: vm.handleBubbleSelect,
+    handleSelectIfcElement: vm.handleSelectIfcElement,
+    selectedIfcElement: vm.selectedIfcElement,
+    ifcElementChanges: vm.ifcElementChanges,
   }
 }
 
