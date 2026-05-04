@@ -28,6 +28,8 @@ SEMANTIC_GROUND_RGB = (128, 128, 128)
 FRONT_SIDE_MASK_BASE_PERCENTILE = 75
 FRONT_SIDE_MASK_BAND_RATIO = 0.045
 FRONT_SIDE_MASK_SIDE_EXPAND_RATIO = 0.025
+FRONT_SIDE_MASK_CONTROL_RGB = (96, 96, 96)
+FRONT_SIDE_MASK_BLEND_STRENGTH = 0.18
 
 
 @dataclass
@@ -135,6 +137,28 @@ def _build_front_side_semantic_mask(control: Image.Image) -> Image.Image:
     return Image.fromarray(mask, mode="RGB")
 
 
+def _apply_front_side_semantic_mask_to_control(
+    control: Image.Image,
+    strength: float = FRONT_SIDE_MASK_BLEND_STRENGTH,
+) -> Image.Image:
+    """Weakly add the local ground-contact band to a depth control image."""
+    control_rgb = control.convert("RGB")
+    if strength <= 0:
+        return control_rgb
+
+    semantic_mask = _build_front_side_semantic_mask(control_rgb)
+    mask_arr = np.asarray(semantic_mask, dtype=np.uint8)
+    ground_mask = np.all(mask_arr == SEMANTIC_GROUND_RGB, axis=2)
+    if not np.any(ground_mask):
+        return control_rgb
+
+    strength = float(np.clip(strength, 0.0, 1.0))
+    arr = np.asarray(control_rgb, dtype=np.float32).copy()
+    target = np.array(FRONT_SIDE_MASK_CONTROL_RGB, dtype=np.float32)
+    arr[ground_mask] = arr[ground_mask] * (1.0 - strength) + target * strength
+    return Image.fromarray(np.clip(np.rint(arr), 0, 255).astype(np.uint8), mode="RGB")
+
+
 class DepthStyleRenderer:
     """SD 1.5 + ControlNet-depth txt2img renderer."""
 
@@ -224,9 +248,12 @@ class DepthStyleRenderer:
         depth_image: Image.Image,
         params: DepthStyleParams,
         view: IFCView | None = None,
+        use_front_side_semantic_mask: bool = False,
     ) -> DepthStyleResult:
         depth_size = depth_image.size
         control = _depth_to_control(depth_image)
+        if use_front_side_semantic_mask and view in {IFCView.FRONT, IFCView.SIDE}:
+            control = _apply_front_side_semantic_mask_to_control(control)
         width, height = control.size
 
         if view is not None:
