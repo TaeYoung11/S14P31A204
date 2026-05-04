@@ -20,6 +20,7 @@ type SidebarViewModel = Pick<
   | 'canAutoLayoutBubbles'
   | 'isFloorPlanGenerated'
   | 'isBubbleReadOnly'
+  | 'isEditorReadOnly'
   | 'hasDeletableSelection'
   | 'handleDeleteSelected'
 >
@@ -47,6 +48,7 @@ export function buildEditorLeftSidebarProps(vm: SidebarViewModel): EditorLeftSid
     canGenerateFloorPlan: vm.canGenerateFloorPlanFromBubble,
     isFloorPlanGenerated: vm.isFloorPlanGenerated,
     isBubbleReadOnly: vm.isBubbleReadOnly,
+    isEditorReadOnly: vm.isEditorReadOnly,
     hasDeletableSelection: vm.hasDeletableSelection,
     onDeleteSelected: vm.handleDeleteSelected,
   }

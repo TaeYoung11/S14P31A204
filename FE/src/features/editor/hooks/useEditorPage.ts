@@ -306,6 +306,7 @@ export function useEditorPage() {
 
   // Delete/Backspace 키로 선택된 버블 또는 연결선 삭제 (input 포커스 중엔 무시)
   const handleDeleteSelected = useCallback(() => {
+    if (useAuthStore.getState().user?.user_type !== 'DESIGNER') return
     if (mode === 'bubble' && isBubbleEditLocked) return
     if (mode === '2d') {
       const selectedRoomIds = Array.from(new Set([
@@ -451,6 +452,7 @@ export function useEditorPage() {
     id: string; label: string; x: number; y: number; width: number; height: number
   } | null>(null)
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false)
   const [isGridSnapEnabled, setIsGridSnapEnabled] = useState(true)
   const [gridSnapIntervalMm, setGridSnapIntervalMm] = useState<number>(DEFAULT_GRID_SNAP_INTERVAL_MM)
   const [wallCreatePreset, setWallCreatePreset] = useState<{
@@ -790,8 +792,9 @@ export function useEditorPage() {
   }, [autosaveReadyProjectId, draftSnapshot, projectId])
 
   const phaseStatus = workspacePhaseStatus
-  const canEditBubble = phaseStatus === 'BUBBLE_DRAFT' && !isBubbleEditLocked
-  const canEditIfc = phaseStatus === 'IFC_EDIT'
+  const isEditorReadOnly = currentUserType !== 'DESIGNER'
+  const canEditBubble = !isEditorReadOnly && phaseStatus === 'BUBBLE_DRAFT' && !isBubbleEditLocked
+  const canEditIfc = !isEditorReadOnly && phaseStatus === 'IFC_EDIT'
   const isConverting = phaseStatus === 'CONVERTING'
   const isBubbleReadOnly = !canEditBubble
 
@@ -2270,6 +2273,7 @@ export function useEditorPage() {
     canEditBubble,
     canEditIfc,
     isConverting,
+    isEditorReadOnly,
     // 캔버스 크기·대지
     containerRef,
     stageSize,
@@ -2451,9 +2455,14 @@ export function useEditorPage() {
     // 스크롤 휠 줌
     handleWheelZoom,
     // 초대 모달
+    projectId,
     isInviteModalOpen,
     handleOpenInviteModal: () => setIsInviteModalOpen(true),
     onCloseInviteModal: () => setIsInviteModalOpen(false),
+    // 초대 알림 모달
+    isNotificationModalOpen,
+    handleOpenNotificationModal: () => setIsNotificationModalOpen(true),
+    onCloseNotificationModal: () => setIsNotificationModalOpen(false),
     // 내보내기 모달
     isExportModalOpen,
     handleOpenExportModal,

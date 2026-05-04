@@ -32,6 +32,8 @@ export default function EditorPage() {
         mode={vm.mode}
         onModeChange={vm.setMode}
         onOpenInvite={vm.handleOpenInviteModal}
+        onOpenNotification={vm.handleOpenNotificationModal}
+        userType={vm.currentCollaborationUserType}
         onSave={vm.mode === '3d' ? vm.handleOpenIFCExportModal : vm.handleOpenExportSelectionModal}
         saveStatus={vm.saveStatus}
         siteAreaLabel={siteAreaLabel}

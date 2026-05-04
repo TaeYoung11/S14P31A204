@@ -31,6 +31,9 @@ export default function EditorModalLayer({
   getBubbleLabel,
   isInviteModalOpen,
   onCloseInviteModal,
+  currentProjectId,
+  isNotificationModalOpen,
+  onCloseNotificationModal,
   isExportModalOpen,
   onCloseExportModal,
   isExportSelectionModalOpen,
@@ -68,6 +71,9 @@ export default function EditorModalLayer({
         getBubbleLabel={getBubbleLabel}
         isInviteModalOpen={isInviteModalOpen}
         onCloseInviteModal={onCloseInviteModal}
+        currentProjectId={currentProjectId}
+        isNotificationModalOpen={isNotificationModalOpen}
+        onCloseNotificationModal={onCloseNotificationModal}
       />
 
       <ExportModals

@@ -26,6 +26,9 @@ type ModalLayerViewModel = Pick<
   | 'getBubbleLabel'
   | 'isInviteModalOpen'
   | 'onCloseInviteModal'
+  | 'projectId'
+  | 'isNotificationModalOpen'
+  | 'onCloseNotificationModal'
   | 'isExportModalOpen'
   | 'onCloseExportModal'
   | 'isExportSelectionModalOpen'
@@ -67,6 +70,10 @@ export function buildEditorModalLayerProps(vm: ModalLayerViewModel): EditorModal
 
     isInviteModalOpen: vm.isInviteModalOpen,
     onCloseInviteModal: vm.onCloseInviteModal,
+    currentProjectId: vm.projectId,
+
+    isNotificationModalOpen: vm.isNotificationModalOpen,
+    onCloseNotificationModal: vm.onCloseNotificationModal,
 
     isExportModalOpen: vm.isExportModalOpen,
     onCloseExportModal: vm.onCloseExportModal,
