@@ -20,9 +20,12 @@ from ai_rendering.ifc2img import (
 )
 from ai_rendering.ifc2img.style import (
     EYE_GROUND_SEGMENTATION_NEGATIVE,
+    GROUND_LEVEL_ATTACHMENT_NEGATIVE,
     _apply_eye_ground_anchor,
     _apply_eye_ground_segmentation,
+    _apply_ground_level_attachment,
     _append_negative_terms,
+    _compute_ground_level_base_y,
     _compute_eye_ground_line,
 )
 
@@ -524,3 +527,61 @@ def test_render_without_eye_ground_segmentation_keeps_base_negative_prompt(
 
     negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
     assert negative == "(worst quality:1.4)"
+
+
+def test_compute_ground_level_base_y_uses_facade_bottom() -> None:
+    """Front/side base row should track the lower geometry envelope."""
+    control = Image.new("RGB", (20, 20), (0, 0, 0))
+    arr = np.array(control)
+    arr[5:13, 6:14] = [255, 255, 255]
+    base_y = _compute_ground_level_base_y(np.all(arr == 0, axis=2))
+
+    assert base_y >= 12
+
+
+def test_apply_ground_level_attachment_preserves_geometry_pixels() -> None:
+    """Ground-level attachment should not overwrite facade geometry."""
+    control = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(control)
+    arr[6:14, 8:16] = [255, 255, 255]
+    attached = _apply_ground_level_attachment(Image.fromarray(arr, mode="RGB"))
+    attached_arr = np.array(attached)
+
+    np.testing.assert_array_equal(attached_arr[6:14, 8:16], arr[6:14, 8:16])
+
+
+def test_apply_ground_level_attachment_fills_lower_background_only() -> None:
+    """Ground-level attachment should keep upper sky blank and fill below the facade."""
+    control = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(control)
+    arr[6:14, 8:16] = [255, 255, 255]
+    attached = _apply_ground_level_attachment(Image.fromarray(arr, mode="RGB"))
+    attached_arr = np.array(attached)
+
+    assert np.all(attached_arr[3, 3] == [0, 0, 0])
+    assert not np.all(attached_arr[22, 3] == [0, 0, 0])
+
+
+def test_render_with_ground_level_attachment_modifies_control_and_negative(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Optional front/side path should attach ground and append wall/foundation negatives."""
+    depth = Image.new("L", (32, 32), 0)
+    params = DepthStyleParams(
+        prompt="RAW photo, scandinavian house",
+        negative_prompt="(worst quality:1.4)",
+    )
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.FRONT,
+        use_ground_level_attachment=True,
+    )
+
+    control = mock_depth_renderer.pipe.call_args.kwargs["image"]
+    negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
+    arr = np.array(control)
+    assert np.all(arr[2, 2] == [0, 0, 0])
+    assert not np.all(arr[30, 2] == [0, 0, 0])
+    assert negative.endswith(GROUND_LEVEL_ATTACHMENT_NEGATIVE)

@@ -28,10 +28,14 @@ if TYPE_CHECKING:
 DEFAULT_MODEL_ID = "runwayml/stable-diffusion-v1-5"
 DEFAULT_CONTROLNET_DEPTH_ID = "lllyasviel/sd-controlnet-depth"
 EYE_GROUND_SEGMENTATION_NEGATIVE = "pool, terrace, deck"
+GROUND_LEVEL_ATTACHMENT_NEGATIVE = (
+    "stone wall, retaining wall, raised foundation, pedestal, plinth"
+)
 EYE_GROUND_ANCHOR_START_RATIO = 0.58
 EYE_GROUND_HORIZON_BAND_RATIO = 0.06
 EYE_GROUND_MASK_START_RATIO = 0.52
 EYE_GROUND_MASK_EDGE_RISE_RATIO = 0.12
+GROUND_LEVEL_MIN_START_RATIO = 0.48
 
 
 @dataclass
@@ -196,6 +200,71 @@ def _append_negative_terms(base_negative: str, extra_negative: str) -> str:
     return f"{base_negative}, {extra_negative}"
 
 
+def _compute_ground_level_base_y(bg_mask: np.ndarray) -> int:
+    """Estimate the facade base row for front/side views."""
+    height, _width = bg_mask.shape
+    geom_mask = ~bg_mask
+    if not np.any(geom_mask):
+        return int(height * GROUND_LEVEL_MIN_START_RATIO)
+
+    ys, xs = np.nonzero(geom_mask)
+    bottom_by_x: dict[int, int] = {}
+    for x in np.unique(xs):
+        bottom_by_x[int(x)] = int(ys[xs == x].max())
+
+    if not bottom_by_x:
+        return int(height * GROUND_LEVEL_MIN_START_RATIO)
+
+    bottoms = np.array(list(bottom_by_x.values()), dtype=np.int32)
+    facade_base = int(np.percentile(bottoms, 70))
+    return max(facade_base, int(height * GROUND_LEVEL_MIN_START_RATIO))
+
+
+def _apply_ground_level_attachment(control: Image.Image) -> Image.Image:
+    """Attach front/side facades directly to a textured ground plane."""
+    arr = np.asarray(control.convert("RGB"), dtype=np.uint8).copy()
+    bg_mask = np.all(arr == 0, axis=2)
+    height, width = bg_mask.shape
+    base_y = _compute_ground_level_base_y(bg_mask)
+
+    xs = np.arange(width, dtype=np.float32)[None, :]
+    ys = np.arange(height, dtype=np.float32)[:, None]
+    ground_mask = bg_mask & (ys >= float(base_y))
+    if not np.any(ground_mask):
+        return Image.fromarray(arr, mode="RGB")
+
+    depth_ratio = np.clip((ys - base_y) / max(1.0, height - 1 - base_y), 0.0, 1.0)
+    center_x = (width - 1) / 2.0
+    lateral = np.abs(xs - center_x) / max(1.0, center_x)
+
+    far_color = np.array([136, 132, 114], dtype=np.float32)
+    near_color = np.array([158, 150, 120], dtype=np.float32)
+    grass_tint = np.array([112, 126, 96], dtype=np.float32)
+
+    base = far_color[None, None, :] * (1.0 - depth_ratio[:, :, None])
+    base += near_color[None, None, :] * depth_ratio[:, :, None]
+    grass_mix = np.clip(0.28 + 0.18 * depth_ratio - 0.1 * lateral, 0.0, 0.42)
+    base = base * (1.0 - grass_mix[:, :, None]) + grass_tint[None, None, :] * (
+        grass_mix[:, :, None]
+    )
+
+    x_wave = np.sin(xs / 15.0) + np.sin(xs / 37.0)
+    y_wave = np.cos(ys / 9.0) + np.sin(ys / 21.0)
+    texture = (x_wave + y_wave)[:, :, None] * 5.0
+    grain = np.sin((xs * 0.27) + (ys * 0.19))[:, :, None] * 3.0
+    textured = np.clip(base + texture + grain, 0.0, 255.0).astype(np.uint8)
+
+    ground_line_band = np.broadcast_to(
+        np.abs(ys - float(base_y)) <= 1.0,
+        (height, width),
+    )
+    ground_line_color = np.array([118, 116, 106], dtype=np.uint8)
+    textured[ground_line_band] = ground_line_color
+
+    arr[ground_mask] = textured[ground_mask]
+    return Image.fromarray(arr, mode="RGB")
+
+
 class DepthStyleRenderer:
     """SD 1.5 + ControlNet-depth (txt2img). 한 번 로드 후 여러 번 렌더."""
 
@@ -288,6 +357,7 @@ class DepthStyleRenderer:
         view: IFCView | None = None,
         use_eye_ground_anchor: bool = False,
         use_eye_ground_segmentation: bool = False,
+        use_ground_level_attachment: bool = False,
     ) -> DepthStyleResult:
         """depth PIL 1장 + prompt → 스타일 변환 PIL 1장 (1회 추론).
 
@@ -304,6 +374,9 @@ class DepthStyleRenderer:
             IFCView.EYE_NW,
             IFCView.EYE_SE,
         }
+        is_ground_level_view = view in {IFCView.FRONT, IFCView.SIDE}
+        if use_ground_level_attachment and is_ground_level_view:
+            control = _apply_ground_level_attachment(control)
         if use_eye_ground_segmentation and is_eye_view:
             control = _apply_eye_ground_segmentation(control)
         elif use_eye_ground_anchor and is_eye_view:
@@ -319,6 +392,11 @@ class DepthStyleRenderer:
             # view 미사용 — 합성 없음, identity 보존 (backward compat).
             applied_params = params
         negative_prompt = params.negative_prompt
+        if use_ground_level_attachment and is_ground_level_view:
+            negative_prompt = _append_negative_terms(
+                negative_prompt,
+                GROUND_LEVEL_ATTACHMENT_NEGATIVE,
+            )
         if use_eye_ground_segmentation and is_eye_view:
             negative_prompt = _append_negative_terms(
                 negative_prompt,
