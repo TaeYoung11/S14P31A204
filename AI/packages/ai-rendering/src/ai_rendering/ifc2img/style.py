@@ -29,6 +29,8 @@ DEFAULT_MODEL_ID = "runwayml/stable-diffusion-v1-5"
 DEFAULT_CONTROLNET_DEPTH_ID = "lllyasviel/sd-controlnet-depth"
 EYE_GROUND_ANCHOR_START_RATIO = 0.58
 EYE_GROUND_HORIZON_BAND_RATIO = 0.06
+EYE_GROUND_MASK_START_RATIO = 0.52
+EYE_GROUND_MASK_EDGE_RISE_RATIO = 0.12
 
 
 @dataclass
@@ -93,6 +95,94 @@ def _apply_eye_ground_anchor(control: Image.Image) -> Image.Image:
             color = ground_far * (1.0 - t) + ground_near * t
         arr[y, row_mask] = color.astype(np.uint8)
 
+    return Image.fromarray(arr, mode="RGB")
+
+
+def _compute_eye_ground_line(bg_mask: np.ndarray) -> np.ndarray:
+    """Estimate a perspective ground start line for EYE views."""
+    height, width = bg_mask.shape
+    geom_mask = ~bg_mask
+    if not np.any(geom_mask):
+        base_y = int(height * EYE_GROUND_MASK_START_RATIO)
+        return np.full(width, base_y, dtype=np.int32)
+
+    ys, xs = np.nonzero(geom_mask)
+    left = int(xs.min())
+    right = int(xs.max())
+    center = (left + right) / 2.0
+    half_span = max(1.0, (right - left) / 2.0)
+    fallback_base = int(height * EYE_GROUND_MASK_START_RATIO)
+    line = np.full(width, fallback_base, dtype=np.int32)
+
+    bottom_by_x = np.full(width, -1, dtype=np.int32)
+    for x in np.unique(xs):
+        bottom_by_x[x] = int(ys[xs == x].max())
+
+    support = bottom_by_x >= 0
+    if np.any(support):
+        support_bottoms = bottom_by_x[support]
+        facade_base = int(np.percentile(support_bottoms, 70))
+        facade_base = max(facade_base, fallback_base)
+    else:
+        facade_base = fallback_base
+
+    edge_rise = max(1, int(height * EYE_GROUND_MASK_EDGE_RISE_RATIO))
+    edge_y = min(height - 1, facade_base + edge_rise)
+
+    for x in range(width):
+        dx = abs(x - center) / half_span
+        t = min(1.0, dx)
+        curve = t * t
+        line[x] = int(facade_base * (1.0 - curve) + edge_y * curve)
+
+    return np.clip(line, 0, height - 1)
+
+
+def _apply_eye_ground_segmentation(control: Image.Image) -> Image.Image:
+    """Fill a perspective ground mask below the facade with textured ground cues."""
+    arr = np.asarray(control.convert("RGB"), dtype=np.uint8).copy()
+    bg_mask = np.all(arr == 0, axis=2)
+    height, width = bg_mask.shape
+    ground_line = _compute_eye_ground_line(bg_mask)
+
+    xs = np.arange(width, dtype=np.float32)[None, :]
+    ys = np.arange(height, dtype=np.float32)[:, None]
+    line_2d = ground_line[None, :]
+    ground_mask = bg_mask & (ys >= line_2d)
+    if not np.any(ground_mask):
+        return Image.fromarray(arr, mode="RGB")
+
+    depth_ratio = np.clip(
+        (ys - line_2d) / np.maximum(1.0, height - 1 - line_2d),
+        0.0,
+        1.0,
+    )
+    center_x = (width - 1) / 2.0
+    lateral = np.abs(xs - center_x) / max(1.0, center_x)
+
+    far_color = np.array([128, 126, 110], dtype=np.float32)
+    near_color = np.array([154, 148, 118], dtype=np.float32)
+    tint_color = np.array([118, 126, 104], dtype=np.float32)
+
+    base = far_color[None, None, :] * (1.0 - depth_ratio[:, :, None])
+    base += near_color[None, None, :] * depth_ratio[:, :, None]
+
+    grass_mix = np.clip(0.35 - 0.2 * lateral + 0.25 * depth_ratio, 0.0, 0.45)
+    base = base * (1.0 - grass_mix[:, :, None]) + tint_color[None, None, :] * (
+        grass_mix[:, :, None]
+    )
+
+    x_wave = np.sin(xs / 13.0) + np.sin(xs / 29.0)
+    y_wave = np.cos(ys / 11.0) + np.sin(ys / 23.0)
+    texture = (x_wave + y_wave)[:, :, None] * 6.0
+    grain = np.sin((xs * 0.31) + (ys * 0.17))[:, :, None] * 4.0
+    textured = np.clip(base + texture + grain, 0.0, 255.0).astype(np.uint8)
+
+    horizon_band = np.abs(ys - line_2d) <= 2.0
+    horizon_color = np.array([120, 120, 112], dtype=np.uint8)
+    textured[horizon_band] = horizon_color
+
+    arr[ground_mask] = textured[ground_mask]
     return Image.fromarray(arr, mode="RGB")
 
 
@@ -187,6 +277,7 @@ class DepthStyleRenderer:
         params: DepthStyleParams,
         view: IFCView | None = None,
         use_eye_ground_anchor: bool = False,
+        use_eye_ground_segmentation: bool = False,
     ) -> DepthStyleResult:
         """depth PIL 1장 + prompt → 스타일 변환 PIL 1장 (1회 추론).
 
@@ -198,11 +289,14 @@ class DepthStyleRenderer:
         """
         depth_size = depth_image.size  # (W, H)
         control = _depth_to_control(depth_image)
-        if use_eye_ground_anchor and view in {
+        is_eye_view = view in {
             IFCView.EYE_NE,
             IFCView.EYE_NW,
             IFCView.EYE_SE,
-        }:
+        }
+        if use_eye_ground_segmentation and is_eye_view:
+            control = _apply_eye_ground_segmentation(control)
+        elif use_eye_ground_anchor and is_eye_view:
             control = _apply_eye_ground_anchor(control)
         width, height = control.size
         if view is not None:

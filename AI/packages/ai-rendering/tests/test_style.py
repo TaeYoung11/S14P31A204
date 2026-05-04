@@ -18,7 +18,11 @@ from ai_rendering.ifc2img import (
     IFCRenderError,
     IFCView,
 )
-from ai_rendering.ifc2img.style import _apply_eye_ground_anchor
+from ai_rendering.ifc2img.style import (
+    _apply_eye_ground_anchor,
+    _apply_eye_ground_segmentation,
+    _compute_eye_ground_line,
+)
 
 
 @pytest.fixture
@@ -396,3 +400,77 @@ def test_render_with_eye_ground_anchor_modifies_control_image(
     arr = np.array(control)
     assert not np.all(arr[30, 2] == [0, 0, 0])
     assert np.all(arr[2, 2] == [0, 0, 0])
+
+
+def test_compute_eye_ground_line_rises_toward_edges() -> None:
+    """Ground line should start lower near image edges than near the facade center."""
+    control = Image.new("RGB", (20, 20), (0, 0, 0))
+    arr = np.array(control)
+    arr[5:12, 7:13] = [255, 255, 255]
+    line = _compute_eye_ground_line(np.all(arr == 0, axis=2))
+
+    assert line[0] > line[10]
+    assert line[-1] > line[10]
+
+
+def test_apply_eye_ground_segmentation_preserves_geometry_pixels() -> None:
+    """B2 segmentation path should only color empty background below the facade."""
+    control = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(control)
+    arr[6:14, 8:16] = [255, 255, 255]
+    segmented = _apply_eye_ground_segmentation(Image.fromarray(arr, mode="RGB"))
+    segmented_arr = np.array(segmented)
+
+    np.testing.assert_array_equal(segmented_arr[6:14, 8:16], arr[6:14, 8:16])
+
+
+def test_apply_eye_ground_segmentation_fills_below_ground_line_only() -> None:
+    """B2 segmentation should leave upper sky blank and fill lower ground background."""
+    control = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(control)
+    arr[6:14, 8:16] = [255, 255, 255]
+    segmented = _apply_eye_ground_segmentation(Image.fromarray(arr, mode="RGB"))
+    segmented_arr = np.array(segmented)
+
+    assert np.all(segmented_arr[3, 3] == [0, 0, 0])
+    assert not np.all(segmented_arr[22, 3] == [0, 0, 0])
+
+
+def test_render_with_eye_ground_segmentation_modifies_control_image(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Optional B2 path should send a segmented ground-aware control image to the pipe."""
+    depth = Image.new("L", (32, 32), 0)
+    params = DepthStyleParams(prompt="RAW photo, scandinavian house")
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.EYE_NE,
+        use_eye_ground_segmentation=True,
+    )
+
+    control = mock_depth_renderer.pipe.call_args.kwargs["image"]
+    arr = np.array(control)
+    assert np.all(arr[2, 2] == [0, 0, 0])
+    assert not np.all(arr[30, 2] == [0, 0, 0])
+
+
+def test_render_with_eye_ground_segmentation_takes_precedence_over_anchor(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """When both B1 and B2 flags are on, B2 should win."""
+    depth = Image.new("L", (32, 32), 0)
+    params = DepthStyleParams(prompt="RAW photo, scandinavian house")
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.EYE_NE,
+        use_eye_ground_anchor=True,
+        use_eye_ground_segmentation=True,
+    )
+
+    control = mock_depth_renderer.pipe.call_args.kwargs["image"]
+    arr = np.array(control)
+    assert tuple(arr[30, 2]) != (176, 168, 146)
