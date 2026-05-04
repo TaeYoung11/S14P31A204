@@ -19,10 +19,17 @@ from ai_rendering.ifc2img import (
     IFCView,
 )
 from ai_rendering.ifc2img.style import (
+    ADE20K_BUILDING_RGB,
+    ADE20K_GRASS_RGB,
+    ADE20K_SKY_RGB,
+    FRONT_SIDE_MASK_CONTROL_RGB,
+    FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
     FRONT_SIDE_NEGATIVE_TERMS,
     SEMANTIC_BACKGROUND_RGB,
     SEMANTIC_BUILDING_RGB,
     SEMANTIC_GROUND_RGB,
+    _apply_front_side_semantic_mask_to_control,
+    _build_front_side_seg_control,
     _build_front_side_semantic_mask,
 )
 @pytest.fixture
@@ -35,6 +42,7 @@ def mock_depth_renderer() -> DepthStyleRenderer:
     r = DepthStyleRenderer.__new__(DepthStyleRenderer)
     r.model_id = "mock"
     r.controlnet_model_id = "mock-cn"
+    r.semantic_controlnet_model_id = None
     r.device = "cpu"
     r.dtype = "float32"  # type: ignore[assignment]
     r.pipe = MagicMock()
@@ -329,6 +337,144 @@ def test_build_front_side_semantic_mask_adds_local_ground_band() -> None:
     assert np.any(ground_pixels[13:16, 7:17])
     assert np.all(mask_arr[20, 1] == SEMANTIC_BACKGROUND_RGB)
     assert np.all(mask_arr[20, 22] == SEMANTIC_BACKGROUND_RGB)
+
+
+def test_apply_front_side_semantic_mask_to_control_adds_weak_ground_hint() -> None:
+    """Opt-in blend should add a faint ground cue without changing geometry."""
+    control = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(control)
+    arr[4:14, 8:16] = [255, 255, 255]
+
+    blended = _apply_front_side_semantic_mask_to_control(
+        Image.fromarray(arr, mode="RGB")
+    )
+    blended_arr = np.array(blended)
+    semantic_mask = _build_front_side_semantic_mask(Image.fromarray(arr, mode="RGB"))
+    ground_pixels = np.all(np.array(semantic_mask) == SEMANTIC_GROUND_RGB, axis=2)
+    ground_y, ground_x = np.nonzero(ground_pixels)
+    sample_y = int(ground_y[0])
+    sample_x = int(ground_x[0])
+
+    assert np.all(blended_arr[6, 10] == [255, 255, 255])
+    assert np.all(blended_arr[2, 2] == [0, 0, 0])
+    assert 0 < int(blended_arr[sample_y, sample_x, 0]) < FRONT_SIDE_MASK_CONTROL_RGB[0]
+
+
+def test_render_front_side_semantic_mask_is_opt_in(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Default render path should keep the original control image unchanged."""
+    depth = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(depth)
+    arr[4:14, 8:16] = [255, 255, 255]
+    depth = Image.fromarray(arr, mode="RGB")
+    params = DepthStyleParams(prompt="x")
+
+    mock_depth_renderer.render(depth, params, view=IFCView.FRONT)
+
+    control = np.array(mock_depth_renderer.pipe.call_args.kwargs["image"])
+    semantic_mask = _build_front_side_semantic_mask(depth)
+    ground_pixels = np.all(np.array(semantic_mask) == SEMANTIC_GROUND_RGB, axis=2)
+    ground_y, ground_x = np.nonzero(ground_pixels)
+    assert np.all(control[int(ground_y[0]), int(ground_x[0])] == [0, 0, 0])
+
+
+def test_render_front_side_semantic_mask_blends_only_for_front_side_views(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """The opt-in mask should affect FRONT/SIDE only, not unrelated views."""
+    depth = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(depth)
+    arr[4:14, 8:16] = [255, 255, 255]
+    depth = Image.fromarray(arr, mode="RGB")
+    params = DepthStyleParams(prompt="x")
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.FRONT,
+        use_front_side_semantic_mask=True,
+    )
+    front_control = np.array(mock_depth_renderer.pipe.call_args.kwargs["image"])
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.EYE_NE,
+        use_front_side_semantic_mask=True,
+    )
+    eye_control = np.array(mock_depth_renderer.pipe.call_args.kwargs["image"])
+    semantic_mask = _build_front_side_semantic_mask(depth)
+    ground_pixels = np.all(np.array(semantic_mask) == SEMANTIC_GROUND_RGB, axis=2)
+    ground_y, ground_x = np.nonzero(ground_pixels)
+    sample_y = int(ground_y[0])
+    sample_x = int(ground_x[0])
+
+    assert front_control[sample_y, sample_x, 0] > 0
+    assert np.all(eye_control[sample_y, sample_x] == [0, 0, 0])
+
+
+def test_build_front_side_seg_control_uses_ade20k_colors() -> None:
+    """Seg control should encode building/ground/sky as semantic colors."""
+    control = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(control)
+    arr[4:14, 8:16] = [255, 255, 255]
+
+    seg = _build_front_side_seg_control(Image.fromarray(arr, mode="RGB"))
+    seg_arr = np.array(seg)
+    ground_pixels = np.all(
+        np.array(_build_front_side_semantic_mask(Image.fromarray(arr, mode="RGB")))
+        == SEMANTIC_GROUND_RGB,
+        axis=2,
+    )
+    ground_y, ground_x = np.nonzero(ground_pixels)
+
+    assert np.all(seg_arr[6, 10] == ADE20K_BUILDING_RGB)
+    assert np.all(seg_arr[1, 10] == ADE20K_SKY_RGB)
+    assert np.all(seg_arr[int(ground_y[0]), int(ground_x[0])] == ADE20K_GRASS_RGB)
+
+
+def test_render_front_side_semantic_control_requires_semantic_model(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Semantic control is opt-in and should fail clearly without a seg ControlNet."""
+    depth = Image.new("L", (768, 448), 100)
+    params = DepthStyleParams(prompt="x")
+
+    with pytest.raises(IFCRenderError, match="semantic_controlnet_model_id"):
+        mock_depth_renderer.render(
+            depth,
+            params,
+            view=IFCView.FRONT,
+            use_front_side_semantic_control=True,
+        )
+
+
+def test_render_front_side_semantic_control_passes_two_control_images(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """With a seg ControlNet loaded, FRONT/SIDE should pass depth + seg controls."""
+    mock_depth_renderer.semantic_controlnet_model_id = "mock-seg"
+    depth = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(depth)
+    arr[4:14, 8:16] = [255, 255, 255]
+    depth = Image.fromarray(arr, mode="RGB")
+    params = DepthStyleParams(prompt="x", controlnet_conditioning_scale=1.15)
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.FRONT,
+        use_front_side_semantic_control=True,
+    )
+
+    call_kwargs = mock_depth_renderer.pipe.call_args.kwargs
+    assert len(call_kwargs["image"]) == 2
+    assert call_kwargs["image"][0].size == (24, 24)
+    assert call_kwargs["image"][1].size == (24, 24)
+    assert call_kwargs["controlnet_conditioning_scale"] == [
+        1.15,
+        FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
+    ]
 
 
 def test_render_without_view_uses_raw_negative(
