@@ -325,7 +325,8 @@ def test_build_front_side_semantic_mask_adds_local_ground_band() -> None:
     mask = _build_front_side_semantic_mask(Image.fromarray(arr, mode="RGB"))
     mask_arr = np.array(mask)
 
-    assert np.all(mask_arr[14, 10] == SEMANTIC_GROUND_RGB)
+    ground_pixels = np.all(mask_arr == SEMANTIC_GROUND_RGB, axis=2)
+    assert np.any(ground_pixels[13:16, 7:17])
     assert np.all(mask_arr[20, 1] == SEMANTIC_BACKGROUND_RGB)
     assert np.all(mask_arr[20, 22] == SEMANTIC_BACKGROUND_RGB)
 

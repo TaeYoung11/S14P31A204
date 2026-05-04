@@ -26,8 +26,8 @@ SEMANTIC_BACKGROUND_RGB = (0, 0, 0)
 SEMANTIC_BUILDING_RGB = (255, 255, 255)
 SEMANTIC_GROUND_RGB = (128, 128, 128)
 FRONT_SIDE_MASK_BASE_PERCENTILE = 75
-FRONT_SIDE_MASK_BAND_RATIO = 0.08
-FRONT_SIDE_MASK_SIDE_EXPAND_RATIO = 0.05
+FRONT_SIDE_MASK_BAND_RATIO = 0.045
+FRONT_SIDE_MASK_SIDE_EXPAND_RATIO = 0.025
 
 
 @dataclass
@@ -92,7 +92,7 @@ def _build_front_side_semantic_mask(control: Image.Image) -> Image.Image:
     right = int(xs.max())
     bbox_width = max(1, right - left + 1)
     expand_px = max(1, int(round(bbox_width * FRONT_SIDE_MASK_SIDE_EXPAND_RATIO)))
-    band_thickness = max(2, int(round(height * FRONT_SIDE_MASK_BAND_RATIO)))
+    band_thickness = max(1, int(round(height * FRONT_SIDE_MASK_BAND_RATIO)))
 
     bottom_by_x = np.full(width, -1, dtype=np.int32)
     for x in np.unique(xs):
@@ -115,12 +115,12 @@ def _build_front_side_semantic_mask(control: Image.Image) -> Image.Image:
         else:
             norm = 0.0
 
-        taper = 1.0 - 0.35 * min(1.0, norm)
+        taper = 1.0 - 0.5 * min(1.0, norm)
         local_thickness = max(1, int(round(band_thickness * taper)))
 
         if bottom_by_x[x] >= 0:
             local_top = max(base_y, int(bottom_by_x[x]))
-            local_top = min(local_top, base_y + band_thickness // 2)
+            local_top = min(local_top, base_y + max(0, band_thickness // 3))
         else:
             local_top = base_y
 
