@@ -11,7 +11,13 @@ import numpy as np
 import pytest
 
 from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
-from ai_rendering.ifc2img.geometry import _align_walls_to_axes, load_mesh
+from ai_rendering.ifc2img.geometry import (
+    GROUND_EXTENT_FACTOR,
+    _add_ground_plane,
+    _align_walls_to_axes,
+    attach_ground_plane_to_mesh,
+    load_mesh,
+)
 from ai_rendering.ifc2img.views import (
     DEFAULT_RENDER_VIEWS,
     DISPATCH_LARGE_FACTOR,
@@ -20,6 +26,7 @@ from ai_rendering.ifc2img.views import (
     VIEW_NEGATIVE_SUFFIXES,
     VIEW_PROMPT_SUFFIXES,
     VIEW_TARGET_RATIOS,
+    VIEWS_WITHOUT_GROUND,
     AutoZoomMode,
     build_view_negative_prompt,
     build_view_prompt,
@@ -112,6 +119,10 @@ def test_renderer_calls_depth_buffer() -> None:
             "ai_rendering.ifc2img.renderer.load_mesh",
             return_value=(fake_mesh, fake_center),
         ),
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            side_effect=lambda m: m,
+        ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
         vis = MagicMock()
@@ -137,6 +148,10 @@ def test_render_views_loads_mesh_once() -> None:
             "ai_rendering.ifc2img.renderer.load_mesh",
             return_value=(fake_mesh, fake_center),
         ) as mock_load,
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            side_effect=lambda m: m,
+        ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
         vis = MagicMock()
@@ -220,6 +235,10 @@ def test_renderer_analytic_mode_uses_compute_auto_zoom() -> None:
             "ai_rendering.ifc2img.renderer.load_mesh",
             return_value=(fake_mesh, fake_center),
         ),
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            side_effect=lambda m: m,
+        ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
         patch("ai_rendering.ifc2img.renderer.compute_auto_zoom", return_value=0.42) as mock_compute,
     ):
@@ -247,6 +266,10 @@ def test_renderer_default_uses_static_zoom() -> None:
         patch(
             "ai_rendering.ifc2img.renderer.load_mesh",
             return_value=(fake_mesh, fake_center),
+        ),
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            side_effect=lambda m: m,
         ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
         patch("ai_rendering.ifc2img.renderer.compute_auto_zoom") as mock_compute,
@@ -291,6 +314,10 @@ def test_iterative_zoom_converges_when_target_reached() -> None:
             "ai_rendering.ifc2img.renderer.load_mesh",
             return_value=(fake_mesh, fake_center),
         ),
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            side_effect=lambda m: m,
+        ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
         vis = MagicMock()
@@ -321,6 +348,10 @@ def test_iterative_zoom_max_iter_caps() -> None:
         patch(
             "ai_rendering.ifc2img.renderer.load_mesh",
             return_value=(fake_mesh, fake_center),
+        ),
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            side_effect=lambda m: m,
         ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
@@ -450,11 +481,12 @@ def test_align_walls_idempotent_on_already_aligned_mesh() -> None:
 
 
 def test_align_walls_skips_when_too_few_walls() -> None:
-    """벽 면 < WALL_NORMAL_MIN_COUNT(100) → 무회전 (통계 신뢰 불가).
+    """벽 면 < WALL_NORMAL_MIN_COUNT(4) → 무회전 (데이터 부족).
 
-    소규모 mesh에서 강제 회전 시 noise로 임의 방향 정렬되어 위험.
+    직사각형 단순 박스 mesh도 4면 보유 — 4 미만은 비정상 mesh.
+    분포 신뢰도는 별도(`WALL_NORMAL_MIN_MAGNITUDE`)가 가드.
     """
-    verts, tris = _build_wall_mesh(n_walls=50, theta_deg=10.0)
+    verts, tris = _build_wall_mesh(n_walls=3, theta_deg=10.0)
     rotated, did_rotate = _align_walls_to_axes(verts, tris)
 
     assert did_rotate is False
@@ -481,14 +513,178 @@ def test_align_walls_skips_for_empty_triangles() -> None:
     np.testing.assert_array_equal(rotated, verts)
 
 
+def test_add_ground_plane_appends_4_vertices_and_2_triangles() -> None:
+    """ground plane 추가 — 4 vertex(quad corners) + 2 triangle 누적."""
+    verts = np.array(
+        [[0.0, 0.0, 0.0], [10.0, 5.0, 0.0], [5.0, 0.0, 3.0]], dtype=np.float64
+    )
+    tris = np.array([[0, 1, 2]], dtype=np.int64)
+
+    new_verts, new_tris = _add_ground_plane(verts, tris)
+
+    assert len(new_verts) == len(verts) + 4
+    assert len(new_tris) == len(tris) + 2
+
+
+def test_add_ground_plane_z_at_aabb_min() -> None:
+    """ground plane z = 입력 mesh AABB.z_min — 바닥에 정렬."""
+    verts = np.array(
+        [[0.0, 0.0, 1.5], [10.0, 5.0, 1.5], [5.0, 0.0, 4.5]], dtype=np.float64
+    )
+    tris = np.array([[0, 1, 2]], dtype=np.int64)
+
+    new_verts, _ = _add_ground_plane(verts, tris)
+    ground_verts = new_verts[len(verts):]
+
+    assert np.allclose(ground_verts[:, 2], 1.5), "ground z should match AABB.z_min"
+
+
+def test_add_ground_plane_normal_points_up() -> None:
+    """ground plane 두 triangle 모두 normal +z (위쪽) — wall_mask에 안 걸림.
+
+    `_align_walls_to_axes`의 `|n_z| < 0.1` 필터에 안 걸려야 회전 보정에 영향 없음.
+    """
+    verts = np.array(
+        [[0.0, 0.0, 0.0], [10.0, 5.0, 0.0], [5.0, 0.0, 3.0]], dtype=np.float64
+    )
+    tris = np.array([[0, 1, 2]], dtype=np.int64)
+
+    new_verts, new_tris = _add_ground_plane(verts, tris)
+    ground_tris = new_tris[len(tris):]
+
+    for t in ground_tris:
+        v0, v1, v2 = new_verts[t[0]], new_verts[t[1]], new_verts[t[2]]
+        normal = np.cross(v1 - v0, v2 - v0)
+        normal /= np.linalg.norm(normal)
+        # normal[2] should be ~+1 (pointing straight up)
+        assert normal[2] > 0.999, f"ground normal[2] should be +1, got {normal[2]}"
+
+
+def test_add_ground_plane_extent_matches_aabb_factor() -> None:
+    """ground plane xy 범위 = mesh AABB xy extent × GROUND_EXTENT_FACTOR.
+
+    factor 변경 시(예: 2.0→1.2 옵션 EE) 자동 반영 — hard-coded 수치 회귀 방어.
+    """
+    verts = np.array(
+        [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [10.0, 6.0, 0.0], [0.0, 6.0, 3.0]],
+        dtype=np.float64,
+    )
+    tris = np.array([[0, 1, 2]], dtype=np.int64)
+
+    new_verts, _ = _add_ground_plane(verts, tris)
+    ground_verts = new_verts[len(verts):]
+    g_x_extent = ground_verts[:, 0].max() - ground_verts[:, 0].min()
+    g_y_extent = ground_verts[:, 1].max() - ground_verts[:, 1].min()
+
+    # 입력 AABB xy extent: 10, 6 → ground = factor × 입력
+    assert abs(g_x_extent - 10.0 * GROUND_EXTENT_FACTOR) < 1e-9
+    assert abs(g_y_extent - 6.0 * GROUND_EXTENT_FACTOR) < 1e-9
+
+
+def test_attach_ground_plane_to_mesh_appends_4_vertices() -> None:
+    """`attach_ground_plane_to_mesh` — Open3D mesh wrapper, vertex 4 + triangle 2 추가.
+
+    `_add_ground_plane`(numpy 단계) 호출 후 새 TriangleMesh 구성. 입력 mesh는 변경 없음.
+    """
+    import open3d as o3d
+    base = o3d.geometry.TriangleMesh()
+    base.vertices = o3d.utility.Vector3dVector(
+        np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [10.0, 6.0, 3.0]])
+    )
+    base.triangles = o3d.utility.Vector3iVector(np.array([[0, 1, 2]]))
+    base.compute_vertex_normals()
+
+    new_mesh = attach_ground_plane_to_mesh(base)
+
+    assert len(new_mesh.vertices) == len(base.vertices) + 4
+    assert len(new_mesh.triangles) == len(base.triangles) + 2
+    # 입력 mesh 보존
+    assert len(base.vertices) == 3
+
+
+def test_views_without_ground_contains_iso_only() -> None:
+    """ISO_*만 ground 제외 (옵션 OO) — front/side/eye/top 등은 ground 추가 대상."""
+    assert IFCView.ISO_NE in VIEWS_WITHOUT_GROUND
+    assert IFCView.ISO_NW in VIEWS_WITHOUT_GROUND
+    assert IFCView.ISO_SE in VIEWS_WITHOUT_GROUND
+
+    for v in (
+        IFCView.FRONT, IFCView.SIDE, IFCView.TOP, IFCView.BIRDS_EYE,
+        IFCView.CORNER_LOW, IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE,
+    ):
+        assert v not in VIEWS_WITHOUT_GROUND, f"{v} should NOT be in VIEWS_WITHOUT_GROUND"
+
+
+def test_renderer_mesh_for_view_skips_ground_for_iso() -> None:
+    """`IFCRenderer._mesh_for_view` — ISO_*는 base mesh 그대로, 다른 시점은 ground 추가.
+
+    옵션 OO 회귀 방어 — view-aware ground 정책 유지.
+    """
+    renderer = IFCRenderer()
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 6.0, 3.0]])
+
+    # ISO는 base 그대로 (identity)
+    iso_result = renderer._mesh_for_view(fake_mesh, IFCView.ISO_NE)
+    assert iso_result is fake_mesh
+
+    # FRONT 등은 attach_ground_plane_to_mesh 호출 (id 다름)
+    with patch(
+        "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+        return_value=MagicMock(),
+    ) as mock_attach:
+        renderer._mesh_for_view(fake_mesh, IFCView.FRONT)
+    mock_attach.assert_called_once_with(fake_mesh)
+
+
 def test_iso_views_all_in_enum() -> None:
-    """등각 뷰 5개가 IFCView enum에 모두 등록됨."""
+    """등각 뷰 5개 + EYE 수평 등각 3개가 IFCView enum에 모두 등록됨."""
     assert IFCView.ISO_NE in IFCView
     assert IFCView.ISO_NW in IFCView
     assert IFCView.ISO_SE in IFCView
     assert IFCView.CORNER_LOW in IFCView
     assert IFCView.BIRDS_EYE in IFCView
-    assert len(list(IFCView)) == 8  # FRONT/SIDE/TOP + 5등각
+    assert IFCView.EYE_NE in IFCView
+    assert IFCView.EYE_NW in IFCView
+    assert IFCView.EYE_SE in IFCView
+    # FRONT/SIDE/TOP + ISO_*×3 + CORNER_LOW + BIRDS_EYE + EYE_*×3
+    assert len(list(IFCView)) == 11
+
+
+def test_eye_views_all_in_enum() -> None:
+    """EYE_NE/NW/SE 3개가 IFCView enum에 등록 + 5 dict 모두 매핑 보유.
+
+    Phase 3 회귀 방어 — 신규 view 추가 시 dict 매핑 누락하면 KeyError.
+    """
+    from ai_rendering.ifc2img.views import VIEW_CAMERAS
+
+    eye_views = (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE)
+    for v in eye_views:
+        assert v in IFCView
+        assert v in VIEW_CAMERAS
+        assert v in VIEW_TARGET_RATIOS
+        assert v in VIEW_PROMPT_SUFFIXES
+        assert v in VIEW_NEGATIVE_SUFFIXES
+        assert v in VIEW_CN_SCALE_OVERRIDES
+
+
+def test_eye_views_have_zero_z_for_horizontal() -> None:
+    """EYE_*의 카메라 front 벡터 z 성분이 0.0 — 사람 시선 *완전 수평*.
+
+    ISO_*은 z=0.5(위에서 등각)이라 *대조*. EYE는 z=0 보장이 핵심 정체성.
+    """
+    from ai_rendering.ifc2img.views import VIEW_CAMERAS
+
+    for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
+        cam = VIEW_CAMERAS[v]
+        assert cam.front[2] == 0.0, f"{v} front.z must be 0 for horizontal eye view"
+
+
+def test_default_render_views_includes_eye() -> None:
+    """기본 render_views()에 EYE_* 3개 모두 포함 — 8뷰 default."""
+    for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
+        assert v in DEFAULT_RENDER_VIEWS
+    assert len(DEFAULT_RENDER_VIEWS) == 8
 
 
 def test_default_render_views_excludes_hallucination_prone() -> None:
@@ -504,7 +700,7 @@ def test_default_render_views_excludes_hallucination_prone() -> None:
     excluded = {IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW}
     for v in excluded:
         assert v not in DEFAULT_RENDER_VIEWS
-    assert len(DEFAULT_RENDER_VIEWS) == 5
+    assert len(DEFAULT_RENDER_VIEWS) == 8  # FRONT/SIDE/ISO_*×3 + EYE_*×3
     expected = set(IFCView) - excluded
     assert set(DEFAULT_RENDER_VIEWS) == expected
 
@@ -636,32 +832,23 @@ def test_build_view_negative_prompt_in_public_api() -> None:
 # --- 옵션 C-2 — VIEW_CN_SCALE_OVERRIDES + resolve_view_cn_scale ---
 
 
-def test_view_cn_scale_overrides_iso_nw_se_set_to_1() -> None:
-    """ISO_NW/SE — sweep 검수에서 1.0/1.15 모두 안정. 1.0 채택(canonical full strength)."""
-    assert VIEW_CN_SCALE_OVERRIDES[IFCView.ISO_NW] == 1.0
-    assert VIEW_CN_SCALE_OVERRIDES[IFCView.ISO_SE] == 1.0
+def test_view_cn_scale_overrides_all_none_after_base_lifted() -> None:
+    """옵션 E (E-clean, 2026-04-29) — preset base 0.7→1.0으로 인상.
+
+    이전 iso_nw/se=1.0 override는 base 1.0과 redundant라 제거.
+    *호출자가 추가 보정 필요 시 override 설정 가능* — 메커니즘은 보존.
+    """
+    for v in IFCView:
+        assert VIEW_CN_SCALE_OVERRIDES[v] is None, f"{v} should be None (base 1.0)"
 
 
-def test_view_cn_scale_overrides_other_views_none() -> None:
-    """C-2 처방 — iso_nw/iso_se만 적용. 다른 시점은 None → params 값 그대로."""
-    for v in (
-        IFCView.FRONT, IFCView.SIDE, IFCView.ISO_NE,
-        IFCView.TOP, IFCView.BIRDS_EYE, IFCView.CORNER_LOW,
-    ):
-        assert VIEW_CN_SCALE_OVERRIDES[v] is None, f"{v} should be None"
-
-
-def test_resolve_view_cn_scale_returns_override_for_iso_nw() -> None:
-    """ISO_NW에 base 0.7 전달해도 override 1.0 반환."""
-    assert resolve_view_cn_scale(0.7, IFCView.ISO_NW) == 1.0
-    assert resolve_view_cn_scale(0.7, IFCView.ISO_SE) == 1.0
-
-
-def test_resolve_view_cn_scale_returns_base_for_unset_views() -> None:
-    """override가 None인 시점은 base 그대로 (front/side/iso_ne)."""
-    assert resolve_view_cn_scale(0.7, IFCView.FRONT) == 0.7
+def test_resolve_view_cn_scale_returns_base_when_no_override() -> None:
+    """override가 None인 모든 시점은 base 그대로 — 기본 동작 검증."""
+    assert resolve_view_cn_scale(1.0, IFCView.FRONT) == 1.0
     assert resolve_view_cn_scale(0.85, IFCView.SIDE) == 0.85
     assert resolve_view_cn_scale(0.5, IFCView.ISO_NE) == 0.5
+    assert resolve_view_cn_scale(1.0, IFCView.ISO_NW) == 1.0
+    assert resolve_view_cn_scale(1.0, IFCView.EYE_NE) == 1.0
 
 
 def test_resolve_view_cn_scale_in_public_api() -> None:
@@ -767,6 +954,81 @@ def test_resolve_target_ratio_for_large_mesh_scales_more() -> None:
     )
 
 
+# --- 피드백 1 (외부 코드 리뷰 라운드 3) — dispatch base_mesh 분리 ---
+
+
+def test_render_mesh_dispatch_uses_base_mesh_not_ground_extended() -> None:
+    """`_render_mesh`는 dispatch 임계값 판단을 *base_mesh*(건물 본체)로 한다.
+
+    피드백 1 (2026-05-04 외부 코드 리뷰 라운드 3): 이전 구현은 *렌더용 view_mesh*
+    (ground 포함)로 `_resolve_target_ratio` 호출 → ground × 1.2 배가 max_extent에
+    포함돼 dispatch 임계값(20m/50m)이 *건물 본체*가 아닌 ground 포함 결과 기준으로
+    잘못 트리거. ex: SampleHouse 17m → ground ~20.4m → MEDIUM 잘못 분류 위험.
+
+    이 테스트: base_mesh(small, 13m × 13m × 5m) + view_mesh(ground 인플레이션
+    시뮬, 25m × 25m × 5m) 분리 전달 → dispatch는 base 기준이라 base * 1.0(=base
+    그대로) 반환. view_mesh 기준이면 25m > 20m → MEDIUM(× 0.8) 적용됐을 것.
+    """
+    renderer = IFCRenderer()
+    base_mesh = MagicMock()
+    base_mesh.vertices = np.array([[0.0, 0.0, 0.0], [13.0, 13.0, 5.0]])  # 13m
+    view_mesh = MagicMock()
+    view_mesh.vertices = np.array([[0.0, 0.0, 0.0], [25.0, 25.0, 5.0]])  # 25m
+
+    base_ratio = renderer._resolve_target_ratio(IFCView.FRONT, base_mesh)
+    view_ratio = renderer._resolve_target_ratio(IFCView.FRONT, view_mesh)
+
+    assert base_ratio == VIEW_TARGET_RATIOS[IFCView.FRONT]  # 13m → factor 1.0
+    assert view_ratio == VIEW_TARGET_RATIOS[IFCView.FRONT] * DISPATCH_MEDIUM_FACTOR
+    # 두 결과가 *반드시 다름* — 이 차이가 base_mesh를 쓰지 않을 때 발생한 회귀
+    assert base_ratio != view_ratio
+
+
+def test_render_passes_base_mesh_to_resolve_target_ratio() -> None:
+    """`render()` 통합 — _resolve_target_ratio가 *base_mesh*(load_mesh 결과)로 호출됨.
+
+    attach_ground_plane_to_mesh가 *다른 mesh* 반환하도록 mock하고,
+    `IFCRenderer._resolve_target_ratio`를 spy해 base_mesh가 전달되는지 확인.
+    """
+    base_mesh = MagicMock(name="base_mesh")
+    base_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 10.0, 5.0]])
+    inflated_mesh = MagicMock(name="inflated_mesh")
+    inflated_mesh.vertices = np.array([[0.0, 0.0, 0.0], [30.0, 30.0, 5.0]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+
+    captured: list[object] = []
+    original = IFCRenderer._resolve_target_ratio
+
+    def spy(self, view, mesh):
+        captured.append(mesh)
+        return original(self, view, mesh)
+
+    with (
+        patch(
+            "ai_rendering.ifc2img.renderer.load_mesh",
+            return_value=(base_mesh, fake_center),
+        ),
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            return_value=inflated_mesh,
+        ),
+        patch.object(IFCRenderer, "_resolve_target_ratio", spy),
+        patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
+    ):
+        vis = MagicMock()
+        mock_o3d.visualization.Visualizer.return_value = vis
+        depth = np.zeros((448, 768), dtype=np.float32)
+        depth[100:300, 200:500] = 5.0
+        vis.capture_depth_float_buffer.return_value = depth
+
+        renderer = IFCRenderer()
+        renderer.render(Path("dummy.ifc"), IFCView.FRONT)
+
+    # _resolve_target_ratio는 base_mesh로 호출되어야 한다 (inflated_mesh 아님)
+    assert len(captured) == 1
+    assert captured[0] is base_mesh
+
+
 def test_render_uses_static_view_camera() -> None:
     """render() 시 VIEW_CAMERAS의 정적 vector가 그대로 카메라 front로 사용됨."""
     fake_mesh = MagicMock()
@@ -777,6 +1039,10 @@ def test_render_uses_static_view_camera() -> None:
         patch(
             "ai_rendering.ifc2img.renderer.load_mesh",
             return_value=(fake_mesh, fake_center),
+        ),
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            side_effect=lambda m: m,
         ),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
@@ -823,7 +1089,8 @@ def test_load_mesh_accepts_ifc4_variants(schema_name: str) -> None:
         ),
         patch("ai_rendering.ifc2img.geometry.ifcopenshell.geom.settings"),
     ):
-        # 예외 없이 통과해야 한다.
+        # 예외 없이 통과해야 한다. load_mesh는 building geometry만 반환
+        # (ground plane은 view-aware로 IFCRenderer에서 추가, 옵션 OO).
         mesh, _ = load_mesh(Path("dummy.ifc"))
         assert len(mesh.vertices) == 3
 
@@ -912,7 +1179,7 @@ def test_extra_types_extends_inclusion() -> None:
             extra_types=frozenset({"IfcFurnishingElement"}),
         )
 
-    # 두 entity 모두 포함되면 vertex 6개. wall만 포함이면 3개.
+    # 두 entity 모두 포함되면 mesh vertex 6개. wall만 포함이면 3개.
     assert len(mesh.vertices) == 6
 
 
