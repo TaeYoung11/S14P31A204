@@ -102,7 +102,10 @@ def _derive_shared_wall_candidates(request: LayoutImportV2) -> list[SharedWallCa
     for adjacency in request.adjacency:
         from_room, to_room = _resolve_adjacency_pair(adjacency, rooms_by_id)
         if from_room.floor != to_room.floor:
-            raise ValueError("shared wall adjacency rooms must be on the same floor")
+            raise ValueError(
+                f"shared wall adjacency rooms must be on the same floor: "
+                f"{from_room.id} ({from_room.floor}F) and {to_room.id} ({to_room.floor}F)"
+            )
         if not math.isclose(from_room.angle, 0.0, abs_tol=1.0e-9):
             raise ValueError(f"shared wall adjacency does not support rotated room: {from_room.id}")
         if not math.isclose(to_room.angle, 0.0, abs_tol=1.0e-9):
