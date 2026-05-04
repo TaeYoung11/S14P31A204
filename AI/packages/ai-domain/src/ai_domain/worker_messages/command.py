@@ -93,9 +93,9 @@ class CommandMessage(BaseModel):
         max_length=128,
         alias="expected_output_artifact_id",
     )
-    input: CommandInputRef | None = None
+    input: CommandInputRef | None = Field(default=None, alias="input")
     expectedOutput: ExpectedOutputRef = Field(alias="expected_output")
-    payload: object
+    payload: object = Field(alias="payload")
     attemptNo: int = Field(ge=0, alias="attempt_no")
     maxAttempts: int = Field(ge=1, alias="max_attempts")
     idempotencyKey: str = Field(min_length=1, max_length=255, alias="idempotency_key")
