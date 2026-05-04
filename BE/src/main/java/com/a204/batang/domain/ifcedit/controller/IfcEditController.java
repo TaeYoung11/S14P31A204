@@ -2,7 +2,9 @@ package com.a204.batang.domain.ifcedit.controller;
 
 import com.a204.batang.domain.ifcedit.dto.DirectIfcEditRequest;
 import com.a204.batang.domain.ifcedit.dto.IfcEditJobResponse;
+import com.a204.batang.domain.ifcedit.dto.LlmIfcEditRequest;
 import com.a204.batang.domain.ifcedit.service.DirectIfcEditCommandService;
+import com.a204.batang.domain.ifcedit.service.TwoDLlmIfcEditCommandService;
 import com.a204.batang.global.common.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -28,6 +30,7 @@ import java.util.UUID;
 public class IfcEditController {
 
     private final DirectIfcEditCommandService directIfcEditCommandService;
+    private final TwoDLlmIfcEditCommandService twoDLlmIfcEditCommandService;
 
     @Operation(
             summary = "직접 IFC 편집 요청",
@@ -49,6 +52,29 @@ public class IfcEditController {
             @Valid @RequestBody DirectIfcEditRequest request
     ) {
         IfcEditJobResponse response = directIfcEditCommandService.createDirectIfcEdit(projectId, userId, request);
+        return ApiResponse.success("IFC 편집 작업 등록 성공", response);
+    }
+
+    @Operation(
+            summary = "2D LLM 경유 IFC 편집 요청",
+            description = "2D LLM이 사용자 지시를 해석하여 IFC 편집 plan을 생성한 뒤 IFC 편집 작업을 등록한다. 총 2단계(LLM → IFC Edit Apply)로 진행된다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "작업 예약 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "잘못된 요청"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "접근 권한 없음"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "프로젝트 또는 소스 revision 없음"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "진행 중인 IFC 편집 작업 존재"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "502", description = "Worker command 발행 실패")
+    })
+    @PostMapping("/{projectId}/ifc-edit/2d-llm")
+    public ApiResponse<IfcEditJobResponse> createTwoDLlmIfcEdit(
+            @Parameter(description = "IFC 편집 작업을 등록할 프로젝트 식별자", required = true)
+            @PathVariable UUID projectId,
+            @AuthenticationPrincipal UUID userId,
+            @Valid @RequestBody LlmIfcEditRequest request
+    ) {
+        IfcEditJobResponse response = twoDLlmIfcEditCommandService.createTwoDLlmIfcEdit(projectId, userId, request);
         return ApiResponse.success("IFC 편집 작업 등록 성공", response);
     }
 }
