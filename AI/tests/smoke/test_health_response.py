@@ -92,8 +92,41 @@ def test_health_endpoint_includes_provider_checks_and_provider_errors() -> None:
 
     try:
         host, port = failing_server.server_address
-        with urlopen(f"http://{host}:{port}/health") as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        assert payload["checks"] == {"providerStatus": "error"}
+        try:
+            urlopen(f"http://{host}:{port}/health")
+            raise AssertionError("failing health provider must return non-200")
+        except HTTPError as error:
+            assert error.code == 503
+            payload = json.loads(error.read().decode("utf-8"))
+            assert payload["status"] == "error"
+            assert payload["checks"] == {"providerStatus": "error"}
     finally:
         failing_server.stop()
+
+
+def test_health_endpoint_returns_503_when_checks_contain_error() -> None:
+    def error_in_checks_provider() -> dict[str, object]:
+        return {"database": "error", "storage": "ok"}
+
+    server = start_health_server(
+        WorkerSettings(
+            worker_type="TWO_D_LLM",
+            worker_id="2d-llm-worker-1",
+            health_host="127.0.0.1",
+            health_port=0,
+        ),
+        provider=error_in_checks_provider,
+    )
+
+    try:
+        host, port = server.server_address
+        try:
+            urlopen(f"http://{host}:{port}/health")
+            raise AssertionError("health check with 'error' must return 503")
+        except HTTPError as error:
+            assert error.code == 503
+            payload = json.loads(error.read().decode("utf-8"))
+            assert payload["status"] == "error"
+            assert payload["checks"]["database"] == "error"
+    finally:
+        server.stop()
