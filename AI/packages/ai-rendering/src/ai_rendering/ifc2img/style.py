@@ -42,6 +42,8 @@ FRONT_SIDE_MASK_SIDE_EXPAND_RATIO = 0.025
 FRONT_SIDE_MASK_CONTROL_RGB = (96, 96, 96)
 FRONT_SIDE_MASK_BLEND_STRENGTH = 0.18
 FRONT_SIDE_SEMANTIC_CONTROL_SCALE = 0.35
+FRONT_SIDE_INPAINT_TOP_PADDING_RATIO = 0.01
+FRONT_SIDE_INPAINT_SIDE_EXPAND_RATIO = 0.04
 
 
 @dataclass
@@ -201,6 +203,39 @@ def _build_front_side_seg_control(
         seg[sky_mask] = np.array(ADE20K_SKY_RGB, dtype=np.uint8)
 
     return Image.fromarray(seg, mode="RGB")
+
+
+def _build_front_side_inpaint_mask(control: Image.Image) -> Image.Image:
+    """Create a lower-facade inpaint mask for front/side two-pass experiments.
+
+    White pixels are intended to be repainted. The mask starts around the
+    localized ground-contact band and extends downward only around the building
+    footprint, so upper facade details stay protected.
+    """
+    semantic_mask = _build_front_side_semantic_mask(control)
+    mask_arr = np.asarray(semantic_mask, dtype=np.uint8)
+    building_mask = np.all(mask_arr == SEMANTIC_BUILDING_RGB, axis=2)
+    ground_mask = np.all(mask_arr == SEMANTIC_GROUND_RGB, axis=2)
+    height, width = building_mask.shape
+
+    out = np.zeros((height, width), dtype=np.uint8)
+    if not np.any(building_mask) or not np.any(ground_mask):
+        return Image.fromarray(out, mode="L")
+
+    _, building_xs = np.nonzero(building_mask)
+    ground_ys, ground_xs = np.nonzero(ground_mask)
+    left = int(min(building_xs.min(), ground_xs.min()))
+    right = int(max(building_xs.max(), ground_xs.max()))
+    bbox_width = max(1, right - left + 1)
+    expand_px = max(1, int(round(bbox_width * FRONT_SIDE_INPAINT_SIDE_EXPAND_RATIO)))
+    top_padding = max(1, int(round(height * FRONT_SIDE_INPAINT_TOP_PADDING_RATIO)))
+
+    x_start = max(0, left - expand_px)
+    x_end = min(width - 1, right + expand_px)
+    y_start = max(0, int(ground_ys.min()) - top_padding)
+
+    out[y_start:, x_start : x_end + 1] = 255
+    return Image.fromarray(out, mode="L")
 
 
 class DepthStyleRenderer:
