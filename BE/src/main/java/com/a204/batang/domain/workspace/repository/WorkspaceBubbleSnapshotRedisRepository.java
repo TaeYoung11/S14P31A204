@@ -19,6 +19,7 @@ import java.util.UUID;
 public class WorkspaceBubbleSnapshotRedisRepository {
 
     private static final String BUBBLE_SNAPSHOT_HISTORY_KEY_TEMPLATE = "workspace:project:%s:bubble:snapshots";
+    private static final String FLOOR_PLAN_SNAPSHOT_HISTORY_KEY_TEMPLATE = "workspace:project:%s:floor-plan:snapshots";
     private static final int MAX_SNAPSHOT_HISTORY_SIZE = 10;
     private static final RedisScript<Long> SAVE_HISTORY_SCRIPT = RedisScript.of("""
             local historyKey = KEYS[1]
@@ -67,6 +68,23 @@ public class WorkspaceBubbleSnapshotRedisRepository {
      */
     public void saveSnapshot(UUID projectId, JsonNode snapshot, int baseIndex) throws JsonProcessingException {
         String key = BUBBLE_SNAPSHOT_HISTORY_KEY_TEMPLATE.formatted(projectId);
+        saveSnapshotByKey(key, snapshot, baseIndex);
+    }
+
+    /**
+     * 2D/3D 편집 webhook 완료 스냅샷을 Redis 히스토리에 저장한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param snapshot 저장할 스냅샷 JSON
+     * @param baseIndex 이번 변경이 파생된 기준 스냅샷 인덱스(-1이면 빈 히스토리 기준)
+     * @throws JsonProcessingException 스냅샷 직렬화 실패 시
+     */
+    public void saveFloorPlanSnapshot(UUID projectId, JsonNode snapshot, int baseIndex) throws JsonProcessingException {
+        String key = FLOOR_PLAN_SNAPSHOT_HISTORY_KEY_TEMPLATE.formatted(projectId);
+        saveSnapshotByKey(key, snapshot, baseIndex);
+    }
+
+    private void saveSnapshotByKey(String key, JsonNode snapshot, int baseIndex) throws JsonProcessingException {
         String serializedSnapshot = objectMapper.writeValueAsString(snapshot);
 
         Long result = redisTemplate.execute(
