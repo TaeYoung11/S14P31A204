@@ -8,6 +8,7 @@ interface EditorHeaderProps {
   onModeChange: (mode: EditorMode) => void
   onSave?: () => void
   saveStatus?: SaveStatus
+  siteAreaLabel?: string
 }
 
 const SAVE_STATUS_LABELS: Record<SaveStatus, string> = {
@@ -34,6 +35,7 @@ export default function EditorHeader({
   onModeChange,
   onSave,
   saveStatus = 'idle',
+  siteAreaLabel,
 }: EditorHeaderProps) {
   const isViewer = mode === 'view'
 
@@ -71,6 +73,11 @@ export default function EditorHeader({
       </div>
 
       <div className="flex items-center gap-4">
+        {siteAreaLabel && (
+          <div className="rounded-full bg-[#EEF0FF] px-3 py-1 text-[11px] font-bold text-[#2F3A90]">
+            대지 {siteAreaLabel}
+          </div>
+        )}
         <div className={`rounded-full px-3 py-1 text-[11px] font-bold ${SAVE_STATUS_STYLES[saveStatus]}`}>
           {SAVE_STATUS_LABELS[saveStatus]}
         </div>

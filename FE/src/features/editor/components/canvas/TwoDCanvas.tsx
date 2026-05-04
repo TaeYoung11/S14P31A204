@@ -15,6 +15,7 @@ import type {
   Point2D,
 } from '../../types'
 import {
+  SITE_BOUNDARY_LISTENING,
   FLOOR_MM_PER_PX,
   FLOOR_OPENING_PRESETS,
   FLOOR_WALL_HEIGHT_MAX_MM,
@@ -28,6 +29,7 @@ import { findSharedWall, type DoorInfo } from '../../utils/floorPlanLayout'
 import { hexToRgba } from '../../utils/bubbleCalc'
 import { computeDimensionGuides } from '../../utils/dimensionGuides'
 import { lineIntersectsRect, pointInRect, type AxisAlignedRect } from '../../utils/geometry2d'
+import { isRectInsidePolygon, toCanvasPolygon, validateFloorPlanInSiteBoundary } from '../../utils/siteBoundaryValidation'
 import { getWallGeometryKey, shouldRemoveAsContainedOverlap } from '../../utils/wallGeometry'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
 import { DimensionGuidesLayer } from './DimensionGuidesLayer'
@@ -45,6 +47,8 @@ const OPENING_CREATE_SNAP_THRESHOLD = 0.06
 const OPENING_MIN_CLEARANCE_MM = 300
 const ROOM_ADJACENT_SNAP_DISTANCE = 14
 const ROOM_EDGE_ALIGN_SNAP_DISTANCE = 14
+const SITE_GUIDE_STROKE = '#3B45B3'
+const SITE_OUTSIDE_WARNING = '#DC2626'
 
 /** 단일 좌표값을 그리드에 스냅 — enabled=false이면 원본 값 반환 */
 function snapCoordinate(value: number, enabled: boolean, gridSizePx: number): number {
@@ -509,6 +513,7 @@ function CollaborationPinOverlay({
 
 interface TwoDCanvasProps {
   stageSize: { width: number; height: number }
+  sitePoints?: number[]
   isCollaborationMode?: boolean
   selectedPinId?: string | null
   commentPins?: FloorCommentPin[]
@@ -577,6 +582,7 @@ interface TwoDCanvasProps {
  */
 export function TwoDCanvas({
   stageSize,
+  sitePoints = [],
   isCollaborationMode,
   selectedPinId,
   commentPins = [],
@@ -681,6 +687,7 @@ export function TwoDCanvas({
     FLOOR_WALL_HEIGHT_MAX_MM,
   )
   const isInteractionLockedByCollaboration = Boolean(isCollaborationMode)
+  const sitePolygon = useMemo(() => toCanvasPolygon(sitePoints), [sitePoints])
 
   const createAttachmentFromFile = (file: File): FloorCommentAttachmentInput => {
     const mimeType = file.type || 'application/octet-stream'
@@ -979,6 +986,10 @@ export function TwoDCanvas({
     return uniqueWalls.filter((wall) => !hiddenWallIds.has(wall.id))
   }, [walls])
 
+  const siteValidation = useMemo(() => {
+    return validateFloorPlanInSiteBoundary(sitePoints, rooms, dedupedRenderWalls, openings)
+  }, [sitePoints, rooms, dedupedRenderWalls, openings])
+
   const dimensionGuides = useMemo(
     () => computeDimensionGuides({ isGenerated, rooms, walls: dedupedRenderWalls }),
     [isGenerated, rooms, dedupedRenderWalls],
@@ -1075,6 +1086,8 @@ export function TwoDCanvas({
     roomBubbleId: string,
     nextRect: AxisAlignedRect,
   ): boolean => {
+    if (siteValidation.hasSite && !isRectInsidePolygon(nextRect, sitePolygon)) return false
+
     const overlapPadding = 2
     for (const room of rooms) {
       if (room.bubbleId === roomBubbleId) continue
@@ -1499,6 +1512,26 @@ export function TwoDCanvas({
       }}
       >
         <Layer>
+        {siteValidation.hasSite && (
+          <>
+            <Line
+              points={sitePoints}
+              closed
+              fill="#3B45B314"
+              stroke={SITE_GUIDE_STROKE}
+              strokeWidth={1.8}
+              listening={SITE_BOUNDARY_LISTENING}
+            />
+            <Line
+              points={sitePoints}
+              closed
+              stroke="#2D359980"
+              strokeWidth={1}
+              dash={[8, 6]}
+              listening={SITE_BOUNDARY_LISTENING}
+            />
+          </>
+        )}
         {/* 그리드 라인 */}
         {isGridVisible && (
           <>
@@ -1595,6 +1628,7 @@ export function TwoDCanvas({
         {/* 방(Room) 렌더링 */}
         {rooms.map((room) => {
           const isSelected = selectedIds.includes(room.bubbleId) || selectedId === room.bubbleId
+          const isOutsideSite = siteValidation.outsideRoomIds.has(room.bubbleId)
           const contour = room.contour
           const hasContourShape = !!contour && contour.length > 0
           const polygonPoints = toPolygonPoints(room.polygon)
@@ -1607,6 +1641,7 @@ export function TwoDCanvas({
             !hasPolygonShape &&
             !hasAdvancedShape
           const fill = getRoomFill(room.color)
+          const roomStroke = isOutsideSite ? SITE_OUTSIDE_WARNING : isSelected ? '#3B45B3' : '#B8BFCC'
           const labelFontSize = Math.max(9, Math.min(13, room.width / 8))
           const areaFontSize = Math.max(8, Math.min(11, room.width / 10))
           const edgeCoveredByWall = getRoomEdgeCoverageByWalls(room, dedupedRenderWalls)
@@ -1671,6 +1706,19 @@ export function TwoDCanvas({
                   room.height,
                   rooms,
                 )
+                if (siteValidation.hasSite) {
+                  const nextRect: AxisAlignedRect = {
+                    x: snapped.x,
+                    y: snapped.y,
+                    width: room.width,
+                    height: room.height,
+                  }
+                  if (!isRectInsidePolygon(nextRect, sitePolygon)) {
+                    e.target.position({ x: 0, y: 0 })
+                    e.target.getLayer()?.batchDraw()
+                    return
+                  }
+                }
                 onRoomMove?.(room.bubbleId, snapped.x, snapped.y)
                 // Group 드래그 오프셋은 상태 반영 직후 0으로 되돌려 누적 오차를 방지한다.
                 e.target.position({ x: 0, y: 0 })
@@ -1694,7 +1742,7 @@ export function TwoDCanvas({
                       context.fillStrokeShape(shape)
                     }}
                     fill={fill}
-                    stroke={isSelected ? '#3B45B3' : '#B8BFCC'}
+                    stroke={roomStroke}
                     strokeWidth={isSelected ? 2 : 1.5}
                   />
                 ) : hasPolygonShape ? (
@@ -1702,7 +1750,7 @@ export function TwoDCanvas({
                     points={polygonPoints}
                     closed
                     fill={fill}
-                    stroke={isSelected ? '#3B45B3' : '#B8BFCC'}
+                    stroke={roomStroke}
                     strokeWidth={isSelected ? 2 : 1.5}
                     lineJoin="round"
                   />
@@ -1714,32 +1762,44 @@ export function TwoDCanvas({
                     {!edgeCoveredByWall.top && (
                       <Line
                         points={[room.x, room.y, room.x + room.width, room.y]}
-                        stroke="#B8BFCC"
+                        stroke={roomStroke}
                         strokeWidth={1.5}
                       />
                     )}
                     {!edgeCoveredByWall.right && (
                       <Line
                         points={[room.x + room.width, room.y, room.x + room.width, room.y + room.height]}
-                        stroke="#B8BFCC"
+                        stroke={roomStroke}
                         strokeWidth={1.5}
                       />
                     )}
                     {!edgeCoveredByWall.bottom && (
                       <Line
                         points={[room.x + room.width, room.y + room.height, room.x, room.y + room.height]}
-                        stroke="#B8BFCC"
+                        stroke={roomStroke}
                         strokeWidth={1.5}
                       />
                     )}
                     {!edgeCoveredByWall.left && (
                       <Line
                         points={[room.x, room.y + room.height, room.x, room.y]}
-                        stroke="#B8BFCC"
+                        stroke={roomStroke}
                         strokeWidth={1.5}
                       />
                     )}
                   </>
+                )}
+                {isOutsideSite && (
+                  <Text
+                    x={room.x}
+                    y={room.y + 4}
+                    width={room.width}
+                    align="center"
+                    text="대지 밖"
+                    fontSize={10}
+                    fontStyle="bold"
+                    fill={SITE_OUTSIDE_WARNING}
+                  />
                 )}
                 {/* 공간 이름 */}
                 <Text
@@ -2003,7 +2063,13 @@ export function TwoDCanvas({
             isMultiSelectedWall ||
             selectedWallId === wall.id ||
             (selectedWallGeometryKey !== null && getWallGeometryKey(wall) === selectedWallGeometryKey)
+          const isOutsideSiteWall = siteValidation.outsideWallIds.has(wall.id)
           const presetStroke = FLOOR_WALL_PRESETS[wall.type]?.stroke ?? '#2F3448'
+          const wallStroke = isSelectedWall
+            ? '#3B45B3'
+            : isOutsideSiteWall
+              ? SITE_OUTSIDE_WARNING
+              : presetStroke
           const strokeWidthPx = wallThicknessMmToPx(wall.thickness)
           return (
             <Group
@@ -2014,7 +2080,7 @@ export function TwoDCanvas({
             >
               <Line
                 points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
-                stroke={isSelectedWall ? '#3B45B3' : presetStroke}
+                stroke={wallStroke}
                 strokeWidth={isSelectedWall ? strokeWidthPx + 1 : strokeWidthPx}
                 lineCap="round"
                 lineJoin="round"
@@ -2357,6 +2423,13 @@ export function TwoDCanvas({
         )}
         </Layer>
       </Stage>
+
+      {siteValidation.outsideCount > 0 && (
+        <div className="pointer-events-none absolute left-3 top-3 rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-3 py-2 text-[11px] font-bold text-[#991B1B]">
+          대지 경계 검증
+          {`: 공간 ${siteValidation.outsideRoomIds.size} · 벽 ${siteValidation.outsideWallIds.size} · 개구부 ${siteValidation.outsideOpeningIds.size}`}
+        </div>
+      )}
 
       {isCollaborationMode && pinDraft && (
         <div

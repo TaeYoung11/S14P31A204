@@ -1,23 +1,7 @@
-import { useMemo, useRef, useState } from 'react'
-import type { BubbleData, ConnectionData, FloorOpening, FloorWall } from '../types'
 import { FLOOR_OPENING_PRESETS, FLOOR_WALL_PRESETS, INITIAL_ADD_SPACE_FORM } from '../constants'
-import { calcMmDimensionsByAreaAndAspect, calcPxDimensionsFromMm } from '../utils/bubbleCalc'
-import { getLlmEditProvider, requestLlmEdit } from '../services/llmEdit.service'
-import type { LlmEditChangeItem, LlmEditOperation, LlmEditPreview, LlmEditStatus } from '../types/llmEdit.types'
-
-interface UseLlmEditParams {
-  projectId: string | null
-  bubbles: BubbleData[]
-  connections: ConnectionData[]
-  floorWalls: FloorWall[]
-  floorOpenings: FloorOpening[]
-  onApply: (
-    nextBubbles: BubbleData[],
-    nextConnections: ConnectionData[],
-    nextFloorWalls: FloorWall[],
-    nextFloorOpenings: FloorOpening[],
-  ) => void
-}
+import type { BubbleData, ConnectionData, FloorOpening, FloorWall } from '../types'
+import type { LlmEditChangeItem, LlmEditOperation, LlmEditPreview } from '../types/llmEdit.types'
+import { calcMmDimensionsByAreaAndAspect, calcPxDimensionsFromMm } from './bubbleCalc'
 
 const DEFAULT_AREA_M2 = 10
 
@@ -38,6 +22,7 @@ const getNextBubbleIndex = (bubbles: BubbleData[]) => {
   return String(max + 1).padStart(2, '0')
 }
 
+/** 기존 버블 근처 좌표를 기준으로 신규 버블 기본값을 구성한다. */
 function buildNewBubble(label: string, type: string, near: BubbleData | undefined): BubbleData {
   const mm = calcMmDimensionsByAreaAndAspect(DEFAULT_AREA_M2, 1)
   const px = calcPxDimensionsFromMm(mm.widthMm, mm.heightMm)
@@ -62,7 +47,8 @@ function buildNewBubble(label: string, type: string, near: BubbleData | undefine
   }
 }
 
-function applyOperations(
+/** LLM operations를 적용해 미리보기 데이터와 변경 요약 목록을 계산한다. */
+export function applyLlmOperationsPreview(
   baseBubbles: BubbleData[],
   baseConnections: ConnectionData[],
   baseFloorWalls: FloorWall[],
@@ -283,113 +269,5 @@ function applyOperations(
     connections: nextConnections,
     floorWalls: nextFloorWalls,
     floorOpenings: nextFloorOpenings,
-  }
-}
-
-/** AI 어시스턴트 기반 다이어그램 수정 상태 관리 훅 */
-export function useLlmEdit({
-  projectId,
-  bubbles,
-  connections,
-  floorWalls,
-  floorOpenings,
-  onApply,
-}: UseLlmEditParams) {
-  const provider = getLlmEditProvider()
-  const requestSeq = useRef(0)
-  const [prompt, setPrompt] = useState('')
-  const [status, setStatus] = useState<LlmEditStatus>('idle')
-  const [message, setMessage] = useState('')
-  const [suggestions, setSuggestions] = useState<string[]>([])
-  const [preview, setPreview] = useState<LlmEditPreview | null>(null)
-
-  const isLoading = status === 'loading'
-
-  const canRun = useMemo(() => prompt.trim().length > 0 && !isLoading, [prompt, isLoading])
-
-  const run = async () => {
-    if (!canRun) return
-    const currentSeq = requestSeq.current + 1
-    requestSeq.current = currentSeq
-    setStatus('loading')
-    setMessage('')
-    setSuggestions([])
-    setPreview(null)
-
-    try {
-      const response = await requestLlmEdit({
-        projectId,
-        prompt,
-        bubbles,
-        connections,
-        floorWalls,
-        floorOpenings,
-      })
-      if (currentSeq !== requestSeq.current) return
-      if (response.kind === 'ambiguous') {
-        setStatus('ambiguous')
-        setMessage(response.message)
-        setSuggestions(response.suggestions)
-        return
-      }
-      if (response.kind === 'error') {
-        setStatus('error')
-        setMessage(response.message)
-        return
-      }
-
-      const previewResult = applyOperations(
-        bubbles,
-        connections,
-        floorWalls,
-        floorOpenings,
-        response.operations,
-      )
-      if (previewResult.changes.length === 0) {
-        setStatus('ambiguous')
-        setMessage('요청은 이해했지만 실제 변경 사항이 없습니다. 다른 지시를 입력해 주세요.')
-        setSuggestions(['연결할 공간 이름을 바꿔 입력해 주세요.', '추가/삭제/이름변경 동작을 명시해 주세요.'])
-        return
-      }
-
-      setPreview({ ...previewResult, summary: response.summary })
-      setStatus('preview')
-    } catch {
-      if (currentSeq !== requestSeq.current) return
-      setStatus('error')
-      setMessage('AI 수정 요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.')
-    }
-  }
-
-  const apply = () => {
-    if (!preview) return
-    requestSeq.current += 1
-    onApply(preview.bubbles, preview.connections, preview.floorWalls, preview.floorOpenings)
-    setStatus('applied')
-    setMessage('미리보기 변경사항이 적용되었습니다.')
-    setSuggestions([])
-  }
-
-  const discard = () => {
-    requestSeq.current += 1
-    setPreview(null)
-    setStatus('idle')
-    setMessage('')
-    setSuggestions([])
-  }
-
-  return {
-    provider,
-    prompt,
-    setPrompt,
-    status,
-    isLoading,
-    message,
-    suggestions,
-    preview,
-    canRun,
-    run,
-    apply,
-    discard,
   }
 }

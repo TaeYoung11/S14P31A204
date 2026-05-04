@@ -14,6 +14,7 @@ interface ThreeDModeCanvasProps {
 export default function ThreeDModeCanvas({ editorProps, scale }: ThreeDModeCanvasProps) {
   return (
     <ThreeDCanvas
+      sitePoints={editorProps.sitePlanPoints}
       isCollaborationMode={editorProps.isCollaborationMode}
       isLibraryOpen={editorProps.isLibraryOpen}
       onToggleLibrary={() => editorProps.setIsLibraryOpen(!editorProps.isLibraryOpen)}
@@ -28,4 +29,3 @@ export default function ThreeDModeCanvas({ editorProps, scale }: ThreeDModeCanva
     />
   )
 }
-

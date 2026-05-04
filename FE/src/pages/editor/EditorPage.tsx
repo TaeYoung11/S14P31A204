@@ -11,6 +11,7 @@ import {
   buildEditorModalLayerProps,
   buildEditorRightPanelProps,
 } from './utils'
+import { formatAreaM2, formatAreaPyeong } from '@/features/project/utils/siteGeometry'
 
 /** 에디터 페이지 조합 컴포넌트: 모달/좌측도구/캔버스/우측패널 배치만 담당 */
 export default function EditorPage() {
@@ -19,6 +20,9 @@ export default function EditorPage() {
   const modalLayerProps = buildEditorModalLayerProps(vm)
   const sidebarProps = buildEditorLeftSidebarProps(vm)
   const rightPanelProps = buildEditorRightPanelProps(vm)
+  const siteAreaLabel = vm.siteAreaM2
+    ? `${formatAreaM2(vm.siteAreaM2)} (${formatAreaPyeong(vm.siteAreaM2)})`
+    : undefined
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#F0F2F9] text-[#1D1E20] overflow-hidden font-sans">
@@ -30,6 +34,7 @@ export default function EditorPage() {
         onOpenInvite={vm.handleOpenInviteModal}
         onSave={vm.mode === '3d' ? vm.handleOpenIFCExportModal : vm.handleOpenExportSelectionModal}
         saveStatus={vm.saveStatus}
+        siteAreaLabel={siteAreaLabel}
       />
       <EditorToolbar mode={vm.mode} projectName={vm.currentProjectName} onModeChange={vm.setMode} />
 
