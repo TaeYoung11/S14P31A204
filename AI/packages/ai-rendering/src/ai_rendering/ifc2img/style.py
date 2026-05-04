@@ -15,6 +15,7 @@ from dataclasses import dataclass, replace as dc_replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
 from PIL import Image
 
 from .exceptions import IFCRenderError
@@ -26,6 +27,8 @@ if TYPE_CHECKING:
 
 DEFAULT_MODEL_ID = "runwayml/stable-diffusion-v1-5"
 DEFAULT_CONTROLNET_DEPTH_ID = "lllyasviel/sd-controlnet-depth"
+EYE_GROUND_ANCHOR_START_RATIO = 0.58
+EYE_GROUND_HORIZON_BAND_RATIO = 0.06
 
 
 @dataclass
@@ -63,6 +66,34 @@ def _depth_to_control(depth: Image.Image) -> Image.Image:
     if depth.mode != "RGB":
         return depth.convert("RGB")
     return depth
+
+
+def _apply_eye_ground_anchor(control: Image.Image) -> Image.Image:
+    """Fill lower empty background with muted ground cues for EYE views."""
+    arr = np.asarray(control.convert("RGB"), dtype=np.uint8).copy()
+    bg_mask = np.all(arr == 0, axis=2)
+    height, _width = arr.shape[:2]
+    start_y = int(height * EYE_GROUND_ANCHOR_START_RATIO)
+    horizon_band = max(1, int(height * EYE_GROUND_HORIZON_BAND_RATIO))
+
+    horizon_color = np.array([124, 124, 118], dtype=np.float32)
+    ground_far = np.array([152, 148, 136], dtype=np.float32)
+    ground_near = np.array([176, 168, 146], dtype=np.float32)
+
+    for y in range(start_y, height):
+        row_mask = bg_mask[y]
+        if not np.any(row_mask):
+            continue
+        if y < start_y + horizon_band:
+            color = horizon_color
+        elif height - start_y <= 1:
+            color = ground_near
+        else:
+            t = (y - start_y) / (height - start_y - 1)
+            color = ground_far * (1.0 - t) + ground_near * t
+        arr[y, row_mask] = color.astype(np.uint8)
+
+    return Image.fromarray(arr, mode="RGB")
 
 
 class DepthStyleRenderer:
@@ -155,6 +186,7 @@ class DepthStyleRenderer:
         depth_image: Image.Image,
         params: DepthStyleParams,
         view: IFCView | None = None,
+        use_eye_ground_anchor: bool = False,
     ) -> DepthStyleResult:
         """depth PIL 1장 + prompt → 스타일 변환 PIL 1장 (1회 추론).
 
@@ -166,6 +198,12 @@ class DepthStyleRenderer:
         """
         depth_size = depth_image.size  # (W, H)
         control = _depth_to_control(depth_image)
+        if use_eye_ground_anchor and view in {
+            IFCView.EYE_NE,
+            IFCView.EYE_NW,
+            IFCView.EYE_SE,
+        }:
+            control = _apply_eye_ground_anchor(control)
         width, height = control.size
         if view is not None:
             prompt = build_view_prompt(params.prompt, view)

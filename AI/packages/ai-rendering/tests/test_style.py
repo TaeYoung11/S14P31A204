@@ -7,6 +7,7 @@ torch/diffusers 지연 임포트 덕에 의존성 미설치에서도 import 가�
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -17,6 +18,7 @@ from ai_rendering.ifc2img import (
     IFCRenderError,
     IFCView,
 )
+from ai_rendering.ifc2img.style import _apply_eye_ground_anchor
 
 
 @pytest.fixture
@@ -353,3 +355,44 @@ def test_render_result_params_identity_preserved_when_view_none(
     result = mock_depth_renderer.render(depth, params)  # view=None
 
     assert result.params is params
+
+
+def test_apply_eye_ground_anchor_preserves_geometry_pixels() -> None:
+    """Ground anchor only fills empty background and keeps geometry pixels intact."""
+    control = Image.new("RGB", (8, 8), (0, 0, 0))
+    arr = np.array(control)
+    arr[2:4, 2:4] = [255, 255, 255]
+    anchored = _apply_eye_ground_anchor(Image.fromarray(arr, mode="RGB"))
+    anchored_arr = np.array(anchored)
+
+    np.testing.assert_array_equal(anchored_arr[2:4, 2:4], arr[2:4, 2:4])
+
+
+def test_apply_eye_ground_anchor_fills_lower_background_only() -> None:
+    """Ground anchor fills lower empty background while leaving upper background black."""
+    control = Image.new("RGB", (20, 20), (0, 0, 0))
+    anchored = _apply_eye_ground_anchor(control)
+    arr = np.array(anchored)
+
+    assert np.all(arr[2, 2] == [0, 0, 0])
+    assert not np.all(arr[18, 2] == [0, 0, 0])
+
+
+def test_render_with_eye_ground_anchor_modifies_control_image(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Optional B1 path changes the control image only when explicitly enabled."""
+    depth = Image.new("L", (32, 32), 0)
+    params = DepthStyleParams(prompt="RAW photo, scandinavian house")
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.EYE_NE,
+        use_eye_ground_anchor=True,
+    )
+
+    control = mock_depth_renderer.pipe.call_args.kwargs["image"]
+    arr = np.array(control)
+    assert not np.all(arr[30, 2] == [0, 0, 0])
+    assert np.all(arr[2, 2] == [0, 0, 0])
