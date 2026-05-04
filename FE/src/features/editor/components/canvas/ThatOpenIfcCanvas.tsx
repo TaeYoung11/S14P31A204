@@ -558,6 +558,17 @@ export default function ThatOpenIfcCanvas({
         transformControls.enabled = false
         const transformHelper = transformControls.getHelper()
         world.scene.three.add(transformHelper)
+        let isTransformPointerActive = false
+        ;(transformControls as unknown as {
+          addEventListener: (type: 'mouseDown' | 'mouseUp', listener: () => void) => void
+        }).addEventListener('mouseDown', () => {
+          isTransformPointerActive = true
+        })
+        ;(transformControls as unknown as {
+          addEventListener: (type: 'mouseDown' | 'mouseUp', listener: () => void) => void
+        }).addEventListener('mouseUp', () => {
+          isTransformPointerActive = false
+        })
         ;(transformControls as unknown as {
           addEventListener: (type: 'dragging-changed', listener: (event: { value: boolean }) => void) => void
         }).addEventListener('dragging-changed', (event) => {
@@ -622,7 +633,8 @@ export default function ThatOpenIfcCanvas({
           const raycaster = new THREE.Raycaster()
           raycaster.setFromCamera(normalizedMouse, camera)
           const wasTransformActive = transformControls.visible && transformControls.enabled
-          if ((transformControls as unknown as { dragging?: boolean }).dragging) {
+          const transformState = transformControls as unknown as { dragging?: boolean }
+          if (transformState.dragging || (wasTransformActive && isTransformPointerActive)) {
             return
           }
           const ifcEditHit = raycaster.intersectObjects(ifcEditGroup.children, true)[0]
@@ -1054,7 +1066,10 @@ export default function ThatOpenIfcCanvas({
       const presetMesh = createPresetMesh(THREE, preset, index, sceneState.worldUnitsPerMm)
       presetGroup.add(presetMesh)
     })
-    positionPresetGroupBesideIfc(THREE, sceneState.ifcObject, presetGroup, sceneState.worldUnitsPerMm)
+    if (!presetGroup.userData.libraryPositioned) {
+      positionPresetGroupBesideIfc(THREE, sceneState.ifcObject, presetGroup, sceneState.worldUnitsPerMm)
+      presetGroup.userData.libraryPositioned = true
+    }
     if (selectedLibraryPreset) {
       const nextRoot = presetGroup.children.find((child) => {
         const preset = getLibraryPresetFromObject(child as LibraryObject3D)
