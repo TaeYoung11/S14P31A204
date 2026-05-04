@@ -9,6 +9,10 @@ interface ApiResponse<T> {
   data: T
 }
 
+const PROJECT_LIST_PAGE_SIZE = 6
+const PROJECT_LIST_MAX_PAGES = 100
+const IFC_ACCEPT_HEADER = 'application/octet-stream,text/plain'
+
 interface ProjectSummaryResponse {
   projectId: string
   name: string
@@ -106,6 +110,24 @@ const mapUpdatedProject = (project: UpdateProjectResponse, fallback?: Project): 
   unread_comment_count: project.unreadCommentCount ?? fallback?.unread_comment_count ?? 0,
 })
 
+function decodeUtf8ArrayBuffer(buffer: ArrayBuffer): string {
+  return new TextDecoder('utf-8').decode(buffer)
+}
+
+/** API 에러가 404(Not Found)인지 판별한다. */
+function isNotFoundError(error: unknown): boolean {
+  const status = (error as { response?: { status?: number } })?.response?.status
+  return status === 404
+}
+
+/** 프로젝트 목록 페이지 1회를 조회한다. */
+async function fetchProjectListPage(page: number): Promise<ProjectListResponse> {
+  const response = await api.get<ApiResponse<ProjectListResponse>>('/projects', {
+    params: { page, size: PROJECT_LIST_PAGE_SIZE },
+  })
+  return response.data.data
+}
+
 export interface ProjectListPageResult {
   projects: Project[]
   hasNext: boolean
@@ -116,13 +138,9 @@ export const projectService = {
   getAll: async (): Promise<Project[]> => {
     const all: Project[] = []
     let page = 1
-    const maxPages = 100
 
-    while (page <= maxPages) {
-      const response = await api.get<ApiResponse<ProjectListResponse>>('/projects', {
-        params: { page, size: 6 },
-      })
-      const data = response.data.data
+    while (page <= PROJECT_LIST_MAX_PAGES) {
+      const data = await fetchProjectListPage(page)
       all.push(...data.projects.map(mapProjectSummary))
       if (!data.hasNext) break
       page = data.page + 1
@@ -132,10 +150,7 @@ export const projectService = {
   },
 
   getList: async (page: number = 1): Promise<ProjectListPageResult> => {
-    const response = await api.get<ApiResponse<ProjectListResponse>>('/projects', {
-      params: { page, size: 6 },
-    })
-    const data = response.data.data
+    const data = await fetchProjectListPage(page)
     return { projects: data.projects.map(mapProjectSummary), hasNext: data.hasNext, page: data.page }
   },
 
@@ -149,14 +164,13 @@ export const projectService = {
       const response = await api.get<ArrayBuffer>(`/projects/${projectId}/model`, {
         responseType: 'arraybuffer',
         headers: {
-          Accept: 'application/octet-stream,text/plain',
+          Accept: IFC_ACCEPT_HEADER,
         },
       })
-      const ifcText = new TextDecoder('utf-8').decode(response.data)
+      const ifcText = decodeUtf8ArrayBuffer(response.data)
       return ifcText.trim().length > 0 ? ifcText : null
     } catch (error: unknown) {
-      const status = (error as { response?: { status?: number } })?.response?.status
-      if (status === 404) return null
+      if (isNotFoundError(error)) return null
       throw error
     }
   },
@@ -191,6 +205,6 @@ export const projectService = {
 
   getMembers: async (_projectId: string): Promise<ProjectMember[]> => {
     await new Promise((resolve) => setTimeout(resolve, 200))
-    return MOCK_MEMBERS.filter(() => true)
+    return [...MOCK_MEMBERS]
   },
 }

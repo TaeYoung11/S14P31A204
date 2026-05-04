@@ -1,0 +1,203 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH =~ /^(master|develop|release)$/'
+    - if: '$CI_COMMIT_BRANCH =~ /^(feat|fix|hotfix)\/.+$/'
+    - when: never
+
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+default:
+  interruptible: true
+
+variables:
+  GIT_DEPTH: "20"
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/AI/.uv-cache"
+
+.docker_runner: &docker_runner
+  tags:
+    - docker
+
+.shell_runner: &shell_runner
+  tags:
+    - deploy
+
+.fe_rules: &fe_rules
+  rules:
+    - changes:
+        - FE/**/*
+        - INFRA/docker-compose.yml
+
+.be_rules: &be_rules
+  rules:
+    - changes:
+        - BE/**/*
+        - shared/**/*
+        - INFRA/docker-compose.yml
+
+.ai_rules: &ai_rules
+  rules:
+    - changes:
+        - AI/**/*
+        - shared/**/*
+        - INFRA/docker-compose.yml
+
+fe:lint:
+  stage: lint
+  image: node:20-alpine
+  <<:
+    - *docker_runner
+    - *fe_rules
+  cache:
+    key:
+      files:
+        - FE/package-lock.json
+    paths:
+      - FE/node_modules/
+  before_script:
+    - cd FE
+    - npm ci
+  script:
+    - npm run lint
+
+ai:lint:
+  stage: lint
+  image: ghcr.io/astral-sh/uv:python3.11-bookworm
+  <<:
+    - *docker_runner
+    - *ai_rules
+  cache:
+    key:
+      files:
+        - AI/uv.lock
+    paths:
+      - AI/.uv-cache/
+  before_script:
+    - cd AI
+    - uv sync --locked --dev
+  script:
+    - uv run ruff check .
+
+be:test:
+  stage: test
+  image: eclipse-temurin:21-jdk
+  <<:
+    - *docker_runner
+    - *be_rules
+  cache:
+    key: "gradle-${CI_COMMIT_REF_SLUG}"
+    paths:
+      - .gradle/
+      - BE/.gradle/
+  variables:
+    SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/test
+    SPRING_DATASOURCE_USERNAME: test
+    SPRING_DATASOURCE_PASSWORD: test
+  before_script:
+    - cd BE
+    - chmod +x ./gradlew
+  script:
+    - ./gradlew test --no-daemon
+
+ai:test:
+  stage: test
+  image: ghcr.io/astral-sh/uv:python3.11-bookworm
+  <<:
+    - *docker_runner
+    - *ai_rules
+  cache:
+    key:
+      files:
+        - AI/uv.lock
+    paths:
+      - AI/.uv-cache/
+  before_script:
+    - cd AI
+    - uv sync --locked --dev
+  script:
+    - uv run pytest
+
+fe:build:
+  stage: build
+  image: node:20-alpine
+  <<:
+    - *docker_runner
+    - *fe_rules
+  cache:
+    key:
+      files:
+        - FE/package-lock.json
+    paths:
+      - FE/node_modules/
+  before_script:
+    - cd FE
+    - npm ci
+  script:
+    - npm run build
+  artifacts:
+    expire_in: 1 day
+    paths:
+      - FE/dist/
+
+be:build:
+  stage: build
+  image: eclipse-temurin:21-jdk
+  <<:
+    - *docker_runner
+    - *be_rules
+  cache:
+    key: "gradle-${CI_COMMIT_REF_SLUG}"
+    paths:
+      - .gradle/
+      - BE/.gradle/
+  before_script:
+    - cd BE
+    - chmod +x ./gradlew
+  script:
+    - ./gradlew bootJar -x test --no-daemon
+  artifacts:
+    expire_in: 1 day
+    paths:
+      - BE/build/libs/*.jar
+
+ai:build:
+  stage: build
+  image: ghcr.io/astral-sh/uv:python3.11-bookworm
+  <<:
+    - *docker_runner
+    - *ai_rules
+  cache:
+    key:
+      files:
+        - AI/uv.lock
+    paths:
+      - AI/.uv-cache/
+  before_script:
+    - cd AI
+    - uv sync --locked --dev
+  script:
+    - uv run python -c "import ai_domain, ai_common, ai_planning, ai_rendering, ai_layout_import, ai_authoring, ai_evals"
+
+staging:deploy:
+  stage: deploy
+  <<: *shell_runner
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - FE/**/*
+        - BE/**/*
+        - AI/**/*
+        - INFRA/**/*
+        - shared/**/*
+  before_script:
+    - test -n "$STAGING_ENV_FILE"
+  script:
+    - bash INFRA/scripts/deploy-staging.sh
+  environment:
+    name: staging
+  resource_group: staging

@@ -283,52 +283,49 @@ def test_render_with_view_iso_nw_composes_when_suffix_present(
 # --- C-2 — DepthStyleRenderer.render(view=...) cn_scale override ---
 
 
-def test_render_with_view_iso_nw_overrides_cn_scale(
+def test_render_with_view_uses_override_when_set(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """C-2 — view=ISO_NW 전달 시 params.cn_scale=0.7 무시하고 override(1.0) 사용."""
+    """view에 cn_scale override가 설정돼 있으면 params.cn_scale 무시하고 override 사용.
+
+    옵션 E (E-clean, 2026-04-29) — preset base 1.0 인상 후 iso_nw/se override 제거.
+    호출자가 향후 view-별 override를 다시 설정해도 메커니즘이 동작하는지 검증.
+    """
+    from ai_rendering.ifc2img import views as views_module
+
+    original = views_module.VIEW_CN_SCALE_OVERRIDES[IFCView.ISO_NW]
+    try:
+        views_module.VIEW_CN_SCALE_OVERRIDES[IFCView.ISO_NW] = 1.15
+        depth = Image.new("L", (768, 448), 100)
+        params = DepthStyleParams(
+            prompt="x",
+            controlnet_conditioning_scale=1.0,
+        )
+
+        mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
+
+        sent_cn = mock_depth_renderer.pipe.call_args.kwargs[
+            "controlnet_conditioning_scale"
+        ]
+        assert sent_cn == 1.15
+    finally:
+        views_module.VIEW_CN_SCALE_OVERRIDES[IFCView.ISO_NW] = original
+
+
+def test_render_with_view_falls_back_to_params_when_no_override(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """모든 view override가 None인 default 상태(옵션 E E-clean) — params 값 그대로."""
     depth = Image.new("L", (768, 448), 100)
     params = DepthStyleParams(
         prompt="x",
-        controlnet_conditioning_scale=0.7,
-    )
-
-    mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
-
-    sent_cn = mock_depth_renderer.pipe.call_args.kwargs["controlnet_conditioning_scale"]
-    assert sent_cn == 1.0
-
-
-def test_render_with_view_iso_se_overrides_cn_scale(
-    mock_depth_renderer: DepthStyleRenderer,
-) -> None:
-    """C-2 — ISO_SE도 동일하게 1.0 override."""
-    depth = Image.new("L", (768, 448), 100)
-    params = DepthStyleParams(
-        prompt="x",
-        controlnet_conditioning_scale=0.7,
-    )
-
-    mock_depth_renderer.render(depth, params, view=IFCView.ISO_SE)
-
-    sent_cn = mock_depth_renderer.pipe.call_args.kwargs["controlnet_conditioning_scale"]
-    assert sent_cn == 1.0
-
-
-def test_render_with_view_front_keeps_base_cn_scale(
-    mock_depth_renderer: DepthStyleRenderer,
-) -> None:
-    """C-2 — FRONT는 override None → params 값 그대로(0.7)."""
-    depth = Image.new("L", (768, 448), 100)
-    params = DepthStyleParams(
-        prompt="x",
-        controlnet_conditioning_scale=0.7,
+        controlnet_conditioning_scale=1.0,
     )
 
     mock_depth_renderer.render(depth, params, view=IFCView.FRONT)
 
     sent_cn = mock_depth_renderer.pipe.call_args.kwargs["controlnet_conditioning_scale"]
-    assert sent_cn == 0.7
+    assert sent_cn == 1.0
 
 
 def test_render_without_view_uses_params_cn_scale(
@@ -350,28 +347,30 @@ def test_render_without_view_uses_params_cn_scale(
 def test_render_result_params_reflect_applied_view_composition(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """C-2 결과 params 반영 — view 전달 시 result.params에 합성/override된 값이 들어감.
+    """결과 params 반영 — view 전달 시 result.params에 합성/override된 값이 들어감.
 
     호출자가 result.params.prompt / .negative_prompt / .controlnet_conditioning_scale
     로 *실제 SD pipe에 전달된 값*을 추적할 수 있어야 함 (디버깅/로그/재현성).
+
+    옵션 E (E-clean) 후 cn_scale override가 default None — view 전달해도
+    cn_scale은 base 그대로. prompt suffix는 ISO_NW에 여전히 적용.
     """
     depth = Image.new("L", (768, 448), 100)
     base_prompt = "RAW photo, scandinavian house"
     params = DepthStyleParams(
         prompt=base_prompt,
         negative_prompt="(worst quality:1.4)",
-        controlnet_conditioning_scale=0.7,
+        controlnet_conditioning_scale=1.0,
     )
 
     result = mock_depth_renderer.render(depth, params, view=IFCView.ISO_NW)
 
-    # ISO_NW은 prompt suffix 적용 + cn_scale=1.0 override 대상
+    # ISO_NW은 prompt suffix 적용 대상 (cn_scale override는 None default)
     assert result.params is not params  # 새 인스턴스 (view-aware 합성 적용)
     assert result.params.prompt.startswith(base_prompt)
     assert len(result.params.prompt) > len(base_prompt)  # suffix 추가됨
-    assert result.params.controlnet_conditioning_scale == 1.0
+    assert result.params.controlnet_conditioning_scale == 1.0  # base 그대로
     # 원본 params는 변경 없음 (immutability 보장 — dc_replace는 새 인스턴스 반환)
-    assert params.controlnet_conditioning_scale == 0.7
     assert params.prompt == base_prompt
 
 
