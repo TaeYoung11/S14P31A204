@@ -1,0 +1,156 @@
+package com.a204.batang.domain.workspace.service;
+
+import com.a204.batang.domain.project.entity.Project;
+import com.a204.batang.domain.project.service.ProjectAccessService;
+import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
+import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
+import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
+import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
+import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
+import com.a204.batang.global.exception.CustomException;
+import com.a204.batang.global.exception.ErrorCode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
+
+@ExtendWith(MockitoExtension.class)
+class WorkspaceFloorPlanRealtimeServiceTest {
+
+    @Mock
+    private ProjectWorkspaceRepository projectWorkspaceRepository;
+
+    @Mock
+    private SimpMessagingTemplate simpMessagingTemplate;
+
+    @Mock
+    private ProjectAccessService projectAccessService;
+
+    private WorkspaceFloorPlanRealtimeService workspaceFloorPlanRealtimeService;
+    private ObjectMapper objectMapper;
+
+    private UUID projectId;
+    private UUID currentUserId;
+    private ProjectWorkspace workspace;
+
+    @BeforeEach
+    void setUp() {
+        objectMapper = new ObjectMapper();
+        BubbleSnapshotHelper bubbleSnapshotHelper = new BubbleSnapshotHelper(objectMapper);
+        workspaceFloorPlanRealtimeService = new WorkspaceFloorPlanRealtimeService(
+                projectWorkspaceRepository,
+                projectAccessService,
+                bubbleSnapshotHelper,
+                simpMessagingTemplate,
+                objectMapper
+        );
+
+        projectId = UUID.randomUUID();
+        currentUserId = UUID.randomUUID();
+        Project project = Project.create("floor-plan-test", "desc");
+        workspace = ProjectWorkspace.create(project);
+        ReflectionTestUtils.setField(workspace, "projectId", projectId);
+        ReflectionTestUtils.setField(workspace, "currentRevision", "rev-100");
+        ReflectionTestUtils.setField(workspace, "ifcStorageUrl", "s3://bucket/projects/" + projectId + "/model.ifc");
+    }
+
+    @Test
+    void relayFloorPlanDraft_broadcastsProcessingEventWithRevision() throws Exception {
+        FloorPlanRealtimeUpdateRequest request = new FloorPlanRealtimeUpdateRequest(
+                List.of(new BubbleUpdateRequest.BubbleData(
+                        "bubble-1",
+                        10.0,
+                        20.0,
+                        30.0,
+                        40.0,
+                        3000.0,
+                        4000.0,
+                        "거실",
+                        "LIVING",
+                        84.5,
+                        "#ffffff"
+                )),
+                List.of(new BubbleUpdateRequest.ConnectionData(
+                        "bubble-1",
+                        "bubble-1",
+                        "bold"
+                )),
+                0,
+                null,
+                objectMapper.readTree("""
+                        {
+                          "rooms": [{"bubbleId": "bubble-1", "label": "거실"}],
+                          "walls": [],
+                          "openings": []
+                        }
+                        """)
+        );
+
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+
+        workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
+
+        ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
+        verify(simpMessagingTemplate).convertAndSend(
+                eq("/topic/project/%s/floor-plan/sync".formatted(projectId)),
+                responseCaptor.capture()
+        );
+
+        FloorPlanProjectSyncResponse response = responseCaptor.getValue();
+        assertThat(response.action()).isEqualTo("FLOOR_PLAN_PROCESSING");
+        assertThat(response.projectId()).isEqualTo(projectId);
+        assertThat(response.revisionId()).isEqualTo("rev-100");
+        assertThat(response.s3Url()).isNull();
+        assertThat(response.floorPlanPayloadJson().get("baseIndex").asInt()).isEqualTo(0);
+        assertThat(response.floorPlanPayloadJson().get("revisionId").asText()).isEqualTo("rev-100");
+        assertThat(response.updatedAt()).isNotNull();
+    }
+
+    @Test
+    void relayFloorPlanDraft_throwsWhenPayloadReferencesUnknownBubble() {
+        FloorPlanRealtimeUpdateRequest request = new FloorPlanRealtimeUpdateRequest(
+                List.of(new BubbleUpdateRequest.BubbleData(
+                        "bubble-1",
+                        10.0,
+                        20.0,
+                        30.0,
+                        40.0,
+                        3000.0,
+                        4000.0,
+                        "거실",
+                        "LIVING",
+                        84.5,
+                        "#ffffff"
+                )),
+                List.of(new BubbleUpdateRequest.ConnectionData(
+                        "bubble-1",
+                        "bubble-2",
+                        "bold"
+                )),
+                0,
+                "rev-200",
+                null
+        );
+
+        assertThatThrownBy(() -> workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID);
+    }
+}

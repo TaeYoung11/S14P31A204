@@ -1,13 +1,16 @@
 package com.a204.batang.domain.workspace.controller;
 
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
+import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
+import com.a204.batang.domain.workspace.service.WorkspaceFloorPlanRealtimeService;
 import com.a204.batang.domain.workspace.service.WorkspaceRealtimeService;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import com.a204.batang.global.exception.ErrorResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -23,12 +26,14 @@ import java.util.UUID;
 /**
  * 프로젝트 워크스페이스 STOMP 메시지 엔드포인트를 처리한다.
  */
-@Slf4j
 @Controller
 @RequiredArgsConstructor
 public class WorkspaceStompController {
 
+    private static final Logger log = LoggerFactory.getLogger(WorkspaceStompController.class);
+
     private final WorkspaceRealtimeService workspaceRealtimeService;
+    private final WorkspaceFloorPlanRealtimeService workspaceFloorPlanRealtimeService;
 
     /**
      * 버블 다이어그램 편집 스냅샷을 동기화한다.
@@ -36,6 +41,7 @@ public class WorkspaceStompController {
      *
      * @param projectId 프로젝트 ID
      * @param request 버블 스냅샷 요청
+     * @param principal STOMP 인증 사용자
      */
     @MessageMapping("/project/{projectId}/bubble/update")
     public void updateBubble(
@@ -44,14 +50,32 @@ public class WorkspaceStompController {
             Principal principal
     ) {
         UUID currentUserId = resolvePrincipalUserIdOrThrow(principal);
-        workspaceRealtimeService.updateBubbleDraft(projectId, request, currentUserId);
+        workspaceRealtimeService.updateBubbleDraft(projectId, currentUserId, request);
     }
 
     /**
-     * STOMP 메시지 처리 중 발생한 도메인 예외를 클라이언트 전용 에러 큐로 전달한다.
+     * 2D/3D 편집 draft를 실시간 동기화한다.
+     * 클라이언트 발행 경로: /app/project/{projectId}/floor-plan/update
+     *
+     * @param projectId 프로젝트 ID
+     * @param request 2D/3D 실시간 편집 요청 payload
+     * @param principal STOMP 인증 사용자
+     */
+    @MessageMapping("/project/{projectId}/floor-plan/update")
+    public void updateFloorPlan(
+            @DestinationVariable UUID projectId,
+            @Valid FloorPlanRealtimeUpdateRequest request,
+            Principal principal
+    ) {
+        UUID currentUserId = resolvePrincipalUserIdOrThrow(principal);
+        workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
+    }
+
+    /**
+     * STOMP 메시지 처리 중 발생한 커스텀 예외를 사용자 에러 큐로 전달한다.
      *
      * @param exception 커스텀 예외
-     * @return 표준 에러 응답
+     * @return 에러 응답
      */
     @MessageExceptionHandler(CustomException.class)
     @SendToUser(value = "/queue/errors", broadcast = false)
@@ -64,10 +88,10 @@ public class WorkspaceStompController {
     }
 
     /**
-     * STOMP payload Bean Validation 실패를 클라이언트 전용 에러 큐로 전달한다.
+     * STOMP payload Bean Validation 실패를 사용자 에러 큐로 전달한다.
      *
      * @param exception 검증 예외
-     * @return 표준 에러 응답
+     * @return 에러 응답
      */
     @MessageExceptionHandler(MethodArgumentNotValidException.class)
     @SendToUser(value = "/queue/errors", broadcast = false)
@@ -82,10 +106,10 @@ public class WorkspaceStompController {
     }
 
     /**
-     * STOMP 메시지 처리 중 발생한 예상치 못한 예외를 클라이언트 전용 에러 큐로 전달한다.
+     * STOMP 메시지 처리 중 발생한 예기치 못한 예외를 사용자 에러 큐로 전달한다.
      *
      * @param exception 예외
-     * @return 표준 에러 응답
+     * @return 에러 응답
      */
     @MessageExceptionHandler(Exception.class)
     @SendToUser(value = "/queue/errors", broadcast = false)
@@ -107,14 +131,14 @@ public class WorkspaceStompController {
     }
 
     private UUID resolvePrincipalUserIdOrThrow(Principal principal) {
-        if (principal == null) {
-            throw new CustomException(ErrorCode.UNAUTHORIZED, "웹소켓 인증이 필요합니다.");
+        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+            throw new CustomException(ErrorCode.UNAUTHORIZED, "웹소켓 인증 정보가 없습니다.");
         }
 
         try {
             return UUID.fromString(principal.getName());
         } catch (IllegalArgumentException exception) {
-            throw new CustomException(ErrorCode.UNAUTHORIZED, "유효하지 않은 웹소켓 사용자 정보입니다.");
+            throw new CustomException(ErrorCode.UNAUTHORIZED, "웹소켓 인증 사용자 식별자가 올바르지 않습니다.");
         }
     }
 }
