@@ -248,6 +248,13 @@ export interface Notification {
 // =====================
 // API 공통
 // =====================
+export interface ApiResponse<T> {
+  success: boolean
+  message: string
+  data: T
+  timestamp: string
+}
+
 export interface ApiError {
   message: string
   status: number
