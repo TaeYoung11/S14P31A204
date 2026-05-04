@@ -267,11 +267,6 @@ export const projectService = {
     return response.data.data
   },
 
-  invite: async (_projectId: string, email: string): Promise<void> => {
-    await new Promise((resolve) => setTimeout(resolve, 400))
-    console.log(`[mock] Invited ${email} to project ${_projectId}`)
-  },
-
   getMembers: async (_projectId: string): Promise<ProjectMember[]> => {
     await new Promise((resolve) => setTimeout(resolve, 200))
     return [...MOCK_MEMBERS]
