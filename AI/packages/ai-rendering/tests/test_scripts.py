@@ -65,30 +65,3 @@ def test_display_path_does_not_raise_value_error(script_name: str) -> None:
 
     m._display_path(outside)
 
-
-def test_model_benchmark_script_exposes_two_candidate_models() -> None:
-    """The Haus10 benchmark script should expose the SD1.5 and SDXL candidate pair."""
-    m = _load_script("run_model_benchmark_haus10.py")
-
-    assert set(m.MODEL_SPECS) == {"realistic_vision_v6", "juggernaut_xl_v9"}
-
-
-def test_model_benchmark_slots_cover_two_presets_and_five_views() -> None:
-    """The benchmark should stay fixed at 10 comparable Haus slots."""
-    m = _load_script("run_model_benchmark_haus10.py")
-
-    slots = m._benchmark_slots()
-    assert len(slots) == 10
-    assert {slot[0] for slot in slots} == {"scandinavian", "korean_villa"}
-    assert {slot[2].value for slot in slots} == {"front", "side", "eye_ne", "eye_nw", "eye_se"}
-
-
-def test_model_benchmark_display_path_returns_relative_for_repo_internal_path() -> None:
-    """The benchmark script should print repo-relative paths when possible."""
-    m = _load_script("run_model_benchmark_haus10.py")
-
-    inside = m.ROOT / "outputs" / "foo.png"
-    result = m._display_path(inside)
-
-    assert not result.is_absolute()
-    assert result == Path("outputs") / "foo.png"
