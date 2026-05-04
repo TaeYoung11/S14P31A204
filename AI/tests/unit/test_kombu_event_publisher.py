@@ -47,11 +47,10 @@ def test_publish_success_passes_routing_key_and_delivery_mode() -> None:
 
     mock_producer = MagicMock()
     pool_entry = MagicMock()
-    pool_entry.acquire.return_value.__enter__ = MagicMock(return_value=mock_producer)
-    pool_entry.acquire.return_value.__exit__ = MagicMock(return_value=False)
+    pool_entry.acquire.return_value.__enter__.return_value = mock_producer
 
     with patch("ai_common.adapters.rabbitmq.publisher.kombu.producers") as mock_producers:
-        mock_producers.__getitem__ = MagicMock(return_value=pool_entry)
+        mock_producers.__getitem__.return_value = pool_entry
 
         event = _make_event()
         pub.publish(event)
@@ -69,11 +68,10 @@ def test_publish_propagates_amqp_error() -> None:
     mock_producer = MagicMock()
     mock_producer.publish.side_effect = OSError("connection lost")
     pool_entry = MagicMock()
-    pool_entry.acquire.return_value.__enter__ = MagicMock(return_value=mock_producer)
-    pool_entry.acquire.return_value.__exit__ = MagicMock(return_value=False)
+    pool_entry.acquire.return_value.__enter__.return_value = mock_producer
 
     with patch("ai_common.adapters.rabbitmq.publisher.kombu.producers") as mock_producers:
-        mock_producers.__getitem__ = MagicMock(return_value=pool_entry)
+        mock_producers.__getitem__.return_value = pool_entry
 
         with pytest.raises(OSError, match="connection lost"):
             pub.publish(_make_event())
