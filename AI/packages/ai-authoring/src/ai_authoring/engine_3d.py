@@ -2,7 +2,7 @@
 3D Engine Module (Low-level)
 ===========================
 IFC 부재의 기하 정보 및 속성을 수정하거나 신규 부재를 생성하는 저수준 연산 엔진입니다.
-Phase 3: 생성(CREATE) 기능 및 색상/재질 적용 로직 포함.
+생성(CREATE) 기능 및 색상/재질 적용 로직 포함.
 """
 
 import logging
@@ -486,26 +486,27 @@ def _assign_to_storey(
     )
 
 
-def _placement_from_create_info(
+def _make_placement(
     model: ifcopenshell.file,
     storey: ifcopenshell.entity_instance,
-    ci: dict[str, Any],
+    x_mm: float,
+    y_mm: float,
+    z_mm: float,
+    direction: str,
 ) -> ifcopenshell.entity_instance:
-    sp = ci.get("start_point") or {"x": 0.0, "y": 0.0, "z": 0.0}
-    direction = str(ci.get("direction") or "north").lower()
     return model.create_entity(
         "IfcLocalPlacement",
         PlacementRelTo=storey.ObjectPlacement,
         RelativePlacement=_axis_placement_3d(
             model,
             location=(
-                _mm_to_model_units(model, sp.get("x"), 0.0),
-                _mm_to_model_units(model, sp.get("y"), 0.0),
-                _mm_to_model_units(model, sp.get("z"), 0.0),
+                _mm_to_model_units(model, x_mm, 0.0),
+                _mm_to_model_units(model, y_mm, 0.0),
+                _mm_to_model_units(model, z_mm, 0.0),
             ),
             axis=(0.0, 0.0, 1.0),
             ref_direction=_DIRECTION_REF_DIRECTIONS.get(
-                direction,
+                direction.lower(),
                 _DIRECTION_REF_DIRECTIONS["north"],
             ),
         ),
@@ -513,27 +514,30 @@ def _placement_from_create_info(
 
 
 def create_wall(
-    model: ifcopenshell.file, storey: ifcopenshell.entity_instance, ci: dict[str, Any]
+    model: ifcopenshell.file,
+    storey: ifcopenshell.entity_instance,
+    *,
+    length_mm: float = 3000.0,
+    width_mm: float = 200.0,
+    height_mm: float = 2400.0,
+    x_mm: float = 0.0,
+    y_mm: float = 0.0,
+    z_mm: float = 0.0,
+    direction: str = "north",
+    color: str | None = None,
+    material_name: str | None = None,
 ) -> ifcopenshell.entity_instance | None:
     """신규 벽체 생성"""
     try:
         wall = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWall")
-        wall.ObjectPlacement = _placement_from_create_info(model, storey, ci)
+        wall.ObjectPlacement = _make_placement(model, storey, x_mm, y_mm, z_mm, direction)
         wall.Representation = _box_representation(
             model,
-            _mm_to_model_units(model, ci.get("length_mm"), 3000.0),
-            _mm_to_model_units(model, ci.get("width_mm"), 200.0),
-            _mm_to_model_units(model, ci.get("height_mm"), 2400.0),
+            _mm_to_model_units(model, length_mm, 3000.0),
+            _mm_to_model_units(model, width_mm, 200.0),
+            _mm_to_model_units(model, height_mm, 2400.0),
         )
-
-        # 색상/재질
-        _apply_color_and_material(
-            model,
-            wall,
-            ci.get("color"),
-            ci.get("material", {}).get("name") if ci.get("material") else None,
-        )
-
+        _apply_color_and_material(model, wall, color, material_name)
         _assign_to_storey(model, wall, storey)
         return wall
     except Exception as e:
@@ -542,24 +546,30 @@ def create_wall(
 
 
 def create_slab(
-    model: ifcopenshell.file, storey: ifcopenshell.entity_instance, ci: dict[str, Any]
+    model: ifcopenshell.file,
+    storey: ifcopenshell.entity_instance,
+    *,
+    length_mm: float = 3000.0,
+    width_mm: float = 3000.0,
+    height_mm: float = 200.0,
+    x_mm: float = 0.0,
+    y_mm: float = 0.0,
+    z_mm: float = 0.0,
+    direction: str = "north",
+    color: str | None = None,
+    material_name: str | None = None,
 ) -> ifcopenshell.entity_instance | None:
     """신규 슬래브 생성"""
     try:
         slab = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcSlab")
-        slab.ObjectPlacement = _placement_from_create_info(model, storey, ci)
+        slab.ObjectPlacement = _make_placement(model, storey, x_mm, y_mm, z_mm, direction)
         slab.Representation = _box_representation(
             model,
-            _mm_to_model_units(model, ci.get("length_mm"), 3000.0),
-            _mm_to_model_units(model, ci.get("width_mm"), 3000.0),
-            _mm_to_model_units(model, ci.get("height_mm"), 200.0),
+            _mm_to_model_units(model, length_mm, 3000.0),
+            _mm_to_model_units(model, width_mm, 3000.0),
+            _mm_to_model_units(model, height_mm, 200.0),
         )
-        _apply_color_and_material(
-            model,
-            slab,
-            ci.get("color"),
-            ci.get("material", {}).get("name") if ci.get("material") else None,
-        )
+        _apply_color_and_material(model, slab, color, material_name)
         _assign_to_storey(model, slab, storey)
         return slab
     except Exception as e:
@@ -568,34 +578,42 @@ def create_slab(
 
 
 def create_roof(
-    model: ifcopenshell.file, storey: ifcopenshell.entity_instance, ci: dict[str, Any]
+    model: ifcopenshell.file,
+    storey: ifcopenshell.entity_instance,
+    *,
+    length_mm: float = 4000.0,
+    width_mm: float = 3000.0,
+    height_mm: float = 300.0,
+    ridge_height_mm: float = 1200.0,
+    x_mm: float = 0.0,
+    y_mm: float = 0.0,
+    z_mm: float = 0.0,
+    direction: str = "north",
+    shape_preset: str = "FLAT",
+    color: str | None = None,
+    material_name: str | None = None,
 ) -> ifcopenshell.entity_instance | None:
     """신규 지붕 생성 (평지붕/박공지붕)"""
     try:
         roof = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcRoof")
-        roof.ObjectPlacement = _placement_from_create_info(model, storey, ci)
-        length = _mm_to_model_units(model, ci.get("length_mm"), 4000.0)
-        width = _mm_to_model_units(model, ci.get("width_mm"), 3000.0)
-        if ci.get("shape_preset") == "GABLED":
+        roof.ObjectPlacement = _make_placement(model, storey, x_mm, y_mm, z_mm, direction)
+        length = _mm_to_model_units(model, length_mm, 4000.0)
+        width = _mm_to_model_units(model, width_mm, 3000.0)
+        if shape_preset == "GABLED":
             roof.Representation = _gabled_roof_representation(
                 model,
                 length,
                 width,
-                _mm_to_model_units(model, ci.get("ridge_height_mm"), 1200.0),
+                _mm_to_model_units(model, ridge_height_mm, 1200.0),
             )
         else:
             roof.Representation = _box_representation(
                 model,
                 length,
                 width,
-                _mm_to_model_units(model, ci.get("height_mm"), 300.0),
+                _mm_to_model_units(model, height_mm, 300.0),
             )
-        _apply_color_and_material(
-            model,
-            roof,
-            ci.get("color"),
-            ci.get("material", {}).get("name") if ci.get("material") else None,
-        )
+        _apply_color_and_material(model, roof, color, material_name)
         _assign_to_storey(model, roof, storey)
         return roof
     except Exception as e:
@@ -607,24 +625,28 @@ def create_generic_element(
     model: ifcopenshell.file,
     storey: ifcopenshell.entity_instance,
     element_type: str,
-    ci: dict[str, Any],
+    *,
+    length_mm: float = 500.0,
+    width_mm: float = 500.0,
+    height_mm: float = 2400.0,
+    x_mm: float = 0.0,
+    y_mm: float = 0.0,
+    z_mm: float = 0.0,
+    direction: str = "north",
+    color: str | None = None,
+    material_name: str | None = None,
 ) -> ifcopenshell.entity_instance | None:
     """기타 부재 (Column, Beam, Door, Window) 생성"""
     try:
         element = ifcopenshell.api.run("root.create_entity", model, ifc_class=element_type)
-        element.ObjectPlacement = _placement_from_create_info(model, storey, ci)
+        element.ObjectPlacement = _make_placement(model, storey, x_mm, y_mm, z_mm, direction)
         element.Representation = _box_representation(
             model,
-            _mm_to_model_units(model, ci.get("length_mm"), 500.0),
-            _mm_to_model_units(model, ci.get("width_mm"), 500.0),
-            _mm_to_model_units(model, ci.get("height_mm"), 2400.0),
+            _mm_to_model_units(model, length_mm, 500.0),
+            _mm_to_model_units(model, width_mm, 500.0),
+            _mm_to_model_units(model, height_mm, 2400.0),
         )
-        _apply_color_and_material(
-            model,
-            element,
-            ci.get("color"),
-            ci.get("material", {}).get("name") if ci.get("material") else None,
-        )
+        _apply_color_and_material(model, element, color, material_name)
         _assign_to_storey(model, element, storey)
         return element
     except Exception as e:

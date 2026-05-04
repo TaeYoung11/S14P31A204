@@ -9,6 +9,8 @@ from typing import Any
 
 import ifcopenshell
 
+from ._utils import spatial_elements
+
 logger = logging.getLogger(__name__)
 
 LOAD_BEARING_KEYWORDS: frozenset[str] = frozenset(
@@ -177,7 +179,7 @@ class StructuralSafetyValidator:
         if target_footprint is None:
             return False
 
-        storey_elements = self._spatial_elements(storey)
+        storey_elements = spatial_elements(storey)
 
         if not storey_elements:
             for etype in SUPPORT_TYPES:
@@ -194,30 +196,6 @@ class StructuralSafetyValidator:
                 if target_footprint.overlaps_xy(support_footprint, tolerance_mm):
                     return True
         return False
-
-    def _spatial_elements(
-        self,
-        spatial: ifcopenshell.entity_instance,
-    ) -> list[ifcopenshell.entity_instance]:
-        elements: list[ifcopenshell.entity_instance] = []
-        seen: set[int] = set()
-
-        def add_element(element: ifcopenshell.entity_instance) -> None:
-            element_id = int(element.id())
-            if element_id not in seen:
-                seen.add(element_id)
-                elements.append(element)
-
-        def visit(node: ifcopenshell.entity_instance) -> None:
-            for rel in getattr(node, "ContainsElements", []) or []:
-                for element in getattr(rel, "RelatedElements", []) or []:
-                    add_element(element)
-            for rel in getattr(node, "IsDecomposedBy", []) or []:
-                for child in getattr(rel, "RelatedObjects", []) or []:
-                    visit(child)
-
-        visit(spatial)
-        return elements
 
     def _footprint_from_create_info(
         self, create_info: dict[str, Any], target_z_mm: float
