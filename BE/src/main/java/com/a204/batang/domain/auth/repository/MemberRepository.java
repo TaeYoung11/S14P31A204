@@ -28,4 +28,13 @@ public interface MemberRepository extends JpaRepository<Member, UUID> {
      * @return 존재 여부
      */
     boolean existsByEmailAndStatus(String email, UserStatus status);
+
+    /**
+     * 회원 ID와 상태로 회원을 조회한다.
+     *
+     * @param userId 회원 ID
+     * @param status 회원 상태
+     * @return 회원 Optional
+     */
+    Optional<Member> findByUserIdAndStatus(UUID userId, UserStatus status);
 }
