@@ -257,7 +257,11 @@ def _resolve_adjacency_pair(
     adjacency: AdjacencyInput,
     rooms_by_id: dict[str, RoomInput],
 ) -> tuple[RoomInput, RoomInput]:
-    return rooms_by_id[adjacency.from_room_id], rooms_by_id[adjacency.to_room_id]
+    from_id = adjacency.room_a_id or adjacency.from_room_id
+    to_id = adjacency.room_b_id or adjacency.to_room_id
+    if from_id is None or to_id is None:
+        raise ValueError("adjacency must provide at least one pair of room IDs")
+    return rooms_by_id[from_id], rooms_by_id[to_id]
 
 
 def _room_rectangle_edges_mm(room: RoomInput) -> tuple[RoomEdgeMm, ...]:
@@ -583,7 +587,10 @@ def _create_v2_shared_walls(
     if not shared_wall_segments:
         return
 
-    assert isinstance(request, LayoutImportV2)
+    if not isinstance(request, LayoutImportV2):
+        raise TypeError("shared walls generation requires a V2 request")
+    if request.modeling_defaults is None:
+        raise RuntimeError("modeling_defaults must be validated before shared wall generation")
     wall_thickness_m = _mm_to_m(request.modeling_defaults.wall_thickness_mm or 0)
     wall_height_m = _effective_space_height_m(request)
     shared_segments = sorted(
