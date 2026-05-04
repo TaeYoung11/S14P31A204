@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { ZoneData, ZoningFormData, BubbleData } from '../types'
 import { DEFAULT_AUTO_ZONE_COLOR } from '../constants'
 import { normalizeColorValue, resolveAutoZoneColor } from '../utils/bubbleCalc'
@@ -14,8 +14,8 @@ const INITIAL_FORM: ZoningFormData = {
  * 조닝 상태와 조닝 모달 폼 핸들러를 제공하는 훅
  * @param bubbles 자동 색상 계산에 필요한 버블 목록
  */
-export function useZones(bubbles: BubbleData[]) {
-  const [zones, setZones] = useState<ZoneData[]>([])
+export function useZones(bubbles: BubbleData[], initialZones: ZoneData[] = []) {
+  const [zones, setZones] = useState<ZoneData[]>(initialZones)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingZoneId, setEditingZoneId] = useState<string | null>(null)
   const [formData, setFormData] = useState<ZoningFormData>(INITIAL_FORM)
@@ -60,10 +60,10 @@ export function useZones(bubbles: BubbleData[]) {
     }))
   }
 
-  /** 조닝 생성 또는 수정 확정 */
-  const confirmModal = () => {
+  /** 조닝 생성 또는 수정 확정 — 실제 변경이 발생하면 true 반환 */
+  const confirmModal = (): boolean => {
     const uniqueIds = Array.from(new Set(formData.bubbleIds))
-    if (uniqueIds.length === 0) return
+    if (uniqueIds.length === 0) return false
 
     const bubble = bubbles.find((b) => uniqueIds.includes(b.id))
     const zoneColor =
@@ -89,6 +89,7 @@ export function useZones(bubbles: BubbleData[]) {
       })
     }
     closeModal()
+    return true
   }
 
   /** 조닝 삭제 (수정 중인 조닝이면 모달도 닫기) */
@@ -96,6 +97,13 @@ export function useZones(bubbles: BubbleData[]) {
     setZones((prev) => prev.filter((z) => z.id !== zoneId))
     if (editingZoneId === zoneId) closeModal()
   }
+
+  const replaceZonesState = useCallback((nextZones: ZoneData[]) => {
+    setZones(nextZones)
+    setIsModalOpen(false)
+    setEditingZoneId(null)
+    setFormData(INITIAL_FORM)
+  }, [])
 
   return {
     zones,
@@ -110,5 +118,6 @@ export function useZones(bubbles: BubbleData[]) {
     toggleBubble,
     confirmModal,
     deleteZone,
+    replaceZonesState,
   }
 }

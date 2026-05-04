@@ -1,5 +1,10 @@
 import { useState, useEffect } from 'react'
 
+/** 전체 파일 크기 (시뮬레이션용 고정값) */
+const TOTAL_SIZE_MB = 64.8
+/** SVG 원형 프로그레스 둘레 — 반지름 100 기준 (2π × 100 ≈ 628) */
+const CIRCLE_CIRCUMFERENCE = 628
+
 interface ExportModalProps {
   isOpen: boolean
   onClose: () => void
@@ -8,16 +13,13 @@ interface ExportModalProps {
 /** 파일 내보내기 진행 상태 모달 — 원형 프로그레스 바 애니메이션 포함 */
 export function ExportModal({ isOpen, onClose }: ExportModalProps) {
   const [progress, setProgress] = useState(0)
-  const TOTAL_SIZE_MB = 64.8
 
   // 파일 크기는 progress에서 직접 계산 (별도 state 불필요)
   const currentSizeMb = (progress / 100) * TOTAL_SIZE_MB
 
-  /** 모달이 열릴 때마다 progress를 0부터 시뮬레이션, 완료 시 자동 닫힘 */
+  /** 모달이 열릴 때마다 progress를 0으로 초기화 후 시뮬레이션, 완료 시 자동 닫힘 */
   useEffect(() => {
     if (!isOpen) return
-
-    setProgress(0)
 
     const interval = setInterval(() => {
       setProgress((prev) => {
@@ -35,9 +37,6 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
   }, [isOpen, onClose])
 
   if (!isOpen) return null
-
-  // SVG 원형 프로그레스: 반지름 100 기준 둘레 ≈ 628
-  const circumference = 628
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center">
@@ -60,7 +59,7 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
               stroke="#3B45B3"
               strokeWidth="16"
               fill="transparent"
-              strokeDasharray={`${(progress / 100) * circumference} ${circumference}`}
+              strokeDasharray={`${(progress / 100) * CIRCLE_CIRCUMFERENCE} ${CIRCLE_CIRCUMFERENCE}`}
               strokeDashoffset="0"
               strokeLinecap="round"
               className="transition-all duration-300 ease-out"

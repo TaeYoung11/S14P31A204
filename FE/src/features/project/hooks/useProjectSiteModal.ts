@@ -2,28 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import type { Address } from 'react-daum-postcode'
 import { useRegisterProjectSite } from '@/features/project/hooks/useProjects'
 
-declare global {
-  interface Window {
-    kakao?: {
-      maps: {
-        load: (callback: () => void) => void
-        LatLng: new (lat: number, lng: number) => KakaoLatLng
-        Map: new (container: HTMLElement, options: { center: KakaoLatLng; level: number }) => KakaoMap
-        Marker: new (options: { position: KakaoLatLng }) => KakaoMarker
-        services: {
-          Status: { OK: string }
-          Geocoder: new () => {
-            addressSearch: (
-              address: string,
-              callback: (result: KakaoAddressResult[], status: string) => void,
-            ) => void
-          }
-        }
-      }
-    }
-  }
-}
-
 type KakaoLatLng = object
 interface KakaoMap {
   setCenter: (latLng: KakaoLatLng) => void
@@ -37,9 +15,36 @@ interface KakaoAddressResult {
   x: string
   y: string
 }
+interface KakaoMaps {
+  load: (callback: () => void) => void
+  LatLng: new (lat: number, lng: number) => KakaoLatLng
+  Map: new (container: HTMLElement, options: { center: KakaoLatLng; level: number }) => KakaoMap
+  Marker: new (options: { position: KakaoLatLng }) => KakaoMarker
+  services: {
+    Status: { OK: string }
+    Geocoder: new () => {
+      addressSearch: (
+        address: string,
+        callback: (result: KakaoAddressResult[], status: string) => void,
+      ) => void
+    }
+  }
+}
+type KakaoWindow = Window & { kakao?: { maps?: KakaoMaps } }
+
+/** window.kakao.maps 인스턴스를 안전하게 반환 */
+const getKakaoMaps = (): KakaoMaps | undefined => {
+  if (typeof window === 'undefined') return undefined
+  return (window as KakaoWindow).kakao?.maps
+}
 
 const KAKAO_SCRIPT_ID = 'kakao-map-sdk'
 
+/**
+ * 카카오맵 SDK를 동적으로 로드하는 유틸 함수
+ * - 이미 스크립트가 로드된 경우 중복 삽입 없이 기존 스크립트를 재사용
+ * - API 키가 없으면 즉시 reject
+ */
 const loadKakaoMapSdk = () =>
   new Promise<void>((resolve, reject) => {
     if (typeof window === 'undefined') {
@@ -54,17 +59,18 @@ const loadKakaoMapSdk = () =>
     }
 
     const boot = () => {
-      if (!window.kakao?.maps) {
+      const maps = getKakaoMaps()
+      if (!maps) {
         reject(new Error('카카오맵 SDK를 불러오지 못했습니다.'))
         return
       }
 
-      window.kakao.maps.load(() => resolve())
+      maps.load(() => resolve())
     }
 
     const existingScript = document.getElementById(KAKAO_SCRIPT_ID) as HTMLScriptElement | null
     if (existingScript) {
-      if (window.kakao?.maps) {
+      if (getKakaoMaps()) {
         boot()
       } else {
         existingScript.addEventListener('load', boot, { once: true })
@@ -109,10 +115,11 @@ export const useProjectSiteModal = ({
 
     loadKakaoMapSdk()
       .then(() => {
-        if (!mapContainerRef.current || !window.kakao?.maps) return
+        const maps = getKakaoMaps()
+        if (!mapContainerRef.current || !maps) return
 
-        const center = new window.kakao.maps.LatLng(37.5665, 126.978)
-        mapRef.current = new window.kakao.maps.Map(mapContainerRef.current, {
+        const center = new maps.LatLng(37.5665, 126.978)
+        mapRef.current = new maps.Map(mapContainerRef.current, {
           center,
           level: 3,
         })
@@ -124,33 +131,43 @@ export const useProjectSiteModal = ({
 
   const resetRegisterSite = registerSite.reset
 
+  /** 모달이 닫힐 때 모든 로컬 상태를 초기화 */
   useEffect(() => {
-    if (!isOpen) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (isOpen) return
+    const timeout = window.setTimeout(() => {
       setShowPostcode(false)
       setSelectedAddress('')
       setSearchError('')
       setSdkError('')
       setPolygonCoords(null)
       resetRegisterSite()
-    }
+    }, 0)
+    return () => window.clearTimeout(timeout)
   }, [isOpen, resetRegisterSite])
 
+  /** 지도 중심 이동 및 마커 위치 업데이트 */
   const updateMap = (lat: number, lng: number) => {
-    if (!window.kakao?.maps || !mapRef.current) return
+    const maps = getKakaoMaps()
+    const map = mapRef.current
+    if (!maps || !map) return
 
-    const position = new window.kakao.maps.LatLng(lat, lng)
-    mapRef.current.setCenter(position)
+    const position = new maps.LatLng(lat, lng)
+    map.setCenter(position)
 
     if (!markerRef.current) {
-      markerRef.current = new window.kakao.maps.Marker({ position })
-      markerRef.current.setMap(mapRef.current)
+      const marker = new maps.Marker({ position })
+      marker.setMap(map)
+      markerRef.current = marker
       return
     }
 
     markerRef.current.setPosition(position)
   }
 
+  /**
+   * 주소 검색 완료 핸들러
+   * - 좌표 변환 → 지도 이동 → 대지 등록 API 호출 → 폴리곤 좌표 저장
+   */
   const handleAddressSelect = (data: Address) => {
     setShowPostcode(false)
     setSearchError('')
@@ -160,14 +177,15 @@ export const useProjectSiteModal = ({
       return
     }
 
-    if (!window.kakao?.maps?.services) {
+    const maps = getKakaoMaps()
+    if (!maps?.services) {
       setSearchError('카카오맵 서비스를 불러오지 못했습니다.')
       return
     }
 
-    const geocoder = new window.kakao.maps.services.Geocoder()
+    const geocoder = new maps.services.Geocoder()
     geocoder.addressSearch(data.address, async (result, status) => {
-      if (status !== window.kakao?.maps.services.Status.OK || result.length === 0) {
+      if (status !== maps.services.Status.OK || result.length === 0) {
         setSearchError('주소 좌표를 가져오지 못했습니다.')
         return
       }

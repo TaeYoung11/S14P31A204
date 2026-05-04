@@ -9,11 +9,16 @@ interface ApiResponse<T> {
   data: T
 }
 
+const PROJECT_LIST_PAGE_SIZE = 6
+const PROJECT_LIST_MAX_PAGES = 100
+const IFC_ACCEPT_HEADER = 'application/octet-stream,text/plain'
+
 interface ProjectSummaryResponse {
   projectId: string
   name: string
   description?: string
   cadastralAddress?: string
+  currentIfcUrl?: string
   createdAt: string
   updatedAt: string
   unreadCommentCount?: number
@@ -75,7 +80,7 @@ const mapProjectSummary = (project: ProjectSummaryResponse): Project => ({
   updated_at: project.updatedAt,
   thumbnail_url: undefined,
   member_count: 0,
-  ifc_uploaded: false,
+  ifc_uploaded: !!project.currentIfcUrl,
   unread_comment_count: project.unreadCommentCount ?? 0,
 })
 
@@ -105,6 +110,24 @@ const mapUpdatedProject = (project: UpdateProjectResponse, fallback?: Project): 
   unread_comment_count: project.unreadCommentCount ?? fallback?.unread_comment_count ?? 0,
 })
 
+function decodeUtf8ArrayBuffer(buffer: ArrayBuffer): string {
+  return new TextDecoder('utf-8').decode(buffer)
+}
+
+/** API 에러가 404(Not Found)인지 판별한다. */
+function isNotFoundError(error: unknown): boolean {
+  const status = (error as { response?: { status?: number } })?.response?.status
+  return status === 404
+}
+
+/** 프로젝트 목록 페이지 1회를 조회한다. */
+async function fetchProjectListPage(page: number): Promise<ProjectListResponse> {
+  const response = await api.get<ApiResponse<ProjectListResponse>>('/projects', {
+    params: { page, size: PROJECT_LIST_PAGE_SIZE },
+  })
+  return response.data.data
+}
+
 export interface ProjectListPageResult {
   projects: Project[]
   hasNext: boolean
@@ -114,33 +137,42 @@ export interface ProjectListPageResult {
 export const projectService = {
   getAll: async (): Promise<Project[]> => {
     const all: Project[] = []
-    let page = 0
-    const maxPages = 100
+    let page = 1
 
-    while (page <= maxPages) {
-      const response = await api.get<ApiResponse<ProjectListResponse>>('/projects', {
-        params: { page, size: 6 },
-      })
-      const data = response.data.data
+    while (page <= PROJECT_LIST_MAX_PAGES) {
+      const data = await fetchProjectListPage(page)
       all.push(...data.projects.map(mapProjectSummary))
       if (!data.hasNext) break
-      page++
+      page = data.page + 1
     }
 
     return all
   },
 
-  getList: async (page: number = 0): Promise<ProjectListPageResult> => {
-    const response = await api.get<ApiResponse<ProjectListResponse>>('/projects', {
-      params: { page, size: 6 },
-    })
-    const data = response.data.data
+  getList: async (page: number = 1): Promise<ProjectListPageResult> => {
+    const data = await fetchProjectListPage(page)
     return { projects: data.projects.map(mapProjectSummary), hasNext: data.hasNext, page: data.page }
   },
 
   getById: async (id: string): Promise<Project> => {
     const response = await api.get<ApiResponse<ProjectSummaryResponse>>(`/projects/${id}`)
     return mapProjectSummary(response.data.data)
+  },
+
+  getIfcModelText: async (projectId: string): Promise<string | null> => {
+    try {
+      const response = await api.get<ArrayBuffer>(`/projects/${projectId}/model`, {
+        responseType: 'arraybuffer',
+        headers: {
+          Accept: IFC_ACCEPT_HEADER,
+        },
+      })
+      const ifcText = decodeUtf8ArrayBuffer(response.data)
+      return ifcText.trim().length > 0 ? ifcText : null
+    } catch (error: unknown) {
+      if (isNotFoundError(error)) return null
+      throw error
+    }
   },
 
   create: async (data: CreateProjectDto): Promise<Project> => {
@@ -173,6 +205,6 @@ export const projectService = {
 
   getMembers: async (_projectId: string): Promise<ProjectMember[]> => {
     await new Promise((resolve) => setTimeout(resolve, 200))
-    return MOCK_MEMBERS.filter(() => true)
+    return [...MOCK_MEMBERS]
   },
 }

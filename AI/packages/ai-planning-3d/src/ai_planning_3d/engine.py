@@ -7,6 +7,7 @@ from instructor.core.exceptions import InstructorRetryException
 from openai import AsyncOpenAI
 
 from .command import (
+    COLOR_ALIASES,
     LLM3DChanges,
     LLM3DCommand,
     LLM3DCommandType,
@@ -142,6 +143,13 @@ class LLM3DEngine:
                 command = command.model_copy(update={"create_info": create_info})
             if create_info.storey is None or create_info.direction is None:
                 return self._ambiguous(user_text, "CREATE에는 층과 방향 정보가 필요합니다.")
+            if command.ambiguity_question:
+                command = command.model_copy(
+                    update={
+                        "ambiguity_question": None,
+                        "confidence": max(command.confidence, 1.0),
+                    }
+                )
             return command
 
         if command.command_type == LLM3DCommandType.DELETE:
@@ -371,6 +379,10 @@ class LLM3DEngine:
         return None
 
     def _color(self, text: str) -> str | None:
+        lower_text = text.lower()
+        for alias, color_name in COLOR_ALIASES.items():
+            if alias in text or alias.lower() in lower_text:
+                return color_name
         if "흰색" in text or "하얀" in text:
             return "White"
         if "빨간" in text or "빨강" in text:

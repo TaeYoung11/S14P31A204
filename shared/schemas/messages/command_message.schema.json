@@ -303,7 +303,14 @@
       "required": ["layout_import"],
       "properties": {
         "layout_import": {
-          "$ref": "https://a204.batang/shared/schemas/layout_import_v1.schema.json"
+          "oneOf": [
+            {
+              "$ref": "https://a204.batang/shared/schemas/layout_import_v1.schema.json"
+            },
+            {
+              "$ref": "https://a204.batang/shared/schemas/layout_import_v2.schema.json"
+            }
+          ]
         }
       }
     }

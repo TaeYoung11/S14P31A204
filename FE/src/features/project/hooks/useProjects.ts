@@ -6,8 +6,8 @@ export const useProjects = () => {
   return useInfiniteQuery({
     queryKey: ['projects'],
     queryFn: ({ pageParam }) => projectService.getList(pageParam),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage) => lastPage.hasNext ? lastPage.page : undefined,
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => lastPage.hasNext ? lastPage.page + 1 : undefined,
   })
 }
 

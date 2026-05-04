@@ -65,7 +65,7 @@ class IFCRenderer:
     def render(self, ifc_path: Path, view: IFCView = IFCView.FRONT) -> Image.Image:
         base_mesh, center = load_mesh(ifc_path)
         view_mesh = self._mesh_for_view(base_mesh, view)
-        return self._render_mesh(view_mesh, center, VIEW_CAMERAS[view], view)
+        return self._render_mesh(view_mesh, base_mesh, center, VIEW_CAMERAS[view], view)
 
     def render_views(
         self,
@@ -84,6 +84,7 @@ class IFCRenderer:
         return {
             view: self._render_mesh(
                 self._mesh_for_view(base_mesh, view),
+                base_mesh,
                 center,
                 VIEW_CAMERAS[view],
                 view,
@@ -200,12 +201,16 @@ class IFCRenderer:
     def _render_mesh(
         self,
         mesh: o3d.geometry.TriangleMesh,
+        base_mesh: o3d.geometry.TriangleMesh,
         center: np.ndarray,
         camera: CameraParams,
         view: IFCView,
     ) -> Image.Image:
+        # dispatch 임계값(20m/50m)은 *건물 본체* 크기 기준이라
+        # ground 포함 view_mesh가 아니라 base_mesh로 판단해야 한다.
+        # ex: SampleHouse 17m → ground 포함 ~20m → MEDIUM 잘못 트리거 위험.
         initial_zoom = self._initial_zoom(mesh, camera)
-        target_ratio = self._resolve_target_ratio(view, mesh)
+        target_ratio = self._resolve_target_ratio(view, base_mesh)
 
         vis = o3d.visualization.Visualizer()
         vis.create_window(visible=False, width=self.width, height=self.height)

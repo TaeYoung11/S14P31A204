@@ -10,13 +10,14 @@ export default function RegisterPage() {
     form,
     validationError,
     isEmailVerificationOpen,
-    emailVerificationCode,
     emailVerificationInput,
     emailVerificationError,
     emailVerificationNotice,
     isEmailVerified,
     isRegistering,
     registerError,
+    isSendingEmailCode,
+    isVerifyingEmailCode,
     update,
     handleSubmit,
     handleOpenEmailVerification,
@@ -31,25 +32,25 @@ export default function RegisterPage() {
     <AuthLayout>
       <div className="mb-6">
         <h2 className="auth-heading">BATANG 회원가입</h2>
-        <p className="auth-subtext">BATANG에서 새로운 프로젝트 협업을 시작하세요.</p>
+        <p className="auth-subtext">BATANG에서 프로젝트 협업을 시작해 보세요.</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="auth-label mb-2">계정 유형</label>
+          <label className="auth-label mb-2">사용자 유형</label>
           <div className="grid grid-cols-2 gap-3">
-            {(['DESIGNER', 'CLIENT'] as const).map((type) => (
+            {(['DESIGNER', 'CUSTOMER'] as const).map((type) => (
               <button
                 key={type}
                 type="button"
                 onClick={() => selectUserType(type)}
                 className={`rounded-lg border-2 px-4 py-2.5 text-sm font-medium transition-all duration-200 ${
-                  form.user_type === type
+                  form.userType === type
                     ? 'border-[#111827] bg-[#111827] text-white'
                     : 'border-[#e5e7eb] bg-white text-[#374151] hover:border-[#d1d5db]'
                 }`}
               >
-                {type === 'DESIGNER' ? '설계자' : '클라이언트'}
+                {type === 'DESIGNER' ? '설계자' : '고객사 담당자'}
               </button>
             ))}
           </div>
@@ -63,10 +64,11 @@ export default function RegisterPage() {
             id="reg-name"
             type="text"
             className="input-auth"
-            placeholder="이름을 입력해주세요"
+            placeholder="이름을 입력해 주세요"
             value={form.name}
             onChange={update('name')}
             required
+            autoComplete="name"
           />
         </div>
 
@@ -82,7 +84,7 @@ export default function RegisterPage() {
                 className={`input-auth pr-11 ${
                   isEmailVerified ? 'border-[#22c55e] bg-[#f0fdf4] focus:border-[#22c55e] focus:ring-[#22c55e]/10' : ''
                 }`}
-                placeholder="your@example.com"
+                placeholder="name@company.com"
                 value={form.email}
                 onChange={update('email')}
                 required
@@ -97,9 +99,10 @@ export default function RegisterPage() {
             <button
               type="button"
               onClick={handleOpenEmailVerification}
-              className="shrink-0 rounded-lg bg-[#111827] px-4 text-sm font-medium text-white transition-colors hover:bg-[#1f2937]"
+              disabled={isSendingEmailCode}
+              className="shrink-0 rounded-lg bg-[#111827] px-4 text-sm font-medium text-white transition-colors hover:bg-[#1f2937] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              인증하기
+              {isSendingEmailCode ? '전송 중...' : '인증'}
             </button>
           </div>
           {emailVerificationNotice && (
@@ -117,7 +120,7 @@ export default function RegisterPage() {
             id="reg-password"
             type="password"
             className="input-auth"
-            placeholder="8자 이상 입력해주세요"
+            placeholder="8자 이상 입력해 주세요"
             value={form.password}
             onChange={update('password')}
             required
@@ -134,7 +137,7 @@ export default function RegisterPage() {
             id="reg-password-confirm"
             type="password"
             className="input-auth"
-            placeholder="비밀번호를 한 번 더 입력해주세요"
+            placeholder="비밀번호를 다시 입력해 주세요"
             value={form.passwordConfirm}
             onChange={update('passwordConfirm')}
             required
@@ -150,7 +153,7 @@ export default function RegisterPage() {
         <button id="register-submit" type="submit" className="auth-submit" disabled={isRegistering}>
           {isRegistering ? (
             <>
-              <Spinner size="sm" /> 가입 중...
+              <Spinner size="sm" /> 회원가입 중...
             </>
           ) : (
             '회원가입'
@@ -166,13 +169,13 @@ export default function RegisterPage() {
       >
         <div className="space-y-4">
           <div className="rounded-xl border border-[#e5e7eb] bg-[#f8fafc] px-4 py-3">
-            <p className="text-xs font-medium text-[#6b7280]">인증번호를 전송한 이메일</p>
+            <p className="text-xs font-medium text-[#6b7280]">인증 코드를 전송한 이메일</p>
             <p className="mt-1 text-sm font-semibold text-[#111827]">{form.email}</p>
           </div>
 
           <div>
             <label htmlFor="email-verification-code" className="auth-label">
-              이메일 인증번호
+              인증 코드
             </label>
             <input
               id="email-verification-code"
@@ -180,7 +183,7 @@ export default function RegisterPage() {
               inputMode="numeric"
               maxLength={6}
               className="input-base"
-              placeholder="인증번호 6자리를 입력해주세요"
+              placeholder="인증 코드 6자리를 입력해 주세요"
               value={emailVerificationInput}
               onChange={(e) => {
                 setEmailVerificationInput(e.target.value.replace(/\D/g, ''))
@@ -192,19 +195,12 @@ export default function RegisterPage() {
             )}
           </div>
 
-          <div className="rounded-lg border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-2">
-            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#64748b]">Mock code</p>
-            <p className="mt-1 text-sm font-semibold tracking-[0.28em] text-[#111827]">
-              {emailVerificationCode || '------'}
-            </p>
-          </div>
-
           <div className="flex gap-2">
-            <button type="button" onClick={handleOpenEmailVerification} className="btn-secondary flex-1">
-              재전송
+            <button type="button" onClick={handleOpenEmailVerification} className="btn-secondary flex-1" disabled={isSendingEmailCode}>
+              {isSendingEmailCode ? '재전송 중...' : '재전송'}
             </button>
-            <button type="button" onClick={handleConfirmEmailVerification} className="btn-primary flex-1">
-              확인
+            <button type="button" onClick={handleConfirmEmailVerification} className="btn-primary flex-1" disabled={isVerifyingEmailCode}>
+              {isVerifyingEmailCode ? '확인 중...' : '확인'}
             </button>
           </div>
         </div>

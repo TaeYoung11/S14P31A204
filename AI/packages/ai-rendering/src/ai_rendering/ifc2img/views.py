@@ -48,8 +48,9 @@ class CameraParams:
 
 
 VIEW_CAMERAS: dict[IFCView, CameraParams] = {
-    # 기본 3뷰 — 정적 vector.
+    # 기본 3뷰 — 정적 vector (모든 시점 공통).
     # FRONT/SIDE는 z=0 으로 완전 수평 (건축 입면도 표준 — 기울어짐 방지).
+    # PCA 정렬은 Step 18c(2026-04-29)에 완전 제거 — 카메라는 정적 좌표계만 사용.
     IFCView.FRONT: CameraParams(front=(-1.0,  0.0,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.SIDE:  CameraParams(front=( 0.0, -1.0,  0.0), up=(0.0, 0.0, 1.0), zoom=0.5),
     IFCView.TOP:   CameraParams(front=(-0.6, -0.6,  1.0), up=(0.0, 0.0, 1.0), zoom=0.5),
@@ -236,6 +237,8 @@ VIEW_NEGATIVE_SUFFIXES: dict[IFCView, str] = {
 # 2026-04-29 옵션 E (E-clean): preset base를 0.7 → 1.0으로 인상해 *모든 view에서*
 # 수직 매스 환각(빌딩 아래로 추가 층) 차단. base 1.0과 동일한 iso_nw/se override는
 # redundant라 제거 — 모든 view가 None(base 그대로 사용).
+# 2026-04-29 옵션 N: preset base 1.0 → 1.15 추가 인상 (front/side 잔존 환각 처방).
+# override는 None 유지 — 모든 view가 base 1.15 그대로 사용. presets.py와 동기화 상태.
 #
 # 호출자가 view별 추가 cn_scale 보정이 필요하면 override를 설정 가능 (메커니즘 보존).
 VIEW_CN_SCALE_OVERRIDES: dict[IFCView, float | None] = {

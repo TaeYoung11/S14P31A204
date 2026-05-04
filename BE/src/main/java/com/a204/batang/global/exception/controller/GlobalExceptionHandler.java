@@ -37,6 +37,17 @@ public class GlobalExceptionHandler {
         log.warn("Validation Error: {}", message);
         return toResponse(ErrorCode.INVALID_REQUEST, message);
     }
+    /**
+     * 잘못된 인수 예외를 처리한다.
+     *
+     * @param e IllegalArgumentException
+     * @return 400 에러 응답
+     */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ErrorResponse> handleIllegalArgumentException(IllegalArgumentException e) {
+        log.warn("IllegalArgumentException: {}", e.getMessage());
+        return toResponse(ErrorCode.INVALID_REQUEST, e.getMessage());
+    }
 
     /**
      * 파라미터 검증 실패(예: @RequestParam, @PathVariable)를 처리한다.

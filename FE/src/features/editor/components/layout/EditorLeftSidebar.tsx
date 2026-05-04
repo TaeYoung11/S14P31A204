@@ -8,14 +8,15 @@ import {
   Square,
   DoorOpen,
   LayoutGrid,
+  Scaling,
   Grid3X3,
   Home,
   Download,
   Hand,
+  LayoutDashboard,
+  type LucideIcon,
 } from 'lucide-react'
 import type { EditorMode } from '../../types'
-
-// ── 스타일 유틸 ───────────────────────────────────────────────────────────────
 
 /** 일반 도구 버튼 활성/비활성 스타일 */
 function getToolStyle(isActive: boolean) {
@@ -43,24 +44,38 @@ function getDeleteStyle(isActive: boolean) {
       }
 }
 
-// ── 공통 서브컴포넌트 ─────────────────────────────────────────────────────────
+interface Tool2DItem {
+  id: string
+  icon: LucideIcon
+  label: string
+}
+
+/** 2D 평면도 모드에서 사용 가능한 도구 목록 */
+const TOOLS_2D: Tool2DItem[] = [
+  { id: 'wall',   icon: Square,     label: '벽체' },
+  { id: 'door',   icon: DoorOpen,   label: '문' },
+  { id: 'window', icon: LayoutGrid, label: '창문' },
+  { id: 'resize', icon: Scaling,    label: '크기조정' },
+]
 
 interface ToolButtonBaseProps {
   selectedTool: string
   onToolSelect: (tool: string) => void
+  hasDeletableSelection?: boolean
+  onDeleteSelected?: () => void
 }
 
 /**
- * 선택/패닝 토글 버튼
- * - 'hand' 도구일 때: 손 아이콘 + "패닝" 레이블 표시 → 클릭 시 'selection' 복귀
- * - 그 외: 화살표 아이콘 + "선택" 레이블 표시 → 클릭 시 'hand' 전환
+ * 선택 도구 버튼
+ * - hand 도구 활성 중에는 '패닝' 레이블로 표시
+ * - 클릭 시 항상 selection 도구로 복귀
  */
 function SelectionToolButton({ selectedTool, onToolSelect }: ToolButtonBaseProps) {
   const isActive = selectedTool === 'selection' || selectedTool === 'hand'
   const style = getToolStyle(isActive)
 
   return (
-    <button onClick={() => onToolSelect(selectedTool === 'hand' ? 'selection' : 'hand')} className="w-full flex flex-col items-center gap-1 py-1 group">
+    <button onClick={() => onToolSelect('selection')} className="w-full flex flex-col items-center gap-1 py-1 group">
       <div className={style.container}>
         {selectedTool === 'hand' ? (
           <Hand size={24} />
@@ -74,11 +89,21 @@ function SelectionToolButton({ selectedTool, onToolSelect }: ToolButtonBaseProps
 }
 
 /** 삭제 도구 버튼 */
-function DeleteToolButton({ selectedTool, onToolSelect }: ToolButtonBaseProps) {
-  const style = getDeleteStyle(selectedTool === 'delete')
+function DeleteToolButton({ selectedTool, onToolSelect, hasDeletableSelection = false, onDeleteSelected }: ToolButtonBaseProps) {
+  const style = getDeleteStyle(selectedTool === 'delete' || hasDeletableSelection)
 
   return (
-    <button onClick={() => onToolSelect('delete')} className="w-full flex flex-col items-center gap-1 py-1 group">
+    <button
+      onClick={() => {
+        if (hasDeletableSelection && onDeleteSelected) {
+          onDeleteSelected()
+          onToolSelect('selection')
+          return
+        }
+        onToolSelect(selectedTool === 'delete' ? 'selection' : 'delete')
+      }}
+      className="w-full flex flex-col items-center gap-1 py-1 group"
+    >
       <div className={style.container}>
         <Trash2 size={24} />
       </div>
@@ -112,8 +137,6 @@ function GridToggleButton({ isGridVisible, onToggleGrid }: GridToggleButtonProps
   )
 }
 
-// ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
-
 interface EditorLeftSidebarProps {
   mode: EditorMode
   isLineStyleModalOpen: boolean
@@ -122,11 +145,16 @@ interface EditorLeftSidebarProps {
   selectedTool: string
   onToolSelect: (tool: string) => void
   onAddSpace: () => void
-  onLineStyle: () => void
   onToggleCollaboration?: () => void
   onToggleLibrary?: () => void
   onToggleGrid?: () => void
   onExportIFC?: () => void
+  onGenerateFloorPlan?: () => void
+  canGenerateFloorPlan?: boolean
+  isFloorPlanGenerated?: boolean
+  isBubbleReadOnly?: boolean
+  hasDeletableSelection?: boolean
+  onDeleteSelected?: () => void
 }
 
 /**
@@ -142,85 +170,144 @@ export default function EditorLeftSidebar({
   selectedTool,
   onToolSelect,
   onAddSpace,
-  onLineStyle,
   onToggleCollaboration,
   onToggleLibrary,
   onToggleGrid,
   onExportIFC,
+  onGenerateFloorPlan,
+  canGenerateFloorPlan = false,
+  isFloorPlanGenerated = false,
+  isBubbleReadOnly = false,
+  hasDeletableSelection = false,
+  onDeleteSelected,
 }: EditorLeftSidebarProps) {
+  const canStartFloorPlanGeneration = canGenerateFloorPlan && !isFloorPlanGenerated
+  const floorPlanGenerateTitle = isFloorPlanGenerated
+    ? '평면도는 이미 생성되었습니다. 2D 편집 모드를 사용해 주세요.'
+    : canGenerateFloorPlan
+      ? '버블 기반 2D 평면도 생성'
+      : '버블을 1개 이상 추가해 주세요'
+
   return (
     <aside className="w-[72px] bg-white border border-[#E2E6EF] rounded-2xl py-4 shadow-sm shrink-0 self-start mt-0 h-full flex flex-col overflow-hidden">
       {/* 스크롤 가능한 도구 영역 */}
       <div className="w-full flex-1 flex flex-col items-center overflow-y-auto overflow-x-hidden scrollbar-hide py-2">
         <div className="flex flex-col items-center gap-2 w-full px-1">
-
-          {/* ── 버블 다이어그램 모드 도구 ─────────────────────────────────── */}
+          {/* 버블 다이어그램 모드 도구 */}
           {mode === 'bubble' && (
             <>
               <SelectionToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
 
-              <button onClick={onAddSpace} className="w-full flex flex-col items-center gap-1 py-1 group">
+              <button
+                onClick={isBubbleReadOnly ? undefined : onAddSpace}
+                disabled={isBubbleReadOnly}
+                className="w-full flex flex-col items-center gap-1 py-1 group disabled:cursor-not-allowed"
+              >
                 <div className="p-2 text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#1C1C1E] rounded-xl transition-all">
                   <PlusCircle size={24} />
                 </div>
                 <span className="text-[10px] font-bold text-[#8E95A3] group-hover:text-[#1C1C1E]">공간추가</span>
               </button>
 
-              <button onClick={onLineStyle} className="w-full flex flex-col items-center gap-1 py-1 group">
+              {/* 선스타일 = 연결 도구 + 관계 유형 설정 통합 */}
+              <button
+                onClick={isBubbleReadOnly ? undefined : () => onToolSelect(selectedTool === 'connect' ? 'selection' : 'connect')}
+                disabled={isBubbleReadOnly}
+                className="w-full flex flex-col items-center gap-1 py-1 group disabled:cursor-not-allowed"
+              >
                 <div className={`p-2 rounded-xl transition-all ${
-                  isLineStyleModalOpen
-                    ? 'bg-[#F0F2FF] text-[#3B45B3]'
-                    : 'text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#1C1C1E]'
+                  !isBubbleReadOnly && (selectedTool === 'connect' || isLineStyleModalOpen)
+                    ? 'bg-[#F0F2FF] text-[#3B45B3] shadow-sm'
+                    : isBubbleReadOnly
+                      ? 'text-[#D9DEF0]'
+                      : 'text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#1C1C1E]'
                 }`}>
                   <TrendingUp size={24} />
                 </div>
                 <span className={`text-[10px] font-bold transition-all ${
-                  isLineStyleModalOpen ? 'text-[#3B45B3]' : 'text-[#8E95A3] group-hover:text-[#1C1C1E]'
+                  !isBubbleReadOnly && (selectedTool === 'connect' || isLineStyleModalOpen)
+                    ? 'text-[#3B45B3]'
+                    : isBubbleReadOnly
+                      ? 'text-[#D9DEF0]'
+                      : 'text-[#8E95A3] group-hover:text-[#1C1C1E]'
                 }`}>
                   선스타일
                 </span>
               </button>
 
-              <DeleteToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
+              <button
+                onClick={onGenerateFloorPlan}
+                disabled={!canStartFloorPlanGeneration}
+                title={floorPlanGenerateTitle}
+                className="w-full flex flex-col items-center gap-1 py-1 group disabled:cursor-not-allowed"
+              >
+                <div className={`p-2 rounded-xl transition-all ${
+                  canStartFloorPlanGeneration
+                    ? 'text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#3B45B3]'
+                    : 'text-[#D9DEF0]'
+                }`}>
+                  <LayoutDashboard size={24} />
+                </div>
+                <span className={`text-[10px] font-bold transition-all ${
+                  canStartFloorPlanGeneration ? 'text-[#8E95A3] group-hover:text-[#3B45B3]' : 'text-[#D9DEF0]'
+                }`}>
+                  평면도 생성
+                </span>
+              </button>
+
+              {isBubbleReadOnly ? (
+                <button disabled className="w-full flex flex-col items-center gap-1 py-1 cursor-not-allowed">
+                  <div className="p-2 text-[#D9DEF0] rounded-xl transition-all">
+                    <Trash2 size={24} />
+                  </div>
+                  <span className="text-[10px] font-bold text-[#D9DEF0]">삭제</span>
+                </button>
+              ) : (
+                <DeleteToolButton
+                  selectedTool={selectedTool}
+                  onToolSelect={onToolSelect}
+                  hasDeletableSelection={hasDeletableSelection}
+                  onDeleteSelected={onDeleteSelected}
+                />
+              )}
             </>
           )}
 
-          {/* ── 2D 평면도 모드 도구 ───────────────────────────────────────── */}
+          {/* 2D 평면도 모드 도구 */}
           {mode === '2d' && (
             <>
               <SelectionToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
 
-              <button onClick={() => onToolSelect('wall')} className="w-full flex flex-col items-center gap-1 py-1 group">
-                <div className={getToolStyle(selectedTool === 'wall').container}>
-                  <Square size={24} />
-                </div>
-                <span className={getToolStyle(selectedTool === 'wall').text}>벽체</span>
-              </button>
+              {TOOLS_2D.map(({ id, icon: Icon, label }) => {
+                const style = getToolStyle(selectedTool === id)
+                return (
+                  <button key={id} onClick={() => onToolSelect(id)} className="w-full flex flex-col items-center gap-1 py-1 group">
+                    <div className={style.container}><Icon size={24} /></div>
+                    <span className={style.text}>{label}</span>
+                  </button>
+                )
+              })}
 
-              <button onClick={() => onToolSelect('door')} className="w-full flex flex-col items-center gap-1 py-1 group">
-                <div className={getToolStyle(selectedTool === 'door').container}>
-                  <DoorOpen size={24} />
-                </div>
-                <span className={getToolStyle(selectedTool === 'door').text}>문</span>
-              </button>
-
-              <button onClick={() => onToolSelect('window')} className="w-full flex flex-col items-center gap-1 py-1 group">
-                <div className={getToolStyle(selectedTool === 'window').container}>
-                  <LayoutGrid size={24} />
-                </div>
-                <span className={getToolStyle(selectedTool === 'window').text}>창문</span>
-              </button>
-
-              <DeleteToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
+              <DeleteToolButton
+                selectedTool={selectedTool}
+                onToolSelect={onToolSelect}
+                hasDeletableSelection={hasDeletableSelection}
+                onDeleteSelected={onDeleteSelected}
+              />
               <GridToggleButton isGridVisible={isGridVisible} onToggleGrid={onToggleGrid} />
             </>
           )}
 
-          {/* ── 3D 뷰어 모드 도구 ────────────────────────────────────────── */}
+          {/* 3D 뷰어 모드 도구 */}
           {mode === '3d' && (
             <>
               <SelectionToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
-              <DeleteToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
+              <DeleteToolButton
+                selectedTool={selectedTool}
+                onToolSelect={onToolSelect}
+                hasDeletableSelection={hasDeletableSelection}
+                onDeleteSelected={onDeleteSelected}
+              />
               <GridToggleButton isGridVisible={isGridVisible} onToggleGrid={onToggleGrid} />
 
               <button onClick={onToggleLibrary} className="w-full flex flex-col items-center gap-1 py-1 group">

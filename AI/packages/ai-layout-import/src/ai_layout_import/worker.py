@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from ai_domain import LayoutImportV1
+from ai_domain import parse_layout_import
 from ai_layout_import.service import convert_layout_to_ifc
 
 
@@ -15,11 +15,11 @@ def run_layout_import_job(payload: dict[str, Any], output_path: str | Path) -> d
     """Validate payload and run layout import conversion."""
 
     try:
-        request = LayoutImportV1.model_validate(payload)
+        request = parse_layout_import(payload)
     except ValidationError as exc:
         return _error_result(
             code="validation_error",
-            message="입력 검증에 실패했습니다.",
+            message="input validation failed",
             details=exc.errors(),
         )
 
@@ -28,13 +28,13 @@ def run_layout_import_job(payload: dict[str, Any], output_path: str | Path) -> d
     except ValueError as exc:
         return _error_result(
             code="validation_error",
-            message="입력 검증에 실패했습니다.",
+            message="input validation failed",
             details=[{"type": "value_error", "msg": str(exc)}],
         )
     except Exception as exc:
         return _error_result(
             code="conversion_error",
-            message="IFC 생성에 실패했습니다.",
+            message="IFC generation failed",
             details=[{"type": type(exc).__name__, "msg": str(exc)}],
         )
 

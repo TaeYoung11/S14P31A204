@@ -952,6 +952,81 @@ def test_resolve_target_ratio_for_large_mesh_scales_more() -> None:
     )
 
 
+# --- 피드백 1 (외부 코드 리뷰 라운드 3) — dispatch base_mesh 분리 ---
+
+
+def test_render_mesh_dispatch_uses_base_mesh_not_ground_extended() -> None:
+    """`_render_mesh`는 dispatch 임계값 판단을 *base_mesh*(건물 본체)로 한다.
+
+    피드백 1 (2026-05-04 외부 코드 리뷰 라운드 3): 이전 구현은 *렌더용 view_mesh*
+    (ground 포함)로 `_resolve_target_ratio` 호출 → ground × 1.2 배가 max_extent에
+    포함돼 dispatch 임계값(20m/50m)이 *건물 본체*가 아닌 ground 포함 결과 기준으로
+    잘못 트리거. ex: SampleHouse 17m → ground ~20.4m → MEDIUM 잘못 분류 위험.
+
+    이 테스트: base_mesh(small, 13m × 13m × 5m) + view_mesh(ground 인플레이션
+    시뮬, 25m × 25m × 5m) 분리 전달 → dispatch는 base 기준이라 base * 1.0(=base
+    그대로) 반환. view_mesh 기준이면 25m > 20m → MEDIUM(× 0.8) 적용됐을 것.
+    """
+    renderer = IFCRenderer()
+    base_mesh = MagicMock()
+    base_mesh.vertices = np.array([[0.0, 0.0, 0.0], [13.0, 13.0, 5.0]])  # 13m
+    view_mesh = MagicMock()
+    view_mesh.vertices = np.array([[0.0, 0.0, 0.0], [25.0, 25.0, 5.0]])  # 25m
+
+    base_ratio = renderer._resolve_target_ratio(IFCView.FRONT, base_mesh)
+    view_ratio = renderer._resolve_target_ratio(IFCView.FRONT, view_mesh)
+
+    assert base_ratio == VIEW_TARGET_RATIOS[IFCView.FRONT]  # 13m → factor 1.0
+    assert view_ratio == VIEW_TARGET_RATIOS[IFCView.FRONT] * DISPATCH_MEDIUM_FACTOR
+    # 두 결과가 *반드시 다름* — 이 차이가 base_mesh를 쓰지 않을 때 발생한 회귀
+    assert base_ratio != view_ratio
+
+
+def test_render_passes_base_mesh_to_resolve_target_ratio() -> None:
+    """`render()` 통합 — _resolve_target_ratio가 *base_mesh*(load_mesh 결과)로 호출됨.
+
+    attach_ground_plane_to_mesh가 *다른 mesh* 반환하도록 mock하고,
+    `IFCRenderer._resolve_target_ratio`를 spy해 base_mesh가 전달되는지 확인.
+    """
+    base_mesh = MagicMock(name="base_mesh")
+    base_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 10.0, 5.0]])
+    inflated_mesh = MagicMock(name="inflated_mesh")
+    inflated_mesh.vertices = np.array([[0.0, 0.0, 0.0], [30.0, 30.0, 5.0]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+
+    captured: list[object] = []
+    original = IFCRenderer._resolve_target_ratio
+
+    def spy(self, view, mesh):
+        captured.append(mesh)
+        return original(self, view, mesh)
+
+    with (
+        patch(
+            "ai_rendering.ifc2img.renderer.load_mesh",
+            return_value=(base_mesh, fake_center),
+        ),
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            return_value=inflated_mesh,
+        ),
+        patch.object(IFCRenderer, "_resolve_target_ratio", spy),
+        patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
+    ):
+        vis = MagicMock()
+        mock_o3d.visualization.Visualizer.return_value = vis
+        depth = np.zeros((448, 768), dtype=np.float32)
+        depth[100:300, 200:500] = 5.0
+        vis.capture_depth_float_buffer.return_value = depth
+
+        renderer = IFCRenderer()
+        renderer.render(Path("dummy.ifc"), IFCView.FRONT)
+
+    # _resolve_target_ratio는 base_mesh로 호출되어야 한다 (inflated_mesh 아님)
+    assert len(captured) == 1
+    assert captured[0] is base_mesh
+
+
 def test_render_uses_static_view_camera() -> None:
     """render() 시 VIEW_CAMERAS의 정적 vector가 그대로 카메라 front로 사용됨."""
     fake_mesh = MagicMock()

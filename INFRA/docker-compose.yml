@@ -18,6 +18,9 @@ services:
     build:
       context: ../FE
       dockerfile: Dockerfile
+      args:
+        - VITE_KAKAO_MAP_API_KEY=${VITE_KAKAO_MAP_API_KEY:?VITE_KAKAO_MAP_API_KEY is required}
+        - VITE_API_URL=${VITE_API_URL:?VITE_API_URL is required}
     container_name: batang-fe
     expose:
       - "80"
@@ -51,6 +54,12 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET: ${MINIO_BUCKET}
+      
+      JWT_SECRET: ${JWT_SECRET}
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      VWORLD_API_KEY: ${VWORLD_API_KEY}
+      VWORLD_REFERER: ${VWORLD_REFERER}
     expose:
       - "8080"
     depends_on:

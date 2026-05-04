@@ -4,7 +4,9 @@ img2img 프리셋과 *값을 복제* — 코드 import는 하지 않는다.
 복제 정책:
   - prompt / negative_prompt: 동일 (스타일 정의는 conditioning 무관)
   - guidance_scale=7, num_inference_steps=25: 동일
-  - controlnet_conditioning_scale=0.7: depth-적절 시작값 (Canny=0.3과 다름)
+  - controlnet_conditioning_scale=1.15: 옵션 N(2026-04-29) 후 확정값.
+    Canny=0.3과 다름 — depth는 더 강한 구속이 필요했음. 옵션 E(0.7→1.0)
+    → 옵션 N(1.0→1.15)으로 단계적 인상해 수직 매스/추가 층 환각 차단.
   - strength: 제외 — txt2img + ControlNet에는 init 이미지가 없으므로 적용 불가
 
 신규 변형(예: scandinavian_warm)을 추가하려면 이 모듈에 직접 항목을 더한다.

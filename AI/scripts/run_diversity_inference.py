@@ -1,8 +1,9 @@
 """IFC 다양성 검증 — SD 추론 (N fixture × 5뷰 × preset × time-of-day).
 
-`run_diversity_check.py`로 추출한 depth를 SD 1.5 + ControlNet-depth로 추론.
-baseline 설정(seed=7, guidance=7, steps=25, cn=1.15, view-aware prompt suffix).
-Phase 4 Step 4.5(2026-05-03) 이후 default 5뷰 — front/side/eye_ne/eye_nw/eye_se.
+`run_diversity_check.py`로 추출한 depth 24장을 SD 1.5 + ControlNet-depth로
+추론. baseline 설정 그대로 (seed=7, guidance=7, steps=25, cn_base=1.15,
+view-aware prompt suffix). cn_scale은 옵션 N(2026-04-29) 후 1.15 일관 —
+view별 override는 모두 None(VIEW_CN_SCALE_OVERRIDES 정책).
 
 기본 preset = scandinavian, 기본 time = day (Phase 4 — korean_villa/korean_house 및
 night variant 사용 가능, 산출물 품질 빠르게 확인 → 미세 조정 → 필요 시 확장).
@@ -55,6 +56,19 @@ FIXTURES = [
     FIXTURES_DIR / "AC-20-Smiley-West-10-Bldg.ifc",
     FIXTURES_DIR / "Ifc4_SampleHouse.ifc",
 ]
+
+
+def _display_path(path: Path) -> Path:
+    """진행 출력용 경로 — ROOT 내부면 짧은 상대경로, 외부면 절대경로 그대로.
+
+    피드백 3 (2026-05-04 외부 코드 리뷰 라운드 3): out_dir이 ROOT 바깥(예: D:/)
+    이면 `relative_to(ROOT)`이 ValueError로 프로세스 죽음. 정상 케이스(ROOT 내부)
+    가독성은 유지하면서 외부 경로도 우아하게 fallback.
+    """
+    try:
+        return path.relative_to(ROOT)
+    except ValueError:
+        return path
 
 
 def main() -> int:
@@ -150,7 +164,7 @@ def main() -> int:
             total_styled += 1
             print(
                 f"  [{i}/{len(depth_images)}] {view.value:7s} → "
-                f"{out_path.relative_to(ROOT)} ({time.time() - ts:.1f}s)"
+                f"{_display_path(out_path)} ({time.time() - ts:.1f}s)"
             )
         print()
 

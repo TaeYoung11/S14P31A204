@@ -42,6 +42,19 @@ FIXTURES = [
 ]
 
 
+def _display_path(path: Path) -> Path:
+    """진행 출력용 경로 — ROOT 내부면 짧은 상대경로, 외부면 절대경로 그대로.
+
+    피드백 3 (2026-05-04 외부 코드 리뷰 라운드 3): out_dir이 ROOT 바깥(예: D:/)
+    이면 `relative_to(ROOT)`이 ValueError로 프로세스 죽음. 정상 케이스(ROOT 내부)
+    가독성은 유지하면서 외부 경로도 우아하게 fallback.
+    """
+    try:
+        return path.relative_to(ROOT)
+    except ValueError:
+        return path
+
+
 def main() -> int:
     out_root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else DEFAULT_OUT_ROOT
 
@@ -80,7 +93,7 @@ def main() -> int:
         for view, img in depth_images.items():
             path = out_dir / f"depth_{view.value}.png"
             img.save(path)
-            print(f"  {view.value:7s} → {path.relative_to(ROOT)}")
+            print(f"  {view.value:7s} → {_display_path(path)}")
             total_views += 1
         print(f"  소요: {time.time() - t1:.1f}s\n")
 

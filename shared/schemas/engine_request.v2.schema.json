@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://a204.batang/shared/schemas/engine_request.v2.schema.json",
   "title": "EngineRequestV2",
-  "description": "Unified execution request consumed by ai-authoring for planner output and FE direct edit.",
+  "description": "플래너 출력 및 FE 직접 편집을 위해 ai-authoring이 소비하는 통합 실행 요청.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -132,6 +132,7 @@
       }
     },
     "polygon2d": {
+      "description": "절대 IFC 프로젝트/월드 좌표계(mm)의 표준 polygon ring. open ring으로 직렬화한다(첫 점을 마지막에 반복하지 않음). outer boundary는 CCW(반시계) winding으로 저장한다. 연속된 중복/collinear 점은 제거하고 self-intersection을 피한다.",
       "type": "array",
       "minItems": 3,
       "items": {
@@ -140,7 +141,7 @@
     },
     "point3Mm": {
       "type": "object",
-      "description": "3D point in IFC project/world coordinates, measured in millimeters unless overridden by a field-specific description.",
+      "description": "IFC 프로젝트/월드 좌표계 기준 3D 좌표점(mm). 개별 필드 description에 별도 명시가 있으면 그에 따른다.",
       "additionalProperties": false,
       "required": ["x", "y", "z"],
       "properties": {
@@ -157,7 +158,7 @@
     },
     "translationMm": {
       "type": "object",
-      "description": "World-axis translation delta in millimeters.",
+      "description": "월드 좌표축 기준 이동 델타값(mm).",
       "additionalProperties": false,
       "required": ["x", "y", "z"],
       "properties": {
@@ -392,7 +393,7 @@
           "$ref": "#/$defs/absoluteDimensionsMm"
         },
         "location_mm": {
-          "description": "Absolute IFC project/world coordinate in millimeters.",
+          "description": "절대 IFC 프로젝트/월드 좌표계(mm).",
           "$ref": "#/$defs/point3Mm"
         },
         "space_height_mm": {
@@ -614,11 +615,11 @@
           "$ref": "#/$defs/coordinateSpace"
         },
         "start_mm": {
-          "description": "Absolute IFC project/world coordinate in millimeters. The z value must already include storey elevation.",
+          "description": "절대 IFC 프로젝트/월드 좌표계(mm). z값에는 층 elevation이 이미 포함되어 있어야 한다.",
           "$ref": "#/$defs/point3Mm"
         },
         "end_mm": {
-          "description": "Absolute IFC project/world coordinate in millimeters. The z value must already include storey elevation.",
+          "description": "절대 IFC 프로젝트/월드 좌표계(mm). z값에는 층 elevation이 이미 포함되어 있어야 한다.",
           "$ref": "#/$defs/point3Mm"
         },
         "azimuth_deg": {
