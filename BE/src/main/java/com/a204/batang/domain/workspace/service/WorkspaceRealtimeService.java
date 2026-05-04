@@ -3,6 +3,7 @@ package com.a204.batang.domain.workspace.service;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
 import com.a204.batang.domain.workspace.dto.ProjectSyncResponse;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
+import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
 import com.a204.batang.domain.workspace.repository.WorkspaceBubbleSnapshotRedisRepository;
 import com.a204.batang.global.exception.CustomException;
@@ -34,6 +35,7 @@ public class WorkspaceRealtimeService {
     private final WorkspaceBubbleSnapshotRedisRepository workspaceBubbleSnapshotRedisRepository;
     private final BubbleSnapshotHelper bubbleSnapshotHelper;
     private final SimpMessagingTemplate simpMessagingTemplate;
+    private final ProjectAccessService projectAccessService;
 
     /**
      * 버블 드래프트 변경 이벤트를 구독 채널로 브로드캐스트한다.
@@ -41,13 +43,15 @@ public class WorkspaceRealtimeService {
      *
      * @param projectId 프로젝트 ID
      * @param request 버블 동기화 요청 payload
+     * @param currentUserId 현재 사용자 ID
      */
     @Transactional(readOnly = true)
-    public void updateBubbleDraft(UUID projectId, BubbleUpdateRequest request) {
+    public void updateBubbleDraft(UUID projectId, BubbleUpdateRequest request, UUID currentUserId) {
         validateRealtimePayloadOrThrow(request);
 
         ProjectWorkspace workspace = projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
+        projectAccessService.validateProjectPinWriterOrThrow(workspace.getProject(), currentUserId);
 
         bubbleSnapshotHelper.validatePhaseOrThrow(workspace.getPhaseStatus());
 
