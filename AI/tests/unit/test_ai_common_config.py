@@ -15,8 +15,11 @@ def _clear_worker_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "LOG_JSON",
         "HEALTH_HOST",
         "HEALTH_PORT",
-        "RABBITMQ_URL",
-        "S3_BUCKET_NAME",
+        "RABBITMQ_HOST",
+        "RABBITMQ_PORT",
+        "RABBITMQ_USERNAME",
+        "RABBITMQ_PASSWORD",
+        "RABBITMQ_VHOST",
         "S3_BUCKET",
     ]:
         monkeypatch.delenv(key, raising=False)
@@ -37,7 +40,6 @@ def test_worker_settings_applies_defaults_and_ignores_unrelated_env(
     _clear_worker_env(monkeypatch)
     monkeypatch.setenv("WORKER_TYPE", "TWO_D_LLM")
     monkeypatch.setenv("WORKER_ID", "2d-llm-worker-1")
-    monkeypatch.setenv("RABBITMQ_URL", "amqp://example")
     monkeypatch.setenv("S3_BUCKET", "test-bucket")
 
     settings = WorkerSettings()
