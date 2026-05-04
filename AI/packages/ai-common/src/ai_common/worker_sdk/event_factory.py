@@ -56,7 +56,7 @@ class ProgressResult:
     status: Literal["progress"] = "progress"
 
 
-WorkerResult: TypeAlias = CompletedResult | FailedResult | ClarificationResult
+WorkerResult: TypeAlias = CompletedResult | FailedResult | ClarificationResult | ProgressResult
 
 
 def build_started_event(context: WorkerContext, worker_id: str) -> EventMessage:
@@ -133,6 +133,8 @@ def build_terminal_event(
         return build_completed_event(context, worker_id, result)
     if isinstance(result, ClarificationResult):
         return build_clarification_event(context, worker_id, result)
+    if isinstance(result, ProgressResult):
+        return build_progress_event(context, worker_id, result.progress)
     return build_failed_event(context, worker_id, result)
 
 

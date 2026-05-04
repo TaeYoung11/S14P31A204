@@ -15,6 +15,7 @@ from ai_common.worker_sdk.event_factory import (
     ClarificationResult,
     CompletedResult,
     FailedResult,
+    ProgressResult,
     WorkerResult,
     build_progress_event,
     build_started_event,
@@ -71,11 +72,14 @@ class BaseWorker(ABC):
         self.event_publisher.publish(event)
 
     def _coerce_result(self, result: object) -> WorkerResult:
-        if isinstance(result, (CompletedResult, FailedResult, ClarificationResult)):
+        if isinstance(
+            result,
+            (CompletedResult, FailedResult, ClarificationResult, ProgressResult),
+        ):
             return result
         raise TypeError(
             "process() must return CompletedResult, FailedResult, "
-            "or ClarificationResult"
+            "ClarificationResult, or ProgressResult"
         )
 
     def _build_unhandled_error(self, error: Exception) -> NonRetryableWorkerError:
