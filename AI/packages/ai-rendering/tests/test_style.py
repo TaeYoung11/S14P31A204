@@ -220,8 +220,9 @@ def test_render_with_view_eye_prepends_ground_sky_prefix(
     call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
     assert call_prompt.startswith("eye-level diagonal view")
     assert call_prompt.endswith(base_prompt)
-    assert "ground visible" in call_prompt
-    assert "sky above roofline only" in call_prompt
+    assert "building on flat ground" in call_prompt
+    assert "foreground ground fills frame" in call_prompt
+    assert "horizon behind house" in call_prompt
     assert "not aerial" in call_prompt
 
 
@@ -239,7 +240,7 @@ def test_render_with_view_eye_removes_blue_sky_prior(
 
     call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
     assert "blue sky" not in call_prompt
-    assert "sky above roofline only" in call_prompt
+    assert "building on flat ground" in call_prompt
     assert "natural sunlight" in call_prompt
 
 

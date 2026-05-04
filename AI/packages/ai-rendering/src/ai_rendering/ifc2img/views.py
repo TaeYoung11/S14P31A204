@@ -145,12 +145,12 @@ VIEW_PROMPT_SUFFIXES: dict[IFCView, str] = {
 
 
 VIEW_PROMPT_PREFIXES: dict[IFCView, str] = {
-    IFCView.EYE_NE: "eye-level diagonal view, ground visible, "
-                    "sky above roofline only, not aerial",
-    IFCView.EYE_NW: "eye-level diagonal view, ground visible, "
-                    "sky above roofline only, not aerial",
-    IFCView.EYE_SE: "eye-level diagonal view, ground visible, "
-                    "sky above roofline only, not aerial",
+    IFCView.EYE_NE: "eye-level diagonal view, building on flat ground, "
+                    "foreground ground fills frame, horizon behind house, not aerial",
+    IFCView.EYE_NW: "eye-level diagonal view, building on flat ground, "
+                    "foreground ground fills frame, horizon behind house, not aerial",
+    IFCView.EYE_SE: "eye-level diagonal view, building on flat ground, "
+                    "foreground ground fills frame, horizon behind house, not aerial",
 }
 
 

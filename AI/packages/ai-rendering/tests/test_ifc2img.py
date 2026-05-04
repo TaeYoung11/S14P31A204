@@ -627,8 +627,9 @@ def test_view_prompt_prefixes_eye_describe_ground_and_sky_position() -> None:
     for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
         prefix = VIEW_PROMPT_PREFIXES[v]
         assert "eye-level diagonal view" in prefix
-        assert "ground visible" in prefix
-        assert "sky above roofline only" in prefix
+        assert "building on flat ground" in prefix
+        assert "foreground ground fills frame" in prefix
+        assert "horizon behind house" in prefix
         assert "not aerial" in prefix
 
 
@@ -656,8 +657,9 @@ def test_build_view_prompt_prepends_prefix_for_eye() -> None:
     assert result.startswith("eye-level diagonal view")
     assert len(result) > len(base)
     assert result.endswith(base)
-    assert "ground visible" in result
-    assert "sky above roofline only" in result
+    assert "building on flat ground" in result
+    assert "foreground ground fills frame" in result
+    assert "horizon behind house" in result
     assert "not aerial" in result
 
 
@@ -673,7 +675,7 @@ def test_build_view_prompt_removes_blue_sky_for_eye() -> None:
     assert "blue sky" not in result
     assert "during sunny daytime" in result
     assert "natural sunlight" in result
-    assert "sky above roofline only" in result
+    assert "building on flat ground" in result
 
 
 def test_build_view_prompt_keeps_blue_sky_for_front() -> None:
