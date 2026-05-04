@@ -6,6 +6,7 @@ dependencies = [
     "pydantic-settings>=2.14.0",
     "python-dotenv>=1.2.2",
     "structlog>=24,<26",
+    "kombu>=5.3,<6",
 ]
 
 [build-system]
