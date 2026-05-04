@@ -43,6 +43,12 @@ def main() -> None:
         if code in ("404", "NoSuchBucket"):
             client.create_bucket(Bucket=bucket)
             print(f"Bucket '{bucket}' created.")
+        elif code == "403":
+            print(
+                f"Access Denied (403): You do not have permission to access bucket '{bucket}'.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         else:
             print(f"Error checking bucket '{bucket}': {exc}", file=sys.stderr)
             sys.exit(1)
