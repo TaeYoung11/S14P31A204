@@ -15,6 +15,7 @@ def test_health_endpoint_returns_200_and_json_payload() -> None:
             worker_id="2d-llm-worker-1",
             health_host="127.0.0.1",
             health_port=0,
+            s3={"bucket": "test-bucket"},
         )
     )
 
@@ -40,6 +41,7 @@ def test_health_endpoint_returns_404_for_unknown_path() -> None:
             worker_id="2d-llm-worker-1",
             health_host="127.0.0.1",
             health_port=0,
+            s3={"bucket": "test-bucket"},
         )
     )
 
@@ -65,6 +67,7 @@ def test_health_endpoint_includes_provider_checks_and_provider_errors() -> None:
             worker_id="2d-llm-worker-1",
             health_host="127.0.0.1",
             health_port=0,
+            s3={"bucket": "test-bucket"},
         ),
         provider=ok_provider,
     )
@@ -86,6 +89,7 @@ def test_health_endpoint_includes_provider_checks_and_provider_errors() -> None:
             worker_id="2d-llm-worker-1",
             health_host="127.0.0.1",
             health_port=0,
+            s3={"bucket": "test-bucket"},
         ),
         provider=failing_provider,
     )
@@ -114,6 +118,7 @@ def test_health_endpoint_returns_503_when_checks_contain_error() -> None:
             worker_id="2d-llm-worker-1",
             health_host="127.0.0.1",
             health_port=0,
+            s3={"bucket": "test-bucket"},
         ),
         provider=error_in_checks_provider,
     )
