@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 DEFAULT_MODEL_ID = "runwayml/stable-diffusion-v1-5"
 DEFAULT_CONTROLNET_DEPTH_ID = "lllyasviel/sd-controlnet-depth"
+DEFAULT_CONTROLNET_SEG_ID = "lllyasviel/sd-controlnet-seg"
 FRONT_SIDE_NEGATIVE_TERMS = (
     "stone wall, retaining wall, raised foundation, pedestal, plinth, "
     "basement windows, stairs below facade, extra lower floor"
@@ -25,11 +26,16 @@ FRONT_SIDE_NEGATIVE_TERMS = (
 SEMANTIC_BACKGROUND_RGB = (0, 0, 0)
 SEMANTIC_BUILDING_RGB = (255, 255, 255)
 SEMANTIC_GROUND_RGB = (128, 128, 128)
+ADE20K_BACKGROUND_RGB = (0, 0, 0)
+ADE20K_BUILDING_RGB = (180, 120, 120)
+ADE20K_SKY_RGB = (6, 230, 230)
+ADE20K_GRASS_RGB = (4, 250, 7)
 FRONT_SIDE_MASK_BASE_PERCENTILE = 75
 FRONT_SIDE_MASK_BAND_RATIO = 0.045
 FRONT_SIDE_MASK_SIDE_EXPAND_RATIO = 0.025
 FRONT_SIDE_MASK_CONTROL_RGB = (96, 96, 96)
 FRONT_SIDE_MASK_BLEND_STRENGTH = 0.18
+FRONT_SIDE_SEMANTIC_CONTROL_SCALE = 0.35
 
 
 @dataclass
@@ -159,6 +165,29 @@ def _apply_front_side_semantic_mask_to_control(
     return Image.fromarray(np.clip(np.rint(arr), 0, 255).astype(np.uint8), mode="RGB")
 
 
+def _build_front_side_seg_control(control: Image.Image) -> Image.Image:
+    """Map the localized front/side mask into ADE20K colors for seg ControlNet."""
+    semantic_mask = _build_front_side_semantic_mask(control)
+    mask_arr = np.asarray(semantic_mask, dtype=np.uint8)
+    building_mask = np.all(mask_arr == SEMANTIC_BUILDING_RGB, axis=2)
+    ground_mask = np.all(mask_arr == SEMANTIC_GROUND_RGB, axis=2)
+
+    height, width = building_mask.shape
+    seg = np.zeros((height, width, 3), dtype=np.uint8)
+    seg[:, :] = np.array(ADE20K_BACKGROUND_RGB, dtype=np.uint8)
+    seg[building_mask] = np.array(ADE20K_BUILDING_RGB, dtype=np.uint8)
+    seg[ground_mask] = np.array(ADE20K_GRASS_RGB, dtype=np.uint8)
+
+    if np.any(building_mask):
+        ys, _ = np.nonzero(building_mask)
+        sky_limit = int(max(0, ys.min()))
+        sky_mask = ~building_mask & ~ground_mask
+        sky_mask[sky_limit:, :] = False
+        seg[sky_mask] = np.array(ADE20K_SKY_RGB, dtype=np.uint8)
+
+    return Image.fromarray(seg, mode="RGB")
+
+
 class DepthStyleRenderer:
     """SD 1.5 + ControlNet-depth txt2img renderer."""
 
@@ -166,6 +195,7 @@ class DepthStyleRenderer:
         self,
         model_id: str = DEFAULT_MODEL_ID,
         controlnet_model_id: str = DEFAULT_CONTROLNET_DEPTH_ID,
+        semantic_controlnet_model_id: str | None = None,
         device: str | None = None,
         dtype: torch.dtype | None = None,
         warmup: bool = True,
@@ -192,6 +222,18 @@ class DepthStyleRenderer:
             raise IFCRenderError(
                 f"ControlNet load failed ({controlnet_model_id}): {exc}"
             ) from exc
+
+        if semantic_controlnet_model_id is not None:
+            try:
+                semantic_controlnet = ControlNetModel.from_pretrained(
+                    semantic_controlnet_model_id,
+                    torch_dtype=dtype,
+                )
+            except Exception as exc:
+                raise IFCRenderError(
+                    f"Semantic ControlNet load failed ({semantic_controlnet_model_id}): {exc}"
+                ) from exc
+            controlnet = [controlnet, semantic_controlnet]
 
         try:
             pipe = StableDiffusionControlNetPipeline.from_pretrained(
@@ -220,6 +262,7 @@ class DepthStyleRenderer:
 
         self.model_id = model_id
         self.controlnet_model_id = controlnet_model_id
+        self.semantic_controlnet_model_id = semantic_controlnet_model_id
         self.device = device
         self.dtype = dtype
         self.pipe = pipe
@@ -230,13 +273,15 @@ class DepthStyleRenderer:
 
     def _warmup(self) -> None:
         dummy = Image.new("RGB", (768, 448), (128, 128, 128))
+        image = [dummy, dummy] if self.semantic_controlnet_model_id else dummy
+        conditioning_scale = [0.5, 0.2] if self.semantic_controlnet_model_id else 0.5
         try:
             self.pipe(
                 prompt="warmup",
-                image=dummy,
+                image=image,
                 num_inference_steps=2,
                 guidance_scale=1.0,
-                controlnet_conditioning_scale=0.5,
+                controlnet_conditioning_scale=conditioning_scale,
                 width=768,
                 height=448,
             )
@@ -249,11 +294,24 @@ class DepthStyleRenderer:
         params: DepthStyleParams,
         view: IFCView | None = None,
         use_front_side_semantic_mask: bool = False,
+        use_front_side_semantic_control: bool = False,
     ) -> DepthStyleResult:
         depth_size = depth_image.size
         control = _depth_to_control(depth_image)
         if use_front_side_semantic_mask and view in {IFCView.FRONT, IFCView.SIDE}:
             control = _apply_front_side_semantic_mask_to_control(control)
+        control_image: Image.Image | list[Image.Image] = control
+        conditioning_scale: float | list[float] = params.controlnet_conditioning_scale
+        if use_front_side_semantic_control and view in {IFCView.FRONT, IFCView.SIDE}:
+            if not self.semantic_controlnet_model_id:
+                raise IFCRenderError(
+                    "front/side semantic control requires semantic_controlnet_model_id"
+                )
+            control_image = [control, _build_front_side_seg_control(control)]
+            conditioning_scale = [
+                params.controlnet_conditioning_scale,
+                FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
+            ]
         width, height = control.size
 
         if view is not None:
@@ -278,11 +336,11 @@ class DepthStyleRenderer:
                 )
             out = self.pipe(
                 prompt=prompt,
-                image=control,
+                image=control_image,
                 negative_prompt=negative_prompt,
                 guidance_scale=params.guidance_scale,
                 num_inference_steps=params.num_inference_steps,
-                controlnet_conditioning_scale=params.controlnet_conditioning_scale,
+                controlnet_conditioning_scale=conditioning_scale,
                 width=width,
                 height=height,
                 generator=generator,
