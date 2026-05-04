@@ -74,8 +74,12 @@ def build_health_payload(
         return payload
 
     try:
-        payload["checks"] = dict(provider())
+        checks = dict(provider())
+        payload["checks"] = checks
+        if any(v == "error" for v in checks.values()):
+            payload["status"] = "error"
     except Exception:
+        payload["status"] = "error"
         payload["checks"] = {"providerStatus": "error"}
     return payload
 
@@ -105,8 +109,10 @@ def _build_handler(
                 return
 
             payload = build_health_payload(settings, provider)
+            status_code = 200 if payload["status"] == "ok" else 503
             response = json.dumps(payload).encode("utf-8")
-            self.send_response(200)
+
+            self.send_response(status_code)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(response)))
             self.end_headers()
