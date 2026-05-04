@@ -104,7 +104,6 @@ public class ProjectController {
     public ApiResponse<ProjectListResponse> searchMyProjects(
             @RequestParam @NotBlank(message = "keyword는 필수입니다.") String keyword,
             @RequestParam(defaultValue = "1") @Min(value = 1, message = "page는 1 이상이어야 합니다.") int page
-            // TODO: 인증 구현 시 @AuthenticationPrincipal 기반 사용자 ID 연동
     ) {
         ProjectListResponse response = projectQueryService.searchMyProjects(keyword, page);
         return ApiResponse.success("프로젝트 검색 성공", response);
@@ -119,7 +118,6 @@ public class ProjectController {
     @DeleteMapping
     public ApiResponse<DeleteProjectsResponse> deleteProjects(
             @Valid @RequestBody DeleteProjectsRequest request
-            // TODO: 인증 구현 시 @AuthenticationPrincipal 기반 사용자 ID 연동
     ) {
         DeleteProjectsResponse response = projectService.deleteProjects(request);
         return ApiResponse.success("프로젝트 삭제 완료", response);
@@ -136,7 +134,6 @@ public class ProjectController {
     public ApiResponse<ProjectSiteResponse> registerProjectSite(
             @PathVariable UUID projectId,
             @Valid @RequestBody RegisterProjectSiteRequest request
-            // TODO: 인증 구현 시 사용자 정보 연동
     ) {
         ProjectSiteResponse response = projectSiteService.registerProjectSite(projectId, request);
         return ApiResponse.success("대지정보 등록 완료", response);

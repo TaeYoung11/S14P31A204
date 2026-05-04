@@ -23,6 +23,7 @@ public class ProjectSiteService {
 
     private final ProjectRepository projectRepository;
     private final VworldService vworldService;
+    private final ProjectAccessService projectAccessService;
 
     /**
      * 위경도를 기준으로 VWorld 지적도 정보를 조회하고 프로젝트 대지정보를 저장한다.
@@ -33,8 +34,12 @@ public class ProjectSiteService {
      */
     @Transactional
     public ProjectSiteResponse registerProjectSite(UUID projectId, RegisterProjectSiteRequest request) {
+        projectAccessService.validateDesignerOrThrow();
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
+
         Project project = projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
+        projectAccessService.validateProjectOwnerOrThrow(project, currentUserId);
 
         VworldService.VworldSiteInfo vworldSiteInfo = vworldService.fetchProjectSiteInfo(
                 projectId,

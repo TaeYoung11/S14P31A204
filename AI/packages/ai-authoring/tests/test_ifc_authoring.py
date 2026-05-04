@@ -64,6 +64,10 @@ async def main():
     emit(f"📂 IFC 파일: {IFC_PATH}")
     pipeline = LLM3DPipeline(ifc_path=IFC_PATH)
 
+    emit("\n--- [IFC 컨텍스트] ---")
+    emit(pipeline._ifc_context_text or "❌ 컨텍스트 없음")
+    emit("-" * 70)
+
     json_logs = []
     test_commands = [
         # ── 정상 수정 ─────────────────────────────────────────────

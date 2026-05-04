@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_UNSET = object()
+
 
 class IFCQueryEngine:
     """IFC 모델 탐색 전담 클래스 — Planning 단계에서 대상 요소를 찾는다."""
@@ -93,14 +95,18 @@ class IFCQueryEngine:
                 rejected["storey"] += 1
                 continue
             if space_lower:
+                space_nospace = space_lower.replace(" ", "")
                 hits = [
-                    s_sp and space_lower in s_sp.lower(),
-                    spl and space_lower in spl.lower(),
-                    space_lower in element_name,
+                    s_sp and space_nospace in s_sp.lower().replace(" ", ""),
+                    spl and space_nospace in spl.lower().replace(" ", ""),
+                    space_nospace in element_name.replace(" ", ""),
                 ]
                 if not any(hits):
-                    rejected["space"] += 1
-                    continue
+                    # space 매칭 실패 시 storey 필터만으로 fallback (층이 지정된 경우)
+                    if not storey_lower:
+                        rejected["space"] += 1
+                        continue
+                    logger.info(f"space '{space_lower}' 매칭 실패, storey fallback")
             if direction_lower and direction_lower not in element_name:
                 rejected["direction"] += 1
                 continue
@@ -170,13 +176,15 @@ class IFCQueryEngine:
     def _get_element_info(
         self,
         element: ifcopenshell.entity_instance,
-        storey: str | None = None,
-        space: str | None = None,
+        storey: str | None = _UNSET,  # type: ignore[assignment]
+        space: str | None = _UNSET,  # type: ignore[assignment]
     ) -> dict[str, Any]:
-        if storey is None or space is None:
+        if storey is _UNSET or space is _UNSET:
             s_st, s_sp, _ = self._get_spatial_context(element)
-            storey = storey or s_st
-            space = space or s_sp
+            if storey is _UNSET:
+                storey = s_st
+            if space is _UNSET:
+                space = s_sp
 
         # Z 좌표 추출 (품질 검증용)
         dims: dict[str, float] = {
@@ -198,6 +206,6 @@ class IFCQueryEngine:
             "element_type": element.is_a(),
             "name": element.Name,
             "storey": storey or "1F",
-            "space_name": normalize_space_name(space) if space else None,
+            "space_name": normalize_space_name(space),
             "dims": dims,
         }

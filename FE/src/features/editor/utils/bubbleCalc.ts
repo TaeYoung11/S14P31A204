@@ -1,3 +1,6 @@
+import { FLOOR_MM_PER_PX } from '../constants'
+export { centerSitePoints, fitSitePointsToStage } from './sitePointTransform'
+
 /**
  * 버블 다이어그램 크기·면적 계산 유틸리티
  * 순수 함수만 포함 (사이드이펙트 없음)
@@ -32,6 +35,15 @@ export function calcPxDimensionsByAreaAndAspect(areaM2: number, aspectRatio: num
   return { width, height }
 }
 
+/** IFC(mm) 기반 실측 치수를 캔버스 px로 변환한다. */
+export function calcPxDimensionsFromMm(widthMm: number, heightMm: number, mmPerPx = FLOOR_MM_PER_PX) {
+  const safeMmPerPx = Number.isFinite(mmPerPx) && mmPerPx > 0 ? mmPerPx : FLOOR_MM_PER_PX
+  return {
+    width: Math.max(widthMm / safeMmPerPx, 1),
+    height: Math.max(heightMm / safeMmPerPx, 1),
+  }
+}
+
 /** 문자열을 양수로 파싱 (유효하지 않으면 null 반환) */
 export function parsePositiveNumber(value: string): number | null {
   const parsed = Number.parseFloat(value)
@@ -59,15 +71,4 @@ export function hexToRgba(hexColor: string, alpha: number): string {
   const g = parseInt(hex.slice(2, 4), 16)
   const b = parseInt(hex.slice(4, 6), 16)
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
-}
-
-/** 대지 다각형 원본 좌표를 스테이지 정중앙 기준으로 이동 */
-export function centerSitePoints(rawPoints: number[], stageWidth: number, stageHeight: number): number[] {
-  const xs = rawPoints.filter((_, i) => i % 2 === 0)
-  const ys = rawPoints.filter((_, i) => i % 2 === 1)
-  const cx = (Math.min(...xs) + Math.max(...xs)) / 2
-  const cy = (Math.min(...ys) + Math.max(...ys)) / 2
-  const dx = stageWidth / 2 - cx
-  const dy = stageHeight / 2 - cy
-  return rawPoints.map((v, i) => (i % 2 === 0 ? v + dx : v + dy))
 }

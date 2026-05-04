@@ -2,7 +2,7 @@ import type { AddSpaceFormData, BubbleData } from '../types'
 import {
   calcAreaM2FromMm,
   calcMmDimensionsByAreaAndAspect,
-  calcPxDimensionsByAreaAndAspect,
+  calcPxDimensionsFromMm,
   parsePositiveNumber,
 } from './bubbleCalc'
 
@@ -13,7 +13,7 @@ export function updateBubbleDimensions(bubble: BubbleData, axis: 'width' | 'heig
   const nextHeightMm =
     axis === 'height' ? (value > 0 ? value : bubble.heightMm) : (bubble.heightMm > 0 ? bubble.heightMm : 1000)
   const ratio = calcAreaM2FromMm(nextWidthMm, nextHeightMm)
-  const px = calcPxDimensionsByAreaAndAspect(ratio, nextWidthMm / nextHeightMm)
+  const px = calcPxDimensionsFromMm(nextWidthMm, nextHeightMm)
 
   return {
     ...bubble,
@@ -30,7 +30,7 @@ export function updateBubbleDimensions(bubble: BubbleData, axis: 'width' | 'heig
 export function updateBubbleRatio(bubble: BubbleData, ratio: number): BubbleData {
   const aspect = bubble.widthMm > 0 && bubble.heightMm > 0 ? bubble.widthMm / bubble.heightMm : 1
   const mm = calcMmDimensionsByAreaAndAspect(ratio, aspect)
-  const px = calcPxDimensionsByAreaAndAspect(ratio, aspect)
+  const px = calcPxDimensionsFromMm(mm.widthMm, mm.heightMm)
 
   return {
     ...bubble,
@@ -77,8 +77,7 @@ export function createBubbleFromFormData(formData: AddSpaceFormData, bubbleCount
     heightMmValue = mm.heightMm
   }
 
-  const aspect = widthMmValue > 0 && heightMmValue > 0 ? widthMmValue / heightMmValue : 1
-  const px = calcPxDimensionsByAreaAndAspect(ratioValue, aspect)
+  const px = calcPxDimensionsFromMm(widthMmValue, heightMmValue)
 
   return {
     id: Date.now().toString(),

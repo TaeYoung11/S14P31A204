@@ -10,8 +10,10 @@ night variant 사용 가능 — 산출물 품질 빠르게 확인 → 미세 조
     python scripts/run_diversity_inference.py
     python scripts/run_diversity_inference.py outputs/ifc2img_diversity_v2
     python scripts/run_diversity_inference.py outputs/diversity_haus --fixture=Haus
-    python scripts/run_diversity_inference.py outputs/haus_night --fixture=Haus --time=night
-    python scripts/run_diversity_inference.py outputs/haus_korean --fixture=Haus --preset=korean_villa
+    python scripts/run_diversity_inference.py outputs/haus_night \
+        --fixture=Haus --time=night
+    python scripts/run_diversity_inference.py outputs/haus_korean \
+        --fixture=Haus --preset=korean_villa
 
 CLI 인자:
   positional out_dir : 출력 경로(default `outputs/ifc2img_diversity/`).

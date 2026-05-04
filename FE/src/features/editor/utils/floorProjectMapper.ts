@@ -1,8 +1,8 @@
 import type { ConnectionData, FloorLayer, FloorOpening, FloorRoom, FloorWall, FloorWallType } from '../types'
 import type { FloorProject, FloorProjectPoint2D, FloorProjectRoom, FloorProjectWallType } from '../types/floorProject.types'
 import type { BubbleData } from '../types'
-import { calcPxDimensionsByAreaAndAspect } from './bubbleCalc'
-import { FLOOR_WALL_PRESETS } from '../constants'
+import { calcPxDimensionsFromMm } from './bubbleCalc'
+import { FLOOR_MM_PER_PX, FLOOR_WALL_PRESETS } from '../constants'
 
 interface Bounds {
   minX: number
@@ -322,12 +322,15 @@ export function mapFloorProjectToBubbles(project: FloorProject, options: MapperO
   sortedFloorIds.forEach((floorId) => {
     const bounds = boundsByFloor.get(floorId)
     if (!bounds) return
-    const floorWidthM = Math.max(bounds.maxX - bounds.minX, 1)
-    const floorHeightM = Math.max(bounds.maxY - bounds.minY, 1)
-    const scale = clamp((height - padding * 2) / floorHeightM, 35, 90)
+    const floorWidthPx = Math.max((bounds.maxX - bounds.minX) / FLOOR_MM_PER_PX, 1)
+    const floorHeightPx = Math.max((bounds.maxY - bounds.minY) / FLOOR_MM_PER_PX, 1)
+    const availableHeight = Math.max(height - padding * 2, 1)
+    // IFC(mm) 기반 실측 비율을 유지하되, 캔버스에 과도하게 작거나 큰 경우만 완만하게 보정한다.
+    const fitScale = clamp(availableHeight / floorHeightPx, 0.6, 2.2)
+    const scale = fitScale
     floorOffsetX.set(floorId, currentOffsetX)
     floorScale.set(floorId, scale)
-    currentOffsetX += floorWidthM * scale + gapX
+    currentOffsetX += floorWidthPx * scale + gapX
   })
 
   const canvasCenterY = height / 2
@@ -336,7 +339,7 @@ export function mapFloorProjectToBubbles(project: FloorProject, options: MapperO
     const roomBounds = toBounds(room.polygon)
     const bounds = roomBounds ?? { minX: 0, minY: 0, maxX: 1, maxY: 1 }
     const floorBounds = boundsByFloor.get(room.floor) ?? bounds
-    const scale = floorScale.get(room.floor) ?? 55
+    const scale = floorScale.get(room.floor) ?? 1
     const offsetX = floorOffsetX.get(room.floor) ?? padding
 
     const centerX = (bounds.minX + bounds.maxX) / 2
@@ -347,11 +350,16 @@ export function mapFloorProjectToBubbles(project: FloorProject, options: MapperO
     const heightMm = Math.max(bounds.maxY - bounds.minY, 600)
     const ratio = computeRoomAreaM2(room.polygon)
     const safeRatio = ratio > 0 ? ratio : (widthMm * heightMm) / 1_000_000
-    const aspect = widthMm / heightMm
-    const px = calcPxDimensionsByAreaAndAspect(safeRatio, aspect)
+    const basePx = calcPxDimensionsFromMm(widthMm, heightMm)
+    const px = {
+      width: basePx.width * scale,
+      height: basePx.height * scale,
+    }
 
-    const x = offsetX + (centerX - floorBounds.minX) * scale - px.width / 2
-    const y = canvasCenterY + (roomCenterY - floorCenterY) * scale - px.height / 2
+    const centerXPx = (centerX - floorBounds.minX) / FLOOR_MM_PER_PX
+    const centerYPx = (roomCenterY - floorCenterY) / FLOOR_MM_PER_PX
+    const x = offsetX + centerXPx * scale - px.width / 2
+    const y = canvasCenterY + centerYPx * scale - px.height / 2
 
     return {
       id: room.id,

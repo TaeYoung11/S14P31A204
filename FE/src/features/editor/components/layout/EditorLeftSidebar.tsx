@@ -2,6 +2,7 @@ import {
   MousePointer2,
   PlusCircle,
   TrendingUp,
+  Sparkles,
   Trash2,
   MessagesSquare,
   Brain,
@@ -150,7 +151,9 @@ interface EditorLeftSidebarProps {
   onToggleGrid?: () => void
   onExportIFC?: () => void
   onGenerateFloorPlan?: () => void
+  onAutoLayoutBubbles?: () => void
   canGenerateFloorPlan?: boolean
+  canAutoLayoutBubbles?: boolean
   isFloorPlanGenerated?: boolean
   isBubbleReadOnly?: boolean
   hasDeletableSelection?: boolean
@@ -175,18 +178,26 @@ export default function EditorLeftSidebar({
   onToggleGrid,
   onExportIFC,
   onGenerateFloorPlan,
+  onAutoLayoutBubbles,
   canGenerateFloorPlan = false,
+  canAutoLayoutBubbles = false,
   isFloorPlanGenerated = false,
   isBubbleReadOnly = false,
   hasDeletableSelection = false,
   onDeleteSelected,
 }: EditorLeftSidebarProps) {
   const canStartFloorPlanGeneration = canGenerateFloorPlan && !isFloorPlanGenerated
+  const canStartBubbleAutoLayout = canAutoLayoutBubbles && !isBubbleReadOnly
   const floorPlanGenerateTitle = isFloorPlanGenerated
     ? '평면도는 이미 생성되었습니다. 2D 편집 모드를 사용해 주세요.'
     : canGenerateFloorPlan
       ? '버블 기반 2D 평면도 생성'
       : '버블을 1개 이상 추가해 주세요'
+  const bubbleAutoLayoutTitle = isBubbleReadOnly
+    ? '보기 전용 상태에서는 자동 배치를 사용할 수 없습니다.'
+    : canAutoLayoutBubbles
+      ? '대지 경계 안에서 연결 관계를 고려해 버블 자동 배치'
+      : '버블을 2개 이상 배치해 주세요'
 
   return (
     <aside className="w-[72px] bg-white border border-[#E2E6EF] rounded-2xl py-4 shadow-sm shrink-0 self-start mt-0 h-full flex flex-col overflow-hidden">
@@ -232,6 +243,26 @@ export default function EditorLeftSidebar({
                       : 'text-[#8E95A3] group-hover:text-[#1C1C1E]'
                 }`}>
                   선스타일
+                </span>
+              </button>
+
+              <button
+                onClick={onAutoLayoutBubbles}
+                disabled={!canStartBubbleAutoLayout}
+                title={bubbleAutoLayoutTitle}
+                className="w-full flex flex-col items-center gap-1 py-1 group disabled:cursor-not-allowed"
+              >
+                <div className={`p-2 rounded-xl transition-all ${
+                  canStartBubbleAutoLayout
+                    ? 'text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#3B45B3]'
+                    : 'text-[#D9DEF0]'
+                }`}>
+                  <Sparkles size={24} />
+                </div>
+                <span className={`text-[10px] font-bold transition-all ${
+                  canStartBubbleAutoLayout ? 'text-[#8E95A3] group-hover:text-[#3B45B3]' : 'text-[#D9DEF0]'
+                }`}>
+                  자동배치
                 </span>
               </button>
 
