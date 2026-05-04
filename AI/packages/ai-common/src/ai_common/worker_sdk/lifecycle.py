@@ -62,10 +62,10 @@ def build_worker_type(command_type: str) -> str:
     return _lookup_command_type(command_type)["worker_type"]
 
 
-def build_event_routing_key(worker_type: str, status: LifecycleStatus) -> str:
-    """Build a stable event routing key from workerType and lifecycle status."""
+def build_event_routing_key(command_type: str, status: LifecycleStatus) -> str:
+    """Build a stable event routing key from commandType and lifecycle status."""
 
-    routing_segment = _lookup_worker_type(worker_type)["routing_segment"]
+    routing_segment = _lookup_command_type(command_type)["routing_segment"]
     return f"event.{routing_segment}.{normalize_status_segment(status)}"
 
 
@@ -88,11 +88,6 @@ def _lookup_command_type(command_type: str) -> dict[str, str]:
         raise ValueError(f"Unsupported command_type: {command_type}") from exc
 
 
-def _lookup_worker_type(worker_type: str) -> dict[str, str]:
-    for entry in _COMMAND_TYPE_MAP.values():
-        if entry["worker_type"] == worker_type:
-            return entry
-    raise ValueError(f"Unsupported worker_type: {worker_type}")
 
 
 __all__ = [

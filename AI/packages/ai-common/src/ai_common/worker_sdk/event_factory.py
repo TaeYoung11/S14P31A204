@@ -153,7 +153,7 @@ def _build_event(
             "schemaVersion": "v1",
             "messageType": "EVENT",
             "eventType": build_event_type(context.command_type, status),
-            "routingKey": build_event_routing_key(worker_type, status),
+            "routingKey": build_event_routing_key(context.command_type, status),
             "jobId": context.job_id,
             "jobStepId": context.job_step_id,
             "stepNo": context.step_no,
