@@ -164,8 +164,8 @@ VIEWS_WITHOUT_GROUND: frozenset[IFCView] = frozenset()
 # View 별 prompt suffix — 옵션 B (per-view prompt suffix)의 공통 자산.
 #
 # 등각·기타 시점은 화면에 *건물 주변 환경*(잔디·길)도 들어옴. facade-위주 prompt
-# (scandinavian/industrial/japanese)에는 환경 단서가 없어 SD가 임의 환경을 그려
-# *옆 건물 환각·어색한 정원* 등 발생.
+# (scandinavian/korean_villa/korean_house)에는 환경 단서가 없어 SD가 임의 환경을
+# 그려 *옆 건물 환각·어색한 정원* 등 발생.
 # → view-별 환경 묘사 단어를 prompt 끝에 덧붙여 SD에 시점 맥락 전달.
 #
 # 빈 문자열 = suffix 없음 (FRONT/SIDE는 facade만 보여 환경 단서 불필요).

@@ -1,4 +1,4 @@
-"""ifc2img 스타일 프리셋 (scandinavian / industrial / japanese).
+"""ifc2img 스타일 프리셋 (scandinavian / korean_villa / korean_house).
 
 img2img 프리셋과 *값을 복제* — 코드 import는 하지 않는다.
 복제 정책:
