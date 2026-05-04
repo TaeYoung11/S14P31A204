@@ -2,6 +2,7 @@ import { MOCK_MEMBERS } from '@/features/project/mocks/project.mock'
 import {
   getProjectSitePolygonEntry,
   PROJECT_SITE_CACHE_TTL_MS,
+  removeProjectSitePolygon,
   saveProjectSitePolygon,
 } from '@/features/project/utils/projectSiteCache'
 import {
@@ -200,13 +201,18 @@ export const projectService = {
     try {
       apiPolygonRing = await fetchSitePolygonFromProjectDetail(projectId)
       if (apiPolygonRing) {
-        saveProjectSitePolygon(projectId, apiPolygonRing)
+        saveProjectSitePolygon(projectId, apiPolygonRing, { source: 'api' })
       }
     } catch {
       // API가 미구현이거나 일시 실패해도 fallback 체인으로 진행한다.
     }
 
-    const cacheCandidate = getProjectSitePolygonEntry(projectId, { ttlMs: SITE_CACHE_TTL_MS })
+    let cacheCandidate = getProjectSitePolygonEntry(projectId, { ttlMs: SITE_CACHE_TTL_MS })
+    if (cacheCandidate?.source === 'mock' && !shouldUseSiteMock) {
+      removeProjectSitePolygon(projectId)
+      cacheCandidate = null
+    }
+
     const resolved = resolveProjectSiteFallback({
       apiPolygonRing,
       cacheCandidate,
@@ -216,7 +222,7 @@ export const projectService = {
     })
 
     if (resolved.source === 'mock' && resolved.polygonRing) {
-      saveProjectSitePolygon(projectId, resolved.polygonRing)
+      saveProjectSitePolygon(projectId, resolved.polygonRing, { source: 'mock' })
     }
 
     return resolved

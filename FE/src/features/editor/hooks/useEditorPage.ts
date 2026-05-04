@@ -13,7 +13,6 @@ import type {
   FloorCommentPin,
   FloorLayerOverlay,
   FloorOpening,
-  FloorRoom,
   FloorWall,
   Point2D,
   SaveStatus,
@@ -30,9 +29,6 @@ import {
   FLOOR_WALL_THICKNESS_MIN_MM,
   GRID_SNAP_INTERVAL_OPTIONS_MM,
   INITIAL_ADD_SPACE_FORM,
-  MAX_EDITOR_ZOOM_PERCENT,
-  MIN_EDITOR_ZOOM_PERCENT,
-  SITE_RAW_POINTS,
 } from '../constants'
 import { useBubbles } from './useBubbles'
 import { useConnections } from './useConnections'
@@ -43,8 +39,11 @@ import { useFloorPlan } from './useFloorPlan'
 import { useLlmEdit } from './useLlmEdit'
 import { useFloorProjectImport } from './useFloorProjectImport'
 import { useWorkspaceCommandPublisher } from './useWorkspaceCommandPublisher'
-import { calcAreaM2FromMm, centerSitePoints, fitSitePointsToStage } from '../utils/bubbleCalc'
-import { computeFitZoomPercent, ensureSiteContainsBubbles } from '../utils/editorViewport'
+import { useEditorExportGuard } from './useEditorExportGuard'
+import { useEditorFloorSync } from './useEditorFloorSync'
+import { EDITOR_SITE_FIT_PADDING_PX, useEditorSiteBoundary } from './useEditorSiteBoundary'
+import { useEditorZoom } from './useEditorZoom'
+import { calcAreaM2FromMm } from '../utils/bubbleCalc'
 import type { EmptyCanvasDblClickInfo } from '../components/canvas/BubbleCanvas'
 import {
   mapAdjacencyToConnections,
@@ -53,14 +52,12 @@ import {
   mapFloorProjectToOpenings,
 } from '../utils/floorProjectMapper'
 import { deriveAutoWallsFromRooms } from '../utils/autoWalls'
-import { lineIntersectsRect, insetRect, type AxisAlignedRect } from '../utils/geometry2d'
-import { toRectFloorRoom, translateFloorRoom } from '../utils/floorRoomTransform'
+import type { AxisAlignedRect } from '../utils/geometry2d'
+import { toRectFloorRoom } from '../utils/floorRoomTransform'
 import { deriveAutoOpeningsFromConnections, normalizeOpeningWithinWall } from '../utils/floorOpeningSync'
-import { buildSyncedConnectionsFromRooms } from '../utils/roomConnectionSync'
 import {
   clampWallHeightMm,
   clampWallThicknessMm,
-  remapPerimeterAlignedManualWalls,
 } from '../utils/wallSync'
 import {
   buildWallOutsideOverlapSegments,
@@ -68,22 +65,16 @@ import {
   getWallOverlapInterval,
   projectAxisAlignedWall,
 } from '../utils/wallGeometry'
+import {
+  buildMovedFloorRoomsState,
+  buildResizedFloorRoomsState,
+} from '../utils/floorRoomDerivedState'
+import { createsNewWallRoomCollision } from '../utils/wallRoomCollision'
 import type { FloorProject } from '../types/floorProject.types'
 import { getDraft, setDraft } from '../lib/draftDb'
 import { useAuthStore } from '@/shared/stores/authStore'
 import { useEditorProjectName } from './useEditorProjectName'
 import { useInitialIfcImport } from './useInitialIfcImport'
-import { useProjectSitePolygon } from '@/features/project/hooks/useProjects'
-import {
-  calculateSiteAreaM2,
-  mapSiteRingToCanvasPoints,
-  mapSiteRingToCanvasPointsByMmScale,
-  toPyeong,
-} from '@/features/project/utils/siteGeometry'
-import {
-  validateBubblesInSiteBoundary,
-  validateFloorPlanInSiteBoundary,
-} from '../utils/siteBoundaryValidation'
 import { runForceDirectedBubbleLayout } from '../utils/forceBubbleLayout'
 
 /** 에디터 모드 허용 목록 — URL 파라미터 검증용 */
@@ -107,10 +98,6 @@ const OPENING_NORMALIZE_OPTIONS = {
 const DEFAULT_DESIGNER_NAME = '설계자'
 const DEFAULT_CLIENT_NAME = '고객사 담당자'
 const DEFAULT_WALL_MATERIAL = '콘크리트'
-const SITE_STAGE_FIT_MARGIN_PX = 72
-const SITE_CONTAIN_BUBBLE_PADDING_PX = 80
-const SITE_CONTAIN_MAX_SCALE = 3.5
-const DEFAULT_EDITOR_ZOOM_PERCENT = 100
 
 function createLocalId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -124,13 +111,6 @@ function createFloorWallId(): string {
 /** 2D 개구부 고유 ID 생성 */
 function createFloorOpeningId(): string {
   return `opening-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-}
-
-function clampEditorZoom(value: number): number {
-  return Math.min(
-    Math.max(Math.round(value), MIN_EDITOR_ZOOM_PERCENT),
-    MAX_EDITOR_ZOOM_PERCENT,
-  )
 }
 
 function normalizeCommentAttachments(attachments: FloorCommentAttachmentInput[] = []) {
@@ -371,7 +351,6 @@ export function useEditorPage() {
           return pair ? `auto-door-${pair}` : null
         })
         .filter((id): id is string => Boolean(id))
-      // 외부 state hiddenAutoOpeningIds와 이름 충돌을 피하기 위해 newHiddenOpeningIds로 명명
       const newHiddenOpeningIds = Array.from(new Set([...autoOpeningIdsToHide, ...autoOpeningIdsFromDeletedWalls]))
       if (newHiddenOpeningIds.length > 0) {
         setHiddenAutoOpeningIds((prev) => {
@@ -471,11 +450,6 @@ export function useEditorPage() {
     id: string; label: string; x: number; y: number; width: number; height: number
   } | null>(null)
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false)
-  const [isExportSelectionModalOpen, setIsExportSelectionModalOpen] = useState(false)
-  const [isIFCExportModalOpen, setIsIFCExportModalOpen] = useState(false)
-  const [zoom, setZoom] = useState(DEFAULT_EDITOR_ZOOM_PERCENT)
-  const [isUserZoomAdjusted, setIsUserZoomAdjusted] = useState(false)
   const [isGridSnapEnabled, setIsGridSnapEnabled] = useState(true)
   const [gridSnapIntervalMm, setGridSnapIntervalMm] = useState<number>(DEFAULT_GRID_SNAP_INTERVAL_MM)
   const [wallCreatePreset, setWallCreatePreset] = useState<{
@@ -1042,174 +1016,57 @@ export function useEditorPage() {
 
   const zoningListItems = useMemo(() => [...autoZones, ...manualZones], [autoZones, manualZones])
 
-  const sitePolygonQuery = useProjectSitePolygon(projectId ?? null, !!projectId)
-  const cachedSiteRing = sitePolygonQuery.data?.polygonRing ?? null
+  const {
+    sitePoints,
+    sitePlanPoints,
+    siteAreaM2,
+    siteAreaPyeong,
+    canStartSaveFlow,
+  } = useEditorSiteBoundary({
+    projectId,
+    stageWidth: stageSize.width,
+    stageHeight: stageSize.height,
+    bubbles,
+    floorRooms,
+    floorWalls: mergedFloorWalls,
+    floorOpenings: mergedFloorOpenings,
+    setSaveStatus,
+  })
 
-  const siteAreaM2 = useMemo(
-    () => (cachedSiteRing ? calculateSiteAreaM2(cachedSiteRing) : null),
-    [cachedSiteRing],
-  )
+  const {
+    zoom: currentZoom,
+    handleWheelZoom,
+    handleZoomIn,
+    handleZoomOut,
+    handleZoomChange,
+  } = useEditorZoom({
+    sitePlanPoints,
+    stageWidth: stageSize.width,
+    stageHeight: stageSize.height,
+    fitPaddingPx: EDITOR_SITE_FIT_PADDING_PX,
+  })
 
-  const siteAreaPyeong = useMemo(
-    () => (siteAreaM2 ? toPyeong(siteAreaM2) : null),
-    [siteAreaM2],
-  )
+  const {
+    syncPerimeterManualWallsForRoomResize,
+    syncFloorDerivedStateFromRooms,
+  } = useEditorFloorSync({
+    canSyncBubbleStateFrom2D,
+    connections,
+    replaceConnections,
+    setFloorWalls,
+  })
 
-  // 파생 상태: 대지 외곽선 포인트 (캔버스 중앙 정렬)
-  const sitePoints = useMemo(() => {
-    const targetWidth = Math.max(stageSize.width - SITE_STAGE_FIT_MARGIN_PX * 2, 1)
-    const targetHeight = Math.max(stageSize.height - SITE_STAGE_FIT_MARGIN_PX * 2, 1)
-    const cachedCanvasPoints = cachedSiteRing
-      ? mapSiteRingToCanvasPoints(cachedSiteRing, {
-          targetWidth,
-          targetHeight,
-          fitRatio: 1,
-        })
-      : null
-    const cachedRawPoints = cachedCanvasPoints?.flatMap((point) => [point.x, point.y]) ?? null
-    // 실제 대지 좌표가 존재하면 원형상을 보존한다.
-    if (cachedRawPoints) {
-      return centerSitePoints(cachedRawPoints, stageSize.width, stageSize.height)
-    }
-    const fitted = fitSitePointsToStage(SITE_RAW_POINTS, stageSize.width, stageSize.height, {
-      padding: SITE_STAGE_FIT_MARGIN_PX,
-      fitRatio: 1,
-    })
-    // 대지 미등록 상태(기본 샘플)에서는 기존 UX를 유지하기 위해 버블 포함 보정을 적용한다.
-    return ensureSiteContainsBubbles(
-      fitted,
-      bubbles,
-      SITE_CONTAIN_BUBBLE_PADDING_PX,
-      SITE_CONTAIN_MAX_SCALE,
-    )
-  }, [cachedSiteRing, stageSize.width, stageSize.height, bubbles])
-
-  const floorPlanMmPerPx = useMemo(() => {
-    for (const room of floorRooms) {
-      if (room.width > 1 && room.widthMm > 0) return room.widthMm / room.width
-      if (room.height > 1 && room.heightMm > 0) return room.heightMm / room.height
-    }
-    return FLOOR_MM_PER_PX
-  }, [floorRooms])
-
-  const sitePlanPoints = useMemo(() => {
-    if (!cachedSiteRing) return sitePoints
-
-    // 2D 편집 중 방/벽 이동에 대지가 끌려가지 않도록
-    // 대지 투영 기준점을 스테이지 중앙으로 고정한다.
-    const mapped = mapSiteRingToCanvasPointsByMmScale(cachedSiteRing, {
-      mmPerPx: floorPlanMmPerPx,
-      centerX: stageSize.width / 2,
-      centerY: stageSize.height / 2,
-    })
-    if (!mapped) return sitePoints
-    return mapped.flatMap((point) => [point.x, point.y])
-  }, [cachedSiteRing, floorPlanMmPerPx, sitePoints, stageSize.width, stageSize.height])
-
-  const getSiteBoundaryBlockReason = useCallback((): string | null => {
-    // 저장 차단은 모드와 무관하게 2D/3D 실측 기준(룸/벽/개구부)으로 통일한다.
-    const floorPlanResult = validateFloorPlanInSiteBoundary(
-      sitePlanPoints,
-      floorRooms,
-      mergedFloorWalls,
-      mergedFloorOpenings,
-    )
-    if (floorPlanResult.hasSite && floorPlanResult.outsideCount > 0) {
-      return `공간 ${floorPlanResult.outsideRoomIds.size}개 · 벽 ${floorPlanResult.outsideWallIds.size}개 · 개구부 ${floorPlanResult.outsideOpeningIds.size}개`
-    }
-
-    // 평면 데이터가 아직 없는 초기 상태에서는 버블 기준으로만 임시 검증한다.
-    if (floorRooms.length === 0) {
-      const bubbleResult = validateBubblesInSiteBoundary(sitePlanPoints, bubbles)
-      if (bubbleResult.hasSite && bubbleResult.outsideCount > 0) {
-        return `버블 ${bubbleResult.outsideBubbleIds.size}개`
-      }
-    }
-
-    return null
-  }, [bubbles, sitePlanPoints, floorRooms, mergedFloorWalls, mergedFloorOpenings])
-
-  const canStartSaveFlow = useCallback((): boolean => {
-    const reason = getSiteBoundaryBlockReason()
-    if (!reason) return true
-
-    setSaveStatus('error')
-    window.alert(
-      `대지 경계 밖 요소가 있어 저장할 수 없습니다.\n\n현재 상태: ${reason}\n\n대지 안으로 이동한 뒤 다시 저장해 주세요.`,
-    )
-    return false
-  }, [getSiteBoundaryBlockReason])
-
-  // 사용자가 수동 줌을 건드리기 전에는 모드별 대지 크기에 맞춰 자동 맞춤 줌을 적용한다.
-  const autoFitZoom = useMemo(() => {
-    if (isUserZoomAdjusted) return null
-    if (stageSize.width <= 0 || stageSize.height <= 0) return null
-
-    const targetPoints = sitePlanPoints
-    const fitZoom = computeFitZoomPercent(
-      targetPoints,
-      stageSize.width,
-      stageSize.height,
-      SITE_STAGE_FIT_MARGIN_PX,
-    )
-    if (!fitZoom) return null
-
-    return clampEditorZoom(Math.min(DEFAULT_EDITOR_ZOOM_PERCENT, fitZoom))
-  }, [isUserZoomAdjusted, sitePlanPoints, stageSize.width, stageSize.height])
-
-  const currentZoom = autoFitZoom ?? zoom
-
-  const syncBubbleConnectionsFromRooms = useCallback((nextRooms: FloorRoom[]) => {
-    if (!canSyncBubbleStateFrom2D) return
-    const nextConnections = buildSyncedConnectionsFromRooms(connections, nextRooms)
-    if (!nextConnections) return
-    replaceConnections(nextConnections)
-  }, [canSyncBubbleStateFrom2D, connections, replaceConnections])
-
-  /**
-   * Room 배치 변경 시, 수동 목록으로 승격된 auto-wall의 좌표를 최신 Room 경계로 동기화한다.
-   * (타입/두께/높이 등 편집 속성은 유지)
-   */
-  const syncManualAutoWallsFromRooms = useCallback((nextRooms: FloorRoom[]) => {
-    const nextAutoWalls = deriveAutoWallsFromRooms(nextRooms)
-    const nextAutoById = new Map(nextAutoWalls.map((wall) => [wall.id, wall] as const))
-    setFloorWalls((prev) => {
-      let changed = false
-      const next = prev.map((wall) => {
-        const auto = nextAutoById.get(wall.id)
-        if (!auto) return wall
-        if (
-          wall.start.x === auto.start.x &&
-          wall.start.y === auto.start.y &&
-          wall.end.x === auto.end.x &&
-          wall.end.y === auto.end.y
-        ) {
-          return wall
-        }
-        changed = true
-        return {
-          ...wall,
-          start: auto.start,
-          end: auto.end,
-        }
-      })
-      return changed ? next : prev
-    })
-  }, [])
-
-  /**
-   * Room 리사이즈 시, 해당 Room 외곽에 정렬된 수동 벽도 함께 비례 리사이즈한다.
-   * - auto-room/auto-shared 계열은 별도 동기화 경로(syncManualAutoWallsFromRooms)에서 처리
-   * - 외곽에 정렬된 수동 벽만 최소 범위로 보정
-   */
-  const syncPerimeterManualWallsForRoomResize = useCallback(
-    (roomBubbleId: string, prevRect: AxisAlignedRect, nextRect: AxisAlignedRect) => {
-      setFloorWalls((prevWalls) =>
-        remapPerimeterAlignedManualWalls(prevWalls, roomBubbleId, prevRect, nextRect),
-      )
-    },
-    [],
-  )
+  const {
+    isExportModalOpen,
+    isExportSelectionModalOpen,
+    isIFCExportModalOpen,
+    handleOpenExportSelectionModal,
+    handleOpenExportModal,
+    handleOpenIFCExportModal,
+    closeExportModal,
+    closeExportSelectionModal,
+    closeIFCExportModal,
+  } = useEditorExportGuard({ canStartSaveFlow })
   // ── 핸들러 ────────────────────────────────────────────────────────────────
 
   /** 편집 모드 전환 — 협업 모드·라이브러리는 모드 이탈 시 닫힘 */
@@ -1553,13 +1410,6 @@ export function useEditorPage() {
     handleBubbleResize(id, x, y, width, height)
   }, [isBubbleReadOnly, handleBubbleResize])
 
-  /** 스크롤 휠 줌 — 배율을 기존 줌 값에 곱해 적용 */
-  const handleWheelZoom = (factor: number) => {
-    const baseZoom = isUserZoomAdjusted ? zoom : currentZoom
-    if (!isUserZoomAdjusted) setIsUserZoomAdjusted(true)
-    setZoom(clampEditorZoom(baseZoom * factor))
-  }
-
   /** 2D 평면도 생성 버튼 핸들러 — 로딩 애니메이션 포함 */
   const handleGenerateFloorPlan = () => {
     generateFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
@@ -1576,21 +1426,6 @@ export function useEditorPage() {
     setConnectingFromId(null)
     handleGenerateFloorPlan()
     setMode('2d')
-  }
-
-  const handleZoomIn = () => {
-    const baseZoom = isUserZoomAdjusted ? zoom : currentZoom
-    if (!isUserZoomAdjusted) setIsUserZoomAdjusted(true)
-    setZoom(clampEditorZoom(baseZoom + 10))
-  }
-  const handleZoomOut = () => {
-    const baseZoom = isUserZoomAdjusted ? zoom : currentZoom
-    if (!isUserZoomAdjusted) setIsUserZoomAdjusted(true)
-    setZoom(clampEditorZoom(baseZoom - 10))
-  }
-  const handleZoomChange = (value: number) => {
-    if (!isUserZoomAdjusted) setIsUserZoomAdjusted(true)
-    setZoom(clampEditorZoom(value))
   }
 
   const toggleGrid = () => {
@@ -1625,27 +1460,6 @@ export function useEditorPage() {
     setOverlayOpacityByLayerId((prev) => ({ ...prev, [layerId]: next }))
   }
 
-  /** 벽 선분이 방 내부(inset 영역)와 교차하는 방 id 목록 */
-  const getIntersectingFloorRoomIds = useCallback((start: Point2D, end: Point2D) => {
-    const intersectingIds = new Set<string>()
-    floorRooms.forEach((room) => {
-      const innerRect = insetRect(
-        {
-          x: room.x,
-          y: room.y,
-          width: room.width,
-          height: room.height,
-        },
-        WALL_ROOM_COLLISION_INSET_PX,
-      )
-      if (!innerRect) return
-      if (lineIntersectsRect(start, end, innerRect)) {
-        intersectingIds.add(room.id)
-      }
-    })
-    return intersectingIds
-  }, [floorRooms])
-
   /** 편집 가능한 벽 조회: 수동 벽 우선, 없으면 현재 보이는 자동 벽에서 조회 */
   const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     return (
@@ -1655,17 +1469,21 @@ export function useEditorPage() {
     )
   }, [floorWalls, visibleAutoFloorWalls])
 
-  /** 벽 이동/끝점 편집이 방 내부 충돌을 새로 만들면 true */
-  const createsNewWallRoomCollision = useCallback((
-    prevStart: Point2D,
-    prevEnd: Point2D,
+  /** 벽 편집 결과가 방 내부 충돌을 새로 만들면 true를 반환한다. */
+  const isWallEditBlockedByRoomCollision = useCallback((
+    wall: FloorWall,
     nextStart: Point2D,
     nextEnd: Point2D,
   ): boolean => {
-    const prevCollisions = getIntersectingFloorRoomIds(prevStart, prevEnd)
-    const nextCollisions = getIntersectingFloorRoomIds(nextStart, nextEnd)
-    return Array.from(nextCollisions).some((roomId) => !prevCollisions.has(roomId))
-  }, [getIntersectingFloorRoomIds])
+    return createsNewWallRoomCollision({
+      floorRooms,
+      prevStart: wall.start,
+      prevEnd: wall.end,
+      nextStart,
+      nextEnd,
+      insetPx: WALL_ROOM_COLLISION_INSET_PX,
+    })
+  }, [floorRooms])
 
   /** 2D 벽 생성 */
   const handleCreateFloorWall = (
@@ -1739,7 +1557,7 @@ export function useEditorPage() {
     if (!targetWall) return
     const nextStart = { x: targetWall.start.x + dx, y: targetWall.start.y + dy }
     const nextEnd = { x: targetWall.end.x + dx, y: targetWall.end.y + dy }
-    if (createsNewWallRoomCollision(targetWall.start, targetWall.end, nextStart, nextEnd)) return
+    if (isWallEditBlockedByRoomCollision(targetWall, nextStart, nextEnd)) return
 
     ensureFloorWallInManual(wallId)
     setFloorWalls((prev) =>
@@ -1766,7 +1584,7 @@ export function useEditorPage() {
     if (!targetWall) return
     const nextStart = endpoint === 'start' ? point : targetWall.start
     const nextEnd = endpoint === 'end' ? point : targetWall.end
-    if (createsNewWallRoomCollision(targetWall.start, targetWall.end, nextStart, nextEnd)) return
+    if (isWallEditBlockedByRoomCollision(targetWall, nextStart, nextEnd)) return
 
     ensureFloorWallInManual(wallId)
     setFloorWalls((prev) => prev.map((wall) => (wall.id === wallId ? { ...wall, [endpoint]: point } : wall)))
@@ -2024,74 +1842,64 @@ export function useEditorPage() {
   /** 2D 방 드래그 리사이즈 */
   const handleResizeFloorRoom = (bubbleId: string, x: number, y: number, width: number, height: number) => {
     promoteCurrentAutoFloorOpenings()
-    const targetRoom = floorRooms.find((room) => room.bubbleId === bubbleId)
-    if (!targetRoom) return
-    const safeNextWidthPx = Math.max(width, 40)
-    const safeNextHeightPx = Math.max(height, 40)
-    // 2D는 mm<->px 고정 배율(FLOOR_MM_PER_PX) 기준으로 변환해 누적 왜곡을 방지한다.
-    const nextWidthMm = Math.max(Math.round(safeNextWidthPx * FLOOR_MM_PER_PX), 100)
-    const nextHeightMm = Math.max(Math.round(safeNextHeightPx * FLOOR_MM_PER_PX), 100)
-    const prevRect: AxisAlignedRect = {
-      x: targetRoom.x,
-      y: targetRoom.y,
-      width: targetRoom.width,
-      height: targetRoom.height,
-    }
-    const nextRect: AxisAlignedRect = { x, y, width: safeNextWidthPx, height: safeNextHeightPx }
+    const resizeState = buildResizedFloorRoomsState({
+      floorRooms,
+      bubbleId,
+      x,
+      y,
+      widthPx: width,
+      heightPx: height,
+      mmPerPx: FLOOR_MM_PER_PX,
+      minSizePx: 40,
+      minSizeMm: 100,
+    })
+    if (!resizeState) return
+
+    const {
+      nextRooms,
+      prevRect,
+      nextRect,
+      nextWidthPx,
+      nextHeightPx,
+      nextWidthMm,
+      nextHeightMm,
+      nextAreaM2,
+    } = resizeState
+
     if (canSyncBubbleStateFrom2D) {
       handleWidthChange(bubbleId, nextWidthMm)
       handleHeightChange(bubbleId, nextHeightMm)
       // 2D 기준 배치 좌표를 Bubble에도 즉시 반영해 모드 전환 시 불일치를 방지한다.
       handleBubbleMove(bubbleId, x, y)
     }
-    const nextArea = calcAreaM2FromMm(nextWidthMm, nextHeightMm)
     updateActiveRoom(bubbleId, (room) =>
       toRectFloorRoom(room, {
         x,
         y,
-        width: safeNextWidthPx,
-        height: safeNextHeightPx,
+        width: nextWidthPx,
+        height: nextHeightPx,
         widthMm: nextWidthMm,
         heightMm: nextHeightMm,
-        area: nextArea,
+        area: nextAreaM2,
       }),
     )
-    const nextRooms = floorRooms.map((room) =>
-      room.bubbleId === bubbleId
-        ? toRectFloorRoom(room, {
-            x,
-            y,
-            width: safeNextWidthPx,
-            height: safeNextHeightPx,
-            widthMm: nextWidthMm,
-            heightMm: nextHeightMm,
-            area: nextArea,
-          })
-        : room,
-    )
     syncPerimeterManualWallsForRoomResize(bubbleId, prevRect, nextRect)
-    syncManualAutoWallsFromRooms(nextRooms)
-    syncBubbleConnectionsFromRooms(nextRooms)
+    syncFloorDerivedStateFromRooms(nextRooms)
   }
 
   /** 2D 방 위치 이동 (크기/면적 유지) */
   const handleMoveFloorRoom = (bubbleId: string, x: number, y: number) => {
     promoteCurrentAutoFloorOpenings()
-    const selectedSet = new Set(selectedIds)
-    const targetRoom = floorRooms.find((room) => room.bubbleId === bubbleId)
-    if (!targetRoom) return
-    const shouldMoveMulti = selectedSet.size > 1 && selectedSet.has(bubbleId)
-    const dx = x - targetRoom.x
-    const dy = y - targetRoom.y
-    const nextRooms = floorRooms.map((room) => {
-      if (shouldMoveMulti && selectedSet.has(room.bubbleId)) {
-        return translateFloorRoom(room, dx, dy)
-      }
-      if (!shouldMoveMulti && room.bubbleId === bubbleId) {
-        return translateFloorRoom(room, dx, dy, { x, y })
-      }
-      return room
+    const moveState = buildMovedFloorRoomsState({
+      floorRooms,
+      bubbleId,
+      nextX: x,
+      nextY: y,
+      selectedBubbleIds: selectedIds,
     })
+    if (!moveState) return
+    const { nextRooms, shouldMoveMulti } = moveState
+
     if (shouldMoveMulti) {
       nextRooms.forEach((room) => {
         const current = floorRooms.find((item) => item.bubbleId === room.bubbleId)
@@ -2108,8 +1916,7 @@ export function useEditorPage() {
         handleBubbleMove(bubbleId, x, y)
       }
     }
-    syncManualAutoWallsFromRooms(nextRooms)
-    syncBubbleConnectionsFromRooms(nextRooms)
+    syncFloorDerivedStateFromRooms(nextRooms)
   }
 
   /** 2D 벽 타입 변경 (프리셋 두께/높이 자동 반영) */
@@ -2352,70 +2159,70 @@ export function useEditorPage() {
 
       const nextRooms = floorRooms.map((item) =>
         item.bubbleId === bubbleId
-          ? {
-              ...item,
+          ? toRectFloorRoom(item, {
+              x: item.x,
+              y: item.y,
               width: nextWidthPx,
               height: nextHeightPx,
               widthMm: nextWidthMm,
               heightMm: nextHeightMm,
               area: nextArea,
-              // 임의 폴리곤 치수 편집은 미지원이므로 bbox 모드로 전환한다.
-              polygon: undefined,
-              contour: undefined,
-              transform: undefined,
-            }
+            })
           : item,
       )
 
-      updateActiveRoom(bubbleId, (item) => ({
-        ...item,
-        width: nextWidthPx,
-        height: nextHeightPx,
-        widthMm: nextWidthMm,
-        heightMm: nextHeightMm,
-        area: nextArea,
-        polygon: undefined,
-        contour: undefined,
-        transform: undefined,
-      }))
+      updateActiveRoom(bubbleId, (item) =>
+        toRectFloorRoom(item, {
+          x: item.x,
+          y: item.y,
+          width: nextWidthPx,
+          height: nextHeightPx,
+          widthMm: nextWidthMm,
+          heightMm: nextHeightMm,
+          area: nextArea,
+        }),
+      )
       syncPerimeterManualWallsForRoomResize(bubbleId, prevRect, nextRect)
-      syncManualAutoWallsFromRooms(nextRooms)
-      syncBubbleConnectionsFromRooms(nextRooms)
+      syncFloorDerivedStateFromRooms(nextRooms)
     },
-    [mode, floorRooms, canSyncBubbleStateFrom2D, handleWidthChange, handleHeightChange, updateActiveRoom, syncPerimeterManualWallsForRoomResize, syncManualAutoWallsFromRooms, syncBubbleConnectionsFromRooms, snapDimensionMm],
+    [mode, floorRooms, canSyncBubbleStateFrom2D, handleWidthChange, handleHeightChange, updateActiveRoom, syncPerimeterManualWallsForRoomResize, syncFloorDerivedStateFromRooms, snapDimensionMm],
   )
 
-  const handleWidthChangeForPanel = useCallback((id: string, widthMm: number) => {
+  const applyDimensionByMode = useCallback((
+    id: string,
+    axis: 'width' | 'height',
+    valueMm: number,
+  ) => {
     if (mode === '2d') {
-      applyRoomDimensionIn2D(id, 'width', widthMm)
+      applyRoomDimensionIn2D(id, axis, valueMm)
       return
     }
-    handleWidthChange(id, widthMm)
-  }, [mode, handleWidthChange, applyRoomDimensionIn2D])
+    if (axis === 'width') {
+      handleWidthChange(id, valueMm)
+      return
+    }
+    handleHeightChange(id, valueMm)
+  }, [mode, applyRoomDimensionIn2D, handleWidthChange, handleHeightChange])
 
-  const handleHeightChangeForPanel = useCallback((id: string, heightMm: number) => {
-    if (mode === '2d') {
-      applyRoomDimensionIn2D(id, 'height', heightMm)
-      return
-    }
-    handleHeightChange(id, heightMm)
-  }, [mode, handleHeightChange, applyRoomDimensionIn2D])
+  const handleWidthChangeForPanel = useCallback(
+    (id: string, widthMm: number) => applyDimensionByMode(id, 'width', widthMm),
+    [applyDimensionByMode],
+  )
 
-  const handleWidthCommitForPanel = useCallback((id: string, widthMm: number) => {
-    if (mode === '2d') {
-      applyRoomDimensionIn2D(id, 'width', widthMm)
-      return
-    }
-    handleWidthChange(id, widthMm)
-  }, [mode, handleWidthChange, applyRoomDimensionIn2D])
+  const handleHeightChangeForPanel = useCallback(
+    (id: string, heightMm: number) => applyDimensionByMode(id, 'height', heightMm),
+    [applyDimensionByMode],
+  )
 
-  const handleHeightCommitForPanel = useCallback((id: string, heightMm: number) => {
-    if (mode === '2d') {
-      applyRoomDimensionIn2D(id, 'height', heightMm)
-      return
-    }
-    handleHeightChange(id, heightMm)
-  }, [mode, handleHeightChange, applyRoomDimensionIn2D])
+  const handleWidthCommitForPanel = useCallback(
+    (id: string, widthMm: number) => applyDimensionByMode(id, 'width', widthMm),
+    [applyDimensionByMode],
+  )
+
+  const handleHeightCommitForPanel = useCallback(
+    (id: string, heightMm: number) => applyDimensionByMode(id, 'height', heightMm),
+    [applyDimensionByMode],
+  )
 
   const handleAutoLayoutBubbles = useCallback(() => {
     if (mode !== 'bubble') return
@@ -2429,21 +2236,6 @@ export function useEditorPage() {
     })
     replaceBubbles(nextBubbles)
   }, [mode, isBubbleReadOnly, bubbles, connections, sitePlanPoints, replaceBubbles])
-
-  const handleOpenExportSelectionModal = useCallback(() => {
-    if (!canStartSaveFlow()) return
-    setIsExportSelectionModalOpen(true)
-  }, [canStartSaveFlow])
-
-  const handleOpenExportModal = useCallback(() => {
-    if (!canStartSaveFlow()) return
-    setIsExportModalOpen(true)
-  }, [canStartSaveFlow])
-
-  const handleOpenIFCExportModal = useCallback(() => {
-    if (!canStartSaveFlow()) return
-    setIsIFCExportModalOpen(true)
-  }, [canStartSaveFlow])
 
   return {
     // 모드
@@ -2637,15 +2429,15 @@ export function useEditorPage() {
     // 내보내기 모달
     isExportModalOpen,
     handleOpenExportModal,
-    onCloseExportModal: () => setIsExportModalOpen(false),
+    onCloseExportModal: closeExportModal,
     // 내보내기 선택 모달
     isExportSelectionModalOpen,
     handleOpenExportSelectionModal,
-    onCloseExportSelectionModal: () => setIsExportSelectionModalOpen(false),
+    onCloseExportSelectionModal: closeExportSelectionModal,
     // IFC 내보내기 모달
     isIFCExportModalOpen,
     handleOpenIFCExportModal,
-    onCloseIFCExportModal: () => setIsIFCExportModalOpen(false),
+    onCloseIFCExportModal: closeIFCExportModal,
     // AI 어시스턴트
     llmProvider: llmEdit.provider,
     llmPrompt: llmEdit.prompt,

@@ -3,9 +3,12 @@ import { normalizePolygonRing, validatePolygonRing } from './sitePolygon.ts'
 const PROJECT_SITE_CACHE_KEY = 'bim-project-site-cache-v1'
 export const PROJECT_SITE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
+export type ProjectSiteCacheSource = 'api' | 'manual' | 'mock'
+
 interface CachedProjectSiteEntry {
   polygonRing: number[][]
   savedAt: number
+  source: ProjectSiteCacheSource
 }
 
 type CachedProjectSiteMap = Record<string, CachedProjectSiteEntry>
@@ -15,11 +18,11 @@ function toCacheEntry(value: unknown): CachedProjectSiteEntry | null {
     // v1 legacy 포맷: projectId -> number[][]
     const legacyRing = normalizePolygonRing(value)
     if (!validatePolygonRing(legacyRing).isValid) return null
-    return { polygonRing: legacyRing, savedAt: 0 }
+    return { polygonRing: legacyRing, savedAt: 0, source: 'manual' }
   }
 
   if (!value || typeof value !== 'object') return null
-  const candidate = value as { polygonRing?: unknown; savedAt?: unknown }
+  const candidate = value as { polygonRing?: unknown; savedAt?: unknown; source?: unknown }
   if (!Array.isArray(candidate.polygonRing)) return null
 
   const polygonRing = normalizePolygonRing(candidate.polygonRing)
@@ -30,7 +33,12 @@ function toCacheEntry(value: unknown): CachedProjectSiteEntry | null {
       ? Number(candidate.savedAt)
       : 0
 
-  return { polygonRing, savedAt }
+  const source =
+    candidate.source === 'api' || candidate.source === 'manual' || candidate.source === 'mock'
+      ? candidate.source
+      : 'manual'
+
+  return { polygonRing, savedAt, source }
 }
 
 function readCache(): CachedProjectSiteMap {
@@ -57,19 +65,33 @@ function writeCache(cache: CachedProjectSiteMap) {
   window.localStorage.setItem(PROJECT_SITE_CACHE_KEY, JSON.stringify(cache))
 }
 
-export function saveProjectSitePolygon(projectId: string, polygonRing: number[][]) {
+export function saveProjectSitePolygon(
+  projectId: string,
+  polygonRing: number[][],
+  options?: { source?: ProjectSiteCacheSource },
+) {
   if (!projectId || !polygonRing || polygonRing.length < 3) return
   const normalizedRing = normalizePolygonRing(polygonRing)
   if (!validatePolygonRing(normalizedRing).isValid) return
 
+  const source = options?.source ?? 'manual'
   const nextCache = {
     ...readCache(),
     [projectId]: {
       polygonRing: normalizedRing,
       savedAt: Date.now(),
+      source,
     },
   }
   writeCache(nextCache)
+}
+
+export function removeProjectSitePolygon(projectId: string) {
+  if (!projectId) return
+  const cache = readCache()
+  if (!(projectId in cache)) return
+  delete cache[projectId]
+  writeCache(cache)
 }
 
 export function getProjectSitePolygon(projectId: string): number[][] | null {
@@ -83,6 +105,7 @@ export interface ProjectSiteCacheEntryRead {
   polygonRing: number[][]
   savedAt: number
   isStale: boolean
+  source: ProjectSiteCacheSource
 }
 
 export function getProjectSitePolygonEntry(
@@ -102,5 +125,6 @@ export function getProjectSitePolygonEntry(
     polygonRing: cached.polygonRing,
     savedAt: cached.savedAt,
     isStale,
+    source: cached.source,
   }
 }

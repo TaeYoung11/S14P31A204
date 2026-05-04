@@ -15,7 +15,7 @@ export default function BubbleModeCanvas({ editorProps, scale }: BubbleModeCanva
   return (
     <BubbleCanvas
       stageSize={editorProps.stageSize}
-      sitePoints={editorProps.sitePlanPoints}
+      sitePoints={editorProps.sitePoints}
       bubbles={editorProps.bubbles}
       connections={editorProps.connections}
       autoZones={editorProps.autoZones}

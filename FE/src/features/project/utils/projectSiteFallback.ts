@@ -8,6 +8,7 @@ export interface ProjectSitePolygonResult {
 export interface SiteCacheCandidate {
   polygonRing: number[][]
   isStale: boolean
+  source: 'api' | 'manual' | 'mock'
 }
 
 export interface ResolveProjectSiteFallbackParams {
@@ -34,7 +35,11 @@ export function resolveProjectSiteFallback({
   }
 
   if (cacheCandidate && !cacheCandidate.isStale) {
-    return { polygonRing: cacheCandidate.polygonRing, source: 'local' }
+    if (cacheCandidate.source === 'mock') {
+      if (useMock) return { polygonRing: cacheCandidate.polygonRing, source: 'mock' }
+    } else {
+      return { polygonRing: cacheCandidate.polygonRing, source: 'local' }
+    }
   }
 
   if (useMock && mockPolygonRing && mockPolygonRing.length >= 3) {
@@ -42,7 +47,11 @@ export function resolveProjectSiteFallback({
   }
 
   if (allowStaleCache && cacheCandidate && cacheCandidate.isStale) {
-    return { polygonRing: cacheCandidate.polygonRing, source: 'local_stale' }
+    if (cacheCandidate.source === 'mock') {
+      if (useMock) return { polygonRing: cacheCandidate.polygonRing, source: 'mock' }
+    } else {
+      return { polygonRing: cacheCandidate.polygonRing, source: 'local_stale' }
+    }
   }
 
   return { polygonRing: null, source: 'none' }
