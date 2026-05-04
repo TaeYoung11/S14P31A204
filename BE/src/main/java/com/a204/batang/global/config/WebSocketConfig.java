@@ -1,23 +1,28 @@
 package com.a204.batang.global.config;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 
 /**
- * IFC 협업 실시간 동기화를 위한 STOMP 웹소켓 설정이다.
+ * 워크스페이스 실시간 동기화를 위한 STOMP 웹소켓 설정이다.
  */
 @Configuration
 @EnableWebSocketMessageBroker
+@RequiredArgsConstructor
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
+
+    private final StompAuthChannelInterceptor stompAuthChannelInterceptor;
 
     /**
      * STOMP 메시지 라우팅 prefix를 설정한다.
      * 클라이언트 발행은 /app, 서버 브로드캐스트 구독은 /topic을 사용한다.
      *
-     * @param registry 메시지 브로커 레지스트리
+     * @param registry 메시지 브로커 설정 객체
      */
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
@@ -27,13 +32,23 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     }
 
     /**
-     * 클라이언트 웹소켓 연결 엔드포인트를 등록한다.
+     * STOMP 클라이언트 연결 엔드포인트를 등록한다.
      *
-     * @param registry STOMP 엔드포인트 레지스트리
+     * @param registry STOMP 엔드포인트 등록 객체
      */
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws-ifc")
                 .setAllowedOriginPatterns("*");
+    }
+
+    /**
+     * STOMP 인바운드 채널에 인증/인가 인터셉터를 등록한다.
+     *
+     * @param registration 채널 인터셉터 등록 객체
+     */
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration registration) {
+        registration.interceptors(stompAuthChannelInterceptor);
     }
 }

@@ -1,16 +1,13 @@
-"""ifc2img v2 baseline 풀 렌더 — IFC → depth N뷰 → SD N장.
+"""ifc2img baseline 풀 렌더 — IFC → depth N뷰 → SD N장.
 
-baseline 정의 (옵션 N land 후, 2026-04-29):
+baseline 정의:
 - seed=7 (presets.py 명시)
-- guidance=7, steps=25
-- cn_scale base 1.15 (옵션 N 후), view별 override 모두 None
-- view-aware prompt suffix (iso_ne/nw/se 환경 묘사)
-- view-aware negative suffix 비활성 (C-1 폐기)
-- DEFAULT_RENDER_VIEWS는 views.py가 정의 — 현재 8뷰
-  (front/side/iso_ne/iso_nw/iso_se/eye_ne/eye_nw/eye_se).
-- render(depth, params, view=v) 단일 진입점
-
-호출 진입점만 사용 — 모든 view-aware 합성/override 자동.
+- guidance=7, steps=25, cn_scale 1.15 (모든 view 일관)
+- view-aware prompt suffix (default views는 빈 suffix; TOP/BIRDS_EYE/CORNER_LOW는
+  명시 호출 시 환경 단서 합성)
+- DEFAULT_RENDER_VIEWS는 views.py가 정의 — 현재 5뷰
+  (front/side/eye_ne/eye_nw/eye_se)
+- render(depth, params, view=v) 단일 진입점 — view-aware 합성 자동
 
 출력: outputs/ifc2img_baseline/{depth_*,style_*}.png
 """

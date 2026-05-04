@@ -53,12 +53,15 @@ def normalize_storey_name(storey: str) -> str:
 
 # ── 공간 이름 매핑 ─────────────────────────────────────────────────────────────
 SPACE_ALIAS: dict[str, str] = {
-    "거실": "Living Room",
-    "리빙룸": "Living Room",
-    "living room": "Living Room",
-    "안방": "Bedroom",
+    "거실": "LivingRoom",
+    "리빙룸": "LivingRoom",
+    "living room": "LivingRoom",
+    "livingroom": "LivingRoom",
+    "안방": "MasterBedroom",
+    "마스터룸": "MasterBedroom",
+    "masterbedroom": "MasterBedroom",
+    "master bedroom": "MasterBedroom",
     "침실": "Bedroom",
-    "마스터룸": "Bedroom",
     "bedroom": "Bedroom",
     "화장실": "Bathroom",
     "욕실": "Bathroom",
