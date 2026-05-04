@@ -17,6 +17,10 @@ if TYPE_CHECKING:
 
 DEFAULT_MODEL_ID = "runwayml/stable-diffusion-v1-5"
 DEFAULT_CONTROLNET_DEPTH_ID = "lllyasviel/sd-controlnet-depth"
+FRONT_SIDE_NEGATIVE_TERMS = (
+    "stone wall, retaining wall, raised foundation, pedestal, plinth, "
+    "basement windows, stairs below facade, extra lower floor"
+)
 
 
 @dataclass
@@ -47,6 +51,14 @@ def _depth_to_control(depth: Image.Image) -> Image.Image:
     if depth.mode != "RGB":
         return depth.convert("RGB")
     return depth
+
+
+def _append_negative_terms(base_negative: str, extra_negative: str) -> str:
+    if not extra_negative:
+        return base_negative
+    if not base_negative:
+        return extra_negative
+    return f"{base_negative}, {extra_negative}"
 
 
 class DepthStyleRenderer:
@@ -149,6 +161,12 @@ class DepthStyleRenderer:
         else:
             prompt = params.prompt
             applied_params = params
+        negative_prompt = params.negative_prompt
+        if view in {IFCView.FRONT, IFCView.SIDE}:
+            negative_prompt = _append_negative_terms(
+                negative_prompt,
+                FRONT_SIDE_NEGATIVE_TERMS,
+            )
 
         try:
             if params.seed is None:
@@ -160,7 +178,7 @@ class DepthStyleRenderer:
             out = self.pipe(
                 prompt=prompt,
                 image=control,
-                negative_prompt=params.negative_prompt,
+                negative_prompt=negative_prompt,
                 guidance_scale=params.guidance_scale,
                 num_inference_steps=params.num_inference_steps,
                 controlnet_conditioning_scale=params.controlnet_conditioning_scale,

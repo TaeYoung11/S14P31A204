@@ -642,11 +642,18 @@ def test_build_view_prompt_appends_suffix_for_top() -> None:
     assert "aerial" in result or "roof" in result
 
 
-def test_build_view_prompt_returns_base_for_front_side_empty_suffix() -> None:
-    """FRONT/SIDE/EYE_*처럼 suffix가 빈 문자열이면 base 그대로 반환."""
+def test_build_view_prompt_prepends_prefix_for_front_side() -> None:
+    """FRONT/SIDE should prepend ground-line constraints before the base prompt."""
     base = "RAW photo, scandinavian house"
-    assert build_view_prompt(base, IFCView.FRONT) == base
-    assert build_view_prompt(base, IFCView.SIDE) == base
+    front = build_view_prompt(base, IFCView.FRONT)
+    side = build_view_prompt(base, IFCView.SIDE)
+
+    assert front.startswith("front facade at ground line")
+    assert front.endswith(base)
+    assert "no foundation wall" in front
+    assert side.startswith("side facade at ground line")
+    assert side.endswith(base)
+    assert "no foundation wall" in side
 
 
 def test_build_view_prompt_prepends_prefix_for_eye() -> None:
@@ -679,12 +686,14 @@ def test_build_view_prompt_removes_blue_sky_for_eye() -> None:
 
 
 def test_build_view_prompt_keeps_blue_sky_for_front() -> None:
-    """FRONT keeps the preset day suffix unchanged."""
+    """FRONT keeps the day blue-sky text while adding ground-line constraints."""
     base = "RAW photo, scandinavian house, during sunny daytime, natural sunlight, blue sky"
 
     result = build_view_prompt(base, IFCView.FRONT)
 
-    assert result == base
+    assert result.startswith("front facade at ground line")
+    assert result.endswith(base)
+    assert "blue sky" in result
     assert "blue sky" in result
 
 

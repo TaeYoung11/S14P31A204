@@ -145,6 +145,8 @@ VIEW_PROMPT_SUFFIXES: dict[IFCView, str] = {
 
 
 VIEW_PROMPT_PREFIXES: dict[IFCView, str] = {
+    IFCView.FRONT: "front facade at ground line, no foundation wall",
+    IFCView.SIDE: "side facade at ground line, no foundation wall",
     IFCView.EYE_NE: "eye-level diagonal view, building on flat ground, "
                     "foreground ground fills frame, horizon behind house, not aerial",
     IFCView.EYE_NW: "eye-level diagonal view, building on flat ground, "
@@ -170,7 +172,8 @@ def build_view_prompt(base_prompt: str, view: IFCView) -> str:
     """
     prefix = VIEW_PROMPT_PREFIXES.get(view, "")
     if prefix:
-        base_prompt = _remove_eye_sky_prior(base_prompt)
+        if view in {IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE}:
+            base_prompt = _remove_eye_sky_prior(base_prompt)
         base_prompt = f"{prefix}, {base_prompt}"
     suffix = VIEW_PROMPT_SUFFIXES.get(view, "")
     if not suffix:

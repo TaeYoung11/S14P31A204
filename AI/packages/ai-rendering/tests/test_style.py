@@ -17,6 +17,7 @@ from ai_rendering.ifc2img import (
     IFCRenderError,
     IFCView,
 )
+from ai_rendering.ifc2img.style import FRONT_SIDE_NEGATIVE_TERMS
 @pytest.fixture
 def mock_depth_renderer() -> DepthStyleRenderer:
     """DepthStyleRenderer — 실제 SD/ControlNet 로드 없이 로직만 테스트용.
@@ -189,10 +190,10 @@ def test_render_without_view_uses_raw_prompt(
     assert call_prompt == base_prompt
 
 
-def test_render_with_view_front_no_change(
+def test_render_with_view_front_prepends_ground_line_prefix(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """B-1 — view=FRONT (suffix='') 전달 시 prompt 그대로."""
+    """FRONT prompt should front-load ground-contact constraints."""
     depth = Image.new("L", (768, 448), 100)
     base_prompt = "RAW photo, scandinavian house"
     params = DepthStyleParams(prompt=base_prompt)
@@ -200,7 +201,10 @@ def test_render_with_view_front_no_change(
     mock_depth_renderer.render(depth, params, view=IFCView.FRONT)
 
     call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
-    assert call_prompt == base_prompt
+    assert call_prompt.startswith("front facade at ground line")
+    assert call_prompt.endswith(base_prompt)
+    assert "ground line" in call_prompt
+    assert "no foundation wall" in call_prompt
 
 
 # --- C-1 폐기 후 — render(view=...) negative 합성 인프라 보존 회귀 방어 ---
@@ -274,6 +278,22 @@ def test_render_with_view_eye_ne_keeps_base_negative(
 
     call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
     assert call_negative == base_negative
+
+
+def test_render_with_view_front_appends_foundation_negative_terms(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """FRONT/SIDE should receive extra lower-façade suppression negatives."""
+    depth = Image.new("L", (768, 448), 100)
+    params = DepthStyleParams(
+        prompt="RAW photo, scandinavian house",
+        negative_prompt="(worst quality:1.4)",
+    )
+
+    mock_depth_renderer.render(depth, params, view=IFCView.FRONT)
+
+    call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
+    assert call_negative.endswith(FRONT_SIDE_NEGATIVE_TERMS)
 
 
 def test_render_without_view_uses_raw_negative(
