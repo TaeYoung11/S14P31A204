@@ -1,6 +1,7 @@
 package com.a204.batang.domain.workspace.service;
 
 import com.a204.batang.domain.project.entity.Project;
+import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
 import com.a204.batang.domain.workspace.dto.ProjectSyncResponse;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
@@ -45,9 +46,13 @@ class WorkspaceRealtimeServiceTest {
     @Mock
     private SimpMessagingTemplate simpMessagingTemplate;
 
+    @Mock
+    private ProjectAccessService projectAccessService;
+
     private WorkspaceRealtimeService workspaceRealtimeService;
 
     private UUID projectId;
+    private UUID currentUserId;
     private ProjectWorkspace workspace;
     private BubbleUpdateRequest request;
 
@@ -59,10 +64,12 @@ class WorkspaceRealtimeServiceTest {
                 projectWorkspaceRepository,
                 workspaceBubbleSnapshotRedisRepository,
                 bubbleSnapshotHelper,
-                simpMessagingTemplate
+                simpMessagingTemplate,
+                projectAccessService
         );
 
         projectId = UUID.randomUUID();
+        currentUserId = UUID.randomUUID();
 
         Project project = Project.create("workspace-test", "desc");
         workspace = ProjectWorkspace.create(project);
@@ -95,7 +102,7 @@ class WorkspaceRealtimeServiceTest {
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
                 .willReturn(Optional.of(workspace));
 
-        workspaceRealtimeService.updateBubbleDraft(projectId, request);
+        workspaceRealtimeService.updateBubbleDraft(projectId, request, currentUserId);
 
         ArgumentCaptor<JsonNode> snapshotCaptor = ArgumentCaptor.forClass(JsonNode.class);
         verify(workspaceBubbleSnapshotRedisRepository).saveSnapshot(eq(projectId), snapshotCaptor.capture(), eq(0));
@@ -126,7 +133,7 @@ class WorkspaceRealtimeServiceTest {
                 .when(workspaceBubbleSnapshotRedisRepository)
                 .saveSnapshot(eq(projectId), any(JsonNode.class), anyInt());
 
-        assertThatThrownBy(() -> workspaceRealtimeService.updateBubbleDraft(projectId, request))
+        assertThatThrownBy(() -> workspaceRealtimeService.updateBubbleDraft(projectId, request, currentUserId))
                 .isInstanceOf(CustomException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.WORKSPACE_BUBBLE_CACHE_SAVE_FAILED);
@@ -142,7 +149,7 @@ class WorkspaceRealtimeServiceTest {
                 .when(workspaceBubbleSnapshotRedisRepository)
                 .saveSnapshot(eq(projectId), any(JsonNode.class), anyInt());
 
-        assertThatThrownBy(() -> workspaceRealtimeService.updateBubbleDraft(projectId, request))
+        assertThatThrownBy(() -> workspaceRealtimeService.updateBubbleDraft(projectId, request, currentUserId))
                 .isInstanceOf(CustomException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.WORKSPACE_BUBBLE_HISTORY_CURSOR_INVALID);

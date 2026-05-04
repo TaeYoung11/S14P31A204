@@ -16,6 +16,7 @@ import org.springframework.messaging.simp.annotation.SendToUser;
 import org.springframework.stereotype.Controller;
 import org.springframework.validation.FieldError;
 
+import java.security.Principal;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -39,9 +40,11 @@ public class WorkspaceStompController {
     @MessageMapping("/project/{projectId}/bubble/update")
     public void updateBubble(
             @DestinationVariable UUID projectId,
-            @Valid BubbleUpdateRequest request
+            @Valid BubbleUpdateRequest request,
+            Principal principal
     ) {
-        workspaceRealtimeService.updateBubbleDraft(projectId, request);
+        UUID currentUserId = resolvePrincipalUserIdOrThrow(principal);
+        workspaceRealtimeService.updateBubbleDraft(projectId, request, currentUserId);
     }
 
     /**
@@ -101,5 +104,17 @@ public class WorkspaceStompController {
                 .code(errorCode.getCode())
                 .message(message)
                 .build();
+    }
+
+    private UUID resolvePrincipalUserIdOrThrow(Principal principal) {
+        if (principal == null) {
+            throw new CustomException(ErrorCode.UNAUTHORIZED, "웹소켓 인증이 필요합니다.");
+        }
+
+        try {
+            return UUID.fromString(principal.getName());
+        } catch (IllegalArgumentException exception) {
+            throw new CustomException(ErrorCode.UNAUTHORIZED, "유효하지 않은 웹소켓 사용자 정보입니다.");
+        }
     }
 }
