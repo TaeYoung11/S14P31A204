@@ -154,6 +154,10 @@ VIEW_PROMPT_PREFIXES: dict[IFCView, str] = {
 }
 
 
+def _remove_eye_sky_prior(prompt: str) -> str:
+    return prompt.replace(", blue sky", "").replace("blue sky, ", "")
+
+
 def build_view_prompt(base_prompt: str, view: IFCView) -> str:
     """기존 prompt 끝에 view-별 환경 suffix를 덧붙인다.
 
@@ -166,6 +170,7 @@ def build_view_prompt(base_prompt: str, view: IFCView) -> str:
     """
     prefix = VIEW_PROMPT_PREFIXES.get(view, "")
     if prefix:
+        base_prompt = _remove_eye_sky_prior(base_prompt)
         base_prompt = f"{prefix}, {base_prompt}"
     suffix = VIEW_PROMPT_SUFFIXES.get(view, "")
     if not suffix:

@@ -664,6 +664,28 @@ def test_build_view_prompt_prepends_prefix_for_eye() -> None:
 # --- B-3 — build_view_prompt 공개 API export ---
 
 
+def test_build_view_prompt_removes_blue_sky_for_eye() -> None:
+    """EYE_* prompt removes the generic day blue-sky prior from the composed prompt."""
+    base = "RAW photo, scandinavian house, during sunny daytime, natural sunlight, blue sky"
+
+    result = build_view_prompt(base, IFCView.EYE_NE)
+
+    assert "blue sky" not in result
+    assert "during sunny daytime" in result
+    assert "natural sunlight" in result
+    assert "sky above roofline only" in result
+
+
+def test_build_view_prompt_keeps_blue_sky_for_front() -> None:
+    """FRONT keeps the preset day suffix unchanged."""
+    base = "RAW photo, scandinavian house, during sunny daytime, natural sunlight, blue sky"
+
+    result = build_view_prompt(base, IFCView.FRONT)
+
+    assert result == base
+    assert "blue sky" in result
+
+
 def test_build_view_prompt_in_public_api() -> None:
     """B-3 — build_view_prompt가 ifc2img.__all__에 등록되어 외부에서 직접 import 가능."""
     from ai_rendering import ifc2img

@@ -225,6 +225,24 @@ def test_render_with_view_eye_prepends_ground_sky_prefix(
     assert "not aerial" in call_prompt
 
 
+def test_render_with_view_eye_removes_blue_sky_prior(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """EYE_* view prompt removes the preset day blue-sky prior before pipe call."""
+    depth = Image.new("L", (768, 448), 100)
+    base_prompt = (
+        "RAW photo, scandinavian house, during sunny daytime, natural sunlight, blue sky"
+    )
+    params = DepthStyleParams(prompt=base_prompt)
+
+    mock_depth_renderer.render(depth, params, view=IFCView.EYE_NE)
+
+    call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
+    assert "blue sky" not in call_prompt
+    assert "sky above roofline only" in call_prompt
+    assert "natural sunlight" in call_prompt
+
+
 def test_render_with_view_eye_nw_keeps_base_negative_after_c1_rollback(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
