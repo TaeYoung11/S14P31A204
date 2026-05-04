@@ -250,29 +250,33 @@ export interface FloorCommentNotification {
   isRead: boolean
 }
 
+export type PhaseStatus = 'BUBBLE_DRAFT' | 'CONVERTING' | 'IFC_EDIT'
+
 export type SaveStatus =
   | 'idle'
   | 'dirty'
-  | 'saving-local'
-  | 'saved-local'
-  | 'syncing-remote'
-  | 'saved-remote'
+  | 'syncing'
+  | 'synced'
+  | 'offline-queued'
   | 'error'
 
-export interface EditorDraftSnapshot {
+export interface WorkspaceSnapshot {
+  phaseStatus: PhaseStatus
   bubbles: BubbleData[]
   connections: ConnectionData[]
   zones: ZoneData[]
   floorLayers: FloorLayer[]
   activeFloorLayerId: string | null
   isFloorPlanGenerated: boolean
-  floorPlanLayoutSource?: 'bubble' | 'project' | null
-  floorWalls?: FloorWall[]
-  floorOpenings?: FloorOpening[]
-  hiddenAutoWallIds?: string[]
-  hiddenAutoOpeningIds?: string[]
-  isProjectStructurePreferred?: boolean
+  floorPlanLayoutSource: 'bubble' | 'project' | null
+  floorWalls: FloorWall[]
+  floorOpenings: FloorOpening[]
+  hiddenAutoWallIds: string[]
+  hiddenAutoOpeningIds: string[]
+  isProjectStructurePreferred: boolean
 }
+
+export type EditorDraftSnapshot = WorkspaceSnapshot
 
 export interface EditorDraftHistory {
   bubbleUndoHistory: unknown[]

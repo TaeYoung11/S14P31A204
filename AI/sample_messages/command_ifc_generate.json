@@ -47,7 +47,8 @@
           "x": 9000.0,
           "y": 4000.0,
           "angle": 0.0,
-          "locked": false
+          "locked": false,
+          "zoneId": "zone-common"
         }
       ],
       "zones": [

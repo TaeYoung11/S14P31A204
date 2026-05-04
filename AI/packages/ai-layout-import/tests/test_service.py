@@ -134,6 +134,22 @@ def _containment_map_for_types(
     return containment
 
 
+def _shared_walls(model: ifcopenshell.file) -> dict[str, ifcopenshell.entity_instance]:
+    return {
+        name: entity
+        for name, entity in _named_entities(model, "IfcWall").items()
+        if name.startswith("Shared Wall ")
+    }
+
+
+def _boundary_walls(model: ifcopenshell.file) -> dict[str, ifcopenshell.entity_instance]:
+    return {
+        name: entity
+        for name, entity in _named_entities(model, "IfcWall").items()
+        if name.startswith("Boundary Wall ")
+    }
+
+
 def test_convert_layout_to_ifc_creates_single_room_space(tmp_path: Path) -> None:
     request = _make_request(
         rooms=[_base_room()],
@@ -630,6 +646,334 @@ def test_convert_layout_to_ifc_skips_roof_when_generate_roof_is_false(
     assert len(model.by_type("IfcWall")) == 4
     assert len(model.by_type("IfcSlab")) == 1
     assert len(model.by_type("IfcRoof")) == 0
+
+
+def test_convert_layout_to_ifc_generates_shared_wall_for_same_floor_adjacency(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            _base_room(
+                room_id="room-left-01",
+                name="Left Room",
+                x=2100.0,
+                y=1900.0,
+            ),
+            _base_room(
+                room_id="room-right-01",
+                name="Right Room",
+                room_type="bedroom",
+                x=6300.0,
+                y=1900.0,
+            ),
+        ],
+        adjacency=[
+            {
+                "from_room_id": "room-left-01",
+                "to_room_id": "room-right-01",
+                "strength": 0.8,
+            }
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [8400.0, 0.0],
+                    [8400.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v2-shared-wall.ifc")
+
+    assert len(model.by_type("IfcWall")) == 5
+    assert len(_boundary_walls(model)) == 4
+    assert len(_shared_walls(model)) == 1
+    shared_wall = _shared_walls(model)["Shared Wall 1-1"]
+    shared_wall_body = _body_item(shared_wall)
+    assert shared_wall_body.is_a("IfcExtrudedAreaSolid")
+    assert shared_wall_body.Depth == pytest.approx(3.0)
+    assert shared_wall_body.SweptArea.is_a("IfcRectangleProfileDef")
+    assert shared_wall_body.SweptArea.XDim == pytest.approx(3.8)
+    assert shared_wall_body.SweptArea.YDim == pytest.approx(0.2)
+
+    containment = _containment_map_for_types(model, {"IfcWall", "IfcSlab", "IfcRoof"})
+    assert sum(1 for name in containment if name.startswith("Boundary Wall ")) == 4
+    assert sum(1 for name in containment if name.startswith("Shared Wall ")) == 1
+    assert containment["Shared Wall 1-1"] == "1F"
+
+    project = model.by_type("IfcProject")[0]
+    project_pset = _property_sets_by_name(project)["Pset_BatangLayoutImportProject"]
+    project_props = _properties_by_name(project_pset)
+    adjacency_json = _unwrap_property_value(project_props["AdjacencyJson"])
+    assert isinstance(adjacency_json, str)
+    assert json.loads(adjacency_json) == [
+        {
+            "from_room_id": "room-left-01",
+            "to_room_id": "room-right-01",
+            "strength": 0.8,
+        }
+    ]
+    assert _property_sets_by_name(shared_wall) == {}
+
+
+def test_convert_layout_to_ifc_dedupes_bidirectional_shared_wall_adjacency(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            _base_room(
+                room_id="room-left-01",
+                name="Left Room",
+                x=2100.0,
+                y=1900.0,
+            ),
+            _base_room(
+                room_id="room-right-01",
+                name="Right Room",
+                room_type="bedroom",
+                x=6300.0,
+                y=1900.0,
+            ),
+        ],
+        adjacency=[
+            {
+                "from_room_id": "room-left-01",
+                "to_room_id": "room-right-01",
+                "strength": 0.8,
+            },
+            {
+                "from_room_id": "room-right-01",
+                "to_room_id": "room-left-01",
+                "strength": 0.8,
+            },
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [8400.0, 0.0],
+                    [8400.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v2-shared-wall-dedupe.ifc")
+
+    assert len(model.by_type("IfcWall")) == 5
+    assert len(_boundary_walls(model)) == 4
+    assert len(_shared_walls(model)) == 1
+    assert "Shared Wall 1-1" in _shared_walls(model)
+
+
+def test_convert_layout_to_ifc_rejects_v2_adjacency_without_shared_segment(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            _base_room(room_id="room-left-01", name="Left Room", x=2100.0, y=1900.0),
+            _base_room(room_id="room-right-01", name="Right Room", x=9000.0, y=1900.0),
+        ],
+        adjacency=[
+            {
+                "from_room_id": "room-left-01",
+                "to_room_id": "room-right-01",
+                "strength": 0.8,
+            }
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [11100.0, 0.0],
+                    [11100.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    with pytest.raises(ValueError, match="must resolve to an interior shared segment"):
+        convert_layout_to_ifc(request, tmp_path / "missing-shared-segment.ifc")
+
+
+def test_convert_layout_to_ifc_rejects_v2_cross_floor_shared_wall_adjacency(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            _base_room(room_id="room-floor-1", name="First Floor Room", floor=1),
+            _base_room(
+                room_id="room-floor-2",
+                name="Second Floor Room",
+                floor=2,
+                x=2100.0,
+                y=1900.0,
+            ),
+        ],
+        adjacency=[
+            {
+                "from_room_id": "room-floor-1",
+                "to_room_id": "room-floor-2",
+                "strength": 0.8,
+            }
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [[0.0, 0.0], [4200.0, 0.0], [4200.0, 3800.0], [0.0, 3800.0]],
+            },
+            {
+                "floor": 2,
+                "polygon": [[0.0, 0.0], [4200.0, 0.0], [4200.0, 3800.0], [0.0, 3800.0]],
+            },
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    with pytest.raises(ValueError, match="must be on the same floor"):
+        convert_layout_to_ifc(request, tmp_path / "cross-floor-shared-wall.ifc")
+
+
+def test_convert_layout_to_ifc_rejects_v2_rotated_room_shared_wall_adjacency(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            _base_room(room_id="room-left-01", name="Left Room", x=2100.0, y=1900.0),
+            _base_room(
+                room_id="room-right-01",
+                name="Right Room",
+                room_type="bedroom",
+                x=6300.0,
+                y=1900.0,
+                angle=math.pi / 4,
+            ),
+        ],
+        adjacency=[
+            {
+                "from_room_id": "room-left-01",
+                "to_room_id": "room-right-01",
+                "strength": 0.8,
+            }
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [8400.0, 0.0],
+                    [8400.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    with pytest.raises(ValueError, match="does not support rotated room"):
+        convert_layout_to_ifc(request, tmp_path / "rotated-shared-wall.ifc")
+
+
+def test_convert_layout_to_ifc_rejects_v2_shared_wall_that_matches_exterior_boundary_subset(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            {
+                "id": "room-wide",
+                "name": "Wide Room",
+                "type": "living",
+                "width": 4200,
+                "height": 3800,
+                "floor": 1,
+                "x": 2100.0,
+                "y": 1900.0,
+                "angle": 0.0,
+                "locked": False,
+            },
+            {
+                "id": "room-narrow",
+                "name": "Narrow Room",
+                "type": "bedroom",
+                "width": 2000,
+                "height": 3800,
+                "floor": 1,
+                "x": 1000.0,
+                "y": 1900.0,
+                "angle": 0.0,
+                "locked": False,
+            },
+        ],
+        adjacency=[
+            {
+                "from_room_id": "room-wide",
+                "to_room_id": "room-narrow",
+                "strength": 0.8,
+            }
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [8400.0, 0.0],
+                    [8400.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    with pytest.raises(ValueError, match="must resolve to an interior shared segment"):
+        convert_layout_to_ifc(request, tmp_path / "shared-wall-on-exterior-subset.ifc")
 
 
 def test_layout_import_request_rejects_unknown_zone_reference_before_conversion() -> None:

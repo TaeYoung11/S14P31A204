@@ -2,16 +2,21 @@ package com.a204.batang.global.config;
 
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+import lombok.RequiredArgsConstructor;
 
 /**
  * IFC 협업 실시간 동기화를 위한 STOMP 웹소켓 설정이다.
  */
 @Configuration
 @EnableWebSocketMessageBroker
+@RequiredArgsConstructor
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
+
+    private final StompAuthChannelInterceptor stompAuthChannelInterceptor;
 
     /**
      * STOMP 메시지 라우팅 prefix를 설정한다.
@@ -24,6 +29,16 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");
         registry.enableSimpleBroker("/topic", "/queue");
+    }
+
+    /**
+     * STOMP inbound 채널에 인증 인터셉터를 등록한다.
+     *
+     * @param registration 채널 등록 정보
+     */
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration registration) {
+        registration.interceptors(stompAuthChannelInterceptor);
     }
 
     /**

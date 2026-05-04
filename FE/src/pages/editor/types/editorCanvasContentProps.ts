@@ -46,6 +46,7 @@ type BubbleCanvasProps = Pick<
 /** 2D/3D 공통 평면 데이터 */
 type FloorPlanCanvasProps = Pick<
   EditorPageViewModel,
+  | 'sitePlanPoints'
   | 'floorRooms'
   | 'floorLayerOverlayItems'
   | 'floorPlanConnections'
@@ -132,4 +133,3 @@ export type EditorCanvasContentProps =
   & TwoDLayerPanelProps
   & LabelEditProps
   & CanvasControlProps
-

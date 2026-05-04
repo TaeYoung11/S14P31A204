@@ -1,5 +1,6 @@
 package com.a204.batang.domain.pin.entity;
 
+import com.a204.batang.domain.auth.entity.Member;
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.global.common.entity.BaseEntity;
 import jakarta.persistence.AttributeOverride;
@@ -50,10 +51,16 @@ public class ProjectPin extends BaseEntity {
     @JoinColumn(name = "project_id", nullable = false)
     private Project project;
 
-
-    //Todo: user 구현 후 수정 예정
     @Column(name = "author_user_id")
     private UUID authorUserId;
+
+    /**
+     * 핀 작성자 회원 엔티티이다.
+     * authorUserId 컬럼을 기반으로 조회 전용으로 연동한다.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "author_user_id", insertable = false, updatable = false)
+    private Member author;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)

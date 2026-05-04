@@ -1,78 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Square, DoorOpen, LayoutGrid, Home, Box, Layers, X } from 'lucide-react'
 import type { FloorLayerOverlay, FloorRoom } from '../../types'
-import { hexToRgba } from '../../utils/bubbleCalc'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
-
-// ── 라이브러리 패널 카테고리 목록 ────────────────────────────────────────────
-const LIBRARY_CATEGORIES = [
-  { id: '벽', icon: Square },
-  { id: '문', icon: DoorOpen },
-  { id: '창문', icon: LayoutGrid },
-  { id: '지붕', icon: Home },
-  { id: '바닥', icon: Layers },
-  { id: '가구', icon: Box },
-] as const
-
-// ── 라이브러리 패널 서브컴포넌트 ─────────────────────────────────────────────
-
-interface LibraryPanelProps {
-  selectedCategory: string
-  onSelectCategory: (id: string) => void
-  onClose: () => void
-}
-
-/**
- * 3D 뷰어 왼쪽에 열리는 건축 요소 라이브러리 패널
- * 카테고리 선택 후 해당 요소 목록을 표시한다 (현재 준비 중).
- */
-function LibraryPanel({ selectedCategory, onSelectCategory, onClose }: LibraryPanelProps) {
-  return (
-    <div className="absolute left-8 top-[10%] w-[500px] h-[70%] bg-white/80 backdrop-blur-xl border border-white/40 rounded-[32px] shadow-2xl z-50 flex overflow-hidden animate-in fade-in slide-in-from-left-4 duration-300">
-      <button
-        onClick={onClose}
-        className="absolute top-5 right-5 flex items-center gap-1.5 px-3 py-1.5 bg-[#F0F2F9] hover:bg-[#E2E6EF] text-[#6B7A99] hover:text-[#1C1C1E] rounded-xl transition-all z-10"
-      >
-        <X size={14} />
-        <span className="text-[11px] font-bold">닫기</span>
-      </button>
-
-      {/* 카테고리 사이드바 */}
-      <div className="w-[120px] bg-white/40 border-r border-[#F0F2F9] flex flex-col items-center py-8 gap-6 overflow-y-auto">
-        <div className="w-[72px] h-[72px] bg-[#3B45B3]/20 rounded-2xl flex items-center justify-center text-[#3B45B3] font-black text-lg shadow-inner mb-4">
-          {selectedCategory}
-        </div>
-        <div className="w-full px-3 flex flex-col gap-1">
-          {LIBRARY_CATEGORIES.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => onSelectCategory(item.id)}
-              className={`w-full flex flex-col items-center py-3 rounded-2xl transition-all ${
-                selectedCategory === item.id
-                  ? 'bg-white shadow-md text-[#3B45B3]'
-                  : 'text-[#ADB5BD] hover:bg-white/50'
-              }`}
-            >
-              <item.icon size={20} />
-              <span className="text-[10px] font-bold mt-1.5">{item.id}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 라이브러리 콘텐츠 영역 */}
-      <div className="flex-1 p-8 bg-gradient-to-br from-white/20 to-transparent">
-        <h3 className="text-2xl font-black text-[#1C1C1E] mb-8">{selectedCategory} 라이브러리</h3>
-        {/* 실제 라이브러리 요소 목록은 API 연동 완료 후 이 영역에 렌더링한다. */}
-        <div className="flex flex-col items-center justify-center h-[60%] text-[#ADB5BD] opacity-50 italic">
-          준비 중인 기능입니다...
-        </div>
-      </div>
-    </div>
-  )
-}
+import { toCanvasPolygon, validateFloorPlanInSiteBoundary } from '../../utils/siteBoundaryValidation'
+import ThreeDLibraryPanel from './ThreeDLibraryPanel'
+import ThreeDRoomBox from './ThreeDRoomBox'
 
 interface ThreeDCanvasProps {
+  sitePoints?: number[]
   isCollaborationMode?: boolean
   isLibraryOpen?: boolean
   onToggleLibrary?: () => void
@@ -94,6 +28,7 @@ interface ThreeDCanvasProps {
  * 손 도구(hand) 선택 시 마우스 드래그로 뷰를 이동(패닝)할 수 있다.
  */
 export function ThreeDCanvas({
+  sitePoints = [],
   isCollaborationMode,
   isLibraryOpen,
   onToggleLibrary,
@@ -117,6 +52,15 @@ export function ThreeDCanvas({
 
   const WALL_HEIGHT = 60
   const isPanMode = selectedTool === 'hand' || isSpacePressed || isMiddlePanning
+  const sitePolygon = useMemo(() => toCanvasPolygon(sitePoints), [sitePoints])
+  const sitePolygonPoints = useMemo(
+    () => sitePolygon.map((point) => `${point.x},${point.y}`).join(' '),
+    [sitePolygon],
+  )
+  const outsideRoomIdSet = useMemo(() => {
+    const result = validateFloorPlanInSiteBoundary(sitePoints, rooms, [], [])
+    return result.outsideRoomIds
+  }, [sitePoints, rooms])
 
   useEffect(() => {
     const root = rootRef.current
@@ -199,7 +143,7 @@ export function ThreeDCanvas({
     >
       {/* 라이브러리 팝업 패널 */}
       {isLibraryOpen && (
-        <LibraryPanel
+        <ThreeDLibraryPanel
           selectedCategory={selectedCategory}
           onSelectCategory={setSelectedCategory}
           onClose={onToggleLibrary ?? (() => {})}
@@ -257,10 +201,23 @@ export function ThreeDCanvas({
         >
           <div className="absolute inset-0 bg-black/5 blur-3xl transform translate-z-[-10px]" />
 
+          {/* 대지 경계 오버레이 */}
+          {sitePolygon.length >= 3 && (
+            <svg className="absolute inset-0 overflow-visible pointer-events-none">
+              <polygon
+                points={sitePolygonPoints}
+                fill="rgba(59,69,179,0.08)"
+                stroke="#3B45B3"
+                strokeWidth={2}
+                strokeDasharray="10 6"
+              />
+            </svg>
+          )}
+
           {/* 방(공간) 박스 렌더링 */}
           {overlayLayers.map((overlay) =>
             overlay.rooms.map((room) => (
-              <Room3D
+              <ThreeDRoomBox
                 key={`overlay-${overlay.layerId}-${room.id}`}
                 room={room}
                 height={WALL_HEIGHT}
@@ -274,11 +231,12 @@ export function ThreeDCanvas({
 
           {/* 활성층 방 렌더링 */}
           {rooms.map((room) => (
-            <Room3D
+            <ThreeDRoomBox
               key={room.id}
               room={room}
               height={WALL_HEIGHT}
               isSelected={selectedId === room.bubbleId}
+              isOutsideSite={outsideRoomIdSet.has(room.bubbleId)}
               onSelect={onSelect}
               selectedTool={selectedTool}
               isPanActive={isPanMode}
@@ -304,108 +262,12 @@ export function ThreeDCanvas({
           )}
         </div>
       </div>
-    </div>
-  )
-}
 
-// ── 방(공간) 하나를 3D 박스로 표현하는 서브 컴포넌트 ─────────────────────────
-
-interface Room3DProps {
-  room: FloorRoom
-  height: number
-  isSelected?: boolean
-  onSelect?: (id: string | null) => void
-  selectedTool?: string
-  isPanActive?: boolean
-  isOverlay?: boolean
-  overlayOpacity?: number
-}
-
-/** CSS 3D Transform 기반 방 박스 렌더러 — 상단·하단·4면 벽체로 구성 */
-function Room3D({
-  room,
-  height,
-  isSelected,
-  onSelect,
-  selectedTool = 'selection',
-  isPanActive = false,
-  isOverlay = false,
-  overlayOpacity = 0.35,
-}: Room3DProps) {
-  const color = room.color || '#3B45B3'
-  const lightColor = hexToRgba(color, 0.4)
-  const darkColor = hexToRgba(color, 0.8)
-
-  const isHand = selectedTool === 'hand' || isPanActive
-
-  return (
-    <div
-      className={`absolute preserve-3d transition-all duration-500 group ${
-        isHand ? 'cursor-inherit' : 'cursor-pointer'
-      } ${isSelected && !isHand ? 'translate-z-6' : !isHand ? 'hover:translate-z-4' : ''}`}
-      style={{
-        left: room.x,
-        top: room.y,
-        width: room.width,
-        height: room.height,
-        pointerEvents: isOverlay ? 'none' : 'auto',
-        opacity: isOverlay ? Math.min(Math.max(overlayOpacity, 0.1), 0.9) : 1,
-      }}
-      onClick={(e) => {
-        if (isOverlay) return
-        if (isHand) return
-        e.stopPropagation()
-        onSelect?.(isSelected ? null : room.bubbleId)
-      }}
-    >
-      {/* 바닥 */}
-      <div
-        className="absolute inset-0 shadow-inner"
-        style={{ 
-          backgroundColor: isOverlay ? hexToRgba(color, 0.06) : isSelected ? hexToRgba(color, 0.2) : hexToRgba(color, 0.1), 
-          border: `1px solid ${isOverlay ? hexToRgba('#3B45B3', 0.45) : isSelected ? color : hexToRgba(color, 0.2)}` 
-        }}
-      />
-
-      {/* 천장 (라벨 표시) */}
-      <div
-        className="absolute inset-0 flex items-center justify-center overflow-hidden"
-        style={{ 
-          transform: `translateZ(${height}px)`, 
-          backgroundColor: isOverlay ? hexToRgba(color, 0.03) : isSelected ? hexToRgba(color, 0.1) : hexToRgba(color, 0.05), 
-          border: isOverlay ? `1px dashed ${hexToRgba('#3B45B3', 0.7)}` : isSelected ? `3px solid #3B45B3` : `2px solid ${color}`,
-          boxShadow: isSelected ? '0 0 15px rgba(59,69,179,0.4)' : 'none'
-        }}
-      >
-        <div className="flex flex-col items-center gap-0.5">
-          <span className="text-[10px] font-black text-[#1C1C1E]">{room.label}</span>
-          <span className="text-[8px] font-bold text-[#ADB5BD]">{room.area.toFixed(1)}m²</span>
+      {outsideRoomIdSet.size > 0 && (
+        <div className="pointer-events-none absolute left-3 top-3 rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-3 py-2 text-[11px] font-bold text-[#991B1B]">
+          대지 경계 밖 공간 {outsideRoomIdSet.size}개
         </div>
-      </div>
-
-      {/* 앞면 벽 */}
-      <div
-        className="absolute w-full origin-bottom"
-        style={{ height, bottom: 0, transform: 'rotateX(-90deg)', background: `linear-gradient(to top, ${darkColor}, ${lightColor})`, border: `1px solid ${hexToRgba('#000', 0.1)}` }}
-      />
-      {/* 뒷면 벽 */}
-      <div
-        className="absolute w-full origin-top"
-        style={{ height, top: 0, transform: 'rotateX(90deg)', background: `linear-gradient(to bottom, ${darkColor}, ${lightColor})` }}
-      />
-      {/* 오른쪽 벽 */}
-      <div
-        className="absolute h-full origin-right"
-        style={{ width: height, right: 0, top: 0, transform: 'rotateY(90deg)', background: `linear-gradient(to right, ${darkColor}, ${lightColor})` }}
-      />
-      {/* 왼쪽 벽 */}
-      <div
-        className="absolute h-full origin-left"
-        style={{ width: height, left: 0, top: 0, transform: 'rotateY(-90deg)', background: `linear-gradient(to left, ${darkColor}, ${lightColor})` }}
-      />
-
-      {/* 호버 글로우 */}
-      <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+      )}
     </div>
   )
 }

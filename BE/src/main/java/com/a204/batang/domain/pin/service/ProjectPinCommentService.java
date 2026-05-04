@@ -63,7 +63,7 @@ public class ProjectPinCommentService {
     public CreatePinCommentResponse createComment(UUID projectId, UUID pinId, CreatePinCommentRequest request) {
         ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
 
-        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
 
         String normalizedContent = request.content().trim();
@@ -100,7 +100,7 @@ public class ProjectPinCommentService {
     ) {
         ProjectPinComment comment = getActiveCommentOrThrow(projectId, pinId, commentId);
 
-        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(comment.getProjectPin().getProject(), currentUserId);
         validateCommentAuthorOrThrow(comment, currentUserId);
 
@@ -126,7 +126,7 @@ public class ProjectPinCommentService {
     public ResolvePinCommentResponse resolveComment(UUID projectId, UUID pinId, UUID commentId) {
         ProjectPinComment comment = getActiveCommentOrThrow(projectId, pinId, commentId);
 
-        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(comment.getProjectPin().getProject(), currentUserId);
 
         boolean commentResolvedNow = comment.getStatus() != PinStatus.RESOLVED;
@@ -153,7 +153,7 @@ public class ProjectPinCommentService {
     public void deleteComment(UUID projectId, UUID pinId, UUID commentId) {
         ProjectPinComment comment = getActiveCommentOrThrow(projectId, pinId, commentId);
 
-        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
         ProjectPin projectPin = comment.getProjectPin();
         projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
         validateCommentAuthorOrThrow(comment, currentUserId);
@@ -180,7 +180,7 @@ public class ProjectPinCommentService {
 
         ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
 
-        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
 
         Pageable pageable = PageRequest.of(
@@ -237,7 +237,7 @@ public class ProjectPinCommentService {
     public void markCommentsAsRead(UUID projectId, UUID pinId) {
         ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
 
-        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
 
         updateReadStateOnView(pinId, currentUserId);

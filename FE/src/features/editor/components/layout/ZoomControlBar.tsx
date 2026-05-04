@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Grid3X3, GripVertical, Hand, ZoomIn, ZoomOut } from 'lucide-react'
 import type { EditorMode } from '../../types'
 import { useFloatingPanelDrag } from '../../hooks/useFloatingPanelDrag'
+import { MAX_EDITOR_ZOOM_PERCENT, MIN_EDITOR_ZOOM_PERCENT } from '../../constants'
 
 interface ZoomControlBarProps {
   zoom: number
@@ -102,7 +103,9 @@ export function ZoomControlBar({
         }}
         onBlur={(e) => {
           const num = parseInt(e.currentTarget.value, 10)
-          const clamped = isNaN(num) ? zoom : Math.min(Math.max(num, 10), 300)
+          const clamped = isNaN(num)
+            ? zoom
+            : Math.min(Math.max(num, MIN_EDITOR_ZOOM_PERCENT), MAX_EDITOR_ZOOM_PERCENT)
           onSetZoom(clamped)
         }}
         onKeyDown={(e) => {
