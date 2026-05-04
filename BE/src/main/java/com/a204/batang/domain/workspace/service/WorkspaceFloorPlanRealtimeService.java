@@ -106,7 +106,6 @@ public class WorkspaceFloorPlanRealtimeService {
         );
         JsonNode floorPlanHistorySnapshot = buildFloorPlanHistorySnapshot(payloadWithRevision, normalizedS3Url);
         saveFloorPlanSnapshotToRedisOrThrow(projectId, floorPlanHistorySnapshot, baseIndex);
-
         FloorPlanProjectSyncResponse response = new FloorPlanProjectSyncResponse(
                 ACTION_FLOOR_PLAN_UPDATED,
                 projectId,
