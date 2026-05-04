@@ -538,7 +538,6 @@ export function useEditorPage() {
   const draftLoadTokenRef = useRef(0)
   const draftLoadBaselineRef = useRef<string | null>(null)
   const draftLoadingProjectIdRef = useRef<string | null>(null)
-  const latestDraftSnapshotRef = useRef<EditorDraftSnapshot | null>(null)
   const flushPendingDraftSave = useCallback(() => {
     if (localSaveTimerRef.current !== null) {
       clearTimeout(localSaveTimerRef.current)
