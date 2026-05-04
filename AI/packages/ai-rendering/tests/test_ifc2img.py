@@ -22,6 +22,7 @@ from ai_rendering.ifc2img.views import (
     DEFAULT_RENDER_VIEWS,
     DISPATCH_LARGE_FACTOR,
     DISPATCH_MEDIUM_FACTOR,
+    VIEW_PROMPT_PREFIXES,
     VIEW_PROMPT_SUFFIXES,
     VIEW_TARGET_RATIOS,
     AutoZoomMode,
@@ -615,21 +616,20 @@ def test_view_prompt_suffixes_top_birds_eye_have_environment_words() -> None:
         assert "grass" in suffix or "lawn" in suffix or "view" in suffix
 
 
-def test_view_prompt_suffixes_front_side_empty() -> None:
+def test_view_prompt_suffixes_front_side_eye_empty() -> None:
     """default(FRONT/SIDE/EYE_*) 시점은 빈 suffix — 시간대 suffix는 preset 단계 책임."""
-    for v in (IFCView.FRONT, IFCView.SIDE):
+    for v in (IFCView.FRONT, IFCView.SIDE, IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
         assert VIEW_PROMPT_SUFFIXES[v] == ""
 
 
-def test_view_prompt_suffixes_eye_describe_ground_and_sky_position() -> None:
-    """EYE_* view suffix adds diagonal ground and sky placement cues."""
+def test_view_prompt_prefixes_eye_describe_ground_and_sky_position() -> None:
+    """EYE_* view prefix adds short front-loaded ground and sky placement cues."""
     for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
-        suffix = VIEW_PROMPT_SUFFIXES[v]
-        assert "eye-level diagonal" in suffix
-        assert "visible ground plane" in suffix
-        assert "sky only above the roofline" in suffix
-        assert "not aerial" in suffix
-        assert "not top-down" in suffix
+        prefix = VIEW_PROMPT_PREFIXES[v]
+        assert "eye-level diagonal view" in prefix
+        assert "ground visible" in prefix
+        assert "sky above roofline only" in prefix
+        assert "not aerial" in prefix
 
 
 def test_build_view_prompt_appends_suffix_for_top() -> None:
@@ -648,15 +648,16 @@ def test_build_view_prompt_returns_base_for_front_side_empty_suffix() -> None:
     assert build_view_prompt(base, IFCView.SIDE) == base
 
 
-def test_build_view_prompt_appends_suffix_for_eye() -> None:
-    """EYE_* prompt includes diagonal ground and sky placement cues."""
+def test_build_view_prompt_prepends_prefix_for_eye() -> None:
+    """EYE_* prompt front-loads diagonal ground and sky placement cues."""
     base = "RAW photo, scandinavian house"
     result = build_view_prompt(base, IFCView.EYE_NE)
 
-    assert result.startswith(base)
+    assert result.startswith("eye-level diagonal view")
     assert len(result) > len(base)
-    assert "visible ground plane" in result
-    assert "sky only above the roofline" in result
+    assert result.endswith(base)
+    assert "ground visible" in result
+    assert "sky above roofline only" in result
     assert "not aerial" in result
 
 

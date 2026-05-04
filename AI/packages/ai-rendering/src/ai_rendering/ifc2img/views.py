@@ -138,12 +138,19 @@ VIEW_PROMPT_SUFFIXES: dict[IFCView, str] = {
                         "residential building, surrounded by grass lawn",
     IFCView.CORNER_LOW: ", low angle view, single residential building, "
                         "surrounded by grass lawn",
-    IFCView.EYE_NE: ", eye-level diagonal exterior view, visible ground plane, "
-                    "sky only above the roofline, not aerial, not top-down",
-    IFCView.EYE_NW: ", eye-level diagonal exterior view, visible ground plane, "
-                    "sky only above the roofline, not aerial, not top-down",
-    IFCView.EYE_SE: ", eye-level diagonal exterior view, visible ground plane, "
-                    "sky only above the roofline, not aerial, not top-down",
+    IFCView.EYE_NE: "",
+    IFCView.EYE_NW: "",
+    IFCView.EYE_SE: "",
+}
+
+
+VIEW_PROMPT_PREFIXES: dict[IFCView, str] = {
+    IFCView.EYE_NE: "eye-level diagonal view, ground visible, "
+                    "sky above roofline only, not aerial",
+    IFCView.EYE_NW: "eye-level diagonal view, ground visible, "
+                    "sky above roofline only, not aerial",
+    IFCView.EYE_SE: "eye-level diagonal view, ground visible, "
+                    "sky above roofline only, not aerial",
 }
 
 
@@ -157,6 +164,9 @@ def build_view_prompt(base_prompt: str, view: IFCView) -> str:
     Returns:
         suffix가 빈 문자열이면 base_prompt 그대로, 아니면 "base + suffix" 합성.
     """
+    prefix = VIEW_PROMPT_PREFIXES.get(view, "")
+    if prefix:
+        base_prompt = f"{prefix}, {base_prompt}"
     suffix = VIEW_PROMPT_SUFFIXES.get(view, "")
     if not suffix:
         return base_prompt
