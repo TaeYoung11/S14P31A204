@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace as dc_replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
 from PIL import Image
 
 from .exceptions import IFCRenderError
@@ -21,6 +22,12 @@ FRONT_SIDE_NEGATIVE_TERMS = (
     "stone wall, retaining wall, raised foundation, pedestal, plinth, "
     "basement windows, stairs below facade, extra lower floor"
 )
+SEMANTIC_BACKGROUND_RGB = (0, 0, 0)
+SEMANTIC_BUILDING_RGB = (255, 255, 255)
+SEMANTIC_GROUND_RGB = (128, 128, 128)
+FRONT_SIDE_MASK_BASE_PERCENTILE = 75
+FRONT_SIDE_MASK_BAND_RATIO = 0.08
+FRONT_SIDE_MASK_SIDE_EXPAND_RATIO = 0.05
 
 
 @dataclass
@@ -59,6 +66,73 @@ def _append_negative_terms(base_negative: str, extra_negative: str) -> str:
     if not base_negative:
         return extra_negative
     return f"{base_negative}, {extra_negative}"
+
+
+def _build_front_side_semantic_mask(control: Image.Image) -> Image.Image:
+    """Create a localized 3-class semantic cue for front/side ground contact.
+
+    Classes:
+      - building: existing non-background geometry
+      - ground-contact band: narrow band directly below lower facade envelope
+      - background: everything else
+    """
+    arr = np.asarray(control.convert("RGB"), dtype=np.uint8)
+    bg_mask = np.all(arr == 0, axis=2)
+    geom_mask = ~bg_mask
+    height, width = bg_mask.shape
+
+    mask = np.zeros((height, width, 3), dtype=np.uint8)
+    if not np.any(geom_mask):
+        return Image.fromarray(mask, mode="RGB")
+
+    mask[geom_mask] = np.array(SEMANTIC_BUILDING_RGB, dtype=np.uint8)
+
+    ys, xs = np.nonzero(geom_mask)
+    left = int(xs.min())
+    right = int(xs.max())
+    bbox_width = max(1, right - left + 1)
+    expand_px = max(1, int(round(bbox_width * FRONT_SIDE_MASK_SIDE_EXPAND_RATIO)))
+    band_thickness = max(2, int(round(height * FRONT_SIDE_MASK_BAND_RATIO)))
+
+    bottom_by_x = np.full(width, -1, dtype=np.int32)
+    for x in np.unique(xs):
+        bottom_by_x[x] = int(ys[xs == x].max())
+
+    support = bottom_by_x >= 0
+    support_bottoms = bottom_by_x[support]
+    base_y = int(np.percentile(support_bottoms, FRONT_SIDE_MASK_BASE_PERCENTILE))
+    base_y = int(np.clip(base_y, 0, height - 1))
+
+    ground_mask = np.zeros((height, width), dtype=bool)
+    x_start = max(0, left - expand_px)
+    x_end = min(width - 1, right + expand_px)
+
+    for x in range(x_start, x_end + 1):
+        if x < left:
+            norm = (left - x) / max(1, expand_px)
+        elif x > right:
+            norm = (x - right) / max(1, expand_px)
+        else:
+            norm = 0.0
+
+        taper = 1.0 - 0.35 * min(1.0, norm)
+        local_thickness = max(1, int(round(band_thickness * taper)))
+
+        if bottom_by_x[x] >= 0:
+            local_top = max(base_y, int(bottom_by_x[x]))
+            local_top = min(local_top, base_y + band_thickness // 2)
+        else:
+            local_top = base_y
+
+        local_bottom = min(height - 1, local_top + local_thickness - 1)
+        if local_bottom < local_top:
+            continue
+
+        column_slice = slice(local_top, local_bottom + 1)
+        ground_mask[column_slice, x] = bg_mask[column_slice, x]
+
+    mask[ground_mask] = np.array(SEMANTIC_GROUND_RGB, dtype=np.uint8)
+    return Image.fromarray(mask, mode="RGB")
 
 
 class DepthStyleRenderer:

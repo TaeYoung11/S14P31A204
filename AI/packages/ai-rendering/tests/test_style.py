@@ -7,6 +7,7 @@ torch/diffusers 지연 임포트 덕에 의존성 미설치에서도 import 가�
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -17,7 +18,13 @@ from ai_rendering.ifc2img import (
     IFCRenderError,
     IFCView,
 )
-from ai_rendering.ifc2img.style import FRONT_SIDE_NEGATIVE_TERMS
+from ai_rendering.ifc2img.style import (
+    FRONT_SIDE_NEGATIVE_TERMS,
+    SEMANTIC_BACKGROUND_RGB,
+    SEMANTIC_BUILDING_RGB,
+    SEMANTIC_GROUND_RGB,
+    _build_front_side_semantic_mask,
+)
 @pytest.fixture
 def mock_depth_renderer() -> DepthStyleRenderer:
     """DepthStyleRenderer — 실제 SD/ControlNet 로드 없이 로직만 테스트용.
@@ -294,6 +301,33 @@ def test_render_with_view_front_appends_foundation_negative_terms(
 
     call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
     assert call_negative.endswith(FRONT_SIDE_NEGATIVE_TERMS)
+
+
+def test_build_front_side_semantic_mask_marks_building_geometry() -> None:
+    """Existing non-background geometry should become the building class."""
+    control = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(control)
+    arr[4:14, 8:16] = [255, 255, 255]
+
+    mask = _build_front_side_semantic_mask(Image.fromarray(arr, mode="RGB"))
+    mask_arr = np.array(mask)
+
+    assert np.all(mask_arr[6, 10] == SEMANTIC_BUILDING_RGB)
+    assert np.all(mask_arr[2, 2] == SEMANTIC_BACKGROUND_RGB)
+
+
+def test_build_front_side_semantic_mask_adds_local_ground_band() -> None:
+    """Ground band should appear below the facade but not fill the far lower frame."""
+    control = Image.new("RGB", (24, 24), (0, 0, 0))
+    arr = np.array(control)
+    arr[4:14, 8:16] = [255, 255, 255]
+
+    mask = _build_front_side_semantic_mask(Image.fromarray(arr, mode="RGB"))
+    mask_arr = np.array(mask)
+
+    assert np.all(mask_arr[14, 10] == SEMANTIC_GROUND_RGB)
+    assert np.all(mask_arr[20, 1] == SEMANTIC_BACKGROUND_RGB)
+    assert np.all(mask_arr[20, 22] == SEMANTIC_BACKGROUND_RGB)
 
 
 def test_render_without_view_uses_raw_negative(
