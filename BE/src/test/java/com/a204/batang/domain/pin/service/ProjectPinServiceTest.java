@@ -1,5 +1,9 @@
 package com.a204.batang.domain.pin.service;
 
+import com.a204.batang.domain.auth.entity.Member;
+import com.a204.batang.domain.auth.entity.UserStatus;
+import com.a204.batang.domain.auth.entity.UserType;
+import com.a204.batang.domain.auth.repository.MemberRepository;
 import com.a204.batang.domain.pin.dto.PinPositionRequest;
 import com.a204.batang.domain.pin.dto.ResolvePinResponse;
 import com.a204.batang.domain.pin.dto.UpdatePinPositionRequest;
@@ -34,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -52,6 +57,9 @@ class ProjectPinServiceTest {
 
     @Mock
     private ProjectPinReadStateRepository projectPinReadStateRepository;
+
+    @Mock
+    private MemberRepository memberRepository;
 
     @Mock
     private ProjectAccessService projectAccessService;
@@ -88,6 +96,20 @@ class ProjectPinServiceTest {
         );
         ReflectionTestUtils.setField(pin, "pinId", pinId);
         ReflectionTestUtils.setField(pin, "createdAt", LocalDateTime.of(2026, 4, 28, 9, 0, 0));
+        lenient().when(memberRepository.findByUserIdAndStatus(any(UUID.class), eq(UserStatus.ACTIVE)))
+                .thenAnswer(invocation -> Optional.of(createActiveMember(invocation.getArgument(0))));
+    }
+
+    private Member createActiveMember(UUID userId) {
+        Member member = Member.create(
+                "member-" + userId + "@example.com",
+                "encoded-password",
+                "테스트회원",
+                UserType.DESIGNER
+        );
+        ReflectionTestUtils.setField(member, "userId", userId);
+        ReflectionTestUtils.setField(member, "status", UserStatus.ACTIVE);
+        return member;
     }
 
     @Test
@@ -100,7 +122,7 @@ class ProjectPinServiceTest {
 
         given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
                 .willReturn(Optional.of(pin));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(authorUserId);
         ReflectionTestUtils.setField(pin, "updatedAt", updatedAt);
 
         UpdatePinPositionResponse response = projectPinService.updatePinPosition(projectId, pinId, request);
@@ -137,7 +159,7 @@ class ProjectPinServiceTest {
 
         given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
                 .willReturn(Optional.of(pin));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(otherUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(otherUserId);
 
         assertThatThrownBy(() -> projectPinService.updatePinPosition(projectId, pinId, request))
                 .isInstanceOf(CustomException.class)
@@ -174,7 +196,7 @@ class ProjectPinServiceTest {
 
         given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
                 .willReturn(Optional.of(pin));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(authorUserId);
         given(projectPinCommentRepository.resolveActiveCommentsByPinId(
                 eq(pinId),
                 eq(PinStatus.RESOLVED),
@@ -215,7 +237,7 @@ class ProjectPinServiceTest {
 
         given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
                 .willReturn(Optional.of(pin));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(authorUserId);
         given(projectPinCommentRepository.resolveActiveCommentsByPinId(
                 eq(pinId),
                 eq(PinStatus.RESOLVED),
@@ -247,7 +269,7 @@ class ProjectPinServiceTest {
 
         given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
                 .willReturn(Optional.of(pin));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(otherUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(otherUserId);
         given(projectPinCommentRepository.resolveActiveCommentsByPinId(
                 eq(pinId),
                 eq(PinStatus.RESOLVED),
@@ -302,7 +324,7 @@ class ProjectPinServiceTest {
     void deletePin_softDeletesPinAndComments_whenCurrentUserIsAuthor() {
         given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
                 .willReturn(Optional.of(pin));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(authorUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(authorUserId);
         given(projectPinCommentRepository.softDeleteByPinId(any(UUID.class), any(LocalDateTime.class)))
                 .willReturn(2);
 
@@ -324,7 +346,7 @@ class ProjectPinServiceTest {
 
         given(projectPinRepository.findActivePinByProjectId(pinId, projectId))
                 .willReturn(Optional.of(pin));
-        given(projectAccessService.resolveCurrentUserId()).willReturn(otherUserId);
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(otherUserId);
 
         assertThatThrownBy(() -> projectPinService.deletePin(projectId, pinId))
                 .isInstanceOf(CustomException.class)

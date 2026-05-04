@@ -3,9 +3,11 @@ import { useLocation } from 'react-router-dom'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 
 const REMEMBERED_EMAIL_KEY = 'batang-remembered-email'
+const EMAIL_TEMPLATES = ['designer@batang.io', 'customer@batang.io', 'name@company.com'] as const
 
 interface LoginLocationState {
   email?: string
+  withdrawn?: boolean
 }
 
 const readRememberedEmail = () => {
@@ -27,16 +29,17 @@ export const useLoginPage = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    const normalizedEmail = email.trim().toLowerCase()
 
     if (typeof window !== 'undefined') {
       if (rememberEmail) {
-        window.localStorage.setItem(REMEMBERED_EMAIL_KEY, email)
+        window.localStorage.setItem(REMEMBERED_EMAIL_KEY, normalizedEmail)
       } else {
         window.localStorage.removeItem(REMEMBERED_EMAIL_KEY)
       }
     }
 
-    login({ email, password })
+    login({ email: normalizedEmail, password })
   }
 
   return {
@@ -46,9 +49,12 @@ export const useLoginPage = () => {
     rememberEmail,
     loginError,
     isLoggingIn,
+    emailTemplates: EMAIL_TEMPLATES,
+    loginNotice: locationState?.withdrawn ? '회원탈퇴가 완료되었습니다.' : '',
     setEmail,
     setPassword,
     setRememberEmail,
+    selectEmailTemplate: (nextEmail: string) => setEmail(nextEmail),
     togglePasswordVisibility: () => setShowPw((prev) => !prev),
     handleSubmit,
   }

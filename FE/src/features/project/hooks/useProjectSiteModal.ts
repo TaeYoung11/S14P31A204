@@ -1,86 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Address } from 'react-daum-postcode'
-import { useRegisterProjectSite } from '@/features/project/hooks/useProjects'
-
-declare global {
-  interface Window {
-    kakao?: {
-      maps: {
-        load: (callback: () => void) => void
-        LatLng: new (lat: number, lng: number) => KakaoLatLng
-        Map: new (container: HTMLElement, options: { center: KakaoLatLng; level: number }) => KakaoMap
-        Marker: new (options: { position: KakaoLatLng }) => KakaoMarker
-        services: {
-          Status: { OK: string }
-          Geocoder: new () => {
-            addressSearch: (
-              address: string,
-              callback: (result: KakaoAddressResult[], status: string) => void,
-            ) => void
-          }
-        }
-      }
-    }
-  }
-}
-
-type KakaoLatLng = object
-interface KakaoMap {
-  setCenter: (latLng: KakaoLatLng) => void
-}
-interface KakaoMarker {
-  setMap: (map: KakaoMap | null) => void
-  setPosition: (latLng: KakaoLatLng) => void
-}
-interface KakaoAddressResult {
-  address_name: string
-  x: string
-  y: string
-}
-
-const KAKAO_SCRIPT_ID = 'kakao-map-sdk'
-
-const loadKakaoMapSdk = () =>
-  new Promise<void>((resolve, reject) => {
-    if (typeof window === 'undefined') {
-      reject(new Error('브라우저 환경에서만 지도를 불러올 수 있습니다.'))
-      return
-    }
-
-    const kakaoApiKey = import.meta.env.VITE_KAKAO_MAP_API_KEY
-    if (!kakaoApiKey) {
-      reject(new Error('VITE_KAKAO_MAP_API_KEY 환경변수가 필요합니다.'))
-      return
-    }
-
-    const boot = () => {
-      if (!window.kakao?.maps) {
-        reject(new Error('카카오맵 SDK를 불러오지 못했습니다.'))
-        return
-      }
-
-      window.kakao.maps.load(() => resolve())
-    }
-
-    const existingScript = document.getElementById(KAKAO_SCRIPT_ID) as HTMLScriptElement | null
-    if (existingScript) {
-      if (window.kakao?.maps) {
-        boot()
-      } else {
-        existingScript.addEventListener('load', boot, { once: true })
-        existingScript.addEventListener('error', () => reject(new Error('카카오맵 SDK 로드에 실패했습니다.')), { once: true })
-      }
-      return
-    }
-
-    const script = document.createElement('script')
-    script.id = KAKAO_SCRIPT_ID
-    script.async = true
-    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoApiKey}&libraries=services&autoload=false`
-    script.addEventListener('load', boot, { once: true })
-    script.addEventListener('error', () => reject(new Error('카카오맵 SDK 로드에 실패했습니다.')), { once: true })
-    document.head.appendChild(script)
-  })
+import { useProjectSitePolygon, useRegisterProjectSite } from '@/features/project/hooks/useProjects'
+import { saveProjectSitePolygon } from '@/features/project/utils/projectSiteCache'
+import {
+  getKakaoMaps,
+  loadKakaoMapSdk,
+  type KakaoMap,
+  type KakaoMarker,
+} from '@/features/project/utils/kakaoMapSdk'
+import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
+import { calculateSiteAreaM2, toPyeong } from '@/features/project/utils/siteGeometry'
 
 interface UseProjectSiteModalParams {
   isOpen: boolean
@@ -94,6 +23,7 @@ export const useProjectSiteModal = ({
   onClose,
 }: UseProjectSiteModalParams) => {
   const registerSite = useRegisterProjectSite()
+  const sitePolygonQuery = useProjectSitePolygon(projectId, isOpen)
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<KakaoMap | null>(null)
   const markerRef = useRef<KakaoMarker | null>(null)
@@ -103,16 +33,28 @@ export const useProjectSiteModal = ({
   const [selectedAddress, setSelectedAddress] = useState('')
   const [searchError, setSearchError] = useState('')
   const [polygonCoords, setPolygonCoords] = useState<number[][] | null>(null)
+  const cachedPolygonCoords = sitePolygonQuery.data?.polygonRing ?? null
+  const effectivePolygonCoords = polygonCoords ?? cachedPolygonCoords
+
+  const siteAreaM2 = useMemo(
+    () => (effectivePolygonCoords ? calculateSiteAreaM2(effectivePolygonCoords) : null),
+    [effectivePolygonCoords],
+  )
+  const siteAreaPyeong = useMemo(
+    () => (siteAreaM2 ? toPyeong(siteAreaM2) : null),
+    [siteAreaM2],
+  )
 
   useEffect(() => {
     if (!isOpen) return
 
     loadKakaoMapSdk()
       .then(() => {
-        if (!mapContainerRef.current || !window.kakao?.maps) return
+        const maps = getKakaoMaps()
+        if (!mapContainerRef.current || !maps) return
 
-        const center = new window.kakao.maps.LatLng(37.5665, 126.978)
-        mapRef.current = new window.kakao.maps.Map(mapContainerRef.current, {
+        const center = new maps.LatLng(37.5665, 126.978)
+        mapRef.current = new maps.Map(mapContainerRef.current, {
           center,
           level: 3,
         })
@@ -124,33 +66,43 @@ export const useProjectSiteModal = ({
 
   const resetRegisterSite = registerSite.reset
 
+  /** 모달이 닫힐 때 모든 로컬 상태를 초기화 */
   useEffect(() => {
-    if (!isOpen) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (isOpen) return
+    const timeout = window.setTimeout(() => {
       setShowPostcode(false)
       setSelectedAddress('')
       setSearchError('')
       setSdkError('')
       setPolygonCoords(null)
       resetRegisterSite()
-    }
+    }, 0)
+    return () => window.clearTimeout(timeout)
   }, [isOpen, resetRegisterSite])
 
+  /** 지도 중심 이동 및 마커 위치 업데이트 */
   const updateMap = (lat: number, lng: number) => {
-    if (!window.kakao?.maps || !mapRef.current) return
+    const maps = getKakaoMaps()
+    const map = mapRef.current
+    if (!maps || !map) return
 
-    const position = new window.kakao.maps.LatLng(lat, lng)
-    mapRef.current.setCenter(position)
+    const position = new maps.LatLng(lat, lng)
+    map.setCenter(position)
 
     if (!markerRef.current) {
-      markerRef.current = new window.kakao.maps.Marker({ position })
-      markerRef.current.setMap(mapRef.current)
+      const marker = new maps.Marker({ position })
+      marker.setMap(map)
+      markerRef.current = marker
       return
     }
 
     markerRef.current.setPosition(position)
   }
 
+  /**
+   * 주소 검색 완료 핸들러
+   * - 좌표 변환 → 지도 이동 → 대지 등록 API 호출 → 폴리곤 좌표 저장
+   */
   const handleAddressSelect = (data: Address) => {
     setShowPostcode(false)
     setSearchError('')
@@ -160,14 +112,15 @@ export const useProjectSiteModal = ({
       return
     }
 
-    if (!window.kakao?.maps?.services) {
+    const maps = getKakaoMaps()
+    if (!maps?.services) {
       setSearchError('카카오맵 서비스를 불러오지 못했습니다.')
       return
     }
 
-    const geocoder = new window.kakao.maps.services.Geocoder()
+    const geocoder = new maps.services.Geocoder()
     geocoder.addressSearch(data.address, async (result, status) => {
-      if (status !== window.kakao?.maps.services.Status.OK || result.length === 0) {
+      if (status !== maps.services.Status.OK || result.length === 0) {
         setSearchError('주소 좌표를 가져오지 못했습니다.')
         return
       }
@@ -181,9 +134,11 @@ export const useProjectSiteModal = ({
 
       try {
         const siteResult = await registerSite.mutateAsync({ projectId, latitude, longitude })
-        const outerRing = siteResult.cadastralInfo?.polygon?.coordinates?.[0]?.[0]
-        if (outerRing && outerRing.length > 0) {
+        const outerRing = extractOuterRingFromCoordinates(siteResult.cadastralInfo?.polygon?.coordinates)
+        if (outerRing) {
+          saveProjectSitePolygon(projectId, outerRing)
           setPolygonCoords(outerRing)
+          onClose()
         } else {
           onClose()
         }
@@ -198,7 +153,9 @@ export const useProjectSiteModal = ({
     showPostcode,
     setShowPostcode,
     selectedAddress,
-    polygonCoords,
+    polygonCoords: effectivePolygonCoords,
+    siteAreaM2,
+    siteAreaPyeong,
     sdkError,
     searchError,
     registerError: registerSite.error,

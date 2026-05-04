@@ -15,6 +15,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -59,9 +60,10 @@ public class Project extends BaseEntity {
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
-    private Project(String name, String description) {
+    private Project(String name, String description, UUID ownerUserId) {
         this.name = name;
         this.description = description;
+        this.ownerUserId = ownerUserId;
     }
 
     /**
@@ -72,7 +74,20 @@ public class Project extends BaseEntity {
      * @return 생성된 프로젝트 엔티티
      */
     public static Project create(String name, String description) {
-        return new Project(name, description);
+        return new Project(name, description, null);
+    }
+
+    /**
+     * 소유자와 함께 프로젝트를 생성한다.
+     *
+     * @param name 프로젝트 이름
+     * @param description 프로젝트 설명
+     * @param ownerUserId 프로젝트 소유자 사용자 ID
+     * @return 생성된 프로젝트 엔티티
+     */
+    public static Project create(String name, String description, UUID ownerUserId) {
+        Objects.requireNonNull(ownerUserId, "ownerUserId must not be null");
+        return new Project(name, description, ownerUserId);
     }
 
     /**
@@ -106,5 +121,14 @@ public class Project extends BaseEntity {
      */
     public void softDelete(LocalDateTime deletedAt) {
         this.deletedAt = deletedAt;
+    }
+
+    /**
+     * 프로젝트의 최신 revision ID를 갱신한다.
+     *
+     * @param revisionId 최신 revision ID
+     */
+    public void updateLatestRevisionId(UUID revisionId) {
+        this.latestRevisionId = Objects.requireNonNull(revisionId, "revisionId must not be null");
     }
 }

@@ -10,6 +10,7 @@ export interface BubbleInfo {
   heightMm: number
   ratio: number
   color: string
+  material?: string
 }
 
 export interface BubbleConnectionInfo {
