@@ -37,6 +37,24 @@ class RabbitMQSettings(BaseSettings):
         return f"amqp://{user}:{pw}@{self.host}:{self.port}/{quote(self.vhost, safe='/')}"
 
 
+class S3Settings(BaseSettings):
+    """S3 / MinIO connection settings — reads S3_* env vars."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="S3_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
+    )
+
+    bucket: str = Field(min_length=1)
+    endpoint_url: str | None = Field(default=None)
+    access_key_id: str | None = Field(default=None)
+    secret_access_key: str | None = Field(default=None)
+    region: str = Field(default="us-east-1")
+
+
 WorkerTypeField = Annotated[str, Field(min_length=1, alias="WORKER_TYPE")]
 WorkerIdField = Annotated[str, Field(min_length=1, alias="WORKER_ID")]
 EnvironmentField = Annotated[EnvironmentName, Field(alias="ENVIRONMENT")]
@@ -64,6 +82,7 @@ class WorkerSettings(BaseSettings):
     health_host: HealthHostField = "0.0.0.0"
     health_port: HealthPortField = 8080
     rabbitmq: RabbitMQSettings = Field(default_factory=RabbitMQSettings)
+    s3: S3Settings = Field(default_factory=S3Settings)
 
 
 def load_worker_settings(**overrides: Any) -> WorkerSettings:
@@ -91,6 +110,7 @@ __all__ = [
     "EnvironmentName",
     "LogLevelName",
     "RabbitMQSettings",
+    "S3Settings",
     "WorkerSettings",
     "load_worker_settings",
     "settings_to_env_dict",
