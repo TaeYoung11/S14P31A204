@@ -524,8 +524,7 @@ def _create_v2_walls(
                 owner_history,
                 context,
                 storey,
-                boundary.floor,
-                segment_index,
+                f"Boundary Wall {boundary.floor}-{segment_index}",
                 start_point,
                 end_point,
                 wall_thickness_m,
@@ -702,8 +701,7 @@ def _create_wall_from_segment(
     owner_history: ifcopenshell.entity_instance,
     context: ifcopenshell.entity_instance,
     storey: ifcopenshell.entity_instance,
-    floor: int,
-    segment_index: int,
+    name: str,
     start_point: tuple[float, float],
     end_point: tuple[float, float],
     thickness_m: float,
@@ -746,7 +744,7 @@ def _create_wall_from_segment(
         "IfcWall",
         GlobalId=ifcopenshell.guid.new(),
         OwnerHistory=owner_history,
-        Name=f"Boundary Wall {floor}-{segment_index}",
+        Name=name,
         ObjectPlacement=_create_local_placement(
             model,
             relative_to=storey.ObjectPlacement,
@@ -872,14 +870,12 @@ def _create_shared_wall_from_segment(
         owner_history,
         context,
         storey,
-        floor,
-        segment_index,
+        f"Shared Wall {floor}-{segment_index}",
         (_mm_to_m(start_point_mm[0]), _mm_to_m(start_point_mm[1])),
         (_mm_to_m(end_point_mm[0]), _mm_to_m(end_point_mm[1])),
         thickness_m,
         height_m,
     )
-    wall.Name = f"Shared Wall {floor}-{segment_index}"
     return wall
 
 
