@@ -1,0 +1,448 @@
+from __future__ import annotations
+
+import math
+from typing import Literal, TypedDict
+
+from .command import IFCContext, SpaceContext
+
+_TOLERANCE_MM = 1.0
+_DOMINANT_CONTACT_RATIO = 0.3
+_DOMINANT_CONTACT_EPSILON = 50.0
+
+
+class RemoveRoomPolicyResult(TypedDict):
+    status: Literal["planned", "needs_clarification", "unsupported"]
+    reason: str
+    target_space_id: str | None
+    merge_target_space_id: str | None
+    shared_contact_length_mm: float | None
+    remove_wall_ids: list[str]
+    remove_opening_ids: list[str]
+
+
+class ResizeRoomPolicyResult(TypedDict):
+    status: Literal["planned", "needs_clarification", "unsupported"]
+    reason: str
+    target_space_id: str | None
+    direction: Literal["north", "south", "east", "west"] | None
+    new_width: int | None
+    new_height: int | None
+    affected_space_id: str | None
+    affected_wall_ids: list[str]
+    affected_opening_ids: list[str]
+
+
+def plan_remove_room(
+    *,
+    target_space_id: str,
+    ifc_context: IFCContext,
+) -> RemoveRoomPolicyResult:
+    target_space = _find_space(target_space_id, ifc_context)
+    if target_space is None:
+        return _remove_result("needs_clarification", "room_not_found", None, None, None, [], [])
+    if target_space.get("locked", False):
+        return _remove_result(
+            "needs_clarification", "locked_room", target_space_id, None, None, [], []
+        )
+
+    candidates = []
+    for candidate in ifc_context.get("spaces", []):
+        if candidate["id"] == target_space_id or candidate["floor"] != target_space["floor"]:
+            continue
+        contact_length = _shared_contact_length_mm(target_space, candidate)
+        if contact_length > _TOLERANCE_MM:
+            candidates.append((contact_length, candidate))
+
+    if not candidates:
+        return _remove_result(
+            "needs_clarification",
+            "no_adjacent_absorber",
+            target_space_id,
+            None,
+            None,
+            [],
+            [],
+        )
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    dominant_contact, dominant_space = candidates[0]
+    target_perimeter = _perimeter_mm(target_space["polygon"])
+    if target_perimeter <= 0:
+        return _remove_result(
+            "unsupported", "invalid_target_polygon", target_space_id, None, None, [], []
+        )
+    if dominant_contact / target_perimeter < _DOMINANT_CONTACT_RATIO:
+        return _remove_result(
+            "needs_clarification",
+            "no_dominant_absorber",
+            target_space_id,
+            None,
+            dominant_contact,
+            [],
+            [],
+        )
+
+    if len(candidates) > 1:
+        second_contact, _ = candidates[1]
+        if abs(dominant_contact - second_contact) <= _DOMINANT_CONTACT_EPSILON:
+            return _remove_result(
+                "needs_clarification",
+                "multiple_similar_absorbers",
+                target_space_id,
+                None,
+                dominant_contact,
+                [],
+                [],
+            )
+
+    remove_wall_ids = _shared_wall_ids(
+        ifc_context,
+        target_space_id=target_space_id,
+        other_space_id=dominant_space["id"],
+    )
+    remove_opening_ids = _opening_ids_for_walls(ifc_context, remove_wall_ids)
+
+    return _remove_result(
+        "planned",
+        "dominant_adjacent_absorber",
+        target_space_id,
+        dominant_space["id"],
+        dominant_contact,
+        remove_wall_ids,
+        remove_opening_ids,
+    )
+
+
+def plan_resize_room(
+    *,
+    target_space_id: str,
+    new_width: int,
+    new_height: int,
+    ifc_context: IFCContext,
+) -> ResizeRoomPolicyResult:
+    target_space = _find_space(target_space_id, ifc_context)
+    if target_space is None:
+        return _resize_result(
+            "needs_clarification", "room_not_found", None, None, None, None, None, [], []
+        )
+    if target_space.get("locked", False):
+        return _resize_result(
+            "needs_clarification",
+            "locked_room",
+            target_space_id,
+            None,
+            None,
+            None,
+            None,
+            [],
+            [],
+        )
+    if not _is_axis_aligned_rectangle(target_space["polygon"]):
+        return _resize_result(
+            "unsupported",
+            "non_rectangular_space",
+            target_space_id,
+            None,
+            None,
+            None,
+            None,
+            [],
+            [],
+        )
+
+    min_x, min_y, max_x, max_y = _bbox(target_space["polygon"])
+    current_width = int(round(max_x - min_x))
+    current_height = int(round(max_y - min_y))
+    changed_width = new_width != current_width
+    changed_height = new_height != current_height
+
+    if changed_width and changed_height:
+        return _resize_result(
+            "needs_clarification",
+            "multi_axis_resize_unsupported",
+            target_space_id,
+            None,
+            new_width,
+            new_height,
+            None,
+            [],
+            [],
+        )
+    if not changed_width and not changed_height:
+        return _resize_result(
+            "planned",
+            "no_dimension_change",
+            target_space_id,
+            None,
+            new_width,
+            new_height,
+            None,
+            [],
+            [],
+        )
+
+    axis = "x" if changed_width else "y"
+    directions = ("west", "east") if axis == "x" else ("south", "north")
+    valid_candidates: list[tuple[str, str | None, list[str], list[str]]] = []
+
+    for direction in directions:
+        neighbors = _neighbors_on_direction(
+            target_space=target_space,
+            direction=direction,
+            ifc_context=ifc_context,
+        )
+        if len(neighbors) > 1:
+            continue
+        affected_space_id = neighbors[0] if neighbors else None
+        if axis == "x":
+            perpendicular_changed = new_height != current_height
+            if perpendicular_changed:
+                continue
+        else:
+            perpendicular_changed = new_width != current_width
+            if perpendicular_changed:
+                continue
+
+        affected_wall_ids = _walls_for_direction(
+            ifc_context,
+            target_space=target_space,
+            direction=direction,
+            other_space_id=affected_space_id,
+        )
+        affected_opening_ids = _opening_ids_for_walls(ifc_context, affected_wall_ids)
+        valid_candidates.append(
+            (direction, affected_space_id, affected_wall_ids, affected_opening_ids)
+        )
+
+    if len(valid_candidates) != 1:
+        return _resize_result(
+            "needs_clarification",
+            "resize_direction_ambiguous",
+            target_space_id,
+            None,
+            new_width,
+            new_height,
+            None,
+            [],
+            [],
+        )
+
+    direction, affected_space_id, affected_wall_ids, affected_opening_ids = valid_candidates[0]
+    return _resize_result(
+        "planned",
+        "single_direction_resize",
+        target_space_id,
+        direction,
+        new_width,
+        new_height,
+        affected_space_id,
+        affected_wall_ids,
+        affected_opening_ids,
+    )
+
+
+def _find_space(space_id: str, ifc_context: IFCContext) -> SpaceContext | None:
+    for space in ifc_context.get("spaces", []):
+        if space["id"] == space_id:
+            return space
+    return None
+
+
+def _remove_result(
+    status: Literal["planned", "needs_clarification", "unsupported"],
+    reason: str,
+    target_space_id: str | None,
+    merge_target_space_id: str | None,
+    shared_contact_length_mm: float | None,
+    remove_wall_ids: list[str],
+    remove_opening_ids: list[str],
+) -> RemoveRoomPolicyResult:
+    return {
+        "status": status,
+        "reason": reason,
+        "target_space_id": target_space_id,
+        "merge_target_space_id": merge_target_space_id,
+        "shared_contact_length_mm": shared_contact_length_mm,
+        "remove_wall_ids": remove_wall_ids,
+        "remove_opening_ids": remove_opening_ids,
+    }
+
+
+def _resize_result(
+    status: Literal["planned", "needs_clarification", "unsupported"],
+    reason: str,
+    target_space_id: str | None,
+    direction: Literal["north", "south", "east", "west"] | None,
+    new_width: int | None,
+    new_height: int | None,
+    affected_space_id: str | None,
+    affected_wall_ids: list[str],
+    affected_opening_ids: list[str],
+) -> ResizeRoomPolicyResult:
+    return {
+        "status": status,
+        "reason": reason,
+        "target_space_id": target_space_id,
+        "direction": direction,
+        "new_width": new_width,
+        "new_height": new_height,
+        "affected_space_id": affected_space_id,
+        "affected_wall_ids": affected_wall_ids,
+        "affected_opening_ids": affected_opening_ids,
+    }
+
+
+def _shared_wall_ids(
+    ifc_context: IFCContext,
+    *,
+    target_space_id: str,
+    other_space_id: str,
+) -> list[str]:
+    wall_ids: list[str] = []
+    for wall in ifc_context.get("walls", []):
+        wall_space_ids = set(wall.get("space_ids", []))
+        if (
+            {target_space_id, other_space_id}.issubset(wall_space_ids)
+            and wall.get("kind") == "INTERIOR"
+        ):
+            wall_ids.append(wall["id"])
+    return wall_ids
+
+
+def _opening_ids_for_walls(ifc_context: IFCContext, wall_ids: list[str]) -> list[str]:
+    wall_id_set = set(wall_ids)
+    opening_ids: list[str] = []
+    for door in ifc_context.get("doors", []):
+        if door["host_wall_id"] in wall_id_set:
+            opening_ids.append(door["id"])
+    for window in ifc_context.get("windows", []):
+        if window["host_wall_id"] in wall_id_set:
+            opening_ids.append(window["id"])
+    return opening_ids
+
+
+def _neighbors_on_direction(
+    *,
+    target_space: SpaceContext,
+    direction: Literal["north", "south", "east", "west"],
+    ifc_context: IFCContext,
+) -> list[str]:
+    neighbors = []
+    for candidate in ifc_context.get("spaces", []):
+        if candidate["id"] == target_space["id"] or candidate["floor"] != target_space["floor"]:
+            continue
+        if _touches_direction(target_space, candidate, direction):
+            neighbors.append(candidate["id"])
+    return neighbors
+
+
+def _walls_for_direction(
+    ifc_context: IFCContext,
+    *,
+    target_space: SpaceContext,
+    direction: Literal["north", "south", "east", "west"],
+    other_space_id: str | None,
+) -> list[str]:
+    wall_ids: list[str] = []
+    for wall in ifc_context.get("walls", []):
+        wall_space_ids = set(wall.get("space_ids", []))
+        if target_space["id"] not in wall_space_ids:
+            continue
+        if other_space_id is not None and other_space_id not in wall_space_ids:
+            continue
+        start_x, start_y = wall["start"]
+        end_x, end_y = wall["end"]
+        min_x, min_y, max_x, max_y = _bbox(target_space["polygon"])
+        if (
+            direction == "west"
+            and math.isclose(start_x, min_x, abs_tol=_TOLERANCE_MM)
+            and math.isclose(end_x, min_x, abs_tol=_TOLERANCE_MM)
+        ):
+            wall_ids.append(wall["id"])
+        elif (
+            direction == "east"
+            and math.isclose(start_x, max_x, abs_tol=_TOLERANCE_MM)
+            and math.isclose(end_x, max_x, abs_tol=_TOLERANCE_MM)
+        ):
+            wall_ids.append(wall["id"])
+        elif (
+            direction == "south"
+            and math.isclose(start_y, min_y, abs_tol=_TOLERANCE_MM)
+            and math.isclose(end_y, min_y, abs_tol=_TOLERANCE_MM)
+        ):
+            wall_ids.append(wall["id"])
+        elif (
+            direction == "north"
+            and math.isclose(start_y, max_y, abs_tol=_TOLERANCE_MM)
+            and math.isclose(end_y, max_y, abs_tol=_TOLERANCE_MM)
+        ):
+            wall_ids.append(wall["id"])
+    return wall_ids
+
+
+def _touches_direction(
+    target_space: SpaceContext,
+    candidate_space: SpaceContext,
+    direction: Literal["north", "south", "east", "west"],
+) -> bool:
+    min_x, min_y, max_x, max_y = _bbox(target_space["polygon"])
+    other_min_x, other_min_y, other_max_x, other_max_y = _bbox(candidate_space["polygon"])
+    if direction == "west":
+        return math.isclose(other_max_x, min_x, abs_tol=_TOLERANCE_MM) and _interval_overlap_mm(
+            min_y, max_y, other_min_y, other_max_y
+        ) > _TOLERANCE_MM
+    if direction == "east":
+        return math.isclose(other_min_x, max_x, abs_tol=_TOLERANCE_MM) and _interval_overlap_mm(
+            min_y, max_y, other_min_y, other_max_y
+        ) > _TOLERANCE_MM
+    if direction == "south":
+        return math.isclose(other_max_y, min_y, abs_tol=_TOLERANCE_MM) and _interval_overlap_mm(
+            min_x, max_x, other_min_x, other_max_x
+        ) > _TOLERANCE_MM
+    return math.isclose(other_min_y, max_y, abs_tol=_TOLERANCE_MM) and _interval_overlap_mm(
+        min_x, max_x, other_min_x, other_max_x
+    ) > _TOLERANCE_MM
+
+
+def _shared_contact_length_mm(space_a: SpaceContext, space_b: SpaceContext) -> float:
+    min_x_a, min_y_a, max_x_a, max_y_a = _bbox(space_a["polygon"])
+    min_x_b, min_y_b, max_x_b, max_y_b = _bbox(space_b["polygon"])
+
+    if math.isclose(max_x_a, min_x_b, abs_tol=_TOLERANCE_MM) or math.isclose(
+        max_x_b, min_x_a, abs_tol=_TOLERANCE_MM
+    ):
+        return _interval_overlap_mm(min_y_a, max_y_a, min_y_b, max_y_b)
+    if math.isclose(max_y_a, min_y_b, abs_tol=_TOLERANCE_MM) or math.isclose(
+        max_y_b, min_y_a, abs_tol=_TOLERANCE_MM
+    ):
+        return _interval_overlap_mm(min_x_a, max_x_a, min_x_b, max_x_b)
+    return 0.0
+
+
+def _interval_overlap_mm(start_a: float, end_a: float, start_b: float, end_b: float) -> float:
+    return max(0.0, min(end_a, end_b) - max(start_a, start_b))
+
+
+def _perimeter_mm(polygon: list[tuple[float, float]]) -> float:
+    if len(polygon) < 2:
+        return 0.0
+    perimeter = 0.0
+    for index, point in enumerate(polygon):
+        next_point = polygon[(index + 1) % len(polygon)]
+        perimeter += math.dist(point, next_point)
+    return perimeter
+
+
+def _bbox(polygon: list[tuple[float, float]]) -> tuple[float, float, float, float]:
+    xs = [point[0] for point in polygon]
+    ys = [point[1] for point in polygon]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _is_axis_aligned_rectangle(polygon: list[tuple[float, float]]) -> bool:
+    unique_points = list(dict.fromkeys(polygon))
+    if len(unique_points) != 4:
+        return False
+    unique_x = {point[0] for point in unique_points}
+    unique_y = {point[1] for point in unique_points}
+    return len(unique_x) == 2 and len(unique_y) == 2

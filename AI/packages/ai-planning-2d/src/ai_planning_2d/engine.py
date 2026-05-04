@@ -19,6 +19,32 @@ _RELATIVE_SIZE_PATTERNS: list[tuple[str, float]] = [
     (r"더\s*(넓게|크게|길게|높게)", 1.2),
 ]
 
+_ROOM_NAME_TYPE_HINTS: list[tuple[str, str, str]] = [
+    ("거실", "거실", "living"),
+    ("침실", "침실", "bedroom"),
+    ("안방", "안방", "bedroom"),
+    ("방", "방", "bedroom"),
+    ("주방", "주방", "kitchen"),
+    ("부엌", "부엌", "kitchen"),
+    ("욕실", "욕실", "bathroom"),
+    ("화장실", "화장실", "bathroom"),
+    ("서재", "서재", "office"),
+    ("사무실", "사무실", "office"),
+    ("복도", "복도", "corridor"),
+]
+
+_REMOVE_ROOM_PATTERNS: tuple[str, ...] = ("없애줘", "삭제해줘", "제거해줘", "지워줘")
+_NON_REMOVE_INTENT_KEYWORDS: tuple[str, ...] = (
+    "추가",
+    "바꿔",
+    "변경",
+    "늘려",
+    "줄여",
+    "인접",
+    "잠가",
+    "잠금",
+)
+
 
 def _apply_relative_adjustment(
     command: FloorNLPCommand,
@@ -60,6 +86,128 @@ def _apply_relative_adjustment(
 
     return command
 
+
+def _infer_room_name_and_type(
+    user_text: str,
+    target_room_name: str | None = None,
+    room_type: str | None = None,
+) -> tuple[str | None, str | None]:
+    if target_room_name:
+        for keyword, canonical_name, canonical_type in _ROOM_NAME_TYPE_HINTS:
+            if keyword in target_room_name:
+                return target_room_name, room_type or canonical_type
+        return target_room_name, room_type
+
+    for keyword, canonical_name, canonical_type in _ROOM_NAME_TYPE_HINTS:
+        if keyword in user_text:
+            return canonical_name, room_type or canonical_type
+
+    return None, room_type
+
+
+def _recover_command_from_exception(
+    error: Exception,
+    user_text: str,
+    ifc_context: IFCContext | None,
+) -> FloorNLPCommand | None:
+    matches = re.findall(r"content='(\{.*?\})'", str(error), flags=re.DOTALL)
+    if not matches:
+        return None
+
+    raw_json = matches[-1].replace("\\'", "'")
+    try:
+        payload = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return None
+
+    if payload.get("action") == "add_room":
+        new_room = payload.get("new_room")
+        if isinstance(new_room, dict):
+            name, room_type = _infer_room_name_and_type(
+                user_text,
+                target_room_name=payload.get("target_room_name"),
+                room_type=new_room.get("type"),
+            )
+            if name and not new_room.get("name"):
+                new_room["name"] = name
+            if room_type and not new_room.get("type"):
+                new_room["type"] = room_type
+            payload["new_room"] = new_room
+
+    try:
+        command = FloorNLPCommand.model_validate(payload)
+    except Exception:
+        return None
+
+    if command.action == "add_room" and command.new_room:
+        command.new_room.rects = shape_to_rects(
+            command.new_room.shape, command.new_room.width, command.new_room.height
+        )
+
+    if command.action == "resize_room":
+        command = _apply_relative_adjustment(command, user_text, ifc_context)
+        if command.resize_width is not None and command.resize_height is not None:
+            command.resize_rects = shape_to_rects(
+                command.resize_shape, command.resize_width, command.resize_height
+            )
+
+    return command
+
+
+def _recover_simple_remove_command(
+    command: FloorNLPCommand,
+    user_text: str,
+) -> FloorNLPCommand:
+    if not any(pattern in user_text for pattern in _REMOVE_ROOM_PATTERNS):
+        return command
+    if any(keyword in user_text for keyword in _NON_REMOVE_INTENT_KEYWORDS):
+        return command
+    if command.action == "remove_room" and command.target_room_name:
+        return command
+
+    target_name = None
+    for pattern in _REMOVE_ROOM_PATTERNS:
+        if pattern not in user_text:
+            continue
+        prefix = user_text.split(pattern, maxsplit=1)[0].strip()
+        target_name = prefix.removesuffix("을").removesuffix("를").strip()
+        break
+    if not target_name:
+        return command
+
+    return FloorNLPCommand(
+        action="remove_room",
+        target_room_name=target_name,
+        confidence=max(command.confidence, 0.8),
+        needs_clarification=False,
+        clarification_question=None,
+    )
+
+
+def _maybe_parse_simple_remove_command(user_text: str) -> FloorNLPCommand | None:
+    if not any(pattern in user_text for pattern in _REMOVE_ROOM_PATTERNS):
+        return None
+    if any(keyword in user_text for keyword in _NON_REMOVE_INTENT_KEYWORDS):
+        return None
+
+    target_name = None
+    for pattern in _REMOVE_ROOM_PATTERNS:
+        if pattern not in user_text:
+            continue
+        prefix = user_text.split(pattern, maxsplit=1)[0].strip()
+        target_name = prefix.removesuffix("을").removesuffix("를").strip()
+        break
+    if not target_name:
+        return None
+
+    return FloorNLPCommand(
+        action="remove_room",
+        target_room_name=target_name,
+        confidence=0.9,
+        needs_clarification=False,
+        clarification_question=None,
+    )
+
 SYSTEM_PROMPT = """
 당신은 2D 평면 수정 요청을 구조화된 명령으로 변환하는 파서다.
 사용자 요청을 읽고 FloorNLPCommand JSON 하나만 정확하게 반환한다.
@@ -90,7 +238,8 @@ SYSTEM_PROMPT = """
 ## 단위 규칙
 치수는 항상 밀리미터(mm) 기준 정수로 변환한다.
 예: "3m" → 3000, "300cm" → 3000, "1500mm" → 1500
-평수 단위: 1평 = 약 3300x3300mm. 단 "10평 방 넓이와 높이를 각각 추정" 불가 시 needs_clarification=true
+평수 단위: 1평 = 약 3300x3300mm.
+단 "10평 방 넓이와 높이를 각각 추정" 불가 시 needs_clarification=true
 
 ## 명확한 치수가 없으면 반드시 되묻는다
 다음 경우에는 반드시 needs_clarification=true로 반환한다.
@@ -144,7 +293,12 @@ clarification_question은 "한 번에 하나의 명령만 처리할 수 있습�
 출력: {"action": "add_room", "confidence": 0.3, "needs_clarification": true,
   "clarification_question": "어떤 종류의 방을 어떤 크기로 추가할까요? 예: 침실 4000x5000"}
 
-IFC 상태: {"spaces": [{"id": "sp-001", "name": "침실", "floor": 1, "width": 4000, "height": 5000, "locked": false}]}
+IFC 상태:
+{
+  "spaces": [
+    {"id": "sp-001", "name": "침실", "floor": 1, "width": 4000, "height": 5000, "locked": false}
+  ]
+}
 사용자 요청: "침실을 조금 더 넓게 해줘"
 출력: {"action": "resize_room", "target_room_name": "침실",
   "resize_shape": "rect", "resize_width": 4400, "resize_height": 5500,
@@ -165,7 +319,12 @@ IFC 상태 없음
 출력: {"action": "remove_room", "confidence": 0.5, "needs_clarification": true,
   "clarification_question": "한 번에 하나의 명령만 처리할 수 있습니다. 어떤 것을 먼저 할까요?"}
 
-IFC 상태: {"spaces": [{"id": "sp-001", "name": "거실", "floor": 1, "width": 6000, "height": 5000, "locked": true}]}
+IFC 상태:
+{
+  "spaces": [
+    {"id": "sp-001", "name": "거실", "floor": 1, "width": 6000, "height": 5000, "locked": true}
+  ]
+}
 사용자 요청: "거실 삭제해줘"
 출력: {"action": "remove_room", "target_room_name": "거실",
   "confidence": 0.95, "needs_clarification": true,
@@ -201,6 +360,10 @@ class FloorPlanEngine:
         ifc_context: IFCContext | None = None,
         conversation_history: list[ChatCompletionMessageParam] | None = None,
     ) -> FloorNLPCommand:
+        simple_remove = _maybe_parse_simple_remove_command(user_text)
+        if simple_remove is not None:
+            return simple_remove
+
         messages: list[ChatCompletionMessageParam] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
         if conversation_history:
@@ -244,6 +407,8 @@ class FloorPlanEngine:
                         "변경할 방 크기를 다시 알려주세요. 예: 4000x5000"
                     )
 
+            command = _recover_simple_remove_command(command, user_text)
+
             if command.confidence < 0.7 and not command.needs_clarification:
                 command.needs_clarification = True
                 if not command.clarification_question:
@@ -254,6 +419,9 @@ class FloorPlanEngine:
             return command
 
         except Exception as e:
+            recovered = _recover_command_from_exception(e, user_text, ifc_context)
+            if recovered is not None:
+                return recovered
             return FloorNLPCommand(
                 action="add_room",
                 confidence=0.0,

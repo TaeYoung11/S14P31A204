@@ -26,6 +26,16 @@ except ImportError:  # pragma: no cover
     unary_union = None
 
 
+_SPACE_TYPE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "living": ("거실", "living", "wohnen", "living room"),
+    "bedroom": ("침실", "안방", "bedroom", "schlafzimmer"),
+    "kitchen": ("주방", "부엌", "kitchen", "küche"),
+    "bathroom": ("욕실", "화장실", "bathroom", "bad", "wc"),
+    "office": ("서재", "사무실", "office", "buero", "büro"),
+    "corridor": ("복도", "corridor", "hall", "flur"),
+}
+
+
 def extract_ifc_context(ifc_path: str) -> IFCContext:
     """Open an IFC4 file and extract IFCContext."""
     ifc = ifcopenshell.open(ifc_path)
@@ -88,18 +98,28 @@ def _extract_spaces(
         placement = _get_placement_matrix(space)
         psets = ifcopenshell.util.element.get_psets(space)
         dims = psets.get("Batang_SpaceDimensions", {})
+        base_quantities = psets.get("BaseQuantities", {})
 
         width = _mm_from_custom_value(dims.get("Width"), min_value=2)
         height = _mm_from_custom_value(dims.get("Height"), min_value=2)
         rects = _parse_rects_json(dims.get("Rects"))
+        space_name = _extract_space_name(space, psets)
+        space_type = _extract_space_type(space, psets, dims)
 
         polygon = None
         if rects:
             polygon = _rects_to_polygon(rects)
         if not polygon:
+            polygon = _extract_space_footprint_polygon(space)
+        if not polygon:
             polygon = _extract_space_body_polygon(space)
         if not polygon and width is not None and height is not None:
-            polygon = [(0.0, 0.0), (float(width), 0.0), (float(width), float(height)), (0.0, float(height))]
+            polygon = [
+                (0.0, 0.0),
+                (float(width), 0.0),
+                (float(width), float(height)),
+                (0.0, float(height)),
+            ]
         if not polygon:
             continue
 
@@ -108,15 +128,19 @@ def _extract_spaces(
         if width is None or height is None:
             min_x, min_y, max_x, max_y = _bbox(world_polygon)
             if width is None:
-                width = int(round(max_x - min_x))
+                width = _mm_from_custom_value(base_quantities.get("Width"), min_value=2)
+                if width is None:
+                    width = int(round(max_x - min_x))
             if height is None:
-                height = int(round(max_y - min_y))
+                height = _mm_from_custom_value(base_quantities.get("Depth"), min_value=2)
+                if height is None:
+                    height = int(round(max_y - min_y))
 
         spaces.append(
             {
                 "id": space.GlobalId,
-                "name": space.Name or space.GlobalId,
-                "type": str(dims.get("SpaceType") or "other"),
+                "name": space_name,
+                "type": space_type,
                 "floor": floor,
                 "polygon": world_polygon,
                 "width": width,
@@ -150,8 +174,12 @@ def _extract_walls(
 
         psets = ifcopenshell.util.element.get_psets(wall)
         thickness = (
-            _mm_from_custom_value(psets.get("Batang_WallDimensions", {}).get("Thickness"), min_value=2)
-            or _mm_from_custom_value(psets.get("Pset_WallCommon", {}).get("Thickness"), min_value=2)
+            _mm_from_custom_value(
+                psets.get("Batang_WallDimensions", {}).get("Thickness"), min_value=2
+            )
+            or _mm_from_custom_value(
+                psets.get("Pset_WallCommon", {}).get("Thickness"), min_value=2
+            )
             or 200
         )
         space_ids = wall_to_spaces.get(wall.GlobalId, [])
@@ -364,7 +392,96 @@ def _extract_space_body_polygon(space: Any) -> list[tuple[float, float]] | None:
                     width = float(swept_area.XDim) * 1000.0
                     height = float(swept_area.YDim) * 1000.0
                     return [(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)]
+            if item.is_a("IfcFacetedBrep"):
+                polygon = _brep_to_footprint_polygon(item)
+                if polygon:
+                    return polygon
     return None
+
+
+def _extract_space_footprint_polygon(space: Any) -> list[tuple[float, float]] | None:
+    representation = getattr(space, "Representation", None)
+    if representation is None:
+        return None
+    for shape in representation.Representations or []:
+        if getattr(shape, "RepresentationIdentifier", None) != "FootPrint":
+            continue
+        for item in shape.Items or []:
+            if not item.is_a("IfcGeometricCurveSet"):
+                continue
+            for element in item.Elements or []:
+                if element.is_a("IfcPolyline") and len(element.Points) >= 3:
+                    return [
+                        (
+                            float(point.Coordinates[0]) * 1000.0,
+                            float(point.Coordinates[1]) * 1000.0,
+                        )
+                        for point in element.Points
+                    ]
+    return None
+
+
+def _brep_to_footprint_polygon(brep: Any) -> list[tuple[float, float]] | None:
+    shell = getattr(brep, "Outer", None)
+    if shell is None:
+        return None
+
+    candidates: list[list[tuple[float, float]]] = []
+    for face in shell.CfsFaces or []:
+        for bound in face.Bounds or []:
+            loop = getattr(bound, "Bound", None)
+            polygon = []
+            for point in getattr(loop, "Polygon", []) or []:
+                coords = tuple(getattr(point, "Coordinates", ()) or ())
+                if len(coords) < 2:
+                    continue
+                polygon.append((float(coords[0]) * 1000.0, float(coords[1]) * 1000.0))
+            if len(polygon) >= 3:
+                normalized = _normalize_polygon(polygon)
+                area = abs(_signed_area(normalized))
+                if area > 0:
+                    candidates.append(normalized)
+    if not candidates:
+        return None
+    return max(candidates, key=lambda polygon: abs(_signed_area(polygon)))
+
+
+def _extract_space_name(space: Any, psets: dict[str, Any]) -> str:
+    candidates = [
+        getattr(space, "LongName", None),
+        psets.get("Batang_SpaceDimensions", {}).get("Name"),
+        psets.get("ArchiCADProperties", {}).get("Raumname"),
+        getattr(space, "Name", None),
+        space.GlobalId,
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            normalized = candidate.strip()
+            if normalized:
+                return normalized
+    return space.GlobalId
+
+
+def _extract_space_type(space: Any, psets: dict[str, Any], dims: dict[str, Any]) -> str:
+    explicit = dims.get("SpaceType")
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+
+    candidates = [
+        getattr(space, "LongName", None),
+        psets.get("ArchiCADProperties", {}).get("Raumname"),
+        getattr(space, "Name", None),
+    ]
+    for candidate in candidates:
+        if not isinstance(candidate, str):
+            continue
+        lowered = candidate.strip().lower()
+        if not lowered:
+            continue
+        for space_type, keywords in _SPACE_TYPE_KEYWORDS.items():
+            if any(keyword in lowered for keyword in keywords):
+                return space_type
+    return "other"
 
 
 def _extract_wall_start_end(wall: Any) -> tuple[tuple[float, float], tuple[float, float]] | None:
@@ -525,7 +642,9 @@ def _union_outer_polygon(polygons: list[list[tuple[float, float]]]) -> list[tupl
             merged = unary_union(shape_polygons)
             if merged.geom_type == "MultiPolygon":
                 merged = max(merged.geoms, key=lambda geom: geom.area)
-            return _normalize_polygon([(float(x), float(y)) for x, y in merged.exterior.coords[:-1]])
+            return _normalize_polygon(
+                [(float(x), float(y)) for x, y in merged.exterior.coords[:-1]]
+            )
 
     all_points = [point for polygon in polygons for point in polygon]
     min_x, min_y, max_x, max_y = _bbox(all_points)
