@@ -1,5 +1,7 @@
 package com.a204.batang.domain.pin.service;
 
+import com.a204.batang.domain.auth.entity.UserStatus;
+import com.a204.batang.domain.auth.repository.MemberRepository;
 import com.a204.batang.domain.pin.dto.CreatePinRequest;
 import com.a204.batang.domain.pin.dto.CreatePinResponse;
 import com.a204.batang.domain.pin.dto.GetProjectPinsResponse;
@@ -51,6 +53,7 @@ public class ProjectPinService {
     private final ProjectPinRepository projectPinRepository;
     private final ProjectPinCommentRepository projectPinCommentRepository;
     private final ProjectPinReadStateRepository projectPinReadStateRepository;
+    private final MemberRepository memberRepository;
     private final ProjectAccessService projectAccessService;
     private final ApplicationEventPublisher applicationEventPublisher;
 
@@ -65,7 +68,7 @@ public class ProjectPinService {
     public CreatePinResponse createPin(UUID projectId, CreatePinRequest request) {
         Project project = getProjectOrThrow(projectId);
 
-        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        UUID currentUserId = resolveCurrentActiveUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(project, currentUserId);
 
         String normalizedTargetElementId = request.targetElementId().trim();
@@ -99,7 +102,7 @@ public class ProjectPinService {
     public UpdatePinPositionResponse updatePinPosition(UUID projectId, UUID pinId, UpdatePinPositionRequest request) {
         ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
 
-        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        UUID currentUserId = resolveCurrentActiveUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
         validatePinAuthorOrThrow(projectPin, currentUserId);
 
@@ -127,7 +130,7 @@ public class ProjectPinService {
     public ResolvePinResponse resolvePin(UUID projectId, UUID pinId) {
         ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
 
-        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        UUID currentUserId = resolveCurrentActiveUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
         LocalDateTime resolvedAt = LocalDateTime.now();
 
@@ -168,7 +171,7 @@ public class ProjectPinService {
     public void deletePin(UUID projectId, UUID pinId) {
         ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
 
-        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        UUID currentUserId = resolveCurrentActiveUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
         validatePinAuthorOrThrow(projectPin, currentUserId);
 
@@ -198,7 +201,7 @@ public class ProjectPinService {
         validatePaginationOrThrow(page, size);
 
         Project project = getProjectOrThrow(projectId);
-        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        UUID currentUserId = resolveCurrentActiveUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(project, currentUserId);
 
         Pageable pageable = PageRequest.of(
@@ -258,12 +261,8 @@ public class ProjectPinService {
     public void markPinsAsRead(UUID projectId) {
         Project project = getProjectOrThrow(projectId);
 
-        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        UUID currentUserId = resolveCurrentActiveUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(project, currentUserId);
-
-        if (currentUserId == null) {
-            return;
-        }
 
         LocalDateTime now = LocalDateTime.now();
         projectPinReadStateRepository.upsertLastReadState(projectId, currentUserId, now, now);
@@ -279,6 +278,31 @@ public class ProjectPinService {
     private Project getProjectOrThrow(UUID projectId) {
         return projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
+    }
+
+    /**
+     * 현재 로그인한 사용자가 활성 회원인지 검증하고 사용자 ID를 반환한다.
+     *
+     * @return 현재 활성 회원 사용자 ID
+     */
+    private UUID resolveCurrentActiveUserIdOrThrow() {
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
+        validateActiveMemberOrThrow(currentUserId);
+        return currentUserId;
+    }
+
+    /**
+     * 사용자 ID가 활성 회원에 해당하는지 검증한다.
+     *
+     * @param currentUserId 현재 사용자 ID
+     */
+    private void validateActiveMemberOrThrow(UUID currentUserId) {
+        boolean isActiveMember = memberRepository.findByUserIdAndStatus(currentUserId, UserStatus.ACTIVE).isPresent();
+        if (isActiveMember) {
+            return;
+        }
+
+        throw new CustomException(ErrorCode.UNAUTHORIZED, "유효한 회원 인증 정보가 아닙니다.");
     }
 
     /**
