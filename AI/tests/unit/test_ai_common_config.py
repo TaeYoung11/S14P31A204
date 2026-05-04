@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from ai_common.config import WorkerSettings, load_worker_settings, settings_to_env_dict
+from ai_common.config import S3Settings, WorkerSettings, load_worker_settings, settings_to_env_dict
 
 
 def _clear_worker_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -17,6 +17,7 @@ def _clear_worker_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "HEALTH_PORT",
         "RABBITMQ_URL",
         "S3_BUCKET_NAME",
+        "S3_BUCKET",
     ]:
         monkeypatch.delenv(key, raising=False)
 
@@ -37,7 +38,7 @@ def test_worker_settings_applies_defaults_and_ignores_unrelated_env(
     monkeypatch.setenv("WORKER_TYPE", "TWO_D_LLM")
     monkeypatch.setenv("WORKER_ID", "2d-llm-worker-1")
     monkeypatch.setenv("RABBITMQ_URL", "amqp://example")
-    monkeypatch.setenv("S3_BUCKET_NAME", "bucket-name")
+    monkeypatch.setenv("S3_BUCKET", "test-bucket")
 
     settings = WorkerSettings()
 
@@ -59,6 +60,7 @@ def test_load_worker_settings_and_settings_to_env_dict_round_trip() -> None:
         log_json=False,
         health_host="127.0.0.1",
         health_port=9090,
+        s3=S3Settings(bucket="test-bucket"),
     )
 
     assert settings_to_env_dict(settings) == {
