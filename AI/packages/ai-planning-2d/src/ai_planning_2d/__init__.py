@@ -10,6 +10,7 @@ from .command import (
 )
 from .context import AdjacencyEntry, FloorBoundary, FloorProject, Room
 from .engine import FloorPlanEngine
+from .ifc_extractor import extract_ifc_context
 from .pipeline import to_ifc_commands
 from .utils import shape_to_rects
 
@@ -30,6 +31,7 @@ __all__ = [
     "FloorProject",
     # engine
     "FloorPlanEngine",
+    "extract_ifc_context",
     # pipeline
     "to_ifc_commands",
     # utils
