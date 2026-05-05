@@ -2,6 +2,7 @@ package com.a204.batang.domain.ifcedit.controller;
 
 import com.a204.batang.domain.ifcedit.dto.IfcEditJobResponse;
 import com.a204.batang.domain.ifcedit.service.DirectIfcEditCommandService;
+import com.a204.batang.domain.ifcedit.service.ThreeDLlmIfcEditCommandService;
 import com.a204.batang.domain.ifcedit.service.TwoDLlmIfcEditCommandService;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
@@ -42,6 +43,9 @@ class IfcEditControllerTest {
     private TwoDLlmIfcEditCommandService twoDLlmIfcEditCommandService;
 
     @MockitoBean
+    private ThreeDLlmIfcEditCommandService threeDLlmIfcEditCommandService;
+
+    @MockitoBean
     private JpaMetamodelMappingContext jpaMetamodelMappingContext;
 
     @MockitoBean
@@ -49,6 +53,7 @@ class IfcEditControllerTest {
 
     private static final String DIRECT_URL = "/api/v1/projects/{projectId}/ifc-edit/direct";
     private static final String TWO_D_LLM_URL = "/api/v1/projects/{projectId}/ifc-edit/2d-llm";
+    private static final String THREE_D_LLM_URL = "/api/v1/projects/{projectId}/ifc-edit/3d-llm";
 
     private static final String DIRECT_REQUEST_BODY = """
             {
@@ -59,6 +64,13 @@ class IfcEditControllerTest {
             """;
 
     private static final String TWO_D_LLM_REQUEST_BODY = """
+            {
+              "baseRevisionId": "11111111-1111-1111-1111-111111111111",
+              "userInstruction": "벽을 추가해줘"
+            }
+            """;
+
+    private static final String THREE_D_LLM_REQUEST_BODY = """
             {
               "baseRevisionId": "11111111-1111-1111-1111-111111111111",
               "userInstruction": "벽을 추가해줘"
@@ -193,6 +205,57 @@ class IfcEditControllerTest {
         mockMvc.perform(post(TWO_D_LLM_URL, projectId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(TWO_D_LLM_REQUEST_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IFC_EDIT_SOURCE_NOT_FOUND"));
+    }
+
+    @Test
+    void threeDLlmIfcEdit_success_returns200() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID jobId = UUID.randomUUID();
+        UUID jobStepId = UUID.randomUUID();
+
+        given(threeDLlmIfcEditCommandService.createThreeDLlmIfcEdit(eq(projectId), any(), any()))
+                .willReturn(new IfcEditJobResponse(
+                        projectId, jobId, jobStepId, null, null,
+                        "THREE_D_TO_IFC_EDIT", "QUEUED", 0
+                ));
+
+        mockMvc.perform(post(THREE_D_LLM_URL, projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(THREE_D_LLM_REQUEST_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.message").value("IFC 편집 작업 등록 성공"))
+                .andExpect(jsonPath("$.data.projectId").value(projectId.toString()))
+                .andExpect(jsonPath("$.data.jobId").value(jobId.toString()))
+                .andExpect(jsonPath("$.data.jobType").value("THREE_D_TO_IFC_EDIT"))
+                .andExpect(jsonPath("$.data.status").value("QUEUED"))
+                .andExpect(jsonPath("$.data.progress").value(0));
+    }
+
+    @Test
+    void threeDLlmIfcEdit_conflict_returns409() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        given(threeDLlmIfcEditCommandService.createThreeDLlmIfcEdit(eq(projectId), any(), any()))
+                .willThrow(new CustomException(ErrorCode.IFC_EDIT_JOB_CONFLICT));
+
+        mockMvc.perform(post(THREE_D_LLM_URL, projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(THREE_D_LLM_REQUEST_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IFC_EDIT_JOB_CONFLICT"));
+    }
+
+    @Test
+    void threeDLlmIfcEdit_sourceNotFound_returns409() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        given(threeDLlmIfcEditCommandService.createThreeDLlmIfcEdit(eq(projectId), any(), any()))
+                .willThrow(new CustomException(ErrorCode.IFC_EDIT_SOURCE_NOT_FOUND));
+
+        mockMvc.perform(post(THREE_D_LLM_URL, projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(THREE_D_LLM_REQUEST_BODY))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("IFC_EDIT_SOURCE_NOT_FOUND"));
     }
