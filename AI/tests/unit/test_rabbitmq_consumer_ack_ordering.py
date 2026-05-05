@@ -66,6 +66,22 @@ def test_handler_success_acks_once(
     mock_message.reject.assert_not_called()
 
 
+def test_stop_after_one_sets_should_stop_after_successful_ack(
+    mock_message: MagicMock,
+) -> None:
+    consumer = RabbitMQConsumer(
+        settings=RabbitMQSettings(),
+        worker_type="SD_RENDER_GENERATE",
+        handler=MagicMock(),
+        stop_after=1,
+    )
+
+    consumer._on_message(_VALID_COMMAND, mock_message)
+
+    mock_message.ack.assert_called_once()
+    assert consumer.should_stop is True
+
+
 def test_handler_receives_validated_command_message(
     mock_message: MagicMock,
 ) -> None:
@@ -108,6 +124,7 @@ def test_handler_failure_nacks_with_requeue(
     mock_message.nack.assert_called_once_with(requeue=True)
     mock_message.ack.assert_not_called()
     mock_message.reject.assert_not_called()
+    assert consumer.should_stop is False
 
 
 def test_parse_failure_rejects_without_requeue(
@@ -131,3 +148,13 @@ def test_invalid_schema_version_rejects_without_requeue(
     mock_message.reject.assert_called_once_with(requeue=False)
     mock_message.ack.assert_not_called()
     mock_message.nack.assert_not_called()
+
+
+def test_invalid_stop_after_raises_value_error() -> None:
+    with pytest.raises(ValueError):
+        RabbitMQConsumer(
+            settings=RabbitMQSettings(),
+            worker_type="SD_RENDER_GENERATE",
+            handler=MagicMock(),
+            stop_after=0,
+        )
