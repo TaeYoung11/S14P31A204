@@ -11,6 +11,8 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+import static com.a204.batang.domain.ifcedit.IfcEditConstants.SCENE_TYPE_IFC_MODEL;
+
 @Entity
 @Getter
 @Table(name = "revision_scene_states")
@@ -47,7 +49,7 @@ public class RevisionSceneState {
         state.sceneStateId = sceneStateId;
         state.revisionId = revisionId;
         state.projectId = projectId;
-        state.sceneType = "IFC_MODEL";
+        state.sceneType = SCENE_TYPE_IFC_MODEL;
         state.storageUrl = storageUrl;
         state.createdAt = now;
         return state;

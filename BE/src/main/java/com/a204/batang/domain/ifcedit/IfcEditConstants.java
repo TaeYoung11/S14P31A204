@@ -35,6 +35,9 @@ public final class IfcEditConstants {
     public static final String ARTIFACT_TYPE_VALIDATION_REPORT = "VALIDATION_REPORT";
     public static final String ARTIFACT_TYPE_EDIT_PLAN = "EDIT_PLAN";
 
+    // Scene types
+    public static final String SCENE_TYPE_IFC_MODEL = "IFC_MODEL";
+
     public static final String SSE_IFC_EDIT_QUEUED = "IFC_EDIT_QUEUED";
     public static final String SSE_IFC_EDIT_STARTED = "IFC_EDIT_STARTED";
     public static final String SSE_IFC_EDIT_PROGRESS = "IFC_EDIT_PROGRESS";
