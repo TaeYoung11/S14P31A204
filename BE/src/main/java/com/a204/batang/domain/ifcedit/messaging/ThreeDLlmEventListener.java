@@ -49,7 +49,9 @@ public class ThreeDLlmEventListener {
     @RabbitListener(queues = RabbitMqConfig.BE_JOB_EVENTS_QUEUE)
     @Transactional
     public void handle(IfcEditEventMessage event) {
-        if (event == null || event.eventType() == null) return;
+        if (event == null || event.eventType() == null) {
+            throw new CustomException(ErrorCode.IFC_EDIT_EVENT_INVALID);
+        }
         if (!event.eventType().startsWith(EVENT_PREFIX_THREE_D_LLM)) return;
 
         log.info("3D LLM worker 이벤트를 수신했습니다. eventType={}, projectId={}, jobId={}, jobStepId={}",
