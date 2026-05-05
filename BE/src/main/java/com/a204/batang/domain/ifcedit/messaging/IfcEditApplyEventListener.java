@@ -8,7 +8,6 @@ import com.a204.batang.domain.ifcedit.entity.RevisionSceneState;
 import com.a204.batang.domain.ifcedit.messaging.dto.IfcEditCommandMessage;
 import com.a204.batang.domain.ifcedit.messaging.dto.IfcEditEventMessage;
 import com.a204.batang.domain.ifcedit.messaging.dto.IfcEditWorkerError;
-import com.a204.batang.domain.ifcedit.messaging.event.IfcEditCommandPublishRequestedEvent;
 import com.a204.batang.domain.ifcedit.messaging.event.IfcEditPublishFailedEvent;
 import com.a204.batang.domain.ifcedit.messaging.event.IfcEditStatusChangedEvent;
 import com.a204.batang.domain.ifcedit.repository.IfcEditArtifactRepository;
@@ -60,6 +59,7 @@ public class IfcEditApplyEventListener {
     private final IfcEditJobStepRepository ifcEditJobStepRepository;
     private final IfcEditArtifactRepository ifcEditArtifactRepository;
     private final RevisionSceneStateRepository revisionSceneStateRepository;
+    private final IfcEditCommandPublisher ifcEditCommandPublisher;
     private final NotificationSseService notificationSseService;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
@@ -130,7 +130,11 @@ public class IfcEditApplyEventListener {
                     message.attemptNo() + 1, message.maxAttempts(),
                     message.idempotencyKey(), message.correlationId(), message.createdAt()
             );
-            eventPublisher.publishEvent(new IfcEditCommandPublishRequestedEvent(retry));
+            try {
+                ifcEditCommandPublisher.publish(retry);
+            } catch (CustomException e) {
+                eventPublisher.publishEvent(new IfcEditPublishFailedEvent(retry, e.getMessage(), false));
+            }
             return;
         }
 
