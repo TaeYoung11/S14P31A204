@@ -7,7 +7,77 @@ single entry in _WORKER_TYPE_TO_QUEUE.
 
 from __future__ import annotations
 
-import kombu
+from dataclasses import dataclass
+from typing import Any
+
+try:
+    import kombu
+except Exception:  # pragma: no cover - exercised in local fallback only
+    class _MissingKombuChannel:
+        def __enter__(self) -> _MissingKombuChannel:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    class _MissingKombuConnection:
+        def __init__(self, *_: object, **__: object) -> None:
+            self._error = ModuleNotFoundError("kombu is required for RabbitMQ runtime")
+
+        def __enter__(self) -> _MissingKombuConnection:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            self.close()
+
+        def connect(self) -> None:
+            raise self._error
+
+        def channel(self) -> Any:
+            return _MissingKombuChannel()
+
+        def close(self) -> None:
+            return None
+
+    @dataclass(slots=True)
+    class _FallbackExchange:
+        name: str
+        type: str
+        durable: bool
+
+        def declare(self, *_: object, **__: object) -> None:
+            return None
+
+    @dataclass(slots=True)
+    class _FallbackQueue:
+        name: str
+        exchange: object
+        routing_key: str
+        durable: bool
+
+    class _FallbackConsumer:
+        pass
+
+    class _FallbackConsumerMixin:
+        should_stop: bool = False
+
+        def run(self) -> None:
+            raise ModuleNotFoundError("kombu is required for RabbitMQ runtime")
+
+    class _FallbackProducers(dict[Any, Any]):
+        pass
+
+    class _FallbackKombuModule:
+        Exchange = _FallbackExchange
+        Queue = _FallbackQueue
+        Connection = _MissingKombuConnection
+        Consumer = _FallbackConsumer
+        producers: dict[Any, Any] = _FallbackProducers()
+
+        class mixins:
+            ConsumerMixin = _FallbackConsumerMixin
+
+    kombu = _FallbackKombuModule()  # type: ignore[assignment]
 
 from ai_common.config import RabbitMQSettings
 

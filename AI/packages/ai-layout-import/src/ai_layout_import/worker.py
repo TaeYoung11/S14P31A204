@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -44,10 +45,10 @@ def run_layout_import_job(payload: dict[str, Any], output_path: str | Path) -> d
     }
 
 
-def _error_result(code: str, message: str, details: list[dict[str, Any]]) -> dict[str, Any]:
+def _error_result(code: str, message: str, details: Sequence[object]) -> dict[str, Any]:
     return {
         "ok": False,
         "code": code,
         "message": message,
-        "details": details,
+        "details": list(details),
     }
