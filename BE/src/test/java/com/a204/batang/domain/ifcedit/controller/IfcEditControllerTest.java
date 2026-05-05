@@ -120,7 +120,7 @@ class IfcEditControllerTest {
     }
 
     @Test
-    void directIfcEdit_sourceNotFound_returns404() throws Exception {
+    void directIfcEdit_sourceNotFound_returns409() throws Exception {
         UUID projectId = UUID.randomUUID();
         given(directIfcEditCommandService.createDirectIfcEdit(eq(projectId), any(), any()))
                 .willThrow(new CustomException(ErrorCode.IFC_EDIT_SOURCE_NOT_FOUND));
