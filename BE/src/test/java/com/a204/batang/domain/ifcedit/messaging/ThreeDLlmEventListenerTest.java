@@ -32,6 +32,7 @@ import java.util.UUID;
 import static com.a204.batang.domain.ifcedit.IfcEditConstants.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -107,7 +108,7 @@ class ThreeDLlmEventListenerTest {
         given(revisionRepository.findTopByProjectIdOrderByRevisionNoDesc(projectId))
                 .willReturn(Optional.empty());
         given(pathBuilder.buildOutputIfcStorageUrl(any(), any())).willReturn("projects/p/revisions/new/model.ifc");
-        given(pathBuilder.buildValidationReportStorageUrl(any(), any())).willReturn("jobs/j/steps/2/validation-report.json");
+        given(pathBuilder.buildValidationReportStorageUrl(any(), anyInt())).willReturn("jobs/j/steps/2/validation-report.json");
         given(pathBuilder.buildSceneSnapshotStorageUrl(any(), any())).willReturn("projects/p/revisions/new/scene-ifc.json");
 
         listener.handle(event);

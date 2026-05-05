@@ -39,6 +39,8 @@ import static com.a204.batang.domain.ifcedit.IfcEditConstants.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -96,7 +98,7 @@ class DirectIfcEditCommandServiceTest {
 
         given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId))
                 .willReturn(Optional.of(project));
-        given(ifcEditJobRepository.existsByProjectIdAndJobTypeInAndStatusIn(any(), any(), any()))
+        given(ifcEditJobRepository.existsByProjectIdAndJobTypeInAndStatusIn(any(UUID.class), anyCollection(), anyCollection()))
                 .willReturn(false);
         given(revisionRepository.findById(baseRevisionId))
                 .willReturn(Optional.of(sourceRevision));
@@ -104,7 +106,7 @@ class DirectIfcEditCommandServiceTest {
                 .willReturn(Optional.empty());
         given(pathBuilder.buildSourceIfcStorageUrl(any(), any())).willReturn("projects/p/revisions/r/model.ifc");
         given(pathBuilder.buildOutputIfcStorageUrl(any(), any())).willReturn("projects/p/revisions/new/model.ifc");
-        given(pathBuilder.buildValidationReportStorageUrl(any(), any())).willReturn("jobs/j/steps/1/validation-report.json");
+        given(pathBuilder.buildValidationReportStorageUrl(any(), anyInt())).willReturn("jobs/j/steps/1/validation-report.json");
         given(pathBuilder.buildSceneSnapshotStorageUrl(any(), any())).willReturn("projects/p/revisions/new/scene-ifc.json");
 
         IfcEditJobResponse response = service.createDirectIfcEdit(projectId, userId, request);
@@ -157,7 +159,7 @@ class DirectIfcEditCommandServiceTest {
 
         given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId))
                 .willReturn(Optional.of(project));
-        given(ifcEditJobRepository.existsByProjectIdAndJobTypeInAndStatusIn(any(), any(), any()))
+        given(ifcEditJobRepository.existsByProjectIdAndJobTypeInAndStatusIn(any(UUID.class), anyCollection(), anyCollection()))
                 .willReturn(true);
 
         assertThatThrownBy(() -> service.createDirectIfcEdit(projectId, userId, request))

@@ -64,6 +64,7 @@ class IfcEditApplyEventListenerTest {
     @Mock private IfcEditJobStepRepository ifcEditJobStepRepository;
     @Mock private IfcEditArtifactRepository ifcEditArtifactRepository;
     @Mock private RevisionSceneStateRepository revisionSceneStateRepository;
+    @Mock private IfcEditCommandPublisher ifcEditCommandPublisher;
     @Mock private NotificationSseService notificationSseService;
     @Mock private ApplicationEventPublisher eventPublisher;
 
@@ -260,7 +261,7 @@ class IfcEditApplyEventListenerTest {
 
         listener.handlePublishFailed(event);
 
-        verify(eventPublisher).publishEvent(any(IfcEditCommandPublishRequestedEvent.class));
+        verify(ifcEditCommandPublisher).publish(any(IfcEditCommandMessage.class));
         assertThat(job.getStatus()).isEqualTo("QUEUED");
         assertThat(step.getStatus()).isEqualTo("QUEUED");
         assertThat(revision.getStatus()).isEqualTo("CREATING");
