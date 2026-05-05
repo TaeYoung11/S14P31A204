@@ -3,9 +3,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from botocore.exceptions import ClientError
 
-from ai_common.adapters.storage.s3_client import S3Client
+from ai_common.adapters.storage.s3_client import ClientError, S3Client, resolve_s3_write_target
 from ai_common.config import S3Settings
 
 
@@ -113,3 +112,44 @@ def test_endpoint_url_none_excluded_from_boto3_kwargs() -> None:
         S3Client(settings)
         call_kwargs = mock_boto3.client.call_args.kwargs
         assert "endpoint_url" not in call_kwargs
+
+
+def test_write_bytes_to_ref_uses_explicit_s3_url_target(
+    s3_settings: S3Settings,
+    mock_boto3_client: MagicMock,
+) -> None:
+    client = S3Client(s3_settings)
+
+    target = client.write_bytes_to_ref("s3://other-bucket/path/model.ifc", b"ifc-data")
+
+    mock_boto3_client.put_object.assert_called_once_with(
+        Bucket="other-bucket",
+        Key="path/model.ifc",
+        Body=b"ifc-data",
+        ContentType="application/octet-stream",
+    )
+    assert target.reference == "s3://other-bucket/path/model.ifc"
+    assert target.canonical_url == "s3://other-bucket/path/model.ifc"
+
+
+def test_write_bytes_to_ref_uses_default_bucket_for_relative_key(
+    s3_settings: S3Settings,
+    mock_boto3_client: MagicMock,
+) -> None:
+    client = S3Client(s3_settings)
+
+    target = client.write_bytes_to_ref("projects/project-1/model.ifc", b"ifc-data")
+
+    mock_boto3_client.put_object.assert_called_once_with(
+        Bucket="test-bucket",
+        Key="projects/project-1/model.ifc",
+        Body=b"ifc-data",
+        ContentType="application/octet-stream",
+    )
+    assert target.reference == "projects/project-1/model.ifc"
+    assert target.canonical_url == "s3://test-bucket/projects/project-1/model.ifc"
+
+
+def test_resolve_s3_write_target_rejects_leading_slash_relative_key() -> None:
+    with pytest.raises(ValueError, match="leading slash"):
+        resolve_s3_write_target("/projects/project-1/model.ifc", "test-bucket")
