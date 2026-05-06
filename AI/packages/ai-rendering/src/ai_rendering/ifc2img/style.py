@@ -23,6 +23,7 @@ FRONT_SIDE_NEGATIVE_TERMS = (
     "stone wall, retaining wall, raised foundation, pedestal, plinth, "
     "basement windows, stairs below facade, extra lower floor"
 )
+EYE_NEGATIVE_TERMS = "pool, water, reflection, mirror floor"
 FRONT_SIDE_WEIGHTED_NEGATIVE_TERMS = (
     "(stone wall:1.2), (retaining wall:1.25), (raised platform:1.2)"
 )
@@ -643,6 +644,11 @@ class DepthStyleRenderer:
             negative_prompt = _append_negative_terms(
                 negative_prompt,
                 front_side_negative,
+            )
+        if view in {IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE}:
+            negative_prompt = _append_negative_terms(
+                negative_prompt,
+                EYE_NEGATIVE_TERMS,
             )
 
         try:

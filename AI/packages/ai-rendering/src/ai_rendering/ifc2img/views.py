@@ -111,16 +111,16 @@ VIEW_PROMPT_PREFIXES: dict[IFCView, str] = {
     ),
     IFCView.SIDE: "side facade at ground line, no foundation wall",
     IFCView.EYE_NE: (
-        "eye-level diagonal view, building on flat ground, "
-        "foreground ground fills frame, horizon behind house, not aerial"
+        "eye-level diagonal view, dry ground around house, "
+        "building on flat ground, no pool, not aerial"
     ),
     IFCView.EYE_NW: (
-        "eye-level diagonal view, building on flat ground, "
-        "foreground ground fills frame, horizon behind house, not aerial"
+        "eye-level diagonal view, dry ground around house, "
+        "building on flat ground, no pool, not aerial"
     ),
     IFCView.EYE_SE: (
-        "eye-level diagonal view, building on flat ground, "
-        "foreground ground fills frame, horizon behind house, not aerial"
+        "eye-level diagonal view, dry ground around house, "
+        "building on flat ground, no pool, not aerial"
     ),
 }
 
