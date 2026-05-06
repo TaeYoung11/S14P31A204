@@ -278,7 +278,7 @@ class IfcEditControllerTest {
     }
 
     @Test
-    void chatCommand_sourceNotFound_returns409() throws Exception {
+    void chatCommand_sourceNotFound_returns409Conflict() throws Exception {
         UUID projectId = UUID.randomUUID();
         given(chatCommandService.createChatCommand(eq(projectId), any(), any()))
                 .willThrow(new CustomException(ErrorCode.IFC_EDIT_SOURCE_NOT_FOUND));
