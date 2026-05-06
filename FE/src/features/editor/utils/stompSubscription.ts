@@ -1,4 +1,5 @@
 import type { Client, IMessage, StompSubscription } from '@stomp/stompjs'
+import { hasStompAccessToken } from '@/shared/lib/stomp'
 
 export interface StompTopicSubscription {
   destination: string
@@ -37,6 +38,11 @@ export const subscribeStompTopicsWithPolling = ({
   }
 
   if (!client.active) {
+    if (!hasStompAccessToken()) {
+      return () => {
+        isDisposed = true
+      }
+    }
     client.activate()
   }
 
