@@ -301,7 +301,16 @@ def test_ifc_generate_worker_rejects_legacy_ifc_storage_path() -> None:
     assert publisher.events[1].error is not None
     assert publisher.events[1].error.code == "invalid_ifc_storage_url"
     assert storage.binary_uploads == []
-    assert storage.text_uploads == []
+    assert (
+        storage.text_uploads[0][0]
+        == (
+            "projects/project-layout-001/jobs/job-ifc-generate-001/"
+            "steps/001/engine/validation-report.v1.json"
+        )
+    )
+    report = json.loads(storage.text_uploads[0][1])
+    assert report["status"] == "failed"
+    assert report["error"]["code"] == "invalid_ifc_storage_url"
 
 
 def test_ifc_generate_worker_rejects_validation_report_without_project_prefix() -> None:
