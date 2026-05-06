@@ -99,7 +99,7 @@ public class ProjectAccessService {
     }
 
     /**
-     * 프로젝트 소유자 권한을 검증한다.
+     * 프로젝트 소유자 권한인지 검증한다.
      *
      * @param project 프로젝트
      * @param currentUserId 현재 사용자 ID
@@ -138,6 +138,19 @@ public class ProjectAccessService {
         if (!isInvitedMember) {
             throw new CustomException(ErrorCode.FORBIDDEN_ACCESS, "해당 프로젝트 접근 권한이 없습니다.");
         }
+    }
+
+    /**
+     * 프로젝트 ID 기준으로 핀/댓글 작성 가능한 멤버인지 검증한다.
+     * STOMP 통신처럼 projectId만 전달되는 진입점에서 사용한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param currentUserId 현재 사용자 ID
+     */
+    public void validateProjectPinWriterOrThrow(UUID projectId, UUID currentUserId) {
+        Project project = projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)
+                .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
+        validateProjectPinWriterOrThrow(project, currentUserId);
     }
 
     /**

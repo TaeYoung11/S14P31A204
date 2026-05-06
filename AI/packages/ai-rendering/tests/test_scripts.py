@@ -27,7 +27,7 @@ def _load_script(name: str) -> ModuleType:
     return module
 
 
-# --- 피드백 3 (외부 코드 리뷰 라운드 3) — _display_path 외부 경로 fallback ---
+# --- _display_path 외부 경로 fallback ---
 
 
 @pytest.mark.parametrize(
@@ -53,9 +53,8 @@ def test_display_path_returns_relative_for_root_internal_path(script_name: str) 
 def test_display_path_returns_absolute_for_root_external_path(script_name: str) -> None:
     """ROOT 바깥 경로는 절대경로 그대로 반환 — ValueError 안 남.
 
-    피드백 3 (2026-05-04): 이전 구현은 `out_path.relative_to(ROOT)`이 ROOT 바깥
-    경로(예: D:/some/dir)에서 ValueError로 프로세스 죽음 — try/except fallback
-    으로 우아하게 절대경로 떨어뜨림.
+    `out_path.relative_to(ROOT)`이 ROOT 바깥 경로(예: 다른 드라이브)에서 ValueError로
+    프로세스가 죽으므로 try/except로 fallback해 절대경로 그대로 출력한다.
     """
     m = _load_script(script_name)
 

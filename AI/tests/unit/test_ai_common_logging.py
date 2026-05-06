@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ai_common.config import WorkerSettings
+from ai_common.config import S3Settings, WorkerSettings
 from ai_common.context import RequestContext
 from ai_common.logging import (
     bind_request_logger,
@@ -16,6 +16,7 @@ def _settings(*, log_json: bool) -> WorkerSettings:
         worker_type="TWO_D_LLM",
         worker_id="2d-llm-worker-1",
         log_json=log_json,
+        s3=S3Settings(bucket="test-bucket"),
     )
 
 

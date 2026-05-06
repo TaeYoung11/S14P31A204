@@ -62,10 +62,10 @@ class WorkspaceRealtimeServiceTest {
 
         workspaceRealtimeService = new WorkspaceRealtimeService(
                 projectWorkspaceRepository,
+                projectAccessService,
                 workspaceBubbleSnapshotRedisRepository,
                 bubbleSnapshotHelper,
-                simpMessagingTemplate,
-                projectAccessService
+                simpMessagingTemplate
         );
 
         projectId = UUID.randomUUID();
@@ -102,7 +102,7 @@ class WorkspaceRealtimeServiceTest {
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
                 .willReturn(Optional.of(workspace));
 
-        workspaceRealtimeService.updateBubbleDraft(projectId, request, currentUserId);
+        workspaceRealtimeService.updateBubbleDraft(projectId, currentUserId, request);
 
         ArgumentCaptor<JsonNode> snapshotCaptor = ArgumentCaptor.forClass(JsonNode.class);
         verify(workspaceBubbleSnapshotRedisRepository).saveSnapshot(eq(projectId), snapshotCaptor.capture(), eq(0));
@@ -133,7 +133,7 @@ class WorkspaceRealtimeServiceTest {
                 .when(workspaceBubbleSnapshotRedisRepository)
                 .saveSnapshot(eq(projectId), any(JsonNode.class), anyInt());
 
-        assertThatThrownBy(() -> workspaceRealtimeService.updateBubbleDraft(projectId, request, currentUserId))
+        assertThatThrownBy(() -> workspaceRealtimeService.updateBubbleDraft(projectId, currentUserId, request))
                 .isInstanceOf(CustomException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.WORKSPACE_BUBBLE_CACHE_SAVE_FAILED);
@@ -149,7 +149,7 @@ class WorkspaceRealtimeServiceTest {
                 .when(workspaceBubbleSnapshotRedisRepository)
                 .saveSnapshot(eq(projectId), any(JsonNode.class), anyInt());
 
-        assertThatThrownBy(() -> workspaceRealtimeService.updateBubbleDraft(projectId, request, currentUserId))
+        assertThatThrownBy(() -> workspaceRealtimeService.updateBubbleDraft(projectId, currentUserId, request))
                 .isInstanceOf(CustomException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.WORKSPACE_BUBBLE_HISTORY_CURSOR_INVALID);

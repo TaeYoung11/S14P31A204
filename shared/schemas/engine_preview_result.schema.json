@@ -43,7 +43,7 @@
     },
     "status": {
       "type": "string",
-      "enum": ["preview_ready", "invalid_request", "not_found", "rejected"]
+      "enum": ["preview_ready", "needs_clarification", "invalid_request", "not_found", "rejected"]
     },
     "ok": {
       "type": "boolean"
@@ -58,6 +58,12 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/engineIssue"
+      }
+    },
+    "clarification_questions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/clarificationQuestion"
       }
     }
   },
@@ -83,7 +89,7 @@
       "if": {
         "properties": {
           "status": {
-            "enum": ["invalid_request", "not_found", "rejected"]
+            "enum": ["invalid_request", "not_found", "rejected", "needs_clarification"]
           }
         },
         "required": ["status"]
@@ -231,6 +237,61 @@
         "summary": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "clarificationOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "value"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "clarificationQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger", "question_ko", "options", "context"],
+      "properties": {
+        "trigger": {
+          "type": "string",
+          "enum": [
+            "duplicate_element",
+            "load_bearing_delete",
+            "no_support_below",
+            "custom"
+          ]
+        },
+        "question_ko": {
+          "type": "string",
+          "minLength": 1
+        },
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/clarificationOption"
+          }
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "is_blocking": {
+          "type": "boolean"
         }
       }
     },

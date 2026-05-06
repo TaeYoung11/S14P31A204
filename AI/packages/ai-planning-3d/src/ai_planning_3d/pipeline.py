@@ -23,6 +23,7 @@ from ai_authoring.engine_3d import (
 )
 
 # 검증 모듈 및 컨텍스트 추출기 임포트
+from .clarification import ClarificationGenerator, ClarificationQuestion
 from .context_extractor import IFCContextExtractor
 from .validators import (
     CollisionValidator,
@@ -62,6 +63,7 @@ class PreviewSession:
         self.collision_warnings: list[str] = collision_warnings or []
         self.structural_warnings: list[str] = structural_warnings or []
         self.structural_blocked: bool = structural_blocked
+        self.clarification_questions: list[ClarificationQuestion] = []
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -476,31 +478,31 @@ class LLM3DPipeline:
             ci.ridge_height_mm = ci_dump["ridge_height_mm"]
 
         # ── 충돌 검사 ────────────────────────────────────────────
+        collision_result: CollisionResult | None = None
         collision_warnings: list[str] = []
         if self._collision_validator:
-            collision_result: CollisionResult = self._collision_validator.validate(
-                ci_dump, target_storey
-            )
+            collision_result = self._collision_validator.validate(ci_dump, target_storey)
             collision_warnings = collision_result.to_summary_lines()
             if not collision_result.is_ok:
-                logger.warning(
-                    f"[Pipeline] CREATE 충돌 감지: {collision_warnings}"
-                )
+                logger.warning(f"[Pipeline] CREATE 충돌 감지: {collision_warnings}")
 
         # ── 구조 지지체 검사 (슬래브/지붕) ─────────────────────
+        structural_result: StructuralCheckResult | None = None
         structural_warnings: list[str] = []
         if self._structural_validator:
-            structural_result: StructuralCheckResult = (
-                self._structural_validator.check_create_support(ci_dump, target_storey)
+            structural_result = self._structural_validator.check_create_support(
+                ci_dump, target_storey
             )
             structural_warnings = structural_result.to_summary_lines()
             if not structural_result.safe:
-                logger.warning(
-                    f"[Pipeline] CREATE 구조 경고: {structural_warnings}"
-                )
+                logger.warning(f"[Pipeline] CREATE 구조 경고: {structural_warnings}")
 
-        # 충돌이 있어도 preview_ready는 유지 (사용자에게 경고만 표시)
-        # 정책에 따라 collision_result.has_collision 이면 차단으로 변경 가능
+        # ── Clarification 생성 ──────────────────────────────────
+        questions = ClarificationGenerator().generate(
+            collision_result=collision_result,
+            structural_result=structural_result,
+        )
+
         session = PreviewSession(
             session_id=str(uuid.uuid4()),
             command=command,
@@ -515,14 +517,25 @@ class LLM3DPipeline:
             collision_warnings=collision_warnings,
             structural_warnings=structural_warnings,
         )
+        session.clarification_questions = questions
         self.store[session.session_id] = session
+
+        if questions:
+            return {
+                "status": "needs_clarification",
+                "session_id": session.session_id,
+                "command": command.model_dump(),
+                "summary": "생성 전 확인이 필요합니다.",
+                "clarification_questions": [q.to_dict() for q in questions],
+                "collision_warnings": collision_warnings,
+                "structural_warnings": structural_warnings,
+            }
 
         return {
             "status": "preview_ready",
             "session_id": session.session_id,
             "command": command.model_dump(),
             "summary": f"{target_storey.Name}에 {ci.element_type} 생성 준비 완료",
-            # 검증 결과 포함
             "collision_warnings": collision_warnings,
             "structural_warnings": structural_warnings,
         }
