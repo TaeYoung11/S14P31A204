@@ -1,6 +1,7 @@
 package com.a204.batang.domain.ifcedit.controller;
 
 import com.a204.batang.domain.ifcedit.dto.IfcEditJobResponse;
+import com.a204.batang.domain.ifcedit.service.ChatCommandService;
 import com.a204.batang.domain.ifcedit.service.DirectIfcEditCommandService;
 import com.a204.batang.domain.ifcedit.service.ThreeDLlmIfcEditCommandService;
 import com.a204.batang.domain.ifcedit.service.TwoDLlmIfcEditCommandService;
@@ -37,6 +38,9 @@ class IfcEditControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
+    private ChatCommandService chatCommandService;
+
+    @MockitoBean
     private DirectIfcEditCommandService directIfcEditCommandService;
 
     @MockitoBean
@@ -52,6 +56,7 @@ class IfcEditControllerTest {
     private JwtAuthFilter jwtAuthFilter;
 
     private static final String DIRECT_URL = "/api/v1/projects/{projectId}/ifc-edit/direct";
+    private static final String CHAT_COMMAND_URL = "/api/v1/projects/{projectId}/chat-commands";
     private static final String TWO_D_LLM_URL = "/api/v1/projects/{projectId}/ifc-edit/2d-llm";
     private static final String THREE_D_LLM_URL = "/api/v1/projects/{projectId}/ifc-edit/3d-llm";
 
@@ -74,6 +79,28 @@ class IfcEditControllerTest {
             {
               "baseRevisionId": "11111111-1111-1111-1111-111111111111",
               "userInstruction": "벽을 추가해줘"
+            }
+            """;
+
+    private static final String CHAT_COMMAND_TWO_D_REQUEST_BODY = """
+            {
+              "sceneType": "TWO_D",
+              "baseRevisionId": "11111111-1111-1111-1111-111111111111",
+              "sourceSceneType": "IFC_MODEL",
+              "message": "벽을 추가해줘",
+              "sourceSceneStorageUrl": "projects/p/scene-states/s/2d/snapshot.v1.json"
+            }
+            """;
+
+    private static final String CHAT_COMMAND_THREE_D_REQUEST_BODY = """
+            {
+              "sceneType": "THREE_D",
+              "baseRevisionId": "11111111-1111-1111-1111-111111111111",
+              "sourceSceneType": "IFC_MODEL",
+              "message": "빈 공간을 채워줘",
+              "sourceScene": {
+                "nodes": []
+              }
             }
             """;
 
@@ -104,6 +131,176 @@ class IfcEditControllerTest {
                 .andExpect(jsonPath("$.data.jobType").value(JOB_TYPE_IFC_EDIT))
                 .andExpect(jsonPath("$.data.status").value("QUEUED"))
                 .andExpect(jsonPath("$.data.progress").value(0));
+    }
+
+    @Test
+    void chatCommand_twoD_success_returns200() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID jobId = UUID.randomUUID();
+        UUID jobStepId = UUID.randomUUID();
+
+        given(chatCommandService.createChatCommand(eq(projectId), any(), any()))
+                .willReturn(new IfcEditJobResponse(
+                        projectId, jobId, jobStepId, null, null,
+                        "TWO_D_TO_IFC_EDIT", "QUEUED", 0
+                ));
+
+        mockMvc.perform(post(CHAT_COMMAND_URL, projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CHAT_COMMAND_TWO_D_REQUEST_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.message").value("채팅 편집 작업 등록 성공"))
+                .andExpect(jsonPath("$.data.projectId").value(projectId.toString()))
+                .andExpect(jsonPath("$.data.jobId").value(jobId.toString()))
+                .andExpect(jsonPath("$.data.jobType").value("TWO_D_TO_IFC_EDIT"))
+                .andExpect(jsonPath("$.data.status").value("QUEUED"))
+                .andExpect(jsonPath("$.data.progress").value(0));
+    }
+
+    @Test
+    void chatCommand_threeD_success_returns200() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID jobId = UUID.randomUUID();
+        UUID jobStepId = UUID.randomUUID();
+
+        given(chatCommandService.createChatCommand(eq(projectId), any(), any()))
+                .willReturn(new IfcEditJobResponse(
+                        projectId, jobId, jobStepId, null, null,
+                        "THREE_D_TO_IFC_EDIT", "QUEUED", 0
+                ));
+
+        mockMvc.perform(post(CHAT_COMMAND_URL, projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CHAT_COMMAND_THREE_D_REQUEST_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.message").value("채팅 편집 작업 등록 성공"))
+                .andExpect(jsonPath("$.data.projectId").value(projectId.toString()))
+                .andExpect(jsonPath("$.data.jobId").value(jobId.toString()))
+                .andExpect(jsonPath("$.data.jobType").value("THREE_D_TO_IFC_EDIT"))
+                .andExpect(jsonPath("$.data.status").value("QUEUED"))
+                .andExpect(jsonPath("$.data.progress").value(0));
+    }
+
+    @Test
+    void chatCommand_missingSceneType_returns400() throws Exception {
+        UUID projectId = UUID.randomUUID();
+
+        mockMvc.perform(post(CHAT_COMMAND_URL, projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "baseRevisionId": "11111111-1111-1111-1111-111111111111",
+                                  "sourceSceneType": "IFC_MODEL",
+                                  "message": "벽을 추가해줘",
+                                  "sourceSceneStorageUrl": "projects/p/scene-states/s/2d/snapshot.v1.json"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_INVALID_REQUEST"));
+    }
+
+    @Test
+    void chatCommand_invalidSceneType_returns400() throws Exception {
+        UUID projectId = UUID.randomUUID();
+
+        mockMvc.perform(post(CHAT_COMMAND_URL, projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "sceneType": "two_d",
+                                  "baseRevisionId": "11111111-1111-1111-1111-111111111111",
+                                  "sourceSceneType": "IFC_MODEL",
+                                  "message": "벽을 추가해줘",
+                                  "sourceSceneStorageUrl": "projects/p/scene-states/s/2d/snapshot.v1.json"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_INVALID_REQUEST"));
+    }
+
+    @Test
+    void chatCommand_missingSceneSource_returns400() throws Exception {
+        UUID projectId = UUID.randomUUID();
+
+        mockMvc.perform(post(CHAT_COMMAND_URL, projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "sceneType": "TWO_D",
+                                  "baseRevisionId": "11111111-1111-1111-1111-111111111111",
+                                  "sourceSceneType": "IFC_MODEL",
+                                  "message": "벽을 추가해줘"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_INVALID_REQUEST"));
+    }
+
+    @Test
+    void chatCommand_projectNotFound_returns404() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        given(chatCommandService.createChatCommand(eq(projectId), any(), any()))
+                .willThrow(new CustomException(ErrorCode.PROJECT_NOT_FOUND));
+
+        mockMvc.perform(post(CHAT_COMMAND_URL, projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CHAT_COMMAND_TWO_D_REQUEST_BODY))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PROJECT_NOT_FOUND"));
+    }
+
+    @Test
+    void chatCommand_forbidden_returns403() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        given(chatCommandService.createChatCommand(eq(projectId), any(), any()))
+                .willThrow(new CustomException(ErrorCode.FORBIDDEN_ACCESS));
+
+        mockMvc.perform(post(CHAT_COMMAND_URL, projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CHAT_COMMAND_TWO_D_REQUEST_BODY))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON_FORBIDDEN_ACCESS"));
+    }
+
+    @Test
+    void chatCommand_conflict_returns409() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        given(chatCommandService.createChatCommand(eq(projectId), any(), any()))
+                .willThrow(new CustomException(ErrorCode.IFC_EDIT_JOB_CONFLICT));
+
+        mockMvc.perform(post(CHAT_COMMAND_URL, projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CHAT_COMMAND_TWO_D_REQUEST_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IFC_EDIT_JOB_CONFLICT"));
+    }
+
+    @Test
+    void chatCommand_sourceNotFound_returns409Conflict() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        given(chatCommandService.createChatCommand(eq(projectId), any(), any()))
+                .willThrow(new CustomException(ErrorCode.IFC_EDIT_SOURCE_NOT_FOUND));
+
+        mockMvc.perform(post(CHAT_COMMAND_URL, projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CHAT_COMMAND_TWO_D_REQUEST_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IFC_EDIT_SOURCE_NOT_FOUND"));
+    }
+
+    @Test
+    void chatCommand_publishFailed_returns502() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        given(chatCommandService.createChatCommand(eq(projectId), any(), any()))
+                .willThrow(new CustomException(ErrorCode.IFC_EDIT_COMMAND_PUBLISH_FAILED));
+
+        mockMvc.perform(post(CHAT_COMMAND_URL, projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CHAT_COMMAND_TWO_D_REQUEST_BODY))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("IFC_EDIT_COMMAND_PUBLISH_FAILED"));
     }
 
     @Test
