@@ -1418,6 +1418,11 @@ export function useEditorPage() {
     }))
   }, [])
 
+  const handleDeleteIfcElement = useCallback((element: IfcElementInfo) => {
+    recordIfcElementChange(element, { deleted: true })
+    setSelectedIfcElement((prev) => (prev?.id === element.id ? null : prev))
+  }, [recordIfcElementChange])
+
   const handleTwoDMarqueeSelect = useCallback(
     (
       payload: { roomIds: string[]; wallIds: string[]; openingIds: string[] },
@@ -2403,6 +2408,7 @@ export function useEditorPage() {
   return {
     // 모드
     mode,
+    projectId,
     currentProjectName,
     setMode,
     phaseStatus,
@@ -2426,6 +2432,7 @@ export function useEditorPage() {
     selectedIfcElement: mode === '3d' ? selectedIfcElement : null,
     handleBubbleSelect,
     handleSelectIfcElement,
+    handleDeleteIfcElement,
     handleBubbleDrag: handleBubbleDragInBubble,
     handleMarqueeSelect,
     handleTwoDMarqueeSelect,

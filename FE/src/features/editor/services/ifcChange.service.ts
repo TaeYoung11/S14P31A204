@@ -214,6 +214,17 @@ const patchRectangularGeometry = (
   return nextText
 }
 
+const replaceIfcProductWithDeletedProxy = (ifcText: string, expressId: number) => {
+  const pattern = new RegExp(`#${expressId}=IFC[A-Z0-9]+\\('([^']*)',[^;]*;`, 'i')
+  const match = ifcText.match(pattern)
+  if (!match) return ifcText
+  const globalId = match[1] || `deleted-${expressId}`
+  return ifcText.replace(
+    pattern,
+    `#${expressId}=IFCBUILDINGELEMENTPROXY('${globalId}',$,'Deleted IFC Element',$,$,$,$,$,$);`,
+  )
+}
+
 const indexStyledColorIdsByElement = (ifcText: string) => {
   const shapeRepresentationItemsById: Record<number, number[]> = {}
   const productShapeRepresentationsById: Record<number, number[]> = {}
@@ -295,6 +306,11 @@ export const patchIfcTextForElementChanges = (ifcText: string, changes: IfcEleme
   let nextText = ifcText
 
   changes.forEach((change) => {
+    if (change.deleted) {
+      nextText = replaceIfcProductWithDeletedProxy(nextText, change.expressId)
+      return
+    }
+
     const pset = psetIndex[change.expressId]
     if (!pset) return
 

@@ -3,6 +3,7 @@ import type { EditorPageViewModel } from './editorPageViewModel'
 /** 공통 캔버스 렌더링 컨텍스트 */
 type CanvasContextProps = Pick<
   EditorPageViewModel,
+  | 'projectId'
   | 'mode'
   | 'containerRef'
   | 'stageSize'
@@ -56,6 +57,7 @@ type FloorPlanCanvasProps = Pick<
   | 'canGenerateFloorPlanFromBubble'
   | 'handleBubbleSelect'
   | 'handleSelectIfcElement'
+  | 'handleDeleteIfcElement'
   | 'selectedIfcElement'
   | 'ifcElementChanges'
 >

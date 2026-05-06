@@ -4,6 +4,7 @@ import ThatOpenIfcCanvas from './ThatOpenIfcCanvas'
 import ThreeDLibraryPanel, { type ThreeDLibraryPreset } from './ThreeDLibraryPanel'
 
 interface ThreeDCanvasProps {
+  projectId?: string | null
   sitePoints?: number[]
   isCollaborationMode?: boolean
   isLibraryOpen?: boolean
@@ -20,6 +21,7 @@ interface ThreeDCanvasProps {
   ifcElementChanges?: IfcElementChange[]
   selectedIfcElement?: IfcElementInfo | null
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
+  onIfcElementDelete?: (element: IfcElementInfo) => void
 }
 
 // TODO: Replace this mock file with the project model API URL when backend model storage is connected.
@@ -73,12 +75,14 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
     >
       <ThatOpenIfcCanvas
         ifcUrl={MOCK_IFC_URL}
+        projectId={props.projectId}
         libraryElements={libraryElements}
         ifcElementChanges={props.ifcElementChanges ?? []}
         isRotationLocked={props.isRotationLocked ?? false}
         zoomScale={props.scale ?? 1}
         selectedIfcElement={props.selectedIfcElement}
         onIfcElementSelect={props.onIfcElementSelect}
+        onIfcElementDelete={props.onIfcElementDelete}
         onLibraryElementChange={handleLibraryElementChange}
         onLibraryElementDelete={handleLibraryElementDelete}
       />

@@ -4,6 +4,7 @@ import type { IfcElementChange, IfcElementInfo } from '../../types'
 import {
   patchIfcTextForMaterialDefaults,
 } from '../../services/ifcChange.service'
+import { projectService } from '@/features/project/services/project.service'
 import type { ThreeDLibraryPreset } from './ThreeDLibraryPanel'
 import {
   DEFAULT_IFC_COLOR_BY_CATEGORY,
@@ -11,6 +12,7 @@ import {
   applyObjectColor,
   applyObjectMaterial,
   createElementMaterial,
+  getMaterialDefaultColor,
   type ThreeModule,
 } from './thatopen/ifcMaterials'
 import {
@@ -30,12 +32,14 @@ import {
 
 interface ThatOpenIfcCanvasProps {
   ifcUrl: string
+  projectId?: string | null
   libraryElements: ThreeDLibraryPreset[]
   ifcElementChanges: IfcElementChange[]
   isRotationLocked: boolean
   zoomScale: number
   selectedIfcElement?: IfcElementInfo | null
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
+  onIfcElementDelete?: (element: IfcElementInfo) => void
   onLibraryElementChange?: (id: string, patch: Partial<ThreeDLibraryPreset>) => void
   onLibraryElementDelete?: (id: string) => void
 }
@@ -95,6 +99,7 @@ type ThatOpenSceneState = {
   contentGroup: import('three').Group
   ifcEditGroup: import('three').Group
   ifcObject: Object3D
+  modelId: string
   worldUnitsPerMm: number
   worldCamera?: {
     fitToItems?: () => Promise<void> | void
@@ -130,6 +135,41 @@ const getElementMaterialSignature = (element?: IfcElementInfo | null) => [
   element?.id ?? '',
   element?.material ?? '',
 ].join(':')
+
+const FALLBACK_IFC_MODEL_ID = 'mock-shinchan-house'
+
+const getRuntimeIfcModelId = (projectId?: string | null) => (
+  projectId ? `project-${projectId}` : FALLBACK_IFC_MODEL_ID
+)
+
+const fetchIfcText = async (ifcUrl: string) => {
+  const response = await fetch(ifcUrl)
+  if (!response.ok) {
+    throw new Error(`IFC file load failed. (${response.status})`)
+  }
+  return response.text()
+}
+
+const resolveIfcText = async (projectId: string | null | undefined, fallbackIfcUrl: string) => {
+  if (projectId) {
+    const projectIfcSource = await projectService.getIfcSource(projectId).catch(() => null)
+    const projectIfcUrl = projectIfcSource?.currentIfcUrl
+    if (projectIfcUrl) {
+      const projectIfcText = await fetchIfcText(projectIfcUrl).catch(() => null)
+      if (projectIfcText?.trim()) {
+        return {
+          ifcText: projectIfcText,
+          modelId: getRuntimeIfcModelId(projectId),
+        }
+      }
+    }
+  }
+
+  return {
+    ifcText: await fetchIfcText(fallbackIfcUrl),
+    modelId: FALLBACK_IFC_MODEL_ID,
+  }
+}
 
 const setCameraClipping = (
   camera: import('three').PerspectiveCamera | import('three').OrthographicCamera,
@@ -425,12 +465,14 @@ const attachIfcTransformProxy = async (
 
 export default function ThatOpenIfcCanvas({
   ifcUrl,
+  projectId,
   libraryElements,
   ifcElementChanges,
   isRotationLocked,
   zoomScale,
   selectedIfcElement,
   onIfcElementSelect,
+  onIfcElementDelete,
   onLibraryElementChange,
   onLibraryElementDelete,
 }: ThatOpenIfcCanvasProps) {
@@ -439,17 +481,20 @@ export default function ThatOpenIfcCanvas({
   const presetGroupRef = useRef<import('three').Group | null>(null)
   const rotationLockedRef = useRef(isRotationLocked)
   const onIfcElementSelectRef = useRef(onIfcElementSelect)
+  const onIfcElementDeleteRef = useRef(onIfcElementDelete)
   const onLibraryElementChangeRef = useRef(onLibraryElementChange)
   const onLibraryElementDeleteRef = useRef(onLibraryElementDelete)
   const ifcPsetMetricsRef = useRef<IfcPsetMetricMaps>({ byId: {}, byName: {} })
   const selectedTargetRef = useRef<Selected3DTarget>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMessage, setErrorMessage] = useState('')
-  void ifcElementChanges
-
   useEffect(() => {
     onIfcElementSelectRef.current = onIfcElementSelect
   }, [onIfcElementSelect])
+
+  useEffect(() => {
+    onIfcElementDeleteRef.current = onIfcElementDelete
+  }, [onIfcElementDelete])
 
   useEffect(() => {
     onLibraryElementChangeRef.current = onLibraryElementChange
@@ -520,15 +565,11 @@ export default function ThatOpenIfcCanvas({
           },
         })
 
-        const response = await fetch(ifcUrl)
-        if (!response.ok) {
-          throw new Error(`IFC file load failed. (${response.status})`)
-        }
-
-        const patchedIfcText = patchIfcTextForMaterialDefaults(await response.text())
+        const { ifcText, modelId } = await resolveIfcText(projectId, ifcUrl)
+        const patchedIfcText = patchIfcTextForMaterialDefaults(ifcText)
         const data = new TextEncoder().encode(patchedIfcText)
         ifcPsetMetricsRef.current = parseBatangDimensionProperties(patchedIfcText)
-        const model = await ifcLoader.load(data, true, 'shinchan-house')
+        const model = await ifcLoader.load(data, true, modelId)
         if (disposed) return
 
         const contentGroup = new THREE.Group()
@@ -603,6 +644,7 @@ export default function ThatOpenIfcCanvas({
           contentGroup,
           ifcEditGroup,
           ifcObject: fragmentModel.object,
+          modelId,
           worldUnitsPerMm,
           worldCamera: world.camera,
           cameraControls: world.camera.controls,
@@ -648,17 +690,18 @@ export default function ThatOpenIfcCanvas({
               three: THREE,
               scene: world.scene.three,
               camera,
-              renderer,
-              fragments,
-              hider,
-              raycaster: thatOpenRaycaster,
-              transformControls,
-              contentGroup,
-              ifcEditGroup,
-              ifcObject: fragmentModel.object,
-              worldUnitsPerMm,
-              worldCamera: world.camera,
-              cameraControls: world.camera.controls,
+          renderer,
+          fragments,
+          hider,
+          raycaster: thatOpenRaycaster,
+          transformControls,
+          contentGroup,
+          ifcEditGroup,
+          ifcObject: fragmentModel.object,
+          modelId,
+          worldUnitsPerMm,
+          worldCamera: world.camera,
+          cameraControls: world.camera.controls,
             }, currentTarget)
             selectedTargetRef.current = null
           }
@@ -797,6 +840,16 @@ export default function ThatOpenIfcCanvas({
           event.stopPropagation()
 
           if (selectedTarget.source === 'ifc') {
+            const deletedElement = selectedTarget.object
+              ? (selectedTarget.object as IfcEditableObject3D).userData.ifcEditTarget?.element
+              : ifcPsetMetricsRef.current.byId[selectedTarget.localId]
+                ? {
+                    ...ifcPsetMetricsRef.current.byId[selectedTarget.localId],
+                    id: String(selectedTarget.localId),
+                    source: 'ifc' as const,
+                    properties: {},
+                  }
+                : null
             await hider.set(false, {
               [selectedTarget.modelId]: new Set([selectedTarget.hitLocalId]),
             })
@@ -808,6 +861,7 @@ export default function ThatOpenIfcCanvas({
             }
             selectedTargetRef.current = null
             onIfcElementSelectRef.current?.(null)
+            if (deletedElement) onIfcElementDeleteRef.current?.(deletedElement)
             return
           }
 
@@ -852,7 +906,33 @@ export default function ThatOpenIfcCanvas({
       ifcPsetMetricsRef.current = { byId: {}, byName: {} }
       selectedTargetRef.current = null
     }
-  }, [ifcUrl])
+  }, [ifcUrl, projectId])
+
+  useEffect(() => {
+    const sceneState = sceneRef.current
+    if (!sceneState) return
+
+    ifcElementChanges.forEach((change) => {
+      if (!Number.isFinite(change.expressId)) return
+      const localId = change.expressId
+      if (change.deleted) {
+        void sceneState.hider.set(false, {
+          [sceneState.modelId]: new Set([localId]),
+        })
+        return
+      }
+
+      const displayColor = change.color ?? (change.material ? getMaterialDefaultColor(change.material) : undefined)
+      if (displayColor) {
+        void applyIfcItemColor(sceneState.three, sceneState.fragments, {
+          source: 'ifc',
+          modelId: sceneState.modelId,
+          localId,
+          hitLocalId: localId,
+        }, displayColor).catch(() => undefined)
+      }
+    })
+  }, [ifcElementChanges])
 
   useEffect(() => {
     const sceneState = sceneRef.current

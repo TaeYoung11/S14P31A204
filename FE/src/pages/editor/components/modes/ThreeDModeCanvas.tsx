@@ -19,6 +19,7 @@ export default function ThreeDModeCanvas({
 }: ThreeDModeCanvasProps) {
   return (
     <ThreeDCanvas
+      projectId={editorProps.projectId}
       sitePoints={editorProps.sitePlanPoints}
       isCollaborationMode={editorProps.isCollaborationMode}
       isLibraryOpen={editorProps.isLibraryOpen}
@@ -35,6 +36,7 @@ export default function ThreeDModeCanvas({
       ifcElementChanges={editorProps.ifcElementChanges}
       selectedIfcElement={editorProps.selectedIfcElement}
       onIfcElementSelect={editorProps.handleSelectIfcElement}
+      onIfcElementDelete={editorProps.handleDeleteIfcElement}
     />
   )
 }
