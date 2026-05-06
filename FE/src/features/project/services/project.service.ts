@@ -86,8 +86,10 @@ const MOCK_SITE_POLYGON_RING: number[][] = [
 ]
 
 const shouldUseSiteMock = import.meta.env.VITE_USE_SITE_MOCK === 'true'
+const shouldUseProjectDetailApi = import.meta.env.VITE_USE_PROJECT_DETAIL_API === 'true'
 const shouldFetchSiteFromProjectDetailApi = import.meta.env.VITE_USE_PROJECT_DETAIL_SITE_API === 'true'
 const SITE_CACHE_TTL_MS = PROJECT_SITE_CACHE_TTL_MS
+const projectSummaryCache = new Map<string, ProjectSummaryResponse>()
 
 export interface ProjectSiteResponse {
   projectId: string
@@ -143,17 +145,77 @@ function decodeUtf8ArrayBuffer(buffer: ArrayBuffer): string {
   return new TextDecoder('utf-8').decode(buffer)
 }
 
+function createEmptyProjectListPage(page: number): ProjectListResponse {
+  return {
+    projects: [],
+    page,
+    size: PROJECT_LIST_PAGE_SIZE,
+    totalElements: 0,
+    totalPages: 0,
+    hasNext: false,
+  }
+}
+
+function createFallbackProjectSummary(projectId: string): ProjectSummaryResponse {
+  const now = new Date().toISOString()
+  return {
+    projectId,
+    name: '프로젝트',
+    description: '',
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+function cacheProjectSummaries(projects: ProjectSummaryResponse[]): void {
+  projects.forEach((project) => {
+    projectSummaryCache.set(project.projectId, project)
+  })
+}
+
 /** 프로젝트 목록 페이지 1회를 조회한다. */
 async function fetchProjectListPage(page: number): Promise<ProjectListResponse> {
-  const response = await api.get<ApiResponse<ProjectListResponse>>('/projects', {
-    params: { page, size: PROJECT_LIST_PAGE_SIZE },
-  })
-  return response.data.data
+  try {
+    const response = await api.get<ApiResponse<ProjectListResponse>>('/projects', {
+      params: { page, size: PROJECT_LIST_PAGE_SIZE },
+    })
+    const data = response.data.data
+    cacheProjectSummaries(data.projects)
+    return data
+  } catch {
+    return createEmptyProjectListPage(page)
+  }
+}
+
+async function findProjectSummaryFromList(projectId: string): Promise<ProjectSummaryResponse> {
+  const cached = projectSummaryCache.get(projectId)
+  if (cached) return cached
+
+  let page = 1
+  while (page <= PROJECT_LIST_MAX_PAGES) {
+    const data = await fetchProjectListPage(page)
+    const project = data.projects.find((item) => item.projectId === projectId)
+    if (project) return project
+    if (!data.hasNext) break
+    page = data.page + 1
+  }
+
+  return createFallbackProjectSummary(projectId)
 }
 
 async function fetchProjectSummary(projectId: string): Promise<ProjectSummaryResponse> {
-  const response = await api.get<ApiResponse<ProjectSummaryResponse>>(`/projects/${projectId}`)
-  return response.data.data
+  if (shouldUseProjectDetailApi) {
+    try {
+      const response = await api.get<ApiResponse<ProjectSummaryResponse>>(`/projects/${projectId}`)
+      const project = response.data.data
+      projectSummaryCache.set(project.projectId, project)
+      return project
+    } catch {
+      // 상세 API가 미구현/오류인 환경에서는 목록 기반 조회로 fallback 한다.
+    }
+  }
+
+  return findProjectSummaryFromList(projectId)
 }
 
 /**

@@ -13,6 +13,7 @@ export const useProjects = () => {
     queryFn: ({ pageParam }) => projectService.getList(pageParam),
     initialPageParam: 1,
     getNextPageParam: (lastPage) => lastPage.hasNext ? lastPage.page + 1 : undefined,
+    retry: false,
   })
 }
 
@@ -22,6 +23,7 @@ export const useAllProjects = (enabled: boolean) => {
     queryFn: () => projectService.getAll(),
     enabled,
     staleTime: 60 * 1000,
+    retry: false,
   })
 }
 
@@ -30,6 +32,7 @@ export const useProject = (id: string) => {
     queryKey: projectQueryKeys.detail(id),
     queryFn: () => projectService.getById(id),
     enabled: !!id,
+    retry: false,
   })
 }
 
