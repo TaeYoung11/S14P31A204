@@ -157,8 +157,20 @@ VIEW_PROMPT_PREFIXES: dict[IFCView, str] = {
 }
 
 
+SCANDINAVIAN_FRONT_PROMPT_PREFIX = (
+    "open paved foreground, house sits on ground, no wall below house, "
+    "no concrete barrier"
+)
+
+
 def _remove_eye_sky_prior(prompt: str) -> str:
     return prompt.replace(", blue sky", "").replace("blue sky, ", "")
+
+
+def _soften_scandinavian_front_wall_prior(prompt: str) -> str:
+    if "minimal Scandinavian house" not in prompt:
+        return prompt
+    return prompt.replace("white concrete facade", "light painted house facade")
 
 
 def build_view_prompt(base_prompt: str, view: IFCView) -> str:
@@ -175,6 +187,11 @@ def build_view_prompt(base_prompt: str, view: IFCView) -> str:
     if prefix:
         if view in {IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE}:
             base_prompt = _remove_eye_sky_prior(base_prompt)
+        if view is IFCView.FRONT:
+            softened_prompt = _soften_scandinavian_front_wall_prior(base_prompt)
+            if softened_prompt != base_prompt:
+                prefix = f"{SCANDINAVIAN_FRONT_PROMPT_PREFIX}, {prefix}"
+                base_prompt = softened_prompt
         base_prompt = f"{prefix}, {base_prompt}"
     suffix = VIEW_PROMPT_SUFFIXES.get(view, "")
     if not suffix:
