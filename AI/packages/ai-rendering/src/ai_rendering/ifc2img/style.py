@@ -52,6 +52,9 @@ FRONT_FULL_WIDTH_GROUND_CONTROL_RGB = (112, 112, 112)
 FRONT_FULL_WIDTH_GROUND_BLEND_STRENGTH = 0.24
 FRONT_FULL_WIDTH_GROUND_TOP_PADDING_RATIO = 0.02
 FRONT_FULL_WIDTH_GROUND_EXPAND_RATIO = 1.03
+EYE_GROUND_TOP_PADDING_RATIO = 0.02
+EYE_GROUND_CLASS_RGB = "neutral"
+EYE_SEMANTIC_CONTROL_SCALE = 0.25
 
 
 @dataclass
@@ -69,6 +72,7 @@ class DepthStyleRenderOptions:
     use_front_side_semantic_mask: bool = False
     use_front_side_semantic_control: bool = False
     use_front_full_width_semantic_control: bool = False
+    use_eye_ground_semantic_control: bool = False
     use_front_full_width_ground_control: bool = False
     use_weighted_front_side_negative: bool = False
     front_side_ground_class: FrontSideGroundClass = "grass"
@@ -79,6 +83,7 @@ class DepthStyleRenderOptions:
         return (
             self.use_front_side_semantic_control
             or self.use_front_full_width_semantic_control
+            or self.use_eye_ground_semantic_control
         )
 
     def as_render_kwargs(self) -> dict[str, object]:
@@ -88,6 +93,7 @@ class DepthStyleRenderOptions:
             "use_front_full_width_semantic_control": (
                 self.use_front_full_width_semantic_control
             ),
+            "use_eye_ground_semantic_control": self.use_eye_ground_semantic_control,
             "use_front_full_width_ground_control": (
                 self.use_front_full_width_ground_control
             ),
@@ -115,11 +121,19 @@ KOREAN_HOUSE_SIDE_RENDER_OPTIONS = DepthStyleRenderOptions(
     front_side_ground_class="neutral",
     front_side_semantic_control_scale=0.35,
 )
+KOREAN_HOUSE_EYE_RENDER_OPTIONS = DepthStyleRenderOptions(
+    use_eye_ground_semantic_control=True,
+    front_side_ground_class=EYE_GROUND_CLASS_RGB,
+    front_side_semantic_control_scale=EYE_SEMANTIC_CONTROL_SCALE,
+)
 
 PRESET_VIEW_RENDER_OPTIONS: dict[tuple[str, IFCView], DepthStyleRenderOptions] = {
     ("korean_villa", IFCView.FRONT): KOREAN_VILLA_FRONT_RENDER_OPTIONS,
     ("korean_house", IFCView.FRONT): KOREAN_HOUSE_FRONT_RENDER_OPTIONS,
     ("korean_house", IFCView.SIDE): KOREAN_HOUSE_SIDE_RENDER_OPTIONS,
+    ("korean_house", IFCView.EYE_NE): KOREAN_HOUSE_EYE_RENDER_OPTIONS,
+    ("korean_house", IFCView.EYE_NW): KOREAN_HOUSE_EYE_RENDER_OPTIONS,
+    ("korean_house", IFCView.EYE_SE): KOREAN_HOUSE_EYE_RENDER_OPTIONS,
 }
 
 
@@ -407,6 +421,64 @@ def _build_front_full_width_seg_control(
     return Image.fromarray(seg, mode="RGB")
 
 
+def _build_eye_ground_mask(control: Image.Image) -> Image.Image:
+    """Mark lower background as dry ground for EYE diagonal views."""
+    arr = np.asarray(control.convert("RGB"), dtype=np.uint8)
+    bg_mask = np.all(arr == 0, axis=2)
+    geom_mask = ~bg_mask
+    height, width = bg_mask.shape
+
+    out = np.zeros((height, width), dtype=np.uint8)
+    if not np.any(geom_mask):
+        return Image.fromarray(out, mode="L")
+
+    ys, xs = np.nonzero(geom_mask)
+    bottom_by_x = np.full(width, -1, dtype=np.int32)
+    for x in np.unique(xs):
+        bottom_by_x[x] = int(ys[xs == x].max())
+
+    support_bottoms = bottom_by_x[bottom_by_x >= 0]
+    base_y = int(np.percentile(support_bottoms, FRONT_SIDE_MASK_BASE_PERCENTILE))
+    top_padding = max(1, int(round(height * EYE_GROUND_TOP_PADDING_RATIO)))
+    ground_top = int(np.clip(base_y + top_padding, 0, height - 1))
+
+    out[ground_top:, :] = 255
+    out[geom_mask] = 0
+    return Image.fromarray(out, mode="L")
+
+
+def _build_eye_ground_seg_control(
+    control: Image.Image,
+    ground_class: FrontSideGroundClass = "neutral",
+) -> Image.Image:
+    """Map EYE-view lower background intent into ADE20K semantic colors."""
+    if ground_class not in FRONT_SIDE_GROUND_CLASS_RGB:
+        raise ValueError(f"unsupported eye ground class: {ground_class}")
+
+    arr = np.asarray(control.convert("RGB"), dtype=np.uint8)
+    bg_mask = np.all(arr == 0, axis=2)
+    building_mask = ~bg_mask
+    ground_mask = np.asarray(_build_eye_ground_mask(control), dtype=np.uint8) > 0
+
+    height, width = building_mask.shape
+    seg = np.zeros((height, width, 3), dtype=np.uint8)
+    seg[:, :] = np.array(ADE20K_BACKGROUND_RGB, dtype=np.uint8)
+    seg[building_mask] = np.array(ADE20K_BUILDING_RGB, dtype=np.uint8)
+    seg[ground_mask] = np.array(
+        FRONT_SIDE_GROUND_CLASS_RGB[ground_class],
+        dtype=np.uint8,
+    )
+
+    if np.any(building_mask):
+        ys, _ = np.nonzero(building_mask)
+        sky_limit = int(max(0, ys.min()))
+        sky_mask = bg_mask & ~ground_mask
+        sky_mask[sky_limit:, :] = False
+        seg[sky_mask] = np.array(ADE20K_SKY_RGB, dtype=np.uint8)
+
+    return Image.fromarray(seg, mode="RGB")
+
+
 def _build_front_side_seg_control(
     control: Image.Image,
     ground_class: FrontSideGroundClass = "grass",
@@ -580,6 +652,7 @@ class DepthStyleRenderer:
         use_front_side_semantic_mask: bool = False,
         use_front_side_semantic_control: bool = False,
         use_front_full_width_semantic_control: bool = False,
+        use_eye_ground_semantic_control: bool = False,
         use_front_full_width_ground_control: bool = False,
         use_weighted_front_side_negative: bool = False,
         front_side_ground_class: FrontSideGroundClass = "grass",
@@ -602,6 +675,26 @@ class DepthStyleRenderer:
             control_image = [
                 control,
                 _build_front_full_width_seg_control(
+                    control,
+                    ground_class=front_side_ground_class,
+                ),
+            ]
+            conditioning_scale = [
+                params.controlnet_conditioning_scale,
+                front_side_semantic_control_scale,
+            ]
+        if use_eye_ground_semantic_control and view in {
+            IFCView.EYE_NE,
+            IFCView.EYE_NW,
+            IFCView.EYE_SE,
+        }:
+            if not self.semantic_controlnet_model_id:
+                raise IFCRenderError(
+                    "EYE ground semantic control requires semantic_controlnet_model_id"
+                )
+            control_image = [
+                control,
+                _build_eye_ground_seg_control(
                     control,
                     ground_class=front_side_ground_class,
                 ),
