@@ -77,7 +77,7 @@ public class TwoDLlmIfcEditCommandService {
         String idempotencyKey = jobId + ":step-1:two-d-llm";
 
         String sourceIfcUrl = pathBuilder.buildSourceIfcStorageUrl(projectId, request.baseRevisionId());
-        String editPlanUrl = pathBuilder.buildEditPlanStorageUrl(jobId);
+        String editPlanUrl = pathBuilder.buildTwoDPlannerOutputStorageUrl(projectId, jobId, 1);
 
         // step 1 inputPayload — step 2 생성 시 필요한 값 저장 (Revision은 step 1 완료 후 생성)
         Map<String, Object> inputMap = new LinkedHashMap<>();

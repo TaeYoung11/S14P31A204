@@ -138,8 +138,8 @@ public class ThreeDLlmEventListener {
                 .map(r -> r.getRevisionNo() + 1)
                 .orElse(1);
         String outputIfcUrl = pathBuilder.buildOutputIfcStorageUrl(event.projectId(), targetRevisionId);
-        String validationUrl = pathBuilder.buildValidationReportStorageUrl(job.getJobId(), 2);
-        String sceneSnapshotUrl = pathBuilder.buildSceneSnapshotStorageUrl(event.projectId(), targetRevisionId);
+        String validationUrl = pathBuilder.buildValidationReportStorageUrl(event.projectId(), job.getJobId(), 2);
+        String sceneSnapshotUrl = pathBuilder.buildSceneSnapshotStorageUrl(event.projectId(), targetRevisionId, job.getSourceSceneType());
 
         Revision revision = Revision.createCreating(
                 targetRevisionId, event.projectId(), sourceRevisionId,

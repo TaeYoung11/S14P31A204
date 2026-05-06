@@ -77,7 +77,7 @@ public class ThreeDLlmIfcEditCommandService {
         String idempotencyKey = jobId + ":step-1:three-d-llm";
 
         String sourceIfcUrl = pathBuilder.buildSourceIfcStorageUrl(projectId, request.baseRevisionId());
-        String editPlanUrl = pathBuilder.buildEditPlanStorageUrl(jobId);
+        String editPlanUrl = pathBuilder.buildThreeDPlannerOutputStorageUrl(projectId, jobId, 1);
 
         Map<String, Object> inputMap = new LinkedHashMap<>();
         inputMap.put("sourceRevisionId", request.baseRevisionId().toString());

@@ -85,8 +85,8 @@ public class DirectIfcEditCommandService {
 
         String sourceIfcUrl = pathBuilder.buildSourceIfcStorageUrl(projectId, request.baseRevisionId());
         String outputIfcUrl = pathBuilder.buildOutputIfcStorageUrl(projectId, targetRevisionId);
-        String validationUrl = pathBuilder.buildValidationReportStorageUrl(jobId, 1);
-        String sceneSnapshotUrl = pathBuilder.buildSceneSnapshotStorageUrl(projectId, targetRevisionId);
+        String validationUrl = pathBuilder.buildValidationReportStorageUrl(projectId, jobId, 1);
+        String sceneSnapshotUrl = pathBuilder.buildSceneSnapshotStorageUrl(projectId, targetRevisionId, request.sourceSceneType());
 
         Map<String, Object> inputMap = new LinkedHashMap<>();
         inputMap.put("sourceRevisionId", request.baseRevisionId().toString());
