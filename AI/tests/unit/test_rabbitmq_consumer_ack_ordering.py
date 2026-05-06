@@ -49,7 +49,7 @@ def mock_message() -> MagicMock:
 @pytest.fixture
 def consumer() -> RabbitMQConsumer:
     return RabbitMQConsumer(
-        settings=RabbitMQSettings(),
+        settings=RabbitMQSettings(host="localhost", port=5672),
         worker_type="SD_RENDER_GENERATE",
         handler=MagicMock(),
     )
@@ -70,7 +70,7 @@ def test_stop_after_one_sets_should_stop_after_successful_ack(
     mock_message: MagicMock,
 ) -> None:
     consumer = RabbitMQConsumer(
-        settings=RabbitMQSettings(),
+        settings=RabbitMQSettings(host="localhost", port=5672),
         worker_type="SD_RENDER_GENERATE",
         handler=MagicMock(),
         stop_after=1,
@@ -87,7 +87,7 @@ def test_handler_receives_validated_command_message(
 ) -> None:
     received: list[CommandMessage] = []
     consumer = RabbitMQConsumer(
-        settings=RabbitMQSettings(),
+        settings=RabbitMQSettings(host="localhost", port=5672),
         worker_type="SD_RENDER_GENERATE",
         handler=lambda cmd: received.append(cmd),
     )
@@ -114,7 +114,7 @@ def test_handler_failure_nacks_with_requeue(
     mock_message: MagicMock,
 ) -> None:
     consumer = RabbitMQConsumer(
-        settings=RabbitMQSettings(),
+        settings=RabbitMQSettings(host="localhost", port=5672),
         worker_type="SD_RENDER_GENERATE",
         handler=MagicMock(side_effect=RuntimeError("processing failed")),
     )
@@ -153,7 +153,7 @@ def test_invalid_schema_version_rejects_without_requeue(
 def test_invalid_stop_after_raises_value_error() -> None:
     with pytest.raises(ValueError):
         RabbitMQConsumer(
-            settings=RabbitMQSettings(),
+            settings=RabbitMQSettings(host="localhost", port=5672),
             worker_type="SD_RENDER_GENERATE",
             handler=MagicMock(),
             stop_after=0,
