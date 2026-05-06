@@ -1072,11 +1072,16 @@ def _create_ifc_colour_rgb(
 
 
 def _hex_to_rgb(color_hex: str) -> tuple[float, float, float]:
-    return (
-        int(color_hex[1:3], 16) / 255.0,
-        int(color_hex[3:5], 16) / 255.0,
-        int(color_hex[5:7], 16) / 255.0,
-    )
+    if not color_hex.startswith("#") or len(color_hex) != 7:
+        raise ValueError(f"Invalid color hex format: {color_hex!r}. Expected '#RRGGBB'.")
+    try:
+        return (
+            int(color_hex[1:3], 16) / 255.0,
+            int(color_hex[3:5], 16) / 255.0,
+            int(color_hex[5:7], 16) / 255.0,
+        )
+    except ValueError as exc:
+        raise ValueError(f"Invalid hex character in color: {color_hex!r}") from exc
 
 
 def _create_closed_polyline(
