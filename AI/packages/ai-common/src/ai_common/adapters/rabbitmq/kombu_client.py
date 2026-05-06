@@ -12,6 +12,7 @@ from typing import Any
 
 try:
     import kombu
+    import kombu.mixins
 except Exception:  # pragma: no cover - exercised in local fallback only
     class _MissingKombuChannel:
         def __enter__(self) -> _MissingKombuChannel:
@@ -54,6 +55,7 @@ except Exception:  # pragma: no cover - exercised in local fallback only
         exchange: object
         routing_key: str
         durable: bool
+        queue_arguments: dict[str, Any] | None = None
 
     class _FallbackConsumer:
         pass
@@ -97,12 +99,20 @@ SD_RENDER_COMMAND_QUEUE = kombu.Queue(
     exchange=COMMANDS_EXCHANGE,
     routing_key="command.sd-render.*",
     durable=True,
+    queue_arguments={
+        "x-dead-letter-exchange": "batang.dlx.exchange",
+        "x-dead-letter-routing-key": "dead.sd-render",
+    },
 )
 IFC_GENERATE_COMMAND_QUEUE = kombu.Queue(
     "batang.ifc-generate.command.queue",
     exchange=COMMANDS_EXCHANGE,
     routing_key="command.ifc-generate.#",
     durable=True,
+    queue_arguments={
+        "x-dead-letter-exchange": "batang.dlx.exchange",
+        "x-dead-letter-routing-key": "dead.ifc-generate",
+    },
 )
 
 _WORKER_TYPE_TO_QUEUE: dict[str, kombu.Queue] = {
