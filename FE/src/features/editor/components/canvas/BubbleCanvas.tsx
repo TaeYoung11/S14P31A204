@@ -34,8 +34,6 @@ export interface EmptyCanvasDblClickInfo {
 }
 
 const MIN_BUBBLE_SIZE = 8
-const EMPTY_CANVAS_DBLCLICK_MS = 320
-const EMPTY_CANVAS_DBLCLICK_DIST = 8
 const SITE_GUIDE_STROKE = '#3B45B3'
 const SITE_OUTSIDE_WARNING = '#DC2626'
 const SITE_WARNING_TEXT_FILL = '#991B1B'
@@ -134,7 +132,6 @@ export function BubbleCanvas({
   const [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
   const isDrawingMarquee = useRef(false)
   const marqueeStart = useRef<{ x: number; y: number } | null>(null)
-  const lastEmptyCanvasClickRef = useRef<{ at: number; x: number; y: number } | null>(null)
   const [hoveredBubbleId, setHoveredBubbleId] = useState<string | null>(null)
   const isSpacePressed = useSpacePanning()
   const [isMiddlePanning, setIsMiddlePanning] = useState(false)
@@ -385,53 +382,49 @@ export function BubbleCanvas({
         setMarquee(null)
       }}
       onClick={(e) => {
-        if (selectedTool !== 'selection') {
-          lastEmptyCanvasClickRef.current = null
-          return
-        }
+        if (selectedTool !== 'selection') return
         const targetType = e.target.getType()
-        if (targetType !== 'Stage') {
-          lastEmptyCanvasClickRef.current = null
-          return
-        }
+        // listening=false인 도형 위 빈 배경 클릭은 Layer로 들어올 수 있다.
+        const isEmptyCanvasTarget = targetType === 'Stage' || targetType === 'Layer'
+        if (!isEmptyCanvasTarget) return
+
+        // 빈 캔버스 단일 클릭: 선택 해제
+        onClearSelection?.()
+      }}
+      onDblClick={(e) => {
+        if (selectedTool !== 'selection') return
+        if (!isBubbleEditable) return
+        if (isPanMode) return
+
         const stage = e.target.getStage()
         if (!stage) return
         const pos = stage.getRelativePointerPosition()
         const containerPos = stage.getPointerPosition()
-
-        // 빈 캔버스 단일 클릭: 선택 해제
-        onClearSelection?.()
-        if (!isBubbleEditable) {
-          lastEmptyCanvasClickRef.current = null
-          return
-        }
         if (!pos || !containerPos) return
 
-        // 빈 캔버스 더블클릭에서만 새 버블 생성
-        const now = Date.now()
-        const last = lastEmptyCanvasClickRef.current
-        if (last) {
-          const dt = now - last.at
-          const dx = pos.x - last.x
-          const dy = pos.y - last.y
-          const dist = Math.sqrt(dx * dx + dy * dy)
-          if (dt <= EMPTY_CANVAS_DBLCLICK_MS && dist <= EMPTY_CANVAS_DBLCLICK_DIST) {
-            onEmptyCanvasDblClick?.({
-              x: pos.x,
-              y: pos.y,
-              screenX: containerPos.x,
-              screenY: containerPos.y,
-            })
-            lastEmptyCanvasClickRef.current = null
-            return
-          }
-        }
-        lastEmptyCanvasClickRef.current = { at: now, x: pos.x, y: pos.y }
+        // 버블 위 더블클릭은 라벨 편집 흐름을 우선한다.
+        const hitBubble = findBubbleByPoint(pos.x, pos.y)
+        if (hitBubble) return
+
+        onEmptyCanvasDblClick?.({
+          x: pos.x,
+          y: pos.y,
+          screenX: containerPos.x,
+          screenY: containerPos.y,
+        })
       }}
     >
       <Layer>
         {/* 대지 외곽선 */}
-        <Line points={sitePoints} closed fill="#3B45B319" stroke={SITE_GUIDE_STROKE} strokeWidth={1.8} />
+        <Line
+          points={sitePoints}
+          closed
+          fill="#3B45B319"
+          stroke={SITE_GUIDE_STROKE}
+          strokeWidth={1.8}
+          // 대지 내부 빈 영역 클릭/더블클릭은 Stage로 전달해 버블 생성 로직을 타게 한다.
+          listening={false}
+        />
         <Line points={sitePoints} closed stroke="#2D359980" strokeWidth={1} dash={[8, 6]} listening={false} />
         {outsideBubbleCount > 0 && (
           <Text
