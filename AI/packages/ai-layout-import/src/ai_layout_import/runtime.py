@@ -79,13 +79,11 @@ class IfcGenerateWorker(BaseWorker):
                 code="missing_ifc_storage_url",
                 message="expected_output.ifc_storage_url is required for IFC generate commands",
             )
-        _validate_ifc_storage_ref(command, ifc_ref)
 
         payload = cast(IfcGenerateCommandPayload, command.payload)
         request = payload.layoutImport
         validation_ref = command.expectedOutput.validationReportStorageUrl
-        if validation_ref is not None:
-            _validate_validation_report_ref(command, validation_ref)
+
         temp_fd, temp_path = mkstemp(
             prefix="ifc-generate-",
             suffix=".ifc",
@@ -95,7 +93,12 @@ class IfcGenerateWorker(BaseWorker):
         output_path = Path(temp_path)
 
         try:
+            _validate_ifc_storage_ref(command, ifc_ref)
+            if validation_ref is not None:
+                _validate_validation_report_ref(command, validation_ref)
+
             convert_layout_to_ifc(request, output_path)
+
             uploaded_target = self._storage.write_bytes_to_ref(
                 ifc_ref,
                 output_path.read_bytes(),
@@ -114,6 +117,12 @@ class IfcGenerateWorker(BaseWorker):
                     json.dumps(report, ensure_ascii=False, indent=2),
                     content_type="application/json; charset=utf-8",
                 )
+        except ConfigurationError as exc:
+            raise self._build_failed_error(
+                command=command,
+                request=request,
+                error=exc,
+            ) from exc
         except ValueError as exc:
             raise self._build_failed_error(
                 command=command,
@@ -238,16 +247,14 @@ def _validate_ifc_storage_ref(command: CommandMessage, reference: str) -> None:
         )
 
     expected_key = (
-        f"projects/{command.projectId}/revisions/"
-        f"{command.targetRevisionId}/ifc/model.v1.ifc"
+        f"projects/{command.projectId}/revisions/{command.targetRevisionId}/ifc/model.v1.ifc"
     )
     actual_key = _extract_storage_key(reference)
     if actual_key != expected_key:
         raise ConfigurationError(
             code="invalid_ifc_storage_url",
             message=(
-                "expected_output.ifc_storage_url must match "
-                f"{expected_key!r}; got {actual_key!r}"
+                f"expected_output.ifc_storage_url must match {expected_key!r}; got {actual_key!r}"
             ),
         )
 
