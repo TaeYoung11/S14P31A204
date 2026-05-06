@@ -4,10 +4,8 @@ import com.a204.batang.domain.ifcedit.dto.DirectIfcEditRequest;
 import com.a204.batang.domain.ifcedit.dto.IfcEditJobResponse;
 import com.a204.batang.domain.ifcedit.entity.IfcEditJob;
 import com.a204.batang.domain.ifcedit.entity.IfcEditJobStep;
-import com.a204.batang.domain.ifcedit.messaging.IfcEditCommandPublisher;
 import com.a204.batang.domain.ifcedit.messaging.dto.IfcEditCommandMessage;
 import com.a204.batang.domain.ifcedit.messaging.event.IfcEditCommandPublishRequestedEvent;
-import com.a204.batang.domain.ifcedit.messaging.event.IfcEditPublishFailedEvent;
 import com.a204.batang.domain.ifcedit.messaging.event.IfcEditStatusChangedEvent;
 import com.a204.batang.domain.ifcedit.repository.IfcEditJobRepository;
 import com.a204.batang.domain.ifcedit.repository.IfcEditJobStepRepository;
@@ -31,18 +29,19 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
-import static com.a204.batang.domain.ifcedit.IfcEditConstants.*;
+import static com.a204.batang.domain.ifcedit.IfcEditConstants.COMMAND_TYPE_IFC_EDIT_APPLY;
+import static com.a204.batang.domain.ifcedit.IfcEditConstants.JOB_TYPE_IFC_EDIT;
+import static com.a204.batang.domain.ifcedit.IfcEditConstants.TOTAL_STEPS_DIRECT;
+import static com.a204.batang.domain.ifcedit.IfcEditConstants.WORKER_TYPE_IFC_EDIT_APPLY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -55,7 +54,6 @@ class DirectIfcEditCommandServiceTest {
     @Mock private IfcEditJobRepository ifcEditJobRepository;
     @Mock private IfcEditJobStepRepository ifcEditJobStepRepository;
     @Mock private IfcEditStoragePathBuilder pathBuilder;
-    @Mock private IfcEditCommandPublisher ifcEditCommandPublisher;
     @Mock private ApplicationEventPublisher eventPublisher;
 
     @Spy
@@ -122,7 +120,6 @@ class DirectIfcEditCommandServiceTest {
         verify(ifcEditJobStepRepository).save(stepCaptor.capture());
         verify(eventPublisher).publishEvent(publishEventCaptor.capture());
         verify(eventPublisher).publishEvent(any(IfcEditStatusChangedEvent.class));
-        verify(ifcEditCommandPublisher, never()).publish(any());
 
         assertThat(response.projectId()).isEqualTo(projectId);
         assertThat(response.jobType()).isEqualTo(JOB_TYPE_IFC_EDIT);
@@ -189,39 +186,5 @@ class DirectIfcEditCommandServiceTest {
                 .isEqualTo(ErrorCode.IFC_EDIT_SOURCE_NOT_FOUND);
 
         verify(revisionRepository, never()).save(any());
-    }
-
-    @Test
-    void handleCommandPublishRequested_publishesAfterCommit() {
-        IfcEditCommandMessage message = buildCommandMessage();
-
-        service.handleCommandPublishRequested(new IfcEditCommandPublishRequestedEvent(message));
-
-        verify(ifcEditCommandPublisher).publish(message);
-    }
-
-    @Test
-    void handleCommandPublishRequested_failure_publishesFailedEvent() {
-        IfcEditCommandMessage message = buildCommandMessage();
-        doThrow(new CustomException(ErrorCode.IFC_EDIT_COMMAND_PUBLISH_FAILED))
-                .when(ifcEditCommandPublisher).publish(message);
-
-        service.handleCommandPublishRequested(new IfcEditCommandPublishRequestedEvent(message));
-
-        verify(eventPublisher).publishEvent(any(IfcEditPublishFailedEvent.class));
-    }
-
-    private IfcEditCommandMessage buildCommandMessage() {
-        return new IfcEditCommandMessage(
-                UUID.randomUUID(), "v1", "COMMAND",
-                COMMAND_TYPE_IFC_EDIT_APPLY, RabbitMqConfig.IFC_EDIT_COMMAND_ROUTING_KEY,
-                UUID.randomUUID(), UUID.randomUUID(), 1, TOTAL_STEPS_DIRECT,
-                projectId, userId, baseRevisionId, null, "IFC_MODEL",
-                UUID.randomUUID(), UUID.randomUUID(),
-                java.util.Map.of("source_ifc_storage_url", "projects/p/revisions/r/model.ifc"),
-                new IfcEditCommandMessage.ExpectedOutput("projects/p/revisions/new/model.ifc", "jobs/j/steps/1/validation-report.json", null),
-                objectMapper.createObjectNode(), ATTEMPT_NO, MAX_ATTEMPTS,
-                "key", UUID.randomUUID(), OffsetDateTime.now()
-        );
     }
 }
