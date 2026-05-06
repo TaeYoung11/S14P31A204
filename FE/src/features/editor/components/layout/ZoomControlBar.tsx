@@ -70,24 +70,24 @@ export function ZoomControlBar({
   return (
     <div
       ref={panelRef}
-      className="absolute flex items-center bg-white border border-[#E2E6EF] rounded-2xl px-1.5 py-1.5 shadow-md z-10 transition-all"
+      className="absolute z-10 flex items-center rounded-2xl border border-[#DFE4F0] bg-white/95 px-1.5 py-1.5 shadow-[0_14px_28px_rgba(34,44,92,0.16)] backdrop-blur-sm transition-all"
       style={{ left: offset.x, top: offset.y }}
     >
       <button
         onMouseDown={startDrag}
         title="패널 이동"
         aria-label="줌 컨트롤 패널 이동"
-        className="p-1.5 text-[#9AA4B5] hover:text-[#505764] transition-colors rounded-xl hover:bg-[#F3F5FA] cursor-grab active:cursor-grabbing"
+        className="cursor-grab rounded-xl p-1.5 text-[#9AA4B5] transition-colors hover:bg-[#F3F5FA] hover:text-[#505764] active:cursor-grabbing"
       >
         <GripVertical size={18} />
       </button>
 
-      <div className="w-px h-5 bg-[#E2E6EF] mx-1.5" />
+      <div className="mx-1.5 h-5 w-px bg-[#E2E6EF]" />
 
       {/* 줌 아웃 버튼 */}
       <button
         onClick={onZoomOut}
-        className="p-1.5 text-[#6B7A99] hover:text-[#1C1C1E] transition-colors rounded-xl hover:bg-[#F0F2F9]"
+        className="rounded-xl p-1.5 text-[#6B7A99] transition-colors hover:bg-[#F0F2F9] hover:text-[#1C1C1E]"
       >
         <ZoomOut size={20} />
       </button>
@@ -110,25 +110,25 @@ export function ZoomControlBar({
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur()
-          if (!/[0-9]|Backspace|Delete|ArrowLeft|ArrowRight|Tab/.test(e.key)) e.preventDefault()
+          if (/[0-9]|Backspace|Delete|ArrowLeft|ArrowRight|Tab/.exec(e.key) === null) e.preventDefault()
         }}
-        className="text-[13px] font-semibold text-[#1C1C1E] w-[52px] text-center bg-transparent outline-none cursor-text"
+        className="w-[54px] cursor-text rounded-md bg-transparent text-center text-[13px] font-semibold text-[#1C1C1E] outline-none focus:bg-[#F5F7FD]"
       />
 
       {/* 줌 인 버튼 */}
       <button
         onClick={onZoomIn}
-        className="p-1.5 text-[#6B7A99] hover:text-[#1C1C1E] transition-colors rounded-xl hover:bg-[#F0F2F9]"
+        className="rounded-xl p-1.5 text-[#6B7A99] transition-colors hover:bg-[#F0F2F9] hover:text-[#1C1C1E]"
       >
         <ZoomIn size={20} />
       </button>
 
-      <div className="w-px h-5 bg-[#E2E6EF] mx-1.5" />
+      <div className="mx-1.5 h-5 w-px bg-[#E2E6EF]" />
 
       {/* 손 도구 토글 버튼 */}
       <button
         onClick={() => onSetTool(selectedTool === 'hand' ? 'selection' : 'hand')}
-        className={`p-1.5 transition-colors rounded-xl ${
+        className={`rounded-xl p-1.5 transition-colors ${
           selectedTool === 'hand'
             ? 'text-[#3B45B3] bg-[#F0F2FF]'
             : 'text-[#6B7A99] hover:text-[#1C1C1E] hover:bg-[#F0F2F9]'
@@ -143,7 +143,7 @@ export function ZoomControlBar({
           <button
             onClick={handleGridSnapToggle}
             title={gridSnapTitle}
-            className={`p-1.5 transition-colors rounded-xl ${
+            className={`rounded-xl p-1.5 transition-colors ${
               isGridControlActive
                 ? 'text-[#3B45B3] bg-[#F0F2FF]'
                 : 'text-[#6B7A99] hover:text-[#1C1C1E] hover:bg-[#F0F2F9]'
@@ -154,7 +154,7 @@ export function ZoomControlBar({
           <select
             value={gridSnapIntervalMm}
             onChange={(e) => onGridSnapIntervalChange?.(Number(e.target.value))}
-            className="ml-1 h-8 rounded-lg border border-[#E2E6EF] bg-white px-2 text-[11px] font-semibold text-[#505764] outline-none focus:border-[#3B45B3]"
+            className="ml-1 h-8 rounded-lg border border-[#E2E6EF] bg-white px-2 text-[11px] font-semibold text-[#505764] outline-none transition-colors focus:border-[#3B45B3]"
             title="그리드 스냅 간격(mm)"
           >
             <option value={100}>100mm</option>

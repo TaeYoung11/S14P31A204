@@ -63,8 +63,8 @@ function buildBubbleCanvasProps(
   | 'isBubbleReadOnly'
 > {
   return {
-    // 버블 모드는 화면 맞춤 좌표를 사용해야 과도한 실측 스케일 확대를 피할 수 있다.
-    sitePoints: vm.sitePoints,
+    // 버블/2D/3D 대지 일관성을 위해 sitePlanPoints를 우선 사용한다.
+    sitePoints: vm.sitePlanPoints.length > 0 ? vm.sitePlanPoints : vm.sitePoints,
     bubbles: vm.bubbles,
     connections: vm.connections,
     autoZones: vm.autoZones,
@@ -137,6 +137,7 @@ function buildTwoDStructureProps(
   | 'handleDeleteFloorOpening'
   | 'handleMoveFloorRoom'
   | 'handleResizeFloorRoom'
+  | 'handleUpdateFloorRoomPolygon'
   | 'handleTwoDMarqueeSelect'
 > {
   return {
@@ -158,6 +159,7 @@ function buildTwoDStructureProps(
     handleDeleteFloorOpening: vm.handleDeleteFloorOpening,
     handleMoveFloorRoom: vm.handleMoveFloorRoom,
     handleResizeFloorRoom: vm.handleResizeFloorRoom,
+    handleUpdateFloorRoomPolygon: vm.handleUpdateFloorRoomPolygon,
     handleTwoDMarqueeSelect: vm.handleTwoDMarqueeSelect,
   }
 }

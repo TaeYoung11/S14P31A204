@@ -1,21 +1,25 @@
 import { lazy } from 'react'
-import type { EditorCanvasContentProps } from '../../types/editorCanvasContentProps'
+import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
 
 const BubbleCanvas = lazy(() =>
   import('@/features/editor/components/canvas/BubbleCanvas').then((module) => ({ default: module.BubbleCanvas })),
 )
 
 interface BubbleModeCanvasProps {
-  editorProps: EditorCanvasContentProps
+  editorProps: EditorCanvasRenderProps
   scale: number
 }
 
 /** 버블 모드 캔버스 렌더링 전용 컴포넌트 */
 export default function BubbleModeCanvas({ editorProps, scale }: BubbleModeCanvasProps) {
+  const unifiedSitePoints = editorProps.sitePlanPoints.length > 0
+    ? editorProps.sitePlanPoints
+    : editorProps.sitePoints
+
   return (
     <BubbleCanvas
       stageSize={editorProps.stageSize}
-      sitePoints={editorProps.sitePoints}
+      sitePoints={unifiedSitePoints}
       bubbles={editorProps.bubbles}
       connections={editorProps.connections}
       autoZones={editorProps.autoZones}

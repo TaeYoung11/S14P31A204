@@ -1,12 +1,12 @@
 import { lazy } from 'react'
-import type { EditorCanvasContentProps } from '../../types/editorCanvasContentProps'
+import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
 
 const ThreeDCanvas = lazy(() =>
   import('@/features/editor/components/canvas/ThreeDCanvas').then((module) => ({ default: module.ThreeDCanvas })),
 )
 
 interface ThreeDModeCanvasProps {
-  editorProps: EditorCanvasContentProps
+  editorProps: EditorCanvasRenderProps
   scale: number
 }
 
