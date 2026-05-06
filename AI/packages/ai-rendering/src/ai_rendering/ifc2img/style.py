@@ -44,6 +44,9 @@ FRONT_SIDE_MASK_BLEND_STRENGTH = 0.18
 FRONT_SIDE_SEMANTIC_CONTROL_SCALE = 0.35
 FRONT_SIDE_INPAINT_TOP_PADDING_RATIO = 0.01
 FRONT_SIDE_INPAINT_SIDE_EXPAND_RATIO = 0.04
+FRONT_FULL_WIDTH_GROUND_CONTROL_RGB = (112, 112, 112)
+FRONT_FULL_WIDTH_GROUND_BLEND_STRENGTH = 0.24
+FRONT_FULL_WIDTH_GROUND_TOP_PADDING_RATIO = 0.02
 
 
 @dataclass
@@ -170,6 +173,64 @@ def _apply_front_side_semantic_mask_to_control(
     arr = np.asarray(control_rgb, dtype=np.float32).copy()
     target = np.array(FRONT_SIDE_MASK_CONTROL_RGB, dtype=np.float32)
     arr[ground_mask] = arr[ground_mask] * (1.0 - strength) + target * strength
+    return Image.fromarray(np.clip(np.rint(arr), 0, 255).astype(np.uint8), mode="RGB")
+
+
+def _build_front_full_width_ground_mask(control: Image.Image) -> Image.Image:
+    """Mark lower full-width background as front-view ground.
+
+    This is intentionally broader than the localized front/side semantic band:
+    in orthographic-like front views, any lower area outside the building
+    silhouette should read as ground until the image edge.
+    """
+    arr = np.asarray(control.convert("RGB"), dtype=np.uint8)
+    bg_mask = np.all(arr == 0, axis=2)
+    geom_mask = ~bg_mask
+    height, width = bg_mask.shape
+
+    out = np.zeros((height, width), dtype=np.uint8)
+    if not np.any(geom_mask):
+        return Image.fromarray(out, mode="L")
+
+    ys, xs = np.nonzero(geom_mask)
+    bottom_by_x = np.full(width, -1, dtype=np.int32)
+    for x in np.unique(xs):
+        bottom_by_x[x] = int(ys[xs == x].max())
+
+    support_bottoms = bottom_by_x[bottom_by_x >= 0]
+    base_y = int(np.percentile(support_bottoms, FRONT_SIDE_MASK_BASE_PERCENTILE))
+    top_padding = max(
+        1,
+        int(round(height * FRONT_FULL_WIDTH_GROUND_TOP_PADDING_RATIO)),
+    )
+    ground_top = int(np.clip(base_y + top_padding, 0, height - 1))
+    out[ground_top:, :] = np.where(bg_mask[ground_top:, :], 255, 0).astype(np.uint8)
+    return Image.fromarray(out, mode="L")
+
+
+def _apply_front_full_width_ground_control(
+    control: Image.Image,
+    strength: float = FRONT_FULL_WIDTH_GROUND_BLEND_STRENGTH,
+) -> Image.Image:
+    """Weakly add a front-only full-width ground cue to depth control."""
+    control_rgb = control.convert("RGB")
+    if strength <= 0:
+        return control_rgb
+
+    mask = _build_front_full_width_ground_mask(control_rgb)
+    mask_arr = np.asarray(mask, dtype=np.uint8) > 0
+    if not np.any(mask_arr):
+        return control_rgb
+
+    strength = float(np.clip(strength, 0.0, 1.0))
+    arr = np.asarray(control_rgb, dtype=np.float32).copy()
+    height, _width = mask_arr.shape
+    y = np.linspace(0.0, 1.0, height, dtype=np.float32)[:, None]
+    target = np.array(FRONT_FULL_WIDTH_GROUND_CONTROL_RGB, dtype=np.float32)
+    target_map = target + (y * 18.0)
+    target_map = np.repeat(target_map[:, None, :], arr.shape[1], axis=1)
+
+    arr[mask_arr] = arr[mask_arr] * (1.0 - strength) + target_map[mask_arr] * strength
     return Image.fromarray(np.clip(np.rint(arr), 0, 255).astype(np.uint8), mode="RGB")
 
 
@@ -345,11 +406,14 @@ class DepthStyleRenderer:
         view: IFCView | None = None,
         use_front_side_semantic_mask: bool = False,
         use_front_side_semantic_control: bool = False,
+        use_front_full_width_ground_control: bool = False,
         front_side_ground_class: FrontSideGroundClass = "grass",
         front_side_semantic_control_scale: float = FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
     ) -> DepthStyleResult:
         depth_size = depth_image.size
         control = _depth_to_control(depth_image)
+        if use_front_full_width_ground_control and view is IFCView.FRONT:
+            control = _apply_front_full_width_ground_control(control)
         if use_front_side_semantic_mask and view in {IFCView.FRONT, IFCView.SIDE}:
             control = _apply_front_side_semantic_mask_to_control(control)
         control_image: Image.Image | list[Image.Image] = control
