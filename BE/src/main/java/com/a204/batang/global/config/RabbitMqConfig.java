@@ -6,6 +6,7 @@ import com.a204.batang.domain.floorplan.messaging.FloorPlanGenerateCommandPublis
 import com.a204.batang.domain.floorplan.messaging.dto.FloorPlanGenerateCommandMessage;
 import com.a204.batang.domain.floorplan.messaging.event.FloorPlanPublishFailedEvent;
 import com.a204.batang.domain.ifcedit.messaging.IfcEditCommandCorrelationData;
+import com.a204.batang.domain.ifcedit.messaging.IfcEditCommandPublisher;
 import com.a204.batang.domain.ifcedit.messaging.dto.IfcEditCommandMessage;
 import com.a204.batang.domain.ifcedit.messaging.event.IfcEditPublishFailedEvent;
 import com.a204.batang.domain.render.messaging.SdRenderCorrelationData;
@@ -378,6 +379,8 @@ public class RabbitMqConfig {
                     || TWO_D_LLM_COMMAND_ROUTING_KEY.equals(routingKey)
                     || THREE_D_LLM_COMMAND_ROUTING_KEY.equals(routingKey)) {
                 try {
+                    // IFC Edit 계열 returned 처리는 현재 공용 callback에 남아 있다.
+                    // callback 구조의 전면 추상화는 별도 리팩터링 범위로 남긴다.
                     IfcEditCommandMessage message = readReturnedIfcEditMessage(objectMapper, returned.getMessage());
                     String cause = "returned: code=%s, text=%s, exchange=%s, routingKey=%s".formatted(
                             returned.getReplyCode(),
@@ -479,34 +482,34 @@ public class RabbitMqConfig {
 
     private IfcEditCommandMessage reconstructIfcEditMessageFromHeaders(Map<String, Object> headers) {
         return new IfcEditCommandMessage(
-                readUuidHeader(headers, "x-ifc-edit-message-id"),
-                readStringHeader(headers, "x-ifc-edit-schema-version"),
-                readStringHeader(headers, "x-ifc-edit-message-type"),
-                readStringHeader(headers, "x-ifc-edit-command-type"),
-                readStringHeader(headers, "x-ifc-edit-routing-key"),
-                readUuidHeader(headers, "x-ifc-edit-job-id"),
-                readUuidHeader(headers, "x-ifc-edit-job-step-id"),
-                readIntegerHeader(headers, "x-ifc-edit-step-no"),
-                readIntegerHeader(headers, "x-ifc-edit-total-steps"),
-                readUuidHeader(headers, "x-ifc-edit-project-id"),
-                readUuidHeader(headers, "x-ifc-edit-requested-by"),
+                readUuidHeader(headers, IfcEditCommandPublisher.HEADER_MESSAGE_ID),
+                readStringHeader(headers, IfcEditCommandPublisher.HEADER_SCHEMA_VERSION),
+                readStringHeader(headers, IfcEditCommandPublisher.HEADER_MESSAGE_TYPE),
+                readStringHeader(headers, IfcEditCommandPublisher.HEADER_COMMAND_TYPE),
+                readStringHeader(headers, IfcEditCommandPublisher.HEADER_ROUTING_KEY),
+                readUuidHeader(headers, IfcEditCommandPublisher.HEADER_JOB_ID),
+                readUuidHeader(headers, IfcEditCommandPublisher.HEADER_JOB_STEP_ID),
+                readIntegerHeader(headers, IfcEditCommandPublisher.HEADER_STEP_NO),
+                readIntegerHeader(headers, IfcEditCommandPublisher.HEADER_TOTAL_STEPS),
+                readUuidHeader(headers, IfcEditCommandPublisher.HEADER_PROJECT_ID),
+                readUuidHeader(headers, IfcEditCommandPublisher.HEADER_REQUESTED_BY),
                 null,
                 null,
-                readStringHeader(headers, "x-ifc-edit-source-scene-type"),
-                readUuidHeader(headers, "x-ifc-edit-target-revision-id"),
-                readUuidHeader(headers, "x-ifc-edit-expected-output-artifact-id"),
+                readStringHeader(headers, IfcEditCommandPublisher.HEADER_SOURCE_SCENE_TYPE),
+                readUuidHeader(headers, IfcEditCommandPublisher.HEADER_TARGET_REVISION_ID),
+                readUuidHeader(headers, IfcEditCommandPublisher.HEADER_EXPECTED_OUTPUT_ARTIFACT_ID),
                 null,
                 new IfcEditCommandMessage.ExpectedOutput(
-                        readStringHeader(headers, "x-ifc-edit-ifc-storage-url"),
-                        readNullableStringHeader(headers, "x-ifc-edit-validation-report-storage-url"),
-                        readNullableStringHeader(headers, "x-ifc-edit-edit-plan-storage-url")
+                        readStringHeader(headers, IfcEditCommandPublisher.HEADER_IFC_STORAGE_URL),
+                        readNullableStringHeader(headers, IfcEditCommandPublisher.HEADER_VALIDATION_REPORT_STORAGE_URL),
+                        readNullableStringHeader(headers, IfcEditCommandPublisher.HEADER_EDIT_PLAN_STORAGE_URL)
                 ),
                 null,
-                readIntegerHeader(headers, "x-ifc-edit-attempt-no"),
-                readIntegerHeader(headers, "x-ifc-edit-max-attempts"),
-                readStringHeader(headers, "x-ifc-edit-idempotency-key"),
-                readUuidHeader(headers, "x-ifc-edit-correlation-id"),
-                OffsetDateTime.parse(readStringHeader(headers, "x-ifc-edit-created-at"))
+                readIntegerHeader(headers, IfcEditCommandPublisher.HEADER_ATTEMPT_NO),
+                readIntegerHeader(headers, IfcEditCommandPublisher.HEADER_MAX_ATTEMPTS),
+                readStringHeader(headers, IfcEditCommandPublisher.HEADER_IDEMPOTENCY_KEY),
+                readUuidHeader(headers, IfcEditCommandPublisher.HEADER_CORRELATION_ID),
+                OffsetDateTime.parse(readStringHeader(headers, IfcEditCommandPublisher.HEADER_CREATED_AT))
         );
     }
 }
