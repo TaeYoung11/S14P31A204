@@ -66,9 +66,9 @@ _PRESETS: dict[str, DepthStyleParams] = {
             "simple tile roof, no balcony, no foreground wall"
         ),
         negative_prompt=(
-            f"{_NEGATIVE_BASE}, stone wall, retaining wall, fence, "
-            "raised platform, podium, piloti, balcony, shopfront, "
-            "rural, cottage, log cabin"
+            "low quality, cgi, render, interior, basement, extra floor, "
+            "stone wall, retaining wall, fence, raised platform, podium, "
+            "piloti, balcony, shopfront"
         ),
         guidance_scale=7.0,
         num_inference_steps=25,
