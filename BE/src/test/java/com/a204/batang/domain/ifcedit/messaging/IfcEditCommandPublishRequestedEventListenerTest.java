@@ -63,10 +63,10 @@ class IfcEditCommandPublishRequestedEventListenerTest {
                 UUID.randomUUID(), UUID.randomUUID(), 1, TOTAL_STEPS_DIRECT,
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), null, "IFC_MODEL",
                 UUID.randomUUID(), UUID.randomUUID(),
-                Map.of("source_ifc_storage_url", "projects/p/revisions/r/model.ifc"),
+                Map.of("source_ifc_storage_url", "projects/p/revisions/r/ifc/model.v1.ifc"),
                 new IfcEditCommandMessage.ExpectedOutput(
-                        "projects/p/revisions/new/model.ifc",
-                        "jobs/j/steps/1/validation-report.json",
+                        "projects/p/revisions/new/ifc/model.v1.ifc",
+                        "projects/p/jobs/j/steps/001/engine/validation-report.v1.json",
                         null
                 ),
                 objectMapper.createObjectNode(),

@@ -102,10 +102,11 @@ class DirectIfcEditCommandServiceTest {
                 .willReturn(Optional.of(sourceRevision));
         given(revisionRepository.findTopByProjectIdOrderByRevisionNoDesc(projectId))
                 .willReturn(Optional.empty());
-        given(pathBuilder.buildSourceIfcStorageUrl(any(), any())).willReturn("projects/p/revisions/r/model.ifc");
-        given(pathBuilder.buildOutputIfcStorageUrl(any(), any())).willReturn("projects/p/revisions/new/model.ifc");
-        given(pathBuilder.buildValidationReportStorageUrl(any(), anyInt())).willReturn("jobs/j/steps/1/validation-report.json");
-        given(pathBuilder.buildSceneSnapshotStorageUrl(any(), any())).willReturn("projects/p/revisions/new/scene-ifc.json");
+        given(pathBuilder.buildSourceIfcStorageUrl(any(), any())).willReturn("projects/p/revisions/r/ifc/model.v1.ifc");
+        given(pathBuilder.buildOutputIfcStorageUrl(any(), any())).willReturn("projects/p/revisions/new/ifc/model.v1.ifc");
+        given(pathBuilder.buildValidationReportStorageUrl(any(), any(), anyInt()))
+                .willReturn("projects/p/jobs/j/steps/001/engine/validation-report.v1.json");
+        given(pathBuilder.buildSceneSnapshotStorageUrl(any(), any(), any())).willReturn("projects/p/revisions/new/ifc/snapshot.v1.json");
 
         IfcEditJobResponse response = service.createDirectIfcEdit(projectId, userId, request);
 
@@ -144,7 +145,12 @@ class DirectIfcEditCommandServiceTest {
         assertThat(cmd.routingKey()).isEqualTo(RabbitMqConfig.IFC_EDIT_COMMAND_ROUTING_KEY);
         assertThat(cmd.totalSteps()).isEqualTo(TOTAL_STEPS_DIRECT);
 
-        assertThat(savedStep.getInputPayload().get("sceneSnapshotStorageUrl")).isNotNull();
+        assertThat(savedStep.getInputPayload().get("ifcStorageUrl").asText())
+                .isEqualTo("projects/p/revisions/new/ifc/model.v1.ifc");
+        assertThat(savedStep.getInputPayload().get("validationReportStorageUrl").asText())
+                .isEqualTo("projects/p/jobs/j/steps/001/engine/validation-report.v1.json");
+        assertThat(savedStep.getInputPayload().get("sceneSnapshotStorageUrl").asText())
+                .isEqualTo("projects/p/revisions/new/ifc/snapshot.v1.json");
     }
 
     @Test

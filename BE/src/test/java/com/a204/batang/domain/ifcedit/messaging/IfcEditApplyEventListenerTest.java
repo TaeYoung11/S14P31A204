@@ -116,7 +116,7 @@ class IfcEditApplyEventListenerTest {
                 objectMapper.valueToTree(Map.of(
                         "targetRevisionId", revisionId.toString(),
                         "expectedOutputArtifactId", artifactId.toString(),
-                        "sceneSnapshotStorageUrl", "projects/" + projectId + "/revisions/" + revisionId + "/scene-ifc.json"
+                        "sceneSnapshotStorageUrl", "projects/" + projectId + "/revisions/" + revisionId + "/ifc/snapshot.v1.json"
                 )),
                 LocalDateTime.now()
         );
@@ -165,8 +165,8 @@ class IfcEditApplyEventListenerTest {
 
     @Test
     void handleCompleted_updatesStateAndSavesArtifacts() {
-        String ifcUrl = "projects/" + projectId + "/revisions/" + revisionId + "/model.ifc";
-        String validationUrl = "jobs/" + jobId + "/steps/1/validation-report.json";
+        String ifcUrl = "projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc";
+        String validationUrl = "projects/" + projectId + "/jobs/" + jobId + "/steps/001/engine/validation-report.v1.json";
         IfcEditEventMessage event = completedEvent(ifcUrl, validationUrl);
 
         given(ifcEditJobRepository.findByJobId(jobId)).willReturn(Optional.of(job));
@@ -192,7 +192,7 @@ class IfcEditApplyEventListenerTest {
 
     @Test
     void handleCompleted_savesIfcArtifactOnlyWhenValidationReportMissing() {
-        String ifcUrl = "projects/" + projectId + "/revisions/" + revisionId + "/model.ifc";
+        String ifcUrl = "projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc";
         IfcEditEventMessage event = completedEvent(ifcUrl, null);
 
         given(ifcEditJobRepository.findByJobId(jobId)).willReturn(Optional.of(job));
@@ -386,10 +386,10 @@ class IfcEditApplyEventListenerTest {
                 jobId, jobStepId, 1, TOTAL_STEPS_DIRECT,
                 projectId, UUID.randomUUID(), UUID.randomUUID(), null, "IFC_MODEL",
                 revisionId, artifactId,
-                Map.of("source_ifc_storage_url", "projects/p/revisions/r/model.ifc"),
+                Map.of("source_ifc_storage_url", "projects/p/revisions/r/ifc/model.v1.ifc"),
                 new IfcEditCommandMessage.ExpectedOutput(
-                        "projects/p/revisions/new/model.ifc",
-                        "jobs/j/steps/1/validation-report.json",
+                        "projects/p/revisions/new/ifc/model.v1.ifc",
+                        "projects/p/jobs/j/steps/001/engine/validation-report.v1.json",
                         null
                 ),
                 objectMapper.createObjectNode(),

@@ -77,8 +77,8 @@ class ThreeDLlmEventListenerTest {
                 jobId + ":step-1:three-d-llm",
                 objectMapper.valueToTree(Map.of(
                         "sourceRevisionId", baseRevisionId.toString(),
-                        "sourceIfcStorageUrl", "projects/" + projectId + "/revisions/" + baseRevisionId + "/model.ifc",
-                        "editPlanStorageUrl", "jobs/" + jobId + "/steps/1/edit-plan.json"
+                        "sourceIfcStorageUrl", "projects/" + projectId + "/revisions/" + baseRevisionId + "/ifc/model.v1.ifc",
+                        "editPlanStorageUrl", "projects/" + projectId + "/jobs/" + jobId + "/steps/001/planner/3d-command.v1.json"
                 )),
                 LocalDateTime.now()
         );
@@ -119,7 +119,7 @@ class ThreeDLlmEventListenerTest {
 
     @Test
     void handleCompleted_success_createsStep2AndRevision() {
-        String editPlanUrl = "jobs/" + jobId + "/steps/1/edit-plan.json";
+        String editPlanUrl = "projects/" + projectId + "/jobs/" + jobId + "/steps/001/planner/3d-command.v1.json";
         IfcEditEventMessage event = completedEvent(editPlanUrl);
 
         given(ifcEditJobRepository.findByJobIdAndJobType(jobId, JOB_TYPE_THREE_D_TO_IFC_EDIT))
@@ -128,9 +128,10 @@ class ThreeDLlmEventListenerTest {
                 .willReturn(Optional.of(step1));
         given(revisionRepository.findTopByProjectIdOrderByRevisionNoDesc(projectId))
                 .willReturn(Optional.empty());
-        given(pathBuilder.buildOutputIfcStorageUrl(any(), any())).willReturn("projects/p/revisions/new/model.ifc");
-        given(pathBuilder.buildValidationReportStorageUrl(any(), anyInt())).willReturn("jobs/j/steps/2/validation-report.json");
-        given(pathBuilder.buildSceneSnapshotStorageUrl(any(), any())).willReturn("projects/p/revisions/new/scene-ifc.json");
+        given(pathBuilder.buildOutputIfcStorageUrl(any(), any())).willReturn("projects/p/revisions/new/ifc/model.v1.ifc");
+        given(pathBuilder.buildValidationReportStorageUrl(any(), any(), anyInt()))
+                .willReturn("projects/p/jobs/j/steps/002/engine/validation-report.v1.json");
+        given(pathBuilder.buildSceneSnapshotStorageUrl(any(), any(), any())).willReturn("projects/p/revisions/new/ifc/snapshot.v1.json");
 
         listener.handle(event);
 
@@ -144,7 +145,7 @@ class ThreeDLlmEventListenerTest {
     @Test
     void handleCompleted_terminalStep_ignored() {
         step1.markSucceeded(objectMapper.createObjectNode(), LocalDateTime.now());
-        IfcEditEventMessage event = completedEvent("jobs/" + jobId + "/steps/1/edit-plan.json");
+        IfcEditEventMessage event = completedEvent("projects/" + projectId + "/jobs/" + jobId + "/steps/001/planner/3d-command.v1.json");
 
         given(ifcEditJobRepository.findByJobIdAndJobType(jobId, JOB_TYPE_THREE_D_TO_IFC_EDIT))
                 .willReturn(Optional.of(job));
