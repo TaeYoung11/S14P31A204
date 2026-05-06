@@ -125,6 +125,10 @@ IFC_EDIT_COMMAND_QUEUE = kombu.Queue(
     exchange=COMMANDS_EXCHANGE,
     routing_key="command.ifc-edit.apply",
     durable=True,
+    queue_arguments={
+        "x-dead-letter-exchange": "batang.dlx.exchange",
+        "x-dead-letter-routing-key": "dead.ifc-edit",
+    },
 )
 
 _WORKER_TYPE_TO_QUEUE: dict[str, kombu.Queue] = {

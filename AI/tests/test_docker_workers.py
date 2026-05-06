@@ -1,16 +1,28 @@
-import uuid
+"""도커 환경에서 3D LLM / Authoring 워커의 메시지 수신을 수동으로 검증하는 스크립트.
+
+사용 전제:
+  - docker compose --profile ai up 으로 워커 컨테이너가 기동된 상태
+  - S3(MinIO)에 실제 IFC 파일이 없으므로 워커는 FAILED 이벤트를 발행함
+  - 실서비스 환경에서는 실행하지 않음
+"""
+
 import datetime
-import time
-from ai_common.adapters.rabbitmq.kombu_client import build_connection, COMMANDS_EXCHANGE
+import uuid
+
+from ai_common.adapters.rabbitmq.kombu_client import COMMANDS_EXCHANGE, build_connection
 from ai_common.config import load_worker_settings
-from ai_domain.worker_messages.command import CommandMessage, CommandInputRef, ExpectedOutputRef
+from ai_domain.worker_messages.command import (
+    CommandInputRef,
+    CommandMessage,
+    ExpectedOutputRef,
+)
 from ai_domain.worker_messages.payloads_3d import ThreeDLlmCommandPayload
 from ai_domain.worker_messages.payloads_ifc_edit import IfcEditCommandPayload
 
-# 1. 3D LLM 기획 워커 설정
-settings_3d = load_worker_settings(
+# 발송에 필요한 RabbitMQ 설정만 로드한다 (worker_type은 큐 라우팅과 무관하게 설정용으로만 사용).
+settings = load_worker_settings(
     worker_type="THREE_D_LLM",
-    worker_id="test-3d",
+    worker_id="test-sender",
     s3={"bucket": "test"},
 )
 
@@ -47,14 +59,6 @@ command_3d = CommandMessage(
     createdAt=datetime.datetime.now(datetime.UTC)
 ).model_dump(by_alias=True, exclude_none=True)
 
-
-# 2. Authoring 워커 설정
-settings_authoring = load_worker_settings(
-    worker_type="IFC_EDIT_APPLY",
-    worker_id="test-authoring",
-    s3={"bucket": "test"},
-)
-
 command_authoring = CommandMessage(
     messageId=str(uuid.uuid4()),
     schemaVersion="v1",
@@ -72,8 +76,7 @@ command_authoring = CommandMessage(
     sourceSceneType="IFC_MODEL",
     expectedOutputArtifactId=str(uuid.uuid4()),
     input=CommandInputRef(
-        sourceIfcStorageUrl="s3://batang-artifacts/test/model.ifc",
-        commandJsonStorageUrl="s3://batang-artifacts/test/3d-plan.json"
+        sourceIfcStorageUrl="s3://batang-artifacts/test/model.ifc"
     ),
     expectedOutput=ExpectedOutputRef(
         ifcStorageUrl="s3://batang-artifacts/test/rev_001/model.ifc",
@@ -92,8 +95,7 @@ command_authoring = CommandMessage(
 
 print("메시지를 발송합니다...")
 
-# 3D 워커로 발송
-with build_connection(settings_3d.rabbitmq) as conn:
+with build_connection(settings.rabbitmq) as conn:
     with conn.Producer(serializer='json') as producer:
         producer.publish(
             command_3d,
@@ -103,11 +105,6 @@ with build_connection(settings_3d.rabbitmq) as conn:
         )
         print("[SUCCESS] 3D LLM 워커로 메시지 발송 완료")
 
-time.sleep(1)
-
-# Authoring 워커로 발송
-with build_connection(settings_authoring.rabbitmq) as conn:
-    with conn.Producer(serializer='json') as producer:
         producer.publish(
             command_authoring,
             exchange=COMMANDS_EXCHANGE,

@@ -100,7 +100,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Process a single acknowledged command and exit.",
     )
     args = parser.parse_args(list(argv) if argv is not None else None)
-    return run_authoring_worker(once=args.once)
+    try:
+        return run_authoring_worker(once=args.once)
+    except Exception:
+        _logger.exception("authoring_worker_startup_failed")
+        return 1
 
 
 __all__ = ["WORKER_TYPE", "build_settings", "main", "run_authoring_worker"]
