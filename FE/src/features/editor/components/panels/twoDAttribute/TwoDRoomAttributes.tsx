@@ -14,6 +14,7 @@ interface TwoDRoomAttributesProps {
   onRoomHeightFocus: () => void
   onRoomWidthBlur: () => void
   onRoomHeightBlur: () => void
+  isRoomGeometryLocked?: boolean
 }
 
 /** 2D Room 선택 시 표시되는 속성 섹션 */
@@ -29,6 +30,7 @@ export function TwoDRoomAttributes({
   onRoomHeightFocus,
   onRoomWidthBlur,
   onRoomHeightBlur,
+  isRoomGeometryLocked = false,
 }: TwoDRoomAttributesProps) {
   return (
     <div className="p-5 flex flex-col gap-5">
@@ -68,6 +70,7 @@ export function TwoDRoomAttributes({
             <input
               type="number"
               value={roomWidthDraft}
+              disabled={isRoomGeometryLocked}
               onFocus={onRoomWidthFocus}
               onChange={(e) => onRoomWidthDraftChange(e.target.value)}
               onBlur={onRoomWidthBlur}
@@ -76,7 +79,7 @@ export function TwoDRoomAttributes({
                   e.currentTarget.blur()
                 }
               }}
-              className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
+              className="bg-[#F8F9FD] disabled:bg-[#F2F4F8] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] disabled:text-[#9AA4BA] focus:ring-1 focus:ring-[#3B45B3] outline-none"
             />
           </div>
           <div className="flex flex-col gap-1.5">
@@ -84,6 +87,7 @@ export function TwoDRoomAttributes({
             <input
               type="number"
               value={roomHeightDraft}
+              disabled={isRoomGeometryLocked}
               onFocus={onRoomHeightFocus}
               onChange={(e) => onRoomHeightDraftChange(e.target.value)}
               onBlur={onRoomHeightBlur}
@@ -92,10 +96,15 @@ export function TwoDRoomAttributes({
                   e.currentTarget.blur()
                 }
               }}
-              className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
+              className="bg-[#F8F9FD] disabled:bg-[#F2F4F8] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] disabled:text-[#9AA4BA] focus:ring-1 focus:ring-[#3B45B3] outline-none"
             />
           </div>
         </div>
+        {isRoomGeometryLocked && (
+          <p className="text-[10px] font-semibold text-[#8A94AB]">
+            룸 형상/치수는 벽 편집 결과로 자동 계산됩니다.
+          </p>
+        )}
 
       </div>
 

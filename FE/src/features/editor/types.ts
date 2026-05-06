@@ -119,7 +119,7 @@ export interface FloorRoom {
   /**
    * IFC IfcSpace 임의 폴리곤 형상 (캔버스 px 좌표).
    * 존재하면 직사각형 대신 폴리곤으로 렌더링한다.
-   * 편집(이동/리사이즈)은 bbox 기준으로 유지된다.
+   * 기본 직사각형 Room도 선택 시 4점 폴리곤으로 편집 가능하다.
    */
   polygon?: { x: number; y: number }[]
   /** 렌더링용 경계 세그먼트(캔버스 px) */

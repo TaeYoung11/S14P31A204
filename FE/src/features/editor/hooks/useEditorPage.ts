@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
+import axios from 'axios'
 import type {
   AddSpaceFormData,
   BubbleData,
@@ -14,6 +15,7 @@ import type {
   FloorCommentPin,
   FloorLayerOverlay,
   FloorOpening,
+  FloorRoom,
   FloorWall,
   Point2D,
   SaveStatus,
@@ -22,12 +24,8 @@ import type {
 import {
   DEFAULT_GRID_SNAP_INTERVAL_MM,
   FLOOR_MM_PER_PX,
-  FLOOR_OPENING_PRESETS,
-  FLOOR_WALL_HEIGHT_MAX_MM,
-  FLOOR_WALL_HEIGHT_MIN_MM,
+  FLOOR_PLAN_EDIT_AUTHORITY,
   FLOOR_WALL_PRESETS,
-  FLOOR_WALL_THICKNESS_MAX_MM,
-  FLOOR_WALL_THICKNESS_MIN_MM,
   GRID_SNAP_INTERVAL_OPTIONS_MM,
   INITIAL_ADD_SPACE_FORM,
 } from '../constants'
@@ -44,7 +42,8 @@ import { useEditorExportGuard } from './useEditorExportGuard'
 import { useEditorFloorSync } from './useEditorFloorSync'
 import { EDITOR_SITE_FIT_PADDING_PX, useEditorSiteBoundary } from './useEditorSiteBoundary'
 import { useEditorZoom } from './useEditorZoom'
-import { calcAreaM2FromMm } from '../utils/bubbleCalc'
+import { useEditorAttributePanelHandlers } from './useEditorAttributePanelHandlers'
+import { useEditorStructureEditHandlers } from './useEditorStructureEditHandlers'
 import type { EmptyCanvasDblClickInfo } from '../components/canvas/BubbleCanvas'
 import {
   mapAdjacencyToConnections,
@@ -57,29 +56,42 @@ import type { AxisAlignedRect } from '../utils/geometry2d'
 import { toRectFloorRoom } from '../utils/floorRoomTransform'
 import { deriveAutoOpeningsFromConnections, normalizeOpeningWithinWall } from '../utils/floorOpeningSync'
 import {
-  clampWallHeightMm,
-  clampWallThicknessMm,
-} from '../utils/wallSync'
-import {
-  buildWallOutsideOverlapSegments,
-  getWallGeometryKey,
-  getWallOverlapInterval,
-  projectAxisAlignedWall,
-} from '../utils/wallGeometry'
-import {
   buildMovedFloorRoomsState,
   buildResizedFloorRoomsState,
 } from '../utils/floorRoomDerivedState'
-import { createsNewWallRoomCollision } from '../utils/wallRoomCollision'
 import type { FloorProject } from '../types/floorProject.types'
 import { workspaceDraftRepository } from '../services/workspaceDraft.repository'
+import { requestFloorPlanGenerate } from '../services/floorPlanGenerate.service'
+import {
+  FloorPlanLayoutValidationError,
+} from '../services/floorPlanGenerate.contract'
+import { saveBubbleSnapshotToDb } from '../services/workspaceBubble.service'
+import type { SaveBubbleSnapshotResponse } from '../services/workspaceBubble.service'
+import {
+  publishIfcEditRequest,
+  publishIfcRedoRequest,
+  publishIfcUndoRequest,
+} from '../services/workspaceCommand.service'
 import { useAuthStore } from '@/shared/stores/authStore'
+import { useProjectStore } from '@/features/project/stores/projectStore'
 import { useEditorProjectName } from './useEditorProjectName'
 import { useInitialIfcImport } from './useInitialIfcImport'
 import { runForceDirectedBubbleLayout } from '../utils/forceBubbleLayout'
-
-/** 에디터 모드 허용 목록 — URL 파라미터 검증용 */
-const EDITOR_MODES: EditorMode[] = ['bubble', '2d', '3d', 'view']
+import { useBubbleSnapshotRealtime } from './useBubbleSnapshotRealtime'
+import { useIfcLoadingLayer } from './useIfcLoadingLayer'
+import {
+  buildFloorPlanLayoutImportPayload,
+  collectAutoDoorOpeningIdsFromWallIds,
+  createLocalId,
+  getPolygonAreaPx,
+  getPolygonBounds,
+  isFinitePolygonPoints,
+  isSameConnection,
+  mergeSelectedIds,
+  normalizeCommentAttachments,
+  resolveEditorMode,
+} from '../utils/editorPageHelpers'
+import { IFC_COMPLETED_ACTION_SET } from '../utils/workspaceSyncMessage'
 
 interface DrawingSnapshot {
   bubbles: BubbleData[]
@@ -88,56 +100,18 @@ interface DrawingSnapshot {
   floorOpenings: FloorOpening[]
 }
 
-const WALL_ROOM_COLLISION_INSET_PX = 2
 const OPENING_MIN_WIDTH_MM = 1
 const OPENING_MAX_WIDTH_MM = 4000
 const OPENING_NORMALIZE_OPTIONS = {
   minWidthMm: OPENING_MIN_WIDTH_MM,
   maxWidthMm: OPENING_MAX_WIDTH_MM,
 } as const
+const IFC_DERIVED_FLOORPLAN_ONLY = true
+const BUBBLE_DB_SAVE_DEBOUNCE_MS = 2000
 
 const DEFAULT_DESIGNER_NAME = '설계자'
 const DEFAULT_CLIENT_NAME = '고객사 담당자'
-const DEFAULT_WALL_MATERIAL = '콘크리트'
-
-function createLocalId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-/** 2D 벽 고유 ID 생성 */
-function createFloorWallId(): string {
-  return `wall-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-}
-
-/** 2D 개구부 고유 ID 생성 */
-function createFloorOpeningId(): string {
-  return `opening-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-}
-
-function normalizeCommentAttachments(attachments: FloorCommentAttachmentInput[] = []) {
-  return attachments.map((attachment) => ({
-    id: createLocalId('attachment'),
-    kind: attachment.kind,
-    name: attachment.name,
-    mimeType: attachment.mimeType,
-    sizeBytes: attachment.sizeBytes,
-    url: attachment.url,
-  }))
-}
-
-/** URL 파라미터에서 모드 파싱 — 허용 목록 외 값은 'bubble'(기본값)으로 처리 */
-function resolveMode(value: string | null): EditorMode {
-  return EDITOR_MODES.includes(value as EditorMode) ? (value as EditorMode) : 'bubble'
-}
-
-
-/** 두 연결선 쌍이 동일한지 비교 (방향 무관) */
-function isSameConnection(
-  a: { from: string; to: string },
-  b: { from: string; to: string },
-): boolean {
-  return (a.from === b.from && a.to === b.to) || (a.from === b.to && a.to === b.from)
-}
+const FLOOR_PLAN_GENERATE_TIMEOUT_MS = 120_000
 
 /**
  * EditorPage 전체 비즈니스 로직 훅
@@ -147,7 +121,7 @@ export function useEditorPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const { currentProjectName } = useEditorProjectName(projectId)
-  const mode = resolveMode(searchParams.get('mode'))
+  const mode = resolveEditorMode(searchParams.get('mode'))
   const workspaceCommandPublisher = useWorkspaceCommandPublisher({
     projectId,
     source: mode,
@@ -188,7 +162,7 @@ export function useEditorPage() {
     connectionPair: lineConnectionPair,
     openModal,
     openModalWithPair,
-    confirmModal: confirmLineStyleModal,
+    confirmModal: confirmLineStyleModalRaw,
     closeModal: closeLineStyleModal,
     setSelectedStyle,
     removeConnectionsForBubble,
@@ -219,6 +193,9 @@ export function useEditorPage() {
   const [selectedFloorOpeningId, setSelectedFloorOpeningId] = useState<string | null>(null)
   /** 2D에서 멀티 선택된 개구부 */
   const [selectedFloorOpeningIds, setSelectedFloorOpeningIds] = useState<string[]>([])
+  /** 2D 수동 편집 후 버블 모드 자동 재생성(refresh) 억제 */
+  const [isFloorPlanEditedIn2D, setIsFloorPlanEditedIn2D] = useState(false)
+  const markLocalBubbleSnapshotChangedRef = useRef<() => void>(() => {})
 
   const isAutoDerivedWallId = useCallback((wallId: string) =>
     wallId.startsWith('auto-room-') || wallId.startsWith('auto-shared-')
@@ -247,12 +224,11 @@ export function useEditorPage() {
   // 2D 평면도 층 상태
   const {
     isGenerated: isFloorPlanGenerated,
-    isGenerating: isFloorPlanGenerating,
+    isGenerating: isFloorPlanGeneratingLocal,
     layoutSource: floorPlanLayoutSource,
     layers: floorLayers,
     activeLayerId: activeFloorLayerId,
     activeRooms: floorRooms,
-    generateFloorPlan,
     refreshFloorPlan,
     addFloorLayer,
     renameFloorLayer,
@@ -269,21 +245,20 @@ export function useEditorPage() {
   /** 버블 편집 잠금은 현재 비활성 상태(false 고정) */
   const isBubbleEditLocked = false
   const canSyncBubbleStateFrom2D = floorPlanLayoutSource === 'bubble' && activeFloorLayerId === 'floor-1'
+  const isWallFirstEditing = FLOOR_PLAN_EDIT_AUTHORITY === 'wall-first'
+  const [workspacePhaseStatus, setWorkspacePhaseStatus] = useState<PhaseStatus>('BUBBLE_DRAFT')
+  const handleIfcSyncMessageRef = useRef<(url: string, action: string | null) => void>(() => {})
+  const isFloorPlanGenerating = isFloorPlanGeneratingLocal || workspacePhaseStatus === 'CONVERTING'
 
   // 버블·연결선 변경 시 이미 생성된 평면도를 조용히 갱신 (로딩 없음)
   useEffect(() => {
+    if (IFC_DERIVED_FLOORPLAN_ONLY) return
     if (mode !== 'bubble') return
+    if (isFloorPlanEditedIn2D) return
     if (floorPlanLayoutSource === 'bubble' && isFloorPlanGenerated && bubbles.length > 0 && stageSize.width > 0) {
       refreshFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
     }
-  }, [mode, bubbles, connections, stageSize.width, stageSize.height, isFloorPlanGenerated, floorPlanLayoutSource, refreshFloorPlan])
-
-  // 버블이 1개 이상 생기면 평면도가 없을 때 즉시 자동 생성 (모드 무관)
-  useEffect(() => {
-    if (!isFloorPlanGenerated && !isFloorPlanGenerating && bubbles.length > 0 && stageSize.width > 0) {
-      generateFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
-    }
-  }, [isFloorPlanGenerated, isFloorPlanGenerating, bubbles, connections, stageSize.width, stageSize.height, generateFloorPlan])
+  }, [mode, bubbles, connections, stageSize.width, stageSize.height, isFloorPlanGenerated, floorPlanLayoutSource, isFloorPlanEditedIn2D, refreshFloorPlan])
 
   // 버블이 모두 삭제되면 2D/3D 레이어도 함께 초기화
   useEffect(() => {
@@ -308,14 +283,12 @@ export function useEditorPage() {
   const handleDeleteSelected = useCallback(() => {
     if (mode === 'bubble' && isBubbleEditLocked) return
     if (mode === '2d') {
-      const selectedRoomIds = Array.from(new Set([
-        ...selectedIds,
-        ...(selectedId ? [selectedId] : []),
-      ]))
+      const selectedRoomIds = mergeSelectedIds(selectedIds, selectedId)
 
       if (selectedFloorOpeningIds.length === 0 && selectedFloorWallIds.length === 0 && !selectedFloorOpeningId && !selectedFloorWallId && selectedRoomIds.length > 0) {
         removeActiveRooms(selectedRoomIds)
         if (canSyncBubbleStateFrom2D) {
+          markLocalBubbleSnapshotChangedRef.current()
           selectedRoomIds.forEach((id) => {
             deleteBubble(id)
             removeConnectionsForBubble(id)
@@ -345,13 +318,7 @@ export function useEditorPage() {
         prev.filter((opening) => !openingIdSet.has(opening.id) && !wallIdSet.has(opening.wallId)),
       )
       const autoOpeningIdsToHide = Array.from(openingIdSet).filter((openingId) => openingId.startsWith('auto-door-'))
-      const autoOpeningIdsFromDeletedWalls = Array.from(wallIdSet)
-        .map((wallId) => {
-          if (!wallId.startsWith('auto-shared-')) return null
-          const pair = wallId.replace(/^auto-shared-/, '').replace(/-seg-\d+$/, '')
-          return pair ? `auto-door-${pair}` : null
-        })
-        .filter((id): id is string => Boolean(id))
+      const autoOpeningIdsFromDeletedWalls = collectAutoDoorOpeningIdsFromWallIds(wallIdSet)
       const newHiddenOpeningIds = Array.from(new Set([...autoOpeningIdsToHide, ...autoOpeningIdsFromDeletedWalls]))
       if (newHiddenOpeningIds.length > 0) {
         setHiddenAutoOpeningIds((prev) => {
@@ -380,9 +347,13 @@ export function useEditorPage() {
       return
     }
     if (selectedConnectionPair) {
+      markLocalBubbleSnapshotChangedRef.current()
       removeConnection(selectedConnectionPair.from, selectedConnectionPair.to)
       setSelectedConnectionPair(null)
       return
+    }
+    if (selectedIds.length > 0) {
+      markLocalBubbleSnapshotChangedRef.current()
     }
     selectedIds.forEach((id) => {
       deleteBubble(id)
@@ -466,15 +437,21 @@ export function useEditorPage() {
   const [overlayLayerIds, setOverlayLayerIds] = useState<string[]>([])
   const [overlayOpacityByLayerId, setOverlayOpacityByLayerId] = useState<Record<string, number>>({})
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const [latestFloorPlanJobId, setLatestFloorPlanJobId] = useState<string | null>(null)
+  const [floorPlanGenerateStatusText, setFloorPlanGenerateStatusText] = useState<string>('')
   const [autosaveReadyProjectId, setAutosaveReadyProjectId] = useState<string | null>(null)
-  const workspacePhaseStatus: PhaseStatus = isFloorPlanGenerating
-    ? 'CONVERTING'
-    : isFloorPlanGenerated
-      ? 'IFC_EDIT'
-      : 'BUBBLE_DRAFT'
   const attemptedInitialIfcImportProjectIdRef = useRef<string | null>(null)
   const localVersionRef = useRef(0)
   const previousSnapshotRef = useRef<string | null>(null)
+  const latestBubbleSnapshotRef = useRef<{ bubbles: BubbleData[]; connections: ConnectionData[] }>({
+    bubbles,
+    connections,
+  })
+  const bubbleDbSaveTimerRef = useRef<number | null>(null)
+  const bubbleDbSaveInFlightRef = useRef<Promise<SaveBubbleSnapshotResponse> | null>(null)
+  const floorPlanGenerateForbiddenRef = useRef(false)
+  const floorPlanGenerateTimeoutRef = useRef<number | null>(null)
+  const bubbleDbDirtyRef = useRef(false)
   const hasUserEditedRef = useRef(false)
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingDraftRecordRef = useRef<EditorDraftRecord | null>(null)
@@ -501,11 +478,60 @@ export function useEditorPage() {
     })
   }, [])
   const authUser = useAuthStore((state) => state.user)
-  const currentUserType: CollaborationUserType = authUser?.user_type === 'CUSTOMER' ? 'CUSTOMER' : 'DESIGNER'
+  const currentProject = useProjectStore((state) => state.currentProject)
+  const currentUserType: CollaborationUserType = authUser?.user_type === 'DESIGNER' ? 'DESIGNER' : 'CUSTOMER'
   const counterpartType: CollaborationUserType = currentUserType === 'DESIGNER' ? 'CUSTOMER' : 'DESIGNER'
   const currentUserName = authUser?.name?.trim()
     ? authUser.name.trim()
     : (currentUserType === 'DESIGNER' ? DEFAULT_DESIGNER_NAME : DEFAULT_CLIENT_NAME)
+  const hasIfcUploadedInCurrentProject = Boolean(
+    projectId &&
+    currentProject?.id === projectId &&
+    currentProject.ifc_uploaded,
+  )
+  const isCurrentProjectOwnerKnown = Boolean(
+    projectId &&
+    currentProject?.id === projectId &&
+    currentProject.owner_id,
+  )
+  const isCurrentProjectOwner = Boolean(
+    isCurrentProjectOwnerKnown &&
+    authUser?.id &&
+    currentProject?.owner_id === authUser.id,
+  )
+
+  const clearFloorPlanGenerateTimeout = () => {
+    if (floorPlanGenerateTimeoutRef.current !== null) {
+      window.clearTimeout(floorPlanGenerateTimeoutRef.current)
+      floorPlanGenerateTimeoutRef.current = null
+    }
+  }
+
+  const startFloorPlanGenerateTimeout = () => {
+    clearFloorPlanGenerateTimeout()
+    floorPlanGenerateTimeoutRef.current = window.setTimeout(() => {
+      floorPlanGenerateTimeoutRef.current = null
+      setWorkspacePhaseStatus((prev) => {
+        if (prev !== 'CONVERTING') return prev
+        setFloorPlanGenerateStatusText('평면도 생성이 지연되고 있습니다. 잠시 후 다시 시도하세요.')
+        console.warn('[editor] Floor-plan 생성 타임아웃: CONVERTING 상태가 장시간 유지되었습니다.')
+        return 'BUBBLE_DRAFT'
+      })
+    }, FLOOR_PLAN_GENERATE_TIMEOUT_MS)
+  }
+
+  useEffect(() => {
+    floorPlanGenerateForbiddenRef.current = false
+  }, [projectId, authUser?.id])
+
+  useEffect(() => {
+    if (workspacePhaseStatus !== 'CONVERTING') {
+      clearFloorPlanGenerateTimeout()
+    }
+    return () => {
+      clearFloorPlanGenerateTimeout()
+    }
+  }, [workspacePhaseStatus])
 
   // Shift+L: 층 겹쳐보기 모드 토글 (2D/3D 전용)
   useEffect(() => {
@@ -646,6 +672,10 @@ export function useEditorPage() {
   }, [draftSnapshot])
 
   useEffect(() => {
+    latestBubbleSnapshotRef.current = { bubbles, connections }
+  }, [bubbles, connections])
+
+  useEffect(() => {
     return () => {
       flushPendingDraftSave()
     }
@@ -710,6 +740,7 @@ export function useEditorPage() {
           setHiddenAutoWallIds(data.hiddenAutoWallIds ?? [])
           setHiddenAutoOpeningIds(data.hiddenAutoOpeningIds ?? [])
           setIsProjectStructurePreferred(data.isProjectStructurePreferred ?? false)
+          setWorkspacePhaseStatus(data.phaseStatus ?? 'BUBBLE_DRAFT')
         } else {
           previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current)
         }
@@ -794,6 +825,105 @@ export function useEditorPage() {
   const canEditIfc = phaseStatus === 'IFC_EDIT'
   const isConverting = phaseStatus === 'CONVERTING'
   const isBubbleReadOnly = !canEditBubble
+
+  const applyRemoteBubbleSnapshot = useCallback((snapshot: {
+    bubbles: BubbleData[]
+    connections: ConnectionData[]
+  }) => {
+    const previousById = new Map(bubbles.map((bubble) => [bubble.id, bubble] as const))
+    const normalizedBubbles = snapshot.bubbles.map((bubble, index) => {
+      const previous = previousById.get(bubble.id)
+      const areaLabel = Number.isFinite(bubble.ratio) ? `${bubble.ratio.toFixed(1)} m²` : (previous?.area ?? '0.0 m²')
+      const defaultIndex = (index + 1).toString().padStart(2, '0')
+      return {
+        ...bubble,
+        area: areaLabel,
+        index: previous?.index ?? defaultIndex,
+        material: previous?.material,
+      }
+    })
+
+    replaceBubbles(normalizedBubbles)
+    replaceConnections(snapshot.connections)
+    setSelectedConnectionPair(null)
+    setConnectingFromId(null)
+  }, [bubbles, replaceBubbles, replaceConnections])
+
+  const { markLocalBubbleSnapshotChanged: markLocalBubbleSnapshotChangedRealtime } = useBubbleSnapshotRealtime({
+    projectId,
+    canPublish: canEditBubble,
+    bubbles,
+    connections,
+    onRemoteSnapshot: applyRemoteBubbleSnapshot,
+    onPhaseStatusChanged: setWorkspacePhaseStatus,
+    onIfcStorageUrlReceived: (ifcStorageUrl, action) => {
+      handleIfcSyncMessageRef.current(ifcStorageUrl, action)
+    },
+  })
+
+  const flushBubbleSnapshotSaveToDb = useCallback(async (force = false): Promise<SaveBubbleSnapshotResponse | null> => {
+    if (!projectId) return null
+    if (workspacePhaseStatus !== 'BUBBLE_DRAFT') return null
+    if (!force && !bubbleDbDirtyRef.current) return null
+
+    if (bubbleDbSaveInFlightRef.current) {
+      try {
+        return await bubbleDbSaveInFlightRef.current
+      } catch {
+        return null
+      }
+    }
+
+    const snapshot = latestBubbleSnapshotRef.current
+    const saveTask = (async () => {
+      const saved = await saveBubbleSnapshotToDb(projectId, snapshot.bubbles, snapshot.connections)
+      bubbleDbDirtyRef.current = false
+      return saved
+    })()
+    bubbleDbSaveInFlightRef.current = saveTask
+    try {
+      return await saveTask
+    } catch (error: unknown) {
+      console.warn('[editor] Bubble snapshot DB 저장 실패:', { projectId, error })
+      return null
+    } finally {
+      if (bubbleDbSaveInFlightRef.current === saveTask) {
+        bubbleDbSaveInFlightRef.current = null
+      }
+    }
+  }, [projectId, workspacePhaseStatus])
+
+  const scheduleBubbleSnapshotSaveToDb = useCallback((delayMs = BUBBLE_DB_SAVE_DEBOUNCE_MS) => {
+    if (!projectId) return
+    if (workspacePhaseStatus !== 'BUBBLE_DRAFT') return
+
+    bubbleDbDirtyRef.current = true
+    if (bubbleDbSaveTimerRef.current !== null) {
+      window.clearTimeout(bubbleDbSaveTimerRef.current)
+    }
+    bubbleDbSaveTimerRef.current = window.setTimeout(() => {
+      bubbleDbSaveTimerRef.current = null
+      void flushBubbleSnapshotSaveToDb(false)
+    }, delayMs)
+  }, [flushBubbleSnapshotSaveToDb, projectId, workspacePhaseStatus])
+
+  const markLocalBubbleSnapshotChanged = useCallback(() => {
+    markLocalBubbleSnapshotChangedRealtime()
+    scheduleBubbleSnapshotSaveToDb()
+  }, [markLocalBubbleSnapshotChangedRealtime, scheduleBubbleSnapshotSaveToDb])
+
+  useEffect(() => {
+    markLocalBubbleSnapshotChangedRef.current = markLocalBubbleSnapshotChanged
+  }, [markLocalBubbleSnapshotChanged])
+
+  useEffect(() => {
+    return () => {
+      if (bubbleDbSaveTimerRef.current !== null) {
+        window.clearTimeout(bubbleDbSaveTimerRef.current)
+        bubbleDbSaveTimerRef.current = null
+      }
+    }
+  }, [])
 
   const updateFloorWallFromEditable = useCallback((wallId: string, updater: (wall: FloorWall) => FloorWall) => {
     setFloorWalls((prev) => {
@@ -912,11 +1042,8 @@ export function useEditorPage() {
         const next = prev.map((opening): FloorOpening | null => {
           if (!opening.wallId.startsWith('auto-room-')) return opening
           if (openingTargetWallById.has(opening.wallId)) return opening
-          const match = opening.wallId.match(/^auto-room-(.+?)-(top|right|bottom|left)-/)
-          if (!match) return opening
-          const roomId = match[1]
-          const side = match[2]
-          const baseId = `auto-room-${roomId}-${side}`
+          const segIndex = opening.wallId.indexOf('-seg-')
+          const baseId = segIndex > 0 ? opening.wallId.slice(0, segIndex) : opening.wallId
           if (openingTargetWallById.has(baseId)) {
             changed = true
             return { ...opening, wallId: baseId }
@@ -1108,6 +1235,7 @@ export function useEditorPage() {
 
   const handleConfirmAddSpace = () => {
     if (isBubbleReadOnly) return
+    markLocalBubbleSnapshotChanged()
     addBubble(addSpaceFormData)
     setIsAddModalOpen(false)
   }
@@ -1116,6 +1244,12 @@ export function useEditorPage() {
   const handleOpenLineStyleModal = () => {
     if (isBubbleReadOnly) return
     openModal(selectedId, previousSelectedId)
+  }
+
+  const confirmLineStyleModal = () => {
+    if (isBubbleReadOnly) return
+    markLocalBubbleSnapshotChanged()
+    confirmLineStyleModalRaw()
   }
 
   /** 협업 모드 토글 — 진입 시 탭·핀 상태 초기화 */
@@ -1291,6 +1425,7 @@ export function useEditorPage() {
   /** 버블 삭제 — 연결선도 함께 제거 */
   const handleDeleteBubble = (id: string) => {
     if (isBubbleReadOnly) return
+    markLocalBubbleSnapshotChanged()
     deleteBubble(id)
     removeConnectionsForBubble(id)
     if (selectedConnectionPair && (selectedConnectionPair.from === id || selectedConnectionPair.to === id)) {
@@ -1329,6 +1464,7 @@ export function useEditorPage() {
   const handleConnectionClick = (conn: ConnectionData) => {
     if (isBubbleReadOnly) return
     if (selectedTool === 'delete') {
+      markLocalBubbleSnapshotChanged()
       removeConnection(conn.from, conn.to)
       setSelectedConnectionPair(null)
       return
@@ -1405,6 +1541,7 @@ export function useEditorPage() {
   /** 빈 캔버스 더블클릭 → 버블 생성 후 즉시 라벨 편집 */
   const handleEmptyCanvasDblClick = (info: EmptyCanvasDblClickInfo) => {
     if (isBubbleReadOnly) return
+    markLocalBubbleSnapshotChanged()
     const newBubble = addBubbleAt(info.x, info.y)
     const scale = currentZoom / 100
     setLabelEditState({
@@ -1420,23 +1557,95 @@ export function useEditorPage() {
   /** 인라인 라벨 편집 확정 */
   const confirmLabelEdit = (id: string, label: string) => {
     if (isBubbleReadOnly) return
+    markLocalBubbleSnapshotChanged()
     handleLabelChange(id, label)
     setLabelEditState(null)
   }
 
   const handleBubbleDragInBubble = useCallback((bubbleId: string, x: number, y: number) => {
     if (isBubbleReadOnly) return
+    markLocalBubbleSnapshotChanged()
     handleBubbleDrag(bubbleId, x, y)
-  }, [isBubbleReadOnly, handleBubbleDrag])
+  }, [isBubbleReadOnly, markLocalBubbleSnapshotChanged, handleBubbleDrag])
 
   const handleBubbleResizeInBubble = useCallback((id: string, x: number, y: number, width: number, height: number) => {
     if (isBubbleReadOnly) return
+    markLocalBubbleSnapshotChanged()
     handleBubbleResize(id, x, y, width, height)
-  }, [isBubbleReadOnly, handleBubbleResize])
+  }, [isBubbleReadOnly, markLocalBubbleSnapshotChanged, handleBubbleResize])
 
   /** 2D 평면도 생성 버튼 핸들러 — 로딩 애니메이션 포함 */
-  const handleGenerateFloorPlan = () => {
-    generateFloorPlan(bubbles, connections, stageSize.width, stageSize.height)
+  const handleGenerateFloorPlan = async () => {
+    if (!projectId) return
+    if (floorPlanGenerateForbiddenRef.current) {
+      setFloorPlanGenerateStatusText('평면도 생성 권한이 없습니다. 프로젝트 소유자 계정으로 시도하세요.')
+      return
+    }
+    if (authUser?.user_type !== 'DESIGNER') {
+      setFloorPlanGenerateStatusText('평면도 생성 권한이 없습니다. 설계자 계정으로 시도하세요.')
+      return
+    }
+    if (isCurrentProjectOwnerKnown && !isCurrentProjectOwner) {
+      setFloorPlanGenerateStatusText('평면도 생성 권한이 없습니다. 프로젝트 소유자 계정으로 시도하세요.')
+      return
+    }
+    if (bubbles.length === 0) return
+    if (workspacePhaseStatus === 'CONVERTING') {
+      setFloorPlanGenerateStatusText('이미 평면도 생성 중입니다. 잠시만 기다려주세요.')
+      return
+    }
+    try {
+      if (bubbleDbSaveTimerRef.current !== null) {
+        window.clearTimeout(bubbleDbSaveTimerRef.current)
+        bubbleDbSaveTimerRef.current = null
+      }
+      const savedSnapshot = await flushBubbleSnapshotSaveToDb(true)
+      if (!savedSnapshot) {
+        console.error('[editor] 버블 스냅샷 DB 저장 결과가 없어 평면도 생성 요청을 중단합니다.', { projectId })
+        return
+      }
+      const latestSnapshot = latestBubbleSnapshotRef.current
+      const layoutImport = buildFloorPlanLayoutImportPayload(
+        projectId,
+        currentProjectName,
+        latestSnapshot.bubbles,
+        latestSnapshot.connections,
+      )
+      const response = await requestFloorPlanGenerate({
+        projectId,
+        layoutImport,
+      })
+      floorPlanGenerateForbiddenRef.current = false
+      setLatestFloorPlanJobId(response.jobId)
+      setFloorPlanGenerateStatusText('AI가 평면도 생성 중...')
+      setIsFloorPlanEditedIn2D(false)
+      setWorkspacePhaseStatus('CONVERTING')
+      startFloorPlanGenerateTimeout()
+    } catch (error: unknown) {
+      clearFloorPlanGenerateTimeout()
+      setWorkspacePhaseStatus('BUBBLE_DRAFT')
+      if (error instanceof FloorPlanLayoutValidationError) {
+        const firstError = error.errors[0] ?? '입력 형식이 올바르지 않습니다.'
+        setFloorPlanGenerateStatusText(`평면도 생성 입력값이 올바르지 않습니다. (${firstError})`)
+        console.error('[editor] Floor-plan layoutImport 유효성 검증 실패:', error.errors)
+        return
+      }
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 403) {
+          clearFloorPlanGenerateTimeout()
+          floorPlanGenerateForbiddenRef.current = true
+          setFloorPlanGenerateStatusText('평면도 생성 권한이 없습니다. 프로젝트 소유자/권한을 확인하세요.')
+          console.warn('[editor] Floor-plan 생성 권한 없음(403): 프로젝트 소유자 여부를 확인하세요.')
+          return
+        }
+        console.error('[editor] Floor-plan 생성 API 호출 실패:', {
+          status: error.response?.status,
+          data: error.response?.data,
+        })
+        return
+      }
+      console.error('[editor] Floor-plan 생성 API 호출 실패:', error)
+    }
   }
 
   /**
@@ -1451,6 +1660,48 @@ export function useEditorPage() {
     handleGenerateFloorPlan()
     setMode('2d')
   }
+
+  const handleEditIfc = useCallback((elementId: string, action: string, value: unknown) => {
+    if (!projectId) return
+    if (!canEditIfc) return
+    const normalizedElementId = elementId.trim()
+    const normalizedAction = action.trim()
+    if (!normalizedElementId || !normalizedAction) return
+    try {
+      publishIfcEditRequest(projectId, {
+        action: normalizedAction,
+        elementId: normalizedElementId,
+        value,
+      })
+    } catch (error: unknown) {
+      console.warn('[editor] IFC edit publish failed.', {
+        projectId,
+        elementId: normalizedElementId,
+        action: normalizedAction,
+        error,
+      })
+    }
+  }, [projectId, canEditIfc])
+
+  const handleIfcUndo = useCallback(() => {
+    if (!projectId) return
+    if (!canEditIfc) return
+    try {
+      publishIfcUndoRequest(projectId, {})
+    } catch (error: unknown) {
+      console.warn('[editor] IFC undo publish failed.', { projectId, error })
+    }
+  }, [projectId, canEditIfc])
+
+  const handleIfcRedo = useCallback(() => {
+    if (!projectId) return
+    if (!canEditIfc) return
+    try {
+      publishIfcRedoRequest(projectId, {})
+    } catch (error: unknown) {
+      console.warn('[editor] IFC redo publish failed.', { projectId, error })
+    }
+  }, [projectId, canEditIfc])
 
   const toggleGrid = () => {
     setIsGridVisible((prev) => {
@@ -1484,387 +1735,57 @@ export function useEditorPage() {
     setOverlayOpacityByLayerId((prev) => ({ ...prev, [layerId]: next }))
   }
 
-  /** 편집 가능한 벽 조회: 수동 벽 우선, 없으면 현재 보이는 자동 벽에서 조회 */
-  const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
-    return (
-      floorWalls.find((wall) => wall.id === wallId) ??
-      visibleAutoFloorWalls.find((wall) => wall.id === wallId) ??
-      null
-    )
-  }, [floorWalls, visibleAutoFloorWalls])
-
-  /** 벽 편집 결과가 방 내부 충돌을 새로 만들면 true를 반환한다. */
-  const isWallEditBlockedByRoomCollision = useCallback((
-    wall: FloorWall,
-    nextStart: Point2D,
-    nextEnd: Point2D,
-  ): boolean => {
-    return createsNewWallRoomCollision({
-      floorRooms,
-      prevStart: wall.start,
-      prevEnd: wall.end,
-      nextStart,
-      nextEnd,
-      insetPx: WALL_ROOM_COLLISION_INSET_PX,
-    })
-  }, [floorRooms])
-
-  /** 2D 벽 생성 */
-  const handleCreateFloorWall = (
-    start: Point2D,
-    end: Point2D,
-    options?: { type?: FloorWall['type']; thickness?: number; heightMm?: number },
-  ) => {
-    const nextType = options?.type ?? wallCreatePreset.type
-    const fallbackPreset = FLOOR_WALL_PRESETS[nextType]
-    const nextThickness = clampWallThicknessMm(
-      options?.thickness ?? wallCreatePreset.thickness ?? fallbackPreset.thickness,
-      FLOOR_WALL_THICKNESS_MIN_MM,
-      FLOOR_WALL_THICKNESS_MAX_MM,
-    )
-    const nextHeightMm = clampWallHeightMm(
-      options?.heightMm ?? wallCreatePreset.heightMm ?? fallbackPreset.heightMm,
-      FLOOR_WALL_HEIGHT_MIN_MM,
-      FLOOR_WALL_HEIGHT_MAX_MM,
-    )
-    const newWall: FloorWall = {
-      id: createFloorWallId(),
-      type: nextType,
-      start,
-      end,
-      thickness: nextThickness,
-      heightMm: nextHeightMm,
-      material: DEFAULT_WALL_MATERIAL,
-    }
-    workspaceCommandPublisher.createWall(newWall)
-    setFloorWalls((prev) => [...prev, newWall])
-    setWallCreatePreset({
-      type: nextType,
-      thickness: nextThickness,
-      heightMm: nextHeightMm,
-    })
-    setSelectedFloorWallId(newWall.id)
-    setSelectedFloorWallIds([newWall.id])
-    setSelectedFloorOpeningIds([])
-    setSelectedFloorOpeningId(null)
-    clearSelection()
-    setSelectedTool('wall')
-  }
-
-  /** 2D 벽 선택 */
-  const handleSelectFloorWall = (wallId: string | null, append = false) => {
-    if (wallId === null) {
-      setSelectedFloorWallId(null)
-      setSelectedFloorWallIds([])
-      return
-    }
-    if (wallId) ensureFloorWallInManual(wallId)
-    if (append) {
-      setSelectedFloorWallIds((prev) => {
-        const exists = prev.includes(wallId)
-        const next = exists ? prev.filter((id) => id !== wallId) : [...prev, wallId]
-        setSelectedFloorWallId(next.length > 0 ? next[next.length - 1] : null)
-        return next
-      })
-    } else {
-      setSelectedFloorWallId(wallId)
-      setSelectedFloorWallIds([wallId])
-    }
-    setSelectedFloorOpeningId(null)
-    setSelectedFloorOpeningIds([])
-    clearSelection()
-  }
-
-  /** 2D 벽 전체 이동 */
-  const handleMoveFloorWall = (wallId: string, dx: number, dy: number) => {
-    const targetWall = getEditableWallById(wallId)
-    if (!targetWall) return
-    const nextStart = { x: targetWall.start.x + dx, y: targetWall.start.y + dy }
-    const nextEnd = { x: targetWall.end.x + dx, y: targetWall.end.y + dy }
-    if (isWallEditBlockedByRoomCollision(targetWall, nextStart, nextEnd)) return
-
-    ensureFloorWallInManual(wallId)
-    setFloorWalls((prev) =>
-      prev.map((wall) =>
-        wall.id === wallId
-          ? {
-              ...wall,
-              start: nextStart,
-              end: nextEnd,
-            }
-          : wall,
-      ),
-    )
-    workspaceCommandPublisher.updateWallGeometry(wallId, nextStart, nextEnd)
-  }
-
-  /** 2D 벽 끝점 편집 */
-  const handleUpdateFloorWallEndpoint = (
-    wallId: string,
-    endpoint: 'start' | 'end',
-    point: Point2D,
-  ) => {
-    const targetWall = getEditableWallById(wallId)
-    if (!targetWall) return
-    const nextStart = endpoint === 'start' ? point : targetWall.start
-    const nextEnd = endpoint === 'end' ? point : targetWall.end
-    if (isWallEditBlockedByRoomCollision(targetWall, nextStart, nextEnd)) return
-
-    ensureFloorWallInManual(wallId)
-    setFloorWalls((prev) => prev.map((wall) => (wall.id === wallId ? { ...wall, [endpoint]: point } : wall)))
-    workspaceCommandPublisher.updateWallEndpoint(wallId, endpoint, point)
-  }
-
-  /** 2D 벽 삭제 */
-  const handleDeleteFloorWall = (wallId: string) => {
-    const hiddenIds = new Set<string>([wallId])
-    const manualResidualWalls: FloorWall[] = []
-
-    if (isAutoDerivedWallId(wallId)) {
-      const targetAutoWall = autoFloorWalls.find((wall) => wall.id === wallId)
-      const targetProjection = targetAutoWall ? projectAxisAlignedWall(targetAutoWall) : null
-
-      if (targetAutoWall && targetProjection) {
-        autoFloorWalls.forEach((candidate) => {
-          if (candidate.id === targetAutoWall.id) return
-          if (!isAutoDerivedWallId(candidate.id)) return
-          const candidateProjection = projectAxisAlignedWall(candidate)
-          if (!candidateProjection) return
-          const overlap = getWallOverlapInterval(targetProjection, candidateProjection)
-          if (!overlap) return
-
-          hiddenIds.add(candidate.id)
-
-          const outsideSegments = buildWallOutsideOverlapSegments(
-            candidate,
-            overlap.start,
-            overlap.end,
-          )
-
-          outsideSegments.forEach((segment) => {
-            manualResidualWalls.push({
-              id: createFloorWallId(),
-              start: segment.start,
-              end: segment.end,
-              type: candidate.type,
-              thickness: candidate.thickness,
-              heightMm: candidate.heightMm,
-              material: candidate.material,
-            })
-          })
-        })
-      }
-
-      setHiddenAutoWallIds((prev) => {
-        const merged = new Set(prev)
-        hiddenIds.forEach((id) => merged.add(id))
-        return Array.from(merged)
-      })
-    }
-    const autoOpeningIdsFromDeletedWalls = Array.from(hiddenIds)
-      .map((id) => {
-        if (!id.startsWith('auto-shared-')) return null
-        const pair = id.replace(/^auto-shared-/, '').replace(/-seg-\d+$/, '')
-        return pair ? `auto-door-${pair}` : null
-      })
-      .filter((id): id is string => Boolean(id))
-    if (autoOpeningIdsFromDeletedWalls.length > 0) {
-      setHiddenAutoOpeningIds((prev) => {
-        const merged = new Set(prev)
-        autoOpeningIdsFromDeletedWalls.forEach((id) => merged.add(id))
-        return Array.from(merged)
-      })
-    }
-    setFloorOpenings((prev) => prev.filter((opening) => !hiddenIds.has(opening.wallId)))
-    setSelectedFloorOpeningIds((prev) =>
-      prev.filter((openingId) => {
-        const opening = mergedFloorOpenings.find((item) => item.id === openingId)
-        if (!opening) return false
-        return !hiddenIds.has(opening.wallId)
-      }),
-    )
-    setFloorWalls((prev) => {
-      const ensured = [...prev]
-      hiddenIds.forEach((id) => {
-        if (ensured.some((wall) => wall.id === id)) return
-        const autoWall = autoFloorWalls.find((wall) => wall.id === id)
-        if (autoWall) ensured.push(autoWall)
-      })
-      const next = ensured.filter((wall) => !hiddenIds.has(wall.id))
-      const geometryKeySet = new Set(next.map(getWallGeometryKey))
-      manualResidualWalls.forEach((wall) => {
-        const key = getWallGeometryKey(wall)
-        if (geometryKeySet.has(key)) return
-        geometryKeySet.add(key)
-        next.push(wall)
-      })
-      return next
-    })
-    workspaceCommandPublisher.deleteWall(wallId)
-    if (selectedFloorWallId && hiddenIds.has(selectedFloorWallId)) setSelectedFloorWallId(null)
-    setSelectedFloorWallIds((prev) => prev.filter((id) => !hiddenIds.has(id)))
-  }
-
-  /** 2D 벽 위 개구부 생성 */
-  const handleCreateFloorOpening = (
-    wallId: string,
-    type: FloorOpening['type'],
-    wallPosition: number,
-    preferredId?: string,
-  ) => {
-    promoteCurrentAutoFloorOpenings()
-    const clamped = Math.min(Math.max(wallPosition, 0), 1)
-    const preset = FLOOR_OPENING_PRESETS[type]
-    const rawOpening: FloorOpening = {
-      id: preferredId ?? createFloorOpeningId(),
-      type,
-      wallId,
-      wallPosition: clamped,
-      widthMm: preset.widthMm,
-      heightMm: preset.heightMm,
-      sillHeightMm: preset.sillHeightMm,
-      doorHingeSide: type === 'door' ? 'left' : undefined,
-      doorSwingDirection: type === 'door' ? 'inward' : undefined,
-    }
-    const newOpening = normalizeOpeningByCurrentWall(rawOpening)
-    const existingOpening = mergedFloorOpenings.find((opening) => opening.id === newOpening.id)
-    setFloorOpenings((prev) => {
-      const exists = prev.some((opening) => opening.id === newOpening.id)
-      if (exists) return prev.map((opening) => (opening.id === newOpening.id ? newOpening : opening))
-      return [...prev, newOpening]
-    })
-    workspaceCommandPublisher.upsertOpening(newOpening, Boolean(existingOpening))
-    setHiddenAutoOpeningIds((prev) => prev.filter((id) => id !== newOpening.id))
-    setSelectedFloorWallId(null)
-    setSelectedFloorWallIds([])
-    setSelectedFloorOpeningId(newOpening.id)
-    setSelectedFloorOpeningIds([newOpening.id])
-    clearSelection()
-    setSelectedTool(type)
-  }
-
-  /** 2D 개구부 선택 */
-  const handleSelectFloorOpening = (openingId: string | null, append = false) => {
-    if (openingId === null) {
-      setSelectedFloorOpeningId(null)
-      setSelectedFloorOpeningIds([])
-      return
-    }
-    if (openingId) promoteCurrentAutoFloorOpenings()
-    if (openingId) ensureFloorOpeningInManual(openingId)
-    if (append) {
-      setSelectedFloorOpeningIds((prev) => {
-        const exists = prev.includes(openingId)
-        const next = exists ? prev.filter((id) => id !== openingId) : [...prev, openingId]
-        setSelectedFloorOpeningId(next.length > 0 ? next[next.length - 1] : null)
-        return next
-      })
-    } else {
-      setSelectedFloorOpeningId(openingId)
-      setSelectedFloorOpeningIds([openingId])
-    }
-    setSelectedFloorWallId(null)
-    setSelectedFloorWallIds([])
-    clearSelection()
-  }
-
-  /** 2D 개구부 위치(벽 따라) 변경 */
-  const handleMoveFloorOpening = (openingId: string, wallPosition: number, wallId?: string) => {
-    if (!Number.isFinite(wallPosition)) return
-    const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
-    if (!targetOpening) return
-    const clamped = Math.min(Math.max(wallPosition, 0), 1)
-    const nextOpeningPreNormalized: FloorOpening = {
-      ...targetOpening,
-      wallPosition: clamped,
-      wallId: wallId ?? targetOpening.wallId,
-    }
-    const nextOpening = normalizeOpeningByCurrentWall(nextOpeningPreNormalized)
-    updateFloorOpeningFromEditable(openingId, () => nextOpening)
-    workspaceCommandPublisher.updateOpening(nextOpening.type, openingId, {
-      wall_id: nextOpening.wallId,
-      wall_position: nextOpening.wallPosition,
-    })
-  }
-
-  /** 2D 개구부 크기 변경 */
-  const handleUpdateFloorOpeningSize = (openingId: string, widthMm: number, heightMm: number) => {
-    if (!Number.isFinite(widthMm) || !Number.isFinite(heightMm)) return
-    const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
-    if (!targetOpening) return
-    const nextWidth = Math.min(Math.max(Math.round(widthMm), 300), 4000)
-    const nextHeight = Math.min(Math.max(Math.round(heightMm), 300), 4000)
-    const nextOpeningPreNormalized: FloorOpening = {
-      ...targetOpening,
-      widthMm: nextWidth,
-      heightMm: nextHeight,
-    }
-    const nextOpening = normalizeOpeningByCurrentWall(nextOpeningPreNormalized)
-    updateFloorOpeningFromEditable(openingId, () => nextOpening)
-    workspaceCommandPublisher.updateOpening(nextOpening.type, openingId, {
-      width: nextOpening.widthMm,
-      height: nextOpening.heightMm,
-      wall_position: nextOpening.wallPosition,
-    })
-  }
-
-  /** 2D 창문 창턱 높이 변경 */
-  const handleUpdateFloorWindowSillHeight = (openingId: string, sillHeightMm: number) => {
-    if (!Number.isFinite(sillHeightMm)) return
-    const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
-    if (!targetOpening || targetOpening.type !== 'window') return
-    const next = Math.min(Math.max(Math.round(sillHeightMm), 0), 2500)
-    updateFloorOpeningFromEditable(openingId, (opening) => ({ ...opening, sillHeightMm: next }))
-    workspaceCommandPublisher.updateOpening('window', openingId, {
-      sill_height: next,
-    })
-  }
-
-  /** 2D 문 개폐 방향 변경 */
-  const handleUpdateFloorDoorSwingDirection = (
-    openingId: string,
-    swingDirection: NonNullable<FloorOpening['doorSwingDirection']>,
-  ) => {
-    const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
-    if (!targetOpening || targetOpening.type !== 'door') return
-    updateFloorOpeningFromEditable(openingId, (opening) => ({ ...opening, doorSwingDirection: swingDirection }))
-    workspaceCommandPublisher.updateOpening('door', openingId, {
-      door_swing_direction: swingDirection,
-    })
-  }
-
-  /** 2D 문 경첩 위치 변경 */
-  const handleUpdateFloorDoorHingeSide = (
-    openingId: string,
-    hingeSide: NonNullable<FloorOpening['doorHingeSide']>,
-  ) => {
-    const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
-    if (!targetOpening || targetOpening.type !== 'door') return
-    updateFloorOpeningFromEditable(openingId, (opening) => ({ ...opening, doorHingeSide: hingeSide }))
-    workspaceCommandPublisher.updateOpening('door', openingId, {
-      door_hinge_side: hingeSide,
-    })
-  }
-
-  /** 2D 개구부 삭제 */
-  const handleDeleteFloorOpening = (openingId: string) => {
-    const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
-    setFloorOpenings((prev) => prev.filter((opening) => opening.id !== openingId))
-    if (openingId.startsWith('auto-door-')) {
-      setHiddenAutoOpeningIds((prev) => {
-        if (prev.includes(openingId)) return prev
-        return [...prev, openingId]
-      })
-    }
-    if (targetOpening) {
-      workspaceCommandPublisher.deleteOpening(targetOpening)
-    }
-    if (selectedFloorOpeningId === openingId) setSelectedFloorOpeningId(null)
-    setSelectedFloorOpeningIds((prev) => prev.filter((id) => id !== openingId))
-  }
+  const {
+    handleCreateFloorWall,
+    handleSelectFloorWall,
+    handleMoveFloorWall,
+    handleUpdateFloorWallEndpoint,
+    handleDeleteFloorWall,
+    handleCreateFloorOpening,
+    handleSelectFloorOpening,
+    handleMoveFloorOpening,
+    handleUpdateFloorOpeningSize,
+    handleUpdateFloorWindowSillHeight,
+    handleUpdateFloorDoorSwingDirection,
+    handleUpdateFloorDoorHingeSide,
+    handleDeleteFloorOpening,
+    handleUpdateFloorWallType,
+    handleUpdateFloorWallThickness,
+    handleUpdateFloorWallHeight,
+    handleUpdateFloorWallMaterial,
+  } = useEditorStructureEditHandlers({
+    floorRooms,
+    floorWalls,
+    visibleAutoFloorWalls,
+    autoFloorWalls,
+    mergedFloorOpenings,
+    selectedFloorWallId,
+    wallCreatePreset,
+    workspaceCommandPublisher,
+    clearSelection,
+    setFloorWalls,
+    setFloorOpenings,
+    setWallCreatePreset,
+    setSelectedFloorWallId,
+    setSelectedFloorWallIds,
+    setSelectedFloorOpeningId,
+    setSelectedFloorOpeningIds,
+    setSelectedTool,
+    setHiddenAutoWallIds,
+    setHiddenAutoOpeningIds,
+    isAutoDerivedWallId,
+    ensureFloorWallInManual,
+    ensureFloorOpeningInManual,
+    updateFloorOpeningFromEditable,
+    updateFloorWallFromEditable,
+    promoteCurrentAutoFloorOpenings,
+    normalizeOpeningByCurrentWall,
+  })
 
   /** 2D 방 드래그 리사이즈 */
   const handleResizeFloorRoom = (bubbleId: string, x: number, y: number, width: number, height: number) => {
+    if (isWallFirstEditing) return
+    setIsFloorPlanEditedIn2D(true)
     promoteCurrentAutoFloorOpenings()
     const resizeState = buildResizedFloorRoomsState({
       floorRooms,
@@ -1891,6 +1812,7 @@ export function useEditorPage() {
     } = resizeState
 
     if (canSyncBubbleStateFrom2D) {
+      markLocalBubbleSnapshotChanged()
       handleWidthChange(bubbleId, nextWidthMm)
       handleHeightChange(bubbleId, nextHeightMm)
       // 2D 기준 배치 좌표를 Bubble에도 즉시 반영해 모드 전환 시 불일치를 방지한다.
@@ -1913,6 +1835,8 @@ export function useEditorPage() {
 
   /** 2D 방 위치 이동 (크기/면적 유지) */
   const handleMoveFloorRoom = (bubbleId: string, x: number, y: number) => {
+    if (isWallFirstEditing) return
+    setIsFloorPlanEditedIn2D(true)
     promoteCurrentAutoFloorOpenings()
     const moveState = buildMovedFloorRoomsState({
       floorRooms,
@@ -1931,71 +1855,110 @@ export function useEditorPage() {
         if (current.x === room.x && current.y === room.y) return
         moveActiveRoom(room.bubbleId, room.x, room.y)
         if (canSyncBubbleStateFrom2D) {
+          markLocalBubbleSnapshotChanged()
           handleBubbleMove(room.bubbleId, room.x, room.y)
         }
       })
     } else {
       moveActiveRoom(bubbleId, x, y)
       if (canSyncBubbleStateFrom2D) {
+        markLocalBubbleSnapshotChanged()
         handleBubbleMove(bubbleId, x, y)
       }
     }
     syncFloorDerivedStateFromRooms(nextRooms)
   }
 
-  /** 2D 벽 타입 변경 (프리셋 두께/높이 자동 반영) */
-  const handleUpdateFloorWallType = (wallId: string, type: FloorWall['type']) => {
-    const preset = FLOOR_WALL_PRESETS[type]
-    updateFloorWallFromEditable(wallId, (wall) => ({
-      ...wall,
-      type,
-      thickness: preset.thickness,
-      heightMm: preset.heightMm,
+  /** 2D 다각형 방 형상(꼭짓점) 갱신 */
+  const handleUpdateFloorRoomPolygon = useCallback((bubbleId: string, polygon: Point2D[]) => {
+    if (isWallFirstEditing) return
+    setIsFloorPlanEditedIn2D(true)
+    promoteCurrentAutoFloorOpenings()
+    if (!isFinitePolygonPoints(polygon)) return
+    const currentRoom = floorRooms.find((room) => room.bubbleId === bubbleId)
+    if (!currentRoom) return
+
+    const bounds = getPolygonBounds(polygon)
+    const nextWidthPx = Math.max(bounds.maxX - bounds.minX, 1)
+    const nextHeightPx = Math.max(bounds.maxY - bounds.minY, 1)
+    if (!Number.isFinite(nextWidthPx) || !Number.isFinite(nextHeightPx)) return
+
+    const nextWidthMm = Math.max(Math.round(nextWidthPx * FLOOR_MM_PER_PX), 100)
+    const nextHeightMm = Math.max(Math.round(nextHeightPx * FLOOR_MM_PER_PX), 100)
+    const polygonAreaPx = getPolygonAreaPx(polygon)
+    const nextAreaM2 = Math.max(
+      (polygonAreaPx * FLOOR_MM_PER_PX * FLOOR_MM_PER_PX) / 1_000_000,
+      0.01,
+    )
+
+    const nextRect: AxisAlignedRect = {
+      x: bounds.minX,
+      y: bounds.minY,
+      width: nextWidthPx,
+      height: nextHeightPx,
+    }
+    const prevRect: AxisAlignedRect = {
+      x: currentRoom.x,
+      y: currentRoom.y,
+      width: currentRoom.width,
+      height: currentRoom.height,
+    }
+
+    const nextRooms: FloorRoom[] = floorRooms.map((room) =>
+      room.bubbleId === bubbleId
+        ? {
+            ...room,
+            x: bounds.minX,
+            y: bounds.minY,
+            width: nextWidthPx,
+            height: nextHeightPx,
+            widthMm: nextWidthMm,
+            heightMm: nextHeightMm,
+            area: nextAreaM2,
+            polygon: polygon.map((point) => ({ x: point.x, y: point.y })),
+            contour: undefined,
+            transform: undefined,
+          }
+        : room,
+    )
+
+    updateActiveRoom(bubbleId, (room) => ({
+      ...room,
+      x: bounds.minX,
+      y: bounds.minY,
+      width: nextWidthPx,
+      height: nextHeightPx,
+      widthMm: nextWidthMm,
+      heightMm: nextHeightMm,
+      area: nextAreaM2,
+      polygon: polygon.map((point) => ({ x: point.x, y: point.y })),
+      contour: undefined,
+      transform: undefined,
     }))
-    workspaceCommandPublisher.updateWallStyle(wallId, {
-      wallType: type,
-      thickness: preset.thickness,
-      height: preset.heightMm,
-    })
-    setWallCreatePreset({
-      type,
-      thickness: preset.thickness,
-      heightMm: preset.heightMm,
-    })
-  }
 
-  /** 2D 벽 두께(mm) 변경 */
-  const handleUpdateFloorWallThickness = (wallId: string, thickness: number) => {
-    if (!Number.isFinite(thickness)) return
-    const next = clampWallThicknessMm(
-      thickness,
-      FLOOR_WALL_THICKNESS_MIN_MM,
-      FLOOR_WALL_THICKNESS_MAX_MM,
-    )
-    updateFloorWallFromEditable(wallId, (wall) => ({ ...wall, thickness: next }))
-    workspaceCommandPublisher.updateWallStyle(wallId, { thickness: next })
-    setWallCreatePreset((prev) => ({ ...prev, thickness: next }))
-  }
+    if (canSyncBubbleStateFrom2D) {
+      markLocalBubbleSnapshotChanged()
+      handleWidthChange(bubbleId, nextWidthMm)
+      handleHeightChange(bubbleId, nextHeightMm)
+      handleBubbleMove(bubbleId, bounds.minX, bounds.minY)
+    }
 
-  /** 2D 벽 높이(mm) 변경 */
-  const handleUpdateFloorWallHeight = (wallId: string, heightMm: number) => {
-    if (!Number.isFinite(heightMm)) return
-    const next = clampWallHeightMm(
-      heightMm,
-      FLOOR_WALL_HEIGHT_MIN_MM,
-      FLOOR_WALL_HEIGHT_MAX_MM,
-    )
-    updateFloorWallFromEditable(wallId, (wall) => ({ ...wall, heightMm: next }))
-    workspaceCommandPublisher.updateWallStyle(wallId, { height: next })
-    setWallCreatePreset((prev) => ({ ...prev, heightMm: next }))
-  }
-
-  /** 2D 벽 재질 변경 */
-  const handleUpdateFloorWallMaterial = (wallId: string, material: string) => {
-    const next = material.trim()
-    if (!next) return
-    updateFloorWallFromEditable(wallId, (wall) => ({ ...wall, material: next }))
-  }
+    syncPerimeterManualWallsForRoomResize(bubbleId, prevRect, nextRect)
+    syncFloorDerivedStateFromRooms(nextRooms)
+  }, [
+    floorRooms,
+    isWallFirstEditing,
+    setIsFloorPlanEditedIn2D,
+    markLocalBubbleSnapshotChanged,
+    canSyncBubbleStateFrom2D,
+    handleWidthChange,
+    handleHeightChange,
+    handleBubbleMove,
+    promoteCurrentAutoFloorOpenings,
+    syncPerimeterManualWallsForRoomResize,
+    syncFloorDerivedStateFromRooms,
+    updateActiveRoom,
+  ])
 
   /**
    * 공통 선택 상태 초기화
@@ -2016,11 +1979,12 @@ export function useEditorPage() {
   /** 도면 변경 공통 반영 파이프라인 */
   const applyDrawingSnapshot = useCallback(
     ({ bubbles: nextBubbles, connections: nextConnections, floorWalls: nextFloorWalls, floorOpenings: nextFloorOpenings }: DrawingSnapshot) => {
+      setIsFloorPlanEditedIn2D(false)
       setIsProjectStructurePreferred(false)
       replaceBubbles(nextBubbles)
       replaceConnections(nextConnections)
       // project-origin 레이아웃은 버블 자동 배치로 덮어쓰지 않는다.
-      if (floorPlanLayoutSource !== 'project') {
+      if (!IFC_DERIVED_FLOORPLAN_ONLY && floorPlanLayoutSource !== 'project') {
         syncFloorPlanFromBubbles(nextBubbles, nextConnections, stageSize.width, stageSize.height)
       }
       setFloorWalls(nextFloorWalls)
@@ -2036,6 +2000,7 @@ export function useEditorPage() {
    *  walls/openings 필드가 있으면(IFC 경로) 직접 매핑, 없으면 빈 배열 → autoWalls/autoOpenings 폴백
    */
   const applyFloorProject = useCallback((project: FloorProject) => {
+    setIsFloorPlanEditedIn2D(false)
     const stageOptions = { width: stageSize.width, height: stageSize.height }
     const mappedWalls = mapFloorProjectToWalls(project, stageOptions)
     const mappedOpenings = mapFloorProjectToOpenings(project)
@@ -2067,15 +2032,49 @@ export function useEditorPage() {
   const {
     floorProjectImportMessage,
     importFloorProjectFromIfc,
+    importFloorProjectFromWebIfc,
     clearImportMessage,
   } = useFloorProjectImport({
     stageSize,
     onApplyProject: applyFloorProject,
   })
 
+  const {
+    ifcLoadState,
+    ifcLoadError,
+    lastIfcContext,
+    loadIfcFromStorageUrl,
+    setIfcFragmentsLoader,
+  } = useIfcLoadingLayer({
+    importFloorProjectFromIfc,
+    importFloorProjectFromWebIfc,
+  })
+
+  const handleOutputIfcStorageUrl = useCallback(async (ifcStorageUrl: string, action: string | null) => {
+    try {
+      await loadIfcFromStorageUrl(ifcStorageUrl, { webIfcWasmPath: '/wasm/' })
+      // IFC가 정상 로드되면 완료 action 문자열과 무관하게 편집 상태로 복귀해 무한 로딩을 방지한다.
+      setWorkspacePhaseStatus('IFC_EDIT')
+      if (action && IFC_COMPLETED_ACTION_SET.has(action)) {
+        setFloorPlanGenerateStatusText('평면도 생성이 완료되었습니다.')
+      }
+    } catch (error: unknown) {
+      console.error('[editor] IFC WebSocket 로드 실패:', error)
+      setWorkspacePhaseStatus('BUBBLE_DRAFT')
+      setFloorPlanGenerateStatusText('IFC 결과 로드에 실패했습니다. 다시 시도하세요.')
+    }
+  }, [loadIfcFromStorageUrl, setFloorPlanGenerateStatusText])
+
+  useEffect(() => {
+    handleIfcSyncMessageRef.current = (url: string, action: string | null) => {
+      void handleOutputIfcStorageUrl(url, action)
+    }
+  }, [handleOutputIfcStorageUrl])
+
   // 에디터 첫 진입 시 프로젝트 IFC를 1회 로드한다.
   useInitialIfcImport({
     projectId,
+    hasIfcUploaded: hasIfcUploadedInCurrentProject,
     stageWidth: stageSize.width,
     stageHeight: stageSize.height,
     importFloorProjectFromIfc,
@@ -2111,160 +2110,57 @@ export function useEditorPage() {
     onApply: applyLlmPreview,
   })
 
-  const handleLabelChangeForPanel = useCallback((id: string, label: string) => {
-    if (mode !== '2d') {
-      handleLabelChange(id, label)
-      return
-    }
-    if (canSyncBubbleStateFrom2D) handleLabelChange(id, label)
-    updateActiveRoom(id, (room) => ({ ...room, label }))
-  }, [canSyncBubbleStateFrom2D, handleLabelChange, mode, updateActiveRoom])
-
-  const handleTypeChangeForPanel = useCallback((id: string, type: string) => {
-    if (mode !== '2d') {
-      handleTypeChange(id, type)
-      return
-    }
-    if (canSyncBubbleStateFrom2D) handleTypeChange(id, type)
-    updateActiveRoom(id, (room) => ({ ...room, type }))
-  }, [canSyncBubbleStateFrom2D, handleTypeChange, mode, updateActiveRoom])
-
-  const handleMaterialChangeForPanel = useCallback((id: string, material: string) => {
-    if (mode === '2d') return
-    handleMaterialChange(id, material)
-  }, [handleMaterialChange, mode])
-
-  /**
-   * 2D 속성 패널의 mm 입력값을 전역 Grid Snap 간격에 맞춰 보정한다.
-   * - Grid Snap OFF: 원본값 유지
-   * - Grid Snap ON: 간격(mm) 단위로 반올림
-   */
-  const snapDimensionMm = useCallback((valueMm: number) => {
-    if (!isGridSnapEnabled) return valueMm
-    const step = Math.max(Math.round(gridSnapIntervalMm), 1)
-    return Math.max(step, Math.round(valueMm / step) * step)
-  }, [isGridSnapEnabled, gridSnapIntervalMm])
-
-  const applyRoomDimensionIn2D = useCallback(
-    (bubbleId: string, axis: 'width' | 'height', nextMm: number) => {
-      if (mode !== '2d') return
-      if (!Number.isFinite(nextMm) || nextMm <= 0) return
-      const room = floorRooms.find((item) => item.bubbleId === bubbleId)
-      if (!room) return
-
-      const currentWidthMm = Math.max(room.widthMm, 1)
-      const currentHeightMm = Math.max(room.heightMm, 1)
-      const snappedMm = snapDimensionMm(nextMm)
-      const nextWidthMm = axis === 'width' ? snappedMm : currentWidthMm
-      const nextHeightMm = axis === 'height' ? snappedMm : currentHeightMm
-      // 패널 입력 치수는 항상 절대 mm 값이므로 px도 절대 변환으로 계산한다.
-      const nextWidthPx = Math.max(40, nextWidthMm / FLOOR_MM_PER_PX)
-      const nextHeightPx = Math.max(40, nextHeightMm / FLOOR_MM_PER_PX)
-      const nextArea = calcAreaM2FromMm(nextWidthMm, nextHeightMm)
-      const prevRect: AxisAlignedRect = {
-        x: room.x,
-        y: room.y,
-        width: room.width,
-        height: room.height,
-      }
-      const nextRect: AxisAlignedRect = {
-        x: room.x,
-        y: room.y,
-        width: nextWidthPx,
-        height: nextHeightPx,
-      }
-      if (canSyncBubbleStateFrom2D) {
-        if (axis === 'width') {
-          handleWidthChange(bubbleId, nextWidthMm)
-        } else {
-          handleHeightChange(bubbleId, nextHeightMm)
-        }
-      }
-
-      const nextRooms = floorRooms.map((item) =>
-        item.bubbleId === bubbleId
-          ? toRectFloorRoom(item, {
-              x: item.x,
-              y: item.y,
-              width: nextWidthPx,
-              height: nextHeightPx,
-              widthMm: nextWidthMm,
-              heightMm: nextHeightMm,
-              area: nextArea,
-            })
-          : item,
-      )
-
-      updateActiveRoom(bubbleId, (item) =>
-        toRectFloorRoom(item, {
-          x: item.x,
-          y: item.y,
-          width: nextWidthPx,
-          height: nextHeightPx,
-          widthMm: nextWidthMm,
-          heightMm: nextHeightMm,
-          area: nextArea,
-        }),
-      )
-      syncPerimeterManualWallsForRoomResize(bubbleId, prevRect, nextRect)
-      syncFloorDerivedStateFromRooms(nextRooms)
-    },
-    [mode, floorRooms, canSyncBubbleStateFrom2D, handleWidthChange, handleHeightChange, updateActiveRoom, syncPerimeterManualWallsForRoomResize, syncFloorDerivedStateFromRooms, snapDimensionMm],
-  )
-
-  const applyDimensionByMode = useCallback((
-    id: string,
-    axis: 'width' | 'height',
-    valueMm: number,
-  ) => {
-    if (mode === '2d') {
-      applyRoomDimensionIn2D(id, axis, valueMm)
-      return
-    }
-    if (axis === 'width') {
-      handleWidthChange(id, valueMm)
-      return
-    }
-    handleHeightChange(id, valueMm)
-  }, [mode, applyRoomDimensionIn2D, handleWidthChange, handleHeightChange])
-
-  const handleWidthChangeForPanel = useCallback(
-    (id: string, widthMm: number) => applyDimensionByMode(id, 'width', widthMm),
-    [applyDimensionByMode],
-  )
-
-  const handleHeightChangeForPanel = useCallback(
-    (id: string, heightMm: number) => applyDimensionByMode(id, 'height', heightMm),
-    [applyDimensionByMode],
-  )
-
-  const handleWidthCommitForPanel = useCallback(
-    (id: string, widthMm: number) => applyDimensionByMode(id, 'width', widthMm),
-    [applyDimensionByMode],
-  )
-
-  const handleHeightCommitForPanel = useCallback(
-    (id: string, heightMm: number) => applyDimensionByMode(id, 'height', heightMm),
-    [applyDimensionByMode],
-  )
+  const {
+    handleLabelChangeForPanel,
+    handleTypeChangeForPanel,
+    handleMaterialChangeForPanel,
+    handleWidthChangeForPanel,
+    handleHeightChangeForPanel,
+    handleWidthCommitForPanel,
+    handleHeightCommitForPanel,
+    handleRatioChangeForPanel,
+    handleColorChangeForPanel,
+  } = useEditorAttributePanelHandlers({
+    mode,
+    canSyncBubbleStateFrom2D,
+    isWallFirstEditing,
+    isGridSnapEnabled,
+    gridSnapIntervalMm,
+    floorRooms,
+    setIsFloorPlanEditedIn2D,
+    markLocalBubbleSnapshotChanged,
+    handleLabelChange,
+    handleTypeChange,
+    handleMaterialChange,
+    handleRatioChange,
+    handleColorChange,
+    handleWidthChange,
+    handleHeightChange,
+    updateActiveRoom,
+    syncPerimeterManualWallsForRoomResize,
+    syncFloorDerivedStateFromRooms,
+  })
 
   const handleAutoLayoutBubbles = useCallback(() => {
     if (mode !== 'bubble') return
     if (isBubbleReadOnly) return
     if (bubbles.length < 2) return
 
+    markLocalBubbleSnapshotChanged()
     const nextBubbles = runForceDirectedBubbleLayout({
       bubbles,
       connections,
       sitePoints: sitePlanPoints,
     })
     replaceBubbles(nextBubbles)
-  }, [mode, isBubbleReadOnly, bubbles, connections, sitePlanPoints, replaceBubbles])
+  }, [mode, isBubbleReadOnly, bubbles, connections, sitePlanPoints, replaceBubbles, markLocalBubbleSnapshotChanged])
 
   return {
     // 모드
     mode,
     currentProjectName,
+    latestFloorPlanJobId,
+    floorPlanGenerateStatusText,
     setMode,
     phaseStatus,
     canEditBubble,
@@ -2298,8 +2194,8 @@ export function useEditorPage() {
     handleHeightChange: handleHeightChangeForPanel,
     handleWidthCommit: handleWidthCommitForPanel,
     handleHeightCommit: handleHeightCommitForPanel,
-    handleRatioChange,
-    handleColorChange,
+    handleRatioChange: handleRatioChangeForPanel,
+    handleColorChange: handleColorChangeForPanel,
     handleMaterialChange: handleMaterialChangeForPanel,
     handleDeleteBubble,
     // 연결선
@@ -2393,8 +2289,11 @@ export function useEditorPage() {
     handleGenerateFloorPlan,
     handleGenerateFloorPlanFromBubble,
     handleAutoLayoutBubbles,
-    canGenerateFloorPlanFromBubble: bubbles.length > 0,
+    canGenerateFloorPlanFromBubble: bubbles.length > 0 && authUser?.user_type === 'DESIGNER' && (!isCurrentProjectOwnerKnown || isCurrentProjectOwner),
     canAutoLayoutBubbles: bubbles.length > 1,
+    handleEditIfc,
+    handleIfcUndo,
+    handleIfcRedo,
     addFloorLayer,
     renameFloorLayer,
     deleteFloorLayer,
@@ -2405,6 +2304,11 @@ export function useEditorPage() {
     floorPlanConnections: connections,
     floorProjectImportMessage,
     importFloorProjectFromIfc,
+    ifcLoadState,
+    ifcLoadError,
+    lastIfcContext,
+    loadIfcFromStorageUrl,
+    setIfcFragmentsLoader,
     // 그리드
     isGridVisible,
     isGridSnapEnabled,
@@ -2437,6 +2341,7 @@ export function useEditorPage() {
     handleDeleteFloorOpening,
     handleResizeFloorRoom,
     handleMoveFloorRoom,
+    handleUpdateFloorRoomPolygon,
     // 연결 도구
     connectingFromId,
     handleBubbleSelectWithTool,
