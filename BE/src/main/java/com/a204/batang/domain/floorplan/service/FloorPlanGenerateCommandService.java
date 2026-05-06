@@ -108,7 +108,11 @@ public class FloorPlanGenerateCommandService {
                 .orElse(1);
 
         String ifcStorageUrl = floorPlanStoragePathBuilder.buildIfcStorageUrl(projectId, targetRevisionId);
-        String validationReportStorageUrl = floorPlanStoragePathBuilder.buildValidationReportStorageUrl(jobId, STEP_NO);
+        String validationReportStorageUrl = floorPlanStoragePathBuilder.buildValidationReportStorageUrl(
+                projectId,
+                jobId,
+                STEP_NO
+        );
 
         // request_payload와 실제 worker payload를 같은 정규화 결과로 고정해
         // 저장된 예약 정보와 실제 발행 메시지의 불일치를 막는다.

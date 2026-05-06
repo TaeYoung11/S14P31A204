@@ -73,7 +73,11 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         workspace = ProjectWorkspace.create(project);
         ReflectionTestUtils.setField(workspace, "projectId", projectId);
         ReflectionTestUtils.setField(workspace, "currentRevision", "rev-100");
-        ReflectionTestUtils.setField(workspace, "ifcStorageUrl", "s3://bucket/projects/" + projectId + "/model.ifc");
+        ReflectionTestUtils.setField(
+                workspace,
+                "ifcStorageUrl",
+                "s3://bucket/projects/" + projectId + "/revisions/" + UUID.randomUUID() + "/ifc/model.v1.ifc"
+        );
     }
 
     @Test
@@ -175,7 +179,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                           "connections": []
                         }
                         """),
-                "s3://bucket/projects/%s/model-new.ifc".formatted(projectId)
+                "s3://bucket/projects/%s/revisions/%s/ifc/model.v1.ifc".formatted(projectId, UUID.randomUUID())
         );
 
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))

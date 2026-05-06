@@ -3,6 +3,7 @@ from ai_domain.worker_messages.event import EventError, EventMessage, EventOutpu
 from ai_domain.worker_messages.payloads_2d import TwoDLlmCommandPayload
 from ai_domain.worker_messages.payloads_3d import ThreeDLlmCommandPayload
 from ai_domain.worker_messages.payloads_ifc_edit import (
+    EngineOperationInlineRef,
     EngineRequestInlineRef,
     IfcEditCommandPayload,
 )
@@ -12,6 +13,7 @@ from ai_domain.worker_messages.payloads_sd import SdRenderCommandPayload
 __all__ = [
     "CommandInputRef",
     "CommandMessage",
+    "EngineOperationInlineRef",
     "EngineRequestInlineRef",
     "EventError",
     "EventMessage",
