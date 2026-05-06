@@ -3,6 +3,7 @@ import { projectService } from '@/features/project/services/project.service'
 
 interface UseInitialIfcImportParams {
   projectId: string | undefined
+  hasIfcUploaded: boolean
   stageWidth: number
   stageHeight: number
   importFloorProjectFromIfc: (ifcText: string, fileName: string) => Promise<void>
@@ -19,6 +20,7 @@ interface UseInitialIfcImportParams {
  */
 export function useInitialIfcImport({
   projectId,
+  hasIfcUploaded,
   stageWidth,
   stageHeight,
   importFloorProjectFromIfc,
@@ -27,6 +29,7 @@ export function useInitialIfcImport({
   // IFC 파일을 가져와 캔버스에 반영한다
   useEffect(() => {
     if (!projectId) return
+    if (!hasIfcUploaded) return
     if (attemptedInitialIfcImportProjectIdRef.current === projectId) return
     if (stageWidth <= 0 || stageHeight <= 0) return
 
@@ -49,6 +52,7 @@ export function useInitialIfcImport({
     }
   }, [
     projectId,
+    hasIfcUploaded,
     stageWidth,
     stageHeight,
     importFloorProjectFromIfc,

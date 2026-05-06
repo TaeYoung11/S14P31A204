@@ -1,5 +1,4 @@
 import { useEffect } from 'react'
-import { projectService } from '@/features/project/services/project.service'
 import { useProjectStore } from '@/features/project/stores/projectStore'
 
 /**
@@ -15,19 +14,9 @@ export function useEditorProjectName(projectId: string | undefined) {
     if (!projectId) return
     if (currentProject?.id === projectId) return
 
-    let cancelled = false
-    void projectService.getById(projectId)
-      .then((project) => {
-        if (cancelled) return
-        setCurrentProject(project)
-      })
-      .catch(() => {
-        // 프로젝트명 동기화 실패는 치명적 오류가 아니므로 화면은 기본값으로 유지한다.
-      })
-
-    return () => {
-      cancelled = true
-    }
+    // 현재 백엔드에 프로젝트 상세 조회 엔드포인트가 보장되지 않아
+    // 에디터 진입 시 불필요한 500 요청을 보내지 않는다.
+    setCurrentProject(null)
   }, [projectId, currentProject?.id, setCurrentProject])
 
   let currentProjectName = '프로젝트'

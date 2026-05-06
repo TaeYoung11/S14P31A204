@@ -32,7 +32,7 @@ export default function ProjectSiteModal({
     registerError,
     isRegistering,
     handleAddressSelect,
-  } = useProjectSiteModal({ isOpen, projectId, onClose })
+  } = useProjectSiteModal({ isOpen, projectId })
   const isCloseDisabled = isRegistering
   const handleRequestClose = () => {
     if (isCloseDisabled) return
@@ -110,7 +110,7 @@ export default function ProjectSiteModal({
               onClick={handleRequestClose}
               disabled={isCloseDisabled}
             >
-              {isCloseDisabled ? '저장 중...' : polygonCoords ? '닫기' : '나중에 입력'}
+              {isCloseDisabled ? '저장 중...' : polygonCoords ? '프로젝트로 이동' : '나중에 입력'}
             </button>
           </div>
         </div>

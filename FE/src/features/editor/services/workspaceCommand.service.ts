@@ -26,9 +26,28 @@ export const toProjectBubbleUpdateDestination = (projectId: string): string =>
 export const toProjectCommandDestination = (projectId: string): string =>
   `/app/project/${projectId}/command`
 
+export const toProjectIfcConvertDestination = (projectId: string): string =>
+  `/app/project/${projectId}/ifc/convert`
+
+export const toProjectIfcEditDestination = (projectId: string): string =>
+  `/app/project/${projectId}/ifc/edit`
+
+export const toProjectIfcUndoDestination = (projectId: string): string =>
+  `/app/project/${projectId}/ifc/undo`
+
+export const toProjectIfcRedoDestination = (projectId: string): string =>
+  `/app/project/${projectId}/ifc/redo`
+
 export interface BubbleSnapshotUpdateMessage {
   bubbles: BubbleData[]
   connections: ConnectionData[]
+  baseIndex: number
+}
+
+export interface IfcEditRequestMessage {
+  action: string
+  elementId: string
+  value: unknown
 }
 
 export interface CreateCommandOptions {
@@ -173,4 +192,44 @@ export const publishBubbleSnapshotUpdate = (
 ): void => {
   const destination = options?.destination ?? toProjectBubbleUpdateDestination(projectId)
   publishJson(destination, message, options)
+}
+
+/** 버블 스냅샷 기준 IFC 변환 요청을 STOMP로 발행한다. */
+export const publishIfcConvertRequest = (
+  projectId: string,
+  payload: Record<string, unknown> = {},
+  options?: PublishJsonOptions & { destination?: string },
+): void => {
+  const destination = options?.destination ?? toProjectIfcConvertDestination(projectId)
+  publishJson(destination, payload, options)
+}
+
+/** IFC 요소 편집 요청을 STOMP로 발행한다. */
+export const publishIfcEditRequest = (
+  projectId: string,
+  payload: IfcEditRequestMessage,
+  options?: PublishJsonOptions & { destination?: string },
+): void => {
+  const destination = options?.destination ?? toProjectIfcEditDestination(projectId)
+  publishJson(destination, payload, options)
+}
+
+/** IFC Undo 요청을 STOMP로 발행한다. */
+export const publishIfcUndoRequest = (
+  projectId: string,
+  payload: Record<string, unknown> = {},
+  options?: PublishJsonOptions & { destination?: string },
+): void => {
+  const destination = options?.destination ?? toProjectIfcUndoDestination(projectId)
+  publishJson(destination, payload, options)
+}
+
+/** IFC Redo 요청을 STOMP로 발행한다. */
+export const publishIfcRedoRequest = (
+  projectId: string,
+  payload: Record<string, unknown> = {},
+  options?: PublishJsonOptions & { destination?: string },
+): void => {
+  const destination = options?.destination ?? toProjectIfcRedoDestination(projectId)
+  publishJson(destination, payload, options)
 }

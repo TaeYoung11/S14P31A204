@@ -22,10 +22,11 @@ interface ApiResponse<T> {
 
 const PROJECT_LIST_PAGE_SIZE = 6
 const PROJECT_LIST_MAX_PAGES = 100
-const IFC_ACCEPT_HEADER = 'application/octet-stream,text/plain'
+const IFC_ACCEPT_HEADER = 'application/octet-stream,text/plain,application/json'
 
 interface ProjectSummaryResponse {
   projectId: string
+  ownerUserId?: string
   name: string
   description?: string
   cadastralAddress?: string
@@ -84,9 +85,8 @@ const MOCK_SITE_POLYGON_RING: number[][] = [
   [127.0281304, 37.4983271],
 ]
 
-const shouldUseSiteMock =
-  import.meta.env.VITE_USE_SITE_MOCK === 'true' ||
-  (import.meta.env.DEV && import.meta.env.VITE_USE_SITE_MOCK !== 'false')
+const shouldUseSiteMock = import.meta.env.VITE_USE_SITE_MOCK === 'true'
+const shouldFetchSiteFromProjectDetailApi = import.meta.env.VITE_USE_PROJECT_DETAIL_SITE_API === 'true'
 const SITE_CACHE_TTL_MS = PROJECT_SITE_CACHE_TTL_MS
 
 export interface ProjectSiteResponse {
@@ -99,7 +99,7 @@ const mapProjectSummary = (project: ProjectSummaryResponse): Project => ({
   id: project.projectId,
   name: project.name,
   description: project.description ?? '',
-  owner_id: '',
+  owner_id: project.ownerUserId ?? '',
   created_at: project.createdAt,
   updated_at: project.updatedAt,
   thumbnail_url: undefined,
@@ -136,12 +136,6 @@ const mapUpdatedProject = (project: UpdateProjectResponse, fallback?: Project): 
 
 function decodeUtf8ArrayBuffer(buffer: ArrayBuffer): string {
   return new TextDecoder('utf-8').decode(buffer)
-}
-
-/** API 에러가 404(Not Found)인지 판별한다. */
-function isNotFoundError(error: unknown): boolean {
-  const status = (error as { response?: { status?: number } })?.response?.status
-  return status === 404
 }
 
 /** 프로젝트 목록 페이지 1회를 조회한다. */
@@ -198,13 +192,15 @@ export const projectService = {
 
     let apiPolygonRing: number[][] | null = null
 
-    try {
-      apiPolygonRing = await fetchSitePolygonFromProjectDetail(projectId)
-      if (apiPolygonRing) {
-        saveProjectSitePolygon(projectId, apiPolygonRing, { source: 'api' })
+    if (shouldFetchSiteFromProjectDetailApi) {
+      try {
+        apiPolygonRing = await fetchSitePolygonFromProjectDetail(projectId)
+        if (apiPolygonRing) {
+          saveProjectSitePolygon(projectId, apiPolygonRing, { source: 'api' })
+        }
+      } catch {
+        // API가 미구현이거나 일시 실패해도 fallback 체인으로 진행한다.
       }
-    } catch {
-      // API가 미구현이거나 일시 실패해도 fallback 체인으로 진행한다.
     }
 
     let cacheCandidate = getProjectSitePolygonEntry(projectId, { ttlMs: SITE_CACHE_TTL_MS })
@@ -229,19 +225,16 @@ export const projectService = {
   },
 
   getIfcModelText: async (projectId: string): Promise<string | null> => {
-    try {
-      const response = await api.get<ArrayBuffer>(`/projects/${projectId}/model`, {
-        responseType: 'arraybuffer',
-        headers: {
-          Accept: IFC_ACCEPT_HEADER,
-        },
-      })
-      const ifcText = decodeUtf8ArrayBuffer(response.data)
-      return ifcText.trim().length > 0 ? ifcText : null
-    } catch (error: unknown) {
-      if (isNotFoundError(error)) return null
-      throw error
-    }
+    const response = await api.get<ArrayBuffer>(`/projects/${projectId}/model`, {
+      responseType: 'arraybuffer',
+      headers: {
+        Accept: IFC_ACCEPT_HEADER,
+      },
+      validateStatus: (status) => status === 200 || status === 401 || status === 403 || status === 404 || status === 500,
+    })
+    if (response.status !== 200) return null
+    const ifcText = decodeUtf8ArrayBuffer(response.data)
+    return ifcText.trim().length > 0 ? ifcText : null
   },
 
   create: async (data: CreateProjectDto): Promise<Project> => {

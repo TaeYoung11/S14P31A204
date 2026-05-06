@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { projectQueryKeys } from '@/features/project/constants/projectQueryKeys'
 import { projectService } from '@/features/project/services/project.service'
+import { saveProjectSitePolygon } from '@/features/project/utils/projectSiteCache'
 import { getProjectSitePolygonEntry } from '@/features/project/utils/projectSiteCache'
 import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
 import type { ProjectSitePolygonResult } from '@/features/project/utils/projectSiteFallback'
@@ -79,14 +80,19 @@ export const useRegisterProjectSite = () => {
     }) => projectService.registerSite(projectId, { latitude, longitude }),
     onSuccess: (data, variables) => {
       const ring = extractOuterRingFromCoordinates(data.cadastralInfo?.polygon?.coordinates)
+      const sitePolygonQueryKey = projectQueryKeys.sitePolygon(variables.projectId)
+
       if (ring) {
+        saveProjectSitePolygon(variables.projectId, ring, { source: 'api' })
         qc.setQueryData<ProjectSitePolygonResult>(
-          projectQueryKeys.sitePolygon(variables.projectId),
+          sitePolygonQueryKey,
           { polygonRing: ring, source: 'api' },
         )
+        return
       }
+
       qc.invalidateQueries({
-        queryKey: projectQueryKeys.sitePolygon(variables.projectId),
+        queryKey: sitePolygonQueryKey,
       })
     },
   })

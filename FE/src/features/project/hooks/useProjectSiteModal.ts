@@ -14,13 +14,11 @@ import { calculateSiteAreaM2, toPyeong } from '@/features/project/utils/siteGeom
 interface UseProjectSiteModalParams {
   isOpen: boolean
   projectId: string | null
-  onClose: () => void
 }
 
 export const useProjectSiteModal = ({
   isOpen,
   projectId,
-  onClose,
 }: UseProjectSiteModalParams) => {
   const registerSite = useRegisterProjectSite()
   const sitePolygonQuery = useProjectSitePolygon(projectId, isOpen)
@@ -112,6 +110,12 @@ export const useProjectSiteModal = ({
       return
     }
 
+    const selectedAddressText = data.address || data.roadAddress || data.jibunAddress
+    if (!selectedAddressText) {
+      setSearchError('선택한 주소를 확인할 수 없습니다. 다시 선택해주세요.')
+      return
+    }
+
     const maps = getKakaoMaps()
     if (!maps?.services) {
       setSearchError('카카오맵 서비스를 불러오지 못했습니다.')
@@ -119,7 +123,7 @@ export const useProjectSiteModal = ({
     }
 
     const geocoder = new maps.services.Geocoder()
-    geocoder.addressSearch(data.address, async (result, status) => {
+    geocoder.addressSearch(selectedAddressText, async (result, status) => {
       if (status !== maps.services.Status.OK || result.length === 0) {
         setSearchError('주소 좌표를 가져오지 못했습니다.')
         return
@@ -129,18 +133,17 @@ export const useProjectSiteModal = ({
       const latitude = Number(y)
       const longitude = Number(x)
 
-      setSelectedAddress(data.address)
+      setSelectedAddress(selectedAddressText)
       updateMap(latitude, longitude)
 
       try {
         const siteResult = await registerSite.mutateAsync({ projectId, latitude, longitude })
         const outerRing = extractOuterRingFromCoordinates(siteResult.cadastralInfo?.polygon?.coordinates)
         if (outerRing) {
-          saveProjectSitePolygon(projectId, outerRing)
+          saveProjectSitePolygon(projectId, outerRing, { source: 'api' })
           setPolygonCoords(outerRing)
-          onClose()
         } else {
-          onClose()
+          setSearchError('선택한 주소의 대지 경계를 가져오지 못했습니다. 다른 주소를 선택해주세요.')
         }
       } catch {
         setSearchError('대지 정보 저장에 실패했습니다. 다시 시도해주세요.')
