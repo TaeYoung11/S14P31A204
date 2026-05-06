@@ -179,6 +179,7 @@ class IfcGenerateWorker(BaseWorker):
                 json.dumps(report, ensure_ascii=False, indent=2),
                 content_type="application/json; charset=utf-8",
             )
+            error.detail_storage_url = validation_ref
         except Exception as upload_exc:  # pragma: no cover - best-effort path
             _logger.warning(
                 "validation_report_upload_failed",
@@ -189,7 +190,6 @@ class IfcGenerateWorker(BaseWorker):
             )
             return error
 
-        error.detail_storage_url = validation_ref
         return error
 
 
