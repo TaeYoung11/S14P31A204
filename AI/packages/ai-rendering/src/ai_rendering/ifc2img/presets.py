@@ -61,14 +61,14 @@ _PRESETS: dict[str, DepthStyleParams] = {
     ),
     "korean_villa": DepthStyleParams(
         prompt=(
-            "RAW photo, korean residential villa exterior at ground level, "
-            "brick facade with concrete trim, ceramic tile roof, "
-            "small balconies, modern korean street view, "
-            "8k uhd, DSLR, sharp focus, architectural photography, "
-            "no floor below ground"
+            "RAW photo, minimal Korean style house on flat paved ground, "
+            "ground touches facade, light concrete wall, subtle brick accents, "
+            "simple tile roof, no balcony, no foreground wall"
         ),
         negative_prompt=(
-            f"{_NEGATIVE_BASE}, rural, cottage, log cabin"
+            f"{_NEGATIVE_BASE}, stone wall, retaining wall, fence, "
+            "raised platform, podium, piloti, balcony, shopfront, "
+            "rural, cottage, log cabin"
         ),
         guidance_scale=7.0,
         num_inference_steps=25,

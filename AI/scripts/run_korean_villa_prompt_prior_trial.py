@@ -33,47 +33,30 @@ DEFAULT_VIEW = "side"
 DEFAULT_VARIANT = "simple_mass"
 
 SIMPLE_MASS_PROMPT = (
-    "RAW photo, simple Korean detached villa exterior at ground level, "
-    "single-volume residential house, one continuous main facade, "
-    "light concrete wall with subtle brick accents, simple ceramic tile roof, "
-    "no balcony, no piloti, no podium, building sits directly on flat paved ground, "
-    "plain residential lot, 8k uhd, DSLR, sharp focus, architectural photography, "
-    "no floor below ground, during sunny daytime, natural sunlight"
+    "RAW photo, Korean style single-volume house, flat paved ground touches facade, "
+    "light concrete wall, subtle brick accents, simple tile roof, no balcony, "
+    "no piloti, no podium"
 )
 
-SIMPLE_MASS_NEGATIVE_EXTRA = (
-    "small balconies, street-level commercial facade, shopfront, piloti, pilotis, "
-    "parking under building, retaining wall, tall concrete base, concrete podium, "
-    "raised podium, foundation wall, lower story, extra lower floor, basement level, "
-    "walkout basement, terrace wall, parapet base, roof strip below facade"
+COMPACT_NEGATIVE = (
+    "stone wall, retaining wall, fence, foreground wall, raised platform, podium, "
+    "piloti, balcony, basement, extra floor, shopfront, stairs"
 )
 
 SHORT_GROUND_PROMPT = (
-    "RAW photo, simple Korean detached house, flat paved ground directly touches "
-    "the facade, no wall in foreground, single-volume house, one main facade, "
-    "plain light concrete wall, simple tile roof, ground-level view, natural daylight"
-)
-
-SHORT_GROUND_NEGATIVE_EXTRA = (
-    "foreground wall, stone wall, retaining wall, fence, raised platform, podium, "
-    "piloti, parking under building, extra lower floor, basement, balcony, shopfront"
+    "RAW photo, simple Korean house, ground directly touches facade, no foreground "
+    "wall, single-volume mass, plain concrete facade, simple tile roof"
 )
 
 FLAT_PLAZA_PROMPT = (
-    "RAW photo, minimal Korean style house on flat concrete plaza, ground directly "
-    "touches facade, simple single-volume concrete house, simple tile roof, no fence, "
-    "no foreground wall, clear flat ground plane, architectural photography"
-)
-
-FLAT_PLAZA_NEGATIVE = (
-    "stone wall, retaining wall, foreground wall, fence, garden, trees, raised platform, "
-    "podium, piloti, balcony, basement, extra floor, shopfront, stairs"
+    "RAW photo, minimal Korean style house on flat concrete plaza, ground touches "
+    "facade, simple concrete house, simple tile roof, no fence, no foreground wall"
 )
 
 VARIANTS = {
-    "simple_mass": (SIMPLE_MASS_PROMPT, SIMPLE_MASS_NEGATIVE_EXTRA),
-    "short_ground": (SHORT_GROUND_PROMPT, SHORT_GROUND_NEGATIVE_EXTRA),
-    "flat_plaza": (FLAT_PLAZA_PROMPT, FLAT_PLAZA_NEGATIVE),
+    "simple_mass": SIMPLE_MASS_PROMPT,
+    "short_ground": SHORT_GROUND_PROMPT,
+    "flat_plaza": FLAT_PLAZA_PROMPT,
 }
 
 
@@ -97,16 +80,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def _build_params(variant: str):
     base = load_preset("korean_villa", "day")
-    prompt, negative_extra = VARIANTS[variant]
-    negative_prompt = (
-        negative_extra
-        if variant == "flat_plaza"
-        else f"{base.negative_prompt}, {negative_extra}"
-    )
     return replace(
         base,
-        prompt=prompt,
-        negative_prompt=negative_prompt,
+        prompt=VARIANTS[variant],
+        negative_prompt=COMPACT_NEGATIVE,
     )
 
 
