@@ -144,7 +144,10 @@ class WorkspaceCommandServiceTest {
     @Test
     void saveFloorPlanSnapshot_persistsRevisionAndWorkspaceOutput() {
         UUID userId = UUID.randomUUID();
-        SaveFloorPlanSnapshotRequest request = new SaveFloorPlanSnapshotRequest(null, "s3://bucket/project/model.ifc");
+        SaveFloorPlanSnapshotRequest request = new SaveFloorPlanSnapshotRequest(
+                null,
+                "s3://bucket/projects/%s/revisions/%s/ifc/model.v1.ifc".formatted(projectId, UUID.randomUUID())
+        );
 
         given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(userId);
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)).willReturn(Optional.of(workspace));
@@ -161,13 +164,13 @@ class WorkspaceCommandServiceTest {
         assertThat(savedRevision.getCreatedBy()).isEqualTo(userId);
         assertThat(savedRevision.getStatus()).isEqualTo("SUCCEEDED");
 
-        assertThat(workspace.getIfcStorageUrl()).isEqualTo("s3://bucket/project/model.ifc");
+        assertThat(workspace.getIfcStorageUrl()).isEqualTo(request.s3Url());
         assertThat(workspace.getCurrentRevision()).isEqualTo(response.revisionId());
         assertThat(project.getLatestRevisionId()).isEqualTo(UUID.fromString(response.revisionId()));
 
         assertThat(response.projectId()).isEqualTo(projectId);
         assertThat(response.phaseStatus()).isEqualTo(workspace.getPhaseStatus());
-        assertThat(response.s3Url()).isEqualTo("s3://bucket/project/model.ifc");
+        assertThat(response.s3Url()).isEqualTo(request.s3Url());
         assertThat(response.savedAt()).isNotNull();
 
         verify(projectAccessService).validateProjectPinWriterOrThrow(eq(projectId), eq(userId));
@@ -176,7 +179,10 @@ class WorkspaceCommandServiceTest {
     @Test
     void saveFloorPlanSnapshot_throwsWhenRequestRevisionIdIsInvalidUuid() {
         UUID userId = UUID.randomUUID();
-        SaveFloorPlanSnapshotRequest request = new SaveFloorPlanSnapshotRequest("invalid-revision-id", "s3://bucket/project/model.ifc");
+        SaveFloorPlanSnapshotRequest request = new SaveFloorPlanSnapshotRequest(
+                "invalid-revision-id",
+                "s3://bucket/projects/%s/revisions/%s/ifc/model.v1.ifc".formatted(projectId, UUID.randomUUID())
+        );
 
         given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(userId);
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)).willReturn(Optional.of(workspace));

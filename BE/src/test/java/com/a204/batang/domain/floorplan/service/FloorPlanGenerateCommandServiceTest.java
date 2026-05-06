@@ -190,9 +190,9 @@ class FloorPlanGenerateCommandServiceTest {
         given(revisionRepository.findTopByProjectIdOrderByRevisionNoDesc(projectId)).willReturn(Optional.empty());
         given(floorPlanLayoutImportMapper.fromRawRequest(eq(projectId), eq(project.getName()), any())).willReturn(layoutImportPayload);
         given(floorPlanStoragePathBuilder.buildIfcStorageUrl(eq(projectId), any()))
-                .willAnswer(invocation -> "projects/" + projectId + "/revisions/" + invocation.getArgument(1) + "/model.ifc");
-        given(floorPlanStoragePathBuilder.buildValidationReportStorageUrl(any(), eq(1)))
-                .willAnswer(invocation -> "jobs/" + invocation.getArgument(0) + "/steps/1/validation-report.json");
+                .willAnswer(invocation -> "projects/" + projectId + "/revisions/" + invocation.getArgument(1) + "/ifc/model.v1.ifc");
+        given(floorPlanStoragePathBuilder.buildValidationReportStorageUrl(eq(projectId), any(), eq(1)))
+                .willAnswer(invocation -> "projects/" + invocation.getArgument(0) + "/jobs/" + invocation.getArgument(1) + "/steps/001/engine/validation-report.v1.json");
 
         CreateFloorPlanGenerateResponse response =
                 floorPlanGenerateCommandService.createFloorPlanGenerate(projectId, userId, request);
@@ -249,6 +249,10 @@ class FloorPlanGenerateCommandServiceTest {
         JsonNode inputPayload = savedStep.getInputPayload();
         assertThat(inputPayload.get("inputSource").asText()).isEqualTo(FloorPlanConstants.INPUT_SOURCE_RAW_REQUEST);
         assertThat(inputPayload.get("targetRevisionId").asText()).isEqualTo(response.targetRevisionId().toString());
+        assertThat(inputPayload.get("ifcStorageUrl").asText())
+                .isEqualTo("projects/" + projectId + "/revisions/" + response.targetRevisionId() + "/ifc/model.v1.ifc");
+        assertThat(inputPayload.get("validationReportStorageUrl").asText())
+                .isEqualTo("projects/" + projectId + "/jobs/" + response.jobId() + "/steps/001/engine/validation-report.v1.json");
     }
 
     @Test
@@ -259,9 +263,9 @@ class FloorPlanGenerateCommandServiceTest {
         given(floorPlanLayoutImportMapper.fromBubbleSnapshot(projectId, project.getName(), workspace.getBubbleSnapshotJson()))
                 .willReturn(layoutImportPayload);
         given(floorPlanStoragePathBuilder.buildIfcStorageUrl(eq(projectId), any()))
-                .willAnswer(invocation -> "projects/" + projectId + "/revisions/" + invocation.getArgument(1) + "/model.ifc");
-        given(floorPlanStoragePathBuilder.buildValidationReportStorageUrl(any(), eq(1)))
-                .willAnswer(invocation -> "jobs/" + invocation.getArgument(0) + "/steps/1/validation-report.json");
+                .willAnswer(invocation -> "projects/" + projectId + "/revisions/" + invocation.getArgument(1) + "/ifc/model.v1.ifc");
+        given(floorPlanStoragePathBuilder.buildValidationReportStorageUrl(eq(projectId), any(), eq(1)))
+                .willAnswer(invocation -> "projects/" + invocation.getArgument(0) + "/jobs/" + invocation.getArgument(1) + "/steps/001/engine/validation-report.v1.json");
 
         CreateFloorPlanGenerateResponse response =
                 floorPlanGenerateCommandService.createFloorPlanGenerate(projectId, userId, null);
@@ -390,7 +394,10 @@ class FloorPlanGenerateCommandServiceTest {
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 null,
-                new FloorPlanGenerateCommandMessage.ExpectedOutput("model.ifc", "validation.json"),
+                new FloorPlanGenerateCommandMessage.ExpectedOutput(
+                        "projects/project-1/revisions/revision-1/ifc/model.v1.ifc",
+                        "projects/project-1/jobs/job-1/steps/001/engine/validation-report.v1.json"
+                ),
                 new FloorPlanGenerateCommandMessage.Payload(layoutImportPayload),
                 1,
                 3,
