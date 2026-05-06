@@ -167,10 +167,6 @@ export function useEditorPage() {
     source: mode,
   })
 
-  useEffect(() => {
-    if (mode !== '3d') setSelectedIfcElement(null)
-  }, [mode])
-
   const { containerRef, stageSize } = useStageSize()
 
   // 버블(공간) 상태
@@ -1120,6 +1116,7 @@ export function useEditorPage() {
   const setMode = (nextMode: EditorMode) => {
     setSearchParams({ mode: nextMode })
     if (nextMode !== '2d') setIsCollaborationMode(false)
+    if (nextMode !== '3d') setSelectedIfcElement(null)
     setIsLibraryOpen(false)
   }
 
@@ -2426,7 +2423,7 @@ export function useEditorPage() {
     selectedBubble,
     selectedFloorWall,
     selectedFloorOpening,
-    selectedIfcElement,
+    selectedIfcElement: mode === '3d' ? selectedIfcElement : null,
     handleBubbleSelect,
     handleSelectIfcElement,
     handleBubbleDrag: handleBubbleDragInBubble,

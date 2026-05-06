@@ -11,20 +11,17 @@ interface IFCExportModalProps {
 
 export function IFCExportModal({ isOpen, onClose, ifcElementChanges = [] }: IFCExportModalProps) {
   const [progress, setProgress] = useState(0)
-  const [done, setDone] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
+  const done = progress >= 100
 
   useEffect(() => {
     if (!isOpen) return
-    setProgress(0)
-    setDone(false)
 
     const interval = window.setInterval(() => {
       setProgress((prev) => {
         const next = Math.min(prev + 8, 100)
         if (next === 100) {
           window.clearInterval(interval)
-          setDone(true)
         }
         return next
       })
