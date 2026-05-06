@@ -441,6 +441,7 @@ class DepthStyleRenderer:
         view: IFCView | None = None,
         use_front_side_semantic_mask: bool = False,
         use_front_side_semantic_control: bool = False,
+        use_front_full_width_semantic_control: bool = False,
         use_front_full_width_ground_control: bool = False,
         front_side_ground_class: FrontSideGroundClass = "grass",
         front_side_semantic_control_scale: float = FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
@@ -453,6 +454,23 @@ class DepthStyleRenderer:
             control = _apply_front_side_semantic_mask_to_control(control)
         control_image: Image.Image | list[Image.Image] = control
         conditioning_scale: float | list[float] = params.controlnet_conditioning_scale
+        if use_front_full_width_semantic_control and view is IFCView.FRONT:
+            if not self.semantic_controlnet_model_id:
+                raise IFCRenderError(
+                    "front full-width semantic control requires "
+                    "semantic_controlnet_model_id"
+                )
+            control_image = [
+                control,
+                _build_front_full_width_seg_control(
+                    control,
+                    ground_class=front_side_ground_class,
+                ),
+            ]
+            conditioning_scale = [
+                params.controlnet_conditioning_scale,
+                front_side_semantic_control_scale,
+            ]
         if use_front_side_semantic_control and view in {IFCView.FRONT, IFCView.SIDE}:
             if not self.semantic_controlnet_model_id:
                 raise IFCRenderError(
