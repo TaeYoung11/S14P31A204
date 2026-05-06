@@ -50,6 +50,7 @@ FRONT_SIDE_INPAINT_SIDE_EXPAND_RATIO = 0.04
 FRONT_FULL_WIDTH_GROUND_CONTROL_RGB = (112, 112, 112)
 FRONT_FULL_WIDTH_GROUND_BLEND_STRENGTH = 0.24
 FRONT_FULL_WIDTH_GROUND_TOP_PADDING_RATIO = 0.02
+FRONT_FULL_WIDTH_GROUND_EXPAND_RATIO = 1.03
 
 
 @dataclass
@@ -227,20 +228,53 @@ def _build_front_full_width_ground_mask(control: Image.Image) -> Image.Image:
     if not np.any(geom_mask):
         return Image.fromarray(out, mode="L")
 
+    ground_top = _compute_front_full_width_ground_top(geom_mask)
+    out[ground_top:, :] = 255
+    return Image.fromarray(out, mode="L")
+
+
+def _compute_front_full_width_ground_top(geom_mask: np.ndarray) -> int:
+    height, width = geom_mask.shape
+    row_counts = geom_mask.sum(axis=1)
+    rows = np.flatnonzero(row_counts)
+    if rows.size == 0:
+        return height - 1
+
     ys, xs = np.nonzero(geom_mask)
     bottom_by_x = np.full(width, -1, dtype=np.int32)
     for x in np.unique(xs):
         bottom_by_x[x] = int(ys[xs == x].max())
 
     support_bottoms = bottom_by_x[bottom_by_x >= 0]
-    base_y = int(np.percentile(support_bottoms, FRONT_SIDE_MASK_BASE_PERCENTILE))
+    fallback_base_y = int(np.percentile(support_bottoms, FRONT_SIDE_MASK_BASE_PERCENTILE))
     top_padding = max(
         1,
         int(round(height * FRONT_FULL_WIDTH_GROUND_TOP_PADDING_RATIO)),
     )
-    ground_top = int(np.clip(base_y + top_padding, 0, height - 1))
-    out[ground_top:, :] = np.where(bg_mask[ground_top:, :], 255, 0).astype(np.uint8)
-    return Image.fromarray(out, mode="L")
+    fallback_ground_top = int(np.clip(fallback_base_y + top_padding, 0, height - 1))
+
+    lower_start = int(rows.min() + (rows.max() - rows.min()) * 0.70)
+    sample_start = max(int(rows.min()), lower_start - 2)
+    sample_end = min(int(rows.max()) + 1, lower_start + 3)
+    sample_counts = row_counts[sample_start:sample_end]
+    positive_sample_counts = sample_counts[sample_counts > 0]
+    if positive_sample_counts.size == 0:
+        return fallback_ground_top
+
+    facade_width = int(np.median(positive_sample_counts))
+    if facade_width <= 0:
+        return fallback_ground_top
+
+    expansion_threshold = max(
+        facade_width + 1,
+        int(round(facade_width * FRONT_FULL_WIDTH_GROUND_EXPAND_RATIO)),
+    )
+    expansion_rows = np.flatnonzero(row_counts[lower_start:] >= expansion_threshold)
+    if expansion_rows.size == 0:
+        return fallback_ground_top
+
+    expansion_y = int(lower_start + expansion_rows[0])
+    return int(np.clip(min(expansion_y, fallback_ground_top), 0, height - 1))
 
 
 def _apply_front_full_width_ground_control(
