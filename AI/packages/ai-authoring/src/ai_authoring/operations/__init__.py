@@ -1,3 +1,6 @@
-"""Authoring operation 모듈."""
+"""Authoring operation registry imports."""
 
-from ai_authoring.operations import create_element as _  # noqa: F401
+from ai_authoring.operations import create_element as _create_element  # noqa: F401
+from ai_authoring.operations import delete_elements as _delete_elements  # noqa: F401
+from ai_authoring.operations import transform_elements as _transform_elements  # noqa: F401
+from ai_authoring.operations import update_element_properties as _update_properties  # noqa: F401

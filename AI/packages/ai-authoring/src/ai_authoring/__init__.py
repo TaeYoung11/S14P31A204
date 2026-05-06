@@ -1,5 +1,9 @@
-"""Authoring 워커 패키지 (3D Engine 포함)"""
+"""Shared IFC authoring helpers and engine-request apply entrypoints."""
 
+from .apply_engine_request import (
+    apply_engine_request as apply_engine_request,
+    apply_ifc_edit_payload as apply_ifc_edit_payload,
+)
 from .engine_3d import (
     create_roof as create_roof,
     create_slab as create_slab,
@@ -16,3 +20,20 @@ from .utils import (
     normalize_space_name as normalize_space_name,
     normalize_storey_name as normalize_storey_name,
 )
+
+__all__ = [
+    "IFCQueryEngine",
+    "apply_engine_request",
+    "apply_ifc_edit_payload",
+    "create_roof",
+    "create_slab",
+    "create_wall",
+    "delete_element",
+    "modify_height",
+    "modify_material",
+    "modify_position",
+    "modify_rotation",
+    "modify_thickness",
+    "normalize_space_name",
+    "normalize_storey_name",
+]

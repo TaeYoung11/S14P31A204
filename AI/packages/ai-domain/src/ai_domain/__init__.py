@@ -21,6 +21,7 @@ from ai_domain.layout_import import (
 from ai_domain.worker_messages import (
     CommandInputRef,
     CommandMessage,
+    EngineOperationInlineRef,
     EngineRequestInlineRef,
     EventError,
     EventMessage,
@@ -39,6 +40,7 @@ __all__ = [
     "BoundaryWallMode",
     "CommandInputRef",
     "CommandMessage",
+    "EngineOperationInlineRef",
     "EngineRequestInlineRef",
     "EventError",
     "EventMessage",
