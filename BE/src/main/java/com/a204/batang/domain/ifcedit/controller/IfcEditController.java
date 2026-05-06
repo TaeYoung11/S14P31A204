@@ -1,8 +1,10 @@
 package com.a204.batang.domain.ifcedit.controller;
 
 import com.a204.batang.domain.ifcedit.dto.DirectIfcEditRequest;
+import com.a204.batang.domain.ifcedit.dto.ChatCommandRequest;
 import com.a204.batang.domain.ifcedit.dto.IfcEditJobResponse;
 import com.a204.batang.domain.ifcedit.dto.LlmIfcEditRequest;
+import com.a204.batang.domain.ifcedit.service.ChatCommandService;
 import com.a204.batang.domain.ifcedit.service.DirectIfcEditCommandService;
 import com.a204.batang.domain.ifcedit.service.ThreeDLlmIfcEditCommandService;
 import com.a204.batang.domain.ifcedit.service.TwoDLlmIfcEditCommandService;
@@ -30,9 +32,33 @@ import java.util.UUID;
 @RequestMapping("/api/v1/projects")
 public class IfcEditController {
 
+    private final ChatCommandService chatCommandService;
     private final DirectIfcEditCommandService directIfcEditCommandService;
     private final TwoDLlmIfcEditCommandService twoDLlmIfcEditCommandService;
     private final ThreeDLlmIfcEditCommandService threeDLlmIfcEditCommandService;
+
+    @Operation(
+            summary = "채팅 기반 IFC 편집 요청",
+            description = "자연어 편집 요청을 sceneType에 따라 2D 또는 3D LLM 경로로 분기해 IFC 편집 작업으로 등록한다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "작업 등록 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "잘못된 요청"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "접근 권한 없음"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "프로젝트 또는 source revision 없음"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "진행 중인 IFC 편집 작업 존재"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "502", description = "Worker command 발행 실패")
+    })
+    @PostMapping("/{projectId}/chat-commands")
+    public ApiResponse<IfcEditJobResponse> createChatCommand(
+            @Parameter(description = "채팅 기반 IFC 편집 작업을 등록할 프로젝트 식별자", required = true)
+            @PathVariable UUID projectId,
+            @AuthenticationPrincipal UUID userId,
+            @Valid @RequestBody ChatCommandRequest request
+    ) {
+        IfcEditJobResponse response = chatCommandService.createChatCommand(projectId, userId, request);
+        return ApiResponse.success("채팅 편집 작업 등록 성공", response);
+    }
 
     @Operation(
             summary = "직접 IFC 편집 요청",
