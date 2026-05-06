@@ -1,1 +1,4 @@
-npx lint-staged
+#!/bin/sh
+
+cd FE
+npm.cmd run lint
