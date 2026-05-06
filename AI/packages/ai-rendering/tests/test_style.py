@@ -23,13 +23,17 @@ from ai_rendering.ifc2img.style import (
     ADE20K_GRASS_RGB,
     ADE20K_ROAD_RGB,
     ADE20K_SKY_RGB,
+    FRONT_FULL_WIDTH_GROUND_CONTROL_RGB,
     FRONT_SIDE_MASK_CONTROL_RGB,
     FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
     FRONT_SIDE_NEGATIVE_TERMS,
     SEMANTIC_BACKGROUND_RGB,
     SEMANTIC_BUILDING_RGB,
     SEMANTIC_GROUND_RGB,
+    _apply_front_full_width_ground_control,
     _apply_front_side_semantic_mask_to_control,
+    _build_front_full_width_ground_mask,
+    _build_front_full_width_seg_control,
     _build_front_side_inpaint_mask,
     _build_front_side_seg_control,
     _build_front_side_semantic_mask,
@@ -364,6 +368,57 @@ def test_apply_front_side_semantic_mask_to_control_adds_weak_ground_hint() -> No
     assert 0 < int(blended_arr[sample_y, sample_x, 0]) < FRONT_SIDE_MASK_CONTROL_RGB[0]
 
 
+def test_build_front_full_width_ground_mask_marks_lower_background_only() -> None:
+    """FRONT full-width ground mask should fill lower non-building areas."""
+    control = Image.new("RGB", (32, 32), (0, 0, 0))
+    arr = np.array(control)
+    arr[6:18, 10:22] = [255, 255, 255]
+
+    mask = _build_front_full_width_ground_mask(Image.fromarray(arr, mode="RGB"))
+    mask_arr = np.array(mask)
+
+    assert mask_arr[22, 2] == 255
+    assert mask_arr[22, 30] == 255
+    assert mask_arr[16, 16] == 0
+    assert mask_arr[4, 2] == 0
+
+
+def test_apply_front_full_width_ground_control_adds_lower_ground_hint() -> None:
+    """Opt-in full-width blend should affect lower background, not building."""
+    control = Image.new("RGB", (32, 32), (0, 0, 0))
+    arr = np.array(control)
+    arr[6:18, 10:22] = [255, 255, 255]
+
+    blended = _apply_front_full_width_ground_control(
+        Image.fromarray(arr, mode="RGB")
+    )
+    blended_arr = np.array(blended)
+
+    assert blended_arr[24, 2, 0] > 0
+    assert blended_arr[24, 2, 0] < FRONT_FULL_WIDTH_GROUND_CONTROL_RGB[0]
+    assert np.all(blended_arr[16, 16] == [255, 255, 255])
+    assert np.all(blended_arr[4, 2] == [0, 0, 0])
+
+
+def test_build_front_full_width_seg_control_uses_ade20k_classes() -> None:
+    """Preview seg map should encode front sky/building/full-width ground."""
+    control = Image.new("RGB", (32, 32), (0, 0, 0))
+    arr = np.array(control)
+    arr[6:18, 10:22] = [255, 255, 255]
+
+    seg = _build_front_full_width_seg_control(
+        Image.fromarray(arr, mode="RGB"),
+        ground_class="neutral",
+    )
+    seg_arr = np.array(seg)
+
+    assert np.all(seg_arr[10, 16] == ADE20K_BUILDING_RGB)
+    assert np.all(seg_arr[2, 2] == ADE20K_SKY_RGB)
+    assert np.all(seg_arr[24, 2] == ADE20K_ROAD_RGB)
+    assert np.all(seg_arr[24, 30] == ADE20K_ROAD_RGB)
+    assert np.all(seg_arr[16, 16] == ADE20K_BUILDING_RGB)
+
+
 def test_render_front_side_semantic_mask_is_opt_in(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
@@ -381,6 +436,35 @@ def test_render_front_side_semantic_mask_is_opt_in(
     ground_pixels = np.all(np.array(semantic_mask) == SEMANTIC_GROUND_RGB, axis=2)
     ground_y, ground_x = np.nonzero(ground_pixels)
     assert np.all(control[int(ground_y[0]), int(ground_x[0])] == [0, 0, 0])
+
+
+def test_render_front_full_width_ground_control_is_front_only(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Full-width ground control should only modify FRONT opt-in calls."""
+    depth = Image.new("RGB", (32, 32), (0, 0, 0))
+    arr = np.array(depth)
+    arr[6:18, 10:22] = [255, 255, 255]
+    depth = Image.fromarray(arr, mode="RGB")
+    params = DepthStyleParams(prompt="x")
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.FRONT,
+        use_front_full_width_ground_control=True,
+    )
+    front_control = np.array(mock_depth_renderer.pipe.call_args.kwargs["image"])
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.SIDE,
+        use_front_full_width_ground_control=True,
+    )
+    side_control = np.array(mock_depth_renderer.pipe.call_args.kwargs["image"])
+
+    assert front_control[24, 2, 0] > 0
+    assert np.all(side_control[24, 2] == [0, 0, 0])
 
 
 def test_render_front_side_semantic_mask_blends_only_for_front_side_views(
@@ -489,6 +573,22 @@ def test_render_front_side_semantic_control_requires_semantic_model(
         )
 
 
+def test_render_front_full_width_semantic_control_requires_semantic_model(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Full-width semantic control is opt-in and requires a seg ControlNet."""
+    depth = Image.new("L", (768, 448), 100)
+    params = DepthStyleParams(prompt="x")
+
+    with pytest.raises(IFCRenderError, match="front full-width semantic control"):
+        mock_depth_renderer.render(
+            depth,
+            params,
+            view=IFCView.FRONT,
+            use_front_full_width_semantic_control=True,
+        )
+
+
 def test_render_front_side_semantic_control_passes_two_control_images(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
@@ -517,6 +617,61 @@ def test_render_front_side_semantic_control_passes_two_control_images(
         1.15,
         0.55,
     ]
+
+
+def test_render_front_full_width_semantic_control_passes_two_control_images(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """FRONT full-width semantic control should pass depth + full-width seg."""
+    mock_depth_renderer.semantic_controlnet_model_id = "mock-seg"
+    depth = Image.new("RGB", (32, 32), (0, 0, 0))
+    arr = np.array(depth)
+    arr[6:18, 10:22] = [255, 255, 255]
+    depth = Image.fromarray(arr, mode="RGB")
+    params = DepthStyleParams(prompt="x", controlnet_conditioning_scale=1.15)
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.FRONT,
+        use_front_full_width_semantic_control=True,
+        front_side_ground_class="neutral",
+        front_side_semantic_control_scale=0.25,
+    )
+
+    call_kwargs = mock_depth_renderer.pipe.call_args.kwargs
+    seg_arr = np.array(call_kwargs["image"][1])
+
+    assert len(call_kwargs["image"]) == 2
+    assert np.all(seg_arr[24, 2] == ADE20K_ROAD_RGB)
+    assert np.all(seg_arr[2, 2] == ADE20K_SKY_RGB)
+    assert np.all(seg_arr[10, 16] == ADE20K_BUILDING_RGB)
+    assert call_kwargs["controlnet_conditioning_scale"] == [
+        1.15,
+        0.25,
+    ]
+
+
+def test_render_front_full_width_semantic_control_is_front_only(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """The full-width semantic option should be a no-op for SIDE."""
+    mock_depth_renderer.semantic_controlnet_model_id = "mock-seg"
+    depth = Image.new("RGB", (32, 32), (0, 0, 0))
+    arr = np.array(depth)
+    arr[6:18, 10:22] = [255, 255, 255]
+    depth = Image.fromarray(arr, mode="RGB")
+    params = DepthStyleParams(prompt="x")
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.SIDE,
+        use_front_full_width_semantic_control=True,
+    )
+
+    call_kwargs = mock_depth_renderer.pipe.call_args.kwargs
+    assert not isinstance(call_kwargs["image"], list)
 
 
 def test_render_without_view_uses_raw_negative(

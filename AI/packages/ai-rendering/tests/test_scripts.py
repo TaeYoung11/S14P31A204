@@ -122,6 +122,29 @@ def test_front_side_wide_ground_inpaint_script_defaults_to_korean_side() -> None
     assert m.DEFAULT_STRENGTH == 0.60
 
 
+def test_front_full_width_ground_control_script_defaults_to_front_preview() -> None:
+    """The front-only full-width ground control script should be preview-scoped."""
+    m = _load_script("generate_front_full_width_ground_control.py")
+
+    assert m.DEFAULT_INPUT_DIR == m.ROOT / "outputs" / "ifc2img_front_side_rv_trial1" / "AC20-FZK-Haus"
+    assert (
+        m.DEFAULT_OUTPUT_DIR
+        == m.ROOT / "outputs" / "ifc2img_front_full_width_ground_control_trial1" / "AC20-FZK-Haus"
+    )
+
+
+def test_front_semantic_ground_control_script_defaults_to_front_preview() -> None:
+    """The front-only semantic ground control script should only create previews."""
+    m = _load_script("generate_front_semantic_ground_control.py")
+
+    assert m.DEFAULT_INPUT_DIR == m.ROOT / "outputs" / "ifc2img_front_side_rv_trial1" / "AC20-FZK-Haus"
+    assert (
+        m.DEFAULT_OUTPUT_DIR
+        == m.ROOT / "outputs" / "ifc2img_front_semantic_ground_control_trial1" / "AC20-FZK-Haus"
+    )
+    assert m.DEFAULT_GROUND_CLASS == "neutral"
+
+
 def test_korean_villa_prompt_prior_trial_defaults_to_side_simple_mass() -> None:
     """The Korean-villa prior trial should isolate one side-view prompt variant."""
     m = _load_script("run_korean_villa_prompt_prior_trial.py")
