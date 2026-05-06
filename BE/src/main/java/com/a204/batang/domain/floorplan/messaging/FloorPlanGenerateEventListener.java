@@ -332,7 +332,7 @@ public class FloorPlanGenerateEventListener {
                     event.projectId(),
                     revision.getRevisionId(),
                     event.jobId(),
-                    "model.ifc",
+                    "model.v1.ifc",
                     "application/octet-stream",
                     storageUrl,
                     objectMapper.valueToTree(Map.of(
@@ -353,7 +353,7 @@ public class FloorPlanGenerateEventListener {
                     event.projectId(),
                     revision.getRevisionId(),
                     event.jobId(),
-                    "validation-report.json",
+                    "validation-report.v1.json",
                     "application/json",
                     validationReportStorageUrl,
                     objectMapper.valueToTree(Map.of(
