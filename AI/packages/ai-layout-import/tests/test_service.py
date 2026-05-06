@@ -1339,3 +1339,54 @@ def test_convert_layout_to_ifc_rejects_v2_missing_top_floor_boundary_for_roof(
 
     with pytest.raises(ValueError, match="missing boundary for roof generation on floor 2"):
         convert_layout_to_ifc(request, tmp_path / "missing-roof-boundary.ifc")
+
+
+def test_convert_layout_to_ifc_reuses_style_assignment_for_same_color(tmp_path: Path) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[_base_room(zone_id="zone-common", x=2100.0, y=1900.0)],
+        zones=[
+            {
+                "id": "zone-common",
+                "name": "Common",
+                "color": "#FF5733",
+            }
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [4200.0, 0.0],
+                    [4200.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "style-reuse.ifc")
+
+    # There are 4 boundary walls, 1 slab, and 1 roof = 6 entities sharing the same color.
+    assert len(model.by_type("IfcWall")) == 4
+    assert len(model.by_type("IfcSlab")) == 1
+    assert len(model.by_type("IfcRoof")) == 1
+
+    # But they should all share the exact same style assignment entity thanks to the cache.
+    assignments = model.by_type("IfcPresentationStyleAssignment")
+    assert len(assignments) == 1
+    
+    # Verify that at least one of these entities actually uses this assignment
+    wall = _named_entities(model, "IfcWall")["Boundary Wall 1-1"]
+    style_ids = [
+        s.id() 
+        for styled_item in _styled_items(_body_item(wall)) 
+        for s in getattr(styled_item, "Styles", [])
+    ]
+    assert assignments[0].id() in style_ids
