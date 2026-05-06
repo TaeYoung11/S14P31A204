@@ -4,27 +4,27 @@
   "name": "sample-project",
   "rooms": [
     {
-      "id": "room-living-01",
-      "name": "Living Room",
+      "id": "room-left-01",
+      "name": "Left Room",
       "type": "living",
       "width": 4200,
       "height": 3800,
       "floor": 1,
-      "x": 5000.0,
-      "y": 4000.0,
+      "x": 2100.0,
+      "y": 1900.0,
       "angle": 0.0,
       "locked": false,
       "zoneId": "zone-common"
     },
     {
-      "id": "room-bed-01",
-      "name": "Bedroom",
+      "id": "room-right-01",
+      "name": "Right Room",
       "type": "bedroom",
-      "width": 3600,
-      "height": 3200,
-      "floor": 2,
-      "x": 9000.0,
-      "y": 4000.0,
+      "width": 4200,
+      "height": 3800,
+      "floor": 1,
+      "x": 6300.0,
+      "y": 1900.0,
       "angle": 0.0,
       "locked": false
     }
@@ -36,23 +36,21 @@
       "color": "#FF5733"
     }
   ],
+  "adjacency": [
+    {
+      "from_room_id": "room-left-01",
+      "to_room_id": "room-right-01",
+      "strength": 0.8
+    }
+  ],
   "boundaries": [
     {
       "floor": 1,
       "polygon": [
         [0.0, 0.0],
-        [4200.0, 0.0],
-        [4200.0, 3800.0],
+        [8400.0, 0.0],
+        [8400.0, 3800.0],
         [0.0, 3800.0]
-      ]
-    },
-    {
-      "floor": 2,
-      "polygon": [
-        [0.0, 0.0],
-        [3600.0, 0.0],
-        [3600.0, 3200.0],
-        [0.0, 3200.0]
       ]
     }
   ],

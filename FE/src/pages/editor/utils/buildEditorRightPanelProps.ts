@@ -19,6 +19,7 @@ type RightPanelViewModel = Pick<
   | 'selectedBubble'
   | 'selectedFloorWall'
   | 'selectedFloorOpening'
+  | 'selectedIfcElement'
   | 'selectedBubbleConnections'
   | 'selectedBubbleZones'
   | 'zoningListItems'
@@ -31,6 +32,7 @@ type RightPanelViewModel = Pick<
   | 'handleTypeChange'
   | 'handleWidthChange'
   | 'handleHeightChange'
+  | 'handleThicknessChange'
   | 'handleWidthCommit'
   | 'handleHeightCommit'
   | 'handleRatioChange'
@@ -102,6 +104,7 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
     selectedBubble: vm.selectedBubble,
     selectedWall: vm.selectedFloorWall,
     selectedOpening: vm.selectedFloorOpening,
+    selectedIfcElement: vm.selectedIfcElement,
     selectedBubbleConnections: vm.selectedBubbleConnections,
     selectedBubbleZones: vm.selectedBubbleZones,
     zoningListItems: vm.zoningListItems,
@@ -114,6 +117,7 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
     onTypeChange: vm.handleTypeChange,
     onWidthChange: vm.handleWidthChange,
     onHeightChange: vm.handleHeightChange,
+    onThicknessChange: vm.handleThicknessChange,
     onWidthCommit: vm.handleWidthCommit,
     onHeightCommit: vm.handleHeightCommit,
     onRatioChange: vm.handleRatioChange,

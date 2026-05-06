@@ -12,7 +12,6 @@ import {
   Scaling,
   Grid3X3,
   Home,
-  Download,
   Hand,
   LayoutDashboard,
   type LucideIcon,
@@ -146,7 +145,6 @@ interface EditorLeftSidebarProps {
   onToggleCollaboration?: () => void
   onToggleLibrary?: () => void
   onToggleGrid?: () => void
-  onExportIFC?: () => void
   onGenerateFloorPlan?: () => void
   onAutoLayoutBubbles?: () => void
   canGenerateFloorPlan?: boolean
@@ -174,7 +172,6 @@ export default function EditorLeftSidebar({
   onToggleCollaboration,
   onToggleLibrary,
   onToggleGrid,
-  onExportIFC,
   onGenerateFloorPlan,
   onAutoLayoutBubbles,
   canGenerateFloorPlan = false,
@@ -358,7 +355,6 @@ export default function EditorLeftSidebar({
                 hasDeletableSelection={hasDeletableSelection}
                 onDeleteSelected={onDeleteSelected}
               />
-              <GridToggleButton isGridVisible={isGridVisible} onToggleGrid={onToggleGrid} />
 
               <button onClick={onToggleLibrary} className="w-full flex flex-col items-center gap-1 py-1 group">
                 <div className={`p-2 rounded-xl transition-all ${isLibraryOpen
@@ -373,12 +369,6 @@ export default function EditorLeftSidebar({
                 </span>
               </button>
 
-              <button onClick={onExportIFC} className="w-full flex flex-col items-center gap-1 py-1 group">
-                <div className="p-2 text-[#8E95A3] group-hover:bg-[#F0F2F9] group-hover:text-[#3B45B3] rounded-xl transition-all">
-                  <Download size={24} />
-                </div>
-                <span className="text-[10px] font-bold text-[#8E95A3] group-hover:text-[#3B45B3]">IFC 내보내기</span>
-              </button>
             </>
           )}
         </div>
