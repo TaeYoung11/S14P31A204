@@ -30,6 +30,7 @@ from ai_rendering.ifc2img.style import (
     SEMANTIC_BUILDING_RGB,
     SEMANTIC_GROUND_RGB,
     _apply_front_side_semantic_mask_to_control,
+    _build_front_side_inpaint_mask,
     _build_front_side_seg_control,
     _build_front_side_semantic_mask,
 )
@@ -452,6 +453,22 @@ def test_build_front_side_seg_control_can_use_neutral_ground() -> None:
     ground_y, ground_x = np.nonzero(ground_pixels)
 
     assert np.all(np.array(seg)[int(ground_y[0]), int(ground_x[0])] == ADE20K_ROAD_RGB)
+
+
+def test_build_front_side_inpaint_mask_targets_lower_local_region() -> None:
+    """Inpaint mask should repaint below the facade while protecting upper details."""
+    control = Image.new("RGB", (32, 32), (0, 0, 0))
+    arr = np.array(control)
+    arr[6:18, 10:22] = [255, 255, 255]
+
+    mask = _build_front_side_inpaint_mask(Image.fromarray(arr, mode="RGB"))
+    mask_arr = np.array(mask)
+
+    assert mask.mode == "L"
+    assert mask_arr[8, 16] == 0
+    assert mask_arr[20, 16] == 255
+    assert mask_arr[20, 2] == 0
+    assert mask_arr[20, 30] == 0
 
 
 def test_render_front_side_semantic_control_requires_semantic_model(

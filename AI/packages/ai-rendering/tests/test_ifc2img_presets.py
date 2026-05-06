@@ -79,7 +79,25 @@ def test_load_preset_night_appends_night_suffix() -> None:
     assert "at night" in p.prompt
     assert "warm interior lights" in p.prompt
     # 동시에 base prompt 단어 보존
-    assert "korean residential villa" in p.prompt
+    assert "minimal Korean style house" in p.prompt
+
+
+def test_korean_villa_prompt_uses_compact_flat_ground_prior() -> None:
+    """korean_villa prompt should avoid lower-floor/retaining-wall priors."""
+    p = load_preset("korean_villa")
+    prompt = p.prompt.lower()
+    negative = p.negative_prompt.lower()
+
+    assert prompt.startswith("raw photo, outdoor daylight")
+    assert "off-white concrete wall" in prompt
+    assert "ground touches facade" in prompt
+    assert "subtle brick accents" in prompt
+    assert "simple tile roof" in prompt
+    assert "small balconies" not in prompt
+    assert "street view" not in prompt
+    assert "stone wall" in negative
+    assert "retaining wall" in negative
+    assert "piloti" in negative
 
 
 def test_load_preset_default_time_is_day() -> None:

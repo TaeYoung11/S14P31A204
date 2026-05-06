@@ -85,3 +85,58 @@ def test_front_side_semantic_mask_display_path_returns_relative() -> None:
     assert not result.is_absolute()
     assert result == Path("outputs") / "semantic_mask_front.png"
 
+
+def test_front_side_inpaint_mask_script_defaults_to_preview_dirs() -> None:
+    """The inpaint mask script should target the current 4-image front/side sample."""
+    m = _load_script("generate_front_side_inpaint_masks.py")
+
+    assert m.DEFAULT_DEPTH_DIR == m.ROOT / "outputs" / "ifc2img_front_side_rv_trial1" / "AC20-FZK-Haus"
+    assert m.DEFAULT_STYLED_DIR == m.ROOT / "outputs" / "ifc2img_front_side_rv_trial1" / "AC20-FZK-Haus"
+    assert m.DEFAULT_OUTPUT_DIR == m.ROOT / "outputs" / "ifc2img_front_side_inpaint_mask_trial1" / "AC20-FZK-Haus"
+    assert m.PRESETS == ("scandinavian", "korean_villa")
+    assert m.VIEWS == ("front", "side")
+
+
+def test_front_side_inpaint_mask_display_path_returns_relative() -> None:
+    """The inpaint mask script should print repo-relative paths when possible."""
+    m = _load_script("generate_front_side_inpaint_masks.py")
+
+    inside = m.ROOT / "outputs" / "inpaint_mask_scandinavian_day_front.png"
+    result = m._display_path(inside)
+
+    assert not result.is_absolute()
+    assert result == Path("outputs") / "inpaint_mask_scandinavian_day_front.png"
+
+
+def test_front_side_wide_ground_inpaint_script_defaults_to_korean_side() -> None:
+    """The wide-ground inpaint experiment should start with the current Korean side slot."""
+    m = _load_script("run_front_side_wide_ground_inpaint.py")
+
+    assert m.DEFAULT_INPUT_DIR == m.ROOT / "outputs" / "ifc2img_front_side_rv_trial1" / "AC20-FZK-Haus"
+    assert (
+        m.DEFAULT_OUTPUT_DIR
+        == m.ROOT / "outputs" / "ifc2img_front_side_inpaint_wide_ground_trial1" / "AC20-FZK-Haus"
+    )
+    assert m.DEFAULT_PRESET == "korean_villa"
+    assert m.DEFAULT_VIEW == "side"
+    assert m.DEFAULT_STRENGTH == 0.60
+
+
+def test_korean_villa_prompt_prior_trial_defaults_to_side_simple_mass() -> None:
+    """The Korean-villa prior trial should isolate one side-view prompt variant."""
+    m = _load_script("run_korean_villa_prompt_prior_trial.py")
+
+    assert m.DEFAULT_INPUT_DIR == m.ROOT / "outputs" / "ifc2img_front_side_rv_trial1" / "AC20-FZK-Haus"
+    assert (
+        m.DEFAULT_OUTPUT_DIR
+        == m.ROOT / "outputs" / "ifc2img_korean_villa_prompt_prior_trial1" / "AC20-FZK-Haus"
+    )
+    assert m.DEFAULT_VIEW == "side"
+    assert m.DEFAULT_VARIANT == "simple_mass"
+    assert "single-volume house" in m.SIMPLE_MASS_PROMPT
+    assert "piloti" in m.COMPACT_NEGATIVE
+    assert "short_ground" in m.VARIANTS
+    assert m.SHORT_GROUND_PROMPT.startswith("RAW photo, simple Korean house")
+    assert "flat_plaza" in m.VARIANTS
+    assert "flat concrete plaza" in m.FLAT_PLAZA_PROMPT
+
