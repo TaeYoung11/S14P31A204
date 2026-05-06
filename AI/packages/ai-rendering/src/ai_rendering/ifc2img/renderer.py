@@ -47,6 +47,7 @@ class IFCRenderer:
         target_screen_ratio: float = 0.55,
         iter_tolerance: float = 0.10,
         iter_max: int = 4,
+        view_target_overrides: dict[IFCView, float] | None = None,
     ) -> None:
         self.width = width
         self.height = height
@@ -57,6 +58,7 @@ class IFCRenderer:
         self.target_screen_ratio = target_screen_ratio
         self.iter_tolerance = iter_tolerance
         self.iter_max = iter_max
+        self.view_target_overrides = dict(view_target_overrides or {})
 
     def render(self, ifc_path: Path, view: IFCView = IFCView.FRONT) -> Image.Image:
         base_mesh, center = load_mesh(ifc_path)
@@ -103,7 +105,10 @@ class IFCRenderer:
 
         빈 mesh면 base 그대로 (방어적 fallback — 정상 조건 아님).
         """
-        base = VIEW_TARGET_RATIOS.get(view, self.target_screen_ratio)
+        base = self.view_target_overrides.get(
+            view,
+            VIEW_TARGET_RATIOS.get(view, self.target_screen_ratio),
+        )
         verts = np.asarray(mesh.vertices)
         if len(verts) == 0:
             return base

@@ -69,6 +69,21 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Use iterative depth zoom to match each view's target fill ratio.",
     )
+    parser.add_argument(
+        "--eye-target-ratio",
+        type=float,
+        default=None,
+        help=(
+            "Override iterative zoom target fill ratio for EYE views only. "
+            "Requires --auto-zoom to affect rendering."
+        ),
+    )
+    parser.add_argument(
+        "--iter-tolerance",
+        type=float,
+        default=0.10,
+        help="Iterative auto-zoom fill tolerance. Used with --auto-zoom.",
+    )
     return parser.parse_args()
 
 
@@ -99,14 +114,25 @@ def _render_depths(
     views: list[IFCView],
     output_dir: Path,
     auto_zoom: bool = False,
+    eye_target_ratio: float | None = None,
+    iter_tolerance: float = 0.10,
 ) -> dict[IFCView, Path]:
     """Render depth PNGs for each requested view."""
     zoom_mode = AutoZoomMode.ITERATIVE if auto_zoom else AutoZoomMode.OFF
+    target_overrides = _build_eye_target_overrides(eye_target_ratio)
     print(
         f"[depth] rendering {ifc_path.name} views={len(views)} "
         f"auto_zoom={zoom_mode.value}"
     )
-    renderer = IFCRenderer(width=768, height=448, auto_zoom=zoom_mode)
+    if target_overrides:
+        print(f"  eye_target_ratio={eye_target_ratio}")
+    renderer = IFCRenderer(
+        width=768,
+        height=448,
+        auto_zoom=zoom_mode,
+        iter_tolerance=iter_tolerance,
+        view_target_overrides=target_overrides,
+    )
     images = renderer.render_views(ifc_path, views=views)
 
     saved: dict[IFCView, Path] = {}
@@ -117,6 +143,20 @@ def _render_depths(
         print(f"  {view.value:5s} -> {path}")
         saved[view] = path
     return saved
+
+
+def _build_eye_target_overrides(
+    eye_target_ratio: float | None,
+) -> dict[IFCView, float]:
+    if eye_target_ratio is None:
+        return {}
+    if not 0.0 < eye_target_ratio < 1.0:
+        raise SystemExit("--eye-target-ratio must be between 0 and 1.")
+    return {
+        IFCView.EYE_NE: eye_target_ratio,
+        IFCView.EYE_NW: eye_target_ratio,
+        IFCView.EYE_SE: eye_target_ratio,
+    }
 
 
 def _print_preset_info(presets: list[str]) -> None:
@@ -254,6 +294,9 @@ def main() -> int:
     print(f"output: {args.output}")
     print(f"mode: {'dry-run' if args.dry_run else 'render'}\n")
     print(f"auto_zoom: {'iterative' if args.auto_zoom else 'off'}")
+    if args.eye_target_ratio is not None:
+        print(f"eye_target_ratio: {args.eye_target_ratio}")
+    print(f"iter_tolerance: {args.iter_tolerance}")
 
     try:
         depth_paths = _render_depths(
@@ -261,6 +304,8 @@ def main() -> int:
             views,
             args.output,
             auto_zoom=args.auto_zoom,
+            eye_target_ratio=args.eye_target_ratio,
+            iter_tolerance=args.iter_tolerance,
         )
         _print_preset_info(presets)
 
