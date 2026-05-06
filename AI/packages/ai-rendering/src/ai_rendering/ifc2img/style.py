@@ -63,6 +63,74 @@ class DepthStyleParams:
     seed: int | None = None
 
 
+@dataclass(frozen=True)
+class DepthStyleRenderOptions:
+    use_front_side_semantic_mask: bool = False
+    use_front_side_semantic_control: bool = False
+    use_front_full_width_semantic_control: bool = False
+    use_front_full_width_ground_control: bool = False
+    use_weighted_front_side_negative: bool = False
+    front_side_ground_class: FrontSideGroundClass = "grass"
+    front_side_semantic_control_scale: float = FRONT_SIDE_SEMANTIC_CONTROL_SCALE
+
+    @property
+    def requires_semantic_controlnet(self) -> bool:
+        return (
+            self.use_front_side_semantic_control
+            or self.use_front_full_width_semantic_control
+        )
+
+    def as_render_kwargs(self) -> dict[str, object]:
+        return {
+            "use_front_side_semantic_mask": self.use_front_side_semantic_mask,
+            "use_front_side_semantic_control": self.use_front_side_semantic_control,
+            "use_front_full_width_semantic_control": (
+                self.use_front_full_width_semantic_control
+            ),
+            "use_front_full_width_ground_control": (
+                self.use_front_full_width_ground_control
+            ),
+            "use_weighted_front_side_negative": self.use_weighted_front_side_negative,
+            "front_side_ground_class": self.front_side_ground_class,
+            "front_side_semantic_control_scale": (
+                self.front_side_semantic_control_scale
+            ),
+        }
+
+
+DEFAULT_RENDER_OPTIONS = DepthStyleRenderOptions()
+KOREAN_VILLA_FRONT_RENDER_OPTIONS = DepthStyleRenderOptions(
+    use_front_full_width_semantic_control=True,
+    front_side_ground_class="neutral",
+    front_side_semantic_control_scale=0.25,
+)
+KOREAN_HOUSE_FRONT_RENDER_OPTIONS = DepthStyleRenderOptions(
+    use_front_full_width_semantic_control=True,
+    front_side_ground_class="neutral",
+    front_side_semantic_control_scale=0.35,
+)
+KOREAN_HOUSE_SIDE_RENDER_OPTIONS = DepthStyleRenderOptions(
+    use_front_side_semantic_control=True,
+    front_side_ground_class="neutral",
+    front_side_semantic_control_scale=0.35,
+)
+
+PRESET_VIEW_RENDER_OPTIONS: dict[tuple[str, IFCView], DepthStyleRenderOptions] = {
+    ("korean_villa", IFCView.FRONT): KOREAN_VILLA_FRONT_RENDER_OPTIONS,
+    ("korean_house", IFCView.FRONT): KOREAN_HOUSE_FRONT_RENDER_OPTIONS,
+    ("korean_house", IFCView.SIDE): KOREAN_HOUSE_SIDE_RENDER_OPTIONS,
+}
+
+
+def resolve_preset_view_render_options(
+    preset_name: str,
+    view: IFCView | None,
+) -> DepthStyleRenderOptions:
+    if view is None:
+        return DEFAULT_RENDER_OPTIONS
+    return PRESET_VIEW_RENDER_OPTIONS.get((preset_name, view), DEFAULT_RENDER_OPTIONS)
+
+
 @dataclass
 class DepthStyleResult:
     image: Image.Image
