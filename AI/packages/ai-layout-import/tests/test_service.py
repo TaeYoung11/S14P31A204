@@ -9,6 +9,7 @@ import ifcopenshell
 import pytest
 from pydantic import ValidationError
 
+import ai_layout_import.service as service_module
 from ai_domain import LayoutImportV1, LayoutImportV2, parse_layout_import
 from ai_layout_import import convert_layout_to_ifc
 
@@ -178,6 +179,15 @@ def _rgb_to_hex(red: float, green: float, blue: float) -> str:
     green_hex = round(green * 255)
     blue_hex = round(blue * 255)
     return f"#{red_hex:02X}{green_hex:02X}{blue_hex:02X}"
+
+
+def test_apply_zone_style_skips_entities_without_representation() -> None:
+    model = ifcopenshell.file(schema="IFC4")
+    wall = model.create_entity("IfcWall")
+
+    service_module._apply_zone_style(model, wall, "#FF5733", {})
+
+    assert len(model.by_type("IfcStyledItem")) == 0
 
 
 def test_convert_layout_to_ifc_creates_single_room_space(tmp_path: Path) -> None:
