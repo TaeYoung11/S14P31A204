@@ -320,6 +320,7 @@ export function useEditorPage() {
 
   // Delete/Backspace 키로 선택된 버블 또는 연결선 삭제 (input 포커스 중엔 무시)
   const handleDeleteSelected = useCallback(() => {
+    if (useAuthStore.getState().user?.user_type !== 'DESIGNER') return
     if (mode === 'bubble' && isBubbleEditLocked) return
     if (mode === '2d') {
       const selectedRoomIds = Array.from(new Set([
@@ -465,6 +466,7 @@ export function useEditorPage() {
     id: string; label: string; x: number; y: number; width: number; height: number
   } | null>(null)
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false)
   const [isGridSnapEnabled, setIsGridSnapEnabled] = useState(true)
   const [gridSnapIntervalMm, setGridSnapIntervalMm] = useState<number>(DEFAULT_GRID_SNAP_INTERVAL_MM)
   const [wallCreatePreset, setWallCreatePreset] = useState<{
@@ -515,11 +517,15 @@ export function useEditorPage() {
     })
   }, [])
   const authUser = useAuthStore((state) => state.user)
-  const currentUserType: CollaborationUserType = authUser?.user_type === 'CUSTOMER' ? 'CUSTOMER' : 'DESIGNER'
-  const counterpartType: CollaborationUserType = currentUserType === 'DESIGNER' ? 'CUSTOMER' : 'DESIGNER'
+  const currentUserType: CollaborationUserType | null =
+    authUser?.user_type === 'DESIGNER' || authUser?.user_type === 'CUSTOMER'
+      ? authUser.user_type
+      : null
+  const collaborationUserType: CollaborationUserType = currentUserType ?? 'CUSTOMER'
+  const counterpartType: CollaborationUserType = collaborationUserType === 'DESIGNER' ? 'CUSTOMER' : 'DESIGNER'
   const currentUserName = authUser?.name?.trim()
     ? authUser.name.trim()
-    : (currentUserType === 'DESIGNER' ? DEFAULT_DESIGNER_NAME : DEFAULT_CLIENT_NAME)
+    : (collaborationUserType === 'DESIGNER' ? DEFAULT_DESIGNER_NAME : DEFAULT_CLIENT_NAME)
 
   // Shift+L: 층 겹쳐보기 모드 토글 (2D/3D 전용)
   useEffect(() => {
@@ -804,8 +810,9 @@ export function useEditorPage() {
   }, [autosaveReadyProjectId, draftSnapshot, projectId])
 
   const phaseStatus = workspacePhaseStatus
-  const canEditBubble = phaseStatus === 'BUBBLE_DRAFT' && !isBubbleEditLocked
-  const canEditIfc = phaseStatus === 'IFC_EDIT'
+  const isEditorReadOnly = currentUserType !== 'DESIGNER'
+  const canEditBubble = !isEditorReadOnly && phaseStatus === 'BUBBLE_DRAFT' && !isBubbleEditLocked
+  const canEditIfc = !isEditorReadOnly && phaseStatus === 'IFC_EDIT'
   const isConverting = phaseStatus === 'CONVERTING'
   const isBubbleReadOnly = !canEditBubble
 
@@ -1024,9 +1031,9 @@ export function useEditorPage() {
   const unreadCommentNotifications = useMemo(
     () =>
       commentNotifications.filter(
-        (notification) => notification.recipientType === currentUserType && !notification.isRead,
+        (notification) => notification.recipientType === collaborationUserType && !notification.isRead,
       ),
-    [commentNotifications, currentUserType],
+    [commentNotifications, collaborationUserType],
   )
 
   // 파생 상태: 선택된 버블의 연결선 목록 (라벨 포함)
@@ -1188,14 +1195,14 @@ export function useEditorPage() {
         createdAt,
         createdById: authUser?.id ?? 'local-user',
         createdByName: currentUserName,
-        createdByType: currentUserType,
+        createdByType: collaborationUserType,
         messages: [
           {
             id: messageId,
             pinId,
             authorId: authUser?.id ?? 'local-user',
             authorName: currentUserName,
-            authorType: currentUserType,
+            authorType: collaborationUserType,
             content: normalized,
             attachments: normalizedAttachments,
             createdAt,
@@ -1222,7 +1229,7 @@ export function useEditorPage() {
 
     setSelectedPinId(pinId)
     setCollaborationTab('thread')
-  }, [authUser?.id, currentUserName, currentUserType, counterpartType])
+  }, [authUser?.id, currentUserName, collaborationUserType, counterpartType])
 
   /** 기존 핀 스레드에 답글 추가 */
   const handleAddCommentReply = useCallback((
@@ -1250,7 +1257,7 @@ export function useEditorPage() {
               pinId,
               authorId: authUser?.id ?? 'local-user',
               authorName: currentUserName,
-              authorType: currentUserType,
+              authorType: collaborationUserType,
               content: normalized,
               attachments: normalizedAttachments,
               createdAt,
@@ -1276,7 +1283,7 @@ export function useEditorPage() {
 
     setSelectedPinId(pinId)
     setCollaborationTab('thread')
-  }, [authUser?.id, currentUserName, currentUserType, counterpartType])
+  }, [authUser?.id, currentUserName, collaborationUserType, counterpartType])
 
   const getBubbleLabel = useCallback(
     (bubbleId: string) => bubbles.find((b) => b.id === bubbleId)?.label ?? bubbleId,
@@ -2415,6 +2422,7 @@ export function useEditorPage() {
     canEditBubble,
     canEditIfc,
     isConverting,
+    isEditorReadOnly,
     // 캔버스 크기·대지
     containerRef,
     stageSize,
@@ -2508,7 +2516,7 @@ export function useEditorPage() {
     commentPins,
     commentNotifications,
     unreadCommentNotifications,
-    currentCollaborationUserType: currentUserType,
+    currentCollaborationUserType: collaborationUserType,
     currentCollaborationUserName: currentUserName,
     handleToggleCollaboration,
     handlePinClick,
@@ -2604,6 +2612,10 @@ export function useEditorPage() {
     isInviteModalOpen,
     handleOpenInviteModal: () => setIsInviteModalOpen(true),
     onCloseInviteModal: () => setIsInviteModalOpen(false),
+    // 초대 알림 모달
+    isNotificationModalOpen,
+    handleOpenNotificationModal: () => setIsNotificationModalOpen(true),
+    onCloseNotificationModal: () => setIsNotificationModalOpen(false),
     // 내보내기 모달
     isExportModalOpen,
     handleOpenExportModal,

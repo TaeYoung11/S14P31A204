@@ -1,9 +1,11 @@
-import { Save, Share2 } from 'lucide-react'
+import { Bell, Save, Share2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import type { EditorMode, SaveStatus } from '../../types'
+import type { CollaborationUserType, EditorMode, SaveStatus } from '../../types'
 
 interface EditorHeaderProps {
   onOpenInvite?: () => void
+  onOpenNotification?: () => void
+  userType?: CollaborationUserType
   mode: EditorMode
   onModeChange: (mode: EditorMode) => void
   onSave?: () => void
@@ -31,6 +33,8 @@ const SAVE_STATUS_STYLES: Record<SaveStatus, string> = {
 
 export default function EditorHeader({
   onOpenInvite,
+  onOpenNotification,
+  userType,
   mode,
   onModeChange,
   onSave,
@@ -46,7 +50,7 @@ export default function EditorHeader({
           to="/projects"
           className="cursor-pointer text-sm font-black tracking-tighter text-[#1C1C1E] transition-opacity hover:opacity-80"
         >
-          <span className="opacity-60">BATANG:</span> Workspace
+          <span className="opacity-60">바탕: BATANG</span> Workspace
         </Link>
         <nav className="flex items-center gap-6">
           <button
@@ -81,12 +85,25 @@ export default function EditorHeader({
         <div className={`rounded-full px-3 py-1 text-[11px] font-bold ${SAVE_STATUS_STYLES[saveStatus]}`}>
           {SAVE_STATUS_LABELS[saveStatus]}
         </div>
-        <button
-          onClick={onOpenInvite}
-          className="rounded-lg p-2 text-[#8E95A3] transition-colors hover:bg-[#F0F2F9]"
-        >
-          <Share2 size={18} />
-        </button>
+        {userType === 'DESIGNER' && (
+          <button
+            onClick={onOpenInvite}
+            className="rounded-lg p-2 text-[#8E95A3] transition-colors hover:bg-[#F0F2F9]"
+          >
+            <Share2 size={18} />
+          </button>
+        )}
+        {userType === 'CUSTOMER' && (
+          <button
+            id="editor-notification-btn"
+            onClick={onOpenNotification}
+            className="rounded-lg p-2 text-[#8E95A3] transition-colors hover:bg-[#F0F2F9]"
+            title="알림"
+            aria-label="알림"
+          >
+            <Bell size={18} />
+          </button>
+        )}
         <button
           onClick={onSave}
           className="flex items-center gap-2 rounded-lg bg-[#3B45B3] px-4 py-1.5 text-xs font-bold text-white shadow-md shadow-[#3B45B3]/20 transition-all hover:bg-[#2D3691]"

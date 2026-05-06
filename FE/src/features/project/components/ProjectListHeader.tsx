@@ -12,6 +12,7 @@ interface ProjectListHeaderProps {
   onWithdraw: (password: string) => void
   withdrawError?: string
   isWithdrawing?: boolean
+  onNotificationOpen?: () => void
 }
 
 export default function ProjectListHeader({
@@ -23,6 +24,7 @@ export default function ProjectListHeader({
   onWithdraw,
   withdrawError = '',
   isWithdrawing = false,
+  onNotificationOpen,
 }: ProjectListHeaderProps) {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false)
@@ -48,9 +50,11 @@ export default function ProjectListHeader({
         </div>
 
         <div className="flex items-center gap-3">
-          <button id="notification-btn" className="btn-icon" title="알림">
-            <Bell className="h-[18px] w-[18px]" />
-          </button>
+          {userType === 'CUSTOMER' && (
+            <button id="notification-btn" className="btn-icon" title="알림" onClick={onNotificationOpen}>
+              <Bell className="h-[18px] w-[18px]" />
+            </button>
+          )}
 
           <button
             className="flex items-center gap-2 rounded-full border border-[#e5e7eb] bg-white px-2 py-1.5 transition-all hover:border-[#c7d2fe] hover:bg-[#f8faff]"

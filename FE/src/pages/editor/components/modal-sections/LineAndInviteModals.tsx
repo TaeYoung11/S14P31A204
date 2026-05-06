@@ -1,4 +1,5 @@
-import { InviteModal } from '@/features/editor/components/modals/InviteModal'
+import { InviteModal } from '@/shared/components/InviteModal'
+import { InviteNotificationModal } from '@/shared/components/InviteNotificationModal'
 import { LineStyleModal } from '@/features/editor/components/modals/LineStyleModal'
 import type { EditorModalLayerProps } from '../../types/editorModalLayerProps'
 
@@ -13,6 +14,9 @@ type LineAndInviteModalsProps = Pick<
   | 'getBubbleLabel'
   | 'isInviteModalOpen'
   | 'onCloseInviteModal'
+  | 'currentProjectId'
+  | 'isNotificationModalOpen'
+  | 'onCloseNotificationModal'
 >
 
 /** 선 스타일/초대 관련 모달 묶음 */
@@ -26,6 +30,9 @@ export default function LineAndInviteModals({
   getBubbleLabel,
   isInviteModalOpen,
   onCloseInviteModal,
+  currentProjectId,
+  isNotificationModalOpen,
+  onCloseNotificationModal,
 }: LineAndInviteModalsProps) {
   return (
     <>
@@ -42,9 +49,13 @@ export default function LineAndInviteModals({
       <InviteModal
         isOpen={isInviteModalOpen}
         onClose={onCloseInviteModal}
-        onInvite={onCloseInviteModal}
+        projectIds={currentProjectId ? [currentProjectId] : []}
+      />
+
+      <InviteNotificationModal
+        isOpen={isNotificationModalOpen}
+        onClose={onCloseNotificationModal}
       />
     </>
   )
 }
-
