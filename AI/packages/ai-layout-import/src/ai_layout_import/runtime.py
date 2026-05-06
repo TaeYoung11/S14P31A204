@@ -148,9 +148,9 @@ class IfcGenerateWorker(BaseWorker):
         finally:
             _cleanup_temp_file(output_path, command.jobId, command.idempotencyKey)
 
-        output: dict[str, object] = {"storageUrl": ifc_ref}
+        output: dict[str, object] = {"storage_url": ifc_ref}
         if validation_ref is not None:
-            output["validationReportStorageUrl"] = validation_ref
+            output["validation_report_storage_url"] = validation_ref
         return CompletedResult(output=output, progress=1.0)
 
     def _build_failed_error(
