@@ -60,7 +60,7 @@ class TwoDLlmEventListenerTest {
     private IfcEditJobStep step1;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         projectId = UUID.randomUUID();
         jobId = UUID.randomUUID();
         jobStepId = UUID.randomUUID();
@@ -77,22 +77,43 @@ class TwoDLlmEventListenerTest {
                 jobId + ":step-1:two-d-llm",
                 objectMapper.valueToTree(Map.of(
                         "sourceRevisionId", baseRevisionId.toString(),
-                        "sourceIfcStorageUrl",
-                        "projects/" + projectId + "/revisions/" + baseRevisionId + "/model.ifc",
-                        "editPlanStorageUrl",
-                        "jobs/" + jobId + "/steps/1/edit-plan.json"
+                        "sourceIfcStorageUrl", "projects/" + projectId + "/revisions/" + baseRevisionId + "/model.ifc",
+                        "editPlanStorageUrl", "jobs/" + jobId + "/steps/1/edit-plan.json"
                 )),
                 LocalDateTime.now()
         );
     }
 
     @Test
-    void handle_nonMatchingPrefix_ignored() {
-        IfcEditEventMessage event = buildEvent(EVENT_IFC_EDIT_APPLY_STARTED, null, null, 0.0);
+    void handleStarted_updatesJobAndStepToRunning() {
+        IfcEditEventMessage event = buildEvent(EVENT_TWO_D_LLM_STARTED, null, null, 0.2);
+
+        given(ifcEditJobRepository.findByJobIdAndJobType(jobId, JOB_TYPE_TWO_D_TO_IFC_EDIT))
+                .willReturn(Optional.of(job));
+        given(ifcEditJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId))
+                .willReturn(Optional.of(step1));
 
         listener.handle(event);
 
-        verify(ifcEditJobRepository, never()).findByJobIdAndJobType(any(), any());
+        assertThat(job.getStatus()).isEqualTo("RUNNING");
+        assertThat(step1.getStatus()).isEqualTo("RUNNING");
+        assertThat(job.getProgress()).isEqualTo(20);
+        assertThat(step1.getProgress()).isEqualTo(20);
+        verify(eventPublisher).publishEvent(any(IfcEditStatusChangedEvent.class));
+    }
+
+    @Test
+    void handleStarted_terminalState_ignored() {
+        step1.markSucceeded(objectMapper.createObjectNode(), LocalDateTime.now());
+        IfcEditEventMessage event = buildEvent(EVENT_TWO_D_LLM_STARTED, null, null, 0.2);
+
+        given(ifcEditJobRepository.findByJobIdAndJobType(jobId, JOB_TYPE_TWO_D_TO_IFC_EDIT))
+                .willReturn(Optional.of(job));
+        given(ifcEditJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId))
+                .willReturn(Optional.of(step1));
+
+        listener.handle(event);
+
         verify(eventPublisher, never()).publishEvent(any());
     }
 
@@ -154,8 +175,6 @@ class TwoDLlmEventListenerTest {
         verify(eventPublisher).publishEvent(any(IfcEditStatusChangedEvent.class));
     }
 
-    // ─── helpers ──────────────────────────────────────────────────────────────
-
     private IfcEditEventMessage buildEvent(String eventType, Map<String, Object> output,
                                            IfcEditWorkerError error, double progress) {
         return new IfcEditEventMessage(
@@ -172,12 +191,15 @@ class TwoDLlmEventListenerTest {
     }
 
     private IfcEditEventMessage completedEvent(String editPlanUrl) {
-        return buildEvent(EVENT_TWO_D_LLM_COMPLETED,
-                Map.of("storage_url", editPlanUrl), null, 1.0);
+        return buildEvent(EVENT_TWO_D_LLM_COMPLETED, Map.of("storage_url", editPlanUrl), null, 1.0);
     }
 
     private IfcEditEventMessage failedEvent() {
-        return buildEvent(EVENT_TWO_D_LLM_FAILED, null,
-                new IfcEditWorkerError("TWO_D_LLM_FAILED", "2D LLM 실패", false, true, null), 0.0);
+        return buildEvent(
+                EVENT_TWO_D_LLM_FAILED,
+                null,
+                new IfcEditWorkerError("TWO_D_LLM_FAILED", "2D LLM 실패", false, true, null),
+                0.0
+        );
     }
 }

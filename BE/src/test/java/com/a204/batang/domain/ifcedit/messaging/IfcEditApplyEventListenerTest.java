@@ -8,7 +8,6 @@ import com.a204.batang.domain.ifcedit.entity.RevisionSceneState;
 import com.a204.batang.domain.ifcedit.messaging.dto.IfcEditCommandMessage;
 import com.a204.batang.domain.ifcedit.messaging.dto.IfcEditEventMessage;
 import com.a204.batang.domain.ifcedit.messaging.dto.IfcEditWorkerError;
-import com.a204.batang.domain.ifcedit.messaging.event.IfcEditCommandPublishRequestedEvent;
 import com.a204.batang.domain.ifcedit.messaging.event.IfcEditPublishFailedEvent;
 import com.a204.batang.domain.ifcedit.messaging.event.IfcEditStatusChangedEvent;
 import com.a204.batang.domain.ifcedit.repository.IfcEditArtifactRepository;
@@ -117,21 +116,10 @@ class IfcEditApplyEventListenerTest {
                 objectMapper.valueToTree(Map.of(
                         "targetRevisionId", revisionId.toString(),
                         "expectedOutputArtifactId", artifactId.toString(),
-                        "sceneSnapshotStorageUrl",
-                        "projects/" + projectId + "/revisions/" + revisionId + "/scene-ifc.json"
+                        "sceneSnapshotStorageUrl", "projects/" + projectId + "/revisions/" + revisionId + "/scene-ifc.json"
                 )),
                 LocalDateTime.now()
         );
-    }
-
-    @Test
-    void handle_nonMatchingPrefix_ignored() {
-        IfcEditEventMessage event = buildEvent("TWO_D_LLM_STARTED", null, null, 0.0);
-
-        listener.handle(event);
-
-        verify(ifcEditJobRepository, never()).findByJobId(any());
-        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
@@ -276,7 +264,6 @@ class IfcEditApplyEventListenerTest {
 
         listener.handlePublishFailed(event);
 
-        verify(eventPublisher, never()).publishEvent(any(IfcEditCommandPublishRequestedEvent.class));
         verify(eventPublisher).publishEvent(any(IfcEditStatusChangedEvent.class));
         assertThat(job.getStatus()).isEqualTo("FAILED");
         assertThat(step.getStatus()).isEqualTo("FAILED");
@@ -292,7 +279,6 @@ class IfcEditApplyEventListenerTest {
 
         listener.handlePublishFailed(event);
 
-        verify(eventPublisher, never()).publishEvent(any(IfcEditCommandPublishRequestedEvent.class));
         verify(eventPublisher).publishEvent(any(IfcEditStatusChangedEvent.class));
         assertThat(job.getStatus()).isEqualTo("FAILED");
         assertThat(step.getStatus()).isEqualTo("FAILED");
@@ -311,7 +297,6 @@ class IfcEditApplyEventListenerTest {
 
         listener.handlePublishFailed(event);
 
-        verify(eventPublisher, never()).publishEvent(any(IfcEditCommandPublishRequestedEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
     }
 
@@ -353,8 +338,6 @@ class IfcEditApplyEventListenerTest {
         verify(notificationSseService).sendToUsers(any(), eq(SSE_IFC_EDIT_FAILED), eq(event.payload()));
     }
 
-    // ─── helpers ──────────────────────────────────────────────────────────────
-
     private IfcEditEventMessage buildEvent(String eventType, Map<String, Object> output,
                                            IfcEditWorkerError error, double progress) {
         return new IfcEditEventMessage(
@@ -383,14 +366,17 @@ class IfcEditApplyEventListenerTest {
                 ? Map.of()
                 : validationReportStorageUrl == null
                 ? Map.of("storage_url", storageUrl)
-                : Map.of("storage_url", storageUrl,
-                        "validation_report_storage_url", validationReportStorageUrl);
+                : Map.of("storage_url", storageUrl, "validation_report_storage_url", validationReportStorageUrl);
         return buildEvent(EVENT_IFC_EDIT_APPLY_COMPLETED, output, null, 1.0);
     }
 
     private IfcEditEventMessage failedEvent() {
-        return buildEvent(EVENT_IFC_EDIT_APPLY_FAILED, null,
-                new IfcEditWorkerError("IFC_APPLY_FAILED", "IFC 편집 실패", true, false, null), 0.4);
+        return buildEvent(
+                EVENT_IFC_EDIT_APPLY_FAILED,
+                null,
+                new IfcEditWorkerError("IFC_APPLY_FAILED", "IFC 편집 실패", true, false, null),
+                0.4
+        );
     }
 
     private IfcEditCommandMessage commandMessage(int attemptNo, int maxAttempts) {
