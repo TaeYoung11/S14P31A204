@@ -1,6 +1,9 @@
 """AI 워커 루트 디스패처.
 
-현재 브랜치에서는 IFC generate 워커만 공식 지원한다.
+지원 워커:
+- IFC_GENERATE_FROM_BUBBLE: 버블 다이어그램 → IFC 변환 워커
+- THREE_D_LLM: 3D LLM 진단 및 계획 워커
+- IFC_EDIT_APPLY: IFC 편집 (Authoring) 워커
 """
 
 from __future__ import annotations
@@ -13,6 +16,8 @@ Entrypoint = Callable[[Sequence[str] | None], int]
 
 _WORKER_TYPE_TO_ENTRYPOINT: dict[str, str] = {
     "IFC_GENERATE_FROM_BUBBLE": "ai_layout_import.worker_app:main",
+    "THREE_D_LLM": "ai_planning_3d.worker_app:main",
+    "IFC_EDIT_APPLY": "ai_authoring.worker_app:main",
 }
 
 
