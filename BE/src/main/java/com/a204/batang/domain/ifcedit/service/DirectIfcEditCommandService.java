@@ -5,10 +5,8 @@ import com.a204.batang.domain.ifcedit.dto.IfcEditJobResponse;
 import com.a204.batang.domain.ifcedit.dto.IfcEditStatusSseResponse;
 import com.a204.batang.domain.ifcedit.entity.IfcEditJob;
 import com.a204.batang.domain.ifcedit.entity.IfcEditJobStep;
-import com.a204.batang.domain.ifcedit.messaging.IfcEditCommandPublisher;
 import com.a204.batang.domain.ifcedit.messaging.dto.IfcEditCommandMessage;
 import com.a204.batang.domain.ifcedit.messaging.event.IfcEditCommandPublishRequestedEvent;
-import com.a204.batang.domain.ifcedit.messaging.event.IfcEditPublishFailedEvent;
 import com.a204.batang.domain.ifcedit.messaging.event.IfcEditStatusChangedEvent;
 import com.a204.batang.domain.ifcedit.repository.IfcEditJobRepository;
 import com.a204.batang.domain.ifcedit.repository.IfcEditJobStepRepository;
@@ -27,8 +25,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -52,7 +48,6 @@ public class DirectIfcEditCommandService {
     private final IfcEditJobRepository ifcEditJobRepository;
     private final IfcEditJobStepRepository ifcEditJobStepRepository;
     private final IfcEditStoragePathBuilder pathBuilder;
-    private final IfcEditCommandPublisher ifcEditCommandPublisher;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
@@ -159,14 +154,5 @@ public class DirectIfcEditCommandService {
                 projectId, jobId, jobStepId, targetRevisionId, expectedOutputArtifactId,
                 JOB_TYPE_IFC_EDIT, "QUEUED", 0
         );
-    }
-
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void handleCommandPublishRequested(IfcEditCommandPublishRequestedEvent event) {
-        try {
-            ifcEditCommandPublisher.publish(event.message());
-        } catch (CustomException e) {
-            eventPublisher.publishEvent(new IfcEditPublishFailedEvent(event.message(), e.getMessage(), false));
-        }
     }
 }
