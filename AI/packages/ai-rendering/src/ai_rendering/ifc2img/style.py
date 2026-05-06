@@ -20,6 +20,10 @@ DEFAULT_MODEL_ID = "runwayml/stable-diffusion-v1-5"
 DEFAULT_CONTROLNET_DEPTH_ID = "lllyasviel/sd-controlnet-depth"
 DEFAULT_CONTROLNET_SEG_ID = "lllyasviel/sd-controlnet-seg"
 FRONT_SIDE_NEGATIVE_TERMS = (
+    "stone wall, retaining wall, raised foundation, pedestal, plinth, "
+    "basement windows, stairs below facade, extra lower floor"
+)
+FRONT_SIDE_WEIGHTED_NEGATIVE_TERMS = (
     "(stone wall:1.2), (retaining wall:1.25), (raised platform:1.2)"
 )
 SEMANTIC_BACKGROUND_RGB = (0, 0, 0)
@@ -474,6 +478,7 @@ class DepthStyleRenderer:
         use_front_side_semantic_control: bool = False,
         use_front_full_width_semantic_control: bool = False,
         use_front_full_width_ground_control: bool = False,
+        use_weighted_front_side_negative: bool = False,
         front_side_ground_class: FrontSideGroundClass = "grass",
         front_side_semantic_control_scale: float = FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
     ) -> DepthStyleResult:
@@ -528,9 +533,14 @@ class DepthStyleRenderer:
             applied_params = params
         negative_prompt = params.negative_prompt
         if view in {IFCView.FRONT, IFCView.SIDE}:
+            front_side_negative = (
+                FRONT_SIDE_WEIGHTED_NEGATIVE_TERMS
+                if use_weighted_front_side_negative
+                else FRONT_SIDE_NEGATIVE_TERMS
+            )
             negative_prompt = _append_negative_terms(
                 negative_prompt,
-                FRONT_SIDE_NEGATIVE_TERMS,
+                front_side_negative,
             )
 
         try:
