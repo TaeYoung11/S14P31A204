@@ -14,9 +14,12 @@ from PIL import Image
 from ai_rendering.ifc2img import (
     DepthStyleParams,
     DepthStyleRenderer,
+    DepthStyleRenderOptions,
     DepthStyleResult,
     IFCRenderError,
     IFCView,
+    load_preset,
+    resolve_preset_view_render_options,
 )
 from ai_rendering.ifc2img.style import (
     ADE20K_BUILDING_RGB,
@@ -27,9 +30,11 @@ from ai_rendering.ifc2img.style import (
     FRONT_SIDE_MASK_CONTROL_RGB,
     FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
     FRONT_SIDE_NEGATIVE_TERMS,
+    FRONT_SIDE_WEIGHTED_NEGATIVE_TERMS,
     SEMANTIC_BACKGROUND_RGB,
     SEMANTIC_BUILDING_RGB,
     SEMANTIC_GROUND_RGB,
+    _append_negative_terms,
     _apply_front_full_width_ground_control,
     _apply_front_side_semantic_mask_to_control,
     _build_front_full_width_ground_mask,
@@ -167,11 +172,77 @@ def test_public_api_exports() -> None:
         "DepthStyleParams",
         "DepthStyleResult",
         "DepthStyleRenderer",
+        "DepthStyleRenderOptions",
+        "resolve_preset_view_render_options",
         "list_presets",
         "load_preset",
         "build_view_prompt",
     }
     assert set(ifc2img.__all__) == expected
+
+
+def test_resolve_preset_view_render_options_fixes_korean_villa_candidate() -> None:
+    """korean_villa front candidate should be pinned as the selected safe path."""
+    front = resolve_preset_view_render_options("korean_villa", IFCView.FRONT)
+    side = resolve_preset_view_render_options("korean_villa", IFCView.SIDE)
+
+    assert isinstance(front, DepthStyleRenderOptions)
+    assert front.use_front_full_width_semantic_control is True
+    assert front.use_front_side_semantic_control is False
+    assert front.front_side_ground_class == "neutral"
+    assert front.front_side_semantic_control_scale == 0.25
+    assert front.use_weighted_front_side_negative is False
+    assert front.requires_semantic_controlnet is True
+    assert side == DepthStyleRenderOptions()
+
+
+def test_resolve_preset_view_render_options_fixes_korean_house_candidate() -> None:
+    """korean_house front/side candidates should be explicit per-view choices."""
+    front = resolve_preset_view_render_options("korean_house", IFCView.FRONT)
+    side = resolve_preset_view_render_options("korean_house", IFCView.SIDE)
+
+    assert front.use_front_full_width_semantic_control is True
+    assert front.use_front_side_semantic_control is False
+    assert front.front_side_ground_class == "neutral"
+    assert front.front_side_semantic_control_scale == 0.35
+    assert front.requires_semantic_controlnet is True
+
+    assert side.use_front_full_width_semantic_control is False
+    assert side.use_front_side_semantic_control is True
+    assert side.front_side_ground_class == "neutral"
+    assert side.front_side_semantic_control_scale == 0.35
+    assert side.requires_semantic_controlnet is True
+
+
+def test_resolve_preset_view_render_options_defaults_for_other_paths() -> None:
+    """Candidate options should not silently affect unrelated presets/views."""
+    default = DepthStyleRenderOptions()
+
+    assert resolve_preset_view_render_options("scandinavian", IFCView.FRONT) == default
+    assert resolve_preset_view_render_options("korean_house", IFCView.TOP) == default
+    assert resolve_preset_view_render_options("korean_house", None) == default
+
+
+def test_depth_style_render_options_as_kwargs_matches_render_options() -> None:
+    """Fixed candidates should be directly passable into DepthStyleRenderer.render()."""
+    options = DepthStyleRenderOptions(
+        use_front_side_semantic_mask=True,
+        use_front_side_semantic_control=True,
+        use_front_full_width_ground_control=True,
+        use_weighted_front_side_negative=True,
+        front_side_ground_class="neutral",
+        front_side_semantic_control_scale=0.25,
+    )
+
+    assert options.as_render_kwargs() == {
+        "use_front_side_semantic_mask": True,
+        "use_front_side_semantic_control": True,
+        "use_front_full_width_semantic_control": False,
+        "use_front_full_width_ground_control": True,
+        "use_weighted_front_side_negative": True,
+        "front_side_ground_class": "neutral",
+        "front_side_semantic_control_scale": 0.25,
+    }
 
 
 # --- B-1 — DepthStyleRenderer.render(view=...) 인자 ---
@@ -231,6 +302,44 @@ def test_render_with_view_front_prepends_ground_line_prefix(
 
 
 # --- C-1 폐기 후 — render(view=...) negative 합성 인프라 보존 회귀 방어 ---
+
+def test_render_with_view_front_softens_scandinavian_concrete_wall_prior(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Scandinavian FRONT prompt should reduce concrete wall/plinth prior."""
+    depth = Image.new("L", (768, 448), 100)
+    params = load_preset("scandinavian", "day")
+
+    mock_depth_renderer.render(depth, params, view=IFCView.FRONT)
+
+    call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
+    assert call_prompt.startswith("open paved ground")
+    assert "house on ground" in call_prompt
+    assert "no front wall" in call_prompt
+    assert "no foundation wall" not in call_prompt
+    assert "no retaining wall" not in call_prompt
+    assert "light painted house facade" in call_prompt
+    assert "white concrete facade" not in call_prompt
+
+
+def test_render_with_view_side_softens_scandinavian_concrete_wall_prior(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Scandinavian SIDE prompt should reduce side wall/plinth prior."""
+    depth = Image.new("L", (768, 448), 100)
+    params = load_preset("scandinavian", "day")
+
+    mock_depth_renderer.render(depth, params, view=IFCView.SIDE)
+
+    call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
+    assert call_prompt.startswith("open ground beside house")
+    assert "house on ground" in call_prompt
+    assert "no side wall" in call_prompt
+    assert "side facade at ground line" not in call_prompt
+    assert "no foundation wall" not in call_prompt
+    assert "light painted house facade" in call_prompt
+    assert "white concrete facade" not in call_prompt
+
 
 def test_render_with_view_eye_prepends_ground_sky_prefix(
     mock_depth_renderer: DepthStyleRenderer,
@@ -319,6 +428,53 @@ def test_render_with_view_front_appends_foundation_negative_terms(
     assert call_negative.endswith(FRONT_SIDE_NEGATIVE_TERMS)
 
 
+def test_render_with_view_front_weighted_negative_is_opt_in(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Weighted front/side negatives should stay out of the default render path."""
+    depth = Image.new("L", (768, 448), 100)
+    params = DepthStyleParams(
+        prompt="RAW photo, scandinavian house",
+        negative_prompt="stone wall, retaining wall, raised platform",
+    )
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        view=IFCView.FRONT,
+        use_weighted_front_side_negative=True,
+    )
+
+    call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
+    assert "(stone wall:1.2)" in call_negative
+    assert "(retaining wall:1.25)" in call_negative
+    assert "(raised platform:1.2)" in call_negative
+    assert FRONT_SIDE_WEIGHTED_NEGATIVE_TERMS not in FRONT_SIDE_NEGATIVE_TERMS
+
+
+def test_append_negative_terms_deduplicates_terms() -> None:
+    """Shared front/side negatives should not push prompts over the CLIP budget."""
+    result = _append_negative_terms(
+        "low quality, stone wall, retaining wall",
+        "stone wall, retaining wall, extra lower floor",
+    )
+
+    assert result == "low quality, stone wall, retaining wall, extra lower floor"
+
+
+def test_append_negative_terms_prefers_weighted_duplicate() -> None:
+    """Weighted duplicates should replace the unweighted term without duplication."""
+    result = _append_negative_terms(
+        "low quality, stone wall, retaining wall, raised platform",
+        "(stone wall:1.2), (retaining wall:1.25), (raised platform:1.2)",
+    )
+
+    assert result == (
+        "low quality, (stone wall:1.2), (retaining wall:1.25), "
+        "(raised platform:1.2)"
+    )
+
+
 def test_build_front_side_semantic_mask_marks_building_geometry() -> None:
     """Existing non-background geometry should become the building class."""
     control = Image.new("RGB", (24, 24), (0, 0, 0))
@@ -383,6 +539,22 @@ def test_build_front_full_width_ground_mask_marks_lower_background_only() -> Non
     assert mask_arr[4, 2] == 0
 
 
+def test_build_front_full_width_ground_mask_reclassifies_lower_slab() -> None:
+    """Expanded lower support geometry should be treated as front ground."""
+    control = Image.new("RGB", (32, 32), (0, 0, 0))
+    arr = np.array(control)
+    arr[6:18, 10:22] = [255, 255, 255]
+    arr[18:22, 6:26] = [255, 255, 255]
+
+    mask = _build_front_full_width_ground_mask(Image.fromarray(arr, mode="RGB"))
+    mask_arr = np.array(mask)
+
+    assert mask_arr[17, 16] == 0
+    assert mask_arr[18, 16] == 255
+    assert mask_arr[20, 8] == 255
+    assert mask_arr[24, 2] == 255
+
+
 def test_apply_front_full_width_ground_control_adds_lower_ground_hint() -> None:
     """Opt-in full-width blend should affect lower background, not building."""
     control = Image.new("RGB", (32, 32), (0, 0, 0))
@@ -417,6 +589,24 @@ def test_build_front_full_width_seg_control_uses_ade20k_classes() -> None:
     assert np.all(seg_arr[24, 2] == ADE20K_ROAD_RGB)
     assert np.all(seg_arr[24, 30] == ADE20K_ROAD_RGB)
     assert np.all(seg_arr[16, 16] == ADE20K_BUILDING_RGB)
+
+
+def test_build_front_full_width_seg_control_reclassifies_lower_slab_as_ground() -> None:
+    """Front semantic map should not leave lower support slabs as building."""
+    control = Image.new("RGB", (32, 32), (0, 0, 0))
+    arr = np.array(control)
+    arr[6:18, 10:22] = [255, 255, 255]
+    arr[18:22, 6:26] = [255, 255, 255]
+
+    seg = _build_front_full_width_seg_control(
+        Image.fromarray(arr, mode="RGB"),
+        ground_class="neutral",
+    )
+    seg_arr = np.array(seg)
+
+    assert np.all(seg_arr[17, 16] == ADE20K_BUILDING_RGB)
+    assert np.all(seg_arr[18, 16] == ADE20K_ROAD_RGB)
+    assert np.all(seg_arr[20, 8] == ADE20K_ROAD_RGB)
 
 
 def test_render_front_side_semantic_mask_is_opt_in(

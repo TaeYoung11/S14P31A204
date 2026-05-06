@@ -104,6 +104,66 @@ def test_korean_villa_prompt_uses_compact_flat_ground_prior() -> None:
     assert "wood cladding" in negative
 
 
+def test_scandinavian_prompt_uses_compact_flat_ground_prior() -> None:
+    """scandinavian should stay under budget while keeping Nordic facade cues."""
+    p = load_preset("scandinavian")
+    prompt = p.prompt.lower()
+    negative = p.negative_prompt.lower()
+    prompt_words = len(prompt.replace(",", " ").split())
+    negative_words = len(negative.replace(",", " ").split())
+
+    assert prompt.startswith("raw photo, outdoor daylight")
+    assert prompt_words <= 35
+    assert negative_words <= 30
+    assert "white concrete facade" in prompt
+    assert "large windows" in prompt
+    assert "flat roof" in prompt
+    assert "minimal scandinavian house" in prompt
+    assert "flat ground touches facade" in prompt
+    assert "no lower floor" in prompt
+    assert "no foreground wall" in prompt
+    assert "8k uhd" not in prompt
+    assert "dslr" not in prompt
+    assert "architectural photography" not in prompt
+    assert "stone wall" in negative
+    assert "retaining wall" in negative
+    assert "foreground wall" in negative
+    assert "raised platform" in negative
+    assert "dark moody" in negative
+
+
+def test_korean_house_prompt_uses_compact_flat_ground_prior() -> None:
+    """korean_house should avoid neighborhood/brick-wall retaining priors."""
+    p = load_preset("korean_house")
+    prompt = p.prompt.lower()
+    negative = p.negative_prompt.lower()
+    prompt_words = len(prompt.replace(",", " ").split())
+    negative_words = len(negative.replace(",", " ").split())
+
+    assert prompt.startswith("raw photo, outdoor daylight")
+    assert prompt_words <= 40
+    assert negative_words <= 35
+    assert "white concrete facade" in prompt
+    assert "open flat paved ground in front" in prompt
+    assert "simple korean house" in prompt
+    assert "simple tile roof" in prompt
+    assert "subtle brick trim" in prompt
+    assert "ground touches facade" in prompt
+    assert "suburban korean neighborhood" not in prompt
+    assert "8k uhd" not in prompt
+    assert "dslr" not in prompt
+    assert "architectural photography" not in prompt
+    assert "stone wall" in negative
+    assert "brick wall" in negative
+    assert "concrete wall" in negative
+    assert "retaining wall" in negative
+    assert "foreground wall" in negative
+    assert "piloti" in negative
+    assert "blue wall" in negative
+    assert "black facade" in negative
+    assert "wood cladding" in negative
+
+
 def test_load_preset_default_time_is_day() -> None:
     """load_preset(name) — time_of_day default "day" → day suffix 합성 (backward compat)."""
     p_default = load_preset("scandinavian")

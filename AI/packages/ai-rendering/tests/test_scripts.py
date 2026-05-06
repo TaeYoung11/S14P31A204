@@ -169,3 +169,122 @@ def test_korean_villa_prompt_prior_trial_defaults_to_side_simple_mass() -> None:
     assert m.FRONT_WHITE_FACADE_PROMPT.startswith("RAW photo, outdoor daylight, white concrete facade")
     assert "black facade" in m.COMPACT_NEGATIVE
 
+
+def test_ifc_to_styled_render_plan_detects_semantic_slots() -> None:
+    """Production wrapper should know when preset/view options need semantic CN."""
+    m = _load_script("ifc_to_styled.py")
+
+    plan = m._resolve_render_plan(
+        [m.IFCView.FRONT, m.IFCView.SIDE],
+        ["korean_house", "scandinavian"],
+    )
+
+    assert m._render_plan_requires_semantic_controlnet(plan)
+    assert (
+        m._render_option_label("korean_house", m.IFCView.FRONT)
+        == "use_front_full_width_semantic_control, ground=neutral, semantic_scale=0.35"
+    )
+    assert (
+        m._render_option_label("korean_house", m.IFCView.SIDE)
+        == "use_front_side_semantic_control, ground=neutral, semantic_scale=0.35"
+    )
+    assert m._render_option_label("scandinavian", m.IFCView.FRONT) == "depth-only"
+    assert m._render_option_label("scandinavian", m.IFCView.SIDE) == "depth-only"
+
+
+def test_ifc_to_styled_creates_semantic_renderer_only_when_needed() -> None:
+    """Semantic CN setup should be automatic and explicit at renderer creation."""
+    m = _load_script("ifc_to_styled.py")
+
+    class FakeRenderer:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+
+    depth_renderer, depth_mode = m._create_depth_style_renderer(
+        FakeRenderer,
+        requires_semantic=False,
+    )
+    semantic_renderer, semantic_mode = m._create_depth_style_renderer(
+        FakeRenderer,
+        requires_semantic=True,
+    )
+
+    assert depth_mode == "depth-only"
+    assert depth_renderer.kwargs == {}
+    assert semantic_mode == "depth+semantic"
+    assert semantic_renderer.kwargs == {
+        "semantic_controlnet_model_id": m.DEFAULT_CONTROLNET_SEG_ID
+    }
+
+
+def test_ifc_to_styled_render_styles_passes_resolved_options(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Production wrapper should pass resolver kwargs into render calls."""
+    from PIL import Image
+
+    import ai_rendering.ifc2img as ifc2img
+
+    m = _load_script("ifc_to_styled.py")
+    calls: list[dict[str, object]] = []
+    renderer_inits: list[dict[str, object]] = []
+
+    class FakeResult:
+        def save(self, path: Path) -> Path:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (4, 4), (123, 123, 123)).save(path)
+            return path
+
+    class FakeRenderer:
+        def __init__(self, **kwargs: object) -> None:
+            self.device = "fake"
+            self.kwargs = kwargs
+            renderer_inits.append(kwargs)
+
+        def render(self, _depth: Image.Image, _params: object, **kwargs: object) -> FakeResult:
+            calls.append({"renderer_kwargs": self.kwargs, **kwargs})
+            return FakeResult()
+
+    monkeypatch.setattr(ifc2img, "DepthStyleRenderer", FakeRenderer)
+
+    front_depth = tmp_path / "depth_front.png"
+    side_depth = tmp_path / "depth_side.png"
+    Image.new("RGB", (8, 8), (0, 0, 0)).save(front_depth)
+    Image.new("RGB", (8, 8), (0, 0, 0)).save(side_depth)
+
+    m._render_styles(
+        {
+            m.IFCView.FRONT: front_depth,
+            m.IFCView.SIDE: side_depth,
+        },
+        ["korean_house", "scandinavian"],
+        tmp_path / "styled",
+    )
+
+    assert len(calls) == 4
+    assert {} in renderer_inits
+    assert {"semantic_controlnet_model_id": m.DEFAULT_CONTROLNET_SEG_ID} in renderer_inits
+
+    korean_front = next(
+        c for c in calls if c["view"] is m.IFCView.FRONT and c["use_front_full_width_semantic_control"]
+    )
+    korean_side = next(
+        c for c in calls if c["view"] is m.IFCView.SIDE and c["use_front_side_semantic_control"]
+    )
+    scandinavian_calls = [
+        c for c in calls if c["renderer_kwargs"] == {} and not c["use_front_side_semantic_control"]
+    ]
+
+    assert korean_front["renderer_kwargs"] == {
+        "semantic_controlnet_model_id": m.DEFAULT_CONTROLNET_SEG_ID
+    }
+    assert korean_front["front_side_ground_class"] == "neutral"
+    assert korean_front["front_side_semantic_control_scale"] == 0.35
+    assert korean_side["renderer_kwargs"] == {
+        "semantic_controlnet_model_id": m.DEFAULT_CONTROLNET_SEG_ID
+    }
+    assert korean_side["front_side_ground_class"] == "neutral"
+    assert korean_side["front_side_semantic_control_scale"] == 0.35
+    assert len(scandinavian_calls) == 2
+
