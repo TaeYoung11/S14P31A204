@@ -40,7 +40,8 @@ SIMPLE_MASS_PROMPT = (
 
 COMPACT_NEGATIVE = (
     "stone wall, retaining wall, fence, foreground wall, raised platform, podium, "
-    "piloti, balcony, basement, extra floor, shopfront, stairs"
+    "piloti, balcony, basement, extra floor, shopfront, stairs, blue wall, dark wall, "
+    "black facade, wood cladding"
 )
 
 SHORT_GROUND_PROMPT = (
@@ -53,10 +54,24 @@ FLAT_PLAZA_PROMPT = (
     "facade, simple concrete house, simple tile roof, no fence, no foreground wall"
 )
 
+FRONT_OPEN_GROUND_PROMPT = (
+    "RAW photo, outdoor daylight, open flat paved ground in front, no foreground wall, "
+    "off-white concrete facade, minimal Korean house, subtle brick accents, "
+    "simple tile roof, ground touches facade, no balcony"
+)
+
+FRONT_WHITE_FACADE_PROMPT = (
+    "RAW photo, outdoor daylight, white concrete facade, open flat paved ground in front, "
+    "no foreground wall, minimal Korean house, subtle brick trim, simple tile roof, "
+    "ground touches facade, no balcony"
+)
+
 VARIANTS = {
     "simple_mass": SIMPLE_MASS_PROMPT,
     "short_ground": SHORT_GROUND_PROMPT,
     "flat_plaza": FLAT_PLAZA_PROMPT,
+    "front_open_ground": FRONT_OPEN_GROUND_PROMPT,
+    "front_white_facade": FRONT_WHITE_FACADE_PROMPT,
 }
 
 
