@@ -38,16 +38,16 @@ export interface InvitationNotification {
 // In dev, user search and mock-user invites may fall back on HTTP errors for UI testing.
 // Other invitation APIs only fall back on network-level failures; real HTTP responses surface to the UI.
 const shouldUseMockFallback = (error: unknown) =>
-  import.meta.env.DEV && isAxiosError(error) && !error.response
+  isAxiosError(error) && !error.response
 
 const shouldUseMockSearchFallback = (error: unknown) =>
-  import.meta.env.DEV && isAxiosError(error)
+  isAxiosError(error)
 
 const isMockInviteUser = (email: string) =>
   MOCK_INVITE_USERS.some((user) => user.email === email)
 
 const shouldUseMockInviteFallback = (error: unknown, email: string) =>
-  import.meta.env.DEV && isAxiosError(error) && isMockInviteUser(email)
+  isAxiosError(error) && isMockInviteUser(email)
 
 const searchMockUsers = (keyword: string) => {
   const q = keyword.toLowerCase()
@@ -63,7 +63,7 @@ export const invitationService = {
         params: { email: keyword },
       })
       const users = res.data.data
-      return import.meta.env.DEV && users.length === 0 ? searchMockUsers(keyword) : users
+      return users.length === 0 ? searchMockUsers(keyword) : users
     } catch (error: unknown) {
       if (!shouldUseMockSearchFallback(error)) throw error
 

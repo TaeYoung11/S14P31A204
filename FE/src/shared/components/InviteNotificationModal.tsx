@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bell, X, CheckCircle } from 'lucide-react'
 import { useInvitationNotifications, useMarkNotificationRead } from '@/features/project/hooks/useInvitation'
@@ -11,21 +10,22 @@ interface InviteNotificationModalProps {
 
 export function InviteNotificationModal({ isOpen, onClose }: InviteNotificationModalProps) {
   const navigate = useNavigate()
-  const { data: notifications = [], isLoading, refetch } = useInvitationNotifications(undefined, {
+  const { data: notifications = [], isLoading } = useInvitationNotifications(undefined, {
     enabled: isOpen,
   })
   const markAsRead = useMarkNotificationRead()
 
-  useEffect(() => {
-    if (isOpen) void refetch()
-  }, [isOpen, refetch])
-
   if (!isOpen) return null
 
   const handleNotificationClick = async (notificationId: string, projectId: string) => {
-    await markAsRead.mutateAsync(notificationId)
-    onClose()
-    navigate(`/projects/${projectId}/editor`)
+    try {
+      await markAsRead.mutateAsync(notificationId)
+    } catch (error) {
+      console.error('[invite-notification] Failed to mark notification as read:', error)
+    } finally {
+      onClose()
+      navigate(`/projects/${projectId}/editor`)
+    }
   }
 
   const unreadCount = notifications.filter((n) => !n.isRead).length

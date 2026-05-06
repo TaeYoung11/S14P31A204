@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { X, Search, CheckCircle2, Loader2 } from 'lucide-react'
 import { useUserSearch, useSendInvite } from '@/features/project/hooks/useInvitation'
-import type { UserSearchResult } from '@/features/project/services/invitation.service'
+import type { SendInviteRequest, UserSearchResult } from '@/features/project/services/invitation.service'
 
 interface InviteModalProps {
   isOpen: boolean
@@ -61,20 +61,31 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
     setSubmitStatus('loading')
     setErrorMessage('')
 
+    const inviteRequests: { projectId: string; req: SendInviteRequest }[] = selectedUsers.flatMap((user) =>
+      projectIds.map((projectId) => ({
+        projectId,
+        req: {
+          inviteeEmail: user.email,
+          role: user.email === representativeEmail ? 'REPRESENTATIVE_CUSTOMER' : 'CUSTOMER',
+        },
+      })),
+    )
+
     try {
-      await Promise.all(
-        selectedUsers.flatMap((user) =>
-          projectIds.map((projectId) =>
-            sendInvite.mutateAsync({
-              projectId,
-              req: {
-                inviteeEmail: user.email,
-                role: user.email === representativeEmail ? 'REPRESENTATIVE_CUSTOMER' : 'CUSTOMER',
-              },
-            }),
-          ),
-        ),
+      const results = await Promise.allSettled(
+        inviteRequests.map((request) => sendInvite.mutateAsync(request)),
       )
+      const successCount = results.filter((result) => result.status === 'fulfilled').length
+      const failedCount = results.length - successCount
+      if (failedCount > 0) {
+        setSubmitStatus('error')
+        setErrorMessage(
+          successCount > 0
+            ? `${successCount}건은 초대됐고, ${failedCount}건은 실패했습니다. 실패한 대상만 확인해 다시 시도해주세요.`
+            : '초대 전송에 실패했습니다. 다시 시도해주세요.',
+        )
+        return
+      }
       setSubmitStatus('success')
       setTimeout(handleClose, 1200)
     } catch {
