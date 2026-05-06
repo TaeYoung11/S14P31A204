@@ -22,14 +22,12 @@ import com.a204.batang.domain.revision.entity.Revision;
 import com.a204.batang.domain.revision.repository.RevisionRepository;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
-import com.a204.batang.global.config.RabbitMqConfig;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
@@ -64,15 +62,9 @@ public class IfcEditApplyEventListener {
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
-    @RabbitListener(queues = RabbitMqConfig.BE_JOB_EVENTS_QUEUE)
-    @Transactional
     public void handle(IfcEditEventMessage event) {
         if (event == null || event.eventType() == null) {
             throw new CustomException(ErrorCode.IFC_EDIT_EVENT_INVALID);
-        }
-
-        if (!event.eventType().startsWith(EVENT_PREFIX_IFC_EDIT_APPLY)) {
-            return;
         }
 
         log.info("IFC Edit worker 이벤트를 수신했습니다. eventType={}, projectId={}, jobId={}, jobStepId={}",
@@ -218,7 +210,6 @@ public class IfcEditApplyEventListener {
 
     private void handleCompleted(IfcEditEventMessage event) {
         LocalDateTime now = LocalDateTime.now();
-        // findByJobId: 타입 필터 없음 — IFC_EDIT / TWO_D_TO_IFC_EDIT / THREE_D_TO_IFC_EDIT 모두 처리
         IfcEditJob job = findJob(event);
         IfcEditJobStep step = findStep(event);
 
@@ -233,7 +224,6 @@ public class IfcEditApplyEventListener {
 
         String ifcUrl = extractRequiredString(event.output(), "storage_url");
         String validationUrl = extractString(event.output(), "validation_report_storage_url");
-        // sceneSnapshotStorageUrl은 이벤트 스키마에 없으므로 inputPayload에서 회수
         String sceneSnapshotUrl = extractJsonText(step.getInputPayload(), "sceneSnapshotStorageUrl");
 
         JsonNode outputPayload = objectMapper.valueToTree(buildCompletedPayload(event, ifcUrl, validationUrl));

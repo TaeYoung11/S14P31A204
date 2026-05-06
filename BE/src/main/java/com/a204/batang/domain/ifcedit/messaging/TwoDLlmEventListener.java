@@ -20,10 +20,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -46,13 +44,10 @@ public class TwoDLlmEventListener {
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
-    @RabbitListener(queues = RabbitMqConfig.BE_JOB_EVENTS_QUEUE)
-    @Transactional
     public void handle(IfcEditEventMessage event) {
         if (event == null || event.eventType() == null) {
             throw new CustomException(ErrorCode.IFC_EDIT_EVENT_INVALID);
         }
-        if (!event.eventType().startsWith(EVENT_PREFIX_TWO_D_LLM)) return;
 
         log.info("2D LLM worker 이벤트를 수신했습니다. eventType={}, projectId={}, jobId={}, jobStepId={}",
                 event.eventType(), event.projectId(), event.jobId(), event.jobStepId());
@@ -120,21 +115,19 @@ public class TwoDLlmEventListener {
             return;
         }
 
-        // LLM이 생성한 edit plan URL
         String commandJsonStorageUrl = extractRequiredString(event.output(), "storage_url");
 
-        // step 1 inputPayload에서 step 2 생성에 필요한 값 회수
         String sourceIfcUrl = extractJsonText(step1.getInputPayload(), "sourceIfcStorageUrl");
         String sourceRevisionIdStr = extractJsonText(step1.getInputPayload(), "sourceRevisionId");
         UUID sourceRevisionId = UUID.fromString(sourceRevisionIdStr);
 
-        // step 1 완료 처리
         Map<String, Object> step1OutputMap = new LinkedHashMap<>();
         step1OutputMap.put("editPlanStorageUrl", commandJsonStorageUrl);
-        if (event.workerId() != null) step1OutputMap.put("workerId", event.workerId());
+        if (event.workerId() != null) {
+            step1OutputMap.put("workerId", event.workerId());
+        }
         step1.markSucceeded(objectMapper.valueToTree(step1OutputMap), now);
 
-        // step 2 + Revision(CREATING) 동시 생성
         UUID step2Id = UUID.randomUUID();
         UUID targetRevisionId = UUID.randomUUID();
         UUID outputArtifactId = UUID.randomUUID();
@@ -172,7 +165,6 @@ public class TwoDLlmEventListener {
         revisionRepository.save(revision);
         ifcEditJobStepRepository.save(step2);
 
-        // IFC Edit Apply command (step 2)
         Map<String, Object> payloadMap = new LinkedHashMap<>();
         payloadMap.put("command_json_storage_url", commandJsonStorageUrl);
         IfcEditCommandMessage cmd = new IfcEditCommandMessage(
@@ -188,13 +180,13 @@ public class TwoDLlmEventListener {
                 idempotencyKey2, correlationId, OffsetDateTime.now(ZoneOffset.UTC)
         );
 
-        log.info("2D LLM completed → IFC Edit step 2 생성. jobId={}, step2Id={}, targetRevisionId={}",
+        log.info("2D LLM completed 후 IFC Edit step 2를 생성했습니다. jobId={}, step2Id={}, targetRevisionId={}",
                 job.getJobId(), step2Id, targetRevisionId);
 
         eventPublisher.publishEvent(new IfcEditCommandPublishRequestedEvent(cmd));
         publishStatusEvent(event.projectId(), SSE_IFC_EDIT_STARTED, new IfcEditStatusSseResponse(
                 SSE_IFC_EDIT_STARTED, event.projectId(), job.getJobId(), step2Id, targetRevisionId,
-                job.getJobType(), "RUNNING", 50, "LLM 처리 완료, IFC 편집 중..."
+                job.getJobType(), "RUNNING", 50, "LLM 처리가 완료되어 IFC 편집을 진행합니다."
         ));
     }
 
@@ -218,7 +210,6 @@ public class TwoDLlmEventListener {
         JsonNode outputPayload = buildFailedPayload(event);
         step1.markFailed(errorCode, errorMessage, outputPayload, now);
         job.markFailed(errorMessage, outputPayload, now);
-        // Revision 없음 — LLM step 1 실패 시 revision이 아직 생성되지 않은 상태
 
         log.warn("2D LLM failed 이벤트를 반영했습니다. errorCode={}", errorCode);
 
@@ -243,7 +234,9 @@ public class TwoDLlmEventListener {
     }
 
     private Integer resolveProgress(Double progress, Integer fallback) {
-        if (progress == null) return fallback;
+        if (progress == null) {
+            return fallback;
+        }
         int resolved = (int) Math.round(progress * 100);
         return Math.max(0, Math.min(resolved, 100));
     }
@@ -257,14 +250,20 @@ public class TwoDLlmEventListener {
     }
 
     private String extractString(Map<String, Object> output, String key) {
-        if (output == null || !output.containsKey(key) || output.get(key) == null) return null;
+        if (output == null || !output.containsKey(key) || output.get(key) == null) {
+            return null;
+        }
         return String.valueOf(output.get(key));
     }
 
     private String extractJsonText(JsonNode node, String key) {
-        if (node == null) return null;
+        if (node == null) {
+            return null;
+        }
         JsonNode value = node.get(key);
-        if (value == null || value.isNull()) return null;
+        if (value == null || value.isNull()) {
+            return null;
+        }
         return value.asText();
     }
 

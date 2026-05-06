@@ -20,10 +20,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -46,13 +44,10 @@ public class ThreeDLlmEventListener {
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
-    @RabbitListener(queues = RabbitMqConfig.BE_JOB_EVENTS_QUEUE)
-    @Transactional
     public void handle(IfcEditEventMessage event) {
         if (event == null || event.eventType() == null) {
             throw new CustomException(ErrorCode.IFC_EDIT_EVENT_INVALID);
         }
-        if (!event.eventType().startsWith(EVENT_PREFIX_THREE_D_LLM)) return;
 
         log.info("3D LLM worker 이벤트를 수신했습니다. eventType={}, projectId={}, jobId={}, jobStepId={}",
                 event.eventType(), event.projectId(), event.jobId(), event.jobStepId());
@@ -128,7 +123,9 @@ public class ThreeDLlmEventListener {
 
         Map<String, Object> step1OutputMap = new LinkedHashMap<>();
         step1OutputMap.put("editPlanStorageUrl", commandJsonStorageUrl);
-        if (event.workerId() != null) step1OutputMap.put("workerId", event.workerId());
+        if (event.workerId() != null) {
+            step1OutputMap.put("workerId", event.workerId());
+        }
         step1.markSucceeded(objectMapper.valueToTree(step1OutputMap), now);
 
         UUID step2Id = UUID.randomUUID();
@@ -183,13 +180,13 @@ public class ThreeDLlmEventListener {
                 idempotencyKey2, correlationId, OffsetDateTime.now(ZoneOffset.UTC)
         );
 
-        log.info("3D LLM completed → IFC Edit step 2 생성. jobId={}, step2Id={}, targetRevisionId={}",
+        log.info("3D LLM completed 후 IFC Edit step 2를 생성했습니다. jobId={}, step2Id={}, targetRevisionId={}",
                 job.getJobId(), step2Id, targetRevisionId);
 
         eventPublisher.publishEvent(new IfcEditCommandPublishRequestedEvent(cmd));
         publishStatusEvent(event.projectId(), SSE_IFC_EDIT_STARTED, new IfcEditStatusSseResponse(
                 SSE_IFC_EDIT_STARTED, event.projectId(), job.getJobId(), step2Id, targetRevisionId,
-                job.getJobType(), "RUNNING", 50, "LLM 처리 완료, IFC 편집 중..."
+                job.getJobType(), "RUNNING", 50, "LLM 처리가 완료되어 IFC 편집을 진행합니다."
         ));
     }
 
@@ -237,7 +234,9 @@ public class ThreeDLlmEventListener {
     }
 
     private Integer resolveProgress(Double progress, Integer fallback) {
-        if (progress == null) return fallback;
+        if (progress == null) {
+            return fallback;
+        }
         int resolved = (int) Math.round(progress * 100);
         return Math.max(0, Math.min(resolved, 100));
     }
@@ -251,14 +250,20 @@ public class ThreeDLlmEventListener {
     }
 
     private String extractString(Map<String, Object> output, String key) {
-        if (output == null || !output.containsKey(key) || output.get(key) == null) return null;
+        if (output == null || !output.containsKey(key) || output.get(key) == null) {
+            return null;
+        }
         return String.valueOf(output.get(key));
     }
 
     private String extractJsonText(JsonNode node, String key) {
-        if (node == null) return null;
+        if (node == null) {
+            return null;
+        }
         JsonNode value = node.get(key);
-        if (value == null || value.isNull()) return null;
+        if (value == null || value.isNull()) {
+            return null;
+        }
         return value.asText();
     }
 
