@@ -2,16 +2,16 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-import os
+from pathlib import Path
+
 from ai_planning_3d.engine import LLM3DEngine
 
-# 로그 설정 (Downloads/batang_history 저장)
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M")
-LOG_DIR = os.path.join(os.path.expanduser("~"), "Downloads", "batang_history")
-os.makedirs(LOG_DIR, exist_ok=True)
+LOG_DIR = Path.home() / "Downloads" / "batang_history"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-log_file = os.path.join(LOG_DIR, f"명령_해석테스트_{TIMESTAMP}.log")
-json_log_path = os.path.join(LOG_DIR, f"명령_해석테스트_{TIMESTAMP}.json")
+log_file = LOG_DIR / f"명령_해석테스트_{TIMESTAMP}.log"
+json_log_path = LOG_DIR / f"명령_해석테스트_{TIMESTAMP}.json"
 
 logging.basicConfig(
     level=logging.INFO,

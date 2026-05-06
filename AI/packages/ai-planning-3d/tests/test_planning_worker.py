@@ -10,7 +10,7 @@ def test_planning_worker_logic():
     # 테스트 환경 및 샘플 데이터 로드
     root_dir = Path(__file__).resolve().parents[3]
     message_path = root_dir / "sample_messages" / "command_3d_llm.json"
-    ifc_path = Path("C:/Users/SSAFY/Downloads/batang_sample.ifc")
+    ifc_path = root_dir / "tests" / "sample_batang.ifc"
 
     with open(message_path, encoding="utf-8") as f:
         command = CommandMessage.model_validate(json.load(f))
