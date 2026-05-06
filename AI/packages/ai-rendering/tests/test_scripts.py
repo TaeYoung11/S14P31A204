@@ -139,4 +139,10 @@ def test_korean_villa_prompt_prior_trial_defaults_to_side_simple_mass() -> None:
     assert m.SHORT_GROUND_PROMPT.startswith("RAW photo, simple Korean house")
     assert "flat_plaza" in m.VARIANTS
     assert "flat concrete plaza" in m.FLAT_PLAZA_PROMPT
+    assert "front_open_ground" in m.VARIANTS
+    assert "open flat paved ground in front" in m.FRONT_OPEN_GROUND_PROMPT
+    assert "dark wall" in m.COMPACT_NEGATIVE
+    assert "front_white_facade" in m.VARIANTS
+    assert m.FRONT_WHITE_FACADE_PROMPT.startswith("RAW photo, outdoor daylight, white concrete facade")
+    assert "black facade" in m.COMPACT_NEGATIVE
 

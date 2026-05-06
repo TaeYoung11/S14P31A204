@@ -648,9 +648,12 @@ def test_build_view_prompt_prepends_prefix_for_front_side() -> None:
     front = build_view_prompt(base, IFCView.FRONT)
     side = build_view_prompt(base, IFCView.SIDE)
 
-    assert front.startswith("front facade at ground line")
+    assert front.startswith("open flat ground in front")
     assert front.endswith(base)
+    assert "facade touches ground" in front
+    assert "no foreground wall" in front
     assert "no foundation wall" in front
+    assert "no retaining wall" in front
     assert side.startswith("side facade at ground line")
     assert side.endswith(base)
     assert "no foundation wall" in side
@@ -691,10 +694,10 @@ def test_build_view_prompt_keeps_blue_sky_for_front() -> None:
 
     result = build_view_prompt(base, IFCView.FRONT)
 
-    assert result.startswith("front facade at ground line")
+    assert result.startswith("open flat ground in front")
     assert result.endswith(base)
     assert "blue sky" in result
-    assert "blue sky" in result
+    assert "no retaining wall" in result
 
 
 def test_build_view_prompt_in_public_api() -> None:

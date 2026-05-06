@@ -218,10 +218,12 @@ def test_render_with_view_front_prepends_ground_line_prefix(
     mock_depth_renderer.render(depth, params, view=IFCView.FRONT)
 
     call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
-    assert call_prompt.startswith("front facade at ground line")
+    assert call_prompt.startswith("open flat ground in front")
     assert call_prompt.endswith(base_prompt)
-    assert "ground line" in call_prompt
+    assert "facade touches ground" in call_prompt
+    assert "no foreground wall" in call_prompt
     assert "no foundation wall" in call_prompt
+    assert "no retaining wall" in call_prompt
 
 
 # --- C-1 폐기 후 — render(view=...) negative 합성 인프라 보존 회귀 방어 ---
