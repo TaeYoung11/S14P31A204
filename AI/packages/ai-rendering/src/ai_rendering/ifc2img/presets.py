@@ -45,14 +45,14 @@ _NEGATIVE_BASE = (
 _PRESETS: dict[str, DepthStyleParams] = {
     "scandinavian": DepthStyleParams(
         prompt=(
-            "RAW photo, scandinavian modern house exterior at ground level, "
-            "white concrete facade, large panoramic windows, flat roof, "
-            "clean minimal architecture, nordic design, "
-            "8k uhd, DSLR, sharp focus, architectural photography, "
-            "no floor below ground"
+            "RAW photo, outdoor daylight, white concrete facade, "
+            "large windows, flat roof, minimal Scandinavian house, "
+            "flat ground touches facade, no lower floor, no foreground wall"
         ),
         negative_prompt=(
-            f"{_NEGATIVE_BASE}, dark moody"
+            "low quality, cgi, render, cartoon, text, watermark, interior, "
+            "basement, extra floor, stone wall, retaining wall, foreground wall, "
+            "raised platform, podium, balcony, dark moody"
         ),
         guidance_scale=7.0,
         num_inference_steps=25,
