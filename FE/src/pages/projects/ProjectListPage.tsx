@@ -2,7 +2,8 @@ import { Plus, FolderOpen, LayoutGrid, List, Search, CheckSquare, Share2, Trash2
 import ProjectCreateModal from '@/features/project/components/ProjectCreateModal'
 import ProjectCard from '@/features/project/components/ProjectCard'
 import ProjectListHeader from '@/features/project/components/ProjectListHeader'
-import ProjectShareModal from '@/features/project/components/ProjectShareModal'
+import { InviteModal } from '@/shared/components/InviteModal'
+import { InviteNotificationModal } from '@/shared/components/InviteNotificationModal'
 import ProjectSiteModal from '@/features/project/components/ProjectSiteModal'
 import { useProjectListPage } from '@/features/project/hooks/useProjectListPage'
 import EmptyState from '@/shared/components/EmptyState'
@@ -39,6 +40,9 @@ export default function ProjectsPage() {
     onCloseDeleteModal,
     onCloseShareModal,
     onCloseSiteModal,
+    isNotificationModalOpen,
+    onOpenNotificationModal,
+    onCloseNotificationModal,
     onOpenCreateModal,
     onOpenEditModal,
     onOpenShareModal,
@@ -61,7 +65,6 @@ export default function ProjectsPage() {
     withdrawError,
     isWithdrawing,
     viewMode,
-    handleInvite,
   } = useProjectListPage()
 
   return (
@@ -76,6 +79,7 @@ export default function ProjectsPage() {
         onWithdraw={(password) => withdraw({ password })}
         withdrawError={withdrawError ? (withdrawError as Error).message : ''}
         isWithdrawing={isWithdrawing}
+        onNotificationOpen={onOpenNotificationModal}
       />
 
       <main className="mx-auto max-w-[1200px] px-8 py-8">
@@ -257,11 +261,10 @@ export default function ProjectsPage() {
         editProject={editProject}
       />
 
-      <ProjectShareModal
+      <InviteModal
         isOpen={shareProjects.length > 0}
         onClose={onCloseShareModal}
-        projects={shareProjects}
-        onInvite={handleInvite}
+        projectIds={shareProjects.map((p) => p.id)}
       />
 
       <Modal
@@ -331,6 +334,11 @@ export default function ProjectsPage() {
           </div>
         </div>
       </Modal>
+
+      <InviteNotificationModal
+        isOpen={isNotificationModalOpen}
+        onClose={onCloseNotificationModal}
+      />
 
       <ProjectSiteModal
         isOpen={!!siteProject}

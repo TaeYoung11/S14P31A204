@@ -93,16 +93,14 @@ export default function ProjectsPage() {
 ```typescript
 // hooks/useProjects.ts
 export const useProjects = () => {
-  // TanStack Query: 데이터 fetching
   const { data: projects, isLoading } = useQuery({
-    queryKey: ['projects'],
+    queryKey: projectKeys.list(),
     queryFn: () => projectService.getList(),
   })
 
-  // TanStack Query: 데이터 mutation
   const { mutate: createProject } = useMutation({
     mutationFn: projectService.create,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: projectKeys.list() }),
   })
 
   return { projects, isLoading, createProject }
@@ -271,7 +269,80 @@ export const exportToPDF = async (elementId: string, filename: string) => { ... 
 
 ---
 
-## 9. API 호출 규칙
+## 9. 네이밍 규칙
+
+| 대상 | 규칙 | 예시 |
+|------|------|------|
+| 컴포넌트 | `PascalCase` | `ProjectCard`, `InviteModal` |
+| 페이지 파일 | `PascalCase` + `Page` suffix | `ProjectListPage.tsx` |
+| 훅 파일 | `camelCase` + `use` prefix | `useProjects.ts`, `useInvitation.ts` |
+| 함수/변수 | `camelCase` | `fetchProject`, `currentUser` |
+| boolean | `is/has/can/should` prefix | `isLoading`, `hasError`, `canEdit` |
+| 상수 | `UPPER_SNAKE_CASE` | `MAX_UNDO_STACK`, `BASE_URL` |
+| 파일명 (컴포넌트) | `PascalCase` | `ProjectCard.tsx` |
+| 파일명 (유틸/훅/서비스) | `camelCase` | `formatDate.ts`, `project.service.ts` |
+| store 파일 | `camelCase` + `Store` suffix | `authStore.ts` |
+| props 타입 | `interface` + `PascalCase` + `Props` suffix | `interface ProjectCardProps` |
+
+---
+
+## 10. TypeScript 규칙
+
+### 기본 원칙
+
+- `any` 금지 — 불가피하면 `unknown` + 타입가드로 처리
+- 서버 응답 DTO와 앱 내부 모델 **반드시 분리**
+- 객체 모델은 `interface`, 유니온/조합은 `type`
+
+### 공통 API 응답 래퍼
+
+모든 API 응답은 아래 형태를 따른다.
+
+```typescript
+// shared/types/api.ts
+export interface ApiResponse<T> {
+  success: boolean;
+  message: string;
+  data: T;
+  timestamp: string;
+}
+```
+
+### DTO vs 내부 모델 분리
+
+백엔드 응답 형태가 바뀌어도 내부 모델은 그대로 유지된다.
+변환은 service 레이어에서 담당한다.
+
+```typescript
+// shared/types/project.ts
+
+// 서버 응답 DTO
+export interface ProjectResponseDTO {
+  project_id: string;
+  name: string;
+  created_at: string;
+}
+
+// 앱 내부 모델
+export interface Project {
+  projectId: string;
+  name: string;
+  createdAt: string;
+}
+
+// 변환 함수 (service에서 호출)
+export const toProject = (dto: ProjectResponseDTO): Project => ({
+  projectId: dto.project_id,
+  name: dto.name,
+  createdAt: dto.created_at,
+})
+```
+
+> 현재 백엔드가 이미 camelCase로 응답하는 경우 DTO = 내부 모델로 통일 가능
+
+---
+
+## 11. API 호출 규칙
 
 **왜 axios 인스턴스인가:**
 fetch 직접 사용 시 팀원마다 토큰 첨부·에러 처리 방식이 달라진다.
@@ -293,14 +364,56 @@ useEffect(() => {
 
 // ✅ TanStack Query (한 줄)
 const { data, isLoading, error } = useQuery({
-  queryKey: ['projects'],
+  queryKey: projectKeys.list(),
   queryFn: () => projectService.getList()
 })
 ```
 
+### QueryKey 상수 관리
+
+queryKey를 문자열 리터럴로 흩뿌리면 오타와 캐시 무효화 누락이 발생한다.
+도메인별로 상수 파일 하나에서 관리한다.
+
+```typescript
+// features/projects/queryKeys.ts
+export const projectKeys = {
+  all: ['projects'] as const,
+  list: () => [...projectKeys.all, 'list'] as const,
+  detail: (id: string) => [...projectKeys.all, id] as const,
+}
+
+// features/auth/queryKeys.ts
+export const authKeys = {
+  me: ['auth', 'me'] as const,
+}
+```
+
 ---
 
-## 10. 실시간 — STOMP
+## 12. 린트/포맷 규칙
+
+**사용 도구:** ESLint + typescript-eslint + husky + lint-staged  
+(Prettier 미사용 — ESLint 단독으로 스타일 강제)
+
+- ESLint `--max-warnings 0` — 경고도 커밋 차단
+- 커밋 전 `lint-staged`가 `.ts/.tsx` 파일 자동 검사
+- `unused-imports` 플러그인으로 미사용 import 자동 감지
+- `react-hooks` 플러그인으로 hooks 규칙 강제
+- `console.log` 배포 빌드에서 ESLint `no-console` rule로 차단
+
+```bash
+# 커밋 시 자동 실행 (husky + lint-staged)
+eslint --max-warnings 0
+```
+
+**코드 스타일 (ESLint rule로 고정):**
+- 세미콜론 사용 (`;`)
+- 싱글쿼트 (`'`)
+- trailing comma 사용
+
+---
+
+## 13. 실시간 — STOMP
 
 STOMP 연결은 `useWebSocket` 훅 하나에서만 관리한다.
 다른 컴포넌트에서 직접 STOMP 클라이언트를 생성하면 연결 중복, 메모리 누수 발생.
@@ -312,7 +425,7 @@ STOMP 연결은 `useWebSocket` 훅 하나에서만 관리한다.
 
 ---
 
-## 11. 편집 툴박스 라이브러리
+## 14. 편집 툴박스 라이브러리
 
 별도 toolbox 라이브러리 없이 각 라이브러리 내장 기능을 사용한다.
 
@@ -328,7 +441,7 @@ STOMP 연결은 `useWebSocket` 훅 하나에서만 관리한다.
 
 ---
 
-## 12. @thatopen 규칙
+## 15. @thatopen 규칙
 
 @thatopen은 React 밖에서 동작하는 라이브러리다.
 잘못 쓰면 메모리 누수가 쌓이고 장시간 사용 시 크래시가 발생한다.
@@ -340,7 +453,7 @@ STOMP 연결은 `useWebSocket` 훅 하나에서만 관리한다.
 
 ---
 
-## 13. 폴더 구조
+## 16. 폴더 구조
 
 ```
 src/
@@ -362,9 +475,10 @@ src/
 │   │   └── InviteAcceptPage.tsx
 │   └── NotFoundPage.tsx
 ├── features/              # 도메인별 기능 묶음
-│   └── auth/
-│       ├── hooks/         # useAuth 등 비즈니스 로직
+│   └── {domain}/
+│       ├── hooks/         # useXxx 비즈니스 로직
 │       ├── services/      # Mock ↔ API 전환점
+│       ├── queryKeys.ts   # TanStack Query 키 상수
 │       └── mocks/         # Mock 데이터 (API 완성 후 삭제)
 └── shared/                # 누구나 import 가능한 공유 자원
     ├── components/        # 공통 UI 컴포넌트 (2곳 이상에서 사용)
@@ -381,13 +495,13 @@ src/
     ├── lib/
     │   ├── axios.ts       # axios 인스턴스 + JWT 인터셉터
     │   └── stomp.ts       # STOMP 클라이언트
-    ├── types/             # TypeScript 타입
+    ├── types/             # TypeScript 타입 (ApiResponse, DTO, 내부 모델)
     └── utils/             # 순수 함수만 (사이드이펙트 없음)
 ```
 
 ---
 
-## 14. 절대 하지 말 것
+## 17. 절대 하지 말 것
 
 | 금지 | 이유 |
 |------|------|
@@ -403,3 +517,5 @@ src/
 | Three.js dispose 누락 | 메모리 누수 |
 | STOMP 다중 연결 | useWebSocket 하나에서만 |
 | mock을 컴포넌트/hook에 직접 | service 경유 필수 |
+| queryKey 문자열 리터럴 직접 사용 | queryKeys.ts 상수 사용 |
+| DTO를 내부 모델로 그대로 사용 | 변환 함수 거치기 |

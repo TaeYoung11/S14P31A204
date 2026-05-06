@@ -5,7 +5,6 @@ import {
   useAllProjects,
   useCreateProject,
   useDeleteProject,
-  useInviteToProject,
   useProjects,
   useUpdateProject,
 } from '@/features/project/hooks/useProjects'
@@ -54,8 +53,6 @@ export function useProjectListPage() {
   const createProject = useCreateProject()
   const updateProject = useUpdateProject()
   const deleteProject = useDeleteProject()
-  const inviteToProject = useInviteToProject()
-
   const [createOpen, setCreateOpen] = useState(false)
   const [editProject, setEditProject] = useState<Project | null>(null)
   const [shareProjects, setShareProjects] = useState<Project[]>([])
@@ -66,6 +63,7 @@ export function useProjectListPage() {
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([])
   const [siteProject, setSiteProject] = useState<Project | null>(null)
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false)
 
   const { data: allData, isLoading: isSearchLoading } = useAllProjects(search.length > 0)
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -156,19 +154,6 @@ export function useProjectListPage() {
     setShareProjects(selectedProjects)
   }
 
-  const handleInvite = async (email: string) => {
-    try {
-      await Promise.all(
-        shareProjects.map((project) =>
-          inviteToProject.mutateAsync({ projectId: project.id, email }),
-        ),
-      )
-    } catch (err) {
-      console.error('초대 실패:', err)
-      throw err
-    }
-  }
-
   const handleProjectDelete = (projectId: string) => {
     const targetProject = filteredProjects.find((project) => project.id === projectId)
     if (targetProject) handleDeleteOpen([targetProject])
@@ -215,12 +200,10 @@ export function useProjectListPage() {
     handleConfirmDelete,
     handleCreateSubmit,
     handleDeleteOpen,
-    handleInvite,
     handleProjectDelete,
     handleSelectAllVisible,
     handleToggleProjectSelect,
     hasNextPage,
-    inviteToProject,
     isCreateModalOpen: createOpen || !!editProject,
     isDeleteModalOpen: deleteProjects.length > 0,
     isDeleteConfirmValid: deleteConfirmName === DELETE_CONFIRM_TEXT,
@@ -261,5 +244,8 @@ export function useProjectListPage() {
     isWithdrawing,
     viewMode,
     deleteConfirmText: DELETE_CONFIRM_TEXT,
+    isNotificationModalOpen,
+    onOpenNotificationModal: () => setIsNotificationModalOpen(true),
+    onCloseNotificationModal: () => setIsNotificationModalOpen(false),
   }
 }

@@ -22,6 +22,7 @@ export interface EditorLeftSidebarProps {
   canAutoLayoutBubbles?: boolean
   isFloorPlanGenerated?: boolean
   isBubbleReadOnly?: boolean
+  isEditorReadOnly?: boolean
   hasDeletableSelection?: boolean
   onDeleteSelected?: () => void
 }

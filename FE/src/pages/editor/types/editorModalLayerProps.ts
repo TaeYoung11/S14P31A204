@@ -28,6 +28,10 @@ export interface EditorModalLayerProps {
 
   isInviteModalOpen: boolean
   onCloseInviteModal: () => void
+  currentProjectId: string | undefined
+
+  isNotificationModalOpen: boolean
+  onCloseNotificationModal: () => void
 
   isExportModalOpen: boolean
   onCloseExportModal: () => void

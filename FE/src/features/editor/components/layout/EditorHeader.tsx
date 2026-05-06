@@ -1,9 +1,11 @@
-import { Save, Share2 } from 'lucide-react'
+import { Bell, Save, Share2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import type { EditorMode, SaveStatus } from '../../types'
+import type { CollaborationUserType, EditorMode, SaveStatus } from '../../types'
 
 interface EditorHeaderProps {
   onOpenInvite?: () => void
+  onOpenNotification?: () => void
+  userType?: CollaborationUserType
   mode: EditorMode
   onModeChange: (mode: EditorMode) => void
   onSave?: () => void
@@ -35,6 +37,8 @@ const SAVE_STATUS_STYLES: Record<SaveStatus, string> = {
  */
 export default function EditorHeader({
   onOpenInvite,
+  onOpenNotification,
+  userType,
   mode,
   onModeChange,
   onSave,
@@ -63,7 +67,7 @@ export default function EditorHeader({
             isViewer ? 'text-white' : 'text-[#1C1C1E]'
           }`}
         >
-          <span className={isViewer ? 'opacity-60' : 'opacity-55'}>BATANG:</span> Workspace
+          <span className={isViewer ? 'opacity-60' : 'opacity-55'}>바탕: BATANG</span> Workspace
         </Link>
         <nav className={`flex items-center gap-1 rounded-full p-1 ${
           isViewer ? 'bg-white/10' : 'border border-[#E4E8F3] bg-[#F7F8FC]'
@@ -96,17 +100,35 @@ export default function EditorHeader({
         <div className={`rounded-full border border-transparent px-3 py-1 text-[11px] font-bold ${SAVE_STATUS_STYLES[saveStatus]}`}>
           {SAVE_STATUS_LABELS[saveStatus]}
         </div>
-        <button
-          type="button"
-          onClick={onOpenInvite}
-          className={`rounded-xl p-2 transition-colors ${
-            isViewer
-              ? 'text-white/75 hover:bg-white/10 hover:text-white'
-              : 'text-[#7A859A] hover:bg-[#F0F2F9] hover:text-[#2F3A90]'
-          }`}
-        >
-          <Share2 size={18} />
-        </button>
+        {(userType === 'DESIGNER' || !userType) && (
+          <button
+            type="button"
+            onClick={onOpenInvite}
+            className={`rounded-xl p-2 transition-colors ${
+              isViewer
+                ? 'text-white/75 hover:bg-white/10 hover:text-white'
+                : 'text-[#7A859A] hover:bg-[#F0F2F9] hover:text-[#2F3A90]'
+            }`}
+          >
+            <Share2 size={18} />
+          </button>
+        )}
+        {userType === 'CUSTOMER' && (
+          <button
+            type="button"
+            id="editor-notification-btn"
+            onClick={onOpenNotification}
+            className={`rounded-xl p-2 transition-colors ${
+              isViewer
+                ? 'text-white/75 hover:bg-white/10 hover:text-white'
+                : 'text-[#7A859A] hover:bg-[#F0F2F9] hover:text-[#2F3A90]'
+            }`}
+            title="알림"
+            aria-label="알림"
+          >
+            <Bell size={18} />
+          </button>
+        )}
         <button
           type="button"
           onClick={onSave}

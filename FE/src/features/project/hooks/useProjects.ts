@@ -101,13 +101,6 @@ export const useRegisterProjectSite = () => {
   })
 }
 
-export const useInviteToProject = () => {
-  return useMutation({
-    mutationFn: ({ projectId, email }: { projectId: string; email: string }) =>
-      projectService.invite(projectId, email),
-  })
-}
-
 export const useProjectSitePolygon = (projectId: string | null, enabled = true) => {
   return useQuery({
     queryKey: projectQueryKeys.sitePolygon(projectId),
