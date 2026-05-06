@@ -20,8 +20,7 @@ DEFAULT_MODEL_ID = "runwayml/stable-diffusion-v1-5"
 DEFAULT_CONTROLNET_DEPTH_ID = "lllyasviel/sd-controlnet-depth"
 DEFAULT_CONTROLNET_SEG_ID = "lllyasviel/sd-controlnet-seg"
 FRONT_SIDE_NEGATIVE_TERMS = (
-    "stone wall, retaining wall, raised foundation, pedestal, plinth, "
-    "basement windows, stairs below facade, extra lower floor"
+    "(stone wall:1.2), (retaining wall:1.25), (raised platform:1.2)"
 )
 SEMANTIC_BACKGROUND_RGB = (0, 0, 0)
 SEMANTIC_BUILDING_RGB = (255, 255, 255)
@@ -85,17 +84,38 @@ def _append_negative_terms(base_negative: str, extra_negative: str) -> str:
     if not base_negative:
         return extra_negative
     terms: list[str] = []
-    seen: set[str] = set()
+    term_indexes: dict[str, int] = {}
     for raw_term in f"{base_negative}, {extra_negative}".split(","):
         term = raw_term.strip()
         if not term:
             continue
-        key = term.lower()
-        if key in seen:
+        key = _negative_term_key(term)
+        existing_index = term_indexes.get(key)
+        if existing_index is not None:
+            if _is_weighted_negative_term(term) and not _is_weighted_negative_term(
+                terms[existing_index]
+            ):
+                terms[existing_index] = term
             continue
-        seen.add(key)
+        term_indexes[key] = len(terms)
         terms.append(term)
     return ", ".join(terms)
+
+
+def _negative_term_key(term: str) -> str:
+    normalized = term.strip().lower()
+    if (
+        normalized.startswith("(")
+        and normalized.endswith(")")
+        and ":" in normalized
+    ):
+        normalized = normalized[1:-1].rsplit(":", 1)[0].strip()
+    return normalized
+
+
+def _is_weighted_negative_term(term: str) -> bool:
+    normalized = term.strip()
+    return normalized.startswith("(") and normalized.endswith(")") and ":" in normalized
 
 
 def _build_front_side_semantic_mask(control: Image.Image) -> Image.Image:
