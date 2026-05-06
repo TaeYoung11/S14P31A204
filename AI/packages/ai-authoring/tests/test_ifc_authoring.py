@@ -1,16 +1,17 @@
 import asyncio
-import os
+from pathlib import Path
 import json
 import logging
 from datetime import datetime
 from ai_planning_3d.pipeline import LLM3DPipeline
 
-# 로그 설정 (Downloads/batang_history 저장)
+# 로그 설정
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M")
-LOG_DIR = os.path.join(os.path.expanduser("~"), "Downloads", "batang_history")
-os.makedirs(LOG_DIR, exist_ok=True)
+root_dir = Path(__file__).resolve().parents[3]
+LOG_DIR = Path.home() / "Downloads" / "batang_history"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-log_file = os.path.join(LOG_DIR, f"IFC추출테스트_{TIMESTAMP}.log")
+log_file = LOG_DIR / f"IFC추출테스트_{TIMESTAMP}.log"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,21 +44,17 @@ def emit(message: str = "") -> None:
         pass
 
 
-# 새 패키지 구조에서 임포트 (상단 이동 완료)
-
 # ── 경로 설정 ────────────────────────────────────────────────────────────────
-IFC_PATH = os.path.normpath(
-    os.path.join(os.path.expanduser("~"), "Downloads", "sample_highkick.ifc")
-)
-OUTPUT_PATH = os.path.join(LOG_DIR, f"IFC추출테스트_결과_{TIMESTAMP}.ifc")
-JSON_LOG_PATH = os.path.join(LOG_DIR, f"IFC추출테스트_로그_{TIMESTAMP}.json")
+IFC_PATH = root_dir / "tests" / "sample_highkick.ifc"
+OUTPUT_PATH = LOG_DIR / f"IFC추출테스트_결과_{TIMESTAMP}.ifc"
+JSON_LOG_PATH = LOG_DIR / f"IFC추출테스트_로그_{TIMESTAMP}.json"
 
 
 async def main():
     emit("\n🚀 [LLM_3D] Intelligent Pipeline Test")
     emit("=" * 70)
 
-    if not os.path.exists(IFC_PATH):
+    if not IFC_PATH.exists():
         emit(f"❌ IFC 파일 없음: {IFC_PATH}")
         return
 
@@ -163,7 +160,6 @@ async def main():
             status = preview.get("status")
             cmd_json = preview.get("command", {})
 
-            # LLM JSON 출력
             emit("📋 LLM JSON:")
             emit(json.dumps(cmd_json, ensure_ascii=False, indent=2))
 
@@ -185,7 +181,6 @@ async def main():
             if cmd_json.get("ambiguity_question"):
                 emit(f"🤔 재질문: {cmd_json['ambiguity_question']}")
 
-            # 정상이면 Apply 실행
             if status == "preview_ready":
                 res = await pipeline.execute_apply(preview["session_id"], output_path=OUTPUT_PATH)
                 apply_icon = "✅" if res.get("status") == "applied" else "❌"

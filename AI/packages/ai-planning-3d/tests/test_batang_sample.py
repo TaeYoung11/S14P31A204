@@ -1,5 +1,5 @@
 import asyncio
-import os
+from pathlib import Path
 from datetime import datetime
 
 import ifcopenshell.api
@@ -15,12 +15,12 @@ from ai_planning_3d.pipeline import LLM3DPipeline
 
 
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M")
-LOG_DIR = os.path.join(os.path.expanduser("~"), "Downloads", "batang_history")
-os.makedirs(LOG_DIR, exist_ok=True)
+root_dir = Path(__file__).resolve().parents[3]
+LOG_DIR = Path.home() / "Downloads" / "batang_history"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-UP = os.environ["USERPROFILE"]
-ifc_path = os.path.normpath(os.path.join(UP, "Downloads", "batang_sample.ifc"))
-log_path = os.path.join(LOG_DIR, f"batang_sample_test_{TIMESTAMP}.log")
+ifc_path = root_dir / "tests" / "sample_batang.ifc"
+log_path = LOG_DIR / f"batang_sample_test_{TIMESTAMP}.log"
 
 
 def log_result(msg: str) -> None:
@@ -30,7 +30,7 @@ def log_result(msg: str) -> None:
 
 
 async def run_sample_test() -> None:
-    if not os.path.exists(ifc_path):
+    if not ifc_path.exists():
         log_result(f"Sample IFC file not found: {ifc_path}")
         log_result("Run AI/scratch_3d_sample.py first to generate batang_sample.ifc.")
         return
