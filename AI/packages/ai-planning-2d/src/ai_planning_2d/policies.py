@@ -193,6 +193,7 @@ def plan_resize_room(
             )
         directions = (preferred_direction,)
     valid_candidates: list[tuple[str, str | None, list[str], list[str]]] = []
+    rejected_for_geometry_healing = False
 
     for direction in directions:
         neighbors = _neighbors_on_direction(
@@ -218,9 +219,28 @@ def plan_resize_room(
             direction=direction,
             other_space_id=affected_space_id,
         )
+        if _requires_resize_geometry_healing(
+            ifc_context,
+            wall_ids=affected_wall_ids,
+        ):
+            rejected_for_geometry_healing = True
+            continue
         affected_opening_ids = _opening_ids_for_walls(ifc_context, affected_wall_ids)
         valid_candidates.append(
             (direction, affected_space_id, affected_wall_ids, affected_opening_ids)
+        )
+
+    if not valid_candidates and rejected_for_geometry_healing:
+        return _resize_result(
+            "unsupported",
+            "resize_geometry_healing_required",
+            target_space_id,
+            preferred_direction,
+            new_width,
+            new_height,
+            None,
+            [],
+            [],
         )
 
     if len(valid_candidates) != 1:
@@ -497,9 +517,68 @@ def _bbox(polygon: list[tuple[float, float]]) -> tuple[float, float, float, floa
 
 
 def _is_axis_aligned_rectangle(polygon: list[tuple[float, float]]) -> bool:
-    unique_points = list(dict.fromkeys(polygon))
+    unique_points = _unique_points_with_tolerance(polygon)
     if len(unique_points) != 4:
         return False
-    unique_x = {point[0] for point in unique_points}
-    unique_y = {point[1] for point in unique_points}
+    unique_x = _cluster_axis_values([point[0] for point in unique_points])
+    unique_y = _cluster_axis_values([point[1] for point in unique_points])
     return len(unique_x) == 2 and len(unique_y) == 2
+
+
+def _unique_points_with_tolerance(
+    polygon: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    unique_points: list[tuple[float, float]] = []
+    for point in polygon:
+        if not any(
+            math.isclose(point[0], existing[0], abs_tol=_TOLERANCE_MM)
+            and math.isclose(point[1], existing[1], abs_tol=_TOLERANCE_MM)
+            for existing in unique_points
+        ):
+            unique_points.append(point)
+    return unique_points
+
+
+def _cluster_axis_values(values: list[float]) -> list[float]:
+    clusters: list[float] = []
+    for value in values:
+        if any(math.isclose(value, existing, abs_tol=_TOLERANCE_MM) for existing in clusters):
+            continue
+        clusters.append(value)
+    return clusters
+
+
+def _requires_resize_geometry_healing(
+    ifc_context: IFCContext,
+    *,
+    wall_ids: list[str],
+) -> bool:
+    if not wall_ids:
+        return False
+    walls = {wall["id"]: wall for wall in ifc_context.get("walls", [])}
+    moving_walls = [walls[wall_id] for wall_id in wall_ids if wall_id in walls]
+    if not moving_walls:
+        return False
+
+    moving_endpoints = {
+        _point_key(point)
+        for wall in moving_walls
+        for point in (wall["start"], wall["end"])
+    }
+    moving_wall_id_set = {wall["id"] for wall in moving_walls}
+    for wall in ifc_context.get("walls", []):
+        if wall["id"] in moving_wall_id_set:
+            continue
+        if (
+            _point_key(wall["start"]) in moving_endpoints
+            or _point_key(wall["end"]) in moving_endpoints
+        ):
+            return True
+    return False
+
+
+def _point_key(point: tuple[float, float]) -> tuple[int, int]:
+    return (
+        int(round(point[0] / _TOLERANCE_MM)),
+        int(round(point[1] / _TOLERANCE_MM)),
+    )

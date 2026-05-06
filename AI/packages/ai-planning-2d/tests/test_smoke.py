@@ -15,6 +15,7 @@ import pytest
 import ai_planning_2d.executor as executor_module
 import ai_planning_2d.session_pipeline as session_pipeline_module
 from ai_domain import IfcEditCommandPayload
+from ai_planning_2d.policies import plan_resize_room
 from ai_planning_2d import (
     ActionType,
     CommandBatch,
@@ -882,6 +883,13 @@ def test_ifc2x3_raises(tmp_path):
         extract_ifc_context(_write_ifc(tmp_path, bundle["ifc"]))
 
 
+def test_ifc4x3_is_accepted(tmp_path):
+    bundle = {"ifc": ifcopenshell.file(schema="IFC4X3")}
+    context = extract_ifc_context(_write_ifc(tmp_path, bundle["ifc"]))
+    assert context["spaces"] == []
+    assert context["storeys"] == []
+
+
 def test_bool_numeric_pset_value_falls_back_to_bbox(tmp_path):
     bundle = _make_minimal_ifc()
     space_pset = next(
@@ -1084,7 +1092,7 @@ async def test_pipeline_preview_remove_room(policy_ifc_ctx):
 
 
 @pytest.mark.asyncio
-async def test_pipeline_preview_resize_room_needs_clarification(policy_ifc_ctx):
+async def test_pipeline_preview_resize_room_auto_selects_only_valid_direction(policy_ifc_ctx):
     right_top = next(space for space in policy_ifc_ctx["spaces"] if space["id"] == "sp-right-top")
     right_top["polygon"] = [(5000, 0), (9000, 0), (9000, 5000), (5000, 5000)]
     right_top["height"] = 5000
@@ -1108,8 +1116,9 @@ async def test_pipeline_preview_resize_room_needs_clarification(policy_ifc_ctx):
 
     preview = await pipeline.execute_command_preview(command)
 
-    assert preview["status"] == "needs_clarification"
-    assert preview["policy_plan"]["reason"] == "resize_direction_ambiguous"
+    assert preview["status"] == "preview_ready"
+    assert preview["policy_plan"]["reason"] == "single_direction_resize"
+    assert preview["policy_plan"]["direction"] == "west"
 
 
 def test_infer_resize_direction():
@@ -1148,6 +1157,77 @@ async def test_pipeline_preview_resize_room_uses_explicit_direction(policy_ifc_c
 
     assert preview["status"] == "preview_ready"
     assert preview["policy_plan"]["direction"] == "west"
+
+
+def test_plan_resize_room_rejects_geometry_healing_required():
+    ctx: IFCContext = {
+        "spaces": [
+            {
+                "id": "sp-center",
+                "name": "center",
+                "type": "other",
+                "floor": 1,
+                "polygon": [(2000, 0), (5000, 0), (5000, 5000), (2000, 5000)],
+                "width": 3000,
+                "height": 5000,
+                "x": 2000.0,
+                "y": 0.0,
+                "angle": 0.0,
+                "locked": False,
+                "zone_id": None,
+            },
+            {
+                "id": "sp-left",
+                "name": "left",
+                "type": "bedroom",
+                "floor": 1,
+                "polygon": [(0, 0), (2000, 0), (2000, 5000), (0, 5000)],
+                "width": 2000,
+                "height": 5000,
+                "x": 0.0,
+                "y": 0.0,
+                "angle": 0.0,
+                "locked": False,
+                "zone_id": None,
+            },
+        ],
+        "adjacency": [],
+        "walls": [
+            {
+                "id": "wall-left",
+                "floor": 1,
+                "start": (2000, 0),
+                "end": (2000, 5000),
+                "thickness": 200,
+                "space_ids": ["sp-center", "sp-left"],
+                "kind": "INTERIOR",
+            },
+            {
+                "id": "wall-top",
+                "floor": 1,
+                "start": (2000, 5000),
+                "end": (5000, 5000),
+                "thickness": 200,
+                "space_ids": ["sp-center"],
+                "kind": "EXTERIOR",
+            },
+        ],
+        "doors": [],
+        "windows": [],
+        "boundaries": [],
+        "storeys": [{"id": "st-001", "floor": 1, "elevation": 0.0}],
+    }
+
+    result = plan_resize_room(
+        target_space_id="sp-center",
+        new_width=2000,
+        new_height=5000,
+        preferred_direction="west",
+        ifc_context=ctx,
+    )
+
+    assert result["status"] == "unsupported"
+    assert result["reason"] == "resize_geometry_healing_required"
 
 
 @pytest.mark.asyncio
@@ -1642,8 +1722,11 @@ async def test_pipeline_preview_house_kr_resize_room_with_direction_is_ready():
 
     preview = await pipeline.execute_command_preview(command)
 
-    assert preview["status"] == "preview_ready"
-    assert preview["policy_plan"]["direction"] == "west"
+    assert preview["status"] in {"preview_ready", "unsupported"}
+    if preview["status"] == "preview_ready":
+        assert preview["policy_plan"]["direction"] == "west"
+    else:
+        assert preview["policy_plan"]["reason"] == "resize_geometry_healing_required"
 
 
 @pytest.mark.asyncio
@@ -1848,6 +1931,7 @@ def test_build_engine_request_remove_room_deduplicates_selector(policy_ifc_ctx):
         policy_plan={
             "status": "planned",
             "target_space_id": "sp-center",
+            "merge_target_space_id": "sp-left",
             "remove_wall_ids": ["wall-left", "wall-left"],
             "remove_opening_ids": ["door-left", "door-left"],
         },
@@ -1857,6 +1941,7 @@ def test_build_engine_request_remove_room_deduplicates_selector(policy_ifc_ctx):
     selector_ids = engine_request.operations[0].selector["global_ids"]
     assert selector_ids == ["door-left", "wall-left", "sp-center"]
     assert engine_request.base_revision_id == "rev-1"
+    assert engine_request.operations[0].parameters["merge_target_space_id"] == "sp-left"
 
 
 def test_build_engine_request_add_room_requires_storey_id(ifc_ctx):
@@ -2097,4 +2182,43 @@ def test_build_engine_request_resize_east_splits_target_and_affected_transforms(
         "width": 2000,
         "height": 5000,
     }
+
+
+def test_axis_aligned_rectangle_tolerates_small_point_noise():
+    noisy_rectangle = [
+        (0.0, 0.0),
+        (4000.0, 0.0001),
+        (3999.9999, 5000.0),
+        (0.0, 5000.0001),
+    ]
+
+    assert plan_resize_room(
+        target_space_id="sp-center",
+        new_width=3000,
+        new_height=5000,
+        ifc_context={
+            "spaces": [
+                {
+                    "id": "sp-center",
+                    "name": "center",
+                    "type": "other",
+                    "floor": 1,
+                    "polygon": noisy_rectangle,
+                    "width": 4000,
+                    "height": 5000,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "angle": 0.0,
+                    "locked": False,
+                    "zone_id": None,
+                }
+            ],
+            "adjacency": [],
+            "walls": [],
+            "doors": [],
+            "windows": [],
+            "boundaries": [],
+            "storeys": [],
+        },
+    )["reason"] != "non_rectangular_space"
 

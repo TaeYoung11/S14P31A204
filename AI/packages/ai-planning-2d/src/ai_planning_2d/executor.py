@@ -150,11 +150,13 @@ def _apply_remove_room(
         return {"status": "not_applied", "summary": "삭제 대상 IfcSpace를 찾지 못했습니다."}
 
     ifcopenshell.api.root.remove_product(model, product=space)
+    merge_target_space_id = policy_plan.get("merge_target_space_id")
     model.write(output_path)
     return {
         "status": "applied",
         "summary": "IfcSpace 삭제가 적용되었습니다.",
         "removed_space_id": policy_plan["target_space_id"],
+        "merge_target_space_id": merge_target_space_id,
     }
 
 

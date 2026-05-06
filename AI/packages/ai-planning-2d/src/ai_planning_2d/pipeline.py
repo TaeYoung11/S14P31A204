@@ -92,7 +92,7 @@ def to_ifc_commands(
                 clarification_question=_TMPL_FLOOR_NOT_FOUND.format(floor=command.new_room.floor),
             )
         start_mm = (0.0, 0.0)
-        if ifc_context is not None and ifc_context.get("boundaries"):
+        if ifc_context is not None:
             suggested_start = suggest_add_room_start_mm(
                 ifc_context,
                 floor=command.new_room.floor,

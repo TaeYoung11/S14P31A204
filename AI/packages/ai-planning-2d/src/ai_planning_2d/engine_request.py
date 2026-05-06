@@ -154,11 +154,13 @@ def _build_remove_room_operations(
     policy_plan: dict[str, Any] | None,
 ) -> list[EngineOperationInlineRef]:
     delete_ids: list[str] = []
+    merge_target_space_id: str | None = None
     if policy_plan is not None:
         delete_ids.extend(policy_plan.get("remove_opening_ids", []))
         delete_ids.extend(policy_plan.get("remove_wall_ids", []))
         if policy_plan.get("target_space_id"):
             delete_ids.append(policy_plan["target_space_id"])
+        merge_target_space_id = policy_plan.get("merge_target_space_id")
     else:
         delete_ids = [cmd.target_id for cmd in command_batch.commands if cmd.target_id]
     delete_ids = list(dict.fromkeys(delete_ids))
@@ -169,7 +171,10 @@ def _build_remove_room_operations(
             id="op-delete-elements",
             type="delete_elements",
             selector={"global_ids": delete_ids},
-            parameters={"cascade": True},
+            parameters={
+                "cascade": True,
+                "merge_target_space_id": merge_target_space_id,
+            },
         )
     ]
 

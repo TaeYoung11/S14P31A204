@@ -189,7 +189,7 @@ class LLM2DPipeline:
                         }
                     )
                     return response
-                except Exception as exc:
+                except (ValueError, TypeError, KeyError) as exc:
                     response.update(
                         {
                             "status": "apply_failed",

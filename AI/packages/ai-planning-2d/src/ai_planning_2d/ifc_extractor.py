@@ -41,9 +41,9 @@ class UnsupportedIfcSchemaError(ValueError):
 
 
 def extract_ifc_context(ifc_path: str) -> IFCContext:
-    """Open an IFC4 file and extract IFCContext."""
+    """Open an IFC4-family file and extract IFCContext."""
     ifc = ifcopenshell.open(ifc_path)
-    if ifc.schema != "IFC4":
+    if not str(ifc.schema).upper().startswith("IFC4"):
         raise UnsupportedIfcSchemaError(f"Unsupported IFC schema: {ifc.schema}")
 
     storeys = _extract_storeys(ifc)
