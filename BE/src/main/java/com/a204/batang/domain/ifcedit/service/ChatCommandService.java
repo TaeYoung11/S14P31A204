@@ -16,6 +16,8 @@ public class ChatCommandService {
     private final ThreeDLlmIfcEditCommandService threeDLlmIfcEditCommandService;
 
     public IfcEditJobResponse createChatCommand(UUID projectId, UUID userId, ChatCommandRequest request) {
+        // The public chat contract stays generic so it can grow beyond edit-only requests.
+        // In the current MVP, that message is translated into the edit worker's userInstruction.
         LlmIfcEditRequest llmRequest = new LlmIfcEditRequest(
                 request.baseRevisionId(),
                 request.sourceSceneStateId(),
