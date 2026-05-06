@@ -1018,7 +1018,19 @@ def _apply_zone_style(
 ) -> None:
     if color_hex is None:
         return
-    body_item = entity.Representation.Representations[0].Items[0]
+    representation = getattr(entity, "Representation", None)
+    if representation is None:
+        return
+
+    representations = list(getattr(representation, "Representations", []) or [])
+    if not representations:
+        return
+
+    items = list(getattr(representations[0], "Items", []) or [])
+    if not items:
+        return
+
+    body_item = items[0]
     style_assignment = _style_assignment_for_color(model, color_hex, style_cache)
     model.create_entity("IfcStyledItem", Item=body_item, Styles=[style_assignment])
 
