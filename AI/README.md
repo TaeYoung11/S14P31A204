@@ -1,58 +1,122 @@
-# AI Workspace
+# AI 워크스페이스
 
-이 디렉토리는 Python 3.11 기반 `uv` workspace입니다.
+이 디렉터리는 Batang AI 워커용 Python 3.11 워크스페이스다.
 
-## Packages
+현재 브랜치의 실행 대상은 `IFC_GENERATE_FROM_BUBBLE` 하나뿐이다.  
+2D, 3D, IFC edit, SD render용 placeholder 워커는 이번 브랜치에 등록하지 않는다.
 
-- `ai-common`: Worker 공통 실행 SDK, 설정, 로깅, 어댑터가 들어갈 공용 패키지
-- `ai-domain`: 공용 메시지 모델, 스키마 대응 타입, 도메인 계약 패키지
-- `ai-planning`: `llm_2d`, `llm_3d` 계열 Worker 템플릿과 planning 로직 패키지
-- `ai-rendering`: `sd_render` 계열 Worker 템플릿과 rendering 로직 패키지
-- `ai-layout-import`: `ifc_generate` 계열 Worker 템플릿과 layout → IFC import 패키지
-- `ai-authoring`: `ifc_edit` 계열 Worker 템플릿과 IFC authoring 패키지
-- `ai-evals`: 평가 및 실험용 패키지
+## 패키지
 
-패키지 디렉토리 이름은 kebab-case를 쓰고, Python import 이름은 snake_case를 씁니다.
-예: `packages/ai-layout-import` → `ai_layout_import`
+- `ai-common`: 워커 공통 설정, health server, logging, RabbitMQ, S3 어댑터
+- `ai-domain`: command/event 메시지 모델
+- `ai-layout-import`: IFC generate 워커와 layout-to-IFC 변환 로직
+- `ai-authoring`, `ai-planning`, `ai-planning-2d`, `ai-planning-3d`, `ai-rendering`, `ai-evals`: 다른 팀원이 이후 별도 브랜치에서 붙일 패키지
 
-## Worker Asset Conventions
+## 로컬 준비
 
-루트 공용 자산은 아래 위치를 기준으로 사용합니다.
-
-- `configs/`: Worker별 환경 변수 템플릿 (`*.env.example`만 커밋, 실제 `*.env`는 로컬에서 생성)
-- `sample_messages/`: command/event 샘플 메시지
-- `scripts/`: 로컬 실행, 샘플 publish, bucket bootstrap 등 운영 스크립트
-- `docker/`: Worker 이미지용 Dockerfile
-- `tests/unit/`: 순수 단위 테스트
-- `tests/integration/`: 외부 어댑터 연동 테스트
-- `tests/smoke/`: 실행 가능성 확인용 스모크 테스트
-
-## Package Ownership
-
-- `ifc_generate` 책임은 `ai-layout-import`가 가진다.
-- `ifc_edit` 책임은 `ai-authoring`이 가진다.
-- `ai-layout-import`는 새 IFC 산출물 생성에 집중하고, 기존 IFC 수정 책임은 갖지 않는다.
-- `ai-authoring`은 기존 IFC/revision 수정에 집중하고, layout import 책임은 갖지 않는다.
-
-## Current Scope
-
-현재 워크스페이스는 공통 구조와 패키지 경계를 우선 정리하는 단계다.
-RabbitMQ, MinIO/S3, Worker loop, health check, Docker Compose wiring, stub Worker 구현은
-후속 티켓에서 순차적으로 추가한다.
-
-## Validation
+워크스페이스 설치:
 
 ```bash
 uv sync
-uv run python -c "import ai_domain, ai_common, ai_planning, ai_rendering, ai_layout_import, ai_authoring, ai_evals"
+```
+
+환경변수 파일 준비:
+
+```bash
+cp .env.example .env
+```
+
+필수 값:
+
+- `WORKER_TYPE=IFC_GENERATE_FROM_BUBBLE`
+- `WORKER_ID=ifc-generate-worker-1`
+- `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, `RABBITMQ_VHOST`
+- `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`
+
+`AI_WORKER_TEMP_DIR`는 선택값이며, 비우면 `AI/.tmp/ai-layout-import`를 사용한다.
+
+## IFC Generate 워커 실행
+
+상시 실행:
+
+```bash
+uv run ifc-generate-worker
+```
+
+one-shot 실행:
+
+```bash
+uv run ifc-generate-worker --once
+```
+
+루트 디스패처로 실행:
+
+```bash
+uv run python main.py
+```
+
+루트 디스패처 one-shot 실행:
+
+```bash
+uv run python main.py --once
+```
+
+## 샘플 command 발행
+
+```bash
+WORKER_TYPE=IFC_GENERATE_FROM_BUBBLE uv run python scripts/publish_sample_command.py
+```
+
+샘플 발행 스크립트는 `command.ifc-generate.from-bubble` routing key를 사용한다.
+
+## Docker / Compose
+
+현재 Compose 서비스명은 `worker-ifc-generate`이며, 이번 브랜치에서는 이 서비스만 AI 워커로 사용한다.
+
+MinIO bucket 준비만 먼저 하고 싶다면:
+
+```bash
+docker compose -f ../INFRA/docker-compose.yml --profile ai up -d rabbitmq minio minio-init
+```
+
+IFC generate 워커까지 같이 띄우려면:
+
+```bash
+docker compose -f ../INFRA/docker-compose.yml --profile ai up -d worker-ifc-generate
+```
+
+## Live Smoke Test
+
+live smoke는 opt-in이며 실제 RabbitMQ/MinIO 연결이 필요하다.
+
+```bash
+RUN_LIVE_IFC_GENERATE_SMOKE=1 uv run pytest tests/smoke/test_ifc_generate_worker_live.py
+```
+
+이 테스트는 다음을 검증한다.
+
+- UUID 기반 IFC generate command 1건 발행
+- `python main.py --once` 실행
+- `started`와 `completed` 이벤트 수신
+- IFC object 업로드 확인
+- validation report object 업로드 확인
+
+주의:
+
+- BE consumer가 붙지 않은 RabbitMQ vhost 또는 격리된 브로커를 사용한다.
+- bucket 또는 prefix는 `smoke/<uuid>/...`처럼 격리해서 사용한다.
+- `output.storage_url`은 command의 reserved ref와 정확히 같아야 한다.
+- 현재 `INFRA/docker-compose.yml`은 호스트에 RabbitMQ AMQP `5672`와 MinIO API `9000`을 노출하지 않으므로, smoke는 해당 서비스에 직접 접근 가능한 환경에서 실행해야 한다.
+
+## 이후 확장 원칙
+
+나중에 다른 worker를 붙일 때도 이번 브랜치에 placeholder를 미리 넣지 않는다.  
+각 worker는 별도 컨테이너로 분리해서 추가하고, 공용 이미지 전략 여부는 그 시점에 결정한다.
+
+## 검증
+
+```bash
 uv run pytest
 uv run ruff check .
 uv run mypy packages
-```
-
-Windows에서 로컬 cache / managed Python 경로를 workspace 내부로 고정하려면 아래 예시를 사용합니다.
-
-```powershell
-$env:UV_CACHE_DIR = ".uv-cache"
-$env:UV_PYTHON_INSTALL_DIR = ".uv-python"
 ```

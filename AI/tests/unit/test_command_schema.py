@@ -120,6 +120,19 @@ def test_ifc_generate_payload_accepts_v2_layout_import() -> None:
     assert model.commandType == "IFC_GENERATE_FROM_BUBBLE"
 
 
+def test_ifc_generate_payload_accepts_snake_case_layout_import_from_be() -> None:
+    data = load_json(SAMPLE_ROOT / "command_ifc_generate.json")
+    payload = data.pop("payload")
+    data["payload"] = {
+        "layout_import": _schema_ready_command({"payload": payload})["payload"]["layout_import"]
+    }
+
+    model = CommandMessage.model_validate(data)
+
+    assert model.commandType == "IFC_GENERATE_FROM_BUBBLE"
+    assert model.payload.layoutImport.name == "sample-project"
+
+
 def test_ifc_edit_payload_rejects_layout_import_fields() -> None:
     data = load_json(SAMPLE_ROOT / "command_ifc_edit.json")
     data["payload"] = load_json(SAMPLE_ROOT / "command_ifc_generate.json")["payload"]

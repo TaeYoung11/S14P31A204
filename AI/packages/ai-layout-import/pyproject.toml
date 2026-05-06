@@ -3,11 +3,13 @@ name = "ai-layout-import"
 version = "0.1.0"
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "ai-common",
     "ai-domain",
     "ifcopenshell>=0.8.5",
 ]
 
 [project.scripts]
+ifc-generate-worker = "ai_layout_import.worker_app:main"
 layout-import-json-to-ifc = "ai_layout_import.cli:main"
 
 [build-system]

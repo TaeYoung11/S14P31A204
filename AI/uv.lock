@@ -117,12 +117,14 @@ name = "ai-layout-import"
 version = "0.1.0"
 source = { editable = "packages/ai-layout-import" }
 dependencies = [
+    { name = "ai-common" },
     { name = "ai-domain" },
     { name = "ifcopenshell" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "ai-common", editable = "packages/ai-common" },
     { name = "ai-domain", editable = "packages/ai-domain" },
     { name = "ifcopenshell", specifier = ">=0.8.5" },
 ]
