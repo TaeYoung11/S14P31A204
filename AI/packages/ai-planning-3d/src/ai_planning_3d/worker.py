@@ -66,14 +66,13 @@ class PlanningWorker(BaseWorker):
                 ) from exc
 
             pipeline = LLM3DPipeline(ifc_path=str(ifc_path))
-
-        try:
-            result = asyncio.run(pipeline.execute_preview(user_instruction))
-        except Exception as exc:
-            raise NonRetryableWorkerError(
-                code="PIPELINE_FAILED",
-                message=f"Pipeline 실행 실패: {exc}",
-            ) from exc
+            try:
+                result = asyncio.run(pipeline.execute_preview(user_instruction))
+            except Exception as exc:
+                raise NonRetryableWorkerError(
+                    code="PIPELINE_FAILED",
+                    message=f"Pipeline 실행 실패: {exc}",
+                ) from exc
 
         return self._map_result(result, command, output_url)
 
@@ -131,8 +130,10 @@ class PlanningWorker(BaseWorker):
                 bucket=loc.bucket,
             )
         except Exception as exc:
-            _logger.warning("result_upload_failed", url=output_url, error=str(exc))
-            return None
+            raise RetryableWorkerError(
+                code="RESULT_UPLOAD_FAILED",
+                message=f"결과 업로드 실패: {exc}",
+            ) from exc
 
 
 # ── planner_3d_result.v1.schema.json 변환 헬퍼 ───────────────────────────────
