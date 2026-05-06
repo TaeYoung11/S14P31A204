@@ -159,15 +159,18 @@ def _styled_items(
 
 def _style_hex(entity: ifcopenshell.entity_instance) -> str | None:
     body_item = _body_item(entity)
-    styled_items = _styled_items(body_item)
-    if not styled_items:
-        return None
-
-    assignment = styled_items[0].Styles[0]
-    surface_style = assignment.Styles[0]
-    shading = surface_style.Styles[0]
-    surface_color = shading.SurfaceColour
-    return _rgb_to_hex(surface_color.Red, surface_color.Green, surface_color.Blue)
+    for styled_item in _styled_items(body_item):
+        for assignment in getattr(styled_item, "Styles", []):
+            if not assignment.is_a("IfcPresentationStyleAssignment"):
+                continue
+            for style in getattr(assignment, "Styles", []):
+                if not style.is_a("IfcSurfaceStyle"):
+                    continue
+                for element in getattr(style, "Styles", []):
+                    if element.is_a("IfcSurfaceStyleShading"):
+                        color = element.SurfaceColour
+                        return _rgb_to_hex(color.Red, color.Green, color.Blue)
+    return None
 
 
 def _assert_no_style(entity: ifcopenshell.entity_instance) -> None:
