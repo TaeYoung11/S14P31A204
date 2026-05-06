@@ -68,7 +68,7 @@ _PRESETS: dict[str, DepthStyleParams] = {
         negative_prompt=(
             "low quality, cgi, render, interior, basement, extra floor, "
             "stone wall, retaining wall, fence, raised platform, podium, "
-            "piloti, balcony, shopfront"
+            "piloti, balcony, shopfront, blue wall"
         ),
         guidance_scale=7.0,
         num_inference_steps=25,
