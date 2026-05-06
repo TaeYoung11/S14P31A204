@@ -84,7 +84,18 @@ def _append_negative_terms(base_negative: str, extra_negative: str) -> str:
         return base_negative
     if not base_negative:
         return extra_negative
-    return f"{base_negative}, {extra_negative}"
+    terms: list[str] = []
+    seen: set[str] = set()
+    for raw_term in f"{base_negative}, {extra_negative}".split(","):
+        term = raw_term.strip()
+        if not term:
+            continue
+        key = term.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        terms.append(term)
+    return ", ".join(terms)
 
 
 def _build_front_side_semantic_mask(control: Image.Image) -> Image.Image:
