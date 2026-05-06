@@ -75,13 +75,13 @@ class ChatCommandServiceTest {
                 "TWO_D_TO_IFC_EDIT", "QUEUED", 0
         );
 
-        given(twoDLlmIfcEditCommandService.createTwoDLlmIfcEdit(eq(projectId), eq(userId), eq(expectedLlmRequest(request))))
+        given(twoDLlmIfcEditCommandService.createTwoDLlmIfcEdit(eq(projectId), eq(userId), eq(expectedWorkerRequest(request))))
                 .willReturn(expectedResponse);
 
         IfcEditJobResponse response = service.createChatCommand(projectId, userId, request);
 
         assertThat(response).isEqualTo(expectedResponse);
-        verify(twoDLlmIfcEditCommandService).createTwoDLlmIfcEdit(eq(projectId), eq(userId), eq(expectedLlmRequest(request)));
+        verify(twoDLlmIfcEditCommandService).createTwoDLlmIfcEdit(eq(projectId), eq(userId), eq(expectedWorkerRequest(request)));
     }
 
     @Test
@@ -134,7 +134,7 @@ class ChatCommandServiceTest {
                 null
         );
 
-        given(twoDLlmIfcEditCommandService.createTwoDLlmIfcEdit(eq(projectId), eq(userId), eq(expectedLlmRequest(request))))
+        given(twoDLlmIfcEditCommandService.createTwoDLlmIfcEdit(eq(projectId), eq(userId), eq(expectedWorkerRequest(request))))
                 .willThrow(new CustomException(ErrorCode.IFC_EDIT_JOB_CONFLICT));
 
         assertThatThrownBy(() -> service.createChatCommand(projectId, userId, request))
@@ -157,7 +157,7 @@ class ChatCommandServiceTest {
                 null
         );
 
-        given(threeDLlmIfcEditCommandService.createThreeDLlmIfcEdit(eq(projectId), eq(userId), eq(expectedLlmRequest(request))))
+        given(threeDLlmIfcEditCommandService.createThreeDLlmIfcEdit(eq(projectId), eq(userId), eq(expectedWorkerRequest(request))))
                 .willThrow(new CustomException(ErrorCode.IFC_EDIT_COMMAND_PUBLISH_FAILED));
 
         assertThatThrownBy(() -> service.createChatCommand(projectId, userId, request))
@@ -166,7 +166,7 @@ class ChatCommandServiceTest {
                 .isEqualTo(ErrorCode.IFC_EDIT_COMMAND_PUBLISH_FAILED);
     }
 
-    private LlmIfcEditRequest expectedLlmRequest(ChatCommandRequest request) {
+    private LlmIfcEditRequest expectedWorkerRequest(ChatCommandRequest request) {
         return new LlmIfcEditRequest(
                 request.baseRevisionId(),
                 request.sourceSceneStateId(),
