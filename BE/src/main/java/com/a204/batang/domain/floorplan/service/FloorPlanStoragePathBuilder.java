@@ -15,7 +15,7 @@ public class FloorPlanStoragePathBuilder {
      * @return IFC storage 경로
      */
     public String buildIfcStorageUrl(UUID projectId, UUID revisionId) {
-        return "projects/" + projectId + "/revisions/" + revisionId + "/model.ifc";
+        return "projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc";
     }
 
     /**
@@ -25,7 +25,14 @@ public class FloorPlanStoragePathBuilder {
      * @param stepNo step 번호
      * @return validation report storage 경로
      */
-    public String buildValidationReportStorageUrl(UUID jobId, int stepNo) {
-        return "jobs/" + jobId + "/steps/" + stepNo + "/validation-report.json";
+    public String buildValidationReportStorageUrl(UUID projectId, UUID jobId, int stepNo) {
+        return "projects/" + projectId
+                + "/jobs/" + jobId
+                + "/steps/" + formatStepNo(stepNo)
+                + "/engine/validation-report.v1.json";
+    }
+
+    String formatStepNo(int stepNo) {
+        return "%03d".formatted(stepNo);
     }
 }

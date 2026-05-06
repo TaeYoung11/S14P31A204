@@ -216,8 +216,8 @@ class FloorPlanGenerateEventListenerTest {
     @Test
     void handleCompleted_updatesStateAndSavesArtifacts() {
         FloorPlanGenerateEventMessage event = completedEvent(
-                "projects/" + projectId + "/revisions/" + revisionId + "/model.ifc",
-                "jobs/" + jobId + "/steps/1/validation-report.json"
+                "projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc",
+                "projects/" + projectId + "/jobs/" + jobId + "/steps/001/engine/validation-report.v1.json"
         );
         given(floorPlanJobRepository.findByJobIdAndJobType(jobId, FloorPlanConstants.JOB_TYPE_IFC_GENERATE_FROM_BUBBLE))
                 .willReturn(Optional.of(job));
@@ -237,7 +237,7 @@ class FloorPlanGenerateEventListenerTest {
         assertThat(step.getStatus()).isEqualTo("SUCCEEDED");
         assertThat(revision.getStatus()).isEqualTo("SUCCEEDED");
         assertThat(project.getLatestRevisionId()).isEqualTo(revisionId);
-        assertThat(workspace.getIfcStorageUrl()).isEqualTo("projects/" + projectId + "/revisions/" + revisionId + "/model.ifc");
+        assertThat(workspace.getIfcStorageUrl()).isEqualTo("projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc");
         assertThat(workspace.getCurrentRevision()).isEqualTo(revisionId.toString());
         verify(floorPlanArtifactRepository, times(2)).save(any(FloorPlanArtifact.class));
         verify(eventPublisher).publishEvent(any(FloorPlanStatusChangedEvent.class));
@@ -246,7 +246,7 @@ class FloorPlanGenerateEventListenerTest {
     @Test
     void handleCompleted_savesIfcArtifactOnlyWhenValidationReportIsMissing() {
         FloorPlanGenerateEventMessage event = completedEvent(
-                "projects/" + projectId + "/revisions/" + revisionId + "/model.ifc",
+                "projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc",
                 null
         );
         given(floorPlanJobRepository.findByJobIdAndJobType(jobId, FloorPlanConstants.JOB_TYPE_IFC_GENERATE_FROM_BUBBLE))
@@ -303,7 +303,7 @@ class FloorPlanGenerateEventListenerTest {
     void handleIgnoresDuplicateTerminalEvents() {
         job.markFailed("failed", objectMapper.createObjectNode(), LocalDateTime.now());
         step.markFailed("failed", "failed", objectMapper.createObjectNode(), LocalDateTime.now());
-        FloorPlanGenerateEventMessage event = completedEvent("s3://model.ifc", null);
+        FloorPlanGenerateEventMessage event = completedEvent("s3://model.v1.ifc", null);
 
         given(floorPlanJobRepository.findByJobIdAndJobType(jobId, FloorPlanConstants.JOB_TYPE_IFC_GENERATE_FROM_BUBBLE))
                 .willReturn(Optional.of(job));
@@ -351,7 +351,7 @@ class FloorPlanGenerateEventListenerTest {
                 artifactId,
                 "completed",
                 1.0,
-                Map.of("storage_url", "s3://model.ifc"),
+                Map.of("storage_url", "s3://model.v1.ifc"),
                 null,
                 null,
                 jobId + ":step-1:ifc-generate",
@@ -390,7 +390,7 @@ class FloorPlanGenerateEventListenerTest {
                 UUID.randomUUID(),
                 "completed",
                 1.0,
-                Map.of("storage_url", "s3://model.ifc"),
+                Map.of("storage_url", "s3://model.v1.ifc"),
                 null,
                 null,
                 jobId + ":step-1:ifc-generate",
@@ -688,7 +688,13 @@ class FloorPlanGenerateEventListenerTest {
                 "failed",
                 0.4,
                 null,
-                new FloorPlanWorkerError("IFC_FAILED", "IFC 생성 실패", true, false, "jobs/error.json"),
+                new FloorPlanWorkerError(
+                        "IFC_FAILED",
+                        "IFC 생성 실패",
+                        true,
+                        false,
+                        "projects/" + projectId + "/jobs/" + jobId + "/steps/001/engine/validation-report.v1.json"
+                ),
                 null,
                 jobId + ":step-1:ifc-generate",
                 UUID.randomUUID(),
@@ -743,7 +749,10 @@ class FloorPlanGenerateEventListenerTest {
                 revisionId,
                 artifactId,
                 null,
-                new FloorPlanGenerateCommandMessage.ExpectedOutput("projects/" + projectId + "/revisions/" + revisionId + "/model.ifc", null),
+                new FloorPlanGenerateCommandMessage.ExpectedOutput(
+                        "projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc",
+                        null
+                ),
                 new FloorPlanGenerateCommandMessage.Payload(null),
                 attemptNo,
                 maxAttempts,

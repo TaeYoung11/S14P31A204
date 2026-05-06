@@ -78,7 +78,11 @@ class RenderCommandServiceTest {
         constructor.setAccessible(true);
         workspace = constructor.newInstance();
         ReflectionTestUtils.setField(workspace, "projectId", projectId);
-        ReflectionTestUtils.setField(workspace, "ifcStorageUrl", "s3://batang/projects/" + projectId + "/model.ifc");
+        ReflectionTestUtils.setField(
+                workspace,
+                "ifcStorageUrl",
+                "s3://batang/projects/" + projectId + "/revisions/" + UUID.randomUUID() + "/ifc/model.v1.ifc"
+        );
     }
 
     @Test
