@@ -30,6 +30,7 @@ from ai_rendering.ifc2img import (
     resolve_preset_view_render_options,
 )
 from ai_rendering.ifc2img.style import DEFAULT_CONTROLNET_SEG_ID
+from ai_rendering.ifc2img.views import AutoZoomMode
 
 
 def _parse_args() -> argparse.Namespace:
@@ -63,6 +64,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Render depth images and print preset info without SD styling.",
     )
+    parser.add_argument(
+        "--auto-zoom",
+        action="store_true",
+        help="Use iterative depth zoom to match each view's target fill ratio.",
+    )
     return parser.parse_args()
 
 
@@ -92,10 +98,15 @@ def _render_depths(
     ifc_path: Path,
     views: list[IFCView],
     output_dir: Path,
+    auto_zoom: bool = False,
 ) -> dict[IFCView, Path]:
     """Render depth PNGs for each requested view."""
-    print(f"[depth] rendering {ifc_path.name} views={len(views)}")
-    renderer = IFCRenderer(width=768, height=448)
+    zoom_mode = AutoZoomMode.ITERATIVE if auto_zoom else AutoZoomMode.OFF
+    print(
+        f"[depth] rendering {ifc_path.name} views={len(views)} "
+        f"auto_zoom={zoom_mode.value}"
+    )
+    renderer = IFCRenderer(width=768, height=448, auto_zoom=zoom_mode)
     images = renderer.render_views(ifc_path, views=views)
 
     saved: dict[IFCView, Path] = {}
@@ -242,9 +253,15 @@ def main() -> int:
     print(f"presets: {presets}")
     print(f"output: {args.output}")
     print(f"mode: {'dry-run' if args.dry_run else 'render'}\n")
+    print(f"auto_zoom: {'iterative' if args.auto_zoom else 'off'}")
 
     try:
-        depth_paths = _render_depths(args.ifc, views, args.output)
+        depth_paths = _render_depths(
+            args.ifc,
+            views,
+            args.output,
+            auto_zoom=args.auto_zoom,
+        )
         _print_preset_info(presets)
 
         if args.dry_run:
