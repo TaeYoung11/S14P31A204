@@ -10,8 +10,18 @@ from __future__ import annotations
 import re
 from typing import NamedTuple
 
-import boto3
-from botocore.exceptions import ClientError
+try:
+    import boto3
+except Exception:  # pragma: no cover - exercised in local fallback only
+    boto3 = None  # type: ignore[assignment]
+
+try:
+    from botocore.exceptions import ClientError
+except Exception:  # pragma: no cover - exercised in local fallback only
+    class ClientError(Exception):
+        def __init__(self, error_response: dict[str, dict[str, str]], operation_name: str) -> None:
+            super().__init__(f"{operation_name}: {error_response}")
+            self.response = error_response
 
 from ai_common.config import S3Settings
 from ai_common.logging import get_logger
@@ -24,6 +34,13 @@ _S3_URL_RE = re.compile(r"^s3://(?P<bucket>[^/]+)/(?P<key>.+)$")
 class S3Location(NamedTuple):
     bucket: str
     key: str
+
+
+class ResolvedS3WriteTarget(NamedTuple):
+    reference: str
+    bucket: str
+    key: str
+    canonical_url: str
 
 
 def parse_s3_url(url: str) -> S3Location:
@@ -40,6 +57,43 @@ def parse_s3_url(url: str) -> S3Location:
     return S3Location(bucket=match.group("bucket"), key=match.group("key"))
 
 
+def resolve_s3_write_target(reference: str, default_bucket: str) -> ResolvedS3WriteTarget:
+    """Resolve a reserved storage reference into a concrete bucket/key target.
+
+    Accepts either canonical ``s3://bucket/key`` URLs or bucket-relative keys
+    such as ``projects/<id>/model.ifc``. The original reference is preserved
+    so callers can echo the reserved ref back in events unchanged.
+    """
+    if reference.startswith("s3://"):
+        location = parse_s3_url(reference)
+        return ResolvedS3WriteTarget(
+            reference=reference,
+            bucket=location.bucket,
+            key=location.key,
+            canonical_url=reference,
+        )
+
+    if not reference:
+        raise ValueError("Storage reference must not be empty")
+    if reference.startswith("/"):
+        raise ValueError(
+            "Invalid storage reference "
+            f"{reference!r}: expected bucket-relative key without leading slash"
+        )
+    if "://" in reference:
+        raise ValueError(
+            "Invalid storage reference "
+            f"{reference!r}: only s3://bucket/key or bucket-relative keys are supported"
+        )
+
+    return ResolvedS3WriteTarget(
+        reference=reference,
+        bucket=default_bucket,
+        key=reference,
+        canonical_url=f"s3://{default_bucket}/{reference}",
+    )
+
+
 class S3Client:
     """Thin boto3 wrapper supporting both AWS S3 and MinIO.
 
@@ -48,6 +102,10 @@ class S3Client:
     """
 
     def __init__(self, settings: S3Settings) -> None:
+        if boto3 is None:
+            raise ModuleNotFoundError(
+                "boto3 is required to use S3Client. Install ai-common runtime dependencies first."
+            )
         kwargs: dict[str, object] = {"region_name": settings.region}
         if settings.endpoint_url is not None:
             kwargs["endpoint_url"] = settings.endpoint_url
@@ -88,6 +146,23 @@ class S3Client:
         )
         return f"s3://{target}/{key}"
 
+    def write_bytes_to_ref(
+        self,
+        reference: str,
+        data: bytes,
+        content_type: str = "application/octet-stream",
+    ) -> ResolvedS3WriteTarget:
+        """Upload bytes using a reserved storage reference."""
+        target = resolve_s3_write_target(reference, self._default_bucket)
+        _logger.debug("s3_write_ref", bucket=target.bucket, key=target.key, reference=reference)
+        self._client.put_object(
+            Bucket=target.bucket,
+            Key=target.key,
+            Body=data,
+            ContentType=content_type,
+        )
+        return target
+
     def write_text(
         self,
         key: str,
@@ -102,6 +177,20 @@ class S3Client:
             text.encode(encoding),
             content_type=content_type,
             bucket=bucket,
+        )
+
+    def write_text_to_ref(
+        self,
+        reference: str,
+        text: str,
+        encoding: str = "utf-8",
+        content_type: str = "text/plain; charset=utf-8",
+    ) -> ResolvedS3WriteTarget:
+        """Upload text using a reserved storage reference."""
+        return self.write_bytes_to_ref(
+            reference,
+            text.encode(encoding),
+            content_type=content_type,
         )
 
     def object_exists(self, url: str) -> bool:

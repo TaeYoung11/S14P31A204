@@ -16,7 +16,10 @@ import json
 import sys
 from pathlib import Path
 
-import kombu
+try:
+    import kombu
+except Exception:  # pragma: no cover - exercised in local fallback only
+    kombu = None  # type: ignore[assignment]
 
 from ai_common.adapters.rabbitmq.kombu_client import COMMANDS_EXCHANGE, build_connection
 from ai_common.config import RabbitMQSettings, WorkerSettings
@@ -31,7 +34,7 @@ _WORKER_TYPE_TO_SAMPLE: dict[str, str] = {
 
 _WORKER_TYPE_TO_ROUTING_KEY: dict[str, str] = {
     "SD_RENDER_GENERATE": "command.sd-render.generate",
-    "IFC_GENERATE_FROM_BUBBLE": "command.ifc-generate.generate",
+    "IFC_GENERATE_FROM_BUBBLE": "command.ifc-generate.from-bubble",
     "TWO_D_LLM_GENERATE": "command.2d-llm.generate",
     "THREE_D_LLM_GENERATE": "command.3d-llm.generate",
     "IFC_EDIT_APPLY": "command.ifc-edit.apply",
@@ -40,13 +43,31 @@ _WORKER_TYPE_TO_ROUTING_KEY: dict[str, str] = {
 _SAMPLES_DIR = Path(__file__).resolve().parents[1] / "sample_messages"
 
 
+def get_sample_file(worker_type: str) -> str:
+    try:
+        return _WORKER_TYPE_TO_SAMPLE[worker_type]
+    except KeyError as exc:
+        raise KeyError(f"No sample message defined for worker type: {worker_type!r}") from exc
+
+
+def get_routing_key(worker_type: str) -> str:
+    try:
+        return _WORKER_TYPE_TO_ROUTING_KEY[worker_type]
+    except KeyError as exc:
+        raise KeyError(f"No routing key defined for worker type: {worker_type!r}") from exc
+
+
 def main() -> None:
+    if kombu is None:
+        raise ModuleNotFoundError("kombu is required to publish sample commands")
+
     settings = WorkerSettings()
     worker_type = settings.worker_type
 
-    sample_file = _WORKER_TYPE_TO_SAMPLE.get(worker_type)
-    routing_key = _WORKER_TYPE_TO_ROUTING_KEY.get(worker_type)
-    if sample_file is None or routing_key is None:
+    try:
+        sample_file = get_sample_file(worker_type)
+        routing_key = get_routing_key(worker_type)
+    except KeyError:
         print(
             f"No sample message defined for WORKER_TYPE={worker_type!r}.\n"
             f"Supported types: {list(_WORKER_TYPE_TO_SAMPLE)}",

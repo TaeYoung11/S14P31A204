@@ -16,12 +16,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TYPE_CHECKING, Protocol
 
-import kombu
-import kombu.mixins
-
-from ai_common.adapters.rabbitmq.kombu_client import build_connection, get_command_queue
+from ai_common.adapters.rabbitmq.kombu_client import build_connection, get_command_queue, kombu
 from ai_common.config import RabbitMQSettings
 from ai_common.logging import get_logger
 from ai_domain.worker_messages.command import CommandMessage
@@ -30,8 +27,29 @@ _logger = get_logger(__name__)
 
 CommandHandler = Callable[[CommandMessage], None]
 
+if TYPE_CHECKING:
+    class ConsumerMixinBase:
+        should_stop: bool
 
-class RabbitMQConsumer(kombu.mixins.ConsumerMixin):
+        def run(self) -> None:
+            """Consumer mixin run loop."""
+
+else:
+    ConsumerMixinBase = kombu.mixins.ConsumerMixin
+
+
+class MessageLike(Protocol):
+    def ack(self) -> None:
+        """Acknowledge a message."""
+
+    def nack(self, *, requeue: bool) -> None:
+        """Reject a message with optional requeue."""
+
+    def reject(self, *, requeue: bool) -> None:
+        """Reject a malformed message."""
+
+
+class RabbitMQConsumer(ConsumerMixinBase):
     """Pull-based command consumer backed by kombu ConsumerMixin."""
 
     def __init__(
@@ -41,17 +59,23 @@ class RabbitMQConsumer(kombu.mixins.ConsumerMixin):
         worker_type: str,
         handler: CommandHandler,
         prefetch_count: int = 1,
+        stop_after: int | None = None,
     ) -> None:
+        if stop_after is not None and stop_after < 1:
+            raise ValueError("stop_after must be >= 1 when provided")
         self.connection = build_connection(settings)
         self._queue = get_command_queue(worker_type)
         self._handler = handler
         self._prefetch_count = prefetch_count
+        self._stop_after = stop_after
+        self._acked_count = 0
+        self.should_stop = False
 
     def get_consumers(
         self,
-        Consumer: type[kombu.Consumer],
+        Consumer: type[Any],
         channel: Any,
-    ) -> list[kombu.Consumer]:
+    ) -> list[Any]:
         channel.basic_qos(
             prefetch_size=0,
             prefetch_count=self._prefetch_count,
@@ -66,7 +90,7 @@ class RabbitMQConsumer(kombu.mixins.ConsumerMixin):
             )
         ]
 
-    def _on_message(self, body: Any, message: kombu.Message) -> None:
+    def _on_message(self, body: Any, message: MessageLike) -> None:
         try:
             raw = body if isinstance(body, dict) else json.loads(body)
             command = CommandMessage.model_validate(raw)
@@ -78,6 +102,9 @@ class RabbitMQConsumer(kombu.mixins.ConsumerMixin):
         try:
             self._handler(command)
             message.ack()
+            self._acked_count += 1
+            if self._stop_after is not None and self._acked_count >= self._stop_after:
+                self.should_stop = True
         except Exception as exc:
             _logger.error(
                 "command_handler_failed",

@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import logging as stdlib_logging
+from json import dumps as json_dumps
 from typing import Any
 
-import structlog
-from structlog.stdlib import BoundLogger
+try:
+    import structlog
+    from structlog.stdlib import BoundLogger
+except Exception:  # pragma: no cover - exercised in local fallback only
+    structlog = None  # type: ignore[assignment]
+    BoundLogger = Any  # type: ignore[misc,assignment]
 
 from ai_common.config import WorkerSettings
 from ai_common.context import RequestContext, get_context
@@ -36,8 +41,45 @@ _LOG_KEY_ALIASES = {
 }
 
 
+class _KeywordBoundLogger:
+    def __init__(
+        self,
+        logger: stdlib_logging.Logger,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        self._logger = logger
+        self._context = context or {}
+
+    def bind(self, **fields: Any) -> _KeywordBoundLogger:
+        return _KeywordBoundLogger(
+            self._logger,
+            {**self._context, **_canonicalize_extra_fields(fields)},
+        )
+
+    def __getattr__(self, name: str) -> Any:
+        target = getattr(self._logger, name)
+        if not callable(target):
+            return target
+
+        def wrapper(event: str, *args: Any, **kwargs: Any) -> Any:
+            context = {**self._context, **_canonicalize_extra_fields(kwargs)}
+            if context:
+                event = f"{event} | {json_dumps(context, ensure_ascii=False, sort_keys=True)}"
+            return target(event, *args)
+
+        return wrapper
+
+
 def configure_logging(settings: WorkerSettings) -> None:
     """Configure the shared structlog + stdlib logging pipeline."""
+
+    stdlib_logging.basicConfig(
+        format="%(message)s",
+        level=getattr(stdlib_logging, settings.log_level, stdlib_logging.INFO),
+        force=True,
+    )
+    if structlog is None:
+        return
 
     renderer: structlog.types.Processor
     if settings.log_json:
@@ -55,12 +97,6 @@ def configure_logging(settings: WorkerSettings) -> None:
         structlog.processors.format_exc_info,
         renderer,
     ]
-
-    stdlib_logging.basicConfig(
-        format="%(message)s",
-        level=getattr(stdlib_logging, settings.log_level, stdlib_logging.INFO),
-        force=True,
-    )
     structlog.reset_defaults()
     structlog.configure(
         processors=processors,
@@ -73,6 +109,8 @@ def configure_logging(settings: WorkerSettings) -> None:
 def get_logger(name: str | None = None) -> BoundLogger:
     """Return a shared bound logger instance."""
 
+    if structlog is None:
+        return _KeywordBoundLogger(stdlib_logging.getLogger(name))
     return structlog.get_logger(name)
 
 
@@ -105,16 +143,17 @@ def bind_worker_logger(
 ) -> BoundLogger:
     """Bind worker-scoped metadata to a logger."""
 
-    return logger.bind(
-        **_canonicalize_extra_fields(
-            {
-                "workerType": settings.worker_type,
-                "workerId": settings.worker_id,
-                "environment": settings.environment,
-                **extra,
-            }
-        )
+    fields = _canonicalize_extra_fields(
+        {
+            "workerType": settings.worker_type,
+            "workerId": settings.worker_id,
+            "environment": settings.environment,
+            **extra,
+        }
     )
+    if hasattr(logger, "bind"):
+        return logger.bind(**fields)
+    return stdlib_logging.LoggerAdapter(logger, fields)  # type: ignore[return-value]
 
 
 def bind_request_logger(
@@ -124,7 +163,10 @@ def bind_request_logger(
 ) -> BoundLogger:
     """Bind request-scoped metadata to a logger."""
 
-    return logger.bind(**build_log_context(context=context, **extra))
+    fields = build_log_context(context=context, **extra)
+    if hasattr(logger, "bind"):
+        return logger.bind(**fields)
+    return stdlib_logging.LoggerAdapter(logger, fields)  # type: ignore[return-value]
 
 
 def _canonicalize_extra_fields(fields: dict[str, Any]) -> dict[str, Any]:

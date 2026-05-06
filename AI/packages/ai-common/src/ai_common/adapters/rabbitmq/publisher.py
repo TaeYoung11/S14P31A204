@@ -10,9 +10,7 @@ from __future__ import annotations
 
 import json
 
-import kombu
-
-from ai_common.adapters.rabbitmq.kombu_client import EVENTS_EXCHANGE, build_connection
+from ai_common.adapters.rabbitmq.kombu_client import EVENTS_EXCHANGE, build_connection, kombu
 from ai_common.config import RabbitMQSettings
 from ai_common.logging import get_logger
 from ai_domain.worker_messages.event import EventMessage
