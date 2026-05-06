@@ -11,9 +11,22 @@ export function getVisiblePanelKeys(mode: EditorMode): PanelKey[] {
 }
 
 /**
- * 열린 패널 존재 여부에 따라 우측 도크 너비 클래스를 반환한다.
+ * 열린 패널 상태에 따라 우측 도크 너비(px)를 계산한다.
  */
-export function getRightDockWidthClass(visiblePanelKeys: PanelKey[], panelOpenState: Record<PanelKey, boolean>) {
+export function getRightDockWidth(
+  visiblePanelKeys: PanelKey[],
+  panelOpenState: Record<PanelKey, boolean>,
+  panelWidths: Record<PanelKey, number>,
+) {
   const hasAnyOpenPanel = visiblePanelKeys.some((panelKey) => panelOpenState[panelKey])
-  return hasAnyOpenPanel ? 'w-[300px]' : 'w-[56px]'
+  if (!hasAnyOpenPanel) {
+    return 56
+  }
+
+  const maxOpenPanelWidth = visiblePanelKeys.reduce((maxWidth, panelKey) => {
+    if (!panelOpenState[panelKey]) return maxWidth
+    return Math.max(maxWidth, panelWidths[panelKey] ?? 300)
+  }, 300)
+
+  return maxOpenPanelWidth
 }

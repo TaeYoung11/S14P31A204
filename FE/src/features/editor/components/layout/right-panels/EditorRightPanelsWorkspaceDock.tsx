@@ -15,7 +15,7 @@ import {
 } from './buildRightPanelSectionProps'
 
 interface WorkspaceDockProps {
-  rightDockWidthClass: string
+  rightDockWidth: number
   props: EditorRightPanelsProps
 }
 
@@ -23,7 +23,7 @@ interface WorkspaceDockProps {
  * 일반 편집 모드 우측 도크
  * - 속성/조닝/층/계층/어시스턴트 패널을 모드에 맞춰 조합한다.
  */
-export default function EditorRightPanelsWorkspaceDock({ rightDockWidthClass, props }: WorkspaceDockProps) {
+export default function EditorRightPanelsWorkspaceDock({ rightDockWidth, props }: WorkspaceDockProps) {
   const attributesPanelProps = buildAttributesSectionProps(props)
   const zoningPanelProps = buildZoningSectionProps(props)
   const floorViewPanelProps = buildFloorViewSectionProps(props)
@@ -31,7 +31,10 @@ export default function EditorRightPanelsWorkspaceDock({ rightDockWidthClass, pr
   const assistantPanelProps = buildAssistantSectionProps(props)
 
   return (
-    <div className={`${rightDockWidthClass} relative z-30 flex min-h-0 shrink-0 flex-col gap-4 overflow-x-visible overflow-y-auto pb-1 pr-1 transition-[width] duration-200`}>
+    <div
+      className="relative z-30 flex min-h-0 shrink-0 flex-col gap-4 overflow-x-hidden overflow-y-auto pb-1 pr-1 transition-[width] duration-200"
+      style={{ width: rightDockWidth }}
+    >
       <button
         type="button"
         onClick={props.onResetPanelPositions}

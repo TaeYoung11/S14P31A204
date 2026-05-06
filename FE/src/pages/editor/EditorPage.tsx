@@ -31,7 +31,7 @@ export default function EditorPage() {
       <EditorHeader {...headerProps} />
       <EditorToolbar mode={vm.mode} projectName={vm.currentProjectName} onModeChange={vm.setMode} />
 
-      <div className={`relative z-10 flex flex-1 overflow-hidden ${vm.mode === 'view' ? '' : 'gap-5 px-5 pb-5 pt-3'}`}>
+      <div className={`relative z-10 flex min-w-0 flex-1 overflow-hidden ${vm.mode === 'view' ? '' : 'gap-5 px-5 pb-5 pt-3'}`}>
         {vm.mode !== 'view' && (
           <EditorLeftSidebar {...sidebarProps} />
         )}

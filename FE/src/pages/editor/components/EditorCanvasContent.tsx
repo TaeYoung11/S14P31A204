@@ -36,7 +36,7 @@ export default function EditorCanvasContent(props: EditorCanvasContentProps) {
   return (
     <main
       ref={containerRef}
-      className={`relative flex-1 overflow-hidden ${
+      className={`relative min-w-0 flex-1 overflow-hidden ${
         isViewMode
           ? 'bg-[#0A0A0B]'
           : 'rounded-3xl border border-[#E2E6EF] bg-[linear-gradient(180deg,#ffffff_0%,#f9fbff_100%)] shadow-[0_16px_36px_rgba(32,44,94,0.12)]'
