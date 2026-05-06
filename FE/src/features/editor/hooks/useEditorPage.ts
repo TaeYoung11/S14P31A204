@@ -4,7 +4,6 @@ import axios from 'axios'
 import type {
   AddSpaceFormData,
   BubbleData,
-  CollaborationUserType,
   ConnectionData,
   EditorDraftRecord,
   EditorDraftSnapshot,
@@ -78,6 +77,8 @@ import { useAuthStore } from '@/shared/stores/authStore'
 import { useProjectStore } from '@/features/project/stores/projectStore'
 import { useEditorProjectName } from './useEditorProjectName'
 import { useInitialIfcImport } from './useInitialIfcImport'
+import { useEditorUserContext } from './useEditorUserContext'
+import { useFloorPlanGenerateTimeout } from './useFloorPlanGenerateTimeout'
 import { runForceDirectedBubbleLayout } from '../utils/forceBubbleLayout'
 import { useBubbleSnapshotRealtime } from './useBubbleSnapshotRealtime'
 import { useIfcLoadingLayer } from './useIfcLoadingLayer'
@@ -121,8 +122,6 @@ const THREE_D_MATERIAL_COLOR: Record<string, string> = {
   Tile: '#C56F45',
 }
 
-const DEFAULT_DESIGNER_NAME = '설계자'
-const DEFAULT_CLIENT_NAME = '고객사 담당자'
 const FLOOR_PLAN_GENERATE_TIMEOUT_MS = 120_000
 
 /**
@@ -466,7 +465,6 @@ export function useEditorPage() {
   const bubbleDbSaveTimerRef = useRef<number | null>(null)
   const bubbleDbSaveInFlightRef = useRef<Promise<SaveBubbleSnapshotResponse> | null>(null)
   const floorPlanGenerateForbiddenRef = useRef(false)
-  const floorPlanGenerateTimeoutRef = useRef<number | null>(null)
   const bubbleDbDirtyRef = useRef(false)
   const hasUserEditedRef = useRef(false)
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -495,63 +493,42 @@ export function useEditorPage() {
   }, [])
   const authUser = useAuthStore((state) => state.user)
   const currentProject = useProjectStore((state) => state.currentProject)
-  const currentUserType: CollaborationUserType | null =
-    authUser?.user_type === 'DESIGNER' || authUser?.user_type === 'CUSTOMER'
-      ? authUser.user_type
-      : null
-  const collaborationUserType: CollaborationUserType = currentUserType ?? 'CUSTOMER'
-  const counterpartType: CollaborationUserType = collaborationUserType === 'DESIGNER' ? 'CUSTOMER' : 'DESIGNER'
-  const currentUserName = authUser?.name?.trim()
-    ? authUser.name.trim()
-    : (collaborationUserType === 'DESIGNER' ? DEFAULT_DESIGNER_NAME : DEFAULT_CLIENT_NAME)
-  const hasIfcUploadedInCurrentProject = Boolean(
-    projectId &&
-    currentProject?.id === projectId &&
-    currentProject.ifc_uploaded,
-  )
-  const isCurrentProjectOwnerKnown = Boolean(
-    projectId &&
-    currentProject?.id === projectId &&
-    currentProject.owner_id,
-  )
-  const isCurrentProjectOwner = Boolean(
-    isCurrentProjectOwnerKnown &&
-    authUser?.id &&
-    currentProject?.owner_id === authUser.id,
-  )
+  const {
+    currentUserType,
+    collaborationUserType,
+    counterpartType,
+    currentUserName,
+    hasIfcUploadedInCurrentProject,
+    isCurrentProjectOwnerKnown,
+    isCurrentProjectOwner,
+  } = useEditorUserContext({
+    authUser,
+    currentProject,
+    projectId,
+  })
 
-  const clearFloorPlanGenerateTimeout = () => {
-    if (floorPlanGenerateTimeoutRef.current !== null) {
-      window.clearTimeout(floorPlanGenerateTimeoutRef.current)
-      floorPlanGenerateTimeoutRef.current = null
-    }
-  }
+  /**
+   * CONVERTING 상태가 장시간 유지되면 편집 가능한 상태로 되돌리고 안내 문구를 노출한다.
+   */
+  const handleFloorPlanGenerateTimeout = useCallback(() => {
+    setWorkspacePhaseStatus((prev) => {
+      if (prev !== 'CONVERTING') return prev
+      setFloorPlanGenerateStatusText('평면도 생성이 지연되고 있습니다. 잠시 후 다시 시도하세요.')
+      console.warn('[editor] Floor-plan 생성 타임아웃: CONVERTING 상태가 장시간 유지되었습니다.')
+      return 'BUBBLE_DRAFT'
+    })
+  }, [])
 
-  const startFloorPlanGenerateTimeout = () => {
-    clearFloorPlanGenerateTimeout()
-    floorPlanGenerateTimeoutRef.current = window.setTimeout(() => {
-      floorPlanGenerateTimeoutRef.current = null
-      setWorkspacePhaseStatus((prev) => {
-        if (prev !== 'CONVERTING') return prev
-        setFloorPlanGenerateStatusText('평면도 생성이 지연되고 있습니다. 잠시 후 다시 시도하세요.')
-        console.warn('[editor] Floor-plan 생성 타임아웃: CONVERTING 상태가 장시간 유지되었습니다.')
-        return 'BUBBLE_DRAFT'
-      })
-    }, FLOOR_PLAN_GENERATE_TIMEOUT_MS)
-  }
-
-  useEffect(() => {
-    floorPlanGenerateForbiddenRef.current = false
-  }, [projectId, authUser?.id])
-
-  useEffect(() => {
-    if (workspacePhaseStatus !== 'CONVERTING') {
-      clearFloorPlanGenerateTimeout()
-    }
-    return () => {
-      clearFloorPlanGenerateTimeout()
-    }
-  }, [workspacePhaseStatus])
+  const { startFloorPlanGenerateTimeout, clearFloorPlanGenerateTimeout } = useFloorPlanGenerateTimeout({
+    projectId,
+    userId: authUser?.id,
+    workspacePhaseStatus,
+    timeoutMs: FLOOR_PLAN_GENERATE_TIMEOUT_MS,
+    onTimeout: handleFloorPlanGenerateTimeout,
+    resetForbiddenFlag: () => {
+      floorPlanGenerateForbiddenRef.current = false
+    },
+  })
 
   // Shift+L: 층 겹쳐보기 모드 토글 (2D/3D 전용)
   useEffect(() => {

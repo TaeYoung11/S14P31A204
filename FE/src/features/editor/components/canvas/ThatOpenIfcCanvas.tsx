@@ -881,7 +881,8 @@ export default function ThatOpenIfcCanvas({
         window.addEventListener('keydown', handleKeyDown, true)
 
         await fragments.core.update(true)
-        fitObjectWithPadding(THREE, world.camera.three, world.camera.controls, fragmentModel.object, 1.55 / Math.max(zoomScale, 0.1))
+        // 최초 로드 시에는 고정 패딩으로 맞추고, 이후 줌 반영은 zoomScale effect에서 처리한다.
+        fitObjectWithPadding(THREE, world.camera.three, world.camera.controls, fragmentModel.object, 1.55)
         setStatus('ready')
       } catch (error) {
         if (disposed) return
@@ -984,7 +985,7 @@ export default function ThatOpenIfcCanvas({
     }
 
     void applyIfcItemColor(sceneState.three, sceneState.fragments, target, selectedIfcElement?.color).catch(() => undefined)
-  }, [selectedIfcElement?.color])
+  }, [selectedIfcElement])
 
   useEffect(() => {
     const sceneState = sceneRef.current
@@ -1031,7 +1032,7 @@ export default function ThatOpenIfcCanvas({
         }
       }
     }
-  }, [selectedIfcElement?.material])
+  }, [selectedIfcElement])
 
   useEffect(() => {
     const sceneState = sceneRef.current
@@ -1193,4 +1194,3 @@ export default function ThatOpenIfcCanvas({
     </div>
   )
 }
-
