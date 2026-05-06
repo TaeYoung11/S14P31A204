@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Iterable
 from pathlib import Path
 
 import ifcopenshell
@@ -256,6 +257,21 @@ def _rooms_by_id(rooms: list[RoomInput]) -> dict[str, RoomInput]:
     return {room.id: room for room in rooms}
 
 
+def _rooms_by_floor(rooms: list[RoomInput]) -> dict[int, list[RoomInput]]:
+    rooms_by_floor: dict[int, list[RoomInput]] = {}
+    for room in rooms:
+        rooms_by_floor.setdefault(room.floor, []).append(room)
+    return rooms_by_floor
+
+
+def _room_zone_ids_by_room_id(rooms: list[RoomInput]) -> dict[str, str | None]:
+    return {room.id: room.zone_id for room in rooms}
+
+
+def _zone_colors_by_zone_id(request: LayoutImportV1 | LayoutImportV2) -> dict[str, str]:
+    return {zone.id: zone.color for zone in request.zones or []}
+
+
 def _resolve_adjacency_pair(
     adjacency: AdjacencyInput,
     rooms_by_id: dict[str, RoomInput],
@@ -289,6 +305,82 @@ def _canonical_edge_mm(start: Point2DMm, end: Point2DMm) -> RoomEdgeMm:
     if math.isclose(y1, y2, abs_tol=1.0e-9):
         return ((min(x1, x2), y1), (max(x1, x2), y1))
     return ((x1, min(y1, y2)), (x1, max(y1, y2)))
+
+
+def _zone_color_for_boundary_wall(
+    request: LayoutImportV2,
+    floor: int,
+    boundary_edge: RoomEdgeMm,
+) -> str | None:
+    room_zone_ids = _room_zone_ids_for_boundary_edge(request.rooms, floor, boundary_edge)
+    return _resolved_zone_color(request, room_zone_ids.values())
+
+
+def _zone_color_for_shared_wall(
+    request: LayoutImportV2,
+    floor: int,
+    shared_edge: RoomEdgeMm,
+) -> str | None:
+    matching_rooms = _rooms_matching_edge_on_floor(request.rooms, floor, shared_edge)
+    if len(matching_rooms) != 2:
+        return None
+    room_zone_ids = _room_zone_ids_by_room_id(matching_rooms)
+    return _resolved_zone_color(request, room_zone_ids.values())
+
+
+def _zone_color_for_floor_plate(
+    request: LayoutImportV2,
+    floor: int,
+) -> str | None:
+    room_zone_ids = _room_zone_ids_by_room_id(_rooms_by_floor(request.rooms).get(floor, []))
+    return _resolved_zone_color(request, room_zone_ids.values())
+
+
+def _room_zone_ids_for_boundary_edge(
+    rooms: list[RoomInput],
+    floor: int,
+    boundary_edge: RoomEdgeMm,
+) -> dict[str, str | None]:
+    return _room_zone_ids_by_room_id(_rooms_matching_edge_on_floor(rooms, floor, boundary_edge))
+
+
+def _rooms_matching_edge_on_floor(
+    rooms: list[RoomInput],
+    floor: int,
+    edge: RoomEdgeMm,
+) -> list[RoomInput]:
+    matching_rooms: list[RoomInput] = []
+    for room in rooms:
+        if room.floor != floor:
+            continue
+        if _room_matches_edge(room, edge):
+            matching_rooms.append(room)
+    return matching_rooms
+
+
+def _room_matches_edge(room: RoomInput, edge: RoomEdgeMm) -> bool:
+    for room_edge in _room_rectangle_edges_mm(room):
+        overlapping_edge = _overlapping_collinear_segment_mm(room_edge, edge)
+        if overlapping_edge == edge:
+            return True
+    return False
+
+
+def _resolved_zone_color(
+    request: LayoutImportV1 | LayoutImportV2,
+    zone_ids: Iterable[str | None],
+) -> str | None:
+    resolved_zone_ids: set[str] = set()
+    for zone_id in zone_ids:
+        if zone_id is None:
+            return None
+        resolved_zone_ids.add(zone_id)
+
+    if len(resolved_zone_ids) != 1:
+        return None
+
+    zone_id = next(iter(resolved_zone_ids))
+    return _zone_colors_by_zone_id(request).get(zone_id)
 
 
 def _create_ifc_file() -> ifcopenshell.file:
@@ -518,10 +610,12 @@ def _create_v2_walls(
         storey = storeys.get(boundary.floor)
         if storey is None:
             continue
-        for segment_index, (start_point, end_point) in enumerate(
-            _boundary_segments_m(boundary),
+        for segment_index, (boundary_edge_mm, boundary_segment_m) in enumerate(
+            zip(_boundary_segments_mm(boundary), _boundary_segments_m(boundary), strict=True),
             start=1,
         ):
+            _ = _zone_color_for_boundary_wall(request, boundary.floor, boundary_edge_mm)
+            start_point, end_point = boundary_segment_m
             wall = _create_wall_from_segment(
                 model,
                 owner_history,
@@ -561,6 +655,7 @@ def _create_v2_slabs(
         storey = storeys.get(boundary.floor)
         if storey is None:
             continue
+        _ = _zone_color_for_floor_plate(request, boundary.floor)
         slab = _create_slab_from_boundary(
             model,
             owner_history,
@@ -612,6 +707,7 @@ def _create_v2_shared_walls(
         if storey is None:
             continue
 
+        _ = _zone_color_for_shared_wall(request, floor, edge)
         floor_indices[floor] = floor_indices.get(floor, 0) + 1
         segment_index = floor_indices[floor]
         wall = _create_shared_wall_from_segment(
@@ -658,6 +754,7 @@ def _create_v2_roof(
     if storey is None:
         return
 
+    _ = _zone_color_for_floor_plate(request, boundary.floor)
     roof = _create_roof_from_boundary(
         model,
         owner_history,
@@ -683,6 +780,15 @@ def _boundary_segments_m(
     return [
         (points[index], points[(index + 1) % len(points)])
         for index in range(len(points))
+    ]
+
+
+def _boundary_segments_mm(boundary: BoundaryInput) -> list[RoomEdgeMm]:
+    polygon = boundary.polygon_mm or boundary.outer_polygon_mm
+    assert polygon is not None
+    return [
+        _canonical_edge_mm(start_point, polygon[(index + 1) % len(polygon)])
+        for index, start_point in enumerate(polygon)
     ]
 
 
