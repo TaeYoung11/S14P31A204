@@ -23,7 +23,10 @@ FRONT_SIDE_NEGATIVE_TERMS = (
     "stone wall, retaining wall, raised foundation, pedestal, plinth, "
     "basement windows, stairs below facade, extra lower floor"
 )
-EYE_NEGATIVE_TERMS = "pool, water, reflection, mirror floor"
+EYE_NEGATIVE_TERMS = (
+    "pool, water, reflection, mirror floor, "
+    "white platform, display base, model base"
+)
 FRONT_SIDE_WEIGHTED_NEGATIVE_TERMS = (
     "(stone wall:1.2), (retaining wall:1.25), (raised platform:1.2)"
 )
