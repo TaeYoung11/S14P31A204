@@ -151,8 +151,11 @@ def test_ifc_generate_worker_publishes_completed_event_and_echoes_reserved_refs(
     )
     command = _command(
         layout_import=_valid_v2_layout_import(),
-        ifc_ref="projects/project-layout-001/revisions/rev-layout-target-001/model.ifc",
-        report_ref="jobs/job-ifc-generate-001/steps/1/validation-report.json",
+        ifc_ref="projects/project-layout-001/revisions/rev-layout-target-001/ifc/model.v1.ifc",
+        report_ref=(
+            "projects/project-layout-001/jobs/job-ifc-generate-001/"
+            "steps/001/engine/validation-report.v1.json"
+        ),
     )
 
     result = worker.handle(command)
@@ -164,17 +167,26 @@ def test_ifc_generate_worker_publishes_completed_event_and_echoes_reserved_refs(
     assert publisher.events[1].output is not None
     assert (
         publisher.events[1].output.storageUrl
-        == "projects/project-layout-001/revisions/rev-layout-target-001/model.ifc"
+        == "projects/project-layout-001/revisions/rev-layout-target-001/ifc/model.v1.ifc"
     )
     assert (
         publisher.events[1].output.validationReportStorageUrl
-        == "jobs/job-ifc-generate-001/steps/1/validation-report.json"
+        == (
+            "projects/project-layout-001/jobs/job-ifc-generate-001/"
+            "steps/001/engine/validation-report.v1.json"
+        )
     )
     assert (
         storage.binary_uploads[0][0]
-        == "projects/project-layout-001/revisions/rev-layout-target-001/model.ifc"
+        == "projects/project-layout-001/revisions/rev-layout-target-001/ifc/model.v1.ifc"
     )
-    assert storage.text_uploads[0][0] == "jobs/job-ifc-generate-001/steps/1/validation-report.json"
+    assert (
+        storage.text_uploads[0][0]
+        == (
+            "projects/project-layout-001/jobs/job-ifc-generate-001/"
+            "steps/001/engine/validation-report.v1.json"
+        )
+    )
 
     schema = load_json(EVENT_SCHEMA_PATH)
     validate_json_schema(publisher.events[1].model_dump(by_alias=True, exclude_none=True), schema)
@@ -201,8 +213,11 @@ def test_ifc_generate_worker_maps_validation_failure_and_uploads_detail_report()
     }
     command = _command(
         layout_import=invalid_layout_import,
-        ifc_ref="projects/project-layout-001/revisions/rev-layout-target-001/model.ifc",
-        report_ref="jobs/job-ifc-generate-001/steps/1/validation-report.json",
+        ifc_ref="projects/project-layout-001/revisions/rev-layout-target-001/ifc/model.v1.ifc",
+        report_ref=(
+            "projects/project-layout-001/jobs/job-ifc-generate-001/"
+            "steps/001/engine/validation-report.v1.json"
+        ),
     )
 
     result = worker.handle(command)
@@ -215,10 +230,19 @@ def test_ifc_generate_worker_maps_validation_failure_and_uploads_detail_report()
     assert publisher.events[1].error.retryable is False
     assert (
         publisher.events[1].error.detailStorageUrl
-        == "jobs/job-ifc-generate-001/steps/1/validation-report.json"
+        == (
+            "projects/project-layout-001/jobs/job-ifc-generate-001/"
+            "steps/001/engine/validation-report.v1.json"
+        )
     )
     assert storage.binary_uploads == []
-    assert storage.text_uploads[0][0] == "jobs/job-ifc-generate-001/steps/1/validation-report.json"
+    assert (
+        storage.text_uploads[0][0]
+        == (
+            "projects/project-layout-001/jobs/job-ifc-generate-001/"
+            "steps/001/engine/validation-report.v1.json"
+        )
+    )
 
     schema = load_json(EVENT_SCHEMA_PATH)
     validate_json_schema(publisher.events[1].model_dump(by_alias=True, exclude_none=True), schema)
@@ -227,3 +251,129 @@ def test_ifc_generate_worker_maps_validation_failure_and_uploads_detail_report()
     assert report["status"] == "failed"
     assert report["error"]["code"] == "validation_error"
     assert "wall_thickness_mm" in report["error"]["message"]
+
+
+def test_ifc_generate_worker_accepts_canonical_s3_refs() -> None:
+    publisher = InMemoryPublisher()
+    storage = FakeStorageClient()
+    worker = IfcGenerateWorker(
+        worker_id="ifc-generate-worker-1",
+        event_publisher=publisher,
+        storage_client=storage,
+    )
+    command = _command(
+        layout_import=_valid_v2_layout_import(),
+        ifc_ref="s3://batang/projects/project-layout-001/revisions/rev-layout-target-001/ifc/model.v1.ifc",
+        report_ref=(
+            "s3://batang/projects/project-layout-001/jobs/job-ifc-generate-001/"
+            "steps/001/engine/validation-report.v1.json"
+        ),
+    )
+
+    result = worker.handle(command)
+
+    assert result.status == "completed"
+    assert publisher.events[1].status == "completed"
+    assert storage.binary_uploads[0][0].startswith("s3://batang/")
+    assert storage.text_uploads[0][0].startswith("s3://batang/")
+
+
+def test_ifc_generate_worker_rejects_legacy_ifc_storage_path() -> None:
+    publisher = InMemoryPublisher()
+    storage = FakeStorageClient()
+    worker = IfcGenerateWorker(
+        worker_id="ifc-generate-worker-1",
+        event_publisher=publisher,
+        storage_client=storage,
+    )
+    command = _command(
+        layout_import=_valid_v2_layout_import(),
+        ifc_ref="projects/project-layout-001/revisions/rev-layout-target-001/model.ifc",
+        report_ref=(
+            "projects/project-layout-001/jobs/job-ifc-generate-001/"
+            "steps/001/engine/validation-report.v1.json"
+        ),
+    )
+
+    result = worker.handle(command)
+
+    assert result.status == "failed"
+    assert publisher.events[1].error is not None
+    assert publisher.events[1].error.code == "invalid_ifc_storage_url"
+    assert storage.binary_uploads == []
+    assert storage.text_uploads == []
+
+
+def test_ifc_generate_worker_rejects_validation_report_without_project_prefix() -> None:
+    publisher = InMemoryPublisher()
+    storage = FakeStorageClient()
+    worker = IfcGenerateWorker(
+        worker_id="ifc-generate-worker-1",
+        event_publisher=publisher,
+        storage_client=storage,
+    )
+    command = _command(
+        layout_import=_valid_v2_layout_import(),
+        ifc_ref="projects/project-layout-001/revisions/rev-layout-target-001/ifc/model.v1.ifc",
+        report_ref="jobs/job-ifc-generate-001/steps/001/engine/validation-report.v1.json",
+    )
+
+    result = worker.handle(command)
+
+    assert result.status == "failed"
+    assert publisher.events[1].error is not None
+    assert publisher.events[1].error.code == "invalid_validation_report_storage_url"
+    assert storage.binary_uploads == []
+    assert storage.text_uploads == []
+
+
+def test_ifc_generate_worker_rejects_validation_report_without_zero_padding() -> None:
+    publisher = InMemoryPublisher()
+    storage = FakeStorageClient()
+    worker = IfcGenerateWorker(
+        worker_id="ifc-generate-worker-1",
+        event_publisher=publisher,
+        storage_client=storage,
+    )
+    command = _command(
+        layout_import=_valid_v2_layout_import(),
+        ifc_ref="projects/project-layout-001/revisions/rev-layout-target-001/ifc/model.v1.ifc",
+        report_ref=(
+            "projects/project-layout-001/jobs/job-ifc-generate-001/"
+            "steps/1/engine/validation-report.v1.json"
+        ),
+    )
+
+    result = worker.handle(command)
+
+    assert result.status == "failed"
+    assert publisher.events[1].error is not None
+    assert publisher.events[1].error.code == "invalid_validation_report_storage_url"
+    assert storage.binary_uploads == []
+    assert storage.text_uploads == []
+
+
+def test_ifc_generate_worker_rejects_validation_report_with_mismatched_step_number() -> None:
+    publisher = InMemoryPublisher()
+    storage = FakeStorageClient()
+    worker = IfcGenerateWorker(
+        worker_id="ifc-generate-worker-1",
+        event_publisher=publisher,
+        storage_client=storage,
+    )
+    command = _command(
+        layout_import=_valid_v2_layout_import(),
+        ifc_ref="projects/project-layout-001/revisions/rev-layout-target-001/ifc/model.v1.ifc",
+        report_ref=(
+            "projects/project-layout-001/jobs/job-ifc-generate-001/"
+            "steps/002/engine/validation-report.v1.json"
+        ),
+    )
+
+    result = worker.handle(command)
+
+    assert result.status == "failed"
+    assert publisher.events[1].error is not None
+    assert publisher.events[1].error.code == "invalid_validation_report_storage_url"
+    assert storage.binary_uploads == []
+    assert storage.text_uploads == []
