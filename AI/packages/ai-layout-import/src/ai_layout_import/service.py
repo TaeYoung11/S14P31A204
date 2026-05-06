@@ -294,18 +294,27 @@ def _resolve_adjacency_pair(
 
 
 def _room_rectangle_edges_mm(room: RoomInput) -> tuple[RoomEdgeMm, ...]:
-    half_width = room.width / 2.0
-    half_height = room.height / 2.0
-    left = room.x - half_width
-    right = room.x + half_width
-    bottom = room.y - half_height
-    top = room.y + half_height
+    half_w = room.width / 2.0
+    half_h = room.height / 2.0
+    cos_a = math.cos(room.angle)
+    sin_a = math.sin(room.angle)
+
+    def rotate_point(dx: float, dy: float) -> tuple[float, float]:
+        return (
+            room.x + dx * cos_a - dy * sin_a,
+            room.y + dx * sin_a + dy * cos_a
+        )
+
+    p1 = rotate_point(-half_w, -half_h)
+    p2 = rotate_point(half_w, -half_h)
+    p3 = rotate_point(half_w, half_h)
+    p4 = rotate_point(-half_w, half_h)
 
     return (
-        _canonical_edge_mm((left, bottom), (right, bottom)),
-        _canonical_edge_mm((right, bottom), (right, top)),
-        _canonical_edge_mm((left, top), (right, top)),
-        _canonical_edge_mm((left, bottom), (left, top)),
+        _canonical_edge_mm(p1, p2),
+        _canonical_edge_mm(p2, p3),
+        _canonical_edge_mm(p3, p4),
+        _canonical_edge_mm(p4, p1),
     )
 
 
