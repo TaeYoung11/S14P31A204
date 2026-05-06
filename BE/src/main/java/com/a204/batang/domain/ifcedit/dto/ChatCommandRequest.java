@@ -24,7 +24,7 @@ public record ChatCommandRequest(
         String sourceSceneType,
 
         @NotBlank
-        @Schema(description = "사용자 자연어 편집 요청")
+        @Schema(description = "사용자의 자연어 요청. 현재 MVP에서는 ifc-edit worker의 userInstruction으로 매핑됩니다.")
         String message,
 
         @Schema(description = "원본 scene state ID")
