@@ -1,5 +1,5 @@
-
 from .command import ActionType, CommandBatch, FloorNLPCommand, IFCCommand, IFCContext
+from .add_room_placement import suggest_add_room_start_mm
 from .validator import validate_command_batch
 
 # ---------------------------------------------------------------------------
@@ -91,6 +91,16 @@ def to_ifc_commands(
                 requires_clarification=True,
                 clarification_question=_TMPL_FLOOR_NOT_FOUND.format(floor=command.new_room.floor),
             )
+        start_mm = (0.0, 0.0)
+        if ifc_context is not None:
+            suggested_start = suggest_add_room_start_mm(
+                ifc_context,
+                floor=command.new_room.floor,
+                width=command.new_room.width,
+                height=command.new_room.height,
+            )
+            if suggested_start is not None:
+                start_mm = suggested_start
 
         return validate_command_batch(CommandBatch(
             commands=[
@@ -103,7 +113,7 @@ def to_ifc_commands(
                             "storey_id": storey_id,
                         },
                         "geometry": {
-                            "location": [0.0, 0.0, 0.0],
+                            "location": [float(start_mm[0]), float(start_mm[1]), 0.0],
                             "direction": [1.0, 0.0, 0.0],
                             "dimensions": {
                                 "width": command.new_room.width,

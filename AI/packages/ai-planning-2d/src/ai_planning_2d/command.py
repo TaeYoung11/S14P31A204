@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class NewRoom(BaseModel):
-    name: str = Field(..., description="방 이름")
+    name: str = Field(..., description="새로 추가할 방 이름")
     type: Literal[
         "living",
         "bedroom",
@@ -15,16 +15,14 @@ class NewRoom(BaseModel):
         "corridor",
         "other",
     ]
-    shape: Literal["rect", "L", "U"] = Field(
-        "rect", description="방 형태"
-    )
-    width: int = Field(..., gt=0, description="밀리미터(mm) 단위 양의 정수")
-    height: int = Field(..., gt=0, description="밀리미터(mm) 단위 양의 정수")
-    rects: list[dict] | None = Field(
+    shape: Literal["rect", "L", "U"] = Field("rect", description="방 형태")
+    width: int = Field(..., gt=0, description="밀리미터(mm) 단위 가로 길이")
+    height: int = Field(..., gt=0, description="밀리미터(mm) 단위 세로 길이")
+    rects: list[dict[str, int]] | None = Field(
         None,
-        description="shape_to_rects() 자동 생성. 각 dict: {x, y, width, height} (mm 단위)",
+        description="shape_to_rects() 결과. dict는 {x, y, width, height} 구조를 사용한다.",
     )
-    floor: int = Field(..., ge=1, description="층 번호")
+    floor: int = Field(..., ge=1, description="대상 층 번호")
 
 
 class FloorNLPCommand(BaseModel):
@@ -36,18 +34,10 @@ class FloorNLPCommand(BaseModel):
         "lock_room",
         "unlock_room",
     ]
-    target_room_name: str | None = Field(
-        None, description="대상 방 이름"
-    )
-    target_floor: int | None = Field(
-        None, ge=1, description="대상 층 번호"
-    )
-    new_room: NewRoom | None = Field(
-        None, description="새로 추가할 방 정보"
-    )
-    adjacency_target: str | None = Field(
-        None, description="인접 관계 대상 방 이름"
-    )
+    target_room_name: str | None = Field(None, description="대상 방 이름")
+    target_floor: int | None = Field(None, ge=1, description="대상 층 번호")
+    new_room: NewRoom | None = Field(None, description="add_room에서 생성할 방 정보")
+    adjacency_target: str | None = Field(None, description="인접 관계 대상 방 이름")
     adjacency_strength: float | None = Field(
         None, ge=0.0, le=1.0, description="인접 강도 0.0 ~ 1.0"
     )
@@ -58,17 +48,21 @@ class FloorNLPCommand(BaseModel):
         "rect", description="변경할 방 형태"
     )
     resize_width: int | None = Field(
-        None, gt=0, description="밀리미터(mm) 단위 정수"
+        None, gt=0, description="밀리미터(mm) 단위 가로 길이"
     )
     resize_height: int | None = Field(
-        None, gt=0, description="밀리미터(mm) 단위 정수"
+        None, gt=0, description="밀리미터(mm) 단위 세로 길이"
     )
-    resize_rects: list[dict] | None = Field(
+    resize_rects: list[dict[str, int]] | None = Field(
         None,
-        description="resize_room 시 rect 조합 리스트. shape_to_rects()가 자동 생성.",
+        description="resize_room 시 rect 기반 geometry를 shape_to_rects()로 풀어낸 값.",
+    )
+    resize_direction: Literal["north", "south", "east", "west"] | None = Field(
+        None,
+        description="resize_room 시 확장/축소를 적용할 방향. north/south/east/west 중 하나.",
     )
     apply_to_all: bool = Field(
-        False, description="동일 이름 방 전체 적용 여부"
+        False, description="동일 이름 방이 여러 개일 때 전체 적용 여부"
     )
     needs_clarification: bool = False
     clarification_question: str | None = None
@@ -77,15 +71,12 @@ class FloorNLPCommand(BaseModel):
     def validate_action_fields(self):
         if self.needs_clarification:
             return self
-        if self.action == "add_room":
-            if self.new_room is None:
-                raise ValueError("add_room 액션에는 new_room이 필요합니다.")
-        if self.action == "resize_room":
-            if self.target_room_name is None:
-                raise ValueError("resize_room 액션에는 target_room_name이 필요합니다.")
-        if self.action == "set_adjacency":
-            if self.adjacency_target is None:
-                raise ValueError("set_adjacency 액션에는 adjacency_target이 필요합니다.")
+        if self.action == "add_room" and self.new_room is None:
+            raise ValueError("add_room 액션에는 new_room이 필요합니다.")
+        if self.action == "resize_room" and self.target_room_name is None:
+            raise ValueError("resize_room 액션에는 target_room_name이 필요합니다.")
+        if self.action == "set_adjacency" and self.adjacency_target is None:
+            raise ValueError("set_adjacency 액션에는 adjacency_target이 필요합니다.")
         if self.action in ("remove_room", "lock_room", "unlock_room"):
             if self.target_room_name is None:
                 raise ValueError(f"{self.action} 액션에는 target_room_name이 필요합니다.")
@@ -114,13 +105,13 @@ class IFCCommand(BaseModel):
     action: ActionType
     target_id: str | None = Field(
         None,
-        description="Target IFC GlobalId. Use None when creating a new element.",
+        description="대상 IFC GlobalId. 새 요소 생성 시에는 None을 사용한다.",
     )
     params: dict[str, Any] = Field(
         default_factory=dict,
         description=(
-            "Action-specific parameters such as geometry, placement, dimensions, "
-            "host ids, storey ids, or semantic type."
+            "행동별 파라미터. geometry, placement, dimensions, host ids, "
+            "storey ids, semantic type 등이 들어간다."
         ),
     )
     confidence: float = Field(..., ge=0.0, le=1.0)
@@ -163,18 +154,14 @@ class CommandBatch(BaseModel):
         return self
 
 
-# ---------------------------------------------------------------------------
-# IFC Context TypedDicts — ifc_context 딕셔너리의 타입 명세
-# ---------------------------------------------------------------------------
-
 class SpaceContext(TypedDict):
     id: str
     name: str
     type: str
     floor: int
     polygon: list[tuple[float, float]]
-    width: int | None   # mm. BE가 Batang_SpaceDimensions pset에서 읽어 제공
-    height: int | None  # mm. 없으면 None
+    width: int | None
+    height: int | None
     x: float | None
     y: float | None
     angle: float | None

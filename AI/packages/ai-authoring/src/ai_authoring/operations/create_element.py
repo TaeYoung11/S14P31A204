@@ -1,7 +1,4 @@
-"""create_element operation handler.
-
-engine_request.v2 스키마의 create_element 파라미터를 engine_3d 함수 호출로 변환한다.
-"""
+"""create_element operation handler."""
 
 from __future__ import annotations
 
@@ -10,18 +7,22 @@ import math
 from typing import Any
 
 import ifcopenshell
+import ifcopenshell.api.root
 
-from ai_authoring.engine_3d import (
-    create_generic_element,
-    create_roof,
-    create_slab,
-    create_wall,
-)
+from ai_authoring.engine_3d import create_generic_element, create_roof, create_slab, create_wall
 from ai_authoring.operations.registry import register
+from ai_authoring.operations.space_support import (
+    assign_space_to_storey,
+    create_local_placement,
+    create_space_representation,
+    ensure_body_context,
+    owner_history,
+    resolve_storey,
+    update_space,
+)
 
 logger = logging.getLogger(__name__)
 
-# azimuth(북 기준 시계방향 °) 구간별 방향 이름
 _AZIMUTH_THRESHOLDS: list[tuple[float, str]] = [
     (45.0, "north"),
     (135.0, "east"),
@@ -42,7 +43,6 @@ def _start_end_to_length_and_direction(
     start: dict[str, float],
     end: dict[str, float],
 ) -> tuple[float, str]:
-    """linearElementGeometry(start_mm, end_mm) → (length_mm, direction)"""
     dx = end["x"] - start["x"]
     dy = end["y"] - start["y"]
     length_mm = math.hypot(dx, dy)
@@ -52,18 +52,26 @@ def _start_end_to_length_and_direction(
 
 @register("create_element")
 class CreateElementHandler:
-    """engine_request.v2 create_element → engine_3d 함수 라우터."""
-
     def execute(
         self,
         model: ifcopenshell.file,
-        storey: ifcopenshell.entity_instance,
+        storey: ifcopenshell.entity_instance | None,
         parameters: dict[str, Any],
     ) -> ifcopenshell.entity_instance | None:
         element_type: str = parameters.get("element_type") or ""
         if not element_type:
-            logger.error("create_element handler: element_type 파라미터 누락")
+            logger.error("create_element handler: missing element_type")
             return None
+
+        storey_id = parameters.get("storey_id")
+        resolved_storey = resolve_storey(model, storey, storey_id=storey_id)
+        if resolved_storey is None:
+            logger.error("create_element handler: failed to resolve storey")
+            return None
+
+        if element_type == "IfcSpace":
+            return self._create_space(model, resolved_storey, parameters)
+
         dims: dict[str, Any] = parameters.get("dimensions_mm") or {}
         start: dict[str, Any] = parameters.get("start_mm") or {}
         end: dict[str, Any] | None = parameters.get("end_mm")
@@ -72,12 +80,9 @@ class CreateElementHandler:
         y_mm = float(start.get("y", 0.0))
         z_mm = float(start.get("z", 0.0))
 
-        # length + direction 결정
         if end:
-            # linearElementGeometry: start_mm + end_mm
             length_mm, direction = _start_end_to_length_and_direction(start, end)
         elif parameters.get("length_mm") is not None:
-            # polarElementGeometry: start_mm + azimuth_deg + length_mm
             length_mm = float(parameters["length_mm"])
             direction = _azimuth_to_direction(float(parameters.get("azimuth_deg", 0.0)))
         else:
@@ -102,16 +107,64 @@ class CreateElementHandler:
         )
 
         if element_type == "IfcWall":
-            return create_wall(model, storey, **common)
+            return create_wall(model, resolved_storey, **common)
         if element_type == "IfcSlab":
-            return create_slab(model, storey, **common)
+            return create_slab(model, resolved_storey, **common)
         if element_type == "IfcRoof":
             return create_roof(
                 model,
-                storey,
+                resolved_storey,
                 **common,
                 shape_preset=str(parameters.get("roof_shape_preset") or "FLAT"),
                 ridge_height_mm=float(parameters.get("ridge_height_mm") or 1200.0),
             )
-        # IfcColumn, IfcBeam, IfcDoor, IfcWindow, IfcStair 등
-        return create_generic_element(model, storey, element_type, **common)
+        return create_generic_element(model, resolved_storey, element_type, **common)
+
+    def _create_space(
+        self,
+        model: ifcopenshell.file,
+        storey: ifcopenshell.entity_instance,
+        parameters: dict[str, Any],
+    ) -> ifcopenshell.entity_instance | None:
+        dims = parameters.get("dimensions_mm") or {}
+        width_mm = dims.get("width")
+        height_mm = dims.get("height")
+        if width_mm is None or height_mm is None:
+            logger.error("create_element handler: IfcSpace requires width/height dimensions_mm")
+            return None
+
+        start = parameters.get("start_mm") or {}
+        x_m = float(start.get("x", 0.0)) / 1000.0
+        y_m = float(start.get("y", 0.0)) / 1000.0
+        z_m = float(start.get("z", 0.0)) / 1000.0
+        properties = parameters.get("properties") or {}
+        pset_name = str(parameters.get("pset_name") or "Batang_SpaceDimensions")
+
+        space = ifcopenshell.api.root.create_entity(
+            model,
+            ifc_class="IfcSpace",
+            name=str(properties.get("name") or "Space"),
+        )
+        space.OwnerHistory = owner_history(model)
+        space.CompositionType = "ELEMENT"
+        space.ObjectPlacement = create_local_placement(
+            model=model,
+            relative_to=getattr(storey, "ObjectPlacement", None),
+            location=(x_m, y_m, z_m),
+        )
+        space.Representation = create_space_representation(
+            model=model,
+            width_m=float(width_mm) / 1000.0,
+            height_m=float(height_mm) / 1000.0,
+            context=ensure_body_context(model),
+        )
+        assign_space_to_storey(model, space=space, storey=storey)
+        update_space(
+            model=model,
+            space=space,
+            dimensions_mm={"width": width_mm, "height": height_mm},
+            properties=properties,
+            pset_updates=parameters.get("pset_updates") or {},
+            pset_name=pset_name,
+        )
+        return space
