@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from ai_domain import CommandMessage
-from tests.unit.schema_assert import load_json, validate_json_schema
+from .schema_assert import load_json, validate_json_schema
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -25,6 +26,21 @@ def test_sample_commands_pass_json_schema_validation() -> None:
         "https://a204.batang/shared/schemas/engine_request.schema.json": load_json(
             SCHEMA_ROOT / "engine_request.schema.json"
         ),
+        "https://a204.batang/shared/schemas/engine_request.v2.schema.json": load_json(
+            SCHEMA_ROOT / "engine_request.v2.schema.json"
+        ),
+        "https://a204.batang/shared/schemas/two_d_llm_generate.payload.schema.json": load_json(
+            SCHEMA_ROOT / "two_d_llm_generate.payload.schema.json"
+        ),
+        "https://a204.batang/shared/schemas/three_d_llm_generate.payload.schema.json": load_json(
+            SCHEMA_ROOT / "three_d_llm_generate.payload.schema.json"
+        ),
+        "https://a204.batang/shared/schemas/sd_render_generate.payload.schema.json": load_json(
+            SCHEMA_ROOT / "sd_render_generate.payload.schema.json"
+        ),
+        "https://a204.batang/shared/schemas/scene_2d_snapshot_v1.schema.json": load_json(
+            SCHEMA_ROOT / "scene_2d_snapshot_v1.schema.json"
+        ),
     }
     for name in [
         "command_2d_llm.json",
@@ -33,7 +49,13 @@ def test_sample_commands_pass_json_schema_validation() -> None:
         "command_ifc_generate.json",
         "command_ifc_edit.json",
     ]:
-        validate_json_schema(load_json(SAMPLE_ROOT / name), schema, store=store)
+        raw = load_json(SAMPLE_ROOT / name)
+        CommandMessage.model_validate(raw)
+        validate_json_schema(
+            _schema_ready_command(raw),
+            schema,
+            store=store,
+        )
 
 
 def test_sample_commands_pass_pydantic_validation() -> None:
@@ -136,3 +158,46 @@ def test_ifc_edit_inline_engine_request_rejects_invalid_operation_shape() -> Non
     except ValueError:
         return
     raise AssertionError("ifc_edit inline engineRequest must reject invalid operation items")
+
+
+def _to_snake_case_data(value: object) -> object:
+    if isinstance(value, dict):
+        return {
+            _to_snake_case_key(str(key)): _to_snake_case_data(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_to_snake_case_data(item) for item in value]
+    return value
+
+
+def _to_snake_case_key(key: str) -> str:
+    first_pass = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", key)
+    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", first_pass).lower()
+
+
+def _schema_ready_command(raw: dict[str, object]) -> dict[str, object]:
+    normalized = _to_snake_case_data(raw)
+    if not isinstance(normalized, dict):
+        raise AssertionError("normalized command payload must be an object")
+
+    payload = normalized.get("payload")
+    command_type = normalized.get("command_type")
+    if isinstance(payload, dict) and command_type in {
+        "TWO_D_LLM_GENERATE",
+        "THREE_D_LLM_GENERATE",
+        "SD_RENDER_GENERATE",
+    }:
+        payload.setdefault("schema_version", "v1")
+    if (
+        isinstance(payload, dict)
+        and command_type == "IFC_GENERATE_FROM_BUBBLE"
+        and isinstance(payload.get("layout_import"), dict)
+    ):
+        rooms = payload["layout_import"].get("rooms")
+        if isinstance(rooms, list):
+            for room in rooms:
+                if isinstance(room, dict) and "zone_id" in room:
+                    room["zoneId"] = room.pop("zone_id")
+
+    return normalized

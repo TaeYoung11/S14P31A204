@@ -8,6 +8,7 @@ import type {
   FloorLayer,
   FloorOpening,
   FloorWall,
+  IfcElementInfo,
   PanelKey,
   PanelOffset,
   PanelResizeAxis,
@@ -37,6 +38,7 @@ export interface EditorRightPanelsProps {
   selectedBubble: BubbleInfo | null
   selectedWall?: FloorWall | null
   selectedOpening?: FloorOpening | null
+  selectedIfcElement?: IfcElementInfo | null
   selectedBubbleConnections: BubbleConnectionInfo[]
   selectedBubbleZones: BubbleZoneInfo[]
   zoningListItems: ZoneData[]
@@ -49,6 +51,7 @@ export interface EditorRightPanelsProps {
   onTypeChange: (id: string, type: string) => void
   onWidthChange: (id: string, width: number) => void
   onHeightChange: (id: string, height: number) => void
+  onThicknessChange?: (id: string, thickness: number) => void
   onWidthCommit?: (id: string, width: number) => void
   onHeightCommit?: (id: string, height: number) => void
   onRatioChange: (id: string, ratio: number) => void

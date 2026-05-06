@@ -38,7 +38,8 @@ def mock_renderer() -> DepthStyleRenderer:
 
 
 BASE_PROMPT = "RAW photo, scandinavian house"
-TARGET_VIEW = IFCView.ISO_NE
+# TOP은 명시 호출용 시점이라 suffix가 비어있지 않아 합성 흐름 검증에 적합.
+TARGET_VIEW = IFCView.TOP
 
 
 def _expected_prompt() -> str:

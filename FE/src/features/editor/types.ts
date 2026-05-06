@@ -3,6 +3,31 @@
 /** 편집 모드: 버블 다이어그램 / 2D 평면도 / 3D 뷰어 */
 export type EditorMode = 'bubble' | '2d' | '3d' | 'view'
 
+export interface IfcElementInfo {
+  id: string
+  name: string
+  ifcClass: string
+  category: string
+  source?: 'ifc' | 'library'
+  expressId?: number | string
+  lengthMm?: number
+  heightMm?: number
+  thicknessMm?: number
+  color?: string
+  material?: string
+  properties: Record<string, string | number | boolean>
+}
+
+export interface IfcElementChange {
+  expressId: number
+  lengthMm?: number
+  heightMm?: number
+  thicknessMm?: number
+  color?: string
+  material?: string
+  deleted?: boolean
+}
+
 /** 연결선 스타일 */
 export type ConnectionStyle = 'bold' | 'thin' | 'dashed'
 

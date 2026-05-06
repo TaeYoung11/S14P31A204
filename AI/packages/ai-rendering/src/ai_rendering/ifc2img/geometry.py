@@ -13,14 +13,13 @@ from .exceptions import IFCRenderError
 GROUND_EXTENT_FACTOR = 1.2
 """ground plane xy extent 배율 — mesh AABB xy extent의 N배.
 
-배경 (2026-04-29 옵션 P): front/side 정면 입면도에서 mesh 외부 영역이 depth=0(빈
-배경)으로 들어가, SD prompt 편향("modern house")으로 *추가 층/지하* 환각 발생.
-ground plane을 mesh 바닥 z=AABB.z_min에 추가하면 SD가 *지면*을 시각 단서로
-인식해 빈 영역 환각 차단.
+front/side 정면 입면도에서 mesh 외부 영역이 depth=0(빈 배경)으로 들어가면 SD가
+prompt 편향으로 *추가 층/지하* 환각을 만든다. ground plane을 mesh 바닥 z=AABB.z_min
+에 추가하면 SD가 *지면*을 시각 단서로 인식해 빈 영역 환각이 차단된다.
 
-2026-04-29 옵션 EE 조정: 2.0 → 1.2 — 2.0이 iso/eye 시점에서 거대 평면으로
-화면을 차지해 빌딩 framing 망가짐. 1.2는 사방 *약간 확장*만 하여 iso 회복 +
-front/side 빌딩 폭의 1.2배라 bottom 지면은 충분 노출.
+값이 너무 크면(예: 2.0) 등각 시점에서 거대 평면이 화면을 차지해 빌딩 framing이
+망가진다. 1.2는 사방 *약간 확장*만 하여 정면 시점에서 bottom 지면이 충분히 노출
+되면서도 등각 시점 framing을 망가뜨리지 않는 균형점.
 """
 
 
@@ -157,11 +156,7 @@ def load_mesh(
 def attach_ground_plane_to_mesh(
     mesh: o3d.geometry.TriangleMesh,
 ) -> o3d.geometry.TriangleMesh:
-    """기존 mesh에 ground plane을 추가한 새 mesh 반환 (view-aware ground 진입점).
-
-    배경 (2026-04-29 옵션 OO): `load_mesh`가 모든 view 공통 ground 추가 시 iso/eye
-    시점에서 framing 망가짐. ground 추가 책임을 view-aware로 이동 — 호출자(`IFCRenderer`)가
-    `VIEWS_WITHOUT_GROUND` 정책에 따라 ISO_*는 base mesh 사용, 나머지는 ground 추가.
+    """기존 mesh에 ground plane을 추가한 새 mesh 반환.
 
     Args:
         mesh: ground 없는 base mesh (load_mesh 산출물).
@@ -184,13 +179,13 @@ def _add_ground_plane(
 ) -> tuple[np.ndarray, np.ndarray]:
     """mesh AABB의 z_min에 axis-aligned ground plane(2 triangles, normal +z) 추가.
 
-    배경 (2026-04-29 옵션 P): front/side 정면 입면도에서 mesh 외부 영역이 depth=0
-    빈 배경 → SD가 prompt 편향으로 *추가 층/지하* 환각. ground plane을 추가하면
-    depth 이미지에 *지면 영역*이 명시되어 SD가 빈 영역을 ground로 인식 → 환각 차단.
+    front/side 정면 입면도에서 mesh 외부 영역이 depth=0 빈 배경이면 SD가 prompt
+    편향으로 *추가 층/지하* 환각을 만든다. ground plane을 추가하면 depth 이미지에
+    *지면 영역*이 명시되어 SD가 빈 영역을 ground로 인식 → 환각 차단.
 
     구성:
     - 위치: AABB z_min (mesh 바닥과 정렬)
-    - 크기: xy extent × GROUND_EXTENT_FACTOR(2.0) — 사방 확장
+    - 크기: xy extent × GROUND_EXTENT_FACTOR — 사방 확장
     - normal: +z (위쪽) — `_align_walls_to_axes` wall_mask(|n_z|<0.1)에 안 걸려
       회전 보정에 영향 없음
 
@@ -236,11 +231,9 @@ def _align_walls_to_axes(
 ) -> tuple[np.ndarray, bool]:
     """수직 면(벽) 면법선이 ±x/±y에 정렬되도록 mesh 전체에 yaw 회전을 적용.
 
-    배경 (2026-04-29 Phase 1+2 Step 10 진단):
-    - PCA long_axis 정렬이 footprint 외곽 비대칭(부속/돌출/요철)에 끌려
-      facade 벽 axis와 정확히 어긋남 (haus +3.73° / SampleHouse +10.03° CCW 잔존).
-    - 벽 면법선의 4× wrap circular mean이 *시각적 facade 정렬*과 정합 →
-      PCA 대신 벽 normal mean을 정렬 기준으로 사용.
+    PCA long_axis 정렬은 footprint 외곽 비대칭(부속/돌출/요철)에 끌려 facade 벽
+    axis와 어긋난다(예: 13°까지 잔존). 벽 면법선의 4× wrap circular mean은 *시각적
+    facade 정렬*과 정합하므로 PCA 대신 벽 normal mean을 정렬 기준으로 사용한다.
 
     알고리즘:
     1. mesh.triangles → face normal + face area 계산

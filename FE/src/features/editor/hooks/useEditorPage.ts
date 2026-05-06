@@ -17,6 +17,8 @@ import type {
   FloorOpening,
   FloorRoom,
   FloorWall,
+  IfcElementChange,
+  IfcElementInfo,
   Point2D,
   SaveStatus,
   ZoneData,
@@ -109,6 +111,16 @@ const OPENING_NORMALIZE_OPTIONS = {
 const IFC_DERIVED_FLOORPLAN_ONLY = true
 const BUBBLE_DB_SAVE_DEBOUNCE_MS = 2000
 
+const THREE_D_MATERIAL_COLOR: Record<string, string> = {
+  Concrete: '#A8A29E',
+  Brick: '#A3472C',
+  Steel: '#8A94A3',
+  Wood: '#9A6232',
+  Glass: '#8FD3FF',
+  Stone: '#8D8D86',
+  Tile: '#C56F45',
+}
+
 const DEFAULT_DESIGNER_NAME = '설계자'
 const DEFAULT_CLIENT_NAME = '고객사 담당자'
 const FLOOR_PLAN_GENERATE_TIMEOUT_MS = 120_000
@@ -122,6 +134,8 @@ export function useEditorPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { currentProjectName } = useEditorProjectName(projectId)
   const mode = resolveEditorMode(searchParams.get('mode'))
+  const [selectedIfcElement, setSelectedIfcElement] = useState<IfcElementInfo | null>(null)
+  const [ifcElementChangesById, setIfcElementChangesById] = useState<Record<number, IfcElementChange>>({})
   const workspaceCommandPublisher = useWorkspaceCommandPublisher({
     projectId,
     source: mode,
@@ -1197,6 +1211,11 @@ export function useEditorPage() {
     fitPaddingPx: EDITOR_SITE_FIT_PADDING_PX,
   })
 
+  const ifcElementChanges = useMemo(
+    () => Object.values(ifcElementChangesById),
+    [ifcElementChangesById],
+  )
+
   const {
     syncPerimeterManualWallsForRoomResize,
     syncFloorDerivedStateFromRooms,
@@ -1224,6 +1243,7 @@ export function useEditorPage() {
   const setMode = (nextMode: EditorMode) => {
     setSearchParams({ mode: nextMode })
     if (nextMode !== '2d') setIsCollaborationMode(false)
+    if (nextMode !== '3d') setSelectedIfcElement(null)
     setIsLibraryOpen(false)
   }
 
@@ -1508,7 +1528,36 @@ export function useEditorPage() {
     setSelectedFloorOpeningId(null)
     setSelectedFloorWallIds([])
     setSelectedFloorOpeningIds([])
+    setSelectedIfcElement(null)
   }
+
+  const handleSelectIfcElement = useCallback((element: IfcElementInfo | null) => {
+    setSelectedIfcElement(element)
+    if (!element) return
+    clearSelection()
+    setSelectedConnectionPair(null)
+    setSelectedFloorWallId(null)
+    setSelectedFloorOpeningId(null)
+    setSelectedFloorWallIds([])
+    setSelectedFloorOpeningIds([])
+  }, [clearSelection])
+
+  const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId'>) => {
+    if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return
+    setIfcElementChangesById((prev) => ({
+      ...prev,
+      [element.expressId as number]: {
+        ...prev[element.expressId as number],
+        ...patch,
+        expressId: element.expressId as number,
+      },
+    }))
+  }, [])
+
+  const handleDeleteIfcElement = useCallback((element: IfcElementInfo) => {
+    recordIfcElementChange(element, { deleted: true })
+    setSelectedIfcElement((prev) => (prev?.id === element.id ? null : prev))
+  }, [recordIfcElementChange])
 
   const handleTwoDMarqueeSelect = useCallback(
     (
@@ -2113,13 +2162,13 @@ export function useEditorPage() {
   const {
     handleLabelChangeForPanel,
     handleTypeChangeForPanel,
-    handleMaterialChangeForPanel,
-    handleWidthChangeForPanel,
-    handleHeightChangeForPanel,
-    handleWidthCommitForPanel,
-    handleHeightCommitForPanel,
     handleRatioChangeForPanel,
-    handleColorChangeForPanel,
+    handleColorChangeForPanel: baseHandleColorChangeForPanel,
+    handleMaterialChangeForPanel: baseHandleMaterialChangeForPanel,
+    handleWidthChangeForPanel: baseHandleWidthChangeForPanel,
+    handleHeightChangeForPanel: baseHandleHeightChangeForPanel,
+    handleWidthCommitForPanel: baseHandleWidthCommitForPanel,
+    handleHeightCommitForPanel: baseHandleHeightCommitForPanel,
   } = useEditorAttributePanelHandlers({
     mode,
     canSyncBubbleStateFrom2D,
@@ -2141,6 +2190,118 @@ export function useEditorPage() {
     syncFloorDerivedStateFromRooms,
   })
 
+  const handleMaterialChangeForPanel = useCallback((id: string, material: string) => {
+    if (mode === '3d' && selectedIfcElement?.id === id) {
+      setSelectedIfcElement((prev) => {
+        if (!prev || prev.id !== id) return prev
+        const next = {
+          ...prev,
+          material,
+          color: THREE_D_MATERIAL_COLOR[material] ?? prev.color,
+          properties: {
+            ...prev.properties,
+            Material: material,
+            Color: THREE_D_MATERIAL_COLOR[material] ?? prev.color ?? '-',
+          },
+        }
+        recordIfcElementChange(next, {
+          material,
+          color: THREE_D_MATERIAL_COLOR[material] ?? prev.color,
+        })
+        return next
+      })
+      return
+    }
+    baseHandleMaterialChangeForPanel(id, material)
+  }, [baseHandleMaterialChangeForPanel, mode, recordIfcElementChange, selectedIfcElement?.id])
+
+  const handleColorChangeForPanel = useCallback((id: string, color: string) => {
+    if (mode === '3d' && selectedIfcElement?.id === id) {
+      setSelectedIfcElement((prev) => {
+        if (!prev || prev.id !== id) return prev
+        const next = {
+          ...prev,
+          color,
+          properties: {
+            ...prev.properties,
+            Color: color,
+          },
+        }
+        recordIfcElementChange(next, { color, material: prev.material })
+        return next
+      })
+      return
+    }
+    baseHandleColorChangeForPanel(id, color)
+  }, [baseHandleColorChangeForPanel, mode, recordIfcElementChange, selectedIfcElement?.id])
+
+  const handleWidthChangeForPanel = useCallback((id: string, widthMm: number) => {
+    if (mode === '3d' && selectedIfcElement?.id === id) {
+      setSelectedIfcElement((prev) => {
+        if (!prev || prev.id !== id) return prev
+        const next = {
+          ...prev,
+          lengthMm: widthMm,
+          properties: {
+            ...prev.properties,
+            Length: widthMm,
+          },
+        }
+        recordIfcElementChange(next, { lengthMm: widthMm })
+        return next
+      })
+      return
+    }
+    baseHandleWidthChangeForPanel(id, widthMm)
+  }, [baseHandleWidthChangeForPanel, mode, recordIfcElementChange, selectedIfcElement?.id])
+
+  const handleHeightChangeForPanel = useCallback((id: string, heightMm: number) => {
+    if (mode === '3d' && selectedIfcElement?.id === id) {
+      setSelectedIfcElement((prev) => {
+        if (!prev || prev.id !== id) return prev
+        const next = {
+          ...prev,
+          heightMm,
+          properties: {
+            ...prev.properties,
+            Height: heightMm,
+          },
+        }
+        recordIfcElementChange(next, { heightMm })
+        return next
+      })
+      return
+    }
+    baseHandleHeightChangeForPanel(id, heightMm)
+  }, [baseHandleHeightChangeForPanel, mode, recordIfcElementChange, selectedIfcElement?.id])
+
+  const handleThicknessChangeForPanel = useCallback((id: string, thicknessMm: number) => {
+    if (mode !== '3d' || selectedIfcElement?.id !== id) return
+    setSelectedIfcElement((prev) => {
+      if (!prev || prev.id !== id) return prev
+      const next = {
+        ...prev,
+        thicknessMm,
+        properties: {
+          ...prev.properties,
+          Thickness: thicknessMm,
+        },
+      }
+      recordIfcElementChange(next, { thicknessMm })
+      return next
+    })
+  }, [mode, recordIfcElementChange, selectedIfcElement?.id])
+
+  const handleWidthCommitForPanel = useCallback(
+    (id: string, widthMm: number) => baseHandleWidthCommitForPanel(id, widthMm),
+    [baseHandleWidthCommitForPanel],
+  )
+
+  const handleHeightCommitForPanel = useCallback(
+    (id: string, heightMm: number) => baseHandleHeightCommitForPanel(id, heightMm),
+    [baseHandleHeightCommitForPanel],
+  )
+
   const handleAutoLayoutBubbles = useCallback(() => {
     if (mode !== 'bubble') return
     if (isBubbleReadOnly) return
@@ -2158,6 +2319,7 @@ export function useEditorPage() {
   return {
     // 모드
     mode,
+    projectId,
     currentProjectName,
     latestFloorPlanJobId,
     floorPlanGenerateStatusText,
@@ -2180,7 +2342,10 @@ export function useEditorPage() {
     selectedBubble,
     selectedFloorWall,
     selectedFloorOpening,
+    selectedIfcElement: mode === '3d' ? selectedIfcElement : null,
     handleBubbleSelect,
+    handleSelectIfcElement,
+    handleDeleteIfcElement,
     handleBubbleDrag: handleBubbleDragInBubble,
     handleMarqueeSelect,
     handleTwoDMarqueeSelect,
@@ -2192,11 +2357,13 @@ export function useEditorPage() {
     handleTypeChange: handleTypeChangeForPanel,
     handleWidthChange: handleWidthChangeForPanel,
     handleHeightChange: handleHeightChangeForPanel,
+    handleThicknessChange: handleThicknessChangeForPanel,
     handleWidthCommit: handleWidthCommitForPanel,
     handleHeightCommit: handleHeightCommitForPanel,
     handleRatioChange: handleRatioChangeForPanel,
     handleColorChange: handleColorChangeForPanel,
     handleMaterialChange: handleMaterialChangeForPanel,
+    ifcElementChanges,
     handleDeleteBubble,
     // 연결선
     connections,

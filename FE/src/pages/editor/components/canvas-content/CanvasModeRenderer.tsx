@@ -8,7 +8,13 @@ import type { CanvasModeRendererSectionProps } from './buildCanvasSectionProps'
  * 모드별 캔버스 본문 렌더러
  * - 버블/2D/3D/뷰 모드 본문을 분기한다.
  */
-export default function CanvasModeRenderer({ mode, zoom, renderProps, onOpenExport }: CanvasModeRendererSectionProps) {
+export default function CanvasModeRenderer({
+  mode,
+  zoom,
+  renderProps,
+  onOpenExport,
+  isRotationLocked,
+}: CanvasModeRendererSectionProps) {
   const scale = zoom / 100
 
   if (mode === 'bubble') {
@@ -20,7 +26,7 @@ export default function CanvasModeRenderer({ mode, zoom, renderProps, onOpenExpo
   }
 
   if (mode === '3d') {
-    return <ThreeDModeCanvas editorProps={renderProps} scale={scale} />
+    return <ThreeDModeCanvas editorProps={renderProps} scale={scale} isRotationLocked={isRotationLocked} />
   }
 
   if (mode === 'view') {

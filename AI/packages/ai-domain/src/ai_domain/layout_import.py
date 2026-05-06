@@ -141,6 +141,7 @@ class BoundaryInput(LayoutImportBaseModel):
     polygon_mm: PolygonRing | None = Field(
         default=None,
         min_length=3,
+        serialization_alias="polygon",
         validation_alias=AliasChoices("polygon_mm", "polygon"),
     )
     outer_polygon_mm: PolygonRing | None = Field(default=None, min_length=3)
@@ -159,6 +160,10 @@ class BoundaryInput(LayoutImportBaseModel):
                 raise ValueError("holes_mm cannot be used with polygon_mm")
 
         points = self.outer_polygon_mm if self.outer_polygon_mm is not None else self.polygon_mm
+        if points is None:
+            # This should be unreachable due to the check at the beginning of the validator
+            raise ValueError("polygon data is missing")
+
         if len(points) > 1 and points[0] == points[-1]:
             points = points[:-1]
 

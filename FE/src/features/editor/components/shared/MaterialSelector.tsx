@@ -9,7 +9,7 @@ interface MaterialSelectorProps {
 
 export function MaterialSelector({ value, onChange }: MaterialSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const current = value ?? DEFAULT_WALL_MATERIAL
+  const current = value?.trim() || DEFAULT_WALL_MATERIAL
   const currentColor = FLOOR_WALL_MATERIAL_VISUALS[current]?.color ?? FLOOR_WALL_MATERIAL_VISUALS[DEFAULT_WALL_MATERIAL].color
 
   const handleSelect = (label: string) => {
@@ -22,12 +22,13 @@ export function MaterialSelector({ value, onChange }: MaterialSelectorProps) {
       <h3 className="text-[10px] font-bold text-[#3B45B3]">재질</h3>
       <div className="relative">
         <button
+          type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className="w-full bg-[#F8F9FD] rounded-lg px-3 py-2.5 flex items-center justify-between group hover:bg-[#F0F2FA] transition-colors"
+          className="group flex w-full items-center justify-between rounded-lg bg-[#F8F9FD] px-3 py-2.5 transition-colors hover:bg-[#F0F2FA]"
         >
           <span className="inline-flex items-center gap-2">
             <span
-              className="inline-block w-2.5 h-2.5 rounded-full"
+              className="inline-block h-2.5 w-2.5 rounded-full"
               style={{ backgroundColor: currentColor }}
               aria-hidden
             />
@@ -36,18 +37,24 @@ export function MaterialSelector({ value, onChange }: MaterialSelectorProps) {
           <ChevronDown size={14} className="text-[#ADB5BD] group-hover:text-[#3B45B3]" />
         </button>
         {isOpen && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[#E2E6EF] rounded-lg shadow-lg z-10 overflow-hidden">
+          <div className="absolute left-0 right-0 top-full z-10 mt-1 overflow-hidden rounded-lg border border-[#E2E6EF] bg-white shadow-lg">
+            {current && !(FLOOR_WALL_MATERIAL_OPTIONS as readonly string[]).includes(current) && (
+              <div className="border-b border-[#EEF1F7] px-3 py-2.5">
+                <span className="text-[10px] font-bold text-[#8E95A3]">IFC 정의값: {current}</span>
+              </div>
+            )}
             {FLOOR_WALL_MATERIAL_OPTIONS.map((label) => {
               const swatch = FLOOR_WALL_MATERIAL_VISUALS[label]?.color ?? FLOOR_WALL_MATERIAL_VISUALS[DEFAULT_WALL_MATERIAL].color
               return (
                 <button
+                  type="button"
                   key={label}
                   onClick={() => handleSelect(label)}
-                  className="w-full px-3 py-2.5 text-left hover:bg-[#F8F9FD] transition-colors"
+                  className="w-full px-3 py-2.5 text-left transition-colors hover:bg-[#F8F9FD]"
                 >
                   <span className="inline-flex items-center gap-2">
                     <span
-                      className="inline-block w-2.5 h-2.5 rounded-full"
+                      className="inline-block h-2.5 w-2.5 rounded-full"
                       style={{ backgroundColor: swatch }}
                       aria-hidden
                     />
@@ -59,7 +66,7 @@ export function MaterialSelector({ value, onChange }: MaterialSelectorProps) {
           </div>
         )}
       </div>
-      <p className="text-[10px] text-[#8E95A3] leading-[1.35]">
+      <p className="text-[10px] leading-[1.35] text-[#8E95A3]">
         재질 색상은 실제 물성 의미가 아닌 시각적 구분용 표시입니다.
       </p>
     </div>

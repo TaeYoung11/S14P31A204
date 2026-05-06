@@ -5,6 +5,7 @@ export interface CanvasModeRendererSectionProps {
   zoom: EditorCanvasRenderProps['zoom']
   renderProps: EditorCanvasRenderProps
   onOpenExport: EditorCanvasRenderProps['handleOpenExportSelectionModal']
+  isRotationLocked: boolean
 }
 
 export interface CanvasLabelOverlaySectionProps {
@@ -51,6 +52,8 @@ export interface CanvasZoomControlsSectionProps {
   onToggleGrid: EditorCanvasRenderProps['toggleGrid']
   onToggleGridSnap: EditorCanvasRenderProps['toggleGridSnap']
   onGridSnapIntervalChange: EditorCanvasRenderProps['handleSetGridSnapIntervalMm']
+  isRotationLocked: boolean
+  onToggleRotationLock: () => void
 }
 
 export interface CanvasCollaborationBarSectionProps {
@@ -64,12 +67,14 @@ export interface CanvasCollaborationBarSectionProps {
  */
 export function buildCanvasModeRendererSectionProps(
   renderProps: EditorCanvasRenderProps,
+  isRotationLocked: boolean,
 ): CanvasModeRendererSectionProps {
   return {
     mode: renderProps.mode,
     zoom: renderProps.zoom,
     renderProps,
     onOpenExport: renderProps.handleOpenExportSelectionModal,
+    isRotationLocked,
   }
 }
 
@@ -122,6 +127,8 @@ export function buildCanvasTwoDLeftPanelsSectionProps(
  */
 export function buildCanvasZoomControlsSectionProps(
   renderProps: EditorCanvasRenderProps,
+  isRotationLocked: boolean,
+  onToggleRotationLock: () => void,
 ): CanvasZoomControlsSectionProps {
   return {
     mode: renderProps.mode,
@@ -137,6 +144,8 @@ export function buildCanvasZoomControlsSectionProps(
     onToggleGrid: renderProps.toggleGrid,
     onToggleGridSnap: renderProps.toggleGridSnap,
     onGridSnapIntervalChange: renderProps.handleSetGridSnapIntervalMm,
+    isRotationLocked,
+    onToggleRotationLock,
   }
 }
 

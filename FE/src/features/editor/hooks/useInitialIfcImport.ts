@@ -1,6 +1,9 @@
 import { useEffect, type MutableRefObject } from 'react'
 import { projectService } from '@/features/project/services/project.service'
 
+const FALLBACK_IFC_URL = '/mock/shinchan_house.ifc'
+const FALLBACK_IFC_FILE_NAME = 'shinchan_house.ifc'
+
 interface UseInitialIfcImportParams {
   projectId: string | undefined
   hasIfcUploaded: boolean
@@ -9,6 +12,13 @@ interface UseInitialIfcImportParams {
   importFloorProjectFromIfc: (ifcText: string, fileName: string) => Promise<void>
   /** projectId별 IFC 임포트 1회 보장을 위한 시도 기록 ref */
   attemptedInitialIfcImportProjectIdRef: MutableRefObject<string | null>
+}
+
+async function fetchIfcText(ifcUrl: string): Promise<string | null> {
+  const response = await fetch(ifcUrl)
+  if (!response.ok) return null
+  const ifcText = await response.text()
+  return ifcText.trim().length > 0 ? ifcText : null
 }
 
 /**
@@ -37,9 +47,12 @@ export function useInitialIfcImport({
     attemptedInitialIfcImportProjectIdRef.current = projectId
 
     const loadIfc = async () => {
-      const ifcText = await projectService.getIfcModelText(projectId)
+      const projectIfcSource = await projectService.getIfcSource(projectId).catch(() => null)
+      const projectIfcUrl = projectIfcSource?.currentIfcUrl
+      const projectIfcText = projectIfcUrl ? await fetchIfcText(projectIfcUrl).catch(() => null) : null
+      const ifcText = projectIfcText ?? await fetchIfcText(FALLBACK_IFC_URL)
       if (cancelled || !ifcText) return
-      await importFloorProjectFromIfc(ifcText, `${projectId}.ifc`)
+      await importFloorProjectFromIfc(ifcText, projectIfcText ? `${projectId}.ifc` : FALLBACK_IFC_FILE_NAME)
     }
 
     void loadIfc().catch((error: unknown) => {

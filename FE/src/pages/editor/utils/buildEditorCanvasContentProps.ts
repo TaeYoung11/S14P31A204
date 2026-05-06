@@ -7,6 +7,7 @@ type CanvasPropsSubset<K extends keyof EditorCanvasContentProps> = Pick<EditorCa
 function buildCanvasContextProps(
   vm: EditorPageViewModel,
 ): CanvasPropsSubset<
+  | 'projectId'
   | 'mode'
   | 'containerRef'
   | 'stageSize'
@@ -21,6 +22,7 @@ function buildCanvasContextProps(
   | 'handleWheelZoom'
 > {
   return {
+    projectId: vm.projectId,
     mode: vm.mode,
     containerRef: vm.containerRef,
     stageSize: vm.stageSize,
@@ -101,6 +103,10 @@ function buildFloorPlanProps(
   | 'handleGenerateFloorPlan'
   | 'canGenerateFloorPlanFromBubble'
   | 'handleBubbleSelect'
+  | 'handleSelectIfcElement'
+  | 'handleDeleteIfcElement'
+  | 'selectedIfcElement'
+  | 'ifcElementChanges'
 > {
   return {
     sitePlanPoints: vm.sitePlanPoints,
@@ -112,6 +118,10 @@ function buildFloorPlanProps(
     handleGenerateFloorPlan: vm.handleGenerateFloorPlan,
     canGenerateFloorPlanFromBubble: vm.canGenerateFloorPlanFromBubble,
     handleBubbleSelect: vm.handleBubbleSelect,
+    handleSelectIfcElement: vm.handleSelectIfcElement,
+    handleDeleteIfcElement: vm.handleDeleteIfcElement,
+    selectedIfcElement: vm.selectedIfcElement,
+    ifcElementChanges: vm.ifcElementChanges,
   }
 }
 

@@ -95,6 +95,11 @@ export interface ProjectSiteResponse {
   createdAt: string
 }
 
+export interface ProjectIfcSource {
+  projectId: string
+  currentIfcUrl?: string
+}
+
 const mapProjectSummary = (project: ProjectSummaryResponse): Project => ({
   id: project.projectId,
   name: project.name,
@@ -146,14 +151,19 @@ async function fetchProjectListPage(page: number): Promise<ProjectListResponse> 
   return response.data.data
 }
 
+async function fetchProjectSummary(projectId: string): Promise<ProjectSummaryResponse> {
+  const response = await api.get<ApiResponse<ProjectSummaryResponse>>(`/projects/${projectId}`)
+  return response.data.data
+}
+
 /**
  * 프로젝트 상세 응답에서 대지 폴리곤을 읽어온다.
  * - 응답에 대지 정보가 없거나 형식이 맞지 않으면 null
  * - 네트워크/서버 오류는 상위 fallback 체인에서 처리
  */
 async function fetchSitePolygonFromProjectDetail(projectId: string): Promise<number[][] | null> {
-  const response = await api.get<ApiResponse<ProjectSummaryResponse>>(`/projects/${projectId}`)
-  return extractOuterRingFromCoordinates(response.data.data?.cadastralInfo?.polygon?.coordinates)
+  const project = await fetchProjectSummary(projectId)
+  return extractOuterRingFromCoordinates(project?.cadastralInfo?.polygon?.coordinates)
 }
 
 export interface ProjectListPageResult {
@@ -183,8 +193,8 @@ export const projectService = {
   },
 
   getById: async (id: string): Promise<Project> => {
-    const response = await api.get<ApiResponse<ProjectSummaryResponse>>(`/projects/${id}`)
-    return mapProjectSummary(response.data.data)
+    const project = await fetchProjectSummary(id)
+    return mapProjectSummary(project)
   },
 
   getSitePolygon: async (projectId: string): Promise<ProjectSitePolygonResult> => {
@@ -235,6 +245,14 @@ export const projectService = {
     if (response.status !== 200) return null
     const ifcText = decodeUtf8ArrayBuffer(response.data)
     return ifcText.trim().length > 0 ? ifcText : null
+  },
+
+  getIfcSource: async (projectId: string): Promise<ProjectIfcSource> => {
+    const project = await fetchProjectSummary(projectId)
+    return {
+      projectId: project.projectId,
+      currentIfcUrl: project.currentIfcUrl,
+    }
   },
 
   create: async (data: CreateProjectDto): Promise<Project> => {

@@ -1,4 +1,4 @@
-import { Suspense } from 'react'
+import { Suspense, useState } from 'react'
 import { ModeCanvasLoadingFallback } from '@/features/editor/components/shared/EditorLoadingFallbacks'
 import type { EditorCanvasContentProps, EditorCanvasRenderProps } from '../types/editorCanvasContentProps'
 import CanvasCollaborationBar from './canvas-content/CanvasCollaborationBar'
@@ -21,11 +21,16 @@ import {
 export default function EditorCanvasContent(props: EditorCanvasContentProps) {
   const { containerRef, ...canvasRenderProps } = props
   const renderProps: EditorCanvasRenderProps = canvasRenderProps
+  const [isRotationLocked, setIsRotationLocked] = useState(false)
   const isViewMode = renderProps.mode === 'view'
-  const modeRendererSectionProps = buildCanvasModeRendererSectionProps(renderProps)
+  const modeRendererSectionProps = buildCanvasModeRendererSectionProps(renderProps, isRotationLocked)
   const labelOverlaySectionProps = buildCanvasLabelOverlaySectionProps(renderProps)
   const twoDLeftPanelsSectionProps = buildCanvasTwoDLeftPanelsSectionProps(renderProps)
-  const zoomControlsSectionProps = buildCanvasZoomControlsSectionProps(renderProps)
+  const zoomControlsSectionProps = buildCanvasZoomControlsSectionProps(
+    renderProps,
+    isRotationLocked,
+    () => setIsRotationLocked((prev) => !prev),
+  )
   const collaborationBarSectionProps = buildCanvasCollaborationBarSectionProps(renderProps)
 
   return (

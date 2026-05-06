@@ -9,6 +9,8 @@ from typing import Any
 
 import ifcopenshell
 
+from ._utils import spatial_elements
+
 logger = logging.getLogger(__name__)
 
 COLLIDABLE_TYPES: frozenset[str] = frozenset(
@@ -57,7 +59,7 @@ class BoundingBox:
     min_z: float
     max_z: float
 
-    def intersects(self, other: BoundingBox, tolerance_mm: float = 1.0) -> bool:
+    def intersects(self, other: BoundingBox, tolerance_mm: float = 5.0) -> bool:
         return (
             self.min_x < other.max_x - tolerance_mm
             and self.max_x > other.min_x + tolerance_mm
@@ -100,6 +102,7 @@ class CollisionResult:
     colliding_elements: list[dict[str, Any]] = field(default_factory=list)
     out_of_space: bool = False
     messages: list[str] = field(default_factory=list)
+    is_common_wall_candidate: bool = False
 
     @property
     def is_ok(self) -> bool:
@@ -149,20 +152,28 @@ class CollisionValidator:
         if self._use_geom and colliders:
             colliders = self._refine_with_geom(new_bbox, colliders)
 
+        is_common = self._classify_collision(new_bbox, colliders) if colliders else False
+
         messages: list[str] = []
         if colliders:
             names = ", ".join(c.get("name") or c["global_id"][:8] for c in colliders)
-            messages.append(
-                f"[간섭감지] 신규 부재가 기존 부재와 겹칩니다: {names}"
-            )
+            if is_common:
+                messages.append(
+                    f"[공통벽] 신규 부재가 기존 부재와 면 접촉합니다 (간섭 아님): {names}"
+                )
+            else:
+                messages.append(
+                    f"[간섭감지] 신규 부재가 기존 부재와 겹칩니다: {names}"
+                )
         if out_of_space:
             messages.append(space_msg)
 
         return CollisionResult(
-            has_collision=bool(colliders),
+            has_collision=bool(colliders) and not is_common,
             colliding_elements=colliders,
             out_of_space=out_of_space,
             messages=messages,
+            is_common_wall_candidate=is_common,
         )
 
     def check_pair(
@@ -327,13 +338,39 @@ class CollisionValidator:
             return 0.0, 0.0, 0.0
         return max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs)
 
+    # 두 bbox의 한쪽 수평축 겹침이 이 값 이하이면 면 접촉(공통벽)으로 판단
+    _COMMON_WALL_OVERLAP_THRESHOLD_MM: float = 100.0
+
+    def _classify_collision(
+        self,
+        new_bbox: BoundingBox,
+        colliders: list[dict[str, Any]],
+    ) -> bool:
+        """모든 충돌이 면 접촉(공통벽)인지 검사. 하나라도 진짜 겹침이면 False."""
+        for c in colliders:
+            element = self._model.by_guid(c["global_id"])
+            if element is None:
+                continue
+            el_bbox = self._bbox_from_element(element)
+            if el_bbox is None:
+                continue
+            overlap_x = min(new_bbox.max_x, el_bbox.max_x) - max(new_bbox.min_x, el_bbox.min_x)
+            overlap_y = min(new_bbox.max_y, el_bbox.max_y) - max(new_bbox.min_y, el_bbox.min_y)
+            # 양쪽 모두 threshold 초과 → 진짜 부피 겹침
+            if (
+                overlap_x > self._COMMON_WALL_OVERLAP_THRESHOLD_MM
+                and overlap_y > self._COMMON_WALL_OVERLAP_THRESHOLD_MM
+            ):
+                return False
+        return True
+
     def _check_element_collision(
         self,
         new_bbox: BoundingBox,
         storey: ifcopenshell.entity_instance,
     ) -> list[dict[str, Any]]:
         colliders: list[dict[str, Any]] = []
-        for element in self._spatial_elements(storey):
+        for element in spatial_elements(storey):
             if element.is_a() not in self.COLLIDABLE_TYPES:
                 continue
             el_bbox = self._bbox_from_element(element)
@@ -348,30 +385,6 @@ class CollisionValidator:
                     }
                 )
         return colliders
-
-    def _spatial_elements(
-        self,
-        spatial: ifcopenshell.entity_instance,
-    ) -> list[ifcopenshell.entity_instance]:
-        elements: list[ifcopenshell.entity_instance] = []
-        seen: set[int] = set()
-
-        def add_element(element: ifcopenshell.entity_instance) -> None:
-            element_id = int(element.id())
-            if element_id not in seen:
-                seen.add(element_id)
-                elements.append(element)
-
-        def visit(node: ifcopenshell.entity_instance) -> None:
-            for rel in getattr(node, "ContainsElements", []) or []:
-                for element in getattr(rel, "RelatedElements", []) or []:
-                    add_element(element)
-            for rel in getattr(node, "IsDecomposedBy", []) or []:
-                for child in getattr(rel, "RelatedObjects", []) or []:
-                    visit(child)
-
-        visit(spatial)
-        return elements
 
     def _check_space_boundary(
         self,
@@ -424,7 +437,7 @@ class CollisionValidator:
     ) -> BoundingBox | None:
         bboxes = [
             bbox
-            for element in self._spatial_elements(spatial)
+            for element in spatial_elements(spatial)
             if element.is_a() in self.COLLIDABLE_TYPES
             for bbox in [self._bbox_from_element(element)]
             if bbox is not None

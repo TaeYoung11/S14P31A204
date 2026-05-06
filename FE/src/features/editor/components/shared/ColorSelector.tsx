@@ -5,6 +5,12 @@ const PRESET_COLORS = [
   '#4CAF50', '#FF9800', '#9C27B0', '#3B45B3',
 ]
 
+const normalizeHexColor = (value: string) => {
+  const trimmed = value.trim()
+  const withHash = trimmed.startsWith('#') ? trimmed : `#${trimmed}`
+  return /^#[0-9A-Fa-f]{6}$/.test(withHash) ? withHash.toUpperCase() : null
+}
+
 interface ColorSelectorProps {
   value?: string
   onChange?: (value: string) => void
@@ -12,6 +18,12 @@ interface ColorSelectorProps {
 
 export function ColorSelector({ value = '#BEC4D1', onChange }: ColorSelectorProps) {
   const colorInputRef = useRef<HTMLInputElement>(null)
+  const normalizedValue = normalizeHexColor(value) ?? '#BEC4D1'
+
+  const handleHexChange = (inputValue: string) => {
+    const nextColor = normalizeHexColor(inputValue)
+    if (nextColor) onChange?.(nextColor)
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -20,36 +32,41 @@ export function ColorSelector({ value = '#BEC4D1', onChange }: ColorSelectorProp
       <button
         type="button"
         onClick={() => colorInputRef.current?.click()}
-        className="w-full flex items-center gap-3 bg-[#F8F9FD] rounded-lg px-3 py-2.5 text-left hover:bg-[#F0F2FA] transition-colors"
+        className="flex w-full items-center gap-3 rounded-lg bg-[#F8F9FD] px-3 py-2.5 text-left transition-colors hover:bg-[#F0F2FA]"
       >
         <div
-          className="w-8 h-8 rounded-lg shadow-inner shrink-0 border border-[#E2E6EF]"
-          style={{ backgroundColor: value }}
+          className="h-8 w-8 shrink-0 rounded-lg border border-[#E2E6EF] shadow-inner"
+          style={{ backgroundColor: normalizedValue }}
         />
         <div className="flex flex-col gap-0.5">
-          <span className="text-[9px] font-bold text-[#ADB5BD] uppercase">선택된 색상</span>
-          <span className="text-xs font-mono font-bold text-[#1C1C1E] uppercase">{value}</span>
+          <span className="text-[9px] font-bold uppercase text-[#ADB5BD]">색상 코드 (RGB / HEX)</span>
+          <span className="font-mono text-xs font-bold uppercase text-[#1C1C1E]">{normalizedValue}</span>
         </div>
       </button>
 
       <input
         ref={colorInputRef}
         type="color"
-        value={value}
-        onChange={e => onChange?.(e.target.value)}
+        value={normalizedValue}
+        onChange={(event) => onChange?.(event.target.value.toUpperCase())}
         className="sr-only"
       />
 
+      <input
+        type="text"
+        value={normalizedValue}
+        onChange={(event) => handleHexChange(event.target.value)}
+        className="rounded-lg border-none bg-[#F8F9FD] px-3 py-2.5 font-mono text-xs font-bold uppercase text-[#1C1C1E] outline-none focus:ring-1 focus:ring-[#3B45B3]"
+      />
+
       <div className="flex flex-wrap gap-2">
-        {PRESET_COLORS.map(color => (
+        {PRESET_COLORS.map((color) => (
           <button
             type="button"
             key={color}
             onClick={() => onChange?.(color)}
             title={color}
-            className={`w-7 h-7 rounded-lg shadow-sm transition-all hover:scale-110 border border-[#E2E6EF] ${
-              value === color ? 'ring-2 ring-[#3B45B3] ring-offset-1' : ''
-            }`}
+            className={`h-7 w-7 rounded-lg border border-[#E2E6EF] shadow-sm transition-all hover:scale-110 ${normalizedValue === color ? 'ring-2 ring-[#3B45B3] ring-offset-1' : ''}`}
             style={{ backgroundColor: color }}
           />
         ))}

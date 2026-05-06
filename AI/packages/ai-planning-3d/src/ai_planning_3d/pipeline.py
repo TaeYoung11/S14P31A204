@@ -22,7 +22,9 @@ from ai_authoring.engine_3d import (
     create_generic_element,
 )
 
-# ── [신규] 검증 모듈 임포트 ─────────────────────────────────────────────────
+# 검증 모듈 및 컨텍스트 추출기 임포트
+from .clarification import ClarificationGenerator, ClarificationQuestion
+from .context_extractor import IFCContextExtractor
 from .validators import (
     CollisionValidator,
     CollisionResult,
@@ -47,7 +49,7 @@ class PreviewSession:
         matched: list[dict[str, Any]],
         quality_ok: bool = True,
         quality_errors: list[str] | None = None,
-        # ── [신규] 검증 결과 필드 ──────────────────────────────────────────
+        # 검증 결과 필드
         collision_warnings: list[str] | None = None,
         structural_warnings: list[str] | None = None,
         structural_blocked: bool = False,
@@ -61,6 +63,7 @@ class PreviewSession:
         self.collision_warnings: list[str] = collision_warnings or []
         self.structural_warnings: list[str] = structural_warnings or []
         self.structural_blocked: bool = structural_blocked
+        self.clarification_questions: list[ClarificationQuestion] = []
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -81,17 +84,21 @@ class LLM3DPipeline:
         self.query_engine = IFCQueryEngine(ifc_model=ifc_model)
         self.store: dict[str, PreviewSession] = {}
 
-        # ── [신규] 검증기 및 인접 탐색 엔진 초기화 ─────────────────────────
-        scale = self._detect_scale_factor(ifc_model)
+        # 검증기 및 인접 탐색 엔진 초기화
+        self._scale = self._detect_scale_factor(ifc_model)
         self._collision_validator = (
-            CollisionValidator(ifc_model, scale_to_mm=scale) if ifc_model else None
+            CollisionValidator(ifc_model, scale_to_mm=self._scale) if ifc_model else None
         )
         self._structural_validator = (
-            StructuralSafetyValidator(ifc_model, scale_to_mm=scale) if ifc_model else None
+            StructuralSafetyValidator(ifc_model, scale_to_mm=self._scale) if ifc_model else None
         )
         self._adjacency_engine = (
-            AdjacencyQueryEngine(ifc_model, scale_to_mm=scale) if ifc_model else None
+            AdjacencyQueryEngine(ifc_model, scale_to_mm=self._scale) if ifc_model else None
         )
+
+        # IFC 컨텍스트 추출 (초기화 시 1회 캐싱)
+        _ctx = IFCContextExtractor(ifc_model, scale_to_mm=self._scale).extract()
+        self._ifc_context_text: str | None = _ctx.context_text if _ctx else None
 
     # ── 단위 변환 헬퍼 ────────────────────────────────────────────────────
 
@@ -112,22 +119,7 @@ class LLM3DPipeline:
         return 1.0
 
     def _model_units_to_mm(self, value: float) -> float:
-        model = self.query_engine.get_model()
-        if not model:
-            return value
-        for unit in model.by_type("IfcSIUnit"):
-            if getattr(unit, "UnitType", None) != "LENGTHUNIT":
-                continue
-            prefix = getattr(unit, "Prefix", None)
-            if prefix == "MILLI":
-                return value
-            if prefix == "CENTI":
-                return value * 10.0
-            if prefix == "DECI":
-                return value * 100.0
-            if prefix is None:
-                return value * 1000.0
-        return value
+        return value * self._scale
 
     def _storey_elevation_mm(self, storey: ifcopenshell.entity_instance) -> float:
         elevation = getattr(storey, "Elevation", None)
@@ -287,10 +279,10 @@ class LLM3DPipeline:
             "length_mm": max(length_val, 3000.0),
         }
 
-    # ── [핵심] execute_preview — 검증 통합 ────────────────────────────────
+    # execute_preview — 검증 통합
 
     async def execute_preview(self, user_text: str) -> dict[str, Any]:
-        command = await self.engine.parse_command(user_text)
+        command = await self.engine.parse_command(user_text, ifc_context=self._ifc_context_text)
         return await self.execute_command_preview(command)
 
     async def execute_command_preview(self, command: LLM3DCommand) -> dict[str, Any]:
@@ -325,7 +317,7 @@ class LLM3DPipeline:
                     "command": command.model_dump(),
                 }
 
-        # ── [기존] ModelingQualityValidator 품질 검증 ────────────────────
+        # ModelingQualityValidator 품질 검증
         all_errors = []
         for elem in matched:
             errs = command.validate_modeling_quality(
@@ -351,7 +343,7 @@ class LLM3DPipeline:
             "command": command.model_dump(),
             "matched_count": len(matched),
             "summary": self._generate_summary(command, len(matched), all_errors),
-            # ── [신규] 검증 결과 포함 ────────────────────────────────────
+            # 검증 결과 포함
             "structural_warnings": session.structural_warnings,
         }
 
@@ -450,68 +442,6 @@ class LLM3DPipeline:
         finally:
             self.store.pop(session_id, None)
 
-    # ── CREATE 미리보기 — 충돌 + 구조 검증 통합 ──────────────
-
-    async def _execute_delete_preview(self, command: LLM3DCommand) -> dict[str, Any]:
-        model = self.query_engine.get_model()
-        if not model:
-            return {
-                "status": "error",
-                "summary": "IFC 모델이 로드되지 않았습니다.",
-                "command": command.model_dump(),
-            }
-
-        matched: list[dict[str, Any]] = []
-        if command.target.global_id:
-            element = model.by_guid(command.target.global_id)
-            if element:
-                matched.append(
-                    {
-                        "global_id": element.GlobalId,
-                        "element_type": element.is_a(),
-                        "name": element.Name,
-                        "dims": {},
-                    }
-                )
-
-        if not matched:
-            matched = self.query_engine.find_elements(command)
-
-        if not matched:
-            return {
-                "status": "not_found",
-                "summary": self.query_engine.get_last_query_reason()
-                or "삭제 대상 부재를 찾을 수 없습니다.",
-                "command": command.model_dump(),
-            }
-
-        structural_result = self._run_structural_delete_check(matched)
-        if structural_result.blocked:
-            return {
-                "status": "failed_structural_check",
-                "summary": structural_result.warnings[0],
-                "structural_warnings": structural_result.to_summary_lines(),
-                "command": command.model_dump(),
-            }
-
-        session = PreviewSession(
-            session_id=str(uuid.uuid4()),
-            command=command,
-            matched=matched,
-            quality_ok=True,
-            structural_warnings=structural_result.to_summary_lines(),
-        )
-        self.store[session.session_id] = session
-
-        return {
-            "status": "preview_ready",
-            "session_id": session.session_id,
-            "command": command.model_dump(),
-            "matched_count": len(matched),
-            "summary": self._generate_summary(command, len(matched), []),
-            "structural_warnings": session.structural_warnings,
-        }
-
     async def _execute_create_preview(self, command: LLM3DCommand) -> dict[str, Any]:
         ci = command.create_info
         if not ci:
@@ -548,31 +478,31 @@ class LLM3DPipeline:
             ci.ridge_height_mm = ci_dump["ridge_height_mm"]
 
         # ── 충돌 검사 ────────────────────────────────────────────
+        collision_result: CollisionResult | None = None
         collision_warnings: list[str] = []
         if self._collision_validator:
-            collision_result: CollisionResult = self._collision_validator.validate(
-                ci_dump, target_storey
-            )
+            collision_result = self._collision_validator.validate(ci_dump, target_storey)
             collision_warnings = collision_result.to_summary_lines()
             if not collision_result.is_ok:
-                logger.warning(
-                    f"[Pipeline] CREATE 충돌 감지: {collision_warnings}"
-                )
+                logger.warning(f"[Pipeline] CREATE 충돌 감지: {collision_warnings}")
 
         # ── 구조 지지체 검사 (슬래브/지붕) ─────────────────────
+        structural_result: StructuralCheckResult | None = None
         structural_warnings: list[str] = []
         if self._structural_validator:
-            structural_result: StructuralCheckResult = (
-                self._structural_validator.check_create_support(ci_dump, target_storey)
+            structural_result = self._structural_validator.check_create_support(
+                ci_dump, target_storey
             )
             structural_warnings = structural_result.to_summary_lines()
             if not structural_result.safe:
-                logger.warning(
-                    f"[Pipeline] CREATE 구조 경고: {structural_warnings}"
-                )
+                logger.warning(f"[Pipeline] CREATE 구조 경고: {structural_warnings}")
 
-        # 충돌이 있어도 preview_ready는 유지 (사용자에게 경고만 표시)
-        # 정책에 따라 collision_result.has_collision 이면 차단으로 변경 가능
+        # ── Clarification 생성 ──────────────────────────────────
+        questions = ClarificationGenerator().generate(
+            collision_result=collision_result,
+            structural_result=structural_result,
+        )
+
         session = PreviewSession(
             session_id=str(uuid.uuid4()),
             command=command,
@@ -587,16 +517,49 @@ class LLM3DPipeline:
             collision_warnings=collision_warnings,
             structural_warnings=structural_warnings,
         )
+        session.clarification_questions = questions
         self.store[session.session_id] = session
+
+        if questions:
+            return {
+                "status": "needs_clarification",
+                "session_id": session.session_id,
+                "command": command.model_dump(),
+                "summary": "생성 전 확인이 필요합니다.",
+                "clarification_questions": [q.to_dict() for q in questions],
+                "collision_warnings": collision_warnings,
+                "structural_warnings": structural_warnings,
+            }
 
         return {
             "status": "preview_ready",
             "session_id": session.session_id,
             "command": command.model_dump(),
             "summary": f"{target_storey.Name}에 {ci.element_type} 생성 준비 완료",
-            # ── [신규] 검증 결과 포함 ─────────────────────────────────
             "collision_warnings": collision_warnings,
             "structural_warnings": structural_warnings,
+        }
+
+    @staticmethod
+    def _unpack_create_info(
+        ci: dict[str, Any],
+        start_point: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """LLM3DCreateInfo dict → engine_3d primitive 파라미터로 변환."""
+        sp = start_point or ci.get("start_point") or {}
+        mat = ci.get("material") or {}
+        return {
+            "length_mm":      ci.get("length_mm"),
+            "width_mm":       ci.get("width_mm"),
+            "height_mm":      ci.get("height_mm"),
+            "ridge_height_mm": ci.get("ridge_height_mm"),
+            "x_mm":           sp.get("x", 0.0),
+            "y_mm":           sp.get("y", 0.0),
+            "z_mm":           sp.get("z", 0.0),
+            "direction":      str(ci.get("direction") or "north"),
+            "shape_preset":   str(ci.get("shape_preset") or "FLAT"),
+            "color":          ci.get("color"),
+            "material_name":  mat.get("name") if mat else None,
         }
 
     async def _execute_create_apply(
@@ -608,18 +571,21 @@ class LLM3DPipeline:
         model = self.query_engine.get_model()
         info = session.matched[0]
         ci = info["create_info"]
-        ci["start_point"] = info["start_point"]
         storey = model.by_guid(info["storey_guid"])
+        params = self._unpack_create_info(ci, start_point=info.get("start_point"))
+        # roof 전용 키를 제외한 공통 파라미터
+        base_params = {k: v for k, v in params.items()
+                       if k not in ("ridge_height_mm", "shape_preset")}
 
         etype = ci["element_type"]
         if etype == LLM3DElementType.WALL:
-            entity = create_wall(model, storey, ci)
+            entity = create_wall(model, storey, **base_params)
         elif etype == LLM3DElementType.SLAB:
-            entity = create_slab(model, storey, ci)
+            entity = create_slab(model, storey, **base_params)
         elif etype == LLM3DElementType.ROOF:
-            entity = create_roof(model, storey, ci)
+            entity = create_roof(model, storey, **params)
         else:
-            entity = create_generic_element(model, storey, etype, ci)
+            entity = create_generic_element(model, storey, etype.value, **base_params)
 
         if entity:
             model.write(output_path)

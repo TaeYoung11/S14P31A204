@@ -1,7 +1,5 @@
 package com.a204.batang.domain.pin.service;
 
-import com.a204.batang.domain.auth.entity.UserStatus;
-import com.a204.batang.domain.auth.repository.MemberRepository;
 import com.a204.batang.domain.pin.dto.CreatePinCommentRequest;
 import com.a204.batang.domain.pin.dto.CreatePinCommentResponse;
 import com.a204.batang.domain.pin.dto.GetPinCommentsResponse;
@@ -49,7 +47,6 @@ public class ProjectPinCommentService {
     private final ProjectPinRepository projectPinRepository;
     private final ProjectPinCommentRepository projectPinCommentRepository;
     private final PinCommentReadStateRepository pinCommentReadStateRepository;
-    private final MemberRepository memberRepository;
     private final ProjectAccessService projectAccessService;
     private final EntityManager entityManager;
     private final ApplicationEventPublisher applicationEventPublisher;
@@ -66,7 +63,7 @@ public class ProjectPinCommentService {
     public CreatePinCommentResponse createComment(UUID projectId, UUID pinId, CreatePinCommentRequest request) {
         ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
 
-        UUID currentUserId = resolveCurrentActiveUserIdOrThrow();
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
 
         String normalizedContent = request.content().trim();
@@ -103,7 +100,7 @@ public class ProjectPinCommentService {
     ) {
         ProjectPinComment comment = getActiveCommentOrThrow(projectId, pinId, commentId);
 
-        UUID currentUserId = resolveCurrentActiveUserIdOrThrow();
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(comment.getProjectPin().getProject(), currentUserId);
         validateCommentAuthorOrThrow(comment, currentUserId);
 
@@ -129,7 +126,7 @@ public class ProjectPinCommentService {
     public ResolvePinCommentResponse resolveComment(UUID projectId, UUID pinId, UUID commentId) {
         ProjectPinComment comment = getActiveCommentOrThrow(projectId, pinId, commentId);
 
-        UUID currentUserId = resolveCurrentActiveUserIdOrThrow();
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(comment.getProjectPin().getProject(), currentUserId);
 
         boolean commentResolvedNow = comment.getStatus() != PinStatus.RESOLVED;
@@ -156,7 +153,7 @@ public class ProjectPinCommentService {
     public void deleteComment(UUID projectId, UUID pinId, UUID commentId) {
         ProjectPinComment comment = getActiveCommentOrThrow(projectId, pinId, commentId);
 
-        UUID currentUserId = resolveCurrentActiveUserIdOrThrow();
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
         ProjectPin projectPin = comment.getProjectPin();
         projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
         validateCommentAuthorOrThrow(comment, currentUserId);
@@ -183,7 +180,7 @@ public class ProjectPinCommentService {
 
         ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
 
-        UUID currentUserId = resolveCurrentActiveUserIdOrThrow();
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
 
         Pageable pageable = PageRequest.of(
@@ -240,7 +237,7 @@ public class ProjectPinCommentService {
     public void markCommentsAsRead(UUID projectId, UUID pinId) {
         ProjectPin projectPin = getProjectPinOrThrow(projectId, pinId);
 
-        UUID currentUserId = resolveCurrentActiveUserIdOrThrow();
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
         projectAccessService.validateProjectPinWriterOrThrow(projectPin.getProject(), currentUserId);
 
         updateReadStateOnView(pinId, currentUserId);
@@ -257,31 +254,6 @@ public class ProjectPinCommentService {
     private ProjectPin getProjectPinOrThrow(UUID projectId, UUID pinId) {
         return projectPinRepository.findActivePinByProjectId(pinId, projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PIN_NOT_FOUND));
-    }
-
-    /**
-     * 현재 로그인한 사용자가 활성 회원인지 검증하고 사용자 ID를 반환한다.
-     *
-     * @return 현재 활성 회원 사용자 ID
-     */
-    private UUID resolveCurrentActiveUserIdOrThrow() {
-        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
-        validateActiveMemberOrThrow(currentUserId);
-        return currentUserId;
-    }
-
-    /**
-     * 사용자 ID가 활성 회원에 해당하는지 검증한다.
-     *
-     * @param currentUserId 현재 사용자 ID
-     */
-    private void validateActiveMemberOrThrow(UUID currentUserId) {
-        boolean isActiveMember = memberRepository.findByUserIdAndStatus(currentUserId, UserStatus.ACTIVE).isPresent();
-        if (isActiveMember) {
-            return;
-        }
-
-        throw new CustomException(ErrorCode.UNAUTHORIZED, "유효한 회원 인증 정보가 아닙니다.");
     }
 
     /**
