@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { CollaborationModeBar } from '@/features/editor/components/layout/CollaborationModeBar'
 import { ZoomControlBar } from '@/features/editor/components/layout/ZoomControlBar'
 import { LabelEditOverlay } from '@/features/editor/components/overlays/LabelEditOverlay'
@@ -16,6 +16,7 @@ const TwoDLeftPanels = lazy(() =>
 export default function EditorCanvasContent(props: EditorCanvasContentProps) {
   const { mode, containerRef, zoom } = props
   const scale = zoom / 100
+  const [isRotationLocked, setIsRotationLocked] = useState(false)
 
   const renderCanvasByMode = () => {
     if (mode === 'bubble') {
@@ -27,7 +28,13 @@ export default function EditorCanvasContent(props: EditorCanvasContentProps) {
     }
 
     if (mode === '3d') {
-      return <ThreeDModeCanvas editorProps={props} scale={scale} />
+      return (
+        <ThreeDModeCanvas
+          editorProps={props}
+          scale={scale}
+          isRotationLocked={isRotationLocked}
+        />
+      )
     }
 
     if (mode === 'view') {
@@ -100,6 +107,8 @@ export default function EditorCanvasContent(props: EditorCanvasContentProps) {
         onToggleGrid={props.toggleGrid}
         onToggleGridSnap={props.toggleGridSnap}
         onGridSnapIntervalChange={props.handleSetGridSnapIntervalMm}
+        isRotationLocked={isRotationLocked}
+        onToggleRotationLock={() => setIsRotationLocked((prev) => !prev)}
       />
     )
   }

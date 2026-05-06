@@ -1,6 +1,6 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
-import type { EditorMode, FloorOpening, FloorWall, PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
+import type { EditorMode, FloorOpening, FloorWall, IfcElementInfo, PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
 import { BubbleAttributePanel, type BubbleConnectionInfo, type BubbleInfo, type BubbleZoneInfo } from './BubbleAttributePanel'
 import { TwoDAttributePanel } from './TwoDAttributePanel'
 import { ThreeDAttributePanel } from './ThreeDAttributePanel'
@@ -16,12 +16,14 @@ interface AttributesPanelProps {
   selectedBubble: BubbleInfo | null
   selectedWall?: FloorWall | null
   selectedOpening?: FloorOpening | null
+  selectedIfcElement?: IfcElementInfo | null
   connections: BubbleConnectionInfo[]
   zones: BubbleZoneInfo[]
   onLabelChange: (id: string, label: string) => void
   onTypeChange: (id: string, type: string) => void
   onWidthChange: (id: string, width: number) => void
   onHeightChange: (id: string, height: number) => void
+  onThicknessChange?: (id: string, thickness: number) => void
   onWidthCommit?: (id: string, width: number) => void
   onHeightCommit?: (id: string, height: number) => void
   onRatioChange: (id: string, ratio: number) => void
@@ -51,12 +53,14 @@ export function AttributesPanel({
   selectedBubble,
   selectedWall,
   selectedOpening,
+  selectedIfcElement,
   connections,
   zones,
   onLabelChange,
   onTypeChange,
   onWidthChange,
   onHeightChange,
+  onThicknessChange,
   onWidthCommit,
   onHeightCommit,
   onRatioChange,
@@ -126,7 +130,11 @@ export function AttributesPanel({
       {mode === '3d' && (
         <ThreeDAttributePanel
           selectedBubble={selectedBubble}
+          selectedIfcElement={selectedIfcElement}
           onLabelChange={onLabelChange}
+          onWidthChange={onWidthChange}
+          onHeightChange={onHeightChange}
+          onThicknessChange={onThicknessChange}
           onColorChange={onColorChange}
           onMaterialChange={onMaterialChange}
         />

@@ -1,4 +1,4 @@
-import type { AddSpaceFormData, BubbleData, ZoningFormData, ConnectionStyle } from '@/features/editor/types'
+import type { AddSpaceFormData, BubbleData, ZoningFormData, ConnectionStyle, IfcElementChange } from '@/features/editor/types'
 
 /** EditorPage 모달 레이어에 전달하는 props 타입 */
 export interface EditorModalLayerProps {
@@ -38,6 +38,7 @@ export interface EditorModalLayerProps {
 
   isIFCExportModalOpen: boolean
   onCloseIFCExportModal: () => void
+  ifcElementChanges: IfcElementChange[]
 }
 
 /** 기존 참조와의 호환을 위한 별칭 */

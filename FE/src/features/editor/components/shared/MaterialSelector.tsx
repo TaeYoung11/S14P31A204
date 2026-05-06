@@ -2,12 +2,13 @@ import { useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 
 const MATERIALS = [
-  '콘크리트',
-  '목재',
-  '유리',
-  '벽돌',
-  '금속',
-  '석재',
+  'Concrete',
+  'Brick',
+  'Steel',
+  'Wood',
+  'Glass',
+  'Stone',
+  'Tile',
 ]
 
 interface MaterialSelectorProps {
@@ -17,7 +18,7 @@ interface MaterialSelectorProps {
 
 export function MaterialSelector({ value, onChange }: MaterialSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const current = value ?? MATERIALS[0]
+  const current = value?.trim() || MATERIALS[0]
 
   const handleSelect = (label: string) => {
     onChange?.(label)
@@ -29,19 +30,26 @@ export function MaterialSelector({ value, onChange }: MaterialSelectorProps) {
       <h3 className="text-[10px] font-bold text-[#3B45B3]">재질</h3>
       <div className="relative">
         <button
+          type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className="w-full bg-[#F8F9FD] rounded-lg px-3 py-2.5 flex items-center justify-between group hover:bg-[#F0F2FA] transition-colors"
+          className="group flex w-full items-center justify-between rounded-lg bg-[#F8F9FD] px-3 py-2.5 transition-colors hover:bg-[#F0F2FA]"
         >
           <span className="text-xs font-bold text-[#1C1C1E]">{current}</span>
           <ChevronDown size={14} className="text-[#ADB5BD] group-hover:text-[#3B45B3]" />
         </button>
         {isOpen && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[#E2E6EF] rounded-lg shadow-lg z-10 overflow-hidden">
-            {MATERIALS.map(label => (
+          <div className="absolute left-0 right-0 top-full z-10 mt-1 overflow-hidden rounded-lg border border-[#E2E6EF] bg-white shadow-lg">
+            {current && !MATERIALS.includes(current) && (
+              <div className="border-b border-[#EEF1F7] px-3 py-2.5">
+                <span className="text-[10px] font-bold text-[#8E95A3]">IFC 정의값: {current}</span>
+              </div>
+            )}
+            {MATERIALS.map((label) => (
               <button
+                type="button"
                 key={label}
                 onClick={() => handleSelect(label)}
-                className="w-full px-3 py-2.5 text-left hover:bg-[#F8F9FD] transition-colors"
+                className="w-full px-3 py-2.5 text-left transition-colors hover:bg-[#F8F9FD]"
               >
                 <span className="text-xs font-bold text-[#1C1C1E]">{label}</span>
               </button>

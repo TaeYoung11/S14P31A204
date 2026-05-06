@@ -38,6 +38,7 @@ export default function EditorModalLayer({
   onOpenExportModal,
   isIFCExportModalOpen,
   onCloseIFCExportModal,
+  ifcElementChanges,
 }: ModalLayerProps) {
   return (
     <>
@@ -78,6 +79,7 @@ export default function EditorModalLayer({
         onOpenExportModal={onOpenExportModal}
         isIFCExportModalOpen={isIFCExportModalOpen}
         onCloseIFCExportModal={onCloseIFCExportModal}
+        ifcElementChanges={ifcElementChanges}
       />
     </>
   )

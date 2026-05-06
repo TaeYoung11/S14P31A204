@@ -33,6 +33,7 @@ type ModalLayerViewModel = Pick<
   | 'handleOpenExportModal'
   | 'isIFCExportModalOpen'
   | 'onCloseIFCExportModal'
+  | 'ifcElementChanges'
 >
 
 /**
@@ -77,5 +78,6 @@ export function buildEditorModalLayerProps(vm: ModalLayerViewModel): EditorModal
 
     isIFCExportModalOpen: vm.isIFCExportModalOpen,
     onCloseIFCExportModal: vm.onCloseIFCExportModal,
+    ifcElementChanges: vm.ifcElementChanges,
   }
 }

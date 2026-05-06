@@ -15,6 +15,8 @@ import type {
   FloorLayerOverlay,
   FloorOpening,
   FloorWall,
+  IfcElementChange,
+  IfcElementInfo,
   Point2D,
   SaveStatus,
   ZoneData,
@@ -96,6 +98,16 @@ const OPENING_NORMALIZE_OPTIONS = {
   maxWidthMm: OPENING_MAX_WIDTH_MM,
 } as const
 
+const THREE_D_MATERIAL_COLOR: Record<string, string> = {
+  Concrete: '#A8A29E',
+  Brick: '#A3472C',
+  Steel: '#8A94A3',
+  Wood: '#9A6232',
+  Glass: '#8FD3FF',
+  Stone: '#8D8D86',
+  Tile: '#C56F45',
+}
+
 const DEFAULT_DESIGNER_NAME = '설계자'
 const DEFAULT_CLIENT_NAME = '고객사 담당자'
 const DEFAULT_WALL_MATERIAL = '콘크리트'
@@ -148,6 +160,8 @@ export function useEditorPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { currentProjectName } = useEditorProjectName(projectId)
   const mode = resolveMode(searchParams.get('mode'))
+  const [selectedIfcElement, setSelectedIfcElement] = useState<IfcElementInfo | null>(null)
+  const [ifcElementChangesById, setIfcElementChangesById] = useState<Record<number, IfcElementChange>>({})
   const workspaceCommandPublisher = useWorkspaceCommandPublisher({
     projectId,
     source: mode,
@@ -1070,6 +1084,11 @@ export function useEditorPage() {
     fitPaddingPx: EDITOR_SITE_FIT_PADDING_PX,
   })
 
+  const ifcElementChanges = useMemo(
+    () => Object.values(ifcElementChangesById),
+    [ifcElementChangesById],
+  )
+
   const {
     syncPerimeterManualWallsForRoomResize,
     syncFloorDerivedStateFromRooms,
@@ -1097,6 +1116,7 @@ export function useEditorPage() {
   const setMode = (nextMode: EditorMode) => {
     setSearchParams({ mode: nextMode })
     if (nextMode !== '2d') setIsCollaborationMode(false)
+    if (nextMode !== '3d') setSelectedIfcElement(null)
     setIsLibraryOpen(false)
   }
 
@@ -1372,7 +1392,36 @@ export function useEditorPage() {
     setSelectedFloorOpeningId(null)
     setSelectedFloorWallIds([])
     setSelectedFloorOpeningIds([])
+    setSelectedIfcElement(null)
   }
+
+  const handleSelectIfcElement = useCallback((element: IfcElementInfo | null) => {
+    setSelectedIfcElement(element)
+    if (!element) return
+    clearSelection()
+    setSelectedConnectionPair(null)
+    setSelectedFloorWallId(null)
+    setSelectedFloorOpeningId(null)
+    setSelectedFloorWallIds([])
+    setSelectedFloorOpeningIds([])
+  }, [clearSelection])
+
+  const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId'>) => {
+    if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return
+    setIfcElementChangesById((prev) => ({
+      ...prev,
+      [element.expressId as number]: {
+        ...prev[element.expressId as number],
+        ...patch,
+        expressId: element.expressId as number,
+      },
+    }))
+  }, [])
+
+  const handleDeleteIfcElement = useCallback((element: IfcElementInfo) => {
+    recordIfcElementChange(element, { deleted: true })
+    setSelectedIfcElement((prev) => (prev?.id === element.id ? null : prev))
+  }, [recordIfcElementChange])
 
   const handleTwoDMarqueeSelect = useCallback(
     (
@@ -2130,9 +2179,51 @@ export function useEditorPage() {
   }, [canSyncBubbleStateFrom2D, handleTypeChange, mode, updateActiveRoom])
 
   const handleMaterialChangeForPanel = useCallback((id: string, material: string) => {
+    if (mode === '3d' && selectedIfcElement?.id === id) {
+      setSelectedIfcElement((prev) => {
+        if (!prev || prev.id !== id) return prev
+        const next = {
+          ...prev,
+          material,
+          color: THREE_D_MATERIAL_COLOR[material] ?? prev.color,
+          properties: {
+            ...prev.properties,
+            Material: material,
+            Color: THREE_D_MATERIAL_COLOR[material] ?? prev.color ?? '-',
+          },
+        }
+        recordIfcElementChange(next, {
+          material,
+          color: THREE_D_MATERIAL_COLOR[material] ?? prev.color,
+        })
+        return next
+      })
+      return
+    }
     if (mode === '2d') return
     handleMaterialChange(id, material)
-  }, [handleMaterialChange, mode])
+  }, [handleMaterialChange, mode, recordIfcElementChange, selectedIfcElement?.id])
+
+  const handleColorChangeForPanel = useCallback((id: string, color: string) => {
+    if (mode === '3d' && selectedIfcElement?.id === id) {
+      setSelectedIfcElement((prev) => {
+        if (!prev || prev.id !== id) return prev
+        const next = {
+          ...prev,
+          color,
+          properties: {
+            ...prev.properties,
+            Color: color,
+          },
+        }
+        recordIfcElementChange(next, { color, material: prev.material })
+        return next
+      })
+      return
+    }
+
+    handleColorChange(id, color)
+  }, [handleColorChange, mode, recordIfcElementChange, selectedIfcElement?.id])
 
   /**
    * 2D 속성 패널의 mm 입력값을 전역 Grid Snap 간격에 맞춰 보정한다.
@@ -2229,14 +2320,67 @@ export function useEditorPage() {
   }, [mode, applyRoomDimensionIn2D, handleWidthChange, handleHeightChange])
 
   const handleWidthChangeForPanel = useCallback(
-    (id: string, widthMm: number) => applyDimensionByMode(id, 'width', widthMm),
-    [applyDimensionByMode],
+    (id: string, widthMm: number) => {
+      if (mode === '3d' && selectedIfcElement?.id === id) {
+        setSelectedIfcElement((prev) => {
+          if (!prev || prev.id !== id) return prev
+          const next = {
+            ...prev,
+            lengthMm: widthMm,
+            properties: {
+              ...prev.properties,
+              Length: widthMm,
+            },
+          }
+          recordIfcElementChange(next, { lengthMm: widthMm })
+          return next
+        })
+        return
+      }
+      applyDimensionByMode(id, 'width', widthMm)
+    },
+    [applyDimensionByMode, mode, recordIfcElementChange, selectedIfcElement?.id],
   )
 
   const handleHeightChangeForPanel = useCallback(
-    (id: string, heightMm: number) => applyDimensionByMode(id, 'height', heightMm),
-    [applyDimensionByMode],
+    (id: string, heightMm: number) => {
+      if (mode === '3d' && selectedIfcElement?.id === id) {
+        setSelectedIfcElement((prev) => {
+          if (!prev || prev.id !== id) return prev
+          const next = {
+            ...prev,
+            heightMm,
+            properties: {
+              ...prev.properties,
+              Height: heightMm,
+            },
+          }
+          recordIfcElementChange(next, { heightMm })
+          return next
+        })
+        return
+      }
+      applyDimensionByMode(id, 'height', heightMm)
+    },
+    [applyDimensionByMode, mode, recordIfcElementChange, selectedIfcElement?.id],
   )
+
+  const handleThicknessChangeForPanel = useCallback((id: string, thicknessMm: number) => {
+    if (mode !== '3d' || selectedIfcElement?.id !== id) return
+    setSelectedIfcElement((prev) => {
+      if (!prev || prev.id !== id) return prev
+      const next = {
+        ...prev,
+        thicknessMm,
+        properties: {
+          ...prev.properties,
+          Thickness: thicknessMm,
+        },
+      }
+      recordIfcElementChange(next, { thicknessMm })
+      return next
+    })
+  }, [mode, recordIfcElementChange, selectedIfcElement?.id])
 
   const handleWidthCommitForPanel = useCallback(
     (id: string, widthMm: number) => applyDimensionByMode(id, 'width', widthMm),
@@ -2264,6 +2408,7 @@ export function useEditorPage() {
   return {
     // 모드
     mode,
+    projectId,
     currentProjectName,
     setMode,
     phaseStatus,
@@ -2284,7 +2429,10 @@ export function useEditorPage() {
     selectedBubble,
     selectedFloorWall,
     selectedFloorOpening,
+    selectedIfcElement: mode === '3d' ? selectedIfcElement : null,
     handleBubbleSelect,
+    handleSelectIfcElement,
+    handleDeleteIfcElement,
     handleBubbleDrag: handleBubbleDragInBubble,
     handleMarqueeSelect,
     handleTwoDMarqueeSelect,
@@ -2296,11 +2444,13 @@ export function useEditorPage() {
     handleTypeChange: handleTypeChangeForPanel,
     handleWidthChange: handleWidthChangeForPanel,
     handleHeightChange: handleHeightChangeForPanel,
+    handleThicknessChange: handleThicknessChangeForPanel,
     handleWidthCommit: handleWidthCommitForPanel,
     handleHeightCommit: handleHeightCommitForPanel,
     handleRatioChange,
-    handleColorChange,
+    handleColorChange: handleColorChangeForPanel,
     handleMaterialChange: handleMaterialChangeForPanel,
+    ifcElementChanges,
     handleDeleteBubble,
     // 연결선
     connections,
