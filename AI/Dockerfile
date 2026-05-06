@@ -8,6 +8,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # 현재 브랜치에서는 IFC generate 실행에 필요한 패키지만 이미지에 포함한다.
