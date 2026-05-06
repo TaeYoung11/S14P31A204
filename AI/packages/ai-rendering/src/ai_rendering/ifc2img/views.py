@@ -158,8 +158,7 @@ VIEW_PROMPT_PREFIXES: dict[IFCView, str] = {
 
 
 SCANDINAVIAN_FRONT_PROMPT_PREFIX = (
-    "open paved foreground, house sits on ground, no wall below house, "
-    "no concrete barrier"
+    "open paved ground, house on ground, no front wall"
 )
 
 
@@ -190,7 +189,7 @@ def build_view_prompt(base_prompt: str, view: IFCView) -> str:
         if view is IFCView.FRONT:
             softened_prompt = _soften_scandinavian_front_wall_prior(base_prompt)
             if softened_prompt != base_prompt:
-                prefix = f"{SCANDINAVIAN_FRONT_PROMPT_PREFIX}, {prefix}"
+                prefix = SCANDINAVIAN_FRONT_PROMPT_PREFIX
                 base_prompt = softened_prompt
         base_prompt = f"{prefix}, {base_prompt}"
     suffix = VIEW_PROMPT_SUFFIXES.get(view, "")
