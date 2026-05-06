@@ -152,6 +152,18 @@ def _render_option_label(preset_name: str, view: IFCView) -> str:
     return ", ".join(enabled)
 
 
+def _create_depth_style_renderer(
+    renderer_cls: type,
+    requires_semantic: bool,
+):
+    if requires_semantic:
+        return (
+            renderer_cls(semantic_controlnet_model_id=DEFAULT_CONTROLNET_SEG_ID),
+            "depth+semantic",
+        )
+    return renderer_cls(), "depth-only"
+
+
 def _render_styles(
     depth_paths: dict[IFCView, Path],
     presets: list[str],
@@ -177,14 +189,10 @@ def _render_styles(
             return renderer
 
         t0 = time.time()
-        if requires_semantic:
-            renderer = DepthStyleRenderer(
-                semantic_controlnet_model_id=DEFAULT_CONTROLNET_SEG_ID
-            )
-            mode = "depth+semantic"
-        else:
-            renderer = DepthStyleRenderer()
-            mode = "depth-only"
+        renderer, mode = _create_depth_style_renderer(
+            DepthStyleRenderer,
+            requires_semantic,
+        )
         renderers[requires_semantic] = renderer
         print(
             f"  {mode} renderer ready ({time.time() - t0:.1f}s) "
