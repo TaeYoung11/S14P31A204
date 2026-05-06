@@ -145,7 +145,8 @@ VIEW_PROMPT_SUFFIXES: dict[IFCView, str] = {
 
 
 VIEW_PROMPT_PREFIXES: dict[IFCView, str] = {
-    IFCView.FRONT: "front facade at ground line, no foundation wall",
+    IFCView.FRONT: "open flat ground in front, facade touches ground, "
+                   "no foreground wall, no foundation wall, no retaining wall",
     IFCView.SIDE: "side facade at ground line, no foundation wall",
     IFCView.EYE_NE: "eye-level diagonal view, building on flat ground, "
                     "foreground ground fills frame, horizon behind house, not aerial",
