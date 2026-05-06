@@ -234,6 +234,41 @@ def _apply_front_full_width_ground_control(
     return Image.fromarray(np.clip(np.rint(arr), 0, 255).astype(np.uint8), mode="RGB")
 
 
+def _build_front_full_width_seg_control(
+    control: Image.Image,
+    ground_class: FrontSideGroundClass = "neutral",
+) -> Image.Image:
+    """Map front-view full-width ground intent into ADE20K semantic colors."""
+    if ground_class not in FRONT_SIDE_GROUND_CLASS_RGB:
+        raise ValueError(f"unsupported front ground class: {ground_class}")
+
+    arr = np.asarray(control.convert("RGB"), dtype=np.uint8)
+    bg_mask = np.all(arr == 0, axis=2)
+    building_mask = ~bg_mask
+    ground_mask = np.asarray(
+        _build_front_full_width_ground_mask(control),
+        dtype=np.uint8,
+    ) > 0
+
+    height, width = building_mask.shape
+    seg = np.zeros((height, width, 3), dtype=np.uint8)
+    seg[:, :] = np.array(ADE20K_BACKGROUND_RGB, dtype=np.uint8)
+    seg[building_mask] = np.array(ADE20K_BUILDING_RGB, dtype=np.uint8)
+    seg[ground_mask] = np.array(
+        FRONT_SIDE_GROUND_CLASS_RGB[ground_class],
+        dtype=np.uint8,
+    )
+
+    if np.any(building_mask):
+        ys, _ = np.nonzero(building_mask)
+        sky_limit = int(max(0, ys.min()))
+        sky_mask = bg_mask & ~ground_mask
+        sky_mask[sky_limit:, :] = False
+        seg[sky_mask] = np.array(ADE20K_SKY_RGB, dtype=np.uint8)
+
+    return Image.fromarray(seg, mode="RGB")
+
+
 def _build_front_side_seg_control(
     control: Image.Image,
     ground_class: FrontSideGroundClass = "grass",
