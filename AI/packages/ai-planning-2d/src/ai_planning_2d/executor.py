@@ -8,7 +8,9 @@ import ifcopenshell.api.aggregate
 import ifcopenshell.api.pset
 import ifcopenshell.api.root
 
+from .add_room_placement import suggest_add_room_start_mm
 from .command import CommandBatch, FloorNLPCommand
+from .ifc_extractor import extract_ifc_context
 
 _DEFAULT_SPACE_HEIGHT_M = 2.7
 
@@ -25,6 +27,7 @@ def apply_space_plan(
     if command.action == "add_room":
         return _apply_add_room(
             model=model,
+            ifc_path=ifc_path,
             output_path=output_path,
             command=command,
             command_batch=command_batch,
@@ -55,6 +58,7 @@ def apply_space_plan(
 def _apply_add_room(
     *,
     model: ifcopenshell.file,
+    ifc_path: str,
     output_path: str,
     command: FloorNLPCommand,
     command_batch: CommandBatch | None,
@@ -76,7 +80,22 @@ def _apply_add_room(
 
     owner_history = _owner_history(model)
     context = _ensure_body_context(model)
-    x_m, y_m = _suggest_space_origin_m(model)
+    ifc_context = extract_ifc_context(ifc_path)
+    start_mm = suggest_add_room_start_mm(
+        ifc_context,
+        floor=command.new_room.floor,
+        width=command.new_room.width,
+        height=command.new_room.height,
+    )
+    if start_mm is None:
+        return {
+            "status": "not_applied",
+            "summary": (
+                "floor boundary 내부에서 추가 방을 배치할 수 있는 "
+                "유효한 위치를 찾지 못했습니다."
+            ),
+        }
+    x_m, y_m = start_mm[0] / 1000.0, start_mm[1] / 1000.0
 
     space = ifcopenshell.api.root.create_entity(
         model,
@@ -161,24 +180,16 @@ def _apply_resize_room(
     new_height_m = (command.resize_height or 0) / 1000.0
     direction = policy_plan.get("direction")
 
-    coords = list(tuple(location.Coordinates))
-    while len(coords) < 3:
-        coords.append(0.0)
-    if direction == "west":
-        coords[0] += current_width_m - new_width_m
-    elif direction == "south":
-        coords[1] += current_height_m - new_height_m
-    location.Coordinates = tuple(coords[:3])
-    offset_x_m = 0.0
-    offset_y_m = 0.0
-    if direction == "west":
-        offset_x_m = current_width_m - new_width_m
-    elif direction == "east":
-        offset_x_m = new_width_m - current_width_m
-    elif direction == "south":
-        offset_y_m = current_height_m - new_height_m
-    elif direction == "north":
-        offset_y_m = new_height_m - current_height_m
+    boundary_offset_x_m, boundary_offset_y_m = _boundary_shift_m(
+        direction=direction,
+        current_width_m=current_width_m,
+        current_height_m=current_height_m,
+        new_width_m=new_width_m,
+        new_height_m=new_height_m,
+    )
+    target_offset_x_m = boundary_offset_x_m if direction == "west" else 0.0
+    target_offset_y_m = boundary_offset_y_m if direction == "south" else 0.0
+    _translate_product_coords(location, target_offset_x_m, target_offset_y_m)
 
     space.Representation = _create_space_representation(
         model=model,
@@ -190,14 +201,21 @@ def _apply_resize_room(
     _translate_products(
         model,
         policy_plan.get("affected_wall_ids", []),
-        offset_x_m,
-        offset_y_m,
+        boundary_offset_x_m,
+        boundary_offset_y_m,
     )
     _translate_products(
         model,
         policy_plan.get("affected_opening_ids", []),
-        offset_x_m,
-        offset_y_m,
+        boundary_offset_x_m,
+        boundary_offset_y_m,
+    )
+    _update_affected_space_for_resize(
+        model=model,
+        affected_space_id=policy_plan.get("affected_space_id"),
+        direction=direction,
+        boundary_offset_x_m=boundary_offset_x_m,
+        boundary_offset_y_m=boundary_offset_y_m,
     )
     _update_space_pset(
         model=model,
@@ -257,6 +275,96 @@ def _translate_products(
         coords[0] += offset_x_m
         coords[1] += offset_y_m
         location.Coordinates = tuple(coords[:3])
+
+
+def _translate_product_coords(
+    location: ifcopenshell.entity_instance,
+    offset_x_m: float,
+    offset_y_m: float,
+) -> None:
+    coords = list(tuple(getattr(location, "Coordinates", ()) or ()))
+    while len(coords) < 3:
+        coords.append(0.0)
+    coords[0] += offset_x_m
+    coords[1] += offset_y_m
+    location.Coordinates = tuple(coords[:3])
+
+
+def _boundary_shift_m(
+    *,
+    direction: str | None,
+    current_width_m: float,
+    current_height_m: float,
+    new_width_m: float,
+    new_height_m: float,
+) -> tuple[float, float]:
+    if direction == "west":
+        return (current_width_m - new_width_m, 0.0)
+    if direction == "east":
+        return (new_width_m - current_width_m, 0.0)
+    if direction == "south":
+        return (0.0, current_height_m - new_height_m)
+    if direction == "north":
+        return (0.0, new_height_m - current_height_m)
+    return (0.0, 0.0)
+
+
+def _update_affected_space_for_resize(
+    *,
+    model: ifcopenshell.file,
+    affected_space_id: str | None,
+    direction: str | None,
+    boundary_offset_x_m: float,
+    boundary_offset_y_m: float,
+) -> None:
+    if affected_space_id is None:
+        return
+    try:
+        affected_space = model.by_guid(affected_space_id)
+    except RuntimeError:
+        affected_space = None
+    if affected_space is None:
+        return
+
+    width_m, height_m, depth_m = _space_dimensions_m(affected_space)
+    placement = getattr(affected_space, "ObjectPlacement", None)
+    relative = getattr(placement, "RelativePlacement", None) if placement else None
+    location = getattr(relative, "Location", None) if relative else None
+    if location is None:
+        return
+
+    next_width_m = width_m
+    next_height_m = height_m
+    shift_x_m = 0.0
+    shift_y_m = 0.0
+    if direction == "west":
+        next_width_m = width_m + boundary_offset_x_m
+    elif direction == "east":
+        next_width_m = width_m - boundary_offset_x_m
+        shift_x_m = boundary_offset_x_m
+    elif direction == "south":
+        next_height_m = height_m + boundary_offset_y_m
+    elif direction == "north":
+        next_height_m = height_m - boundary_offset_y_m
+        shift_y_m = boundary_offset_y_m
+    if next_width_m <= 0.0 or next_height_m <= 0.0:
+        return
+
+    _translate_product_coords(location, shift_x_m, shift_y_m)
+    affected_space.Representation = _create_space_representation(
+        model=model,
+        width_m=next_width_m,
+        height_m=next_height_m,
+        depth_m=depth_m,
+        context=_body_context(model, affected_space),
+    )
+    _update_space_pset(
+        model=model,
+        space=affected_space,
+        width_mm=int(round(next_width_m * 1000.0)),
+        height_mm=int(round(next_height_m * 1000.0)),
+        rects=None,
+    )
 
 
 def _space_dimensions_m(space: ifcopenshell.entity_instance) -> tuple[float, float, float]:
@@ -352,20 +460,6 @@ def _create_local_placement(
             RefDirection=model.create_entity("IfcDirection", DirectionRatios=ref_direction),
         ),
     )
-
-
-def _suggest_space_origin_m(model: ifcopenshell.file) -> tuple[float, float]:
-    max_x_mm = 0.0
-    for space in model.by_type("IfcSpace"):
-        placement = getattr(space, "ObjectPlacement", None)
-        relative = getattr(placement, "RelativePlacement", None) if placement else None
-        location = getattr(relative, "Location", None) if relative else None
-        coords = tuple(getattr(location, "Coordinates", ()) or ())
-        if len(coords) < 2:
-            continue
-        width_m, _, _ = _space_dimensions_m(space)
-        max_x_mm = max(max_x_mm, float(coords[0]) * 1000.0 + width_m * 1000.0)
-    return ((max_x_mm + 1000.0) / 1000.0, 0.0)
 
 
 def _create_space_representation(

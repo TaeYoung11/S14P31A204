@@ -45,13 +45,7 @@ def plan_remove_room(
             "needs_clarification", "locked_room", target_space_id, None, None, [], []
         )
 
-    candidates = []
-    for candidate in ifc_context.get("spaces", []):
-        if candidate["id"] == target_space_id or candidate["floor"] != target_space["floor"]:
-            continue
-        contact_length = _shared_contact_length_mm(target_space, candidate)
-        if contact_length > _TOLERANCE_MM:
-            candidates.append((contact_length, candidate))
+    candidates = _remove_candidates(target_space=target_space, ifc_context=ifc_context)
 
     if not candidates:
         return _remove_result(
@@ -118,6 +112,7 @@ def plan_resize_room(
     target_space_id: str,
     new_width: int,
     new_height: int,
+    preferred_direction: Literal["north", "south", "east", "west"] | None = None,
     ifc_context: IFCContext,
 ) -> ResizeRoomPolicyResult:
     target_space = _find_space(target_space_id, ifc_context)
@@ -183,6 +178,20 @@ def plan_resize_room(
 
     axis = "x" if changed_width else "y"
     directions = ("west", "east") if axis == "x" else ("south", "north")
+    if preferred_direction is not None:
+        if preferred_direction not in directions:
+            return _resize_result(
+                "unsupported",
+                "resize_direction_axis_mismatch",
+                target_space_id,
+                preferred_direction,
+                new_width,
+                new_height,
+                None,
+                [],
+                [],
+            )
+        directions = (preferred_direction,)
     valid_candidates: list[tuple[str, str | None, list[str], list[str]]] = []
 
     for direction in directions:
@@ -246,6 +255,54 @@ def _find_space(space_id: str, ifc_context: IFCContext) -> SpaceContext | None:
         if space["id"] == space_id:
             return space
     return None
+
+
+def _remove_candidates(
+    *,
+    target_space: SpaceContext,
+    ifc_context: IFCContext,
+) -> list[tuple[float, SpaceContext]]:
+    spaces_by_id = {space["id"]: space for space in ifc_context.get("spaces", [])}
+    wall_contact_mm: dict[str, float] = {}
+
+    for wall in ifc_context.get("walls", []):
+        wall_space_ids = [space_id for space_id in wall.get("space_ids", []) if space_id]
+        if target_space["id"] not in wall_space_ids:
+            continue
+        if wall.get("kind") != "INTERIOR":
+            continue
+        other_space_ids = [
+            space_id
+            for space_id in wall_space_ids
+            if space_id != target_space["id"]
+            and spaces_by_id.get(space_id, {}).get("floor") == target_space["floor"]
+        ]
+        if len(other_space_ids) != 1:
+            continue
+        wall_length = math.dist(wall["start"], wall["end"])
+        if wall_length <= _TOLERANCE_MM:
+            continue
+        other_space_id = other_space_ids[0]
+        wall_contact_mm[other_space_id] = wall_contact_mm.get(other_space_id, 0.0) + wall_length
+
+    if wall_contact_mm:
+        candidates = [
+            (contact_length, spaces_by_id[space_id])
+            for space_id, contact_length in wall_contact_mm.items()
+            if space_id in spaces_by_id
+        ]
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return candidates
+
+    candidates = []
+    for candidate in ifc_context.get("spaces", []):
+        if candidate["id"] == target_space["id"] or candidate["floor"] != target_space["floor"]:
+            continue
+        contact_length = _shared_contact_length_mm(target_space, candidate)
+        if contact_length > _TOLERANCE_MM:
+            candidates.append((contact_length, candidate))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates
 
 
 def _remove_result(

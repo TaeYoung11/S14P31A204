@@ -45,6 +45,30 @@ _NON_REMOVE_INTENT_KEYWORDS: tuple[str, ...] = (
     "잠금",
 )
 
+_RESIZE_DIRECTION_HINTS: tuple[tuple[str, str], ...] = (
+    ("동쪽", "east"),
+    ("오른쪽", "east"),
+    ("우측", "east"),
+    ("서쪽", "west"),
+    ("왼쪽", "west"),
+    ("좌측", "west"),
+    ("북쪽", "north"),
+    ("위쪽", "north"),
+    ("상단", "north"),
+    ("윗쪽", "north"),
+    ("남쪽", "south"),
+    ("아래쪽", "south"),
+    ("하단", "south"),
+    ("밑쪽", "south"),
+)
+
+
+def _infer_resize_direction(user_text: str) -> str | None:
+    for keyword, direction in _RESIZE_DIRECTION_HINTS:
+        if keyword in user_text:
+            return direction
+    return None
+
 
 def _apply_relative_adjustment(
     command: FloorNLPCommand,
@@ -146,6 +170,8 @@ def _recover_command_from_exception(
 
     if command.action == "resize_room":
         command = _apply_relative_adjustment(command, user_text, ifc_context)
+        if command.resize_direction is None:
+            command.resize_direction = _infer_resize_direction(user_text)
         if command.resize_width is not None and command.resize_height is not None:
             command.resize_rects = shape_to_rects(
                 command.resize_shape, command.resize_width, command.resize_height
@@ -397,6 +423,8 @@ class FloorPlanEngine:
 
             if command.action == "resize_room":
                 command = _apply_relative_adjustment(command, user_text, ifc_context)
+                if command.resize_direction is None:
+                    command.resize_direction = _infer_resize_direction(user_text)
                 if command.resize_width is not None and command.resize_height is not None:
                     command.resize_rects = shape_to_rects(
                         command.resize_shape, command.resize_width, command.resize_height

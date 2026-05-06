@@ -10,6 +10,7 @@ from .command import (
 )
 from .context import AdjacencyEntry, FloorBoundary, FloorProject, Room
 from .engine import FloorPlanEngine
+from .engine_request import build_engine_request, build_ifc_edit_payload
 from .executor import apply_space_plan
 from .ifc_extractor import extract_ifc_context
 from .policies import plan_remove_room, plan_resize_room
@@ -35,6 +36,8 @@ __all__ = [
     "FloorProject",
     # engine
     "FloorPlanEngine",
+    "build_engine_request",
+    "build_ifc_edit_payload",
     "apply_space_plan",
     "extract_ifc_context",
     "plan_remove_room",

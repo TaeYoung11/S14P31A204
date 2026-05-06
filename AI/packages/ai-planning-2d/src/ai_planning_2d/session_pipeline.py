@@ -4,12 +4,15 @@ from dataclasses import dataclass
 from typing import Any
 import uuid
 
+from ai_authoring import apply_ifc_edit_payload
+
 from .command import CommandBatch, FloorNLPCommand, IFCContext
 from .engine import FloorPlanEngine
+from .engine_request import build_engine_request, build_ifc_edit_payload
 from .executor import apply_space_plan
 from .ifc_extractor import extract_ifc_context
-from .policies import plan_remove_room, plan_resize_room
 from .pipeline import to_ifc_commands
+from .policies import plan_remove_room, plan_resize_room
 from .preview_validators import validate_preview_plan
 
 
@@ -29,12 +32,16 @@ class LLM2DPipeline:
         *,
         ifc_context: IFCContext | None = None,
         engine: FloorPlanEngine | None = None,
+        project_id: str = "local-2d",
+        base_revision_id: str | None = None,
     ) -> None:
         self.ifc_path = ifc_path
         self.ifc_context = ifc_context or (
             extract_ifc_context(ifc_path) if ifc_path is not None else None
         )
         self.engine = engine or FloorPlanEngine()
+        self.project_id = project_id
+        self.base_revision_id = base_revision_id
         self.store: dict[str, PreviewSession2D] = {}
 
     async def execute_preview(self, user_text: str) -> dict[str, Any]:
@@ -90,6 +97,23 @@ class LLM2DPipeline:
             validation_warnings=validation.warnings,
         )
         self.store[session.session_id] = session
+        try:
+            payload = self._shared_payload(
+                mode="preview",
+                request_id=session.session_id,
+                command=command,
+                command_batch=batch,
+                policy_plan=policy_plan,
+            )
+        except ValueError as exc:
+            self.store.pop(session.session_id, None)
+            return {
+                "status": "unsupported",
+                "summary": str(exc),
+                "command": command.model_dump(),
+                "command_batch": batch.model_dump(),
+                "policy_plan": policy_plan,
+            }
 
         return {
             "status": "preview_ready",
@@ -100,6 +124,9 @@ class LLM2DPipeline:
             "policy_plan": policy_plan,
             "matched_count": len(batch.commands),
             "validation_warnings": validation.warnings,
+            "engine_request": payload["engine_request"],
+            "ifc_edit_payload": payload["ifc_edit_payload"],
+            "engine_capabilities": self._engine_capabilities(),
         }
 
     async def execute_apply(
@@ -112,43 +139,115 @@ class LLM2DPipeline:
             return {"status": "session_not_found"}
 
         try:
-            if (
-                self.ifc_path is not None
-                and (
-                    session.command.action == "add_room"
-                    or (
-                        session.policy_plan is not None
-                        and session.policy_plan.get("status") == "planned"
-                        and session.command.action in {"remove_room", "resize_room"}
-                    )
-                )
-            ):
-                result = apply_space_plan(
-                    ifc_path=self.ifc_path,
-                    output_path=output_path,
-                    command=session.command,
-                    command_batch=session.command_batch,
-                    policy_plan=session.policy_plan,
-                )
-                result["command"] = session.command.model_dump()
-                result["command_batch"] = session.command_batch.model_dump()
-                result["policy_plan"] = session.policy_plan
-                result["validation_warnings"] = session.validation_warnings
-                return result
-
-            return {
-                "status": "apply_deferred",
-                "summary": (
-                    "2D preview/apply/session 파이프라인까지는 연결되었지만 "
-                    "실제 IFC mutation executor는 아직 MR 이후 통합 예정입니다."
-                ),
+            payload = self._shared_payload(
+                mode="apply",
+                request_id=session.session_id,
+                command=session.command,
+                command_batch=session.command_batch,
+                policy_plan=session.policy_plan,
+            )
+            response: dict[str, Any] = {
                 "command": session.command.model_dump(),
                 "command_batch": session.command_batch.model_dump(),
                 "policy_plan": session.policy_plan,
                 "validation_warnings": session.validation_warnings,
+                "engine_request": payload["engine_request"],
+                "ifc_edit_payload": payload["ifc_edit_payload"],
+                "engine_capabilities": self._engine_capabilities(),
             }
+
+            if self.ifc_path is not None:
+                try:
+                    result = apply_ifc_edit_payload(
+                        ifc_path=self.ifc_path,
+                        output_path=output_path,
+                        payload=payload["ifc_edit_payload"],
+                    )
+                    response.update(result)
+                    response["apply_mode"] = "shared_authoring"
+                    if len(result.get("created_ids", [])) == 1:
+                        response["created_space_id"] = result["created_ids"][0]
+                    return response
+                except Exception as exc:
+                    if self._can_apply_locally(session):
+                        result = apply_space_plan(
+                            ifc_path=self.ifc_path,
+                            output_path=output_path,
+                            command=session.command,
+                            command_batch=session.command_batch,
+                            policy_plan=session.policy_plan,
+                        )
+                        response.update(result)
+                        response["apply_mode"] = "local_fallback"
+                        response["fallback_reason"] = str(exc)
+                        return response
+                    response.update(
+                        {
+                            "status": "apply_failed",
+                            "apply_mode": "shared_authoring",
+                            "summary": f"shared authoring apply failed: {exc}",
+                        }
+                    )
+                    return response
+
+            response.update(
+                {
+                    "status": "apply_deferred",
+                    "apply_mode": "shared_engine_request",
+                    "summary": (
+                        "shared engineRequest is ready, but there is no local IFC path to "
+                        "execute shared apply in-process."
+                    ),
+                }
+            )
+            return response
         finally:
             self.store.pop(session_id, None)
+
+    def _can_apply_locally(self, session: PreviewSession2D) -> bool:
+        if self.ifc_path is None:
+            return False
+        if session.command.action == "add_room":
+            return True
+        return (
+            session.policy_plan is not None
+            and session.policy_plan.get("status") == "planned"
+            and session.command.action in {"remove_room", "resize_room"}
+        )
+
+    def _shared_payload(
+        self,
+        *,
+        mode: str,
+        request_id: str,
+        command: FloorNLPCommand,
+        command_batch: CommandBatch,
+        policy_plan: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        engine_request = build_engine_request(
+            mode=mode,
+            request_id=request_id,
+            project_id=self.project_id,
+            base_revision_id=self.base_revision_id,
+            command=command,
+            command_batch=command_batch,
+            policy_plan=policy_plan,
+            ifc_context=self.ifc_context,
+        )
+        ifc_edit_payload = build_ifc_edit_payload(
+            mode=mode,
+            request_id=request_id,
+            project_id=self.project_id,
+            base_revision_id=self.base_revision_id,
+            command=command,
+            command_batch=command_batch,
+            policy_plan=policy_plan,
+            ifc_context=self.ifc_context,
+        )
+        return {
+            "engine_request": engine_request.model_dump(mode="json"),
+            "ifc_edit_payload": ifc_edit_payload.model_dump(mode="json"),
+        }
 
     def _build_policy_plan(
         self,
@@ -169,6 +268,7 @@ class LLM2DPipeline:
                 target_space_id=batch.commands[0].target_id,
                 new_width=command.resize_width or 0,
                 new_height=command.resize_height or 0,
+                preferred_direction=command.resize_direction,
                 ifc_context=self.ifc_context,
             )
 
@@ -181,40 +281,50 @@ class LLM2DPipeline:
         policy_plan: dict[str, Any] | None,
     ) -> str:
         if command.action == "add_room":
-            name = command.new_room.name if command.new_room else "새 방"
-            return f"'{name}' 추가 미리보기가 준비되었습니다."
-        if command.action == "remove_room":
-            if policy_plan:
-                return self._policy_summary(policy_plan)
-            return "방 삭제 미리보기가 준비되었습니다."
-        if command.action == "resize_room":
-            if policy_plan:
-                return self._policy_summary(policy_plan)
-            return "방 크기 변경 미리보기가 준비되었습니다."
-        return f"{len(batch.commands)}개 명령의 미리보기가 준비되었습니다."
+            name = command.new_room.name if command.new_room else "room"
+            return f"'{name}' room preview is ready."
+        if command.action in {"remove_room", "resize_room"} and policy_plan is not None:
+            return self._policy_summary(policy_plan)
+        return f"Preview is ready for {len(batch.commands)} commands."
 
     def _policy_summary(self, policy_plan: dict[str, Any] | None) -> str:
         if policy_plan is None:
-            return "정책 계획이 없습니다."
+            return "Policy preview is ready."
 
         reason = policy_plan.get("reason")
         if reason == "dominant_adjacent_absorber":
-            return "삭제 대상 방을 인접한 단일 흡수 후보로 병합할 수 있습니다."
+            return "A dominant adjacent absorber was found for room removal."
         if reason == "multiple_similar_absorbers":
-            return "삭제 후 어느 인접 방이 흡수할지 애매합니다."
+            return "Multiple adjacent absorber candidates exist and clarification is needed."
         if reason == "no_adjacent_absorber":
-            return "삭제 후 공간을 흡수할 인접 방을 찾지 못했습니다."
+            return "No adjacent absorber was found for room removal."
         if reason == "single_direction_resize":
             direction = policy_plan.get("direction")
-            return f"{direction} 방향으로만 안전하게 크기 변경할 수 있습니다."
+            return f"Resize can be applied toward {direction}."
         if reason == "resize_direction_ambiguous":
-            return "크기 변경 방향이 여러 개로 해석되어 추가 확인이 필요합니다."
+            return "Resize direction is ambiguous and clarification is needed."
+        if reason == "resize_direction_axis_mismatch":
+            return "The requested resize direction does not match the changed axis."
         if reason == "multi_axis_resize_unsupported":
-            return "가로와 세로를 동시에 바꾸는 변경은 아직 자동 계획 대상이 아닙니다."
+            return "Multi-axis resize is currently unsupported."
         if reason == "non_rectangular_space":
-            return "직사각형이 아닌 방은 아직 자동 크기 변경을 지원하지 않습니다."
+            return "Resize is unsupported for non-rectangular rooms."
         if reason == "locked_room":
-            return "잠금된 방은 자동 편집할 수 없습니다."
+            return "The target room is locked."
         if reason == "room_not_found":
-            return "대상 방을 찾지 못했습니다."
-        return f"정책 판정 결과: {reason}"
+            return "The target room was not found."
+        return f"Policy result: {reason}"
+
+    def _engine_capabilities(self) -> dict[str, Any]:
+        return {
+            "shared_payload": True,
+            "shared_handlers_expected": [
+                "create_element",
+                "delete_elements",
+                "transform_elements",
+                "update_element_properties",
+            ],
+            "shared_orchestration_attached": True,
+            "preferred_apply_mode": "shared_authoring",
+            "local_fallback_actions": ["add_room", "remove_room", "resize_room"],
+        }
