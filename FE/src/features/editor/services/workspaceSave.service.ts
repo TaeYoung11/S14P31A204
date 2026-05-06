@@ -1,11 +1,6 @@
 import { api } from '@/shared/lib/axios'
+import type { ApiResponse } from '@/shared/types'
 import type { BubbleData, ConnectionData, EditorDraftSnapshot } from '../types'
-
-interface ApiResponse<T> {
-  status: number
-  message: string
-  data: T
-}
 
 interface WorkspaceBubbleSavePayload {
   bubbles: Array<{

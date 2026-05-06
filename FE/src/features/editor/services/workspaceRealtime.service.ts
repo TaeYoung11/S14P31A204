@@ -1,4 +1,4 @@
-import { ensureStompConnected } from '@/shared/lib/stomp'
+import { getStompClient } from '@/shared/lib/stomp'
 import type { BubbleData, ConnectionData, ConnectionStyle, EditorDraftSnapshot } from '../types'
 
 interface WorkspaceBubblePayload {
@@ -119,9 +119,32 @@ const toFloorPlanPayload = (
   },
 })
 
+const getConnectedStompClient = async () => {
+  const client = getStompClient()
+  if (client.connected) return client
+
+  if (!client.active) client.activate()
+
+  await new Promise<void>((resolve, reject) => {
+    let intervalId = 0
+    const timeoutId = window.setTimeout(() => {
+      window.clearInterval(intervalId)
+      reject(new Error('STOMP client connection timed out.'))
+    }, 5000)
+
+    intervalId = window.setInterval(() => {
+      if (!client.connected) return
+      window.clearTimeout(timeoutId)
+      window.clearInterval(intervalId)
+      resolve()
+    }, 50)
+  })
+
+  return client
+}
+
 const publishJson = async (destination: string, body: unknown): Promise<void> => {
-  const client = await ensureStompConnected()
-  console.log('[STOMP] SEND', destination, body)
+  const client = await getConnectedStompClient()
   client.publish({
     destination,
     headers: {
