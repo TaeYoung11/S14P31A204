@@ -233,6 +233,8 @@ def run(args: argparse.Namespace) -> list[Path]:
         negative_prompt=NEGATIVE_PROMPT,
         image=prefill,
         mask_image=artifact_mask,
+        width=prefill.width,
+        height=prefill.height,
         strength=args.strength,
         guidance_scale=args.guidance_scale,
         num_inference_steps=args.steps,
