@@ -7,6 +7,9 @@ dependencies = [
     "ai-domain",
 ]
 
+[project.scripts]
+authoring-worker = "ai_authoring.worker_app:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
