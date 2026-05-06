@@ -1,3 +1,6 @@
+from importlib import import_module
+from typing import TYPE_CHECKING
+
 from .command import (
     ActionType,
     CommandBatch,
@@ -18,6 +21,9 @@ from .pipeline import to_ifc_commands
 from .preview_validators import PreviewValidationResult, validate_preview_plan
 from .session_pipeline import LLM2DPipeline
 from .utils import shape_to_rects
+
+if TYPE_CHECKING:
+    from .worker import TwoDLlmWorker, build_two_d_llm_worker, run_two_d_llm_job
 
 __all__ = [
     # command
@@ -47,6 +53,19 @@ __all__ = [
     "LLM2DPipeline",
     "PreviewValidationResult",
     "validate_preview_plan",
+    "TwoDLlmWorker",
+    "build_two_d_llm_worker",
+    "run_two_d_llm_job",
     # utils
     "shape_to_rects",
 ]
+
+
+def __getattr__(name: str) -> object:
+    if name in {"TwoDLlmWorker", "build_two_d_llm_worker", "run_two_d_llm_job"}:
+        try:
+            worker_module = import_module(".worker", __name__)
+            return getattr(worker_module, name)
+        except ImportError as exc:
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

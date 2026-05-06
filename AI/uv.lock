@@ -155,6 +155,7 @@ name = "ai-planning-2d"
 version = "0.1.0"
 source = { editable = "packages/ai-planning-2d" }
 dependencies = [
+    { name = "ai-common" },
     { name = "ai-domain" },
     { name = "instructor" },
     { name = "openai" },
@@ -163,6 +164,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "ai-common", editable = "packages/ai-common" },
     { name = "ai-domain", editable = "packages/ai-domain" },
     { name = "instructor", specifier = ">=1.15.1" },
     { name = "openai", specifier = ">=2.32.0" },

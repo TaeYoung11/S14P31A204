@@ -189,7 +189,12 @@ def _apply_resize_room(
     )
     target_offset_x_m = boundary_offset_x_m if direction == "west" else 0.0
     target_offset_y_m = boundary_offset_y_m if direction == "south" else 0.0
-    _translate_product_coords(location, target_offset_x_m, target_offset_y_m)
+    _translate_relative_placement_location(
+        model=model,
+        relative_placement=relative,
+        offset_x_m=target_offset_x_m,
+        offset_y_m=target_offset_y_m,
+    )
 
     space.Representation = _create_space_representation(
         model=model,
@@ -266,28 +271,35 @@ def _translate_products(
             continue
         placement = getattr(product, "ObjectPlacement", None)
         relative = getattr(placement, "RelativePlacement", None) if placement else None
-        location = getattr(relative, "Location", None) if relative else None
-        if location is None:
+        if relative is None or getattr(relative, "Location", None) is None:
             continue
-        coords = list(tuple(getattr(location, "Coordinates", ()) or ()))
-        while len(coords) < 3:
-            coords.append(0.0)
-        coords[0] += offset_x_m
-        coords[1] += offset_y_m
-        location.Coordinates = tuple(coords[:3])
+        _translate_relative_placement_location(
+            model=model,
+            relative_placement=relative,
+            offset_x_m=offset_x_m,
+            offset_y_m=offset_y_m,
+        )
 
 
-def _translate_product_coords(
-    location: ifcopenshell.entity_instance,
+def _translate_relative_placement_location(
+    *,
+    model: ifcopenshell.file,
+    relative_placement: ifcopenshell.entity_instance,
     offset_x_m: float,
     offset_y_m: float,
 ) -> None:
+    location = getattr(relative_placement, "Location", None)
+    if location is None:
+        return
     coords = list(tuple(getattr(location, "Coordinates", ()) or ()))
     while len(coords) < 3:
         coords.append(0.0)
     coords[0] += offset_x_m
     coords[1] += offset_y_m
-    location.Coordinates = tuple(coords[:3])
+    relative_placement.Location = model.create_entity(
+        "IfcCartesianPoint",
+        Coordinates=tuple(coords[:3]),
+    )
 
 
 def _boundary_shift_m(
@@ -350,7 +362,12 @@ def _update_affected_space_for_resize(
     if next_width_m <= 0.0 or next_height_m <= 0.0:
         return
 
-    _translate_product_coords(location, shift_x_m, shift_y_m)
+    _translate_relative_placement_location(
+        model=model,
+        relative_placement=relative,
+        offset_x_m=shift_x_m,
+        offset_y_m=shift_y_m,
+    )
     affected_space.Representation = _create_space_representation(
         model=model,
         width_m=next_width_m,

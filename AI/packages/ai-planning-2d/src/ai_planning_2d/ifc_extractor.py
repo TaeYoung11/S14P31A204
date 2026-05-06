@@ -36,11 +36,15 @@ _SPACE_TYPE_KEYWORDS: dict[str, tuple[str, ...]] = {
 }
 
 
+class UnsupportedIfcSchemaError(ValueError):
+    """Raised when the IFC file schema is valid but unsupported."""
+
+
 def extract_ifc_context(ifc_path: str) -> IFCContext:
     """Open an IFC4 file and extract IFCContext."""
     ifc = ifcopenshell.open(ifc_path)
     if ifc.schema != "IFC4":
-        raise ValueError(f"Unsupported IFC schema: {ifc.schema}")
+        raise UnsupportedIfcSchemaError(f"Unsupported IFC schema: {ifc.schema}")
 
     storeys = _extract_storeys(ifc)
     storey_floors = {storey["id"]: storey["floor"] for storey in storeys}

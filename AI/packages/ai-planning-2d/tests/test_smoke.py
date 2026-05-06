@@ -12,6 +12,7 @@ import ifcopenshell.api.pset
 import ifcopenshell.api.root
 import pytest
 
+import ai_planning_2d.executor as executor_module
 import ai_planning_2d.session_pipeline as session_pipeline_module
 from ai_domain import IfcEditCommandPayload
 from ai_planning_2d import (
@@ -1561,6 +1562,8 @@ async def test_pipeline_preview_add_room_emits_create_element(tmp_path):
     preview = await pipeline.execute_command_preview(command)
 
     assert preview["status"] == "preview_ready"
+    geometry = preview["command_batch"]["commands"][0]["params"]["geometry"]
+    assert geometry["location"][:2] != [0.0, 0.0]
     assert preview["engine_request"]["project_id"] == "proj-2d"
     assert preview["engine_request"]["base_revision_id"] == "rev-1"
     assert preview["engine_request"]["operations"][0]["type"] == "create_element"
@@ -1761,6 +1764,71 @@ async def test_pipeline_apply_falls_back_when_shared_authoring_fails(
     assert result["status"] == "applied"
     assert result["apply_mode"] == "local_fallback"
     assert "shared apply exploded" in result["fallback_reason"]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_apply_does_not_fallback_on_contract_error(
+    tmp_path,
+    policy_ifc_ctx,
+    monkeypatch,
+):
+    bundle = _make_minimal_ifc()
+    pipeline_context = dict(policy_ifc_ctx)
+    pipeline_context["spaces"] = [
+        {**policy_ifc_ctx["spaces"][0], "id": bundle["space_a"].GlobalId, "name": "center"},
+        {**policy_ifc_ctx["spaces"][1], "id": bundle["space_b"].GlobalId, "name": "left"},
+    ]
+    pipeline_context["walls"] = []
+    pipeline_context["doors"] = []
+    pipeline_context["windows"] = []
+    input_path = _write_ifc(tmp_path, bundle["ifc"])
+    output_path = str(tmp_path / "pipeline-remove-no-fallback.ifc")
+    pipeline = LLM2DPipeline(ifc_path=input_path, ifc_context=pipeline_context)
+    command = FloorNLPCommand(
+        action="remove_room",
+        target_room_name="center",
+        confidence=0.95,
+    )
+
+    def _raise_shared_apply(*args, **kwargs):
+        raise ValueError("shared payload mismatch")
+
+    monkeypatch.setattr(session_pipeline_module, "apply_ifc_edit_payload", _raise_shared_apply)
+
+    preview = await pipeline.execute_command_preview(command)
+    result = await pipeline.execute_apply(preview["session_id"], output_path=output_path)
+
+    assert result["status"] == "apply_failed"
+    assert result["apply_mode"] == "shared_authoring"
+    assert "shared payload mismatch" in result["summary"]
+
+
+def test_translate_relative_placement_location_does_not_mutate_shared_point():
+    model = ifcopenshell.file(schema="IFC4")
+    shared_point = model.create_entity("IfcCartesianPoint", Coordinates=(1.0, 2.0, 0.0))
+    placement_a = model.create_entity(
+        "IfcAxis2Placement3D",
+        Location=shared_point,
+        Axis=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        RefDirection=model.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0, 0.0)),
+    )
+    placement_b = model.create_entity(
+        "IfcAxis2Placement3D",
+        Location=shared_point,
+        Axis=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        RefDirection=model.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0, 0.0)),
+    )
+
+    executor_module._translate_relative_placement_location(
+        model=model,
+        relative_placement=placement_a,
+        offset_x_m=3.0,
+        offset_y_m=4.0,
+    )
+
+    assert tuple(placement_a.Location.Coordinates) == (4.0, 6.0, 0.0)
+    assert tuple(placement_b.Location.Coordinates) == (1.0, 2.0, 0.0)
+    assert placement_a.Location != placement_b.Location
 
 
 def test_build_engine_request_remove_room_deduplicates_selector(policy_ifc_ctx):

@@ -168,7 +168,7 @@ class LLM2DPipeline:
                     if len(result.get("created_ids", [])) == 1:
                         response["created_space_id"] = result["created_ids"][0]
                     return response
-                except Exception as exc:
+                except (RuntimeError, OSError) as exc:
                     if self._can_apply_locally(session):
                         result = apply_space_plan(
                             ifc_path=self.ifc_path,
@@ -181,6 +181,15 @@ class LLM2DPipeline:
                         response["apply_mode"] = "local_fallback"
                         response["fallback_reason"] = str(exc)
                         return response
+                    response.update(
+                        {
+                            "status": "apply_failed",
+                            "apply_mode": "shared_authoring",
+                            "summary": f"shared authoring apply failed: {exc}",
+                        }
+                    )
+                    return response
+                except Exception as exc:
                     response.update(
                         {
                             "status": "apply_failed",
@@ -214,6 +223,7 @@ class LLM2DPipeline:
             and session.policy_plan.get("status") == "planned"
             and session.command.action in {"remove_room", "resize_room"}
         )
+
 
     def _shared_payload(
         self,
