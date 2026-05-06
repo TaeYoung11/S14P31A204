@@ -55,6 +55,7 @@ FRONT_FULL_WIDTH_GROUND_EXPAND_RATIO = 1.03
 EYE_GROUND_TOP_PADDING_RATIO = 0.02
 EYE_GROUND_CLASS_RGB = "neutral"
 EYE_SEMANTIC_CONTROL_SCALE = 0.25
+EYE_STRONG_SEMANTIC_CONTROL_SCALE = 0.35
 
 
 @dataclass
@@ -126,14 +127,19 @@ KOREAN_HOUSE_EYE_RENDER_OPTIONS = DepthStyleRenderOptions(
     front_side_ground_class=EYE_GROUND_CLASS_RGB,
     front_side_semantic_control_scale=EYE_SEMANTIC_CONTROL_SCALE,
 )
+KOREAN_HOUSE_EYE_STRONG_RENDER_OPTIONS = DepthStyleRenderOptions(
+    use_eye_ground_semantic_control=True,
+    front_side_ground_class=EYE_GROUND_CLASS_RGB,
+    front_side_semantic_control_scale=EYE_STRONG_SEMANTIC_CONTROL_SCALE,
+)
 
 PRESET_VIEW_RENDER_OPTIONS: dict[tuple[str, IFCView], DepthStyleRenderOptions] = {
     ("korean_villa", IFCView.FRONT): KOREAN_VILLA_FRONT_RENDER_OPTIONS,
     ("korean_house", IFCView.FRONT): KOREAN_HOUSE_FRONT_RENDER_OPTIONS,
     ("korean_house", IFCView.SIDE): KOREAN_HOUSE_SIDE_RENDER_OPTIONS,
     ("korean_house", IFCView.EYE_NE): KOREAN_HOUSE_EYE_RENDER_OPTIONS,
-    ("korean_house", IFCView.EYE_NW): KOREAN_HOUSE_EYE_RENDER_OPTIONS,
-    ("korean_house", IFCView.EYE_SE): KOREAN_HOUSE_EYE_RENDER_OPTIONS,
+    ("korean_house", IFCView.EYE_NW): KOREAN_HOUSE_EYE_STRONG_RENDER_OPTIONS,
+    ("korean_house", IFCView.EYE_SE): KOREAN_HOUSE_EYE_STRONG_RENDER_OPTIONS,
 }
 
 
