@@ -329,7 +329,9 @@ class AuthoringWorker(BaseWorker):
         command: CommandMessage,
         ctx: WorkerContext,
     ) -> str:
-        ifc_url: str | None = command.expectedOutput.ifcStorageUrl
+        ifc_url: str | None = (
+            command.expectedOutput.ifcStorageUrl if command.expectedOutput is not None else None
+        )
         if ifc_url:
             loc = parse_s3_url(ifc_url)
             return self._s3.write_bytes(

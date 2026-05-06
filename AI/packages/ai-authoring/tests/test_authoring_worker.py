@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from ai_authoring.worker import AuthoringWorker
 from ai_common.errors import NonRetryableWorkerError
 from ai_common.worker_sdk.event_factory import CompletedResult
@@ -74,7 +76,7 @@ def test_authoring_worker_returns_completed_result():
     worker, mock_s3 = _make_worker(ifc_path.read_bytes())
 
     # _run_operations 패치 — 실제 IFC 조작 없이 applied 결과를 반환
-    with patch.object(worker, "_run_operations", return_value=_APPLIED_OP_RESULTS):
+    with patch.object(worker, "_run_operations", return_value=_APPLIED_OP_RESULTS) as mock_run_ops:
         result = worker.process(command)
 
     assert isinstance(result, CompletedResult), f"기대: CompletedResult, 실제: {type(result)}"
@@ -83,13 +85,17 @@ def test_authoring_worker_returns_completed_result():
     assert "manifest" in output["validation_report_storage_url"]
     assert mock_s3.write_bytes.called, "IFC 업로드(write_bytes)가 호출되지 않음"
     assert mock_s3.write_text.called, "manifest 업로드(write_text)가 호출되지 않음"
+    # command의 commandJsonStorageUrl로 engine request를 읽었는지 확인
+    mock_s3.read_text.assert_called_once_with(command.payload.commandJsonStorageUrl)
+    # 파싱된 engine request가 _run_operations에 전달됐는지 확인
+    assert mock_run_ops.call_args[0][1] == _ENGINE_REQUEST
     print("[OK] CompletedResult 반환 및 S3 업로드 확인")
 
 
 def test_authoring_worker_fails_when_no_operations_applied():
     """오퍼레이션이 하나도 적용되지 않으면 NonRetryableWorkerError 를 raise 한다.
 
-    BaseWorker.handle() 이 이 예외를 잡아 FailedResult 로 변환한다.
+    process() 가 직접 raise 하며, BaseWorker.handle() 이 이를 잡아 FailedResult 로 변환한다.
     """
     root_dir = Path(__file__).resolve().parents[3]
     message_path = root_dir / "sample_messages" / "command_ifc_edit.json"
@@ -111,13 +117,12 @@ def test_authoring_worker_fails_when_no_operations_applied():
         }
     ]
 
-    try:
+    with pytest.raises(NonRetryableWorkerError) as exc_info:
         with patch.object(worker, "_run_operations", return_value=rejected_results):
             worker.process(command)
-        assert False, "NonRetryableWorkerError 가 발생해야 합니다"
-    except NonRetryableWorkerError as exc:
-        assert exc.code == "NO_OPERATIONS_APPLIED"
-        print("[OK] NO_OPERATIONS_APPLIED 예외 확인")
+
+    assert exc_info.value.code == "NO_OPERATIONS_APPLIED"
+    print("[OK] NO_OPERATIONS_APPLIED 예외 확인")
 
 
 if __name__ == "__main__":
