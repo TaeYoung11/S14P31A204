@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from tempfile import mkstemp
 from typing import Protocol, cast
@@ -28,6 +29,7 @@ except Exception:  # pragma: no cover - exercised in local fallback only
     ResolvedS3WriteTarget = object  # type: ignore[assignment,misc]
 
 _logger = get_logger(__name__)
+_S3_URL_RE = re.compile(r"^s3://[^/]+/(?P<key>.+)$")
 
 
 class StorageClient(Protocol):
@@ -77,10 +79,13 @@ class IfcGenerateWorker(BaseWorker):
                 code="missing_ifc_storage_url",
                 message="expected_output.ifc_storage_url is required for IFC generate commands",
             )
+        _validate_ifc_storage_ref(command, ifc_ref)
 
         payload = cast(IfcGenerateCommandPayload, command.payload)
         request = payload.layoutImport
         validation_ref = command.expectedOutput.validationReportStorageUrl
+        if validation_ref is not None:
+            _validate_validation_report_ref(command, validation_ref)
         temp_fd, temp_path = mkstemp(
             prefix="ifc-generate-",
             suffix=".ifc",
@@ -215,6 +220,52 @@ def _cleanup_temp_file(output_path: Path, job_id: str, idempotency_key: str) -> 
             idempotencyKey=idempotency_key,
             tempFile=str(output_path),
             error=str(exc),
+        )
+
+
+def _extract_storage_key(reference: str) -> str:
+    match = _S3_URL_RE.match(reference)
+    if match is not None:
+        return match.group("key")
+    return reference
+
+
+def _validate_ifc_storage_ref(command: CommandMessage, reference: str) -> None:
+    if command.targetRevisionId is None:
+        raise ConfigurationError(
+            code="missing_target_revision_id",
+            message="target_revision_id is required for IFC generate commands",
+        )
+
+    expected_key = (
+        f"projects/{command.projectId}/revisions/"
+        f"{command.targetRevisionId}/ifc/model.v1.ifc"
+    )
+    actual_key = _extract_storage_key(reference)
+    if actual_key != expected_key:
+        raise ConfigurationError(
+            code="invalid_ifc_storage_url",
+            message=(
+                "expected_output.ifc_storage_url must match "
+                f"{expected_key!r}; got {actual_key!r}"
+            ),
+        )
+
+
+def _validate_validation_report_ref(command: CommandMessage, reference: str) -> None:
+    step_no_padded = f"{command.stepNo:03d}"
+    expected_key = (
+        f"projects/{command.projectId}/jobs/{command.jobId}/steps/"
+        f"{step_no_padded}/engine/validation-report.v1.json"
+    )
+    actual_key = _extract_storage_key(reference)
+    if actual_key != expected_key:
+        raise ConfigurationError(
+            code="invalid_validation_report_storage_url",
+            message=(
+                "expected_output.validation_report_storage_url must match "
+                f"{expected_key!r}; got {actual_key!r}"
+            ),
         )
 
 
