@@ -18,7 +18,7 @@ from ai_common.errors import (
 from ai_common.logging import get_logger
 from ai_common.worker_sdk.base_worker import BaseWorker, EventPublisher
 from ai_common.worker_sdk.event_factory import CompletedResult
-from ai_domain import CommandMessage, LayoutImportV1, LayoutImportV2
+from ai_domain import CommandMessage, LayoutImportV1, LayoutImportV2, LayoutImportV3
 from ai_domain.worker_messages.payloads_ifc_generate import IfcGenerateCommandPayload
 from ai_layout_import.service import convert_layout_to_ifc
 
@@ -30,6 +30,7 @@ except Exception:  # pragma: no cover - exercised in local fallback only
 
 _logger = get_logger(__name__)
 _S3_URL_RE = re.compile(r"^s3://[^/]+/(?P<key>.+)$")
+LayoutImportRuntimeRequest = LayoutImportV1 | LayoutImportV2 | LayoutImportV3
 
 
 class StorageClient(Protocol):
@@ -73,6 +74,12 @@ class IfcGenerateWorker(BaseWorker):
                 message="IFC generate worker expects a validated CommandMessage",
             )
 
+        if command.expectedOutput is None:
+            raise ConfigurationError(
+                code="missing_expected_output",
+                message="command.expectedOutput is mandatory but received as None",
+            )
+
         ifc_ref = command.expectedOutput.ifcStorageUrl
         if ifc_ref is None:
             raise ConfigurationError(
@@ -83,6 +90,7 @@ class IfcGenerateWorker(BaseWorker):
         payload = cast(IfcGenerateCommandPayload, command.payload)
         request = payload.layoutImport
         validation_ref = command.expectedOutput.validationReportStorageUrl
+        validated_validation_ref: str | None = None
 
         temp_fd, temp_path = mkstemp(
             prefix="ifc-generate-",
@@ -93,9 +101,10 @@ class IfcGenerateWorker(BaseWorker):
         output_path = Path(temp_path)
 
         try:
-            _validate_ifc_storage_ref(command, ifc_ref)
             if validation_ref is not None:
                 _validate_validation_report_ref(command, validation_ref)
+                validated_validation_ref = validation_ref
+            _validate_ifc_storage_ref(command, ifc_ref)
 
             convert_layout_to_ifc(request, output_path)
 
@@ -111,9 +120,9 @@ class IfcGenerateWorker(BaseWorker):
                 status="completed",
                 ifc_canonical_url=getattr(uploaded_target, "canonical_url", None),
             )
-            if validation_ref is not None:
+            if validated_validation_ref is not None:
                 self._storage.write_text_to_ref(
-                    validation_ref,
+                    validated_validation_ref,
                     json.dumps(report, ensure_ascii=False, indent=2),
                     content_type="application/json; charset=utf-8",
                 )
@@ -122,6 +131,7 @@ class IfcGenerateWorker(BaseWorker):
                 command=command,
                 request=request,
                 error=exc,
+                validation_ref=validated_validation_ref,
             ) from exc
         except ValueError as exc:
             raise self._build_failed_error(
@@ -131,6 +141,7 @@ class IfcGenerateWorker(BaseWorker):
                     code="validation_error",
                     message=str(exc) or "input validation failed",
                 ),
+                validation_ref=validated_validation_ref,
             ) from exc
         except ModuleNotFoundError as exc:
             raise self._build_failed_error(
@@ -140,6 +151,7 @@ class IfcGenerateWorker(BaseWorker):
                     code="storage_configuration_error",
                     message=str(exc) or "storage dependencies are not installed",
                 ),
+                validation_ref=validated_validation_ref,
             ) from exc
         except ClientError as exc:
             raise self._build_failed_error(
@@ -149,6 +161,7 @@ class IfcGenerateWorker(BaseWorker):
                     code="storage_client_error",
                     message=str(exc) or "object storage request failed",
                 ),
+                validation_ref=validated_validation_ref,
             ) from exc
         except OSError as exc:
             raise self._build_failed_error(
@@ -158,6 +171,7 @@ class IfcGenerateWorker(BaseWorker):
                     code="io_error",
                     message=str(exc) or "temporary I/O failure",
                 ),
+                validation_ref=validated_validation_ref,
             ) from exc
         finally:
             _cleanup_temp_file(output_path, command.jobId, command.idempotencyKey)
@@ -171,10 +185,10 @@ class IfcGenerateWorker(BaseWorker):
         self,
         *,
         command: CommandMessage,
-        request: LayoutImportV1 | LayoutImportV2,
+        request: LayoutImportRuntimeRequest,
         error: WorkerError,
+        validation_ref: str | None,
     ) -> WorkerError:
-        validation_ref = command.expectedOutput.validationReportStorageUrl
         if validation_ref is None:
             return error
 
@@ -279,7 +293,7 @@ def _validate_validation_report_ref(command: CommandMessage, reference: str) -> 
 def _build_validation_report(
     *,
     command: CommandMessage,
-    request: LayoutImportV1 | LayoutImportV2,
+    request: LayoutImportRuntimeRequest,
     status: str,
     ifc_canonical_url: str | None = None,
     error_code: str | None = None,
