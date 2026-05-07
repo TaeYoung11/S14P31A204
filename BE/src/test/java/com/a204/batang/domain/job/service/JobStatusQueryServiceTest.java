@@ -82,6 +82,19 @@ class JobStatusQueryServiceTest {
     }
 
     @Test
+    void getJobStatus_throwsWhenProjectDoesNotExist() throws Exception {
+        JobRecord job = createJobRecord(jobId, projectId, "SD_RENDER", "QUEUED", 0, null, null, null, null);
+
+        given(jobRecordRepository.findByJobId(jobId)).willReturn(Optional.of(job));
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> jobStatusQueryService.getJobStatus(jobId))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.PROJECT_NOT_FOUND);
+    }
+
+    @Test
     void getJobStatus_propagatesForbiddenAccess() throws Exception {
         JobRecord job = createJobRecord(jobId, projectId, "SD_RENDER", "QUEUED", 0, null, null, null, null);
 
@@ -128,17 +141,48 @@ class JobStatusQueryServiceTest {
         stepInput.put("sourceIfcStorageUrl", "s3://source.ifc");
         stepInput.put("ifcStorageUrl", "s3://target.ifc");
 
-        JobStepRecord step = createStepRecord(UUID.randomUUID(), jobId, 1, "IFC_EDIT_APPLY", "SUCCEEDED", 100, 0, stepInput, null, null, null);
+        JobStepRecord step = createStepRecord(
+                UUID.randomUUID(),
+                jobId,
+                1,
+                "IFC_EDIT_APPLY",
+                "SUCCEEDED",
+                100,
+                0,
+                stepInput,
+                null,
+                null,
+                null
+        );
         ReflectionTestUtils.setField(step, "createdAt", LocalDateTime.of(2026, 5, 7, 10, 0));
         ReflectionTestUtils.setField(step, "startedAt", LocalDateTime.of(2026, 5, 7, 10, 1));
         ReflectionTestUtils.setField(step, "finishedAt", LocalDateTime.of(2026, 5, 7, 10, 5));
 
-        JobArtifactRecord ifcArtifact = createArtifactRecord(expectedArtifactId, projectId, targetRevisionId, jobId, "IFC_MODEL", "model.ifc", "application/x-step", "s3://batang/result.ifc");
-        JobArtifactRecord validationArtifact = createArtifactRecord(validationArtifactId, projectId, targetRevisionId, jobId, "VALIDATION_REPORT", "validation.json", "application/json", "s3://batang/validation.json");
+        JobArtifactRecord ifcArtifact = createArtifactRecord(
+                expectedArtifactId,
+                projectId,
+                targetRevisionId,
+                jobId,
+                "IFC_MODEL",
+                "model.ifc",
+                "application/x-step",
+                "s3://batang/result.ifc"
+        );
+        JobArtifactRecord validationArtifact = createArtifactRecord(
+                validationArtifactId,
+                projectId,
+                targetRevisionId,
+                jobId,
+                "VALIDATION_REPORT",
+                "validation.json",
+                "application/json",
+                "s3://batang/validation.json"
+        );
 
         prepareProjectAccess(job);
         given(jobStepRecordRepository.findByJobIdOrderByStepNoAsc(jobId)).willReturn(List.of(step));
-        given(jobArtifactRecordRepository.findByJobIdOrderByCreatedAtAscArtifactIdAsc(jobId)).willReturn(List.of(ifcArtifact, validationArtifact));
+        given(jobArtifactRecordRepository.findByJobIdOrderByCreatedAtAscArtifactIdAsc(jobId))
+                .willReturn(List.of(ifcArtifact, validationArtifact));
 
         GetJobStatusResponse response = jobStatusQueryService.getJobStatus(jobId);
 
@@ -186,14 +230,39 @@ class JobStatusQueryServiceTest {
         ObjectNode step1Output = objectNode();
         step1Output.put("editPlanStorageUrl", "s3://batang/edit-plan.json");
 
-        JobStepRecord step1 = createStepRecord(UUID.randomUUID(), jobId, 1, "TWO_D_LLM", "SUCCEEDED", 100, 0, objectNode(), step1Output, null, null);
+        JobStepRecord step1 = createStepRecord(
+                UUID.randomUUID(),
+                jobId,
+                1,
+                "TWO_D_LLM",
+                "SUCCEEDED",
+                100,
+                0,
+                objectNode(),
+                step1Output,
+                null,
+                null
+        );
 
         ObjectNode step2Input = objectNode();
         step2Input.put("sourceRevisionId", sourceRevisionId.toString());
         step2Input.put("targetRevisionId", targetRevisionId.toString());
         step2Input.put("expectedOutputArtifactId", expectedArtifactId.toString());
         step2Input.put("ifcStorageUrl", "s3://batang/future.ifc");
-        JobStepRecord step2 = createStepRecord(UUID.randomUUID(), jobId, 2, "IFC_EDIT_APPLY", "QUEUED", 0, 0, step2Input, null, null, null);
+
+        JobStepRecord step2 = createStepRecord(
+                UUID.randomUUID(),
+                jobId,
+                2,
+                "IFC_EDIT_APPLY",
+                "QUEUED",
+                0,
+                0,
+                step2Input,
+                null,
+                null,
+                null
+        );
 
         prepareProjectAccess(job);
         given(jobStepRecordRepository.findByJobIdOrderByStepNoAsc(jobId)).willReturn(List.of(step1, step2));
@@ -206,10 +275,86 @@ class JobStatusQueryServiceTest {
         assertThat(response.currentStep().stepNo()).isEqualTo(2);
         assertThat(response.steps()).hasSize(2);
         assertThat(response.outputs().targetRevisionId()).isEqualTo(targetRevisionId);
-        assertThat(response.outputs().primaryArtifactId()).isEqualTo(expectedArtifactId);
+        assertThat(response.outputs().primaryArtifactId()).isNull();
         assertThat(response.outputs().primaryResultUrl()).isNull();
         assertThat(response.details().ifcEdit().mode()).isEqualTo("TWO_D_LLM");
+        assertThat(response.details().ifcEdit().expectedOutputArtifactId()).isEqualTo(expectedArtifactId);
         assertThat(response.details().ifcEdit().userInstruction()).isEqualTo("거실 벽을 추가해줘");
+    }
+
+    @Test
+    void getJobStatus_returnsRenderSuccess() throws Exception {
+        UUID sourceRevisionId = UUID.randomUUID();
+        UUID expectedArtifactId = UUID.randomUUID();
+
+        ObjectNode requestPayload = objectNode();
+        requestPayload.put("prompt", "quiet library exterior");
+        requestPayload.put("negativePrompt", "rain");
+        ObjectNode styleNode = requestPayload.putObject("style");
+        styleNode.put("timeOfDay", "EVENING");
+        requestPayload.put("width", 1024);
+        requestPayload.put("height", 1024);
+        requestPayload.put("sourceImageStorageUrl", "s3://batang/reference.png");
+
+        JobRecord job = createJobRecord(
+                jobId,
+                projectId,
+                "SD_RENDER",
+                "SUCCEEDED",
+                100,
+                sourceRevisionId,
+                null,
+                "IFC_MODEL",
+                requestPayload
+        );
+
+        ObjectNode stepInput = objectNode();
+        stepInput.put("expectedOutputArtifactId", expectedArtifactId.toString());
+
+        JobStepRecord step = createStepRecord(
+                UUID.randomUUID(),
+                jobId,
+                1,
+                "SD_RENDER",
+                "SUCCEEDED",
+                100,
+                0,
+                stepInput,
+                null,
+                null,
+                null
+        );
+
+        JobArtifactRecord renderArtifact = createArtifactRecord(
+                expectedArtifactId,
+                projectId,
+                null,
+                jobId,
+                "RENDER_IMAGE",
+                "render-001.png",
+                "image/png",
+                "https://minio.local/renderings/render-001.png"
+        );
+
+        prepareProjectAccess(job);
+        given(jobStepRecordRepository.findByJobIdOrderByStepNoAsc(jobId)).willReturn(List.of(step));
+        given(jobArtifactRecordRepository.findByJobIdOrderByCreatedAtAscArtifactIdAsc(jobId)).willReturn(List.of(renderArtifact));
+
+        GetJobStatusResponse response = jobStatusQueryService.getJobStatus(jobId);
+
+        assertThat(response.jobDomain()).isEqualTo("RENDER");
+        assertThat(response.status()).isEqualTo("SUCCEEDED");
+        assertThat(response.error()).isNull();
+        assertThat(response.outputs().targetRevisionId()).isNull();
+        assertThat(response.outputs().primaryArtifactId()).isEqualTo(expectedArtifactId);
+        assertThat(response.outputs().primaryResultUrl()).isEqualTo("https://minio.local/renderings/render-001.png");
+        assertThat(response.details().render()).isNotNull();
+        assertThat(response.details().render().expectedOutputArtifactId()).isEqualTo(expectedArtifactId);
+        assertThat(response.details().render().prompt()).isEqualTo("quiet library exterior");
+        assertThat(response.details().render().negativePrompt()).isEqualTo("rain");
+        assertThat(response.details().render().style()).isNotNull();
+        assertThat(response.details().render().style().get("timeOfDay").asText()).isEqualTo("EVENING");
+        assertThat(response.details().render().sourceImageStorageUrl()).isEqualTo("s3://batang/reference.png");
     }
 
     @Test
@@ -245,7 +390,19 @@ class JobStatusQueryServiceTest {
         stepOutput.put("errorMessage", "worker crashed");
         stepOutput.put("retryable", true);
 
-        JobStepRecord step = createStepRecord(UUID.randomUUID(), jobId, 1, "SD_RENDER", "FAILED", 0, 1, stepInput, stepOutput, "SD_RENDER_FAILED", "worker crashed");
+        JobStepRecord step = createStepRecord(
+                UUID.randomUUID(),
+                jobId,
+                1,
+                "SD_RENDER",
+                "FAILED",
+                0,
+                1,
+                stepInput,
+                stepOutput,
+                "SD_RENDER_FAILED",
+                "worker crashed"
+        );
 
         prepareProjectAccess(job);
         given(jobStepRecordRepository.findByJobIdOrderByStepNoAsc(jobId)).willReturn(List.of(step));
@@ -266,7 +423,8 @@ class JobStatusQueryServiceTest {
         assertThat(response.details().render().style().get("timeOfDay").asText()).isEqualTo("EVENING");
         assertThat(response.details().render().width()).isEqualTo(1024);
         assertThat(response.details().render().height()).isEqualTo(768);
-        assertThat(response.outputs().primaryArtifactId()).isEqualTo(expectedArtifactId);
+        assertThat(response.outputs().primaryArtifactId()).isNull();
+        assertThat(response.outputs().primaryResultUrl()).isNull();
     }
 
     @Test
@@ -293,14 +451,46 @@ class JobStatusQueryServiceTest {
         stepInput.put("expectedOutputArtifactId", expectedArtifactId.toString());
         stepInput.put("layoutImportSchemaVersion", "v2");
         stepInput.put("revisionNo", 7);
-        JobStepRecord step = createStepRecord(UUID.randomUUID(), jobId, 1, "IFC_GENERATE_FROM_BUBBLE", "SUCCEEDED", 100, 0, stepInput, null, null, null);
 
-        JobArtifactRecord ifcArtifact = createArtifactRecord(expectedArtifactId, projectId, targetRevisionId, jobId, "IFC_MODEL", "model.v1.ifc", "application/octet-stream", "s3://batang/floorplan.ifc");
-        JobArtifactRecord validationArtifact = createArtifactRecord(validationArtifactId, projectId, targetRevisionId, jobId, "VALIDATION_REPORT", "validation-report.json", "application/json", "s3://batang/floorplan-validation.json");
+        JobStepRecord step = createStepRecord(
+                UUID.randomUUID(),
+                jobId,
+                1,
+                "IFC_GENERATE_FROM_BUBBLE",
+                "SUCCEEDED",
+                100,
+                0,
+                stepInput,
+                null,
+                null,
+                null
+        );
+
+        JobArtifactRecord ifcArtifact = createArtifactRecord(
+                expectedArtifactId,
+                projectId,
+                targetRevisionId,
+                jobId,
+                "IFC_MODEL",
+                "model.v1.ifc",
+                "application/octet-stream",
+                "s3://batang/floorplan.ifc"
+        );
+        JobArtifactRecord validationArtifact = createArtifactRecord(
+                validationArtifactId,
+                projectId,
+                targetRevisionId,
+                jobId,
+                "VALIDATION_REPORT",
+                "validation-report.json",
+                "application/json",
+                "s3://batang/floorplan-validation.json"
+        );
 
         prepareProjectAccess(job);
         given(jobStepRecordRepository.findByJobIdOrderByStepNoAsc(jobId)).willReturn(List.of(step));
-        given(jobArtifactRecordRepository.findByJobIdOrderByCreatedAtAscArtifactIdAsc(jobId)).willReturn(List.of(ifcArtifact, validationArtifact));
+        given(jobArtifactRecordRepository.findByJobIdOrderByCreatedAtAscArtifactIdAsc(jobId))
+                .willReturn(List.of(ifcArtifact, validationArtifact));
 
         GetJobStatusResponse response = jobStatusQueryService.getJobStatus(jobId);
 
