@@ -30,16 +30,13 @@ from ai_rendering.ifc2img.style import (
     BACKGROUND_INPAINT_NEGATIVE_TERMS,
     BACKGROUND_PRIORS_BY_PRESET,
     EYE_NEGATIVE_TERMS,
-    FRONT_SIDE_MASK_CONTROL_RGB,
     FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
     FRONT_SIDE_NEGATIVE_TERMS,
-    FRONT_SIDE_WEIGHTED_NEGATIVE_TERMS,
     SEMANTIC_BACKGROUND_RGB,
     SEMANTIC_BUILDING_RGB,
     SEMANTIC_GROUND_RGB,
     _append_negative_terms,
     _apply_eye_ground_plane_control_attenuation,
-    _apply_front_side_semantic_mask_to_control,
     _build_eye_building_mask,
     _build_eye_ground_mask,
     _build_eye_ground_plane_aware_mask,
@@ -198,7 +195,6 @@ def test_resolve_preset_view_render_options_fixes_korean_villa_candidate() -> No
     assert front.use_front_side_semantic_control is False
     assert front.front_side_ground_class == "neutral"
     assert front.front_side_semantic_control_scale == 0.25
-    assert front.use_weighted_front_side_negative is False
     assert front.requires_semantic_controlnet is True
     assert side == DepthStyleRenderOptions()
 
@@ -278,22 +274,18 @@ def test_resolve_preset_background_params_rejects_unknown() -> None:
 def test_depth_style_render_options_as_kwargs_matches_render_options() -> None:
     """Fixed candidates should be directly passable into DepthStyleRenderer.render()."""
     options = DepthStyleRenderOptions(
-        use_front_side_semantic_mask=True,
         use_front_side_semantic_control=True,
         use_eye_ground_semantic_control=True,
-        use_weighted_front_side_negative=True,
         front_side_ground_class="neutral",
         front_side_semantic_control_scale=0.25,
     )
 
     assert options.as_render_kwargs() == {
-        "use_front_side_semantic_mask": True,
         "use_front_side_semantic_control": True,
         "use_front_full_width_semantic_control": False,
         "use_eye_ground_semantic_control": True,
         "use_eye_ground_plane_aware_semantic_control": False,
         "use_eye_ground_plane_control_attenuation": False,
-        "use_weighted_front_side_negative": True,
         "front_side_ground_class": "neutral",
         "front_side_semantic_control_scale": 0.25,
         "eye_ground_plane_control_attenuation_strength": 0.18,
@@ -487,30 +479,6 @@ def test_render_with_view_front_appends_foundation_negative_terms(
     assert call_negative.endswith(FRONT_SIDE_NEGATIVE_TERMS)
 
 
-def test_render_with_view_front_weighted_negative_is_opt_in(
-    mock_depth_renderer: DepthStyleRenderer,
-) -> None:
-    """Weighted front/side negatives should stay out of the default render path."""
-    depth = Image.new("L", (768, 448), 100)
-    params = DepthStyleParams(
-        prompt="RAW photo, scandinavian house",
-        negative_prompt="stone wall, retaining wall, raised platform",
-    )
-
-    mock_depth_renderer.render(
-        depth,
-        params,
-        view=IFCView.FRONT,
-        use_weighted_front_side_negative=True,
-    )
-
-    call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
-    assert "(stone wall:1.2)" in call_negative
-    assert "(retaining wall:1.25)" in call_negative
-    assert "(raised platform:1.2)" in call_negative
-    assert FRONT_SIDE_WEIGHTED_NEGATIVE_TERMS not in FRONT_SIDE_NEGATIVE_TERMS
-
-
 def test_append_negative_terms_deduplicates_terms() -> None:
     """Shared front/side negatives should not push prompts over the CLIP budget."""
     result = _append_negative_terms(
@@ -560,27 +528,6 @@ def test_build_front_side_semantic_mask_adds_local_ground_band() -> None:
     assert np.any(ground_pixels[13:16, 7:17])
     assert np.all(mask_arr[20, 1] == SEMANTIC_BACKGROUND_RGB)
     assert np.all(mask_arr[20, 22] == SEMANTIC_BACKGROUND_RGB)
-
-
-def test_apply_front_side_semantic_mask_to_control_adds_weak_ground_hint() -> None:
-    """Opt-in blend should add a faint ground cue without changing geometry."""
-    control = Image.new("RGB", (24, 24), (0, 0, 0))
-    arr = np.array(control)
-    arr[4:14, 8:16] = [255, 255, 255]
-
-    blended = _apply_front_side_semantic_mask_to_control(
-        Image.fromarray(arr, mode="RGB")
-    )
-    blended_arr = np.array(blended)
-    semantic_mask = _build_front_side_semantic_mask(Image.fromarray(arr, mode="RGB"))
-    ground_pixels = np.all(np.array(semantic_mask) == SEMANTIC_GROUND_RGB, axis=2)
-    ground_y, ground_x = np.nonzero(ground_pixels)
-    sample_y = int(ground_y[0])
-    sample_x = int(ground_x[0])
-
-    assert np.all(blended_arr[6, 10] == [255, 255, 255])
-    assert np.all(blended_arr[2, 2] == [0, 0, 0])
-    assert 0 < int(blended_arr[sample_y, sample_x, 0]) < FRONT_SIDE_MASK_CONTROL_RGB[0]
 
 
 def test_build_front_full_width_ground_mask_marks_lower_background_only() -> None:
@@ -682,59 +629,6 @@ def test_build_eye_ground_seg_control_uses_neutral_ground() -> None:
     assert np.all(seg_arr[2, 2] == ADE20K_SKY_RGB)
     assert np.all(seg_arr[26, 2] == ADE20K_ROAD_RGB)
     assert np.all(seg_arr[26, 30] == ADE20K_ROAD_RGB)
-
-
-def test_render_front_side_semantic_mask_is_opt_in(
-    mock_depth_renderer: DepthStyleRenderer,
-) -> None:
-    """Default render path should keep the original control image unchanged."""
-    depth = Image.new("RGB", (24, 24), (0, 0, 0))
-    arr = np.array(depth)
-    arr[4:14, 8:16] = [255, 255, 255]
-    depth = Image.fromarray(arr, mode="RGB")
-    params = DepthStyleParams(prompt="x")
-
-    mock_depth_renderer.render(depth, params, view=IFCView.FRONT)
-
-    control = np.array(mock_depth_renderer.pipe.call_args.kwargs["image"])
-    semantic_mask = _build_front_side_semantic_mask(depth)
-    ground_pixels = np.all(np.array(semantic_mask) == SEMANTIC_GROUND_RGB, axis=2)
-    ground_y, ground_x = np.nonzero(ground_pixels)
-    assert np.all(control[int(ground_y[0]), int(ground_x[0])] == [0, 0, 0])
-
-
-def test_render_front_side_semantic_mask_blends_only_for_front_side_views(
-    mock_depth_renderer: DepthStyleRenderer,
-) -> None:
-    """The opt-in mask should affect FRONT/SIDE only, not unrelated views."""
-    depth = Image.new("RGB", (24, 24), (0, 0, 0))
-    arr = np.array(depth)
-    arr[4:14, 8:16] = [255, 255, 255]
-    depth = Image.fromarray(arr, mode="RGB")
-    params = DepthStyleParams(prompt="x")
-
-    mock_depth_renderer.render(
-        depth,
-        params,
-        view=IFCView.FRONT,
-        use_front_side_semantic_mask=True,
-    )
-    front_control = np.array(mock_depth_renderer.pipe.call_args.kwargs["image"])
-    mock_depth_renderer.render(
-        depth,
-        params,
-        view=IFCView.EYE_NE,
-        use_front_side_semantic_mask=True,
-    )
-    eye_control = np.array(mock_depth_renderer.pipe.call_args.kwargs["image"])
-    semantic_mask = _build_front_side_semantic_mask(depth)
-    ground_pixels = np.all(np.array(semantic_mask) == SEMANTIC_GROUND_RGB, axis=2)
-    ground_y, ground_x = np.nonzero(ground_pixels)
-    sample_y = int(ground_y[0])
-    sample_x = int(ground_x[0])
-
-    assert front_control[sample_y, sample_x, 0] > 0
-    assert np.all(eye_control[sample_y, sample_x] == [0, 0, 0])
 
 
 def test_build_front_side_seg_control_uses_ade20k_colors() -> None:

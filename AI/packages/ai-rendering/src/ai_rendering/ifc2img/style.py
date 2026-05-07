@@ -27,9 +27,6 @@ EYE_NEGATIVE_TERMS = (
     "pool, water, reflection, mirror floor, "
     "white platform, display base, model base"
 )
-FRONT_SIDE_WEIGHTED_NEGATIVE_TERMS = (
-    "(stone wall:1.2), (retaining wall:1.25), (raised platform:1.2)"
-)
 SEMANTIC_BACKGROUND_RGB = (0, 0, 0)
 SEMANTIC_BUILDING_RGB = (255, 255, 255)
 SEMANTIC_GROUND_RGB = (128, 128, 128)
@@ -46,8 +43,6 @@ FRONT_SIDE_GROUND_CLASS_RGB = {
 FRONT_SIDE_MASK_BASE_PERCENTILE = 75
 FRONT_SIDE_MASK_BAND_RATIO = 0.045
 FRONT_SIDE_MASK_SIDE_EXPAND_RATIO = 0.025
-FRONT_SIDE_MASK_CONTROL_RGB = (96, 96, 96)
-FRONT_SIDE_MASK_BLEND_STRENGTH = 0.18
 FRONT_SIDE_SEMANTIC_CONTROL_SCALE = 0.35
 FRONT_FULL_WIDTH_GROUND_TOP_PADDING_RATIO = 0.02
 FRONT_FULL_WIDTH_GROUND_EXPAND_RATIO = 1.03
@@ -92,13 +87,11 @@ class DepthStyleParams:
 
 @dataclass(frozen=True)
 class DepthStyleRenderOptions:
-    use_front_side_semantic_mask: bool = False
     use_front_side_semantic_control: bool = False
     use_front_full_width_semantic_control: bool = False
     use_eye_ground_semantic_control: bool = False
     use_eye_ground_plane_aware_semantic_control: bool = False
     use_eye_ground_plane_control_attenuation: bool = False
-    use_weighted_front_side_negative: bool = False
     front_side_ground_class: FrontSideGroundClass = "grass"
     front_side_semantic_control_scale: float = FRONT_SIDE_SEMANTIC_CONTROL_SCALE
     eye_ground_plane_control_attenuation_strength: float = (
@@ -116,7 +109,6 @@ class DepthStyleRenderOptions:
 
     def as_render_kwargs(self) -> dict[str, object]:
         return {
-            "use_front_side_semantic_mask": self.use_front_side_semantic_mask,
             "use_front_side_semantic_control": self.use_front_side_semantic_control,
             "use_front_full_width_semantic_control": (
                 self.use_front_full_width_semantic_control
@@ -128,7 +120,6 @@ class DepthStyleRenderOptions:
             "use_eye_ground_plane_control_attenuation": (
                 self.use_eye_ground_plane_control_attenuation
             ),
-            "use_weighted_front_side_negative": self.use_weighted_front_side_negative,
             "front_side_ground_class": self.front_side_ground_class,
             "front_side_semantic_control_scale": (
                 self.front_side_semantic_control_scale
@@ -331,28 +322,6 @@ def _build_front_side_semantic_mask(control: Image.Image) -> Image.Image:
     return Image.fromarray(mask, mode="RGB")
 
 
-def _apply_front_side_semantic_mask_to_control(
-    control: Image.Image,
-    strength: float = FRONT_SIDE_MASK_BLEND_STRENGTH,
-) -> Image.Image:
-    """Weakly add the local ground-contact band to a depth control image."""
-    control_rgb = control.convert("RGB")
-    if strength <= 0:
-        return control_rgb
-
-    semantic_mask = _build_front_side_semantic_mask(control_rgb)
-    mask_arr = np.asarray(semantic_mask, dtype=np.uint8)
-    ground_mask = np.all(mask_arr == SEMANTIC_GROUND_RGB, axis=2)
-    if not np.any(ground_mask):
-        return control_rgb
-
-    strength = float(np.clip(strength, 0.0, 1.0))
-    arr = np.asarray(control_rgb, dtype=np.float32).copy()
-    target = np.array(FRONT_SIDE_MASK_CONTROL_RGB, dtype=np.float32)
-    arr[ground_mask] = arr[ground_mask] * (1.0 - strength) + target * strength
-    return Image.fromarray(np.clip(np.rint(arr), 0, 255).astype(np.uint8), mode="RGB")
-
-
 def _build_front_full_width_ground_mask(control: Image.Image) -> Image.Image:
     """Mark lower full-width background as front-view ground.
 
@@ -486,10 +455,10 @@ def _build_eye_ground_plane_aware_mask(
     """Mark lower background and slab-like lower geometry as EYE ground.
 
     EYE depth renders include the explicit IFC ground plane as geometry. If all
-    geometry is protected as building, the semantic cue cannot suppress the
-    white display-base prior. This preview-oriented mask reclassifies only the
-    lower per-column geometry shell as ground while leaving upper wall/roof
-    pixels protected as building.
+    geometry is treated as building, the semantic cue cannot suppress the white
+    display-base prior. This mask reclassifies only the lower per-column
+    geometry shell as ground while leaving upper wall/roof pixels protected as
+    building.
     """
     arr = np.asarray(control.convert("RGB"), dtype=np.uint8)
     bg_mask = np.all(arr == 0, axis=2)
@@ -560,8 +529,8 @@ def _apply_eye_ground_plane_control_attenuation(
 ) -> Image.Image:
     """Reduce the bright display-base signal in EYE ground-plane control.
 
-    This is a preview-oriented input-side helper. It only blends pixels selected
-    by the ground-plane-aware mask, keeping upper walls and roof depth intact.
+    This input-side helper only blends pixels selected by the
+    ground-plane-aware mask, keeping upper walls and roof depth intact.
     """
     control_rgb = control.convert("RGB")
     if strength <= 0:
@@ -759,13 +728,11 @@ class DepthStyleRenderer:
         depth_image: Image.Image,
         params: DepthStyleParams,
         view: IFCView | None = None,
-        use_front_side_semantic_mask: bool = False,
         use_front_side_semantic_control: bool = False,
         use_front_full_width_semantic_control: bool = False,
         use_eye_ground_semantic_control: bool = False,
         use_eye_ground_plane_aware_semantic_control: bool = False,
         use_eye_ground_plane_control_attenuation: bool = False,
-        use_weighted_front_side_negative: bool = False,
         front_side_ground_class: FrontSideGroundClass = "grass",
         front_side_semantic_control_scale: float = FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
         eye_ground_plane_control_attenuation_strength: float = (
@@ -783,8 +750,6 @@ class DepthStyleRenderer:
                 control,
                 strength=eye_ground_plane_control_attenuation_strength,
             )
-        if use_front_side_semantic_mask and view in {IFCView.FRONT, IFCView.SIDE}:
-            control = _apply_front_side_semantic_mask_to_control(control)
         control_image: Image.Image | list[Image.Image] = control
         conditioning_scale: float | list[float] = params.controlnet_conditioning_scale
         if use_front_full_width_semantic_control and view is IFCView.FRONT:
@@ -851,14 +816,9 @@ class DepthStyleRenderer:
             applied_params = params
         negative_prompt = params.negative_prompt
         if view in {IFCView.FRONT, IFCView.SIDE}:
-            front_side_negative = (
-                FRONT_SIDE_WEIGHTED_NEGATIVE_TERMS
-                if use_weighted_front_side_negative
-                else FRONT_SIDE_NEGATIVE_TERMS
-            )
             negative_prompt = _append_negative_terms(
                 negative_prompt,
-                front_side_negative,
+                FRONT_SIDE_NEGATIVE_TERMS,
             )
         if view in {IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE}:
             negative_prompt = _append_negative_terms(

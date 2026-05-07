@@ -525,13 +525,11 @@ def test_ifc_to_styled_render_styles_passes_eye_ground_plane_aware_options(
     assert calls == [
         {
             "view": m.IFCView.EYE_NE,
-            "use_front_side_semantic_mask": False,
             "use_front_side_semantic_control": False,
             "use_front_full_width_semantic_control": False,
             "use_eye_ground_semantic_control": True,
             "use_eye_ground_plane_aware_semantic_control": True,
             "use_eye_ground_plane_control_attenuation": True,
-            "use_weighted_front_side_negative": False,
             "front_side_ground_class": "grass",
             "front_side_semantic_control_scale": 0.25,
             "eye_ground_plane_control_attenuation_strength": 0.18,
