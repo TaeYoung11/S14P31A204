@@ -35,6 +35,12 @@ queue 이름, message schema 이름, DTO 이름은 서로 다른 개념입니다
 
 JSON wire field는 `snake_case`를 사용합니다.
 
+## Floor-plan Generate
+
+`/floor-plans/generate`의 현재 BE 기준 계약은 아래 문서를 따른다.
+
+- `shared/docs/floor-plan-generate-contract.md`
+
 ## Retry와 DLQ
 
 초기 세팅에서는 RabbitMQ retry, acknowledgement, DLQ routing을 구현하지
