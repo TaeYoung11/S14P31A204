@@ -89,7 +89,7 @@ BOTTOM_STRIP_SECOND_PASS_PROMPT = (
 )
 BOTTOM_STRIP_SECOND_PASS_NEGATIVE = (
     "grass strip, green strip, gray strip, hard horizontal band, text, numbers, "
-    "watermark, pool, water, reflection"
+    "letters, logo, sign, caption, watermark, pool, water, reflection"
 )
 
 
