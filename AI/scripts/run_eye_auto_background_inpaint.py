@@ -50,6 +50,25 @@ DEFAULT_OUTPUT_DIR = (
 DEFAULT_MODEL_ID = "runwayml/stable-diffusion-inpainting"
 DEFAULT_PRESET = "korean_house"
 DEFAULT_VIEWS = ("eye_ne", "eye_nw", "eye_se")
+DEFAULT_BACKGROUND_MODE = "guided"
+BACKGROUND_MODES = ("guided", "free")
+FREE_BACKGROUND_PROMPTS: dict[str, str] = {
+    "korean_house": (
+        "realistic Korean residential setting, natural daylight, "
+        "background matching the house"
+    ),
+    "korean_villa": (
+        "realistic Korean villa surroundings, natural daylight, "
+        "background matching the house"
+    ),
+    "scandinavian": (
+        "realistic Nordic residential setting, natural daylight, "
+        "background matching the house"
+    ),
+}
+FREE_BACKGROUND_NEGATIVE = (
+    "pool, water, reflection, mirror floor, display base, model base, extra floor"
+)
 DEFAULT_STRENGTH = 0.55
 DEFAULT_STEPS = 24
 DEFAULT_GUIDANCE_SCALE = 6.0
@@ -83,6 +102,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output", default=DEFAULT_OUTPUT_DIR, type=Path)
     parser.add_argument("--preset", default=DEFAULT_PRESET)
     parser.add_argument(
+        "--background-mode",
+        choices=BACKGROUND_MODES,
+        default=DEFAULT_BACKGROUND_MODE,
+        help="guided uses preset yard/background terms; free lets the model infer context.",
+    )
+    parser.add_argument(
         "--views",
         default=",".join(DEFAULT_VIEWS),
         type=_parse_views,
@@ -94,6 +119,21 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--guidance-scale", default=DEFAULT_GUIDANCE_SCALE, type=float)
     parser.add_argument("--seed", default=DEFAULT_SEED, type=int)
     return parser.parse_args(argv)
+
+
+def _resolve_background_prompt_pair(
+    preset: str,
+    background_mode: str,
+) -> tuple[str, str]:
+    if background_mode == "guided":
+        params = resolve_preset_background_params(preset)
+        return params.prompt, params.negative_prompt
+    if background_mode == "free":
+        prompt = FREE_BACKGROUND_PROMPTS.get(preset)
+        if prompt is None:
+            raise ValueError(f"unknown free background preset: {preset}")
+        return prompt, FREE_BACKGROUND_NEGATIVE
+    raise ValueError(f"unsupported background mode: {background_mode}")
 
 
 def _load_inpaint_pipeline(model_id: str):
@@ -148,9 +188,10 @@ def run(args: argparse.Namespace) -> list[Path]:
     output_dir = args.output.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    params = resolve_preset_background_params(args.preset)
-    prompt = params.prompt
-    negative_prompt = params.negative_prompt
+    prompt, negative_prompt = _resolve_background_prompt_pair(
+        args.preset,
+        args.background_mode,
+    )
 
     pipe, device = _load_inpaint_pipeline(args.model_id)
     saved: list[Path] = []
@@ -182,7 +223,7 @@ def run(args: argparse.Namespace) -> list[Path]:
 
         result_path = (
             output_dir
-            / f"eye_auto_background_inpaint_{view}_{args.preset}_s{int(round(args.strength * 100)):03d}_seed{args.seed + index}.png"
+            / f"eye_auto_background_inpaint_{view}_{args.preset}_{args.background_mode}_s{int(round(args.strength * 100)):03d}_seed{args.seed + index}.png"
         )
         output.save(result_path, format="PNG")
         saved.append(result_path)
@@ -200,15 +241,19 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[mask] {_display_path(args.mask_dir.resolve())}")
     print(f"[output] {_display_path(args.output.resolve())}")
     print(f"[preset] {args.preset}")
+    print(f"[background-mode] {args.background_mode}")
     print(f"[views] {list(args.views)}")
     print(f"[strength] {args.strength}")
     print(f"[steps] {args.steps}")
     print(f"[guidance-scale] {args.guidance_scale}")
 
     try:
-        params = resolve_preset_background_params(args.preset)
-        print(f"[prompt] {params.prompt}")
-        print(f"[negative] {params.negative_prompt}")
+        prompt, negative = _resolve_background_prompt_pair(
+            args.preset,
+            args.background_mode,
+        )
+        print(f"[prompt] {prompt}")
+        print(f"[negative] {negative}")
         saved = run(args)
     except Exception as exc:
         print(f"[error] {exc}", file=sys.stderr)
