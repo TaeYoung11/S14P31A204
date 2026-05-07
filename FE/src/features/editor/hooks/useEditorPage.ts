@@ -79,6 +79,7 @@ import { useEditorProjectName } from './useEditorProjectName'
 import { useInitialIfcImport } from './useInitialIfcImport'
 import { useEditorUserContext } from './useEditorUserContext'
 import { useFloorPlanGenerateTimeout } from './useFloorPlanGenerateTimeout'
+import { useThreeDIfcAttributeHandlers } from './useThreeDIfcAttributeHandlers'
 import { runForceDirectedBubbleLayout } from '../utils/forceBubbleLayout'
 import { useBubbleSnapshotRealtime } from './useBubbleSnapshotRealtime'
 import { useIfcLoadingLayer } from './useIfcLoadingLayer'
@@ -95,6 +96,7 @@ import {
   resolveEditorMode,
 } from '../utils/editorPageHelpers'
 import { IFC_COMPLETED_ACTION_SET } from '../utils/workspaceSyncMessage'
+import { resolveIfcPresignedUrl } from '../utils/ifcSource'
 
 interface DrawingSnapshot {
   bubbles: BubbleData[]
@@ -111,16 +113,6 @@ const OPENING_NORMALIZE_OPTIONS = {
 } as const
 const IFC_DERIVED_FLOORPLAN_ONLY = true
 const BUBBLE_DB_SAVE_DEBOUNCE_MS = 2000
-
-const THREE_D_MATERIAL_COLOR: Record<string, string> = {
-  Concrete: '#A8A29E',
-  Brick: '#A3472C',
-  Steel: '#8A94A3',
-  Wood: '#9A6232',
-  Glass: '#8FD3FF',
-  Stone: '#8D8D86',
-  Tile: '#C56F45',
-}
 
 const FLOOR_PLAN_GENERATE_TIMEOUT_MS = 120_000
 
@@ -260,7 +252,7 @@ export function useEditorPage() {
   const canSyncBubbleStateFrom2D = floorPlanLayoutSource === 'bubble' && activeFloorLayerId === 'floor-1'
   const isWallFirstEditing = FLOOR_PLAN_EDIT_AUTHORITY === 'wall-first'
   const [workspacePhaseStatus, setWorkspacePhaseStatus] = useState<PhaseStatus>('BUBBLE_DRAFT')
-  const handleIfcSyncMessageRef = useRef<(url: string, action: string | null) => void>(() => {})
+  const handleIfcSyncMessageRef = useRef<(url: string, action: string | null, assetId?: string | null) => void>(() => {})
   const isFloorPlanGenerating = isFloorPlanGeneratingLocal || workspacePhaseStatus === 'CONVERTING'
 
   // 버블·연결선 변경 시 이미 생성된 평면도를 조용히 갱신 (로딩 없음)
@@ -465,6 +457,18 @@ export function useEditorPage() {
   const bubbleDbSaveTimerRef = useRef<number | null>(null)
   const bubbleDbSaveInFlightRef = useRef<Promise<SaveBubbleSnapshotResponse> | null>(null)
   const floorPlanGenerateForbiddenRef = useRef(false)
+  const lastLoadedIfcStorageUrlRef = useRef<string | null>(null)
+  const ifcLoadInFlightStorageUrlRef = useRef<string | null>(null)
+  /**
+   * 프로젝트별 IFC 소스 캐시.
+   * - projectId 전환 시 effect로 상태를 초기화하지 않고, 렌더 단계에서 현재 프로젝트 값만 노출한다.
+   * - react-hooks/set-state-in-effect 규칙을 만족하면서 기존 동작을 보존한다.
+   */
+  const [ifcSourceByProjectId, setIfcSourceByProjectId] = useState<
+    Record<string, { url: string; assetId: string | null }>
+  >({})
+  const currentIfcUrl = projectId ? (ifcSourceByProjectId[projectId]?.url ?? null) : null
+  const currentIfcAssetId = projectId ? (ifcSourceByProjectId[projectId]?.assetId ?? null) : null
   const bubbleDbDirtyRef = useRef(false)
   const hasUserEditedRef = useRef(false)
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -472,6 +476,11 @@ export function useEditorPage() {
   const draftLoadTokenRef = useRef(0)
   const draftLoadBaselineRef = useRef<string | null>(null)
   const draftLoadingProjectIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    lastLoadedIfcStorageUrlRef.current = null
+    ifcLoadInFlightStorageUrlRef.current = null
+  }, [projectId])
   const flushPendingDraftSave = useCallback(() => {
     if (localSaveTimerRef.current !== null) {
       clearTimeout(localSaveTimerRef.current)
@@ -854,8 +863,8 @@ export function useEditorPage() {
     connections,
     onRemoteSnapshot: applyRemoteBubbleSnapshot,
     onPhaseStatusChanged: setWorkspacePhaseStatus,
-    onIfcStorageUrlReceived: (ifcStorageUrl, action) => {
-      handleIfcSyncMessageRef.current(ifcStorageUrl, action)
+    onIfcStorageUrlReceived: (ifcStorageUrl, action, assetId) => {
+      handleIfcSyncMessageRef.current(ifcStorageUrl, action, assetId)
     },
   })
 
@@ -2083,34 +2092,67 @@ export function useEditorPage() {
     importFloorProjectFromWebIfc,
   })
 
-  const handleOutputIfcStorageUrl = useCallback(async (ifcStorageUrl: string, action: string | null) => {
+  const handleOutputIfcStorageUrl = useCallback(async (ifcStorageUrl: string, action: string | null, assetId?: string | null) => {
+    if (!projectId) return
+    // assetId가 있으면 이를 dedup 키로 사용 (presigned URL은 매번 달라질 수 있어 불안정)
+    // 프로젝트 ID를 포함해 프로젝트 간 dedup 충돌을 방지한다.
+    const normalizedSourceKey = assetId?.trim() || ifcStorageUrl.trim()
+    const dedupeKey = normalizedSourceKey ? `${projectId}:${normalizedSourceKey}` : ''
+    if (!dedupeKey) return
+
+    if (ifcLoadInFlightStorageUrlRef.current === dedupeKey) {
+      return
+    }
+    if (lastLoadedIfcStorageUrlRef.current === dedupeKey) {
+      return
+    }
+
+    ifcLoadInFlightStorageUrlRef.current = dedupeKey
+
     try {
-      await loadIfcFromStorageUrl(ifcStorageUrl, { webIfcWasmPath: '/wasm/' })
+      // private S3 버킷: assetId 또는 s3:// URL → download-url API로 presigned URL 발급
+      const presignedUrl = await resolveIfcPresignedUrl(ifcStorageUrl, assetId ?? undefined)
+      await loadIfcFromStorageUrl(presignedUrl, { webIfcWasmPath: '/wasm/' })
+      lastLoadedIfcStorageUrlRef.current = dedupeKey
+      // 2D 파싱 완료 후 3D 캔버스로 presigned URL과 assetId 전달
+      setIfcSourceByProjectId((prev) => ({
+        ...prev,
+        [projectId]: {
+          url: presignedUrl,
+          assetId: assetId ?? null,
+        },
+      }))
       // IFC가 정상 로드되면 완료 action 문자열과 무관하게 편집 상태로 복귀해 무한 로딩을 방지한다.
       setWorkspacePhaseStatus('IFC_EDIT')
       if (action && IFC_COMPLETED_ACTION_SET.has(action)) {
         setFloorPlanGenerateStatusText('평면도 생성이 완료되었습니다.')
       }
     } catch (error: unknown) {
-      console.error('[editor] IFC WebSocket 로드 실패:', error)
+      console.error('[editor] IFC 로드 실패:', error)
       setWorkspacePhaseStatus('BUBBLE_DRAFT')
       setFloorPlanGenerateStatusText('IFC 결과 로드에 실패했습니다. 다시 시도하세요.')
+    } finally {
+      if (ifcLoadInFlightStorageUrlRef.current === dedupeKey) {
+        ifcLoadInFlightStorageUrlRef.current = null
+      }
     }
-  }, [loadIfcFromStorageUrl, setFloorPlanGenerateStatusText])
+  }, [loadIfcFromStorageUrl, projectId, setFloorPlanGenerateStatusText])
 
   useEffect(() => {
-    handleIfcSyncMessageRef.current = (url: string, action: string | null) => {
-      void handleOutputIfcStorageUrl(url, action)
+    handleIfcSyncMessageRef.current = (url: string, action: string | null, assetId?: string | null) => {
+      void handleOutputIfcStorageUrl(url, action, assetId)
     }
   }, [handleOutputIfcStorageUrl])
 
-  // 에디터 첫 진입 시 프로젝트 IFC를 1회 로드한다.
+  // 에디터 첫 진입 시 프로젝트 IFC 소스를 1회 조회해 handleOutputIfcStorageUrl로 로드한다.
   useInitialIfcImport({
     projectId,
     hasIfcUploaded: hasIfcUploadedInCurrentProject,
     stageWidth: stageSize.width,
     stageHeight: stageSize.height,
-    importFloorProjectFromIfc,
+    onResolvedIfcUrl: (url, assetId) => {
+      handleIfcSyncMessageRef.current(url, null, assetId)
+    },
     attemptedInitialIfcImportProjectIdRef,
   })
 
@@ -2174,107 +2216,22 @@ export function useEditorPage() {
     syncFloorDerivedStateFromRooms,
   })
 
-  const handleMaterialChangeForPanel = useCallback((id: string, material: string) => {
-    if (mode === '3d' && selectedIfcElement?.id === id) {
-      setSelectedIfcElement((prev) => {
-        if (!prev || prev.id !== id) return prev
-        const next = {
-          ...prev,
-          material,
-          color: THREE_D_MATERIAL_COLOR[material] ?? prev.color,
-          properties: {
-            ...prev.properties,
-            Material: material,
-            Color: THREE_D_MATERIAL_COLOR[material] ?? prev.color ?? '-',
-          },
-        }
-        recordIfcElementChange(next, {
-          material,
-          color: THREE_D_MATERIAL_COLOR[material] ?? prev.color,
-        })
-        return next
-      })
-      return
-    }
-    baseHandleMaterialChangeForPanel(id, material)
-  }, [baseHandleMaterialChangeForPanel, mode, recordIfcElementChange, selectedIfcElement?.id])
-
-  const handleColorChangeForPanel = useCallback((id: string, color: string) => {
-    if (mode === '3d' && selectedIfcElement?.id === id) {
-      setSelectedIfcElement((prev) => {
-        if (!prev || prev.id !== id) return prev
-        const next = {
-          ...prev,
-          color,
-          properties: {
-            ...prev.properties,
-            Color: color,
-          },
-        }
-        recordIfcElementChange(next, { color, material: prev.material })
-        return next
-      })
-      return
-    }
-    baseHandleColorChangeForPanel(id, color)
-  }, [baseHandleColorChangeForPanel, mode, recordIfcElementChange, selectedIfcElement?.id])
-
-  const handleWidthChangeForPanel = useCallback((id: string, widthMm: number) => {
-    if (mode === '3d' && selectedIfcElement?.id === id) {
-      setSelectedIfcElement((prev) => {
-        if (!prev || prev.id !== id) return prev
-        const next = {
-          ...prev,
-          lengthMm: widthMm,
-          properties: {
-            ...prev.properties,
-            Length: widthMm,
-          },
-        }
-        recordIfcElementChange(next, { lengthMm: widthMm })
-        return next
-      })
-      return
-    }
-    baseHandleWidthChangeForPanel(id, widthMm)
-  }, [baseHandleWidthChangeForPanel, mode, recordIfcElementChange, selectedIfcElement?.id])
-
-  const handleHeightChangeForPanel = useCallback((id: string, heightMm: number) => {
-    if (mode === '3d' && selectedIfcElement?.id === id) {
-      setSelectedIfcElement((prev) => {
-        if (!prev || prev.id !== id) return prev
-        const next = {
-          ...prev,
-          heightMm,
-          properties: {
-            ...prev.properties,
-            Height: heightMm,
-          },
-        }
-        recordIfcElementChange(next, { heightMm })
-        return next
-      })
-      return
-    }
-    baseHandleHeightChangeForPanel(id, heightMm)
-  }, [baseHandleHeightChangeForPanel, mode, recordIfcElementChange, selectedIfcElement?.id])
-
-  const handleThicknessChangeForPanel = useCallback((id: string, thicknessMm: number) => {
-    if (mode !== '3d' || selectedIfcElement?.id !== id) return
-    setSelectedIfcElement((prev) => {
-      if (!prev || prev.id !== id) return prev
-      const next = {
-        ...prev,
-        thicknessMm,
-        properties: {
-          ...prev.properties,
-          Thickness: thicknessMm,
-        },
-      }
-      recordIfcElementChange(next, { thicknessMm })
-      return next
-    })
-  }, [mode, recordIfcElementChange, selectedIfcElement?.id])
+  const {
+    handleMaterialChangeForPanel,
+    handleColorChangeForPanel,
+    handleWidthChangeForPanel,
+    handleHeightChangeForPanel,
+    handleThicknessChangeForPanel,
+  } = useThreeDIfcAttributeHandlers({
+    mode,
+    selectedIfcElement,
+    setSelectedIfcElement,
+    recordIfcElementChange,
+    baseHandleMaterialChangeForPanel,
+    baseHandleColorChangeForPanel,
+    baseHandleWidthChangeForPanel,
+    baseHandleHeightChangeForPanel,
+  })
 
   const handleWidthCommitForPanel = useCallback(
     (id: string, widthMm: number) => baseHandleWidthCommitForPanel(id, widthMm),
@@ -2349,6 +2306,8 @@ export function useEditorPage() {
     handleColorChange: handleColorChangeForPanel,
     handleMaterialChange: handleMaterialChangeForPanel,
     ifcElementChanges,
+    currentIfcUrl,
+    currentIfcAssetId,
     handleDeleteBubble,
     // 연결선
     connections,

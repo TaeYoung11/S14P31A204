@@ -60,6 +60,8 @@ type FloorPlanCanvasProps = Pick<
   | 'handleDeleteIfcElement'
   | 'selectedIfcElement'
   | 'ifcElementChanges'
+  | 'currentIfcUrl'
+  | 'currentIfcAssetId'
 >
 
 /** 2D 벽/개구부 편집 상호작용 */

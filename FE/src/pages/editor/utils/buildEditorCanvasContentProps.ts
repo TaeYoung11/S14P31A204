@@ -1,5 +1,6 @@
 import type { EditorPageViewModel } from '../types/editorPageViewModel'
 import type { EditorCanvasContentProps } from '../types/editorCanvasContentProps'
+import { createSafeFloorRoomPolygonHandler } from './floorRoomPolygonGuard'
 
 type CanvasPropsSubset<K extends keyof EditorCanvasContentProps> = Pick<EditorCanvasContentProps, K>
 
@@ -65,8 +66,8 @@ function buildBubbleCanvasProps(
   | 'isBubbleReadOnly'
 > {
   return {
-    // 버블/2D/3D 대지 일관성을 위해 sitePlanPoints를 우선 사용한다.
-    sitePoints: vm.sitePlanPoints.length > 0 ? vm.sitePlanPoints : vm.sitePoints,
+    // 버블/2D/3D 대지 일관성을 위해 단일 소스(sitePlanPoints)만 사용한다.
+    sitePoints: vm.sitePlanPoints,
     bubbles: vm.bubbles,
     connections: vm.connections,
     autoZones: vm.autoZones,
@@ -107,6 +108,8 @@ function buildFloorPlanProps(
   | 'handleDeleteIfcElement'
   | 'selectedIfcElement'
   | 'ifcElementChanges'
+  | 'currentIfcUrl'
+  | 'currentIfcAssetId'
 > {
   return {
     sitePlanPoints: vm.sitePlanPoints,
@@ -122,6 +125,8 @@ function buildFloorPlanProps(
     handleDeleteIfcElement: vm.handleDeleteIfcElement,
     selectedIfcElement: vm.selectedIfcElement,
     ifcElementChanges: vm.ifcElementChanges,
+    currentIfcUrl: vm.currentIfcUrl,
+    currentIfcAssetId: vm.currentIfcAssetId,
   }
 }
 
@@ -150,6 +155,10 @@ function buildTwoDStructureProps(
   | 'handleUpdateFloorRoomPolygon'
   | 'handleTwoDMarqueeSelect'
 > {
+  const safeHandleUpdateFloorRoomPolygon = createSafeFloorRoomPolygonHandler(
+    vm.handleUpdateFloorRoomPolygon,
+  )
+
   return {
     floorWallsForHierarchy: vm.floorWallsForHierarchy,
     floorOpenings: vm.floorOpenings,
@@ -169,7 +178,7 @@ function buildTwoDStructureProps(
     handleDeleteFloorOpening: vm.handleDeleteFloorOpening,
     handleMoveFloorRoom: vm.handleMoveFloorRoom,
     handleResizeFloorRoom: vm.handleResizeFloorRoom,
-    handleUpdateFloorRoomPolygon: vm.handleUpdateFloorRoomPolygon,
+    handleUpdateFloorRoomPolygon: safeHandleUpdateFloorRoomPolygon,
     handleTwoDMarqueeSelect: vm.handleTwoDMarqueeSelect,
   }
 }
