@@ -60,6 +60,7 @@ EYE_GROUND_PLANE_SHELL_RATIO = 0.22
 EYE_GROUND_PLANE_CONTROL_RGB = (116, 124, 108)
 EYE_GROUND_PLANE_CONTROL_GRADIENT = 16.0
 EYE_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH = 0.18
+EYE_BUILDING_MASK_GROUND_SHELL_RATIO = 0.08
 EYE_GROUND_CLASS_RGB = "grass"
 EYE_SEMANTIC_CONTROL_SCALE = 0.25
 EYE_STRONG_SEMANTIC_CONTROL_SCALE = 0.35
@@ -521,6 +522,36 @@ def _build_eye_ground_plane_aware_mask(
             continue
         out[top_y : bottom_y + 1, x][column] = 255
 
+    return Image.fromarray(out, mode="L")
+
+
+def _build_eye_building_mask(
+    control: Image.Image,
+    ground_shell_ratio: float = EYE_BUILDING_MASK_GROUND_SHELL_RATIO,
+) -> Image.Image:
+    """Extract the EYE building body mask from depth while excluding ground plane.
+
+    This preview helper is intended for two-pass background generation:
+    protect roof/walls, but do not protect the lower slab-like ground shell.
+    """
+    arr = np.asarray(control.convert("RGB"), dtype=np.uint8)
+    geom_mask = ~np.all(arr == 0, axis=2)
+    out = np.zeros(geom_mask.shape, dtype=np.uint8)
+    if not np.any(geom_mask):
+        return Image.fromarray(out, mode="L")
+
+    ground_mask = (
+        np.asarray(
+            _build_eye_ground_plane_aware_mask(
+                control,
+                shell_ratio=ground_shell_ratio,
+            ),
+            dtype=np.uint8,
+        )
+        > 0
+    )
+    building_mask = geom_mask & ~ground_mask
+    out[building_mask] = 255
     return Image.fromarray(out, mode="L")
 
 
