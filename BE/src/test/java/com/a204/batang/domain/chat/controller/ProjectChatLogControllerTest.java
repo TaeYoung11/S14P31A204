@@ -95,6 +95,8 @@ class ProjectChatLogControllerTest {
                 .andExpect(jsonPath("$.data.page").value(0))
                 .andExpect(jsonPath("$.data.size").value(50))
                 .andExpect(jsonPath("$.data.totalElements").value(2))
+                .andExpect(jsonPath("$.data.totalPages").value(1))
+                .andExpect(jsonPath("$.data.hasNext").value(false))
                 .andExpect(jsonPath("$.data.messages[0].type").value("USER"))
                 .andExpect(jsonPath("$.data.messages[0].senderName").value("홍길동"))
                 .andExpect(jsonPath("$.data.messages[1].subType").value("RESULT"))
