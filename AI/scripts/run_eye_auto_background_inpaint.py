@@ -75,6 +75,13 @@ DEFAULT_STEPS = 24
 DEFAULT_GUIDANCE_SCALE = 6.0
 DEFAULT_SEED = 52
 DEFAULT_BOTTOM_STRIP_RATIO = 0.10
+EYE_STRIP_CLEANUP_BACKGROUND_MODE = "free"
+EYE_STRIP_CLEANUP_BOTTOM_STRIP_RATIO = 0.10
+EYE_STRIP_CLEANUP_BOTTOM_STRIP_COLOR = "neutral_paved"
+EYE_STRIP_CLEANUP_BOTTOM_STRIP_PREFILL_MODE = "feather"
+EYE_STRIP_CLEANUP_SECOND_PASS_BOTTOM_STRIP_RATIO = 0.28
+EYE_STRIP_CLEANUP_SECOND_PASS_STRENGTH = 1.0
+EYE_STRIP_CLEANUP_SECOND_PASS_FEATHER_RATIO = 0.45
 DEFAULT_BOTTOM_STRIP_PREFILL_MODE = "solid"
 BOTTOM_STRIP_PREFILL_MODES = ("solid", "feather")
 DEFAULT_SECOND_PASS_BOTTOM_STRIP_RATIO = 0.16
@@ -137,6 +144,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--guidance-scale", default=DEFAULT_GUIDANCE_SCALE, type=float)
     parser.add_argument("--seed", default=DEFAULT_SEED, type=int)
     parser.add_argument(
+        "--eye-strip-cleanup",
+        action="store_true",
+        help=(
+            "Use the successful EYE lower-strip cleanup preset "
+            "(free background, feather prefill, strong bottom second pass)."
+        ),
+    )
+    parser.add_argument(
         "--prefill-bottom-strip",
         action="store_true",
         help="Prefill the source image bottom strip before inpaint.",
@@ -182,7 +197,26 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         help="Fraction of the second-pass strip height used as top feather.",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    return _apply_eye_strip_cleanup_preset(args)
+
+
+def _apply_eye_strip_cleanup_preset(args: argparse.Namespace) -> argparse.Namespace:
+    if not args.eye_strip_cleanup:
+        return args
+
+    args.background_mode = EYE_STRIP_CLEANUP_BACKGROUND_MODE
+    args.prefill_bottom_strip = True
+    args.bottom_strip_ratio = EYE_STRIP_CLEANUP_BOTTOM_STRIP_RATIO
+    args.bottom_strip_color = EYE_STRIP_CLEANUP_BOTTOM_STRIP_COLOR
+    args.bottom_strip_prefill_mode = EYE_STRIP_CLEANUP_BOTTOM_STRIP_PREFILL_MODE
+    args.second_pass_bottom_strip = True
+    args.second_pass_bottom_strip_ratio = (
+        EYE_STRIP_CLEANUP_SECOND_PASS_BOTTOM_STRIP_RATIO
+    )
+    args.second_pass_strength = EYE_STRIP_CLEANUP_SECOND_PASS_STRENGTH
+    args.second_pass_feather_ratio = EYE_STRIP_CLEANUP_SECOND_PASS_FEATHER_RATIO
+    return args
 
 
 def _resolve_background_prompt_pair(
