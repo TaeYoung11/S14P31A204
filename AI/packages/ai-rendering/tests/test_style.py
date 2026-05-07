@@ -927,6 +927,19 @@ def test_build_eye_ground_plane_aware_mask_reclassifies_lower_geometry() -> None
     assert aware[8, 16] == 0
 
 
+def test_build_eye_ground_plane_aware_mask_shell_uses_object_height() -> None:
+    """Shell thickness should follow the object bbox, not the full frame height."""
+    depth = Image.new("RGB", (100, 100), (0, 0, 0))
+    arr = np.array(depth)
+    arr[10:50, 45:55] = [180, 180, 180]
+    depth = Image.fromarray(arr, mode="RGB")
+
+    aware = np.array(_build_eye_ground_plane_aware_mask(depth, shell_ratio=0.10))
+
+    assert aware[46, 50] == 255
+    assert aware[44, 50] == 0
+
+
 def test_build_eye_building_mask_excludes_lower_ground_plane_shell() -> None:
     """EYE building mask should protect upper body and exclude lower slab geometry."""
     depth = Image.new("RGB", (32, 32), (0, 0, 0))

@@ -500,7 +500,7 @@ def _build_eye_ground_plane_aware_mask(
     bbox_top = int(ys.min())
     bbox_bottom = int(ys.max())
     bbox_height = max(1, bbox_bottom - bbox_top + 1)
-    shell_px = max(1, int(round(height * float(np.clip(shell_ratio, 0.0, 1.0)))))
+    shell_px = max(1, int(round(bbox_height * float(np.clip(shell_ratio, 0.0, 1.0)))))
     lower_guard_y = int(np.clip(bbox_top + bbox_height * 0.62, 0, height - 1))
 
     bottom_by_x = np.full(width, -1, dtype=np.int32)
