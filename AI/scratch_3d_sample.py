@@ -19,6 +19,7 @@ BATANG Sample IFC Generator  (v6 - ㄴ자 2F 레이아웃)
   1F : South/North 전체폭 + West/East 코너 포함 전체 높이
   2F : 각 방의 외벽 + 단일 칸막이벽(Partition, x=2800~3000)
   칸막이는 Bathroom 동쪽 = Bedroom 서쪽 → 요소 하나로 통합
+  공통벽은 팀 기준에 따라 두 벽으로 분리하지 않고 2F_Partition_Wall 하나로 표현
 
 테스트 코드 호환:
   04 "화장실 북쪽 벽" → 2F_Bathroom_North_Wall
@@ -29,8 +30,9 @@ import ifcopenshell.guid
 import time
 import os
 
-UP = os.environ.get("USERPROFILE") or os.environ.get("HOME", "")
-OUT_PATH = os.path.normpath(os.path.join(UP, "Downloads", "batang_sample.ifc"))
+OUT_PATH = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", "sample_batang.ifc")
+)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -312,6 +314,28 @@ def layer_usage(m, name, thick):
     )
 
 
+def set_color(m, element, rgb):
+    color = m.create_entity(
+        "IfcColourRgb",
+        Red=float(rgb[0]),
+        Green=float(rgb[1]),
+        Blue=float(rgb[2]),
+    )
+    rendering = m.create_entity("IfcSurfaceStyleRendering", SurfaceColour=color)
+    style = m.create_entity(
+        "IfcSurfaceStyle",
+        Name=f"{element.Name}_Color",
+        Side="BOTH",
+        Styles=[rendering]
+    )
+    assignment = m.create_entity("IfcPresentationStyleAssignment", Styles=[style])
+    if element.Representation:
+        for rep in element.Representation.Representations:
+            if rep.RepresentationIdentifier == "Body":
+                for item in rep.Items:
+                    m.create_entity("IfcStyledItem", Item=item, Styles=[assignment])
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # 메인
 # ══════════════════════════════════════════════════════════════════════════════
@@ -437,6 +461,9 @@ def generate():
         pset(m, oh, "Pset_WallCommon",
              {"IsExternal": True, "LoadBearing": True, "ThermalTransmittance": 1.5}, w)
     pset(m, oh, "Pset_SlabCommon", {"IsExternal": False, "LoadBearing": True}, sl1)
+    for w in [w1s, w1n, w1w, w1e]:
+        set_color(m, w, (0.85, 0.80, 0.75))
+    set_color(m, sl1, (0.65, 0.65, 0.62))
 
     # ══════════════════════════════════════════════════════════════════════════
     # 2F — ㄴ자 레이아웃
@@ -463,7 +490,7 @@ def generate():
 
     agg(m, oh, s2f, sp_bath, sp_bed)
     contain(m, oh, sp_bath, w_bath_s, w_bath_n, w_bath_w, w_part)
-    contain(m, oh, sp_bed, w_bed_s, w_bed_n, w_bed_e, w_part)
+    contain(m, oh, sp_bed, w_bed_s, w_bed_n, w_bed_e)
     contain(m, oh, s2f, sl2)
 
     ext_2f = [w_bath_s, w_bath_n, w_bath_w, w_bed_s, w_bed_n, w_bed_e]
@@ -476,6 +503,10 @@ def generate():
     pset(m, oh, "Pset_WallCommon",
          {"IsExternal": False, "LoadBearing": False, "ThermalTransmittance": 2.0}, w_part)
     pset(m, oh, "Pset_SlabCommon", {"IsExternal": False, "LoadBearing": True}, sl2)
+    for w in ext_2f:
+        set_color(m, w, (0.85, 0.80, 0.75))
+    set_color(m, w_part, (0.90, 0.90, 0.88))
+    set_color(m, sl2, (0.65, 0.65, 0.62))
 
     # ══════════════════════════════════════════════════════════════════════════
     # RF — 지붕
@@ -484,23 +515,24 @@ def generate():
     contain(m, oh, srf, rf)
     mat(m, oh, m_roof, rf)
     pset(m, oh, "Pset_RoofCommon", {"IsExternal": True, "ThermalTransmittance": 0.25}, rf)
+    set_color(m, rf, (0.35, 0.25, 0.15))
 
     m.write(OUT_PATH)
     print("[OK] IFC generated:", OUT_PATH)
 
     # 검증
     v = ifcopenshell.open(OUT_PATH)
-    print(f"\n  벽: {len(v.by_type('IfcWallStandardCase'))}  "
-          f"슬래브: {len(v.by_type('IfcSlab'))}  "
-          f"지붕: {len(v.by_type('IfcRoof'))}  "
-          f"공간: {len(v.by_type('IfcSpace'))}")
+    print(f"\n  walls: {len(v.by_type('IfcWallStandardCase'))}  "
+          f"slabs: {len(v.by_type('IfcSlab'))}  "
+          f"roofs: {len(v.by_type('IfcRoof'))}  "
+          f"spaces: {len(v.by_type('IfcSpace'))}")
 
     print("\n  [Plans: Storey ObjectPlacement]")
     for s in v.by_type("IfcBuildingStorey"):
         z = s.ObjectPlacement.RelativePlacement.Location.Coordinates[2]
-        print(f"  ✅ {s.Name}  z={z:.0f}mm")
+        print(f"  [OK] {s.Name}  z={z:.0f}mm")
 
-    print("\n  [벽 점유 영역]")
+    print("\n  [Wall extents]")
     for w in v.by_type("IfcWallStandardCase"):
         loc = w.ObjectPlacement.RelativePlacement.Location.Coordinates
         for rep in w.Representation.Representations:

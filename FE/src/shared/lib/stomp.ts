@@ -5,6 +5,7 @@ import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
 export let stompClient: Client | null = null
 
 const DEFAULT_API_BASE_URL = '/api/v1'
+const STOMP_ENDPOINT_PATH = '/ws-ifc'
 
 interface StoredAuthState {
   state?: {
@@ -29,15 +30,16 @@ const resolveAccessToken = (): string | null => {
   return useAuthStore.getState().token ?? readPersistedAccessToken()
 }
 
-const resolveStompBrokerUrlFromApi = (path = '/ws-ifc'): string => {
-  if (typeof window === 'undefined') return 'ws://localhost:8080/ws-ifc'
+const resolveStompBrokerUrlFromApi = (path = STOMP_ENDPOINT_PATH): string => {
+  if (typeof window === 'undefined') return `ws://localhost:8080${path}`
 
   const apiBaseUrl = getRuntimeEnvString('VITE_API_URL', DEFAULT_API_BASE_URL)
 
   try {
     const apiUrl = new URL(apiBaseUrl, window.location.origin)
     const wsProtocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${wsProtocol}//${apiUrl.host}${path}`
+    const basePath = apiUrl.pathname.replace(/\/api(?:\/v\d+)?\/?$/, '')
+    return `${wsProtocol}//${apiUrl.host}${basePath}${path}`
   } catch {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     return `${wsProtocol}//${window.location.host}${path}`
@@ -51,7 +53,7 @@ export const hasStompAccessToken = (): boolean => {
 /** 앱 전역에서 공유하는 STOMP 클라이언트를 생성한다. */
 export const createStompClient = (): Client => {
   const client = new Client({
-    brokerURL: resolveStompBrokerUrlFromApi('/ws-ifc'),
+    brokerURL: resolveStompBrokerUrlFromApi(),
     reconnectDelay: 3000,
     beforeConnect: async () => {
       const accessToken = resolveAccessToken()
@@ -72,8 +74,6 @@ export const createStompClient = (): Client => {
     onStompError: (frame) => {
       console.error('[STOMP] Error:', frame)
     },
-    // SockJS fallback (필요 시 주석 해제):
-    // webSocketFactory: () => new SockJS('http://localhost:8000/stomp'),
   })
 
   stompClient = client
@@ -86,4 +86,30 @@ export const getStompClient = (): Client => {
     return createStompClient()
   }
   return stompClient
+}
+
+export const ensureStompConnected = async (): Promise<Client> => {
+  const client = getStompClient()
+  if (client.connected) return client
+
+  if (!client.active) {
+    client.activate()
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    let intervalId = 0
+    const timeoutId = window.setTimeout(() => {
+      window.clearInterval(intervalId)
+      reject(new Error('STOMP client connection timed out.'))
+    }, 5000)
+
+    intervalId = window.setInterval(() => {
+      if (!client.connected) return
+      window.clearTimeout(timeoutId)
+      window.clearInterval(intervalId)
+      resolve()
+    }, 50)
+  })
+
+  return client
 }

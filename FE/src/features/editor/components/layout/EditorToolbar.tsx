@@ -1,10 +1,14 @@
-import { FolderKanban, Undo2, Redo2 } from 'lucide-react'
+import { FolderKanban, Redo2, Undo2 } from 'lucide-react'
 import type { EditorMode } from '../../types'
 
 interface EditorToolbarProps {
   mode: EditorMode
   projectName?: string
   onModeChange: (mode: EditorMode) => void
+  onUndo?: () => void
+  onRedo?: () => void
+  canUndo?: boolean
+  canRedo?: boolean
 }
 
 type ToolbarMode = Exclude<EditorMode, 'view'>
@@ -21,7 +25,15 @@ const TOOLBAR_MODES: ToolbarMode[] = ['bubble', '2d', '3d']
  * 에디터 툴바
  * - 프로젝트 이름/모드 탭/실행취소 UI를 담당한다.
  */
-export default function EditorToolbar({ mode, projectName, onModeChange }: EditorToolbarProps) {
+export default function EditorToolbar({
+  mode,
+  projectName,
+  onModeChange,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
+}: EditorToolbarProps) {
   const isView = mode === 'view'
   const displayProjectName = projectName?.trim() || '프로젝트'
   const getModeTabClass = (tabMode: ToolbarMode) => `rounded-full px-4 py-1.5 text-[11px] font-bold transition-all ${
@@ -69,14 +81,18 @@ export default function EditorToolbar({ mode, projectName, onModeChange }: Edito
               <button
                 type="button"
                 aria-label="실행취소"
-                className="rounded-lg p-1.5 transition-all hover:bg-white hover:text-[#1C1C1E]"
+                onClick={onUndo}
+                disabled={!canUndo}
+                className="rounded-lg p-1.5 transition-all hover:bg-white hover:text-[#1C1C1E] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[#8E95A3]"
               >
                 <Undo2 size={18} />
               </button>
               <button
                 type="button"
                 aria-label="다시실행"
-                className="rounded-lg p-1.5 transition-all hover:bg-white hover:text-[#1C1C1E]"
+                onClick={onRedo}
+                disabled={!canRedo}
+                className="rounded-lg p-1.5 transition-all hover:bg-white hover:text-[#1C1C1E] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[#8E95A3]"
               >
                 <Redo2 size={18} />
               </button>

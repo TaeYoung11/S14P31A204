@@ -29,7 +29,15 @@ export default function EditorPage() {
       <EditorModalLayer {...modalLayerProps} />
 
       <EditorHeader {...headerProps} />
-      <EditorToolbar mode={vm.mode} projectName={vm.currentProjectName} onModeChange={vm.setMode} />
+      <EditorToolbar
+        mode={vm.mode}
+        projectName={vm.currentProjectName}
+        onModeChange={vm.setMode}
+        onUndo={vm.handleUndo}
+        onRedo={vm.handleRedo}
+        canUndo={vm.canUndo}
+        canRedo={vm.canRedo}
+      />
 
       <div className={`relative z-10 flex min-w-0 flex-1 overflow-hidden ${vm.mode === 'view' ? '' : 'gap-5 px-5 pb-5 pt-3'}`}>
         {vm.mode !== 'view' && (

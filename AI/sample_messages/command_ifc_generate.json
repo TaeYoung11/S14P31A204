@@ -16,7 +16,8 @@
   "targetRevisionId": "rev-layout-target-001",
   "expectedOutputArtifactId": "artifact-ifc-generate-001",
   "expectedOutput": {
-    "ifcStorageUrl": "s3://batang-artifacts/projects/project-layout-001/revisions/rev-layout-target-001/model.ifc"
+    "ifcStorageUrl": "s3://batang/projects/project-layout-001/revisions/rev-layout-target-001/ifc/model.v1.ifc",
+    "validationReportStorageUrl": "s3://batang/projects/project-layout-001/jobs/job-ifc-generate-001/steps/001/engine/validation-report.v1.json"
   },
   "payload": {
     "layoutImport": {
