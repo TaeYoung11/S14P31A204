@@ -4,7 +4,6 @@ import type { IfcElementChange, IfcElementInfo } from '../../types'
 import {
   patchIfcTextForMaterialDefaults,
 } from '../../services/ifcChange.service'
-import { projectService } from '@/features/project/services/project.service'
 import type { ThreeDLibraryPreset } from './ThreeDLibraryPanel'
 import {
   DEFAULT_IFC_COLOR_BY_CATEGORY,
@@ -148,27 +147,6 @@ const fetchIfcText = async (ifcUrl: string) => {
     throw new Error(`IFC file load failed. (${response.status})`)
   }
   return response.text()
-}
-
-const resolveIfcText = async (projectId: string | null | undefined, fallbackIfcUrl: string) => {
-  if (projectId) {
-    const projectIfcSource = await projectService.getIfcSource(projectId).catch(() => null)
-    const projectIfcUrl = projectIfcSource?.currentIfcUrl
-    if (projectIfcUrl) {
-      const projectIfcText = await fetchIfcText(projectIfcUrl).catch(() => null)
-      if (projectIfcText?.trim()) {
-        return {
-          ifcText: projectIfcText,
-          modelId: getRuntimeIfcModelId(projectId),
-        }
-      }
-    }
-  }
-
-  return {
-    ifcText: await fetchIfcText(fallbackIfcUrl),
-    modelId: FALLBACK_IFC_MODEL_ID,
-  }
 }
 
 const setCameraClipping = (
@@ -514,6 +492,7 @@ export default function ThatOpenIfcCanvas({
     let handleKeyDown: ((event: KeyboardEvent) => void) | null = null
 
     const loadIfc = async () => {
+      if (!ifcUrl) return
       try {
         setStatus('loading')
         setErrorMessage('')
@@ -565,7 +544,8 @@ export default function ThatOpenIfcCanvas({
           },
         })
 
-        const { ifcText, modelId } = await resolveIfcText(projectId, ifcUrl)
+        const ifcText = await fetchIfcText(ifcUrl)
+        const modelId = getRuntimeIfcModelId(projectId)
         const patchedIfcText = patchIfcTextForMaterialDefaults(ifcText)
         const data = new TextEncoder().encode(patchedIfcText)
         ifcPsetMetricsRef.current = parseBatangDimensionProperties(patchedIfcText)
@@ -881,7 +861,8 @@ export default function ThatOpenIfcCanvas({
         window.addEventListener('keydown', handleKeyDown, true)
 
         await fragments.core.update(true)
-        fitObjectWithPadding(THREE, world.camera.three, world.camera.controls, fragmentModel.object, 1.55 / Math.max(zoomScale, 0.1))
+        // 최초 로드 시에는 고정 패딩으로 맞추고, 이후 줌 반영은 zoomScale effect에서 처리한다.
+        fitObjectWithPadding(THREE, world.camera.three, world.camera.controls, fragmentModel.object, 1.55)
         setStatus('ready')
       } catch (error) {
         if (disposed) return
@@ -984,7 +965,7 @@ export default function ThatOpenIfcCanvas({
     }
 
     void applyIfcItemColor(sceneState.three, sceneState.fragments, target, selectedIfcElement?.color).catch(() => undefined)
-  }, [selectedIfcElement?.color])
+  }, [selectedIfcElement])
 
   useEffect(() => {
     const sceneState = sceneRef.current
@@ -1031,7 +1012,7 @@ export default function ThatOpenIfcCanvas({
         }
       }
     }
-  }, [selectedIfcElement?.material])
+  }, [selectedIfcElement])
 
   useEffect(() => {
     const sceneState = sceneRef.current
@@ -1193,4 +1174,3 @@ export default function ThatOpenIfcCanvas({
     </div>
   )
 }
-

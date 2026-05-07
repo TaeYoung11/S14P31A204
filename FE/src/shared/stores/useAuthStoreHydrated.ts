@@ -1,16 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 import { useAuthStore } from '@/shared/stores/authStore'
 
 export function useAuthStoreHydrated() {
-  const [hasHydrated, setHasHydrated] = useState(() => useAuthStore.persist.hasHydrated())
-
-  useEffect(() => {
-    const unsubscribe = useAuthStore.persist.onFinishHydration(() => {
-      setHasHydrated(true)
-    })
-
-    return unsubscribe
-  }, [])
-
-  return hasHydrated
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      const unsubscribeHydrate = useAuthStore.persist.onHydrate(onStoreChange)
+      const unsubscribeFinish = useAuthStore.persist.onFinishHydration(onStoreChange)
+      return () => {
+        unsubscribeHydrate()
+        unsubscribeFinish()
+      }
+    },
+    () => useAuthStore.persist.hasHydrated(),
+    () => true,
+  )
 }

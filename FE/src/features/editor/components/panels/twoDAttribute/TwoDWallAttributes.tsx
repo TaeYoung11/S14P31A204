@@ -11,18 +11,30 @@ import { MaterialSelector } from '../../shared/MaterialSelector'
 
 interface TwoDWallAttributesProps {
   selectedWall: FloorWall
+  wallThicknessDraft: string
+  wallHeightDraft: string
+  onWallThicknessDraftChange: (value: string) => void
+  onWallHeightDraftChange: (value: string) => void
+  onWallThicknessFocus: () => void
+  onWallHeightFocus: () => void
+  onWallThicknessBlur: () => void
+  onWallHeightBlur: () => void
   onWallTypeChange?: (id: string, type: FloorWall['type']) => void
-  onWallThicknessChange?: (id: string, thicknessMm: number) => void
-  onWallHeightChange?: (id: string, heightMm: number) => void
   onWallMaterialChange?: (id: string, material: string) => void
 }
 
 /** 2D 벽 선택 시 표시되는 속성 섹션 */
 export function TwoDWallAttributes({
   selectedWall,
+  wallThicknessDraft,
+  wallHeightDraft,
+  onWallThicknessDraftChange,
+  onWallHeightDraftChange,
+  onWallThicknessFocus,
+  onWallHeightFocus,
+  onWallThicknessBlur,
+  onWallHeightBlur,
   onWallTypeChange,
-  onWallThicknessChange,
-  onWallHeightChange,
   onWallMaterialChange,
 }: TwoDWallAttributesProps) {
   return (
@@ -59,8 +71,10 @@ export function TwoDWallAttributes({
             min={FLOOR_WALL_THICKNESS_MIN_MM}
             max={FLOOR_WALL_THICKNESS_MAX_MM}
             step={10}
-            value={Math.round(selectedWall.thickness)}
-            onChange={(e) => onWallThicknessChange?.(selectedWall.id, Number(e.target.value))}
+            value={wallThicknessDraft}
+            onChange={(e) => onWallThicknessDraftChange(e.target.value)}
+            onFocus={onWallThicknessFocus}
+            onBlur={onWallThicknessBlur}
             className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
           />
         </div>
@@ -71,8 +85,10 @@ export function TwoDWallAttributes({
             min={FLOOR_WALL_HEIGHT_MIN_MM}
             max={FLOOR_WALL_HEIGHT_MAX_MM}
             step={100}
-            value={Math.round(selectedWall.heightMm)}
-            onChange={(e) => onWallHeightChange?.(selectedWall.id, Number(e.target.value))}
+            value={wallHeightDraft}
+            onChange={(e) => onWallHeightDraftChange(e.target.value)}
+            onFocus={onWallHeightFocus}
+            onBlur={onWallHeightBlur}
             className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
           />
         </div>

@@ -21,6 +21,8 @@ export function useAuthSessionGuard() {
   })
 
   useEffect(() => {
+    // 토큰이 유효하면 최신 사용자 정보를 스토어에 동기화한다.
+    // (페이지 새로고침 후에도 헤더/권한 UI가 즉시 일관되게 보이도록 유지)
     if (meQuery.data) {
       setUser(meQuery.data)
     }
@@ -31,6 +33,7 @@ export function useAuthSessionGuard() {
     const isUnauthorized = meQuery.isError && status === 401
 
     if (isUnauthorized) {
+      // 인증 만료 시 로컬 인증 상태를 즉시 비우고, 오래된 persist 데이터도 제거한다.
       logout()
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem('bim-storage')
@@ -39,6 +42,7 @@ export function useAuthSessionGuard() {
   }, [meQuery.error, meQuery.isError, logout])
 
   if (!hasHydrated) {
+    // persist hydration이 끝나기 전에는 인증 여부를 확정할 수 없으므로 로딩 상태를 유지한다.
     return {
       status: 'hydrating' as const,
       isLoading: true,
