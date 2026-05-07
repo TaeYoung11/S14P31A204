@@ -41,12 +41,12 @@ DEFAULT_INPUT_DIR = (
 DEFAULT_OUTPUT_DIR = (
     ROOT
     / "outputs"
-    / "ifc2img_eye_auto_background_mask_preview1"
+    / "ifc2img_eye_auto_background_mask_tight_preview1"
     / "AC20-FZK-Haus"
 )
 DEPTH_NAMES = ("depth_eye_ne.png", "depth_eye_nw.png", "depth_eye_se.png")
 DEFAULT_PRESET = "korean_house"
-DEFAULT_PROTECT_EXPAND_PX = 8
+DEFAULT_PROTECT_EXPAND_PX = 5
 DEFAULT_TARGET_FEATHER_RADIUS = 4
 DEFAULT_PROTECT_FEATHER_RADIUS = 1
 

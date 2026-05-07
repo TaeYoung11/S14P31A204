@@ -38,7 +38,7 @@ DEFAULT_INPUT_DIR = (
 DEFAULT_MASK_DIR = (
     ROOT
     / "outputs"
-    / "ifc2img_eye_auto_background_mask_preview1"
+    / "ifc2img_eye_auto_background_mask_tight_preview1"
     / "AC20-FZK-Haus"
 )
 DEFAULT_OUTPUT_DIR = (
@@ -67,12 +67,30 @@ FREE_BACKGROUND_PROMPTS: dict[str, str] = {
     ),
 }
 FREE_BACKGROUND_NEGATIVE = (
-    "pool, water, reflection, mirror floor, display base, model base, extra floor"
+    "pool, water, reflection, mirror floor, display base, model base, extra floor, "
+    "foreground grass strip, lawn strip"
 )
 DEFAULT_STRENGTH = 0.55
 DEFAULT_STEPS = 24
 DEFAULT_GUIDANCE_SCALE = 6.0
 DEFAULT_SEED = 52
+DEFAULT_BOTTOM_STRIP_RATIO = 0.10
+DEFAULT_BOTTOM_STRIP_PREFILL_MODE = "solid"
+BOTTOM_STRIP_PREFILL_MODES = ("solid", "feather")
+DEFAULT_SECOND_PASS_BOTTOM_STRIP_RATIO = 0.16
+DEFAULT_SECOND_PASS_STRENGTH = 0.75
+DEFAULT_SECOND_PASS_FEATHER_RATIO = 0.35
+BOTTOM_STRIP_COLORS: dict[str, tuple[int, int, int]] = {
+    "neutral_paved": (134, 130, 120),
+    "dry_ground": (142, 133, 112),
+}
+BOTTOM_STRIP_SECOND_PASS_PROMPT = (
+    "seamless foreground ground matching the scene, natural residential setting"
+)
+BOTTOM_STRIP_SECOND_PASS_NEGATIVE = (
+    "grass strip, green strip, gray strip, hard horizontal band, text, numbers, "
+    "watermark, pool, water, reflection"
+)
 
 
 def _display_path(path: Path) -> Path:
@@ -118,6 +136,52 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--steps", default=DEFAULT_STEPS, type=int)
     parser.add_argument("--guidance-scale", default=DEFAULT_GUIDANCE_SCALE, type=float)
     parser.add_argument("--seed", default=DEFAULT_SEED, type=int)
+    parser.add_argument(
+        "--prefill-bottom-strip",
+        action="store_true",
+        help="Prefill the source image bottom strip before inpaint.",
+    )
+    parser.add_argument(
+        "--bottom-strip-ratio",
+        default=DEFAULT_BOTTOM_STRIP_RATIO,
+        type=float,
+        help="Source image height ratio to prefill from the bottom.",
+    )
+    parser.add_argument(
+        "--bottom-strip-color",
+        choices=tuple(BOTTOM_STRIP_COLORS),
+        default="neutral_paved",
+        help="Color preset used for bottom strip prefill.",
+    )
+    parser.add_argument(
+        "--bottom-strip-prefill-mode",
+        choices=BOTTOM_STRIP_PREFILL_MODES,
+        default=DEFAULT_BOTTOM_STRIP_PREFILL_MODE,
+        help="Use solid replacement or a vertical feather toward the bottom.",
+    )
+    parser.add_argument(
+        "--second-pass-bottom-strip",
+        action="store_true",
+        help="Run a second inpaint pass only over the lower strip.",
+    )
+    parser.add_argument(
+        "--second-pass-bottom-strip-ratio",
+        default=DEFAULT_SECOND_PASS_BOTTOM_STRIP_RATIO,
+        type=float,
+        help="Image height ratio covered by the second-pass lower strip mask.",
+    )
+    parser.add_argument(
+        "--second-pass-strength",
+        default=DEFAULT_SECOND_PASS_STRENGTH,
+        type=float,
+        help="Inpaint strength for the second-pass lower strip.",
+    )
+    parser.add_argument(
+        "--second-pass-feather-ratio",
+        default=DEFAULT_SECOND_PASS_FEATHER_RATIO,
+        type=float,
+        help="Fraction of the second-pass strip height used as top feather.",
+    )
     return parser.parse_args(argv)
 
 
@@ -155,7 +219,76 @@ def _load_inpaint_pipeline(model_id: str):
     return pipe, device
 
 
-def _make_contact_sheet(rows: list[tuple[str, Image.Image, Image.Image, Image.Image]]) -> Image.Image:
+def _prefill_bottom_strip(
+    source: Image.Image,
+    ratio: float = DEFAULT_BOTTOM_STRIP_RATIO,
+    color_name: str = "neutral_paved",
+    mode: str = DEFAULT_BOTTOM_STRIP_PREFILL_MODE,
+) -> Image.Image:
+    if ratio <= 0:
+        return source.convert("RGB")
+    if ratio >= 1:
+        raise ValueError("bottom strip ratio must be less than 1.0")
+    if mode not in BOTTOM_STRIP_PREFILL_MODES:
+        raise ValueError(f"unsupported bottom strip prefill mode: {mode}")
+    color = BOTTOM_STRIP_COLORS.get(color_name)
+    if color is None:
+        raise ValueError(f"unsupported bottom strip color: {color_name}")
+
+    image = source.convert("RGB").copy()
+    height = image.height
+    strip_height = max(1, int(round(height * ratio)))
+    y_start = max(0, height - strip_height)
+    if mode == "solid":
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((0, y_start, image.width, image.height), fill=color)
+        return image
+
+    pixels = image.load()
+    denominator = max(1, strip_height - 1)
+    for y in range(y_start, height):
+        alpha = (y - y_start) / denominator
+        for x in range(image.width):
+            current = pixels[x, y]
+            pixels[x, y] = tuple(
+                int(round(current[channel] * (1.0 - alpha) + color[channel] * alpha))
+                for channel in range(3)
+            )
+    return image
+
+
+def _make_bottom_strip_mask(
+    size: tuple[int, int],
+    ratio: float = DEFAULT_SECOND_PASS_BOTTOM_STRIP_RATIO,
+    feather_ratio: float = DEFAULT_SECOND_PASS_FEATHER_RATIO,
+) -> Image.Image:
+    if ratio <= 0:
+        raise ValueError("bottom strip mask ratio must be greater than 0")
+    if ratio >= 1:
+        raise ValueError("bottom strip mask ratio must be less than 1.0")
+    if feather_ratio < 0 or feather_ratio > 1:
+        raise ValueError("bottom strip mask feather ratio must be in [0, 1]")
+
+    width, height = size
+    strip_height = max(1, int(round(height * ratio)))
+    y_start = max(0, height - strip_height)
+    feather_height = int(round(strip_height * feather_ratio))
+    mask = Image.new("L", size, 0)
+    pixels = mask.load()
+    for y in range(y_start, height):
+        if feather_height > 0 and y < y_start + feather_height:
+            alpha = (y - y_start + 1) / feather_height
+            value = int(round(255 * alpha))
+        else:
+            value = 255
+        for x in range(width):
+            pixels[x, y] = value
+    return mask
+
+
+def _make_contact_sheet(
+    rows: list[tuple[str, Image.Image, Image.Image, Image.Image, Image.Image]]
+) -> Image.Image:
     if not rows:
         raise ValueError("no rows to compose")
 
@@ -163,19 +296,19 @@ def _make_contact_sheet(rows: list[tuple[str, Image.Image, Image.Image, Image.Im
     label_w = 92
     header_h = 28
     gap = 10
-    sheet_w = label_w + cell_w * 3 + gap * 2
+    sheet_w = label_w + cell_w * 4 + gap * 3
     sheet_h = header_h + cell_h * len(rows)
     sheet = Image.new("RGB", (sheet_w, sheet_h), "white")
     draw = ImageDraw.Draw(sheet)
 
-    for index, header in enumerate(("input", "outside_mask", "inpaint")):
+    for index, header in enumerate(("input", "prefill", "outside_mask", "inpaint")):
         x = label_w + index * (cell_w + gap)
         draw.text((x + 4, 8), header, fill=(0, 0, 0))
 
-    for row_index, (view_name, source, mask, output) in enumerate(rows):
+    for row_index, (view_name, original, source, mask, output) in enumerate(rows):
         y = header_h + row_index * cell_h
         draw.text((4, y + 8), view_name, fill=(0, 0, 0))
-        for index, image in enumerate((source, mask.convert("RGB"), output)):
+        for index, image in enumerate((original, source, mask.convert("RGB"), output)):
             x = label_w + index * (cell_w + gap)
             sheet.paste(image.convert("RGB"), (x, y))
 
@@ -195,7 +328,7 @@ def run(args: argparse.Namespace) -> list[Path]:
 
     pipe, device = _load_inpaint_pipeline(args.model_id)
     saved: list[Path] = []
-    rows: list[tuple[str, Image.Image, Image.Image, Image.Image]] = []
+    rows: list[tuple[str, Image.Image, Image.Image, Image.Image, Image.Image]] = []
 
     for index, view in enumerate(args.views):
         source_path = input_dir / f"style_{view}_{args.preset}.png"
@@ -205,7 +338,21 @@ def run(args: argparse.Namespace) -> list[Path]:
         if not mask_path.exists():
             raise FileNotFoundError(f"missing mask image: {mask_path}")
 
-        source = Image.open(source_path).convert("RGB")
+        original = Image.open(source_path).convert("RGB")
+        source = original
+        if args.prefill_bottom_strip:
+            source = _prefill_bottom_strip(
+                original,
+                ratio=args.bottom_strip_ratio,
+                color_name=args.bottom_strip_color,
+                mode=args.bottom_strip_prefill_mode,
+            )
+            prefill_path = (
+                output_dir
+                / f"eye_auto_background_prefill_source_{view}_{args.preset}_{args.background_mode}_{args.bottom_strip_prefill_mode}_r{int(round(args.bottom_strip_ratio * 100)):03d}.png"
+            )
+            source.save(prefill_path, format="PNG")
+            saved.append(prefill_path)
         mask = Image.open(mask_path).convert("L").resize(source.size)
         generator = torch.Generator(device=device).manual_seed(args.seed + index)
         output = pipe(
@@ -221,13 +368,41 @@ def run(args: argparse.Namespace) -> list[Path]:
             generator=generator,
         ).images[0]
 
+        if args.second_pass_bottom_strip:
+            bottom_mask = _make_bottom_strip_mask(
+                output.size,
+                ratio=args.second_pass_bottom_strip_ratio,
+                feather_ratio=args.second_pass_feather_ratio,
+            )
+            second_mask_path = (
+                output_dir
+                / f"eye_auto_background_second_pass_bottom_mask_{view}_r{int(round(args.second_pass_bottom_strip_ratio * 100)):03d}.png"
+            )
+            bottom_mask.save(second_mask_path, format="PNG")
+            saved.append(second_mask_path)
+            second_generator = torch.Generator(device=device).manual_seed(
+                args.seed + 1000 + index
+            )
+            output = pipe(
+                prompt=BOTTOM_STRIP_SECOND_PASS_PROMPT,
+                negative_prompt=BOTTOM_STRIP_SECOND_PASS_NEGATIVE,
+                image=output,
+                mask_image=bottom_mask,
+                width=output.width,
+                height=output.height,
+                strength=args.second_pass_strength,
+                guidance_scale=args.guidance_scale,
+                num_inference_steps=args.steps,
+                generator=second_generator,
+            ).images[0]
+
         result_path = (
             output_dir
             / f"eye_auto_background_inpaint_{view}_{args.preset}_{args.background_mode}_s{int(round(args.strength * 100)):03d}_seed{args.seed + index}.png"
         )
         output.save(result_path, format="PNG")
         saved.append(result_path)
-        rows.append((view, source, mask, output))
+        rows.append((view, original, source, mask, output))
 
     sheet_path = output_dir / "compare_eye_auto_background_inpaint_smoke.png"
     _make_contact_sheet(rows).save(sheet_path, format="PNG")
@@ -246,6 +421,16 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[strength] {args.strength}")
     print(f"[steps] {args.steps}")
     print(f"[guidance-scale] {args.guidance_scale}")
+    print(f"[prefill-bottom-strip] {args.prefill_bottom_strip}")
+    if args.prefill_bottom_strip:
+        print(f"[bottom-strip-ratio] {args.bottom_strip_ratio}")
+        print(f"[bottom-strip-color] {args.bottom_strip_color}")
+        print(f"[bottom-strip-prefill-mode] {args.bottom_strip_prefill_mode}")
+    print(f"[second-pass-bottom-strip] {args.second_pass_bottom_strip}")
+    if args.second_pass_bottom_strip:
+        print(f"[second-pass-bottom-strip-ratio] {args.second_pass_bottom_strip_ratio}")
+        print(f"[second-pass-strength] {args.second_pass_strength}")
+        print(f"[second-pass-feather-ratio] {args.second_pass_feather_ratio}")
 
     try:
         prompt, negative = _resolve_background_prompt_pair(
