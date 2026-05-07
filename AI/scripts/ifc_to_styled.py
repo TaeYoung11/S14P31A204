@@ -79,6 +79,15 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--eye-ground-extent-factor",
+        type=float,
+        default=None,
+        help=(
+            "Override ground plane extent factor for EYE views only. "
+            "Omit to keep the default renderer geometry."
+        ),
+    )
+    parser.add_argument(
         "--iter-tolerance",
         type=float,
         default=0.10,
@@ -115,23 +124,30 @@ def _render_depths(
     output_dir: Path,
     auto_zoom: bool = False,
     eye_target_ratio: float | None = None,
+    eye_ground_extent_factor: float | None = None,
     iter_tolerance: float = 0.10,
 ) -> dict[IFCView, Path]:
     """Render depth PNGs for each requested view."""
     zoom_mode = AutoZoomMode.ITERATIVE if auto_zoom else AutoZoomMode.OFF
     target_overrides = _build_eye_target_overrides(eye_target_ratio)
+    ground_extent_overrides = _build_eye_ground_extent_overrides(
+        eye_ground_extent_factor
+    )
     print(
         f"[depth] rendering {ifc_path.name} views={len(views)} "
         f"auto_zoom={zoom_mode.value}"
     )
     if target_overrides:
         print(f"  eye_target_ratio={eye_target_ratio}")
+    if ground_extent_overrides:
+        print(f"  eye_ground_extent_factor={eye_ground_extent_factor}")
     renderer = IFCRenderer(
         width=768,
         height=448,
         auto_zoom=zoom_mode,
         iter_tolerance=iter_tolerance,
         view_target_overrides=target_overrides,
+        view_ground_extent_overrides=ground_extent_overrides,
     )
     images = renderer.render_views(ifc_path, views=views)
 
@@ -156,6 +172,20 @@ def _build_eye_target_overrides(
         IFCView.EYE_NE: eye_target_ratio,
         IFCView.EYE_NW: eye_target_ratio,
         IFCView.EYE_SE: eye_target_ratio,
+    }
+
+
+def _build_eye_ground_extent_overrides(
+    eye_ground_extent_factor: float | None,
+) -> dict[IFCView, float]:
+    if eye_ground_extent_factor is None:
+        return {}
+    if eye_ground_extent_factor <= 0.0:
+        raise SystemExit("--eye-ground-extent-factor must be greater than 0.")
+    return {
+        IFCView.EYE_NE: eye_ground_extent_factor,
+        IFCView.EYE_NW: eye_ground_extent_factor,
+        IFCView.EYE_SE: eye_ground_extent_factor,
     }
 
 
@@ -296,6 +326,8 @@ def main() -> int:
     print(f"auto_zoom: {'iterative' if args.auto_zoom else 'off'}")
     if args.eye_target_ratio is not None:
         print(f"eye_target_ratio: {args.eye_target_ratio}")
+    if args.eye_ground_extent_factor is not None:
+        print(f"eye_ground_extent_factor: {args.eye_ground_extent_factor}")
     print(f"iter_tolerance: {args.iter_tolerance}")
 
     try:
@@ -305,6 +337,7 @@ def main() -> int:
             args.output,
             auto_zoom=args.auto_zoom,
             eye_target_ratio=args.eye_target_ratio,
+            eye_ground_extent_factor=args.eye_ground_extent_factor,
             iter_tolerance=args.iter_tolerance,
         )
         _print_preset_info(presets)
