@@ -205,14 +205,13 @@ public class JobStatusQueryService {
                 .toList();
 
         JobArtifactRecord primaryArtifact = resolvePrimaryArtifact(jobDomain, artifacts);
-        UUID expectedArtifactId = extractUuid(lastStep != null ? lastStep.getInputPayload() : null, "expectedOutputArtifactId", "expected_output_artifact_id");
         UUID targetRevisionId = primaryArtifact != null && primaryArtifact.getRevisionId() != null
                 ? primaryArtifact.getRevisionId()
                 : extractUuid(lastStep != null ? lastStep.getInputPayload() : null, "targetRevisionId", "target_revision_id");
 
         return new JobOutputsResponse(
                 targetRevisionId,
-                primaryArtifact != null ? primaryArtifact.getArtifactId() : expectedArtifactId,
+                primaryArtifact != null ? primaryArtifact.getArtifactId() : null,
                 primaryArtifact != null ? primaryArtifact.getStorageUrl() : null,
                 artifactResponses
         );
@@ -284,9 +283,11 @@ public class JobStatusQueryService {
     ) {
         UUID validationReportArtifactId = findArtifactIdByType(artifacts, IfcEditConstants.ARTIFACT_TYPE_VALIDATION_REPORT);
         UUID editPlanArtifactId = findArtifactIdByType(artifacts, IfcEditConstants.ARTIFACT_TYPE_EDIT_PLAN);
-        UUID expectedOutputArtifactId = outputs.primaryArtifactId() != null
-                ? outputs.primaryArtifactId()
-                : extractUuid(lastStep != null ? lastStep.getInputPayload() : null, "expectedOutputArtifactId", "expected_output_artifact_id");
+        UUID expectedOutputArtifactId = extractUuid(
+                lastStep != null ? lastStep.getInputPayload() : null,
+                "expectedOutputArtifactId",
+                "expected_output_artifact_id"
+        );
 
         return new IfcEditJobDetailsResponse(
                 resolveIfcEditMode(job.getJobType()),
