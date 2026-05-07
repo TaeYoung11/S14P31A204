@@ -1,7 +1,9 @@
-﻿"""ifc2img/style.py ?뚯뒪????DepthStyleRenderer ?몄텧 ?먮쫫 + 寃곌낵 ?섑띁.
+"""ifc2img/style.py의 depth-to-style 렌더 계약과 semantic control 옵션을 검증한다.
 
-torch/diffusers 吏???꾪룷???뺤뿉 ?섏〈??誘몄꽕移섏뿉?쒕룄 import 媛??
-?ㅼ젣 SD 濡쒕뱶??3-Step 6 (E2E) ?먯꽌 寃利????ш린??API/濡쒖쭅留?蹂몃떎.
+이 파일은 실제 torch/diffusers 모델을 로드하지 않고 `DepthStyleRenderer`를 mock으로 구성해
+prompt 조립, negative term 병합, ControlNet 입력 구성, preset별 render option resolver를 확인한다.
+front/side 하단 벽 환각과 EYE ground 환각을 줄이기 위해 도입한 semantic mask,
+ground-plane-aware mask, attenuation 옵션이 의도한 view와 preset에만 적용되는지도 함께 검증한다.
 """
 
 from pathlib import Path
@@ -47,11 +49,7 @@ from ai_rendering.ifc2img.style import (
 )
 @pytest.fixture
 def mock_depth_renderer() -> DepthStyleRenderer:
-    """DepthStyleRenderer ???ㅼ젣 SD/ControlNet 濡쒕뱶 ?놁씠 濡쒖쭅留??뚯뒪?몄슜.
-
-    __new__濡?__init__ ?고쉶 ??torch/diffusers 濡쒕뱶 ?뚰뵾.
-    pipe(...) ?몄텧? MagicMock??.images[0]???붾? PIL ?대?吏 諛섑솚?섍쾶 ?명똿.
-    """
+    """실제 SD/ControlNet pipeline 없이 render 호출 인자만 관찰하는 renderer fixture를 만든다."""
     r = DepthStyleRenderer.__new__(DepthStyleRenderer)
     r.model_id = "mock"
     r.controlnet_model_id = "mock-cn"
@@ -65,7 +63,7 @@ def mock_depth_renderer() -> DepthStyleRenderer:
 
 
 def test_render_returns_result(mock_depth_renderer: DepthStyleRenderer) -> None:
-    """render() ??DepthStyleResult, image/params/depth_size/output_size 紐⑤몢 梨꾩썙吏?"""
+    """render 결과가 이미지, params, depth/output size를 담은 DepthStyleResult인지 확인한다."""
     depth = Image.new("L", (768, 448), 128)
     params = DepthStyleParams(prompt="a scandinavian living room")
 
@@ -81,7 +79,7 @@ def test_render_returns_result(mock_depth_renderer: DepthStyleRenderer) -> None:
 def test_render_passes_depth_as_control(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """pipe ?몄텧 ??image= ?몄옄??control(depth) ?대?吏媛 ?꾨떖?쒕떎."""
+    """depth image가 pipe의 control 입력으로 전달되고 prompt/해상도 인자가 유지되는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     params = DepthStyleParams(prompt="industrial loft")
 
@@ -98,7 +96,7 @@ def test_render_passes_depth_as_control(
 def test_seeded_render_uses_generator(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """seed媛 吏?뺣릺硫?torch.Generator.manual_seed媛 ?몄텧?쒕떎."""
+    """seed가 있을 때 torch.Generator를 만들고 manual_seed로 재현성을 고정하는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     params = DepthStyleParams(prompt="x", seed=42)
 
@@ -111,7 +109,7 @@ def test_seeded_render_uses_generator(
 def test_seedless_render_no_generator(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """seed=None?대㈃ generator=None??pipe???꾨떖?쒕떎."""
+    """seed가 없으면 generator를 만들지 않고 pipe에 None을 전달해야 한다."""
     depth = Image.new("L", (768, 448), 100)
     params = DepthStyleParams(prompt="x", seed=None)
 
@@ -124,7 +122,7 @@ def test_seedless_render_no_generator(
 def test_pipe_failure_wrapped_in_ifcrendererror(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """pipe(...)媛 ?덉쇅瑜??섏?硫?IFCRenderError濡??섑븨?섏뼱???쒕떎."""
+    """diffusion pipe 실패가 외부 호출자에게 IFCRenderError로 감싸져 전달되는지 확인한다."""
     mock_depth_renderer.pipe.side_effect = RuntimeError("CUDA OOM")
     depth = Image.new("L", (768, 448), 100)
     params = DepthStyleParams(prompt="x")
@@ -136,7 +134,7 @@ def test_pipe_failure_wrapped_in_ifcrendererror(
 def test_l_mode_depth_converted_to_rgb(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """?낅젰 depth媛 mode='L'?댁뼱??ControlNet?먮뒗 3梨꾨꼸(RGB)濡??꾨떖?쒕떎."""
+    """흑백 depth control image가 ControlNet에 맞는 RGB 이미지로 변환되는지 확인한다."""
     depth_l = Image.new("L", (768, 448), 100)
     assert depth_l.mode == "L"
 
@@ -147,7 +145,7 @@ def test_l_mode_depth_converted_to_rgb(
 
 
 def test_result_save_creates_parent_dir(tmp_path: Path) -> None:
-    """DepthStyleResult.save()??遺紐??붾젆?좊━瑜??먮룞 ?앹꽦?쒕떎."""
+    """DepthStyleResult.save가 부모 디렉터리를 만들고 저장 경로를 반환하는지 확인한다."""
     img = Image.new("RGB", (10, 10), "white")
     result = DepthStyleResult(
         image=img,
@@ -164,7 +162,7 @@ def test_result_save_creates_parent_dir(tmp_path: Path) -> None:
 
 
 def test_public_api_exports() -> None:
-    """ifc2img 怨듦컻 ?щ낵: IFC ?뚮뜑 3 + style 3 + presets 2 + view helper 1 = 9媛?"""
+    """ifc2img public API가 renderer, style, preset, view helper를 노출하는지 확인한다."""
     from ai_rendering import ifc2img
 
     expected = {
@@ -185,7 +183,7 @@ def test_public_api_exports() -> None:
 
 
 def test_package_root_does_not_eager_load_renderer() -> None:
-    """Package root import should not require Open3D-backed renderer imports."""
+    """가벼운 package root import가 Open3D renderer 모듈을 즉시 로드하지 않는지 확인한다."""
     import importlib
     import sys
 
@@ -198,7 +196,7 @@ def test_package_root_does_not_eager_load_renderer() -> None:
 
 
 def test_resolve_preset_view_render_options_fixes_korean_villa_candidate() -> None:
-    """korean_villa front candidate should be pinned as the selected safe path."""
+    """korean_villa front 후보가 선택된 semantic control 경로로 고정되어 있는지 확인한다."""
     front = resolve_preset_view_render_options("korean_villa", IFCView.FRONT)
     side = resolve_preset_view_render_options("korean_villa", IFCView.SIDE)
 
@@ -212,7 +210,7 @@ def test_resolve_preset_view_render_options_fixes_korean_villa_candidate() -> No
 
 
 def test_resolve_preset_view_render_options_fixes_korean_house_candidate() -> None:
-    """korean_house front/side candidates should be explicit per-view choices."""
+    """korean_house front/side/EYE 후보가 view별로 명시된 선택지를 유지하는지 확인한다."""
     front = resolve_preset_view_render_options("korean_house", IFCView.FRONT)
     side = resolve_preset_view_render_options("korean_house", IFCView.SIDE)
     eye_ne = resolve_preset_view_render_options("korean_house", IFCView.EYE_NE)
@@ -251,7 +249,7 @@ def test_resolve_preset_view_render_options_fixes_korean_house_candidate() -> No
 
 
 def test_resolve_preset_view_render_options_defaults_for_other_paths() -> None:
-    """Candidate options should not silently affect unrelated presets/views."""
+    """semantic control이 필요 없는 preset/view 조합은 기본 render option을 반환해야 한다."""
     default = DepthStyleRenderOptions()
 
     assert resolve_preset_view_render_options("scandinavian", IFCView.FRONT) == default
@@ -260,7 +258,7 @@ def test_resolve_preset_view_render_options_defaults_for_other_paths() -> None:
 
 
 def test_resolve_preset_background_params_uses_yard_only_priors() -> None:
-    """Background inpaint prompts should be separated from house material prompts."""
+    """EYE auto-background prompt가 preset별 yard/background prior만 분리해 가져오는지 확인한다."""
     korean = resolve_preset_background_params("korean_house")
     villa = resolve_preset_background_params("korean_villa")
     scandi = resolve_preset_background_params("scandinavian")
@@ -278,13 +276,13 @@ def test_resolve_preset_background_params_uses_yard_only_priors() -> None:
 
 
 def test_resolve_preset_background_params_rejects_unknown() -> None:
-    """Unknown background preset names should fail before running generation."""
+    """등록되지 않은 background preset 요청은 명확한 렌더 오류로 거절해야 한다."""
     with pytest.raises(IFCRenderError, match="unknown background preset"):
         resolve_preset_background_params("unknown")
 
 
 def test_depth_style_render_options_as_kwargs_matches_render_options() -> None:
-    """Fixed candidates should be directly passable into DepthStyleRenderer.render()."""
+    """DepthStyleRenderOptions가 render 호출 kwargs로 안정적으로 변환되는지 확인한다."""
     options = DepthStyleRenderOptions(
         use_front_side_semantic_control=True,
         use_eye_ground_semantic_control=True,
@@ -304,11 +302,11 @@ def test_depth_style_render_options_as_kwargs_matches_render_options() -> None:
     }
 
 
-# --- B-1 ??DepthStyleRenderer.render(view=...) ?몄옄 ---
+# 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
 
 
 def test_depth_style_render_options_rejects_front_semantic_conflict() -> None:
-    """Front full-width and front/side semantic controls must not overwrite each other."""
+    """front semantic control 옵션 두 종류가 동시에 켜지는 잘못된 조합을 생성 시점에 막는다."""
     with pytest.raises(IFCRenderError, match="mutually exclusive"):
         DepthStyleRenderOptions(
             use_front_full_width_semantic_control=True,
@@ -319,11 +317,7 @@ def test_depth_style_render_options_rejects_front_semantic_conflict() -> None:
 def test_render_with_view_appends_suffix_to_prompt(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """B-1 ??view=TOP ?꾨떖 ??pipe ?몄텧 prompt???섍꼍 suffix ?ы븿.
-
-    EYE_*/FRONT/SIDE??鍮?suffix?대?濡??⑹꽦 寃利앹뿉??紐낆떆 ?몄텧???쒖젏(TOP) ?ъ슜.
-    suffix ?⑹꽦 硫붿빱?덉쬁 ?먯껜??紐⑤뱺 view?먯꽌 ?숈씪.
-    """
+    """view를 넘긴 render가 view-aware prompt 조립 결과를 pipe에 전달하는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     base_prompt = "RAW photo, scandinavian house"
     params = DepthStyleParams(prompt=base_prompt)
@@ -339,7 +333,7 @@ def test_render_with_view_appends_suffix_to_prompt(
 def test_render_without_view_uses_raw_prompt(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """B-1 ??view=None (default) ??prompt 洹몃?濡?(backward compat)."""
+    """view가 없으면 renderer가 원본 prompt를 그대로 사용해야 한다."""
     depth = Image.new("L", (768, 448), 100)
     base_prompt = "RAW photo, scandinavian house"
     params = DepthStyleParams(prompt=base_prompt)
@@ -353,7 +347,7 @@ def test_render_without_view_uses_raw_prompt(
 def test_render_with_view_front_prepends_ground_line_prefix(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """FRONT prompt should front-load ground-contact constraints."""
+    """front view prompt 앞쪽에 facade와 ground contact 조건이 붙는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     base_prompt = "RAW photo, scandinavian house"
     params = DepthStyleParams(prompt=base_prompt)
@@ -369,12 +363,12 @@ def test_render_with_view_front_prepends_ground_line_prefix(
     assert "no retaining wall" in call_prompt
 
 
-# --- C-1 ?먭린 ????render(view=...) negative ?⑹꽦 ?명봽??蹂댁〈 ?뚭? 諛⑹뼱 ---
+# 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
 
 def test_render_with_view_front_softens_scandinavian_concrete_wall_prior(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """Scandinavian FRONT prompt should reduce concrete wall/plinth prior."""
+    """scandinavian front prompt의 벽체 prior가 과해지지 않도록 약화되는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     params = load_preset("scandinavian", "day")
 
@@ -393,7 +387,7 @@ def test_render_with_view_front_softens_scandinavian_concrete_wall_prior(
 def test_render_with_view_side_softens_scandinavian_concrete_wall_prior(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """Scandinavian SIDE prompt should reduce side wall/plinth prior."""
+    """scandinavian side prompt에서도 concrete wall prior가 과해지지 않도록 조정되는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     params = load_preset("scandinavian", "day")
 
@@ -412,7 +406,7 @@ def test_render_with_view_side_softens_scandinavian_concrete_wall_prior(
 def test_render_with_view_eye_prepends_ground_sky_prefix(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE_* view prompt front-loads diagonal ground and sky placement cues."""
+    """EYE view prompt 앞쪽에 대각선 시점과 ground/sky 위치 조건이 붙는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     base_prompt = "RAW photo, scandinavian house"
     params = DepthStyleParams(prompt=base_prompt)
@@ -431,7 +425,7 @@ def test_render_with_view_eye_prepends_ground_sky_prefix(
 def test_render_with_view_eye_removes_blue_sky_prior(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE_* view prompt removes the preset day blue-sky prior before pipe call."""
+    """EYE view에서 blue sky cue가 ground 영역을 하늘로 오염시키지 않도록 제거되는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     base_prompt = (
         "RAW photo, scandinavian house, during sunny daytime, natural sunlight, blue sky"
@@ -449,7 +443,7 @@ def test_render_with_view_eye_removes_blue_sky_prior(
 def test_render_with_view_eye_nw_appends_water_negative_terms(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE views should suppress pool/reflection hallucinations."""
+    """EYE view negative에 pool/water/reflection 계열 억제어가 추가되는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     base_negative = "(worst quality:1.4), interior"
     params = DepthStyleParams(
@@ -467,7 +461,7 @@ def test_render_with_view_eye_nw_appends_water_negative_terms(
 def test_render_with_view_eye_ne_deduplicates_water_negative_terms(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE negative terms should stay compact when presets already contain them."""
+    """EYE negative term 추가 시 기존 단어가 중복되지 않는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     base_negative = "(worst quality:1.4), water"
     params = DepthStyleParams(
@@ -487,7 +481,7 @@ def test_render_with_view_eye_ne_deduplicates_water_negative_terms(
 def test_render_with_view_front_appends_foundation_negative_terms(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """FRONT/SIDE should receive extra lower-fa챌ade suppression negatives."""
+    """front/side view에서 하단 층, 옹벽, platform 계열 negative가 추가되는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     params = DepthStyleParams(
         prompt="RAW photo, scandinavian house",
@@ -501,7 +495,7 @@ def test_render_with_view_front_appends_foundation_negative_terms(
 
 
 def test_append_negative_terms_deduplicates_terms() -> None:
-    """Shared front/side negatives should not push prompts over the CLIP budget."""
+    """negative term 병합 helper가 중복 단어를 제거하는지 확인한다."""
     result = _append_negative_terms(
         "low quality, stone wall, retaining wall",
         "stone wall, retaining wall, extra lower floor",
@@ -511,7 +505,7 @@ def test_append_negative_terms_deduplicates_terms() -> None:
 
 
 def test_append_negative_terms_prefers_weighted_duplicate() -> None:
-    """Weighted duplicates should replace the unweighted term without duplication."""
+    """동일 term이 있으면 더 강한 weighted 표현을 우선 유지하는지 확인한다."""
     result = _append_negative_terms(
         "low quality, stone wall, retaining wall, raised platform",
         "(stone wall:1.2), (retaining wall:1.25), (raised platform:1.2)",
@@ -524,7 +518,7 @@ def test_append_negative_terms_prefers_weighted_duplicate() -> None:
 
 
 def test_build_front_side_semantic_mask_marks_building_geometry() -> None:
-    """Existing non-background geometry should become the building class."""
+    """front/side semantic mask가 depth geometry 영역을 building으로 표시하는지 확인한다."""
     control = Image.new("RGB", (24, 24), (0, 0, 0))
     arr = np.array(control)
     arr[4:14, 8:16] = [255, 255, 255]
@@ -537,7 +531,7 @@ def test_build_front_side_semantic_mask_marks_building_geometry() -> None:
 
 
 def test_build_front_side_semantic_mask_adds_local_ground_band() -> None:
-    """Ground band should appear below the facade but not fill the far lower frame."""
+    """front/side semantic mask가 건물 하단 주변에 국소 ground band를 추가하는지 확인한다."""
     control = Image.new("RGB", (24, 24), (0, 0, 0))
     arr = np.array(control)
     arr[4:14, 8:16] = [255, 255, 255]
@@ -552,7 +546,7 @@ def test_build_front_side_semantic_mask_adds_local_ground_band() -> None:
 
 
 def test_build_front_full_width_ground_mask_marks_lower_background_only() -> None:
-    """FRONT full-width ground mask should fill lower non-building areas."""
+    """front full-width ground mask가 하단 배경만 ground로 잡고 건물은 보호하는지 확인한다."""
     control = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(control)
     arr[6:18, 10:22] = [255, 255, 255]
@@ -567,7 +561,7 @@ def test_build_front_full_width_ground_mask_marks_lower_background_only() -> Non
 
 
 def test_build_front_full_width_ground_mask_reclassifies_lower_slab() -> None:
-    """Expanded lower support geometry should be treated as front ground."""
+    """front full-width mask가 하단 slab처럼 보이는 영역을 ground로 재분류하는지 확인한다."""
     control = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(control)
     arr[6:18, 10:22] = [255, 255, 255]
@@ -583,7 +577,7 @@ def test_build_front_full_width_ground_mask_reclassifies_lower_slab() -> None:
 
 
 def test_build_front_full_width_seg_control_uses_ade20k_classes() -> None:
-    """Preview seg map should encode front sky/building/full-width ground."""
+    """front full-width semantic control이 ADE20K building/ground 색을 쓰는지 확인한다."""
     control = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(control)
     arr[6:18, 10:22] = [255, 255, 255]
@@ -602,7 +596,7 @@ def test_build_front_full_width_seg_control_uses_ade20k_classes() -> None:
 
 
 def test_build_front_full_width_seg_control_reclassifies_lower_slab_as_ground() -> None:
-    """Front semantic map should not leave lower support slabs as building."""
+    """front full-width semantic control이 하단 slab 영역을 ground class로 바꾸는지 확인한다."""
     control = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(control)
     arr[6:18, 10:22] = [255, 255, 255]
@@ -620,7 +614,7 @@ def test_build_front_full_width_seg_control_reclassifies_lower_slab_as_ground() 
 
 
 def test_build_eye_ground_mask_marks_lower_background_only() -> None:
-    """EYE ground cue should target lower exterior background, not roof sky."""
+    """EYE ground mask가 하단 배경만 선택하고 건물 geometry는 유지하는지 확인한다."""
     control = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(control)
     arr[6:20, 10:22] = [255, 255, 255]
@@ -635,7 +629,7 @@ def test_build_eye_ground_mask_marks_lower_background_only() -> None:
 
 
 def test_build_eye_ground_seg_control_uses_neutral_ground() -> None:
-    """EYE semantic map should encode building, sky, and dry neutral ground."""
+    """EYE ground semantic control이 선택한 ground class 색을 사용하는지 확인한다."""
     control = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(control)
     arr[6:20, 10:22] = [255, 255, 255]
@@ -653,7 +647,7 @@ def test_build_eye_ground_seg_control_uses_neutral_ground() -> None:
 
 
 def test_build_front_side_seg_control_uses_ade20k_colors() -> None:
-    """Seg control should encode building/ground/sky as semantic colors."""
+    """front/side semantic control이 ADE20K sky/building/grass 색을 쓰는지 확인한다."""
     control = Image.new("RGB", (24, 24), (0, 0, 0))
     arr = np.array(control)
     arr[4:14, 8:16] = [255, 255, 255]
@@ -673,7 +667,7 @@ def test_build_front_side_seg_control_uses_ade20k_colors() -> None:
 
 
 def test_build_front_side_seg_control_can_use_neutral_ground() -> None:
-    """Mini-sweep support: ground can be encoded as neutral road-like color."""
+    """front/side semantic control의 ground class를 neutral로 바꿀 수 있는지 확인한다."""
     control = Image.new("RGB", (24, 24), (0, 0, 0))
     arr = np.array(control)
     arr[4:14, 8:16] = [255, 255, 255]
@@ -695,7 +689,7 @@ def test_build_front_side_seg_control_can_use_neutral_ground() -> None:
 def test_render_front_side_semantic_control_requires_semantic_model(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """Semantic control is opt-in and should fail clearly without a seg ControlNet."""
+    """front/side semantic control은 semantic ControlNet 모델이 없으면 실행되지 않아야 한다."""
     depth = Image.new("L", (768, 448), 100)
     params = DepthStyleParams(prompt="x")
 
@@ -711,7 +705,7 @@ def test_render_front_side_semantic_control_requires_semantic_model(
 def test_render_front_full_width_semantic_control_requires_semantic_model(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """Full-width semantic control is opt-in and requires a seg ControlNet."""
+    """front full-width semantic control도 semantic ControlNet 모델이 필요함을 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     params = DepthStyleParams(prompt="x")
 
@@ -727,7 +721,7 @@ def test_render_front_full_width_semantic_control_requires_semantic_model(
 def test_render_front_side_semantic_control_passes_two_control_images(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """With a seg ControlNet loaded, FRONT/SIDE should pass depth + seg controls."""
+    """front/side semantic control이 depth와 semantic image를 pipe에 전달하는지 확인한다."""
     mock_depth_renderer.semantic_controlnet_model_id = "mock-seg"
     depth = Image.new("RGB", (24, 24), (0, 0, 0))
     arr = np.array(depth)
@@ -757,7 +751,7 @@ def test_render_front_side_semantic_control_passes_two_control_images(
 def test_render_front_full_width_semantic_control_passes_two_control_images(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """FRONT full-width semantic control should pass depth + full-width seg."""
+    """front full-width semantic control도 두 control image와 scale을 전달하는지 확인한다."""
     mock_depth_renderer.semantic_controlnet_model_id = "mock-seg"
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
@@ -790,7 +784,7 @@ def test_render_front_full_width_semantic_control_passes_two_control_images(
 def test_render_rejects_front_semantic_control_conflict(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """Direct render kwargs should fail instead of overwriting FRONT control images."""
+    """render 호출 단계에서도 front semantic control 상호배타 조건을 다시 검증한다."""
     mock_depth_renderer.semantic_controlnet_model_id = "mock-semantic-cn"
     depth = Image.new("L", (768, 448), 100)
     params = DepthStyleParams(prompt="x", controlnet_conditioning_scale=1.15)
@@ -810,7 +804,7 @@ def test_render_rejects_front_semantic_control_conflict(
 def test_render_eye_ground_semantic_control_requires_semantic_model(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE ground semantic control is opt-in and requires a seg ControlNet."""
+    """EYE ground semantic control은 semantic ControlNet 모델이 있을 때만 사용할 수 있다."""
     depth = Image.new("L", (768, 448), 100)
     params = DepthStyleParams(prompt="x")
 
@@ -826,7 +820,7 @@ def test_render_eye_ground_semantic_control_requires_semantic_model(
 def test_render_eye_ground_semantic_control_passes_two_control_images(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE ground semantic control should pass depth + EYE ground seg."""
+    """EYE ground semantic control이 depth와 semantic ground control을 함께 전달하는지 확인한다."""
     mock_depth_renderer.semantic_controlnet_model_id = "mock-seg"
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
@@ -859,7 +853,7 @@ def test_render_eye_ground_semantic_control_passes_two_control_images(
 def test_render_eye_ground_plane_aware_semantic_control_reclassifies_slab(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE render can opt into ground-plane-aware semantic control."""
+    """EYE ground-plane-aware semantic control이 하단 geometry를 ground로 재분류하는지 확인한다."""
     mock_depth_renderer.semantic_controlnet_model_id = "mock-seg"
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
@@ -888,7 +882,7 @@ def test_render_eye_ground_plane_aware_semantic_control_reclassifies_slab(
 def test_render_eye_ground_plane_control_attenuation_updates_depth_control(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE attenuation should alter depth control before pipe invocation."""
+    """EYE attenuation 옵션이 ground plane 영역의 depth control 강도를 낮추는지 확인한다."""
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
     arr[6:20, 12:20] = [180, 180, 180]
@@ -912,7 +906,7 @@ def test_render_eye_ground_plane_control_attenuation_updates_depth_control(
 
 
 def test_build_eye_ground_plane_aware_mask_reclassifies_lower_geometry() -> None:
-    """Ground-plane-aware EYE preview should include the lower geometry shell."""
+    """ground-plane-aware mask가 EYE 하단 geometry shell을 ground 후보로 선택하는지 확인한다."""
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
     arr[6:20, 12:20] = [180, 180, 180]
@@ -928,7 +922,7 @@ def test_build_eye_ground_plane_aware_mask_reclassifies_lower_geometry() -> None
 
 
 def test_build_eye_ground_plane_aware_mask_shell_uses_object_height() -> None:
-    """Shell thickness should follow the object bbox, not the full frame height."""
+    """EYE ground shell 두께가 프레임 전체가 아니라 객체 높이를 기준으로 계산되는지 확인한다."""
     depth = Image.new("RGB", (100, 100), (0, 0, 0))
     arr = np.array(depth)
     arr[10:50, 45:55] = [180, 180, 180]
@@ -941,7 +935,7 @@ def test_build_eye_ground_plane_aware_mask_shell_uses_object_height() -> None:
 
 
 def test_build_eye_building_mask_excludes_lower_ground_plane_shell() -> None:
-    """EYE building mask should protect upper body and exclude lower slab geometry."""
+    """EYE building protect mask가 하단 ground shell을 건물 보호 영역에서 제외하는지 확인한다."""
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
     arr[6:20, 12:20] = [180, 180, 180]
@@ -957,7 +951,7 @@ def test_build_eye_building_mask_excludes_lower_ground_plane_shell() -> None:
 
 
 def test_apply_eye_ground_plane_control_attenuation_only_changes_ground_plane() -> None:
-    """Attenuation should soften only the selected lower ground-plane pixels."""
+    """attenuation helper가 ground plane 영역만 수정하고 건물 depth는 보존하는지 확인한다."""
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
     arr[6:20, 12:20] = [180, 180, 180]
@@ -975,7 +969,7 @@ def test_apply_eye_ground_plane_control_attenuation_only_changes_ground_plane() 
 
 
 def test_build_eye_ground_seg_control_can_include_ground_plane_geometry() -> None:
-    """The EYE semantic preview can opt into slab-like geometry as grass."""
+    """EYE semantic control이 ground plane geometry까지 ground class로 포함할 수 있는지 확인한다."""
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
     arr[6:20, 12:20] = [180, 180, 180]
@@ -997,7 +991,7 @@ def test_build_eye_ground_seg_control_can_include_ground_plane_geometry() -> Non
 def test_render_front_full_width_semantic_control_is_front_only(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """The full-width semantic option should be a no-op for SIDE."""
+    """front full-width semantic control이 side view에 잘못 적용되지 않는지 확인한다."""
     mock_depth_renderer.semantic_controlnet_model_id = "mock-seg"
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
@@ -1019,7 +1013,7 @@ def test_render_front_full_width_semantic_control_is_front_only(
 def test_render_without_view_uses_raw_negative(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """view=None (default) ??negative_prompt 洹몃?濡?(backward compat)."""
+    """view가 없으면 negative prompt도 원본 params 값을 그대로 사용해야 한다."""
     depth = Image.new("L", (768, 448), 100)
     base_negative = "(worst quality:1.4), interior"
     params = DepthStyleParams(
@@ -1033,14 +1027,14 @@ def test_render_without_view_uses_raw_negative(
     assert call_negative == base_negative
 
 
-# per-view negative suffix infra (C-1) + cn_scale override infra (C-2) ?먭린.
-# ???명봽??紐⑤몢 render() 寃쎈줈?먯꽌 ?몄텧 ?먯껜媛 ?쒓굅??dead code.
+# 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
+# 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
 
 
 def test_render_without_view_uses_params_cn_scale(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """view=None (default) ??params.cn_scale 洹몃?濡?(backward compat)."""
+    """view가 없을 때 params의 ControlNet scale이 그대로 pipe에 전달되는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     params = DepthStyleParams(
         prompt="x",
@@ -1056,12 +1050,7 @@ def test_render_without_view_uses_params_cn_scale(
 def test_render_result_params_reflect_applied_view_composition(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """寃곌낵 params 諛섏쁺 ??view ?꾨떖 ??result.params???⑹꽦??媛믪씠 ?ㅼ뼱媛?
-
-    ?몄텧?먭? result.params.prompt濡?*?ㅼ젣 SD pipe???꾨떖??媛???異붿쟻?????덉뼱??
-    ??(?붾쾭源?濡쒓렇/?ы쁽??. EYE_*/FRONT/SIDE??鍮?suffix?대?濡?寃利앹뿉??紐낆떆
-    ?몄텧 ?쒖젏(TOP, suffix 蹂댁쑀)???ъ슜.
-    """
+    """view-aware prompt/negative 조립 결과가 DepthStyleResult.params에도 반영되는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     base_prompt = "RAW photo, scandinavian house"
     params = DepthStyleParams(
@@ -1072,19 +1061,19 @@ def test_render_result_params_reflect_applied_view_composition(
 
     result = mock_depth_renderer.render(depth, params, view=IFCView.EYE_NE)
 
-    # TOP? prompt suffix ?곸슜 ???(cn_scale override??None default)
-    assert result.params is not params  # ???몄뒪?댁뒪 (view-aware ?⑹꽦 ?곸슜)
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
+    assert result.params is not params
     assert result.params.prompt.startswith("eye-level diagonal view")
-    assert len(result.params.prompt) > len(base_prompt)  # suffix 異붽???
-    assert result.params.controlnet_conditioning_scale == 1.0  # base 洹몃?濡?
-    # ?먮낯 params??蹂寃??놁쓬 (immutability 蹂댁옣 ??dc_replace?????몄뒪?댁뒪 諛섑솚)
+    assert len(result.params.prompt) > len(base_prompt)
+    assert result.params.controlnet_conditioning_scale == 1.0
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     assert params.prompt == base_prompt
 
 
 def test_render_result_params_identity_preserved_when_view_none(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """view=None ??result.params??input params? ?숈씪 ?몄뒪?댁뒪 (backward compat)."""
+    """view가 없으면 결과 params가 원본 객체 identity를 유지하는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     params = DepthStyleParams(prompt="x")
 

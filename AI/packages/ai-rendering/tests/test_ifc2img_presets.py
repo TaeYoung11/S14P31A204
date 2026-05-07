@@ -1,6 +1,9 @@
-"""ifc2img/presets.py 테스트 — 프리셋 등록/로드/오류/독립성.
+"""ifc2img style preset의 등록, 로딩, prompt 정책을 검증한다.
 
-img2img/presets.py와 별개 모듈. 파일명도 충돌 회피를 위해 test_ifc2img_presets.py.
+이 테스트 파일은 depth-to-style 단계에서 사용하는 `ifc2img.presets` 전용 테스트다.
+단순히 preset 이름이 로드되는지만 보는 것이 아니라, Realistic Vision 기반 실험 중 정한
+compact prompt, flat ground prior, negative prompt 예산, 소재 whitelist가 유지되는지도 함께
+확인한다. prompt 문구는 이미지 품질에 직접 영향을 주므로 작은 변경도 회귀로 이어질 수 있다.
 """
 
 import pytest
@@ -14,27 +17,27 @@ from ai_rendering.ifc2img import (
 
 
 def test_list_presets_returns_three() -> None:
-    """등록된 프리셋이 정확히 scandinavian/korean_villa/korean_house 3개 + 정렬됨."""
+    """production에서 쓰는 세 preset만 안정적인 정렬 순서로 노출되는지 확인한다."""
     assert list_presets() == ["korean_house", "korean_villa", "scandinavian"]
 
 
 def test_load_preset_returns_depth_style_params() -> None:
-    """load_preset은 DepthStyleParams 인스턴스 반환, prompt 비어있지 않음."""
+    """preset 로딩 결과가 depth style renderer에 바로 넘길 수 있는 params인지 확인한다."""
     p = load_preset("scandinavian")
 
     assert isinstance(p, DepthStyleParams)
     assert "scandinavian" in p.prompt.lower()
-    assert p.negative_prompt  # 비어있지 않음
+    assert p.negative_prompt
 
 
 def test_load_unknown_preset_raises() -> None:
-    """알 수 없는 이름 → IFCRenderError, 메시지에 사용 가능 목록 포함."""
+    """등록되지 않은 preset 이름은 조용한 fallback 없이 명확한 렌더 오류로 알려야 한다."""
     with pytest.raises(IFCRenderError, match="알 수 없는 프리셋"):
         load_preset("nonexistent_style")
 
 
 def test_each_preset_has_required_fields() -> None:
-    """3개 프리셋 모두 필수 필드(prompt/cn_scale/guidance/steps)가 채워져 있다."""
+    """모든 preset이 렌더링에 필요한 prompt와 sampling/control 값을 갖는지 확인한다."""
     for name in list_presets():
         p = load_preset(name)
         assert p.prompt.strip()
@@ -45,7 +48,7 @@ def test_each_preset_has_required_fields() -> None:
 
 
 def test_load_preset_returns_independent_copy() -> None:
-    """같은 이름 두 번 호출 시 별도 인스턴스 — 호출자 수정이 원본에 누출되지 않는다."""
+    """로드된 preset params를 수정해도 원본 registry나 다음 호출 결과가 오염되지 않아야 한다."""
     a = load_preset("scandinavian")
     b = load_preset("scandinavian")
 
@@ -55,7 +58,7 @@ def test_load_preset_returns_independent_copy() -> None:
 
 
 def test_no_strength_field_on_params() -> None:
-    """txt2img 결정 — DepthStyleParams에는 strength 필드가 없다 (img2img와 차별점)."""
+    """depth 기반 txt2img 경로에서는 img2img 전용 strength 필드가 없어야 한다."""
     from dataclasses import fields
 
     field_names = {f.name for f in fields(DepthStyleParams)}
@@ -63,27 +66,26 @@ def test_no_strength_field_on_params() -> None:
     assert "controlnet_conditioning_scale" in field_names
 
 
-# --- time_of_day variant (day/night) ---
+# --- time_of_day variant: day/night suffix 정책 ---
 
 
 def test_load_preset_day_appends_day_suffix() -> None:
-    """load_preset(name, "day") prompt 끝에 day suffix가 합성됨."""
+    """day variant가 실외 주간 cue를 prompt 뒤에 추가하는지 확인한다."""
     p = load_preset("scandinavian", "day")
     assert "during sunny daytime" in p.prompt
     assert "natural sunlight" in p.prompt
 
 
 def test_load_preset_night_appends_night_suffix() -> None:
-    """load_preset(name, "night") prompt 끝에 night suffix가 합성됨."""
+    """night variant가 기본 preset 정체성은 유지하면서 야간 cue만 추가하는지 확인한다."""
     p = load_preset("korean_villa", "night")
     assert "at night" in p.prompt
     assert "warm interior lights" in p.prompt
-    # 동시에 base prompt 단어 보존
     assert "minimal Korean house" in p.prompt
 
 
 def test_korean_villa_prompt_uses_compact_flat_ground_prior() -> None:
-    """korean_villa prompt should avoid lower-floor/retaining-wall priors."""
+    """korean_villa prompt가 하단 층/옹벽 환각을 줄이는 compact prior를 유지하는지 확인한다."""
     p = load_preset("korean_villa")
     prompt = p.prompt.lower()
     negative = p.negative_prompt.lower()
@@ -105,7 +107,7 @@ def test_korean_villa_prompt_uses_compact_flat_ground_prior() -> None:
 
 
 def test_scandinavian_prompt_uses_compact_flat_ground_prior() -> None:
-    """scandinavian should stay under budget while keeping Nordic facade cues."""
+    """scandinavian prompt가 CLIP 예산 안에서 핵심 facade와 ground prior를 유지하는지 확인한다."""
     p = load_preset("scandinavian")
     prompt = p.prompt.lower()
     negative = p.negative_prompt.lower()
@@ -133,7 +135,7 @@ def test_scandinavian_prompt_uses_compact_flat_ground_prior() -> None:
 
 
 def test_korean_house_prompt_uses_compact_flat_ground_prior() -> None:
-    """korean_house should avoid neighborhood/brick-wall retaining priors."""
+    """korean_house prompt가 주택 prior는 살리되 하단 벽 환각은 억제하는지 확인한다."""
     p = load_preset("korean_house")
     prompt = p.prompt.lower()
     negative = p.negative_prompt.lower()
@@ -165,7 +167,7 @@ def test_korean_house_prompt_uses_compact_flat_ground_prior() -> None:
 
 
 def test_load_preset_default_time_is_day() -> None:
-    """load_preset(name) — time_of_day default "day" → day suffix 합성 (backward compat)."""
+    """time_of_day을 생략하면 기존 호출 호환성을 위해 day variant와 같은 prompt를 반환해야 한다."""
     p_default = load_preset("scandinavian")
     p_day = load_preset("scandinavian", "day")
 
@@ -173,24 +175,25 @@ def test_load_preset_default_time_is_day() -> None:
 
 
 def test_load_preset_invalid_time_raises() -> None:
-    """day/night 외 time_of_day → IFCRenderError, 메시지에 사용 가능 목록 포함."""
+    """day/night 외 time_of_day 값은 잘못된 preset 옵션으로 보고 렌더 오류를 발생시킨다."""
     with pytest.raises(IFCRenderError, match="알 수 없는 time_of_day"):
         load_preset("scandinavian", "noon")
     with pytest.raises(IFCRenderError, match="알 수 없는 time_of_day"):
         load_preset("korean_house", "")
 
 
-# --- 7 소재 화이트리스트 검증 ---
+# --- 7 소재 whitelist와 forbidden material cue 검증 ---
 
 
 def test_preset_prompts_use_only_whitelisted_materials() -> None:
-    """preset prompt에 비허용 소재 단어가 부재.
+    """preset prompt가 허용 소재 범위를 벗어나는 facade cue를 다시 끌어오지 않는지 확인한다.
 
-    7 소재 화이트리스트: concrete / brick / steel / wood / glass / stone / tile.
-    비허용 대표 단어가 prompt에 들어가면 회귀 — 화이트리스트 외 소재 합성 위험.
+    현재 허용 소재는 concrete, brick, steel, wood, glass, stone, tile 중심이다.
+    `rendered`, `plaster`, `stucco` 같은 단어는 모델이 벽면을 두꺼운 하부 구조나
+    다른 마감재로 해석하게 만들 수 있어 prompt에 다시 들어오지 않도록 막는다.
     """
     forbidden = (
-        "rendered",       # 일반 facade 단어 — concrete/brick 등 화이트리스트로 대체
+        "rendered",
         "plaster",
         "stucco",
         "vinyl siding",
@@ -204,5 +207,5 @@ def test_preset_prompts_use_only_whitelisted_materials() -> None:
             )
 
 
-# sky/floating negative phrase 시도 폐기 — 효과 0, text-side 처방은 SD prior를
-# 못 이긴다는 학습.
+# sky/floating 관련 negative phrase는 현재 0에 가깝게 유지한다.
+# text-side에서 강하게 억제하면 모델 prior가 과하게 눌릴 수 있어 필요한 경우에만 추가한다.

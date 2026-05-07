@@ -1,4 +1,10 @@
-"""Importlib-based tests for ad-hoc scripts under scripts/."""
+"""scripts 디렉터리의 보조 실행 스크립트 계약을 importlib로 검증한다.
+
+이 테스트는 스크립트를 CLI로 직접 실행하지 않고 모듈로 로드해, 기본 경로/옵션/내부 helper가
+production 연결에서 기대한 값을 유지하는지 확인한다. 특히 EYE auto-background 실험,
+strip cleanup preset, ifc_to_styled.py의 semantic/auto-zoom 연결처럼 스크립트 기본값이
+품질 회귀에 직접 영향을 주는 부분을 고정한다.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +20,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 
 
 def _load_script(name: str) -> ModuleType:
-    """Load scripts/<name> as a module without executing it as __main__."""
+    """`scripts/<name>`을 `__main__` 실행 없이 테스트용 모듈로 로드한다."""
     path = SCRIPTS_DIR / name
     spec = importlib.util.spec_from_file_location(f"_script_{name.replace('.py', '')}", path)
     assert spec is not None and spec.loader is not None
@@ -29,7 +35,7 @@ def _load_script(name: str) -> ModuleType:
     ["run_diversity_inference.py", "run_diversity_check.py"],
 )
 def test_display_path_returns_relative_for_root_internal_path(script_name: str) -> None:
-    """ROOT-internal paths should be shown as repo-relative paths."""
+    """repo 내부 경로는 로그/출력에서 읽기 쉬운 상대 경로로 표시되어야 한다."""
     m = _load_script(script_name)
 
     inside = m.ROOT / "outputs" / "foo.png"
@@ -44,7 +50,7 @@ def test_display_path_returns_relative_for_root_internal_path(script_name: str) 
     ["run_diversity_inference.py", "run_diversity_check.py"],
 )
 def test_display_path_returns_absolute_for_root_external_path(script_name: str) -> None:
-    """ROOT-external paths should fall back to absolute paths."""
+    """repo 밖의 경로는 상대 경로 계산이 불가능하므로 절대 경로로 유지되어야 한다."""
     m = _load_script(script_name)
 
     outside = m.ROOT.parent.parent / "definitely_outside_repo_root_xyz" / "foo.png"
@@ -59,7 +65,7 @@ def test_display_path_returns_absolute_for_root_external_path(script_name: str) 
     ["run_diversity_inference.py", "run_diversity_check.py"],
 )
 def test_display_path_does_not_raise_value_error(script_name: str) -> None:
-    """display_path helpers should swallow relative_to failures."""
+    """`relative_to`가 실패하는 외부 경로도 display helper에서 예외를 내지 않아야 한다."""
     m = _load_script(script_name)
     outside = Path("/some/absolute/external/path/foo.png").resolve()
 
@@ -67,7 +73,7 @@ def test_display_path_does_not_raise_value_error(script_name: str) -> None:
 
 
 def test_eye_auto_background_mask_script_defaults_to_latest_eye_smoke() -> None:
-    """The EYE auto-background mask script should preview full outside repaint targets."""
+    """EYE auto-background mask preview 기본 입출력 경로를 확인한다."""
     m = _load_script("generate_eye_auto_background_masks.py")
 
     assert (
@@ -91,7 +97,7 @@ def test_eye_auto_background_mask_script_defaults_to_latest_eye_smoke() -> None:
 
 
 def test_eye_auto_background_inpaint_script_defaults_to_korean_house_eye_smoke() -> None:
-    """The EYE auto-background smoke should use the full outside target masks."""
+    """EYE auto-background inpaint smoke 기본 경로와 옵션을 확인한다."""
     m = _load_script("run_eye_auto_background_inpaint.py")
 
     assert (
@@ -139,7 +145,7 @@ def test_eye_auto_background_inpaint_script_defaults_to_korean_house_eye_smoke()
 
 
 def test_eye_auto_background_inpaint_strip_cleanup_flag_applies_success_preset() -> None:
-    """The cleanup flag should map to the successful EYE lower-strip combo."""
+    """strip cleanup flag가 성공했던 EYE 하단 strip 제거 조합으로 옵션을 묶는지 확인한다."""
     m = _load_script("run_eye_auto_background_inpaint.py")
 
     args = m._parse_args(["--eye-strip-cleanup"])
@@ -157,7 +163,7 @@ def test_eye_auto_background_inpaint_strip_cleanup_flag_applies_success_preset()
 
 
 def test_eye_auto_background_inpaint_strip_cleanup_is_opt_in() -> None:
-    """Defaults should stay conservative unless the cleanup flag is enabled."""
+    """cleanup flag를 켜지 않은 기본 경로는 guided mode와 보수적인 옵션을 유지해야 한다."""
     m = _load_script("run_eye_auto_background_inpaint.py")
 
     args = m._parse_args([])
@@ -173,7 +179,7 @@ def test_eye_auto_background_inpaint_strip_cleanup_is_opt_in() -> None:
 
 
 def test_eye_auto_background_inpaint_script_can_resolve_free_prompt() -> None:
-    """Free mode should remove explicit yard/ground material instructions."""
+    """free background mode는 yard/ground 소재를 직접 지정하지 않고 모델 자유도를 높여야 한다."""
     m = _load_script("run_eye_auto_background_inpaint.py")
 
     prompt, negative = m._resolve_background_prompt_pair("korean_house", "free")
@@ -192,7 +198,7 @@ def test_eye_auto_background_inpaint_script_can_resolve_free_prompt() -> None:
 
 
 def test_eye_auto_background_inpaint_script_keeps_guided_prompt() -> None:
-    """Guided mode should preserve the existing preset-specific background prior."""
+    """guided background mode는 preset별 yard/background prior를 그대로 유지해야 한다."""
     m = _load_script("run_eye_auto_background_inpaint.py")
 
     prompt, negative = m._resolve_background_prompt_pair("korean_house", "guided")
@@ -203,7 +209,7 @@ def test_eye_auto_background_inpaint_script_keeps_guided_prompt() -> None:
 
 
 def test_eye_auto_background_inpaint_prefills_bottom_strip_only() -> None:
-    """Bottom strip prefill should only replace the configured lower band."""
+    """bottom strip prefill은 설정한 하단 band만 바꾸고 나머지 source 픽셀은 보존해야 한다."""
     from PIL import Image
 
     m = _load_script("run_eye_auto_background_inpaint.py")
@@ -222,7 +228,7 @@ def test_eye_auto_background_inpaint_prefills_bottom_strip_only() -> None:
 
 
 def test_eye_auto_background_inpaint_feather_prefill_blends_bottom_strip() -> None:
-    """Feather prefill should ramp from original pixels toward the target color."""
+    """feather prefill은 원본 픽셀에서 목표 색으로 점진적으로 섞이도록 적용되어야 한다."""
     from PIL import Image
 
     m = _load_script("run_eye_auto_background_inpaint.py")
@@ -241,7 +247,7 @@ def test_eye_auto_background_inpaint_feather_prefill_blends_bottom_strip() -> No
 
 
 def test_eye_auto_background_inpaint_makes_feathered_bottom_mask() -> None:
-    """Second-pass lower strip mask should feather at the top and fill the bottom."""
+    """second-pass 하단 strip mask는 위쪽 경계는 feather 처리하고 아래쪽은 완전히 채워야 한다."""
     m = _load_script("run_eye_auto_background_inpaint.py")
 
     mask = m._make_bottom_strip_mask((4, 10), ratio=0.4, feather_ratio=0.5)
@@ -253,7 +259,7 @@ def test_eye_auto_background_inpaint_makes_feathered_bottom_mask() -> None:
 
 
 def test_ifc_to_styled_render_plan_detects_semantic_slots() -> None:
-    """Production wrapper should know when preset/view options need semantic CN."""
+    """preset/view 조합별 semantic ControlNet 필요 여부를 판별하는지 확인한다."""
     m = _load_script("ifc_to_styled.py")
 
     plan = m._resolve_render_plan(
@@ -275,7 +281,7 @@ def test_ifc_to_styled_render_plan_detects_semantic_slots() -> None:
 
 
 def test_ifc_to_styled_creates_semantic_renderer_only_when_needed() -> None:
-    """Semantic CN setup should be automatic and explicit at renderer creation."""
+    """semantic ControlNet renderer는 필요한 render plan일 때만 명시적으로 생성되어야 한다."""
     m = _load_script("ifc_to_styled.py")
 
     class FakeRenderer:
@@ -303,7 +309,7 @@ def test_ifc_to_styled_render_depths_can_enable_auto_zoom(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Production wrapper should expose iterative fill-aware depth zoom."""
+    """fill-aware iterative depth zoom 옵션을 IFCRenderer에 전달하는지 확인한다."""
     from PIL import Image
 
     m = _load_script("ifc_to_styled.py")
@@ -350,7 +356,7 @@ def test_ifc_to_styled_render_depths_can_enable_auto_zoom(
 
 
 def test_ifc_to_styled_builds_eye_target_overrides() -> None:
-    """EYE target ratio override should stay scoped to diagonal EYE views."""
+    """EYE target ratio override는 대각선 EYE view 3종에만 적용되어야 한다."""
     m = _load_script("ifc_to_styled.py")
 
     assert m._build_eye_target_overrides(None) == {}
@@ -364,7 +370,7 @@ def test_ifc_to_styled_builds_eye_target_overrides() -> None:
 
 
 def test_ifc_to_styled_builds_eye_ground_extent_overrides() -> None:
-    """EYE ground extent override should stay scoped to diagonal EYE views."""
+    """EYE ground extent override는 대각선 EYE view 3종에만 적용되어야 한다."""
     m = _load_script("ifc_to_styled.py")
 
     assert m._build_eye_ground_extent_overrides(None) == {}
@@ -381,7 +387,7 @@ def test_ifc_to_styled_render_depths_passes_eye_ground_extent_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Production wrapper should pass EYE ground geometry override to IFCRenderer."""
+    """EYE ground geometry override를 IFCRenderer 생성 인자로 넘기는지 확인한다."""
     from PIL import Image
 
     m = _load_script("ifc_to_styled.py")
@@ -418,7 +424,7 @@ def test_ifc_to_styled_render_styles_passes_resolved_options(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Production wrapper should pass resolver kwargs into render calls."""
+    """resolver에서 정한 semantic 옵션을 style render 호출에 전달하는지 확인한다."""
     from PIL import Image
 
     import ai_rendering.ifc2img as ifc2img
@@ -493,7 +499,7 @@ def test_ifc_to_styled_render_styles_passes_eye_ground_plane_aware_options(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Korean-house EYE slots should use the ground-plane-aware semantic option."""
+    """korean_house EYE slot의 ground-plane-aware semantic 옵션을 확인한다."""
     from PIL import Image
 
     import ai_rendering.ifc2img as ifc2img

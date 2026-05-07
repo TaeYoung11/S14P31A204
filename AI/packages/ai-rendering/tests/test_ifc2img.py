@@ -1,7 +1,8 @@
-﻿"""ifc2img 紐⑤뱢 ?뚯뒪????depth 蹂??+ ?뚮뜑 ?몄텧 ?먮쫫 + IFC4 schema 媛??
+"""ifc2img의 depth 렌더링, IFC mesh 로딩, view 옵션을 검증한다.
 
-GPU/?붿뒪?뚮젅??誘명븘?? Visualizer/load_mesh??mock ?쇰줈 寃⑸━.
-schema 媛?쒕뒗 ?ㅼ젣 fixtures 濡?寃利?(ifcopenshell 留??ъ슜 ??媛踰쇱?).
+이 파일은 Open3D visualizer와 ifcopenshell 호출을 대부분 mock으로 막아 GPU나 렌더링 창 없이
+핵심 로직만 빠르게 확인한다. 실제 IFC4 fixture를 쓰는 테스트는 schema 게이트와 mesh 생성이
+통합 경로에서 동작하는지 확인하는 최소 범위로 유지한다.
 """
 
 # ruff: noqa: E501
@@ -33,53 +34,69 @@ from ai_rendering.ifc2img.views import (
 )
 
 
-# --- _depth_to_image ?쒖닔 ?⑥닔 ?⑥쐞 ?뚯뒪??(mock 遺덊븘?? ---
+# --- depth buffer를 PIL control image로 변환하는 순수 함수 테스트 ---
 
 
 def test_depth_to_image_shape_preserved() -> None:
-    """?낅젰 depth array shape 媛 洹몃?濡?PIL.size ??諛섏쁺?섍퀬 mode='L'."""
+    """depth 배열의 높이/너비가 PIL 이미지 크기로 올바르게 변환되는지 확인한다.
+    
+    `_depth_to_image`는 numpy 배열의 shape를 `(height, width)`로 받지만 PIL 이미지는
+    `(width, height)` 순서의 size를 쓰므로, 이 변환이 뒤집히지 않아야 한다.
+    """
     h, w = 448, 768
     depth = np.full((h, w), 5.0, dtype=np.float32)
 
     img = IFCRenderer._depth_to_image(depth)
 
     assert img.mode == "L"
-    assert img.size == (w, h)  # PIL.size ??(width, height)
+    assert img.size == (w, h)
 
 
 def test_depth_to_image_background_is_black() -> None:
-    """depth==0 ?쎌?(諛곌꼍)? 寃곌낵?먯꽌 0(寃?? ?쇰줈 ?섏????쒕떎."""
+    """depth 값이 0인 배경 영역은 결과 이미지에서도 검정으로 남아야 한다.
+    
+    렌더러의 depth buffer에서 0은 geometry가 없는 픽셀을 뜻한다. 이 영역이 중간 밝기로
+    섞이면 이후 ControlNet 입력에서 배경을 건물처럼 오해할 수 있으므로 명확히 0으로 둔다.
+    """
     depth = np.zeros((10, 10), dtype=np.float32)
-    depth[5, 5] = 3.0  # ?⑥씪 geometry ?쎌?
+    depth[5, 5] = 3.0
     depth[5, 6] = 7.0
 
     img = IFCRenderer._depth_to_image(depth)
     arr = np.array(img)
 
-    # 0 ???낅젰? 諛곌꼍 ??寃곌낵??0
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     bg_mask = depth == 0
     assert arr[bg_mask].max() == 0
 
 
 def test_depth_to_image_closer_is_brighter() -> None:
-    """媛源뚯슫(?묒? depth) ?쎌???癒??쎌?蹂대떎 寃곌낵?먯꽌 諛앸떎."""
+    """카메라에 가까운 geometry가 더 밝게 정규화되는지 확인한다.
+    
+    현재 depth control 이미지는 가까운 표면을 밝게, 먼 표면을 어둡게 표현한다. 이 방향이
+    뒤집히면 모델이 전후 관계를 반대로 해석할 수 있다.
+    """
     depth = np.zeros((4, 4), dtype=np.float32)
-    depth[0, 0] = 1.0  # 媛源뚯?
+    depth[0, 0] = 1.0
     depth[0, 1] = 5.0  # 以묎컙
-    depth[0, 2] = 10.0  # 硫??
+    depth[0, 2] = 10.0
 
     img = IFCRenderer._depth_to_image(depth)
     arr = np.array(img)
 
     assert arr[0, 0] > arr[0, 1] > arr[0, 2]
-    assert arr[0, 0] == 255  # 媛??媛源뚯슫 ?쎌? = 理쒕? 諛앷린
-    assert arr[0, 2] == 0  # 媛??癒??쎌? = 理쒖냼 諛앷린
+    assert arr[0, 0] == 255
+    assert arr[0, 2] == 0
 
 
 def test_depth_to_image_uniform_depth() -> None:
-    """紐⑤뱺 geom ?쎌????숈씪 depth (d_min == d_max) ??255 (諛앹쓬)."""
+    """모든 geometry가 같은 depth일 때도 안정적으로 흰색 geometry를 만든다.
+    
+    `d_min == d_max`인 경우 정규화 분모가 0이 될 수 있으므로, 단일 깊이 평면은 흰색으로
+    처리하고 배경은 검정으로 유지하는 fallback을 검증한다.
+    """
     depth = np.zeros((4, 4), dtype=np.float32)
-    depth[1:3, 1:3] = 5.0  # ?숈씪 嫄곕━??geometry ?곸뿭
+    depth[1:3, 1:3] = 5.0
 
     img = IFCRenderer._depth_to_image(depth)
     arr = np.array(img)
@@ -90,24 +107,33 @@ def test_depth_to_image_uniform_depth() -> None:
 
 
 def test_depth_to_image_all_background_raises() -> None:
-    """?꾨? 0(諛곌꼍)???낅젰? IFCRenderError 濡?紐낆떆 嫄곕?."""
+    """geometry가 하나도 없는 depth buffer는 렌더 실패로 처리해야 한다.
+    
+    모든 값이 0이면 IFC가 보이지 않았거나 렌더링 카메라가 잘못 잡힌 상태다. 빈 control image를
+    조용히 저장하지 않고 `IFCRenderError`로 알려야 한다.
+    """
     depth = np.zeros((10, 10), dtype=np.float32)
 
     with pytest.raises(IFCRenderError, match="geometry"):
         IFCRenderer._depth_to_image(depth)
 
 
-# --- IFCRenderer Visualizer ?몄텧 ?먮쫫 (mock ?꾩슂) ---
+# --- IFCRenderer와 Open3D Visualizer 호출을 mock으로 검증하는 테스트 ---
 
 
 def _make_fake_depth_buffer(value: float = 5.0) -> np.ndarray:
+    """Open3D depth capture mock이 반환할 간단한 depth buffer를 만든다."""
     arr = np.zeros((448, 768), dtype=np.float32)
     arr[100:300, 200:500] = value
     return arr
 
 
 def test_renderer_calls_depth_buffer() -> None:
-    """?뚮뜑?ш? RGB 媛 ?꾨땶 depth float buffer 瑜??몄텧?쒕떎."""
+    """IFCRenderer가 화면 RGB가 아니라 depth float buffer를 캡처하는지 확인한다.
+    
+    ifc2img의 1차 산출물은 스타일 이미지가 아니라 ControlNet용 depth image다. 따라서
+    Open3D visualizer에서 `capture_depth_float_buffer`를 호출하고 RGB 캡처는 쓰지 않아야 한다.
+    """
     fake_mesh = MagicMock()
     fake_center = np.array([0.0, 0.0, 0.0])
 
@@ -136,7 +162,11 @@ def test_renderer_calls_depth_buffer() -> None:
 
 
 def test_render_views_loads_mesh_once() -> None:
-    """render_views(3酉? ?몄텧?먮룄 load_mesh ??1踰덈쭔 ??IFC ?뚯떛? 鍮꾩떥??"""
+    """여러 view를 렌더링할 때 IFC mesh를 한 번만 로드하는지 확인한다.
+    
+    같은 IFC에서 front, side, eye 계열을 연속 생성할 때 mesh 로딩을 반복하면 시간이 커진다.
+    `render_views`는 하나의 mesh를 재사용하고 view별 depth만 다시 캡처해야 한다.
+    """
     fake_mesh = MagicMock()
     fake_center = np.array([0.0, 0.0, 0.0])
 
@@ -165,14 +195,14 @@ def test_render_views_loads_mesh_once() -> None:
     assert vis.capture_depth_float_buffer.call_count == len(DEFAULT_RENDER_VIEWS)
 
 
-# --- IFC4 schema 媛??(?뺤긽 寃쎈줈???ㅼ젣 fixture, 遺??寃쎈줈??mock) ---
+# --- IFC4 schema gate와 실제 IFC4 fixture 기반 mesh 로딩 테스트 ---
 
 
 def test_load_mesh_rejects_non_ifc4() -> None:
-    """鍮껱FC4 ?ㅽ궎留???IFCRenderError, 硫붿떆吏???낅젰 ?ㅽ궎留??ы븿.
-
-    IFC 2x3 fixture ?뚯씪? 蹂댁쑀?섏? ?딆쑝誘濡?ifcopenshell.open??mock??
-    schema 媛?쒕쭔 寃⑸━ 寃利? 媛???⑥닔 ?먯껜???ㅼ젣 鍮껱FC4 ?낅젰?먮룄 ?묐룞.
+    """IFC4가 아닌 schema는 명확한 렌더 오류로 거절한다.
+    
+    현재 파이프라인은 IFC4 형식을 기준으로 테스트되고 있으므로, IFC2X3 같은 입력이 들어오면
+    나중 단계에서 애매하게 실패하기보다 schema 확인 단계에서 바로 중단해야 한다.
     """
     fake_model = MagicMock()
     fake_model.schema = "IFC2X3"
@@ -186,7 +216,11 @@ def test_load_mesh_rejects_non_ifc4() -> None:
 
 
 def test_load_mesh_accepts_ifc4(ifc4_fixture: Path) -> None:
-    """IFC4 ?낅젰 ???뺤긽 吏꾪뻾 (?덉쇅 ?놁쓬, mesh + center 諛섑솚)."""
+    """실제 IFC4 fixture에서 mesh와 중심점이 만들어지는지 확인한다.
+    
+    mock이 아닌 fixture를 최소 하나 통과시켜 schema 확인, geometry iterator, vertex/triangle
+    조립 경로가 함께 동작하는지 검증한다.
+    """
     mesh, center = load_mesh(ifc4_fixture)
 
     assert center.shape == (3,)
@@ -194,11 +228,15 @@ def test_load_mesh_accepts_ifc4(ifc4_fixture: Path) -> None:
     assert len(mesh.triangles) > 0
 
 
-# --- 移대찓??zoom 紐⑤뱶 (AutoZoomMode.OFF / ITERATIVE) ---
+# --- 자동 zoom 옵션 테스트: 기본 OFF와 ITERATIVE 수렴 동작 ---
 
 
 def test_renderer_default_uses_static_zoom() -> None:
-    """湲곕낯 auto_zoom=OFF ??views.py???뺤쟻 zoom(0.5) 洹몃?濡??꾨떖."""
+    """기본 auto zoom OFF에서는 view 설정의 고정 zoom을 그대로 사용해야 한다.
+    
+    자동 줌은 opt-in 실험 옵션이므로 기본 경로에서는 기존 `VIEW_CAMERAS` zoom 값과 캡처 횟수가
+    변하지 않아야 한다.
+    """
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
     fake_center = np.array([5.0, 5.0, 2.5])
@@ -223,13 +261,13 @@ def test_renderer_default_uses_static_zoom() -> None:
         renderer = IFCRenderer()  # default auto_zoom=AutoZoomMode.OFF
         renderer.render(Path("dummy.ifc"), IFCView.FRONT)
 
-    # OFF 紐⑤뱶: 1??set_zoom + 1??capture, VIEW_CAMERAS[FRONT].zoom=0.5
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     vis.get_view_control.return_value.set_zoom.assert_called_once_with(0.5)
     assert vis.capture_depth_float_buffer.call_count == 1
 
 
 def _make_depth_with_fill(fill_ratio: float, h: int = 448, w: int = 768) -> np.ndarray:
-    """二쇱뼱吏?fill 鍮꾩쑉??媛뽯뒗 depth 諛곗뿴 ?⑹꽦 (geom>0 ?쎌? 鍮꾩쑉 = fill_ratio)."""
+    """지정한 화면 점유율만큼 geometry 픽셀을 채운 테스트용 depth buffer를 만든다."""
     arr = np.zeros((h, w), dtype=np.float32)
     n_geom = int(h * w * fill_ratio)
     arr.flat[:n_geom] = 5.0
@@ -237,16 +275,16 @@ def _make_depth_with_fill(fill_ratio: float, h: int = 448, w: int = 768) -> np.n
 
 
 def test_iterative_zoom_converges_when_target_reached() -> None:
-    """ITERATIVE 紐⑤뱶 ??fill??view-蹂?target tolerance ?덉뿉 ?ㅻ㈃ 利됱떆 醫낅즺.
-
-    IFCView.FRONT??VIEW_TARGET_RATIOS[FRONT]=0.20???곸슜?쒕떎.
-    fill=0.20 짹 0.10 = [0.10, 0.30] ????1??capture濡??섎졃.
+    """ITERATIVE zoom이 목표 화면 점유율 범위에 들어오면 즉시 멈추는지 확인한다.
+    
+    FRONT view의 target ratio와 tolerance 안에 이미 들어온 depth buffer를 주고, 불필요한
+    추가 캡처 없이 1회 캡처로 종료되는지 검증한다.
     """
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
     fake_center = np.array([5.0, 5.0, 2.5])
 
-    target_depth = _make_depth_with_fill(0.20)  # FRONT??view-蹂?target
+    target_depth = _make_depth_with_fill(0.20)
 
     with (
         patch(
@@ -270,17 +308,21 @@ def test_iterative_zoom_converges_when_target_reached() -> None:
         )
         renderer.render(Path("dummy.ifc"), IFCView.FRONT)
 
-    # 泥?iteration?먯꽌 ?섎졃 ??capture 1??
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     assert vis.capture_depth_float_buffer.call_count == 1
 
 
 def test_iterative_zoom_max_iter_caps() -> None:
-    """ITERATIVE ???섎졃 ???대룄 iter_max?먯꽌 諛섎뱶??醫낅즺 (臾댄븳猷⑦봽 諛⑹?)."""
+    """ITERATIVE zoom이 목표에 도달하지 못해도 iter_max에서 멈추는지 확인한다.
+    
+    자동 조정이 수렴하지 않는 depth가 들어올 수 있으므로, 무한 반복 대신 설정한 최대 반복
+    횟수까지만 캡처해야 한다.
+    """
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
     fake_center = np.array([5.0, 5.0, 2.5])
 
-    # ?섎룄?곸쑝濡?target 諛?fill ???섎졃 ????
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     far_from_target = _make_depth_with_fill(0.05)
 
     with (
@@ -306,12 +348,12 @@ def test_iterative_zoom_max_iter_caps() -> None:
         )
         renderer.render(Path("dummy.ifc"), IFCView.FRONT)
 
-    # iter_max=3 ??capture ?뺥솗??3??
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     assert vis.capture_depth_float_buffer.call_count == 3
 
 
 def test_iterative_zoom_bool_true_maps_to_iterative() -> None:
-    """auto_zoom=True (bool) ??AutoZoomMode.ITERATIVE ?먮룞 留ㅽ븨 (backward compat)."""
+    """기존 bool auto_zoom 옵션이 새 enum 옵션과 호환되는지 확인한다."""
     renderer = IFCRenderer(auto_zoom=True)
     assert renderer.auto_zoom == AutoZoomMode.ITERATIVE
 
@@ -319,24 +361,23 @@ def test_iterative_zoom_bool_true_maps_to_iterative() -> None:
     assert renderer_off.auto_zoom == AutoZoomMode.OFF
 
 
-# --- 移대뱶 B + 款: PCA 湲곕컲 ?숈쟻 front + ?깃컖 酉?---
+# --- wall PCA 정렬과 ground plane geometry helper 테스트 ---
 
 
 def _build_wall_mesh(
     n_walls: int, theta_deg: float = 0.0, seed: int = 42
 ) -> tuple[np.ndarray, np.ndarray]:
-    """n_walls媛?axis-aligned 踰?triangle ?⑹꽦 mesh + theta_deg yaw ?뚯쟾.
-
-    媛?triangle? normal=+x???⑥쐞 quad ?덈컲 (3 vertex)濡?axis-aligned 踰?硫??쒕??덉씠??
-    ?꾩튂??臾댁옉??遺꾩궛 ??AABB 遺꾪룷 ?ㅼ뼇. theta_deg!=0?대㈃ mesh ?꾩껜 yaw ?뚯쟾 ?곸슜 ??
-    踰?normal mean??洹몃쭔???닿툔??mesh瑜?留뚮벀 (?뚯쟾 蹂댁젙 寃利앹슜).
+    """벽 normal 정렬 테스트에 사용할 단순 wall mesh를 만든다.
+    
+    각 wall은 +X normal을 갖는 삼각형으로 만들고, 필요하면 전체 mesh에 yaw 회전을 적용한다.
+    실제 IFC 대신 작고 예측 가능한 geometry로 PCA 기반 축 정렬 동작을 검증하기 위한 helper다.
     """
     rng = np.random.default_rng(seed)
     vertices: list[list[float]] = []
     triangles: list[list[int]] = []
     for _ in range(n_walls):
         offset = rng.uniform(-50, 50, 3)
-        # cross((0,1,0), (0,0,1)) = (1, 0, 0) ??normal=+x
+        # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
         v0 = offset + np.array([0.0, 0.0, 0.0])
         v1 = offset + np.array([0.0, 1.0, 0.0])
         v2 = offset + np.array([0.0, 0.0, 1.0])
@@ -361,10 +402,10 @@ def _build_wall_mesh(
 
 
 def _measure_wall_mean_deg(vertices: np.ndarray, triangles: np.ndarray) -> float:
-    """踰?normal 4횞 wrap circular mean ??[-22.5째, 22.5째] signed.
-
-    `_align_walls_to_axes` land 寃利앹슜. ?ы띁 異쒕젰 mesh??wall normal??
-    axis-aligned???뺣젹?먮뒗吏 ?뺣웾 痢≪젙.
+    """wall normal의 평균 yaw를 4방향 대칭 기준으로 측정한다.
+    
+    `_align_walls_to_axes`가 mesh를 축에 맞게 되돌렸는지 확인하기 위해, 벽면 normal만 골라
+    면적 가중 circular mean을 계산한다.
     """
     v0 = vertices[triangles[:, 0]]
     v1 = vertices[triangles[:, 1]]
@@ -390,40 +431,40 @@ def _measure_wall_mean_deg(vertices: np.ndarray, triangles: np.ndarray) -> float
 
 
 def test_align_walls_rotates_tilted_mesh_to_axis_aligned() -> None:
-    """10째 CCW 湲곗슱?댁쭊 踰?mesh ???뚯쟾 蹂댁젙 ??wall mean ??0째.
-
-    Phase 1+2 Step 11 ?뚭? 諛⑹뼱 ??IFC 醫뚰몴怨??뚯쟾(haus +3.7째 / SampleHouse +10째)
-    ??mesh ?④퀎?먯꽌 踰?normal 湲곗??쇰줈 ?뺥솗??蹂댁젙?섎뒗吏 ?뺣웾 寃利?
+    """기울어진 wall mesh를 축 정렬 상태로 회전시키는지 확인한다.
+    
+    실제 Haus/SampleHouse IFC에서 약간 비틀린 건물 축을 보정했던 케이스를 단순 mesh로 재현한다.
+    회전 전 평균 yaw가 약 10도이고, 보정 후 0도 근처로 돌아와야 한다.
     """
     verts, tris = _build_wall_mesh(n_walls=128, theta_deg=10.0)
     pre_mean = _measure_wall_mean_deg(verts, tris)
-    assert abs(pre_mean - 10.0) < 0.5  # 10째 ?닿툔???곹깭 ?쒖옉
+    assert abs(pre_mean - 10.0) < 0.5
 
     rotated, did_rotate = _align_walls_to_axes(verts, tris)
 
     assert did_rotate is True
     post_mean = _measure_wall_mean_deg(rotated, tris)
-    assert abs(post_mean) < 0.1  # axis-aligned ?뺣젹
+    assert abs(post_mean) < 0.1
 
 
 def test_align_walls_idempotent_on_already_aligned_mesh() -> None:
-    """?대? axis-aligned 踰?mesh ???뚯쟾 ?곸슜?섏뼱??wall mean 0째 ?좎?."""
+    """이미 축에 맞는 wall mesh에는 불필요한 회전이 누적되지 않아야 한다."""
     verts, tris = _build_wall_mesh(n_walls=128, theta_deg=0.0)
     pre_mean = _measure_wall_mean_deg(verts, tris)
-    assert abs(pre_mean) < 0.1  # ?쒖옉 ?뺣젹
+    assert abs(pre_mean) < 0.1
 
     rotated, _ = _align_walls_to_axes(verts, tris)
     post_mean = _measure_wall_mean_deg(rotated, tris)
 
-    # axis-aligned 蹂댁〈 ???뚯쟾 ?곸슜 ?щ? 臾닿??섍쾶 mean ??0
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     assert abs(post_mean) < 0.1
 
 
 def test_align_walls_skips_when_too_few_walls() -> None:
-    """踰?硫?< WALL_NORMAL_MIN_COUNT(4) ??臾댄쉶??(?곗씠??遺議?.
-
-    吏곸궗媛곹삎 ?⑥닚 諛뺤뒪 mesh??4硫?蹂댁쑀 ??4 誘몃쭔? 鍮꾩젙??mesh.
-    遺꾪룷 ?좊ː?꾨뒗 蹂꾨룄(`WALL_NORMAL_MIN_MAGNITUDE`)媛 媛??
+    """벽 normal 표본이 너무 적으면 축 정렬을 건너뛰는지 확인한다.
+    
+    표본이 부족한 상태에서 회전각을 추정하면 작은 mesh나 잡음에 과하게 반응할 수 있으므로,
+    최소 wall 개수 조건을 만족하지 못하면 원본 vertex를 그대로 돌려준다.
     """
     verts, tris = _build_wall_mesh(n_walls=3, theta_deg=10.0)
     rotated, did_rotate = _align_walls_to_axes(verts, tris)
@@ -433,7 +474,7 @@ def test_align_walls_skips_when_too_few_walls() -> None:
 
 
 def test_align_walls_skips_for_vertex_shortage() -> None:
-    """vertex ??< 3 ??臾댄쉶??(face ?뺤쓽 遺덇?)."""
+    """face를 만들 수 없을 만큼 vertex가 적으면 wall 정렬을 건너뛰어야 한다."""
     verts = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
     tris = np.empty((0, 3), dtype=np.int64)
     rotated, did_rotate = _align_walls_to_axes(verts, tris)
@@ -443,7 +484,7 @@ def test_align_walls_skips_for_vertex_shortage() -> None:
 
 
 def test_align_walls_skips_for_empty_triangles() -> None:
-    """triangle 0媛???臾댄쉶??(face normal ?곗텧 遺덇?)."""
+    """triangle이 없는 mesh는 face normal을 계산할 수 없으므로 wall 정렬을 건너뛰어야 한다."""
     verts = np.random.default_rng(42).uniform(-10, 10, (50, 3))
     tris = np.empty((0, 3), dtype=np.int64)
     rotated, did_rotate = _align_walls_to_axes(verts, tris)
@@ -453,7 +494,7 @@ def test_align_walls_skips_for_empty_triangles() -> None:
 
 
 def test_add_ground_plane_appends_4_vertices_and_2_triangles() -> None:
-    """ground plane 異붽? ??4 vertex(quad corners) + 2 triangle ?꾩쟻."""
+    """ground plane 추가가 quad 꼭짓점 4개와 triangle 2개를 덧붙이는지 확인한다."""
     verts = np.array(
         [[0.0, 0.0, 0.0], [10.0, 5.0, 0.0], [5.0, 0.0, 3.0]], dtype=np.float64
     )
@@ -466,7 +507,7 @@ def test_add_ground_plane_appends_4_vertices_and_2_triangles() -> None:
 
 
 def test_add_ground_plane_z_at_aabb_min() -> None:
-    """ground plane z = ?낅젰 mesh AABB.z_min ??諛붾떏???뺣젹."""
+    """ground plane의 z 위치가 원본 mesh의 AABB 최소 z와 일치하는지 확인한다."""
     verts = np.array(
         [[0.0, 0.0, 1.5], [10.0, 5.0, 1.5], [5.0, 0.0, 4.5]], dtype=np.float64
     )
@@ -479,9 +520,10 @@ def test_add_ground_plane_z_at_aabb_min() -> None:
 
 
 def test_add_ground_plane_normal_points_up() -> None:
-    """ground plane ??triangle 紐⑤몢 normal +z (?꾩そ) ??wall_mask????嫄몃┝.
-
-    `_align_walls_to_axes`??`|n_z| < 0.1` ?꾪꽣????嫄몃젮???뚯쟾 蹂댁젙???곹뼢 ?놁쓬.
+    """추가된 ground plane triangle normal이 위쪽을 향하는지 확인한다.
+    
+    wall 축 정렬 로직은 수평 바닥면을 wall 후보에서 제외해야 한다. ground normal이 +Z 방향이면
+    `abs(n_z)` 조건으로 벽면과 구분할 수 있다.
     """
     verts = np.array(
         [[0.0, 0.0, 0.0], [10.0, 5.0, 0.0], [5.0, 0.0, 3.0]], dtype=np.float64
@@ -500,10 +542,7 @@ def test_add_ground_plane_normal_points_up() -> None:
 
 
 def test_add_ground_plane_extent_matches_aabb_factor() -> None:
-    """ground plane xy 踰붿쐞 = mesh AABB xy extent 횞 GROUND_EXTENT_FACTOR.
-
-    factor 蹂寃????? 2.0??.2 ?듭뀡 EE) ?먮룞 諛섏쁺 ??hard-coded ?섏튂 ?뚭? 諛⑹뼱.
-    """
+    """기본 ground plane 크기가 mesh AABB extent와 factor를 기준으로 계산되는지 확인한다."""
     verts = np.array(
         [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [10.0, 6.0, 0.0], [0.0, 6.0, 3.0]],
         dtype=np.float64,
@@ -515,13 +554,17 @@ def test_add_ground_plane_extent_matches_aabb_factor() -> None:
     g_x_extent = ground_verts[:, 0].max() - ground_verts[:, 0].min()
     g_y_extent = ground_verts[:, 1].max() - ground_verts[:, 1].min()
 
-    # ?낅젰 AABB xy extent: 10, 6 ??ground = factor 횞 ?낅젰
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     assert abs(g_x_extent - 10.0 * GROUND_EXTENT_FACTOR) < 1e-9
     assert abs(g_y_extent - 6.0 * GROUND_EXTENT_FACTOR) < 1e-9
 
 
 def test_add_ground_plane_accepts_extent_factor_override() -> None:
-    """ground plane extent can be tuned for opt-in EYE geometry experiments."""
+    """ground extent factor override가 plane 크기를 조정하는지 확인한다.
+    
+    EYE view 실험에서는 기본 바닥 크기가 너무 크거나 작을 수 있으므로, view별로 factor를
+    조정할 수 있어야 한다.
+    """
     verts = np.array(
         [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [10.0, 6.0, 0.0], [0.0, 6.0, 3.0]],
         dtype=np.float64,
@@ -538,10 +581,7 @@ def test_add_ground_plane_accepts_extent_factor_override() -> None:
 
 
 def test_attach_ground_plane_to_mesh_appends_4_vertices() -> None:
-    """`attach_ground_plane_to_mesh` ??Open3D mesh wrapper, vertex 4 + triangle 2 異붽?.
-
-    `_add_ground_plane`(numpy ?④퀎) ?몄텧 ????TriangleMesh 援ъ꽦. ?낅젰 mesh??蹂寃??놁쓬.
-    """
+    """Open3D TriangleMesh wrapper에서도 ground plane vertex와 triangle이 추가되는지 확인한다."""
     import open3d as o3d
     base = o3d.geometry.TriangleMesh()
     base.vertices = o3d.utility.Vector3dVector(
@@ -554,12 +594,15 @@ def test_attach_ground_plane_to_mesh_appends_4_vertices() -> None:
 
     assert len(new_mesh.vertices) == len(base.vertices) + 4
     assert len(new_mesh.triangles) == len(base.triangles) + 2
-    # ?낅젰 mesh 蹂댁〈
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     assert len(base.vertices) == 3
 
 
 def test_renderer_passes_eye_ground_extent_override_only_for_eye() -> None:
-    """EYE geometry override should not change the default front/side ground path."""
+    """EYE 전용 ground extent override가 EYE view에만 전달되는지 확인한다.
+    
+    front/side의 안정화 설정을 보존하면서 대각선 view의 ground plane만 조정하기 위한 회귀 테스트다.
+    """
     base_mesh = MagicMock(name="base_mesh")
     base_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 10.0, 5.0]])
     fake_center = np.array([5.0, 5.0, 2.5])
@@ -600,7 +643,7 @@ def test_renderer_passes_eye_ground_extent_override_only_for_eye() -> None:
 
 
 def test_iso_views_removed_from_enum() -> None:
-    """ISO_NE/ISO_NW/ISO_SE??enum?먯꽌 ?꾩쟾 ?쒓굅??"""
+    """사용하지 않기로 한 ISO 계열 view가 public enum에 남아 있지 않은지 확인한다."""
     enum_names = {v.name for v in IFCView}
     assert "ISO_NE" not in enum_names
     assert "ISO_NW" not in enum_names
@@ -610,10 +653,7 @@ def test_iso_views_removed_from_enum() -> None:
 
 
 def test_eye_views_all_in_enum() -> None:
-    """EYE_NE/NW/SE 3媛쒓? IFCView enum???깅줉 + ?쒖꽦 dict 紐⑤몢 留ㅽ븨 蹂댁쑀.
-
-    Phase 3 ?뚭? 諛⑹뼱 ???좉퇋 view 異붽? ??dict 留ㅽ븨 ?꾨씫?섎㈃ KeyError.
-    """
+    """EYE_NE, EYE_NW, EYE_SE view가 enum과 view 설정 dict에 모두 등록되어 있는지 확인한다."""
     from ai_rendering.ifc2img.views import VIEW_CAMERAS
 
     eye_views = (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE)
@@ -625,10 +665,7 @@ def test_eye_views_all_in_enum() -> None:
 
 
 def test_eye_views_have_zero_z_for_horizontal() -> None:
-    """EYE_*??移대찓??front 踰≫꽣 z ?깅텇??0.0 ???щ엺 ?쒖꽑 *?꾩쟾 ?섑룊*.
-
-    ISO_*? z=0.5(?꾩뿉???깃컖)?대씪 *?議?. EYE??z=0 蹂댁옣???듭떖 ?뺤껜??
-    """
+    """EYE view가 top-down이 아니라 수평 대각선 시점으로 설정되어 있는지 확인한다."""
     from ai_rendering.ifc2img.views import VIEW_CAMERAS
 
     for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
@@ -637,14 +674,14 @@ def test_eye_views_have_zero_z_for_horizontal() -> None:
 
 
 def test_default_render_views_includes_eye() -> None:
-    """湲곕낯 render_views()??EYE_* 3媛?紐⑤몢 ?ы븿 ??DEFAULT 5酉?"""
+    """기본 렌더 view 세트가 production에서 쓰는 front, side, EYE 3종으로 구성되는지 확인한다."""
     for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
         assert v in DEFAULT_RENDER_VIEWS
     assert len(DEFAULT_RENDER_VIEWS) == 5
 
 
 def test_removed_views_are_not_public_enum_members() -> None:
-    """Unused top/corner_low/birds_eye views should not be callable anymore."""
+    """birds_eye, corner_low, top처럼 제거한 view 이름이 public enum에 노출되지 않는지 확인한다."""
     removed = {"top", "corner_low", "birds_eye"}
 
     assert removed.isdisjoint({view.value for view in IFCView})
@@ -652,18 +689,18 @@ def test_removed_views_are_not_public_enum_members() -> None:
     assert len(DEFAULT_RENDER_VIEWS) == 5
 
 
-# --- ?듭뀡 B 怨듯넻 ?먯궛 ??VIEW_PROMPT_SUFFIXES + build_view_prompt ---
+# --- view별 prompt prefix/suffix와 build_view_prompt 정책 테스트 ---
 
 
 
 def test_view_prompt_suffixes_front_side_eye_empty() -> None:
-    """default(FRONT/SIDE/EYE_*) ?쒖젏? 鍮?suffix ???쒓컙? suffix??preset ?④퀎 梨낆엫."""
+    """view별 suffix는 비워두고 prefix 중심으로 prompt를 조립하는 정책을 확인한다."""
     for v in (IFCView.FRONT, IFCView.SIDE, IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
         assert VIEW_PROMPT_SUFFIXES[v] == ""
 
 
 def test_view_prompt_prefixes_eye_describe_ground_and_sky_position() -> None:
-    """EYE_* view prefix adds short front-loaded ground and sky placement cues."""
+    """EYE prefix가 대각선 시점, 주변 ground, 지붕 위 sky 조건을 앞쪽에 넣는지 확인한다."""
     for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
         prefix = VIEW_PROMPT_PREFIXES[v]
         assert "eye-level diagonal view" in prefix
@@ -675,7 +712,7 @@ def test_view_prompt_prefixes_eye_describe_ground_and_sky_position() -> None:
 
 
 def test_build_view_prompt_prepends_prefix_for_front_side() -> None:
-    """FRONT/SIDE should prepend ground-line constraints before the base prompt."""
+    """front/side prompt 앞쪽에 view 전용 prefix가 붙는지 확인한다."""
     base = "RAW photo, scandinavian house"
     front = build_view_prompt(base, IFCView.FRONT)
     side = build_view_prompt(base, IFCView.SIDE)
@@ -692,7 +729,7 @@ def test_build_view_prompt_prepends_prefix_for_front_side() -> None:
 
 
 def test_build_view_prompt_prepends_prefix_for_eye() -> None:
-    """EYE_* prompt front-loads diagonal ground and sky placement cues."""
+    """EYE prompt 앞쪽에 대각선 ground anchoring prefix가 붙는지 확인한다."""
     base = "RAW photo, scandinavian house"
     result = build_view_prompt(base, IFCView.EYE_NE)
 
@@ -705,11 +742,11 @@ def test_build_view_prompt_prepends_prefix_for_eye() -> None:
     assert "not aerial" in result
 
 
-# --- B-3 ??build_view_prompt 怨듦컻 API export ---
+# --- build_view_prompt public API와 view별 prompt 후처리 테스트 ---
 
 
 def test_build_view_prompt_removes_blue_sky_for_eye() -> None:
-    """EYE_* prompt removes the generic day blue-sky prior from the composed prompt."""
+    """EYE view에서는 day suffix의 blue sky 표현이 과하게 앞서지 않도록 제거되는지 확인한다."""
     base = "RAW photo, scandinavian house, during sunny daytime, natural sunlight, blue sky"
 
     result = build_view_prompt(base, IFCView.EYE_NE)
@@ -721,7 +758,7 @@ def test_build_view_prompt_removes_blue_sky_for_eye() -> None:
 
 
 def test_build_view_prompt_keeps_blue_sky_for_front() -> None:
-    """FRONT keeps the day blue-sky text while adding ground-line constraints."""
+    """front view에서는 outdoor daylight cue로 쓰는 blue sky 표현을 유지하는지 확인한다."""
     base = "RAW photo, scandinavian house, during sunny daytime, natural sunlight, blue sky"
 
     result = build_view_prompt(base, IFCView.FRONT)
@@ -733,72 +770,64 @@ def test_build_view_prompt_keeps_blue_sky_for_front() -> None:
 
 
 def test_build_view_prompt_in_public_api() -> None:
-    """B-3 ??build_view_prompt媛 ifc2img.__all__???깅줉?섏뼱 ?몃??먯꽌 吏곸젒 import 媛??"""
+    """build_view_prompt가 ifc2img public API로 export되는지 확인한다."""
     from ai_rendering import ifc2img
     from ai_rendering.ifc2img import build_view_prompt as exported
 
     assert "build_view_prompt" in ifc2img.__all__
-    # ?숈씪 ?⑥닔 ?덊띁?곗뒪 (?ъ젙??X)
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     from ai_rendering.ifc2img.views import build_view_prompt as internal
     assert exported is internal
 
 
 
 def test_view_target_ratios_cropping_resistant() -> None:
-    """?섎┝ ?꾪뿕 ???쒖젏?ㅼ씠 痢〓㈃(FRONT/SIDE)蹂대떎 ?묒? target ratio 媛?몄빞 ??cropping 諛⑹뼱."""
+    """EYE view target ratio가 front/side보다 작아 cropping에 덜 취약한지 확인한다."""
     front_ratio = VIEW_TARGET_RATIOS[IFCView.FRONT]
-    # ???깃컖 ?쒖젏? 紐⑤몢 痢〓㈃蹂대떎 ?묒븘??
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
         assert VIEW_TARGET_RATIOS[v] < front_ratio
 
 
 def test_renderer_resolves_view_specific_target() -> None:
-    """_resolve_target_ratio媛 view-蹂?留ㅽ븨媛믪쓣 諛섑솚 + small mesh?먯꽌 base 洹몃?濡?
-
-    small mesh(extent <20m, dispatch ?꾧퀎媛?誘몃쭔)?먯꽌??dispatch 諛곗쑉 ?곸슜 ??????
-    `VIEW_TARGET_RATIOS[view]` 洹몃?濡?諛섑솚. ??mesh??dispatch ?숈옉? 蹂꾨룄 ?뚯뒪??
-    (`test_resolve_target_ratio_for_*_mesh`)?먯꽌 寃利?
-    """
+    """renderer가 view별 target ratio resolver를 통해 화면 점유율 목표를 가져오는지 확인한다."""
     renderer = IFCRenderer(target_screen_ratio=0.99)  # fallback
-    # extent ~10m mesh ??dispatch ?꾧퀎媛?20m) 誘몃쭔 ??base 洹몃?濡?
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     small_mesh = MagicMock()
     small_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 5.0, 3.0]])
-    # 紐⑤뱺 ?깅줉 view??留ㅽ븨媛믪씠 fallback怨??ㅻ쫫??媛??(?꾩옱 留ㅽ븨 媛?0.12~0.20, fallback 0.99)
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     for v in IFCView:
         assert renderer._resolve_target_ratio(v, small_mesh) == VIEW_TARGET_RATIOS[v]
 
 
-# --- ?듭뀡 B ??fixture蹂?dispatch (resolve_target_ratio_for_mesh) ---
+# --- mesh 규모별 target ratio dispatch 테스트 ---
 
 
 def test_resolve_target_ratio_for_small_mesh_returns_base() -> None:
-    """small mesh(extent ??20m, haus/SampleHouse ?쒕굹由ъ삤) ??base 洹몃?濡?
-
-    ?꾧퀎媛?誘몃쭔?대씪 dispatch 諛곗쑉 ?곸슜 ???? base_ratio 紐낆떆???묐룞 寃利?
-    """
-    # 紐낆떆??base_ratio
+    """작은 주택 규모 mesh는 view별 기본 target ratio를 그대로 사용하는지 확인한다."""
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     assert resolve_target_ratio_for_mesh(IFCView.FRONT, 13.0, base_ratio=0.20) == 0.20
     assert resolve_target_ratio_for_mesh(IFCView.SIDE, 17.0, base_ratio=0.20) == 0.20
-    # base_ratio 誘몄?????VIEW_TARGET_RATIOS ?ъ슜
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     assert (
         resolve_target_ratio_for_mesh(IFCView.FRONT, 10.0)
         == VIEW_TARGET_RATIOS[IFCView.FRONT]
     )
-    # 寃쎄퀎媛????뺥솗??20.0? medium 遺꾧린 誘몄쟻??(`>` ?ъ슜) ??base 洹몃?濡?
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     assert resolve_target_ratio_for_mesh(IFCView.FRONT, 20.0, base_ratio=0.20) == 0.20
 
 
 def test_resolve_target_ratio_for_medium_mesh_scales_down() -> None:
-    """medium mesh(20 < extent ??50m) ??base 횞 DISPATCH_MEDIUM_FACTOR (=0.8)."""
+    """중간 규모 mesh는 dispatch factor로 target ratio를 낮추는지 확인한다."""
     base = 0.20
     assert resolve_target_ratio_for_mesh(IFCView.FRONT, 30.0, base_ratio=base) == (
         base * DISPATCH_MEDIUM_FACTOR
     )
-    # 寃쎄퀎媛???50.0 ?뺥솗??medium 遺꾧린 (`> 50` ?ъ슜) ???ъ쟾??medium
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     assert resolve_target_ratio_for_mesh(IFCView.FRONT, 50.0, base_ratio=base) == (
         base * DISPATCH_MEDIUM_FACTOR
     )
-    # ISO 湲곕낯媛믪뿉?쒕룄 ?묐룞
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     iso_base = VIEW_TARGET_RATIOS[IFCView.EYE_NE]
     assert resolve_target_ratio_for_mesh(IFCView.EYE_NE, 35.0) == (
         iso_base * DISPATCH_MEDIUM_FACTOR
@@ -806,7 +835,7 @@ def test_resolve_target_ratio_for_medium_mesh_scales_down() -> None:
 
 
 def test_resolve_target_ratio_for_large_mesh_scales_more() -> None:
-    """large mesh(extent > 50m, Smiley 75m ?쒕굹由ъ삤) ??base 횞 DISPATCH_LARGE_FACTOR (=0.6)."""
+    """큰 규모 mesh는 더 강한 dispatch factor로 target ratio를 낮추는지 확인한다."""
     base = 0.20
     assert resolve_target_ratio_for_mesh(IFCView.FRONT, 75.0, base_ratio=base) == (
         base * DISPATCH_LARGE_FACTOR
@@ -814,25 +843,21 @@ def test_resolve_target_ratio_for_large_mesh_scales_more() -> None:
     assert resolve_target_ratio_for_mesh(IFCView.SIDE, 100.0, base_ratio=base) == (
         base * DISPATCH_LARGE_FACTOR
     )
-    # ISO 湲곕낯媛믪뿉?쒕룄 ?묐룞
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     iso_base = VIEW_TARGET_RATIOS[IFCView.EYE_NE]
     assert resolve_target_ratio_for_mesh(IFCView.EYE_NE, 75.0) == (
         iso_base * DISPATCH_LARGE_FACTOR
     )
 
 
-# --- dispatch base_mesh 遺꾨━ (ground ?ы븿 mesh ?꾨땶 嫄대Ъ 蹂몄껜濡??꾧퀎媛??먮떒) ---
+# --- dispatch 기준 mesh가 ground 확장 전 base mesh인지 검증하는 테스트 ---
 
 
 def test_render_mesh_dispatch_uses_base_mesh_not_ground_extended() -> None:
-    """`_render_mesh`??dispatch ?꾧퀎媛??먮떒??*base_mesh*(嫄대Ъ 蹂몄껜)濡??쒕떎.
-
-    *?뚮뜑??view_mesh*(ground ?ы븿)濡?`_resolve_target_ratio`瑜??몄텧?섎㈃ ground 횞
-    factor媛 max_extent???ы븿??dispatch ?꾧퀎媛?20m/50m)??*嫄대Ъ 蹂몄껜*媛 ?꾨땶
-    ground ?ы븿 寃곌낵 湲곗??쇰줈 ?섎せ ?몃━嫄곕맂???? 17m ??ground ?ы븿 ~20m ??MEDIUM
-    ?섎せ 遺꾨쪟). ???뚯뒪?? base_mesh(13m) + view_mesh(25m ?명뵆?덉씠???쒕?) 遺꾨━
-    ?꾨떖 ??dispatch??base 湲곗??대씪 base * 1.0 諛섑솚. view_mesh 湲곗??대㈃ MEDIUM(횞
-    0.8) ?곸슜?먯쓣 寃?
+    """target ratio dispatch가 ground plane으로 확장된 mesh가 아니라 원본 building mesh 기준인지 확인한다.
+    
+    ground plane을 붙인 view mesh로 규모를 판단하면 작은 주택도 medium/large로 오판할 수 있다.
+    따라서 dispatch는 load_mesh 결과인 base_mesh의 extent만 사용해야 한다.
     """
     renderer = IFCRenderer()
     base_mesh = MagicMock()
@@ -843,18 +868,14 @@ def test_render_mesh_dispatch_uses_base_mesh_not_ground_extended() -> None:
     base_ratio = renderer._resolve_target_ratio(IFCView.FRONT, base_mesh)
     view_ratio = renderer._resolve_target_ratio(IFCView.FRONT, view_mesh)
 
-    assert base_ratio == VIEW_TARGET_RATIOS[IFCView.FRONT]  # 13m ??factor 1.0
+    assert base_ratio == VIEW_TARGET_RATIOS[IFCView.FRONT]
     assert view_ratio == VIEW_TARGET_RATIOS[IFCView.FRONT] * DISPATCH_MEDIUM_FACTOR
-    # ??寃곌낵媛 *諛섎뱶???ㅻ쫫* ????李⑥씠媛 base_mesh瑜??곗? ?딆쓣 ??諛쒖깮???뚭?
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     assert base_ratio != view_ratio
 
 
 def test_render_passes_base_mesh_to_resolve_target_ratio() -> None:
-    """`render()` ?듯빀 ??_resolve_target_ratio媛 *base_mesh*(load_mesh 寃곌낵)濡??몄텧??
-
-    attach_ground_plane_to_mesh媛 *?ㅻⅨ mesh* 諛섑솚?섎룄濡?mock?섍퀬,
-    `IFCRenderer._resolve_target_ratio`瑜?spy??base_mesh媛 ?꾨떖?섎뒗吏 ?뺤씤.
-    """
+    """render 경로에서 `_resolve_target_ratio`에 ground 확장 전 base mesh가 전달되는지 확인한다."""
     base_mesh = MagicMock(name="base_mesh")
     base_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 10.0, 5.0]])
     inflated_mesh = MagicMock(name="inflated_mesh")
@@ -889,13 +910,13 @@ def test_render_passes_base_mesh_to_resolve_target_ratio() -> None:
         renderer = IFCRenderer()
         renderer.render(Path("dummy.ifc"), IFCView.FRONT)
 
-    # _resolve_target_ratio??base_mesh濡??몄텧?섏뼱???쒕떎 (inflated_mesh ?꾨떂)
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     assert len(captured) == 1
     assert captured[0] is base_mesh
 
 
 def test_render_uses_static_view_camera() -> None:
-    """render() ??VIEW_CAMERAS???뺤쟻 vector媛 洹몃?濡?移대찓??front濡??ъ슜??"""
+    """기본 render가 views.py의 static camera vector를 그대로 적용하는지 확인한다."""
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5], [20, 0, 5]])
     fake_center = np.array([10.0, 5.0, 2.5])
@@ -920,7 +941,7 @@ def test_render_uses_static_view_camera() -> None:
         renderer = IFCRenderer()
         renderer.render(Path("dummy.ifc"), IFCView.FRONT)
 
-    # set_front? IFCView.FRONT???뺤쟻 vector (-1.0, 0.0, 0.0)濡??몄텧 ??z=0 ?꾩쟾 ?섑룊
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     set_front_calls = vis.get_view_control.return_value.set_front.call_args_list
     assert len(set_front_calls) == 1
     assert set_front_calls[0].args[0] == [-1.0, 0.0, 0.0]
@@ -928,7 +949,7 @@ def test_render_uses_static_view_camera() -> None:
 
 @pytest.mark.parametrize("schema_name", ["IFC4", "IFC4X1", "IFC4X2", "IFC4X3"])
 def test_load_mesh_accepts_ifc4_variants(schema_name: str) -> None:
-    """IFC4 怨꾩뿴(IFC4X1/IFC4X3 ?? 紐⑤몢 schema 媛???듦낵 ??prefix='IFC4'."""
+    """IFC4X1, IFC4X3처럼 IFC4 prefix를 가진 schema variant를 허용하는지 확인한다."""
     fake_model = MagicMock()
     fake_model.schema = schema_name
 
@@ -954,23 +975,24 @@ def test_load_mesh_accepts_ifc4_variants(schema_name: str) -> None:
         ),
         patch("ai_rendering.ifc2img.geometry.ifcopenshell.geom.settings"),
     ):
-        # ?덉쇅 ?놁씠 ?듦낵?댁빞 ?쒕떎. load_mesh??building geometry留?諛섑솚
-        # (ground plane? view-aware濡?IFCRenderer?먯꽌 異붽?, ?듭뀡 OO).
+        # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
+        # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
         mesh, _ = load_mesh(Path("dummy.ifc"))
         assert len(mesh.vertices) == 3
 
 
-# --- 嫄대Ъ 援ъ꽦?붿냼 ?붿씠?몃━?ㅽ듃 (mock 湲곕컲) ---
+# --- ifcopenshell geometry iterator를 mock으로 구성한 포함 타입 테스트 ---
 
 
 def _make_mock_entity(type_name: str) -> MagicMock:
-    """is_a(t)媛 type_name怨?留ㅼ튂 ??True 諛섑솚?섎뒗 fake IFC entity."""
+    """`is_a(type_name)`를 흉내 내는 fake IFC entity를 만든다."""
     e = MagicMock()
     e.is_a.side_effect = lambda t: t == type_name
     return e
 
 
 def _make_mock_shape(entity_id: int, verts: tuple, faces: tuple = (0, 1, 2)) -> MagicMock:  # type: ignore[type-arg]
+    """ifcopenshell geometry iterator가 반환하는 shape 객체를 흉내 낸다."""
     s = MagicMock()
     s.id = entity_id
     s.geometry.verts = verts
@@ -979,17 +1001,17 @@ def _make_mock_shape(entity_id: int, verts: tuple, faces: tuple = (0, 1, 2)) -> 
 
 
 def _patch_iterator_with_shapes(shapes: list[MagicMock]):  # type: ignore[no-untyped-def]
-    """二쇱뼱吏?shape ?쒗?ㅻ? yield?섎뒗 媛吏?ifcopenshell iterator瑜?留뚮뱺??"""
+    """지정한 shape 목록을 순서대로 내보내는 ifcopenshell iterator mock을 구성한다."""
     fake_iter = MagicMock()
     fake_iter.initialize.return_value = True
-    # get()? 留??몄텧留덈떎 ?ㅼ쓬 shape, next()??留덉?留됱쓣 ?쒖쇅?섍퀬 True
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     fake_iter.get.side_effect = shapes
     fake_iter.next.side_effect = [True] * (len(shapes) - 1) + [False]
     return fake_iter
 
 
 def test_default_includes_only_building_elements() -> None:
-    """湲곕낯 ?몄텧(`load_mesh(path)`)? IfcBuildingElement留??ы븿, IfcSite???쒖쇅."""
+    """기본 load_mesh가 IfcBuildingElement만 포함하고 IfcSite는 제외하는지 확인한다."""
     fake_model = MagicMock()
     fake_model.schema = "IFC4"
 
@@ -1012,13 +1034,13 @@ def test_default_includes_only_building_elements() -> None:
     ):
         _, center = load_mesh(Path("dummy.ifc"))
 
-    # IfcSite(짹1000)媛 ?ы븿?먮떎硫?center媛 硫由??⑥뼱吏? wall留??ы븿?대㈃ ~ (0.33, 0.33, 0).
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     assert abs(center[0]) < 5
     assert abs(center[1]) < 5
 
 
 def test_extra_types_extends_inclusion() -> None:
-    """extra_types??IfcFurnishingElement ?꾨떖 ??媛援щ룄 ?ы븿?쒕떎."""
+    """extra_types 옵션으로 IfcFurnishingElement 같은 추가 타입을 포함할 수 있는지 확인한다."""
     fake_model = MagicMock()
     fake_model.schema = "IFC4"
 
@@ -1044,16 +1066,16 @@ def test_extra_types_extends_inclusion() -> None:
             extra_types=frozenset({"IfcFurnishingElement"}),
         )
 
-    # ??entity 紐⑤몢 ?ы븿?섎㈃ mesh vertex 6媛? wall留??ы븿?대㈃ 3媛?
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     assert len(mesh.vertices) == 6
 
 
 def test_included_base_ifcproduct_includes_everything() -> None:
-    """included_base='IfcProduct'??escape hatch ??IfcSite???ы븿?쒕떎 (?꾩껜 ??紐⑤뱶)."""
+    """included_base escape hatch가 IfcProduct 하위 요소 전체를 포함할 수 있는지 확인한다."""
     fake_model = MagicMock()
     fake_model.schema = "IFC4"
 
-    # IfcSite??IfcProduct ?쒕툕??? is_a("IfcProduct") ??True.
+    # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     site = MagicMock()
     site.is_a.side_effect = lambda t: t in {"IfcSite", "IfcProduct"}
     fake_model.by_id.return_value = site
@@ -1070,11 +1092,11 @@ def test_included_base_ifcproduct_includes_everything() -> None:
     ):
         mesh, _ = load_mesh(Path("dummy.ifc"), included_base="IfcProduct")
 
-    assert len(mesh.vertices) == 3  # site媛 ?ы븿??
+    assert len(mesh.vertices) == 3
 
 
 def test_no_building_element_raises() -> None:
-    """IfcBuildingElement媛 0媛쒖씤 IFC ??IFCRenderError, 硫붿떆吏??included_base ?ы븿."""
+    """기본 포함 기준에서 building element가 하나도 없으면 명확한 오류를 내는지 확인한다."""
     fake_model = MagicMock()
     fake_model.schema = "IFC4"
 
@@ -1097,14 +1119,14 @@ def test_no_building_element_raises() -> None:
             load_mesh(Path("dummy.ifc"))
 
 
-# depth ?꾩쿂由??곷떒 background fill ?쒕룄 ?먭린 ??SD媛 mid-raw ?뚯깋 ?좊? *?섑룊??
-# 援ъ“臾????꾨땲??*嫄대Ъ ?먯껜??吏遺??쇰줈 ?댁꽍???ъ쭊 ??1/3??吏遺뺤쿂???섏샂.
-# depth ?꾩쿂由??⑥꽌媛 SD prior???≪닔?섏뼱 ?섎룄? ?ㅻⅨ 寃곌낵.
+# 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
+# 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
+# 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
 
 
 
 def test_renderer_uses_view_target_override_for_eye_only() -> None:
-    """Opt-in target overrides should affect only the requested views."""
+    """view target ratio override가 EYE view에만 적용되고 front/side에는 영향을 주지 않는지 확인한다."""
     renderer = IFCRenderer(
         target_screen_ratio=0.99,
         view_target_overrides={IFCView.EYE_NE: 0.25},
