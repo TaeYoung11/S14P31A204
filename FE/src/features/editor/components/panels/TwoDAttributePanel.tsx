@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
-import type { MutableRefObject } from 'react'
 import type { BubbleInfo } from './BubbleAttributePanel'
 import type { FloorOpening, FloorWall } from '../../types'
+import { FLOOR_PLAN_EDIT_AUTHORITY } from '../../constants'
 import { TwoDOpeningAttributes } from './twoDAttribute/TwoDOpeningAttributes'
 import { TwoDWallAttributes } from './twoDAttribute/TwoDWallAttributes'
 import { TwoDRoomAttributes } from './twoDAttribute/TwoDRoomAttributes'
+import { useTwoDAttributeDrafts } from './twoDAttribute/useTwoDAttributeDrafts'
 
 interface TwoDAttributePanelProps {
   selectedBubble: BubbleInfo | null
@@ -48,124 +48,38 @@ export function TwoDAttributePanel({
   onDoorSwingDirectionChange,
   onDoorHingeSideChange,
 }: TwoDAttributePanelProps) {
-  const ROOM_DIMENSION_DEBOUNCE_MS = 220
-  const [roomWidthDraft, setRoomWidthDraft] = useState('')
-  const [roomHeightDraft, setRoomHeightDraft] = useState('')
-  const [isWidthEditing, setIsWidthEditing] = useState(false)
-  const [isHeightEditing, setIsHeightEditing] = useState(false)
-  const widthDebounceRef = useRef<number | null>(null)
-  const heightDebounceRef = useRef<number | null>(null)
-
-  const clearDebounceTimer = (timerRef: MutableRefObject<number | null>) => {
-    if (timerRef.current !== null) {
-      window.clearTimeout(timerRef.current)
-      timerRef.current = null
-    }
-  }
-
-  const queueRoomDimensionCommit = (
-    value: string,
-    timerRef: MutableRefObject<number | null>,
-    onChange: (id: string, valueMm: number) => void,
-  ) => {
-    if (!selectedBubble) return
-    clearDebounceTimer(timerRef)
-    const parsed = Number(value)
-    if (!Number.isFinite(parsed) || parsed < 100) return
-    timerRef.current = window.setTimeout(() => {
-      onChange(selectedBubble.id, parsed)
-      timerRef.current = null
-    }, ROOM_DIMENSION_DEBOUNCE_MS)
-  }
-
-  const commitRoomDimension = (params: {
-    draftValue: string
-    fallbackValueMm: number
-    timerRef: MutableRefObject<number | null>
-    onCommit: (id: string, valueMm: number) => void
-    setDraft: (next: string) => void
-    setEditing: (next: boolean) => void
-  }) => {
-    if (!selectedBubble) return
-    clearDebounceTimer(params.timerRef)
-    const parsed = Number(params.draftValue)
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      params.setDraft(String(Math.round(params.fallbackValueMm)))
-      return
-    }
-    params.onCommit(selectedBubble.id, parsed)
-    params.setEditing(false)
-  }
-
-  useEffect(() => {
-    const syncTimer = window.setTimeout(() => {
-      if (!selectedBubble) {
-        setRoomWidthDraft('')
-        setRoomHeightDraft('')
-        return
-      }
-      if (!isWidthEditing) {
-        setRoomWidthDraft(String(Math.round(selectedBubble.widthMm)))
-      }
-      if (!isHeightEditing) {
-        setRoomHeightDraft(String(Math.round(selectedBubble.heightMm)))
-      }
-    }, 0)
-    return () => window.clearTimeout(syncTimer)
-  }, [selectedBubble, isWidthEditing, isHeightEditing])
-
-  useEffect(() => {
-    return () => {
-      clearDebounceTimer(widthDebounceRef)
-      clearDebounceTimer(heightDebounceRef)
-    }
-  }, []) // unmount 시 디바운스 정리
-
-  // Grid Snap ON/OFF 또는 간격 변경으로 핸들러 참조가 바뀌면
-  // 기존 디바운스 타이머가 이전 스냅 규칙으로 늦게 적용되지 않도록 정리한다.
-  useEffect(() => {
-    clearDebounceTimer(widthDebounceRef)
-    clearDebounceTimer(heightDebounceRef)
-  }, [onWidthChange, onHeightChange])
-
-  const queueRoomWidthCommit = (value: string) => {
-    queueRoomDimensionCommit(value, widthDebounceRef, onWidthChange)
-  }
-
-  const queueRoomHeightCommit = (value: string) => {
-    queueRoomDimensionCommit(value, heightDebounceRef, onHeightChange)
-  }
-
-  const commitRoomWidth = () => {
-    if (!selectedBubble) return
-    commitRoomDimension({
-      draftValue: roomWidthDraft,
-      fallbackValueMm: selectedBubble.widthMm,
-      timerRef: widthDebounceRef,
-      onCommit: onWidthCommit ?? onWidthChange,
-      setDraft: setRoomWidthDraft,
-      setEditing: setIsWidthEditing,
-    })
-  }
-
-  const commitRoomHeight = () => {
-    if (!selectedBubble) return
-    commitRoomDimension({
-      draftValue: roomHeightDraft,
-      fallbackValueMm: selectedBubble.heightMm,
-      timerRef: heightDebounceRef,
-      onCommit: onHeightCommit ?? onHeightChange,
-      setDraft: setRoomHeightDraft,
-      setEditing: setIsHeightEditing,
-    })
-  }
+  const isWallFirstEditing = FLOOR_PLAN_EDIT_AUTHORITY === 'wall-first'
+  const drafts = useTwoDAttributeDrafts({
+    selectedBubble,
+    selectedWall,
+    selectedOpening,
+    isWallFirstEditing,
+    onWidthChange,
+    onHeightChange,
+    onWidthCommit,
+    onHeightCommit,
+    onWallThicknessChange,
+    onWallHeightChange,
+    onOpeningSizeChange,
+    onWindowSillHeightChange,
+  })
 
   if (selectedOpening) {
     return (
       <TwoDOpeningAttributes
         selectedOpening={selectedOpening}
-        onOpeningSizeChange={onOpeningSizeChange}
-        onWindowSillHeightChange={onWindowSillHeightChange}
+        openingWidthDraft={drafts.openingWidthDraft}
+        openingHeightDraft={drafts.openingHeightDraft}
+        windowSillHeightDraft={drafts.windowSillHeightDraft}
+        onOpeningWidthDraftChange={drafts.onOpeningWidthDraftChange}
+        onOpeningHeightDraftChange={drafts.onOpeningHeightDraftChange}
+        onWindowSillHeightDraftChange={drafts.onWindowSillHeightDraftChange}
+        onOpeningWidthFocus={drafts.onOpeningWidthFocus}
+        onOpeningHeightFocus={drafts.onOpeningHeightFocus}
+        onWindowSillHeightFocus={drafts.onWindowSillHeightFocus}
+        onOpeningWidthBlur={drafts.onOpeningWidthBlur}
+        onOpeningHeightBlur={drafts.onOpeningHeightBlur}
+        onWindowSillHeightBlur={drafts.onWindowSillHeightBlur}
         onDoorSwingDirectionChange={onDoorSwingDirectionChange}
         onDoorHingeSideChange={onDoorHingeSideChange}
       />
@@ -176,9 +90,15 @@ export function TwoDAttributePanel({
     return (
       <TwoDWallAttributes
         selectedWall={selectedWall}
+        wallThicknessDraft={drafts.wallThicknessDraft}
+        wallHeightDraft={drafts.wallHeightDraft}
+        onWallThicknessDraftChange={drafts.onWallThicknessDraftChange}
+        onWallHeightDraftChange={drafts.onWallHeightDraftChange}
+        onWallThicknessFocus={drafts.onWallThicknessFocus}
+        onWallHeightFocus={drafts.onWallHeightFocus}
+        onWallThicknessBlur={drafts.onWallThicknessBlur}
+        onWallHeightBlur={drafts.onWallHeightBlur}
         onWallTypeChange={onWallTypeChange}
-        onWallThicknessChange={onWallThicknessChange}
-        onWallHeightChange={onWallHeightChange}
         onWallMaterialChange={onWallMaterialChange}
       />
     )
@@ -195,28 +115,17 @@ export function TwoDAttributePanel({
   return (
     <TwoDRoomAttributes
       selectedBubble={selectedBubble}
-      roomWidthDraft={roomWidthDraft}
-      roomHeightDraft={roomHeightDraft}
+      roomWidthDraft={drafts.roomWidthDraft}
+      roomHeightDraft={drafts.roomHeightDraft}
       onLabelChange={onLabelChange}
       onTypeChange={onTypeChange}
-      onRoomWidthDraftChange={(value) => {
-        setRoomWidthDraft(value)
-        queueRoomWidthCommit(value)
-      }}
-      onRoomHeightDraftChange={(value) => {
-        setRoomHeightDraft(value)
-        queueRoomHeightCommit(value)
-      }}
-      onRoomWidthFocus={() => setIsWidthEditing(true)}
-      onRoomHeightFocus={() => setIsHeightEditing(true)}
-      onRoomWidthBlur={() => {
-        commitRoomWidth()
-        setIsWidthEditing(false)
-      }}
-      onRoomHeightBlur={() => {
-        commitRoomHeight()
-        setIsHeightEditing(false)
-      }}
+      onRoomWidthDraftChange={drafts.onRoomWidthDraftChange}
+      onRoomHeightDraftChange={drafts.onRoomHeightDraftChange}
+      onRoomWidthFocus={drafts.onRoomWidthFocus}
+      onRoomHeightFocus={drafts.onRoomHeightFocus}
+      onRoomWidthBlur={drafts.onRoomWidthBlur}
+      onRoomHeightBlur={drafts.onRoomHeightBlur}
+      isRoomGeometryLocked={isWallFirstEditing}
     />
   )
 }

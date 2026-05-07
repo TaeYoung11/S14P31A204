@@ -1,12 +1,12 @@
 import { lazy } from 'react'
-import type { EditorCanvasContentProps } from '../../types/editorCanvasContentProps'
+import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
 
 const TwoDCanvas = lazy(() =>
   import('@/features/editor/components/canvas/TwoDCanvas').then((module) => ({ default: module.TwoDCanvas })),
 )
 
 interface TwoDModeCanvasProps {
-  editorProps: EditorCanvasContentProps
+  editorProps: EditorCanvasRenderProps
   scale: number
 }
 
@@ -51,6 +51,7 @@ export default function TwoDModeCanvas({ editorProps, scale }: TwoDModeCanvasPro
       onOpeningDelete={editorProps.handleDeleteFloorOpening}
       onRoomMove={editorProps.handleMoveFloorRoom}
       onRoomResize={editorProps.handleResizeFloorRoom}
+      onRoomPolygonChange={editorProps.handleUpdateFloorRoomPolygon}
       onTwoDMarqueeSelect={editorProps.handleTwoDMarqueeSelect}
       selectedTool={editorProps.selectedTool}
       isGridSnapEnabled={editorProps.isGridSnapEnabled}

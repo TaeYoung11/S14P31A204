@@ -1,7 +1,7 @@
 import { Suspense, lazy } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import Spinner from '@/shared/components/Spinner'
 import { useAuthSessionGuard } from '@/features/auth/hooks/useAuthSessionGuard'
+import FullPageSpinner from '@/shared/components/FullPageSpinner'
 import { ProtectedRoute } from './shared/components/ProtectedRoute'
 import RouteLoadingFallback from './shared/components/RouteLoadingFallback'
 
@@ -18,11 +18,7 @@ function RootRedirect() {
   const { status, isLoading } = useAuthSessionGuard()
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-white">
-        <Spinner size="lg" />
-      </div>
-    )
+    return <FullPageSpinner />
   }
 
   return <Navigate to={status === 'authenticated' ? '/projects' : '/login'} replace />
@@ -30,7 +26,12 @@ function RootRedirect() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      }}
+    >
       <Suspense fallback={<RouteLoadingFallback />}>
         <Routes>
           <Route path="/" element={<RootRedirect />} />
@@ -39,7 +40,6 @@ export default function App() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/view/:token" element={<ViewerPage />} />
           <Route path="/invite/accept" element={<InviteAcceptPage />} />
-
           <Route element={<ProtectedRoute />}>
             <Route path="/projects" element={<ProjectListPage />} />
             <Route path="/projects/:projectId/editor" element={<EditorPage />} />

@@ -1,10 +1,14 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { useRef } from 'react'
 import type { FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '../../types'
+import { useCtrlWheelZoom } from '../../hooks/useCtrlWheelZoom'
+import { useThreeDLibraryPresets } from '../../hooks/useThreeDLibraryPresets'
 import ThatOpenIfcCanvas from './ThatOpenIfcCanvas'
-import ThreeDLibraryPanel, { type ThreeDLibraryPreset } from './ThreeDLibraryPanel'
+import ThreeDLibraryPanel from './ThreeDLibraryPanel'
 
 interface ThreeDCanvasProps {
   projectId?: string | null
+  /** WS 또는 초기 로드에서 발급된 IFC presigned URL */
+  ifcUrl?: string | null
   sitePoints?: number[]
   isCollaborationMode?: boolean
   isLibraryOpen?: boolean
@@ -24,49 +28,24 @@ interface ThreeDCanvasProps {
   onIfcElementDelete?: (element: IfcElementInfo) => void
 }
 
-// TODO: Replace this mock file with the project model API URL when backend model storage is connected.
-const MOCK_IFC_URL = '/mock/shinchan_house.ifc'
-
 export function ThreeDCanvas(props: ThreeDCanvasProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
-  const [selectedCategory, setSelectedCategory] = useState('all')
-  const [libraryElements, setLibraryElements] = useState<ThreeDLibraryPreset[]>([])
-  const { onWheelZoom } = props
+  const effectiveIfcUrl = props.ifcUrl === null ? '' : (props.ifcUrl ?? '/mock/shinchan_house.ifc')
+  const {
+    selectedCategory,
+    setSelectedCategory,
+    libraryElements,
+    addLibraryPreset,
+    changeLibraryElement,
+    deleteLibraryElement,
+  } = useThreeDLibraryPresets({
+    onPresetAdded: props.onToggleLibrary,
+  })
 
-  useEffect(() => {
-    const root = rootRef.current
-    if (!root) return
-
-      const handleWheel = (event: WheelEvent) => {
-        if (!event.ctrlKey && !event.metaKey) return
-        event.preventDefault()
-      onWheelZoom?.(event.deltaY < 0 ? 1.1 : 0.9)
-    }
-
-    root.addEventListener('wheel', handleWheel, { passive: false })
-    return () => root.removeEventListener('wheel', handleWheel)
-  }, [onWheelZoom])
-
-  const handleAddLibraryPreset = (preset: ThreeDLibraryPreset) => {
-    setLibraryElements((prev) => [
-      ...prev,
-      {
-        ...preset,
-        id: `${preset.id}-${Date.now()}-${prev.length}`,
-      },
-    ])
-    props.onToggleLibrary?.()
-  }
-
-  const handleLibraryElementChange = (id: string, patch: Partial<ThreeDLibraryPreset>) => {
-    setLibraryElements((prev) =>
-      prev.map((element) => (element.id === id ? { ...element, ...patch } : element)),
-    )
-  }
-
-  const handleLibraryElementDelete = (id: string) => {
-    setLibraryElements((prev) => prev.filter((element) => element.id !== id))
-  }
+  useCtrlWheelZoom({
+    rootRef,
+    onWheelZoom: props.onWheelZoom,
+  })
 
   return (
     <div
@@ -74,7 +53,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
       className="absolute inset-0 overflow-hidden bg-[#F0F2F9] select-none"
     >
       <ThatOpenIfcCanvas
-        ifcUrl={MOCK_IFC_URL}
+        ifcUrl={effectiveIfcUrl}
         projectId={props.projectId}
         libraryElements={libraryElements}
         ifcElementChanges={props.ifcElementChanges ?? []}
@@ -83,8 +62,8 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         selectedIfcElement={props.selectedIfcElement}
         onIfcElementSelect={props.onIfcElementSelect}
         onIfcElementDelete={props.onIfcElementDelete}
-        onLibraryElementChange={handleLibraryElementChange}
-        onLibraryElementDelete={handleLibraryElementDelete}
+        onLibraryElementChange={changeLibraryElement}
+        onLibraryElementDelete={deleteLibraryElement}
       />
 
       {props.isGridVisible && (
@@ -113,10 +92,9 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
           selectedCategory={selectedCategory}
           onSelectCategory={setSelectedCategory}
           onClose={props.onToggleLibrary ?? (() => {})}
-          onAddPreset={handleAddLibraryPreset}
+          onAddPreset={addLibraryPreset}
         />
       )}
     </div>
   )
 }
-

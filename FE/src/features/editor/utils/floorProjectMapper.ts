@@ -2,7 +2,7 @@ import type { ConnectionData, FloorLayer, FloorOpening, FloorRoom, FloorWall, Fl
 import type { FloorProject, FloorProjectPoint2D, FloorProjectRoom, FloorProjectWallType } from '../types/floorProject.types'
 import type { BubbleData } from '../types'
 import { calcPxDimensionsFromMm } from './bubbleCalc'
-import { FLOOR_MM_PER_PX, FLOOR_WALL_PRESETS } from '../constants'
+import { DEFAULT_WALL_MATERIAL, FLOOR_MM_PER_PX, FLOOR_WALL_PRESETS } from '../constants'
 
 interface Bounds {
   minX: number
@@ -276,6 +276,7 @@ export function mapFloorProjectToWalls(project: FloorProject, options: MapperOpt
       type: wallType,
       thickness: wall.thickness ?? FLOOR_WALL_PRESETS[wallType].thickness,
       heightMm: wall.height ?? FLOOR_WALL_PRESETS[wallType].heightMm,
+      material: DEFAULT_WALL_MATERIAL,
     }
   })
 }

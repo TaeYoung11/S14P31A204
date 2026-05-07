@@ -10,6 +10,7 @@ export const serializeWallForCommand = (wall: FloorWall) => ({
   thickness: wall.thickness,
   height: wall.heightMm,
   wall_type: wall.type,
+  material: wall.material,
 })
 
 /** 개구부 편집 상태를 실시간 command payload로 직렬화한다. */

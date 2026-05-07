@@ -115,11 +115,17 @@ export function useWorkspaceCommandPublisher({ projectId, source }: UseWorkspace
     })
   }, [updateWall])
 
-  const updateWallStyle = useCallback((wallId: string, next: { wallType?: FloorWall['type']; thickness?: number; height?: number }) => {
+  const updateWallStyle = useCallback((wallId: string, next: {
+    wallType?: FloorWall['type']
+    thickness?: number
+    height?: number
+    material?: string
+  }) => {
     const patch: Record<string, unknown> = {}
     if (next.wallType !== undefined) patch.wall_type = next.wallType
     if (next.thickness !== undefined) patch.thickness = next.thickness
     if (next.height !== undefined) patch.height = next.height
+    if (next.material !== undefined) patch.material = next.material
     if (Object.keys(patch).length === 0) return
     updateWall(wallId, patch)
   }, [updateWall])

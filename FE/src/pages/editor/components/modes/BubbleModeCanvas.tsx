@@ -1,12 +1,12 @@
 import { lazy } from 'react'
-import type { EditorCanvasContentProps } from '../../types/editorCanvasContentProps'
+import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
 
 const BubbleCanvas = lazy(() =>
   import('@/features/editor/components/canvas/BubbleCanvas').then((module) => ({ default: module.BubbleCanvas })),
 )
 
 interface BubbleModeCanvasProps {
-  editorProps: EditorCanvasContentProps
+  editorProps: EditorCanvasRenderProps
   scale: number
 }
 

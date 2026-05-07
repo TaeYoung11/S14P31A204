@@ -1,17 +1,68 @@
-import { useState, useRef, useEffect, useCallback, type MouseEvent as ReactMouseEvent } from 'react'
-import type { PanelKey, EditorMode, PanelOffset, PanelResizeAxis } from '../types'
-import { PANEL_MIN_WIDTH, PANEL_MAX_WIDTH, PANEL_MIN_HEIGHT, PANEL_MAX_HEIGHT } from '../constants'
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { PANEL_MAX_HEIGHT, PANEL_MAX_WIDTH, PANEL_MIN_HEIGHT, PANEL_MIN_WIDTH } from '../constants'
+import type { EditorMode, PanelKey, PanelOffset, PanelResizeAxis } from '../types'
+import {
+  clampRange,
+  getPanelBoundsFallback,
+  getPanelBoundsFromMetrics,
+  getPanelVisibleSize,
+  snapToEdge,
+  type PanelBounds,
+  type PanelMetrics,
+} from '../utils/panelLayout'
 
 const COLLAPSED_PANEL_SIZE = 44
-const PANEL_VISIBLE_EDGE_PX = 56
-const PANEL_RIGHT_DRAG_LIMIT_PX = 12
-const VIEWPORT_TOP_RESERVED_PX = 120
-const VIEWPORT_BOTTOM_RESERVED_PX = 24
 const PANEL_EDGE_SNAP_PX = 18
 const PANEL_SIBLING_SNAP_PX = 14
 const DRAG_CLICK_GUARD_PX = 3
 
 const PANEL_KEYS: PanelKey[] = ['attributes', 'zoning', 'assistant', 'floorView', 'hierarchy']
+const DEFAULT_PANEL_OFFSETS: Record<PanelKey, PanelOffset> = {
+  attributes: { x: 0, y: 0 },
+  zoning: { x: 0, y: 0 },
+  assistant: { x: 0, y: 0 },
+  floorView: { x: 0, y: 0 },
+  hierarchy: { x: 0, y: 0 },
+}
+const DEFAULT_PANEL_OPEN_STATE: Record<PanelKey, boolean> = {
+  attributes: true,
+  zoning: true,
+  assistant: true,
+  floorView: true,
+  hierarchy: true,
+}
+const DEFAULT_PANEL_HEIGHTS: Record<PanelKey, number> = {
+  attributes: 300,
+  zoning: 200,
+  assistant: 180,
+  floorView: 150,
+  hierarchy: 150,
+}
+const DEFAULT_PANEL_WIDTHS: Record<PanelKey, number> = {
+  attributes: 300,
+  zoning: 300,
+  assistant: 300,
+  floorView: 300,
+  hierarchy: 300,
+}
+const DEFAULT_PANEL_Z_INDEXES: Record<PanelKey, number> = {
+  attributes: 10,
+  zoning: 11,
+  assistant: 12,
+  floorView: 13,
+  hierarchy: 14,
+}
+const PANEL_VISIBLE_SIZE_CONFIG = {
+  openMinVisibleWidthPx: 168,
+  openMinVisibleHeightPx: 72,
+  collapsedVisibleEdgePx: 56,
+}
+const PANEL_BOUNDS_CONFIG = {
+  rightDragLimitPx: 12,
+  leftDockBleedPx: 24,
+  topReservedPx: 120,
+  bottomReservedPx: 24,
+}
 
 interface DragState {
   panelKey: PanelKey
@@ -22,63 +73,37 @@ interface DragState {
   lockAxis: 'x' | 'y' | null
 }
 
-interface PanelMetrics {
-  baseLeftViewport: number
-  baseTopViewport: number
-  parentWidth: number
-  panelWidth: number
-  panelHeight: number
+interface ResizeState {
+  panelKey: PanelKey
+  axis: PanelResizeAxis
+  startClientX: number
+  startClientY: number
+  startWidth: number
+  startHeight: number
 }
+
+const createPanelOffsetState = () => ({ ...DEFAULT_PANEL_OFFSETS })
+const createPanelOpenState = () => ({ ...DEFAULT_PANEL_OPEN_STATE })
+const createPanelHeightState = () => ({ ...DEFAULT_PANEL_HEIGHTS })
+const createPanelWidthState = () => ({ ...DEFAULT_PANEL_WIDTHS })
+const createPanelZIndexState = () => ({ ...DEFAULT_PANEL_Z_INDEXES })
 
 /**
  * 우측 패널 드래그·리사이즈 상태 관리 훅
- * - 자유 이동 + 경계/형제 스냅
- * - Shift 축 고정 드래그
- * - 드래그된 패널을 맨 앞으로 정렬
+ * - 패널 이동/리사이즈
+ * - 경계/형제 스냅
+ * - 드래그된 패널 전면 배치
  */
 export function usePanels(mode: EditorMode) {
-  const [panelOffsets, setPanelOffsets] = useState<Record<PanelKey, PanelOffset>>({
-    attributes: { x: 0, y: 0 },
-    zoning: { x: 0, y: 0 },
-    assistant: { x: 0, y: 0 },
-    floorView: { x: 0, y: 0 },
-    hierarchy: { x: 0, y: 0 },
-  })
+  const [panelOffsets, setPanelOffsets] = useState<Record<PanelKey, PanelOffset>>(createPanelOffsetState)
+  const [panelOpenState, setPanelOpenState] = useState<Record<PanelKey, boolean>>(createPanelOpenState)
+  const [panelHeights, setPanelHeights] = useState<Record<PanelKey, number>>(createPanelHeightState)
+  const [panelWidths, setPanelWidths] = useState<Record<PanelKey, number>>(createPanelWidthState)
+  const [panelZIndexes, setPanelZIndexes] = useState<Record<PanelKey, number>>(createPanelZIndexState)
 
-  const [panelOpenState, setPanelOpenState] = useState<Record<PanelKey, boolean>>({
-    attributes: true,
-    zoning: true,
-    assistant: true,
-    floorView: true,
-    hierarchy: true,
-  })
-
-  const [panelHeights, setPanelHeights] = useState<Record<PanelKey, number>>({
-    attributes: 300,
-    zoning: 200,
-    assistant: 180,
-    floorView: 150,
-    hierarchy: 150,
-  })
-
-  const [panelWidths, setPanelWidths] = useState<Record<PanelKey, number>>({
-    attributes: 300,
-    zoning: 300,
-    assistant: 300,
-    floorView: 300,
-    hierarchy: 300,
-  })
-
-  const [panelZIndexes, setPanelZIndexes] = useState<Record<PanelKey, number>>({
-    attributes: 10,
-    zoning: 11,
-    assistant: 12,
-    floorView: 13,
-    hierarchy: 14,
-  })
   const zCounterRef = useRef(20)
-
   const dragRef = useRef<DragState | null>(null)
+  const resizeRef = useRef<ResizeState | null>(null)
   const dragMovedRef = useRef(false)
   const suppressToggleByDragRef = useRef<Record<PanelKey, boolean>>({
     attributes: false,
@@ -88,68 +113,68 @@ export function usePanels(mode: EditorMode) {
     hierarchy: false,
   })
 
-  const resizeRef = useRef<{
-    panelKey: PanelKey
-    axis: PanelResizeAxis
-    startClientX: number
-    startClientY: number
-    startWidth: number
-    startHeight: number
-  } | null>(null)
-
+  /**
+   * panel DOM 위치와 크기를 기준으로 뷰포트 좌표 메트릭을 수집한다.
+   */
   const getPanelMetrics = useCallback((panelKey: PanelKey, isOpenOverride?: boolean): PanelMetrics | null => {
     if (typeof document === 'undefined') return null
+
     const panelEl = document.querySelector<HTMLElement>(`[data-panel-key="${panelKey}"]`)
     if (!panelEl) return null
+
     const parentEl = (panelEl.offsetParent as HTMLElement | null) ?? panelEl.parentElement
     if (!parentEl) return null
 
-    const parentRect = parentEl.getBoundingClientRect()
     const isOpen = isOpenOverride ?? panelOpenState[panelKey]
     const panelWidth = isOpen ? panelWidths[panelKey] : COLLAPSED_PANEL_SIZE
     const panelHeight = isOpen ? panelHeights[panelKey] : COLLAPSED_PANEL_SIZE
+    const parentRect = parentEl.getBoundingClientRect()
+
     return {
       baseLeftViewport: parentRect.left + panelEl.offsetLeft,
       baseTopViewport: parentRect.top + panelEl.offsetTop,
-      parentWidth: parentRect.width,
       panelWidth,
       panelHeight,
     }
-  }, [panelOpenState, panelWidths, panelHeights])
+  }, [panelHeights, panelOpenState, panelWidths])
 
-  const getPanelBounds = useCallback((panelKey: PanelKey, isOpenOverride?: boolean) => {
-    const metrics = getPanelMetrics(panelKey, isOpenOverride)
-    if (metrics) {
-      const visibleEdge = Math.min(PANEL_VISIBLE_EDGE_PX, metrics.panelWidth)
-      const minLeftViewport = -(metrics.panelWidth - visibleEdge)
-      const maxLeftViewport = window.innerWidth - visibleEdge
-      const minTopViewport = VIEWPORT_TOP_RESERVED_PX - (metrics.panelHeight - visibleEdge)
-      const maxTopViewport = window.innerHeight - VIEWPORT_BOTTOM_RESERVED_PX - visibleEdge
-
-      return {
-        minX: minLeftViewport - metrics.baseLeftViewport,
-        maxX: maxLeftViewport - metrics.baseLeftViewport,
-        minY: minTopViewport - metrics.baseTopViewport,
-        maxY: maxTopViewport - metrics.baseTopViewport,
-      }
-    }
-
+  /**
+   * 패널별 이동 허용 범위를 계산한다.
+   */
+  const getPanelBounds = useCallback((panelKey: PanelKey, isOpenOverride?: boolean): PanelBounds => {
     const isOpen = isOpenOverride ?? panelOpenState[panelKey]
     const panelWidth = isOpen ? panelWidths[panelKey] : COLLAPSED_PANEL_SIZE
     const panelHeight = isOpen ? panelHeights[panelKey] : COLLAPSED_PANEL_SIZE
-
-    const visibleEdge = Math.min(PANEL_VISIBLE_EDGE_PX, panelWidth)
-    const minX = -(panelWidth - visibleEdge)
-    const maxX = PANEL_RIGHT_DRAG_LIMIT_PX
-    const minY = -Math.max(0, window.innerHeight - VIEWPORT_TOP_RESERVED_PX - PANEL_VISIBLE_EDGE_PX)
-    const maxY = Math.max(
-      minY,
-      window.innerHeight - VIEWPORT_TOP_RESERVED_PX - VIEWPORT_BOTTOM_RESERVED_PX - panelHeight,
+    const { visibleWidth, visibleHeight } = getPanelVisibleSize(
+      isOpen,
+      panelWidth,
+      panelHeight,
+      PANEL_VISIBLE_SIZE_CONFIG,
     )
 
-    return { minX, maxX, minY, maxY }
-  }, [getPanelMetrics, panelOpenState, panelWidths, panelHeights])
+    const metrics = getPanelMetrics(panelKey, isOpenOverride)
+    if (metrics) {
+      return getPanelBoundsFromMetrics(
+        metrics,
+        visibleWidth,
+        visibleHeight,
+        window.innerHeight,
+        PANEL_BOUNDS_CONFIG,
+      )
+    }
 
+    return getPanelBoundsFallback(
+      panelWidth,
+      visibleWidth,
+      visibleHeight,
+      window.innerHeight,
+      PANEL_BOUNDS_CONFIG,
+    )
+  }, [getPanelMetrics, panelHeights, panelOpenState, panelWidths])
+
+  /**
+   * 다른 패널 위치와의 근접도 기준 스냅 값을 찾는다.
+   */
   const getSiblingSnapValue = useCallback((
     panelKey: PanelKey,
     axis: 'x' | 'y',
@@ -158,10 +183,12 @@ export function usePanels(mode: EditorMode) {
   ) => {
     let best: number | null = null
     let bestDistance = Number.POSITIVE_INFINITY
+
     for (const key of PANEL_KEYS) {
       if (key === panelKey) continue
       const candidate = offsetsForSnap[key]?.[axis]
       if (typeof candidate !== 'number') continue
+
       const distance = Math.abs(candidate - value)
       if (distance <= PANEL_SIBLING_SNAP_PX && distance < bestDistance) {
         best = candidate
@@ -171,6 +198,9 @@ export function usePanels(mode: EditorMode) {
     return best
   }, [])
 
+  /**
+   * 패널 오프셋 보정(경계 clamp + edge snap + sibling snap)
+   */
   const clampPanelOffset = useCallback((
     panelKey: PanelKey,
     x: number,
@@ -179,66 +209,47 @@ export function usePanels(mode: EditorMode) {
     offsetsForSnap?: Record<PanelKey, PanelOffset>,
   ): PanelOffset => {
     const { minX, maxX, minY, maxY } = getPanelBounds(panelKey, isOpenOverride)
-    const clampedX = Math.min(maxX, Math.max(minX, x))
-    const clampedY = Math.min(maxY, Math.max(minY, y))
-
-    const edgeSnapX =
-      Math.abs(clampedX - minX) <= PANEL_EDGE_SNAP_PX
-        ? minX
-        : Math.abs(clampedX - maxX) <= PANEL_EDGE_SNAP_PX
-          ? maxX
-          : clampedX
-    const edgeSnapY =
-      Math.abs(clampedY - minY) <= PANEL_EDGE_SNAP_PX
-        ? minY
-        : Math.abs(clampedY - maxY) <= PANEL_EDGE_SNAP_PX
-          ? maxY
-          : clampedY
+    const clampedX = clampRange(x, minX, maxX)
+    const clampedY = clampRange(y, minY, maxY)
+    const edgeSnapX = snapToEdge(clampedX, minX, maxX, PANEL_EDGE_SNAP_PX)
+    const edgeSnapY = snapToEdge(clampedY, minY, maxY, PANEL_EDGE_SNAP_PX)
 
     if (!offsetsForSnap) {
       return { x: edgeSnapX, y: edgeSnapY }
     }
 
-    const siblingX = getSiblingSnapValue(panelKey, 'x', edgeSnapX, offsetsForSnap)
-    const siblingY = getSiblingSnapValue(panelKey, 'y', edgeSnapY, offsetsForSnap)
     return {
-      x: siblingX ?? edgeSnapX,
-      y: siblingY ?? edgeSnapY,
+      x: getSiblingSnapValue(panelKey, 'x', edgeSnapX, offsetsForSnap) ?? edgeSnapX,
+      y: getSiblingSnapValue(panelKey, 'y', edgeSnapY, offsetsForSnap) ?? edgeSnapY,
     }
   }, [getPanelBounds, getSiblingSnapValue])
 
-  const bringPanelToFront = (panelKey: PanelKey) => {
+  /**
+   * 최근 상호작용 패널을 가장 앞으로 올린다.
+   */
+  const bringPanelToFront = useCallback((panelKey: PanelKey) => {
     const nextZ = zCounterRef.current + 1
     zCounterRef.current = nextZ
     setPanelZIndexes((prev) => ({ ...prev, [panelKey]: nextZ }))
-  }
+  }, [])
 
-  const resetPanelPositions = () => {
-    setPanelOffsets({
-      attributes: { x: 0, y: 0 },
-      zoning: { x: 0, y: 0 },
-      assistant: { x: 0, y: 0 },
-      floorView: { x: 0, y: 0 },
-      hierarchy: { x: 0, y: 0 },
-    })
-    setPanelZIndexes({
-      attributes: 10,
-      zoning: 11,
-      assistant: 12,
-      floorView: 13,
-      hierarchy: 14,
-    })
+  /**
+   * 패널 위치와 레이어를 초기 상태로 되돌린다.
+   */
+  const resetPanelPositions = useCallback(() => {
+    setPanelOffsets(createPanelOffsetState())
+    setPanelZIndexes(createPanelZIndexState())
     zCounterRef.current = 20
-  }
+  }, [])
 
   useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
-      if (dragRef.current) {
-        const drag = dragRef.current
-        const dxRaw = e.clientX - drag.startClientX
-        const dyRaw = e.clientY - drag.startClientY
+    const onMouseMove = (event: MouseEvent) => {
+      const drag = dragRef.current
+      if (drag) {
+        const dxRaw = event.clientX - drag.startClientX
+        const dyRaw = event.clientY - drag.startClientY
 
-        if (e.shiftKey) {
+        if (event.shiftKey) {
           if (!drag.lockAxis) {
             drag.lockAxis = Math.abs(dxRaw) >= Math.abs(dyRaw) ? 'x' : 'y'
           }
@@ -248,32 +259,35 @@ export function usePanels(mode: EditorMode) {
 
         const dx = drag.lockAxis === 'y' ? 0 : dxRaw
         const dy = drag.lockAxis === 'x' ? 0 : dyRaw
+
         if (!dragMovedRef.current && (Math.abs(dx) > DRAG_CLICK_GUARD_PX || Math.abs(dy) > DRAG_CLICK_GUARD_PX)) {
           dragMovedRef.current = true
         }
 
         setPanelOffsets((prev) => {
-          const next = clampPanelOffset(
+          const nextOffset = clampPanelOffset(
             drag.panelKey,
             drag.startOffsetX + dx,
             drag.startOffsetY + dy,
             undefined,
             prev,
           )
-          return { ...prev, [drag.panelKey]: next }
+          return { ...prev, [drag.panelKey]: nextOffset }
         })
       }
 
-      if (resizeRef.current) {
-        const { panelKey, axis, startClientX, startClientY, startWidth, startHeight } = resizeRef.current
+      const resize = resizeRef.current
+      if (resize) {
+        const deltaX = event.clientX - resize.startClientX
+        const deltaY = event.clientY - resize.startClientY
 
-        if (axis === 'x' || axis === 'both') {
-          const nextW = Math.max(PANEL_MIN_WIDTH, Math.min(PANEL_MAX_WIDTH, startWidth + e.clientX - startClientX))
-          setPanelWidths((prev) => ({ ...prev, [panelKey]: nextW }))
+        if (resize.axis === 'x' || resize.axis === 'both') {
+          const nextWidth = clampRange(resize.startWidth + deltaX, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH)
+          setPanelWidths((prev) => ({ ...prev, [resize.panelKey]: nextWidth }))
         }
-        if (axis === 'y' || axis === 'both') {
-          const nextH = Math.max(PANEL_MIN_HEIGHT, Math.min(PANEL_MAX_HEIGHT, startHeight + e.clientY - startClientY))
-          setPanelHeights((prev) => ({ ...prev, [panelKey]: nextH }))
+        if (resize.axis === 'y' || resize.axis === 'both') {
+          const nextHeight = clampRange(resize.startHeight + deltaY, PANEL_MIN_HEIGHT, PANEL_MAX_HEIGHT)
+          setPanelHeights((prev) => ({ ...prev, [resize.panelKey]: nextHeight }))
         }
       }
     }
@@ -283,8 +297,8 @@ export function usePanels(mode: EditorMode) {
         suppressToggleByDragRef.current[dragRef.current.panelKey] = true
       }
       dragRef.current = null
-      dragMovedRef.current = false
       resizeRef.current = null
+      dragMovedRef.current = false
     }
 
     window.addEventListener('mousemove', onMouseMove)
@@ -293,10 +307,10 @@ export function usePanels(mode: EditorMode) {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
     }
-  }, [mode, panelHeights, panelWidths, panelOpenState, clampPanelOffset])
+  }, [clampPanelOffset, mode])
 
   useEffect(() => {
-    const reclamp = () => {
+    const reclampAllPanels = () => {
       setPanelOffsets((prev) => ({
         attributes: clampPanelOffset('attributes', prev.attributes.x, prev.attributes.y),
         zoning: clampPanelOffset('zoning', prev.zoning.x, prev.zoning.y),
@@ -306,43 +320,53 @@ export function usePanels(mode: EditorMode) {
       }))
     }
 
-    reclamp()
-    window.addEventListener('resize', reclamp)
-    return () => window.removeEventListener('resize', reclamp)
-  }, [panelHeights, panelWidths, panelOpenState, clampPanelOffset])
+    reclampAllPanels()
+    window.addEventListener('resize', reclampAllPanels)
+    return () => window.removeEventListener('resize', reclampAllPanels)
+  }, [clampPanelOffset, mode])
 
-  const startDrag = (panelKey: PanelKey, e: ReactMouseEvent<HTMLElement>) => {
-    e.preventDefault()
-    e.stopPropagation()
+  /**
+   * 패널 드래그 시작 핸들러
+   */
+  const startDrag = useCallback((panelKey: PanelKey, event: ReactMouseEvent<HTMLElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
     resizeRef.current = null
     dragMovedRef.current = false
     dragRef.current = {
       panelKey,
-      startClientX: e.clientX,
-      startClientY: e.clientY,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
       startOffsetX: panelOffsets[panelKey].x,
       startOffsetY: panelOffsets[panelKey].y,
       lockAxis: null,
     }
     bringPanelToFront(panelKey)
-  }
+  }, [bringPanelToFront, panelOffsets])
 
-  const startResize = (panelKey: PanelKey, axis: PanelResizeAxis, e: ReactMouseEvent<HTMLButtonElement>) => {
-    e.preventDefault()
-    e.stopPropagation()
+  /**
+   * 패널 리사이즈 시작 핸들러
+   */
+  const startResize = useCallback((panelKey: PanelKey, axis: PanelResizeAxis, event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
     dragRef.current = null
     resizeRef.current = {
       panelKey,
       axis,
-      startClientX: e.clientX,
-      startClientY: e.clientY,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
       startWidth: panelWidths[panelKey],
       startHeight: panelHeights[panelKey],
     }
     bringPanelToFront(panelKey)
-  }
+  }, [bringPanelToFront, panelHeights, panelWidths])
 
-  const togglePanel = (panelKey: PanelKey) => {
+  /**
+   * 패널 열림/닫힘 토글
+   * - 드래그 직후 발생하는 클릭은 무시한다.
+   */
+  const togglePanel = useCallback((panelKey: PanelKey) => {
     if (suppressToggleByDragRef.current[panelKey]) {
       suppressToggleByDragRef.current[panelKey] = false
       return
@@ -353,7 +377,6 @@ export function usePanels(mode: EditorMode) {
       if (willOpen) {
         setPanelOffsets((currentOffsets) => {
           const current = currentOffsets[panelKey]
-          if (!current) return currentOffsets
           const adjusted = clampPanelOffset(panelKey, current.x, current.y, true, currentOffsets)
           return { ...currentOffsets, [panelKey]: adjusted }
         })
@@ -361,7 +384,7 @@ export function usePanels(mode: EditorMode) {
       }
       return { ...prev, [panelKey]: willOpen }
     })
-  }
+  }, [bringPanelToFront, clampPanelOffset])
 
   return {
     panelOffsets,
