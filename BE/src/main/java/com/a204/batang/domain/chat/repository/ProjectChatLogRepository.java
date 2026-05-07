@@ -83,15 +83,15 @@ public interface ProjectChatLogRepository extends Repository<IfcEditJob, UUID> {
                           AND j.finished_at IS NOT NULL
                     )
                     SELECT
-                        reference_id,
-                        type,
-                        sub_type,
-                        content,
-                        sender_user_id,
-                        job_id,
-                        job_type,
-                        job_status,
-                        timestamp
+                        reference_id AS "referenceId",
+                        type AS "type",
+                        sub_type AS "subType",
+                        content AS "content",
+                        sender_user_id AS "senderUserId",
+                        job_id AS "jobId",
+                        job_type AS "jobType",
+                        job_status AS "jobStatus",
+                        timestamp AS "timestamp"
                     FROM virtual_chat_logs
                     ORDER BY timestamp DESC, reference_id DESC
                     """,
@@ -135,5 +135,5 @@ public interface ProjectChatLogRepository extends Repository<IfcEditJob, UUID> {
                     """,
             nativeQuery = true
     )
-    Page<Object[]> findVirtualChatLogsByProjectId(@Param("projectId") UUID projectId, Pageable pageable);
+    Page<ProjectChatLogProjection> findVirtualChatLogsByProjectId(@Param("projectId") UUID projectId, Pageable pageable);
 }
