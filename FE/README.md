@@ -79,31 +79,17 @@ FE는 WebSocket 메시지에서 받은 IFC URL을 다음 규칙으로 해석해 
 | WS 수신 URL 포맷 | FE 동작 | 로딩 URL 예시 |
 | --- | --- | --- |
 | `https://...` 또는 `http://...` | 그대로 fetch | `https://cdn.example.com/projects/p1/model.ifc` |
-| `s3://bucket/key.ifc` | `VITE_STORAGE_HTTP_BASE_URL` + `/bucket/key.ifc` 로 변환 | `https://cdn.your-domain.com/bucket/key.ifc` |
-| `projects/.../model.ifc` 같은 relative path | `VITE_STORAGE_HTTP_BASE_URL`가 있으면 base에 붙임, 없으면 API origin 기준으로 변환 | `https://cdn.your-domain.com/projects/.../model.ifc` |
-
-### Required env
-
-`.env.local` 파일에 아래 값을 설정하세요.
-
-```env
-VITE_STORAGE_HTTP_BASE_URL=https://cdn.your-domain.com
-```
-
-예:
-- WS 수신값: `s3://bucket/key.ifc`
-- FE 변환값: `https://cdn.your-domain.com/bucket/key.ifc`
+| `s3://...` 또는 storage path | 현재 미지원(오류 처리) | - |
+| `projects/.../model.ifc` 같은 relative path | API origin 기준 절대 URL로 변환 | `http://localhost:8080/projects/.../model.ifc` |
 
 ### Setup steps
 
-1. CDN/프록시에서 IFC 파일이 HTTPS로 열리도록 준비합니다.
-2. `FE/.env.local`에 `VITE_STORAGE_HTTP_BASE_URL`를 설정합니다.
-3. FE dev 서버를 재시작합니다 (`npm run dev` 다시 실행).
-4. 브라우저에서 변환된 URL이 직접 열리는지 확인합니다.
+1. FE dev 서버를 재시작합니다 (`npm run dev` 다시 실행).
+2. WebSocket 이벤트 수신 후 `https://...` 또는 relative URL만 내려오는지 확인합니다.
 
 주의:
-- `VITE_STORAGE_HTTP_BASE_URL`에는 끝 `/`를 넣어도 동작하지만, 보통 없이 쓰는 것을 권장합니다.
-- 브라우저에서 열 수 없는 내부 S3 URL만 내려오면 FE 단독으로는 로딩할 수 없습니다.
+- `s3://...`는 현재 FE에서 지원하지 않습니다.
+- WS에서 `s3://...`를 내려주면 로딩이 실패합니다.
 
 ### FE-only verification (without BE implementation)
 
@@ -121,9 +107,4 @@ VITE_IFC_URL_DEBUG=true
 
 문제 해결:
 - `Failed to load resource: net::ERR_NAME_NOT_RESOLVED`가 뜨면 도메인 DNS 실패입니다.
-- `.env.local`의 `VITE_STORAGE_HTTP_BASE_URL=https://cdn.your-domain.com`는 예시값이라 그대로 쓰면 실패할 수 있습니다.
-
-3. `VITE_STORAGE_HTTP_BASE_URL`를 제거해도 되는 조건
-- WS가 항상 `https://...`(또는 FE에서 바로 접근 가능한 relative URL)만 내려주면 제거 가능
-- WS에 `s3://...`가 올 수 있으면 제거하면 안 됨
-  - 이 경우 FE는 의도적으로 에러를 발생시켜(`VITE_STORAGE_HTTP_BASE_URL` 필요) 잘못된 로딩을 막습니다.
+- WS payload URL이 `s3://...` 형식이면 현재 구현에서는 오류가 발생합니다.
