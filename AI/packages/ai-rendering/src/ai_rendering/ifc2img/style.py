@@ -57,6 +57,9 @@ FRONT_FULL_WIDTH_GROUND_TOP_PADDING_RATIO = 0.02
 FRONT_FULL_WIDTH_GROUND_EXPAND_RATIO = 1.03
 EYE_GROUND_TOP_PADDING_RATIO = 0.02
 EYE_GROUND_PLANE_SHELL_RATIO = 0.22
+EYE_GROUND_PLANE_CONTROL_RGB = (116, 124, 108)
+EYE_GROUND_PLANE_CONTROL_GRADIENT = 16.0
+EYE_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH = 0.18
 EYE_GROUND_CLASS_RGB = "grass"
 EYE_SEMANTIC_CONTROL_SCALE = 0.25
 EYE_STRONG_SEMANTIC_CONTROL_SCALE = 0.35
@@ -507,6 +510,36 @@ def _build_eye_ground_plane_aware_mask(
         out[top_y : bottom_y + 1, x][column] = 255
 
     return Image.fromarray(out, mode="L")
+
+
+def _apply_eye_ground_plane_control_attenuation(
+    control: Image.Image,
+    strength: float = EYE_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH,
+) -> Image.Image:
+    """Reduce the bright display-base signal in EYE ground-plane control.
+
+    This is a preview-oriented input-side helper. It only blends pixels selected
+    by the ground-plane-aware mask, keeping upper walls and roof depth intact.
+    """
+    control_rgb = control.convert("RGB")
+    if strength <= 0:
+        return control_rgb
+
+    mask = _build_eye_ground_plane_aware_mask(control_rgb)
+    mask_arr = np.asarray(mask, dtype=np.uint8) > 0
+    if not np.any(mask_arr):
+        return control_rgb
+
+    strength = float(np.clip(strength, 0.0, 1.0))
+    arr = np.asarray(control_rgb, dtype=np.float32).copy()
+    height, _width = mask_arr.shape
+    y = np.linspace(0.0, 1.0, height, dtype=np.float32)[:, None]
+    target = np.array(EYE_GROUND_PLANE_CONTROL_RGB, dtype=np.float32)
+    target_map = target + (y * EYE_GROUND_PLANE_CONTROL_GRADIENT)
+    target_map = np.repeat(target_map[:, None, :], arr.shape[1], axis=1)
+
+    arr[mask_arr] = arr[mask_arr] * (1.0 - strength) + target_map[mask_arr] * strength
+    return Image.fromarray(np.clip(np.rint(arr), 0, 255).astype(np.uint8), mode="RGB")
 
 
 def _build_eye_ground_seg_control(
