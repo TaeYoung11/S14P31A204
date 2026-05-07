@@ -32,7 +32,7 @@ export default function EditorRightPanelsWorkspaceDock({ rightDockWidth, props }
 
   return (
     <div
-      className="relative z-30 flex min-h-0 shrink-0 flex-col gap-4 overflow-x-hidden overflow-y-auto pb-1 pr-1 transition-[width] duration-200"
+      className="relative z-30 flex max-h-[calc(100vh-160px)] min-h-0 shrink-0 flex-col gap-4 overflow-x-hidden overflow-y-auto pb-4 transition-[width] duration-200"
       style={{ width: rightDockWidth }}
     >
       <button

@@ -23,7 +23,7 @@ export default function EditorLeftSidebar({
   onToggleCollaboration,
   onToggleLibrary,
   onToggleGrid,
-  onExportIFC,
+  onExportIFC: _onExportIFC,
   onGenerateFloorPlan,
   onAutoLayoutBubbles,
   canGenerateFloorPlan = false,
@@ -83,13 +83,10 @@ export default function EditorLeftSidebar({
       {mode === '3d' && (
         <ThreeDSidebarTools
           selectedTool={selectedTool}
-          isGridVisible={isGridVisible}
           isLibraryOpen={isLibraryOpen}
           hasDeletableSelection={hasDeletableSelection}
           onToolSelect={onToolSelect}
-          onToggleGrid={onToggleGrid}
           onToggleLibrary={onToggleLibrary}
-          onExportIFC={onExportIFC}
           onDeleteSelected={onDeleteSelected}
         />
       )}

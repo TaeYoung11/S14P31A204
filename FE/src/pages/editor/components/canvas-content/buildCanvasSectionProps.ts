@@ -1,11 +1,18 @@
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
 
+export interface ThreeDCoordinates {
+  x: number
+  y: number
+  z: number
+}
+
 export interface CanvasModeRendererSectionProps {
   mode: EditorCanvasRenderProps['mode']
   zoom: EditorCanvasRenderProps['zoom']
   renderProps: EditorCanvasRenderProps
   onOpenExport: EditorCanvasRenderProps['handleOpenExportSelectionModal']
   isRotationLocked: boolean
+  onThreeDCoordinatesChange: (coords: ThreeDCoordinates) => void
 }
 
 export interface CanvasLabelOverlaySectionProps {
@@ -54,6 +61,7 @@ export interface CanvasZoomControlsSectionProps {
   onGridSnapIntervalChange: EditorCanvasRenderProps['handleSetGridSnapIntervalMm']
   isRotationLocked: boolean
   onToggleRotationLock: () => void
+  threeDCoordinates: ThreeDCoordinates
 }
 
 export interface CanvasCollaborationBarSectionProps {
@@ -68,6 +76,7 @@ export interface CanvasCollaborationBarSectionProps {
 export function buildCanvasModeRendererSectionProps(
   renderProps: EditorCanvasRenderProps,
   isRotationLocked: boolean,
+  onThreeDCoordinatesChange: (coords: ThreeDCoordinates) => void,
 ): CanvasModeRendererSectionProps {
   return {
     mode: renderProps.mode,
@@ -75,6 +84,7 @@ export function buildCanvasModeRendererSectionProps(
     renderProps,
     onOpenExport: renderProps.handleOpenExportSelectionModal,
     isRotationLocked,
+    onThreeDCoordinatesChange,
   }
 }
 
@@ -129,6 +139,7 @@ export function buildCanvasZoomControlsSectionProps(
   renderProps: EditorCanvasRenderProps,
   isRotationLocked: boolean,
   onToggleRotationLock: () => void,
+  threeDCoordinates: ThreeDCoordinates,
 ): CanvasZoomControlsSectionProps {
   return {
     mode: renderProps.mode,
@@ -146,6 +157,7 @@ export function buildCanvasZoomControlsSectionProps(
     onGridSnapIntervalChange: renderProps.handleSetGridSnapIntervalMm,
     isRotationLocked,
     onToggleRotationLock,
+    threeDCoordinates,
   }
 }
 

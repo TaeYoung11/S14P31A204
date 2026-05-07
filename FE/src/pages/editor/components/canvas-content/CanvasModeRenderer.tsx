@@ -14,6 +14,7 @@ export default function CanvasModeRenderer({
   renderProps,
   onOpenExport,
   isRotationLocked,
+  onThreeDCoordinatesChange,
 }: CanvasModeRendererSectionProps) {
   const scale = zoom / 100
 
@@ -26,7 +27,14 @@ export default function CanvasModeRenderer({
   }
 
   if (mode === '3d') {
-    return <ThreeDModeCanvas editorProps={renderProps} scale={scale} isRotationLocked={isRotationLocked} />
+    return (
+      <ThreeDModeCanvas
+        editorProps={renderProps}
+        scale={scale}
+        isRotationLocked={isRotationLocked}
+        onThreeDCoordinatesChange={onThreeDCoordinatesChange}
+      />
+    )
   }
 
   if (mode === 'view') {

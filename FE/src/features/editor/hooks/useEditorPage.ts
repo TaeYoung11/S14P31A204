@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import axios from 'axios'
+import { isAxiosError } from 'axios'
 import type {
   AddSpaceFormData,
   BubbleData,
@@ -84,6 +84,7 @@ import { useThreeDIfcAttributeHandlers } from './useThreeDIfcAttributeHandlers'
 import { runForceDirectedBubbleLayout } from '../utils/forceBubbleLayout'
 import { useBubbleSnapshotRealtime } from './useBubbleSnapshotRealtime'
 import { useIfcLoadingLayer } from './useIfcLoadingLayer'
+import type { FloorPlan3DData } from '../utils/floorPlanTo3D'
 import {
   buildFloorPlanLayoutImportPayload,
   collectAutoDoorOpeningIdsFromWallIds,
@@ -135,6 +136,8 @@ export function useEditorPage() {
   const { currentProjectName } = useEditorProjectName(projectId)
   const mode = resolveEditorMode(searchParams.get('mode'))
   const [selectedIfcElement, setSelectedIfcElement] = useState<IfcElementInfo | null>(null)
+  /** 3D 사이드바 삭제 버튼으로 선택 요소 삭제를 요청하는 트리거 */
+  const [threeDDeleteRequestToken, setThreeDDeleteRequestToken] = useState(0)
   const [ifcElementChangesById, setIfcElementChangesById] = useState<Record<number, IfcElementChange>>({})
   const workspaceCommandPublisher = useWorkspaceCommandPublisher({
     projectId,
@@ -264,6 +267,23 @@ export function useEditorPage() {
   const handleIfcSyncMessageRef = useRef<(url: string, action: string | null, assetId?: string | null) => void>(() => {})
   const isFloorPlanGenerating = isFloorPlanGeneratingLocal || workspacePhaseStatus === 'CONVERTING'
 
+  /**
+   * 2D 구조물(벽/개구부) 선택 상태만 초기화한다.
+   * 버블 선택은 유지해야 하는 흐름이 있어 별도 함수로 분리한다.
+   */
+  const clearTwoDStructureSelection = useCallback(() => {
+    setSelectedFloorWallId(null)
+    setSelectedFloorWallIds([])
+    setSelectedFloorOpeningId(null)
+    setSelectedFloorOpeningIds([])
+  }, [])
+
+  /** 연결선/2D 구조물 선택 상태를 함께 초기화한다. */
+  const clearConnectionAndTwoDSelection = useCallback(() => {
+    setSelectedConnectionPair(null)
+    clearTwoDStructureSelection()
+  }, [clearTwoDStructureSelection])
+
   // 버블·연결선 변경 시 이미 생성된 평면도를 조용히 갱신 (로딩 없음)
   useEffect(() => {
     if (IFC_DERIVED_FLOORPLAN_ONLY) return
@@ -283,20 +303,23 @@ export function useEditorPage() {
       setIsProjectStructurePreferred(false)
       setFloorWalls([])
       setHiddenAutoWallIds([])
-      setSelectedFloorWallId(null)
-      setSelectedFloorWallIds([])
       setFloorOpenings([])
       setHiddenAutoOpeningIds([])
-      setSelectedFloorOpeningId(null)
-      setSelectedFloorOpeningIds([])
+      clearTwoDStructureSelection()
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [bubbles.length, isFloorPlanGenerated, isFloorPlanGenerating, clearFloorPlan])
+  }, [bubbles.length, isFloorPlanGenerated, isFloorPlanGenerating, clearFloorPlan, clearTwoDStructureSelection])
 
   // Delete/Backspace 키로 선택된 버블 또는 연결선 삭제 (input 포커스 중엔 무시)
   const handleDeleteSelected = useCallback(() => {
     if (useAuthStore.getState().user?.user_type !== 'DESIGNER') return
     if (mode === 'bubble' && isBubbleEditLocked) return
+    if (mode === '3d') {
+      if (!selectedIfcElement) return
+      // 키보드 Delete와 동일한 3D 캔버스 삭제 루틴을 트리거한다.
+      setThreeDDeleteRequestToken((prev) => prev + 1)
+      return
+    }
     if (mode === '2d') {
       const selectedRoomIds = mergeSelectedIds(selectedIds, selectedId)
 
@@ -311,7 +334,7 @@ export function useEditorPage() {
         } else {
           clearSelection()
         }
-        setSelectedConnectionPair(null)
+        clearConnectionAndTwoDSelection()
         return
       }
 
@@ -355,10 +378,7 @@ export function useEditorPage() {
         setFloorWalls((prev) => prev.filter((wall) => !wallIdSet.has(wall.id)))
       }
 
-      setSelectedFloorOpeningId(null)
-      setSelectedFloorWallId(null)
-      setSelectedFloorOpeningIds([])
-      setSelectedFloorWallIds([])
+      clearTwoDStructureSelection()
       return
     }
     if (selectedConnectionPair) {
@@ -378,6 +398,7 @@ export function useEditorPage() {
     canSyncBubbleStateFrom2D,
     mode,
     isBubbleEditLocked,
+    selectedIfcElement,
     selectedFloorOpeningId,
     selectedFloorWallId,
     selectedFloorOpeningIds,
@@ -391,6 +412,8 @@ export function useEditorPage() {
     removeConnectionsForBubble,
     removeConnection,
     isAutoDerivedWallId,
+    clearConnectionAndTwoDSelection,
+    clearTwoDStructureSelection,
   ])
 
   useEffect(() => {
@@ -1250,7 +1273,7 @@ export function useEditorPage() {
       ) || selectedIds.length > 0
     }
     if (mode === '3d') {
-      return selectedIds.length > 0
+      return selectedIds.length > 0 || Boolean(selectedIfcElement)
     }
     return false
   }, [
@@ -1262,6 +1285,7 @@ export function useEditorPage() {
     selectedFloorOpeningIds,
     selectedFloorWallIds,
     selectedIds,
+    selectedIfcElement,
   ])
   const unreadCommentNotifications = useMemo(
     () =>
@@ -1352,15 +1376,20 @@ export function useEditorPage() {
     closeExportSelectionModal,
     closeIFCExportModal,
   } = useEditorExportGuard({ canStartSaveFlow })
+
+  // 3D 생성 모달
+  const [isGenerate3DModalOpen, setIsGenerate3DModalOpen] = useState(false)
+  const [localFloorData, setLocalFloorData] = useState<FloorPlan3DData | null>(null)
+
   // ── 핸들러 ────────────────────────────────────────────────────────────────
 
   /** 편집 모드 전환 — 협업 모드·라이브러리는 모드 이탈 시 닫힘 */
-  const setMode = (nextMode: EditorMode) => {
+  const setMode = useCallback((nextMode: EditorMode) => {
     setSearchParams({ mode: nextMode })
     if (nextMode !== '2d') setIsCollaborationMode(false)
     if (nextMode !== '3d') setSelectedIfcElement(null)
     setIsLibraryOpen(false)
-  }
+  }, [setSearchParams])
 
   const handleOpenAddModal = () => {
     if (isBubbleReadOnly) return
@@ -1638,11 +1667,7 @@ export function useEditorPage() {
 
   const handleClearCanvasSelection = () => {
     clearSelection()
-    setSelectedConnectionPair(null)
-    setSelectedFloorWallId(null)
-    setSelectedFloorOpeningId(null)
-    setSelectedFloorWallIds([])
-    setSelectedFloorOpeningIds([])
+    clearConnectionAndTwoDSelection()
     setSelectedIfcElement(null)
   }
 
@@ -1650,12 +1675,8 @@ export function useEditorPage() {
     setSelectedIfcElement(element)
     if (!element) return
     clearSelection()
-    setSelectedConnectionPair(null)
-    setSelectedFloorWallId(null)
-    setSelectedFloorOpeningId(null)
-    setSelectedFloorWallIds([])
-    setSelectedFloorOpeningIds([])
-  }, [clearSelection])
+    clearConnectionAndTwoDSelection()
+  }, [clearSelection, clearConnectionAndTwoDSelection])
 
   const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId'>) => {
     if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return
@@ -1794,7 +1815,7 @@ export function useEditorPage() {
         console.error('[editor] Floor-plan layoutImport 유효성 검증 실패:', error.errors)
         return
       }
-      if (axios.isAxiosError(error)) {
+      if (isAxiosError(error)) {
         if (error.response?.status === 403) {
           clearFloorPlanGenerateTimeout()
           floorPlanGenerateForbiddenRef.current = true
@@ -2131,14 +2152,10 @@ export function useEditorPage() {
    * - 연결선 선택 상태
    */
   const resetInteractionSelection = useCallback(() => {
-    setSelectedConnectionPair(null)
     setConnectingFromId(null)
-    setSelectedFloorWallId(null)
-    setSelectedFloorOpeningId(null)
-    setSelectedFloorWallIds([])
-    setSelectedFloorOpeningIds([])
+    clearConnectionAndTwoDSelection()
     clearSelection()
-  }, [clearSelection])
+  }, [clearSelection, clearConnectionAndTwoDSelection])
 
   /** 도면 변경 공통 반영 파이프라인 */
   const syncHistoryAvailability = useCallback(() => {
@@ -2497,6 +2514,45 @@ export function useEditorPage() {
     [baseHandleHeightCommitForPanel],
   )
 
+  /**
+   * 2D 평면도 → 3D 생성 모달 열기.
+   * IFC URL이 이미 있으면 모달 없이 바로 3D 모드로 전환한다.
+   */
+  /**
+   * 3D 생성 모달 열기
+   * - IFC URL이 이미 있으면 모달 없이 3D 모드로 바로 전환한다.
+   * - IFC URL이 없으면 층고 입력 모달을 표시해 localFloorData를 구성한다.
+   */
+  const handleOpenGenerate3DModal = useCallback(() => {
+    if (currentIfcUrl) {
+      setIsGenerate3DModalOpen(false)
+      setMode('3d')
+      return
+    }
+    setIsGenerate3DModalOpen(true)
+  }, [currentIfcUrl, setMode])
+
+  /** 3D 생성 모달 닫기 */
+  const handleCloseGenerate3DModal = useCallback(() => {
+    setIsGenerate3DModalOpen(false)
+  }, [])
+
+  /**
+   * 층고 확정 후 현재 평면도 데이터를 스냅샷으로 저장하고 3D 모드로 전환한다.
+   * IFC URL이 있으면 IFC 기반 렌더링을 사용하므로 localFloorData를 설정하지 않는다.
+   */
+  const handleConfirmGenerate3D = useCallback((storyHeightMm: number) => {
+    if (!currentIfcUrl) {
+      setLocalFloorData({
+        rooms: floorRooms,
+        walls: mergedFloorWalls,
+        storyHeightMm,
+      })
+    }
+    setIsGenerate3DModalOpen(false)
+    setMode('3d')
+  }, [currentIfcUrl, floorRooms, mergedFloorWalls, setMode])
+
   const handleAutoLayoutBubbles = useCallback(() => {
     if (mode !== 'bubble') return
     if (isBubbleReadOnly) return
@@ -2543,6 +2599,7 @@ export function useEditorPage() {
     selectedFloorWall,
     selectedFloorOpening,
     selectedIfcElement: mode === '3d' ? selectedIfcElement : null,
+    threeDDeleteRequestToken,
     handleBubbleSelect,
     handleSelectIfcElement,
     handleDeleteIfcElement,
@@ -2744,6 +2801,12 @@ export function useEditorPage() {
     isIFCExportModalOpen,
     handleOpenIFCExportModal,
     onCloseIFCExportModal: closeIFCExportModal,
+    // 3D 생성 모달
+    isGenerate3DModalOpen,
+    handleOpenGenerate3DModal,
+    handleCloseGenerate3DModal,
+    handleConfirmGenerate3D,
+    localFloorData,
     // AI 어시스턴트
     llmProvider: llmEdit.provider,
     llmPrompt: llmEdit.prompt,
