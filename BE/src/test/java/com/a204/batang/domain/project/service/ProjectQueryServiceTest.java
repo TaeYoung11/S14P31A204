@@ -114,7 +114,7 @@ class ProjectQueryServiceTest {
     }
 
     @Test
-    void getMyProjectDetail_returnsIfcUrlWhenBubbleEditingFinished() {
+    void getMyProjectDetail_returnsIfcUrlWhenBubbleEditingFinished() throws Exception {
         UUID currentUserId = UUID.randomUUID();
         UUID projectId = UUID.randomUUID();
         UUID ownerUserId = UUID.randomUUID();
@@ -127,6 +127,16 @@ class ProjectQueryServiceTest {
         ProjectWorkspace workspace = ProjectWorkspace.create(project);
         ReflectionTestUtils.setField(workspace, "projectId", projectId);
         ReflectionTestUtils.setField(workspace, "phaseStatus", PhaseStatus.IFC_EDIT);
+        ReflectionTestUtils.setField(
+                workspace,
+                "bubbleSnapshotJson",
+                new ObjectMapper().readTree("""
+                        {
+                          "bubbles": [{"id": "bubble-2"}],
+                          "connections": []
+                        }
+                        """)
+        );
         ReflectionTestUtils.setField(workspace, "ifcStorageUrl", "s3://bucket/projects/%s/revisions/%s/ifc/model.v1.ifc".formatted(projectId, UUID.randomUUID()));
         ReflectionTestUtils.setField(workspace, "currentRevision", UUID.randomUUID().toString());
 
@@ -145,7 +155,8 @@ class ProjectQueryServiceTest {
         assertThat(response.projectId()).isEqualTo(projectId);
         assertThat(response.bubbleEditing()).isFalse();
         assertThat(response.phaseStatus()).isEqualTo(PhaseStatus.IFC_EDIT);
-        assertThat(response.bubbleSnapshotJson()).isNull();
+        assertThat(response.bubbleSnapshotJson()).isNotNull();
+        assertThat(response.bubbleSnapshotJson().get("bubbles").get(0).get("id").asText()).isEqualTo("bubble-2");
         assertThat(response.ifcStorageUrl()).isEqualTo(workspace.getIfcStorageUrl());
         assertThat(response.siteInfo()).isNotNull();
         assertThat(response.siteInfo().address()).isEqualTo("부산시 해운대구 테스트동 2-2");

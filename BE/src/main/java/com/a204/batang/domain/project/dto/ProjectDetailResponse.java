@@ -16,7 +16,7 @@ import java.util.UUID;
  * @param description 프로젝트 설명
  * @param phaseStatus 현재 워크스페이스 단계
  * @param bubbleEditing 버블 다이어그램 편집 중 여부
- * @param bubbleSnapshotJson 버블 편집 중일 때 반환하는 스냅샷
+ * @param bubbleSnapshotJson 현재 저장된 버블 스냅샷
  * @param ifcStorageUrl 버블 편집 종료 후 반환하는 IFC URL
  * @param currentRevision 현재 리비전 ID 문자열
  * @param siteInfo 대지 정보
@@ -42,7 +42,7 @@ public record ProjectDetailResponse(
      *
      * @param project 프로젝트 엔티티
      * @param workspace 워크스페이스 엔티티
-     * @param bubbleEditing 버블 다이어그램 편집 중 여부
+ * @param bubbleEditing 버블 다이어그램 편집 중 여부
      * @param creator 프로젝트 생성자 정보
      * @param invitedUsers 초대 사용자 정보 목록
      * @return 프로젝트 상세 응답 DTO
@@ -54,7 +54,7 @@ public record ProjectDetailResponse(
             ProjectParticipantResponse creator,
             List<ProjectParticipantResponse> invitedUsers
     ) {
-        JsonNode bubbleSnapshotJson = bubbleEditing ? workspace.getBubbleSnapshotJson() : null;
+        JsonNode bubbleSnapshotJson = workspace.getBubbleSnapshotJson();
         String ifcStorageUrl = bubbleEditing ? null : workspace.getIfcStorageUrl();
 
         return new ProjectDetailResponse(
