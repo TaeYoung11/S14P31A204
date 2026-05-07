@@ -1,14 +1,60 @@
+"""Highkick 샘플 IFC 생성기.
+
+실행:
+    python scratch_highkick_sample.py
+
+출력:
+    AI\\tests\\sample_highkick.ifc
+
+설계 의도:
+  1F : 전체 15000x10000 직사각형 바닥.
+       우측 전면 4000x4000 영역은 필로티처럼 비워 둔 ㄱ자 외벽 구조.
+       내부는 좌측/중앙/우측 구획벽과 1F->2F 계단을 배치.
+
+       y=10000  +-------------------------------+
+                |                               |
+       y=5000   | Left rooms | Center | Right   |
+                |------------+--------+---------|
+       y=4000   |            |        |         |
+                |            |        +----+    |
+       y=0      +------------+--------+    +----+
+                x=0        x=5000  x=11000 x=15000
+                                      front-right cut-out
+
+  2F : 1F와 같은 전체 바닥 위에 우측 전면을 테라스처럼 처리.
+       테라스 남/동측에는 난간을 배치하고, 실내에는 방 구획과 욕실 벽을 배치.
+       2F->RF 계단을 포함.
+
+       y=10000  +-------------------------------+
+                | bedrooms / bath / master area |
+       y=4000   |----------------------+--------|
+                | indoor area          |terrace |
+       y=0      +----------------------+--rail--+
+                x=0                 x=11000  x=15000
+
+  RF : 옥상 슬래브와 난간.
+       좌측에는 계단실, 우측 상단에는 작은 옥탑방과 지붕을 배치.
+
+벽 설계:
+  - 외벽은 200mm 두께의 IfcWallStandardCase.
+  - 내부 구획벽도 200mm 두께로 단순 직육면체 압출.
+  - 테라스/옥상 난간은 낮은 벽 요소로 표현.
+
+테스트/프론트 확인 포인트:
+  - 층 구조: IfcProject > IfcSite > IfcBuilding > 1F/2F/RF
+  - 주요 요소: IfcWallStandardCase, IfcSlab, IfcColumn, IfcStair, IfcRoof, IfcSpace
+  - 형상 표현: Axis, Body, FootPrint, Box
+  - 재질/색상: IfcMaterial, IfcRelAssociatesMaterial, IfcStyledItem, IfcColourRgb 포함
 """
-Highkick Sample IFC Generator  (v7.7 최종 안정화)
-=================================================
-"""
+
 import ifcopenshell
 import ifcopenshell.guid
 import time
 import os
 
-UP = os.environ.get("USERPROFILE") or os.environ.get("HOME", "")
-OUT_PATH = os.path.normpath(os.path.join(UP, "Downloads", "sample_highkick.ifc"))
+OUT_PATH = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", "sample_highkick.ifc")
+)
 
 T = 200   # 벽 두께
 H1 = 3000  # 1F 층고
@@ -337,6 +383,27 @@ def mat_usage(m, name, thick):
     )
 
 
+def set_color(m, element, rgb):
+    color = m.create_entity(
+        "IfcColourRgb",
+        Red=float(rgb[0]),
+        Green=float(rgb[1]),
+        Blue=float(rgb[2]),
+    )
+    rendering = m.create_entity("IfcSurfaceStyleRendering", SurfaceColour=color)
+    style = m.create_entity(
+        "IfcSurfaceStyle",
+        Name=f"{element.Name}_Color",
+        Side="BOTH",
+        Styles=[rendering]
+    )
+    if element.Representation:
+        for rep in element.Representation.Representations:
+            if rep.RepresentationIdentifier == "Body":
+                for item in rep.Items:
+                    m.create_entity("IfcStyledItem", Item=item, Styles=[style])
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # 메인 생성 로직
 # ══════════════════════════════════════════════════════════════════════════════
@@ -497,6 +564,13 @@ def generate():
             {"IsExternal": False, "LoadBearing": False, "ThermalTransmittance": 2.0},
             w
         )
+    for w in ext1:
+        set_color(m, w, (0.78, 0.73, 0.68))
+    for w in int1:
+        set_color(m, w, (0.90, 0.90, 0.88))
+    set_color(m, col_1f, (0.78, 0.73, 0.68))
+    set_color(m, sl1, (0.65, 0.65, 0.62))
+    set_color(m, stair_1f, (0.70, 0.65, 0.60))
 
     # ═══════════════════════════════════════════════════════════════
     # 2F
@@ -557,6 +631,14 @@ def generate():
             {"IsExternal": False, "LoadBearing": False, "ThermalTransmittance": 2.0},
             w
         )
+    for w in ext2:
+        set_color(m, w, (0.78, 0.73, 0.68))
+    for w in int2:
+        set_color(m, w, (0.90, 0.90, 0.88))
+    for w in rl2:
+        set_color(m, w, (0.55, 0.55, 0.55))
+    set_color(m, sl2, (0.65, 0.65, 0.62))
+    set_color(m, stair_2f, (0.70, 0.65, 0.60))
 
     # ═══════════════════════════════════════════════════════════════
     # RF
@@ -611,6 +693,16 @@ def generate():
             {"IsExternal": True, "LoadBearing": True, "ThermalTransmittance": 1.5},
             w
         )
+    rl3 = [w3_rl_w, w3_rl_n, w3_rl_s, w3_rl_e, w3_rl_tw, w3_rl_tn]
+    st3 = [w3_st_w, w3_st_s, w3_st_e, w3_st_n, w3_mr_w, w3_mr_s, w3_mr_e, w3_mr_n]
+    for w in rl3:
+        set_color(m, w, (0.55, 0.55, 0.55))
+    for w in st3:
+        set_color(m, w, (0.78, 0.73, 0.68))
+    set_color(m, sl3_left, (0.65, 0.65, 0.62))
+    set_color(m, sl3_top, (0.65, 0.65, 0.62))
+    set_color(m, rf_st, (0.45, 0.35, 0.25))
+    set_color(m, rf_mr, (0.45, 0.35, 0.25))
 
     m.write(OUT_PATH)
     print("[OK] v7.7 - 누락된 SP 함수 복구 및 최종 안정화 완료:", OUT_PATH)
