@@ -1,8 +1,9 @@
-"""Service-level IFC-to-photo pipeline helpers.
+"""IFC를 사진 결과물로 변환하는 service 레벨 파이프라인.
 
-This module keeps the worker-facing pipeline separate from CLI scripts.  It
-accepts a local IFC file, renders the two selected front-facing diagonal views,
-styles them with the preset resolver, and writes a compact output contract.
+CLI 스크립트와 worker 연결부 사이에서 재사용할 수 있는 얇은 진입점이다.
+로컬 IFC 파일을 받아 앞이 보이는 대각선 2시점만 depth로 렌더링하고,
+preset resolver가 정한 옵션으로 스타일 이미지를 생성한 뒤 고정된 출력 계약을
+파일로 남긴다.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ class _IFCRendererProtocol(Protocol):
         ifc_path: Path,
         views: list[IFCView] | None = None,
     ) -> dict[IFCView, Image.Image]:
+        """IFC 파일에서 요청한 view들의 depth 이미지를 생성한다."""
         ...
 
 
@@ -43,6 +45,7 @@ class _DepthStyleResultProtocol(Protocol):
     image: Image.Image
 
     def save(self, path: Path | str) -> Path:
+        """생성된 스타일 이미지를 PNG 파일로 저장한다."""
         ...
 
 
@@ -54,6 +57,7 @@ class _DepthStyleRendererProtocol(Protocol):
         view: IFCView | None = None,
         **kwargs: object,
     ) -> _DepthStyleResultProtocol:
+        """depth 이미지와 preset 옵션을 사용해 최종 사진 이미지를 생성한다."""
         ...
 
 
@@ -77,7 +81,7 @@ class Ifc2ImgPhotoJobResult:
 
 
 def resolve_photo_views(views: tuple[str, ...] | None = None) -> tuple[str, ...]:
-    """Return validated public photo view names in render order."""
+    """외부에서 요청한 사진 view 이름을 검증하고 service 렌더 순서로 확정한다."""
     resolved = PUBLIC_PHOTO_VIEWS if views is None else views
     unknown = [view for view in resolved if view not in PUBLIC_TO_INTERNAL_VIEW]
     if unknown:
@@ -91,7 +95,7 @@ def build_photo_manifest(
     preset: str,
     outputs: tuple[Ifc2ImgPhotoOutput, ...],
 ) -> dict[str, object]:
-    """Build the stable manifest written beside photo outputs."""
+    """생성된 사진/디버그 depth 목록을 worker가 읽을 manifest 구조로 만든다."""
     return {
         "schemaVersion": PHOTO_MANIFEST_SCHEMA_VERSION,
         "renderMode": "ifc2img",
@@ -115,6 +119,7 @@ def write_photo_manifest(
     path: Path,
     manifest: dict[str, object],
 ) -> Path:
+    """manifest 딕셔너리를 UTF-8 JSON 파일로 저장하고 저장 경로를 반환한다."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
@@ -129,6 +134,7 @@ def create_photo_bundle(
     manifest_path: Path,
     outputs: tuple[Ifc2ImgPhotoOutput, ...],
 ) -> Path:
+    """worker 업로드용 zip bundle에 manifest와 최종 사진 파일만 묶는다."""
     bundle_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.write(manifest_path, arcname=manifest_path.name)
@@ -147,7 +153,7 @@ def run_ifc2img_photo_pipeline(
     ifc_renderer_cls: type[_IFCRendererProtocol] | None = None,
     depth_style_renderer_cls: type[_DepthStyleRendererProtocol] | None = None,
 ) -> Ifc2ImgPhotoJobResult:
-    """Render the fixed two-photo ifc2img pipeline for a local IFC file."""
+    """IFC 입력 하나를 받아 front-facing diagonal 사진 2장 계약으로 렌더링한다."""
     ifc_path = Path(ifc_path)
     output_dir = Path(output_dir)
     if not ifc_path.exists():
