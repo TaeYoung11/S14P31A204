@@ -4,6 +4,7 @@ import com.a204.batang.domain.auth.entity.Member;
 import com.a204.batang.domain.auth.repository.MemberRepository;
 import com.a204.batang.domain.chat.dto.GetProjectChatLogsResponse;
 import com.a204.batang.domain.chat.dto.ProjectChatLogItemResponse;
+import com.a204.batang.domain.chat.repository.ProjectChatLogProjection;
 import com.a204.batang.domain.chat.repository.ProjectChatLogRepository;
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.repository.ProjectRepository;
@@ -31,8 +32,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -100,24 +101,36 @@ class ProjectChatLogQueryServiceTest {
         given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(currentUserId);
 
         UUID jobId = UUID.randomUUID();
-        Object[] errorRow = new Object[] {
-                jobId, "AI", "ERROR", "편집 작업이 실패했습니다.", null,
-                jobId, "TWO_D_TO_IFC_EDIT", "FAILED",
+        ProjectChatLogProjection errorProjection = projection(
+                jobId,
+                "AI",
+                "ERROR",
+                "job failed",
+                null,
+                jobId,
+                "TWO_D_TO_IFC_EDIT",
+                "FAILED",
                 Timestamp.valueOf(LocalDateTime.of(2026, 5, 7, 11, 3, 0))
-        };
-        Object[] commandRow = new Object[] {
-                jobId, "USER", "COMMAND", "거실 벽을 추가해줘", chatRequesterId,
-                jobId, "TWO_D_TO_IFC_EDIT", "FAILED",
+        );
+        ProjectChatLogProjection commandProjection = projection(
+                jobId,
+                "USER",
+                "COMMAND",
+                "add a wall",
+                chatRequesterId,
+                jobId,
+                "TWO_D_TO_IFC_EDIT",
+                "FAILED",
                 Timestamp.valueOf(LocalDateTime.of(2026, 5, 7, 11, 0, 0))
-        };
+        );
 
         given(projectChatLogRepository.findVirtualChatLogsByProjectId(eq(projectId), eq(PageRequest.of(0, 50))))
-                .willReturn(new PageImpl<>(List.<Object[]>of(errorRow, commandRow), PageRequest.of(0, 50), 2));
+                .willReturn(new PageImpl<>(List.of(errorProjection, commandProjection), PageRequest.of(0, 50), 2));
         given(memberRepository.findAllById(argThat((Iterable<UUID> ids) -> {
             List<UUID> collected = new ArrayList<>();
             ids.forEach(collected::add);
             return collected.size() == 1 && collected.contains(chatRequesterId);
-        }))).willReturn(List.of(createMember(chatRequesterId, "홍길동")));
+        }))).willReturn(List.of(createMember(chatRequesterId, "Hong")));
 
         GetProjectChatLogsResponse response = projectChatLogQueryService.getProjectChatLogs(projectId, 0, 50);
 
@@ -132,15 +145,15 @@ class ProjectChatLogQueryServiceTest {
         ProjectChatLogItemResponse first = response.messages().get(0);
         assertThat(first.type()).isEqualTo("USER");
         assertThat(first.subType()).isEqualTo("COMMAND");
-        assertThat(first.content()).isEqualTo("거실 벽을 추가해줘");
+        assertThat(first.content()).isEqualTo("add a wall");
         assertThat(first.senderUserId()).isEqualTo(chatRequesterId);
-        assertThat(first.senderName()).isEqualTo("홍길동");
+        assertThat(first.senderName()).isEqualTo("Hong");
         assertThat(first.timestamp()).isEqualTo("2026-05-07T02:00:00Z");
 
         ProjectChatLogItemResponse second = response.messages().get(1);
         assertThat(second.type()).isEqualTo("AI");
         assertThat(second.subType()).isEqualTo("ERROR");
-        assertThat(second.content()).isEqualTo("편집 작업이 실패했습니다.");
+        assertThat(second.content()).isEqualTo("job failed");
         assertThat(second.senderUserId()).isNull();
         assertThat(second.senderName()).isNull();
         assertThat(second.timestamp()).isEqualTo("2026-05-07T02:03:00Z");
@@ -152,19 +165,109 @@ class ProjectChatLogQueryServiceTest {
         given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(currentUserId);
 
         UUID jobId = UUID.randomUUID();
-        Object[] resultRow = new Object[] {
-                jobId, "AI", "RESULT", "IFC 편집 작업이 완료되었습니다.", null,
-                jobId, "THREE_D_TO_IFC_EDIT", "SUCCEEDED",
+        ProjectChatLogProjection resultProjection = projection(
+                jobId,
+                "AI",
+                "RESULT",
+                "job succeeded",
+                null,
+                jobId,
+                "THREE_D_TO_IFC_EDIT",
+                "SUCCEEDED",
                 Timestamp.valueOf(LocalDateTime.of(2026, 5, 7, 11, 10, 0))
-        };
+        );
         given(projectChatLogRepository.findVirtualChatLogsByProjectId(eq(projectId), eq(PageRequest.of(0, 50))))
-                .willReturn(new PageImpl<>(List.<Object[]>of(resultRow), PageRequest.of(0, 50), 1));
+                .willReturn(new PageImpl<>(List.of(resultProjection), PageRequest.of(0, 50), 1));
 
         GetProjectChatLogsResponse response = projectChatLogQueryService.getProjectChatLogs(projectId, 0, 50);
 
         assertThat(response.messages()).hasSize(1);
         assertThat(response.messages().get(0).type()).isEqualTo("AI");
         verify(memberRepository, never()).findAllById(any());
+    }
+
+    @Test
+    void getProjectChatLogs_throwsWhenTimestampTypeIsUnsupported() {
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(currentUserId);
+
+        UUID jobId = UUID.randomUUID();
+        ProjectChatLogProjection projection = projection(
+                jobId,
+                "AI",
+                "RESULT",
+                "job succeeded",
+                null,
+                jobId,
+                "THREE_D_TO_IFC_EDIT",
+                "SUCCEEDED",
+                new Object()
+        );
+        given(projectChatLogRepository.findVirtualChatLogsByProjectId(eq(projectId), eq(PageRequest.of(0, 50))))
+                .willReturn(new PageImpl<>(List.of(projection), PageRequest.of(0, 50), 1));
+
+        assertThatThrownBy(() -> projectChatLogQueryService.getProjectChatLogs(projectId, 0, 50))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Unsupported chat log timestamp type");
+    }
+
+    private ProjectChatLogProjection projection(
+            UUID referenceId,
+            String type,
+            String subType,
+            String content,
+            UUID senderUserId,
+            UUID jobId,
+            String jobType,
+            String jobStatus,
+            Object timestamp
+    ) {
+        return new ProjectChatLogProjection() {
+            @Override
+            public UUID getReferenceId() {
+                return referenceId;
+            }
+
+            @Override
+            public String getType() {
+                return type;
+            }
+
+            @Override
+            public String getSubType() {
+                return subType;
+            }
+
+            @Override
+            public String getContent() {
+                return content;
+            }
+
+            @Override
+            public UUID getSenderUserId() {
+                return senderUserId;
+            }
+
+            @Override
+            public UUID getJobId() {
+                return jobId;
+            }
+
+            @Override
+            public String getJobType() {
+                return jobType;
+            }
+
+            @Override
+            public String getJobStatus() {
+                return jobStatus;
+            }
+
+            @Override
+            public Object getTimestamp() {
+                return timestamp;
+            }
+        };
     }
 
     private Member createMember(UUID userId, String name) throws Exception {
