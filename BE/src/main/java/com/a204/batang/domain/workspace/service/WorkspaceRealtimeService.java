@@ -1,6 +1,7 @@
 package com.a204.batang.domain.workspace.service;
 
 import com.a204.batang.domain.project.service.ProjectAccessService;
+import com.a204.batang.domain.workspace.dto.BubbleUndoRequest;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
 import com.a204.batang.domain.workspace.dto.ProjectSyncResponse;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
@@ -22,7 +23,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * 프로젝트 워크스페이스의 버블 다이어그램 실시간 동기화를 처리한다.
+ * 프로젝트 워크스페이스의 버블 다이어그램 실시간 편집을 처리한다.
  */
 @Service
 @RequiredArgsConstructor
@@ -32,6 +33,7 @@ public class WorkspaceRealtimeService {
 
     private static final String PROJECT_SYNC_TOPIC_TEMPLATE = "/topic/project/%s/sync";
     private static final String ACTION_BUBBLE_UPDATED = "BUBBLE_UPDATED";
+    private static final String ACTION_BUBBLE_UNDO = "BUBBLE_UNDO";
 
     private final ProjectWorkspaceRepository projectWorkspaceRepository;
     private final ProjectAccessService projectAccessService;
@@ -40,11 +42,11 @@ public class WorkspaceRealtimeService {
     private final SimpMessagingTemplate simpMessagingTemplate;
 
     /**
-     * 버블 편집 스냅샷을 Redis에 임시 저장하고 프로젝트 구독 채널로 브로드캐스트한다.
+     * 버블 편집 draft를 Redis에 히스토리로 저장하고 구독 채널로 전파한다.
      *
      * @param projectId 프로젝트 ID
      * @param currentUserId 현재 사용자 ID
-     * @param request 버블 동기화 요청 payload
+     * @param request 버블 편집 요청 payload
      */
     @Transactional(readOnly = true)
     public void updateBubbleDraft(UUID projectId, UUID currentUserId, BubbleUpdateRequest request) {
@@ -72,8 +74,36 @@ public class WorkspaceRealtimeService {
     }
 
     /**
+     * 버블 히스토리에서 이전 스냅샷을 조회해 undo 이벤트를 전파한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param currentUserId 현재 사용자 ID
+     * @param request undo 요청 payload
+     */
+    @Transactional(readOnly = true)
+    public void undoBubbleDraft(UUID projectId, UUID currentUserId, BubbleUndoRequest request) {
+        ProjectWorkspace workspace = projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)
+                .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
+
+        projectAccessService.validateProjectPinWriterOrThrow(workspace.getProject(), currentUserId);
+        bubbleSnapshotHelper.validatePhaseOrThrow(workspace.getPhaseStatus());
+
+        JsonNode undoSnapshot = loadUndoBubbleSnapshotOrThrow(projectId, request.baseIndex());
+
+        ProjectSyncResponse response = new ProjectSyncResponse(
+                ACTION_BUBBLE_UNDO,
+                projectId,
+                workspace.getPhaseStatus(),
+                undoSnapshot,
+                LocalDateTime.now()
+        );
+        simpMessagingTemplate.convertAndSend(PROJECT_SYNC_TOPIC_TEMPLATE.formatted(projectId), response);
+
+        log.info("Bubble undo snapshot relayed via websocket. projectId={}, baseIndex={}", projectId, request.baseIndex());
+    }
+
+    /**
      * 웹소켓으로 수신한 버블 스냅샷을 Redis 최신값으로 저장한다.
-     * 저장 실패 시 브로드캐스트를 중단해 데이터 불일치를 방지한다.
      *
      * @param projectId 프로젝트 ID
      * @param snapshot 버블 스냅샷 JSON
@@ -95,6 +125,55 @@ public class WorkspaceRealtimeService {
             );
         } catch (DataAccessException exception) {
             log.error("Failed to save bubble snapshot to redis. projectId={}", projectId, exception);
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_BUBBLE_CACHE_SAVE_FAILED,
+                    "캐시 서버 통신에 실패했습니다."
+            );
+        }
+    }
+
+    /**
+     * undo 기준 인덱스를 검증하고, 이전 스냅샷을 조회한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param currentIndex 클라이언트가 보유한 현재 인덱스
+     * @return undo 대상 스냅샷
+     */
+    private JsonNode loadUndoBubbleSnapshotOrThrow(UUID projectId, int currentIndex) {
+        try {
+            int historySize = workspaceBubbleSnapshotRedisRepository.getBubbleSnapshotHistorySize(projectId);
+            if (historySize == 0) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_HISTORY_CURSOR_INVALID,
+                        "Undo할 버블 히스토리가 없습니다."
+                );
+            }
+            if (currentIndex != historySize - 1) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_HISTORY_CURSOR_INVALID,
+                        "Undo 기준 인덱스가 서버 히스토리와 일치하지 않습니다."
+                );
+            }
+            if (currentIndex == 0) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_HISTORY_CURSOR_INVALID,
+                        "더 이상 Undo할 이전 스냅샷이 없습니다."
+                );
+            }
+
+            return workspaceBubbleSnapshotRedisRepository.findBubbleSnapshotByIndex(projectId, currentIndex - 1)
+                    .orElseThrow(() -> new CustomException(
+                            ErrorCode.WORKSPACE_BUBBLE_HISTORY_CURSOR_INVALID,
+                            "Undo 대상 버블 스냅샷을 찾을 수 없습니다."
+                    ));
+        } catch (JsonProcessingException exception) {
+            log.error("Failed to deserialize bubble snapshot from redis. projectId={}", projectId, exception);
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_BUBBLE_CACHE_SAVE_FAILED,
+                    "버블 스냅샷 역직렬화에 실패했습니다."
+            );
+        } catch (DataAccessException exception) {
+            log.error("Failed to load bubble snapshot from redis. projectId={}", projectId, exception);
             throw new CustomException(
                     ErrorCode.WORKSPACE_BUBBLE_CACHE_SAVE_FAILED,
                     "캐시 서버 통신에 실패했습니다."
