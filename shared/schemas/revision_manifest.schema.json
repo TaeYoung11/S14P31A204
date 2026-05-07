@@ -79,6 +79,9 @@
       "items": {
         "$ref": "#/$defs/artifactRef"
       }
+    },
+    "validation_report": {
+      "$ref": "#/$defs/validationReport"
     }
   },
   "$defs": {
@@ -164,6 +167,74 @@
         "render_image",
         "revision_manifest"
       ]
+    },
+    "validationReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passed",
+        "checked_element_count",
+        "collision_count",
+        "structural_risk_count",
+        "issues"
+      ],
+      "properties": {
+        "passed": {
+          "type": "boolean"
+        },
+        "checked_element_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "collision_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "structural_risk_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/validationIssue"
+          }
+        }
+      }
+    },
+    "validationIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "element_global_id",
+        "element_type",
+        "code",
+        "severity",
+        "message"
+      ],
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        },
+        "element_global_id": {
+          "type": "string"
+        },
+        "element_type": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string",
+          "enum": ["COLLISION", "STRUCTURAL_RISK"]
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["error", "warning", "info"]
+        },
+        "message": {
+          "type": "string"
+        }
+      }
     }
   }
 }

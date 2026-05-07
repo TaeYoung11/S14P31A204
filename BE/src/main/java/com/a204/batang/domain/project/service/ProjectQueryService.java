@@ -18,7 +18,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -57,11 +56,9 @@ public class ProjectQueryService {
     public ProjectListResponse getMyProjects(int page) {
         validatePageOrThrow(page);
 
-        Pageable pageable = PageRequest.of(
-                page - 1,
-                PROJECT_PAGE_SIZE,
-                Sort.by(Sort.Direction.DESC, "updatedAt")
-        );
+        // 네이티브 쿼리에서 ORDER BY p.updated_at DESC를 직접 사용하므로
+        // Pageable Sort를 중복으로 전달하지 않는다.
+        Pageable pageable = PageRequest.of(page - 1, PROJECT_PAGE_SIZE);
 
         Page<Project> projectPage = projectAccessService.fetchProjectsByCurrentUser(pageable);
         return toProjectListResponse(projectPage, page);

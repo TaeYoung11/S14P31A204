@@ -44,6 +44,15 @@ class RoofShape(StrEnum):
     FLAT = "flat"
 
 
+class OpeningPolicy(StrEnum):
+    EXPLICIT_ONLY = "explicit_only"
+
+
+class OpeningType(StrEnum):
+    DOOR = "door"
+    WINDOW = "window"
+
+
 class ModelingDefaultsV1(LayoutImportBaseModel):
     """Optional modeling defaults supported by v1."""
 
@@ -75,6 +84,12 @@ class GenerationPolicyV2(LayoutImportBaseModel):
     boundary_wall_mode: BoundaryWallMode = BoundaryWallMode.OUTER_BOUNDARY
     shared_wall_policy: SharedWallPolicy = SharedWallPolicy.FROM_ADJACENCY
     roof_shape: RoofShape = RoofShape.FLAT
+
+
+class GenerationPolicyV3(GenerationPolicyV2):
+    """Generation policies supported in v3."""
+
+    opening_policy: OpeningPolicy = OpeningPolicy.EXPLICIT_ONLY
 
 
 class ZoneInput(LayoutImportBaseModel):
@@ -203,6 +218,47 @@ class RoomInput(LayoutImportBaseModel):
     )
 
 
+class OpeningInput(LayoutImportBaseModel):
+    """Explicit opening input for v3."""
+
+    id: str = Field(min_length=1, max_length=128)
+    type: OpeningType
+    floor: int = Field(ge=1)
+    host_wall_ref: str = Field(min_length=1, max_length=255)
+    x: float
+    y: float
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_host_wall_ref(self) -> OpeningInput:
+        if self.host_wall_ref.startswith("wall-boundary-"):
+            parts = self.host_wall_ref.split("-")
+            if (
+                len(parts) == 5
+                and parts[0] == "wall"
+                and parts[1] == "boundary"
+                and parts[3] == "seg"
+            ):
+                try:
+                    floor = int(parts[2])
+                    segment_index = int(parts[4])
+                except ValueError as exc:  # pragma: no cover - defensive
+                    raise ValueError(
+                        "opening.host_wall_ref must use a supported wall reference pattern"
+                    ) from exc
+                if floor >= 1 and segment_index >= 1:
+                    return self
+
+        if self.host_wall_ref.startswith("wall-room-"):
+            remainder = self.host_wall_ref[len("wall-room-") :]
+            room_ids = remainder.split("-")
+            if len(room_ids) >= 4 and all(part != "" for part in room_ids):
+                return self
+
+        raise ValueError("opening.host_wall_ref must use a supported wall reference pattern")
+
+
 class LayoutImportCommon(LayoutImportBaseModel):
     """Fields shared across layout import versions."""
 
@@ -310,8 +366,42 @@ class LayoutImportV2(LayoutImportCommon):
         return self
 
 
+class LayoutImportV3(LayoutImportCommon):
+    """v3 request model for explicit openings validation."""
+
+    schema_version: Literal["v3"]
+    generation_options: GenerationOptionsV2 = Field(default_factory=GenerationOptionsV2)
+    modeling_defaults: ModelingDefaultsV2 | None = None
+    generation_policy: GenerationPolicyV3 = Field(default_factory=GenerationPolicyV3)
+    openings: list[OpeningInput] | None = None
+
+    @model_validator(mode="after")
+    def validate_generation_options(self) -> LayoutImportV3:
+        if not self.generation_options.generate_spaces:
+            raise ValueError("generate_spaces=false is not supported in this ticket")
+
+        if self.openings:
+            if not self.generation_options.generate_openings:
+                raise ValueError("explicit openings require generate_openings=true")
+            if self.generation_policy.opening_policy is not OpeningPolicy.EXPLICIT_ONLY:
+                raise ValueError("explicit openings require opening_policy=explicit_only")
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_opening_ids(self) -> LayoutImportV3:
+        if self.openings is None:
+            return self
+
+        opening_ids = [opening.id for opening in self.openings]
+        if len(opening_ids) != len(set(opening_ids)):
+            raise ValueError("opening.id values must be unique")
+
+        return self
+
+
 LayoutImportRequest: TypeAlias = Annotated[
-    LayoutImportV1 | LayoutImportV2,
+    LayoutImportV1 | LayoutImportV2 | LayoutImportV3,
     Field(discriminator="schema_version"),
 ]
 

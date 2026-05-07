@@ -1,7 +1,11 @@
 package com.a204.batang.domain.workspace.controller;
 
+import com.a204.batang.domain.workspace.dto.BubbleRedoRequest;
+import com.a204.batang.domain.workspace.dto.BubbleUndoRequest;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
+import com.a204.batang.domain.workspace.dto.FloorPlanRedoRequest;
+import com.a204.batang.domain.workspace.dto.FloorPlanUndoRequest;
 import com.a204.batang.domain.workspace.service.WorkspaceFloorPlanRealtimeService;
 import com.a204.batang.domain.workspace.service.WorkspaceRealtimeService;
 import com.a204.batang.global.exception.CustomException;
@@ -24,7 +28,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * 프로젝트 워크스페이스 STOMP 메시지 엔드포인트를 처리한다.
+ * 워크스페이스 실시간 편집용 STOMP 엔드포인트를 제공한다.
  */
 @Controller
 @RequiredArgsConstructor
@@ -36,11 +40,10 @@ public class WorkspaceStompController {
     private final WorkspaceFloorPlanRealtimeService workspaceFloorPlanRealtimeService;
 
     /**
-     * 버블 다이어그램 편집 스냅샷을 동기화한다.
-     * 클라이언트 발행 경로: /app/project/{projectId}/bubble/update
+     * 버블 다이어그램 업데이트 이벤트를 전달한다.
      *
      * @param projectId 프로젝트 ID
-     * @param request 버블 스냅샷 요청
+     * @param request 버블 업데이트 payload
      * @param principal STOMP 인증 사용자
      */
     @MessageMapping("/project/{projectId}/bubble/update")
@@ -54,11 +57,44 @@ public class WorkspaceStompController {
     }
 
     /**
-     * 2D/3D 편집 draft를 실시간 동기화한다.
-     * 클라이언트 발행 경로: /app/project/{projectId}/floor-plan/update
+     * 버블 다이어그램 Undo를 요청한다.
      *
      * @param projectId 프로젝트 ID
-     * @param request 2D/3D 실시간 편집 요청 payload
+     * @param request Undo payload
+     * @param principal STOMP 인증 사용자
+     */
+    @MessageMapping("/project/{projectId}/bubble/undo")
+    public void undoBubble(
+            @DestinationVariable UUID projectId,
+            @Valid BubbleUndoRequest request,
+            Principal principal
+    ) {
+        UUID currentUserId = resolvePrincipalUserIdOrThrow(principal);
+        workspaceRealtimeService.undoBubbleDraft(projectId, currentUserId, request);
+    }
+
+    /**
+     * 버블 다이어그램 Redo를 요청한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param request Redo payload
+     * @param principal STOMP 인증 사용자
+     */
+    @MessageMapping("/project/{projectId}/bubble/redo")
+    public void redoBubble(
+            @DestinationVariable UUID projectId,
+            @Valid BubbleRedoRequest request,
+            Principal principal
+    ) {
+        UUID currentUserId = resolvePrincipalUserIdOrThrow(principal);
+        workspaceRealtimeService.redoBubbleDraft(projectId, currentUserId, request);
+    }
+
+    /**
+     * 2D/3D 도면 draft 이벤트를 전달한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param request 도면 업데이트 payload
      * @param principal STOMP 인증 사용자
      */
     @MessageMapping("/project/{projectId}/floor-plan/update")
@@ -72,7 +108,41 @@ public class WorkspaceStompController {
     }
 
     /**
-     * STOMP 메시지 처리 중 발생한 커스텀 예외를 사용자 에러 큐로 전달한다.
+     * 2D/3D 도면 Undo를 요청한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param request Undo payload
+     * @param principal STOMP 인증 사용자
+     */
+    @MessageMapping("/project/{projectId}/floor-plan/undo")
+    public void undoFloorPlan(
+            @DestinationVariable UUID projectId,
+            @Valid FloorPlanUndoRequest request,
+            Principal principal
+    ) {
+        UUID currentUserId = resolvePrincipalUserIdOrThrow(principal);
+        workspaceFloorPlanRealtimeService.undoFloorPlanDraft(projectId, currentUserId, request);
+    }
+
+    /**
+     * 2D/3D 도면 Redo를 요청한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param request Redo payload
+     * @param principal STOMP 인증 사용자
+     */
+    @MessageMapping("/project/{projectId}/floor-plan/redo")
+    public void redoFloorPlan(
+            @DestinationVariable UUID projectId,
+            @Valid FloorPlanRedoRequest request,
+            Principal principal
+    ) {
+        UUID currentUserId = resolvePrincipalUserIdOrThrow(principal);
+        workspaceFloorPlanRealtimeService.redoFloorPlanDraft(projectId, currentUserId, request);
+    }
+
+    /**
+     * 도메인 커스텀 예외를 사용자 개인 에러 큐로 전송한다.
      *
      * @param exception 커스텀 예외
      * @return 에러 응답
@@ -88,7 +158,7 @@ public class WorkspaceStompController {
     }
 
     /**
-     * STOMP payload Bean Validation 실패를 사용자 에러 큐로 전달한다.
+     * STOMP payload 검증 실패 예외를 처리한다.
      *
      * @param exception 검증 예외
      * @return 에러 응답
@@ -106,9 +176,9 @@ public class WorkspaceStompController {
     }
 
     /**
-     * STOMP 메시지 처리 중 발생한 예기치 못한 예외를 사용자 에러 큐로 전달한다.
+     * 처리되지 않은 예외를 공통 내부 서버 에러 응답으로 변환한다.
      *
-     * @param exception 예외
+     * @param exception 미처리 예외
      * @return 에러 응답
      */
     @MessageExceptionHandler(Exception.class)
@@ -132,13 +202,13 @@ public class WorkspaceStompController {
 
     private UUID resolvePrincipalUserIdOrThrow(Principal principal) {
         if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
-            throw new CustomException(ErrorCode.UNAUTHORIZED, "웹소켓 인증 정보가 없습니다.");
+            throw new CustomException(ErrorCode.UNAUTHORIZED, "인증 사용자 정보를 찾을 수 없습니다.");
         }
 
         try {
             return UUID.fromString(principal.getName());
         } catch (IllegalArgumentException exception) {
-            throw new CustomException(ErrorCode.UNAUTHORIZED, "웹소켓 인증 사용자 식별자가 올바르지 않습니다.");
+            throw new CustomException(ErrorCode.UNAUTHORIZED, "인증 사용자 ID 형식이 올바르지 않습니다.");
         }
     }
 }

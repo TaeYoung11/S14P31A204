@@ -1,16 +1,4 @@
-"""ifc2img baseline 풀 렌더 — IFC → depth N뷰 → SD N장.
-
-baseline 정의:
-- seed=7 (presets.py 명시)
-- guidance=7, steps=25, cn_scale 1.15 (모든 view 일관)
-- view-aware prompt suffix (default views는 빈 suffix; TOP/BIRDS_EYE/CORNER_LOW는
-  명시 호출 시 환경 단서 합성)
-- DEFAULT_RENDER_VIEWS는 views.py가 정의 — 현재 5뷰
-  (front/side/eye_ne/eye_nw/eye_se)
-- render(depth, params, view=v) 단일 진입점 — view-aware 합성 자동
-
-출력: outputs/ifc2img_baseline/{depth_*,style_*}.png
-"""
+﻿"""Run the ifc2img baseline over the supported production views.`n`nSupported views are front, side, eye_ne, eye_nw, and eye_se.`nOutput: outputs/ifc2img_baseline/{depth_*,style_*}.png`n"""
 
 from __future__ import annotations
 
@@ -48,26 +36,26 @@ def main() -> int:
     print(f"[views] {[v.value for v in DEFAULT_RENDER_VIEWS]}")
     print(f"[output] {OUT_DIR}\n")
 
-    # 1) IFC → depth 5뷰
-    print("[depth] IFCRenderer 로드 + 렌더 중...")
+    # 1) IFC ??depth 5酉?
+    print("[depth] IFCRenderer 濡쒕뱶 + ?뚮뜑 以?..")
     t0 = time.time()
     ifc_renderer = IFCRenderer(
         width=768,
         height=448,
         auto_zoom=AutoZoomMode.ITERATIVE,
     )
-    depth_images = ifc_renderer.render_views(IFC_PATH)  # views=None → DEFAULT_RENDER_VIEWS
+    depth_images = ifc_renderer.render_views(IFC_PATH)  # views=None ??DEFAULT_RENDER_VIEWS
     for view, img in depth_images.items():
         path = OUT_DIR / f"depth_{view.value}.png"
         img.save(path)
-        print(f"  {view.value:7s} → {path.name}")
-    print(f"  depth 완료 ({time.time() - t0:.1f}s)\n")
+        print(f"  {view.value:7s} ??{path.name}")
+    print(f"  depth ?꾨즺 ({time.time() - t0:.1f}s)\n")
 
-    # 2) DepthStyleRenderer 로드 + 5뷰 추론 (view 인자로 baseline 합성/override 자동 적용)
-    print("[SD] DepthStyleRenderer 로드 중...")
+    # 2) DepthStyleRenderer 濡쒕뱶 + 5酉?異붾줎 (view ?몄옄濡?baseline ?⑹꽦/override ?먮룞 ?곸슜)
+    print("[SD] DepthStyleRenderer 濡쒕뱶 以?..")
     t1 = time.time()
     style_renderer = DepthStyleRenderer()
-    print(f"  로드 완료 ({time.time() - t1:.1f}s) device={style_renderer.device}\n")
+    print(f"  濡쒕뱶 ?꾨즺 ({time.time() - t1:.1f}s) device={style_renderer.device}\n")
 
     params = load_preset(PRESET)
     print(
@@ -82,12 +70,13 @@ def main() -> int:
         out_path = OUT_DIR / f"style_{view.value}_{PRESET}.png"
         result.save(out_path)
         print(
-            f"  [{i}/{total}] {view.value:7s} → {out_path.name} ({time.time() - t2:.1f}s)"
+            f"  [{i}/{total}] {view.value:7s} ??{out_path.name} ({time.time() - t2:.1f}s)"
         )
 
-    print(f"\n완료: {OUT_DIR}")
+    print(f"\n?꾨즺: {OUT_DIR}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
