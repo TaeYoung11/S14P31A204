@@ -18,6 +18,7 @@ public enum ErrorCode {
     EXISTING_EMAIL(HttpStatus.CONFLICT, "USER_EXISTING_EMAIL", "이미 사용 중인 이메일입니다."),
 
     PROJECT_NOT_FOUND(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND", "프로젝트를 찾을 수 없습니다."),
+    JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "JOB_NOT_FOUND", "작업을 찾을 수 없습니다."),
     WORKSPACE_INVALID_PHASE(HttpStatus.CONFLICT, "WORKSPACE_INVALID_PHASE", "현재 워크스페이스 상태에서는 요청을 수행할 수 없습니다."),
     WORKSPACE_BUBBLE_SNAPSHOT_INVALID(HttpStatus.BAD_REQUEST, "WORKSPACE_BUBBLE_SNAPSHOT_INVALID", "버블 스냅샷 데이터 구조가 올바르지 않습니다."),
     WORKSPACE_BUBBLE_HISTORY_CURSOR_INVALID(HttpStatus.CONFLICT, "WORKSPACE_BUBBLE_HISTORY_CURSOR_INVALID", "Undo/Redo 기준 인덱스가 현재 히스토리와 일치하지 않습니다."),
