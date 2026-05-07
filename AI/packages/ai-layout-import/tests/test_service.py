@@ -138,6 +138,46 @@ def _containment_map_for_types(
     return containment
 
 
+def _local_placement_location(
+    entity: ifcopenshell.entity_instance,
+) -> tuple[float, float, float]:
+    return tuple(entity.ObjectPlacement.RelativePlacement.Location.Coordinates)
+
+
+def _opening_dimensions(
+    entity: ifcopenshell.entity_instance,
+) -> tuple[float, float, float]:
+    body = _body_item(entity)
+    profile = body.SweptArea
+    return profile.XDim, profile.YDim, body.Depth
+
+
+def _voided_opening_for_wall(
+    model: ifcopenshell.file,
+    wall: ifcopenshell.entity_instance,
+) -> ifcopenshell.entity_instance:
+    matches = [
+        rel.RelatedOpeningElement
+        for rel in model.by_type("IfcRelVoidsElement")
+        if rel.RelatingBuildingElement == wall
+    ]
+    assert len(matches) == 1
+    return matches[0]
+
+
+def _filled_element_for_opening(
+    model: ifcopenshell.file,
+    opening: ifcopenshell.entity_instance,
+) -> ifcopenshell.entity_instance:
+    matches = [
+        rel.RelatedBuildingElement
+        for rel in model.by_type("IfcRelFillsElement")
+        if rel.RelatingOpeningElement == opening
+    ]
+    assert len(matches) == 1
+    return matches[0]
+
+
 def _shared_walls(model: ifcopenshell.file) -> dict[str, ifcopenshell.entity_instance]:
     return {
         name: entity
@@ -1395,7 +1435,7 @@ def test_convert_layout_to_ifc_reuses_style_assignment_for_same_color(tmp_path: 
     assert assignments[0].id() in style_ids
 
 
-def test_convert_layout_to_ifc_accepts_v3_explicit_openings_without_generating_ifc_openings(
+def test_convert_layout_to_ifc_generates_v3_explicit_door_and_window_entities(
     tmp_path: Path,
 ) -> None:
     request = _make_request(
@@ -1474,9 +1514,40 @@ def test_convert_layout_to_ifc_accepts_v3_explicit_openings_without_generating_i
     model = _open_generated_ifc(tmp_path, request, "v3-explicit-openings.ifc")
 
     assert len(model.by_type("IfcWall")) == 5
-    assert len(model.by_type("IfcOpeningElement")) == 0
-    assert len(model.by_type("IfcDoor")) == 0
-    assert len(model.by_type("IfcWindow")) == 0
+    assert len(model.by_type("IfcOpeningElement")) == 2
+    assert len(model.by_type("IfcDoor")) == 1
+    assert len(model.by_type("IfcWindow")) == 1
+    assert len(model.by_type("IfcRelVoidsElement")) == 2
+    assert len(model.by_type("IfcRelFillsElement")) == 2
+
+    shared_wall = _named_entities(model, "IfcWall")["Shared Wall 1-1"]
+    boundary_wall = _named_entities(model, "IfcWall")["Boundary Wall 1-2"]
+
+    door_opening = _voided_opening_for_wall(model, shared_wall)
+    window_opening = _voided_opening_for_wall(model, boundary_wall)
+    assert door_opening.Name == "opening-door-01"
+    assert window_opening.Name == "opening-window-01"
+
+    door = _filled_element_for_opening(model, door_opening)
+    window = _filled_element_for_opening(model, window_opening)
+    assert door.is_a("IfcDoor")
+    assert window.is_a("IfcWindow")
+    assert door.Name == "Door opening-door-01"
+    assert window.Name == "Window opening-window-01"
+
+    assert _local_placement_location(door_opening) == pytest.approx((1.45, 0.0, 0.0))
+    assert _local_placement_location(window_opening) == pytest.approx((3.4, 0.0, 0.9))
+    assert _local_placement_location(door) == pytest.approx((0.0, 0.0, 0.0))
+    assert _local_placement_location(window) == pytest.approx((0.0, 0.0, 0.0))
+
+    assert _opening_dimensions(door_opening) == pytest.approx((0.9, 0.2, 2.1))
+    assert _opening_dimensions(door) == pytest.approx((0.9, 0.2, 2.1))
+    assert _opening_dimensions(window_opening) == pytest.approx((1.2, 0.2, 1.2))
+    assert _opening_dimensions(window) == pytest.approx((1.2, 0.2, 1.2))
+
+    containment = _containment_map_for_types(model, {"IfcDoor", "IfcWindow"})
+    assert containment["Door opening-door-01"] == "1F"
+    assert containment["Window opening-window-01"] == "1F"
 
 
 def test_convert_layout_to_ifc_accepts_v3_reversed_shared_wall_ref(tmp_path: Path) -> None:
@@ -1540,7 +1611,56 @@ def test_convert_layout_to_ifc_accepts_v3_reversed_shared_wall_ref(tmp_path: Pat
     model = _open_generated_ifc(tmp_path, request, "v3-reversed-shared-ref.ifc")
 
     assert len(model.by_type("IfcWall")) == 5
+    assert len(model.by_type("IfcOpeningElement")) == 1
+    assert len(model.by_type("IfcDoor")) == 1
+    assert len(model.by_type("IfcRelVoidsElement")) == 1
+    assert len(model.by_type("IfcRelFillsElement")) == 1
+
+    shared_wall = _named_entities(model, "IfcWall")["Shared Wall 1-1"]
+    door_opening = _voided_opening_for_wall(model, shared_wall)
+    door = _filled_element_for_opening(model, door_opening)
+    assert door_opening.Name == "opening-door-01"
+    assert door.is_a("IfcDoor")
+    assert door.Name == "Door opening-door-01"
+
+
+def test_convert_layout_to_ifc_keeps_v3_without_explicit_openings_free_of_opening_entities(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v3",
+        rooms=[_base_room()],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [10000.0, 0.0],
+                    [10000.0, 8000.0],
+                    [0.0, 8000.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": True,
+            "generate_roof": True,
+            "generate_openings": True,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v3-no-explicit-openings.ifc")
+
     assert len(model.by_type("IfcOpeningElement")) == 0
+    assert len(model.by_type("IfcDoor")) == 0
+    assert len(model.by_type("IfcWindow")) == 0
 
 
 def test_convert_layout_to_ifc_rejects_v3_opening_with_unknown_boundary_ref(tmp_path: Path) -> None:
