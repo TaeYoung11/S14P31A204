@@ -82,10 +82,14 @@ class DepthStyleRenderOptions:
     use_front_full_width_semantic_control: bool = False
     use_eye_ground_semantic_control: bool = False
     use_eye_ground_plane_aware_semantic_control: bool = False
+    use_eye_ground_plane_control_attenuation: bool = False
     use_front_full_width_ground_control: bool = False
     use_weighted_front_side_negative: bool = False
     front_side_ground_class: FrontSideGroundClass = "grass"
     front_side_semantic_control_scale: float = FRONT_SIDE_SEMANTIC_CONTROL_SCALE
+    eye_ground_plane_control_attenuation_strength: float = (
+        EYE_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH
+    )
 
     @property
     def requires_semantic_controlnet(self) -> bool:
@@ -107,6 +111,9 @@ class DepthStyleRenderOptions:
             "use_eye_ground_plane_aware_semantic_control": (
                 self.use_eye_ground_plane_aware_semantic_control
             ),
+            "use_eye_ground_plane_control_attenuation": (
+                self.use_eye_ground_plane_control_attenuation
+            ),
             "use_front_full_width_ground_control": (
                 self.use_front_full_width_ground_control
             ),
@@ -114,6 +121,9 @@ class DepthStyleRenderOptions:
             "front_side_ground_class": self.front_side_ground_class,
             "front_side_semantic_control_scale": (
                 self.front_side_semantic_control_scale
+            ),
+            "eye_ground_plane_control_attenuation_strength": (
+                self.eye_ground_plane_control_attenuation_strength
             ),
         }
 
@@ -137,12 +147,14 @@ KOREAN_HOUSE_SIDE_RENDER_OPTIONS = DepthStyleRenderOptions(
 KOREAN_HOUSE_EYE_RENDER_OPTIONS = DepthStyleRenderOptions(
     use_eye_ground_semantic_control=True,
     use_eye_ground_plane_aware_semantic_control=True,
+    use_eye_ground_plane_control_attenuation=True,
     front_side_ground_class=EYE_GROUND_CLASS_RGB,
     front_side_semantic_control_scale=EYE_SEMANTIC_CONTROL_SCALE,
 )
 KOREAN_HOUSE_EYE_STRONG_RENDER_OPTIONS = DepthStyleRenderOptions(
     use_eye_ground_semantic_control=True,
     use_eye_ground_plane_aware_semantic_control=True,
+    use_eye_ground_plane_control_attenuation=True,
     front_side_ground_class=EYE_GROUND_CLASS_RGB,
     front_side_semantic_control_scale=EYE_STRONG_SEMANTIC_CONTROL_SCALE,
 )
@@ -755,13 +767,26 @@ class DepthStyleRenderer:
         use_front_full_width_semantic_control: bool = False,
         use_eye_ground_semantic_control: bool = False,
         use_eye_ground_plane_aware_semantic_control: bool = False,
+        use_eye_ground_plane_control_attenuation: bool = False,
         use_front_full_width_ground_control: bool = False,
         use_weighted_front_side_negative: bool = False,
         front_side_ground_class: FrontSideGroundClass = "grass",
         front_side_semantic_control_scale: float = FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
+        eye_ground_plane_control_attenuation_strength: float = (
+            EYE_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH
+        ),
     ) -> DepthStyleResult:
         depth_size = depth_image.size
         control = _depth_to_control(depth_image)
+        if use_eye_ground_plane_control_attenuation and view in {
+            IFCView.EYE_NE,
+            IFCView.EYE_NW,
+            IFCView.EYE_SE,
+        }:
+            control = _apply_eye_ground_plane_control_attenuation(
+                control,
+                strength=eye_ground_plane_control_attenuation_strength,
+            )
         if use_front_full_width_ground_control and view is IFCView.FRONT:
             control = _apply_front_full_width_ground_control(control)
         if use_front_side_semantic_mask and view in {IFCView.FRONT, IFCView.SIDE}:
