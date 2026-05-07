@@ -8,7 +8,6 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,7 +19,6 @@ import java.util.UUID;
  * 공통 단건 작업 상태 조회 API를 제공한다.
  */
 @Tag(name = "Job", description = "공통 작업 상태 조회 API")
-@Validated
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/jobs")

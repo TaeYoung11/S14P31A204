@@ -67,7 +67,7 @@ public class JobStatusQueryService {
      * 공통 jobId 기준으로 단건 작업 상태를 조회한다.
      */
     public GetJobStatusResponse getJobStatus(UUID jobId) {
-        JobRecord job = jobRecordRepository.findByJobId(jobId)
+        JobRecord job = jobRecordRepository.findById(jobId)
                 .orElseThrow(() -> new CustomException(ErrorCode.JOB_NOT_FOUND));
 
         Project project = projectRepository.findByProjectIdAndDeletedAtIsNull(job.getProjectId())
