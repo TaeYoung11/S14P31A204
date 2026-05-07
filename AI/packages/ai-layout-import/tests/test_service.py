@@ -10,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 import ai_layout_import.service as service_module
-from ai_domain import LayoutImportV1, LayoutImportV2, parse_layout_import
+from ai_domain import LayoutImportV1, LayoutImportV2, LayoutImportV3, parse_layout_import
 from ai_layout_import import convert_layout_to_ifc
 
 
@@ -53,7 +53,8 @@ def _make_request(
     boundaries: list[dict[str, object]] | None = None,
     generation_options: dict[str, object] | None = None,
     generation_policy: dict[str, object] | None = None,
-) -> LayoutImportV1 | LayoutImportV2:
+    openings: list[dict[str, object]] | None = None,
+) -> LayoutImportV1 | LayoutImportV2 | LayoutImportV3:
     payload: dict[str, object] = {
         "schema_version": schema_version,
         "id": str(UUID("550e8400-e29b-41d4-a716-446655440000")),
@@ -72,12 +73,14 @@ def _make_request(
         payload["generation_options"] = generation_options
     if generation_policy is not None:
         payload["generation_policy"] = generation_policy
+    if openings is not None:
+        payload["openings"] = openings
     return parse_layout_import(payload)
 
 
 def _open_generated_ifc(
     tmp_path: Path,
-    request: LayoutImportV1 | LayoutImportV2,
+    request: LayoutImportV1 | LayoutImportV2 | LayoutImportV3,
     filename: str,
 ) -> ifcopenshell.file:
     output = tmp_path / filename
@@ -1390,3 +1393,401 @@ def test_convert_layout_to_ifc_reuses_style_assignment_for_same_color(tmp_path: 
         for s in getattr(styled_item, "Styles", [])
     ]
     assert assignments[0].id() in style_ids
+
+
+def test_convert_layout_to_ifc_accepts_v3_explicit_openings_without_generating_ifc_openings(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v3",
+        rooms=[
+            _base_room(x=5000.0, y=4000.0),
+            _base_room(
+                room_id="room-bed-01",
+                name="Bedroom",
+                room_type="bedroom",
+                x=9200.0,
+                y=4000.0,
+            ),
+        ],
+        adjacency=[
+            {
+                "from_room_id": "room-living-01",
+                "to_room_id": "room-bed-01",
+                "strength": 0.8,
+            }
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [14000.0, 0.0],
+                    [14000.0, 9000.0],
+                    [0.0, 9000.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": True,
+            "generate_roof": True,
+            "generate_openings": True,
+        },
+        generation_policy={
+            "boundary_wall_mode": "outer_boundary",
+            "shared_wall_policy": "from_adjacency",
+            "roof_shape": "flat",
+            "opening_policy": "explicit_only",
+        },
+        openings=[
+            {
+                "id": "opening-door-01",
+                "type": "door",
+                "floor": 1,
+                "host_wall_ref": "wall-room-room-living-01-room-bed-01",
+                "x": 7100.0,
+                "y": 4000.0,
+                "width": 900.0,
+                "height": 2100.0,
+            },
+            {
+                "id": "opening-window-01",
+                "type": "window",
+                "floor": 1,
+                "host_wall_ref": "wall-boundary-1-seg-2",
+                "x": 14000.0,
+                "y": 4000.0,
+                "width": 1200.0,
+                "height": 1200.0,
+            },
+        ],
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v3-explicit-openings.ifc")
+
+    assert len(model.by_type("IfcWall")) == 5
+    assert len(model.by_type("IfcOpeningElement")) == 0
+    assert len(model.by_type("IfcDoor")) == 0
+    assert len(model.by_type("IfcWindow")) == 0
+
+
+def test_convert_layout_to_ifc_accepts_v3_reversed_shared_wall_ref(tmp_path: Path) -> None:
+    request = _make_request(
+        schema_version="v3",
+        rooms=[
+            _base_room(x=5000.0, y=4000.0),
+            _base_room(
+                room_id="room-bed-01",
+                name="Bedroom",
+                room_type="bedroom",
+                x=9200.0,
+                y=4000.0,
+            ),
+        ],
+        adjacency=[
+            {
+                "from_room_id": "room-living-01",
+                "to_room_id": "room-bed-01",
+                "strength": 0.8,
+            }
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [14000.0, 0.0],
+                    [14000.0, 9000.0],
+                    [0.0, 9000.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": True,
+            "generate_roof": True,
+            "generate_openings": True,
+        },
+        openings=[
+            {
+                "id": "opening-door-01",
+                "type": "door",
+                "floor": 1,
+                "host_wall_ref": "wall-room-room-bed-01-room-living-01",
+                "x": 7100.0,
+                "y": 4000.0,
+                "width": 900.0,
+                "height": 2100.0,
+            }
+        ],
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v3-reversed-shared-ref.ifc")
+
+    assert len(model.by_type("IfcWall")) == 5
+    assert len(model.by_type("IfcOpeningElement")) == 0
+
+
+def test_convert_layout_to_ifc_rejects_v3_opening_with_unknown_boundary_ref(tmp_path: Path) -> None:
+    request = _make_request(
+        schema_version="v3",
+        rooms=[_base_room()],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [10000.0, 0.0],
+                    [10000.0, 8000.0],
+                    [0.0, 8000.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": True,
+            "generate_roof": True,
+            "generate_openings": True,
+        },
+        openings=[
+            {
+                "id": "opening-window-01",
+                "type": "window",
+                "floor": 1,
+                "host_wall_ref": "wall-boundary-1-seg-99",
+                "x": 10000.0,
+                "y": 4000.0,
+                "width": 1200.0,
+                "height": 1200.0,
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="must reference a generated host wall"):
+        convert_layout_to_ifc(request, tmp_path / "invalid-boundary-opening.ifc")
+
+
+def test_convert_layout_to_ifc_rejects_v3_opening_with_unknown_shared_wall_ref(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v3",
+        rooms=[
+            _base_room(x=5000.0, y=4000.0),
+            _base_room(
+                room_id="room-bed-01",
+                name="Bedroom",
+                room_type="bedroom",
+                x=9200.0,
+                y=4000.0,
+            ),
+        ],
+        adjacency=[
+            {
+                "from_room_id": "room-living-01",
+                "to_room_id": "room-bed-01",
+                "strength": 0.8,
+            }
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [14000.0, 0.0],
+                    [14000.0, 9000.0],
+                    [0.0, 9000.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": True,
+            "generate_roof": True,
+            "generate_openings": True,
+        },
+        openings=[
+            {
+                "id": "opening-door-01",
+                "type": "door",
+                "floor": 1,
+                "host_wall_ref": "wall-room-room-living-01-room-missing-01",
+                "x": 7100.0,
+                "y": 4000.0,
+                "width": 900.0,
+                "height": 2100.0,
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="must reference a generated host wall"):
+        convert_layout_to_ifc(request, tmp_path / "invalid-shared-opening.ifc")
+
+
+def test_convert_layout_to_ifc_rejects_v3_opening_off_the_host_wall(tmp_path: Path) -> None:
+    request = _make_request(
+        schema_version="v3",
+        rooms=[_base_room()],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [10000.0, 0.0],
+                    [10000.0, 8000.0],
+                    [0.0, 8000.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": True,
+            "generate_roof": True,
+            "generate_openings": True,
+        },
+        openings=[
+            {
+                "id": "opening-window-01",
+                "type": "window",
+                "floor": 1,
+                "host_wall_ref": "wall-boundary-1-seg-2",
+                "x": 9900.0,
+                "y": 4000.0,
+                "width": 1200.0,
+                "height": 1200.0,
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="center must lie on the host wall segment"):
+        convert_layout_to_ifc(request, tmp_path / "off-wall-opening.ifc")
+
+
+def test_convert_layout_to_ifc_rejects_v3_opening_width_that_exceeds_host_wall(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v3",
+        rooms=[_base_room()],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [10000.0, 0.0],
+                    [10000.0, 8000.0],
+                    [0.0, 8000.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": True,
+            "generate_roof": True,
+            "generate_openings": True,
+        },
+        openings=[
+            {
+                "id": "opening-window-01",
+                "type": "window",
+                "floor": 1,
+                "host_wall_ref": "wall-boundary-1-seg-2",
+                "x": 10000.0,
+                "y": 4000.0,
+                "width": 9000.0,
+                "height": 1200.0,
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="width must fit within the host wall segment"):
+        convert_layout_to_ifc(request, tmp_path / "oversized-opening.ifc")
+
+
+def test_convert_layout_to_ifc_rejects_v3_opening_floor_mismatch(tmp_path: Path) -> None:
+    request = _make_request(
+        schema_version="v3",
+        rooms=[_base_room()],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [10000.0, 0.0],
+                    [10000.0, 8000.0],
+                    [0.0, 8000.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": True,
+            "generate_roof": True,
+            "generate_openings": True,
+        },
+        openings=[
+            {
+                "id": "opening-window-01",
+                "type": "window",
+                "floor": 2,
+                "host_wall_ref": "wall-boundary-1-seg-2",
+                "x": 10000.0,
+                "y": 4000.0,
+                "width": 1200.0,
+                "height": 1200.0,
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="opening.floor must match the referenced host wall floor"):
+        convert_layout_to_ifc(request, tmp_path / "floor-mismatch-opening.ifc")
