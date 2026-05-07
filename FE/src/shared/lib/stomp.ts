@@ -18,11 +18,7 @@ export let stompClient: Client | null = null
 
 const getConnectHeaders = (): Record<string, string> => {
   const token = useAuthStore.getState().token
-  if (!token) {
-    console.warn('[STOMP] Missing auth token for CONNECT')
-    return {}
-  }
-  return { Authorization: `Bearer ${token}` }
+  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 export const createStompClient = (): Client => {
@@ -31,20 +27,8 @@ export const createStompClient = (): Client => {
     connectHeaders: getConnectHeaders(),
     beforeConnect: () => {
       client.connectHeaders = getConnectHeaders()
-      console.log('[STOMP] Connecting', { brokerURL: WS_URL, hasAuthorization: Boolean(client.connectHeaders.Authorization) })
     },
     reconnectDelay: 3000,
-    onConnect: () => {
-      console.log('[STOMP] Connected')
-    },
-    onDisconnect: () => {
-      console.log('[STOMP] Disconnected')
-    },
-    onStompError: (frame) => {
-      console.error('[STOMP] Error:', frame)
-    },
-    // SockJS fallback (필요 시 주석 해제):
-    // webSocketFactory: () => new SockJS('http://localhost:8000/stomp'),
   })
 
   stompClient = client
@@ -60,13 +44,9 @@ export const getStompClient = (): Client => {
 
 export const ensureStompConnected = async (): Promise<Client> => {
   const client = getStompClient()
-  if (client.connected) {
-    console.log('[STOMP] Already connected')
-    return client
-  }
+  if (client.connected) return client
 
   if (!client.active) {
-    console.log('[STOMP] Activating client')
     client.activate()
   }
 
@@ -74,7 +54,6 @@ export const ensureStompConnected = async (): Promise<Client> => {
     let intervalId = 0
     const timeoutId = window.setTimeout(() => {
       window.clearInterval(intervalId)
-      console.error('[STOMP] Connection timed out')
       reject(new Error('STOMP client connection timed out.'))
     }, 5000)
 

@@ -91,6 +91,13 @@ interface DrawingSnapshot {
   floorOpenings: FloorOpening[]
 }
 
+interface PendingServerPublishRecord {
+  projectId: string
+  versionNo: number
+  snapshot: EditorDraftSnapshot
+  serializedSnapshot: string
+}
+
 const WALL_ROOM_COLLISION_INSET_PX = 2
 const EDITOR_HISTORY_LIMIT = 50
 const OPENING_MIN_WIDTH_MM = 1
@@ -505,11 +512,27 @@ export function useEditorPage() {
   const isRestoringHistoryRef = useRef(false)
   const hasUserEditedRef = useRef(false)
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const serverPublishRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingDraftRecordRef = useRef<EditorDraftRecord | null>(null)
+  const pendingServerPublishRef = useRef<PendingServerPublishRecord | null>(null)
   const draftLoadTokenRef = useRef(0)
   const draftLoadedProjectIdRef = useRef<string | null>(null)
   const draftLoadBaselineRef = useRef<string | null>(null)
   const draftLoadingProjectIdRef = useRef<string | null>(null)
+  const [serverPublishRetryTick, setServerPublishRetryTick] = useState(0)
+  const clearServerPublishRetry = useCallback(() => {
+    if (serverPublishRetryTimerRef.current !== null) {
+      clearTimeout(serverPublishRetryTimerRef.current)
+      serverPublishRetryTimerRef.current = null
+    }
+  }, [])
+  const scheduleServerPublishRetry = useCallback(() => {
+    if (serverPublishRetryTimerRef.current !== null) return
+    serverPublishRetryTimerRef.current = setTimeout(() => {
+      serverPublishRetryTimerRef.current = null
+      setServerPublishRetryTick((tick) => tick + 1)
+    }, 3000)
+  }, [])
   const flushPendingDraftSave = useCallback(() => {
     if (localSaveTimerRef.current !== null) {
       clearTimeout(localSaveTimerRef.current)
@@ -519,10 +542,6 @@ export function useEditorPage() {
     const pendingDraftRecord = pendingDraftRecordRef.current
     if (!pendingDraftRecord) return
 
-    console.log('[AUTOSAVE] flushing pending draft', {
-      projectId: pendingDraftRecord.projectId,
-      versionNo: pendingDraftRecord.versionNo,
-    })
     pendingDraftRecordRef.current = null
     void workspaceDraftRepository.saveLocalFallbackDraft({
       projectId: pendingDraftRecord.projectId,
@@ -685,8 +704,9 @@ export function useEditorPage() {
   useEffect(() => {
     return () => {
       flushPendingDraftSave()
+      clearServerPublishRetry()
     }
-  }, [flushPendingDraftSave])
+  }, [clearServerPublishRetry, flushPendingDraftSave])
 
   useEffect(() => {
     if (!projectId) return
@@ -735,7 +755,6 @@ export function useEditorPage() {
         localVersionRef.current = draft?.versionNo ?? 0
 
         if (hasUserEditedRef.current) {
-          console.log('[DRAFT] local draft load skipped because user already edited', { projectId })
           draftLoadingProjectIdRef.current = null
           previousSnapshotRef.current = null
           draftLoadedProjectIdRef.current = projectId
@@ -745,7 +764,6 @@ export function useEditorPage() {
 
         if (draft?.data) {
           const data = draft.data
-          console.log('[DRAFT] local draft loaded', { projectId, versionNo: draft.versionNo })
           skipNextHistorySnapshotRef.current = true
           previousSnapshotRef.current = JSON.stringify(data)
           replaceBubbles(data.bubbles)
@@ -763,18 +781,15 @@ export function useEditorPage() {
           setHiddenAutoOpeningIds(data.hiddenAutoOpeningIds ?? [])
           setIsProjectStructurePreferred(data.isProjectStructurePreferred ?? false)
         } else {
-          console.log('[DRAFT] no local draft found', { projectId })
           previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current)
         }
 
         draftLoadingProjectIdRef.current = null
         draftLoadedProjectIdRef.current = projectId
-        console.log('[AUTOSAVE] ready', { projectId })
         setAutosaveReadyProjectId(projectId)
       })
       .catch(() => {
         if (isCancelled || draftLoadTokenRef.current !== loadToken) return
-        console.warn('[DRAFT] local draft load failed, continuing with current snapshot', { projectId })
         previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current)
         draftLoadingProjectIdRef.current = null
         draftLoadedProjectIdRef.current = projectId
@@ -795,24 +810,52 @@ export function useEditorPage() {
   ])
 
   useEffect(() => {
-    if (!projectId || autosaveReadyProjectId !== projectId) {
-      console.log('[AUTOSAVE] skipped: not ready', { projectId, autosaveReadyProjectId })
-      return
+    if (!projectId || autosaveReadyProjectId !== projectId) return
+    const pendingServerPublish = pendingServerPublishRef.current
+    if (!pendingServerPublish || pendingServerPublish.projectId !== projectId) return
+
+    let isCancelled = false
+    setSaveStatus('syncing')
+
+    void workspaceRealtimeService.publishSnapshot({
+      projectId,
+      snapshot: pendingServerPublish.snapshot,
+      baseIndex: pendingServerPublish.versionNo,
+    })
+      .then(() => {
+        if (isCancelled) return
+        const currentPending = pendingServerPublishRef.current
+        if (
+          currentPending?.projectId === pendingServerPublish.projectId &&
+          currentPending.serializedSnapshot === pendingServerPublish.serializedSnapshot
+        ) {
+          pendingServerPublishRef.current = null
+          previousSnapshotRef.current = pendingServerPublish.serializedSnapshot
+          setSaveStatus(pendingDraftRecordRef.current ? 'dirty' : 'synced')
+        }
+      })
+      .catch(() => {
+        if (isCancelled) return
+        setSaveStatus('error')
+        scheduleServerPublishRetry()
+      })
+
+    return () => {
+      isCancelled = true
     }
-    if (draftLoadingProjectIdRef.current === projectId) {
-      console.log('[AUTOSAVE] skipped: draft loading', { projectId })
-      return
-    }
+  }, [autosaveReadyProjectId, projectId, scheduleServerPublishRetry, serverPublishRetryTick])
+
+  useEffect(() => {
+    if (!projectId || autosaveReadyProjectId !== projectId) return
+    if (draftLoadingProjectIdRef.current === projectId) return
 
     const serializedSnapshot = JSON.stringify(draftSnapshot)
 
     if (previousSnapshotRef.current !== null && previousSnapshotRef.current === serializedSnapshot) {
-      console.log('[AUTOSAVE] skipped: snapshot unchanged', { projectId })
       return
     }
 
     if (previousSnapshotRef.current === null && !hasUserEditedRef.current) {
-      console.log('[AUTOSAVE] baseline initialized', { projectId })
       previousSnapshotRef.current = serializedSnapshot
       return
     }
@@ -824,10 +867,15 @@ export function useEditorPage() {
       data: draftSnapshot,
       savedAt: new Date().toISOString(),
     }
+    const serverPublishRecord: PendingServerPublishRecord = {
+      projectId,
+      versionNo: draftRecord.versionNo,
+      snapshot: draftRecord.data,
+      serializedSnapshot,
+    }
 
     localVersionRef.current = nextVersionNo
     pendingDraftRecordRef.current = draftRecord
-    console.log('[AUTOSAVE] dirty', { projectId, versionNo: nextVersionNo, phaseStatus: draftSnapshot.phaseStatus })
     setSaveStatus('dirty')
 
     if (localSaveTimerRef.current !== null) {
@@ -836,10 +884,10 @@ export function useEditorPage() {
 
     localSaveTimerRef.current = setTimeout(() => {
       localSaveTimerRef.current = null
-      console.log('[AUTOSAVE] syncing', { projectId, versionNo: draftRecord.versionNo })
       setSaveStatus('syncing')
+      clearServerPublishRetry()
 
-      void Promise.all([
+      void Promise.allSettled([
         workspaceDraftRepository.saveLocalFallbackDraft({
           projectId,
           versionNo: draftRecord.versionNo,
@@ -852,18 +900,35 @@ export function useEditorPage() {
           baseIndex: draftRecord.versionNo,
         }),
       ])
-        .then(() => {
-          pendingDraftRecordRef.current = null
-          previousSnapshotRef.current = serializedSnapshot
-          console.log('[AUTOSAVE] synced', { projectId, versionNo: draftRecord.versionNo })
-          setSaveStatus('synced')
+        .then(([localSaveResult, serverPublishResult]) => {
+          if (localSaveResult.status === 'fulfilled') {
+            pendingDraftRecordRef.current = null
+            previousSnapshotRef.current = serializedSnapshot
+          }
+
+          if (serverPublishResult.status === 'fulfilled') {
+            const currentPending = pendingServerPublishRef.current
+            if (currentPending?.projectId === serverPublishRecord.projectId) {
+              pendingServerPublishRef.current = null
+            }
+          } else {
+            pendingServerPublishRef.current = serverPublishRecord
+            scheduleServerPublishRetry()
+          }
+
+          if (localSaveResult.status === 'fulfilled' && serverPublishResult.status === 'fulfilled') {
+            setSaveStatus('synced')
+            return
+          }
+
+          setSaveStatus('error')
         })
-        .catch((error) => {
-          console.error('[AUTOSAVE] failed', { projectId, versionNo: draftRecord.versionNo, error })
+        .catch(() => {
+          pendingDraftRecordRef.current = null
           setSaveStatus('error')
         })
     }, 1000)
-  }, [autosaveReadyProjectId, draftSnapshot, projectId])
+  }, [autosaveReadyProjectId, clearServerPublishRetry, draftSnapshot, projectId, scheduleServerPublishRetry])
 
   const phaseStatus = workspacePhaseStatus
   const isEditorReadOnly = currentUserType !== 'DESIGNER'
@@ -2129,12 +2194,6 @@ export function useEditorPage() {
   const syncHistoryAvailability = useCallback(() => {
     setCanUndo(undoHistoryRef.current.length > 0)
     setCanRedo(redoHistoryRef.current.length > 0)
-    console.log('[HISTORY] availability', {
-      canUndo: undoHistoryRef.current.length > 0,
-      canRedo: redoHistoryRef.current.length > 0,
-      undoCount: undoHistoryRef.current.length,
-      redoCount: redoHistoryRef.current.length,
-    })
   }, [])
 
   const clearPendingHistoryCommit = useCallback(() => {
@@ -2161,7 +2220,6 @@ export function useEditorPage() {
     redoHistoryRef.current = []
     historySnapshotRef.current = nextSnapshot
     hasUserEditedRef.current = true
-    console.log('[HISTORY] committed', { undoCount: undoHistoryRef.current.length })
     syncHistoryAvailability()
   }, [syncHistoryAvailability])
 
@@ -2173,7 +2231,6 @@ export function useEditorPage() {
 
   const restoreEditorSnapshot = useCallback((snapshot: EditorDraftSnapshot) => {
     isRestoringHistoryRef.current = true
-    console.log('[HISTORY] restoring snapshot', { phaseStatus: snapshot.phaseStatus })
     replaceBubbles(snapshot.bubbles)
     replaceConnections(snapshot.connections)
     replaceZonesState(snapshot.zones)
@@ -2206,7 +2263,6 @@ export function useEditorPage() {
       clearPendingHistoryCommit()
       historySnapshotRef.current = serializedSnapshot
       isRestoringHistoryRef.current = false
-      console.log('[HISTORY] restore baseline set', { projectId })
       return
     }
 
@@ -2221,18 +2277,12 @@ export function useEditorPage() {
       undoHistoryRef.current = []
       redoHistoryRef.current = []
       skipNextHistorySnapshotRef.current = false
-      console.log('[HISTORY] baseline reset', {
-        projectId,
-        isProjectChanged,
-        isDraftLoading: draftLoadingProjectIdRef.current === projectId,
-      })
       syncHistoryAvailability()
       return
     }
 
     if (historySnapshotRef.current === null) {
       historySnapshotRef.current = serializedSnapshot
-      console.log('[HISTORY] baseline initialized', { projectId })
       return
     }
 
@@ -2243,13 +2293,11 @@ export function useEditorPage() {
       clearTimeout(historyCommitTimerRef.current)
     }
     historyCommitTimerRef.current = setTimeout(commitPendingHistorySnapshot, 300)
-    console.log('[HISTORY] pending commit scheduled', { projectId })
   }, [clearPendingHistoryCommit, commitPendingHistorySnapshot, draftSnapshot, projectId, syncHistoryAvailability])
 
   const handleUndo = useCallback(() => {
     clearPendingHistoryCommit()
     const previous = undoHistoryRef.current.pop()
-    console.log('[HISTORY] undo requested', { hasPrevious: Boolean(previous), undoCount: undoHistoryRef.current.length })
     if (!previous) return
 
     const currentSnapshot = latestDraftSnapshotRef.current
@@ -2264,7 +2312,6 @@ export function useEditorPage() {
   const handleRedo = useCallback(() => {
     clearPendingHistoryCommit()
     const next = redoHistoryRef.current.pop()
-    console.log('[HISTORY] redo requested', { hasNext: Boolean(next), redoCount: redoHistoryRef.current.length })
     if (!next) return
 
     const currentSnapshot = latestDraftSnapshotRef.current

@@ -120,9 +120,7 @@ const toFloorPlanPayload = (
 })
 
 const publishJson = async (destination: string, body: unknown): Promise<void> => {
-  console.log('[WORKSPACE_REALTIME] publish requested', { destination, body })
   const client = await ensureStompConnected()
-  console.log('[STOMP] SEND', destination, body)
   client.publish({
     destination,
     headers: {
@@ -130,7 +128,6 @@ const publishJson = async (destination: string, body: unknown): Promise<void> =>
     },
     body: JSON.stringify(body),
   })
-  console.log('[WORKSPACE_REALTIME] publish completed', { destination })
 }
 
 export const workspaceRealtimeService = {
