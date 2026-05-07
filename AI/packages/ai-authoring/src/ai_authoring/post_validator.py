@@ -121,11 +121,13 @@ class _BBox:
     def overlap_y(self, other: _BBox) -> float:
         return min(self.max_y, other.max_y) - max(self.min_y, other.min_y)
 
-    def is_face_contact(self, other: _BBox) -> bool:
-        """양 축 중 하나만 얇게 겹치면 면 접촉(공통벽)으로 간주."""
+    def has_common_wall_overlap(self, other: _BBox) -> bool:
+        """한 축만 얇게 겹치는 wall-to-wall 접촉을 공통벽 후보로 간주."""
         ox = self.overlap_x(other)
         oy = self.overlap_y(other)
-        return ox <= _COMMON_WALL_OVERLAP_MM or oy <= _COMMON_WALL_OVERLAP_MM
+        x_thin = 0.0 < ox <= _COMMON_WALL_OVERLAP_MM
+        y_thin = 0.0 < oy <= _COMMON_WALL_OVERLAP_MM
+        return x_thin != y_thin
 
 
 # ── PostEditValidator ────────────────────────────────────────────────────────
@@ -244,10 +246,8 @@ class PostEditValidator:
         for el_info in matched:
             gid: str = el_info.get("global_id", "")
             el_type: str = el_info.get("element_type", "")
-            # DELETE 후에는 모델에서 이미 제거됐을 수 있으므로 이름/타입만으로 판별
-            if el_type == "IfcWall" and self._name_implies_load_bearing(
-                el_info.get("name") or ""
-            ):
+            # DELETE 후에는 모델에서 이미 제거됐을 수 있으므로 삭제 전 스냅샷만으로 판별
+            if el_type == "IfcWall" and self._delete_snapshot_implies_load_bearing(el_info):
                 issues.append(
                     ValidationIssue(
                         operation_id=op_id,
@@ -319,7 +319,7 @@ class PostEditValidator:
                     continue
                 if not target_bbox.intersects(bbox):
                     continue
-                if target_bbox.is_face_contact(bbox):
+                if self._is_common_wall_contact(target, element, target_bbox, bbox):
                     continue
                 colliders.append(
                     {
@@ -385,19 +385,58 @@ class PostEditValidator:
     def _placement_transform_2d(
         self, element: ifcopenshell.entity_instance
     ) -> tuple[float, float, float, tuple[float, float], tuple[float, float]] | None:
-        coords = self._placement_xyz(element)
-        if coords is None:
+        placement = getattr(element, "ObjectPlacement", None)
+        if not placement or not placement.is_a("IfcLocalPlacement"):
             return None
 
-        x_axis = (1.0, 0.0)
-        placement = getattr(element, "ObjectPlacement", None)
-        rel = getattr(placement, "RelativePlacement", None) if placement else None
+        return self._placement_matrix_2d(placement)
+
+    def _placement_matrix_2d(
+        self,
+        placement: ifcopenshell.entity_instance | None,
+    ) -> tuple[float, float, float, tuple[float, float], tuple[float, float]]:
+        if not placement or not placement.is_a("IfcLocalPlacement"):
+            return 0.0, 0.0, 0.0, (1.0, 0.0), (0.0, 1.0)
+
+        px, py, pz, parent_x, parent_y = self._placement_matrix_2d(
+            getattr(placement, "PlacementRelTo", None)
+        )
+
+        rel = getattr(placement, "RelativePlacement", None)
+        loc = getattr(rel, "Location", None) if rel else None
+        coords = tuple(getattr(loc, "Coordinates", ()) or ())
+        lx = float(coords[0]) if len(coords) >= 1 else 0.0
+        ly = float(coords[1]) if len(coords) >= 2 else 0.0
+        lz = float(coords[2]) if len(coords) >= 3 else 0.0
+
         ref_dir = getattr(rel, "RefDirection", None) if rel else None
         ratios = tuple(getattr(ref_dir, "DirectionRatios", ()) or ())
+        local_x = (1.0, 0.0)
         if len(ratios) >= 2:
-            x_axis = self._normalize_2d(float(ratios[0]), float(ratios[1]))
-        y_axis = (-x_axis[1], x_axis[0])
-        return coords[0], coords[1], coords[2], x_axis, y_axis
+            local_x = self._normalize_2d(float(ratios[0]), float(ratios[1]))
+        local_y = (-local_x[1], local_x[0])
+
+        ox = px + lx * parent_x[0] + ly * parent_y[0]
+        oy = py + lx * parent_x[1] + ly * parent_y[1]
+        oz = pz + lz
+        return (
+            ox,
+            oy,
+            oz,
+            self._combine_axis(local_x, parent_x, parent_y),
+            self._combine_axis(local_y, parent_x, parent_y),
+        )
+
+    @staticmethod
+    def _combine_axis(
+        local_axis: tuple[float, float],
+        parent_x: tuple[float, float],
+        parent_y: tuple[float, float],
+    ) -> tuple[float, float]:
+        return (
+            local_axis[0] * parent_x[0] + local_axis[1] * parent_y[0],
+            local_axis[0] * parent_x[1] + local_axis[1] * parent_y[1],
+        )
 
     @staticmethod
     def _normalize_2d(x: float, y: float) -> tuple[float, float]:
@@ -465,26 +504,6 @@ class PostEditValidator:
             return float(coords[0]), float(coords[1]), float(coords[2])
         return 0.0, 0.0, 0.0
 
-    def _placement_xyz(
-        self, element: ifcopenshell.entity_instance
-    ) -> tuple[float, float, float] | None:
-        placement = getattr(element, "ObjectPlacement", None)
-        if not placement or not placement.is_a("IfcLocalPlacement"):
-            return None
-
-        x = y = z = 0.0
-        current = placement
-        while current and current.is_a("IfcLocalPlacement"):
-            rel = getattr(current, "RelativePlacement", None)
-            loc = getattr(rel, "Location", None) if rel else None
-            coords = tuple(getattr(loc, "Coordinates", ()) or ())
-            if len(coords) >= 3:
-                x += float(coords[0])
-                y += float(coords[1])
-                z += float(coords[2])
-            current = getattr(current, "PlacementRelTo", None)
-        return x, y, z
-
     def _profile_points(
         self, profile: ifcopenshell.entity_instance
     ) -> list[tuple[float, float]]:
@@ -521,6 +540,35 @@ class PostEditValidator:
         return _BBox(min(xs), max(xs), min(ys), max(ys), min(zs), max(zs))
 
     # ── 내력벽 이름 판별 ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _is_wall_type(element_type: str) -> bool:
+        return element_type in ("IfcWall", "IfcWallStandardCase")
+
+    def _is_common_wall_contact(
+        self,
+        target: ifcopenshell.entity_instance,
+        other: ifcopenshell.entity_instance,
+        target_bbox: _BBox,
+        other_bbox: _BBox,
+    ) -> bool:
+        if not self._is_wall_type(target.is_a()) or not self._is_wall_type(other.is_a()):
+            return False
+        return target_bbox.has_common_wall_overlap(other_bbox)
+
+    def _delete_snapshot_implies_load_bearing(self, el_info: dict[str, Any]) -> bool:
+        if el_info.get("is_load_bearing") is True:
+            return True
+        text = " ".join(
+            str(value)
+            for value in (
+                el_info.get("name"),
+                el_info.get("description"),
+                el_info.get("type_name"),
+            )
+            if value
+        )
+        return self._name_implies_load_bearing(text)
 
     @staticmethod
     def _name_implies_load_bearing(name: str) -> bool:

@@ -244,6 +244,8 @@ class AuthoringWorker(BaseWorker):
                 "global_id": el.GlobalId,
                 "element_type": el.is_a(),
                 "name": el.Name,
+                "description": getattr(el, "Description", None),
+                "is_load_bearing": self._is_load_bearing_wall(el),
             }
             if delete_element(model, el):
                 applied.append(matched)
@@ -251,6 +253,52 @@ class AuthoringWorker(BaseWorker):
                 issues.append(_issue("DELETE_FAILED", "warning", f"삭제 실패: {el.GlobalId}"))
         status = "applied" if applied else "rejected"
         return _op_result(op_id, op_type, status, len(elements), applied, issues)
+
+    def _is_load_bearing_wall(self, element: ifcopenshell.entity_instance) -> bool:
+        if not element.is_a("IfcWall") and not element.is_a("IfcWallStandardCase"):
+            return False
+
+        text = " ".join(
+            str(value)
+            for value in (
+                getattr(element, "Name", None),
+                getattr(element, "Description", None),
+            )
+            if value
+        ).lower()
+        if any(
+            keyword in text
+            for keyword in (
+                "load-bearing",
+                "load bearing",
+                "loadbearing",
+                "structural",
+                "bearing wall",
+                "내력",
+                "내력벽",
+                "구조벽",
+                "구조",
+            )
+        ):
+            return True
+
+        for rel in getattr(element, "IsDefinedBy", []) or []:
+            if not rel.is_a("IfcRelDefinesByProperties"):
+                continue
+            pset = getattr(rel, "RelatingPropertyDefinition", None)
+            if not pset:
+                continue
+            pset_name = (getattr(pset, "Name", "") or "").lower()
+            if "wallcommon" not in pset_name and "wall" not in pset_name:
+                continue
+            for prop in getattr(pset, "HasProperties", []) or []:
+                prop_name = (getattr(prop, "Name", "") or "").lower().replace(" ", "")
+                if prop_name not in ("loadbearing", "isloadbearing"):
+                    continue
+                nominal = getattr(prop, "NominalValue", None)
+                if getattr(nominal, "wrappedValue", None) is True:
+                    return True
+        return False
 
     # ── MODIFY (update_element_properties / transform_elements) ─────────────
 

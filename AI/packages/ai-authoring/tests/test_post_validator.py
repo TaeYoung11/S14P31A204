@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import ifcopenshell
+import ifcopenshell.api.root
 import pytest
 
 from ai_authoring.post_validator import (
@@ -141,6 +142,30 @@ def test_delete_non_structural_wall_no_warning(model: ifcopenshell.file) -> None
     assert structural_issues == []
 
 
+def test_delete_load_bearing_wall_detected_without_name(model: ifcopenshell.file) -> None:
+    """name 없이도 삭제 전 is_load_bearing 스냅샷으로 STRUCTURAL_RISK를 생성한다."""
+    op_results = [
+        {
+            "operation_id": "op-del",
+            "operation_type": "delete_elements",
+            "status": "applied",
+            "target_count": 1,
+            "matched_elements": [
+                {
+                    "global_id": "FAKE_GUID_000000000004",
+                    "element_type": "IfcWall",
+                    "is_load_bearing": True,
+                }
+            ],
+            "issues": [],
+        }
+    ]
+    engine_req = {"operations": [{"id": "op-del", "type": "delete_elements"}]}
+    report = PostEditValidator(model).validate(op_results, engine_req)
+
+    assert any(i.code == "STRUCTURAL_RISK" for i in report.issues)
+
+
 def test_delete_non_wall_no_structural_risk(model: ifcopenshell.file) -> None:
     """IfcDoor 삭제는 STRUCTURAL_RISK 를 생성하지 않는다."""
     op_results = [
@@ -209,6 +234,50 @@ def test_create_collision_message_excludes_self(model: ifcopenshell.file) -> Non
 
 
 # ── to_dict ──────────────────────────────────────────────────────────────────
+
+
+def test_create_overlapping_element_reports_collision(model: ifcopenshell.file) -> None:
+    """CREATE 결과 요소가 기존 요소와 실제로 겹치면 COLLISION error를 생성한다."""
+    walls = list(model.by_type("IfcWall")) + list(model.by_type("IfcWallStandardCase"))
+    if not walls:
+        pytest.skip("샘플 IFC에 IfcWall 없음")
+
+    base = walls[0]
+    duplicate = ifcopenshell.api.root.create_entity(
+        model,
+        ifc_class=base.is_a(),
+        name="Overlapping Wall",
+    )
+    duplicate.ObjectPlacement = base.ObjectPlacement
+    duplicate.Representation = base.Representation
+
+    op_results = [
+        {
+            "operation_id": "op-create-overlap",
+            "operation_type": "create_element",
+            "status": "applied",
+            "target_count": 1,
+            "matched_elements": [
+                {
+                    "global_id": duplicate.GlobalId,
+                    "element_type": duplicate.is_a(),
+                    "name": duplicate.Name,
+                }
+            ],
+            "issues": [],
+        }
+    ]
+    engine_req = {"operations": [{"id": "op-create-overlap", "type": "create_element"}]}
+
+    report = PostEditValidator(model).validate(op_results, engine_req)
+
+    collisions = [
+        i
+        for i in report.issues
+        if i.code == "COLLISION" and i.element_global_id == duplicate.GlobalId
+    ]
+    assert collisions
+    assert report.passed is False
 
 
 def test_report_to_dict_structure(model: ifcopenshell.file) -> None:

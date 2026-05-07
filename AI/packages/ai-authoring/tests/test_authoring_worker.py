@@ -142,6 +142,7 @@ def test_apply_delete_preserves_name_for_post_validation():
 
     assert result["status"] == "applied"
     assert result["matched_elements"][0]["name"] == "structural wall"
+    assert result["matched_elements"][0]["is_load_bearing"] is True
 
 
 if __name__ == "__main__":
