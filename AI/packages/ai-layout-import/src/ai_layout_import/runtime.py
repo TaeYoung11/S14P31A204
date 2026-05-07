@@ -74,6 +74,12 @@ class IfcGenerateWorker(BaseWorker):
                 message="IFC generate worker expects a validated CommandMessage",
             )
 
+        if command.expectedOutput is None:
+            raise ConfigurationError(
+                code="missing_expected_output",
+                message="command.expectedOutput is mandatory but received as None",
+            )
+
         ifc_ref = command.expectedOutput.ifcStorageUrl
         if ifc_ref is None:
             raise ConfigurationError(
