@@ -4,13 +4,13 @@ import ProjectCard from '@/features/project/components/ProjectCard'
 import Spinner from '@/shared/components/Spinner'
 import type { Project } from '@/shared/types'
 
-const TEXT_TITLE = '\uD504\uB85C\uC81D\uD2B8 \uC804\uD658'
-const TEXT_DESCRIPTION = '\uD504\uB85C\uC81D\uD2B8\uB97C \uC120\uD0DD\uD574 \uB2E4\uB978 \uC5D0\uB514\uD130\uB85C \uC774\uB3D9\uD569\uB2C8\uB2E4.'
-const TEXT_CLOSE = '\uB2EB\uAE30'
-const TEXT_CLOSE_ARIA = '\uD504\uB85C\uC81D\uD2B8 \uC804\uD658 \uC0AC\uC774\uB4DC\uBC14 \uB2EB\uAE30'
-const TEXT_SEARCH_PLACEHOLDER = '\uD504\uB85C\uC81D\uD2B8 \uC774\uB984 \uB610\uB294 \uC124\uBA85 \uAC80\uC0C9'
-const TEXT_EMPTY_TITLE = '\uD504\uB85C\uC81D\uD2B8\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.'
-const TEXT_EMPTY_DESCRIPTION = '\uAC80\uC0C9\uC5B4\uB97C \uBC14\uAFB8\uAC70\uB098 \uD504\uB85C\uC81D\uD2B8 \uBAA9\uB85D\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.'
+const TEXT_TITLE = '프로젝트 목록'
+const TEXT_DESCRIPTION = '작업할 프로젝트를 선택하세요'
+const TEXT_CLOSE = '닫기'
+const TEXT_CLOSE_ARIA = '프로젝트 목록 닫기'
+const TEXT_SEARCH_PLACEHOLDER = '프로젝트 검색'
+const TEXT_EMPTY_TITLE = '프로젝트가 없습니다.'
+const TEXT_EMPTY_DESCRIPTION = '검색어를 바꾸거나 프로젝트 목록을 확인해 주세요.'
 
 interface EditorProjectSwitchSidebarProps {
   isOpen: boolean

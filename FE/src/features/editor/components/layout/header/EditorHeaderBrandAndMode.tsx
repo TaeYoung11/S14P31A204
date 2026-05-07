@@ -2,13 +2,13 @@ import { PanelLeftOpen } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import type { EditorMode } from '@/features/editor/types'
 
-const TEXT_PROJECT_SWITCH = '\uD504\uB85C\uC81D\uD2B8 \uC804\uD658'
-const TEXT_PROJECT_SWITCH_OPEN = '\uD504\uB85C\uC81D\uD2B8 \uC804\uD658 \uC0AC\uC774\uB4DC\uBC14 \uC5F4\uAE30'
-const TEXT_PROJECT_HOME = '\uD504\uB85C\uC81D\uD2B8 \uD648'
-const TEXT_PROJECT_LIST_GO = '\uD504\uB85C\uC81D\uD2B8 \uBAA9\uB85D\uC73C\uB85C \uC774\uB3D9'
-const TEXT_BRAND = '\uBC14\uD0D5: BATANG'
-const TEXT_EDIT_MODE = '\uD3B8\uC9D1 \uBAA8\uB4DC'
-const TEXT_VIEWER_MODE = '\uBDF0\uC5B4 \uBAA8\uB4DC'
+const TEXT_PROJECT_SWITCH = '프로젝트 목록'
+const TEXT_PROJECT_SWITCH_OPEN = '프로젝트 목록 열기'
+const TEXT_PROJECT_HOME = '프로젝트 홈'
+const TEXT_PROJECT_LIST_GO = '프로젝트 목록으로 이동'
+const TEXT_BRAND = '바탕: BATANG'
+const TEXT_EDIT_MODE = '편집 모드'
+const TEXT_VIEWER_MODE = '뷰어 모드'
 
 interface EditorHeaderBrandAndModeProps {
   mode: EditorMode
