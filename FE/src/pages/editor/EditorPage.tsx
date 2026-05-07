@@ -38,7 +38,15 @@ export default function EditorPage() {
         saveStatus={vm.saveStatus}
         siteAreaLabel={siteAreaLabel}
       />
-      <EditorToolbar mode={vm.mode} projectName={vm.currentProjectName} onModeChange={vm.setMode} />
+      <EditorToolbar
+        mode={vm.mode}
+        projectName={vm.currentProjectName}
+        onModeChange={vm.setMode}
+        onUndo={vm.handleUndo}
+        onRedo={vm.handleRedo}
+        canUndo={vm.canUndo}
+        canRedo={vm.canRedo}
+      />
 
       <div className={`flex flex-1 relative overflow-hidden ${vm.mode === 'view' ? '' : 'px-6 pb-6 gap-6'}`}>
         {vm.mode !== 'view' && (

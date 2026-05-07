@@ -75,6 +75,7 @@ import {
 import { createsNewWallRoomCollision } from '../utils/wallRoomCollision'
 import type { FloorProject } from '../types/floorProject.types'
 import { workspaceDraftRepository } from '../services/workspaceDraft.repository'
+import { workspaceRealtimeService } from '../services/workspaceRealtime.service'
 import { useAuthStore } from '@/shared/stores/authStore'
 import { useEditorProjectName } from './useEditorProjectName'
 import { useInitialIfcImport } from './useInitialIfcImport'
@@ -90,7 +91,15 @@ interface DrawingSnapshot {
   floorOpenings: FloorOpening[]
 }
 
+interface PendingServerPublishRecord {
+  projectId: string
+  versionNo: number
+  snapshot: EditorDraftSnapshot
+  serializedSnapshot: string
+}
+
 const WALL_ROOM_COLLISION_INSET_PX = 2
+const EDITOR_HISTORY_LIMIT = 50
 const OPENING_MIN_WIDTH_MM = 1
 const OPENING_MAX_WIDTH_MM = 4000
 const OPENING_NORMALIZE_OPTIONS = {
@@ -483,6 +492,8 @@ export function useEditorPage() {
   const [overlayOpacityByLayerId, setOverlayOpacityByLayerId] = useState<Record<string, number>>({})
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [autosaveReadyProjectId, setAutosaveReadyProjectId] = useState<string | null>(null)
+  const [canUndo, setCanUndo] = useState(false)
+  const [canRedo, setCanRedo] = useState(false)
   const workspacePhaseStatus: PhaseStatus = isFloorPlanGenerating
     ? 'CONVERTING'
     : isFloorPlanGenerated
@@ -491,12 +502,37 @@ export function useEditorPage() {
   const attemptedInitialIfcImportProjectIdRef = useRef<string | null>(null)
   const localVersionRef = useRef(0)
   const previousSnapshotRef = useRef<string | null>(null)
+  const historySnapshotRef = useRef<string | null>(null)
+  const historyProjectIdRef = useRef<string | null>(null)
+  const skipNextHistorySnapshotRef = useRef(false)
+  const pendingHistorySnapshotRef = useRef<string | null>(null)
+  const historyCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const undoHistoryRef = useRef<EditorDraftSnapshot[]>([])
+  const redoHistoryRef = useRef<EditorDraftSnapshot[]>([])
+  const isRestoringHistoryRef = useRef(false)
   const hasUserEditedRef = useRef(false)
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const serverPublishRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingDraftRecordRef = useRef<EditorDraftRecord | null>(null)
+  const pendingServerPublishRef = useRef<PendingServerPublishRecord | null>(null)
   const draftLoadTokenRef = useRef(0)
+  const draftLoadedProjectIdRef = useRef<string | null>(null)
   const draftLoadBaselineRef = useRef<string | null>(null)
   const draftLoadingProjectIdRef = useRef<string | null>(null)
+  const [serverPublishRetryTick, setServerPublishRetryTick] = useState(0)
+  const clearServerPublishRetry = useCallback(() => {
+    if (serverPublishRetryTimerRef.current !== null) {
+      clearTimeout(serverPublishRetryTimerRef.current)
+      serverPublishRetryTimerRef.current = null
+    }
+  }, [])
+  const scheduleServerPublishRetry = useCallback(() => {
+    if (serverPublishRetryTimerRef.current !== null) return
+    serverPublishRetryTimerRef.current = setTimeout(() => {
+      serverPublishRetryTimerRef.current = null
+      setServerPublishRetryTick((tick) => tick + 1)
+    }, 3000)
+  }, [])
   const flushPendingDraftSave = useCallback(() => {
     if (localSaveTimerRef.current !== null) {
       clearTimeout(localSaveTimerRef.current)
@@ -668,8 +704,9 @@ export function useEditorPage() {
   useEffect(() => {
     return () => {
       flushPendingDraftSave()
+      clearServerPublishRetry()
     }
-  }, [flushPendingDraftSave])
+  }, [clearServerPublishRetry, flushPendingDraftSave])
 
   useEffect(() => {
     if (!projectId) return
@@ -685,6 +722,14 @@ export function useEditorPage() {
   useEffect(() => {
     let isCancelled = false
     const loadToken = draftLoadTokenRef.current + 1
+    const normalizedProjectId = projectId ?? null
+
+    if (draftLoadedProjectIdRef.current === normalizedProjectId) {
+      return () => {
+        isCancelled = true
+      }
+    }
+
     draftLoadTokenRef.current = loadToken
 
     flushPendingDraftSave()
@@ -696,6 +741,7 @@ export function useEditorPage() {
     draftLoadBaselineRef.current = JSON.stringify(latestDraftSnapshotRef.current)
 
     if (!projectId) {
+      draftLoadedProjectIdRef.current = null
       draftLoadingProjectIdRef.current = null
       return () => {
         isCancelled = true
@@ -709,12 +755,16 @@ export function useEditorPage() {
         localVersionRef.current = draft?.versionNo ?? 0
 
         if (hasUserEditedRef.current) {
+          draftLoadingProjectIdRef.current = null
+          previousSnapshotRef.current = null
+          draftLoadedProjectIdRef.current = projectId
           setAutosaveReadyProjectId(projectId)
           return
         }
 
         if (draft?.data) {
           const data = draft.data
+          skipNextHistorySnapshotRef.current = true
           previousSnapshotRef.current = JSON.stringify(data)
           replaceBubbles(data.bubbles)
           replaceConnections(data.connections)
@@ -735,12 +785,14 @@ export function useEditorPage() {
         }
 
         draftLoadingProjectIdRef.current = null
+        draftLoadedProjectIdRef.current = projectId
         setAutosaveReadyProjectId(projectId)
       })
       .catch(() => {
         if (isCancelled || draftLoadTokenRef.current !== loadToken) return
         previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current)
         draftLoadingProjectIdRef.current = null
+        draftLoadedProjectIdRef.current = projectId
         setAutosaveReadyProjectId(projectId)
       })
 
@@ -756,6 +808,42 @@ export function useEditorPage() {
     replaceFloorPlanState,
     replaceZonesState,
   ])
+
+  useEffect(() => {
+    if (!projectId || autosaveReadyProjectId !== projectId) return
+    const pendingServerPublish = pendingServerPublishRef.current
+    if (!pendingServerPublish || pendingServerPublish.projectId !== projectId) return
+
+    let isCancelled = false
+    setSaveStatus('syncing')
+
+    void workspaceRealtimeService.publishSnapshot({
+      projectId,
+      snapshot: pendingServerPublish.snapshot,
+      baseIndex: pendingServerPublish.versionNo,
+    })
+      .then(() => {
+        if (isCancelled) return
+        const currentPending = pendingServerPublishRef.current
+        if (
+          currentPending?.projectId === pendingServerPublish.projectId &&
+          currentPending.serializedSnapshot === pendingServerPublish.serializedSnapshot
+        ) {
+          pendingServerPublishRef.current = null
+          previousSnapshotRef.current = pendingServerPublish.serializedSnapshot
+          setSaveStatus(pendingDraftRecordRef.current ? 'dirty' : 'synced')
+        }
+      })
+      .catch(() => {
+        if (isCancelled) return
+        setSaveStatus('error')
+        scheduleServerPublishRetry()
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [autosaveReadyProjectId, projectId, scheduleServerPublishRetry, serverPublishRetryTick])
 
   useEffect(() => {
     if (!projectId || autosaveReadyProjectId !== projectId) return
@@ -779,6 +867,12 @@ export function useEditorPage() {
       data: draftSnapshot,
       savedAt: new Date().toISOString(),
     }
+    const serverPublishRecord: PendingServerPublishRecord = {
+      projectId,
+      versionNo: draftRecord.versionNo,
+      snapshot: draftRecord.data,
+      serializedSnapshot,
+    }
 
     localVersionRef.current = nextVersionNo
     pendingDraftRecordRef.current = draftRecord
@@ -791,23 +885,50 @@ export function useEditorPage() {
     localSaveTimerRef.current = setTimeout(() => {
       localSaveTimerRef.current = null
       setSaveStatus('syncing')
+      clearServerPublishRetry()
 
-      void workspaceDraftRepository.saveLocalFallbackDraft({
-        projectId,
-        versionNo: draftRecord.versionNo,
-        snapshot: draftRecord.data,
-        savedAt: draftRecord.savedAt,
-      })
-        .then(() => {
-          pendingDraftRecordRef.current = null
-          previousSnapshotRef.current = serializedSnapshot
-          setSaveStatus('synced')
+      void Promise.allSettled([
+        workspaceDraftRepository.saveLocalFallbackDraft({
+          projectId,
+          versionNo: draftRecord.versionNo,
+          snapshot: draftRecord.data,
+          savedAt: draftRecord.savedAt,
+        }),
+        workspaceRealtimeService.publishSnapshot({
+          projectId,
+          snapshot: draftRecord.data,
+          baseIndex: draftRecord.versionNo,
+        }),
+      ])
+        .then(([localSaveResult, serverPublishResult]) => {
+          if (localSaveResult.status === 'fulfilled') {
+            pendingDraftRecordRef.current = null
+            previousSnapshotRef.current = serializedSnapshot
+          }
+
+          if (serverPublishResult.status === 'fulfilled') {
+            const currentPending = pendingServerPublishRef.current
+            if (currentPending?.projectId === serverPublishRecord.projectId) {
+              pendingServerPublishRef.current = null
+            }
+          } else {
+            pendingServerPublishRef.current = serverPublishRecord
+            scheduleServerPublishRetry()
+          }
+
+          if (localSaveResult.status === 'fulfilled' && serverPublishResult.status === 'fulfilled') {
+            setSaveStatus('synced')
+            return
+          }
+
+          setSaveStatus('error')
         })
         .catch(() => {
+          pendingDraftRecordRef.current = null
           setSaveStatus('error')
         })
     }, 1000)
-  }, [autosaveReadyProjectId, draftSnapshot, projectId])
+  }, [autosaveReadyProjectId, clearServerPublishRetry, draftSnapshot, projectId, scheduleServerPublishRetry])
 
   const phaseStatus = workspacePhaseStatus
   const isEditorReadOnly = currentUserType !== 'DESIGNER'
@@ -2070,6 +2191,138 @@ export function useEditorPage() {
   }, [clearSelection])
 
   /** 도면 변경 공통 반영 파이프라인 */
+  const syncHistoryAvailability = useCallback(() => {
+    setCanUndo(undoHistoryRef.current.length > 0)
+    setCanRedo(redoHistoryRef.current.length > 0)
+  }, [])
+
+  const clearPendingHistoryCommit = useCallback(() => {
+    if (historyCommitTimerRef.current !== null) {
+      clearTimeout(historyCommitTimerRef.current)
+      historyCommitTimerRef.current = null
+    }
+    pendingHistorySnapshotRef.current = null
+  }, [])
+
+  const commitPendingHistorySnapshot = useCallback(() => {
+    const previousSnapshot = historySnapshotRef.current
+    const nextSnapshot = pendingHistorySnapshotRef.current
+
+    historyCommitTimerRef.current = null
+    pendingHistorySnapshotRef.current = null
+
+    if (previousSnapshot === null || nextSnapshot === null || previousSnapshot === nextSnapshot) return
+
+    undoHistoryRef.current = [
+      ...undoHistoryRef.current.slice(-(EDITOR_HISTORY_LIMIT - 1)),
+      JSON.parse(previousSnapshot) as EditorDraftSnapshot,
+    ]
+    redoHistoryRef.current = []
+    historySnapshotRef.current = nextSnapshot
+    hasUserEditedRef.current = true
+    syncHistoryAvailability()
+  }, [syncHistoryAvailability])
+
+  useEffect(() => {
+    return () => {
+      clearPendingHistoryCommit()
+    }
+  }, [clearPendingHistoryCommit])
+
+  const restoreEditorSnapshot = useCallback((snapshot: EditorDraftSnapshot) => {
+    isRestoringHistoryRef.current = true
+    replaceBubbles(snapshot.bubbles)
+    replaceConnections(snapshot.connections)
+    replaceZonesState(snapshot.zones)
+    replaceFloorPlanState({
+      isGenerated: snapshot.isFloorPlanGenerated,
+      layoutSource: snapshot.floorPlanLayoutSource,
+      layers: snapshot.floorLayers,
+      activeLayerId: snapshot.activeFloorLayerId,
+    })
+    setFloorWalls(snapshot.floorWalls ?? [])
+    setFloorOpenings(snapshot.floorOpenings ?? [])
+    setHiddenAutoWallIds(snapshot.hiddenAutoWallIds ?? [])
+    setHiddenAutoOpeningIds(snapshot.hiddenAutoOpeningIds ?? [])
+    setIsProjectStructurePreferred(snapshot.isProjectStructurePreferred ?? false)
+    resetInteractionSelection()
+  }, [
+    replaceBubbles,
+    replaceConnections,
+    replaceFloorPlanState,
+    replaceZonesState,
+    resetInteractionSelection,
+  ])
+
+  useEffect(() => {
+    const serializedSnapshot = JSON.stringify(draftSnapshot)
+    const normalizedProjectId = projectId ?? null
+    const isProjectChanged = historyProjectIdRef.current !== normalizedProjectId
+
+    if (isRestoringHistoryRef.current) {
+      clearPendingHistoryCommit()
+      historySnapshotRef.current = serializedSnapshot
+      isRestoringHistoryRef.current = false
+      return
+    }
+
+    if (
+      isProjectChanged ||
+      draftLoadingProjectIdRef.current === projectId ||
+      skipNextHistorySnapshotRef.current
+    ) {
+      clearPendingHistoryCommit()
+      historyProjectIdRef.current = normalizedProjectId
+      historySnapshotRef.current = serializedSnapshot
+      undoHistoryRef.current = []
+      redoHistoryRef.current = []
+      skipNextHistorySnapshotRef.current = false
+      syncHistoryAvailability()
+      return
+    }
+
+    if (historySnapshotRef.current === null) {
+      historySnapshotRef.current = serializedSnapshot
+      return
+    }
+
+    if (historySnapshotRef.current === serializedSnapshot) return
+
+    pendingHistorySnapshotRef.current = serializedSnapshot
+    if (historyCommitTimerRef.current !== null) {
+      clearTimeout(historyCommitTimerRef.current)
+    }
+    historyCommitTimerRef.current = setTimeout(commitPendingHistorySnapshot, 300)
+  }, [clearPendingHistoryCommit, commitPendingHistorySnapshot, draftSnapshot, projectId, syncHistoryAvailability])
+
+  const handleUndo = useCallback(() => {
+    clearPendingHistoryCommit()
+    const previous = undoHistoryRef.current.pop()
+    if (!previous) return
+
+    const currentSnapshot = latestDraftSnapshotRef.current
+    redoHistoryRef.current = [
+      ...redoHistoryRef.current.slice(-(EDITOR_HISTORY_LIMIT - 1)),
+      currentSnapshot,
+    ]
+    restoreEditorSnapshot(previous)
+    syncHistoryAvailability()
+  }, [clearPendingHistoryCommit, restoreEditorSnapshot, syncHistoryAvailability])
+
+  const handleRedo = useCallback(() => {
+    clearPendingHistoryCommit()
+    const next = redoHistoryRef.current.pop()
+    if (!next) return
+
+    const currentSnapshot = latestDraftSnapshotRef.current
+    undoHistoryRef.current = [
+      ...undoHistoryRef.current.slice(-(EDITOR_HISTORY_LIMIT - 1)),
+      currentSnapshot,
+    ]
+    restoreEditorSnapshot(next)
+    syncHistoryAvailability()
+  }, [clearPendingHistoryCommit, restoreEditorSnapshot, syncHistoryAvailability])
+
   const applyDrawingSnapshot = useCallback(
     ({ bubbles: nextBubbles, connections: nextConnections, floorWalls: nextFloorWalls, floorOpenings: nextFloorOpenings }: DrawingSnapshot) => {
       setIsProjectStructurePreferred(false)
@@ -2423,6 +2676,10 @@ export function useEditorPage() {
     canEditIfc,
     isConverting,
     isEditorReadOnly,
+    canUndo,
+    canRedo,
+    handleUndo,
+    handleRedo,
     // 캔버스 크기·대지
     containerRef,
     stageSize,
