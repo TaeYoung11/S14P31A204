@@ -312,9 +312,80 @@ def _mm_to_model_units(
             return value / 10.0
         if prefix == "DECI":
             return value / 100.0
-        if prefix is None:
-            return value / 1000.0
     return value
+
+
+def _get_model_unit_scale(model: ifcopenshell.file) -> float:
+    """native unit -> mm 변환 배율을 반환한다."""
+    for unit in model.by_type("IfcSIUnit"):
+        if getattr(unit, "UnitType", None) != "LENGTHUNIT":
+            continue
+        prefix = getattr(unit, "Prefix", None)
+        if prefix == "MILLI":
+            return 1.0
+        if prefix == "CENTI":
+            return 10.0
+        if prefix == "DECI":
+            return 100.0
+        if prefix is None:
+            return 1000.0
+    return 1000.0
+
+
+def find_host_wall(
+    model: ifcopenshell.file, host_wall_global_id: str | None, x_mm: float, y_mm: float, z_mm: float
+) -> ifcopenshell.entity_instance | None:
+    """좌표 근처의 벽체를 찾거나 ID로 특정하여 호스트 벽체 반환"""
+    # 1. ID로 찾기 (가장 정확)
+    if host_wall_global_id:
+        try:
+            wall = model.by_guid(host_wall_global_id)
+            if wall and wall.is_a("IfcWall"):
+                return wall
+        except Exception:
+            pass
+
+    # 3. 근접 벽체 탐색 (좌표 기반)
+    scale = _get_model_unit_scale(model)
+    best_wall, best_dist = None, 3000.0 / scale  # 검색 반경을 3m로 확대
+
+    for wall in model.by_type("IfcWall"):
+        pl = getattr(wall, "ObjectPlacement", None)
+        if not (pl and pl.is_a("IfcLocalPlacement")):
+            continue
+        
+        # 벽체 원점(시작점) 좌표
+        loc = pl.RelativePlacement.Location.Coordinates
+        rdx, rdy = 1.0, 0.0
+        ref = getattr(pl.RelativePlacement, "RefDirection", None)
+        if ref:
+            rdx, rdy = ref.DirectionRatios[0], ref.DirectionRatios[1]
+
+        # 전역 좌표를 벽체 로컬 좌표로 변환 (U: 길이 방향, V: 두께 방향)
+        dx, dy = (x_mm / scale) - loc[0], (y_mm / scale) - loc[1]
+        u = dx * rdx + dy * rdy
+        v = dx * (-rdy) + dy * rdx
+
+        # 벽체의 길이(L) 확인
+        l_m = 0.0
+        if wall.Representation:
+            for rep in wall.Representation.Representations:
+                if rep.RepresentationIdentifier == "Body":
+                    item = rep.Items[0]
+                    while item.is_a("IfcBooleanResult"):
+                        item = item.FirstOperand
+                    if item.is_a("IfcExtrudedAreaSolid"):
+                        l_m = max(item.SweptArea.XDim, item.SweptArea.YDim)
+                        break
+        
+        # 좌표가 벽체의 길이 범위(0~L) 내에 있고 두께 방향으로 가깝다면 선정
+        if -500/scale <= u <= l_m + 500/scale:
+            dist_v = abs(v)
+            if dist_v < best_dist:
+                best_dist = dist_v
+                best_wall = wall
+
+    return best_wall
 
 
 def _body_context(model: ifcopenshell.file) -> ifcopenshell.entity_instance:
