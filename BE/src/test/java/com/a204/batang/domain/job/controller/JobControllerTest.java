@@ -146,6 +146,13 @@ class JobControllerTest {
                 .andExpect(jsonPath("$.data.outputs.primaryResultUrl").value("https://minio.local/renderings/render-001.png"))
                 .andExpect(jsonPath("$.data.details.render.prompt").value("quiet library exterior"))
                 .andExpect(jsonPath("$.data.details.render.style.timeOfDay").value("EVENING"))
+                .andExpect(jsonPath("$.data.createdAt").value("2026-05-07T01:00:00Z"))
+                .andExpect(jsonPath("$.data.startedAt").value("2026-05-07T01:01:00Z"))
+                .andExpect(jsonPath("$.data.finishedAt").value("2026-05-07T01:05:00Z"))
+                .andExpect(jsonPath("$.data.currentStep.createdAt").value("2026-05-07T01:00:00Z"))
+                .andExpect(jsonPath("$.data.currentStep.startedAt").value("2026-05-07T01:01:00Z"))
+                .andExpect(jsonPath("$.data.currentStep.finishedAt").value("2026-05-07T01:05:00Z"))
+                .andExpect(jsonPath("$.data.outputs.artifacts[0].createdAt").value("2026-05-07T01:05:00Z"))
                 .andExpect(jsonPath("$.data.requestPayload").doesNotExist())
                 .andExpect(jsonPath("$.data.steps[0].inputPayload").doesNotExist())
                 .andExpect(jsonPath("$.data.steps[0].outputPayload").doesNotExist());

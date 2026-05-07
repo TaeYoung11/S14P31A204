@@ -168,6 +168,7 @@ class JobStatusQueryServiceTest {
                 "application/x-step",
                 "s3://batang/result.ifc"
         );
+        ReflectionTestUtils.setField(ifcArtifact, "createdAt", LocalDateTime.of(2026, 5, 7, 10, 5));
         JobArtifactRecord validationArtifact = createArtifactRecord(
                 validationArtifactId,
                 projectId,
@@ -205,6 +206,13 @@ class JobStatusQueryServiceTest {
         assertThat(response.details().ifcEdit().validationReportArtifactId()).isEqualTo(validationArtifactId);
         assertThat(response.currentStep()).isNotNull();
         assertThat(response.currentStep().stepNo()).isEqualTo(1);
+        assertThat(response.createdAt()).isEqualTo("2026-05-07T01:00:00Z");
+        assertThat(response.startedAt()).isEqualTo("2026-05-07T01:01:00Z");
+        assertThat(response.finishedAt()).isEqualTo("2026-05-07T01:05:00Z");
+        assertThat(response.currentStep().createdAt()).isEqualTo("2026-05-07T01:00:00Z");
+        assertThat(response.currentStep().startedAt()).isEqualTo("2026-05-07T01:01:00Z");
+        assertThat(response.currentStep().finishedAt()).isEqualTo("2026-05-07T01:05:00Z");
+        assertThat(response.outputs().artifacts().get(0).createdAt()).isEqualTo("2026-05-07T01:05:00Z");
     }
 
     @Test
@@ -381,6 +389,7 @@ class JobStatusQueryServiceTest {
                 "IFC_MODEL",
                 requestPayload
         );
+        ReflectionTestUtils.setField(job, "createdAt", LocalDateTime.of(2026, 5, 7, 9, 0));
         ReflectionTestUtils.setField(job, "errorMessage", "렌더링 실패");
 
         ObjectNode stepInput = objectNode();
@@ -425,6 +434,12 @@ class JobStatusQueryServiceTest {
         assertThat(response.details().render().height()).isEqualTo(768);
         assertThat(response.outputs().primaryArtifactId()).isNull();
         assertThat(response.outputs().primaryResultUrl()).isNull();
+        assertThat(response.createdAt()).isEqualTo("2026-05-07T00:00:00Z");
+        assertThat(response.startedAt()).isNull();
+        assertThat(response.finishedAt()).isNull();
+        assertThat(response.currentStep().createdAt()).isEqualTo("2026-05-07T01:00:00Z");
+        assertThat(response.currentStep().startedAt()).isNull();
+        assertThat(response.currentStep().finishedAt()).isNull();
     }
 
     @Test
