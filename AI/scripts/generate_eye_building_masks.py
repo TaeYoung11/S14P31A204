@@ -14,6 +14,7 @@ import io
 import sys
 from pathlib import Path
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +47,8 @@ DEFAULT_OUTPUT_DIR = (
 DEPTH_NAMES = ("depth_eye_ne.png", "depth_eye_nw.png", "depth_eye_se.png")
 DEFAULT_PROTECT_EXPAND_PX = 3
 DEFAULT_FEATHER_RADIUS = 2
+DEFAULT_TARGET_SIDE_EXPAND_RATIO = 0.16
+DEFAULT_TARGET_TOP_RATIO = 0.52
 
 
 def _display_path(path: Path) -> Path:
@@ -79,6 +82,18 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         help="Blur the inpaint target mask by this radius for preview/use.",
     )
+    parser.add_argument(
+        "--target-side-expand-ratio",
+        default=DEFAULT_TARGET_SIDE_EXPAND_RATIO,
+        type=float,
+        help="Expand the local ground/background target around the building bbox.",
+    )
+    parser.add_argument(
+        "--target-top-ratio",
+        default=DEFAULT_TARGET_TOP_RATIO,
+        type=float,
+        help="Start the local background target at this ratio inside the building bbox.",
+    )
     return parser.parse_args(argv)
 
 
@@ -109,10 +124,39 @@ def _build_protect_mask(
 
 
 def _build_inpaint_target_mask(
+    depth: Image.Image,
     protect_mask: Image.Image,
     feather_radius: int = DEFAULT_FEATHER_RADIUS,
+    side_expand_ratio: float = DEFAULT_TARGET_SIDE_EXPAND_RATIO,
+    target_top_ratio: float = DEFAULT_TARGET_TOP_RATIO,
 ) -> Image.Image:
-    target = Image.eval(protect_mask.convert("L"), lambda px: 255 - px)
+    protect_l = protect_mask.convert("L")
+    protect_arr = np.asarray(protect_l, dtype=np.uint8) > 0
+    depth_arr = np.asarray(depth.convert("RGB"), dtype=np.uint8)
+    geom_mask = ~np.all(depth_arr == 0, axis=2)
+
+    target_arr = np.zeros(protect_arr.shape, dtype=np.uint8)
+    if not np.any(geom_mask):
+        return Image.fromarray(target_arr, mode="L")
+
+    height, width = protect_arr.shape
+    ys, xs = np.nonzero(geom_mask)
+    left = int(xs.min())
+    right = int(xs.max())
+    top = int(ys.min())
+    bottom = int(ys.max())
+    bbox_width = max(1, right - left + 1)
+    bbox_height = max(1, bottom - top + 1)
+    side_expand = max(8, int(round(bbox_width * side_expand_ratio)))
+    target_top = int(np.clip(top + bbox_height * target_top_ratio, 0, height - 1))
+
+    x_start = max(0, left - side_expand)
+    x_end = min(width - 1, right + side_expand)
+    local = np.zeros_like(target_arr, dtype=bool)
+    local[target_top:, x_start : x_end + 1] = True
+
+    target_arr[local & ~protect_arr] = 255
+    target = Image.fromarray(target_arr, mode="L")
     if feather_radius <= 0:
         return target
     return target.filter(ImageFilter.GaussianBlur(radius=feather_radius))
@@ -183,6 +227,8 @@ def generate_previews(
     ground_shell_ratio: float = EYE_BUILDING_MASK_GROUND_SHELL_RATIO,
     protect_expand_px: int = DEFAULT_PROTECT_EXPAND_PX,
     feather_radius: int = DEFAULT_FEATHER_RADIUS,
+    target_side_expand_ratio: float = DEFAULT_TARGET_SIDE_EXPAND_RATIO,
+    target_top_ratio: float = DEFAULT_TARGET_TOP_RATIO,
 ) -> list[Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -210,8 +256,11 @@ def generate_previews(
         )
         protect_mask = _build_protect_mask(mask, expand_px=protect_expand_px)
         target_mask = _build_inpaint_target_mask(
+            depth,
             protect_mask,
             feather_radius=feather_radius,
+            side_expand_ratio=target_side_expand_ratio,
+            target_top_ratio=target_top_ratio,
         )
         building_overlay = _build_overlay(depth, mask, (0, 220, 80, 120))
         target_overlay = _build_overlay(depth, target_mask, (255, 0, 0, 110))
@@ -253,6 +302,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[ground-shell-ratio] {args.ground_shell_ratio}")
     print(f"[protect-expand-px] {args.protect_expand_px}")
     print(f"[feather-radius] {args.feather_radius}")
+    print(f"[target-side-expand-ratio] {args.target_side_expand_ratio}")
+    print(f"[target-top-ratio] {args.target_top_ratio}")
 
     try:
         saved = generate_previews(
@@ -261,6 +312,8 @@ def main(argv: list[str] | None = None) -> int:
             ground_shell_ratio=args.ground_shell_ratio,
             protect_expand_px=args.protect_expand_px,
             feather_radius=args.feather_radius,
+            target_side_expand_ratio=args.target_side_expand_ratio,
+            target_top_ratio=args.target_top_ratio,
         )
     except Exception as exc:
         print(f"[error] {exc}", file=sys.stderr)
