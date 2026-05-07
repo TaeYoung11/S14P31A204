@@ -73,7 +73,7 @@ class JobStatusQueryServiceTest {
 
     @Test
     void getJobStatus_throwsWhenJobDoesNotExist() {
-        given(jobRecordRepository.findByJobId(jobId)).willReturn(Optional.empty());
+        given(jobRecordRepository.findById(jobId)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> jobStatusQueryService.getJobStatus(jobId))
                 .isInstanceOf(CustomException.class)
@@ -85,7 +85,7 @@ class JobStatusQueryServiceTest {
     void getJobStatus_throwsWhenProjectDoesNotExist() throws Exception {
         JobRecord job = createJobRecord(jobId, projectId, "SD_RENDER", "QUEUED", 0, null, null, null, null);
 
-        given(jobRecordRepository.findByJobId(jobId)).willReturn(Optional.of(job));
+        given(jobRecordRepository.findById(jobId)).willReturn(Optional.of(job));
         given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> jobStatusQueryService.getJobStatus(jobId))
@@ -98,7 +98,7 @@ class JobStatusQueryServiceTest {
     void getJobStatus_propagatesForbiddenAccess() throws Exception {
         JobRecord job = createJobRecord(jobId, projectId, "SD_RENDER", "QUEUED", 0, null, null, null, null);
 
-        given(jobRecordRepository.findByJobId(jobId)).willReturn(Optional.of(job));
+        given(jobRecordRepository.findById(jobId)).willReturn(Optional.of(job));
         given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
         given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(currentUserId);
         doThrow(new CustomException(ErrorCode.FORBIDDEN_ACCESS))
@@ -535,7 +535,7 @@ class JobStatusQueryServiceTest {
     }
 
     private void prepareProjectAccess(JobRecord job) {
-        given(jobRecordRepository.findByJobId(jobId)).willReturn(Optional.of(job));
+        given(jobRecordRepository.findById(jobId)).willReturn(Optional.of(job));
         given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
         given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(currentUserId);
     }
