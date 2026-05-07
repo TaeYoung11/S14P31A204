@@ -428,6 +428,54 @@ class JobStatusQueryServiceTest {
     }
 
     @Test
+    void getJobStatus_returnsRenderFailedWithStringRetryableTrue() throws Exception {
+        UUID expectedArtifactId = UUID.randomUUID();
+
+        GetJobStatusResponse response = getRenderFailedResponseWithStringRetryable(expectedArtifactId, "true");
+
+        assertThat(response.error()).isNotNull();
+        assertThat(response.error().code()).isEqualTo("SD_RENDER_FAILED");
+        assertThat(response.error().message()).isEqualTo("worker crashed");
+        assertThat(response.error().retryable()).isTrue();
+        assertThat(response.details().render()).isNotNull();
+        assertThat(response.details().render().expectedOutputArtifactId()).isEqualTo(expectedArtifactId);
+        assertThat(response.outputs().primaryArtifactId()).isNull();
+        assertThat(response.outputs().primaryResultUrl()).isNull();
+    }
+
+    @Test
+    void getJobStatus_returnsRenderFailedWithStringRetryableFalse() throws Exception {
+        UUID expectedArtifactId = UUID.randomUUID();
+
+        GetJobStatusResponse response = getRenderFailedResponseWithStringRetryable(expectedArtifactId, "false");
+
+        assertThat(response.error()).isNotNull();
+        assertThat(response.error().code()).isEqualTo("SD_RENDER_FAILED");
+        assertThat(response.error().message()).isEqualTo("worker crashed");
+        assertThat(response.error().retryable()).isFalse();
+        assertThat(response.details().render()).isNotNull();
+        assertThat(response.details().render().expectedOutputArtifactId()).isEqualTo(expectedArtifactId);
+        assertThat(response.outputs().primaryArtifactId()).isNull();
+        assertThat(response.outputs().primaryResultUrl()).isNull();
+    }
+
+    @Test
+    void getJobStatus_returnsRenderFailedWithUnsupportedStringRetryableAsNull() throws Exception {
+        UUID expectedArtifactId = UUID.randomUUID();
+
+        GetJobStatusResponse response = getRenderFailedResponseWithStringRetryable(expectedArtifactId, "yes");
+
+        assertThat(response.error()).isNotNull();
+        assertThat(response.error().code()).isEqualTo("SD_RENDER_FAILED");
+        assertThat(response.error().message()).isEqualTo("worker crashed");
+        assertThat(response.error().retryable()).isNull();
+        assertThat(response.details().render()).isNotNull();
+        assertThat(response.details().render().expectedOutputArtifactId()).isEqualTo(expectedArtifactId);
+        assertThat(response.outputs().primaryArtifactId()).isNull();
+        assertThat(response.outputs().primaryResultUrl()).isNull();
+    }
+
+    @Test
     void getJobStatus_returnsFloorPlanSuccess() throws Exception {
         UUID targetRevisionId = UUID.randomUUID();
         UUID expectedArtifactId = UUID.randomUUID();
@@ -538,6 +586,58 @@ class JobStatusQueryServiceTest {
         given(jobRecordRepository.findById(jobId)).willReturn(Optional.of(job));
         given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
         given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(currentUserId);
+    }
+
+    private GetJobStatusResponse getRenderFailedResponseWithStringRetryable(UUID expectedArtifactId, String retryableValue)
+            throws Exception {
+        ObjectNode requestPayload = objectNode();
+        requestPayload.put("prompt", "quiet library");
+        requestPayload.put("negativePrompt", "rain");
+        ObjectNode styleNode = requestPayload.putObject("style");
+        styleNode.put("timeOfDay", "EVENING");
+        requestPayload.put("width", 1024);
+        requestPayload.put("height", 768);
+        requestPayload.put("sourceImageStorageUrl", "s3://batang/reference.png");
+
+        JobRecord job = createJobRecord(
+                jobId,
+                projectId,
+                "SD_RENDER",
+                "FAILED",
+                0,
+                UUID.randomUUID(),
+                null,
+                "IFC_MODEL",
+                requestPayload
+        );
+        ReflectionTestUtils.setField(job, "errorMessage", "?뚮뜑留??ㅽ뙣");
+
+        ObjectNode stepInput = objectNode();
+        stepInput.put("expectedOutputArtifactId", expectedArtifactId.toString());
+        ObjectNode stepOutput = objectNode();
+        stepOutput.put("errorCode", "SD_RENDER_FAILED");
+        stepOutput.put("errorMessage", "worker crashed");
+        stepOutput.put("retryable", retryableValue);
+
+        JobStepRecord step = createStepRecord(
+                UUID.randomUUID(),
+                jobId,
+                1,
+                "SD_RENDER",
+                "FAILED",
+                0,
+                1,
+                stepInput,
+                stepOutput,
+                "SD_RENDER_FAILED",
+                "worker crashed"
+        );
+
+        prepareProjectAccess(job);
+        given(jobStepRecordRepository.findByJobIdOrderByStepNoAsc(jobId)).willReturn(List.of(step));
+        given(jobArtifactRecordRepository.findByJobIdOrderByCreatedAtAscArtifactIdAsc(jobId)).willReturn(List.of());
+
+        return jobStatusQueryService.getJobStatus(jobId);
     }
 
     private JobRecord createJobRecord(
