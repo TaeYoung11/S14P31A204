@@ -78,6 +78,7 @@ class DepthStyleRenderOptions:
     use_front_side_semantic_control: bool = False
     use_front_full_width_semantic_control: bool = False
     use_eye_ground_semantic_control: bool = False
+    use_eye_ground_plane_aware_semantic_control: bool = False
     use_front_full_width_ground_control: bool = False
     use_weighted_front_side_negative: bool = False
     front_side_ground_class: FrontSideGroundClass = "grass"
@@ -89,6 +90,7 @@ class DepthStyleRenderOptions:
             self.use_front_side_semantic_control
             or self.use_front_full_width_semantic_control
             or self.use_eye_ground_semantic_control
+            or self.use_eye_ground_plane_aware_semantic_control
         )
 
     def as_render_kwargs(self) -> dict[str, object]:
@@ -99,6 +101,9 @@ class DepthStyleRenderOptions:
                 self.use_front_full_width_semantic_control
             ),
             "use_eye_ground_semantic_control": self.use_eye_ground_semantic_control,
+            "use_eye_ground_plane_aware_semantic_control": (
+                self.use_eye_ground_plane_aware_semantic_control
+            ),
             "use_front_full_width_ground_control": (
                 self.use_front_full_width_ground_control
             ),
@@ -128,11 +133,13 @@ KOREAN_HOUSE_SIDE_RENDER_OPTIONS = DepthStyleRenderOptions(
 )
 KOREAN_HOUSE_EYE_RENDER_OPTIONS = DepthStyleRenderOptions(
     use_eye_ground_semantic_control=True,
+    use_eye_ground_plane_aware_semantic_control=True,
     front_side_ground_class=EYE_GROUND_CLASS_RGB,
     front_side_semantic_control_scale=EYE_SEMANTIC_CONTROL_SCALE,
 )
 KOREAN_HOUSE_EYE_STRONG_RENDER_OPTIONS = DepthStyleRenderOptions(
     use_eye_ground_semantic_control=True,
+    use_eye_ground_plane_aware_semantic_control=True,
     front_side_ground_class=EYE_GROUND_CLASS_RGB,
     front_side_semantic_control_scale=EYE_STRONG_SEMANTIC_CONTROL_SCALE,
 )
@@ -714,6 +721,7 @@ class DepthStyleRenderer:
         use_front_side_semantic_control: bool = False,
         use_front_full_width_semantic_control: bool = False,
         use_eye_ground_semantic_control: bool = False,
+        use_eye_ground_plane_aware_semantic_control: bool = False,
         use_front_full_width_ground_control: bool = False,
         use_weighted_front_side_negative: bool = False,
         front_side_ground_class: FrontSideGroundClass = "grass",
@@ -758,6 +766,7 @@ class DepthStyleRenderer:
                 _build_eye_ground_seg_control(
                     control,
                     ground_class=front_side_ground_class,
+                    include_ground_plane=use_eye_ground_plane_aware_semantic_control,
                 ),
             ]
             conditioning_scale = [
