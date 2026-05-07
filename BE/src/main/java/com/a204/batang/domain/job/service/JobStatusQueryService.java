@@ -178,9 +178,11 @@ public class JobStatusQueryService {
             return currentStepError;
         }
 
-        JobErrorResponse lastStepError = lastStep != null ? buildStepError(lastStep) : null;
-        if (lastStepError != null) {
-            return lastStepError;
+        if (lastStep != null && lastStep != currentStep) {
+            JobErrorResponse lastStepError = buildStepError(lastStep);
+            if (lastStepError != null) {
+                return lastStepError;
+            }
         }
 
         String errorMessage = firstNonBlank(
@@ -425,10 +427,15 @@ public class JobStatusQueryService {
         }
 
         String text = value.asText(null);
-        if (text == null || text.isBlank()) {
+        if (text == null) {
             return null;
         }
-        return Boolean.parseBoolean(text);
+
+        return switch (text.trim().toLowerCase(Locale.ROOT)) {
+            case "true" -> true;
+            case "false" -> false;
+            default -> null;
+        };
     }
 
     private UUID extractUuid(JsonNode node, String... fieldNames) {
