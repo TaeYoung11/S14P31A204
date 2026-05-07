@@ -56,6 +56,7 @@ FRONT_FULL_WIDTH_GROUND_BLEND_STRENGTH = 0.24
 FRONT_FULL_WIDTH_GROUND_TOP_PADDING_RATIO = 0.02
 FRONT_FULL_WIDTH_GROUND_EXPAND_RATIO = 1.03
 EYE_GROUND_TOP_PADDING_RATIO = 0.02
+EYE_GROUND_PLANE_SHELL_RATIO = 0.22
 EYE_GROUND_CLASS_RGB = "grass"
 EYE_SEMANTIC_CONTROL_SCALE = 0.25
 EYE_STRONG_SEMANTIC_CONTROL_SCALE = 0.35
@@ -456,9 +457,55 @@ def _build_eye_ground_mask(control: Image.Image) -> Image.Image:
     return Image.fromarray(out, mode="L")
 
 
+def _build_eye_ground_plane_aware_mask(
+    control: Image.Image,
+    shell_ratio: float = EYE_GROUND_PLANE_SHELL_RATIO,
+) -> Image.Image:
+    """Mark lower background and slab-like lower geometry as EYE ground.
+
+    EYE depth renders include the explicit IFC ground plane as geometry. If all
+    geometry is protected as building, the semantic cue cannot suppress the
+    white display-base prior. This preview-oriented mask reclassifies only the
+    lower per-column geometry shell as ground while leaving upper wall/roof
+    pixels protected as building.
+    """
+    arr = np.asarray(control.convert("RGB"), dtype=np.uint8)
+    bg_mask = np.all(arr == 0, axis=2)
+    geom_mask = ~bg_mask
+    height, width = bg_mask.shape
+
+    out = np.asarray(_build_eye_ground_mask(control), dtype=np.uint8).copy()
+    if not np.any(geom_mask):
+        return Image.fromarray(out, mode="L")
+
+    ys, xs = np.nonzero(geom_mask)
+    bbox_top = int(ys.min())
+    bbox_bottom = int(ys.max())
+    bbox_height = max(1, bbox_bottom - bbox_top + 1)
+    shell_px = max(1, int(round(height * float(np.clip(shell_ratio, 0.0, 1.0)))))
+    lower_guard_y = int(np.clip(bbox_top + bbox_height * 0.62, 0, height - 1))
+
+    bottom_by_x = np.full(width, -1, dtype=np.int32)
+    for x in np.unique(xs):
+        bottom_by_x[x] = int(ys[xs == x].max())
+
+    for x in np.flatnonzero(bottom_by_x >= 0):
+        bottom_y = int(bottom_by_x[x])
+        top_y = max(0, bottom_y - shell_px, lower_guard_y)
+        if top_y > bottom_y:
+            continue
+        column = geom_mask[top_y : bottom_y + 1, x]
+        if not np.any(column):
+            continue
+        out[top_y : bottom_y + 1, x][column] = 255
+
+    return Image.fromarray(out, mode="L")
+
+
 def _build_eye_ground_seg_control(
     control: Image.Image,
     ground_class: FrontSideGroundClass = "neutral",
+    include_ground_plane: bool = False,
 ) -> Image.Image:
     """Map EYE-view lower background intent into ADE20K semantic colors."""
     if ground_class not in FRONT_SIDE_GROUND_CLASS_RGB:
@@ -467,7 +514,12 @@ def _build_eye_ground_seg_control(
     arr = np.asarray(control.convert("RGB"), dtype=np.uint8)
     bg_mask = np.all(arr == 0, axis=2)
     building_mask = ~bg_mask
-    ground_mask = np.asarray(_build_eye_ground_mask(control), dtype=np.uint8) > 0
+    if include_ground_plane:
+        ground_mask = (
+            np.asarray(_build_eye_ground_plane_aware_mask(control), dtype=np.uint8) > 0
+        )
+    else:
+        ground_mask = np.asarray(_build_eye_ground_mask(control), dtype=np.uint8) > 0
 
     height, width = building_mask.shape
     seg = np.zeros((height, width, 3), dtype=np.uint8)
