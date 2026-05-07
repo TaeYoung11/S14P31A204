@@ -5,6 +5,8 @@ import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
+import com.a204.batang.domain.workspace.dto.FloorPlanRedoRequest;
+import com.a204.batang.domain.workspace.dto.FloorPlanUndoRequest;
 import com.a204.batang.domain.workspace.dto.PublishFloorPlanUpdatedRequest;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
@@ -31,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class WorkspaceFloorPlanRealtimeServiceTest {
@@ -212,5 +215,96 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         JsonNode historySnapshot = snapshotCaptor.getValue();
         assertThat(historySnapshot.get("s3Url").asText()).isEqualTo(request.s3Url());
         assertThat(historySnapshot.get("floorPlanPayloadJson").get("revisionId").asText()).isEqualTo(response.revisionId());
+    }
+
+    @Test
+    void undoFloorPlanDraft_loadsPreviousSnapshotAndBroadcastsMessage() throws Exception {
+        JsonNode undoSnapshot = objectMapper.readTree("""
+                {
+                  "floorPlanPayloadJson": {
+                    "baseIndex": 1,
+                    "revisionId": "rev-undo-1",
+                    "bubbles": [{"id": "bubble-1"}],
+                    "connections": []
+                  },
+                  "s3Url": "s3://bucket/projects/p1/revisions/rev-undo-1/ifc/model.v1.ifc"
+                }
+                """);
+
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+        given(workspaceBubbleSnapshotRedisRepository.getFloorPlanSnapshotHistorySize(projectId))
+                .willReturn(4);
+        given(workspaceBubbleSnapshotRedisRepository.findFloorPlanSnapshotByIndex(projectId, 1))
+                .willReturn(undoSnapshot);
+
+        workspaceFloorPlanRealtimeService.undoFloorPlanDraft(projectId, currentUserId, new FloorPlanUndoRequest(2));
+
+        ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
+        verify(simpMessagingTemplate).convertAndSend(
+                eq("/topic/project/%s/floor-plan/sync".formatted(projectId)),
+                responseCaptor.capture()
+        );
+
+        FloorPlanProjectSyncResponse response = responseCaptor.getValue();
+        assertThat(response.action()).isEqualTo("FLOOR_PLAN_UNDO");
+        assertThat(response.revisionId()).isEqualTo("rev-undo-1");
+        assertThat(response.s3Url()).isEqualTo("s3://bucket/projects/p1/revisions/rev-undo-1/ifc/model.v1.ifc");
+        assertThat(response.floorPlanPayloadJson().get("baseIndex").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void redoFloorPlanDraft_loadsNextSnapshotAndBroadcastsMessage() throws Exception {
+        JsonNode redoSnapshot = objectMapper.readTree("""
+                {
+                  "floorPlanPayloadJson": {
+                    "baseIndex": 2,
+                    "revisionId": "rev-redo-2",
+                    "bubbles": [{"id": "bubble-2"}],
+                    "connections": []
+                  },
+                  "s3Url": "s3://bucket/projects/p1/revisions/rev-redo-2/ifc/model.v1.ifc"
+                }
+                """);
+
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+        given(workspaceBubbleSnapshotRedisRepository.getFloorPlanSnapshotHistorySize(projectId))
+                .willReturn(4);
+        given(workspaceBubbleSnapshotRedisRepository.findFloorPlanSnapshotByIndex(projectId, 2))
+                .willReturn(redoSnapshot);
+
+        workspaceFloorPlanRealtimeService.redoFloorPlanDraft(projectId, currentUserId, new FloorPlanRedoRequest(1));
+
+        ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
+        verify(simpMessagingTemplate).convertAndSend(
+                eq("/topic/project/%s/floor-plan/sync".formatted(projectId)),
+                responseCaptor.capture()
+        );
+
+        FloorPlanProjectSyncResponse response = responseCaptor.getValue();
+        assertThat(response.action()).isEqualTo("FLOOR_PLAN_REDO");
+        assertThat(response.revisionId()).isEqualTo("rev-redo-2");
+        assertThat(response.s3Url()).isEqualTo("s3://bucket/projects/p1/revisions/rev-redo-2/ifc/model.v1.ifc");
+        assertThat(response.floorPlanPayloadJson().get("baseIndex").asInt()).isEqualTo(2);
+    }
+
+    @Test
+    void redoFloorPlanDraft_throwsCursorInvalidWhenBaseIndexIsStale() {
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+        given(workspaceBubbleSnapshotRedisRepository.getFloorPlanSnapshotHistorySize(projectId))
+                .willReturn(3);
+
+        assertThatThrownBy(() -> workspaceFloorPlanRealtimeService.redoFloorPlanDraft(
+                projectId,
+                currentUserId,
+                new FloorPlanRedoRequest(3)
+        ))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID);
+
+        verifyNoInteractions(simpMessagingTemplate);
     }
 }

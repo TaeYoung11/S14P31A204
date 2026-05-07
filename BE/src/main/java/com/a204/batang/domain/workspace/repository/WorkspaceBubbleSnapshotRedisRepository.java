@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 프로젝트 버블 스냅샷의 Redis 영속화를 담당한다.
+ * 프로젝트별 버블/도면 스냅샷 히스토리를 Redis에 저장/조회한다.
  */
 @Repository
 @RequiredArgsConstructor
@@ -57,14 +57,12 @@ public class WorkspaceBubbleSnapshotRedisRepository {
     private final ObjectMapper objectMapper;
 
     /**
-     * 프로젝트별 버블 스냅샷 히스토리를 Redis 리스트에 저장한다.
-     * 리스트의 순서는 앞(인덱스 0)이 가장 오래된 스냅샷, 뒤(마지막 인덱스)가 최신 스냅샷이다.
-     * 최대 10개까지만 유지하며, 초과 시 가장 오래된 스냅샷부터 제거한다.
+     * 버블 다이어그램 스냅샷을 히스토리에 저장한다.
      *
      * @param projectId 프로젝트 ID
-     * @param snapshot 버블 스냅샷 JSON
-     * @param baseIndex 이번 변경이 파생된 기준 스냅샷 인덱스(-1이면 빈 히스토리 기준)
-     * @throws JsonProcessingException 스냅샷 직렬화에 실패한 경우
+     * @param snapshot 스냅샷 JSON
+     * @param baseIndex 클라이언트가 기준으로 사용한 현재 히스토리 인덱스
+     * @throws JsonProcessingException JSON 직렬화 실패 시
      */
     public void saveSnapshot(UUID projectId, JsonNode snapshot, int baseIndex) throws JsonProcessingException {
         String key = BUBBLE_SNAPSHOT_HISTORY_KEY_TEMPLATE.formatted(projectId);
@@ -72,16 +70,64 @@ public class WorkspaceBubbleSnapshotRedisRepository {
     }
 
     /**
-     * 2D/3D 편집 webhook 완료 스냅샷을 Redis 히스토리에 저장한다.
+     * 2D/3D 도면 스냅샷을 히스토리에 저장한다.
      *
      * @param projectId 프로젝트 ID
-     * @param snapshot 저장할 스냅샷 JSON
-     * @param baseIndex 이번 변경이 파생된 기준 스냅샷 인덱스(-1이면 빈 히스토리 기준)
-     * @throws JsonProcessingException 스냅샷 직렬화 실패 시
+     * @param snapshot 스냅샷 JSON
+     * @param baseIndex 클라이언트가 기준으로 사용한 현재 히스토리 인덱스
+     * @throws JsonProcessingException JSON 직렬화 실패 시
      */
     public void saveFloorPlanSnapshot(UUID projectId, JsonNode snapshot, int baseIndex) throws JsonProcessingException {
         String key = FLOOR_PLAN_SNAPSHOT_HISTORY_KEY_TEMPLATE.formatted(projectId);
         saveSnapshotByKey(key, snapshot, baseIndex);
+    }
+
+    /**
+     * 버블 스냅샷 히스토리 크기를 조회한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @return 현재 히스토리 크기
+     */
+    public int getBubbleSnapshotHistorySize(UUID projectId) {
+        String key = BUBBLE_SNAPSHOT_HISTORY_KEY_TEMPLATE.formatted(projectId);
+        return getSnapshotHistorySizeByKey(key);
+    }
+
+    /**
+     * 버블 스냅샷 히스토리의 특정 인덱스 데이터를 조회한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param index 조회 인덱스
+     * @return 스냅샷 JSON, 없으면 {@code null}
+     * @throws JsonProcessingException JSON 역직렬화 실패 시
+     */
+    public JsonNode findBubbleSnapshotByIndex(UUID projectId, int index) throws JsonProcessingException {
+        String key = BUBBLE_SNAPSHOT_HISTORY_KEY_TEMPLATE.formatted(projectId);
+        return findSnapshotByIndex(key, index);
+    }
+
+    /**
+     * 2D/3D 도면 스냅샷 히스토리 크기를 조회한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @return 현재 히스토리 크기
+     */
+    public int getFloorPlanSnapshotHistorySize(UUID projectId) {
+        String key = FLOOR_PLAN_SNAPSHOT_HISTORY_KEY_TEMPLATE.formatted(projectId);
+        return getSnapshotHistorySizeByKey(key);
+    }
+
+    /**
+     * 2D/3D 도면 스냅샷 히스토리의 특정 인덱스 데이터를 조회한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param index 조회 인덱스
+     * @return 스냅샷 JSON, 없으면 {@code null}
+     * @throws JsonProcessingException JSON 역직렬화 실패 시
+     */
+    public JsonNode findFloorPlanSnapshotByIndex(UUID projectId, int index) throws JsonProcessingException {
+        String key = FLOOR_PLAN_SNAPSHOT_HISTORY_KEY_TEMPLATE.formatted(projectId);
+        return findSnapshotByIndex(key, index);
     }
 
     private void saveSnapshotByKey(String key, JsonNode snapshot, int baseIndex) throws JsonProcessingException {
@@ -96,11 +142,27 @@ public class WorkspaceBubbleSnapshotRedisRepository {
         );
 
         if (result == null) {
-            throw new IllegalStateException("Redis 히스토리 저장 스크립트 실행 결과가 비어 있습니다.");
+            throw new IllegalStateException("Redis 히스토리 저장 결과를 받을 수 없습니다.");
         }
 
         if (result == -1L) {
-            throw new IllegalArgumentException("Undo/Redo 기준 인덱스가 유효하지 않습니다.");
+            throw new IllegalArgumentException("Undo/Redo 기준 인덱스가 현재 히스토리와 일치하지 않습니다.");
         }
+    }
+
+    private int getSnapshotHistorySizeByKey(String key) {
+        Long size = redisTemplate.opsForList().size(key);
+        if (size == null) {
+            return 0;
+        }
+        return size.intValue();
+    }
+
+    private JsonNode findSnapshotByIndex(String key, int index) throws JsonProcessingException {
+        String snapshotPayload = redisTemplate.opsForList().index(key, index);
+        if (snapshotPayload == null) {
+            return null;
+        }
+        return objectMapper.readTree(snapshotPayload);
     }
 }
