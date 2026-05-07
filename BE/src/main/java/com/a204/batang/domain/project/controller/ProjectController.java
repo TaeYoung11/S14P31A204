@@ -4,6 +4,7 @@ import com.a204.batang.domain.project.dto.CreateProjectRequest;
 import com.a204.batang.domain.project.dto.CreateProjectResponse;
 import com.a204.batang.domain.project.dto.DeleteProjectsRequest;
 import com.a204.batang.domain.project.dto.DeleteProjectsResponse;
+import com.a204.batang.domain.project.dto.ProjectDetailResponse;
 import com.a204.batang.domain.project.dto.ProjectListResponse;
 import com.a204.batang.domain.project.dto.ProjectSiteResponse;
 import com.a204.batang.domain.project.dto.RegisterProjectSiteRequest;
@@ -33,7 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.UUID;
 
 /**
- * 프로젝트 생성/수정/조회/검색/삭제 및 대지정보 등록 API를 제공한다.
+ * 프로젝트 생성/수정/조회/삭제 및 대지 정보 등록 API를 제공한다.
  */
 @Validated
 @RestController
@@ -53,33 +54,29 @@ public class ProjectController {
      */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public ApiResponse<CreateProjectResponse> createProject(
-            @Valid @RequestBody CreateProjectRequest request
-            // TODO: 인증 구현 시 사용자 정보 연동
-    ) {
+    public ApiResponse<CreateProjectResponse> createProject(@Valid @RequestBody CreateProjectRequest request) {
         CreateProjectResponse response = projectService.createProject(request);
         return ApiResponse.created("프로젝트 생성 완료", response);
     }
 
     /**
-     * 프로젝트 이름과 설명을 수정한다.
+     * 프로젝트 이름/설명을 수정한다.
      *
      * @param projectId 프로젝트 ID
-     * @param request 프로젝트 수정 요청
+     * @param request 수정 요청
      * @return 수정 결과
      */
     @PatchMapping("/{projectId}")
     public ApiResponse<UpdateProjectResponse> updateProject(
             @PathVariable UUID projectId,
             @Valid @RequestBody UpdateProjectRequest request
-            // TODO: 인증 구현 시 @AuthenticationPrincipal 기반 사용자 ID 연동
     ) {
         UpdateProjectResponse response = projectService.updateProject(projectId, request);
         return ApiResponse.success("프로젝트 수정 완료", response);
     }
 
     /**
-     * 내 프로젝트 목록을 조회한다.
+     * 내가 접근 가능한 프로젝트 목록을 조회한다.
      *
      * @param page 1-base 페이지 번호
      * @return 프로젝트 목록
@@ -87,14 +84,27 @@ public class ProjectController {
     @GetMapping
     public ApiResponse<ProjectListResponse> getMyProjects(
             @RequestParam(defaultValue = "1") @Min(value = 1, message = "page는 1 이상이어야 합니다.") int page
-            // TODO: 인증 구현 시 @AuthenticationPrincipal 기반 사용자 ID 연동
     ) {
         ProjectListResponse response = projectQueryService.getMyProjects(page);
         return ApiResponse.success("프로젝트 목록 조회 성공", response);
     }
 
     /**
-     * 내 프로젝트를 이름으로 검색한다.
+     * 프로젝트 진입에 필요한 상세 정보를 조회한다.
+     * 버블 편집 중이면 버블 스냅샷을, 편집 종료 상태면 IFC URL을 반환한다.
+     * 대지 정보는 항상 함께 반환한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @return 프로젝트 상세 정보
+     */
+    @GetMapping("/{projectId}")
+    public ApiResponse<ProjectDetailResponse> getMyProjectDetail(@PathVariable UUID projectId) {
+        ProjectDetailResponse response = projectQueryService.getMyProjectDetail(projectId);
+        return ApiResponse.success("프로젝트 불러오기에 성공했습니다.", response);
+    }
+
+    /**
+     * 내 프로젝트를 이름 기준으로 검색한다.
      *
      * @param keyword 검색어
      * @param page 1-base 페이지 번호
@@ -110,25 +120,23 @@ public class ProjectController {
     }
 
     /**
-     * 여러 프로젝트를 삭제(휴지통 이동)한다.
+     * 프로젝트를 소프트 삭제한다.
      *
      * @param request 삭제할 프로젝트 ID 목록
      * @return 삭제 결과
      */
     @DeleteMapping
-    public ApiResponse<DeleteProjectsResponse> deleteProjects(
-            @Valid @RequestBody DeleteProjectsRequest request
-    ) {
+    public ApiResponse<DeleteProjectsResponse> deleteProjects(@Valid @RequestBody DeleteProjectsRequest request) {
         DeleteProjectsResponse response = projectService.deleteProjects(request);
         return ApiResponse.success("프로젝트 삭제 완료", response);
     }
 
     /**
-     * 프로젝트 대지정보를 등록한다.
+     * 프로젝트 대지 정보를 등록한다.
      *
      * @param projectId 프로젝트 ID
-     * @param request 대지정보 등록 요청
-     * @return 대지정보 등록 결과
+     * @param request 대지 등록 요청
+     * @return 대지 등록 결과
      */
     @PostMapping("/{projectId}/site")
     public ApiResponse<ProjectSiteResponse> registerProjectSite(
