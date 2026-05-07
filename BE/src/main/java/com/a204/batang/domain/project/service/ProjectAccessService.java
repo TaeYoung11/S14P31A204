@@ -19,7 +19,7 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * 프로젝트 접근 권한/조회 범위를 관리하는 공통 서비스다.
+ * 프로젝트 범위의 접근 권한과 조회 범위를 관리하는 공통 서비스다.
  */
 @Service
 @RequiredArgsConstructor
@@ -32,9 +32,10 @@ public class ProjectAccessService {
 
     /**
      * 현재 로그인한 사용자 ID를 조회한다.
-     * 인증 정보가 없으면 null을 반환한다.
      *
-     * @return 현재 사용자 ID, 인증 정보가 없으면 null
+     * <p>인증 정보가 없거나 UUID로 해석할 수 없는 경우에는 {@code null}을 반환한다.
+     *
+     * @return 현재 사용자 ID, 없으면 {@code null}
      */
     public UUID resolveCurrentUserId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -76,7 +77,7 @@ public class ProjectAccessService {
     }
 
     /**
-     * 현재 사용자가 건축가(DESIGNER)인지 검증한다.
+     * 현재 사용자가 건축가(DESIGNER) 역할인지 검증한다.
      */
     public void validateDesignerOrThrow() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -99,7 +100,7 @@ public class ProjectAccessService {
     }
 
     /**
-     * 프로젝트 소유자 권한인지 검증한다.
+     * 현재 사용자가 프로젝트 소유자인지 검증한다.
      *
      * @param project 프로젝트
      * @param currentUserId 현재 사용자 ID
@@ -115,7 +116,9 @@ public class ProjectAccessService {
     }
 
     /**
-     * 핀/댓글 작성 가능한 프로젝트 멤버(소유자 또는 초대 멤버)인지 검증한다.
+     * 핀/워크스페이스 계열 기능에서 사용하는 write-level 멤버 권한을 검증한다.
+     *
+     * <p>프로젝트 owner 또는 invited member만 허용한다.
      *
      * @param project 프로젝트
      * @param currentUserId 현재 사용자 ID
@@ -141,8 +144,22 @@ public class ProjectAccessService {
     }
 
     /**
-     * 프로젝트 ID 기준으로 핀/댓글 작성 가능한 멤버인지 검증한다.
-     * STOMP 통신처럼 projectId만 전달되는 진입점에서 사용한다.
+     * 프로젝트 협업성 read API에서 사용하는 member-level 접근 권한을 검증한다.
+     *
+     * <p>현재 정책은 {@link #validateProjectPinWriterOrThrow(Project, UUID)}와 동일하게 유지한다.
+     * 즉 owner 또는 invited member를 허용하며, 메서드 이름만 읽기 API 의도에 맞게 분리한다.
+     *
+     * @param project 프로젝트
+     * @param currentUserId 현재 사용자 ID
+     */
+    public void validateProjectMemberOrThrow(Project project, UUID currentUserId) {
+        validateProjectPinWriterOrThrow(project, currentUserId);
+    }
+
+    /**
+     * 프로젝트 ID 기준으로 write-level 멤버 권한을 검증한다.
+     *
+     * <p>STOMP처럼 projectId만 전달되는 진입점에서 재사용한다.
      *
      * @param projectId 프로젝트 ID
      * @param currentUserId 현재 사용자 ID
@@ -154,7 +171,9 @@ public class ProjectAccessService {
     }
 
     /**
-     * 프로젝트 멤버 사용자 ID 집합(소유자 + 초대 멤버)을 조회한다.
+     * 프로젝트 멤버 사용자 ID 집합을 조회한다.
+     *
+     * <p>owner와 invited member를 모두 포함한다.
      *
      * @param project 프로젝트
      * @return 프로젝트 멤버 사용자 ID 집합
@@ -175,10 +194,10 @@ public class ProjectAccessService {
     }
 
     /**
-     * 현재 사용자 기준 접근 가능한 프로젝트 목록(소유 + 멤버)을 조회한다.
+     * 현재 사용자가 접근 가능한 프로젝트 목록을 조회한다.
      *
      * @param pageable 페이지 정보
-     * @return 프로젝트 페이지
+     * @return 접근 가능한 프로젝트 페이지
      */
     public Page<Project> fetchProjectsByCurrentUser(Pageable pageable) {
         UUID currentUserId = resolveCurrentUserId();
@@ -189,7 +208,7 @@ public class ProjectAccessService {
     }
 
     /**
-     * 현재 사용자 기준 접근 가능한 프로젝트에서 이름 검색을 수행한다.
+     * 현재 사용자가 접근 가능한 프로젝트 범위에서 이름 검색을 수행한다.
      *
      * @param keyword 검색어
      * @param threshold trigram 유사도 임계값
