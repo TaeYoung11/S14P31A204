@@ -71,7 +71,7 @@ public class ProjectChatLogQueryService {
                 .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
 
         UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
-        projectAccessService.validateProjectPinWriterOrThrow(project, currentUserId);
+        projectAccessService.validateProjectMemberOrThrow(project, currentUserId);
 
         Pageable pageable = PageRequest.of(page, size);
         Page<ProjectChatLogProjection> chatLogPage =
