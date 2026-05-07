@@ -1,10 +1,10 @@
-"""옵션 B의 3가지 호출 패턴 (B-1/B-2/B-3) demo 테스트.
+﻿"""?듭뀡 B??3媛吏 ?몄텧 ?⑦꽩 (B-1/B-2/B-3) demo ?뚯뒪??
 
-세 후보 모두 *같은 prompt가 SD pipe에 도달*함을 확인 → 시각 결과 동일.
-차이는 *합성 위치(API 디자인)*만.
+???꾨낫 紐⑤몢 *媛숈? prompt媛 SD pipe???꾨떖*?⑥쓣 ?뺤씤 ???쒓컖 寃곌낵 ?숈씪.
+李⑥씠??*?⑹꽦 ?꾩튂(API ?붿옄??*留?
 
-이 테스트는 풀 SD 실행 없이 mock으로 *호출 패턴 동작*을 검증.
-시각 비교용 풀 실행은 B-1 패턴으로 1회만 (outputs/ifc2img_option_b/).
+???뚯뒪?몃뒗 ? SD ?ㅽ뻾 ?놁씠 mock?쇰줈 *?몄텧 ?⑦꽩 ?숈옉*??寃利?
+?쒓컖 鍮꾧탳??? ?ㅽ뻾? B-1 ?⑦꽩?쇰줈 1?뚮쭔 (outputs/ifc2img_option_b/).
 """
 
 from dataclasses import replace
@@ -34,25 +34,25 @@ def mock_renderer() -> DepthStyleRenderer:
     return r
 
 
-# --- 같은 prompt가 도달함을 검증 — 셋 다 동일 ---
+# --- 媛숈? prompt媛 ?꾨떖?⑥쓣 寃利????????숈씪 ---
 
 
 BASE_PROMPT = "RAW photo, scandinavian house"
-# TOP은 명시 호출용 시점이라 suffix가 비어있지 않아 합성 흐름 검증에 적합.
-TARGET_VIEW = IFCView.TOP
+# TOP? 紐낆떆 ?몄텧???쒖젏?대씪 suffix媛 鍮꾩뼱?덉? ?딆븘 ?⑹꽦 ?먮쫫 寃利앹뿉 ?곹빀.
+TARGET_VIEW = IFCView.EYE_NE
 
 
 def _expected_prompt() -> str:
-    """공통 자산을 통해 기대되는 합성 prompt."""
+    """怨듯넻 ?먯궛???듯빐 湲곕??섎뒗 ?⑹꽦 prompt."""
     return build_view_prompt(BASE_PROMPT, TARGET_VIEW)
 
 
 def test_b1_renderer_view_arg(mock_renderer: DepthStyleRenderer) -> None:
-    """B-1: render(depth, params, view=...) — renderer 내부에서 합성."""
+    """B-1: render(depth, params, view=...) ??renderer ?대??먯꽌 ?⑹꽦."""
     depth = Image.new("L", (768, 448), 100)
     params = DepthStyleParams(prompt=BASE_PROMPT)
 
-    # 호출자 코드 1줄
+    # ?몄텧??肄붾뱶 1以?
     mock_renderer.render(depth, params, view=TARGET_VIEW)
 
     sent = mock_renderer.pipe.call_args.kwargs["prompt"]
@@ -60,28 +60,28 @@ def test_b1_renderer_view_arg(mock_renderer: DepthStyleRenderer) -> None:
 
 
 def test_b2_caller_composes_via_replace(mock_renderer: DepthStyleRenderer) -> None:
-    """B-2: 호출자가 dataclasses.replace로 prompt 직접 합성. render 시그니처 그대로."""
+    """B-2: ?몄텧?먭? dataclasses.replace濡?prompt 吏곸젒 ?⑹꽦. render ?쒓렇?덉쿂 洹몃?濡?"""
     depth = Image.new("L", (768, 448), 100)
     base_params = DepthStyleParams(prompt=BASE_PROMPT)
 
-    # 호출자 코드 — 합성 책임이 호출자
+    # ?몄텧??肄붾뱶 ???⑹꽦 梨낆엫???몄텧??
     composed_prompt = build_view_prompt(base_params.prompt, TARGET_VIEW)
     params = replace(base_params, prompt=composed_prompt)
-    mock_renderer.render(depth, params)  # view 인자 사용 안 함
+    mock_renderer.render(depth, params)  # view ?몄옄 ?ъ슜 ????
 
     sent = mock_renderer.pipe.call_args.kwargs["prompt"]
     assert sent == _expected_prompt()
 
 
 def test_b3_helper_via_public_api(mock_renderer: DepthStyleRenderer) -> None:
-    """B-3: build_view_prompt를 공개 API로 import 후 호출자가 합성. B-2와 동일 동작."""
-    # 공개 API import 경로 — 외부 호출자(BE 등) 입장에서 자연스러움
+    """B-3: build_view_prompt瑜?怨듦컻 API濡?import ???몄텧?먭? ?⑹꽦. B-2? ?숈씪 ?숈옉."""
+    # 怨듦컻 API import 寃쎈줈 ???몃? ?몄텧??BE ?? ?낆옣?먯꽌 ?먯뿰?ㅻ윭?
     from ai_rendering.ifc2img import build_view_prompt as public_helper
 
     depth = Image.new("L", (768, 448), 100)
     base_params = DepthStyleParams(prompt=BASE_PROMPT)
 
-    # 호출자 코드 — 헬퍼가 공개 API로 명시적
+    # ?몄텧??肄붾뱶 ???ы띁媛 怨듦컻 API濡?紐낆떆??
     composed_prompt = public_helper(base_params.prompt, TARGET_VIEW)
     params = replace(base_params, prompt=composed_prompt)
     mock_renderer.render(depth, params)
@@ -91,17 +91,18 @@ def test_b3_helper_via_public_api(mock_renderer: DepthStyleRenderer) -> None:
 
 
 def test_three_options_produce_identical_prompt() -> None:
-    """B-1/B-2/B-3 모두 SD pipe에 *완전히 같은 prompt*를 전달함을 직접 비교."""
-    # B-1 — renderer 내부에서 합성하는 경우 (실제 합성 함수만 인용)
+    """B-1/B-2/B-3 紐⑤몢 SD pipe??*?꾩쟾??媛숈? prompt*瑜??꾨떖?⑥쓣 吏곸젒 鍮꾧탳."""
+    # B-1 ??renderer ?대??먯꽌 ?⑹꽦?섎뒗 寃쎌슦 (?ㅼ젣 ?⑹꽦 ?⑥닔留??몄슜)
     b1_prompt = build_view_prompt(BASE_PROMPT, TARGET_VIEW)
 
-    # B-2 — 호출자가 replace로 합성
+    # B-2 ???몄텧?먭? replace濡??⑹꽦
     b2_params = replace(DepthStyleParams(prompt=BASE_PROMPT),
                         prompt=build_view_prompt(BASE_PROMPT, TARGET_VIEW))
     b2_prompt = b2_params.prompt
 
-    # B-3 — 공개 API로 합성
+    # B-3 ??怨듦컻 API濡??⑹꽦
     from ai_rendering.ifc2img import build_view_prompt as public
     b3_prompt = public(BASE_PROMPT, TARGET_VIEW)
 
     assert b1_prompt == b2_prompt == b3_prompt
+
