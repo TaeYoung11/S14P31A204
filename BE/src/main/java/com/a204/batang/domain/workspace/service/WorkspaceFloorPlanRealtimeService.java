@@ -3,6 +3,7 @@ package com.a204.batang.domain.workspace.service;
 import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
+import com.a204.batang.domain.workspace.dto.FloorPlanRedoRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanUndoRequest;
 import com.a204.batang.domain.workspace.dto.PublishFloorPlanUpdatedRequest;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
@@ -19,12 +20,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * 2D/3D 실시간 편집 STOMP 동기화를 처리한다.
+ * 2D/3D 도면 실시간 편집 이벤트를 처리한다.
  */
 @Slf4j
 @Service
@@ -35,6 +37,7 @@ public class WorkspaceFloorPlanRealtimeService {
     private static final String ACTION_FLOOR_PLAN_PROCESSING = "FLOOR_PLAN_PROCESSING";
     private static final String ACTION_FLOOR_PLAN_UPDATED = "FLOOR_PLAN_UPDATED";
     private static final String ACTION_FLOOR_PLAN_UNDO = "FLOOR_PLAN_UNDO";
+    private static final String ACTION_FLOOR_PLAN_REDO = "FLOOR_PLAN_REDO";
 
     private final ProjectWorkspaceRepository projectWorkspaceRepository;
     private final ProjectAccessService projectAccessService;
@@ -44,19 +47,16 @@ public class WorkspaceFloorPlanRealtimeService {
     private final ObjectMapper objectMapper;
 
     /**
-     * 2D/3D 실시간 편집 draft 수신 시 처리 중 상태를 브로드캐스트한다.
-     * 파이썬 렌더 완료 후 최종 업데이트 이벤트는 webhook 진입점에서 별도 발행한다.
+     * 2D/3D 도면 draft를 받아 브로드캐스트하고 Python 렌더링을 비동기 요청한다.
      *
      * @param projectId 프로젝트 ID
-     * @param currentUserId 현재 사용자 ID
-     * @param request 실시간 편집 요청 payload
+     * @param currentUserId 요청 사용자 ID
+     * @param request 도면 업데이트 요청
      */
     public void relayFloorPlanDraft(UUID projectId, UUID currentUserId, FloorPlanRealtimeUpdateRequest request) {
         validateRealtimePayloadOrThrow(request);
 
-        ProjectWorkspace workspace = projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)
-                .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
-
+        ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
         projectAccessService.validateProjectPinWriterOrThrow(projectId, currentUserId);
 
         String resolvedRevisionId = resolveRevisionId(request.revisionId(), workspace.getCurrentRevision());
@@ -64,85 +64,31 @@ public class WorkspaceFloorPlanRealtimeService {
 
         requestPythonRenderAsync(projectId, resolvedRevisionId, syncPayload);
 
-        FloorPlanProjectSyncResponse response = new FloorPlanProjectSyncResponse(
-                ACTION_FLOOR_PLAN_PROCESSING,
+        broadcastFloorPlanSync(
                 projectId,
-                workspace.getPhaseStatus(),
+                workspace,
+                ACTION_FLOOR_PLAN_PROCESSING,
                 resolvedRevisionId,
                 syncPayload,
-                null,
-                LocalDateTime.now()
-        );
-
-        simpMessagingTemplate.convertAndSend(
-                PROJECT_FLOOR_PLAN_SYNC_TOPIC_TEMPLATE.formatted(projectId),
-                response
+                null
         );
 
         log.info("Floor-plan processing event relayed. projectId={}, revisionId={}", projectId, resolvedRevisionId);
     }
 
     /**
-     * 2D/3D undo 요청을 처리한다.
-     * Redis 히스토리에서 이전 스냅샷을 조회해 브로드캐스트한다.
+     * Python 렌더링 완료 이벤트를 받아 floor-plan 히스토리에 저장하고 브로드캐스트한다.
      *
      * @param projectId 프로젝트 ID
-     * @param currentUserId 현재 사용자 ID
-     * @param request undo 요청 payload
-     */
-    public void undoFloorPlanDraft(UUID projectId, UUID currentUserId, FloorPlanUndoRequest request) {
-        ProjectWorkspace workspace = projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)
-                .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
-
-        projectAccessService.validateProjectPinWriterOrThrow(projectId, currentUserId);
-
-        JsonNode undoSnapshot = loadUndoFloorPlanSnapshotOrThrow(projectId, request.baseIndex());
-        JsonNode floorPlanPayloadJson = extractFloorPlanPayloadFromHistoryOrThrow(undoSnapshot);
-        String s3Url = extractFloorPlanS3UrlFromHistoryOrThrow(undoSnapshot);
-        String revisionId = resolveRevisionId(
-                floorPlanPayloadJson.path("revisionId").asText(null),
-                request.revisionId()
-        );
-
-        FloorPlanProjectSyncResponse response = new FloorPlanProjectSyncResponse(
-                ACTION_FLOOR_PLAN_UNDO,
-                projectId,
-                workspace.getPhaseStatus(),
-                revisionId,
-                floorPlanPayloadJson,
-                s3Url,
-                LocalDateTime.now()
-        );
-
-        simpMessagingTemplate.convertAndSend(
-                PROJECT_FLOOR_PLAN_SYNC_TOPIC_TEMPLATE.formatted(projectId),
-                response
-        );
-
-        log.info(
-                "Floor-plan undo event relayed. projectId={}, sceneType={}, baseIndex={}, revisionId={}",
-                projectId,
-                request.sceneType(),
-                request.baseIndex(),
-                revisionId
-        );
-    }
-
-    /**
-     * 파이썬 렌더 완료 콜백 수신 시 업데이트 완료 이벤트를 브로드캐스트한다.
-     *
-     * @param projectId 프로젝트 ID
-     * @param request 파이썬 완료 콜백 payload
+     * @param request Python 완료 이벤트 payload
      */
     public void publishFloorPlanUpdated(UUID projectId, PublishFloorPlanUpdatedRequest request) {
-        ProjectWorkspace workspace = projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)
-                .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
+        ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
 
         int baseIndex = extractBaseIndexOrThrow(request.floorPlanPayloadJson());
         String parentRevisionSource = resolveRevisionId(request.revisionId(), workspace.getCurrentRevision());
         UUID parentRevisionId = parseRevisionIdOrNull(parentRevisionSource);
         UUID nextRevisionId = UUID.randomUUID();
-        LocalDateTime now = LocalDateTime.now();
 
         String normalizedS3Url = request.s3Url().trim();
 
@@ -154,19 +100,13 @@ public class WorkspaceFloorPlanRealtimeService {
         JsonNode floorPlanHistorySnapshot = buildFloorPlanHistorySnapshot(payloadWithRevision, normalizedS3Url);
         saveFloorPlanSnapshotToRedisOrThrow(projectId, floorPlanHistorySnapshot, baseIndex);
 
-        FloorPlanProjectSyncResponse response = new FloorPlanProjectSyncResponse(
-                ACTION_FLOOR_PLAN_UPDATED,
+        broadcastFloorPlanSync(
                 projectId,
-                workspace.getPhaseStatus(),
+                workspace,
+                ACTION_FLOOR_PLAN_UPDATED,
                 nextRevisionId.toString(),
                 payloadWithRevision,
-                normalizedS3Url,
-                now
-        );
-
-        simpMessagingTemplate.convertAndSend(
-                PROJECT_FLOOR_PLAN_SYNC_TOPIC_TEMPLATE.formatted(projectId),
-                response
+                normalizedS3Url
         );
 
         log.info(
@@ -177,11 +117,179 @@ public class WorkspaceFloorPlanRealtimeService {
         );
     }
 
+    /**
+     * 2D/3D 도면 Undo를 수행한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param currentUserId 요청 사용자 ID
+     * @param request Undo 요청
+     */
+    @Transactional(readOnly = true)
+    public void undoFloorPlanDraft(UUID projectId, UUID currentUserId, FloorPlanUndoRequest request) {
+        ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
+        projectAccessService.validateProjectPinWriterOrThrow(projectId, currentUserId);
+
+        JsonNode historySnapshot = loadUndoFloorPlanSnapshotOrThrow(projectId, request.baseIndex());
+        FloorPlanHistorySnapshot restoredSnapshot = extractFloorPlanHistorySnapshotOrThrow(historySnapshot);
+
+        broadcastFloorPlanSync(
+                projectId,
+                workspace,
+                ACTION_FLOOR_PLAN_UNDO,
+                restoredSnapshot.revisionId(),
+                restoredSnapshot.floorPlanPayloadJson(),
+                restoredSnapshot.s3Url()
+        );
+
+        log.info("Floor-plan undo relayed. projectId={}, currentIndex={}", projectId, request.baseIndex());
+    }
+
+    /**
+     * 2D/3D 도면 Redo를 수행한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param currentUserId 요청 사용자 ID
+     * @param request Redo 요청
+     */
+    @Transactional(readOnly = true)
+    public void redoFloorPlanDraft(UUID projectId, UUID currentUserId, FloorPlanRedoRequest request) {
+        ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
+        projectAccessService.validateProjectPinWriterOrThrow(projectId, currentUserId);
+
+        JsonNode historySnapshot = loadRedoFloorPlanSnapshotOrThrow(projectId, request.baseIndex());
+        FloorPlanHistorySnapshot restoredSnapshot = extractFloorPlanHistorySnapshotOrThrow(historySnapshot);
+
+        broadcastFloorPlanSync(
+                projectId,
+                workspace,
+                ACTION_FLOOR_PLAN_REDO,
+                restoredSnapshot.revisionId(),
+                restoredSnapshot.floorPlanPayloadJson(),
+                restoredSnapshot.s3Url()
+        );
+
+        log.info("Floor-plan redo relayed. projectId={}, currentIndex={}", projectId, request.baseIndex());
+    }
+
+    private JsonNode loadUndoFloorPlanSnapshotOrThrow(UUID projectId, int currentIndex) {
+        int historySize = getFloorPlanSnapshotHistorySizeOrThrow(projectId);
+        validateFloorPlanUndoCursorOrThrow(currentIndex, historySize);
+
+        int targetIndex = currentIndex - 1;
+        return findFloorPlanSnapshotByIndexOrThrow(projectId, targetIndex);
+    }
+
+    private JsonNode loadRedoFloorPlanSnapshotOrThrow(UUID projectId, int currentIndex) {
+        int historySize = getFloorPlanSnapshotHistorySizeOrThrow(projectId);
+        validateFloorPlanRedoCursorOrThrow(currentIndex, historySize);
+
+        int targetIndex = currentIndex + 1;
+        return findFloorPlanSnapshotByIndexOrThrow(projectId, targetIndex);
+    }
+
+    private void validateFloorPlanUndoCursorOrThrow(int currentIndex, int historySize) {
+        if (historySize <= 0 || currentIndex <= 0 || currentIndex >= historySize) {
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
+                    "Undo할 수 있는 이전 floor-plan 스냅샷이 없습니다."
+            );
+        }
+    }
+
+    private void validateFloorPlanRedoCursorOrThrow(int currentIndex, int historySize) {
+        if (historySize <= 0 || currentIndex < -1 || currentIndex >= historySize) {
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
+                    "Redo 기준 인덱스가 현재 floor-plan 히스토리와 일치하지 않습니다."
+            );
+        }
+
+        if (currentIndex + 1 >= historySize) {
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
+                    "Redo할 수 있는 다음 floor-plan 스냅샷이 없습니다."
+            );
+        }
+    }
+
+    private int getFloorPlanSnapshotHistorySizeOrThrow(UUID projectId) {
+        try {
+            return workspaceBubbleSnapshotRedisRepository.getFloorPlanSnapshotHistorySize(projectId);
+        } catch (DataAccessException exception) {
+            log.error("Failed to fetch floor-plan snapshot history size from redis. projectId={}", projectId, exception);
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_FLOOR_PLAN_CACHE_READ_FAILED,
+                    "Floor-plan 히스토리 조회 중 Redis 오류가 발생했습니다."
+            );
+        }
+    }
+
+    private JsonNode findFloorPlanSnapshotByIndexOrThrow(UUID projectId, int targetIndex) {
+        try {
+            JsonNode snapshot = workspaceBubbleSnapshotRedisRepository.findFloorPlanSnapshotByIndex(projectId, targetIndex);
+            if (snapshot == null) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
+                        "요청한 Undo/Redo floor-plan 스냅샷을 찾을 수 없습니다."
+                );
+            }
+            return snapshot;
+        } catch (JsonProcessingException exception) {
+            log.error(
+                    "Failed to deserialize floor-plan snapshot from redis. projectId={}, index={}",
+                    projectId,
+                    targetIndex,
+                    exception
+            );
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_FLOOR_PLAN_CACHE_READ_FAILED,
+                    "Floor-plan 히스토리 스냅샷 역직렬화에 실패했습니다."
+            );
+        } catch (DataAccessException exception) {
+            log.error("Failed to read floor-plan snapshot from redis. projectId={}, index={}", projectId, targetIndex, exception);
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_FLOOR_PLAN_CACHE_READ_FAILED,
+                    "Floor-plan 히스토리 조회 중 Redis 오류가 발생했습니다."
+            );
+        }
+    }
+
+    private FloorPlanHistorySnapshot extractFloorPlanHistorySnapshotOrThrow(JsonNode historySnapshot) {
+        if (historySnapshot == null || historySnapshot.isNull() || !historySnapshot.isObject()) {
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
+                    "Floor-plan 히스토리 스냅샷 형식이 올바르지 않습니다."
+            );
+        }
+
+        JsonNode floorPlanPayloadJson = historySnapshot.get("floorPlanPayloadJson");
+        if (floorPlanPayloadJson == null || floorPlanPayloadJson.isNull() || !floorPlanPayloadJson.isObject()) {
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
+                    "Floor-plan 히스토리 스냅샷에 floorPlanPayloadJson이 없습니다."
+            );
+        }
+
+        JsonNode revisionIdNode = floorPlanPayloadJson.get("revisionId");
+        String revisionId = null;
+        if (revisionIdNode != null && !revisionIdNode.isNull()) {
+            revisionId = revisionIdNode.asText();
+        }
+
+        JsonNode s3UrlNode = historySnapshot.get("s3Url");
+        String s3Url = null;
+        if (s3UrlNode != null && !s3UrlNode.isNull()) {
+            s3Url = s3UrlNode.asText();
+        }
+
+        return new FloorPlanHistorySnapshot(revisionId, floorPlanPayloadJson, s3Url);
+    }
+
     private void requestPythonRenderAsync(UUID projectId, String revisionId, JsonNode syncPayload) {
-        // TODO: 파이썬 서비스 비동기 요청 연동
-        // 1) projectId, revisionId, syncPayload를 파이썬 서비스에 비동기로 전달
+        // TODO: Python 렌더링 시스템 연동 요청
+        // 1) projectId, revisionId, syncPayload를 Python worker로 전달
         // 2) 처리 완료 시 /api/v1/projects/{projectId}/workspace/floor-plan/webhook 으로 콜백
-        // 3) 실패/재시도/타임아웃 정책은 비동기 계층(큐 또는 오케스트레이터)에서 관리
+        // 3) 성공/실패 여부와 결과 URL을 포함해 후속 이벤트 처리
     }
 
     private void validateRealtimePayloadOrThrow(FloorPlanRealtimeUpdateRequest request) {
@@ -275,85 +383,6 @@ public class WorkspaceFloorPlanRealtimeService {
         return snapshot;
     }
 
-    /**
-     * undo 기준 인덱스를 검증하고, 이전 2D/3D 스냅샷을 조회한다.
-     *
-     * @param projectId 프로젝트 ID
-     * @param currentIndex 클라이언트 현재 인덱스
-     * @return undo 대상 스냅샷
-     */
-    private JsonNode loadUndoFloorPlanSnapshotOrThrow(UUID projectId, int currentIndex) {
-        try {
-            int historySize = workspaceBubbleSnapshotRedisRepository.getFloorPlanSnapshotHistorySize(projectId);
-            if (historySize == 0) {
-                throw new CustomException(
-                        ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
-                        "Undo할 Floor-plan 히스토리가 없습니다."
-                );
-            }
-            if (currentIndex != historySize - 1) {
-                throw new CustomException(
-                        ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
-                        "Undo 기준 인덱스가 서버 히스토리와 일치하지 않습니다."
-                );
-            }
-            if (currentIndex == 0) {
-                throw new CustomException(
-                        ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
-                        "더 이상 Undo할 이전 Floor-plan 스냅샷이 없습니다."
-                );
-            }
-
-            return workspaceBubbleSnapshotRedisRepository.findFloorPlanSnapshotByIndex(projectId, currentIndex - 1)
-                    .orElseThrow(() -> new CustomException(
-                            ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
-                            "Undo 대상 Floor-plan 스냅샷을 찾을 수 없습니다."
-                    ));
-        } catch (JsonProcessingException exception) {
-            log.error("Failed to deserialize floor-plan snapshot from redis. projectId={}", projectId, exception);
-            throw new CustomException(
-                    ErrorCode.WORKSPACE_FLOOR_PLAN_CACHE_SAVE_FAILED,
-                    "Floor-plan 스냅샷 역직렬화에 실패했습니다."
-            );
-        } catch (DataAccessException exception) {
-            log.error("Failed to load floor-plan snapshot from redis. projectId={}", projectId, exception);
-            throw new CustomException(
-                    ErrorCode.WORKSPACE_FLOOR_PLAN_CACHE_SAVE_FAILED,
-                    "Redis 조회 중 오류가 발생했습니다."
-            );
-        }
-    }
-
-    private JsonNode extractFloorPlanPayloadFromHistoryOrThrow(JsonNode floorPlanHistorySnapshot) {
-        JsonNode payload = floorPlanHistorySnapshot.path("floorPlanPayloadJson");
-        if (payload.isMissingNode() || payload.isNull() || !payload.isObject()) {
-            throw new CustomException(
-                    ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
-                    "Undo 대상 Floor-plan payload가 유효하지 않습니다."
-            );
-        }
-        return payload;
-    }
-
-    private String extractFloorPlanS3UrlFromHistoryOrThrow(JsonNode floorPlanHistorySnapshot) {
-        JsonNode s3UrlNode = floorPlanHistorySnapshot.get("s3Url");
-        if (s3UrlNode == null || s3UrlNode.isNull()) {
-            throw new CustomException(
-                    ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
-                    "Undo 대상 Floor-plan S3 URL이 없습니다."
-            );
-        }
-
-        String s3Url = s3UrlNode.asText().trim();
-        if (s3Url.isBlank()) {
-            throw new CustomException(
-                    ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
-                    "Undo 대상 Floor-plan S3 URL이 비어 있습니다."
-            );
-        }
-        return s3Url;
-    }
-
     private void saveFloorPlanSnapshotToRedisOrThrow(UUID projectId, JsonNode snapshot, int baseIndex) {
         try {
             workspaceBubbleSnapshotRedisRepository.saveFloorPlanSnapshot(projectId, snapshot, baseIndex);
@@ -375,5 +404,40 @@ public class WorkspaceFloorPlanRealtimeService {
                     "Redis 저장 중 오류가 발생했습니다."
             );
         }
+    }
+
+    private ProjectWorkspace resolveWorkspaceOrThrow(UUID projectId) {
+        return projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)
+                .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
+    }
+
+    private void broadcastFloorPlanSync(
+            UUID projectId,
+            ProjectWorkspace workspace,
+            String action,
+            String revisionId,
+            JsonNode floorPlanPayloadJson,
+            String s3Url
+    ) {
+        FloorPlanProjectSyncResponse response = new FloorPlanProjectSyncResponse(
+                action,
+                projectId,
+                workspace.getPhaseStatus(),
+                revisionId,
+                floorPlanPayloadJson,
+                s3Url,
+                LocalDateTime.now()
+        );
+
+        simpMessagingTemplate.convertAndSend(
+                PROJECT_FLOOR_PLAN_SYNC_TOPIC_TEMPLATE.formatted(projectId),
+                response
+        );
+    }
+
+    /**
+     * Redis에서 복원한 floor-plan 히스토리 스냅샷 뷰 모델.
+     */
+    private record FloorPlanHistorySnapshot(String revisionId, JsonNode floorPlanPayloadJson, String s3Url) {
     }
 }
