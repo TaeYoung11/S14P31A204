@@ -26,6 +26,7 @@ from ai_authoring.engine_3d import (
 )
 # operations/__init__ 경유 → create_element @register 실행
 from ai_authoring.operations.registry import get as get_op_handler
+from ai_authoring.post_validator import PostEditValidator
 from ai_common.adapters.storage.s3_client import S3Client, parse_s3_url
 from ai_common.errors import NonRetryableWorkerError, RetryableWorkerError, ValidationWorkerError
 from ai_common.logging import get_logger
@@ -86,6 +87,8 @@ class AuthoringWorker(BaseWorker):
                     message=f"적용된 오퍼레이션이 없습니다. ops={failed_ids}",
                 )
 
+            validation_report = PostEditValidator(model).validate(op_results, engine_req)
+
             out = tmp / "result.ifc"
             model.write(str(out))
             result_bytes = out.read_bytes()
@@ -93,7 +96,8 @@ class AuthoringWorker(BaseWorker):
 
             ifc_url = self._upload_ifc(result_bytes, command, ctx)
             manifest_url = self._upload_manifest(
-                ifc_url, result_bytes, sha256, op_results, ctx
+                ifc_url, result_bytes, sha256, op_results, ctx,
+                validation_report=validation_report.to_dict(),
             )
 
         _logger.info(
@@ -218,7 +222,11 @@ class AuthoringWorker(BaseWorker):
             ])
 
         return _op_result(op_id, op_type, "applied", 1, [
-            {"global_id": entity.GlobalId, "element_type": entity.is_a()},
+            {
+                "global_id": entity.GlobalId,
+                "element_type": entity.is_a(),
+                "name": entity.Name,
+            },
         ])
 
     # ── DELETE ──────────────────────────────────────────────────────────────
@@ -232,8 +240,13 @@ class AuthoringWorker(BaseWorker):
     ) -> dict[str, Any]:
         applied, issues = [], []
         for el in elements:
+            matched = {
+                "global_id": el.GlobalId,
+                "element_type": el.is_a(),
+                "name": el.Name,
+            }
             if delete_element(model, el):
-                applied.append({"global_id": el.GlobalId, "element_type": el.is_a()})
+                applied.append(matched)
             else:
                 issues.append(_issue("DELETE_FAILED", "warning", f"삭제 실패: {el.GlobalId}"))
         status = "applied" if applied else "rejected"
@@ -254,7 +267,13 @@ class AuthoringWorker(BaseWorker):
         for el in elements:
             changed = self._modify_one(model, el, op_type, params, selector)
             if changed:
-                applied.append({"global_id": el.GlobalId, "element_type": el.is_a()})
+                applied.append(
+                    {
+                        "global_id": el.GlobalId,
+                        "element_type": el.is_a(),
+                        "name": el.Name,
+                    }
+                )
             else:
                 issues.append(_issue("NO_CHANGE", "info", f"변경 사항 없음: {el.GlobalId}"))
         status = "applied" if applied else "skipped"
@@ -349,6 +368,7 @@ class AuthoringWorker(BaseWorker):
         sha256: str,
         op_results: list[dict[str, Any]],
         ctx: WorkerContext,
+        validation_report: dict[str, Any] | None = None,
     ) -> str:
         revision_id = ctx.target_revision_id or ctx.expected_output_artifact_id
         # ifc_url 에서 bucket 추출하여 manifest 경로 일관성 유지
@@ -387,6 +407,8 @@ class AuthoringWorker(BaseWorker):
                 }
             ],
         }
+        if validation_report is not None:
+            manifest["validation_report"] = validation_report
         key = f"projects/{ctx.project_id}/revisions/{revision_id}/manifest.v1.json"
         return self._s3.write_text(
             key,
