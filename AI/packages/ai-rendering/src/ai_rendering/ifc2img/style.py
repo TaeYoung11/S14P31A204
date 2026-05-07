@@ -49,10 +49,6 @@ FRONT_SIDE_MASK_SIDE_EXPAND_RATIO = 0.025
 FRONT_SIDE_MASK_CONTROL_RGB = (96, 96, 96)
 FRONT_SIDE_MASK_BLEND_STRENGTH = 0.18
 FRONT_SIDE_SEMANTIC_CONTROL_SCALE = 0.35
-FRONT_SIDE_INPAINT_TOP_PADDING_RATIO = 0.01
-FRONT_SIDE_INPAINT_SIDE_EXPAND_RATIO = 0.04
-FRONT_FULL_WIDTH_GROUND_CONTROL_RGB = (112, 112, 112)
-FRONT_FULL_WIDTH_GROUND_BLEND_STRENGTH = 0.24
 FRONT_FULL_WIDTH_GROUND_TOP_PADDING_RATIO = 0.02
 FRONT_FULL_WIDTH_GROUND_EXPAND_RATIO = 1.03
 EYE_GROUND_TOP_PADDING_RATIO = 0.02
@@ -102,7 +98,6 @@ class DepthStyleRenderOptions:
     use_eye_ground_semantic_control: bool = False
     use_eye_ground_plane_aware_semantic_control: bool = False
     use_eye_ground_plane_control_attenuation: bool = False
-    use_front_full_width_ground_control: bool = False
     use_weighted_front_side_negative: bool = False
     front_side_ground_class: FrontSideGroundClass = "grass"
     front_side_semantic_control_scale: float = FRONT_SIDE_SEMANTIC_CONTROL_SCALE
@@ -132,9 +127,6 @@ class DepthStyleRenderOptions:
             ),
             "use_eye_ground_plane_control_attenuation": (
                 self.use_eye_ground_plane_control_attenuation
-            ),
-            "use_front_full_width_ground_control": (
-                self.use_front_full_width_ground_control
             ),
             "use_weighted_front_side_negative": self.use_weighted_front_side_negative,
             "front_side_ground_class": self.front_side_ground_class,
@@ -426,32 +418,6 @@ def _compute_front_full_width_ground_top(geom_mask: np.ndarray) -> int:
     return int(np.clip(min(expansion_y, fallback_ground_top), 0, height - 1))
 
 
-def _apply_front_full_width_ground_control(
-    control: Image.Image,
-    strength: float = FRONT_FULL_WIDTH_GROUND_BLEND_STRENGTH,
-) -> Image.Image:
-    """Weakly add a front-only full-width ground cue to depth control."""
-    control_rgb = control.convert("RGB")
-    if strength <= 0:
-        return control_rgb
-
-    mask = _build_front_full_width_ground_mask(control_rgb)
-    mask_arr = np.asarray(mask, dtype=np.uint8) > 0
-    if not np.any(mask_arr):
-        return control_rgb
-
-    strength = float(np.clip(strength, 0.0, 1.0))
-    arr = np.asarray(control_rgb, dtype=np.float32).copy()
-    height, _width = mask_arr.shape
-    y = np.linspace(0.0, 1.0, height, dtype=np.float32)[:, None]
-    target = np.array(FRONT_FULL_WIDTH_GROUND_CONTROL_RGB, dtype=np.float32)
-    target_map = target + (y * 18.0)
-    target_map = np.repeat(target_map[:, None, :], arr.shape[1], axis=1)
-
-    arr[mask_arr] = arr[mask_arr] * (1.0 - strength) + target_map[mask_arr] * strength
-    return Image.fromarray(np.clip(np.rint(arr), 0, 255).astype(np.uint8), mode="RGB")
-
-
 def _build_front_full_width_seg_control(
     control: Image.Image,
     ground_class: FrontSideGroundClass = "neutral",
@@ -688,39 +654,6 @@ def _build_front_side_seg_control(
     return Image.fromarray(seg, mode="RGB")
 
 
-def _build_front_side_inpaint_mask(control: Image.Image) -> Image.Image:
-    """Create a lower-facade inpaint mask for front/side two-pass experiments.
-
-    White pixels are intended to be repainted. The mask starts around the
-    localized ground-contact band and extends downward only around the building
-    footprint, so upper facade details stay protected.
-    """
-    semantic_mask = _build_front_side_semantic_mask(control)
-    mask_arr = np.asarray(semantic_mask, dtype=np.uint8)
-    building_mask = np.all(mask_arr == SEMANTIC_BUILDING_RGB, axis=2)
-    ground_mask = np.all(mask_arr == SEMANTIC_GROUND_RGB, axis=2)
-    height, width = building_mask.shape
-
-    out = np.zeros((height, width), dtype=np.uint8)
-    if not np.any(building_mask) or not np.any(ground_mask):
-        return Image.fromarray(out, mode="L")
-
-    _, building_xs = np.nonzero(building_mask)
-    ground_ys, ground_xs = np.nonzero(ground_mask)
-    left = int(min(building_xs.min(), ground_xs.min()))
-    right = int(max(building_xs.max(), ground_xs.max()))
-    bbox_width = max(1, right - left + 1)
-    expand_px = max(1, int(round(bbox_width * FRONT_SIDE_INPAINT_SIDE_EXPAND_RATIO)))
-    top_padding = max(1, int(round(height * FRONT_SIDE_INPAINT_TOP_PADDING_RATIO)))
-
-    x_start = max(0, left - expand_px)
-    x_end = min(width - 1, right + expand_px)
-    y_start = max(0, int(ground_ys.min()) - top_padding)
-
-    out[y_start:, x_start : x_end + 1] = 255
-    return Image.fromarray(out, mode="L")
-
-
 class DepthStyleRenderer:
     """SD 1.5 + ControlNet-depth txt2img renderer."""
 
@@ -832,7 +765,6 @@ class DepthStyleRenderer:
         use_eye_ground_semantic_control: bool = False,
         use_eye_ground_plane_aware_semantic_control: bool = False,
         use_eye_ground_plane_control_attenuation: bool = False,
-        use_front_full_width_ground_control: bool = False,
         use_weighted_front_side_negative: bool = False,
         front_side_ground_class: FrontSideGroundClass = "grass",
         front_side_semantic_control_scale: float = FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
@@ -851,8 +783,6 @@ class DepthStyleRenderer:
                 control,
                 strength=eye_ground_plane_control_attenuation_strength,
             )
-        if use_front_full_width_ground_control and view is IFCView.FRONT:
-            control = _apply_front_full_width_ground_control(control)
         if use_front_side_semantic_mask and view in {IFCView.FRONT, IFCView.SIDE}:
             control = _apply_front_side_semantic_mask_to_control(control)
         control_image: Image.Image | list[Image.Image] = control
