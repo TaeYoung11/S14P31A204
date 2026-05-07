@@ -307,6 +307,15 @@ def test_depth_style_render_options_as_kwargs_matches_render_options() -> None:
 # --- B-1 ??DepthStyleRenderer.render(view=...) ?몄옄 ---
 
 
+def test_depth_style_render_options_rejects_front_semantic_conflict() -> None:
+    """Front full-width and front/side semantic controls must not overwrite each other."""
+    with pytest.raises(IFCRenderError, match="mutually exclusive"):
+        DepthStyleRenderOptions(
+            use_front_full_width_semantic_control=True,
+            use_front_side_semantic_control=True,
+        )
+
+
 def test_render_with_view_appends_suffix_to_prompt(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
@@ -776,6 +785,26 @@ def test_render_front_full_width_semantic_control_passes_two_control_images(
         1.15,
         0.25,
     ]
+
+
+def test_render_rejects_front_semantic_control_conflict(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Direct render kwargs should fail instead of overwriting FRONT control images."""
+    mock_depth_renderer.semantic_controlnet_model_id = "mock-semantic-cn"
+    depth = Image.new("L", (768, 448), 100)
+    params = DepthStyleParams(prompt="x", controlnet_conditioning_scale=1.15)
+
+    with pytest.raises(IFCRenderError, match="cannot be enabled together"):
+        mock_depth_renderer.render(
+            depth,
+            params,
+            view=IFCView.FRONT,
+            use_front_full_width_semantic_control=True,
+            use_front_side_semantic_control=True,
+        )
+
+    mock_depth_renderer.pipe.assert_not_called()
 
 
 def test_render_eye_ground_semantic_control_requires_semantic_model(

@@ -98,6 +98,16 @@ class DepthStyleRenderOptions:
         EYE_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH
     )
 
+    def __post_init__(self) -> None:
+        if (
+            self.use_front_full_width_semantic_control
+            and self.use_front_side_semantic_control
+        ):
+            raise IFCRenderError(
+                "front full-width semantic control and front/side semantic "
+                "control are mutually exclusive"
+            )
+
     @property
     def requires_semantic_controlnet(self) -> bool:
         return (
@@ -193,6 +203,23 @@ def resolve_preset_background_params(preset_name: str) -> DepthStyleParams:
         controlnet_conditioning_scale=0.65,
         seed=7,
     )
+
+
+def _validate_semantic_control_flags(
+    *,
+    view: IFCView | None,
+    use_front_side_semantic_control: bool,
+    use_front_full_width_semantic_control: bool,
+) -> None:
+    if (
+        view is IFCView.FRONT
+        and use_front_full_width_semantic_control
+        and use_front_side_semantic_control
+    ):
+        raise IFCRenderError(
+            "front full-width semantic control and front/side semantic control "
+            "cannot be enabled together for FRONT view"
+        )
 
 
 @dataclass
@@ -739,6 +766,13 @@ class DepthStyleRenderer:
             EYE_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH
         ),
     ) -> DepthStyleResult:
+        _validate_semantic_control_flags(
+            view=view,
+            use_front_side_semantic_control=use_front_side_semantic_control,
+            use_front_full_width_semantic_control=(
+                use_front_full_width_semantic_control
+            ),
+        )
         depth_size = depth_image.size
         control = _depth_to_control(depth_image)
         if use_eye_ground_plane_control_attenuation and view in {
