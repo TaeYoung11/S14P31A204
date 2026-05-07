@@ -87,7 +87,7 @@ class ProjectChatLogQueryServiceTest {
         given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(currentUserId);
         doThrow(new CustomException(ErrorCode.FORBIDDEN_ACCESS))
                 .when(projectAccessService)
-                .validateProjectPinWriterOrThrow(project, currentUserId);
+                .validateProjectMemberOrThrow(project, currentUserId);
 
         assertThatThrownBy(() -> projectChatLogQueryService.getProjectChatLogs(projectId, 0, 50))
                 .isInstanceOf(CustomException.class)
@@ -157,6 +157,8 @@ class ProjectChatLogQueryServiceTest {
         assertThat(second.senderUserId()).isNull();
         assertThat(second.senderName()).isNull();
         assertThat(second.timestamp()).isEqualTo("2026-05-07T02:03:00Z");
+        verify(projectAccessService).resolveCurrentUserIdOrThrow();
+        verify(projectAccessService).validateProjectMemberOrThrow(project, currentUserId);
     }
 
     @Test
