@@ -178,6 +178,39 @@ def _filled_element_for_opening(
     return matches[0]
 
 
+def _assert_opening_graph_is_well_formed(model: ifcopenshell.file) -> None:
+    openings = list(model.by_type("IfcOpeningElement"))
+    fills = [
+        entity
+        for entity in [*model.by_type("IfcDoor"), *model.by_type("IfcWindow")]
+    ]
+    void_rels = list(model.by_type("IfcRelVoidsElement"))
+    fill_rels = list(model.by_type("IfcRelFillsElement"))
+
+    assert len(void_rels) == len(openings)
+    assert len(fill_rels) == len(fills)
+
+    for opening in openings:
+        opening_void_rels = [
+            rel for rel in void_rels if rel.RelatedOpeningElement == opening
+        ]
+        opening_fill_rels = [
+            rel for rel in fill_rels if rel.RelatingOpeningElement == opening
+        ]
+        assert len(opening_void_rels) == 1
+        assert len(opening_fill_rels) == 1
+        assert opening_void_rels[0].RelatingBuildingElement.is_a("IfcWall")
+        filled_entity = opening_fill_rels[0].RelatedBuildingElement
+        assert filled_entity.is_a("IfcDoor") or filled_entity.is_a("IfcWindow")
+
+    for filled_entity in fills:
+        entity_fill_rels = [
+            rel for rel in fill_rels if rel.RelatedBuildingElement == filled_entity
+        ]
+        assert len(entity_fill_rels) == 1
+        assert entity_fill_rels[0].RelatingOpeningElement.is_a("IfcOpeningElement")
+
+
 def _shared_walls(model: ifcopenshell.file) -> dict[str, ifcopenshell.entity_instance]:
     return {
         name: entity
@@ -1519,6 +1552,7 @@ def test_convert_layout_to_ifc_generates_v3_explicit_door_and_window_entities(
     assert len(model.by_type("IfcWindow")) == 1
     assert len(model.by_type("IfcRelVoidsElement")) == 2
     assert len(model.by_type("IfcRelFillsElement")) == 2
+    _assert_opening_graph_is_well_formed(model)
 
     shared_wall = _named_entities(model, "IfcWall")["Shared Wall 1-1"]
     boundary_wall = _named_entities(model, "IfcWall")["Boundary Wall 1-2"]
@@ -1615,6 +1649,7 @@ def test_convert_layout_to_ifc_accepts_v3_reversed_shared_wall_ref(tmp_path: Pat
     assert len(model.by_type("IfcDoor")) == 1
     assert len(model.by_type("IfcRelVoidsElement")) == 1
     assert len(model.by_type("IfcRelFillsElement")) == 1
+    _assert_opening_graph_is_well_formed(model)
 
     shared_wall = _named_entities(model, "IfcWall")["Shared Wall 1-1"]
     door_opening = _voided_opening_for_wall(model, shared_wall)
