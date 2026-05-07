@@ -133,7 +133,12 @@ def _build_full_outside_target_mask(
     return target.filter(ImageFilter.GaussianBlur(radius=feather_radius))
 
 
-def _load_style_image(input_dir: Path, view_name: str, preset: str, depth: Image.Image) -> Image.Image:
+def _load_style_image(
+    input_dir: Path,
+    view_name: str,
+    preset: str,
+    depth: Image.Image,
+) -> Image.Image:
     style_path = input_dir / f"style_{view_name}_{preset}.png"
     if style_path.exists():
         return Image.open(style_path).convert("RGB")

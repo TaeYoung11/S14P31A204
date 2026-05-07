@@ -383,7 +383,11 @@ def run(args: argparse.Namespace) -> list[Path]:
             )
             prefill_path = (
                 output_dir
-                / f"eye_auto_background_prefill_source_{view}_{args.preset}_{args.background_mode}_{args.bottom_strip_prefill_mode}_r{int(round(args.bottom_strip_ratio * 100)):03d}.png"
+                / (
+                    f"eye_auto_background_prefill_source_{view}_{args.preset}_"
+                    f"{args.background_mode}_{args.bottom_strip_prefill_mode}_"
+                    f"r{int(round(args.bottom_strip_ratio * 100)):03d}.png"
+                )
             )
             source.save(prefill_path, format="PNG")
             saved.append(prefill_path)
@@ -410,7 +414,10 @@ def run(args: argparse.Namespace) -> list[Path]:
             )
             second_mask_path = (
                 output_dir
-                / f"eye_auto_background_second_pass_bottom_mask_{view}_r{int(round(args.second_pass_bottom_strip_ratio * 100)):03d}.png"
+                / (
+                    f"eye_auto_background_second_pass_bottom_mask_{view}_"
+                    f"r{int(round(args.second_pass_bottom_strip_ratio * 100)):03d}.png"
+                )
             )
             bottom_mask.save(second_mask_path, format="PNG")
             saved.append(second_mask_path)
@@ -432,7 +439,11 @@ def run(args: argparse.Namespace) -> list[Path]:
 
         result_path = (
             output_dir
-            / f"eye_auto_background_inpaint_{view}_{args.preset}_{args.background_mode}_s{int(round(args.strength * 100)):03d}_seed{args.seed + index}.png"
+            / (
+                f"eye_auto_background_inpaint_{view}_{args.preset}_"
+                f"{args.background_mode}_s{int(round(args.strength * 100)):03d}_"
+                f"seed{args.seed + index}.png"
+            )
         )
         output.save(result_path, format="PNG")
         saved.append(result_path)

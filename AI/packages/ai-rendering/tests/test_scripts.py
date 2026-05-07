@@ -464,7 +464,10 @@ def test_ifc_to_styled_render_styles_passes_resolved_options(
     assert {"semantic_controlnet_model_id": m.DEFAULT_CONTROLNET_SEG_ID} in renderer_inits
 
     korean_front = next(
-        c for c in calls if c["view"] is m.IFCView.FRONT and c["use_front_full_width_semantic_control"]
+        c
+        for c in calls
+        if c["view"] is m.IFCView.FRONT
+        and c["use_front_full_width_semantic_control"]
     )
     korean_side = next(
         c for c in calls if c["view"] is m.IFCView.SIDE and c["use_front_side_semantic_control"]

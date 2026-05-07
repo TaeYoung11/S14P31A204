@@ -4,6 +4,8 @@ GPU/?붿뒪?뚮젅??誘명븘?? Visualizer/load_mesh??mock ?쇰줈 寃⑸━.
 schema 媛?쒕뒗 ?ㅼ젣 fixtures 濡?寃利?(ifcopenshell 留??ъ슜 ??媛踰쇱?).
 """
 
+# ruff: noqa: E501
+
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
