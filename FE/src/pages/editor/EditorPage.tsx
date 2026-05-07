@@ -2,8 +2,10 @@ import EditorHeader from '../../features/editor/components/layout/EditorHeader'
 import EditorLeftSidebar from '../../features/editor/components/layout/EditorLeftSidebar'
 import EditorToolbar from '../../features/editor/components/layout/EditorToolbar'
 import { useEditorPage } from '../../features/editor/hooks/useEditorPage'
+import { useEditorProjectSwitcher } from '../../features/editor/hooks/useEditorProjectSwitcher'
 import EditorCanvasContent from './components/EditorCanvasContent'
 import EditorModalLayer from './components/EditorModalLayer'
+import EditorProjectSwitchSidebar from './components/EditorProjectSwitchSidebar'
 import EditorRightPanelSection from './components/EditorRightPanelSection'
 import {
   buildEditorCanvasContentProps,
@@ -16,6 +18,7 @@ import {
 /** 에디터 페이지 조합 컴포넌트: 모달/좌측도구/캔버스/우측패널 배치만 담당 */
 export default function EditorPage() {
   const vm = useEditorPage()
+  const projectSwitcher = useEditorProjectSwitcher()
   const headerProps = buildEditorHeaderProps(vm)
   const canvasContentProps = buildEditorCanvasContentProps(vm)
   const modalLayerProps = buildEditorModalLayerProps(vm)
@@ -28,7 +31,20 @@ export default function EditorPage() {
       <div className="pointer-events-none absolute bottom-[-120px] right-[-80px] h-80 w-80 rounded-full bg-[#5A69DD]/12 blur-3xl" />
       <EditorModalLayer {...modalLayerProps} />
 
-      <EditorHeader {...headerProps} />
+      <EditorProjectSwitchSidebar
+        isOpen={projectSwitcher.isOpen}
+        projects={projectSwitcher.projects}
+        search={projectSwitcher.search}
+        isLoading={projectSwitcher.isLoading}
+        onSearchChange={projectSwitcher.setSearch}
+        onProjectSelect={projectSwitcher.selectProject}
+        onClose={projectSwitcher.close}
+      />
+
+      <EditorHeader
+        {...headerProps}
+        onOpenProjectSwitcher={projectSwitcher.open}
+      />
       <EditorToolbar
         mode={vm.mode}
         projectName={vm.currentProjectName}

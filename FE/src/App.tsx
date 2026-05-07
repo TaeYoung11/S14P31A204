@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { useAuthSessionGuard } from '@/features/auth/hooks/useAuthSessionGuard'
 import FullPageSpinner from '@/shared/components/FullPageSpinner'
 import { ProtectedRoute } from './shared/components/ProtectedRoute'
@@ -24,14 +24,14 @@ function RootRedirect() {
   return <Navigate to={status === 'authenticated' ? '/projects' : '/login'} replace />
 }
 
+function EditorPageRoute() {
+  const { projectId } = useParams<{ projectId: string }>()
+  return <EditorPage key={projectId ?? 'editor'} />
+}
+
 export default function App() {
   return (
-    <BrowserRouter
-      future={{
-        v7_startTransition: true,
-        v7_relativeSplatPath: true,
-      }}
-    >
+    <BrowserRouter>
       <Suspense fallback={<RouteLoadingFallback />}>
         <Routes>
           <Route path="/" element={<RootRedirect />} />
@@ -42,7 +42,7 @@ export default function App() {
           <Route path="/invite/accept" element={<InviteAcceptPage />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/projects" element={<ProjectListPage />} />
-            <Route path="/projects/:projectId/editor" element={<EditorPage />} />
+            <Route path="/projects/:projectId/editor" element={<EditorPageRoute />} />
             <Route path="/projects/:projectId/renders" element={<RendersPage />} />
           </Route>
 
