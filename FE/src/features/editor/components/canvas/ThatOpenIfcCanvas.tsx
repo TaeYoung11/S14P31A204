@@ -1,16 +1,22 @@
-﻿import { useEffect, useRef, useState } from 'react'
+/**
+ * ThatOpenIfcCanvas — IFC 모델 3D 뷰어/편집 캔버스
+ *
+ * @thatopen/components 기반으로 IFC 파일을 로드하고 Three.js 씬을 구성한다.
+ * 주요 기능:
+ *  - IFC 모델 로드 및 초기 재질 스타일 적용
+ *  - 클릭으로 IFC 요소·라이브러리 프리셋 선택 및 TransformControls 연결
+ *  - 선택 요소의 색상·재질·치수 실시간 편집
+ *  - Delete/Backspace 키로 선택 요소 삭제
+ *  - 카메라 회전 잠금 및 줌 스케일 반영
+ */
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Object3D } from 'three'
 import type { IfcElementChange, IfcElementInfo } from '../../types'
+import { patchIfcTextForMaterialDefaults } from '../../services/ifcChange.service'
+import type { ThreeDLibraryPreset } from './threeDLibrary.types'
 import {
-  patchIfcTextForMaterialDefaults,
-} from '../../services/ifcChange.service'
-import type { ThreeDLibraryPreset } from './ThreeDLibraryPanel'
-import {
-  DEFAULT_IFC_COLOR_BY_CATEGORY,
-  PROJECT_WORLD_UNITS_PER_MM,
   applyObjectColor,
   applyObjectMaterial,
-  createElementMaterial,
   getMaterialDefaultColor,
   type ThreeModule,
 } from './thatopen/ifcMaterials'
@@ -28,19 +34,54 @@ import {
   parseBatangDimensionProperties,
   type IfcPsetMetricMaps,
 } from './thatopen/ifcPropertyParser'
+import {
+  type Selected3DTarget,
+  type IfcEditableObject3D,
+  type ThatOpenSceneState,
+  getElementDimensionSignature,
+  getElementColorSignature,
+  getElementMaterialSignature,
+  getRuntimeIfcModelId,
+  fetchIfcText,
+  fitObjectWithPadding,
+  findIfcEditableRoot,
+  disposeObjectMaterials,
+  setObjectOpacity,
+  clearSelectedTarget,
+  positionPresetGroupBesideIfc,
+  inferWorldUnitsPerMm,
+  getObjectSizeMm,
+  toDisplayCoordinates,
+  applyInitialIfcMaterialStyles,
+  applyIfcItemColor,
+  attachIfcTransformProxy,
+} from './thatopen/ifcSceneHelpers'
 
+/** ThatOpenIfcCanvas 컴포넌트 props */
 interface ThatOpenIfcCanvasProps {
+  /** 로드할 IFC 파일 URL (presigned URL 또는 mock 경로) */
   ifcUrl: string
+  /** 현재 프로젝트 ID. 씬 내 모델 ID 생성에 사용된다. */
   projectId?: string | null
+  /** 씬에 배치된 라이브러리 프리셋 목록 */
   libraryElements: ThreeDLibraryPreset[]
+  /** IFC 요소 변경 이력 (색상·재질·삭제 등) */
   ifcElementChanges: IfcElementChange[]
+  /** 증가할 때마다 현재 선택 요소를 삭제하는 트리거 토큰 */
+  deleteRequestToken?: number
+  /** 카메라 회전 잠금 여부 */
   isRotationLocked: boolean
+  /** 현재 줌 스케일 (1.0 = 100%) */
   zoomScale: number
+  /** 현재 선택된 IFC 요소 */
   selectedIfcElement?: IfcElementInfo | null
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
   onLibraryElementChange?: (id: string, patch: Partial<ThreeDLibraryPreset>) => void
   onLibraryElementDelete?: (id: string) => void
+  onThreeDCoordinatesChange?: (coords: { x: number; y: number; z: number }) => void
+  /** TransformControls 모드: 이동(translate) / 회전(rotate) / 크기(scale) */
+  transformMode?: 'translate' | 'rotate' | 'scale'
 }
 
 interface LoadedFragmentModel {
@@ -56,396 +97,12 @@ type IfcRaycastPick = {
   object?: Object3D
   distance?: number
 } | null
-type Selected3DTarget =
-  | {
-      source: 'ifc'
-      modelId: string
-      localId: number
-      hitLocalId: number
-      object?: Object3D
-      selectedSignature?: string
-      selectedColorSignature?: string
-      selectedMaterialSignature?: string
-    }
-  | {
-      source: 'library'
-      object: Object3D
-      selectedSignature?: string
-      selectedColorSignature?: string
-      selectedMaterialSignature?: string
-    }
-  | null
-type IfcEditableObject3D = Object3D & {
-  userData: {
-    ifcEditTarget?: {
-      modelId: string
-      localId: number
-      hitLocalId: number
-      element: IfcElementInfo
-    }
-    [key: string]: unknown
-  }
-}
-type ThatOpenSceneState = {
-  three: ThreeModule
-  scene: import('three').Scene
-  camera: import('three').PerspectiveCamera | import('three').OrthographicCamera
-  renderer: import('three').WebGLRenderer
-  fragments: import('@thatopen/components').FragmentsManager
-  hider: import('@thatopen/components').Hider
-  raycaster: import('@thatopen/components').SimpleRaycaster
-  transformControls: import('three/examples/jsm/controls/TransformControls.js').TransformControls
-  contentGroup: import('three').Group
-  ifcEditGroup: import('three').Group
-  ifcObject: Object3D
-  modelId: string
-  worldUnitsPerMm: number
-  worldCamera?: {
-    fitToItems?: () => Promise<void> | void
-  }
-  cameraControls?: {
-    azimuthRotateSpeed: number
-    polarRotateSpeed: number
-    setLookAt?: (
-      positionX: number,
-      positionY: number,
-      positionZ: number,
-      targetX: number,
-      targetY: number,
-      targetZ: number,
-      enableTransition?: boolean,
-    ) => Promise<void> | void
-  }
-}
-
-const getElementDimensionSignature = (element?: IfcElementInfo | null) => [
-  element?.id ?? '',
-  element?.lengthMm ?? '',
-  element?.heightMm ?? '',
-  element?.thicknessMm ?? '',
-].join(':')
-
-const getElementColorSignature = (element?: IfcElementInfo | null) => [
-  element?.id ?? '',
-  element?.color ?? '',
-].join(':')
-
-const getElementMaterialSignature = (element?: IfcElementInfo | null) => [
-  element?.id ?? '',
-  element?.material ?? '',
-].join(':')
-
-const FALLBACK_IFC_MODEL_ID = 'mock-shinchan-house'
-
-const getRuntimeIfcModelId = (projectId?: string | null) => (
-  projectId ? `project-${projectId}` : FALLBACK_IFC_MODEL_ID
-)
-
-const fetchIfcText = async (ifcUrl: string) => {
-  const response = await fetch(ifcUrl)
-  if (!response.ok) {
-    throw new Error(`IFC file load failed. (${response.status})`)
-  }
-  return response.text()
-}
-
-const setCameraClipping = (
-  camera: import('three').PerspectiveCamera | import('three').OrthographicCamera,
-  maxSize: number,
-) => {
-  const clippingCamera = camera as typeof camera & {
-    near?: number
-    far?: number
-    updateProjectionMatrix?: () => void
-  }
-  clippingCamera.near = 1
-  clippingCamera.far = Math.max(maxSize * 12, 100000)
-  clippingCamera.updateProjectionMatrix?.()
-}
-
-const fitObjectWithPadding = (
-  THREE: ThreeModule,
-  camera: import('three').PerspectiveCamera | import('three').OrthographicCamera,
-  controls: {
-    setLookAt?: (
-      positionX: number,
-      positionY: number,
-      positionZ: number,
-      targetX: number,
-      targetY: number,
-      targetZ: number,
-      enableTransition?: boolean,
-    ) => Promise<void> | void
-  } | undefined,
-  object: Object3D,
-  padding = 1.8,
-) => {
-  const box = new THREE.Box3().setFromObject(object)
-  const size = new THREE.Vector3()
-  const center = new THREE.Vector3()
-  box.getSize(size)
-  box.getCenter(center)
-
-  const maxSize = Math.max(size.x, size.y, size.z, 1)
-  setCameraClipping(camera, maxSize)
-  const distance = maxSize * padding
-  const nextX = center.x + distance
-  const nextY = center.y + distance * 0.7
-  const nextZ = center.z + distance
-
-  if (controls?.setLookAt) {
-    void controls.setLookAt(nextX, nextY, nextZ, center.x, center.y, center.z, true)
-    return
-  }
-
-  const fallbackCamera = camera as typeof camera & {
-    lookAt?: (target: import('three').Vector3) => void
-    updateProjectionMatrix?: () => void
-  }
-  fallbackCamera.position.set(nextX, nextY, nextZ)
-  fallbackCamera.lookAt?.(center)
-  fallbackCamera.updateProjectionMatrix?.()
-}
-
-const findIfcEditableRoot = (object: Object3D, editGroup: import('three').Group): IfcEditableObject3D | null => {
-  let cursor: IfcEditableObject3D | null = object as IfcEditableObject3D
-  while (cursor) {
-    if (cursor.userData?.ifcEditTarget) return cursor
-    if (cursor.parent === editGroup) return cursor
-    cursor = (cursor.parent ?? null) as IfcEditableObject3D | null
-  }
-  return null
-}
-
-const disposeObjectMaterials = (THREE: ThreeModule, object: Object3D) => {
-  object.traverse((child) => {
-    if (!(child instanceof THREE.Mesh)) return
-    child.geometry.dispose()
-    if (Array.isArray(child.material)) {
-      child.material.forEach((material) => material.dispose())
-    } else {
-      child.material.dispose()
-    }
-  })
-}
-
-const setObjectOpacity = (THREE: ThreeModule, object: Object3D | undefined, opacity: number) => {
-  if (!object) return
-  object.traverse((child) => {
-    if (!(child instanceof THREE.Mesh)) return
-    const materials = Array.isArray(child.material) ? child.material : [child.material]
-    materials.forEach((material) => {
-      ;(material as { transparent?: boolean }).transparent = opacity < 1
-      ;(material as { opacity?: number }).opacity = opacity
-      ;(material as { depthWrite?: boolean }).depthWrite = true
-      ;(material as { needsUpdate?: boolean }).needsUpdate = true
-    })
-  })
-}
-
-const clearSelectedTarget = async (
-  sceneState: ThatOpenSceneState,
-  target: Selected3DTarget,
-  removeObject = false,
-) => {
-  if (!target) return
-
-  sceneState.transformControls.detach()
-  sceneState.transformControls.visible = false
-  sceneState.transformControls.enabled = false
-
-  if (target.source === 'ifc') {
-    setObjectOpacity(sceneState.three, target.object, 1)
-    if (target.object) {
-      if (removeObject) {
-        target.object.parent?.remove(target.object)
-        disposeObjectMaterials(sceneState.three, target.object)
-      }
-    }
-    return
-  }
-
-  if (removeObject) {
-    target.object.parent?.remove(target.object)
-    disposeObjectMaterials(sceneState.three, target.object)
-  }
-}
-
-const positionPresetGroupBesideIfc = (
-  THREE: ThreeModule,
-  ifcObject: Object3D,
-  presetGroup: import('three').Group,
-  worldUnitsPerMm = PROJECT_WORLD_UNITS_PER_MM,
-) => {
-  if (presetGroup.children.length === 0) return
-
-  const ifcBox = new THREE.Box3().setFromObject(ifcObject)
-  const ifcCenter = new THREE.Vector3()
-  const ifcSize = new THREE.Vector3()
-  ifcBox.getCenter(ifcCenter)
-  ifcBox.getSize(ifcSize)
-  const ifcGroundY = ifcCenter.y - ifcSize.y / 2
-
-  const previousPosition = new THREE.Vector3(
-    presetGroup.position.x,
-    presetGroup.position.y,
-    presetGroup.position.z,
-  )
-  presetGroup.position.set(0, 0, 0)
-  ;(presetGroup as Object3D & { updateMatrixWorld?: (force?: boolean) => void }).updateMatrixWorld?.(true)
-
-  const presetBox = new THREE.Box3().setFromObject(presetGroup)
-  const presetCenter = new THREE.Vector3()
-  const presetSize = new THREE.Vector3()
-  presetBox.getCenter(presetCenter)
-  presetBox.getSize(presetSize)
-  const presetGroundY = presetCenter.y - presetSize.y / 2
-
-  const gap = 600
-  presetGroup.position.copy(previousPosition)
-  presetGroup.position.set(
-    ifcCenter.x + ifcSize.x / 2 + gap * worldUnitsPerMm - (presetCenter.x - presetSize.x / 2),
-    ifcGroundY - presetGroundY,
-    ifcCenter.z - presetCenter.z,
-  )
-  ;(presetGroup as Object3D & { updateMatrixWorld?: (force?: boolean) => void }).updateMatrixWorld?.(true)
-}
-
-const inferWorldUnitsPerMm = (THREE: ThreeModule, ifcObject: Object3D) => {
-  const ifcSize = new THREE.Vector3()
-  new THREE.Box3().setFromObject(ifcObject).getSize(ifcSize)
-  const maxSize = Math.max(ifcSize.x, ifcSize.y, ifcSize.z)
-
-  return maxSize > 100 ? 1 : PROJECT_WORLD_UNITS_PER_MM
-}
-
-const getMaterialColorHex = (material: unknown) => {
-  const color = (material as { color?: { getHexString?: () => string } })?.color
-  const hex = color?.getHexString?.()
-  return hex ? `#${hex.toUpperCase()}` : undefined
-}
-
-const resolveEditorMaterialFromColor = (color?: string) => {
-  if (!color) return undefined
-  const normalized = color.toUpperCase()
-  if (normalized === '#C56F45') return 'Tile'
-  if (normalized === '#A8A29E') return 'Concrete'
-  if (normalized === '#A3472C') return 'Brick'
-  if (normalized === '#8A94A3') return 'Steel'
-  if (normalized === '#9A6232') return 'Wood'
-  if (normalized === '#8FD3FF') return 'Glass'
-  if (normalized === '#8D8D86') return 'Stone'
-  return undefined
-}
-
-const applyInitialIfcMaterialStyles = (THREE: ThreeModule, ifcObject: Object3D) => {
-  ifcObject.traverse((child) => {
-    if (!(child instanceof THREE.Mesh)) return
-
-    const previousMaterials = Array.isArray(child.material) ? child.material : [child.material]
-    const color = previousMaterials.map(getMaterialColorHex).find(Boolean)
-    const materialName = resolveEditorMaterialFromColor(color)
-    if (!materialName) return
-
-    previousMaterials.forEach((material) => {
-      const map = (material as { map?: { dispose?: () => void } }).map
-      map?.dispose?.()
-      material.dispose()
-    })
-    child.material = createElementMaterial(THREE, materialName, color)
-  })
-}
-
-const applyIfcItemColor = async (
-  THREE: ThreeModule,
-  fragments: import('@thatopen/components').FragmentsManager,
-  target: Extract<Selected3DTarget, { source: 'ifc' }>,
-  color?: string,
-) => {
-  if (!color) return
-  const ThreeColor = (THREE as unknown as { Color: new (value: string) => unknown }).Color
-
-  await fragments.highlight({
-    color: new ThreeColor(color),
-    opacity: 1,
-    transparent: false,
-    renderedFaces: 1,
-    preserveOriginalMaterial: true,
-  }, {
-    [target.modelId]: new Set([target.hitLocalId]),
-  })
-}
-
-const attachIfcTransformProxy = async (
-  THREE: ThreeModule,
-  fragments: import('@thatopen/components').FragmentsManager,
-  hider: import('@thatopen/components').Hider,
-  transformControls: import('three/examples/jsm/controls/TransformControls.js').TransformControls,
-  editGroup: import('three').Group,
-  modelId: string,
-  localIds: number[],
-  visibleLocalId: number,
-  element: IfcElementInfo,
-) => {
-  for (const localId of localIds) {
-    const boxes = await fragments.getBBoxes({ [modelId]: new Set([localId]) })
-    const box = boxes[0]
-    if (!box) continue
-
-    const stableLocalId = localIds[0]
-    const objectName = `ifc-edit-${modelId}-${stableLocalId}`
-    const existing = editGroup.children.find((child) => child.name === objectName) as IfcEditableObject3D | undefined
-    const size = new THREE.Vector3()
-    const center = new THREE.Vector3()
-    box.getSize(size)
-    box.getCenter(center)
-
-    const editable = existing ?? new THREE.Group()
-    editable.name = objectName
-    editable.position.copy(center)
-    editable.userData = {
-      ...editable.userData,
-      ifcEditTarget: {
-        modelId,
-        localId: stableLocalId,
-        hitLocalId: localId,
-        element,
-      },
-    }
-
-    if (!existing) {
-      const geometry = new THREE.BoxGeometry(size.x, size.y, size.z)
-      const material = createElementMaterial(
-        THREE,
-        element.material,
-        element.color ?? DEFAULT_IFC_COLOR_BY_CATEGORY[element.category] ?? DEFAULT_IFC_COLOR_BY_CATEGORY.Element,
-      )
-      ;(material as unknown as { transparent: boolean; opacity: number; depthWrite: boolean }).transparent = true
-      ;(material as unknown as { transparent: boolean; opacity: number; depthWrite: boolean }).opacity = 0.86
-      ;(material as unknown as { transparent: boolean; opacity: number; depthWrite: boolean }).depthWrite = true
-      const mesh = new THREE.Mesh(geometry, material)
-      editable.add(mesh)
-      editGroup.add(editable)
-    }
-
-    await hider.set(false, {
-      [modelId]: new Set([visibleLocalId]),
-    })
-    setObjectOpacity(THREE, editable, 0.86)
-    transformControls.attach(editable)
-    transformControls.visible = true
-    transformControls.enabled = true
-    return editable
-  }
-
-  return null
-}
-
 export default function ThatOpenIfcCanvas({
   ifcUrl,
   projectId,
   libraryElements,
   ifcElementChanges,
+  deleteRequestToken = 0,
   isRotationLocked,
   zoomScale,
   selectedIfcElement,
@@ -453,6 +110,8 @@ export default function ThatOpenIfcCanvas({
   onIfcElementDelete,
   onLibraryElementChange,
   onLibraryElementDelete,
+  onThreeDCoordinatesChange,
+  transformMode = 'translate',
 }: ThatOpenIfcCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const sceneRef = useRef<ThatOpenSceneState | null>(null)
@@ -462,10 +121,57 @@ export default function ThatOpenIfcCanvas({
   const onIfcElementDeleteRef = useRef(onIfcElementDelete)
   const onLibraryElementChangeRef = useRef(onLibraryElementChange)
   const onLibraryElementDeleteRef = useRef(onLibraryElementDelete)
+  const onThreeDCoordinatesChangeRef = useRef(onThreeDCoordinatesChange)
   const ifcPsetMetricsRef = useRef<IfcPsetMetricMaps>({ byId: {}, byName: {} })
   const selectedTargetRef = useRef<Selected3DTarget>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMessage, setErrorMessage] = useState('')
+  const deleteSelectedTarget = useCallback(async () => {
+    const sceneState = sceneRef.current
+    const selectedTarget = selectedTargetRef.current
+    if (!sceneState || !selectedTarget) return
+
+    if (selectedTarget.source === 'ifc') {
+      const deletedElement = selectedTarget.object
+        ? (selectedTarget.object as IfcEditableObject3D).userData.ifcEditTarget?.element
+        : ifcPsetMetricsRef.current.byId[selectedTarget.localId]
+          ? {
+              ...ifcPsetMetricsRef.current.byId[selectedTarget.localId],
+              id: String(selectedTarget.localId),
+              source: 'ifc' as const,
+              properties: {},
+            }
+          : null
+      await sceneState.hider.set(false, {
+        [selectedTarget.modelId]: new Set([selectedTarget.hitLocalId]),
+      })
+      sceneState.transformControls.detach()
+      sceneState.transformControls.visible = false
+      sceneState.transformControls.enabled = false
+      if (selectedTarget.object) {
+        selectedTarget.object.parent?.remove(selectedTarget.object)
+      }
+      selectedTargetRef.current = null
+      onIfcElementSelectRef.current?.(null)
+      onThreeDCoordinatesChangeRef.current?.(toDisplayCoordinates(sceneState.camera.position))
+      if (deletedElement) onIfcElementDeleteRef.current?.(deletedElement)
+      return
+    }
+
+    if (selectedTarget.source === 'library') {
+      const libraryObject = selectedTarget.object as LibraryObject3D
+      const preset = getLibraryPresetFromObject(libraryObject)
+      sceneState.transformControls.detach()
+      sceneState.transformControls.visible = false
+      sceneState.transformControls.enabled = false
+      libraryObject.parent?.remove(libraryObject)
+      disposeObjectMaterials(sceneState.three, libraryObject)
+      selectedTargetRef.current = null
+      onIfcElementSelectRef.current?.(null)
+      onThreeDCoordinatesChangeRef.current?.(toDisplayCoordinates(sceneState.camera.position))
+      if (preset) onLibraryElementDeleteRef.current?.(preset.id)
+    }
+  }, [])
   useEffect(() => {
     onIfcElementSelectRef.current = onIfcElementSelect
   }, [onIfcElementSelect])
@@ -483,6 +189,10 @@ export default function ThatOpenIfcCanvas({
   }, [onLibraryElementDelete])
 
   useEffect(() => {
+    onThreeDCoordinatesChangeRef.current = onThreeDCoordinatesChange
+  }, [onThreeDCoordinatesChange])
+
+  useEffect(() => {
     const container = containerRef.current
     if (!container) return
 
@@ -490,6 +200,13 @@ export default function ThatOpenIfcCanvas({
     let components: import('@thatopen/components').Components | null = null
     let handlePointerDown: ((event: PointerEvent) => void) | null = null
     let handleKeyDown: ((event: KeyboardEvent) => void) | null = null
+    let cameraControlsChangeListener: (() => void) | null = null
+    let cameraControlsWithEvents:
+      | {
+          addEventListener?: (type: 'change', listener: () => void) => void
+          removeEventListener?: (type: 'change', listener: () => void) => void
+        }
+      | null = null
 
     const loadIfc = async () => {
       if (!ifcUrl) return
@@ -528,12 +245,27 @@ export default function ThatOpenIfcCanvas({
           world.camera.controls.azimuthRotateSpeed = rotationLockedRef.current ? 0 : 1
           world.camera.controls.polarRotateSpeed = rotationLockedRef.current ? 0 : 1
         }
+        const emitCoordinates = (position: { x: number; y: number; z: number }) => {
+          onThreeDCoordinatesChangeRef.current?.(toDisplayCoordinates(position))
+        }
+        emitCoordinates(world.camera.three.position)
+        cameraControlsWithEvents = world.camera.controls as unknown as {
+          addEventListener?: (type: 'change', listener: () => void) => void
+          removeEventListener?: (type: 'change', listener: () => void) => void
+        } | null
+        cameraControlsChangeListener = () => {
+          const selectedTarget = selectedTargetRef.current
+          if (selectedTarget?.object) return
+          emitCoordinates(world.camera.three.position)
+        }
+        cameraControlsWithEvents?.addEventListener?.('change', cameraControlsChangeListener)
 
         const grids = components.get(OBC.Grids)
         grids.create(world)
 
         const fragments = components.get(OBC.FragmentsManager)
-        fragments.init(await OBC.FragmentsManager.getWorker())
+        // unpkg 네트워크 의존 없이 로컬 워커 파일 사용
+        fragments.init('/fragments-worker.mjs')
 
         const ifcLoader = components.get(OBC.IfcLoader)
         await ifcLoader.setup({
@@ -593,21 +325,29 @@ export default function ThatOpenIfcCanvas({
         ;(transformControls as unknown as {
           addEventListener: (type: 'dragging-changed', listener: (event: { value: boolean }) => void) => void
         }).addEventListener('dragging-changed', (event) => {
-          if (!world.camera.controls) return
-          ;(world.camera.controls as unknown as { enabled: boolean }).enabled = !event.value
+          if (world.camera.controls) {
+            ;(world.camera.controls as unknown as { enabled: boolean }).enabled = !event.value
+          }
           if (event.value) return
           const selectedTarget = selectedTargetRef.current
-          if (selectedTarget?.source !== 'library') return
-          const libraryObject = selectedTarget.object as LibraryObject3D
-          const preset = getLibraryPresetFromObject(libraryObject)
-          if (!preset) return
-          onLibraryElementChangeRef.current?.(preset.id, {
-            position: {
-              x: libraryObject.position.x,
-              y: libraryObject.position.y,
-              z: libraryObject.position.z,
-            },
-          })
+          if (selectedTarget?.source === 'library') {
+            const libraryObject = selectedTarget.object as LibraryObject3D
+            const preset = getLibraryPresetFromObject(libraryObject)
+            if (preset) {
+              onLibraryElementChangeRef.current?.(preset.id, {
+                position: {
+                  x: libraryObject.position.x,
+                  y: libraryObject.position.y,
+                  z: libraryObject.position.z,
+                },
+              })
+            }
+          }
+          if (selectedTarget?.object) {
+            emitCoordinates(selectedTarget.object.position)
+            return
+          }
+          emitCoordinates(world.camera.three.position)
         })
         const thatOpenRaycaster = components.get(OBC.Raycasters).get(world)
         const hider = components.get(OBC.Hider)
@@ -661,28 +401,15 @@ export default function ThatOpenIfcCanvas({
           }
           const ifcEditHit = raycaster.intersectObjects(ifcEditGroup.children, true)[0]
           const libraryHit = raycaster.intersectObjects(presetGroup.children, true)[0]
+          // 이전 선택을 해제한다. 동일 객체/로컬ID이면 아무 처리도 하지 않는다.
           const clearPreviousSelection = async (nextObject?: Object3D, nextIfcLocalId?: number) => {
             const currentTarget = selectedTargetRef.current
-            if (!currentTarget) return
+            // sceneRef.current는 loadIfc 완료 후 등록된 핸들러 내부이므로 항상 유효하다.
+            const activeScene = sceneRef.current
+            if (!currentTarget || !activeScene) return
             if (nextObject && currentTarget.object === nextObject) return
             if (currentTarget.source === 'ifc' && currentTarget.hitLocalId === nextIfcLocalId) return
-            await clearSelectedTarget(sceneRef.current ?? {
-              three: THREE,
-              scene: world.scene.three,
-              camera,
-          renderer,
-          fragments,
-          hider,
-          raycaster: thatOpenRaycaster,
-          transformControls,
-          contentGroup,
-          ifcEditGroup,
-          ifcObject: fragmentModel.object,
-          modelId,
-          worldUnitsPerMm,
-          worldCamera: world.camera,
-          cameraControls: world.camera.controls,
-            }, currentTarget)
+            await clearSelectedTarget(activeScene, currentTarget)
             selectedTargetRef.current = null
           }
 
@@ -706,6 +433,7 @@ export default function ThatOpenIfcCanvas({
               transformControls.visible = true
               transformControls.enabled = true
               onIfcElementSelectRef.current?.(editTarget.element)
+              emitCoordinates(editableRoot.position)
               return
             }
           }
@@ -729,7 +457,7 @@ export default function ThatOpenIfcCanvas({
                 localId: ifcPick.localId,
               }, ifcPsetMetricsRef.current)
               const selectedLocalId = typeof element?.expressId === 'number' ? element.expressId : ifcPick.localId
-              const selectedElement = element ?? (ifcPick.object
+              let selectedElement = element ?? (ifcPick.object
                 ? normalizeIfcElement(ifcPick.object, `${ifcPick.fragments.modelId}:${ifcPick.localId}`)
                 : {
                     id: `${ifcPick.fragments.modelId}:${ifcPick.localId}`,
@@ -749,6 +477,7 @@ export default function ThatOpenIfcCanvas({
                 selectedColorSignature: getElementColorSignature(selectedElement),
                 selectedMaterialSignature: getElementMaterialSignature(selectedElement),
               }
+              const pickedObjectSize = getObjectSizeMm(THREE, ifcPick.object, worldUnitsPerMm)
               const editableObject = await attachIfcTransformProxy(
                 THREE,
                 fragments,
@@ -760,9 +489,43 @@ export default function ThatOpenIfcCanvas({
                 ifcPick.localId,
                 selectedElement,
               )
+              if (editableObject) {
+                const fallbackSize = pickedObjectSize ?? getObjectSizeMm(THREE, editableObject, worldUnitsPerMm)
+                if (fallbackSize) {
+                  const nextLength = selectedElement.lengthMm ?? fallbackSize.lengthMm
+                  const nextHeight = selectedElement.heightMm ?? fallbackSize.heightMm
+                  const nextThickness = selectedElement.thicknessMm ?? fallbackSize.thicknessMm
+                  if (
+                    selectedElement.lengthMm !== nextLength ||
+                    selectedElement.heightMm !== nextHeight ||
+                    selectedElement.thicknessMm !== nextThickness
+                  ) {
+                    selectedElement = {
+                      ...selectedElement,
+                      lengthMm: nextLength,
+                      heightMm: nextHeight,
+                      thicknessMm: nextThickness,
+                      properties: {
+                        ...selectedElement.properties,
+                        Length: nextLength,
+                        Height: nextHeight,
+                        Thickness: nextThickness,
+                      },
+                    }
+                  }
+                }
+              }
+              nextTarget.selectedSignature = getElementDimensionSignature(selectedElement)
+              nextTarget.selectedColorSignature = getElementColorSignature(selectedElement)
+              nextTarget.selectedMaterialSignature = getElementMaterialSignature(selectedElement)
               nextTarget.object = editableObject ?? undefined
               selectedTargetRef.current = nextTarget
               onIfcElementSelectRef.current?.(selectedElement)
+              if (editableObject) {
+                emitCoordinates(editableObject.position)
+              } else {
+                emitCoordinates(world.camera.three.position)
+              }
               return
             }
           }
@@ -782,6 +545,7 @@ export default function ThatOpenIfcCanvas({
             transformControls.visible = true
             transformControls.enabled = true
             onIfcElementSelectRef.current?.(libraryElement)
+            emitCoordinates(libraryRoot.position)
             return
           }
 
@@ -792,6 +556,7 @@ export default function ThatOpenIfcCanvas({
           await clearPreviousSelection()
           selectedTargetRef.current = null
           onIfcElementSelectRef.current?.(null)
+          emitCoordinates(world.camera.three.position)
         }
         container.addEventListener('pointerdown', handlePointerDown)
 
@@ -818,45 +583,7 @@ export default function ThatOpenIfcCanvas({
           if (!selectedTarget) return
           event.preventDefault()
           event.stopPropagation()
-
-          if (selectedTarget.source === 'ifc') {
-            const deletedElement = selectedTarget.object
-              ? (selectedTarget.object as IfcEditableObject3D).userData.ifcEditTarget?.element
-              : ifcPsetMetricsRef.current.byId[selectedTarget.localId]
-                ? {
-                    ...ifcPsetMetricsRef.current.byId[selectedTarget.localId],
-                    id: String(selectedTarget.localId),
-                    source: 'ifc' as const,
-                    properties: {},
-                  }
-                : null
-            await hider.set(false, {
-              [selectedTarget.modelId]: new Set([selectedTarget.hitLocalId]),
-            })
-            transformControls.detach()
-            transformControls.visible = false
-            transformControls.enabled = false
-            if (selectedTarget.object) {
-              selectedTarget.object.parent?.remove(selectedTarget.object)
-            }
-            selectedTargetRef.current = null
-            onIfcElementSelectRef.current?.(null)
-            if (deletedElement) onIfcElementDeleteRef.current?.(deletedElement)
-            return
-          }
-
-          if (selectedTarget.source === 'library') {
-            const libraryObject = selectedTarget.object as LibraryObject3D
-            const preset = getLibraryPresetFromObject(libraryObject)
-            transformControls.detach()
-            transformControls.visible = false
-            transformControls.enabled = false
-            libraryObject.parent?.remove(libraryObject)
-            disposeObjectMaterials(THREE, libraryObject)
-            selectedTargetRef.current = null
-            onIfcElementSelectRef.current?.(null)
-            if (preset) onLibraryElementDeleteRef.current?.(preset.id)
-          }
+          await deleteSelectedTarget()
         }
         window.addEventListener('keydown', handleKeyDown, true)
 
@@ -877,6 +604,9 @@ export default function ThatOpenIfcCanvas({
       disposed = true
       if (handlePointerDown) container.removeEventListener('pointerdown', handlePointerDown)
       if (handleKeyDown) window.removeEventListener('keydown', handleKeyDown, true)
+      if (cameraControlsWithEvents && cameraControlsChangeListener) {
+        cameraControlsWithEvents.removeEventListener?.('change', cameraControlsChangeListener)
+      }
       try {
         components?.dispose()
       } catch {
@@ -887,7 +617,12 @@ export default function ThatOpenIfcCanvas({
       ifcPsetMetricsRef.current = { byId: {}, byName: {} }
       selectedTargetRef.current = null
     }
-  }, [ifcUrl, projectId])
+  }, [deleteSelectedTarget, ifcUrl, projectId])
+
+  useEffect(() => {
+    if (deleteRequestToken <= 0) return
+    void deleteSelectedTarget()
+  }, [deleteRequestToken, deleteSelectedTarget])
 
   useEffect(() => {
     const sceneState = sceneRef.current
@@ -975,8 +710,8 @@ export default function ThatOpenIfcCanvas({
     if (target.selectedMaterialSignature === currentMaterialSignature) return
     target.selectedMaterialSignature = currentMaterialSignature
 
-    const object = target.source === 'library' ? target.object : target.object
-    applyObjectMaterial(sceneState.three, object ?? null, selectedIfcElement.material, selectedIfcElement.color)
+    // ifc 타겟의 경우 object가 undefined일 수 있으므로 null coalescing으로 처리한다.
+    applyObjectMaterial(sceneState.three, target.object ?? null, selectedIfcElement.material, selectedIfcElement.color)
     if (target.source === 'library') {
       updateLibraryPresetData(target.object, {
         material: selectedIfcElement.material,
@@ -1107,6 +842,13 @@ export default function ThatOpenIfcCanvas({
     controls.azimuthRotateSpeed = isRotationLocked ? 0 : 1
     controls.polarRotateSpeed = isRotationLocked ? 0 : 1
   }, [isRotationLocked])
+
+  // TransformControls 모드(이동/회전/크기) 변경 반영
+  useEffect(() => {
+    const sceneState = sceneRef.current
+    if (!sceneState) return
+    sceneState.transformControls.setMode(transformMode)
+  }, [transformMode])
 
   useEffect(() => {
     const sceneState = sceneRef.current
