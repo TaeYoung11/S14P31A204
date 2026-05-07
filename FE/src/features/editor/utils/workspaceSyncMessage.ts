@@ -19,6 +19,10 @@ export interface ProjectSyncMessage {
   ifcStorageUrl?: string
   s3Url?: string
   currentIfcUrl?: string
+  /** S3 에셋 UUID — download-url API 호출에 사용 */
+  assetId?: string
+  artifactId?: string
+  outputArtifactId?: string
 }
 
 export interface StompErrorMessage {
@@ -140,6 +144,30 @@ export function extractIfcStorageUrl(message: ProjectSyncMessage): string | null
       ?? extractStringField(message.output, 's3Url')
       ?? extractStringField(message.output, 'currentIfcUrl')
   }
+  return null
+}
+
+/**
+ * 프로젝트 sync 메시지에서 IFC 에셋 UUID를 추출한다.
+ * - BE가 download-url API 호출에 사용할 assetId를 메시지에 포함하는 경우 반환
+ */
+export function extractIfcAssetId(message: ProjectSyncMessage): string | null {
+  const direct = message.assetId ?? message.artifactId ?? message.outputArtifactId
+  if (typeof direct === 'string' && direct.trim().length > 0) return direct.trim()
+
+  if (isObjectRecord(message.payload)) {
+    const payloadId = extractStringField(message.payload, 'assetId')
+      ?? extractStringField(message.payload, 'artifactId')
+      ?? extractStringField(message.payload, 'outputArtifactId')
+    if (payloadId) return payloadId
+  }
+
+  if (isObjectRecord(message.output)) {
+    return extractStringField(message.output, 'assetId')
+      ?? extractStringField(message.output, 'artifactId')
+      ?? extractStringField(message.output, 'outputArtifactId')
+  }
+
   return null
 }
 

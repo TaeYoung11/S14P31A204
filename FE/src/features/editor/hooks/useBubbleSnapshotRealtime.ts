@@ -14,6 +14,7 @@ import {
   USER_ERROR_TOPIC,
   WORKSPACE_SYNC_ACTION,
   extractFloorPlanBubbleSnapshot,
+  extractIfcAssetId,
   extractIfcStorageUrl,
   isBubbleSnapshotPayload,
   isObjectRecord,
@@ -31,10 +32,11 @@ interface UseBubbleSnapshotRealtimeParams {
   connections: ConnectionData[]
   onRemoteSnapshot: (snapshot: BubbleSnapshotPayload) => void
   onPhaseStatusChanged?: (status: PhaseStatus) => void
-  onIfcStorageUrlReceived?: (ifcStorageUrl: string, action: string | null) => void
+  onIfcStorageUrlReceived?: (ifcStorageUrl: string, action: string | null, assetId: string | null) => void
 }
 
 const PUBLISH_DEBOUNCE_MS = 120
+const IFC_EVENT_DEDUP_TTL_MS = 2000
 const IFC_URL_DEBUG = getRuntimeEnvBoolean('VITE_IFC_URL_DEBUG')
 
 /**
@@ -59,6 +61,7 @@ export function useBubbleSnapshotRealtime({
   const applyingRemoteRef = useRef(false)
   const baseIndexRef = useRef(-1)
   const publishTimerRef = useRef<number | null>(null)
+  const recentIfcEventRef = useRef<Map<string, number>>(new Map())
 
   useEffect(() => {
     remoteSnapshotHandlerRef.current = onRemoteSnapshot
@@ -113,12 +116,27 @@ export function useBubbleSnapshotRealtime({
 
       if (action && IFC_COMPLETED_ACTION_SET.has(action)) {
         const ifcStorageUrl = extractIfcStorageUrl(parsed)
-        if (ifcStorageUrl) {
-          if (IFC_URL_DEBUG && typeof window !== 'undefined') {
-            window.localStorage.setItem('ifc-last-ws-url', ifcStorageUrl)
-            console.info('[ifc-url][ws]', { action, ifcStorageUrl })
+        const assetId = extractIfcAssetId(parsed)
+        const dedupRaw = assetId ?? ifcStorageUrl
+        if (dedupRaw) {
+          const dedupKey = `${action}:${dedupRaw}`
+          const now = Date.now()
+          const previous = recentIfcEventRef.current.get(dedupKey)
+          if (typeof previous === 'number' && now - previous < IFC_EVENT_DEDUP_TTL_MS) {
+            return
           }
-          ifcStorageUrlHandlerRef.current?.(ifcStorageUrl, action)
+          recentIfcEventRef.current.set(dedupKey, now)
+          for (const [key, timestamp] of recentIfcEventRef.current.entries()) {
+            if (now - timestamp >= IFC_EVENT_DEDUP_TTL_MS) {
+              recentIfcEventRef.current.delete(key)
+            }
+          }
+
+          if (IFC_URL_DEBUG && typeof window !== 'undefined') {
+            window.localStorage.setItem('ifc-last-ws-url', ifcStorageUrl ?? '')
+            console.info('[ifc-url][ws]', { action, ifcStorageUrl, assetId })
+          }
+          ifcStorageUrlHandlerRef.current?.(ifcStorageUrl ?? '', action, assetId)
         }
       }
 

@@ -1,3 +1,4 @@
+import axios from 'axios'
 import { MOCK_MEMBERS } from '@/features/project/mocks/project.mock'
 import {
   getProjectSitePolygonEntry,
@@ -22,7 +23,6 @@ interface ApiResponse<T> {
 
 const PROJECT_LIST_PAGE_SIZE = 6
 const PROJECT_LIST_MAX_PAGES = 100
-const IFC_ACCEPT_HEADER = 'application/octet-stream,text/plain,application/json'
 
 interface ProjectSummaryResponse {
   projectId: string
@@ -32,6 +32,8 @@ interface ProjectSummaryResponse {
   cadastralAddress?: string
   cadastralInfo?: CadastralInfo
   currentIfcUrl?: string
+  /** private S3 버킷 접근용 에셋 UUID (BE가 제공하는 경우) */
+  currentIfcAssetId?: string
   createdAt: string
   updatedAt: string
   unreadCommentCount?: number
@@ -90,6 +92,15 @@ const shouldUseProjectDetailApi = import.meta.env.VITE_USE_PROJECT_DETAIL_API ==
 const shouldFetchSiteFromProjectDetailApi = import.meta.env.VITE_USE_PROJECT_DETAIL_SITE_API === 'true'
 const SITE_CACHE_TTL_MS = PROJECT_SITE_CACHE_TTL_MS
 const projectSummaryCache = new Map<string, ProjectSummaryResponse>()
+type ProjectServiceErrorCode =
+  | 'PROJECT_NOT_FOUND'
+  | 'PROJECT_LIST_FETCH_FAILED'
+  | 'PROJECT_DETAIL_FETCH_FAILED'
+
+type ProjectServiceError = Error & {
+  status?: number
+  code?: ProjectServiceErrorCode
+}
 
 export interface ProjectSiteResponse {
   projectId: string
@@ -100,6 +111,8 @@ export interface ProjectSiteResponse {
 export interface ProjectIfcSource {
   projectId: string
   currentIfcUrl?: string
+  /** private S3 버킷 접근용 에셋 UUID */
+  currentIfcAssetId?: string
 }
 
 const mapProjectSummary = (project: ProjectSummaryResponse): Project => ({
@@ -141,30 +154,30 @@ const mapUpdatedProject = (project: UpdateProjectResponse, fallback?: Project): 
   unread_comment_count: project.unreadCommentCount ?? fallback?.unread_comment_count ?? 0,
 })
 
-function decodeUtf8ArrayBuffer(buffer: ArrayBuffer): string {
-  return new TextDecoder('utf-8').decode(buffer)
+function readErrorStatus(error: unknown): number | undefined {
+  if (!axios.isAxiosError(error)) return undefined
+  return error.response?.status
 }
 
-function createEmptyProjectListPage(page: number): ProjectListResponse {
-  return {
-    projects: [],
-    page,
-    size: PROJECT_LIST_PAGE_SIZE,
-    totalElements: 0,
-    totalPages: 0,
-    hasNext: false,
-  }
-}
+function toProjectServiceError(
+  error: unknown,
+  fallbackMessage: string,
+  code: ProjectServiceErrorCode,
+): ProjectServiceError {
+  const nextError = new Error(fallbackMessage) as ProjectServiceError
+  nextError.code = code
+  nextError.status = readErrorStatus(error)
 
-function createFallbackProjectSummary(projectId: string): ProjectSummaryResponse {
-  const now = new Date().toISOString()
-  return {
-    projectId,
-    name: '프로젝트',
-    description: '',
-    createdAt: now,
-    updatedAt: now,
+  if (axios.isAxiosError(error)) {
+    const apiMessage = error.response?.data?.message
+    if (typeof apiMessage === 'string' && apiMessage.trim().length > 0) {
+      nextError.message = apiMessage
+    }
+  } else if (error instanceof Error && error.message.trim().length > 0) {
+    nextError.message = error.message
   }
+
+  return nextError
 }
 
 function cacheProjectSummaries(projects: ProjectSummaryResponse[]): void {
@@ -182,8 +195,12 @@ async function fetchProjectListPage(page: number): Promise<ProjectListResponse> 
     const data = response.data.data
     cacheProjectSummaries(data.projects)
     return data
-  } catch {
-    return createEmptyProjectListPage(page)
+  } catch (error) {
+    throw toProjectServiceError(
+      error,
+      '프로젝트 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.',
+      'PROJECT_LIST_FETCH_FAILED',
+    )
   }
 }
 
@@ -200,7 +217,10 @@ async function findProjectSummaryFromList(projectId: string): Promise<ProjectSum
     page = data.page + 1
   }
 
-  return createFallbackProjectSummary(projectId)
+  const notFoundError = new Error('요청한 프로젝트를 찾을 수 없습니다.') as ProjectServiceError
+  notFoundError.status = 404
+  notFoundError.code = 'PROJECT_NOT_FOUND'
+  throw notFoundError
 }
 
 async function fetchProjectSummary(projectId: string): Promise<ProjectSummaryResponse> {
@@ -210,8 +230,16 @@ async function fetchProjectSummary(projectId: string): Promise<ProjectSummaryRes
       const project = response.data.data
       projectSummaryCache.set(project.projectId, project)
       return project
-    } catch {
-      // 상세 API가 미구현/오류인 환경에서는 목록 기반 조회로 fallback 한다.
+    } catch (error) {
+      const status = readErrorStatus(error)
+      const canFallbackToList = status === 404 || status === 405 || status === 501
+      if (!canFallbackToList) {
+        throw toProjectServiceError(
+          error,
+          '프로젝트 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.',
+          'PROJECT_DETAIL_FETCH_FAILED',
+        )
+      }
     }
   }
 
@@ -296,24 +324,12 @@ export const projectService = {
     return resolved
   },
 
-  getIfcModelText: async (projectId: string): Promise<string | null> => {
-    const response = await api.get<ArrayBuffer>(`/projects/${projectId}/model`, {
-      responseType: 'arraybuffer',
-      headers: {
-        Accept: IFC_ACCEPT_HEADER,
-      },
-      validateStatus: (status) => status === 200 || status === 401 || status === 403 || status === 404 || status === 500,
-    })
-    if (response.status !== 200) return null
-    const ifcText = decodeUtf8ArrayBuffer(response.data)
-    return ifcText.trim().length > 0 ? ifcText : null
-  },
-
   getIfcSource: async (projectId: string): Promise<ProjectIfcSource> => {
     const project = await fetchProjectSummary(projectId)
     return {
       projectId: project.projectId,
       currentIfcUrl: project.currentIfcUrl,
+      currentIfcAssetId: project.currentIfcAssetId,
     }
   },
 

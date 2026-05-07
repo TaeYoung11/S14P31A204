@@ -1,20 +1,21 @@
 import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
+import { fetchS3AssetDownloadUrl } from '../services/s3Asset.service'
 
-const STORAGE_HTTP_BASE_URL = getRuntimeEnvString('VITE_STORAGE_HTTP_BASE_URL')
-const API_BASE_URL = getRuntimeEnvString('VITE_API_URL', '/api/v1')
+const DEFAULT_API_BASE_URL = '/api/v1'
 
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '')
 const trimLeadingSlash = (value: string): string => value.replace(/^\/+/, '')
-
 const joinUrl = (base: string, path: string): string =>
   `${trimTrailingSlash(base)}/${trimLeadingSlash(path)}`
 
-const deriveOriginFromApiBase = (): string | null => {
+const resolveApiOrigin = (): string | null => {
   if (typeof window === 'undefined') return null
-  if (!API_BASE_URL) return window.location.origin
+
+  const apiBaseUrl = getRuntimeEnvString('VITE_API_URL', DEFAULT_API_BASE_URL)
+  if (!apiBaseUrl) return window.location.origin
 
   try {
-    const url = new URL(API_BASE_URL, window.location.origin)
+    const url = new URL(apiBaseUrl, window.location.origin)
     return url.origin
   } catch {
     return window.location.origin
@@ -30,23 +31,39 @@ export const resolveIfcFetchUrl = (rawUrl: string): string => {
   if (normalized.startsWith('https://') || normalized.startsWith('http://')) return normalized
 
   if (normalized.startsWith('s3://')) {
-    if (!STORAGE_HTTP_BASE_URL) {
-      throw new Error('s3:// IFC URL을 받았습니다. FE 환경변수 VITE_STORAGE_HTTP_BASE_URL 설정이 필요합니다.')
-    }
-    const objectPath = normalized.slice('s3://'.length)
-    return joinUrl(STORAGE_HTTP_BASE_URL, objectPath)
+    throw new Error('s3:// IFC URL 형식은 현재 지원하지 않습니다.')
   }
 
   if (normalized.startsWith('/')) {
     return normalized
   }
 
-  if (STORAGE_HTTP_BASE_URL) {
-    return joinUrl(STORAGE_HTTP_BASE_URL, normalized)
+  const apiOrigin = resolveApiOrigin()
+  return apiOrigin ? joinUrl(apiOrigin, normalized) : `/${trimLeadingSlash(normalized)}`
+}
+
+/**
+ * WS로 받은 IFC 저장소 URL 또는 assetId를 브라우저 fetch 가능한 URL로 변환한다.
+ * - assetId(UUID)가 있으면 download-url API로 presigned URL 발급
+ * - s3://bucket/key 형식이면 S3 key를 assetId로 간주하여 download-url API 호출
+ * - http/https이면 그대로 반환
+ * - 상대경로이면 API origin 붙여서 반환
+ */
+export const resolveIfcPresignedUrl = async (rawUrl: string, assetId?: string): Promise<string> => {
+  if (assetId) {
+    return fetchS3AssetDownloadUrl(assetId)
   }
 
-  const apiOrigin = deriveOriginFromApiBase()
-  return apiOrigin ? joinUrl(apiOrigin, normalized) : `/${trimLeadingSlash(normalized)}`
+  const normalized = rawUrl.trim()
+  if (!normalized) return normalized
+
+  if (normalized.startsWith('s3://')) {
+    // s3://bucket/key → key를 assetId로 간주해 download-url API 호출
+    const s3Key = normalized.replace(/^s3:\/\/[^/]+\//, '')
+    return fetchS3AssetDownloadUrl(s3Key)
+  }
+
+  return resolveIfcFetchUrl(normalized)
 }
 
 /**
