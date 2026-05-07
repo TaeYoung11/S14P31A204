@@ -149,11 +149,17 @@ public class ProjectChatLogQueryService {
     /**
      * DB/JPA가 반환한 timestamp 값을 UTC ISO-8601 문자열로 변환한다.
      *
-     * <p>현재 chat read path는 KST 저장 가정을 유지한다.
-     * 따라서 {@link LocalDateTime}과 {@link Timestamp}는 Asia/Seoul 기준 시각으로 해석한 뒤 UTC로 변환한다.
-     * 반면 {@link OffsetDateTime}, {@link Instant}는 이미 절대시간을 표현하므로 그대로 ISO_INSTANT로 포맷한다.
+     * <p>현재 DB 컬럼은 {@code TIMESTAMP WITHOUT TIME ZONE} 전제를 두고 있다.
+     * 따라서 {@link LocalDateTime}과 {@link Timestamp}는 Asia/Seoul(KST) 기준 시각으로 해석한 뒤
+     * UTC ISO-8601 문자열로 변환한다.
      *
-     * <p>지원하지 않는 타입은 문자열 파싱으로 억지 처리하지 않고, 명시적으로 실패시켜
+     * <p>반면 {@link OffsetDateTime}, {@link Instant}는 이미 절대시간을 표현하므로
+     * KST 가정을 다시 적용하지 않고 그대로 ISO_INSTANT로 포맷한다.
+     *
+     * <p>이 로직은 JVM timezone과 PostgreSQL timezone이 모두 Asia/Seoul(KST)라는 운영 가정을 사용 중이다.
+     * 이 가정이 바뀌면 chat만이 아니라 render 등 다른 read API와 함께 전역 재검토가 필요하다.
+     *
+     * <p>지원하지 않는 타입은 문자열 파싱으로 억지 처리하지 않고 명시적으로 실패시켜,
      * 잘못된 시간 변환이 조용히 숨어들지 않게 한다.
      */
     private String toUtcIso(Object value) {
