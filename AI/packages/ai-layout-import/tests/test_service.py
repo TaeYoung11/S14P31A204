@@ -9,6 +9,7 @@ import ifcopenshell
 import pytest
 from pydantic import ValidationError
 
+import ai_layout_import.service as service_module
 from ai_domain import LayoutImportV1, LayoutImportV2, parse_layout_import
 from ai_layout_import import convert_layout_to_ifc
 
@@ -148,6 +149,48 @@ def _boundary_walls(model: ifcopenshell.file) -> dict[str, ifcopenshell.entity_i
         for name, entity in _named_entities(model, "IfcWall").items()
         if name.startswith("Boundary Wall ")
     }
+
+
+def _styled_items(
+    item: ifcopenshell.entity_instance,
+) -> list[ifcopenshell.entity_instance]:
+    return list(getattr(item, "StyledByItem", []) or [])
+
+
+def _style_hex(entity: ifcopenshell.entity_instance) -> str | None:
+    body_item = _body_item(entity)
+    for styled_item in _styled_items(body_item):
+        for assignment in getattr(styled_item, "Styles", []):
+            if not assignment.is_a("IfcPresentationStyleAssignment"):
+                continue
+            for style in getattr(assignment, "Styles", []):
+                if not style.is_a("IfcSurfaceStyle"):
+                    continue
+                for element in getattr(style, "Styles", []):
+                    if element.is_a("IfcSurfaceStyleShading"):
+                        color = element.SurfaceColour
+                        return _rgb_to_hex(color.Red, color.Green, color.Blue)
+    return None
+
+
+def _assert_no_style(entity: ifcopenshell.entity_instance) -> None:
+    assert _style_hex(entity) is None
+
+
+def _rgb_to_hex(red: float, green: float, blue: float) -> str:
+    red_hex = round(red * 255)
+    green_hex = round(green * 255)
+    blue_hex = round(blue * 255)
+    return f"#{red_hex:02X}{green_hex:02X}{blue_hex:02X}"
+
+
+def test_apply_zone_style_skips_entities_without_representation() -> None:
+    model = ifcopenshell.file(schema="IFC4")
+    wall = model.create_entity("IfcWall")
+
+    service_module._apply_zone_style(model, wall, "#FF5733", {})
+
+    assert len(model.by_type("IfcStyledItem")) == 0
 
 
 def test_convert_layout_to_ifc_creates_single_room_space(tmp_path: Path) -> None:
@@ -398,7 +441,14 @@ def test_convert_layout_to_ifc_generates_v2_boundary_elements_for_single_floor(
 ) -> None:
     request = _make_request(
         schema_version="v2",
-        rooms=[_base_room()],
+        rooms=[_base_room(zone_id="zone-common", x=2100.0, y=1900.0)],
+        zones=[
+            {
+                "id": "zone-common",
+                "name": "Common",
+                "color": "#FF5733",
+            }
+        ],
         boundaries=[
             {
                 "floor": 1,
@@ -433,18 +483,21 @@ def test_convert_layout_to_ifc_generates_v2_boundary_elements_for_single_floor(
     assert wall_body.SweptArea.is_a("IfcRectangleProfileDef")
     assert wall_body.SweptArea.XDim == pytest.approx(4.2)
     assert wall_body.SweptArea.YDim == pytest.approx(0.2)
+    assert _style_hex(wall) == "#FF5733"
 
     slab = _named_entities(model, "IfcSlab")["Boundary Slab 1"]
     slab_body = _body_item(slab)
     assert slab_body.is_a("IfcExtrudedAreaSolid")
     assert slab_body.Depth == pytest.approx(0.18)
     assert slab_body.SweptArea.is_a("IfcArbitraryClosedProfileDef")
+    assert _style_hex(slab) == "#FF5733"
 
     roof = _named_entities(model, "IfcRoof")["Boundary Roof 1"]
     roof_body = _body_item(roof)
     assert roof_body.is_a("IfcExtrudedAreaSolid")
     assert roof_body.Depth == pytest.approx(0.4)
     assert roof_body.SweptArea.is_a("IfcArbitraryClosedProfileDef")
+    assert _style_hex(roof) == "#FF5733"
     roof_location = tuple(roof.ObjectPlacement.RelativePlacement.Location.Coordinates)
     assert roof_location == pytest.approx((0.0, 0.0, 3.0))
 
@@ -659,6 +712,7 @@ def test_convert_layout_to_ifc_generates_shared_wall_for_same_floor_adjacency(
                 name="Left Room",
                 x=2100.0,
                 y=1900.0,
+                zone_id="zone-common",
             ),
             _base_room(
                 room_id="room-right-01",
@@ -666,7 +720,15 @@ def test_convert_layout_to_ifc_generates_shared_wall_for_same_floor_adjacency(
                 room_type="bedroom",
                 x=6300.0,
                 y=1900.0,
+                zone_id="zone-common",
             ),
+        ],
+        zones=[
+            {
+                "id": "zone-common",
+                "name": "Common",
+                "color": "#FF5733",
+            }
         ],
         adjacency=[
             {
@@ -706,6 +768,7 @@ def test_convert_layout_to_ifc_generates_shared_wall_for_same_floor_adjacency(
     assert shared_wall_body.SweptArea.is_a("IfcRectangleProfileDef")
     assert shared_wall_body.SweptArea.XDim == pytest.approx(3.8)
     assert shared_wall_body.SweptArea.YDim == pytest.approx(0.2)
+    assert _style_hex(shared_wall) == "#FF5733"
 
     containment = _containment_map_for_types(model, {"IfcWall", "IfcSlab", "IfcRoof"})
     assert sum(1 for name in containment if name.startswith("Boundary Wall ")) == 4
@@ -725,6 +788,168 @@ def test_convert_layout_to_ifc_generates_shared_wall_for_same_floor_adjacency(
         }
     ]
     assert _property_sets_by_name(shared_wall) == {}
+
+
+def test_convert_layout_to_ifc_keeps_v2_boundary_elements_unstyled_without_zone(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[_base_room()],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [4200.0, 0.0],
+                    [4200.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v2-unzoned-no-style.ifc")
+
+    wall = _named_entities(model, "IfcWall")["Boundary Wall 1-1"]
+    slab = _named_entities(model, "IfcSlab")["Boundary Slab 1"]
+    roof = _named_entities(model, "IfcRoof")["Boundary Roof 1"]
+    _assert_no_style(wall)
+    _assert_no_style(slab)
+    _assert_no_style(roof)
+
+
+def test_convert_layout_to_ifc_keeps_mixed_zone_floor_plate_unstyled(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            _base_room(
+                room_id="room-left-01",
+                name="Left Room",
+                x=2100.0,
+                y=1900.0,
+                zone_id="zone-common",
+            ),
+            _base_room(
+                room_id="room-right-01",
+                name="Right Room",
+                room_type="bedroom",
+                x=6300.0,
+                y=1900.0,
+                zone_id="zone-private",
+            ),
+        ],
+        zones=[
+            {
+                "id": "zone-common",
+                "name": "Common",
+                "color": "#FF5733",
+            },
+            {
+                "id": "zone-private",
+                "name": "Private",
+                "color": "#335CFF",
+            },
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [8400.0, 0.0],
+                    [8400.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v2-mixed-zone-floor-plate.ifc")
+
+    slab = _named_entities(model, "IfcSlab")["Boundary Slab 1"]
+    roof = _named_entities(model, "IfcRoof")["Boundary Roof 1"]
+    _assert_no_style(slab)
+    _assert_no_style(roof)
+
+
+def test_convert_layout_to_ifc_keeps_shared_wall_unstyled_when_zones_differ(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            _base_room(
+                room_id="room-left-01",
+                name="Left Room",
+                x=2100.0,
+                y=1900.0,
+                zone_id="zone-common",
+            ),
+            _base_room(
+                room_id="room-right-01",
+                name="Right Room",
+                room_type="bedroom",
+                x=6300.0,
+                y=1900.0,
+                zone_id="zone-private",
+            ),
+        ],
+        zones=[
+            {
+                "id": "zone-common",
+                "name": "Common",
+                "color": "#FF5733",
+            },
+            {
+                "id": "zone-private",
+                "name": "Private",
+                "color": "#335CFF",
+            },
+        ],
+        adjacency=[
+            {
+                "from_room_id": "room-left-01",
+                "to_room_id": "room-right-01",
+                "strength": 0.8,
+            }
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [8400.0, 0.0],
+                    [8400.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v2-shared-wall-different-zone.ifc")
+
+    shared_wall = _shared_walls(model)["Shared Wall 1-1"]
+    _assert_no_style(shared_wall)
 
 
 def test_convert_layout_to_ifc_dedupes_bidirectional_shared_wall_adjacency(
@@ -1114,3 +1339,54 @@ def test_convert_layout_to_ifc_rejects_v2_missing_top_floor_boundary_for_roof(
 
     with pytest.raises(ValueError, match="missing boundary for roof generation on floor 2"):
         convert_layout_to_ifc(request, tmp_path / "missing-roof-boundary.ifc")
+
+
+def test_convert_layout_to_ifc_reuses_style_assignment_for_same_color(tmp_path: Path) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[_base_room(zone_id="zone-common", x=2100.0, y=1900.0)],
+        zones=[
+            {
+                "id": "zone-common",
+                "name": "Common",
+                "color": "#FF5733",
+            }
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [4200.0, 0.0],
+                    [4200.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "style-reuse.ifc")
+
+    # There are 4 boundary walls, 1 slab, and 1 roof = 6 entities sharing the same color.
+    assert len(model.by_type("IfcWall")) == 4
+    assert len(model.by_type("IfcSlab")) == 1
+    assert len(model.by_type("IfcRoof")) == 1
+
+    # But they should all share the exact same style assignment entity thanks to the cache.
+    assignments = model.by_type("IfcPresentationStyleAssignment")
+    assert len(assignments) == 1
+    
+    # Verify that at least one of these entities actually uses this assignment
+    wall = _named_entities(model, "IfcWall")["Boundary Wall 1-1"]
+    style_ids = [
+        s.id() 
+        for styled_item in _styled_items(_body_item(wall)) 
+        for s in getattr(styled_item, "Styles", [])
+    ]
+    assert assignments[0].id() in style_ids
