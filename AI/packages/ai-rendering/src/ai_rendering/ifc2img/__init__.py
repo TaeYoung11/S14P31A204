@@ -8,6 +8,7 @@ from .style import (
     DepthStyleRenderer,
     DepthStyleRenderOptions,
     DepthStyleResult,
+    resolve_preset_background_params,
     resolve_preset_view_render_options,
 )
 from .views import IFCView, build_view_prompt
@@ -20,6 +21,7 @@ __all__ = [
     "DepthStyleResult",
     "DepthStyleRenderer",
     "DepthStyleRenderOptions",
+    "resolve_preset_background_params",
     "resolve_preset_view_render_options",
     "list_presets",
     "load_preset",

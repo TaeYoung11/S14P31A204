@@ -64,6 +64,24 @@ EYE_BUILDING_MASK_GROUND_SHELL_RATIO = 0.08
 EYE_GROUND_CLASS_RGB = "grass"
 EYE_SEMANTIC_CONTROL_SCALE = 0.25
 EYE_STRONG_SEMANTIC_CONTROL_SCALE = 0.35
+BACKGROUND_INPAINT_NEGATIVE_TERMS = (
+    "pool, water, reflection, mirror floor, white platform, display base, "
+    "model base, extra floor, retaining wall"
+)
+BACKGROUND_PRIORS_BY_PRESET: dict[str, str] = {
+    "korean_house": (
+        "natural Korean residential yard, dry grass, compact paved path, "
+        "flat ground around house, modest daylight background"
+    ),
+    "korean_villa": (
+        "small Korean villa yard, light concrete paving, narrow garden strip, "
+        "flat residential ground, natural daylight background"
+    ),
+    "scandinavian": (
+        "nordic gravel yard, short grass lawn, sparse shrubs, "
+        "flat natural ground around house, soft daylight background"
+    ),
+}
 
 
 @dataclass
@@ -177,6 +195,21 @@ def resolve_preset_view_render_options(
     if view is None:
         return DEFAULT_RENDER_OPTIONS
     return PRESET_VIEW_RENDER_OPTIONS.get((preset_name, view), DEFAULT_RENDER_OPTIONS)
+
+
+def resolve_preset_background_params(preset_name: str) -> DepthStyleParams:
+    """Return preset-specific yard/background params for two-pass inpaint."""
+    prompt = BACKGROUND_PRIORS_BY_PRESET.get(preset_name)
+    if prompt is None:
+        raise IFCRenderError(f"unknown background preset: {preset_name}")
+    return DepthStyleParams(
+        prompt=prompt,
+        negative_prompt=BACKGROUND_INPAINT_NEGATIVE_TERMS,
+        guidance_scale=6.0,
+        num_inference_steps=20,
+        controlnet_conditioning_scale=0.65,
+        seed=7,
+    )
 
 
 @dataclass
