@@ -1173,6 +1173,104 @@ def _create_opening_from_host_wall(
     )
 
 
+def _create_filled_opening_element(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    *,
+    ifc_type: str,
+    name: str,
+    opening: OpeningInput,
+    host_wall: HostWallRegistryEntry,
+    opening_entity: ifcopenshell.entity_instance,
+) -> ifcopenshell.entity_instance:
+    opening_width_m = _mm_to_m(opening.width)
+    opening_height_m = _mm_to_m(opening.height)
+    profile = model.create_entity(
+        "IfcRectangleProfileDef",
+        ProfileType="AREA",
+        XDim=opening_width_m,
+        YDim=host_wall.thickness_m,
+        Position=model.create_entity(
+            "IfcAxis2Placement2D",
+            Location=model.create_entity(
+                "IfcCartesianPoint",
+                Coordinates=(opening_width_m / 2.0, 0.0),
+            ),
+            RefDirection=model.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0)),
+        ),
+    )
+    body = model.create_entity(
+        "IfcExtrudedAreaSolid",
+        SweptArea=profile,
+        Position=_create_axis_placement_3d(model),
+        ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        Depth=opening_height_m,
+    )
+    representation = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=context,
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=[body],
+    )
+    return model.create_entity(
+        ifc_type,
+        GlobalId=ifcopenshell.guid.new(),
+        OwnerHistory=owner_history,
+        Name=name,
+        ObjectPlacement=_create_local_placement(
+            model,
+            relative_to=opening_entity.ObjectPlacement,
+            location=(0.0, 0.0, 0.0),
+        ),
+        Representation=model.create_entity(
+            "IfcProductDefinitionShape",
+            Representations=[representation],
+        ),
+    )
+
+
+def _create_door_for_opening(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    opening: OpeningInput,
+    host_wall: HostWallRegistryEntry,
+    opening_entity: ifcopenshell.entity_instance,
+) -> ifcopenshell.entity_instance:
+    return _create_filled_opening_element(
+        model,
+        owner_history,
+        context,
+        ifc_type="IfcDoor",
+        name=f"Door {opening.id}",
+        opening=opening,
+        host_wall=host_wall,
+        opening_entity=opening_entity,
+    )
+
+
+def _create_window_for_opening(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    opening: OpeningInput,
+    host_wall: HostWallRegistryEntry,
+    opening_entity: ifcopenshell.entity_instance,
+) -> ifcopenshell.entity_instance:
+    return _create_filled_opening_element(
+        model,
+        owner_history,
+        context,
+        ifc_type="IfcWindow",
+        name=f"Window {opening.id}",
+        opening=opening,
+        host_wall=host_wall,
+        opening_entity=opening_entity,
+    )
+
+
 def _create_slab_from_boundary(
     model: ifcopenshell.file,
     owner_history: ifcopenshell.entity_instance,
@@ -1328,6 +1426,39 @@ def _create_v3_openings(
             Name=f"{opening.id}-VoidsHostWall",
             RelatingBuildingElement=host_wall.wall,
             RelatedOpeningElement=opening_entity,
+        )
+        if opening.type is OpeningType.DOOR:
+            filled_element = _create_door_for_opening(
+                model,
+                owner_history,
+                context,
+                opening,
+                host_wall,
+                opening_entity,
+            )
+        else:
+            filled_element = _create_window_for_opening(
+                model,
+                owner_history,
+                context,
+                opening,
+                host_wall,
+                opening_entity,
+            )
+        model.create_entity(
+            "IfcRelFillsElement",
+            GlobalId=ifcopenshell.guid.new(),
+            OwnerHistory=owner_history,
+            Name=f"{opening.id}-FillsOpening",
+            RelatingOpeningElement=opening_entity,
+            RelatedBuildingElement=filled_element,
+        )
+        _contain_in_storey(
+            model,
+            owner_history,
+            filled_element,
+            host_wall.storey,
+            f"{opening.id}-StoreyContainment",
         )
 
 
