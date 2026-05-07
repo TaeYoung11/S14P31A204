@@ -12,14 +12,10 @@ interface BubbleModeCanvasProps {
 
 /** 버블 모드 캔버스 렌더링 전용 컴포넌트 */
 export default function BubbleModeCanvas({ editorProps, scale }: BubbleModeCanvasProps) {
-  const unifiedSitePoints = editorProps.sitePlanPoints.length > 0
-    ? editorProps.sitePlanPoints
-    : editorProps.sitePoints
-
   return (
     <BubbleCanvas
       stageSize={editorProps.stageSize}
-      sitePoints={unifiedSitePoints}
+      sitePoints={editorProps.sitePoints}
       bubbles={editorProps.bubbles}
       connections={editorProps.connections}
       autoZones={editorProps.autoZones}
