@@ -2,6 +2,7 @@ package com.a204.batang.domain.workspace.service;
 
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.service.ProjectAccessService;
+import com.a204.batang.domain.workspace.dto.BubbleUndoRequest;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
 import com.a204.batang.domain.workspace.dto.ProjectSyncResponse;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
@@ -150,6 +151,62 @@ class WorkspaceRealtimeServiceTest {
                 .saveSnapshot(eq(projectId), any(JsonNode.class), anyInt());
 
         assertThatThrownBy(() -> workspaceRealtimeService.updateBubbleDraft(projectId, currentUserId, request))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.WORKSPACE_BUBBLE_HISTORY_CURSOR_INVALID);
+
+        verifyNoInteractions(simpMessagingTemplate);
+    }
+
+    @Test
+    void undoBubbleDraft_loadsPreviousSnapshotAndBroadcastsMessage() throws Exception {
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+        given(workspaceBubbleSnapshotRedisRepository.getBubbleSnapshotHistorySize(projectId)).willReturn(3);
+
+        JsonNode previousSnapshot = new ObjectMapper().readTree("""
+                {
+                  "bubbles": [{"id": "bubble-1"}],
+                  "connections": []
+                }
+                """);
+        given(workspaceBubbleSnapshotRedisRepository.findBubbleSnapshotByIndex(projectId, 1))
+                .willReturn(Optional.of(previousSnapshot));
+
+        workspaceRealtimeService.undoBubbleDraft(projectId, currentUserId, new BubbleUndoRequest(2));
+
+        ArgumentCaptor<ProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(ProjectSyncResponse.class);
+        verify(simpMessagingTemplate)
+                .convertAndSend(eq("/topic/project/%s/sync".formatted(projectId)), responseCaptor.capture());
+
+        ProjectSyncResponse response = responseCaptor.getValue();
+        assertThat(response.action()).isEqualTo("BUBBLE_UNDO");
+        assertThat(response.projectId()).isEqualTo(projectId);
+        assertThat(response.bubbleSnapshotJson()).isEqualTo(previousSnapshot);
+        assertThat(response.updatedAt()).isNotNull();
+    }
+
+    @Test
+    void undoBubbleDraft_throwsCursorInvalidWhenNoPreviousSnapshotExists() {
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+        given(workspaceBubbleSnapshotRedisRepository.getBubbleSnapshotHistorySize(projectId)).willReturn(1);
+
+        assertThatThrownBy(() -> workspaceRealtimeService.undoBubbleDraft(projectId, currentUserId, new BubbleUndoRequest(0)))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.WORKSPACE_BUBBLE_HISTORY_CURSOR_INVALID);
+
+        verifyNoInteractions(simpMessagingTemplate);
+    }
+
+    @Test
+    void undoBubbleDraft_throwsCursorInvalidWhenCursorIsStale() {
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+        given(workspaceBubbleSnapshotRedisRepository.getBubbleSnapshotHistorySize(projectId)).willReturn(3);
+
+        assertThatThrownBy(() -> workspaceRealtimeService.undoBubbleDraft(projectId, currentUserId, new BubbleUndoRequest(1)))
                 .isInstanceOf(CustomException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.WORKSPACE_BUBBLE_HISTORY_CURSOR_INVALID);

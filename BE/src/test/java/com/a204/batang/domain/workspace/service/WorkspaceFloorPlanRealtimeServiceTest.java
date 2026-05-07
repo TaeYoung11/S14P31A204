@@ -1,10 +1,12 @@
 package com.a204.batang.domain.workspace.service;
 
+import com.a204.batang.domain.ifcedit.dto.ChatCommandSceneType;
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
+import com.a204.batang.domain.workspace.dto.FloorPlanUndoRequest;
 import com.a204.batang.domain.workspace.dto.PublishFloorPlanUpdatedRequest;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
@@ -163,6 +165,81 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 .isInstanceOf(CustomException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID);
+    }
+
+    @Test
+    void undoFloorPlanDraft_broadcastsPreviousSnapshotFromRedis() throws Exception {
+        UUID previousRevisionId = UUID.randomUUID();
+        String previousS3Url = "s3://bucket/projects/%s/revisions/%s/ifc/model.v1.ifc".formatted(projectId, previousRevisionId);
+        JsonNode previousSnapshot = objectMapper.readTree("""
+                {
+                  "floorPlanPayloadJson": {
+                    "baseIndex": 1,
+                    "revisionId": "%s",
+                    "bubbles": [{"id": "bubble-1"}],
+                    "connections": []
+                  },
+                  "s3Url": "%s"
+                }
+                """.formatted(previousRevisionId, previousS3Url));
+
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+        given(workspaceBubbleSnapshotRedisRepository.getFloorPlanSnapshotHistorySize(projectId)).willReturn(3);
+        given(workspaceBubbleSnapshotRedisRepository.findFloorPlanSnapshotByIndex(projectId, 1))
+                .willReturn(Optional.of(previousSnapshot));
+
+        workspaceFloorPlanRealtimeService.undoFloorPlanDraft(
+                projectId,
+                currentUserId,
+                new FloorPlanUndoRequest(UUID.randomUUID().toString(), ChatCommandSceneType.TWO_D, 2)
+        );
+
+        ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
+        verify(simpMessagingTemplate).convertAndSend(
+                eq("/topic/project/%s/floor-plan/sync".formatted(projectId)),
+                responseCaptor.capture()
+        );
+
+        FloorPlanProjectSyncResponse response = responseCaptor.getValue();
+        assertThat(response.action()).isEqualTo("FLOOR_PLAN_UNDO");
+        assertThat(response.projectId()).isEqualTo(projectId);
+        assertThat(response.revisionId()).isEqualTo(previousRevisionId.toString());
+        assertThat(response.s3Url()).isEqualTo(previousS3Url);
+        assertThat(response.floorPlanPayloadJson()).isEqualTo(previousSnapshot.get("floorPlanPayloadJson"));
+        assertThat(response.updatedAt()).isNotNull();
+    }
+
+    @Test
+    void undoFloorPlanDraft_throwsCursorInvalidWhenNoPreviousSnapshotExists() {
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+        given(workspaceBubbleSnapshotRedisRepository.getFloorPlanSnapshotHistorySize(projectId)).willReturn(1);
+
+        assertThatThrownBy(() -> workspaceFloorPlanRealtimeService.undoFloorPlanDraft(
+                projectId,
+                currentUserId,
+                new FloorPlanUndoRequest(UUID.randomUUID().toString(), ChatCommandSceneType.THREE_D, 0)
+        ))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID);
+    }
+
+    @Test
+    void undoFloorPlanDraft_throwsCursorInvalidWhenCursorIsStale() {
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+        given(workspaceBubbleSnapshotRedisRepository.getFloorPlanSnapshotHistorySize(projectId)).willReturn(3);
+
+        assertThatThrownBy(() -> workspaceFloorPlanRealtimeService.undoFloorPlanDraft(
+                projectId,
+                currentUserId,
+                new FloorPlanUndoRequest(UUID.randomUUID().toString(), ChatCommandSceneType.THREE_D, 1)
+        ))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID);
     }
 
     @Test

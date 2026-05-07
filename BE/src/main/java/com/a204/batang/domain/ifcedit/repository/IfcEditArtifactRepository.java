@@ -11,4 +11,10 @@ public interface IfcEditArtifactRepository extends JpaRepository<IfcEditArtifact
     Optional<IfcEditArtifact> findByArtifactId(UUID artifactId);
 
     boolean existsByProjectIdAndJobIdAndArtifactType(UUID projectId, UUID jobId, String artifactType);
+
+    Optional<IfcEditArtifact> findTopByProjectIdAndRevisionIdAndArtifactTypeOrderByCreatedAtDescArtifactIdDesc(
+            UUID projectId,
+            UUID revisionId,
+            String artifactType
+    );
 }

@@ -1,6 +1,8 @@
 package com.a204.batang.domain.workspace.controller;
 
+import com.a204.batang.domain.workspace.dto.BubbleUndoRequest;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
+import com.a204.batang.domain.workspace.dto.FloorPlanUndoRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
 import com.a204.batang.domain.workspace.service.WorkspaceFloorPlanRealtimeService;
 import com.a204.batang.domain.workspace.service.WorkspaceRealtimeService;
@@ -54,6 +56,24 @@ public class WorkspaceStompController {
     }
 
     /**
+     * 버블 다이어그램 undo 요청을 처리한다.
+     * 클라이언트 발행 경로: /app/project/{projectId}/bubble/undo
+     *
+     * @param projectId 프로젝트 ID
+     * @param request undo 요청 payload
+     * @param principal STOMP 인증 사용자
+     */
+    @MessageMapping("/project/{projectId}/bubble/undo")
+    public void undoBubble(
+            @DestinationVariable UUID projectId,
+            @Valid BubbleUndoRequest request,
+            Principal principal
+    ) {
+        UUID currentUserId = resolvePrincipalUserIdOrThrow(principal);
+        workspaceRealtimeService.undoBubbleDraft(projectId, currentUserId, request);
+    }
+
+    /**
      * 2D/3D 편집 draft를 실시간 동기화한다.
      * 클라이언트 발행 경로: /app/project/{projectId}/floor-plan/update
      *
@@ -69,6 +89,24 @@ public class WorkspaceStompController {
     ) {
         UUID currentUserId = resolvePrincipalUserIdOrThrow(principal);
         workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
+    }
+
+    /**
+     * 2D/3D 편집 undo 요청을 처리한다.
+     * 클라이언트 발행 경로: /app/project/{projectId}/floor-plan/undo
+     *
+     * @param projectId 프로젝트 ID
+     * @param request undo 요청 payload
+     * @param principal STOMP 인증 사용자
+     */
+    @MessageMapping("/project/{projectId}/floor-plan/undo")
+    public void undoFloorPlan(
+            @DestinationVariable UUID projectId,
+            @Valid FloorPlanUndoRequest request,
+            Principal principal
+    ) {
+        UUID currentUserId = resolvePrincipalUserIdOrThrow(principal);
+        workspaceFloorPlanRealtimeService.undoFloorPlanDraft(projectId, currentUserId, request);
     }
 
     /**
