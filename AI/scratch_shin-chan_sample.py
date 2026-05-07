@@ -268,10 +268,11 @@ def set_color(model: ifcopenshell.file, element, rgb: tuple[float, float, float]
         Side="BOTH",
         Styles=[rendering],
     )
+    assignment = model.create_entity("IfcPresentationStyleAssignment", Styles=[style])
     for representation in element.Representation.Representations:
         if representation.RepresentationIdentifier == "Body":
             for item in representation.Items:
-                model.create_entity("IfcStyledItem", Item=item, Styles=[style])
+                model.create_entity("IfcStyledItem", Item=item, Styles=[assignment])
 
 
 def make_box(model: ifcopenshell.file, owner_history, body_context, box_context, spec: BoxSpec):

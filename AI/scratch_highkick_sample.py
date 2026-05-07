@@ -397,11 +397,12 @@ def set_color(m, element, rgb):
         Side="BOTH",
         Styles=[rendering]
     )
+    assignment = m.create_entity("IfcPresentationStyleAssignment", Styles=[style])
     if element.Representation:
         for rep in element.Representation.Representations:
             if rep.RepresentationIdentifier == "Body":
                 for item in rep.Items:
-                    m.create_entity("IfcStyledItem", Item=item, Styles=[style])
+                    m.create_entity("IfcStyledItem", Item=item, Styles=[assignment])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
