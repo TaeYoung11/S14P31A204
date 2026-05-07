@@ -184,6 +184,19 @@ def test_public_api_exports() -> None:
     assert set(ifc2img.__all__) == expected
 
 
+def test_package_root_does_not_eager_load_renderer() -> None:
+    """Package root import should not require Open3D-backed renderer imports."""
+    import importlib
+    import sys
+
+    from ai_rendering import ifc2img
+
+    sys.modules.pop("ai_rendering.ifc2img.renderer", None)
+    importlib.reload(ifc2img)
+
+    assert "ai_rendering.ifc2img.renderer" not in sys.modules
+
+
 def test_resolve_preset_view_render_options_fixes_korean_villa_candidate() -> None:
     """korean_villa front candidate should be pinned as the selected safe path."""
     front = resolve_preset_view_render_options("korean_villa", IFCView.FRONT)
