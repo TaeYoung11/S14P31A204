@@ -1556,6 +1556,8 @@ def _create_v3_openings(
 ) -> None:
     if not isinstance(request, LayoutImportV3):
         return
+    if not request.generation_options.generate_openings:
+        return
     openings = request.openings or []
     if not openings:
         return
