@@ -89,6 +89,17 @@ def _open_generated_ifc(
     return ifcopenshell.open(str(output))
 
 
+def _convert_request(
+    tmp_path: Path,
+    request: LayoutImportV1 | LayoutImportV2 | LayoutImportV3,
+    filename: str,
+) -> tuple[service_module.LayoutImportNormalizationSummary, ifcopenshell.file]:
+    output = tmp_path / filename
+    summary = convert_layout_to_ifc(request, output)
+    assert output.exists()
+    return summary, ifcopenshell.open(str(output))
+
+
 def _property_sets_by_name(
     entity: ifcopenshell.entity_instance,
 ) -> dict[str, ifcopenshell.entity_instance]:
@@ -1310,11 +1321,14 @@ def test_convert_layout_to_ifc_applies_default_wall_thickness_when_missing(
         },
     )
 
-    model = _open_generated_ifc(tmp_path, request, "missing-wall-default.ifc")
+    summary, model = _convert_request(tmp_path, request, "missing-wall-default.ifc")
 
     wall = _named_entities(model, "IfcWall")["Boundary Wall 1-1"]
     wall_body = _body_item(wall)
     assert wall_body.SweptArea.YDim == pytest.approx(0.2)
+    assert summary.defaultsApplied == {"wall_thickness_mm": 200}
+    assert summary.degradedFeatures == []
+    assert summary.hasWarnings is True
     assert log_calls == [
         (
             "layout_import_modeling_defaults_applied",
@@ -1411,12 +1425,20 @@ def test_convert_layout_to_ifc_disables_boundary_driven_features_when_floor_boun
         },
     )
 
-    model = _open_generated_ifc(tmp_path, request, "missing-wall-boundary.ifc")
+    summary, model = _convert_request(tmp_path, request, "missing-wall-boundary.ifc")
 
     assert len(model.by_type("IfcWall")) == 0
     assert len(model.by_type("IfcSlab")) == 0
     assert len(model.by_type("IfcRoof")) == 0
     assert len(model.by_type("IfcSpace")) == 2
+    assert summary.defaultsApplied == {}
+    assert summary.degradedFeatures == ["generate_walls", "generate_slabs", "generate_roof"]
+    assert summary.missingBoundaryFloors == [2]
+    assert summary.availableBoundaryFloors == [1]
+    assert summary.roomFloors == [1, 2]
+    assert summary.topFloorBoundaryMissing is True
+    assert summary.openingsDisabledBecauseWallsDisabled is False
+    assert summary.hasWarnings is True
     assert log_calls == [
         (
             "layout_import_generation_options_degraded",
@@ -1624,8 +1646,11 @@ def test_convert_layout_to_ifc_generates_v3_explicit_door_and_window_entities(
         ],
     )
 
-    model = _open_generated_ifc(tmp_path, request, "v3-explicit-openings.ifc")
+    summary, model = _convert_request(tmp_path, request, "v3-explicit-openings.ifc")
 
+    assert summary.defaultsApplied == {}
+    assert summary.degradedFeatures == []
+    assert summary.hasWarnings is False
     assert len(model.by_type("IfcWall")) == 5
     assert len(model.by_type("IfcOpeningElement")) == 2
     assert len(model.by_type("IfcDoor")) == 1
@@ -1819,13 +1844,30 @@ def test_convert_layout_to_ifc_disables_openings_when_walls_are_degraded_off(
         ],
     )
 
-    model = _open_generated_ifc(tmp_path, request, "v3-openings-disabled-without-boundaries.ifc")
+    summary, model = _convert_request(
+        tmp_path,
+        request,
+        "v3-openings-disabled-without-boundaries.ifc",
+    )
 
     assert len(model.by_type("IfcSpace")) == 1
     assert len(model.by_type("IfcWall")) == 0
     assert len(model.by_type("IfcOpeningElement")) == 0
     assert len(model.by_type("IfcDoor")) == 0
     assert len(model.by_type("IfcWindow")) == 0
+    assert summary.defaultsApplied == {}
+    assert summary.degradedFeatures == [
+        "generate_walls",
+        "generate_slabs",
+        "generate_roof",
+        "generate_openings",
+    ]
+    assert summary.missingBoundaryFloors == [1]
+    assert summary.availableBoundaryFloors == []
+    assert summary.roomFloors == [1]
+    assert summary.topFloorBoundaryMissing is True
+    assert summary.openingsDisabledBecauseWallsDisabled is True
+    assert summary.hasWarnings is True
     assert log_calls == [
         (
             "layout_import_generation_options_degraded",

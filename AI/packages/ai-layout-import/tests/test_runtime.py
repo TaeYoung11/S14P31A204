@@ -176,6 +176,7 @@ def test_ifc_generate_worker_publishes_completed_event_and_echoes_reserved_refs(
             "steps/001/engine/validation-report.v1.json"
         )
     )
+    assert publisher.events[1].output.hasWarnings is False
     assert (
         storage.binary_uploads[0][0]
         == "projects/project-layout-001/revisions/rev-layout-target-001/ifc/model.v1.ifc"
@@ -195,6 +196,7 @@ def test_ifc_generate_worker_publishes_completed_event_and_echoes_reserved_refs(
     assert report["status"] == "completed"
     assert report["layoutImport"]["schemaVersion"] == "v2"
     assert report["layoutImport"]["roomCount"] == 1
+    assert "warnings" not in report
 
 
 def test_ifc_generate_worker_applies_missing_modeling_defaults_and_completes() -> None:
@@ -226,6 +228,8 @@ def test_ifc_generate_worker_applies_missing_modeling_defaults_and_completes() -
     assert len(publisher.events) == 2
     assert publisher.events[1].status == "completed"
     assert publisher.events[1].error is None
+    assert publisher.events[1].output is not None
+    assert publisher.events[1].output.hasWarnings is True
     assert len(storage.binary_uploads) == 1
     assert (
         storage.text_uploads[0][0]
@@ -241,6 +245,15 @@ def test_ifc_generate_worker_applies_missing_modeling_defaults_and_completes() -
     report = json.loads(storage.text_uploads[0][1])
     assert report["status"] == "completed"
     assert "error" not in report
+    assert report["warnings"] == {
+        "defaultsApplied": {"wall_thickness_mm": 200},
+        "degradedFeatures": [],
+        "missingBoundaryFloors": [],
+        "availableBoundaryFloors": [1],
+        "roomFloors": [1],
+        "topFloorBoundaryMissing": False,
+        "openingsDisabledBecauseWallsDisabled": False,
+    }
 
 
 def test_ifc_generate_worker_accepts_canonical_s3_refs() -> None:
