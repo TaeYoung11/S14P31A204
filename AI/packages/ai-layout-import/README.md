@@ -87,8 +87,19 @@ from ai_layout_import import convert_layout_to_ifc
 ```
 
 ```python
-convert_layout_to_ifc(request, "output/model.ifc")
+summary = convert_layout_to_ifc(request, "output/model.ifc")
 ```
+
+`convert_layout_to_ifc(...)` returns a normalization summary for fail-soft handling:
+
+- `defaultsApplied`
+- `degradedFeatures`
+- `missingBoundaryFloors`
+- `availableBoundaryFloors`
+- `roomFloors`
+- `topFloorBoundaryMissing`
+- `openingsDisabledBecauseWallsDisabled`
+- `hasWarnings`
 
 ## Storage References
 
@@ -102,6 +113,45 @@ Worker storage refs support these formats:
 For local Docker/MinIO, the expected absolute object URL style is path-style:
 
 - `http://minio:9000/<bucket>/<key>`
+
+## Fail-Soft Warning Surfacing
+
+Fail-soft handling is surfaced at three levels:
+
+- logs: full operational detail
+- validation report: detailed `warnings`
+- completed event/output: summary-only `has_warnings`
+
+Completed validation report example:
+
+```json
+{
+  "status": "completed",
+  "warnings": {
+    "defaultsApplied": {
+      "wall_thickness_mm": 200
+    },
+    "degradedFeatures": ["generate_walls"],
+    "missingBoundaryFloors": [2],
+    "availableBoundaryFloors": [1],
+    "roomFloors": [1, 2],
+    "topFloorBoundaryMissing": false,
+    "openingsDisabledBecauseWallsDisabled": true
+  }
+}
+```
+
+Completed worker output example:
+
+```json
+{
+  "storage_url": "projects/project-1/revisions/rev-1/ifc/model.v1.ifc",
+  "validation_report_storage_url": "projects/project-1/jobs/job-1/steps/001/engine/validation-report.v1.json",
+  "has_warnings": true
+}
+```
+
+Failed reports keep the existing error-first shape and do not add `warnings`.
 
 ## CLI
 
