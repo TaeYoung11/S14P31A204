@@ -228,7 +228,7 @@ class SdRenderEventListenerTest {
     void handle_ignoresNonRenderEvent() {
         listener.handle(new SdRenderEventMessage(
                 UUID.randomUUID(),
-                1,
+                "v1",
                 "EVENT",
                 "OTHER_EVENT",
                 "event.other",
@@ -262,7 +262,7 @@ class SdRenderEventListenerTest {
     ) {
         return new SdRenderEventMessage(
                 UUID.randomUUID(),
-                1,
+                "v1",
                 "EVENT",
                 eventType,
                 routingKey,
