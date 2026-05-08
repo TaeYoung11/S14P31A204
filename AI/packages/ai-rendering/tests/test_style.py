@@ -243,7 +243,7 @@ def test_resolve_preset_view_render_options_fixes_korean_house_candidate() -> No
     assert front_diagonal_left.use_front_diagonal_ground_semantic_control is True
     assert front_diagonal_left.use_front_diagonal_ground_plane_control_attenuation is True
     assert front_diagonal_left.front_side_ground_class == "grass"
-    assert front_diagonal_left.front_side_semantic_control_scale == 0.35
+    assert front_diagonal_left.front_side_semantic_control_scale == 0.25
     assert front_diagonal_left.requires_semantic_controlnet is True
 
 

@@ -54,7 +54,6 @@ FRONT_DIAGONAL_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH = 0.18
 FRONT_DIAGONAL_BUILDING_MASK_GROUND_SHELL_RATIO = 0.08
 FRONT_DIAGONAL_GROUND_CLASS_RGB = "grass"
 FRONT_DIAGONAL_SEMANTIC_CONTROL_SCALE = 0.25
-FRONT_DIAGONAL_STRONG_SEMANTIC_CONTROL_SCALE = 0.35
 BACKGROUND_INPAINT_NEGATIVE_TERMS = (
     "pool, water, reflection, mirror floor, white platform, display base, "
     "model base, extra floor, retaining wall"
@@ -165,22 +164,12 @@ KOREAN_HOUSE_FRONT_DIAGONAL_RENDER_OPTIONS = DepthStyleRenderOptions(
     front_side_ground_class=FRONT_DIAGONAL_GROUND_CLASS_RGB,
     front_side_semantic_control_scale=FRONT_DIAGONAL_SEMANTIC_CONTROL_SCALE,
 )
-KOREAN_HOUSE_FRONT_DIAGONAL_STRONG_RENDER_OPTIONS = DepthStyleRenderOptions(
-    use_front_diagonal_ground_semantic_control=True,
-    use_front_diagonal_ground_plane_aware_semantic_control=True,
-    use_front_diagonal_ground_plane_control_attenuation=True,
-    front_side_ground_class=FRONT_DIAGONAL_GROUND_CLASS_RGB,
-    front_side_semantic_control_scale=FRONT_DIAGONAL_STRONG_SEMANTIC_CONTROL_SCALE,
-)
-
 PRESET_VIEW_RENDER_OPTIONS: dict[tuple[str, IFCView], DepthStyleRenderOptions] = {
     ("korean_villa", IFCView.FRONT): KOREAN_VILLA_FRONT_RENDER_OPTIONS,
     ("korean_house", IFCView.FRONT): KOREAN_HOUSE_FRONT_RENDER_OPTIONS,
     ("korean_house", IFCView.SIDE): KOREAN_HOUSE_SIDE_RENDER_OPTIONS,
     ("korean_house", IFCView.FRONT_DIAGONAL_RIGHT): KOREAN_HOUSE_FRONT_DIAGONAL_RENDER_OPTIONS,
-    ("korean_house", IFCView.FRONT_DIAGONAL_LEFT): (
-        KOREAN_HOUSE_FRONT_DIAGONAL_STRONG_RENDER_OPTIONS
-    ),
+    ("korean_house", IFCView.FRONT_DIAGONAL_LEFT): KOREAN_HOUSE_FRONT_DIAGONAL_RENDER_OPTIONS,
 }
 
 
