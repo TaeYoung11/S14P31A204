@@ -500,8 +500,11 @@ def second_floor_specs() -> list[BoxSpec]:
     wall = (0.94, 0.92, 0.84)
     floor = (0.84, 0.78, 0.66)
     rail = (0.45, 0.45, 0.45)
+    terrace_floor = (0.62, 0.60, 0.56)
     z0 = 3400
     wz = z0 + FLOOR_T
+    terrace_floor_t = 50
+    rail_z = wz + terrace_floor_t
     return [
         BoxSpec("IfcSlab", "2F_Slab_Main", 7000, 5000, z0, 6000, 5000, FLOOR_T, floor),
         BoxSpec(
@@ -515,6 +518,17 @@ def second_floor_specs() -> list[BoxSpec]:
             FLOOR_T,
             (0.72, 0.72, 0.72),
         ),
+        BoxSpec(
+            "IfcSlab",
+            "2F_Terrace_Floor",
+            7000,
+            4000,
+            wz,
+            3000,
+            1000,
+            terrace_floor_t,
+            terrace_floor,
+        ),
         BoxSpec("IfcWall", "2F_Ext_W", 7000, 5000, wz, WALL_T, 5000, STOREY_H, wall),
         BoxSpec("IfcWall", "2F_Ext_S", 7000, 5000, wz, 6000, WALL_T, STOREY_H, wall),
         BoxSpec("IfcWall", "2F_Ext_E", 12800, 5000, wz, WALL_T, 5000, STOREY_H, wall),
@@ -523,18 +537,19 @@ def second_floor_specs() -> list[BoxSpec]:
         BoxSpec("IfcWall", "2F_In_Hall_Div", 9800, 5000, wz, WALL_T, 5000, STOREY_H, wall),
         BoxSpec("IfcWall", "2F_In_Closet_1", 11300, 5000, wz, WALL_T, 2000, STOREY_H, wall),
         BoxSpec("IfcWall", "2F_In_Closet_2", 11300, 8000, wz, WALL_T, 2000, STOREY_H, wall),
-        BoxSpec("IfcWall", "2F_Rail_W", 7000, 4000, wz, WALL_T, 1000, 1000, rail),
-        BoxSpec("IfcWall", "2F_Rail_S", 7000, 4000, wz, 3000, WALL_T, 1000, rail),
-        BoxSpec("IfcWall", "2F_Rail_E", 9800, 4000, wz, WALL_T, 1000, 1000, rail),
+        BoxSpec("IfcWall", "2F_Rail_W", 7000, 4000, rail_z, WALL_T, 1000, 1000, rail),
+        BoxSpec("IfcWall", "2F_Rail_S", 7000, 4000, rail_z, 3000, WALL_T, 1000, rail),
+        BoxSpec("IfcWall", "2F_Rail_E", 9800, 4000, rail_z, WALL_T, 1000, 1000, rail),
     ]
 
 
 def roof_specs() -> list[RoofSpec]:
     red = (0.70, 0.18, 0.14)
     return [
-        # 안방 지붕을 남쪽으로 500mm 당겨서(y=5000) 거실 지붕과 완벽하게 맞닿도록 수정
-        RoofSpec("Roof_1F_Anbang", 1500, 5000, 3400, 5500, 5500, 1200, 2750, 2750, 3000, red),
-        RoofSpec("Roof_1F_Living", 5500, 2500, 3400, 4500, 2500, 800, 1000, 3500, 1250, red),
+        RoofSpec("Roof_1F_Anbang", 1500, 4000, 3400, 5500, 6500, 1200, 2750, 2750, 4000, red),
+
+        RoofSpec("Roof_1F_Living", 5500, 2500, 3400, 4500, 1500, 800, 1000, 3500, 750, red),
+
         RoofSpec("Roof_1F_Entrance", 9800, 3500, 3400, 3400, 1500, 800, 500, 2900, 750, red),
         RoofSpec("Roof_2F_Main", 6500, 4500, 6600, 7000, 6000, 1500, 3000, 4000, 3000, red),
     ]
