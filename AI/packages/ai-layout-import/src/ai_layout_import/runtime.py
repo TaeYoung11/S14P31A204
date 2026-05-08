@@ -30,6 +30,7 @@ except Exception:  # pragma: no cover - exercised in local fallback only
 
 _logger = get_logger(__name__)
 _S3_URL_RE = re.compile(r"^s3://[^/]+/(?P<key>.+)$")
+_HTTP_STORAGE_URL_RE = re.compile(r"^https?://[^/]+/[^/]+/(?P<key>.+)$")
 LayoutImportRuntimeRequest = LayoutImportV1 | LayoutImportV2 | LayoutImportV3
 
 
@@ -247,7 +248,12 @@ def _cleanup_temp_file(output_path: Path, job_id: str, idempotency_key: str) -> 
 
 
 def _extract_storage_key(reference: str) -> str:
-    match = _S3_URL_RE.match(reference)
+    if reference.startswith("s3://"):
+        match = _S3_URL_RE.match(reference)
+    elif reference.startswith(("http://", "https://")):
+        match = _HTTP_STORAGE_URL_RE.match(reference)
+    else:
+        match = None
     if match is not None:
         return match.group("key")
     return reference
