@@ -15,10 +15,16 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessageProperties;
 
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -39,6 +45,35 @@ class JobEventOrchestratorTest {
 
     @InjectMocks
     private JobEventOrchestrator jobEventOrchestrator;
+
+    @Test
+    void consume_ignoresMalformedPayloadWithoutDispatch() {
+        Message message = new Message("not-json".getBytes(StandardCharsets.UTF_8), new MessageProperties());
+
+        jobEventOrchestrator.consume(message);
+
+        verify(floorPlanGenerateEventListener, never()).handle(any(FloorPlanGenerateEventMessage.class));
+        verify(sdRenderEventListener, never()).handle(any(SdRenderEventMessage.class));
+        verify(ifcEditEventDispatcher, never()).handle(any(IfcEditEventMessage.class));
+    }
+
+    @Test
+    void consume_propagatesDomainException() {
+        Message message = jsonMessage("""
+                {
+                  "event_type": "IFC_GENERATE_FROM_BUBBLE_STARTED",
+                  "job_id": "%s",
+                  "job_step_id": "%s"
+                }
+                """.formatted(UUID.randomUUID(), UUID.randomUUID()));
+        doThrow(new RuntimeException("boom"))
+                .when(floorPlanGenerateEventListener)
+                .handle(any(FloorPlanGenerateEventMessage.class));
+
+        assertThatThrownBy(() -> jobEventOrchestrator.consume(message))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("boom");
+    }
 
     @Test
     void handle_ifcGenerateEvent_routesToFloorPlanHandlerOnly() throws Exception {
@@ -76,9 +111,9 @@ class JobEventOrchestratorTest {
 
         jobEventOrchestrator.handle(payload);
 
-        verify(floorPlanGenerateEventListener).handle(org.mockito.ArgumentMatchers.any(FloorPlanGenerateEventMessage.class));
-        verify(sdRenderEventListener, never()).handle(org.mockito.ArgumentMatchers.any(SdRenderEventMessage.class));
-        verify(ifcEditEventDispatcher, never()).handle(org.mockito.ArgumentMatchers.any(IfcEditEventMessage.class));
+        verify(floorPlanGenerateEventListener).handle(any(FloorPlanGenerateEventMessage.class));
+        verify(sdRenderEventListener, never()).handle(any(SdRenderEventMessage.class));
+        verify(ifcEditEventDispatcher, never()).handle(any(IfcEditEventMessage.class));
     }
 
     @Test
@@ -105,7 +140,7 @@ class JobEventOrchestratorTest {
                   "source_revision_id": "%s",
                   "output_artifact_id": "%s",
                   "status": "failed",
-                  "progress": 60,
+                  "progress": 0.6,
                   "error": {
                     "code": "SD_RENDER_FAILED",
                     "message": "worker crashed",
@@ -131,8 +166,8 @@ class JobEventOrchestratorTest {
 
         ArgumentCaptor<SdRenderEventMessage> captor = ArgumentCaptor.forClass(SdRenderEventMessage.class);
         verify(sdRenderEventListener).handle(captor.capture());
-        verify(floorPlanGenerateEventListener, never()).handle(org.mockito.ArgumentMatchers.any(FloorPlanGenerateEventMessage.class));
-        verify(ifcEditEventDispatcher, never()).handle(org.mockito.ArgumentMatchers.any(IfcEditEventMessage.class));
+        verify(floorPlanGenerateEventListener, never()).handle(any(FloorPlanGenerateEventMessage.class));
+        verify(ifcEditEventDispatcher, never()).handle(any(IfcEditEventMessage.class));
 
         SdRenderEventMessage event = captor.getValue();
         assertThat(event.eventType()).isEqualTo("SD_RENDER_FAILED");
@@ -140,6 +175,7 @@ class JobEventOrchestratorTest {
         assertThat(event.jobStepId()).isEqualTo(jobStepId);
         assertThat(event.projectId()).isEqualTo(projectId);
         assertThat(event.schemaVersion()).isEqualTo("v1");
+        assertThat(event.progress()).isEqualTo(0.6d);
         assertThat(event.error()).isNotNull();
         assertThat(event.error().clarificationPossible()).isFalse();
         assertThat(event.error().detailStorageUrl()).isEqualTo("s3://detail.json");
@@ -184,9 +220,9 @@ class JobEventOrchestratorTest {
 
         jobEventOrchestrator.handle(payload);
 
-        verify(ifcEditEventDispatcher).handle(org.mockito.ArgumentMatchers.any(IfcEditEventMessage.class));
-        verify(floorPlanGenerateEventListener, never()).handle(org.mockito.ArgumentMatchers.any(FloorPlanGenerateEventMessage.class));
-        verify(sdRenderEventListener, never()).handle(org.mockito.ArgumentMatchers.any(SdRenderEventMessage.class));
+        verify(ifcEditEventDispatcher).handle(any(IfcEditEventMessage.class));
+        verify(floorPlanGenerateEventListener, never()).handle(any(FloorPlanGenerateEventMessage.class));
+        verify(sdRenderEventListener, never()).handle(any(SdRenderEventMessage.class));
     }
 
     @Test
@@ -221,9 +257,9 @@ class JobEventOrchestratorTest {
 
         jobEventOrchestrator.handle(payload);
 
-        verify(ifcEditEventDispatcher).handle(org.mockito.ArgumentMatchers.any(IfcEditEventMessage.class));
-        verify(floorPlanGenerateEventListener, never()).handle(org.mockito.ArgumentMatchers.any(FloorPlanGenerateEventMessage.class));
-        verify(sdRenderEventListener, never()).handle(org.mockito.ArgumentMatchers.any(SdRenderEventMessage.class));
+        verify(ifcEditEventDispatcher).handle(any(IfcEditEventMessage.class));
+        verify(floorPlanGenerateEventListener, never()).handle(any(FloorPlanGenerateEventMessage.class));
+        verify(sdRenderEventListener, never()).handle(any(SdRenderEventMessage.class));
     }
 
     @Test
@@ -268,9 +304,9 @@ class JobEventOrchestratorTest {
 
         jobEventOrchestrator.handle(payload);
 
-        verify(ifcEditEventDispatcher).handle(org.mockito.ArgumentMatchers.any(IfcEditEventMessage.class));
-        verify(floorPlanGenerateEventListener, never()).handle(org.mockito.ArgumentMatchers.any(FloorPlanGenerateEventMessage.class));
-        verify(sdRenderEventListener, never()).handle(org.mockito.ArgumentMatchers.any(SdRenderEventMessage.class));
+        verify(ifcEditEventDispatcher).handle(any(IfcEditEventMessage.class));
+        verify(floorPlanGenerateEventListener, never()).handle(any(FloorPlanGenerateEventMessage.class));
+        verify(sdRenderEventListener, never()).handle(any(SdRenderEventMessage.class));
     }
 
     @Test
@@ -285,8 +321,12 @@ class JobEventOrchestratorTest {
 
         jobEventOrchestrator.handle(payload);
 
-        verify(floorPlanGenerateEventListener, never()).handle(org.mockito.ArgumentMatchers.any(FloorPlanGenerateEventMessage.class));
-        verify(sdRenderEventListener, never()).handle(org.mockito.ArgumentMatchers.any(SdRenderEventMessage.class));
-        verify(ifcEditEventDispatcher, never()).handle(org.mockito.ArgumentMatchers.any(IfcEditEventMessage.class));
+        verify(floorPlanGenerateEventListener, never()).handle(any(FloorPlanGenerateEventMessage.class));
+        verify(sdRenderEventListener, never()).handle(any(SdRenderEventMessage.class));
+        verify(ifcEditEventDispatcher, never()).handle(any(IfcEditEventMessage.class));
+    }
+
+    private Message jsonMessage(String payload) {
+        return new Message(payload.getBytes(StandardCharsets.UTF_8), new MessageProperties());
     }
 }
