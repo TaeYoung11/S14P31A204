@@ -15,6 +15,8 @@ from types import ModuleType
 
 import pytest
 
+from ai_rendering.ifc2img.service import DEFAULT_CONTROLNET_SEG_ID
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 
@@ -301,7 +303,7 @@ def test_ifc_to_styled_creates_semantic_renderer_only_when_needed() -> None:
     assert depth_renderer.kwargs == {}
     assert semantic_mode == "depth+semantic"
     assert semantic_renderer.kwargs == {
-        "semantic_controlnet_model_id": m.DEFAULT_CONTROLNET_SEG_ID
+        "semantic_controlnet_model_id": DEFAULT_CONTROLNET_SEG_ID
     }
 
 
@@ -339,7 +341,10 @@ def test_ifc_to_styled_render_depths_can_enable_auto_zoom(
     expected_overrides = {
         m.IFCView.FRONT_DIAGONAL_RIGHT: 0.25,
         m.IFCView.FRONT_DIAGONAL_LEFT: 0.25,
-        
+    }
+    expected_ground_overrides = {
+        m.IFCView.FRONT_DIAGONAL_RIGHT: 1.05,
+        m.IFCView.FRONT_DIAGONAL_LEFT: 1.05,
     }
     assert inits == [
         {
@@ -348,7 +353,7 @@ def test_ifc_to_styled_render_depths_can_enable_auto_zoom(
             "auto_zoom": m.AutoZoomMode.ITERATIVE,
             "iter_tolerance": 0.05,
             "view_target_overrides": expected_overrides,
-            "view_ground_extent_overrides": {},
+            "view_ground_extent_overrides": expected_ground_overrides,
         }
     ]
     assert paths[m.IFCView.FRONT_DIAGONAL_RIGHT].name == "depth_front_diagonal_right.png"
@@ -467,7 +472,7 @@ def test_ifc_to_styled_render_styles_passes_resolved_options(
 
     assert len(calls) == 4
     assert {} in renderer_inits
-    assert {"semantic_controlnet_model_id": m.DEFAULT_CONTROLNET_SEG_ID} in renderer_inits
+    assert {"semantic_controlnet_model_id": DEFAULT_CONTROLNET_SEG_ID} in renderer_inits
 
     korean_front = next(
         c
@@ -483,12 +488,12 @@ def test_ifc_to_styled_render_styles_passes_resolved_options(
     ]
 
     assert korean_front["renderer_kwargs"] == {
-        "semantic_controlnet_model_id": m.DEFAULT_CONTROLNET_SEG_ID
+        "semantic_controlnet_model_id": DEFAULT_CONTROLNET_SEG_ID
     }
     assert korean_front["front_side_ground_class"] == "neutral"
     assert korean_front["front_side_semantic_control_scale"] == 0.35
     assert korean_side["renderer_kwargs"] == {
-        "semantic_controlnet_model_id": m.DEFAULT_CONTROLNET_SEG_ID
+        "semantic_controlnet_model_id": DEFAULT_CONTROLNET_SEG_ID
     }
     assert korean_side["front_side_ground_class"] == "neutral"
     assert korean_side["front_side_semantic_control_scale"] == 0.35
