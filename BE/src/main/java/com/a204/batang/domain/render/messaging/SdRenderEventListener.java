@@ -64,7 +64,6 @@ public class SdRenderEventListener {
     /**
      * sd-render 외 event는 무시하고, render event만 상태 전이 처리한다.
      */
-    @RabbitListener(queues = RabbitMqConfig.BE_JOB_EVENTS_QUEUE)
     @Transactional
     public void handle(SdRenderEventMessage event) {
         if (event == null || event.eventType() == null) {
@@ -405,11 +404,14 @@ public class SdRenderEventListener {
         eventPublisher.publishEvent(new RenderStatusChangedEvent(projectId, eventName, payload));
     }
 
-    private Integer safeProgress(Integer progress, Integer fallback) {
+    private Integer safeProgress(Double progress, Integer fallback) {
         if (progress == null) {
             return fallback;
         }
-        return Math.max(0, Math.min(progress, 100));
+
+        double normalized = progress <= 1.0d ? progress * 100.0d : progress;
+        int resolved = (int) Math.round(normalized);
+        return Math.max(0, Math.min(resolved, 100));
     }
 
     /**

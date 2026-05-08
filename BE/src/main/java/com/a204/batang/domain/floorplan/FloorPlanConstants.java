@@ -13,6 +13,7 @@ public final class FloorPlanConstants {
     public static final String COMMAND_ROUTING_KEY_IFC_GENERATE_FROM_BUBBLE = "command.ifc-generate.from-bubble";
     public static final String COMMAND_BINDING_PATTERN_IFC_GENERATE = "command.ifc-generate.*";
 
+    public static final String EVENT_PREFIX_IFC_GENERATE_FROM_BUBBLE = "IFC_GENERATE_FROM_BUBBLE_";
     public static final String EVENT_TYPE_IFC_GENERATE_STARTED = "IFC_GENERATE_FROM_BUBBLE_STARTED";
     public static final String EVENT_TYPE_IFC_GENERATE_PROGRESS = "IFC_GENERATE_FROM_BUBBLE_PROGRESS";
     public static final String EVENT_TYPE_IFC_GENERATE_COMPLETED = "IFC_GENERATE_FROM_BUBBLE_COMPLETED";
