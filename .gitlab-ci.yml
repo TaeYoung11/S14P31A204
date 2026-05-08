@@ -141,7 +141,7 @@ ai:test:
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0
     - cd AI
-    - # 프로젝트 기본 의존성에 test 그룹을 추가 설치해 workspace imports를 보장
+    # 프로젝트 기본 의존성에 test 그룹을 추가 설치해 workspace imports를 보장
     - uv sync --locked --group test
   script:
     - uv run pytest
