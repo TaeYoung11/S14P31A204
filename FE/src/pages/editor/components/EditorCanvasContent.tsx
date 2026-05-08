@@ -1,18 +1,12 @@
-import { Suspense, useState } from 'react'
+import { Suspense } from 'react'
 import { ModeCanvasLoadingFallback } from '@/features/editor/components/shared/EditorLoadingFallbacks'
 import type { EditorCanvasContentProps, EditorCanvasRenderProps } from '../types/editorCanvasContentProps'
+import { useEditorCanvasContentSections } from '../hooks/useEditorCanvasContentSections'
 import CanvasCollaborationBar from './canvas-content/CanvasCollaborationBar'
 import CanvasLabelOverlay from './canvas-content/CanvasLabelOverlay'
 import CanvasModeRenderer from './canvas-content/CanvasModeRenderer'
 import CanvasTwoDLeftPanels from './canvas-content/CanvasTwoDLeftPanels'
 import CanvasZoomControls from './canvas-content/CanvasZoomControls'
-import {
-  buildCanvasCollaborationBarSectionProps,
-  buildCanvasLabelOverlaySectionProps,
-  buildCanvasModeRendererSectionProps,
-  buildCanvasTwoDLeftPanelsSectionProps,
-  buildCanvasZoomControlsSectionProps,
-} from './canvas-content/buildCanvasSectionProps'
 
 /**
  * 에디터 중앙 캔버스 영역 조합 컴포넌트
@@ -21,17 +15,14 @@ import {
 export default function EditorCanvasContent(props: EditorCanvasContentProps) {
   const { containerRef, ...canvasRenderProps } = props
   const renderProps: EditorCanvasRenderProps = canvasRenderProps
-  const [isRotationLocked, setIsRotationLocked] = useState(false)
-  const isViewMode = renderProps.mode === 'view'
-  const modeRendererSectionProps = buildCanvasModeRendererSectionProps(renderProps, isRotationLocked)
-  const labelOverlaySectionProps = buildCanvasLabelOverlaySectionProps(renderProps)
-  const twoDLeftPanelsSectionProps = buildCanvasTwoDLeftPanelsSectionProps(renderProps)
-  const zoomControlsSectionProps = buildCanvasZoomControlsSectionProps(
-    renderProps,
-    isRotationLocked,
-    () => setIsRotationLocked((prev) => !prev),
-  )
-  const collaborationBarSectionProps = buildCanvasCollaborationBarSectionProps(renderProps)
+  const {
+    isViewMode,
+    modeRendererSectionProps,
+    labelOverlaySectionProps,
+    twoDLeftPanelsSectionProps,
+    zoomControlsSectionProps,
+    collaborationBarSectionProps,
+  } = useEditorCanvasContentSections(renderProps)
 
   return (
     <main

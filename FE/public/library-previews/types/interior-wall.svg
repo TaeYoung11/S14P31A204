@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240" viewBox="0 0 640 240">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#D8DEE9"/>
+      <stop offset="100%" stop-color="#B8C2D3"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="240" rx="28" fill="url(#g)"/>
+  <!-- 내벽 패널 (매끄러운 드라이월 표면) -->
+  <rect x="152" y="46" width="336" height="158" rx="14" fill="#FAFBFF" opacity="0.97"/>
+  <!-- 걸레받이 -->
+  <rect x="152" y="186" width="336" height="18" rx="8" fill="#C8D4E8"/>
+  <!-- 드라이월 수평 줄눈 -->
+  <rect x="164" y="118" width="312" height="4" rx="2" fill="#D4DDF0" opacity="0.7"/>
+</svg>

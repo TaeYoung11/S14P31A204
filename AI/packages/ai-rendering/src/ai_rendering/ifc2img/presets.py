@@ -45,14 +45,14 @@ _NEGATIVE_BASE = (
 _PRESETS: dict[str, DepthStyleParams] = {
     "scandinavian": DepthStyleParams(
         prompt=(
-            "RAW photo, scandinavian modern house exterior at ground level, "
-            "white concrete facade, large panoramic windows, flat roof, "
-            "clean minimal architecture, nordic design, "
-            "8k uhd, DSLR, sharp focus, architectural photography, "
-            "no floor below ground"
+            "RAW photo, outdoor daylight, white concrete facade, "
+            "large windows, flat roof, minimal Scandinavian house, "
+            "flat ground touches facade, no lower floor, no foreground wall"
         ),
         negative_prompt=(
-            f"{_NEGATIVE_BASE}, dark moody"
+            "low quality, cgi, render, cartoon, text, watermark, interior, "
+            "basement, extra floor, stone wall, retaining wall, foreground wall, "
+            "raised platform, podium, balcony, dark moody"
         ),
         guidance_scale=7.0,
         num_inference_steps=25,
@@ -61,14 +61,15 @@ _PRESETS: dict[str, DepthStyleParams] = {
     ),
     "korean_villa": DepthStyleParams(
         prompt=(
-            "RAW photo, korean residential villa exterior at ground level, "
-            "brick facade with concrete trim, ceramic tile roof, "
-            "small balconies, modern korean street view, "
-            "8k uhd, DSLR, sharp focus, architectural photography, "
-            "no floor below ground"
+            "RAW photo, outdoor daylight, white concrete facade, "
+            "open flat paved ground in front, minimal Korean house, "
+            "subtle brick trim, simple tile roof, ground touches facade, "
+            "no balcony, no foreground wall"
         ),
         negative_prompt=(
-            f"{_NEGATIVE_BASE}, rural, cottage, log cabin"
+            "low quality, cgi, render, interior, basement, extra floor, "
+            "stone wall, retaining wall, fence, raised platform, podium, "
+            "piloti, balcony, shopfront, blue wall, black facade, wood cladding"
         ),
         guidance_scale=7.0,
         num_inference_steps=25,
@@ -77,14 +78,16 @@ _PRESETS: dict[str, DepthStyleParams] = {
     ),
     "korean_house": DepthStyleParams(
         prompt=(
-            "RAW photo, korean modern detached house exterior at ground level, "
-            "concrete walls with brick accent, tiled roof, "
-            "suburban korean neighborhood, "
-            "8k uhd, DSLR, sharp focus, architectural photography, "
-            "no floor below ground"
+            "RAW photo, outdoor daylight, white concrete facade, "
+            "open flat paved ground in front, simple Korean house, "
+            "simple tile roof, subtle brick trim, ground touches facade, "
+            "no balcony, no foreground wall"
         ),
         negative_prompt=(
-            f"{_NEGATIVE_BASE}, rural, log cabin, japanese style"
+            "low quality, cgi, render, interior, basement, extra floor, "
+            "stone wall, brick wall, concrete wall, retaining wall, "
+            "foreground wall, fence, raised platform, podium, piloti, "
+            "balcony, shopfront, blue wall, black facade, wood cladding"
         ),
         guidance_scale=7.0,
         num_inference_steps=25,

@@ -1,6 +1,12 @@
+/**
+ * ifcLibraryMesh — 3D 라이브러리 프리셋 메시 생성 및 메타데이터 관리
+ *
+ * 라이브러리 패널에서 선택된 프리셋을 Three.js Group으로 생성하고,
+ * userData에 프리셋 정보·기본 치수·월드 크기를 저장해 편집 시 참조할 수 있도록 한다.
+ */
 import type { Object3D } from 'three'
 import type { IfcElementInfo } from '../../../types'
-import type { ThreeDLibraryPreset } from '../ThreeDLibraryPanel'
+import type { ThreeDLibraryPreset } from '../threeDLibrary.types'
 import {
   DEFAULT_LIBRARY_MATERIAL_BY_TYPE,
   PROJECT_WORLD_UNITS_PER_MM,
@@ -38,8 +44,14 @@ const CATEGORY_BY_LIBRARY_TYPE: Record<ThreeDLibraryPreset['type'], string> = {
   stairs: 'Stairs',
   column: 'Column',
   floor: 'Floor',
+  ceiling: 'Ceiling',
+  furniture: 'Furniture',
 }
 
+/**
+ * 프리셋의 dimensions 문자열 또는 직접 지정된 치수값을 파싱해 mm 단위 크기를 반환한다.
+ * 타입별로 치수 해석 방식이 다르다 (예: column은 높이가 세 번째 값).
+ */
 export const parsePresetDimensions = (preset: ThreeDLibraryPreset) => {
   const values = preset.dimensions.match(/\d+/g)?.map(Number) ?? []
 
@@ -106,6 +118,10 @@ const getPresetWorldScale = (
     : 1,
 })
 
+/**
+ * 클릭된 오브젝트에서 presetGroup의 직접 자식(라이브러리 루트)을 찾아 반환한다.
+ * 부모 체인을 타고 올라가며 presetGroup에 직접 속한 노드를 찾는다.
+ */
 export const findLibraryRoot = (object: Object3D, presetGroup: import('three').Group): LibraryObject3D | null => {
   let cursor: LibraryObject3D | null = object as LibraryObject3D
   while (cursor) {
@@ -115,6 +131,10 @@ export const findLibraryRoot = (object: Object3D, presetGroup: import('three').G
   return null
 }
 
+/**
+ * 라이브러리 오브젝트의 userData에서 IfcElementInfo 형태의 정보를 추출한다.
+ * 어트리뷰트 패널에서 라이브러리 요소를 IFC 요소와 동일한 방식으로 표시할 때 사용한다.
+ */
 export const getLibraryElementInfo = (object: LibraryObject3D): IfcElementInfo | null => {
   const preset = object.userData?.libraryPreset
   if (!preset) return null
@@ -145,6 +165,12 @@ export const getLibraryElementInfo = (object: LibraryObject3D): IfcElementInfo |
   }
 }
 
+/**
+ * 프리셋 데이터를 기반으로 Three.js Group 메시를 생성한다.
+ * - 프리셋 타입에 따라 기하학적 형태(박스, 실린더, 커스텀)를 구성한다.
+ * - 생성된 그룹에 치수 스케일을 적용하고 격자 배치(column, row)로 위치를 설정한다.
+ * - userData에 libraryPreset, libraryBaseDimensions, libraryBaseWorldSize를 저장한다.
+ */
 export const createPresetMesh = (
   THREE: ThreeModule,
   preset: ThreeDLibraryPreset,
@@ -246,6 +272,46 @@ export const createPresetMesh = (
       ? new THREE.CylinderGeometry(0.22, 0.22, 2.2, 24)
       : new THREE.BoxGeometry(0.38, 2.2, 0.38)
     group.add(new THREE.Mesh(column, material))
+  } else if (preset.type === 'ceiling') {
+    group.add(new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.1, 2.1), material))
+  } else if (preset.type === 'furniture') {
+    if (preset.id.includes('sofa')) {
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.45, 0.9), material)
+      const back = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.45, 0.22), material)
+      const armLeft = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.45, 0.9), material)
+      const armRight = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.45, 0.9), material)
+      back.position.set(0, 0.42, -0.34)
+      armLeft.position.set(-0.94, 0, 0)
+      armRight.position.set(0.94, 0, 0)
+      group.add(seat, back, armLeft, armRight)
+    } else if (preset.id.includes('dining-table')) {
+      const top = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.08, 0.8), material)
+      const legGeometry = new THREE.BoxGeometry(0.08, 0.68, 0.08)
+      const legOffsets: Array<[number, number]> = [
+        [-0.62, -0.32],
+        [0.62, -0.32],
+        [-0.62, 0.32],
+        [0.62, 0.32],
+      ]
+      const legs = legOffsets.map(([x, z]) => {
+        const leg = new THREE.Mesh(legGeometry, darkMaterial)
+        leg.position.set(x, -0.38, z)
+        return leg
+      })
+      group.add(top, ...legs)
+    } else if (preset.id.includes('bed')) {
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.28, 2.0), material)
+      const pillow = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 0.4), new THREE.MeshStandardMaterial({ color: '#F6F5F3', roughness: 0.9 }))
+      pillow.position.set(0, 0.2, -0.72)
+      group.add(frame, pillow)
+    } else if (preset.id.includes('wardrobe')) {
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.8, 2.2, 0.6), material)
+      const line = new THREE.Mesh(new THREE.BoxGeometry(0.02, 2.0, 0.62), darkMaterial)
+      line.position.set(0, 0, 0)
+      group.add(body, line)
+    } else {
+      group.add(new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.8, 0.8), material))
+    }
   } else {
     group.add(new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.14, 2.1), material))
   }
@@ -302,8 +368,13 @@ export const createPresetMesh = (
   return group
 }
 
+/** 라이브러리 오브젝트의 userData에서 ThreeDLibraryPreset을 꺼낸다. */
 export const getLibraryPresetFromObject = (object: LibraryObject3D) => object.userData?.libraryPreset
 
+/**
+ * 오브젝트 트리 전체를 순회하며 libraryPreset userData를 patch로 업데이트한다.
+ * 색상·재질·치수 변경 시 씬 오브젝트와 React 상태를 동기화하는 데 사용된다.
+ */
 export const updateLibraryPresetData = (
   object: Object3D,
   patch: Partial<ThreeDLibraryPreset>,

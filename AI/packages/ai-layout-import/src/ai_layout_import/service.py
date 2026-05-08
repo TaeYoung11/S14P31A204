@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 import ifcopenshell
@@ -17,6 +18,7 @@ from ai_domain import (
     LayoutImportV2,
     LayoutImportV3,
     OpeningInput,
+    OpeningType,
     RoomInput,
     RoofShape,
     ZoneInput,
@@ -29,6 +31,18 @@ SharedWallSegment = tuple[int, RoomEdgeMm]
 StyleAssignmentCache = dict[str, ifcopenshell.entity_instance]
 LayoutImportRequestModel = LayoutImportV1 | LayoutImportV2 | LayoutImportV3
 LayoutImportGenerationRequest = LayoutImportV2 | LayoutImportV3
+
+
+@dataclass(frozen=True)
+class HostWallRegistryEntry:
+    wall: ifcopenshell.entity_instance
+    storey: ifcopenshell.entity_instance
+    floor: int
+    segment_mm: RoomEdgeMm
+    thickness_m: float
+
+
+HostWallRegistry = dict[str, HostWallRegistryEntry]
 
 
 def convert_layout_to_ifc(
@@ -45,15 +59,27 @@ def convert_layout_to_ifc(
     zones = _create_zones(model, owner_history, request)
     _attach_project_metadata_property_set(model, owner_history, project, request)
     _attach_storey_metadata_property_sets(model, owner_history, storeys, request)
-    _create_v2_walls(model, owner_history, context, request, storeys, style_cache)
-    _create_v2_shared_walls(
+    host_wall_registry: HostWallRegistry = {}
+    host_wall_registry.update(
+        _create_v2_walls(model, owner_history, context, request, storeys, style_cache)
+    )
+    host_wall_registry.update(
+        _create_v2_shared_walls(
+            model,
+            owner_history,
+            context,
+            request,
+            storeys,
+            shared_wall_segments,
+            style_cache,
+        )
+    )
+    _create_v3_openings(
         model,
         owner_history,
         context,
         request,
-        storeys,
-        shared_wall_segments,
-        style_cache,
+        host_wall_registry,
     )
     _create_v2_slabs(model, owner_history, context, request, storeys, style_cache)
     _create_v2_roof(model, owner_history, context, request, storeys, style_cache)
@@ -742,28 +768,34 @@ def _create_v2_walls(
     request: LayoutImportRequestModel,
     storeys: dict[int, ifcopenshell.entity_instance],
     style_cache: StyleAssignmentCache,
-) -> None:
+) -> HostWallRegistry:
     if (
         not isinstance(request, (LayoutImportV2, LayoutImportV3))
         or not request.generation_options.generate_walls
     ):
-        return
+        return {}
 
     if request.generation_policy.boundary_wall_mode is not BoundaryWallMode.OUTER_BOUNDARY:
         raise ValueError("wall generation requires boundary_wall_mode=outer_boundary")
 
     if request.boundaries is None or request.modeling_defaults is None:
-        return
+        return {}
 
     wall_thickness_m = _mm_to_m(request.modeling_defaults.wall_thickness_mm or 0)
     wall_height_m = _effective_space_height_m(request)
+    registry: HostWallRegistry = {}
 
     for boundary in request.boundaries:
         storey = storeys.get(boundary.floor)
         if storey is None:
             continue
-        for segment_index, (boundary_edge_mm, boundary_segment_m) in enumerate(
-            zip(_boundary_segments_mm(boundary), _boundary_segments_m(boundary), strict=True),
+        for segment_index, (boundary_edge_mm, boundary_segment_m, oriented_edge_mm) in enumerate(
+            zip(
+                _boundary_segments_mm(boundary),
+                _boundary_segments_m(boundary),
+                _boundary_segments_oriented_mm(boundary),
+                strict=True,
+            ),
             start=1,
         ):
             zone_color = _zone_color_for_boundary_wall(request, boundary.floor, boundary_edge_mm)
@@ -787,6 +819,14 @@ def _create_v2_walls(
                 storey,
                 f"wall-boundary-{boundary.floor}-seg-{segment_index}-StoreyContainment",
             )
+            registry[f"wall-boundary-{boundary.floor}-seg-{segment_index}"] = HostWallRegistryEntry(
+                wall=wall,
+                storey=storey,
+                floor=boundary.floor,
+                segment_mm=oriented_edge_mm,
+                thickness_m=wall_thickness_m,
+            )
+    return registry
 
 
 def _create_v2_slabs(
@@ -839,9 +879,9 @@ def _create_v2_shared_walls(
     storeys: dict[int, ifcopenshell.entity_instance],
     shared_wall_segments: list[SharedWallSegment],
     style_cache: StyleAssignmentCache,
-) -> None:
+) -> HostWallRegistry:
     if not shared_wall_segments:
-        return
+        return {}
 
     if not isinstance(request, (LayoutImportV2, LayoutImportV3)):
         raise TypeError("shared walls generation requires a V2 or V3 request")
@@ -860,6 +900,8 @@ def _create_v2_shared_walls(
         ),
     )
     floor_indices: dict[int, int] = {}
+    refs_by_segment_key = _shared_host_wall_refs_by_segment_key(request)
+    registry: HostWallRegistry = {}
 
     for floor, edge in shared_segments:
         storey = storeys.get(floor)
@@ -888,6 +930,16 @@ def _create_v2_shared_walls(
             storey,
             f"shared-wall-{floor}-{segment_index}-StoreyContainment",
         )
+        entry = HostWallRegistryEntry(
+            wall=wall,
+            storey=storey,
+            floor=floor,
+            segment_mm=edge,
+            thickness_m=wall_thickness_m,
+        )
+        for reference in refs_by_segment_key.get(_shared_segment_key((floor, edge)), ()):
+            registry[reference] = entry
+    return registry
 
 
 def _create_v2_roof(
@@ -957,6 +1009,15 @@ def _boundary_segments_mm(boundary: BoundaryInput) -> list[RoomEdgeMm]:
     ]
 
 
+def _boundary_segments_oriented_mm(boundary: BoundaryInput) -> list[RoomEdgeMm]:
+    polygon = boundary.polygon_mm or boundary.outer_polygon_mm
+    assert polygon is not None
+    return [
+        (start_point, polygon[(index + 1) % len(polygon)])
+        for index, start_point in enumerate(polygon)
+    ]
+
+
 def _boundary_polygon_points_m(boundary: BoundaryInput) -> list[tuple[float, float]]:
     polygon = boundary.polygon_mm or boundary.outer_polygon_mm
     assert polygon is not None
@@ -968,6 +1029,27 @@ def _top_floor_boundary(request: LayoutImportGenerationRequest) -> BoundaryInput
         return None
     top_floor = max(room.floor for room in request.rooms)
     return next((boundary for boundary in request.boundaries if boundary.floor == top_floor), None)
+
+
+def _shared_host_wall_refs_by_segment_key(
+    request: LayoutImportGenerationRequest,
+) -> dict[tuple[int, Point2DMm, Point2DMm], set[str]]:
+    boundary_edges = _boundary_edge_set_mm(request.boundaries or [])
+    refs_by_segment_key: dict[tuple[int, Point2DMm, Point2DMm], set[str]] = {}
+    for candidate in _derive_shared_wall_candidates(request):
+        floor, room_a_id, room_b_id, _, _ = candidate
+        candidate_segments = [
+            segment
+            for segment in _shared_segments_for_candidate(candidate)
+            if not _is_segment_on_any_boundary_edge_mm(segment[1], boundary_edges)
+        ]
+        if len(candidate_segments) != 1:
+            continue
+        segment_key = _shared_segment_key(candidate_segments[0])
+        refs = refs_by_segment_key.setdefault(segment_key, set())
+        refs.add(f"wall-room-{room_a_id}-{room_b_id}")
+        refs.add(f"wall-room-{room_b_id}-{room_a_id}")
+    return refs_by_segment_key
 
 
 def _create_wall_from_segment(
@@ -1029,6 +1111,163 @@ def _create_wall_from_segment(
             "IfcProductDefinitionShape",
             Representations=[representation],
         ),
+    )
+
+
+def _create_opening_from_host_wall(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    opening: OpeningInput,
+    host_wall: HostWallRegistryEntry,
+) -> ifcopenshell.entity_instance:
+    opening_width_m = _mm_to_m(opening.width)
+    opening_height_m = _mm_to_m(opening.height)
+    opening_start_offset_m = _opening_start_offset_m(
+        host_wall.segment_mm,
+        (opening.x, opening.y),
+        opening.width,
+    )
+    profile = model.create_entity(
+        "IfcRectangleProfileDef",
+        ProfileType="AREA",
+        XDim=opening_width_m,
+        YDim=host_wall.thickness_m,
+        Position=model.create_entity(
+            "IfcAxis2Placement2D",
+            Location=model.create_entity(
+                "IfcCartesianPoint",
+                Coordinates=(opening_width_m / 2.0, 0.0),
+            ),
+            RefDirection=model.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0)),
+        ),
+    )
+    body = model.create_entity(
+        "IfcExtrudedAreaSolid",
+        SweptArea=profile,
+        Position=_create_axis_placement_3d(model),
+        ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        Depth=opening_height_m,
+    )
+    representation = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=context,
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=[body],
+    )
+    return model.create_entity(
+        "IfcOpeningElement",
+        GlobalId=ifcopenshell.guid.new(),
+        OwnerHistory=owner_history,
+        Name=opening.id,
+        ObjectPlacement=_create_local_placement(
+            model,
+            relative_to=host_wall.wall.ObjectPlacement,
+            location=(opening_start_offset_m, 0.0, _opening_base_z_m(opening)),
+        ),
+        Representation=model.create_entity(
+            "IfcProductDefinitionShape",
+            Representations=[representation],
+        ),
+    )
+
+
+def _create_filled_opening_element(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    *,
+    ifc_type: str,
+    name: str,
+    opening: OpeningInput,
+    host_wall: HostWallRegistryEntry,
+    opening_entity: ifcopenshell.entity_instance,
+) -> ifcopenshell.entity_instance:
+    opening_width_m = _mm_to_m(opening.width)
+    opening_height_m = _mm_to_m(opening.height)
+    profile = model.create_entity(
+        "IfcRectangleProfileDef",
+        ProfileType="AREA",
+        XDim=opening_width_m,
+        YDim=host_wall.thickness_m,
+        Position=model.create_entity(
+            "IfcAxis2Placement2D",
+            Location=model.create_entity(
+                "IfcCartesianPoint",
+                Coordinates=(opening_width_m / 2.0, 0.0),
+            ),
+            RefDirection=model.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0)),
+        ),
+    )
+    body = model.create_entity(
+        "IfcExtrudedAreaSolid",
+        SweptArea=profile,
+        Position=_create_axis_placement_3d(model),
+        ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        Depth=opening_height_m,
+    )
+    representation = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=context,
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=[body],
+    )
+    return model.create_entity(
+        ifc_type,
+        GlobalId=ifcopenshell.guid.new(),
+        OwnerHistory=owner_history,
+        Name=name,
+        ObjectPlacement=_create_local_placement(
+            model,
+            relative_to=opening_entity.ObjectPlacement,
+            location=(0.0, 0.0, 0.0),
+        ),
+        Representation=model.create_entity(
+            "IfcProductDefinitionShape",
+            Representations=[representation],
+        ),
+    )
+
+
+def _create_door_for_opening(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    opening: OpeningInput,
+    host_wall: HostWallRegistryEntry,
+    opening_entity: ifcopenshell.entity_instance,
+) -> ifcopenshell.entity_instance:
+    return _create_filled_opening_element(
+        model,
+        owner_history,
+        context,
+        ifc_type="IfcDoor",
+        name=f"Door {opening.id}",
+        opening=opening,
+        host_wall=host_wall,
+        opening_entity=opening_entity,
+    )
+
+
+def _create_window_for_opening(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    opening: OpeningInput,
+    host_wall: HostWallRegistryEntry,
+    opening_entity: ifcopenshell.entity_instance,
+) -> ifcopenshell.entity_instance:
+    return _create_filled_opening_element(
+        model,
+        owner_history,
+        context,
+        ifc_type="IfcWindow",
+        name=f"Window {opening.id}",
+        opening=opening,
+        host_wall=host_wall,
+        opening_entity=opening_entity,
     )
 
 
@@ -1153,6 +1392,76 @@ def _create_shared_wall_from_segment(
     return wall
 
 
+def _create_v3_openings(
+    model: ifcopenshell.file,
+    owner_history: ifcopenshell.entity_instance,
+    context: ifcopenshell.entity_instance,
+    request: LayoutImportRequestModel,
+    host_wall_registry: HostWallRegistry,
+) -> None:
+    if not isinstance(request, LayoutImportV3):
+        return
+    openings = request.openings or []
+    if not openings:
+        return
+
+    for opening in openings:
+        host_wall = host_wall_registry.get(opening.host_wall_ref)
+        if host_wall is None:
+            raise ValueError(
+                "opening.host_wall_ref must reference a generated host wall: "
+                f"{opening.id}"
+            )
+        opening_entity = _create_opening_from_host_wall(
+            model,
+            owner_history,
+            context,
+            opening,
+            host_wall,
+        )
+        model.create_entity(
+            "IfcRelVoidsElement",
+            GlobalId=ifcopenshell.guid.new(),
+            OwnerHistory=owner_history,
+            Name=f"{opening.id}-VoidsHostWall",
+            RelatingBuildingElement=host_wall.wall,
+            RelatedOpeningElement=opening_entity,
+        )
+        if opening.type is OpeningType.DOOR:
+            filled_element = _create_door_for_opening(
+                model,
+                owner_history,
+                context,
+                opening,
+                host_wall,
+                opening_entity,
+            )
+        else:
+            filled_element = _create_window_for_opening(
+                model,
+                owner_history,
+                context,
+                opening,
+                host_wall,
+                opening_entity,
+            )
+        model.create_entity(
+            "IfcRelFillsElement",
+            GlobalId=ifcopenshell.guid.new(),
+            OwnerHistory=owner_history,
+            Name=f"{opening.id}-FillsOpening",
+            RelatingOpeningElement=opening_entity,
+            RelatedBuildingElement=filled_element,
+        )
+        _contain_in_storey(
+            model,
+            owner_history,
+            filled_element,
+            host_wall.storey,
+            f"{opening.id}-StoreyContainment",
+        )
+
+
 def _apply_zone_style(
     model: ifcopenshell.file,
     entity: ifcopenshell.entity_instance,
@@ -1225,6 +1534,23 @@ def _hex_to_rgb(color_hex: str) -> tuple[float, float, float]:
         )
     except ValueError as exc:
         raise ValueError(f"Invalid hex character in color: {color_hex!r}") from exc
+
+
+def _opening_start_offset_m(
+    segment_mm: RoomEdgeMm,
+    center_mm: Point2DMm,
+    width_mm: float,
+) -> float:
+    (start_x, start_y), _ = segment_mm
+    center_x, center_y = center_mm
+    center_offset_mm = math.hypot(center_x - start_x, center_y - start_y)
+    return _mm_to_m(center_offset_mm - (width_mm / 2.0))
+
+
+def _opening_base_z_m(opening: OpeningInput) -> float:
+    if opening.type is OpeningType.WINDOW:
+        return 0.9
+    return 0.0
 
 
 def _create_closed_polyline(

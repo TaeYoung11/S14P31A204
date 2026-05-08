@@ -1,22 +1,4 @@
-"""IFC → depth → 스타일 이미지 풀 파이프라인 1샷 스크립트.
-
-사용 예시:
-    # 가벼운 검증 (SD 미로드)
-    uv run python scripts/ifc_to_styled.py \\
-        --ifc packages/ai-rendering/tests/fixtures/ifc/AC-20-Smiley-West-10-Bldg.ifc \\
-        --dry-run
-
-    # 1샷 smoke test (1뷰 × 1프리셋)
-    uv run python scripts/ifc_to_styled.py \\
-        --ifc packages/ai-rendering/tests/fixtures/ifc/AC-20-Smiley-West-10-Bldg.ifc \\
-        --views front --preset scandinavian
-
-    # 풀 9장 (3뷰 × 3프리셋)
-    uv run python scripts/ifc_to_styled.py \\
-        --ifc packages/ai-rendering/tests/fixtures/ifc/AC-20-Smiley-West-10-Bldg.ifc
-
-핵심 로직은 ai_rendering.ifc2img 모듈에 있다 — 이 스크립트는 thin wrapper.
-"""
+"""Render IFC depth views and style them with configured ifc2img presets."""
 
 from __future__ import annotations
 
@@ -25,56 +7,93 @@ import sys
 import time
 from pathlib import Path
 
-# Windows cp949 콘솔에서도 한글/이모지 출력 가능하도록 stdout/stderr 둘 다 래핑.
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     import io
 
     sys.stdout = io.TextIOWrapper(
-        sys.stdout.buffer, encoding="utf-8", errors="replace"
+        sys.stdout.buffer,
+        encoding="utf-8",
+        errors="replace",
     )
     sys.stderr = io.TextIOWrapper(
-        sys.stderr.buffer, encoding="utf-8", errors="replace"
+        sys.stderr.buffer,
+        encoding="utf-8",
+        errors="replace",
     )
 
 from ai_rendering.ifc2img import (
-    IFCRenderer,
     IFCRenderError,
+    IFCRenderer,
     IFCView,
     list_presets,
     load_preset,
+    resolve_preset_view_render_options,
 )
+from ai_rendering.ifc2img.style import DEFAULT_CONTROLNET_SEG_ID
+from ai_rendering.ifc2img.views import AutoZoomMode
 
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="IFC → depth → 스타일 풀 파이프라인")
-    p.add_argument(
+    parser = argparse.ArgumentParser(
+        description="Render IFC depth views and generate styled images."
+    )
+    parser.add_argument(
         "--ifc",
         required=True,
         type=Path,
-        help="IFC4 계열 파일 경로 (IFC4 / IFC4X1 / IFC4X3 등)",
+        help="Input IFC path.",
     )
-    p.add_argument(
+    parser.add_argument(
         "--preset",
         default="all",
-        help=f"프리셋 이름 또는 'all' (사용 가능: {list_presets()})",
+        help=f"Preset name or 'all'. Available: {list_presets()}",
     )
-    p.add_argument(
+    parser.add_argument(
         "--views",
         default="all",
-        help="뷰 이름 콤마 구분 또는 'all' (예: front,side / all)",
+        help="Comma-separated views such as front,side or 'all'.",
     )
-    p.add_argument(
+    parser.add_argument(
         "--output",
         default=Path("outputs/ifc2img_e2e"),
         type=Path,
-        help="저장 디렉토리",
+        help="Output directory.",
     )
-    p.add_argument(
+    parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="SD 미로드. IFC → depth 렌더 + 프리셋 정보만 출력.",
+        help="Render depth images and print preset info without SD styling.",
     )
-    return p.parse_args()
+    parser.add_argument(
+        "--auto-zoom",
+        action="store_true",
+        help="Use iterative depth zoom to match each view's target fill ratio.",
+    )
+    parser.add_argument(
+        "--eye-target-ratio",
+        type=float,
+        default=None,
+        help=(
+            "Override iterative zoom target fill ratio for EYE views only. "
+            "Requires --auto-zoom to affect rendering."
+        ),
+    )
+    parser.add_argument(
+        "--eye-ground-extent-factor",
+        type=float,
+        default=None,
+        help=(
+            "Override ground plane extent factor for EYE views only. "
+            "Omit to keep the default renderer geometry."
+        ),
+    )
+    parser.add_argument(
+        "--iter-tolerance",
+        type=float,
+        default=0.10,
+        help="Iterative auto-zoom fill tolerance. Used with --auto-zoom.",
+    )
+    return parser.parse_args()
 
 
 def _resolve_views(arg: str) -> list[IFCView]:
@@ -83,10 +102,10 @@ def _resolve_views(arg: str) -> list[IFCView]:
     names = [v.strip() for v in arg.split(",")]
     try:
         return [IFCView(n) for n in names]
-    except ValueError as e:
+    except ValueError as exc:
         raise SystemExit(
-            f"잘못된 뷰: {arg}. 사용 가능: {[v.value for v in IFCView]}"
-        ) from e
+            f"Invalid views: {arg}. Available: {[v.value for v in IFCView]}"
+        ) from exc
 
 
 def _resolve_presets(arg: str) -> list[str]:
@@ -94,7 +113,7 @@ def _resolve_presets(arg: str) -> list[str]:
         return list_presets()
     if arg not in list_presets():
         raise SystemExit(
-            f"잘못된 프리셋: {arg}. 사용 가능: {list_presets()}"
+            f"Invalid preset: {arg}. Available: {list_presets()}"
         )
     return [arg]
 
@@ -103,10 +122,33 @@ def _render_depths(
     ifc_path: Path,
     views: list[IFCView],
     output_dir: Path,
+    auto_zoom: bool = False,
+    eye_target_ratio: float | None = None,
+    eye_ground_extent_factor: float | None = None,
+    iter_tolerance: float = 0.10,
 ) -> dict[IFCView, Path]:
-    """IFC → 뷰별 depth PNG 저장. {view: PNG 경로} 반환."""
-    print(f"[depth] {ifc_path.name} → {len(views)}뷰 렌더링")
-    renderer = IFCRenderer(width=768, height=448)
+    """Render depth PNGs for each requested view."""
+    zoom_mode = AutoZoomMode.ITERATIVE if auto_zoom else AutoZoomMode.OFF
+    target_overrides = _build_eye_target_overrides(eye_target_ratio)
+    ground_extent_overrides = _build_eye_ground_extent_overrides(
+        eye_ground_extent_factor
+    )
+    print(
+        f"[depth] rendering {ifc_path.name} views={len(views)} "
+        f"auto_zoom={zoom_mode.value}"
+    )
+    if target_overrides:
+        print(f"  eye_target_ratio={eye_target_ratio}")
+    if ground_extent_overrides:
+        print(f"  eye_ground_extent_factor={eye_ground_extent_factor}")
+    renderer = IFCRenderer(
+        width=768,
+        height=448,
+        auto_zoom=zoom_mode,
+        iter_tolerance=iter_tolerance,
+        view_target_overrides=target_overrides,
+        view_ground_extent_overrides=ground_extent_overrides,
+    )
     images = renderer.render_views(ifc_path, views=views)
 
     saved: dict[IFCView, Path] = {}
@@ -114,20 +156,93 @@ def _render_depths(
         path = output_dir / f"depth_{view.value}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
         img.save(path)
-        print(f"  {view.value:5s} → {path}")
+        print(f"  {view.value:5s} -> {path}")
         saved[view] = path
     return saved
 
 
+def _build_eye_target_overrides(
+    eye_target_ratio: float | None,
+) -> dict[IFCView, float]:
+    if eye_target_ratio is None:
+        return {}
+    if not 0.0 < eye_target_ratio < 1.0:
+        raise SystemExit("--eye-target-ratio must be between 0 and 1.")
+    return {
+        IFCView.EYE_NE: eye_target_ratio,
+        IFCView.EYE_NW: eye_target_ratio,
+        IFCView.EYE_SE: eye_target_ratio,
+    }
+
+
+def _build_eye_ground_extent_overrides(
+    eye_ground_extent_factor: float | None,
+) -> dict[IFCView, float]:
+    if eye_ground_extent_factor is None:
+        return {}
+    if eye_ground_extent_factor <= 0.0:
+        raise SystemExit("--eye-ground-extent-factor must be greater than 0.")
+    return {
+        IFCView.EYE_NE: eye_ground_extent_factor,
+        IFCView.EYE_NW: eye_ground_extent_factor,
+        IFCView.EYE_SE: eye_ground_extent_factor,
+    }
+
+
 def _print_preset_info(presets: list[str]) -> None:
-    print(f"\n[preset] {len(presets)}개 프리셋 정보")
+    print(f"\n[preset] {len(presets)} preset(s)")
     for name in presets:
-        p = load_preset(name)
+        params = load_preset(name)
         print(
-            f"  {name:14s} guidance={p.guidance_scale} "
-            f"steps={p.num_inference_steps} "
-            f"cn_scale={p.controlnet_conditioning_scale}"
+            f"  {name:14s} guidance={params.guidance_scale} "
+            f"steps={params.num_inference_steps} "
+            f"cn_scale={params.controlnet_conditioning_scale}"
         )
+
+
+def _resolve_render_plan(
+    views: list[IFCView],
+    presets: list[str],
+) -> list[tuple[IFCView, str]]:
+    return [(view, preset_name) for view in views for preset_name in presets]
+
+
+def _render_plan_requires_semantic_controlnet(
+    plan: list[tuple[IFCView, str]],
+) -> bool:
+    return any(
+        resolve_preset_view_render_options(
+            preset_name,
+            view,
+        ).requires_semantic_controlnet
+        for view, preset_name in plan
+    )
+
+
+def _render_option_label(preset_name: str, view: IFCView) -> str:
+    options = resolve_preset_view_render_options(preset_name, view)
+    enabled = [
+        name
+        for name, value in options.as_render_kwargs().items()
+        if isinstance(value, bool) and value
+    ]
+    if not enabled:
+        return "depth-only"
+    enabled.append(f"ground={options.front_side_ground_class}")
+    enabled.append(f"semantic_scale={options.front_side_semantic_control_scale}")
+    return ", ".join(enabled)
+
+
+def _create_depth_style_renderer(
+    renderer_cls: type,
+    requires_semantic: bool,
+):
+    if requires_semantic:
+        return (
+            renderer_cls(semantic_controlnet_model_id=DEFAULT_CONTROLNET_SEG_ID),
+            "depth+semantic",
+        )
+    return renderer_cls(), "depth-only"
 
 
 def _render_styles(
@@ -135,15 +250,36 @@ def _render_styles(
     presets: list[str],
     output_dir: Path,
 ) -> None:
-    """depth 이미지들을 SD + ControlNet-depth로 스타일 변환 → 저장."""
+    """Generate styled images from depth inputs using preset/view render options."""
     from PIL import Image
 
     from ai_rendering.ifc2img import DepthStyleRenderer
 
-    print("\n[SD] DepthStyleRenderer 로드 중 (수 십초 소요)...")
-    t0 = time.time()
-    style_renderer = DepthStyleRenderer()
-    print(f"  로드 완료 ({time.time() - t0:.1f}s) device={style_renderer.device}")
+    plan = _resolve_render_plan(list(depth_paths), presets)
+    print("\n[SD] preparing DepthStyleRenderer")
+    print(
+        "  semantic controlnet required="
+        f"{_render_plan_requires_semantic_controlnet(plan)}"
+    )
+
+    renderers: dict[bool, DepthStyleRenderer] = {}
+
+    def _get_renderer(requires_semantic: bool) -> DepthStyleRenderer:
+        renderer = renderers.get(requires_semantic)
+        if renderer is not None:
+            return renderer
+
+        t0 = time.time()
+        renderer, mode = _create_depth_style_renderer(
+            DepthStyleRenderer,
+            requires_semantic,
+        )
+        renderers[requires_semantic] = renderer
+        print(
+            f"  {mode} renderer ready ({time.time() - t0:.1f}s) "
+            f"device={renderer.device}"
+        )
+        return renderer
 
     total = len(depth_paths) * len(presets)
     done = 0
@@ -153,13 +289,20 @@ def _render_styles(
             done += 1
             t1 = time.time()
             params = load_preset(preset_name)
-            # view 인자 — baseline view-aware 합성 (prompt suffix + cn_scale override).
-            result = style_renderer.render(depth, params, view=view)
+            options = resolve_preset_view_render_options(preset_name, view)
+            style_renderer = _get_renderer(options.requires_semantic_controlnet)
+            result = style_renderer.render(
+                depth,
+                params,
+                view=view,
+                **options.as_render_kwargs(),
+            )
             out_path = output_dir / f"style_{view.value}_{preset_name}.png"
             result.save(out_path)
             print(
-                f"  [{done}/{total}] {view.value:5s} × {preset_name:14s} "
-                f"→ {out_path.name} ({time.time() - t1:.1f}s)"
+                f"  [{done}/{total}] {view.value:5s} x {preset_name:14s} "
+                f"-> {out_path.name} ({time.time() - t1:.1f}s) "
+                f"options={_render_option_label(preset_name, view)}"
             )
 
 
@@ -167,7 +310,7 @@ def main() -> int:
     args = _parse_args()
 
     if not args.ifc.exists():
-        print(f"오류: IFC 파일 없음 — {args.ifc}", file=sys.stderr)
+        print(f"Error: IFC not found: {args.ifc}", file=sys.stderr)
         return 1
 
     args.output.mkdir(parents=True, exist_ok=True)
@@ -175,26 +318,40 @@ def main() -> int:
     views = _resolve_views(args.views)
     presets = _resolve_presets(args.preset)
 
-    print(f"입력: {args.ifc}")
-    print(f"뷰: {[v.value for v in views]}")
-    print(f"프리셋: {presets}")
-    print(f"출력: {args.output}")
-    print(f"모드: {'dry-run' if args.dry_run else '풀 파이프라인'}\n")
+    print(f"input: {args.ifc}")
+    print(f"views: {[v.value for v in views]}")
+    print(f"presets: {presets}")
+    print(f"output: {args.output}")
+    print(f"mode: {'dry-run' if args.dry_run else 'render'}\n")
+    print(f"auto_zoom: {'iterative' if args.auto_zoom else 'off'}")
+    if args.eye_target_ratio is not None:
+        print(f"eye_target_ratio: {args.eye_target_ratio}")
+    if args.eye_ground_extent_factor is not None:
+        print(f"eye_ground_extent_factor: {args.eye_ground_extent_factor}")
+    print(f"iter_tolerance: {args.iter_tolerance}")
 
     try:
-        depth_paths = _render_depths(args.ifc, views, args.output)
+        depth_paths = _render_depths(
+            args.ifc,
+            views,
+            args.output,
+            auto_zoom=args.auto_zoom,
+            eye_target_ratio=args.eye_target_ratio,
+            eye_ground_extent_factor=args.eye_ground_extent_factor,
+            iter_tolerance=args.iter_tolerance,
+        )
         _print_preset_info(presets)
 
         if args.dry_run:
-            print(f"\n[dry-run] depth {len(depth_paths)}장 + 프리셋 정보 출력 완료. SD 미실행.")
+            print(f"\n[dry-run] saved {len(depth_paths)} depth image(s).")
             return 0
 
         _render_styles(depth_paths, presets, args.output)
-        print(f"\n완료: {args.output}")
+        print(f"\ndone: {args.output}")
         return 0
 
-    except IFCRenderError as e:
-        print(f"오류: {e}", file=sys.stderr)
+    except IFCRenderError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         return 2
 
 
