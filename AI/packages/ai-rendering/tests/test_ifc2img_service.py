@@ -17,11 +17,7 @@ from PIL import Image
 
 from ai_rendering.ifc2img.exceptions import IFCRenderError
 from ai_rendering.ifc2img.service import (
-    DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR,
-    DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO,
-    DEFAULT_PHOTO_HEIGHT,
-    DEFAULT_PHOTO_ITER_TOLERANCE,
-    DEFAULT_PHOTO_WIDTH,
+    PHOTO_DEPTH_RENDER_DEFAULTS,
     PHOTO_MANIFEST_SCHEMA_VERSION,
     PHOTO_INTERNAL_VIEWS,
     Ifc2ImgPhotoManifest,
@@ -242,16 +238,17 @@ def test_create_photo_ifc_renderer_uses_injected_renderer_class() -> None:
 
     assert isinstance(renderer, FakeIFCRenderer)
     assert FakeIFCRenderer.instances == [renderer]
-    assert renderer.kwargs["width"] == DEFAULT_PHOTO_WIDTH
-    assert renderer.kwargs["height"] == DEFAULT_PHOTO_HEIGHT
-    assert renderer.kwargs["iter_tolerance"] == DEFAULT_PHOTO_ITER_TOLERANCE
+    defaults = PHOTO_DEPTH_RENDER_DEFAULTS
+    assert renderer.kwargs["width"] == defaults.width
+    assert renderer.kwargs["height"] == defaults.height
+    assert renderer.kwargs["iter_tolerance"] == defaults.iter_tolerance
     assert renderer.kwargs["view_target_overrides"] == {
-        IFCView.FRONT_DIAGONAL_RIGHT: DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO,
-        IFCView.FRONT_DIAGONAL_LEFT: DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO,
+        IFCView.FRONT_DIAGONAL_RIGHT: defaults.front_diagonal_target_ratio,
+        IFCView.FRONT_DIAGONAL_LEFT: defaults.front_diagonal_target_ratio,
     }
     assert renderer.kwargs["view_ground_extent_overrides"] == {
-        IFCView.FRONT_DIAGONAL_RIGHT: DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR,
-        IFCView.FRONT_DIAGONAL_LEFT: DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR,
+        IFCView.FRONT_DIAGONAL_RIGHT: defaults.front_diagonal_ground_extent_factor,
+        IFCView.FRONT_DIAGONAL_LEFT: defaults.front_diagonal_ground_extent_factor,
     }
 
 

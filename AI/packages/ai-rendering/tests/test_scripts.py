@@ -392,10 +392,10 @@ def test_ifc_to_styled_render_depths_leaves_front_diagonal_defaults_to_service(
 
     assert factory_calls == [
         {
-            "width": 768,
-            "height": 448,
+            "width": m.PHOTO_DEPTH_RENDER_DEFAULTS.width,
+            "height": m.PHOTO_DEPTH_RENDER_DEFAULTS.height,
             "auto_zoom": True,
-            "iter_tolerance": m.DEFAULT_PHOTO_ITER_TOLERANCE,
+            "iter_tolerance": m.PHOTO_DEPTH_RENDER_DEFAULTS.iter_tolerance,
         }
     ]
 

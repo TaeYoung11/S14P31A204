@@ -22,12 +22,31 @@ from .views import AutoZoomMode, IFCView
 
 PHOTO_MANIFEST_SCHEMA_VERSION = "ifc2img.photo.v1"
 DEFAULT_PHOTO_PRESET = "korean_house"
-DEFAULT_PHOTO_WIDTH = 768
-DEFAULT_PHOTO_HEIGHT = 448
-DEFAULT_PHOTO_AUTO_ZOOM = True
-DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO = 0.25
-DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR = 1.05
-DEFAULT_PHOTO_ITER_TOLERANCE = 0.05
+
+
+@dataclass(frozen=True)
+class PhotoDepthRenderDefaults:
+    """사진 파이프라인 depth renderer에서 같이 움직이는 기본값 묶음."""
+
+    width: int = 768
+    height: int = 448
+    auto_zoom: bool = True
+    front_diagonal_target_ratio: float = 0.25
+    front_diagonal_ground_extent_factor: float = 1.05
+    iter_tolerance: float = 0.05
+
+
+PHOTO_DEPTH_RENDER_DEFAULTS = PhotoDepthRenderDefaults()
+DEFAULT_PHOTO_WIDTH = PHOTO_DEPTH_RENDER_DEFAULTS.width
+DEFAULT_PHOTO_HEIGHT = PHOTO_DEPTH_RENDER_DEFAULTS.height
+DEFAULT_PHOTO_AUTO_ZOOM = PHOTO_DEPTH_RENDER_DEFAULTS.auto_zoom
+DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO = (
+    PHOTO_DEPTH_RENDER_DEFAULTS.front_diagonal_target_ratio
+)
+DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR = (
+    PHOTO_DEPTH_RENDER_DEFAULTS.front_diagonal_ground_extent_factor
+)
+DEFAULT_PHOTO_ITER_TOLERANCE = PHOTO_DEPTH_RENDER_DEFAULTS.iter_tolerance
 PhotoViewAlias = Literal["front_diagonal_left", "front_diagonal_right"]
 PUBLIC_PHOTO_VIEWS: tuple[PhotoViewAlias, ...] = (
     "front_diagonal_left",
@@ -246,13 +265,14 @@ def write_photo_manifest_file(
 def create_photo_ifc_renderer(
     renderer_cls: type[_IFCRendererProtocol] | None = None,
     *,
-    auto_zoom: bool = DEFAULT_PHOTO_AUTO_ZOOM,
-    front_diagonal_target_ratio: float | None = DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO,
+    auto_zoom: bool = PHOTO_DEPTH_RENDER_DEFAULTS.auto_zoom,
+    front_diagonal_target_ratio: float
+    | None = PHOTO_DEPTH_RENDER_DEFAULTS.front_diagonal_target_ratio,
     front_diagonal_ground_extent_factor: float
-    | None = DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR,
-    iter_tolerance: float = DEFAULT_PHOTO_ITER_TOLERANCE,
-    width: int = DEFAULT_PHOTO_WIDTH,
-    height: int = DEFAULT_PHOTO_HEIGHT,
+    | None = PHOTO_DEPTH_RENDER_DEFAULTS.front_diagonal_ground_extent_factor,
+    iter_tolerance: float = PHOTO_DEPTH_RENDER_DEFAULTS.iter_tolerance,
+    width: int = PHOTO_DEPTH_RENDER_DEFAULTS.width,
+    height: int = PHOTO_DEPTH_RENDER_DEFAULTS.height,
 ) -> _IFCRendererProtocol:
     """기본 실행에서는 실제 IFCRenderer를 lazy import해 생성한다."""
     if renderer_cls is None:
