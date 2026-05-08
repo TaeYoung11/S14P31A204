@@ -88,6 +88,28 @@ def test_find_host_wall_by_proximity():
     assert found.GlobalId == wall.GlobalId
 
 
+def test_find_host_wall_by_proximity_uses_storey_relative_placement():
+    model, storey, _ = _make_model()
+    storey.ObjectPlacement = model.create_entity(
+        "IfcLocalPlacement",
+        RelativePlacement=model.create_entity(
+            "IfcAxis2Placement3D",
+            Location=model.create_entity(
+                "IfcCartesianPoint",
+                Coordinates=(5000.0, 2000.0, 0.0),
+            ),
+        ),
+    )
+    wall = create_wall(
+        model, storey, length_mm=3000, width_mm=200, height_mm=2400, x_mm=100, y_mm=100, z_mm=0
+    )
+    assert wall is not None
+
+    found = find_host_wall(model, None, 5100.0, 2100.0, 0.0)
+    assert found is not None
+    assert found.GlobalId == wall.GlobalId
+
+
 def test_find_host_wall_invalid_global_id_does_not_fall_back_to_proximity():
     model, storey, _ = _make_model()
     create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
@@ -363,6 +385,13 @@ def _build_door_window_sample(ifc_out: Path, log_out: Path) -> dict[str, int]:
 
     lines: list[str] = [f"=== door/window opening sample [{datetime.now().isoformat()}] ===", ""]
     ok, fail = 0, 0
+    before = {
+        "doors": len(model.by_type("IfcDoor")),
+        "windows": len(model.by_type("IfcWindow")),
+        "openings": len(model.by_type("IfcOpeningElement")),
+        "voids": len(model.by_type("IfcRelVoidsElement")),
+        "fills": len(model.by_type("IfcRelFillsElement")),
+    }
 
     for scenario in _SCENARIOS:
         (
@@ -417,12 +446,18 @@ def _build_door_window_sample(ifc_out: Path, log_out: Path) -> dict[str, int]:
     log_out.parent.mkdir(parents=True, exist_ok=True)
     model.write(str(ifc_out))
 
-    stats = {
+    after = {
         "doors": len(model.by_type("IfcDoor")),
         "windows": len(model.by_type("IfcWindow")),
         "openings": len(model.by_type("IfcOpeningElement")),
-        "failed": fail,
+        "voids": len(model.by_type("IfcRelVoidsElement")),
+        "fills": len(model.by_type("IfcRelFillsElement")),
     }
+    stats = {
+        key: after[key] - before[key]
+        for key in ("doors", "windows", "openings", "voids", "fills")
+    }
+    stats["failed"] = fail
     lines.extend(
         [
             "",
@@ -444,9 +479,11 @@ def test_e2e_door_window_on_shinchan_ifc(tmp_path):
     )
 
     assert stats["failed"] == 0
-    assert stats["doors"] >= 6
-    assert stats["windows"] >= 10
-    assert stats["openings"] >= stats["doors"] + stats["windows"]
+    assert stats["doors"] == 6
+    assert stats["windows"] == 10
+    assert stats["openings"] == 16
+    assert stats["voids"] == 16
+    assert stats["fills"] == 16
 
 
 if __name__ == "__main__":

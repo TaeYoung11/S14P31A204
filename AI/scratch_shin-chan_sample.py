@@ -345,6 +345,7 @@ def make_space(model: ifcopenshell.file, owner_history, spec: SpaceSpec):
         GlobalId=guid(),
         OwnerHistory=owner_history,
         Name=spec.name,
+        CompositionType="ELEMENT",
         ObjectPlacement=local_placement(model, spec.x, spec.y, spec.z),
     )
 

@@ -10,6 +10,7 @@ import math
 import ifcopenshell
 import ifcopenshell.api
 import ifcopenshell.guid
+import ifcopenshell.util.placement
 from typing import Any
 
 logger = logging.getLogger("ai_authoring.engine_3d")
@@ -334,6 +335,27 @@ def _get_model_unit_scale(model: ifcopenshell.file) -> float:
     return 1.0
 
 
+def _placement_origin_and_x_axis(
+    placement: ifcopenshell.entity_instance,
+) -> tuple[tuple[float, float, float], tuple[float, float]]:
+    try:
+        matrix = ifcopenshell.util.placement.get_local_placement(placement)
+        return (
+            (float(matrix[0][3]), float(matrix[1][3]), float(matrix[2][3])),
+            (float(matrix[0][0]), float(matrix[1][0])),
+        )
+    except Exception:
+        rel = placement.RelativePlacement
+        loc = rel.Location.Coordinates
+        ref = getattr(rel, "RefDirection", None)
+        if ref:
+            x_axis = (float(ref.DirectionRatios[0]), float(ref.DirectionRatios[1]))
+        else:
+            x_axis = (1.0, 0.0)
+        z = float(loc[2]) if len(loc) > 2 else 0.0
+        return (float(loc[0]), float(loc[1]), z), x_axis
+
+
 def find_host_wall(
     model: ifcopenshell.file, host_wall_global_id: str | None, x_mm: float, y_mm: float, z_mm: float
 ) -> ifcopenshell.entity_instance | None:
@@ -358,11 +380,7 @@ def find_host_wall(
             continue
 
         # 벽체 원점(시작점) 좌표
-        loc = pl.RelativePlacement.Location.Coordinates
-        rdx, rdy = 1.0, 0.0
-        ref = getattr(pl.RelativePlacement, "RefDirection", None)
-        if ref:
-            rdx, rdy = ref.DirectionRatios[0], ref.DirectionRatios[1]
+        loc, (rdx, rdy) = _placement_origin_and_x_axis(pl)
 
         # 전역 좌표를 벽체 로컬 좌표로 변환 (U: 길이 방향, V: 두께 방향)
         dx, dy = (x_mm / scale) - loc[0], (y_mm / scale) - loc[1]
@@ -750,10 +768,7 @@ def create_generic_element(
 def _get_wall_local_coords(model, host_wall, x_mm, y_mm, z_mm):
     """전역(또는 층) 좌표를 벽체의 로컬 좌표계로 변환"""
     scale = _get_model_unit_scale(model)
-    w_pl = host_wall.ObjectPlacement.RelativePlacement
-    w_loc = w_pl.Location.Coordinates
-    w_ref = getattr(w_pl, "RefDirection", None)
-    rdx, rdy = (w_ref.DirectionRatios[0], w_ref.DirectionRatios[1]) if w_ref else (1.0, 0.0)
+    w_loc, (rdx, rdy) = _placement_origin_and_x_axis(host_wall.ObjectPlacement)
 
     # 벽체 원점 기준 변위
     dx, dy = (x_mm / scale) - w_loc[0], (y_mm / scale) - w_loc[1]
@@ -761,7 +776,7 @@ def _get_wall_local_coords(model, host_wall, x_mm, y_mm, z_mm):
     # 회전 행렬 적용 (벽체 로컬 U, V 좌표)
     u = dx * rdx + dy * rdy
     v = dx * (-rdy) + dy * rdx
-    z = (z_mm / scale) - (w_loc[2] if len(w_loc) > 2 else 0.0)
+    z = (z_mm / scale) - w_loc[2]
 
     # 벽체의 기하 중심점(cx, cy) 확인하여 오프셋 조정 (중심 기준 벽체 대응)
     ew_wall = True
@@ -879,6 +894,7 @@ def create_door_with_opening(
         )
 
         door = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcDoor")
+        # assign_container can normalize placement, so set opening-relative placement last.
         _assign_to_storey(model, door, storey)
         door.ObjectPlacement = placement
         dt = _mm_to_model_units(model, 40, 40)
@@ -941,6 +957,7 @@ def create_window_with_opening(
         )
 
         window = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWindow")
+        # assign_container can normalize placement, so set opening-relative placement last.
         _assign_to_storey(model, window, storey)
         window.ObjectPlacement = placement
         wt = _mm_to_model_units(model, 100, 100)
