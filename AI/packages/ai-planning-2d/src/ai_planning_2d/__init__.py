@@ -12,7 +12,16 @@ from .policies import plan_remove_room, plan_resize_room
 from .pipeline import to_ifc_commands
 from .preview_validators import PreviewValidationResult, validate_preview_plan
 from .schemas.ifc_context import IFCContext, SpaceContext, StoreyContext
-from .schemas.plan_v14 import PLAN_SCHEMA_VERSION, PlanV14
+from .schemas.plan_v14 import (
+    PLAN_SCHEMA_VERSION,
+    AccessCirculation,
+    OpeningPlan,
+    PlanV14,
+    RequiredOpenings,
+    SpacePlan,
+    UserIntent,
+    WallPlan,
+)
 from .schemas.validation import PlanStatus, ValidationIssue, ValidationSeverity
 from .session_pipeline import LLM2DPipeline
 from .toilet_demo import build_toilet_insertion_geometry_plan, plan_toilet_near_bathroom
@@ -27,8 +36,14 @@ __all__ = [
     "NewRoom",
     "ActionType",
     "PLAN_SCHEMA_VERSION",
+    "AccessCirculation",
+    "OpeningPlan",
     "PlanStatus",
     "PlanV14",
+    "RequiredOpenings",
+    "SpacePlan",
+    "UserIntent",
+    "WallPlan",
     "IFCCommand",
     "CommandBatch",
     "IFCContext",

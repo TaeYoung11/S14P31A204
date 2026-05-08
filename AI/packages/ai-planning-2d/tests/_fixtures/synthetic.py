@@ -102,7 +102,7 @@ def make_minimal_plan_v14() -> PlanV14:
         final_walls=[
             WallPlan(
                 local_id="wall-1",
-                kind="INTERIOR",
+                kind="EXTERIOR",
                 start_mm=(0.0, 0.0),
                 end_mm=(4000.0, 0.0),
                 thickness_mm=150,

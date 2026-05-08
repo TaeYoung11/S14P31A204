@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from .plan_v14 import UserIntent
+
 
 class NewRoom(BaseModel):
     name: str = Field(..., description="Name of the room to create.")
@@ -71,11 +73,7 @@ class FloorNLPCommand(BaseModel):
         False,
         description="Whether to apply to all matched rooms with the same name.",
     )
-    user_intent: Literal[
-        "shared_toilet_any_strategy",
-        "shared_toilet_split_big_room",
-        "shared_toilet_corridor_carve",
-    ] | None = Field(
+    user_intent: UserIntent | None = Field(
         None,
         description="Optional user intent hint for demo-specific insert_toilet planning.",
     )
