@@ -216,6 +216,7 @@ def test_write_photo_manifest_file_writes_typed_manifest(tmp_path: Path) -> None
 
     assert saved == manifest.to_dict()
     assert saved["views"][0]["view"] == "front_diagonal_right"
+    assert not (manifest_path.parent / ".manifest.json.tmp").exists()
 
 
 def test_run_ifc2img_photo_pipeline_rejects_missing_ifc_before_renderers(

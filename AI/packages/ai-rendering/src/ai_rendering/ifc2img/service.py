@@ -220,11 +220,18 @@ def write_photo_manifest(
     manifest: dict[str, object],
 ) -> Path:
     """manifest 딕셔너리를 UTF-8 JSON 파일로 저장하고 저장 경로를 반환한다."""
+    # Partial manifest가 노출되지 않도록 같은 폴더의 임시 파일을 먼저 완성한다.
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    temp_path = path.with_name(f".{path.name}.tmp")
+    try:
+        temp_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temp_path.replace(path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
     return path
 
 
