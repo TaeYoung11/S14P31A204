@@ -271,7 +271,15 @@ def _map_create_info(raw: dict[str, Any]) -> dict[str, Any] | None:
             "z": sp.get("z", 0.0),
         }
 
-    for field in ("length_mm", "width_mm", "height_mm", "azimuth_deg"):
+    for field in (
+        "length_mm",
+        "width_mm",
+        "height_mm",
+        "azimuth_deg",
+        "step_count",
+        "riser_height_mm",
+        "tread_depth_mm",
+    ):
         val = raw.get(field)
         if val is not None:
             ci[field] = val

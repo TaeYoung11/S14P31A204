@@ -14,6 +14,7 @@ from ai_authoring.engine_3d import (
     create_generic_element,
     create_roof,
     create_slab,
+    create_stair_preset,
     create_wall,
     create_window_with_opening,
     find_host_wall,
@@ -58,6 +59,26 @@ def _start_end_to_length_and_direction(
     return length_mm, _azimuth_to_direction(azimuth)
 
 
+def _optional_int(value: Any, field_name: str) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        logger.error("create_element handler: invalid integer %s=%r", field_name, value)
+        return None
+
+
+def _optional_float(value: Any, field_name: str) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        logger.error("create_element handler: invalid number %s=%r", field_name, value)
+        return None
+
+
 @register("create_element")
 class CreateElementHandler:
     def execute(
@@ -97,8 +118,10 @@ class CreateElementHandler:
             length_mm = float(dims.get("length", 3000.0))
             direction = str(parameters.get("direction") or "north").lower()
 
-        width_mm = float(dims.get("width", 200.0))
-        height_mm = float(dims.get("height", 2400.0))
+        width_default = 1000.0 if element_type == "IfcStair" else 200.0
+        height_default = 1800.0 if element_type == "IfcStair" else 2400.0
+        width_mm = float(dims.get("width", width_default))
+        height_mm = float(dims.get("height", height_default))
         color: str | None = parameters.get("color")
         material_name: str | None = parameters.get("material")
 
@@ -125,6 +148,30 @@ class CreateElementHandler:
                 **common,
                 shape_preset=str(parameters.get("roof_shape_preset") or "FLAT"),
                 ridge_height_mm=float(parameters.get("ridge_height_mm") or 1200.0),
+            )
+        if element_type == "IfcStair":
+            step_count = _optional_int(parameters.get("step_count"), "step_count")
+            riser_height_mm = _optional_float(
+                parameters.get("riser_height_mm"),
+                "riser_height_mm",
+            )
+            tread_depth_mm = _optional_float(
+                parameters.get("tread_depth_mm"),
+                "tread_depth_mm",
+            )
+            if (
+                (parameters.get("step_count") is not None and step_count is None)
+                or (parameters.get("riser_height_mm") is not None and riser_height_mm is None)
+                or (parameters.get("tread_depth_mm") is not None and tread_depth_mm is None)
+            ):
+                return None
+            return create_stair_preset(
+                model,
+                resolved_storey,
+                **common,
+                step_count=step_count,
+                riser_height_mm=riser_height_mm,
+                tread_depth_mm=tread_depth_mm,
             )
         if element_type in ("IfcDoor", "IfcWindow"):
             host_wall_global_id = parameters.get("host_wall_global_id")

@@ -486,6 +486,115 @@ def _box_representation(
     return model.create_entity("IfcProductDefinitionShape", Representations=[shape]), solid
 
 
+def _stair_preset_representation(
+    model: ifcopenshell.file,
+    length_m: float,
+    width_m: float,
+    height_m: float,
+    step_count: int,
+) -> ifcopenshell.entity_instance:
+    tread_depth = length_m / step_count
+    riser_height = height_m / step_count
+    solids = []
+    for index in range(step_count):
+        step_height = riser_height * (index + 1)
+        pos_2d = model.create_entity(
+            "IfcAxis2Placement2D",
+            Location=model.create_entity(
+                "IfcCartesianPoint",
+                Coordinates=(float(tread_depth / 2.0), float(width_m / 2.0)),
+            ),
+        )
+        profile = model.create_entity(
+            "IfcRectangleProfileDef",
+            ProfileType="AREA",
+            XDim=float(tread_depth),
+            YDim=float(width_m),
+            Position=pos_2d,
+        )
+        solid = model.create_entity(
+            "IfcExtrudedAreaSolid",
+            SweptArea=profile,
+            Position=_axis_placement_3d(
+                model,
+                location=(float(tread_depth * index), 0.0, 0.0),
+            ),
+            ExtrudedDirection=model.create_entity(
+                "IfcDirection",
+                DirectionRatios=(0.0, 0.0, 1.0),
+            ),
+            Depth=float(step_height),
+        )
+        solids.append(solid)
+
+    shape = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=_body_context(model),
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=solids,
+    )
+    return model.create_entity("IfcProductDefinitionShape", Representations=[shape])
+
+
+def _resolve_stair_step_count(
+    *,
+    length_mm: float,
+    height_mm: float,
+    step_count: int | None = None,
+    riser_height_mm: float | None = None,
+    tread_depth_mm: float | None = None,
+) -> int:
+    if step_count is not None:
+        resolved = step_count
+    elif riser_height_mm and riser_height_mm > 0:
+        resolved = round(height_mm / riser_height_mm)
+    elif tread_depth_mm and tread_depth_mm > 0:
+        resolved = round(length_mm / tread_depth_mm)
+    else:
+        resolved = round(height_mm / 170.0)
+    return max(2, min(64, int(resolved)))
+
+
+def _assign_stair_quantities(
+    model: ifcopenshell.file,
+    stair: ifcopenshell.entity_instance,
+    *,
+    step_count: int,
+    riser_height_mm: float,
+    tread_depth_mm: float,
+) -> None:
+    properties = [
+        model.create_entity(
+            "IfcPropertySingleValue",
+            Name="StepCount",
+            NominalValue=model.create_entity("IfcInteger", int(step_count)),
+        ),
+        model.create_entity(
+            "IfcPropertySingleValue",
+            Name="RiserHeight",
+            NominalValue=model.create_entity("IfcLengthMeasure", float(riser_height_mm)),
+        ),
+        model.create_entity(
+            "IfcPropertySingleValue",
+            Name="TreadDepth",
+            NominalValue=model.create_entity("IfcLengthMeasure", float(tread_depth_mm)),
+        ),
+    ]
+    pset = model.create_entity(
+        "IfcPropertySet",
+        GlobalId=ifcopenshell.guid.new(),
+        Name="Batang_StairPreset",
+        HasProperties=properties,
+    )
+    model.create_entity(
+        "IfcRelDefinesByProperties",
+        GlobalId=ifcopenshell.guid.new(),
+        RelatedObjects=[stair],
+        RelatingPropertyDefinition=pset,
+    )
+
+
 def _face(
     model: ifcopenshell.file,
     points: list[tuple[float, float, float]],
@@ -563,8 +672,8 @@ def _apply_color_and_material(
             # Representation의 첫 번째 아이템에 스타일 할당
             if element.Representation and element.Representation.Representations:
                 rep = element.Representation.Representations[0]
-                if rep.Items:
-                    model.create_entity("IfcStyledItem", Item=rep.Items[0], Styles=[assignment])
+                for item in rep.Items or []:
+                    model.create_entity("IfcStyledItem", Item=item, Styles=[assignment])
 
         if mat_name:
             material = model.create_entity("IfcMaterial", Name=mat_name)
@@ -724,6 +833,74 @@ def create_roof(
         return roof
     except Exception as e:
         logger.error(f"Roof 생성 오류: {e}")
+        return None
+
+
+def create_stair_preset(
+    model: ifcopenshell.file,
+    storey: ifcopenshell.entity_instance,
+    *,
+    length_mm: float = 3000.0,
+    width_mm: float = 1000.0,
+    height_mm: float = 1800.0,
+    x_mm: float = 0.0,
+    y_mm: float = 0.0,
+    z_mm: float = 0.0,
+    direction: str = "north",
+    color: str | None = None,
+    material_name: str | None = None,
+    step_count: int | None = None,
+    riser_height_mm: float | None = None,
+    tread_depth_mm: float | None = None,
+) -> ifcopenshell.entity_instance | None:
+    """Create a straight stair preset with visible tread/riser geometry."""
+    try:
+        resolved_steps = _resolve_stair_step_count(
+            length_mm=length_mm,
+            height_mm=height_mm,
+            step_count=step_count,
+            riser_height_mm=riser_height_mm,
+            tread_depth_mm=tread_depth_mm,
+        )
+        stair = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcStair")
+        stair.ObjectPlacement = _make_placement(model, storey, x_mm, y_mm, z_mm, direction)
+        length_m = _mm_to_model_units(model, length_mm, 3000.0)
+        width_m = _mm_to_model_units(model, width_mm, 1000.0)
+        height_m = _mm_to_model_units(model, height_mm, 1800.0)
+        stair.Representation = _stair_preset_representation(
+            model,
+            length_m,
+            width_m,
+            height_m,
+            resolved_steps,
+        )
+
+        flight = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcStairFlight")
+        flight.Name = "Straight Stair Flight"
+        flight.ObjectPlacement = model.create_entity(
+            "IfcLocalPlacement",
+            PlacementRelTo=stair.ObjectPlacement,
+            RelativePlacement=_axis_placement_3d(model),
+        )
+        model.create_entity(
+            "IfcRelAggregates",
+            GlobalId=ifcopenshell.guid.new(),
+            RelatingObject=stair,
+            RelatedObjects=[flight],
+        )
+
+        _assign_stair_quantities(
+            model,
+            stair,
+            step_count=resolved_steps,
+            riser_height_mm=height_mm / resolved_steps,
+            tread_depth_mm=length_mm / resolved_steps,
+        )
+        _apply_color_and_material(model, stair, color, material_name)
+        _assign_to_storey(model, stair, storey)
+        return stair
+    except Exception as e:
+        logger.error(f"Stair preset creation failed: {e}")
         return None
 
 
