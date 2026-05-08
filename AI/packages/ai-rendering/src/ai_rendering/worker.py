@@ -61,10 +61,7 @@ class RenderingWorker(BaseWorker):
                 message=str(exc),
             ) from exc
 
-        return CompletedResult(
-            output=EventOutputRef(storageUrl=response["manifestStorageUrl"]),
-            progress=1.0,
-        )
+        return _to_completed_result(response)
 
     def _resolve_work_dir(self, command: object) -> Path:
         """job 단위 임시 작업 디렉터리를 만들어 병렬 실행 결과가 섞이지 않게 한다."""
@@ -86,6 +83,15 @@ def _unsupported_render_mode_error(render_mode: str | None) -> ValidationWorkerE
             "ai-rendering worker currently supports "
             f"renderMode='{IFC2IMG_WORKER_RENDER_MODE}' only; got {render_mode!r}"
         ),
+    )
+
+
+def _to_completed_result(response: Ifc2ImgWorkerSuccessResponse) -> CompletedResult:
+    """ifc2img 성공 응답을 worker SDK 완료 결과로 변환한다."""
+
+    return CompletedResult(
+        output=EventOutputRef(storageUrl=response["manifestStorageUrl"]),
+        progress=1.0,
     )
 
 
