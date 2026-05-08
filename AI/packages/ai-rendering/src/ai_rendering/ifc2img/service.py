@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, TypedDict
 
 from PIL import Image
 
@@ -21,6 +21,8 @@ from .style import DEFAULT_CONTROLNET_SEG_ID, resolve_preset_view_render_options
 from .views import AutoZoomMode, IFCView
 
 PHOTO_MANIFEST_SCHEMA_VERSION = "ifc2img.photo.v1"
+IFC2IMG_WORKER_COMMAND_TYPE = "SD_RENDER_GENERATE"
+IFC2IMG_WORKER_RENDER_MODE = "ifc2img"
 DEFAULT_PHOTO_PRESET = "korean_house"
 
 
@@ -48,6 +50,9 @@ DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR = (
 )
 DEFAULT_PHOTO_ITER_TOLERANCE = PHOTO_DEPTH_RENDER_DEFAULTS.iter_tolerance
 PhotoViewAlias = Literal["front_diagonal_left", "front_diagonal_right"]
+Ifc2ImgWorkerStatus = Literal["SUCCESS", "ERROR"]
+Ifc2ImgWorkerCommandType = Literal["SD_RENDER_GENERATE"]
+Ifc2ImgWorkerRenderMode = Literal["ifc2img"]
 PUBLIC_PHOTO_VIEWS: tuple[PhotoViewAlias, ...] = (
     "front_diagonal_left",
     "front_diagonal_right",
@@ -57,6 +62,62 @@ PUBLIC_TO_INTERNAL_VIEW: dict[PhotoViewAlias, IFCView] = {
     "front_diagonal_right": IFCView.FRONT_DIAGONAL_RIGHT,
 }
 PHOTO_INTERNAL_VIEWS = tuple(PUBLIC_TO_INTERNAL_VIEW[view] for view in PUBLIC_PHOTO_VIEWS)
+
+
+class Ifc2ImgWorkerInput(TypedDict):
+    """Worker가 내려받을 원본 IFC 위치를 담는 입력 계약."""
+
+    sourceIfcStorageUrl: str
+
+
+class Ifc2ImgWorkerExpectedOutput(TypedDict):
+    """Worker가 결과 파일을 올려야 하는 storage prefix 계약."""
+
+    renderImageStorageUrl: str
+
+
+class Ifc2ImgWorkerPayload(TypedDict):
+    """ifc2img 실행에 필요한 렌더 모드와 preset 선택 값."""
+
+    renderMode: Ifc2ImgWorkerRenderMode
+    preset: str
+
+
+class Ifc2ImgWorkerRequest(TypedDict):
+    """Worker queue/message에서 받는 ifc2img 요청 JSON 계약."""
+
+    commandType: Ifc2ImgWorkerCommandType
+    input: Ifc2ImgWorkerInput
+    expectedOutput: Ifc2ImgWorkerExpectedOutput
+    payload: Ifc2ImgWorkerPayload
+
+
+class Ifc2ImgWorkerPhotoOutput(TypedDict):
+    """Worker 응답에서 photo 1장의 업로드 결과를 표현하는 계약."""
+
+    view: PhotoViewAlias
+    storageUrl: str
+    width: int
+    height: int
+
+
+class Ifc2ImgWorkerSuccessResponse(TypedDict):
+    """ifc2img worker 성공 응답 JSON 계약."""
+
+    status: Literal["SUCCESS"]
+    renderMode: Ifc2ImgWorkerRenderMode
+    preset: str
+    manifestStorageUrl: str
+    photos: list[Ifc2ImgWorkerPhotoOutput]
+
+
+class Ifc2ImgWorkerErrorResponse(TypedDict):
+    """ifc2img worker 실패 응답 JSON 계약."""
+
+    status: Literal["ERROR"]
+    renderMode: Ifc2ImgWorkerRenderMode
+    errorCode: str
+    message: str
 
 
 class _IFCRendererProtocol(Protocol):
