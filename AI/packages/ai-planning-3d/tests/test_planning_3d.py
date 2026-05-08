@@ -4,6 +4,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 from ai_planning_3d.engine import LLM3DEngine
 
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M")
@@ -23,6 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("Planning_Test")
 
+@pytest.mark.asyncio
 async def test_planning_only():
     logger.info("🚀 [LLM_3D] Planning Engine Test (NL -> JSON Command)")
     logger.info("=" * 70)
