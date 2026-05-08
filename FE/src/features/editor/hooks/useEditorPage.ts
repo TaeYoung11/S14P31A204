@@ -96,7 +96,9 @@ import {
   normalizeCommentAttachments,
   resolveEditorMode,
 } from '../utils/editorPageHelpers'
-import { IFC_COMPLETED_ACTION_SET } from '../utils/workspaceSyncMessage'
+import {
+  IFC_COMPLETED_ACTION_SET,
+} from '../utils/workspaceSyncMessage'
 import { resolveIfcPresignedUrl } from '../utils/ifcSource'
 
 interface DrawingSnapshot {
@@ -755,7 +757,25 @@ export function useEditorPage() {
     previousSnapshotRef.current = null
     pendingDraftRecordRef.current = null
     hasUserEditedRef.current = false
-    draftLoadBaselineRef.current = JSON.stringify(latestDraftSnapshotRef.current)
+    draftLoadBaselineRef.current = null
+    skipNextHistorySnapshotRef.current = true
+    replaceBubbles([])
+    replaceConnections([])
+    replaceZonesState([])
+    clearFloorPlan()
+    setFloorWalls([])
+    setFloorOpenings([])
+    setHiddenAutoWallIds([])
+    setHiddenAutoOpeningIds([])
+    setIsProjectStructurePreferred(false)
+    setWorkspacePhaseStatus('BUBBLE_DRAFT')
+    setSelectedConnectionPair(null)
+    setConnectingFromId(null)
+    setSelectedFloorWallId(null)
+    setSelectedFloorOpeningId(null)
+    setSelectedFloorWallIds([])
+    setSelectedFloorOpeningIds([])
+    clearSelection()
 
     if (!projectId) {
       draftLoadedProjectIdRef.current = null
@@ -765,51 +785,44 @@ export function useEditorPage() {
       }
     }
 
-    void workspaceDraftRepository.loadLocalFallbackDraft(projectId)
-      .then((draft) => {
-        if (isCancelled || draftLoadTokenRef.current !== loadToken) return
+    const applyLocalFallbackDraft = async () => {
+      const draft = await workspaceDraftRepository.loadLocalFallbackDraft(projectId)
+      if (isCancelled || draftLoadTokenRef.current !== loadToken) return
+      if (hasUserEditedRef.current) return
 
-        localVersionRef.current = draft?.versionNo ?? 0
+      localVersionRef.current = draft?.versionNo ?? 0
 
-        if (hasUserEditedRef.current) {
-          draftLoadingProjectIdRef.current = null
-          previousSnapshotRef.current = null
-          draftLoadedProjectIdRef.current = projectId
-          setAutosaveReadyProjectId(projectId)
-          return
-        }
-
-        if (draft?.data) {
-          const data = draft.data
-          skipNextHistorySnapshotRef.current = true
-          previousSnapshotRef.current = JSON.stringify(data)
-          replaceBubbles(data.bubbles)
-          replaceConnections(data.connections)
-          replaceZonesState(data.zones)
-          replaceFloorPlanState({
-            isGenerated: data.isFloorPlanGenerated,
-            layoutSource: data.floorPlanLayoutSource,
-            layers: data.floorLayers,
-            activeLayerId: data.activeFloorLayerId,
-          })
-          setFloorWalls(data.floorWalls ?? [])
-          setFloorOpenings(data.floorOpenings ?? [])
-          setHiddenAutoWallIds(data.hiddenAutoWallIds ?? [])
-          setHiddenAutoOpeningIds(data.hiddenAutoOpeningIds ?? [])
-          setIsProjectStructurePreferred(data.isProjectStructurePreferred ?? false)
-          setWorkspacePhaseStatus(data.phaseStatus ?? 'BUBBLE_DRAFT')
-        } else {
-          previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current)
-        }
-
-        draftLoadingProjectIdRef.current = null
-        draftLoadedProjectIdRef.current = projectId
-        setAutosaveReadyProjectId(projectId)
-      })
-      .catch(() => {
-        if (isCancelled || draftLoadTokenRef.current !== loadToken) return
+      if (!draft?.data) {
         previousSnapshotRef.current = JSON.stringify(latestDraftSnapshotRef.current)
+        return
+      }
+
+      const data = draft.data
+      skipNextHistorySnapshotRef.current = true
+      draftLoadBaselineRef.current = JSON.stringify(data)
+      previousSnapshotRef.current = JSON.stringify(data)
+      replaceBubbles(data.bubbles)
+      replaceConnections(data.connections)
+      replaceZonesState(data.zones)
+      replaceFloorPlanState({
+        isGenerated: data.isFloorPlanGenerated,
+        layoutSource: data.floorPlanLayoutSource,
+        layers: data.floorLayers,
+        activeLayerId: data.activeFloorLayerId,
+      })
+      setFloorWalls(data.floorWalls ?? [])
+      setFloorOpenings(data.floorOpenings ?? [])
+      setHiddenAutoWallIds(data.hiddenAutoWallIds ?? [])
+      setHiddenAutoOpeningIds(data.hiddenAutoOpeningIds ?? [])
+      setIsProjectStructurePreferred(data.isProjectStructurePreferred ?? false)
+      setWorkspacePhaseStatus(data.phaseStatus ?? 'BUBBLE_DRAFT')
+    }
+
+    void applyLocalFallbackDraft()
+      .finally(() => {
+        if (isCancelled || draftLoadTokenRef.current !== loadToken) return
         draftLoadingProjectIdRef.current = null
+        draftLoadBaselineRef.current = null
         draftLoadedProjectIdRef.current = projectId
         setAutosaveReadyProjectId(projectId)
       })
@@ -817,8 +830,11 @@ export function useEditorPage() {
     return () => {
       isCancelled = true
       draftLoadingProjectIdRef.current = null
+      draftLoadBaselineRef.current = null
     }
   }, [
+    clearFloorPlan,
+    clearSelection,
     flushPendingDraftSave,
     projectId,
     replaceBubbles,
@@ -1037,6 +1053,7 @@ export function useEditorPage() {
   }, [flushBubbleSnapshotSaveToDb, projectId, workspacePhaseStatus])
 
   const markLocalBubbleSnapshotChanged = useCallback(() => {
+    hasUserEditedRef.current = true
     markLocalBubbleSnapshotChangedRealtime()
     scheduleBubbleSnapshotSaveToDb()
   }, [markLocalBubbleSnapshotChangedRealtime, scheduleBubbleSnapshotSaveToDb])
