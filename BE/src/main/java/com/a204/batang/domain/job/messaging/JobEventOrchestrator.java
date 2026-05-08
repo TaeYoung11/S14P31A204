@@ -15,21 +15,17 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
+import static com.a204.batang.domain.floorplan.FloorPlanConstants.EVENT_PREFIX_IFC_GENERATE_FROM_BUBBLE;
 import static com.a204.batang.domain.ifcedit.IfcEditConstants.EVENT_PREFIX_IFC_EDIT_APPLY;
 import static com.a204.batang.domain.ifcedit.IfcEditConstants.EVENT_PREFIX_THREE_D_LLM;
 import static com.a204.batang.domain.ifcedit.IfcEditConstants.EVENT_PREFIX_TWO_D_LLM;
 
-/**
- * BE job event queue를 단일 consumer로 수신하고 도메인별 handler로 전달한다.
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class JobEventOrchestrator {
 
-    private static final String FLOOR_PLAN_EVENT_PREFIX = "IFC_GENERATE_FROM_BUBBLE_";
     private static final String RENDER_EVENT_PREFIX = "SD_RENDER_";
 
     private final ObjectMapper objectMapper;
@@ -38,13 +34,16 @@ public class JobEventOrchestrator {
     private final IfcEditEventDispatcher ifcEditEventDispatcher;
 
     @RabbitListener(queues = RabbitMqConfig.BE_JOB_EVENTS_QUEUE)
-    @Transactional
     public void consume(Message message) {
+        JsonNode payload;
         try {
-            handle(objectMapper.readTree(message.getBody()));
+            payload = objectMapper.readTree(message.getBody());
         } catch (Exception e) {
             log.warn("worker event payload를 해석하지 못해 메시지를 무시합니다.", e);
+            return;
         }
+
+        handle(payload);
     }
 
     void handle(JsonNode payload) {
@@ -54,7 +53,7 @@ public class JobEventOrchestrator {
             return;
         }
 
-        if (event.eventType().startsWith(FLOOR_PLAN_EVENT_PREFIX)) {
+        if (event.eventType().startsWith(EVENT_PREFIX_IFC_GENERATE_FROM_BUBBLE)) {
             floorPlanGenerateEventListener.handle(objectMapper.convertValue(payload, FloorPlanGenerateEventMessage.class));
             return;
         }
@@ -65,15 +64,11 @@ public class JobEventOrchestrator {
         if (event.eventType().startsWith(EVENT_PREFIX_TWO_D_LLM)
                 || event.eventType().startsWith(EVENT_PREFIX_THREE_D_LLM)
                 || event.eventType().startsWith(EVENT_PREFIX_IFC_EDIT_APPLY)) {
-            ifceditDispatch(payload);
+            ifcEditEventDispatcher.handle(objectMapper.convertValue(payload, IfcEditEventMessage.class));
             return;
         }
 
         log.info("지원하지 않는 worker event를 무시합니다. eventType={}, jobId={}, jobStepId={}",
                 event.eventType(), event.jobId(), event.jobStepId());
-    }
-
-    private void ifceditDispatch(JsonNode payload) {
-        ifcEditEventDispatcher.handle(objectMapper.convertValue(payload, IfcEditEventMessage.class));
     }
 }
