@@ -60,7 +60,7 @@ class BaseWorker(ABC):
                 extra={
                     "workerId": self.worker_id,
                     "code": error.code,
-                    "message": error.message,
+                    "errorMessage": error.message,
                 },
             )
             terminal_result = ClarificationResult(error=error)
@@ -70,7 +70,7 @@ class BaseWorker(ABC):
                 extra={
                     "workerId": self.worker_id,
                     "code": error.code,
-                    "message": error.message,
+                    "errorMessage": error.message,
                     "retryable": error.retryable,
                 },
             )
