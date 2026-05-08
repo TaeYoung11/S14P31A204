@@ -38,7 +38,7 @@ public record SdRenderEventMessage(
         @JsonProperty("output_artifact_id")
         UUID outputArtifactId,
         String status,
-        Integer progress,
+        Double progress,
         Map<String, Object> output,
         SdRenderError error,
         @JsonProperty("idempotency_key")
