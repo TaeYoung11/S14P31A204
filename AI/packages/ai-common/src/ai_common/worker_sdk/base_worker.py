@@ -10,6 +10,7 @@ from ai_common.errors import (
     NonRetryableWorkerError,
     WorkerError,
 )
+from ai_common.logging import get_logger
 from ai_common.worker_sdk.context import WorkerContext
 from ai_common.worker_sdk.event_factory import (
     ClarificationResult,
@@ -22,6 +23,8 @@ from ai_common.worker_sdk.event_factory import (
     build_terminal_event,
 )
 from ai_domain.worker_messages.event import EventMessage
+
+_logger = get_logger(__name__)
 
 
 class EventPublisher(Protocol):
@@ -52,10 +55,28 @@ class BaseWorker(ABC):
             result = self.process(command)
             terminal_result = self._coerce_result(result)
         except ClarificationRequiredError as error:
+            _logger.warning(
+                "worker_clarification_required",
+                workerId=self.worker_id,
+                code=error.code,
+                message=error.message,
+            )
             terminal_result = ClarificationResult(error=error)
         except WorkerError as error:
+            _logger.error(
+                "worker_failed",
+                workerId=self.worker_id,
+                code=error.code,
+                message=error.message,
+                retryable=error.retryable,
+            )
             terminal_result = FailedResult(error=error)
         except Exception as error:
+            _logger.exception(
+                "worker_unhandled_exception",
+                workerId=self.worker_id,
+                error=str(error),
+            )
             terminal_result = FailedResult(error=self._build_unhandled_error(error))
 
         self._publish(build_terminal_event(context, self.worker_id, terminal_result))
