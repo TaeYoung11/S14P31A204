@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import logging
 from typing import Protocol
 
 from ai_common.errors import (
@@ -10,7 +11,6 @@ from ai_common.errors import (
     NonRetryableWorkerError,
     WorkerError,
 )
-from ai_common.logging import get_logger
 from ai_common.worker_sdk.context import WorkerContext
 from ai_common.worker_sdk.event_factory import (
     ClarificationResult,
@@ -24,7 +24,7 @@ from ai_common.worker_sdk.event_factory import (
 )
 from ai_domain.worker_messages.event import EventMessage
 
-_logger = get_logger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 class EventPublisher(Protocol):
@@ -57,25 +57,31 @@ class BaseWorker(ABC):
         except ClarificationRequiredError as error:
             _logger.warning(
                 "worker_clarification_required",
-                workerId=self.worker_id,
-                code=error.code,
-                message=error.message,
+                extra={
+                    "workerId": self.worker_id,
+                    "code": error.code,
+                    "errorMessage": error.message,
+                },
             )
             terminal_result = ClarificationResult(error=error)
         except WorkerError as error:
             _logger.error(
                 "worker_failed",
-                workerId=self.worker_id,
-                code=error.code,
-                message=error.message,
-                retryable=error.retryable,
+                extra={
+                    "workerId": self.worker_id,
+                    "code": error.code,
+                    "errorMessage": error.message,
+                    "retryable": error.retryable,
+                },
             )
             terminal_result = FailedResult(error=error)
         except Exception as error:
             _logger.exception(
                 "worker_unhandled_exception",
-                workerId=self.worker_id,
-                error=str(error),
+                extra={
+                    "workerId": self.worker_id,
+                    "error": str(error),
+                },
             )
             terminal_result = FailedResult(error=self._build_unhandled_error(error))
 
