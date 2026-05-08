@@ -97,7 +97,7 @@ class LLM3DEngine:
         resolved_model = model or os.getenv("LLM_MODEL_NAME") or DEFAULT_LLM_MODEL
         resolved_base_url = base_url or os.getenv("LLM_BASE_URL") or DEFAULT_LLM_BASE_URL
         resolved_api_key = api_key or os.getenv("LLM_API_KEY") or DEFAULT_LLM_API_KEY
-        resolved_timeout = timeout or _env_float(
+        resolved_timeout = timeout if timeout is not None else _env_float(
             "LLM_TIMEOUT_SECONDS",
             DEFAULT_LLM_TIMEOUT_SECONDS,
         )
