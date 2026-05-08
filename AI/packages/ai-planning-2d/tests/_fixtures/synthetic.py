@@ -32,8 +32,59 @@ def make_minimal_ifc_context() -> IFCContext:
             }
         ],
         "adjacency": [],
-        "walls": [],
-        "doors": [],
+        "walls": [
+            {
+                "id": "wall-1",
+                "floor": 1,
+                "start": (0.0, 0.0),
+                "end": (4000.0, 0.0),
+                "thickness": 150,
+                "space_ids": ["space-1"],
+                "kind": "EXTERIOR",
+            },
+            {
+                "id": "wall-2",
+                "floor": 1,
+                "start": (4000.0, 0.0),
+                "end": (4000.0, 3000.0),
+                "thickness": 150,
+                "space_ids": ["space-1"],
+                "kind": "EXTERIOR",
+            },
+            {
+                "id": "wall-3",
+                "floor": 1,
+                "start": (4000.0, 3000.0),
+                "end": (0.0, 3000.0),
+                "thickness": 150,
+                "space_ids": ["space-1"],
+                "kind": "EXTERIOR",
+            },
+            {
+                "id": "wall-4",
+                "floor": 1,
+                "start": (0.0, 3000.0),
+                "end": (0.0, 0.0),
+                "thickness": 150,
+                "space_ids": ["space-1"],
+                "kind": "EXTERIOR",
+            },
+        ],
+        "doors": [
+            {
+                "id": "door-1",
+                "floor": 1,
+                "host_wall_id": "wall-1",
+                "from_space_id": None,
+                "to_space_id": "space-1",
+                "width": 900,
+                "height": 2100,
+                "position": 1600,
+                "opening_type": "door",
+                "swing_into_id": "space-1",
+                "hinge_side": "left",
+            }
+        ],
         "windows": [],
         "boundaries": [
             {
@@ -85,7 +136,7 @@ def make_minimal_plan_v14() -> PlanV14:
                 placement_world_mm=(0.0, 0.0),
                 name="거실",
                 space_type="living",
-                walls_bounding_local_ids=["wall-1"],
+                walls_bounding_local_ids=["wall-1", "wall-2", "wall-3", "wall-4"],
                 openings_local_ids=["door-1"],
                 required_openings=RequiredOpenings(
                     needs_door_count=1,
@@ -109,7 +160,37 @@ def make_minimal_plan_v14() -> PlanV14:
                 bounded_space_local_ids=["space-living"],
                 hosts_opening_local_ids=["door-1"],
                 representation_template_global_id="template-wall-1",
-            )
+            ),
+            WallPlan(
+                local_id="wall-2",
+                kind="EXTERIOR",
+                start_mm=(4000.0, 0.0),
+                end_mm=(4000.0, 3000.0),
+                thickness_mm=150,
+                bounded_space_local_ids=["space-living"],
+                hosts_opening_local_ids=[],
+                representation_template_global_id="template-wall-2",
+            ),
+            WallPlan(
+                local_id="wall-3",
+                kind="EXTERIOR",
+                start_mm=(4000.0, 3000.0),
+                end_mm=(0.0, 3000.0),
+                thickness_mm=150,
+                bounded_space_local_ids=["space-living"],
+                hosts_opening_local_ids=[],
+                representation_template_global_id="template-wall-3",
+            ),
+            WallPlan(
+                local_id="wall-4",
+                kind="EXTERIOR",
+                start_mm=(0.0, 3000.0),
+                end_mm=(0.0, 0.0),
+                thickness_mm=150,
+                bounded_space_local_ids=["space-living"],
+                hosts_opening_local_ids=[],
+                representation_template_global_id="template-wall-4",
+            ),
         ],
         final_openings=[
             OpeningPlan(
@@ -132,6 +213,9 @@ def make_minimal_plan_v14() -> PlanV14:
         validation_warnings=[],
         representation_templates_used={
             "wall-1": "template-wall-1",
+            "wall-2": "template-wall-2",
+            "wall-3": "template-wall-3",
+            "wall-4": "template-wall-4",
             "door-1": "template-door-1",
         },
     )
