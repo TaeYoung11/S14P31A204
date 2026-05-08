@@ -20,7 +20,7 @@ from ai_common.worker_sdk.base_worker import BaseWorker, EventPublisher
 from ai_common.worker_sdk.event_factory import CompletedResult
 from ai_domain import CommandMessage, LayoutImportV1, LayoutImportV2, LayoutImportV3
 from ai_domain.worker_messages.payloads_ifc_generate import IfcGenerateCommandPayload
-from ai_layout_import.service import convert_layout_to_ifc
+from ai_layout_import.service import LayoutImportNormalizationSummary, convert_layout_to_ifc
 
 try:
     from ai_common.adapters.storage.s3_client import ClientError, ResolvedS3WriteTarget
@@ -107,7 +107,7 @@ class IfcGenerateWorker(BaseWorker):
                 validated_validation_ref = validation_ref
             _validate_ifc_storage_ref(command, ifc_ref)
 
-            convert_layout_to_ifc(request, output_path)
+            normalization_summary = convert_layout_to_ifc(request, output_path)
 
             uploaded_target = self._storage.write_bytes_to_ref(
                 ifc_ref,
@@ -120,6 +120,7 @@ class IfcGenerateWorker(BaseWorker):
                 request=request,
                 status="completed",
                 ifc_canonical_url=getattr(uploaded_target, "canonical_url", None),
+                normalization_summary=normalization_summary,
             )
             if validated_validation_ref is not None:
                 self._storage.write_text_to_ref(
@@ -177,7 +178,10 @@ class IfcGenerateWorker(BaseWorker):
         finally:
             _cleanup_temp_file(output_path, command.jobId, command.idempotencyKey)
 
-        output: dict[str, object] = {"storage_url": ifc_ref}
+        output: dict[str, object] = {
+            "storage_url": ifc_ref,
+            "has_warnings": normalization_summary.hasWarnings,
+        }
         if validation_ref is not None:
             output["validation_report_storage_url"] = validation_ref
         return CompletedResult(output=output, progress=1.0)
@@ -298,14 +302,15 @@ def _validate_validation_report_ref(command: CommandMessage, reference: str) -> 
 
 def _build_validation_report(
     *,
-    command: CommandMessage,
-    request: LayoutImportRuntimeRequest,
-    status: str,
-    ifc_canonical_url: str | None = None,
-    error_code: str | None = None,
-    error_message: str | None = None,
-    retryable: bool | None = None,
-    clarification_possible: bool | None = None,
+        command: CommandMessage,
+        request: LayoutImportRuntimeRequest,
+        status: str,
+        ifc_canonical_url: str | None = None,
+        normalization_summary: LayoutImportNormalizationSummary | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+        retryable: bool | None = None,
+        clarification_possible: bool | None = None,
 ) -> dict[str, object]:
     report: dict[str, object] = {
         "status": status,
@@ -328,6 +333,10 @@ def _build_validation_report(
     }
     if ifc_canonical_url is not None:
         report["storage"] = {"ifcCanonicalUrl": ifc_canonical_url}
+    if normalization_summary is not None:
+        warnings = normalization_summary.to_report_warnings()
+        if warnings is not None:
+            report["warnings"] = warnings
     if error_code is not None or error_message is not None:
         report["error"] = {
             "code": error_code,
