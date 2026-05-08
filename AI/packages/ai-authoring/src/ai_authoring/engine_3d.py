@@ -312,6 +312,8 @@ def _mm_to_model_units(
             return value / 10.0
         if prefix == "DECI":
             return value / 100.0
+        if prefix is None:
+            return value / 1000.0
     return value
 
 
@@ -329,7 +331,7 @@ def _get_model_unit_scale(model: ifcopenshell.file) -> float:
             return 100.0
         if prefix is None:
             return 1000.0
-    return 1000.0
+    return 1.0
 
 
 def find_host_wall(
@@ -344,8 +346,9 @@ def find_host_wall(
                 return wall
         except Exception:
             pass
+        return None
 
-    # 3. 근접 벽체 탐색 (좌표 기반)
+    # 2. 근접 벽체 탐색 (좌표 기반)
     scale = _get_model_unit_scale(model)
     best_wall, best_dist = None, 3000.0 / scale  # 검색 반경을 3m로 확대
 
@@ -353,7 +356,7 @@ def find_host_wall(
         pl = getattr(wall, "ObjectPlacement", None)
         if not (pl and pl.is_a("IfcLocalPlacement")):
             continue
-        
+
         # 벽체 원점(시작점) 좌표
         loc = pl.RelativePlacement.Location.Coordinates
         rdx, rdy = 1.0, 0.0
@@ -377,7 +380,7 @@ def find_host_wall(
                     if item.is_a("IfcExtrudedAreaSolid"):
                         l_m = max(item.SweptArea.XDim, item.SweptArea.YDim)
                         break
-        
+
         # 좌표가 벽체의 길이 범위(0~L) 내에 있고 두께 방향으로 가깝다면 선정
         if -500/scale <= u <= l_m + 500/scale:
             dist_v = abs(v)
@@ -806,20 +809,23 @@ def _apply_opening(model, host_wall, u, v, z, length, thickness, height, ew_wall
 
     opening = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcOpeningElement")
     margin = _mm_to_model_units(model, 20.0, 20.0)
-    
+
     if ew_wall:
         box_l, box_t = length, thickness + margin
         loc_u, loc_v = u - length/2, v - box_t/2
     else:
         box_l, box_t = thickness + margin, length
         loc_u, loc_v = u - box_l/2, v - length/2
-    
+
     opening.ObjectPlacement = model.create_entity(
         "IfcLocalPlacement",
         PlacementRelTo=host_wall.ObjectPlacement,
         RelativePlacement=_axis_placement_3d(model, location=(loc_u, loc_v, z)),
     )
-    
+
+    opening.Representation, _ = _box_representation(
+        model, box_l, box_t, height, center_origin=False
+    )
     _, tool_solid = _box_representation(
         model, box_l, box_t, height, loc=(loc_u, loc_v, z), center_origin=False
     )
@@ -839,37 +845,41 @@ def _apply_opening(model, host_wall, u, v, z, length, thickness, height, ew_wall
 
 def create_door_with_opening(
     model, storey, *, length_mm=900, width_mm=200, height_mm=2100,
-    x_mm=0, y_mm=0, z_mm=0, direction="north", color=None, host_wall=None, sill_height_mm=0,
+    x_mm=0, y_mm=0, z_mm=0, direction="north", color=None, material_name=None,
+    host_wall=None, sill_height_mm=0,
 ):
     try:
         if not host_wall:
             host_wall = find_host_wall(model, None, x_mm, y_mm, z_mm)
+        if not host_wall:
+            logger.error("Door 생성 실패: host wall을 찾을 수 없습니다.")
+            return None
 
-        if host_wall:
-            u, v, z, ew_wall = _get_wall_local_coords(
-                model, host_wall, x_mm, y_mm, z_mm + sill_height_mm
-            )
-            opening = _apply_opening(
-                model, host_wall, u, v, z,
-                _mm_to_model_units(model, length_mm, 900),
-                _mm_to_model_units(model, width_mm, 200),
-                _mm_to_model_units(model, height_mm, 2100),
-                ew_wall,
-            )
-            dt = _mm_to_model_units(model, 40.0, 40.0)
-            margin = _mm_to_model_units(model, 20.0, 20.0)
-            off_t = (margin + (_mm_to_model_units(model, width_mm, 200) - dt)) / 2.0
-            door_loc = (0.0, off_t, 0.0) if ew_wall else (off_t, 0.0, 0.0)
-            placement = model.create_entity(
-                "IfcLocalPlacement",
-                PlacementRelTo=opening.ObjectPlacement,
-                RelativePlacement=_axis_placement_3d(model, location=door_loc),
-            )
-        else:
-            placement = _make_placement(model, storey, x_mm, y_mm, z_mm + sill_height_mm, direction)
-            opening, ew_wall = None, True
+        u, v, z, ew_wall = _get_wall_local_coords(
+            model, host_wall, x_mm, y_mm, z_mm + sill_height_mm
+        )
+        opening = _apply_opening(
+            model, host_wall, u, v, z,
+            _mm_to_model_units(model, length_mm, 900),
+            _mm_to_model_units(model, width_mm, 200),
+            _mm_to_model_units(model, height_mm, 2100),
+            ew_wall,
+        )
+        if opening is None:
+            logger.error("Door 생성 실패: opening을 생성할 수 없습니다.")
+            return None
+        dt = _mm_to_model_units(model, 40.0, 40.0)
+        margin = _mm_to_model_units(model, 20.0, 20.0)
+        off_t = (margin + (_mm_to_model_units(model, width_mm, 200) - dt)) / 2.0
+        door_loc = (0.0, off_t, 0.0) if ew_wall else (off_t, 0.0, 0.0)
+        placement = model.create_entity(
+            "IfcLocalPlacement",
+            PlacementRelTo=opening.ObjectPlacement,
+            RelativePlacement=_axis_placement_3d(model, location=door_loc),
+        )
 
         door = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcDoor")
+        _assign_to_storey(model, door, storey)
         door.ObjectPlacement = placement
         dt = _mm_to_model_units(model, 40, 40)
         bx, by = (
@@ -880,8 +890,7 @@ def create_door_with_opening(
         door.Representation, _ = _box_representation(
             model, bx, by, _mm_to_model_units(model, height_mm, 2100), center_origin=False
         )
-        _apply_color_and_material(model, door, color or "#8B4513")
-        _assign_to_storey(model, door, storey)
+        _apply_color_and_material(model, door, color or "#8B4513", material_name)
         if opening:
             model.create_entity(
                 "IfcRelFillsElement",
@@ -898,37 +907,41 @@ def create_door_with_opening(
 
 def create_window_with_opening(
     model, storey, *, length_mm=1200, width_mm=200, height_mm=1200,
-    x_mm=0, y_mm=0, z_mm=0, direction="north", color=None, host_wall=None, sill_height_mm=900,
+    x_mm=0, y_mm=0, z_mm=0, direction="north", color=None, material_name=None,
+    host_wall=None, sill_height_mm=900,
 ):
     try:
         if not host_wall:
             host_wall = find_host_wall(model, None, x_mm, y_mm, z_mm)
+        if not host_wall:
+            logger.error("Window 생성 실패: host wall을 찾을 수 없습니다.")
+            return None
 
-        if host_wall:
-            u, v, z, ew_wall = _get_wall_local_coords(
-                model, host_wall, x_mm, y_mm, z_mm + sill_height_mm
-            )
-            opening = _apply_opening(
-                model, host_wall, u, v, z,
-                _mm_to_model_units(model, length_mm, 1200),
-                _mm_to_model_units(model, width_mm, 200),
-                _mm_to_model_units(model, height_mm, 1200),
-                ew_wall,
-            )
-            wt = _mm_to_model_units(model, 100.0, 100.0)
-            margin = _mm_to_model_units(model, 20.0, 20.0)
-            off_v = (margin + (_mm_to_model_units(model, width_mm, 200) - wt)) / 2.0
-            window_loc = (0.0, off_v, 0.0) if ew_wall else (off_v, 0.0, 0.0)
-            placement = model.create_entity(
-                "IfcLocalPlacement",
-                PlacementRelTo=opening.ObjectPlacement,
-                RelativePlacement=_axis_placement_3d(model, location=window_loc),
-            )
-        else:
-            placement = _make_placement(model, storey, x_mm, y_mm, z_mm + sill_height_mm, direction)
-            opening, ew_wall = None, True
+        u, v, z, ew_wall = _get_wall_local_coords(
+            model, host_wall, x_mm, y_mm, z_mm + sill_height_mm
+        )
+        opening = _apply_opening(
+            model, host_wall, u, v, z,
+            _mm_to_model_units(model, length_mm, 1200),
+            _mm_to_model_units(model, width_mm, 200),
+            _mm_to_model_units(model, height_mm, 1200),
+            ew_wall,
+        )
+        if opening is None:
+            logger.error("Window 생성 실패: opening을 생성할 수 없습니다.")
+            return None
+        wt = _mm_to_model_units(model, 100.0, 100.0)
+        margin = _mm_to_model_units(model, 20.0, 20.0)
+        off_v = (margin + (_mm_to_model_units(model, width_mm, 200) - wt)) / 2.0
+        window_loc = (0.0, off_v, 0.0) if ew_wall else (off_v, 0.0, 0.0)
+        placement = model.create_entity(
+            "IfcLocalPlacement",
+            PlacementRelTo=opening.ObjectPlacement,
+            RelativePlacement=_axis_placement_3d(model, location=window_loc),
+        )
 
         window = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWindow")
+        _assign_to_storey(model, window, storey)
         window.ObjectPlacement = placement
         wt = _mm_to_model_units(model, 100, 100)
         bx, by = (
@@ -939,8 +952,7 @@ def create_window_with_opening(
         window.Representation, _ = _box_representation(
             model, bx, by, _mm_to_model_units(model, height_mm, 1200), center_origin=False
         )
-        _apply_color_and_material(model, window, color or "#AADDFF")
-        _assign_to_storey(model, window, storey)
+        _apply_color_and_material(model, window, color or "#AADDFF", material_name)
         if opening:
             model.create_entity(
                 "IfcRelFillsElement",
