@@ -12,7 +12,7 @@ import json
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from PIL import Image
 
@@ -24,8 +24,12 @@ from .views import IFCView
 PHOTO_MANIFEST_SCHEMA_VERSION = "ifc2img.photo.v1"
 DEFAULT_PHOTO_PRESET = "korean_house"
 DEFAULT_PHOTO_BUNDLE_NAME = "ifc2img_result.zip"
-PUBLIC_PHOTO_VIEWS = ("front_diagonal_left", "front_diagonal_right")
-PUBLIC_TO_INTERNAL_VIEW: dict[str, IFCView] = {
+PhotoViewAlias = Literal["front_diagonal_left", "front_diagonal_right"]
+PUBLIC_PHOTO_VIEWS: tuple[PhotoViewAlias, ...] = (
+    "front_diagonal_left",
+    "front_diagonal_right",
+)
+PUBLIC_TO_INTERNAL_VIEW: dict[PhotoViewAlias, IFCView] = {
     "front_diagonal_left": IFCView.FRONT_DIAGONAL_LEFT,
     "front_diagonal_right": IFCView.FRONT_DIAGONAL_RIGHT,
 }
@@ -63,8 +67,10 @@ class _DepthStyleRendererProtocol(Protocol):
 
 
 @dataclass(frozen=True)
-class Ifc2ImgPhotoOutput:
-    view: str
+class Ifc2ImgPhotoViewResult:
+    """view 1개에 대해 생성된 photo/depth 파일과 이미지 크기를 담는다."""
+
+    view: PhotoViewAlias
     internal_view: IFCView
     photo_path: Path
     depth_path: Path
@@ -72,16 +78,50 @@ class Ifc2ImgPhotoOutput:
     height: int
 
 
+Ifc2ImgPhotoOutput = Ifc2ImgPhotoViewResult
+
+
+@dataclass(frozen=True)
+class Ifc2ImgPhotoManifest:
+    """worker가 읽을 photo manifest JSON의 내부 타입 계약을 담는다."""
+
+    source_ifc_path: Path
+    preset: str
+    outputs: tuple[Ifc2ImgPhotoViewResult, ...]
+    schema_version: str = PHOTO_MANIFEST_SCHEMA_VERSION
+    render_mode: str = "ifc2img"
+
+    def to_dict(self) -> dict[str, object]:
+        """manifest dataclass를 기존 JSON 출력 구조로 변환한다."""
+        return {
+            "schemaVersion": self.schema_version,
+            "renderMode": self.render_mode,
+            "sourceIfcPath": str(self.source_ifc_path),
+            "preset": self.preset,
+            "views": [
+                {
+                    "view": output.view,
+                    "internalView": output.internal_view.value,
+                    "photoFile": output.photo_path.name,
+                    "depthFile": output.depth_path.name,
+                    "width": output.width,
+                    "height": output.height,
+                }
+                for output in self.outputs
+            ],
+        }
+
+
 @dataclass(frozen=True)
 class Ifc2ImgPhotoJobResult:
     preset: str
     output_dir: Path
-    outputs: tuple[Ifc2ImgPhotoOutput, ...]
+    outputs: tuple[Ifc2ImgPhotoViewResult, ...]
     manifest_path: Path
     bundle_path: Path | None = None
 
 
-def resolve_photo_views() -> tuple[str, ...]:
+def resolve_photo_views() -> tuple[PhotoViewAlias, ...]:
     """service가 항상 생성하는 front-facing diagonal public view 2개를 반환한다."""
     return PUBLIC_PHOTO_VIEWS
 
@@ -90,26 +130,14 @@ def build_photo_manifest(
     *,
     source_ifc_path: Path,
     preset: str,
-    outputs: tuple[Ifc2ImgPhotoOutput, ...],
+    outputs: tuple[Ifc2ImgPhotoViewResult, ...],
 ) -> dict[str, object]:
-    """생성된 사진/디버그 depth 목록을 worker가 읽을 manifest 구조로 만든다."""
-    return {
-        "schemaVersion": PHOTO_MANIFEST_SCHEMA_VERSION,
-        "renderMode": "ifc2img",
-        "sourceIfcPath": str(source_ifc_path),
-        "preset": preset,
-        "views": [
-            {
-                "view": output.view,
-                "internalView": output.internal_view.value,
-                "photoFile": output.photo_path.name,
-                "depthFile": output.depth_path.name,
-                "width": output.width,
-                "height": output.height,
-            }
-            for output in outputs
-        ],
-    }
+    """worker manifest 타입을 기존 JSON dict 구조로 변환한다."""
+    return Ifc2ImgPhotoManifest(
+        source_ifc_path=source_ifc_path,
+        preset=preset,
+        outputs=outputs,
+    ).to_dict()
 
 
 def write_photo_manifest(
@@ -125,11 +153,19 @@ def write_photo_manifest(
     return path
 
 
+def write_photo_manifest_file(
+    path: Path,
+    manifest: Ifc2ImgPhotoManifest,
+) -> Path:
+    """typed manifest를 UTF-8 JSON 파일로 저장한다."""
+    return write_photo_manifest(path, manifest.to_dict())
+
+
 def create_photo_bundle(
     bundle_path: Path,
     *,
     manifest_path: Path,
-    outputs: tuple[Ifc2ImgPhotoOutput, ...],
+    outputs: tuple[Ifc2ImgPhotoViewResult, ...],
 ) -> Path:
     """worker 업로드용 zip bundle에 manifest와 최종 사진 파일만 묶는다."""
     bundle_path.parent.mkdir(parents=True, exist_ok=True)
@@ -182,7 +218,7 @@ def run_ifc2img_photo_pipeline(
 
     depth_images = renderer.render_views(ifc_path, views=internal_views)
     params = load_preset(preset)
-    outputs: list[Ifc2ImgPhotoOutput] = []
+    outputs: list[Ifc2ImgPhotoViewResult] = []
     for public_view, internal_view in zip(public_views, internal_views, strict=True):
         depth = depth_images[internal_view]
         depth_path = output_dir / f"depth_{public_view}.png"
@@ -199,7 +235,7 @@ def run_ifc2img_photo_pipeline(
         result.save(photo_path)
         width, height = result.image.size
         outputs.append(
-            Ifc2ImgPhotoOutput(
+            Ifc2ImgPhotoViewResult(
                 view=public_view,
                 internal_view=internal_view,
                 photo_path=photo_path,
@@ -210,9 +246,9 @@ def run_ifc2img_photo_pipeline(
         )
 
     output_tuple = tuple(outputs)
-    manifest_path = write_photo_manifest(
+    manifest_path = write_photo_manifest_file(
         output_dir / "manifest.json",
-        build_photo_manifest(
+        Ifc2ImgPhotoManifest(
             source_ifc_path=ifc_path,
             preset=preset,
             outputs=output_tuple,
