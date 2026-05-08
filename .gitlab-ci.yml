@@ -1,15 +1,10 @@
 workflow:
   rules:
-    # 1. Merge Request 이벤트인 경우 -> MR 파이프라인 생성
+    # 1. Merge Request 이벤트인 경우 -> MR 파이프라인 생성 (수정 시마다 재실행됨)
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    # 2. 브랜치 push 이벤트인데 이미 오픈된 MR이 있는 경우 -> 생성 안 함 (중복 방지)
-    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
-      when: never
-    # 3. master/develop/release 브랜치 push인 경우 -> 파이프라인 생성
+    # 2. master/develop/release 브랜치 push인 경우 -> 파이프라인 생성 (배포 및 최종 검증용)
     - if: '$CI_COMMIT_BRANCH =~ /^(master|develop|release)$/'
-    # 4. 일반 feat/fix 브랜치 push이고 MR이 아직 없는 경우 -> 파이프라인 생성
-    - if: '$CI_COMMIT_BRANCH =~ /^(feat|fix|hotfix)\/.+$/'
-    # 5. 그 외(태그 등)는 기본적으로 생성하지 않음 (필요 시 추가 가능)
+    # 3. 그 외 모든 브랜치 푸시 -> 생성 안 함 (MR이 생성되기 전까지는 CI를 돌리지 않음)
     - when: never
 
 stages:
