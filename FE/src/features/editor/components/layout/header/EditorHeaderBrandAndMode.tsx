@@ -1,12 +1,13 @@
+// 에디터 헤더의 브랜드 로고와 편집/뷰어 모드 전환을 렌더링합니다.
 import { PanelLeftOpen } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import type { EditorMode } from '@/features/editor/types'
+import logoSrc from '@/assets/logo.svg'
 
 const TEXT_PROJECT_SWITCH = '프로젝트 목록'
 const TEXT_PROJECT_SWITCH_OPEN = '프로젝트 목록 열기'
 const TEXT_PROJECT_HOME = '프로젝트 홈'
 const TEXT_PROJECT_LIST_GO = '프로젝트 목록으로 이동'
-const TEXT_BRAND = '바탕: BATANG'
 const TEXT_EDIT_MODE = '편집 모드'
 const TEXT_VIEWER_MODE = '뷰어 모드'
 
@@ -51,13 +52,17 @@ export default function EditorHeaderBrandAndMode({
         )}
         <button
           type="button"
-          className={`cursor-pointer text-sm font-black tracking-tight transition-opacity hover:opacity-80 ${isViewer ? 'text-white' : 'text-[#1C1C1E]'
-            }`}
+          className="flex cursor-pointer items-center gap-2 text-sm font-black tracking-tight transition-opacity hover:opacity-80"
           onClick={() => navigate('/projects')}
           title={TEXT_PROJECT_HOME}
           aria-label={TEXT_PROJECT_LIST_GO}
         >
-          <span className={isViewer ? 'opacity-60' : 'opacity-55'}>{TEXT_BRAND}</span> Workspace
+          <img
+            src={logoSrc}
+            alt="바탕 : BATANG"
+            className={`h-5 w-auto ${isViewer ? 'brightness-0 invert opacity-80' : 'opacity-80'}`}
+          />
+          <span className={isViewer ? 'text-white' : 'text-[#1C1C1E]'}>Workspace</span>
         </button>
       </div>
 

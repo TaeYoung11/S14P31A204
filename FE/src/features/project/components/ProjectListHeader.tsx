@@ -1,6 +1,8 @@
+// 프로젝트 목록 상단의 브랜드, 알림, 사용자 프로필 메뉴를 렌더링합니다.
 import { useState } from 'react'
 import { Bell, LogOut, UserRoundX } from 'lucide-react'
 import Modal from '@/shared/components/Modal'
+import logoSrc from '@/assets/logo.svg'
 
 interface ProjectListHeaderProps {
   userId?: string
@@ -44,8 +46,8 @@ export default function ProjectListHeader({
     <>
       <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b border-[#e5e7eb] bg-white px-8">
         <div className="flex items-center gap-2">
-          <a href="/projects">
-            <span className="text-base font-semibold tracking-tight text-[#111827]">바탕: BATANG</span>
+          <a href="/projects" aria-label="바탕 프로젝트 목록으로 이동">
+            <img src={logoSrc} alt="바탕 : BATANG" className="h-[22px] w-auto" />
           </a>
         </div>
 
