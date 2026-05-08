@@ -9,7 +9,15 @@ from typing import Any
 import ifcopenshell
 import ifcopenshell.api.root
 
-from ai_authoring.engine_3d import create_generic_element, create_roof, create_slab, create_wall
+from ai_authoring.engine_3d import (
+    create_door_with_opening,
+    create_generic_element,
+    create_roof,
+    create_slab,
+    create_wall,
+    create_window_with_opening,
+    find_host_wall,
+)
 from ai_authoring.operations.registry import register
 from ai_authoring.operations.space_support import (
     assign_space_to_storey,
@@ -117,6 +125,31 @@ class CreateElementHandler:
                 **common,
                 shape_preset=str(parameters.get("roof_shape_preset") or "FLAT"),
                 ridge_height_mm=float(parameters.get("ridge_height_mm") or 1200.0),
+            )
+        if element_type in ("IfcDoor", "IfcWindow"):
+            host_wall_global_id = parameters.get("host_wall_global_id")
+            host_wall = find_host_wall(model, host_wall_global_id, x_mm, y_mm, z_mm)
+            if host_wall is None:
+                logger.error(
+                    "create_element handler: failed to resolve host wall for %s",
+                    element_type,
+                )
+                return None
+            sill_height_mm = parameters.get("sill_height_mm")
+            if element_type == "IfcDoor":
+                return create_door_with_opening(
+                    model,
+                    resolved_storey,
+                    **common,
+                    host_wall=host_wall,
+                    sill_height_mm=float(sill_height_mm or 0.0),
+                )
+            return create_window_with_opening(
+                model,
+                resolved_storey,
+                **common,
+                host_wall=host_wall,
+                sill_height_mm=float(sill_height_mm if sill_height_mm is not None else 900.0),
             )
         return create_generic_element(model, resolved_storey, element_type, **common)
 

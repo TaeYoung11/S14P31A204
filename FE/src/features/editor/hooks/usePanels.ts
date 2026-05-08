@@ -32,11 +32,11 @@ const DEFAULT_PANEL_OPEN_STATE: Record<PanelKey, boolean> = {
   hierarchy: true,
 }
 const DEFAULT_PANEL_HEIGHTS: Record<PanelKey, number> = {
-  attributes: 300,
-  zoning: 200,
-  assistant: 180,
-  floorView: 150,
-  hierarchy: 150,
+  attributes: 180,
+  zoning: 180,
+  assistant: 150,
+  floorView: 130,
+  hierarchy: 130,
 }
 const DEFAULT_PANEL_WIDTHS: Record<PanelKey, number> = {
   attributes: 300,
@@ -311,13 +311,22 @@ export function usePanels(mode: EditorMode) {
 
   useEffect(() => {
     const reclampAllPanels = () => {
-      setPanelOffsets((prev) => ({
-        attributes: clampPanelOffset('attributes', prev.attributes.x, prev.attributes.y),
-        zoning: clampPanelOffset('zoning', prev.zoning.x, prev.zoning.y),
-        assistant: clampPanelOffset('assistant', prev.assistant.x, prev.assistant.y),
-        floorView: clampPanelOffset('floorView', prev.floorView.x, prev.floorView.y),
-        hierarchy: clampPanelOffset('hierarchy', prev.hierarchy.x, prev.hierarchy.y),
-      }))
+      setPanelOffsets((prev) => {
+        // 기본 위치(0,0)인 패널은 스크롤 컨테이너 내 정상 배치이므로 재클램프 불필요.
+        // 재클램프하면 작은 뷰포트에서 maxY가 음수가 돼 패널이 강제로 위로 이동해 겹침 발생.
+        const clampIfMoved = (key: PanelKey): PanelOffset => {
+          const o = prev[key]
+          if (o.x === 0 && o.y === 0) return o
+          return clampPanelOffset(key, o.x, o.y)
+        }
+        return {
+          attributes: clampIfMoved('attributes'),
+          zoning: clampIfMoved('zoning'),
+          assistant: clampIfMoved('assistant'),
+          floorView: clampIfMoved('floorView'),
+          hierarchy: clampIfMoved('hierarchy'),
+        }
+      })
     }
 
     reclampAllPanels()
@@ -377,6 +386,8 @@ export function usePanels(mode: EditorMode) {
       if (willOpen) {
         setPanelOffsets((currentOffsets) => {
           const current = currentOffsets[panelKey]
+          // 기본 위치(0,0)이면 스크롤 컨테이너 내 정상 위치이므로 재클램프 불필요
+          if (current.x === 0 && current.y === 0) return currentOffsets
           const adjusted = clampPanelOffset(panelKey, current.x, current.y, true, currentOffsets)
           return { ...currentOffsets, [panelKey]: adjusted }
         })

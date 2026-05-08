@@ -1,10 +1,19 @@
+/**
+ * ifcMaterials — IFC/라이브러리 요소 재질 생성 및 적용 유틸
+ *
+ * Three.js MeshStandardMaterial 기반으로 건축 재질(콘크리트, 벽돌, 강재 등)을
+ * 시각적으로 표현한다. 실제 물성이 아닌 에디터 시각 구분용이다.
+ */
 import type { Object3D } from 'three'
-import type { ThreeDLibraryPreset } from '../ThreeDLibraryPanel'
+import type { ThreeDLibraryPreset } from '../threeDLibrary.types'
 
+/** Three.js 모듈 타입 단축 alias */
 export type ThreeModule = typeof import('three')
 
+/** 프로젝트 기본 월드 단위 비율: 1mm = 0.001 three.js unit */
 export const PROJECT_WORLD_UNITS_PER_MM = 0.001
 
+/** 라이브러리 타입별 기본 재질 이름 */
 export const DEFAULT_LIBRARY_MATERIAL_BY_TYPE: Record<ThreeDLibraryPreset['type'], string> = {
   roof: 'Tile',
   'exterior-wall': 'Brick',
@@ -15,8 +24,11 @@ export const DEFAULT_LIBRARY_MATERIAL_BY_TYPE: Record<ThreeDLibraryPreset['type'
   stairs: 'Concrete',
   column: 'Stone',
   floor: 'Concrete',
+  ceiling: 'Concrete',
+  furniture: 'Wood',
 }
 
+/** IFC 카테고리별 기본 표시 색상 (HEX). 재질이 지정되지 않은 요소에 적용된다. */
 export const DEFAULT_IFC_COLOR_BY_CATEGORY: Record<string, string> = {
   Roof: '#5B6475',
   Slab: '#B8875B',
@@ -46,6 +58,10 @@ const MATERIAL_VISUAL_STYLE: Record<string, {
   Tile: { color: '#C56F45', roughness: 0.48, metalness: 0, pattern: 'tile' },
 }
 
+/**
+ * 임의 문자열 재질명을 에디터 재질명으로 정규화한다.
+ * IFC 파일에 포함된 영문/한문 재질 문자열도 인식한다.
+ */
 export const normalizeMaterialNameForEditor = (material?: string) => {
   const value = material?.trim()
   if (!value) return undefined
@@ -63,6 +79,7 @@ export const normalizeMaterialNameForEditor = (material?: string) => {
   return value
 }
 
+/** 에디터가 시각 스타일을 지원하는 재질인지 확인한다. */
 export const isEditorMaterial = (material?: string) => (
   Boolean(material && MATERIAL_VISUAL_STYLE[material])
 )
@@ -72,6 +89,7 @@ const normalizeVisualMaterialName = (material?: string) => {
   return isEditorMaterial(normalizedMaterial) ? normalizedMaterial as string : 'Concrete'
 }
 
+/** 재질 이름에 대응하는 기본 HEX 색상을 반환한다. */
 export const getMaterialDefaultColor = (material?: string) => (
   MATERIAL_VISUAL_STYLE[normalizeVisualMaterialName(material)].color
 )
@@ -146,6 +164,11 @@ const createMaterialTexture = (
   return texture
 }
 
+/**
+ * 재질 이름과 색상으로 MeshStandardMaterial을 생성한다.
+ * - 재질에 대응하는 캔버스 텍스처(패턴)를 생성해 map으로 설정한다.
+ * - color가 지정되면 재질 기본 색상을 덮어쓴다.
+ */
 export const createElementMaterial = (
   THREE: ThreeModule,
   materialName?: string,
@@ -162,6 +185,7 @@ export const createElementMaterial = (
   })
 }
 
+/** 오브젝트의 모든 메시 재질 색상을 변경한다. */
 export const applyObjectColor = (THREE: ThreeModule, object: Object3D | null, color?: string) => {
   if (!object || !color) return
 
@@ -178,6 +202,10 @@ export const applyObjectColor = (THREE: ThreeModule, object: Object3D | null, co
   })
 }
 
+/**
+ * 오브젝트의 모든 메시 재질을 교체한다.
+ * 기존 재질의 텍스처를 먼저 dispose한 후 새 재질을 생성해 할당한다.
+ */
 export const applyObjectMaterial = (
   THREE: ThreeModule,
   object: Object3D | null,

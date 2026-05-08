@@ -23,6 +23,7 @@ type SidebarViewModel = Pick<
   | 'isEditorReadOnly'
   | 'hasDeletableSelection'
   | 'handleDeleteSelected'
+  | 'handleOpenIFCExportModal'
 >
 
 /**
@@ -42,6 +43,7 @@ export function buildEditorLeftSidebarProps(vm: SidebarViewModel): EditorLeftSid
     onToggleCollaboration: vm.handleToggleCollaboration,
     onToggleLibrary: () => vm.setIsLibraryOpen(!vm.isLibraryOpen),
     onToggleGrid: vm.toggleGrid,
+    onExportIFC: vm.handleOpenIFCExportModal,
     onAutoLayoutBubbles: vm.handleAutoLayoutBubbles,
     canAutoLayoutBubbles: vm.canAutoLayoutBubbles,
     onGenerateFloorPlan: vm.handleGenerateFloorPlanFromBubble,

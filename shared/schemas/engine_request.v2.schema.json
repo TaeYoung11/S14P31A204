@@ -639,6 +639,16 @@
           "type": "number",
           "exclusiveMinimum": 0
         },
+        "host_wall_global_id": {
+          "$ref": "#/$defs/globalId"
+        },
+        "sill_height_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "opening_offset_mm": {
+          "type": "number"
+        },
         "material": {
           "type": "string",
           "minLength": 1,

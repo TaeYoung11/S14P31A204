@@ -101,14 +101,12 @@ export default function EditorLeftSidebar({
       {mode === '3d' && (
         <ThreeDSidebarTools
           selectedTool={selectedTool}
-          isGridVisible={isGridVisible}
           isLibraryOpen={isLibraryOpen}
           hasDeletableSelection={hasDeletableSelection}
           onToolSelect={onToolSelect}
-          onToggleGrid={onToggleGrid}
           onToggleLibrary={onToggleLibrary}
-          onExportIFC={onExportIFC}
           onDeleteSelected={onDeleteSelected}
+          onExportIFC={onExportIFC}
         />
       )}
     </SidebarFrame>

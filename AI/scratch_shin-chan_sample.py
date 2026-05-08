@@ -1,61 +1,3 @@
-"""짱구집 샘플 IFC 생성기.
-
-실행:
-    python scratch_shin-chan_sample.py
-
-출력:
-    AI\\tests\\sample_shinchan.ifc
-
-설계 의도:
-  Yard : 15000x12000 마당 슬래브와 사방 담장.
-         담장은 200mm 두께, 1000mm 높이의 낮은 벽으로 표현.
-
-       y=12000  +--------------------------------+
-                |                                |
-                |            Yard                |
-                |                                |
-       y=0      +--------------------------------+
-                x=0                          x=15000
-
-  1F : 안방, 거실, 현관/복도 영역이 지그재그로 붙은 평면.
-       하나의 큰 직사각형이 아니라 3개 슬래브가 이어진 형태.
-       내부에는 이불장, 거실/부엌 분리벽, 현관, 화장실/욕조,
-       계단 주변 구획벽을 둔다.
-
-       y=10000  +---- Anbang ----+---- Living ----+-- Hall --+
-                |                |                |          |
-       y=7000   | closet         | living/kitchen | toilet   |
-       y=6000   +----------------+----------------+ entrance |
-                |                |                | stair    |
-       y=3000                    +----------------+----------+
-                x=2000        x=6000          x=10000   x=13000
-
-  2F : 1F보다 작은 6000x5000 메인 매스와 남쪽 발코니.
-       방 구획, 복도 구획, 장롱/수납 구획, 발코니 난간을 배치.
-
-       y=10000  +----------------------+
-                | room / closet / hall |
-       y=7000   |----------+-----------|
-                | room div | hall div  |
-       y=5000   +----------------------+
-       y=4000   +---- balcony rail ----+
-                x=7000              x=13000
-
-  RF : 1F 일부와 2F 본체 위에 분리된 지붕 블록 3개를 배치.
-       Roof_1F_Anbang, Roof_1F_Living, Roof_2F_Main.
-
-벽 설계:
-  - 모든 벽/담장/난간은 200mm 두께의 직육면체 압출 형상.
-  - 문/창 개구부는 만들지 않고, 방 구획을 읽기 쉬운 벽 요소로 표현.
-  - `AI/tests/sample_shinchan.ifc`와 같은 요소 이름/배치를 재생성하는 것이 목적.
-
-테스트/프론트 확인 포인트:
-  - 층 구조: IfcProject > IfcSite > IfcBuilding > Yard/1F/2F/RF
-  - 주요 요소: IfcWall, IfcSlab, IfcRoof
-  - 형상 표현: Body, Box
-  - 색상: IfcStyledItem, IfcColourRgb 포함
-"""
-
 from __future__ import annotations
 
 import time
@@ -85,6 +27,29 @@ class BoxSpec:
     d: float
     h: float
     color: tuple[float, float, float]
+
+
+@dataclass(frozen=True)
+class RoofSpec:
+    name: str
+    x: float
+    y: float
+    z: float
+    w: float
+    d: float
+    h: float
+    ridge_x1: float
+    ridge_x2: float
+    ridge_y: float
+    color: tuple[float, float, float]
+
+
+@dataclass(frozen=True)
+class SpaceSpec:
+    name: str
+    x: float
+    y: float
+    z: float
 
 
 def guid() -> str:
@@ -249,6 +214,77 @@ def make_box_shape(
     return model.create_entity("IfcProductDefinitionShape", Representations=[body, box])
 
 
+def make_hip_roof_shape(
+    model: ifcopenshell.file,
+    body_context,
+    box_context,
+    spec: RoofSpec,
+):
+    p0 = point(model, 0, 0, 0)
+    p1 = point(model, spec.w, 0, 0)
+    p2 = point(model, spec.w, spec.d, 0)
+    p3 = point(model, 0, spec.d, 0)
+
+    if spec.ridge_x1 == spec.ridge_x2:
+        # Pyramid Roof
+        p_apex = point(model, spec.ridge_x1, spec.ridge_y, spec.h)
+        loops = [
+            model.create_entity("IfcPolyLoop", Polygon=[p0, p1, p_apex]),
+            model.create_entity("IfcPolyLoop", Polygon=[p1, p2, p_apex]),
+            model.create_entity("IfcPolyLoop", Polygon=[p2, p3, p_apex]),
+            model.create_entity("IfcPolyLoop", Polygon=[p3, p0, p_apex]),
+            model.create_entity("IfcPolyLoop", Polygon=[p3, p2, p1, p0]),
+        ]
+    else:
+        # Hip Roof
+        p_r1 = point(model, spec.ridge_x1, spec.ridge_y, spec.h)
+        p_r2 = point(model, spec.ridge_x2, spec.ridge_y, spec.h)
+        loops = [
+            model.create_entity("IfcPolyLoop", Polygon=[p0, p1, p_r2, p_r1]),
+            model.create_entity("IfcPolyLoop", Polygon=[p1, p2, p_r2]),
+            model.create_entity("IfcPolyLoop", Polygon=[p2, p3, p_r1, p_r2]),
+            model.create_entity("IfcPolyLoop", Polygon=[p3, p0, p_r1]),
+            model.create_entity("IfcPolyLoop", Polygon=[p3, p2, p1, p0]),
+        ]
+
+    faces = [
+        model.create_entity(
+            "IfcFace",
+            Bounds=[
+                model.create_entity("IfcFaceOuterBound", Bound=poly_loop, Orientation=True)
+            ],
+        )
+        for poly_loop in loops
+    ]
+    shell = model.create_entity("IfcClosedShell", CfsFaces=faces)
+    brep = model.create_entity("IfcFacetedBrep", Outer=shell)
+
+    body = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=body_context,
+        RepresentationIdentifier="Body",
+        RepresentationType="Brep",
+        Items=[brep],
+    )
+
+    bbox = model.create_entity(
+        "IfcBoundingBox",
+        Corner=point(model, 0, 0, 0),
+        XDim=float(spec.w),
+        YDim=float(spec.d),
+        ZDim=float(spec.h),
+    )
+    box = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=box_context,
+        RepresentationIdentifier="Box",
+        RepresentationType="BoundingBox",
+        Items=[bbox],
+    )
+
+    return model.create_entity("IfcProductDefinitionShape", Representations=[body, box])
+
+
 def set_color(model: ifcopenshell.file, element, rgb: tuple[float, float, float]) -> None:
     color = model.create_entity(
         "IfcColourRgb",
@@ -287,6 +323,31 @@ def make_box(model: ifcopenshell.file, owner_history, body_context, box_context,
     )
     set_color(model, element, spec.color)
     return element
+
+
+def make_roof(model: ifcopenshell.file, owner_history, body_context, box_context, spec: RoofSpec):
+    shape = make_hip_roof_shape(model, body_context, box_context, spec)
+    element = model.create_entity(
+        "IfcRoof",
+        GlobalId=guid(),
+        OwnerHistory=owner_history,
+        Name=spec.name,
+        ObjectPlacement=local_placement(model, spec.x, spec.y, spec.z),
+        Representation=shape,
+    )
+    set_color(model, element, spec.color)
+    return element
+
+
+def make_space(model: ifcopenshell.file, owner_history, spec: SpaceSpec):
+    return model.create_entity(
+        "IfcSpace",
+        GlobalId=guid(),
+        OwnerHistory=owner_history,
+        Name=spec.name,
+        CompositionType="ELEMENT",
+        ObjectPlacement=local_placement(model, spec.x, spec.y, spec.z),
+    )
 
 
 def create_project(model: ifcopenshell.file, owner_history, model_context):
@@ -372,12 +433,23 @@ def yard_specs() -> list[BoxSpec]:
     ]
 
 
+def space_specs_1f() -> list[SpaceSpec]:
+    return [
+        SpaceSpec("Anbang_Room", 2000, 6000, 200),
+        SpaceSpec("Living_and_Kitchen", 6000, 3000, 200),
+        SpaceSpec("Hall_and_Entrance", 10000, 4000, 200),
+        SpaceSpec("Bathroom", 11500, 7500, 200),
+    ]
+
+
 def first_floor_specs() -> list[BoxSpec]:
     wall = (0.94, 0.92, 0.84)
     floor = (0.86, 0.80, 0.68)
+    stair_c = (0.70, 0.60, 0.50)
     z0 = 200
     wz = z0 + FLOOR_T
-    return [
+
+    specs = [
         BoxSpec("IfcSlab", "1F_Slab_Anbang", 2000, 6000, z0, 4000, 4000, FLOOR_T, floor),
         BoxSpec("IfcSlab", "1F_Slab_Living", 6000, 3000, z0, 4000, 7000, FLOOR_T, floor),
         BoxSpec("IfcSlab", "1F_Slab_Hall", 10000, 4000, z0, 3000, 6000, FLOOR_T, floor),
@@ -399,13 +471,41 @@ def first_floor_specs() -> list[BoxSpec]:
         BoxSpec("IfcWall", "1F_In_Vert_Mid", 11300, 6000, wz, WALL_T, 4000, STOREY_H, wall),
     ]
 
+    for i in range(10):
+        specs.append(
+            BoxSpec(
+                "IfcStair",
+                f"Stair_Step_{i+1}",
+                11500,
+                4500 + i * 250,
+                z0 + i * 300,
+                1000,
+                250,
+                300,
+                stair_c,
+            )
+        )
+
+    return specs
+
+
+def space_specs_2f() -> list[SpaceSpec]:
+    return [
+        SpaceSpec("Aunt_Room", 7000, 7000, 3400),
+        SpaceSpec("Dad_Office", 7000, 5000, 3400),
+        SpaceSpec("Hallway", 9800, 5000, 3400),
+    ]
+
 
 def second_floor_specs() -> list[BoxSpec]:
     wall = (0.94, 0.92, 0.84)
     floor = (0.84, 0.78, 0.66)
     rail = (0.45, 0.45, 0.45)
+    terrace_floor = (0.62, 0.60, 0.56)
     z0 = 3400
     wz = z0 + FLOOR_T
+    terrace_floor_t = 50
+    rail_z = wz + terrace_floor_t
     return [
         BoxSpec("IfcSlab", "2F_Slab_Main", 7000, 5000, z0, 6000, 5000, FLOOR_T, floor),
         BoxSpec(
@@ -419,6 +519,17 @@ def second_floor_specs() -> list[BoxSpec]:
             FLOOR_T,
             (0.72, 0.72, 0.72),
         ),
+        BoxSpec(
+            "IfcSlab",
+            "2F_Terrace_Floor",
+            7000,
+            4000,
+            wz,
+            3000,
+            1000,
+            terrace_floor_t,
+            terrace_floor,
+        ),
         BoxSpec("IfcWall", "2F_Ext_W", 7000, 5000, wz, WALL_T, 5000, STOREY_H, wall),
         BoxSpec("IfcWall", "2F_Ext_S", 7000, 5000, wz, 6000, WALL_T, STOREY_H, wall),
         BoxSpec("IfcWall", "2F_Ext_E", 12800, 5000, wz, WALL_T, 5000, STOREY_H, wall),
@@ -427,18 +538,21 @@ def second_floor_specs() -> list[BoxSpec]:
         BoxSpec("IfcWall", "2F_In_Hall_Div", 9800, 5000, wz, WALL_T, 5000, STOREY_H, wall),
         BoxSpec("IfcWall", "2F_In_Closet_1", 11300, 5000, wz, WALL_T, 2000, STOREY_H, wall),
         BoxSpec("IfcWall", "2F_In_Closet_2", 11300, 8000, wz, WALL_T, 2000, STOREY_H, wall),
-        BoxSpec("IfcWall", "2F_Rail_W", 7000, 4000, wz, WALL_T, 1000, 1000, rail),
-        BoxSpec("IfcWall", "2F_Rail_S", 7000, 4000, wz, 3000, WALL_T, 1000, rail),
-        BoxSpec("IfcWall", "2F_Rail_E", 9800, 4000, wz, WALL_T, 1000, 1000, rail),
+        BoxSpec("IfcWall", "2F_Rail_W", 7000, 4000, rail_z, WALL_T, 1000, 1000, rail),
+        BoxSpec("IfcWall", "2F_Rail_S", 7000, 4000, rail_z, 3000, WALL_T, 1000, rail),
+        BoxSpec("IfcWall", "2F_Rail_E", 9800, 4000, rail_z, WALL_T, 1000, 1000, rail),
     ]
 
 
-def roof_specs() -> list[BoxSpec]:
+def roof_specs() -> list[RoofSpec]:
     red = (0.70, 0.18, 0.14)
     return [
-        BoxSpec("IfcRoof", "Roof_1F_Anbang", 1500, 5500, 3400, 5000, 5000, 800, red),
-        BoxSpec("IfcRoof", "Roof_1F_Living", 5500, 2500, 3400, 5000, 3000, 800, red),
-        BoxSpec("IfcRoof", "Roof_2F_Main", 6500, 4500, 6600, 7000, 6000, 1200, red),
+        RoofSpec("Roof_1F_Anbang", 1500, 4000, 3400, 5500, 6500, 1200, 2750, 2750, 4000, red),
+
+        RoofSpec("Roof_1F_Living", 5500, 2500, 3400, 4500, 1500, 800, 1000, 3500, 750, red),
+
+        RoofSpec("Roof_1F_Entrance", 9800, 3500, 3400, 3400, 1500, 800, 500, 2900, 750, red),
+        RoofSpec("Roof_2F_Main", 6500, 4500, 6600, 7000, 6000, 1500, 3000, 4000, 3000, red),
     ]
 
 
@@ -453,17 +567,26 @@ def generate(output_path: Path = OUT_PATH) -> Path:
     )
 
     grouped_specs = [
-        (yard_storey, yard_specs()),
-        (first_storey, first_floor_specs()),
-        (second_storey, second_floor_specs()),
-        (roof_storey, roof_specs()),
+        (yard_storey, yard_specs(), []),
+        (first_storey, first_floor_specs(), space_specs_1f()),
+        (second_storey, second_floor_specs(), space_specs_2f()),
+        (roof_storey, roof_specs(), []),
     ]
-    for storey, specs in grouped_specs:
-        elements = [
-            make_box(model, owner_history, body_context, box_context, spec)
-            for spec in specs
-        ]
+
+    for storey, specs, spaces in grouped_specs:
+        elements = []
+        for spec in specs:
+            if isinstance(spec, BoxSpec):
+                elements.append(make_box(model, owner_history, body_context, box_context, spec))
+            elif isinstance(spec, RoofSpec):
+                elements.append(make_roof(model, owner_history, body_context, box_context, spec))
         contain(model, owner_history, storey, elements)
+
+        space_elements = []
+        for sp in spaces:
+            space_elements.append(make_space(model, owner_history, sp))
+        if space_elements:
+            aggregate(model, owner_history, storey, space_elements)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     model.write(str(output_path))

@@ -1,7 +1,10 @@
-// 프로젝트 댓글 SSE 이벤트를 구독하고 새 댓글 토스트 상태를 관리한다.
+// 프로젝트 댓글 SSE 스트림을 구독하고 댓글 토스트와 알림 캐시를 갱신합니다.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type { ProjectCommentCreatedEvent } from '@/features/project/services/projectComment.service'
+import type {
+  ProjectCommentCreatedEvent,
+  ProjectCommentListItem,
+} from '@/features/project/services/projectComment.service'
 import { clearAuthState, redirectToLoginIfNeeded, refreshAccessToken } from '@/shared/lib/authToken'
 import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
 import { useAuthStore } from '@/shared/stores/authStore'
@@ -32,8 +35,10 @@ const NOTIFICATION_STREAM_PATH = '/notifications/stream'
 const COMMENT_CREATED_EVENT = 'comment-created'
 const RECONNECT_DELAY_MS = 3000
 const TOAST_DURATION_MS = 5000
+const MAX_COMMENT_ITEMS = 50
+const FALLBACK_PROJECT_NAME = '프로젝트'
 
-class SseAuthError extends Error {}
+class SseAuthError extends Error { }
 
 const resolveNotificationStreamUrl = (): string => {
   const apiBaseUrl = getRuntimeEnvString('VITE_API_URL', DEFAULT_API_BASE_URL)
@@ -108,15 +113,42 @@ const parseCommentCreatedEvent = (data: string): ProjectCommentCreatedEvent | nu
   try {
     const parsed = JSON.parse(data) as ProjectCommentCreatedEvent
     if (!parsed.projectId || !parsed.pinId || !parsed.commentId) return null
-    return parsed
+    return {
+      ...parsed,
+      content: typeof parsed.content === 'string' ? parsed.content : '',
+      createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : new Date().toISOString(),
+    }
   } catch {
     return null
   }
 }
 
+const compareCommentTimeDesc = (left: ProjectCommentListItem, right: ProjectCommentListItem): number => {
+  return new Date(right.lastCommentAt).getTime() - new Date(left.lastCommentAt).getTime()
+}
+
+const mergeRealtimeComment = (
+  currentComments: ProjectCommentListItem[] | undefined,
+  nextComment: ProjectCommentListItem,
+): ProjectCommentListItem[] => {
+  const previousComments = currentComments ?? []
+  const previousSamePin = previousComments.find((comment) => comment.pinId === nextComment.pinId)
+  const mergedComment = {
+    ...nextComment,
+    pinContent: previousSamePin?.pinContent ?? nextComment.pinContent,
+  }
+
+  return [
+    mergedComment,
+    ...previousComments.filter((comment) => comment.pinId !== nextComment.pinId),
+  ]
+    .sort(compareCommentTimeDesc)
+    .slice(0, MAX_COMMENT_ITEMS)
+}
+
 export const useProjectCommentRealtime = (
   projects: Project[],
-  options: UseProjectCommentRealtimeOptions = DEFAULT_REALTIME_OPTIONS,
+  options = DEFAULT_REALTIME_OPTIONS,
 ) => {
   const token = useAuthStore((state) => state.token)
   const queryClient = useQueryClient()
@@ -132,16 +164,27 @@ export const useProjectCommentRealtime = (
 
       const payload = parseCommentCreatedEvent(message.data)
       if (!payload) return
-
-      void queryClient.invalidateQueries({ queryKey: ['projects', 'comments'] })
       options.onCommentCreated?.(payload)
+
+      const realtimeComment: ProjectCommentListItem = {
+        projectId: payload.projectId,
+        projectName: projectNameById.get(payload.projectId) ?? FALLBACK_PROJECT_NAME,
+        pinId: payload.pinId,
+        pinContent: '',
+        lastCommentAt: payload.createdAt,
+      }
+
+      queryClient.setQueriesData<ProjectCommentListItem[]>(
+        { queryKey: ['projects', 'comments'] },
+        (currentComments) => mergeRealtimeComment(currentComments, realtimeComment),
+      )
 
       setToast({
         projectId: payload.projectId,
-        projectName: projectNameById.get(payload.projectId) ?? '프로젝트',
+        projectName: realtimeComment.projectName,
         pinId: payload.pinId,
         commentId: payload.commentId,
-        content: payload.content,
+        content: payload.content ?? '',
         createdAt: payload.createdAt,
       })
     },

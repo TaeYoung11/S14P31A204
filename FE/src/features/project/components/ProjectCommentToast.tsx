@@ -10,8 +10,9 @@ interface ProjectCommentToastProps {
 
 const COMMENT_PREVIEW_MAX_LENGTH = 15
 
-const formatCommentPreview = (content: string): string => {
-  const normalized = content.trim()
+const formatCommentPreview = (content: string | null | undefined): string => {
+  const normalized = typeof content === 'string' ? content.trim() : ''
+  if (!normalized) return '새 댓글이 등록되었습니다.'
   if (normalized.length <= COMMENT_PREVIEW_MAX_LENGTH) return normalized
   return `${normalized.slice(0, COMMENT_PREVIEW_MAX_LENGTH)}...`
 }

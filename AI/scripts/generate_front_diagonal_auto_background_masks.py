@@ -1,10 +1,10 @@
-"""Generate preview-only EYE auto-background inpaint masks.
+﻿"""Generate preview-only front diagonal auto-background inpaint masks.
 
 This script does not run generation. It protects the inferred building body
-from EYE depth images and marks the full outside region as the inpaint target.
+from front diagonal depth images and marks the full outside region as the inpaint target.
 
 Examples:
-    uv run python scripts/generate_eye_auto_background_masks.py
+    uv run python scripts/generate_front_diagonal_auto_background_masks.py
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ai_rendering.ifc2img.style import (  # noqa: E402
-    EYE_BUILDING_MASK_GROUND_SHELL_RATIO,
-    _build_eye_building_mask,
+    FRONT_DIAGONAL_BUILDING_MASK_GROUND_SHELL_RATIO,
+    _build_front_diagonal_building_mask,
 )
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -35,16 +35,16 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 DEFAULT_INPUT_DIR = (
     ROOT
     / "outputs"
-    / "ifc2img_eye_ground_extent_105_style_smoke1"
+    / "ifc2img_front_diagonal_ground_extent_105_style_smoke1"
     / "AC20-FZK-Haus"
 )
 DEFAULT_OUTPUT_DIR = (
     ROOT
     / "outputs"
-    / "ifc2img_eye_auto_background_mask_tight_preview1"
+    / "ifc2img_front_diagonal_auto_background_mask_tight_preview1"
     / "AC20-FZK-Haus"
 )
-DEPTH_NAMES = ("depth_eye_ne.png", "depth_eye_nw.png", "depth_eye_se.png")
+DEPTH_NAMES = ("depth_front_diagonal_right.png", "depth_front_diagonal_left.png")
 DEFAULT_PRESET = "korean_house"
 DEFAULT_PROTECT_EXPAND_PX = 5
 DEFAULT_TARGET_FEATHER_RADIUS = 4
@@ -60,16 +60,16 @@ def _display_path(path: Path) -> Path:
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate preview-only EYE full outside auto-background masks."
+        description="Generate preview-only front diagonal full outside auto-background masks."
     )
     parser.add_argument("--input-dir", default=DEFAULT_INPUT_DIR, type=Path)
     parser.add_argument("--output", default=DEFAULT_OUTPUT_DIR, type=Path)
     parser.add_argument("--preset", default=DEFAULT_PRESET)
     parser.add_argument(
         "--ground-shell-ratio",
-        default=EYE_BUILDING_MASK_GROUND_SHELL_RATIO,
+        default=FRONT_DIAGONAL_BUILDING_MASK_GROUND_SHELL_RATIO,
         type=float,
-        help="Lower EYE geometry shell ratio to exclude as ground.",
+        help="Lower front diagonal geometry shell ratio to exclude as ground.",
     )
     parser.add_argument(
         "--protect-expand-px",
@@ -208,7 +208,7 @@ def generate_previews(
     input_dir: Path,
     output_dir: Path,
     preset: str = DEFAULT_PRESET,
-    ground_shell_ratio: float = EYE_BUILDING_MASK_GROUND_SHELL_RATIO,
+    ground_shell_ratio: float = FRONT_DIAGONAL_BUILDING_MASK_GROUND_SHELL_RATIO,
     protect_expand_px: int = DEFAULT_PROTECT_EXPAND_PX,
     target_feather_radius: int = DEFAULT_TARGET_FEATHER_RADIUS,
     protect_feather_radius: int = DEFAULT_PROTECT_FEATHER_RADIUS,
@@ -234,7 +234,7 @@ def generate_previews(
         view_name = depth_name.removeprefix("depth_").removesuffix(".png")
         depth = Image.open(depth_path).convert("RGB")
         source = _load_style_image(input_dir, view_name, preset, depth)
-        building_mask = _build_eye_building_mask(
+        building_mask = _build_front_diagonal_building_mask(
             depth,
             ground_shell_ratio=ground_shell_ratio,
         )
@@ -261,7 +261,7 @@ def generate_previews(
         saved.extend((protect_path, target_path, protect_overlay_path, target_overlay_path))
         rows.append((view_name, source, depth, protect_mask, target_mask, target_overlay))
 
-    sheet_path = output_dir / "compare_eye_auto_background_mask_preview.png"
+    sheet_path = output_dir / "compare_front_diagonal_auto_background_mask_preview.png"
     _make_contact_sheet(rows).save(sheet_path, format="PNG")
     saved.append(sheet_path)
     return saved

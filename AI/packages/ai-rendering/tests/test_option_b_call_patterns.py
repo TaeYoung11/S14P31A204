@@ -1,4 +1,4 @@
-"""view prompt 조립을 호출 위치별로 비교하는 Option B 회귀 테스트다.
+﻿"""view prompt 조립을 호출 위치별로 비교하는 Option B 회귀 테스트다.
 
 초기 실험에서는 view별 prompt를 붙이는 방법으로 세 가지 호출 패턴을 비교했다.
 B-1은 renderer에 `view`를 넘겨 renderer 내부에서 조립하는 방식이고, B-2는 caller가
@@ -39,7 +39,7 @@ def mock_renderer() -> DepthStyleRenderer:
 
 # 같은 base prompt와 target view를 세 호출 패턴에 넣고 결과 prompt만 비교한다.
 BASE_PROMPT = "RAW photo, scandinavian house"
-TARGET_VIEW = IFCView.EYE_NE
+TARGET_VIEW = IFCView.FRONT_DIAGONAL_RIGHT
 
 
 def _expected_prompt() -> str:

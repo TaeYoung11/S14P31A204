@@ -34,7 +34,7 @@ export interface ProjectCommentCreatedEvent {
   pinId: string
   commentId: string
   authorUserId: string
-  content: string
+  content?: string | null
   createdAt: string
 }
 
@@ -92,8 +92,10 @@ export const projectCommentService = {
   getCommentsForProjects: async (projects: Project[]): Promise<ProjectCommentListItem[]> => {
     if (projects.length === 0) return []
 
-    const commentsByProject = await Promise.all(projects.map(fetchProjectComments))
+    const commentsByProject = await Promise.allSettled(projects.map(fetchProjectComments))
     return commentsByProject
+      .filter((result): result is PromiseFulfilledResult<ProjectCommentListItem[]> => result.status === 'fulfilled')
+      .map((result) => result.value)
       .flat()
       .sort(compareCommentTimeDesc)
       .slice(0, MAX_COMMENT_ITEMS)
