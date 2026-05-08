@@ -171,6 +171,18 @@ public class ProjectAccessService {
     }
 
     /**
+     * 프로젝트 ID 기준으로 현재 사용자가 프로젝트 소유자인지 검증한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param currentUserId 현재 사용자 ID
+     */
+    public void validateProjectOwnerOrThrow(UUID projectId, UUID currentUserId) {
+        Project project = projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)
+                .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
+        validateProjectOwnerOrThrow(project, currentUserId);
+    }
+
+    /**
      * 프로젝트 멤버 사용자 ID 집합을 조회한다.
      *
      * <p>owner와 invited member를 모두 포함한다.

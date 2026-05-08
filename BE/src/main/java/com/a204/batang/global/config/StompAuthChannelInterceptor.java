@@ -102,7 +102,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         }
 
         UUID projectId = UUID.fromString(matcher.group(2));
-        projectAccessService.validateProjectPinWriterOrThrow(projectId, currentUserId);
+        projectAccessService.validateProjectOwnerOrThrow(projectId, currentUserId);
     }
 
     private String resolveAuthorizationHeader(StompHeaderAccessor accessor) {

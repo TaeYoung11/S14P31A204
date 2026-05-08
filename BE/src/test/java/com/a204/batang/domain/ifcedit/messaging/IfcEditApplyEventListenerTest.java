@@ -22,11 +22,13 @@ import com.a204.batang.domain.revision.entity.Revision;
 import com.a204.batang.domain.revision.repository.RevisionRepository;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
+import com.a204.batang.domain.workspace.service.WorkspaceFloorPlanRealtimeService;
 import com.a204.batang.global.config.RabbitMqConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -66,6 +68,7 @@ class IfcEditApplyEventListenerTest {
     @Mock private IfcEditCommandPublisher ifcEditCommandPublisher;
     @Mock private NotificationSseService notificationSseService;
     @Mock private ApplicationEventPublisher eventPublisher;
+    @Mock private WorkspaceFloorPlanRealtimeService workspaceFloorPlanRealtimeService;
 
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
@@ -188,6 +191,96 @@ class IfcEditApplyEventListenerTest {
         verify(ifcEditArtifactRepository, times(2)).save(any(IfcEditArtifact.class));
         verify(revisionSceneStateRepository).save(any(RevisionSceneState.class));
         verify(eventPublisher).publishEvent(any(IfcEditStatusChangedEvent.class));
+    }
+
+    @Test
+    void handleCompleted_twoDJob_broadcastsFloorPlanSyncImmediately() throws Exception {
+        String ifcUrl = "projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc";
+        IfcEditEventMessage event = completedEvent(ifcUrl, null);
+        UUID sourceRevisionId = UUID.randomUUID();
+        var sourceScene = objectMapper.readTree("""
+                {
+                  "baseIndex": 0,
+                  "bubbles": [{"id": "bubble-1"}],
+                  "connections": [],
+                  "layout": {"message": "update"}
+                }
+                """);
+
+        var requestPayload = objectMapper.createObjectNode();
+        requestPayload.set("source_scene", sourceScene);
+
+        IfcEditJob twoDJob = IfcEditJob.createQueued(
+                jobId, projectId, UUID.randomUUID(), null, sourceRevisionId,
+                "IFC_MODEL", JOB_TYPE_TWO_D_TO_IFC_EDIT,
+                requestPayload,
+                LocalDateTime.now()
+        );
+
+        given(ifcEditJobRepository.findByJobId(jobId)).willReturn(Optional.of(twoDJob));
+        given(ifcEditJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId)).willReturn(Optional.of(step));
+        given(revisionRepository.findById(revisionId)).willReturn(Optional.of(revision));
+        given(ifcEditArtifactRepository.findByArtifactId(artifactId)).willReturn(Optional.empty());
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)).willReturn(Optional.of(workspace));
+
+        listener.handle(event);
+
+        ArgumentCaptor<com.fasterxml.jackson.databind.JsonNode> sourceSceneCaptor =
+                ArgumentCaptor.forClass(com.fasterxml.jackson.databind.JsonNode.class);
+        verify(workspaceFloorPlanRealtimeService).publishFloorPlanUpdatedFromIfcEdit(
+                eq(projectId),
+                eq(revisionId),
+                eq(sourceRevisionId),
+                eq(ifcUrl),
+                sourceSceneCaptor.capture()
+        );
+        assertThat(sourceSceneCaptor.getValue().get("baseIndex").asInt()).isEqualTo(0);
+    }
+
+    @Test
+    void handleCompleted_directIfcEditJobWithFloorPlanEngineRequest_broadcastsFloorPlanSyncImmediately() throws Exception {
+        String ifcUrl = "projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc";
+        IfcEditEventMessage event = completedEvent(ifcUrl, null);
+        UUID sourceRevisionId = UUID.randomUUID();
+        var engineRequest = objectMapper.readTree("""
+                {
+                  "baseIndex": 1,
+                  "bubbles": [{"id": "bubble-2"}],
+                  "connections": [],
+                  "layout": {"message": "move wall"}
+                }
+                """);
+
+        var requestPayload = objectMapper.createObjectNode();
+        requestPayload.set("engine_request", engineRequest);
+
+        IfcEditJob directJob = IfcEditJob.createQueued(
+                jobId, projectId, UUID.randomUUID(), null, sourceRevisionId,
+                "IFC_MODEL", JOB_TYPE_IFC_EDIT,
+                requestPayload,
+                LocalDateTime.now()
+        );
+
+        given(ifcEditJobRepository.findByJobId(jobId)).willReturn(Optional.of(directJob));
+        given(ifcEditJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId)).willReturn(Optional.of(step));
+        given(revisionRepository.findById(revisionId)).willReturn(Optional.of(revision));
+        given(ifcEditArtifactRepository.findByArtifactId(artifactId)).willReturn(Optional.empty());
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)).willReturn(Optional.of(workspace));
+
+        listener.handle(event);
+
+        ArgumentCaptor<com.fasterxml.jackson.databind.JsonNode> sourceSceneCaptor =
+                ArgumentCaptor.forClass(com.fasterxml.jackson.databind.JsonNode.class);
+        verify(workspaceFloorPlanRealtimeService).publishFloorPlanUpdatedFromIfcEdit(
+                eq(projectId),
+                eq(revisionId),
+                eq(sourceRevisionId),
+                eq(ifcUrl),
+                sourceSceneCaptor.capture()
+        );
+        assertThat(sourceSceneCaptor.getValue().get("baseIndex").asInt()).isEqualTo(1);
     }
 
     @Test
