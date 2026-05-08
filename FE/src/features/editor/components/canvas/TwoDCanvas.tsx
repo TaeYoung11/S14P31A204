@@ -227,11 +227,7 @@ export function TwoDCanvas({
   const {
     pinDraft,
     pinInputRef,
-    pinImageInputRef,
-    pinFileInputRef,
     startPinDraftAt,
-    addPinDraftFiles,
-    removePinDraftAttachment,
     savePinDraft,
     cancelPinDraft,
     setPinDraftMessage,
@@ -466,10 +462,6 @@ export function TwoDCanvas({
         stageSize={stageSize}
         toScreenPoint={toScreenPoint}
         pinInputRef={pinInputRef}
-        pinImageInputRef={pinImageInputRef}
-        pinFileInputRef={pinFileInputRef}
-        onAddFiles={addPinDraftFiles}
-        onRemoveAttachment={removePinDraftAttachment}
         onMessageChange={setPinDraftMessage}
         onCancel={cancelPinDraft}
         onSave={savePinDraft}

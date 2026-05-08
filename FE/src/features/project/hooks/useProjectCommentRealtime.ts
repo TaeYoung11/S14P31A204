@@ -21,6 +21,12 @@ export interface ProjectCommentToastState {
   createdAt: string
 }
 
+interface UseProjectCommentRealtimeOptions {
+  onCommentCreated?: (payload: ProjectCommentCreatedEvent) => void
+}
+
+const DEFAULT_REALTIME_OPTIONS: UseProjectCommentRealtimeOptions = {}
+
 const DEFAULT_API_BASE_URL = '/api/v1'
 const NOTIFICATION_STREAM_PATH = '/notifications/stream'
 const COMMENT_CREATED_EVENT = 'comment-created'
@@ -108,7 +114,10 @@ const parseCommentCreatedEvent = (data: string): ProjectCommentCreatedEvent | nu
   }
 }
 
-export const useProjectCommentRealtime = (projects: Project[]) => {
+export const useProjectCommentRealtime = (
+  projects: Project[],
+  options: UseProjectCommentRealtimeOptions = DEFAULT_REALTIME_OPTIONS,
+) => {
   const token = useAuthStore((state) => state.token)
   const queryClient = useQueryClient()
   const [toast, setToast] = useState<ProjectCommentToastState | null>(null)
@@ -125,6 +134,7 @@ export const useProjectCommentRealtime = (projects: Project[]) => {
       if (!payload) return
 
       void queryClient.invalidateQueries({ queryKey: ['projects', 'comments'] })
+      options.onCommentCreated?.(payload)
 
       setToast({
         projectId: payload.projectId,
@@ -135,7 +145,7 @@ export const useProjectCommentRealtime = (projects: Project[]) => {
         createdAt: payload.createdAt,
       })
     },
-    [projectNameById, queryClient],
+    [options, projectNameById, queryClient],
   )
 
   useEffect(() => {

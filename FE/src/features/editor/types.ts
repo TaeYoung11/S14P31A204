@@ -248,6 +248,8 @@ export interface FloorCommentMessage {
   authorType: CollaborationUserType
   content: string
   attachments: FloorCommentAttachment[]
+  status?: string
+  isPinMessage?: boolean
   createdAt: string
 }
 
@@ -261,6 +263,7 @@ export interface FloorCommentPin {
   createdByName: string
   createdByType: CollaborationUserType
   messages: FloorCommentMessage[]
+  hasUnreadCommentByOtherUser?: boolean
 }
 
 /** 협업 알림 (백엔드 연동 전 FE 로컬 시뮬레이션용) */
