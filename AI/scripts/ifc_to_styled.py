@@ -1,4 +1,4 @@
-"""Render IFC depth views and style them with configured ifc2img presets."""
+﻿"""Render IFC depth views and style them with configured ifc2img presets."""
 
 from __future__ import annotations
 
@@ -70,20 +70,20 @@ def _parse_args() -> argparse.Namespace:
         help="Use iterative depth zoom to match each view's target fill ratio.",
     )
     parser.add_argument(
-        "--eye-target-ratio",
+        "--front-diagonal-target-ratio",
         type=float,
         default=None,
         help=(
-            "Override iterative zoom target fill ratio for EYE views only. "
+            "Override iterative zoom target fill ratio for front diagonal views only. "
             "Requires --auto-zoom to affect rendering."
         ),
     )
     parser.add_argument(
-        "--eye-ground-extent-factor",
+        "--front-diagonal-ground-extent-factor",
         type=float,
         default=None,
         help=(
-            "Override ground plane extent factor for EYE views only. "
+            "Override ground plane extent factor for front diagonal views only. "
             "Omit to keep the default renderer geometry."
         ),
     )
@@ -123,24 +123,24 @@ def _render_depths(
     views: list[IFCView],
     output_dir: Path,
     auto_zoom: bool = False,
-    eye_target_ratio: float | None = None,
-    eye_ground_extent_factor: float | None = None,
+    front_diagonal_target_ratio: float | None = None,
+    front_diagonal_ground_extent_factor: float | None = None,
     iter_tolerance: float = 0.10,
 ) -> dict[IFCView, Path]:
     """Render depth PNGs for each requested view."""
     zoom_mode = AutoZoomMode.ITERATIVE if auto_zoom else AutoZoomMode.OFF
-    target_overrides = _build_eye_target_overrides(eye_target_ratio)
-    ground_extent_overrides = _build_eye_ground_extent_overrides(
-        eye_ground_extent_factor
+    target_overrides = _build_front_diagonal_target_overrides(front_diagonal_target_ratio)
+    ground_extent_overrides = _build_front_diagonal_ground_extent_overrides(
+        front_diagonal_ground_extent_factor
     )
     print(
         f"[depth] rendering {ifc_path.name} views={len(views)} "
         f"auto_zoom={zoom_mode.value}"
     )
     if target_overrides:
-        print(f"  eye_target_ratio={eye_target_ratio}")
+        print(f"  front_diagonal_target_ratio={front_diagonal_target_ratio}")
     if ground_extent_overrides:
-        print(f"  eye_ground_extent_factor={eye_ground_extent_factor}")
+        print(f"  front_diagonal_ground_extent_factor={front_diagonal_ground_extent_factor}")
     renderer = IFCRenderer(
         width=768,
         height=448,
@@ -161,31 +161,29 @@ def _render_depths(
     return saved
 
 
-def _build_eye_target_overrides(
-    eye_target_ratio: float | None,
+def _build_front_diagonal_target_overrides(
+    front_diagonal_target_ratio: float | None,
 ) -> dict[IFCView, float]:
-    if eye_target_ratio is None:
+    if front_diagonal_target_ratio is None:
         return {}
-    if not 0.0 < eye_target_ratio < 1.0:
-        raise SystemExit("--eye-target-ratio must be between 0 and 1.")
+    if not 0.0 < front_diagonal_target_ratio < 1.0:
+        raise SystemExit("--front-diagonal-target-ratio must be between 0 and 1.")
     return {
-        IFCView.EYE_NE: eye_target_ratio,
-        IFCView.EYE_NW: eye_target_ratio,
-        IFCView.EYE_SE: eye_target_ratio,
+        IFCView.FRONT_DIAGONAL_RIGHT: front_diagonal_target_ratio,
+        IFCView.FRONT_DIAGONAL_LEFT: front_diagonal_target_ratio,
     }
 
 
-def _build_eye_ground_extent_overrides(
-    eye_ground_extent_factor: float | None,
+def _build_front_diagonal_ground_extent_overrides(
+    front_diagonal_ground_extent_factor: float | None,
 ) -> dict[IFCView, float]:
-    if eye_ground_extent_factor is None:
+    if front_diagonal_ground_extent_factor is None:
         return {}
-    if eye_ground_extent_factor <= 0.0:
-        raise SystemExit("--eye-ground-extent-factor must be greater than 0.")
+    if front_diagonal_ground_extent_factor <= 0.0:
+        raise SystemExit("--front-diagonal-ground-extent-factor must be greater than 0.")
     return {
-        IFCView.EYE_NE: eye_ground_extent_factor,
-        IFCView.EYE_NW: eye_ground_extent_factor,
-        IFCView.EYE_SE: eye_ground_extent_factor,
+        IFCView.FRONT_DIAGONAL_RIGHT: front_diagonal_ground_extent_factor,
+        IFCView.FRONT_DIAGONAL_LEFT: front_diagonal_ground_extent_factor,
     }
 
 
@@ -324,10 +322,10 @@ def main() -> int:
     print(f"output: {args.output}")
     print(f"mode: {'dry-run' if args.dry_run else 'render'}\n")
     print(f"auto_zoom: {'iterative' if args.auto_zoom else 'off'}")
-    if args.eye_target_ratio is not None:
-        print(f"eye_target_ratio: {args.eye_target_ratio}")
-    if args.eye_ground_extent_factor is not None:
-        print(f"eye_ground_extent_factor: {args.eye_ground_extent_factor}")
+    if args.front_diagonal_target_ratio is not None:
+        print(f"front_diagonal_target_ratio: {args.front_diagonal_target_ratio}")
+    if args.front_diagonal_ground_extent_factor is not None:
+        print(f"front_diagonal_ground_extent_factor: {args.front_diagonal_ground_extent_factor}")
     print(f"iter_tolerance: {args.iter_tolerance}")
 
     try:
@@ -336,8 +334,8 @@ def main() -> int:
             views,
             args.output,
             auto_zoom=args.auto_zoom,
-            eye_target_ratio=args.eye_target_ratio,
-            eye_ground_extent_factor=args.eye_ground_extent_factor,
+            front_diagonal_target_ratio=args.front_diagonal_target_ratio,
+            front_diagonal_ground_extent_factor=args.front_diagonal_ground_extent_factor,
             iter_tolerance=args.iter_tolerance,
         )
         _print_preset_info(presets)

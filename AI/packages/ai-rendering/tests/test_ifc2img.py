@@ -162,10 +162,11 @@ def test_renderer_calls_depth_buffer() -> None:
 
 
 def test_render_views_loads_mesh_once() -> None:
-    """여러 view를 렌더링할 때 IFC mesh를 한 번만 로드하는지 확인한다.
-    
-    같은 IFC에서 front, side, eye 계열을 연속 생성할 때 mesh 로딩을 반복하면 시간이 커진다.
-    `render_views`는 하나의 mesh를 재사용하고 view별 depth만 다시 캡처해야 한다.
+    """여러 view를 렌더링해도 IFC mesh는 한 번만 로드되어야 한다.
+
+    같은 IFC에서 front, side, front diagonal 계열을 연속 생성할 때
+    view마다 mesh를 다시 로드하면 시간이 커진다. `render_views`는
+    한 번 로드한 mesh를 재사용해 각 view의 depth를 만든다는 점을 검증한다.
     """
     fake_mesh = MagicMock()
     fake_center = np.array([0.0, 0.0, 0.0])
@@ -562,7 +563,7 @@ def test_add_ground_plane_extent_matches_aabb_factor() -> None:
 def test_add_ground_plane_accepts_extent_factor_override() -> None:
     """ground extent factor override가 plane 크기를 조정하는지 확인한다.
     
-    EYE view 실험에서는 기본 바닥 크기가 너무 크거나 작을 수 있으므로, view별로 factor를
+    front diagonal view 실험에서는 기본 바닥 크기가 너무 크거나 작을 수 있으므로, view별로 factor를
     조정할 수 있어야 한다.
     """
     verts = np.array(
@@ -598,10 +599,11 @@ def test_attach_ground_plane_to_mesh_appends_4_vertices() -> None:
     assert len(base.vertices) == 3
 
 
-def test_renderer_passes_eye_ground_extent_override_only_for_eye() -> None:
-    """EYE 전용 ground extent override가 EYE view에만 전달되는지 확인한다.
-    
-    front/side의 안정화 설정을 보존하면서 대각선 view의 ground plane만 조정하기 위한 회귀 테스트다.
+def test_renderer_passes_front_diagonal_ground_extent_override_only_for_diagonal() -> None:
+    """front diagonal ground extent override는 대각선 view에만 적용되어야 한다.
+
+    front/side는 기본 ground plane을 유지하고, front diagonal view만
+    ground extent 실험값을 받을 수 있는지 검증한다.
     """
     base_mesh = MagicMock(name="base_mesh")
     base_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 10.0, 5.0]])
@@ -629,11 +631,11 @@ def test_renderer_passes_eye_ground_extent_override_only_for_eye() -> None:
         vis.capture_depth_float_buffer.return_value = _make_fake_depth_buffer()
 
         renderer = IFCRenderer(
-            view_ground_extent_overrides={IFCView.EYE_NE: 0.9}
+            view_ground_extent_overrides={IFCView.FRONT_DIAGONAL_RIGHT: 0.9}
         )
         renderer.render_views(
             Path("dummy.ifc"),
-            views=[IFCView.FRONT, IFCView.EYE_NE],
+            views=[IFCView.FRONT, IFCView.FRONT_DIAGONAL_RIGHT],
         )
 
     assert calls == [
@@ -649,35 +651,35 @@ def test_iso_views_removed_from_enum() -> None:
     assert "ISO_NW" not in enum_names
     assert "ISO_SE" not in enum_names
 
-    assert len(list(IFCView)) == 5
+    assert len(list(IFCView)) == 4
 
 
-def test_eye_views_all_in_enum() -> None:
-    """EYE_NE, EYE_NW, EYE_SE view가 enum과 view 설정 dict에 모두 등록되어 있는지 확인한다."""
+def test_front_diagonal_views_all_in_enum() -> None:
+    """FRONT_DIAGONAL_RIGHT, FRONT_DIAGONAL_LEFT view가 enum과 view 설정 dict에 모두 등록되어 있는지 확인한다."""
     from ai_rendering.ifc2img.views import VIEW_CAMERAS
 
-    eye_views = (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE)
-    for v in eye_views:
+    front_diagonal_views = (IFCView.FRONT_DIAGONAL_RIGHT, IFCView.FRONT_DIAGONAL_LEFT)
+    for v in front_diagonal_views:
         assert v in IFCView
         assert v in VIEW_CAMERAS
         assert v in VIEW_TARGET_RATIOS
         assert v in VIEW_PROMPT_SUFFIXES
 
 
-def test_eye_views_have_zero_z_for_horizontal() -> None:
-    """EYE view가 top-down이 아니라 수평 대각선 시점으로 설정되어 있는지 확인한다."""
+def test_front_diagonal_views_have_zero_z_for_horizontal() -> None:
+    """front diagonal view가 top-down이 아니라 수평 대각선 시점으로 설정되어 있는지 확인한다."""
     from ai_rendering.ifc2img.views import VIEW_CAMERAS
 
-    for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
+    for v in (IFCView.FRONT_DIAGONAL_RIGHT, IFCView.FRONT_DIAGONAL_LEFT):
         cam = VIEW_CAMERAS[v]
-        assert cam.front[2] == 0.0, f"{v} front.z must be 0 for horizontal eye view"
+        assert cam.front[2] == 0.0, f"{v} front.z must be 0 for horizontal front diagonal view"
 
 
-def test_default_render_views_includes_eye() -> None:
-    """기본 렌더 view 세트가 production에서 쓰는 front, side, EYE 3종으로 구성되는지 확인한다."""
-    for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
+def test_default_render_views_includes_front_diagonal() -> None:
+    """기본 렌더 view 세트가 production에서 쓰는 front, side, front diagonal 2종으로 구성되는지 확인한다."""
+    for v in (IFCView.FRONT_DIAGONAL_RIGHT, IFCView.FRONT_DIAGONAL_LEFT):
         assert v in DEFAULT_RENDER_VIEWS
-    assert len(DEFAULT_RENDER_VIEWS) == 5
+    assert len(DEFAULT_RENDER_VIEWS) == 4
 
 
 def test_removed_views_are_not_public_enum_members() -> None:
@@ -686,24 +688,24 @@ def test_removed_views_are_not_public_enum_members() -> None:
 
     assert removed.isdisjoint({view.value for view in IFCView})
     assert set(DEFAULT_RENDER_VIEWS) == set(IFCView)
-    assert len(DEFAULT_RENDER_VIEWS) == 5
+    assert len(DEFAULT_RENDER_VIEWS) == 4
 
 
 # --- view별 prompt prefix/suffix와 build_view_prompt 정책 테스트 ---
 
 
 
-def test_view_prompt_suffixes_front_side_eye_empty() -> None:
+def test_view_prompt_suffixes_front_side_front_diagonal_empty() -> None:
     """view별 suffix는 비워두고 prefix 중심으로 prompt를 조립하는 정책을 확인한다."""
-    for v in (IFCView.FRONT, IFCView.SIDE, IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
+    for v in (IFCView.FRONT, IFCView.SIDE, IFCView.FRONT_DIAGONAL_RIGHT, IFCView.FRONT_DIAGONAL_LEFT):
         assert VIEW_PROMPT_SUFFIXES[v] == ""
 
 
-def test_view_prompt_prefixes_eye_describe_ground_and_sky_position() -> None:
-    """EYE prefix가 대각선 시점, 주변 ground, 지붕 위 sky 조건을 앞쪽에 넣는지 확인한다."""
-    for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
+def test_view_prompt_prefixes_front_diagonal_describe_ground_and_sky_position() -> None:
+    """front diagonal prefix adds diagonal view and ground/sky constraints."""
+    for v in (IFCView.FRONT_DIAGONAL_RIGHT, IFCView.FRONT_DIAGONAL_LEFT):
         prefix = VIEW_PROMPT_PREFIXES[v]
-        assert "eye-level diagonal view" in prefix
+        assert "front diagonal view" in prefix
         assert "dry ground around house" in prefix
         assert "building on flat ground" in prefix
         assert "no pool" in prefix
@@ -728,12 +730,12 @@ def test_build_view_prompt_prepends_prefix_for_front_side() -> None:
     assert "no foundation wall" in side
 
 
-def test_build_view_prompt_prepends_prefix_for_eye() -> None:
-    """EYE prompt 앞쪽에 대각선 ground anchoring prefix가 붙는지 확인한다."""
+def test_build_view_prompt_prepends_prefix_for_front_diagonal() -> None:
+    """front diagonal prompt gets a ground anchoring prefix."""
     base = "RAW photo, scandinavian house"
-    result = build_view_prompt(base, IFCView.EYE_NE)
+    result = build_view_prompt(base, IFCView.FRONT_DIAGONAL_RIGHT)
 
-    assert result.startswith("eye-level diagonal view")
+    assert result.startswith("front diagonal view")
     assert len(result) > len(base)
     assert result.endswith(base)
     assert "dry ground around house" in result
@@ -745,11 +747,11 @@ def test_build_view_prompt_prepends_prefix_for_eye() -> None:
 # --- build_view_prompt public API와 view별 prompt 후처리 테스트 ---
 
 
-def test_build_view_prompt_removes_blue_sky_for_eye() -> None:
-    """EYE view에서는 day suffix의 blue sky 표현이 과하게 앞서지 않도록 제거되는지 확인한다."""
+def test_build_view_prompt_removes_blue_sky_for_front_diagonal() -> None:
+    """front diagonal view에서는 day suffix의 blue sky 표현이 과하게 앞서지 않도록 제거되는지 확인한다."""
     base = "RAW photo, scandinavian house, during sunny daytime, natural sunlight, blue sky"
 
-    result = build_view_prompt(base, IFCView.EYE_NE)
+    result = build_view_prompt(base, IFCView.FRONT_DIAGONAL_RIGHT)
 
     assert "blue sky" not in result
     assert "during sunny daytime" in result
@@ -782,10 +784,10 @@ def test_build_view_prompt_in_public_api() -> None:
 
 
 def test_view_target_ratios_cropping_resistant() -> None:
-    """EYE view target ratio가 front/side보다 작아 cropping에 덜 취약한지 확인한다."""
+    """front diagonal view target ratio가 front/side보다 작아 cropping에 덜 취약한지 확인한다."""
     front_ratio = VIEW_TARGET_RATIOS[IFCView.FRONT]
     # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
-    for v in (IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE):
+    for v in (IFCView.FRONT_DIAGONAL_RIGHT, IFCView.FRONT_DIAGONAL_LEFT):
         assert VIEW_TARGET_RATIOS[v] < front_ratio
 
 
@@ -828,8 +830,8 @@ def test_resolve_target_ratio_for_medium_mesh_scales_down() -> None:
         base * DISPATCH_MEDIUM_FACTOR
     )
     # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
-    iso_base = VIEW_TARGET_RATIOS[IFCView.EYE_NE]
-    assert resolve_target_ratio_for_mesh(IFCView.EYE_NE, 35.0) == (
+    iso_base = VIEW_TARGET_RATIOS[IFCView.FRONT_DIAGONAL_RIGHT]
+    assert resolve_target_ratio_for_mesh(IFCView.FRONT_DIAGONAL_RIGHT, 35.0) == (
         iso_base * DISPATCH_MEDIUM_FACTOR
     )
 
@@ -844,8 +846,8 @@ def test_resolve_target_ratio_for_large_mesh_scales_more() -> None:
         base * DISPATCH_LARGE_FACTOR
     )
     # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
-    iso_base = VIEW_TARGET_RATIOS[IFCView.EYE_NE]
-    assert resolve_target_ratio_for_mesh(IFCView.EYE_NE, 75.0) == (
+    iso_base = VIEW_TARGET_RATIOS[IFCView.FRONT_DIAGONAL_RIGHT]
+    assert resolve_target_ratio_for_mesh(IFCView.FRONT_DIAGONAL_RIGHT, 75.0) == (
         iso_base * DISPATCH_LARGE_FACTOR
     )
 
@@ -1125,18 +1127,18 @@ def test_no_building_element_raises() -> None:
 
 
 
-def test_renderer_uses_view_target_override_for_eye_only() -> None:
-    """view target ratio override가 EYE view에만 적용되고 front/side에는 영향을 주지 않는지 확인한다."""
+def test_renderer_uses_view_target_override_for_front_diagonal_only() -> None:
+    """view target ratio override가 front diagonal view에만 적용되고 front/side에는 영향을 주지 않는지 확인한다."""
     renderer = IFCRenderer(
         target_screen_ratio=0.99,
-        view_target_overrides={IFCView.EYE_NE: 0.25},
+        view_target_overrides={IFCView.FRONT_DIAGONAL_RIGHT: 0.25},
     )
     small_mesh = MagicMock()
     small_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 5.0, 3.0]])
 
-    assert renderer._resolve_target_ratio(IFCView.EYE_NE, small_mesh) == 0.25
-    assert renderer._resolve_target_ratio(IFCView.EYE_NW, small_mesh) == (
-        VIEW_TARGET_RATIOS[IFCView.EYE_NW]
+    assert renderer._resolve_target_ratio(IFCView.FRONT_DIAGONAL_RIGHT, small_mesh) == 0.25
+    assert renderer._resolve_target_ratio(IFCView.FRONT_DIAGONAL_LEFT, small_mesh) == (
+        VIEW_TARGET_RATIOS[IFCView.FRONT_DIAGONAL_LEFT]
     )
     assert renderer._resolve_target_ratio(IFCView.FRONT, small_mesh) == (
         VIEW_TARGET_RATIOS[IFCView.FRONT]

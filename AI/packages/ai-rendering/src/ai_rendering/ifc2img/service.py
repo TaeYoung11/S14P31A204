@@ -26,9 +26,10 @@ DEFAULT_PHOTO_PRESET = "korean_house"
 DEFAULT_PHOTO_BUNDLE_NAME = "ifc2img_result.zip"
 PUBLIC_PHOTO_VIEWS = ("front_diagonal_left", "front_diagonal_right")
 PUBLIC_TO_INTERNAL_VIEW: dict[str, IFCView] = {
-    "front_diagonal_left": IFCView.EYE_NW,
-    "front_diagonal_right": IFCView.EYE_NE,
+    "front_diagonal_left": IFCView.FRONT_DIAGONAL_LEFT,
+    "front_diagonal_right": IFCView.FRONT_DIAGONAL_RIGHT,
 }
+PHOTO_INTERNAL_VIEWS = tuple(PUBLIC_TO_INTERNAL_VIEW[view] for view in PUBLIC_PHOTO_VIEWS)
 
 
 class _IFCRendererProtocol(Protocol):
@@ -80,13 +81,9 @@ class Ifc2ImgPhotoJobResult:
     bundle_path: Path | None = None
 
 
-def resolve_photo_views(views: tuple[str, ...] | None = None) -> tuple[str, ...]:
-    """외부에서 요청한 사진 view 이름을 검증하고 service 렌더 순서로 확정한다."""
-    resolved = PUBLIC_PHOTO_VIEWS if views is None else views
-    unknown = [view for view in resolved if view not in PUBLIC_TO_INTERNAL_VIEW]
-    if unknown:
-        raise IFCRenderError(f"unknown photo view(s): {unknown}")
-    return tuple(resolved)
+def resolve_photo_views() -> tuple[str, ...]:
+    """service가 항상 생성하는 front-facing diagonal public view 2개를 반환한다."""
+    return PUBLIC_PHOTO_VIEWS
 
 
 def build_photo_manifest(
@@ -148,7 +145,6 @@ def run_ifc2img_photo_pipeline(
     output_dir: Path | str,
     *,
     preset: str = DEFAULT_PHOTO_PRESET,
-    views: tuple[str, ...] | None = None,
     create_bundle: bool = True,
     ifc_renderer_cls: type[_IFCRendererProtocol] | None = None,
     depth_style_renderer_cls: type[_DepthStyleRendererProtocol] | None = None,
@@ -161,8 +157,8 @@ def run_ifc2img_photo_pipeline(
     if preset not in list_presets():
         raise IFCRenderError(f"unknown preset: {preset}")
 
-    public_views = resolve_photo_views(views)
-    internal_views = [PUBLIC_TO_INTERNAL_VIEW[view] for view in public_views]
+    public_views = resolve_photo_views()
+    internal_views = list(PHOTO_INTERNAL_VIEWS)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if ifc_renderer_cls is None:
