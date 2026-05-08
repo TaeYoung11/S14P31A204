@@ -39,14 +39,13 @@ class RenderingWorker(BaseWorker):
         """명령 payload의 renderMode를 확인하고 지원하는 렌더링 경로를 실행한다."""
 
         render_mode = _read_render_mode(command)
-        if render_mode != IFC2IMG_WORKER_RENDER_MODE:
-            raise ValidationWorkerError(
-                code="UNSUPPORTED_RENDER_MODE",
-                message=(
-                    "ai-rendering worker currently supports "
-                    f"renderMode='{IFC2IMG_WORKER_RENDER_MODE}' only; got {render_mode!r}"
-                ),
-            )
+        if render_mode == IFC2IMG_WORKER_RENDER_MODE:
+            return self._process_ifc2img_command(command)
+
+        raise _unsupported_render_mode_error(render_mode)
+
+    def _process_ifc2img_command(self, command: object) -> CompletedResult:
+        """ifc2img 명령을 실행하고 manifest URL을 worker 완료 output으로 변환한다."""
 
         work_dir = self._resolve_work_dir(command)
         try:
@@ -78,6 +77,16 @@ class RenderingWorker(BaseWorker):
 def _read_render_mode(command: object) -> str | None:
     payload = getattr(command, "payload", None)
     return getattr(payload, "renderMode", None)
+
+
+def _unsupported_render_mode_error(render_mode: str | None) -> ValidationWorkerError:
+    return ValidationWorkerError(
+        code="UNSUPPORTED_RENDER_MODE",
+        message=(
+            "ai-rendering worker currently supports "
+            f"renderMode='{IFC2IMG_WORKER_RENDER_MODE}' only; got {render_mode!r}"
+        ),
+    )
 
 
 def _safe_path_part(value: Any, fallback: str) -> str:
