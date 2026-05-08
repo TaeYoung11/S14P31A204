@@ -23,6 +23,8 @@ from .views import AutoZoomMode, IFCView
 PHOTO_MANIFEST_SCHEMA_VERSION = "ifc2img.photo.v1"
 IFC2IMG_WORKER_COMMAND_TYPE = "SD_RENDER_GENERATE"
 IFC2IMG_WORKER_RENDER_MODE = "ifc2img"
+PHOTO_MANIFEST_CONTENT_TYPE = "application/json; charset=utf-8"
+PHOTO_PNG_CONTENT_TYPE = "image/png"
 DEFAULT_PHOTO_PRESET = "korean_house"
 
 
@@ -118,6 +120,22 @@ class Ifc2ImgWorkerErrorResponse(TypedDict):
     renderMode: Ifc2ImgWorkerRenderMode
     errorCode: str
     message: str
+
+
+class Ifc2ImgStorageAdapter(Protocol):
+    def download_ifc(self, source_storage_url: str, destination_path: Path) -> Path:
+        """원본 IFC storage URL을 로컬 파일로 내려받는다."""
+        ...
+
+    def upload_file(
+        self,
+        local_path: Path,
+        target_storage_url: str,
+        *,
+        content_type: str,
+    ) -> str:
+        """로컬 결과 파일을 지정된 storage URL로 업로드하고 최종 URL을 돌려준다."""
+        ...
 
 
 class _IFCRendererProtocol(Protocol):
@@ -293,6 +311,15 @@ def build_photo_manifest(
         preset=preset,
         outputs=outputs,
     ).to_dict()
+
+
+def build_photo_output_storage_url(output_prefix: str, filename: str) -> str:
+    """worker output prefix와 파일명을 결합해 개별 결과 storage URL을 만든다."""
+    if not output_prefix:
+        raise ValueError("output storage prefix must not be empty.")
+    if not filename or "/" in filename or "\\" in filename:
+        raise ValueError("output filename must be a plain file name.")
+    return f"{output_prefix.rstrip('/')}/{filename}"
 
 
 def write_photo_manifest(
