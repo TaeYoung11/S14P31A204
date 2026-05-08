@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import ai_planning_2d
+from ai_common.storage.paths import planner_2d_command_key, preview_result_key
 from ai_common.adapters.rabbitmq.consumer import RabbitMQConsumer
 from ai_common.adapters.rabbitmq.kombu_client import get_command_queue
 from ai_common.errors import ClarificationRequiredError, NonRetryableWorkerError
@@ -32,6 +33,7 @@ class FakeStorageClient:
         self.writes: dict[str, bytes] = {}
         self.read_error: Exception | None = None
         self.write_error: Exception | None = None
+        self.default_bucket = "batang-artifacts"
 
     def read_bytes(self, url: str) -> bytes:
         if self.read_error is not None:
@@ -52,6 +54,21 @@ class FakeStorageClient:
         self.writes[url] = data
         return url
 
+    def write_json(
+        self,
+        key: str,
+        payload: object,
+        *,
+        bucket: str | None = None,
+        indent: int = 2,
+    ) -> str:
+        return self.write_bytes(
+            key,
+            json.dumps(payload, ensure_ascii=False, indent=indent).encode("utf-8"),
+            content_type="application/json; charset=utf-8",
+            bucket=bucket,
+        )
+
 
 def _raise(exc: Exception) -> None:
     raise exc
@@ -61,7 +78,18 @@ def _command(
     *,
     source_ifc_url: str | None = "s3://batang-artifacts/input/house.ifc",
     source_scene_url: str = "s3://batang-artifacts/input/house.ifc",
-    edit_plan_url: str | None = "s3://batang-artifacts/output/edit-plan.json",
+    edit_plan_url: str | None = (
+        "s3://batang-artifacts/projects/project-alpha/jobs/job-2d-worker-001/"
+        "steps/001/engine/engine-request.v2.json"
+    ),
+    validation_report_url: str | None = (
+        "s3://batang-artifacts/projects/project-alpha/jobs/job-2d-worker-001/"
+        "steps/001/engine/validation-report.v1.json"
+    ),
+    error_detail_url: str | None = (
+        "s3://batang-artifacts/projects/project-alpha/jobs/job-2d-worker-001/"
+        "steps/001/error/error-detail.v1.json"
+    ),
     ifc_output_url: str | None = "s3://batang-artifacts/output/result.ifc",
 ) -> CommandMessage:
     input_payload: dict[str, str] = {"sourceSceneStorageUrl": source_scene_url}
@@ -71,6 +99,10 @@ def _command(
     expected_output: dict[str, str] = {}
     if edit_plan_url is not None:
         expected_output["editPlanStorageUrl"] = edit_plan_url
+    if validation_report_url is not None:
+        expected_output["validationReportStorageUrl"] = validation_report_url
+    if error_detail_url is not None:
+        expected_output["errorDetailStorageUrl"] = error_detail_url
     if ifc_output_url is not None:
         expected_output["ifcStorageUrl"] = ifc_output_url
 
@@ -108,21 +140,61 @@ def _command(
 
 
 def _applied_result(request_id: str = "req-2d-001") -> dict[str, object]:
+    ifc_edit_payload = {
+        "engineRequest": {
+            "schema_version": "v1",
+            "request_id": request_id,
+            "project_id": "project-alpha",
+            "mode": "apply",
+            "base_revision_id": "rev-source-001",
+            "operations": [],
+        },
+        "commandJsonStorageUrl": None,
+    }
     return {
-        "preview": {"status": "preview_ready", "summary": "ok"},
+        "preview": {
+            "status": "preview_ready",
+            "summary": "ok",
+            "command": {
+                "action": "remove_room",
+                "target_room_name": "침실",
+                "target_floor": 1,
+                "confidence": 0.9,
+                "resize_shape": "rect",
+                "apply_to_all": False,
+                "needs_clarification": False,
+                "clarification_question": None,
+            },
+            "command_batch": {
+                "commands": [
+                    {
+                        "action": "delete_space",
+                        "target_id": "space-bedroom-1",
+                        "params": {},
+                        "confidence": 0.9,
+                        "reason": "test",
+                    }
+                ],
+                "requires_clarification": False,
+                "clarification_question": None,
+                "failed_command_indices": [],
+            },
+            "policy_plan": {
+                "status": "planned",
+                "reason": "dominant_adjacent_absorber",
+                "target_space_id": "space-bedroom-1",
+                "merge_target_space_id": "space-living-1",
+            },
+            "matched_count": 1,
+            "validation_warnings": [],
+            "engine_request": ifc_edit_payload["engineRequest"],
+            "ifc_edit_payload": ifc_edit_payload,
+            "engine_capabilities": {"shared_payload": True},
+        },
         "apply": {
             "status": "applied",
             "apply_mode": "shared_authoring",
-            "ifc_edit_payload": {
-                "engineRequest": {
-                    "schema_version": "v1",
-                    "request_id": request_id,
-                    "project_id": "project-alpha",
-                    "mode": "apply",
-                    "base_revision_id": "rev-source-001",
-                    "operations": [],
-                }
-            },
+            "ifc_edit_payload": ifc_edit_payload,
         },
     }
 
@@ -224,9 +296,26 @@ def test_two_d_llm_worker_uploads_ifc_and_plan(monkeypatch: pytest.MonkeyPatch) 
     assert publisher.events[1].status == "completed"
     assert publisher.events[1].output is not None
     assert publisher.events[1].output.storageUrl == "s3://batang-artifacts/output/result.ifc"
+    command_key = planner_2d_command_key("project-alpha", "job-2d-worker-001", 1)
+    preview_key = preview_result_key("project-alpha", "job-2d-worker-001", 1)
+    assert f"s3://batang-artifacts/{command_key}" in storage.writes
+    assert f"s3://batang-artifacts/{preview_key}" in storage.writes
     assert storage.writes["s3://batang-artifacts/output/result.ifc"] == b"updated-ifc"
-    uploaded_plan = json.loads(storage.writes["s3://batang-artifacts/output/edit-plan.json"])
+    uploaded_plan = json.loads(
+        storage.writes[
+            "s3://batang-artifacts/projects/project-alpha/jobs/job-2d-worker-001/"
+            "steps/001/engine/engine-request.v2.json"
+        ]
+    )
     assert uploaded_plan["engineRequest"]["request_id"] == "req-2d-001"
+    validation_report = json.loads(
+        storage.writes[
+            "s3://batang-artifacts/projects/project-alpha/jobs/job-2d-worker-001/"
+            "steps/001/engine/validation-report.v1.json"
+        ]
+    )
+    assert validation_report["schema_version"] == "v1"
+    assert validation_report["artifact_id"] == "artifact-2d-plan-001"
     assert "preview" not in uploaded_plan
 
 
@@ -545,12 +634,20 @@ def test_two_d_llm_worker_plan_upload_failure_happens_before_ifc_upload(
         bucket_name = bucket or "default"
         url = f"s3://{bucket_name}/{key}"
         write_calls.append(url)
-        if url.endswith("edit-plan.json"):
+        if url.endswith("engine-request.v2.json"):
             raise RuntimeError("plan upload failure")
         storage.writes[url] = data
         return url
 
     storage.write_bytes = _write_bytes  # type: ignore[method-assign]
+    storage.write_json = (  # type: ignore[method-assign]
+        lambda key, payload, bucket=None, indent=2: _write_bytes(
+            key,
+            json.dumps(payload, ensure_ascii=False, indent=indent).encode("utf-8"),
+            content_type="application/json; charset=utf-8",
+            bucket=bucket,
+        )
+    )
 
     async def _fake_run_pipeline(*, output_path: str, **_: object) -> dict[str, object]:
         Path(output_path).write_bytes(b"updated-ifc")
@@ -563,7 +660,24 @@ def test_two_d_llm_worker_plan_upload_failure_happens_before_ifc_upload(
     assert result.status == "failed"
     assert result.error.code == "STORAGE_WRITE_FAILED"
     assert result.error.retryable is True
-    assert write_calls == ["s3://batang-artifacts/output/edit-plan.json"]
+    assert write_calls == [
+        (
+            "s3://batang-artifacts/projects/project-alpha/jobs/job-2d-worker-001/"
+            "steps/001/planner/2d-command.v1.json"
+        ),
+        (
+            "s3://batang-artifacts/projects/project-alpha/jobs/job-2d-worker-001/"
+            "steps/001/engine/preview-result.v2.json"
+        ),
+        (
+            "s3://batang-artifacts/projects/project-alpha/jobs/job-2d-worker-001/"
+            "steps/001/engine/engine-request.v2.json"
+        ),
+        (
+            "s3://batang-artifacts/projects/project-alpha/jobs/job-2d-worker-001/"
+            "steps/001/error/error-detail.v1.json"
+        ),
+    ]
     assert "s3://batang-artifacts/output/result.ifc" not in storage.writes
 
 
@@ -591,7 +705,12 @@ def test_two_d_llm_worker_builds_plan_before_upload(
 
     assert result.status == "failed"
     assert result.error.code == "MISSING_EDIT_PLAN"
-    assert storage.writes == {}
+    assert list(storage.writes) == [
+        (
+            "s3://batang-artifacts/projects/project-alpha/jobs/job-2d-worker-001/"
+            "steps/001/error/error-detail.v1.json"
+        )
+    ]
 
 
 def test_two_d_llm_worker_supports_ifc_only_output(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -609,10 +728,10 @@ def test_two_d_llm_worker_supports_ifc_only_output(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
 
-    result = worker.handle(_command(edit_plan_url=None))
+    result = worker.handle(_command(edit_plan_url=None, validation_report_url=None))
 
     assert result.status == "completed"
-    assert "s3://batang-artifacts/output/edit-plan.json" not in storage.writes
+    assert not any(url.endswith("engine-request.v2.json") for url in storage.writes)
 
 
 def test_two_d_llm_worker_rejects_invalid_storage_url(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -634,6 +753,36 @@ def test_two_d_llm_worker_rejects_invalid_storage_url(monkeypatch: pytest.Monkey
 
     assert result.status == "failed"
     assert result.error.code == "INVALID_STORAGE_URL"
+
+
+def test_two_d_llm_worker_writes_error_detail_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = FakeStorageClient()
+    storage.read_map["s3://batang-artifacts/input/house.ifc"] = b"ISO-10303-21;source-ifc"
+    worker = TwoDLlmWorker(
+        worker_id="2d-llm-worker-1",
+        event_publisher=InMemoryPublisher(),
+        s3_client=storage,
+    )
+
+    async def _fake_run_pipeline(*, output_path: str, **_: object) -> dict[str, object]:
+        Path(output_path).write_bytes(b"updated-ifc")
+        return {
+            "preview": _applied_result("req-2d-007")["preview"],
+            "apply": {"status": "applied", "apply_mode": "shared_authoring"},
+        }
+
+    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
+
+    result = worker.handle(_command())
+
+    assert result.status == "failed"
+    assert result.error.code == "MISSING_EDIT_PLAN"
+    assert result.error.detail_storage_url is not None
+    detail_payload = json.loads(storage.writes[result.error.detail_storage_url])
+    assert detail_payload["schema_version"] == "v1"
+    assert detail_payload["error_code"] == "MISSING_EDIT_PLAN"
 
 
 def test_run_two_d_llm_job_rejects_active_event_loop(

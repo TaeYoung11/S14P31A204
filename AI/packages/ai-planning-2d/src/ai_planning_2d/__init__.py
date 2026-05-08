@@ -22,7 +22,11 @@ from .schemas.plan_v14 import (
     UserIntent,
     WallPlan,
 )
+from .schemas.preview_result import PreviewResultArtifact
+from .schemas.two_d_command import TwoDCommandArtifact
 from .schemas.validation import PlanStatus, ValidationIssue, ValidationSeverity
+from .schemas.validation_report import ValidationReportArtifact
+from .schemas.error_detail import ErrorDetailArtifact
 from .session_pipeline import LLM2DPipeline
 from .toilet_demo import build_toilet_insertion_geometry_plan, plan_toilet_near_bathroom
 from .utils import shape_to_rects
@@ -50,6 +54,10 @@ __all__ = [
     "OpeningContext",
     "SpaceContext",
     "StoreyContext",
+    "TwoDCommandArtifact",
+    "PreviewResultArtifact",
+    "ValidationReportArtifact",
+    "ErrorDetailArtifact",
     "ValidationIssue",
     "ValidationSeverity",
     # context

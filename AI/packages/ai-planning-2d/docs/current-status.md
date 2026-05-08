@@ -10,6 +10,13 @@
   - command batch generation
   - policy-based preview
   - preview validation
+- 2D LLM engine configuration is now env-driven
+  - `MODEL_ENDPOINT`
+  - `2D_LLM_MODEL_NAME`
+  - `2D_LLM_API_KEY` or `OPENAI_API_KEY`
+- deterministic natural-language shortcuts now cover the simplest edit flows
+  - remove-room phrasing such as `침실을 없애고 거실과 합쳐줘`
+  - direction-based resize phrasing such as `침실을 서쪽으로 넓혀줘`
 - shared apply contract
   - `engineRequest`
   - `IfcEditCommandPayload`
@@ -26,6 +33,13 @@
 - top-level dispatcher and Docker image now include 2D worker support
   - `main.py` dispatches `WORKER_TYPE=TWO_D_LLM`
   - `Dockerfile` installs `ai-planning-2d`
+- MinIO/S3 job-step artifact writes are now implemented for the 2D worker
+  - `planner/2d-command.v1.json`
+  - `engine/preview-result.v2.json`
+  - `engine-request.v2.json` via `editPlanStorageUrl`
+  - `validation-report.v1.json` via `validationReportStorageUrl`
+  - `error/error-detail.v1.json` as failure fallback
+  - shared key builders live in `ai_common.storage.paths`
 
 ## What Is Not Working Yet
 - Production-grade 2D worker runtime is not fully closed yet.
@@ -38,6 +52,12 @@
   - floating / orphan-looking artifacts
   - openings that do not cut walls correctly
   - remainder room usability is still fragile
+- GMS model usage is not active in deploy yet.
+  - the 2D engine can now read endpoint/model/api-key from env
+  - but actual deploy-side env injection still needs to be wired
+- Real MinIO integration is still only mock-verified.
+  - path builders and worker uploads are unit-tested
+  - actual MinIO container integration coverage is still pending
 
 ## Current Branch Reality
 - The branch is no longer trying to improve the generic editor first.
