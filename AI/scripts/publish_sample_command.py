@@ -25,7 +25,7 @@ from ai_common.adapters.rabbitmq.kombu_client import COMMANDS_EXCHANGE, build_co
 from ai_common.config import RabbitMQSettings, WorkerSettings
 
 _WORKER_TYPE_TO_SAMPLE: dict[str, str] = {
-    "SD_RENDER_GENERATE": "command_sd_render.json",
+    "SD_RENDER_GENERATE": "command_ifc2img_render.json",
     "IFC_GENERATE_FROM_BUBBLE": "command_ifc_generate.json",
     "TWO_D_LLM_GENERATE": "command_2d_llm.json",
     "THREE_D_LLM_GENERATE": "command_3d_llm.json",
