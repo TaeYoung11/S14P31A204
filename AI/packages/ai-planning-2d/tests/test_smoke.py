@@ -544,6 +544,18 @@ async def test_engine_remove_room():
     assert result.target_room_name is not None
 
 
+def test_engine_reads_model_settings_from_env(monkeypatch):
+    monkeypatch.setenv("2D_LLM_MODEL_NAME", "gms-2d-model")
+    monkeypatch.setenv("MODEL_ENDPOINT", "https://gms.example/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "secret-key")
+
+    engine = FloorPlanEngine()
+
+    assert engine.model == "gms-2d-model"
+    assert engine.base_url == "https://gms.example/v1"
+    assert engine.api_key == "secret-key"
+
+
 @pytest.mark.asyncio
 async def test_engine_clarification():
     engine = FloorPlanEngine()
@@ -566,6 +578,21 @@ async def test_engine_relative_resize_with_context(ifc_ctx):
     assert result.target_room_name == ifc_ctx["spaces"][1]["name"]
     assert result.resize_width is not None and result.resize_width > 3000
     assert result.resize_height is not None and result.resize_height > 4000
+    assert not result.needs_clarification
+
+
+@pytest.mark.asyncio
+async def test_engine_simple_resize_with_context(ifc_ctx):
+    target_space = next(space for space in ifc_ctx["spaces"] if space["type"] == "living")
+    engine = FloorPlanEngine()
+
+    result = await engine.parse_command(f"{target_space['name']}을 조금 더 넓혀줘", ifc_ctx)
+
+    assert result.action == "resize_room"
+    assert result.target_room_name == target_space["name"]
+    assert result.target_floor == target_space["floor"]
+    assert result.resize_width is not None and result.resize_width > target_space["width"]
+    assert result.resize_height is not None and result.resize_height > target_space["height"]
     assert not result.needs_clarification
 
 
@@ -1931,6 +1958,28 @@ async def test_pipeline_preview_house_kr_remove_room_is_ready():
 
 
 @pytest.mark.asyncio
+async def test_pipeline_execute_preview_house_kr_remove_room_user_text():
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    ctx = extract_ifc_context(str(house_kr))
+    pipeline = LLM2DPipeline(
+        ifc_path=str(house_kr),
+        ifc_context=ctx,
+    )
+
+    preview = await pipeline.execute_preview("침실을 없애고 거실과 합쳐줘")
+    merge_target_name_by_id = {space["id"]: space["name"] for space in ctx["spaces"]}
+
+    assert preview["status"] == "preview_ready"
+    assert preview["command"]["action"] == "remove_room"
+    assert preview["command"]["target_room_name"] == "침실"
+    assert preview["policy_plan"]["reason"] == "preferred_adjacent_absorber"
+    assert (
+        merge_target_name_by_id[preview["policy_plan"]["merge_target_space_id"]]
+        == "거실"
+    )
+
+
+@pytest.mark.asyncio
 async def test_pipeline_apply_house_kr_remove_room_writes_ifc(tmp_path):
     house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
     output_path = str(tmp_path / "house-kr-remove-room.ifc")
@@ -1967,6 +2016,52 @@ async def test_pipeline_apply_house_kr_remove_room_writes_ifc(tmp_path):
     if merge_plan is not None:
         assert merge_target["width"] == merge_plan["dimensions_mm"]["width"]
         assert merge_target["height"] == merge_plan["dimensions_mm"]["height"]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_execute_preview_house_kr_resize_room_user_text():
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    ctx = extract_ifc_context(str(house_kr))
+    bedroom = next(
+        space for space in ctx["spaces"] if space["name"] == "침실" and space["floor"] == 1
+    )
+    pipeline = LLM2DPipeline(
+        ifc_path=str(house_kr),
+        ifc_context=ctx,
+    )
+
+    preview = await pipeline.execute_preview("침실을 서쪽으로 넓혀줘")
+
+    assert preview["status"] == "preview_ready"
+    assert preview["command"]["action"] == "resize_room"
+    assert preview["command"]["target_room_name"] == "침실"
+    assert preview["command"]["resize_width"] > bedroom["width"]
+    assert preview["command"]["resize_height"] >= bedroom["height"]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_execute_apply_house_kr_resize_room_user_text(tmp_path):
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    output_path = str(tmp_path / "house-kr-resize-room-user-text.ifc")
+    ctx = extract_ifc_context(str(house_kr))
+    bedroom = next(
+        space for space in ctx["spaces"] if space["name"] == "침실" and space["floor"] == 1
+    )
+    pipeline = LLM2DPipeline(
+        ifc_path=str(house_kr),
+        ifc_context=ctx,
+    )
+
+    preview = await pipeline.execute_preview("침실을 서쪽으로 넓혀줘")
+    result = await pipeline.execute_apply(preview["session_id"], output_path=output_path)
+    updated_ctx = extract_ifc_context(output_path)
+    updated_bedroom = next(space for space in updated_ctx["spaces"] if space["id"] == bedroom["id"])
+
+    assert preview["status"] == "preview_ready"
+    assert result["status"] == "applied"
+    assert result["apply_mode"] == "shared_authoring"
+    assert updated_bedroom["width"] == preview["command"]["resize_width"]
+    assert updated_bedroom["height"] == preview["command"]["resize_height"]
 
 
 @pytest.mark.asyncio

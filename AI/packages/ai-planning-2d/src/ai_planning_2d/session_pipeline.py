@@ -328,8 +328,23 @@ class LLM2DPipeline:
             return None
 
         if command.action == "remove_room":
+            preferred_merge_target_space_id = None
+            if command.adjacency_target and self.ifc_context is not None:
+                preferred_merge_target_space_id = next(
+                    (
+                        space["id"]
+                        for space in self.ifc_context.get("spaces", [])
+                        if space.get("name") == command.adjacency_target
+                        and (
+                            command.target_floor is None
+                            or space.get("floor") == command.target_floor
+                        )
+                    ),
+                    None,
+                )
             return plan_remove_room(
                 target_space_id=batch.commands[0].target_id,
+                preferred_merge_target_space_id=preferred_merge_target_space_id,
                 ifc_context=self.ifc_context,
             )
 
@@ -407,8 +422,12 @@ class LLM2DPipeline:
         reason = policy_plan.get("reason")
         if reason == "dominant_adjacent_absorber":
             return "A dominant adjacent absorber was found for room removal."
+        if reason == "preferred_adjacent_absorber":
+            return "The requested adjacent merge target can absorb the removed room."
         if reason == "multiple_similar_absorbers":
             return "Multiple adjacent absorber candidates exist and clarification is needed."
+        if reason == "preferred_absorber_not_adjacent":
+            return "The requested merge target is not adjacent to the removed room."
         if reason == "no_adjacent_absorber":
             return "No adjacent absorber was found for room removal."
         if reason == "single_direction_resize":

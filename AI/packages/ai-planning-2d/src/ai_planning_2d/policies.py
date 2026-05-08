@@ -37,6 +37,7 @@ class ResizeRoomPolicyResult(TypedDict):
 def plan_remove_room(
     *,
     target_space_id: str,
+    preferred_merge_target_space_id: str | None = None,
     ifc_context: IFCContext,
 ) -> RemoveRoomPolicyResult:
     target_space = _find_space(target_space_id, ifc_context)
@@ -58,6 +59,38 @@ def plan_remove_room(
             None,
             [],
             [],
+        )
+
+    if preferred_merge_target_space_id is not None:
+        preferred_candidate = next(
+            (item for item in candidates if item[1]["id"] == preferred_merge_target_space_id),
+            None,
+        )
+        if preferred_candidate is None:
+            return _remove_result(
+                "needs_clarification",
+                "preferred_absorber_not_adjacent",
+                target_space_id,
+                None,
+                None,
+                [],
+                [],
+            )
+        preferred_contact, preferred_space = preferred_candidate
+        remove_wall_ids = _shared_wall_ids(
+            ifc_context,
+            target_space_id=target_space_id,
+            other_space_id=preferred_space["id"],
+        )
+        remove_opening_ids = _opening_ids_for_walls(ifc_context, remove_wall_ids)
+        return _remove_result(
+            "planned",
+            "preferred_adjacent_absorber",
+            target_space_id,
+            preferred_space["id"],
+            preferred_contact,
+            remove_wall_ids,
+            remove_opening_ids,
         )
 
     candidates.sort(key=lambda item: item[0], reverse=True)

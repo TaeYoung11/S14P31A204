@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 
 import instructor
@@ -71,6 +72,24 @@ def _infer_resize_direction(user_text: str) -> str | None:
     return None
 
 
+def _resolve_space_for_user_text(
+    user_text: str,
+    ifc_context: IFCContext | None,
+) -> dict | None:
+    if ifc_context is None:
+        return None
+
+    spaces = ifc_context.get("spaces", [])
+    exact_matches = [space for space in spaces if space.get("name") and space["name"] in user_text]
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+
+    inferred_name, _ = _infer_room_name_and_type(user_text)
+    if inferred_name is None:
+        return None
+    return next((space for space in spaces if space.get("name") == inferred_name), None)
+
+
 def _apply_relative_adjustment(
     command: FloorNLPCommand,
     user_text: str,
@@ -108,6 +127,10 @@ def _apply_relative_adjustment(
     if command.resize_width == current_w and command.resize_height == current_h:
         command.resize_width = int(current_w * factor)
         command.resize_height = int(current_h * factor)
+        if command.resize_direction in {"east", "west"}:
+            command.resize_height = current_h
+        elif command.resize_direction in {"north", "south"}:
+            command.resize_width = current_w
 
     return command
 
@@ -224,6 +247,124 @@ def _maybe_parse_simple_remove_command(user_text: str) -> FloorNLPCommand | None
         prefix = user_text.split(pattern, maxsplit=1)[0].strip()
         target_name = prefix.removesuffix("을").removesuffix("를").strip()
         break
+    if not target_name:
+        return None
+
+    return FloorNLPCommand(
+        action="remove_room",
+        target_room_name=target_name,
+        confidence=0.9,
+        needs_clarification=False,
+        clarification_question=None,
+    )
+
+
+def _maybe_parse_explicit_merge_remove_command(
+    user_text: str,
+    ifc_context: IFCContext | None,
+) -> FloorNLPCommand | None:
+    match = re.search(
+        r"(?P<target>.+?)(?:을|를)\s*(?P<merge>.+?)(?:와|과|랑|이랑)\s*(?:합쳐줘|통합해줘)",
+        user_text,
+    )
+    if match is None:
+        return None
+
+    target_phrase = match.group("target").strip()
+    merge_phrase = match.group("merge").strip()
+    if not target_phrase or not merge_phrase:
+        return None
+
+    target_space = _resolve_space_for_user_text(target_phrase, ifc_context)
+    merge_space = _resolve_space_for_user_text(merge_phrase, ifc_context)
+    target_name = target_space["name"] if target_space is not None else target_phrase
+    merge_name = merge_space["name"] if merge_space is not None else merge_phrase
+
+    return FloorNLPCommand(
+        action="remove_room",
+        target_room_name=target_name,
+        target_floor=target_space.get("floor") if target_space is not None else None,
+        adjacency_target=merge_name,
+        confidence=0.92,
+        needs_clarification=False,
+        clarification_question=None,
+    )
+
+
+def _maybe_parse_simple_resize_command(
+    user_text: str,
+    ifc_context: IFCContext | None,
+) -> FloorNLPCommand | None:
+    if not any(keyword in user_text for keyword in ("넓혀", "확장", "키워", "커지")):
+        return None
+    if any(pattern in user_text for pattern in _REMOVE_ROOM_PATTERNS):
+        return None
+
+    target_space = _resolve_space_for_user_text(user_text, ifc_context)
+    if target_space is None:
+        return None
+
+    width = target_space.get("width")
+    height = target_space.get("height")
+    direction = _infer_resize_direction(user_text)
+    if width is None or height is None:
+        return FloorNLPCommand(
+            action="resize_room",
+            target_room_name=target_space["name"],
+            target_floor=target_space.get("floor"),
+            resize_direction=direction,
+            confidence=0.6,
+            needs_clarification=True,
+            clarification_question="현재 치수를 알 수 없어 구체적인 크기를 알려주세요.",
+        )
+
+    command = FloorNLPCommand(
+        action="resize_room",
+        target_room_name=target_space["name"],
+        target_floor=target_space.get("floor"),
+        resize_width=width,
+        resize_height=height,
+        resize_direction=direction,
+        confidence=0.85,
+        needs_clarification=False,
+        clarification_question=None,
+    )
+    if direction in {"east", "west"}:
+        command.resize_width = width + 1000
+        command.resize_height = height
+    elif direction in {"north", "south"}:
+        command.resize_width = width
+        command.resize_height = height + 1000
+    else:
+        command = _apply_relative_adjustment(command, user_text, ifc_context)
+    if command.resize_width is not None and command.resize_height is not None:
+        command.resize_rects = shape_to_rects(
+            command.resize_shape,
+            command.resize_width,
+            command.resize_height,
+        )
+    return command
+
+
+def _maybe_parse_remove_command_v2(user_text: str) -> FloorNLPCommand | None:
+    remove_keywords = ("삭제", "제거", "없애", "지워")
+    if not any(keyword in user_text for keyword in remove_keywords):
+        return None
+
+    prefix = None
+    for keyword in remove_keywords:
+        if keyword not in user_text:
+            continue
+        prefix = user_text.split(keyword, maxsplit=1)[0].strip()
+        break
+    if not prefix:
+        return None
+
+    target_name = prefix
+    for suffix in ("하고", "와", "과", "을", "를", "은", "는", "이", "가"):
+        if target_name.endswith(suffix):
+            target_name = target_name[: -len(suffix)].strip()
+            break
     if not target_name:
         return None
 
@@ -440,18 +581,40 @@ class FloorPlanEngine:
 
     DEFAULT_MODEL = "gemma3:4b"
     DEFAULT_BASE_URL = "http://localhost:11434/v1"
+    DEFAULT_API_KEY = "ollama"
+    ENV_MODEL_KEYS: tuple[str, ...] = ("2D_LLM_MODEL_NAME", "MODEL_NAME")
+    ENV_BASE_URL_KEYS: tuple[str, ...] = ("MODEL_ENDPOINT",)
+    ENV_API_KEY_KEYS: tuple[str, ...] = ("2D_LLM_API_KEY", "MODEL_API_KEY", "OPENAI_API_KEY")
 
     def __init__(
         self,
-        model: str = DEFAULT_MODEL,
-        base_url: str = DEFAULT_BASE_URL,
+        model: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
         timeout: float = 30.0,
     ) -> None:
-        self.model = model
+        self.model = model or self._resolve_env_value(self.ENV_MODEL_KEYS, self.DEFAULT_MODEL)
+        self.base_url = base_url or self._resolve_env_value(
+            self.ENV_BASE_URL_KEYS,
+            self.DEFAULT_BASE_URL,
+        )
+        self.api_key = api_key or self._resolve_env_value(
+            self.ENV_API_KEY_KEYS,
+            self.DEFAULT_API_KEY,
+        )
+        self.timeout = timeout
         self._client = instructor.from_openai(
-            AsyncOpenAI(base_url=base_url, api_key="ollama", timeout=timeout),
+            AsyncOpenAI(base_url=self.base_url, api_key=self.api_key, timeout=timeout),
             mode=instructor.Mode.JSON,
         )
+
+    @staticmethod
+    def _resolve_env_value(keys: tuple[str, ...], default: str) -> str:
+        for key in keys:
+            value = os.getenv(key)
+            if value:
+                return value
+        return default
 
     async def parse_command(
         self,
@@ -463,9 +626,21 @@ class FloorPlanEngine:
         if insert_toilet is not None:
             return insert_toilet
 
+        explicit_merge_remove = _maybe_parse_explicit_merge_remove_command(user_text, ifc_context)
+        if explicit_merge_remove is not None:
+            return explicit_merge_remove
+
+        remove_v2 = _maybe_parse_remove_command_v2(user_text)
+        if remove_v2 is not None:
+            return remove_v2
+
         simple_remove = _maybe_parse_simple_remove_command(user_text)
         if simple_remove is not None:
             return simple_remove
+
+        simple_resize = _maybe_parse_simple_resize_command(user_text, ifc_context)
+        if simple_resize is not None:
+            return simple_resize
 
         messages: list[ChatCompletionMessageParam] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
