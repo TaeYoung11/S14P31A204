@@ -145,42 +145,50 @@ def _render_depths(
 ) -> dict[IFCView, Path]:
     """Render depth PNGs for each requested view."""
     zoom_mode = AutoZoomMode.ITERATIVE if auto_zoom else AutoZoomMode.OFF
-    effective_target_ratio = (
-        front_diagonal_target_ratio
-        if front_diagonal_target_ratio is not None
-        else DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO
+    target_overrides = _build_front_diagonal_target_overrides(
+        (
+            front_diagonal_target_ratio
+            if front_diagonal_target_ratio is not None
+            else DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO
+        )
+        if auto_zoom
+        else None
     )
-    effective_ground_extent_factor = (
+    ground_extent_for_log = (
         front_diagonal_ground_extent_factor
         if front_diagonal_ground_extent_factor is not None
         else DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR
     )
-    target_overrides = _build_front_diagonal_target_overrides(
-        effective_target_ratio if auto_zoom else None
-    )
     ground_extent_overrides = _build_front_diagonal_ground_extent_overrides(
-        effective_ground_extent_factor
+        ground_extent_for_log
     )
     print(
         f"[depth] rendering {ifc_path.name} views={len(views)} "
         f"auto_zoom={zoom_mode.value}"
     )
     if target_overrides:
-        print(f"  front_diagonal_target_ratio={effective_target_ratio}")
+        print(
+            "  front_diagonal_target_ratio="
+            f"{front_diagonal_target_ratio or DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO}"
+        )
     if ground_extent_overrides:
         print(
             "  front_diagonal_ground_extent_factor="
-            f"{effective_ground_extent_factor}"
+            f"{ground_extent_for_log}"
         )
-    renderer = create_photo_ifc_renderer(
-        IFCRenderer,
-        width=DEFAULT_PHOTO_WIDTH,
-        height=DEFAULT_PHOTO_HEIGHT,
-        auto_zoom=auto_zoom,
-        front_diagonal_target_ratio=effective_target_ratio,
-        front_diagonal_ground_extent_factor=effective_ground_extent_factor,
-        iter_tolerance=iter_tolerance,
-    )
+    renderer_kwargs: dict[str, object] = {
+        "width": DEFAULT_PHOTO_WIDTH,
+        "height": DEFAULT_PHOTO_HEIGHT,
+        "auto_zoom": auto_zoom,
+        "iter_tolerance": iter_tolerance,
+    }
+    if front_diagonal_target_ratio is not None:
+        renderer_kwargs["front_diagonal_target_ratio"] = front_diagonal_target_ratio
+    if front_diagonal_ground_extent_factor is not None:
+        renderer_kwargs["front_diagonal_ground_extent_factor"] = (
+            front_diagonal_ground_extent_factor
+        )
+    renderer = create_photo_ifc_renderer(IFCRenderer, **renderer_kwargs)
     images = render_photo_depths(renderer, ifc_path, views)
 
     saved: dict[IFCView, Path] = {}

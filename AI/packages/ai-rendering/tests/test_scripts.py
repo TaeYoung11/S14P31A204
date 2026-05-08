@@ -360,6 +360,46 @@ def test_ifc_to_styled_render_depths_can_enable_auto_zoom(
     assert paths[m.IFCView.FRONT_DIAGONAL_RIGHT].exists()
 
 
+def test_ifc_to_styled_render_depths_leaves_front_diagonal_defaults_to_service(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """CLI에서 생략한 front diagonal 기본값은 service factory가 단일하게 결정해야 한다."""
+    from PIL import Image
+
+    m = _load_script("ifc_to_styled.py")
+    factory_calls: list[dict[str, object]] = []
+
+    class FakeIFCRenderer:
+        def render_views(self, _ifc_path: Path, views: list[object]) -> dict[object, Image.Image]:
+            return {
+                view: Image.new("L", (4, 4), 128)
+                for view in views
+            }
+
+    def fake_create_photo_ifc_renderer(_renderer_cls: type, **kwargs: object) -> FakeIFCRenderer:
+        factory_calls.append(kwargs)
+        return FakeIFCRenderer()
+
+    monkeypatch.setattr(m, "create_photo_ifc_renderer", fake_create_photo_ifc_renderer)
+
+    m._render_depths(
+        tmp_path / "dummy.ifc",
+        [m.IFCView.FRONT_DIAGONAL_RIGHT],
+        tmp_path / "out",
+        auto_zoom=True,
+    )
+
+    assert factory_calls == [
+        {
+            "width": 768,
+            "height": 448,
+            "auto_zoom": True,
+            "iter_tolerance": m.DEFAULT_PHOTO_ITER_TOLERANCE,
+        }
+    ]
+
+
 def test_ifc_to_styled_builds_front_diagonal_target_overrides() -> None:
     """front diagonal target ratio override는 대각선 front diagonal view 3종에만 적용되어야 한다."""
     m = _load_script("ifc_to_styled.py")
