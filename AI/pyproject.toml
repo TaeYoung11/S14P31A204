@@ -61,8 +61,12 @@ extend-exclude = [
 [tool.ruff.lint]
 select = ["E", "F", "UP"]
 
+[tool.ruff.lint.per-file-ignores]
+"scripts/run_baseline.py" = ["E501"]
+
 [tool.pytest.ini_options]
-addopts = ["-p", "no:cacheprovider"]
+addopts = ["-p", "no:cacheprovider", "--import-mode=importlib"]
+pythonpath = ["."]
 testpaths = ["tests", "packages"]
 markers = [
     "llm: Ollama 실행이 필요한 LLM 통합 테스트",

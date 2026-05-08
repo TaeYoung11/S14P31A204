@@ -1,51 +1,18 @@
-import { FLOOR_OPENING_PRESETS, FLOOR_WALL_PRESETS, INITIAL_ADD_SPACE_FORM } from '../constants'
+import { FLOOR_OPENING_PRESETS, FLOOR_WALL_PRESETS } from '../constants'
 import type { BubbleData, ConnectionData, FloorOpening, FloorWall } from '../types'
 import type { LlmEditChangeItem, LlmEditOperation, LlmEditPreview } from '../types/llmEdit.types'
-import { calcMmDimensionsByAreaAndAspect, calcPxDimensionsFromMm } from './bubbleCalc'
+import {
+  buildNewBubble,
+  clampDimension,
+  clampWallPosition,
+  createOpeningId,
+  createWallId,
+  getNextBubbleIndex,
+  toConnectionKey,
+} from './llmEditPreviewHelpers'
 
-const DEFAULT_AREA_M2 = 10
-
-const toConnectionKey = (from: string, to: string) => [from, to].sort().join('::')
-
-const createBubbleId = () => `llm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-const createWallId = () => `llm-wall-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-const createOpeningId = () => `llm-opening-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-
-const clamp = (value: number, min: number, max: number) => Math.min(Math.max(Math.round(value), min), max)
-const clampWallPosition = (value: number) => Math.min(Math.max(value, 0), 1)
-
-const getNextBubbleIndex = (bubbles: BubbleData[]) => {
-  const max = bubbles.reduce((acc, bubble) => {
-    const parsed = Number.parseInt(bubble.index, 10)
-    return Number.isNaN(parsed) ? acc : Math.max(acc, parsed)
-  }, 0)
-  return String(max + 1).padStart(2, '0')
-}
-
-/** 기존 버블 근처 좌표를 기준으로 신규 버블 기본값을 구성한다. */
-function buildNewBubble(label: string, type: string, near: BubbleData | undefined): BubbleData {
-  const mm = calcMmDimensionsByAreaAndAspect(DEFAULT_AREA_M2, 1)
-  const px = calcPxDimensionsFromMm(mm.widthMm, mm.heightMm)
-  const x = near ? near.x + near.width + 30 : 220
-  const y = near ? near.y + 20 : 220
-
-  return {
-    id: createBubbleId(),
-    x,
-    y,
-    width: px.width,
-    height: px.height,
-    widthMm: mm.widthMm,
-    heightMm: mm.heightMm,
-    label,
-    type,
-    ratio: DEFAULT_AREA_M2,
-    area: `${DEFAULT_AREA_M2.toFixed(1)} m²`,
-    color: INITIAL_ADD_SPACE_FORM.color,
-    material: near?.material ?? '콘크리트',
-    index: '00',
-  }
-}
+const resolveBubbleLabel = (bubbles: BubbleData[], bubbleId: string) =>
+  bubbles.find((bubble) => bubble.id === bubbleId)?.label ?? bubbleId
 
 /** LLM operations를 적용해 미리보기 데이터와 변경 요약 목록을 계산한다. */
 export function applyLlmOperationsPreview(
@@ -71,8 +38,8 @@ export function applyLlmOperationsPreview(
         ...nextConnections,
         { from: operation.fromId, to: operation.toId, type: operation.style ?? 'thin' },
       ]
-      const fromLabel = nextBubbles.find((bubble) => bubble.id === operation.fromId)?.label ?? operation.fromId
-      const toLabel = nextBubbles.find((bubble) => bubble.id === operation.toId)?.label ?? operation.toId
+      const fromLabel = resolveBubbleLabel(nextBubbles, operation.fromId)
+      const toLabel = resolveBubbleLabel(nextBubbles, operation.toId)
       changes.push({ id: `change-${idx}`, text: `연결 추가: ${fromLabel} ↔ ${toLabel}` })
       return
     }
@@ -87,8 +54,8 @@ export function applyLlmOperationsPreview(
           ),
       )
       if (nextConnections.length !== prevLength) {
-        const fromLabel = nextBubbles.find((bubble) => bubble.id === operation.fromId)?.label ?? operation.fromId
-        const toLabel = nextBubbles.find((bubble) => bubble.id === operation.toId)?.label ?? operation.toId
+        const fromLabel = resolveBubbleLabel(nextBubbles, operation.fromId)
+        const toLabel = resolveBubbleLabel(nextBubbles, operation.toId)
         changes.push({ id: `change-${idx}`, text: `연결 삭제: ${fromLabel} ↔ ${toLabel}` })
       }
       return
@@ -125,8 +92,8 @@ export function applyLlmOperationsPreview(
           start: operation.start,
           end: operation.end,
           type: operation.type ?? 'general',
-          thickness: clamp(operation.thickness ?? fallbackPreset.thickness, 50, 600),
-          heightMm: clamp(operation.heightMm ?? fallbackPreset.heightMm, 1800, 5000),
+          thickness: clampDimension(operation.thickness ?? fallbackPreset.thickness, 50, 600),
+          heightMm: clampDimension(operation.heightMm ?? fallbackPreset.heightMm, 1800, 5000),
         },
       ]
       changes.push({ id: `change-${idx}`, text: '벽체 추가' })
@@ -146,11 +113,11 @@ export function applyLlmOperationsPreview(
               thickness:
                 operation.thickness === undefined
                   ? wall.thickness
-                  : clamp(operation.thickness, 50, 600),
+                  : clampDimension(operation.thickness, 50, 600),
               heightMm:
                 operation.heightMm === undefined
                   ? wall.heightMm
-                  : clamp(operation.heightMm, 1800, 5000),
+                  : clampDimension(operation.heightMm, 1800, 5000),
             }
           : wall,
       )
@@ -179,11 +146,11 @@ export function applyLlmOperationsPreview(
           type: operation.openingType,
           wallId: operation.wallId,
           wallPosition: clampWallPosition(operation.wallPosition),
-          widthMm: clamp(operation.widthMm ?? preset.widthMm, 300, 4000),
-          heightMm: clamp(operation.heightMm ?? preset.heightMm, 300, 4000),
+          widthMm: clampDimension(operation.widthMm ?? preset.widthMm, 300, 4000),
+          heightMm: clampDimension(operation.heightMm ?? preset.heightMm, 300, 4000),
           sillHeightMm:
             operation.openingType === 'window'
-              ? clamp(operation.sillHeightMm ?? preset.sillHeightMm ?? 900, 0, 2500)
+              ? clampDimension(operation.sillHeightMm ?? preset.sillHeightMm ?? 900, 0, 2500)
               : undefined,
           doorHingeSide:
             operation.openingType === 'door'
@@ -220,16 +187,16 @@ export function applyLlmOperationsPreview(
               widthMm:
                 operation.widthMm === undefined
                   ? opening.widthMm
-                  : clamp(operation.widthMm, 300, 4000),
+                  : clampDimension(operation.widthMm, 300, 4000),
               heightMm:
                 operation.heightMm === undefined
                   ? opening.heightMm
-                  : clamp(operation.heightMm, 300, 4000),
+                  : clampDimension(operation.heightMm, 300, 4000),
               sillHeightMm:
                 opening.type === 'window'
                   ? operation.sillHeightMm === undefined
                     ? opening.sillHeightMm
-                    : clamp(operation.sillHeightMm, 0, 2500)
+                    : clampDimension(operation.sillHeightMm, 0, 2500)
                   : undefined,
               doorHingeSide:
                 opening.type === 'door'

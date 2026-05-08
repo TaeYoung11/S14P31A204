@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import { parseIfcToFloorProject } from '../utils/ifcToFloorProject'
+import { parseWebIfcToFloorProject } from '../utils/webIfcToFloorProject'
 import type { FloorProject } from '../types/floorProject.types'
 
 interface StageSize {
@@ -10,6 +11,33 @@ interface StageSize {
 interface UseFloorProjectImportParams {
   stageSize: StageSize
   onApplyProject: (project: FloorProject) => void
+}
+
+interface WebIfcApiForFloorProjectImport {
+  GetTypeCodeFromName: (typeName: string) => number
+  GetNameFromTypeCode?: (typeCode: number) => string
+  GetLineIDsWithType: (modelID: number, type: number, includeInherited?: boolean) => { size: () => number; get: (index: number) => number }
+  GetLine: (modelID: number, expressID: number, flatten?: boolean, inverse?: boolean, inversePropKey?: string | null) => unknown
+  GetFlatMesh?: (modelID: number, expressID: number) => {
+    geometries: { size: () => number; get: (index: number) => { geometryExpressID: number; flatTransformation?: number[] } }
+    delete?: () => void
+  }
+  GetGeometry?: (modelID: number, geometryExpressID: number) => {
+    GetVertexData: () => number
+    GetVertexDataSize: () => number
+    delete?: () => void
+  }
+  GetVertexArray?: (ptr: number, size: number) => Float32Array
+}
+
+const isWebIfcApiForFloorProjectImport = (value: unknown): value is WebIfcApiForFloorProjectImport => {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Record<string, unknown>
+  return (
+    typeof record.GetTypeCodeFromName === 'function' &&
+    typeof record.GetLineIDsWithType === 'function' &&
+    typeof record.GetLine === 'function'
+  )
 }
 
 /** IFC import 상태와 처리 로직을 관리한다. */
@@ -46,11 +74,40 @@ export function useFloorProjectImport({ stageSize, onApplyProject }: UseFloorPro
     [ensureStageReady, importFloorProject],
   )
 
+  const importFloorProjectFromWebIfc = useCallback(
+    async (
+      ifcApi: unknown,
+      modelId: number,
+      sourceName = 'import.ifc',
+    ): Promise<boolean> => {
+      if (!ensureStageReady()) return false
+      if (!isWebIfcApiForFloorProjectImport(ifcApi)) {
+        setMessage('web-ifc API를 확인할 수 없어 IFC 직접 파싱에 실패했습니다.')
+        return false
+      }
+
+      const parsed = parseWebIfcToFloorProject({
+        ifcApi,
+        modelId,
+        sourceName,
+      })
+      if (!parsed.ok) {
+        setMessage(parsed.message)
+        return false
+      }
+
+      importFloorProject(parsed.project)
+      return true
+    },
+    [ensureStageReady, importFloorProject],
+  )
+
   const clearImportMessage = useCallback(() => setMessage(''), [])
 
   return {
     floorProjectImportMessage: message,
     importFloorProjectFromIfc,
+    importFloorProjectFromWebIfc,
     clearImportMessage,
   }
 }

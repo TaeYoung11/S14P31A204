@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import ifcopenshell
 import pytest
 
 from ai_authoring.worker import AuthoringWorker
@@ -89,6 +90,9 @@ def test_authoring_worker_returns_completed_result():
     mock_s3.read_text.assert_called_once_with(command.payload.commandJsonStorageUrl)
     # 파싱된 engine request가 _run_operations에 전달됐는지 확인
     assert mock_run_ops.call_args[0][1] == _ENGINE_REQUEST
+    manifest = json.loads(mock_s3.write_text.call_args.args[1])
+    assert manifest["validation_report"]["passed"] is True
+    assert manifest["validation_report"]["checked_element_count"] == 1
     print("[OK] CompletedResult 반환 및 S3 업로드 확인")
 
 
@@ -123,6 +127,22 @@ def test_authoring_worker_fails_when_no_operations_applied():
 
     assert exc_info.value.code == "NO_OPERATIONS_APPLIED"
     print("[OK] NO_OPERATIONS_APPLIED 예외 확인")
+
+
+def test_apply_delete_preserves_name_for_post_validation():
+    """삭제 후에도 post validator가 구조 위험 키워드를 볼 수 있도록 name을 보존한다."""
+    root_dir = Path(__file__).resolve().parents[3]
+    ifc_path = root_dir / "tests" / "sample_batang.ifc"
+    model = ifcopenshell.open(str(ifc_path))
+    wall = next(iter(model.by_type("IfcWall")))
+    wall.Name = "structural wall"
+
+    worker, _ = _make_worker(ifc_path.read_bytes())
+    result = worker._apply_delete(model, "op-delete", "delete_elements", [wall])
+
+    assert result["status"] == "applied"
+    assert result["matched_elements"][0]["name"] == "structural wall"
+    assert result["matched_elements"][0]["is_load_bearing"] is True
 
 
 if __name__ == "__main__":

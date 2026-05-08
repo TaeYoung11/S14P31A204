@@ -8,6 +8,8 @@ import type {
   LineStyleOption,
 } from './types'
 
+export type FloorPlanEditAuthority = 'room-first' | 'wall-first'
+
 /** 조닝 자동 색상 기본값 (연보라) */
 export const DEFAULT_AUTO_ZONE_COLOR = '#D9D1FF'
 
@@ -62,6 +64,39 @@ export const FLOOR_WALL_TYPE_OPTIONS: Array<{ value: FloorWallType; label: strin
   { value: 'partition', label: '경량 칸막이' },
 ]
 
+/** 2D 벽 유형 시각화 스타일 */
+export const FLOOR_WALL_TYPE_VISUALS: Record<
+  FloorWallType,
+  { marker: 'none' | 'dashed' | 'double'; dash?: number[]; accent: string }
+> = {
+  general: { marker: 'none', accent: '#2F3448' },
+  exterior: { marker: 'dashed', dash: [14, 6], accent: '#0F172A' },
+  loadBearing: { marker: 'double', accent: '#111827' },
+  partition: { marker: 'dashed', dash: [6, 6], accent: '#475569' },
+}
+
+/** 벽 기본 재질 */
+export const DEFAULT_WALL_MATERIAL = '콘크리트'
+export const FLOOR_WALL_MATERIAL_OPTIONS = [
+  DEFAULT_WALL_MATERIAL,
+  '목재',
+  '유리',
+  '벽돌',
+  '금속',
+  '석재',
+] as const
+export type FloorWallMaterialOption = typeof FLOOR_WALL_MATERIAL_OPTIONS[number]
+
+/** 2D 벽 재질 식별용 색상(의미 단정이 아닌 시각 구분 전용) */
+export const FLOOR_WALL_MATERIAL_VISUALS: Record<string, { color: string }> = {
+  콘크리트: { color: '#6B7280' },
+  목재: { color: '#B45309' },
+  유리: { color: '#0284C7' },
+  벽돌: { color: '#C2410C' },
+  금속: { color: '#0F766E' },
+  석재: { color: '#52525B' },
+}
+
 /** 벽 타입별 기본 사양(mm) */
 export const FLOOR_WALL_PRESETS: Record<FloorWallType, { thickness: number; heightMm: number; stroke: string }> = {
   general: { thickness: 135, heightMm: 2800, stroke: '#2F3448' },
@@ -70,14 +105,17 @@ export const FLOOR_WALL_PRESETS: Record<FloorWallType, { thickness: number; heig
   partition: { thickness: 90, heightMm: 2600, stroke: '#4B5569' },
 }
 
-/** 벽 편집 입력 범위(mm) */
-export const FLOOR_WALL_THICKNESS_MIN_MM = 10
-export const FLOOR_WALL_THICKNESS_MAX_MM = 2000
-export const FLOOR_WALL_HEIGHT_MIN_MM = 500
-export const FLOOR_WALL_HEIGHT_MAX_MM = 20000
+/** 벽 편집 입력 공통 하드 제한(mm) — 벽 유형과 무관하게 동일 적용 */
+export const FLOOR_WALL_THICKNESS_MIN_MM = 50
+export const FLOOR_WALL_THICKNESS_MAX_MM = 1000
+export const FLOOR_WALL_HEIGHT_MIN_MM = 1800
+export const FLOOR_WALL_HEIGHT_MAX_MM = 10000
 
 /** 2D 픽셀 ↔ mm 환산 계수 (현 편집기 기준) */
 export const FLOOR_MM_PER_PX = 25
+
+/** 2D 모델 편집 권한 기준: wall-first면 룸 형상은 벽 편집 결과로 취급한다. */
+export const FLOOR_PLAN_EDIT_AUTHORITY: FloorPlanEditAuthority = 'room-first'
 
 /** 에디터 줌 범위(%) */
 export const MIN_EDITOR_ZOOM_PERCENT = 1

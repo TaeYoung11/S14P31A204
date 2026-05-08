@@ -2,45 +2,60 @@ import EditorHeader from '../../features/editor/components/layout/EditorHeader'
 import EditorLeftSidebar from '../../features/editor/components/layout/EditorLeftSidebar'
 import EditorToolbar from '../../features/editor/components/layout/EditorToolbar'
 import { useEditorPage } from '../../features/editor/hooks/useEditorPage'
+import { useEditorProjectSwitcher } from '../../features/editor/hooks/useEditorProjectSwitcher'
 import EditorCanvasContent from './components/EditorCanvasContent'
 import EditorModalLayer from './components/EditorModalLayer'
+import EditorProjectSwitchSidebar from './components/EditorProjectSwitchSidebar'
 import EditorRightPanelSection from './components/EditorRightPanelSection'
 import {
   buildEditorCanvasContentProps,
+  buildEditorHeaderProps,
   buildEditorLeftSidebarProps,
   buildEditorModalLayerProps,
   buildEditorRightPanelProps,
 } from './utils'
-import { formatAreaM2, formatAreaPyeong } from '@/features/project/utils/siteGeometry'
 
 /** 에디터 페이지 조합 컴포넌트: 모달/좌측도구/캔버스/우측패널 배치만 담당 */
 export default function EditorPage() {
   const vm = useEditorPage()
+  const projectSwitcher = useEditorProjectSwitcher()
+  const headerProps = buildEditorHeaderProps(vm)
   const canvasContentProps = buildEditorCanvasContentProps(vm)
   const modalLayerProps = buildEditorModalLayerProps(vm)
   const sidebarProps = buildEditorLeftSidebarProps(vm)
   const rightPanelProps = buildEditorRightPanelProps(vm)
-  const siteAreaLabel = vm.siteAreaM2
-    ? `${formatAreaM2(vm.siteAreaM2)} (${formatAreaPyeong(vm.siteAreaM2)})`
-    : undefined
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#F0F2F9] text-[#1D1E20] overflow-hidden font-sans">
+    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-[radial-gradient(circle_at_12%_10%,#f8f9ff_0%,#edf1fb_36%,#e8edf9_70%,#e6ebf8_100%)] text-[#1D1E20] font-sans">
+      <div className="pointer-events-none absolute -left-24 top-16 h-64 w-64 rounded-full bg-[#7B86FF]/12 blur-3xl" />
+      <div className="pointer-events-none absolute bottom-[-120px] right-[-80px] h-80 w-80 rounded-full bg-[#5A69DD]/12 blur-3xl" />
       <EditorModalLayer {...modalLayerProps} />
 
-      <EditorHeader
-        mode={vm.mode}
-        onModeChange={vm.setMode}
-        onOpenInvite={vm.handleOpenInviteModal}
-        onOpenNotification={vm.handleOpenNotificationModal}
-        userType={vm.currentCollaborationUserType}
-        onSave={vm.mode === '3d' ? vm.handleOpenIFCExportModal : vm.handleOpenExportSelectionModal}
-        saveStatus={vm.saveStatus}
-        siteAreaLabel={siteAreaLabel}
+      <EditorProjectSwitchSidebar
+        isOpen={projectSwitcher.isOpen}
+        projects={projectSwitcher.projects}
+        search={projectSwitcher.search}
+        isLoading={projectSwitcher.isLoading}
+        onSearchChange={projectSwitcher.setSearch}
+        onProjectSelect={projectSwitcher.selectProject}
+        onClose={projectSwitcher.close}
       />
-      <EditorToolbar mode={vm.mode} projectName={vm.currentProjectName} onModeChange={vm.setMode} />
 
-      <div className={`flex flex-1 relative overflow-hidden ${vm.mode === 'view' ? '' : 'px-6 pb-6 gap-6'}`}>
+      <EditorHeader
+        {...headerProps}
+        onOpenProjectSwitcher={projectSwitcher.open}
+      />
+      <EditorToolbar
+        mode={vm.mode}
+        projectName={vm.currentProjectName}
+        onModeChange={vm.setMode}
+        onUndo={vm.handleUndo}
+        onRedo={vm.handleRedo}
+        canUndo={vm.canUndo}
+        canRedo={vm.canRedo}
+      />
+
+      <div className={`relative z-10 flex min-w-0 flex-1 overflow-hidden ${vm.mode === 'view' ? '' : 'gap-5 px-5 pb-5 pt-3'}`}>
         {vm.mode !== 'view' && (
           <EditorLeftSidebar {...sidebarProps} />
         )}

@@ -1,5 +1,6 @@
 import type { EditorPageViewModel } from '../types/editorPageViewModel'
 import type { EditorCanvasContentProps } from '../types/editorCanvasContentProps'
+import { createSafeFloorRoomPolygonHandler } from './floorRoomPolygonGuard'
 
 type CanvasPropsSubset<K extends keyof EditorCanvasContentProps> = Pick<EditorCanvasContentProps, K>
 
@@ -65,8 +66,8 @@ function buildBubbleCanvasProps(
   | 'isBubbleReadOnly'
 > {
   return {
-    // 버블 모드는 화면 맞춤 좌표를 사용해야 과도한 실측 스케일 확대를 피할 수 있다.
-    sitePoints: vm.sitePoints,
+    // 버블/2D/3D 대지 일관성을 위해 단일 소스(sitePlanPoints)만 사용한다.
+    sitePoints: vm.sitePlanPoints,
     bubbles: vm.bubbles,
     connections: vm.connections,
     autoZones: vm.autoZones,
@@ -106,7 +107,11 @@ function buildFloorPlanProps(
   | 'handleSelectIfcElement'
   | 'handleDeleteIfcElement'
   | 'selectedIfcElement'
+  | 'threeDDeleteRequestToken'
   | 'ifcElementChanges'
+  | 'currentIfcUrl'
+  | 'currentIfcAssetId'
+  | 'localFloorData'
 > {
   return {
     sitePlanPoints: vm.sitePlanPoints,
@@ -121,7 +126,11 @@ function buildFloorPlanProps(
     handleSelectIfcElement: vm.handleSelectIfcElement,
     handleDeleteIfcElement: vm.handleDeleteIfcElement,
     selectedIfcElement: vm.selectedIfcElement,
+    threeDDeleteRequestToken: vm.threeDDeleteRequestToken,
     ifcElementChanges: vm.ifcElementChanges,
+    currentIfcUrl: vm.currentIfcUrl,
+    currentIfcAssetId: vm.currentIfcAssetId,
+    localFloorData: vm.localFloorData,
   }
 }
 
@@ -147,8 +156,13 @@ function buildTwoDStructureProps(
   | 'handleDeleteFloorOpening'
   | 'handleMoveFloorRoom'
   | 'handleResizeFloorRoom'
+  | 'handleUpdateFloorRoomPolygon'
   | 'handleTwoDMarqueeSelect'
 > {
+  const safeHandleUpdateFloorRoomPolygon = createSafeFloorRoomPolygonHandler(
+    vm.handleUpdateFloorRoomPolygon,
+  )
+
   return {
     floorWallsForHierarchy: vm.floorWallsForHierarchy,
     floorOpenings: vm.floorOpenings,
@@ -168,6 +182,7 @@ function buildTwoDStructureProps(
     handleDeleteFloorOpening: vm.handleDeleteFloorOpening,
     handleMoveFloorRoom: vm.handleMoveFloorRoom,
     handleResizeFloorRoom: vm.handleResizeFloorRoom,
+    handleUpdateFloorRoomPolygon: safeHandleUpdateFloorRoomPolygon,
     handleTwoDMarqueeSelect: vm.handleTwoDMarqueeSelect,
   }
 }
@@ -225,6 +240,7 @@ function buildCanvasControlProps(
   | 'toggleGridSnap'
   | 'handleSetGridSnapIntervalMm'
   | 'handleToggleCollaboration'
+  | 'handleOpenGenerate3DModal'
 > {
   return {
     labelEditState: vm.labelEditState,
@@ -243,6 +259,7 @@ function buildCanvasControlProps(
     toggleGridSnap: vm.toggleGridSnap,
     handleSetGridSnapIntervalMm: vm.handleSetGridSnapIntervalMm,
     handleToggleCollaboration: vm.handleToggleCollaboration,
+    handleOpenGenerate3DModal: vm.handleOpenGenerate3DModal,
   }
 }
 

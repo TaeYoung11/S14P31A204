@@ -6,7 +6,9 @@ import com.a204.batang.global.exception.ErrorResponse;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -117,6 +119,26 @@ public class GlobalExceptionHandler {
 
         log.warn("CustomException - code: {}, message: {}", errorCode.getCode(), message);
         return toResponse(errorCode, message);
+    }
+
+    /**
+     * DB unique constraint 위반을 처리한다.
+     * uq_jobs_project_active_ifc_edit 위반은 IFC Edit 중복 작업으로 간주한다.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException e) {
+        String msg = e.getMessage() != null ? e.getMessage() : "";
+        if (msg.contains("uq_jobs_project_active_ifc_edit")) {
+            log.warn("DataIntegrityViolationException - IFC Edit job conflict: {}", msg);
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(ErrorResponse.builder()
+                            .status(HttpStatus.CONFLICT.value())
+                            .code(ErrorCode.IFC_EDIT_JOB_CONFLICT.getCode())
+                            .message(ErrorCode.IFC_EDIT_JOB_CONFLICT.getMessage())
+                            .build());
+        }
+        log.warn("DataIntegrityViolationException: {}", msg);
+        return toResponse(ErrorCode.CONCURRENT_MODIFICATION, ErrorCode.CONCURRENT_MODIFICATION.getMessage());
     }
 
     /**

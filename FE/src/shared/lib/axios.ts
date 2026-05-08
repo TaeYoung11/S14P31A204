@@ -51,6 +51,12 @@ const clearAuthState = () => {
   localStorage.removeItem('bim-storage')
 }
 
+const redirectToLoginIfNeeded = () => {
+  if (typeof window === 'undefined') return
+  if (window.location.pathname === '/login') return
+  window.location.assign('/login')
+}
+
 const writeTokens = (accessToken: string, refreshToken: string) => {
   const store = useAuthStore.getState()
   store.setToken(accessToken)
@@ -120,7 +126,7 @@ api.interceptors.response.use(
           return api(originalRequest)
         } catch {
           clearAuthState()
-          window.location.href = '/login'
+          redirectToLoginIfNeeded()
           return Promise.reject(error)
         }
       }
@@ -128,7 +134,7 @@ api.interceptors.response.use(
 
     if (error.response?.status === 401) {
       clearAuthState()
-      window.location.href = '/login'
+      redirectToLoginIfNeeded()
     }
 
     return Promise.reject(error)

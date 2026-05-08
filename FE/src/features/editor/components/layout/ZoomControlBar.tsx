@@ -1,31 +1,59 @@
-import { useEffect, useRef } from 'react'
-import { Grid3X3, GripVertical, Hand, Lock, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
+import { Grid3X3, GripVertical, Hand, Lock, Move, RotateCw, Scaling, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
 import type { EditorMode } from '../../types'
 import { useFloatingPanelDrag } from '../../hooks/useFloatingPanelDrag'
+import { useZoomControlBar } from '../../hooks/useZoomControlBar'
 import { MAX_EDITOR_ZOOM_PERCENT, MIN_EDITOR_ZOOM_PERCENT } from '../../constants'
 
 interface ZoomControlBarProps {
+  /** 현재 줌 퍼센트 (예: 100 = 100%) */
   zoom: number
+  /** 현재 에디터 모드 */
   mode: EditorMode
+  /** 현재 선택된 도구 식별자 */
   selectedTool: string
+  /** 3D 모드에서 표시할 현재 카메라 좌표 */
+  threeDCoordinates?: { x: number; y: number; z: number }
+  /** 그리드 표시 여부 (2D 모드) */
   isGridVisible?: boolean
+  /** 그리드 스냅 활성화 여부 */
   isGridSnapEnabled?: boolean
+  /** 그리드 스냅 간격 (mm 단위) */
   gridSnapIntervalMm?: number
   onZoomIn: () => void
   onZoomOut: () => void
+  /** 줌 퍼센트 직접 설정 */
   onSetZoom: (value: number) => void
+  /** 현재 도구 변경 */
   onSetTool: (tool: string) => void
   onToggleGrid?: () => void
   onToggleGridSnap?: () => void
   onGridSnapIntervalChange?: (value: number) => void
+  /** 3D 카메라 회전 잠금 여부 */
   isRotationLocked?: boolean
   onToggleRotationLock?: () => void
 }
 
+/**
+ * 툴 버튼 활성/비활성 className 생성 헬퍼.
+ * 활성 상태일 때는 파란 배경·글자, 비활성일 때는 회색 글자에 호버 효과를 적용한다.
+ */
+const toolBtnCls = (isActive: boolean) =>
+  `rounded-xl p-1.5 transition-colors ${
+    isActive
+      ? 'bg-[#F0F2FF] text-[#3B45B3]'
+      : 'text-[#6B7A99] hover:bg-[#F0F2F9] hover:text-[#1C1C1E]'
+  }`
+
+/**
+ * 캔버스 좌하단 고정 줌 컨트롤 바
+ * - 줌 아웃 / 수치 입력 / 줌 인 / 손 도구 토글 버튼 포함
+ * - 3D 모드에서는 회전/크기 기즈모 버튼, 카메라 회전 잠금, 현재 좌표를 추가로 표시
+ */
 export function ZoomControlBar({
   zoom,
   mode,
   selectedTool,
+  threeDCoordinates = { x: 0, y: 0, z: 0 },
   isGridVisible = false,
   isGridSnapEnabled = true,
   gridSnapIntervalMm = 250,
@@ -40,53 +68,37 @@ export function ZoomControlBar({
   onToggleRotationLock,
 }: ZoomControlBarProps) {
   const { panelRef, offset, setOffset, startDrag } = useFloatingPanelDrag({ x: 24, y: 24 }, 12)
-  const didInitPositionRef = useRef(false)
-
-  useEffect(() => {
-    if (didInitPositionRef.current) return
-    const panelEl = panelRef.current
-    const parentEl = (panelEl?.offsetParent as HTMLElement | null) ?? panelEl?.parentElement
-    if (!panelEl || !parentEl) return
-
-    didInitPositionRef.current = true
-    const nextY = Math.max(12, parentEl.clientHeight - panelEl.offsetHeight - 24)
-    setOffset((prev) => ({ ...prev, y: nextY }))
-  }, [panelRef, setOffset])
-
-  const handleGridSnapToggle = () => {
-    const nextSnapEnabled = !isGridSnapEnabled
-    onToggleGridSnap?.()
-    if (mode === '2d' && isGridVisible !== nextSnapEnabled) onToggleGrid?.()
-  }
-
-  const isGridControlActive = mode === '2d'
-    ? isGridSnapEnabled && isGridVisible
-    : isGridSnapEnabled
-  const gridSnapTitle = mode === '2d'
-    ? `Grid snap (${isGridVisible ? 'grid on' : 'grid off'})`
-    : 'Grid snap'
+  const { isGridControlActive, gridSnapTitle, handleGridSnapToggle } = useZoomControlBar({
+    mode,
+    isGridVisible,
+    isGridSnapEnabled,
+    onToggleGrid,
+    onToggleGridSnap,
+    panelRef,
+    setOffset,
+  })
 
   return (
     <div
       ref={panelRef}
-      className="absolute flex items-center bg-white border border-[#E2E6EF] rounded-2xl px-1.5 py-1.5 shadow-md z-10 transition-all"
+      className="absolute z-10 flex items-center rounded-2xl border border-[#DFE4F0] bg-white/95 px-1.5 py-1.5 shadow-[0_14px_28px_rgba(34,44,92,0.16)] backdrop-blur-sm transition-all"
       style={{ left: offset.x, top: offset.y }}
     >
       <button
         onMouseDown={startDrag}
-        title="Move panel"
-        aria-label="Move zoom control panel"
-        className="p-1.5 text-[#9AA4B5] hover:text-[#505764] transition-colors rounded-xl hover:bg-[#F3F5FA] cursor-grab active:cursor-grabbing"
+        title="패널 이동"
+        aria-label="줌 컨트롤 패널 이동"
+        className="cursor-grab rounded-xl p-1.5 text-[#9AA4B5] transition-colors hover:bg-[#F3F5FA] hover:text-[#505764] active:cursor-grabbing"
       >
         <GripVertical size={18} />
       </button>
 
-      <div className="w-px h-5 bg-[#E2E6EF] mx-1.5" />
+      <div className="mx-1.5 h-5 w-px bg-[#E2E6EF]" />
 
       <button
         onClick={onZoomOut}
-        aria-label="Zoom out"
-        className="p-1.5 text-[#6B7A99] hover:text-[#1C1C1E] transition-colors rounded-xl hover:bg-[#F0F2F9]"
+        aria-label="줌 축소"
+        className="rounded-xl p-1.5 text-[#6B7A99] transition-colors hover:bg-[#F0F2F9] hover:text-[#1C1C1E]"
       >
         <ZoomOut size={20} />
       </button>
@@ -110,52 +122,44 @@ export function ZoomControlBar({
           if (e.key === 'Enter') e.currentTarget.blur()
           if (!/[0-9]|Backspace|Delete|ArrowLeft|ArrowRight|Tab/.test(e.key)) e.preventDefault()
         }}
-        aria-label="Zoom percent"
-        className="text-[13px] font-semibold text-[#1C1C1E] w-[52px] text-center bg-transparent outline-none cursor-text"
+        aria-label="줌 퍼센트 직접 입력"
+        className="w-[54px] cursor-text rounded-md bg-transparent text-center text-[13px] font-semibold text-[#1C1C1E] outline-none focus:bg-[#F5F7FD]"
       />
 
       <button
         onClick={onZoomIn}
-        aria-label="Zoom in"
-        className="p-1.5 text-[#6B7A99] hover:text-[#1C1C1E] transition-colors rounded-xl hover:bg-[#F0F2F9]"
+        aria-label="줌 확대"
+        className="rounded-xl p-1.5 text-[#6B7A99] transition-colors hover:bg-[#F0F2F9] hover:text-[#1C1C1E]"
       >
         <ZoomIn size={20} />
       </button>
 
-      <div className="w-px h-5 bg-[#E2E6EF] mx-1.5" />
+      <div className="mx-1.5 h-5 w-px bg-[#E2E6EF]" />
 
       <button
         onClick={() => onSetTool(selectedTool === 'hand' ? 'selection' : 'hand')}
-        aria-label="Hand tool"
-        className={`p-1.5 transition-colors rounded-xl ${
-          selectedTool === 'hand'
-            ? 'text-[#3B45B3] bg-[#F0F2FF]'
-            : 'text-[#6B7A99] hover:text-[#1C1C1E] hover:bg-[#F0F2F9]'
-        }`}
+        aria-label="손 도구 (드래그 패닝)"
+        className={toolBtnCls(selectedTool === 'hand')}
       >
         <Hand size={20} />
       </button>
 
-      {(mode === '2d' || mode === '3d') && (
+      {mode === '2d' && (
         <>
-          <div className="w-px h-5 bg-[#E2E6EF] mx-1.5" />
+          <div className="mx-1.5 h-5 w-px bg-[#E2E6EF]" />
           <button
             onClick={handleGridSnapToggle}
             title={gridSnapTitle}
             aria-label={gridSnapTitle}
-            className={`p-1.5 transition-colors rounded-xl ${
-              isGridControlActive
-                ? 'text-[#3B45B3] bg-[#F0F2FF]'
-                : 'text-[#6B7A99] hover:text-[#1C1C1E] hover:bg-[#F0F2F9]'
-            }`}
+            className={toolBtnCls(isGridControlActive)}
           >
             <Grid3X3 size={20} />
           </button>
           <select
             value={gridSnapIntervalMm}
             onChange={(e) => onGridSnapIntervalChange?.(Number(e.target.value))}
-            className="ml-1 h-8 rounded-lg border border-[#E2E6EF] bg-white px-2 text-[11px] font-semibold text-[#505764] outline-none focus:border-[#3B45B3]"
-            title="Grid snap interval"
+            className="ml-1 h-8 rounded-lg border border-[#E2E6EF] bg-white px-2 text-[11px] font-semibold text-[#505764] outline-none transition-colors focus:border-[#3B45B3]"
+            title="그리드 스냅 간격(mm)"
             aria-label="Grid snap interval"
           >
             <option value={100}>100mm</option>
@@ -167,34 +171,45 @@ export function ZoomControlBar({
 
       {mode === '3d' && (
         <>
-          <div className="w-px h-5 bg-[#E2E6EF] mx-2" />
+          <div className="mx-2 h-5 w-px bg-[#E2E6EF]" />
+          {/* 오브젝트 변환 기즈모: 이동 / 회전 / 크기 */}
           <button
-            aria-label="3D rotate"
-            className="p-1.5 text-[#3B45B3] bg-[#F0F2FF] rounded-xl shadow-sm"
+            onClick={() => onSetTool('selection')}
+            title="이동 기즈모 (Move)"
+            aria-label="이동 기즈모"
+            className={toolBtnCls(selectedTool !== 'hand' && selectedTool !== 'rotate' && selectedTool !== 'scale')}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-              <path d="M20.5 5.5C18.6 3.6 16 2.5 13 2.5V0.5L9.5 3.5L13 6.5V4.5C15.4 4.5 17.6 5.4 19.1 6.9L20.5 5.5Z" />
-              <path d="M3.5 18.5C5.4 20.4 8 21.5 11 21.5V23.5L14.5 20.5L11 17.5V19.5C8.6 19.5 6.4 18.6 4.9 17.1L3.5 18.5Z" />
-              <path d="M21.5 7.5C22.4 9 23 10.5 23 12H21C21 10.9 20.6 9.8 19.9 8.8L21.5 7.5Z" />
-              <path d="M2.5 16.5C1.6 15 1 13.5 1 12H3C3 13.1 3.4 14.2 4.1 15.2L2.5 16.5Z" />
-              <text x="12" y="15.5" textAnchor="middle" fontSize="8" fontWeight="900" fontFamily="Arial, sans-serif" fill="currentColor">3D</text>
-            </svg>
+            <Move size={20} />
           </button>
           <button
+            onClick={() => onSetTool('rotate')}
+            title="회전 기즈모 (Rotate)"
+            aria-label="회전 기즈모"
+            className={toolBtnCls(selectedTool === 'rotate')}
+          >
+            <RotateCw size={20} />
+          </button>
+          <button
+            onClick={() => onSetTool('scale')}
+            title="크기 기즈모 (Scale)"
+            aria-label="크기 기즈모"
+            className={toolBtnCls(selectedTool === 'scale')}
+          >
+            <Scaling size={20} />
+          </button>
+          <div className="mx-2 h-5 w-px bg-[#E2E6EF]" />
+          <button
             onClick={onToggleRotationLock}
-            title="Rotation lock"
-            aria-label="Rotation lock"
-            className={`ml-1 p-1.5 transition-colors rounded-xl ${
-              isRotationLocked
-                ? 'text-[#3B45B3] bg-[#F0F2FF]'
-                : 'text-[#6B7A99] hover:text-[#1C1C1E] hover:bg-[#F0F2F9]'
-            }`}
+            title="카메라 회전 잠금"
+            aria-label="카메라 회전 잠금 토글"
+            className={toolBtnCls(isRotationLocked)}
           >
             {isRotationLocked ? <Lock size={20} /> : <Unlock size={20} />}
           </button>
-          <div className="w-px h-5 bg-[#E2E6EF] mx-2" />
-          <span className="text-[11px] font-bold text-[#6B7A99] px-2 tabular-nums">
-            X Y Z: 142.4, 33.1, 0.0
+          <div className="mx-2 h-5 w-px bg-[#E2E6EF]" />
+          <span className="px-2 text-[11px] font-bold tabular-nums text-[#6B7A99]">
+            X Y Z: {threeDCoordinates.x.toFixed(1)}, {threeDCoordinates.y.toFixed(1)},{' '}
+            {threeDCoordinates.z.toFixed(1)}
           </span>
         </>
       )}

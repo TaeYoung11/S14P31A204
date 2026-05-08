@@ -1,3 +1,4 @@
+import axios from 'axios'
 import { MOCK_MEMBERS } from '@/features/project/mocks/project.mock'
 import {
   getProjectSitePolygonEntry,
@@ -25,13 +26,29 @@ const PROJECT_LIST_MAX_PAGES = 100
 
 interface ProjectSummaryResponse {
   projectId: string
+  ownerUserId?: string
   name: string
   description?: string
   cadastralAddress?: string
   cadastralInfo?: CadastralInfo
   currentIfcUrl?: string
+  /** private S3 버킷 접근용 에셋 UUID (BE가 제공하는 경우) */
+  currentIfcAssetId?: string
   createdAt: string
   updatedAt: string
+  unreadCommentCount?: number
+}
+
+interface ProjectDetailResponse {
+  projectId: string
+  name: string
+  description?: string
+  phaseStatus?: string
+  bubbleSnapshotJson?: unknown
+  ifcStorageUrl?: string
+  currentRevision?: string
+  createdAt?: string
+  updatedAt?: string
   unreadCommentCount?: number
 }
 
@@ -83,10 +100,20 @@ const MOCK_SITE_POLYGON_RING: number[][] = [
   [127.0281304, 37.4983271],
 ]
 
-const shouldUseSiteMock =
-  import.meta.env.VITE_USE_SITE_MOCK === 'true' ||
-  (import.meta.env.DEV && import.meta.env.VITE_USE_SITE_MOCK !== 'false')
+const shouldUseSiteMock = import.meta.env.VITE_USE_SITE_MOCK === 'true'
+const shouldFetchSiteFromProjectDetailApi = import.meta.env.VITE_USE_PROJECT_DETAIL_SITE_API === 'true'
 const SITE_CACHE_TTL_MS = PROJECT_SITE_CACHE_TTL_MS
+const PROJECT_DETAIL_FETCH_FAILED_MESSAGE = '프로젝트 상세 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.'
+const projectSummaryCache = new Map<string, ProjectSummaryResponse>()
+type ProjectServiceErrorCode =
+  | 'PROJECT_NOT_FOUND'
+  | 'PROJECT_LIST_FETCH_FAILED'
+  | 'PROJECT_DETAIL_FETCH_FAILED'
+
+type ProjectServiceError = Error & {
+  status?: number
+  code?: ProjectServiceErrorCode
+}
 
 export interface ProjectSiteResponse {
   projectId: string
@@ -97,13 +124,15 @@ export interface ProjectSiteResponse {
 export interface ProjectIfcSource {
   projectId: string
   currentIfcUrl?: string
+  /** private S3 버킷 접근용 에셋 UUID */
+  currentIfcAssetId?: string
 }
 
 const mapProjectSummary = (project: ProjectSummaryResponse): Project => ({
   id: project.projectId,
   name: project.name,
   description: project.description ?? '',
-  owner_id: '',
+  owner_id: project.ownerUserId ?? '',
   created_at: project.createdAt,
   updated_at: project.updatedAt,
   thumbnail_url: undefined,
@@ -138,20 +167,118 @@ const mapUpdatedProject = (project: UpdateProjectResponse, fallback?: Project): 
   unread_comment_count: project.unreadCommentCount ?? fallback?.unread_comment_count ?? 0,
 })
 
+function readErrorStatus(error: unknown): number | undefined {
+  if (!axios.isAxiosError(error)) return undefined
+  return error.response?.status
+}
 
-/** API 에러가 404(Not Found)인지 판별한다. */
+function toProjectServiceError(
+  error: unknown,
+  fallbackMessage: string,
+  code: ProjectServiceErrorCode,
+): ProjectServiceError {
+  const resolvedFallbackMessage = code === 'PROJECT_DETAIL_FETCH_FAILED'
+    ? PROJECT_DETAIL_FETCH_FAILED_MESSAGE
+    : fallbackMessage
+  const nextError = new Error(resolvedFallbackMessage) as ProjectServiceError
+  nextError.code = code
+  nextError.status = readErrorStatus(error)
+
+  if (axios.isAxiosError(error)) {
+    const apiMessage = error.response?.data?.message
+    if (typeof apiMessage === 'string' && apiMessage.trim().length > 0) {
+      nextError.message = apiMessage
+    }
+  } else if (error instanceof Error && error.message.trim().length > 0) {
+    nextError.message = error.message
+  }
+
+  return nextError
+}
+
+function cacheProjectSummaries(projects: ProjectSummaryResponse[]): void {
+  projects.forEach((project) => {
+    projectSummaryCache.set(project.projectId, project)
+  })
+}
 
 /** 프로젝트 목록 페이지 1회를 조회한다. */
 async function fetchProjectListPage(page: number): Promise<ProjectListResponse> {
-  const response = await api.get<ApiResponse<ProjectListResponse>>('/projects', {
-    params: { page, size: PROJECT_LIST_PAGE_SIZE },
-  })
-  return response.data.data
+  try {
+    const response = await api.get<ApiResponse<ProjectListResponse>>('/projects', {
+      params: { page, size: PROJECT_LIST_PAGE_SIZE },
+    })
+    const data = response.data.data
+    cacheProjectSummaries(data.projects)
+    return data
+  } catch (error) {
+    throw toProjectServiceError(
+      error,
+      '프로젝트 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.',
+      'PROJECT_LIST_FETCH_FAILED',
+    )
+  }
+}
+
+async function findProjectSummaryFromList(projectId: string): Promise<ProjectSummaryResponse> {
+  const cached = projectSummaryCache.get(projectId)
+  if (cached) return cached
+
+  let page = 1
+  while (page <= PROJECT_LIST_MAX_PAGES) {
+    const data = await fetchProjectListPage(page)
+    const project = data.projects.find((item) => item.projectId === projectId)
+    if (project) return project
+    if (!data.hasNext) break
+    page = data.page + 1
+  }
+
+  const notFoundError = new Error('요청한 프로젝트를 찾을 수 없습니다.') as ProjectServiceError
+  notFoundError.status = 404
+  notFoundError.code = 'PROJECT_NOT_FOUND'
+  throw notFoundError
 }
 
 async function fetchProjectSummary(projectId: string): Promise<ProjectSummaryResponse> {
-  const response = await api.get<ApiResponse<ProjectSummaryResponse>>(`/projects/${projectId}`)
-  return response.data.data
+  try {
+    const detail = await _fetchProjectDetail(projectId)
+    const project: ProjectSummaryResponse = {
+      projectId: detail.projectId,
+      name: detail.name,
+      description: detail.description,
+      currentIfcUrl: detail.ifcStorageUrl,
+      createdAt: detail.createdAt ?? new Date().toISOString(),
+      updatedAt: detail.updatedAt ?? detail.createdAt ?? new Date().toISOString(),
+      unreadCommentCount: detail.unreadCommentCount,
+    }
+    projectSummaryCache.set(project.projectId, project)
+    return project
+  } catch (error) {
+    const status = readErrorStatus(error)
+    const canFallbackToList = status === 404 || status === 405 || status === 501
+    if (!canFallbackToList) {
+        throw toProjectServiceError(
+          error,
+          '프로젝트 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.',
+          'PROJECT_DETAIL_FETCH_FAILED',
+        )
+    }
+  }
+
+  return findProjectSummaryFromList(projectId)
+}
+
+async function _fetchProjectDetail(projectId: string): Promise<ProjectDetailResponse> {
+  try {
+    const response = await api.get<ApiResponse<ProjectDetailResponse>>(`/projects/${projectId}`)
+    return response.data.data
+  } catch (error) {
+    throw toProjectServiceError(
+      error,
+ '프로젝트 정보를 불러오지 못했습니다. 다시 시도해주세요',
+      'PROJECT_DETAIL_FETCH_FAILED',
+    )
+  }
 }
 
 /**
@@ -195,18 +322,34 @@ export const projectService = {
     return mapProjectSummary(project)
   },
 
+  getWorkspaceDetail: async (id: string): Promise<{
+    project: Project
+    phaseStatus?: string
+    bubbleSnapshotJson?: unknown
+    ifcStorageUrl?: string
+    currentRevision?: string
+  }> => {
+    const summary = await fetchProjectSummary(id)
+    return {
+      project: mapProjectSummary(summary),
+      ifcStorageUrl: summary.currentIfcUrl,
+    }
+  },
+
   getSitePolygon: async (projectId: string): Promise<ProjectSitePolygonResult> => {
     if (!projectId) return { polygonRing: null, source: 'none' }
 
     let apiPolygonRing: number[][] | null = null
 
-    try {
-      apiPolygonRing = await fetchSitePolygonFromProjectDetail(projectId)
-      if (apiPolygonRing) {
-        saveProjectSitePolygon(projectId, apiPolygonRing, { source: 'api' })
+    if (shouldFetchSiteFromProjectDetailApi) {
+      try {
+        apiPolygonRing = await fetchSitePolygonFromProjectDetail(projectId)
+        if (apiPolygonRing) {
+          saveProjectSitePolygon(projectId, apiPolygonRing, { source: 'api' })
+        }
+      } catch {
+        // API가 미구현이거나 일시 실패해도 fallback 체인으로 진행한다.
       }
-    } catch {
-      // API가 미구현이거나 일시 실패해도 fallback 체인으로 진행한다.
     }
 
     let cacheCandidate = getProjectSitePolygonEntry(projectId, { ttlMs: SITE_CACHE_TTL_MS })
@@ -235,6 +378,7 @@ export const projectService = {
     return {
       projectId: project.projectId,
       currentIfcUrl: project.currentIfcUrl,
+      currentIfcAssetId: project.currentIfcAssetId,
     }
   },
 

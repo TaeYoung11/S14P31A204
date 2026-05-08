@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from ai_domain import LayoutImportV1, LayoutImportV2, RoomType, parse_layout_import
+from ai_domain import LayoutImportV1, LayoutImportV2, LayoutImportV3, RoomType, parse_layout_import
 
 
 def _base_room(*, zone_id: str | None = None) -> dict[str, object]:
@@ -662,6 +662,235 @@ def test_layout_import_v2_rejects_generate_spaces_false() -> None:
         )
 
 
+def test_layout_import_v3_accepts_explicit_openings() -> None:
+    request = LayoutImportV3.model_validate(
+        {
+            "schema_version": "v3",
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "sample-project",
+            "rooms": [
+                _base_room(),
+                {
+                    **_base_room(),
+                    "id": "room-bed-01",
+                    "name": "Bedroom",
+                    "type": "bedroom",
+                    "x": 9200.0,
+                    "y": 4000.0,
+                },
+            ],
+            "generation_options": {
+                "generate_spaces": True,
+                "generate_walls": True,
+                "generate_slabs": True,
+                "generate_roof": True,
+                "generate_openings": True,
+            },
+            "generation_policy": {
+                "boundary_wall_mode": "outer_boundary",
+                "shared_wall_policy": "from_adjacency",
+                "roof_shape": "flat",
+                "opening_policy": "explicit_only",
+            },
+            "openings": [
+                {
+                    "id": "opening-door-01",
+                    "type": "door",
+                    "floor": 1,
+                    "host_wall_ref": "wall-room-room-living-01-room-bed-01",
+                    "x": 7100.0,
+                    "y": 4000.0,
+                    "width": 900.0,
+                    "height": 2100.0,
+                }
+            ],
+        }
+    )
+
+    assert request.openings is not None
+    assert request.openings[0].type.value == "door"
+    assert request.generation_policy.opening_policy.value == "explicit_only"
+
+
+def test_layout_import_v3_rejects_explicit_openings_without_generate_openings() -> None:
+    with pytest.raises(ValidationError, match="explicit openings require generate_openings=true"):
+        LayoutImportV3.model_validate(
+            {
+                "schema_version": "v3",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [_base_room()],
+                "openings": [
+                    {
+                        "id": "opening-door-01",
+                        "type": "door",
+                        "floor": 1,
+                        "host_wall_ref": "wall-boundary-1-seg-1",
+                        "x": 5000.0,
+                        "y": 0.0,
+                        "width": 900.0,
+                        "height": 2100.0,
+                    }
+                ],
+            }
+        )
+
+
+def test_layout_import_v3_rejects_invalid_host_wall_ref_pattern() -> None:
+    with pytest.raises(ValidationError, match="opening.host_wall_ref"):
+        LayoutImportV3.model_validate(
+            {
+                "schema_version": "v3",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [_base_room()],
+                "generation_options": {
+                    "generate_spaces": True,
+                    "generate_walls": True,
+                    "generate_slabs": True,
+                    "generate_roof": True,
+                    "generate_openings": True,
+                },
+                "openings": [
+                    {
+                        "id": "opening-door-01",
+                        "type": "door",
+                        "floor": 1,
+                        "host_wall_ref": "room-wall-1",
+                        "x": 5000.0,
+                        "y": 0.0,
+                        "width": 900.0,
+                        "height": 2100.0,
+                    }
+                ],
+            }
+        )
+
+
+def test_layout_import_v3_rejects_malformed_shared_host_wall_ref() -> None:
+    with pytest.raises(ValidationError, match="opening.host_wall_ref"):
+        LayoutImportV3.model_validate(
+            {
+                "schema_version": "v3",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [_base_room()],
+                "generation_options": {
+                    "generate_spaces": True,
+                    "generate_walls": True,
+                    "generate_slabs": True,
+                    "generate_roof": True,
+                    "generate_openings": True,
+                },
+                "openings": [
+                    {
+                        "id": "opening-door-01",
+                        "type": "door",
+                        "floor": 1,
+                        "host_wall_ref": "wall-room-room-living-01",
+                        "x": 5000.0,
+                        "y": 0.0,
+                        "width": 900.0,
+                        "height": 2100.0,
+                    }
+                ],
+            }
+        )
+
+
+def test_layout_import_v3_rejects_non_positive_opening_dimensions() -> None:
+    with pytest.raises(ValidationError):
+        LayoutImportV3.model_validate(
+            {
+                "schema_version": "v3",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [_base_room()],
+                "generation_options": {
+                    "generate_spaces": True,
+                    "generate_walls": True,
+                    "generate_slabs": True,
+                    "generate_roof": True,
+                    "generate_openings": True,
+                },
+                "openings": [
+                    {
+                        "id": "opening-door-01",
+                        "type": "door",
+                        "floor": 1,
+                        "host_wall_ref": "wall-boundary-1-seg-1",
+                        "x": 5000.0,
+                        "y": 0.0,
+                        "width": 0.0,
+                        "height": -1.0,
+                    }
+                ],
+            }
+        )
+
+
+def test_layout_import_v3_rejects_duplicate_opening_ids() -> None:
+    with pytest.raises(ValidationError, match="opening.id values must be unique"):
+        LayoutImportV3.model_validate(
+            {
+                "schema_version": "v3",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [_base_room()],
+                "generation_options": {
+                    "generate_spaces": True,
+                    "generate_walls": True,
+                    "generate_slabs": True,
+                    "generate_roof": True,
+                    "generate_openings": True,
+                },
+                "openings": [
+                    {
+                        "id": "opening-door-01",
+                        "type": "door",
+                        "floor": 1,
+                        "host_wall_ref": "wall-boundary-1-seg-1",
+                        "x": 5000.0,
+                        "y": 0.0,
+                        "width": 900.0,
+                        "height": 2100.0,
+                    },
+                    {
+                        "id": "opening-door-01",
+                        "type": "window",
+                        "floor": 1,
+                        "host_wall_ref": "wall-boundary-1-seg-2",
+                        "x": 10000.0,
+                        "y": 3000.0,
+                        "width": 1200.0,
+                        "height": 1200.0,
+                    },
+                ],
+            }
+        )
+
+
+def test_layout_import_v3_accepts_generate_openings_true_with_empty_openings() -> None:
+    request = LayoutImportV3.model_validate(
+        {
+            "schema_version": "v3",
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "sample-project",
+            "rooms": [_base_room()],
+            "generation_options": {
+                "generate_spaces": True,
+                "generate_walls": True,
+                "generate_slabs": True,
+                "generate_roof": True,
+                "generate_openings": True,
+            },
+            "openings": [],
+        }
+    )
+
+    assert request.openings == []
+
+
 def test_parse_layout_import_discriminates_between_versions() -> None:
     request_v1 = parse_layout_import(
         {
@@ -679,6 +908,15 @@ def test_parse_layout_import_discriminates_between_versions() -> None:
             "rooms": [_base_room()],
         }
     )
+    request_v3 = parse_layout_import(
+        {
+            "schema_version": "v3",
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "sample-project",
+            "rooms": [_base_room()],
+        }
+    )
 
     assert isinstance(request_v1, LayoutImportV1)
     assert isinstance(request_v2, LayoutImportV2)
+    assert isinstance(request_v3, LayoutImportV3)

@@ -7,8 +7,18 @@ import type { FloorOpening } from '../../../types'
 
 interface TwoDOpeningAttributesProps {
   selectedOpening: FloorOpening
-  onOpeningSizeChange?: (id: string, widthMm: number, heightMm: number) => void
-  onWindowSillHeightChange?: (id: string, sillHeightMm: number) => void
+  openingWidthDraft: string
+  openingHeightDraft: string
+  windowSillHeightDraft: string
+  onOpeningWidthDraftChange: (value: string) => void
+  onOpeningHeightDraftChange: (value: string) => void
+  onWindowSillHeightDraftChange: (value: string) => void
+  onOpeningWidthFocus: () => void
+  onOpeningHeightFocus: () => void
+  onWindowSillHeightFocus: () => void
+  onOpeningWidthBlur: () => void
+  onOpeningHeightBlur: () => void
+  onWindowSillHeightBlur: () => void
   onDoorSwingDirectionChange?: (
     id: string,
     swingDirection: NonNullable<FloorOpening['doorSwingDirection']>,
@@ -22,8 +32,18 @@ interface TwoDOpeningAttributesProps {
 /** 2D 문/창문 선택 시 표시되는 속성 섹션 */
 export function TwoDOpeningAttributes({
   selectedOpening,
-  onOpeningSizeChange,
-  onWindowSillHeightChange,
+  openingWidthDraft,
+  openingHeightDraft,
+  windowSillHeightDraft,
+  onOpeningWidthDraftChange,
+  onOpeningHeightDraftChange,
+  onWindowSillHeightDraftChange,
+  onOpeningWidthFocus,
+  onOpeningHeightFocus,
+  onWindowSillHeightFocus,
+  onOpeningWidthBlur,
+  onOpeningHeightBlur,
+  onWindowSillHeightBlur,
   onDoorSwingDirectionChange,
   onDoorHingeSideChange,
 }: TwoDOpeningAttributesProps) {
@@ -42,9 +62,13 @@ export function TwoDOpeningAttributes({
             min={300}
             max={4000}
             step={50}
-            value={Math.round(selectedOpening.widthMm)}
-            onChange={(e) =>
-              onOpeningSizeChange?.(selectedOpening.id, Number(e.target.value), selectedOpening.heightMm)}
+            value={openingWidthDraft}
+            onChange={(e) => onOpeningWidthDraftChange(e.target.value)}
+            onFocus={onOpeningWidthFocus}
+            onBlur={onOpeningWidthBlur}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+            }}
             className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
           />
         </div>
@@ -55,9 +79,13 @@ export function TwoDOpeningAttributes({
             min={300}
             max={4000}
             step={50}
-            value={Math.round(selectedOpening.heightMm)}
-            onChange={(e) =>
-              onOpeningSizeChange?.(selectedOpening.id, selectedOpening.widthMm, Number(e.target.value))}
+            value={openingHeightDraft}
+            onChange={(e) => onOpeningHeightDraftChange(e.target.value)}
+            onFocus={onOpeningHeightFocus}
+            onBlur={onOpeningHeightBlur}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+            }}
             className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
           />
         </div>
@@ -71,8 +99,13 @@ export function TwoDOpeningAttributes({
             min={0}
             max={2500}
             step={50}
-            value={Math.round(selectedOpening.sillHeightMm ?? 900)}
-            onChange={(e) => onWindowSillHeightChange?.(selectedOpening.id, Number(e.target.value))}
+            value={windowSillHeightDraft}
+            onChange={(e) => onWindowSillHeightDraftChange(e.target.value)}
+            onFocus={onWindowSillHeightFocus}
+            onBlur={onWindowSillHeightBlur}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+            }}
             className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
           />
         </div>

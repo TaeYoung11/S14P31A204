@@ -59,7 +59,11 @@ type FloorPlanCanvasProps = Pick<
   | 'handleSelectIfcElement'
   | 'handleDeleteIfcElement'
   | 'selectedIfcElement'
+  | 'threeDDeleteRequestToken'
   | 'ifcElementChanges'
+  | 'currentIfcUrl'
+  | 'currentIfcAssetId'
+  | 'localFloorData'
 >
 
 /** 2D 벽/개구부 편집 상호작용 */
@@ -83,6 +87,7 @@ type TwoDStructureProps = Pick<
   | 'handleDeleteFloorOpening'
   | 'handleMoveFloorRoom'
   | 'handleResizeFloorRoom'
+  | 'handleUpdateFloorRoomPolygon'
   | 'handleTwoDMarqueeSelect'
 >
 
@@ -127,6 +132,7 @@ type CanvasControlProps = Pick<
   | 'toggleGridSnap'
   | 'handleSetGridSnapIntervalMm'
   | 'handleToggleCollaboration'
+  | 'handleOpenGenerate3DModal'
 >
 
 /** EditorPage가 EditorCanvasContent에 전달하는 전체 props 계약 */
@@ -138,3 +144,6 @@ export type EditorCanvasContentProps =
   & TwoDLayerPanelProps
   & LabelEditProps
   & CanvasControlProps
+
+/** 렌더 단계에서 ref를 제외한 캔버스 전달 전용 타입 */
+export type EditorCanvasRenderProps = Omit<EditorCanvasContentProps, 'containerRef'>

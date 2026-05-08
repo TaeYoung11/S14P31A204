@@ -1,4 +1,5 @@
-import type { ModalLayerProps } from '../types/editorModalLayerProps'
+import type { EditorModalLayerProps } from '../types/editorModalLayerProps'
+import { Generate3DModal } from '@/features/editor/components/modals/Generate3DModal'
 import ExportModals from './modal-sections/ExportModals'
 import LineAndInviteModals from './modal-sections/LineAndInviteModals'
 import SpaceAndZoningModals from './modal-sections/SpaceAndZoningModals'
@@ -8,6 +9,9 @@ import SpaceAndZoningModals from './modal-sections/SpaceAndZoningModals'
  * 화면 모드와 무관한 공통 모달을 한 곳에서 렌더링한다.
  */
 export default function EditorModalLayer({
+  isGenerate3DModalOpen,
+  onCloseGenerate3DModal,
+  onConfirmGenerate3D,
   isAddModalOpen,
   addSpaceFormData,
   onCloseAddModal,
@@ -42,9 +46,17 @@ export default function EditorModalLayer({
   isIFCExportModalOpen,
   onCloseIFCExportModal,
   ifcElementChanges,
-}: ModalLayerProps) {
+}: EditorModalLayerProps) {
   return (
     <>
+      {isGenerate3DModalOpen && (
+        <Generate3DModal
+          isOpen={isGenerate3DModalOpen}
+          onClose={onCloseGenerate3DModal}
+          onConfirm={onConfirmGenerate3D}
+        />
+      )}
+
       <SpaceAndZoningModals
         isAddModalOpen={isAddModalOpen}
         addSpaceFormData={addSpaceFormData}

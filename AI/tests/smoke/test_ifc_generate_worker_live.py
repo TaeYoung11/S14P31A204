@@ -116,6 +116,8 @@ def _build_smoke_command(run_id: str) -> dict[str, Any]:
     correlation_id = str(uuid4())
     message_id = str(uuid4())
     base_prefix = f"smoke/{run_id}"
+    step_no = 1
+    step_no_padded = f"{step_no:03d}"
 
     template.update(
         {
@@ -127,16 +129,18 @@ def _build_smoke_command(run_id: str) -> dict[str, Any]:
             "sourceRevisionId": source_revision_id,
             "sourceSceneStateId": source_scene_state_id,
             "targetRevisionId": target_revision_id,
+            "stepNo": step_no,
             "expectedOutputArtifactId": artifact_id,
             "correlationId": correlation_id,
             "idempotencyKey": f"{job_id}:1",
             "expectedOutput": {
                 "ifc_storage_url": (
                     f"{base_prefix}/projects/{project_id}/revisions/"
-                    f"{target_revision_id}/model.ifc"
+                    f"{target_revision_id}/ifc/model.v1.ifc"
                 ),
                 "validation_report_storage_url": (
-                    f"{base_prefix}/jobs/{job_id}/steps/1/validation-report.json"
+                    f"{base_prefix}/projects/{project_id}/jobs/{job_id}/steps/"
+                    f"{step_no_padded}/engine/validation-report.v1.json"
                 ),
             },
             "payload": {

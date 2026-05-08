@@ -1,5 +1,6 @@
 import type { LlmEditApiResponse } from '../services/llmEdit.contract'
 import type { LlmEditOperation, LlmEditResponse } from '../types/llmEdit.types'
+import { createErrorResponse } from './llmEditResponseFactory'
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -118,17 +119,11 @@ const isOperationArray = (value: unknown): value is LlmEditOperation[] =>
 /** 백엔드 응답을 프론트 공통 LlmEditResponse 형태로 정규화한다. */
 export function normalizeLlmEditApiResponse(raw: LlmEditApiResponse | unknown): LlmEditResponse {
   if (!isRecord(raw)) {
-    return {
-      kind: 'error',
-      message: 'LLM 응답 형식을 해석하지 못했습니다.',
-    }
+    return createErrorResponse('LLM 응답 형식을 해석하지 못했습니다.')
   }
 
   if (typeof raw.image_b64 === 'string' || typeof raw.image === 'string') {
-    return {
-      kind: 'error',
-      message: '이미지 렌더 응답은 지원하지 않습니다. JSON 명령(operations) 응답이 필요합니다.',
-    }
+    return createErrorResponse('이미지 렌더 응답은 지원하지 않습니다. JSON 명령(operations) 응답이 필요합니다.')
   }
 
   if (raw.kind === 'ok' && typeof raw.summary === 'string' && isOperationArray(raw.operations)) {
@@ -148,10 +143,7 @@ export function normalizeLlmEditApiResponse(raw: LlmEditApiResponse | unknown): 
   }
 
   if (raw.kind === 'error' && typeof raw.message === 'string') {
-    return {
-      kind: 'error',
-      message: raw.message,
-    }
+    return createErrorResponse(raw.message)
   }
 
   if (raw.status === 'ok' && typeof raw.summary === 'string' && isOperationArray(raw.operations)) {
@@ -171,16 +163,10 @@ export function normalizeLlmEditApiResponse(raw: LlmEditApiResponse | unknown): 
   }
 
   if (raw.status === 'error' && typeof raw.message === 'string') {
-    return {
-      kind: 'error',
-      message: raw.message,
-    }
+    return createErrorResponse(raw.message)
   }
 
-  return {
-    kind: 'error',
-    message: 'LLM 응답 스키마가 프론트 계약과 일치하지 않습니다.',
-  }
+  return createErrorResponse('LLM 응답 스키마가 프론트 계약과 일치하지 않습니다.')
 }
 
 /** Axios 에러 객체에서 사용자 노출용 메시지를 추출한다. */

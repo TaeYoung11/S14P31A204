@@ -8,7 +8,7 @@ import open3d as o3d  # type: ignore[import-untyped]
 from PIL import Image
 
 from .exceptions import IFCRenderError
-from .geometry import attach_ground_plane_to_mesh, load_mesh
+from .geometry import GROUND_EXTENT_FACTOR, attach_ground_plane_to_mesh, load_mesh
 from .views import (
     DEFAULT_RENDER_VIEWS,
     VIEW_CAMERAS,
@@ -47,6 +47,8 @@ class IFCRenderer:
         target_screen_ratio: float = 0.55,
         iter_tolerance: float = 0.10,
         iter_max: int = 4,
+        view_target_overrides: dict[IFCView, float] | None = None,
+        view_ground_extent_overrides: dict[IFCView, float] | None = None,
     ) -> None:
         self.width = width
         self.height = height
@@ -57,10 +59,12 @@ class IFCRenderer:
         self.target_screen_ratio = target_screen_ratio
         self.iter_tolerance = iter_tolerance
         self.iter_max = iter_max
+        self.view_target_overrides = dict(view_target_overrides or {})
+        self.view_ground_extent_overrides = dict(view_ground_extent_overrides or {})
 
     def render(self, ifc_path: Path, view: IFCView = IFCView.FRONT) -> Image.Image:
         base_mesh, center = load_mesh(ifc_path)
-        view_mesh = attach_ground_plane_to_mesh(base_mesh)
+        view_mesh = self._build_grounded_mesh(base_mesh, view)
         return self._render_mesh(view_mesh, base_mesh, center, VIEW_CAMERAS[view], view)
 
     def render_views(
@@ -76,17 +80,38 @@ class IFCRenderer:
         if views is None:
             views = list(DEFAULT_RENDER_VIEWS)
         base_mesh, center = load_mesh(ifc_path)
-        view_mesh = attach_ground_plane_to_mesh(base_mesh)
-        return {
-            view: self._render_mesh(
+        mesh_cache: dict[float, o3d.geometry.TriangleMesh] = {}
+        results: dict[IFCView, Image.Image] = {}
+        for view in views:
+            extent_factor = self._resolve_ground_extent_factor(view)
+            view_mesh = mesh_cache.get(extent_factor)
+            if view_mesh is None:
+                view_mesh = self._build_grounded_mesh(base_mesh, view)
+                mesh_cache[extent_factor] = view_mesh
+            results[view] = self._render_mesh(
                 view_mesh,
                 base_mesh,
                 center,
                 VIEW_CAMERAS[view],
                 view,
             )
-            for view in views
-        }
+        return results
+
+    def _resolve_ground_extent_factor(self, view: IFCView) -> float:
+        return self.view_ground_extent_overrides.get(view, GROUND_EXTENT_FACTOR)
+
+    def _build_grounded_mesh(
+        self,
+        base_mesh: o3d.geometry.TriangleMesh,
+        view: IFCView,
+    ) -> o3d.geometry.TriangleMesh:
+        extent_factor = self._resolve_ground_extent_factor(view)
+        if extent_factor == GROUND_EXTENT_FACTOR:
+            return attach_ground_plane_to_mesh(base_mesh)
+        return attach_ground_plane_to_mesh(
+            base_mesh,
+            extent_factor=extent_factor,
+        )
 
     def _resolve_target_ratio(
         self,
@@ -103,7 +128,10 @@ class IFCRenderer:
 
         빈 mesh면 base 그대로 (방어적 fallback — 정상 조건 아님).
         """
-        base = VIEW_TARGET_RATIOS.get(view, self.target_screen_ratio)
+        base = self.view_target_overrides.get(
+            view,
+            VIEW_TARGET_RATIOS.get(view, self.target_screen_ratio),
+        )
         verts = np.asarray(mesh.vertices)
         if len(verts) == 0:
             return base

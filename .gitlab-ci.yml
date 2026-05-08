@@ -1,6 +1,8 @@
 workflow:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_OPEN_MERGE_REQUESTS'
+      when: never
     - if: '$CI_COMMIT_BRANCH =~ /^(master|develop|release)$/'
     - if: '$CI_COMMIT_BRANCH =~ /^(feat|fix|hotfix)\/.+$/'
     - when: never
@@ -117,6 +119,7 @@ ai:test:
     paths:
       - AI/.uv-cache/
   before_script:
+    - apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0
     - cd AI
     - uv sync --locked --dev
   script:
@@ -178,6 +181,7 @@ ai:build:
     paths:
       - AI/.uv-cache/
   before_script:
+    - apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0
     - cd AI
     - uv sync --locked --dev
   script:

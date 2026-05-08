@@ -216,3 +216,24 @@ CREATE INDEX IF NOT EXISTS idx_project_members_project_id
 
 CREATE INDEX IF NOT EXISTS idx_project_members_user_id
     ON project_members (user_id);
+
+CREATE TABLE IF NOT EXISTS revision_scene_states (
+    scene_state_id UUID PRIMARY KEY,
+    revision_id UUID NOT NULL,
+    project_id UUID NOT NULL,
+    scene_type VARCHAR(50) NOT NULL,
+    storage_url VARCHAR(2048) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    CONSTRAINT fk_revision_scene_states_revision
+        FOREIGN KEY (revision_id) REFERENCES revisions(revision_id),
+    CONSTRAINT fk_revision_scene_states_project
+        FOREIGN KEY (project_id) REFERENCES projects(project_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_revision_scene_states_revision
+    ON revision_scene_states (revision_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_project_active_ifc_edit
+    ON jobs (project_id)
+    WHERE job_type IN ('IFC_EDIT', 'TWO_D_TO_IFC_EDIT', 'THREE_D_TO_IFC_EDIT')
+      AND status IN ('QUEUED', 'RUNNING');
