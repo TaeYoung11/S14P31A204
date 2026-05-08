@@ -47,7 +47,7 @@ def test_cli_creates_ifc_from_json_input(tmp_path: Path, capsys) -> None:
     assert captured.err == ""
 
 
-def test_cli_returns_validation_error_as_json_for_v2_missing_boundary(
+def test_cli_generates_spaces_only_if_v2_boundaries_are_missing(
     tmp_path: Path,
     capsys,
 ) -> None:
@@ -87,9 +87,9 @@ def test_cli_returns_validation_error_as_json_for_v2_missing_boundary(
     exit_code = main(["--input", str(input_path), "--output", str(output_path)])
     captured = capsys.readouterr()
 
-    assert exit_code == 2
-    result = json.loads(captured.err)
-    assert result["ok"] is False
-    assert result["code"] == "validation_error"
-    assert "missing boundaries for walls" in str(result["details"])
-    assert output_path.exists() is False
+    assert exit_code == 0
+    result = json.loads(captured.out)
+    assert result["ok"] is True
+    assert result["output_path"] == str(output_path)
+    assert output_path.exists()
+    assert captured.err == ""

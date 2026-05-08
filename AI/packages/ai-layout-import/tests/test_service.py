@@ -1284,7 +1284,7 @@ def test_layout_import_request_rejects_unknown_zone_reference_before_conversion(
         )
 
 
-def test_convert_layout_to_ifc_rejects_v2_missing_wall_default(tmp_path: Path) -> None:
+def test_convert_layout_to_ifc_applies_default_wall_thickness_when_missing(tmp_path: Path) -> None:
     request = _make_request(
         schema_version="v2",
         rooms=[_base_room()],
@@ -1300,11 +1300,14 @@ def test_convert_layout_to_ifc_rejects_v2_missing_wall_default(tmp_path: Path) -
         },
     )
 
-    with pytest.raises(ValueError, match="wall_thickness_mm"):
-        convert_layout_to_ifc(request, tmp_path / "missing-wall-default.ifc")
+    model = _open_generated_ifc(tmp_path, request, "missing-wall-default.ifc")
+
+    wall = _named_entities(model, "IfcWall")["Boundary Wall 1-1"]
+    wall_body = _body_item(wall)
+    assert wall_body.SweptArea.YDim == pytest.approx(0.2)
 
 
-def test_convert_layout_to_ifc_rejects_v2_missing_slab_default(tmp_path: Path) -> None:
+def test_convert_layout_to_ifc_applies_default_slab_thickness_when_missing(tmp_path: Path) -> None:
     request = _make_request(
         schema_version="v2",
         rooms=[_base_room()],
@@ -1320,11 +1323,14 @@ def test_convert_layout_to_ifc_rejects_v2_missing_slab_default(tmp_path: Path) -
         },
     )
 
-    with pytest.raises(ValueError, match="slab_thickness_mm"):
-        convert_layout_to_ifc(request, tmp_path / "missing-slab-default.ifc")
+    model = _open_generated_ifc(tmp_path, request, "missing-slab-default.ifc")
+
+    slab = _named_entities(model, "IfcSlab")["Boundary Slab 1"]
+    slab_body = _body_item(slab)
+    assert slab_body.Depth == pytest.approx(0.15)
 
 
-def test_convert_layout_to_ifc_rejects_v2_missing_roof_default(tmp_path: Path) -> None:
+def test_convert_layout_to_ifc_applies_default_roof_height_when_missing(tmp_path: Path) -> None:
     request = _make_request(
         schema_version="v2",
         rooms=[_base_room()],
@@ -1340,11 +1346,14 @@ def test_convert_layout_to_ifc_rejects_v2_missing_roof_default(tmp_path: Path) -
         },
     )
 
-    with pytest.raises(ValueError, match="roof_height_mm"):
-        convert_layout_to_ifc(request, tmp_path / "missing-roof-default.ifc")
+    model = _open_generated_ifc(tmp_path, request, "missing-roof-default.ifc")
+
+    roof = _named_entities(model, "IfcRoof")["Boundary Roof 1"]
+    roof_body = _body_item(roof)
+    assert roof_body.Depth == pytest.approx(1.0)
 
 
-def test_convert_layout_to_ifc_rejects_v2_missing_floor_boundary_for_walls(
+def test_convert_layout_to_ifc_disables_boundary_driven_features_when_floor_boundary_missing(
     tmp_path: Path,
 ) -> None:
     request = _make_request(
@@ -1373,11 +1382,15 @@ def test_convert_layout_to_ifc_rejects_v2_missing_floor_boundary_for_walls(
         },
     )
 
-    with pytest.raises(ValueError, match="missing boundaries for walls on floors: 2"):
-        convert_layout_to_ifc(request, tmp_path / "missing-wall-boundary.ifc")
+    model = _open_generated_ifc(tmp_path, request, "missing-wall-boundary.ifc")
+
+    assert len(model.by_type("IfcWall")) == 0
+    assert len(model.by_type("IfcSlab")) == 0
+    assert len(model.by_type("IfcRoof")) == 0
+    assert len(model.by_type("IfcSpace")) == 2
 
 
-def test_convert_layout_to_ifc_rejects_v2_missing_top_floor_boundary_for_roof(
+def test_convert_layout_to_ifc_disables_roof_when_top_floor_boundary_missing(
     tmp_path: Path,
 ) -> None:
     request = _make_request(
@@ -1413,8 +1426,31 @@ def test_convert_layout_to_ifc_rejects_v2_missing_top_floor_boundary_for_roof(
         },
     )
 
-    with pytest.raises(ValueError, match="missing boundary for roof generation on floor 2"):
-        convert_layout_to_ifc(request, tmp_path / "missing-roof-boundary.ifc")
+    model = _open_generated_ifc(tmp_path, request, "missing-roof-boundary.ifc")
+
+    assert len(model.by_type("IfcWall")) == 0
+    assert len(model.by_type("IfcSlab")) == 0
+    assert len(model.by_type("IfcRoof")) == 0
+    assert len(model.by_type("IfcSpace")) == 2
+
+
+def test_convert_layout_to_ifc_keeps_spaces_when_boundaries_are_missing(tmp_path: Path) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[_base_room()],
+        modeling_defaults={
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "missing-boundaries-spaces-only.ifc")
+
+    assert len(model.by_type("IfcSpace")) == 1
+    assert len(model.by_type("IfcWall")) == 0
+    assert len(model.by_type("IfcSlab")) == 0
+    assert len(model.by_type("IfcRoof")) == 0
 
 
 def test_convert_layout_to_ifc_reuses_style_assignment_for_same_color(tmp_path: Path) -> None:
@@ -1693,6 +1729,48 @@ def test_convert_layout_to_ifc_keeps_v3_without_explicit_openings_free_of_openin
 
     model = _open_generated_ifc(tmp_path, request, "v3-no-explicit-openings.ifc")
 
+    assert len(model.by_type("IfcOpeningElement")) == 0
+    assert len(model.by_type("IfcDoor")) == 0
+    assert len(model.by_type("IfcWindow")) == 0
+
+
+def test_convert_layout_to_ifc_disables_openings_when_walls_are_degraded_off(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v3",
+        rooms=[_base_room()],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": True,
+            "generate_roof": True,
+            "generate_openings": True,
+        },
+        openings=[
+            {
+                "id": "opening-door-01",
+                "type": "door",
+                "floor": 1,
+                "host_wall_ref": "wall-boundary-1-seg-1",
+                "x": 2100.0,
+                "y": 0.0,
+                "width": 900.0,
+                "height": 2100.0,
+            }
+        ],
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v3-openings-disabled-without-boundaries.ifc")
+
+    assert len(model.by_type("IfcSpace")) == 1
+    assert len(model.by_type("IfcWall")) == 0
     assert len(model.by_type("IfcOpeningElement")) == 0
     assert len(model.by_type("IfcDoor")) == 0
     assert len(model.by_type("IfcWindow")) == 0
