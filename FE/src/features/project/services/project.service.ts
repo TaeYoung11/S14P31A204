@@ -39,6 +39,19 @@ interface ProjectSummaryResponse {
   unreadCommentCount?: number
 }
 
+interface ProjectDetailResponse {
+  projectId: string
+  name: string
+  description?: string
+  phaseStatus?: string
+  bubbleSnapshotJson?: unknown
+  ifcStorageUrl?: string
+  currentRevision?: string
+  createdAt?: string
+  updatedAt?: string
+  unreadCommentCount?: number
+}
+
 interface ProjectListResponse {
   projects: ProjectSummaryResponse[]
   page: number
@@ -88,9 +101,9 @@ const MOCK_SITE_POLYGON_RING: number[][] = [
 ]
 
 const shouldUseSiteMock = import.meta.env.VITE_USE_SITE_MOCK === 'true'
-const shouldUseProjectDetailApi = import.meta.env.VITE_USE_PROJECT_DETAIL_API === 'true'
 const shouldFetchSiteFromProjectDetailApi = import.meta.env.VITE_USE_PROJECT_DETAIL_SITE_API === 'true'
 const SITE_CACHE_TTL_MS = PROJECT_SITE_CACHE_TTL_MS
+const PROJECT_DETAIL_FETCH_FAILED_MESSAGE = '프로젝트 상세 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.'
 const projectSummaryCache = new Map<string, ProjectSummaryResponse>()
 type ProjectServiceErrorCode =
   | 'PROJECT_NOT_FOUND'
@@ -164,7 +177,10 @@ function toProjectServiceError(
   fallbackMessage: string,
   code: ProjectServiceErrorCode,
 ): ProjectServiceError {
-  const nextError = new Error(fallbackMessage) as ProjectServiceError
+  const resolvedFallbackMessage = code === 'PROJECT_DETAIL_FETCH_FAILED'
+    ? PROJECT_DETAIL_FETCH_FAILED_MESSAGE
+    : fallbackMessage
+  const nextError = new Error(resolvedFallbackMessage) as ProjectServiceError
   nextError.code = code
   nextError.status = readErrorStatus(error)
 
@@ -224,26 +240,45 @@ async function findProjectSummaryFromList(projectId: string): Promise<ProjectSum
 }
 
 async function fetchProjectSummary(projectId: string): Promise<ProjectSummaryResponse> {
-  if (shouldUseProjectDetailApi) {
-    try {
-      const response = await api.get<ApiResponse<ProjectSummaryResponse>>(`/projects/${projectId}`)
-      const project = response.data.data
-      projectSummaryCache.set(project.projectId, project)
-      return project
-    } catch (error) {
-      const status = readErrorStatus(error)
-      const canFallbackToList = status === 404 || status === 405 || status === 501
-      if (!canFallbackToList) {
+  try {
+    const detail = await _fetchProjectDetail(projectId)
+    const project: ProjectSummaryResponse = {
+      projectId: detail.projectId,
+      name: detail.name,
+      description: detail.description,
+      currentIfcUrl: detail.ifcStorageUrl,
+      createdAt: detail.createdAt ?? new Date().toISOString(),
+      updatedAt: detail.updatedAt ?? detail.createdAt ?? new Date().toISOString(),
+      unreadCommentCount: detail.unreadCommentCount,
+    }
+    projectSummaryCache.set(project.projectId, project)
+    return project
+  } catch (error) {
+    const status = readErrorStatus(error)
+    const canFallbackToList = status === 404 || status === 405 || status === 501
+    if (!canFallbackToList) {
         throw toProjectServiceError(
           error,
           '프로젝트 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.',
           'PROJECT_DETAIL_FETCH_FAILED',
         )
-      }
     }
   }
 
   return findProjectSummaryFromList(projectId)
+}
+
+async function _fetchProjectDetail(projectId: string): Promise<ProjectDetailResponse> {
+  try {
+    const response = await api.get<ApiResponse<ProjectDetailResponse>>(`/projects/${projectId}`)
+    return response.data.data
+  } catch (error) {
+    throw toProjectServiceError(
+      error,
+ '프로젝트 정보를 불러오지 못했습니다. 다시 시도해주세요',
+      'PROJECT_DETAIL_FETCH_FAILED',
+    )
+  }
 }
 
 /**
@@ -285,6 +320,20 @@ export const projectService = {
   getById: async (id: string): Promise<Project> => {
     const project = await fetchProjectSummary(id)
     return mapProjectSummary(project)
+  },
+
+  getWorkspaceDetail: async (id: string): Promise<{
+    project: Project
+    phaseStatus?: string
+    bubbleSnapshotJson?: unknown
+    ifcStorageUrl?: string
+    currentRevision?: string
+  }> => {
+    const summary = await fetchProjectSummary(id)
+    return {
+      project: mapProjectSummary(summary),
+      ifcStorageUrl: summary.currentIfcUrl,
+    }
   },
 
   getSitePolygon: async (projectId: string): Promise<ProjectSitePolygonResult> => {
