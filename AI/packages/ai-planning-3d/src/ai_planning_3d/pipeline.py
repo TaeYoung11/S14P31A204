@@ -19,6 +19,7 @@ from ai_authoring.engine_3d import (
     create_wall,
     create_slab,
     create_roof,
+    create_stair_preset,
     create_generic_element,
 )
 
@@ -164,6 +165,12 @@ class LLM3DPipeline:
                             self._model_units_to_mm(float(profile.YDim)),
                             self._model_units_to_mm(float(item.Depth)),
                         )
+                if item.is_a("IfcBoundingBox"):
+                    return (
+                        self._model_units_to_mm(float(item.XDim)),
+                        self._model_units_to_mm(float(item.YDim)),
+                        self._model_units_to_mm(float(item.ZDim)),
+                    )
                 if item.is_a("IfcFacetedBrep"):
                     return self._brep_size_mm(item)
         return (0.0, 0.0, 0.0)
@@ -216,6 +223,48 @@ class LLM3DPipeline:
     def _storey_bbox_mm(self, storey: ifcopenshell.entity_instance) -> dict[str, float] | None:
         return self._bbox_for_elements(self._storey_elements(storey))
 
+    def _space_bbox_mm(
+        self,
+        storey: ifcopenshell.entity_instance,
+        space_name: str | None,
+    ) -> dict[str, float] | None:
+        if not space_name:
+            return None
+        wanted = space_name.replace(" ", "").lower()
+        candidates: list[Any] = []
+        for space in self.query_engine.get_model().by_type("IfcSpace"):
+            name = str(getattr(space, "Name", "") or "")
+            normalized = name.replace(" ", "").lower()
+            if wanted in normalized or normalized in wanted:
+                candidates.append(space)
+        if not candidates and wanted == "livingroom":
+            candidates = [
+                space
+                for space in self.query_engine.get_model().by_type("IfcSpace")
+                if "living" in str(getattr(space, "Name", "") or "").lower()
+            ]
+        if not candidates:
+            return None
+        for space in candidates:
+            placement = self._placement_xyz_mm(space)
+            representation = getattr(space, "Representation", None)
+            for rep in getattr(representation, "Representations", []) or []:
+                for item in getattr(rep, "Items", []) or []:
+                    if item.is_a("IfcBoundingBox"):
+                        x, y, z = placement
+                        sx = self._model_units_to_mm(float(item.XDim))
+                        sy = self._model_units_to_mm(float(item.YDim))
+                        sz = self._model_units_to_mm(float(item.ZDim))
+                        return {
+                            "min_x": x,
+                            "max_x": x + sx,
+                            "min_y": y,
+                            "max_y": y + sy,
+                            "min_z": z,
+                            "max_z": z + sz,
+                        }
+        return self._bbox_for_elements(candidates)
+
     def _model_bbox_mm(self) -> dict[str, float] | None:
         model = self.query_engine.get_model()
         if not model:
@@ -258,6 +307,24 @@ class LLM3DPipeline:
                 "length_mm": max(span_x * 1.05, 4000.0),
                 "width_mm": max(span_y * 1.05, 3000.0),
                 "ridge_height_mm": max(float(create_info.get("ridge_height_mm") or 1200.0), 1200.0),
+            }
+
+        if element_type == LLM3DElementType.STAIR:
+            stair_bbox = self._space_bbox_mm(target_storey, create_info.get("space_name")) or bbox
+            stair_min_x, stair_max_x = stair_bbox["min_x"], stair_bbox["max_x"]
+            stair_min_y, stair_max_y = stair_bbox["min_y"], stair_bbox["max_y"]
+            stair_span_x = max(stair_max_x - stair_min_x, 3600.0)
+            stair_span_y = max(stair_max_y - stair_min_y, 1000.0)
+            return {
+                "start_point": {
+                    "x": stair_min_x + stair_span_x * 0.50,
+                    "y": stair_min_y + stair_span_y * 0.35,
+                    "z": storey_z,
+                },
+                "length_mm": float(create_info.get("length_mm") or 3600.0),
+                "width_mm": float(create_info.get("width_mm") or 1000.0),
+                "height_mm": float(create_info.get("height_mm") or 3000.0),
+                "step_count": int(create_info.get("step_count") or 16),
             }
 
         direction = str(create_info.get("direction") or "North").lower()
@@ -474,8 +541,12 @@ class LLM3DPipeline:
             ci.length_mm = ci_dump["length_mm"]
         if ci_dump.get("width_mm") is not None:
             ci.width_mm = ci_dump["width_mm"]
+        if ci_dump.get("height_mm") is not None:
+            ci.height_mm = ci_dump["height_mm"]
         if ci_dump.get("ridge_height_mm") is not None:
             ci.ridge_height_mm = ci_dump["ridge_height_mm"]
+        if ci_dump.get("step_count") is not None:
+            ci.step_count = ci_dump["step_count"]
 
         # ── 충돌 검사 ────────────────────────────────────────────
         collision_result: CollisionResult | None = None
@@ -560,6 +631,9 @@ class LLM3DPipeline:
             "shape_preset":   str(ci.get("shape_preset") or "FLAT"),
             "color":          ci.get("color"),
             "material_name":  mat.get("name") if mat else None,
+            "step_count":     ci.get("step_count"),
+            "riser_height_mm": ci.get("riser_height_mm"),
+            "tread_depth_mm": ci.get("tread_depth_mm"),
         }
 
     async def _execute_create_apply(
@@ -574,8 +648,16 @@ class LLM3DPipeline:
         storey = model.by_guid(info["storey_guid"])
         params = self._unpack_create_info(ci, start_point=info.get("start_point"))
         # roof 전용 키를 제외한 공통 파라미터
-        base_params = {k: v for k, v in params.items()
-                       if k not in ("ridge_height_mm", "shape_preset")}
+        base_params = {
+            k: v for k, v in params.items()
+            if k not in (
+                "ridge_height_mm",
+                "shape_preset",
+                "step_count",
+                "riser_height_mm",
+                "tread_depth_mm",
+            )
+        }
 
         etype = ci["element_type"]
         if etype == LLM3DElementType.WALL:
@@ -584,6 +666,12 @@ class LLM3DPipeline:
             entity = create_slab(model, storey, **base_params)
         elif etype == LLM3DElementType.ROOF:
             entity = create_roof(model, storey, **params)
+        elif etype == LLM3DElementType.STAIR:
+            stair_params = {
+                k: v for k, v in params.items()
+                if k not in ("ridge_height_mm", "shape_preset")
+            }
+            entity = create_stair_preset(model, storey, **stair_params)
         else:
             entity = create_generic_element(model, storey, etype.value, **base_params)
 

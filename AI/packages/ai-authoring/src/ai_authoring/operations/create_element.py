@@ -14,6 +14,7 @@ from ai_authoring.engine_3d import (
     create_generic_element,
     create_roof,
     create_slab,
+    create_stair_preset,
     create_wall,
     create_window_with_opening,
     find_host_wall,
@@ -97,8 +98,10 @@ class CreateElementHandler:
             length_mm = float(dims.get("length", 3000.0))
             direction = str(parameters.get("direction") or "north").lower()
 
-        width_mm = float(dims.get("width", 200.0))
-        height_mm = float(dims.get("height", 2400.0))
+        width_default = 1000.0 if element_type == "IfcStair" else 200.0
+        height_default = 1800.0 if element_type == "IfcStair" else 2400.0
+        width_mm = float(dims.get("width", width_default))
+        height_mm = float(dims.get("height", height_default))
         color: str | None = parameters.get("color")
         material_name: str | None = parameters.get("material")
 
@@ -125,6 +128,18 @@ class CreateElementHandler:
                 **common,
                 shape_preset=str(parameters.get("roof_shape_preset") or "FLAT"),
                 ridge_height_mm=float(parameters.get("ridge_height_mm") or 1200.0),
+            )
+        if element_type == "IfcStair":
+            step_count = parameters.get("step_count")
+            riser_height_mm = parameters.get("riser_height_mm")
+            tread_depth_mm = parameters.get("tread_depth_mm")
+            return create_stair_preset(
+                model,
+                resolved_storey,
+                **common,
+                step_count=int(step_count) if step_count is not None else None,
+                riser_height_mm=float(riser_height_mm) if riser_height_mm is not None else None,
+                tread_depth_mm=float(tread_depth_mm) if tread_depth_mm is not None else None,
             )
         if element_type in ("IfcDoor", "IfcWindow"):
             host_wall_global_id = parameters.get("host_wall_global_id")

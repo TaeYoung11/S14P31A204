@@ -56,7 +56,9 @@ SYSTEM_PROMPT = (
     "Use null for unused objects.\n"
     "\n"
     "### NORMALIZATION\n"
-    "element_type values: IfcWall, IfcRoof, IfcColumn, IfcBeam, IfcSlab, IfcDoor, IfcWindow.\n"
+    "element_type values: IfcWall, IfcRoof, IfcColumn, IfcBeam, IfcSlab, "
+    "IfcDoor, IfcWindow, IfcStair.\n"
+    "계단/stair means element_type IfcStair. Stairs may omit direction; default to North.\n"
     "storey: 1층=1F, 2층=2F, 옥상/RF=RF.\n"
     "space_name: 거실=LivingRoom, 안방=MasterBedroom, 침실=Bedroom, 화장실/욕실=Bathroom.\n"
     "direction: 북쪽=North, 남쪽=South, 동쪽/오른쪽=East, 서쪽/왼쪽=West.\n"
@@ -175,7 +177,10 @@ class LLM3DEngine:
                 )
             if create_info is not command.create_info:
                 command = command.model_copy(update={"create_info": create_info})
-            if create_info.storey is None or create_info.direction is None:
+            if create_info.storey is None or (
+                create_info.direction is None
+                and create_info.element_type != LLM3DElementType.STAIR
+            ):
                 return self._ambiguous(user_text, "CREATE에는 층과 방향 정보가 필요합니다.")
             if command.ambiguity_question:
                 command = command.model_copy(
@@ -189,6 +194,10 @@ class LLM3DEngine:
         if command.command_type == LLM3DCommandType.DELETE:
             if command.changes is None or not command.changes.deletion:
                 command = command.model_copy(update={"changes": LLM3DChanges(deletion=True)})
+            if command.target.element_type == LLM3DElementType.STAIR:
+                command = command.model_copy(
+                    update={"target": command.target.model_copy(update={"select_all": True})}
+                )
             return command
 
         if command.command_type == LLM3DCommandType.MODIFY:
@@ -233,7 +242,7 @@ class LLM3DEngine:
             missing = []
             if not create_info.storey:
                 missing.append("층")
-            if not create_info.direction:
+            if not create_info.direction and create_info.element_type != LLM3DElementType.STAIR:
                 missing.append("방향")
             if missing:
                 return self._ambiguous(text, f"CREATE에는 {', '.join(missing)} 정보가 필요합니다.")
@@ -247,6 +256,8 @@ class LLM3DEngine:
             )
 
         if command_type == LLM3DCommandType.DELETE:
+            if target.element_type == LLM3DElementType.STAIR:
+                target = target.model_copy(update={"select_all": True})
             return LLM3DCommand(
                 command_type=command_type,
                 target=target,
@@ -269,6 +280,10 @@ class LLM3DEngine:
         )
 
     def _command_type(self, text: str) -> LLM3DCommandType:
+        if any(word in text for word in ("삭제", "지워", "없애", "remove", "delete")):
+            return LLM3DCommandType.DELETE
+        if any(word in text for word in ("만들", "생성", "추가", "create", "add")):
+            return LLM3DCommandType.CREATE
         if any(word in text for word in ("삭제", "지워", "제거")):
             return LLM3DCommandType.DELETE
         if any(word in text for word in ("만들", "생성", "세워", "추가")):
@@ -292,6 +307,9 @@ class LLM3DEngine:
             storey = storey or "RF"
             direction = direction or "North"
 
+        if element_type == LLM3DElementType.STAIR:
+            direction = direction or "North"
+
         return LLM3DCreateInfo(
             element_type=element_type,
             storey=storey,
@@ -301,6 +319,9 @@ class LLM3DEngine:
             material=self._material(text),
             shape_preset=LLM3DRoofShape.GABLED if "박공지붕" in text else None,
             length_mm=3000.0 if element_type == LLM3DElementType.WALL else None,
+            width_mm=1000.0 if element_type == LLM3DElementType.STAIR else 200.0,
+            height_mm=3000.0 if element_type == LLM3DElementType.STAIR else 2400.0,
+            step_count=16 if element_type == LLM3DElementType.STAIR else None,
         )
 
     def _changes(self, text: str) -> LLM3DChanges | None:
@@ -361,6 +382,8 @@ class LLM3DEngine:
 
     def _element_type(self, text: str) -> LLM3DElementType:
         import re
+        if re.search(r"계단|stair", text, re.I):
+            return LLM3DElementType.STAIR
         if re.search(r"지붕|루프|roof", text, re.I):
             return LLM3DElementType.ROOF
         if re.search(r"기둥|column", text, re.I):
@@ -376,6 +399,12 @@ class LLM3DEngine:
         return LLM3DElementType.WALL
 
     def _storey(self, text: str) -> str | None:
+        if "1층" in text:
+            return "1F"
+        if "2층" in text:
+            return "2F"
+        if "3층" in text:
+            return "3F"
         if "지하2" in text:
             return "B2"
         if "지하1" in text:
@@ -391,6 +420,8 @@ class LLM3DEngine:
         return None
 
     def _space(self, text: str) -> str | None:
+        if "거실" in text or "living room" in text.lower():
+            return "LivingRoom"
         if "거실" in text:
             return "LivingRoom"
         if "안방" in text:
