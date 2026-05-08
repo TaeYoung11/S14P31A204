@@ -23,7 +23,11 @@ from ai_common.worker_sdk.event_factory import CompletedResult, WorkerResult
 from ai_domain import CommandMessage, EventOutputRef, TwoDLlmCommandPayload
 from pydantic import ValidationError
 
-from .ifc_extractor import UnsupportedIfcSchemaError, extract_ifc_context
+from .ifc_extractor import (
+    UnsupportedIfcLengthUnitError,
+    UnsupportedIfcSchemaError,
+    extract_ifc_context,
+)
 from .session_pipeline import LLM2DPipeline
 
 _T = TypeVar("_T")
@@ -215,6 +219,11 @@ async def _run_pipeline(
     except UnsupportedIfcSchemaError as exc:
         raise ValidationWorkerError(
             code="UNSUPPORTED_IFC_SCHEMA",
+            message=str(exc),
+        ) from exc
+    except UnsupportedIfcLengthUnitError as exc:
+        raise ValidationWorkerError(
+            code="UNSUPPORTED_IFC_LENGTH_UNIT",
             message=str(exc),
         ) from exc
     except ValueError as exc:

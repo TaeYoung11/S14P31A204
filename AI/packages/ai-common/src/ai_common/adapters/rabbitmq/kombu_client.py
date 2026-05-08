@@ -120,11 +120,22 @@ THREE_D_LLM_COMMAND_QUEUE = kombu.Queue(
     routing_key="command.3d-llm.*",
     durable=True,
 )
+TWO_D_LLM_COMMAND_QUEUE = kombu.Queue(
+    "batang.2d-llm.command.queue",
+    exchange=COMMANDS_EXCHANGE,
+    routing_key="command.2d-llm.*",
+    durable=True,
+    queue_arguments={
+        "x-dead-letter-exchange": "batang.dlx.exchange",
+        "x-dead-letter-routing-key": "dead.2d-llm",
+    },
+)
 
 _WORKER_TYPE_TO_QUEUE: dict[str, kombu.Queue] = {
     "SD_RENDER_GENERATE": SD_RENDER_COMMAND_QUEUE,
     "IFC_GENERATE_FROM_BUBBLE": IFC_GENERATE_COMMAND_QUEUE,
     "THREE_D_LLM": THREE_D_LLM_COMMAND_QUEUE,
+    "TWO_D_LLM": TWO_D_LLM_COMMAND_QUEUE,
 }
 
 

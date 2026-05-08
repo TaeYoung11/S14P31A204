@@ -6,12 +6,15 @@ from pathlib import Path
 import pytest
 
 import ai_planning_2d
+from ai_common.adapters.rabbitmq.consumer import RabbitMQConsumer
+from ai_common.adapters.rabbitmq.kombu_client import get_command_queue
 from ai_common.errors import ClarificationRequiredError, NonRetryableWorkerError
 from ai_common.worker_sdk.base_worker import EventPublisher
 from ai_domain import CommandMessage
 from ai_domain.worker_messages.event import EventMessage
-from ai_planning_2d.ifc_extractor import UnsupportedIfcSchemaError
+from ai_planning_2d.ifc_extractor import UnsupportedIfcLengthUnitError, UnsupportedIfcSchemaError
 from ai_planning_2d.worker import TwoDLlmWorker, run_two_d_llm_job
+from ai_planning_2d.worker_app import WORKER_TYPE, build_settings, run_two_d_llm_worker
 
 
 class InMemoryPublisher(EventPublisher):
@@ -353,6 +356,30 @@ def test_two_d_llm_worker_reports_unsupported_ifc_schema(
     assert result.error.code == "UNSUPPORTED_IFC_SCHEMA"
 
 
+def test_two_d_llm_worker_reports_unsupported_ifc_length_unit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = FakeStorageClient()
+    storage.read_map["s3://batang-artifacts/input/house.ifc"] = b"ISO-10303-21;source-ifc"
+    worker = TwoDLlmWorker(
+        worker_id="2d-llm-worker-1",
+        event_publisher=InMemoryPublisher(),
+        s3_client=storage,
+    )
+
+    monkeypatch.setattr(
+        "ai_planning_2d.worker.extract_ifc_context",
+        lambda _: _raise(
+            UnsupportedIfcLengthUnitError("Unsupported IFC length unit prefix: MILLI")
+        ),
+    )
+
+    result = worker.handle(_command())
+
+    assert result.status == "failed"
+    assert result.error.code == "UNSUPPORTED_IFC_LENGTH_UNIT"
+
+
 def test_two_d_llm_worker_emits_clarification_with_job_step_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -647,3 +674,119 @@ def test_package_lazy_worker_import_wraps_import_error(monkeypatch: pytest.Monke
 
     with pytest.raises(AttributeError):
         ai_planning_2d.__getattr__("TwoDLlmWorker")
+
+
+def test_two_d_worker_app_build_settings_sets_worker_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WORKER_ID", "2d-worker-1")
+    monkeypatch.setenv("S3_BUCKET", "batang-artifacts")
+
+    settings = build_settings()
+
+    assert settings.worker_type == WORKER_TYPE
+
+
+def test_two_d_worker_app_wires_consumer(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WORKER_ID", "2d-worker-1")
+    monkeypatch.setenv("S3_BUCKET", "batang-artifacts")
+
+    class FakeHealth:
+        def __init__(self) -> None:
+            self.stopped = False
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    class FakePublisher(InMemoryPublisher):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    fake_health = FakeHealth()
+    calls: dict[str, object] = {}
+
+    class FakeConsumer:
+        def __init__(
+            self,
+            *,
+            settings: object,
+            worker_type: str,
+            handler: object,
+            stop_after: int | None = None,
+        ) -> None:
+            calls["worker_type"] = worker_type
+            calls["handler"] = handler
+            calls["stop_after"] = stop_after
+
+        def run(self) -> None:
+            calls["ran"] = True
+
+    exit_code = run_two_d_llm_worker(
+        once=True,
+        health_server_factory=lambda _settings: fake_health,
+        publisher_factory=lambda _settings: FakePublisher(),
+        storage_factory=lambda _settings: FakeStorageClient(),
+        consumer_factory=FakeConsumer,
+    )
+
+    assert exit_code == 0
+    assert calls["worker_type"] == WORKER_TYPE
+    assert calls["stop_after"] == 1
+    assert calls["ran"] is True
+    assert fake_health.stopped is True
+
+
+def test_two_d_worker_queue_is_registered() -> None:
+    queue = get_command_queue(WORKER_TYPE)
+
+    assert queue.name == "batang.2d-llm.command.queue"
+
+
+def test_two_d_worker_app_default_consumer_resolves_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WORKER_ID", "2d-worker-1")
+    monkeypatch.setenv("S3_BUCKET", "batang-artifacts")
+
+    class FakeHealth:
+        def __init__(self) -> None:
+            self.stopped = False
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    class FakePublisher(InMemoryPublisher):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    fake_health = FakeHealth()
+    run_calls: list[str] = []
+
+    monkeypatch.setattr(
+        "ai_common.adapters.rabbitmq.consumer.build_connection",
+        lambda _settings: object(),
+    )
+
+    original_run = RabbitMQConsumer.run
+
+    def _fake_run(self: RabbitMQConsumer) -> None:
+        run_calls.append(self._queue.name)
+
+    monkeypatch.setattr(RabbitMQConsumer, "run", _fake_run)
+
+    exit_code = run_two_d_llm_worker(
+        once=True,
+        health_server_factory=lambda _settings: fake_health,
+        publisher_factory=lambda _settings: FakePublisher(),
+        storage_factory=lambda _settings: FakeStorageClient(),
+    )
+
+    monkeypatch.setattr(RabbitMQConsumer, "run", original_run)
+
+    assert exit_code == 0
+    assert run_calls == ["batang.2d-llm.command.queue"]
+    assert fake_health.stopped is True

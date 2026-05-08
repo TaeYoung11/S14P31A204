@@ -13,6 +13,7 @@ Entrypoint = Callable[[Sequence[str] | None], int]
 
 _WORKER_TYPE_TO_ENTRYPOINT: dict[str, str] = {
     "IFC_GENERATE_FROM_BUBBLE": "ai_layout_import.worker_app:main",
+    "TWO_D_LLM": "ai_planning_2d.worker_app:main",
 }
 
 
