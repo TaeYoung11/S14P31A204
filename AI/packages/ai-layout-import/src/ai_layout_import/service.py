@@ -114,7 +114,7 @@ def _normalize_generation_request(request: LayoutImportRequestModel) -> LayoutIm
 
 def _ensure_modeling_defaults(request: LayoutImportGenerationRequest) -> None:
     current_defaults = request.modeling_defaults
-    applied_defaults: list[str] = []
+    applied_defaults: dict[str, int] = {}
     space_height_mm = None if current_defaults is None else current_defaults.space_height_mm
     wall_thickness_mm = _ensure_modeling_default_value(
         current_defaults,
@@ -145,8 +145,10 @@ def _ensure_modeling_defaults(request: LayoutImportGenerationRequest) -> None:
     if applied_defaults:
         _logger.info(
             "layout_import_modeling_defaults_applied",
+            source="fe_payload_missing",
             schemaVersion=request.schema_version,
-            fields=applied_defaults,
+            missingFields=list(applied_defaults),
+            appliedDefaults=applied_defaults,
         )
 
 
@@ -154,13 +156,13 @@ def _ensure_modeling_default_value(
     defaults: ModelingDefaultsV2 | None,
     field_name: str,
     fallback_value: int,
-    applied_defaults: list[str],
+    applied_defaults: dict[str, int],
 ) -> int:
     if defaults is not None:
         value = getattr(defaults, field_name)
         if value is not None:
             return value
-    applied_defaults.append(field_name)
+    applied_defaults[field_name] = fallback_value
     return fallback_value
 
 
@@ -175,33 +177,41 @@ def _degrade_generation_options_for_missing_boundaries(
     current_options = request.generation_options
     next_options = current_options.model_copy(deep=True)
     disabled_features: list[str] = []
+    missing_boundary_floors = _missing_boundary_floors(boundaries_by_floor, room_floors)
 
-    if next_options.generate_walls and _missing_boundary_floors(boundaries_by_floor, room_floors):
+    if next_options.generate_walls and missing_boundary_floors:
         next_options.generate_walls = False
         disabled_features.append("generate_walls")
 
-    if next_options.generate_slabs and _missing_boundary_floors(boundaries_by_floor, room_floors):
+    if next_options.generate_slabs and missing_boundary_floors:
         next_options.generate_slabs = False
         disabled_features.append("generate_slabs")
 
     top_floor = max(room_floors)
+    top_floor_boundary_missing = top_floor not in boundaries_by_floor
     if next_options.generate_roof and top_floor not in boundaries_by_floor:
         next_options.generate_roof = False
         disabled_features.append("generate_roof")
 
+    openings_disabled_because_walls_disabled = False
     if next_options.generate_openings and not next_options.generate_walls:
         next_options.generate_openings = False
         disabled_features.append("generate_openings")
+        openings_disabled_because_walls_disabled = True
 
     request.generation_options = next_options
 
     if disabled_features:
         _logger.warning(
             "layout_import_generation_options_degraded",
+            source="fe_payload_missing",
             schemaVersion=request.schema_version,
             disabledFeatures=disabled_features,
+            missingBoundaryFloors=missing_boundary_floors,
             availableBoundaryFloors=sorted(boundaries_by_floor),
             roomFloors=room_floors,
+            topFloorBoundaryMissing=top_floor_boundary_missing,
+            openingsDisabledBecauseWallsDisabled=openings_disabled_because_walls_disabled,
         )
 
 
