@@ -6,13 +6,18 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ai_common.errors import NonRetryableWorkerError, ValidationWorkerError
+from ai_common.errors import (
+    NonRetryableWorkerError,
+    RetryableWorkerError,
+    ValidationWorkerError,
+)
 from ai_common.worker_sdk.base_worker import BaseWorker, EventPublisher
 from ai_common.worker_sdk.event_factory import CompletedResult, WorkerResult
 from ai_domain.worker_messages.event import EventOutputRef
 
 from ai_rendering.ifc2img.exceptions import IFCRenderError
 from ai_rendering.ifc2img.service import IFC2IMG_WORKER_RENDER_MODE, Ifc2ImgWorkerSuccessResponse
+from ai_rendering.ifc2img.storage import Ifc2ImgStorageError
 from ai_rendering.ifc2img.worker import run_ifc2img_worker_command
 
 Ifc2ImgCommandRunner = Callable[..., Ifc2ImgWorkerSuccessResponse]
@@ -50,6 +55,8 @@ class RenderingWorker(BaseWorker):
         work_dir = self._resolve_work_dir(command)
         try:
             response = self._ifc2img_runner(command, self._s3_settings, work_dir)
+        except Ifc2ImgStorageError as exc:
+            raise _storage_worker_error(exc) from exc
         except ValueError as exc:
             raise ValidationWorkerError(
                 code="INVALID_IFC2IMG_COMMAND",
@@ -93,6 +100,14 @@ def _to_completed_result(response: Ifc2ImgWorkerSuccessResponse) -> CompletedRes
         output=EventOutputRef(storageUrl=response["manifestStorageUrl"]),
         progress=1.0,
     )
+
+
+def _storage_worker_error(
+    error: Ifc2ImgStorageError,
+) -> RetryableWorkerError | ValidationWorkerError:
+    if error.retryable:
+        return RetryableWorkerError(code=error.code, message=error.message)
+    return ValidationWorkerError(code=error.code, message=error.message)
 
 
 def _safe_path_part(value: Any, fallback: str) -> str:
