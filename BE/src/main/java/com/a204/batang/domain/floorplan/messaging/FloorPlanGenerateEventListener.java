@@ -57,7 +57,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class FloorPlanGenerateEventListener {
 
-    private static final String EVENT_PREFIX = "IFC_GENERATE_FROM_BUBBLE_";
+    private static final String EVENT_PREFIX = FloorPlanConstants.EVENT_PREFIX_IFC_GENERATE_FROM_BUBBLE;
     private static final String EVENT_PUBLISH_FAILED = "PUBLISH_FAILED";
     private static final String EVENT_STARTED = FloorPlanConstants.EVENT_TYPE_IFC_GENERATE_STARTED;
     private static final String EVENT_PROGRESS = FloorPlanConstants.EVENT_TYPE_IFC_GENERATE_PROGRESS;
