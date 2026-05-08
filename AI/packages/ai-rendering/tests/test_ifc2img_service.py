@@ -10,24 +10,35 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any, get_args, get_type_hints
 
 import pytest
 from PIL import Image
 
 from ai_rendering.ifc2img.exceptions import IFCRenderError
 from ai_rendering.ifc2img.service import (
+    IFC2IMG_WORKER_COMMAND_TYPE,
+    IFC2IMG_WORKER_RENDER_MODE,
+    PHOTO_MANIFEST_CONTENT_TYPE,
+    PHOTO_PNG_CONTENT_TYPE,
     PHOTO_DEPTH_RENDER_DEFAULTS,
     PHOTO_MANIFEST_SCHEMA_VERSION,
     PHOTO_INTERNAL_VIEWS,
     Ifc2ImgPhotoManifest,
+    Ifc2ImgPhotoJobResult,
     Ifc2ImgPhotoViewResult,
+    Ifc2ImgStorageAdapter,
+    Ifc2ImgWorkerErrorResponse,
+    Ifc2ImgWorkerRequest,
+    Ifc2ImgWorkerSuccessResponse,
     PhotoViewAlias,
     PUBLIC_PHOTO_VIEWS,
     PUBLIC_TO_INTERNAL_VIEW,
     build_photo_manifest,
+    build_photo_output_storage_url,
     create_photo_ifc_renderer,
     create_photo_style_renderer,
+    handle_ifc2img_worker_request,
     render_photo_depths,
     render_photo_view,
     run_ifc2img_photo_pipeline,
@@ -92,6 +103,27 @@ class FakeDepthStyleRenderer:
             }
         )
         return FakeStyleResult(Image.new("RGB", depth_image.size, "white"))
+
+
+class FakeStorageAdapter:
+    def __init__(self) -> None:
+        self.downloads: list[tuple[str, Path]] = []
+        self.uploads: list[tuple[Path, str, str]] = []
+
+    def download_ifc(self, source_storage_url: str, destination_path: Path) -> Path:
+        self.downloads.append((source_storage_url, destination_path))
+        destination_path.write_text("ISO-10303-21;", encoding="utf-8")
+        return destination_path
+
+    def upload_file(
+        self,
+        local_path: Path,
+        target_storage_url: str,
+        *,
+        content_type: str,
+    ) -> str:
+        self.uploads.append((local_path, target_storage_url, content_type))
+        return target_storage_url
 
 
 @pytest.fixture(autouse=True)
@@ -189,6 +221,231 @@ def test_photo_manifest_type_matches_json_contract(tmp_path: Path) -> None:
             "height": 4,
         }
     ]
+
+
+def test_worker_schema_types_match_expected_ifc2img_contract() -> None:
+    """Worker 연결 전 요청/응답 JSON에서 고정해야 할 필드를 타입으로 확인한다."""
+    request_hints = get_type_hints(Ifc2ImgWorkerRequest)
+    success_hints = get_type_hints(Ifc2ImgWorkerSuccessResponse)
+    error_hints = get_type_hints(Ifc2ImgWorkerErrorResponse)
+
+    assert IFC2IMG_WORKER_COMMAND_TYPE == "SD_RENDER_GENERATE"
+    assert IFC2IMG_WORKER_RENDER_MODE == "ifc2img"
+    assert set(request_hints) == {
+        "commandType",
+        "input",
+        "expectedOutput",
+        "payload",
+    }
+    assert set(success_hints) == {
+        "status",
+        "renderMode",
+        "preset",
+        "manifestStorageUrl",
+        "photos",
+    }
+    assert set(error_hints) == {
+        "status",
+        "renderMode",
+        "errorCode",
+        "message",
+    }
+
+
+def test_storage_adapter_protocol_and_output_url_helper(tmp_path: Path) -> None:
+    """Storage adapter는 worker가 IFC 다운로드와 결과 업로드를 mock 가능하게 만드는 경계다."""
+    adapter: Ifc2ImgStorageAdapter = FakeStorageAdapter()
+    ifc_path = adapter.download_ifc(
+        "s3://bucket/input/model.ifc",
+        tmp_path / "source.ifc",
+    )
+    photo_url = build_photo_output_storage_url(
+        "s3://bucket/output/job-1/",
+        "photo_front_diagonal_left.png",
+    )
+    manifest_url = build_photo_output_storage_url(
+        "s3://bucket/output/job-1",
+        "manifest.json",
+    )
+
+    assert ifc_path.read_text(encoding="utf-8") == "ISO-10303-21;"
+    assert photo_url == "s3://bucket/output/job-1/photo_front_diagonal_left.png"
+    assert manifest_url == "s3://bucket/output/job-1/manifest.json"
+    assert adapter.upload_file(
+        tmp_path / "photo_front_diagonal_left.png",
+        photo_url,
+        content_type=PHOTO_PNG_CONTENT_TYPE,
+    ) == photo_url
+    assert adapter.upload_file(
+        tmp_path / "manifest.json",
+        manifest_url,
+        content_type=PHOTO_MANIFEST_CONTENT_TYPE,
+    ) == manifest_url
+
+
+@pytest.mark.parametrize("filename", ["nested/photo.png", r"nested\photo.png", ""])
+def test_photo_output_storage_url_rejects_non_plain_filenames(filename: str) -> None:
+    """Storage prefix helper는 worker가 예상 밖의 하위 경로를 섞지 않게 막는다."""
+    with pytest.raises(ValueError):
+        build_photo_output_storage_url("s3://bucket/output", filename)
+
+
+def test_worker_handler_downloads_runs_pipeline_and_uploads_outputs(
+    tmp_path: Path,
+) -> None:
+    """Worker handler는 storage 입출력과 로컬 photo pipeline을 한 번에 연결한다."""
+    storage = FakeStorageAdapter()
+    request: Ifc2ImgWorkerRequest = {
+        "commandType": "SD_RENDER_GENERATE",
+        "input": {"sourceIfcStorageUrl": "s3://bucket/input/model.ifc"},
+        "expectedOutput": {"renderImageStorageUrl": "s3://bucket/output/job-1/"},
+        "payload": {"renderMode": "ifc2img", "preset": "korean_house"},
+    }
+    pipeline_calls: list[tuple[Path, Path, str]] = []
+
+    def fake_pipeline(
+        ifc_path: Path,
+        output_dir: Path,
+        *,
+        preset: str,
+    ) -> Ifc2ImgPhotoJobResult:
+        pipeline_calls.append((ifc_path, output_dir, preset))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = output_dir / "manifest.json"
+        photo_left = output_dir / "photo_front_diagonal_left.png"
+        photo_right = output_dir / "photo_front_diagonal_right.png"
+        depth_left = output_dir / "depth_front_diagonal_left.png"
+        depth_right = output_dir / "depth_front_diagonal_right.png"
+        manifest_path.write_text("{}", encoding="utf-8")
+        for path in (photo_left, photo_right, depth_left, depth_right):
+            path.write_bytes(b"png")
+        outputs = (
+            Ifc2ImgPhotoViewResult(
+                view="front_diagonal_left",
+                internal_view=IFCView.FRONT_DIAGONAL_LEFT,
+                photo_path=photo_left,
+                depth_path=depth_left,
+                width=8,
+                height=4,
+            ),
+            Ifc2ImgPhotoViewResult(
+                view="front_diagonal_right",
+                internal_view=IFCView.FRONT_DIAGONAL_RIGHT,
+                photo_path=photo_right,
+                depth_path=depth_right,
+                width=8,
+                height=4,
+            ),
+        )
+        return Ifc2ImgPhotoJobResult(
+            preset=preset,
+            output_dir=output_dir,
+            outputs=outputs,
+            manifest_path=manifest_path,
+        )
+
+    response = handle_ifc2img_worker_request(
+        request,
+        storage,
+        tmp_path / "work",
+        pipeline=fake_pipeline,
+    )
+
+    assert storage.downloads == [
+        ("s3://bucket/input/model.ifc", tmp_path / "work" / "input" / "source.ifc")
+    ]
+    assert pipeline_calls == [
+        (
+            tmp_path / "work" / "input" / "source.ifc",
+            tmp_path / "work" / "output",
+            "korean_house",
+        )
+    ]
+    assert response == {
+        "status": "SUCCESS",
+        "renderMode": "ifc2img",
+        "preset": "korean_house",
+        "manifestStorageUrl": "s3://bucket/output/job-1/manifest.json",
+        "photos": [
+            {
+                "view": "front_diagonal_left",
+                "storageUrl": "s3://bucket/output/job-1/photo_front_diagonal_left.png",
+                "width": 8,
+                "height": 4,
+            },
+            {
+                "view": "front_diagonal_right",
+                "storageUrl": "s3://bucket/output/job-1/photo_front_diagonal_right.png",
+                "width": 8,
+                "height": 4,
+            },
+        ],
+    }
+    assert storage.uploads == [
+        (
+            tmp_path / "work" / "output" / "manifest.json",
+            "s3://bucket/output/job-1/manifest.json",
+            PHOTO_MANIFEST_CONTENT_TYPE,
+        ),
+        (
+            tmp_path / "work" / "output" / "photo_front_diagonal_left.png",
+            "s3://bucket/output/job-1/photo_front_diagonal_left.png",
+            PHOTO_PNG_CONTENT_TYPE,
+        ),
+        (
+            tmp_path / "work" / "output" / "photo_front_diagonal_right.png",
+            "s3://bucket/output/job-1/photo_front_diagonal_right.png",
+            PHOTO_PNG_CONTENT_TYPE,
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("worker_request", "message"),
+    [
+        (
+            {
+                "commandType": "OTHER_COMMAND",
+                "input": {"sourceIfcStorageUrl": "s3://bucket/input/model.ifc"},
+                "expectedOutput": {"renderImageStorageUrl": "s3://bucket/output/job-1/"},
+                "payload": {"renderMode": "ifc2img", "preset": "korean_house"},
+            },
+            "unsupported commandType",
+        ),
+        (
+            {
+                "commandType": "SD_RENDER_GENERATE",
+                "input": {"sourceIfcStorageUrl": "s3://bucket/input/model.ifc"},
+                "expectedOutput": {"renderImageStorageUrl": "s3://bucket/output/job-1/"},
+                "payload": {"renderMode": "img2img", "preset": "korean_house"},
+            },
+            "unsupported renderMode",
+        ),
+    ],
+)
+def test_worker_handler_rejects_unsupported_request_before_side_effects(
+    worker_request: dict[str, object],
+    message: str,
+    tmp_path: Path,
+) -> None:
+    """지원하지 않는 worker 요청은 storage/pipeline 실행 전에 실패해야 한다."""
+    storage = FakeStorageAdapter()
+    pipeline_calls: list[object] = []
+
+    def fake_pipeline(*args: object, **kwargs: object) -> None:
+        pipeline_calls.append((args, kwargs))
+
+    with pytest.raises(IFCRenderError, match=message):
+        handle_ifc2img_worker_request(
+            worker_request,  # type: ignore[arg-type]
+            storage,
+            tmp_path / "work",
+            pipeline=fake_pipeline,
+        )
+
+    assert storage.downloads == []
+    assert storage.uploads == []
+    assert pipeline_calls == []
 
 
 def test_write_photo_manifest_file_writes_typed_manifest(tmp_path: Path) -> None:
