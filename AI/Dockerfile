@@ -18,6 +18,7 @@ COPY packages/ai-domain ./packages/ai-domain
 COPY packages/ai-layout-import ./packages/ai-layout-import
 COPY packages/ai-planning-3d ./packages/ai-planning-3d
 COPY packages/ai-authoring ./packages/ai-authoring
+COPY packages/ai-rendering ./packages/ai-rendering
 COPY configs ./configs
 COPY sample_messages ./sample_messages
 COPY scripts ./scripts
@@ -30,6 +31,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
         -e ./packages/ai-domain \
         -e ./packages/ai-layout-import \
         -e ./packages/ai-authoring \
-        -e ./packages/ai-planning-3d
+        -e ./packages/ai-planning-3d \
+        -e ./packages/ai-rendering
 
 CMD ["python", "main.py"]
