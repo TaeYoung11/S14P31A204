@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240" viewBox="0 0 640 240">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#AEB6C4"/>
+      <stop offset="100%" stop-color="#868FA1"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="240" rx="28" fill="url(#g)"/>
+  <!-- 주두 (Capital) -->
+  <rect x="242" y="42" width="156" height="24" rx="8" fill="#F0F4FA" opacity="0.97"/>
+  <!-- 에키누스 -->
+  <rect x="262" y="64" width="116" height="14" rx="6" fill="#E6EEF8"/>
+  <!-- 기둥 몸통 (Shaft) -->
+  <rect x="288" y="78" width="64" height="108" rx="8" fill="#EFF3FA" opacity="0.95"/>
+  <!-- 아포피게 -->
+  <rect x="264" y="184" width="112" height="14" rx="6" fill="#E6EEF8"/>
+  <!-- 기단 (Base) -->
+  <rect x="242" y="196" width="156" height="22" rx="8" fill="#F0F4FA" opacity="0.97"/>
+</svg>

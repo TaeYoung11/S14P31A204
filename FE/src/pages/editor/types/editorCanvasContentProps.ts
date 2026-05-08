@@ -59,9 +59,11 @@ type FloorPlanCanvasProps = Pick<
   | 'handleSelectIfcElement'
   | 'handleDeleteIfcElement'
   | 'selectedIfcElement'
+  | 'threeDDeleteRequestToken'
   | 'ifcElementChanges'
   | 'currentIfcUrl'
   | 'currentIfcAssetId'
+  | 'localFloorData'
 >
 
 /** 2D 벽/개구부 편집 상호작용 */
@@ -130,6 +132,7 @@ type CanvasControlProps = Pick<
   | 'toggleGridSnap'
   | 'handleSetGridSnapIntervalMm'
   | 'handleToggleCollaboration'
+  | 'handleOpenGenerate3DModal'
 >
 
 /** EditorPage가 EditorCanvasContent에 전달하는 전체 props 계약 */

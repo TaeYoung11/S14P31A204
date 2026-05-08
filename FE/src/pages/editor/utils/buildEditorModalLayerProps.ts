@@ -3,6 +3,9 @@ import type { EditorModalLayerProps } from '../types/editorModalLayerProps'
 
 type ModalLayerViewModel = Pick<
   EditorPageViewModel,
+  | 'isGenerate3DModalOpen'
+  | 'handleCloseGenerate3DModal'
+  | 'handleConfirmGenerate3D'
   | 'isAddModalOpen'
   | 'addSpaceFormData'
   | 'onCloseAddModal'
@@ -86,5 +89,9 @@ export function buildEditorModalLayerProps(vm: ModalLayerViewModel): EditorModal
     isIFCExportModalOpen: vm.isIFCExportModalOpen,
     onCloseIFCExportModal: vm.onCloseIFCExportModal,
     ifcElementChanges: vm.ifcElementChanges,
+
+    isGenerate3DModalOpen: vm.isGenerate3DModalOpen,
+    onCloseGenerate3DModal: vm.handleCloseGenerate3DModal,
+    onConfirmGenerate3D: vm.handleConfirmGenerate3D,
   }
 }

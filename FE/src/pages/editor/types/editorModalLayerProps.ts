@@ -1,3 +1,9 @@
+/**
+ * editorModalLayerProps — EditorPage 모달 레이어 props 타입 계약
+ *
+ * EditorModalLayer 컴포넌트가 받는 전체 모달 상태 및 핸들러를 정의한다.
+ * buildEditorModalLayerProps 유틸이 EditorPageViewModel → EditorModalLayerProps 변환을 담당한다.
+ */
 import type { AddSpaceFormData, BubbleData, ZoningFormData, ConnectionStyle, IfcElementChange } from '@/features/editor/types'
 
 /** EditorPage 모달 레이어에 전달하는 props 타입 */
@@ -43,7 +49,9 @@ export interface EditorModalLayerProps {
   isIFCExportModalOpen: boolean
   onCloseIFCExportModal: () => void
   ifcElementChanges: IfcElementChange[]
+
+  isGenerate3DModalOpen: boolean
+  onCloseGenerate3DModal: () => void
+  onConfirmGenerate3D: (storyHeightMm: number) => void
 }
 
-/** 기존 참조와의 호환을 위한 별칭 */
-export type ModalLayerProps = EditorModalLayerProps

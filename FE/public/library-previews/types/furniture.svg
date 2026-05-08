@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240" viewBox="0 0 640 240">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8E91AA"/>
+      <stop offset="100%" stop-color="#666B85"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="240" rx="28" fill="url(#g)"/>
+  <!-- 등받이 (backrest) -->
+  <rect x="256" y="56" width="128" height="88" rx="14" fill="#EDEEF8" opacity="0.96"/>
+  <!-- 팔걸이 좌측 -->
+  <rect x="218" y="106" width="30" height="60" rx="10" fill="#D8DBEE"/>
+  <!-- 팔걸이 우측 -->
+  <rect x="392" y="106" width="30" height="60" rx="10" fill="#D8DBEE"/>
+  <!-- 좌석 (seat) -->
+  <rect x="230" y="138" width="180" height="36" rx="12" fill="#E0E2F4" opacity="0.97"/>
+  <!-- 다리 좌측 -->
+  <rect x="244" y="174" width="14" height="34" rx="6" fill="#CDD0E6"/>
+  <!-- 다리 우측 -->
+  <rect x="382" y="174" width="14" height="34" rx="6" fill="#CDD0E6"/>
+</svg>

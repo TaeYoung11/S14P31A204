@@ -20,6 +20,7 @@ export default function CanvasZoomControls({
   onGridSnapIntervalChange,
   isRotationLocked,
   onToggleRotationLock,
+  threeDCoordinates,
 }: CanvasZoomControlsSectionProps) {
   if (mode === 'view') return null
 
@@ -40,6 +41,7 @@ export default function CanvasZoomControls({
       onGridSnapIntervalChange={onGridSnapIntervalChange}
       isRotationLocked={isRotationLocked}
       onToggleRotationLock={onToggleRotationLock}
+      threeDCoordinates={threeDCoordinates}
     />
   )
 }

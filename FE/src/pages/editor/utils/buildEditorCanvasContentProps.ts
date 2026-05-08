@@ -107,9 +107,11 @@ function buildFloorPlanProps(
   | 'handleSelectIfcElement'
   | 'handleDeleteIfcElement'
   | 'selectedIfcElement'
+  | 'threeDDeleteRequestToken'
   | 'ifcElementChanges'
   | 'currentIfcUrl'
   | 'currentIfcAssetId'
+  | 'localFloorData'
 > {
   return {
     sitePlanPoints: vm.sitePlanPoints,
@@ -124,9 +126,11 @@ function buildFloorPlanProps(
     handleSelectIfcElement: vm.handleSelectIfcElement,
     handleDeleteIfcElement: vm.handleDeleteIfcElement,
     selectedIfcElement: vm.selectedIfcElement,
+    threeDDeleteRequestToken: vm.threeDDeleteRequestToken,
     ifcElementChanges: vm.ifcElementChanges,
     currentIfcUrl: vm.currentIfcUrl,
     currentIfcAssetId: vm.currentIfcAssetId,
+    localFloorData: vm.localFloorData,
   }
 }
 
@@ -236,6 +240,7 @@ function buildCanvasControlProps(
   | 'toggleGridSnap'
   | 'handleSetGridSnapIntervalMm'
   | 'handleToggleCollaboration'
+  | 'handleOpenGenerate3DModal'
 > {
   return {
     labelEditState: vm.labelEditState,
@@ -254,6 +259,7 @@ function buildCanvasControlProps(
     toggleGridSnap: vm.toggleGridSnap,
     handleSetGridSnapIntervalMm: vm.handleSetGridSnapIntervalMm,
     handleToggleCollaboration: vm.handleToggleCollaboration,
+    handleOpenGenerate3DModal: vm.handleOpenGenerate3DModal,
   }
 }
 

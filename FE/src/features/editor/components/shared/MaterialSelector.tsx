@@ -1,17 +1,42 @@
+/**
+ * MaterialSelector — 재질 선택 드롭다운 컴포넌트
+ *
+ * FLOOR_WALL_MATERIAL_OPTIONS 목록에서 재질을 선택하며, 색상 스와치를 함께 표시한다.
+ * - value가 목록에 없는 경우(IFC 정의값) 상단에 별도로 표시한다.
+ * - 재질 색상은 시각적 구분용으로, 실제 물성과는 무관하다.
+ */
 import { useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { DEFAULT_WALL_MATERIAL, FLOOR_WALL_MATERIAL_OPTIONS, FLOOR_WALL_MATERIAL_VISUALS } from '../../constants'
 
 interface MaterialSelectorProps {
+  /** 현재 선택된 재질 이름 */
   value?: string
+  /**
+   * value가 없을 때 표시할 레이블.
+   * IFC 파일에서 재질이 지정되지 않은 요소에 '미지정' 등으로 표시한다.
+   */
+  fallbackLabel?: string
+  /** 재질 선택 시 호출되는 콜백 */
   onChange?: (value: string) => void
 }
 
-export function MaterialSelector({ value, onChange }: MaterialSelectorProps) {
+/**
+ * 재질 선택 드롭다운.
+ * - FLOOR_WALL_MATERIAL_OPTIONS 목록에서 재질을 선택한다.
+ * - 목록에 없는 값(IFC 정의 재질)은 상단에 별도 표시하고 선택은 불가하다.
+ * - 각 항목에 색상 스와치를 함께 표시해 시각적 구분을 돕는다.
+ */
+export function MaterialSelector({ value, fallbackLabel, onChange }: MaterialSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const current = value?.trim() || DEFAULT_WALL_MATERIAL
-  const currentColor = FLOOR_WALL_MATERIAL_VISUALS[current]?.color ?? FLOOR_WALL_MATERIAL_VISUALS[DEFAULT_WALL_MATERIAL].color
+  const current = value?.trim() || fallbackLabel?.trim() || DEFAULT_WALL_MATERIAL
+  const currentColor = FLOOR_WALL_MATERIAL_VISUALS[current]?.color ?? (
+    fallbackLabel?.trim()
+      ? '#ADB5BD'
+      : FLOOR_WALL_MATERIAL_VISUALS[DEFAULT_WALL_MATERIAL].color
+  )
 
+  /** 재질 항목 클릭 시 변경 콜백을 호출하고 드롭다운을 닫는다. */
   const handleSelect = (label: string) => {
     onChange?.(label)
     setIsOpen(false)
