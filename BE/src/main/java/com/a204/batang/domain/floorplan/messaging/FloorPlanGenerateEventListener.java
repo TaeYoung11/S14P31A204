@@ -22,14 +22,12 @@ import com.a204.batang.domain.revision.entity.Revision;
 import com.a204.batang.domain.revision.repository.RevisionRepository;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
-import com.a204.batang.global.config.RabbitMqConfig;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
@@ -78,7 +76,6 @@ public class FloorPlanGenerateEventListener {
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
-    @RabbitListener(queues = RabbitMqConfig.BE_JOB_EVENTS_QUEUE)
     @Transactional
     public void handle(FloorPlanGenerateEventMessage event) {
         if (event == null || event.eventType() == null) {

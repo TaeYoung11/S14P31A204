@@ -64,7 +64,6 @@ public class SdRenderEventListener {
     /**
      * sd-render 외 event는 무시하고, render event만 상태 전이 처리한다.
      */
-    @RabbitListener(queues = RabbitMqConfig.BE_JOB_EVENTS_QUEUE)
     @Transactional
     public void handle(SdRenderEventMessage event) {
         if (event == null || event.eventType() == null) {
