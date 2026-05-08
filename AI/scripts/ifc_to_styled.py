@@ -27,9 +27,24 @@ from ai_rendering.ifc2img import (
     IFCView,
     list_presets,
     load_preset,
-    resolve_preset_view_render_options,
 )
-from ai_rendering.ifc2img.style import DEFAULT_CONTROLNET_SEG_ID
+from ai_rendering.ifc2img.service import (
+    DEFAULT_PHOTO_HEIGHT,
+    DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR,
+    DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO,
+    DEFAULT_PHOTO_ITER_TOLERANCE,
+    DEFAULT_PHOTO_WIDTH,
+    build_front_diagonal_ground_extent_overrides,
+    build_front_diagonal_target_overrides,
+    create_photo_ifc_renderer,
+    create_photo_style_renderer,
+    render_option_label as _render_option_label,
+    render_photo_depths,
+    render_photo_view,
+    render_plan_requires_semantic_controlnet as _render_plan_requires_semantic_controlnet,
+    render_view_requires_semantic_controlnet,
+    resolve_render_plan as _resolve_render_plan,
+)
 from ai_rendering.ifc2img.views import AutoZoomMode
 
 
@@ -75,7 +90,8 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Override iterative zoom target fill ratio for front diagonal views only. "
-            "Requires --auto-zoom to affect rendering."
+            f"Requires --auto-zoom. Defaults to {DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO} "
+            "when --auto-zoom is enabled."
         ),
     )
     parser.add_argument(
@@ -84,13 +100,13 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Override ground plane extent factor for front diagonal views only. "
-            "Omit to keep the default renderer geometry."
+            f"Defaults to {DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR}."
         ),
     )
     parser.add_argument(
         "--iter-tolerance",
         type=float,
-        default=0.10,
+        default=DEFAULT_PHOTO_ITER_TOLERANCE,
         help="Iterative auto-zoom fill tolerance. Used with --auto-zoom.",
     )
     return parser.parse_args()
@@ -125,31 +141,47 @@ def _render_depths(
     auto_zoom: bool = False,
     front_diagonal_target_ratio: float | None = None,
     front_diagonal_ground_extent_factor: float | None = None,
-    iter_tolerance: float = 0.10,
+    iter_tolerance: float = DEFAULT_PHOTO_ITER_TOLERANCE,
 ) -> dict[IFCView, Path]:
     """Render depth PNGs for each requested view."""
     zoom_mode = AutoZoomMode.ITERATIVE if auto_zoom else AutoZoomMode.OFF
-    target_overrides = _build_front_diagonal_target_overrides(front_diagonal_target_ratio)
-    ground_extent_overrides = _build_front_diagonal_ground_extent_overrides(
+    effective_target_ratio = (
+        front_diagonal_target_ratio
+        if front_diagonal_target_ratio is not None
+        else DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO
+    )
+    effective_ground_extent_factor = (
         front_diagonal_ground_extent_factor
+        if front_diagonal_ground_extent_factor is not None
+        else DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR
+    )
+    target_overrides = _build_front_diagonal_target_overrides(
+        effective_target_ratio if auto_zoom else None
+    )
+    ground_extent_overrides = _build_front_diagonal_ground_extent_overrides(
+        effective_ground_extent_factor
     )
     print(
         f"[depth] rendering {ifc_path.name} views={len(views)} "
         f"auto_zoom={zoom_mode.value}"
     )
     if target_overrides:
-        print(f"  front_diagonal_target_ratio={front_diagonal_target_ratio}")
+        print(f"  front_diagonal_target_ratio={effective_target_ratio}")
     if ground_extent_overrides:
-        print(f"  front_diagonal_ground_extent_factor={front_diagonal_ground_extent_factor}")
-    renderer = IFCRenderer(
-        width=768,
-        height=448,
-        auto_zoom=zoom_mode,
+        print(
+            "  front_diagonal_ground_extent_factor="
+            f"{effective_ground_extent_factor}"
+        )
+    renderer = create_photo_ifc_renderer(
+        IFCRenderer,
+        width=DEFAULT_PHOTO_WIDTH,
+        height=DEFAULT_PHOTO_HEIGHT,
+        auto_zoom=auto_zoom,
+        front_diagonal_target_ratio=effective_target_ratio,
+        front_diagonal_ground_extent_factor=effective_ground_extent_factor,
         iter_tolerance=iter_tolerance,
-        view_target_overrides=target_overrides,
-        view_ground_extent_overrides=ground_extent_overrides,
     )
-    images = renderer.render_views(ifc_path, views=views)
+    images = render_photo_depths(renderer, ifc_path, views)
 
     saved: dict[IFCView, Path] = {}
     for view, img in images.items():
@@ -164,27 +196,23 @@ def _render_depths(
 def _build_front_diagonal_target_overrides(
     front_diagonal_target_ratio: float | None,
 ) -> dict[IFCView, float]:
-    if front_diagonal_target_ratio is None:
-        return {}
-    if not 0.0 < front_diagonal_target_ratio < 1.0:
-        raise SystemExit("--front-diagonal-target-ratio must be between 0 and 1.")
-    return {
-        IFCView.FRONT_DIAGONAL_RIGHT: front_diagonal_target_ratio,
-        IFCView.FRONT_DIAGONAL_LEFT: front_diagonal_target_ratio,
-    }
+    try:
+        return build_front_diagonal_target_overrides(front_diagonal_target_ratio)
+    except ValueError as exc:
+        raise SystemExit("--front-diagonal-target-ratio must be between 0 and 1.") from exc
 
 
 def _build_front_diagonal_ground_extent_overrides(
     front_diagonal_ground_extent_factor: float | None,
 ) -> dict[IFCView, float]:
-    if front_diagonal_ground_extent_factor is None:
-        return {}
-    if front_diagonal_ground_extent_factor <= 0.0:
-        raise SystemExit("--front-diagonal-ground-extent-factor must be greater than 0.")
-    return {
-        IFCView.FRONT_DIAGONAL_RIGHT: front_diagonal_ground_extent_factor,
-        IFCView.FRONT_DIAGONAL_LEFT: front_diagonal_ground_extent_factor,
-    }
+    try:
+        return build_front_diagonal_ground_extent_overrides(
+            front_diagonal_ground_extent_factor
+        )
+    except ValueError as exc:
+        raise SystemExit(
+            "--front-diagonal-ground-extent-factor must be greater than 0."
+        ) from exc
 
 
 def _print_preset_info(presets: list[str]) -> None:
@@ -198,49 +226,25 @@ def _print_preset_info(presets: list[str]) -> None:
         )
 
 
-def _resolve_render_plan(
-    views: list[IFCView],
-    presets: list[str],
-) -> list[tuple[IFCView, str]]:
-    return [(view, preset_name) for view in views for preset_name in presets]
-
-
-def _render_plan_requires_semantic_controlnet(
-    plan: list[tuple[IFCView, str]],
-) -> bool:
-    return any(
-        resolve_preset_view_render_options(
-            preset_name,
-            view,
-        ).requires_semantic_controlnet
-        for view, preset_name in plan
-    )
-
-
-def _render_option_label(preset_name: str, view: IFCView) -> str:
-    options = resolve_preset_view_render_options(preset_name, view)
-    enabled = [
-        name
-        for name, value in options.as_render_kwargs().items()
-        if isinstance(value, bool) and value
-    ]
-    if not enabled:
-        return "depth-only"
-    enabled.append(f"ground={options.front_side_ground_class}")
-    enabled.append(f"semantic_scale={options.front_side_semantic_control_scale}")
-    return ", ".join(enabled)
-
-
 def _create_depth_style_renderer(
     renderer_cls: type,
     requires_semantic: bool,
 ):
     if requires_semantic:
         return (
-            renderer_cls(semantic_controlnet_model_id=DEFAULT_CONTROLNET_SEG_ID),
+            create_photo_style_renderer(
+                requires_semantic=True,
+                renderer_cls=renderer_cls,
+            ),
             "depth+semantic",
         )
-    return renderer_cls(), "depth-only"
+    return (
+        create_photo_style_renderer(
+            requires_semantic=False,
+            renderer_cls=renderer_cls,
+        ),
+        "depth-only",
+    )
 
 
 def _render_styles(
@@ -287,13 +291,15 @@ def _render_styles(
             done += 1
             t1 = time.time()
             params = load_preset(preset_name)
-            options = resolve_preset_view_render_options(preset_name, view)
-            style_renderer = _get_renderer(options.requires_semantic_controlnet)
-            result = style_renderer.render(
+            style_renderer = _get_renderer(
+                render_view_requires_semantic_controlnet(preset_name, view)
+            )
+            result = render_photo_view(
+                style_renderer,
                 depth,
                 params,
+                preset=preset_name,
                 view=view,
-                **options.as_render_kwargs(),
             )
             out_path = output_dir / f"style_{view.value}_{preset_name}.png"
             result.save(out_path)

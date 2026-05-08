@@ -9,7 +9,6 @@ preset resolver가 정한 옵션으로 스타일 이미지를 생성한 뒤 고�
 from __future__ import annotations
 
 import json
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -19,11 +18,16 @@ from PIL import Image
 from .exceptions import IFCRenderError
 from .presets import list_presets, load_preset
 from .style import DEFAULT_CONTROLNET_SEG_ID, resolve_preset_view_render_options
-from .views import IFCView
+from .views import AutoZoomMode, IFCView
 
 PHOTO_MANIFEST_SCHEMA_VERSION = "ifc2img.photo.v1"
 DEFAULT_PHOTO_PRESET = "korean_house"
-DEFAULT_PHOTO_BUNDLE_NAME = "ifc2img_result.zip"
+DEFAULT_PHOTO_WIDTH = 768
+DEFAULT_PHOTO_HEIGHT = 448
+DEFAULT_PHOTO_AUTO_ZOOM = True
+DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO = 0.25
+DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR = 1.05
+DEFAULT_PHOTO_ITER_TOLERANCE = 0.05
 PhotoViewAlias = Literal["front_diagonal_left", "front_diagonal_right"]
 PUBLIC_PHOTO_VIEWS: tuple[PhotoViewAlias, ...] = (
     "front_diagonal_left",
@@ -118,12 +122,83 @@ class Ifc2ImgPhotoJobResult:
     output_dir: Path
     outputs: tuple[Ifc2ImgPhotoViewResult, ...]
     manifest_path: Path
-    bundle_path: Path | None = None
 
 
 def resolve_photo_views() -> tuple[PhotoViewAlias, ...]:
     """service가 항상 생성하는 front-facing diagonal public view 2개를 반환한다."""
     return PUBLIC_PHOTO_VIEWS
+
+
+def build_front_diagonal_target_overrides(
+    target_ratio: float | None,
+) -> dict[IFCView, float]:
+    """front diagonal 2시점에만 적용할 auto-zoom target ratio override를 만든다."""
+    if target_ratio is None:
+        return {}
+    if not 0.0 < target_ratio < 1.0:
+        raise ValueError("front diagonal target ratio must be between 0 and 1.")
+    return {
+        IFCView.FRONT_DIAGONAL_RIGHT: target_ratio,
+        IFCView.FRONT_DIAGONAL_LEFT: target_ratio,
+    }
+
+
+def build_front_diagonal_ground_extent_overrides(
+    ground_extent_factor: float | None,
+) -> dict[IFCView, float]:
+    """front diagonal 2시점에만 적용할 ground plane extent override를 만든다."""
+    if ground_extent_factor is None:
+        return {}
+    if ground_extent_factor <= 0.0:
+        raise ValueError("front diagonal ground extent factor must be greater than 0.")
+    return {
+        IFCView.FRONT_DIAGONAL_RIGHT: ground_extent_factor,
+        IFCView.FRONT_DIAGONAL_LEFT: ground_extent_factor,
+    }
+
+
+def resolve_render_plan(
+    views: list[IFCView],
+    presets: list[str],
+) -> list[tuple[IFCView, str]]:
+    """view와 preset 목록을 실제 render 순서로 펼친다."""
+    return [(view, preset_name) for view in views for preset_name in presets]
+
+
+def render_plan_requires_semantic_controlnet(
+    plan: list[tuple[IFCView, str]],
+) -> bool:
+    """render plan 중 semantic ControlNet이 필요한 조합이 있는지 판단한다."""
+    return any(
+        resolve_preset_view_render_options(
+            preset_name,
+            view,
+        ).requires_semantic_controlnet
+        for view, preset_name in plan
+    )
+
+
+def render_view_requires_semantic_controlnet(preset_name: str, view: IFCView) -> bool:
+    """단일 preset/view 조합에 semantic ControlNet이 필요한지 판단한다."""
+    return resolve_preset_view_render_options(
+        preset_name,
+        view,
+    ).requires_semantic_controlnet
+
+
+def render_option_label(preset_name: str, view: IFCView) -> str:
+    """preset/view resolver 결과를 로그와 디버깅에 쓰기 쉬운 짧은 문자열로 만든다."""
+    options = resolve_preset_view_render_options(preset_name, view)
+    enabled = [
+        name
+        for name, value in options.as_render_kwargs().items()
+        if isinstance(value, bool) and value
+    ]
+    if not enabled:
+        return "depth-only"
+    enabled.append(f"ground={options.front_side_ground_class}")
+    enabled.append(f"semantic_scale={options.front_side_semantic_control_scale}")
+    return ", ".join(enabled)
 
 
 def build_photo_manifest(
@@ -161,19 +236,78 @@ def write_photo_manifest_file(
     return write_photo_manifest(path, manifest.to_dict())
 
 
-def create_photo_bundle(
-    bundle_path: Path,
+def create_photo_ifc_renderer(
+    renderer_cls: type[_IFCRendererProtocol] | None = None,
     *,
-    manifest_path: Path,
-    outputs: tuple[Ifc2ImgPhotoViewResult, ...],
-) -> Path:
-    """worker 업로드용 zip bundle에 manifest와 최종 사진 파일만 묶는다."""
-    bundle_path.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.write(manifest_path, arcname=manifest_path.name)
-        for output in outputs:
-            zf.write(output.photo_path, arcname=output.photo_path.name)
-    return bundle_path
+    auto_zoom: bool = DEFAULT_PHOTO_AUTO_ZOOM,
+    front_diagonal_target_ratio: float | None = DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO,
+    front_diagonal_ground_extent_factor: float
+    | None = DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR,
+    iter_tolerance: float = DEFAULT_PHOTO_ITER_TOLERANCE,
+    width: int = DEFAULT_PHOTO_WIDTH,
+    height: int = DEFAULT_PHOTO_HEIGHT,
+) -> _IFCRendererProtocol:
+    """기본 실행에서는 실제 IFCRenderer를 lazy import해 생성한다."""
+    if renderer_cls is None:
+        from .renderer import IFCRenderer
+
+        renderer_cls = IFCRenderer
+    return renderer_cls(
+        width=width,
+        height=height,
+        auto_zoom=AutoZoomMode.ITERATIVE if auto_zoom else AutoZoomMode.OFF,
+        iter_tolerance=iter_tolerance,
+        view_target_overrides=build_front_diagonal_target_overrides(
+            front_diagonal_target_ratio if auto_zoom else None
+        ),
+        view_ground_extent_overrides=build_front_diagonal_ground_extent_overrides(
+            front_diagonal_ground_extent_factor
+        ),
+    )
+
+
+def create_photo_style_renderer(
+    *,
+    requires_semantic: bool,
+    renderer_cls: type[_DepthStyleRendererProtocol] | None = None,
+) -> _DepthStyleRendererProtocol:
+    """기본 실행에서는 실제 DepthStyleRenderer를 lazy import해 생성한다."""
+    if renderer_cls is None:
+        from .style import DepthStyleRenderer
+
+        renderer_cls = DepthStyleRenderer
+
+    kwargs: dict[str, object] = {}
+    if requires_semantic:
+        kwargs["semantic_controlnet_model_id"] = DEFAULT_CONTROLNET_SEG_ID
+    return renderer_cls(**kwargs)
+
+
+def render_photo_depths(
+    renderer: _IFCRendererProtocol,
+    ifc_path: Path,
+    views: list[IFCView],
+) -> dict[IFCView, Image.Image]:
+    """IFC renderer 호출을 작은 mock 가능 함수로 분리한다."""
+    return renderer.render_views(ifc_path, views=views)
+
+
+def render_photo_view(
+    renderer: _DepthStyleRendererProtocol,
+    depth_image: Image.Image,
+    params: Any,
+    *,
+    preset: str,
+    view: IFCView,
+) -> _DepthStyleResultProtocol:
+    """style renderer 호출과 preset/view option 적용을 한 곳에 모은다."""
+    options = resolve_preset_view_render_options(preset, view)
+    return renderer.render(
+        depth_image,
+        params,
+        view=view,
+        **options.as_render_kwargs(),
+    )
 
 
 def run_ifc2img_photo_pipeline(
@@ -181,7 +315,6 @@ def run_ifc2img_photo_pipeline(
     output_dir: Path | str,
     *,
     preset: str = DEFAULT_PHOTO_PRESET,
-    create_bundle: bool = True,
     ifc_renderer_cls: type[_IFCRendererProtocol] | None = None,
     depth_style_renderer_cls: type[_DepthStyleRendererProtocol] | None = None,
 ) -> Ifc2ImgPhotoJobResult:
@@ -197,26 +330,17 @@ def run_ifc2img_photo_pipeline(
     internal_views = list(PHOTO_INTERNAL_VIEWS)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if ifc_renderer_cls is None:
-        from .renderer import IFCRenderer
-
-        ifc_renderer_cls = IFCRenderer
-    if depth_style_renderer_cls is None:
-        from .style import DepthStyleRenderer
-
-        depth_style_renderer_cls = DepthStyleRenderer
-
     requires_semantic = any(
         resolve_preset_view_render_options(preset, view).requires_semantic_controlnet
         for view in internal_views
     )
-    renderer = ifc_renderer_cls()
-    style_renderer_kwargs: dict[str, object] = {}
-    if requires_semantic:
-        style_renderer_kwargs["semantic_controlnet_model_id"] = DEFAULT_CONTROLNET_SEG_ID
-    style_renderer = depth_style_renderer_cls(**style_renderer_kwargs)
+    renderer = create_photo_ifc_renderer(ifc_renderer_cls)
+    style_renderer = create_photo_style_renderer(
+        requires_semantic=requires_semantic,
+        renderer_cls=depth_style_renderer_cls,
+    )
 
-    depth_images = renderer.render_views(ifc_path, views=internal_views)
+    depth_images = render_photo_depths(renderer, ifc_path, internal_views)
     params = load_preset(preset)
     outputs: list[Ifc2ImgPhotoViewResult] = []
     for public_view, internal_view in zip(public_views, internal_views, strict=True):
@@ -224,12 +348,12 @@ def run_ifc2img_photo_pipeline(
         depth_path = output_dir / f"depth_{public_view}.png"
         depth.save(depth_path, format="PNG")
 
-        options = resolve_preset_view_render_options(preset, internal_view)
-        result = style_renderer.render(
+        result = render_photo_view(
+            style_renderer,
             depth,
             params,
+            preset=preset,
             view=internal_view,
-            **options.as_render_kwargs(),
         )
         photo_path = output_dir / f"photo_{public_view}.png"
         result.save(photo_path)
@@ -254,18 +378,9 @@ def run_ifc2img_photo_pipeline(
             outputs=output_tuple,
         ),
     )
-    bundle_path = None
-    if create_bundle:
-        bundle_path = create_photo_bundle(
-            output_dir / DEFAULT_PHOTO_BUNDLE_NAME,
-            manifest_path=manifest_path,
-            outputs=output_tuple,
-        )
-
     return Ifc2ImgPhotoJobResult(
         preset=preset,
         output_dir=output_dir,
         outputs=output_tuple,
         manifest_path=manifest_path,
-        bundle_path=bundle_path,
     )
