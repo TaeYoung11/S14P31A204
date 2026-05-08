@@ -66,25 +66,25 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
-        condition: service_started
+        condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
     networks:
       - batang-network
 
-  worker:
-    profiles:
-      - ai
+  worker-ifc-generate:
     # restart: unless-stopped
     build:
       context: ../AI
       dockerfile: Dockerfile
-    container_name: batang-worker
+    container_name: batang-worker-ifc-generate
     env_file:
       - .env
     environment:
+      WORKER_TYPE: IFC_GENERATE_FROM_BUBBLE
+      WORKER_ID: ifc-generate-worker-1
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: ${RABBITMQ_DEFAULT_USER}
@@ -95,8 +95,38 @@ services:
       S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       S3_BUCKET: ${MINIO_BUCKET}
     depends_on:
-      - rabbitmq
-      - minio
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - batang-network
+
+  worker-authoring:
+    # restart: unless-stopped
+    build:
+      context: ../AI
+      dockerfile: Dockerfile
+    container_name: batang-worker-authoring
+    env_file:
+      - .env
+    environment:
+      WORKER_TYPE: IFC_EDIT_APPLY
+      WORKER_ID: authoring-worker-1
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS}
+
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${MINIO_BUCKET}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     networks:
       - batang-network
 
@@ -123,6 +153,11 @@ services:
     container_name: batang-redis
     # restart: unless-stopped
     command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - redis-data:/data
     networks:
@@ -135,6 +170,11 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     ports:
@@ -150,9 +190,16 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BROWSER_REDIRECT_URL: http://$SERVER_IP/minio/
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - minio-data:/data
     ports:
+      - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     networks:
       - batang-network
@@ -161,7 +208,8 @@ services:
     image: quay.io/minio/mc:latest
     container_name: batang-minio-init
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     entrypoint: >
       /bin/sh -c "
       sleep 5;
