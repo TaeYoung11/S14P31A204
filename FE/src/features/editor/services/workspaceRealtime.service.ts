@@ -1,6 +1,8 @@
 import { ensureStompConnected } from '@/shared/lib/stomp'
 import type { BubbleData, ConnectionData, ConnectionStyle, EditorDraftSnapshot } from '../types'
 
+type FloorPlanSceneType = 'TWO_D' | 'THREE_D'
+
 interface WorkspaceBubblePayload {
   bubbles: Array<{
     id: string
@@ -24,6 +26,7 @@ interface WorkspaceBubblePayload {
 }
 
 interface WorkspaceFloorPlanPayload extends WorkspaceBubblePayload {
+  sceneType: FloorPlanSceneType
   revisionId?: string | null
   layout: {
     phaseStatus: EditorDraftSnapshot['phaseStatus']
@@ -103,6 +106,7 @@ const toFloorPlanPayload = (
   revisionId?: string | null,
 ): WorkspaceFloorPlanPayload => ({
   ...toBubblePayload(snapshot, baseIndex),
+  sceneType: 'TWO_D',
   revisionId,
   layout: {
     phaseStatus: snapshot.phaseStatus,

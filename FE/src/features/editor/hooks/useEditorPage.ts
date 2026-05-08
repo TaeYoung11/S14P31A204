@@ -62,7 +62,7 @@ import {
 } from '../utils/floorRoomDerivedState'
 import type { FloorProject } from '../types/floorProject.types'
 import { workspaceDraftRepository } from '../services/workspaceDraft.repository'
-import { requestFloorPlanGenerate } from '../services/floorPlanGenerate.service'
+import { requestFloorPlanGenerate, waitForFloorPlanIfcExport } from '../services/floorPlanGenerate.service'
 import {
   FloorPlanLayoutValidationError,
 } from '../services/floorPlanGenerate.contract'
@@ -1823,6 +1823,21 @@ export function useEditorPage() {
       setIsFloorPlanEditedIn2D(false)
       setWorkspacePhaseStatus('CONVERTING')
       startFloorPlanGenerateTimeout()
+      void waitForFloorPlanIfcExport(projectId, response.targetRevisionId)
+        .then((exported) => {
+          clearFloorPlanGenerateTimeout()
+          handleIfcSyncMessageRef.current(
+            exported.presignedUrl,
+            'FLOOR_PLAN_GENERATE_COMPLETED',
+            null,
+          )
+        })
+        .catch((pollError: unknown) => {
+          clearFloorPlanGenerateTimeout()
+          setWorkspacePhaseStatus('BUBBLE_DRAFT')
+          setFloorPlanGenerateStatusText('IFC 변환 결과를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.')
+          console.error('[editor] Floor-plan IFC export polling failed:', pollError)
+        })
     } catch (error: unknown) {
       clearFloorPlanGenerateTimeout()
       setWorkspacePhaseStatus('BUBBLE_DRAFT')

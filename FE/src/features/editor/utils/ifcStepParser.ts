@@ -1,3 +1,5 @@
+import { decodeIfcStepString } from './ifcStepString'
+
 export interface StepEntity {
   id: number
   type: string
@@ -9,9 +11,9 @@ const ENTITY_HEADER_REGEX = /^#(\d+)\s*=\s*([A-Z0-9_]+)\s*\(([\s\S]*)\)$/i
 const unquoteStepString = (token: string): string => {
   const trimmed = token.trim()
   if (trimmed.length >= 2 && trimmed.startsWith("'") && trimmed.endsWith("'")) {
-    return trimmed.slice(1, -1).replace(/''/g, "'")
+    return decodeIfcStepString(trimmed.slice(1, -1).replace(/''/g, "'"))
   }
-  return trimmed
+  return decodeIfcStepString(trimmed)
 }
 
 export const parseStepRef = (token: string): number | null => {
