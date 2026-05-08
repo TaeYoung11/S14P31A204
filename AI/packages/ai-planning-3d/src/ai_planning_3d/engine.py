@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import instructor
 from instructor.core.exceptions import InstructorRetryException
@@ -25,6 +26,24 @@ from .command import (
 )
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_LLM_MODEL = "qwen2.5:7b"
+DEFAULT_LLM_BASE_URL = "http://localhost:11434/v1"
+DEFAULT_LLM_API_KEY = "ollama"
+DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
+
+
+def _env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        parsed = float(value)
+    except ValueError:
+        logger.warning("invalid_float_env env=%s value=%r default=%s", name, value, default)
+        return default
+    return parsed if parsed > 0 else default
+
 
 SYSTEM_PROMPT = (
     "### ROLE: BIM DATA ARCHITECT & IFC COMMAND GENERATOR\n"
@@ -70,16 +89,26 @@ SYSTEM_PROMPT = (
 class LLM3DEngine:
     def __init__(
         self,
-        model: str = "qwen2.5:7b",
+        model: str | None = None,
         base_url: str | None = None,
         api_key: str | None = None,
+        timeout: float | None = None,
     ):
+        resolved_model = model or os.getenv("LLM_MODEL_NAME") or DEFAULT_LLM_MODEL
+        resolved_base_url = base_url or os.getenv("LLM_BASE_URL") or DEFAULT_LLM_BASE_URL
+        resolved_api_key = api_key or os.getenv("LLM_API_KEY") or DEFAULT_LLM_API_KEY
+        resolved_timeout = timeout or _env_float(
+            "LLM_TIMEOUT_SECONDS",
+            DEFAULT_LLM_TIMEOUT_SECONDS,
+        )
         self._raw_client = AsyncOpenAI(
-            base_url=base_url or "http://localhost:11434/v1",
-            api_key=api_key or "ollama",
+            base_url=resolved_base_url,
+            api_key=resolved_api_key,
+            timeout=resolved_timeout,
         )
         self.client = instructor.from_openai(self._raw_client, mode=instructor.Mode.JSON)
-        self.model = model
+        self.model = resolved_model
+        self.base_url = resolved_base_url
 
     async def parse_command(
         self, user_text: str, ifc_context: str | None = None
