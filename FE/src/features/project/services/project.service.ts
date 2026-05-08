@@ -275,7 +275,7 @@ async function _fetchProjectDetail(projectId: string): Promise<ProjectDetailResp
   } catch (error) {
     throw toProjectServiceError(
       error,
-      '?ê¾¨ì¤ˆ?ì•ºë“ƒ ?ëº£ë‚«ç‘œ?éºëˆìœ­?ã…¼? ï§ì‚µë»½?ë“¬ë•²?? ?ì¢Žë–† ???ã…¼ë–† ?ì’•ë£„??äºŒì‡±ê½­??',
+ '프로젝트 정보를 불러오지 못했습니다. 다시 시도해주세요',
       'PROJECT_DETAIL_FETCH_FAILED',
     )
   }
