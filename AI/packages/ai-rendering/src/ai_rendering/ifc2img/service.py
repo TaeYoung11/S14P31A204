@@ -499,3 +499,63 @@ def run_ifc2img_photo_pipeline(
         outputs=output_tuple,
         manifest_path=manifest_path,
     )
+
+
+def handle_ifc2img_worker_request(
+    request: Ifc2ImgWorkerRequest,
+    storage: Ifc2ImgStorageAdapter,
+    work_dir: Path | str,
+    *,
+    pipeline: Any = run_ifc2img_photo_pipeline,
+) -> Ifc2ImgWorkerSuccessResponse:
+    """Worker 요청 1건을 로컬 파이프라인 실행과 storage 업로드까지 연결한다."""
+    if request["commandType"] != IFC2IMG_WORKER_COMMAND_TYPE:
+        raise IFCRenderError(f"unsupported commandType: {request['commandType']}")
+    if request["payload"]["renderMode"] != IFC2IMG_WORKER_RENDER_MODE:
+        raise IFCRenderError(f"unsupported renderMode: {request['payload']['renderMode']}")
+
+    work_dir = Path(work_dir)
+    input_dir = work_dir / "input"
+    output_dir = work_dir / "output"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    source_ifc_path = storage.download_ifc(
+        request["input"]["sourceIfcStorageUrl"],
+        input_dir / "source.ifc",
+    )
+    result = pipeline(
+        source_ifc_path,
+        output_dir,
+        preset=request["payload"]["preset"],
+    )
+
+    output_prefix = request["expectedOutput"]["renderImageStorageUrl"]
+    manifest_url = storage.upload_file(
+        result.manifest_path,
+        build_photo_output_storage_url(output_prefix, result.manifest_path.name),
+        content_type=PHOTO_MANIFEST_CONTENT_TYPE,
+    )
+    photos: list[Ifc2ImgWorkerPhotoOutput] = []
+    for output in result.outputs:
+        photo_url = storage.upload_file(
+            output.photo_path,
+            build_photo_output_storage_url(output_prefix, output.photo_path.name),
+            content_type=PHOTO_PNG_CONTENT_TYPE,
+        )
+        photos.append(
+            {
+                "view": output.view,
+                "storageUrl": photo_url,
+                "width": output.width,
+                "height": output.height,
+            }
+        )
+
+    return {
+        "status": "SUCCESS",
+        "renderMode": IFC2IMG_WORKER_RENDER_MODE,
+        "preset": result.preset,
+        "manifestStorageUrl": manifest_url,
+        "photos": photos,
+    }
