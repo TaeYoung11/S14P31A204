@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { useProjectStore } from '@/features/project/stores/projectStore'
 
 /**
@@ -8,15 +7,6 @@ import { useProjectStore } from '@/features/project/stores/projectStore'
  */
 export function useEditorProjectName(projectId: string | undefined) {
   const currentProject = useProjectStore((state) => state.currentProject)
-  const setCurrentProject = useProjectStore((state) => state.setCurrentProject)
-
-  useEffect(() => {
-    if (!projectId) return
-    if (currentProject?.id === projectId) return
-
-    setCurrentProject(null)
-  }, [projectId, currentProject?.id, setCurrentProject])
-
   let currentProjectName = '프로젝트'
   let projectName = ''
   if (projectId && currentProject?.id === projectId) {

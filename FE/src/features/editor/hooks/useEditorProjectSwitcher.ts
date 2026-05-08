@@ -1,5 +1,6 @@
 // 에디터 프로젝트 전환 사이드바의 검색과 열림 상태를 관리하는 훅입니다.
 import { useCallback, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAllProjects } from '@/features/project/hooks/useProjects'
 import { useProjectStore } from '@/features/project/stores/projectStore'
 import type { Project } from '@/shared/types'
@@ -7,6 +8,8 @@ import type { Project } from '@/shared/types'
 export function useEditorProjectSwitcher() {
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const setCurrentProject = useProjectStore((state) => state.setCurrentProject)
   const { data: allProjects = [], isLoading } = useAllProjects(isOpen)
 
@@ -25,7 +28,9 @@ export function useEditorProjectSwitcher() {
   const selectProject = useCallback((project: Project) => {
     setCurrentProject(project)
     setIsOpen(false)
-  }, [setCurrentProject])
+    const queryString = searchParams.toString()
+    navigate(`/projects/${project.id}/editor${queryString ? `?${queryString}` : ''}`)
+  }, [navigate, searchParams, setCurrentProject])
 
   return {
     isOpen,

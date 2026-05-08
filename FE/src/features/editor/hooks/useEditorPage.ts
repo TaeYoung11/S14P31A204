@@ -788,6 +788,7 @@ export function useEditorPage() {
     const applyLocalFallbackDraft = async () => {
       const draft = await workspaceDraftRepository.loadLocalFallbackDraft(projectId)
       if (isCancelled || draftLoadTokenRef.current !== loadToken) return
+      if (hasUserEditedRef.current) return
 
       localVersionRef.current = draft?.versionNo ?? 0
 
@@ -798,6 +799,7 @@ export function useEditorPage() {
 
       const data = draft.data
       skipNextHistorySnapshotRef.current = true
+      draftLoadBaselineRef.current = JSON.stringify(data)
       previousSnapshotRef.current = JSON.stringify(data)
       replaceBubbles(data.bubbles)
       replaceConnections(data.connections)
@@ -820,6 +822,7 @@ export function useEditorPage() {
       .finally(() => {
         if (isCancelled || draftLoadTokenRef.current !== loadToken) return
         draftLoadingProjectIdRef.current = null
+        draftLoadBaselineRef.current = null
         draftLoadedProjectIdRef.current = projectId
         setAutosaveReadyProjectId(projectId)
       })
@@ -827,6 +830,7 @@ export function useEditorPage() {
     return () => {
       isCancelled = true
       draftLoadingProjectIdRef.current = null
+      draftLoadBaselineRef.current = null
     }
   }, [
     clearFloorPlan,
@@ -1049,6 +1053,7 @@ export function useEditorPage() {
   }, [flushBubbleSnapshotSaveToDb, projectId, workspacePhaseStatus])
 
   const markLocalBubbleSnapshotChanged = useCallback(() => {
+    hasUserEditedRef.current = true
     markLocalBubbleSnapshotChangedRealtime()
     scheduleBubbleSnapshotSaveToDb()
   }, [markLocalBubbleSnapshotChangedRealtime, scheduleBubbleSnapshotSaveToDb])
