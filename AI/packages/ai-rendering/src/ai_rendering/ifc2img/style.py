@@ -23,7 +23,7 @@ FRONT_SIDE_NEGATIVE_TERMS = (
     "stone wall, retaining wall, raised foundation, pedestal, plinth, "
     "basement windows, stairs below facade, extra lower floor"
 )
-EYE_NEGATIVE_TERMS = (
+FRONT_DIAGONAL_NEGATIVE_TERMS = (
     "pool, water, reflection, mirror floor, "
     "white platform, display base, model base"
 )
@@ -46,15 +46,14 @@ FRONT_SIDE_MASK_SIDE_EXPAND_RATIO = 0.025
 FRONT_SIDE_SEMANTIC_CONTROL_SCALE = 0.35
 FRONT_FULL_WIDTH_GROUND_TOP_PADDING_RATIO = 0.02
 FRONT_FULL_WIDTH_GROUND_EXPAND_RATIO = 1.03
-EYE_GROUND_TOP_PADDING_RATIO = 0.02
-EYE_GROUND_PLANE_SHELL_RATIO = 0.22
-EYE_GROUND_PLANE_CONTROL_RGB = (116, 124, 108)
-EYE_GROUND_PLANE_CONTROL_GRADIENT = 16.0
-EYE_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH = 0.18
-EYE_BUILDING_MASK_GROUND_SHELL_RATIO = 0.08
-EYE_GROUND_CLASS_RGB = "grass"
-EYE_SEMANTIC_CONTROL_SCALE = 0.25
-EYE_STRONG_SEMANTIC_CONTROL_SCALE = 0.35
+FRONT_DIAGONAL_GROUND_TOP_PADDING_RATIO = 0.02
+FRONT_DIAGONAL_GROUND_PLANE_SHELL_RATIO = 0.22
+FRONT_DIAGONAL_GROUND_PLANE_CONTROL_RGB = (116, 124, 108)
+FRONT_DIAGONAL_GROUND_PLANE_CONTROL_GRADIENT = 16.0
+FRONT_DIAGONAL_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH = 0.18
+FRONT_DIAGONAL_BUILDING_MASK_GROUND_SHELL_RATIO = 0.08
+FRONT_DIAGONAL_GROUND_CLASS_RGB = "grass"
+FRONT_DIAGONAL_SEMANTIC_CONTROL_SCALE = 0.25
 BACKGROUND_INPAINT_NEGATIVE_TERMS = (
     "pool, water, reflection, mirror floor, white platform, display base, "
     "model base, extra floor, retaining wall"
@@ -89,13 +88,13 @@ class DepthStyleParams:
 class DepthStyleRenderOptions:
     use_front_side_semantic_control: bool = False
     use_front_full_width_semantic_control: bool = False
-    use_eye_ground_semantic_control: bool = False
-    use_eye_ground_plane_aware_semantic_control: bool = False
-    use_eye_ground_plane_control_attenuation: bool = False
+    use_front_diagonal_ground_semantic_control: bool = False
+    use_front_diagonal_ground_plane_aware_semantic_control: bool = False
+    use_front_diagonal_ground_plane_control_attenuation: bool = False
     front_side_ground_class: FrontSideGroundClass = "grass"
     front_side_semantic_control_scale: float = FRONT_SIDE_SEMANTIC_CONTROL_SCALE
-    eye_ground_plane_control_attenuation_strength: float = (
-        EYE_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH
+    front_diagonal_ground_plane_control_attenuation_strength: float = (
+        FRONT_DIAGONAL_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH
     )
 
     def __post_init__(self) -> None:
@@ -113,8 +112,8 @@ class DepthStyleRenderOptions:
         return (
             self.use_front_side_semantic_control
             or self.use_front_full_width_semantic_control
-            or self.use_eye_ground_semantic_control
-            or self.use_eye_ground_plane_aware_semantic_control
+            or self.use_front_diagonal_ground_semantic_control
+            or self.use_front_diagonal_ground_plane_aware_semantic_control
         )
 
     def as_render_kwargs(self) -> dict[str, object]:
@@ -123,19 +122,21 @@ class DepthStyleRenderOptions:
             "use_front_full_width_semantic_control": (
                 self.use_front_full_width_semantic_control
             ),
-            "use_eye_ground_semantic_control": self.use_eye_ground_semantic_control,
-            "use_eye_ground_plane_aware_semantic_control": (
-                self.use_eye_ground_plane_aware_semantic_control
+            "use_front_diagonal_ground_semantic_control": (
+                self.use_front_diagonal_ground_semantic_control
             ),
-            "use_eye_ground_plane_control_attenuation": (
-                self.use_eye_ground_plane_control_attenuation
+            "use_front_diagonal_ground_plane_aware_semantic_control": (
+                self.use_front_diagonal_ground_plane_aware_semantic_control
+            ),
+            "use_front_diagonal_ground_plane_control_attenuation": (
+                self.use_front_diagonal_ground_plane_control_attenuation
             ),
             "front_side_ground_class": self.front_side_ground_class,
             "front_side_semantic_control_scale": (
                 self.front_side_semantic_control_scale
             ),
-            "eye_ground_plane_control_attenuation_strength": (
-                self.eye_ground_plane_control_attenuation_strength
+            "front_diagonal_ground_plane_control_attenuation_strength": (
+                self.front_diagonal_ground_plane_control_attenuation_strength
             ),
         }
 
@@ -156,28 +157,19 @@ KOREAN_HOUSE_SIDE_RENDER_OPTIONS = DepthStyleRenderOptions(
     front_side_ground_class="neutral",
     front_side_semantic_control_scale=0.35,
 )
-KOREAN_HOUSE_EYE_RENDER_OPTIONS = DepthStyleRenderOptions(
-    use_eye_ground_semantic_control=True,
-    use_eye_ground_plane_aware_semantic_control=True,
-    use_eye_ground_plane_control_attenuation=True,
-    front_side_ground_class=EYE_GROUND_CLASS_RGB,
-    front_side_semantic_control_scale=EYE_SEMANTIC_CONTROL_SCALE,
+KOREAN_HOUSE_FRONT_DIAGONAL_RENDER_OPTIONS = DepthStyleRenderOptions(
+    use_front_diagonal_ground_semantic_control=True,
+    use_front_diagonal_ground_plane_aware_semantic_control=True,
+    use_front_diagonal_ground_plane_control_attenuation=True,
+    front_side_ground_class=FRONT_DIAGONAL_GROUND_CLASS_RGB,
+    front_side_semantic_control_scale=FRONT_DIAGONAL_SEMANTIC_CONTROL_SCALE,
 )
-KOREAN_HOUSE_EYE_STRONG_RENDER_OPTIONS = DepthStyleRenderOptions(
-    use_eye_ground_semantic_control=True,
-    use_eye_ground_plane_aware_semantic_control=True,
-    use_eye_ground_plane_control_attenuation=True,
-    front_side_ground_class=EYE_GROUND_CLASS_RGB,
-    front_side_semantic_control_scale=EYE_STRONG_SEMANTIC_CONTROL_SCALE,
-)
-
 PRESET_VIEW_RENDER_OPTIONS: dict[tuple[str, IFCView], DepthStyleRenderOptions] = {
     ("korean_villa", IFCView.FRONT): KOREAN_VILLA_FRONT_RENDER_OPTIONS,
     ("korean_house", IFCView.FRONT): KOREAN_HOUSE_FRONT_RENDER_OPTIONS,
     ("korean_house", IFCView.SIDE): KOREAN_HOUSE_SIDE_RENDER_OPTIONS,
-    ("korean_house", IFCView.EYE_NE): KOREAN_HOUSE_EYE_RENDER_OPTIONS,
-    ("korean_house", IFCView.EYE_NW): KOREAN_HOUSE_EYE_STRONG_RENDER_OPTIONS,
-    ("korean_house", IFCView.EYE_SE): KOREAN_HOUSE_EYE_STRONG_RENDER_OPTIONS,
+    ("korean_house", IFCView.FRONT_DIAGONAL_RIGHT): KOREAN_HOUSE_FRONT_DIAGONAL_RENDER_OPTIONS,
+    ("korean_house", IFCView.FRONT_DIAGONAL_LEFT): KOREAN_HOUSE_FRONT_DIAGONAL_RENDER_OPTIONS,
 }
 
 
@@ -449,8 +441,8 @@ def _build_front_full_width_seg_control(
     return Image.fromarray(seg, mode="RGB")
 
 
-def _build_eye_ground_mask(control: Image.Image) -> Image.Image:
-    """Mark lower background as dry ground for EYE diagonal views."""
+def _build_front_diagonal_ground_mask(control: Image.Image) -> Image.Image:
+    """Mark lower background as dry ground for FRONT_DIAGONAL diagonal views."""
     arr = np.asarray(control.convert("RGB"), dtype=np.uint8)
     bg_mask = np.all(arr == 0, axis=2)
     geom_mask = ~bg_mask
@@ -467,7 +459,7 @@ def _build_eye_ground_mask(control: Image.Image) -> Image.Image:
 
     support_bottoms = bottom_by_x[bottom_by_x >= 0]
     base_y = int(np.percentile(support_bottoms, FRONT_SIDE_MASK_BASE_PERCENTILE))
-    top_padding = max(1, int(round(height * EYE_GROUND_TOP_PADDING_RATIO)))
+    top_padding = max(1, int(round(height * FRONT_DIAGONAL_GROUND_TOP_PADDING_RATIO)))
     ground_top = int(np.clip(base_y + top_padding, 0, height - 1))
 
     out[ground_top:, :] = 255
@@ -475,13 +467,13 @@ def _build_eye_ground_mask(control: Image.Image) -> Image.Image:
     return Image.fromarray(out, mode="L")
 
 
-def _build_eye_ground_plane_aware_mask(
+def _build_front_diagonal_ground_plane_aware_mask(
     control: Image.Image,
-    shell_ratio: float = EYE_GROUND_PLANE_SHELL_RATIO,
+    shell_ratio: float = FRONT_DIAGONAL_GROUND_PLANE_SHELL_RATIO,
 ) -> Image.Image:
-    """Mark lower background and slab-like lower geometry as EYE ground.
+    """Mark lower background and slab-like lower geometry as FRONT_DIAGONAL ground.
 
-    EYE depth renders include the explicit IFC ground plane as geometry. If all
+    FRONT_DIAGONAL depth renders include the explicit IFC ground plane as geometry. If all
     geometry is treated as building, the semantic cue cannot suppress the white
     display-base prior. This mask reclassifies only the lower per-column
     geometry shell as ground while leaving upper wall/roof pixels protected as
@@ -492,7 +484,7 @@ def _build_eye_ground_plane_aware_mask(
     geom_mask = ~bg_mask
     height, width = bg_mask.shape
 
-    out = np.asarray(_build_eye_ground_mask(control), dtype=np.uint8).copy()
+    out = np.asarray(_build_front_diagonal_ground_mask(control), dtype=np.uint8).copy()
     if not np.any(geom_mask):
         return Image.fromarray(out, mode="L")
 
@@ -520,11 +512,11 @@ def _build_eye_ground_plane_aware_mask(
     return Image.fromarray(out, mode="L")
 
 
-def _build_eye_building_mask(
+def _build_front_diagonal_building_mask(
     control: Image.Image,
-    ground_shell_ratio: float = EYE_BUILDING_MASK_GROUND_SHELL_RATIO,
+    ground_shell_ratio: float = FRONT_DIAGONAL_BUILDING_MASK_GROUND_SHELL_RATIO,
 ) -> Image.Image:
-    """Extract the EYE building body mask from depth while excluding ground plane.
+    """Extract the FRONT_DIAGONAL building body mask from depth while excluding ground plane.
 
     This preview helper is intended for two-pass background generation:
     protect roof/walls, but do not protect the lower slab-like ground shell.
@@ -537,7 +529,7 @@ def _build_eye_building_mask(
 
     ground_mask = (
         np.asarray(
-            _build_eye_ground_plane_aware_mask(
+            _build_front_diagonal_ground_plane_aware_mask(
                 control,
                 shell_ratio=ground_shell_ratio,
             ),
@@ -550,11 +542,11 @@ def _build_eye_building_mask(
     return Image.fromarray(out, mode="L")
 
 
-def _apply_eye_ground_plane_control_attenuation(
+def _apply_front_diagonal_ground_plane_control_attenuation(
     control: Image.Image,
-    strength: float = EYE_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH,
+    strength: float = FRONT_DIAGONAL_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH,
 ) -> Image.Image:
-    """Reduce the bright display-base signal in EYE ground-plane control.
+    """Reduce the bright display-base signal in FRONT_DIAGONAL ground-plane control.
 
     This input-side helper only blends pixels selected by the
     ground-plane-aware mask, keeping upper walls and roof depth intact.
@@ -563,7 +555,7 @@ def _apply_eye_ground_plane_control_attenuation(
     if strength <= 0:
         return control_rgb
 
-    mask = _build_eye_ground_plane_aware_mask(control_rgb)
+    mask = _build_front_diagonal_ground_plane_aware_mask(control_rgb)
     mask_arr = np.asarray(mask, dtype=np.uint8) > 0
     if not np.any(mask_arr):
         return control_rgb
@@ -572,32 +564,32 @@ def _apply_eye_ground_plane_control_attenuation(
     arr = np.asarray(control_rgb, dtype=np.float32).copy()
     height, _width = mask_arr.shape
     y = np.linspace(0.0, 1.0, height, dtype=np.float32)[:, None]
-    target = np.array(EYE_GROUND_PLANE_CONTROL_RGB, dtype=np.float32)
-    target_map = target + (y * EYE_GROUND_PLANE_CONTROL_GRADIENT)
+    target = np.array(FRONT_DIAGONAL_GROUND_PLANE_CONTROL_RGB, dtype=np.float32)
+    target_map = target + (y * FRONT_DIAGONAL_GROUND_PLANE_CONTROL_GRADIENT)
     target_map = np.repeat(target_map[:, None, :], arr.shape[1], axis=1)
 
     arr[mask_arr] = arr[mask_arr] * (1.0 - strength) + target_map[mask_arr] * strength
     return Image.fromarray(np.clip(np.rint(arr), 0, 255).astype(np.uint8), mode="RGB")
 
 
-def _build_eye_ground_seg_control(
+def _build_front_diagonal_ground_seg_control(
     control: Image.Image,
     ground_class: FrontSideGroundClass = "neutral",
     include_ground_plane: bool = False,
 ) -> Image.Image:
-    """Map EYE-view lower background intent into ADE20K semantic colors."""
+    """Map front diagonal lower background intent into ADE20K semantic colors."""
     if ground_class not in FRONT_SIDE_GROUND_CLASS_RGB:
-        raise ValueError(f"unsupported eye ground class: {ground_class}")
+        raise ValueError(f"unsupported front diagonal ground class: {ground_class}")
 
     arr = np.asarray(control.convert("RGB"), dtype=np.uint8)
     bg_mask = np.all(arr == 0, axis=2)
     building_mask = ~bg_mask
     if include_ground_plane:
         ground_mask = (
-            np.asarray(_build_eye_ground_plane_aware_mask(control), dtype=np.uint8) > 0
+            np.asarray(_build_front_diagonal_ground_plane_aware_mask(control), dtype=np.uint8) > 0
         )
     else:
-        ground_mask = np.asarray(_build_eye_ground_mask(control), dtype=np.uint8) > 0
+        ground_mask = np.asarray(_build_front_diagonal_ground_mask(control), dtype=np.uint8) > 0
 
     height, width = building_mask.shape
     seg = np.zeros((height, width, 3), dtype=np.uint8)
@@ -757,13 +749,13 @@ class DepthStyleRenderer:
         view: IFCView | None = None,
         use_front_side_semantic_control: bool = False,
         use_front_full_width_semantic_control: bool = False,
-        use_eye_ground_semantic_control: bool = False,
-        use_eye_ground_plane_aware_semantic_control: bool = False,
-        use_eye_ground_plane_control_attenuation: bool = False,
+        use_front_diagonal_ground_semantic_control: bool = False,
+        use_front_diagonal_ground_plane_aware_semantic_control: bool = False,
+        use_front_diagonal_ground_plane_control_attenuation: bool = False,
         front_side_ground_class: FrontSideGroundClass = "grass",
         front_side_semantic_control_scale: float = FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
-        eye_ground_plane_control_attenuation_strength: float = (
-            EYE_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH
+        front_diagonal_ground_plane_control_attenuation_strength: float = (
+            FRONT_DIAGONAL_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH
         ),
     ) -> DepthStyleResult:
         _validate_semantic_control_flags(
@@ -775,14 +767,13 @@ class DepthStyleRenderer:
         )
         depth_size = depth_image.size
         control = _depth_to_control(depth_image)
-        if use_eye_ground_plane_control_attenuation and view in {
-            IFCView.EYE_NE,
-            IFCView.EYE_NW,
-            IFCView.EYE_SE,
+        if use_front_diagonal_ground_plane_control_attenuation and view in {
+            IFCView.FRONT_DIAGONAL_RIGHT,
+            IFCView.FRONT_DIAGONAL_LEFT,
         }:
-            control = _apply_eye_ground_plane_control_attenuation(
+            control = _apply_front_diagonal_ground_plane_control_attenuation(
                 control,
-                strength=eye_ground_plane_control_attenuation_strength,
+                strength=front_diagonal_ground_plane_control_attenuation_strength,
             )
         control_image: Image.Image | list[Image.Image] = control
         conditioning_scale: float | list[float] = params.controlnet_conditioning_scale
@@ -803,21 +794,20 @@ class DepthStyleRenderer:
                 params.controlnet_conditioning_scale,
                 front_side_semantic_control_scale,
             ]
-        if use_eye_ground_semantic_control and view in {
-            IFCView.EYE_NE,
-            IFCView.EYE_NW,
-            IFCView.EYE_SE,
+        if use_front_diagonal_ground_semantic_control and view in {
+            IFCView.FRONT_DIAGONAL_RIGHT,
+            IFCView.FRONT_DIAGONAL_LEFT,
         }:
             if not self.semantic_controlnet_model_id:
                 raise IFCRenderError(
-                    "EYE ground semantic control requires semantic_controlnet_model_id"
+                    "FRONT_DIAGONAL ground semantic control requires semantic_controlnet_model_id"
                 )
             control_image = [
                 control,
-                _build_eye_ground_seg_control(
+                _build_front_diagonal_ground_seg_control(
                     control,
                     ground_class=front_side_ground_class,
-                    include_ground_plane=use_eye_ground_plane_aware_semantic_control,
+                    include_ground_plane=use_front_diagonal_ground_plane_aware_semantic_control,
                 ),
             ]
             conditioning_scale = [
@@ -854,10 +844,10 @@ class DepthStyleRenderer:
                 negative_prompt,
                 FRONT_SIDE_NEGATIVE_TERMS,
             )
-        if view in {IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE}:
+        if view in {IFCView.FRONT_DIAGONAL_RIGHT, IFCView.FRONT_DIAGONAL_LEFT}:
             negative_prompt = _append_negative_terms(
                 negative_prompt,
-                EYE_NEGATIVE_TERMS,
+                FRONT_DIAGONAL_NEGATIVE_TERMS,
             )
 
         try:

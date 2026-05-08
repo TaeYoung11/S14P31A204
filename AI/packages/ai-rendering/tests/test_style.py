@@ -2,7 +2,7 @@
 
 이 파일은 실제 torch/diffusers 모델을 로드하지 않고 `DepthStyleRenderer`를 mock으로 구성해
 prompt 조립, negative term 병합, ControlNet 입력 구성, preset별 render option resolver를 확인한다.
-front/side 하단 벽 환각과 EYE ground 환각을 줄이기 위해 도입한 semantic mask,
+front/side 하단 벽 환각과 FRONT_DIAGONAL ground 환각을 줄이기 위해 도입한 semantic mask,
 ground-plane-aware mask, attenuation 옵션이 의도한 view와 preset에만 적용되는지도 함께 검증한다.
 """
 
@@ -31,17 +31,17 @@ from ai_rendering.ifc2img.style import (
     ADE20K_SKY_RGB,
     BACKGROUND_INPAINT_NEGATIVE_TERMS,
     BACKGROUND_PRIORS_BY_PRESET,
-    EYE_NEGATIVE_TERMS,
+    FRONT_DIAGONAL_NEGATIVE_TERMS,
     FRONT_SIDE_NEGATIVE_TERMS,
     SEMANTIC_BACKGROUND_RGB,
     SEMANTIC_BUILDING_RGB,
     SEMANTIC_GROUND_RGB,
     _append_negative_terms,
-    _apply_eye_ground_plane_control_attenuation,
-    _build_eye_building_mask,
-    _build_eye_ground_mask,
-    _build_eye_ground_plane_aware_mask,
-    _build_eye_ground_seg_control,
+    _apply_front_diagonal_ground_plane_control_attenuation,
+    _build_front_diagonal_building_mask,
+    _build_front_diagonal_ground_mask,
+    _build_front_diagonal_ground_plane_aware_mask,
+    _build_front_diagonal_ground_seg_control,
     _build_front_full_width_ground_mask,
     _build_front_full_width_seg_control,
     _build_front_side_seg_control,
@@ -210,12 +210,17 @@ def test_resolve_preset_view_render_options_fixes_korean_villa_candidate() -> No
 
 
 def test_resolve_preset_view_render_options_fixes_korean_house_candidate() -> None:
-    """korean_house front/side/EYE 후보가 view별로 명시된 선택지를 유지하는지 확인한다."""
+    """korean_house view별 후보 옵션을 유지하는지 확인한다."""
     front = resolve_preset_view_render_options("korean_house", IFCView.FRONT)
     side = resolve_preset_view_render_options("korean_house", IFCView.SIDE)
-    eye_ne = resolve_preset_view_render_options("korean_house", IFCView.EYE_NE)
-    eye_nw = resolve_preset_view_render_options("korean_house", IFCView.EYE_NW)
-    eye_se = resolve_preset_view_render_options("korean_house", IFCView.EYE_SE)
+    front_diagonal_right = resolve_preset_view_render_options(
+        "korean_house",
+        IFCView.FRONT_DIAGONAL_RIGHT,
+    )
+    front_diagonal_left = resolve_preset_view_render_options(
+        "korean_house",
+        IFCView.FRONT_DIAGONAL_LEFT,
+    )
 
     assert front.use_front_full_width_semantic_control is True
     assert front.use_front_side_semantic_control is False
@@ -229,23 +234,18 @@ def test_resolve_preset_view_render_options_fixes_korean_house_candidate() -> No
     assert side.front_side_semantic_control_scale == 0.35
     assert side.requires_semantic_controlnet is True
 
-    assert eye_ne.use_eye_ground_semantic_control is True
-    assert eye_ne.use_eye_ground_plane_control_attenuation is True
-    assert eye_ne.front_side_ground_class == "grass"
-    assert eye_ne.front_side_semantic_control_scale == 0.25
-    assert eye_ne.requires_semantic_controlnet is True
+    assert front_diagonal_right.use_front_diagonal_ground_semantic_control is True
+    assert front_diagonal_right.use_front_diagonal_ground_plane_control_attenuation is True
+    assert front_diagonal_right.front_side_ground_class == "grass"
+    assert front_diagonal_right.front_side_semantic_control_scale == 0.25
+    assert front_diagonal_right.requires_semantic_controlnet is True
 
-    assert eye_nw.use_eye_ground_semantic_control is True
-    assert eye_nw.use_eye_ground_plane_control_attenuation is True
-    assert eye_nw.front_side_ground_class == "grass"
-    assert eye_nw.front_side_semantic_control_scale == 0.35
-    assert eye_nw.requires_semantic_controlnet is True
+    assert front_diagonal_left.use_front_diagonal_ground_semantic_control is True
+    assert front_diagonal_left.use_front_diagonal_ground_plane_control_attenuation is True
+    assert front_diagonal_left.front_side_ground_class == "grass"
+    assert front_diagonal_left.front_side_semantic_control_scale == 0.25
+    assert front_diagonal_left.requires_semantic_controlnet is True
 
-    assert eye_se.use_eye_ground_semantic_control is True
-    assert eye_se.use_eye_ground_plane_control_attenuation is True
-    assert eye_se.front_side_ground_class == "grass"
-    assert eye_se.front_side_semantic_control_scale == 0.35
-    assert eye_se.requires_semantic_controlnet is True
 
 
 def test_resolve_preset_view_render_options_defaults_for_other_paths() -> None:
@@ -253,12 +253,18 @@ def test_resolve_preset_view_render_options_defaults_for_other_paths() -> None:
     default = DepthStyleRenderOptions()
 
     assert resolve_preset_view_render_options("scandinavian", IFCView.FRONT) == default
-    assert resolve_preset_view_render_options("scandinavian", IFCView.EYE_NE) == default
+    assert (
+        resolve_preset_view_render_options(
+            "scandinavian",
+            IFCView.FRONT_DIAGONAL_RIGHT,
+        )
+        == default
+    )
     assert resolve_preset_view_render_options("korean_house", None) == default
 
 
 def test_resolve_preset_background_params_uses_yard_only_priors() -> None:
-    """EYE auto-background prompt가 preset별 yard/background prior만 분리해 가져오는지 확인한다."""
+    """Preset별 yard/background prior를 분리해 가져오는지 확인한다."""
     korean = resolve_preset_background_params("korean_house")
     villa = resolve_preset_background_params("korean_villa")
     scandi = resolve_preset_background_params("scandinavian")
@@ -285,7 +291,7 @@ def test_depth_style_render_options_as_kwargs_matches_render_options() -> None:
     """DepthStyleRenderOptions가 render 호출 kwargs로 안정적으로 변환되는지 확인한다."""
     options = DepthStyleRenderOptions(
         use_front_side_semantic_control=True,
-        use_eye_ground_semantic_control=True,
+        use_front_diagonal_ground_semantic_control=True,
         front_side_ground_class="neutral",
         front_side_semantic_control_scale=0.25,
     )
@@ -293,12 +299,12 @@ def test_depth_style_render_options_as_kwargs_matches_render_options() -> None:
     assert options.as_render_kwargs() == {
         "use_front_side_semantic_control": True,
         "use_front_full_width_semantic_control": False,
-        "use_eye_ground_semantic_control": True,
-        "use_eye_ground_plane_aware_semantic_control": False,
-        "use_eye_ground_plane_control_attenuation": False,
+        "use_front_diagonal_ground_semantic_control": True,
+        "use_front_diagonal_ground_plane_aware_semantic_control": False,
+        "use_front_diagonal_ground_plane_control_attenuation": False,
         "front_side_ground_class": "neutral",
         "front_side_semantic_control_scale": 0.25,
-        "eye_ground_plane_control_attenuation_strength": 0.18,
+        "front_diagonal_ground_plane_control_attenuation_strength": 0.18,
     }
 
 
@@ -322,10 +328,10 @@ def test_render_with_view_appends_suffix_to_prompt(
     base_prompt = "RAW photo, scandinavian house"
     params = DepthStyleParams(prompt=base_prompt)
 
-    mock_depth_renderer.render(depth, params, view=IFCView.EYE_NE)
+    mock_depth_renderer.render(depth, params, view=IFCView.FRONT_DIAGONAL_RIGHT)
 
     call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
-    assert call_prompt.startswith("eye-level diagonal view")
+    assert call_prompt.startswith("front diagonal view")
     assert len(call_prompt) > len(base_prompt)
     assert "aerial" in call_prompt or "roof" in call_prompt
 
@@ -403,18 +409,18 @@ def test_render_with_view_side_softens_scandinavian_concrete_wall_prior(
     assert "white concrete facade" not in call_prompt
 
 
-def test_render_with_view_eye_prepends_ground_sky_prefix(
+def test_render_with_view_front_diagonal_prepends_ground_sky_prefix(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE view prompt 앞쪽에 대각선 시점과 ground/sky 위치 조건이 붙는지 확인한다."""
+    """FRONT_DIAGONAL view prompt 앞쪽에 대각선 시점과 ground/sky 위치 조건이 붙는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     base_prompt = "RAW photo, scandinavian house"
     params = DepthStyleParams(prompt=base_prompt)
 
-    mock_depth_renderer.render(depth, params, view=IFCView.EYE_NE)
+    mock_depth_renderer.render(depth, params, view=IFCView.FRONT_DIAGONAL_RIGHT)
 
     call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
-    assert call_prompt.startswith("eye-level diagonal view")
+    assert call_prompt.startswith("front diagonal view")
     assert call_prompt.endswith(base_prompt)
     assert "building on flat ground" in call_prompt
     assert "dry ground around house" in call_prompt
@@ -422,17 +428,17 @@ def test_render_with_view_eye_prepends_ground_sky_prefix(
     assert "not aerial" in call_prompt
 
 
-def test_render_with_view_eye_removes_blue_sky_prior(
+def test_render_with_view_front_diagonal_removes_blue_sky_prior(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE view에서 blue sky cue가 ground 영역을 하늘로 오염시키지 않도록 제거되는지 확인한다."""
+    """대각선 view에서 blue sky cue를 제거하는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     base_prompt = (
         "RAW photo, scandinavian house, during sunny daytime, natural sunlight, blue sky"
     )
     params = DepthStyleParams(prompt=base_prompt)
 
-    mock_depth_renderer.render(depth, params, view=IFCView.EYE_NE)
+    mock_depth_renderer.render(depth, params, view=IFCView.FRONT_DIAGONAL_RIGHT)
 
     call_prompt = mock_depth_renderer.pipe.call_args.kwargs["prompt"]
     assert "blue sky" not in call_prompt
@@ -440,10 +446,10 @@ def test_render_with_view_eye_removes_blue_sky_prior(
     assert "natural sunlight" in call_prompt
 
 
-def test_render_with_view_eye_nw_appends_water_negative_terms(
+def test_render_with_view_front_diagonal_left_appends_water_negative_terms(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE view negative에 pool/water/reflection 계열 억제어가 추가되는지 확인한다."""
+    """FRONT_DIAGONAL view negative에 pool/water/reflection 계열 억제어가 추가되는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     base_negative = "(worst quality:1.4), interior"
     params = DepthStyleParams(
@@ -451,17 +457,17 @@ def test_render_with_view_eye_nw_appends_water_negative_terms(
         negative_prompt=base_negative,
     )
 
-    mock_depth_renderer.render(depth, params, view=IFCView.EYE_NW)
+    mock_depth_renderer.render(depth, params, view=IFCView.FRONT_DIAGONAL_LEFT)
 
     call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
     assert call_negative.startswith(base_negative)
-    assert call_negative.endswith(EYE_NEGATIVE_TERMS)
+    assert call_negative.endswith(FRONT_DIAGONAL_NEGATIVE_TERMS)
 
 
-def test_render_with_view_eye_ne_deduplicates_water_negative_terms(
+def test_render_with_view_front_diagonal_right_deduplicates_water_negative_terms(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE negative term 추가 시 기존 단어가 중복되지 않는지 확인한다."""
+    """FRONT_DIAGONAL negative term 추가 시 기존 단어가 중복되지 않는지 확인한다."""
     depth = Image.new("L", (768, 448), 100)
     base_negative = "(worst quality:1.4), water"
     params = DepthStyleParams(
@@ -469,7 +475,7 @@ def test_render_with_view_eye_ne_deduplicates_water_negative_terms(
         negative_prompt=base_negative,
     )
 
-    mock_depth_renderer.render(depth, params, view=IFCView.EYE_NE)
+    mock_depth_renderer.render(depth, params, view=IFCView.FRONT_DIAGONAL_RIGHT)
 
     call_negative = mock_depth_renderer.pipe.call_args.kwargs["negative_prompt"]
     assert call_negative.count("water") == 1
@@ -613,13 +619,13 @@ def test_build_front_full_width_seg_control_reclassifies_lower_slab_as_ground() 
     assert np.all(seg_arr[20, 8] == ADE20K_ROAD_RGB)
 
 
-def test_build_eye_ground_mask_marks_lower_background_only() -> None:
-    """EYE ground mask가 하단 배경만 선택하고 건물 geometry는 유지하는지 확인한다."""
+def test_build_front_diagonal_ground_mask_marks_lower_background_only() -> None:
+    """FRONT_DIAGONAL ground mask가 하단 배경만 선택하고 건물 geometry는 유지하는지 확인한다."""
     control = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(control)
     arr[6:20, 10:22] = [255, 255, 255]
 
-    mask = _build_eye_ground_mask(Image.fromarray(arr, mode="RGB"))
+    mask = _build_front_diagonal_ground_mask(Image.fromarray(arr, mode="RGB"))
     mask_arr = np.array(mask)
 
     assert mask_arr[26, 2] == 255
@@ -628,13 +634,13 @@ def test_build_eye_ground_mask_marks_lower_background_only() -> None:
     assert mask_arr[4, 2] == 0
 
 
-def test_build_eye_ground_seg_control_uses_neutral_ground() -> None:
-    """EYE ground semantic control이 선택한 ground class 색을 사용하는지 확인한다."""
+def test_build_front_diagonal_ground_seg_control_uses_neutral_ground() -> None:
+    """FRONT_DIAGONAL ground semantic control이 선택한 ground class 색을 사용하는지 확인한다."""
     control = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(control)
     arr[6:20, 10:22] = [255, 255, 255]
 
-    seg = _build_eye_ground_seg_control(
+    seg = _build_front_diagonal_ground_seg_control(
         Image.fromarray(arr, mode="RGB"),
         ground_class="neutral",
     )
@@ -801,26 +807,26 @@ def test_render_rejects_front_semantic_control_conflict(
     mock_depth_renderer.pipe.assert_not_called()
 
 
-def test_render_eye_ground_semantic_control_requires_semantic_model(
+def test_render_front_diagonal_ground_semantic_control_requires_semantic_model(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE ground semantic control은 semantic ControlNet 모델이 있을 때만 사용할 수 있다."""
+    """대각선 ground semantic control은 semantic ControlNet 모델이 필요하다."""
     depth = Image.new("L", (768, 448), 100)
     params = DepthStyleParams(prompt="x")
 
-    with pytest.raises(IFCRenderError, match="EYE ground semantic control"):
+    with pytest.raises(IFCRenderError, match="FRONT_DIAGONAL ground semantic control"):
         mock_depth_renderer.render(
             depth,
             params,
-            view=IFCView.EYE_NE,
-            use_eye_ground_semantic_control=True,
+            view=IFCView.FRONT_DIAGONAL_RIGHT,
+            use_front_diagonal_ground_semantic_control=True,
         )
 
 
-def test_render_eye_ground_semantic_control_passes_two_control_images(
+def test_render_front_diagonal_ground_semantic_control_passes_two_control_images(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE ground semantic control이 depth와 semantic ground control을 함께 전달하는지 확인한다."""
+    """대각선 semantic control이 depth와 ground control을 함께 전달하는지 확인한다."""
     mock_depth_renderer.semantic_controlnet_model_id = "mock-seg"
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
@@ -831,8 +837,8 @@ def test_render_eye_ground_semantic_control_passes_two_control_images(
     mock_depth_renderer.render(
         depth,
         params,
-        view=IFCView.EYE_SE,
-        use_eye_ground_semantic_control=True,
+        view=IFCView.FRONT_DIAGONAL_LEFT,
+        use_front_diagonal_ground_semantic_control=True,
         front_side_ground_class="neutral",
         front_side_semantic_control_scale=0.25,
     )
@@ -850,10 +856,10 @@ def test_render_eye_ground_semantic_control_passes_two_control_images(
     ]
 
 
-def test_render_eye_ground_plane_aware_semantic_control_reclassifies_slab(
+def test_render_front_diagonal_ground_plane_aware_semantic_control_reclassifies_slab(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE ground-plane-aware semantic control이 하단 geometry를 ground로 재분류하는지 확인한다."""
+    """대각선 ground-plane-aware control이 하단 geometry를 ground로 재분류한다."""
     mock_depth_renderer.semantic_controlnet_model_id = "mock-seg"
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
@@ -865,9 +871,9 @@ def test_render_eye_ground_plane_aware_semantic_control_reclassifies_slab(
     mock_depth_renderer.render(
         depth,
         params,
-        view=IFCView.EYE_NE,
-        use_eye_ground_semantic_control=True,
-        use_eye_ground_plane_aware_semantic_control=True,
+        view=IFCView.FRONT_DIAGONAL_RIGHT,
+        use_front_diagonal_ground_semantic_control=True,
+        use_front_diagonal_ground_plane_aware_semantic_control=True,
         front_side_ground_class="grass",
         front_side_semantic_control_scale=0.25,
     )
@@ -879,10 +885,10 @@ def test_render_eye_ground_plane_aware_semantic_control_reclassifies_slab(
     assert np.all(seg_arr[8, 16] == ADE20K_BUILDING_RGB)
 
 
-def test_render_eye_ground_plane_control_attenuation_updates_depth_control(
+def test_render_front_diagonal_ground_plane_control_attenuation_updates_depth_control(
     mock_depth_renderer: DepthStyleRenderer,
 ) -> None:
-    """EYE attenuation 옵션이 ground plane 영역의 depth control 강도를 낮추는지 확인한다."""
+    """대각선 attenuation 옵션이 ground plane의 depth control 강도를 낮춘다."""
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
     arr[6:20, 12:20] = [180, 180, 180]
@@ -893,9 +899,9 @@ def test_render_eye_ground_plane_control_attenuation_updates_depth_control(
     mock_depth_renderer.render(
         depth,
         params,
-        view=IFCView.EYE_NE,
-        use_eye_ground_plane_control_attenuation=True,
-        eye_ground_plane_control_attenuation_strength=0.18,
+        view=IFCView.FRONT_DIAGONAL_RIGHT,
+        use_front_diagonal_ground_plane_control_attenuation=True,
+        front_diagonal_ground_plane_control_attenuation_strength=0.18,
     )
 
     control_arr = np.array(mock_depth_renderer.pipe.call_args.kwargs["image"])
@@ -905,44 +911,44 @@ def test_render_eye_ground_plane_control_attenuation_updates_depth_control(
     assert np.all(control_arr[8, 16] == original[8, 16])
 
 
-def test_build_eye_ground_plane_aware_mask_reclassifies_lower_geometry() -> None:
-    """ground-plane-aware mask가 EYE 하단 geometry shell을 ground 후보로 선택하는지 확인한다."""
+def test_build_front_diagonal_ground_plane_aware_mask_reclassifies_lower_geometry() -> None:
+    """ground-plane-aware mask가 하단 geometry shell을 ground 후보로 선택한다."""
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
     arr[6:20, 12:20] = [180, 180, 180]
     arr[21:27, 7:25] = [220, 220, 220]
     depth = Image.fromarray(arr, mode="RGB")
 
-    regular = np.array(_build_eye_ground_mask(depth))
-    aware = np.array(_build_eye_ground_plane_aware_mask(depth, shell_ratio=0.25))
+    regular = np.array(_build_front_diagonal_ground_mask(depth))
+    aware = np.array(_build_front_diagonal_ground_plane_aware_mask(depth, shell_ratio=0.25))
 
     assert regular[24, 16] == 0
     assert aware[24, 16] == 255
     assert aware[8, 16] == 0
 
 
-def test_build_eye_ground_plane_aware_mask_shell_uses_object_height() -> None:
-    """EYE ground shell 두께가 프레임 전체가 아니라 객체 높이를 기준으로 계산되는지 확인한다."""
+def test_build_front_diagonal_ground_plane_aware_mask_shell_uses_object_height() -> None:
+    """대각선 ground shell 두께가 객체 높이를 기준으로 계산되는지 확인한다."""
     depth = Image.new("RGB", (100, 100), (0, 0, 0))
     arr = np.array(depth)
     arr[10:50, 45:55] = [180, 180, 180]
     depth = Image.fromarray(arr, mode="RGB")
 
-    aware = np.array(_build_eye_ground_plane_aware_mask(depth, shell_ratio=0.10))
+    aware = np.array(_build_front_diagonal_ground_plane_aware_mask(depth, shell_ratio=0.10))
 
     assert aware[46, 50] == 255
     assert aware[44, 50] == 0
 
 
-def test_build_eye_building_mask_excludes_lower_ground_plane_shell() -> None:
-    """EYE building protect mask가 하단 ground shell을 건물 보호 영역에서 제외하는지 확인한다."""
+def test_build_front_diagonal_building_mask_excludes_lower_ground_plane_shell() -> None:
+    """대각선 building protect mask가 하단 ground shell을 제외하는지 확인한다."""
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
     arr[6:20, 12:20] = [180, 180, 180]
     arr[21:27, 7:25] = [220, 220, 220]
     depth = Image.fromarray(arr, mode="RGB")
 
-    mask = np.array(_build_eye_building_mask(depth, ground_shell_ratio=0.08))
+    mask = np.array(_build_front_diagonal_building_mask(depth, ground_shell_ratio=0.08))
 
     assert mask[8, 16] == 255
     assert mask[22, 16] == 255
@@ -950,7 +956,7 @@ def test_build_eye_building_mask_excludes_lower_ground_plane_shell() -> None:
     assert mask[2, 2] == 0
 
 
-def test_apply_eye_ground_plane_control_attenuation_only_changes_ground_plane() -> None:
+def test_apply_front_diagonal_ground_plane_control_attenuation_only_changes_ground_plane() -> None:
     """attenuation helper가 ground plane 영역만 수정하고 건물 depth는 보존하는지 확인한다."""
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
@@ -959,7 +965,7 @@ def test_apply_eye_ground_plane_control_attenuation_only_changes_ground_plane() 
     depth = Image.fromarray(arr, mode="RGB")
 
     attenuated = np.array(
-        _apply_eye_ground_plane_control_attenuation(depth, strength=0.24)
+        _apply_front_diagonal_ground_plane_control_attenuation(depth, strength=0.24)
     )
     original = np.array(depth)
 
@@ -968,8 +974,8 @@ def test_apply_eye_ground_plane_control_attenuation_only_changes_ground_plane() 
     assert np.all(attenuated[2, 2] == original[2, 2])
 
 
-def test_build_eye_ground_seg_control_can_include_ground_plane_geometry() -> None:
-    """EYE semantic control이 ground plane geometry까지 ground class로 포함할 수 있는지 확인한다."""
+def test_build_front_diagonal_ground_seg_control_can_include_ground_plane_geometry() -> None:
+    """대각선 semantic control이 ground plane geometry까지 ground로 포함한다."""
     depth = Image.new("RGB", (32, 32), (0, 0, 0))
     arr = np.array(depth)
     arr[6:20, 12:20] = [180, 180, 180]
@@ -977,7 +983,7 @@ def test_build_eye_ground_seg_control_can_include_ground_plane_geometry() -> Non
     depth = Image.fromarray(arr, mode="RGB")
 
     seg = np.array(
-        _build_eye_ground_seg_control(
+        _build_front_diagonal_ground_seg_control(
             depth,
             ground_class="grass",
             include_ground_plane=True,
@@ -1059,11 +1065,11 @@ def test_render_result_params_reflect_applied_view_composition(
         controlnet_conditioning_scale=1.0,
     )
 
-    result = mock_depth_renderer.render(depth, params, view=IFCView.EYE_NE)
+    result = mock_depth_renderer.render(depth, params, view=IFCView.FRONT_DIAGONAL_RIGHT)
 
     # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
     assert result.params is not params
-    assert result.params.prompt.startswith("eye-level diagonal view")
+    assert result.params.prompt.startswith("front diagonal view")
     assert len(result.params.prompt) > len(base_prompt)
     assert result.params.controlnet_conditioning_scale == 1.0
     # 상세한 검증 의도는 해당 테스트 docstring에 기록한다.
