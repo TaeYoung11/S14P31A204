@@ -1284,7 +1284,17 @@ def test_layout_import_request_rejects_unknown_zone_reference_before_conversion(
         )
 
 
-def test_convert_layout_to_ifc_applies_default_wall_thickness_when_missing(tmp_path: Path) -> None:
+def test_convert_layout_to_ifc_applies_default_wall_thickness_when_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_calls: list[tuple[str, dict[str, object]]] = []
+
+    def fake_info(event: str, **kwargs: object) -> None:
+        log_calls.append((event, kwargs))
+
+    monkeypatch.setattr(service_module._logger, "info", fake_info)
+
     request = _make_request(
         schema_version="v2",
         rooms=[_base_room()],
@@ -1305,6 +1315,17 @@ def test_convert_layout_to_ifc_applies_default_wall_thickness_when_missing(tmp_p
     wall = _named_entities(model, "IfcWall")["Boundary Wall 1-1"]
     wall_body = _body_item(wall)
     assert wall_body.SweptArea.YDim == pytest.approx(0.2)
+    assert log_calls == [
+        (
+            "layout_import_modeling_defaults_applied",
+            {
+                "source": "fe_payload_missing",
+                "schemaVersion": "v2",
+                "missingFields": ["wall_thickness_mm"],
+                "appliedDefaults": {"wall_thickness_mm": 200},
+            },
+        )
+    ]
 
 
 def test_convert_layout_to_ifc_applies_default_slab_thickness_when_missing(tmp_path: Path) -> None:
@@ -1355,7 +1376,15 @@ def test_convert_layout_to_ifc_applies_default_roof_height_when_missing(tmp_path
 
 def test_convert_layout_to_ifc_disables_boundary_driven_features_when_floor_boundary_missing(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    log_calls: list[tuple[str, dict[str, object]]] = []
+
+    def fake_warning(event: str, **kwargs: object) -> None:
+        log_calls.append((event, kwargs))
+
+    monkeypatch.setattr(service_module._logger, "warning", fake_warning)
+
     request = _make_request(
         schema_version="v2",
         rooms=[
@@ -1388,6 +1417,21 @@ def test_convert_layout_to_ifc_disables_boundary_driven_features_when_floor_boun
     assert len(model.by_type("IfcSlab")) == 0
     assert len(model.by_type("IfcRoof")) == 0
     assert len(model.by_type("IfcSpace")) == 2
+    assert log_calls == [
+        (
+            "layout_import_generation_options_degraded",
+            {
+                "source": "fe_payload_missing",
+                "schemaVersion": "v2",
+                "disabledFeatures": ["generate_walls", "generate_slabs", "generate_roof"],
+                "missingBoundaryFloors": [2],
+                "availableBoundaryFloors": [1],
+                "roomFloors": [1, 2],
+                "topFloorBoundaryMissing": True,
+                "openingsDisabledBecauseWallsDisabled": False,
+            },
+        )
+    ]
 
 
 def test_convert_layout_to_ifc_disables_roof_when_top_floor_boundary_missing(
@@ -1736,7 +1780,15 @@ def test_convert_layout_to_ifc_keeps_v3_without_explicit_openings_free_of_openin
 
 def test_convert_layout_to_ifc_disables_openings_when_walls_are_degraded_off(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    log_calls: list[tuple[str, dict[str, object]]] = []
+
+    def fake_warning(event: str, **kwargs: object) -> None:
+        log_calls.append((event, kwargs))
+
+    monkeypatch.setattr(service_module._logger, "warning", fake_warning)
+
     request = _make_request(
         schema_version="v3",
         rooms=[_base_room()],
@@ -1774,6 +1826,26 @@ def test_convert_layout_to_ifc_disables_openings_when_walls_are_degraded_off(
     assert len(model.by_type("IfcOpeningElement")) == 0
     assert len(model.by_type("IfcDoor")) == 0
     assert len(model.by_type("IfcWindow")) == 0
+    assert log_calls == [
+        (
+            "layout_import_generation_options_degraded",
+            {
+                "source": "fe_payload_missing",
+                "schemaVersion": "v3",
+                "disabledFeatures": [
+                    "generate_walls",
+                    "generate_slabs",
+                    "generate_roof",
+                    "generate_openings",
+                ],
+                "missingBoundaryFloors": [1],
+                "availableBoundaryFloors": [],
+                "roomFloors": [1],
+                "topFloorBoundaryMissing": True,
+                "openingsDisabledBecauseWallsDisabled": True,
+            },
+        )
+    ]
 
 
 def test_convert_layout_to_ifc_rejects_v3_opening_with_unknown_boundary_ref(tmp_path: Path) -> None:
