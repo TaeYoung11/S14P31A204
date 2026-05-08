@@ -11,6 +11,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -84,6 +85,41 @@ class ProjectAccessServiceTest {
         Project project = Project.create("anonymous-project", "desc");
 
         assertThatThrownBy(() -> projectAccessService.validateProjectPinWriterOrThrow(project, currentUserId))
+                .isInstanceOf(CustomException.class)
+                .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
+                        .isEqualTo(ErrorCode.FORBIDDEN_ACCESS));
+    }
+
+    @Test
+    void validateProjectOwnerOrThrow_withProjectId_doesNotThrow_whenCurrentUserIsProjectOwner() throws Exception {
+        UUID ownerUserId = UUID.randomUUID();
+        UUID projectId = UUID.randomUUID();
+        Project project = Project.create("test-project", "desc", ownerUserId);
+
+        var projectIdField = Project.class.getDeclaredField("projectId");
+        projectIdField.setAccessible(true);
+        projectIdField.set(project, projectId);
+
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+
+        assertThatCode(() -> projectAccessService.validateProjectOwnerOrThrow(projectId, ownerUserId))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void validateProjectOwnerOrThrow_withProjectId_throwsForbidden_whenCurrentUserIsNotProjectOwner() throws Exception {
+        UUID ownerUserId = UUID.randomUUID();
+        UUID otherUserId = UUID.randomUUID();
+        UUID projectId = UUID.randomUUID();
+        Project project = Project.create("test-project", "desc", ownerUserId);
+
+        var projectIdField = Project.class.getDeclaredField("projectId");
+        projectIdField.setAccessible(true);
+        projectIdField.set(project, projectId);
+
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+
+        assertThatThrownBy(() -> projectAccessService.validateProjectOwnerOrThrow(projectId, otherUserId))
                 .isInstanceOf(CustomException.class)
                 .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
                         .isEqualTo(ErrorCode.FORBIDDEN_ACCESS));

@@ -71,7 +71,7 @@ public class WorkspaceFloorPlanRealtimeService {
         validateRealtimePayloadOrThrow(request);
 
         ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
-        projectAccessService.validateProjectPinWriterOrThrow(projectId, currentUserId);
+        projectAccessService.validateProjectOwnerOrThrow(workspace.getProject(), currentUserId);
 
         String resolvedRevisionId = resolveRevisionId(request.revisionId(), workspace.getCurrentRevision());
         JsonNode syncPayload = buildSyncPayload(request, resolvedRevisionId);
@@ -141,7 +141,7 @@ public class WorkspaceFloorPlanRealtimeService {
     @Transactional(readOnly = true)
     public void undoFloorPlanDraft(UUID projectId, UUID currentUserId, FloorPlanUndoRequest request) {
         ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
-        projectAccessService.validateProjectPinWriterOrThrow(projectId, currentUserId);
+        projectAccessService.validateProjectOwnerOrThrow(workspace.getProject(), currentUserId);
 
         JsonNode historySnapshot = loadUndoFloorPlanSnapshotOrThrow(projectId, request.baseIndex());
         FloorPlanHistorySnapshot restoredSnapshot = extractFloorPlanHistorySnapshotOrThrow(historySnapshot);
@@ -168,7 +168,7 @@ public class WorkspaceFloorPlanRealtimeService {
     @Transactional(readOnly = true)
     public void redoFloorPlanDraft(UUID projectId, UUID currentUserId, FloorPlanRedoRequest request) {
         ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
-        projectAccessService.validateProjectPinWriterOrThrow(projectId, currentUserId);
+        projectAccessService.validateProjectOwnerOrThrow(workspace.getProject(), currentUserId);
 
         JsonNode historySnapshot = loadRedoFloorPlanSnapshotOrThrow(projectId, request.baseIndex());
         FloorPlanHistorySnapshot restoredSnapshot = extractFloorPlanHistorySnapshotOrThrow(historySnapshot);
