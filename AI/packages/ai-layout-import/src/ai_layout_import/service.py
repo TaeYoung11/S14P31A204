@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import ifcopenshell
@@ -51,14 +51,49 @@ class HostWallRegistryEntry:
 HostWallRegistry = dict[str, HostWallRegistryEntry]
 
 
+@dataclass(frozen=True)
+class LayoutImportNormalizationSummary:
+    defaultsApplied: dict[str, int] = field(default_factory=dict)
+    degradedFeatures: list[str] = field(default_factory=list)
+    missingBoundaryFloors: list[int] = field(default_factory=list)
+    availableBoundaryFloors: list[int] = field(default_factory=list)
+    roomFloors: list[int] = field(default_factory=list)
+    topFloorBoundaryMissing: bool = False
+    openingsDisabledBecauseWallsDisabled: bool = False
+    hasWarnings: bool = False
+
+    def to_report_warnings(self) -> dict[str, object] | None:
+        if not self.hasWarnings:
+            return None
+        return {
+            "defaultsApplied": self.defaultsApplied,
+            "degradedFeatures": self.degradedFeatures,
+            "missingBoundaryFloors": self.missingBoundaryFloors,
+            "availableBoundaryFloors": self.availableBoundaryFloors,
+            "roomFloors": self.roomFloors,
+            "topFloorBoundaryMissing": self.topFloorBoundaryMissing,
+            "openingsDisabledBecauseWallsDisabled": self.openingsDisabledBecauseWallsDisabled,
+        }
+
+
+@dataclass(frozen=True)
+class GenerationDegradationSummary:
+    degradedFeatures: list[str] = field(default_factory=list)
+    missingBoundaryFloors: list[int] = field(default_factory=list)
+    availableBoundaryFloors: list[int] = field(default_factory=list)
+    roomFloors: list[int] = field(default_factory=list)
+    topFloorBoundaryMissing: bool = False
+    openingsDisabledBecauseWallsDisabled: bool = False
+
+
 def convert_layout_to_ifc(
     request: LayoutImportRequestModel,
     output_path: str | Path,
-) -> None:
+) -> LayoutImportNormalizationSummary:
     """Write a space-only IFC file from the validated layout import request."""
 
     output = Path(output_path)
-    normalized_request = _normalize_generation_request(request)
+    normalized_request, normalization_summary = _normalize_generation_request(request)
     shared_wall_segments = _validate_request(normalized_request)
     model = _create_ifc_file()
     style_cache: StyleAssignmentCache = {}
@@ -100,19 +135,32 @@ def convert_layout_to_ifc(
     _create_spaces(model, owner_history, context, normalized_request, storeys, zones)
     output.parent.mkdir(parents=True, exist_ok=True)
     model.write(str(output))
+    return normalization_summary
 
 
-def _normalize_generation_request(request: LayoutImportRequestModel) -> LayoutImportRequestModel:
+def _normalize_generation_request(
+    request: LayoutImportRequestModel,
+) -> tuple[LayoutImportRequestModel, LayoutImportNormalizationSummary]:
     if not isinstance(request, (LayoutImportV2, LayoutImportV3)):
-        return request
+        return request, LayoutImportNormalizationSummary()
 
     normalized_request = request.model_copy(deep=True)
-    _ensure_modeling_defaults(normalized_request)
-    _degrade_generation_options_for_missing_boundaries(normalized_request)
-    return normalized_request
+    defaults_applied = _ensure_modeling_defaults(normalized_request)
+    degradation_summary = _degrade_generation_options_for_missing_boundaries(normalized_request)
+    summary = LayoutImportNormalizationSummary(
+        defaultsApplied=defaults_applied,
+        degradedFeatures=degradation_summary.degradedFeatures,
+        missingBoundaryFloors=degradation_summary.missingBoundaryFloors,
+        availableBoundaryFloors=degradation_summary.availableBoundaryFloors,
+        roomFloors=degradation_summary.roomFloors,
+        topFloorBoundaryMissing=degradation_summary.topFloorBoundaryMissing,
+        openingsDisabledBecauseWallsDisabled=degradation_summary.openingsDisabledBecauseWallsDisabled,
+        hasWarnings=bool(defaults_applied or degradation_summary.degradedFeatures),
+    )
+    return normalized_request, summary
 
 
-def _ensure_modeling_defaults(request: LayoutImportGenerationRequest) -> None:
+def _ensure_modeling_defaults(request: LayoutImportGenerationRequest) -> dict[str, int]:
     current_defaults = request.modeling_defaults
     applied_defaults: dict[str, int] = {}
     space_height_mm = None if current_defaults is None else current_defaults.space_height_mm
@@ -150,6 +198,7 @@ def _ensure_modeling_defaults(request: LayoutImportGenerationRequest) -> None:
             missingFields=list(applied_defaults),
             appliedDefaults=applied_defaults,
         )
+    return applied_defaults
 
 
 def _ensure_modeling_default_value(
@@ -168,11 +217,11 @@ def _ensure_modeling_default_value(
 
 def _degrade_generation_options_for_missing_boundaries(
     request: LayoutImportGenerationRequest,
-) -> None:
+) -> GenerationDegradationSummary:
     boundaries_by_floor = {boundary.floor: boundary for boundary in request.boundaries or []}
     room_floors = sorted({room.floor for room in request.rooms})
     if not room_floors:
-        return
+        return GenerationDegradationSummary()
 
     current_options = request.generation_options
     next_options = current_options.model_copy(deep=True)
@@ -213,6 +262,14 @@ def _degrade_generation_options_for_missing_boundaries(
             topFloorBoundaryMissing=top_floor_boundary_missing,
             openingsDisabledBecauseWallsDisabled=openings_disabled_because_walls_disabled,
         )
+    return GenerationDegradationSummary(
+        degradedFeatures=disabled_features,
+        missingBoundaryFloors=missing_boundary_floors,
+        availableBoundaryFloors=sorted(boundaries_by_floor),
+        roomFloors=room_floors,
+        topFloorBoundaryMissing=top_floor_boundary_missing,
+        openingsDisabledBecauseWallsDisabled=openings_disabled_because_walls_disabled,
+    )
 
 
 def _missing_boundary_floors(
