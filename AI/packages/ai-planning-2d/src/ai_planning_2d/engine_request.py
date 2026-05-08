@@ -7,6 +7,9 @@ from ai_domain.worker_messages.payloads_ifc_edit import EngineOperationInlineRef
 
 from .add_room_placement import suggest_add_room_start_mm
 from .command import CommandBatch, FloorNLPCommand, IFCContext
+from .remove_healing import build_remove_merge_plan
+from .resize_healing import build_isolated_rectangular_resize_wall_plans
+from .space_healing import build_isolated_resize_space_plan
 
 _SPACE_PSET_NAME = "Batang_SpaceDimensions"
 _SUPPORTED_SHARED_ACTIONS = {"add_room", "remove_room", "resize_room"}
@@ -83,7 +86,11 @@ def _build_operations(
             ifc_context=ifc_context,
         )
     if command.action == "remove_room":
-        return _build_remove_room_operations(command_batch=command_batch, policy_plan=policy_plan)
+        return _build_remove_room_operations(
+            command_batch=command_batch,
+            policy_plan=policy_plan,
+            ifc_context=ifc_context,
+        )
     return _build_resize_room_operations(
         command=command,
         command_batch=command_batch,
@@ -152,9 +159,11 @@ def _build_remove_room_operations(
     *,
     command_batch: CommandBatch,
     policy_plan: dict[str, Any] | None,
+    ifc_context: IFCContext | None = None,
 ) -> list[EngineOperationInlineRef]:
     delete_ids: list[str] = []
     merge_target_space_id: str | None = None
+    operations: list[EngineOperationInlineRef] = []
     if policy_plan is not None:
         delete_ids.extend(policy_plan.get("remove_opening_ids", []))
         delete_ids.extend(policy_plan.get("remove_wall_ids", []))
@@ -166,7 +175,49 @@ def _build_remove_room_operations(
     delete_ids = list(dict.fromkeys(delete_ids))
     if not delete_ids:
         raise ValueError("remove_room shared request has no target global_ids")
-    return [
+
+    merge_plan = None
+    if policy_plan is not None and policy_plan.get("target_space_id"):
+        merge_plan = build_remove_merge_plan(
+            ifc_context=ifc_context,
+            target_space_id=policy_plan["target_space_id"],
+            merge_target_space_id=merge_target_space_id,
+        )
+    if merge_plan is not None:
+        if any(abs(value) > 0.0 for value in merge_plan["anchor_translate_mm"].values()):
+            operations.append(
+                EngineOperationInlineRef(
+                    id="op-transform-merge-target-space",
+                    type="transform_elements",
+                    selector={"global_ids": [merge_plan["merge_target_space_id"]]},
+                    parameters={"translate_mm": merge_plan["anchor_translate_mm"]},
+                )
+            )
+        operations.append(
+            EngineOperationInlineRef(
+                id="op-update-merge-target-space",
+                type="update_element_properties",
+                selector={"global_ids": [merge_plan["merge_target_space_id"]]},
+                parameters={
+                    "pset_name": _SPACE_PSET_NAME,
+                    "dimensions_mm": merge_plan["dimensions_mm"],
+                    "properties": {
+                        "shape": "rect",
+                        "rects": merge_plan["rects"],
+                    },
+                    "pset_updates": {
+                        _SPACE_PSET_NAME: {
+                            "Width": merge_plan["dimensions_mm"]["width"],
+                            "Height": merge_plan["dimensions_mm"]["height"],
+                            "Shape": "rect",
+                            "Rects": merge_plan["rects"],
+                        }
+                    },
+                },
+            )
+        )
+
+    operations.append(
         EngineOperationInlineRef(
             id="op-delete-elements",
             type="delete_elements",
@@ -176,7 +227,8 @@ def _build_remove_room_operations(
                 "merge_target_space_id": merge_target_space_id,
             },
         )
-    ]
+    )
+    return operations
 
 
 def _build_resize_room_operations(
@@ -195,9 +247,26 @@ def _build_resize_room_operations(
         ifc_context=ifc_context,
     )
     operations: list[EngineOperationInlineRef] = []
+    isolated_wall_plans = []
+    isolated_space_plan = None
+    if resize_state["affected_space_id"] is None:
+        isolated_wall_plans = build_isolated_rectangular_resize_wall_plans(
+            ifc_context=ifc_context,
+            target_space_id=target_id,
+            direction=resize_state["direction"],
+            new_width=int(command.resize_width or 0),
+            new_height=int(command.resize_height or 0),
+        )
+        isolated_space_plan = build_isolated_resize_space_plan(
+            ifc_context=ifc_context,
+            target_space_id=target_id,
+            direction=resize_state["direction"],
+            new_width=int(command.resize_width or 0),
+            new_height=int(command.resize_height or 0),
+        )
 
     target_translation = resize_state["target_anchor_translate_mm"]
-    if _has_non_zero_translation(target_translation):
+    if isolated_space_plan is None and _has_non_zero_translation(target_translation):
         operations.append(
             EngineOperationInlineRef(
                 id="op-transform-target-space",
@@ -208,16 +277,27 @@ def _build_resize_room_operations(
         )
 
     boundary_translation = resize_state["boundary_translate_mm"]
-    boundary_ids = [
-        *resize_state["affected_wall_ids"],
-        *resize_state["affected_opening_ids"],
-    ]
-    if boundary_ids and _has_non_zero_translation(boundary_translation):
+    boundary_wall_ids = list(resize_state["affected_wall_ids"])
+    boundary_opening_ids = list(resize_state["affected_opening_ids"])
+    if (
+        boundary_wall_ids
+        and (resize_state["affected_space_id"] is not None or not isolated_wall_plans)
+        and _has_non_zero_translation(boundary_translation)
+    ):
         operations.append(
             EngineOperationInlineRef(
-                id="op-transform-shared-boundary",
+                id="op-transform-shared-boundary-walls",
                 type="transform_elements",
-                selector={"global_ids": boundary_ids},
+                selector={"global_ids": boundary_wall_ids},
+                parameters={"translate_mm": boundary_translation},
+            )
+        )
+    if boundary_opening_ids and _has_non_zero_translation(boundary_translation):
+        operations.append(
+            EngineOperationInlineRef(
+                id="op-transform-shared-boundary-openings",
+                type="transform_elements",
+                selector={"global_ids": boundary_opening_ids},
                 parameters={"translate_mm": boundary_translation},
             )
         )
@@ -247,19 +327,56 @@ def _build_resize_room_operations(
                 },
                 "properties": {
                     "shape": command.resize_shape,
-                    "rects": command.resize_rects or [],
+                    "rects": (
+                        isolated_space_plan["rects"]
+                        if isolated_space_plan is not None
+                        else command.resize_rects or []
+                    ),
+                    "polygon_mm": (
+                        [
+                            {"x": point[0], "y": point[1]}
+                            for point in isolated_space_plan["local_polygon_mm"]
+                        ]
+                        if isolated_space_plan is not None
+                        else None
+                    ),
                 },
                 "pset_updates": {
                     _SPACE_PSET_NAME: _space_pset_updates(
                         width=command.resize_width,
                         height=command.resize_height,
                         shape=command.resize_shape,
-                        rects=command.resize_rects or [],
+                        rects=(
+                            isolated_space_plan["rects"]
+                            if isolated_space_plan is not None
+                            else command.resize_rects or []
+                        ),
                     )
                 },
             },
         )
     )
+
+    for index, wall_plan in enumerate(isolated_wall_plans, start=1):
+        operations.append(
+            EngineOperationInlineRef(
+                id=f"op-update-wall-segment-{index}",
+                type="update_element_properties",
+                selector={"global_ids": [wall_plan["wall_id"]]},
+                parameters={
+                    "segment_mm": {
+                        "start": {
+                            "x": wall_plan["start_mm"][0],
+                            "y": wall_plan["start_mm"][1],
+                        },
+                        "end": {
+                            "x": wall_plan["end_mm"][0],
+                            "y": wall_plan["end_mm"][1],
+                        },
+                    }
+                },
+            )
+        )
 
     affected_dimensions = resize_state["affected_space_dimensions_mm"]
     if affected_space_id is not None and affected_dimensions is not None:

@@ -234,6 +234,46 @@ def _maybe_parse_simple_remove_command(user_text: str) -> FloorNLPCommand | None
         clarification_question=None,
     )
 
+
+def _maybe_parse_insert_toilet_command(user_text: str) -> FloorNLPCommand | None:
+    lowered = user_text.casefold()
+    if not any(keyword in lowered for keyword in ("화장실", "wc", "toilet")):
+        return None
+    if "옆" not in user_text and "near" not in lowered and "adjacent" not in lowered:
+        return None
+
+    return FloorNLPCommand(
+        action="insert_toilet",
+        target_room_name="욕실",
+        target_floor=1 if "1층" in user_text else 1,
+        confidence=0.95,
+        needs_clarification=False,
+        clarification_question=None,
+    )
+
+def _maybe_parse_insert_toilet_command_v2(user_text: str) -> FloorNLPCommand | None:
+    lowered = user_text.casefold()
+    if not any(keyword in lowered for keyword in ("화장실", "wc", "toilet")):
+        return None
+
+    is_public_request = any(
+        keyword in user_text or keyword in lowered
+        for keyword in ("공용", "public", "shared")
+    )
+    is_near_request = "옆" in user_text or "near" in lowered or "adjacent" in lowered
+    if not is_public_request and not is_near_request:
+        return None
+
+    return FloorNLPCommand(
+        action="insert_toilet",
+        target_room_name="욕실" if is_near_request else None,
+        target_floor=1 if "1층" in user_text else 1,
+        confidence=0.95,
+        needs_clarification=False,
+        clarification_question=None,
+    )
+
+
 SYSTEM_PROMPT = """
 당신은 2D 평면 수정 요청을 구조화된 명령으로 변환하는 파서다.
 사용자 요청을 읽고 FloorNLPCommand JSON 하나만 정확하게 반환한다.
@@ -362,6 +402,38 @@ IFC 상태:
 """
 
 
+def _maybe_parse_insert_toilet_command_v3(user_text: str) -> FloorNLPCommand | None:
+    lowered = user_text.casefold()
+    if not any(keyword in lowered for keyword in ("화장실", "wc", "toilet")):
+        return None
+
+    is_public_request = any(
+        keyword in user_text or keyword in lowered
+        for keyword in ("공용", "public", "shared")
+    )
+    is_near_request = "옆" in user_text or "near" in lowered or "adjacent" in lowered
+    if not is_public_request and not is_near_request:
+        return None
+
+    user_intent = None
+    if is_public_request and not is_near_request:
+        user_intent = "shared_toilet_any_strategy"
+        if any(keyword in user_text for keyword in ("Big Room", "큰 방", "반으로", "나눠")):
+            user_intent = "shared_toilet_split_big_room"
+        elif any(keyword in user_text for keyword in ("복도 끝", "복도에서", "corridor")):
+            user_intent = "shared_toilet_corridor_carve"
+
+    return FloorNLPCommand(
+        action="insert_toilet",
+        target_room_name="욕실" if is_near_request else None,
+        target_floor=1 if "1층" in user_text else 1,
+        user_intent=user_intent,
+        confidence=0.95,
+        needs_clarification=False,
+        clarification_question=None,
+    )
+
+
 class FloorPlanEngine:
     """자연어 2D 평면도 수정 명령을 FloorNLPCommand로 파싱하는 엔진."""
 
@@ -386,6 +458,10 @@ class FloorPlanEngine:
         ifc_context: IFCContext | None = None,
         conversation_history: list[ChatCompletionMessageParam] | None = None,
     ) -> FloorNLPCommand:
+        insert_toilet = _maybe_parse_insert_toilet_command_v3(user_text)
+        if insert_toilet is not None:
+            return insert_toilet
+
         simple_remove = _maybe_parse_simple_remove_command(user_text)
         if simple_remove is not None:
             return simple_remove
