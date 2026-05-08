@@ -15,7 +15,7 @@ from types import ModuleType
 
 import pytest
 
-from ai_rendering.ifc2img.service import DEFAULT_CONTROLNET_SEG_ID
+from ai_rendering.ifc2img.style import DEFAULT_CONTROLNET_SEG_ID
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
