@@ -1,8 +1,14 @@
 package com.a204.batang.domain.workspace.service;
 
+import com.a204.batang.domain.ifcedit.IfcEditConstants;
+import com.a204.batang.domain.ifcedit.dto.ChatCommandSceneType;
+import com.a204.batang.domain.ifcedit.dto.LlmIfcEditRequest;
+import com.a204.batang.domain.ifcedit.service.ThreeDLlmIfcEditCommandService;
+import com.a204.batang.domain.ifcedit.service.TwoDLlmIfcEditCommandService;
 import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
+import com.a204.batang.domain.workspace.dto.FloorPlanSceneType;
 import com.a204.batang.domain.workspace.dto.FloorPlanRedoRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanUndoRequest;
 import com.a204.batang.domain.workspace.dto.PublishFloorPlanUpdatedRequest;
@@ -38,11 +44,19 @@ public class WorkspaceFloorPlanRealtimeService {
     private static final String ACTION_FLOOR_PLAN_UPDATED = "FLOOR_PLAN_UPDATED";
     private static final String ACTION_FLOOR_PLAN_UNDO = "FLOOR_PLAN_UNDO";
     private static final String ACTION_FLOOR_PLAN_REDO = "FLOOR_PLAN_REDO";
+    private static final String DEFAULT_USER_INSTRUCTION = "workspace floor-plan realtime update";
+    private static final String LAYOUT_FIELD_NAME = "layout";
+    private static final String LAYOUT_USER_INSTRUCTION_FIELD_NAME = "userInstruction";
+    private static final String LAYOUT_MESSAGE_FIELD_NAME = "message";
+    private static final String LAYOUT_CONVERSATION_HISTORY_FIELD_NAME = "conversationHistory";
+    private static final String LAYOUT_PLANNER_OPTIONS_FIELD_NAME = "plannerOptions";
 
     private final ProjectWorkspaceRepository projectWorkspaceRepository;
     private final ProjectAccessService projectAccessService;
     private final BubbleSnapshotHelper bubbleSnapshotHelper;
     private final WorkspaceBubbleSnapshotRedisRepository workspaceBubbleSnapshotRedisRepository;
+    private final TwoDLlmIfcEditCommandService twoDLlmIfcEditCommandService;
+    private final ThreeDLlmIfcEditCommandService threeDLlmIfcEditCommandService;
     private final SimpMessagingTemplate simpMessagingTemplate;
     private final ObjectMapper objectMapper;
 
@@ -62,7 +76,7 @@ public class WorkspaceFloorPlanRealtimeService {
         String resolvedRevisionId = resolveRevisionId(request.revisionId(), workspace.getCurrentRevision());
         JsonNode syncPayload = buildSyncPayload(request, resolvedRevisionId);
 
-        requestPythonRenderAsync(projectId, resolvedRevisionId, syncPayload);
+        requestPythonRenderAsync(projectId, currentUserId, resolvedRevisionId, request.sceneType(), syncPayload);
 
         broadcastFloorPlanSync(
                 projectId,
@@ -285,11 +299,121 @@ public class WorkspaceFloorPlanRealtimeService {
         return new FloorPlanHistorySnapshot(revisionId, floorPlanPayloadJson, s3Url);
     }
 
-    private void requestPythonRenderAsync(UUID projectId, String revisionId, JsonNode syncPayload) {
-        // TODO: Python 렌더링 시스템 연동 요청
-        // 1) projectId, revisionId, syncPayload를 Python worker로 전달
-        // 2) 처리 완료 시 /api/v1/projects/{projectId}/workspace/floor-plan/webhook 으로 콜백
-        // 3) 성공/실패 여부와 결과 URL을 포함해 후속 이벤트 처리
+    private void requestPythonRenderAsync(
+            UUID projectId,
+            UUID currentUserId,
+            String revisionId,
+            FloorPlanSceneType sceneType,
+            JsonNode syncPayload
+    ) {
+        UUID baseRevisionId = parseRevisionIdOrThrow(revisionId);
+        LlmIfcEditRequest llmRequest = buildLlmIfcEditRequest(baseRevisionId, syncPayload);
+
+        if (resolveSceneType(sceneType) == ChatCommandSceneType.THREE_D) {
+            threeDLlmIfcEditCommandService.createThreeDLlmIfcEdit(projectId, currentUserId, llmRequest);
+            log.info("Workspace floor-plan realtime request routed to ThreeDLlmIfcEditCommandService. projectId={}, baseRevisionId={}",
+                    projectId, baseRevisionId);
+            return;
+        }
+
+        twoDLlmIfcEditCommandService.createTwoDLlmIfcEdit(projectId, currentUserId, llmRequest);
+        log.info("Workspace floor-plan realtime request routed to TwoDLlmIfcEditCommandService. projectId={}, baseRevisionId={}",
+                projectId, baseRevisionId);
+    }
+
+    private LlmIfcEditRequest buildLlmIfcEditRequest(UUID baseRevisionId, JsonNode syncPayload) {
+        JsonNode layoutNode = extractLayoutNode(syncPayload);
+        String userInstruction = extractUserInstruction(layoutNode);
+        JsonNode conversationHistory = extractOptionalObjectNode(layoutNode, LAYOUT_CONVERSATION_HISTORY_FIELD_NAME);
+        JsonNode plannerOptions = extractOptionalObjectNode(layoutNode, LAYOUT_PLANNER_OPTIONS_FIELD_NAME);
+
+        return new LlmIfcEditRequest(
+                baseRevisionId,
+                null,
+                IfcEditConstants.SCENE_TYPE_IFC_MODEL,
+                userInstruction,
+                null,
+                syncPayload.deepCopy(),
+                conversationHistory,
+                plannerOptions
+        );
+    }
+
+    private ChatCommandSceneType resolveSceneType(FloorPlanSceneType sceneType) {
+        if (sceneType == FloorPlanSceneType.THREE_D) {
+            return ChatCommandSceneType.THREE_D;
+        }
+        return ChatCommandSceneType.TWO_D;
+    }
+
+    private String extractUserInstruction(JsonNode layoutNode) {
+        String userInstruction = extractOptionalText(layoutNode, LAYOUT_USER_INSTRUCTION_FIELD_NAME);
+        if (userInstruction != null) {
+            return userInstruction;
+        }
+
+        String message = extractOptionalText(layoutNode, LAYOUT_MESSAGE_FIELD_NAME);
+        if (message != null) {
+            return message;
+        }
+
+        return DEFAULT_USER_INSTRUCTION;
+    }
+
+    private JsonNode extractLayoutNode(JsonNode syncPayload) {
+        if (syncPayload == null || syncPayload.isNull()) {
+            return null;
+        }
+
+        JsonNode layoutNode = syncPayload.get(LAYOUT_FIELD_NAME);
+        if (layoutNode == null || layoutNode.isNull() || !layoutNode.isObject()) {
+            return null;
+        }
+        return layoutNode;
+    }
+
+    private JsonNode extractOptionalObjectNode(JsonNode node, String fieldName) {
+        if (node == null || node.isNull() || !node.isObject()) {
+            return null;
+        }
+        JsonNode child = node.get(fieldName);
+        if (child == null || child.isNull()) {
+            return null;
+        }
+        return child;
+    }
+
+    private String extractOptionalText(JsonNode node, String fieldName) {
+        if (node == null || node.isNull() || !node.isObject()) {
+            return null;
+        }
+        JsonNode child = node.get(fieldName);
+        if (child == null || child.isNull()) {
+            return null;
+        }
+        String text = child.asText();
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        return text.trim();
+    }
+
+    private UUID parseRevisionIdOrThrow(String revisionId) {
+        if (revisionId == null || revisionId.isBlank()) {
+            throw new CustomException(
+                    ErrorCode.IFC_EDIT_SOURCE_NOT_FOUND,
+                    "ifcedit 연동에는 UUID 형식의 base revisionId가 필요합니다."
+            );
+        }
+
+        try {
+            return UUID.fromString(revisionId.trim());
+        } catch (IllegalArgumentException exception) {
+            throw new CustomException(
+                    ErrorCode.IFC_EDIT_SOURCE_NOT_FOUND,
+                    "ifcedit 연동에는 UUID 형식의 base revisionId가 필요합니다."
+            );
+        }
     }
 
     private void validateRealtimePayloadOrThrow(FloorPlanRealtimeUpdateRequest request) {

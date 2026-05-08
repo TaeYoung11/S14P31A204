@@ -2,9 +2,13 @@ package com.a204.batang.domain.workspace.service;
 
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.service.ProjectAccessService;
+import com.a204.batang.domain.ifcedit.dto.LlmIfcEditRequest;
+import com.a204.batang.domain.ifcedit.service.ThreeDLlmIfcEditCommandService;
+import com.a204.batang.domain.ifcedit.service.TwoDLlmIfcEditCommandService;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
+import com.a204.batang.domain.workspace.dto.FloorPlanSceneType;
 import com.a204.batang.domain.workspace.dto.FloorPlanRedoRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanUndoRequest;
 import com.a204.batang.domain.workspace.dto.PublishFloorPlanUpdatedRequest;
@@ -50,6 +54,12 @@ class WorkspaceFloorPlanRealtimeServiceTest {
     @Mock
     private WorkspaceBubbleSnapshotRedisRepository workspaceBubbleSnapshotRedisRepository;
 
+    @Mock
+    private TwoDLlmIfcEditCommandService twoDLlmIfcEditCommandService;
+
+    @Mock
+    private ThreeDLlmIfcEditCommandService threeDLlmIfcEditCommandService;
+
     private WorkspaceFloorPlanRealtimeService workspaceFloorPlanRealtimeService;
     private ObjectMapper objectMapper;
 
@@ -66,6 +76,8 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 projectAccessService,
                 bubbleSnapshotHelper,
                 workspaceBubbleSnapshotRedisRepository,
+                twoDLlmIfcEditCommandService,
+                threeDLlmIfcEditCommandService,
                 simpMessagingTemplate,
                 objectMapper
         );
@@ -75,7 +87,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         Project project = Project.create("floor-plan-test", "desc");
         workspace = ProjectWorkspace.create(project);
         ReflectionTestUtils.setField(workspace, "projectId", projectId);
-        ReflectionTestUtils.setField(workspace, "currentRevision", "rev-100");
+        ReflectionTestUtils.setField(workspace, "currentRevision", UUID.randomUUID().toString());
         ReflectionTestUtils.setField(
                 workspace,
                 "ifcStorageUrl",
@@ -94,7 +106,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         40.0,
                         3000.0,
                         4000.0,
-                        "거실",
+                        "living-room",
                         "LIVING",
                         84.5,
                         "#ffffff"
@@ -106,9 +118,10 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 )),
                 0,
                 null,
+                FloorPlanSceneType.TWO_D,
                 objectMapper.readTree("""
                         {
-                          "rooms": [{"bubbleId": "bubble-1", "label": "거실"}],
+                          "rooms": [{"bubbleId": "bubble-1", "label": "living-room"}],
                           "walls": [],
                           "openings": []
                         }
@@ -120,6 +133,16 @@ class WorkspaceFloorPlanRealtimeServiceTest {
 
         workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
 
+        ArgumentCaptor<LlmIfcEditRequest> llmRequestCaptor = ArgumentCaptor.forClass(LlmIfcEditRequest.class);
+        verify(twoDLlmIfcEditCommandService).createTwoDLlmIfcEdit(eq(projectId), eq(currentUserId), llmRequestCaptor.capture());
+        verifyNoInteractions(threeDLlmIfcEditCommandService);
+
+        LlmIfcEditRequest llmRequest = llmRequestCaptor.getValue();
+        assertThat(llmRequest.baseRevisionId()).isNotNull();
+        assertThat(llmRequest.sourceSceneType()).isEqualTo("IFC_MODEL");
+        assertThat(llmRequest.sourceScene()).isNotNull();
+        assertThat(llmRequest.sourceScene().get("baseIndex").asInt()).isEqualTo(0);
+
         ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
         verify(simpMessagingTemplate).convertAndSend(
                 eq("/topic/project/%s/floor-plan/sync".formatted(projectId)),
@@ -129,11 +152,46 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         FloorPlanProjectSyncResponse response = responseCaptor.getValue();
         assertThat(response.action()).isEqualTo("FLOOR_PLAN_PROCESSING");
         assertThat(response.projectId()).isEqualTo(projectId);
-        assertThat(response.revisionId()).isEqualTo("rev-100");
+        assertThat(response.revisionId()).isEqualTo(workspace.getCurrentRevision());
         assertThat(response.s3Url()).isNull();
         assertThat(response.floorPlanPayloadJson().get("baseIndex").asInt()).isEqualTo(0);
-        assertThat(response.floorPlanPayloadJson().get("revisionId").asText()).isEqualTo("rev-100");
+        assertThat(response.floorPlanPayloadJson().get("revisionId").asText()).isEqualTo(workspace.getCurrentRevision());
         assertThat(response.updatedAt()).isNotNull();
+    }
+
+    @Test
+    void relayFloorPlanDraft_routesToThreeDLlmServiceWhenSceneTypeIsThreeD() throws Exception {
+        FloorPlanRealtimeUpdateRequest request = new FloorPlanRealtimeUpdateRequest(
+                List.of(new BubbleUpdateRequest.BubbleData(
+                        "bubble-1",
+                        10.0,
+                        20.0,
+                        30.0,
+                        40.0,
+                        3000.0,
+                        4000.0,
+                        "living-room",
+                        "LIVING",
+                        84.5,
+                        "#ffffff"
+                )),
+                List.of(),
+                0,
+                null,
+                FloorPlanSceneType.THREE_D,
+                objectMapper.readTree("""
+                        {
+                          "sceneType": "THREE_D"
+                        }
+                        """)
+        );
+
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+
+        workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
+
+        verify(threeDLlmIfcEditCommandService).createThreeDLlmIfcEdit(eq(projectId), eq(currentUserId), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -147,7 +205,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         40.0,
                         3000.0,
                         4000.0,
-                        "거실",
+                        "living-room",
                         "LIVING",
                         84.5,
                         "#ffffff"
@@ -159,6 +217,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 )),
                 0,
                 "rev-200",
+                FloorPlanSceneType.TWO_D,
                 null
         );
 
