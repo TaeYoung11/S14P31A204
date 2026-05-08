@@ -133,10 +133,14 @@ class LLM3DEngine:
             return self._repair_or_replace(user_text, command)
         except InstructorRetryException:
             logger.warning(f"[LLM3DEngine] 파싱 실패 → 재질문 응답으로 대체: {user_text!r}")
-            return self._heuristic_parse(user_text)
+            return self.parse_command_heuristic(user_text)
         except Exception as exc:
             logger.error(f"[LLM3DEngine] 파싱 실패: {exc}", exc_info=True)
             raise
+
+    def parse_command_heuristic(self, user_text: str) -> LLM3DCommand:
+        """Parse a command without calling the LLM, for deterministic local tests."""
+        return self._heuristic_parse(user_text)
 
     def _repair_or_replace(self, user_text: str, command: LLM3DCommand) -> LLM3DCommand:
         if not command.raw_instruction:

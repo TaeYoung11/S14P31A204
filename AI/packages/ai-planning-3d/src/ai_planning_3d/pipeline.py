@@ -202,6 +202,18 @@ class LLM3DPipeline:
             elements.extend(list(getattr(rel, "RelatedElements", []) or []))
         return elements
 
+    def _storey_spaces(self, storey: ifcopenshell.entity_instance) -> list[Any]:
+        spaces: list[Any] = []
+        for rel in getattr(storey, "ContainsElements", []) or []:
+            for element in getattr(rel, "RelatedElements", []) or []:
+                if element.is_a("IfcSpace"):
+                    spaces.append(element)
+        for rel in getattr(storey, "IsDecomposedBy", []) or []:
+            for element in getattr(rel, "RelatedObjects", []) or []:
+                if element.is_a("IfcSpace"):
+                    spaces.append(element)
+        return spaces
+
     def _bbox_for_elements(self, elements: list[Any]) -> dict[str, float] | None:
         xs: list[float] = []
         ys: list[float] = []
@@ -231,8 +243,10 @@ class LLM3DPipeline:
         if not space_name:
             return None
         wanted = space_name.replace(" ", "").lower()
+        model = self.query_engine.get_model()
+        spaces = self._storey_spaces(storey) or model.by_type("IfcSpace")
         candidates: list[Any] = []
-        for space in self.query_engine.get_model().by_type("IfcSpace"):
+        for space in spaces:
             name = str(getattr(space, "Name", "") or "")
             normalized = name.replace(" ", "").lower()
             if wanted in normalized or normalized in wanted:
@@ -240,7 +254,7 @@ class LLM3DPipeline:
         if not candidates and wanted == "livingroom":
             candidates = [
                 space
-                for space in self.query_engine.get_model().by_type("IfcSpace")
+                for space in spaces
                 if "living" in str(getattr(space, "Name", "") or "").lower()
             ]
         if not candidates:
@@ -669,7 +683,7 @@ class LLM3DPipeline:
         elif etype == LLM3DElementType.STAIR:
             stair_params = {
                 k: v for k, v in params.items()
-                if k not in ("ridge_height_mm", "shape_preset")
+                if k not in ("ridge_height_mm", "shape_preset") and v is not None
             }
             entity = create_stair_preset(model, storey, **stair_params)
         else:

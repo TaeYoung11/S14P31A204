@@ -21,7 +21,7 @@ _OUT_DIR = Path.home() / "Downloads" / "batang_history"
 
 def _use_heuristic_chat_parser(pipeline: LLM3DPipeline) -> None:
     async def parse(user_text: str, ifc_context: str | None = None):  # noqa: ARG001
-        return pipeline.engine._heuristic_parse(user_text)
+        return pipeline.engine.parse_command_heuristic(user_text)
 
     pipeline.engine.parse_command = parse  # type: ignore[method-assign]
 
@@ -42,6 +42,11 @@ async def run_stair_chat_commands(
     records: list[dict[str, object]] = []
 
     for index, command in enumerate(commands, start=1):
+        command_output_path = output_path
+        if len(commands) > 1:
+            command_output_path = output_path.with_name(
+                f"{output_path.stem}_{index:02d}{output_path.suffix}"
+            )
         pipeline = LLM3DPipeline(ifc_path=str(current_ifc))
         _use_heuristic_chat_parser(pipeline)
         before_stairs = _stair_count(current_ifc)
@@ -64,6 +69,7 @@ async def run_stair_chat_commands(
         }
 
         if preview.get("status") != "preview_ready":
+            record["apply_status"] = "preview_blocked"
             record["not_applied_reason"] = (
                 preview.get("summary")
                 or "Preview did not reach preview_ready, so IFC was not written."
@@ -73,16 +79,16 @@ async def run_stair_chat_commands(
 
         result = await pipeline.execute_apply(
             str(preview["session_id"]),
-            output_path=str(output_path),
+            output_path=str(command_output_path),
         )
         record["apply_status"] = result.get("status")
         record["apply_summary"] = result.get("summary")
 
-        if result.get("status") == "applied" and output_path.exists():
-            current_ifc = output_path
+        if result.get("status") == "applied" and command_output_path.exists():
+            current_ifc = command_output_path
             record["ifc_written"] = True
-            record["output_ifc"] = str(output_path)
-            record["after_stairs"] = _stair_count(output_path)
+            record["output_ifc"] = str(command_output_path)
+            record["after_stairs"] = _stair_count(command_output_path)
         else:
             record["not_applied_reason"] = result.get("summary") or "IFC was not written."
 
@@ -115,7 +121,7 @@ async def test_chat_stair_command_reports_apply_or_block_reason(tmp_path):
         assert record["output_ifc"] == str(output_ifc)
     else:
         assert not output_ifc.exists()
-        assert record["apply_status"] == "not_applied"
+        assert record["apply_status"] in {"not_applied", "preview_blocked"}
         assert record["not_applied_reason"]
 
 
