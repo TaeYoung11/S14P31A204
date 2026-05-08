@@ -1,9 +1,11 @@
-import { useState } from 'react'
+// 로그인 페이지의 이메일 조합, 기억하기, 제출 상태를 관리합니다.
+import { useMemo, useState, type FormEvent } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 
 const REMEMBERED_EMAIL_KEY = 'batang-remembered-email'
-const EMAIL_TEMPLATES = ['designer@batang.io', 'customer@batang.io', 'name@company.com'] as const
+const EMAIL_DOMAIN_OPTIONS = ['gmail.com', 'naver.com', 'kakao.com'] as const
+type EmailDomainOption = (typeof EMAIL_DOMAIN_OPTIONS)[number]
 
 interface LoginLocationState {
   email?: string
@@ -15,19 +17,45 @@ const readRememberedEmail = () => {
   return window.localStorage.getItem(REMEMBERED_EMAIL_KEY) ?? ''
 }
 
+const splitEmail = (email: string) => {
+  const normalizedEmail = email.trim().toLowerCase()
+  const atIndex = normalizedEmail.indexOf('@')
+  const localPart = atIndex >= 0 ? normalizedEmail.slice(0, atIndex) : normalizedEmail
+  const domain = atIndex >= 0 ? normalizedEmail.slice(atIndex + 1) : ''
+  const isKnownDomain = EMAIL_DOMAIN_OPTIONS.includes(domain as EmailDomainOption)
+
+  return {
+    localPart,
+    domain: domain || 'gmail.com',
+    isCustomDomain: Boolean(domain) && !isKnownDomain,
+  }
+}
+
+const buildEmail = (localPart: string, domain: string) => {
+  const normalizedLocalPart = localPart.trim()
+  const normalizedDomain = domain.trim()
+  if (!normalizedLocalPart || !normalizedDomain) return ''
+  return `${normalizedLocalPart}@${normalizedDomain}`.toLowerCase()
+}
+
 export const useLoginPage = () => {
   const { login, isLoggingIn, loginError } = useAuth()
   const location = useLocation()
   const locationState = location.state as LoginLocationState | null
+  const stateEmail = locationState?.email?.trim() ?? ''
+  const initialEmail = stateEmail || readRememberedEmail()
+  const initialEmailParts = splitEmail(initialEmail)
 
-  const rememberedEmail = readRememberedEmail()
-
-  const [email, setEmail] = useState(locationState?.email ?? rememberedEmail)
+  const [emailLocalPart, setEmailLocalPart] = useState(initialEmailParts.localPart)
+  const [emailDomain, setEmailDomain] = useState(initialEmailParts.domain)
+  const [isCustomEmailDomain, setIsCustomEmailDomain] = useState(initialEmailParts.isCustomDomain)
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
-  const [rememberEmail, setRememberEmail] = useState(Boolean(locationState?.email ?? rememberedEmail))
+  const [rememberEmail, setRememberEmail] = useState(Boolean(initialEmail))
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const email = useMemo(() => buildEmail(emailLocalPart, emailDomain), [emailDomain, emailLocalPart])
+
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
     const normalizedEmail = email.trim().toLowerCase()
 
@@ -44,17 +72,29 @@ export const useLoginPage = () => {
 
   return {
     email,
+    emailLocalPart,
+    emailDomain,
+    isCustomEmailDomain,
+    emailDomainOptions: EMAIL_DOMAIN_OPTIONS,
     password,
     showPw,
     rememberEmail,
     loginError,
     isLoggingIn,
-    emailTemplates: EMAIL_TEMPLATES,
-    loginNotice: locationState?.withdrawn ? '회원탈퇴가 완료되었습니다.' : '',
-    setEmail,
+    loginNotice: locationState?.withdrawn ? '회원 탈퇴가 완료되었습니다. 다시 로그인해 주세요.' : '',
+    setEmailLocalPart,
+    setEmailDomain,
+    selectEmailDomain: (domain: EmailDomainOption | 'custom') => {
+      if (domain === 'custom') {
+        setIsCustomEmailDomain(true)
+        setEmailDomain('')
+        return
+      }
+      setIsCustomEmailDomain(false)
+      setEmailDomain(domain)
+    },
     setPassword,
     setRememberEmail,
-    selectEmailTemplate: (nextEmail: string) => setEmail(nextEmail),
     togglePasswordVisibility: () => setShowPw((prev) => !prev),
     handleSubmit,
   }
