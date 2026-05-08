@@ -2,9 +2,8 @@ package com.a204.batang.domain.workspace.service;
 
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.service.ProjectAccessService;
-import com.a204.batang.domain.ifcedit.dto.LlmIfcEditRequest;
-import com.a204.batang.domain.ifcedit.service.ThreeDLlmIfcEditCommandService;
-import com.a204.batang.domain.ifcedit.service.TwoDLlmIfcEditCommandService;
+import com.a204.batang.domain.ifcedit.dto.DirectIfcEditRequest;
+import com.a204.batang.domain.ifcedit.service.DirectIfcEditCommandService;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
@@ -55,10 +54,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
     private WorkspaceBubbleSnapshotRedisRepository workspaceBubbleSnapshotRedisRepository;
 
     @Mock
-    private TwoDLlmIfcEditCommandService twoDLlmIfcEditCommandService;
-
-    @Mock
-    private ThreeDLlmIfcEditCommandService threeDLlmIfcEditCommandService;
+    private DirectIfcEditCommandService directIfcEditCommandService;
 
     private WorkspaceFloorPlanRealtimeService workspaceFloorPlanRealtimeService;
     private ObjectMapper objectMapper;
@@ -76,8 +72,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 projectAccessService,
                 bubbleSnapshotHelper,
                 workspaceBubbleSnapshotRedisRepository,
-                twoDLlmIfcEditCommandService,
-                threeDLlmIfcEditCommandService,
+                directIfcEditCommandService,
                 simpMessagingTemplate,
                 objectMapper
         );
@@ -133,15 +128,14 @@ class WorkspaceFloorPlanRealtimeServiceTest {
 
         workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
 
-        ArgumentCaptor<LlmIfcEditRequest> llmRequestCaptor = ArgumentCaptor.forClass(LlmIfcEditRequest.class);
-        verify(twoDLlmIfcEditCommandService).createTwoDLlmIfcEdit(eq(projectId), eq(currentUserId), llmRequestCaptor.capture());
-        verifyNoInteractions(threeDLlmIfcEditCommandService);
+        ArgumentCaptor<DirectIfcEditRequest> directRequestCaptor = ArgumentCaptor.forClass(DirectIfcEditRequest.class);
+        verify(directIfcEditCommandService).createDirectIfcEdit(eq(projectId), eq(currentUserId), directRequestCaptor.capture());
 
-        LlmIfcEditRequest llmRequest = llmRequestCaptor.getValue();
-        assertThat(llmRequest.baseRevisionId()).isNotNull();
-        assertThat(llmRequest.sourceSceneType()).isEqualTo("IFC_MODEL");
-        assertThat(llmRequest.sourceScene()).isNotNull();
-        assertThat(llmRequest.sourceScene().get("baseIndex").asInt()).isEqualTo(0);
+        DirectIfcEditRequest directRequest = directRequestCaptor.getValue();
+        assertThat(directRequest.baseRevisionId()).isNotNull();
+        assertThat(directRequest.sourceSceneType()).isEqualTo("IFC_MODEL");
+        assertThat(directRequest.engineRequest()).isNotNull();
+        assertThat(directRequest.engineRequest().get("baseIndex").asInt()).isEqualTo(0);
 
         ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
         verify(simpMessagingTemplate).convertAndSend(
@@ -160,7 +154,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
     }
 
     @Test
-    void relayFloorPlanDraft_routesToThreeDLlmServiceWhenSceneTypeIsThreeD() throws Exception {
+    void relayFloorPlanDraft_routesToDirectIfcEditServiceWhenSceneTypeIsThreeD() throws Exception {
         FloorPlanRealtimeUpdateRequest request = new FloorPlanRealtimeUpdateRequest(
                 List.of(new BubbleUpdateRequest.BubbleData(
                         "bubble-1",
@@ -191,7 +185,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
 
         workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
 
-        verify(threeDLlmIfcEditCommandService).createThreeDLlmIfcEdit(eq(projectId), eq(currentUserId), org.mockito.ArgumentMatchers.any());
+        verify(directIfcEditCommandService).createDirectIfcEdit(eq(projectId), eq(currentUserId), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
