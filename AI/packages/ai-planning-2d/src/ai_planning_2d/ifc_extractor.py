@@ -12,6 +12,7 @@ from .command import (
     BoundaryContext,
     DoorContext,
     IFCContext,
+    OpeningContext,
     SpaceContext,
     StoreyContext,
     WallContext,
@@ -55,6 +56,7 @@ def extract_ifc_context(ifc_path: str) -> IFCContext:
     boundaries = _extract_boundaries(spaces)
     walls = _extract_walls(ifc, storey_floors, wall_to_spaces)
     wall_map = {wall["id"]: wall for wall in walls}
+    openings = _extract_openings(ifc, storey_floors, wall_map)
     doors = _extract_doors(ifc, storey_floors, wall_map)
     windows = _extract_windows(ifc, storey_floors, wall_map, spaces, boundaries)
     adjacency = _extract_adjacency(wall_to_spaces)
@@ -63,6 +65,7 @@ def extract_ifc_context(ifc_path: str) -> IFCContext:
         "spaces": spaces,
         "adjacency": adjacency,
         "walls": walls,
+        "openings": openings,
         "doors": doors,
         "windows": windows,
         "boundaries": boundaries,
@@ -248,6 +251,46 @@ def _extract_doors(
             }
         )
     return doors
+
+
+def _extract_openings(
+    ifc: ifcopenshell.file,
+    storey_floors: dict[str, int],
+    wall_map: dict[str, WallContext],
+) -> list[OpeningContext]:
+    openings: list[OpeningContext] = []
+    for opening in ifc.by_type("IfcOpeningElement"):
+        host_wall_id = _get_opening_host_wall_id(opening)
+        if not host_wall_id or host_wall_id not in wall_map:
+            continue
+
+        wall = wall_map[host_wall_id]
+        floor = _get_floor(opening, storey_floors) or wall["floor"]
+        filled_by_id = None
+        filled_by_kind = None
+        for rel in getattr(opening, "HasFillings", []) or []:
+            filler = getattr(rel, "RelatedBuildingElement", None)
+            if filler is None:
+                continue
+            filled_by_id = filler.GlobalId
+            if filler.is_a("IfcDoor"):
+                filled_by_kind = "door"
+            elif filler.is_a("IfcWindow"):
+                filled_by_kind = "window"
+            else:
+                filled_by_kind = filler.is_a()
+            break
+
+        openings.append(
+            {
+                "id": opening.GlobalId,
+                "floor": floor,
+                "host_wall_id": host_wall_id,
+                "filled_by_id": filled_by_id,
+                "filled_by_kind": filled_by_kind,
+            }
+        )
+    return openings
 
 
 def _extract_windows(
@@ -578,10 +621,17 @@ def _get_host_wall_id(element: Any) -> str | None:
         opening = getattr(fills, "RelatingOpeningElement", None)
         if opening is None:
             continue
-        for rel in getattr(opening, "VoidsElements", []) or []:
-            host = getattr(rel, "RelatingBuildingElement", None)
-            if host is not None and host.is_a("IfcWall"):
-                return host.GlobalId
+        host_wall_id = _get_opening_host_wall_id(opening)
+        if host_wall_id is not None:
+            return host_wall_id
+    return None
+
+
+def _get_opening_host_wall_id(opening: Any) -> str | None:
+    for rel in getattr(opening, "VoidsElements", []) or []:
+        host = getattr(rel, "RelatingBuildingElement", None)
+        if host is not None and host.is_a("IfcWall"):
+            return host.GlobalId
     return None
 
 

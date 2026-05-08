@@ -10,9 +10,11 @@ from .geometry import polygon_perimeter_mm
 def validate_ifc_output_context(ifc_context: IFCContext) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     wall_by_id = {wall["id"]: wall for wall in ifc_context.get("walls", [])}
+    opening_by_id = {opening["id"]: opening for opening in ifc_context.get("openings", [])}
 
     issues.extend(_validate_duplicate_wall_segments(ifc_context))
-    issues.extend(_validate_orphan_fillers(ifc_context, wall_by_id))
+    issues.extend(_validate_orphan_openings(ifc_context, wall_by_id))
+    issues.extend(_validate_orphan_fillers(ifc_context, wall_by_id, opening_by_id))
     issues.extend(_validate_opening_positions_within_host_walls(ifc_context, wall_by_id))
     issues.extend(_validate_space_perimeter_coverage(ifc_context))
     return issues
@@ -45,9 +47,95 @@ def _validate_duplicate_wall_segments(ifc_context: IFCContext) -> list[Validatio
     return issues
 
 
+def _validate_orphan_openings(
+    ifc_context: IFCContext,
+    wall_by_id: dict[str, dict],
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    doors_by_id = {door["id"] for door in ifc_context.get("doors", [])}
+    windows_by_id = {window["id"] for window in ifc_context.get("windows", [])}
+    for opening in ifc_context.get("openings", []):
+        host_wall_id = opening["host_wall_id"]
+        if host_wall_id not in wall_by_id:
+            issues.append(
+                ValidationIssue(
+                    code="orphan_opening_missing_host_wall",
+                    severity=ValidationSeverity.ERROR,
+                    message=(
+                        f"Opening {opening['id']} references missing host wall {host_wall_id}."
+                    ),
+                    context={
+                        "opening_id": opening["id"],
+                        "host_wall_id": host_wall_id,
+                    },
+                )
+            )
+        filled_by_id = opening["filled_by_id"]
+        filled_by_kind = opening["filled_by_kind"]
+        if filled_by_id is None or filled_by_kind is None:
+            issues.append(
+                ValidationIssue(
+                    code="opening_without_filler",
+                    severity=ValidationSeverity.ERROR,
+                    message=f"Opening {opening['id']} has no filler.",
+                    context={
+                        "opening_id": opening["id"],
+                        "host_wall_id": host_wall_id,
+                    },
+                )
+            )
+            continue
+        if filled_by_kind == "door" and filled_by_id not in doors_by_id:
+            issues.append(
+                ValidationIssue(
+                    code="orphan_opening_missing_filler",
+                    severity=ValidationSeverity.ERROR,
+                    message=f"Opening {opening['id']} references missing door {filled_by_id}.",
+                    context={
+                        "opening_id": opening["id"],
+                        "filler_kind": filled_by_kind,
+                        "filler_id": filled_by_id,
+                    },
+                )
+            )
+        if filled_by_kind == "window" and filled_by_id not in windows_by_id:
+            issues.append(
+                ValidationIssue(
+                    code="orphan_opening_missing_filler",
+                    severity=ValidationSeverity.ERROR,
+                    message=(
+                        f"Opening {opening['id']} references missing window {filled_by_id}."
+                    ),
+                    context={
+                        "opening_id": opening["id"],
+                        "filler_kind": filled_by_kind,
+                        "filler_id": filled_by_id,
+                    },
+                )
+            )
+        elif filled_by_kind not in ("door", "window"):
+            issues.append(
+                ValidationIssue(
+                    code="unknown_filler_kind",
+                    severity=ValidationSeverity.WARNING,
+                    message=(
+                        f"Opening {opening['id']} references unsupported filler kind "
+                        f"{filled_by_kind}."
+                    ),
+                    context={
+                        "opening_id": opening["id"],
+                        "filler_kind": filled_by_kind,
+                        "filler_id": filled_by_id,
+                    },
+                )
+            )
+    return issues
+
+
 def _validate_orphan_fillers(
     ifc_context: IFCContext,
     wall_by_id: dict[str, dict],
+    opening_by_id: dict[str, dict],
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     for entity_kind in ("doors", "windows"):
@@ -61,6 +149,27 @@ def _validate_orphan_fillers(
                         message=(
                             f"{entity_kind[:-1].capitalize()} {filler['id']} references "
                             f"missing host wall {host_wall_id}."
+                        ),
+                        context={
+                            "entity_kind": entity_kind[:-1],
+                            "entity_id": filler["id"],
+                            "host_wall_id": host_wall_id,
+                        },
+                    )
+                )
+            matching_openings = [
+                opening
+                for opening in opening_by_id.values()
+                if opening["filled_by_id"] == filler["id"]
+            ]
+            if not matching_openings:
+                issues.append(
+                    ValidationIssue(
+                        code="orphan_filler_missing_opening",
+                        severity=ValidationSeverity.ERROR,
+                        message=(
+                            f"{entity_kind[:-1].capitalize()} {filler['id']} is not bound "
+                            "to any opening."
                         ),
                         context={
                             "entity_kind": entity_kind[:-1],

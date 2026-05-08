@@ -59,6 +59,14 @@ class WindowContext(TypedDict):
     position: int
 
 
+class OpeningContext(TypedDict):
+    id: str
+    floor: int
+    host_wall_id: str
+    filled_by_id: str | None
+    filled_by_kind: str | None
+
+
 class BoundaryContext(TypedDict):
     floor: int
     outer_polygon: list[tuple[float, float]]
@@ -75,6 +83,7 @@ class IFCContext(TypedDict):
     spaces: list[SpaceContext]
     adjacency: list[AdjacencyContext]
     walls: list[WallContext]
+    openings: list[OpeningContext]
     doors: list[DoorContext]
     windows: list[WindowContext]
     boundaries: list[BoundaryContext]
@@ -86,6 +95,7 @@ __all__ = [
     "BoundaryContext",
     "DoorContext",
     "IFCContext",
+    "OpeningContext",
     "SpaceContext",
     "StoreyContext",
     "WallContext",

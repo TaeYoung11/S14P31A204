@@ -6,6 +6,10 @@ This document records the pre-PlanV14 viewer-regression baseline for:
 
 It must be updated before PR-A implementation begins.
 
+Current repository state on 2026-05-08:
+- `scripts/House_KR_nobathroom_insert_toilet_v13.ifc` is not present in this repo.
+- The baseline below is therefore blocked at fixture availability, not at validator execution.
+
 ## Required Checks
 Record pass/fail and notes for:
 1. no floating products outside floor bbox
@@ -19,13 +23,14 @@ Record pass/fail and notes for:
 
 | Check | Status | Notes |
 | --- | --- | --- |
-| no floating products outside floor bbox | pending |  |
-| no duplicate wall segments | pending |  |
-| no orphan openings | pending |  |
-| no orphan fillers | pending |  |
-| opening placement is wall-local | pending |  |
-| resulting-space perimeter coverage | pending |  |
+| no floating products outside floor bbox | blocked | Target fixture `scripts/House_KR_nobathroom_insert_toilet_v13.ifc` is missing from repo. |
+| no duplicate wall segments | blocked | Target fixture `scripts/House_KR_nobathroom_insert_toilet_v13.ifc` is missing from repo. |
+| no orphan openings | blocked | Target fixture `scripts/House_KR_nobathroom_insert_toilet_v13.ifc` is missing from repo. |
+| no orphan fillers | blocked | Target fixture `scripts/House_KR_nobathroom_insert_toilet_v13.ifc` is missing from repo. |
+| opening placement is wall-local | blocked | Target fixture `scripts/House_KR_nobathroom_insert_toilet_v13.ifc` is missing from repo. |
+| resulting-space perimeter coverage | blocked | Target fixture `scripts/House_KR_nobathroom_insert_toilet_v13.ifc` is missing from repo. |
 
 ## Interpretation
 - This document is not a success report.
 - It is the baseline that PR-B must beat.
+- Before viewer-quality comparison can be re-run, the missing v13 fixture must be restored or re-generated.

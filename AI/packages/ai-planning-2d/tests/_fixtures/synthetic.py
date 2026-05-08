@@ -70,6 +70,15 @@ def make_minimal_ifc_context() -> IFCContext:
                 "kind": "EXTERIOR",
             },
         ],
+        "openings": [
+            {
+                "id": "opening-1",
+                "floor": 1,
+                "host_wall_id": "wall-1",
+                "filled_by_id": "door-1",
+                "filled_by_kind": "door",
+            }
+        ],
         "doors": [
             {
                 "id": "door-1",

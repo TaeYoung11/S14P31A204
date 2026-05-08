@@ -4,7 +4,7 @@
 - IFC extraction to `IFCContext`
   - IFC4-family files are accepted
   - meter-only length units are enforced
-  - spaces, walls, doors, windows, boundaries, and storeys are extracted
+  - spaces, walls, openings, doors, windows, boundaries, and storeys are extracted
 - 2D preview/apply pipeline
   - natural-language command parsing
   - command batch generation
@@ -22,6 +22,7 @@
   - `TWO_D_LLM_COMMAND_QUEUE`
   - `_WORKER_TYPE_TO_QUEUE["TWO_D_LLM"]`
 - 2D worker startup smoke coverage now includes the default `RabbitMQConsumer` init path
+- 2D worker shutdown path now installs SIGTERM / SIGINT handlers
 - top-level dispatcher and Docker image now include 2D worker support
   - `main.py` dispatches `WORKER_TYPE=TWO_D_LLM`
   - `Dockerfile` installs `ai-planning-2d`
@@ -30,6 +31,7 @@
 - Production-grade 2D worker runtime is not fully closed yet.
   - queue registry is fixed in code
   - repository-side Docker path is updated
+  - graceful shutdown is handled in worker bootstrap
   - external K8s/deploy manifest verification is still pending
 - House_KR public-toilet demo is still not visually correct in the viewer.
   - duplicated walls
@@ -82,6 +84,10 @@
 
 ## Validation Baseline
 - `ruff check`
+- `packages/ai-planning-2d/tests/test_plan_v14.py`
+- `packages/ai-planning-2d/tests/test_validators_foundation.py`
+- `packages/ai-planning-2d/tests/test_plan_validators.py`
+- `packages/ai-planning-2d/tests/test_ifc_validators.py`
 - `packages/ai-planning-2d/tests/test_worker.py`
 - `packages/ai-planning-2d/tests/test_critique.py`
 - `packages/ai-planning-2d/tests/test_toilet_demo.py`

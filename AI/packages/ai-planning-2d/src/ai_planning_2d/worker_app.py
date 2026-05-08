@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import signal
 from collections.abc import Callable, Sequence
+from types import FrameType
 from typing import Protocol, Self
 
 from ai_common.adapters.rabbitmq.kombu_client import get_command_queue
@@ -35,6 +37,8 @@ class EventPublisherContext(EventPublisher, Protocol):
 
 
 class ConsumerLike(Protocol):
+    should_stop: bool
+
     def run(self) -> None:
         """Run the underlying consumer loop."""
 
@@ -47,6 +51,19 @@ ConsumerFactory = Callable[..., ConsumerLike]
 
 def build_settings() -> WorkerSettings:
     return load_worker_settings(worker_type=WORKER_TYPE)
+
+
+def _install_shutdown_handlers(
+    consumer: ConsumerLike,
+    *,
+    logger: object,
+) -> None:
+    def _handle_shutdown(signum: int, _frame: FrameType | None) -> None:
+        getattr(logger, "info")("two_d_llm_worker_shutdown_signal", signum=signum)
+        setattr(consumer, "should_stop", True)
+
+    signal.signal(signal.SIGTERM, _handle_shutdown)
+    signal.signal(signal.SIGINT, _handle_shutdown)
 
 
 def run_two_d_llm_worker(
@@ -81,6 +98,7 @@ def run_two_d_llm_worker(
                 handler=worker.handle,
                 stop_after=1 if once else None,
             )
+            _install_shutdown_handlers(consumer, logger=logger)
             queue_name = get_command_queue(runtime_settings.worker_type).name
             logger.info(
                 "two_d_llm_worker_starting",

@@ -288,6 +288,21 @@ def _validate_circulation_reachability(
     issues: list[ValidationIssue] = []
     if not spaces or floor_entrance_space_id is None:
         return issues
+    space_by_id = {space.local_id: space for space in spaces}
+    if floor_entrance_space_id not in space_by_id:
+        issues.append(
+            ValidationIssue(
+                code="floor_entrance_space_missing",
+                severity=ValidationSeverity.ERROR,
+                message=(
+                    f"Floor entrance space {floor_entrance_space_id} is not present in plan."
+                ),
+                context={"space_local_id": floor_entrance_space_id},
+            )
+        )
+        return issues
+
+    opening_graph = _build_circulation_graph(opening_by_id)
 
     for space in spaces:
         if space.local_id == floor_entrance_space_id:
@@ -301,6 +316,21 @@ def _validate_circulation_reachability(
                     severity=ValidationSeverity.ERROR,
                     message=f"Space {space.local_id} is not linked to circulation.",
                     context={"space_local_id": space.local_id},
+                )
+            )
+            continue
+        if source_space not in space_by_id:
+            issues.append(
+                ValidationIssue(
+                    code="circulation_source_space_missing",
+                    severity=ValidationSeverity.ERROR,
+                    message=(
+                        f"Space {space.local_id} references missing source space {source_space}."
+                    ),
+                    context={
+                        "space_local_id": space.local_id,
+                        "source_space_local_id": source_space,
+                    },
                 )
             )
             continue
@@ -319,6 +349,7 @@ def _validate_circulation_reachability(
                     },
                 )
             )
+            continue
         if source_space == space.local_id:
             issues.append(
                 ValidationIssue(
@@ -328,7 +359,105 @@ def _validate_circulation_reachability(
                     context={"space_local_id": space.local_id},
                 )
             )
+            continue
+
+        opening = opening_by_id[via_opening]
+        linked_space_ids = _opening_linked_space_ids(opening)
+        if space.local_id not in linked_space_ids:
+            issues.append(
+                ValidationIssue(
+                    code="circulation_opening_missing_target_space_link",
+                    severity=ValidationSeverity.ERROR,
+                    message=(
+                        f"Opening {via_opening} does not link to target space {space.local_id}."
+                    ),
+                    context={
+                        "space_local_id": space.local_id,
+                        "opening_local_id": via_opening,
+                    },
+                )
+            )
+        if source_space not in linked_space_ids:
+            issues.append(
+                ValidationIssue(
+                    code="circulation_opening_missing_source_space_link",
+                    severity=ValidationSeverity.ERROR,
+                    message=(
+                        f"Opening {via_opening} does not link to source space {source_space}."
+                    ),
+                    context={
+                        "space_local_id": space.local_id,
+                        "source_space_local_id": source_space,
+                        "opening_local_id": via_opening,
+                    },
+                )
+            )
+
+    reachable = _bfs_reachable_space_ids(floor_entrance_space_id, opening_graph)
+    for space in spaces:
+        if space.local_id not in reachable:
+            issues.append(
+                ValidationIssue(
+                    code="space_unreachable_from_floor_entrance",
+                    severity=ValidationSeverity.ERROR,
+                    message=(
+                        f"Space {space.local_id} is not reachable from entrance space "
+                        f"{floor_entrance_space_id}."
+                    ),
+                    context={
+                        "space_local_id": space.local_id,
+                        "floor_entrance_space_id": floor_entrance_space_id,
+                    },
+                )
+            )
     return issues
+
+
+def _build_circulation_graph(
+    opening_by_id: dict[str, OpeningPlan],
+) -> dict[str, set[str]]:
+    graph: dict[str, set[str]] = {}
+    for opening in opening_by_id.values():
+        if opening.opening_kind != "door":
+            continue
+        linked_space_ids = sorted(_opening_linked_space_ids(opening))
+        for space_id in linked_space_ids:
+            graph.setdefault(space_id, set())
+        if len(linked_space_ids) < 2:
+            continue
+        for index, left_space_id in enumerate(linked_space_ids):
+            for right_space_id in linked_space_ids[index + 1 :]:
+                graph[left_space_id].add(right_space_id)
+                graph[right_space_id].add(left_space_id)
+    return graph
+
+
+def _opening_linked_space_ids(opening: OpeningPlan) -> set[str]:
+    return {
+        space_id
+        for space_id in {
+            opening.swing_in_space_local_id,
+            opening.opens_toward_space_local_id,
+            opening.serves_door_requirement_of_space_local_id,
+        }
+        if space_id is not None
+    }
+
+
+def _bfs_reachable_space_ids(
+    floor_entrance_space_id: str,
+    graph: dict[str, set[str]],
+) -> set[str]:
+    visited = {floor_entrance_space_id}
+    queue = [floor_entrance_space_id]
+    while queue:
+        current = queue.pop(0)
+        for neighbor in graph.get(current, set()):
+            if neighbor in visited:
+                continue
+            visited.add(neighbor)
+            queue.append(neighbor)
+    return visited
 
 
 def _segment_length_mm(start: tuple[float, float], end: tuple[float, float]) -> float:

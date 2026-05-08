@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import signal
 from pathlib import Path
 
 import pytest
@@ -790,3 +791,65 @@ def test_two_d_worker_app_default_consumer_resolves_queue(
     assert exit_code == 0
     assert run_calls == ["batang.2d-llm.command.queue"]
     assert fake_health.stopped is True
+
+
+def test_two_d_worker_app_installs_shutdown_handlers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WORKER_ID", "2d-worker-1")
+    monkeypatch.setenv("S3_BUCKET", "batang-artifacts")
+
+    class FakeHealth:
+        def stop(self) -> None:
+            return None
+
+    class FakePublisher(InMemoryPublisher):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    registered_handlers: dict[signal.Signals, object] = {}
+
+    class FakeConsumer:
+        def __init__(
+            self,
+            *,
+            settings: object,
+            worker_type: str,
+            handler: object,
+            stop_after: int | None = None,
+        ) -> None:
+            self.should_stop = False
+
+        def run(self) -> None:
+            return None
+
+    def _fake_signal(sig: signal.Signals, handler: object) -> None:
+        registered_handlers[sig] = handler
+
+    monkeypatch.setattr("ai_planning_2d.worker_app.signal.signal", _fake_signal)
+
+    consumer_holder: dict[str, FakeConsumer] = {}
+
+    def _consumer_factory(**kwargs: object) -> FakeConsumer:
+        consumer = FakeConsumer(**kwargs)
+        consumer_holder["consumer"] = consumer
+        return consumer
+
+    exit_code = run_two_d_llm_worker(
+        once=True,
+        health_server_factory=lambda _settings: FakeHealth(),
+        publisher_factory=lambda _settings: FakePublisher(),
+        storage_factory=lambda _settings: FakeStorageClient(),
+        consumer_factory=_consumer_factory,
+    )
+
+    assert exit_code == 0
+    assert signal.SIGTERM in registered_handlers
+    assert signal.SIGINT in registered_handlers
+
+    handler = registered_handlers[signal.SIGTERM]
+    handler(signal.SIGTERM, None)
+    assert consumer_holder["consumer"].should_stop is True

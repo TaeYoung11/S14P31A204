@@ -28,25 +28,30 @@ Target fixture:
 ## Measurement Template
 
 ### Big Room polygon
-- pending
+- `[(300.0, 5990.0), (7410.0, 5990.0), (7410.0, 9700.0), (300.0, 9700.0)]`
 
 ### Big Room area
-- pending
+- `26,378,100 mm^2`
 
 ### Exterior contact segments
-- pending
+- `[(7410.0, 9700.0) -> (300.0, 9700.0)]` length `7110 mm`
+- `[(300.0, 9700.0) -> (300.0, 5990.0)]` length `3710 mm`
+- These were derived from the Big Room polygon boundary intersected with the floor outer boundary.
 
 ### Corridor adjacency segments
-- pending
+- Partition wall `3jjW3rL656ex34Gws22EfM`
+- Segment `[(0.0, 5750.0) -> (7410.0, 5750.0)]` length `7410 mm`
+- Note: the extracted room polygons do not touch directly because wall thickness remains between them, so this is recorded from the shared wall context instead of polygon-boundary overlap.
 
 ### Entrance relationship
-- pending
+- No exterior door was extracted on the Big Room exterior-contact segments.
+- Current fixture indicates no direct entrance conflict on the Big Room exterior edge.
 
 ### Existing corridor-facing doors
-- pending
+- `['2qiPPF3FrF8OIqfrKiSUqm']`
 
 ### Existing exterior windows
-- pending
+- `['1srAI$R4T8ihLXSNHmUSET', '1TAI4ouKX4Xx4lBDZIu5qM']`
 
 ## Notes
 - This document should contain measured values, not intent.
