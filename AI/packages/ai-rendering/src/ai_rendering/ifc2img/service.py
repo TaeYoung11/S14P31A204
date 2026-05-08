@@ -501,6 +501,14 @@ def run_ifc2img_photo_pipeline(
     )
 
 
+def validate_ifc2img_worker_request(request: Ifc2ImgWorkerRequest) -> None:
+    """storage나 render 실행 전에 worker 요청의 기본 routing 값을 검증한다."""
+    if request["commandType"] != IFC2IMG_WORKER_COMMAND_TYPE:
+        raise IFCRenderError(f"unsupported commandType: {request['commandType']}")
+    if request["payload"]["renderMode"] != IFC2IMG_WORKER_RENDER_MODE:
+        raise IFCRenderError(f"unsupported renderMode: {request['payload']['renderMode']}")
+
+
 def handle_ifc2img_worker_request(
     request: Ifc2ImgWorkerRequest,
     storage: Ifc2ImgStorageAdapter,
@@ -509,10 +517,7 @@ def handle_ifc2img_worker_request(
     pipeline: Any = run_ifc2img_photo_pipeline,
 ) -> Ifc2ImgWorkerSuccessResponse:
     """Worker 요청 1건을 로컬 파이프라인 실행과 storage 업로드까지 연결한다."""
-    if request["commandType"] != IFC2IMG_WORKER_COMMAND_TYPE:
-        raise IFCRenderError(f"unsupported commandType: {request['commandType']}")
-    if request["payload"]["renderMode"] != IFC2IMG_WORKER_RENDER_MODE:
-        raise IFCRenderError(f"unsupported renderMode: {request['payload']['renderMode']}")
+    validate_ifc2img_worker_request(request)
 
     work_dir = Path(work_dir)
     input_dir = work_dir / "input"
