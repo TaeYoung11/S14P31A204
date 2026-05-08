@@ -23,7 +23,7 @@ export default function EditorLeftSidebar({
   onToggleCollaboration,
   onToggleLibrary,
   onToggleGrid,
-  onExportIFC: _onExportIFC,
+  onExportIFC,
   onGenerateFloorPlan,
   onAutoLayoutBubbles,
   canGenerateFloorPlan = false,
@@ -88,6 +88,7 @@ export default function EditorLeftSidebar({
           onToolSelect={onToolSelect}
           onToggleLibrary={onToggleLibrary}
           onDeleteSelected={onDeleteSelected}
+          onExportIFC={onExportIFC}
         />
       )}
     </SidebarFrame>

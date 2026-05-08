@@ -235,6 +235,7 @@ export default function ThatOpenIfcCanvas({
 
         world.scene = new OBC.SimpleScene(components)
         world.renderer = new OBC.SimpleRenderer(components, container)
+        world.renderer.showLogo = false
         world.camera = new OBC.SimpleCamera(components)
 
         components.init()

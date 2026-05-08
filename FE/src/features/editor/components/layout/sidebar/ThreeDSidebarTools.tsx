@@ -1,4 +1,4 @@
-import { Home } from 'lucide-react'
+import { Download, Home } from 'lucide-react'
 import SidebarCoreTools from './SidebarCoreTools'
 import SidebarToolButton from './SidebarToolButton'
 
@@ -9,6 +9,7 @@ interface ThreeDSidebarToolsProps {
   onToolSelect: (tool: string) => void
   onToggleLibrary?: () => void
   onDeleteSelected?: () => void
+  onExportIFC?: () => void
 }
 
 /**
@@ -21,6 +22,7 @@ export default function ThreeDSidebarTools({
   onToolSelect,
   onToggleLibrary,
   onDeleteSelected,
+  onExportIFC,
 }: ThreeDSidebarToolsProps) {
   return (
     <>
@@ -36,6 +38,12 @@ export default function ThreeDSidebarTools({
         isActive={isLibraryOpen}
         onClick={onToggleLibrary}
         icon={<Home size={24} />}
+      />
+
+      <SidebarToolButton
+        label="IFC 내보내기"
+        onClick={onExportIFC}
+        icon={<Download size={24} />}
       />
     </>
   )
