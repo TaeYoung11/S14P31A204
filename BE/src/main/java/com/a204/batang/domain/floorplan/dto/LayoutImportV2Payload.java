@@ -172,10 +172,9 @@ public record LayoutImportV2Payload(
 
     @JsonFormat(shape = JsonFormat.Shape.ARRAY)
     @JsonPropertyOrder({"x", "y"})
+    @Schema(type = "array", example = "[0.0, 0.0]", description = "좌표 쌍 [x, y]입니다.")
     public record CoordinatePair(
-            @Schema(description = "x 좌표입니다.")
             @NotNull Double x,
-            @Schema(description = "y 좌표입니다.")
             @NotNull Double y
     ) {
     }
