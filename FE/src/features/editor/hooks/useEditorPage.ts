@@ -89,6 +89,7 @@ import {
   buildFloorPlanLayoutImportPayload,
   collectAutoDoorOpeningIdsFromWallIds,
   createLocalId,
+  getLayoutImportBoundaryLogMetadata,
   getPolygonAreaPx,
   getPolygonBounds,
   isFinitePolygonPoints,
@@ -1340,6 +1341,7 @@ export function useEditorPage() {
   const {
     sitePoints,
     sitePlanPoints,
+    layoutBoundaryInput,
     siteAreaM2,
     siteAreaPyeong,
     canStartSaveFlow,
@@ -1812,8 +1814,12 @@ export function useEditorPage() {
         currentProjectName,
         latestSnapshot.bubbles,
         latestSnapshot.connections,
-        sitePlanPoints,
+        layoutBoundaryInput,
       )
+      console.info('[editor] 평면 생성 layout boundary 준비 완료:', {
+        projectId,
+        ...getLayoutImportBoundaryLogMetadata(layoutBoundaryInput, latestSnapshot.bubbles, layoutImport),
+      })
       const response = await requestFloorPlanGenerate({
         projectId,
         layoutImport,
