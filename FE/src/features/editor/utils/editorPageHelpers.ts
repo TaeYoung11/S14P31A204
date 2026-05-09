@@ -55,6 +55,14 @@ function toPositiveMillimeter(value: number): number {
   return rounded > 0 ? rounded : 0
 }
 
+/** 버블 위치(좌상단)를 버블 중심(mm)으로 변환 */
+function toBubbleCenterMillimeterPosition(bubble: BubbleData, mmPerPx: number) {
+  return {
+    x: toFiniteNumber((bubble.x + bubble.width / 2) * mmPerPx),
+    y: toFiniteNumber((bubble.y + bubble.height / 2) * mmPerPx),
+  }
+}
+
 function resolveMmPerPxForFloorPlan(bubbles: BubbleData[]): number {
   for (const bubble of bubbles) {
     if (Number.isFinite(bubble.widthMm) && Number.isFinite(bubble.width) && bubble.widthMm > 0 && bubble.width > 0) {
@@ -142,19 +150,22 @@ export function buildFloorPlanLayoutImportPayload(
     if (!uniqueBubbles.has(bubble.id)) uniqueBubbles.set(bubble.id, bubble)
   })
 
-  const rooms = [...uniqueBubbles.values()].map((bubble) => ({
-    id: bubble.id,
-    name: bubble.label.trim() || bubble.id,
-    type: normalizeFloorPlanRoomType(bubble.type),
-    width: toPositiveMillimeter(bubble.widthMm),
-    height: toPositiveMillimeter(bubble.heightMm),
-    floor: 1,
-    x: toFiniteNumber(bubble.x * mmPerPx),
-    y: toFiniteNumber(bubble.y * mmPerPx),
-    angle: 0,
-    locked: false,
-    zoneId: null,
-  }))
+  const rooms = [...uniqueBubbles.values()].map((bubble) => {
+    const center = toBubbleCenterMillimeterPosition(bubble, mmPerPx)
+    return {
+      id: bubble.id,
+      name: bubble.label.trim() || bubble.id,
+      type: normalizeFloorPlanRoomType(bubble.type),
+      width: toPositiveMillimeter(bubble.widthMm),
+      height: toPositiveMillimeter(bubble.heightMm),
+      floor: 1,
+      x: center.x,
+      y: center.y,
+      angle: 0,
+      locked: false,
+      zoneId: null,
+    }
+  })
 
   const roomIdSet = new Set(rooms.map((room) => room.id))
   const adjacency = connections
