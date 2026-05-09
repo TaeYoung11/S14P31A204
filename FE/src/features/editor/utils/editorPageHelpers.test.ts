@@ -4,6 +4,7 @@ import { assertLayoutImportV2 } from '../services/floorPlanGenerate.contract'
 import {
   DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
   buildFloorPlanLayoutImportPayload,
+  getLayoutImportBoundaryLogMetadata,
   type LayoutImportBoundaryInput,
 } from './editorPageHelpers'
 
@@ -196,5 +197,86 @@ describe('buildFloorPlanLayoutImportPayload', () => {
     expect(payload.boundaries).toBeUndefined()
     expectNoBoundaryMetadata(payload)
     assertLayoutImportV2(payload)
+  })
+})
+
+describe('getLayoutImportBoundaryLogMetadata', () => {
+  it('site boundary가 포함되면 입력 의도와 포함 결과만 로그 메타데이터로 남긴다', () => {
+    const bubbles = [createBubble()]
+    const boundaryInput: LayoutImportBoundaryInput = {
+      source: 'site',
+      sitePlanPoints: [0, 0, 10, 0, 10, 10, 0, 10],
+    }
+    const payload = buildPayload(bubbles, boundaryInput)
+
+    expect(getLayoutImportBoundaryLogMetadata(boundaryInput, bubbles, payload)).toEqual({
+      boundarySource: 'site',
+      boundaryIncluded: true,
+    })
+  })
+
+  it('default boundary가 포함되면 fallback reason과 padding을 로그 메타데이터로 남긴다', () => {
+    const bubbles = [createBubble()]
+    const boundaryInput: LayoutImportBoundaryInput = {
+      source: 'default',
+      paddingMm: DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
+      fallbackReason: 'missing-site',
+    }
+    const payload = buildPayload(bubbles, boundaryInput)
+
+    expect(getLayoutImportBoundaryLogMetadata(boundaryInput, bubbles, payload)).toEqual({
+      boundarySource: 'default',
+      boundaryIncluded: true,
+      fallbackReason: 'missing-site',
+      paddingMm: DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
+    })
+  })
+
+  it('유효하지 않은 site boundary가 생략되면 invalid-site-boundary omit reason을 남긴다', () => {
+    const bubbles = [createBubble()]
+    const boundaryInput: LayoutImportBoundaryInput = {
+      source: 'site',
+      sitePlanPoints: [0, 0, 10, 10],
+    }
+    const payload = buildPayload(bubbles, boundaryInput)
+
+    expect(getLayoutImportBoundaryLogMetadata(boundaryInput, bubbles, payload)).toEqual({
+      boundarySource: 'site',
+      boundaryIncluded: false,
+      boundaryOmitReason: 'invalid-site-boundary',
+    })
+  })
+
+  it('default boundary 입력에서 버블이 없으면 empty-bubbles omit reason과 fallback 정보를 함께 남긴다', () => {
+    const bubbles: BubbleData[] = []
+    const boundaryInput: LayoutImportBoundaryInput = {
+      source: 'default',
+      paddingMm: DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
+      fallbackReason: 'missing-site',
+    }
+    const payload = buildPayload(bubbles, boundaryInput)
+
+    expect(getLayoutImportBoundaryLogMetadata(boundaryInput, bubbles, payload)).toEqual({
+      boundarySource: 'default',
+      boundaryIncluded: false,
+      fallbackReason: 'missing-site',
+      paddingMm: DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
+      boundaryOmitReason: 'empty-bubbles',
+    })
+  })
+
+  it('none source는 boundaries를 생략하고 입력 reason만 omit reason으로 남긴다', () => {
+    const bubbles = [createBubble()]
+    const boundaryInput: LayoutImportBoundaryInput = {
+      source: 'none',
+      reason: 'empty-bubbles',
+    }
+    const payload = buildPayload(bubbles, boundaryInput)
+
+    expect(getLayoutImportBoundaryLogMetadata(boundaryInput, bubbles, payload)).toEqual({
+      boundarySource: 'none',
+      boundaryIncluded: false,
+      boundaryOmitReason: 'empty-bubbles',
+    })
   })
 })
