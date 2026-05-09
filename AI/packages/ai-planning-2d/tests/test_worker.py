@@ -140,7 +140,7 @@ def _command(
 
 
 def _applied_result(request_id: str = "req-2d-001") -> dict[str, object]:
-    ifc_edit_payload = {
+    engine_request = {
         "engineRequest": {
             "schema_version": "v1",
             "request_id": request_id,
@@ -187,14 +187,13 @@ def _applied_result(request_id: str = "req-2d-001") -> dict[str, object]:
             },
             "matched_count": 1,
             "validation_warnings": [],
-            "engine_request": ifc_edit_payload["engineRequest"],
-            "ifc_edit_payload": ifc_edit_payload,
+            "engine_request": engine_request,
             "engine_capabilities": {"shared_payload": True},
         },
         "apply": {
             "status": "applied",
             "apply_mode": "shared_authoring",
-            "ifc_edit_payload": ifc_edit_payload,
+            "engine_request": engine_request,
         },
     }
 

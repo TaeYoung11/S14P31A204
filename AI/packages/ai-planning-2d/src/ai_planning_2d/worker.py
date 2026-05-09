@@ -467,11 +467,11 @@ def _looks_like_step_ifc(data: bytes) -> bool:
 
 
 def _build_engine_request_payload(result: dict[str, Any]) -> dict[str, Any]:
-    apply_payload = result.get("apply", {}).get("ifc_edit_payload")
+    apply_payload = result.get("apply", {}).get("engine_request")
     if apply_payload is None:
         raise NonRetryableWorkerError(
             code="MISSING_EDIT_PLAN",
-            message="worker result did not contain an IFC edit payload",
+            message="worker result did not contain an engine request payload",
         )
     return apply_payload
 
