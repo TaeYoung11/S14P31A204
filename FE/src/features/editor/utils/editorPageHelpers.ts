@@ -14,6 +14,7 @@ import type {
 } from '../services/floorPlanGenerate.contract'
 
 const DEFAULT_FLOOR_PLAN_MM_PER_PX = 25
+const EPSILON = 1e-9
 const EDITOR_MODES: EditorMode[] = ['bubble', '2d', '3d', 'view']
 
 function normalizeFloorPlanRoomType(rawType: string): FloorPlanRoomType {
@@ -84,7 +85,7 @@ function toBoundaryPolygonPairs(sitePlanPoints: number[]): Array<[number, number
 }
 
 function isSameCoordinatePair(a: [number, number], b: [number, number]): boolean {
-  return a[0] === b[0] && a[1] === b[1]
+  return Math.abs(a[0] - b[0]) < EPSILON && Math.abs(a[1] - b[1]) < EPSILON
 }
 
 function stripClosingCoordinatePair(polygon: Array<[number, number]>): Array<[number, number]> {
