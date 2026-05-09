@@ -1812,6 +1812,7 @@ export function useEditorPage() {
         currentProjectName,
         latestSnapshot.bubbles,
         latestSnapshot.connections,
+        sitePlanPoints,
       )
       const response = await requestFloorPlanGenerate({
         projectId,
