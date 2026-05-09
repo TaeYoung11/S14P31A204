@@ -1,7 +1,9 @@
 package com.a204.batang.domain.floorplan.dto;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
@@ -168,6 +170,8 @@ public record LayoutImportV2Payload(
     ) {
     }
 
+    @JsonFormat(shape = JsonFormat.Shape.ARRAY)
+    @JsonPropertyOrder({"x", "y"})
     public record CoordinatePair(
             @Schema(description = "x 좌표입니다.")
             @NotNull Double x,
