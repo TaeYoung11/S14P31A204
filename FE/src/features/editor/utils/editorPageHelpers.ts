@@ -7,7 +7,11 @@ import type {
   Point2D,
 } from '../types'
 import type { AxisAlignedRect } from './geometry2d'
-import type { FloorPlanRoomType, LayoutImportV2 } from '../services/floorPlanGenerate.contract'
+import type {
+  FloorPlanRoomType,
+  LayoutImportV2,
+  LayoutImportV2Boundary,
+} from '../services/floorPlanGenerate.contract'
 
 const DEFAULT_FLOOR_PLAN_MM_PER_PX = 25
 const EDITOR_MODES: EditorMode[] = ['bubble', '2d', '3d', 'view']
@@ -68,6 +72,56 @@ function toConnectionStrength(type: ConnectionData['type']): number {
   return 0.3
 }
 
+function toBoundaryPolygonPairs(sitePlanPoints: number[]): Array<[number, number]> {
+  const pairs: Array<[number, number]> = []
+  for (let index = 0; index + 1 < sitePlanPoints.length; index += 2) {
+    const x = sitePlanPoints[index]
+    const y = sitePlanPoints[index + 1]
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+    pairs.push([x, y])
+  }
+  return pairs
+}
+
+function isSameCoordinatePair(a: [number, number], b: [number, number]): boolean {
+  return a[0] === b[0] && a[1] === b[1]
+}
+
+function stripClosingCoordinatePair(polygon: Array<[number, number]>): Array<[number, number]> {
+  if (polygon.length < 2) return polygon
+  const first = polygon[0]
+  const last = polygon[polygon.length - 1]
+  return isSameCoordinatePair(first, last) ? polygon.slice(0, -1) : polygon
+}
+
+function getSignedPolygonArea(polygon: Array<[number, number]>): number {
+  if (polygon.length < 3) return 0
+  let doubledArea = 0
+  for (let index = 0; index < polygon.length; index += 1) {
+    const [x1, y1] = polygon[index]
+    const [x2, y2] = polygon[(index + 1) % polygon.length]
+    doubledArea += x1 * y2 - x2 * y1
+  }
+  return doubledArea / 2
+}
+
+function toLayoutImportBoundary(
+  sitePlanPoints: number[],
+  mmPerPx: number,
+): LayoutImportV2Boundary | null {
+  const polygonPx = stripClosingCoordinatePair(toBoundaryPolygonPairs(sitePlanPoints))
+  if (polygonPx.length < 3) return null
+
+  const polygonMm = polygonPx.map(([x, y]) => [x * mmPerPx, y * mmPerPx] as [number, number])
+  const signedArea = getSignedPolygonArea(polygonMm)
+  if (!Number.isFinite(signedArea) || signedArea === 0) return null
+
+  return {
+    floor: 1,
+    polygon: signedArea > 0 ? polygonMm : [...polygonMm].reverse(),
+  }
+}
+
 /**
  * 버블/연결선 상태를 Floor Plan 생성 API의 layoutImport(v2) payload로 변환한다.
  * - room id 중복 제거
@@ -79,6 +133,7 @@ export function buildFloorPlanLayoutImportPayload(
   projectName: string,
   bubbles: BubbleData[],
   connections: ConnectionData[],
+  sitePlanPoints: number[],
 ): LayoutImportV2 {
   const mmPerPx = resolveMmPerPxForFloorPlan(bubbles)
   const uniqueBubbles = new Map<string, BubbleData>()
@@ -108,6 +163,7 @@ export function buildFloorPlanLayoutImportPayload(
       to_room_id: connection.to,
       strength: toConnectionStrength(connection.type),
     }))
+  const boundary = toLayoutImportBoundary(sitePlanPoints, mmPerPx)
 
   return {
     schema_version: 'v2',
@@ -115,6 +171,7 @@ export function buildFloorPlanLayoutImportPayload(
     name: projectName.trim() || '프로젝트',
     rooms: rooms.map((room) => ({ ...room })),
     ...(adjacency.length > 0 ? { adjacency } : {}),
+    ...(boundary ? { boundaries: [boundary] } : {}),
     generation_options: {
       generate_spaces: true,
       generate_walls: true,
