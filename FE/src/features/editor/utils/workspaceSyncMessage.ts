@@ -34,10 +34,15 @@ export const PROJECT_SYNC_TOPIC_PREFIX = '/topic/project'
 export const PROJECT_JOBS_TOPIC_PREFIX = '/topic/projects'
 export const USER_ERROR_TOPIC = '/user/queue/errors'
 export const CURSOR_INVALID_CODE = 'WORKSPACE_BUBBLE_HISTORY_CURSOR_INVALID'
+export const FLOOR_PLAN_CURSOR_INVALID_CODE = 'WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID'
 
 export const WORKSPACE_SYNC_ACTION = {
   bubbleUpdated: 'BUBBLE_UPDATED',
   floorPlanUpdated: 'FLOOR_PLAN_UPDATED',
+  bubbleUndo: 'BUBBLE_UNDO',
+  bubbleRedo: 'BUBBLE_REDO',
+  floorPlanUndo: 'FLOOR_PLAN_UNDO',
+  floorPlanRedo: 'FLOOR_PLAN_REDO',
   convertCompleted: 'CONVERT_COMPLETED',
   editCompleted: 'EDIT_COMPLETED',
   ifcGenerateCompleted: 'IFC_GENERATE_COMPLETED',
@@ -63,6 +68,8 @@ export const IFC_COMPLETED_ACTION_SET = new Set<string>([
   WORKSPACE_SYNC_ACTION.ifcGenerateFromBubbleCompleted,
   WORKSPACE_SYNC_ACTION.floorPlanGenerateCompleted,
   WORKSPACE_SYNC_ACTION.floorPlanUpdated,
+  WORKSPACE_SYNC_ACTION.floorPlanUndo,
+  WORKSPACE_SYNC_ACTION.floorPlanRedo,
   WORKSPACE_SYNC_ACTION.undoCompleted,
   WORKSPACE_SYNC_ACTION.redoCompleted,
 ])
@@ -196,6 +203,37 @@ export function extractFloorPlanBubbleSnapshot(message: ProjectSyncMessage): Bub
     const nestedOutput = message.output.floorPlanPayloadJson
     if (isBubbleSnapshotPayload(nestedOutput)) {
       return nestedOutput
+    }
+  }
+
+  return null
+}
+
+export function extractFloorPlanBaseIndex(message: ProjectSyncMessage): number | null {
+  const payload = message.floorPlanPayloadJson
+  if (isObjectRecord(payload) && typeof payload.baseIndex === 'number' && Number.isInteger(payload.baseIndex)) {
+    return payload.baseIndex
+  }
+
+  if (isObjectRecord(message.payload)) {
+    const nestedPayload = message.payload.floorPlanPayloadJson
+    if (
+      isObjectRecord(nestedPayload) &&
+      typeof nestedPayload.baseIndex === 'number' &&
+      Number.isInteger(nestedPayload.baseIndex)
+    ) {
+      return nestedPayload.baseIndex
+    }
+  }
+
+  if (isObjectRecord(message.output)) {
+    const nestedOutput = message.output.floorPlanPayloadJson
+    if (
+      isObjectRecord(nestedOutput) &&
+      typeof nestedOutput.baseIndex === 'number' &&
+      Number.isInteger(nestedOutput.baseIndex)
+    ) {
+      return nestedOutput.baseIndex
     }
   }
 

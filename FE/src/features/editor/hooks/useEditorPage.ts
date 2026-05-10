@@ -69,6 +69,10 @@ import {
 import { saveBubbleSnapshotToDb } from '../services/workspaceBubble.service'
 import type { SaveBubbleSnapshotResponse } from '../services/workspaceBubble.service'
 import {
+  publishBubbleRedoRequest,
+  publishBubbleUndoRequest,
+  publishFloorPlanRedoRequest,
+  publishFloorPlanUndoRequest,
   publishIfcEditRequest,
   publishIfcRedoRequest,
   publishIfcUndoRequest,
@@ -112,12 +116,11 @@ interface DrawingSnapshot {
 
 interface PendingServerPublishRecord {
   projectId: string
-  versionNo: number
+  baseIndex: number
   snapshot: EditorDraftSnapshot
   serializedSnapshot: string
 }
 
-const EDITOR_HISTORY_LIMIT = 50
 const OPENING_MIN_WIDTH_MM = 1
 const OPENING_MAX_WIDTH_MM = 4000
 const OPENING_NORMALIZE_OPTIONS = {
@@ -482,10 +485,12 @@ export function useEditorPage() {
   const [latestFloorPlanJobId, setLatestFloorPlanJobId] = useState<string | null>(null)
   const [floorPlanGenerateStatusText, setFloorPlanGenerateStatusText] = useState<string>('')
   const [autosaveReadyProjectId, setAutosaveReadyProjectId] = useState<string | null>(null)
-  const [canUndo, setCanUndo] = useState(false)
-  const [canRedo, setCanRedo] = useState(false)
+  const [bubbleHistoryCursor, setBubbleHistoryCursor] = useState({ baseIndex: -1, redoDepth: 0 })
+  const [floorPlanHistoryCursor, setFloorPlanHistoryCursor] = useState({ baseIndex: -1, redoDepth: 0 })
   const attemptedInitialIfcImportProjectIdRef = useRef<string | null>(null)
   const localVersionRef = useRef(0)
+  const bubbleHistoryBaseIndexRef = useRef(-1)
+  const floorPlanHistoryBaseIndexRef = useRef(-1)
   const previousSnapshotRef = useRef<string | null>(null)
   const latestBubbleSnapshotRef = useRef<{ bubbles: BubbleData[]; connections: ConnectionData[] }>({
     bubbles,
@@ -508,14 +513,6 @@ export function useEditorPage() {
   const currentIfcUrl = projectId ? (ifcSourceByProjectId[projectId]?.url ?? null) : null
   const currentIfcAssetId = projectId ? (ifcSourceByProjectId[projectId]?.assetId ?? null) : null
   const bubbleDbDirtyRef = useRef(false)
-  const historySnapshotRef = useRef<string | null>(null)
-  const historyProjectIdRef = useRef<string | null>(null)
-  const skipNextHistorySnapshotRef = useRef(false)
-  const pendingHistorySnapshotRef = useRef<string | null>(null)
-  const historyCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const undoHistoryRef = useRef<EditorDraftSnapshot[]>([])
-  const redoHistoryRef = useRef<EditorDraftSnapshot[]>([])
-  const isRestoringHistoryRef = useRef(false)
   const hasUserEditedRef = useRef(false)
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const serverPublishRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -571,6 +568,11 @@ export function useEditorPage() {
       setSaveStatus('error')
     })
   }, [])
+  const resolveServerHistoryBaseIndex = useCallback((snapshot: EditorDraftSnapshot): number =>
+    snapshot.phaseStatus === 'BUBBLE_DRAFT'
+      ? bubbleHistoryBaseIndexRef.current
+      : floorPlanHistoryBaseIndexRef.current
+  , [])
   const authUser = useAuthStore((state) => state.user)
   const currentProject = useProjectStore((state) => state.currentProject)
   const {
@@ -790,7 +792,10 @@ export function useEditorPage() {
     pendingDraftRecordRef.current = null
     hasUserEditedRef.current = false
     draftLoadBaselineRef.current = null
-    skipNextHistorySnapshotRef.current = true
+    bubbleHistoryBaseIndexRef.current = -1
+    floorPlanHistoryBaseIndexRef.current = -1
+    setBubbleHistoryCursor({ baseIndex: -1, redoDepth: 0 })
+    setFloorPlanHistoryCursor({ baseIndex: -1, redoDepth: 0 })
     replaceBubbles([])
     replaceConnections([])
     replaceZonesState([])
@@ -830,7 +835,6 @@ export function useEditorPage() {
       }
 
       const data = draft.data
-      skipNextHistorySnapshotRef.current = true
       draftLoadBaselineRef.current = JSON.stringify(data)
       previousSnapshotRef.current = JSON.stringify(data)
       replaceBubbles(data.bubbles)
@@ -886,7 +890,7 @@ export function useEditorPage() {
     void workspaceRealtimeService.publishSnapshot({
       projectId,
       snapshot: pendingServerPublish.snapshot,
-      baseIndex: pendingServerPublish.versionNo,
+      baseIndex: pendingServerPublish.baseIndex,
     })
       .then(() => {
         if (isCancelled) return
@@ -935,7 +939,7 @@ export function useEditorPage() {
     }
     const serverPublishRecord: PendingServerPublishRecord = {
       projectId,
-      versionNo: draftRecord.versionNo,
+      baseIndex: resolveServerHistoryBaseIndex(draftRecord.data),
       snapshot: draftRecord.data,
       serializedSnapshot,
     }
@@ -963,7 +967,7 @@ export function useEditorPage() {
         workspaceRealtimeService.publishSnapshot({
           projectId,
           snapshot: draftRecord.data,
-          baseIndex: draftRecord.versionNo,
+          baseIndex: serverPublishRecord.baseIndex,
         }),
       ])
         .then(([localSaveResult, serverPublishResult]) => {
@@ -994,7 +998,7 @@ export function useEditorPage() {
           setSaveStatus('error')
         })
     }, 1000)
-  }, [autosaveReadyProjectId, clearServerPublishRetry, draftSnapshot, projectId, scheduleServerPublishRetry])
+  }, [autosaveReadyProjectId, clearServerPublishRetry, draftSnapshot, projectId, resolveServerHistoryBaseIndex, scheduleServerPublishRetry])
 
   const phaseStatus = workspacePhaseStatus
   const isEditorReadOnly = currentUserType !== 'DESIGNER'
@@ -1002,6 +1006,23 @@ export function useEditorPage() {
   const canEditIfc = !isEditorReadOnly && phaseStatus === 'IFC_EDIT'
   const isConverting = phaseStatus === 'CONVERTING'
   const isBubbleReadOnly = !canEditBubble
+  const isFloorPlanHistoryMode = mode === '2d' || mode === '3d'
+  const canUndo = mode === 'bubble'
+    ? canEditBubble && bubbleHistoryCursor.baseIndex > 0
+    : isFloorPlanHistoryMode && canEditIfc && floorPlanHistoryCursor.baseIndex > 0
+  const canRedo = mode === 'bubble'
+    ? canEditBubble && bubbleHistoryCursor.redoDepth > 0
+    : isFloorPlanHistoryMode && canEditIfc && floorPlanHistoryCursor.redoDepth > 0
+
+  const updateBubbleHistoryCursor = useCallback((baseIndex: number, redoDepth: number) => {
+    bubbleHistoryBaseIndexRef.current = baseIndex
+    setBubbleHistoryCursor({ baseIndex, redoDepth })
+  }, [])
+
+  const updateFloorPlanHistoryCursor = useCallback((baseIndex: number, redoDepth: number) => {
+    floorPlanHistoryBaseIndexRef.current = baseIndex
+    setFloorPlanHistoryCursor({ baseIndex, redoDepth })
+  }, [])
 
   const applyRemoteBubbleSnapshot = useCallback((snapshot: {
     bubbles: BubbleData[]
@@ -1036,6 +1057,8 @@ export function useEditorPage() {
     onIfcStorageUrlReceived: (ifcStorageUrl, action, assetId) => {
       handleIfcSyncMessageRef.current(ifcStorageUrl, action, assetId)
     },
+    onBubbleHistoryCursorChanged: updateBubbleHistoryCursor,
+    onFloorPlanHistoryCursorChanged: updateFloorPlanHistoryCursor,
   })
 
   const flushBubbleSnapshotSaveToDb = useCallback(async (force = false): Promise<SaveBubbleSnapshotResponse | null> => {
@@ -2215,138 +2238,45 @@ export function useEditorPage() {
     clearSelection()
   }, [clearSelection, clearConnectionAndTwoDSelection])
 
-  /** 도면 변경 공통 반영 파이프라인 */
-  const syncHistoryAvailability = useCallback(() => {
-    setCanUndo(undoHistoryRef.current.length > 0)
-    setCanRedo(redoHistoryRef.current.length > 0)
-  }, [])
-
-  const clearPendingHistoryCommit = useCallback(() => {
-    if (historyCommitTimerRef.current !== null) {
-      clearTimeout(historyCommitTimerRef.current)
-      historyCommitTimerRef.current = null
-    }
-    pendingHistorySnapshotRef.current = null
-  }, [])
-
-  const commitPendingHistorySnapshot = useCallback(() => {
-    const previousSnapshot = historySnapshotRef.current
-    const nextSnapshot = pendingHistorySnapshotRef.current
-
-    historyCommitTimerRef.current = null
-    pendingHistorySnapshotRef.current = null
-
-    if (previousSnapshot === null || nextSnapshot === null || previousSnapshot === nextSnapshot) return
-
-    undoHistoryRef.current = [
-      ...undoHistoryRef.current.slice(-(EDITOR_HISTORY_LIMIT - 1)),
-      JSON.parse(previousSnapshot) as EditorDraftSnapshot,
-    ]
-    redoHistoryRef.current = []
-    historySnapshotRef.current = nextSnapshot
-    hasUserEditedRef.current = true
-    syncHistoryAvailability()
-  }, [syncHistoryAvailability])
-
-  useEffect(() => {
-    return () => {
-      clearPendingHistoryCommit()
-    }
-  }, [clearPendingHistoryCommit])
-
-  const restoreEditorSnapshot = useCallback((snapshot: EditorDraftSnapshot) => {
-    isRestoringHistoryRef.current = true
-    replaceBubbles(snapshot.bubbles)
-    replaceConnections(snapshot.connections)
-    replaceZonesState(snapshot.zones)
-    replaceFloorPlanState({
-      isGenerated: snapshot.isFloorPlanGenerated,
-      layoutSource: snapshot.floorPlanLayoutSource,
-      layers: snapshot.floorLayers,
-      activeLayerId: snapshot.activeFloorLayerId,
-    })
-    setFloorWalls(snapshot.floorWalls ?? [])
-    setFloorOpenings(snapshot.floorOpenings ?? [])
-    setHiddenAutoWallIds(snapshot.hiddenAutoWallIds ?? [])
-    setHiddenAutoOpeningIds(snapshot.hiddenAutoOpeningIds ?? [])
-    setIsProjectStructurePreferred(snapshot.isProjectStructurePreferred ?? false)
-    resetInteractionSelection()
-  }, [
-    replaceBubbles,
-    replaceConnections,
-    replaceFloorPlanState,
-    replaceZonesState,
-    resetInteractionSelection,
-  ])
-
-  useEffect(() => {
-    const serializedSnapshot = JSON.stringify(draftSnapshot)
-    const normalizedProjectId = projectId ?? null
-    const isProjectChanged = historyProjectIdRef.current !== normalizedProjectId
-
-    if (isRestoringHistoryRef.current) {
-      clearPendingHistoryCommit()
-      historySnapshotRef.current = serializedSnapshot
-      isRestoringHistoryRef.current = false
-      return
-    }
-
-    if (
-      isProjectChanged ||
-      draftLoadingProjectIdRef.current === projectId ||
-      skipNextHistorySnapshotRef.current
-    ) {
-      clearPendingHistoryCommit()
-      historyProjectIdRef.current = normalizedProjectId
-      historySnapshotRef.current = serializedSnapshot
-      undoHistoryRef.current = []
-      redoHistoryRef.current = []
-      skipNextHistorySnapshotRef.current = false
-      syncHistoryAvailability()
-      return
-    }
-
-    if (historySnapshotRef.current === null) {
-      historySnapshotRef.current = serializedSnapshot
-      return
-    }
-
-    if (historySnapshotRef.current === serializedSnapshot) return
-
-    pendingHistorySnapshotRef.current = serializedSnapshot
-    if (historyCommitTimerRef.current !== null) {
-      clearTimeout(historyCommitTimerRef.current)
-    }
-    historyCommitTimerRef.current = setTimeout(commitPendingHistorySnapshot, 300)
-  }, [clearPendingHistoryCommit, commitPendingHistorySnapshot, draftSnapshot, projectId, syncHistoryAvailability])
-
   const handleUndo = useCallback(() => {
-    clearPendingHistoryCommit()
-    const previous = undoHistoryRef.current.pop()
-    if (!previous) return
+    if (!projectId) return
+    if (mode === 'bubble') {
+      if (!canUndo) return
+      try {
+        publishBubbleUndoRequest(projectId, { baseIndex: bubbleHistoryBaseIndexRef.current })
+      } catch (error: unknown) {
+        console.warn('[editor] Bubble undo publish failed.', { projectId, error })
+      }
+      return
+    }
 
-    const currentSnapshot = latestDraftSnapshotRef.current
-    redoHistoryRef.current = [
-      ...redoHistoryRef.current.slice(-(EDITOR_HISTORY_LIMIT - 1)),
-      currentSnapshot,
-    ]
-    restoreEditorSnapshot(previous)
-    syncHistoryAvailability()
-  }, [clearPendingHistoryCommit, restoreEditorSnapshot, syncHistoryAvailability])
+    if (!isFloorPlanHistoryMode || !canUndo) return
+    try {
+      publishFloorPlanUndoRequest(projectId, { baseIndex: floorPlanHistoryBaseIndexRef.current })
+    } catch (error: unknown) {
+      console.warn('[editor] Floor-plan undo publish failed.', { projectId, error })
+    }
+  }, [canUndo, isFloorPlanHistoryMode, mode, projectId])
 
   const handleRedo = useCallback(() => {
-    clearPendingHistoryCommit()
-    const next = redoHistoryRef.current.pop()
-    if (!next) return
+    if (!projectId) return
+    if (mode === 'bubble') {
+      if (!canRedo) return
+      try {
+        publishBubbleRedoRequest(projectId, { baseIndex: bubbleHistoryBaseIndexRef.current })
+      } catch (error: unknown) {
+        console.warn('[editor] Bubble redo publish failed.', { projectId, error })
+      }
+      return
+    }
 
-    const currentSnapshot = latestDraftSnapshotRef.current
-    undoHistoryRef.current = [
-      ...undoHistoryRef.current.slice(-(EDITOR_HISTORY_LIMIT - 1)),
-      currentSnapshot,
-    ]
-    restoreEditorSnapshot(next)
-    syncHistoryAvailability()
-  }, [clearPendingHistoryCommit, restoreEditorSnapshot, syncHistoryAvailability])
+    if (!isFloorPlanHistoryMode || !canRedo) return
+    try {
+      publishFloorPlanRedoRequest(projectId, { baseIndex: floorPlanHistoryBaseIndexRef.current })
+    } catch (error: unknown) {
+      console.warn('[editor] Floor-plan redo publish failed.', { projectId, error })
+    }
+  }, [canRedo, isFloorPlanHistoryMode, mode, projectId])
 
   const applyDrawingSnapshot = useCallback(
     ({ bubbles: nextBubbles, connections: nextConnections, floorWalls: nextFloorWalls, floorOpenings: nextFloorOpenings }: DrawingSnapshot) => {
