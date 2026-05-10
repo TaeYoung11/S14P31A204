@@ -14,11 +14,11 @@ import pytest
 from ai_planning_3d.pipeline import LLM3DPipeline
 
 _AI_ROOT = Path(__file__).resolve().parents[3]
-_SAMPLE_IFC = _AI_ROOT / "tests" / "sample_highkick.ifc"
+_SAMPLE_IFC = _AI_ROOT / "tests" / "sample_batang.ifc"
 # 직접 실행할 때 채팅 문장은 여기만 수정하면 됩니다.
 _CHAT_COMMAND = (
-    "1층 거실 남쪽 벽을 유리로 바꾸고, 2층 북쪽 벽을 노란색으로 바꿔줘. "
-    "그리고 지붕을 나무로 해줘."
+    "1층 거실 전체 외벽을 나무로 바꾸고, 2층 오른쪽 벽을 파란색으로 바꿔줘. "
+    "그리고 지붕을 콘크리트로 해줘."
 )
 _OUT_DIR = Path.home() / "Downloads" / "batang_history"
 
@@ -218,6 +218,7 @@ def test_pipeline_splits_color_material_chat_command():
         ("1층 거실 남쪽 벽 파랑으로 바꿔줘", "#3B82F6"),
         ("1층 거실 남쪽 벽 파란 벽으로 바꿔줘", "#3B82F6"),
         ("2층 북쪽 벽을 노란색으로 바꿔줘", "#FACC15"),
+        ("2층 오른쪽 벽을 파란색으로 바꿔줘", "#3B82F6"),
     ],
 )
 def test_heuristic_parser_recognizes_color_alias_chat(command, expected_color):
@@ -225,6 +226,17 @@ def test_heuristic_parser_recognizes_color_alias_chat(command, expected_color):
 
     assert parsed.changes
     assert parsed.changes.color == expected_color
+
+
+def test_heuristic_parser_treats_right_side_as_direction_not_move():
+    parsed = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC)).engine.parse_command_heuristic(
+        "2층 오른쪽 벽을 파란색으로 바꿔줘"
+    )
+
+    assert parsed.target.direction == "East"
+    assert parsed.changes
+    assert parsed.changes.position_mm is None
+    assert parsed.changes.color == "#3B82F6"
 
 
 @pytest.mark.parametrize(

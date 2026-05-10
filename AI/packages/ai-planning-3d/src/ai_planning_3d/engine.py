@@ -415,7 +415,7 @@ class LLM3DEngine:
                 value = -abs(value)
             return LLM3DChanges(face_offset_mm=value, material=material, color=color)
 
-        if "이동" in text or "오른쪽" in text or "왼쪽" in text:
+        if any(word in text for word in ("이동", "옮겨", "움직")):
             value = self._number_mm(text)
             if value is None:
                 return None
