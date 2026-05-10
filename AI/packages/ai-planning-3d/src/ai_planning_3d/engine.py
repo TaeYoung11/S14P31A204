@@ -260,7 +260,11 @@ class LLM3DEngine:
             )
 
         if command_type == LLM3DCommandType.DELETE:
-            if target.element_type == LLM3DElementType.STAIR:
+            if target.element_type in {
+                LLM3DElementType.DOOR,
+                LLM3DElementType.WINDOW,
+                LLM3DElementType.STAIR,
+            }:
                 target = target.model_copy(update={"select_all": True})
             return LLM3DCommand(
                 command_type=command_type,
@@ -284,6 +288,10 @@ class LLM3DEngine:
         )
 
     def _command_type(self, text: str) -> LLM3DCommandType:
+        if any(word in text for word in ("빼", "제거")):
+            return LLM3DCommandType.DELETE
+        if any(word in text for word in ("배치", "넣")):
+            return LLM3DCommandType.CREATE
         if any(word in text for word in ("삭제", "지워", "없애", "remove", "delete")):
             return LLM3DCommandType.DELETE
         if any(word in text for word in ("만들", "생성", "추가", "create", "add")):
@@ -307,25 +315,53 @@ class LLM3DEngine:
         element_type = self._element_type(text)
         storey = self._storey(text)
         direction = self._direction(text)
+        material = self._material(text)
+        color = self._color(text)
         if element_type == LLM3DElementType.ROOF and "옥상" in text:
             storey = storey or "RF"
             direction = direction or "North"
 
         if element_type == LLM3DElementType.STAIR:
             direction = direction or "North"
+        if element_type in {LLM3DElementType.DOOR, LLM3DElementType.WINDOW}:
+            direction = direction or "North"
+
+        length_mm = 3000.0 if element_type == LLM3DElementType.WALL else None
+        width_mm = 200.0
+        height_mm = 2400.0
+        sill_height_mm = None
+
+        if element_type == LLM3DElementType.STAIR:
+            width_mm = 1000.0
+            height_mm = 3000.0
+        elif element_type == LLM3DElementType.DOOR:
+            length_mm = 900.0
+            height_mm = 2100.0
+            sill_height_mm = 0.0
+            color = color or "#8B5E3C"
+            material = material or LLM3DMaterialChange(
+                name="Steel" if "현관문" in text or "front door" in text.lower() else "Wood"
+            )
+        elif element_type == LLM3DElementType.WINDOW:
+            length_mm = 1200.0
+            height_mm = 1200.0
+            sill_height_mm = 900.0
+            color = color or "#8FD3FF"
+            material = material or LLM3DMaterialChange(name="Glass")
 
         return LLM3DCreateInfo(
             element_type=element_type,
             storey=storey,
             space_name=self._space(text),
             direction=direction,
-            color=self._color(text),
-            material=self._material(text),
+            color=color,
+            material=material,
             shape_preset=LLM3DRoofShape.GABLED if "박공지붕" in text else None,
-            length_mm=3000.0 if element_type == LLM3DElementType.WALL else None,
-            width_mm=1000.0 if element_type == LLM3DElementType.STAIR else 200.0,
-            height_mm=3000.0 if element_type == LLM3DElementType.STAIR else 2400.0,
+            length_mm=length_mm,
+            width_mm=width_mm,
+            height_mm=height_mm,
             step_count=16 if element_type == LLM3DElementType.STAIR else None,
+            sill_height_mm=sill_height_mm,
         )
 
     def _changes(self, text: str) -> LLM3DChanges | None:
@@ -386,6 +422,11 @@ class LLM3DEngine:
 
     def _element_type(self, text: str) -> LLM3DElementType:
         import re
+
+        if re.search(r"창(?!(고|고문))", text):
+            return LLM3DElementType.WINDOW
+        if re.search(r"현관문|방문|(?<!창)문", text):
+            return LLM3DElementType.DOOR
         if re.search(r"계단|stair", text, re.I):
             return LLM3DElementType.STAIR
         if re.search(r"지붕|루프|roof", text, re.I):
@@ -403,6 +444,12 @@ class LLM3DEngine:
         return LLM3DElementType.WALL
 
     def _storey(self, text: str) -> str | None:
+        if "일층" in text:
+            return "1F"
+        if "이층" in text:
+            return "2F"
+        if "삼층" in text:
+            return "3F"
         if "1층" in text:
             return "1F"
         if "2층" in text:
@@ -424,6 +471,8 @@ class LLM3DEngine:
         return None
 
     def _space(self, text: str) -> str | None:
+        if "현관" in text or "entrance" in text.lower():
+            return "Entrance"
         if "거실" in text or "living room" in text.lower():
             return "LivingRoom"
         if "거실" in text:
@@ -439,6 +488,15 @@ class LLM3DEngine:
         return None
 
     def _direction(self, text: str) -> str | None:
+        lower_text = text.lower()
+        if "north" in lower_text:
+            return "North"
+        if "south" in lower_text:
+            return "South"
+        if "east" in lower_text:
+            return "East"
+        if "west" in lower_text:
+            return "West"
         if "북쪽" in text or "북측" in text:
             return "North"
         if "남쪽" in text or "남측" in text:

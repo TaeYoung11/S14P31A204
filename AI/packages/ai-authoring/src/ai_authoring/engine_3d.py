@@ -20,12 +20,98 @@ logger = logging.getLogger("ai_authoring.engine_3d")
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+def _opening_location(opening) -> tuple[float, float, float] | None:
+    placement = getattr(opening, "ObjectPlacement", None)
+    relative = getattr(placement, "RelativePlacement", None) if placement else None
+    location = getattr(relative, "Location", None) if relative else None
+    coords = tuple(getattr(location, "Coordinates", ()) or ())
+    if len(coords) < 3:
+        return None
+    return (float(coords[0]), float(coords[1]), float(coords[2]))
+
+
+def _solid_signature(solid) -> tuple[float, float, float] | None:
+    if not solid or not solid.is_a("IfcExtrudedAreaSolid"):
+        return None
+    profile = getattr(solid, "SweptArea", None)
+    if not profile or not profile.is_a("IfcRectangleProfileDef"):
+        return None
+    return (float(profile.XDim), float(profile.YDim), float(solid.Depth))
+
+
+def _opening_signature(opening) -> tuple[float, float, float] | None:
+    representation = getattr(opening, "Representation", None)
+    if not representation:
+        return None
+    for rep in getattr(representation, "Representations", []) or []:
+        for item in getattr(rep, "Items", []) or []:
+            signature = _solid_signature(item)
+            if signature:
+                return signature
+    return None
+
+
+def _solid_location(solid) -> tuple[float, float, float] | None:
+    position = getattr(solid, "Position", None)
+    location = getattr(position, "Location", None) if position else None
+    coords = tuple(getattr(location, "Coordinates", ()) or ())
+    if len(coords) < 3:
+        return None
+    return (float(coords[0]), float(coords[1]), float(coords[2]))
+
+
+def _almost_same_tuple(left, right, tolerance: float = 1e-6) -> bool:
+    if left is None or right is None:
+        return False
+    return all(abs(float(a) - float(b)) <= tolerance for a, b in zip(left, right, strict=True))
+
+
+def _remove_opening_boolean(shape, opening):
+    if not shape or not shape.is_a("IfcBooleanResult"):
+        return shape, False
+
+    second_operand = getattr(shape, "SecondOperand", None)
+    if _almost_same_tuple(_solid_location(second_operand), _opening_location(opening)) and (
+        _almost_same_tuple(_solid_signature(second_operand), _opening_signature(opening))
+    ):
+        return shape.FirstOperand, True
+
+    next_operand, removed = _remove_opening_boolean(shape.FirstOperand, opening)
+    if removed:
+        shape.FirstOperand = next_operand
+    return shape, removed
+
+
 def delete_element(
     model: ifcopenshell.file, element: ifcopenshell.entity_instance, etype_str: str = "IfcProduct"
 ) -> bool:
     """IFC 요소를 관계 엔티티까지 깔끔하게 정리하여 삭제한다."""
     gid_short = element.GlobalId[:8] if element.GlobalId else "?"
     try:
+        if element.is_a("IfcDoor") or element.is_a("IfcWindow"):
+            for rel_fill in list(getattr(element, "FillsVoids", []) or []):
+                opening = getattr(rel_fill, "RelatingOpeningElement", None)
+                if opening:
+                    for rel_void in list(getattr(opening, "VoidsElements", []) or []):
+                        host = getattr(rel_void, "RelatingBuildingElement", None)
+                        if host and getattr(host, "Representation", None):
+                            for rep in getattr(host.Representation, "Representations", []) or []:
+                                if getattr(rep, "RepresentationIdentifier", None) != "Body":
+                                    continue
+                                if rep.Items and rep.Items[0].is_a("IfcBooleanResult"):
+                                    next_shape, removed = _remove_opening_boolean(
+                                        rep.Items[0],
+                                        opening,
+                                    )
+                                    if removed:
+                                        rep.Items = [next_shape]
+                                        if not next_shape.is_a("IfcBooleanResult"):
+                                            rep.RepresentationType = "SweptSolid"
+                                    break
+                        model.remove(rel_void)
+                    model.remove(opening)
+                model.remove(rel_fill)
+
         # 공간 포함 관계 제거
         for rel in list(getattr(element, "ContainedInStructure", [])):
             if rel.is_a("IfcRelContainedInSpatialStructure"):
