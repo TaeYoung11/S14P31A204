@@ -14,6 +14,12 @@ from ai_planning_3d.pipeline import LLM3DPipeline
 from test_door_window_chat_e2e import _SAMPLE_IFC, run_door_window_chat_commands
 
 
+def test_split_chat_commands_keeps_complete_request_sentences():
+    commands = LLM3DPipeline.split_chat_commands("문 만들고 창문 만들어줘")
+
+    assert commands == ["문 만들어줘", "창문 만들어줘"]
+
+
 @pytest.mark.parametrize(
     ("command", "expected_type"),
     [
@@ -33,6 +39,30 @@ def test_door_window_command_verbs(command, expected_type):
     parsed = pipeline.engine.parse_command_heuristic(command)
 
     assert parsed.command_type == expected_type
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "창문 위치를 옮겨달라",
+        "문 색을 바꿔달라",
+    ],
+)
+def test_door_window_request_verbs_do_not_treat_suffix_dal_as_create(command):
+    pipeline = LLM3DPipeline()
+    parsed = pipeline.engine.parse_command_heuristic(command)
+
+    assert parsed.command_type != "CREATE"
+
+
+def test_door_window_delete_select_all_requires_explicit_all_expression():
+    pipeline = LLM3DPipeline()
+
+    single = pipeline.engine.parse_command_heuristic("창문 삭제해줘")
+    all_windows = pipeline.engine.parse_command_heuristic("모든 창문 삭제해줘")
+
+    assert single.target.select_all is False
+    assert all_windows.target.select_all is True
 
 
 @pytest.mark.asyncio

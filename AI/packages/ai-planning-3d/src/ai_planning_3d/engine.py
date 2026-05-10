@@ -198,7 +198,10 @@ class LLM3DEngine:
         if command.command_type == LLM3DCommandType.DELETE:
             if command.changes is None or not command.changes.deletion:
                 command = command.model_copy(update={"changes": LLM3DChanges(deletion=True)})
-            if command.target.element_type == LLM3DElementType.STAIR:
+            if command.target.element_type == LLM3DElementType.STAIR or (
+                command.target.element_type in {LLM3DElementType.DOOR, LLM3DElementType.WINDOW}
+                and self._explicit_select_all_delete(user_text)
+            ):
                 command = command.model_copy(
                     update={"target": command.target.model_copy(update={"select_all": True})}
                 )
@@ -260,11 +263,10 @@ class LLM3DEngine:
             )
 
         if command_type == LLM3DCommandType.DELETE:
-            if target.element_type in {
-                LLM3DElementType.DOOR,
-                LLM3DElementType.WINDOW,
-                LLM3DElementType.STAIR,
-            }:
+            if target.element_type == LLM3DElementType.STAIR or (
+                target.element_type in {LLM3DElementType.DOOR, LLM3DElementType.WINDOW}
+                and self._explicit_select_all_delete(text)
+            ):
                 target = target.model_copy(update={"select_all": True})
             return LLM3DCommand(
                 command_type=command_type,
@@ -290,17 +292,29 @@ class LLM3DEngine:
     def _command_type(self, text: str) -> LLM3DCommandType:
         if any(word in text for word in ("빼", "제거")):
             return LLM3DCommandType.DELETE
-        if any(word in text for word in ("배치", "넣", "달")):
+        if any(word in text for word in ("배치", "넣")) or self._is_install_create(text):
             return LLM3DCommandType.CREATE
         if any(word in text for word in ("삭제", "지워", "없애", "remove", "delete")):
             return LLM3DCommandType.DELETE
-        if any(word in text for word in ("만들", "생성", "추가", "달", "create", "add")):
+        if any(word in text for word in ("만들", "생성", "추가", "create", "add")):
             return LLM3DCommandType.CREATE
         if any(word in text for word in ("삭제", "지워", "제거")):
             return LLM3DCommandType.DELETE
-        if any(word in text for word in ("만들", "생성", "세워", "추가", "달")):
+        if any(word in text for word in ("만들", "생성", "세워", "추가")):
             return LLM3DCommandType.CREATE
         return LLM3DCommandType.MODIFY
+
+    @staticmethod
+    def _explicit_select_all_delete(text: str) -> bool:
+        return any(token in text for token in ("모든", "전체", "전부", "모두", "다 "))
+
+    @staticmethod
+    def _is_install_create(text: str) -> bool:
+        if any(token in text for token in ("옮겨달", "바꿔달", "변경해달", "수정해달", "이동해달")):
+            return False
+        if not any(token in text for token in ("문", "창문", "door", "window")):
+            return False
+        return any(token in text for token in ("달아", "달고", "달기", "설치"))
 
     def _target(self, text: str) -> LLM3DTarget:
         return LLM3DTarget(

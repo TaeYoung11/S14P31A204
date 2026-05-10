@@ -108,7 +108,7 @@ class LLM3DPipeline:
     def split_chat_commands(user_text: str) -> list[str]:
         normalized = re.sub(
             r"((?:만들|생성|추가|배치|넣|달|삭제|제거|없애|지우|빼))고\s+",
-            r"\1.\n",
+            lambda match: f"{LLM3DPipeline._complete_connected_verb(match.group(1))}.\n",
             user_text,
         )
         parts = re.split(r"(?:그리고|\.|,|\n|;)", normalized)
@@ -118,6 +118,23 @@ class LLM3DPipeline:
             if part:
                 commands.extend(LLM3DPipeline._expand_direction_pair_command(part))
         return commands or [user_text]
+
+    @staticmethod
+    def _complete_connected_verb(verb: str) -> str:
+        endings = {
+            "만들": "만들어줘",
+            "생성": "생성해줘",
+            "추가": "추가해줘",
+            "배치": "배치해줘",
+            "넣": "넣어줘",
+            "달": "달아줘",
+            "삭제": "삭제해줘",
+            "제거": "제거해줘",
+            "없애": "없애줘",
+            "지우": "지워줘",
+            "빼": "빼줘",
+        }
+        return endings.get(verb, verb)
 
     @staticmethod
     def _expand_direction_pair_command(user_text: str) -> list[str]:
@@ -753,12 +770,17 @@ class LLM3DPipeline:
             placement = getattr(wall, "ObjectPlacement", None)
             if not placement or not placement.is_a("IfcLocalPlacement"):
                 continue
-            loc = getattr(placement.RelativePlacement.Location, "Coordinates", (0.0, 0.0, 0.0))
-            ref = getattr(placement.RelativePlacement, "RefDirection", None)
+            relative = getattr(placement, "RelativePlacement", None)
+            location = getattr(relative, "Location", None) if relative else None
+            loc = tuple(getattr(location, "Coordinates", ()) or ())
+            if len(loc) < 2:
+                continue
+            ref = getattr(relative, "RefDirection", None) if relative else None
             rdx, rdy = (1.0, 0.0)
-            if ref:
-                rdx = float(ref.DirectionRatios[0])
-                rdy = float(ref.DirectionRatios[1])
+            ratios = tuple(getattr(ref, "DirectionRatios", ()) or ()) if ref else ()
+            if len(ratios) >= 2:
+                rdx = float(ratios[0])
+                rdy = float(ratios[1])
 
             dx = (x_mm / self._scale) - float(loc[0])
             dy = (y_mm / self._scale) - float(loc[1])
@@ -771,6 +793,94 @@ class LLM3DPipeline:
                     best_dist = dist
                     best_wall = wall
         return best_wall
+
+    def _wall_local_u_mm(self, wall: Any, point: dict[str, Any]) -> float | None:
+        placement = getattr(wall, "ObjectPlacement", None)
+        if not placement or not placement.is_a("IfcLocalPlacement"):
+            return None
+        relative = getattr(placement, "RelativePlacement", None)
+        location = getattr(relative, "Location", None) if relative else None
+        loc = tuple(getattr(location, "Coordinates", ()) or ())
+        if len(loc) < 2:
+            return None
+        ref = getattr(relative, "RefDirection", None) if relative else None
+        ratios = tuple(getattr(ref, "DirectionRatios", ()) or ()) if ref else ()
+        rdx, rdy = (1.0, 0.0)
+        if len(ratios) >= 2:
+            rdx = float(ratios[0])
+            rdy = float(ratios[1])
+        dx = (float(point.get("x", 0.0)) / self._scale) - float(loc[0])
+        dy = (float(point.get("y", 0.0)) / self._scale) - float(loc[1])
+        return (dx * rdx + dy * rdy) * self._scale
+
+    def _opening_location_mm(self, opening: Any) -> tuple[float, float, float] | None:
+        placement = getattr(opening, "ObjectPlacement", None)
+        relative = getattr(placement, "RelativePlacement", None) if placement else None
+        location = getattr(relative, "Location", None) if relative else None
+        coords = tuple(getattr(location, "Coordinates", ()) or ())
+        if len(coords) < 3:
+            return None
+        return (
+            float(coords[0]) * self._scale,
+            float(coords[1]) * self._scale,
+            float(coords[2]) * self._scale,
+        )
+
+    def _opening_size_mm(self, opening: Any) -> tuple[float, float, float] | None:
+        representation = getattr(opening, "Representation", None)
+        if not representation:
+            return None
+        for rep in getattr(representation, "Representations", []) or []:
+            for item in getattr(rep, "Items", []) or []:
+                if not item or not item.is_a("IfcExtrudedAreaSolid"):
+                    continue
+                profile = getattr(item, "SweptArea", None)
+                if profile and profile.is_a("IfcRectangleProfileDef"):
+                    return (
+                        float(profile.XDim) * self._scale,
+                        float(profile.YDim) * self._scale,
+                        float(item.Depth) * self._scale,
+                    )
+        return None
+
+    def _door_window_opening_overlap_warning(
+        self,
+        model: ifcopenshell.file,
+        host_wall: Any,
+        start_point: dict[str, Any],
+        opening_length_mm: float,
+        opening_z_mm: float,
+        opening_height_mm: float,
+    ) -> str | None:
+        new_u = self._wall_local_u_mm(host_wall, start_point)
+        if new_u is None or opening_length_mm <= 0.0 or opening_height_mm <= 0.0:
+            return None
+        new_start = new_u - opening_length_mm / 2.0
+        new_end = new_u + opening_length_mm / 2.0
+        new_z_start = opening_z_mm
+        new_z_end = opening_z_mm + opening_height_mm
+
+        for rel in model.by_type("IfcRelVoidsElement"):
+            if getattr(rel, "RelatingBuildingElement", None) != host_wall:
+                continue
+            opening = getattr(rel, "RelatedOpeningElement", None)
+            location = self._opening_location_mm(opening)
+            size = self._opening_size_mm(opening)
+            if not location or not size:
+                continue
+            existing_u = location[0]
+            existing_length = size[0]
+            existing_height = size[2]
+            existing_start = existing_u - existing_length / 2.0
+            existing_end = existing_u + existing_length / 2.0
+            existing_z_start = location[2]
+            existing_z_end = location[2] + existing_height
+            overlaps_u = new_start < existing_end and existing_start < new_end
+            overlaps_z = new_z_start < existing_z_end and existing_z_start < new_z_end
+            if overlaps_u and overlaps_z:
+                wall_name = getattr(host_wall, "Name", None) or host_wall.GlobalId
+                return f"{wall_name} 벽의 기존 opening과 새 문/창문 위치가 겹칩니다."
+        return None
 
     def _infer_create_geometry(
         self,
@@ -1145,6 +1255,22 @@ class LLM3DPipeline:
                 ci.start_point = LLM3DPoint3D(**start_point)
             ci_dump["host_wall_global_id"] = host_wall.GlobalId
             ci.host_wall_global_id = host_wall.GlobalId
+            overlap_warning = self._door_window_opening_overlap_warning(
+                model,
+                host_wall,
+                start_point,
+                opening_length_mm,
+                opening_z_mm,
+                opening_height_mm,
+            )
+            if overlap_warning:
+                return {
+                    "status": "failed_collision_check",
+                    "command": command.model_dump(),
+                    "summary": overlap_warning,
+                    "collision_warnings": [overlap_warning],
+                    "structural_warnings": [],
+                }
 
         # ── 충돌 검사 ────────────────────────────────────────────
         collision_result: CollisionResult | None = None
