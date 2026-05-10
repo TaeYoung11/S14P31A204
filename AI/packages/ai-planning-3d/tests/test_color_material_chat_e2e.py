@@ -5,12 +5,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
 import ifcopenshell
 import pytest
 
+from ai_planning_3d.command import COLOR_ALIASES, MATERIAL_ALIASES
 from ai_planning_3d.pipeline import LLM3DPipeline
 
 _AI_ROOT = Path(__file__).resolve().parents[3]
@@ -210,6 +212,20 @@ def test_pipeline_splits_color_material_chat_command():
     assert all(not command.endswith("고") for command in commands)
 
 
+def test_color_aliases_are_fe_hex_values():
+    assert all(re.fullmatch(r"#[0-9A-F]{6}", color) for color in COLOR_ALIASES.values())
+
+
+@pytest.mark.parametrize(("alias", "expected_color"), sorted(COLOR_ALIASES.items()))
+def test_heuristic_parser_recognizes_all_color_aliases(alias, expected_color):
+    parsed = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC)).engine.parse_command_heuristic(
+        f"1층 거실 남쪽 벽을 {alias}으로 바꿔줘"
+    )
+
+    assert parsed.changes
+    assert parsed.changes.color == expected_color
+
+
 @pytest.mark.parametrize(
     ("command", "expected_color"),
     [
@@ -253,6 +269,17 @@ def test_heuristic_parser_recognizes_material_alias_without_material_word(
     expected_material,
 ):
     parsed = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC)).engine.parse_command_heuristic(command)
+
+    assert parsed.changes
+    assert parsed.changes.material
+    assert parsed.changes.material.name == expected_material
+
+
+@pytest.mark.parametrize(("alias", "expected_material"), sorted(MATERIAL_ALIASES.items()))
+def test_heuristic_parser_recognizes_all_material_aliases(alias, expected_material):
+    parsed = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC)).engine.parse_command_heuristic(
+        f"1층 거실 남쪽 벽을 {alias}로 바꿔줘"
+    )
 
     assert parsed.changes
     assert parsed.changes.material

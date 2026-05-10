@@ -298,7 +298,8 @@ def modify_material(
             RelatedObjects=[element],
         )
         _set_label_property_value(model, element, "Material", new_name)
-        if material_color := _MATERIAL_DEFAULT_COLOR.get(new_name):
+        material_color = _MATERIAL_DEFAULT_COLOR.get(new_name)
+        if material_color is not None:
             modify_color(model, element, material_color)
         return True
     except Exception as e:
