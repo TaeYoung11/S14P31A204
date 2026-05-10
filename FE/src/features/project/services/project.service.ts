@@ -47,6 +47,11 @@ interface ProjectDetailResponse {
   bubbleSnapshotJson?: unknown
   ifcStorageUrl?: string
   currentRevision?: string
+  siteInfo?: {
+    pnu?: string | null
+    address?: string | null
+    polygon?: CadastralPolygon | null
+  } | null
   createdAt?: string
   updatedAt?: string
   unreadCommentCount?: number
@@ -254,6 +259,7 @@ async function fetchProjectSummary(projectId: string): Promise<ProjectSummaryRes
       projectId: detail.projectId,
       name: detail.name,
       description: detail.description,
+      cadastralInfo: detail.siteInfo?.polygon ? { polygon: detail.siteInfo.polygon } : undefined,
       currentIfcUrl: detail.ifcStorageUrl,
       createdAt: detail.createdAt ?? new Date().toISOString(),
       updatedAt: detail.updatedAt ?? detail.createdAt ?? new Date().toISOString(),
@@ -300,8 +306,8 @@ async function fetchProjectIfcExport(projectId: string): Promise<ProjectIfcExpor
  * - 네트워크/서버 오류는 상위 fallback 체인에서 처리
  */
 async function fetchSitePolygonFromProjectDetail(projectId: string): Promise<number[][] | null> {
-  const project = await fetchProjectSummary(projectId)
-  return extractOuterRingFromCoordinates(project?.cadastralInfo?.polygon?.coordinates)
+  const detail = await _fetchProjectDetail(projectId)
+  return extractOuterRingFromCoordinates(detail.siteInfo?.polygon?.coordinates)
 }
 
 export interface ProjectListPageResult {
@@ -342,10 +348,21 @@ export const projectService = {
     ifcStorageUrl?: string
     currentRevision?: string
   }> => {
-    const summary = await fetchProjectSummary(id)
+    const detail = await _fetchProjectDetail(id)
     return {
-      project: mapProjectSummary(summary),
-      ifcStorageUrl: summary.currentIfcUrl,
+      project: mapProjectSummary({
+        projectId: detail.projectId,
+        name: detail.name,
+        description: detail.description,
+        currentIfcUrl: detail.ifcStorageUrl,
+        createdAt: detail.createdAt ?? new Date().toISOString(),
+        updatedAt: detail.updatedAt ?? detail.createdAt ?? new Date().toISOString(),
+        unreadCommentCount: detail.unreadCommentCount,
+      }),
+      phaseStatus: detail.phaseStatus,
+      bubbleSnapshotJson: detail.bubbleSnapshotJson,
+      ifcStorageUrl: detail.ifcStorageUrl,
+      currentRevision: detail.currentRevision,
     }
   },
 
