@@ -281,7 +281,8 @@ def modify_material(
     model: ifcopenshell.file, element: ifcopenshell.entity_instance, mat_change: dict[str, Any]
 ) -> bool:
     try:
-        new_name = mat_change.get("name", "Unknown")
+        new_name = str(mat_change.get("name") or "Unknown")
+        # Snapshot associations before removing relations from the IFC graph.
         for rel in list(getattr(element, "HasAssociations", [])):
             if rel.is_a("IfcRelAssociatesMaterial"):
                 remaining = [o for o in rel.RelatedObjects if o != element]
@@ -289,15 +290,15 @@ def modify_material(
                     rel.RelatedObjects = remaining
                 else:
                     model.remove(rel)
-        new_mat = _find_or_create_material(model, str(new_name))
+        new_mat = _find_or_create_material(model, new_name)
         model.create_entity(
             "IfcRelAssociatesMaterial",
             GlobalId=ifcopenshell.guid.new(),
             RelatingMaterial=new_mat,
             RelatedObjects=[element],
         )
-        _set_label_property_value(model, element, "Material", str(new_name))
-        if material_color := _MATERIAL_DEFAULT_COLOR.get(str(new_name)):
+        _set_label_property_value(model, element, "Material", new_name)
+        if material_color := _MATERIAL_DEFAULT_COLOR.get(new_name):
             modify_color(model, element, material_color)
         return True
     except Exception as e:

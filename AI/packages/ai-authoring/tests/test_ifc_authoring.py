@@ -9,27 +9,34 @@ from ai_planning_3d.pipeline import LLM3DPipeline
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M")
 root_dir = Path(__file__).resolve().parents[3]
 LOG_DIR = Path.home() / "Downloads" / "batang_history"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 log_file = LOG_DIR / f"IFC추출테스트_{TIMESTAMP}.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-    handlers=[
-        logging.FileHandler(log_file, mode="w", encoding="utf-8"),
-        logging.StreamHandler(),
-    ],
-)
 logger = logging.getLogger("LLM_3D_Test")
 test_file_logger = logging.getLogger("LLM_3D_Test.detail")
-test_file_logger.propagate = False
-test_file_handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
-test_file_handler.setFormatter(
-    logging.Formatter("%(asctime)s [%(levelname)s] %(name)s — %(message)s")
-)
-test_file_logger.addHandler(test_file_handler)
-test_file_logger.setLevel(logging.INFO)
+
+
+def setup_logging() -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s — %(message)s")
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+        handlers=[
+            logging.FileHandler(log_file, mode="w", encoding="utf-8"),
+            logging.StreamHandler(),
+        ],
+        force=True,
+    )
+
+    test_file_logger.propagate = False
+    for handler in list(test_file_logger.handlers):
+        test_file_logger.removeHandler(handler)
+        handler.close()
+    test_file_handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
+    test_file_handler.setFormatter(formatter)
+    test_file_logger.addHandler(test_file_handler)
+    test_file_logger.setLevel(logging.INFO)
 
 
 def emit(message: str = "") -> None:
@@ -40,6 +47,8 @@ def emit(message: str = "") -> None:
         print(message.encode("ascii", "ignore").decode("ascii"), flush=True)
     try:
         test_file_logger.info(message)
+        for handler in test_file_logger.handlers:
+            handler.flush()
     except Exception:
         pass
 
@@ -206,4 +215,8 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    setup_logging()
+    try:
+        asyncio.run(main())
+    finally:
+        logging.shutdown()
