@@ -25,7 +25,7 @@ def _opening_location(opening) -> tuple[float, float, float] | None:
     relative = getattr(placement, "RelativePlacement", None) if placement else None
     location = getattr(relative, "Location", None) if relative else None
     coords = tuple(getattr(location, "Coordinates", ()) or ())
-    if len(coords) < 3:
+    if not coords or len(coords) < 3:
         return None
     return (float(coords[0]), float(coords[1]), float(coords[2]))
 
@@ -70,13 +70,14 @@ def _remove_opening_boolean(shape, opening):
     if not shape or not shape.is_a("IfcBooleanResult"):
         return shape, False
 
+    first_operand = getattr(shape, "FirstOperand", None)
     second_operand = getattr(shape, "SecondOperand", None)
     if _almost_same_tuple(_solid_location(second_operand), _opening_location(opening)) and (
         _almost_same_tuple(_solid_signature(second_operand), _opening_signature(opening))
     ):
-        return shape.FirstOperand, True
+        return (first_operand, True) if first_operand is not None else (shape, False)
 
-    next_operand, removed = _remove_opening_boolean(shape.FirstOperand, opening)
+    next_operand, removed = _remove_opening_boolean(first_operand, opening)
     if removed:
         shape.FirstOperand = next_operand
     return shape, removed
