@@ -107,7 +107,7 @@ class LLM3DPipeline:
     @staticmethod
     def split_chat_commands(user_text: str) -> list[str]:
         normalized = re.sub(
-            r"((?:만들|생성|추가|배치|넣|삭제|제거|없애|지우|빼))고\s+",
+            r"((?:만들|생성|추가|배치|넣|달|삭제|제거|없애|지우|빼))고\s+",
             r"\1.\n",
             user_text,
         )
@@ -129,7 +129,7 @@ class LLM3DPipeline:
         element = "창문" if "창문" in user_text else "문" if "문" in user_text else None
         if element is None:
             return [user_text]
-        verb_match = re.search(r"(만들|생성|추가|배치|넣)\S*", user_text)
+        verb_match = re.search(r"(만들|생성|추가|배치|넣|달)\S*", user_text)
         verb = verb_match.group(0) if verb_match else "만들어줘"
         first_direction_at = min(user_text.index(direction) for direction in direction_words)
         prefix = user_text[:first_direction_at].strip()

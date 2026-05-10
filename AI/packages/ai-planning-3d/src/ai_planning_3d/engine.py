@@ -290,15 +290,15 @@ class LLM3DEngine:
     def _command_type(self, text: str) -> LLM3DCommandType:
         if any(word in text for word in ("빼", "제거")):
             return LLM3DCommandType.DELETE
-        if any(word in text for word in ("배치", "넣")):
+        if any(word in text for word in ("배치", "넣", "달")):
             return LLM3DCommandType.CREATE
         if any(word in text for word in ("삭제", "지워", "없애", "remove", "delete")):
             return LLM3DCommandType.DELETE
-        if any(word in text for word in ("만들", "생성", "추가", "create", "add")):
+        if any(word in text for word in ("만들", "생성", "추가", "달", "create", "add")):
             return LLM3DCommandType.CREATE
         if any(word in text for word in ("삭제", "지워", "제거")):
             return LLM3DCommandType.DELETE
-        if any(word in text for word in ("만들", "생성", "세워", "추가")):
+        if any(word in text for word in ("만들", "생성", "세워", "추가", "달")):
             return LLM3DCommandType.CREATE
         return LLM3DCommandType.MODIFY
 
