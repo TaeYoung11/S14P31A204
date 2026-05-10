@@ -39,6 +39,8 @@ interface WorkspaceFloorPlanPayload extends WorkspaceBubblePayload {
     hiddenAutoWallIds: EditorDraftSnapshot['hiddenAutoWallIds']
     hiddenAutoOpeningIds: EditorDraftSnapshot['hiddenAutoOpeningIds']
     isProjectStructurePreferred: EditorDraftSnapshot['isProjectStructurePreferred']
+    ifcElementChanges: EditorDraftSnapshot['ifcElementChanges']
+    mode: 'ifc'
     baseIndex: number
   }
 }
@@ -119,6 +121,8 @@ const toTwoDFloorPlanPayload = (
     hiddenAutoWallIds: snapshot.hiddenAutoWallIds,
     hiddenAutoOpeningIds: snapshot.hiddenAutoOpeningIds,
     isProjectStructurePreferred: snapshot.isProjectStructurePreferred,
+    ifcElementChanges: snapshot.ifcElementChanges,
+    mode: 'ifc',
     baseIndex,
   },
 })
@@ -141,7 +145,12 @@ export const workspaceRealtimeService = {
     baseIndex,
     revisionId,
   }: PublishWorkspaceSnapshotInput): Promise<void> => {
-    if (snapshot.phaseStatus === 'BUBBLE_DRAFT') {
+    const shouldPublishBubbleSnapshot =
+      snapshot.phaseStatus === 'BUBBLE_DRAFT' &&
+      !snapshot.isFloorPlanGenerated &&
+      snapshot.floorPlanLayoutSource === null
+
+    if (shouldPublishBubbleSnapshot) {
       return publishJson(
         `/app/project/${projectId}/bubble/update`,
         toBubblePayload(snapshot, baseIndex),

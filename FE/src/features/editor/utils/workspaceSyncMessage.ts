@@ -1,9 +1,37 @@
 import type { IMessage } from '@stomp/stompjs'
-import type { BubbleData, ConnectionData, PhaseStatus } from '../types'
+import type {
+  BubbleData,
+  ConnectionData,
+  FloorLayer,
+  FloorOpening,
+  FloorWall,
+  IfcElementChange,
+  PhaseStatus,
+} from '../types'
 
 export interface BubbleSnapshotPayload {
   bubbles: BubbleData[]
   connections: ConnectionData[]
+}
+
+export interface FloorPlanSnapshotPayload extends BubbleSnapshotPayload {
+  baseIndex?: number
+  revisionId?: string | null
+  layout?: {
+    phaseStatus?: PhaseStatus
+    floorLayers?: FloorLayer[]
+    activeFloorLayerId?: string | null
+    isFloorPlanGenerated?: boolean
+    floorPlanLayoutSource?: 'bubble' | 'project' | null
+    floorWalls?: FloorWall[]
+    floorOpenings?: FloorOpening[]
+    hiddenAutoWallIds?: string[]
+    hiddenAutoOpeningIds?: string[]
+    isProjectStructurePreferred?: boolean
+    ifcElementChanges?: IfcElementChange[]
+    mode?: 'ifc' | string
+    baseIndex?: number
+  } | null
 }
 
 export interface ProjectSyncMessage {
@@ -185,6 +213,12 @@ export function isBubbleSnapshotPayload(value: unknown): value is BubbleSnapshot
   return Array.isArray(bubbles) && Array.isArray(connections)
 }
 
+export function isFloorPlanSnapshotPayload(value: unknown): value is FloorPlanSnapshotPayload {
+  if (!isBubbleSnapshotPayload(value)) return false
+  const layout = (value as unknown as Record<string, unknown>).layout
+  return layout == null || isObjectRecord(layout)
+}
+
 /** FLOOR_PLAN_UPDATED 이벤트에서 동봉된 버블 스냅샷을 추출한다. */
 export function extractFloorPlanBubbleSnapshot(message: ProjectSyncMessage): BubbleSnapshotPayload | null {
   const directPayload = message.floorPlanPayloadJson
@@ -209,10 +243,41 @@ export function extractFloorPlanBubbleSnapshot(message: ProjectSyncMessage): Bub
   return null
 }
 
+export function extractFloorPlanSnapshot(message: ProjectSyncMessage): FloorPlanSnapshotPayload | null {
+  const directPayload = message.floorPlanPayloadJson
+  if (isFloorPlanSnapshotPayload(directPayload)) {
+    return directPayload
+  }
+
+  if (isObjectRecord(message.payload)) {
+    const nestedPayload = message.payload.floorPlanPayloadJson
+    if (isFloorPlanSnapshotPayload(nestedPayload)) {
+      return nestedPayload
+    }
+  }
+
+  if (isObjectRecord(message.output)) {
+    const nestedOutput = message.output.floorPlanPayloadJson
+    if (isFloorPlanSnapshotPayload(nestedOutput)) {
+      return nestedOutput
+    }
+  }
+
+  return null
+}
+
 export function extractFloorPlanBaseIndex(message: ProjectSyncMessage): number | null {
   const payload = message.floorPlanPayloadJson
   if (isObjectRecord(payload) && typeof payload.baseIndex === 'number' && Number.isInteger(payload.baseIndex)) {
     return payload.baseIndex
+  }
+  if (
+    isObjectRecord(payload) &&
+    isObjectRecord(payload.layout) &&
+    typeof payload.layout.baseIndex === 'number' &&
+    Number.isInteger(payload.layout.baseIndex)
+  ) {
+    return payload.layout.baseIndex
   }
 
   if (isObjectRecord(message.payload)) {
@@ -224,6 +289,14 @@ export function extractFloorPlanBaseIndex(message: ProjectSyncMessage): number |
     ) {
       return nestedPayload.baseIndex
     }
+    if (
+      isObjectRecord(nestedPayload) &&
+      isObjectRecord(nestedPayload.layout) &&
+      typeof nestedPayload.layout.baseIndex === 'number' &&
+      Number.isInteger(nestedPayload.layout.baseIndex)
+    ) {
+      return nestedPayload.layout.baseIndex
+    }
   }
 
   if (isObjectRecord(message.output)) {
@@ -234,6 +307,14 @@ export function extractFloorPlanBaseIndex(message: ProjectSyncMessage): number |
       Number.isInteger(nestedOutput.baseIndex)
     ) {
       return nestedOutput.baseIndex
+    }
+    if (
+      isObjectRecord(nestedOutput) &&
+      isObjectRecord(nestedOutput.layout) &&
+      typeof nestedOutput.layout.baseIndex === 'number' &&
+      Number.isInteger(nestedOutput.layout.baseIndex)
+    ) {
+      return nestedOutput.layout.baseIndex
     }
   }
 

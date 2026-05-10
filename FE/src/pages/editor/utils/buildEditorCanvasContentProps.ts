@@ -157,6 +157,8 @@ function buildTwoDStructureProps(
   | 'handleMoveFloorRoom'
   | 'handleResizeFloorRoom'
   | 'handleUpdateFloorRoomPolygon'
+  | 'beginWorkspaceSnapshotTransaction'
+  | 'commitWorkspaceSnapshotTransaction'
   | 'handleTwoDMarqueeSelect'
 > {
   const safeHandleUpdateFloorRoomPolygon = createSafeFloorRoomPolygonHandler(
@@ -183,6 +185,8 @@ function buildTwoDStructureProps(
     handleMoveFloorRoom: vm.handleMoveFloorRoom,
     handleResizeFloorRoom: vm.handleResizeFloorRoom,
     handleUpdateFloorRoomPolygon: safeHandleUpdateFloorRoomPolygon,
+    beginWorkspaceSnapshotTransaction: vm.beginWorkspaceSnapshotTransaction,
+    commitWorkspaceSnapshotTransaction: vm.commitWorkspaceSnapshotTransaction,
     handleTwoDMarqueeSelect: vm.handleTwoDMarqueeSelect,
   }
 }

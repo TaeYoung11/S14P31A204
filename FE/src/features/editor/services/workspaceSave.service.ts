@@ -1,6 +1,7 @@
 import { api } from '@/shared/lib/axios'
 import type { ApiResponse } from '@/shared/types'
 import type { BubbleData, ConnectionData, EditorDraftSnapshot } from '../types'
+import type { BubbleSnapshotPayload, FloorPlanSnapshotPayload } from '../utils/workspaceSyncMessage'
 
 interface WorkspaceBubbleSavePayload {
   bubbles: Array<{
@@ -33,6 +34,29 @@ interface SaveFloorPlanSnapshotResponse {
   savedAt: string
 }
 
+interface WorkspaceHistoryEntry<TSnapshot> {
+  baseIndex: number
+  redoDepth: number
+  snapshot: TSnapshot | null
+  s3Url: string | null
+}
+
+interface WorkspaceHistorySiteInfo {
+  pnu?: string | null
+  address?: string | null
+  polygon?: {
+    type: string
+    coordinates: number[][][][]
+  } | null
+}
+
+export interface WorkspaceHistorySnapshotResponse {
+  phaseStatus: EditorDraftSnapshot['phaseStatus']
+  siteInfo?: WorkspaceHistorySiteInfo | null
+  bubble: WorkspaceHistoryEntry<BubbleSnapshotPayload>
+  floorPlan: WorkspaceHistoryEntry<FloorPlanSnapshotPayload>
+}
+
 const toWorkspaceBubble = (bubble: BubbleData): WorkspaceBubbleSavePayload['bubbles'][number] => ({
   id: bubble.id,
   x: bubble.x,
@@ -53,6 +77,13 @@ const toBubbleSavePayload = (snapshot: EditorDraftSnapshot): WorkspaceBubbleSave
 })
 
 export const workspaceSaveService = {
+  loadHistorySnapshot: async (projectId: string): Promise<WorkspaceHistorySnapshotResponse> => {
+    const response = await api.get<ApiResponse<WorkspaceHistorySnapshotResponse>>(
+      `/projects/${projectId}/workspace/history`,
+    )
+    return response.data.data
+  },
+
   saveBubbleSnapshot: async (
     projectId: string,
     snapshot: EditorDraftSnapshot,

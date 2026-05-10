@@ -41,6 +41,30 @@ const toBounds = (polygon: FloorProjectPoint2D[]): Bounds | null => {
   }
 }
 
+const isSamePoint = (a: FloorProjectPoint2D, b: FloorProjectPoint2D, epsilon = 0.001): boolean =>
+  Math.abs(a.x - b.x) <= epsilon && Math.abs(a.y - b.y) <= epsilon
+
+const isAxisAlignedRectanglePolygon = (polygon: FloorProjectPoint2D[]): boolean => {
+  const bounds = toBounds(polygon)
+  if (!bounds) return false
+  const points = polygon.slice()
+  if (points.length > 1 && isSamePoint(points[0], points[points.length - 1])) {
+    points.pop()
+  }
+  if (points.length !== 4) return false
+
+  const corners = [
+    { x: bounds.minX, y: bounds.minY },
+    { x: bounds.maxX, y: bounds.minY },
+    { x: bounds.maxX, y: bounds.maxY },
+    { x: bounds.minX, y: bounds.maxY },
+  ]
+  return points.every((point) => corners.some((corner) => isSamePoint(point, corner)))
+}
+
+const shouldUseAutoWallsForProject = (project: FloorProject): boolean =>
+  project.rooms.length > 0 && project.rooms.every((room) => isAxisAlignedRectanglePolygon(room.polygon))
+
 const computeRoomAreaM2 = (polygon: FloorProjectPoint2D[]): number => {
   if (!polygon || polygon.length < 3) return 0
   let area = 0
@@ -190,7 +214,9 @@ export function mapFloorProjectToLayers(project: FloorProject, options: MapperOp
     if (!bounds) return
 
     const floorRooms = roomsByFloor.get(room.floor) ?? []
-    const polygon = room.polygon.map((point) => toCanvasPoint(point, scale, offsetX, offsetY))
+    const polygon = isAxisAlignedRectanglePolygon(room.polygon)
+      ? undefined
+      : room.polygon.map((point) => toCanvasPoint(point, scale, offsetX, offsetY))
     const contour = mapRoomContourToCanvas(room.contour, scale, offsetX, offsetY)
     const transform = mapRoomTransformToCanvas(room.transform, scale, offsetX, offsetY)
     const roomWidth = (bounds.maxX - bounds.minX) * scale
@@ -265,6 +291,7 @@ export function mapAdjacencyToConnections(adjacency: FloorProject['adjacency']):
  * walls 필드가 없거나 비어 있으면 빈 배열 반환 → 호출측에서 autoWalls로 폴백
  */
 export function mapFloorProjectToWalls(project: FloorProject, options: MapperOptions): FloorWall[] {
+  if (shouldUseAutoWallsForProject(project)) return []
   if (!project.walls || project.walls.length === 0) return []
   const { scale, offsetX, offsetY } = computeProjectTransform(project.rooms, options)
   return project.walls.map((wall) => {

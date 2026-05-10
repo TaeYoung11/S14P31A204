@@ -48,6 +48,8 @@ interface TwoDRoomsLayerProps {
   resizingRoomBubbleId: string | null
   canResizeRoom: (roomBubbleId: string, nextRect: AxisAlignedRect) => boolean
   applyRoomResize: (roomBubbleId: string, x: number, y: number, width: number, height: number) => boolean
+  beginRoomResize?: () => void
+  commitRoomResize?: () => void
   snapResizeHandle: (value: number) => number
   getCanvasPoint: (stage: Konva.Stage) => Point2D | null
   syncHandlePosition: (e: KonvaEventObject<DragEvent>, x: number, y: number) => void
@@ -86,6 +88,8 @@ export function TwoDRoomsLayer({
   resizingRoomBubbleId,
   canResizeRoom,
   applyRoomResize,
+  beginRoomResize,
+  commitRoomResize,
   snapResizeHandle,
   getCanvasPoint,
   syncHandlePosition,
@@ -218,6 +222,7 @@ export function TwoDRoomsLayer({
             onDragStart={(e) => {
               if (isWallFirstEditing) return
               e.cancelBubble = true
+              beginRoomResize?.()
               onWallSelect?.(null)
               onOpeningSelect?.(null)
               if (!isSelected) onSelect?.(room.bubbleId, false)
@@ -272,6 +277,7 @@ export function TwoDRoomsLayer({
             onDragEnd={(e) => {
               if (isWallFirstEditing) return
               onRoomDragStateChange(null)
+              commitRoomResize?.()
               e.target.position({ x: 0, y: 0 })
               e.target.getLayer()?.batchDraw()
             }}
@@ -352,6 +358,8 @@ export function TwoDRoomsLayer({
                 syncHandlePosition={syncHandlePosition}
                 onRoomDragStateReset={() => onRoomDragStateChange(null)}
                 onResizingRoomBubbleIdChange={onResizingRoomBubbleIdChange}
+                onResizeStart={beginRoomResize}
+                onResizeCommit={commitRoomResize}
               />
             )}
 

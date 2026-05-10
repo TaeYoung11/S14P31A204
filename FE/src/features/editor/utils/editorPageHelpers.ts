@@ -102,12 +102,6 @@ export function resolveMmPerPxForFloorPlan(bubbles: BubbleData[]): number {
   return DEFAULT_FLOOR_PLAN_MM_PER_PX
 }
 
-function toConnectionStrength(type: ConnectionData['type']): number {
-  if (type === 'bold') return 1
-  if (type === 'thin') return 0.6
-  return 0.3
-}
-
 function toBoundaryPolygonPairs(sitePlanPoints: number[]): Array<[number, number]> {
   const pairs: Array<[number, number]> = []
   for (let index = 0; index + 1 < sitePlanPoints.length; index += 2) {
@@ -263,7 +257,7 @@ export function buildFloorPlanLayoutImportPayload(
   projectId: string,
   projectName: string,
   bubbles: BubbleData[],
-  connections: ConnectionData[],
+  _connections: ConnectionData[],
   boundaryInput: LayoutImportBoundaryInput,
 ): LayoutImportV2 {
   const mmPerPx = resolveMmPerPxForFloorPlan(bubbles)
@@ -286,14 +280,6 @@ export function buildFloorPlanLayoutImportPayload(
     }
   })
 
-  const roomIdSet = new Set(rooms.map((room) => room.id))
-  const adjacency = connections
-    .filter((connection) => roomIdSet.has(connection.from) && roomIdSet.has(connection.to))
-    .map((connection) => ({
-      from_room_id: connection.from,
-      to_room_id: connection.to,
-      strength: toConnectionStrength(connection.type),
-    }))
   const boundary = toLayoutImportBoundaryFromInput(boundaryInput, uniqueBubbles, mmPerPx).boundary
 
   return {
@@ -301,7 +287,6 @@ export function buildFloorPlanLayoutImportPayload(
     id: projectId,
     name: projectName.trim() || '프로젝트',
     rooms: rooms.map((room) => ({ ...room })),
-    ...(adjacency.length > 0 ? { adjacency } : {}),
     ...(boundary ? { boundaries: [boundary] } : {}),
     generation_options: {
       generate_spaces: true,

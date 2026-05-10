@@ -3,7 +3,6 @@ import type { IMessage } from '@stomp/stompjs'
 import { getStompClient } from '@/shared/lib/stomp'
 import { getRuntimeEnvBoolean } from '@/shared/lib/runtimeEnv'
 import type { BubbleData, ConnectionData, PhaseStatus } from '../types'
-import { publishBubbleSnapshotUpdate } from '../services/workspaceCommand.service'
 import { subscribeStompTopicsWithPolling } from '../utils/stompSubscription'
 import {
   CURSOR_INVALID_CODE,
@@ -14,7 +13,7 @@ import {
   PROJECT_SYNC_TOPIC_PREFIX,
   USER_ERROR_TOPIC,
   WORKSPACE_SYNC_ACTION,
-  extractFloorPlanBubbleSnapshot,
+  extractFloorPlanSnapshot,
   extractFloorPlanBaseIndex,
   extractIfcAssetId,
   extractIfcStorageUrl,
@@ -25,6 +24,7 @@ import {
   parseProjectSyncMessage,
   parseStompErrorMessage,
   type BubbleSnapshotPayload,
+  type FloorPlanSnapshotPayload,
 } from '../utils/workspaceSyncMessage'
 
 interface UseBubbleSnapshotRealtimeParams {
@@ -33,13 +33,15 @@ interface UseBubbleSnapshotRealtimeParams {
   bubbles: BubbleData[]
   connections: ConnectionData[]
   onRemoteSnapshot: (snapshot: BubbleSnapshotPayload) => void
+  onRemoteFloorPlanSnapshot?: (snapshot: FloorPlanSnapshotPayload) => void
   onPhaseStatusChanged?: (status: PhaseStatus) => void
   onIfcStorageUrlReceived?: (ifcStorageUrl: string, action: string | null, assetId: string | null) => void
   onBubbleHistoryCursorChanged?: (baseIndex: number, redoDepth: number) => void
   onFloorPlanHistoryCursorChanged?: (baseIndex: number, redoDepth: number) => void
+  bubbleHistoryCursor?: { baseIndex: number; redoDepth: number }
+  floorPlanHistoryCursor?: { baseIndex: number; redoDepth: number }
 }
 
-const PUBLISH_DEBOUNCE_MS = 120
 const IFC_EVENT_DEDUP_TTL_MS = 2000
 const IFC_URL_DEBUG = getRuntimeEnvBoolean('VITE_IFC_URL_DEBUG')
 
@@ -51,27 +53,28 @@ const IFC_URL_DEBUG = getRuntimeEnvBoolean('VITE_IFC_URL_DEBUG')
  */
 export function useBubbleSnapshotRealtime({
   projectId,
-  canPublish,
-  bubbles,
-  connections,
+  canPublish: _canPublish,
+  bubbles: _bubbles,
+  connections: _connections,
   onRemoteSnapshot,
+  onRemoteFloorPlanSnapshot,
   onPhaseStatusChanged,
   onIfcStorageUrlReceived,
   onBubbleHistoryCursorChanged,
   onFloorPlanHistoryCursorChanged,
+  bubbleHistoryCursor,
+  floorPlanHistoryCursor,
 }: UseBubbleSnapshotRealtimeParams) {
   const remoteSnapshotHandlerRef = useRef(onRemoteSnapshot)
   const phaseStatusHandlerRef = useRef(onPhaseStatusChanged)
+  const floorPlanSnapshotHandlerRef = useRef(onRemoteFloorPlanSnapshot)
   const ifcStorageUrlHandlerRef = useRef(onIfcStorageUrlReceived)
   const bubbleHistoryCursorHandlerRef = useRef(onBubbleHistoryCursorChanged)
   const floorPlanHistoryCursorHandlerRef = useRef(onFloorPlanHistoryCursorChanged)
-  const pendingPublishRef = useRef(false)
-  const applyingRemoteRef = useRef(false)
   const baseIndexRef = useRef(-1)
   const bubbleRedoDepthRef = useRef(0)
   const floorPlanBaseIndexRef = useRef(-1)
   const floorPlanRedoDepthRef = useRef(0)
-  const publishTimerRef = useRef<number | null>(null)
   const recentIfcEventRef = useRef<Map<string, number>>(new Map())
 
   useEffect(() => {
@@ -81,6 +84,10 @@ export function useBubbleSnapshotRealtime({
   useEffect(() => {
     phaseStatusHandlerRef.current = onPhaseStatusChanged
   }, [onPhaseStatusChanged])
+
+  useEffect(() => {
+    floorPlanSnapshotHandlerRef.current = onRemoteFloorPlanSnapshot
+  }, [onRemoteFloorPlanSnapshot])
 
   useEffect(() => {
     ifcStorageUrlHandlerRef.current = onIfcStorageUrlReceived
@@ -94,9 +101,19 @@ export function useBubbleSnapshotRealtime({
     floorPlanHistoryCursorHandlerRef.current = onFloorPlanHistoryCursorChanged
   }, [onFloorPlanHistoryCursorChanged])
 
-  const markLocalBubbleSnapshotChanged = useCallback(() => {
-    pendingPublishRef.current = true
-  }, [])
+  useEffect(() => {
+    if (!bubbleHistoryCursor) return
+    baseIndexRef.current = bubbleHistoryCursor.baseIndex
+    bubbleRedoDepthRef.current = bubbleHistoryCursor.redoDepth
+  }, [bubbleHistoryCursor])
+
+  useEffect(() => {
+    if (!floorPlanHistoryCursor) return
+    floorPlanBaseIndexRef.current = floorPlanHistoryCursor.baseIndex
+    floorPlanRedoDepthRef.current = floorPlanHistoryCursor.redoDepth
+  }, [floorPlanHistoryCursor])
+
+  const markLocalBubbleSnapshotChanged = useCallback(() => {}, [])
 
   useEffect(() => {
     if (!projectId) return
@@ -118,13 +135,6 @@ export function useBubbleSnapshotRealtime({
       floorPlanHistoryCursorHandlerRef.current?.(floorPlanBaseIndexRef.current, floorPlanRedoDepthRef.current)
     }
 
-    baseIndexRef.current = -1
-    bubbleRedoDepthRef.current = 0
-    floorPlanBaseIndexRef.current = -1
-    floorPlanRedoDepthRef.current = 0
-    notifyBubbleHistoryCursor()
-    notifyFloorPlanHistoryCursor()
-
     const syncBubbleHistoryCursor = (action: string | null) => {
       if (action === WORKSPACE_SYNC_ACTION.bubbleUndo) {
         baseIndexRef.current = Math.max(-1, baseIndexRef.current - 1)
@@ -139,12 +149,15 @@ export function useBubbleSnapshotRealtime({
       notifyBubbleHistoryCursor()
     }
 
+    const toRestoredFloorPlanIndex = (payloadBaseIndex: number | null): number | null =>
+      payloadBaseIndex === null ? null : payloadBaseIndex + 1
+
     const syncFloorPlanHistoryCursor = (action: string | null, payloadBaseIndex: number | null) => {
       if (action === WORKSPACE_SYNC_ACTION.floorPlanUndo) {
-        floorPlanBaseIndexRef.current = payloadBaseIndex ?? Math.max(-1, floorPlanBaseIndexRef.current - 1)
+        floorPlanBaseIndexRef.current = toRestoredFloorPlanIndex(payloadBaseIndex) ?? Math.max(-1, floorPlanBaseIndexRef.current - 1)
         floorPlanRedoDepthRef.current += 1
       } else if (action === WORKSPACE_SYNC_ACTION.floorPlanRedo) {
-        floorPlanBaseIndexRef.current = payloadBaseIndex ?? floorPlanBaseIndexRef.current + 1
+        floorPlanBaseIndexRef.current = toRestoredFloorPlanIndex(payloadBaseIndex) ?? floorPlanBaseIndexRef.current + 1
         floorPlanRedoDepthRef.current = Math.max(0, floorPlanRedoDepthRef.current - 1)
       } else if (action === WORKSPACE_SYNC_ACTION.floorPlanUpdated) {
         floorPlanBaseIndexRef.current = (payloadBaseIndex ?? floorPlanBaseIndexRef.current) + 1
@@ -154,22 +167,16 @@ export function useBubbleSnapshotRealtime({
     }
 
     const applyRemoteSnapshot = (snapshot: BubbleSnapshotPayload, action: string | null) => {
-      applyingRemoteRef.current = true
-      pendingPublishRef.current = false
       remoteSnapshotHandlerRef.current(snapshot)
       syncBubbleHistoryCursor(action)
-      queueMicrotask(() => {
-        applyingRemoteRef.current = false
-      })
     }
 
-    const applyFloorPlanBubbleSnapshot = (snapshot: BubbleSnapshotPayload) => {
-      applyingRemoteRef.current = true
-      pendingPublishRef.current = false
-      remoteSnapshotHandlerRef.current(snapshot)
-      queueMicrotask(() => {
-        applyingRemoteRef.current = false
-      })
+    const applyFloorPlanSnapshot = (snapshot: FloorPlanSnapshotPayload) => {
+      if (floorPlanSnapshotHandlerRef.current) {
+        floorPlanSnapshotHandlerRef.current(snapshot)
+      } else {
+        remoteSnapshotHandlerRef.current(snapshot)
+      }
     }
 
     const handleProjectSyncMessage = (message: IMessage) => {
@@ -224,9 +231,9 @@ export function useBubbleSnapshotRealtime({
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
       ) {
-        const floorPlanBubbleSnapshot = extractFloorPlanBubbleSnapshot(parsed)
-        if (floorPlanBubbleSnapshot) {
-          applyFloorPlanBubbleSnapshot(floorPlanBubbleSnapshot)
+        const floorPlanSnapshot = extractFloorPlanSnapshot(parsed)
+        if (floorPlanSnapshot) {
+          applyFloorPlanSnapshot(floorPlanSnapshot)
         }
       }
 
@@ -265,47 +272,6 @@ export function useBubbleSnapshotRealtime({
       ],
     })
   }, [projectId])
-
-  useEffect(() => {
-    if (!projectId) return
-    if (!canPublish) return
-    if (!pendingPublishRef.current) return
-    if (applyingRemoteRef.current) return
-
-    if (publishTimerRef.current !== null) {
-      window.clearTimeout(publishTimerRef.current)
-    }
-
-    publishTimerRef.current = window.setTimeout(() => {
-      publishTimerRef.current = null
-      if (!pendingPublishRef.current) return
-      if (applyingRemoteRef.current) return
-
-      const payload = {
-        bubbles,
-        connections,
-        baseIndex: baseIndexRef.current,
-      }
-
-      try {
-        publishBubbleSnapshotUpdate(projectId, payload)
-        pendingPublishRef.current = false
-      } catch (error: unknown) {
-        console.warn('[editor] bubble snapshot publish failed.', {
-          projectId,
-          baseIndex: baseIndexRef.current,
-          error,
-        })
-      }
-    }, PUBLISH_DEBOUNCE_MS)
-
-    return () => {
-      if (publishTimerRef.current !== null) {
-        window.clearTimeout(publishTimerRef.current)
-        publishTimerRef.current = null
-      }
-    }
-  }, [bubbles, canPublish, connections, projectId])
 
   return {
     markLocalBubbleSnapshotChanged,

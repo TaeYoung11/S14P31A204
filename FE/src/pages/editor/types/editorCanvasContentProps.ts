@@ -88,6 +88,8 @@ type TwoDStructureProps = Pick<
   | 'handleMoveFloorRoom'
   | 'handleResizeFloorRoom'
   | 'handleUpdateFloorRoomPolygon'
+  | 'beginWorkspaceSnapshotTransaction'
+  | 'commitWorkspaceSnapshotTransaction'
   | 'handleTwoDMarqueeSelect'
 >
 
