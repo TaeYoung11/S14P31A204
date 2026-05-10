@@ -30,6 +30,12 @@ def _stair_count(ifc_path: Path) -> int:
     return len(ifcopenshell.open(str(ifc_path)).by_type("IfcStair"))
 
 
+def test_pipeline_splits_stair_chat_command():
+    commands = LLM3DPipeline.split_chat_commands(_CHAT_COMMAND)
+
+    assert commands == [_CHAT_COMMAND]
+
+
 async def run_stair_chat_commands(
     ifc_path: Path,
     commands: list[str],
