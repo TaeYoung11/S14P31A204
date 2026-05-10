@@ -8,7 +8,6 @@ def test_llm_3d_engine_uses_llm_env(monkeypatch):
     monkeypatch.setenv("LLM_BASE_URL", "http://ollama:11434/v1")
     monkeypatch.setenv("LLM_API_KEY", "local-ollama")
     monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "45")
-    monkeypatch.setenv("OPENAI_API_KEY", "must-not-be-used")
 
     engine = LLM3DEngine()
 
@@ -39,13 +38,12 @@ def test_llm_3d_engine_explicit_args_override_env(monkeypatch):
     assert engine._raw_client.timeout == 0
 
 
-def test_llm_3d_engine_defaults_to_ollama_without_openai_key(monkeypatch):
+def test_llm_3d_engine_defaults_to_ollama_without_llm_env(monkeypatch):
     for key in (
         "LLM_MODEL_NAME",
         "LLM_BASE_URL",
         "LLM_API_KEY",
         "LLM_TIMEOUT_SECONDS",
-        "OPENAI_API_KEY",
     ):
         monkeypatch.delenv(key, raising=False)
 
