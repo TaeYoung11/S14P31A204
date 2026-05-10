@@ -1,5 +1,6 @@
 import uuid
 import logging
+import re
 from typing import Any
 import ifcopenshell
 from .engine import LLM3DEngine
@@ -22,6 +23,8 @@ from ai_authoring.engine_3d import (
     create_stair_preset,
     create_generic_element,
 )
+import ai_authoring.operations  # noqa: F401
+from ai_authoring.operations.registry import get as get_operation
 
 # 검증 모듈 및 컨텍스트 추출기 임포트
 from .clarification import ClarificationGenerator, ClarificationQuestion
@@ -100,6 +103,205 @@ class LLM3DPipeline:
         # IFC 컨텍스트 추출 (초기화 시 1회 캐싱)
         _ctx = IFCContextExtractor(ifc_model, scale_to_mm=self._scale).extract()
         self._ifc_context_text: str | None = _ctx.context_text if _ctx else None
+
+    @staticmethod
+    def split_chat_commands(user_text: str) -> list[str]:
+        normalized = re.sub(
+            r"((?:만들|생성|추가|배치|넣|달|삭제|제거|없애|지우|빼))고\s+",
+            lambda match: f"{LLM3DPipeline._complete_connected_verb(match.group(1))}.\n",
+            user_text,
+        )
+        parts = re.split(r"(?:그리고|\.|,|\n|;)", normalized)
+        commands: list[str] = []
+        for part in parts:
+            part = part.strip()
+            if part:
+                commands.extend(LLM3DPipeline._expand_direction_pair_command(part))
+        return commands or [user_text]
+
+    @staticmethod
+    def _complete_connected_verb(verb: str) -> str:
+        endings = {
+            "만들": "만들어줘",
+            "생성": "생성해줘",
+            "추가": "추가해줘",
+            "배치": "배치해줘",
+            "넣": "넣어줘",
+            "달": "달아줘",
+            "삭제": "삭제해줘",
+            "제거": "제거해줘",
+            "없애": "없애줘",
+            "지우": "지워줘",
+            "빼": "빼줘",
+        }
+        return endings.get(verb, verb)
+
+    @staticmethod
+    def _expand_direction_pair_command(user_text: str) -> list[str]:
+        if "씩" not in user_text:
+            return [user_text]
+        direction_words = re.findall(r"(남쪽|북쪽|동쪽|서쪽|남측|북측|동측|서측)", user_text)
+        if len(direction_words) < 2:
+            return [user_text]
+        element = "창문" if "창문" in user_text else "문" if "문" in user_text else None
+        if element is None:
+            return [user_text]
+        verb_match = re.search(r"(만들|생성|추가|배치|넣|달)\S*", user_text)
+        verb = verb_match.group(0) if verb_match else "만들어줘"
+        first_direction_at = min(user_text.index(direction) for direction in direction_words)
+        prefix = user_text[:first_direction_at].strip()
+        prefix = re.sub(r"\s*에$", "", prefix)
+        return [
+            " ".join(part for part in (prefix, f"{direction}에", element, "1개", verb) if part)
+            for direction in direction_words
+        ]
+
+    @staticmethod
+    def _requested_repeat_count(user_text: str) -> int:
+        match = re.search(r"(\d+)\s*개", user_text)
+        if match:
+            return max(1, min(int(match.group(1)), 20))
+        korean_counts = {
+            "한": 1,
+            "하나": 1,
+            "두": 2,
+            "둘": 2,
+            "세": 3,
+            "셋": 3,
+            "네": 4,
+            "넷": 4,
+        }
+        for token, count in korean_counts.items():
+            if re.search(rf"{token}\s*개", user_text):
+                return count
+        return 1
+
+    def _offset_repeated_create_session(
+        self,
+        session_id: str,
+        copy_index: int,
+        repeat_count: int,
+    ) -> None:
+        if repeat_count <= 1:
+            return
+        session = self.store.get(session_id)
+        if not session or session.command.command_type != LLM3DCommandType.CREATE:
+            return
+        command_ci = session.command.create_info
+        if not command_ci or not self._is_door_window(command_ci.element_type):
+            return
+        if not session.matched:
+            return
+
+        info = session.matched[0]
+        ci = info.get("create_info") or {}
+        start_point = dict(info.get("start_point") or ci.get("start_point") or {})
+        if not start_point:
+            return
+
+        length = float(ci.get("length_mm") or 1000.0)
+        spacing = max(length + 300.0, 900.0)
+        offset = (copy_index - (repeat_count - 1) / 2.0) * spacing
+        direction = str(ci.get("direction") or "").lower()
+        model = self.query_engine.get_model()
+        host_wall = None
+        if model and ci.get("host_wall_global_id"):
+            host_wall = model.by_guid(ci["host_wall_global_id"])
+        if host_wall is not None:
+            fraction = (copy_index + 1) / (repeat_count + 1)
+            target_storey = None
+            target_name = normalize_storey_name(str(ci.get("storey") or "1F"))
+            for storey in model.by_type("IfcBuildingStorey"):
+                if target_name.lower() in (storey.Name or "").lower():
+                    target_storey = storey
+                    break
+            sill_height_mm = float(ci.get("sill_height_mm") or 0.0)
+            opening_z_mm = float(start_point.get("z", 0.0)) + sill_height_mm
+            wall_point = self._point_on_host_wall(
+                host_wall,
+                fraction,
+                start_point,
+                storey=target_storey,
+                opening_length_mm=float(ci.get("length_mm") or 0.0),
+                opening_z_mm=opening_z_mm,
+                opening_height_mm=float(ci.get("height_mm") or 0.0),
+            )
+            if wall_point:
+                start_point = wall_point
+            elif direction in {"east", "west"}:
+                start_point["y"] = float(start_point.get("y", 0.0)) + offset
+            else:
+                start_point["x"] = float(start_point.get("x", 0.0)) + offset
+        elif direction in {"east", "west"}:
+            start_point["y"] = float(start_point.get("y", 0.0)) + offset
+        else:
+            start_point["x"] = float(start_point.get("x", 0.0)) + offset
+
+        info["start_point"] = start_point
+        ci["start_point"] = start_point
+        command_ci.start_point = LLM3DPoint3D(**start_point)
+
+    async def execute_chat_to_ifc(
+        self,
+        user_text: str,
+        output_path: str,
+    ) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        record_index = 1
+        for command_text in self.split_chat_commands(user_text):
+            repeat_count = self._requested_repeat_count(command_text)
+            for copy_index in range(repeat_count):
+                preview = await self.execute_preview(command_text)
+                if preview.get("status") == "preview_ready":
+                    self._offset_repeated_create_session(
+                        str(preview["session_id"]),
+                        copy_index,
+                        repeat_count,
+                    )
+                    if repeat_count > 1 and preview.get("command"):
+                        session = self.store.get(str(preview["session_id"]))
+                        if session:
+                            preview["command"] = session.command.model_dump()
+
+                instruction = command_text
+                if repeat_count > 1:
+                    instruction = f"{command_text} ({copy_index + 1}/{repeat_count})"
+
+                record: dict[str, Any] = {
+                    "index": record_index,
+                    "instruction": instruction,
+                    "preview_status": preview.get("status"),
+                    "summary": preview.get("summary"),
+                    "collision_warnings": preview.get("collision_warnings", []),
+                    "structural_warnings": preview.get("structural_warnings", []),
+                    "command": preview.get("command"),
+                    "apply_status": "not_applied",
+                    "ifc_written": False,
+                    "output_ifc": None,
+                }
+                record_index += 1
+                if preview.get("status") != "preview_ready":
+                    record["apply_status"] = "preview_blocked"
+                    record["not_applied_reason"] = (
+                        preview.get("summary")
+                        or "Preview did not reach preview_ready, so IFC was not written."
+                    )
+                    records.append(record)
+                    continue
+
+                result = await self.execute_apply(
+                    str(preview["session_id"]),
+                    output_path=output_path,
+                )
+                record["apply_status"] = result.get("status")
+                record["apply_summary"] = result.get("summary")
+                if result.get("status") == "applied":
+                    record["ifc_written"] = True
+                    record["output_ifc"] = output_path
+                else:
+                    record["not_applied_reason"] = result.get("summary") or "IFC was not written."
+                records.append(record)
+        return records
 
     # ── 단위 변환 헬퍼 ────────────────────────────────────────────────────
 
@@ -214,6 +416,18 @@ class LLM3DPipeline:
                     spaces.append(element)
         return spaces
 
+    def _storey_walls(self, storey: ifcopenshell.entity_instance) -> list[Any]:
+        walls: list[Any] = []
+        for element in self._storey_elements(storey):
+            if element.is_a("IfcWall"):
+                walls.append(element)
+        for space in self._storey_spaces(storey):
+            for rel in getattr(space, "ContainsElements", []) or []:
+                for element in getattr(rel, "RelatedElements", []) or []:
+                    if element.is_a("IfcWall") and element not in walls:
+                        walls.append(element)
+        return walls
+
     def _bbox_for_elements(self, elements: list[Any]) -> dict[str, float] | None:
         xs: list[float] = []
         ys: list[float] = []
@@ -290,6 +504,384 @@ class LLM3DPipeline:
         ]
         return self._bbox_for_elements(products)
 
+    @staticmethod
+    def _is_door_window(element_type: Any) -> bool:
+        return str(element_type) in {
+            str(LLM3DElementType.DOOR),
+            str(LLM3DElementType.WINDOW),
+        }
+
+    def _wall_length_model_units(self, wall: Any) -> float:
+        representation = getattr(wall, "Representation", None)
+        if not representation:
+            return 0.0
+        for rep in getattr(representation, "Representations", []) or []:
+            if getattr(rep, "RepresentationIdentifier", None) != "Body":
+                continue
+            for item in getattr(rep, "Items", []) or []:
+                while item.is_a("IfcBooleanResult"):
+                    item = item.FirstOperand
+                if item.is_a("IfcExtrudedAreaSolid"):
+                    swept = getattr(item, "SweptArea", None)
+                    if swept and swept.is_a("IfcRectangleProfileDef"):
+                        return max(float(swept.XDim), float(swept.YDim))
+        return 0.0
+
+    def _wall_axis_info_mm(
+        self,
+        wall: Any,
+    ) -> dict[str, Any] | None:
+        placement = getattr(wall, "ObjectPlacement", None)
+        if not placement or not placement.is_a("IfcLocalPlacement"):
+            return None
+        relative = getattr(placement, "RelativePlacement", None)
+        location = getattr(relative, "Location", None) if relative else None
+        coords = tuple(getattr(location, "Coordinates", ()) or ())
+        if len(coords) < 2:
+            return None
+
+        ref = getattr(relative, "RefDirection", None)
+        rdx, rdy = (1.0, 0.0)
+        if ref:
+            rdx = float(ref.DirectionRatios[0])
+            rdy = float(ref.DirectionRatios[1])
+
+        ew_wall = True
+        representation = getattr(wall, "Representation", None)
+        if representation:
+            for rep in getattr(representation, "Representations", []) or []:
+                if getattr(rep, "RepresentationIdentifier", None) != "Body":
+                    continue
+                for item in getattr(rep, "Items", []) or []:
+                    while item.is_a("IfcBooleanResult"):
+                        item = item.FirstOperand
+                    if item.is_a("IfcExtrudedAreaSolid"):
+                        swept = getattr(item, "SweptArea", None)
+                        if swept and swept.is_a("IfcRectangleProfileDef"):
+                            ew_wall = float(swept.XDim) >= float(swept.YDim)
+                            break
+
+        if ew_wall:
+            axis_x, axis_y = rdx, rdy
+        else:
+            axis_x, axis_y = -rdy, rdx
+        length = self._wall_length_model_units(wall) * self._scale
+        origin_x = float(coords[0]) * self._scale
+        origin_y = float(coords[1]) * self._scale
+        return {
+            "origin_x": origin_x,
+            "origin_y": origin_y,
+            "axis_x": axis_x,
+            "axis_y": axis_y,
+            "length": length,
+            "center_x": origin_x + axis_x * length / 2.0,
+            "center_y": origin_y + axis_y * length / 2.0,
+        }
+
+    def _point_on_host_wall(
+        self,
+        wall: Any,
+        fraction: float,
+        base_point: dict[str, Any],
+        storey: ifcopenshell.entity_instance | None = None,
+        opening_length_mm: float = 0.0,
+        opening_z_mm: float | None = None,
+        opening_height_mm: float = 0.0,
+    ) -> dict[str, Any] | None:
+        axis = self._wall_axis_info_mm(wall)
+        if not axis or axis["length"] <= 0.0:
+            return None
+        fraction = min(max(fraction, 0.05), 0.95)
+        if storey is not None and opening_length_mm > 0.0:
+            fraction = self._clear_host_wall_fraction(
+                wall,
+                storey,
+                axis,
+                fraction,
+                opening_length_mm,
+                opening_z_mm,
+                opening_height_mm,
+            )
+        point = dict(base_point)
+        point["x"] = axis["origin_x"] + axis["axis_x"] * axis["length"] * fraction
+        point["y"] = axis["origin_y"] + axis["axis_y"] * axis["length"] * fraction
+        return point
+
+    def _clear_host_wall_fraction(
+        self,
+        host_wall: Any,
+        storey: ifcopenshell.entity_instance,
+        host_axis: dict[str, Any],
+        desired_fraction: float,
+        opening_length_mm: float,
+        opening_z_mm: float | None,
+        opening_height_mm: float,
+    ) -> float:
+        length = float(host_axis["length"])
+        desired_u = length * desired_fraction
+        half_opening = opening_length_mm / 2.0
+        clearance = max(200.0, half_opening + 150.0)
+        usable_min = half_opening + 100.0
+        usable_max = length - half_opening - 100.0
+        if usable_min >= usable_max:
+            return desired_fraction
+
+        ax, ay = float(host_axis["axis_x"]), float(host_axis["axis_y"])
+        nx, ny = -ay, ax
+        ox, oy = float(host_axis["origin_x"]), float(host_axis["origin_y"])
+        host_z = self._placement_xyz_mm(host_wall)[2]
+        _, _, host_height = self._element_size_mm(host_wall)
+        z_min = opening_z_mm if opening_z_mm is not None else host_z
+        z_max = z_min + opening_height_mm if opening_height_mm > 0.0 else host_z + host_height
+
+        blocked: list[tuple[float, float]] = []
+        for wall in self._storey_walls(storey):
+            if wall == host_wall:
+                continue
+            name = str(getattr(wall, "Name", "") or "").lower()
+            if any(token in name for token in ("rail", "fence")):
+                continue
+            other_axis = self._wall_axis_info_mm(wall)
+            if not other_axis or other_axis["length"] <= 0.0:
+                continue
+            other_z = self._placement_xyz_mm(wall)[2]
+            _, _, other_height = self._element_size_mm(wall)
+            if opening_z_mm is not None and other_height > 0.0:
+                if other_z + other_height < z_min or other_z > z_max:
+                    continue
+
+            points = (
+                (other_axis["origin_x"], other_axis["origin_y"]),
+                (
+                    other_axis["origin_x"] + other_axis["axis_x"] * other_axis["length"],
+                    other_axis["origin_y"] + other_axis["axis_y"] * other_axis["length"],
+                ),
+            )
+            projections: list[tuple[float, float]] = []
+            for px, py in points:
+                dx, dy = float(px) - ox, float(py) - oy
+                projections.append((dx * ax + dy * ay, dx * nx + dy * ny))
+            u_values = [p[0] for p in projections]
+            v_values = [p[1] for p in projections]
+            if min(v_values) > 300.0 or max(v_values) < -300.0:
+                continue
+            center_u = (min(u_values) + max(u_values)) / 2.0
+            if center_u < -clearance or center_u > length + clearance:
+                continue
+            blocked.append((center_u - clearance, center_u + clearance))
+
+        if not blocked:
+            return desired_fraction
+
+        free: list[tuple[float, float]] = []
+        cursor = usable_min
+        for start, end in sorted(blocked):
+            start = max(usable_min, start)
+            end = min(usable_max, end)
+            if start > cursor:
+                free.append((cursor, start))
+            cursor = max(cursor, end)
+        if cursor < usable_max:
+            free.append((cursor, usable_max))
+        if not free:
+            return desired_fraction
+        if any(start <= desired_u <= end for start, end in free):
+            return desired_fraction
+
+        best_start, best_end = min(
+            free,
+            key=lambda interval: abs(((interval[0] + interval[1]) / 2.0) - desired_u),
+        )
+        return ((best_start + best_end) / 2.0) / length
+
+    def _find_directional_host_wall(
+        self,
+        storey: ifcopenshell.entity_instance,
+        direction: str | None,
+        min_height_mm: float = 0.0,
+        preferred_name_tokens: tuple[str, ...] = (),
+    ) -> Any | None:
+        direction = (direction or "").lower()
+        if direction not in {"north", "south", "east", "west"}:
+            return None
+        walls = []
+        for wall in self._storey_walls(storey):
+            name = str(getattr(wall, "Name", "") or "").lower()
+            if any(token in name for token in ("rail", "fence")):
+                continue
+            _, _, wall_height = self._element_size_mm(wall)
+            if min_height_mm > 0.0 and wall_height > 0.0 and wall_height < min_height_mm:
+                continue
+            walls.append(wall)
+        direction_in_name = {
+            "north": ("north", "북"),
+            "south": ("south", "남"),
+            "east": ("east", "동"),
+            "west": ("west", "서"),
+        }[direction]
+        named = [
+            wall for wall in walls
+            if any(
+                token in str(getattr(wall, "Name", "") or "").lower()
+                for token in direction_in_name
+            )
+        ]
+        if named:
+            preferred = [
+                wall for wall in named
+                if any(
+                    token in str(getattr(wall, "Name", "") or "").lower()
+                    for token in preferred_name_tokens
+                )
+            ]
+            if preferred:
+                return preferred[0]
+            return named[0]
+
+        candidates: list[tuple[float, Any]] = []
+        for wall in walls:
+            axis = self._wall_axis_info_mm(wall)
+            if not axis:
+                continue
+            score = axis["center_y"] if direction == "north" else -axis["center_y"]
+            if direction == "east":
+                score = axis["center_x"]
+            elif direction == "west":
+                score = -axis["center_x"]
+            candidates.append((score, wall))
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: item[0])[1]
+
+    def _find_host_wall_in_storey(
+        self,
+        model: ifcopenshell.file,
+        storey: ifcopenshell.entity_instance,
+        host_wall_global_id: str | None,
+        x_mm: float,
+        y_mm: float,
+    ) -> ifcopenshell.entity_instance | None:
+        if host_wall_global_id:
+            wall = model.by_guid(host_wall_global_id)
+            return wall if wall and wall.is_a("IfcWall") else None
+
+        best_wall, best_dist = None, 3000.0 / self._scale
+        for wall in self._storey_walls(storey):
+            placement = getattr(wall, "ObjectPlacement", None)
+            if not placement or not placement.is_a("IfcLocalPlacement"):
+                continue
+            relative = getattr(placement, "RelativePlacement", None)
+            location = getattr(relative, "Location", None) if relative else None
+            loc = tuple(getattr(location, "Coordinates", ()) or ())
+            if len(loc) < 2:
+                continue
+            ref = getattr(relative, "RefDirection", None) if relative else None
+            rdx, rdy = (1.0, 0.0)
+            ratios = tuple(getattr(ref, "DirectionRatios", ()) or ()) if ref else ()
+            if len(ratios) >= 2:
+                rdx = float(ratios[0])
+                rdy = float(ratios[1])
+
+            dx = (x_mm / self._scale) - float(loc[0])
+            dy = (y_mm / self._scale) - float(loc[1])
+            u = dx * rdx + dy * rdy
+            v = dx * (-rdy) + dy * rdx
+            length = self._wall_length_model_units(wall)
+            if -500.0 / self._scale <= u <= length + 500.0 / self._scale:
+                dist = abs(v)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_wall = wall
+        return best_wall
+
+    def _wall_local_u_mm(self, wall: Any, point: dict[str, Any]) -> float | None:
+        placement = getattr(wall, "ObjectPlacement", None)
+        if not placement or not placement.is_a("IfcLocalPlacement"):
+            return None
+        relative = getattr(placement, "RelativePlacement", None)
+        location = getattr(relative, "Location", None) if relative else None
+        loc = tuple(getattr(location, "Coordinates", ()) or ())
+        if len(loc) < 2:
+            return None
+        ref = getattr(relative, "RefDirection", None) if relative else None
+        ratios = tuple(getattr(ref, "DirectionRatios", ()) or ()) if ref else ()
+        rdx, rdy = (1.0, 0.0)
+        if len(ratios) >= 2:
+            rdx = float(ratios[0])
+            rdy = float(ratios[1])
+        dx = (float(point.get("x", 0.0)) / self._scale) - float(loc[0])
+        dy = (float(point.get("y", 0.0)) / self._scale) - float(loc[1])
+        return (dx * rdx + dy * rdy) * self._scale
+
+    def _opening_location_mm(self, opening: Any) -> tuple[float, float, float] | None:
+        placement = getattr(opening, "ObjectPlacement", None)
+        relative = getattr(placement, "RelativePlacement", None) if placement else None
+        location = getattr(relative, "Location", None) if relative else None
+        coords = tuple(getattr(location, "Coordinates", ()) or ())
+        if len(coords) < 3:
+            return None
+        return (
+            float(coords[0]) * self._scale,
+            float(coords[1]) * self._scale,
+            float(coords[2]) * self._scale,
+        )
+
+    def _opening_size_mm(self, opening: Any) -> tuple[float, float, float] | None:
+        representation = getattr(opening, "Representation", None)
+        if not representation:
+            return None
+        for rep in getattr(representation, "Representations", []) or []:
+            for item in getattr(rep, "Items", []) or []:
+                if not item or not item.is_a("IfcExtrudedAreaSolid"):
+                    continue
+                profile = getattr(item, "SweptArea", None)
+                if profile and profile.is_a("IfcRectangleProfileDef"):
+                    return (
+                        float(profile.XDim) * self._scale,
+                        float(profile.YDim) * self._scale,
+                        float(item.Depth) * self._scale,
+                    )
+        return None
+
+    def _door_window_opening_overlap_warning(
+        self,
+        model: ifcopenshell.file,
+        host_wall: Any,
+        start_point: dict[str, Any],
+        opening_length_mm: float,
+        opening_z_mm: float,
+        opening_height_mm: float,
+    ) -> str | None:
+        new_u = self._wall_local_u_mm(host_wall, start_point)
+        if new_u is None or opening_length_mm <= 0.0 or opening_height_mm <= 0.0:
+            return None
+        new_start = new_u - opening_length_mm / 2.0
+        new_end = new_u + opening_length_mm / 2.0
+        new_z_start = opening_z_mm
+        new_z_end = opening_z_mm + opening_height_mm
+
+        for rel in model.by_type("IfcRelVoidsElement"):
+            if getattr(rel, "RelatingBuildingElement", None) != host_wall:
+                continue
+            opening = getattr(rel, "RelatedOpeningElement", None)
+            location = self._opening_location_mm(opening)
+            size = self._opening_size_mm(opening)
+            if not location or not size:
+                continue
+            existing_u = location[0]
+            existing_length = size[0]
+            existing_height = size[2]
+            existing_start = existing_u - existing_length / 2.0
+            existing_end = existing_u + existing_length / 2.0
+            existing_z_start = location[2]
+            existing_z_end = location[2] + existing_height
+            overlaps_u = new_start < existing_end and existing_start < new_end
+            overlaps_z = new_z_start < existing_z_end and existing_z_start < new_z_end
+            if overlaps_u and overlaps_z:
+                wall_name = getattr(host_wall, "Name", None) or host_wall.GlobalId
+                return f"{wall_name} 벽의 기존 opening과 새 문/창문 위치가 겹칩니다."
+        return None
+
     def _infer_create_geometry(
         self,
         create_info: dict[str, Any],
@@ -339,6 +931,35 @@ class LLM3DPipeline:
                 "width_mm": float(create_info.get("width_mm") or 1000.0),
                 "height_mm": float(create_info.get("height_mm") or 3000.0),
                 "step_count": int(create_info.get("step_count") or 16),
+            }
+
+        if self._is_door_window(element_type):
+            opening_bbox = self._space_bbox_mm(target_storey, create_info.get("space_name")) or bbox
+            min_x, max_x = opening_bbox["min_x"], opening_bbox["max_x"]
+            min_y, max_y = opening_bbox["min_y"], opening_bbox["max_y"]
+            center_x = (min_x + max_x) / 2.0
+            center_y = (min_y + max_y) / 2.0
+            direction = str(create_info.get("direction") or "North").lower()
+            start_point = {"x": center_x, "y": center_y, "z": storey_z}
+            if direction == "north":
+                start_point["y"] = max_y
+            elif direction == "south":
+                start_point["y"] = min_y
+            elif direction == "east":
+                start_point["x"] = max_x
+            elif direction == "west":
+                start_point["x"] = min_x
+
+            is_window = element_type == LLM3DElementType.WINDOW
+            default_length = 1200.0 if is_window else 900.0
+            default_height = 1200.0 if is_window else 2100.0
+            default_sill = 900.0 if is_window else 0.0
+            return {
+                "start_point": start_point,
+                "length_mm": float(create_info.get("length_mm") or default_length),
+                "width_mm": float(create_info.get("width_mm") or 200.0),
+                "height_mm": float(create_info.get("height_mm") or default_height),
+                "sill_height_mm": float(create_info.get("sill_height_mm") or default_sill),
             }
 
         direction = str(create_info.get("direction") or "North").lower()
@@ -561,11 +1182,100 @@ class LLM3DPipeline:
             ci.ridge_height_mm = ci_dump["ridge_height_mm"]
         if ci_dump.get("step_count") is not None:
             ci.step_count = ci_dump["step_count"]
+        if ci_dump.get("sill_height_mm") is not None:
+            ci.sill_height_mm = ci_dump["sill_height_mm"]
+
+        if self._is_door_window(ci.element_type):
+            host_wall = None
+            if ci_dump.get("host_wall_global_id"):
+                host_wall = self._find_host_wall_in_storey(
+                    model,
+                    target_storey,
+                    ci_dump.get("host_wall_global_id"),
+                    float(start_point.get("x", 0.0)),
+                    float(start_point.get("y", 0.0)),
+                )
+            if host_wall is None:
+                min_host_height_mm = float(ci_dump.get("height_mm") or 0.0) + float(
+                    ci_dump.get("sill_height_mm") or 0.0
+                )
+                space_name = str(ci_dump.get("space_name") or "").lower()
+                preferred_name_tokens: list[str] = []
+                if "living" in space_name:
+                    preferred_name_tokens.extend(("living", "liv"))
+                if "bath" in space_name:
+                    preferred_name_tokens.append("bath")
+                if "bed" in space_name:
+                    preferred_name_tokens.append("bed")
+                if "entrance" in space_name:
+                    preferred_name_tokens.append("entrance")
+                if "hall" in space_name:
+                    preferred_name_tokens.append("hall")
+                host_wall = self._find_directional_host_wall(
+                    target_storey,
+                    ci_dump.get("direction"),
+                    min_height_mm=min_host_height_mm,
+                    preferred_name_tokens=tuple(preferred_name_tokens),
+                )
+            if host_wall is None:
+                host_wall = self._find_host_wall_in_storey(
+                    model,
+                    target_storey,
+                    None,
+                    float(start_point.get("x", 0.0)),
+                    float(start_point.get("y", 0.0)),
+                )
+            if host_wall is None:
+                return {
+                    "status": "needs_clarification",
+                    "command": command.model_dump(),
+                    "summary": "문/창문을 붙일 host wall을 찾지 못해 IFC를 생성하지 않았습니다.",
+                    "clarification_questions": [],
+                    "collision_warnings": [
+                        "문/창문 생성에는 벽 위치 또는 host_wall_global_id가 필요합니다."
+                    ],
+                    "structural_warnings": [],
+                }
+            sill_height_mm = float(ci_dump.get("sill_height_mm") or 0.0)
+            opening_length_mm = float(ci_dump.get("length_mm") or 0.0)
+            opening_height_mm = float(ci_dump.get("height_mm") or 0.0)
+            opening_z_mm = float(start_point.get("z", 0.0)) + sill_height_mm
+            wall_point = self._point_on_host_wall(
+                host_wall,
+                0.5,
+                start_point,
+                storey=target_storey,
+                opening_length_mm=opening_length_mm,
+                opening_z_mm=opening_z_mm,
+                opening_height_mm=opening_height_mm,
+            )
+            if wall_point:
+                start_point = wall_point
+                ci_dump["start_point"] = start_point
+                ci.start_point = LLM3DPoint3D(**start_point)
+            ci_dump["host_wall_global_id"] = host_wall.GlobalId
+            ci.host_wall_global_id = host_wall.GlobalId
+            overlap_warning = self._door_window_opening_overlap_warning(
+                model,
+                host_wall,
+                start_point,
+                opening_length_mm,
+                opening_z_mm,
+                opening_height_mm,
+            )
+            if overlap_warning:
+                return {
+                    "status": "failed_collision_check",
+                    "command": command.model_dump(),
+                    "summary": overlap_warning,
+                    "collision_warnings": [overlap_warning],
+                    "structural_warnings": [],
+                }
 
         # ── 충돌 검사 ────────────────────────────────────────────
         collision_result: CollisionResult | None = None
         collision_warnings: list[str] = []
-        if self._collision_validator:
+        if self._collision_validator and not self._is_door_window(ci.element_type):
             collision_result = self._collision_validator.validate(ci_dump, target_storey)
             collision_warnings = collision_result.to_summary_lines()
             if not collision_result.is_ok:
@@ -648,6 +1358,9 @@ class LLM3DPipeline:
             "step_count":     ci.get("step_count"),
             "riser_height_mm": ci.get("riser_height_mm"),
             "tread_depth_mm": ci.get("tread_depth_mm"),
+            "host_wall_global_id": ci.get("host_wall_global_id"),
+            "sill_height_mm": ci.get("sill_height_mm"),
+            "opening_offset_mm": ci.get("opening_offset_mm"),
         }
 
     async def _execute_create_apply(
@@ -670,6 +1383,9 @@ class LLM3DPipeline:
                 "step_count",
                 "riser_height_mm",
                 "tread_depth_mm",
+                "host_wall_global_id",
+                "sill_height_mm",
+                "opening_offset_mm",
             )
         }
 
@@ -686,6 +1402,29 @@ class LLM3DPipeline:
                 if k not in ("ridge_height_mm", "shape_preset") and v is not None
             }
             entity = create_stair_preset(model, storey, **stair_params)
+        elif self._is_door_window(etype):
+            create_params = {
+                "element_type": str(etype),
+                "storey": getattr(storey, "Name", None),
+                "coordinate_space": "PROJECT_ABSOLUTE_MM",
+                "start_mm": {
+                    "x": params["x_mm"],
+                    "y": params["y_mm"],
+                    "z": params["z_mm"],
+                },
+                "dimensions_mm": {
+                    "length": params["length_mm"],
+                    "width": params["width_mm"],
+                    "height": params["height_mm"],
+                },
+                "direction": params["direction"],
+                "color": params.get("color"),
+                "material": params.get("material_name"),
+                "host_wall_global_id": params.get("host_wall_global_id"),
+                "sill_height_mm": params.get("sill_height_mm"),
+                "opening_offset_mm": params.get("opening_offset_mm"),
+            }
+            entity = get_operation("create_element").execute(model, storey, create_params)
         else:
             entity = create_generic_element(model, storey, etype.value, **base_params)
 
