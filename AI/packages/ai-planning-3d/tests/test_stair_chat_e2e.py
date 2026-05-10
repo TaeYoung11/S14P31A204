@@ -47,52 +47,25 @@ async def run_stair_chat_commands(
             command_output_path = output_path.with_name(
                 f"{output_path.stem}_{index:02d}{output_path.suffix}"
             )
+        input_for_command = current_ifc
         pipeline = LLM3DPipeline(ifc_path=str(current_ifc))
         _use_heuristic_chat_parser(pipeline)
         before_stairs = _stair_count(current_ifc)
-        preview = await pipeline.execute_preview(command)
-
-        record: dict[str, object] = {
-            "index": index,
-            "input_ifc": str(current_ifc),
-            "instruction": command,
-            "before_stairs": before_stairs,
-            "preview_status": preview.get("status"),
-            "summary": preview.get("summary"),
-            "collision_warnings": preview.get("collision_warnings", []),
-            "structural_warnings": preview.get("structural_warnings", []),
-            "command": preview.get("command"),
-            "apply_status": "not_applied",
-            "ifc_written": False,
-            "output_ifc": None,
-            "after_stairs": before_stairs,
-        }
-
-        if preview.get("status") != "preview_ready":
-            record["apply_status"] = "preview_blocked"
-            record["not_applied_reason"] = (
-                preview.get("summary")
-                or "Preview did not reach preview_ready, so IFC was not written."
-            )
-            records.append(record)
-            continue
-
-        result = await pipeline.execute_apply(
-            str(preview["session_id"]),
-            output_path=str(command_output_path),
+        command_records = await pipeline.execute_chat_to_ifc(command, str(command_output_path))
+        after_stairs = (
+            _stair_count(command_output_path) if command_output_path.exists() else before_stairs
         )
-        record["apply_status"] = result.get("status")
-        record["apply_summary"] = result.get("summary")
-
-        if result.get("status") == "applied" and command_output_path.exists():
+        if command_output_path.exists() and any(
+            record.get("ifc_written") for record in command_records
+        ):
             current_ifc = command_output_path
-            record["ifc_written"] = True
-            record["output_ifc"] = str(command_output_path)
-            record["after_stairs"] = _stair_count(command_output_path)
-        else:
-            record["not_applied_reason"] = result.get("summary") or "IFC was not written."
 
-        records.append(record)
+        for record in command_records:
+            record["batch_index"] = index
+            record["input_ifc"] = str(input_for_command)
+            record["before_stairs"] = before_stairs
+            record["after_stairs"] = after_stairs
+            records.append(record)
 
     if log_path is not None:
         log_path.parent.mkdir(parents=True, exist_ok=True)
