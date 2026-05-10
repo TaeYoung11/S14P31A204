@@ -100,7 +100,7 @@ const toBubblePayload = (
   }
 }
 
-const toFloorPlanPayload = (
+const toTwoDFloorPlanPayload = (
   snapshot: EditorDraftSnapshot,
   baseIndex: number,
   revisionId?: string | null,
@@ -150,7 +150,7 @@ export const workspaceRealtimeService = {
 
     return publishJson(
       `/app/project/${projectId}/floor-plan/update`,
-      toFloorPlanPayload(snapshot, baseIndex, revisionId),
+      toTwoDFloorPlanPayload(snapshot, baseIndex, revisionId),
     )
   },
 }

@@ -261,18 +261,11 @@ function buildElementAabb(
 }
 
 function toRoomPolygonFromAabb(aabb: Aabb3D, lengthMultiplier: number): FloorProjectPoint2D[] {
-  const axes = [
-    { min: aabb.minX, max: aabb.maxX },
-    { min: aabb.minY, max: aabb.maxY },
-    { min: aabb.minZ, max: aabb.maxZ },
-  ].sort((left, right) => (right.max - right.min) - (left.max - left.min))
-  const [primary, secondary] = axes
-
   return [
-    { x: roundMm(primary.min * lengthMultiplier), y: roundMm(secondary.min * lengthMultiplier) },
-    { x: roundMm(primary.max * lengthMultiplier), y: roundMm(secondary.min * lengthMultiplier) },
-    { x: roundMm(primary.max * lengthMultiplier), y: roundMm(secondary.max * lengthMultiplier) },
-    { x: roundMm(primary.min * lengthMultiplier), y: roundMm(secondary.max * lengthMultiplier) },
+    { x: roundMm(aabb.minX * lengthMultiplier), y: roundMm(aabb.minY * lengthMultiplier) },
+    { x: roundMm(aabb.maxX * lengthMultiplier), y: roundMm(aabb.minY * lengthMultiplier) },
+    { x: roundMm(aabb.maxX * lengthMultiplier), y: roundMm(aabb.maxY * lengthMultiplier) },
+    { x: roundMm(aabb.minX * lengthMultiplier), y: roundMm(aabb.maxY * lengthMultiplier) },
   ]
 }
 
