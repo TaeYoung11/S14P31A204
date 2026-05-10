@@ -8,6 +8,7 @@ def test_llm_3d_engine_uses_llm_env(monkeypatch):
     monkeypatch.setenv("LLM_BASE_URL", "http://ollama:11434/v1")
     monkeypatch.setenv("LLM_API_KEY", "local-ollama")
     monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "45")
+    monkeypatch.setenv("OPENAI_API_KEY", "should-be-ignored")
 
     engine = LLM3DEngine()
 
