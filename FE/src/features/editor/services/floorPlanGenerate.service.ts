@@ -38,6 +38,7 @@ export interface GenerateFloorPlanApiInput {
 
 const FLOOR_PLAN_EXPORT_POLL_INTERVAL_MS = 1000
 const FLOOR_PLAN_EXPORT_POLL_TIMEOUT_MS = 120_000
+const FLOOR_PLAN_EXPORT_POLL_MAX_INTERVAL_MS = 8000
 
 interface WaitForFloorPlanIfcExportOptions {
   timeoutMs?: number
@@ -67,6 +68,14 @@ const sleep = (delayMs: number, signal?: AbortSignal): Promise<void> =>
 
     signal?.addEventListener('abort', handleAbort, { once: true })
   })
+
+export const getFloorPlanExportPollDelayMs = (attempt: number): number => {
+  const multiplier = 2 ** Math.max(0, attempt)
+  return Math.min(
+    FLOOR_PLAN_EXPORT_POLL_INTERVAL_MS * multiplier,
+    FLOOR_PLAN_EXPORT_POLL_MAX_INTERVAL_MS,
+  )
+}
 
 export async function requestFloorPlanGenerate(input: GenerateFloorPlanApiInput): Promise<CreateFloorPlanGenerateResponse> {
   if (input.layoutImport !== undefined) {
@@ -100,6 +109,7 @@ export async function waitForFloorPlanIfcExport(
   const timeoutMs = options.timeoutMs ?? FLOOR_PLAN_EXPORT_POLL_TIMEOUT_MS
   const signal = options.signal
   const startedAt = Date.now()
+  let attempt = 0
 
   while (Date.now() - startedAt < timeoutMs) {
     throwIfAborted(signal)
@@ -117,7 +127,8 @@ export async function waitForFloorPlanIfcExport(
       }
     }
 
-    await sleep(FLOOR_PLAN_EXPORT_POLL_INTERVAL_MS, signal)
+    await sleep(getFloorPlanExportPollDelayMs(attempt), signal)
+    attempt += 1
   }
 
   throw new Error('Floor-plan IFC export timed out.')
