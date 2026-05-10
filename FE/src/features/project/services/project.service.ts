@@ -52,6 +52,14 @@ interface ProjectDetailResponse {
   unreadCommentCount?: number
 }
 
+interface ProjectIfcExportResponse {
+  projectId: string
+  revisionId: string
+  ifcStorageUrl: string
+  presignedUrl: string
+  expiresAt: string
+}
+
 interface ProjectListResponse {
   projects: ProjectSummaryResponse[]
   page: number
@@ -281,6 +289,11 @@ async function _fetchProjectDetail(projectId: string): Promise<ProjectDetailResp
   }
 }
 
+async function fetchProjectIfcExport(projectId: string): Promise<ProjectIfcExportResponse> {
+  const response = await api.get<ApiResponse<ProjectIfcExportResponse>>(`/projects/${projectId}/ifc/export`)
+  return response.data.data
+}
+
 /**
  * 프로젝트 상세 응답에서 대지 폴리곤을 읽어온다.
  * - 응답에 대지 정보가 없거나 형식이 맞지 않으면 null
@@ -374,6 +387,16 @@ export const projectService = {
   },
 
   getIfcSource: async (projectId: string): Promise<ProjectIfcSource> => {
+    try {
+      const exported = await fetchProjectIfcExport(projectId)
+      return {
+        projectId: exported.projectId,
+        currentIfcUrl: exported.presignedUrl,
+      }
+    } catch {
+      // 아직 IFC가 없거나 export 권한이 없으면 기존 프로젝트 상세 기반 조회로 fallback한다.
+    }
+
     const project = await fetchProjectSummary(projectId)
     return {
       projectId: project.projectId,

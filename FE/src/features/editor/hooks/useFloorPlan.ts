@@ -3,7 +3,18 @@ import type { BubbleData, ConnectionData, FloorLayer, FloorRoom } from '../types
 import { generateFloorPlanLayout } from '../utils/floorPlanLayout'
 import { mapFloorProjectToLayers } from '../utils/floorProjectMapper'
 import { translateFloorRoom } from '../utils/floorRoomTransform'
+import { normalizeIfcDisplayText } from '../utils/ifcStepString'
 import type { FloorProject } from '../types/floorProject.types'
+
+const normalizeFloorLayerLabels = (layers: FloorLayer[]): FloorLayer[] =>
+  layers.map((layer) => ({
+    ...layer,
+    name: normalizeIfcDisplayText(layer.name),
+    rooms: layer.rooms.map((room) => ({
+      ...room,
+      label: normalizeIfcDisplayText(room.label),
+    })),
+  }))
 
 /** 2D 평면도 층·생성 상태를 관리하는 훅 */
 export function useFloorPlan() {
@@ -159,7 +170,7 @@ export function useFloorPlan() {
         height: canvasHeight,
       })
       if (mappedLayers.length === 0) return
-      setLayers(mappedLayers)
+      setLayers(normalizeFloorLayerLabels(mappedLayers))
       setActiveLayerId(mappedLayers[0].id)
       setIsGenerated(true)
       setIsGenerating(false)
@@ -292,7 +303,7 @@ export function useFloorPlan() {
     setIsGenerated(next.isGenerated)
     setIsGenerating(false)
     setLayoutSource(next.layoutSource ?? (next.isGenerated ? 'project' : null))
-    setLayers(next.layers)
+    setLayers(normalizeFloorLayerLabels(next.layers))
     setActiveLayerId(next.activeLayerId ?? next.layers[0]?.id ?? null)
   }, [])
 
