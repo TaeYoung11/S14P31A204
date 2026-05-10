@@ -6,11 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from ai_common.errors import NonRetryableWorkerError, ValidationWorkerError
+from ai_common.errors import NonRetryableWorkerError, RetryableWorkerError, ValidationWorkerError
 from ai_common.worker_sdk.event_factory import CompletedResult, FailedResult
 from ai_domain.worker_messages.event import EventMessage
 
 from ai_rendering.ifc2img.exceptions import IFCRenderError
+from ai_rendering.ifc2img.storage import Ifc2ImgStorageError
 from ai_rendering.worker import RenderingWorker
 
 
@@ -149,6 +150,55 @@ def test_rendering_worker_maps_ifc2img_render_error(tmp_path: Path) -> None:
 
     with pytest.raises(NonRetryableWorkerError, match="render failed"):
         worker.process(CommandLike())
+
+
+def test_rendering_worker_maps_retryable_storage_error(tmp_path: Path) -> None:
+    """S3 download/upload 장애는 retryable worker error로 변환한다."""
+
+    def runner(*args: object) -> dict[str, object]:
+        raise Ifc2ImgStorageError(
+            code="IFC_SOURCE_DOWNLOAD_FAILED",
+            message="failed to download source IFC",
+        )
+
+    worker = RenderingWorker(
+        worker_id="rendering-worker-1",
+        event_publisher=FakeEventPublisher(),
+        s3_settings=object(),
+        work_root=tmp_path,
+        ifc2img_runner=runner,
+    )
+
+    with pytest.raises(RetryableWorkerError) as exc_info:
+        worker.process(CommandLike())
+
+    assert exc_info.value.code == "IFC_SOURCE_DOWNLOAD_FAILED"
+    assert exc_info.value.retryable is True
+
+
+def test_rendering_worker_maps_invalid_storage_url(tmp_path: Path) -> None:
+    """잘못된 storage URL은 재시도하지 않는 validation worker error로 변환한다."""
+
+    def runner(*args: object) -> dict[str, object]:
+        raise Ifc2ImgStorageError(
+            code="INVALID_STORAGE_URL",
+            message="invalid IFC source storage URL",
+            retryable=False,
+        )
+
+    worker = RenderingWorker(
+        worker_id="rendering-worker-1",
+        event_publisher=FakeEventPublisher(),
+        s3_settings=object(),
+        work_root=tmp_path,
+        ifc2img_runner=runner,
+    )
+
+    with pytest.raises(ValidationWorkerError) as exc_info:
+        worker.process(CommandLike())
+
+    assert exc_info.value.code == "INVALID_STORAGE_URL"
+    assert exc_info.value.retryable is False
 
 
 def test_rendering_worker_handle_publishes_completed_event(tmp_path: Path) -> None:
