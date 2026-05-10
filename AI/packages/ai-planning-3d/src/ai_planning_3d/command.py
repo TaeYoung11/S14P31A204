@@ -272,6 +272,19 @@ class LLM3DCreateInfo(BaseModel):
         gt=0,
         description="IfcStair tread depth in mm",
     )
+    host_wall_global_id: str | None = Field(
+        None,
+        description="IfcDoor/IfcWindow host IfcWall GlobalId",
+    )
+    sill_height_mm: float | None = Field(
+        None,
+        ge=0,
+        description="IfcWindow sill height in mm",
+    )
+    opening_offset_mm: float | None = Field(
+        None,
+        description="IfcDoor/IfcWindow opening offset along the host wall in mm",
+    )
     wall_category: LLM3DWallCategory | None = Field(
         None,
         description="벽 카테고리 (외벽 EXTERIOR / 내벽 INTERIOR / 파티션 PARTITION)",
