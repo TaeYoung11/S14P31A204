@@ -187,7 +187,13 @@ def _resolve_adjacency_pair(
     rooms_by_id: dict[str, RoomInput],
 ) -> tuple[RoomInput, RoomInput]:
     from_id, to_id = _adjacency_ids(adjacency)
-    return rooms_by_id[from_id], rooms_by_id[to_id]
+    try:
+        return rooms_by_id[from_id], rooms_by_id[to_id]
+    except KeyError as exc:
+        missing_room_id = str(exc.args[0])
+        raise ValueError(
+            f"adjacency references unknown room id: {missing_room_id}"
+        ) from exc
 
 
 def _adjacency_ref(room_a_id: str, room_b_id: str) -> str:
