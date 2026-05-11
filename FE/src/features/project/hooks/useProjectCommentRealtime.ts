@@ -9,6 +9,7 @@ import { clearAuthState, redirectToLoginIfNeeded, refreshAccessToken } from '@/s
 import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
 import { useAuthStore } from '@/shared/stores/authStore'
 import type { Project } from '@/shared/types'
+import { useProjectNotificationToastStore } from '@/features/project/stores/projectNotificationToastStore'
 
 interface SseEventMessage {
   event: string
@@ -151,6 +152,7 @@ export const useProjectCommentRealtime = (
   options = DEFAULT_REALTIME_OPTIONS,
 ) => {
   const token = useAuthStore((state) => state.token)
+  const pushToast = useProjectNotificationToastStore((state) => state.pushToast)
   const queryClient = useQueryClient()
   const [toast, setToast] = useState<ProjectCommentToastState | null>(null)
   const projectNameById = useMemo(
@@ -187,8 +189,18 @@ export const useProjectCommentRealtime = (
         content: payload.content ?? '',
         createdAt: payload.createdAt,
       })
+      pushToast({
+        id: `comment:${payload.projectId}:${payload.pinId}`,
+        type: 'comment',
+        groupKey: `comment:${payload.projectId}:${payload.pinId}`,
+        projectId: payload.projectId,
+        pinId: payload.pinId,
+        title: realtimeComment.projectName,
+        message: payload.content ?? '',
+        durationMs: TOAST_DURATION_MS,
+      })
     },
-    [options, projectNameById, queryClient],
+    [options, projectNameById, pushToast, queryClient],
   )
 
   useEffect(() => {
