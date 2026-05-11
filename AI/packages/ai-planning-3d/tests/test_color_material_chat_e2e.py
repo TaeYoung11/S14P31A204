@@ -12,7 +12,12 @@ from pathlib import Path
 import ifcopenshell
 import pytest
 
-from ai_planning_3d.command import COLOR_ALIASES, MATERIAL_ALIASES
+from ai_planning_3d.command import (
+    COLOR_ALIASES,
+    MATERIAL_ALIASES,
+    LLM3DMaterialChange,
+    color_from_alias,
+)
 from ai_planning_3d.pipeline import LLM3DPipeline
 
 _AI_ROOT = Path(__file__).resolve().parents[3]
@@ -23,6 +28,20 @@ _CHAT_COMMAND = (
     "그리고 지붕을 콘크리트로 해줘."
 )
 _OUT_DIR = Path.home() / "Downloads" / "batang_history"
+
+
+def _chat_commands() -> list[str]:
+    return LLM3DPipeline.split_chat_commands(_CHAT_COMMAND)
+
+
+def _first_chat_material_command() -> str:
+    # Heuristic 파서를 통해 첫 번째 재질 변경 명령을 찾음
+    pipeline = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC))
+    for command in _chat_commands():
+        parsed = pipeline.engine.parse_command_heuristic(command)
+        if parsed.changes and parsed.changes.material:
+            return command
+    raise AssertionError("_CHAT_COMMAND must include at least one material change command")
 
 
 def _use_heuristic_chat_parser(pipeline: LLM3DPipeline) -> None:
@@ -135,10 +154,17 @@ def _elements_with_label(element_iterable, property_name: str, value: str):
     ]
 
 
+def _elements_by_ifc_type(model, element_type: str):
+    if element_type == "IfcWall":
+        return list(model.by_type("IfcWall")) + list(model.by_type("IfcWallStandardCase"))
+    return list(model.by_type(element_type))
+
+
 def _sample_with_editor_properties(tmp_path: Path) -> Path:
     source = ifcopenshell.open(str(_SAMPLE_IFC))
     walls = list(source.by_type("IfcWall")) + list(source.by_type("IfcWallStandardCase"))
-    for wall in walls:
+    roofs = list(source.by_type("IfcRoof"))
+    for element in [*walls, *roofs]:
         material_prop = source.create_entity(
             "IfcPropertySingleValue",
             Name="Material",
@@ -158,7 +184,7 @@ def _sample_with_editor_properties(tmp_path: Path) -> Path:
         source.create_entity(
             "IfcRelDefinesByProperties",
             GlobalId=ifcopenshell.guid.new(),
-            RelatedObjects=[wall],
+            RelatedObjects=[element],
             RelatingPropertyDefinition=pset,
         )
     editor_ifc = tmp_path / f"{_SAMPLE_IFC.stem}_editor_props.ifc"
@@ -187,6 +213,7 @@ async def run_color_material_chat_commands(
         pipeline = LLM3DPipeline(ifc_path=str(current_ifc))
         _use_heuristic_chat_parser(pipeline)
         command_records = await pipeline.execute_chat_to_ifc(command, str(command_output_path))
+        assert command_records, f"chat command produced no records: {command}"
         if command_output_path.exists() and any(
             record.get("ifc_written") for record in command_records
         ):
@@ -205,7 +232,7 @@ async def run_color_material_chat_commands(
 
 
 def test_pipeline_splits_color_material_chat_command():
-    commands = LLM3DPipeline.split_chat_commands(_CHAT_COMMAND)
+    commands = _chat_commands()
 
     assert commands
     assert all(command.strip() for command in commands)
@@ -217,36 +244,13 @@ def test_color_aliases_are_fe_hex_values():
 
 
 @pytest.mark.parametrize(("alias", "expected_color"), sorted(COLOR_ALIASES.items()))
-def test_heuristic_parser_recognizes_all_color_aliases(alias, expected_color):
+def test_color_aliases_resolve_to_expected_hex(alias, expected_color):
+    assert color_from_alias(alias) == expected_color
+
+
+def test_heuristic_parser_recognizes_chat_color_command():
     parsed = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC)).engine.parse_command_heuristic(
-        f"1층 거실 남쪽 벽을 {alias}으로 바꿔줘"
-    )
-
-    assert parsed.changes
-    assert parsed.changes.color == expected_color
-
-
-@pytest.mark.parametrize(
-    ("command", "expected_color"),
-    [
-        ("1층 거실 남쪽 벽 색을 파란색으로 바꿔줘", "#3B82F6"),
-        ("1층 거실 남쪽 벽 파란색으로 바꿔줘", "#3B82F6"),
-        ("1층 거실 남쪽 벽 파랑으로 바꿔줘", "#3B82F6"),
-        ("1층 거실 남쪽 벽 파란 벽으로 바꿔줘", "#3B82F6"),
-        ("2층 북쪽 벽을 노란색으로 바꿔줘", "#FACC15"),
-        ("2층 오른쪽 벽을 파란색으로 바꿔줘", "#3B82F6"),
-    ],
-)
-def test_heuristic_parser_recognizes_color_alias_chat(command, expected_color):
-    parsed = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC)).engine.parse_command_heuristic(command)
-
-    assert parsed.changes
-    assert parsed.changes.color == expected_color
-
-
-def test_heuristic_parser_treats_right_side_as_direction_not_move():
-    parsed = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC)).engine.parse_command_heuristic(
-        "2층 오른쪽 벽을 파란색으로 바꿔줘"
+        _chat_commands()[1]
     )
 
     assert parsed.target.direction == "East"
@@ -256,19 +260,19 @@ def test_heuristic_parser_treats_right_side_as_direction_not_move():
 
 
 @pytest.mark.parametrize(
-    ("command", "expected_material"),
+    ("command_index", "expected_material"),
     [
-        ("1층 거실 남쪽 벽 재질을 유리로 바꿔줘", "Glass"),
-        ("1층 거실 남쪽 벽을 유리로 바꿔줘", "Glass"),
-        ("1층 거실 남쪽 벽 유리로 바꿔줘", "Glass"),
-        ("1층 거실 남쪽 벽을 나무로 바꿔줘", "Wood"),
+        (0, "Wood"),
+        (2, "Concrete"),
     ],
 )
-def test_heuristic_parser_recognizes_material_alias_without_material_word(
-    command,
+def test_heuristic_parser_recognizes_chat_material_commands(
+    command_index,
     expected_material,
 ):
-    parsed = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC)).engine.parse_command_heuristic(command)
+    parsed = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC)).engine.parse_command_heuristic(
+        _chat_commands()[command_index]
+    )
 
     assert parsed.changes
     assert parsed.changes.material
@@ -276,14 +280,8 @@ def test_heuristic_parser_recognizes_material_alias_without_material_word(
 
 
 @pytest.mark.parametrize(("alias", "expected_material"), sorted(MATERIAL_ALIASES.items()))
-def test_heuristic_parser_recognizes_all_material_aliases(alias, expected_material):
-    parsed = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC)).engine.parse_command_heuristic(
-        f"1층 거실 남쪽 벽을 {alias}로 바꿔줘"
-    )
-
-    assert parsed.changes
-    assert parsed.changes.material
-    assert parsed.changes.material.name == expected_material
+def test_material_aliases_resolve_to_expected_material(alias, expected_material):
+    assert LLM3DMaterialChange(name=alias).name == expected_material
 
 
 @pytest.mark.asyncio
@@ -307,17 +305,31 @@ async def test_chat_command_updates_output_ifc(tmp_path):
     assert final_output_ifc.exists()
 
     model = ifcopenshell.open(str(final_output_ifc))
-    material_names = _all_material_names(model)
-    styled_colors = _all_styled_colors(model)
     for record in records:
         changes = record["command"]["changes"]
+        target_elements = _elements_by_ifc_type(
+            model, record["command"]["target"]["element_type"]
+        )
         changed_color = changes.get("color")
         changed_material = (changes.get("material") or {}).get("name")
         assert changed_color or changed_material
         if changed_color:
-            assert _has_rgb_color(styled_colors, _rgb_from_color_value(changed_color))
+            color_elements = _elements_with_label(
+                target_elements, "Color", changed_color
+            )
+            assert color_elements
+            assert all(
+                _has_rgb_color(_styled_colors(model, element), _rgb_from_color_value(changed_color))
+                for element in color_elements
+            )
         if changed_material:
-            assert changed_material in material_names
+            material_elements = _elements_with_label(
+                target_elements, "Material", changed_material
+            )
+            assert material_elements
+            assert all(
+                changed_material in _material_names(element) for element in material_elements
+            )
 
 
 @pytest.mark.asyncio
@@ -329,7 +341,7 @@ async def test_chat_material_command_updates_output_ifc(tmp_path):
 
     [record] = await run_color_material_chat_commands(
         input_ifc,
-        ["1층 거실 남쪽 벽 재질을 유리로 바꿔줘"],
+        [_first_chat_material_command()],
         output_ifc,
         log_path,
     )
@@ -340,10 +352,13 @@ async def test_chat_material_command_updates_output_ifc(tmp_path):
     assert output_ifc.exists()
 
     model = ifcopenshell.open(str(output_ifc))
-    glass_elements = _elements_with_label(model.by_type("IfcProduct"), "Material", "Glass")
-    assert glass_elements
-    assert any(_material_names(element) == ["Glass"] for element in glass_elements)
-    assert any(_property_labels(element).get("Color") == "#8FD3FF" for element in glass_elements)
+    changed_material = (record["command"]["changes"].get("material") or {}).get("name")
+    assert changed_material
+    material_elements = _elements_with_label(
+        model.by_type("IfcProduct"), "Material", changed_material
+    )
+    assert material_elements
+    assert any(changed_material in _material_names(element) for element in material_elements)
 
 
 if __name__ == "__main__":

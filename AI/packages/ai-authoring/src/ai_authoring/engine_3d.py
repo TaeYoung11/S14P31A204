@@ -281,7 +281,7 @@ def modify_material(
     model: ifcopenshell.file, element: ifcopenshell.entity_instance, mat_change: dict[str, Any]
 ) -> bool:
     try:
-        new_name = str(mat_change.get("name") or "Unknown")
+        new_name = _canonical_material_name(str(mat_change.get("name") or "Unknown"))
         # Snapshot associations before removing relations from the IFC graph.
         for rel in list(getattr(element, "HasAssociations", [])):
             if rel.is_a("IfcRelAssociatesMaterial"):
@@ -298,7 +298,7 @@ def modify_material(
             RelatedObjects=[element],
         )
         _set_label_property_value(model, element, "Material", new_name)
-        material_color = _MATERIAL_DEFAULT_COLOR.get(new_name)
+        material_color = _material_default_color(new_name)
         if material_color is not None:
             modify_color(model, element, material_color)
         return True
@@ -789,6 +789,21 @@ def _find_or_create_material(model: ifcopenshell.file, name: str):
     return model.create_entity("IfcMaterial", Name=name)
 
 
+def _canonical_material_name(name: str) -> str:
+    normalized = name.strip()
+    for material_name in _MATERIAL_DEFAULT_COLOR:
+        if material_name.lower() == normalized.lower():
+            return material_name
+    return normalized or "Unknown"
+
+
+def _material_default_color(name: str) -> str | None:
+    for material_name, color in _MATERIAL_DEFAULT_COLOR.items():
+        if material_name.lower() == name.lower():
+            return color
+    return None
+
+
 def _set_label_property_value(
     model: ifcopenshell.file,
     element: ifcopenshell.entity_instance,
@@ -796,10 +811,15 @@ def _set_label_property_value(
     value: str,
 ) -> bool:
     changed = False
+    fallback_pset = None
     for rel in getattr(element, "IsDefinedBy", []) or []:
         if not rel.is_a("IfcRelDefinesByProperties"):
             continue
         pset = getattr(rel, "RelatingPropertyDefinition", None)
+        if pset is None or not pset.is_a("IfcPropertySet"):
+            continue
+        if fallback_pset is None:
+            fallback_pset = pset
         for prop in getattr(pset, "HasProperties", []) or []:
             if (
                 prop.is_a("IfcPropertySingleValue")
@@ -807,7 +827,34 @@ def _set_label_property_value(
             ):
                 prop.NominalValue = model.create_entity("IfcLabel", value)
                 changed = True
-    return changed
+        if not changed and getattr(pset, "Name", None) == "Pset_Batang_Dimensions":
+            fallback_pset = pset
+    if changed:
+        return True
+
+    new_prop = model.create_entity(
+        "IfcPropertySingleValue",
+        Name=property_name,
+        NominalValue=model.create_entity("IfcLabel", value),
+    )
+    if fallback_pset is not None:
+        fallback_pset.HasProperties = list(getattr(fallback_pset, "HasProperties", []) or []) + [
+            new_prop
+        ]
+    else:
+        fallback_pset = model.create_entity(
+            "IfcPropertySet",
+            GlobalId=ifcopenshell.guid.new(),
+            Name="Pset_Batang_Dimensions",
+            HasProperties=[new_prop],
+        )
+        model.create_entity(
+            "IfcRelDefinesByProperties",
+            GlobalId=ifcopenshell.guid.new(),
+            RelatedObjects=[element],
+            RelatingPropertyDefinition=fallback_pset,
+        )
+    return True
 
 
 def _body_representation_items(element: ifcopenshell.entity_instance) -> list[Any]:
@@ -846,11 +893,10 @@ def _apply_color_and_material(
 ):
     """부재에 색상(RGB) 및 재질 정보를 부여한다."""
     try:
-        if color_hex:
-            modify_color(model, element, color_hex)
-
         if mat_name:
             modify_material(model, element, {"name": mat_name})
+        if color_hex:
+            modify_color(model, element, color_hex)
     except Exception as e:
         logger.warning(f"색상/재질 적용 중 오류 (무시 가능): {e}")
 
