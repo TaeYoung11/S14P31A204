@@ -14,10 +14,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import software.amazon.awssdk.core.exception.SdkClientException;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
@@ -282,6 +284,55 @@ class RenderQueryServiceTest {
         assertThat(result.style().viewpoint()).isEqualTo("EXTERIOR");
         assertThat(result.style().season()).isEqualTo("SPRING");
         assertThat(result.style().weather()).isEqualTo("CLEAR");
+
+        ArgumentCaptor<GetObjectPresignRequest> captor = ArgumentCaptor.forClass(GetObjectPresignRequest.class);
+        verify(s3Presigner).presignGetObject(captor.capture());
+        GetObjectRequest getObjectRequest = captor.getValue().getObjectRequest();
+        assertThat(getObjectRequest.bucket()).isEqualTo("batang");
+        assertThat(getObjectRequest.key()).startsWith("projects/" + projectId + "/renders/");
+    }
+
+    @Test
+    void getProjectRender_presignsObjectKeyOnlyStorageUrlWithConfiguredBucket() throws Exception {
+        UUID renderId = UUID.randomUUID();
+        String objectKey = "projects/%s/renders/%s.png".formatted(projectId, UUID.randomUUID());
+        RenderJob job = createJob(
+                renderId,
+                projectId,
+                "succeeded",
+                "{\"style\":{\"timeOfDay\":\"evening\"}}",
+                LocalDateTime.of(2026, 4, 15, 16, 50, 0),
+                LocalDateTime.of(2026, 4, 15, 16, 50, 28)
+        );
+        RenderArtifact artifact = createArtifact(
+                UUID.randomUUID(),
+                projectId,
+                renderId,
+                objectKey,
+                LocalDateTime.of(2026, 4, 15, 16, 50, 30)
+        );
+        PresignedGetObjectRequest presignedRequest = mock(PresignedGetObjectRequest.class);
+
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectAccessService.resolveCurrentUserId()).willReturn(null);
+        given(renderJobRepository.findByJobIdAndProjectIdAndJobType(renderId, projectId, "SD_RENDER"))
+                .willReturn(Optional.of(job));
+        given(renderArtifactRepository.findFirstByProjectIdAndJobIdAndArtifactTypeOrderByCreatedAtDescArtifactIdDesc(
+                projectId,
+                renderId,
+                "RENDER_IMAGE"
+        )).willReturn(Optional.of(artifact));
+        given(presignedRequest.url()).willReturn(URI.create("https://download.example.com/render.png?signature=test").toURL());
+        given(s3Presigner.presignGetObject(any(GetObjectPresignRequest.class))).willReturn(presignedRequest);
+
+        ProjectRenderResponse result = renderQueryService.getProjectRender(projectId, renderId);
+
+        assertThat(result.imageUrl()).isEqualTo("https://download.example.com/render.png?signature=test");
+        ArgumentCaptor<GetObjectPresignRequest> captor = ArgumentCaptor.forClass(GetObjectPresignRequest.class);
+        verify(s3Presigner).presignGetObject(captor.capture());
+        GetObjectRequest getObjectRequest = captor.getValue().getObjectRequest();
+        assertThat(getObjectRequest.bucket()).isEqualTo("batang");
+        assertThat(getObjectRequest.key()).isEqualTo(objectKey);
     }
 
     @Test
@@ -351,6 +402,26 @@ class RenderQueryServiceTest {
                 .isEqualTo(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
     }
 
+    @Test
+    void getProjectRender_throwsWhenArtifactBucketDoesNotMatchConfiguredBucket() throws Exception {
+        assertPresignFailsForStorageUrl("s3://other-bucket/projects/%s/renders/%s.png".formatted(projectId, UUID.randomUUID()));
+    }
+
+    @Test
+    void getProjectRender_throwsWhenArtifactStorageUrlHasNoObjectKey() throws Exception {
+        assertPresignFailsForStorageUrl("s3://batang");
+    }
+
+    @Test
+    void getProjectRender_throwsWhenArtifactStorageUrlIsBlank() throws Exception {
+        assertPresignFailsForStorageUrl(" ");
+    }
+
+    @Test
+    void getProjectRender_throwsWhenArtifactStorageUrlIsMinioHttpUrl() throws Exception {
+        assertPresignFailsForStorageUrl("http://minio:9000/batang/projects/%s/renders/%s.png".formatted(projectId, UUID.randomUUID()));
+    }
+
     private RenderJob createJob(
             UUID jobId,
             UUID projectId,
@@ -385,6 +456,41 @@ class RenderQueryServiceTest {
         ReflectionTestUtils.setField(artifact, "storageUrl", storageUrl);
         ReflectionTestUtils.setField(artifact, "createdAt", createdAt);
         return artifact;
+    }
+
+    private void assertPresignFailsForStorageUrl(String storageUrl) throws Exception {
+        UUID renderId = UUID.randomUUID();
+        RenderJob job = createJob(
+                renderId,
+                projectId,
+                "succeeded",
+                "{\"style\":{\"timeOfDay\":\"evening\"}}",
+                LocalDateTime.of(2026, 4, 15, 16, 50, 0),
+                LocalDateTime.of(2026, 4, 15, 16, 50, 28)
+        );
+        RenderArtifact artifact = createArtifact(
+                UUID.randomUUID(),
+                projectId,
+                renderId,
+                storageUrl,
+                LocalDateTime.of(2026, 4, 15, 16, 50, 30)
+        );
+
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectAccessService.resolveCurrentUserId()).willReturn(null);
+        given(renderJobRepository.findByJobIdAndProjectIdAndJobType(renderId, projectId, "SD_RENDER"))
+                .willReturn(Optional.of(job));
+        given(renderArtifactRepository.findFirstByProjectIdAndJobIdAndArtifactTypeOrderByCreatedAtDescArtifactIdDesc(
+                projectId,
+                renderId,
+                "RENDER_IMAGE"
+        )).willReturn(Optional.of(artifact));
+
+        assertThatThrownBy(() -> renderQueryService.getProjectRender(projectId, renderId))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
+        verify(s3Presigner, never()).presignGetObject(any(GetObjectPresignRequest.class));
     }
 
     private <T> T instantiate(Class<T> type) throws Exception {

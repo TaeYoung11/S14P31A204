@@ -196,6 +196,17 @@ class RenderControllerTest {
     }
 
     @Test
+    void getProjectRender_returnsForbiddenWhenNoAccess() throws Exception {
+        given(renderQueryService.getProjectRender(any(), any()))
+                .willThrow(new CustomException(ErrorCode.FORBIDDEN_ACCESS));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/renders/{renderId}", UUID.randomUUID(), UUID.randomUUID()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.code").value("COMMON_FORBIDDEN_ACCESS"));
+    }
+
+    @Test
     void getProjectRender_returnsBadGatewayWhenPresignFails() throws Exception {
         given(renderQueryService.getProjectRender(any(), any()))
                 .willThrow(new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED));
