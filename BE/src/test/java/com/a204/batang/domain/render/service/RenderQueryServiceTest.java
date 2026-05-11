@@ -10,6 +10,7 @@ import com.a204.batang.domain.render.repository.RenderArtifactRepository;
 import com.a204.batang.domain.render.repository.RenderJobRepository;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,10 +76,7 @@ class RenderQueryServiceTest {
                 projectAccessService,
                 renderJobRepository,
                 renderArtifactRepository,
-                s3Presigner,
-                "batang",
-                "http://minio:9000",
-                600L
+                new S3ObjectPresigner(s3Presigner, "batang", "http://minio:9000", 600L)
         );
     }
 
@@ -147,7 +145,7 @@ class RenderQueryServiceTest {
                 UUID.randomUUID(),
                 projectId,
                 firstJobId,
-                "https://minio.local/renderings/render-latest.png",
+                "s3://batang/projects/%s/renders/render-latest.png".formatted(projectId),
                 LocalDateTime.of(2026, 4, 15, 16, 50, 30)
         );
         RenderArtifact olderArtifact = createArtifact(
@@ -167,6 +165,9 @@ class RenderQueryServiceTest {
                 any(),
                 eq("RENDER_IMAGE")
         )).willReturn(List.of(latestArtifact, olderArtifact));
+        PresignedGetObjectRequest presignedRequest = mock(PresignedGetObjectRequest.class);
+        given(presignedRequest.url()).willReturn(URI.create("https://download.example.com/render-latest.png?signature=test").toURL());
+        given(s3Presigner.presignGetObject(any(GetObjectPresignRequest.class))).willReturn(presignedRequest);
 
         List<ProjectRenderResponse> result = renderQueryService.getProjectRenders(projectId);
 
@@ -174,7 +175,7 @@ class RenderQueryServiceTest {
 
         ProjectRenderResponse first = result.get(0);
         assertThat(first.renderId()).isEqualTo(firstJobId);
-        assertThat(first.imageUrl()).isEqualTo("https://minio.local/renderings/render-latest.png");
+        assertThat(first.imageUrl()).isEqualTo("https://download.example.com/render-latest.png?signature=test");
         assertThat(first.status()).isEqualTo("SUCCEEDED");
         assertThat(first.createdAt()).isEqualTo("2026-04-15T07:50:00Z");
         assertThat(first.completedAt()).isEqualTo("2026-04-15T07:50:28Z");

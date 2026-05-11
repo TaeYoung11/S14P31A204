@@ -13,6 +13,7 @@ import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,8 +32,12 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class JobStatusQueryServiceTest {
@@ -54,6 +59,9 @@ class JobStatusQueryServiceTest {
     @Mock
     private ProjectAccessService projectAccessService;
 
+    @Mock
+    private S3ObjectPresigner s3ObjectPresigner;
+
     @InjectMocks
     private JobStatusQueryService jobStatusQueryService;
 
@@ -69,6 +77,10 @@ class JobStatusQueryServiceTest {
         currentUserId = UUID.randomUUID();
         project = Project.create("job-project", "desc", currentUserId);
         ReflectionTestUtils.setField(project, "projectId", projectId);
+        lenient().when(s3ObjectPresigner.presignRequired(anyString(), eq(ErrorCode.JOB_RESULT_PRESIGN_FAILED)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(s3ObjectPresigner.presignIfInternal(any(), eq(ErrorCode.JOB_RESULT_PRESIGN_FAILED)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
@@ -341,12 +353,16 @@ class JobStatusQueryServiceTest {
                 "RENDER_IMAGE",
                 "render-001.png",
                 "image/png",
-                "https://minio.local/renderings/render-001.png"
+                "s3://batang/renderings/render-001.png"
         );
 
         prepareProjectAccess(job);
         given(jobStepRecordRepository.findByJobIdOrderByStepNoAsc(jobId)).willReturn(List.of(step));
         given(jobArtifactRecordRepository.findByJobIdOrderByCreatedAtAscArtifactIdAsc(jobId)).willReturn(List.of(renderArtifact));
+        given(s3ObjectPresigner.presignRequired("s3://batang/renderings/render-001.png", ErrorCode.JOB_RESULT_PRESIGN_FAILED))
+                .willReturn("https://download.example.com/render-001.png?signature=test");
+        given(s3ObjectPresigner.presignIfInternal("s3://batang/reference.png", ErrorCode.JOB_RESULT_PRESIGN_FAILED))
+                .willReturn("https://download.example.com/reference.png?signature=test");
 
         GetJobStatusResponse response = jobStatusQueryService.getJobStatus(jobId);
 
@@ -355,14 +371,15 @@ class JobStatusQueryServiceTest {
         assertThat(response.error()).isNull();
         assertThat(response.outputs().targetRevisionId()).isNull();
         assertThat(response.outputs().primaryArtifactId()).isEqualTo(expectedArtifactId);
-        assertThat(response.outputs().primaryResultUrl()).isEqualTo("https://minio.local/renderings/render-001.png");
+        assertThat(response.outputs().primaryResultUrl()).isEqualTo("https://download.example.com/render-001.png?signature=test");
+        assertThat(response.outputs().artifacts().get(0).storageUrl()).isEqualTo("https://download.example.com/render-001.png?signature=test");
         assertThat(response.details().render()).isNotNull();
         assertThat(response.details().render().expectedOutputArtifactId()).isEqualTo(expectedArtifactId);
         assertThat(response.details().render().prompt()).isEqualTo("quiet library exterior");
         assertThat(response.details().render().negativePrompt()).isEqualTo("rain");
         assertThat(response.details().render().style()).isNotNull();
         assertThat(response.details().render().style().get("timeOfDay").asText()).isEqualTo("EVENING");
-        assertThat(response.details().render().sourceImageStorageUrl()).isEqualTo("s3://batang/reference.png");
+        assertThat(response.details().render().sourceImageStorageUrl()).isEqualTo("https://download.example.com/reference.png?signature=test");
     }
 
     @Test
@@ -398,6 +415,7 @@ class JobStatusQueryServiceTest {
         stepOutput.put("errorCode", "SD_RENDER_FAILED");
         stepOutput.put("errorMessage", "worker crashed");
         stepOutput.put("retryable", true);
+        stepOutput.put("detailStorageUrl", "s3://batang/errors/render-error.json");
 
         JobStepRecord step = createStepRecord(
                 UUID.randomUUID(),
@@ -416,6 +434,8 @@ class JobStatusQueryServiceTest {
         prepareProjectAccess(job);
         given(jobStepRecordRepository.findByJobIdOrderByStepNoAsc(jobId)).willReturn(List.of(step));
         given(jobArtifactRecordRepository.findByJobIdOrderByCreatedAtAscArtifactIdAsc(jobId)).willReturn(List.of());
+        given(s3ObjectPresigner.presignIfInternal("s3://batang/errors/render-error.json", ErrorCode.JOB_RESULT_PRESIGN_FAILED))
+                .willReturn("https://download.example.com/render-error.json?signature=test");
 
         GetJobStatusResponse response = jobStatusQueryService.getJobStatus(jobId);
 
@@ -424,6 +444,9 @@ class JobStatusQueryServiceTest {
         assertThat(response.error().code()).isEqualTo("SD_RENDER_FAILED");
         assertThat(response.error().message()).isEqualTo("worker crashed");
         assertThat(response.error().retryable()).isTrue();
+        assertThat(response.error().detailStorageUrl()).isEqualTo("https://download.example.com/render-error.json?signature=test");
+        assertThat(response.currentStep().error().detailStorageUrl()).isEqualTo("https://download.example.com/render-error.json?signature=test");
+        assertThat(response.steps().get(0).error().detailStorageUrl()).isEqualTo("https://download.example.com/render-error.json?signature=test");
         assertThat(response.details().render()).isNotNull();
         assertThat(response.details().render().expectedOutputArtifactId()).isEqualTo(expectedArtifactId);
         assertThat(response.details().render().prompt()).isEqualTo("quiet library");
