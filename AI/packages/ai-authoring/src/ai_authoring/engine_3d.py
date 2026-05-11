@@ -162,18 +162,193 @@ def delete_element(
         return False
 
 
+def _containing_storey(
+    element: ifcopenshell.entity_instance,
+) -> ifcopenshell.entity_instance | None:
+    for rel in getattr(element, "ContainedInStructure", []) or []:
+        if rel.is_a("IfcRelContainedInSpatialStructure"):
+            structure = getattr(rel, "RelatingStructure", None)
+            if structure and structure.is_a("IfcBuildingStorey"):
+                return structure
+    return None
+
+
+def _storey_elevation_native(storey: ifcopenshell.entity_instance) -> float | None:
+    elevation = getattr(storey, "Elevation", None)
+    if elevation is not None:
+        return float(elevation)
+    placement = getattr(storey, "ObjectPlacement", None)
+    if placement and placement.is_a("IfcLocalPlacement"):
+        try:
+            matrix = ifcopenshell.util.placement.get_local_placement(placement)
+            return float(matrix[2][3])
+        except Exception:
+            return None
+    return None
+
+
+def _next_storey_elevation_native(storey: ifcopenshell.entity_instance) -> float | None:
+    current = _storey_elevation_native(storey)
+    if current is None:
+        return None
+    candidates: list[float] = []
+    for rel in getattr(storey, "Decomposes", []) or []:
+        if not rel.is_a("IfcRelAggregates"):
+            continue
+        parent = getattr(rel, "RelatingObject", None)
+        for aggregate in getattr(parent, "IsDecomposedBy", []) or []:
+            if not aggregate.is_a("IfcRelAggregates"):
+                continue
+            for related in getattr(aggregate, "RelatedObjects", []) or []:
+                if not related.is_a("IfcBuildingStorey") or related == storey:
+                    continue
+                elevation = _storey_elevation_native(related)
+                if elevation is not None and elevation > current:
+                    candidates.append(elevation)
+    return min(candidates) if candidates else None
+
+
+def _element_global_z_native(element: ifcopenshell.entity_instance) -> float:
+    placement = getattr(element, "ObjectPlacement", None)
+    if placement and placement.is_a("IfcLocalPlacement"):
+        try:
+            matrix = ifcopenshell.util.placement.get_local_placement(placement)
+            return float(matrix[2][3])
+        except Exception:
+            pass
+    return 0.0
+
+
+def _height_fits_storey(
+    element: ifcopenshell.entity_instance,
+    next_height_native: float,
+) -> bool:
+    storey = _containing_storey(element)
+    if storey is None:
+        return True
+    next_storey_z = _next_storey_elevation_native(storey)
+    if next_storey_z is None:
+        return True
+    element_z = _element_global_z_native(element)
+    return element_z + next_height_native <= next_storey_z + 1e-6
+
+
+def _dimension_change_to_native(
+    current_native: float,
+    change: dict[str, Any],
+    scale: float,
+) -> float:
+    mode = str(change.get("mode") or "ABSOLUTE").upper()
+    value = float(change.get("value") or 0.0)
+    current_mm = current_native * scale
+    if mode == "SCALE":
+        next_mm = current_mm * value
+    elif mode == "RELATIVE":
+        next_mm = current_mm + value
+    else:
+        next_mm = value
+    if not math.isfinite(next_mm) or next_mm <= 0.0:
+        raise ValueError(f"dimension must be positive millimeters: {next_mm}")
+    return next_mm / scale
+
+
+def _body_extruded_solids(
+    element: ifcopenshell.entity_instance,
+) -> list[ifcopenshell.entity_instance]:
+    representation = getattr(element, "Representation", None)
+    if not representation:
+        return []
+    solids: list[ifcopenshell.entity_instance] = []
+    for rep in getattr(representation, "Representations", []) or []:
+        if getattr(rep, "RepresentationIdentifier", None) != "Body":
+            continue
+        for item in getattr(rep, "Items", []) or []:
+            if item.is_a("IfcExtrudedAreaSolid"):
+                solids.append(item)
+    return solids
+
+
+def _body_faceted_breps(
+    element: ifcopenshell.entity_instance,
+) -> list[ifcopenshell.entity_instance]:
+    representation = getattr(element, "Representation", None)
+    if not representation:
+        return []
+    breps: list[ifcopenshell.entity_instance] = []
+    for rep in getattr(representation, "Representations", []) or []:
+        if getattr(rep, "RepresentationIdentifier", None) != "Body":
+            continue
+        for item in getattr(rep, "Items", []) or []:
+            if item.is_a("IfcFacetedBrep"):
+                breps.append(item)
+    return breps
+
+
+def _brep_cartesian_points(
+    brep: ifcopenshell.entity_instance,
+) -> list[ifcopenshell.entity_instance]:
+    points: list[ifcopenshell.entity_instance] = []
+    seen: set[int] = set()
+    outer = getattr(brep, "Outer", None)
+    for face in getattr(outer, "CfsFaces", []) or []:
+        for bound in getattr(face, "Bounds", []) or []:
+            loop = getattr(bound, "Bound", None)
+            if not loop or not loop.is_a("IfcPolyLoop"):
+                continue
+            for point in getattr(loop, "Polygon", []) or []:
+                point_key = int(point.id()) if point.id() else id(point)
+                if point_key in seen:
+                    continue
+                seen.add(point_key)
+                points.append(point)
+    return points
+
+
+def _point_bounds(
+    points: list[ifcopenshell.entity_instance],
+) -> tuple[float, float, float, float, float, float] | None:
+    coords = [tuple(getattr(point, "Coordinates", ()) or ()) for point in points]
+    coords = [coord for coord in coords if len(coord) >= 2]
+    if not coords:
+        return None
+    xs = [float(coord[0]) for coord in coords]
+    ys = [float(coord[1]) for coord in coords]
+    zs = [float(coord[2]) if len(coord) >= 3 else 0.0 for coord in coords]
+    return (min(xs), max(xs), min(ys), max(ys), min(zs), max(zs))
+
+
+def _set_length_property_value(
+    element: ifcopenshell.entity_instance,
+    property_name: str,
+    change: dict[str, Any],
+    scale: float,
+) -> None:
+    mode = str(change.get("mode") or "ABSOLUTE").upper()
+    value = float(change.get("value") or 0.0)
+    for rel in getattr(element, "IsDefinedBy", []) or []:
+        if not rel.is_a("IfcRelDefinesByProperties"):
+            continue
+        pset = getattr(rel, "RelatingPropertyDefinition", None)
+        for prop in getattr(pset, "HasProperties", []) or []:
+            if not prop.is_a("IfcPropertySingleValue") or prop.Name != property_name:
+                continue
+            current = getattr(getattr(prop, "NominalValue", None), "wrappedValue", None)
+            current_mm = float(current or 0.0)
+            if mode == "SCALE":
+                next_mm = current_mm * value
+            elif mode == "RELATIVE":
+                next_mm = current_mm + value
+            else:
+                next_mm = value
+            prop.NominalValue.wrappedValue = float(next_mm)
+            return
+
+
 def modify_thickness(
     element: ifcopenshell.entity_instance, width_mm: dict[str, Any], scale: float = 1.0
 ) -> bool:
-    mode_relative = width_mm.get("mode") == "RELATIVE"
-    val_mm = width_mm.get("value", 0.0)
-
-    def calc_new_val(current_native):
-        current_mm = current_native * scale
-        new_mm = current_mm + val_mm if mode_relative else val_mm
-        return new_mm / scale
-
     try:
+        changed = False
         for rel in getattr(element, "HasAssociations", []):
             if rel.is_a("IfcRelAssociatesMaterial"):
                 mat = rel.RelatingMaterial
@@ -181,11 +356,77 @@ def modify_thickness(
                     layer_set = mat.ForLayerSet
                     if layer_set and layer_set.MaterialLayers:
                         layer = layer_set.MaterialLayers[0]
-                        layer.LayerThickness = float(calc_new_val(layer.LayerThickness))
-                        return True
-        return False
+                        layer.LayerThickness = float(
+                            _dimension_change_to_native(layer.LayerThickness, width_mm, scale)
+                        )
+                        changed = True
+        for solid in _body_extruded_solids(element):
+            profile = getattr(solid, "SweptArea", None)
+            if profile and profile.is_a("IfcRectangleProfileDef"):
+                next_value = _dimension_change_to_native(float(profile.YDim), width_mm, scale)
+                profile.YDim = float(next_value)
+                changed = True
+        if changed:
+            _set_length_property_value(element, "Width", width_mm, scale)
+        return changed
     except Exception as e:
-        logger.error(f"두께 수정 오류: {e}")
+        logger.error(f"Width update failed: {e}")
+        return False
+
+
+def modify_length(
+    element: ifcopenshell.entity_instance, length_mm: dict[str, Any], scale: float = 1.0
+) -> bool:
+    try:
+        changed = False
+        for solid in _body_extruded_solids(element):
+            profile = getattr(solid, "SweptArea", None)
+            if profile and profile.is_a("IfcRectangleProfileDef"):
+                next_value = _dimension_change_to_native(float(profile.XDim), length_mm, scale)
+                profile.XDim = float(next_value)
+                changed = True
+            elif profile and profile.is_a("IfcArbitraryClosedProfileDef"):
+                outer_curve = getattr(profile, "OuterCurve", None)
+                if not outer_curve or not outer_curve.is_a("IfcPolyline"):
+                    continue
+                points = list(getattr(outer_curve, "Points", []) or [])
+                bounds = _point_bounds(points)
+                if not bounds:
+                    continue
+                min_x, max_x, _min_y, _max_y, _min_z, _max_z = bounds
+                current_length = max_x - min_x
+                if current_length <= 0:
+                    continue
+                next_length = _dimension_change_to_native(current_length, length_mm, scale)
+                factor = next_length / current_length
+                center_x = (min_x + max_x) / 2.0
+                for point in points:
+                    coords = list(point.Coordinates)
+                    coords[0] = center_x + (float(coords[0]) - center_x) * factor
+                    point.Coordinates = tuple(coords)
+                changed = True
+        for brep in _body_faceted_breps(element):
+            points = _brep_cartesian_points(brep)
+            bounds = _point_bounds(points)
+            if not bounds:
+                continue
+            min_x, max_x, _min_y, _max_y, _min_z, _max_z = bounds
+            current_length = max_x - min_x
+            if current_length <= 0:
+                continue
+            next_length = _dimension_change_to_native(current_length, length_mm, scale)
+            factor = next_length / current_length
+            center_x = (min_x + max_x) / 2.0
+            for point in points:
+                coords = list(point.Coordinates)
+                coords[0] = center_x + (float(coords[0]) - center_x) * factor
+                point.Coordinates = tuple(coords)
+            changed = True
+        if changed:
+            _set_length_property_value(element, "Length", length_mm, scale)
+        return changed
+    except Exception as e:
+        logger.error(f"Length update failed: {e}")
         return False
 
 
@@ -193,22 +434,19 @@ def modify_height(
     element: ifcopenshell.entity_instance, height_mm: dict[str, Any], scale: float = 1.0
 ) -> bool:
     try:
-        mode_relative = height_mm.get("mode") == "RELATIVE"
-        val_mm = height_mm.get("value", 0.0)
-        if element.Representation:
-            for rep in element.Representation.Representations:
-                if rep.RepresentationIdentifier == "Body":
-                    for item in rep.Items:
-                        if item.is_a("IfcExtrudedAreaSolid"):
-                            old_h = float(item.Depth)
-                            new_h = (old_h * scale + val_mm) if mode_relative else val_mm
-                            item.Depth = float(new_h / scale)
-                            return True
-        return False
+        changed = False
+        for solid in _body_extruded_solids(element):
+            next_value = _dimension_change_to_native(float(solid.Depth), height_mm, scale)
+            if not _height_fits_storey(element, next_value):
+                return False
+            solid.Depth = float(next_value)
+            changed = True
+        if changed:
+            _set_length_property_value(element, "Height", height_mm, scale)
+        return changed
     except Exception as e:
-        logger.error(f"높이 수정 오류: {e}")
+        logger.error(f"Height update failed: {e}")
         return False
-
 
 def modify_position(
     element: ifcopenshell.entity_instance, pos_mm: dict[str, Any], scale: float = 1.0
@@ -253,29 +491,157 @@ def modify_rotation(
     model: ifcopenshell.file, element: ifcopenshell.entity_instance, rotation_deg: float
 ) -> bool:
     try:
-        placement = element.ObjectPlacement
-        if not placement or not placement.is_a("IfcLocalPlacement"):
-            return False
-        rel_p = placement.RelativePlacement
-        if not rel_p:
-            return False
         rad = math.radians(rotation_deg)
         cos_a, sin_a = math.cos(rad), math.sin(rad)
-        ref_dir = rel_p.RefDirection
-        if not ref_dir:
-            ref_dir = model.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0, 0.0))
-            rel_p.RefDirection = ref_dir
-        dr = list(ref_dir.DirectionRatios)
-        while len(dr) < 2:
-            dr.append(0.0)
-        new_x = dr[0] * cos_a - dr[1] * sin_a
-        new_y = dr[0] * sin_a + dr[1] * cos_a
-        ref_dir.DirectionRatios = (new_x, new_y, dr[2] if len(dr) > 2 else 0.0)
-        return True
-    except Exception as e:
-        logger.error(f"회전 수정 오류: {e}")
-        return False
 
+        def rotate_xy(x: float, y: float) -> tuple[float, float]:
+            return (x * cos_a - y * sin_a, x * sin_a + y * cos_a)
+
+        def rotate_about(x: float, y: float, cx: float, cy: float) -> tuple[float, float]:
+            rx, ry = rotate_xy(x - cx, y - cy)
+            return (rx + cx, ry + cy)
+
+        def rotate_polyline_points(points: Any) -> bool:
+            point_list = list(points or [])
+            coords_by_point: list[tuple[ifcopenshell.entity_instance, list[float]]] = []
+            for point in point_list:
+                coords = list(point.Coordinates)
+                if len(coords) >= 2:
+                    coords_by_point.append((point, coords))
+            if not coords_by_point:
+                return False
+
+            xs = [float(coords[0]) for _, coords in coords_by_point]
+            ys = [float(coords[1]) for _, coords in coords_by_point]
+            center_x = (min(xs) + max(xs)) / 2.0
+            center_y = (min(ys) + max(ys)) / 2.0
+            for point, coords in coords_by_point:
+                coords[0], coords[1] = rotate_about(
+                    float(coords[0]), float(coords[1]), center_x, center_y
+                )
+                point.Coordinates = tuple(coords)
+            return True
+
+        def rotate_direction(direction: ifcopenshell.entity_instance, size: int) -> None:
+            ratios = list(direction.DirectionRatios)
+            while len(ratios) < 2:
+                ratios.append(0.0)
+            ratios[0], ratios[1] = rotate_xy(float(ratios[0]), float(ratios[1]))
+            direction.DirectionRatios = tuple(ratios[:size])
+
+        changed = False
+        representation = getattr(element, "Representation", None)
+        if not representation:
+            return False
+
+        kept_reps = []
+        for rep in list(getattr(representation, "Representations", []) or []):
+            if getattr(rep, "RepresentationIdentifier", None) == "Box":
+                changed = True
+                continue
+            kept_reps.append(rep)
+            for item in getattr(rep, "Items", []) or []:
+                if item.is_a("IfcPolyline"):
+                    changed = rotate_polyline_points(item.Points) or changed
+                if item.is_a("IfcGeometricCurveSet"):
+                    for curve in getattr(item, "Elements", []) or []:
+                        if curve.is_a("IfcPolyline"):
+                            changed = rotate_polyline_points(curve.Points) or changed
+                if item.is_a("IfcExtrudedAreaSolid"):
+                    position = getattr(item, "Position", None)
+                    profile = getattr(item, "SweptArea", None)
+                    if profile and profile.is_a("IfcRectangleProfileDef"):
+                        location = getattr(position, "Location", None)
+                        coords = list(getattr(location, "Coordinates", (0.0, 0.0, 0.0)))
+                        while len(coords) < 3:
+                            coords.append(0.0)
+                        cx, cy = float(coords[0]), float(coords[1])
+                        half_x = float(profile.XDim) / 2.0
+                        half_y = float(profile.YDim) / 2.0
+                        corners = [
+                            (cx - half_x, cy - half_y),
+                            (cx + half_x, cy - half_y),
+                            (cx + half_x, cy + half_y),
+                            (cx - half_x, cy + half_y),
+                            (cx - half_x, cy - half_y),
+                        ]
+                        points = [
+                            model.create_entity(
+                                "IfcCartesianPoint",
+                                Coordinates=rotate_about(x, y, cx, cy),
+                            )
+                            for x, y in corners
+                        ]
+                        item.SweptArea = model.create_entity(
+                            "IfcArbitraryClosedProfileDef",
+                            ProfileType="AREA",
+                            OuterCurve=model.create_entity("IfcPolyline", Points=points),
+                        )
+                        item.Position = model.create_entity(
+                            "IfcAxis2Placement3D",
+                            Location=model.create_entity(
+                                "IfcCartesianPoint", Coordinates=(0.0, 0.0, coords[2])
+                            ),
+                        )
+                        changed = True
+                        continue
+                    elif profile and profile.is_a("IfcArbitraryClosedProfileDef"):
+                        outer_curve = getattr(profile, "OuterCurve", None)
+                        if outer_curve and outer_curve.is_a("IfcPolyline"):
+                            changed = rotate_polyline_points(outer_curve.Points) or changed
+                    location = getattr(position, "Location", None)
+                    if location:
+                        coords = list(location.Coordinates)
+                        if len(coords) >= 2:
+                            coords[0], coords[1] = rotate_xy(float(coords[0]), float(coords[1]))
+                            location.Coordinates = tuple(coords)
+                            changed = True
+                    if position and position.is_a("IfcAxis2Placement3D"):
+                        ref_dir = position.RefDirection
+                        if not ref_dir:
+                            ref_dir = model.create_entity(
+                                "IfcDirection", DirectionRatios=(1.0, 0.0, 0.0)
+                            )
+                            position.RefDirection = ref_dir
+                        rotate_direction(ref_dir, 3)
+                        changed = True
+                    profile_position = getattr(profile, "Position", None)
+                    profile_location = getattr(profile_position, "Location", None)
+                    if profile_location:
+                        coords = list(profile_location.Coordinates)
+                        if len(coords) >= 2:
+                            coords[0], coords[1] = rotate_xy(float(coords[0]), float(coords[1]))
+                            profile_location.Coordinates = tuple(coords)
+                            changed = True
+                    if profile_position and profile_position.is_a("IfcAxis2Placement2D"):
+                        ref_dir = profile_position.RefDirection
+                        if not ref_dir:
+                            ref_dir = model.create_entity(
+                                "IfcDirection", DirectionRatios=(1.0, 0.0)
+                            )
+                            profile_position.RefDirection = ref_dir
+                        rotate_direction(ref_dir, 2)
+                        changed = True
+                if item.is_a("IfcFacetedBrep"):
+                    points = _brep_cartesian_points(item)
+                    bounds = _point_bounds(points)
+                    if not bounds:
+                        continue
+                    min_x, max_x, min_y, max_y, _min_z, _max_z = bounds
+                    center_x = (min_x + max_x) / 2.0
+                    center_y = (min_y + max_y) / 2.0
+                    for point in points:
+                        coords = list(point.Coordinates)
+                        coords[0], coords[1] = rotate_about(
+                            float(coords[0]), float(coords[1]), center_x, center_y
+                        )
+                        point.Coordinates = tuple(coords)
+                    changed = True
+        representation.Representations = kept_reps
+        return changed
+    except Exception as e:
+        logger.error(f"Rotation update failed: {e}")
+        return False
 
 def modify_material(
     model: ifcopenshell.file, element: ifcopenshell.entity_instance, mat_change: dict[str, Any]

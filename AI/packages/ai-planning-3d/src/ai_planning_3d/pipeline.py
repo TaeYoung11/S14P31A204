@@ -9,15 +9,8 @@ from .command import LLM3DCommand, LLM3DCommandType, LLM3DElementType, LLM3DPoin
 # ai_authoring 공용 패키지에서 검색 엔진 및 유틸리티 참조
 from ai_authoring.query_engine import IFCQueryEngine
 from ai_authoring.utils import normalize_storey_name
+from ai_authoring.llm3d_apply import apply_llm3d_modify_delete_to_ifc
 from ai_authoring.engine_3d import (
-    delete_element,
-    modify_thickness,
-    modify_height,
-    modify_position,
-    modify_material,
-    modify_color,
-    modify_rotation,
-    modify_face_offset,
     create_wall,
     create_slab,
     create_roof,
@@ -107,6 +100,8 @@ class LLM3DPipeline:
 
     @staticmethod
     def split_chat_commands(user_text: str) -> list[str]:
+        decimal_dot = "__BATANG_DECIMAL_DOT__"
+        user_text = re.sub(r"(?<=\d)\.(?=\d)", decimal_dot, user_text)
         normalized = re.sub(
             r"((?:만들|생성|추가|배치|넣|달|바꾸|변경|수정|삭제|제거|없애|지우|빼))고(?=\s|[,.;])\s*",
             lambda match: f"{LLM3DPipeline._complete_connected_verb(match.group(1))}.\n",
@@ -115,10 +110,97 @@ class LLM3DPipeline:
         parts = re.split(r"(?:그리고|\.|,|\n|;)", normalized)
         commands: list[str] = []
         for part in parts:
-            part = part.strip()
+            part = part.replace(decimal_dot, ".").strip()
             if part:
                 commands.extend(LLM3DPipeline._expand_direction_pair_command(part))
-        return commands or [user_text]
+        return LLM3DPipeline._carry_forward_command_subjects(commands or [user_text])
+
+    @staticmethod
+    def _carry_forward_command_subjects(commands: list[str]) -> list[str]:
+        contextualized: list[str] = []
+        previous_subject: str | None = None
+        for command in commands:
+            next_command = command
+            if previous_subject and LLM3DPipeline._needs_previous_subject(command):
+                next_command = f"{previous_subject} {command}"
+            contextualized.append(next_command)
+
+            subject = LLM3DPipeline._extract_command_subject(next_command)
+            if subject:
+                previous_subject = subject
+        return contextualized
+
+    @staticmethod
+    def _needs_previous_subject(command: str) -> bool:
+        if LLM3DPipeline._extract_command_subject(command):
+            return False
+        return any(
+            word in command
+            for word in (
+                "회전",
+                "돌려",
+                "길이",
+                "높이",
+                "두께",
+                "색",
+                "색상",
+                "재질",
+                "오른쪽으로",
+                "왼쪽으로",
+            )
+        )
+
+    @staticmethod
+    def _extract_command_subject(command: str) -> str | None:
+        first_change_at = len(command)
+        for word in (
+            "길이",
+            "높이",
+            "두께",
+            "색상",
+            "색",
+            "재질",
+            "회전",
+            "돌려",
+            "오른쪽으로",
+            "왼쪽으로",
+        ):
+            index = command.find(word)
+            if index >= 0:
+                first_change_at = min(first_change_at, index)
+        candidate = command[:first_change_at].strip()
+        candidate = re.sub(r"\s*(을|를|은|는|이|가|의|전체)$", "", candidate).strip()
+        if not candidate:
+            return None
+        if not any(
+            word in candidate.lower()
+            for word in (
+                "지붕",
+                "roof",
+                "벽",
+                "wall",
+                "기둥",
+                "column",
+                "보",
+                "beam",
+                "슬래브",
+                "바닥",
+                "slab",
+                "문",
+                "door",
+                "창문",
+                "window",
+                "계단",
+                "stair",
+                "층",
+                "거실",
+                "침실",
+                "화장실",
+                "욕실",
+            )
+        ):
+            return None
+        return candidate
 
     @staticmethod
     def _complete_connected_verb(verb: str) -> str:
@@ -278,6 +360,7 @@ class LLM3DPipeline:
                     "summary": preview.get("summary"),
                     "collision_warnings": preview.get("collision_warnings", []),
                     "structural_warnings": preview.get("structural_warnings", []),
+                    "matched_elements": preview.get("matched_elements", []),
                     "command": preview.get("command"),
                     "apply_status": "not_applied",
                     "ifc_written": False,
@@ -1048,6 +1131,7 @@ class LLM3DPipeline:
             "session_id": session.session_id,
             "command": command.model_dump(),
             "matched_count": len(matched),
+            "matched_elements": matched,
             "summary": self._generate_summary(command, len(matched), all_errors),
             # 검증 결과 포함
             "structural_warnings": session.structural_warnings,
@@ -1081,73 +1165,20 @@ class LLM3DPipeline:
             finally:
                 self.store.pop(session_id, None)
 
-        applied_count = 0
-        missing_ids: list[str] = []
-        failed_ids: list[str] = []
         try:
-            for item in session.matched:
-                element = model.by_guid(item["global_id"])
-                if not element:
-                    missing_ids.append(item["global_id"])
-                    continue
-
-                if command.command_type == LLM3DCommandType.DELETE:
-                    if delete_element(model, element):
-                        applied_count += 1
-                    else:
-                        failed_ids.append(item["global_id"])
-                    continue
-
-                changes = command.changes
-                if not changes:
-                    continue
-
-                applied_any = False
-                if changes.width_mm:
-                    if modify_thickness(element, changes.width_mm.model_dump()):
-                        applied_any = True
-                if changes.height_mm:
-                    if modify_height(element, changes.height_mm.model_dump()):
-                        applied_any = True
-                if changes.position_mm:
-                    if modify_position(element, changes.position_mm.model_dump()):
-                        applied_any = True
-                if changes.material:
-                    if modify_material(model, element, changes.material.model_dump()):
-                        applied_any = True
-                if changes.color:
-                    if modify_color(model, element, changes.color):
-                        applied_any = True
-                if changes.rotation_deg is not None:
-                    if modify_rotation(model, element, changes.rotation_deg):
-                        applied_any = True
-                if changes.face_offset_mm is not None:
-                    if modify_face_offset(
-                        element, changes.face_offset_mm, command.target.direction or ""
-                    ):
-                        applied_any = True
-
-                if applied_any:
-                    applied_count += 1
-                else:
-                    failed_ids.append(item["global_id"])
-
-            if applied_count == 0:
-                return {
-                    "status": "not_applied",
-                    "applied_count": 0,
-                    "summary": self._generate_apply_failure_summary(
-                        command, missing_ids, failed_ids
-                    ),
-                    "missing_ids": missing_ids,
-                    "failed_ids": failed_ids,
-                }
-            model.write(output_path)
-            return {
-                "status": "applied",
-                "applied_count": applied_count,
-                "summary": f"{applied_count}개 요소 반영 완료",
-            }
+            matched_ids = [str(item.get("global_id") or "") for item in session.matched]
+            return apply_llm3d_modify_delete_to_ifc(
+                model=model,
+                command=command.model_dump(),
+                matched=session.matched,
+                output_path=output_path,
+                scale=self._scale,
+                failure_summary=self._generate_apply_failure_summary(
+                    command,
+                    missing_ids=[],
+                    failed_ids=matched_ids,
+                ),
+            )
         finally:
             self.store.pop(session_id, None)
 
