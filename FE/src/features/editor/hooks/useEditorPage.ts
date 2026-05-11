@@ -116,13 +116,6 @@ import {
 import { resolveIfcPresignedUrl } from '../utils/ifcSource'
 import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
 
-interface DrawingSnapshot {
-  bubbles: BubbleData[]
-  connections: ConnectionData[]
-  floorWalls: FloorWall[]
-  floorOpenings: FloorOpening[]
-}
-
 interface PendingServerPublishRecord {
   projectId: string
   baseIndex: number
@@ -353,7 +346,6 @@ export function useEditorPage() {
     deleteFloorLayer,
     setActiveLayerId: setActiveFloorLayerId,
     setFloorPlanFromProject,
-    syncFloorPlanFromBubbles,
     moveActiveRoom,
     updateActiveRoom,
     removeActiveRooms,
@@ -3126,25 +3118,6 @@ export function useEditorPage() {
     }
   }, [canRedo, isFloorPlanHistoryMode, mode, projectId])
 
-  const applyDrawingSnapshot = useCallback(
-    ({ bubbles: nextBubbles, connections: nextConnections, floorWalls: nextFloorWalls, floorOpenings: nextFloorOpenings }: DrawingSnapshot) => {
-      setIsFloorPlanEditedIn2D(false)
-      setIsProjectStructurePreferred(false)
-      replaceBubbles(nextBubbles)
-      replaceConnections(nextConnections)
-      // project-origin 레이아웃은 버블 자동 배치로 덮어쓰지 않는다.
-      if (!IFC_DERIVED_FLOORPLAN_ONLY && floorPlanLayoutSource !== 'project') {
-        syncFloorPlanFromBubbles(nextBubbles, nextConnections, stageSize.width, stageSize.height)
-      }
-      setFloorWalls(nextFloorWalls)
-      setHiddenAutoWallIds([])
-      setFloorOpenings(nextFloorOpenings)
-      setHiddenAutoOpeningIds([])
-      resetInteractionSelection()
-    },
-    [floorPlanLayoutSource, replaceBubbles, replaceConnections, syncFloorPlanFromBubbles, stageSize.width, stageSize.height, resetInteractionSelection],
-  )
-
   /** 표준 FloorProject를 버블/2D/3D 공통 상태로 반영
    *  walls/openings 필드가 있으면(IFC 경로) 직접 매핑, 없으면 빈 배열 → autoWalls/autoOpenings 폴백
    */
@@ -3285,33 +3258,24 @@ export function useEditorPage() {
     attemptedInitialIfcImportProjectIdRef,
   })
 
-  /** AI 미리보기 적용 — 버블/연결선/2D 벽·개구부 일괄 반영 후 선택 상태 정리 */
-  const applyLlmPreview = useCallback(
-    (
-      nextBubbles: BubbleData[],
-      nextConnections: ConnectionData[],
-      nextFloorWalls: FloorWall[],
-      nextFloorOpenings: FloorOpening[],
-    ) => {
-      clearImportMessage()
-      applyDrawingSnapshot({
-        bubbles: nextBubbles,
-        connections: nextConnections,
-        floorWalls: nextFloorWalls,
-        floorOpenings: nextFloorOpenings,
-      })
-    },
-    [clearImportMessage, applyDrawingSnapshot],
-  )
+  const handleLlmIfcResult = useCallback((ifcStorageUrl: string, assetId: string | null, revisionId: string | null) => {
+    clearImportMessage()
+    handleIfcSyncMessageRef.current(ifcStorageUrl, 'IFC_EDIT_COMPLETED', assetId, revisionId)
+  }, [clearImportMessage])
 
   /** AI 어시스턴트 편집 상태 */
   const llmEdit = useLlmEdit({
     projectId: projectId ?? null,
+    mode,
+    currentIfcRevisionId,
+    currentIfcUrl,
     bubbles,
     connections,
+    floorLayers,
+    activeFloorLayerId,
     floorWalls: floorWalls.length > 0 ? floorWalls : autoFloorWalls,
     floorOpenings: mergedFloorOpenings,
-    onApply: applyLlmPreview,
+    onIfcResult: handleLlmIfcResult,
   })
 
   const {
@@ -3690,6 +3654,10 @@ export function useEditorPage() {
     llmSuggestions: llmEdit.suggestions,
     llmPreview: llmEdit.preview,
     llmCanRun: llmEdit.canRun,
+    llmActiveJobId: llmEdit.activeJobId,
+    llmJobProgress: llmEdit.jobProgress,
+    llmChatLogs: llmEdit.chatLogs,
+    llmIsChatLogsLoading: llmEdit.isChatLogsLoading,
     runLlmEdit: llmEdit.run,
     applyLlmEdit: llmEdit.apply,
     discardLlmEdit: llmEdit.discard,

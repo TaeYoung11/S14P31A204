@@ -1,49 +1,11 @@
-import type { BubbleData, ConnectionData, FloorOpening, FloorWall } from '../types'
-import type { LlmEditOperation } from '../types/llmEdit.types'
-
-/** LLM 수정 API 요청 본문 (프론트 -> 백엔드) */
-export interface LlmEditApiRequestBody {
-  text: string
-  context: {
-    bubbles: BubbleData[]
-    connections: ConnectionData[]
-    floorWalls?: FloorWall[]
-    floorOpenings?: FloorOpening[]
-  }
-}
-
-/** LLM 수정 API 성공 응답 (권장 포맷) */
-export interface LlmEditApiOkResponse {
-  kind: 'ok'
-  summary: string
-  operations: LlmEditOperation[]
-}
-
-/** LLM 수정 API 모호 응답 (권장 포맷) */
-export interface LlmEditApiAmbiguousResponse {
-  kind: 'ambiguous'
-  message: string
-  suggestions?: string[]
-}
-
-/** LLM 수정 API 에러 응답 (권장 포맷) */
-export interface LlmEditApiErrorResponse {
-  kind: 'error'
-  message: string
-}
-
-/** 백엔드 상태 문자열(status) 호환 포맷 */
-export interface LlmEditApiStatusCompatibleResponse {
-  status: 'ok' | 'ambiguous' | 'error'
-  summary?: string
-  operations?: unknown[]
-  message?: string
-  suggestions?: unknown[]
-}
-
-/** 백엔드 응답 허용 유니온 */
-export type LlmEditApiResponse =
-  | LlmEditApiOkResponse
-  | LlmEditApiAmbiguousResponse
-  | LlmEditApiErrorResponse
-  | LlmEditApiStatusCompatibleResponse
+// 자연어 BIM 편집 서비스에서 사용하는 DTO 타입을 다시 내보냅니다.
+export type {
+  ChatCommandRequestDto as ChatCommandRequestBody,
+  IfcEditJobResponseDto as IfcEditJobResponse,
+  JobErrorResponseDto as JobErrorResponse,
+  JobOutputsResponseDto as JobOutputsResponse,
+  JobStatusResponseDto as JobStatusResponse,
+  ProjectChatLogItemResponseDto as ProjectChatLogItemResponse,
+  ProjectChatLogsResponseDto as ProjectChatLogsResponse,
+  LlmEditApiResponseDto as LlmEditApiResponse,
+} from '../types/llmEdit.dto'

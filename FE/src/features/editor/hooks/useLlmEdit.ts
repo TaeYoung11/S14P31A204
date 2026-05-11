@@ -1,133 +1,257 @@
-import { useMemo, useRef, useState } from 'react'
-import type { BubbleData, ConnectionData, FloorOpening, FloorWall } from '../types'
-import { getLlmEditProvider, requestLlmEdit } from '../services/llmEdit.service'
-import type { LlmEditPreview, LlmEditStatus } from '../types/llmEdit.types'
-import { applyLlmOperationsPreview } from '../utils/llmEditPreview'
+// 에디터 자연어 BIM 편집 요청과 작업 추적 상태를 관리합니다.
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import type {
+  BubbleData,
+  ConnectionData,
+  EditorMode,
+  FloorLayer,
+  FloorOpening,
+  FloorWall,
+} from '../types'
+import type { LlmEditSceneType, LlmEditStatus } from '../types/llmEdit.types'
+import {
+  extractLlmEditErrorMessage,
+  fetchLlmChatLogs,
+  fetchLlmJobStatus,
+  llmEditQueryKeys,
+  submitLlmChatCommand,
+} from '../services/llmEdit.service'
+import type { JobStatusResponseDto } from '../types/llmEdit.dto'
 
 interface UseLlmEditParams {
   projectId: string | null
+  mode: EditorMode
+  currentIfcRevisionId: string | null
+  currentIfcUrl: string | null
   bubbles: BubbleData[]
   connections: ConnectionData[]
+  floorLayers: FloorLayer[]
+  activeFloorLayerId: string | null
   floorWalls: FloorWall[]
   floorOpenings: FloorOpening[]
-  onApply: (
-    nextBubbles: BubbleData[],
-    nextConnections: ConnectionData[],
-    nextFloorWalls: FloorWall[],
-    nextFloorOpenings: FloorOpening[],
-  ) => void
+  onIfcResult: (ifcStorageUrl: string, assetId: string | null, revisionId: string | null) => void
 }
 
-/** AI 어시스턴트 기반 다이어그램 수정 상태 관리 훅 */
-export function useLlmEdit({
-  projectId,
+const JOB_POLL_INTERVAL_MS = 1500
+const JOB_POLL_TIMEOUT_MS = 180_000
+
+const sleep = (delayMs: number): Promise<void> =>
+  new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs)
+  })
+
+const isSuccessfulJobStatus = (status: string): boolean => {
+  const normalized = status.toUpperCase()
+  return normalized === 'SUCCESS' || normalized === 'SUCCEEDED' || normalized === 'COMPLETED'
+}
+
+const resolveJobErrorMessage = (job: JobStatusResponseDto): string => (
+  job.error?.errorMessage
+  ?? job.error?.message
+  ?? 'AI 편집 작업이 실패했습니다.'
+)
+
+const resolveSceneType = (mode: EditorMode): LlmEditSceneType =>
+  mode === '3d' ? 'THREE_D' : 'TWO_D'
+
+/**
+ * BE chat-command payload에 넣을 현재 2D/버블 문맥을 만든다.
+ * 3D 경로에서도 worker가 참고할 수 있도록 간단한 현재 에디터 상태만 포함한다.
+ */
+const buildSourceScene = (
+  mode: EditorMode,
+  bubbles: BubbleData[],
+  connections: ConnectionData[],
+  floorLayers: FloorLayer[],
+  activeFloorLayerId: string | null,
+  floorWalls: FloorWall[],
+  floorOpenings: FloorOpening[],
+) => ({
+  mode,
   bubbles,
   connections,
+  floorPlan: {
+    activeFloorLayerId,
+    layers: floorLayers,
+    walls: floorWalls,
+    openings: floorOpenings,
+  },
+})
+
+export function useLlmEdit({
+  projectId,
+  mode,
+  currentIfcRevisionId,
+  currentIfcUrl,
+  bubbles,
+  connections,
+  floorLayers,
+  activeFloorLayerId,
   floorWalls,
   floorOpenings,
-  onApply,
+  onIfcResult,
 }: UseLlmEditParams) {
-  const provider = getLlmEditProvider()
+  const queryClient = useQueryClient()
   const requestSeq = useRef(0)
   const [prompt, setPrompt] = useState('')
   const [status, setStatus] = useState<LlmEditStatus>('idle')
   const [message, setMessage] = useState('')
   const [suggestions, setSuggestions] = useState<string[]>([])
-  const [preview, setPreview] = useState<LlmEditPreview | null>(null)
+  const [activeJobId, setActiveJobId] = useState<string | null>(null)
+  const [jobProgress, setJobProgress] = useState<number | null>(null)
 
-  const isLoading = status === 'loading'
+  const chatLogsQuery = useQuery({
+    queryKey: llmEditQueryKeys.chatLogs(projectId),
+    queryFn: () => fetchLlmChatLogs({ projectId: projectId ?? '' }),
+    enabled: !!projectId,
+    staleTime: 10_000,
+    retry: false,
+  })
 
-  const canRun = useMemo(() => prompt.trim().length > 0 && !isLoading, [prompt, isLoading])
+  const isLoading = status === 'loading' || status === 'running'
+  const canRun = useMemo(
+    () => prompt.trim().length > 0 && !!projectId && !!currentIfcRevisionId && !isLoading,
+    [currentIfcRevisionId, isLoading, projectId, prompt],
+  )
 
-  /** 이전 요청 결과 메시지/추천/미리보기를 초기화한다. */
-  const resetResultState = () => {
+  const resetResultState = useCallback(() => {
     setMessage('')
     setSuggestions([])
-    setPreview(null)
-  }
+    setActiveJobId(null)
+    setJobProgress(null)
+  }, [])
 
-  /** 현재 프롬프트로 LLM 수정을 요청하고, 성공 시 미리보기를 생성한다. */
-  const run = async () => {
-    if (!canRun) return
+  const waitForTerminalJob = useCallback(async (
+    jobId: string,
+    currentSeq: number,
+  ): Promise<JobStatusResponseDto | null> => {
+    const startedAt = Date.now()
+
+    while (Date.now() - startedAt < JOB_POLL_TIMEOUT_MS) {
+      if (currentSeq !== requestSeq.current) return null
+      const job = await fetchLlmJobStatus(jobId)
+      if (currentSeq !== requestSeq.current) return null
+
+      setJobProgress(job.progress)
+      if (job.terminal) return job
+      await sleep(JOB_POLL_INTERVAL_MS)
+    }
+
+    throw new Error('AI 편집 작업 상태 조회 시간이 초과되었습니다.')
+  }, [])
+
+  const run = useCallback(async () => {
+    if (!projectId) {
+      setStatus('error')
+      setMessage('프로젝트 ID가 없어 AI 편집 요청을 보낼 수 없습니다.')
+      return
+    }
+    if (!currentIfcRevisionId) {
+      setStatus('error')
+      setMessage('IFC 기준 revision이 없어 AI 편집 요청을 보낼 수 없습니다. 먼저 3D IFC를 생성하거나 불러와 주세요.')
+      return
+    }
+    if (!prompt.trim() || isLoading) return
+
     const currentSeq = requestSeq.current + 1
     requestSeq.current = currentSeq
     setStatus('loading')
     resetResultState()
 
     try {
-      const response = await requestLlmEdit({
+      const sceneType = resolveSceneType(mode)
+      const job = await submitLlmChatCommand({
         projectId,
-        prompt,
-        bubbles,
-        connections,
-        floorWalls,
-        floorOpenings,
+        sceneType,
+        baseRevisionId: currentIfcRevisionId,
+        sourceSceneType: sceneType === 'THREE_D' ? 'IFC_MODEL' : 'FLOOR_PLAN',
+        message: prompt.trim(),
+        ...(currentIfcUrl ? { sourceSceneStorageUrl: currentIfcUrl } : {}),
+        sourceScene: buildSourceScene(mode, bubbles, connections, floorLayers, activeFloorLayerId, floorWalls, floorOpenings),
       })
+
       if (currentSeq !== requestSeq.current) return
-      if (response.kind === 'ambiguous') {
-        setStatus('ambiguous')
-        setMessage(response.message)
-        setSuggestions(response.suggestions)
-        return
-      }
-      if (response.kind === 'error') {
+      setActiveJobId(job.jobId)
+      setJobProgress(job.progress)
+      setStatus('running')
+      setMessage(`${sceneType === 'THREE_D' ? '3D' : '2D'} AI 편집 작업이 접수되었습니다.`)
+      void queryClient.invalidateQueries({ queryKey: llmEditQueryKeys.chatLogs(projectId) })
+
+      const completedJob = await waitForTerminalJob(job.jobId, currentSeq)
+      if (!completedJob || currentSeq !== requestSeq.current) return
+
+      if (!isSuccessfulJobStatus(completedJob.status)) {
         setStatus('error')
-        setMessage(response.message)
+        setMessage(resolveJobErrorMessage(completedJob))
+        void queryClient.invalidateQueries({ queryKey: llmEditQueryKeys.chatLogs(projectId) })
         return
       }
 
-      const previewResult = applyLlmOperationsPreview(
-        bubbles,
-        connections,
-        floorWalls,
-        floorOpenings,
-        response.operations,
-      )
-      if (previewResult.changes.length === 0) {
-        setStatus('ambiguous')
-        setMessage('요청은 이해했지만 실제 변경 사항이 없습니다. 다른 지시를 입력해 주세요.')
-        setSuggestions(['연결할 공간 이름을 바꿔 입력해 주세요.', '추가/삭제/이름변경 동작을 명시해 주세요.'])
+      const outputUrl = completedJob.outputs?.primaryResultUrl
+      const outputArtifactId = completedJob.outputs?.primaryArtifactId
+      const targetRevisionId = completedJob.outputs?.targetRevisionId
+      if (!outputUrl) {
+        setStatus('error')
+        setMessage('AI 편집 작업은 완료되었지만 IFC 결과 URL이 없습니다.')
+        void queryClient.invalidateQueries({ queryKey: llmEditQueryKeys.chatLogs(projectId) })
         return
       }
 
-      setPreview({ ...previewResult, summary: response.summary })
-      setStatus('preview')
-    } catch {
+      onIfcResult(outputUrl, outputArtifactId ?? null, targetRevisionId ?? null)
+      setStatus('applied')
+      setMessage('AI 편집 결과 IFC를 불러오는 중입니다.')
+      setPrompt('')
+      void queryClient.invalidateQueries({ queryKey: llmEditQueryKeys.chatLogs(projectId) })
+    } catch (error: unknown) {
       if (currentSeq !== requestSeq.current) return
       setStatus('error')
-      setMessage('AI 수정 요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.')
+      setMessage(extractLlmEditErrorMessage(error))
+      if (projectId) {
+        void queryClient.invalidateQueries({ queryKey: llmEditQueryKeys.chatLogs(projectId) })
+      }
     }
-  }
+  }, [
+    activeFloorLayerId,
+    bubbles,
+    connections,
+    currentIfcRevisionId,
+    currentIfcUrl,
+    floorLayers,
+    floorOpenings,
+    floorWalls,
+    isLoading,
+    mode,
+    onIfcResult,
+    projectId,
+    prompt,
+    queryClient,
+    resetResultState,
+    waitForTerminalJob,
+  ])
 
-  /** 현재 미리보기 변경사항을 실제 편집 데이터에 반영한다. */
-  const apply = () => {
-    if (!preview) return
-    requestSeq.current += 1
-    onApply(preview.bubbles, preview.connections, preview.floorWalls, preview.floorOpenings)
-    setStatus('applied')
-    setMessage('미리보기 변경사항이 적용되었습니다.')
-    setSuggestions([])
-  }
-
-  /** 미리보기/메시지를 버리고 초기 상태로 되돌린다. */
-  const discard = () => {
+  const discard = useCallback(() => {
     requestSeq.current += 1
     setStatus('idle')
     resetResultState()
-  }
+  }, [resetResultState])
 
   return {
-    provider,
+    provider: 'api' as const,
     prompt,
     setPrompt,
     status,
     isLoading,
     message,
     suggestions,
-    preview,
+    preview: null,
     canRun,
+    activeJobId,
+    jobProgress,
+    chatLogs: chatLogsQuery.data ?? [],
+    isChatLogsLoading: chatLogsQuery.isLoading,
     run,
-    apply,
+    apply: () => {},
     discard,
   }
 }
