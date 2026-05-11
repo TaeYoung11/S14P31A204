@@ -60,8 +60,8 @@ Shared wall generation rules are currently:
 - actual room-edge overlap is required
 - segments that lie on the exterior boundary line are not generated as interior shared walls
 - `A->B` and `B->A` adjacency pairs are deduped
-- `strength` remains metadata only in project `AdjacencyJson`
-- cross-floor adjacency and rotated rooms fail validation
+- `strength` is used as a soft placement optimization weight before IFC generation
+- cross-floor adjacency and rotated-room shared wall candidates are skipped with warnings
 
 `v3` explicit opening rules:
 
@@ -79,6 +79,32 @@ Shared wall generation rules are currently:
 - `angle`: float radians
 
 The service converts millimetres to metres immediately before IFC geometry creation.
+
+## Adjacency strength optimization
+
+For `v2` and `v3`, the service applies a deterministic, in-memory room placement pass before IFC entities are created:
+
+- `strength >= 0.75`: prefer edge-touch/shared-wall placement when feasible
+- `0.45 <= strength < 0.75`: prefer closer placement and short circulation
+- `strength < 0.45`: prefer loose proximity without forcing edge-touch
+
+The optimizer is intentionally not a full floor planner:
+
+- `locked=true` rooms are never moved
+- only unlocked room `x`/`y` values may change
+- room `angle`, size, floor, type, name, id, and `zoneId` are preserved
+- room positive-area overlap is rejected; edge/corner touch is allowed
+- boundary containment is enforced when a boundary exists for the room floor
+- zone metadata is preserved but not interpreted as public/private/service zoning
+
+Unsatisfied adjacency relationships do not fail IFC generation by themselves. They are reported in validation report warnings through:
+
+- `layoutOptimizationApplied`
+- `movedRoomCount`
+- `satisfiedAdjacencyCount`
+- `unsatisfiedAdjacencyCount`
+- `unsatisfiedAdjacencyRefs`
+- `skippedAdjacencyReasons`
 
 ## Public API
 
@@ -136,7 +162,13 @@ Completed validation report example:
     "availableBoundaryFloors": [1],
     "roomFloors": [1, 2],
     "topFloorBoundaryMissing": false,
-    "openingsDisabledBecauseWallsDisabled": true
+    "openingsDisabledBecauseWallsDisabled": true,
+    "layoutOptimizationApplied": true,
+    "movedRoomCount": 1,
+    "satisfiedAdjacencyCount": 1,
+    "unsatisfiedAdjacencyCount": 0,
+    "unsatisfiedAdjacencyRefs": [],
+    "skippedAdjacencyReasons": []
   }
 }
 ```
@@ -184,5 +216,6 @@ On validation failure, stderr prints:
 - `v1` input behavior remains unchanged.
 - `v2` now generates `IfcWall`, `IfcSlab`, and `IfcRoof` from `boundaries`.
 - `v2` also generates interior shared walls from `adjacency` when `shared_wall_policy=from_adjacency`.
+- `v2`/`v3` use `adjacency.strength` to optimize unlocked room placement before generation.
 - `v3` generates explicit openings, doors, and windows.
 - Worker logs now record automatic default application and feature downgrade decisions.
