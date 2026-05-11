@@ -295,7 +295,7 @@ def _best_candidate(
     for candidate in candidates:
         if not _candidate_is_feasible(moving_room, rooms, boundary, candidate):
             continue
-        distance = _candidate_center_distance(candidate, anchor_room)
+        distance = _candidate_gap_distance(candidate, moving_room, anchor_room)
         movement = _distance((candidate.x, candidate.y), original_position)
         edge_touch_bonus = -5000.0 if (
             strength >= _STRONG_THRESHOLD
@@ -327,22 +327,32 @@ def _candidate_is_feasible(
     return True
 
 
-def _candidate_center_distance(candidate: _Candidate, anchor_room: RoomInput) -> float:
-    return _distance((candidate.x, candidate.y), (anchor_room.x, anchor_room.y))
+def _candidate_gap_distance(
+    candidate: _Candidate,
+    moving_room: RoomInput,
+    anchor_room: RoomInput,
+) -> float:
+    return _polygon_min_distance(
+        _room_polygon_at(moving_room, candidate.x, candidate.y),
+        _room_polygon(anchor_room),
+    )
 
 
 def _adjacency_satisfied(room_a: RoomInput, room_b: RoomInput, strength: float) -> bool:
     if strength >= _STRONG_THRESHOLD:
         return _rooms_touch(room_a, room_b)
-    target_distance = _target_center_distance(room_a, room_b, strength)
-    return _center_distance(room_a, room_b) <= target_distance + _EPSILON
-
-
-def _target_center_distance(room_a: RoomInput, room_b: RoomInput, strength: float) -> float:
-    max_extent = max(room_a.width, room_a.height, room_b.width, room_b.height)
     if strength >= _MEDIUM_THRESHOLD:
-        return max_extent + _MEDIUM_GAP_MM
-    return max_extent * 2.25
+        return _room_gap_distance(room_a, room_b) <= _MEDIUM_GAP_MM + _EPSILON
+    return _room_gap_distance(room_a, room_b) <= _weak_gap_distance(room_a, room_b) + _EPSILON
+
+
+def _weak_gap_distance(room_a: RoomInput, room_b: RoomInput) -> float:
+    max_extent = max(room_a.width, room_a.height, room_b.width, room_b.height)
+    return max_extent * 1.25
+
+
+def _room_gap_distance(room_a: RoomInput, room_b: RoomInput) -> float:
+    return _polygon_min_distance(_room_polygon(room_a), _room_polygon(room_b))
 
 
 def _rooms_touch(room_a: RoomInput, room_b: RoomInput) -> bool:
@@ -421,6 +431,42 @@ def _polygons_touch(polygon_a: PolygonMm, polygon_b: PolygonMm) -> bool:
             if _point_on_segment(point, start, end):
                 return True
     return False
+
+
+def _polygon_min_distance(polygon_a: PolygonMm, polygon_b: PolygonMm) -> float:
+    if _polygons_overlap_with_area(polygon_a, polygon_b) or _polygons_touch(polygon_a, polygon_b):
+        return 0.0
+
+    min_distance = math.inf
+    for index, start in enumerate(polygon_a):
+        end = polygon_a[(index + 1) % len(polygon_a)]
+        for point in polygon_b:
+            min_distance = min(min_distance, _point_to_segment_distance(point, start, end))
+    for index, start in enumerate(polygon_b):
+        end = polygon_b[(index + 1) % len(polygon_b)]
+        for point in polygon_a:
+            min_distance = min(min_distance, _point_to_segment_distance(point, start, end))
+    return min_distance
+
+
+def _point_to_segment_distance(
+    point: Point2DMm,
+    start: Point2DMm,
+    end: Point2DMm,
+) -> float:
+    px, py = point
+    sx, sy = start
+    ex, ey = end
+    dx = ex - sx
+    dy = ey - sy
+    length_sq = dx * dx + dy * dy
+    if length_sq <= _EPSILON:
+        return _distance(point, start)
+
+    t = ((px - sx) * dx + (py - sy) * dy) / length_sq
+    t = max(0.0, min(1.0, t))
+    projected = (sx + t * dx, sy + t * dy)
+    return _distance(point, projected)
 
 
 def _polygon_axes(polygon: PolygonMm) -> tuple[Point2DMm, ...]:
