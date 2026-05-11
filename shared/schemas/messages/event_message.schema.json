@@ -233,6 +233,9 @@
         },
         "error_detail_storage_url": {
           "$ref": "#/$defs/storageUrl"
+        },
+        "has_warnings": {
+          "type": "boolean"
         }
       }
     },

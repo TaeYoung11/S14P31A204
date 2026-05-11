@@ -22,6 +22,7 @@ import com.a204.batang.domain.revision.entity.Revision;
 import com.a204.batang.domain.revision.repository.RevisionRepository;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
+import com.a204.batang.domain.workspace.service.WorkspaceFloorPlanRealtimeService;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -60,6 +61,7 @@ public class IfcEditApplyEventListener {
     private final IfcEditCommandPublisher ifcEditCommandPublisher;
     private final NotificationSseService notificationSseService;
     private final ApplicationEventPublisher eventPublisher;
+    private final WorkspaceFloorPlanRealtimeService workspaceFloorPlanRealtimeService;
     private final ObjectMapper objectMapper;
 
     public void handle(IfcEditEventMessage event) {
@@ -258,6 +260,7 @@ public class IfcEditApplyEventListener {
 
         project.updateLatestRevisionId(revision.getRevisionId());
         workspace.updateIfcOutput(ifcUrl, revision.getRevisionId());
+        publishFloorPlanSyncOnIfcCompletedIfNeeded(job, revision, ifcUrl);
 
         log.info("IFC Edit completed 이벤트를 반영했습니다. targetRevisionId={}, outputArtifactId={}",
                 revision.getRevisionId(), event.outputArtifactId());
@@ -398,6 +401,75 @@ public class IfcEditApplyEventListener {
             payload.put("detailStorageUrl", error.detailStorageUrl());
         }
         return payload;
+    }
+
+    private void publishFloorPlanSyncOnIfcCompletedIfNeeded(IfcEditJob job, Revision revision, String ifcUrl) {
+        JsonNode sourceScenePayload = resolveFloorPlanSourcePayload(job);
+        if (sourceScenePayload == null) {
+            return;
+        }
+
+        try {
+            workspaceFloorPlanRealtimeService.publishFloorPlanUpdatedFromIfcEdit(
+                    job.getProjectId(),
+                    revision.getRevisionId(),
+                    job.getSourceRevisionId(),
+                    ifcUrl,
+                    sourceScenePayload
+            );
+        } catch (Exception exception) {
+            log.warn("Floor-plan sync broadcast from IFC completion failed. projectId={}, jobId={}",
+                    job.getProjectId(), job.getJobId(), exception);
+        }
+    }
+
+    private JsonNode resolveFloorPlanSourcePayload(IfcEditJob job) {
+        JsonNode requestPayload = job.getRequestPayload();
+        if (requestPayload == null || requestPayload.isNull() || !requestPayload.isObject()) {
+            return null;
+        }
+
+        if (JOB_TYPE_TWO_D_TO_IFC_EDIT.equals(job.getJobType())
+                || JOB_TYPE_THREE_D_TO_IFC_EDIT.equals(job.getJobType())) {
+            JsonNode sourceScene = requestPayload.get("source_scene");
+            if (isFloorPlanPayload(sourceScene)) {
+                return sourceScene;
+            }
+
+            log.warn("Floor-plan sync broadcast skipped. source_scene is missing or invalid. projectId={}, jobId={}",
+                    job.getProjectId(), job.getJobId());
+            return null;
+        }
+
+        if (!JOB_TYPE_IFC_EDIT.equals(job.getJobType())) {
+            return null;
+        }
+
+        JsonNode engineRequest = requestPayload.get("engine_request");
+        if (isFloorPlanPayload(engineRequest)) {
+            return engineRequest;
+        }
+
+        log.info("IFC_EDIT completed without floor-plan payload. sync broadcast skipped. projectId={}, jobId={}",
+                job.getProjectId(), job.getJobId());
+        return null;
+    }
+
+    private boolean isFloorPlanPayload(JsonNode payload) {
+        if (payload == null || payload.isNull() || !payload.isObject()) {
+            return false;
+        }
+
+        JsonNode baseIndexNode = payload.get("baseIndex");
+        JsonNode bubblesNode = payload.get("bubbles");
+        JsonNode connectionsNode = payload.get("connections");
+        return baseIndexNode != null
+                && baseIndexNode.canConvertToInt()
+                && baseIndexNode.asInt() >= -1
+                && bubblesNode != null
+                && bubblesNode.isArray()
+                && connectionsNode != null
+                && connectionsNode.isArray();
     }
 
     private Map<String, Object> buildPublishFailedPayload(IfcEditPublishFailedEvent event) {

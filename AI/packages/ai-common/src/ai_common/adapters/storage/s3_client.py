@@ -7,6 +7,7 @@ CommandMessage input/expectedOutput and pass them here directly.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import NamedTuple
 
@@ -29,6 +30,7 @@ from ai_common.logging import get_logger
 _logger = get_logger(__name__)
 
 _S3_URL_RE = re.compile(r"^s3://(?P<bucket>[^/]+)/(?P<key>.+)$")
+_HTTP_STORAGE_URL_RE = re.compile(r"^https?://[^/]+/(?P<bucket>[^/]+)/(?P<key>.+)$")
 
 
 class S3Location(NamedTuple):
@@ -44,15 +46,25 @@ class ResolvedS3WriteTarget(NamedTuple):
 
 
 def parse_s3_url(url: str) -> S3Location:
-    """Parse an ``s3://bucket/key`` URL into its components.
+    """Parse a supported object storage URL into its bucket/key components.
 
-    Raises ValueError for any URL that does not match the canonical format,
-    including bare ``s3://bucket`` with no key.
+    Supported formats:
+
+    - ``s3://bucket/key``
+    - ``http://host[:port]/bucket/key``
+    - ``https://host[:port]/bucket/key``
     """
-    match = _S3_URL_RE.match(url)
+    if url.startswith("s3://"):
+        match = _S3_URL_RE.match(url)
+    elif url.startswith(("http://", "https://")):
+        match = _HTTP_STORAGE_URL_RE.match(url)
+    else:
+        match = None
+
     if match is None:
         raise ValueError(
-            f"Invalid S3 URL {url!r}: expected s3://bucket/key format"
+            "Invalid storage URL "
+            f"{url!r}: expected s3://bucket/key or http(s)://host/bucket/key format"
         )
     return S3Location(bucket=match.group("bucket"), key=match.group("key"))
 
@@ -60,11 +72,12 @@ def parse_s3_url(url: str) -> S3Location:
 def resolve_s3_write_target(reference: str, default_bucket: str) -> ResolvedS3WriteTarget:
     """Resolve a reserved storage reference into a concrete bucket/key target.
 
-    Accepts either canonical ``s3://bucket/key`` URLs or bucket-relative keys
-    such as ``projects/<id>/model.ifc``. The original reference is preserved
-    so callers can echo the reserved ref back in events unchanged.
+    Accepts canonical ``s3://bucket/key`` URLs, path-style HTTP(S) object
+    URLs, or bucket-relative keys such as ``projects/<id>/model.ifc``.
+    The original reference is preserved so callers can echo the reserved ref
+    back in events unchanged.
     """
-    if reference.startswith("s3://"):
+    if reference.startswith(("s3://", "http://", "https://")):
         location = parse_s3_url(reference)
         return ResolvedS3WriteTarget(
             reference=reference,
@@ -83,7 +96,8 @@ def resolve_s3_write_target(reference: str, default_bucket: str) -> ResolvedS3Wr
     if "://" in reference:
         raise ValueError(
             "Invalid storage reference "
-            f"{reference!r}: only s3://bucket/key or bucket-relative keys are supported"
+            f"{reference!r}: only s3://bucket/key, http(s)://host/bucket/key, "
+            "or bucket-relative keys are supported"
         )
 
     return ResolvedS3WriteTarget(
@@ -116,6 +130,10 @@ class S3Client:
 
         self._client = boto3.client("s3", **kwargs)  # type: ignore[arg-type]
         self._default_bucket = settings.bucket
+
+    @property
+    def default_bucket(self) -> str:
+        return self._default_bucket
 
     def read_bytes(self, url: str) -> bytes:
         """Download an object by its ``s3://bucket/key`` URL and return raw bytes."""
@@ -191,6 +209,22 @@ class S3Client:
             reference,
             text.encode(encoding),
             content_type=content_type,
+        )
+
+    def write_json(
+        self,
+        key: str,
+        payload: object,
+        *,
+        bucket: str | None = None,
+        indent: int = 2,
+    ) -> str:
+        """Serialize payload as UTF-8 JSON and upload it."""
+        return self.write_text(
+            key,
+            json.dumps(payload, ensure_ascii=False, indent=indent),
+            content_type="application/json; charset=utf-8",
+            bucket=bucket,
         )
 
     def object_exists(self, url: str) -> bool:

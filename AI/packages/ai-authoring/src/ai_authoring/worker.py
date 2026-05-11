@@ -18,6 +18,7 @@ import ifcopenshell
 from ai_authoring.engine_3d import (
     delete_element,
     modify_face_offset,
+    modify_color,
     modify_height,
     modify_material,
     modify_position,
@@ -345,6 +346,8 @@ class AuthoringWorker(BaseWorker):
                 changed |= bool(modify_height(el, dims["height"]))
             if params.get("material"):
                 changed |= bool(modify_material(model, el, {"name": params["material"]}))
+            if params.get("color"):
+                changed |= bool(modify_color(model, el, str(params["color"])))
             face_offset = params.get("face_offset_mm")
             if face_offset is not None:
                 direction = str(selector.get("direction") or "")
