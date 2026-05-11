@@ -56,7 +56,13 @@ class InputLike:
 
 
 class ExpectedOutputLike:
-    renderImageStorageUrl = "s3://bucket/output/job-1"
+    renderManifestStorageUrl = "s3://bucket/output/job-1/manifest.v1.json"
+    renderPhotoFrontDiagonalLeftStorageUrl = (
+        "s3://bucket/output/job-1/photo_front_diagonal_left.png"
+    )
+    renderPhotoFrontDiagonalRightStorageUrl = (
+        "s3://bucket/output/job-1/photo_front_diagonal_right.png"
+    )
 
 
 class PayloadLike:
@@ -68,7 +74,15 @@ def _worker_request() -> Ifc2ImgWorkerRequest:
     return {
         "commandType": "SD_RENDER_GENERATE",
         "input": {"sourceIfcStorageUrl": "s3://bucket/input/model.ifc"},
-        "expectedOutput": {"renderImageStorageUrl": "s3://bucket/output/job-1"},
+        "expectedOutput": {
+            "renderManifestStorageUrl": "s3://bucket/output/job-1/manifest.v1.json",
+            "renderPhotoFrontDiagonalLeftStorageUrl": (
+                "s3://bucket/output/job-1/photo_front_diagonal_left.png"
+            ),
+            "renderPhotoFrontDiagonalRightStorageUrl": (
+                "s3://bucket/output/job-1/photo_front_diagonal_right.png"
+            ),
+        },
         "payload": {"renderMode": "ifc2img", "preset": "korean_house"},
     }
 
@@ -77,7 +91,15 @@ def _worker_command_dict() -> dict[str, object]:
     return {
         "commandType": "SD_RENDER_GENERATE",
         "input": {"sourceIfcStorageUrl": "s3://bucket/input/model.ifc"},
-        "expectedOutput": {"renderImageStorageUrl": "s3://bucket/output/job-1"},
+        "expectedOutput": {
+            "renderManifestStorageUrl": "s3://bucket/output/job-1/manifest.v1.json",
+            "renderPhotoFrontDiagonalLeftStorageUrl": (
+                "s3://bucket/output/job-1/photo_front_diagonal_left.png"
+            ),
+            "renderPhotoFrontDiagonalRightStorageUrl": (
+                "s3://bucket/output/job-1/photo_front_diagonal_right.png"
+            ),
+        },
         "payload": {"renderMode": "ifc2img", "preset": "korean_house"},
     }
 
@@ -134,7 +156,7 @@ def test_worker_entry_creates_storage_adapter_and_runs_handler(tmp_path: Path) -
     assert storage.downloads == [
         ("s3://bucket/input/model.ifc", tmp_path / "work" / "input" / "source.ifc")
     ]
-    assert response["manifestStorageUrl"] == "s3://bucket/output/job-1/manifest.json"
+    assert response["manifestStorageUrl"] == "s3://bucket/output/job-1/manifest.v1.json"
     assert response["photos"] == [
         {
             "view": "front_diagonal_left",
@@ -159,7 +181,15 @@ def test_worker_command_mapping_supports_command_like_object() -> None:
     assert request == {
         "commandType": "SD_RENDER_GENERATE",
         "input": {"sourceIfcStorageUrl": "s3://bucket/input/model.ifc"},
-        "expectedOutput": {"renderImageStorageUrl": "s3://bucket/output/job-1"},
+        "expectedOutput": {
+            "renderManifestStorageUrl": "s3://bucket/output/job-1/manifest.v1.json",
+            "renderPhotoFrontDiagonalLeftStorageUrl": (
+                "s3://bucket/output/job-1/photo_front_diagonal_left.png"
+            ),
+            "renderPhotoFrontDiagonalRightStorageUrl": (
+                "s3://bucket/output/job-1/photo_front_diagonal_right.png"
+            ),
+        },
         "payload": {"renderMode": "ifc2img", "preset": "scandinavian"},
     }
 
@@ -181,7 +211,9 @@ def test_worker_command_mapping_uses_default_preset_when_missing() -> None:
             {
                 "commandType": "SD_RENDER_GENERATE",
                 "input": {},
-                "expectedOutput": {"renderImageStorageUrl": "s3://bucket/output/job-1"},
+                "expectedOutput": {
+                    "renderManifestStorageUrl": "s3://bucket/output/job-1/manifest.v1.json"
+                },
                 "payload": {"renderMode": "ifc2img", "preset": "korean_house"},
             },
             "command.input.sourceIfcStorageUrl",
@@ -193,13 +225,15 @@ def test_worker_command_mapping_uses_default_preset_when_missing() -> None:
                 "expectedOutput": {},
                 "payload": {"renderMode": "ifc2img", "preset": "korean_house"},
             },
-            "command.expectedOutput.renderImageStorageUrl",
+            "command.expectedOutput.renderManifestStorageUrl",
         ),
         (
             {
                 "commandType": "SD_RENDER_GENERATE",
                 "input": {"sourceIfcStorageUrl": "s3://bucket/input/model.ifc"},
-                "expectedOutput": {"renderImageStorageUrl": "s3://bucket/output/job-1"},
+                "expectedOutput": {
+                    "renderManifestStorageUrl": "s3://bucket/output/job-1/manifest.v1.json"
+                },
                 "payload": {},
             },
             "command.payload.renderMode",
@@ -232,7 +266,7 @@ def test_worker_command_entry_maps_command_then_runs_request_entry(tmp_path: Pat
     )
 
     assert response["preset"] == "korean_house"
-    assert response["manifestStorageUrl"] == "s3://bucket/output/job-1/manifest.json"
+    assert response["manifestStorageUrl"] == "s3://bucket/output/job-1/manifest.v1.json"
 
 
 def test_worker_entry_rejects_invalid_request_before_storage_creation(

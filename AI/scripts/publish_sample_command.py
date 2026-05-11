@@ -45,6 +45,11 @@ _WORKER_TYPE_TO_ROUTING_KEY: dict[str, str] = {
 
 _SAMPLES_DIR = Path(__file__).resolve().parents[1] / "sample_messages"
 _SMOKE_OUTPUT_PREFIX_ENV = "SMOKE_OUTPUT_PREFIX"
+_IFC2IMG_OUTPUT_FILENAMES = {
+    "renderManifestStorageUrl": "manifest.v1.json",
+    "renderPhotoFrontDiagonalLeftStorageUrl": "photo_front_diagonal_left.png",
+    "renderPhotoFrontDiagonalRightStorageUrl": "photo_front_diagonal_right.png",
+}
 
 
 def get_sample_file(worker_type: str) -> str:
@@ -78,6 +83,16 @@ def build_smoke_run_id(
     return f"{timestamp.strftime('%Y%m%dT%H%M%SZ')}-{suffix}"
 
 
+def _storage_url_parent_prefix(storage_url: str) -> str:
+    return storage_url.rstrip("/").rsplit("/", 1)[0]
+
+
+def _set_ifc2img_output_urls(expected_output: dict[object, object], output_prefix: str) -> None:
+    for field_name, filename in _IFC2IMG_OUTPUT_FILENAMES.items():
+        expected_output[field_name] = f"{output_prefix.rstrip('/')}/{filename}"
+    expected_output.pop("renderImageStorageUrl", None)
+
+
 def uniquify_smoke_output_prefix(
     payload: dict[str, object],
     *,
@@ -91,13 +106,23 @@ def uniquify_smoke_output_prefix(
     if not isinstance(expected_output, dict):
         return payload
 
-    output_url = expected_output.get("renderImageStorageUrl")
-    if not isinstance(output_url, str) or not output_url:
+    output_url = expected_output.get("renderManifestStorageUrl")
+    if isinstance(output_url, str) and output_url:
+        output_prefix_base = _storage_url_parent_prefix(output_url)
+    else:
+        output_url = expected_output.get("renderImageStorageUrl")
+        if not isinstance(output_url, str) or not output_url:
+            return payload
+        output_prefix_base = output_url.rstrip("/")
+
+    env_prefix = os.getenv(_SMOKE_OUTPUT_PREFIX_ENV)
+    if env_prefix:
+        output_prefix_base = env_prefix.rstrip("/")
+    if not output_prefix_base:
         return payload
 
     unique_run_id = run_id or build_smoke_run_id()
-    output_prefix_base = os.getenv(_SMOKE_OUTPUT_PREFIX_ENV, output_url).rstrip("/")
-    expected_output["renderImageStorageUrl"] = f"{output_prefix_base}/{unique_run_id}"
+    _set_ifc2img_output_urls(expected_output, f"{output_prefix_base}/{unique_run_id}")
     return payload
 
 
@@ -138,9 +163,9 @@ def main() -> None:
     print(f"Published '{sample_file}' with routing key '{routing_key}'")
     expected_output = payload.get("expectedOutput")
     if isinstance(expected_output, dict):
-        output_url = expected_output.get("renderImageStorageUrl")
+        output_url = expected_output.get("renderManifestStorageUrl")
         if isinstance(output_url, str):
-            print(f"renderImageStorageUrl={output_url}")
+            print(f"renderManifestStorageUrl={output_url}")
 
 
 if __name__ == "__main__":

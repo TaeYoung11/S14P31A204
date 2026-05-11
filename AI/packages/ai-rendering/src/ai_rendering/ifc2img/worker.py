@@ -33,6 +33,13 @@ def _require_command_field(source: object, field_name: str, error_path: str) -> 
     return value
 
 
+def _optional_command_field(source: object, field_name: str) -> str | None:
+    value = _read_command_field(source, field_name)
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
 def map_worker_command_to_ifc2img_request(command: object) -> Ifc2ImgWorkerRequest:
     """공통 worker command를 ifc2img 내부 request 계약으로 변환한다."""
     input_ref = _read_command_field(command, "input")
@@ -45,11 +52,25 @@ def map_worker_command_to_ifc2img_request(command: object) -> Ifc2ImgWorkerReque
         "sourceIfcStorageUrl",
         "command.input.sourceIfcStorageUrl",
     )
-    output_prefix = _require_command_field(
-        expected_output,
-        "renderImageStorageUrl",
-        "command.expectedOutput.renderImageStorageUrl",
-    )
+    manifest_url = _optional_command_field(expected_output, "renderManifestStorageUrl")
+    legacy_output_prefix = _optional_command_field(expected_output, "renderImageStorageUrl")
+    if manifest_url is None and legacy_output_prefix is None:
+        raise ValueError(
+            "command.expectedOutput.renderManifestStorageUrl is required "
+            "for ifc2img worker command"
+        )
+    output_refs: dict[str, str] = {}
+    if manifest_url is not None:
+        output_refs["renderManifestStorageUrl"] = manifest_url
+    if legacy_output_prefix is not None:
+        output_refs["renderImageStorageUrl"] = legacy_output_prefix
+    for field_name in (
+        "renderPhotoFrontDiagonalLeftStorageUrl",
+        "renderPhotoFrontDiagonalRightStorageUrl",
+    ):
+        value = _optional_command_field(expected_output, field_name)
+        if value is not None:
+            output_refs[field_name] = value
     render_mode = _require_command_field(
         payload,
         "renderMode",
@@ -62,7 +83,7 @@ def map_worker_command_to_ifc2img_request(command: object) -> Ifc2ImgWorkerReque
     return {
         "commandType": command_type,  # type: ignore[typeddict-item]
         "input": {"sourceIfcStorageUrl": source_ifc_url},
-        "expectedOutput": {"renderImageStorageUrl": output_prefix},
+        "expectedOutput": output_refs,
         "payload": {
             "renderMode": render_mode,  # type: ignore[typeddict-item]
             "preset": preset,

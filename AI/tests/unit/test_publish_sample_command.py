@@ -43,7 +43,9 @@ def test_ifc2img_publish_sample_passes_command_validation() -> None:
     assert command.commandType == "SD_RENDER_GENERATE"
     assert command.input is not None
     assert command.input.sourceIfcStorageUrl is not None
-    assert command.expectedOutput.renderImageStorageUrl is not None
+    assert command.expectedOutput.renderManifestStorageUrl is not None
+    assert command.expectedOutput.renderPhotoFrontDiagonalLeftStorageUrl is not None
+    assert command.expectedOutput.renderPhotoFrontDiagonalRightStorageUrl is not None
     assert command.payload.renderMode == "ifc2img"
     assert command.payload.preset == "korean_house"
 
@@ -53,7 +55,9 @@ def test_ifc2img_smoke_output_prefix_is_uniquified(monkeypatch) -> None:
     monkeypatch.delenv("SMOKE_OUTPUT_PREFIX", raising=False)
     payload = {
         "expectedOutput": {
-            "renderImageStorageUrl": "s3://batang-artifacts/smoke/ifc2img/output/job-1"
+            "renderManifestStorageUrl": (
+                "s3://batang-artifacts/projects/project-1/renders/artifact-1/manifest.v1.json"
+            )
         }
     }
 
@@ -63,8 +67,13 @@ def test_ifc2img_smoke_output_prefix_is_uniquified(monkeypatch) -> None:
         run_id="20260511T010203Z",
     )
 
-    assert result["expectedOutput"]["renderImageStorageUrl"] == (
-        "s3://batang-artifacts/smoke/ifc2img/output/job-1/20260511T010203Z"
+    assert result["expectedOutput"]["renderManifestStorageUrl"] == (
+        "s3://batang-artifacts/projects/project-1/renders/artifact-1/"
+        "20260511T010203Z/manifest.v1.json"
+    )
+    assert result["expectedOutput"]["renderPhotoFrontDiagonalLeftStorageUrl"] == (
+        "s3://batang-artifacts/projects/project-1/renders/artifact-1/"
+        "20260511T010203Z/photo_front_diagonal_left.png"
     )
 
 
@@ -73,7 +82,9 @@ def test_ifc2img_smoke_output_prefix_can_use_env_base(monkeypatch) -> None:
     monkeypatch.setenv("SMOKE_OUTPUT_PREFIX", "s3://bucket/smoke/custom/")
     payload = {
         "expectedOutput": {
-            "renderImageStorageUrl": "s3://batang-artifacts/smoke/ifc2img/output/job-1"
+            "renderManifestStorageUrl": (
+                "s3://batang-artifacts/projects/project-1/renders/artifact-1/manifest.v1.json"
+            )
         }
     }
 
@@ -83,8 +94,8 @@ def test_ifc2img_smoke_output_prefix_can_use_env_base(monkeypatch) -> None:
         run_id="20260511T010203Z",
     )
 
-    assert result["expectedOutput"]["renderImageStorageUrl"] == (
-        "s3://bucket/smoke/custom/20260511T010203Z"
+    assert result["expectedOutput"]["renderManifestStorageUrl"] == (
+        "s3://bucket/smoke/custom/20260511T010203Z/manifest.v1.json"
     )
 
 
@@ -127,6 +138,10 @@ def test_main_publishes_without_s3_env(monkeypatch) -> None:
     producer.publish.assert_called_once()
     assert producer.publish.call_args.kwargs["routing_key"] == "command.sd-render.generate"
     published_payload = json.loads(producer.publish.call_args.args[0])
-    assert published_payload["expectedOutput"]["renderImageStorageUrl"].startswith(
-        "s3://batang-artifacts/smoke/ifc2img/output/job-ifc2img-render-001/"
+    assert published_payload["expectedOutput"]["renderManifestStorageUrl"].startswith(
+        "s3://batang-artifacts/projects/project-ifc2img-001/renders/"
+        "artifact-ifc2img-render-001/"
+    )
+    assert published_payload["expectedOutput"]["renderManifestStorageUrl"].endswith(
+        "/manifest.v1.json"
     )

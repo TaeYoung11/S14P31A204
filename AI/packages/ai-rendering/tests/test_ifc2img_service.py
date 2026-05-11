@@ -340,7 +340,15 @@ def test_worker_handler_downloads_runs_pipeline_and_uploads_outputs(
     request: Ifc2ImgWorkerRequest = {
         "commandType": "SD_RENDER_GENERATE",
         "input": {"sourceIfcStorageUrl": "s3://bucket/input/model.ifc"},
-        "expectedOutput": {"renderImageStorageUrl": "s3://bucket/output/job-1/"},
+        "expectedOutput": {
+            "renderManifestStorageUrl": "s3://bucket/output/job-1/manifest.v1.json",
+            "renderPhotoFrontDiagonalLeftStorageUrl": (
+                "s3://bucket/output/job-1/photo_front_diagonal_left.png"
+            ),
+            "renderPhotoFrontDiagonalRightStorageUrl": (
+                "s3://bucket/output/job-1/photo_front_diagonal_right.png"
+            ),
+        },
         "payload": {"renderMode": "ifc2img", "preset": "korean_house"},
     }
     pipeline_calls: list[tuple[Path, Path, str]] = []
@@ -407,7 +415,7 @@ def test_worker_handler_downloads_runs_pipeline_and_uploads_outputs(
         "status": "SUCCESS",
         "renderMode": "ifc2img",
         "preset": "korean_house",
-        "manifestStorageUrl": "s3://bucket/output/job-1/manifest.json",
+        "manifestStorageUrl": "s3://bucket/output/job-1/manifest.v1.json",
         "photos": [
             {
                 "view": "front_diagonal_left",
@@ -426,7 +434,7 @@ def test_worker_handler_downloads_runs_pipeline_and_uploads_outputs(
     assert storage.uploads == [
         (
             tmp_path / "work" / "output" / "manifest.json",
-            "s3://bucket/output/job-1/manifest.json",
+            "s3://bucket/output/job-1/manifest.v1.json",
             PHOTO_MANIFEST_CONTENT_TYPE,
         ),
         (

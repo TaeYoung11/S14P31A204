@@ -19,7 +19,9 @@
     "sourceIfcStorageUrl": "s3://batang-artifacts/smoke/ifc2img/input/source.ifc"
   },
   "expectedOutput": {
-    "renderImageStorageUrl": "s3://batang-artifacts/smoke/ifc2img/output/job-ifc2img-render-001"
+    "renderManifestStorageUrl": "s3://batang-artifacts/projects/project-ifc2img-001/renders/artifact-ifc2img-render-001/manifest.v1.json",
+    "renderPhotoFrontDiagonalLeftStorageUrl": "s3://batang-artifacts/projects/project-ifc2img-001/renders/artifact-ifc2img-render-001/photo_front_diagonal_left.png",
+    "renderPhotoFrontDiagonalRightStorageUrl": "s3://batang-artifacts/projects/project-ifc2img-001/renders/artifact-ifc2img-render-001/photo_front_diagonal_right.png"
   },
   "payload": {
     "renderMode": "ifc2img",

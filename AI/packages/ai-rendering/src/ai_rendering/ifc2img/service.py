@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Protocol, TypedDict
+from typing import Any, Literal, NotRequired, Protocol, TypedDict
 
 from PIL import Image
 
@@ -66,6 +66,10 @@ PUBLIC_TO_INTERNAL_VIEW: dict[PhotoViewAlias, IFCView] = {
     "front_diagonal_left": IFCView.FRONT_DIAGONAL_LEFT,
     "front_diagonal_right": IFCView.FRONT_DIAGONAL_RIGHT,
 }
+PHOTO_VIEW_TO_EXPECTED_OUTPUT_FIELD: dict[PhotoViewAlias, str] = {
+    "front_diagonal_left": "renderPhotoFrontDiagonalLeftStorageUrl",
+    "front_diagonal_right": "renderPhotoFrontDiagonalRightStorageUrl",
+}
 PHOTO_INTERNAL_VIEWS = tuple(PUBLIC_TO_INTERNAL_VIEW[view] for view in PUBLIC_PHOTO_VIEWS)
 
 
@@ -78,7 +82,10 @@ class Ifc2ImgWorkerInput(TypedDict):
 class Ifc2ImgWorkerExpectedOutput(TypedDict):
     """Worker가 결과 파일을 올려야 하는 storage prefix 계약."""
 
-    renderImageStorageUrl: str
+    renderImageStorageUrl: NotRequired[str]
+    renderManifestStorageUrl: NotRequired[str]
+    renderPhotoFrontDiagonalLeftStorageUrl: NotRequired[str]
+    renderPhotoFrontDiagonalRightStorageUrl: NotRequired[str]
 
 
 class Ifc2ImgWorkerPayload(TypedDict):
@@ -323,6 +330,54 @@ def build_photo_output_storage_url(output_prefix: str, filename: str) -> str:
     if not filename or "/" in filename or "\\" in filename:
         raise ValueError("output filename must be a plain file name.")
     return f"{output_prefix.rstrip('/')}/{filename}"
+
+
+def _storage_url_parent_prefix(storage_url: str) -> str:
+    if "/" not in storage_url.rstrip("/"):
+        raise ValueError("storage URL must include an object file name.")
+    return storage_url.rstrip("/").rsplit("/", 1)[0]
+
+
+def resolve_ifc2img_manifest_target_url(
+    expected_output: Ifc2ImgWorkerExpectedOutput,
+    manifest_filename: str,
+) -> str:
+    manifest_url = expected_output.get("renderManifestStorageUrl")
+    if manifest_url:
+        return manifest_url
+
+    output_prefix = expected_output.get("renderImageStorageUrl")
+    if output_prefix:
+        return build_photo_output_storage_url(output_prefix, manifest_filename)
+
+    raise IFCRenderError(
+        "command.expectedOutput.renderManifestStorageUrl is required for ifc2img worker command"
+    )
+
+
+def resolve_ifc2img_photo_target_url(
+    expected_output: Ifc2ImgWorkerExpectedOutput,
+    output: Ifc2ImgPhotoViewResult,
+) -> str:
+    field_name = PHOTO_VIEW_TO_EXPECTED_OUTPUT_FIELD[output.view]
+    photo_url = expected_output.get(field_name)
+    if photo_url:
+        return photo_url
+
+    manifest_url = expected_output.get("renderManifestStorageUrl")
+    if manifest_url:
+        return build_photo_output_storage_url(
+            _storage_url_parent_prefix(manifest_url),
+            output.photo_path.name,
+        )
+
+    output_prefix = expected_output.get("renderImageStorageUrl")
+    if output_prefix:
+        return build_photo_output_storage_url(output_prefix, output.photo_path.name)
+
+    raise IFCRenderError(
+        f"command.expectedOutput.{field_name} is required for ifc2img worker command"
+    )
 
 
 def write_photo_manifest(
@@ -578,14 +633,18 @@ def handle_ifc2img_worker_request(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     source_storage_url = request["input"]["sourceIfcStorageUrl"]
-    output_prefix = request["expectedOutput"]["renderImageStorageUrl"]
+    expected_output = request["expectedOutput"]
+    manifest_target_url = resolve_ifc2img_manifest_target_url(
+        expected_output,
+        "manifest.v1.json",
+    )
     preset = request["payload"]["preset"]
     _logger.info(
         "ifc2img_worker_request_started",
         renderMode=request["payload"]["renderMode"],
         preset=preset,
         sourceIfcStorageUrl=source_storage_url,
-        outputPrefix=output_prefix,
+        manifestTargetStorageUrl=manifest_target_url,
         workDir=str(work_dir),
     )
     _logger.info(
@@ -619,10 +678,6 @@ def handle_ifc2img_worker_request(
         photoCount=len(result.outputs),
     )
 
-    manifest_target_url = build_photo_output_storage_url(
-        output_prefix,
-        result.manifest_path.name,
-    )
     _logger.info(
         "ifc2img_upload_started",
         artifact="manifest",
@@ -643,10 +698,7 @@ def handle_ifc2img_worker_request(
     )
     photos: list[Ifc2ImgWorkerPhotoOutput] = []
     for output in result.outputs:
-        photo_target_url = build_photo_output_storage_url(
-            output_prefix,
-            output.photo_path.name,
-        )
+        photo_target_url = resolve_ifc2img_photo_target_url(expected_output, output)
         _logger.info(
             "ifc2img_upload_started",
             artifact="photo",
