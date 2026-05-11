@@ -15,6 +15,7 @@ from ai_authoring.engine_3d import (
     modify_height,
     modify_position,
     modify_material,
+    modify_color,
     modify_rotation,
     modify_face_offset,
     create_wall,
@@ -107,7 +108,7 @@ class LLM3DPipeline:
     @staticmethod
     def split_chat_commands(user_text: str) -> list[str]:
         normalized = re.sub(
-            r"((?:만들|생성|추가|배치|넣|달|삭제|제거|없애|지우|빼))고\s+",
+            r"((?:만들|생성|추가|배치|넣|달|바꾸|변경|수정|삭제|제거|없애|지우|빼))고(?=\s|[,.;])\s*",
             lambda match: f"{LLM3DPipeline._complete_connected_verb(match.group(1))}.\n",
             user_text,
         )
@@ -128,6 +129,9 @@ class LLM3DPipeline:
             "배치": "배치해줘",
             "넣": "넣어줘",
             "달": "달아줘",
+            "바꾸": "바꿔줘",
+            "변경": "변경해줘",
+            "수정": "수정해줘",
             "삭제": "삭제해줘",
             "제거": "제거해줘",
             "없애": "없애줘",
@@ -1110,6 +1114,9 @@ class LLM3DPipeline:
                         applied_any = True
                 if changes.material:
                     if modify_material(model, element, changes.material.model_dump()):
+                        applied_any = True
+                if changes.color:
+                    if modify_color(model, element, changes.color):
                         applied_any = True
                 if changes.rotation_deg is not None:
                     if modify_rotation(model, element, changes.rotation_deg):

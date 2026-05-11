@@ -281,7 +281,8 @@ def modify_material(
     model: ifcopenshell.file, element: ifcopenshell.entity_instance, mat_change: dict[str, Any]
 ) -> bool:
     try:
-        new_name = mat_change.get("name", "Unknown")
+        new_name = _canonical_material_name(str(mat_change.get("name") or "Unknown"))
+        # Snapshot associations before removing relations from the IFC graph.
         for rel in list(getattr(element, "HasAssociations", [])):
             if rel.is_a("IfcRelAssociatesMaterial"):
                 remaining = [o for o in rel.RelatedObjects if o != element]
@@ -289,17 +290,41 @@ def modify_material(
                     rel.RelatedObjects = remaining
                 else:
                     model.remove(rel)
-                break
-        new_mat = model.create_entity("IfcMaterial", Name=new_name)
+        new_mat = _find_or_create_material(model, new_name)
         model.create_entity(
             "IfcRelAssociatesMaterial",
             GlobalId=ifcopenshell.guid.new(),
             RelatingMaterial=new_mat,
             RelatedObjects=[element],
         )
+        _set_label_property_value(model, element, "Material", new_name)
+        material_color = _material_default_color(new_name)
+        if material_color is not None:
+            modify_color(model, element, material_color)
         return True
     except Exception as e:
         logger.error(f"재질 수정 오류: {e}")
+        return False
+
+
+def modify_color(
+    model: ifcopenshell.file, element: ifcopenshell.entity_instance, color_value: str
+) -> bool:
+    try:
+        label_changed = _set_label_property_value(model, element, "Color", color_value)
+        items = _body_representation_items(element)
+        if not items:
+            return label_changed
+        assignment = _create_surface_style_assignment(model, color_value)
+        for item in items:
+            styled = _styled_item_for(model, item)
+            if styled:
+                styled.Styles = [assignment]
+            else:
+                model.create_entity("IfcStyledItem", Item=item, Styles=[assignment])
+        return True
+    except Exception as e:
+        logger.error(f"색상 수정 오류: {e}")
         return False
 
 
@@ -377,9 +402,27 @@ _DIRECTION_REF_DIRECTIONS = {
 
 _COLOR_RGB = {
     "white": (1.0, 1.0, 1.0),
+    "black": (0.0, 0.0, 0.0),
     "red": (1.0, 0.0, 0.0),
+    "yellow": (1.0, 0.8, 0.0),
+    "blue": (0.0, 0.0, 1.0),
+    "green": (0.0, 0.6, 0.0),
+    "orange": (1.0, 0.45, 0.0),
+    "purple": (0.6, 0.25, 0.9),
+    "pink": (0.9, 0.25, 0.55),
+    "brown": (0.55, 0.25, 0.05),
     "gray": (0.8, 0.8, 0.8),
     "grey": (0.8, 0.8, 0.8),
+}
+
+_MATERIAL_DEFAULT_COLOR = {
+    "Concrete": "#A8A29E",
+    "Brick": "#A3472C",
+    "Steel": "#8A94A3",
+    "Wood": "#9A6232",
+    "Glass": "#8FD3FF",
+    "Stone": "#8D8D86",
+    "Tile": "#C56F45",
 }
 
 
@@ -739,6 +782,109 @@ def _color_to_rgb(color_value: str) -> tuple[float, float, float]:
     return _COLOR_RGB.get(raw.lower(), _COLOR_RGB["gray"])
 
 
+def _find_or_create_material(model: ifcopenshell.file, name: str):
+    for material in model.by_type("IfcMaterial"):
+        if str(getattr(material, "Name", "") or "").lower() == name.lower():
+            return material
+    return model.create_entity("IfcMaterial", Name=name)
+
+
+def _canonical_material_name(name: str) -> str:
+    normalized = name.strip()
+    for material_name in _MATERIAL_DEFAULT_COLOR:
+        if material_name.lower() == normalized.lower():
+            return material_name
+    return normalized or "Unknown"
+
+
+def _material_default_color(name: str) -> str | None:
+    for material_name, color in _MATERIAL_DEFAULT_COLOR.items():
+        if material_name.lower() == name.lower():
+            return color
+    return None
+
+
+def _set_label_property_value(
+    model: ifcopenshell.file,
+    element: ifcopenshell.entity_instance,
+    property_name: str,
+    value: str,
+) -> bool:
+    changed = False
+    fallback_pset = None
+    for rel in getattr(element, "IsDefinedBy", []) or []:
+        if not rel.is_a("IfcRelDefinesByProperties"):
+            continue
+        pset = getattr(rel, "RelatingPropertyDefinition", None)
+        if pset is None or not pset.is_a("IfcPropertySet"):
+            continue
+        if fallback_pset is None:
+            fallback_pset = pset
+        for prop in getattr(pset, "HasProperties", []) or []:
+            if (
+                prop.is_a("IfcPropertySingleValue")
+                and getattr(prop, "Name", None) == property_name
+            ):
+                prop.NominalValue = model.create_entity("IfcLabel", value)
+                changed = True
+        if not changed and getattr(pset, "Name", None) == "Pset_Batang_Dimensions":
+            fallback_pset = pset
+    if changed:
+        return True
+
+    new_prop = model.create_entity(
+        "IfcPropertySingleValue",
+        Name=property_name,
+        NominalValue=model.create_entity("IfcLabel", value),
+    )
+    if fallback_pset is not None:
+        fallback_pset.HasProperties = list(getattr(fallback_pset, "HasProperties", []) or []) + [
+            new_prop
+        ]
+    else:
+        fallback_pset = model.create_entity(
+            "IfcPropertySet",
+            GlobalId=ifcopenshell.guid.new(),
+            Name="Pset_Batang_Dimensions",
+            HasProperties=[new_prop],
+        )
+        model.create_entity(
+            "IfcRelDefinesByProperties",
+            GlobalId=ifcopenshell.guid.new(),
+            RelatedObjects=[element],
+            RelatingPropertyDefinition=fallback_pset,
+        )
+    return True
+
+
+def _body_representation_items(element: ifcopenshell.entity_instance) -> list[Any]:
+    representation = getattr(element, "Representation", None)
+    if not representation:
+        return []
+    items: list[Any] = []
+    for rep in getattr(representation, "Representations", []) or []:
+        if getattr(rep, "RepresentationIdentifier", None) == "Body":
+            items.extend(list(getattr(rep, "Items", []) or []))
+    return items
+
+
+def _create_surface_style_assignment(model: ifcopenshell.file, color_value: str):
+    r, g, b = _color_to_rgb(color_value)
+    color = model.create_entity("IfcColourRgb", Name=color_value, Red=r, Green=g, Blue=b)
+    rendering = model.create_entity("IfcSurfaceStyleRendering", SurfaceColour=color)
+    style = model.create_entity(
+        "IfcSurfaceStyle", Name=f"Style_{color_value}", Side="BOTH", Styles=[rendering]
+    )
+    return model.create_entity("IfcPresentationStyleAssignment", Styles=[style])
+
+
+def _styled_item_for(model: ifcopenshell.file, item: ifcopenshell.entity_instance):
+    for inverse in model.get_inverse(item):
+        if inverse.is_a("IfcStyledItem") and getattr(inverse, "Item", None) == item:
+            return inverse
+    return None
+
+
 def _apply_color_and_material(
     model: ifcopenshell.file,
     element: ifcopenshell.entity_instance,
@@ -747,29 +893,10 @@ def _apply_color_and_material(
 ):
     """부재에 색상(RGB) 및 재질 정보를 부여한다."""
     try:
-        if color_hex:
-            r, g, b = _color_to_rgb(color_hex)
-            color = model.create_entity("IfcColourRgb", Name=color_hex, Red=r, Green=g, Blue=b)
-            rendering = model.create_entity("IfcSurfaceStyleRendering", SurfaceColour=color)
-            style = model.create_entity(
-                "IfcSurfaceStyle", Name=f"Style_{color_hex}", Side="BOTH", Styles=[rendering]
-            )
-            assignment = model.create_entity("IfcPresentationStyleAssignment", Styles=[style])
-
-            # Representation의 첫 번째 아이템에 스타일 할당
-            if element.Representation and element.Representation.Representations:
-                rep = element.Representation.Representations[0]
-                for item in rep.Items or []:
-                    model.create_entity("IfcStyledItem", Item=item, Styles=[assignment])
-
         if mat_name:
-            material = model.create_entity("IfcMaterial", Name=mat_name)
-            model.create_entity(
-                "IfcRelAssociatesMaterial",
-                GlobalId=ifcopenshell.guid.new(),
-                RelatingMaterial=material,
-                RelatedObjects=[element],
-            )
+            modify_material(model, element, {"name": mat_name})
+        if color_hex:
+            modify_color(model, element, color_hex)
     except Exception as e:
         logger.warning(f"색상/재질 적용 중 오류 (무시 가능): {e}")
 

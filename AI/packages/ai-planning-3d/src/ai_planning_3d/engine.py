@@ -62,7 +62,7 @@ SYSTEM_PROMPT = (
     "storey: 1층=1F, 2층=2F, 옥상/RF=RF.\n"
     "space_name: 거실=LivingRoom, 안방=MasterBedroom, 침실=Bedroom, 화장실/욕실=Bathroom.\n"
     "direction: 북쪽=North, 남쪽=South, 동쪽/오른쪽=East, 서쪽/왼쪽=West.\n"
-    "color: 흰색=White, 빨간색=Red.\n"
+    "color aliases must use HEX values, e.g. white=#FFFFFF, red=#EF4444, blue=#3B82F6.\n"
     f"material allowed values only: {SUPPORTED_MATERIAL_LIST}.\n"
     "material aliases: 콘크리트=Concrete, 벽돌=Brick, 강철/철=Steel, "
     "목재/나무=Wood, 유리=Glass, 석재/돌=Stone, 타일=Tile.\n"
@@ -83,7 +83,7 @@ SYSTEM_PROMPT = (
     "\"ambiguity_question\":null}\n"
     "{\"command_type\":\"CREATE\",\"target\":{\"element_type\":\"IfcRoof\"},\"changes\":null,"
     "\"create_info\":{\"element_type\":\"IfcRoof\",\"storey\":\"RF\",\"direction\":\"North\","
-    "\"color\":\"Red\",\"shape_preset\":\"GABLED\"},\"confidence\":1,"
+    "\"color\":\"#EF4444\",\"shape_preset\":\"GABLED\"},\"confidence\":1,"
     "\"raw_instruction\":\"옥상에 빨간색 박공지붕 만들어줘\",\"ambiguity_question\":null}\n"
 )
 
@@ -415,7 +415,7 @@ class LLM3DEngine:
                 value = -abs(value)
             return LLM3DChanges(face_offset_mm=value, material=material, color=color)
 
-        if "이동" in text or "오른쪽" in text or "왼쪽" in text:
+        if any(word in text for word in ("이동", "옮겨", "움직")):
             value = self._number_mm(text)
             if value is None:
                 return None
@@ -523,25 +523,33 @@ class LLM3DEngine:
 
     def _color(self, text: str) -> str | None:
         lower_text = text.lower()
-        for alias, color_name in COLOR_ALIASES.items():
+        for alias, color_name in sorted(
+            COLOR_ALIASES.items(),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        ):
             if alias in text or alias.lower() in lower_text:
                 return color_name
-        if "흰색" in text or "하얀" in text:
-            return "White"
-        if "빨간" in text or "빨강" in text:
-            return "Red"
         return None
 
     def _material(self, text: str) -> LLM3DMaterialChange | None:
         lower_text = text.lower()
-        for alias, material_name in MATERIAL_ALIASES.items():
+        for alias, material_name in sorted(
+            MATERIAL_ALIASES.items(),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        ):
             if alias in text or alias.lower() in lower_text:
                 return LLM3DMaterialChange(name=material_name)
         return None
 
     def _invalid_material(self, text: str) -> str | None:
         lower_text = text.lower()
-        for keyword, label in UNSUPPORTED_MATERIAL_ALIASES.items():
+        for keyword, label in sorted(
+            UNSUPPORTED_MATERIAL_ALIASES.items(),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        ):
             if keyword in text or keyword.lower() in lower_text:
                 return label
         return None
