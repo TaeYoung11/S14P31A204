@@ -40,6 +40,7 @@ public enum ErrorCode {
     RENDER_STEP_NOT_FOUND(HttpStatus.NOT_FOUND, "RENDER_STEP_NOT_FOUND", "렌더링 작업 단계를 찾을 수 없습니다."),
     RENDER_EVENT_INVALID(HttpStatus.BAD_REQUEST, "RENDER_EVENT_INVALID", "렌더링 이벤트 메시지가 올바르지 않습니다."),
     RENDER_COMMAND_PUBLISH_FAILED(HttpStatus.BAD_GATEWAY, "RENDER_COMMAND_PUBLISH_FAILED", "렌더링 작업 요청 발행에 실패했습니다."),
+    RENDER_IMAGE_PRESIGN_FAILED(HttpStatus.BAD_GATEWAY, "RENDER_IMAGE_PRESIGN_FAILED", "렌더링 이미지 URL 생성에 실패했습니다."),
 
     FLOOR_PLAN_LAYOUT_INVALID(HttpStatus.BAD_REQUEST, "FLOOR_PLAN_LAYOUT_INVALID", "Floor-plan layout payload가 올바르지 않습니다."),
     FLOOR_PLAN_SNAPSHOT_NOT_FOUND(HttpStatus.CONFLICT, "FLOOR_PLAN_SNAPSHOT_NOT_FOUND", "Floor-plan 생성에 필요한 workspace snapshot이 없습니다."),
