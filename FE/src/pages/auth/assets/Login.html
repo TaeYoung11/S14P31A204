@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>로그인 — 바탕:BATANG</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css"
+    rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f4f5f9;
+      --bg-2: #eaecf2;
+      --paper: #ffffff;
+      --ink: #111827;
+      --ink-2: #374151;
+      --muted: #6b7280;
+      --muted-2: #9ca3af;
+      --line: #e5e7eb;
+      --line-2: #d1d5db;
+      --accent: #4f46e5;
+      --accent-hover: #4338ca;
+      --accent-soft: rgba(79, 70, 229, 0.08);
+      --success: #16a34a;
+      --success-bg: #f0fdf4;
+      --success-border: #bbf7d0;
+      --error: #dc2626;
+      --serif: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      font-family: var(--serif);
+      color: var(--ink);
+      background: var(--paper);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      letter-spacing: -0.005em;
+      overflow: hidden;
+    }
+
+    .auth-wrap {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── LEFT PANEL ───────────────────────────────── */
+    .left {
+      position: relative;
+      background: var(--bg);
+      padding: 40px 56px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .left::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(to right, rgba(17, 24, 39, 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(17, 24, 39, 0.04) 1px, transparent 1px);
+      background-size: 56px 56px;
+      mask-image: radial-gradient(ellipse 80% 70% at 30% 50%, black 30%, transparent 80%);
+      pointer-events: none;
+    }
+
+    .left::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(50% 60% at 100% 0%, rgba(79, 70, 229, 0.10), transparent 70%),
+        radial-gradient(40% 40% at 0% 100%, rgba(79, 70, 229, 0.06), transparent 70%);
+      pointer-events: none;
+    }
+
+    .left>* {
+      position: relative;
+      z-index: 1;
+    }
+
+    .top-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo-img {
+      height: 22px;
+      width: auto;
+      display: block;
+    }
+
+    .top-row .crumb {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.16em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .top-row .crumb .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.4;
+      }
+    }
+
+    .hero {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 24px;
+      padding: 32px 0;
+      max-width: 560px;
+    }
+
+    h1.title {
+      font-size: clamp(34px, 3.6vw, 52px);
+      font-weight: 700;
+      line-height: 1.12;
+      letter-spacing: -0.035em;
+      color: var(--ink);
+      text-wrap: balance;
+    }
+
+    h1.title .accent {
+      color: var(--accent);
+    }
+
+    h1.title .light {
+      color: var(--ink-2);
+      font-weight: 600;
+      font-size: 0.7em;
+      display: block;
+      margin-top: 14px;
+      line-height: 1.3;
+    }
+
+    .desc {
+      font-size: 14px;
+      line-height: 1.75;
+      color: var(--ink-2);
+      max-width: 480px;
+      text-wrap: pretty;
+    }
+
+    /* blueprint card */
+    .blueprint {
+      margin-top: 8px;
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 14px 40px rgba(17, 24, 39, 0.06);
+      max-width: 540px;
+      position: relative;
+    }
+
+    .blueprint .bp-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+      border-bottom: 1px dashed var(--line);
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .blueprint .bp-head .dots {
+      display: flex;
+      gap: 5px;
+    }
+
+    .blueprint .bp-head .dots span {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+    }
+
+    .blueprint .bp-head .dots span:first-child {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .blueprint .bp-svg {
+      width: 100%;
+      height: 180px;
+      display: block;
+      background:
+        linear-gradient(to right, rgba(17, 24, 39, 0.04) 1px, transparent 1px) 0 0/24px 24px,
+        linear-gradient(to bottom, rgba(17, 24, 39, 0.04) 1px, transparent 1px) 0 0/24px 24px,
+        #fafbff;
+      border-radius: 8px;
+    }
+
+    .blueprint .bp-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 12px;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+    }
+
+    .bp-foot .pill {
+      background: var(--accent-soft);
+      color: var(--accent);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+
+    .left-foot {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin-top: 24px;
+    }
+
+    .keywords {
+      display: flex;
+      gap: 22px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.18em;
+    }
+
+    .keywords span {
+      position: relative;
+    }
+
+    .keywords span:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      right: -13px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 2px;
+      height: 2px;
+      border-radius: 50%;
+      background: var(--muted-2);
+    }
+
+    .watermark {
+      font-family: var(--serif);
+      font-weight: 700;
+      font-size: 56px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      color: rgba(17, 24, 39, 0.06);
+      user-select: none;
+      pointer-events: none;
+    }
+
+    /* ── RIGHT PANEL (FORM) ───────────────────── */
+    .right {
+      background: var(--paper);
+      display: flex;
+      flex-direction: column;
+      padding: 28px 32px;
+      border-left: 1px solid var(--line);
+      overflow-y: auto;
+    }
+
+    .right-top {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .right-top a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+      margin-left: 4px;
+    }
+
+    .right-top a:hover {
+      text-decoration: underline;
+    }
+
+    .form-shell {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 16px 0;
+    }
+
+    .form-card {
+      width: 100%;
+      max-width: 400px;
+    }
+
+    .form-head {
+      margin-bottom: 28px;
+    }
+
+    .form-head h2 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      color: var(--ink);
+      margin-bottom: 8px;
+    }
+
+    .form-head p {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    .label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink-2);
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+    }
+
+    .input-base {
+      width: 100%;
+      height: 44px;
+      padding: 0 14px;
+      background: white;
+      border: 1px solid var(--line-2);
+      border-radius: 10px;
+      font-family: var(--serif);
+      font-size: 14px;
+      color: var(--ink);
+      outline: none;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+
+    .input-base::placeholder {
+      color: var(--muted-2);
+    }
+
+    .input-base:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .input-pw-wrap {
+      position: relative;
+    }
+
+    .input-pw-wrap .toggle {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: 0;
+      color: var(--muted-2);
+      cursor: pointer;
+      padding: 4px;
+      display: inline-flex;
+      align-items: center;
+      transition: color .15s ease;
+    }
+
+    .input-pw-wrap .toggle:hover {
+      color: var(--ink-2);
+    }
+
+    .email-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(132px, 0.8fr);
+      align-items: center;
+      background: white;
+      border: 1px solid var(--line-2);
+      border-radius: 10px;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+
+    .email-grid:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .email-grid input,
+    .email-grid select {
+      height: 42px;
+      background: transparent;
+      border: 0;
+      outline: none;
+      padding: 0 12px;
+      font-family: var(--serif);
+      font-size: 14px;
+      color: var(--ink);
+      min-width: 0;
+    }
+
+    .email-grid input::placeholder {
+      color: var(--muted-2);
+    }
+
+    .email-grid select {
+      font-weight: 500;
+      color: var(--ink-2);
+      cursor: pointer;
+    }
+
+    .email-grid .at {
+      padding: 0 10px;
+      font-weight: 600;
+      color: var(--muted);
+      border-left: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      height: 24px;
+      display: inline-flex;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .row-checkbox {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 16px 0 20px;
+    }
+
+    .check {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--ink-2);
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .check input {
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border: 1.5px solid var(--line-2);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all .15s ease;
+      position: relative;
+      background: white;
+    }
+
+    .check input:checked {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .check input:checked::after {
+      content: "";
+      position: absolute;
+      left: 4px;
+      top: 1px;
+      width: 5px;
+      height: 9px;
+      border: solid white;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+
+    .forgot {
+      font-size: 12px;
+      color: var(--muted);
+      text-decoration: none;
+      transition: color .15s ease;
+    }
+
+    .forgot:hover {
+      color: var(--accent);
+    }
+
+    .submit {
+      width: 100%;
+      height: 48px;
+      background: var(--accent);
+      color: white;
+      border: 0;
+      border-radius: 10px;
+      font-family: var(--serif);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.28), 0 1px 0 rgba(255, 255, 255, 0.2) inset;
+      transition: background .15s ease, transform .12s ease, box-shadow .15s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .submit:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+      box-shadow: 0 8px 22px rgba(79, 70, 229, 0.36);
+    }
+
+    .submit:active {
+      transform: translateY(0);
+    }
+
+    .submit:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 22px 0;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted-2);
+      letter-spacing: 0.18em;
+    }
+
+    .divider::before,
+    .divider::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--line);
+    }
+
+    .sso-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .sso {
+      height: 44px;
+      background: white;
+      border: 1px solid var(--line-2);
+      border-radius: 10px;
+      cursor: pointer;
+      font-family: var(--serif);
+      font-size: 13px;
+      color: var(--ink-2);
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: border-color .15s ease, background .15s ease;
+    }
+
+    .sso:hover {
+      border-color: var(--ink-2);
+      background: #fafbfc;
+    }
+
+    .sso .ic {
+      display: inline-flex;
+      width: 18px;
+      height: 18px;
+    }
+
+    .signup {
+      text-align: center;
+      margin-top: 24px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .signup a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+      margin-left: 4px;
+    }
+
+    .signup a:hover {
+      text-decoration: underline;
+    }
+
+    .right-foot {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding-top: 16px;
+      font-size: 11px;
+      color: var(--muted-2);
+    }
+
+    .right-foot a {
+      color: var(--muted-2);
+      text-decoration: none;
+      cursor: pointer;
+      transition: color .15s ease;
+    }
+
+    .right-foot a:hover {
+      color: var(--ink-2);
+    }
+
+    .right-foot .sep {
+      color: var(--line-2);
+    }
+
+    /* notice */
+    .notice {
+      background: var(--success-bg);
+      border: 1px solid var(--success-border);
+      color: #15803d;
+      font-size: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .error-msg {
+      color: var(--error);
+      font-size: 12px;
+      margin-top: 6px;
+    }
+
+    /* spinner */
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @media (max-width: 900px) {
+      body {
+        overflow: auto;
+      }
+
+      .auth-wrap {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+
+      .left {
+        padding: 32px;
+      }
+
+      .blueprint {
+        display: none;
+      }
+
+      .right {
+        border-left: 0;
+        border-top: 1px solid var(--line);
+        min-height: 100vh;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="auth-wrap">
+
+    <!-- LEFT -->
+    <section class="left">
+      <div class="top-row">
+        <a href="Intro.html" style="display:inline-flex">
+          <img src="logo.svg" alt="바탕 : BATANG" class="logo-img" />
+        </a>
+
+      </div>
+
+      <div class="hero">
+        <h1 class="title">
+          설계의 <span class="accent">언어</span>를 바꾸다.
+          <span class="light">건축사의 초기 설계, 이제 AI와 함께 시작합니다.</span>
+        </h1>
+        <p class="desc">
+          BATANG은 디자이너와 고객이 같은 프로젝트 맥락에서 도면, 모델, 댓글을 함께 확인하는 협업 플랫폼입니다.
+          설계 의도와 요청 사항을 한 화면에서 추적하고 다음 작업으로 연결하세요.
+        </p>
+
+        <div class="blueprint">
+          <div class="bp-head">
+            <span>바탕 · 003 / PLAN</span>
+            <div class="dots"><span></span><span></span><span></span></div>
+          </div>
+          <svg class="bp-svg" viewBox="0 0 540 180" preserveAspectRatio="none">
+            <!-- outline -->
+            <rect x="40" y="20" width="460" height="140" fill="none" stroke="rgba(17,24,39,0.5)" stroke-width="2" />
+            <!-- inner walls -->
+            <line x1="180" y1="20" x2="180" y2="100" stroke="rgba(17,24,39,0.5)" stroke-width="1.5" />
+            <line x1="40" y1="100" x2="320" y2="100" stroke="rgba(17,24,39,0.5)" stroke-width="1.5" />
+            <line x1="320" y1="20" x2="320" y2="160" stroke="rgba(17,24,39,0.5)" stroke-width="1.5" />
+            <line x1="320" y1="80" x2="500" y2="80" stroke="rgba(17,24,39,0.5)" stroke-width="1.5" />
+            <!-- door arcs -->
+            <path d="M 180 60 A 14 14 0 0 0 194 74" fill="none" stroke="rgba(17,24,39,0.4)" stroke-width="1" />
+            <path d="M 320 130 A 14 14 0 0 1 306 144" fill="none" stroke="rgba(17,24,39,0.4)" stroke-width="1" />
+            <!-- accent room -->
+            <rect x="324" y="84" width="172" height="72" fill="rgba(79,70,229,0.08)" stroke="rgba(79,70,229,0.6)"
+              stroke-width="1.5" stroke-dasharray="4 4" />
+            <text x="334" y="102" font-family="JetBrains Mono, monospace" font-size="9" fill="rgba(79,70,229,0.9)">AI ·
+              STUDIO</text>
+            <!-- dimensions -->
+            <line x1="40" y1="172" x2="500" y2="172" stroke="rgba(17,24,39,0.3)" stroke-width="1" />
+            <line x1="40" y1="168" x2="40" y2="176" stroke="rgba(17,24,39,0.3)" stroke-width="1" />
+            <line x1="500" y1="168" x2="500" y2="176" stroke="rgba(17,24,39,0.3)" stroke-width="1" />
+            <text x="270" y="170" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="8"
+              fill="rgba(17,24,39,0.45)" dy="-2">12,400</text>
+            <!-- notes -->
+            <text x="50" y="36" font-family="JetBrains Mono, monospace" font-size="8"
+              fill="rgba(17,24,39,0.35)">A-01</text>
+            <text x="190" y="36" font-family="JetBrains Mono, monospace" font-size="8"
+              fill="rgba(17,24,39,0.35)">+0.000</text>
+            <!-- furniture hint -->
+            <rect x="60" y="120" width="40" height="24" fill="none" stroke="rgba(17,24,39,0.25)" stroke-width="1" />
+            <rect x="120" y="120" width="40" height="24" fill="none" stroke="rgba(17,24,39,0.25)" stroke-width="1" />
+            <circle cx="220" cy="60" r="14" fill="none" stroke="rgba(17,24,39,0.25)" stroke-width="1" />
+          </svg>
+          <div class="bp-foot">
+            <span>scale 1 : 100 · DRAFT</span>
+            <span class="pill">AI 영감 96%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="left-foot">
+        <div class="keywords">
+          <span>PRECISION</span>
+          <span>CLARITY</span>
+          <span>STRUCTURE</span>
+        </div>
+        <span class="watermark">Batang</span>
+      </div>
+    </section>
+
+    <!-- RIGHT -->
+    <section class="right">
+      <div class="right-top">
+        처음 오셨나요?<a href="Register.html">회원가입</a>
+      </div>
+
+      <div class="form-shell">
+        <div class="form-card">
+          <div class="form-head">
+            <h2>BATANG 로그인</h2>
+            <p>프로젝트와 협업 기록을 이어서 관리하세요.</p>
+          </div>
+
+          <form id="login-form" autocomplete="on" novalidate>
+            <div id="notice-slot"></div>
+
+            <div class="field">
+              <label class="label" for="email-id">이메일</label>
+              <div class="email-grid" id="email-grid">
+                <input id="email-id" type="text" placeholder="아이디" autocomplete="username" required>
+                <span class="at">@</span>
+                <select id="email-domain" aria-label="이메일 도메인 선택">
+                  <option value="gmail.com">gmail.com</option>
+                  <option value="naver.com">naver.com</option>
+                  <option value="kakao.com">kakao.com</option>
+                  <option value="custom">직접 입력</option>
+                </select>
+              </div>
+              <input id="email-custom" class="input-base" style="margin-top:8px; display:none;" type="text"
+                placeholder="example.com" autocomplete="off" aria-label="직접 입력 이메일 도메인">
+            </div>
+
+            <div class="field">
+              <label class="label" for="password">비밀번호</label>
+              <div class="input-pw-wrap">
+                <input id="password" class="input-base" style="padding-right:42px;" type="password"
+                  placeholder="비밀번호를 입력해 주세요" autocomplete="current-password" required>
+                <button type="button" class="toggle" id="pw-toggle" aria-label="비밀번호 보기">
+                  <svg id="eye-on" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                  <svg id="eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+                    <path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-6.5 0-10-7-10-7a18.5 18.5 0 0 1 5.06-5.94" />
+                    <path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c6.5 0 10 7 10 7a18.5 18.5 0 0 1-2.16 3.19" />
+                    <path d="M14.12 14.12a3 3 0 0 1-4.24-4.24" />
+                    <line x1="2" y1="2" x2="22" y2="22" />
+                  </svg>
+                </button>
+              </div>
+              <div id="pw-error" class="error-msg" style="display:none;"></div>
+            </div>
+
+            <div class="row-checkbox">
+              <label class="check">
+                <input type="checkbox" id="remember" checked>
+                <span>이메일 기억하기</span>
+              </label>
+              <a class="forgot" href="#">비밀번호 찾기</a>
+            </div>
+
+            <button type="submit" class="submit" id="submit-btn">로그인</button>
+
+            <p class="signup" style="margin-top:32px;">
+              계정이 없으신가요?<a href="Register.html">회원가입</a>
+            </p>
+          </form>
+        </div>
+      </div>
+
+      <div class="right-foot">
+        <a href="About.html">서비스 소개</a>
+        <span class="sep">|</span>
+        <a href="#">개인정보처리방침</a>
+        <span class="sep">|</span>
+        <a href="#">고객지원</a>
+      </div>
+    </section>
+
+  </div>
+
+  <script>
+    // domain switch
+    const domainSel = document.getElementById('email-domain');
+    const customInput = document.getElementById('email-custom');
+    domainSel.addEventListener('change', () => {
+      customInput.style.display = domainSel.value === 'custom' ? '' : 'none';
+      if (domainSel.value === 'custom') customInput.focus();
+    });
+
+    // password visibility
+    const pwInput = document.getElementById('password');
+    const pwToggle = document.getElementById('pw-toggle');
+    const eyeOn = document.getElementById('eye-on');
+    const eyeOff = document.getElementById('eye-off');
+    pwToggle.addEventListener('click', () => {
+      const isPw = pwInput.type === 'password';
+      pwInput.type = isPw ? 'text' : 'password';
+      eyeOn.style.display = isPw ? 'none' : '';
+      eyeOff.style.display = isPw ? '' : 'none';
+    });
+
+    // sanitize
+    document.getElementById('email-id').addEventListener('input', e => {
+      e.target.value = e.target.value.replace(/\s/g, '');
+    });
+
+    // form submit (mock)
+    const form = document.getElementById('login-form');
+    const submitBtn = document.getElementById('submit-btn');
+    const noticeSlot = document.getElementById('notice-slot');
+    const pwError = document.getElementById('pw-error');
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      pwError.style.display = 'none';
+      noticeSlot.innerHTML = '';
+
+      const id = document.getElementById('email-id').value.trim();
+      const pw = pwInput.value;
+
+      if (!id || !pw) {
+        pwError.textContent = '이메일과 비밀번호를 모두 입력해 주세요.';
+        pwError.style.display = '';
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="spinner"></span> 로그인 중...';
+
+      setTimeout(() => {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '로그인';
+        noticeSlot.innerHTML = '<div class="notice"><span>✓</span><span>로그인이 처리되었습니다. (데모)</span></div>';
+      }, 1100);
+    });
+  </script>
+
+</body>
+
+</html>
