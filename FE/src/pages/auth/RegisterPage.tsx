@@ -18,6 +18,7 @@ export default function RegisterPage() {
     emailVerificationError,
     emailVerificationNotice,
     isEmailVerified,
+    isEmailVerificationValid,
     isEmailCodeExpired,
     isPasswordReady,
     isPasswordConfirmTouched,
@@ -148,7 +149,7 @@ export default function RegisterPage() {
                   <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9ca3af]" />
                 </div>
               )}
-              {isEmailVerified && (
+              {isEmailVerificationValid && (
                 <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[#16a34a]">
                   <Check className="h-5 w-5" />
                 </span>
@@ -160,11 +161,11 @@ export default function RegisterPage() {
               disabled={isSendingEmailCode}
               className="shrink-0 rounded-lg bg-[#111827] px-4 text-sm font-medium text-white transition-colors hover:bg-[#1f2937] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isSendingEmailCode ? '전송 중...' : isEmailVerified ? '재인증' : '인증'}
+              {isSendingEmailCode ? '전송 중...' : isEmailVerificationValid ? '재인증' : '인증'}
             </button>
           </div>
           {emailVerificationNotice && (
-            <p className={`mt-2 text-right text-xs ${isEmailVerified ? 'text-[#16a34a]' : isEmailCodeExpired ? 'text-[#dc2626]' : 'text-[#6b7280]'}`}>
+            <p className={`mt-2 text-right text-xs ${isEmailVerificationValid ? 'text-[#16a34a]' : isEmailVerified || isEmailCodeExpired ? 'text-[#dc2626]' : 'text-[#6b7280]'}`}>
               {emailVerificationNotice}
             </p>
           )}

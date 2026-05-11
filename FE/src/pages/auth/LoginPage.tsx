@@ -15,6 +15,7 @@ export default function LoginPage() {
     showPw,
     rememberEmail,
     loginError,
+    loginValidationError,
     isLoggingIn,
     loginNotice,
     setEmailLocalPart,
@@ -129,7 +130,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between py-1">
+        <div className="flex items-center py-1">
           <label className="inline-flex select-none items-center gap-2 text-[13px] text-[#374151]">
             <input
               type="checkbox"
@@ -139,12 +140,13 @@ export default function LoginPage() {
             />
             이메일 기억하기
           </label>
-          <button type="button" className="text-xs text-[#6b7280] transition-colors hover:text-[#4f46e5]">
-            비밀번호 찾기
-          </button>
         </div>
 
-        {loginError && <p className="text-right text-xs font-medium text-[#dc2626]">{(loginError as Error).message}</p>}
+        {(loginValidationError || loginError) && (
+          <p className="text-right text-xs font-medium text-[#dc2626]">
+            {loginValidationError || (loginError as Error).message}
+          </p>
+        )}
 
         <button
           id="login-submit"

@@ -58,6 +58,7 @@ export const useRegisterPage = () => {
   const verifiedTokenRemainingSeconds = getRemainingSeconds(verifiedTokenExpiresAt, currentTime)
   const isEmailCodeExpired = Boolean(emailCodeExpiresAt) && emailCodeRemainingSeconds === 0 && !isEmailVerified
   const isVerifiedTokenExpired = Boolean(verifiedTokenExpiresAt) && verifiedTokenRemainingSeconds === 0
+  const isEmailVerificationValid = isEmailVerified && !isVerifiedTokenExpired
   const isPasswordReady = form.password.length >= 8
   const isPasswordConfirmTouched = form.passwordConfirm.length > 0
   const isPasswordMatched = isPasswordConfirmTouched && form.password === form.passwordConfirm
@@ -263,6 +264,7 @@ export const useRegisterPage = () => {
     emailVerificationError,
     emailVerificationNotice,
     isEmailVerified,
+    isEmailVerificationValid,
     isEmailCodeExpired,
     isPasswordReady,
     isPasswordConfirmTouched,

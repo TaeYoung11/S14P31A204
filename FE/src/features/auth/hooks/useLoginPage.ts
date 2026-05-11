@@ -5,6 +5,7 @@ import { useAuth } from '@/features/auth/hooks/useAuth'
 
 const REMEMBERED_EMAIL_KEY = 'batang-remembered-email'
 const EMAIL_DOMAIN_OPTIONS = ['gmail.com', 'naver.com', 'kakao.com'] as const
+const EMAIL_PATTERN = /\S+@\S+\.\S+/
 type EmailDomainOption = (typeof EMAIL_DOMAIN_OPTIONS)[number]
 
 interface LoginLocationState {
@@ -52,12 +53,29 @@ export const useLoginPage = () => {
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [rememberEmail, setRememberEmail] = useState(Boolean(initialEmail))
+  const [loginValidationError, setLoginValidationError] = useState('')
 
   const email = useMemo(() => buildEmail(emailLocalPart, emailDomain), [emailDomain, emailLocalPart])
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
     const normalizedEmail = email.trim().toLowerCase()
+    setLoginValidationError('')
+
+    if (!normalizedEmail) {
+      setLoginValidationError('이메일을 입력해 주세요.')
+      return
+    }
+
+    if (!EMAIL_PATTERN.test(normalizedEmail)) {
+      setLoginValidationError('올바른 이메일 형식으로 입력해 주세요.')
+      return
+    }
+
+    if (!password) {
+      setLoginValidationError('비밀번호를 입력해 주세요.')
+      return
+    }
 
     if (typeof window !== 'undefined') {
       if (rememberEmail) {
@@ -80,11 +98,19 @@ export const useLoginPage = () => {
     showPw,
     rememberEmail,
     loginError,
+    loginValidationError,
     isLoggingIn,
     loginNotice: locationState?.withdrawn ? '회원 탈퇴가 완료되었습니다. 다시 로그인해 주세요.' : '',
-    setEmailLocalPart,
-    setEmailDomain,
+    setEmailLocalPart: (value: string) => {
+      setLoginValidationError('')
+      setEmailLocalPart(value)
+    },
+    setEmailDomain: (value: string) => {
+      setLoginValidationError('')
+      setEmailDomain(value)
+    },
     selectEmailDomain: (domain: EmailDomainOption | 'custom') => {
+      setLoginValidationError('')
       if (domain === 'custom') {
         setIsCustomEmailDomain(true)
         setEmailDomain('')
@@ -93,7 +119,10 @@ export const useLoginPage = () => {
       setIsCustomEmailDomain(false)
       setEmailDomain(domain)
     },
-    setPassword,
+    setPassword: (value: string) => {
+      setLoginValidationError('')
+      setPassword(value)
+    },
     setRememberEmail,
     togglePasswordVisibility: () => setShowPw((prev) => !prev),
     handleSubmit,
