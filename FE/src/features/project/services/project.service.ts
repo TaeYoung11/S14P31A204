@@ -50,6 +50,11 @@ interface ProjectDetailResponse {
   siteInfo?: {
     pnu?: string | null
     address?: string | null
+    areaM2?: number | string | null
+    area_m2?: number | string | null
+    area?: number | string | null
+    landAreaM2?: number | string | null
+    land_area_m2?: number | string | null
     polygon?: CadastralPolygon | null
   } | null
   createdAt?: string
@@ -106,6 +111,11 @@ interface CadastralInfo {
   polygon: CadastralPolygon
 }
 
+const readPositiveNumber = (value: unknown): number | null => {
+  const numericValue = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null
+}
+
 const MOCK_SITE_POLYGON_RING: number[][] = [
   [127.0281304, 37.4981036],
   [127.0283847, 37.4981036],
@@ -114,7 +124,7 @@ const MOCK_SITE_POLYGON_RING: number[][] = [
 ]
 
 const shouldUseSiteMock = import.meta.env.VITE_USE_SITE_MOCK === 'true'
-const shouldFetchSiteFromProjectDetailApi = import.meta.env.VITE_USE_PROJECT_DETAIL_SITE_API === 'true'
+const shouldFetchSiteFromProjectDetailApi = import.meta.env.VITE_USE_PROJECT_DETAIL_SITE_API !== 'false'
 const SITE_CACHE_TTL_MS = PROJECT_SITE_CACHE_TTL_MS
 const PROJECT_DETAIL_FETCH_FAILED_MESSAGE = '프로젝트 상세 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.'
 const projectSummaryCache = new Map<string, ProjectSummaryResponse>()
@@ -305,9 +315,17 @@ async function fetchProjectIfcExport(projectId: string): Promise<ProjectIfcExpor
  * - 응답에 대지 정보가 없거나 형식이 맞지 않으면 null
  * - 네트워크/서버 오류는 상위 fallback 체인에서 처리
  */
-async function fetchSitePolygonFromProjectDetail(projectId: string): Promise<number[][] | null> {
+async function fetchSiteInfoFromProjectDetail(projectId: string): Promise<{ polygonRing: number[][] | null; areaM2: number | null }> {
   const detail = await _fetchProjectDetail(projectId)
-  return extractOuterRingFromCoordinates(detail.siteInfo?.polygon?.coordinates)
+  return {
+    polygonRing: extractOuterRingFromCoordinates(detail.siteInfo?.polygon?.coordinates),
+    areaM2:
+      readPositiveNumber(detail.siteInfo?.areaM2)
+      ?? readPositiveNumber(detail.siteInfo?.area_m2)
+      ?? readPositiveNumber(detail.siteInfo?.landAreaM2)
+      ?? readPositiveNumber(detail.siteInfo?.land_area_m2)
+      ?? readPositiveNumber(detail.siteInfo?.area),
+  }
 }
 
 export interface ProjectListPageResult {
@@ -370,10 +388,13 @@ export const projectService = {
     if (!projectId) return { polygonRing: null, source: 'none' }
 
     let apiPolygonRing: number[][] | null = null
+    let apiAreaM2: number | null = null
 
     if (shouldFetchSiteFromProjectDetailApi) {
       try {
-        apiPolygonRing = await fetchSitePolygonFromProjectDetail(projectId)
+        const apiSiteInfo = await fetchSiteInfoFromProjectDetail(projectId)
+        apiPolygonRing = apiSiteInfo.polygonRing
+        apiAreaM2 = apiSiteInfo.areaM2
         if (apiPolygonRing) {
           saveProjectSitePolygon(projectId, apiPolygonRing, { source: 'api' })
         }
@@ -390,6 +411,7 @@ export const projectService = {
 
     const resolved = resolveProjectSiteFallback({
       apiPolygonRing,
+      apiAreaM2,
       cacheCandidate,
       mockPolygonRing: MOCK_SITE_POLYGON_RING,
       useMock: shouldUseSiteMock,

@@ -1,7 +1,25 @@
 import { api } from '@/shared/lib/axios'
 import type { ApiResponse } from '@/shared/types'
-import type { BubbleData, ConnectionData, EditorDraftSnapshot } from '../types'
-import type { BubbleSnapshotPayload, FloorPlanSnapshotPayload } from '../utils/workspaceSyncMessage'
+import type { BubbleData, ConnectionData, WorkspaceSnapshot } from '../types'
+import type { BubbleSnapshotPayload } from '../utils/workspaceSyncMessage'
+
+export interface FloorPlanSnapshotPayload {
+  bubbles?: BubbleData[]
+  connections?: ConnectionData[]
+  layout?: {
+    phaseStatus?: WorkspaceSnapshot['phaseStatus']
+    floorLayers?: WorkspaceSnapshot['floorLayers']
+    activeFloorLayerId?: WorkspaceSnapshot['activeFloorLayerId']
+    isFloorPlanGenerated?: WorkspaceSnapshot['isFloorPlanGenerated']
+    floorPlanLayoutSource?: WorkspaceSnapshot['floorPlanLayoutSource']
+    floorWalls?: WorkspaceSnapshot['floorWalls']
+    floorOpenings?: WorkspaceSnapshot['floorOpenings']
+    hiddenAutoWallIds?: WorkspaceSnapshot['hiddenAutoWallIds']
+    hiddenAutoOpeningIds?: WorkspaceSnapshot['hiddenAutoOpeningIds']
+    isProjectStructurePreferred?: WorkspaceSnapshot['isProjectStructurePreferred']
+    ifcElementChanges?: Array<{ expressId: number }>
+  }
+}
 
 interface WorkspaceBubbleSavePayload {
   bubbles: Array<{
@@ -22,13 +40,13 @@ interface WorkspaceBubbleSavePayload {
 
 interface SaveBubbleSnapshotResponse {
   projectId: string
-  status: EditorDraftSnapshot['phaseStatus']
+  status: WorkspaceSnapshot['phaseStatus']
   savedAt: string
 }
 
 interface SaveFloorPlanSnapshotResponse {
   projectId: string
-  status: EditorDraftSnapshot['phaseStatus']
+  status: WorkspaceSnapshot['phaseStatus']
   revisionId: string
   s3Url: string
   savedAt: string
@@ -41,18 +59,8 @@ interface WorkspaceHistoryEntry<TSnapshot> {
   s3Url: string | null
 }
 
-interface WorkspaceHistorySiteInfo {
-  pnu?: string | null
-  address?: string | null
-  polygon?: {
-    type: string
-    coordinates: number[][][][]
-  } | null
-}
-
 export interface WorkspaceHistorySnapshotResponse {
-  phaseStatus: EditorDraftSnapshot['phaseStatus']
-  siteInfo?: WorkspaceHistorySiteInfo | null
+  phaseStatus: WorkspaceSnapshot['phaseStatus']
   bubble: WorkspaceHistoryEntry<BubbleSnapshotPayload>
   floorPlan: WorkspaceHistoryEntry<FloorPlanSnapshotPayload>
 }
@@ -71,7 +79,7 @@ const toWorkspaceBubble = (bubble: BubbleData): WorkspaceBubbleSavePayload['bubb
   color: bubble.color,
 })
 
-const toBubbleSavePayload = (snapshot: EditorDraftSnapshot): WorkspaceBubbleSavePayload => ({
+const toBubbleSavePayload = (snapshot: WorkspaceSnapshot): WorkspaceBubbleSavePayload => ({
   bubbles: snapshot.bubbles.map(toWorkspaceBubble),
   connections: snapshot.connections,
 })
@@ -86,7 +94,7 @@ export const workspaceSaveService = {
 
   saveBubbleSnapshot: async (
     projectId: string,
-    snapshot: EditorDraftSnapshot,
+    snapshot: WorkspaceSnapshot,
   ): Promise<SaveBubbleSnapshotResponse> => {
     const response = await api.post<ApiResponse<SaveBubbleSnapshotResponse>>(
       `/projects/${projectId}/workspace/bubble/save`,

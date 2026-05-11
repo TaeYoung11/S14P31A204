@@ -13,6 +13,7 @@ import {
   PROJECT_SYNC_TOPIC_PREFIX,
   USER_ERROR_TOPIC,
   WORKSPACE_SYNC_ACTION,
+  extractBubbleBaseIndex,
   extractFloorPlanSnapshot,
   extractFloorPlanBaseIndex,
   extractIfcAssetId,
@@ -38,12 +39,15 @@ interface UseBubbleSnapshotRealtimeParams {
   onIfcStorageUrlReceived?: (ifcStorageUrl: string, action: string | null, assetId: string | null) => void
   onBubbleHistoryCursorChanged?: (baseIndex: number, redoDepth: number) => void
   onFloorPlanHistoryCursorChanged?: (baseIndex: number, redoDepth: number) => void
+  onBubbleHistoryCursorInvalid?: () => void
+  onFloorPlanHistoryCursorInvalid?: () => void
   bubbleHistoryCursor?: { baseIndex: number; redoDepth: number }
   floorPlanHistoryCursor?: { baseIndex: number; redoDepth: number }
 }
 
 const IFC_EVENT_DEDUP_TTL_MS = 2000
 const IFC_URL_DEBUG = getRuntimeEnvBoolean('VITE_IFC_URL_DEBUG')
+const WORKSPACE_HISTORY_MAX_INDEX = 9
 
 /**
  * 버블 스냅샷 실시간 동기화 훅
@@ -62,6 +66,8 @@ export function useBubbleSnapshotRealtime({
   onIfcStorageUrlReceived,
   onBubbleHistoryCursorChanged,
   onFloorPlanHistoryCursorChanged,
+  onBubbleHistoryCursorInvalid,
+  onFloorPlanHistoryCursorInvalid,
   bubbleHistoryCursor,
   floorPlanHistoryCursor,
 }: UseBubbleSnapshotRealtimeParams) {
@@ -71,6 +77,8 @@ export function useBubbleSnapshotRealtime({
   const ifcStorageUrlHandlerRef = useRef(onIfcStorageUrlReceived)
   const bubbleHistoryCursorHandlerRef = useRef(onBubbleHistoryCursorChanged)
   const floorPlanHistoryCursorHandlerRef = useRef(onFloorPlanHistoryCursorChanged)
+  const bubbleHistoryCursorInvalidHandlerRef = useRef(onBubbleHistoryCursorInvalid)
+  const floorPlanHistoryCursorInvalidHandlerRef = useRef(onFloorPlanHistoryCursorInvalid)
   const baseIndexRef = useRef(-1)
   const bubbleRedoDepthRef = useRef(0)
   const floorPlanBaseIndexRef = useRef(-1)
@@ -100,6 +108,14 @@ export function useBubbleSnapshotRealtime({
   useEffect(() => {
     floorPlanHistoryCursorHandlerRef.current = onFloorPlanHistoryCursorChanged
   }, [onFloorPlanHistoryCursorChanged])
+
+  useEffect(() => {
+    bubbleHistoryCursorInvalidHandlerRef.current = onBubbleHistoryCursorInvalid
+  }, [onBubbleHistoryCursorInvalid])
+
+  useEffect(() => {
+    floorPlanHistoryCursorInvalidHandlerRef.current = onFloorPlanHistoryCursorInvalid
+  }, [onFloorPlanHistoryCursorInvalid])
 
   useEffect(() => {
     if (!bubbleHistoryCursor) return
@@ -135,40 +151,47 @@ export function useBubbleSnapshotRealtime({
       floorPlanHistoryCursorHandlerRef.current?.(floorPlanBaseIndexRef.current, floorPlanRedoDepthRef.current)
     }
 
-    const syncBubbleHistoryCursor = (action: string | null) => {
+    const toRestoredBubbleIndex = (payloadBaseIndex: number | null): number | null =>
+      payloadBaseIndex === null ? null : payloadBaseIndex + 1
+
+    const syncBubbleHistoryCursor = (action: string | null, payloadBaseIndex: number | null) => {
       if (action === WORKSPACE_SYNC_ACTION.bubbleUndo) {
-        baseIndexRef.current = Math.max(-1, baseIndexRef.current - 1)
+        baseIndexRef.current = toRestoredBubbleIndex(payloadBaseIndex) ?? Math.max(-1, baseIndexRef.current - 1)
         bubbleRedoDepthRef.current += 1
       } else if (action === WORKSPACE_SYNC_ACTION.bubbleRedo) {
-        baseIndexRef.current += 1
+        baseIndexRef.current = toRestoredBubbleIndex(payloadBaseIndex) ?? baseIndexRef.current + 1
         bubbleRedoDepthRef.current = Math.max(0, bubbleRedoDepthRef.current - 1)
       } else {
-        baseIndexRef.current += 1
+        baseIndexRef.current = (payloadBaseIndex ?? baseIndexRef.current) + 1
         bubbleRedoDepthRef.current = 0
       }
       notifyBubbleHistoryCursor()
     }
 
-    const toRestoredFloorPlanIndex = (payloadBaseIndex: number | null): number | null =>
-      payloadBaseIndex === null ? null : payloadBaseIndex + 1
-
     const syncFloorPlanHistoryCursor = (action: string | null, payloadBaseIndex: number | null) => {
       if (action === WORKSPACE_SYNC_ACTION.floorPlanUndo) {
-        floorPlanBaseIndexRef.current = toRestoredFloorPlanIndex(payloadBaseIndex) ?? Math.max(-1, floorPlanBaseIndexRef.current - 1)
+        floorPlanBaseIndexRef.current = Math.max(-1, floorPlanBaseIndexRef.current - 1)
         floorPlanRedoDepthRef.current += 1
       } else if (action === WORKSPACE_SYNC_ACTION.floorPlanRedo) {
-        floorPlanBaseIndexRef.current = toRestoredFloorPlanIndex(payloadBaseIndex) ?? floorPlanBaseIndexRef.current + 1
+        floorPlanBaseIndexRef.current = Math.min(WORKSPACE_HISTORY_MAX_INDEX, floorPlanBaseIndexRef.current + 1)
         floorPlanRedoDepthRef.current = Math.max(0, floorPlanRedoDepthRef.current - 1)
       } else if (action === WORKSPACE_SYNC_ACTION.floorPlanUpdated) {
-        floorPlanBaseIndexRef.current = (payloadBaseIndex ?? floorPlanBaseIndexRef.current) + 1
+        floorPlanBaseIndexRef.current = Math.min(
+          WORKSPACE_HISTORY_MAX_INDEX,
+          (payloadBaseIndex ?? floorPlanBaseIndexRef.current) + 1,
+        )
         floorPlanRedoDepthRef.current = 0
       }
       notifyFloorPlanHistoryCursor()
     }
 
-    const applyRemoteSnapshot = (snapshot: BubbleSnapshotPayload, action: string | null) => {
+    const applyRemoteSnapshot = (
+      snapshot: BubbleSnapshotPayload,
+      action: string | null,
+      payloadBaseIndex: number | null,
+    ) => {
       remoteSnapshotHandlerRef.current(snapshot)
-      syncBubbleHistoryCursor(action)
+      syncBubbleHistoryCursor(action, payloadBaseIndex)
     }
 
     const applyFloorPlanSnapshot = (snapshot: FloorPlanSnapshotPayload) => {
@@ -223,6 +246,11 @@ export function useBubbleSnapshotRealtime({
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
       ) {
+        console.info('[editor][floor-plan-sync]', {
+          action,
+          baseIndex: extractFloorPlanBaseIndex(parsed),
+          hasSnapshot: Boolean(extractFloorPlanSnapshot(parsed)),
+        })
         syncFloorPlanHistoryCursor(action, extractFloorPlanBaseIndex(parsed))
       }
 
@@ -244,21 +272,17 @@ export function useBubbleSnapshotRealtime({
       ) return
       if (!isBubbleSnapshotPayload(parsed.bubbleSnapshotJson)) return
 
-      applyRemoteSnapshot(parsed.bubbleSnapshotJson, action)
+      applyRemoteSnapshot(parsed.bubbleSnapshotJson, action, extractBubbleBaseIndex(parsed))
     }
 
     const handleErrorMessage = (message: IMessage) => {
       const parsed = parseStompErrorMessage(message)
       if (!parsed?.code) return
       if (parsed.code === CURSOR_INVALID_CODE) {
-        baseIndexRef.current = -1
-        bubbleRedoDepthRef.current = 0
-        notifyBubbleHistoryCursor()
+        bubbleHistoryCursorInvalidHandlerRef.current?.()
       }
       if (parsed.code === FLOOR_PLAN_CURSOR_INVALID_CODE) {
-        floorPlanBaseIndexRef.current = -1
-        floorPlanRedoDepthRef.current = 0
-        notifyFloorPlanHistoryCursor()
+        floorPlanHistoryCursorInvalidHandlerRef.current?.()
       }
     }
 

@@ -9,6 +9,7 @@ export interface ThreeDCoordinates {
 export interface CanvasModeRendererSectionProps {
   mode: EditorCanvasRenderProps['mode']
   zoom: EditorCanvasRenderProps['zoom']
+  canvasZoom: EditorCanvasRenderProps['canvasZoom']
   renderProps: EditorCanvasRenderProps
   onOpenExport: EditorCanvasRenderProps['handleOpenExportSelectionModal']
   isRotationLocked: boolean
@@ -81,6 +82,7 @@ export function buildCanvasModeRendererSectionProps(
   return {
     mode: renderProps.mode,
     zoom: renderProps.zoom,
+    canvasZoom: renderProps.canvasZoom,
     renderProps,
     onOpenExport: renderProps.handleOpenExportSelectionModal,
     isRotationLocked,

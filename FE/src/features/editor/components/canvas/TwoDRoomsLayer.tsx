@@ -213,7 +213,6 @@ export function TwoDRoomsLayer({
               onSelect?.(isSelected ? null : room.bubbleId, false)
             }}
             draggable={
-              isSelected &&
               selectedTool === 'selection' &&
               !isPanMode &&
               !isWallFirstEditing &&

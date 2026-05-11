@@ -265,9 +265,12 @@ export function buildFloorPlanLayoutImportPayload(
 
   const rooms = uniqueBubbles.map((bubble) => {
     const center = toBubbleCenterMillimeterPosition(bubble, mmPerPx)
+    const sourceBubbleId = bubble.id
     return {
-      id: bubble.id,
-      name: bubble.label.trim() || bubble.id,
+      id: sourceBubbleId,
+      sourceBubbleId,
+      source_bubble_id: sourceBubbleId,
+      name: bubble.label.trim() || sourceBubbleId,
       type: normalizeFloorPlanRoomType(bubble.type),
       width: toPositiveMillimeter(bubble.widthMm),
       height: toPositiveMillimeter(bubble.heightMm),

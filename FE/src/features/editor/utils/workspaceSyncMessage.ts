@@ -320,3 +320,42 @@ export function extractFloorPlanBaseIndex(message: ProjectSyncMessage): number |
 
   return null
 }
+
+export function extractBubbleBaseIndex(message: ProjectSyncMessage): number | null {
+  const payload = message.bubbleSnapshotJson
+  if (isObjectRecord(payload) && typeof payload.baseIndex === 'number' && Number.isInteger(payload.baseIndex)) {
+    return payload.baseIndex
+  }
+
+  if (isObjectRecord(message.payload)) {
+    const nestedPayload = message.payload.bubbleSnapshotJson
+    if (
+      isObjectRecord(nestedPayload) &&
+      typeof nestedPayload.baseIndex === 'number' &&
+      Number.isInteger(nestedPayload.baseIndex)
+    ) {
+      return nestedPayload.baseIndex
+    }
+  }
+
+  if (isObjectRecord(message.output)) {
+    const nestedOutput = message.output.bubbleSnapshotJson
+    if (
+      isObjectRecord(nestedOutput) &&
+      typeof nestedOutput.baseIndex === 'number' &&
+      Number.isInteger(nestedOutput.baseIndex)
+    ) {
+      return nestedOutput.baseIndex
+    }
+  }
+
+  if (isObjectRecord(message.payload) && typeof message.payload.baseIndex === 'number' && Number.isInteger(message.payload.baseIndex)) {
+    return message.payload.baseIndex
+  }
+
+  if (isObjectRecord(message.output) && typeof message.output.baseIndex === 'number' && Number.isInteger(message.output.baseIndex)) {
+    return message.output.baseIndex
+  }
+
+  return null
+}

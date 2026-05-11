@@ -5,7 +5,6 @@ import type {
   AddSpaceFormData,
   BubbleData,
   ConnectionData,
-  EditorDraftSnapshot,
   EditorMode,
   PhaseStatus,
   FloorCommentAttachmentInput,
@@ -19,13 +18,13 @@ import type {
   IfcElementInfo,
   Point2D,
   SaveStatus,
+  WorkspaceSnapshot,
   ZoneData,
 } from '../types'
 import {
   DEFAULT_GRID_SNAP_INTERVAL_MM,
   FLOOR_MM_PER_PX,
   FLOOR_PLAN_EDIT_AUTHORITY,
-  FLOOR_WALL_PRESETS,
   GRID_SNAP_INTERVAL_OPTIONS_MM,
   INITIAL_ADD_SPACE_FORM,
 } from '../constants'
@@ -46,6 +45,7 @@ import { useEditorAttributePanelHandlers } from './useEditorAttributePanelHandle
 import { useEditorStructureEditHandlers } from './useEditorStructureEditHandlers'
 import type { EmptyCanvasDblClickInfo } from '../components/canvas/BubbleCanvas'
 import {
+  mapFloorProjectToLayers,
   mapFloorProjectToWalls,
   mapFloorProjectToOpenings,
 } from '../utils/floorProjectMapper'
@@ -83,6 +83,8 @@ import { useInitialIfcImport } from './useInitialIfcImport'
 import { useEditorUserContext } from './useEditorUserContext'
 import { useFloorPlanGenerateTimeout } from './useFloorPlanGenerateTimeout'
 import { useThreeDIfcAttributeHandlers } from './useThreeDIfcAttributeHandlers'
+import { useEditorToolState } from './useEditorToolState'
+import { useFloorWallToolState } from './useFloorWallToolState'
 import { runForceDirectedBubbleLayout } from '../utils/forceBubbleLayout'
 import { useBubbleSnapshotRealtime } from './useBubbleSnapshotRealtime'
 import { useIfcLoadingLayer } from './useIfcLoadingLayer'
@@ -117,12 +119,21 @@ interface DrawingSnapshot {
 interface PendingServerPublishRecord {
   projectId: string
   baseIndex: number
-  snapshot: EditorDraftSnapshot
+  snapshot: WorkspaceSnapshot
   serializedSnapshot: string
+}
+
+interface AwaitingServerSyncRecord {
+  projectId: string
+  serializedSnapshot: string
+  historyDomain: 'bubble' | 'floorPlan'
+  baseIndex: number
+  startedAt: number
 }
 
 const OPENING_MIN_WIDTH_MM = 1
 const OPENING_MAX_WIDTH_MM = 4000
+const WORKSPACE_HISTORY_MAX_INDEX = 9
 const OPENING_NORMALIZE_OPTIONS = {
   minWidthMm: OPENING_MIN_WIDTH_MM,
   maxWidthMm: OPENING_MAX_WIDTH_MM,
@@ -458,9 +469,7 @@ export function useEditorPage() {
   const [commentNotifications, setCommentNotifications] = useState<FloorCommentNotification[]>([])
   const [isLibraryOpen, setIsLibraryOpen] = useState(false)
   const [isGridVisible, setIsGridVisible] = useState(false)
-  const [selectedTool, setSelectedTool] = useState<string>('selection')
   /** 연결 도구에서 첫 번째로 선택된 버블 id */
-  const [connectingFromId, setConnectingFromId] = useState<string | null>(null)
   /** 인라인 라벨 편집 상태 */
   const [labelEditState, setLabelEditState] = useState<{
     id: string; label: string; x: number; y: number; width: number; height: number
@@ -469,15 +478,7 @@ export function useEditorPage() {
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false)
   const [isGridSnapEnabled, setIsGridSnapEnabled] = useState(true)
   const [gridSnapIntervalMm, setGridSnapIntervalMm] = useState<number>(DEFAULT_GRID_SNAP_INTERVAL_MM)
-  const [wallCreatePreset, setWallCreatePreset] = useState<{
-    type: FloorWall['type']
-    thickness: number
-    heightMm: number
-  }>({
-    type: 'general',
-    thickness: FLOOR_WALL_PRESETS.general.thickness,
-    heightMm: FLOOR_WALL_PRESETS.general.heightMm,
-  })
+  const { wallCreatePreset, setWallCreatePreset } = useFloorWallToolState()
   const [isLayerOverlayMode, setIsLayerOverlayMode] = useState(false)
   const [overlayLayerIds, setOverlayLayerIds] = useState<string[]>([])
   const [overlayOpacityByLayerId, setOverlayOpacityByLayerId] = useState<Record<string, number>>({})
@@ -495,6 +496,15 @@ export function useEditorPage() {
   const latestBubbleSnapshotRef = useRef<{ bubbles: BubbleData[]; connections: ConnectionData[] }>({
     bubbles,
     connections,
+  })
+  const bootstrapStateAppliersRef = useRef({
+    clearFloorPlan,
+    clearSelection,
+    clearTwoDStructureSelection,
+    replaceBubbles,
+    replaceConnections,
+    replaceFloorPlanState,
+    replaceZonesState,
   })
   const bubbleDbSaveTimerRef = useRef<number | null>(null)
   const bubbleDbSaveInFlightRef = useRef<Promise<SaveBubbleSnapshotResponse> | null>(null)
@@ -516,7 +526,8 @@ export function useEditorPage() {
   const hasUserEditedRef = useRef(false)
   const serverPublishRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingServerPublishRef = useRef<PendingServerPublishRecord | null>(null)
-  const awaitingServerSyncRef = useRef<{ projectId: string; serializedSnapshot: string } | null>(null)
+  const awaitingServerSyncRef = useRef<AwaitingServerSyncRecord | null>(null)
+  const floorPlanHistoryCommandInFlightRef = useRef(false)
   const draftLoadTokenRef = useRef(0)
   const draftLoadedProjectIdRef = useRef<string | null>(null)
   const draftLoadBaselineRef = useRef<string | null>(null)
@@ -524,6 +535,8 @@ export function useEditorPage() {
   const suppressNextAutosaveRef = useRef(false)
   const workspaceEditTransactionDepthRef = useRef(0)
   const pendingWorkspaceSnapshotCommitRef = useRef(false)
+  const isBubbleDragTransactionActiveRef = useRef(false)
+  const lastWorkspaceSnapshotTransactionAtRef = useRef(0)
 
   useEffect(() => {
     lastLoadedIfcStorageUrlRef.current = null
@@ -551,10 +564,17 @@ export function useEditorPage() {
       setServerPublishRetryTick((tick) => tick + 1)
     }, 3000)
   }, [])
-  const resolveServerHistoryBaseIndex = useCallback((snapshot: EditorDraftSnapshot): number =>
+  const resolveServerHistoryBaseIndex = useCallback((snapshot: WorkspaceSnapshot): number =>
     snapshot.phaseStatus === 'BUBBLE_DRAFT'
       ? bubbleHistoryBaseIndexRef.current
       : floorPlanHistoryBaseIndexRef.current
+  , [])
+  const resolveServerHistoryDomain = useCallback((snapshot: WorkspaceSnapshot): AwaitingServerSyncRecord['historyDomain'] =>
+    snapshot.phaseStatus === 'BUBBLE_DRAFT' &&
+    !snapshot.isFloorPlanGenerated &&
+    snapshot.floorPlanLayoutSource === null
+      ? 'bubble'
+      : 'floorPlan'
   , [])
   const authUser = useAuthStore((state) => state.user)
   const currentProject = useProjectStore((state) => state.currentProject)
@@ -571,6 +591,36 @@ export function useEditorPage() {
     currentProject,
     projectId,
   })
+
+  const phaseStatus = workspacePhaseStatus
+  const isEditorReadOnly = currentUserType !== 'DESIGNER'
+  const canEditBubble = !isEditorReadOnly && mode === 'bubble' && phaseStatus === 'BUBBLE_DRAFT' && !isBubbleEditLocked
+  const canEditIfc = !isEditorReadOnly && phaseStatus === 'IFC_EDIT'
+  const canEditFloorPlan =
+    !isEditorReadOnly &&
+    phaseStatus !== 'CONVERTING' &&
+    (phaseStatus === 'IFC_EDIT' || isFloorPlanGenerated || floorPlanLayoutSource !== null)
+  const isConverting = phaseStatus === 'CONVERTING'
+  const isBubbleReadOnly = !canEditBubble
+  const {
+    selectedTool,
+    setSelectedTool,
+    connectingFromId,
+    setConnectingFromId,
+    resetToolSelection,
+    handleSetSelectedTool,
+  } = useEditorToolState({ isBubbleReadOnly })
+  const isFloorPlanHistoryMode = mode === '2d' || mode === '3d'
+  const hasBubbleUndoHistory = bubbleHistoryCursor.baseIndex > 0
+  const hasFloorPlanUndoHistory = floorPlanHistoryCursor.baseIndex > 0
+  const hasBubbleRedoHistory = bubbleHistoryCursor.redoDepth > 0
+  const hasFloorPlanRedoHistory = floorPlanHistoryCursor.redoDepth > 0
+  const canUndo = mode === 'bubble'
+    ? canEditBubble && (saveStatus === 'dirty' || hasBubbleUndoHistory)
+    : isFloorPlanHistoryMode && canEditFloorPlan && saveStatus === 'synced' && hasFloorPlanUndoHistory
+  const canRedo = mode === 'bubble'
+    ? canEditBubble && hasBubbleRedoHistory
+    : isFloorPlanHistoryMode && canEditFloorPlan && saveStatus === 'synced' && hasFloorPlanRedoHistory
 
   /**
    * CONVERTING 상태가 장시간 유지되면 편집 가능한 상태로 되돌리고 안내 문구를 노출한다.
@@ -713,7 +763,7 @@ export function useEditorPage() {
     [ifcElementChangesById],
   )
 
-  const draftSnapshot = useMemo<EditorDraftSnapshot>(() => ({
+  const draftSnapshot = useMemo<WorkspaceSnapshot>(() => ({
     phaseStatus: workspacePhaseStatus,
     bubbles,
     connections,
@@ -755,6 +805,26 @@ export function useEditorPage() {
   }, [bubbles, connections])
 
   useEffect(() => {
+    bootstrapStateAppliersRef.current = {
+      clearFloorPlan,
+      clearSelection,
+      clearTwoDStructureSelection,
+      replaceBubbles,
+      replaceConnections,
+      replaceFloorPlanState,
+      replaceZonesState,
+    }
+  }, [
+    clearFloorPlan,
+    clearSelection,
+    clearTwoDStructureSelection,
+    replaceBubbles,
+    replaceConnections,
+    replaceFloorPlanState,
+    replaceZonesState,
+  ])
+
+  useEffect(() => {
     return () => {
       clearServerPublishRetry()
     }
@@ -775,6 +845,15 @@ export function useEditorPage() {
     let isCancelled = false
     const loadToken = draftLoadTokenRef.current + 1
     const normalizedProjectId = projectId ?? null
+    const {
+      clearFloorPlan: clearFloorPlanForBootstrap,
+      clearSelection: clearSelectionForBootstrap,
+      clearTwoDStructureSelection: clearTwoDStructureSelectionForBootstrap,
+      replaceBubbles: replaceBubblesForBootstrap,
+      replaceConnections: replaceConnectionsForBootstrap,
+      replaceFloorPlanState: replaceFloorPlanStateForBootstrap,
+      replaceZonesState: replaceZonesStateForBootstrap,
+    } = bootstrapStateAppliersRef.current
 
     if (draftLoadedProjectIdRef.current === normalizedProjectId) {
       return () => {
@@ -796,10 +875,10 @@ export function useEditorPage() {
     floorPlanHistoryBaseIndexRef.current = -1
     setBubbleHistoryCursor({ baseIndex: -1, redoDepth: 0 })
     setFloorPlanHistoryCursor({ baseIndex: -1, redoDepth: 0 })
-    replaceBubbles([])
-    replaceConnections([])
-    replaceZonesState([])
-    clearFloorPlan()
+    replaceBubblesForBootstrap([])
+    replaceConnectionsForBootstrap([])
+    replaceZonesStateForBootstrap([])
+    clearFloorPlanForBootstrap()
     setFloorWalls([])
     setFloorOpenings([])
     setHiddenAutoWallIds([])
@@ -813,7 +892,7 @@ export function useEditorPage() {
     setSelectedFloorOpeningId(null)
     setSelectedFloorWallIds([])
     setSelectedFloorOpeningIds([])
-    clearSelection()
+    clearSelectionForBootstrap()
 
     if (!projectId) {
       draftLoadedProjectIdRef.current = null
@@ -831,16 +910,61 @@ export function useEditorPage() {
         color: bubble.color ?? '#93c5fd',
       }))
 
+    const buildBubbleWorkspaceSnapshot = (
+      phaseStatus: PhaseStatus,
+      snapshot: { bubbles: BubbleData[]; connections: ConnectionData[] },
+    ): WorkspaceSnapshot => ({
+      phaseStatus,
+      bubbles: normalizeBootstrapBubbles(snapshot.bubbles),
+      connections: snapshot.connections,
+      zones: [],
+      floorLayers: [],
+      activeFloorLayerId: null,
+      isFloorPlanGenerated: false,
+      floorPlanLayoutSource: null,
+      floorWalls: [],
+      floorOpenings: [],
+      hiddenAutoWallIds: [],
+      hiddenAutoOpeningIds: [],
+      isProjectStructurePreferred: false,
+      ifcElementChanges: [],
+    })
+
     const applyBubbleSnapshot = (snapshot: { bubbles: BubbleData[]; connections: ConnectionData[] }) => {
       suppressNextAutosaveRef.current = true
-      replaceBubbles(normalizeBootstrapBubbles(snapshot.bubbles))
-      replaceConnections(snapshot.connections)
+      replaceBubblesForBootstrap(normalizeBootstrapBubbles(snapshot.bubbles))
+      replaceConnectionsForBootstrap(snapshot.connections)
       setSelectedConnectionPair(null)
       setConnectingFromId(null)
-      clearSelection()
+      clearSelectionForBootstrap()
     }
 
-    const applyWorkspaceDetailFallback = async (): Promise<boolean> => {
+    const publishBubbleSnapshotToRedis = async (snapshot: WorkspaceSnapshot, baseIndex: number) => {
+      const serializedSnapshot = JSON.stringify(snapshot)
+      setSaveStatus('syncing')
+      awaitingServerSyncRef.current = {
+        projectId,
+        serializedSnapshot,
+        historyDomain: resolveServerHistoryDomain(snapshot),
+        baseIndex,
+        startedAt: Date.now(),
+      }
+      try {
+        await workspaceRealtimeService.publishSnapshot({
+          projectId,
+          snapshot,
+          baseIndex,
+        })
+        previousSnapshotRef.current = serializedSnapshot
+      } catch (error: unknown) {
+        if (awaitingServerSyncRef.current?.serializedSnapshot === serializedSnapshot) {
+          awaitingServerSyncRef.current = null
+        }
+        console.warn('[editor] Bubble history repair publish failed.', { projectId, baseIndex, error })
+      }
+    }
+
+    const applyWorkspaceDetailFallback = async (seedBubbleBaseline = false): Promise<boolean> => {
       const workspaceDetail = await projectService.getWorkspaceDetail(projectId).catch(() => null)
       if (isCancelled || draftLoadTokenRef.current !== loadToken) return false
       if (!workspaceDetail) return false
@@ -852,6 +976,12 @@ export function useEditorPage() {
 
       if (isBubbleSnapshotPayload(workspaceDetail.bubbleSnapshotJson)) {
         applyBubbleSnapshot(workspaceDetail.bubbleSnapshotJson)
+        if (seedBubbleBaseline && dbPhaseStatus === 'BUBBLE_DRAFT') {
+          await publishBubbleSnapshotToRedis(
+            buildBubbleWorkspaceSnapshot(dbPhaseStatus, workspaceDetail.bubbleSnapshotJson),
+            -1,
+          )
+        }
         return true
       }
 
@@ -884,7 +1014,7 @@ export function useEditorPage() {
       if (floorPlanSnapshot?.layout) {
         suppressNextAutosaveRef.current = true
         const layout = floorPlanSnapshot.layout
-        replaceFloorPlanState({
+        replaceFloorPlanStateForBootstrap({
           isGenerated: layout.isFloorPlanGenerated ?? true,
           layoutSource: layout.floorPlanLayoutSource ?? 'project',
           layers: layout.floorLayers ?? [],
@@ -902,8 +1032,8 @@ export function useEditorPage() {
 
         setSelectedConnectionPair(null)
         setConnectingFromId(null)
-        clearSelection()
-        clearTwoDStructureSelection()
+        clearSelectionForBootstrap()
+        clearTwoDStructureSelectionForBootstrap()
         return
       }
 
@@ -911,7 +1041,7 @@ export function useEditorPage() {
         return
       }
 
-      await applyWorkspaceDetailFallback()
+      await applyWorkspaceDetailFallback(bubbleBaseIndex < 0)
     }
 
     let didHistoryBootstrapFail = false
@@ -938,16 +1068,7 @@ export function useEditorPage() {
       draftLoadingProjectIdRef.current = null
       draftLoadBaselineRef.current = null
     }
-  }, [
-    clearFloorPlan,
-    clearSelection,
-    clearTwoDStructureSelection,
-    projectId,
-    replaceBubbles,
-    replaceConnections,
-    replaceFloorPlanState,
-    replaceZonesState,
-  ])
+  }, [projectId, resolveServerHistoryDomain, setConnectingFromId])
 
   useEffect(() => {
     if (!projectId || autosaveReadyProjectId !== projectId) return
@@ -959,6 +1080,9 @@ export function useEditorPage() {
     awaitingServerSyncRef.current = {
       projectId,
       serializedSnapshot: pendingServerPublish.serializedSnapshot,
+      historyDomain: resolveServerHistoryDomain(pendingServerPublish.snapshot),
+      baseIndex: pendingServerPublish.baseIndex,
+      startedAt: Date.now(),
     }
 
     void workspaceRealtimeService.publishSnapshot({
@@ -974,7 +1098,9 @@ export function useEditorPage() {
           currentPending.serializedSnapshot === pendingServerPublish.serializedSnapshot
         ) {
           pendingServerPublishRef.current = null
-          previousSnapshotRef.current = pendingServerPublish.serializedSnapshot
+          if (awaitingServerSyncRef.current?.serializedSnapshot === pendingServerPublish.serializedSnapshot) {
+            previousSnapshotRef.current = pendingServerPublish.serializedSnapshot
+          }
         }
       })
       .catch(() => {
@@ -989,13 +1115,31 @@ export function useEditorPage() {
     return () => {
       isCancelled = true
     }
-  }, [autosaveReadyProjectId, projectId, scheduleServerPublishRetry, serverPublishRetryTick])
+  }, [autosaveReadyProjectId, projectId, resolveServerHistoryDomain, scheduleServerPublishRetry, serverPublishRetryTick])
 
   useEffect(() => {
     if (!projectId || autosaveReadyProjectId !== projectId) return
     if (draftLoadingProjectIdRef.current === projectId) return
 
-    const serializedSnapshot = JSON.stringify(draftSnapshot)
+    const shouldPublishBubbleDraft = mode === 'bubble' && workspacePhaseStatus === 'BUBBLE_DRAFT'
+    const publishSnapshot: WorkspaceSnapshot = shouldPublishBubbleDraft
+      ? {
+          ...draftSnapshot,
+          phaseStatus: 'BUBBLE_DRAFT',
+          zones: [],
+          floorLayers: [],
+          activeFloorLayerId: null,
+          isFloorPlanGenerated: false,
+          floorPlanLayoutSource: null,
+          floorWalls: [],
+          floorOpenings: [],
+          hiddenAutoWallIds: [],
+          hiddenAutoOpeningIds: [],
+          isProjectStructurePreferred: false,
+          ifcElementChanges: [],
+        }
+      : draftSnapshot
+    const serializedSnapshot = JSON.stringify(publishSnapshot)
 
     if (suppressNextAutosaveRef.current) {
       suppressNextAutosaveRef.current = false
@@ -1031,22 +1175,34 @@ export function useEditorPage() {
 
     const serverPublishRecord: PendingServerPublishRecord = {
       projectId,
-      baseIndex: resolveServerHistoryBaseIndex(draftSnapshot),
-      snapshot: draftSnapshot,
+      baseIndex: resolveServerHistoryBaseIndex(publishSnapshot),
+      snapshot: publishSnapshot,
       serializedSnapshot,
     }
 
     setSaveStatus('dirty')
     setSaveStatus('syncing')
     clearServerPublishRetry()
+    console.info('[editor][autosave][publish]', {
+      projectId,
+      domain: resolveServerHistoryDomain(publishSnapshot),
+      baseIndex: serverPublishRecord.baseIndex,
+      mode,
+      phaseStatus: publishSnapshot.phaseStatus,
+      floorLayers: publishSnapshot.floorLayers.length,
+      floorRooms: publishSnapshot.floorLayers.reduce((count, layer) => count + layer.rooms.length, 0),
+    })
     awaitingServerSyncRef.current = {
       projectId,
       serializedSnapshot,
+      historyDomain: resolveServerHistoryDomain(publishSnapshot),
+      baseIndex: serverPublishRecord.baseIndex,
+      startedAt: Date.now(),
     }
 
     void workspaceRealtimeService.publishSnapshot({
         projectId,
-        snapshot: draftSnapshot,
+        snapshot: publishSnapshot,
         baseIndex: serverPublishRecord.baseIndex,
       })
       .then(() => {
@@ -1054,7 +1210,9 @@ export function useEditorPage() {
         if (currentPending?.projectId === serverPublishRecord.projectId) {
           pendingServerPublishRef.current = null
         }
-        previousSnapshotRef.current = serializedSnapshot
+        if (awaitingServerSyncRef.current?.serializedSnapshot === serializedSnapshot) {
+          previousSnapshotRef.current = serializedSnapshot
+        }
       })
       .catch(() => {
         if (awaitingServerSyncRef.current?.serializedSnapshot === serializedSnapshot) {
@@ -1068,29 +1226,14 @@ export function useEditorPage() {
     autosaveReadyProjectId,
     clearServerPublishRetry,
     draftSnapshot,
+    mode,
     projectId,
+    resolveServerHistoryDomain,
     resolveServerHistoryBaseIndex,
     scheduleServerPublishRetry,
+    workspacePhaseStatus,
     workspaceSnapshotCommitVersion,
   ])
-
-  const phaseStatus = workspacePhaseStatus
-  const isEditorReadOnly = currentUserType !== 'DESIGNER'
-  const canEditBubble = !isEditorReadOnly && phaseStatus === 'BUBBLE_DRAFT' && !isBubbleEditLocked
-  const canEditIfc = !isEditorReadOnly && phaseStatus === 'IFC_EDIT'
-  const canEditFloorPlan =
-    !isEditorReadOnly &&
-    phaseStatus !== 'CONVERTING' &&
-    (phaseStatus === 'IFC_EDIT' || isFloorPlanGenerated || floorPlanLayoutSource !== null)
-  const isConverting = phaseStatus === 'CONVERTING'
-  const isBubbleReadOnly = !canEditBubble
-  const isFloorPlanHistoryMode = mode === '2d' || mode === '3d'
-  const canUndo = mode === 'bubble'
-    ? canEditBubble && saveStatus === 'synced' && bubbleHistoryCursor.baseIndex > 0
-    : isFloorPlanHistoryMode && canEditFloorPlan && saveStatus === 'synced' && floorPlanHistoryCursor.baseIndex > 0
-  const canRedo = mode === 'bubble'
-    ? canEditBubble && saveStatus === 'synced' && bubbleHistoryCursor.redoDepth > 0
-    : isFloorPlanHistoryMode && canEditFloorPlan && saveStatus === 'synced' && floorPlanHistoryCursor.redoDepth > 0
 
   const updateBubbleHistoryCursor = useCallback((baseIndex: number, redoDepth: number) => {
     bubbleHistoryBaseIndexRef.current = baseIndex
@@ -1100,12 +1243,14 @@ export function useEditorPage() {
       workspaceEditTransactionDepthRef.current === 0 &&
       !pendingWorkspaceSnapshotCommitRef.current
     ) {
+      pendingServerPublishRef.current = null
       awaitingServerSyncRef.current = null
       setSaveStatus('synced')
     }
   }, [projectId])
 
   const updateFloorPlanHistoryCursor = useCallback((baseIndex: number, redoDepth: number) => {
+    floorPlanHistoryCommandInFlightRef.current = false
     floorPlanHistoryBaseIndexRef.current = baseIndex
     setFloorPlanHistoryCursor({ baseIndex, redoDepth })
     if (
@@ -1113,6 +1258,7 @@ export function useEditorPage() {
       workspaceEditTransactionDepthRef.current === 0 &&
       !pendingWorkspaceSnapshotCommitRef.current
     ) {
+      pendingServerPublishRef.current = null
       awaitingServerSyncRef.current = null
       setSaveStatus('synced')
     }
@@ -1122,8 +1268,27 @@ export function useEditorPage() {
     bubbles: BubbleData[]
     connections: ConnectionData[]
   }) => {
+    const incomingSignature = JSON.stringify({
+      bubbles: snapshot.bubbles,
+      connections: snapshot.connections,
+    })
+    const latestLocalSnapshot = latestBubbleSnapshotRef.current
+    const latestLocalSignature = JSON.stringify({
+      bubbles: latestLocalSnapshot.bubbles,
+      connections: latestLocalSnapshot.connections,
+    })
+    const hasLocalBubbleEditInFlight =
+      isBubbleDragTransactionActiveRef.current ||
+      workspaceEditTransactionDepthRef.current > 0 ||
+      pendingWorkspaceSnapshotCommitRef.current ||
+      awaitingServerSyncRef.current !== null
+
+    if (hasLocalBubbleEditInFlight && incomingSignature !== latestLocalSignature) {
+      return
+    }
+
     suppressNextAutosaveRef.current = true
-    const previousById = new Map(bubbles.map((bubble) => [bubble.id, bubble] as const))
+    const previousById = new Map(latestLocalSnapshot.bubbles.map((bubble) => [bubble.id, bubble] as const))
     const normalizedBubbles = snapshot.bubbles.map((bubble, index) => {
       const previous = previousById.get(bubble.id)
       const areaLabel = Number.isFinite(bubble.ratio) ? `${bubble.ratio.toFixed(1)} m²` : (previous?.area ?? '0.0 m²')
@@ -1142,7 +1307,7 @@ export function useEditorPage() {
     setConnectingFromId(null)
     awaitingServerSyncRef.current = null
     setSaveStatus(workspaceEditTransactionDepthRef.current > 0 || pendingWorkspaceSnapshotCommitRef.current ? 'dirty' : 'synced')
-  }, [bubbles, replaceBubbles, replaceConnections])
+  }, [replaceBubbles, replaceConnections, setConnectingFromId])
 
   const applyRemoteFloorPlanSnapshot = useCallback((snapshot: FloorPlanSnapshotPayload) => {
     suppressNextAutosaveRef.current = true
@@ -1169,6 +1334,7 @@ export function useEditorPage() {
     setConnectingFromId(null)
     clearConnectionAndTwoDSelection()
     clearSelection()
+    floorPlanHistoryCommandInFlightRef.current = false
     awaitingServerSyncRef.current = null
     setSaveStatus(workspaceEditTransactionDepthRef.current > 0 || pendingWorkspaceSnapshotCommitRef.current ? 'dirty' : 'synced')
   }, [
@@ -1179,7 +1345,101 @@ export function useEditorPage() {
     floorPlanLayoutSource,
     isFloorPlanGenerated,
     replaceFloorPlanState,
+    setConnectingFromId,
   ])
+
+  const undoUnsyncedLocalBubbleChange = useCallback(() => {
+    const baselineSnapshot = previousSnapshotRef.current
+    if (!baselineSnapshot) return false
+
+    let parsedSnapshot: WorkspaceSnapshot
+    try {
+      parsedSnapshot = JSON.parse(baselineSnapshot) as WorkspaceSnapshot
+    } catch {
+      return false
+    }
+
+    if (!isBubbleSnapshotPayload(parsedSnapshot)) return false
+
+    clearServerPublishRetry()
+    if (bubbleDbSaveTimerRef.current !== null) {
+      window.clearTimeout(bubbleDbSaveTimerRef.current)
+      bubbleDbSaveTimerRef.current = null
+    }
+    bubbleDbDirtyRef.current = false
+    pendingServerPublishRef.current = null
+    awaitingServerSyncRef.current = null
+    pendingWorkspaceSnapshotCommitRef.current = false
+    workspaceEditTransactionDepthRef.current = 0
+    isBubbleDragTransactionActiveRef.current = false
+    hasUserEditedRef.current = false
+
+    applyRemoteBubbleSnapshot({
+      bubbles: parsedSnapshot.bubbles,
+      connections: parsedSnapshot.connections,
+    })
+    previousSnapshotRef.current = baselineSnapshot
+    return true
+  }, [applyRemoteBubbleSnapshot, clearServerPublishRetry])
+
+  const refreshHistoryCursorFromServer = useCallback(async () => {
+    if (!projectId) return
+    const awaitingSync = awaitingServerSyncRef.current
+    const history = await workspaceSaveService.loadHistorySnapshot(projectId).catch(() => null)
+    if (!history) {
+      if (awaitingSync?.projectId === projectId) {
+        awaitingServerSyncRef.current = null
+        previousSnapshotRef.current = null
+        setSaveStatus('dirty')
+        setWorkspaceSnapshotCommitVersion((version) => version + 1)
+      }
+      return
+    }
+
+    const bubbleBaseIndex = history.bubble?.baseIndex ?? -1
+    const bubbleRedoDepth = history.bubble?.redoDepth ?? 0
+    const floorPlanBaseIndex = history.floorPlan?.baseIndex ?? -1
+    const floorPlanRedoDepth = history.floorPlan?.redoDepth ?? 0
+
+    bubbleHistoryBaseIndexRef.current = bubbleBaseIndex
+    floorPlanHistoryBaseIndexRef.current = floorPlanBaseIndex
+    setBubbleHistoryCursor({ baseIndex: bubbleBaseIndex, redoDepth: bubbleRedoDepth })
+    setFloorPlanHistoryCursor({ baseIndex: floorPlanBaseIndex, redoDepth: floorPlanRedoDepth })
+
+    if (!awaitingSync || awaitingSync.projectId !== projectId) return
+
+    const currentBaseIndex = awaitingSync.historyDomain === 'bubble' ? bubbleBaseIndex : floorPlanBaseIndex
+    awaitingServerSyncRef.current = null
+
+    if (
+      currentBaseIndex > awaitingSync.baseIndex ||
+      (awaitingSync.baseIndex >= WORKSPACE_HISTORY_MAX_INDEX && currentBaseIndex === WORKSPACE_HISTORY_MAX_INDEX)
+    ) {
+      previousSnapshotRef.current = awaitingSync.serializedSnapshot
+      pendingServerPublishRef.current = null
+      setSaveStatus('synced')
+      return
+    }
+
+    previousSnapshotRef.current = null
+    setSaveStatus('dirty')
+    setWorkspaceSnapshotCommitVersion((version) => version + 1)
+  }, [projectId])
+
+  useEffect(() => {
+    if (saveStatus !== 'syncing') return
+    const awaitingSync = awaitingServerSyncRef.current
+    if (!awaitingSync || awaitingSync.projectId !== projectId) return
+
+    const timerId = window.setTimeout(() => {
+      const currentAwaitingSync = awaitingServerSyncRef.current
+      if (!currentAwaitingSync || currentAwaitingSync.projectId !== projectId) return
+      if (Date.now() - currentAwaitingSync.startedAt < 5000) return
+      void refreshHistoryCursorFromServer()
+    }, 5200)
+
+    return () => window.clearTimeout(timerId)
+  }, [projectId, refreshHistoryCursorFromServer, saveStatus])
 
   const { markLocalBubbleSnapshotChanged: markLocalBubbleSnapshotChangedRealtime } = useBubbleSnapshotRealtime({
     projectId,
@@ -1194,6 +1454,8 @@ export function useEditorPage() {
     },
     onBubbleHistoryCursorChanged: updateBubbleHistoryCursor,
     onFloorPlanHistoryCursorChanged: updateFloorPlanHistoryCursor,
+    onBubbleHistoryCursorInvalid: refreshHistoryCursorFromServer,
+    onFloorPlanHistoryCursorInvalid: refreshHistoryCursorFromServer,
     bubbleHistoryCursor,
     floorPlanHistoryCursor,
   })
@@ -1250,19 +1512,67 @@ export function useEditorPage() {
     scheduleBubbleSnapshotSaveToDb()
   }, [markLocalBubbleSnapshotChangedRealtime, scheduleBubbleSnapshotSaveToDb])
 
+  const markLocalFloorPlanSnapshotChanged = useCallback(() => {
+    hasUserEditedRef.current = true
+    setSaveStatus('dirty')
+  }, [])
+
   const beginWorkspaceSnapshotTransaction = useCallback(() => {
     hasUserEditedRef.current = true
     workspaceEditTransactionDepthRef.current += 1
+    lastWorkspaceSnapshotTransactionAtRef.current = Date.now()
     setSaveStatus('dirty')
   }, [])
 
   const commitWorkspaceSnapshotTransaction = useCallback(() => {
     workspaceEditTransactionDepthRef.current = Math.max(0, workspaceEditTransactionDepthRef.current - 1)
     if (workspaceEditTransactionDepthRef.current > 0) return
-    if (!pendingWorkspaceSnapshotCommitRef.current) return
     pendingWorkspaceSnapshotCommitRef.current = false
     setWorkspaceSnapshotCommitVersion((version) => version + 1)
   }, [])
+
+  const commitBubbleDragSnapshot = useCallback(() => {
+    if (!isBubbleDragTransactionActiveRef.current) return
+    isBubbleDragTransactionActiveRef.current = false
+    markLocalBubbleSnapshotChanged()
+    commitWorkspaceSnapshotTransaction()
+  }, [commitWorkspaceSnapshotTransaction, markLocalBubbleSnapshotChanged])
+
+  const flushOpenWorkspaceSnapshotTransaction = useCallback(() => {
+    if (isBubbleDragTransactionActiveRef.current) {
+      commitBubbleDragSnapshot()
+      return
+    }
+    if (workspaceEditTransactionDepthRef.current <= 0) return
+    workspaceEditTransactionDepthRef.current = 0
+    pendingWorkspaceSnapshotCommitRef.current = false
+    setWorkspaceSnapshotCommitVersion((version) => version + 1)
+  }, [commitBubbleDragSnapshot])
+
+  useEffect(() => {
+    const handleInteractionEnd = () => {
+      flushOpenWorkspaceSnapshotTransaction()
+    }
+
+    window.addEventListener('mouseup', handleInteractionEnd)
+    window.addEventListener('touchend', handleInteractionEnd)
+    window.addEventListener('blur', handleInteractionEnd)
+    return () => {
+      window.removeEventListener('mouseup', handleInteractionEnd)
+      window.removeEventListener('touchend', handleInteractionEnd)
+      window.removeEventListener('blur', handleInteractionEnd)
+    }
+  }, [flushOpenWorkspaceSnapshotTransaction])
+
+  useEffect(() => {
+    if (workspaceEditTransactionDepthRef.current <= 0) return
+    const timerId = window.setTimeout(() => {
+      if (workspaceEditTransactionDepthRef.current <= 0) return
+      if (Date.now() - lastWorkspaceSnapshotTransactionAtRef.current < 1200) return
+      flushOpenWorkspaceSnapshotTransaction()
+    }, 1500)
+    return () => window.clearTimeout(timerId)
+  }, [flushOpenWorkspaceSnapshotTransaction, saveStatus, workspaceSnapshotCommitVersion])
 
   useEffect(() => {
     markLocalBubbleSnapshotChangedRef.current = markLocalBubbleSnapshotChanged
@@ -1344,12 +1654,30 @@ export function useEditorPage() {
   // 파생 상태: 선택된 버블 객체
   const selectedBubble = useMemo(
     () => {
-      const matchedBubble = bubbles.find((bubble) => bubble.id === selectedId)
+      const matchedBubbleForDebug = bubbles.find((bubble) => bubble.id === selectedId)
+      const matchedRoomForDebug = floorRooms.find((room) => room.bubbleId === selectedId)
+      if (mode === '2d' && selectedId) {
+        const matchedRoom = matchedRoomForDebug
+        if (matchedRoom) {
+          return {
+            id: matchedRoom.bubbleId,
+            label: matchedRoom.label,
+            type: matchedRoom.type,
+            widthMm: matchedRoom.widthMm,
+            heightMm: matchedRoom.heightMm,
+            ratio: matchedRoom.area,
+            color: matchedRoom.color,
+            material: undefined,
+          }
+        }
+        return null
+      }
+      const matchedBubble = matchedBubbleForDebug
       if (matchedBubble) {
         return mode === '2d' ? { ...matchedBubble, material: undefined } : matchedBubble
       }
       if (!selectedId) return null
-      const matchedRoom = floorRooms.find((room) => room.bubbleId === selectedId)
+      const matchedRoom = matchedRoomForDebug
       if (!matchedRoom) return null
       return {
         id: matchedRoom.bubbleId,
@@ -1521,7 +1849,7 @@ export function useEditorPage() {
   const zoningListItems = useMemo(() => [...autoZones, ...manualZones], [autoZones, manualZones])
 
   const {
-    sitePoints,
+    fixedScaleSitePoints,
     sitePlanPoints,
     layoutBoundaryInput,
     siteAreaM2,
@@ -1537,15 +1865,42 @@ export function useEditorPage() {
     floorOpenings: mergedFloorOpenings,
     setSaveStatus,
   })
+  const bubbleSitePoints = fixedScaleSitePoints
+  const sharedSitePlanPoints = bubbles.length > 0 ? bubbleSitePoints : sitePlanPoints
+
+  const zoomFitPoints = useMemo(() => {
+    if (bubbles.length > 0) return bubbleSitePoints
+
+    if (floorRooms.length > 0) {
+      return floorRooms.flatMap((room) => {
+        if (room.polygon && room.polygon.length >= 3) {
+          return room.polygon.flatMap((point) => [point.x, point.y])
+        }
+        return [
+          room.x,
+          room.y,
+          room.x + room.width,
+          room.y,
+          room.x + room.width,
+          room.y + room.height,
+          room.x,
+          room.y + room.height,
+        ]
+      })
+    }
+
+    return sharedSitePlanPoints
+  }, [bubbles.length, bubbleSitePoints, floorRooms, sharedSitePlanPoints])
 
   const {
     zoom: currentZoom,
+    canvasZoom,
     handleWheelZoom,
     handleZoomIn,
     handleZoomOut,
     handleZoomChange,
   } = useEditorZoom({
-    sitePlanPoints,
+    sitePlanPoints: zoomFitPoints,
     stageWidth: stageSize.width,
     stageHeight: stageSize.height,
     fitPaddingPx: EDITOR_SITE_FIT_PADDING_PX,
@@ -1582,10 +1937,11 @@ export function useEditorPage() {
   /** 편집 모드 전환 — 협업 모드·라이브러리는 모드 이탈 시 닫힘 */
   const setMode = useCallback((nextMode: EditorMode) => {
     setSearchParams({ mode: nextMode })
+    if (nextMode !== mode) resetToolSelection()
     if (nextMode !== '2d') setIsCollaborationMode(false)
     if (nextMode !== '3d') setSelectedIfcElement(null)
     setIsLibraryOpen(false)
-  }, [setSearchParams])
+  }, [mode, resetToolSelection, setSearchParams])
 
   const handleOpenAddModal = () => {
     if (isBubbleReadOnly) return
@@ -1850,17 +2206,6 @@ export function useEditorPage() {
     setSelectedConnectionPair(null)
   }
 
-  /** 도구 선택 — connect 도구에서 벗어날 때 연결 대기 상태 초기화 */
-  const handleSetSelectedTool = (tool: string) => {
-    if (isBubbleReadOnly && (tool === 'connect' || tool === 'delete')) {
-      setSelectedTool('selection')
-      setConnectingFromId(null)
-      return
-    }
-    setSelectedTool(tool)
-    if (tool !== 'connect') setConnectingFromId(null)
-  }
-
   const handleClearCanvasSelection = () => {
     clearSelection()
     clearConnectionAndTwoDSelection()
@@ -1945,15 +2290,38 @@ export function useEditorPage() {
 
   const handleBubbleDragInBubble = useCallback((bubbleId: string, x: number, y: number) => {
     if (isBubbleReadOnly) return
-    markLocalBubbleSnapshotChanged()
+    if (!isBubbleDragTransactionActiveRef.current) {
+      isBubbleDragTransactionActiveRef.current = true
+      beginWorkspaceSnapshotTransaction()
+    }
     handleBubbleDrag(bubbleId, x, y)
-  }, [isBubbleReadOnly, markLocalBubbleSnapshotChanged, handleBubbleDrag])
+  }, [beginWorkspaceSnapshotTransaction, isBubbleReadOnly, handleBubbleDrag])
+
+  const handleBubbleDragStartInBubble = useCallback(() => {
+    if (isBubbleReadOnly) return
+    if (isBubbleDragTransactionActiveRef.current) return
+    isBubbleDragTransactionActiveRef.current = true
+    beginWorkspaceSnapshotTransaction()
+  }, [beginWorkspaceSnapshotTransaction, isBubbleReadOnly])
+
+  const handleBubbleDragEndInBubble = useCallback(() => {
+    if (isBubbleReadOnly) return
+    commitBubbleDragSnapshot()
+  }, [commitBubbleDragSnapshot, isBubbleReadOnly])
 
   const handleBubbleResizeInBubble = useCallback((id: string, x: number, y: number, width: number, height: number) => {
     if (isBubbleReadOnly) return
-    markLocalBubbleSnapshotChanged()
+    beginWorkspaceSnapshotTransaction()
     handleBubbleResize(id, x, y, width, height)
-  }, [isBubbleReadOnly, markLocalBubbleSnapshotChanged, handleBubbleResize])
+    markLocalBubbleSnapshotChanged()
+    commitWorkspaceSnapshotTransaction()
+  }, [
+    beginWorkspaceSnapshotTransaction,
+    commitWorkspaceSnapshotTransaction,
+    isBubbleReadOnly,
+    markLocalBubbleSnapshotChanged,
+    handleBubbleResize,
+  ])
 
   /** 2D 평면도 생성 버튼 핸들러 — 로딩 애니메이션 포함 */
   const handleGenerateFloorPlan = async () => {
@@ -1997,6 +2365,17 @@ export function useEditorPage() {
         projectId,
         ...getLayoutImportBoundaryLogMetadata(layoutBoundaryInput, latestSnapshot.bubbles, layoutImport),
       })
+      console.table(layoutImport.rooms.map((room) => ({
+        id: room.id,
+        sourceBubbleId: room.sourceBubbleId,
+        source_bubble_id: room.source_bubble_id,
+        name: room.name,
+        type: room.type,
+        x: room.x,
+        y: room.y,
+        width: room.width,
+        height: room.height,
+      })))
       const response = await requestFloorPlanGenerate({
         projectId,
         layoutImport,
@@ -2211,6 +2590,7 @@ export function useEditorPage() {
       minSizeMm: 100,
     })
     if (!resizeState) return
+    markLocalFloorPlanSnapshotChanged()
 
     const {
       nextRooms,
@@ -2258,6 +2638,7 @@ export function useEditorPage() {
       selectedBubbleIds: selectedIds,
     })
     if (!moveState) return
+    markLocalFloorPlanSnapshotChanged()
     const { nextRooms, shouldMoveMulti } = moveState
 
     if (shouldMoveMulti) {
@@ -2289,6 +2670,7 @@ export function useEditorPage() {
     if (!isFinitePolygonPoints(polygon)) return
     const currentRoom = floorRooms.find((room) => room.bubbleId === bubbleId)
     if (!currentRoom) return
+    markLocalFloorPlanSnapshotChanged()
 
     const bounds = getPolygonBounds(polygon)
     const nextWidthPx = Math.max(bounds.maxX - bounds.minX, 1)
@@ -2361,6 +2743,7 @@ export function useEditorPage() {
     floorRooms,
     isWallFirstEditing,
     setIsFloorPlanEditedIn2D,
+    markLocalFloorPlanSnapshotChanged,
     markLocalBubbleSnapshotChanged,
     canSyncBubbleStateFrom2D,
     handleWidthChange,
@@ -2382,13 +2765,23 @@ export function useEditorPage() {
     setConnectingFromId(null)
     clearConnectionAndTwoDSelection()
     clearSelection()
-  }, [clearSelection, clearConnectionAndTwoDSelection])
+  }, [clearSelection, clearConnectionAndTwoDSelection, setConnectingFromId])
 
   const handleUndo = useCallback(() => {
     if (!projectId) return
     if (mode === 'bubble') {
       if (!canUndo) return
+      if (saveStatus === 'dirty' && !hasBubbleUndoHistory) {
+        undoUnsyncedLocalBubbleChange()
+        return
+      }
       try {
+        console.info('[editor][undo][bubble]', {
+          projectId,
+          baseIndex: bubbleHistoryBaseIndexRef.current,
+          cursor: bubbleHistoryCursor,
+          saveStatus,
+        })
         publishBubbleUndoRequest(projectId, { baseIndex: bubbleHistoryBaseIndexRef.current })
       } catch (error: unknown) {
         console.warn('[editor] Bubble undo publish failed.', { projectId, error })
@@ -2397,12 +2790,33 @@ export function useEditorPage() {
     }
 
     if (!isFloorPlanHistoryMode || !canUndo) return
+    if (floorPlanHistoryCommandInFlightRef.current) return
     try {
+      floorPlanHistoryCommandInFlightRef.current = true
+      setSaveStatus('syncing')
+      console.info('[editor][undo][floor-plan]', {
+        projectId,
+        baseIndex: floorPlanHistoryBaseIndexRef.current,
+        cursor: floorPlanHistoryCursor,
+        saveStatus,
+      })
       publishFloorPlanUndoRequest(projectId, { baseIndex: floorPlanHistoryBaseIndexRef.current })
     } catch (error: unknown) {
+      floorPlanHistoryCommandInFlightRef.current = false
+      setSaveStatus('synced')
       console.warn('[editor] Floor-plan undo publish failed.', { projectId, error })
     }
-  }, [canUndo, isFloorPlanHistoryMode, mode, projectId])
+  }, [
+    bubbleHistoryCursor,
+    canUndo,
+    floorPlanHistoryCursor,
+    hasBubbleUndoHistory,
+    isFloorPlanHistoryMode,
+    mode,
+    projectId,
+    saveStatus,
+    undoUnsyncedLocalBubbleChange,
+  ])
 
   const handleRedo = useCallback(() => {
     if (!projectId) return
@@ -2417,9 +2831,14 @@ export function useEditorPage() {
     }
 
     if (!isFloorPlanHistoryMode || !canRedo) return
+    if (floorPlanHistoryCommandInFlightRef.current) return
     try {
+      floorPlanHistoryCommandInFlightRef.current = true
+      setSaveStatus('syncing')
       publishFloorPlanRedoRequest(projectId, { baseIndex: floorPlanHistoryBaseIndexRef.current })
     } catch (error: unknown) {
+      floorPlanHistoryCommandInFlightRef.current = false
+      setSaveStatus('synced')
       console.warn('[editor] Floor-plan redo publish failed.', { projectId, error })
     }
   }, [canRedo, isFloorPlanHistoryMode, mode, projectId])
@@ -2448,12 +2867,72 @@ export function useEditorPage() {
    */
   const applyFloorProject = useCallback((project: FloorProject) => {
     setIsFloorPlanEditedIn2D(false)
-    const stageOptions = { width: stageSize.width, height: stageSize.height }
+    const referenceBubbles = latestBubbleSnapshotRef.current.bubbles
+    const bubbleIds = new Set(referenceBubbles.map((bubble) => bubble.id))
+    const isBubbleGeneratedProject =
+      project.rooms.length > 0 &&
+      referenceBubbles.length > 0 &&
+      (project.rooms.every((room) => bubbleIds.has(room.id)) || project.rooms.length <= referenceBubbles.length)
+    const stageOptions = {
+      width: stageSize.width,
+      height: stageSize.height,
+      ...(isBubbleGeneratedProject ? { scaleMode: 'canvas' as const, referenceBubbles } : {}),
+    }
+    if (isBubbleGeneratedProject) {
+      console.table(project.rooms.map((room, index) => {
+        const referenceBubble = referenceBubbles.find((bubble) => bubble.id === room.id) ?? referenceBubbles[index]
+        return {
+          index,
+          sourceBubbleId: referenceBubble?.id,
+          sourceBubbleLabel: referenceBubble?.label,
+          sourceBubbleType: referenceBubble?.type,
+          resultRoomId: room.id,
+          resultRoomName: room.name,
+          resultRoomType: room.type,
+          nameMatches: referenceBubble ? referenceBubble.label === room.name : false,
+        }
+      }))
+    }
+    console.table(project.rooms.map((room) => {
+      const xs = room.polygon.map((point) => point.x)
+      const ys = room.polygon.map((point) => point.y)
+      return {
+        id: room.id,
+        name: room.name,
+        type: room.type,
+        area: room.area,
+        areaM2: room.areaM2,
+        grossAreaM2: room.grossAreaM2,
+        netAreaM2: room.netAreaM2,
+        metadata: JSON.stringify(room.metadata),
+        polygonWidth: xs.length > 0 ? Math.max(...xs) - Math.min(...xs) : null,
+        polygonHeight: ys.length > 0 ? Math.max(...ys) - Math.min(...ys) : null,
+      }
+    }))
+    const debugLayers = mapFloorProjectToLayers(project, stageOptions)
+    console.table(debugLayers.flatMap((layer) =>
+      layer.rooms.map((room) => ({
+        layer: layer.name,
+        id: room.id,
+        label: room.label,
+        type: room.type,
+        widthPx: room.width,
+        heightPx: room.height,
+        widthMm: room.widthMm,
+        heightMm: room.heightMm,
+        area: room.area,
+      })),
+    ))
     const mappedWalls = mapFloorProjectToWalls(project, stageOptions)
     const mappedOpenings = mapFloorProjectToOpenings(project)
     setIsProjectStructurePreferred(mappedWalls.length > 0 || mappedOpenings.length > 0)
     // IFC 원좌표/회전 정보를 유지하기 위해 버블 재배치 경로(syncFloorPlanFromBubbles)를 타지 않는다.
-    setFloorPlanFromProject(project, stageSize.width, stageSize.height)
+    setFloorPlanFromProject(
+      project,
+      stageSize.width,
+      stageSize.height,
+      isBubbleGeneratedProject ? { scaleMode: 'canvas', referenceBubbles } : undefined,
+    )
     setFloorWalls(mappedWalls)
     setHiddenAutoWallIds([])
     setFloorOpenings(mappedOpenings)
@@ -2687,10 +3166,10 @@ export function useEditorPage() {
     const nextBubbles = runForceDirectedBubbleLayout({
       bubbles,
       connections,
-      sitePoints: sitePlanPoints,
+      sitePoints: bubbleSitePoints,
     })
     replaceBubbles(nextBubbles)
-  }, [mode, isBubbleReadOnly, bubbles, connections, sitePlanPoints, replaceBubbles, markLocalBubbleSnapshotChanged])
+  }, [mode, isBubbleReadOnly, bubbles, connections, bubbleSitePoints, replaceBubbles, markLocalBubbleSnapshotChanged])
 
   return {
     // 모드
@@ -2712,8 +3191,8 @@ export function useEditorPage() {
     // 캔버스 크기·대지
     containerRef,
     stageSize,
-    sitePoints,
-    sitePlanPoints,
+    sitePoints: bubbleSitePoints,
+    sitePlanPoints: sharedSitePlanPoints,
     siteAreaM2,
     siteAreaPyeong,
     // 버블
@@ -2729,6 +3208,8 @@ export function useEditorPage() {
     handleSelectIfcElement,
     handleDeleteIfcElement,
     handleBubbleDrag: handleBubbleDragInBubble,
+    handleBubbleDragStart: handleBubbleDragStartInBubble,
+    handleBubbleDragEnd: handleBubbleDragEndInBubble,
     handleMarqueeSelect,
     handleTwoDMarqueeSelect,
     clearSelection: handleClearCanvasSelection,
@@ -2813,6 +3294,7 @@ export function useEditorPage() {
     handleAddCommentReply,
     // 줌
     zoom: currentZoom,
+    canvasZoom,
     handleZoomIn,
     handleZoomOut,
     handleZoomChange,

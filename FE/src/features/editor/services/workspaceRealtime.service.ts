@@ -1,5 +1,5 @@
 import { ensureStompConnected } from '@/shared/lib/stomp'
-import type { BubbleData, ConnectionData, ConnectionStyle, EditorDraftSnapshot } from '../types'
+import type { BubbleData, ConnectionData, ConnectionStyle, WorkspaceSnapshot } from '../types'
 
 type FloorPlanSceneType = 'TWO_D' | 'THREE_D'
 
@@ -29,17 +29,17 @@ interface WorkspaceFloorPlanPayload extends WorkspaceBubblePayload {
   sceneType: FloorPlanSceneType
   revisionId?: string | null
   layout: {
-    phaseStatus: EditorDraftSnapshot['phaseStatus']
-    floorLayers: EditorDraftSnapshot['floorLayers']
-    activeFloorLayerId: EditorDraftSnapshot['activeFloorLayerId']
-    isFloorPlanGenerated: EditorDraftSnapshot['isFloorPlanGenerated']
-    floorPlanLayoutSource: EditorDraftSnapshot['floorPlanLayoutSource']
-    floorWalls: EditorDraftSnapshot['floorWalls']
-    floorOpenings: EditorDraftSnapshot['floorOpenings']
-    hiddenAutoWallIds: EditorDraftSnapshot['hiddenAutoWallIds']
-    hiddenAutoOpeningIds: EditorDraftSnapshot['hiddenAutoOpeningIds']
-    isProjectStructurePreferred: EditorDraftSnapshot['isProjectStructurePreferred']
-    ifcElementChanges: EditorDraftSnapshot['ifcElementChanges']
+    phaseStatus: WorkspaceSnapshot['phaseStatus']
+    floorLayers: WorkspaceSnapshot['floorLayers']
+    activeFloorLayerId: WorkspaceSnapshot['activeFloorLayerId']
+    isFloorPlanGenerated: WorkspaceSnapshot['isFloorPlanGenerated']
+    floorPlanLayoutSource: WorkspaceSnapshot['floorPlanLayoutSource']
+    floorWalls: WorkspaceSnapshot['floorWalls']
+    floorOpenings: WorkspaceSnapshot['floorOpenings']
+    hiddenAutoWallIds: WorkspaceSnapshot['hiddenAutoWallIds']
+    hiddenAutoOpeningIds: WorkspaceSnapshot['hiddenAutoOpeningIds']
+    isProjectStructurePreferred: WorkspaceSnapshot['isProjectStructurePreferred']
+    ifcElementChanges: WorkspaceSnapshot['ifcElementChanges']
     mode: 'ifc'
     baseIndex: number
   }
@@ -47,7 +47,7 @@ interface WorkspaceFloorPlanPayload extends WorkspaceBubblePayload {
 
 export interface PublishWorkspaceSnapshotInput {
   projectId: string
-  snapshot: EditorDraftSnapshot
+  snapshot: WorkspaceSnapshot
   baseIndex: number
   revisionId?: string | null
 }
@@ -91,7 +91,7 @@ const normalizeConnections = (
 }
 
 const toBubblePayload = (
-  snapshot: EditorDraftSnapshot,
+  snapshot: WorkspaceSnapshot,
   baseIndex: number,
 ): WorkspaceBubblePayload => {
   const bubbles = snapshot.bubbles.map(toWorkspaceBubble)
@@ -103,7 +103,7 @@ const toBubblePayload = (
 }
 
 const toTwoDFloorPlanPayload = (
-  snapshot: EditorDraftSnapshot,
+  snapshot: WorkspaceSnapshot,
   baseIndex: number,
   revisionId?: string | null,
 ): WorkspaceFloorPlanPayload => ({

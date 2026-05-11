@@ -15,6 +15,7 @@ type CanvasContextProps = Pick<
   | 'isGridVisible'
   | 'selectedTool'
   | 'zoom'
+  | 'canvasZoom'
   | 'handleWheelZoom'
 >
 
@@ -31,6 +32,8 @@ type BubbleCanvasProps = Pick<
   | 'connectingFromId'
   | 'openEditModal'
   | 'handleBubbleDrag'
+  | 'handleBubbleDragStart'
+  | 'handleBubbleDragEnd'
   | 'handleBubbleSelectWithTool'
   | 'handleDeleteBubble'
   | 'handleConnectionClick'

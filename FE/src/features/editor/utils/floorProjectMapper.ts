@@ -16,6 +16,8 @@ interface MapperOptions {
   width: number
   height: number
   padding?: number
+  scaleMode?: 'fit' | 'real' | 'canvas'
+  referenceBubbles?: Pick<BubbleData, 'id' | 'x' | 'y' | 'width' | 'height' | 'widthMm' | 'heightMm' | 'ratio' | 'label' | 'type'>[]
 }
 
 interface ProjectTransform {
@@ -28,6 +30,13 @@ const DEFAULT_ROOM_COLOR = '#DCE3F3'
 const DEFAULT_PADDING = 80
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
+
+const median = (values: number[]): number | null => {
+  const sorted = values.filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b)
+  if (sorted.length === 0) return null
+  const middle = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle]
+}
 
 const toBounds = (polygon: FloorProjectPoint2D[]): Bounds | null => {
   if (!polygon || polygon.length < 3) return null
@@ -62,10 +71,7 @@ const isAxisAlignedRectanglePolygon = (polygon: FloorProjectPoint2D[]): boolean 
   return points.every((point) => corners.some((corner) => isSamePoint(point, corner)))
 }
 
-const shouldUseAutoWallsForProject = (project: FloorProject): boolean =>
-  project.rooms.length > 0 && project.rooms.every((room) => isAxisAlignedRectanglePolygon(room.polygon))
-
-const computeRoomAreaM2 = (polygon: FloorProjectPoint2D[]): number => {
+const computeRawPolygonArea = (polygon: FloorProjectPoint2D[]): number => {
   if (!polygon || polygon.length < 3) return 0
   let area = 0
   for (let i = 0; i < polygon.length; i += 1) {
@@ -73,7 +79,129 @@ const computeRoomAreaM2 = (polygon: FloorProjectPoint2D[]): number => {
     const next = polygon[(i + 1) % polygon.length]
     area += current.x * next.y - next.x * current.y
   }
-  return Math.abs(area) / 2 / 1_000_000
+  return Math.abs(area) / 2
+}
+
+const computeRoomAreaM2 = (polygon: FloorProjectPoint2D[], coordinateMmMultiplier = 1): number => {
+  return (computeRawPolygonArea(polygon) * coordinateMmMultiplier * coordinateMmMultiplier) / 1_000_000
+}
+
+const readPositiveNumber = (value: unknown): number | null => {
+  const numericValue = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null
+}
+
+const readPositiveDimension = (value: unknown): number | null => {
+  const numericValue = readPositiveNumber(value)
+  return numericValue !== null ? numericValue : null
+}
+
+const normalizeMatchKey = (value: string | undefined): string =>
+  normalizeIfcDisplayText(value ?? '').trim().replace(/\s+/g, '').toLowerCase()
+
+const buildReferenceBubbleResolver = (referenceBubbles?: MapperOptions['referenceBubbles']) => {
+  const bubbles = referenceBubbles ?? []
+  const bubbleById = new Map(bubbles.map((bubble) => [bubble.id, bubble]))
+  const bubblesByLabel = new Map<string, typeof bubbles>()
+
+  bubbles.forEach((bubble) => {
+    const keys = [normalizeMatchKey(bubble.label), normalizeMatchKey(bubble.type)].filter(Boolean)
+    keys.forEach((key) => {
+      const current = bubblesByLabel.get(key) ?? []
+      current.push(bubble)
+      bubblesByLabel.set(key, current)
+    })
+  })
+
+  return (room: FloorProjectRoom, index: number) => {
+    const byId = bubbleById.get(room.id)
+    if (byId) return byId
+
+    const roomKeys = [normalizeMatchKey(room.name), normalizeMatchKey(room.type)].filter(Boolean)
+    for (const key of roomKeys) {
+      const matches = bubblesByLabel.get(key)
+      if (matches?.length) return matches.shift()
+    }
+
+    return bubbles[index] ?? null
+  }
+}
+
+const readMetadataNumber = (metadata: FloorProjectRoom['metadata'], keys: string[]): number | null => {
+  if (!metadata) return null
+  for (const key of keys) {
+    const value = readPositiveNumber(metadata[key])
+    if (value !== null) return value
+  }
+  return null
+}
+
+const readRoomAreaM2 = (room: FloorProjectRoom): number | null => {
+  const directAreaM2 =
+    readPositiveNumber(room.areaM2)
+    ?? readPositiveNumber(room.area_m2)
+    ?? readPositiveNumber(room.grossAreaM2)
+    ?? readPositiveNumber(room.gross_area_m2)
+    ?? readPositiveNumber(room.netAreaM2)
+    ?? readPositiveNumber(room.net_area_m2)
+    ?? readMetadataNumber(room.metadata, [
+      'areaM2',
+      'area_m2',
+      'grossAreaM2',
+      'gross_area_m2',
+      'netAreaM2',
+      'net_area_m2',
+      'GrossFloorArea',
+      'NetFloorArea',
+    ])
+  if (directAreaM2 !== null) return directAreaM2
+
+  const directAreaMm2 = readMetadataNumber(room.metadata, [
+    'areaMm2',
+    'area_mm2',
+    'grossAreaMm2',
+    'gross_area_mm2',
+    'netAreaMm2',
+    'net_area_mm2',
+  ])
+  if (directAreaMm2 !== null) return directAreaMm2 / 1_000_000
+
+  return readPositiveNumber(room.area) ?? readMetadataNumber(room.metadata, ['area'])
+}
+
+const resolveRoomAreaM2 = (room: FloorProjectRoom, coordinateMmMultiplier = 1): number =>
+  readRoomAreaM2(room) ?? computeRoomAreaM2(room.polygon, coordinateMmMultiplier)
+
+const resolveMappedRoomAreaM2 = (
+  room: FloorProjectRoom,
+  referenceBubble?: Pick<BubbleData, 'ratio'>,
+  coordinateMmMultiplier = 1,
+): number => {
+  const roomArea = readRoomAreaM2(room)
+  if (roomArea !== null) return roomArea
+  const referenceArea = readPositiveNumber(referenceBubble?.ratio)
+  if (referenceArea !== null) return referenceArea
+  return computeRoomAreaM2(room.polygon, coordinateMmMultiplier)
+}
+
+const inferCoordinateMmMultiplier = (rooms: FloorProjectRoom[]): number => {
+  const dimensions = rooms.flatMap((room) => {
+    const bounds = toBounds(room.polygon)
+    if (!bounds) return []
+    return [bounds.maxX - bounds.minX, bounds.maxY - bounds.minY]
+  })
+  const medianDimension = median(dimensions)
+  if (medianDimension !== null && medianDimension > 0 && medianDimension < 500) return 1000
+  return 1
+}
+
+const resolveRoomType = (room: FloorProjectRoom): string => {
+  const rawType = room.type?.trim()
+  if (rawType && rawType !== 'other') return rawType
+
+  const label = normalizeIfcDisplayText(room.name).trim()
+  if (!label) return rawType || 'other'
+  return label
 }
 
 const toCanvasPoint = (point: FloorProjectPoint2D, scale: number, offsetX: number, offsetY: number) => ({
@@ -168,11 +296,67 @@ const getBoundsByFloor = (rooms: FloorProjectRoom[]): Map<string, Bounds> => {
 }
 
 /** mm 좌표를 캔버스 px 좌표로 변환하는 스케일/오프셋 계산 */
+const computeReferenceBubbleTransform = (
+  rooms: FloorProjectRoom[],
+  referenceBubbles?: MapperOptions['referenceBubbles'],
+): ProjectTransform | null => {
+  if (!referenceBubbles || referenceBubbles.length === 0) return null
+
+  const resolveReferenceBubble = buildReferenceBubbleResolver(referenceBubbles)
+  const scaleCandidates: number[] = []
+  const pairs: Array<{ projectCenterX: number; projectCenterY: number; bubbleCenterX: number; bubbleCenterY: number }> = []
+
+  rooms.forEach((room, index) => {
+    const bubble = resolveReferenceBubble(room, index)
+    const bounds = toBounds(room.polygon)
+    if (!bubble || !bounds) return
+
+    const projectWidth = bounds.maxX - bounds.minX
+    const projectHeight = bounds.maxY - bounds.minY
+    if (projectWidth > 0 && bubble.width > 0) scaleCandidates.push(bubble.width / projectWidth)
+    if (projectHeight > 0 && bubble.height > 0) scaleCandidates.push(bubble.height / projectHeight)
+
+    pairs.push({
+      projectCenterX: (bounds.minX + bounds.maxX) / 2,
+      projectCenterY: (bounds.minY + bounds.maxY) / 2,
+      bubbleCenterX: bubble.x + bubble.width / 2,
+      bubbleCenterY: bubble.y + bubble.height / 2,
+    })
+  })
+
+  const scale = median(scaleCandidates)
+  if (scale === null || pairs.length === 0) return null
+
+  const offsetX = pairs.reduce((sum, pair) => sum + pair.bubbleCenterX - pair.projectCenterX * scale, 0) / pairs.length
+  const offsetY = pairs.reduce((sum, pair) => sum + pair.bubbleCenterY - pair.projectCenterY * scale, 0) / pairs.length
+  return { scale, offsetX, offsetY }
+}
+
 const computeProjectTransform = (rooms: FloorProjectRoom[], options: MapperOptions): ProjectTransform => {
+  const projectBounds = buildProjectBounds(rooms)
+
+  if (options.scaleMode === 'canvas') {
+    const referenceTransform = computeReferenceBubbleTransform(rooms, options.referenceBubbles)
+    if (referenceTransform) return referenceTransform
+    return { scale: 1 / FLOOR_MM_PER_PX, offsetX: 0, offsetY: 0 }
+  }
+
+  if (options.scaleMode === 'real') {
+    const scale = 1 / FLOOR_MM_PER_PX
+    if (!projectBounds) return { scale, offsetX: 0, offsetY: 0 }
+
+    const layoutWidth = projectBounds.maxX - projectBounds.minX
+    const layoutHeight = projectBounds.maxY - projectBounds.minY
+    const width = Math.max(0, options.width)
+    const height = Math.max(0, options.height)
+    const offsetX = (width - layoutWidth * scale) / 2 - projectBounds.minX * scale
+    const offsetY = (height - layoutHeight * scale) / 2 - projectBounds.minY * scale
+    return { scale, offsetX, offsetY }
+  }
+
   const width = Math.max(0, options.width)
   const height = Math.max(0, options.height)
   const padding = options.padding ?? DEFAULT_PADDING
-  const projectBounds = buildProjectBounds(rooms)
   const layoutWidth = projectBounds ? projectBounds.maxX - projectBounds.minX : 1
   const layoutHeight = projectBounds ? projectBounds.maxY - projectBounds.minY : 1
   const availableWidth = Math.max(width - padding * 2, 1)
@@ -206,10 +390,12 @@ export function mapFloorProjectToLayers(project: FloorProject, options: MapperOp
   const floorById = new Map(project.floors.map((floor) => [floor.id, floor]))
   const connectedMap = toConnectedMap(project.adjacency)
   const { scale, offsetX, offsetY } = computeProjectTransform(project.rooms, options)
+  const resolveReferenceBubble = buildReferenceBubbleResolver(options.referenceBubbles)
+  const coordinateMmMultiplier = inferCoordinateMmMultiplier(project.rooms)
 
   const roomsByFloor = new Map<string, FloorRoom[]>()
 
-  project.rooms.forEach((room) => {
+  project.rooms.forEach((room, index) => {
     const bounds = toBounds(room.polygon)
     if (!bounds) return
 
@@ -221,21 +407,32 @@ export function mapFloorProjectToLayers(project: FloorProject, options: MapperOp
     const transform = mapRoomTransformToCanvas(room.transform, scale, offsetX, offsetY)
     const roomWidth = (bounds.maxX - bounds.minX) * scale
     const roomHeight = (bounds.maxY - bounds.minY) * scale
-    const roomWidthMm = Math.max(bounds.maxX - bounds.minX, 100)
-    const roomHeightMm = Math.max(bounds.maxY - bounds.minY, 100)
+    const referenceBubble = resolveReferenceBubble(room, index)
+    const roomWidthMm = Math.max(
+      readPositiveDimension(referenceBubble?.widthMm) ?? (bounds.maxX - bounds.minX) * coordinateMmMultiplier,
+      100,
+    )
+    const roomHeightMm = Math.max(
+      readPositiveDimension(referenceBubble?.heightMm) ?? (bounds.maxY - bounds.minY) * coordinateMmMultiplier,
+      100,
+    )
+    const roomAreaM2 = resolveMappedRoomAreaM2(room, referenceBubble, coordinateMmMultiplier)
+
+    const roomLabel = normalizeIfcDisplayText(referenceBubble?.label ?? room.name)
+    const roomType = referenceBubble?.type?.trim() || resolveRoomType(room)
 
     floorRooms.push({
       id: room.id,
       bubbleId: room.id,
-      label: normalizeIfcDisplayText(room.name),
-      type: room.type,
+      label: roomLabel,
+      type: roomType,
       x: bounds.minX * scale + offsetX,
       y: bounds.minY * scale + offsetY,
-      width: clamp(roomWidth, 20, Number.MAX_SAFE_INTEGER),
-      height: clamp(roomHeight, 20, Number.MAX_SAFE_INTEGER),
+      width: clamp(roomWidth, 1, Number.MAX_SAFE_INTEGER),
+      height: clamp(roomHeight, 1, Number.MAX_SAFE_INTEGER),
       widthMm: roomWidthMm,
       heightMm: roomHeightMm,
-      area: computeRoomAreaM2(room.polygon),
+      area: roomAreaM2,
       color: room.color ?? DEFAULT_ROOM_COLOR,
       material: room.floor_material ?? '콘크리트',
       connectedIds: connectedMap.get(room.id) ?? [],
@@ -291,7 +488,6 @@ export function mapAdjacencyToConnections(adjacency: FloorProject['adjacency']):
  * walls 필드가 없거나 비어 있으면 빈 배열 반환 → 호출측에서 autoWalls로 폴백
  */
 export function mapFloorProjectToWalls(project: FloorProject, options: MapperOptions): FloorWall[] {
-  if (shouldUseAutoWallsForProject(project)) return []
   if (!project.walls || project.walls.length === 0) return []
   const { scale, offsetX, offsetY } = computeProjectTransform(project.rooms, options)
   return project.walls.map((wall) => {
@@ -337,6 +533,7 @@ export function mapFloorProjectToBubbles(project: FloorProject, options: MapperO
   const height = Math.max(0, options.height)
   const padding = options.padding ?? DEFAULT_PADDING
   const gapX = 120
+  const coordinateMmMultiplier = inferCoordinateMmMultiplier(project.rooms)
 
   const boundsByFloor = getBoundsByFloor(project.rooms)
   /** floor.id(GlobalId) → floor.number 역참조 (정렬용) */
@@ -351,8 +548,8 @@ export function mapFloorProjectToBubbles(project: FloorProject, options: MapperO
   sortedFloorIds.forEach((floorId) => {
     const bounds = boundsByFloor.get(floorId)
     if (!bounds) return
-    const floorWidthPx = Math.max((bounds.maxX - bounds.minX) / FLOOR_MM_PER_PX, 1)
-    const floorHeightPx = Math.max((bounds.maxY - bounds.minY) / FLOOR_MM_PER_PX, 1)
+    const floorWidthPx = Math.max(((bounds.maxX - bounds.minX) * coordinateMmMultiplier) / FLOOR_MM_PER_PX, 1)
+    const floorHeightPx = Math.max(((bounds.maxY - bounds.minY) * coordinateMmMultiplier) / FLOOR_MM_PER_PX, 1)
     const availableHeight = Math.max(height - padding * 2, 1)
     // IFC(mm) 기반 실측 비율을 유지하되, 캔버스에 과도하게 작거나 큰 경우만 완만하게 보정한다.
     const fitScale = clamp(availableHeight / floorHeightPx, 0.6, 2.2)
@@ -375,9 +572,9 @@ export function mapFloorProjectToBubbles(project: FloorProject, options: MapperO
     const roomCenterY = (bounds.minY + bounds.maxY) / 2
     const floorCenterY = (floorBounds.minY + floorBounds.maxY) / 2
 
-    const widthMm = Math.max(bounds.maxX - bounds.minX, 600)
-    const heightMm = Math.max(bounds.maxY - bounds.minY, 600)
-    const ratio = computeRoomAreaM2(room.polygon)
+    const widthMm = Math.max((bounds.maxX - bounds.minX) * coordinateMmMultiplier, 600)
+    const heightMm = Math.max((bounds.maxY - bounds.minY) * coordinateMmMultiplier, 600)
+    const ratio = resolveRoomAreaM2(room, coordinateMmMultiplier)
     const safeRatio = ratio > 0 ? ratio : (widthMm * heightMm) / 1_000_000
     const basePx = calcPxDimensionsFromMm(widthMm, heightMm)
     const px = {
@@ -385,8 +582,8 @@ export function mapFloorProjectToBubbles(project: FloorProject, options: MapperO
       height: basePx.height * scale,
     }
 
-    const centerXPx = (centerX - floorBounds.minX) / FLOOR_MM_PER_PX
-    const centerYPx = (roomCenterY - floorCenterY) / FLOOR_MM_PER_PX
+    const centerXPx = ((centerX - floorBounds.minX) * coordinateMmMultiplier) / FLOOR_MM_PER_PX
+    const centerYPx = ((roomCenterY - floorCenterY) * coordinateMmMultiplier) / FLOOR_MM_PER_PX
     const x = offsetX + centerXPx * scale - px.width / 2
     const y = canvasCenterY + centerYPx * scale - px.height / 2
 

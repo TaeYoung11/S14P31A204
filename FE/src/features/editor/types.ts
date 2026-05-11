@@ -302,4 +302,3 @@ export interface WorkspaceSnapshot {
   ifcElementChanges: IfcElementChange[]
 }
 
-export type EditorDraftSnapshot = WorkspaceSnapshot
