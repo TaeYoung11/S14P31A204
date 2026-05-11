@@ -2,8 +2,6 @@ import type {
   BubbleData,
   ConnectionData,
   EditorMode,
-  FloorCommentAttachment,
-  FloorCommentAttachmentInput,
   Point2D,
 } from '../types'
 import type { AxisAlignedRect } from './geometry2d'
@@ -374,19 +372,6 @@ export function scalePolygonToRect(
 }
 
 /** 댓글 입력 첨부를 화면 상태에서 사용하는 첨부 타입으로 정규화한다. */
-export function normalizeCommentAttachments(
-  attachments: FloorCommentAttachmentInput[] = [],
-): FloorCommentAttachment[] {
-  return attachments.map((attachment) => ({
-    id: createLocalId('attachment'),
-    kind: attachment.kind,
-    name: attachment.name,
-    mimeType: attachment.mimeType,
-    sizeBytes: attachment.sizeBytes,
-    url: attachment.url,
-  }))
-}
-
 /** 두 연결선 쌍이 동일한지 비교 (방향 무관) */
 export function isSameConnection(
   a: { from: string; to: string },

@@ -14,6 +14,7 @@ from .ifc_extractor import extract_ifc_context
 from .pipeline import to_ifc_commands
 from .policies import plan_remove_room, plan_resize_room
 from .preview_validators import validate_preview_plan
+from .toilet_demo import build_toilet_insertion_geometry_plan
 
 
 @dataclass
@@ -97,7 +98,25 @@ class LLM2DPipeline:
             validation_warnings=validation.warnings,
         )
         self.store[session.session_id] = session
+        if command.action == "insert_toilet":
+            return {
+                "status": "preview_ready",
+                "session_id": session.session_id,
+                "summary": self._preview_summary(command, batch, policy_plan),
+                "command": command.model_dump(),
+                "command_batch": batch.model_dump(),
+                "policy_plan": policy_plan,
+                "matched_count": len(batch.commands),
+                "validation_warnings": validation.warnings,
+                "engine_capabilities": {
+                    **self._engine_capabilities(),
+                    "shared_payload": False,
+                    "preferred_apply_mode": "local_demo_only",
+                },
+            }
         try:
+            # Preview and apply intentionally share the same session_id-backed request_id so the
+            # shared payload can be correlated across the two-step flow without a second token.
             payload = self._shared_payload(
                 mode="preview",
                 request_id=session.session_id,
@@ -139,6 +158,46 @@ class LLM2DPipeline:
             return {"status": "session_not_found"}
 
         try:
+            if session.command.action == "insert_toilet":
+                if self.ifc_path is None:
+                    return {
+                        "status": "apply_deferred",
+                        "apply_mode": "local_demo_only",
+                        "summary": (
+                            "insert_toilet preview is planned, "
+                            "but there is no local IFC path to execute the demo apply."
+                        ),
+                        "command": session.command.model_dump(),
+                        "command_batch": session.command_batch.model_dump(),
+                        "policy_plan": session.policy_plan,
+                        "validation_warnings": session.validation_warnings,
+                        "engine_capabilities": {
+                            **self._engine_capabilities(),
+                            "shared_payload": False,
+                            "preferred_apply_mode": "local_demo_only",
+                        },
+                    }
+                result = apply_space_plan(
+                    ifc_path=self.ifc_path,
+                    output_path=output_path,
+                    command=session.command,
+                    command_batch=session.command_batch,
+                    policy_plan=session.policy_plan,
+                    ifc_context=self.ifc_context,
+                )
+                return {
+                    **result,
+                    "apply_mode": "local_demo_apply",
+                    "command": session.command.model_dump(),
+                    "command_batch": session.command_batch.model_dump(),
+                    "policy_plan": session.policy_plan,
+                    "validation_warnings": session.validation_warnings,
+                    "engine_capabilities": {
+                        **self._engine_capabilities(),
+                        "shared_payload": False,
+                        "preferred_apply_mode": "local_demo_only",
+                    },
+                }
             payload = self._shared_payload(
                 mode="apply",
                 request_id=session.session_id,
@@ -176,6 +235,7 @@ class LLM2DPipeline:
                             command=session.command,
                             command_batch=session.command_batch,
                             policy_plan=session.policy_plan,
+                            ifc_context=self.ifc_context,
                         )
                         response.update(result)
                         response["apply_mode"] = "local_fallback"
@@ -268,8 +328,23 @@ class LLM2DPipeline:
             return None
 
         if command.action == "remove_room":
+            preferred_merge_target_space_id = None
+            if command.adjacency_target and self.ifc_context is not None:
+                preferred_merge_target_space_id = next(
+                    (
+                        space["id"]
+                        for space in self.ifc_context.get("spaces", [])
+                        if space.get("name") == command.adjacency_target
+                        and (
+                            command.target_floor is None
+                            or space.get("floor") == command.target_floor
+                        )
+                    ),
+                    None,
+                )
             return plan_remove_room(
                 target_space_id=batch.commands[0].target_id,
+                preferred_merge_target_space_id=preferred_merge_target_space_id,
                 ifc_context=self.ifc_context,
             )
 
@@ -282,6 +357,37 @@ class LLM2DPipeline:
                 ifc_context=self.ifc_context,
             )
 
+        if command.action == "insert_toilet":
+            floor = command.target_floor or 1
+            plan = build_toilet_insertion_geometry_plan(
+                self.ifc_context,
+                floor=floor,
+                anchor_room_name=command.target_room_name,
+                user_intent=command.user_intent or "shared_toilet_any_strategy",
+            )
+            if plan is None:
+                return {
+                    "status": "unsupported",
+                    "reason": "insert_toilet_no_adjacent_donor",
+                }
+            if plan.get("status") == "needs_clarification":
+                return {
+                    "status": "needs_clarification",
+                    "reason": "insert_toilet_needs_clarification",
+                    **plan,
+                }
+            if plan.get("status") == "rejected":
+                return {
+                    "status": "unsupported",
+                    "reason": "insert_toilet_rejected",
+                    **plan,
+                }
+            return {
+                "status": "planned",
+                "reason": "insert_toilet_demo",
+                **plan,
+            }
+
         return None
 
     def _preview_summary(
@@ -293,6 +399,18 @@ class LLM2DPipeline:
         if command.action == "add_room":
             name = command.new_room.name if command.new_room else "room"
             return f"'{name}' room preview is ready."
+        if command.action == "insert_toilet" and policy_plan is not None:
+            donor = policy_plan.get("donor_room_name") or "adjacent room"
+            anchor = policy_plan.get("anchor_room_name") or command.target_room_name
+            if anchor is None:
+                return (
+                    f"Public toilet insertion preview is ready "
+                    f"using '{donor}' as the donor room."
+                )
+            return (
+                f"Toilet insertion preview is ready near '{anchor}' "
+                f"using '{donor}' as the donor room."
+            )
         if command.action in {"remove_room", "resize_room"} and policy_plan is not None:
             return self._policy_summary(policy_plan)
         return f"Preview is ready for {len(batch.commands)} commands."
@@ -304,8 +422,12 @@ class LLM2DPipeline:
         reason = policy_plan.get("reason")
         if reason == "dominant_adjacent_absorber":
             return "A dominant adjacent absorber was found for room removal."
+        if reason == "preferred_adjacent_absorber":
+            return "The requested adjacent merge target can absorb the removed room."
         if reason == "multiple_similar_absorbers":
             return "Multiple adjacent absorber candidates exist and clarification is needed."
+        if reason == "preferred_absorber_not_adjacent":
+            return "The requested merge target is not adjacent to the removed room."
         if reason == "no_adjacent_absorber":
             return "No adjacent absorber was found for room removal."
         if reason == "single_direction_resize":
@@ -317,12 +439,22 @@ class LLM2DPipeline:
             return "The requested resize direction does not match the changed axis."
         if reason == "multi_axis_resize_unsupported":
             return "Multi-axis resize is currently unsupported."
+        if reason == "resize_outside_boundary":
+            return "Resize is unsupported because the result would leave the floor boundary."
         if reason == "non_rectangular_space":
             return "Resize is unsupported for non-rectangular rooms."
         if reason == "locked_room":
             return "The target room is locked."
         if reason == "room_not_found":
             return "The target room was not found."
+        if reason == "insert_toilet_demo":
+            donor = policy_plan.get("donor_room_name") or "adjacent room"
+            anchor = policy_plan.get("anchor_room_name")
+            if anchor is None:
+                return f"Public toilet insertion can proceed by shrinking {donor}."
+            return f"Toilet insertion can proceed near {anchor} by shrinking {donor}."
+        if reason == "insert_toilet_no_adjacent_donor":
+            return "No adjacent donor room was found for toilet insertion."
         return f"Policy result: {reason}"
 
     def _engine_capabilities(self) -> dict[str, Any]:

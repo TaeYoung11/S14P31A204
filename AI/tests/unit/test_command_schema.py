@@ -196,10 +196,12 @@ def _schema_ready_command(raw: dict[str, object]) -> dict[str, object]:
 
     payload = normalized.get("payload")
     command_type = normalized.get("command_type")
+    if command_type == "SD_RENDER_GENERATE":
+        normalized["payload"] = raw["payload"]
+        return normalized
     if isinstance(payload, dict) and command_type in {
         "TWO_D_LLM_GENERATE",
         "THREE_D_LLM_GENERATE",
-        "SD_RENDER_GENERATE",
     }:
         payload.setdefault("schema_version", "v1")
     if (

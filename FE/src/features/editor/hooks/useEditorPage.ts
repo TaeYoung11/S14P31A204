@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { isAxiosError } from 'axios'
 import type {
   AddSpaceFormData,
@@ -7,7 +8,6 @@ import type {
   ConnectionData,
   EditorMode,
   PhaseStatus,
-  FloorCommentAttachmentInput,
   FloorCommentNotification,
   FloorCommentPin,
   FloorLayerOverlay,
@@ -20,6 +20,7 @@ import type {
   SaveStatus,
   WorkspaceSnapshot,
   ZoneData,
+  CollaborationUserType,
 } from '../types'
 import {
   DEFAULT_GRID_SNAP_INTERVAL_MM,
@@ -74,6 +75,14 @@ import {
   publishIfcUndoRequest,
 } from '../services/workspaceCommand.service'
 import { workspaceRealtimeService, type FloorPlanSceneType } from '../services/workspaceRealtime.service'
+import {
+  editorPinCommentQueryKeys,
+  editorPinPositionMapper,
+  editorPinCommentService,
+  type EditorPinCommentResponse,
+  type EditorPinResponse,
+} from '../services/editorPinComment.service'
+import { useProjectCommentRealtime } from '@/features/project/hooks/useProjectCommentRealtime'
 import { useAuthStore } from '@/shared/stores/authStore'
 import { useProjectStore } from '@/features/project/stores/projectStore'
 import { projectService } from '@/features/project/services/project.service'
@@ -91,13 +100,11 @@ import type { FloorPlan3DData } from '../utils/floorPlanTo3D'
 import {
   buildFloorPlanLayoutImportPayload,
   collectAutoDoorOpeningIdsFromWallIds,
-  createLocalId,
   getPolygonAreaPx,
   getPolygonBounds,
   isFinitePolygonPoints,
   isSameConnection,
   mergeSelectedIds,
-  normalizeCommentAttachments,
   resolveEditorMode,
 } from '../utils/editorPageHelpers'
 import {
@@ -160,13 +167,73 @@ const readPositiveNumber = (value: unknown): number | null => {
   return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null
 }
 
+const formatPinAuthorName = (authorUserId: string | null, fallbackName: string): string => {
+  if (!authorUserId) return fallbackName
+  return `\uC0AC\uC6A9\uC790 ${authorUserId.slice(0, 8)}`
+}
+
+const mapApiPinToFloorCommentPin = (
+  pin: EditorPinResponse,
+  comments: EditorPinCommentResponse[],
+  currentUserId: string | undefined,
+  currentUserName: string,
+  currentUserType: CollaborationUserType,
+  counterpartType: CollaborationUserType,
+): FloorCommentPin => {
+  const pinAuthorType = pin.authorUserId && pin.authorUserId === currentUserId ? currentUserType : counterpartType
+  const pinAuthorName = pin.authorUserId === currentUserId
+    ? currentUserName
+    : formatPinAuthorName(pin.authorUserId, '\uC54C \uC218 \uC5C6\uB294 \uC791\uC131\uC790')
+  const pinMessage = {
+    id: `${pin.pinId}:pin`,
+    pinId: pin.pinId,
+    authorId: pin.authorUserId ?? 'unknown-user',
+    authorName: pinAuthorName,
+    authorType: pinAuthorType,
+    content: pin.content,
+    status: pin.status,
+    isPinMessage: true,
+    createdAt: pin.createdAt,
+  }
+  const commentMessages = comments.map((comment) => {
+    const isCurrentUser = comment.authorUserId === currentUserId
+    return {
+      id: comment.commentId,
+      pinId: pin.pinId,
+      authorId: comment.authorUserId ?? 'unknown-user',
+      authorName: isCurrentUser ? currentUserName : formatPinAuthorName(comment.authorUserId, '\uB2E4\uB978 \uC791\uC131\uC790'),
+      authorType: isCurrentUser ? currentUserType : counterpartType,
+      content: comment.content,
+      status: comment.status,
+      isPinMessage: false,
+      createdAt: comment.createdAt,
+    }
+  })
+
+  return {
+    id: pin.pinId,
+    x: editorPinPositionMapper.worldXToCanvasX(pin.worldPosition.x),
+    y: editorPinPositionMapper.worldYToCanvasY(pin.worldPosition.y),
+    createdAt: pin.createdAt,
+    createdById: pin.authorUserId ?? 'unknown-user',
+    createdByName: pinAuthorName,
+    createdByType: pinAuthorType,
+    messages: [pinMessage, ...commentMessages].sort(
+      (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+    ),
+    hasUnreadCommentByOtherUser: pin.hasUnreadCommentByOtherUser,
+  }
+}
+
 /**
  * EditorPage 전체 비즈니스 로직 훅
  * 버블·연결선·조닝·패널·평면도·UI 상태를 하위 훅에서 합성해 관리
  */
 export function useEditorPage() {
   const { projectId } = useParams<{ projectId: string }>()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const queryClient = useQueryClient()
   const { currentProjectName } = useEditorProjectName(projectId)
   const mode = resolveEditorMode(searchParams.get('mode'))
   const [selectedIfcElement, setSelectedIfcElement] = useState<IfcElementInfo | null>(null)
@@ -246,11 +313,11 @@ export function useEditorPage() {
   const [selectedFloorOpeningIds, setSelectedFloorOpeningIds] = useState<string[]>([])
   /** 2D 수동 편집 후 버블 모드 자동 재생성(refresh) 억제 */
   const [isFloorPlanEditedIn2D, setIsFloorPlanEditedIn2D] = useState(false)
-  const markLocalBubbleSnapshotChangedRef = useRef<() => void>(() => {})
+  const markLocalBubbleSnapshotChangedRef = useRef<() => void>(() => { })
 
   const isAutoDerivedWallId = useCallback((wallId: string) =>
     wallId.startsWith('auto-room-') || wallId.startsWith('auto-shared-')
-  , [])
+    , [])
 
   // 조닝 상태
   const {
@@ -490,7 +557,6 @@ export function useEditorPage() {
   const [addSpaceFormData, setAddSpaceFormData] = useState<AddSpaceFormData>(INITIAL_ADD_SPACE_FORM)
   const [isCollaborationMode, setIsCollaborationMode] = useState(false)
   const [selectedPinId, setSelectedPinId] = useState<string | null>(null)
-  const [collaborationTab, setCollaborationTab] = useState<'history' | 'thread'>('history')
   const [commentPins, setCommentPins] = useState<FloorCommentPin[]>([])
   const [commentNotifications, setCommentNotifications] = useState<FloorCommentNotification[]>([])
   const [isLibraryOpen, setIsLibraryOpen] = useState(false)
@@ -565,6 +631,8 @@ export function useEditorPage() {
   const pendingWorkspaceSnapshotCommitRef = useRef(false)
   const isBubbleDragTransactionActiveRef = useRef(false)
   const lastWorkspaceSnapshotTransactionAtRef = useRef(0)
+  const readingCommentPinIdsRef = useRef<Set<string>>(new Set())
+  const readCommentFailureAtRef = useRef<Map<string, number>>(new Map())
 
   useEffect(() => {
     lastLoadedIfcStorageUrlRef.current = null
@@ -639,6 +707,184 @@ export function useEditorPage() {
     currentProject,
     projectId,
   })
+  const targetPinId = searchParams.get('pinId')
+  const currentProjectForRealtime = useMemo(
+    () => (currentProject && currentProject.id === projectId ? [currentProject] : []),
+    [currentProject, projectId],
+  )
+  const pinCommentsQuery = useQuery({
+    queryKey: editorPinCommentQueryKeys.pins(projectId),
+    queryFn: () => editorPinCommentService.getPinsWithComments(projectId ?? ''),
+    enabled: !!projectId && (isCollaborationMode || !!targetPinId),
+    staleTime: 10 * 1000,
+    retry: false,
+  })
+  const createPinMutation = useMutation({
+    mutationFn: async ({ x, y, commentContent }: { x: number; y: number; commentContent: string }) => {
+      if (!projectId) throw new Error('Missing project id')
+      return editorPinCommentService.createPin(projectId, x, y, commentContent)
+    },
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({ queryKey: editorPinCommentQueryKeys.pins(projectId) })
+      setSelectedPinId(data.pinId)
+    },
+  })
+  const createPinCommentMutation = useMutation({
+    mutationFn: ({ pinId, content }: { pinId: string; content: string }) => {
+      if (!projectId) throw new Error('Missing project id')
+      return editorPinCommentService.createComment(projectId, pinId, content)
+    },
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: editorPinCommentQueryKeys.pins(projectId) })
+      setSelectedPinId(variables.pinId)
+    },
+  })
+  const resolvePinCommentMutation = useMutation({
+    mutationFn: ({ pinId, commentId }: { pinId: string; commentId: string }) => {
+      if (!projectId) throw new Error('Missing project id')
+      return editorPinCommentService.resolveComment(projectId, pinId, commentId)
+    },
+    onSuccess: (_data, variables) => {
+      const targetPin = commentPins.find((pin) => pin.id === variables.pinId)
+      const hasRemainingOpenComment = targetPin?.messages.some(
+        (message) =>
+          !message.isPinMessage &&
+          message.id !== variables.commentId &&
+          message.status !== 'RESOLVED',
+      ) ?? false
+      setCommentPins((prev) =>
+        prev.map((pin) =>
+          pin.id === variables.pinId
+            ? {
+              ...pin,
+              messages: pin.messages.map((message) =>
+                message.id === variables.commentId ? { ...message, status: 'RESOLVED' } : message,
+              ),
+            }
+            : pin,
+        ),
+      )
+      if (!hasRemainingOpenComment) {
+        resolvePinMutation.mutate(variables.pinId)
+        return
+      }
+      void queryClient.invalidateQueries({ queryKey: editorPinCommentQueryKeys.pins(projectId) })
+    },
+  })
+  const resolvePinMutation = useMutation({
+    mutationFn: (pinId: string) => {
+      if (!projectId) throw new Error('Missing project id')
+      return editorPinCommentService.resolvePin(projectId, pinId)
+    },
+    onSuccess: (_data, pinId) => {
+      setCommentPins((prev) =>
+        prev.map((pin) =>
+          pin.id === pinId
+            ? {
+              ...pin,
+              messages: pin.messages.map((message) => ({ ...message, status: 'RESOLVED' })),
+            }
+            : pin,
+        ),
+      )
+      setSelectedPinId(null)
+      void queryClient.invalidateQueries({ queryKey: editorPinCommentQueryKeys.pins(projectId) })
+    },
+  })
+  const { mutate: markPinCommentsRead } = useMutation({
+    mutationFn: (pinId: string) => {
+      if (!projectId) throw new Error('Missing project id')
+      return editorPinCommentService.markCommentsAsRead(projectId, pinId)
+    },
+    onSuccess: (_data, pinId) => {
+      readCommentFailureAtRef.current.delete(pinId)
+      setCommentPins((prev) =>
+        prev.map((pin) =>
+          pin.id === pinId ? { ...pin, hasUnreadCommentByOtherUser: false } : pin,
+        ),
+      )
+      void queryClient.invalidateQueries({ queryKey: editorPinCommentQueryKeys.pins(projectId) })
+    },
+    onError: (_error, pinId) => {
+      readCommentFailureAtRef.current.set(pinId, Date.now())
+    },
+  })
+  const editorCommentRealtimeOptions = useMemo(
+    () => ({
+      onCommentCreated: (payload: { projectId: string }) => {
+        if (payload.projectId !== projectId) return
+        void queryClient.invalidateQueries({ queryKey: editorPinCommentQueryKeys.pins(projectId) })
+      },
+    }),
+    [projectId, queryClient],
+  )
+  const projectCommentRealtime = useProjectCommentRealtime(currentProjectForRealtime, editorCommentRealtimeOptions)
+
+  useEffect(() => {
+    if (!pinCommentsQuery.data) return
+    const nextPins = pinCommentsQuery.data.map(({ pin, comments }) =>
+      mapApiPinToFloorCommentPin(
+        pin,
+        comments,
+        authUser?.id,
+        currentUserName,
+        collaborationUserType,
+        counterpartType,
+      ),
+    )
+    const syncTimer = window.setTimeout(() => {
+      setCommentPins(nextPins)
+      setCommentNotifications(
+        nextPins
+          .filter((pin) => pin.hasUnreadCommentByOtherUser)
+          .map((pin) => ({
+            id: `pin-unread-${pin.id}`,
+            pinId: pin.id,
+            senderName: pin.createdByName,
+            recipientType: collaborationUserType,
+            type: 'comment_new',
+            message: `#${nextPins.findIndex((item) => item.id === pin.id) + 1} 핀에 새 댓글이 있습니다.`,
+            createdAt: pin.messages[pin.messages.length - 1]?.createdAt ?? pin.createdAt,
+            isRead: false,
+          })),
+      )
+    }, 0)
+
+    return () => window.clearTimeout(syncTimer)
+  }, [
+    authUser?.id,
+    collaborationUserType,
+    counterpartType,
+    currentUserName,
+    pinCommentsQuery.data,
+  ])
+
+  useEffect(() => {
+    if (!targetPinId) return
+    if (!commentPins.some((pin) => pin.id === targetPinId)) return
+    const openTargetPinTimer = window.setTimeout(() => {
+      setIsCollaborationMode(true)
+      setSelectedPinId(targetPinId)
+    }, 0)
+
+    return () => window.clearTimeout(openTargetPinTimer)
+  }, [commentPins, targetPinId])
+
+  useEffect(() => {
+    if (!selectedPinId) return
+    const selectedPin = commentPins.find((pin) => pin.id === selectedPinId)
+    if (!selectedPin?.hasUnreadCommentByOtherUser) return
+    if (readingCommentPinIdsRef.current.has(selectedPinId)) return
+    const lastFailureAt = readCommentFailureAtRef.current.get(selectedPinId)
+    if (lastFailureAt && Date.now() - lastFailureAt < 30_000) return
+
+    readingCommentPinIdsRef.current.add(selectedPinId)
+    markPinCommentsRead(selectedPinId, {
+      onSettled: () => {
+        readingCommentPinIdsRef.current.delete(selectedPinId)
+      },
+    })
+  }, [commentPins, markPinCommentsRead, selectedPinId])
 
   const phaseStatus = workspacePhaseStatus
   const isEditorReadOnly = currentUserType !== 'DESIGNER'
@@ -754,9 +1000,9 @@ export function useEditorPage() {
   const shouldUseAutoOpenings = !isProjectStructurePreferred || floorOpenings.length === 0
   const autoFloorOpeningsRaw = useMemo(
     () =>
-      (shouldUseAutoOpenings
-        ? deriveAutoOpeningsFromConnections(connections, visibleAutoFloorWalls, OPENING_NORMALIZE_OPTIONS)
-        : []),
+    (shouldUseAutoOpenings
+      ? deriveAutoOpeningsFromConnections(connections, visibleAutoFloorWalls, OPENING_NORMALIZE_OPTIONS)
+      : []),
     [connections, visibleAutoFloorWalls, shouldUseAutoOpenings],
   )
   const autoFloorOpenings = useMemo(() => {
@@ -1701,9 +1947,9 @@ export function useEditorPage() {
       const ensured = prev.some((wall) => wall.id === wallId)
         ? prev
         : (() => {
-            const autoWall = visibleAutoFloorWalls.find((wall) => wall.id === wallId)
-            return autoWall ? [...prev, autoWall] : prev
-          })()
+          const autoWall = visibleAutoFloorWalls.find((wall) => wall.id === wallId)
+          return autoWall ? [...prev, autoWall] : prev
+        })()
       return ensured.map((wall) => (wall.id === wallId ? updater(wall) : wall))
     })
   }, [visibleAutoFloorWalls])
@@ -1729,9 +1975,9 @@ export function useEditorPage() {
       const ensured = prev.some((opening) => opening.id === openingId)
         ? prev
         : (() => {
-            const autoOpening = autoFloorOpenings.find((opening) => opening.id === openingId)
-            return autoOpening ? [...prev, autoOpening] : prev
-          })()
+          const autoOpening = autoFloorOpenings.find((opening) => opening.id === openingId)
+          return autoOpening ? [...prev, autoOpening] : prev
+        })()
       return ensured.map((opening) => (opening.id === openingId ? updater(opening) : opening))
     })
   }, [autoFloorOpenings])
@@ -1924,14 +2170,6 @@ export function useEditorPage() {
     selectedIds,
     selectedIfcElement,
   ])
-  const unreadCommentNotifications = useMemo(
-    () =>
-      commentNotifications.filter(
-        (notification) => notification.recipientType === collaborationUserType && !notification.isRead,
-      ),
-    [commentNotifications, collaborationUserType],
-  )
-
   // 파생 상태: 선택된 버블의 연결선 목록 (라벨 포함)
   const selectedBubbleConnections = useMemo(() => {
     if (!selectedId) return []
@@ -2055,6 +2293,19 @@ export function useEditorPage() {
     setIsLibraryOpen(false)
   }, [mode, resetToolSelection, setSearchParams])
 
+  const handleOpenProjectFromCommentToast = useCallback((targetProjectId: string, pinId?: string) => {
+    const pinQuery = pinId ? `&pinId=${encodeURIComponent(pinId)}` : ''
+    if (targetProjectId !== projectId) {
+      navigate(`/projects/${targetProjectId}/editor?mode=2d${pinQuery}`)
+      return
+    }
+    setSearchParams({ mode: '2d', ...(pinId ? { pinId } : {}) })
+    setIsCollaborationMode(true)
+    if (pinId) {
+      setSelectedPinId(pinId)
+    }
+  }, [navigate, projectId, setSearchParams])
+
   const handleOpenAddModal = () => {
     if (isBubbleReadOnly) return
     setAddSpaceFormData(INITIAL_ADD_SPACE_FORM)
@@ -2084,7 +2335,6 @@ export function useEditorPage() {
   const handleToggleCollaboration = () => {
     setIsCollaborationMode((prev) => {
       if (!prev) {
-        setCollaborationTab('history')
         setSelectedPinId(null)
       }
       return !prev
@@ -2101,124 +2351,56 @@ export function useEditorPage() {
 
   /** 협업 핀 클릭 — 해당 핀의 스레드 탭으로 이동 */
   const handlePinClick = useCallback((pinId: string) => {
+    if (selectedPinId === pinId) {
+      setSelectedPinId(null)
+      return
+    }
     setSelectedPinId(pinId)
-    setCollaborationTab('thread')
     markPinNotificationsRead(pinId)
-  }, [markPinNotificationsRead])
+    const targetPin = commentPins.find((pin) => pin.id === pinId)
+    const lastFailureAt = readCommentFailureAtRef.current.get(pinId)
+    const isReadCoolingDown = lastFailureAt ? Date.now() - lastFailureAt < 30_000 : false
+    if (targetPin?.hasUnreadCommentByOtherUser && !readingCommentPinIdsRef.current.has(pinId) && !isReadCoolingDown) {
+      readingCommentPinIdsRef.current.add(pinId)
+      markPinCommentsRead(pinId, {
+        onSettled: () => {
+          readingCommentPinIdsRef.current.delete(pinId)
+        },
+      })
+    }
+  }, [commentPins, markPinCommentsRead, markPinNotificationsRead, selectedPinId])
 
   /** 2D 평면도 핀 생성 + 첫 댓글 작성 */
   const handleCreateCommentPin = useCallback((
     x: number,
     y: number,
     content: string,
-    attachments: FloorCommentAttachmentInput[] = [],
   ) => {
     const normalized = content.trim()
-    const normalizedAttachments = normalizeCommentAttachments(attachments)
-    if (!normalized && normalizedAttachments.length === 0) return
+    if (!normalized) return
+    if (!projectId) return
+    createPinMutation.mutate({ x, y, commentContent: normalized })
+  }, [createPinMutation, projectId])
 
-    const createdAt = new Date().toISOString()
-    const pinId = createLocalId('pin')
-    const messageId = createLocalId('comment')
-
-    setCommentPins((prev) => {
-      const nextPinNumber = prev.length + 1
-      const nextPin: FloorCommentPin = {
-        id: pinId,
-        x,
-        y,
-        createdAt,
-        createdById: authUser?.id ?? 'local-user',
-        createdByName: currentUserName,
-        createdByType: collaborationUserType,
-        messages: [
-          {
-            id: messageId,
-            pinId,
-            authorId: authUser?.id ?? 'local-user',
-            authorName: currentUserName,
-            authorType: collaborationUserType,
-            content: normalized,
-            attachments: normalizedAttachments,
-            createdAt,
-          },
-        ],
-      }
-
-      setCommentNotifications((prevNotifications) => ([
-        ...prevNotifications,
-        {
-          id: createLocalId('noti'),
-          pinId,
-          senderName: currentUserName,
-          recipientType: counterpartType,
-          type: 'pin_new',
-          message: `${currentUserName}님이 #${nextPinNumber} 핀에 댓글을 남겼습니다.`,
-          createdAt,
-          isRead: false,
-        },
-      ]))
-
-      return [...prev, nextPin]
-    })
-
-    setSelectedPinId(pinId)
-    setCollaborationTab('thread')
-  }, [authUser?.id, currentUserName, collaborationUserType, counterpartType])
-
-  /** 기존 핀 스레드에 답글 추가 */
   const handleAddCommentReply = useCallback((
     pinId: string,
     content: string,
-    attachments: FloorCommentAttachmentInput[] = [],
   ) => {
     const normalized = content.trim()
-    const normalizedAttachments = normalizeCommentAttachments(attachments)
-    if (!normalized && normalizedAttachments.length === 0) return
-    const createdAt = new Date().toISOString()
-    const newMessageId = createLocalId('comment')
-    let pinOrder = 0
+    if (!normalized) return
+    if (!projectId) return
+    createPinCommentMutation.mutate({ pinId, content: normalized })
+  }, [createPinCommentMutation, projectId])
 
-    setCommentPins((prev) =>
-      prev.map((pin, index) => {
-        if (pin.id !== pinId) return pin
-        pinOrder = index + 1
-        return {
-          ...pin,
-          messages: [
-            ...pin.messages,
-            {
-              id: newMessageId,
-              pinId,
-              authorId: authUser?.id ?? 'local-user',
-              authorName: currentUserName,
-              authorType: collaborationUserType,
-              content: normalized,
-              attachments: normalizedAttachments,
-              createdAt,
-            },
-          ],
-        }
-      }),
-    )
+  const handleResolveComment = useCallback((pinId: string, commentId: string) => {
+    if (!projectId) return
+    resolvePinCommentMutation.mutate({ pinId, commentId })
+  }, [projectId, resolvePinCommentMutation])
 
-    setCommentNotifications((prev) => ([
-      ...prev,
-      {
-        id: createLocalId('noti'),
-        pinId,
-        senderName: currentUserName,
-        recipientType: counterpartType,
-        type: 'comment_new',
-        message: `${currentUserName}님이 #${Math.max(pinOrder, 1)} 핀에 답글을 남겼습니다.`,
-        createdAt,
-        isRead: false,
-      },
-    ]))
-
-    setSelectedPinId(pinId)
-    setCollaborationTab('thread')
-  }, [authUser?.id, currentUserName, collaborationUserType, counterpartType])
+  const handleResolvePin = useCallback((pinId: string) => {
+    if (!projectId) return
+    resolvePinMutation.mutate(pinId)
+  }, [projectId, resolvePinMutation])
 
   const getBubbleLabel = useCallback(
     (bubbleId: string) => bubbles.find((b) => b.id === bubbleId)?.label ?? bubbleId,
@@ -2623,7 +2805,7 @@ export function useEditorPage() {
     const requested = Math.max(1, Math.round(value))
     const nearest = GRID_SNAP_INTERVAL_OPTIONS_MM.reduce((best, candidate) =>
       Math.abs(candidate - requested) < Math.abs(best - requested) ? candidate : best,
-    GRID_SNAP_INTERVAL_OPTIONS_MM[0])
+      GRID_SNAP_INTERVAL_OPTIONS_MM[0])
     setGridSnapIntervalMm(nearest)
     // 간격을 고르면 해당 스냅이 즉시 체감되도록 활성화한다.
     setIsGridSnapEnabled(true)
@@ -2816,18 +2998,18 @@ export function useEditorPage() {
     const nextRooms: FloorRoom[] = floorRooms.map((room) =>
       room.bubbleId === bubbleId
         ? {
-            ...room,
-            x: bounds.minX,
-            y: bounds.minY,
-            width: nextWidthPx,
-            height: nextHeightPx,
-            widthMm: nextWidthMm,
-            heightMm: nextHeightMm,
-            area: nextAreaM2,
-            polygon: polygon.map((point) => ({ x: point.x, y: point.y })),
-            contour: undefined,
-            transform: undefined,
-          }
+          ...room,
+          x: bounds.minX,
+          y: bounds.minY,
+          width: nextWidthPx,
+          height: nextHeightPx,
+          widthMm: nextWidthMm,
+          heightMm: nextHeightMm,
+          area: nextAreaM2,
+          polygon: polygon.map((point) => ({ x: point.x, y: point.y })),
+          contour: undefined,
+          transform: undefined,
+        }
         : room,
     )
 
@@ -3354,17 +3536,25 @@ export function useEditorPage() {
     selectedPinId,
     setSelectedPinId,
     selectedCommentPin,
-    collaborationTab,
-    setCollaborationTab,
     commentPins,
     commentNotifications,
-    unreadCommentNotifications,
     currentCollaborationUserType: collaborationUserType,
     currentCollaborationUserName: currentUserName,
     handleToggleCollaboration,
     handlePinClick,
     handleCreateCommentPin,
     handleAddCommentReply,
+    handleResolvePin,
+    handleResolveComment,
+    resolvingPinId: resolvePinMutation.isPending
+      ? (resolvePinMutation.variables ?? null)
+      : null,
+    resolvingCommentId: resolvePinCommentMutation.isPending
+      ? (resolvePinCommentMutation.variables?.commentId ?? null)
+      : null,
+    projectCommentToast: projectCommentRealtime.toast,
+    onCloseProjectCommentToast: projectCommentRealtime.dismissToast,
+    onOpenProjectFromCommentToast: handleOpenProjectFromCommentToast,
     // 줌
     zoom: currentZoom,
     canvasZoom,

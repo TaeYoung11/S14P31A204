@@ -7,6 +7,7 @@ CommandMessage input/expectedOutput and pass them here directly.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import NamedTuple
 
@@ -130,6 +131,10 @@ class S3Client:
         self._client = boto3.client("s3", **kwargs)  # type: ignore[arg-type]
         self._default_bucket = settings.bucket
 
+    @property
+    def default_bucket(self) -> str:
+        return self._default_bucket
+
     def read_bytes(self, url: str) -> bytes:
         """Download an object by its ``s3://bucket/key`` URL and return raw bytes."""
         loc = parse_s3_url(url)
@@ -204,6 +209,22 @@ class S3Client:
             reference,
             text.encode(encoding),
             content_type=content_type,
+        )
+
+    def write_json(
+        self,
+        key: str,
+        payload: object,
+        *,
+        bucket: str | None = None,
+        indent: int = 2,
+    ) -> str:
+        """Serialize payload as UTF-8 JSON and upload it."""
+        return self.write_text(
+            key,
+            json.dumps(payload, ensure_ascii=False, indent=indent),
+            content_type="application/json; charset=utf-8",
+            bucket=bucket,
         )
 
     def object_exists(self, url: str) -> bool:

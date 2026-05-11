@@ -19,7 +19,9 @@
     "sourceImageStorageUrl": "s3://batang-artifacts/jobs/job-sd-001/steps/3/source-image.png"
   },
   "expectedOutput": {
-    "renderImageStorageUrl": "s3://batang-artifacts/projects/project-alpha/renders/artifact-render-001.png"
+    "renderManifestStorageUrl": "s3://batang-artifacts/projects/project-alpha/renders/artifact-render-001/manifest.v1.json",
+    "renderPhotoFrontDiagonalLeftStorageUrl": "s3://batang-artifacts/projects/project-alpha/renders/artifact-render-001/photo_front_diagonal_left.png",
+    "renderPhotoFrontDiagonalRightStorageUrl": "s3://batang-artifacts/projects/project-alpha/renders/artifact-render-001/photo_front_diagonal_right.png"
   },
   "payload": {
     "prompt": "Scandinavian living room with warm daylight",

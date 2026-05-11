@@ -6,9 +6,10 @@ from typing import Any
 
 import ifcopenshell
 
-from ai_authoring.engine_3d import modify_height, modify_thickness
+from ai_authoring.engine_3d import modify_color, modify_height, modify_material, modify_thickness
 from ai_authoring.operations.registry import register
 from ai_authoring.operations.space_support import update_space
+from ai_authoring.operations.wall_support import update_wall_segment
 
 
 def _selected_products(
@@ -42,6 +43,7 @@ class UpdateElementPropertiesHandler:
         properties = parameters.get("properties") or {}
         pset_updates = parameters.get("pset_updates") or {}
         pset_name = str(parameters.get("pset_name") or "Batang_SpaceDimensions")
+        segment_mm = parameters.get("segment_mm") or {}
 
         for product in _selected_products(model, selector):
             if product.is_a("IfcSpace"):
@@ -55,6 +57,24 @@ class UpdateElementPropertiesHandler:
                 )
                 updated_ids.append(product.GlobalId)
                 continue
+
+            if product.is_a("IfcWall") and segment_mm:
+                start = segment_mm.get("start") or {}
+                end = segment_mm.get("end") or {}
+                if update_wall_segment(
+                    model=model,
+                    wall=product,
+                    start_m=(
+                        float(start.get("x", 0.0)) / 1000.0,
+                        float(start.get("y", 0.0)) / 1000.0,
+                    ),
+                    end_m=(
+                        float(end.get("x", 0.0)) / 1000.0,
+                        float(end.get("y", 0.0)) / 1000.0,
+                    ),
+                ):
+                    updated_ids.append(product.GlobalId)
+                    continue
 
             if product.is_a("IfcWall") and dimensions_mm.get("width") is not None:
                 modify_thickness(
@@ -70,5 +90,9 @@ class UpdateElementPropertiesHandler:
                 )
             if properties.get("name") is not None:
                 product.Name = str(properties["name"])
+            if parameters.get("material") is not None:
+                modify_material(model, product, {"name": str(parameters["material"])})
+            if parameters.get("color") is not None:
+                modify_color(model, product, str(parameters["color"]))
             updated_ids.append(product.GlobalId)
         return updated_ids

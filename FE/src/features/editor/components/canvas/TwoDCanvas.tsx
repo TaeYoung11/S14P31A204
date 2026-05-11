@@ -2,7 +2,6 @@ import { useMemo, useRef, useState } from 'react'
 import type Konva from 'konva'
 import type {
   ConnectionData,
-  FloorCommentAttachmentInput,
   FloorCommentPin,
   FloorLayerOverlay,
   FloorOpening,
@@ -60,7 +59,7 @@ interface TwoDCanvasProps {
   selectedPinId?: string | null
   commentPins?: FloorCommentPin[]
   onPinClick?: (id: string) => void
-  onPinCreate?: (x: number, y: number, content: string, attachments?: FloorCommentAttachmentInput[]) => void
+  onPinCreate?: (x: number, y: number, content: string) => void
   rooms?: FloorRoom[]
   overlayLayers?: FloorLayerOverlay[]
   connections?: ConnectionData[]
@@ -231,11 +230,7 @@ export function TwoDCanvas({
   const {
     pinDraft,
     pinInputRef,
-    pinImageInputRef,
-    pinFileInputRef,
     startPinDraftAt,
-    addPinDraftFiles,
-    removePinDraftAttachment,
     savePinDraft,
     cancelPinDraft,
     setPinDraftMessage,
@@ -474,10 +469,6 @@ export function TwoDCanvas({
         stageSize={stageSize}
         toScreenPoint={toScreenPoint}
         pinInputRef={pinInputRef}
-        pinImageInputRef={pinImageInputRef}
-        pinFileInputRef={pinFileInputRef}
-        onAddFiles={addPinDraftFiles}
-        onRemoveAttachment={removePinDraftAttachment}
         onMessageChange={setPinDraftMessage}
         onCancel={cancelPinDraft}
         onSave={savePinDraft}

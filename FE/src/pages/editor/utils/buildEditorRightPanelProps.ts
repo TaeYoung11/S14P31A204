@@ -5,17 +5,18 @@ type RightPanelViewModel = Pick<
   EditorPageViewModel,
   | 'mode'
   | 'isCollaborationMode'
-  | 'collaborationTab'
-  | 'setCollaborationTab'
   | 'selectedPinId'
   | 'selectedCommentPin'
   | 'commentPins'
   | 'commentNotifications'
-  | 'unreadCommentNotifications'
   | 'currentCollaborationUserType'
   | 'currentCollaborationUserName'
   | 'handlePinClick'
   | 'handleAddCommentReply'
+  | 'handleResolvePin'
+  | 'handleResolveComment'
+  | 'resolvingPinId'
+  | 'resolvingCommentId'
   | 'selectedBubble'
   | 'selectedFloorWall'
   | 'selectedFloorOpening'
@@ -90,17 +91,18 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
   return {
     mode: vm.mode,
     isCollaborationMode: vm.isCollaborationMode,
-    collaborationTab: vm.collaborationTab,
-    onCollaborationTabChange: vm.setCollaborationTab,
     selectedPinId: vm.selectedPinId,
     selectedPin: vm.selectedCommentPin,
     commentPins: vm.commentPins,
     commentNotifications: vm.commentNotifications,
-    unreadCommentNotifications: vm.unreadCommentNotifications,
     currentCollaborationUserType: vm.currentCollaborationUserType,
     currentCollaborationUserName: vm.currentCollaborationUserName,
     onSelectPin: vm.handlePinClick,
     onCreateCommentReply: vm.handleAddCommentReply,
+    onResolvePin: vm.handleResolvePin,
+    onResolveComment: vm.handleResolveComment,
+    resolvingPinId: vm.resolvingPinId,
+    resolvingCommentId: vm.resolvingCommentId,
     selectedBubble: vm.selectedBubble,
     selectedWall: vm.selectedFloorWall,
     selectedOpening: vm.selectedFloorOpening,

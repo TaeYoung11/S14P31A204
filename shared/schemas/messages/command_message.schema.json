@@ -266,6 +266,15 @@
         "render_image_storage_url": {
           "$ref": "#/$defs/storageUrl"
         },
+        "render_manifest_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "render_photo_front_diagonal_left_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "render_photo_front_diagonal_right_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
         "ifc_storage_url": {
           "$ref": "#/$defs/storageUrl"
         },

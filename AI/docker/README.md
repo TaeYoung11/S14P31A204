@@ -1,37 +1,46 @@
 # Docker
 
-현재 AI 이미지는 IFC generate 워커 전용 런타임으로 사용한다.
+This repository currently uses a single top-level `Dockerfile` plus the
+`main.py` dispatcher.
 
-이번 브랜치에서는 별도 Dockerfile을 추가하지 않고, `main.py` 디스패처와 `WORKER_TYPE=IFC_GENERATE_FROM_BUBBLE` 조합으로 실행한다.
+The same image now supports these worker types:
+- `IFC_GENERATE_FROM_BUBBLE`
+- `TWO_D_LLM`
 
-## 이미지 빌드
+because the image installs both:
+- `ai-layout-import`
+- `ai-planning-2d`
 
-`AI` 디렉터리에서 실행:
+and `main.py` dispatches by `WORKER_TYPE`.
+
+## Build
 
 ```bash
-docker build -t batang-ai-ifc-generate .
+docker build -t batang-ai-worker .
 ```
 
-## 컨테이너 실행
-
-env 파일 기준 상시 실행:
+## Run With IFC Generate
 
 ```bash
 docker run --rm \
   --env-file .env \
-  batang-ai-ifc-generate
+  -e WORKER_TYPE=IFC_GENERATE_FROM_BUBBLE \
+  batang-ai-worker
 ```
 
-one-shot 실행:
+## Run With 2D LLM
 
 ```bash
 docker run --rm \
-  --env-file .env \
-  batang-ai-ifc-generate \
+  --env-file configs/worker.2d-llm.env.example \
+  batang-ai-worker
+```
+
+## One-shot
+
+```bash
+docker run --rm \
+  --env-file configs/worker.2d-llm.env.example \
+  batang-ai-worker \
   python main.py --once
 ```
-
-## 이후 확장 원칙
-
-다른 worker가 추가되더라도 이번 브랜치에서는 placeholder 이미지를 만들지 않는다.  
-추후에는 worker별 컨테이너를 별도로 추가하고, 공용 이미지 유지 여부는 의존성을 보고 결정한다.

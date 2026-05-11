@@ -5,22 +5,17 @@
   "description": "Payload for SD_RENDER_GENERATE worker command.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "prompt"],
+  "required": ["prompt"],
   "properties": {
-    "schema_version": {
-      "const": "v1"
-    },
     "prompt": {
       "type": "string",
-      "minLength": 1,
-      "maxLength": 4000
+      "minLength": 1
     },
-    "negative_prompt": {
+    "negativePrompt": {
       "type": ["string", "null"],
-      "minLength": 1,
-      "maxLength": 4000
+      "minLength": 1
     },
-    "source_image_storage_url": {
+    "sourceImageStorageUrl": {
       "type": ["string", "null"],
       "minLength": 1,
       "maxLength": 2048
