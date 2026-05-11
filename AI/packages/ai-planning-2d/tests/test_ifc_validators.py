@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ai_planning_2d.validators.ifc import validate_ifc_output_context
 
-from _fixtures.synthetic import make_minimal_ifc_context
+from ai_planning_2d.testing.synthetic import make_minimal_ifc_context
 
 
 def test_validate_ifc_output_context_accepts_minimal_valid_fixture() -> None:

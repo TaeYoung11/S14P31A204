@@ -4,7 +4,7 @@ from ai_planning_2d.preview_validators import PreviewValidationResult, validate_
 from ai_planning_2d.schemas.command import ActionType, CommandBatch, FloorNLPCommand, IFCCommand
 from ai_planning_2d.validator import validate_command_batch
 
-from _fixtures.synthetic import make_minimal_ifc_context
+from ai_planning_2d.testing.synthetic import make_minimal_ifc_context
 
 
 def test_validate_command_batch_import_path_still_returns_clarification() -> None:

@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from ai_planning_2d.schemas.plan_v14 import PLAN_SCHEMA_VERSION, PlanV14
 from ai_planning_2d.validators.geometry import polygon_bounds_mm, polygon_perimeter_mm
 
-from _fixtures.synthetic import make_minimal_plan_v14
+from ai_planning_2d.testing.synthetic import make_minimal_plan_v14
 
 
 def test_plan_v14_minimal_fixture_is_valid() -> None:

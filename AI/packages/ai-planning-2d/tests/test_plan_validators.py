@@ -3,7 +3,7 @@ from __future__ import annotations
 from ai_planning_2d.schemas.validation import ValidationSeverity
 from ai_planning_2d.validators.plan import validate_plan_v14
 
-from _fixtures.synthetic import make_minimal_plan_v14
+from ai_planning_2d.testing.synthetic import make_minimal_plan_v14
 
 
 def test_validate_plan_v14_accepts_minimal_valid_fixture() -> None:
