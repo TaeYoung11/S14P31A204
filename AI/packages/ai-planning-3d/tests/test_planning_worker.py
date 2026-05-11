@@ -2,9 +2,22 @@ import json
 from unittest.mock import MagicMock, patch, AsyncMock
 from pathlib import Path
 
+from ai_common.adapters.rabbitmq.kombu_client import get_command_queue
 from ai_common.worker_sdk.event_factory import ClarificationResult
 from ai_domain.worker_messages.command import CommandMessage
 from ai_planning_3d.worker import PlanningWorker
+from ai_planning_3d.worker_app import WORKER_TYPE
+
+
+def test_three_d_worker_queue_is_registered() -> None:
+    queue = get_command_queue(WORKER_TYPE)
+
+    assert queue.name == "batang.3d-llm.command.queue"
+    assert queue.routing_key == "command.3d-llm.*"
+    assert queue.queue_arguments == {
+        "x-dead-letter-exchange": "batang.dlx.exchange",
+        "x-dead-letter-routing-key": "dead.3d-llm",
+    }
 
 def test_planning_worker_logic():
     # 테스트 환경 및 샘플 데이터 로드
