@@ -27,6 +27,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -48,6 +51,7 @@ public class WorkspaceFloorPlanRealtimeService {
     private final ProjectAccessService projectAccessService;
     private final BubbleSnapshotHelper bubbleSnapshotHelper;
     private final WorkspaceBubbleSnapshotRedisRepository workspaceBubbleSnapshotRedisRepository;
+    private final FloorPlanS3DeleteQueueService floorPlanS3DeleteQueueService;
     private final DirectIfcEditCommandService directIfcEditCommandService;
     private final SimpMessagingTemplate simpMessagingTemplate;
     private final ObjectMapper objectMapper;
@@ -501,8 +505,10 @@ public class WorkspaceFloorPlanRealtimeService {
     }
 
     private void saveFloorPlanSnapshotToRedisOrThrow(UUID projectId, JsonNode snapshot, int baseIndex) {
+        List<String> garbagePayloads;
         try {
-            workspaceBubbleSnapshotRedisRepository.saveFloorPlanSnapshot(projectId, snapshot, baseIndex);
+            garbagePayloads = workspaceBubbleSnapshotRedisRepository
+                    .saveFloorPlanSnapshotAndReturnGarbage(projectId, snapshot, baseIndex);
         } catch (IllegalArgumentException exception) {
             throw new CustomException(
                     ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
@@ -528,6 +534,8 @@ public class WorkspaceFloorPlanRealtimeService {
                     "Redis 저장 중 오류가 발생했습니다."
             );
         }
+
+        enqueueGarbageS3Urls(projectId, garbagePayloads);
     }
 
     private boolean containsCause(Throwable throwable, Class<? extends Throwable> targetType) {
@@ -571,8 +579,66 @@ public class WorkspaceFloorPlanRealtimeService {
     }
 
     /**
-     * Redis에서 복원한 floor-plan 히스토리 스냅샷 뷰 모델.
+     * Lua 스크립트가 반환한 제거 대상 payload에서 S3 URL을 추출해 삭제 대기열에 적재한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param garbagePayloads 히스토리에서 제거된 스냅샷 payload 목록
      */
+    private void enqueueGarbageS3Urls(UUID projectId, List<String> garbagePayloads) {
+        if (garbagePayloads == null || garbagePayloads.isEmpty()) {
+            return;
+        }
+
+        Set<String> garbageS3Urls = extractGarbageS3Urls(garbagePayloads);
+        if (garbageS3Urls.isEmpty()) {
+            return;
+        }
+
+        floorPlanS3DeleteQueueService.enqueueAll(garbageS3Urls);
+        log.info("Queued stale floor-plan S3 urls for deferred deletion. projectId={}, queuedCount={}",
+                projectId, garbageS3Urls.size());
+    }
+
+    /**
+     * 제거 대상 스냅샷 payload에서 유효한 s3Url만 추출한다.
+     */
+    private Set<String> extractGarbageS3Urls(List<String> garbagePayloads) {
+        Set<String> garbageS3Urls = new LinkedHashSet<>();
+        for (String payload : garbagePayloads) {
+            if (payload == null || payload.isBlank()) {
+                continue;
+            }
+
+            try {
+                JsonNode historySnapshot = objectMapper.readTree(payload);
+                JsonNode s3UrlNode = historySnapshot.get("s3Url");
+                if (s3UrlNode == null || s3UrlNode.isNull()) {
+                    continue;
+                }
+
+                String normalizedS3Url = normalizeS3Url(s3UrlNode.asText(null));
+                if (normalizedS3Url != null) {
+                    garbageS3Urls.add(normalizedS3Url);
+                }
+            } catch (JsonProcessingException exception) {
+                log.warn("Failed to parse floor-plan garbage payload for deferred deletion. payload={}", payload, exception);
+            }
+        }
+        return garbageS3Urls;
+    }
+
+    private String normalizeS3Url(String rawS3Url) {
+        if (rawS3Url == null) {
+            return null;
+        }
+
+        String normalized = rawS3Url.trim();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        return normalized;
+    }
+
     private record FloorPlanHistorySnapshot(String revisionId, JsonNode floorPlanPayloadJson, String s3Url) {
     }
 }
