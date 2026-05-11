@@ -23,6 +23,7 @@ RUN mkdir -p /tmp/runtime-root && chmod 700 /tmp/runtime-root
 COPY packages/ai-common ./packages/ai-common
 COPY packages/ai-domain ./packages/ai-domain
 COPY packages/ai-layout-import ./packages/ai-layout-import
+COPY packages/ai-planning-2d ./packages/ai-planning-2d
 COPY packages/ai-planning-3d ./packages/ai-planning-3d
 COPY packages/ai-authoring ./packages/ai-authoring
 COPY packages/ai-rendering ./packages/ai-rendering
@@ -37,6 +38,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
         -e ./packages/ai-common \
         -e ./packages/ai-domain \
         -e ./packages/ai-layout-import \
+        -e ./packages/ai-planning-2d \
         -e ./packages/ai-authoring \
         -e ./packages/ai-planning-3d \
         -e ./packages/ai-rendering
