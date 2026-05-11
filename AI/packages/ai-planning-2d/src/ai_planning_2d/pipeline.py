@@ -1,3 +1,5 @@
+from typing import Any
+
 from .command import ActionType, CommandBatch, FloorNLPCommand, IFCCommand, IFCContext
 from .add_room_placement import suggest_add_room_start_mm
 from .toilet_demo import build_toilet_insertion_geometry_plan
@@ -29,6 +31,14 @@ def to_ifc_commands(
     command: FloorNLPCommand,
     ifc_context: IFCContext | None = None,
 ) -> CommandBatch:
+    def _find_wall(wall_id: str | None) -> dict[str, Any] | None:
+        if not ifc_context or not wall_id:
+            return None
+        return next(
+            (wall for wall in ifc_context.get("walls", []) if wall.get("id") == wall_id),
+            None,
+        )
+
     def _find_space_ids(target_name: str | None) -> list[str]:
         if not ifc_context or not target_name:
             return []
@@ -63,11 +73,68 @@ def to_ifc_commands(
                 return _find_storey_id(floor_num)
         return None
 
+    def _find_storey_id_for_wall(wall_id: str | None) -> str | None:
+        wall = _find_wall(wall_id)
+        if wall is None:
+            return None
+        floor_num = wall.get("floor")
+        if floor_num is None:
+            return None
+        return _find_storey_id(int(floor_num))
+
     if command.needs_clarification:
         return CommandBatch(
             commands=[],
             requires_clarification=True,
             clarification_question=command.clarification_question or _MSG_DEFAULT_CLARIFICATION,
+        )
+
+    if command.action == "create_door":
+        wall = _find_wall(command.target_wall_id)
+        if wall is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question="선택한 벽을 IFC context에서 찾지 못했습니다.",
+            )
+        storey_id = _find_storey_id_for_wall(command.target_wall_id)
+        if storey_id is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=_TMPL_STOREY_NOT_FOUND.format(name=command.target_wall_id),
+            )
+        start = wall["start"]
+        end = wall["end"]
+        mid_x = (float(start[0]) + float(end[0])) / 2.0
+        mid_y = (float(start[1]) + float(end[1])) / 2.0
+        width_mm = int(command.element_width_mm or 900)
+        height_mm = int(command.element_height_mm or 2100)
+        return CommandBatch(
+            commands=[
+                IFCCommand(
+                    action=ActionType.CREATE_DOOR,
+                    target_id=None,
+                    params={
+                        "entity_type": "Door",
+                        "metadata": {
+                            "storey_id": storey_id,
+                            "host_wall_id": command.target_wall_id,
+                        },
+                        "geometry": {
+                            "location": [mid_x, mid_y, 0.0],
+                            "direction": [1.0, 0.0, 0.0],
+                            "dimensions": {
+                                "width": width_mm,
+                                "height": height_mm,
+                            },
+                        },
+                    },
+                    confidence=command.confidence,
+                    reason="create door on selected wall",
+                )
+            ],
+            requires_clarification=False,
         )
 
     if command.action == "add_room":

@@ -32,6 +32,7 @@ class NewRoom(BaseModel):
 class FloorNLPCommand(BaseModel):
     action: Literal[
         "add_room",
+        "create_door",
         "insert_toilet",
         "remove_room",
         "resize_room",
@@ -40,6 +41,7 @@ class FloorNLPCommand(BaseModel):
         "unlock_room",
     ]
     target_room_name: str | None = Field(None, description="Target room name.")
+    target_wall_id: str | None = Field(None, description="Target wall GlobalId.")
     target_floor: int | None = Field(None, ge=1, description="Target floor number.")
     new_room: NewRoom | None = Field(None, description="Room payload for add_room.")
     adjacency_target: str | None = Field(None, description="Adjacency target room name.")
@@ -73,6 +75,16 @@ class FloorNLPCommand(BaseModel):
         False,
         description="Whether to apply to all matched rooms with the same name.",
     )
+    element_width_mm: int | None = Field(
+        None,
+        gt=0,
+        description="Requested width for local element creation in mm.",
+    )
+    element_height_mm: int | None = Field(
+        None,
+        gt=0,
+        description="Requested height for local element creation in mm.",
+    )
     user_intent: UserIntent | None = Field(
         None,
         description="Optional user intent hint for demo-specific insert_toilet planning.",
@@ -86,6 +98,8 @@ class FloorNLPCommand(BaseModel):
             return self
         if self.action == "add_room" and self.new_room is None:
             raise ValueError("add_room requires new_room.")
+        if self.action == "create_door" and self.target_wall_id is None:
+            raise ValueError("create_door requires target_wall_id.")
         if self.action == "resize_room" and self.target_room_name is None:
             raise ValueError("resize_room requires target_room_name.")
         if self.action == "set_adjacency" and self.adjacency_target is None:

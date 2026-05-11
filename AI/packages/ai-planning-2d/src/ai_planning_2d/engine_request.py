@@ -12,7 +12,7 @@ from .resize_healing import build_isolated_rectangular_resize_wall_plans
 from .space_healing import build_isolated_resize_space_plan
 
 _SPACE_PSET_NAME = "Batang_SpaceDimensions"
-_SUPPORTED_SHARED_ACTIONS = {"add_room", "remove_room", "resize_room"}
+_ROOM_PLANNING_ACTIONS = {"add_room", "remove_room", "resize_room"}
 
 
 def build_engine_request(
@@ -76,27 +76,56 @@ def _build_operations(
     policy_plan: dict[str, Any] | None,
     ifc_context: IFCContext | None,
 ) -> list[EngineOperationInlineRef]:
-    if command.action not in _SUPPORTED_SHARED_ACTIONS:
-        raise ValueError(f"unsupported shared action: {command.action}")
+    if command.action in _ROOM_PLANNING_ACTIONS:
+        raise ValueError(
+            "room action "
+            f"'{command.action}' is planning-assist only and cannot build "
+            "shared apply payloads"
+        )
+    if command.action == "create_door":
+        return _build_create_door_operations(command_batch=command_batch)
 
-    if command.action == "add_room":
-        return _build_add_room_operations(
-            command=command,
-            command_batch=command_batch,
-            ifc_context=ifc_context,
+    raise ValueError(f"unsupported shared action: {command.action}")
+
+
+def _build_create_door_operations(
+    *,
+    command_batch: CommandBatch,
+) -> list[EngineOperationInlineRef]:
+    if not command_batch.commands:
+        raise ValueError("create_door shared request requires at least one command")
+    payload = command_batch.commands[0].params
+    metadata = payload.get("metadata", {})
+    geometry = payload.get("geometry", {})
+    dimensions = geometry.get("dimensions", {})
+    location = geometry.get("location", [0.0, 0.0, 0.0])
+    storey_id = metadata.get("storey_id")
+    host_wall_id = metadata.get("host_wall_id")
+    if storey_id is None:
+        raise ValueError("create_door shared request requires storey_id")
+    if host_wall_id is None:
+        raise ValueError("create_door shared request requires host_wall_id")
+    return [
+        EngineOperationInlineRef(
+            id="op-create-door",
+            type="create_element",
+            selector=None,
+            parameters={
+                "element_type": "IfcDoor",
+                "storey_id": storey_id,
+                "host_wall_global_id": host_wall_id,
+                "start_mm": {
+                    "x": float(location[0]),
+                    "y": float(location[1]),
+                    "z": float(location[2]) if len(location) > 2 else 0.0,
+                },
+                "dimensions_mm": {
+                    "width": int(dimensions.get("width", 900)),
+                    "height": int(dimensions.get("height", 2100)),
+                },
+            },
         )
-    if command.action == "remove_room":
-        return _build_remove_room_operations(
-            command_batch=command_batch,
-            policy_plan=policy_plan,
-            ifc_context=ifc_context,
-        )
-    return _build_resize_room_operations(
-        command=command,
-        command_batch=command_batch,
-        policy_plan=policy_plan,
-        ifc_context=ifc_context,
-    )
+    ]
 
 
 def _build_add_room_operations(

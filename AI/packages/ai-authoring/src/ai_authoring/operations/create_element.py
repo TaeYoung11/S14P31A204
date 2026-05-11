@@ -10,7 +10,7 @@ import ifcopenshell
 import ifcopenshell.api.root
 
 from ai_authoring.engine_3d import (
-    create_door_with_opening,
+    create_door_with_template_reuse,
     create_generic_element,
     create_roof,
     create_slab,
@@ -184,7 +184,7 @@ class CreateElementHandler:
                 return None
             sill_height_mm = parameters.get("sill_height_mm")
             if element_type == "IfcDoor":
-                return create_door_with_opening(
+                return create_door_with_template_reuse(
                     model,
                     resolved_storey,
                     **common,

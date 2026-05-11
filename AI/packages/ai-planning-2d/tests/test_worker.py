@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import ai_planning_2d
+import ai_planning_2d.worker as worker_module
 from ai_common.storage.paths import planner_2d_command_key, preview_result_key
 from ai_common.adapters.rabbitmq.consumer import RabbitMQConsumer
 from ai_common.adapters.rabbitmq.kombu_client import get_command_queue
@@ -270,6 +271,45 @@ def test_run_two_d_llm_job_clarification(tmp_path: Path, monkeypatch: pytest.Mon
     assert result["ok"] is False
     assert result["code"] == "clarification_required"
     assert result["clarification_request_id"] == "2d-local-input"
+
+
+def test_build_two_d_command_artifact_marks_alternatives_as_clarification() -> None:
+    artifact = worker_module._build_two_d_command_artifact(
+        user_instruction="침실을 없애줘",
+        preview={
+            "status": "alternatives",
+            "summary": "Review the proposed merge alternative first.",
+            "command": {
+                "action": "remove_room",
+                "target_room_name": "침실",
+                "confidence": 0.9,
+            },
+            "command_batch": {"commands": [], "requires_clarification": False},
+        },
+    )
+
+    assert artifact.needs_clarification is True
+    assert artifact.clarification_question == "Review the proposed merge alternative first."
+
+
+def test_build_preview_result_artifact_preserves_alternatives_status() -> None:
+    artifact = worker_module._build_preview_result_artifact(
+        {
+            "status": "alternatives",
+            "summary": "Review the proposed merge alternative first.",
+            "command": {
+                "action": "remove_room",
+                "target_room_name": "침실",
+                "confidence": 0.9,
+            },
+            "command_batch": {"commands": [], "requires_clarification": False},
+            "policy_plan": {"status": "planned"},
+            "alternatives": [{"alternative_id": "merge-primary"}],
+        }
+    )
+
+    assert artifact.status == "alternatives"
+    assert artifact.summary == "Review the proposed merge alternative first."
 
 
 def test_two_d_llm_worker_uploads_ifc_and_plan(monkeypatch: pytest.MonkeyPatch) -> None:

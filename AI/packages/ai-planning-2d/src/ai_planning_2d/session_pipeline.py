@@ -16,6 +16,8 @@ from .policies import plan_remove_room, plan_resize_room
 from .preview_validators import validate_preview_plan
 from .toilet_demo import build_toilet_insertion_geometry_plan
 
+_ROOM_PLANNING_ACTIONS = {"add_room", "remove_room", "resize_room", "insert_toilet"}
+
 
 @dataclass
 class PreviewSession2D:
@@ -50,6 +52,9 @@ class LLM2DPipeline:
         return await self.execute_command_preview(command)
 
     async def execute_command_preview(self, command: FloorNLPCommand) -> dict[str, Any]:
+        if command.action in _ROOM_PLANNING_ACTIONS:
+            return self._room_planning_assist_preview(command)
+
         batch = to_ifc_commands(command, self.ifc_context)
         if batch.requires_clarification:
             return {
@@ -274,16 +279,197 @@ class LLM2DPipeline:
             self.store.pop(session_id, None)
 
     def _can_apply_locally(self, session: PreviewSession2D) -> bool:
-        if self.ifc_path is None:
-            return False
-        if session.command.action == "add_room":
-            return True
-        return (
-            session.policy_plan is not None
-            and session.policy_plan.get("status") == "planned"
-            and session.command.action in {"remove_room", "resize_room"}
-        )
+        del session
+        return False
 
+    def _room_planning_assist_preview(self, command: FloorNLPCommand) -> dict[str, Any]:
+        batch = to_ifc_commands(command, self.ifc_context)
+        if batch.requires_clarification:
+            return {
+                "status": "needs_clarification",
+                "summary": batch.clarification_question,
+                "command": command.model_dump(),
+                "command_batch": batch.model_dump(),
+            }
+
+        policy_plan = self._build_policy_plan(command, batch)
+        if command.action == "remove_room":
+            return self._remove_room_alternatives_preview(command, batch, policy_plan)
+        if command.action == "insert_toilet":
+            return self._insert_toilet_alternatives_preview(command, batch, policy_plan)
+        if command.action == "resize_room":
+            return {
+                "status": "needs_clarification",
+                "summary": (
+                    "Room resize is handled as a planning-assist request in this demo. "
+                    "Please confirm which adjacent space may change together."
+                ),
+                "command": command.model_dump(),
+                "command_batch": batch.model_dump(),
+                "policy_plan": policy_plan,
+            }
+        return {
+            "status": "needs_clarification",
+            "summary": (
+                "Adding a new room is not auto-applied in this demo. "
+                "Please review a design alternative first."
+            ),
+            "command": command.model_dump(),
+            "command_batch": batch.model_dump(),
+            "policy_plan": policy_plan,
+        }
+
+    def _insert_toilet_alternatives_preview(
+        self,
+        command: FloorNLPCommand,
+        batch: CommandBatch,
+        policy_plan: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if policy_plan is None:
+            return {
+                "status": "unsupported",
+                "summary": (
+                    "Toilet insertion could not find a feasible donor room on this floor."
+                ),
+                "command": command.model_dump(),
+                "command_batch": batch.model_dump(),
+            }
+
+        if policy_plan.get("status") == "planned":
+            donor_name = policy_plan.get("donor_room_name") or "adjacent room"
+            anchor_name = policy_plan.get("anchor_room_name")
+            title = (
+                f"Split '{donor_name}' to insert a toilet"
+                if anchor_name is None
+                else f"Insert a toilet near '{anchor_name}' by shrinking '{donor_name}'"
+            )
+            return {
+                "status": "alternatives",
+                "summary": (
+                    "Toilet insertion is handled as a planning-assist request in this demo. "
+                    "Review the feasibility and donor-room impact first."
+                ),
+                "command": command.model_dump(),
+                "command_batch": batch.model_dump(),
+                "policy_plan": policy_plan,
+                "alternatives": [
+                    {
+                        "alternative_id": "insert-toilet-primary",
+                        "title": title,
+                        "description": (
+                            f"Use '{donor_name}' as the donor room and reserve space for a toilet "
+                            "after detailed geometry and opening review."
+                        ),
+                        "affected_entities": [
+                            item
+                            for item in [
+                                policy_plan.get("anchor_room_id"),
+                                policy_plan.get("donor_room_id"),
+                            ]
+                            if item is not None
+                        ],
+                        "warnings": [
+                            "This branch does not auto-apply toilet insertion IFC changes.",
+                            "Donor room quality, wall topology, and opening "
+                            "conflicts must be reviewed.",
+                        ],
+                        "metrics": [
+                            f"preferred_width_mm={policy_plan.get('preferred_width_mm')}",
+                            f"preferred_height_mm={policy_plan.get('preferred_height_mm')}",
+                            f"donor_room_name={donor_name}",
+                        ],
+                    }
+                ],
+            }
+
+        if policy_plan.get("status") == "needs_clarification":
+            return {
+                "status": "needs_clarification",
+                "summary": self._policy_summary(policy_plan),
+                "command": command.model_dump(),
+                "command_batch": batch.model_dump(),
+                "policy_plan": policy_plan,
+            }
+
+        return {
+            "status": "unsupported",
+            "summary": self._policy_summary(policy_plan),
+            "command": command.model_dump(),
+            "command_batch": batch.model_dump(),
+            "policy_plan": policy_plan,
+        }
+
+    def _remove_room_alternatives_preview(
+        self,
+        command: FloorNLPCommand,
+        batch: CommandBatch,
+        policy_plan: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if policy_plan is None:
+            return {
+                "status": "needs_clarification",
+                "summary": (
+                    "Room removal needs additional review before any IFC change can be applied."
+                ),
+                "command": command.model_dump(),
+                "command_batch": batch.model_dump(),
+            }
+
+        if policy_plan.get("status") == "planned":
+            merge_target_id = policy_plan.get("merge_target_space_id")
+            merge_target_name = self._space_name(merge_target_id) or "adjacent room"
+            target_name = command.target_room_name or "selected room"
+            return {
+                "status": "alternatives",
+                "summary": (
+                    "Room removal is handled as a planning-assist request in this demo. "
+                    "Review the proposed merge alternative first."
+                ),
+                "command": command.model_dump(),
+                "command_batch": batch.model_dump(),
+                "policy_plan": policy_plan,
+                "alternatives": [
+                    {
+                        "alternative_id": "merge-primary",
+                        "title": f"Merge into '{merge_target_name}'",
+                        "description": (
+                            f"Remove '{target_name}' and absorb it into '{merge_target_name}'."
+                        ),
+                        "affected_entities": [
+                            item
+                            for item in [
+                                policy_plan.get("target_space_id"),
+                                merge_target_id,
+                            ]
+                            if item is not None
+                        ],
+                        "warnings": [
+                            "This demo does not auto-apply room removal. "
+                            "Review the IFC impact first."
+                        ],
+                        "metrics": [
+                            "shared_contact_mm="
+                            f"{policy_plan.get('shared_contact_length_mm') or 0.0}",
+                        ],
+                    }
+                ],
+            }
+
+        return {
+            "status": "needs_clarification",
+            "summary": self._policy_summary(policy_plan),
+            "command": command.model_dump(),
+            "command_batch": batch.model_dump(),
+            "policy_plan": policy_plan,
+        }
+
+    def _space_name(self, space_id: str | None) -> str | None:
+        if space_id is None or self.ifc_context is None:
+            return None
+        for space in self.ifc_context.get("spaces", []):
+            if space.get("id") == space_id:
+                return space.get("name")
+        return None
 
     def _shared_payload(
         self,
@@ -468,5 +654,5 @@ class LLM2DPipeline:
             ],
             "shared_orchestration_attached": True,
             "preferred_apply_mode": "shared_authoring",
-            "local_fallback_actions": ["add_room", "remove_room", "resize_room"],
+            "local_fallback_actions": [],
         }

@@ -65,6 +65,25 @@ _RESIZE_DIRECTION_HINTS: tuple[tuple[str, str], ...] = (
 )
 
 
+_CREATE_DOOR_KEYWORDS: tuple[str, ...] = ("문", "door")
+_CREATE_DOOR_ACTION_HINTS: tuple[str, ...] = ("만들", "추가", "뚫")
+
+
+def _maybe_parse_generic_room_change_clarification(user_text: str) -> FloorNLPCommand | None:
+    if "방" not in user_text:
+        return None
+    if not any(keyword in user_text for keyword in ("바꿔", "수정", "변경")):
+        return None
+    if any(keyword in user_text for keyword in ("문", "창", "wall", "door", "window")):
+        return None
+    return FloorNLPCommand(
+        action="add_room",
+        confidence=0.2,
+        needs_clarification=True,
+        clarification_question="어떤 방을 어떻게 바꿀지 더 구체적으로 말씀해주세요.",
+    )
+
+
 def _infer_resize_direction(user_text: str) -> str | None:
     for keyword, direction in _RESIZE_DIRECTION_HINTS:
         if keyword in user_text:
@@ -416,6 +435,39 @@ def _maybe_parse_insert_toilet_command_v2(user_text: str) -> FloorNLPCommand | N
     )
 
 
+def _maybe_parse_simple_create_door_command(
+    user_text: str,
+    ifc_context: IFCContext | None,
+) -> FloorNLPCommand | None:
+    lowered = user_text.casefold()
+    if not any(keyword in user_text or keyword in lowered for keyword in _CREATE_DOOR_KEYWORDS):
+        return None
+    if not any(keyword in user_text for keyword in _CREATE_DOOR_ACTION_HINTS):
+        return None
+    if ifc_context is None:
+        return None
+
+    matched_walls = [
+        wall
+        for wall in ifc_context.get("walls", [])
+        if wall.get("id") and wall["id"] in user_text
+    ]
+    if len(matched_walls) != 1:
+        return None
+
+    wall = matched_walls[0]
+    return FloorNLPCommand(
+        action="create_door",
+        target_wall_id=wall["id"],
+        target_floor=wall.get("floor"),
+        element_width_mm=900,
+        element_height_mm=2100,
+        confidence=0.9,
+        needs_clarification=False,
+        clarification_question=None,
+    )
+
+
 SYSTEM_PROMPT = """
 당신은 2D 평면 수정 요청을 구조화된 명령으로 변환하는 파서다.
 사용자 요청을 읽고 FloorNLPCommand JSON 하나만 정확하게 반환한다.
@@ -622,6 +674,14 @@ class FloorPlanEngine:
         ifc_context: IFCContext | None = None,
         conversation_history: list[ChatCompletionMessageParam] | None = None,
     ) -> FloorNLPCommand:
+        generic_room_change = _maybe_parse_generic_room_change_clarification(user_text)
+        if generic_room_change is not None:
+            return generic_room_change
+
+        create_door = _maybe_parse_simple_create_door_command(user_text, ifc_context)
+        if create_door is not None:
+            return create_door
+
         insert_toilet = _maybe_parse_insert_toilet_command_v3(user_text)
         if insert_toilet is not None:
             return insert_toilet

@@ -22,6 +22,7 @@ from .resize_healing import build_isolated_rectangular_resize_wall_plans
 from .space_healing import build_isolated_resize_space_plan
 
 _DEFAULT_SPACE_HEIGHT_M = 2.7
+_ROOM_PLANNING_ACTIONS = {"add_room", "remove_room", "resize_room"}
 
 
 def apply_space_plan(
@@ -33,6 +34,15 @@ def apply_space_plan(
     policy_plan: dict[str, Any] | None,
     ifc_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if command.action in _ROOM_PLANNING_ACTIONS:
+        return {
+            "status": "not_applied",
+            "summary": (
+                f"{command.action} is planning-assist only on this branch "
+                "and cannot be auto-applied."
+            ),
+        }
+
     model = ifcopenshell.open(ifc_path)
     if command.action == "add_room":
         return _apply_add_room(
