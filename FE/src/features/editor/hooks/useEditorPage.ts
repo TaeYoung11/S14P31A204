@@ -1786,6 +1786,27 @@ export function useEditorPage() {
     floorPlanHistoryCursor,
   })
 
+  const getBubbleSnapshotSaveErrorSummary = useCallback((error: unknown) => {
+    if (!isAxiosError(error)) {
+      return error instanceof Error ? error.message : String(error)
+    }
+
+    if (error.response) {
+      const responseData = error.response.data as { message?: unknown } | undefined
+      return {
+        status: error.response.status,
+        message: typeof responseData?.message === 'string' ? responseData.message : error.message,
+      }
+    }
+
+    return {
+      message: error.message,
+      code: error.code,
+      url: error.config?.url,
+      baseURL: error.config?.baseURL,
+    }
+  }, [])
+
   const flushBubbleSnapshotSaveToDb = useCallback(async (force = false): Promise<SaveBubbleSnapshotResponse | null> => {
     if (!projectId) return null
     if (workspacePhaseStatus !== 'BUBBLE_DRAFT') return null
@@ -1809,14 +1830,16 @@ export function useEditorPage() {
     try {
       return await saveTask
     } catch (error: unknown) {
+      const errorSummary = getBubbleSnapshotSaveErrorSummary(error)
       console.warn('[editor] Bubble snapshot DB 저장 실패:', { projectId, error })
+      console.warn('[editor] Bubble snapshot DB 저장 실패 상세:', { projectId, error: errorSummary })
       return null
     } finally {
       if (bubbleDbSaveInFlightRef.current === saveTask) {
         bubbleDbSaveInFlightRef.current = null
       }
     }
-  }, [projectId, workspacePhaseStatus])
+  }, [getBubbleSnapshotSaveErrorSummary, projectId, workspacePhaseStatus])
 
   const scheduleBubbleSnapshotSaveToDb = useCallback((delayMs = BUBBLE_DB_SAVE_DEBOUNCE_MS) => {
     if (!projectId) return
