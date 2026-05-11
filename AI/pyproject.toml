@@ -86,7 +86,13 @@ norecursedirs = [
     ".uv-cache",
     ".uv-python",
     ".venv",
+    ".pytest-local",
+    ".pytest-tmp",
+    ".pytest-tmp-run",
+    ".pytest-tmp-run-*",
+    ".tmp",
     "pytest-cache-files-*",
+    "pytest_run_local",
 ]
 
 [tool.mypy]
