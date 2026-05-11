@@ -940,6 +940,31 @@ def test_convert_layout_to_ifc_optimizes_strong_adjacency_before_shared_wall_gen
     right_room_location = _local_placement_location(spaces["Right Room"])
     assert right_room_location == pytest.approx((6.3, 1.9, 0.0))
     assert len(_shared_walls(model)) == 1
+    assert summary.hasWarnings is True
+    assert summary.to_report_warnings() == {
+        "defaultsApplied": {},
+        "degradedFeatures": [],
+        "missingBoundaryFloors": [],
+        "availableBoundaryFloors": [1],
+        "roomFloors": [1],
+        "topFloorBoundaryMissing": False,
+        "openingsDisabledBecauseWallsDisabled": False,
+        "layoutOptimizationApplied": True,
+        "movedRoomCount": 1,
+        "satisfiedAdjacencyCount": 1,
+        "unsatisfiedAdjacencyCount": 0,
+        "unsatisfiedAdjacencyRefs": [],
+        "skippedAdjacencyReasons": [],
+    }
+    assert summary.layoutOptimization.hasWarnings is False
+    assert summary.layoutOptimization.to_report_warnings() == {
+        "layoutOptimizationApplied": True,
+        "movedRoomCount": 1,
+        "satisfiedAdjacencyCount": 1,
+        "unsatisfiedAdjacencyCount": 0,
+        "unsatisfiedAdjacencyRefs": [],
+        "skippedAdjacencyReasons": [],
+    }
     assert summary.layoutOptimization.movedRoomCount == 1
     assert summary.layoutOptimization.satisfiedAdjacencyCount == 1
 
