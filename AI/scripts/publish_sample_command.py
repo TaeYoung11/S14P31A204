@@ -15,7 +15,9 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 try:
     import kombu
@@ -42,6 +44,7 @@ _WORKER_TYPE_TO_ROUTING_KEY: dict[str, str] = {
 }
 
 _SAMPLES_DIR = Path(__file__).resolve().parents[1] / "sample_messages"
+_SMOKE_OUTPUT_PREFIX_ENV = "SMOKE_OUTPUT_PREFIX"
 
 
 def get_sample_file(worker_type: str) -> str:
@@ -65,6 +68,39 @@ def get_worker_type_from_env() -> str:
     return worker_type
 
 
+def build_smoke_run_id(
+    now: datetime | None = None,
+    *,
+    unique_suffix: str | None = None,
+) -> str:
+    timestamp = now or datetime.now(UTC)
+    suffix = unique_suffix or uuid4().hex[:8]
+    return f"{timestamp.strftime('%Y%m%dT%H%M%SZ')}-{suffix}"
+
+
+def uniquify_smoke_output_prefix(
+    payload: dict[str, object],
+    *,
+    worker_type: str,
+    run_id: str | None = None,
+) -> dict[str, object]:
+    if worker_type != "SD_RENDER_GENERATE":
+        return payload
+
+    expected_output = payload.get("expectedOutput")
+    if not isinstance(expected_output, dict):
+        return payload
+
+    output_url = expected_output.get("renderImageStorageUrl")
+    if not isinstance(output_url, str) or not output_url:
+        return payload
+
+    unique_run_id = run_id or build_smoke_run_id()
+    output_prefix_base = os.getenv(_SMOKE_OUTPUT_PREFIX_ENV, output_url).rstrip("/")
+    expected_output["renderImageStorageUrl"] = f"{output_prefix_base}/{unique_run_id}"
+    return payload
+
+
 def main() -> None:
     if kombu is None:
         raise ModuleNotFoundError("kombu is required to publish sample commands")
@@ -84,6 +120,7 @@ def main() -> None:
 
     sample_path = _SAMPLES_DIR / sample_file
     payload = json.loads(sample_path.read_text(encoding="utf-8"))
+    payload = uniquify_smoke_output_prefix(payload, worker_type=worker_type)
 
     rmq = RabbitMQSettings()
     with build_connection(rmq) as conn:
@@ -99,6 +136,11 @@ def main() -> None:
             )
 
     print(f"Published '{sample_file}' → routing key '{routing_key}'")
+    expected_output = payload.get("expectedOutput")
+    if isinstance(expected_output, dict):
+        output_url = expected_output.get("renderImageStorageUrl")
+        if isinstance(output_url, str):
+            print(f"renderImageStorageUrl={output_url}")
 
 
 if __name__ == "__main__":

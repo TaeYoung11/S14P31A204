@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -47,6 +48,58 @@ def test_ifc2img_publish_sample_passes_command_validation() -> None:
     assert command.payload.preset == "korean_house"
 
 
+def test_ifc2img_smoke_output_prefix_is_uniquified(monkeypatch) -> None:
+    module = _load_module()
+    monkeypatch.delenv("SMOKE_OUTPUT_PREFIX", raising=False)
+    payload = {
+        "expectedOutput": {
+            "renderImageStorageUrl": "s3://batang-artifacts/smoke/ifc2img/output/job-1"
+        }
+    }
+
+    result = module.uniquify_smoke_output_prefix(
+        payload,
+        worker_type="SD_RENDER_GENERATE",
+        run_id="20260511T010203Z",
+    )
+
+    assert result["expectedOutput"]["renderImageStorageUrl"] == (
+        "s3://batang-artifacts/smoke/ifc2img/output/job-1/20260511T010203Z"
+    )
+
+
+def test_ifc2img_smoke_output_prefix_can_use_env_base(monkeypatch) -> None:
+    module = _load_module()
+    monkeypatch.setenv("SMOKE_OUTPUT_PREFIX", "s3://bucket/smoke/custom/")
+    payload = {
+        "expectedOutput": {
+            "renderImageStorageUrl": "s3://batang-artifacts/smoke/ifc2img/output/job-1"
+        }
+    }
+
+    result = module.uniquify_smoke_output_prefix(
+        payload,
+        worker_type="SD_RENDER_GENERATE",
+        run_id="20260511T010203Z",
+    )
+
+    assert result["expectedOutput"]["renderImageStorageUrl"] == (
+        "s3://bucket/smoke/custom/20260511T010203Z"
+    )
+
+
+def test_smoke_run_id_uses_utc_timestamp() -> None:
+    module = _load_module()
+
+    assert (
+        module.build_smoke_run_id(
+            datetime(2026, 5, 11, 1, 2, 3, tzinfo=UTC),
+            unique_suffix="abc12345",
+        )
+        == "20260511T010203Z-abc12345"
+    )
+
+
 def test_main_publishes_without_s3_env(monkeypatch) -> None:
     module = _load_module()
     monkeypatch.setenv("WORKER_TYPE", "SD_RENDER_GENERATE")
@@ -73,3 +126,7 @@ def test_main_publishes_without_s3_env(monkeypatch) -> None:
     module.kombu.Producer.assert_called_once_with(channel)
     producer.publish.assert_called_once()
     assert producer.publish.call_args.kwargs["routing_key"] == "command.sd-render.generate"
+    published_payload = json.loads(producer.publish.call_args.args[0])
+    assert published_payload["expectedOutput"]["renderImageStorageUrl"].startswith(
+        "s3://batang-artifacts/smoke/ifc2img/output/job-ifc2img-render-001/"
+    )
