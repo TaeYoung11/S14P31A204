@@ -145,6 +145,28 @@ def test_apply_delete_preserves_name_for_post_validation():
     assert result["matched_elements"][0]["is_load_bearing"] is True
 
 
+def test_authoring_worker_rejects_invalid_dimensions_before_mutation():
+    root_dir = Path(__file__).resolve().parents[3]
+    ifc_path = root_dir / "tests" / "sample_batang.ifc"
+    worker, _ = _make_worker(ifc_path.read_bytes())
+    engine_req = {
+        "operations": [
+            {
+                "id": "op-invalid-scale",
+                "type": "update_element_properties",
+                "selector": {"element_type": "IfcWall", "select_all": True},
+                "parameters": {"dimensions_mm": {"length": {"mode": "SCALE", "value": 0}}},
+            }
+        ]
+    }
+
+    with pytest.raises(NonRetryableWorkerError) as exc_info:
+        worker._validate_operations_before_mutation(engine_req)
+
+    assert exc_info.value.code == "INVALID_OPERATION_PARAMETERS"
+    assert "op-invalid-scale.length" in str(exc_info.value)
+
+
 if __name__ == "__main__":
     test_authoring_worker_returns_completed_result()
     test_authoring_worker_fails_when_no_operations_applied()
