@@ -11,18 +11,11 @@ import com.a204.batang.domain.render.repository.RenderArtifactRepository;
 import com.a204.batang.domain.render.repository.RenderJobRepository;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.databind.JsonNode;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.presigner.S3Presigner;
-import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -43,40 +36,25 @@ public class RenderQueryService {
     private static final String RENDER_JOB_TYPE = "SD_RENDER";
     private static final String RENDER_IMAGE_ARTIFACT_TYPE = "RENDER_IMAGE";
     private static final ZoneId KOREA_ZONE_ID = ZoneId.of("Asia/Seoul");
-    private static final String S3_SCHEME_PREFIX = "s3://";
-    private static final String HTTP_SCHEME = "http";
-    private static final String HTTPS_SCHEME = "https";
-    private static final String HTTP_PREFIX = "http://";
-    private static final String HTTPS_PREFIX = "https://";
-    private static final long FALLBACK_PRESIGN_EXPIRATION_SECONDS = 300L;
 
     private final ProjectRepository projectRepository;
     private final ProjectAccessService projectAccessService;
     private final RenderJobRepository renderJobRepository;
     private final RenderArtifactRepository renderArtifactRepository;
-    private final S3Presigner s3Presigner;
-    private final String configuredBucket;
-    private final URI configuredEndpointUri;
-    private final long presignExpirationSeconds;
+    private final S3ObjectPresigner s3ObjectPresigner;
 
     public RenderQueryService(
             ProjectRepository projectRepository,
             ProjectAccessService projectAccessService,
             RenderJobRepository renderJobRepository,
             RenderArtifactRepository renderArtifactRepository,
-            S3Presigner s3Presigner,
-            @Value("${app.aws.s3.bucket}") String configuredBucket,
-            @Value("${app.aws.s3.endpoint-url:}") String endpointUrl,
-            @Value("${app.aws.s3.presign-expiration-seconds}") long presignExpirationSeconds
+            S3ObjectPresigner s3ObjectPresigner
     ) {
         this.projectRepository = projectRepository;
         this.projectAccessService = projectAccessService;
         this.renderJobRepository = renderJobRepository;
         this.renderArtifactRepository = renderArtifactRepository;
-        this.s3Presigner = s3Presigner;
-        this.configuredBucket = configuredBucket == null ? "" : configuredBucket.trim();
-        this.configuredEndpointUri = parseConfiguredEndpointUri(endpointUrl);
-        this.presignExpirationSeconds = presignExpirationSeconds;
+        this.s3ObjectPresigner = s3ObjectPresigner;
     }
 
     /**
@@ -147,7 +125,7 @@ public class RenderQueryService {
      * job과 artifact를 응답 DTO로 변환한다.
      */
     private ProjectRenderResponse toResponse(RenderJob job, RenderArtifact artifact) {
-        return toResponse(job, artifact != null ? artifact.getStorageUrl() : null);
+        return toResponse(job, artifact != null ? presignArtifactUrl(artifact) : null);
     }
 
     /**
@@ -165,173 +143,7 @@ public class RenderQueryService {
     }
 
     private String presignArtifactUrl(RenderArtifact artifact) {
-        try {
-            S3ObjectLocation objectLocation = resolveS3ObjectLocation(artifact.getStorageUrl());
-            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
-                    .bucket(objectLocation.bucket())
-                    .key(objectLocation.key())
-                    .build();
-            GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
-                    .signatureDuration(resolveSignatureDuration())
-                    .getObjectRequest(getObjectRequest)
-                    .build();
-
-            return s3Presigner.presignGetObject(presignRequest).url().toString();
-        } catch (CustomException exception) {
-            throw exception;
-        } catch (RuntimeException exception) {
-            throw new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
-        }
-    }
-
-    private Duration resolveSignatureDuration() {
-        if (presignExpirationSeconds <= 0) {
-            return Duration.ofSeconds(FALLBACK_PRESIGN_EXPIRATION_SECONDS);
-        }
-        return Duration.ofSeconds(presignExpirationSeconds);
-    }
-
-    private S3ObjectLocation resolveS3ObjectLocation(String storageUrl) {
-        if (!StringUtils.hasText(storageUrl)) {
-            throw new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
-        }
-
-        String normalizedStorageUrl = storageUrl.trim();
-        if (normalizedStorageUrl.startsWith(S3_SCHEME_PREFIX)) {
-            return resolveS3SchemeLocation(normalizedStorageUrl);
-        }
-        if (normalizedStorageUrl.startsWith(HTTP_PREFIX) || normalizedStorageUrl.startsWith(HTTPS_PREFIX)) {
-            return resolveHttpLocation(normalizedStorageUrl);
-        }
-        return resolveObjectKeyLocation(normalizedStorageUrl);
-    }
-
-    private S3ObjectLocation resolveS3SchemeLocation(String s3Url) {
-        String withoutScheme = s3Url.substring(S3_SCHEME_PREFIX.length());
-        int separatorIndex = withoutScheme.indexOf('/');
-        if (separatorIndex <= 0 || separatorIndex >= withoutScheme.length() - 1) {
-            throw new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
-        }
-
-        String bucket = withoutScheme.substring(0, separatorIndex).trim();
-        String key = withoutScheme.substring(separatorIndex + 1).trim();
-        return new S3ObjectLocation(validateBucketOrThrow(bucket), validateKeyOrThrow(key));
-    }
-
-    private S3ObjectLocation resolveHttpLocation(String httpUrl) {
-        URI uri;
-        try {
-            uri = new URI(httpUrl);
-        } catch (URISyntaxException exception) {
-            throw new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
-        }
-
-        String host = uri.getHost();
-        String rawPath = uri.getPath();
-        if (!StringUtils.hasText(host) || !StringUtils.hasText(rawPath) || "/".equals(rawPath)) {
-            throw new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
-        }
-
-        String normalizedHost = host.toLowerCase(Locale.ROOT);
-        String normalizedPath = stripLeadingSlash(rawPath);
-
-        if (matchesConfiguredEndpoint(uri)) {
-            return resolvePathStyleLocation(normalizedPath);
-        }
-
-        int virtualHostedIndex = normalizedHost.indexOf(".s3.");
-        if (virtualHostedIndex > 0) {
-            String bucket = host.substring(0, virtualHostedIndex).trim();
-            return new S3ObjectLocation(validateBucketOrThrow(bucket), validateKeyOrThrow(normalizedPath));
-        }
-
-        if (normalizedHost.equals("s3.amazonaws.com")
-                || normalizedHost.startsWith("s3.")
-                || normalizedHost.startsWith("s3-")) {
-            return resolvePathStyleLocation(normalizedPath);
-        }
-
-        throw new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
-    }
-
-    private S3ObjectLocation resolvePathStyleLocation(String normalizedPath) {
-        int separatorIndex = normalizedPath.indexOf('/');
-        if (separatorIndex <= 0 || separatorIndex >= normalizedPath.length() - 1) {
-            throw new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
-        }
-
-        String bucket = normalizedPath.substring(0, separatorIndex).trim();
-        String key = normalizedPath.substring(separatorIndex + 1).trim();
-        return new S3ObjectLocation(validateBucketOrThrow(bucket), validateKeyOrThrow(key));
-    }
-
-    private URI parseConfiguredEndpointUri(String endpointUrl) {
-        if (!StringUtils.hasText(endpointUrl)) {
-            return null;
-        }
-        return URI.create(endpointUrl.trim());
-    }
-
-    private boolean matchesConfiguredEndpoint(URI uri) {
-        if (configuredEndpointUri == null
-                || !StringUtils.hasText(configuredEndpointUri.getHost())
-                || !StringUtils.hasText(uri.getHost())) {
-            return false;
-        }
-
-        return configuredEndpointUri.getHost().equalsIgnoreCase(uri.getHost())
-                && resolveEffectivePort(configuredEndpointUri) == resolveEffectivePort(uri);
-    }
-
-    private int resolveEffectivePort(URI uri) {
-        if (uri.getPort() >= 0) {
-            return uri.getPort();
-        }
-        if (HTTPS_SCHEME.equalsIgnoreCase(uri.getScheme())) {
-            return 443;
-        }
-        if (HTTP_SCHEME.equalsIgnoreCase(uri.getScheme())) {
-            return 80;
-        }
-        return -1;
-    }
-
-    private S3ObjectLocation resolveObjectKeyLocation(String keyOnlyPath) {
-        if (!StringUtils.hasText(configuredBucket)) {
-            throw new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
-        }
-        return new S3ObjectLocation(configuredBucket, validateKeyOrThrow(keyOnlyPath.trim()));
-    }
-
-    private String validateBucketOrThrow(String bucket) {
-        if (!StringUtils.hasText(bucket)) {
-            throw new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
-        }
-
-        String normalizedBucket = bucket.trim();
-        if (!StringUtils.hasText(configuredBucket)) {
-            return normalizedBucket;
-        }
-        if (!configuredBucket.equals(normalizedBucket)) {
-            throw new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
-        }
-        return normalizedBucket;
-    }
-
-    private String validateKeyOrThrow(String key) {
-        String normalizedKey = stripLeadingSlash(key);
-        if (!StringUtils.hasText(normalizedKey)) {
-            throw new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
-        }
-        return normalizedKey;
-    }
-
-    private String stripLeadingSlash(String value) {
-        String normalizedValue = value;
-        while (normalizedValue.startsWith("/")) {
-            normalizedValue = normalizedValue.substring(1);
-        }
-        return normalizedValue;
+        return s3ObjectPresigner.presignRequired(artifact.getStorageUrl(), ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
     }
 
     /**
@@ -406,8 +218,5 @@ public class RenderQueryService {
         return value.atZone(KOREA_ZONE_ID)
                 .withZoneSameInstant(ZoneOffset.UTC)
                 .format(DateTimeFormatter.ISO_INSTANT);
-    }
-
-    private record S3ObjectLocation(String bucket, String key) {
     }
 }
