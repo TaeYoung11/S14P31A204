@@ -877,6 +877,73 @@ def test_convert_layout_to_ifc_generates_shared_wall_for_same_floor_adjacency(
     assert _property_sets_by_name(shared_wall) == {}
 
 
+def test_convert_layout_to_ifc_optimizes_strong_adjacency_before_shared_wall_generation(
+    tmp_path: Path,
+) -> None:
+    left_room = _base_room(
+        room_id="room-left-01",
+        name="Left Room",
+        x=2100.0,
+        y=1900.0,
+        zone_id="zone-common",
+    )
+    left_room["locked"] = True
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            left_room,
+            _base_room(
+                room_id="room-right-01",
+                name="Right Room",
+                room_type="bedroom",
+                x=9000.0,
+                y=1900.0,
+                zone_id="zone-common",
+            ),
+        ],
+        zones=[
+            {
+                "id": "zone-common",
+                "name": "Common",
+                "color": "#FF5733",
+            }
+        ],
+        adjacency=[
+            {
+                "from_room_id": "room-left-01",
+                "to_room_id": "room-right-01",
+                "strength": 1.0,
+            }
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [12000.0, 0.0],
+                    [12000.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            }
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    summary, model = _convert_request(tmp_path, request, "v2-optimized-shared-wall.ifc")
+
+    spaces = {space.Name: space for space in model.by_type("IfcSpace")}
+    right_room_location = _local_placement_location(spaces["Right Room"])
+    assert right_room_location == pytest.approx((6.3, 1.9, 0.0))
+    assert len(_shared_walls(model)) == 1
+    assert summary.layoutOptimization.movedRoomCount == 1
+    assert summary.layoutOptimization.satisfiedAdjacencyCount == 1
+
+
 def test_convert_layout_to_ifc_keeps_v2_boundary_elements_unstyled_without_zone(
     tmp_path: Path,
 ) -> None:
@@ -1098,15 +1165,16 @@ def test_convert_layout_to_ifc_dedupes_bidirectional_shared_wall_adjacency(
     assert "Shared Wall 1-1" in _shared_walls(model)
 
 
-def test_convert_layout_to_ifc_rejects_v2_adjacency_without_shared_segment(
+def test_convert_layout_to_ifc_warns_for_v2_adjacency_without_shared_segment(
     tmp_path: Path,
 ) -> None:
+    left_room = _base_room(room_id="room-left-01", name="Left Room", x=2100.0, y=1900.0)
+    right_room = _base_room(room_id="room-right-01", name="Right Room", x=9000.0, y=1900.0)
+    left_room["locked"] = True
+    right_room["locked"] = True
     request = _make_request(
         schema_version="v2",
-        rooms=[
-            _base_room(room_id="room-left-01", name="Left Room", x=2100.0, y=1900.0),
-            _base_room(room_id="room-right-01", name="Right Room", x=9000.0, y=1900.0),
-        ],
+        rooms=[left_room, right_room],
         adjacency=[
             {
                 "from_room_id": "room-left-01",
@@ -1133,11 +1201,22 @@ def test_convert_layout_to_ifc_rejects_v2_adjacency_without_shared_segment(
         },
     )
 
-    with pytest.raises(ValueError, match="must resolve to an interior shared segment"):
-        convert_layout_to_ifc(request, tmp_path / "missing-shared-segment.ifc")
+    summary, model = _convert_request(tmp_path, request, "missing-shared-segment.ifc")
+
+    assert len(_shared_walls(model)) == 0
+    assert summary.hasWarnings is True
+    assert summary.layoutOptimization.unsatisfiedAdjacencyRefs == [
+        "room-left-01<->room-right-01"
+    ]
+    assert summary.layoutOptimization.skippedAdjacencyReasons == [
+        {
+            "adjacencyRef": "room-left-01<->room-right-01",
+            "reason": "both_rooms_locked",
+        }
+    ]
 
 
-def test_convert_layout_to_ifc_rejects_v2_cross_floor_shared_wall_adjacency(
+def test_convert_layout_to_ifc_warns_for_v2_cross_floor_shared_wall_adjacency(
     tmp_path: Path,
 ) -> None:
     request = _make_request(
@@ -1177,11 +1256,16 @@ def test_convert_layout_to_ifc_rejects_v2_cross_floor_shared_wall_adjacency(
         },
     )
 
-    with pytest.raises(ValueError, match="must be on the same floor"):
-        convert_layout_to_ifc(request, tmp_path / "cross-floor-shared-wall.ifc")
+    summary, model = _convert_request(tmp_path, request, "cross-floor-shared-wall.ifc")
+
+    assert len(_shared_walls(model)) == 0
+    assert summary.hasWarnings is True
+    assert summary.layoutOptimization.skippedAdjacencyReasons == [
+        {"adjacencyRef": "room-floor-1<->room-floor-2", "reason": "cross_floor"}
+    ]
 
 
-def test_convert_layout_to_ifc_rejects_v2_rotated_room_shared_wall_adjacency(
+def test_convert_layout_to_ifc_warns_for_v2_rotated_room_shared_wall_adjacency(
     tmp_path: Path,
 ) -> None:
     request = _make_request(
@@ -1223,11 +1307,19 @@ def test_convert_layout_to_ifc_rejects_v2_rotated_room_shared_wall_adjacency(
         },
     )
 
-    with pytest.raises(ValueError, match="does not support rotated room"):
-        convert_layout_to_ifc(request, tmp_path / "rotated-shared-wall.ifc")
+    summary, model = _convert_request(tmp_path, request, "rotated-shared-wall.ifc")
+
+    assert len(_shared_walls(model)) == 0
+    assert summary.hasWarnings is True
+    spaces = {space.Name: space for space in model.by_type("IfcSpace")}
+    right_room_direction = tuple(
+        spaces["Right Room"].ObjectPlacement.RelativePlacement.RefDirection.DirectionRatios
+    )
+    assert right_room_direction[0] == pytest.approx(math.cos(math.pi / 4))
+    assert right_room_direction[1] == pytest.approx(math.sin(math.pi / 4))
 
 
-def test_convert_layout_to_ifc_rejects_v2_shared_wall_that_matches_exterior_boundary_subset(
+def test_convert_layout_to_ifc_skips_v2_shared_wall_that_matches_exterior_boundary_subset(
     tmp_path: Path,
 ) -> None:
     request = _make_request(
@@ -1243,7 +1335,7 @@ def test_convert_layout_to_ifc_rejects_v2_shared_wall_that_matches_exterior_boun
                 "x": 2100.0,
                 "y": 1900.0,
                 "angle": 0.0,
-                "locked": False,
+                "locked": True,
             },
             {
                 "id": "room-narrow",
@@ -1255,7 +1347,7 @@ def test_convert_layout_to_ifc_rejects_v2_shared_wall_that_matches_exterior_boun
                 "x": 1000.0,
                 "y": 1900.0,
                 "angle": 0.0,
-                "locked": False,
+                "locked": True,
             },
         ],
         adjacency=[
@@ -1284,8 +1376,11 @@ def test_convert_layout_to_ifc_rejects_v2_shared_wall_that_matches_exterior_boun
         },
     )
 
-    with pytest.raises(ValueError, match="must resolve to an interior shared segment"):
-        convert_layout_to_ifc(request, tmp_path / "shared-wall-on-exterior-subset.ifc")
+    summary, model = _convert_request(tmp_path, request, "shared-wall-on-exterior-subset.ifc")
+
+    assert len(_shared_walls(model)) == 0
+    assert summary.hasWarnings is True
+    assert summary.layoutOptimization.unsatisfiedAdjacencyRefs == ["room-narrow<->room-wide"]
 
 
 def test_layout_import_request_rejects_unknown_zone_reference_before_conversion() -> None:
