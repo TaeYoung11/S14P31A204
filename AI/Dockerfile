@@ -9,7 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     libgl1 \
+    libegl1 \
     libglib2.0-0 \
+    libosmesa6 \
+    xauth \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # 모든 AI 워커 패키지를 이미지에 포함한다.
@@ -34,4 +38,5 @@ RUN pip install --no-cache-dir --upgrade pip && \
         -e ./packages/ai-planning-3d \
         -e ./packages/ai-rendering
 
-CMD ["python", "main.py"]
+ENTRYPOINT ["xvfb-run", "-a", "python", "main.py"]
+CMD []
