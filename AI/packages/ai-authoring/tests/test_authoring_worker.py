@@ -145,7 +145,7 @@ def test_apply_delete_preserves_name_for_post_validation():
     assert result["matched_elements"][0]["is_load_bearing"] is True
 
 
-def test_authoring_worker_rejects_invalid_dimensions_before_mutation():
+def test_authoring_worker_rejects_zero_scale_dimension_before_mutation():
     root_dir = Path(__file__).resolve().parents[3]
     ifc_path = root_dir / "tests" / "sample_batang.ifc"
     worker, _ = _make_worker(ifc_path.read_bytes())

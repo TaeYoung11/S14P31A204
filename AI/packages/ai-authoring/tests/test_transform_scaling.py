@@ -10,6 +10,7 @@ from ai_authoring.engine_3d import (
     create_wall,
     modify_height,
     modify_length,
+    modify_position,
     modify_rotation,
     modify_thickness,
 )
@@ -148,6 +149,16 @@ def test_wall_length_rejects_non_positive_result():
     assert solid.SweptArea.XDim == pytest.approx(3000.0)
 
 
+def test_wall_length_rejects_missing_value():
+    model, storey = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    solid = _wall_solid(wall)
+
+    assert modify_length(wall, {"mode": "ABSOLUTE"}) is False
+
+    assert solid.SweptArea.XDim == pytest.approx(3000.0)
+
+
 def test_wall_width_and_height_use_mm_scale():
     model, storey = _make_model()
     wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
@@ -158,6 +169,13 @@ def test_wall_width_and_height_use_mm_scale():
 
     assert solid.SweptArea.YDim == pytest.approx(300.0)
     assert solid.Depth == pytest.approx(3000.0)
+
+
+def test_wall_position_noop_returns_false():
+    model, storey = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+
+    assert modify_position(wall, {"mode": "RELATIVE", "x": 0.0, "y": 0.0, "z": 0.0}) is False
 
 
 def test_wall_height_absolute_with_meter_model_scale():
@@ -225,6 +243,18 @@ def test_wall_length_scale_after_rotation_updates_polygon_profile():
 
     min_x, max_x, *_ = _point_bounds(solid.SweptArea.OuterCurve.Points)
     assert max_x - min_x == pytest.approx(400.0)
+
+
+def test_wall_width_scale_after_rotation_updates_polygon_profile():
+    model, storey = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    solid = _wall_solid(wall)
+
+    assert modify_rotation(model, wall, 90.0)
+    assert modify_thickness(wall, {"mode": "SCALE", "value": 2.0})
+
+    _min_x, _max_x, min_y, max_y, *_ = _point_bounds(solid.SweptArea.OuterCurve.Points)
+    assert max_y - min_y == pytest.approx(6000.0)
 
 
 def test_brep_roof_length_scale_updates_vertices_about_center():
