@@ -10,6 +10,7 @@ import ifcopenshell
 import ifcopenshell.api.root
 
 from ai_authoring.engine_3d import (
+    create_door_with_opening,
     create_door_with_template_reuse,
     create_generic_element,
     create_roof,
@@ -204,11 +205,17 @@ class CreateElementHandler:
                 logger.error(
                     "create_element handler: failed to resolve host wall for %s",
                     element_type,
-                )
+            )
                 return None
             sill_height_mm = parameters.get("sill_height_mm")
+            require_template_reuse = bool(parameters.get("require_template_reuse"))
             if element_type == "IfcDoor":
-                return create_door_with_template_reuse(
+                creator = (
+                    create_door_with_template_reuse
+                    if require_template_reuse
+                    else create_door_with_opening
+                )
+                return creator(
                     model,
                     resolved_storey,
                     **common,

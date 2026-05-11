@@ -116,6 +116,7 @@ def _build_create_door_operations(
                 "element_type": "IfcDoor",
                 "storey_id": storey_id,
                 "host_wall_global_id": host_wall_id,
+                "require_template_reuse": True,
                 "start_mm": {
                     "x": float(location[0]),
                     "y": float(location[1]),

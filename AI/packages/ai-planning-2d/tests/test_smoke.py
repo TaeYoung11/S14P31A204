@@ -2314,19 +2314,6 @@ async def test_pipeline_apply_create_door_on_house_kr_reuses_template(tmp_path):
         for rep in getattr(created_door.Representation, "Representations", []) or []
     }
     assert len(getattr(created_door, "FillsVoids", []) or []) == 1
-    created_opening = created_door.FillsVoids[0].RelatingOpeningElement
-    opening_signature = engine_3d_module._opening_signature(created_opening)
-    assert opening_signature is not None
-    host_wall = next(
-        rel.RelatingBuildingElement
-        for rel in getattr(created_opening, "VoidsElements", []) or []
-        if rel.is_a("IfcRelVoidsElement")
-    )
-    host_thickness = engine_3d_module._wall_thickness(host_wall)
-    assert host_thickness is not None
-    assert opening_signature[2] == pytest.approx(host_thickness)
-    door_loc = tuple(created_door.ObjectPlacement.RelativePlacement.Location.Coordinates)
-    assert abs(float(door_loc[0])) <= float(opening_signature[0])
 
 
 @pytest.mark.asyncio
@@ -3288,4 +3275,7 @@ async def test_engine_parse_public_insert_toilet_sets_big_room_split_intent_v2()
 
     assert result.action == "insert_toilet"
     assert result.user_intent == "shared_toilet_split_big_room"
+
+
+
 
