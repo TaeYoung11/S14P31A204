@@ -71,6 +71,12 @@ class _OptimizationStats:
     skipped_reasons: tuple[dict[str, str], ...]
 
 
+@dataclass(frozen=True)
+class _AdjacencyGraphStats:
+    connection_counts: dict[str, int]
+    strong_connection_counts: dict[str, int]
+
+
 def optimize_room_layout_from_adjacency(
     request: LayoutImportRequestModel,
 ) -> tuple[LayoutImportRequestModel, LayoutOptimizationSummary]:
@@ -98,6 +104,7 @@ def _optimize_generation_request(request: LayoutImportGenerationRequest) -> _Opt
     rooms_by_id = {room.id: room for room in request.rooms}
     original_positions = {room.id: (room.x, room.y) for room in request.rooms}
     boundaries_by_floor = {boundary.floor: boundary for boundary in request.boundaries or []}
+    adjacency_graph = _build_adjacency_graph_stats(request.adjacency or [], rooms_by_id)
     moved_room_ids: set[str] = set()
     satisfied_refs: set[str] = set()
     unsatisfied_refs: set[str] = set()
@@ -112,7 +119,13 @@ def _optimize_generation_request(request: LayoutImportGenerationRequest) -> _Opt
             skipped_reasons.append(_skip_reason(ref, "cross_floor"))
             continue
 
-        moving_room, anchor_room = _select_moving_room(room_a, room_b)
+        moving_room, anchor_room = _select_moving_room(
+            room_a,
+            room_b,
+            adjacency_graph=adjacency_graph,
+            moved_room_ids=moved_room_ids,
+            original_positions=original_positions,
+        )
         if moving_room is None or anchor_room is None:
             if _adjacency_satisfied(room_a, room_b, adjacency.strength):
                 satisfied_refs.add(ref)
@@ -174,6 +187,31 @@ def _sorted_adjacencies(adjacencies: list[AdjacencyInput]) -> list[AdjacencyInpu
     )
 
 
+def _build_adjacency_graph_stats(
+    adjacencies: list[AdjacencyInput],
+    rooms_by_id: dict[str, RoomInput],
+) -> _AdjacencyGraphStats:
+    connection_counts = {room_id: 0 for room_id in rooms_by_id}
+    strong_connection_counts = {room_id: 0 for room_id in rooms_by_id}
+
+    for adjacency in adjacencies:
+        from_id, to_id = _adjacency_ids(adjacency)
+        if from_id not in rooms_by_id:
+            raise ValueError(f"adjacency references unknown room id: {from_id}")
+        if to_id not in rooms_by_id:
+            raise ValueError(f"adjacency references unknown room id: {to_id}")
+        connection_counts[from_id] += 1
+        connection_counts[to_id] += 1
+        if adjacency.strength >= _STRONG_THRESHOLD:
+            strong_connection_counts[from_id] += 1
+            strong_connection_counts[to_id] += 1
+
+    return _AdjacencyGraphStats(
+        connection_counts=connection_counts,
+        strong_connection_counts=strong_connection_counts,
+    )
+
+
 def _adjacency_ids(adjacency: AdjacencyInput) -> tuple[str, str]:
     from_id = adjacency.room_a_id or adjacency.from_room_id
     to_id = adjacency.room_b_id or adjacency.to_room_id
@@ -208,6 +246,10 @@ def _skip_reason(adjacency_ref: str, reason: str) -> dict[str, str]:
 def _select_moving_room(
     room_a: RoomInput,
     room_b: RoomInput,
+    *,
+    adjacency_graph: _AdjacencyGraphStats,
+    moved_room_ids: set[str],
+    original_positions: dict[str, Point2DMm],
 ) -> tuple[RoomInput | None, RoomInput | None]:
     if room_a.locked and room_b.locked:
         return None, None
@@ -215,9 +257,28 @@ def _select_moving_room(
         return room_b, room_a
     if room_b.locked:
         return room_a, room_b
-    if room_a.id <= room_b.id:
-        return room_b, room_a
-    return room_a, room_b
+
+    room_a_score = _moving_room_score(room_a, adjacency_graph, moved_room_ids, original_positions)
+    room_b_score = _moving_room_score(room_b, adjacency_graph, moved_room_ids, original_positions)
+    if room_a_score >= room_b_score:
+        return room_a, room_b
+    return room_b, room_a
+
+
+def _moving_room_score(
+    room: RoomInput,
+    adjacency_graph: _AdjacencyGraphStats,
+    moved_room_ids: set[str],
+    original_positions: dict[str, Point2DMm],
+) -> tuple[int, int, int, float, str]:
+    original_position = original_positions[room.id]
+    return (
+        1 if room.id in moved_room_ids else 0,
+        -adjacency_graph.connection_counts.get(room.id, 0),
+        -adjacency_graph.strong_connection_counts.get(room.id, 0),
+        _distance((room.x, room.y), original_position),
+        room.id,
+    )
 
 
 def _candidate_positions(
