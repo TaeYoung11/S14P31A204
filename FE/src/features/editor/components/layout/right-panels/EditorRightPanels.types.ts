@@ -2,7 +2,6 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import type {
   CollaborationUserType,
   EditorMode,
-  FloorCommentAttachmentInput,
   FloorCommentNotification,
   FloorCommentPin,
   FloorLayer,
@@ -29,9 +28,9 @@ export interface EditorRightPanelsProps {
   commentPins?: FloorCommentPin[]
   commentNotifications?: FloorCommentNotification[]
   currentCollaborationUserType?: CollaborationUserType
-  currentCollaborationUserName?: string
+  currentCollaborationUserName: string
   onSelectPin?: (id: string) => void
-  onCreateCommentReply?: (pinId: string, content: string, attachments?: FloorCommentAttachmentInput[]) => void
+  onCreateCommentReply?: (pinId: string, content: string) => void
   onResolvePin?: (pinId: string) => void
   onResolveComment?: (pinId: string, commentId: string) => void
   resolvingPinId?: string | null

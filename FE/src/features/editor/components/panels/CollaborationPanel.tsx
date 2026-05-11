@@ -1,9 +1,8 @@
 // 에디터 협업 패널에서 핀별 댓글 스레드를 아코디언으로 표시합니다.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CheckCircle2, ChevronDown, FileText, MessageSquare, Send, User } from 'lucide-react'
+import { CheckCircle2, ChevronDown, MessageSquare, Send, User } from 'lucide-react'
 import type {
   CollaborationUserType,
-  FloorCommentAttachmentInput,
   FloorCommentNotification,
   FloorCommentPin,
 } from '../../types'
@@ -17,7 +16,7 @@ interface CollaborationPanelProps {
   currentUserType: CollaborationUserType
   currentUserName: string
   onSelectPin: (id: string) => void
-  onCreateCommentReply: (pinId: string, content: string, attachments?: FloorCommentAttachmentInput[]) => void
+  onCreateCommentReply: (pinId: string, content: string) => void
   onResolvePin?: (pinId: string) => void
   onResolveComment?: (pinId: string, commentId: string) => void
   resolvingPinId?: string | null
@@ -43,13 +42,6 @@ export function CollaborationPanel({
   const [replyInputByPinId, setReplyInputByPinId] = useState<Record<string, string>>({})
   const [threadVisibleCountByPinId, setThreadVisibleCountByPinId] = useState<Record<string, number>>({})
   const threadScrollRef = useRef<HTMLDivElement | null>(null)
-
-  const formatFileSize = (sizeBytes: number): string => {
-    if (sizeBytes < 1024) return `${sizeBytes} B`
-    const kb = sizeBytes / 1024
-    if (kb < 1024) return `${kb.toFixed(1)} KB`
-    return `${(kb / 1024).toFixed(1)} MB`
-  }
 
   const pinOrderMap = useMemo(() => {
     const map = new Map<string, number>()
@@ -262,39 +254,6 @@ export function CollaborationPanel({
                                   }`}
                               >
                                 {message.content && <p>{message.content}</p>}
-                                {(message.attachments?.length ?? 0) > 0 && (
-                                  <div className={`mt-2 space-y-2 ${isMe ? 'text-white/90' : 'text-[#44506A]'}`}>
-                                    {(message.attachments ?? []).map((attachment) => (
-                                      attachment.kind === 'image' ? (
-                                        <a
-                                          key={attachment.id}
-                                          href={attachment.url}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="block"
-                                        >
-                                          <img
-                                            src={attachment.url}
-                                            alt={attachment.name}
-                                            className="max-h-40 rounded-lg border border-white/20 object-cover"
-                                          />
-                                        </a>
-                                      ) : (
-                                        <a
-                                          key={attachment.id}
-                                          href={attachment.url}
-                                          download={attachment.name}
-                                          className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-[10px] ${isMe ? 'bg-white/15 hover:bg-white/25' : 'bg-[#EEF2FF] hover:bg-[#E4EAFF]'
-                                            }`}
-                                        >
-                                          <FileText size={12} />
-                                          <span className="truncate">{attachment.name}</span>
-                                          <span className="shrink-0 opacity-80">{formatFileSize(attachment.sizeBytes)}</span>
-                                        </a>
-                                      )
-                                    ))}
-                                  </div>
-                                )}
                               </div>
                             </div>
                           </div>

@@ -2,7 +2,6 @@ import type { ComponentProps } from 'react'
 import { CollaborationPanel } from '../../panels/CollaborationPanel'
 import type { EditorRightPanelsProps } from './EditorRightPanels.types'
 import {
-  DEFAULT_USER_NAME,
   DESIGNER_USER_TYPE,
   noopCreateCommentReply,
   noopSelectPin,
@@ -36,7 +35,7 @@ export function buildCollaborationPanelProps(vm: CollaborationPanelViewModel): C
     pins: vm.commentPins ?? [],
     notifications: vm.commentNotifications ?? [],
     currentUserType: vm.currentCollaborationUserType ?? DESIGNER_USER_TYPE,
-    currentUserName: vm.currentCollaborationUserName ?? DEFAULT_USER_NAME,
+    currentUserName: vm.currentCollaborationUserName,
     onSelectPin: vm.onSelectPin ?? noopSelectPin,
     onCreateCommentReply: vm.onCreateCommentReply ?? noopCreateCommentReply,
     onResolvePin: vm.onResolvePin,

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import type { FloorCommentAttachmentInput, Point2D } from '../../types'
+import type { Point2D } from '../../types'
 
 interface UsePinDraftParams {
   isCollaborationMode?: boolean
-  onPinCreate?: (x: number, y: number, content: string, attachments?: FloorCommentAttachmentInput[]) => void
+  onPinCreate?: (x: number, y: number, content: string) => void
 }
 
 interface PinDraftState {

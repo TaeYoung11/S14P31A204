@@ -10,7 +10,6 @@ import type {
   EditorDraftSnapshot,
   EditorMode,
   PhaseStatus,
-  FloorCommentAttachmentInput,
   FloorCommentNotification,
   FloorCommentPin,
   FloorLayerOverlay,
@@ -98,13 +97,11 @@ import type { FloorPlan3DData } from '../utils/floorPlanTo3D'
 import {
   buildFloorPlanLayoutImportPayload,
   collectAutoDoorOpeningIdsFromWallIds,
-  createLocalId,
   getPolygonAreaPx,
   getPolygonBounds,
   isFinitePolygonPoints,
   isSameConnection,
   mergeSelectedIds,
-  normalizeCommentAttachments,
   resolveEditorMode,
 } from '../utils/editorPageHelpers'
 import {
@@ -162,7 +159,6 @@ const mapApiPinToFloorCommentPin = (
     authorName: pinAuthorName,
     authorType: pinAuthorType,
     content: pin.content,
-    attachments: [],
     status: pin.status,
     isPinMessage: true,
     createdAt: pin.createdAt,
@@ -176,7 +172,6 @@ const mapApiPinToFloorCommentPin = (
       authorName: isCurrentUser ? currentUserName : formatPinAuthorName(comment.authorUserId, '댓글 작성자'),
       authorType: isCurrentUser ? currentUserType : counterpartType,
       content: comment.content,
-      attachments: [],
       status: comment.status,
       isPinMessage: false,
       createdAt: comment.createdAt,
@@ -595,6 +590,7 @@ export function useEditorPage() {
   const draftLoadBaselineRef = useRef<string | null>(null)
   const draftLoadingProjectIdRef = useRef<string | null>(null)
   const readingCommentPinIdsRef = useRef<Set<string>>(new Set())
+  const readCommentFailureAtRef = useRef<Map<string, number>>(new Map())
 
   useEffect(() => {
     lastLoadedIfcStorageUrlRef.current = null
@@ -664,9 +660,7 @@ export function useEditorPage() {
   const createPinMutation = useMutation({
     mutationFn: async ({ x, y, commentContent }: { x: number; y: number; commentContent: string }) => {
       if (!projectId) throw new Error('Missing project id')
-      const pin = await editorPinCommentService.createPin(projectId, x, y, 'pin-created')
-      await editorPinCommentService.createComment(projectId, pin.pinId, commentContent)
-      return pin
+      return editorPinCommentService.createPin(projectId, x, y, commentContent)
     },
     onSuccess: (data) => {
       void queryClient.invalidateQueries({ queryKey: editorPinCommentQueryKeys.pins(projectId) })
@@ -741,12 +735,16 @@ export function useEditorPage() {
       return editorPinCommentService.markCommentsAsRead(projectId, pinId)
     },
     onSuccess: (_data, pinId) => {
+      readCommentFailureAtRef.current.delete(pinId)
       setCommentPins((prev) =>
         prev.map((pin) =>
           pin.id === pinId ? { ...pin, hasUnreadCommentByOtherUser: false } : pin,
         ),
       )
       void queryClient.invalidateQueries({ queryKey: editorPinCommentQueryKeys.pins(projectId) })
+    },
+    onError: (_error, pinId) => {
+      readCommentFailureAtRef.current.set(pinId, Date.now())
     },
   })
   const editorCommentRealtimeOptions = useMemo(
@@ -815,6 +813,8 @@ export function useEditorPage() {
     const selectedPin = commentPins.find((pin) => pin.id === selectedPinId)
     if (!selectedPin?.hasUnreadCommentByOtherUser) return
     if (readingCommentPinIdsRef.current.has(selectedPinId)) return
+    const lastFailureAt = readCommentFailureAtRef.current.get(selectedPinId)
+    if (lastFailureAt && Date.now() - lastFailureAt < 30_000) return
 
     readingCommentPinIdsRef.current.add(selectedPinId)
     markPinCommentsRead(selectedPinId, {
@@ -1711,8 +1711,15 @@ export function useEditorPage() {
     setSelectedPinId(pinId)
     markPinNotificationsRead(pinId)
     const targetPin = commentPins.find((pin) => pin.id === pinId)
-    if (targetPin?.hasUnreadCommentByOtherUser) {
-      markPinCommentsRead(pinId)
+    const lastFailureAt = readCommentFailureAtRef.current.get(pinId)
+    const isReadCoolingDown = lastFailureAt ? Date.now() - lastFailureAt < 30_000 : false
+    if (targetPin?.hasUnreadCommentByOtherUser && !readingCommentPinIdsRef.current.has(pinId) && !isReadCoolingDown) {
+      readingCommentPinIdsRef.current.add(pinId)
+      markPinCommentsRead(pinId, {
+        onSettled: () => {
+          readingCommentPinIdsRef.current.delete(pinId)
+        },
+      })
     }
   }, [commentPins, markPinCommentsRead, markPinNotificationsRead, selectedPinId])
 
@@ -1721,124 +1728,22 @@ export function useEditorPage() {
     x: number,
     y: number,
     content: string,
-    attachments: FloorCommentAttachmentInput[] = [],
   ) => {
     const normalized = content.trim()
-    const normalizedAttachments = normalizeCommentAttachments(attachments)
-    if (!normalized && normalizedAttachments.length === 0) return
-    if (projectId && normalized) {
-      createPinMutation.mutate({ x, y, commentContent: normalized })
-      return
-    }
+    if (!normalized) return
+    if (!projectId) return
+    createPinMutation.mutate({ x, y, commentContent: normalized })
+  }, [createPinMutation, projectId])
 
-    const createdAt = new Date().toISOString()
-    const pinId = createLocalId('pin')
-    const messageId = createLocalId('comment')
-
-    setCommentPins((prev) => {
-      const nextPinNumber = prev.length + 1
-      const nextPin: FloorCommentPin = {
-        id: pinId,
-        x,
-        y,
-        createdAt,
-        createdById: authUser?.id ?? 'local-user',
-        createdByName: currentUserName,
-        createdByType: collaborationUserType,
-        messages: [
-          {
-            id: messageId,
-            pinId,
-            authorId: authUser?.id ?? 'local-user',
-            authorName: currentUserName,
-            authorType: collaborationUserType,
-            content: normalized,
-            attachments: normalizedAttachments,
-            status: 'OPEN',
-            isPinMessage: false,
-            createdAt,
-          },
-        ],
-      }
-
-      setCommentNotifications((prevNotifications) => ([
-        ...prevNotifications,
-        {
-          id: createLocalId('noti'),
-          pinId,
-          senderName: currentUserName,
-          recipientType: counterpartType,
-          type: 'pin_new',
-          message: `${currentUserName}님이 #${nextPinNumber} 핀에 댓글을 남겼습니다.`,
-          createdAt,
-          isRead: false,
-        },
-      ]))
-
-      return [...prev, nextPin]
-    })
-
-    setSelectedPinId(pinId)
-  }, [authUser?.id, createPinMutation, currentUserName, collaborationUserType, counterpartType, projectId])
-
-  /** 기존 핀 스레드에 답글 추가 */
   const handleAddCommentReply = useCallback((
     pinId: string,
     content: string,
-    attachments: FloorCommentAttachmentInput[] = [],
   ) => {
     const normalized = content.trim()
-    const normalizedAttachments = normalizeCommentAttachments(attachments)
-    if (!normalized && normalizedAttachments.length === 0) return
-    if (projectId && normalized) {
-      createPinCommentMutation.mutate({ pinId, content: normalized })
-      return
-    }
-    const createdAt = new Date().toISOString()
-    const newMessageId = createLocalId('comment')
-    let pinOrder = 0
-
-    setCommentPins((prev) =>
-      prev.map((pin, index) => {
-        if (pin.id !== pinId) return pin
-        pinOrder = index + 1
-        return {
-          ...pin,
-          messages: [
-            ...pin.messages,
-            {
-              id: newMessageId,
-              pinId,
-              authorId: authUser?.id ?? 'local-user',
-              authorName: currentUserName,
-              authorType: collaborationUserType,
-              content: normalized,
-              attachments: normalizedAttachments,
-              status: 'OPEN',
-              isPinMessage: false,
-              createdAt,
-            },
-          ],
-        }
-      }),
-    )
-
-    setCommentNotifications((prev) => ([
-      ...prev,
-      {
-        id: createLocalId('noti'),
-        pinId,
-        senderName: currentUserName,
-        recipientType: counterpartType,
-        type: 'comment_new',
-        message: `${currentUserName}님이 #${Math.max(pinOrder, 1)} 핀에 답글을 남겼습니다.`,
-        createdAt,
-        isRead: false,
-      },
-    ]))
-
-    setSelectedPinId(pinId)
-  }, [authUser?.id, createPinCommentMutation, currentUserName, collaborationUserType, counterpartType, projectId])
+    if (!normalized) return
+    if (!projectId) return
+    createPinCommentMutation.mutate({ pinId, content: normalized })
+  }, [createPinCommentMutation, projectId])
 
   const handleResolveComment = useCallback((pinId: string, commentId: string) => {
     if (!projectId) return

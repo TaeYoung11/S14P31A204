@@ -105,7 +105,6 @@ export type FloorOpeningType = 'door' | 'window'
 export type FloorDoorHingeSide = 'left' | 'right'
 export type FloorDoorSwingDirection = 'inward' | 'outward' | 'sliding'
 export type CollaborationUserType = 'DESIGNER' | 'CUSTOMER'
-export type FloorCommentAttachmentKind = 'image' | 'file'
 
 /** 공간 추가 모달 폼 데이터 */
 export interface AddSpaceFormData {
@@ -221,23 +220,8 @@ export interface FloorOpening {
 }
 
 /** 2D 협업 핀 내 댓글(스레드 단위의 메시지) */
-export interface FloorCommentAttachment {
-  id: string
-  kind: FloorCommentAttachmentKind
-  name: string
-  mimeType: string
-  sizeBytes: number
-  url: string
-}
 
 /** 댓글 작성 시 임시 첨부 입력(백엔드 연동 전 FE 로컬 전용) */
-export interface FloorCommentAttachmentInput {
-  kind: FloorCommentAttachmentKind
-  name: string
-  mimeType: string
-  sizeBytes: number
-  url: string
-}
 
 /** 2D 협업 핀 내 댓글(스레드 단위의 메시지) */
 export interface FloorCommentMessage {
@@ -247,7 +231,6 @@ export interface FloorCommentMessage {
   authorName: string
   authorType: CollaborationUserType
   content: string
-  attachments: FloorCommentAttachment[]
   status?: string
   isPinMessage?: boolean
   createdAt: string
