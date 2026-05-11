@@ -3,10 +3,13 @@ from __future__ import annotations
 import math
 from uuid import UUID
 
+import pytest
+
 from ai_domain import LayoutImportV1, LayoutImportV2, LayoutImportV3, parse_layout_import
 from ai_layout_import.layout_optimizer import (
     _center_distance,
     _polygons_overlap_with_area,
+    _resolve_adjacency_pair,
     _room_polygon,
     optimize_room_layout_from_adjacency,
 )
@@ -90,6 +93,27 @@ def test_optimizer_noops_for_v1_without_mutating_original_request() -> None:
     assert optimized is request
     assert request.rooms[0].x == original_x
     assert summary.to_report_warnings() is None
+
+
+def test_resolve_adjacency_pair_raises_clear_error_for_unknown_room_id() -> None:
+    request = _request(
+        rooms=[_room("room-a", x=1000.0, y=1000.0)],
+    )
+    adjacency = parse_layout_import(
+        {
+            "schema_version": "v2",
+            "id": str(UUID("550e8400-e29b-41d4-a716-446655440000")),
+            "name": "adjacency-only",
+            "rooms": [
+                _room("room-a", x=1000.0, y=1000.0),
+                _room("room-b", x=3000.0, y=1000.0),
+            ],
+            "adjacency": _adjacency("room-a", "room-b", 1.0),
+        }
+    ).adjacency[0]
+
+    with pytest.raises(ValueError, match="unknown room id: room-b"):
+        _resolve_adjacency_pair(adjacency, {request.rooms[0].id: request.rooms[0]})
 
 
 def test_optimizer_preserves_contract_fields_and_original_request() -> None:
