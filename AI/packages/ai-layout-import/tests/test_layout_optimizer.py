@@ -9,12 +9,14 @@ from ai_domain import LayoutImportV1, LayoutImportV2, LayoutImportV3, parse_layo
 from ai_layout_import.layout_optimizer import (
     _MEDIUM_GAP_MM,
     _adjacency_satisfied,
+    _build_adjacency_graph_stats,
     _center_distance,
     _polygon_min_distance,
     _polygons_overlap_with_area,
     _resolve_adjacency_pair,
     _room_gap_distance,
     _room_polygon,
+    _select_moving_room,
     _weak_gap_distance,
     optimize_room_layout_from_adjacency,
 )
@@ -314,6 +316,112 @@ def test_rotated_room_gap_satisfaction_preserves_angle_without_crashing() -> Non
     assert rooms["room-b"].angle == math.pi / 8
     assert _room_gap_distance(rooms["room-a"], rooms["room-b"]) <= _MEDIUM_GAP_MM
     assert summary.satisfiedAdjacencyCount == 1
+
+
+def test_select_moving_room_keeps_more_connected_unlocked_room_as_anchor() -> None:
+    request = _request(
+        rooms=[
+            _room("room-a", x=7000.0, y=1500.0),
+            _room("room-c", x=7000.0, y=5500.0),
+            _room("room-z", x=1500.0, y=1500.0),
+        ],
+        adjacency=[
+            {"from_room_id": "room-z", "to_room_id": "room-a", "strength": 1.0},
+            {"from_room_id": "room-z", "to_room_id": "room-c", "strength": 0.3},
+        ],
+    )
+    rooms = {room.id: room for room in request.rooms}
+    graph = _build_adjacency_graph_stats(request.adjacency or [], rooms)
+
+    moving, anchor = _select_moving_room(
+        rooms["room-a"],
+        rooms["room-z"],
+        adjacency_graph=graph,
+        moved_room_ids=set(),
+        original_positions={room.id: (room.x, room.y) for room in request.rooms},
+    )
+
+    assert moving is rooms["room-a"]
+    assert anchor is rooms["room-z"]
+
+
+def test_select_moving_room_uses_strong_connection_count_as_secondary_anchor_signal() -> None:
+    request = _request(
+        rooms=[
+            _room("room-a", x=7000.0, y=1500.0),
+            _room("room-x", x=7000.0, y=5500.0),
+            _room("room-y", x=1500.0, y=5500.0),
+            _room("room-z", x=1500.0, y=1500.0),
+        ],
+        adjacency=[
+            {"from_room_id": "room-a", "to_room_id": "room-z", "strength": 0.6},
+            {"from_room_id": "room-a", "to_room_id": "room-x", "strength": 0.3},
+            {"from_room_id": "room-z", "to_room_id": "room-y", "strength": 1.0},
+        ],
+    )
+    rooms = {room.id: room for room in request.rooms}
+    graph = _build_adjacency_graph_stats(request.adjacency or [], rooms)
+
+    moving, anchor = _select_moving_room(
+        rooms["room-a"],
+        rooms["room-z"],
+        adjacency_graph=graph,
+        moved_room_ids=set(),
+        original_positions={room.id: (room.x, room.y) for room in request.rooms},
+    )
+
+    assert moving is rooms["room-a"]
+    assert anchor is rooms["room-z"]
+
+
+def test_select_moving_room_prefers_already_moved_room_to_limit_chain_movement() -> None:
+    request = _request(
+        rooms=[
+            _room("room-a", x=7000.0, y=1500.0),
+            _room("room-c", x=7000.0, y=5500.0),
+            _room("room-z", x=1500.0, y=1500.0),
+        ],
+        adjacency=[
+            {"from_room_id": "room-z", "to_room_id": "room-a", "strength": 1.0},
+            {"from_room_id": "room-z", "to_room_id": "room-c", "strength": 0.3},
+        ],
+    )
+    rooms = {room.id: room for room in request.rooms}
+    graph = _build_adjacency_graph_stats(request.adjacency or [], rooms)
+
+    moving, anchor = _select_moving_room(
+        rooms["room-a"],
+        rooms["room-z"],
+        adjacency_graph=graph,
+        moved_room_ids={"room-z"},
+        original_positions={room.id: (room.x, room.y) for room in request.rooms},
+    )
+
+    assert moving is rooms["room-z"]
+    assert anchor is rooms["room-a"]
+
+
+def test_select_moving_room_keeps_room_id_as_final_deterministic_tie_breaker() -> None:
+    request = _request(
+        rooms=[
+            _room("room-a", x=7000.0, y=1500.0),
+            _room("room-z", x=1500.0, y=1500.0),
+        ],
+        adjacency=_adjacency("room-a", "room-z", 0.6),
+    )
+    rooms = {room.id: room for room in request.rooms}
+    graph = _build_adjacency_graph_stats(request.adjacency or [], rooms)
+
+    moving, anchor = _select_moving_room(
+        rooms["room-a"],
+        rooms["room-z"],
+        adjacency_graph=graph,
+        moved_room_ids=set(),
+        original_positions={room.id: (room.x, room.y) for room in request.rooms},
+    )
+
+    assert moving is rooms["room-z"]
+    assert anchor is rooms["room-a"]
 
 
 def test_optimizer_preserves_locked_room_and_non_position_fields() -> None:
