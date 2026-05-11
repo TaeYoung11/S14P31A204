@@ -2,7 +2,6 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import type {
   CollaborationUserType,
   EditorMode,
-  FloorCommentAttachmentInput,
   FloorCommentNotification,
   FloorCommentPin,
   FloorLayer,
@@ -24,17 +23,18 @@ import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from '@/feature
 export interface EditorRightPanelsProps {
   mode: EditorMode
   isCollaborationMode?: boolean
-  collaborationTab?: 'history' | 'thread'
-  onCollaborationTabChange?: (tab: 'history' | 'thread') => void
   selectedPinId?: string | null
   selectedPin?: FloorCommentPin | null
   commentPins?: FloorCommentPin[]
   commentNotifications?: FloorCommentNotification[]
-  unreadCommentNotifications?: FloorCommentNotification[]
   currentCollaborationUserType?: CollaborationUserType
-  currentCollaborationUserName?: string
+  currentCollaborationUserName: string
   onSelectPin?: (id: string) => void
-  onCreateCommentReply?: (pinId: string, content: string, attachments?: FloorCommentAttachmentInput[]) => void
+  onCreateCommentReply?: (pinId: string, content: string) => void
+  onResolvePin?: (pinId: string) => void
+  onResolveComment?: (pinId: string, commentId: string) => void
+  resolvingPinId?: string | null
+  resolvingCommentId?: string | null
   selectedBubble: BubbleInfo | null
   selectedWall?: FloorWall | null
   selectedOpening?: FloorOpening | null

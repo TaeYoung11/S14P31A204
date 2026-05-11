@@ -5,11 +5,14 @@ import com.a204.batang.domain.workspace.dto.SaveBubbleSnapshotRequest;
 import com.a204.batang.domain.workspace.dto.SaveBubbleSnapshotResponse;
 import com.a204.batang.domain.workspace.dto.SaveFloorPlanSnapshotRequest;
 import com.a204.batang.domain.workspace.dto.SaveFloorPlanSnapshotResponse;
+import com.a204.batang.domain.workspace.dto.WorkspaceHistorySnapshotResponse;
 import com.a204.batang.domain.workspace.service.WorkspaceCommandService;
 import com.a204.batang.domain.workspace.service.WorkspaceFloorPlanRealtimeService;
+import com.a204.batang.domain.workspace.service.WorkspaceRealtimeService;
 import com.a204.batang.global.common.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,6 +31,21 @@ public class WorkspaceController {
 
     private final WorkspaceCommandService workspaceCommandService;
     private final WorkspaceFloorPlanRealtimeService workspaceFloorPlanRealtimeService;
+    private final WorkspaceRealtimeService workspaceRealtimeService;
+
+    /**
+     * 워크스페이스 최신 Redis 히스토리 스냅샷을 조회한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @return phase/siteInfo/버블/플로어플랜 최신 스냅샷
+     */
+    @GetMapping("/history")
+    public ApiResponse<WorkspaceHistorySnapshotResponse> getWorkspaceHistorySnapshot(
+            @PathVariable UUID projectId
+    ) {
+        WorkspaceHistorySnapshotResponse response = workspaceRealtimeService.getWorkspaceHistorySnapshot(projectId);
+        return ApiResponse.success("워크스페이스 히스토리를 조회했습니다.", response);
+    }
 
     /**
      * 버블 스냅샷을 명시적으로 DB에 저장한다.

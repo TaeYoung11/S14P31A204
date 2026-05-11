@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>About — 바탕:BATANG</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --bg: #f4f5f9;
+    --bg-2: #eaecf2;
+    --paper: #ffffff;
+    --ink: #111827;
+    --ink-2: #374151;
+    --muted: #6b7280;
+    --muted-2: #9ca3af;
+    --line: #e5e7eb;
+    --line-2: #d1d5db;
+    --accent: #4f46e5;
+    --accent-soft: rgba(79, 70, 229, 0.08);
+    --serif: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body{
+    font-family: var(--serif);
+    color: var(--ink);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.005em;
+    overflow-x: hidden;
+  }
+
+  /* faint grid backdrop */
+  body::before{
+    content: "";
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(to right, rgba(17,24,39,0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(17,24,39,0.04) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 100% 80% at 50% 50%, black 30%, transparent 80%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after{
+    content: "";
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(50% 60% at 90% 0%, rgba(79,70,229,0.08), transparent 70%),
+      radial-gradient(40% 40% at 0% 100%, rgba(79,70,229,0.05), transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  main, header, footer{ position: relative; z-index: 1; }
+
+  /* ── HEADER ────────────────────────────────── */
+  header.nav{
+    position: fixed; top: 0; left: 0; right: 0;
+    z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 24px 40px;
+    background: rgba(244,245,249,0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .logo-link{ display: inline-flex; align-items: center; text-decoration: none; }
+  .logo-img{ height: 22px; width: auto; display: block; }
+  .nav-right{ display: flex; align-items: center; gap: 24px; }
+  .nav-link{
+    font-family: var(--mono);
+    font-size: 12px; color: var(--ink-2);
+    text-decoration: none; font-weight: 500;
+    letter-spacing: 0.14em;
+    transition: color .15s ease;
+    position: relative;
+  }
+  .nav-link:hover{ color: var(--accent); }
+  .nav-link.active{ color: var(--accent); }
+  .nav-link.active::after{
+    content: ""; position: absolute;
+    left: 0; right: 0; bottom: -8px;
+    height: 2px; background: var(--accent);
+  }
+  .nav-cta{
+    background: var(--ink);
+    color: white; font-size: 13px; font-weight: 500;
+    padding: 9px 16px; border-radius: 8px;
+    border: 0; cursor: pointer;
+    transition: background .15s ease, transform .15s ease;
+    text-decoration: none;
+    display: inline-flex; align-items: center;
+  }
+  .nav-cta:hover{ background: #1f2937; transform: translateY(-1px); }
+
+  /* ── HERO ───────────────────────────────────── */
+  .hero{
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 180px 40px 100px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 80px;
+    align-items: end;
+  }
+  .eyebrow{
+    display: inline-flex; align-items: center; gap: 10px;
+    font-family: var(--mono);
+    font-size: 11px; letter-spacing: 0.18em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 28px;
+    padding: 6px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.6);
+    backdrop-filter: blur(8px);
+  }
+  .eyebrow .dot{
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  h1.title{
+    font-size: clamp(40px, 5vw, 72px);
+    font-weight: 700;
+    line-height: 1.04;
+    letter-spacing: -0.035em;
+    color: var(--ink);
+    text-wrap: balance;
+  }
+  h1.title .accent{ color: var(--accent); }
+  .hero-side{
+    display: flex; flex-direction: column; gap: 28px;
+    padding-bottom: 12px;
+  }
+  .hero-side p{
+    font-size: 16px;
+    line-height: 1.75;
+    color: var(--ink-2);
+    text-wrap: pretty;
+  }
+  .meta-row{
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    border-top: 1px solid var(--line);
+    padding-top: 24px;
+    gap: 24px;
+  }
+  .meta-row .cell{
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .meta-row .k{
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .meta-row .v{
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+  }
+  .meta-row .v small{
+    font-weight: 400;
+    color: var(--muted);
+    font-size: 12px;
+    margin-left: 4px;
+  }
+
+  /* ── SECTION HEADER ─────────────────────────── */
+  .section{
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 80px 40px;
+  }
+  .section-head{
+    display: flex; align-items: baseline;
+    gap: 24px;
+    margin-bottom: 56px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--line);
+  }
+  .section-head .num{
+    font-family: var(--mono);
+    font-size: 12px; color: var(--accent);
+    letter-spacing: 0.18em;
+  }
+  .section-head h2{
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+  }
+  .section-head .desc{
+    margin-left: auto;
+    font-size: 14px;
+    color: var(--muted);
+    max-width: 360px;
+    text-align: right;
+  }
+
+  /* ── MISSION ──────────────────────────────── */
+  .mission-grid{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+  }
+  .mcard{
+    background: rgba(255,255,255,0.6);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 32px;
+    transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+  }
+  .mcard:hover{
+    transform: translateY(-4px);
+    box-shadow: 0 16px 40px rgba(17,24,39,0.06);
+    border-color: var(--line-2);
+  }
+  .mcard .badge{
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.16em;
+    margin-bottom: 24px;
+    display: inline-block;
+  }
+  .mcard h3{
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 12px;
+    color: var(--ink);
+  }
+  .mcard p{
+    font-size: 14px; line-height: 1.7;
+    color: var(--ink-2);
+    text-wrap: pretty;
+  }
+
+  /* ── TEAM ─────────────────────────────────── */
+  .team-grid{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  .member{
+    position: relative;
+    background: rgba(255,255,255,0.7);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 24px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+    cursor: default;
+  }
+  .member:hover{
+    transform: translateY(-3px);
+    box-shadow: 0 12px 30px rgba(17,24,39,0.06);
+    border-color: var(--line-2);
+  }
+  .member .info{ display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .member .name{
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -0.015em;
+  }
+  .member .name .num{
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted-2);
+    margin-right: 8px;
+    letter-spacing: 0.1em;
+    font-weight: 500;
+  }
+  .member .tags{
+    display: flex; flex-wrap: wrap; gap: 4px;
+  }
+  .tag{
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    padding: 3px 7px;
+    border-radius: 4px;
+    background: var(--bg-2);
+    color: var(--ink-2);
+    border: 1px solid var(--line);
+  }
+  .tag.t-AI{ background: var(--accent-soft); color: var(--accent); border-color: rgba(79,70,229,0.18); }
+  .tag.t-PD, .tag.t-PM{ background: rgba(17,24,39,0.06); color: var(--ink); border-color: rgba(17,24,39,0.12); font-weight: 600; }
+
+  /* ── VALUES ────────────────────────────────── */
+  .values{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .value{
+    padding: 56px 40px;
+    border-right: 1px solid var(--line);
+  }
+  .value:last-child{ border-right: 0; }
+  .value .num{
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted-2);
+    letter-spacing: 0.18em;
+    margin-bottom: 24px;
+    display: block;
+  }
+  .value h3{
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    margin-bottom: 12px;
+  }
+  .value h3 em{
+    font-style: normal;
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--accent);
+    font-weight: 500;
+    margin-left: 8px;
+    letter-spacing: 0.04em;
+  }
+  .value p{
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--ink-2);
+    max-width: 320px;
+  }
+
+  /* ── CTA ────────────────────────────────── */
+  .cta-block{
+    max-width: 1280px;
+    margin: 80px auto 0;
+    padding: 80px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 40px;
+    border-top: 1px dashed var(--line-2);
+  }
+  .cta-block h2{
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+  .btn{
+    display: inline-flex; align-items: center;
+    gap: 8px;
+    font-family: var(--serif); font-weight: 500; font-size: 15px;
+    padding: 14px 26px;
+    border-radius: 10px;
+    border: 0; cursor: pointer;
+    text-decoration: none;
+    transition: transform .15s ease, box-shadow .2s ease, background .15s ease;
+  }
+  .btn-primary{
+    background: var(--accent);
+    color: white;
+    box-shadow: 0 4px 14px rgba(79,70,229,0.28), 0 1px 0 rgba(255,255,255,0.2) inset;
+  }
+  .btn-primary:hover{
+    transform: translateY(-1px);
+    box-shadow: 0 8px 22px rgba(79,70,229,0.36);
+    background: #4338ca;
+  }
+
+  /* ── FOOTER ────────────────────────────────── */
+  footer.foot{
+    margin-top: 40px;
+    padding: 32px 40px;
+    border-top: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.14em;
+  }
+  .keywords{ display: flex; gap: 28px; }
+  .keywords span{ position: relative; }
+  .keywords span:not(:last-child)::after{
+    content: ""; position: absolute;
+    right: -16px; top: 50%; transform: translateY(-50%);
+    width: 2px; height: 2px; border-radius: 50%;
+    background: var(--muted-2);
+  }
+
+  /* responsive */
+  @media (max-width: 900px){
+    .hero{ grid-template-columns: 1fr; padding-top: 140px; gap: 40px; }
+    .meta-row{ grid-template-columns: 1fr; gap: 16px; }
+    .mission-grid, .team-grid, .values{ grid-template-columns: 1fr; }
+    .value{ border-right: 0; border-bottom: 1px solid var(--line); }
+    .value:last-child{ border-bottom: 0; }
+    .cta-block{ flex-direction: column; align-items: flex-start; }
+    .section-head{ flex-direction: column; align-items: flex-start; gap: 12px; }
+    .section-head .desc{ margin-left: 0; text-align: left; }
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <a href="Intro.html" class="logo-link">
+    <img src="logo.svg" alt="바탕 : BATANG" class="logo-img" />
+  </a>
+  <nav class="nav-right">
+    <a class="nav-link active" href="About.html">ABOUT</a>
+    <a class="nav-cta" href="Login.html">로그인 →</a>
+  </nav>
+</header>
+
+<main>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div>
+      <div class="eyebrow">
+        <span class="dot"></span>
+        <span>About · 우리는</span>
+      </div>
+      <h1 class="title">
+        설계의 <span class="accent">언어</span>를<br>
+        고민하는 <span class="accent">사람들</span>.
+      </h1>
+    </div>
+    <div class="hero-side">
+      <p>
+        BATANG은 건축사의 <strong>초기 설계</strong> 단계를 AI와 함께 다시 디자인하는 팀입니다.
+        손으로 그어둔 선, 머릿속에서만 굴리던 매스, 클라이언트와 주고받던 메모 — 흩어진 설계의 <em>바탕</em>을 한 자리로 모아냅니다.
+      </p>
+      <div class="meta-row">
+        <div class="cell">
+          <span class="k">Founded</span>
+          <span class="v">2025</span>
+        </div>
+        <div class="cell">
+          <span class="k">Team</span>
+          <span class="v">7 <small>builders</small></span>
+        </div>
+        <div class="cell">
+          <span class="k">Stage</span>
+          <span class="v">Pre-seed</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MISSION -->
+  <section class="section">
+    <div class="section-head">
+      <span class="num">01 / MISSION</span>
+      <h2>우리가 풀고 있는 것.</h2>
+      <p class="desc">건축사의 머리에서 도면까지, 가장 길고 외로웠던 구간을 짧게 만듭니다.</p>
+    </div>
+    <div class="mission-grid">
+      <div class="mcard">
+        <span class="badge">PROBLEM</span>
+        <h3>초기 설계는<br>여전히 종이 위에서.</h3>
+        <p>매스 스터디, 법규 검토, 클라이언트 커뮤니케이션 — 가장 중요한 결정들이 가장 정리되지 않은 도구 위에서 이뤄집니다.</p>
+      </div>
+      <div class="mcard">
+        <span class="badge">APPROACH</span>
+        <h3>AI는 도구가 아니라<br>두 번째 책상.</h3>
+        <p>BATANG은 건축사의 손길을 대체하지 않습니다. 옆에 한 명 더 앉은 동료처럼, 빠르게 그리고 묻고 정리합니다.</p>
+      </div>
+      <div class="mcard">
+        <span class="badge">OUTCOME</span>
+        <h3>화이트보드 하나로<br>설계가 흐른다.</h3>
+        <p>스케치에서 BIM, 클라이언트 회의록까지 같은 캔버스 위에. 흩어진 설계의 바탕을 단단히 깔아드립니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- TEAM -->
+  <section class="section">
+    <div class="section-head">
+      <span class="num">02 / TEAM</span>
+      <h2>설계의 바탕을 짜는 사람들.</h2>
+      <p class="desc">디자이너 · 엔지니어 · AI 리서처 7명이 한 책상 앞에서 일합니다.</p>
+    </div>
+    <div class="team-grid" id="team-grid"></div>
+  </section>
+
+  <!-- VALUES -->
+  <section class="section" style="padding-bottom: 0;">
+    <div class="section-head">
+      <span class="num">03 / VALUES</span>
+      <h2>우리가 버리지 않는 세 가지.</h2>
+    </div>
+  </section>
+  <div class="values">
+    <div class="value">
+      <span class="num">— 01</span>
+      <h3>정밀함 <em>Precision</em></h3>
+      <p>건축의 0.1mm와 코드의 1px는 같은 무게입니다. 우리는 둘 다 어림하지 않습니다.</p>
+    </div>
+    <div class="value">
+      <span class="num">— 02</span>
+      <h3>명료함 <em>Clarity</em></h3>
+      <p>좋은 설계는 설명이 짧습니다. 우리의 인터페이스도, 우리의 회의록도 그렇게 짧기를.</p>
+    </div>
+    <div class="value">
+      <span class="num">— 03</span>
+      <h3>구조 <em>Structure</em></h3>
+      <p>화려한 마감 전에 단단한 골조. 데이터, 문서, 의사결정 — 설계의 모든 층위에서.</p>
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <section class="cta-block">
+    <h2>설계의 첫 선,<br>같이 그어보실래요?</h2>
+    <a class="btn btn-primary" href="Intro.html">
+      바탕에서 시작하기 <span>→</span>
+    </a>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="keywords">
+    <span>PRECISION</span>
+    <span>CLARITY</span>
+    <span>STRUCTURE</span>
+  </div>
+  <span>© 2025 BATANG · ver. 47</span>
+</footer>
+
+<script>
+  const TEAM = [
+    { name: '김나연', tags: ['BE', 'AI'], num: '01' },
+    { name: '김태영', tags: ['FE'], num: '02' },
+    { name: '박동한', tags: ['AI', 'BE', 'Infra'], num: '03' },
+    { name: '박연준', tags: ['BE', 'Infra'], num: '04' },
+    { name: '변희연', tags: ['PM', 'AI'], num: '05' },
+    { name: '양대천', tags: ['AI'], num: '06' },
+    { name: '오지수', tags: ['메인PD', 'FE', 'BE'], num: '07' },
+  ];
+
+  const tagClass = (t) => {
+    if (t === 'AI') return 't-AI';
+    if (t === '메인PD' || t === 'PM') return 't-PD';
+    return '';
+  };
+
+  const grid = document.getElementById('team-grid');
+  TEAM.forEach((m) => {
+    const el = document.createElement('div');
+    el.className = 'member';
+    el.innerHTML = `
+      <div class="info">
+        <div class="name"><span class="num">${m.num}</span>${m.name}</div>
+        <div class="tags">
+          ${m.tags.map(t => `<span class="tag ${tagClass(t)}">${t}</span>`).join('')}
+        </div>
+      </div>
+    `;
+    grid.appendChild(el);
+  });
+</script>
+
+</body>
+</html>

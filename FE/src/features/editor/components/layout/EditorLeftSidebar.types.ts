@@ -8,6 +8,7 @@ export interface EditorLeftSidebarProps {
   mode: EditorMode
   isLineStyleModalOpen: boolean
   isLibraryOpen?: boolean
+  isCollaborationMode?: boolean
   isGridVisible?: boolean
   selectedTool: string
   onToolSelect: (tool: string) => void

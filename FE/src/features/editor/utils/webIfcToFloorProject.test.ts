@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict'
-import { describe, it } from 'node:test'
+import { describe, expect, it } from 'vitest'
 import { toRoomPolygonFromAabb, type Aabb3D } from './webIfcToFloorProject.ts'
 
 describe('toRoomPolygonFromAabb', () => {
@@ -13,7 +12,7 @@ describe('toRoomPolygonFromAabb', () => {
       maxZ: 5,
     }
 
-    assert.deepEqual(toRoomPolygonFromAabb(aabb, 1000), [
+    expect(toRoomPolygonFromAabb(aabb, 1000)).toEqual([
       { x: 1000, y: 10000 },
       { x: 3000, y: 10000 },
       { x: 3000, y: 11000 },

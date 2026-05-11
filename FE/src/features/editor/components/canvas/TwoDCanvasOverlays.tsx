@@ -124,6 +124,9 @@ export function CollaborationPinOverlay({
             <Line points={[0, 12, 0, 22]} stroke={isSelected ? '#3B45B3' : '#1C1C1E'} strokeWidth={2} />
             <Circle radius={12} fill={isSelected ? '#3B45B3' : '#1C1C1E'} />
             <Text text={indexText} x={-3.8} y={-5.2} fill="white" fontSize={11} fontStyle="bold" />
+            {!isSelected && pin.hasUnreadCommentByOtherUser && (
+              <Circle x={9} y={-9} radius={4} fill="#ef4444" stroke="white" strokeWidth={1.5} />
+            )}
           </Group>
         )
       })}

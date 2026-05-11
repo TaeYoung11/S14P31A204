@@ -1,0 +1,6 @@
+<!-- 바탕 브랜드 로고를 표시하는 SVG 자산입니다. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 158 24" width="158" height="24" aria-label="바탕 : BATANG">
+  <text x="0" y="19" font-family="Pretendard Variable, Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif" font-weight="700" font-size="18" letter-spacing="-0.5" fill="#111827">바탕</text>
+  <text x="44" y="19" font-family="Pretendard Variable, Pretendard, sans-serif" font-weight="700" font-size="18" fill="#4f46e5">:</text>
+  <text x="56" y="19" font-family="JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="500" font-size="16" letter-spacing="0.4" fill="#111827">BATANG</text>
+</svg>
