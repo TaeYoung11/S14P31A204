@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +25,11 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("Planning_Test")
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_LIVE_PLANNING_3D_TEST") != "1",
+    reason="set RUN_LIVE_PLANNING_3D_TEST=1 to enable live 3D planning test",
+)
 
 @pytest.mark.asyncio
 async def test_planning_only():

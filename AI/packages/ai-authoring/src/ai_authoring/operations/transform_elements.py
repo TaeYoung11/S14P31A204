@@ -42,6 +42,6 @@ class TransformElementsHandler:
         z_m = float(translation.get("z", 0.0)) / 1000.0
         moved_ids: list[str] = []
         for product in _selected_products(model, selector):
-            if translate_product(product, x_m=x_m, y_m=y_m, z_m=z_m):
+            if translate_product(model, product, x_m=x_m, y_m=y_m, z_m=z_m):
                 moved_ids.append(product.GlobalId)
         return moved_ids

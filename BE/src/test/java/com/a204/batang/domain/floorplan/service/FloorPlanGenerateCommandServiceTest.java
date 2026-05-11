@@ -141,7 +141,15 @@ class FloorPlanGenerateCommandServiceTest {
                 )),
                 null,
                 List.of(new LayoutImportV2Payload.Adjacency("room-1", "room-2", 1.0)),
-                null,
+                List.of(new LayoutImportV2Payload.Boundary(
+                        1,
+                        List.of(
+                                new LayoutImportV2Payload.CoordinatePair(0.0, 0.0),
+                                new LayoutImportV2Payload.CoordinatePair(14000.0, 0.0),
+                                new LayoutImportV2Payload.CoordinatePair(14000.0, 9000.0),
+                                new LayoutImportV2Payload.CoordinatePair(0.0, 9000.0)
+                        )
+                )),
                 new LayoutImportV2Payload.GenerationOptions(true, true, true, true, false),
                 null,
                 new LayoutImportV2Payload.GenerationPolicy("outer_boundary", "from_adjacency", "flat")
@@ -245,6 +253,15 @@ class FloorPlanGenerateCommandServiceTest {
         JsonNode requestPayload = savedJob.getRequestPayload();
         assertThat(requestPayload.has("layout_import")).isTrue();
         assertThat(requestPayload.get("layout_import").get("schema_version").asText()).isEqualTo("v2");
+        JsonNode firstPolygonPair = requestPayload.get("layout_import")
+                .get("boundaries")
+                .get(0)
+                .get("polygon")
+                .get(0);
+        assertThat(firstPolygonPair.isArray()).isTrue();
+        assertThat(firstPolygonPair.size()).isEqualTo(2);
+        assertThat(firstPolygonPair.get(0).asDouble()).isEqualTo(0.0);
+        assertThat(firstPolygonPair.get(1).asDouble()).isEqualTo(0.0);
 
         JsonNode inputPayload = savedStep.getInputPayload();
         assertThat(inputPayload.get("inputSource").asText()).isEqualTo(FloorPlanConstants.INPUT_SOURCE_RAW_REQUEST);

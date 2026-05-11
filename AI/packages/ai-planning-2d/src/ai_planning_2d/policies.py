@@ -5,6 +5,8 @@ from typing import Literal, TypedDict
 
 from .command import IFCContext, SpaceContext
 
+from shapely.geometry import Polygon
+
 _TOLERANCE_MM = 1.0
 _DOMINANT_CONTACT_RATIO = 0.3
 _DOMINANT_CONTACT_EPSILON = 50.0
@@ -35,6 +37,7 @@ class ResizeRoomPolicyResult(TypedDict):
 def plan_remove_room(
     *,
     target_space_id: str,
+    preferred_merge_target_space_id: str | None = None,
     ifc_context: IFCContext,
 ) -> RemoveRoomPolicyResult:
     target_space = _find_space(target_space_id, ifc_context)
@@ -56,6 +59,38 @@ def plan_remove_room(
             None,
             [],
             [],
+        )
+
+    if preferred_merge_target_space_id is not None:
+        preferred_candidate = next(
+            (item for item in candidates if item[1]["id"] == preferred_merge_target_space_id),
+            None,
+        )
+        if preferred_candidate is None:
+            return _remove_result(
+                "needs_clarification",
+                "preferred_absorber_not_adjacent",
+                target_space_id,
+                None,
+                None,
+                [],
+                [],
+            )
+        preferred_contact, preferred_space = preferred_candidate
+        remove_wall_ids = _shared_wall_ids(
+            ifc_context,
+            target_space_id=target_space_id,
+            other_space_id=preferred_space["id"],
+        )
+        remove_opening_ids = _opening_ids_for_walls(ifc_context, remove_wall_ids)
+        return _remove_result(
+            "planned",
+            "preferred_adjacent_absorber",
+            target_space_id,
+            preferred_space["id"],
+            preferred_contact,
+            remove_wall_ids,
+            remove_opening_ids,
         )
 
     candidates.sort(key=lambda item: item[0], reverse=True)
@@ -194,6 +229,7 @@ def plan_resize_room(
         directions = (preferred_direction,)
     valid_candidates: list[tuple[str, str | None, list[str], list[str]]] = []
     rejected_for_geometry_healing = False
+    rejected_for_boundary = False
 
     for direction in directions:
         neighbors = _neighbors_on_direction(
@@ -204,14 +240,6 @@ def plan_resize_room(
         if len(neighbors) > 1:
             continue
         affected_space_id = neighbors[0] if neighbors else None
-        if axis == "x":
-            perpendicular_changed = new_height != current_height
-            if perpendicular_changed:
-                continue
-        else:
-            perpendicular_changed = new_width != current_width
-            if perpendicular_changed:
-                continue
 
         affected_wall_ids = _walls_for_direction(
             ifc_context,
@@ -225,9 +253,32 @@ def plan_resize_room(
         ):
             rejected_for_geometry_healing = True
             continue
+        if _violates_floor_boundary(
+            ifc_context=ifc_context,
+            floor=target_space["floor"],
+            polygon=target_space["polygon"],
+            direction=direction,
+            new_width=new_width,
+            new_height=new_height,
+        ):
+            rejected_for_boundary = True
+            continue
         affected_opening_ids = _opening_ids_for_walls(ifc_context, affected_wall_ids)
         valid_candidates.append(
             (direction, affected_space_id, affected_wall_ids, affected_opening_ids)
+        )
+
+    if not valid_candidates and rejected_for_boundary:
+        return _resize_result(
+            "unsupported",
+            "resize_outside_boundary",
+            target_space_id,
+            preferred_direction,
+            new_width,
+            new_height,
+            None,
+            [],
+            [],
         )
 
     if not valid_candidates and rejected_for_geometry_healing:
@@ -582,3 +633,60 @@ def _point_key(point: tuple[float, float]) -> tuple[int, int]:
         int(round(point[0] / _TOLERANCE_MM)),
         int(round(point[1] / _TOLERANCE_MM)),
     )
+
+
+def _violates_floor_boundary(
+    *,
+    ifc_context: IFCContext,
+    floor: int,
+    polygon: list[tuple[float, float]],
+    direction: Literal["north", "south", "east", "west"],
+    new_width: int,
+    new_height: int,
+) -> bool:
+    boundary = next(
+        (item for item in ifc_context.get("boundaries", []) if item["floor"] == floor),
+        None,
+    )
+    if boundary is None:
+        return False
+    resized_polygon = _resized_polygon(
+        polygon=polygon,
+        direction=direction,
+        new_width=new_width,
+        new_height=new_height,
+    )
+    if resized_polygon is None:
+        return False
+    return not Polygon(boundary["outer_polygon"]).covers(Polygon(resized_polygon))
+
+
+def _resized_polygon(
+    *,
+    polygon: list[tuple[float, float]],
+    direction: Literal["north", "south", "east", "west"],
+    new_width: int,
+    new_height: int,
+) -> list[tuple[float, float]] | None:
+    xs = [point[0] for point in polygon]
+    ys = [point[1] for point in polygon]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+
+    if direction == "west":
+        min_x = max_x - new_width
+    elif direction == "east":
+        max_x = min_x + new_width
+    elif direction == "south":
+        min_y = max_y - new_height
+    elif direction == "north":
+        max_y = min_y + new_height
+    else:  # pragma: no cover
+        return None
+
+    return [
+        (min_x, min_y),
+        (max_x, min_y),
+        (max_x, max_y),
+        (min_x, max_y),
+    ]

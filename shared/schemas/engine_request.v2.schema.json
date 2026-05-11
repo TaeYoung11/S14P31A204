@@ -649,6 +649,19 @@
         "opening_offset_mm": {
           "type": "number"
         },
+        "step_count": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 64
+        },
+        "riser_height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "tread_depth_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
         "material": {
           "type": "string",
           "minLength": 1,

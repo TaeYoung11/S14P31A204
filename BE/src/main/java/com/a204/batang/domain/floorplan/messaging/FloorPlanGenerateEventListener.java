@@ -22,14 +22,12 @@ import com.a204.batang.domain.revision.entity.Revision;
 import com.a204.batang.domain.revision.repository.RevisionRepository;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
-import com.a204.batang.global.config.RabbitMqConfig;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
@@ -59,7 +57,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class FloorPlanGenerateEventListener {
 
-    private static final String EVENT_PREFIX = "IFC_GENERATE_FROM_BUBBLE_";
+    private static final String EVENT_PREFIX = FloorPlanConstants.EVENT_PREFIX_IFC_GENERATE_FROM_BUBBLE;
     private static final String EVENT_PUBLISH_FAILED = "PUBLISH_FAILED";
     private static final String EVENT_STARTED = FloorPlanConstants.EVENT_TYPE_IFC_GENERATE_STARTED;
     private static final String EVENT_PROGRESS = FloorPlanConstants.EVENT_TYPE_IFC_GENERATE_PROGRESS;
@@ -78,7 +76,6 @@ public class FloorPlanGenerateEventListener {
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
-    @RabbitListener(queues = RabbitMqConfig.BE_JOB_EVENTS_QUEUE)
     @Transactional
     public void handle(FloorPlanGenerateEventMessage event) {
         if (event == null || event.eventType() == null) {

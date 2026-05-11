@@ -3,27 +3,43 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import tempfile
 from collections.abc import Coroutine
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
-from ai_common.config import S3Settings
 from ai_common.adapters.storage.s3_client import S3Client, parse_s3_url
+from ai_common.config import S3Settings
 from ai_common.errors import (
     ClarificationRequiredError,
     NonRetryableWorkerError,
     RetryableWorkerError,
     ValidationWorkerError,
+    WorkerError,
+)
+from ai_common.storage.paths import (
+    error_detail_key,
+    pad_step,
+    planner_2d_command_key,
+    preview_result_key,
 )
 from ai_common.worker_sdk.base_worker import BaseWorker, EventPublisher
 from ai_common.worker_sdk.event_factory import CompletedResult, WorkerResult
 from ai_domain import CommandMessage, EventOutputRef, TwoDLlmCommandPayload
 from pydantic import ValidationError
 
-from .ifc_extractor import UnsupportedIfcSchemaError, extract_ifc_context
+from .ifc_extractor import (
+    UnsupportedIfcLengthUnitError,
+    UnsupportedIfcSchemaError,
+    extract_ifc_context,
+)
+from .schemas import (
+    ErrorDetailArtifact,
+    PreviewResultArtifact,
+    TwoDCommandArtifact,
+    ValidationReportArtifact,
+)
 from .session_pipeline import LLM2DPipeline
 
 _T = TypeVar("_T")
@@ -32,6 +48,9 @@ _logger = logging.getLogger(__name__)
 
 
 class StorageClient(Protocol):
+    @property
+    def default_bucket(self) -> str: ...
+
     def read_bytes(self, url: str) -> bytes: ...
 
     def write_bytes(
@@ -40,6 +59,15 @@ class StorageClient(Protocol):
         data: bytes,
         content_type: str = "application/octet-stream",
         bucket: str | None = None,
+    ) -> str: ...
+
+    def write_json(
+        self,
+        key: str,
+        payload: object,
+        *,
+        bucket: str | None = None,
+        indent: int = 2,
     ) -> str: ...
 
 
@@ -124,6 +152,8 @@ class TwoDLlmWorker(BaseWorker):
             )
 
         payload = command.payload
+        uploaded_artifacts: list[str] = []
+        failed_artifact: str | None = None
         if payload.sourceSceneStorageUrl is not None and (
             command.input is None or command.input.sourceIfcStorageUrl is None
         ):
@@ -134,58 +164,128 @@ class TwoDLlmWorker(BaseWorker):
                     "source_scene_storage_url": payload.sourceSceneStorageUrl,
                 },
             )
-        source_url = _resolve_source_ifc_url(command)
 
-        with tempfile.TemporaryDirectory(prefix="ai-2d-worker-") as temp_dir:
-            temp_root = Path(temp_dir)
-            source_path = temp_root / "input.ifc"
-            source_path.write_bytes(_download_source_ifc(self.s3_client, source_url))
-
-            output_path = temp_root / "output.ifc"
-            result = _run_async(
-                _run_pipeline(
-                    user_instruction=payload.userInstruction,
-                    input_path=str(source_path),
-                    output_path=str(output_path),
-                    project_id=command.projectId,
-                    base_revision_id=command.sourceRevisionId,
-                    clarification_request_id=f"2d-{command.jobStepId}",
-                )
+        try:
+            source_url = _resolve_source_ifc_url(command)
+            _warn_expected_output_step_padding(command)
+            inherited_bucket = _resolve_bucket(
+                command,
+                default_bucket=self.s3_client.default_bucket,
             )
-            plan_bytes: bytes | None = None
-            if command.expectedOutput.editPlanStorageUrl is not None:
-                plan_bytes = _build_edit_plan_bytes(result)
 
-            uploaded_plan_url: str | None = None
-            if command.expectedOutput.editPlanStorageUrl is not None and plan_bytes is not None:
-                uploaded_plan_url = _write_to_storage_url(
-                    self.s3_client,
-                    command.expectedOutput.editPlanStorageUrl,
-                    plan_bytes,
-                    content_type="application/json; charset=utf-8",
+            with tempfile.TemporaryDirectory(prefix="ai-2d-worker-") as temp_dir:
+                temp_root = Path(temp_dir)
+                source_path = temp_root / "input.ifc"
+                source_path.write_bytes(_download_source_ifc(self.s3_client, source_url))
+
+                output_path = temp_root / "output.ifc"
+                result = _run_async(
+                    _run_pipeline(
+                        user_instruction=payload.userInstruction,
+                        input_path=str(source_path),
+                        output_path=str(output_path),
+                        project_id=command.projectId,
+                        base_revision_id=command.sourceRevisionId,
+                        clarification_request_id=f"2d-{command.jobStepId}",
+                    )
                 )
 
-            uploaded_ifc_url: str | None = None
-            if command.expectedOutput.ifcStorageUrl is not None:
-                uploaded_ifc_url = _write_to_storage_url(
+                preview = result["preview"]
+                engine_request_payload = _build_engine_request_payload(result)
+                two_d_command_artifact = _build_two_d_command_artifact(
+                    user_instruction=payload.userInstruction,
+                    preview=preview,
+                )
+                preview_result_artifact = _build_preview_result_artifact(preview)
+                validation_report_artifact = _build_validation_report_artifact(command, preview)
+
+                _write_observability_artifact(
                     self.s3_client,
-                    command.expectedOutput.ifcStorageUrl,
-                    output_path.read_bytes(),
-                    content_type="application/x-step",
+                    artifact_kind="2d_command",
+                    key=planner_2d_command_key(command.projectId, command.jobId, command.stepNo),
+                    payload=two_d_command_artifact.model_dump(mode="json"),
+                    bucket=inherited_bucket,
+                )
+                _write_observability_artifact(
+                    self.s3_client,
+                    artifact_kind="preview_result",
+                    key=preview_result_key(command.projectId, command.jobId, command.stepNo),
+                    payload=preview_result_artifact.model_dump(mode="json"),
+                    bucket=inherited_bucket,
                 )
 
-        uploaded_output_url = uploaded_ifc_url or uploaded_plan_url
-        if uploaded_output_url is None:
-            raise AssertionError("expectedOutput guarantees at least one uploaded artifact")
+                uploaded_engine_request_url: str | None = None
+                if command.expectedOutput.editPlanStorageUrl is not None:
+                    failed_artifact = "engine-request.v2.json"
+                    uploaded_engine_request_url = _write_json_to_storage_url(
+                        self.s3_client,
+                        command.expectedOutput.editPlanStorageUrl,
+                        engine_request_payload,
+                    )
+                    uploaded_artifacts.append(uploaded_engine_request_url)
 
-        return CompletedResult(
-            output=EventOutputRef.model_validate(
-                {
-                    "storageUrl": uploaded_output_url,
-                }
-            ),
-            progress=1.0,
-        )
+                uploaded_validation_report_url: str | None = None
+                if command.expectedOutput.validationReportStorageUrl is not None:
+                    failed_artifact = "validation-report.v1.json"
+                    uploaded_validation_report_url = _write_json_to_storage_url(
+                        self.s3_client,
+                        command.expectedOutput.validationReportStorageUrl,
+                        validation_report_artifact.model_dump(mode="json"),
+                    )
+                    uploaded_artifacts.append(uploaded_validation_report_url)
+
+                uploaded_ifc_url: str | None = None
+                if command.expectedOutput.ifcStorageUrl is not None:
+                    failed_artifact = "model.v1.ifc"
+                    uploaded_ifc_url = _write_to_storage_url(
+                        self.s3_client,
+                        command.expectedOutput.ifcStorageUrl,
+                        output_path.read_bytes(),
+                        content_type="application/x-step",
+                    )
+                    uploaded_artifacts.append(uploaded_ifc_url)
+
+            uploaded_output_url = (
+                uploaded_ifc_url
+                or uploaded_engine_request_url
+                or uploaded_validation_report_url
+            )
+            if uploaded_output_url is None:
+                raise NonRetryableWorkerError(
+                    code="NO_OUTPUT",
+                    message="worker did not upload a primary output artifact",
+                )
+
+            return CompletedResult(
+                output=EventOutputRef.model_validate({"storageUrl": uploaded_output_url}),
+                progress=1.0,
+            )
+        except WorkerError as error:
+            detail_url = _write_error_detail_best_effort(
+                self.s3_client,
+                command=command,
+                error=error,
+                uploaded_artifacts=uploaded_artifacts,
+                failed_artifact=failed_artifact,
+            )
+            if detail_url is not None:
+                error.detail_storage_url = detail_url
+            raise
+        except Exception as exc:
+            error = NonRetryableWorkerError(
+                code="UNHANDLED_WORKER_EXCEPTION",
+                message=str(exc) or "Unhandled worker exception",
+            )
+            detail_url = _write_error_detail_best_effort(
+                self.s3_client,
+                command=command,
+                error=error,
+                uploaded_artifacts=uploaded_artifacts,
+                failed_artifact=failed_artifact,
+            )
+            if detail_url is not None:
+                error.detail_storage_url = detail_url
+            raise error from exc
 
 
 def build_two_d_llm_worker(
@@ -215,6 +315,11 @@ async def _run_pipeline(
     except UnsupportedIfcSchemaError as exc:
         raise ValidationWorkerError(
             code="UNSUPPORTED_IFC_SCHEMA",
+            message=str(exc),
+        ) from exc
+    except UnsupportedIfcLengthUnitError as exc:
+        raise ValidationWorkerError(
+            code="UNSUPPORTED_IFC_LENGTH_UNIT",
             message=str(exc),
         ) from exc
     except ValueError as exc:
@@ -306,9 +411,29 @@ def _write_to_storage_url(
         ) from exc
 
 
-def _resolve_source_ifc_url(
-    command: CommandMessage,
+def _write_json_to_storage_url(
+    client: StorageClient,
+    target_url: str,
+    payload: object,
 ) -> str:
+    try:
+        loc = parse_s3_url(target_url)
+    except ValueError as exc:
+        raise ValidationWorkerError(
+            code="INVALID_STORAGE_URL",
+            message=str(exc),
+        ) from exc
+
+    try:
+        return client.write_json(loc.key, payload, bucket=loc.bucket)
+    except Exception as exc:
+        raise RetryableWorkerError(
+            code="STORAGE_WRITE_FAILED",
+            message=f"failed to upload worker output to {target_url}: {exc}",
+        ) from exc
+
+
+def _resolve_source_ifc_url(command: CommandMessage) -> str:
     if command.input is not None and command.input.sourceIfcStorageUrl is not None:
         return command.input.sourceIfcStorageUrl
     raise ValidationWorkerError(
@@ -341,14 +466,185 @@ def _looks_like_step_ifc(data: bytes) -> bool:
     return data.lstrip().removeprefix(b"\xef\xbb\xbf").startswith(_STEP_IFC_HEADER)
 
 
-def _build_edit_plan_bytes(result: dict[str, Any]) -> bytes:
-    apply_payload = result.get("apply", {}).get("ifc_edit_payload")
+def _build_engine_request_payload(result: dict[str, Any]) -> dict[str, Any]:
+    apply_payload = result.get("apply", {}).get("engine_request")
     if apply_payload is None:
         raise NonRetryableWorkerError(
             code="MISSING_EDIT_PLAN",
-            message="worker result did not contain an IFC edit payload",
+            message="worker result did not contain an engine request payload",
         )
-    return json.dumps(apply_payload, ensure_ascii=False, indent=2).encode("utf-8")
+    return apply_payload
+
+
+def _build_two_d_command_artifact(
+    *,
+    user_instruction: str,
+    preview: dict[str, Any],
+) -> TwoDCommandArtifact:
+    return TwoDCommandArtifact.model_validate(
+        {
+            "user_instruction": user_instruction,
+            "parsed_command": preview["command"],
+            "command_batch": preview["command_batch"],
+            "needs_clarification": preview.get("status") == "needs_clarification",
+            "clarification_question": (
+                preview.get("summary") if preview.get("status") == "needs_clarification" else None
+            ),
+        }
+    )
+
+
+def _build_preview_result_artifact(preview: dict[str, Any]) -> PreviewResultArtifact:
+    return PreviewResultArtifact.model_validate(
+        {
+            "status": preview["status"],
+            "summary": preview["summary"],
+            "command": preview["command"],
+            "command_batch": preview["command_batch"],
+            "policy_plan": preview.get("policy_plan"),
+            "matched_count": preview.get("matched_count", 0),
+            "validation_warnings": preview.get("validation_warnings", []),
+            "engine_request": preview.get("engine_request"),
+            "ifc_edit_payload": preview.get("ifc_edit_payload"),
+            "engine_capabilities": preview.get("engine_capabilities", {}),
+        }
+    )
+
+
+def _build_validation_report_artifact(
+    command: CommandMessage,
+    preview: dict[str, Any],
+) -> ValidationReportArtifact:
+    return ValidationReportArtifact.model_validate(
+        {
+            "artifact_id": command.expectedOutputArtifactId,
+            "job_id": command.jobId,
+            "step_no": command.stepNo,
+            "plan_validation_issues": [],
+            "plan_validation_warnings": [],
+            "preview_warnings": preview.get("validation_warnings", []),
+            "ifc_validation_issues": None,
+        }
+    )
+
+
+def _write_observability_artifact(
+    client: StorageClient,
+    *,
+    artifact_kind: str,
+    key: str,
+    payload: object,
+    bucket: str,
+) -> None:
+    try:
+        client.write_json(key, payload, bucket=bucket)
+    except Exception as exc:
+        _logger.warning(
+            "observability_artifact_write_failed",
+            extra={
+                "artifact_kind": artifact_kind,
+                "key": key,
+                "bucket": bucket,
+                "error_class": type(exc).__name__,
+                "error_message": str(exc),
+            },
+        )
+
+
+def _write_error_detail_best_effort(
+    client: StorageClient,
+    *,
+    command: CommandMessage,
+    error: WorkerError,
+    uploaded_artifacts: list[str],
+    failed_artifact: str | None,
+) -> str | None:
+    target_url = command.expectedOutput.errorDetailStorageUrl
+    try:
+        if target_url is not None:
+            location = parse_s3_url(target_url)
+            bucket = location.bucket
+            key = location.key
+        else:
+            bucket = _resolve_bucket(command, default_bucket=client.default_bucket)
+            key = error_detail_key(command.projectId, command.jobId, command.stepNo)
+        artifact = ErrorDetailArtifact(
+            error_code=error.code,
+            error_message=error.message,
+            error_class=type(error).__name__,
+            job_id=command.jobId,
+            step_no=command.stepNo,
+            validation_issues=None,
+            uploaded_artifacts=uploaded_artifacts,
+            failed_artifact=failed_artifact,
+        )
+        return client.write_json(key, artifact.model_dump(mode="json"), bucket=bucket)
+    except Exception as exc:  # pragma: no cover - best effort path
+        _logger.warning(
+            "error_detail_write_failed",
+            extra={
+                "job_id": command.jobId,
+                "step_no": pad_step(command.stepNo),
+                "error_class": type(exc).__name__,
+                "error_message": str(exc),
+            },
+        )
+        return None
+
+
+def _resolve_bucket(command: CommandMessage, *, default_bucket: str) -> str:
+    urls = [
+        command.expectedOutput.editPlanStorageUrl,
+        command.expectedOutput.ifcStorageUrl,
+        command.expectedOutput.validationReportStorageUrl,
+        command.expectedOutput.errorDetailStorageUrl,
+    ]
+    buckets: list[str] = []
+    for url in urls:
+        if url is None:
+            continue
+        try:
+            buckets.append(parse_s3_url(url).bucket)
+        except ValueError:
+            continue
+    if not buckets:
+        return default_bucket
+    if len(set(buckets)) > 1:
+        _logger.warning(
+            "expected_output_bucket_mismatch",
+            extra={
+                "job_id": command.jobId,
+                "step_no": pad_step(command.stepNo),
+                "buckets": buckets,
+                "chosen_bucket": buckets[0],
+            },
+        )
+    return buckets[0]
+
+
+def _warn_expected_output_step_padding(command: CommandMessage) -> None:
+    expected_segment = f"/steps/{pad_step(command.stepNo)}/"
+    for field_name, url in (
+        ("editPlanStorageUrl", command.expectedOutput.editPlanStorageUrl),
+        ("ifcStorageUrl", command.expectedOutput.ifcStorageUrl),
+        ("validationReportStorageUrl", command.expectedOutput.validationReportStorageUrl),
+        ("errorDetailStorageUrl", command.expectedOutput.errorDetailStorageUrl),
+    ):
+        if url is None:
+            continue
+        try:
+            key = parse_s3_url(url).key
+        except ValueError:
+            continue
+        if expected_segment.strip("/") not in key:
+            _logger.warning(
+                "expected_output_step_padding_mismatch",
+                extra={
+                    "field_name": field_name,
+                    "url": url,
+                    "expected_segment": expected_segment,
+                },
+            )
 
 
 def _run_async(awaitable: Coroutine[Any, Any, _T]) -> _T:

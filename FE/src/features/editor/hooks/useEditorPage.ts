@@ -63,7 +63,7 @@ import {
 } from '../utils/floorRoomDerivedState'
 import type { FloorProject } from '../types/floorProject.types'
 import { workspaceDraftRepository } from '../services/workspaceDraft.repository'
-import { requestFloorPlanGenerate } from '../services/floorPlanGenerate.service'
+import { requestFloorPlanGenerate, waitForFloorPlanIfcExport } from '../services/floorPlanGenerate.service'
 import {
   FloorPlanLayoutValidationError,
 } from '../services/floorPlanGenerate.contract'
@@ -97,6 +97,7 @@ import type { FloorPlan3DData } from '../utils/floorPlanTo3D'
 import {
   buildFloorPlanLayoutImportPayload,
   collectAutoDoorOpeningIdsFromWallIds,
+  getLayoutImportBoundaryLogMetadata,
   getPolygonAreaPx,
   getPolygonBounds,
   isFinitePolygonPoints,
@@ -559,6 +560,7 @@ export function useEditorPage() {
   const bubbleDbSaveTimerRef = useRef<number | null>(null)
   const bubbleDbSaveInFlightRef = useRef<Promise<SaveBubbleSnapshotResponse> | null>(null)
   const floorPlanGenerateForbiddenRef = useRef(false)
+  const floorPlanIfcExportAbortRef = useRef<AbortController | null>(null)
   const lastLoadedIfcStorageUrlRef = useRef<string | null>(null)
   const ifcLoadInFlightStorageUrlRef = useRef<string | null>(null)
   /**
@@ -595,7 +597,14 @@ export function useEditorPage() {
   useEffect(() => {
     lastLoadedIfcStorageUrlRef.current = null
     ifcLoadInFlightStorageUrlRef.current = null
+    floorPlanIfcExportAbortRef.current?.abort()
+    floorPlanIfcExportAbortRef.current = null
   }, [projectId])
+
+  useEffect(() => () => {
+    floorPlanIfcExportAbortRef.current?.abort()
+    floorPlanIfcExportAbortRef.current = null
+  }, [])
 
   const [serverPublishRetryTick, setServerPublishRetryTick] = useState(0)
   const clearServerPublishRetry = useCallback(() => {
@@ -1578,6 +1587,7 @@ export function useEditorPage() {
   const {
     sitePoints,
     sitePlanPoints,
+    layoutBoundaryInput,
     siteAreaM2,
     siteAreaPyeong,
     canStartSaveFlow,
@@ -1994,7 +2004,12 @@ export function useEditorPage() {
         currentProjectName,
         latestSnapshot.bubbles,
         latestSnapshot.connections,
+        layoutBoundaryInput,
       )
+      console.info('[editor] 평면 생성 layout boundary 준비 완료:', {
+        projectId,
+        ...getLayoutImportBoundaryLogMetadata(layoutBoundaryInput, latestSnapshot.bubbles, layoutImport),
+      })
       const response = await requestFloorPlanGenerate({
         projectId,
         layoutImport,
@@ -2005,6 +2020,32 @@ export function useEditorPage() {
       setIsFloorPlanEditedIn2D(false)
       setWorkspacePhaseStatus('CONVERTING')
       startFloorPlanGenerateTimeout()
+      floorPlanIfcExportAbortRef.current?.abort()
+      const floorPlanIfcExportAbortController = new AbortController()
+      floorPlanIfcExportAbortRef.current = floorPlanIfcExportAbortController
+      void waitForFloorPlanIfcExport(projectId, response.targetRevisionId, {
+        signal: floorPlanIfcExportAbortController.signal,
+      })
+        .then((exported) => {
+          if (floorPlanIfcExportAbortController.signal.aborted) return
+          if (floorPlanIfcExportAbortRef.current !== floorPlanIfcExportAbortController) return
+          floorPlanIfcExportAbortRef.current = null
+          clearFloorPlanGenerateTimeout()
+          handleIfcSyncMessageRef.current(
+            exported.presignedUrl,
+            'FLOOR_PLAN_GENERATE_COMPLETED',
+            null,
+          )
+        })
+        .catch((pollError: unknown) => {
+          if (floorPlanIfcExportAbortController.signal.aborted) return
+          if (floorPlanIfcExportAbortRef.current !== floorPlanIfcExportAbortController) return
+          floorPlanIfcExportAbortRef.current = null
+          clearFloorPlanGenerateTimeout()
+          setWorkspacePhaseStatus('BUBBLE_DRAFT')
+          setFloorPlanGenerateStatusText('IFC 변환 결과를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.')
+          console.error('[editor] Floor-plan IFC export polling failed:', pollError)
+        })
     } catch (error: unknown) {
       clearFloorPlanGenerateTimeout()
       setWorkspacePhaseStatus('BUBBLE_DRAFT')
