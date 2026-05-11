@@ -2,15 +2,45 @@ import type {
   BubbleData,
   ConnectionData,
   EditorMode,
-  FloorCommentAttachment,
-  FloorCommentAttachmentInput,
   Point2D,
 } from '../types'
 import type { AxisAlignedRect } from './geometry2d'
-import type { FloorPlanRoomType, LayoutImportV2 } from '../services/floorPlanGenerate.contract'
+import type {
+  FloorPlanRoomType,
+  LayoutImportV2,
+  LayoutImportV2Boundary,
+} from '../services/floorPlanGenerate.contract'
 
 const DEFAULT_FLOOR_PLAN_MM_PER_PX = 25
+/**
+ * 사용 가능한 실제 대지가 없을 때 생성 payload에 적용하는 기본 경계 여백입니다.
+ * 기존 화면 fallback 여백(80px * 25mm/px)에 맞춘 호환 기본값이며,
+ * 제품/AI 생성 품질 기준으로 확정된 최종 최적값은 아닙니다.
+ */
+export const DEFAULT_LAYOUT_BOUNDARY_PADDING_MM = 2000
+const EPSILON = 1e-9
 const EDITOR_MODES: EditorMode[] = ['bubble', '2d', '3d', 'view']
+
+export type LayoutImportBoundarySource = 'site' | 'default' | 'none'
+export type LayoutImportBoundaryFallbackReason = 'site-loading' | 'missing-site' | 'site-mapping-failed'
+export type LayoutImportBoundaryOmitReason =
+  | 'empty-bubbles'
+  | 'invalid-bubble-bounds'
+  | 'invalid-padding'
+  | 'invalid-site-boundary'
+
+export type LayoutImportBoundaryInput =
+  | { source: 'site'; sitePlanPoints: number[] }
+  | { source: 'default'; paddingMm: number; fallbackReason?: LayoutImportBoundaryFallbackReason }
+  | { source: 'none'; reason?: LayoutImportBoundaryOmitReason }
+
+export interface LayoutImportBoundaryLogMetadata {
+  boundarySource: LayoutImportBoundarySource
+  boundaryIncluded: boolean
+  fallbackReason?: LayoutImportBoundaryFallbackReason
+  paddingMm?: number
+  boundaryOmitReason?: LayoutImportBoundaryOmitReason
+}
 
 function normalizeFloorPlanRoomType(rawType: string): FloorPlanRoomType {
   const normalized = rawType.trim().toLowerCase()
@@ -50,7 +80,15 @@ function toPositiveMillimeter(value: number): number {
   return rounded > 0 ? rounded : 0
 }
 
-function resolveMmPerPxForFloorPlan(bubbles: BubbleData[]): number {
+/** 버블 위치(좌상단)를 버블 중심(mm)으로 변환 */
+function toBubbleCenterMillimeterPosition(bubble: BubbleData, mmPerPx: number) {
+  return {
+    x: toFiniteNumber((bubble.x + bubble.width / 2) * mmPerPx),
+    y: toFiniteNumber((bubble.y + bubble.height / 2) * mmPerPx),
+  }
+}
+
+export function resolveMmPerPxForFloorPlan(bubbles: BubbleData[]): number {
   for (const bubble of bubbles) {
     if (Number.isFinite(bubble.widthMm) && Number.isFinite(bubble.width) && bubble.widthMm > 0 && bubble.width > 0) {
       return bubble.widthMm / bubble.width
@@ -68,6 +106,151 @@ function toConnectionStrength(type: ConnectionData['type']): number {
   return 0.3
 }
 
+function toBoundaryPolygonPairs(sitePlanPoints: number[]): Array<[number, number]> {
+  const pairs: Array<[number, number]> = []
+  for (let index = 0; index + 1 < sitePlanPoints.length; index += 2) {
+    const x = sitePlanPoints[index]
+    const y = sitePlanPoints[index + 1]
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+    pairs.push([x, y])
+  }
+  return pairs
+}
+
+function isSameCoordinatePair(a: [number, number], b: [number, number]): boolean {
+  return Math.abs(a[0] - b[0]) < EPSILON && Math.abs(a[1] - b[1]) < EPSILON
+}
+
+function stripClosingCoordinatePair(polygon: Array<[number, number]>): Array<[number, number]> {
+  if (polygon.length < 2) return polygon
+  const first = polygon[0]
+  const last = polygon[polygon.length - 1]
+  return isSameCoordinatePair(first, last) ? polygon.slice(0, -1) : polygon
+}
+
+function getUniqueBubbles(bubbles: BubbleData[]): BubbleData[] {
+  const uniqueBubbles = new Map<string, BubbleData>()
+  bubbles.forEach((bubble) => {
+    if (!uniqueBubbles.has(bubble.id)) uniqueBubbles.set(bubble.id, bubble)
+  })
+  return [...uniqueBubbles.values()]
+}
+
+function getSignedPolygonArea(polygon: Array<[number, number]>): number {
+  if (polygon.length < 3) return 0
+  let doubledArea = 0
+  for (let index = 0; index < polygon.length; index += 1) {
+    const [x1, y1] = polygon[index]
+    const [x2, y2] = polygon[(index + 1) % polygon.length]
+    doubledArea += x1 * y2 - x2 * y1
+  }
+  return doubledArea / 2
+}
+
+function toLayoutImportBoundaryFromPolygonMm(
+  polygonMm: Array<[number, number]>,
+): LayoutImportV2Boundary | null {
+  const normalizedPolygon = stripClosingCoordinatePair(polygonMm)
+  if (normalizedPolygon.length < 3) return null
+
+  const signedArea = getSignedPolygonArea(normalizedPolygon)
+  if (!Number.isFinite(signedArea) || signedArea === 0) return null
+
+  return {
+    floor: 1,
+    polygon: signedArea > 0 ? normalizedPolygon : [...normalizedPolygon].reverse(),
+  }
+}
+
+function toSiteLayoutImportBoundary(
+  sitePlanPoints: number[],
+  mmPerPx: number,
+): LayoutImportV2Boundary | null {
+  const polygonPx = stripClosingCoordinatePair(toBoundaryPolygonPairs(sitePlanPoints))
+  if (polygonPx.length < 3) return null
+
+  const polygonMm = polygonPx.map(([x, y]) => [x * mmPerPx, y * mmPerPx] as [number, number])
+  return toLayoutImportBoundaryFromPolygonMm(polygonMm)
+}
+
+function toDefaultLayoutImportBoundary(
+  bubbles: BubbleData[],
+  mmPerPx: number,
+  paddingMm: number,
+): { boundary: LayoutImportV2Boundary | null; omitReason?: LayoutImportBoundaryOmitReason } {
+  if (bubbles.length === 0) return { boundary: null, omitReason: 'empty-bubbles' }
+  if (!Number.isFinite(paddingMm) || paddingMm <= 0) return { boundary: null, omitReason: 'invalid-padding' }
+
+  const validBubbles = bubbles.filter((bubble) => (
+    Number.isFinite(bubble.x) &&
+    Number.isFinite(bubble.y) &&
+    Number.isFinite(bubble.width) &&
+    Number.isFinite(bubble.height) &&
+    bubble.width > 0 &&
+    bubble.height > 0
+  ))
+  if (validBubbles.length === 0) return { boundary: null, omitReason: 'invalid-bubble-bounds' }
+
+  const minX = Math.min(...validBubbles.map((bubble) => bubble.x))
+  const minY = Math.min(...validBubbles.map((bubble) => bubble.y))
+  const maxX = Math.max(...validBubbles.map((bubble) => bubble.x + bubble.width))
+  const maxY = Math.max(...validBubbles.map((bubble) => bubble.y + bubble.height))
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return { boundary: null, omitReason: 'invalid-bubble-bounds' }
+  }
+  if (maxX <= minX || maxY <= minY) return { boundary: null, omitReason: 'invalid-bubble-bounds' }
+
+  const minXMm = minX * mmPerPx - paddingMm
+  const minYMm = minY * mmPerPx - paddingMm
+  const maxXMm = maxX * mmPerPx + paddingMm
+  const maxYMm = maxY * mmPerPx + paddingMm
+  const boundary = toLayoutImportBoundaryFromPolygonMm([
+    [minXMm, minYMm],
+    [maxXMm, minYMm],
+    [maxXMm, maxYMm],
+    [minXMm, maxYMm],
+  ])
+
+  return boundary ? { boundary } : { boundary: null, omitReason: 'invalid-bubble-bounds' }
+}
+
+function toLayoutImportBoundaryFromInput(
+  boundaryInput: LayoutImportBoundaryInput,
+  bubbles: BubbleData[],
+  mmPerPx: number,
+): { boundary: LayoutImportV2Boundary | null; omitReason?: LayoutImportBoundaryOmitReason } {
+  if (boundaryInput.source === 'site') {
+    const boundary = toSiteLayoutImportBoundary(boundaryInput.sitePlanPoints, mmPerPx)
+    return boundary ? { boundary } : { boundary: null, omitReason: 'invalid-site-boundary' }
+  }
+  if (boundaryInput.source === 'default') {
+    return toDefaultLayoutImportBoundary(bubbles, mmPerPx, boundaryInput.paddingMm)
+  }
+  return { boundary: null, omitReason: boundaryInput.reason }
+}
+
+export function getLayoutImportBoundaryLogMetadata(
+  boundaryInput: LayoutImportBoundaryInput,
+  bubbles: BubbleData[],
+  layoutImport: LayoutImportV2,
+): LayoutImportBoundaryLogMetadata {
+  const boundaryIncluded = Boolean(layoutImport.boundaries?.length)
+  const mmPerPx = resolveMmPerPxForFloorPlan(bubbles)
+  const boundaryResult = boundaryIncluded
+    ? { boundary: layoutImport.boundaries?.[0] ?? null }
+    : toLayoutImportBoundaryFromInput(boundaryInput, getUniqueBubbles(bubbles), mmPerPx)
+
+  return {
+    boundarySource: boundaryInput.source,
+    boundaryIncluded,
+    ...(boundaryInput.source === 'default' ? {
+      fallbackReason: boundaryInput.fallbackReason,
+      paddingMm: boundaryInput.paddingMm,
+    } : {}),
+    ...(!boundaryIncluded && boundaryResult.omitReason ? { boundaryOmitReason: boundaryResult.omitReason } : {}),
+  }
+}
+
 /**
  * 버블/연결선 상태를 Floor Plan 생성 API의 layoutImport(v2) payload로 변환한다.
  * - room id 중복 제거
@@ -79,26 +262,27 @@ export function buildFloorPlanLayoutImportPayload(
   projectName: string,
   bubbles: BubbleData[],
   connections: ConnectionData[],
+  boundaryInput: LayoutImportBoundaryInput,
 ): LayoutImportV2 {
   const mmPerPx = resolveMmPerPxForFloorPlan(bubbles)
-  const uniqueBubbles = new Map<string, BubbleData>()
-  bubbles.forEach((bubble) => {
-    if (!uniqueBubbles.has(bubble.id)) uniqueBubbles.set(bubble.id, bubble)
-  })
+  const uniqueBubbles = getUniqueBubbles(bubbles)
 
-  const rooms = [...uniqueBubbles.values()].map((bubble) => ({
-    id: bubble.id,
-    name: bubble.label.trim() || bubble.id,
-    type: normalizeFloorPlanRoomType(bubble.type),
-    width: toPositiveMillimeter(bubble.widthMm),
-    height: toPositiveMillimeter(bubble.heightMm),
-    floor: 1,
-    x: toFiniteNumber(bubble.x * mmPerPx),
-    y: toFiniteNumber(bubble.y * mmPerPx),
-    angle: 0,
-    locked: false,
-    zoneId: null,
-  }))
+  const rooms = uniqueBubbles.map((bubble) => {
+    const center = toBubbleCenterMillimeterPosition(bubble, mmPerPx)
+    return {
+      id: bubble.id,
+      name: bubble.label.trim() || bubble.id,
+      type: normalizeFloorPlanRoomType(bubble.type),
+      width: toPositiveMillimeter(bubble.widthMm),
+      height: toPositiveMillimeter(bubble.heightMm),
+      floor: 1,
+      x: center.x,
+      y: center.y,
+      angle: 0,
+      locked: false,
+      zoneId: null,
+    }
+  })
 
   const roomIdSet = new Set(rooms.map((room) => room.id))
   const adjacency = connections
@@ -108,6 +292,7 @@ export function buildFloorPlanLayoutImportPayload(
       to_room_id: connection.to,
       strength: toConnectionStrength(connection.type),
     }))
+  const boundary = toLayoutImportBoundaryFromInput(boundaryInput, uniqueBubbles, mmPerPx).boundary
 
   return {
     schema_version: 'v2',
@@ -115,6 +300,7 @@ export function buildFloorPlanLayoutImportPayload(
     name: projectName.trim() || '프로젝트',
     rooms: rooms.map((room) => ({ ...room })),
     ...(adjacency.length > 0 ? { adjacency } : {}),
+    ...(boundary ? { boundaries: [boundary] } : {}),
     generation_options: {
       generate_spaces: true,
       generate_walls: true,
@@ -196,19 +382,6 @@ export function scalePolygonToRect(
 }
 
 /** 댓글 입력 첨부를 화면 상태에서 사용하는 첨부 타입으로 정규화한다. */
-export function normalizeCommentAttachments(
-  attachments: FloorCommentAttachmentInput[] = [],
-): FloorCommentAttachment[] {
-  return attachments.map((attachment) => ({
-    id: createLocalId('attachment'),
-    kind: attachment.kind,
-    name: attachment.name,
-    mimeType: attachment.mimeType,
-    sizeBytes: attachment.sizeBytes,
-    url: attachment.url,
-  }))
-}
-
 /** 두 연결선 쌍이 동일한지 비교 (방향 무관) */
 export function isSameConnection(
   a: { from: string; to: string },

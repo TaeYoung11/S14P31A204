@@ -1,6 +1,6 @@
 // 프로젝트 목록 상단의 브랜드, 알림, 사용자 프로필 메뉴를 렌더링합니다.
 import { useState } from 'react'
-import { Bell, LogOut, UserRoundX } from 'lucide-react'
+import { Bell, LogOut, MessageSquareText, UserRoundX } from 'lucide-react'
 import Modal from '@/shared/components/Modal'
 import logoSrc from '@/assets/logo.svg'
 
@@ -15,6 +15,8 @@ interface ProjectListHeaderProps {
   withdrawError?: string
   isWithdrawing?: boolean
   onNotificationOpen?: () => void
+  onCommentNotificationOpen?: () => void
+  commentNotificationCount?: number
 }
 
 export default function ProjectListHeader({
@@ -27,6 +29,8 @@ export default function ProjectListHeader({
   withdrawError = '',
   isWithdrawing = false,
   onNotificationOpen,
+  onCommentNotificationOpen,
+  commentNotificationCount = 0,
 }: ProjectListHeaderProps) {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false)
@@ -57,6 +61,18 @@ export default function ProjectListHeader({
               <Bell className="h-[18px] w-[18px]" />
             </button>
           )}
+
+          <button
+            id="comment-notification-btn"
+            className="btn-icon relative"
+            title="댓글 알림"
+            onClick={onCommentNotificationOpen}
+          >
+            <MessageSquareText className="h-[18px] w-[18px]" />
+            {(commentNotificationCount > 0) && (
+              <span className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-[#ef4444] ring-2 ring-white" />
+            )}
+          </button>
 
           <button
             className="flex items-center gap-2 rounded-full border border-[#e5e7eb] bg-white px-2 py-1.5 transition-all hover:border-[#c7d2fe] hover:bg-[#f8faff]"

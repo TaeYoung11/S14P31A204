@@ -1,5 +1,11 @@
+// API 요청 인스턴스와 인증 토큰 재발급 인터셉터를 설정합니다.
 import axios, { type InternalAxiosRequestConfig } from 'axios'
-import { useAuthStore } from '@/shared/stores/authStore'
+import {
+  clearAuthState,
+  readStoredAuthState,
+  redirectToLoginIfNeeded,
+  refreshAccessToken,
+} from '@/shared/lib/authToken'
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '/api/v1'
 
@@ -11,89 +17,8 @@ export const api = axios.create({
   },
 })
 
-interface StoredAuthState {
-  state?: {
-    token?: string | null
-    refreshToken?: string | null
-  }
-}
-
-interface RefreshTokenResponse {
-  accessToken: string
-  refreshToken: string
-  accessTokenExpiresIn: number
-  refreshTokenExpiresIn: number
-}
-
-interface ApiResponse<T> {
-  status: number
-  message: string
-  data: T
-}
-
 interface RetriableRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean
-}
-
-const readStoredAuthState = (): StoredAuthState | null => {
-  const raw = localStorage.getItem('bim-storage')
-  if (!raw) return null
-
-  try {
-    return JSON.parse(raw) as StoredAuthState
-  } catch {
-    return null
-  }
-}
-
-const clearAuthState = () => {
-  useAuthStore.getState().logout()
-  localStorage.removeItem('bim-storage')
-}
-
-const redirectToLoginIfNeeded = () => {
-  if (typeof window === 'undefined') return
-  if (window.location.pathname === '/login') return
-  window.location.assign('/login')
-}
-
-const writeTokens = (accessToken: string, refreshToken: string) => {
-  const store = useAuthStore.getState()
-  store.setToken(accessToken)
-  store.setRefreshToken(refreshToken)
-}
-
-let refreshPromise: Promise<string> | null = null
-
-const refreshAccessToken = async (): Promise<string> => {
-  const refreshToken = readStoredAuthState()?.state?.refreshToken
-  if (!refreshToken) {
-    throw new Error('Missing refresh token')
-  }
-
-  if (!refreshPromise) {
-    refreshPromise = axios
-      .post<ApiResponse<RefreshTokenResponse>>(
-        `${BASE_URL}/auth/refresh`,
-        { refreshToken },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      )
-      .then((response) => {
-        const nextAccessToken = response.data.data.accessToken
-        const nextRefreshToken = response.data.data.refreshToken
-        writeTokens(nextAccessToken, nextRefreshToken)
-        return nextAccessToken
-      })
-      .finally(() => {
-        refreshPromise = null
-      })
-  }
-
-  return refreshPromise
 }
 
 api.interceptors.request.use(

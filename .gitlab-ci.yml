@@ -1,18 +1,14 @@
 workflow:
   rules:
-    # 1. Merge Request 이벤트인 경우 -> MR 파이프라인 생성
+    # 1. Merge Request 이벤트인 경우 -> MR 파이프라인 생성 (수정 시마다 재실행됨)
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    # 2. 브랜치 push 이벤트인데 이미 오픈된 MR이 있는 경우 -> 생성 안 함 (중복 방지)
-    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
-      when: never
-    # 3. master/develop/release 브랜치 push인 경우 -> 파이프라인 생성
+    # 2. master/develop/release 브랜치 push인 경우 -> 파이프라인 생성 (배포 및 최종 검증용)
     - if: '$CI_COMMIT_BRANCH =~ /^(master|develop|release)$/'
-    # 4. 일반 feat/fix 브랜치 push이고 MR이 아직 없는 경우 -> 파이프라인 생성
-    - if: '$CI_COMMIT_BRANCH =~ /^(feat|fix|hotfix)\/.+$/'
-    # 5. 그 외(태그 등)는 기본적으로 생성하지 않음 (필요 시 추가 가능)
+    # 3. 그 외 모든 브랜치 푸시 -> 생성 안 함 (MR이 생성되기 전까지는 CI를 돌리지 않음)
     - when: never
 
 stages:
+  - prepare
   - lint
   - test
   - build
@@ -54,6 +50,26 @@ variables:
         - shared/**/*
         - INFRA/docker-compose.yml
 
+# [추가] AI 캐시 프리빌드 작업 - uv.lock 변경 시에만 실행하여 5분 병목 제거
+prepare:ai-cache:
+  stage: prepare
+  image: ghcr.io/astral-sh/uv:python3.11-bookworm
+  <<: *docker_runner
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - AI/uv.lock
+  cache:
+    key:
+      files:
+        - AI/uv.lock
+    paths:
+      - AI/.uv-cache/
+    policy: pull-push  # 이때만 캐시를 압축하여 저장(push)함
+  script:
+    - cd AI
+    - uv sync --locked
+
 fe:lint:
   stage: lint
   image: node:20-alpine
@@ -78,17 +94,28 @@ ai:lint:
   <<:
     - *docker_runner
     - *ai_rules
+  cache: []  # 린트는 캐시 복원/저장 없이 uvx로 즉시 실행
+  script:
+    - cd AI
+    - uvx ruff check .
+
+fe:test:
+  stage: test
+  image: node:20-alpine
+  <<:
+    - *docker_runner
+    - *fe_rules
   cache:
     key:
       files:
-        - AI/uv.lock
+        - FE/package-lock.json
     paths:
-      - AI/.uv-cache/
+      - FE/node_modules/
   before_script:
-    - cd AI
-    - uv sync --locked --dev
+    - cd FE
+    - npm ci
   script:
-    - uv run ruff check .
+    - npm run test
 
 be:test:
   stage: test
@@ -123,10 +150,12 @@ ai:test:
         - AI/uv.lock
     paths:
       - AI/.uv-cache/
+    policy: pull  # 테스트 시 캐시는 읽기만 하고 다시 저장하지 않음
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0
     - cd AI
-    - uv sync --locked --dev
+    # 프로젝트 기본 의존성에 test 그룹을 추가 설치해 workspace imports를 보장
+    - uv sync --locked --group test
   script:
     - uv run pytest
 
@@ -185,10 +214,11 @@ ai:build:
         - AI/uv.lock
     paths:
       - AI/.uv-cache/
+    policy: pull  # 빌드 검증 시에도 캐시는 읽기만 함
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0
     - cd AI
-    - uv sync --locked --dev
+    - uv sync --locked
   script:
     - uv run python -c "import ai_domain, ai_common, ai_planning, ai_rendering, ai_layout_import, ai_authoring, ai_evals"
 

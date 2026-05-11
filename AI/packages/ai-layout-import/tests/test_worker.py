@@ -35,7 +35,7 @@ def test_worker_adapter_creates_ifc_from_payload(tmp_path: Path) -> None:
     assert output_path.exists()
 
 
-def test_worker_adapter_returns_validation_error_for_v2_missing_default(tmp_path: Path) -> None:
+def test_worker_adapter_applies_defaults_for_v2_missing_modeling_value(tmp_path: Path) -> None:
     output_path = tmp_path / "worker.ifc"
 
     result = run_layout_import_job(
@@ -71,7 +71,5 @@ def test_worker_adapter_returns_validation_error_for_v2_missing_default(tmp_path
         output_path,
     )
 
-    assert result["ok"] is False
-    assert result["code"] == "validation_error"
-    assert "wall_thickness_mm" in str(result["details"])
-    assert output_path.exists() is False
+    assert result == {"ok": True, "output_path": str(output_path)}
+    assert output_path.exists()

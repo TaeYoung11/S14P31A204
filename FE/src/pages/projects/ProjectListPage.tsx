@@ -1,6 +1,9 @@
+// 프로젝트 메인 목록 화면과 댓글 알림 UI를 렌더링하는 페이지입니다.
 import { Plus, FolderOpen, LayoutGrid, List, Search, CheckSquare, Share2, Trash2, X } from 'lucide-react'
 import ProjectCreateModal from '@/features/project/components/ProjectCreateModal'
 import ProjectCard from '@/features/project/components/ProjectCard'
+import ProjectCommentNotificationModal from '@/features/project/components/ProjectCommentNotificationModal'
+import ProjectCommentToast from '@/features/project/components/ProjectCommentToast'
 import ProjectListHeader from '@/features/project/components/ProjectListHeader'
 import { InviteModal } from '@/shared/components/InviteModal'
 import { InviteNotificationModal } from '@/shared/components/InviteNotificationModal'
@@ -22,6 +25,7 @@ export default function ProjectsPage() {
     handleBulkShareOpen,
     handleConfirmDelete,
     handleCreateSubmit,
+    handleProjectCommentClick,
     handleDeleteOpen,
     handleProjectDelete,
     handleSelectAllVisible,
@@ -34,6 +38,7 @@ export default function ProjectsPage() {
     isLoading,
     isSearchLoading,
     isSelectionMode,
+    areProjectCommentsLoading,
     logout,
     withdraw,
     onCloseCreateModal,
@@ -41,11 +46,18 @@ export default function ProjectsPage() {
     onCloseShareModal,
     onCloseSiteModal,
     isNotificationModalOpen,
+    isProjectCommentModalOpen,
     onOpenNotificationModal,
     onCloseNotificationModal,
+    onOpenProjectCommentModal,
+    onCloseProjectCommentModal,
+    onCloseProjectCommentToast,
     onOpenCreateModal,
     onOpenEditModal,
     onOpenShareModal,
+    onOpenProjectFromCommentToast,
+    projectCommentToast,
+    projectComments,
     search,
     selectedProjectIds,
     selectedProjects,
@@ -80,6 +92,8 @@ export default function ProjectsPage() {
         withdrawError={withdrawError ? (withdrawError as Error).message : ''}
         isWithdrawing={isWithdrawing}
         onNotificationOpen={onOpenNotificationModal}
+        onCommentNotificationOpen={onOpenProjectCommentModal}
+        commentNotificationCount={projectComments.length}
       />
 
       <main className="mx-auto max-w-[1200px] px-8 py-8">
@@ -340,11 +354,25 @@ export default function ProjectsPage() {
         onClose={onCloseNotificationModal}
       />
 
+      <ProjectCommentNotificationModal
+        isOpen={isProjectCommentModalOpen}
+        comments={projectComments}
+        isLoading={areProjectCommentsLoading}
+        onClose={onCloseProjectCommentModal}
+        onCommentClick={handleProjectCommentClick}
+      />
+
       <ProjectSiteModal
         isOpen={!!siteProject}
         projectId={siteProject?.id ?? null}
         projectName={siteProject?.name}
         onClose={onCloseSiteModal}
+      />
+
+      <ProjectCommentToast
+        toast={projectCommentToast}
+        onClose={onCloseProjectCommentToast}
+        onOpenProject={onOpenProjectFromCommentToast}
       />
     </div>
   )

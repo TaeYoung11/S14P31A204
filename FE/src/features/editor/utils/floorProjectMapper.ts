@@ -3,6 +3,7 @@ import type { FloorProject, FloorProjectPoint2D, FloorProjectRoom, FloorProjectW
 import type { BubbleData } from '../types'
 import { calcPxDimensionsFromMm } from './bubbleCalc'
 import { DEFAULT_WALL_MATERIAL, FLOOR_MM_PER_PX, FLOOR_WALL_PRESETS } from '../constants'
+import { normalizeIfcDisplayText } from './ifcStepString'
 
 interface Bounds {
   minX: number
@@ -200,7 +201,7 @@ export function mapFloorProjectToLayers(project: FloorProject, options: MapperOp
     floorRooms.push({
       id: room.id,
       bubbleId: room.id,
-      label: room.name,
+      label: normalizeIfcDisplayText(room.name),
       type: room.type,
       x: bounds.minX * scale + offsetX,
       y: bounds.minY * scale + offsetY,
@@ -370,7 +371,7 @@ export function mapFloorProjectToBubbles(project: FloorProject, options: MapperO
       height: px.height,
       widthMm,
       heightMm,
-      label: room.name,
+      label: normalizeIfcDisplayText(room.name),
       type: room.type || '미선택',
       ratio: safeRatio,
       area: `${safeRatio.toFixed(1)} m²`,

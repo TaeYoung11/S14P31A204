@@ -4,6 +4,7 @@ import SidebarToolButton from './SidebarToolButton'
 
 interface ReadOnlySidebarFooterProps {
   mode: EditorMode
+  isCollaborationMode?: boolean
   onToggleCollaboration?: () => void
 }
 
@@ -13,6 +14,7 @@ interface ReadOnlySidebarFooterProps {
  */
 export default function ReadOnlySidebarFooter({
   mode,
+  isCollaborationMode = false,
   onToggleCollaboration,
 }: ReadOnlySidebarFooterProps) {
   if (mode !== '2d' && mode !== '3d') return null
@@ -21,7 +23,7 @@ export default function ReadOnlySidebarFooter({
     <div className="flex w-full flex-col items-center gap-2 border-t border-[#EEF2FA] bg-white/80 px-1.5 py-4">
       <SidebarToolButton
         label="협업"
-        isActive
+        isActive={isCollaborationMode}
         onClick={onToggleCollaboration}
         icon={<MessagesSquare size={24} />}
       />

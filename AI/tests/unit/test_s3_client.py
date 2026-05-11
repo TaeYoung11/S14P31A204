@@ -150,6 +150,27 @@ def test_write_bytes_to_ref_uses_default_bucket_for_relative_key(
     assert target.canonical_url == "s3://test-bucket/projects/project-1/model.ifc"
 
 
+def test_write_bytes_to_ref_accepts_path_style_http_target(
+    s3_settings: S3Settings,
+    mock_boto3_client: MagicMock,
+) -> None:
+    client = S3Client(s3_settings)
+
+    target = client.write_bytes_to_ref(
+        "http://minio:9000/other-bucket/path/model.ifc",
+        b"ifc-data",
+    )
+
+    mock_boto3_client.put_object.assert_called_once_with(
+        Bucket="other-bucket",
+        Key="path/model.ifc",
+        Body=b"ifc-data",
+        ContentType="application/octet-stream",
+    )
+    assert target.reference == "http://minio:9000/other-bucket/path/model.ifc"
+    assert target.canonical_url == "http://minio:9000/other-bucket/path/model.ifc"
+
+
 def test_resolve_s3_write_target_rejects_leading_slash_relative_key() -> None:
     with pytest.raises(ValueError, match="leading slash"):
         resolve_s3_write_target("/projects/project-1/model.ifc", "test-bucket")

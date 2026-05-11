@@ -16,6 +16,7 @@ from ai_authoring.engine_3d import (
     create_door_with_opening,
     create_wall,
     create_window_with_opening,
+    delete_element,
     find_host_wall,
 )
 from ai_authoring.operations.registry import get
@@ -320,6 +321,25 @@ def test_ifc_persists_relations_after_save(tmp_path):
     assert opening.is_a("IfcOpeningElement")
     assert opening.Representation is not None
     assert filling.is_a("IfcDoor")
+
+
+def test_delete_window_removes_only_its_opening_boolean():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=4000, width_mm=200, height_mm=2400)
+    first = create_window_with_opening(model, storey, host_wall=wall, x_mm=900)
+    second = create_window_with_opening(model, storey, host_wall=wall, x_mm=2500)
+    assert first is not None
+    assert second is not None
+
+    assert delete_element(model, first)
+    assert len(model.by_type("IfcWindow")) == 1
+    assert len(model.by_type("IfcOpeningElement")) == 1
+    assert wall.Representation.Representations[0].Items[0].is_a("IfcBooleanResult")
+
+    assert delete_element(model, second)
+    assert len(model.by_type("IfcWindow")) == 0
+    assert len(model.by_type("IfcOpeningElement")) == 0
+    assert not wall.Representation.Representations[0].Items[0].is_a("IfcBooleanResult")
 
 
 def test_engine_request_v2_schema_accepts_door_host_fields():

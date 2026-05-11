@@ -333,7 +333,6 @@ export function useTwoDCanvasStageHandlers({
   }
 
   const onClick = (e: KonvaEventObject<MouseEvent>) => {
-    if (e.target.getType() !== 'Stage') return
     if (isPanMode) return
     if (isInteractionLockedByCollaboration) {
       const stage = e.target.getStage()
@@ -343,6 +342,7 @@ export function useTwoDCanvasStageHandlers({
       startPinDraftAt(point)
       return
     }
+    if (e.target.getType() !== 'Stage') return
     if (skipStageClickClearRef.current) {
       skipStageClickClearRef.current = false
       return

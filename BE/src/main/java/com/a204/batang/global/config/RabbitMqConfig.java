@@ -129,8 +129,8 @@ public class RabbitMqConfig {
 
     @Bean
     public Queue beJobEventsQueue() {
-        // worker event는 render/floor-plan/ifc-edit이 같은 BE consumer queue에서 함께 받는다.
-        // 도메인별 필터링은 listener 쪽에서 수행한다.
+        // worker event는 단일 orchestrator consumer가 먼저 수신한다.
+        // 이후 eventType prefix 기준으로 render / floor-plan / ifc-edit handler로 내부 분기한다.
         return QueueBuilder.durable(BE_JOB_EVENTS_QUEUE)
                 .deadLetterExchange(DLX_EXCHANGE)
                 .deadLetterRoutingKey(BE_JOB_EVENTS_DEAD_ROUTING_KEY)

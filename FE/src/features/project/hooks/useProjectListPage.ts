@@ -1,3 +1,4 @@
+// 프로젝트 목록 화면의 상태와 댓글 알림 동작을 조합하는 페이지 훅입니다.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/features/auth/hooks/useAuth'
@@ -8,8 +9,11 @@ import {
   useProjects,
   useUpdateProject,
 } from '@/features/project/hooks/useProjects'
+import { useProjectComments } from '@/features/project/hooks/useProjectComments'
+import { useProjectCommentRealtime } from '@/features/project/hooks/useProjectCommentRealtime'
 import { useProjectStore } from '@/features/project/stores/projectStore'
 import type { Project } from '@/shared/types'
+import type { ProjectCommentListItem } from '@/features/project/services/projectComment.service'
 
 type ViewMode = 'grid' | 'list'
 type ProjectFormValues = { name: string; description: string }
@@ -64,8 +68,10 @@ export function useProjectListPage() {
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([])
   const [siteProject, setSiteProject] = useState<Project | null>(null)
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false)
+  const [isProjectCommentModalOpen, setIsProjectCommentModalOpen] = useState(false)
 
   const { data: allData, isLoading: isSearchLoading } = useAllProjects(search.length > 0)
+  const { data: allProjectsForComments = [], isLoading: areAllProjectsForCommentsLoading } = useAllProjects(true)
   const sentinelRef = useRef<HTMLDivElement>(null)
 
   /** 무한 스크롤 감시: sentinel이 보이면 다음 페이지를 요청한다. */
@@ -94,6 +100,8 @@ export function useProjectListPage() {
 
     return data?.pages.flatMap((page) => page.projects) ?? []
   }, [allData, data, search])
+  const projectCommentsQuery = useProjectComments(allProjectsForComments)
+  const projectCommentRealtime = useProjectCommentRealtime(allProjectsForComments)
 
   const selectedProjects = useMemo(
     () => filteredProjects.filter((project) => selectedProjectIds.includes(project.id)),
@@ -159,6 +167,22 @@ export function useProjectListPage() {
     if (targetProject) handleDeleteOpen([targetProject])
   }
 
+  const openProjectById = (projectId: string, pinId?: string) => {
+    const targetProject =
+      allProjectsForComments.find((project) => project.id === projectId) ??
+      filteredProjects.find((project) => project.id === projectId)
+    if (targetProject) {
+      setCurrentProject(targetProject)
+    }
+    const pinQuery = pinId ? `?mode=2d&pinId=${encodeURIComponent(pinId)}` : ''
+    navigate(`/projects/${projectId}/editor${pinQuery}`)
+  }
+
+  const handleProjectCommentClick = (comment: ProjectCommentListItem) => {
+    setIsProjectCommentModalOpen(false)
+    openProjectById(comment.projectId, comment.pinId)
+  }
+
   const handleCreateSubmit = ({ name, description }: ProjectFormValues) => {
     if (editProject) {
       updateProject.mutate(
@@ -199,6 +223,7 @@ export function useProjectListPage() {
     handleBulkShareOpen,
     handleConfirmDelete,
     handleCreateSubmit,
+    handleProjectCommentClick,
     handleDeleteOpen,
     handleProjectDelete,
     handleSelectAllVisible,
@@ -247,5 +272,13 @@ export function useProjectListPage() {
     isNotificationModalOpen,
     onOpenNotificationModal: () => setIsNotificationModalOpen(true),
     onCloseNotificationModal: () => setIsNotificationModalOpen(false),
+    isProjectCommentModalOpen,
+    onOpenProjectCommentModal: () => setIsProjectCommentModalOpen(true),
+    onCloseProjectCommentModal: () => setIsProjectCommentModalOpen(false),
+    onCloseProjectCommentToast: projectCommentRealtime.dismissToast,
+    onOpenProjectFromCommentToast: openProjectById,
+    projectCommentToast: projectCommentRealtime.toast,
+    projectComments: projectCommentsQuery.data ?? [],
+    areProjectCommentsLoading: areAllProjectsForCommentsLoading || projectCommentsQuery.isLoading,
   }
 }

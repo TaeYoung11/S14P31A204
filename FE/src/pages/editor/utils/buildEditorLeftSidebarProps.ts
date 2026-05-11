@@ -6,6 +6,7 @@ type SidebarViewModel = Pick<
   | 'mode'
   | 'isLineStyleModalOpen'
   | 'isLibraryOpen'
+  | 'isCollaborationMode'
   | 'isGridVisible'
   | 'selectedTool'
   | 'handleSetSelectedTool'
@@ -34,6 +35,7 @@ export function buildEditorLeftSidebarProps(vm: SidebarViewModel): EditorLeftSid
     mode: vm.mode,
     isLineStyleModalOpen: vm.isLineStyleModalOpen,
     isLibraryOpen: vm.isLibraryOpen,
+    isCollaborationMode: vm.isCollaborationMode,
     isGridVisible: vm.isGridVisible,
     selectedTool: vm.selectedTool,
     onToolSelect: vm.handleSetSelectedTool,

@@ -11,6 +11,11 @@ import { FLOOR_MM_PER_PX, SITE_RAW_POINTS } from '../constants'
 import type { BubbleData, FloorOpening, FloorRoom, FloorWall, SaveStatus } from '../types'
 import { centerSitePoints, fitSitePointsToStage } from '../utils/bubbleCalc'
 import { ensureSiteContainsBubbles } from '../utils/editorViewport'
+import {
+  DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
+  resolveMmPerPxForFloorPlan,
+} from '../utils/editorPageHelpers'
+import type { LayoutImportBoundaryInput } from '../utils/editorPageHelpers'
 import { buildSiteBoundaryBlockReason } from '../utils/siteBoundaryMessage'
 
 /** 스테이지 여백을 포함한 대지 자동 맞춤 padding(px) */
@@ -94,6 +99,11 @@ export function useEditorSiteBoundary({
     return FLOOR_MM_PER_PX
   }, [floorRooms])
 
+  const layoutImportMmPerPx = useMemo(
+    () => resolveMmPerPxForFloorPlan(bubbles),
+    [bubbles],
+  )
+
   const sitePlanPoints = useMemo(() => {
     if (!cachedSiteRing) return sitePoints
     const mapped = mapSiteRingToCanvasPointsByMmScale(cachedSiteRing, {
@@ -104,6 +114,39 @@ export function useEditorSiteBoundary({
     if (!mapped) return sitePoints
     return mapped.flatMap((point) => [point.x, point.y])
   }, [cachedSiteRing, floorPlanMmPerPx, sitePoints, stageWidth, stageHeight])
+
+  const mappedSitePlanPointsForPayload = useMemo(() => {
+    if (!cachedSiteRing) return null
+    const mapped = mapSiteRingToCanvasPointsByMmScale(cachedSiteRing, {
+      mmPerPx: layoutImportMmPerPx,
+      centerX: stageWidth / 2,
+      centerY: stageHeight / 2,
+    })
+    return mapped?.flatMap((point) => [point.x, point.y]) ?? null
+  }, [cachedSiteRing, layoutImportMmPerPx, stageWidth, stageHeight])
+
+  const layoutBoundaryInput = useMemo<LayoutImportBoundaryInput>(() => {
+    if (mappedSitePlanPointsForPayload) {
+      return { source: 'site', sitePlanPoints: mappedSitePlanPointsForPayload }
+    }
+
+    const fallbackReason = cachedSiteRing
+      ? 'site-mapping-failed'
+      : sitePolygonQuery.isLoading || sitePolygonQuery.isFetching
+        ? 'site-loading'
+        : 'missing-site'
+
+    return {
+      source: 'default',
+      paddingMm: DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
+      fallbackReason,
+    }
+  }, [
+    cachedSiteRing,
+    mappedSitePlanPointsForPayload,
+    sitePolygonQuery.isFetching,
+    sitePolygonQuery.isLoading,
+  ])
 
   const getSiteBoundaryBlockReason = useCallback((): string | null => {
     return buildSiteBoundaryBlockReason({
@@ -130,6 +173,7 @@ export function useEditorSiteBoundary({
     sitePolygonQuery,
     sitePoints,
     sitePlanPoints,
+    layoutBoundaryInput,
     siteAreaM2,
     siteAreaPyeong,
     canStartSaveFlow,
