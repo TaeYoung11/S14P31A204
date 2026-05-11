@@ -395,6 +395,7 @@ public class WorkspaceFloorPlanRealtimeService {
         } else {
             root.putNull("revisionId");
         }
+        root.put("sceneType", request.sceneType().name());
         root.set("bubbles", objectMapper.valueToTree(request.bubbles()));
         root.set("connections", objectMapper.valueToTree(request.connections()));
         if (request.layout() != null) {
@@ -514,12 +515,30 @@ public class WorkspaceFloorPlanRealtimeService {
                     "Floor-plan 스냅샷 직렬화에 실패했습니다."
             );
         } catch (DataAccessException exception) {
+            if (containsCause(exception, IllegalArgumentException.class)) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID,
+                        "Floor-plan Undo/Redo 기준 인덱스가 현재 히스토리와 일치하지 않습니다."
+                );
+            }
+
             log.error("Failed to save floor-plan snapshot to redis. projectId={}", projectId, exception);
             throw new CustomException(
                     ErrorCode.WORKSPACE_FLOOR_PLAN_CACHE_SAVE_FAILED,
                     "Redis 저장 중 오류가 발생했습니다."
             );
         }
+    }
+
+    private boolean containsCause(Throwable throwable, Class<? extends Throwable> targetType) {
+        Throwable cursor = throwable;
+        while (cursor != null) {
+            if (targetType.isInstance(cursor)) {
+                return true;
+            }
+            cursor = cursor.getCause();
+        }
+        return false;
     }
 
     private ProjectWorkspace resolveWorkspaceOrThrow(UUID projectId) {
