@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY packages/ai-common ./packages/ai-common
 COPY packages/ai-domain ./packages/ai-domain
 COPY packages/ai-layout-import ./packages/ai-layout-import
+COPY packages/ai-planning-2d ./packages/ai-planning-2d
 COPY packages/ai-planning-3d ./packages/ai-planning-3d
 COPY packages/ai-authoring ./packages/ai-authoring
 COPY configs ./configs
@@ -29,7 +30,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
         -e ./packages/ai-common \
         -e ./packages/ai-domain \
         -e ./packages/ai-layout-import \
-        -e ./packages/ai-authoring \
-        -e ./packages/ai-planning-3d
+        -e ./packages/ai-planning-2d \
+        -e ./packages/ai-planning-3d \
+        -e ./packages/ai-authoring
 
 CMD ["python", "main.py"]

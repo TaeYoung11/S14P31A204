@@ -1,5 +1,6 @@
 from .command import ActionType, CommandBatch, FloorNLPCommand, IFCCommand, IFCContext
 from .add_room_placement import suggest_add_room_start_mm
+from .toilet_demo import build_toilet_insertion_geometry_plan
 from .validator import validate_command_batch
 
 # ---------------------------------------------------------------------------
@@ -132,6 +133,86 @@ def to_ifc_commands(
             ],
             requires_clarification=False,
         ))
+
+    if command.action == "insert_toilet":
+        if ifc_context is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question="IFC context 없이 화장실 추가 계획을 만들 수 없습니다.",
+            )
+
+        floor = command.target_floor or 1
+        plan = build_toilet_insertion_geometry_plan(
+            ifc_context,
+            floor=floor,
+            anchor_room_name=command.target_room_name,
+            user_intent=command.user_intent or "shared_toilet_any_strategy",
+        )
+        if plan is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=(
+                    "욕실 옆에 화장실을 만들 수 있는 인접 공간을 찾지 못했습니다."
+                ),
+            )
+        if plan.get("status") == "needs_clarification":
+            questions = plan.get("clarification_questions") or [
+                "공용 화장실 배치를 위해 추가 확인이 필요합니다."
+            ]
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=questions[0],
+            )
+        if plan.get("status") == "rejected":
+            reason = (plan.get("validation_errors") or ["화장실 배치가 불가능합니다."])[0]
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=reason,
+            )
+
+        storey_id = _find_storey_id(floor)
+        return CommandBatch(
+            commands=[
+                IFCCommand(
+                    action=ActionType.UPDATE_SPACE,
+                    target_id=plan["donor_room_id"],
+                    params={
+                        "entity_type": "Space",
+                        "metadata": {"storey_id": storey_id, "scenario": "insert_toilet"},
+                        "properties": {"polygon_mm": plan["donor_polygon_after_world_mm"]},
+                    },
+                    confidence=command.confidence,
+                ),
+                IFCCommand(
+                    action=ActionType.CREATE_SPACE,
+                    target_id=None,
+                    params={
+                        "entity_type": "Space",
+                        "metadata": {"storey_id": storey_id, "scenario": "insert_toilet"},
+                        "geometry": {
+                            "location": [0.0, 0.0, 0.0],
+                            "direction": [1.0, 0.0, 0.0],
+                            "dimensions": {
+                                "width": plan["preferred_width_mm"],
+                                "height": plan["preferred_height_mm"],
+                            },
+                        },
+                        "properties": {
+                            "name": plan["toilet_name"],
+                            "type": "bathroom",
+                            "shape": "rect",
+                            "polygon_mm": plan["toilet_local_polygon_mm"],
+                        },
+                    },
+                    confidence=command.confidence,
+                ),
+            ],
+            requires_clarification=False,
+        )
 
     if command.action == "remove_room":
         target_ids = _find_space_ids(command.target_room_name)
