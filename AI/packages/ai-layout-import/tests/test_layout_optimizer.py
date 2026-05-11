@@ -7,10 +7,15 @@ import pytest
 
 from ai_domain import LayoutImportV1, LayoutImportV2, LayoutImportV3, parse_layout_import
 from ai_layout_import.layout_optimizer import (
+    _MEDIUM_GAP_MM,
+    _adjacency_satisfied,
     _center_distance,
+    _polygon_min_distance,
     _polygons_overlap_with_area,
     _resolve_adjacency_pair,
+    _room_gap_distance,
     _room_polygon,
+    _weak_gap_distance,
     optimize_room_layout_from_adjacency,
 )
 
@@ -173,6 +178,40 @@ def test_overlap_helper_allows_edge_and_corner_touch_only() -> None:
     )
 
 
+def test_polygon_gap_helper_measures_touch_separation_and_overlap() -> None:
+    base = _room("base", x=1000.0, y=1000.0)
+    edge_touch = _room("edge", x=3000.0, y=1000.0)
+    corner_touch = _room("corner", x=3000.0, y=3000.0)
+    axis_separated = _room("axis", x=3800.0, y=1000.0)
+    diagonal_separated = _room("diagonal", x=4000.0, y=5000.0)
+    overlap = _room("overlap", x=1500.0, y=1000.0)
+    request = _request(
+        rooms=[base, edge_touch, corner_touch, axis_separated, diagonal_separated, overlap]
+    )
+    rooms = {room.id: room for room in request.rooms}
+
+    assert _polygon_min_distance(_room_polygon(rooms["base"]), _room_polygon(rooms["edge"])) == 0.0
+    assert (
+        _polygon_min_distance(_room_polygon(rooms["base"]), _room_polygon(rooms["corner"])) == 0.0
+    )
+    assert _polygon_min_distance(
+        _room_polygon(rooms["base"]),
+        _room_polygon(rooms["axis"]),
+    ) == pytest.approx(800.0)
+    assert _polygon_min_distance(
+        _room_polygon(rooms["base"]),
+        _room_polygon(rooms["diagonal"]),
+    ) == pytest.approx(math.hypot(1000.0, 2000.0))
+    assert (
+        _polygon_min_distance(_room_polygon(rooms["base"]), _room_polygon(rooms["overlap"]))
+        == 0.0
+    )
+    assert _polygons_overlap_with_area(
+        _room_polygon(rooms["base"]),
+        _room_polygon(rooms["overlap"]),
+    )
+
+
 def test_strong_adjacency_moves_unlocked_room_to_edge_touch() -> None:
     request = _request(
         rooms=[
@@ -209,6 +248,7 @@ def test_medium_adjacency_reduces_distance_without_requiring_edge_touch() -> Non
     rooms = {room.id: room for room in optimized.rooms}
 
     assert _center_distance(rooms["room-a"], rooms["room-b"]) < before_distance
+    assert _room_gap_distance(rooms["room-a"], rooms["room-b"]) <= _MEDIUM_GAP_MM
     assert rooms["room-b"].x == 4100.0
     assert summary.satisfiedAdjacencyCount == 1
 
@@ -228,6 +268,51 @@ def test_weak_adjacency_prefers_loose_pull_over_forced_edge_touch() -> None:
 
     assert rooms["room-b"].x > 3500.0
     assert rooms["room-b"].x < 8000.0
+    assert _room_gap_distance(rooms["room-a"], rooms["room-b"]) > 0.0
+    assert _room_gap_distance(rooms["room-a"], rooms["room-b"]) <= _weak_gap_distance(
+        rooms["room-a"],
+        rooms["room-b"],
+    )
+    assert summary.satisfiedAdjacencyCount == 1
+
+
+def test_medium_adjacency_satisfaction_uses_polygon_gap_not_center_distance() -> None:
+    request = _request(
+        rooms=[
+            _room(
+                "room-a",
+                x=1000.0,
+                y=5000.0,
+                width=1000,
+                height=10000,
+                locked=True,
+            ),
+            _room("room-b", x=2100.0, y=10000.0, width=1000, height=1000, locked=True),
+        ],
+        adjacency=_adjacency("room-a", "room-b", 0.6),
+    )
+    rooms = {room.id: room for room in request.rooms}
+
+    assert _center_distance(rooms["room-a"], rooms["room-b"]) > 5000.0
+    assert _room_gap_distance(rooms["room-a"], rooms["room-b"]) == pytest.approx(100.0)
+    assert _adjacency_satisfied(rooms["room-a"], rooms["room-b"], 0.6)
+
+
+def test_rotated_room_gap_satisfaction_preserves_angle_without_crashing() -> None:
+    request = _request(
+        rooms=[
+            _room("room-a", x=1500.0, y=1500.0, locked=True),
+            _room("room-b", x=8000.0, y=1500.0, angle=math.pi / 8),
+        ],
+        adjacency=_adjacency("room-a", "room-b", 0.6),
+        boundaries=_rect_boundary(),
+    )
+
+    optimized, summary = optimize_room_layout_from_adjacency(request)
+    rooms = {room.id: room for room in optimized.rooms}
+
+    assert rooms["room-b"].angle == math.pi / 8
+    assert _room_gap_distance(rooms["room-a"], rooms["room-b"]) <= _MEDIUM_GAP_MM
     assert summary.satisfiedAdjacencyCount == 1
 
 
