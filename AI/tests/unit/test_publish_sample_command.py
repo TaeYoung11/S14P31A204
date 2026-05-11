@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from ai_domain import CommandMessage
 
@@ -44,3 +45,31 @@ def test_ifc2img_publish_sample_passes_command_validation() -> None:
     assert command.expectedOutput.renderImageStorageUrl is not None
     assert command.payload.renderMode == "ifc2img"
     assert command.payload.preset == "korean_house"
+
+
+def test_main_publishes_without_s3_env(monkeypatch) -> None:
+    module = _load_module()
+    monkeypatch.setenv("WORKER_TYPE", "SD_RENDER_GENERATE")
+    monkeypatch.setenv("RABBITMQ_HOST", "rabbitmq.local")
+    monkeypatch.setenv("RABBITMQ_PORT", "5672")
+    monkeypatch.setenv("RABBITMQ_USERNAME", "guest")
+    monkeypatch.setenv("RABBITMQ_PASSWORD", "guest")
+    monkeypatch.setenv("RABBITMQ_VHOST", "/")
+    monkeypatch.delenv("S3_BUCKET", raising=False)
+
+    connection = MagicMock()
+    channel_context = connection.__enter__.return_value.channel.return_value
+    channel = channel_context.__enter__.return_value
+    producer = MagicMock()
+    exchange = MagicMock()
+    module.build_connection = MagicMock(return_value=connection)
+    module.COMMANDS_EXCHANGE = exchange
+    module.kombu.Producer = MagicMock(return_value=producer)
+
+    module.main()
+
+    module.build_connection.assert_called_once()
+    exchange.declare.assert_called_once_with(channel=channel)
+    module.kombu.Producer.assert_called_once_with(channel)
+    producer.publish.assert_called_once()
+    assert producer.publish.call_args.kwargs["routing_key"] == "command.sd-render.generate"

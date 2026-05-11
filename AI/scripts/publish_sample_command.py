@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -22,7 +23,7 @@ except Exception:  # pragma: no cover - exercised in local fallback only
     kombu = None  # type: ignore[assignment]
 
 from ai_common.adapters.rabbitmq.kombu_client import COMMANDS_EXCHANGE, build_connection
-from ai_common.config import RabbitMQSettings, WorkerSettings
+from ai_common.config import RabbitMQSettings
 
 _WORKER_TYPE_TO_SAMPLE: dict[str, str] = {
     "SD_RENDER_GENERATE": "command_ifc2img_render.json",
@@ -57,12 +58,18 @@ def get_routing_key(worker_type: str) -> str:
         raise KeyError(f"No routing key defined for worker type: {worker_type!r}") from exc
 
 
+def get_worker_type_from_env() -> str:
+    worker_type = os.getenv("WORKER_TYPE")
+    if not worker_type:
+        raise RuntimeError("WORKER_TYPE environment variable is required")
+    return worker_type
+
+
 def main() -> None:
     if kombu is None:
         raise ModuleNotFoundError("kombu is required to publish sample commands")
 
-    settings = WorkerSettings()
-    worker_type = settings.worker_type
+    worker_type = get_worker_type_from_env()
 
     try:
         sample_file = get_sample_file(worker_type)
@@ -78,7 +85,7 @@ def main() -> None:
     sample_path = _SAMPLES_DIR / sample_file
     payload = json.loads(sample_path.read_text(encoding="utf-8"))
 
-    rmq: RabbitMQSettings = settings.rabbitmq
+    rmq = RabbitMQSettings()
     with build_connection(rmq) as conn:
         with conn.channel() as channel:
             COMMANDS_EXCHANGE.declare(channel=channel)
