@@ -548,6 +548,7 @@ export function useEditorPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [addSpaceFormData, setAddSpaceFormData] = useState<AddSpaceFormData>(INITIAL_ADD_SPACE_FORM)
   const [isCollaborationMode, setIsCollaborationMode] = useState(false)
+  const [isAgentPanelMode, setIsAgentPanelMode] = useState(false)
   const [selectedPinId, setSelectedPinId] = useState<string | null>(null)
   const [commentPins, setCommentPins] = useState<FloorCommentPin[]>([])
   const [commentNotifications, setCommentNotifications] = useState<FloorCommentNotification[]>([])
@@ -2279,11 +2280,13 @@ export function useEditorPage() {
   /** 편집 모드 전환 — 협업 모드·라이브러리는 모드 이탈 시 닫힘 */
   const setMode = useCallback((nextMode: EditorMode) => {
     setSearchParams({ mode: nextMode })
+    if (nextMode === '3d' && mode !== '3d' && !currentIfcUrl) setIsGenerate3DModalOpen(true)
     if (nextMode !== mode) resetToolSelection()
     if (nextMode !== '2d') setIsCollaborationMode(false)
+    if (nextMode === 'view' || nextMode === 'bubble') setIsAgentPanelMode(false)
     if (nextMode !== '3d') setSelectedIfcElement(null)
     setIsLibraryOpen(false)
-  }, [mode, resetToolSelection, setSearchParams])
+  }, [currentIfcUrl, mode, resetToolSelection, setSearchParams])
 
   const handleOpenProjectFromCommentToast = useCallback((targetProjectId: string, pinId?: string) => {
     const pinQuery = pinId ? `&pinId=${encodeURIComponent(pinId)}` : ''
@@ -2293,6 +2296,7 @@ export function useEditorPage() {
     }
     setSearchParams({ mode: '2d', ...(pinId ? { pinId } : {}) })
     setIsCollaborationMode(true)
+    setIsAgentPanelMode(false)
     if (pinId) {
       setSelectedPinId(pinId)
     }
@@ -2328,8 +2332,20 @@ export function useEditorPage() {
     setIsCollaborationMode((prev) => {
       if (!prev) {
         setSelectedPinId(null)
+        setIsAgentPanelMode(false)
       }
       return !prev
+    })
+  }
+
+  const handleToggleAgentPanel = () => {
+    setIsAgentPanelMode((prev) => {
+      const next = !prev
+      if (next) {
+        setIsCollaborationMode(false)
+        setSelectedPinId(null)
+      }
+      return next
     })
   }
 
@@ -3497,6 +3513,7 @@ export function useEditorPage() {
     onCloseAddModal: () => setIsAddModalOpen(false),
     // 협업
     isCollaborationMode,
+    isAgentPanelMode,
     selectedPinId,
     setSelectedPinId,
     selectedCommentPin,
@@ -3505,6 +3522,7 @@ export function useEditorPage() {
     currentCollaborationUserType: collaborationUserType,
     currentCollaborationUserName: currentUserName,
     handleToggleCollaboration,
+    handleToggleAgentPanel,
     handlePinClick,
     handleCreateCommentPin,
     handleAddCommentReply,

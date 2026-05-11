@@ -3,6 +3,7 @@ import EditorLeftSidebar from '../../features/editor/components/layout/EditorLef
 import EditorToolbar from '../../features/editor/components/layout/EditorToolbar'
 import { useEditorPage } from '../../features/editor/hooks/useEditorPage'
 import { useEditorProjectSwitcher } from '../../features/editor/hooks/useEditorProjectSwitcher'
+import { useFloatingPanelDrag } from '../../features/editor/hooks/useFloatingPanelDrag'
 import EditorCanvasContent from './components/EditorCanvasContent'
 import EditorModalLayer from './components/EditorModalLayer'
 import EditorProjectSwitchSidebar from './components/EditorProjectSwitchSidebar'
@@ -25,7 +26,12 @@ export default function EditorPage() {
   const modalLayerProps = buildEditorModalLayerProps(vm)
   const sidebarProps = buildEditorLeftSidebarProps(vm)
   const rightPanelProps = buildEditorRightPanelProps(vm)
-  const shouldLiftCollaborationPanel = vm.isCollaborationMode && vm.mode !== 'view'
+  const shouldLiftRightPanel = (vm.isCollaborationMode || vm.isAgentPanelMode) && vm.mode !== 'view'
+  const {
+    panelRef: leftToolbarRef,
+    offset: leftToolbarOffset,
+    startDrag: startLeftToolbarDrag,
+  } = useFloatingPanelDrag({ x: 28, y: 84 }, 16)
 
   return (
     <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-[radial-gradient(circle_at_12%_10%,#f8f9ff_0%,#edf1fb_36%,#e8edf9_70%,#e6ebf8_100%)] text-[#1D1E20] font-sans">
@@ -64,19 +70,34 @@ export default function EditorPage() {
             canRedo={vm.canRedo}
           />
 
-          <div className={`relative flex min-w-0 flex-1 overflow-hidden ${vm.mode === 'view' ? '' : 'gap-5 px-5 pb-5 pt-3'}`}>
+          <div className={`relative min-w-0 flex-1 overflow-hidden ${vm.mode === 'view' ? '' : 'px-5 pb-5 pt-3'}`}>
+            <EditorCanvasContent {...canvasContentProps} />
+
             {vm.mode !== 'view' && (
-              <EditorLeftSidebar {...sidebarProps} />
+              <div
+                ref={leftToolbarRef}
+                className="absolute z-[130] h-[calc(100%-112px)]"
+                style={{ left: leftToolbarOffset.x, top: leftToolbarOffset.y }}
+              >
+                <div
+                  className="absolute left-2 right-2 top-1 z-10 h-6 cursor-grab rounded-xl active:cursor-grabbing"
+                  onMouseDown={startLeftToolbarDrag}
+                  title="툴바 이동"
+                  aria-label="툴바 이동"
+                />
+                <EditorLeftSidebar {...sidebarProps} />
+              </div>
             )}
 
-            <EditorCanvasContent {...canvasContentProps} />
-            {!shouldLiftCollaborationPanel && (
-              <EditorRightPanelSection mode={vm.mode} rightPanelProps={rightPanelProps} />
+            {!shouldLiftRightPanel && (
+              <div className="absolute bottom-24 right-8 top-6 z-[120]">
+                <EditorRightPanelSection mode={vm.mode} rightPanelProps={rightPanelProps} />
+              </div>
             )}
           </div>
         </div>
 
-        {shouldLiftCollaborationPanel && (
+        {shouldLiftRightPanel && (
           <EditorRightPanelSection mode={vm.mode} rightPanelProps={rightPanelProps} />
         )}
       </div>

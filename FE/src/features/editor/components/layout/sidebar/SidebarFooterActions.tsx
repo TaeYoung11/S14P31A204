@@ -3,7 +3,9 @@ import SidebarToolButton from './SidebarToolButton'
 
 interface SidebarFooterActionsProps {
   isCollaborationMode?: boolean
+  isAgentPanelMode?: boolean
   onToggleCollaboration?: () => void
+  onToggleAgentPanel?: () => void
 }
 
 /**
@@ -12,7 +14,9 @@ interface SidebarFooterActionsProps {
  */
 export default function SidebarFooterActions({
   isCollaborationMode = false,
+  isAgentPanelMode = false,
   onToggleCollaboration,
+  onToggleAgentPanel,
 }: SidebarFooterActionsProps) {
   return (
     <div className="flex w-full flex-col items-center gap-2 border-t border-[#EEF2FA] bg-white/80 px-1.5 py-4">
@@ -25,6 +29,8 @@ export default function SidebarFooterActions({
 
       <SidebarToolButton
         label="AI"
+        isActive={isAgentPanelMode}
+        onClick={onToggleAgentPanel}
         icon={<Brain size={24} />}
       />
     </div>

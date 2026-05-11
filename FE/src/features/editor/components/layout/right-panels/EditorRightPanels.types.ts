@@ -13,7 +13,7 @@ import type {
   PanelResizeAxis,
   ZoneData,
 } from '@/features/editor/types'
-import type { LlmEditPreview, LlmEditStatus } from '@/features/editor/types/llmEdit.types'
+import type { LlmChatLogItem, LlmEditPreview, LlmEditStatus } from '@/features/editor/types/llmEdit.types'
 import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from '@/features/editor/components/panels/BubbleAttributePanel'
 
 /**
@@ -23,6 +23,7 @@ import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from '@/feature
 export interface EditorRightPanelsProps {
   mode: EditorMode
   isCollaborationMode?: boolean
+  isAgentPanelMode?: boolean
   selectedPinId?: string | null
   selectedPin?: FloorCommentPin | null
   commentPins?: FloorCommentPin[]
@@ -89,6 +90,10 @@ export interface EditorRightPanelsProps {
   llmSuggestions: string[]
   llmPreview: LlmEditPreview | null
   llmCanRun: boolean
+  llmActiveJobId: string | null
+  llmJobProgress: number | null
+  llmChatLogs: LlmChatLogItem[]
+  llmIsChatLogsLoading: boolean
   onLlmPromptChange: (value: string) => void
   onRunLlmEdit: () => void
   onApplyLlmEdit: () => void
