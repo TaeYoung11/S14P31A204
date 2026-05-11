@@ -2,6 +2,7 @@ package com.a204.batang.domain.workspace.service;
 
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.service.ProjectAccessService;
+import com.a204.batang.domain.project.service.ProjectQueryService;
 import com.a204.batang.domain.workspace.dto.BubbleRedoRequest;
 import com.a204.batang.domain.workspace.dto.BubbleUndoRequest;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
@@ -51,6 +52,9 @@ class WorkspaceRealtimeServiceTest {
     @Mock
     private ProjectAccessService projectAccessService;
 
+    @Mock
+    private ProjectQueryService projectQueryService;
+
     private WorkspaceRealtimeService workspaceRealtimeService;
     private ObjectMapper objectMapper;
 
@@ -67,6 +71,7 @@ class WorkspaceRealtimeServiceTest {
         workspaceRealtimeService = new WorkspaceRealtimeService(
                 projectWorkspaceRepository,
                 projectAccessService,
+                projectQueryService,
                 workspaceBubbleSnapshotRedisRepository,
                 bubbleSnapshotHelper,
                 simpMessagingTemplate
