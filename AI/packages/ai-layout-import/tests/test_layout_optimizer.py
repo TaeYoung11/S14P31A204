@@ -106,7 +106,7 @@ def test_resolve_adjacency_pair_raises_clear_error_for_unknown_room_id() -> None
     request = _request(
         rooms=[_room("room-a", x=1000.0, y=1000.0)],
     )
-    adjacency = parse_layout_import(
+    adjacency_request = parse_layout_import(
         {
             "schema_version": "v2",
             "id": str(UUID("550e8400-e29b-41d4-a716-446655440000")),
@@ -117,7 +117,9 @@ def test_resolve_adjacency_pair_raises_clear_error_for_unknown_room_id() -> None
             ],
             "adjacency": _adjacency("room-a", "room-b", 1.0),
         }
-    ).adjacency[0]
+    )
+    assert adjacency_request.adjacency is not None
+    adjacency = adjacency_request.adjacency[0]
 
     with pytest.raises(ValueError, match="unknown room id: room-b"):
         _resolve_adjacency_pair(adjacency, {request.rooms[0].id: request.rooms[0]})
@@ -227,9 +229,13 @@ def test_strong_adjacency_moves_unlocked_room_to_edge_touch() -> None:
     optimized, summary = optimize_room_layout_from_adjacency(request)
 
     rooms = {room.id: room for room in optimized.rooms}
-    assert rooms["room-a"].x == 1500.0
-    assert rooms["room-b"].x == 3500.0
-    assert rooms["room-b"].y == 1500.0
+    assert (rooms["room-a"].x, rooms["room-a"].y) == (1500.0, 1500.0)
+    assert (rooms["room-b"].x, rooms["room-b"].y) != (7000.0, 1500.0)
+    assert _room_gap_distance(rooms["room-a"], rooms["room-b"]) == 0.0
+    assert not _polygons_overlap_with_area(
+        _room_polygon(rooms["room-a"]),
+        _room_polygon(rooms["room-b"]),
+    )
     assert summary.movedRoomCount == 1
     assert summary.satisfiedAdjacencyCount == 1
     assert summary.unsatisfiedAdjacencyCount == 0
