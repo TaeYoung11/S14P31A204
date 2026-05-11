@@ -76,6 +76,32 @@ class RenderControllerTest {
     }
 
     @Test
+    void getProjectRender_returnsWrappedResponse() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID renderId = UUID.randomUUID();
+        ProjectRenderResponse response = new ProjectRenderResponse(
+                renderId,
+                new ProjectRenderStyleResponse("EVENING", "EXTERIOR", "SPRING", "CLEAR"),
+                "https://download.example.com/render.png?signature=test",
+                "SUCCEEDED",
+                "2026-04-15T07:50:00Z",
+                "2026-04-15T07:50:28Z"
+        );
+        given(renderQueryService.getProjectRender(projectId, renderId)).willReturn(response);
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/renders/{renderId}", projectId, renderId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.message").value("렌더링 결과 조회 성공"))
+                .andExpect(jsonPath("$.data.renderId").value(renderId.toString()))
+                .andExpect(jsonPath("$.data.style.timeOfDay").value("EVENING"))
+                .andExpect(jsonPath("$.data.imageUrl").value("https://download.example.com/render.png?signature=test"))
+                .andExpect(jsonPath("$.data.status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.data.createdAt").value("2026-04-15T07:50:00Z"))
+                .andExpect(jsonPath("$.data.completedAt").value("2026-04-15T07:50:28Z"));
+    }
+
+    @Test
     void createProjectRender_returnsWrappedResponse() throws Exception {
         UUID projectId = UUID.randomUUID();
         UUID renderId = UUID.randomUUID();
@@ -140,6 +166,14 @@ class RenderControllerTest {
     }
 
     @Test
+    void getProjectRender_returnsBadRequestForInvalidUuid() throws Exception {
+        mockMvc.perform(get("/api/v1/projects/{projectId}/renders/{renderId}", UUID.randomUUID(), "not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("COMMON_INVALID_REQUEST"));
+    }
+
+    @Test
     void getProjectRenders_returnsNotFoundWhenProjectDoesNotExist() throws Exception {
         given(renderQueryService.getProjectRenders(any()))
                 .willThrow(new CustomException(ErrorCode.PROJECT_NOT_FOUND));
@@ -148,5 +182,27 @@ class RenderControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.code").value("PROJECT_NOT_FOUND"));
+    }
+
+    @Test
+    void getProjectRender_returnsNotFoundWhenRenderJobDoesNotExist() throws Exception {
+        given(renderQueryService.getProjectRender(any(), any()))
+                .willThrow(new CustomException(ErrorCode.RENDER_JOB_NOT_FOUND));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/renders/{renderId}", UUID.randomUUID(), UUID.randomUUID()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.code").value("RENDER_JOB_NOT_FOUND"));
+    }
+
+    @Test
+    void getProjectRender_returnsBadGatewayWhenPresignFails() throws Exception {
+        given(renderQueryService.getProjectRender(any(), any()))
+                .willThrow(new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/renders/{renderId}", UUID.randomUUID(), UUID.randomUUID()))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.status").value(502))
+                .andExpect(jsonPath("$.code").value("RENDER_IMAGE_PRESIGN_FAILED"));
     }
 }
