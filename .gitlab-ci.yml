@@ -99,6 +99,24 @@ ai:lint:
     - cd AI
     - uvx ruff check .
 
+fe:test:
+  stage: test
+  image: node:20-alpine
+  <<:
+    - *docker_runner
+    - *fe_rules
+  cache:
+    key:
+      files:
+        - FE/package-lock.json
+    paths:
+      - FE/node_modules/
+  before_script:
+    - cd FE
+    - npm ci
+  script:
+    - npm run test
+
 be:test:
   stage: test
   image: eclipse-temurin:21-jdk

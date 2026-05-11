@@ -167,19 +167,20 @@ export function useProjectListPage() {
     if (targetProject) handleDeleteOpen([targetProject])
   }
 
-  const openProjectById = (projectId: string) => {
+  const openProjectById = (projectId: string, pinId?: string) => {
     const targetProject =
       allProjectsForComments.find((project) => project.id === projectId) ??
       filteredProjects.find((project) => project.id === projectId)
     if (targetProject) {
       setCurrentProject(targetProject)
     }
-    navigate(`/projects/${projectId}/editor`)
+    const pinQuery = pinId ? `?mode=2d&pinId=${encodeURIComponent(pinId)}` : ''
+    navigate(`/projects/${projectId}/editor${pinQuery}`)
   }
 
   const handleProjectCommentClick = (comment: ProjectCommentListItem) => {
     setIsProjectCommentModalOpen(false)
-    openProjectById(comment.projectId)
+    openProjectById(comment.projectId, comment.pinId)
   }
 
   const handleCreateSubmit = ({ name, description }: ProjectFormValues) => {

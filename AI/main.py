@@ -19,6 +19,7 @@ _WORKER_TYPE_TO_ENTRYPOINT: dict[str, str] = {
     "TWO_D_LLM": "ai_planning_2d.worker_app:main",
     "THREE_D_LLM": "ai_planning_3d.worker_app:main",
     "IFC_EDIT_APPLY": "ai_authoring.worker_app:main",
+    "SD_RENDER_GENERATE": "ai_rendering.worker_app:main",
 }
 
 

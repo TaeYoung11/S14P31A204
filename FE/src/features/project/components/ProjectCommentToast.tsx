@@ -5,7 +5,7 @@ import type { ProjectCommentToastState } from '@/features/project/hooks/useProje
 interface ProjectCommentToastProps {
   toast: ProjectCommentToastState | null
   onClose: () => void
-  onOpenProject: (projectId: string) => void
+  onOpenProject: (projectId: string, pinId?: string) => void
 }
 
 const COMMENT_PREVIEW_MAX_LENGTH = 15
@@ -34,7 +34,7 @@ export default function ProjectCommentToast({
         <button
           type="button"
           className="min-w-0 flex-1 text-left"
-          onClick={() => onOpenProject(toast.projectId)}
+          onClick={() => onOpenProject(toast.projectId, toast.pinId)}
         >
           <span className="mb-1 block truncate text-xs font-bold text-[#4f46e5]">{toast.projectName}</span>
           <span className="block text-sm font-bold text-[#111827]">{commentPreview}</span>

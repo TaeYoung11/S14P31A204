@@ -16,6 +16,7 @@ export default function EditorLeftSidebar({
   mode,
   isLineStyleModalOpen,
   isLibraryOpen,
+  isCollaborationMode = false,
   isGridVisible,
   selectedTool,
   onToolSelect,
@@ -38,7 +39,15 @@ export default function EditorLeftSidebar({
 
   if (isEditorReadOnly) {
     return (
-      <SidebarFrame footer={<ReadOnlySidebarFooter mode={mode} onToggleCollaboration={onToggleCollaboration} />}>
+      <SidebarFrame
+        footer={
+          <ReadOnlySidebarFooter
+            mode={mode}
+            isCollaborationMode={isCollaborationMode}
+            onToggleCollaboration={onToggleCollaboration}
+          />
+        }
+      >
         <ReadOnlySidebarTools
           mode={mode}
           selectedTool={selectedTool}
@@ -51,7 +60,16 @@ export default function EditorLeftSidebar({
   }
 
   return (
-    <SidebarFrame footer={shouldShowFooterActions ? <SidebarFooterActions onToggleCollaboration={onToggleCollaboration} /> : undefined}>
+    <SidebarFrame
+      footer={
+        shouldShowFooterActions ? (
+          <SidebarFooterActions
+            isCollaborationMode={isCollaborationMode}
+            onToggleCollaboration={onToggleCollaboration}
+          />
+        ) : undefined
+      }
+    >
       {mode === 'bubble' && (
         <BubbleSidebarTools
           selectedTool={selectedTool}
