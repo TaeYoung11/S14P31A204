@@ -38,5 +38,5 @@ RUN pip install --no-cache-dir --upgrade pip && \
         -e ./packages/ai-planning-3d \
         -e ./packages/ai-rendering
 
-ENTRYPOINT ["xvfb-run", "-a", "python", "main.py"]
+ENTRYPOINT ["sh", "-c", "Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp & export DISPLAY=:99; exec python main.py \"$@\"", "--"]
 CMD []

@@ -35,3 +35,35 @@ docker run --rm \
 
 다른 worker가 추가되더라도 이번 브랜치에서는 placeholder 이미지를 만들지 않는다.  
 추후에는 worker별 컨테이너를 별도로 추가하고, 공용 이미지 유지 여부는 의존성을 보고 결정한다.
+## SD render Docker smoke
+
+Build the worker image from the `AI` directory:
+
+```bash
+docker build -t batang-ai-worker:sd-render .
+```
+
+Use the Docker-specific env example for container-to-host networking:
+
+```bash
+docker run --rm \
+  --env-file configs/worker.sd-render.docker.env.example \
+  batang-ai-worker:sd-render \
+  --help
+```
+
+On Windows PowerShell, keep the Hugging Face model cache across smoke runs:
+
+```powershell
+docker run --rm `
+  --name batang-sd-render-worker-smoke `
+  --env-file configs\worker.sd-render.docker.env.example `
+  -v "$env:USERPROFILE\.cache\huggingface:/root/.cache/huggingface" `
+  batang-ai-worker:sd-render `
+  --once --work-root /tmp/ai_rendering_worker
+```
+
+The Docker env file uses `host.docker.internal` for RabbitMQ and MinIO because
+`localhost` inside the container points at the container itself. It also sets
+`RABBITMQ_HEARTBEAT=0` for long first-run smoke tests where model downloads can
+block the consumer loop.
