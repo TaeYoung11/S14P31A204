@@ -126,6 +126,14 @@ class FakeStorageAdapter:
         return target_storage_url
 
 
+class FakeLogger:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def info(self, event: str, **kwargs: object) -> None:
+        self.calls.append((event, kwargs))
+
+
 @pytest.fixture(autouse=True)
 def reset_fake_renderers() -> None:
     FakeIFCRenderer.instances.clear()
@@ -184,6 +192,35 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(tmp_path: Path) -> N
         IFCView.FRONT_DIAGONAL_LEFT.value,
         IFCView.FRONT_DIAGONAL_RIGHT.value,
     ]
+
+
+def test_run_ifc2img_photo_pipeline_logs_depth_and_style_stages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pipeline logs the expensive depth and style render milestones."""
+    import ai_rendering.ifc2img.service as service
+
+    logger = FakeLogger()
+    monkeypatch.setattr(service, "_logger", logger)
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    events = [event for event, _ in logger.calls]
+    assert "ifc2img_depth_render_started" in events
+    assert "ifc2img_depth_render_completed" in events
+    assert events.count("ifc2img_depth_saved") == 2
+    assert events.count("ifc2img_style_render_started") == 2
+    assert events.count("ifc2img_style_render_completed") == 2
+    assert "ifc2img_manifest_write_completed" in events
 
 
 def test_photo_manifest_type_matches_json_contract(tmp_path: Path) -> None:
@@ -292,8 +329,13 @@ def test_photo_output_storage_url_rejects_non_plain_filenames(filename: str) -> 
 
 def test_worker_handler_downloads_runs_pipeline_and_uploads_outputs(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Worker handler는 storage 입출력과 로컬 photo pipeline을 한 번에 연결한다."""
+    import ai_rendering.ifc2img.service as service
+
+    logger = FakeLogger()
+    monkeypatch.setattr(service, "_logger", logger)
     storage = FakeStorageAdapter()
     request: Ifc2ImgWorkerRequest = {
         "commandType": "SD_RENDER_GENERATE",
@@ -398,6 +440,12 @@ def test_worker_handler_downloads_runs_pipeline_and_uploads_outputs(
             PHOTO_PNG_CONTENT_TYPE,
         ),
     ]
+    events = [event for event, _ in logger.calls]
+    assert "ifc2img_download_started" in events
+    assert "ifc2img_pipeline_completed" in events
+    assert events.count("ifc2img_upload_started") == 3
+    assert events.count("ifc2img_upload_completed") == 3
+    assert "ifc2img_worker_request_completed" in events
 
 
 @pytest.mark.parametrize(

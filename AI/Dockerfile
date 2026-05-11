@@ -1,7 +1,8 @@
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    XDG_RUNTIME_DIR=/tmp/runtime-root
 
 WORKDIR /app
 
@@ -15,6 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xauth \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /tmp/runtime-root && chmod 700 /tmp/runtime-root
 
 # 모든 AI 워커 패키지를 이미지에 포함한다.
 COPY packages/ai-common ./packages/ai-common
@@ -38,5 +41,5 @@ RUN pip install --no-cache-dir --upgrade pip && \
         -e ./packages/ai-planning-3d \
         -e ./packages/ai-rendering
 
-ENTRYPOINT ["sh", "-c", "Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp & export DISPLAY=:99; exec python main.py \"$@\"", "--"]
+ENTRYPOINT ["sh", "-c", "mkdir -p \"$XDG_RUNTIME_DIR\" && chmod 700 \"$XDG_RUNTIME_DIR\"; Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp & export DISPLAY=:99; exec python main.py \"$@\"", "--"]
 CMD []

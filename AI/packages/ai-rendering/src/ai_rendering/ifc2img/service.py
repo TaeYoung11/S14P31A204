@@ -15,6 +15,8 @@ from typing import Any, Literal, Protocol, TypedDict
 
 from PIL import Image
 
+from ai_common.logging import get_logger
+
 from .exceptions import IFCRenderError
 from .presets import list_presets, load_preset
 from .style import DEFAULT_CONTROLNET_SEG_ID, resolve_preset_view_render_options
@@ -26,6 +28,7 @@ IFC2IMG_WORKER_RENDER_MODE = "ifc2img"
 PHOTO_MANIFEST_CONTENT_TYPE = "application/json; charset=utf-8"
 PHOTO_PNG_CONTENT_TYPE = "image/png"
 DEFAULT_PHOTO_PRESET = "korean_house"
+_logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -455,14 +458,44 @@ def run_ifc2img_photo_pipeline(
         renderer_cls=depth_style_renderer_cls,
     )
 
+    _logger.info(
+        "ifc2img_depth_render_started",
+        ifcPath=str(ifc_path),
+        outputDir=str(output_dir),
+        preset=preset,
+        views=[view.value for view in internal_views],
+        requiresSemanticControlnet=requires_semantic,
+    )
     depth_images = render_photo_depths(renderer, ifc_path, internal_views)
+    _logger.info(
+        "ifc2img_depth_render_completed",
+        ifcPath=str(ifc_path),
+        viewCount=len(depth_images),
+        views=[view.value for view in depth_images],
+    )
     params = load_preset(preset)
     outputs: list[Ifc2ImgPhotoViewResult] = []
     for public_view, internal_view in zip(public_views, internal_views, strict=True):
         depth = depth_images[internal_view]
         depth_path = output_dir / f"depth_{public_view}.png"
         depth.save(depth_path, format="PNG")
+        depth_width, depth_height = depth.size
+        _logger.info(
+            "ifc2img_depth_saved",
+            view=public_view,
+            internalView=internal_view.value,
+            depthPath=str(depth_path),
+            width=depth_width,
+            height=depth_height,
+        )
 
+        _logger.info(
+            "ifc2img_style_render_started",
+            view=public_view,
+            internalView=internal_view.value,
+            preset=preset,
+            renderOptions=render_option_label(preset, internal_view),
+        )
         result = render_photo_view(
             style_renderer,
             depth,
@@ -473,6 +506,14 @@ def run_ifc2img_photo_pipeline(
         photo_path = output_dir / f"photo_{public_view}.png"
         result.save(photo_path)
         width, height = result.image.size
+        _logger.info(
+            "ifc2img_style_render_completed",
+            view=public_view,
+            internalView=internal_view.value,
+            photoPath=str(photo_path),
+            width=width,
+            height=height,
+        )
         outputs.append(
             Ifc2ImgPhotoViewResult(
                 view=public_view,
@@ -485,13 +526,24 @@ def run_ifc2img_photo_pipeline(
         )
 
     output_tuple = tuple(outputs)
+    manifest_path = output_dir / "manifest.json"
+    _logger.info(
+        "ifc2img_manifest_write_started",
+        manifestPath=str(manifest_path),
+        photoCount=len(output_tuple),
+    )
     manifest_path = write_photo_manifest_file(
-        output_dir / "manifest.json",
+        manifest_path,
         Ifc2ImgPhotoManifest(
             source_ifc_path=ifc_path,
             preset=preset,
             outputs=output_tuple,
         ),
+    )
+    _logger.info(
+        "ifc2img_manifest_write_completed",
+        manifestPath=str(manifest_path),
+        photoCount=len(output_tuple),
     )
     return Ifc2ImgPhotoJobResult(
         preset=preset,
@@ -525,28 +577,99 @@ def handle_ifc2img_worker_request(
     input_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    source_storage_url = request["input"]["sourceIfcStorageUrl"]
+    output_prefix = request["expectedOutput"]["renderImageStorageUrl"]
+    preset = request["payload"]["preset"]
+    _logger.info(
+        "ifc2img_worker_request_started",
+        renderMode=request["payload"]["renderMode"],
+        preset=preset,
+        sourceIfcStorageUrl=source_storage_url,
+        outputPrefix=output_prefix,
+        workDir=str(work_dir),
+    )
+    _logger.info(
+        "ifc2img_download_started",
+        sourceIfcStorageUrl=source_storage_url,
+        destinationPath=str(input_dir / "source.ifc"),
+    )
     source_ifc_path = storage.download_ifc(
-        request["input"]["sourceIfcStorageUrl"],
+        source_storage_url,
         input_dir / "source.ifc",
+    )
+    _logger.info(
+        "ifc2img_download_completed",
+        sourceIfcStorageUrl=source_storage_url,
+        localPath=str(source_ifc_path),
+    )
+    _logger.info(
+        "ifc2img_pipeline_started",
+        ifcPath=str(source_ifc_path),
+        outputDir=str(output_dir),
+        preset=preset,
     )
     result = pipeline(
         source_ifc_path,
         output_dir,
-        preset=request["payload"]["preset"],
+        preset=preset,
+    )
+    _logger.info(
+        "ifc2img_pipeline_completed",
+        manifestPath=str(result.manifest_path),
+        photoCount=len(result.outputs),
     )
 
-    output_prefix = request["expectedOutput"]["renderImageStorageUrl"]
+    manifest_target_url = build_photo_output_storage_url(
+        output_prefix,
+        result.manifest_path.name,
+    )
+    _logger.info(
+        "ifc2img_upload_started",
+        artifact="manifest",
+        localPath=str(result.manifest_path),
+        targetStorageUrl=manifest_target_url,
+        contentType=PHOTO_MANIFEST_CONTENT_TYPE,
+    )
     manifest_url = storage.upload_file(
         result.manifest_path,
-        build_photo_output_storage_url(output_prefix, result.manifest_path.name),
+        manifest_target_url,
         content_type=PHOTO_MANIFEST_CONTENT_TYPE,
+    )
+    _logger.info(
+        "ifc2img_upload_completed",
+        artifact="manifest",
+        localPath=str(result.manifest_path),
+        storageUrl=manifest_url,
     )
     photos: list[Ifc2ImgWorkerPhotoOutput] = []
     for output in result.outputs:
+        photo_target_url = build_photo_output_storage_url(
+            output_prefix,
+            output.photo_path.name,
+        )
+        _logger.info(
+            "ifc2img_upload_started",
+            artifact="photo",
+            view=output.view,
+            localPath=str(output.photo_path),
+            targetStorageUrl=photo_target_url,
+            contentType=PHOTO_PNG_CONTENT_TYPE,
+            width=output.width,
+            height=output.height,
+        )
         photo_url = storage.upload_file(
             output.photo_path,
-            build_photo_output_storage_url(output_prefix, output.photo_path.name),
+            photo_target_url,
             content_type=PHOTO_PNG_CONTENT_TYPE,
+        )
+        _logger.info(
+            "ifc2img_upload_completed",
+            artifact="photo",
+            view=output.view,
+            localPath=str(output.photo_path),
+            storageUrl=photo_url,
+            width=output.width,
+            height=output.height,
         )
         photos.append(
             {
@@ -557,6 +680,13 @@ def handle_ifc2img_worker_request(
             }
         )
 
+    _logger.info(
+        "ifc2img_worker_request_completed",
+        renderMode=IFC2IMG_WORKER_RENDER_MODE,
+        preset=result.preset,
+        manifestStorageUrl=manifest_url,
+        photoCount=len(photos),
+    )
     return {
         "status": "SUCCESS",
         "renderMode": IFC2IMG_WORKER_RENDER_MODE,

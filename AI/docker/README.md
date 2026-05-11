@@ -66,4 +66,5 @@ docker run --rm `
 The Docker env file uses `host.docker.internal` for RabbitMQ and MinIO because
 `localhost` inside the container points at the container itself. It also sets
 `RABBITMQ_HEARTBEAT=0` for long first-run smoke tests where model downloads can
-block the consumer loop.
+block the consumer loop, and `XDG_RUNTIME_DIR=/tmp/runtime-root` for headless
+Open3D/runtime paths.
