@@ -44,6 +44,8 @@ public class RenderQueryService {
     private static final String RENDER_IMAGE_ARTIFACT_TYPE = "RENDER_IMAGE";
     private static final ZoneId KOREA_ZONE_ID = ZoneId.of("Asia/Seoul");
     private static final String S3_SCHEME_PREFIX = "s3://";
+    private static final String HTTP_SCHEME = "http";
+    private static final String HTTPS_SCHEME = "https";
     private static final String HTTP_PREFIX = "http://";
     private static final String HTTPS_PREFIX = "https://";
     private static final long FALLBACK_PRESIGN_EXPIRATION_SECONDS = 300L;
@@ -54,6 +56,7 @@ public class RenderQueryService {
     private final RenderArtifactRepository renderArtifactRepository;
     private final S3Presigner s3Presigner;
     private final String configuredBucket;
+    private final URI configuredEndpointUri;
     private final long presignExpirationSeconds;
 
     public RenderQueryService(
@@ -63,6 +66,7 @@ public class RenderQueryService {
             RenderArtifactRepository renderArtifactRepository,
             S3Presigner s3Presigner,
             @Value("${app.aws.s3.bucket}") String configuredBucket,
+            @Value("${app.aws.s3.endpoint-url:}") String endpointUrl,
             @Value("${app.aws.s3.presign-expiration-seconds}") long presignExpirationSeconds
     ) {
         this.projectRepository = projectRepository;
@@ -71,6 +75,7 @@ public class RenderQueryService {
         this.renderArtifactRepository = renderArtifactRepository;
         this.s3Presigner = s3Presigner;
         this.configuredBucket = configuredBucket == null ? "" : configuredBucket.trim();
+        this.configuredEndpointUri = parseConfiguredEndpointUri(endpointUrl);
         this.presignExpirationSeconds = presignExpirationSeconds;
     }
 
@@ -114,14 +119,14 @@ public class RenderQueryService {
     }
 
     /**
-     * ?꾨줈?앺듃???뚮뜑留?寃곌낵瑜?醫고쉶?쒕떎.
+     * 프로젝트의 렌더링 결과를 단건 조회한다.
      */
     public ProjectRenderResponse getProjectRender(UUID projectId, UUID renderId) {
         Project project = projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
 
         UUID currentUserId = projectAccessService.resolveCurrentUserId();
-        projectAccessService.validateProjectOwnerOrThrow(project, currentUserId);
+        projectAccessService.validateProjectMemberOrThrow(project, currentUserId);
 
         RenderJob job = renderJobRepository.findByJobIdAndProjectIdAndJobType(renderId, projectId, RENDER_JOB_TYPE)
                 .orElseThrow(() -> new CustomException(ErrorCode.RENDER_JOB_NOT_FOUND));
@@ -146,7 +151,7 @@ public class RenderQueryService {
     }
 
     /**
-     * job怨?image URL瑜??묐떟 DTO濡?蹂?섑븳??.
+     * job과 image URL을 응답 DTO로 변환한다.
      */
     private ProjectRenderResponse toResponse(RenderJob job, String imageUrl) {
         return new ProjectRenderResponse(
@@ -230,6 +235,10 @@ public class RenderQueryService {
         String normalizedHost = host.toLowerCase(Locale.ROOT);
         String normalizedPath = stripLeadingSlash(rawPath);
 
+        if (matchesConfiguredEndpoint(uri)) {
+            return resolvePathStyleLocation(normalizedPath);
+        }
+
         int virtualHostedIndex = normalizedHost.indexOf(".s3.");
         if (virtualHostedIndex > 0) {
             String bucket = host.substring(0, virtualHostedIndex).trim();
@@ -239,17 +248,52 @@ public class RenderQueryService {
         if (normalizedHost.equals("s3.amazonaws.com")
                 || normalizedHost.startsWith("s3.")
                 || normalizedHost.startsWith("s3-")) {
-            int separatorIndex = normalizedPath.indexOf('/');
-            if (separatorIndex <= 0 || separatorIndex >= normalizedPath.length() - 1) {
-                throw new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
-            }
-
-            String bucket = normalizedPath.substring(0, separatorIndex).trim();
-            String key = normalizedPath.substring(separatorIndex + 1).trim();
-            return new S3ObjectLocation(validateBucketOrThrow(bucket), validateKeyOrThrow(key));
+            return resolvePathStyleLocation(normalizedPath);
         }
 
         throw new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
+    }
+
+    private S3ObjectLocation resolvePathStyleLocation(String normalizedPath) {
+        int separatorIndex = normalizedPath.indexOf('/');
+        if (separatorIndex <= 0 || separatorIndex >= normalizedPath.length() - 1) {
+            throw new CustomException(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
+        }
+
+        String bucket = normalizedPath.substring(0, separatorIndex).trim();
+        String key = normalizedPath.substring(separatorIndex + 1).trim();
+        return new S3ObjectLocation(validateBucketOrThrow(bucket), validateKeyOrThrow(key));
+    }
+
+    private URI parseConfiguredEndpointUri(String endpointUrl) {
+        if (!StringUtils.hasText(endpointUrl)) {
+            return null;
+        }
+        return URI.create(endpointUrl.trim());
+    }
+
+    private boolean matchesConfiguredEndpoint(URI uri) {
+        if (configuredEndpointUri == null
+                || !StringUtils.hasText(configuredEndpointUri.getHost())
+                || !StringUtils.hasText(uri.getHost())) {
+            return false;
+        }
+
+        return configuredEndpointUri.getHost().equalsIgnoreCase(uri.getHost())
+                && resolveEffectivePort(configuredEndpointUri) == resolveEffectivePort(uri);
+    }
+
+    private int resolveEffectivePort(URI uri) {
+        if (uri.getPort() >= 0) {
+            return uri.getPort();
+        }
+        if (HTTPS_SCHEME.equalsIgnoreCase(uri.getScheme())) {
+            return 443;
+        }
+        if (HTTP_SCHEME.equalsIgnoreCase(uri.getScheme())) {
+            return 80;
+        }
+        return -1;
     }
 
     private S3ObjectLocation resolveObjectKeyLocation(String keyOnlyPath) {
