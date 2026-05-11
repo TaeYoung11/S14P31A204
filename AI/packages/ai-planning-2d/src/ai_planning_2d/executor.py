@@ -8,6 +8,7 @@ import ifcopenshell.api.aggregate
 import ifcopenshell.api.pset
 import ifcopenshell.api.root
 import numpy as np
+from ai_authoring.operations.space_support import is_product_host_relative
 from ai_authoring.operations.wall_support import update_wall_segment
 from ifcopenshell.util import element as ifc_element
 from ifcopenshell.util.placement import get_local_placement
@@ -274,6 +275,7 @@ def _apply_resize_room(
         policy_plan.get("affected_opening_ids", []),
         boundary_offset_x_m,
         boundary_offset_y_m,
+        skip_host_relative=True,
     )
     _update_affected_space_for_resize(
         model=model,
@@ -828,6 +830,8 @@ def _translate_products(
     global_ids: list[str],
     offset_x_m: float,
     offset_y_m: float,
+    *,
+    skip_host_relative: bool = False,
 ) -> None:
     if offset_x_m == 0.0 and offset_y_m == 0.0:
         return
@@ -837,6 +841,8 @@ def _translate_products(
         except RuntimeError:
             continue
         if product is None:
+            continue
+        if skip_host_relative and is_product_host_relative(product):
             continue
         placement = getattr(product, "ObjectPlacement", None)
         relative = getattr(placement, "RelativePlacement", None) if placement else None

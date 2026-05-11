@@ -298,7 +298,10 @@ def _build_resize_room_operations(
                 id="op-transform-shared-boundary-openings",
                 type="transform_elements",
                 selector={"global_ids": boundary_opening_ids},
-                parameters={"translate_mm": boundary_translation},
+                parameters={
+                    "translate_mm": boundary_translation,
+                    "skip_if_host_relative": True,
+                },
             )
         )
 

@@ -1548,6 +1548,63 @@ def test_apply_space_plan_resize_room_isolated_moves_opening_even_when_wall_uses
     } == {(-1000, 0), (-1000, 5000)}
 
 
+def test_apply_space_plan_resize_room_skips_double_move_for_host_relative_window(tmp_path):
+    bundle = _make_minimal_ifc(include_window=True)
+    bundle["wall"].ObjectPlacement = _local_placement(bundle["ifc"], 0.0, 0.0, 0.0)
+    bundle["wall"].Representation = _axis_representation(bundle["ifc"], (0.0, 0.0), (0.0, 5.0))
+    opening = list(bundle["wall"].HasOpenings)[0].RelatedOpeningElement
+    opening.ObjectPlacement = bundle["ifc"].create_entity(
+        "IfcLocalPlacement",
+        PlacementRelTo=bundle["wall"].ObjectPlacement,
+        RelativePlacement=bundle["ifc"].create_entity(
+            "IfcAxis2Placement3D",
+            Location=_cartesian_point(bundle["ifc"], 0.0, 2.0, 0.9),
+        ),
+    )
+    bundle["window"].ObjectPlacement = bundle["ifc"].create_entity(
+        "IfcLocalPlacement",
+        PlacementRelTo=opening.ObjectPlacement,
+        RelativePlacement=bundle["ifc"].create_entity(
+            "IfcAxis2Placement3D",
+            Location=_cartesian_point(bundle["ifc"], 0.0, 0.0, 0.0),
+        ),
+    )
+    input_path = _write_ifc(tmp_path, bundle["ifc"])
+    output_path = str(tmp_path / "resize-room-host-relative-window.ifc")
+
+    result = apply_space_plan(
+        ifc_path=input_path,
+        output_path=output_path,
+        command=FloorNLPCommand(
+            action="resize_room",
+            target_room_name="Living",
+            resize_shape="rect",
+            resize_width=5000,
+            resize_height=5000,
+            resize_rects=shape_to_rects("rect", 5000, 5000),
+            confidence=0.95,
+        ),
+        policy_plan={
+            "status": "planned",
+            "target_space_id": bundle["space_a"].GlobalId,
+            "direction": "west",
+            "affected_wall_ids": [bundle["wall"].GlobalId],
+            "affected_opening_ids": [bundle["window"].GlobalId],
+        },
+    )
+
+    updated = ifcopenshell.open(output_path)
+    window = updated.by_guid(bundle["window"].GlobalId)
+    opening = updated.by_type("IfcOpeningElement")[0]
+    assert result["status"] == "applied"
+    assert tuple(opening.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
+        (0.0, 2.0, 0.9)
+    )
+    assert tuple(window.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
+        (0.0, 0.0, 0.0)
+    )
+
+
 def test_apply_space_plan_resize_room_updates_affected_space(tmp_path):
     bundle = _make_minimal_ifc()
     ifcopenshell.api.aggregate.assign_object(
