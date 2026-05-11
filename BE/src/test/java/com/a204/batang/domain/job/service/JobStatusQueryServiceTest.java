@@ -196,6 +196,10 @@ class JobStatusQueryServiceTest {
         given(jobStepRecordRepository.findByJobIdOrderByStepNoAsc(jobId)).willReturn(List.of(step));
         given(jobArtifactRecordRepository.findByJobIdOrderByCreatedAtAscArtifactIdAsc(jobId))
                 .willReturn(List.of(ifcArtifact, validationArtifact));
+        given(s3ObjectPresigner.presignRequired("s3://batang/result.ifc", ErrorCode.JOB_RESULT_PRESIGN_FAILED))
+                .willReturn("https://download.example.com/result.ifc?signature=test");
+        given(s3ObjectPresigner.presignRequired("s3://batang/validation.json", ErrorCode.JOB_RESULT_PRESIGN_FAILED))
+                .willReturn("https://download.example.com/validation.json?signature=test");
 
         GetJobStatusResponse response = jobStatusQueryService.getJobStatus(jobId);
 
@@ -205,10 +209,16 @@ class JobStatusQueryServiceTest {
         assertThat(response.terminal()).isTrue();
         assertThat(response.outputs().targetRevisionId()).isEqualTo(targetRevisionId);
         assertThat(response.outputs().primaryArtifactId()).isEqualTo(expectedArtifactId);
-        assertThat(response.outputs().primaryResultUrl()).isEqualTo("s3://batang/result.ifc");
+        assertThat(response.outputs().primaryResultUrl()).isEqualTo("https://download.example.com/result.ifc?signature=test");
         assertThat(response.outputs().artifacts()).hasSize(2)
                 .extracting(JobArtifactResponse::artifactType)
                 .containsExactly("IFC_MODEL", "VALIDATION_REPORT");
+        assertThat(response.outputs().artifacts())
+                .extracting(JobArtifactResponse::storageUrl)
+                .containsExactly(
+                        "https://download.example.com/result.ifc?signature=test",
+                        "https://download.example.com/validation.json?signature=test"
+                );
         assertThat(response.details().ifcEdit()).isNotNull();
         assertThat(response.details().ifcEdit().mode()).isEqualTo("DIRECT");
         assertThat(response.details().ifcEdit().sourceRevisionId()).isEqualTo(sourceRevisionId);
@@ -225,6 +235,7 @@ class JobStatusQueryServiceTest {
         assertThat(response.currentStep().startedAt()).isEqualTo("2026-05-07T01:01:00Z");
         assertThat(response.currentStep().finishedAt()).isEqualTo("2026-05-07T01:05:00Z");
         assertThat(response.outputs().artifacts().get(0).createdAt()).isEqualTo("2026-05-07T01:05:00Z");
+        assertExternalJsonDoesNotExposeInternalStorage(response);
     }
 
     @Test
@@ -380,6 +391,7 @@ class JobStatusQueryServiceTest {
         assertThat(response.details().render().style()).isNotNull();
         assertThat(response.details().render().style().get("timeOfDay").asText()).isEqualTo("EVENING");
         assertThat(response.details().render().sourceImageStorageUrl()).isEqualTo("https://download.example.com/reference.png?signature=test");
+        assertExternalJsonDoesNotExposeInternalStorage(response);
     }
 
     @Test
@@ -436,6 +448,8 @@ class JobStatusQueryServiceTest {
         given(jobArtifactRecordRepository.findByJobIdOrderByCreatedAtAscArtifactIdAsc(jobId)).willReturn(List.of());
         given(s3ObjectPresigner.presignIfInternal("s3://batang/errors/render-error.json", ErrorCode.JOB_RESULT_PRESIGN_FAILED))
                 .willReturn("https://download.example.com/render-error.json?signature=test");
+        given(s3ObjectPresigner.presignIfInternal("s3://batang/reference.png", ErrorCode.JOB_RESULT_PRESIGN_FAILED))
+                .willReturn("https://download.example.com/reference.png?signature=test");
 
         GetJobStatusResponse response = jobStatusQueryService.getJobStatus(jobId);
 
@@ -463,6 +477,7 @@ class JobStatusQueryServiceTest {
         assertThat(response.currentStep().createdAt()).isEqualTo("2026-05-07T01:00:00Z");
         assertThat(response.currentStep().startedAt()).isNull();
         assertThat(response.currentStep().finishedAt()).isNull();
+        assertExternalJsonDoesNotExposeInternalStorage(response);
     }
 
     @Test
@@ -577,6 +592,10 @@ class JobStatusQueryServiceTest {
         given(jobStepRecordRepository.findByJobIdOrderByStepNoAsc(jobId)).willReturn(List.of(step));
         given(jobArtifactRecordRepository.findByJobIdOrderByCreatedAtAscArtifactIdAsc(jobId))
                 .willReturn(List.of(ifcArtifact, validationArtifact));
+        given(s3ObjectPresigner.presignRequired("s3://batang/floorplan.ifc", ErrorCode.JOB_RESULT_PRESIGN_FAILED))
+                .willReturn("https://download.example.com/floorplan.ifc?signature=test");
+        given(s3ObjectPresigner.presignRequired("s3://batang/floorplan-validation.json", ErrorCode.JOB_RESULT_PRESIGN_FAILED))
+                .willReturn("https://download.example.com/floorplan-validation.json?signature=test");
 
         GetJobStatusResponse response = jobStatusQueryService.getJobStatus(jobId);
 
@@ -589,7 +608,15 @@ class JobStatusQueryServiceTest {
         assertThat(response.details().floorPlan().layoutImportSchemaVersion()).isEqualTo("v2");
         assertThat(response.details().floorPlan().revisionNo()).isEqualTo(7);
         assertThat(response.outputs().primaryArtifactId()).isEqualTo(expectedArtifactId);
+        assertThat(response.outputs().primaryResultUrl()).isEqualTo("https://download.example.com/floorplan.ifc?signature=test");
         assertThat(response.outputs().artifacts()).hasSize(2);
+        assertThat(response.outputs().artifacts())
+                .extracting(JobArtifactResponse::storageUrl)
+                .containsExactly(
+                        "https://download.example.com/floorplan.ifc?signature=test",
+                        "https://download.example.com/floorplan-validation.json?signature=test"
+                );
+        assertExternalJsonDoesNotExposeInternalStorage(response);
     }
 
     @Test
@@ -674,8 +701,18 @@ class JobStatusQueryServiceTest {
         prepareProjectAccess(job);
         given(jobStepRecordRepository.findByJobIdOrderByStepNoAsc(jobId)).willReturn(List.of(step));
         given(jobArtifactRecordRepository.findByJobIdOrderByCreatedAtAscArtifactIdAsc(jobId)).willReturn(List.of());
+        given(s3ObjectPresigner.presignIfInternal("s3://batang/reference.png", ErrorCode.JOB_RESULT_PRESIGN_FAILED))
+                .willReturn("https://download.example.com/reference.png?signature=test");
 
         return jobStatusQueryService.getJobStatus(jobId);
+    }
+
+    private void assertExternalJsonDoesNotExposeInternalStorage(GetJobStatusResponse response) throws Exception {
+        String json = objectMapper.writeValueAsString(response);
+        assertThat(json)
+                .doesNotContain("s3://")
+                .doesNotContain("http://minio")
+                .doesNotContain("https://minio");
     }
 
     private JobRecord createJobRecord(

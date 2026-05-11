@@ -196,6 +196,7 @@ class RenderQueryServiceTest {
         assertThat(second.style().viewpoint()).isEqualTo("INTERIOR");
         assertThat(second.style().season()).isNull();
         assertThat(second.style().weather()).isNull();
+        assertExternalJsonDoesNotExposeInternalStorage(result);
     }
 
     @Test
@@ -286,6 +287,7 @@ class RenderQueryServiceTest {
         assertThat(result.style().viewpoint()).isEqualTo("EXTERIOR");
         assertThat(result.style().season()).isEqualTo("SPRING");
         assertThat(result.style().weather()).isEqualTo("CLEAR");
+        assertExternalJsonDoesNotExposeInternalStorage(result);
 
         ArgumentCaptor<GetObjectPresignRequest> captor = ArgumentCaptor.forClass(GetObjectPresignRequest.class);
         verify(s3Presigner).presignGetObject(captor.capture());
@@ -531,6 +533,14 @@ class RenderQueryServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
         verify(s3Presigner, never()).presignGetObject(any(GetObjectPresignRequest.class));
+    }
+
+    private void assertExternalJsonDoesNotExposeInternalStorage(Object response) throws Exception {
+        String json = objectMapper.writeValueAsString(response);
+        assertThat(json)
+                .doesNotContain("s3://")
+                .doesNotContain("http://minio")
+                .doesNotContain("https://minio");
     }
 
     private <T> T instantiate(Class<T> type) throws Exception {
