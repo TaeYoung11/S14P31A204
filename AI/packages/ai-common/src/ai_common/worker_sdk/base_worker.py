@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import logging
 from typing import Protocol
 
 from ai_common.errors import (
@@ -22,6 +23,8 @@ from ai_common.worker_sdk.event_factory import (
     build_terminal_event,
 )
 from ai_domain.worker_messages.event import EventMessage
+
+_logger = logging.getLogger(__name__)
 
 
 class EventPublisher(Protocol):
@@ -52,10 +55,34 @@ class BaseWorker(ABC):
             result = self.process(command)
             terminal_result = self._coerce_result(result)
         except ClarificationRequiredError as error:
+            _logger.warning(
+                "worker_clarification_required",
+                extra={
+                    "workerId": self.worker_id,
+                    "code": error.code,
+                    "errorMessage": error.message,
+                },
+            )
             terminal_result = ClarificationResult(error=error)
         except WorkerError as error:
+            _logger.error(
+                "worker_failed",
+                extra={
+                    "workerId": self.worker_id,
+                    "code": error.code,
+                    "errorMessage": error.message,
+                    "retryable": error.retryable,
+                },
+            )
             terminal_result = FailedResult(error=error)
         except Exception as error:
+            _logger.exception(
+                "worker_unhandled_exception",
+                extra={
+                    "workerId": self.worker_id,
+                    "error": str(error),
+                },
+            )
             terminal_result = FailedResult(error=self._build_unhandled_error(error))
 
         self._publish(build_terminal_event(context, self.worker_id, terminal_result))

@@ -256,6 +256,35 @@ class LLM3DCreateInfo(BaseModel):
         1200.0,
         description="박공지붕 용마루 높이 (mm) — shape_preset=GABLED 전용",
     )
+    step_count: int | None = Field(
+        None,
+        ge=2,
+        le=64,
+        description="IfcStair straight preset step count",
+    )
+    riser_height_mm: float | None = Field(
+        None,
+        gt=0,
+        description="IfcStair riser height in mm",
+    )
+    tread_depth_mm: float | None = Field(
+        None,
+        gt=0,
+        description="IfcStair tread depth in mm",
+    )
+    host_wall_global_id: str | None = Field(
+        None,
+        description="IfcDoor/IfcWindow host IfcWall GlobalId",
+    )
+    sill_height_mm: float | None = Field(
+        None,
+        ge=0,
+        description="IfcWindow sill height in mm",
+    )
+    opening_offset_mm: float | None = Field(
+        None,
+        description="IfcDoor/IfcWindow opening offset along the host wall in mm",
+    )
     wall_category: LLM3DWallCategory | None = Field(
         None,
         description="벽 카테고리 (외벽 EXTERIOR / 내벽 INTERIOR / 파티션 PARTITION)",

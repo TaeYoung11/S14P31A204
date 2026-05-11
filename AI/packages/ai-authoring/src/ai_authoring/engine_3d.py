@@ -10,6 +10,7 @@ import math
 import ifcopenshell
 import ifcopenshell.api
 import ifcopenshell.guid
+import ifcopenshell.util.placement
 from typing import Any
 
 logger = logging.getLogger("ai_authoring.engine_3d")
@@ -19,12 +20,99 @@ logger = logging.getLogger("ai_authoring.engine_3d")
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+def _opening_location(opening) -> tuple[float, float, float] | None:
+    placement = getattr(opening, "ObjectPlacement", None)
+    relative = getattr(placement, "RelativePlacement", None) if placement else None
+    location = getattr(relative, "Location", None) if relative else None
+    coords = tuple(getattr(location, "Coordinates", ()) or ())
+    if not coords or len(coords) < 3:
+        return None
+    return (float(coords[0]), float(coords[1]), float(coords[2]))
+
+
+def _solid_signature(solid) -> tuple[float, float, float] | None:
+    if not solid or not solid.is_a("IfcExtrudedAreaSolid"):
+        return None
+    profile = getattr(solid, "SweptArea", None)
+    if not profile or not profile.is_a("IfcRectangleProfileDef"):
+        return None
+    return (float(profile.XDim), float(profile.YDim), float(solid.Depth))
+
+
+def _opening_signature(opening) -> tuple[float, float, float] | None:
+    representation = getattr(opening, "Representation", None)
+    if not representation:
+        return None
+    for rep in getattr(representation, "Representations", []) or []:
+        for item in getattr(rep, "Items", []) or []:
+            signature = _solid_signature(item)
+            if signature:
+                return signature
+    return None
+
+
+def _solid_location(solid) -> tuple[float, float, float] | None:
+    position = getattr(solid, "Position", None)
+    location = getattr(position, "Location", None) if position else None
+    coords = tuple(getattr(location, "Coordinates", ()) or ())
+    if len(coords) < 3:
+        return None
+    return (float(coords[0]), float(coords[1]), float(coords[2]))
+
+
+def _almost_same_tuple(left, right, tolerance: float = 1e-6) -> bool:
+    if left is None or right is None:
+        return False
+    return all(abs(float(a) - float(b)) <= tolerance for a, b in zip(left, right, strict=True))
+
+
+def _remove_opening_boolean(shape, opening):
+    if not shape or not shape.is_a("IfcBooleanResult"):
+        return shape, False
+
+    first_operand = getattr(shape, "FirstOperand", None)
+    second_operand = getattr(shape, "SecondOperand", None)
+    if _almost_same_tuple(_solid_location(second_operand), _opening_location(opening)) and (
+        _almost_same_tuple(_solid_signature(second_operand), _opening_signature(opening))
+    ):
+        return (first_operand, True) if first_operand is not None else (shape, False)
+
+    next_operand, removed = _remove_opening_boolean(first_operand, opening)
+    if removed:
+        shape.FirstOperand = next_operand
+    return shape, removed
+
+
 def delete_element(
     model: ifcopenshell.file, element: ifcopenshell.entity_instance, etype_str: str = "IfcProduct"
 ) -> bool:
     """IFC 요소를 관계 엔티티까지 깔끔하게 정리하여 삭제한다."""
     gid_short = element.GlobalId[:8] if element.GlobalId else "?"
     try:
+        if element.is_a("IfcDoor") or element.is_a("IfcWindow"):
+            for rel_fill in list(getattr(element, "FillsVoids", []) or []):
+                opening = getattr(rel_fill, "RelatingOpeningElement", None)
+                if opening:
+                    for rel_void in list(getattr(opening, "VoidsElements", []) or []):
+                        host = getattr(rel_void, "RelatingBuildingElement", None)
+                        if host and getattr(host, "Representation", None):
+                            for rep in getattr(host.Representation, "Representations", []) or []:
+                                if getattr(rep, "RepresentationIdentifier", None) != "Body":
+                                    continue
+                                if rep.Items and rep.Items[0].is_a("IfcBooleanResult"):
+                                    next_shape, removed = _remove_opening_boolean(
+                                        rep.Items[0],
+                                        opening,
+                                    )
+                                    if removed:
+                                        rep.Items = [next_shape]
+                                        if not next_shape.is_a("IfcBooleanResult"):
+                                            rep.RepresentationType = "SweptSolid"
+                                    break
+                        model.remove(rel_void)
+                    model.remove(opening)
+                model.remove(rel_fill)
+
         # 공간 포함 관계 제거
         for rel in list(getattr(element, "ContainedInStructure", [])):
             if rel.is_a("IfcRelContainedInSpatialStructure"):
@@ -317,6 +405,97 @@ def _mm_to_model_units(
     return value
 
 
+def _get_model_unit_scale(model: ifcopenshell.file) -> float:
+    """native unit -> mm 변환 배율을 반환한다."""
+    for unit in model.by_type("IfcSIUnit"):
+        if getattr(unit, "UnitType", None) != "LENGTHUNIT":
+            continue
+        prefix = getattr(unit, "Prefix", None)
+        if prefix == "MILLI":
+            return 1.0
+        if prefix == "CENTI":
+            return 10.0
+        if prefix == "DECI":
+            return 100.0
+        if prefix is None:
+            return 1000.0
+    return 1.0
+
+
+def _placement_origin_and_x_axis(
+    placement: ifcopenshell.entity_instance,
+) -> tuple[tuple[float, float, float], tuple[float, float]]:
+    try:
+        matrix = ifcopenshell.util.placement.get_local_placement(placement)
+        return (
+            (float(matrix[0][3]), float(matrix[1][3]), float(matrix[2][3])),
+            (float(matrix[0][0]), float(matrix[1][0])),
+        )
+    except Exception:
+        rel = placement.RelativePlacement
+        loc = rel.Location.Coordinates
+        ref = getattr(rel, "RefDirection", None)
+        if ref:
+            x_axis = (float(ref.DirectionRatios[0]), float(ref.DirectionRatios[1]))
+        else:
+            x_axis = (1.0, 0.0)
+        z = float(loc[2]) if len(loc) > 2 else 0.0
+        return (float(loc[0]), float(loc[1]), z), x_axis
+
+
+def find_host_wall(
+    model: ifcopenshell.file, host_wall_global_id: str | None, x_mm: float, y_mm: float, z_mm: float
+) -> ifcopenshell.entity_instance | None:
+    """좌표 근처의 벽체를 찾거나 ID로 특정하여 호스트 벽체 반환"""
+    # 1. ID로 찾기 (가장 정확)
+    if host_wall_global_id:
+        try:
+            wall = model.by_guid(host_wall_global_id)
+            if wall and wall.is_a("IfcWall"):
+                return wall
+        except Exception:
+            pass
+        return None
+
+    # 2. 근접 벽체 탐색 (좌표 기반)
+    scale = _get_model_unit_scale(model)
+    best_wall, best_dist = None, 3000.0 / scale  # 검색 반경을 3m로 확대
+
+    for wall in model.by_type("IfcWall"):
+        pl = getattr(wall, "ObjectPlacement", None)
+        if not (pl and pl.is_a("IfcLocalPlacement")):
+            continue
+
+        # 벽체 원점(시작점) 좌표
+        loc, (rdx, rdy) = _placement_origin_and_x_axis(pl)
+
+        # 전역 좌표를 벽체 로컬 좌표로 변환 (U: 길이 방향, V: 두께 방향)
+        dx, dy = (x_mm / scale) - loc[0], (y_mm / scale) - loc[1]
+        u = dx * rdx + dy * rdy
+        v = dx * (-rdy) + dy * rdx
+
+        # 벽체의 길이(L) 확인
+        l_m = 0.0
+        if wall.Representation:
+            for rep in wall.Representation.Representations:
+                if rep.RepresentationIdentifier == "Body":
+                    item = rep.Items[0]
+                    while item.is_a("IfcBooleanResult"):
+                        item = item.FirstOperand
+                    if item.is_a("IfcExtrudedAreaSolid"):
+                        l_m = max(item.SweptArea.XDim, item.SweptArea.YDim)
+                        break
+
+        # 좌표가 벽체의 길이 범위(0~L) 내에 있고 두께 방향으로 가깝다면 선정
+        if -500/scale <= u <= l_m + 500/scale:
+            dist_v = abs(v)
+            if dist_v < best_dist:
+                best_dist = dist_v
+                best_wall = wall
+
+    return best_wall
+
+
 def _body_context(model: ifcopenshell.file) -> ifcopenshell.entity_instance:
     contexts = model.by_type("IfcGeometricRepresentationSubContext")
     for context in contexts:
@@ -355,29 +534,152 @@ def _box_representation(
     length_m: float,
     width_m: float,
     height_m: float,
-) -> ifcopenshell.entity_instance:
+    loc: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    center_origin: bool = False,
+) -> tuple[ifcopenshell.entity_instance, ifcopenshell.entity_instance]:
+    """박스 형상 생성 (center_origin=False면 모서리가 (0,0,0) 기준)"""
+    if center_origin:
+        pos_2d = _axis_placement_2d(model)
+    else:
+        # 모서리 기준일 경우 중심점으로 2D 프로파일 이동
+        pos_2d = model.create_entity(
+            "IfcAxis2Placement2D",
+            Location=model.create_entity(
+                "IfcCartesianPoint", Coordinates=(float(length_m / 2.0), float(width_m / 2.0))
+            ),
+        )
+
     profile = model.create_entity(
         "IfcRectangleProfileDef",
         ProfileType="AREA",
-        XDim=length_m,
-        YDim=width_m,
-        Position=_axis_placement_2d(model),
+        XDim=float(length_m),
+        YDim=float(width_m),
+        Position=pos_2d,
     )
-    body = model.create_entity(
+    solid = model.create_entity(
         "IfcExtrudedAreaSolid",
         SweptArea=profile,
-        Position=_axis_placement_3d(model),
+        Position=_axis_placement_3d(model, location=loc),
         ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
-        Depth=height_m,
+        Depth=float(height_m),
     )
     shape = model.create_entity(
         "IfcShapeRepresentation",
         ContextOfItems=_body_context(model),
         RepresentationIdentifier="Body",
         RepresentationType="SweptSolid",
-        Items=[body],
+        Items=[solid],
+    )
+    return model.create_entity("IfcProductDefinitionShape", Representations=[shape]), solid
+
+
+def _stair_preset_representation(
+    model: ifcopenshell.file,
+    length_m: float,
+    width_m: float,
+    height_m: float,
+    step_count: int,
+) -> ifcopenshell.entity_instance:
+    tread_depth = length_m / step_count
+    riser_height = height_m / step_count
+    solids = []
+    for index in range(step_count):
+        step_height = riser_height * (index + 1)
+        pos_2d = model.create_entity(
+            "IfcAxis2Placement2D",
+            Location=model.create_entity(
+                "IfcCartesianPoint",
+                Coordinates=(float(tread_depth / 2.0), float(width_m / 2.0)),
+            ),
+        )
+        profile = model.create_entity(
+            "IfcRectangleProfileDef",
+            ProfileType="AREA",
+            XDim=float(tread_depth),
+            YDim=float(width_m),
+            Position=pos_2d,
+        )
+        solid = model.create_entity(
+            "IfcExtrudedAreaSolid",
+            SweptArea=profile,
+            Position=_axis_placement_3d(
+                model,
+                location=(float(tread_depth * index), 0.0, 0.0),
+            ),
+            ExtrudedDirection=model.create_entity(
+                "IfcDirection",
+                DirectionRatios=(0.0, 0.0, 1.0),
+            ),
+            Depth=float(step_height),
+        )
+        solids.append(solid)
+
+    shape = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=_body_context(model),
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=solids,
     )
     return model.create_entity("IfcProductDefinitionShape", Representations=[shape])
+
+
+def _resolve_stair_step_count(
+    *,
+    length_mm: float,
+    height_mm: float,
+    step_count: int | None = None,
+    riser_height_mm: float | None = None,
+    tread_depth_mm: float | None = None,
+) -> int:
+    if step_count is not None:
+        resolved = step_count
+    elif riser_height_mm and riser_height_mm > 0:
+        resolved = round(height_mm / riser_height_mm)
+    elif tread_depth_mm and tread_depth_mm > 0:
+        resolved = round(length_mm / tread_depth_mm)
+    else:
+        resolved = round(height_mm / 170.0)
+    return max(2, min(64, int(resolved)))
+
+
+def _assign_stair_quantities(
+    model: ifcopenshell.file,
+    stair: ifcopenshell.entity_instance,
+    *,
+    step_count: int,
+    riser_height_mm: float,
+    tread_depth_mm: float,
+) -> None:
+    properties = [
+        model.create_entity(
+            "IfcPropertySingleValue",
+            Name="StepCount",
+            NominalValue=model.create_entity("IfcInteger", int(step_count)),
+        ),
+        model.create_entity(
+            "IfcPropertySingleValue",
+            Name="RiserHeight",
+            NominalValue=model.create_entity("IfcLengthMeasure", float(riser_height_mm)),
+        ),
+        model.create_entity(
+            "IfcPropertySingleValue",
+            Name="TreadDepth",
+            NominalValue=model.create_entity("IfcLengthMeasure", float(tread_depth_mm)),
+        ),
+    ]
+    pset = model.create_entity(
+        "IfcPropertySet",
+        GlobalId=ifcopenshell.guid.new(),
+        Name="Batang_StairPreset",
+        HasProperties=properties,
+    )
+    model.create_entity(
+        "IfcRelDefinesByProperties",
+        GlobalId=ifcopenshell.guid.new(),
+        RelatedObjects=[stair],
+        RelatingPropertyDefinition=pset,
+    )
 
 
 def _face(
@@ -457,8 +759,8 @@ def _apply_color_and_material(
             # Representation의 첫 번째 아이템에 스타일 할당
             if element.Representation and element.Representation.Representations:
                 rep = element.Representation.Representations[0]
-                if rep.Items:
-                    model.create_entity("IfcStyledItem", Item=rep.Items[0], Styles=[assignment])
+                for item in rep.Items or []:
+                    model.create_entity("IfcStyledItem", Item=item, Styles=[assignment])
 
         if mat_name:
             material = model.create_entity("IfcMaterial", Name=mat_name)
@@ -531,7 +833,7 @@ def create_wall(
     try:
         wall = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWall")
         wall.ObjectPlacement = _make_placement(model, storey, x_mm, y_mm, z_mm, direction)
-        wall.Representation = _box_representation(
+        wall.Representation, _ = _box_representation(
             model,
             _mm_to_model_units(model, length_mm, 3000.0),
             _mm_to_model_units(model, width_mm, 200.0),
@@ -563,7 +865,7 @@ def create_slab(
     try:
         slab = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcSlab")
         slab.ObjectPlacement = _make_placement(model, storey, x_mm, y_mm, z_mm, direction)
-        slab.Representation = _box_representation(
+        slab.Representation, _ = _box_representation(
             model,
             _mm_to_model_units(model, length_mm, 3000.0),
             _mm_to_model_units(model, width_mm, 3000.0),
@@ -607,7 +909,7 @@ def create_roof(
                 _mm_to_model_units(model, ridge_height_mm, 1200.0),
             )
         else:
-            roof.Representation = _box_representation(
+            roof.Representation, _ = _box_representation(
                 model,
                 length,
                 width,
@@ -618,6 +920,74 @@ def create_roof(
         return roof
     except Exception as e:
         logger.error(f"Roof 생성 오류: {e}")
+        return None
+
+
+def create_stair_preset(
+    model: ifcopenshell.file,
+    storey: ifcopenshell.entity_instance,
+    *,
+    length_mm: float = 3000.0,
+    width_mm: float = 1000.0,
+    height_mm: float = 1800.0,
+    x_mm: float = 0.0,
+    y_mm: float = 0.0,
+    z_mm: float = 0.0,
+    direction: str = "north",
+    color: str | None = None,
+    material_name: str | None = None,
+    step_count: int | None = None,
+    riser_height_mm: float | None = None,
+    tread_depth_mm: float | None = None,
+) -> ifcopenshell.entity_instance | None:
+    """Create a straight stair preset with visible tread/riser geometry."""
+    try:
+        resolved_steps = _resolve_stair_step_count(
+            length_mm=length_mm,
+            height_mm=height_mm,
+            step_count=step_count,
+            riser_height_mm=riser_height_mm,
+            tread_depth_mm=tread_depth_mm,
+        )
+        stair = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcStair")
+        stair.ObjectPlacement = _make_placement(model, storey, x_mm, y_mm, z_mm, direction)
+        length_m = _mm_to_model_units(model, length_mm, 3000.0)
+        width_m = _mm_to_model_units(model, width_mm, 1000.0)
+        height_m = _mm_to_model_units(model, height_mm, 1800.0)
+        stair.Representation = _stair_preset_representation(
+            model,
+            length_m,
+            width_m,
+            height_m,
+            resolved_steps,
+        )
+
+        flight = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcStairFlight")
+        flight.Name = "Straight Stair Flight"
+        flight.ObjectPlacement = model.create_entity(
+            "IfcLocalPlacement",
+            PlacementRelTo=stair.ObjectPlacement,
+            RelativePlacement=_axis_placement_3d(model),
+        )
+        model.create_entity(
+            "IfcRelAggregates",
+            GlobalId=ifcopenshell.guid.new(),
+            RelatingObject=stair,
+            RelatedObjects=[flight],
+        )
+
+        _assign_stair_quantities(
+            model,
+            stair,
+            step_count=resolved_steps,
+            riser_height_mm=height_mm / resolved_steps,
+            tread_depth_mm=length_mm / resolved_steps,
+        )
+        _apply_color_and_material(model, stair, color, material_name)
+        _assign_to_storey(model, stair, storey)
+        return stair
+    except Exception as e:
+        logger.error(f"Stair preset creation failed: {e}")
         return None
 
 
@@ -640,7 +1010,7 @@ def create_generic_element(
     try:
         element = ifcopenshell.api.run("root.create_entity", model, ifc_class=element_type)
         element.ObjectPlacement = _make_placement(model, storey, x_mm, y_mm, z_mm, direction)
-        element.Representation = _box_representation(
+        element.Representation, _ = _box_representation(
             model,
             _mm_to_model_units(model, length_mm, 500.0),
             _mm_to_model_units(model, width_mm, 500.0),
@@ -652,3 +1022,253 @@ def create_generic_element(
     except Exception as e:
         logger.error(f"{element_type} 생성 오류: {e}")
         return None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 3. 개구부 및 창호 로직 (Ticket 288 고도화 버전)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _get_wall_local_coords(model, host_wall, x_mm, y_mm, z_mm):
+    """전역(또는 층) 좌표를 벽체의 로컬 좌표계로 변환"""
+    scale = _get_model_unit_scale(model)
+    w_loc, (rdx, rdy) = _placement_origin_and_x_axis(host_wall.ObjectPlacement)
+
+    # 벽체 원점 기준 변위
+    dx, dy = (x_mm / scale) - w_loc[0], (y_mm / scale) - w_loc[1]
+
+    # 회전 행렬 적용 (벽체 로컬 U, V 좌표)
+    u = dx * rdx + dy * rdy
+    v = dx * (-rdy) + dy * rdx
+    z = (z_mm / scale) - w_loc[2]
+
+    # 벽체의 기하 중심점(cx, cy) 확인하여 오프셋 조정 (중심 기준 벽체 대응)
+    ew_wall = True
+    if host_wall.Representation:
+        body = next(
+            (
+                r
+                for r in host_wall.Representation.Representations
+                if r.RepresentationIdentifier == "Body"
+            ),
+            None,
+        )
+        if body and body.Items:
+            item = body.Items[0]
+            while item.is_a("IfcBooleanResult"):
+                item = item.FirstOperand
+            if item.is_a("IfcExtrudedAreaSolid"):
+                ew_wall = item.SweptArea.XDim >= item.SweptArea.YDim
+                if item.Position and item.Position.Location:
+                    cx, cy = (
+                        item.Position.Location.Coordinates[0],
+                        item.Position.Location.Coordinates[1],
+                    )
+                    if ew_wall:
+                        v = cy
+                    else:
+                        u = cx
+    return u, v, z, ew_wall
+
+
+def _apply_opening(model, host_wall, u, v, z, length, thickness, height, ew_wall):
+    """벽체에 개구부를 생성하고 차집합 연산(Boolean) 수행 (잔상 방지 로직 포함)"""
+    if not host_wall.Representation:
+        return None
+    body = next(
+        (
+            r
+            for r in host_wall.Representation.Representations
+            if r.RepresentationIdentifier == "Body"
+        ),
+        None,
+    )
+    if not body or not body.Items:
+        return None
+
+    opening = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcOpeningElement")
+    margin = _mm_to_model_units(model, 20.0, 20.0)
+
+    if ew_wall:
+        box_l, box_t = length, thickness + margin
+        loc_u, loc_v = u - length/2, v - box_t/2
+    else:
+        box_l, box_t = thickness + margin, length
+        loc_u, loc_v = u - box_l/2, v - length/2
+
+    opening.ObjectPlacement = model.create_entity(
+        "IfcLocalPlacement",
+        PlacementRelTo=host_wall.ObjectPlacement,
+        RelativePlacement=_axis_placement_3d(model, location=(loc_u, loc_v, z)),
+    )
+
+    opening.Representation, _ = _box_representation(
+        model, box_l, box_t, height, center_origin=False
+    )
+    _, tool_solid = _box_representation(
+        model, box_l, box_t, height, loc=(loc_u, loc_v, z), center_origin=False
+    )
+    ifcopenshell.api.run("feature.add_feature", model, feature=opening, element=host_wall)
+
+    current_shape = body.Items[0]
+    boolean_res = model.create_entity(
+        "IfcBooleanResult",
+        Operator="DIFFERENCE",
+        FirstOperand=current_shape,
+        SecondOperand=tool_solid,
+    )
+    body.Items = [boolean_res]
+    body.RepresentationType = "CSG"
+    return opening
+
+
+def create_door_with_opening(
+    model, storey, *, length_mm=900, width_mm=200, height_mm=2100,
+    x_mm=0, y_mm=0, z_mm=0, direction="north", color=None, material_name=None,
+    host_wall=None, sill_height_mm=0,
+):
+    try:
+        if not host_wall:
+            host_wall = find_host_wall(model, None, x_mm, y_mm, z_mm)
+        if not host_wall:
+            logger.error("Door 생성 실패: host wall을 찾을 수 없습니다.")
+            return None
+
+        u, v, z, ew_wall = _get_wall_local_coords(
+            model, host_wall, x_mm, y_mm, z_mm + sill_height_mm
+        )
+        opening = _apply_opening(
+            model, host_wall, u, v, z,
+            _mm_to_model_units(model, length_mm, 900),
+            _mm_to_model_units(model, width_mm, 200),
+            _mm_to_model_units(model, height_mm, 2100),
+            ew_wall,
+        )
+        if opening is None:
+            logger.error("Door 생성 실패: opening을 생성할 수 없습니다.")
+            return None
+        dt = _mm_to_model_units(model, 40.0, 40.0)
+        margin = _mm_to_model_units(model, 20.0, 20.0)
+        off_t = (margin + (_mm_to_model_units(model, width_mm, 200) - dt)) / 2.0
+        door_loc = (0.0, off_t, 0.0) if ew_wall else (off_t, 0.0, 0.0)
+        placement = model.create_entity(
+            "IfcLocalPlacement",
+            PlacementRelTo=opening.ObjectPlacement,
+            RelativePlacement=_axis_placement_3d(model, location=door_loc),
+        )
+
+        door = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcDoor")
+        # assign_container can normalize placement, so set opening-relative placement last.
+        _assign_to_storey(model, door, storey)
+        door.ObjectPlacement = placement
+        dt = _mm_to_model_units(model, 40, 40)
+        bx, by = (
+            (_mm_to_model_units(model, length_mm, 900), dt)
+            if ew_wall
+            else (dt, _mm_to_model_units(model, length_mm, 900))
+        )
+        door.Representation, _ = _box_representation(
+            model, bx, by, _mm_to_model_units(model, height_mm, 2100), center_origin=False
+        )
+        _apply_color_and_material(model, door, color or "#8B4513", material_name)
+        if opening:
+            model.create_entity(
+                "IfcRelFillsElement",
+                GlobalId=ifcopenshell.guid.new(),
+                RelatingOpeningElement=opening,
+                RelatedBuildingElement=door,
+            )
+        set_element_properties(model, door, length_mm, 40, height_mm)
+        return door
+    except Exception as e:
+        logger.error(f"Door 생성 실패: {e}")
+        return None
+
+
+def create_window_with_opening(
+    model, storey, *, length_mm=1200, width_mm=200, height_mm=1200,
+    x_mm=0, y_mm=0, z_mm=0, direction="north", color=None, material_name=None,
+    host_wall=None, sill_height_mm=900,
+):
+    try:
+        if not host_wall:
+            host_wall = find_host_wall(model, None, x_mm, y_mm, z_mm)
+        if not host_wall:
+            logger.error("Window 생성 실패: host wall을 찾을 수 없습니다.")
+            return None
+
+        u, v, z, ew_wall = _get_wall_local_coords(
+            model, host_wall, x_mm, y_mm, z_mm + sill_height_mm
+        )
+        opening = _apply_opening(
+            model, host_wall, u, v, z,
+            _mm_to_model_units(model, length_mm, 1200),
+            _mm_to_model_units(model, width_mm, 200),
+            _mm_to_model_units(model, height_mm, 1200),
+            ew_wall,
+        )
+        if opening is None:
+            logger.error("Window 생성 실패: opening을 생성할 수 없습니다.")
+            return None
+        wt = _mm_to_model_units(model, 100.0, 100.0)
+        margin = _mm_to_model_units(model, 20.0, 20.0)
+        off_v = (margin + (_mm_to_model_units(model, width_mm, 200) - wt)) / 2.0
+        window_loc = (0.0, off_v, 0.0) if ew_wall else (off_v, 0.0, 0.0)
+        placement = model.create_entity(
+            "IfcLocalPlacement",
+            PlacementRelTo=opening.ObjectPlacement,
+            RelativePlacement=_axis_placement_3d(model, location=window_loc),
+        )
+
+        window = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWindow")
+        # assign_container can normalize placement, so set opening-relative placement last.
+        _assign_to_storey(model, window, storey)
+        window.ObjectPlacement = placement
+        wt = _mm_to_model_units(model, 100, 100)
+        bx, by = (
+            (_mm_to_model_units(model, length_mm, 1200), wt)
+            if ew_wall
+            else (wt, _mm_to_model_units(model, length_mm, 1200))
+        )
+        window.Representation, _ = _box_representation(
+            model, bx, by, _mm_to_model_units(model, height_mm, 1200), center_origin=False
+        )
+        _apply_color_and_material(model, window, color or "#AADDFF", material_name)
+        if opening:
+            model.create_entity(
+                "IfcRelFillsElement",
+                GlobalId=ifcopenshell.guid.new(),
+                RelatingOpeningElement=opening,
+                RelatedBuildingElement=window,
+            )
+        set_element_properties(model, window, length_mm, 100, height_mm)
+        return window
+    except Exception as e:
+        logger.error(f"Window 생성 실패: {e}")
+        return None
+
+
+def set_element_properties(model, element, length_mm=None, width_mm=None, height_mm=None):
+    props = []
+    for n, v in [("Length", length_mm), ("Width", width_mm), ("Height", height_mm)]:
+        if v is not None:
+            props.append(
+                model.create_entity(
+                    "IfcPropertySingleValue",
+                    Name=n,
+                    NominalValue=model.create_entity("IfcLengthMeasure", float(v)),
+                )
+            )
+    if props:
+        pset = model.create_entity(
+            "IfcPropertySet",
+            GlobalId=ifcopenshell.guid.new(),
+            Name="Pset_Dimensions",
+            HasProperties=props,
+        )
+        model.create_entity(
+            "IfcRelDefinesByProperties",
+            GlobalId=ifcopenshell.guid.new(),
+            RelatingPropertyDefinition=pset,
+            RelatedObjects=[element],
+        )

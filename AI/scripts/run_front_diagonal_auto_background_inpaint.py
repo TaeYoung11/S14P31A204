@@ -1,10 +1,10 @@
-"""Run EYE auto-background inpaint smoke using full outside masks.
+﻿"""Run front diagonal auto-background inpaint smoke using full outside masks.
 
 This script keeps the protected house body from the first-pass styled image and
 repaints the full outside region with preset-specific yard/background prior.
 
 Examples:
-    uv run python scripts/run_eye_auto_background_inpaint.py
+    uv run python scripts/run_front_diagonal_auto_background_inpaint.py
 """
 
 from __future__ import annotations
@@ -32,24 +32,24 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 DEFAULT_INPUT_DIR = (
     ROOT
     / "outputs"
-    / "ifc2img_eye_ground_extent_105_style_smoke1"
+    / "ifc2img_front_diagonal_ground_extent_105_style_smoke1"
     / "AC20-FZK-Haus"
 )
 DEFAULT_MASK_DIR = (
     ROOT
     / "outputs"
-    / "ifc2img_eye_auto_background_mask_tight_preview1"
+    / "ifc2img_front_diagonal_auto_background_mask_tight_preview1"
     / "AC20-FZK-Haus"
 )
 DEFAULT_OUTPUT_DIR = (
     ROOT
     / "outputs"
-    / "ifc2img_eye_auto_background_inpaint_smoke1"
+    / "ifc2img_front_diagonal_auto_background_inpaint_smoke1"
     / "AC20-FZK-Haus"
 )
 DEFAULT_MODEL_ID = "runwayml/stable-diffusion-inpainting"
 DEFAULT_PRESET = "korean_house"
-DEFAULT_VIEWS = ("eye_ne", "eye_nw", "eye_se")
+DEFAULT_VIEWS = ("front_diagonal_right", "front_diagonal_left")
 DEFAULT_BACKGROUND_MODE = "guided"
 BACKGROUND_MODES = ("guided", "free")
 FREE_BACKGROUND_PROMPTS: dict[str, str] = {
@@ -75,13 +75,13 @@ DEFAULT_STEPS = 24
 DEFAULT_GUIDANCE_SCALE = 6.0
 DEFAULT_SEED = 52
 DEFAULT_BOTTOM_STRIP_RATIO = 0.10
-EYE_STRIP_CLEANUP_BACKGROUND_MODE = "free"
-EYE_STRIP_CLEANUP_BOTTOM_STRIP_RATIO = 0.10
-EYE_STRIP_CLEANUP_BOTTOM_STRIP_COLOR = "neutral_paved"
-EYE_STRIP_CLEANUP_BOTTOM_STRIP_PREFILL_MODE = "feather"
-EYE_STRIP_CLEANUP_SECOND_PASS_BOTTOM_STRIP_RATIO = 0.28
-EYE_STRIP_CLEANUP_SECOND_PASS_STRENGTH = 1.0
-EYE_STRIP_CLEANUP_SECOND_PASS_FEATHER_RATIO = 0.45
+FRONT_DIAGONAL_STRIP_CLEANUP_BACKGROUND_MODE = "free"
+FRONT_DIAGONAL_STRIP_CLEANUP_BOTTOM_STRIP_RATIO = 0.10
+FRONT_DIAGONAL_STRIP_CLEANUP_BOTTOM_STRIP_COLOR = "neutral_paved"
+FRONT_DIAGONAL_STRIP_CLEANUP_BOTTOM_STRIP_PREFILL_MODE = "feather"
+FRONT_DIAGONAL_STRIP_CLEANUP_SECOND_PASS_BOTTOM_STRIP_RATIO = 0.28
+FRONT_DIAGONAL_STRIP_CLEANUP_SECOND_PASS_STRENGTH = 1.0
+FRONT_DIAGONAL_STRIP_CLEANUP_SECOND_PASS_FEATHER_RATIO = 0.45
 DEFAULT_BOTTOM_STRIP_PREFILL_MODE = "solid"
 BOTTOM_STRIP_PREFILL_MODES = ("solid", "feather")
 DEFAULT_SECOND_PASS_BOTTOM_STRIP_RATIO = 0.16
@@ -114,13 +114,13 @@ def _parse_views(raw: str) -> tuple[str, ...]:
     allowed = set(DEFAULT_VIEWS)
     invalid = [v for v in views if v not in allowed]
     if invalid:
-        raise argparse.ArgumentTypeError(f"invalid EYE views: {invalid}")
+        raise argparse.ArgumentTypeError(f"invalid front diagonal views: {invalid}")
     return views
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run EYE auto-background inpaint smoke."
+        description="Run front diagonal auto-background inpaint smoke."
     )
     parser.add_argument("--input-dir", default=DEFAULT_INPUT_DIR, type=Path)
     parser.add_argument("--mask-dir", default=DEFAULT_MASK_DIR, type=Path)
@@ -136,7 +136,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--views",
         default=",".join(DEFAULT_VIEWS),
         type=_parse_views,
-        help="Comma-separated EYE views.",
+        help="Comma-separated front diagonal views.",
     )
     parser.add_argument("--model-id", default=DEFAULT_MODEL_ID)
     parser.add_argument("--strength", default=DEFAULT_STRENGTH, type=float)
@@ -144,10 +144,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--guidance-scale", default=DEFAULT_GUIDANCE_SCALE, type=float)
     parser.add_argument("--seed", default=DEFAULT_SEED, type=int)
     parser.add_argument(
-        "--eye-strip-cleanup",
+        "--front-diagonal-strip-cleanup",
         action="store_true",
         help=(
-            "Use the successful EYE lower-strip cleanup preset "
+            "Use the successful front diagonal lower-strip cleanup preset "
             "(free background, feather prefill, strong bottom second pass)."
         ),
     )
@@ -198,24 +198,24 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Fraction of the second-pass strip height used as top feather.",
     )
     args = parser.parse_args(argv)
-    return _apply_eye_strip_cleanup_preset(args)
+    return _apply_front_diagonal_strip_cleanup_preset(args)
 
 
-def _apply_eye_strip_cleanup_preset(args: argparse.Namespace) -> argparse.Namespace:
-    if not args.eye_strip_cleanup:
+def _apply_front_diagonal_strip_cleanup_preset(args: argparse.Namespace) -> argparse.Namespace:
+    if not args.front_diagonal_strip_cleanup:
         return args
 
-    args.background_mode = EYE_STRIP_CLEANUP_BACKGROUND_MODE
+    args.background_mode = FRONT_DIAGONAL_STRIP_CLEANUP_BACKGROUND_MODE
     args.prefill_bottom_strip = True
-    args.bottom_strip_ratio = EYE_STRIP_CLEANUP_BOTTOM_STRIP_RATIO
-    args.bottom_strip_color = EYE_STRIP_CLEANUP_BOTTOM_STRIP_COLOR
-    args.bottom_strip_prefill_mode = EYE_STRIP_CLEANUP_BOTTOM_STRIP_PREFILL_MODE
+    args.bottom_strip_ratio = FRONT_DIAGONAL_STRIP_CLEANUP_BOTTOM_STRIP_RATIO
+    args.bottom_strip_color = FRONT_DIAGONAL_STRIP_CLEANUP_BOTTOM_STRIP_COLOR
+    args.bottom_strip_prefill_mode = FRONT_DIAGONAL_STRIP_CLEANUP_BOTTOM_STRIP_PREFILL_MODE
     args.second_pass_bottom_strip = True
     args.second_pass_bottom_strip_ratio = (
-        EYE_STRIP_CLEANUP_SECOND_PASS_BOTTOM_STRIP_RATIO
+        FRONT_DIAGONAL_STRIP_CLEANUP_SECOND_PASS_BOTTOM_STRIP_RATIO
     )
-    args.second_pass_strength = EYE_STRIP_CLEANUP_SECOND_PASS_STRENGTH
-    args.second_pass_feather_ratio = EYE_STRIP_CLEANUP_SECOND_PASS_FEATHER_RATIO
+    args.second_pass_strength = FRONT_DIAGONAL_STRIP_CLEANUP_SECOND_PASS_STRENGTH
+    args.second_pass_feather_ratio = FRONT_DIAGONAL_STRIP_CLEANUP_SECOND_PASS_FEATHER_RATIO
     return args
 
 
@@ -384,7 +384,7 @@ def run(args: argparse.Namespace) -> list[Path]:
             prefill_path = (
                 output_dir
                 / (
-                    f"eye_auto_background_prefill_source_{view}_{args.preset}_"
+                    f"front_diagonal_auto_background_prefill_source_{view}_{args.preset}_"
                     f"{args.background_mode}_{args.bottom_strip_prefill_mode}_"
                     f"r{int(round(args.bottom_strip_ratio * 100)):03d}.png"
                 )
@@ -415,7 +415,7 @@ def run(args: argparse.Namespace) -> list[Path]:
             second_mask_path = (
                 output_dir
                 / (
-                    f"eye_auto_background_second_pass_bottom_mask_{view}_"
+                    f"front_diagonal_auto_background_second_pass_bottom_mask_{view}_"
                     f"r{int(round(args.second_pass_bottom_strip_ratio * 100)):03d}.png"
                 )
             )
@@ -440,7 +440,7 @@ def run(args: argparse.Namespace) -> list[Path]:
         result_path = (
             output_dir
             / (
-                f"eye_auto_background_inpaint_{view}_{args.preset}_"
+                f"front_diagonal_auto_background_inpaint_{view}_{args.preset}_"
                 f"{args.background_mode}_s{int(round(args.strength * 100)):03d}_"
                 f"seed{args.seed + index}.png"
             )
@@ -449,7 +449,7 @@ def run(args: argparse.Namespace) -> list[Path]:
         saved.append(result_path)
         rows.append((view, original, source, mask, output))
 
-    sheet_path = output_dir / "compare_eye_auto_background_inpaint_smoke.png"
+    sheet_path = output_dir / "compare_front_diagonal_auto_background_inpaint_smoke.png"
     _make_contact_sheet(rows).save(sheet_path, format="PNG")
     saved.append(sheet_path)
     return saved

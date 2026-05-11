@@ -1,12 +1,10 @@
 package com.a204.batang.domain.ifcedit.messaging;
 
 import com.a204.batang.domain.ifcedit.messaging.dto.IfcEditEventMessage;
-import com.a204.batang.global.config.RabbitMqConfig;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,7 +21,9 @@ public class IfcEditEventDispatcher {
     private final ThreeDLlmEventListener threeDLlmEventListener;
     private final IfcEditApplyEventListener ifcEditApplyEventListener;
 
-    @RabbitListener(queues = RabbitMqConfig.BE_JOB_EVENTS_QUEUE)
+    /**
+     * orchestrator가 전달한 ifc-edit 계열 event를 세부 handler로 분기한다.
+     */
     @Transactional
     public void handle(IfcEditEventMessage event) {
         if (event == null || event.eventType() == null) {

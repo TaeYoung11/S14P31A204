@@ -9,7 +9,16 @@ from typing import Any
 import ifcopenshell
 import ifcopenshell.api.root
 
-from ai_authoring.engine_3d import create_generic_element, create_roof, create_slab, create_wall
+from ai_authoring.engine_3d import (
+    create_door_with_opening,
+    create_generic_element,
+    create_roof,
+    create_slab,
+    create_stair_preset,
+    create_wall,
+    create_window_with_opening,
+    find_host_wall,
+)
 from ai_authoring.operations.registry import register
 from ai_authoring.operations.space_support import (
     assign_space_to_storey,
@@ -48,6 +57,26 @@ def _start_end_to_length_and_direction(
     length_mm = math.hypot(dx, dy)
     azimuth = math.degrees(math.atan2(dx, dy)) % 360
     return length_mm, _azimuth_to_direction(azimuth)
+
+
+def _optional_int(value: Any, field_name: str) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        logger.error("create_element handler: invalid integer %s=%r", field_name, value)
+        return None
+
+
+def _optional_float(value: Any, field_name: str) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        logger.error("create_element handler: invalid number %s=%r", field_name, value)
+        return None
 
 
 @register("create_element")
@@ -89,8 +118,10 @@ class CreateElementHandler:
             length_mm = float(dims.get("length", 3000.0))
             direction = str(parameters.get("direction") or "north").lower()
 
-        width_mm = float(dims.get("width", 200.0))
-        height_mm = float(dims.get("height", 2400.0))
+        width_default = 1000.0 if element_type == "IfcStair" else 200.0
+        height_default = 1800.0 if element_type == "IfcStair" else 2400.0
+        width_mm = float(dims.get("width", width_default))
+        height_mm = float(dims.get("height", height_default))
         color: str | None = parameters.get("color")
         material_name: str | None = parameters.get("material")
 
@@ -117,6 +148,55 @@ class CreateElementHandler:
                 **common,
                 shape_preset=str(parameters.get("roof_shape_preset") or "FLAT"),
                 ridge_height_mm=float(parameters.get("ridge_height_mm") or 1200.0),
+            )
+        if element_type == "IfcStair":
+            step_count = _optional_int(parameters.get("step_count"), "step_count")
+            riser_height_mm = _optional_float(
+                parameters.get("riser_height_mm"),
+                "riser_height_mm",
+            )
+            tread_depth_mm = _optional_float(
+                parameters.get("tread_depth_mm"),
+                "tread_depth_mm",
+            )
+            if (
+                (parameters.get("step_count") is not None and step_count is None)
+                or (parameters.get("riser_height_mm") is not None and riser_height_mm is None)
+                or (parameters.get("tread_depth_mm") is not None and tread_depth_mm is None)
+            ):
+                return None
+            return create_stair_preset(
+                model,
+                resolved_storey,
+                **common,
+                step_count=step_count,
+                riser_height_mm=riser_height_mm,
+                tread_depth_mm=tread_depth_mm,
+            )
+        if element_type in ("IfcDoor", "IfcWindow"):
+            host_wall_global_id = parameters.get("host_wall_global_id")
+            host_wall = find_host_wall(model, host_wall_global_id, x_mm, y_mm, z_mm)
+            if host_wall is None:
+                logger.error(
+                    "create_element handler: failed to resolve host wall for %s",
+                    element_type,
+                )
+                return None
+            sill_height_mm = parameters.get("sill_height_mm")
+            if element_type == "IfcDoor":
+                return create_door_with_opening(
+                    model,
+                    resolved_storey,
+                    **common,
+                    host_wall=host_wall,
+                    sill_height_mm=float(sill_height_mm or 0.0),
+                )
+            return create_window_with_opening(
+                model,
+                resolved_storey,
+                **common,
+                host_wall=host_wall,
+                sill_height_mm=float(sill_height_mm if sill_height_mm is not None else 900.0),
             )
         return create_generic_element(model, resolved_storey, element_type, **common)
 

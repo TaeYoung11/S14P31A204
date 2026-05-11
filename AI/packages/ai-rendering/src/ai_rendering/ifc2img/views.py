@@ -7,9 +7,8 @@ from enum import Enum
 class IFCView(Enum):
     FRONT = "front"
     SIDE = "side"
-    EYE_NE = "eye_ne"
-    EYE_NW = "eye_nw"
-    EYE_SE = "eye_se"
+    FRONT_DIAGONAL_RIGHT = "front_diagonal_right"
+    FRONT_DIAGONAL_LEFT = "front_diagonal_left"
 
 
 class AutoZoomMode(Enum):
@@ -39,18 +38,13 @@ VIEW_CAMERAS: dict[IFCView, CameraParams] = {
         up=(0.0, 0.0, 1.0),
         zoom=0.5,
     ),
-    IFCView.EYE_NE: CameraParams(
+    IFCView.FRONT_DIAGONAL_RIGHT: CameraParams(
         front=(-0.7, -0.7, 0.0),
         up=(0.0, 0.0, 1.0),
         zoom=0.5,
     ),
-    IFCView.EYE_NW: CameraParams(
+    IFCView.FRONT_DIAGONAL_LEFT: CameraParams(
         front=(-0.7, 0.7, 0.0),
-        up=(0.0, 0.0, 1.0),
-        zoom=0.5,
-    ),
-    IFCView.EYE_SE: CameraParams(
-        front=(0.7, -0.7, 0.0),
         up=(0.0, 0.0, 1.0),
         zoom=0.5,
     ),
@@ -60,9 +54,8 @@ VIEW_CAMERAS: dict[IFCView, CameraParams] = {
 VIEW_TARGET_RATIOS: dict[IFCView, float] = {
     IFCView.FRONT: 0.20,
     IFCView.SIDE: 0.20,
-    IFCView.EYE_NE: 0.15,
-    IFCView.EYE_NW: 0.15,
-    IFCView.EYE_SE: 0.15,
+    IFCView.FRONT_DIAGONAL_RIGHT: 0.15,
+    IFCView.FRONT_DIAGONAL_LEFT: 0.15,
 }
 
 
@@ -89,18 +82,16 @@ def resolve_target_ratio_for_mesh(
 DEFAULT_RENDER_VIEWS: list[IFCView] = [
     IFCView.FRONT,
     IFCView.SIDE,
-    IFCView.EYE_NE,
-    IFCView.EYE_NW,
-    IFCView.EYE_SE,
+    IFCView.FRONT_DIAGONAL_RIGHT,
+    IFCView.FRONT_DIAGONAL_LEFT,
 ]
 
 
 VIEW_PROMPT_SUFFIXES: dict[IFCView, str] = {
     IFCView.FRONT: "",
     IFCView.SIDE: "",
-    IFCView.EYE_NE: "",
-    IFCView.EYE_NW: "",
-    IFCView.EYE_SE: "",
+    IFCView.FRONT_DIAGONAL_RIGHT: "",
+    IFCView.FRONT_DIAGONAL_LEFT: "",
 }
 
 
@@ -110,16 +101,12 @@ VIEW_PROMPT_PREFIXES: dict[IFCView, str] = {
         "no foreground wall, no foundation wall, no retaining wall"
     ),
     IFCView.SIDE: "side facade at ground line, no foundation wall",
-    IFCView.EYE_NE: (
-        "eye-level diagonal view, dry ground around house, "
+    IFCView.FRONT_DIAGONAL_RIGHT: (
+        "front diagonal view, dry ground around house, "
         "building on flat ground, no pool, not aerial"
     ),
-    IFCView.EYE_NW: (
-        "eye-level diagonal view, dry ground around house, "
-        "building on flat ground, no pool, not aerial"
-    ),
-    IFCView.EYE_SE: (
-        "eye-level diagonal view, dry ground around house, "
+    IFCView.FRONT_DIAGONAL_LEFT: (
+        "front diagonal view, dry ground around house, "
         "building on flat ground, no pool, not aerial"
     ),
 }
@@ -133,7 +120,7 @@ SCANDINAVIAN_SIDE_PROMPT_PREFIX = (
 )
 
 
-def _remove_eye_sky_prior(prompt: str) -> str:
+def _remove_front_diagonal_sky_prior(prompt: str) -> str:
     return prompt.replace(", blue sky", "").replace("blue sky, ", "")
 
 
@@ -147,8 +134,8 @@ def build_view_prompt(base_prompt: str, view: IFCView) -> str:
     """Compose a view-aware prompt."""
     prefix = VIEW_PROMPT_PREFIXES.get(view, "")
     if prefix:
-        if view in {IFCView.EYE_NE, IFCView.EYE_NW, IFCView.EYE_SE}:
-            base_prompt = _remove_eye_sky_prior(base_prompt)
+        if view in {IFCView.FRONT_DIAGONAL_RIGHT, IFCView.FRONT_DIAGONAL_LEFT}:
+            base_prompt = _remove_front_diagonal_sky_prior(base_prompt)
         if view in {IFCView.FRONT, IFCView.SIDE}:
             softened_prompt = _soften_scandinavian_front_wall_prior(base_prompt)
             if softened_prompt != base_prompt:

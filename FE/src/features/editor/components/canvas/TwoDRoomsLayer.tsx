@@ -213,8 +213,7 @@ export function TwoDRoomsLayer({
               selectedTool === 'selection' &&
               !isPanMode &&
               !isWallFirstEditing &&
-              resizingRoomBubbleId !== room.bubbleId &&
-              !hasTransform
+              resizingRoomBubbleId !== room.bubbleId
             }
             onDragStart={(e) => {
               if (isWallFirstEditing) return
