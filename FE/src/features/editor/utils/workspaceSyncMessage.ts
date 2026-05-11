@@ -39,6 +39,7 @@ export interface ProjectSyncMessage {
   eventType?: string
   action?: string
   status?: string
+  revisionId?: string | null
   bubbleSnapshotJson?: unknown
   floorPlanPayloadJson?: unknown
   payload?: unknown
@@ -66,6 +67,7 @@ export const FLOOR_PLAN_CURSOR_INVALID_CODE = 'WORKSPACE_FLOOR_PLAN_HISTORY_CURS
 
 export const WORKSPACE_SYNC_ACTION = {
   bubbleUpdated: 'BUBBLE_UPDATED',
+  floorPlanProcessing: 'FLOOR_PLAN_PROCESSING',
   floorPlanUpdated: 'FLOOR_PLAN_UPDATED',
   bubbleUndo: 'BUBBLE_UNDO',
   bubbleRedo: 'BUBBLE_REDO',
@@ -201,6 +203,36 @@ export function extractIfcAssetId(message: ProjectSyncMessage): string | null {
     return extractStringField(message.output, 'assetId')
       ?? extractStringField(message.output, 'artifactId')
       ?? extractStringField(message.output, 'outputArtifactId')
+  }
+
+  return null
+}
+
+export function extractRevisionId(message: ProjectSyncMessage): string | null {
+  const direct = message.revisionId
+  if (typeof direct === 'string' && direct.trim().length > 0) return direct.trim()
+
+  if (isObjectRecord(message.floorPlanPayloadJson)) {
+    const payloadRevisionId = extractStringField(message.floorPlanPayloadJson, 'revisionId')
+    if (payloadRevisionId) return payloadRevisionId
+  }
+
+  if (isObjectRecord(message.payload)) {
+    const payloadRevisionId = extractStringField(message.payload, 'revisionId')
+    if (payloadRevisionId) return payloadRevisionId
+    if (isObjectRecord(message.payload.floorPlanPayloadJson)) {
+      const nestedRevisionId = extractStringField(message.payload.floorPlanPayloadJson, 'revisionId')
+      if (nestedRevisionId) return nestedRevisionId
+    }
+  }
+
+  if (isObjectRecord(message.output)) {
+    const outputRevisionId = extractStringField(message.output, 'revisionId')
+    if (outputRevisionId) return outputRevisionId
+    if (isObjectRecord(message.output.floorPlanPayloadJson)) {
+      const nestedRevisionId = extractStringField(message.output.floorPlanPayloadJson, 'revisionId')
+      if (nestedRevisionId) return nestedRevisionId
+    }
   }
 
   return null

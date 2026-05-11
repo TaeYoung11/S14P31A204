@@ -149,6 +149,7 @@ export interface ProjectIfcSource {
   currentIfcUrl?: string
   /** private S3 버킷 접근용 에셋 UUID */
   currentIfcAssetId?: string
+  currentRevision?: string
 }
 
 const mapProjectSummary = (project: ProjectSummaryResponse): Project => ({
@@ -431,6 +432,7 @@ export const projectService = {
       return {
         projectId: exported.projectId,
         currentIfcUrl: exported.presignedUrl,
+        currentRevision: exported.revisionId,
       }
     } catch {
       // 아직 IFC가 없거나 export 권한이 없으면 기존 프로젝트 상세 기반 조회로 fallback한다.

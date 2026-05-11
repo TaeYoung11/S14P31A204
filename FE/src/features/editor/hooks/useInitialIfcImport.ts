@@ -10,7 +10,7 @@ interface UseInitialIfcImportParams {
    * IFC 소스 URL과 assetId가 확인된 시점에 호출된다.
    * 상위에서 presigned URL 발급 및 실제 로드를 담당한다.
    */
-  onResolvedIfcUrl: (url: string, assetId?: string) => void
+  onResolvedIfcUrl: (url: string, assetId?: string, revisionId?: string) => void
   /** projectId별 IFC 임포트 1회 보장을 위한 시도 기록 ref */
   attemptedInitialIfcImportProjectIdRef: MutableRefObject<string | null>
 }
@@ -43,7 +43,7 @@ export function useInitialIfcImport({
       const source = await projectService.getIfcSource(projectId).catch(() => null)
       if (cancelled) return
       if (!source?.currentIfcUrl) return
-      onResolvedIfcUrl(source.currentIfcUrl, source.currentIfcAssetId)
+      onResolvedIfcUrl(source.currentIfcUrl, source.currentIfcAssetId, source.currentRevision)
     }
 
     void load().catch((error: unknown) => {

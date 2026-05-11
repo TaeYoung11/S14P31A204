@@ -6,6 +6,7 @@ import type { BubbleSnapshotPayload } from '../utils/workspaceSyncMessage'
 export interface FloorPlanSnapshotPayload {
   bubbles?: BubbleData[]
   connections?: ConnectionData[]
+  revisionId?: string | null
   layout?: {
     phaseStatus?: WorkspaceSnapshot['phaseStatus']
     floorLayers?: WorkspaceSnapshot['floorLayers']

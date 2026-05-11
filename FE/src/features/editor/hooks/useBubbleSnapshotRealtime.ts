@@ -17,6 +17,7 @@ import {
   extractFloorPlanSnapshot,
   extractFloorPlanBaseIndex,
   extractIfcAssetId,
+  extractRevisionId,
   extractIfcStorageUrl,
   isBubbleSnapshotPayload,
   isObjectRecord,
@@ -36,11 +37,12 @@ interface UseBubbleSnapshotRealtimeParams {
   onRemoteSnapshot: (snapshot: BubbleSnapshotPayload) => void
   onRemoteFloorPlanSnapshot?: (snapshot: FloorPlanSnapshotPayload) => void
   onPhaseStatusChanged?: (status: PhaseStatus) => void
-  onIfcStorageUrlReceived?: (ifcStorageUrl: string, action: string | null, assetId: string | null) => void
+  onIfcStorageUrlReceived?: (ifcStorageUrl: string, action: string | null, assetId: string | null, revisionId: string | null) => void
   onBubbleHistoryCursorChanged?: (baseIndex: number, redoDepth: number) => void
   onFloorPlanHistoryCursorChanged?: (baseIndex: number, redoDepth: number) => void
   onBubbleHistoryCursorInvalid?: () => void
   onFloorPlanHistoryCursorInvalid?: () => void
+  onServerError?: (error: { code?: string; message?: string }) => void
   bubbleHistoryCursor?: { baseIndex: number; redoDepth: number }
   floorPlanHistoryCursor?: { baseIndex: number; redoDepth: number }
 }
@@ -68,6 +70,7 @@ export function useBubbleSnapshotRealtime({
   onFloorPlanHistoryCursorChanged,
   onBubbleHistoryCursorInvalid,
   onFloorPlanHistoryCursorInvalid,
+  onServerError,
   bubbleHistoryCursor,
   floorPlanHistoryCursor,
 }: UseBubbleSnapshotRealtimeParams) {
@@ -79,6 +82,7 @@ export function useBubbleSnapshotRealtime({
   const floorPlanHistoryCursorHandlerRef = useRef(onFloorPlanHistoryCursorChanged)
   const bubbleHistoryCursorInvalidHandlerRef = useRef(onBubbleHistoryCursorInvalid)
   const floorPlanHistoryCursorInvalidHandlerRef = useRef(onFloorPlanHistoryCursorInvalid)
+  const serverErrorHandlerRef = useRef(onServerError)
   const baseIndexRef = useRef(-1)
   const bubbleRedoDepthRef = useRef(0)
   const floorPlanBaseIndexRef = useRef(-1)
@@ -116,6 +120,10 @@ export function useBubbleSnapshotRealtime({
   useEffect(() => {
     floorPlanHistoryCursorInvalidHandlerRef.current = onFloorPlanHistoryCursorInvalid
   }, [onFloorPlanHistoryCursorInvalid])
+
+  useEffect(() => {
+    serverErrorHandlerRef.current = onServerError
+  }, [onServerError])
 
   useEffect(() => {
     if (!bubbleHistoryCursor) return
@@ -235,27 +243,29 @@ export function useBubbleSnapshotRealtime({
 
           if (IFC_URL_DEBUG && typeof window !== 'undefined') {
             window.localStorage.setItem('ifc-last-ws-url', ifcStorageUrl ?? '')
-            console.info('[ifc-url][ws]', { action, ifcStorageUrl, assetId })
           }
-          ifcStorageUrlHandlerRef.current?.(ifcStorageUrl ?? '', action, assetId)
+          ifcStorageUrlHandlerRef.current?.(ifcStorageUrl ?? '', action, assetId, extractRevisionId(parsed))
         }
       }
 
+      if (action === WORKSPACE_SYNC_ACTION.floorPlanProcessing) {
+        return
+      }
+
+      const isFloorPlanWorkerCompletion =
+        action !== WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
+        Boolean(extractIfcStorageUrl(parsed))
+
       if (
-        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
+        (action === WORKSPACE_SYNC_ACTION.floorPlanUpdated && isFloorPlanWorkerCompletion) ||
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
       ) {
-        console.info('[editor][floor-plan-sync]', {
-          action,
-          baseIndex: extractFloorPlanBaseIndex(parsed),
-          hasSnapshot: Boolean(extractFloorPlanSnapshot(parsed)),
-        })
         syncFloorPlanHistoryCursor(action, extractFloorPlanBaseIndex(parsed))
       }
 
       if (
-        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
+        (action === WORKSPACE_SYNC_ACTION.floorPlanUpdated && isFloorPlanWorkerCompletion) ||
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
       ) {
@@ -280,10 +290,13 @@ export function useBubbleSnapshotRealtime({
       if (!parsed?.code) return
       if (parsed.code === CURSOR_INVALID_CODE) {
         bubbleHistoryCursorInvalidHandlerRef.current?.()
+        return
       }
       if (parsed.code === FLOOR_PLAN_CURSOR_INVALID_CODE) {
         floorPlanHistoryCursorInvalidHandlerRef.current?.()
+        return
       }
+      serverErrorHandlerRef.current?.(parsed)
     }
 
     return subscribeStompTopicsWithPolling({
