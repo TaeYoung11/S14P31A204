@@ -49,7 +49,6 @@ async def _generate_create_door_house_kr(out_dir: Path) -> dict[str, str]:
     scenario_dir = out_dir / "create_door_house_kr"
     source_path = str(HOUSE_KR)
     preview_json = scenario_dir / "preview.json"
-    result_ifc = scenario_dir / "result.ifc"
 
     ctx = extract_ifc_context(source_path)
     wall = next(wall for wall in ctx["walls"] if wall.get("floor") == 1)
@@ -66,15 +65,45 @@ async def _generate_create_door_house_kr(out_dir: Path) -> dict[str, str]:
         confidence=0.95,
     )
     preview = await pipeline.execute_command_preview(command)
-    result = await pipeline.execute_apply(preview["session_id"], output_path=str(result_ifc))
 
     _write_json(preview_json, preview)
     return {
         "scenario": "create_door_house_kr",
         "target_wall_id": wall["id"],
         "preview_json": str(preview_json),
-        "result_ifc": str(result_ifc),
-        "apply_status": str(result.get("status")),
+        "preview_status": str(preview.get("status")),
+    }
+
+
+async def _generate_create_wall_house_kr(out_dir: Path) -> dict[str, str]:
+    scenario_dir = out_dir / "create_wall_house_kr"
+    source_path = str(HOUSE_KR)
+    preview_json = scenario_dir / "preview.json"
+
+    ifc_context = extract_ifc_context(source_path)
+    pipeline = LLM2DPipeline(
+        ifc_path=source_path,
+        ifc_context=ifc_context,
+    )
+    living_room_name = next(
+        space["name"]
+        for space in ifc_context["spaces"]
+        if space["id"] == "0Lt8gR_E9ESeGH5uY_g9e9"
+    )
+    command = FloorNLPCommand(
+        action="create_wall",
+        target_room_name=living_room_name,
+        target_floor=1,
+        confidence=0.95,
+    )
+    preview = await pipeline.execute_command_preview(command)
+
+    _write_json(preview_json, preview)
+    return {
+        "scenario": "create_wall_house_kr",
+        "target_room_name": living_room_name,
+        "preview_json": str(preview_json),
+        "preview_status": str(preview.get("status")),
     }
 
 
@@ -152,8 +181,10 @@ async def _generate_room_add_preview(out_dir: Path) -> dict[str, str]:
 
 SCENARIOS = {
     "create_door_house_kr": _generate_create_door_house_kr,
+    "create_wall_house_kr": _generate_create_wall_house_kr,
     "insert_toilet_house_kr": _generate_insert_toilet_house_kr,
-    "insert_toilet_house_kr_nobathroom_big_room": _generate_insert_toilet_house_kr_nobathroom_big_room,
+    "insert_toilet_house_kr_nobathroom_big_room":
+        _generate_insert_toilet_house_kr_nobathroom_big_room,
     "room_remove_preview": _generate_room_remove_preview,
     "room_resize_preview": _generate_room_resize_preview,
     "room_add_preview": _generate_room_add_preview,

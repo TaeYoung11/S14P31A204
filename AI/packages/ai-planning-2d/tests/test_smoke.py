@@ -323,7 +323,7 @@ def test_add_room_unknown_floor(ifc_ctx):
 def test_remove_room(ifc_ctx):
     cmd = FloorNLPCommand(
         action="remove_room",
-        target_room_name="嫄곗떎",
+        target_room_name=ifc_ctx["spaces"][0]["name"],
         confidence=0.95,
     )
     batch = to_ifc_commands(cmd, ifc_ctx)
@@ -335,7 +335,7 @@ def test_remove_room(ifc_ctx):
 def test_remove_locked_room(locked_ifc_ctx):
     cmd = FloorNLPCommand(
         action="remove_room",
-        target_room_name="嫄곗떎",
+        target_room_name=locked_ifc_ctx["spaces"][0]["name"],
         confidence=0.95,
     )
     batch = to_ifc_commands(cmd, locked_ifc_ctx)
@@ -382,7 +382,7 @@ def test_remove_room_not_found(ifc_ctx):
 def test_resize_room(ifc_ctx):
     cmd = FloorNLPCommand(
         action="resize_room",
-        target_room_name="嫄곗떎",
+        target_room_name=ifc_ctx["spaces"][0]["name"],
         resize_shape="L",
         resize_width=6000,
         resize_height=8000,
@@ -397,7 +397,7 @@ def test_resize_room(ifc_ctx):
 def test_resize_locked_room(locked_ifc_ctx):
     cmd = FloorNLPCommand(
         action="resize_room",
-        target_room_name="嫄곗떎",
+        target_room_name=locked_ifc_ctx["spaces"][0]["name"],
         resize_shape="L",
         resize_width=6000,
         resize_height=8000,
@@ -2158,6 +2158,54 @@ def test_to_ifc_commands_create_door_on_selected_wall(ifc_ctx):
 
 
 @pytest.mark.asyncio
+async def test_engine_parse_command_recovers_create_wall_from_selected_room(ifc_ctx):
+    ctx = dict(ifc_ctx)
+    ctx["spaces"] = [
+        {
+            "id": "sp-living",
+            "name": "거실",
+            "type": "living",
+            "floor": 1,
+            "polygon": [(0.0, 0.0), (4000.0, 0.0), (4000.0, 3000.0), (0.0, 3000.0)],
+            "width": 4000,
+            "height": 3000,
+            "x": 0.0,
+            "y": 0.0,
+            "angle": 0.0,
+            "locked": False,
+            "zone_id": None,
+        }
+    ]
+    engine = FloorPlanEngine()
+
+    command = await engine.parse_command("[거실] 여기에 가벽을 세워줘", ctx)
+
+    assert command.action == "create_wall"
+    assert command.target_room_name == "거실"
+    assert command.target_floor == 1
+
+
+def test_to_ifc_commands_create_wall_on_locked_house_kr_candidate():
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    ctx = extract_ifc_context(str(house_kr))
+    living_room_name = next(
+        space["name"] for space in ctx["spaces"] if space["id"] == "0Lt8gR_E9ESeGH5uY_g9e9"
+    )
+    command = FloorNLPCommand(
+        action="create_wall",
+        target_room_name=living_room_name,
+        target_floor=1,
+        confidence=0.95,
+    )
+
+    batch = to_ifc_commands(command, ctx)
+
+    assert batch.requires_clarification is True
+    assert batch.commands == []
+    assert batch.clarification_question
+
+
+@pytest.mark.asyncio
 async def test_engine_parse_command_recovers_create_door_from_selected_wall_id(ifc_ctx):
     ctx = dict(ifc_ctx)
     ctx["walls"] = [
@@ -2279,6 +2327,82 @@ async def test_pipeline_apply_create_door_on_house_kr_reuses_template(tmp_path):
     assert opening_signature[2] == pytest.approx(host_thickness)
     door_loc = tuple(created_door.ObjectPlacement.RelativePlacement.Location.Coordinates)
     assert abs(float(door_loc[0])) <= float(opening_signature[0])
+
+
+@pytest.mark.asyncio
+@pytest.mark.skip(
+    reason="create_wall auto-apply is disabled until a validated House_KR candidate exists"
+)
+async def test_pipeline_apply_create_wall_on_house_kr_locked_candidate(tmp_path):
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    ctx = extract_ifc_context(str(house_kr))
+    before_model = ifcopenshell.open(str(house_kr))
+    before_wall_ids = {wall.GlobalId for wall in before_model.by_type("IfcWall")}
+    output_path = str(tmp_path / "house-kr-create-wall.ifc")
+    pipeline = LLM2DPipeline(ifc_path=str(house_kr), ifc_context=ctx)
+    command = FloorNLPCommand(
+        action="create_wall",
+        target_room_name="거실",
+        target_floor=1,
+        confidence=0.95,
+    )
+
+    preview = await pipeline.execute_command_preview(command)
+    result = await pipeline.execute_apply(preview["session_id"], output_path=output_path)
+    updated_ctx = extract_ifc_context(output_path)
+
+    assert preview["status"] == "preview_ready"
+    assert preview["engine_request"]["operations"][0]["type"] == "create_element"
+    assert preview["engine_request"]["operations"][0]["parameters"]["element_type"] == "IfcWall"
+    assert result["status"] == "applied"
+    assert result["apply_mode"] == "shared_authoring"
+    assert len(updated_ctx["walls"]) == len(ctx["walls"]) + 1
+
+    applied_model = ifcopenshell.open(output_path)
+    after_walls = {wall.GlobalId for wall in applied_model.by_type("IfcWall")}
+    created_wall_ids = after_walls - before_wall_ids
+    assert len(created_wall_ids) == 1
+    created_wall = applied_model.by_guid(next(iter(created_wall_ids)))
+    assert created_wall is not None
+    assert created_wall.is_a("IfcWallStandardCase")
+    assert created_wall.Name == "거실 가벽"
+    assert len(getattr(created_wall, "ContainedInStructure", []) or []) == 1
+    assert len(getattr(created_wall, "IsTypedBy", []) or []) == 1
+    body_item = engine_3d_module._wall_body_item(created_wall)
+    assert body_item is not None
+    assert body_item.is_a("IfcExtrudedAreaSolid")
+    assert engine_3d_module._wall_y_bounds(created_wall) == pytest.approx((-0.24, 0.0))
+    path_connects = [
+        rel
+        for rel in (
+            list(getattr(created_wall, "ConnectedTo", []) or [])
+            + list(getattr(created_wall, "ConnectedFrom", []) or [])
+        )
+        if rel.is_a("IfcRelConnectsPathElements")
+    ]
+    assert len(path_connects) == 2
+
+
+@pytest.mark.asyncio
+async def test_pipeline_preview_create_wall_on_house_kr_requires_clarification():
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    ctx = extract_ifc_context(str(house_kr))
+    living_room_name = next(
+        space["name"] for space in ctx["spaces"] if space["id"] == "0Lt8gR_E9ESeGH5uY_g9e9"
+    )
+    pipeline = LLM2DPipeline(ifc_path=str(house_kr), ifc_context=ctx)
+    command = FloorNLPCommand(
+        action="create_wall",
+        target_room_name=living_room_name,
+        target_floor=1,
+        confidence=0.95,
+    )
+
+    preview = await pipeline.execute_command_preview(command)
+
+    assert preview["status"] == "needs_clarification"
+    assert "session_id" not in preview
+    assert preview["summary"]
 
 
 def test_translate_relative_placement_location_does_not_mutate_shared_point():

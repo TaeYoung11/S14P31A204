@@ -32,6 +32,7 @@ class NewRoom(BaseModel):
 class FloorNLPCommand(BaseModel):
     action: Literal[
         "add_room",
+        "create_wall",
         "create_door",
         "insert_toilet",
         "remove_room",
@@ -98,6 +99,8 @@ class FloorNLPCommand(BaseModel):
             return self
         if self.action == "add_room" and self.new_room is None:
             raise ValueError("add_room requires new_room.")
+        if self.action == "create_wall" and self.target_room_name is None:
+            raise ValueError("create_wall requires target_room_name.")
         if self.action == "create_door" and self.target_wall_id is None:
             raise ValueError("create_door requires target_wall_id.")
         if self.action == "resize_room" and self.target_room_name is None:

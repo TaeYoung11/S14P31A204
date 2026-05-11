@@ -82,6 +82,8 @@ def _build_operations(
             f"'{command.action}' is planning-assist only and cannot build "
             "shared apply payloads"
         )
+    if command.action == "create_wall":
+        return _build_create_wall_operations(command_batch=command_batch)
     if command.action == "create_door":
         return _build_create_door_operations(command_batch=command_batch)
 
@@ -123,6 +125,53 @@ def _build_create_door_operations(
                     "width": int(dimensions.get("width", 900)),
                     "height": int(dimensions.get("height", 2100)),
                 },
+            },
+        )
+    ]
+
+
+def _build_create_wall_operations(
+    *,
+    command_batch: CommandBatch,
+) -> list[EngineOperationInlineRef]:
+    if not command_batch.commands:
+        raise ValueError("create_wall shared request requires at least one command")
+    payload = command_batch.commands[0].params
+    metadata = payload.get("metadata", {})
+    dimensions = payload.get("dimensions_mm", {})
+    start_mm = payload.get("start_mm", {})
+    end_mm = payload.get("end_mm", {})
+    storey_id = metadata.get("storey_id")
+    template_wall_id = metadata.get("template_wall_id")
+    if storey_id is None:
+        raise ValueError("create_wall shared request requires storey_id")
+    if template_wall_id is None:
+        raise ValueError("create_wall shared request requires template_wall_id")
+    return [
+        EngineOperationInlineRef(
+            id="op-create-wall",
+            type="create_element",
+            selector=None,
+            parameters={
+                "element_type": "IfcWall",
+                "storey_id": storey_id,
+                "template_wall_global_id": template_wall_id,
+                "endpoint_connections": metadata.get("endpoint_connections", []),
+                "start_mm": {
+                    "x": float(start_mm.get("x", 0.0)),
+                    "y": float(start_mm.get("y", 0.0)),
+                    "z": float(start_mm.get("z", 0.0)),
+                },
+                "end_mm": {
+                    "x": float(end_mm.get("x", 0.0)),
+                    "y": float(end_mm.get("y", 0.0)),
+                    "z": float(end_mm.get("z", 0.0)),
+                },
+                "dimensions_mm": {
+                    "width": int(dimensions.get("width", 240)),
+                    "height": int(dimensions.get("height", 2500)),
+                },
+                "name": payload.get("properties", {}).get("name") or "거실 가벽",
             },
         )
     ]

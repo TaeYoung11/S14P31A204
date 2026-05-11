@@ -67,6 +67,8 @@ _RESIZE_DIRECTION_HINTS: tuple[tuple[str, str], ...] = (
 
 _CREATE_DOOR_KEYWORDS: tuple[str, ...] = ("문", "door")
 _CREATE_DOOR_ACTION_HINTS: tuple[str, ...] = ("만들", "추가", "뚫")
+_CREATE_WALL_KEYWORDS: tuple[str, ...] = ("가벽", "벽", "partition", "wall")
+_CREATE_WALL_ACTION_HINTS: tuple[str, ...] = ("세워", "만들", "추가", "설치")
 
 
 def _maybe_parse_generic_room_change_clarification(user_text: str) -> FloorNLPCommand | None:
@@ -468,6 +470,28 @@ def _maybe_parse_simple_create_door_command(
     )
 
 
+def _maybe_parse_simple_create_wall_command(
+    user_text: str,
+    ifc_context: IFCContext | None,
+) -> FloorNLPCommand | None:
+    lowered = user_text.casefold()
+    if not any(keyword in user_text or keyword in lowered for keyword in _CREATE_WALL_KEYWORDS):
+        return None
+    if not any(keyword in user_text for keyword in _CREATE_WALL_ACTION_HINTS):
+        return None
+    space = _resolve_space_for_user_text(user_text, ifc_context)
+    if space is None:
+        return None
+    return FloorNLPCommand(
+        action="create_wall",
+        target_room_name=space.get("name"),
+        target_floor=space.get("floor"),
+        confidence=0.9,
+        needs_clarification=False,
+        clarification_question=None,
+    )
+
+
 SYSTEM_PROMPT = """
 당신은 2D 평면 수정 요청을 구조화된 명령으로 변환하는 파서다.
 사용자 요청을 읽고 FloorNLPCommand JSON 하나만 정확하게 반환한다.
@@ -677,6 +701,10 @@ class FloorPlanEngine:
         generic_room_change = _maybe_parse_generic_room_change_clarification(user_text)
         if generic_room_change is not None:
             return generic_room_change
+
+        create_wall = _maybe_parse_simple_create_wall_command(user_text, ifc_context)
+        if create_wall is not None:
+            return create_wall
 
         create_door = _maybe_parse_simple_create_door_command(user_text, ifc_context)
         if create_door is not None:

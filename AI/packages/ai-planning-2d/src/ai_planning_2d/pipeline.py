@@ -5,6 +5,11 @@ from .add_room_placement import suggest_add_room_start_mm
 from .toilet_demo import build_toilet_insertion_geometry_plan
 from .validator import validate_command_batch
 
+_MSG_CREATE_WALL_NO_VALIDATED_CANDIDATE = (
+    "? ??? ??? ???? ?? ???? ?? ???? ???. "
+    "?? ????? ?? ??? ???? ??? ???? ????."
+)
+
 # ---------------------------------------------------------------------------
 # 사용자 안내 메시지 상수
 # ---------------------------------------------------------------------------
@@ -25,6 +30,166 @@ _TMPL_LOCKED_DELETE = "'{name}' 방은 잠겨 있어 삭제할 수 없습니다.
 _TMPL_LOCKED_RESIZE = "'{name}' 방은 잠겨 있어 크기를 변경할 수 없습니다."
 _TMPL_STOREY_NOT_FOUND = "'{name}' 방의 층 정보를 현재 IFC에서 찾을 수 없습니다."
 _TMPL_STOREY_MISSING_ERROR = "IFC 데이터 오류: '{name}' 방의 storey 정보가 누락됨."
+_MSG_CREATE_WALL_DEMO_ONLY = "현재 데모에서는 House_KR 거실 가벽 시나리오만 지원합니다."
+
+_LOCKED_PARTITION_WALL_CANDIDATE = {
+    "room_id": "0Lt8gR_E9ESeGH5uY_g9e9",
+    "room_name": "거실",
+    "floor": 1,
+    "start_y_mm": 300.0,
+    "end_y_mm": 4010.0,
+    "width_mm": 240,
+    "height_mm": 2500,
+    "template_wall_id": "2XPyKWY018sA1ygZKgQPtU",
+    "bottom_host_wall_id": "16DNNqzfP2thtfaOflvsKA",
+    "top_host_wall_id": "2XPyKWY018sA1ygZKgQPtU",
+    "opening_margin_mm": 300.0,
+    "corner_margin_mm": 200.0,
+    "endpoint_connections": [
+        {
+            "mode": "existing_to_new",
+            "existing_wall_id": "16DNNqzfP2thtfaOflvsKA",
+            "existing_connection_type": "ATEND",
+            "new_connection_type": "ATSTART",
+        },
+        {
+            "mode": "new_to_existing",
+            "existing_wall_id": "2XPyKWY018sA1ygZKgQPtU",
+            "new_connection_type": "ATEND",
+            "existing_connection_type": "ATSTART",
+        },
+    ],
+}
+
+
+def _host_wall_axis_interval(wall: dict[str, Any]) -> tuple[float, float]:
+    start = wall["start"]
+    end = wall["end"]
+    if abs(float(end[0]) - float(start[0])) >= abs(float(end[1]) - float(start[1])):
+        return (min(float(start[0]), float(end[0])), max(float(start[0]), float(end[0])))
+    return (min(float(start[1]), float(end[1])), max(float(start[1]), float(end[1])))
+
+
+def _opening_like_intervals(
+    *,
+    host_wall_id: str,
+    ifc_context: IFCContext,
+) -> list[tuple[float, float]]:
+    intervals: list[tuple[float, float]] = []
+    for collection_name in ("doors", "windows", "openings"):
+        for item in ifc_context.get(collection_name, []):
+            if item.get("host_wall_id") != host_wall_id:
+                continue
+            position = float(item.get("position") or 0.0)
+            width = float(item.get("width") or 0.0)
+            if width <= 0.0:
+                continue
+            intervals.append((position, position + width))
+    return intervals
+
+
+def _subtract_interval(
+    allowed: list[tuple[float, float]],
+    blocked: tuple[float, float],
+) -> list[tuple[float, float]]:
+    blocked_start, blocked_end = blocked
+    result: list[tuple[float, float]] = []
+    for start, end in allowed:
+        if blocked_end <= start or blocked_start >= end:
+            result.append((start, end))
+            continue
+        if blocked_start > start:
+            result.append((start, blocked_start))
+        if blocked_end < end:
+            result.append((blocked_end, end))
+    return [(start, end) for start, end in result if end - start > 0.0]
+
+
+def _choose_locked_partition_candidate(
+    *,
+    command: FloorNLPCommand,
+    ifc_context: IFCContext,
+) -> dict[str, Any] | None:
+    # Viewer inspection and direct IFC opening measurements showed that the
+    # previously locked House_KR candidate still lands inside a window-bearing
+    # host-wall segment. Until a new candidate is validated from real opening
+    # extents, create_wall must not auto-apply on this branch.
+    return None
+
+    if command.target_floor != _LOCKED_PARTITION_WALL_CANDIDATE["floor"]:
+        return None
+    spaces = ifc_context.get("spaces", [])
+    room = next(
+        (
+            space
+            for space in spaces
+            if space.get("id") == _LOCKED_PARTITION_WALL_CANDIDATE["room_id"]
+        ),
+        None,
+    )
+    if room is None:
+        return None
+    if command.target_room_name != room.get("name"):
+        return None
+    wall_by_id = {wall["id"]: wall for wall in ifc_context.get("walls", [])}
+    bottom_wall = wall_by_id.get(_LOCKED_PARTITION_WALL_CANDIDATE["bottom_host_wall_id"])
+    top_wall = wall_by_id.get(_LOCKED_PARTITION_WALL_CANDIDATE["top_host_wall_id"])
+    if bottom_wall is None or top_wall is None:
+        return None
+
+    room_min_x = min(float(point[0]) for point in room["polygon"])
+    room_max_x = max(float(point[0]) for point in room["polygon"])
+    bottom_min, bottom_max = _host_wall_axis_interval(bottom_wall)
+    top_min, top_max = _host_wall_axis_interval(top_wall)
+    allowed = [(
+        max(
+            room_min_x,
+            bottom_min,
+            top_min,
+            room_min_x + _LOCKED_PARTITION_WALL_CANDIDATE["corner_margin_mm"],
+        ),
+        min(
+            room_max_x,
+            bottom_max,
+            top_max,
+            room_max_x - _LOCKED_PARTITION_WALL_CANDIDATE["corner_margin_mm"],
+        ),
+    )]
+    allowed = [(start, end) for start, end in allowed if end - start > 0.0]
+    if not allowed:
+        return None
+
+    margin = _LOCKED_PARTITION_WALL_CANDIDATE["opening_margin_mm"]
+    for interval in _opening_like_intervals(
+        host_wall_id=bottom_wall["id"],
+        ifc_context=ifc_context,
+    ):
+        allowed = _subtract_interval(allowed, (interval[0] - margin, interval[1] + margin))
+    for interval in _opening_like_intervals(
+        host_wall_id=top_wall["id"],
+        ifc_context=ifc_context,
+    ):
+        allowed = _subtract_interval(allowed, (interval[0] - margin, interval[1] + margin))
+    if not allowed:
+        return None
+
+    start, end = max(allowed, key=lambda interval: interval[1] - interval[0])
+    candidate_x = round((start + end) / 2.0, 3)
+    return {
+        **_LOCKED_PARTITION_WALL_CANDIDATE,
+        "candidate_x_mm": candidate_x,
+        "allowed_intervals_mm": allowed,
+        "start_mm": {
+            "x": candidate_x,
+            "y": _LOCKED_PARTITION_WALL_CANDIDATE["start_y_mm"],
+            "z": 0.0,
+        },
+        "end_mm": {
+            "x": candidate_x,
+            "y": _LOCKED_PARTITION_WALL_CANDIDATE["end_y_mm"],
+            "z": 0.0,
+        },
+    }
 
 
 def to_ifc_commands(
@@ -132,6 +297,66 @@ def to_ifc_commands(
                     },
                     confidence=command.confidence,
                     reason="create door on selected wall",
+                )
+            ],
+            requires_clarification=False,
+        )
+
+    if command.action == "create_wall":
+        target_ids = _find_space_ids(command.target_room_name)
+        if not target_ids:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=_TMPL_ROOM_NOT_FOUND.format(name=command.target_room_name),
+            )
+        locked_candidate = _choose_locked_partition_candidate(
+            command=command,
+            ifc_context=ifc_context or {},
+        ) if ifc_context is not None else None
+        if (
+            len(target_ids) != 1
+            or target_ids[0] != _LOCKED_PARTITION_WALL_CANDIDATE["room_id"]
+            or locked_candidate is None
+        ):
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=_MSG_CREATE_WALL_NO_VALIDATED_CANDIDATE,
+            )
+        storey_id = _find_storey_id(_LOCKED_PARTITION_WALL_CANDIDATE["floor"])
+        if storey_id is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=_TMPL_STOREY_NOT_FOUND.format(name=command.target_room_name),
+            )
+        return CommandBatch(
+            commands=[
+                IFCCommand(
+                    action=ActionType.CREATE_WALL,
+                    target_id=None,
+                    params={
+                        "entity_type": "Wall",
+                        "metadata": {
+                            "storey_id": storey_id,
+                            "template_wall_id": locked_candidate["template_wall_id"],
+                            "candidate_room_id": locked_candidate["room_id"],
+                            "endpoint_connections": locked_candidate["endpoint_connections"],
+                            "allowed_intervals_mm": locked_candidate["allowed_intervals_mm"],
+                        },
+                        "start_mm": dict(locked_candidate["start_mm"]),
+                        "end_mm": dict(locked_candidate["end_mm"]),
+                        "dimensions_mm": {
+                            "width": locked_candidate["width_mm"],
+                            "height": locked_candidate["height_mm"],
+                        },
+                        "properties": {
+                            "name": "거실 가벽",
+                        },
+                    },
+                    confidence=command.confidence,
+                    reason="create locked House_KR partition wall candidate",
                 )
             ],
             requires_clarification=False,

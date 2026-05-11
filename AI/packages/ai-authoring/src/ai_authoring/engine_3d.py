@@ -1384,6 +1384,247 @@ def _make_placement(
     )
 
 
+def _wall_z_range(
+    wall: ifcopenshell.entity_instance | None,
+) -> tuple[float, float] | None:
+    body = _wall_body_item(wall)
+    if body is None:
+        return None
+    position = getattr(body, "Position", None)
+    location = getattr(position, "Location", None) if position is not None else None
+    coords = tuple(getattr(location, "Coordinates", ()) or ())
+    z0 = float(coords[2]) if len(coords) >= 3 else 0.0
+    return (z0, z0 + float(body.Depth))
+
+
+def _axis_representation_present(
+    wall: ifcopenshell.entity_instance | None,
+) -> bool:
+    representation = getattr(wall, "Representation", None) if wall is not None else None
+    if representation is None:
+        return False
+    for rep in getattr(representation, "Representations", []) or []:
+        if getattr(rep, "RepresentationIdentifier", None) == "Axis":
+            return True
+    return False
+
+
+def _copy_material_association(
+    model: ifcopenshell.file,
+    *,
+    template_product,
+    product,
+) -> None:
+    for rel in getattr(template_product, "HasAssociations", []) or []:
+        if not rel.is_a("IfcRelAssociatesMaterial"):
+            continue
+        material = getattr(rel, "RelatingMaterial", None)
+        if material is None:
+            continue
+        model.create_entity(
+            "IfcRelAssociatesMaterial",
+            GlobalId=ifcopenshell.guid.new(),
+            RelatedObjects=[product],
+            RelatingMaterial=material,
+        )
+        return
+
+
+def _create_wall_product_shape(
+    model: ifcopenshell.file,
+    *,
+    length_m: float,
+    thickness_m: float,
+    height_m: float,
+    y_min_m: float,
+    include_axis: bool,
+) -> ifcopenshell.entity_instance:
+    representations: list[ifcopenshell.entity_instance] = []
+    body_context = _body_context(model)
+    if include_axis:
+        axis_polyline = model.create_entity(
+            "IfcPolyline",
+            Points=(
+                model.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0)),
+                model.create_entity("IfcCartesianPoint", Coordinates=(length_m, 0.0)),
+            ),
+        )
+        representations.append(
+            model.create_entity(
+                "IfcShapeRepresentation",
+                ContextOfItems=body_context,
+                RepresentationIdentifier="Axis",
+                RepresentationType="Curve2D",
+                Items=(axis_polyline,),
+            )
+        )
+
+    profile = model.create_entity(
+        "IfcRectangleProfileDef",
+        ProfileType="AREA",
+        XDim=float(length_m),
+        YDim=float(thickness_m),
+        Position=model.create_entity(
+            "IfcAxis2Placement2D",
+            Location=model.create_entity(
+                "IfcCartesianPoint",
+                Coordinates=(float(length_m / 2.0), float(y_min_m + (thickness_m / 2.0))),
+            ),
+        ),
+    )
+    solid = model.create_entity(
+        "IfcExtrudedAreaSolid",
+        SweptArea=profile,
+        Position=_axis_placement_3d(model, location=(0.0, 0.0, 0.0)),
+        ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        Depth=float(height_m),
+    )
+    representations.append(
+        model.create_entity(
+            "IfcShapeRepresentation",
+            ContextOfItems=body_context,
+            RepresentationIdentifier="Body",
+            RepresentationType="SweptSolid",
+            Items=[solid],
+        )
+    )
+    representations.append(
+        model.create_entity(
+            "IfcShapeRepresentation",
+            ContextOfItems=body_context,
+            RepresentationIdentifier="Box",
+            RepresentationType="BoundingBox",
+            Items=[
+                model.create_entity(
+                    "IfcBoundingBox",
+                    Corner=model.create_entity(
+                        "IfcCartesianPoint",
+                        Coordinates=(0.0, float(y_min_m), 0.0),
+                    ),
+                    XDim=float(length_m),
+                    YDim=float(thickness_m),
+                    ZDim=float(height_m),
+                )
+            ],
+        )
+    )
+    return model.create_entity("IfcProductDefinitionShape", Representations=representations)
+
+
+def _create_path_connection(
+    model: ifcopenshell.file,
+    *,
+    relating_element,
+    related_element,
+    relating_connection_type: str,
+    related_connection_type: str,
+) -> None:
+    model.create_entity(
+        "IfcRelConnectsPathElements",
+        GlobalId=ifcopenshell.guid.new(),
+        RelatingElement=relating_element,
+        RelatedElement=related_element,
+        RelatingConnectionType=relating_connection_type,
+        RelatedConnectionType=related_connection_type,
+    )
+
+
+def create_wall_with_template_reuse(
+    model: ifcopenshell.file,
+    storey: ifcopenshell.entity_instance,
+    *,
+    template_wall: ifcopenshell.entity_instance,
+    name: str,
+    start_mm: dict[str, float],
+    end_mm: dict[str, float],
+    width_mm: float,
+    height_mm: float,
+    endpoint_connections: list[dict[str, str]] | None = None,
+) -> ifcopenshell.entity_instance | None:
+    try:
+        if not template_wall.is_a("IfcWallStandardCase"):
+            logger.error("Template wall for create_wall is not IfcWallStandardCase")
+            return None
+        template_body = _wall_body_item(template_wall)
+        template_y_bounds = _wall_y_bounds(template_wall)
+        template_z_range = _wall_z_range(template_wall)
+        if template_body is None or template_y_bounds is None or template_z_range is None:
+            logger.error("Template wall for create_wall is missing supported body data")
+            return None
+
+        start_x_mm = float(start_mm.get("x", 0.0))
+        start_y_mm = float(start_mm.get("y", 0.0))
+        start_z_mm = float(start_mm.get("z", 0.0))
+        end_x_mm = float(end_mm.get("x", 0.0))
+        end_y_mm = float(end_mm.get("y", 0.0))
+        dx_mm = end_x_mm - start_x_mm
+        dy_mm = end_y_mm - start_y_mm
+        length_mm = math.hypot(dx_mm, dy_mm)
+        if length_mm <= 0.0:
+            raise ValueError("wall segment length must be positive")
+        direction = "north"
+        azimuth = math.degrees(math.atan2(dx_mm, dy_mm)) % 360.0
+        if azimuth < 45.0 or azimuth >= 315.0:
+            direction = "north"
+        elif azimuth < 135.0:
+            direction = "east"
+        elif azimuth < 225.0:
+            direction = "south"
+        else:
+            direction = "west"
+
+        wall = ifcopenshell.api.run(
+            "root.create_entity",
+            model,
+            ifc_class="IfcWallStandardCase",
+            name=name,
+        )
+        wall.ObjectPlacement = _make_placement(
+            model,
+            storey,
+            start_x_mm,
+            start_y_mm,
+            start_z_mm,
+            direction,
+        )
+        wall.Representation = _create_wall_product_shape(
+            model,
+            length_m=_mm_to_model_units(model, length_mm, 3000.0),
+            thickness_m=_mm_to_model_units(model, width_mm, 240.0),
+            height_m=_mm_to_model_units(model, height_mm, 2500.0),
+            y_min_m=float(template_y_bounds[0]),
+            include_axis=_axis_representation_present(template_wall),
+        )
+        _copy_product_type_relation(model, template_product=template_wall, product=wall)
+        _copy_material_association(model, template_product=template_wall, product=wall)
+        _assign_to_storey(model, wall, storey)
+
+        for connection in endpoint_connections or []:
+            existing_wall = model.by_guid(connection["existing_wall_id"])
+            if existing_wall is None:
+                continue
+            if connection.get("mode") == "existing_to_new":
+                _create_path_connection(
+                    model,
+                    relating_element=existing_wall,
+                    related_element=wall,
+                    relating_connection_type=connection["existing_connection_type"],
+                    related_connection_type=connection["new_connection_type"],
+                )
+            else:
+                _create_path_connection(
+                    model,
+                    relating_element=wall,
+                    related_element=existing_wall,
+                    relating_connection_type=connection["new_connection_type"],
+                    related_connection_type=connection["existing_connection_type"],
+                )
+        return wall
+    except Exception as exc:
+        logger.error(f"Template wall creation failed: {exc}")
+        return None
+
+
 def create_wall(
     model: ifcopenshell.file,
     storey: ifcopenshell.entity_instance,
