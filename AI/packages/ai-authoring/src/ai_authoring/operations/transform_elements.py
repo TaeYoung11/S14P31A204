@@ -36,7 +36,10 @@ class TransformElementsHandler:
         selector: dict[str, Any] | None = None,
     ) -> list[str]:
         del storey
-        translation = parameters.get("translation_mm") or parameters.get("translate_mm") or {}
+        translation = parameters.get("translation_mm")
+        if translation is None:
+            translation = parameters.get("translate_mm")
+        translation = translation or {}
         rotation = parameters.get("rotation_deg") or {}
         transformed_ids: list[str] = []
         for product in _selected_products(model, selector):

@@ -23,6 +23,13 @@ from ai_authoring.engine_3d import (
 from ai_authoring.operations.registry import get as get_operation
 
 
+def _required_number(params: dict[str, Any], key: str) -> float:
+    value = params.get(key)
+    if value is None:
+        raise ValueError(f"Missing required create parameter: {key}")
+    return float(value)
+
+
 def apply_llm3d_create_to_ifc(
     model: ifcopenshell.file,
     storey: ifcopenshell.entity_instance,
@@ -66,16 +73,16 @@ def apply_llm3d_create_to_ifc(
             "storey": getattr(storey, "Name", None),
             "coordinate_space": "PROJECT_ABSOLUTE_MM",
             "start_mm": {
-                "x": params["x_mm"],
-                "y": params["y_mm"],
-                "z": params["z_mm"],
+                "x": _required_number(params, "x_mm"),
+                "y": _required_number(params, "y_mm"),
+                "z": _required_number(params, "z_mm"),
             },
             "dimensions_mm": {
-                "length": params["length_mm"],
-                "width": params["width_mm"],
-                "height": params["height_mm"],
+                "length": _required_number(params, "length_mm"),
+                "width": _required_number(params, "width_mm"),
+                "height": _required_number(params, "height_mm"),
             },
-            "direction": params["direction"],
+            "direction": params.get("direction") or "north",
             "color": params.get("color"),
             "material": params.get("material_name"),
             "host_wall_global_id": params.get("host_wall_global_id"),
@@ -114,7 +121,10 @@ def apply_llm3d_modify_delete_to_ifc(
 
     for item in matched:
         global_id = str(item.get("global_id") or "")
-        element = model.by_guid(global_id) if global_id else None
+        try:
+            element = model.by_guid(global_id) if global_id else None
+        except RuntimeError:
+            element = None
         if not element:
             missing_ids.append(global_id)
             continue
@@ -172,8 +182,9 @@ def apply_llm3d_modify_delete_to_ifc(
         }
 
     model.write(output_path)
+    status = "partial_applied" if missing_ids or failed_ids else "applied"
     return {
-        "status": "applied",
+        "status": status,
         "applied_count": applied_count,
         "ifc_path": output_path,
         "missing_ids": missing_ids,

@@ -382,7 +382,7 @@ class LLM3DPipeline:
                 )
                 record["apply_status"] = result.get("status")
                 record["apply_summary"] = result.get("summary")
-                if result.get("status") == "applied":
+                if result.get("status") in {"applied", "partial_applied"}:
                     record["ifc_written"] = True
                     record["output_ifc"] = output_path
                 else:

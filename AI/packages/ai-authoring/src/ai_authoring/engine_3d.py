@@ -239,7 +239,9 @@ def _dimension_change_to_native(
     scale: float,
 ) -> float:
     mode = str(change.get("mode") or "ABSOLUTE").upper()
-    value = float(change.get("value") or 0.0)
+    if "value" not in change or change.get("value") is None:
+        raise ValueError("dimension change requires an explicit value")
+    value = float(change["value"])
     current_mm = current_native * scale
     if mode == "SCALE":
         next_mm = current_mm * value
@@ -322,18 +324,27 @@ def _set_length_property_value(
     property_name: str,
     change: dict[str, Any],
     scale: float,
+    fallback_mm: float | None = None,
 ) -> None:
     mode = str(change.get("mode") or "ABSOLUTE").upper()
-    value = float(change.get("value") or 0.0)
+    if "value" not in change or change.get("value") is None:
+        raise ValueError("dimension property update requires an explicit value")
+    value = float(change["value"])
+    next_mm: float | None = None
+    target_pset = None
     for rel in getattr(element, "IsDefinedBy", []) or []:
         if not rel.is_a("IfcRelDefinesByProperties"):
             continue
         pset = getattr(rel, "RelatingPropertyDefinition", None)
+        if target_pset is None and pset and pset.is_a("IfcPropertySet"):
+            target_pset = pset
         for prop in getattr(pset, "HasProperties", []) or []:
             if not prop.is_a("IfcPropertySingleValue") or prop.Name != property_name:
                 continue
             current = getattr(getattr(prop, "NominalValue", None), "wrappedValue", None)
-            current_mm = float(current or 0.0)
+            current_mm = float(current) if current is not None else fallback_mm
+            if current_mm is None:
+                current_mm = 0.0
             if mode == "SCALE":
                 next_mm = current_mm * value
             elif mode == "RELATIVE":
@@ -342,6 +353,29 @@ def _set_length_property_value(
                 next_mm = value
             prop.NominalValue.wrappedValue = float(next_mm)
             return
+    if next_mm is None:
+        next_mm = fallback_mm if fallback_mm is not None else value
+    model = element.file
+    prop = model.create_entity(
+        "IfcPropertySingleValue",
+        Name=property_name,
+        NominalValue=model.create_entity("IfcLengthMeasure", float(next_mm)),
+    )
+    if target_pset is not None:
+        target_pset.HasProperties = tuple(list(target_pset.HasProperties or []) + [prop])
+        return
+    pset = model.create_entity(
+        "IfcPropertySet",
+        GlobalId=ifcopenshell.guid.new(),
+        Name="Pset_BATANG_Dimensions",
+        HasProperties=[prop],
+    )
+    model.create_entity(
+        "IfcRelDefinesByProperties",
+        GlobalId=ifcopenshell.guid.new(),
+        RelatedObjects=[element],
+        RelatingPropertyDefinition=pset,
+    )
 
 
 def modify_thickness(
@@ -349,6 +383,7 @@ def modify_thickness(
 ) -> bool:
     try:
         changed = False
+        last_width_native: float | None = None
         for rel in getattr(element, "HasAssociations", []):
             if rel.is_a("IfcRelAssociatesMaterial"):
                 mat = rel.RelatingMaterial
@@ -356,18 +391,42 @@ def modify_thickness(
                     layer_set = mat.ForLayerSet
                     if layer_set and layer_set.MaterialLayers:
                         layer = layer_set.MaterialLayers[0]
-                        layer.LayerThickness = float(
-                            _dimension_change_to_native(layer.LayerThickness, width_mm, scale)
+                        last_width_native = _dimension_change_to_native(
+                            layer.LayerThickness, width_mm, scale
                         )
+                        layer.LayerThickness = float(last_width_native)
                         changed = True
         for solid in _body_extruded_solids(element):
             profile = getattr(solid, "SweptArea", None)
             if profile and profile.is_a("IfcRectangleProfileDef"):
                 next_value = _dimension_change_to_native(float(profile.YDim), width_mm, scale)
                 profile.YDim = float(next_value)
+                last_width_native = next_value
+                changed = True
+            elif profile and profile.is_a("IfcArbitraryClosedProfileDef"):
+                outer_curve = getattr(profile, "OuterCurve", None)
+                if not outer_curve or not outer_curve.is_a("IfcPolyline"):
+                    continue
+                points = list(getattr(outer_curve, "Points", []) or [])
+                bounds = _point_bounds(points)
+                if not bounds:
+                    continue
+                _min_x, _max_x, min_y, max_y, _min_z, _max_z = bounds
+                current_width = max_y - min_y
+                if current_width <= 0:
+                    continue
+                next_width = _dimension_change_to_native(current_width, width_mm, scale)
+                factor = next_width / current_width
+                last_width_native = next_width
+                center_y = (min_y + max_y) / 2.0
+                for point in points:
+                    coords = list(point.Coordinates)
+                    coords[1] = center_y + (float(coords[1]) - center_y) * factor
+                    point.Coordinates = tuple(coords)
                 changed = True
         if changed:
-            _set_length_property_value(element, "Width", width_mm, scale)
+            fallback_mm = last_width_native * scale if last_width_native is not None else None
+            _set_length_property_value(element, "Width", width_mm, scale, fallback_mm)
         return changed
     except Exception as e:
         logger.error(f"Width update failed: {e}")
@@ -379,11 +438,13 @@ def modify_length(
 ) -> bool:
     try:
         changed = False
+        last_length_native: float | None = None
         for solid in _body_extruded_solids(element):
             profile = getattr(solid, "SweptArea", None)
             if profile and profile.is_a("IfcRectangleProfileDef"):
                 next_value = _dimension_change_to_native(float(profile.XDim), length_mm, scale)
                 profile.XDim = float(next_value)
+                last_length_native = next_value
                 changed = True
             elif profile and profile.is_a("IfcArbitraryClosedProfileDef"):
                 outer_curve = getattr(profile, "OuterCurve", None)
@@ -399,6 +460,7 @@ def modify_length(
                     continue
                 next_length = _dimension_change_to_native(current_length, length_mm, scale)
                 factor = next_length / current_length
+                last_length_native = next_length
                 center_x = (min_x + max_x) / 2.0
                 for point in points:
                     coords = list(point.Coordinates)
@@ -416,6 +478,7 @@ def modify_length(
                 continue
             next_length = _dimension_change_to_native(current_length, length_mm, scale)
             factor = next_length / current_length
+            last_length_native = next_length
             center_x = (min_x + max_x) / 2.0
             for point in points:
                 coords = list(point.Coordinates)
@@ -423,7 +486,8 @@ def modify_length(
                 point.Coordinates = tuple(coords)
             changed = True
         if changed:
-            _set_length_property_value(element, "Length", length_mm, scale)
+            fallback_mm = last_length_native * scale if last_length_native is not None else None
+            _set_length_property_value(element, "Length", length_mm, scale, fallback_mm)
         return changed
     except Exception as e:
         logger.error(f"Length update failed: {e}")
@@ -435,14 +499,17 @@ def modify_height(
 ) -> bool:
     try:
         changed = False
+        last_height_native: float | None = None
         for solid in _body_extruded_solids(element):
             next_value = _dimension_change_to_native(float(solid.Depth), height_mm, scale)
             if not _height_fits_storey(element, next_value):
                 return False
             solid.Depth = float(next_value)
+            last_height_native = next_value
             changed = True
         if changed:
-            _set_length_property_value(element, "Height", height_mm, scale)
+            fallback_mm = last_height_native * scale if last_height_native is not None else None
+            _set_length_property_value(element, "Height", height_mm, scale, fallback_mm)
         return changed
     except Exception as e:
         logger.error(f"Height update failed: {e}")
@@ -464,11 +531,14 @@ def modify_position(
 
         mode_relative = pos_mm.get("mode") == "RELATIVE"
         dx, dy, dz = (
-            (pos_mm.get("x") or 0.0) / scale,
-            (pos_mm.get("y") or 0.0) / scale,
-            (pos_mm.get("z") or 0.0) / scale,
+            float(pos_mm["x"]) / scale if pos_mm.get("x") is not None else 0.0,
+            float(pos_mm["y"]) / scale if pos_mm.get("y") is not None else 0.0,
+            float(pos_mm["z"]) / scale if pos_mm.get("z") is not None else 0.0,
         )
         coords = list(location.Coordinates)
+        while len(coords) < 3:
+            coords.append(0.0)
+        before = tuple(float(value) for value in coords[:3])
         if mode_relative:
             coords[0] += dx
             coords[1] += dy
@@ -480,7 +550,13 @@ def modify_position(
                 coords[1] = dy
             if "z" in pos_mm:
                 coords[2] = dz
-        location.Coordinates = tuple(coords)
+        after = tuple(float(value) for value in coords[:3])
+        if after == before:
+            return False
+        rel_placement.Location = element.file.create_entity(
+            "IfcCartesianPoint",
+            Coordinates=tuple(coords),
+        )
         return True
     except Exception as e:
         logger.error(f"위치 수정 오류: {e}")
@@ -589,6 +665,7 @@ def modify_rotation(
                         outer_curve = getattr(profile, "OuterCurve", None)
                         if outer_curve and outer_curve.is_a("IfcPolyline"):
                             changed = rotate_polyline_points(outer_curve.Points) or changed
+                            continue
                     location = getattr(position, "Location", None)
                     if location:
                         coords = list(location.Coordinates)
