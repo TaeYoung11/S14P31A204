@@ -47,13 +47,25 @@ class CommandLike:
     sourceSceneType = None
     targetRevisionId = None
 
-    def __init__(self, render_mode: str = "ifc2img") -> None:
+    def __init__(
+        self,
+        render_mode: str | None = "ifc2img",
+        *,
+        source_ifc_storage_url: str | None = "s3://bucket/input/model.ifc",
+    ) -> None:
+        self.input = InputLike(source_ifc_storage_url)
         self.payload = PayloadLike(render_mode)
 
 
+class InputLike:
+    def __init__(self, source_ifc_storage_url: str | None) -> None:
+        self.sourceIfcStorageUrl = source_ifc_storage_url
+
+
 class PayloadLike:
-    def __init__(self, render_mode: str) -> None:
+    def __init__(self, render_mode: str | None) -> None:
         self.renderMode = render_mode
+        self.prompt = "render from IFC"
 
 
 def test_rendering_worker_routes_ifc2img_command_to_runner(tmp_path: Path) -> None:
@@ -93,6 +105,37 @@ def test_rendering_worker_routes_ifc2img_command_to_runner(tmp_path: Path) -> No
     assert calls == [(command, settings, tmp_path / "job-1" / "step-1")]
 
 
+def test_rendering_worker_routes_ifc2img_by_source_ifc_even_without_render_mode(
+    tmp_path: Path,
+) -> None:
+    """payload renderMode가 없어도 IFC 입력이 있으면 ifc2img runner로 라우팅한다."""
+
+    calls: list[object] = []
+
+    def runner(*args: object) -> dict[str, object]:
+        calls.append(args)
+        return {
+            "status": "succeeded",
+            "renderMode": "ifc2img",
+            "preset": "korean_house",
+            "manifestStorageUrl": "s3://bucket/output/manifest.json",
+            "photos": [],
+        }
+
+    worker = RenderingWorker(
+        worker_id="rendering-worker-1",
+        event_publisher=FakeEventPublisher(),
+        s3_settings=object(),
+        work_root=tmp_path,
+        ifc2img_runner=runner,
+    )
+
+    result = worker.process(CommandLike(render_mode=None))
+
+    assert isinstance(result, CompletedResult)
+    assert len(calls) == 1
+
+
 def test_rendering_worker_rejects_unsupported_render_mode(tmp_path: Path) -> None:
     """ifc2img가 아닌 renderMode는 아직 구현된 경로가 아니므로 즉시 거절한다."""
 
@@ -110,8 +153,8 @@ def test_rendering_worker_rejects_unsupported_render_mode(tmp_path: Path) -> Non
         ifc2img_runner=runner,
     )
 
-    with pytest.raises(ValidationWorkerError, match="renderMode='ifc2img'"):
-        worker.process(CommandLike(render_mode="sd"))
+    with pytest.raises(ValidationWorkerError, match="sourceIfcStorageUrl"):
+        worker.process(CommandLike(source_ifc_storage_url=None))
 
     assert runner_calls == []
 
@@ -242,9 +285,9 @@ def test_rendering_worker_handle_publishes_failed_event(tmp_path: Path) -> None:
         work_root=tmp_path,
     )
 
-    result = worker.handle(CommandLike(render_mode="sd"))
+    result = worker.handle(CommandLike(source_ifc_storage_url=None))
 
     assert isinstance(result, FailedResult)
     assert [event.status for event in publisher.events] == ["started", "failed"]
     assert publisher.events[-1].error is not None
-    assert publisher.events[-1].error.code == "UNSUPPORTED_RENDER_MODE"
+    assert publisher.events[-1].error.code == "UNSUPPORTED_RENDER_INPUT"

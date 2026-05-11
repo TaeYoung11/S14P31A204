@@ -16,7 +16,7 @@ from ai_common.worker_sdk.event_factory import CompletedResult, WorkerResult
 from ai_domain.worker_messages.event import EventOutputRef
 
 from ai_rendering.ifc2img.exceptions import IFCRenderError
-from ai_rendering.ifc2img.service import IFC2IMG_WORKER_RENDER_MODE, Ifc2ImgWorkerSuccessResponse
+from ai_rendering.ifc2img.service import Ifc2ImgWorkerSuccessResponse
 from ai_rendering.ifc2img.storage import Ifc2ImgStorageError
 from ai_rendering.ifc2img.worker import run_ifc2img_worker_command
 
@@ -43,11 +43,10 @@ class RenderingWorker(BaseWorker):
     def process(self, command: object) -> WorkerResult:
         """명령 payload의 renderMode를 확인하고 지원하는 렌더링 경로를 실행한다."""
 
-        render_mode = _read_render_mode(command)
-        if render_mode == IFC2IMG_WORKER_RENDER_MODE:
+        if _has_source_ifc(command):
             return self._process_ifc2img_command(command)
 
-        raise _unsupported_render_mode_error(render_mode)
+        raise _unsupported_render_input_error()
 
     def _process_ifc2img_command(self, command: object) -> CompletedResult:
         """ifc2img 명령을 실행하고 manifest URL을 worker 완료 output으로 변환한다."""
@@ -78,17 +77,26 @@ class RenderingWorker(BaseWorker):
         return self._work_root / job_id / step_id
 
 
-def _read_render_mode(command: object) -> str | None:
-    payload = getattr(command, "payload", None)
-    return getattr(payload, "renderMode", None)
+def _read_command_field(source: object | None, field_name: str) -> object:
+    if source is None:
+        return None
+    if isinstance(source, dict):
+        return source.get(field_name)
+    return getattr(source, field_name, None)
 
 
-def _unsupported_render_mode_error(render_mode: str | None) -> ValidationWorkerError:
+def _has_source_ifc(command: object) -> bool:
+    input_ref = _read_command_field(command, "input")
+    source_ifc_url = _read_command_field(input_ref, "sourceIfcStorageUrl")
+    return isinstance(source_ifc_url, str) and bool(source_ifc_url)
+
+
+def _unsupported_render_input_error() -> ValidationWorkerError:
     return ValidationWorkerError(
-        code="UNSUPPORTED_RENDER_MODE",
+        code="UNSUPPORTED_RENDER_INPUT",
         message=(
-            "ai-rendering worker currently supports "
-            f"renderMode='{IFC2IMG_WORKER_RENDER_MODE}' only; got {render_mode!r}"
+            "ai-rendering worker currently supports ifc2img commands with "
+            "command.input.sourceIfcStorageUrl only"
         ),
     )
 

@@ -197,11 +197,22 @@ def test_worker_command_mapping_supports_command_like_object() -> None:
 def test_worker_command_mapping_uses_default_preset_when_missing() -> None:
     """preset이 없으면 photo pipeline 기본 preset으로 보정한다."""
     command = _worker_command_dict()
-    command["payload"] = {"renderMode": "ifc2img"}
+    command["payload"] = {"prompt": "render from IFC"}
 
     request = map_worker_command_to_ifc2img_request(command)
 
     assert request["payload"]["preset"] == "korean_house"
+    assert request["payload"]["renderMode"] == "ifc2img"
+
+
+def test_worker_command_mapping_ignores_shared_payload_render_mode_default() -> None:
+    """shared SD payload 기본값과 무관하게 IFC 입력 command는 ifc2img로 변환한다."""
+    command = _worker_command_dict()
+    command["payload"] = {"renderMode": "sd", "prompt": "render from IFC"}
+
+    request = map_worker_command_to_ifc2img_request(command)
+
+    assert request["payload"]["renderMode"] == "ifc2img"
 
 
 @pytest.mark.parametrize(
@@ -226,17 +237,6 @@ def test_worker_command_mapping_uses_default_preset_when_missing() -> None:
                 "payload": {"renderMode": "ifc2img", "preset": "korean_house"},
             },
             "command.expectedOutput.renderManifestStorageUrl",
-        ),
-        (
-            {
-                "commandType": "SD_RENDER_GENERATE",
-                "input": {"sourceIfcStorageUrl": "s3://bucket/input/model.ifc"},
-                "expectedOutput": {
-                    "renderManifestStorageUrl": "s3://bucket/output/job-1/manifest.v1.json"
-                },
-                "payload": {},
-            },
-            "command.payload.renderMode",
         ),
     ],
 )

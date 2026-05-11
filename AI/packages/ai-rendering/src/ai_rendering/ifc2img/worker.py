@@ -71,11 +71,6 @@ def map_worker_command_to_ifc2img_request(command: object) -> Ifc2ImgWorkerReque
         value = _optional_command_field(expected_output, field_name)
         if value is not None:
             output_refs[field_name] = value
-    render_mode = _require_command_field(
-        payload,
-        "renderMode",
-        "command.payload.renderMode",
-    )
     preset = _read_command_field(payload, "preset")
     if not isinstance(preset, str) or not preset:
         preset = DEFAULT_PHOTO_PRESET
@@ -85,7 +80,7 @@ def map_worker_command_to_ifc2img_request(command: object) -> Ifc2ImgWorkerReque
         "input": {"sourceIfcStorageUrl": source_ifc_url},
         "expectedOutput": output_refs,
         "payload": {
-            "renderMode": render_mode,  # type: ignore[typeddict-item]
+            "renderMode": "ifc2img",
             "preset": preset,
         },
     }
