@@ -1,7 +1,7 @@
 import { ensureStompConnected } from '@/shared/lib/stomp'
 import type { BubbleData, ConnectionData, ConnectionStyle, WorkspaceSnapshot } from '../types'
 
-type FloorPlanSceneType = 'TWO_D' | 'THREE_D'
+export type FloorPlanSceneType = 'TWO_D' | 'THREE_D'
 
 interface WorkspaceBubblePayload {
   bubbles: Array<{
@@ -50,6 +50,7 @@ export interface PublishWorkspaceSnapshotInput {
   snapshot: WorkspaceSnapshot
   baseIndex: number
   revisionId?: string | null
+  sceneType?: FloorPlanSceneType
 }
 
 const normalizePositiveNumber = (value: number, fallback: number): number => {
@@ -106,9 +107,10 @@ const toTwoDFloorPlanPayload = (
   snapshot: WorkspaceSnapshot,
   baseIndex: number,
   revisionId?: string | null,
+  sceneType: FloorPlanSceneType = 'TWO_D',
 ): WorkspaceFloorPlanPayload => ({
   ...toBubblePayload(snapshot, baseIndex),
-  sceneType: 'TWO_D',
+  sceneType,
   revisionId,
   layout: {
     phaseStatus: snapshot.phaseStatus,
@@ -144,6 +146,7 @@ export const workspaceRealtimeService = {
     snapshot,
     baseIndex,
     revisionId,
+    sceneType,
   }: PublishWorkspaceSnapshotInput): Promise<void> => {
     const shouldPublishBubbleSnapshot =
       snapshot.phaseStatus === 'BUBBLE_DRAFT' &&
@@ -159,7 +162,7 @@ export const workspaceRealtimeService = {
 
     return publishJson(
       `/app/project/${projectId}/floor-plan/update`,
-      toTwoDFloorPlanPayload(snapshot, baseIndex, revisionId),
+      toTwoDFloorPlanPayload(snapshot, baseIndex, revisionId, sceneType),
     )
   },
 }

@@ -22,6 +22,17 @@ export interface FloorPlanSnapshotPayload {
   }
 }
 
+interface WorkspaceSiteInfo {
+  areaM2?: number | string | null
+  area_m2?: number | string | null
+  area?: number | string | null
+  landAreaM2?: number | string | null
+  land_area_m2?: number | string | null
+  polygon?: {
+    coordinates?: unknown
+  } | null
+}
+
 interface WorkspaceBubbleSavePayload {
   bubbles: Array<{
     id: string
@@ -62,6 +73,7 @@ interface WorkspaceHistoryEntry<TSnapshot> {
 
 export interface WorkspaceHistorySnapshotResponse {
   phaseStatus: WorkspaceSnapshot['phaseStatus']
+  siteInfo?: WorkspaceSiteInfo | null
   bubble: WorkspaceHistoryEntry<BubbleSnapshotPayload>
   floorPlan: WorkspaceHistoryEntry<FloorPlanSnapshotPayload>
 }

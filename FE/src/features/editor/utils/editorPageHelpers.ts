@@ -259,6 +259,7 @@ export function buildFloorPlanLayoutImportPayload(
   bubbles: BubbleData[],
   _connections: ConnectionData[],
   boundaryInput: LayoutImportBoundaryInput,
+  options: { spaceHeightMm?: number } = {},
 ): LayoutImportV2 {
   const mmPerPx = resolveMmPerPxForFloorPlan(bubbles)
   const uniqueBubbles = getUniqueBubbles(bubbles)
@@ -297,6 +298,7 @@ export function buildFloorPlanLayoutImportPayload(
       generate_slabs: true,
       generate_roof: true,
       generate_openings: false,
+      ...(options.spaceHeightMm ? { space_height_mm: Math.round(options.spaceHeightMm) } : {}),
     },
     generation_policy: {
       boundary_wall_mode: 'outer_boundary',

@@ -57,7 +57,7 @@ import {
   buildResizedFloorRoomsState,
 } from '../utils/floorRoomDerivedState'
 import type { FloorProject } from '../types/floorProject.types'
-import { workspaceSaveService } from '../services/workspaceSave.service'
+import { workspaceSaveService, type WorkspaceHistorySnapshotResponse } from '../services/workspaceSave.service'
 import { requestFloorPlanGenerate, waitForFloorPlanIfcExport } from '../services/floorPlanGenerate.service'
 import {
   FloorPlanLayoutValidationError,
@@ -73,7 +73,7 @@ import {
   publishIfcRedoRequest,
   publishIfcUndoRequest,
 } from '../services/workspaceCommand.service'
-import { workspaceRealtimeService } from '../services/workspaceRealtime.service'
+import { workspaceRealtimeService, type FloorPlanSceneType } from '../services/workspaceRealtime.service'
 import { useAuthStore } from '@/shared/stores/authStore'
 import { useProjectStore } from '@/features/project/stores/projectStore'
 import { projectService } from '@/features/project/services/project.service'
@@ -107,6 +107,7 @@ import {
   type StompErrorMessage,
 } from '../utils/workspaceSyncMessage'
 import { resolveIfcPresignedUrl } from '../utils/ifcSource'
+import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
 
 interface DrawingSnapshot {
   bubbles: BubbleData[]
@@ -121,6 +122,7 @@ interface PendingServerPublishRecord {
   snapshot: WorkspaceSnapshot
   serializedSnapshot: string
   revisionId?: string | null
+  sceneType?: FloorPlanSceneType
 }
 
 interface AwaitingServerSyncRecord {
@@ -129,6 +131,16 @@ interface AwaitingServerSyncRecord {
   historyDomain: 'bubble' | 'floorPlan'
   baseIndex: number
   startedAt: number
+}
+
+interface WorkspaceSiteBoundaryState {
+  polygonRing: number[][] | null
+  areaM2: number | null
+}
+
+interface GenerateFloorPlanOptions {
+  openThreeDOnComplete?: boolean
+  spaceHeightMm?: number
 }
 
 const OPENING_MIN_WIDTH_MM = 1
@@ -142,6 +154,11 @@ const IFC_DERIVED_FLOORPLAN_ONLY = true
 const BUBBLE_DB_SAVE_DEBOUNCE_MS = 700
 
 const FLOOR_PLAN_GENERATE_TIMEOUT_MS = 120_000
+
+const readPositiveNumber = (value: unknown): number | null => {
+  const numericValue = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null
+}
 
 /**
  * EditorPage 전체 비즈니스 로직 훅
@@ -281,6 +298,10 @@ export function useEditorPage() {
   const canSyncBubbleStateFrom2D = false
   const isWallFirstEditing = FLOOR_PLAN_EDIT_AUTHORITY === 'wall-first'
   const [workspacePhaseStatus, setWorkspacePhaseStatus] = useState<PhaseStatus>('BUBBLE_DRAFT')
+  const [workspaceSiteBoundary, setWorkspaceSiteBoundary] = useState<WorkspaceSiteBoundaryState>({
+    polygonRing: null,
+    areaM2: null,
+  })
   const handleIfcSyncMessageRef = useRef<(
     url: string,
     action: string | null,
@@ -583,6 +604,26 @@ export function useEditorPage() {
       ? 'bubble'
       : 'floorPlan'
   , [])
+  const applyWorkspaceHistorySiteInfo = useCallback((siteInfo: WorkspaceHistorySnapshotResponse['siteInfo']) => {
+    const polygonRing = extractOuterRingFromCoordinates(siteInfo?.polygon?.coordinates)
+    const areaM2 =
+      readPositiveNumber(siteInfo?.areaM2)
+      ?? readPositiveNumber(siteInfo?.area_m2)
+      ?? readPositiveNumber(siteInfo?.landAreaM2)
+      ?? readPositiveNumber(siteInfo?.land_area_m2)
+      ?? readPositiveNumber(siteInfo?.area)
+
+    setWorkspaceSiteBoundary((prev) => {
+      const shouldKeepPreviousPolygon = !polygonRing && prev.polygonRing
+      const nextPolygonRing = shouldKeepPreviousPolygon ? prev.polygonRing : polygonRing
+      const nextAreaM2 = areaM2 ?? (shouldKeepPreviousPolygon ? prev.areaM2 : null)
+      if (prev.polygonRing === nextPolygonRing && prev.areaM2 === nextAreaM2) return prev
+      return { polygonRing: nextPolygonRing, areaM2: nextAreaM2 }
+    })
+  }, [])
+  const resolveFloorPlanSceneType = useCallback((): FloorPlanSceneType =>
+    mode === '3d' ? 'THREE_D' : 'TWO_D'
+  , [mode])
   const authUser = useAuthStore((state) => state.user)
   const currentProject = useProjectStore((state) => state.currentProject)
   const {
@@ -893,6 +934,7 @@ export function useEditorPage() {
     setIsProjectStructurePreferred(false)
     setIfcElementChangesById({})
     setWorkspacePhaseStatus('BUBBLE_DRAFT')
+    setWorkspaceSiteBoundary({ polygonRing: null, areaM2: null })
     setSelectedConnectionPair(null)
     setConnectingFromId(null)
     setSelectedFloorWallId(null)
@@ -1005,6 +1047,7 @@ export function useEditorPage() {
       const history = await workspaceSaveService.loadHistorySnapshot(projectId)
       if (isCancelled || draftLoadTokenRef.current !== loadToken) return
       if (hasUserEditedRef.current) return
+      applyWorkspaceHistorySiteInfo(history.siteInfo)
 
       const bubbleBaseIndex = history.bubble?.baseIndex ?? -1
       const bubbleRedoDepth = history.bubble?.redoDepth ?? 0
@@ -1029,6 +1072,14 @@ export function useEditorPage() {
           ...prev,
           [projectId]: floorPlanSnapshot.revisionId ?? null,
         }))
+      }
+      if (history.floorPlan?.s3Url) {
+        handleIfcSyncMessageRef.current(
+          history.floorPlan.s3Url,
+          null,
+          undefined,
+          floorPlanSnapshot?.revisionId ?? undefined,
+        )
       }
       if (floorPlanSnapshot?.layout) {
         suppressNextAutosaveRef.current = true
@@ -1087,7 +1138,7 @@ export function useEditorPage() {
       draftLoadingProjectIdRef.current = null
       draftLoadBaselineRef.current = null
     }
-  }, [projectId, resolveServerHistoryDomain, setConnectingFromId])
+  }, [applyWorkspaceHistorySiteInfo, projectId, resolveServerHistoryDomain, setConnectingFromId])
 
   useEffect(() => {
     if (!projectId || autosaveReadyProjectId !== projectId) return
@@ -1109,6 +1160,7 @@ export function useEditorPage() {
       snapshot: pendingServerPublish.snapshot,
       baseIndex: pendingServerPublish.baseIndex,
       revisionId: pendingServerPublish.revisionId,
+      sceneType: pendingServerPublish.sceneType,
     })
       .then(() => {
         if (isCancelled) return
@@ -1199,6 +1251,7 @@ export function useEditorPage() {
       snapshot: publishSnapshot,
       serializedSnapshot,
       revisionId: resolveServerHistoryDomain(publishSnapshot) === 'floorPlan' ? currentIfcRevisionId : undefined,
+      sceneType: resolveServerHistoryDomain(publishSnapshot) === 'floorPlan' ? resolveFloorPlanSceneType() : undefined,
     }
 
     setSaveStatus('dirty')
@@ -1217,6 +1270,7 @@ export function useEditorPage() {
         snapshot: publishSnapshot,
         baseIndex: serverPublishRecord.baseIndex,
         revisionId: serverPublishRecord.revisionId,
+        sceneType: serverPublishRecord.sceneType,
       })
       .then(() => {
         const currentPending = pendingServerPublishRef.current
@@ -1244,6 +1298,7 @@ export function useEditorPage() {
     projectId,
     resolveServerHistoryDomain,
     resolveServerHistoryBaseIndex,
+    resolveFloorPlanSceneType,
     scheduleServerPublishRetry,
     workspacePhaseStatus,
     workspaceSnapshotCommitVersion,
@@ -1917,6 +1972,9 @@ export function useEditorPage() {
     floorRooms,
     floorWalls: mergedFloorWalls,
     floorOpenings: mergedFloorOpenings,
+    sitePolygonRing: workspaceSiteBoundary.polygonRing,
+    siteAreaM2: workspaceSiteBoundary.areaM2,
+    sitePolygonQueryEnabled: false,
     setSaveStatus,
   })
   const bubbleSitePoints = fixedScaleSitePoints
@@ -2378,7 +2436,7 @@ export function useEditorPage() {
   ])
 
   /** 2D 평면도 생성 버튼 핸들러 — 로딩 애니메이션 포함 */
-  const handleGenerateFloorPlan = async () => {
+  const handleGenerateFloorPlan = useCallback(async (options: GenerateFloorPlanOptions = {}) => {
     if (!projectId) return
     if (floorPlanGenerateForbiddenRef.current) {
       setFloorPlanGenerateStatusText('평면도 생성 권한이 없습니다. 프로젝트 소유자 계정으로 시도하세요.')
@@ -2414,6 +2472,7 @@ export function useEditorPage() {
         latestSnapshot.bubbles,
         latestSnapshot.connections,
         layoutBoundaryInput,
+        { spaceHeightMm: options.spaceHeightMm },
       )
       const response = await requestFloorPlanGenerate({
         projectId,
@@ -2442,6 +2501,9 @@ export function useEditorPage() {
             null,
             exported.revisionId,
           )
+          if (options.openThreeDOnComplete) {
+            setMode('3d')
+          }
         })
         .catch((pollError: unknown) => {
           if (floorPlanIfcExportAbortController.signal.aborted) return
@@ -2477,20 +2539,33 @@ export function useEditorPage() {
       }
       console.error('[editor] Floor-plan 생성 API 호출 실패:', error)
     }
-  }
+  }, [
+    authUser?.user_type,
+    bubbles.length,
+    clearFloorPlanGenerateTimeout,
+    currentProjectName,
+    flushBubbleSnapshotSaveToDb,
+    isCurrentProjectOwner,
+    isCurrentProjectOwnerKnown,
+    layoutBoundaryInput,
+    projectId,
+    setMode,
+    startFloorPlanGenerateTimeout,
+    workspacePhaseStatus,
+  ])
 
   /**
    * 버블 다이어그램 기준 2D 평면도 생성 진입점
    * - 버블이 있을 때만 생성
    * - 생성 시작 직후 2D 모드로 전환해 로딩/결과를 확인할 수 있게 한다.
    */
-  const handleGenerateFloorPlanFromBubble = () => {
+  const handleGenerateFloorPlanFromBubble = useCallback(() => {
     if (bubbles.length === 0) return
     setSelectedTool('selection')
     setConnectingFromId(null)
     handleGenerateFloorPlan()
     setMode('2d')
-  }
+  }, [bubbles.length, handleGenerateFloorPlan, setConnectingFromId, setMode, setSelectedTool])
 
   const handleEditIfc = useCallback((elementId: string, action: string, value: unknown) => {
     if (!projectId) return
@@ -2973,8 +3048,6 @@ export function useEditorPage() {
     try {
       // private S3 버킷: assetId 또는 s3:// URL → download-url API로 presigned URL 발급
       const presignedUrl = await resolveIfcPresignedUrl(ifcStorageUrl, assetId ?? undefined)
-      await loadIfcFromStorageUrl(presignedUrl, { webIfcWasmPath: '/wasm/' })
-      lastLoadedIfcStorageUrlRef.current = dedupeKey
       // 2D 파싱 완료 후 3D 캔버스로 presigned URL과 assetId 전달
       setIfcSourceByProjectId((prev) => ({
         ...prev,
@@ -2990,6 +3063,8 @@ export function useEditorPage() {
         }))
       }
       // IFC가 정상 로드되면 완료 action 문자열과 무관하게 편집 상태로 복귀해 무한 로딩을 방지한다.
+      await loadIfcFromStorageUrl(presignedUrl, { webIfcWasmPath: '/wasm/' })
+      lastLoadedIfcStorageUrlRef.current = dedupeKey
       setWorkspacePhaseStatus('IFC_EDIT')
       if (action && IFC_COMPLETED_ACTION_SET.has(action)) {
         setFloorPlanGenerateStatusText('평면도 생성이 완료되었습니다.')
@@ -3143,16 +3218,17 @@ export function useEditorPage() {
    * IFC URL이 있으면 IFC 기반 렌더링을 사용하므로 localFloorData를 설정하지 않는다.
    */
   const handleConfirmGenerate3D = useCallback((storyHeightMm: number) => {
-    if (!currentIfcUrl) {
-      setLocalFloorData({
-        rooms: floorRooms,
-        walls: mergedFloorWalls,
-        storyHeightMm,
-      })
-    }
     setIsGenerate3DModalOpen(false)
-    setMode('3d')
-  }, [currentIfcUrl, floorRooms, mergedFloorWalls, setMode])
+    setLocalFloorData(null)
+    if (currentIfcUrl) {
+      setMode('3d')
+      return
+    }
+    void handleGenerateFloorPlan({
+      openThreeDOnComplete: true,
+      spaceHeightMm: storyHeightMm,
+    })
+  }, [currentIfcUrl, handleGenerateFloorPlan, setMode])
 
   const handleAutoLayoutBubbles = useCallback(() => {
     if (mode !== 'bubble') return

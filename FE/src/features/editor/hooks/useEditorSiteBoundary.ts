@@ -39,6 +39,9 @@ interface UseEditorSiteBoundaryParams {
   floorRooms: FloorRoom[]
   floorWalls: FloorWall[]
   floorOpenings: FloorOpening[]
+  sitePolygonRing?: number[][] | null
+  siteAreaM2?: number | null
+  sitePolygonQueryEnabled?: boolean
   setSaveStatus: Dispatch<SetStateAction<SaveStatus>>
 }
 
@@ -56,11 +59,18 @@ export function useEditorSiteBoundary({
   floorRooms,
   floorWalls,
   floorOpenings,
+  sitePolygonRing,
+  siteAreaM2: siteAreaM2Override,
+  sitePolygonQueryEnabled = true,
   setSaveStatus,
 }: UseEditorSiteBoundaryParams) {
-  const sitePolygonQuery = useProjectSitePolygon(projectId ?? null, !!projectId)
-  const cachedSiteRing = sitePolygonQuery.data?.polygonRing ?? null
-  const apiSiteAreaM2 = sitePolygonQuery.data?.areaM2 ?? null
+  const sitePolygonQuery = useProjectSitePolygon(
+    projectId ?? null,
+    sitePolygonQueryEnabled && !!projectId && !sitePolygonRing,
+  )
+  const sitePolygonQueryData = sitePolygonQueryEnabled ? sitePolygonQuery.data : undefined
+  const cachedSiteRing = sitePolygonRing ?? sitePolygonQueryData?.polygonRing ?? null
+  const apiSiteAreaM2 = siteAreaM2Override ?? sitePolygonQueryData?.areaM2 ?? null
 
   const siteAreaM2 = useMemo(
     () => apiSiteAreaM2 ?? (cachedSiteRing ? calculateSiteAreaM2(cachedSiteRing) : null),

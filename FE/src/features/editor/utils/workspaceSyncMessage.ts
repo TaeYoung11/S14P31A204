@@ -153,6 +153,19 @@ function extractStringField(record: Record<string, unknown>, key: string): strin
   return trimmed.length > 0 ? trimmed : null
 }
 
+function extractIfcUrlFromRecord(record: Record<string, unknown>): string | null {
+  return extractStringField(record, 'outputIfcStorageUrl')
+    ?? extractStringField(record, 'ifcStorageUrl')
+    ?? extractStringField(record, 's3Url')
+    ?? extractStringField(record, 'currentIfcUrl')
+}
+
+function extractIfcAssetIdFromRecord(record: Record<string, unknown>): string | null {
+  return extractStringField(record, 'assetId')
+    ?? extractStringField(record, 'artifactId')
+    ?? extractStringField(record, 'outputArtifactId')
+}
+
 /**
  * 프로젝트 sync 메시지에서 IFC 산출물 URL을 추출한다.
  * - 최상위 필드 우선
@@ -168,18 +181,24 @@ export function extractIfcStorageUrl(message: ProjectSyncMessage): string | null
   }
 
   if (isObjectRecord(message.payload)) {
-    const payloadUrl = extractStringField(message.payload, 'outputIfcStorageUrl')
-      ?? extractStringField(message.payload, 'ifcStorageUrl')
-      ?? extractStringField(message.payload, 's3Url')
-      ?? extractStringField(message.payload, 'currentIfcUrl')
+    const payloadUrl = extractIfcUrlFromRecord(message.payload)
     if (payloadUrl) return payloadUrl
+    if (isObjectRecord(message.payload.floorPlanPayloadJson)) {
+      const nestedPayloadUrl = extractIfcUrlFromRecord(message.payload.floorPlanPayloadJson)
+      if (nestedPayloadUrl) return nestedPayloadUrl
+    }
   }
 
   if (isObjectRecord(message.output)) {
-    return extractStringField(message.output, 'outputIfcStorageUrl')
-      ?? extractStringField(message.output, 'ifcStorageUrl')
-      ?? extractStringField(message.output, 's3Url')
-      ?? extractStringField(message.output, 'currentIfcUrl')
+    const outputUrl = extractIfcUrlFromRecord(message.output)
+    if (outputUrl) return outputUrl
+    if (isObjectRecord(message.output.floorPlanPayloadJson)) {
+      return extractIfcUrlFromRecord(message.output.floorPlanPayloadJson)
+    }
+  }
+
+  if (isObjectRecord(message.floorPlanPayloadJson)) {
+    return extractIfcUrlFromRecord(message.floorPlanPayloadJson)
   }
   return null
 }
@@ -193,16 +212,24 @@ export function extractIfcAssetId(message: ProjectSyncMessage): string | null {
   if (typeof direct === 'string' && direct.trim().length > 0) return direct.trim()
 
   if (isObjectRecord(message.payload)) {
-    const payloadId = extractStringField(message.payload, 'assetId')
-      ?? extractStringField(message.payload, 'artifactId')
-      ?? extractStringField(message.payload, 'outputArtifactId')
+    const payloadId = extractIfcAssetIdFromRecord(message.payload)
     if (payloadId) return payloadId
+    if (isObjectRecord(message.payload.floorPlanPayloadJson)) {
+      const nestedPayloadId = extractIfcAssetIdFromRecord(message.payload.floorPlanPayloadJson)
+      if (nestedPayloadId) return nestedPayloadId
+    }
   }
 
   if (isObjectRecord(message.output)) {
-    return extractStringField(message.output, 'assetId')
-      ?? extractStringField(message.output, 'artifactId')
-      ?? extractStringField(message.output, 'outputArtifactId')
+    const outputId = extractIfcAssetIdFromRecord(message.output)
+    if (outputId) return outputId
+    if (isObjectRecord(message.output.floorPlanPayloadJson)) {
+      return extractIfcAssetIdFromRecord(message.output.floorPlanPayloadJson)
+    }
+  }
+
+  if (isObjectRecord(message.floorPlanPayloadJson)) {
+    return extractIfcAssetIdFromRecord(message.floorPlanPayloadJson)
   }
 
   return null
