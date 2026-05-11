@@ -24,6 +24,12 @@ export interface ProjectCommentToastState {
   createdAt: string
 }
 
+interface UseProjectCommentRealtimeOptions {
+  onCommentCreated?: (payload: ProjectCommentCreatedEvent) => void
+}
+
+const DEFAULT_REALTIME_OPTIONS: UseProjectCommentRealtimeOptions = {}
+
 const DEFAULT_API_BASE_URL = '/api/v1'
 const NOTIFICATION_STREAM_PATH = '/notifications/stream'
 const COMMENT_CREATED_EVENT = 'comment-created'
@@ -32,7 +38,7 @@ const TOAST_DURATION_MS = 5000
 const MAX_COMMENT_ITEMS = 50
 const FALLBACK_PROJECT_NAME = '프로젝트'
 
-class SseAuthError extends Error {}
+class SseAuthError extends Error { }
 
 const resolveNotificationStreamUrl = (): string => {
   const apiBaseUrl = getRuntimeEnvString('VITE_API_URL', DEFAULT_API_BASE_URL)
@@ -140,7 +146,10 @@ const mergeRealtimeComment = (
     .slice(0, MAX_COMMENT_ITEMS)
 }
 
-export const useProjectCommentRealtime = (projects: Project[]) => {
+export const useProjectCommentRealtime = (
+  projects: Project[],
+  options = DEFAULT_REALTIME_OPTIONS,
+) => {
   const token = useAuthStore((state) => state.token)
   const queryClient = useQueryClient()
   const [toast, setToast] = useState<ProjectCommentToastState | null>(null)
@@ -155,6 +164,7 @@ export const useProjectCommentRealtime = (projects: Project[]) => {
 
       const payload = parseCommentCreatedEvent(message.data)
       if (!payload) return
+      options.onCommentCreated?.(payload)
 
       const realtimeComment: ProjectCommentListItem = {
         projectId: payload.projectId,
@@ -178,7 +188,7 @@ export const useProjectCommentRealtime = (projects: Project[]) => {
         createdAt: payload.createdAt,
       })
     },
-    [projectNameById, queryClient],
+    [options, projectNameById, queryClient],
   )
 
   useEffect(() => {
