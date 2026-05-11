@@ -6,11 +6,10 @@ const RealisticViewer = lazy(() =>
 
 interface ViewModeCanvasProps {
   projectId?: string
-  onExport: () => void
 }
 
 /** 뷰 모드(렌더 뷰어) 전용 컴포넌트 */
-export default function ViewModeCanvas({ projectId, onExport }: ViewModeCanvasProps) {
-  return <RealisticViewer projectId={projectId} onExport={onExport} />
+export default function ViewModeCanvas({ projectId }: ViewModeCanvasProps) {
+  return <RealisticViewer projectId={projectId} />
 }
 

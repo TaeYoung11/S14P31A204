@@ -7,7 +7,6 @@ import RenderHistorySidebar from './RenderHistorySidebar'
 
 interface RealisticViewerProps {
   projectId?: string
-  onExport?: () => void
 }
 
 const RENDER_PANEL_INITIAL_GAP_PX = 40
@@ -17,7 +16,7 @@ const getRenderPanelInitialOffset = () => ({
   y: RENDER_PANEL_INITIAL_GAP_PX,
 })
 
-export function RealisticViewer({ projectId, onExport }: RealisticViewerProps) {
+export function RealisticViewer({ projectId }: RealisticViewerProps) {
   const activePreset = VIEW_RENDER_PRESETS[0]
   const [prompt] = useState(activePreset.request.prompt)
   const [negativePrompt] = useState(activePreset.request.negativePrompt ?? '')
@@ -84,7 +83,7 @@ export function RealisticViewer({ projectId, onExport }: RealisticViewerProps) {
       <div className="absolute inset-0">
         <img
           src={displayedImageUrl}
-          alt="Project render"
+          alt="프로젝트 렌더링 이미지"
           className="h-full w-full object-cover opacity-90 transition-transform duration-200 ease-out"
           style={{ transform: `scale(${zoom})` }}
         />
@@ -102,7 +101,6 @@ export function RealisticViewer({ projectId, onExport }: RealisticViewerProps) {
         onTimeOfDayChange={setTimeOfDay}
         onSeasonChange={setSeason}
         onRequestRender={handleRequestRender}
-        onExport={onExport}
         onDragStart={startRenderPanelDrag}
       />
 
@@ -112,7 +110,7 @@ export function RealisticViewer({ projectId, onExport }: RealisticViewerProps) {
             type="button"
             onClick={handleZoomIn}
             disabled={zoom >= 2.5}
-            aria-label="Zoom in"
+            aria-label="확대"
             className="border-b border-white/5 p-3.5 text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Plus size={22} />
@@ -121,7 +119,7 @@ export function RealisticViewer({ projectId, onExport }: RealisticViewerProps) {
             type="button"
             onClick={handleZoomOut}
             disabled={zoom <= 1}
-            aria-label="Zoom out"
+            aria-label="축소"
             className="p-3.5 text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Minus size={22} />

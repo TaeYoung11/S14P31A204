@@ -10,7 +10,6 @@ export interface CanvasModeRendererSectionProps {
   mode: EditorCanvasRenderProps['mode']
   zoom: EditorCanvasRenderProps['zoom']
   renderProps: EditorCanvasRenderProps
-  onOpenExport: EditorCanvasRenderProps['handleOpenExportSelectionModal']
   isRotationLocked: boolean
   onThreeDCoordinatesChange: (coords: ThreeDCoordinates) => void
 }
@@ -82,7 +81,6 @@ export function buildCanvasModeRendererSectionProps(
     mode: renderProps.mode,
     zoom: renderProps.zoom,
     renderProps,
-    onOpenExport: renderProps.handleOpenExportSelectionModal,
     isRotationLocked,
     onThreeDCoordinatesChange,
   }
