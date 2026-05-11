@@ -135,7 +135,7 @@ def main() -> None:
                 delivery_mode=2,
             )
 
-    print(f"Published '{sample_file}' → routing key '{routing_key}'")
+    print(f"Published '{sample_file}' with routing key '{routing_key}'")
     expected_output = payload.get("expectedOutput")
     if isinstance(expected_output, dict):
         output_url = expected_output.get("renderImageStorageUrl")
