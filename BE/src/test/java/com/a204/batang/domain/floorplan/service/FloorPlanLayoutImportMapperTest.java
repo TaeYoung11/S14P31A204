@@ -71,6 +71,53 @@ class FloorPlanLayoutImportMapperTest {
     }
 
     @Test
+    void fromRawRequest_parsesBoundaryPolygonCoordinatePairs() throws Exception {
+        JsonNode raw = objectMapper.readTree("""
+                {
+                  "schema_version": "v2",
+                  "id": "550e8400-e29b-41d4-a716-446655440000",
+                  "name": "sample-project",
+                  "rooms": [
+                    {
+                      "id": "room-1",
+                      "name": "living",
+                      "type": "living",
+                      "width": 4200,
+                      "height": 3800,
+                      "floor": 1,
+                      "x": 100.0,
+                      "y": 200.0,
+                      "angle": 0.0,
+                      "locked": false,
+                      "zoneId": null
+                    }
+                  ],
+                  "boundaries": [
+                    {
+                      "floor": 1,
+                      "polygon": [
+                        [0.0, 0.0],
+                        [14000.0, 0.0],
+                        [14000.0, 9000.0],
+                        [0.0, 9000.0]
+                      ]
+                    }
+                  ]
+                }
+                """);
+
+        LayoutImportV2Payload payload = mapper.fromRawRequest(UUID.randomUUID(), "project-name", raw);
+
+        assertThat(payload.boundaries()).isNotNull();
+        assertThat(payload.boundaries()).hasSize(1);
+        assertThat(payload.boundaries().get(0).polygon()).hasSize(4);
+        assertThat(payload.boundaries().get(0).polygon().get(0).x()).isEqualTo(0.0);
+        assertThat(payload.boundaries().get(0).polygon().get(0).y()).isEqualTo(0.0);
+        assertThat(payload.boundaries().get(0).polygon().get(1).x()).isEqualTo(14000.0);
+        assertThat(payload.boundaries().get(0).polygon().get(1).y()).isEqualTo(0.0);
+    }
+
+    @Test
     void fromRawRequest_throwsWhenSchemaVersionIsInvalid() throws Exception {
         JsonNode raw = objectMapper.readTree("""
                 {

@@ -20,12 +20,99 @@ logger = logging.getLogger("ai_authoring.engine_3d")
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+def _opening_location(opening) -> tuple[float, float, float] | None:
+    placement = getattr(opening, "ObjectPlacement", None)
+    relative = getattr(placement, "RelativePlacement", None) if placement else None
+    location = getattr(relative, "Location", None) if relative else None
+    coords = tuple(getattr(location, "Coordinates", ()) or ())
+    if not coords or len(coords) < 3:
+        return None
+    return (float(coords[0]), float(coords[1]), float(coords[2]))
+
+
+def _solid_signature(solid) -> tuple[float, float, float] | None:
+    if not solid or not solid.is_a("IfcExtrudedAreaSolid"):
+        return None
+    profile = getattr(solid, "SweptArea", None)
+    if not profile or not profile.is_a("IfcRectangleProfileDef"):
+        return None
+    return (float(profile.XDim), float(profile.YDim), float(solid.Depth))
+
+
+def _opening_signature(opening) -> tuple[float, float, float] | None:
+    representation = getattr(opening, "Representation", None)
+    if not representation:
+        return None
+    for rep in getattr(representation, "Representations", []) or []:
+        for item in getattr(rep, "Items", []) or []:
+            signature = _solid_signature(item)
+            if signature:
+                return signature
+    return None
+
+
+def _solid_location(solid) -> tuple[float, float, float] | None:
+    position = getattr(solid, "Position", None)
+    location = getattr(position, "Location", None) if position else None
+    coords = tuple(getattr(location, "Coordinates", ()) or ())
+    if len(coords) < 3:
+        return None
+    return (float(coords[0]), float(coords[1]), float(coords[2]))
+
+
+def _almost_same_tuple(left, right, tolerance: float = 1e-6) -> bool:
+    if left is None or right is None:
+        return False
+    return all(abs(float(a) - float(b)) <= tolerance for a, b in zip(left, right, strict=True))
+
+
+def _remove_opening_boolean(shape, opening):
+    if not shape or not shape.is_a("IfcBooleanResult"):
+        return shape, False
+
+    first_operand = getattr(shape, "FirstOperand", None)
+    second_operand = getattr(shape, "SecondOperand", None)
+    if _almost_same_tuple(_solid_location(second_operand), _opening_location(opening)) and (
+        _almost_same_tuple(_solid_signature(second_operand), _opening_signature(opening))
+    ):
+        return (first_operand, True) if first_operand is not None else (shape, False)
+
+    next_operand, removed = _remove_opening_boolean(first_operand, opening)
+    if removed:
+        shape.FirstOperand = next_operand
+    return shape, removed
+
+
 def delete_element(
     model: ifcopenshell.file, element: ifcopenshell.entity_instance, etype_str: str = "IfcProduct"
 ) -> bool:
     """IFC 요소를 관계 엔티티까지 깔끔하게 정리하여 삭제한다."""
     gid_short = element.GlobalId[:8] if element.GlobalId else "?"
     try:
+        if element.is_a("IfcDoor") or element.is_a("IfcWindow"):
+            for rel_fill in list(getattr(element, "FillsVoids", []) or []):
+                opening = getattr(rel_fill, "RelatingOpeningElement", None)
+                if opening:
+                    for rel_void in list(getattr(opening, "VoidsElements", []) or []):
+                        host = getattr(rel_void, "RelatingBuildingElement", None)
+                        if host and getattr(host, "Representation", None):
+                            for rep in getattr(host.Representation, "Representations", []) or []:
+                                if getattr(rep, "RepresentationIdentifier", None) != "Body":
+                                    continue
+                                if rep.Items and rep.Items[0].is_a("IfcBooleanResult"):
+                                    next_shape, removed = _remove_opening_boolean(
+                                        rep.Items[0],
+                                        opening,
+                                    )
+                                    if removed:
+                                        rep.Items = [next_shape]
+                                        if not next_shape.is_a("IfcBooleanResult"):
+                                            rep.RepresentationType = "SweptSolid"
+                                    break
+                        model.remove(rel_void)
+                    model.remove(opening)
+                model.remove(rel_fill)
+
         # 공간 포함 관계 제거
         for rel in list(getattr(element, "ContainedInStructure", [])):
             if rel.is_a("IfcRelContainedInSpatialStructure"):
@@ -194,7 +281,8 @@ def modify_material(
     model: ifcopenshell.file, element: ifcopenshell.entity_instance, mat_change: dict[str, Any]
 ) -> bool:
     try:
-        new_name = mat_change.get("name", "Unknown")
+        new_name = _canonical_material_name(str(mat_change.get("name") or "Unknown"))
+        # Snapshot associations before removing relations from the IFC graph.
         for rel in list(getattr(element, "HasAssociations", [])):
             if rel.is_a("IfcRelAssociatesMaterial"):
                 remaining = [o for o in rel.RelatedObjects if o != element]
@@ -202,17 +290,41 @@ def modify_material(
                     rel.RelatedObjects = remaining
                 else:
                     model.remove(rel)
-                break
-        new_mat = model.create_entity("IfcMaterial", Name=new_name)
+        new_mat = _find_or_create_material(model, new_name)
         model.create_entity(
             "IfcRelAssociatesMaterial",
             GlobalId=ifcopenshell.guid.new(),
             RelatingMaterial=new_mat,
             RelatedObjects=[element],
         )
+        _set_label_property_value(model, element, "Material", new_name)
+        material_color = _material_default_color(new_name)
+        if material_color is not None:
+            modify_color(model, element, material_color)
         return True
     except Exception as e:
         logger.error(f"재질 수정 오류: {e}")
+        return False
+
+
+def modify_color(
+    model: ifcopenshell.file, element: ifcopenshell.entity_instance, color_value: str
+) -> bool:
+    try:
+        label_changed = _set_label_property_value(model, element, "Color", color_value)
+        items = _body_representation_items(element)
+        if not items:
+            return label_changed
+        assignment = _create_surface_style_assignment(model, color_value)
+        for item in items:
+            styled = _styled_item_for(model, item)
+            if styled:
+                styled.Styles = [assignment]
+            else:
+                model.create_entity("IfcStyledItem", Item=item, Styles=[assignment])
+        return True
+    except Exception as e:
+        logger.error(f"색상 수정 오류: {e}")
         return False
 
 
@@ -290,9 +402,27 @@ _DIRECTION_REF_DIRECTIONS = {
 
 _COLOR_RGB = {
     "white": (1.0, 1.0, 1.0),
+    "black": (0.0, 0.0, 0.0),
     "red": (1.0, 0.0, 0.0),
+    "yellow": (1.0, 0.8, 0.0),
+    "blue": (0.0, 0.0, 1.0),
+    "green": (0.0, 0.6, 0.0),
+    "orange": (1.0, 0.45, 0.0),
+    "purple": (0.6, 0.25, 0.9),
+    "pink": (0.9, 0.25, 0.55),
+    "brown": (0.55, 0.25, 0.05),
     "gray": (0.8, 0.8, 0.8),
     "grey": (0.8, 0.8, 0.8),
+}
+
+_MATERIAL_DEFAULT_COLOR = {
+    "Concrete": "#A8A29E",
+    "Brick": "#A3472C",
+    "Steel": "#8A94A3",
+    "Wood": "#9A6232",
+    "Glass": "#8FD3FF",
+    "Stone": "#8D8D86",
+    "Tile": "#C56F45",
 }
 
 
@@ -486,6 +616,115 @@ def _box_representation(
     return model.create_entity("IfcProductDefinitionShape", Representations=[shape]), solid
 
 
+def _stair_preset_representation(
+    model: ifcopenshell.file,
+    length_m: float,
+    width_m: float,
+    height_m: float,
+    step_count: int,
+) -> ifcopenshell.entity_instance:
+    tread_depth = length_m / step_count
+    riser_height = height_m / step_count
+    solids = []
+    for index in range(step_count):
+        step_height = riser_height * (index + 1)
+        pos_2d = model.create_entity(
+            "IfcAxis2Placement2D",
+            Location=model.create_entity(
+                "IfcCartesianPoint",
+                Coordinates=(float(tread_depth / 2.0), float(width_m / 2.0)),
+            ),
+        )
+        profile = model.create_entity(
+            "IfcRectangleProfileDef",
+            ProfileType="AREA",
+            XDim=float(tread_depth),
+            YDim=float(width_m),
+            Position=pos_2d,
+        )
+        solid = model.create_entity(
+            "IfcExtrudedAreaSolid",
+            SweptArea=profile,
+            Position=_axis_placement_3d(
+                model,
+                location=(float(tread_depth * index), 0.0, 0.0),
+            ),
+            ExtrudedDirection=model.create_entity(
+                "IfcDirection",
+                DirectionRatios=(0.0, 0.0, 1.0),
+            ),
+            Depth=float(step_height),
+        )
+        solids.append(solid)
+
+    shape = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=_body_context(model),
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=solids,
+    )
+    return model.create_entity("IfcProductDefinitionShape", Representations=[shape])
+
+
+def _resolve_stair_step_count(
+    *,
+    length_mm: float,
+    height_mm: float,
+    step_count: int | None = None,
+    riser_height_mm: float | None = None,
+    tread_depth_mm: float | None = None,
+) -> int:
+    if step_count is not None:
+        resolved = step_count
+    elif riser_height_mm and riser_height_mm > 0:
+        resolved = round(height_mm / riser_height_mm)
+    elif tread_depth_mm and tread_depth_mm > 0:
+        resolved = round(length_mm / tread_depth_mm)
+    else:
+        resolved = round(height_mm / 170.0)
+    return max(2, min(64, int(resolved)))
+
+
+def _assign_stair_quantities(
+    model: ifcopenshell.file,
+    stair: ifcopenshell.entity_instance,
+    *,
+    step_count: int,
+    riser_height_mm: float,
+    tread_depth_mm: float,
+) -> None:
+    properties = [
+        model.create_entity(
+            "IfcPropertySingleValue",
+            Name="StepCount",
+            NominalValue=model.create_entity("IfcInteger", int(step_count)),
+        ),
+        model.create_entity(
+            "IfcPropertySingleValue",
+            Name="RiserHeight",
+            NominalValue=model.create_entity("IfcLengthMeasure", float(riser_height_mm)),
+        ),
+        model.create_entity(
+            "IfcPropertySingleValue",
+            Name="TreadDepth",
+            NominalValue=model.create_entity("IfcLengthMeasure", float(tread_depth_mm)),
+        ),
+    ]
+    pset = model.create_entity(
+        "IfcPropertySet",
+        GlobalId=ifcopenshell.guid.new(),
+        Name="Batang_StairPreset",
+        HasProperties=properties,
+    )
+    model.create_entity(
+        "IfcRelDefinesByProperties",
+        GlobalId=ifcopenshell.guid.new(),
+        RelatedObjects=[stair],
+        RelatingPropertyDefinition=pset,
+    )
+
+
 def _face(
     model: ifcopenshell.file,
     points: list[tuple[float, float, float]],
@@ -543,6 +782,109 @@ def _color_to_rgb(color_value: str) -> tuple[float, float, float]:
     return _COLOR_RGB.get(raw.lower(), _COLOR_RGB["gray"])
 
 
+def _find_or_create_material(model: ifcopenshell.file, name: str):
+    for material in model.by_type("IfcMaterial"):
+        if str(getattr(material, "Name", "") or "").lower() == name.lower():
+            return material
+    return model.create_entity("IfcMaterial", Name=name)
+
+
+def _canonical_material_name(name: str) -> str:
+    normalized = name.strip()
+    for material_name in _MATERIAL_DEFAULT_COLOR:
+        if material_name.lower() == normalized.lower():
+            return material_name
+    return normalized or "Unknown"
+
+
+def _material_default_color(name: str) -> str | None:
+    for material_name, color in _MATERIAL_DEFAULT_COLOR.items():
+        if material_name.lower() == name.lower():
+            return color
+    return None
+
+
+def _set_label_property_value(
+    model: ifcopenshell.file,
+    element: ifcopenshell.entity_instance,
+    property_name: str,
+    value: str,
+) -> bool:
+    changed = False
+    fallback_pset = None
+    for rel in getattr(element, "IsDefinedBy", []) or []:
+        if not rel.is_a("IfcRelDefinesByProperties"):
+            continue
+        pset = getattr(rel, "RelatingPropertyDefinition", None)
+        if pset is None or not pset.is_a("IfcPropertySet"):
+            continue
+        if fallback_pset is None:
+            fallback_pset = pset
+        for prop in getattr(pset, "HasProperties", []) or []:
+            if (
+                prop.is_a("IfcPropertySingleValue")
+                and getattr(prop, "Name", None) == property_name
+            ):
+                prop.NominalValue = model.create_entity("IfcLabel", value)
+                changed = True
+        if not changed and getattr(pset, "Name", None) == "Pset_Batang_Dimensions":
+            fallback_pset = pset
+    if changed:
+        return True
+
+    new_prop = model.create_entity(
+        "IfcPropertySingleValue",
+        Name=property_name,
+        NominalValue=model.create_entity("IfcLabel", value),
+    )
+    if fallback_pset is not None:
+        fallback_pset.HasProperties = list(getattr(fallback_pset, "HasProperties", []) or []) + [
+            new_prop
+        ]
+    else:
+        fallback_pset = model.create_entity(
+            "IfcPropertySet",
+            GlobalId=ifcopenshell.guid.new(),
+            Name="Pset_Batang_Dimensions",
+            HasProperties=[new_prop],
+        )
+        model.create_entity(
+            "IfcRelDefinesByProperties",
+            GlobalId=ifcopenshell.guid.new(),
+            RelatedObjects=[element],
+            RelatingPropertyDefinition=fallback_pset,
+        )
+    return True
+
+
+def _body_representation_items(element: ifcopenshell.entity_instance) -> list[Any]:
+    representation = getattr(element, "Representation", None)
+    if not representation:
+        return []
+    items: list[Any] = []
+    for rep in getattr(representation, "Representations", []) or []:
+        if getattr(rep, "RepresentationIdentifier", None) == "Body":
+            items.extend(list(getattr(rep, "Items", []) or []))
+    return items
+
+
+def _create_surface_style_assignment(model: ifcopenshell.file, color_value: str):
+    r, g, b = _color_to_rgb(color_value)
+    color = model.create_entity("IfcColourRgb", Name=color_value, Red=r, Green=g, Blue=b)
+    rendering = model.create_entity("IfcSurfaceStyleRendering", SurfaceColour=color)
+    style = model.create_entity(
+        "IfcSurfaceStyle", Name=f"Style_{color_value}", Side="BOTH", Styles=[rendering]
+    )
+    return model.create_entity("IfcPresentationStyleAssignment", Styles=[style])
+
+
+def _styled_item_for(model: ifcopenshell.file, item: ifcopenshell.entity_instance):
+    for inverse in model.get_inverse(item):
+        if inverse.is_a("IfcStyledItem") and getattr(inverse, "Item", None) == item:
+            return inverse
+    return None
+
+
 def _apply_color_and_material(
     model: ifcopenshell.file,
     element: ifcopenshell.entity_instance,
@@ -551,29 +893,10 @@ def _apply_color_and_material(
 ):
     """부재에 색상(RGB) 및 재질 정보를 부여한다."""
     try:
-        if color_hex:
-            r, g, b = _color_to_rgb(color_hex)
-            color = model.create_entity("IfcColourRgb", Name=color_hex, Red=r, Green=g, Blue=b)
-            rendering = model.create_entity("IfcSurfaceStyleRendering", SurfaceColour=color)
-            style = model.create_entity(
-                "IfcSurfaceStyle", Name=f"Style_{color_hex}", Side="BOTH", Styles=[rendering]
-            )
-            assignment = model.create_entity("IfcPresentationStyleAssignment", Styles=[style])
-
-            # Representation의 첫 번째 아이템에 스타일 할당
-            if element.Representation and element.Representation.Representations:
-                rep = element.Representation.Representations[0]
-                if rep.Items:
-                    model.create_entity("IfcStyledItem", Item=rep.Items[0], Styles=[assignment])
-
         if mat_name:
-            material = model.create_entity("IfcMaterial", Name=mat_name)
-            model.create_entity(
-                "IfcRelAssociatesMaterial",
-                GlobalId=ifcopenshell.guid.new(),
-                RelatingMaterial=material,
-                RelatedObjects=[element],
-            )
+            modify_material(model, element, {"name": mat_name})
+        if color_hex:
+            modify_color(model, element, color_hex)
     except Exception as e:
         logger.warning(f"색상/재질 적용 중 오류 (무시 가능): {e}")
 
@@ -724,6 +1047,74 @@ def create_roof(
         return roof
     except Exception as e:
         logger.error(f"Roof 생성 오류: {e}")
+        return None
+
+
+def create_stair_preset(
+    model: ifcopenshell.file,
+    storey: ifcopenshell.entity_instance,
+    *,
+    length_mm: float = 3000.0,
+    width_mm: float = 1000.0,
+    height_mm: float = 1800.0,
+    x_mm: float = 0.0,
+    y_mm: float = 0.0,
+    z_mm: float = 0.0,
+    direction: str = "north",
+    color: str | None = None,
+    material_name: str | None = None,
+    step_count: int | None = None,
+    riser_height_mm: float | None = None,
+    tread_depth_mm: float | None = None,
+) -> ifcopenshell.entity_instance | None:
+    """Create a straight stair preset with visible tread/riser geometry."""
+    try:
+        resolved_steps = _resolve_stair_step_count(
+            length_mm=length_mm,
+            height_mm=height_mm,
+            step_count=step_count,
+            riser_height_mm=riser_height_mm,
+            tread_depth_mm=tread_depth_mm,
+        )
+        stair = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcStair")
+        stair.ObjectPlacement = _make_placement(model, storey, x_mm, y_mm, z_mm, direction)
+        length_m = _mm_to_model_units(model, length_mm, 3000.0)
+        width_m = _mm_to_model_units(model, width_mm, 1000.0)
+        height_m = _mm_to_model_units(model, height_mm, 1800.0)
+        stair.Representation = _stair_preset_representation(
+            model,
+            length_m,
+            width_m,
+            height_m,
+            resolved_steps,
+        )
+
+        flight = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcStairFlight")
+        flight.Name = "Straight Stair Flight"
+        flight.ObjectPlacement = model.create_entity(
+            "IfcLocalPlacement",
+            PlacementRelTo=stair.ObjectPlacement,
+            RelativePlacement=_axis_placement_3d(model),
+        )
+        model.create_entity(
+            "IfcRelAggregates",
+            GlobalId=ifcopenshell.guid.new(),
+            RelatingObject=stair,
+            RelatedObjects=[flight],
+        )
+
+        _assign_stair_quantities(
+            model,
+            stair,
+            step_count=resolved_steps,
+            riser_height_mm=height_mm / resolved_steps,
+            tread_depth_mm=length_mm / resolved_steps,
+        )
+        _apply_color_and_material(model, stair, color, material_name)
+        _assign_to_storey(model, stair, storey)
+        return stair
+    except Exception as e:
+        logger.error(f"Stair preset creation failed: {e}")
         return None
 
 

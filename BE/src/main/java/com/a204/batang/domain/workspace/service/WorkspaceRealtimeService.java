@@ -55,7 +55,7 @@ public class WorkspaceRealtimeService {
         validateRealtimePayloadOrThrow(request);
 
         ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
-        projectAccessService.validateProjectPinWriterOrThrow(workspace.getProject(), currentUserId);
+        projectAccessService.validateProjectOwnerOrThrow(workspace.getProject(), currentUserId);
         bubbleSnapshotHelper.validatePhaseOrThrow(workspace.getPhaseStatus());
 
         JsonNode snapshot = bubbleSnapshotHelper.buildSnapshot(request);
@@ -75,7 +75,7 @@ public class WorkspaceRealtimeService {
     @Transactional(readOnly = true)
     public void undoBubbleDraft(UUID projectId, UUID currentUserId, BubbleUndoRequest request) {
         ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
-        projectAccessService.validateProjectPinWriterOrThrow(workspace.getProject(), currentUserId);
+        projectAccessService.validateProjectOwnerOrThrow(workspace.getProject(), currentUserId);
         bubbleSnapshotHelper.validatePhaseOrThrow(workspace.getPhaseStatus());
 
         JsonNode undoSnapshot = loadUndoBubbleSnapshotOrThrow(projectId, request.baseIndex());
@@ -94,7 +94,7 @@ public class WorkspaceRealtimeService {
     @Transactional(readOnly = true)
     public void redoBubbleDraft(UUID projectId, UUID currentUserId, BubbleRedoRequest request) {
         ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
-        projectAccessService.validateProjectPinWriterOrThrow(workspace.getProject(), currentUserId);
+        projectAccessService.validateProjectOwnerOrThrow(workspace.getProject(), currentUserId);
         bubbleSnapshotHelper.validatePhaseOrThrow(workspace.getPhaseStatus());
 
         JsonNode redoSnapshot = loadRedoBubbleSnapshotOrThrow(projectId, request.baseIndex());

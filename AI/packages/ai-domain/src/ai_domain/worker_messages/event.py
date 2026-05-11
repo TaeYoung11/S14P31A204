@@ -20,6 +20,7 @@ class EventOutputRef(BaseModel):
         default=None,
         alias="error_detail_storage_url",
     )
+    hasWarnings: bool | None = Field(default=None, alias="has_warnings")
 
 
 class EventError(BaseModel):

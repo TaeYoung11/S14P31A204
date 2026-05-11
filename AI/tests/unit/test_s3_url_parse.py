@@ -20,13 +20,23 @@ def test_parse_single_segment_key() -> None:
     assert result == S3Location("bucket", "file.png")
 
 
-def test_parse_rejects_https_scheme() -> None:
-    with pytest.raises(ValueError, match="s3://bucket/key"):
+def test_parse_path_style_http_url() -> None:
+    result = parse_s3_url("http://minio:9000/test-bucket/path/file.json")
+    assert result == S3Location("test-bucket", "path/file.json")
+
+
+def test_parse_path_style_https_url() -> None:
+    result = parse_s3_url("https://storage.example.com/test-bucket/a/b/file.ifc")
+    assert result == S3Location("test-bucket", "a/b/file.ifc")
+
+
+def test_parse_rejects_virtual_host_style_https_url() -> None:
+    with pytest.raises(ValueError, match="http\\(s\\)://host/bucket/key"):
         parse_s3_url("https://bucket.s3.amazonaws.com/key")
 
 
 def test_parse_rejects_bare_bucket_no_slash() -> None:
-    with pytest.raises(ValueError, match="s3://bucket/key"):
+    with pytest.raises(ValueError, match="http\\(s\\)://host/bucket/key"):
         parse_s3_url("s3://bucket")
 
 

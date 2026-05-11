@@ -1,5 +1,6 @@
 import type { Object3D } from 'three'
 import type { IfcElementInfo } from '../../../types'
+import { decodeIfcStepString } from '../../../utils/ifcStepString'
 import {
   DEFAULT_IFC_COLOR_BY_CATEGORY,
   getMaterialDefaultColor,
@@ -42,6 +43,9 @@ const pickRecordValue = (
   return undefined
 }
 
+const decodeIfcValue = (value: string | number | boolean): string | number | boolean =>
+  typeof value === 'string' ? decodeIfcStepString(value) : value
+
 export const normalizeIfcElement = (object: Object3D, fallbackPrefix = 'ifc-element'): IfcElementInfo => {
   const node = object as Object3D & {
     uuid?: string
@@ -67,7 +71,8 @@ export const normalizeIfcElement = (object: Object3D, fallbackPrefix = 'ifc-elem
   const category = matchedClass?.[1] ?? (ifcClass.replace(/^Ifc/, '') || 'Element')
   const rawExpressId = pickRecordValue(userData, ['expressID', 'expressId', 'ExpressID', 'id'])
   const expressId = typeof rawExpressId === 'boolean' ? undefined : rawExpressId
-  const name = String(pickRecordValue(userData, ['Name', 'name', 'LongName']) ?? lineage[0] ?? category)
+  const decodedName = decodeIfcStepString(String(pickRecordValue(userData, ['Name', 'name', 'LongName']) ?? lineage[0] ?? category)).trim()
+  const name = decodedName || category || 'Element'
   const id = String(expressId ?? node.uuid ?? `${fallbackPrefix}-${name}`)
   const properties: IfcElementInfo['properties'] = {
     Category: category,
@@ -76,7 +81,7 @@ export const normalizeIfcElement = (object: Object3D, fallbackPrefix = 'ifc-elem
   if (expressId !== undefined) properties.ExpressID = expressId
   if (node.uuid) properties.UUID = node.uuid
   if (node.type) properties.ObjectType = node.type
-  if (lineage.length > 0) properties.Hierarchy = lineage.join(' / ')
+  if (lineage.length > 0) properties.Hierarchy = decodeIfcStepString(lineage.join(' / '))
 
   return {
     id,
@@ -90,7 +95,8 @@ export const normalizeIfcElement = (object: Object3D, fallbackPrefix = 'ifc-elem
 }
 
 const stringifyFragmentValue = (value: unknown): string | number | boolean | undefined => {
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
+  if (typeof value === 'string') return decodeIfcStepString(value)
+  if (typeof value === 'number' || typeof value === 'boolean') return value
   if (value === null || value === undefined) return undefined
   if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? '' : 's'}`
   if (typeof value === 'object' && 'value' in value) return stringifyFragmentValue((value as { value?: unknown }).value)
@@ -228,7 +234,7 @@ const parseIfcPropertyValue = (line: string) => {
   if (numberMatch) return Number(numberMatch[1])
 
   const labelMatch = line.match(/IFC(?:LABEL|TEXT)\('([^']*)'\)/i)
-  if (labelMatch) return labelMatch[1]
+  if (labelMatch) return decodeIfcStepString(labelMatch[1])
 
   return undefined
 }
@@ -248,7 +254,7 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
       ?? ifcClass.replace(/^Ifc/i, '')
     productById[productId] = {
       expressId: productId,
-      name: match[3],
+      name: decodeIfcStepString(match[3]),
       ifcClass,
       category,
     }
@@ -274,7 +280,7 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
   Array.from(ifcText.matchAll(/#(\d+)=IFCPROPERTYSINGLEVALUE\('([^']+)',\$,(.+?),\$\);/gi)).forEach((match) => {
     const [, id, name, rawValue] = match
     const value = parseIfcPropertyValue(rawValue)
-    if (value !== undefined) propertyValues[`${id}:${name}`] = value
+    if (value !== undefined) propertyValues[`${id}:${decodeIfcStepString(name)}`] = value
   })
 
   Array.from(ifcText.matchAll(/#(\d+)=IFCPROPERTYSET\('[^']+',#\d+,'Pset_Batang_Dimensions',\$,\(((?:#\d+,?)+)\)\);/gi)).forEach((match) => {
@@ -351,7 +357,7 @@ export const getIfcElementFromFragments = async (
   })
   const rawClass = getFragmentAttribute(itemData, ['_category', 'category', 'type', 'Class', 'Name'])
   const ifcClass = String(parsedElement?.ifcClass ?? rawClass ?? 'IfcElement')
-  const name = String(parsedElement?.name ?? getFragmentAttribute(itemData, ['Name', 'LongName', 'ObjectType', 'Tag']) ?? ifcClass)
+  const name = decodeIfcStepString(String(parsedElement?.name ?? getFragmentAttribute(itemData, ['Name', 'LongName', 'ObjectType', 'Tag']) ?? ifcClass))
   const matchedClass = IFC_CATEGORY_LABELS.find(([candidate]) => ifcClass.includes(candidate) || name.includes(candidate))
   const category = parsedElement?.category ?? matchedClass?.[1] ?? (ifcClass.replace(/^Ifc/i, '') || 'Element')
   const psetMetrics = parsedElement ?? psetMetricMaps?.byName[name]
@@ -367,6 +373,9 @@ export const getIfcElementFromFragments = async (
   properties.Thickness = normalizedMetrics.thicknessMm ?? '-'
   properties.Material = material ?? '-'
   properties.Color = color
+  Object.entries(properties).forEach(([key, value]) => {
+    properties[key] = decodeIfcValue(value)
+  })
 
   return {
     id: `${pick.modelId}:${pick.localId}`,

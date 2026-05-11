@@ -3,12 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .command import IFCContext
-
-try:
-    from shapely.geometry import Polygon, box
-except Exception:  # pragma: no cover
-    Polygon = None
-    box = None
+from shapely.geometry import Polygon, box
 
 _GRID_STEP_MM = 250
 
@@ -184,7 +179,7 @@ def _placement_region(
     xs = [point[0] for point in points]
     ys = [point[1] for point in points]
     polygon = None
-    if Polygon is not None and len(points) >= 3:
+    if len(points) >= 3:
         polygon = Polygon(points)
         if not polygon.is_valid:
             polygon = polygon.buffer(0)
@@ -201,7 +196,7 @@ def _fits_region(region: dict[str, Any], rect: tuple[float, float, float, float]
         min_x, min_y, max_x, max_y = region["bbox"]
         if rect[0] < min_x or rect[1] < min_y or rect[2] > max_x or rect[3] > max_y:
             return False
-    if polygon is None or box is None:
+    if polygon is None:
         return True
     return polygon.buffer(1e-6).covers(box(*rect))
 

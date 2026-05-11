@@ -1,5 +1,8 @@
 package com.a204.batang.domain.workspace.controller;
 
+import com.a204.batang.domain.ifcedit.dto.ChatCommandRequest;
+import com.a204.batang.domain.ifcedit.dto.IfcEditJobResponse;
+import com.a204.batang.domain.ifcedit.service.ChatCommandService;
 import com.a204.batang.domain.workspace.dto.BubbleRedoRequest;
 import com.a204.batang.domain.workspace.dto.BubbleUndoRequest;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
@@ -36,8 +39,28 @@ public class WorkspaceStompController {
 
     private static final Logger log = LoggerFactory.getLogger(WorkspaceStompController.class);
 
+    private final ChatCommandService chatCommandService;
     private final WorkspaceRealtimeService workspaceRealtimeService;
     private final WorkspaceFloorPlanRealtimeService workspaceFloorPlanRealtimeService;
+
+    /**
+     * 채팅 기반 편집 요청을 websocket으로 받아 ifcedit 작업을 큐에 등록한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param request 채팅 편집 요청 payload
+     * @param principal STOMP 인증 사용자
+     * @return 등록된 ifcedit job 정보
+     */
+    @MessageMapping("/project/{projectId}/chat/command")
+    @SendToUser(value = "/queue/chat/accepted", broadcast = false)
+    public IfcEditJobResponse createChatCommand(
+            @DestinationVariable UUID projectId,
+            @Valid ChatCommandRequest request,
+            Principal principal
+    ) {
+        UUID currentUserId = resolvePrincipalUserIdOrThrow(principal);
+        return chatCommandService.createChatCommand(projectId, currentUserId, request);
+    }
 
     /**
      * 버블 다이어그램 업데이트 이벤트를 전달한다.

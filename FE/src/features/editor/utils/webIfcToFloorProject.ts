@@ -1,4 +1,5 @@
 import type { FloorProject, FloorProjectPoint2D } from '../types/floorProject.types'
+import { decodeIfcStepString } from './ifcStepString.ts'
 
 interface IfcImportSuccess {
   ok: true
@@ -49,7 +50,7 @@ interface ParseWebIfcInput {
   sourceName: string
 }
 
-interface Aabb3D {
+export interface Aabb3D {
   minX: number
   maxX: number
   minY: number
@@ -84,7 +85,7 @@ const normalizeEnumToken = (value: string): string =>
 
 const readString = (value: unknown): string | null => {
   if (typeof value === 'string') {
-    const trimmed = value.trim()
+    const trimmed = decodeIfcStepString(value).trim()
     return trimmed.length > 0 ? trimmed : null
   }
   if (isObjectRecord(value) && 'value' in value) {
@@ -259,7 +260,7 @@ function buildElementAabb(
   }
 }
 
-function toRoomPolygonFromAabb(aabb: Aabb3D, lengthMultiplier: number): FloorProjectPoint2D[] {
+export function toRoomPolygonFromAabb(aabb: Aabb3D, lengthMultiplier: number): FloorProjectPoint2D[] {
   return [
     { x: roundMm(aabb.minX * lengthMultiplier), y: roundMm(aabb.minY * lengthMultiplier) },
     { x: roundMm(aabb.maxX * lengthMultiplier), y: roundMm(aabb.minY * lengthMultiplier) },
