@@ -189,4 +189,80 @@ class ProjectControllerTest {
                 .andExpect(jsonPath("$.status").value(409))
                 .andExpect(jsonPath("$.code").value("PROJECT_MEMBER_ALREADY_EXISTS"));
     }
+
+    @Test
+    void removeProjectMember_returnsWrappedResponse() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID removedUserId = UUID.randomUUID();
+        LocalDateTime removedAt = LocalDateTime.of(2026, 5, 12, 15, 30, 0);
+
+        given(projectMemberService.removeProjectMember(projectId, removedUserId))
+                .willReturn(ProjectMemberRemovalResponse.of(projectId, removedUserId, removedAt));
+
+        mockMvc.perform(delete("/api/v1/projects/{projectId}/members/{userId}", projectId, removedUserId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.message").value("프로젝트 멤버 제거 완료"))
+                .andExpect(jsonPath("$.data.projectId").value(projectId.toString()))
+                .andExpect(jsonPath("$.data.removedUserId").value(removedUserId.toString()))
+                .andExpect(jsonPath("$.data.removedAt").value("2026-05-12T15:30:00"));
+    }
+
+    @Test
+    void removeProjectMember_returnsBadRequestWhenProjectIdIsInvalidUuid() throws Exception {
+        mockMvc.perform(delete("/api/v1/projects/{projectId}/members/{userId}", "not-a-uuid", UUID.randomUUID()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("COMMON_INVALID_REQUEST"));
+    }
+
+    @Test
+    void removeProjectMember_returnsBadRequestWhenUserIdIsInvalidUuid() throws Exception {
+        mockMvc.perform(delete("/api/v1/projects/{projectId}/members/{userId}", UUID.randomUUID(), "not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("COMMON_INVALID_REQUEST"));
+    }
+
+    @Test
+    void removeProjectMember_returnsForbiddenWhenCurrentUserIsNotOwner() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID removedUserId = UUID.randomUUID();
+
+        given(projectMemberService.removeProjectMember(projectId, removedUserId))
+                .willThrow(new CustomException(ErrorCode.FORBIDDEN_ACCESS));
+
+        mockMvc.perform(delete("/api/v1/projects/{projectId}/members/{userId}", projectId, removedUserId))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.code").value("COMMON_FORBIDDEN_ACCESS"));
+    }
+
+    @Test
+    void removeProjectMember_returnsNotFoundWhenProjectMemberDoesNotExist() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID removedUserId = UUID.randomUUID();
+
+        given(projectMemberService.removeProjectMember(projectId, removedUserId))
+                .willThrow(new CustomException(ErrorCode.PROJECT_MEMBER_NOT_FOUND));
+
+        mockMvc.perform(delete("/api/v1/projects/{projectId}/members/{userId}", projectId, removedUserId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.code").value("PROJECT_MEMBER_NOT_FOUND"));
+    }
+
+    @Test
+    void removeProjectMember_returnsConflictWhenTargetUserIsProjectOwner() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID ownerUserId = UUID.randomUUID();
+
+        given(projectMemberService.removeProjectMember(projectId, ownerUserId))
+                .willThrow(new CustomException(ErrorCode.OWNER_REMOVAL_NOT_ALLOWED));
+
+        mockMvc.perform(delete("/api/v1/projects/{projectId}/members/{userId}", projectId, ownerUserId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.code").value("OWNER_REMOVAL_NOT_ALLOWED"));
+    }
 }
