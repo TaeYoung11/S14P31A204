@@ -23,6 +23,8 @@ export type ThreeDLibraryPresetType =
  * - color: 기본 표시 색상 (HEX)
  * - lengthMm / heightMm / thicknessMm: 실제 치수값 (없으면 dimensions 파싱으로 산출)
  * - position: 씬 내 배치 위치 (사용자 이동 후 저장됨)
+ * - rotation: 씬 내 회전값(Euler, radian)
+ * - scale: 씬 내 스케일값
  */
 export interface ThreeDLibraryPreset {
   id: string
@@ -36,5 +38,8 @@ export interface ThreeDLibraryPreset {
   lengthMm?: number
   heightMm?: number
   thicknessMm?: number
+  storeyExpressId?: number | null
   position?: { x: number; y: number; z: number }
+  rotation?: { x: number; y: number; z: number }
+  scale?: { x: number; y: number; z: number }
 }
