@@ -664,6 +664,7 @@ class LLM2DPipeline:
             "shared_payload": True,
             "shared_handlers_expected": [
                 "create_element",
+                "delete_wall_void",
                 "delete_elements",
                 "transform_elements",
                 "update_element_properties",

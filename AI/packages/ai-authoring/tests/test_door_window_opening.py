@@ -378,6 +378,83 @@ def test_delete_window_removes_only_its_opening_boolean():
     assert not wall.Representation.Representations[0].Items[0].is_a("IfcBooleanResult")
 
 
+def test_delete_wall_void_handler_deletes_parametric_door_pair():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    door = create_door_with_opening(model, storey, host_wall=wall)
+    assert door is not None
+    door_id = door.GlobalId
+
+    handler = get("delete_wall_void")
+    deleted = handler.execute(
+        model,
+        None,
+        {"expected_kind": "door", "allowed_host_body_class": "parametric"},
+        {"global_ids": [door_id]},
+    )
+
+    assert deleted == [door_id]
+    assert len(model.by_type("IfcDoor")) == 0
+    assert len(model.by_type("IfcOpeningElement")) == 0
+    assert len(model.by_type("IfcRelVoidsElement")) == 0
+    assert len(model.by_type("IfcRelFillsElement")) == 0
+
+
+def test_delete_wall_void_handler_deletes_parametric_window_pair():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    window = create_window_with_opening(model, storey, host_wall=wall)
+    assert window is not None
+    window_id = window.GlobalId
+
+    handler = get("delete_wall_void")
+    deleted = handler.execute(
+        model,
+        None,
+        {"expected_kind": "window", "allowed_host_body_class": "parametric"},
+        {"global_ids": [window_id]},
+    )
+
+    assert deleted == [window_id]
+    assert len(model.by_type("IfcWindow")) == 0
+    assert len(model.by_type("IfcOpeningElement")) == 0
+    assert len(model.by_type("IfcRelVoidsElement")) == 0
+    assert len(model.by_type("IfcRelFillsElement")) == 0
+
+
+def test_delete_wall_void_handler_rejects_direct_opening_target():
+    model, _, _ = _make_model()
+    opening = ifcopenshell.api.root.create_entity(
+        model, ifc_class="IfcOpeningElement", name="Bare Opening"
+    )
+
+    handler = get("delete_wall_void")
+    with pytest.raises(ValueError, match="IfcOpeningElement"):
+        handler.execute(
+            model,
+            None,
+            {"expected_kind": "opening", "allowed_host_body_class": "parametric"},
+            {"global_ids": [opening.GlobalId]},
+        )
+
+
+def test_delete_wall_void_handler_rejects_bcr_hosted_house_kr_window():
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    model = ifcopenshell.open(str(house_kr))
+    target_gid = "1zOBw0Gej5Wf0QAJfHnOc0"
+
+    handler = get("delete_wall_void")
+    with pytest.raises(ValueError, match="parametric host walls"):
+        handler.execute(
+            model,
+            None,
+            {"expected_kind": "window", "allowed_host_body_class": "parametric"},
+            {"global_ids": [target_gid]},
+        )
+
+    assert model.by_guid(target_gid) is not None
+
+
 def test_engine_request_v2_schema_accepts_door_host_fields():
     schema_path = (
         Path(__file__).resolve().parents[4]

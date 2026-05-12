@@ -90,6 +90,8 @@ def _build_operations(
         )
     if command.action == "create_door":
         return _build_create_door_operations(command_batch=command_batch)
+    if command.action == "delete_wall_void":
+        return _build_delete_wall_void_operations(command_batch=command_batch)
 
     raise ValueError(f"unsupported shared action: {command.action}")
 
@@ -130,6 +132,28 @@ def _build_create_door_operations(
                     "width": int(dimensions.get("width", 900)),
                     "height": int(dimensions.get("height", 2100)),
                 },
+            },
+        )
+    ]
+
+
+def _build_delete_wall_void_operations(
+    *,
+    command_batch: CommandBatch,
+) -> list[EngineOperationInlineRef]:
+    if not command_batch.commands:
+        raise ValueError("delete_wall_void shared request requires at least one command")
+    command = command_batch.commands[0]
+    metadata = command.params.get("metadata", {})
+    return [
+        EngineOperationInlineRef(
+            id="op-delete-wall-void",
+            type="delete_wall_void",
+            selector={"global_ids": [command.target_id]},
+            parameters={
+                "expected_kind": metadata.get("target_kind"),
+                "allowed_host_body_class": metadata.get("host_wall_body_class"),
+                "validated_fixture": "House_KR",
             },
         )
     ]

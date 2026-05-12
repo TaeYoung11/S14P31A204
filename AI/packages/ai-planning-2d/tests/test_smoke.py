@@ -2425,6 +2425,116 @@ async def test_pipeline_apply_create_door_on_house_kr_reuses_template(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_pipeline_preview_delete_wall_void_on_house_kr_parametric_door():
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    ctx = extract_ifc_context(str(house_kr))
+    pipeline = LLM2DPipeline(ifc_path=str(house_kr), ifc_context=ctx)
+    command = FloorNLPCommand(
+        action="delete_wall_void",
+        target_element_id="1Oms875aH3Wg$9l65H2ZGw",
+        confidence=0.95,
+    )
+
+    preview = await pipeline.execute_command_preview(command)
+
+    assert preview["status"] == "preview_ready"
+    assert preview["engine_request"]["operations"][0]["type"] == "delete_wall_void"
+    assert preview["command_batch"]["commands"][0]["action"] == "delete_wall_void"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_preview_delete_wall_void_rejects_bcr_hosted_window():
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    ctx = extract_ifc_context(str(house_kr))
+    pipeline = LLM2DPipeline(ifc_path=str(house_kr), ifc_context=ctx)
+    command = FloorNLPCommand(
+        action="delete_wall_void",
+        target_element_id="1zOBw0Gej5Wf0QAJfHnOc0",
+        confidence=0.95,
+    )
+
+    preview = await pipeline.execute_command_preview(command)
+
+    assert preview["status"] == "needs_clarification"
+    assert "BCR" in preview["summary"]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_preview_delete_wall_void_rejects_opening_target():
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    ctx = extract_ifc_context(str(house_kr))
+    pipeline = LLM2DPipeline(ifc_path=str(house_kr), ifc_context=ctx)
+    command = FloorNLPCommand(
+        action="delete_wall_void",
+        target_element_id="16PF6khT5_p$Z03P73inyv",
+        confidence=0.95,
+    )
+
+    preview = await pipeline.execute_command_preview(command)
+
+    assert preview["status"] == "needs_clarification"
+    assert "opening" in preview["summary"]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_apply_delete_wall_void_on_house_kr_parametric_door(tmp_path):
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    output_path = str(tmp_path / "house-kr-delete-door.ifc")
+    ctx = extract_ifc_context(str(house_kr))
+    pipeline = LLM2DPipeline(ifc_path=str(house_kr), ifc_context=ctx)
+    command = FloorNLPCommand(
+        action="delete_wall_void",
+        target_element_id="1Oms875aH3Wg$9l65H2ZGw",
+        confidence=0.95,
+    )
+
+    preview = await pipeline.execute_command_preview(command)
+    result = await pipeline.execute_apply(preview["session_id"], output_path=output_path)
+    updated = ifcopenshell.open(output_path)
+    updated_ctx = extract_ifc_context(output_path)
+
+    assert preview["status"] == "preview_ready"
+    assert result["status"] == "applied"
+    assert result["apply_mode"] == "shared_authoring"
+    assert result["affected_ids"] == ["1Oms875aH3Wg$9l65H2ZGw"]
+    with pytest.raises(RuntimeError):
+        updated.by_guid("1Oms875aH3Wg$9l65H2ZGw")
+    with pytest.raises(RuntimeError):
+        updated.by_guid("0LM8GvGe$G3dlW4mZ4aA9R")
+    assert len(updated.by_type("IfcDoor")) == len(ctx["doors"]) - 1
+    assert len(updated_ctx["openings"]) == len(ctx["openings"]) - 1
+
+
+@pytest.mark.asyncio
+async def test_pipeline_apply_delete_wall_void_on_house_kr_parametric_window(tmp_path):
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    output_path = str(tmp_path / "house-kr-delete-window.ifc")
+    ctx = extract_ifc_context(str(house_kr))
+    pipeline = LLM2DPipeline(ifc_path=str(house_kr), ifc_context=ctx)
+    command = FloorNLPCommand(
+        action="delete_wall_void",
+        target_element_id="1srAI$R4T8ihLXSNHmUSET",
+        confidence=0.95,
+    )
+
+    preview = await pipeline.execute_command_preview(command)
+    result = await pipeline.execute_apply(preview["session_id"], output_path=output_path)
+    updated = ifcopenshell.open(output_path)
+    updated_ctx = extract_ifc_context(output_path)
+
+    assert preview["status"] == "preview_ready"
+    assert result["status"] == "applied"
+    assert result["apply_mode"] == "shared_authoring"
+    assert result["affected_ids"] == ["1srAI$R4T8ihLXSNHmUSET"]
+    with pytest.raises(RuntimeError):
+        updated.by_guid("1srAI$R4T8ihLXSNHmUSET")
+    with pytest.raises(RuntimeError):
+        updated.by_guid("0seqbT9MlcQAX_K0YLzD86")
+    assert len(updated.by_type("IfcWindow")) == len(ctx["windows"]) - 1
+    assert len(updated_ctx["openings"]) == len(ctx["openings"]) - 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.skip(
     reason="create_wall auto-apply is disabled until a validated House_KR candidate exists"
 )

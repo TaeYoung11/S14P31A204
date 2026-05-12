@@ -65,6 +65,16 @@ _LOCKED_PARTITION_WALL_CANDIDATE = {
 }
 _CREATE_DOOR_EDGE_MARGIN_MM = 100.0
 _CREATE_DOOR_OVERLAP_MARGIN_MM = 100.0
+_MSG_DELETE_WALL_VOID_NOT_FOUND = (
+    "선택한 door/window/opening 요소를 IFC context에서 찾지 못했습니다."
+)
+_MSG_DELETE_WALL_VOID_BCR_UNSUPPORTED = (
+    "선택한 요소는 현재 데모 범위에서 지원하지 않습니다. "
+    "BCR 벽에 호스팅된 opening 계열 삭제는 아직 지원하지 않습니다."
+)
+_MSG_DELETE_WALL_VOID_OPENING_UNVALIDATED = (
+    "선택한 opening 요소 삭제는 현재 데모 검증 범위에 포함되지 않습니다."
+)
 
 
 def _host_wall_axis_interval(wall: dict[str, Any]) -> tuple[float, float]:
@@ -189,6 +199,24 @@ def _choose_locked_partition_candidate(
     return None
 
 
+def _find_delete_wall_void_target(
+    target_element_id: str,
+    ifc_context: IFCContext | None,
+) -> tuple[str, dict[str, Any]] | None:
+    if ifc_context is None:
+        return None
+    for item in ifc_context["doors"]:
+        if item["id"] == target_element_id:
+            return ("door", item)
+    for item in ifc_context["windows"]:
+        if item["id"] == target_element_id:
+            return ("window", item)
+    for item in ifc_context["openings"]:
+        if item["id"] == target_element_id:
+            return ("opening", item)
+    return None
+
+
 def to_ifc_commands(
     command: FloorNLPCommand,
     ifc_context: IFCContext | None = None,
@@ -300,6 +328,49 @@ def to_ifc_commands(
                 )
             ],
             requires_clarification=False,
+        )
+
+    if command.action == "delete_wall_void":
+        target_element_id = command.target_element_id
+        assert target_element_id is not None
+        match = _find_delete_wall_void_target(target_element_id, ifc_context)
+        if match is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=_MSG_DELETE_WALL_VOID_NOT_FOUND,
+            )
+        target_kind, target = match
+        if target_kind == "opening":
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=_MSG_DELETE_WALL_VOID_OPENING_UNVALIDATED,
+            )
+        if target.get("host_wall_body_class") != "parametric":
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=_MSG_DELETE_WALL_VOID_BCR_UNSUPPORTED,
+            )
+        return CommandBatch(
+            commands=[
+                IFCCommand(
+                    action=ActionType.DELETE_WALL_VOID,
+                    target_id=target_element_id,
+                    params={
+                        "metadata": {
+                            "target_kind": target_kind,
+                            "host_wall_id": target["host_wall_id"],
+                            "host_wall_body_class": target["host_wall_body_class"],
+                        }
+                    },
+                    confidence=command.confidence,
+                    reason="delete selected wall opening family element",
+                )
+            ],
+            requires_clarification=False,
+            clarification_question=None,
         )
 
     if command.action == "create_wall":

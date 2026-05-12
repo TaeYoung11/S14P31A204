@@ -210,9 +210,43 @@ def _extract_walls(
                 "thickness": thickness,
                 "space_ids": space_ids,
                 "kind": kind,
+                "body_class": _classify_wall_body(wall),
             }
         )
     return walls
+
+
+def _classify_wall_body(wall: ifcopenshell.entity_instance) -> str | None:
+    representation = getattr(wall, "Representation", None)
+    if not representation:
+        return None
+    body_rep = next(
+        (
+            rep
+            for rep in getattr(representation, "Representations", []) or []
+            if getattr(rep, "RepresentationIdentifier", None) == "Body"
+        ),
+        None,
+    )
+    if body_rep is None:
+        return None
+    items = list(getattr(body_rep, "Items", []) or [])
+    if not items:
+        return None
+    return _classify_shape_item(items[0])
+
+
+def _classify_shape_item(item: ifcopenshell.entity_instance) -> str:
+    if item.is_a("IfcExtrudedAreaSolid"):
+        return "parametric"
+    if item.is_a("IfcBooleanClippingResult"):
+        return "bcr"
+    if item.is_a("IfcBooleanResult"):
+        first_operand = getattr(item, "FirstOperand", None)
+        if first_operand is None:
+            return "boolean_other"
+        return _classify_shape_item(first_operand)
+    return item.is_a()
 
 
 def _extract_doors(
@@ -240,6 +274,7 @@ def _extract_doors(
                 "id": door.GlobalId,
                 "floor": floor,
                 "host_wall_id": host_wall_id,
+                "host_wall_body_class": wall.get("body_class"),
                 "from_space_id": space_ids[0] if len(space_ids) >= 1 else None,
                 "to_space_id": space_ids[1] if len(space_ids) >= 2 else None,
                 "width": width,
@@ -286,6 +321,7 @@ def _extract_openings(
                 "id": opening.GlobalId,
                 "floor": floor,
                 "host_wall_id": host_wall_id,
+                "host_wall_body_class": wall.get("body_class"),
                 "filled_by_id": filled_by_id,
                 "filled_by_kind": filled_by_kind,
             }
@@ -338,6 +374,7 @@ def _extract_windows(
                 "id": window.GlobalId,
                 "floor": floor,
                 "host_wall_id": host_wall_id,
+                "host_wall_body_class": wall.get("body_class"),
                 "adjacent_space_id": adjacent_space_id,
                 "width": width,
                 "height": height,

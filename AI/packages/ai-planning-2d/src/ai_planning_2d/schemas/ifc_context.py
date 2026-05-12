@@ -32,12 +32,14 @@ class WallContext(TypedDict):
     thickness: int
     space_ids: list[str]
     kind: str | None
+    body_class: str | None
 
 
 class DoorContext(TypedDict):
     id: str
     floor: int
     host_wall_id: str
+    host_wall_body_class: str | None
     from_space_id: str | None
     to_space_id: str | None
     width: int
@@ -52,6 +54,7 @@ class WindowContext(TypedDict):
     id: str
     floor: int
     host_wall_id: str
+    host_wall_body_class: str | None
     adjacent_space_id: str | None
     width: int
     height: int
@@ -63,6 +66,7 @@ class OpeningContext(TypedDict):
     id: str
     floor: int
     host_wall_id: str
+    host_wall_body_class: str | None
     filled_by_id: str | None
     filled_by_kind: str | None
 
