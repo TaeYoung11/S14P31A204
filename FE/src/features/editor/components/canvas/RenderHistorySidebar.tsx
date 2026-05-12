@@ -11,6 +11,7 @@ interface RenderHistorySidebarProps {
   season: string
   isRequesting: boolean
   canRequestRender: boolean
+  errorMessage?: string | null
   onTimeOfDayChange: (value: string) => void
   onSeasonChange: (value: string) => void
   onRequestRender: () => void
@@ -79,6 +80,7 @@ export default function RenderHistorySidebar({
   season,
   isRequesting,
   canRequestRender,
+  errorMessage,
   onTimeOfDayChange,
   onSeasonChange,
   onRequestRender,
@@ -117,6 +119,9 @@ export default function RenderHistorySidebar({
           <WandSparkles size={14} />
           {isRequesting ? '이미지 생성 중' : '이미지 생성'}
         </button>
+        {errorMessage ? (
+          <p className="mt-2 text-[11px] font-bold leading-4 text-[#fecaca]">{errorMessage}</p>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto pr-1">

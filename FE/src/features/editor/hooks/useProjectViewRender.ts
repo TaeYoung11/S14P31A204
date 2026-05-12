@@ -149,7 +149,12 @@ export function useProjectViewRender(
   }, [applyRenderList, projectId])
 
   const requestRender = useCallback(async (request: CreateProjectRenderRequest = preset.request) => {
-    if (!projectId || isRequesting) return
+    if (!projectId) {
+      setStatus('failed')
+      setErrorMessage('프로젝트 정보를 확인할 수 없어 렌더링을 요청할 수 없습니다.')
+      return
+    }
+    if (isRequesting) return
 
     const abortController = new AbortController()
     setIsRequesting(true)

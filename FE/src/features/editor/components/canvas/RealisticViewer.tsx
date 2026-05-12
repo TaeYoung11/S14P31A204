@@ -33,6 +33,7 @@ export function RealisticViewer({ projectId }: RealisticViewerProps) {
   const {
     imageUrl,
     renders,
+    errorMessage,
     isRequesting,
     requestRender,
   } = useProjectViewRender(projectId, 0)
@@ -98,6 +99,7 @@ export function RealisticViewer({ projectId }: RealisticViewerProps) {
         season={season}
         isRequesting={isRequesting}
         canRequestRender={canRequestRender}
+        errorMessage={errorMessage}
         onTimeOfDayChange={setTimeOfDay}
         onSeasonChange={setSeason}
         onRequestRender={handleRequestRender}
