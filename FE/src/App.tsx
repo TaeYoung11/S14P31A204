@@ -22,7 +22,7 @@ function EditorPageRoute() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <PublicLandingHeader />
       <Suspense fallback={<RouteLoadingFallback />}>
         <Routes>

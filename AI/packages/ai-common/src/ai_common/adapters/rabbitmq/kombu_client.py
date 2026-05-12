@@ -93,6 +93,11 @@ EVENTS_EXCHANGE = kombu.Exchange(
     type="topic",
     durable=True,
 )
+DLX_EXCHANGE = kombu.Exchange(
+    "batang.dlx.exchange",
+    type="direct",
+    durable=True,
+)
 
 SD_RENDER_COMMAND_QUEUE = kombu.Queue(
     "batang.sd-render.command.queue",
@@ -115,9 +120,19 @@ IFC_GENERATE_COMMAND_QUEUE = kombu.Queue(
     },
 )
 THREE_D_LLM_COMMAND_QUEUE = kombu.Queue(
-    "batang.3d-llm.command.queue",
+    "batang.three-d-llm.command.queue",
     exchange=COMMANDS_EXCHANGE,
-    routing_key="command.3d-llm.*",
+    routing_key="command.three-d-llm.*",
+    durable=True,
+    queue_arguments={
+        "x-dead-letter-exchange": "batang.dlx.exchange",
+        "x-dead-letter-routing-key": "dead.three-d-llm",
+    },
+)
+THREE_D_LLM_DLQ = kombu.Queue(
+    "batang.three-d-llm.dlq",
+    exchange=DLX_EXCHANGE,
+    routing_key="dead.three-d-llm",
     durable=True,
 )
 TWO_D_LLM_COMMAND_QUEUE = kombu.Queue(
@@ -139,6 +154,12 @@ IFC_EDIT_COMMAND_QUEUE = kombu.Queue(
         "x-dead-letter-exchange": "batang.dlx.exchange",
         "x-dead-letter-routing-key": "dead.ifc-edit",
     },
+)
+IFC_EDIT_DLQ = kombu.Queue(
+    "batang.ifc-edit.dlq",
+    exchange=DLX_EXCHANGE,
+    routing_key="dead.ifc-edit",
+    durable=True,
 )
 
 _WORKER_TYPE_TO_QUEUE: dict[str, kombu.Queue] = {
@@ -168,3 +189,11 @@ def get_command_queue(worker_type: str) -> kombu.Queue:
             f"No command queue registered for worker_type: {worker_type!r}. "
             f"Registered types: {list(_WORKER_TYPE_TO_QUEUE)}"
         ) from exc
+
+
+def declare_supporting_topology(channel: Any) -> None:
+    """Declare DLX/DLQ resources not auto-declared by a command consumer."""
+
+    DLX_EXCHANGE.declare(channel=channel)
+    THREE_D_LLM_DLQ.declare(channel=channel)
+    IFC_EDIT_DLQ.declare(channel=channel)

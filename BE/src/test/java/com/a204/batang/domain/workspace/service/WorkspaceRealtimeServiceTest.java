@@ -12,6 +12,7 @@ import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
 import com.a204.batang.domain.workspace.repository.WorkspaceBubbleSnapshotRedisRepository;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,7 +33,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -55,6 +58,9 @@ class WorkspaceRealtimeServiceTest {
     @Mock
     private ProjectQueryService projectQueryService;
 
+    @Mock
+    private S3ObjectPresigner s3ObjectPresigner;
+
     private WorkspaceRealtimeService workspaceRealtimeService;
     private ObjectMapper objectMapper;
 
@@ -74,8 +80,12 @@ class WorkspaceRealtimeServiceTest {
                 projectQueryService,
                 workspaceBubbleSnapshotRedisRepository,
                 bubbleSnapshotHelper,
+                s3ObjectPresigner,
                 simpMessagingTemplate
         );
+
+        lenient().when(s3ObjectPresigner.presignIfInternal(anyString(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
         projectId = UUID.randomUUID();
         currentUserId = UUID.randomUUID();

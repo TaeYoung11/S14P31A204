@@ -14,8 +14,10 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.Optional;
@@ -79,6 +81,15 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleHttpMessageNotReadableException(HttpMessageNotReadableException e) {
         log.warn("HttpMessageNotReadableException: {}", e.getMessage());
         return toResponse(ErrorCode.INVALID_REQUEST, "요청 본문 형식이 올바르지 않습니다.");
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingServletRequestParameterException(
+            MissingServletRequestParameterException e
+    ) {
+        String message = String.format("%s: 필수입니다.", e.getParameterName());
+        log.warn("MissingServletRequestParameterException: {}", message);
+        return toResponse(ErrorCode.INVALID_REQUEST, message);
     }
 
     /**
@@ -163,6 +174,19 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleGeneralException(Exception e) {
         log.error("Unhandled Exception 발생", e);
         return toResponse(ErrorCode.INTERNAL_SERVER_ERROR, ErrorCode.INTERNAL_SERVER_ERROR.getMessage());
+    }
+
+
+    /**
+     * Handles disconnected SSE/async clients without writing an additional error body.
+     *
+     * @param e AsyncRequestNotUsableException
+     * @return null because the async response is already unusable
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public ResponseEntity<ErrorResponse> handleAsyncRequestNotUsableException(AsyncRequestNotUsableException e) {
+        log.debug("Async request already closed: {}", e.getMessage());
+        return null;
     }
 
     private String createFieldErrorMessage(FieldError fieldError) {

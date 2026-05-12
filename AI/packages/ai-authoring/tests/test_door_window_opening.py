@@ -14,6 +14,7 @@ import pytest
 import ai_authoring.operations  # noqa: F401
 from ai_authoring.engine_3d import (
     create_door_with_opening,
+    create_slab,
     create_wall,
     create_window_with_opening,
     delete_element,
@@ -63,6 +64,22 @@ def _single_body_item(element):
         if rep.RepresentationIdentifier == "Body"
     )
     return body.Items[0]
+
+
+def _convert_wall_to_sample_style_centered_solid(model, wall):
+    solid = _single_body_item(wall)
+    profile = solid.SweptArea
+    profile.Position = None
+    solid.Position = model.create_entity(
+        "IfcAxis2Placement3D",
+        Location=model.create_entity(
+            "IfcCartesianPoint",
+            Coordinates=(float(profile.XDim) / 2.0, float(profile.YDim) / 2.0, 0.0),
+        ),
+        Axis=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        RefDirection=model.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0, 0.0)),
+    )
+    return solid
 
 
 def test_find_host_wall_by_global_id():
@@ -166,6 +183,58 @@ def test_door_creates_opening_and_relations_with_host_wall():
     assert _single_body_item(wall).is_a("IfcBooleanResult")
 
 
+def test_door_opening_uses_solid_position_when_profile_has_no_position():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    assert wall is not None
+    _convert_wall_to_sample_style_centered_solid(model, wall)
+
+    door = create_door_with_opening(
+        model,
+        storey,
+        length_mm=900,
+        width_mm=200,
+        height_mm=2100,
+        x_mm=2000,
+        y_mm=0,
+        z_mm=0,
+        host_wall=wall,
+        sill_height_mm=0.0,
+    )
+
+    assert door is not None
+    opening = model.by_type("IfcOpeningElement")[0]
+    opening_y = float(opening.ObjectPlacement.RelativePlacement.Location.Coordinates[1])
+    door_y = float(door.ObjectPlacement.RelativePlacement.Location.Coordinates[1])
+    assert opening_y == pytest.approx(-10.0)
+    assert door_y == pytest.approx(90.0)
+
+
+def test_door_opening_clamps_to_host_wall_height():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    assert wall is not None
+
+    door = create_door_with_opening(
+        model,
+        storey,
+        length_mm=900,
+        width_mm=200,
+        height_mm=2100,
+        x_mm=500,
+        y_mm=0,
+        z_mm=1000,
+        host_wall=wall,
+        sill_height_mm=0.0,
+    )
+
+    assert door is not None
+    opening = model.by_type("IfcOpeningElement")[0]
+    opening_z = float(opening.ObjectPlacement.RelativePlacement.Location.Coordinates[2])
+    assert opening_z == pytest.approx(300.0)
+    assert opening_z + 2100.0 == pytest.approx(2400.0)
+
+
 def test_door_without_host_wall_is_rejected():
     model, storey, _ = _make_model()
 
@@ -231,6 +300,42 @@ def test_window_sill_height_applied_to_opening_placement():
     assert window_z == pytest.approx(0.0)
 
 
+def test_transform_handler_skips_host_relative_window_when_requested():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    assert wall is not None
+    window = create_window_with_opening(
+        model,
+        storey,
+        length_mm=1200,
+        width_mm=200,
+        height_mm=1200,
+        x_mm=1000,
+        y_mm=0,
+        z_mm=0,
+        host_wall=wall,
+        sill_height_mm=900.0,
+    )
+    assert window is not None
+    original_coords = tuple(window.ObjectPlacement.RelativePlacement.Location.Coordinates)
+
+    transform_handler = get("transform_elements")
+    moved = transform_handler.execute(
+        model,
+        None,
+        {
+            "translate_mm": {"x": 1000.0, "y": 0.0, "z": 0.0},
+            "skip_if_host_relative": True,
+        },
+        {"global_ids": [window.GlobalId]},
+    )
+
+    assert moved == []
+    assert tuple(window.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
+        original_coords
+    )
+
+
 def test_create_element_handler_door_with_host_wall():
     model, storey, _ = _make_model()
     wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
@@ -281,6 +386,146 @@ def test_create_element_handler_window_uses_default_sill_height():
     opening = model.by_type("IfcOpeningElement")[0]
     z_coord = float(opening.ObjectPlacement.RelativePlacement.Location.Coordinates[2])
     assert z_coord == pytest.approx(900.0)
+
+
+def test_create_element_handler_window_clamps_sill_to_host_wall_height():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=3000)
+    assert wall is not None
+
+    handler = get("create_element")
+    window = handler.execute(
+        model,
+        storey,
+        {
+            "element_type": "IfcWindow",
+            "storey": "1F",
+            "coordinate_space": "PROJECT_ABSOLUTE_MM",
+            "start_mm": {"x": 1000.0, "y": 0.0, "z": 1000.0},
+            "dimensions_mm": {"length": 1200, "width": 200, "height": 1200},
+            "host_wall_global_id": wall.GlobalId,
+            "sill_height_mm": 900.0,
+        },
+    )
+
+    assert window is not None
+    opening = model.by_type("IfcOpeningElement")[0]
+    opening_z = float(opening.ObjectPlacement.RelativePlacement.Location.Coordinates[2])
+    assert opening_z == pytest.approx(1800.0)
+    assert opening_z + 1200.0 == pytest.approx(3000.0)
+
+
+def test_create_element_handler_window_clamps_below_overhead_slab():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=3000)
+    slab = create_slab(
+        model,
+        storey,
+        length_mm=3000,
+        width_mm=3000,
+        height_mm=200,
+        x_mm=0,
+        y_mm=0,
+        z_mm=2800,
+    )
+    assert wall is not None
+    assert slab is not None
+
+    handler = get("create_element")
+    window = handler.execute(
+        model,
+        storey,
+        {
+            "element_type": "IfcWindow",
+            "storey": "1F",
+            "coordinate_space": "PROJECT_ABSOLUTE_MM",
+            "start_mm": {"x": 1000.0, "y": 0.0, "z": 1000.0},
+            "dimensions_mm": {"length": 1200, "width": 200, "height": 1200},
+            "host_wall_global_id": wall.GlobalId,
+            "sill_height_mm": 900.0,
+        },
+    )
+
+    assert window is not None
+    opening = model.by_type("IfcOpeningElement")[0]
+    opening_z = float(opening.ObjectPlacement.RelativePlacement.Location.Coordinates[2])
+    assert opening_z == pytest.approx(1600.0)
+    assert opening_z + 1200.0 == pytest.approx(2800.0)
+
+
+def test_window_opening_ignores_overhead_slab_outside_opening_span():
+    model, storey, _ = _make_model()
+    wall = create_wall(
+        model,
+        storey,
+        length_mm=6000,
+        width_mm=200,
+        height_mm=3000,
+        direction="east",
+    )
+    slab = create_slab(
+        model,
+        storey,
+        length_mm=1000,
+        width_mm=3000,
+        height_mm=200,
+        x_mm=0,
+        y_mm=0,
+        z_mm=2800,
+    )
+    assert wall is not None
+    assert slab is not None
+
+    handler = get("create_element")
+    window = handler.execute(
+        model,
+        storey,
+        {
+            "element_type": "IfcWindow",
+            "storey": "1F",
+            "coordinate_space": "PROJECT_ABSOLUTE_MM",
+            "start_mm": {"x": 5000.0, "y": 0.0, "z": 1000.0},
+            "dimensions_mm": {"length": 1200, "width": 200, "height": 1200},
+            "host_wall_global_id": wall.GlobalId,
+            "sill_height_mm": 800.0,
+        },
+    )
+
+    assert window is not None
+    opening = model.by_type("IfcOpeningElement")[0]
+    opening_z = float(opening.ObjectPlacement.RelativePlacement.Location.Coordinates[2])
+    assert opening_z == pytest.approx(1800.0)
+    assert opening_z + 1200.0 == pytest.approx(3000.0)
+
+
+def test_window_opening_uses_solid_position_when_profile_has_no_position():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=3000)
+    assert wall is not None
+    _convert_wall_to_sample_style_centered_solid(model, wall)
+
+    handler = get("create_element")
+    window = handler.execute(
+        model,
+        storey,
+        {
+            "element_type": "IfcWindow",
+            "storey": "1F",
+            "coordinate_space": "PROJECT_ABSOLUTE_MM",
+            "start_mm": {"x": 2000.0, "y": 0.0, "z": 1000.0},
+            "dimensions_mm": {"length": 1200, "width": 200, "height": 1200},
+            "host_wall_global_id": wall.GlobalId,
+            "sill_height_mm": 900.0,
+        },
+    )
+
+    assert window is not None
+    opening = model.by_type("IfcOpeningElement")[0]
+    opening_coords = tuple(opening.ObjectPlacement.RelativePlacement.Location.Coordinates)
+    window_coords = tuple(window.ObjectPlacement.RelativePlacement.Location.Coordinates)
+    assert float(opening_coords[1]) == pytest.approx(-10.0)
+    assert float(opening_coords[2]) == pytest.approx(1800.0)
+    assert float(window_coords[1]) == pytest.approx(60.0)
 
 
 def test_create_element_handler_rejects_door_without_host_wall():

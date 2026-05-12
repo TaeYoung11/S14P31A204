@@ -22,6 +22,8 @@ public record ProjectRenderResponse(
         ProjectRenderStyleResponse style,
         @Schema(description = "렌더링 이미지 URL", example = "https://minio.local/renderings/render-001.png", nullable = true)
         String imageUrl,
+        @Schema(description = "렌더링 결과 URL 묶음", nullable = true)
+        RenderUrlsResponse renderUrls,
         @Schema(description = "렌더링 상태", example = "SUCCEEDED")
         String status,
         @Schema(description = "렌더링 요청 시각 (UTC ISO-8601)", example = "2026-04-15T07:50:00Z")

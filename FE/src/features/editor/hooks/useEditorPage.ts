@@ -118,13 +118,6 @@ import { isToolAllowedDuringConverting, isTwoDOrThreeDConverting as isTwoDOrThre
 import { resolveIfcPresignedUrl } from '../utils/ifcSource'
 import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
 
-interface DrawingSnapshot {
-  bubbles: BubbleData[]
-  connections: ConnectionData[]
-  floorWalls: FloorWall[]
-  floorOpenings: FloorOpening[]
-}
-
 interface PendingServerPublishRecord {
   projectId: string
   baseIndex: number
@@ -355,7 +348,6 @@ export function useEditorPage() {
     deleteFloorLayer,
     setActiveLayerId: setActiveFloorLayerId,
     setFloorPlanFromProject,
-    syncFloorPlanFromBubbles,
     moveActiveRoom,
     updateActiveRoom,
     removeActiveRooms,
@@ -535,6 +527,7 @@ export function useEditorPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [addSpaceFormData, setAddSpaceFormData] = useState<AddSpaceFormData>(INITIAL_ADD_SPACE_FORM)
   const [isCollaborationMode, setIsCollaborationMode] = useState(false)
+  const [isAgentPanelMode, setIsAgentPanelMode] = useState(false)
   const [selectedPinId, setSelectedPinId] = useState<string | null>(null)
   const [commentPins, setCommentPins] = useState<FloorCommentPin[]>([])
   const [commentNotifications, setCommentNotifications] = useState<FloorCommentNotification[]>([])
@@ -1815,6 +1808,27 @@ export function useEditorPage() {
     floorPlanHistoryCursor,
   })
 
+  const getBubbleSnapshotSaveErrorSummary = useCallback((error: unknown) => {
+    if (!isAxiosError(error)) {
+      return error instanceof Error ? error.message : String(error)
+    }
+
+    if (error.response) {
+      const responseData = error.response.data as { message?: unknown } | undefined
+      return {
+        status: error.response.status,
+        message: typeof responseData?.message === 'string' ? responseData.message : error.message,
+      }
+    }
+
+    return {
+      message: error.message,
+      code: error.code,
+      url: error.config?.url,
+      baseURL: error.config?.baseURL,
+    }
+  }, [])
+
   const flushBubbleSnapshotSaveToDb = useCallback(async (force = false): Promise<SaveBubbleSnapshotResponse | null> => {
     if (!projectId) return null
     if (workspacePhaseStatus !== 'BUBBLE_DRAFT') return null
@@ -1838,14 +1852,16 @@ export function useEditorPage() {
     try {
       return await saveTask
     } catch (error: unknown) {
+      const errorSummary = getBubbleSnapshotSaveErrorSummary(error)
       console.warn('[editor] Bubble snapshot DB 저장 실패:', { projectId, error })
+      console.warn('[editor] Bubble snapshot DB 저장 실패 상세:', { projectId, error: errorSummary })
       return null
     } finally {
       if (bubbleDbSaveInFlightRef.current === saveTask) {
         bubbleDbSaveInFlightRef.current = null
       }
     }
-  }, [projectId, workspacePhaseStatus])
+  }, [getBubbleSnapshotSaveErrorSummary, projectId, workspacePhaseStatus])
 
   const scheduleBubbleSnapshotSaveToDb = useCallback((delayMs = BUBBLE_DB_SAVE_DEBOUNCE_MS) => {
     if (!projectId) return
@@ -2313,11 +2329,13 @@ export function useEditorPage() {
   /** 편집 모드 전환 — 협업 모드·라이브러리는 모드 이탈 시 닫힘 */
   const setMode = useCallback((nextMode: EditorMode) => {
     setSearchParams({ mode: nextMode })
+    if (nextMode === '3d' && mode !== '3d' && !currentIfcUrl) setIsGenerate3DModalOpen(true)
     if (nextMode !== mode) resetToolSelection()
     if (nextMode !== '2d') setIsCollaborationMode(false)
+    if (nextMode === 'view' || nextMode === 'bubble') setIsAgentPanelMode(false)
     if (nextMode !== '3d') setSelectedIfcElement(null)
     setIsLibraryOpen(false)
-  }, [mode, resetToolSelection, setSearchParams])
+  }, [currentIfcUrl, mode, resetToolSelection, setSearchParams])
 
   const handleOpenProjectFromCommentToast = useCallback((targetProjectId: string, pinId?: string) => {
     const pinQuery = pinId ? `&pinId=${encodeURIComponent(pinId)}` : ''
@@ -2327,6 +2345,7 @@ export function useEditorPage() {
     }
     setSearchParams({ mode: '2d', ...(pinId ? { pinId } : {}) })
     setIsCollaborationMode(true)
+    setIsAgentPanelMode(false)
     if (pinId) {
       setSelectedPinId(pinId)
     }
@@ -2362,8 +2381,20 @@ export function useEditorPage() {
     setIsCollaborationMode((prev) => {
       if (!prev) {
         setSelectedPinId(null)
+        setIsAgentPanelMode(false)
       }
       return !prev
+    })
+  }
+
+  const handleToggleAgentPanel = () => {
+    setIsAgentPanelMode((prev) => {
+      const next = !prev
+      if (next) {
+        setIsCollaborationMode(false)
+        setSelectedPinId(null)
+      }
+      return next
     })
   }
 
@@ -3204,25 +3235,6 @@ export function useEditorPage() {
     }
   }, [canRedo, isFloorPlanHistoryMode, mode, projectId])
 
-  const applyDrawingSnapshot = useCallback(
-    ({ bubbles: nextBubbles, connections: nextConnections, floorWalls: nextFloorWalls, floorOpenings: nextFloorOpenings }: DrawingSnapshot) => {
-      setIsFloorPlanEditedIn2D(false)
-      setIsProjectStructurePreferred(false)
-      replaceBubbles(nextBubbles)
-      replaceConnections(nextConnections)
-      // project-origin 레이아웃은 버블 자동 배치로 덮어쓰지 않는다.
-      if (!IFC_DERIVED_FLOORPLAN_ONLY && floorPlanLayoutSource !== 'project') {
-        syncFloorPlanFromBubbles(nextBubbles, nextConnections, stageSize.width, stageSize.height)
-      }
-      setFloorWalls(nextFloorWalls)
-      setHiddenAutoWallIds([])
-      setFloorOpenings(nextFloorOpenings)
-      setHiddenAutoOpeningIds([])
-      resetInteractionSelection()
-    },
-    [floorPlanLayoutSource, replaceBubbles, replaceConnections, syncFloorPlanFromBubbles, stageSize.width, stageSize.height, resetInteractionSelection],
-  )
-
   /** 표준 FloorProject를 버블/2D/3D 공통 상태로 반영
    *  walls/openings 필드가 있으면(IFC 경로) 직접 매핑, 없으면 빈 배열 → autoWalls/autoOpenings 폴백
    */
@@ -3363,33 +3375,24 @@ export function useEditorPage() {
     attemptedInitialIfcImportProjectIdRef,
   })
 
-  /** AI 미리보기 적용 — 버블/연결선/2D 벽·개구부 일괄 반영 후 선택 상태 정리 */
-  const applyLlmPreview = useCallback(
-    (
-      nextBubbles: BubbleData[],
-      nextConnections: ConnectionData[],
-      nextFloorWalls: FloorWall[],
-      nextFloorOpenings: FloorOpening[],
-    ) => {
-      clearImportMessage()
-      applyDrawingSnapshot({
-        bubbles: nextBubbles,
-        connections: nextConnections,
-        floorWalls: nextFloorWalls,
-        floorOpenings: nextFloorOpenings,
-      })
-    },
-    [clearImportMessage, applyDrawingSnapshot],
-  )
+  const handleLlmIfcResult = useCallback((ifcStorageUrl: string, assetId: string | null, revisionId: string | null) => {
+    clearImportMessage()
+    handleIfcSyncMessageRef.current(ifcStorageUrl, 'IFC_EDIT_COMPLETED', assetId, revisionId)
+  }, [clearImportMessage])
 
   /** AI 어시스턴트 편집 상태 */
   const llmEdit = useLlmEdit({
     projectId: projectId ?? null,
+    mode,
+    currentIfcRevisionId,
+    currentIfcUrl,
     bubbles,
     connections,
+    floorLayers,
+    activeFloorLayerId,
     floorWalls: floorWalls.length > 0 ? floorWalls : autoFloorWalls,
     floorOpenings: mergedFloorOpenings,
-    onApply: applyLlmPreview,
+    onIfcResult: handleLlmIfcResult,
   })
 
   const {
@@ -3619,6 +3622,7 @@ export function useEditorPage() {
     onCloseAddModal: () => setIsAddModalOpen(false),
     // 협업
     isCollaborationMode,
+    isAgentPanelMode,
     selectedPinId,
     setSelectedPinId,
     selectedCommentPin,
@@ -3627,6 +3631,7 @@ export function useEditorPage() {
     currentCollaborationUserType: collaborationUserType,
     currentCollaborationUserName: currentUserName,
     handleToggleCollaboration,
+    handleToggleAgentPanel,
     handlePinClick,
     handleCreateCommentPin,
     handleAddCommentReply,
@@ -3778,6 +3783,10 @@ export function useEditorPage() {
     llmSuggestions: llmEdit.suggestions,
     llmPreview: llmEdit.preview,
     llmCanRun: llmEdit.canRun,
+    llmActiveJobId: llmEdit.activeJobId,
+    llmJobProgress: llmEdit.jobProgress,
+    llmChatLogs: llmEdit.chatLogs,
+    llmIsChatLogsLoading: llmEdit.isChatLogsLoading,
     runLlmEdit: llmEdit.run,
     applyLlmEdit: llmEdit.apply,
     discardLlmEdit: llmEdit.discard,

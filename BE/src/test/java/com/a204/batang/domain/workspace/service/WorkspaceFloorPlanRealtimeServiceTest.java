@@ -16,6 +16,8 @@ import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
 import com.a204.batang.domain.workspace.repository.WorkspaceBubbleSnapshotRedisRepository;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.a204.batang.global.exception.ErrorResponse;
+import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,7 +38,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -61,6 +66,9 @@ class WorkspaceFloorPlanRealtimeServiceTest {
     @Mock
     private FloorPlanS3DeleteQueueService floorPlanS3DeleteQueueService;
 
+    @Mock
+    private S3ObjectPresigner s3ObjectPresigner;
+
     private WorkspaceFloorPlanRealtimeService workspaceFloorPlanRealtimeService;
     private ObjectMapper objectMapper;
 
@@ -79,9 +87,13 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 workspaceBubbleSnapshotRedisRepository,
                 floorPlanS3DeleteQueueService,
                 directIfcEditCommandService,
+                s3ObjectPresigner,
                 simpMessagingTemplate,
                 objectMapper
         );
+
+        lenient().when(s3ObjectPresigner.presignIfInternal(anyString(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
         projectId = UUID.randomUUID();
         currentUserId = UUID.randomUUID();
@@ -195,6 +207,46 @@ class WorkspaceFloorPlanRealtimeServiceTest {
     }
 
     @Test
+    void relayFloorPlanDraft_skipsWhenIfcEditJobConflictOccurs() throws Exception {
+        FloorPlanRealtimeUpdateRequest request = new FloorPlanRealtimeUpdateRequest(
+                List.of(new BubbleUpdateRequest.BubbleData(
+                        "bubble-1",
+                        10.0,
+                        20.0,
+                        30.0,
+                        40.0,
+                        3000.0,
+                        4000.0,
+                        "living-room",
+                        "LIVING",
+                        84.5,
+                        "#ffffff"
+                )),
+                List.of(),
+                0,
+                null,
+                FloorPlanSceneType.TWO_D,
+                objectMapper.readTree("""
+                        {
+                          "rooms": [{"bubbleId": "bubble-1", "label": "living-room"}],
+                          "walls": [],
+                          "openings": []
+                        }
+                        """)
+        );
+
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+        doThrow(new CustomException(ErrorCode.IFC_EDIT_JOB_CONFLICT))
+                .when(directIfcEditCommandService)
+                .createDirectIfcEdit(eq(projectId), eq(currentUserId), any(DirectIfcEditRequest.class));
+
+        workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
+
+        verifyNoInteractions(simpMessagingTemplate);
+    }
+
+    @Test
     void relayFloorPlanDraft_throwsWhenPayloadReferencesUnknownBubble() {
         FloorPlanRealtimeUpdateRequest request = new FloorPlanRealtimeUpdateRequest(
                 List.of(new BubbleUpdateRequest.BubbleData(
@@ -289,6 +341,110 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         assertThat(historySnapshot.get("floorPlanPayloadJson").get("revisionId").asText()).isEqualTo(response.revisionId());
 
         verify(floorPlanS3DeleteQueueService).enqueueAll(Set.of("s3://bucket/projects/p1/revisions/old-removed/ifc/model.v1.ifc"));
+    }
+
+    @Test
+    void publishFloorPlanUpdatedFromGenerate_broadcastsWebSocketMessageWithS3Url() {
+        UUID revisionId = UUID.randomUUID();
+        UUID parentRevisionId = UUID.randomUUID();
+        String s3Url = "s3://bucket/projects/%s/revisions/%s/ifc/model.v1.ifc".formatted(projectId, revisionId);
+
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+
+        workspaceFloorPlanRealtimeService.publishFloorPlanUpdatedFromGenerate(
+                projectId,
+                revisionId,
+                parentRevisionId,
+                s3Url
+        );
+
+        ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
+        verify(simpMessagingTemplate).convertAndSend(
+                eq("/topic/project/%s/floor-plan/sync".formatted(projectId)),
+                responseCaptor.capture()
+        );
+
+        FloorPlanProjectSyncResponse response = responseCaptor.getValue();
+        assertThat(response.action()).isEqualTo("FLOOR_PLAN_UPDATED");
+        assertThat(response.projectId()).isEqualTo(projectId);
+        assertThat(response.revisionId()).isEqualTo(revisionId.toString());
+        assertThat(response.s3Url()).isEqualTo(s3Url);
+        assertThat(response.floorPlanPayloadJson().get("baseIndex").asInt()).isEqualTo(-1);
+        assertThat(response.floorPlanPayloadJson().get("revisionId").asText()).isEqualTo(revisionId.toString());
+        assertThat(response.floorPlanPayloadJson().get("parentRevisionId").asText()).isEqualTo(parentRevisionId.toString());
+        assertThat(response.floorPlanPayloadJson().get("bubbles").isArray()).isTrue();
+        assertThat(response.floorPlanPayloadJson().get("connections").isArray()).isTrue();
+    }
+
+    @Test
+    void relayIfcEditDlqFailureAndRestoreSource_broadcastsSourceRevisionAndNotifiesUser() throws Exception {
+        UUID sourceRevisionId = UUID.randomUUID();
+        UUID requestedBy = UUID.randomUUID();
+        JsonNode latestSnapshot = objectMapper.readTree("""
+                {
+                  "floorPlanPayloadJson": {
+                    "baseIndex": 4,
+                    "revisionId": "%s",
+                    "bubbles": [{"id": "bubble-restore"}],
+                    "connections": []
+                  },
+                  "s3Url": "s3://bucket/projects/%s/revisions/%s/ifc/model.v1.ifc"
+                }
+                """.formatted(sourceRevisionId, projectId, sourceRevisionId));
+        JsonNode olderSnapshot = objectMapper.readTree("""
+                {
+                  "floorPlanPayloadJson": {
+                    "baseIndex": 3,
+                    "revisionId": "%s",
+                    "bubbles": [{"id": "bubble-old"}],
+                    "connections": []
+                  },
+                  "s3Url": "s3://bucket/projects/%s/revisions/%s/ifc/model.v1.ifc"
+                }
+                """.formatted(UUID.randomUUID(), projectId, UUID.randomUUID()));
+
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+        given(workspaceBubbleSnapshotRedisRepository.getFloorPlanSnapshotHistorySize(projectId))
+                .willReturn(2);
+        given(workspaceBubbleSnapshotRedisRepository.findFloorPlanSnapshotByIndex(projectId, 1))
+                .willReturn(olderSnapshot);
+        given(workspaceBubbleSnapshotRedisRepository.findFloorPlanSnapshotByIndex(projectId, 0))
+                .willReturn(latestSnapshot);
+
+        workspaceFloorPlanRealtimeService.relayIfcEditDlqFailureAndRestoreSource(
+                projectId,
+                sourceRevisionId,
+                requestedBy,
+                "편집 작업이 실패해 이전 상태로 복구했습니다."
+        );
+
+        ArgumentCaptor<Object> userErrorCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(simpMessagingTemplate).convertAndSendToUser(
+                eq(requestedBy.toString()),
+                eq("/queue/errors"),
+                userErrorCaptor.capture()
+        );
+        assertThat(userErrorCaptor.getValue()).isInstanceOf(ErrorResponse.class);
+        ErrorResponse errorResponse = (ErrorResponse) userErrorCaptor.getValue();
+        assertThat(errorResponse.getCode()).isEqualTo(ErrorCode.IFC_EDIT_COMMAND_DLQ.getCode());
+        assertThat(errorResponse.getMessage()).isEqualTo("편집 작업이 실패해 이전 상태로 복구했습니다.");
+
+        ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
+        verify(simpMessagingTemplate).convertAndSend(
+                eq("/topic/project/%s/floor-plan/sync".formatted(projectId)),
+                responseCaptor.capture()
+        );
+
+        FloorPlanProjectSyncResponse response = responseCaptor.getValue();
+        assertThat(response.action()).isEqualTo("FLOOR_PLAN_UPDATED");
+        assertThat(response.revisionId()).isEqualTo(sourceRevisionId.toString());
+        assertThat(response.s3Url()).isEqualTo(
+                "projects/%s/revisions/%s/ifc/model.v1.ifc".formatted(projectId, sourceRevisionId)
+        );
+        assertThat(response.floorPlanPayloadJson().get("revisionId").asText()).isEqualTo(sourceRevisionId.toString());
+        assertThat(response.floorPlanPayloadJson().get("baseIndex").asInt()).isEqualTo(4);
     }
 
     @Test

@@ -8,8 +8,29 @@ import ifcopenshell.api.aggregate
 import ifcopenshell.api.pset
 import ifcopenshell.api.root
 
-DEFAULT_SPACE_HEIGHT_M = 2.7
+DEFAULT_SPACE_HEIGHT_MM = 2700.0
 DEFAULT_PSET_NAME = "Batang_SpaceDimensions"
+
+
+def mm_to_model_units(
+    model: ifcopenshell.file,
+    value_mm: int | float | None,
+    default_mm: float,
+) -> float:
+    value = float(value_mm if value_mm is not None else default_mm)
+    for unit in model.by_type("IfcSIUnit"):
+        if getattr(unit, "UnitType", None) != "LENGTHUNIT":
+            continue
+        prefix = getattr(unit, "Prefix", None)
+        if prefix == "MILLI":
+            return value
+        if prefix == "CENTI":
+            return value / 10.0
+        if prefix == "DECI":
+            return value / 100.0
+        if prefix is None:
+            return value / 1000.0
+    return value
 
 
 def resolve_storey(
@@ -87,20 +108,23 @@ def create_local_placement(
 def create_space_representation(
     *,
     model: ifcopenshell.file,
-    width_m: float,
-    height_m: float,
-    depth_m: float = DEFAULT_SPACE_HEIGHT_M,
+    width: float,
+    height: float,
+    depth: float,
     context: ifcopenshell.entity_instance | None = None,
 ) -> ifcopenshell.entity_instance:
     body_context = context or ensure_body_context(model)
     profile = model.create_entity(
         "IfcRectangleProfileDef",
         ProfileType="AREA",
-        XDim=width_m,
-        YDim=height_m,
+        XDim=width,
+        YDim=height,
         Position=model.create_entity(
             "IfcAxis2Placement2D",
-            Location=model.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0)),
+            Location=model.create_entity(
+                "IfcCartesianPoint",
+                Coordinates=(float(width) / 2.0, float(height) / 2.0),
+            ),
             RefDirection=model.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0)),
         ),
     )
@@ -114,7 +138,7 @@ def create_space_representation(
             RefDirection=model.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0, 0.0)),
         ),
         ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
-        Depth=depth_m,
+        Depth=depth,
     )
     shape = model.create_entity(
         "IfcShapeRepresentation",
@@ -129,14 +153,14 @@ def create_space_representation(
 def create_space_representation_from_polygon(
     *,
     model: ifcopenshell.file,
-    polygon_m: list[tuple[float, float]],
-    depth_m: float = DEFAULT_SPACE_HEIGHT_M,
+    polygon: list[tuple[float, float]],
+    depth: float,
     context: ifcopenshell.entity_instance | None = None,
 ) -> ifcopenshell.entity_instance:
     body_context = context or ensure_body_context(model)
     local_points = [
         model.create_entity("IfcCartesianPoint", Coordinates=(float(x), float(y)))
-        for x, y in polygon_m
+        for x, y in polygon
     ]
     polyline = model.create_entity("IfcPolyline", Points=local_points)
     profile = model.create_entity(
@@ -154,7 +178,7 @@ def create_space_representation_from_polygon(
             RefDirection=model.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0, 0.0)),
         ),
         ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
-        Depth=depth_m,
+        Depth=depth,
     )
     shape = model.create_entity(
         "IfcShapeRepresentation",
@@ -178,15 +202,15 @@ def create_space_representation_from_polygon(
                             model.create_entity(
                                 "IfcCartesianPoint", Coordinates=(float(x), float(y))
                             )
-                            for x, y in [*polygon_m, polygon_m[0]]
+                            for x, y in [*polygon, polygon[0]]
                         ],
                     )
                 ],
             )
         ],
     )
-    xs = [point[0] for point in polygon_m]
-    ys = [point[1] for point in polygon_m]
+    xs = [point[0] for point in polygon]
+    ys = [point[1] for point in polygon]
     box = model.create_entity(
         "IfcShapeRepresentation",
         ContextOfItems=body_context,
@@ -201,7 +225,7 @@ def create_space_representation_from_polygon(
                 ),
                 XDim=float(max(xs) - min(xs)),
                 YDim=float(max(ys) - min(ys)),
-                ZDim=float(depth_m),
+                ZDim=float(depth),
             )
         ],
     )
@@ -210,7 +234,8 @@ def create_space_representation_from_polygon(
     )
 
 
-def space_dimensions_m(
+def space_dimensions(
+    model: ifcopenshell.file,
     space: ifcopenshell.entity_instance,
 ) -> tuple[float, float, float]:
     representation = getattr(space, "Representation", None)
@@ -223,7 +248,7 @@ def space_dimensions_m(
                     profile = getattr(item, "SweptArea", None)
                     if profile and profile.is_a("IfcRectangleProfileDef"):
                         return float(profile.XDim), float(profile.YDim), float(item.Depth)
-    return (0.0, 0.0, DEFAULT_SPACE_HEIGHT_M)
+    return (0.0, 0.0, mm_to_model_units(model, None, DEFAULT_SPACE_HEIGHT_MM))
 
 
 def update_space(
@@ -242,26 +267,34 @@ def update_space(
     height_mm = _int_or_none((dimensions_mm or {}).get("height"))
     polygon_mm = properties.get("polygon_mm") if properties else None
     if polygon_mm:
-        current_width_m, current_height_m, current_depth_m = space_dimensions_m(space)
-        polygon_m = [
-            (float(point["x"]) / 1000.0, float(point["y"]) / 1000.0)
+        current_width, current_height, current_depth = space_dimensions(model, space)
+        del current_width, current_height
+        polygon = [
+            (
+                mm_to_model_units(model, point["x"], 0.0),
+                mm_to_model_units(model, point["y"], 0.0),
+            )
             for point in polygon_mm
         ]
         space.Representation = create_space_representation_from_polygon(
             model=model,
-            polygon_m=polygon_m,
-            depth_m=current_depth_m,
+            polygon=polygon,
+            depth=current_depth,
             context=body_context(model, space),
         )
     elif width_mm is not None or height_mm is not None:
-        current_width_m, current_height_m, current_depth_m = space_dimensions_m(space)
-        new_width_m = width_mm / 1000.0 if width_mm is not None else current_width_m
-        new_height_m = height_mm / 1000.0 if height_mm is not None else current_height_m
+        current_width, current_height, current_depth = space_dimensions(model, space)
+        new_width = (
+            mm_to_model_units(model, width_mm, 0.0) if width_mm is not None else current_width
+        )
+        new_height = (
+            mm_to_model_units(model, height_mm, 0.0) if height_mm is not None else current_height
+        )
         space.Representation = create_space_representation(
             model=model,
-            width_m=new_width_m,
-            height_m=new_height_m,
-            depth_m=current_depth_m,
+            width=new_width,
+            height=new_height,
+            depth=current_depth,
             context=body_context(model, space),
         )
 
@@ -371,6 +404,17 @@ def translate_product(
     coords[2] += z_m
     relative.Location = model.create_entity("IfcCartesianPoint", Coordinates=tuple(coords[:3]))
     return True
+
+
+def is_product_host_relative(product: ifcopenshell.entity_instance) -> bool:
+    placement = getattr(product, "ObjectPlacement", None)
+    parent_placement = getattr(placement, "PlacementRelTo", None) if placement else None
+    if parent_placement is None:
+        return False
+    for parent in list(getattr(parent_placement, "PlacesObject", []) or []):
+        if parent.is_a("IfcWall") or parent.is_a("IfcOpeningElement"):
+            return True
+    return False
 
 
 def assign_space_to_storey(

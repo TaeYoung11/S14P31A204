@@ -11,7 +11,21 @@ import type {
 } from '../types'
 
 /** LLM 편집 요청 진행 상태 */
-export type LlmEditStatus = 'idle' | 'loading' | 'preview' | 'ambiguous' | 'error' | 'applied'
+export type LlmEditStatus = 'idle' | 'loading' | 'running' | 'preview' | 'ambiguous' | 'error' | 'applied'
+
+export type LlmEditSceneType = 'TWO_D' | 'THREE_D'
+
+export interface LlmChatLogItem {
+  id: string
+  type: string
+  subType: string | null
+  content: string
+  senderName: string | null
+  timestamp: string
+  jobId: string | null
+  jobType: string | null
+  jobStatus: string | null
+}
 
 /** LLM이 반환하는 버블 다이어그램 수정 명령 */
 export type LlmEditOperation =

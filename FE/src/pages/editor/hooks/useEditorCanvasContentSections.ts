@@ -5,7 +5,6 @@ import {
   type ThreeDCameraViewPreset,
   buildCanvasLabelOverlaySectionProps,
   buildCanvasModeRendererSectionProps,
-  buildCanvasTwoDLeftPanelsSectionProps,
   buildCanvasZoomControlsSectionProps,
   type ThreeDCoordinates,
 } from '../components/canvas-content/buildCanvasSectionProps'
@@ -14,7 +13,6 @@ interface UseEditorCanvasContentSectionsResult {
   isViewMode: boolean
   modeRendererSectionProps: ReturnType<typeof buildCanvasModeRendererSectionProps>
   labelOverlaySectionProps: ReturnType<typeof buildCanvasLabelOverlaySectionProps>
-  twoDLeftPanelsSectionProps: ReturnType<typeof buildCanvasTwoDLeftPanelsSectionProps>
   zoomControlsSectionProps: ReturnType<typeof buildCanvasZoomControlsSectionProps>
   collaborationBarSectionProps: ReturnType<typeof buildCanvasCollaborationBarSectionProps>
 }
@@ -61,11 +59,6 @@ export function useEditorCanvasContentSections(
     [renderProps],
   )
 
-  const twoDLeftPanelsSectionProps = useMemo(
-    () => buildCanvasTwoDLeftPanelsSectionProps(renderProps),
-    [renderProps],
-  )
-
   const zoomControlsSectionProps = useMemo(
     () =>
       buildCanvasZoomControlsSectionProps(
@@ -88,7 +81,6 @@ export function useEditorCanvasContentSections(
     isViewMode,
     modeRendererSectionProps,
     labelOverlaySectionProps,
-    twoDLeftPanelsSectionProps,
     zoomControlsSectionProps,
     collaborationBarSectionProps,
   }

@@ -5,6 +5,7 @@ type RightPanelViewModel = Pick<
   EditorPageViewModel,
   | 'mode'
   | 'isCollaborationMode'
+  | 'isAgentPanelMode'
   | 'selectedPinId'
   | 'selectedCommentPin'
   | 'commentPins'
@@ -75,6 +76,10 @@ type RightPanelViewModel = Pick<
   | 'llmSuggestions'
   | 'llmPreview'
   | 'llmCanRun'
+  | 'llmActiveJobId'
+  | 'llmJobProgress'
+  | 'llmChatLogs'
+  | 'llmIsChatLogsLoading'
   | 'setLlmPrompt'
   | 'runLlmEdit'
   | 'applyLlmEdit'
@@ -95,6 +100,7 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
   return {
     mode: vm.mode,
     isCollaborationMode: vm.isCollaborationMode,
+    isAgentPanelMode: vm.isAgentPanelMode,
     selectedPinId: vm.selectedPinId,
     selectedPin: vm.selectedCommentPin,
     commentPins: vm.commentPins,
@@ -165,6 +171,10 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
     llmSuggestions: vm.llmSuggestions,
     llmPreview: vm.llmPreview,
     llmCanRun: vm.llmCanRun,
+    llmActiveJobId: vm.llmActiveJobId,
+    llmJobProgress: vm.llmJobProgress,
+    llmChatLogs: vm.llmChatLogs,
+    llmIsChatLogsLoading: vm.llmIsChatLogsLoading,
     onLlmPromptChange: vm.setLlmPrompt,
     onRunLlmEdit: vm.runLlmEdit,
     onApplyLlmEdit: vm.applyLlmEdit,

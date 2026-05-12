@@ -12,6 +12,7 @@ import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
 import com.a204.batang.domain.workspace.repository.WorkspaceBubbleSnapshotRedisRepository;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +45,7 @@ public class WorkspaceRealtimeService {
     private final ProjectQueryService projectQueryService;
     private final WorkspaceBubbleSnapshotRedisRepository workspaceBubbleSnapshotRedisRepository;
     private final BubbleSnapshotHelper bubbleSnapshotHelper;
+    private final S3ObjectPresigner s3ObjectPresigner;
     private final SimpMessagingTemplate simpMessagingTemplate;
 
     /**
@@ -305,10 +307,31 @@ public class WorkspaceRealtimeService {
         JsonNode s3UrlNode = latestHistorySnapshot.get("s3Url");
         String s3Url = null;
         if (s3UrlNode != null && !s3UrlNode.isNull()) {
-            s3Url = s3UrlNode.asText();
+            s3Url = resolveHistoryFloorPlanS3Url(s3UrlNode.asText());
         }
 
         return WorkspaceHistorySnapshotResponse.WorkspaceHistoryState.latest(latestIndex, payloadNode, s3Url);
+    }
+
+    /**
+     * 히스토리 스냅샷의 IFC 경로를 클라이언트가 즉시 fetch 가능한 URL로 변환한다.
+     *
+     * <p>presign 실패 시 히스토리 조회 자체가 깨지지 않도록 원본 값을 반환한다.
+     *
+     * @param rawS3Url Redis에 저장된 원본 IFC 경로
+     * @return 브라우저 접근 가능한 IFC URL
+     */
+    private String resolveHistoryFloorPlanS3Url(String rawS3Url) {
+        if (rawS3Url == null || rawS3Url.isBlank()) {
+            return null;
+        }
+
+        try {
+            return s3ObjectPresigner.presignIfInternal(rawS3Url, ErrorCode.WORKSPACE_IFC_EXPORT_PRESIGN_FAILED);
+        } catch (CustomException exception) {
+            log.warn("Failed to presign floor-plan IFC URL for history snapshot. rawS3Url={}", rawS3Url, exception);
+            return rawS3Url;
+        }
     }
 
     /**

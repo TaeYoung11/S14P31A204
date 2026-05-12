@@ -17,11 +17,13 @@ export default function EditorLeftSidebar({
   isLineStyleModalOpen,
   isLibraryOpen,
   isCollaborationMode = false,
+  isAgentPanelMode = false,
   isGridVisible,
   selectedTool,
   onToolSelect,
   onAddSpace,
   onToggleCollaboration,
+  onToggleAgentPanel,
   onToggleLibrary,
   onToggleGrid,
   onExportIFC,
@@ -66,7 +68,9 @@ export default function EditorLeftSidebar({
         shouldShowFooterActions ? (
           <SidebarFooterActions
             isCollaborationMode={isCollaborationMode}
+            isAgentPanelMode={isAgentPanelMode}
             onToggleCollaboration={onToggleCollaboration}
+            onToggleAgentPanel={onToggleAgentPanel}
           />
         ) : undefined
       }
