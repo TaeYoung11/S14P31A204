@@ -1,8 +1,10 @@
 package com.a204.batang.domain.project.controller;
 
 import com.a204.batang.domain.project.dto.ProjectInvitationResponse;
+import com.a204.batang.domain.project.dto.ProjectMemberRemovalResponse;
 import com.a204.batang.domain.project.entity.ProjectMemberRole;
 import com.a204.batang.domain.project.service.ProjectInvitationService;
+import com.a204.batang.domain.project.service.ProjectMemberService;
 import com.a204.batang.domain.project.service.ProjectQueryService;
 import com.a204.batang.domain.project.service.ProjectService;
 import com.a204.batang.domain.project.service.ProjectSiteService;
@@ -21,10 +23,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
+import java.time.LocalDateTime;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -48,6 +52,9 @@ class ProjectControllerTest {
 
     @MockitoBean
     private ProjectInvitationService projectInvitationService;
+
+    @MockitoBean
+    private ProjectMemberService projectMemberService;
 
     @MockitoBean
     private JpaMetamodelMappingContext jpaMetamodelMappingContext;
