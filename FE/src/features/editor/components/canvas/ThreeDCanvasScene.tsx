@@ -1,6 +1,7 @@
 import type { IfcElementChange, IfcElementInfo } from '../../types'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
-import type { ThreeDLibraryPreset } from './threeDLibrary.types'
+import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
+import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import ThatOpenIfcCanvas from './ThatOpenIfcCanvas'
 import { FloorPlan3DCanvas } from './FloorPlan3DCanvas'
 import { resolveTransformMode, shouldRenderLocalFloorPlan } from './threeDCanvas.utils'
@@ -22,6 +23,12 @@ interface ThreeDCanvasSceneProps {
   onLibraryElementChange: (id: string, patch: Partial<ThreeDLibraryPreset>) => void
   onLibraryElementDelete: (id: string) => void
   onThreeDCoordinatesChange?: (coords: { x: number; y: number; z: number }) => void
+  libraryDropRequest?: ThreeDLibraryDropRequest | null
+  onResolveLibraryDrop?: (token: number, patch?: Partial<ThreeDLibraryPreset>) => void
+  cameraViewPresetCommand?: ThreeDCameraViewPresetCommand
+  isTransformSnapEnabled: boolean
+  transformSnapIntervalMm: number
+  isEditingLocked: boolean
 }
 
 /**
@@ -45,17 +52,35 @@ export default function ThreeDCanvasScene({
   onLibraryElementChange,
   onLibraryElementDelete,
   onThreeDCoordinatesChange,
+  libraryDropRequest,
+  onResolveLibraryDrop,
+  cameraViewPresetCommand,
+  isTransformSnapEnabled,
+  transformSnapIntervalMm,
+  isEditingLocked,
 }: ThreeDCanvasSceneProps) {
+  const transformMode = resolveTransformMode(selectedTool)
+
   // IFC URL이 아직 없고 로컬 평면도 데이터가 있으면 3D 폴백 씬을 우선 렌더링한다.
   if (shouldRenderLocalFloorPlan(rawIfcUrl, localFloorData) && localFloorData) {
     return (
       <FloorPlan3DCanvas
         data={localFloorData}
         libraryElements={libraryElements}
+        selectedIfcElement={selectedIfcElement}
         deleteRequestToken={deleteRequestToken}
+        isRotationLocked={isRotationLocked}
         onLibraryElementChange={onLibraryElementChange}
         onLibraryElementDelete={onLibraryElementDelete}
         onIfcElementSelect={onIfcElementSelect}
+        transformMode={transformMode}
+        selectedTool={selectedTool}
+        libraryDropRequest={libraryDropRequest}
+        onResolveLibraryDrop={onResolveLibraryDrop}
+        cameraViewPresetCommand={cameraViewPresetCommand}
+        transformSnapEnabled={isTransformSnapEnabled}
+        transformSnapIntervalMm={transformSnapIntervalMm}
+        isEditingLocked={isEditingLocked}
       />
     )
   }
@@ -75,7 +100,14 @@ export default function ThreeDCanvasScene({
       onLibraryElementChange={onLibraryElementChange}
       onLibraryElementDelete={onLibraryElementDelete}
       onThreeDCoordinatesChange={onThreeDCoordinatesChange}
-      transformMode={resolveTransformMode(selectedTool)}
+      transformMode={transformMode}
+      selectedTool={selectedTool}
+      libraryDropRequest={libraryDropRequest}
+      onResolveLibraryDrop={onResolveLibraryDrop}
+      cameraViewPresetCommand={cameraViewPresetCommand}
+      transformSnapEnabled={isTransformSnapEnabled}
+      transformSnapIntervalMm={transformSnapIntervalMm}
+      isEditingLocked={isEditingLocked}
     />
   )
 }

@@ -1,4 +1,6 @@
 import type { IfcElementChange } from '../types'
+import { Euler, Quaternion, Vector3 } from 'three'
+import { parseStepEntities, parseStepRef, type StepEntity } from '../utils/ifcStepParser'
 
 type BatangPsetIndex = {
   propertyByName: Record<string, number>
@@ -9,6 +11,12 @@ type BatangGeometryIndex = {
   profilePointId?: number
   solidId?: number
   boundingBoxId?: number
+}
+
+type Placement3DIndex = {
+  locationPointId?: number
+  axisDirectionId?: number
+  refDirectionId?: number
 }
 
 const EDITOR_MATERIAL_COLORS: Record<string, { hex: string; rgb: [number, number, number] }> = {
@@ -98,6 +106,99 @@ const indexBatangRectangularGeometries = (ifcText: string) => {
   return indexByElementId
 }
 
+const formatIfcFloat = (value: number, precision = 6) => {
+  if (!Number.isFinite(value)) return '0.'
+  const safe = Math.abs(value) < 1e-10 ? 0 : value
+  const text = safe.toFixed(precision).replace(/(?:\.0+|(\.\d+?)0+)$/, '$1')
+  if (text === '-0') return '0.'
+  return text.includes('.') ? text : `${text}.`
+}
+
+const replaceCartesianPointCoordinates = (
+  ifcText: string,
+  pointId: number,
+  coordinates: [number, number, number],
+) => {
+  const pattern = new RegExp(`(#${pointId}=IFCCARTESIANPOINT\\(\\()[^\\)]*(\\)\\);)`, 'i')
+  const serialized = coordinates.map((value) => formatIfcFloat(value, 3)).join(',')
+  return ifcText.replace(pattern, `$1${serialized}$2`)
+}
+
+const replaceIfcDirectionCoordinates = (
+  ifcText: string,
+  directionId: number,
+  coordinates: [number, number, number],
+) => {
+  const pattern = new RegExp(`(#${directionId}=IFCDIRECTION\\(\\()[^\\)]*(\\)\\);)`, 'i')
+  const serialized = coordinates.map((value) => formatIfcFloat(value, 8)).join(',')
+  return ifcText.replace(pattern, `$1${serialized}$2`)
+}
+
+const replaceIfcPlaneAngleProperty = (
+  ifcText: string,
+  propertyId: number,
+  value: number,
+) => {
+  const pattern = new RegExp(`(#${propertyId}=IFCPROPERTYSINGLEVALUE\\('[^']+',\\$,IFCPLANEANGLEMEASURE\\()[-\\d.]+(\\),\\$\\);)`, 'i')
+  return ifcText.replace(pattern, `$1${formatIfcFloat(value, 3)}$2`)
+}
+
+const resolvePlacement3DIndexFromEntity = (
+  entity: StepEntity,
+  entities: Map<number, StepEntity>,
+): Placement3DIndex | null => {
+  const objectPlacementId = parseStepRef(entity.args[5] ?? '$')
+  if (objectPlacementId === null) return null
+
+  const objectPlacement = entities.get(objectPlacementId)
+  if (!objectPlacement || objectPlacement.type !== 'IFCLOCALPLACEMENT') return null
+
+  const axisPlacementId = parseStepRef(objectPlacement.args[1] ?? '$')
+  if (axisPlacementId === null) return null
+
+  const axisPlacement = entities.get(axisPlacementId)
+  if (!axisPlacement || axisPlacement.type !== 'IFCAXIS2PLACEMENT3D') return null
+
+  return {
+    locationPointId: parseStepRef(axisPlacement.args[0] ?? '$') ?? undefined,
+    axisDirectionId: parseStepRef(axisPlacement.args[1] ?? '$') ?? undefined,
+    refDirectionId: parseStepRef(axisPlacement.args[2] ?? '$') ?? undefined,
+  }
+}
+
+const indexPlacement3DByElement = (ifcText: string) => {
+  const entities = parseStepEntities(ifcText)
+  const indexByElementId: Record<number, Placement3DIndex> = {}
+
+  entities.forEach((entity) => {
+    if (entity.args.length <= 5) return
+    const placement = resolvePlacement3DIndexFromEntity(entity, entities)
+    if (!placement) return
+    indexByElementId[entity.id] = placement
+  })
+
+  return indexByElementId
+}
+
+const buildAxisAndRefDirectionFromEulerDeg = (
+  rotationXDeg: number,
+  rotationYDeg: number,
+  rotationZDeg: number,
+) => {
+  const quaternion = new Quaternion().setFromEuler(new Euler(
+    (rotationXDeg * Math.PI) / 180,
+    (rotationYDeg * Math.PI) / 180,
+    (rotationZDeg * Math.PI) / 180,
+    'XYZ',
+  ))
+  const axis = new Vector3(0, 0, 1).applyQuaternion(quaternion).normalize()
+  const refDirection = new Vector3(1, 0, 0).applyQuaternion(quaternion).normalize()
+  return {
+    axis: [axis.x, axis.y, axis.z] as [number, number, number],
+    refDirection: [refDirection.x, refDirection.y, refDirection.z] as [number, number, number],
+  }
+}
+
 const replaceIfcLabelProperty = (
   ifcText: string,
   propertyId: number,
@@ -134,6 +235,15 @@ const replaceIfcLengthProperty = (
 ) => {
   const pattern = new RegExp(`(#${propertyId}=IFCPROPERTYSINGLEVALUE\\('[^']+',\\$,IFCLENGTHMEASURE\\()[-\\d.]+(\\),\\$\\);)`, 'i')
   return ifcText.replace(pattern, `$1${Math.round(value)}$2`)
+}
+
+const replaceIfcLengthPropertyPrecise = (
+  ifcText: string,
+  propertyId: number,
+  value: number,
+) => {
+  const pattern = new RegExp(`(#${propertyId}=IFCPROPERTYSINGLEVALUE\\('[^']+',\\$,IFCLENGTHMEASURE\\()[-\\d.]+(\\),\\$\\);)`, 'i')
+  return ifcText.replace(pattern, `$1${formatIfcFloat(value, 3)}$2`)
 }
 
 const replaceRectangleProfileDimensions = (
@@ -302,6 +412,7 @@ export const patchIfcTextForMaterialDefaults = (ifcText: string) => {
 export const patchIfcTextForElementChanges = (ifcText: string, changes: IfcElementChange[]) => {
   const psetIndex = indexBatangPropertySets(ifcText)
   const geometryIndex = indexBatangRectangularGeometries(ifcText)
+  const placementIndex = indexPlacement3DByElement(ifcText)
   const styledColorIdsByElement = indexStyledColorIdsByElement(ifcText)
   let nextText = ifcText
 
@@ -312,42 +423,106 @@ export const patchIfcTextForElementChanges = (ifcText: string, changes: IfcEleme
     }
 
     const pset = psetIndex[change.expressId]
-    if (!pset) return
-
-    const colorPropertyId = pset.propertyByName.Color
-    if (change.color && colorPropertyId) {
-      nextText = replaceIfcLabelProperty(nextText, colorPropertyId, change.color)
-      const rgb = hexToRgb(change.color)
-      if (rgb) {
-        styledColorIdsByElement[change.expressId]?.forEach((colorId) => {
-          nextText = replaceIfcRgbColor(nextText, colorId, rgb)
-        })
+    if (pset) {
+      const colorPropertyId = pset.propertyByName.Color
+      if (change.color && colorPropertyId) {
+        nextText = replaceIfcLabelProperty(nextText, colorPropertyId, change.color)
+        const rgb = hexToRgb(change.color)
+        if (rgb) {
+          styledColorIdsByElement[change.expressId]?.forEach((colorId) => {
+            nextText = replaceIfcRgbColor(nextText, colorId, rgb)
+          })
+        }
       }
-    }
 
-    const materialPropertyId = pset.propertyByName.Material
-    if (change.material && materialPropertyId) {
-      nextText = replaceIfcLabelProperty(nextText, materialPropertyId, change.material)
-    }
+      const materialPropertyId = pset.propertyByName.Material
+      if (change.material && materialPropertyId) {
+        nextText = replaceIfcLabelProperty(nextText, materialPropertyId, change.material)
+      }
 
-    const lengthPropertyId = pset.propertyByName.Length
-    if (typeof change.lengthMm === 'number' && lengthPropertyId) {
-      nextText = replaceIfcLengthProperty(nextText, lengthPropertyId, change.lengthMm)
-    }
+      const lengthPropertyId = pset.propertyByName.Length
+      if (typeof change.lengthMm === 'number' && lengthPropertyId) {
+        nextText = replaceIfcLengthProperty(nextText, lengthPropertyId, change.lengthMm)
+      }
 
-    const heightPropertyId = pset.propertyByName.Height
-    if (typeof change.heightMm === 'number' && heightPropertyId) {
-      nextText = replaceIfcLengthProperty(nextText, heightPropertyId, change.heightMm)
-    }
+      const heightPropertyId = pset.propertyByName.Height
+      if (typeof change.heightMm === 'number' && heightPropertyId) {
+        nextText = replaceIfcLengthProperty(nextText, heightPropertyId, change.heightMm)
+      }
 
-    const thicknessPropertyId = pset.propertyByName.Thickness
-    if (typeof change.thicknessMm === 'number' && thicknessPropertyId) {
-      nextText = replaceIfcLengthProperty(nextText, thicknessPropertyId, change.thicknessMm)
+      const thicknessPropertyId = pset.propertyByName.Thickness
+      if (typeof change.thicknessMm === 'number' && thicknessPropertyId) {
+        nextText = replaceIfcLengthProperty(nextText, thicknessPropertyId, change.thicknessMm)
+      }
+
+      const positionXPropertyId = pset.propertyByName.PositionX
+      if (typeof change.positionX === 'number' && positionXPropertyId) {
+        nextText = replaceIfcLengthPropertyPrecise(nextText, positionXPropertyId, change.positionX)
+      }
+
+      const positionYPropertyId = pset.propertyByName.PositionY
+      if (typeof change.positionY === 'number' && positionYPropertyId) {
+        nextText = replaceIfcLengthPropertyPrecise(nextText, positionYPropertyId, change.positionY)
+      }
+
+      const positionZPropertyId = pset.propertyByName.PositionZ
+      if (typeof change.positionZ === 'number' && positionZPropertyId) {
+        nextText = replaceIfcLengthPropertyPrecise(nextText, positionZPropertyId, change.positionZ)
+      }
+
+      const rotationXPropertyId = pset.propertyByName.RotationX
+      if (typeof change.rotationX === 'number' && rotationXPropertyId) {
+        nextText = replaceIfcPlaneAngleProperty(nextText, rotationXPropertyId, change.rotationX)
+      }
+
+      const rotationYPropertyId = pset.propertyByName.RotationY
+      if (typeof change.rotationY === 'number' && rotationYPropertyId) {
+        nextText = replaceIfcPlaneAngleProperty(nextText, rotationYPropertyId, change.rotationY)
+      }
+
+      const rotationZPropertyId = pset.propertyByName.RotationZ
+      if (typeof change.rotationZ === 'number' && rotationZPropertyId) {
+        nextText = replaceIfcPlaneAngleProperty(nextText, rotationZPropertyId, change.rotationZ)
+      }
     }
 
     const geometry = geometryIndex[change.expressId]
     if (geometry) {
       nextText = patchRectangularGeometry(nextText, geometry, change)
+    }
+
+    const placement = placementIndex[change.expressId]
+    if (placement) {
+      if (
+        typeof change.positionX === 'number' &&
+        typeof change.positionY === 'number' &&
+        typeof change.positionZ === 'number' &&
+        placement.locationPointId
+      ) {
+        nextText = replaceCartesianPointCoordinates(nextText, placement.locationPointId, [
+          change.positionX,
+          change.positionY,
+          change.positionZ,
+        ])
+      }
+
+      if (
+        typeof change.rotationX === 'number' &&
+        typeof change.rotationY === 'number' &&
+        typeof change.rotationZ === 'number'
+      ) {
+        const { axis, refDirection } = buildAxisAndRefDirectionFromEulerDeg(
+          change.rotationX,
+          change.rotationY,
+          change.rotationZ,
+        )
+        if (placement.axisDirectionId) {
+          nextText = replaceIfcDirectionCoordinates(nextText, placement.axisDirectionId, axis)
+        }
+        if (placement.refDirectionId) {
+          nextText = replaceIfcDirectionCoordinates(nextText, placement.refDirectionId, refDirection)
+        }
+      }
     }
   })
 

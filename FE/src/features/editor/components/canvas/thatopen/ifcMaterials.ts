@@ -1,14 +1,23 @@
 /**
  * ifcMaterials — IFC/라이브러리 요소 재질 생성 및 적용 유틸
  *
- * Three.js MeshStandardMaterial 기반으로 건축 재질(콘크리트, 벽돌, 강재 등)을
- * 시각적으로 표현한다. 실제 물성이 아닌 에디터 시각 구분용이다.
+ * Three.js MeshPhysicalMaterial 기반으로 건축 재질(콘크리트, 벽돌, 강재 등)을
+ * 시각적으로 표현한다. thatopen MaterialsManager가 제공되면 재질 등록을 연동하고,
+ * 미지원 환경에서는 기존 로컬 재질 생성 플로우로 폴백한다.
  */
 import type { Object3D } from 'three'
 import type { ThreeDLibraryPreset } from '../threeDLibrary.types'
 
 /** Three.js 모듈 타입 단축 alias */
 export type ThreeModule = typeof import('three')
+type ThatOpenMaterialsList = {
+  set: (key: number, value: unknown) => unknown
+  has?: (key: number) => boolean
+}
+export type MaybeThatOpenMaterialsManager = {
+  list?: ThatOpenMaterialsList
+  [key: string]: unknown
+} | null | undefined
 
 /** 프로젝트 기본 월드 단위 비율: 1mm = 0.001 three.js unit */
 export const PROJECT_WORLD_UNITS_PER_MM = 0.001
@@ -164,25 +173,108 @@ const createMaterialTexture = (
   return texture
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  typeof value === 'object' && value !== null
+)
+
+const isThatOpenMaterialsList = (value: unknown): value is ThatOpenMaterialsList => (
+  isRecord(value) && typeof value.set === 'function'
+)
+
+const toStableManagerMaterialId = (key: string) => {
+  let hash = 0
+  for (let index = 0; index < key.length; index += 1) {
+    hash = ((hash << 5) - hash + key.charCodeAt(index)) | 0
+  }
+  return hash === 0 ? -1 : hash
+}
+
+const registerMaterialWithManager = (
+  manager: MaybeThatOpenMaterialsManager,
+  key: string,
+  material: unknown,
+) => {
+  if (!isRecord(manager)) return
+
+  // @thatopen/fragments 3.4.x: fragments.core.models.materials.list.set(...)
+  const strictList = manager.list
+  if (isThatOpenMaterialsList(strictList)) {
+    const materialId = toStableManagerMaterialId(key)
+    if (strictList.has?.(materialId)) return
+    try {
+      strictList.set(materialId, material)
+      return
+    } catch {
+      // strict 경로 실패 시 아래 레거시 폴백으로 진행
+    }
+  }
+
+  const registerWithMethod = (
+    methodName: 'add' | 'set' | 'addMaterial' | 'register',
+  ) => {
+    const method = manager[methodName]
+    if (typeof method !== 'function') return false
+    try {
+      ;(method as (name: string, value: unknown) => unknown).call(manager, key, material)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  if (registerWithMethod('add')) return
+  if (registerWithMethod('set')) return
+  if (registerWithMethod('addMaterial')) return
+  if (registerWithMethod('register')) return
+
+  const listCandidate = manager.list
+  if (isRecord(listCandidate) && typeof listCandidate.set === 'function') {
+    try {
+      ;(listCandidate.set as unknown as (name: unknown, value: unknown) => unknown).call(listCandidate, key, material)
+      return
+    } catch {
+      // no-op
+    }
+  }
+
+  if (isRecord(listCandidate)) {
+    const listRecord = listCandidate as Record<string, unknown>
+    if (!(key in listRecord)) {
+      listRecord[key] = material
+    }
+  }
+}
+
 /**
- * 재질 이름과 색상으로 MeshStandardMaterial을 생성한다.
+ * 재질 이름과 색상으로 MeshPhysicalMaterial을 생성한다.
  * - 재질에 대응하는 캔버스 텍스처(패턴)를 생성해 map으로 설정한다.
  * - color가 지정되면 재질 기본 색상을 덮어쓴다.
+ * - thatopen MaterialsManager가 있으면 생성 재질을 등록한다.
  */
 export const createElementMaterial = (
   THREE: ThreeModule,
   materialName?: string,
   color?: string,
+  materialsManager?: MaybeThatOpenMaterialsManager,
 ) => {
   const style = MATERIAL_VISUAL_STYLE[normalizeVisualMaterialName(materialName)]
-  return new THREE.MeshStandardMaterial({
+  const isGlassLike = style?.opacity !== undefined && style.opacity < 1
+  const material = new THREE.MeshPhysicalMaterial({
     color: color ?? style?.color ?? '#BEC4D1',
     map: createMaterialTexture(THREE, materialName),
     metalness: style?.metalness ?? 0,
     roughness: style?.roughness ?? 0.55,
     transparent: typeof style?.opacity === 'number',
     opacity: style?.opacity ?? 1,
+    transmission: isGlassLike ? 0.2 : 0,
+    ior: isGlassLike ? 1.45 : 1.5,
+    thickness: isGlassLike ? 0.02 : 0,
+    clearcoat: isGlassLike ? 0.05 : 0,
+    clearcoatRoughness: isGlassLike ? 0.1 : 0,
   })
+  const managerKey = `editor-${normalizeVisualMaterialName(materialName)}-${color ?? 'default'}`
+  registerMaterialWithManager(materialsManager, managerKey, material)
+  return material
 }
 
 /** 오브젝트의 모든 메시 재질 색상을 변경한다. */
@@ -211,6 +303,7 @@ export const applyObjectMaterial = (
   object: Object3D | null,
   materialName?: string,
   color?: string,
+  materialsManager?: MaybeThatOpenMaterialsManager,
 ) => {
   if (!object || !materialName) return
 
@@ -223,6 +316,6 @@ export const applyObjectMaterial = (
       map?.dispose?.()
       material.dispose()
     })
-    child.material = createElementMaterial(THREE, materialName, color)
+    child.material = createElementMaterial(THREE, materialName, color, materialsManager)
   })
 }
