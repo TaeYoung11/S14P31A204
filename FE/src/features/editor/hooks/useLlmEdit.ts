@@ -1,5 +1,5 @@
 // 에디터 자연어 BIM 편집 요청과 작업 추적 상태를 관리합니다.
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   BubbleData,
@@ -94,12 +94,17 @@ export function useLlmEdit({
 }: UseLlmEditParams) {
   const queryClient = useQueryClient()
   const requestSeq = useRef(0)
+  const latestIfcRevisionIdRef = useRef(currentIfcRevisionId)
   const [prompt, setPrompt] = useState('')
   const [status, setStatus] = useState<LlmEditStatus>('idle')
   const [message, setMessage] = useState('')
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [jobProgress, setJobProgress] = useState<number | null>(null)
+
+  useEffect(() => {
+    latestIfcRevisionIdRef.current = currentIfcRevisionId
+  }, [currentIfcRevisionId])
 
   const chatLogsQuery = useQuery({
     queryKey: llmEditQueryKeys.chatLogs(projectId),
@@ -155,20 +160,26 @@ export function useLlmEdit({
     if (!prompt.trim() || isLoading) return
 
     const currentSeq = requestSeq.current + 1
+    const requestBaseRevisionId = currentIfcRevisionId
     requestSeq.current = currentSeq
     setStatus('loading')
     resetResultState()
 
     try {
       const sceneType = resolveSceneType(mode)
+      const sourceScenePayload = sceneType === 'THREE_D'
+        ? {
+            ...(currentIfcUrl ? { sourceSceneStorageUrl: currentIfcUrl } : {}),
+            sourceScene: buildSourceScene(mode, bubbles, connections, floorLayers, activeFloorLayerId, floorWalls, floorOpenings),
+          }
+        : {}
       const job = await submitLlmChatCommand({
         projectId,
         sceneType,
-        baseRevisionId: currentIfcRevisionId,
-        sourceSceneType: sceneType === 'THREE_D' ? 'IFC_MODEL' : 'FLOOR_PLAN',
+        baseRevisionId: requestBaseRevisionId,
+        sourceSceneType: 'IFC_MODEL',
         message: prompt.trim(),
-        ...(currentIfcUrl ? { sourceSceneStorageUrl: currentIfcUrl } : {}),
-        sourceScene: buildSourceScene(mode, bubbles, connections, floorLayers, activeFloorLayerId, floorWalls, floorOpenings),
+        ...sourceScenePayload,
       })
 
       if (currentSeq !== requestSeq.current) return
@@ -194,6 +205,13 @@ export function useLlmEdit({
       if (!outputUrl) {
         setStatus('error')
         setMessage('AI 편집 작업은 완료되었지만 IFC 결과 URL이 없습니다.')
+        void queryClient.invalidateQueries({ queryKey: llmEditQueryKeys.chatLogs(projectId) })
+        return
+      }
+
+      if (latestIfcRevisionIdRef.current !== requestBaseRevisionId) {
+        setStatus('error')
+        setMessage('LLM 요청 중 IFC revision이 변경되어 결과를 적용하지 않았습니다.')
         void queryClient.invalidateQueries({ queryKey: llmEditQueryKeys.chatLogs(projectId) })
         return
       }
