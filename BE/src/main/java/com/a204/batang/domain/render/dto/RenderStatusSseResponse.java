@@ -10,6 +10,7 @@ public record RenderStatusSseResponse(
         String status,
         Integer progress,
         String imageUrl,
+        RenderUrlsResponse renderUrls,
         String message
 ) {
 }
