@@ -269,7 +269,13 @@ def _clone_representation_or_box(
         template_product is not None
         and getattr(template_product, "Representation", None) is not None
     ):
-        return ifcopenshell.util.element.copy_deep(model, template_product.Representation)
+        cloned = ifcopenshell.util.element.copy_deep(model, template_product.Representation)
+        _clone_representation_styles(
+            model,
+            template_representation=template_product.Representation,
+            cloned_representation=cloned,
+        )
+        return cloned
     representation, _ = _box_representation(
         model,
         fallback_length_m,
@@ -278,6 +284,85 @@ def _clone_representation_or_box(
         center_origin=False,
     )
     return representation
+
+
+def _clone_item_styles(
+    model: ifcopenshell.file,
+    *,
+    template_item: ifcopenshell.entity_instance,
+    cloned_item: ifcopenshell.entity_instance,
+) -> None:
+    for styled in getattr(template_item, "StyledByItem", None) or []:
+        cloned_styles = [
+            ifcopenshell.util.element.copy_deep(model, style)
+            for style in getattr(styled, "Styles", None) or []
+        ]
+        if not cloned_styles:
+            continue
+        existing = _styled_item_for(model, cloned_item)
+        if existing is not None:
+            existing.Styles = cloned_styles
+        else:
+            model.create_entity("IfcStyledItem", Item=cloned_item, Styles=cloned_styles)
+
+
+def _clone_representation_styles(
+    model: ifcopenshell.file,
+    *,
+    template_representation: ifcopenshell.entity_instance,
+    cloned_representation: ifcopenshell.entity_instance,
+) -> None:
+    template_reps = list(getattr(template_representation, "Representations", []) or [])
+    cloned_reps = list(getattr(cloned_representation, "Representations", []) or [])
+    for template_rep, cloned_rep in zip(template_reps, cloned_reps):
+        template_items = list(getattr(template_rep, "Items", []) or [])
+        cloned_items = list(getattr(cloned_rep, "Items", []) or [])
+        for template_item, cloned_item in zip(template_items, cloned_items):
+            _clone_item_styles(model, template_item=template_item, cloned_item=cloned_item)
+            template_mapping = getattr(template_item, "MappingSource", None)
+            cloned_mapping = getattr(cloned_item, "MappingSource", None)
+            template_mapped = (
+                getattr(template_mapping, "MappedRepresentation", None)
+                if template_mapping is not None
+                else None
+            )
+            cloned_mapped = (
+                getattr(cloned_mapping, "MappedRepresentation", None)
+                if cloned_mapping is not None
+                else None
+            )
+            if template_mapped is None or cloned_mapped is None:
+                continue
+            for template_mapped_item, cloned_mapped_item in zip(
+                list(getattr(template_mapped, "Items", []) or []),
+                list(getattr(cloned_mapped, "Items", []) or []),
+            ):
+                _clone_item_styles(
+                    model,
+                    template_item=template_mapped_item,
+                    cloned_item=cloned_mapped_item,
+                )
+
+
+def _refresh_wall_body_representation(
+    model: ifcopenshell.file,
+    wall: ifcopenshell.entity_instance | None,
+) -> bool:
+    representation = getattr(wall, "Representation", None) if wall is not None else None
+    if representation is None:
+        return False
+    for rep in getattr(representation, "Representations", []) or []:
+        if getattr(rep, "RepresentationIdentifier", None) != "Body":
+            continue
+        items = list(getattr(rep, "Items", []) or [])
+        if len(items) != 1 or not items[0].is_a("IfcExtrudedAreaSolid"):
+            return False
+        cloned_item = ifcopenshell.util.element.copy_deep(model, items[0])
+        _clone_item_styles(model, template_item=items[0], cloned_item=cloned_item)
+        rep.Items = [cloned_item]
+        rep.RepresentationType = "SweptSolid"
+        return True
+    return False
 
 
 
@@ -322,6 +407,35 @@ def _template_door_relative_location(
     ):
         return (0.0, 0.0, 0.0)
     relative_placement = getattr(template_door_placement, "RelativePlacement", None)
+    template_location = (
+        getattr(relative_placement, "Location", None) if relative_placement else None
+    )
+    template_coords = tuple(getattr(template_location, "Coordinates", ()) or ())
+    if len(template_coords) < 3:
+        return (0.0, 0.0, 0.0)
+    return (
+        float(template_coords[0]),
+        float(template_coords[1]),
+        float(template_coords[2]),
+    )
+
+
+def _template_window_relative_location(
+    template_window: ifcopenshell.entity_instance,
+    template_opening: ifcopenshell.entity_instance | None,
+) -> tuple[float, float, float]:
+    template_opening_placement = (
+        getattr(template_opening, "ObjectPlacement", None)
+        if template_opening is not None
+        else None
+    )
+    template_window_placement = getattr(template_window, "ObjectPlacement", None)
+    if (
+        template_window_placement is None
+        or getattr(template_window_placement, "PlacementRelTo", None) != template_opening_placement
+    ):
+        return (0.0, 0.0, 0.0)
+    relative_placement = getattr(template_window_placement, "RelativePlacement", None)
     template_location = (
         getattr(relative_placement, "Location", None) if relative_placement else None
     )
@@ -464,6 +578,102 @@ def _find_eligible_template_door_pair(
     return (best[2], best[3])
 
 
+def _find_eligible_template_window_pair(
+    model: ifcopenshell.file,
+    *,
+    storey_id: str | None,
+    target_width_m: float,
+    target_height_m: float,
+    host_wall,
+    target_u: float,
+) -> tuple[ifcopenshell.entity_instance, ifcopenshell.entity_instance] | None:
+    if not _is_supported_wall_for_template_door(host_wall):
+        return None
+    host_thickness = _wall_thickness(host_wall)
+    host_length = _wall_usable_length(host_wall)
+    if host_thickness is None or host_length is None:
+        return None
+    host_ref = _wall_ref_direction(host_wall)
+
+    edge_margin = _mm_to_model_units(model, 100.0, 100.0)
+    overlap_margin = _mm_to_model_units(model, 100.0, 100.0)
+    best: (
+        tuple[
+            float,
+            float,
+            ifcopenshell.entity_instance,
+            ifcopenshell.entity_instance,
+        ]
+        | None
+    ) = None
+
+    for template_window in model.by_type("IfcWindow"):
+        template_opening = _template_opening_for_product(template_window)
+        template_wall = _template_host_wall_for_opening(template_opening)
+        if (
+            template_opening is None
+            or template_wall is None
+            or not _is_supported_wall_for_template_door(template_wall)
+        ):
+            continue
+        if storey_id and _container_storey_id(template_window) != storey_id:
+            continue
+        template_window_relto = getattr(
+            getattr(template_window, "ObjectPlacement", None),
+            "PlacementRelTo",
+            None,
+        )
+        if template_window_relto != getattr(template_opening, "ObjectPlacement", None):
+            continue
+
+        opening_signature = _opening_signature(template_opening)
+        if opening_signature is None:
+            continue
+        opening_width, opening_height, _ = opening_signature
+        template_thickness = _wall_thickness(template_wall)
+        if template_thickness is None:
+            continue
+        if abs(host_thickness - template_thickness) > _mm_to_model_units(model, 30.0, 30.0):
+            continue
+        template_ref = _wall_ref_direction(template_wall)
+        orientation_penalty = 1.0 - _dot3(host_ref, template_ref)
+        if host_length < opening_width + (edge_margin * 2.0):
+            continue
+        if target_u - (opening_width / 2.0) < edge_margin:
+            continue
+        if target_u + (opening_width / 2.0) > host_length - edge_margin:
+            continue
+
+        blocked = False
+        for rel in list(getattr(host_wall, "HasOpenings", []) or []):
+            existing_opening = getattr(rel, "RelatedOpeningElement", None)
+            if existing_opening is None:
+                continue
+            existing_signature = _opening_signature(existing_opening)
+            existing_location = _opening_location(existing_opening)
+            if existing_signature is None or existing_location is None:
+                continue
+            existing_width = float(existing_signature[0])
+            existing_center = float(existing_location[0]) + (existing_width / 2.0)
+            min_clearance = ((existing_width + opening_width) / 2.0) + overlap_margin
+            if abs(existing_center - target_u) < min_clearance:
+                blocked = True
+                break
+        if blocked:
+            continue
+
+        width = float(getattr(template_window, "OverallWidth", 0.0) or 0.0)
+        height = float(getattr(template_window, "OverallHeight", 0.0) or 0.0)
+        score = abs(width - target_width_m) + abs(height - target_height_m)
+        candidate = (orientation_penalty, score, template_window, template_opening)
+        if best is None or candidate[:2] < best[:2]:
+            best = candidate
+
+    if best is None:
+        return None
+    return (best[2], best[3])
+
+
 def _copy_material_associations_from_template(
     model: ifcopenshell.file,
     *,
@@ -531,6 +741,7 @@ def delete_element(
     """IFC 요소를 관계 엔티티까지 깔끔하게 정리하여 삭제한다."""
     gid_short = element.GlobalId[:8] if element.GlobalId else "?"
     try:
+        walls_to_refresh: list[ifcopenshell.entity_instance] = []
         if element.is_a("IfcDoor") or element.is_a("IfcWindow"):
             for rel_fill in list(getattr(element, "FillsVoids", []) or []):
                 opening = getattr(rel_fill, "RelatingOpeningElement", None)
@@ -550,10 +761,21 @@ def delete_element(
                                         rep.Items = [next_shape]
                                         if not next_shape.is_a("IfcBooleanResult"):
                                             rep.RepresentationType = "SweptSolid"
-                                    break
+                                        break
+                            if host not in walls_to_refresh:
+                                walls_to_refresh.append(host)
                         model.remove(rel_void)
                     model.remove(opening)
                 model.remove(rel_fill)
+
+        if element.is_a("IfcOpeningElement"):
+            for rel_void in list(getattr(element, "VoidsElements", []) or []):
+                host = getattr(rel_void, "RelatingBuildingElement", None)
+                if host is not None and host not in walls_to_refresh:
+                    walls_to_refresh.append(host)
+
+        for host in walls_to_refresh:
+            _refresh_wall_body_representation(model, host)
 
         # 공간 포함 관계 제거
         for rel in list(getattr(element, "ContainedInStructure", [])):
@@ -2658,6 +2880,166 @@ def create_window_with_opening(
         return window
     except Exception as e:
         logger.error(f"Window 생성 실패: {e}")
+        return None
+
+
+def create_window_with_template_reuse(
+    model,
+    storey,
+    *,
+    length_mm=1200,
+    width_mm=200,
+    height_mm=1200,
+    x_mm=0,
+    y_mm=0,
+    z_mm=0,
+    direction="north",
+    color=None,
+    material_name=None,
+    host_wall=None,
+    sill_height_mm=900,
+):
+    del direction, color, material_name
+    created_entities: list[ifcopenshell.entity_instance] = []
+    try:
+        if not host_wall:
+            host_wall = find_host_wall(model, None, x_mm, y_mm, z_mm)
+        if not host_wall:
+            logger.error("Window creation failed: host wall was not found.")
+            return None
+
+        u, v, z, ew_wall = _get_wall_local_coords(
+            model, host_wall, x_mm, y_mm, z_mm + sill_height_mm
+        )
+        del v, ew_wall
+
+        template_pair = _find_eligible_template_window_pair(
+            model,
+            storey_id=getattr(storey, "GlobalId", None),
+            target_width_m=_mm_to_model_units(model, length_mm, 1200),
+            target_height_m=_mm_to_model_units(model, height_mm, 1200),
+            host_wall=host_wall,
+            target_u=u,
+        )
+        if template_pair is None:
+            logger.error(
+                "Window creation failed: reusable window-opening template pair was not found."
+            )
+            return None
+        template_window, template_opening = template_pair
+
+        opening_signature = _opening_signature(template_opening)
+        if opening_signature is None:
+            logger.error("Window creation failed: template opening signature was missing.")
+            return None
+        opening_width, opening_height, _ = opening_signature
+
+        host_thickness = _wall_thickness(host_wall)
+        if host_thickness is None:
+            logger.error("Window creation failed: host wall thickness was unavailable.")
+            return None
+
+        window_loc = _template_window_relative_location(template_window, template_opening)
+        template_opening_location = _opening_location(template_opening) or (0.0, 0.0, 0.0)
+        template_opening_relative = getattr(
+            getattr(template_opening, "ObjectPlacement", None),
+            "RelativePlacement",
+            None,
+        )
+        template_window_relative = getattr(
+            getattr(template_window, "ObjectPlacement", None),
+            "RelativePlacement",
+            None,
+        )
+
+        opening = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcOpeningElement")
+        created_entities.append(opening)
+        opening.Name = f"Generated Opening {opening.GlobalId[:8]}"
+        opening.ObjectPlacement = model.create_entity(
+            "IfcLocalPlacement",
+            PlacementRelTo=host_wall.ObjectPlacement,
+            RelativePlacement=_axis_placement_like(
+                model,
+                template_opening_relative,
+                location=(
+                    u,
+                    float(template_opening_location[1]),
+                    z,
+                ),
+            ),
+        )
+        created_entities.append(opening.ObjectPlacement)
+        opening.Representation = _clone_opening_representation_with_depth(
+            model,
+            template_opening=template_opening,
+            new_depth=host_thickness,
+        )
+        if opening.Representation is None:
+            logger.error("Window creation failed: template opening representation was missing.")
+            return None
+        ifcopenshell.api.run("feature.add_feature", model, feature=opening, element=host_wall)
+
+        placement = model.create_entity(
+            "IfcLocalPlacement",
+            PlacementRelTo=opening.ObjectPlacement,
+            RelativePlacement=_axis_placement_like(
+                model,
+                template_window_relative,
+                location=window_loc,
+            ),
+        )
+        created_entities.append(placement)
+
+        window = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWindow")
+        created_entities.append(window)
+        _assign_to_storey(model, window, storey)
+        window.ObjectPlacement = placement
+        window.Name = f"Generated Window {window.GlobalId[:8]}"
+        window.OverallWidth = float(
+            getattr(template_window, "OverallWidth", 0.0) or opening_width
+        )
+        window.OverallHeight = float(
+            getattr(template_window, "OverallHeight", 0.0) or opening_height
+        )
+        window.Representation = _clone_representation_or_box(
+            model,
+            template_product=template_window,
+            fallback_length_m=window.OverallWidth,
+            fallback_width_m=host_thickness,
+            fallback_height_m=window.OverallHeight,
+        )
+        _copy_product_type_relation(
+            model,
+            template_product=template_window,
+            product=window,
+        )
+        _copy_material_associations_from_template(
+            model,
+            template_product=template_window,
+            product=window,
+        )
+        fill_rel = model.create_entity(
+            "IfcRelFillsElement",
+            GlobalId=ifcopenshell.guid.new(),
+            RelatingOpeningElement=opening,
+            RelatedBuildingElement=window,
+        )
+        created_entities.append(fill_rel)
+        set_element_properties(
+            model,
+            window,
+            window.OverallWidth * 1000.0,
+            width_mm,
+            window.OverallHeight * 1000.0,
+        )
+        return window
+    except Exception as e:
+        for entity in reversed(created_entities):
+            try:
+                model.remove(entity)
+            except Exception:
+                pass
+        logger.error(f"Window creation failed: {e}")
         return None
 
 

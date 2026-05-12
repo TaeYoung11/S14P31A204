@@ -19,6 +19,7 @@ from ai_authoring.engine_3d import (
     create_wall,
     create_wall_with_template_reuse,
     create_window_with_opening,
+    create_window_with_template_reuse,
     find_host_wall,
 )
 from ai_authoring.operations.registry import register
@@ -222,7 +223,12 @@ class CreateElementHandler:
                     host_wall=host_wall,
                     sill_height_mm=float(sill_height_mm or 0.0),
                 )
-            return create_window_with_opening(
+            creator = (
+                create_window_with_template_reuse
+                if require_template_reuse
+                else create_window_with_opening
+            )
+            return creator(
                 model,
                 resolved_storey,
                 **common,
