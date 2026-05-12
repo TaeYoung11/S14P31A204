@@ -153,6 +153,8 @@ def _build_delete_wall_void_operations(
             parameters={
                 "expected_kind": metadata.get("target_kind"),
                 "allowed_host_body_class": metadata.get("host_wall_body_class"),
+                # Informational metadata only. Runtime acceptance is guarded by
+                # target kind + host wall body class, not by fixture name.
                 "validated_fixture": "House_KR",
             },
         )

@@ -38,6 +38,35 @@ from ai_planning_2d.toilet_demo import build_toilet_insertion_geometry_plan
 from ai_planning_2d.validator import validate_command_batch
 
 
+def _assert_deleted_ids_are_unreferenced(
+    model: ifcopenshell.file,
+    deleted_ids: set[str],
+) -> None:
+    relation_specs = [
+        ("IfcRelFillsElement", ("RelatedBuildingElement", "RelatingOpeningElement")),
+        ("IfcRelVoidsElement", ("RelatingOpeningElement", "RelatingBuildingElement")),
+        ("IfcRelContainedInSpatialStructure", ("RelatedElements",)),
+        ("IfcRelDefinesByType", ("RelatedObjects",)),
+        ("IfcRelDefinesByProperties", ("RelatedObjects",)),
+        ("IfcRelAssociatesMaterial", ("RelatedObjects",)),
+    ]
+    for relation_name, attributes in relation_specs:
+        for relation in model.by_type(relation_name):
+            for attribute in attributes:
+                value = getattr(relation, attribute, None)
+                if value is None:
+                    continue
+                if isinstance(value, tuple):
+                    related_ids = {
+                        item.GlobalId for item in value if getattr(item, "GlobalId", None)
+                    }
+                    assert deleted_ids.isdisjoint(related_ids)
+                    continue
+                related_id = getattr(value, "GlobalId", None)
+                if related_id is not None:
+                    assert related_id not in deleted_ids
+
+
 @pytest.fixture
 def ifc_ctx() -> IFCContext:
     return {
@@ -2503,6 +2532,10 @@ async def test_pipeline_apply_delete_wall_void_on_house_kr_parametric_door(tmp_p
         updated.by_guid("0LM8GvGe$G3dlW4mZ4aA9R")
     assert len(updated.by_type("IfcDoor")) == len(ctx["doors"]) - 1
     assert len(updated_ctx["openings"]) == len(ctx["openings"]) - 1
+    _assert_deleted_ids_are_unreferenced(
+        updated,
+        {"1Oms875aH3Wg$9l65H2ZGw", "0LM8GvGe$G3dlW4mZ4aA9R"},
+    )
 
 
 @pytest.mark.asyncio
@@ -2532,6 +2565,10 @@ async def test_pipeline_apply_delete_wall_void_on_house_kr_parametric_window(tmp
         updated.by_guid("0seqbT9MlcQAX_K0YLzD86")
     assert len(updated.by_type("IfcWindow")) == len(ctx["windows"]) - 1
     assert len(updated_ctx["openings"]) == len(ctx["openings"]) - 1
+    _assert_deleted_ids_are_unreferenced(
+        updated,
+        {"1srAI$R4T8ihLXSNHmUSET", "0seqbT9MlcQAX_K0YLzD86"},
+    )
 
 
 @pytest.mark.asyncio

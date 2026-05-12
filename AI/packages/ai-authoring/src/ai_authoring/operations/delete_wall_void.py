@@ -3,6 +3,11 @@
 This branch only validates atomic delete for door/window fillers hosted by
 parametric wall bodies. BCR-hosted cases and direct opening-only deletes are
 soft-rejected here and must remain out of scope for this branch.
+
+The preview layer uses ``ifc_context[*].host_wall_body_class`` as its
+source-of-truth. This handler re-applies the same body classification rule
+directly to the IFC model for defense-in-depth, so direct shared-apply calls
+cannot bypass the branch scope.
 """
 
 from __future__ import annotations
@@ -97,6 +102,8 @@ class DeleteWallVoidHandler:
         deleted_ids: list[str] = []
         expected_kind = parameters.get("expected_kind")
         allowed_host_body_class = parameters.get("allowed_host_body_class", "parametric")
+        # ``validated_fixture`` is informational metadata only. Runtime
+        # acceptance stays bound to the target kind and host wall body class.
         for product in products:
             if expected_kind == "door" and not product.is_a("IfcDoor"):
                 raise ValueError("delete_wall_void expected an IfcDoor target")
@@ -111,6 +118,8 @@ class DeleteWallVoidHandler:
                 raise ValueError("delete_wall_void only supports IfcDoor/IfcWindow targets")
 
             host_wall = _host_wall_for_product(product)
+            # Keep this classification rule aligned with
+            # ai_planning_2d.ifc_extractor._classify_wall_body.
             body_class = _host_wall_body_class(host_wall)
             if body_class != allowed_host_body_class:
                 raise ValueError(

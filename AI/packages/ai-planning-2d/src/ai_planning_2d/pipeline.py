@@ -8,8 +8,8 @@ from .toilet_demo import UserIntent as ToiletDemoUserIntent
 from .validator import validate_command_batch
 
 _MSG_CREATE_WALL_NO_VALIDATED_CANDIDATE = (
-    "이 거실에는 검증된 가벽 자동 적용 후보가 없습니다. "
-    "이번 데모에서는 안전한 가벽 추가를 지원하지 않습니다."
+    "? ???? ??? ?? ?? ?? ??? ????. "
+    "??? ?? ??? ????? ?? ??? ?? ?? ?? ??? ?? ?????."
 )
 
 # ---------------------------------------------------------------------------
@@ -33,7 +33,8 @@ _TMPL_LOCKED_RESIZE = "'{name}' 방은 잠겨 있어 크기를 변경할 수 없
 _TMPL_STOREY_NOT_FOUND = "'{name}' 방의 층 정보를 현재 IFC에서 찾을 수 없습니다."
 _TMPL_STOREY_MISSING_ERROR = "IFC 상태 오류: '{name}' 방의 storey 정보가 없습니다."
 _MSG_CREATE_WALL_DEMO_ONLY = (
-    "현재 데모에서는 House_KR 거실의 가벽 추가를 자동 적용하지 않습니다."
+    "?? ????? House_KR ??? ?? ??? ?? ???? ????. "
+    "??? ?? ??? ????? ?? ??? ?? ?? ?? ??? ?? ?????."
 )
 _LOCKED_PARTITION_WALL_CANDIDATE = {
     "room_id": "0Lt8gR_E9ESeGH5uY_g9e9",
@@ -70,10 +71,10 @@ _MSG_DELETE_WALL_VOID_NOT_FOUND = (
 )
 _MSG_DELETE_WALL_VOID_BCR_UNSUPPORTED = (
     "선택한 요소는 현재 데모 범위에서 지원하지 않습니다. "
-    "BCR 벽에 호스팅된 opening 계열 삭제는 아직 지원하지 않습니다."
+    "BCR 벽에 호스팅된 opening 계열 삭제는 이번 데모에서 지원하지 않습니다."
 )
 _MSG_DELETE_WALL_VOID_OPENING_UNVALIDATED = (
-    "선택한 opening 요소 삭제는 현재 데모 검증 범위에 포함되지 않습니다."
+    "선택한 opening 요소 직접 삭제는 현재 데모에서 지원하지 않습니다."
 )
 
 
@@ -347,6 +348,8 @@ def to_ifc_commands(
                 requires_clarification=True,
                 clarification_question=_MSG_DELETE_WALL_VOID_OPENING_UNVALIDATED,
             )
+        # Preview source-of-truth: ifc_context.host_wall_body_class is populated
+        # by ifc_extractor._classify_wall_body and mirrored by the handler.
         if target.get("host_wall_body_class") != "parametric":
             return CommandBatch(
                 commands=[],
