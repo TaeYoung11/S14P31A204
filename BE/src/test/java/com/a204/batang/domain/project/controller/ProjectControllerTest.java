@@ -263,6 +263,7 @@ class ProjectControllerTest {
         mockMvc.perform(delete("/api/v1/projects/{projectId}/members/{userId}", projectId, ownerUserId))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.code").value("OWNER_REMOVAL_NOT_ALLOWED"));
+                .andExpect(jsonPath("$.code").value("OWNER_REMOVAL_NOT_ALLOWED"))
+                .andExpect(jsonPath("$.message").value("프로젝트 소유자는 멤버에서 제거할 수 없습니다."));
     }
 }
