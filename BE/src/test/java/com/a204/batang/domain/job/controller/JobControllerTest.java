@@ -7,6 +7,7 @@ import com.a204.batang.domain.job.dto.JobOutputsResponse;
 import com.a204.batang.domain.job.dto.JobStepResponse;
 import com.a204.batang.domain.job.dto.RenderJobDetailsResponse;
 import com.a204.batang.domain.job.service.JobStatusQueryService;
+import com.a204.batang.domain.render.dto.RenderUrlsResponse;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import com.a204.batang.global.exception.controller.GlobalExceptionHandler;
@@ -100,6 +101,11 @@ class JobControllerTest {
                         null,
                         artifactId,
                         "https://download.example.com/render-001.png?signature=test",
+                        new RenderUrlsResponse(
+                                "https://download.example.com/manifest.v1.json?signature=test",
+                                "https://download.example.com/render-001.png?signature=test",
+                                "https://download.example.com/photo_front_diagonal_right.png?signature=test"
+                        ),
                         List.of(
                                 new JobArtifactResponse(
                                         artifactId,
@@ -146,6 +152,9 @@ class JobControllerTest {
                 .andExpect(jsonPath("$.data.currentStep.stepNo").value(1))
                 .andExpect(jsonPath("$.data.outputs.primaryArtifactId").value(artifactId.toString()))
                 .andExpect(jsonPath("$.data.outputs.primaryResultUrl").value("https://download.example.com/render-001.png?signature=test"))
+                .andExpect(jsonPath("$.data.outputs.renderUrls.manifestUrl").value("https://download.example.com/manifest.v1.json?signature=test"))
+                .andExpect(jsonPath("$.data.outputs.renderUrls.frontDiagonalLeftUrl").value("https://download.example.com/render-001.png?signature=test"))
+                .andExpect(jsonPath("$.data.outputs.renderUrls.frontDiagonalRightUrl").value("https://download.example.com/photo_front_diagonal_right.png?signature=test"))
                 .andExpect(jsonPath("$.data.details.render.prompt").value("quiet library exterior"))
                 .andExpect(jsonPath("$.data.details.render.style.timeOfDay").value("EVENING"))
                 .andExpect(jsonPath("$.data.createdAt").value("2026-05-07T01:00:00Z"))

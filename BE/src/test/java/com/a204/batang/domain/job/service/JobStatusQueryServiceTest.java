@@ -372,12 +372,23 @@ class JobStatusQueryServiceTest {
                 "image/png",
                 leftPhotoUrl
         );
+        ReflectionTestUtils.setField(renderArtifact, "metadataJson", objectMapper.readTree("""
+                {
+                  "renderManifestStorageUrl": "%s",
+                  "renderPhotoFrontDiagonalLeftStorageUrl": "%s",
+                  "renderPhotoFrontDiagonalRightStorageUrl": "%s"
+                }
+                """.formatted(manifestUrl, leftPhotoUrl, rightPhotoUrl)));
 
         prepareProjectAccess(job);
         given(jobStepRecordRepository.findByJobIdOrderByStepNoAsc(jobId)).willReturn(List.of(step));
         given(jobArtifactRecordRepository.findByJobIdOrderByCreatedAtAscArtifactIdAsc(jobId)).willReturn(List.of(renderArtifact));
         given(s3ObjectPresigner.presignRequired(leftPhotoUrl, ErrorCode.JOB_RESULT_PRESIGN_FAILED))
                 .willReturn("https://download.example.com/render-001.png?signature=test");
+        given(s3ObjectPresigner.presignRequired(manifestUrl, ErrorCode.JOB_RESULT_PRESIGN_FAILED))
+                .willReturn("https://download.example.com/manifest.v1.json?signature=test");
+        given(s3ObjectPresigner.presignRequired(rightPhotoUrl, ErrorCode.JOB_RESULT_PRESIGN_FAILED))
+                .willReturn("https://download.example.com/photo_front_diagonal_right.png?signature=test");
         given(s3ObjectPresigner.presignIfInternal("s3://batang/reference.png", ErrorCode.JOB_RESULT_PRESIGN_FAILED))
                 .willReturn("https://download.example.com/reference.png?signature=test");
 
@@ -390,6 +401,10 @@ class JobStatusQueryServiceTest {
         assertThat(response.outputs().primaryArtifactId()).isEqualTo(expectedArtifactId);
         assertThat(response.outputs().primaryResultUrl()).isEqualTo("https://download.example.com/render-001.png?signature=test");
         assertThat(response.outputs().primaryResultUrl()).doesNotContain("manifest.v1.json");
+        assertThat(response.outputs().renderUrls()).isNotNull();
+        assertThat(response.outputs().renderUrls().manifestUrl()).isEqualTo("https://download.example.com/manifest.v1.json?signature=test");
+        assertThat(response.outputs().renderUrls().frontDiagonalLeftUrl()).isEqualTo("https://download.example.com/render-001.png?signature=test");
+        assertThat(response.outputs().renderUrls().frontDiagonalRightUrl()).isEqualTo("https://download.example.com/photo_front_diagonal_right.png?signature=test");
         assertThat(response.outputs().artifacts().get(0).storageUrl()).isEqualTo("https://download.example.com/render-001.png?signature=test");
         assertThat(response.details().render()).isNotNull();
         assertThat(response.details().render().expectedOutputArtifactId()).isEqualTo(expectedArtifactId);
