@@ -5,6 +5,7 @@ import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.render.dto.RenderStatusSseResponse;
+import com.a204.batang.domain.render.dto.RenderUrlsResponse;
 import com.a204.batang.domain.render.entity.RenderArtifact;
 import com.a204.batang.domain.render.entity.RenderJob;
 import com.a204.batang.domain.render.entity.RenderJobStep;
@@ -18,6 +19,7 @@ import com.a204.batang.domain.render.repository.RenderJobStepRepository;
 import com.a204.batang.global.config.RabbitMqConfig;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -64,6 +66,7 @@ public class SdRenderEventListener {
     private final NotificationSseService notificationSseService;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
+    private final S3ObjectPresigner s3ObjectPresigner;
 
     /**
      * sd-render 외 event는 무시하고, render event만 상태 전이 처리한다.
@@ -167,6 +170,7 @@ public class SdRenderEventListener {
                     "FAILED",
                     0,
                     null,
+                    null,
                     "메시지 전송 실패로 인해 작업을 중단합니다."
             ));
         }
@@ -193,6 +197,7 @@ public class SdRenderEventListener {
                 "RUNNING",
                 safeProgress(event.progress(), 1),
                 null,
+                null,
                 "렌더링이 시작되었습니다."
         ));
     }
@@ -217,6 +222,7 @@ public class SdRenderEventListener {
                 event.jobStepId(),
                 "RUNNING",
                 progress,
+                null,
                 null,
                 extractString(event.output(), "message", "렌더링 진행 중입니다.")
         ));
@@ -269,6 +275,9 @@ public class SdRenderEventListener {
             renderArtifactRepository.save(artifact);
         }
 
+        RenderUrlsResponse renderUrls = buildRenderUrls(event, step, imageUrl);
+        String sseImageUrl = firstNonBlank(renderUrls.frontDiagonalLeftUrl(), imageUrl);
+
         sendSse(event.projectId(), "RENDER_COMPLETED", new RenderStatusSseResponse(
                 "RENDER_COMPLETED",
                 event.projectId(),
@@ -276,7 +285,8 @@ public class SdRenderEventListener {
                 event.jobStepId(),
                 "SUCCEEDED",
                 100,
-                imageUrl,
+                sseImageUrl,
+                renderUrls,
                 summary
         ));
     }
@@ -324,8 +334,39 @@ public class SdRenderEventListener {
                 "FAILED",
                 safeProgress(event.progress(), 0),
                 null,
+                null,
                 userMessage
         ));
+    }
+
+    private RenderUrlsResponse buildRenderUrls(SdRenderEventMessage event, RenderJobStep step, String imageUrl) {
+        return new RenderUrlsResponse(
+                presignOptional(firstNonBlank(
+                        extractString(event.output(), "renderManifestStorageUrl", null),
+                        extractString(event.output(), "storageUrl", null),
+                        extractString(event.output(), "storage_url", null),
+                        extractJsonText(step.getInputPayload(), "renderManifestStorageUrl")
+                )),
+                presignOptional(firstNonBlank(
+                        extractString(event.output(), "renderPhotoFrontDiagonalLeftStorageUrl", null),
+                        imageUrl
+                )),
+                presignOptional(firstNonBlank(
+                        extractString(event.output(), "renderPhotoFrontDiagonalRightStorageUrl", null),
+                        extractJsonText(step.getInputPayload(), "renderPhotoFrontDiagonalRightStorageUrl")
+                ))
+        );
+    }
+
+    private String presignOptional(String storageUrl) {
+        if (storageUrl == null || storageUrl.isBlank()) {
+            return null;
+        }
+        try {
+            return s3ObjectPresigner.presignRequired(storageUrl, ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /**
