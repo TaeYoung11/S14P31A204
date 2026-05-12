@@ -211,14 +211,9 @@ class IFCRenderer:
         target_ratio = self._resolve_target_ratio(view, base_mesh)
 
         if self._is_headless():
-            try:
-                return self._render_mesh_windowed(
-                    mesh, center, camera, initial_zoom, target_ratio
-                )
-            except Exception:
-                return self._render_mesh_offscreen(
-                    mesh, center, camera, initial_zoom, target_ratio
-                )
+            return self._render_mesh_offscreen(
+                mesh, center, camera, initial_zoom, target_ratio
+            )
 
         return self._render_mesh_windowed(
             mesh, center, camera, initial_zoom, target_ratio
