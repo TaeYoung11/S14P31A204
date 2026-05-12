@@ -1,5 +1,4 @@
-// í”„ë¡œì íŠ¸ ëŒ“ê¸€ê³¼ ë Œë”ë§ ìƒíƒœ í† ìŠ¤íŠ¸ë¥¼ ìš°ì„ ìˆœìœ„ ìŠ¤íƒìœ¼ë¡œ í‘œì‹œí•œë‹¤.
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 import { AlertTriangle, Image, MessageSquareText, X } from 'lucide-react'
 import type { ProjectCommentToastState } from '@/features/project/hooks/useProjectCommentRealtime'
 import {
@@ -8,8 +7,8 @@ import {
 } from '@/features/project/stores/projectNotificationToastStore'
 
 interface ProjectCommentToastProps {
-  toast: ProjectCommentToastState | null
-  onClose: () => void
+  toast?: ProjectCommentToastState | null
+  onClose?: () => void
   onOpenProject: (projectId: string, pinId?: string) => void
 }
 
@@ -17,7 +16,7 @@ const COMMENT_PREVIEW_MAX_LENGTH = 15
 
 const formatCommentPreview = (content: string | null | undefined): string => {
   const normalized = typeof content === 'string' ? content.trim() : ''
-  if (!normalized) return 'ìƒˆ ëŒ“ê¸€ì´ ë“±ë¡ë˜ì—ˆìŠµë‹ˆë‹¤.'
+  if (!normalized) return '»õ ´ñ±ÛÀÌ µî·ÏµÇ¾ú½À´Ï´Ù.'
   if (normalized.length <= COMMENT_PREVIEW_MAX_LENGTH) return normalized
   return `${normalized.slice(0, COMMENT_PREVIEW_MAX_LENGTH)}...`
 }
@@ -27,8 +26,8 @@ const formatToastMessage = (toast: ProjectNotificationToast): string => {
   if (toast.type === 'comment') return formatCommentPreview(normalized)
   if (normalized) return normalized
   return toast.type === 'render_failed'
-    ? 'ë Œë”ë§ ìƒì„±ì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤. ì ì‹œ í›„ ë‹¤ì‹œ ì‹œë„í•´ ì£¼ì„¸ìš”.'
-    : 'ë Œë”ë§ ì´ë¯¸ì§€ê°€ ì¤€ë¹„ëìŠµë‹ˆë‹¤.'
+    ? '·»´õ¸µ »óÅÂ¸¦ È®ÀÎÇØ ÁÖ¼¼¿ä.'
+    : '·»´õ¸µÀÌ ¿Ï·áµÇ¾ú½À´Ï´Ù.'
 }
 
 const getToastIcon = (toast: ProjectNotificationToast) => {
@@ -44,56 +43,30 @@ const getToastToneClass = (toast: ProjectNotificationToast): string => {
 }
 
 const getToastCaption = (toast: ProjectNotificationToast): string => {
-  if (toast.type === 'comment') return 'ìƒˆ ëŒ“ê¸€ì´ ë“±ë¡ë˜ì—ˆìŠµë‹ˆë‹¤.'
-  if (toast.type === 'render_failed') return 'ë Œë”ë§ ìƒíƒœë¥¼ í™•ì¸í•´ ì£¼ì„¸ìš”.'
-  return 'ë·°ì–´ ëª¨ë“œì—ì„œ ê²°ê³¼ë¥¼ í™•ì¸í•  ìˆ˜ ìˆìŠµë‹ˆë‹¤.'
+  if (toast.type === 'comment') return '»õ ´ñ±ÛÀÌ µî·ÏµÇ¾ú½À´Ï´Ù.'
+  if (toast.type === 'render_failed') return '·»´õ¸µ »óÅÂ¸¦ È®ÀÎÇØ ÁÖ¼¼¿ä.'
+  return 'ºä ·»´õ¸µÀÌ ¿Ï·áµÇ¾ú½À´Ï´Ù.'
 }
 
-export default function ProjectCommentToast({
-  toast: legacyToast,
-  onClose: legacyOnClose,
-  onOpenProject,
-}: ProjectCommentToastProps) {
+export default function ProjectCommentToast({ onOpenProject }: ProjectCommentToastProps) {
   const toasts = useProjectNotificationToastStore((state) => state.toasts)
   const dismissToast = useProjectNotificationToastStore((state) => state.dismissToast)
-  const stackToasts: ProjectNotificationToast[] = useMemo(() => {
-    if (toasts.length > 0) return toasts
-    if (!legacyToast) return []
-
-    return [{
-      id: `legacy-comment:${legacyToast.projectId}:${legacyToast.pinId}`,
-      type: 'comment',
-      groupKey: `legacy-comment:${legacyToast.projectId}:${legacyToast.pinId}`,
-      projectId: legacyToast.projectId,
-      pinId: legacyToast.pinId,
-      title: legacyToast.projectName,
-      message: legacyToast.content,
-      createdAt: new Date(legacyToast.createdAt).getTime(),
-      durationMs: 5000,
-    }]
-  }, [legacyToast, toasts])
 
   useEffect(() => {
-    const timeoutIds = stackToasts.map((currentToast) =>
+    const timeoutIds = toasts.map((currentToast) =>
       window.setTimeout(() => dismissToast(currentToast.id), currentToast.durationMs),
     )
     return () => {
       timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId))
     }
-  }, [dismissToast, stackToasts])
+  }, [dismissToast, toasts])
 
-  if (stackToasts.length === 0) return null
+  if (toasts.length === 0) return null
 
   return (
     <div className="fixed right-6 top-20 z-[120] flex w-[340px] flex-col gap-3">
-      {stackToasts.map((currentToast) => {
+      {toasts.map((currentToast) => {
         const isComment = currentToast.type === 'comment'
-        const closeToast = () => {
-          dismissToast(currentToast.id)
-          if (stackToasts.length === 1 && legacyToast) {
-            legacyOnClose()
-          }
-        }
 
         return (
           <div
@@ -118,8 +91,8 @@ export default function ProjectCommentToast({
               <button
                 type="button"
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[#9ca3af] transition-colors hover:bg-[#f3f4f6] hover:text-[#374151]"
-                onClick={closeToast}
-                title="ì•Œë¦¼ ë‹«ê¸°"
+                onClick={() => dismissToast(currentToast.id)}
+                title="Åä½ºÆ® ´İ±â"
               >
                 <X className="h-4 w-4" />
               </button>
