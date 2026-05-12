@@ -187,6 +187,22 @@ def test_parse_failure_rejects_without_requeue(
     mock_message.nack.assert_not_called()
 
 
+def test_parse_failure_counts_toward_stop_after(
+    mock_message: MagicMock,
+) -> None:
+    consumer = RabbitMQConsumer(
+        settings=RabbitMQSettings(host="localhost", port=5672),
+        worker_type="SD_RENDER_GENERATE",
+        handler=MagicMock(),
+        stop_after=1,
+    )
+
+    consumer._on_message("{invalid-json", mock_message)
+
+    mock_message.reject.assert_called_once_with(requeue=False)
+    assert consumer.should_stop is True
+
+
 def test_invalid_schema_version_rejects_without_requeue(
     consumer: RabbitMQConsumer,
     mock_message: MagicMock,

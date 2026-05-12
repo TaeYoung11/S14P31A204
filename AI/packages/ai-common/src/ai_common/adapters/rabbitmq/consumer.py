@@ -104,6 +104,7 @@ class RabbitMQConsumer(ConsumerMixinBase):
         except Exception as exc:
             _logger.error("command_decode_failed", error=str(exc))
             message.reject(requeue=False)
+            self._mark_processed()
             return
 
         try:
