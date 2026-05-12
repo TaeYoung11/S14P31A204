@@ -35,6 +35,10 @@ public enum ErrorCode {
     COMMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "COMMENT_NOT_FOUND", "댓글을 찾을 수 없습니다."),
     PROJECT_DELETE_TARGET_NOT_FOUND(HttpStatus.NOT_FOUND, "PROJECT_DELETE_TARGET_NOT_FOUND", "삭제 대상 프로젝트를 찾을 수 없습니다."),
     PROJECT_SITE_INFO_FETCH_FAILED(HttpStatus.BAD_GATEWAY, "PROJECT_SITE_INFO_FETCH_FAILED", "대지 정보를 가져오지 못했습니다."),
+    INVITEE_NOT_FOUND(HttpStatus.NOT_FOUND, "INVITEE_NOT_FOUND", "초대할 사용자를 찾을 수 없습니다."),
+    USER_NOT_ACTIVE(HttpStatus.CONFLICT, "USER_NOT_ACTIVE", "비활성 사용자에게는 초대할 수 없습니다."),
+    SELF_INVITATION_NOT_ALLOWED(HttpStatus.CONFLICT, "SELF_INVITATION_NOT_ALLOWED", "자기 자신은 초대할 수 없습니다."),
+    PROJECT_MEMBER_ALREADY_EXISTS(HttpStatus.CONFLICT, "PROJECT_MEMBER_ALREADY_EXISTS", "이미 프로젝트 멤버입니다."),
 
     RENDER_SOURCE_NOT_FOUND(HttpStatus.CONFLICT, "RENDER_SOURCE_NOT_FOUND", "렌더링할 IFC 모델이 없습니다."),
     RENDER_JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "RENDER_JOB_NOT_FOUND", "렌더링 작업을 찾을 수 없습니다."),
