@@ -1,5 +1,5 @@
 // 프로젝트 댓글 SSE 스트림을 구독하고 댓글 토스트와 알림 캐시를 갱신합니다.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type {
   ProjectCommentCreatedEvent,
@@ -34,6 +34,7 @@ const DEFAULT_API_BASE_URL = '/api/v1'
 const NOTIFICATION_STREAM_PATH = '/notifications/stream'
 const COMMENT_CREATED_EVENT = 'comment-created'
 const RECONNECT_DELAY_MS = 3000
+const MAX_RECONNECT_DELAY_MS = 30000
 const TOAST_DURATION_MS = 5000
 const MAX_COMMENT_ITEMS = 50
 const FALLBACK_PROJECT_NAME = '프로젝트'
@@ -153,6 +154,7 @@ export const useProjectCommentRealtime = (
   const token = useAuthStore((state) => state.token)
   const queryClient = useQueryClient()
   const [toast, setToast] = useState<ProjectCommentToastState | null>(null)
+  const lastStreamErrorMessageRef = useRef<string | null>(null)
   const projectNameById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.name])),
     [projects],
@@ -197,12 +199,15 @@ export const useProjectCommentRealtime = (
     const controller = new AbortController()
 
     const connect = async () => {
+      let reconnectDelayMs = RECONNECT_DELAY_MS
       while (!controller.signal.aborted) {
         try {
           const accessToken = useAuthStore.getState().token
           if (!accessToken) return
 
           await readSseStream(accessToken, controller.signal, handleMessage)
+          reconnectDelayMs = RECONNECT_DELAY_MS
+          lastStreamErrorMessageRef.current = null
         } catch (error) {
           if (error instanceof SseAuthError && !controller.signal.aborted) {
             try {
@@ -217,12 +222,17 @@ export const useProjectCommentRealtime = (
           }
 
           if (!controller.signal.aborted) {
-            console.warn('[project-comment-sse] stream disconnected:', error)
+            const errorMessage = error instanceof Error ? error.message : String(error)
+            if (lastStreamErrorMessageRef.current !== errorMessage) {
+              console.warn('[project-comment-sse] stream disconnected:', error)
+              lastStreamErrorMessageRef.current = errorMessage
+            }
           }
         }
 
         if (!controller.signal.aborted) {
-          await sleep(RECONNECT_DELAY_MS, controller.signal)
+          await sleep(reconnectDelayMs, controller.signal)
+          reconnectDelayMs = Math.min(reconnectDelayMs * 2, MAX_RECONNECT_DELAY_MS)
         }
       }
     }
