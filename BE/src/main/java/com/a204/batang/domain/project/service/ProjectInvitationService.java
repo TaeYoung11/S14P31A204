@@ -21,6 +21,7 @@ import org.springframework.util.StringUtils;
 
 import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * 프로젝트 멤버 초대를 처리하는 서비스다.
@@ -31,6 +32,7 @@ import java.util.UUID;
 public class ProjectInvitationService {
 
     private static final ProjectMemberRole INVITED_MEMBER_ROLE = ProjectMemberRole.CLIENT;
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
 
     private final ProjectRepository projectRepository;
     private final ProjectMemberRepository projectMemberRepository;
@@ -73,7 +75,11 @@ public class ProjectInvitationService {
         if (!StringUtils.hasText(inviteeEmail)) {
             throw new CustomException(ErrorCode.INVALID_REQUEST, "inviteeEmail은 필수입니다.");
         }
-        return inviteeEmail.trim();
+        String normalizedEmail = inviteeEmail.trim();
+        if (!EMAIL_PATTERN.matcher(normalizedEmail).matches()) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST, "inviteeEmail은 올바른 이메일 형식이어야 합니다.");
+        }
+        return normalizedEmail;
     }
 
     /**
