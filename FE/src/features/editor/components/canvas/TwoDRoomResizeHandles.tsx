@@ -20,6 +20,8 @@ interface TwoDRoomResizeHandlesProps {
   syncHandlePosition: (e: KonvaEventObject<DragEvent>, x: number, y: number) => void
   onRoomDragStateReset: () => void
   onResizingRoomBubbleIdChange: (bubbleId: string | null) => void
+  onResizeStart?: () => void
+  onResizeCommit?: () => void
 }
 
 /**
@@ -33,9 +35,12 @@ export function TwoDRoomResizeHandles({
   syncHandlePosition,
   onRoomDragStateReset,
   onResizingRoomBubbleIdChange,
+  onResizeStart,
+  onResizeCommit,
 }: TwoDRoomResizeHandlesProps) {
   const startResize = (e: KonvaEventObject<DragEvent>) => {
     e.cancelBubble = true
+    onResizeStart?.()
     onRoomDragStateReset()
     onResizingRoomBubbleIdChange(room.bubbleId)
   }
@@ -51,6 +56,7 @@ export function TwoDRoomResizeHandles({
   const endResize = (e: KonvaEventObject<DragEvent>, fallbackX: number, fallbackY: number) => {
     syncHandlePosition(e, fallbackX, fallbackY)
     onResizingRoomBubbleIdChange(null)
+    onResizeCommit?.()
   }
 
   return (

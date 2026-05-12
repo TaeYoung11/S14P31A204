@@ -20,6 +20,7 @@ import com.a204.batang.domain.job.repository.JobStepRecordRepository;
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
+import com.a204.batang.domain.render.dto.RenderUrlsResponse;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import com.a204.batang.global.storage.S3ObjectPresigner;
@@ -258,8 +259,36 @@ public class JobStatusQueryService {
                                 ErrorCode.JOB_RESULT_PRESIGN_FAILED
                         )
                         : null,
+                buildRenderUrls(jobDomain, primaryArtifact),
                 artifactResponses
         );
+    }
+
+    private RenderUrlsResponse buildRenderUrls(String jobDomain, JobArtifactRecord primaryArtifact) {
+        if (!JOB_DOMAIN_RENDER.equals(jobDomain) || primaryArtifact == null) {
+            return null;
+        }
+
+        JsonNode metadata = primaryArtifact.getMetadataJson();
+        return new RenderUrlsResponse(
+                presignOptional(extractText(metadata, "renderManifestStorageUrl")),
+                presignOptional(firstNonBlank(
+                        extractText(metadata, "renderPhotoFrontDiagonalLeftStorageUrl"),
+                        primaryArtifact.getStorageUrl()
+                )),
+                presignOptional(extractText(metadata, "renderPhotoFrontDiagonalRightStorageUrl"))
+        );
+    }
+
+    private String presignOptional(String storageUrl) {
+        if (storageUrl == null || storageUrl.isBlank()) {
+            return null;
+        }
+        try {
+            return s3ObjectPresigner.presignRequired(storageUrl, ErrorCode.JOB_RESULT_PRESIGN_FAILED);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     private JobArtifactRecord resolvePrimaryArtifact(String jobDomain, List<JobArtifactRecord> artifacts) {

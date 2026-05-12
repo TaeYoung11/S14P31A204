@@ -285,19 +285,6 @@ export interface WorkspaceSnapshot {
   hiddenAutoWallIds: string[]
   hiddenAutoOpeningIds: string[]
   isProjectStructurePreferred: boolean
+  ifcElementChanges: IfcElementChange[]
 }
 
-export type EditorDraftSnapshot = WorkspaceSnapshot
-
-export interface EditorDraftHistory {
-  bubbleUndoHistory: unknown[]
-  bubbleRedoHistory: unknown[]
-}
-
-export interface EditorDraftRecord {
-  projectId: string
-  versionNo: number
-  data: EditorDraftSnapshot
-  history?: EditorDraftHistory
-  savedAt: string
-}

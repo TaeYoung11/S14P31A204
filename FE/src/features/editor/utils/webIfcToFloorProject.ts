@@ -144,6 +144,25 @@ const readRefList = (value: unknown): number[] => {
   return []
 }
 
+const normalizeQuantityName = (value: string | null): string => (value ?? '').replace(/[\s_-]+/g, '').toLowerCase()
+
+const readAreaQuantity = (
+  line: Record<string, unknown>,
+  areaMultiplier: number,
+): { key: 'areaM2' | 'grossAreaM2' | 'netAreaM2'; value: number } | null => {
+  const name = normalizeQuantityName(readString(line.Name))
+  const rawArea = readNumber(line.AreaValue)
+  if (rawArea === null || rawArea <= 0) return null
+
+  const value = rawArea * areaMultiplier
+  if (!Number.isFinite(value) || value <= 0) return null
+
+  if (name === 'grossfloorarea' || name === 'grossarea') return { key: 'grossAreaM2', value }
+  if (name === 'netfloorarea' || name === 'netarea') return { key: 'netAreaM2', value }
+  if (name === 'area' || name === 'floorarea') return { key: 'areaM2', value }
+  return null
+}
+
 const multiplyMat4Vec3 = (m: number[], x: number, y: number, z: number): [number, number, number] => ([
   m[0] * x + m[4] * y + m[8] * z + m[12],
   m[1] * x + m[5] * y + m[9] * z + m[13],
@@ -340,6 +359,47 @@ const getLinesByType = (
   return result
 }
 
+const resolveSpaceAreaMap = (
+  ifcApi: WebIfcApiForFloorProject,
+  modelId: number,
+  areaMultiplier: number,
+): Map<number, { areaM2?: number; grossAreaM2?: number; netAreaM2?: number }> => {
+  const result = new Map<number, { areaM2?: number; grossAreaM2?: number; netAreaM2?: number }>()
+  const quantityLineByExpressId = new Map<number, Record<string, unknown>>()
+
+  getLinesByType(ifcApi, modelId, 'IFCQUANTITYAREA').forEach(({ expressId, line }) => {
+    quantityLineByExpressId.set(expressId, line)
+  })
+
+  if (quantityLineByExpressId.size === 0) return result
+
+  const elementQuantityByExpressId = new Map<number, Record<string, unknown>>()
+  getLinesByType(ifcApi, modelId, 'IFCELEMENTQUANTITY').forEach(({ expressId, line }) => {
+    elementQuantityByExpressId.set(expressId, line)
+  })
+
+  getLinesByType(ifcApi, modelId, 'IFCRELDEFINESBYPROPERTIES').forEach(({ line }) => {
+    const propertyDefinitionRef = readRef(line.RelatingPropertyDefinition)
+    const propertyDefinition = propertyDefinitionRef === null ? null : elementQuantityByExpressId.get(propertyDefinitionRef)
+    if (!propertyDefinition) return
+
+    const areaValues: { areaM2?: number; grossAreaM2?: number; netAreaM2?: number } = {}
+    readRefList(propertyDefinition.Quantities).forEach((quantityRef) => {
+      const quantityLine = quantityLineByExpressId.get(quantityRef)
+      if (!quantityLine) return
+      const area = readAreaQuantity(quantityLine, areaMultiplier)
+      if (area) areaValues[area.key] = area.value
+    })
+    if (!areaValues.areaM2 && !areaValues.grossAreaM2 && !areaValues.netAreaM2) return
+
+    readRefList(line.RelatedObjects).forEach((spaceRef) => {
+      result.set(spaceRef, { ...result.get(spaceRef), ...areaValues })
+    })
+  })
+
+  return result
+}
+
 export function parseWebIfcToFloorProject({
   ifcApi,
   modelId,
@@ -390,6 +450,7 @@ export function parseWebIfcToFloorProject({
     floorIdByStoreyExpressId.set(expressId, readString(line.GlobalId) ?? `storey-${expressId}`)
   })
   const defaultFloorId = floors[0]?.id ?? 'floor-1'
+  const spaceAreaMap = resolveSpaceAreaMap(ifcApi, modelId, (lengthMultiplier * lengthMultiplier) / 1_000_000)
 
   const spaceToFloorId = new Map<number, string>()
   const wallToFloorId = new Map<number, string>()
@@ -431,13 +492,17 @@ export function parseWebIfcToFloorProject({
     const roughPolygon = toRoomPolygonFromAabb(aabb, lengthMultiplier)
     const polygon = computeConvexHull2D(roughPolygon)
     if (polygon.length < 3) continue
+    const areaValues = spaceAreaMap.get(expressId)
     rooms.push({
       id: roomId,
       name: readString(line.Name) ?? roomId,
       type: normalizeIfcRoomType(readString(line.ObjectType)),
       floor: floorId,
       polygon,
-      metadata: null,
+      ...(areaValues?.areaM2 ? { areaM2: areaValues.areaM2 } : {}),
+      ...(areaValues?.grossAreaM2 ? { grossAreaM2: areaValues.grossAreaM2 } : {}),
+      ...(areaValues?.netAreaM2 ? { netAreaM2: areaValues.netAreaM2 } : {}),
+      metadata: areaValues ? { ...areaValues } : null,
     })
   }
 

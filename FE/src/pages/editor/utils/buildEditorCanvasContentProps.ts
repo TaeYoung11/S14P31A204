@@ -21,6 +21,7 @@ function buildCanvasContextProps(
   | 'isGridVisible'
   | 'selectedTool'
   | 'handleWheelZoom'
+  | 'canvasZoom'
 > {
   return {
     projectId: vm.projectId,
@@ -36,6 +37,7 @@ function buildCanvasContextProps(
     isGridVisible: vm.isGridVisible,
     selectedTool: vm.selectedTool,
     handleWheelZoom: vm.handleWheelZoom,
+    canvasZoom: vm.canvasZoom,
   }
 }
 
@@ -53,6 +55,8 @@ function buildBubbleCanvasProps(
   | 'connectingFromId'
   | 'openEditModal'
   | 'handleBubbleDrag'
+  | 'handleBubbleDragStart'
+  | 'handleBubbleDragEnd'
   | 'handleBubbleSelectWithTool'
   | 'handleDeleteBubble'
   | 'handleConnectionClick'
@@ -67,7 +71,7 @@ function buildBubbleCanvasProps(
 > {
   return {
     // 버블/2D/3D 대지 일관성을 위해 단일 소스(sitePlanPoints)만 사용한다.
-    sitePoints: vm.sitePlanPoints,
+    sitePoints: vm.sitePoints,
     bubbles: vm.bubbles,
     connections: vm.connections,
     autoZones: vm.autoZones,
@@ -77,6 +81,8 @@ function buildBubbleCanvasProps(
     connectingFromId: vm.connectingFromId,
     openEditModal: vm.openEditModal,
     handleBubbleDrag: vm.handleBubbleDrag,
+    handleBubbleDragStart: vm.handleBubbleDragStart,
+    handleBubbleDragEnd: vm.handleBubbleDragEnd,
     handleBubbleSelectWithTool: vm.handleBubbleSelectWithTool,
     handleDeleteBubble: vm.handleDeleteBubble,
     handleConnectionClick: vm.handleConnectionClick,
@@ -157,6 +163,8 @@ function buildTwoDStructureProps(
   | 'handleMoveFloorRoom'
   | 'handleResizeFloorRoom'
   | 'handleUpdateFloorRoomPolygon'
+  | 'beginWorkspaceSnapshotTransaction'
+  | 'commitWorkspaceSnapshotTransaction'
   | 'handleTwoDMarqueeSelect'
 > {
   const safeHandleUpdateFloorRoomPolygon = createSafeFloorRoomPolygonHandler(
@@ -183,6 +191,8 @@ function buildTwoDStructureProps(
     handleMoveFloorRoom: vm.handleMoveFloorRoom,
     handleResizeFloorRoom: vm.handleResizeFloorRoom,
     handleUpdateFloorRoomPolygon: safeHandleUpdateFloorRoomPolygon,
+    beginWorkspaceSnapshotTransaction: vm.beginWorkspaceSnapshotTransaction,
+    commitWorkspaceSnapshotTransaction: vm.commitWorkspaceSnapshotTransaction,
     handleTwoDMarqueeSelect: vm.handleTwoDMarqueeSelect,
   }
 }

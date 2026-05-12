@@ -13,6 +13,7 @@ import com.a204.batang.domain.render.messaging.event.RenderStatusChangedEvent;
 import com.a204.batang.domain.render.repository.RenderArtifactRepository;
 import com.a204.batang.domain.render.repository.RenderJobRepository;
 import com.a204.batang.domain.render.repository.RenderJobStepRepository;
+import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,6 +63,8 @@ class SdRenderEventListenerTest {
     private NotificationSseService notificationSseService;
     @Mock
     private ApplicationEventPublisher eventPublisher;
+    @Mock
+    private S3ObjectPresigner s3ObjectPresigner;
 
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
@@ -113,6 +116,7 @@ class SdRenderEventListenerTest {
         lenient().when(renderJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId)).thenReturn(Optional.of(step));
         lenient().when(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).thenReturn(Optional.of(project));
         lenient().when(projectAccessService.resolveProjectMemberUserIds(project)).thenReturn(Set.of(UUID.randomUUID()));
+        lenient().when(s3ObjectPresigner.presignRequired(any(), any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
@@ -172,6 +176,44 @@ class SdRenderEventListenerTest {
         assertThat(metadata.path("style").path("viewpoint").asText()).isEqualTo("EXTERIOR");
 
         verify(eventPublisher, times(1)).publishEvent(any(RenderStatusChangedEvent.class));
+    }
+
+    @Test
+    void handleCompleted_usesPhotoUrlNotManifestStorageUrl() throws Exception {
+        String manifestUrl = "s3://batang/projects/" + projectId + "/renders/" + artifactId + "/manifest.v1.json";
+        String leftPhotoUrl = "s3://batang/projects/" + projectId + "/renders/" + artifactId + "/photo_front_diagonal_left.png";
+        String rightPhotoUrl = "s3://batang/projects/" + projectId + "/renders/" + artifactId + "/photo_front_diagonal_right.png";
+        ReflectionTestUtils.setField(step, "inputPayload", objectMapper.readTree("""
+                {
+                  "expectedOutputArtifactId": "%s",
+                  "renderManifestStorageUrl": "%s",
+                  "renderPhotoFrontDiagonalLeftStorageUrl": "%s",
+                  "renderPhotoFrontDiagonalRightStorageUrl": "%s"
+                }
+                """.formatted(artifactId, manifestUrl, leftPhotoUrl, rightPhotoUrl)));
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("storage_url", manifestUrl);
+        given(renderArtifactRepository.existsById(artifactId)).willReturn(false);
+
+        listener.handle(event("SD_RENDER_GENERATE_COMPLETED", "event.sd-render.completed", 1.0d, output, null));
+
+        assertThat(job.getStatus()).isEqualTo("SUCCEEDED");
+        assertThat(step.getStatus()).isEqualTo("SUCCEEDED");
+
+        ArgumentCaptor<RenderArtifact> artifactCaptor = ArgumentCaptor.forClass(RenderArtifact.class);
+        verify(renderArtifactRepository).save(artifactCaptor.capture());
+        RenderArtifact artifact = artifactCaptor.getValue();
+        assertThat(artifact.getStorageUrl()).isEqualTo(leftPhotoUrl);
+        assertThat(artifact.getStorageUrl()).isNotEqualTo(manifestUrl);
+        assertThat(artifact.getMetadataJson().path("renderManifestStorageUrl").asText()).isEqualTo(manifestUrl);
+        assertThat(artifact.getMetadataJson().path("renderPhotoFrontDiagonalRightStorageUrl").asText()).isEqualTo(rightPhotoUrl);
+
+        ArgumentCaptor<RenderStatusChangedEvent> eventCaptor = ArgumentCaptor.forClass(RenderStatusChangedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getPayload().imageUrl()).isEqualTo(leftPhotoUrl);
+        assertThat(eventCaptor.getValue().getPayload().renderUrls().manifestUrl()).isEqualTo(manifestUrl);
+        assertThat(eventCaptor.getValue().getPayload().renderUrls().frontDiagonalLeftUrl()).isEqualTo(leftPhotoUrl);
+        assertThat(eventCaptor.getValue().getPayload().renderUrls().frontDiagonalRightUrl()).isEqualTo(rightPhotoUrl);
     }
 
     @Test

@@ -9,8 +9,7 @@ type HeaderViewModel = Pick<
   | 'handleOpenInviteModal'
   | 'handleOpenNotificationModal'
   | 'currentCollaborationUserType'
-  | 'handleOpenIFCExportModal'
-  | 'handleOpenExportSelectionModal'
+  | 'handleManualSave'
   | 'saveStatus'
   | 'siteAreaM2'
 >
@@ -30,7 +29,7 @@ export function buildEditorHeaderProps(vm: HeaderViewModel): EditorHeaderProps {
     onOpenInvite: vm.handleOpenInviteModal,
     onOpenNotification: vm.handleOpenNotificationModal,
     userType: vm.currentCollaborationUserType,
-    onSave: vm.mode === '3d' ? vm.handleOpenIFCExportModal : vm.handleOpenExportSelectionModal,
+    onSave: vm.handleManualSave,
     saveStatus: vm.saveStatus,
     siteAreaLabel,
   }

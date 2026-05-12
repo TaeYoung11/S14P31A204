@@ -39,6 +39,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -261,7 +262,16 @@ class RenderQueryServiceTest {
                 "s3://batang/projects/%s/renders/%s.png".formatted(projectId, UUID.randomUUID()),
                 LocalDateTime.of(2026, 4, 15, 16, 50, 30)
         );
-        PresignedGetObjectRequest presignedRequest = mock(PresignedGetObjectRequest.class);
+        String manifestUrl = "s3://batang/projects/%s/renders/%s/manifest.v1.json".formatted(projectId, renderId);
+        String leftPhotoUrl = artifact.getStorageUrl();
+        String rightPhotoUrl = "s3://batang/projects/%s/renders/%s/photo_front_diagonal_right.png".formatted(projectId, renderId);
+        ReflectionTestUtils.setField(artifact, "metadataJson", objectMapper.readTree("""
+                {
+                  "renderManifestStorageUrl": "%s",
+                  "renderPhotoFrontDiagonalLeftStorageUrl": "%s",
+                  "renderPhotoFrontDiagonalRightStorageUrl": "%s"
+                }
+                """.formatted(manifestUrl, leftPhotoUrl, rightPhotoUrl)));
 
         given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
         given(projectAccessService.resolveCurrentUserId()).willReturn(null);
@@ -272,13 +282,23 @@ class RenderQueryServiceTest {
                 renderId,
                 "RENDER_IMAGE"
         )).willReturn(Optional.of(artifact));
-        given(presignedRequest.url()).willReturn(URI.create("https://download.example.com/render.png?signature=test").toURL());
-        given(s3Presigner.presignGetObject(any(GetObjectPresignRequest.class))).willReturn(presignedRequest);
+        given(s3Presigner.presignGetObject(any(GetObjectPresignRequest.class))).willAnswer(invocation -> {
+            GetObjectPresignRequest request = invocation.getArgument(0);
+            String key = request.getObjectRequest().key();
+            String fileName = key.substring(key.lastIndexOf('/') + 1);
+            PresignedGetObjectRequest presignedRequest = mock(PresignedGetObjectRequest.class);
+            given(presignedRequest.url()).willReturn(URI.create("https://download.example.com/" + fileName + "?signature=test").toURL());
+            return presignedRequest;
+        });
 
         ProjectRenderResponse result = renderQueryService.getProjectRender(projectId, renderId);
 
         assertThat(result.renderId()).isEqualTo(renderId);
-        assertThat(result.imageUrl()).isEqualTo("https://download.example.com/render.png?signature=test");
+        assertThat(result.imageUrl()).endsWith("?signature=test");
+        assertThat(result.renderUrls()).isNotNull();
+        assertThat(result.renderUrls().manifestUrl()).isEqualTo("https://download.example.com/manifest.v1.json?signature=test");
+        assertThat(result.renderUrls().frontDiagonalLeftUrl()).isEqualTo(result.imageUrl());
+        assertThat(result.renderUrls().frontDiagonalRightUrl()).isEqualTo("https://download.example.com/photo_front_diagonal_right.png?signature=test");
         assertThat(result.status()).isEqualTo("SUCCEEDED");
         assertThat(result.createdAt()).isEqualTo("2026-04-15T07:50:00Z");
         assertThat(result.completedAt()).isEqualTo("2026-04-15T07:50:28Z");
@@ -290,8 +310,8 @@ class RenderQueryServiceTest {
         assertExternalJsonDoesNotExposeInternalStorage(result);
 
         ArgumentCaptor<GetObjectPresignRequest> captor = ArgumentCaptor.forClass(GetObjectPresignRequest.class);
-        verify(s3Presigner).presignGetObject(captor.capture());
-        GetObjectRequest getObjectRequest = captor.getValue().getObjectRequest();
+        verify(s3Presigner, atLeastOnce()).presignGetObject(captor.capture());
+        GetObjectRequest getObjectRequest = captor.getAllValues().get(0).getObjectRequest();
         assertThat(getObjectRequest.bucket()).isEqualTo("batang");
         assertThat(getObjectRequest.key()).startsWith("projects/" + projectId + "/renders/");
     }
@@ -333,8 +353,8 @@ class RenderQueryServiceTest {
 
         assertThat(result.imageUrl()).isEqualTo("https://download.example.com/render.png?signature=test");
         ArgumentCaptor<GetObjectPresignRequest> captor = ArgumentCaptor.forClass(GetObjectPresignRequest.class);
-        verify(s3Presigner).presignGetObject(captor.capture());
-        GetObjectRequest getObjectRequest = captor.getValue().getObjectRequest();
+        verify(s3Presigner, atLeastOnce()).presignGetObject(captor.capture());
+        GetObjectRequest getObjectRequest = captor.getAllValues().get(0).getObjectRequest();
         assertThat(getObjectRequest.bucket()).isEqualTo("batang");
         assertThat(getObjectRequest.key()).isEqualTo(objectKey);
     }
@@ -458,8 +478,8 @@ class RenderQueryServiceTest {
 
         assertThat(result.imageUrl()).isEqualTo("https://download.example.com/render.png?signature=test");
         ArgumentCaptor<GetObjectPresignRequest> captor = ArgumentCaptor.forClass(GetObjectPresignRequest.class);
-        verify(s3Presigner).presignGetObject(captor.capture());
-        GetObjectRequest getObjectRequest = captor.getValue().getObjectRequest();
+        verify(s3Presigner, atLeastOnce()).presignGetObject(captor.capture());
+        GetObjectRequest getObjectRequest = captor.getAllValues().get(0).getObjectRequest();
         assertThat(getObjectRequest.bucket()).isEqualTo("batang");
         assertThat(getObjectRequest.key()).isEqualTo(objectKey);
     }

@@ -10,12 +10,12 @@ import type { CanvasModeRendererSectionProps } from './buildCanvasSectionProps'
  */
 export default function CanvasModeRenderer({
   mode,
-  zoom,
+  canvasZoom,
   renderProps,
   isRotationLocked,
   onThreeDCoordinatesChange,
 }: CanvasModeRendererSectionProps) {
-  const scale = zoom / 100
+  const scale = canvasZoom / 100
 
   if (mode === 'bubble') {
     return <BubbleModeCanvas editorProps={renderProps} scale={scale} />

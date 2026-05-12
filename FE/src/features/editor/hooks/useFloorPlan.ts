@@ -164,10 +164,20 @@ export function useFloorPlan() {
    * 백엔드 API 연동 시 이 경로를 사용하면 버블 기반 자동 생성 로직과 분리할 수 있다.
    */
   const setFloorPlanFromProject = useCallback(
-    (project: FloorProject, canvasWidth: number, canvasHeight: number) => {
+    (
+      project: FloorProject,
+      canvasWidth: number,
+      canvasHeight: number,
+      options: {
+        scaleMode?: 'fit' | 'real' | 'canvas'
+        referenceBubbles?: Pick<BubbleData, 'id' | 'x' | 'y' | 'width' | 'height' | 'widthMm' | 'heightMm' | 'ratio' | 'label' | 'type'>[]
+      } = {},
+    ) => {
       const mappedLayers = mapFloorProjectToLayers(project, {
         width: canvasWidth,
         height: canvasHeight,
+        scaleMode: options.scaleMode ?? 'fit',
+        referenceBubbles: options.referenceBubbles,
       })
       if (mappedLayers.length === 0) return
       setLayers(normalizeFloorLayerLabels(mappedLayers))

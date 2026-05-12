@@ -9,6 +9,7 @@ export interface ThreeDCoordinates {
 export interface CanvasModeRendererSectionProps {
   mode: EditorCanvasRenderProps['mode']
   zoom: EditorCanvasRenderProps['zoom']
+  canvasZoom: EditorCanvasRenderProps['canvasZoom']
   renderProps: EditorCanvasRenderProps
   isRotationLocked: boolean
   onThreeDCoordinatesChange: (coords: ThreeDCoordinates) => void
@@ -80,6 +81,7 @@ export function buildCanvasModeRendererSectionProps(
   return {
     mode: renderProps.mode,
     zoom: renderProps.zoom,
+    canvasZoom: renderProps.canvasZoom,
     renderProps,
     isRotationLocked,
     onThreeDCoordinatesChange,

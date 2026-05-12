@@ -3,7 +3,7 @@
   "schemaVersion": "v1",
   "messageType": "COMMAND",
   "commandType": "THREE_D_LLM_GENERATE",
-  "routingKey": "command.3d-llm.generate",
+  "routingKey": "command.three-d-llm.generate",
   "jobId": "job-3d-001",
   "jobStepId": "job-step-3d-001",
   "stepNo": 2,

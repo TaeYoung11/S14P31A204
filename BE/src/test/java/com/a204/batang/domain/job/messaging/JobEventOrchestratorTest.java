@@ -182,6 +182,65 @@ class JobEventOrchestratorTest {
     }
 
     @Test
+    void orchestrator_routesSdRenderGenerateEventsToRenderListener() throws Exception {
+        UUID jobId = UUID.randomUUID();
+        UUID jobStepId = UUID.randomUUID();
+        UUID projectId = UUID.randomUUID();
+        UUID artifactId = UUID.randomUUID();
+        String manifestUrl = "s3://batang/projects/" + projectId + "/renders/" + artifactId + "/manifest.v1.json";
+
+        JsonNode payload = objectMapper.readTree("""
+                {
+                  "event_id": "%s",
+                  "schema_version": "v1",
+                  "message_type": "EVENT",
+                  "event_type": "SD_RENDER_GENERATE_COMPLETED",
+                  "routing_key": "event.sd-render.completed",
+                  "job_id": "%s",
+                  "job_step_id": "%s",
+                  "step_no": 1,
+                  "total_steps": 1,
+                  "project_id": "%s",
+                  "worker_type": "SD_RENDER_GENERATE",
+                  "worker_id": "render-worker-1",
+                  "source_revision_id": "%s",
+                  "output_artifact_id": "%s",
+                  "status": "completed",
+                  "progress": 1.0,
+                  "output": {
+                    "storage_url": "%s"
+                  },
+                  "idempotency_key": "idempotency",
+                  "correlation_id": "%s",
+                  "occurred_at": "2026-05-08T00:00:00Z"
+                }
+                """.formatted(
+                UUID.randomUUID(),
+                jobId,
+                jobStepId,
+                projectId,
+                UUID.randomUUID(),
+                artifactId,
+                manifestUrl,
+                UUID.randomUUID()
+        ));
+
+        jobEventOrchestrator.handle(payload);
+
+        ArgumentCaptor<SdRenderEventMessage> captor = ArgumentCaptor.forClass(SdRenderEventMessage.class);
+        verify(sdRenderEventListener).handle(captor.capture());
+        verify(floorPlanGenerateEventListener, never()).handle(any(FloorPlanGenerateEventMessage.class));
+        verify(ifcEditEventDispatcher, never()).handle(any(IfcEditEventMessage.class));
+
+        SdRenderEventMessage event = captor.getValue();
+        assertThat(event.eventType()).isEqualTo("SD_RENDER_GENERATE_COMPLETED");
+        assertThat(event.jobId()).isEqualTo(jobId);
+        assertThat(event.jobStepId()).isEqualTo(jobStepId);
+        assertThat(event.outputArtifactId()).isEqualTo(artifactId);
+        assertThat(event.output()).containsEntry("storage_url", manifestUrl);
+    }
+
+    @Test
     void handle_twoDLlmEvent_routesToIfcEditDispatcherOnly() throws Exception {
         JsonNode payload = objectMapper.readTree("""
                 {
