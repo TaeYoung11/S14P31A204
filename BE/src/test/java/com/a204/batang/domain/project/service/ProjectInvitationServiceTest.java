@@ -118,6 +118,22 @@ class ProjectInvitationServiceTest {
     }
 
     @Test
+    void inviteProjectMember_throwsInvalidRequest_whenInviteeEmailFormatIsInvalidAfterTrim() {
+        ProjectInvitationRequest request = new ProjectInvitationRequest("  not-email  ");
+
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(ownerUserId);
+
+        assertThatThrownBy(() -> projectInvitationService.inviteProjectMember(projectId, request))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INVALID_REQUEST);
+
+        verifyNoInteractions(projectRepository);
+        verifyNoInteractions(memberRepository);
+        verify(projectMemberRepository, never()).saveAndFlush(any(ProjectMember.class));
+    }
+
+    @Test
     void inviteProjectMember_throwsForbidden_whenCurrentUserIsNotProjectOwner() {
         UUID otherUserId = UUID.randomUUID();
         ProjectInvitationRequest request = new ProjectInvitationRequest("client@example.com");
