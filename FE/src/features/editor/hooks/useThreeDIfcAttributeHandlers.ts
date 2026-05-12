@@ -11,6 +11,11 @@ const THREE_D_MATERIAL_COLOR: Record<string, string> = {
   Tile: '#C56F45',
 }
 
+const logRoofDebug = (...args: unknown[]) => {
+  if (!import.meta.env.DEV) return
+  console.log('[roof-debug][useThreeDIfcAttributeHandlers]', ...args)
+}
+
 interface UseThreeDIfcAttributeHandlersParams {
   mode: EditorMode
   canEditThreeDAttributes: boolean
@@ -47,9 +52,10 @@ export function useThreeDIfcAttributeHandlers({
   baseHandleHeightChangeForPanel,
 }: UseThreeDIfcAttributeHandlersParams) {
   const selectedIfcElementId = selectedIfcElement?.id
+  const shouldBlockThreeDEdit = mode === '3d' && !canEditThreeDAttributes
 
   const handleMaterialChangeForPanel = useCallback((id: string, material: string) => {
-    if (!canEditThreeDAttributes && mode === '3d') return
+    if (shouldBlockThreeDEdit) return
     if (mode !== '3d' || selectedIfcElementId !== id) {
       baseHandleMaterialChangeForPanel(id, material)
       return
@@ -77,11 +83,12 @@ export function useThreeDIfcAttributeHandlers({
     mode,
     recordIfcElementChange,
     selectedIfcElementId,
+    shouldBlockThreeDEdit,
     setSelectedIfcElement,
   ])
 
   const handleColorChangeForPanel = useCallback((id: string, color: string) => {
-    if (!canEditThreeDAttributes && mode === '3d') return
+    if (shouldBlockThreeDEdit) return
     if (mode !== '3d' || selectedIfcElementId !== id) {
       baseHandleColorChangeForPanel(id, color)
       return
@@ -106,11 +113,12 @@ export function useThreeDIfcAttributeHandlers({
     mode,
     recordIfcElementChange,
     selectedIfcElementId,
+    shouldBlockThreeDEdit,
     setSelectedIfcElement,
   ])
 
   const handleWidthChangeForPanel = useCallback((id: string, widthMm: number) => {
-    if (!canEditThreeDAttributes && mode === '3d') return
+    if (shouldBlockThreeDEdit) return
     if (mode !== '3d' || selectedIfcElementId !== id) {
       baseHandleWidthChangeForPanel(id, widthMm)
       return
@@ -135,11 +143,12 @@ export function useThreeDIfcAttributeHandlers({
     mode,
     recordIfcElementChange,
     selectedIfcElementId,
+    shouldBlockThreeDEdit,
     setSelectedIfcElement,
   ])
 
   const handleHeightChangeForPanel = useCallback((id: string, heightMm: number) => {
-    if (!canEditThreeDAttributes && mode === '3d') return
+    if (shouldBlockThreeDEdit) return
     if (mode !== '3d' || selectedIfcElementId !== id) {
       baseHandleHeightChangeForPanel(id, heightMm)
       return
@@ -164,11 +173,12 @@ export function useThreeDIfcAttributeHandlers({
     mode,
     recordIfcElementChange,
     selectedIfcElementId,
+    shouldBlockThreeDEdit,
     setSelectedIfcElement,
   ])
 
   const handleThicknessChangeForPanel = useCallback((id: string, thicknessMm: number) => {
-    if (!canEditThreeDAttributes && mode === '3d') return
+    if (shouldBlockThreeDEdit) return
     if (mode !== '3d' || selectedIfcElementId !== id) return
 
     setSelectedIfcElement((prev) => {
@@ -184,10 +194,10 @@ export function useThreeDIfcAttributeHandlers({
       recordIfcElementChange(next, { thicknessMm })
       return next
     })
-  }, [canEditThreeDAttributes, mode, recordIfcElementChange, selectedIfcElementId, setSelectedIfcElement])
+  }, [mode, recordIfcElementChange, selectedIfcElementId, setSelectedIfcElement, shouldBlockThreeDEdit])
 
   const handlePositionChangeForPanel = useCallback((id: string, axis: PositionAxis, value: number) => {
-    if (!canEditThreeDAttributes && mode === '3d') return
+    if (shouldBlockThreeDEdit) return
     if (mode !== '3d' || selectedIfcElementId !== id) return
 
     setSelectedIfcElement((prev) => {
@@ -213,10 +223,10 @@ export function useThreeDIfcAttributeHandlers({
       positionY: axis === 'y' ? value : selectedIfcElement?.positionY,
       positionZ: axis === 'z' ? value : selectedIfcElement?.positionZ,
     })
-  }, [canEditThreeDAttributes, mode, recordIfcElementChange, selectedIfcElement, selectedIfcElementId, setSelectedIfcElement])
+  }, [mode, recordIfcElementChange, selectedIfcElement, selectedIfcElementId, setSelectedIfcElement, shouldBlockThreeDEdit])
 
   const handleRotationChangeForPanel = useCallback((id: string, axis: RotationAxis, degrees: number) => {
-    if (!canEditThreeDAttributes && mode === '3d') return
+    if (shouldBlockThreeDEdit) return
     if (mode !== '3d' || selectedIfcElementId !== id) return
 
     setSelectedIfcElement((prev) => {
@@ -242,15 +252,41 @@ export function useThreeDIfcAttributeHandlers({
       rotationY: axis === 'y' ? degrees : selectedIfcElement?.rotationY,
       rotationZ: axis === 'z' ? degrees : selectedIfcElement?.rotationZ,
     })
-  }, [canEditThreeDAttributes, mode, recordIfcElementChange, selectedIfcElement, selectedIfcElementId, setSelectedIfcElement])
+  }, [mode, recordIfcElementChange, selectedIfcElement, selectedIfcElementId, setSelectedIfcElement, shouldBlockThreeDEdit])
 
   const handleRoofShapeChangeForPanel = useCallback((id: string, shape: RoofShape) => {
-    if (!canEditThreeDAttributes && mode === '3d') return
-    if (mode !== '3d' || selectedIfcElementId !== id) return
+    if (shouldBlockThreeDEdit) return
+    if (mode !== '3d') return
+    if (selectedIfcElementId !== id) {
+      logRoofDebug('handler skip: selected id mismatch', {
+        targetId: id,
+        selectedIfcElementId,
+      })
+      return
+    }
+    logRoofDebug('handler called', {
+      targetId: id,
+      shape,
+      selectedIfcElementId,
+      selectedIfcElementSource: selectedIfcElement?.source,
+      selectedIfcRoofShape: selectedIfcElement?.roofShape,
+      shouldBlockThreeDEdit,
+    })
 
     setSelectedIfcElement((prev) => {
-      if (!prev || prev.id !== id) return prev
-      return {
+      if (!prev) {
+        logRoofDebug('setSelectedIfcElement skip: no prev')
+        return prev
+      }
+      if (prev.id !== id) {
+        logRoofDebug('setSelectedIfcElement skip: id mismatch', {
+          prevId: prev.id,
+          targetId: id,
+          source: prev.source,
+        })
+        return prev
+      }
+      const next = {
         ...prev,
         roofShape: shape,
         properties: {
@@ -258,10 +294,22 @@ export function useThreeDIfcAttributeHandlers({
           RoofShape: shape,
         },
       }
+      logRoofDebug('setSelectedIfcElement apply', {
+        prevId: prev.id,
+        nextId: next.id,
+        prevRoofShape: prev.roofShape,
+        nextRoofShape: next.roofShape,
+        source: prev.source,
+      })
+      logRoofDebug('recordIfcElementChange', {
+        elementId: next.id,
+        source: next.source,
+        shape,
+      })
+      recordIfcElementChange(next, { roofShape: shape })
+      return next
     })
-
-    recordIfcElementChange(selectedIfcElement, { roofShape: shape })
-  }, [canEditThreeDAttributes, mode, recordIfcElementChange, selectedIfcElement, selectedIfcElementId, setSelectedIfcElement])
+  }, [mode, recordIfcElementChange, selectedIfcElement, selectedIfcElementId, setSelectedIfcElement, shouldBlockThreeDEdit])
 
   return {
     handleMaterialChangeForPanel,

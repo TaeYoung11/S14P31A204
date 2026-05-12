@@ -157,6 +157,11 @@ const BUBBLE_DB_SAVE_DEBOUNCE_MS = 700
 
 const FLOOR_PLAN_GENERATE_TIMEOUT_MS = 120_000
 
+const logRoofDebug = (...args: unknown[]) => {
+  if (!import.meta.env.DEV) return
+  console.log('[roof-debug][useEditorPage]', ...args)
+}
+
 const readPositiveNumber = (value: unknown): number | null => {
   const numericValue = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
   return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null
@@ -2565,6 +2570,22 @@ export function useEditorPage() {
 
   const handleSelectIfcElement = useCallback((element: IfcElementInfo | null) => {
     setSelectedIfcElement((previous) => {
+      if (
+        element?.category?.toLowerCase() === 'roof' ||
+        element?.ifcClass?.toLowerCase() === 'ifcroof' ||
+        previous?.category?.toLowerCase() === 'roof' ||
+        previous?.ifcClass?.toLowerCase() === 'ifcroof'
+      ) {
+        logRoofDebug('handleSelectIfcElement setState', {
+          mode,
+          incoming: element
+            ? { id: element.id, source: element.source, roofShape: element.roofShape, name: element.name }
+            : null,
+          previous: previous
+            ? { id: previous.id, source: previous.source, roofShape: previous.roofShape, name: previous.name }
+            : null,
+        })
+      }
       if (
         mode === '3d' &&
         element &&

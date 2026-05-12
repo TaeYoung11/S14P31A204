@@ -11,6 +11,11 @@ import { MaterialSelector } from '../shared/MaterialSelector'
 import type { IfcElementInfo } from '../../types'
 import type { BubbleInfo } from './BubbleAttributePanel'
 
+const logRoofDebug = (...args: unknown[]) => {
+  if (!import.meta.env.DEV) return
+  console.log('[roof-debug][ThreeDAttributePanel]', ...args)
+}
+
 /** ThreeDAttributePanel 컴포넌트 props */
 interface ThreeDAttributePanelProps {
   selectedBubble: BubbleInfo | null
@@ -190,7 +195,16 @@ function ElementMetricFields({
           <select
             value={roofShape}
             disabled={isEditingLocked}
-            onChange={(event) => onRoofShapeChange?.(element.id, event.target.value as 'flat' | 'gable')}
+            onChange={(event) => {
+              const nextShape = event.target.value as 'flat' | 'gable'
+              logRoofDebug('select change', {
+                elementId: element.id,
+                source: element.source,
+                current: roofShape,
+                next: nextShape,
+              })
+              onRoofShapeChange?.(element.id, nextShape)
+            }}
             className="rounded-lg border-none bg-[#F8F9FD] px-3 py-2.5 text-xs font-bold text-[#1C1C1E] outline-none focus:ring-1 focus:ring-[#3B45B3] disabled:cursor-not-allowed disabled:opacity-55"
           >
             <option value="flat">평지붕</option>
