@@ -1,0 +1,124 @@
+package com.a204.batang.domain.project.service;
+
+import com.a204.batang.domain.auth.entity.Member;
+import com.a204.batang.domain.auth.entity.UserStatus;
+import com.a204.batang.domain.auth.repository.MemberRepository;
+import com.a204.batang.domain.project.dto.ProjectInvitationRequest;
+import com.a204.batang.domain.project.dto.ProjectInvitationResponse;
+import com.a204.batang.domain.project.entity.Project;
+import com.a204.batang.domain.project.entity.ProjectMember;
+import com.a204.batang.domain.project.entity.ProjectMemberRole;
+import com.a204.batang.domain.project.repository.ProjectMemberRepository;
+import com.a204.batang.domain.project.repository.ProjectRepository;
+import com.a204.batang.global.exception.CustomException;
+import com.a204.batang.global.exception.ErrorCode;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import java.util.Objects;
+import java.util.UUID;
+
+/**
+ * 프로젝트 멤버 초대를 처리하는 서비스다.
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class ProjectInvitationService {
+
+    private static final ProjectMemberRole INVITED_MEMBER_ROLE = ProjectMemberRole.CLIENT;
+
+    private final ProjectRepository projectRepository;
+    private final ProjectMemberRepository projectMemberRepository;
+    private final MemberRepository memberRepository;
+    private final ProjectAccessService projectAccessService;
+
+    /**
+     * 프로젝트 owner가 가입된 사용자를 프로젝트 CLIENT 멤버로 즉시 등록한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param request 초대 요청
+     * @return 초대 결과
+     */
+    @Transactional
+    public ProjectInvitationResponse inviteProjectMember(UUID projectId, ProjectInvitationRequest request) {
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
+        String inviteeEmail = normalizeInviteeEmailOrThrow(request.inviteeEmail());
+
+        Project project = projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId)
+                .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
+        projectAccessService.validateProjectOwnerOrThrow(project, currentUserId);
+
+        Member invitee = memberRepository.findByEmailIgnoreCase(inviteeEmail)
+                .orElseThrow(() -> new CustomException(ErrorCode.INVITEE_NOT_FOUND));
+
+        validateInviteeOrThrow(project, currentUserId, invitee);
+        saveProjectMember(project, invitee);
+
+        log.info("프로젝트 멤버 초대 완료. projectId={}, inviteeUserId={}", project.getProjectId(), invitee.getUserId());
+        return ProjectInvitationResponse.from(project, invitee, INVITED_MEMBER_ROLE);
+    }
+
+    /**
+     * 초대 이메일을 앞뒤 공백만 제거하고 필수 여부를 검증한다.
+     *
+     * @param inviteeEmail 원본 이메일
+     * @return 정규화된 이메일
+     */
+    private String normalizeInviteeEmailOrThrow(String inviteeEmail) {
+        if (!StringUtils.hasText(inviteeEmail)) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST, "inviteeEmail은 필수입니다.");
+        }
+        return inviteeEmail.trim();
+    }
+
+    /**
+     * 초대 대상 사용자가 프로젝트에 등록 가능한지 검증한다.
+     *
+     * @param project 프로젝트
+     * @param currentUserId 현재 사용자 ID
+     * @param invitee 초대 대상 사용자
+     */
+    private void validateInviteeOrThrow(Project project, UUID currentUserId, Member invitee) {
+        if (invitee.getStatus() != UserStatus.ACTIVE) {
+            throw new CustomException(ErrorCode.USER_NOT_ACTIVE);
+        }
+
+        UUID inviteeUserId = invitee.getUserId();
+        if (Objects.equals(currentUserId, inviteeUserId)) {
+            throw new CustomException(ErrorCode.SELF_INVITATION_NOT_ALLOWED);
+        }
+
+        if (Objects.equals(project.getOwnerUserId(), inviteeUserId)) {
+            throw new CustomException(ErrorCode.PROJECT_MEMBER_ALREADY_EXISTS);
+        }
+
+        boolean alreadyClient = projectMemberRepository.existsByProjectProjectIdAndUserIdAndMemberRole(
+                project.getProjectId(),
+                inviteeUserId,
+                INVITED_MEMBER_ROLE
+        );
+        if (alreadyClient) {
+            throw new CustomException(ErrorCode.PROJECT_MEMBER_ALREADY_EXISTS);
+        }
+    }
+
+    /**
+     * 초대 대상 사용자를 프로젝트 CLIENT 멤버로 저장한다.
+     *
+     * @param project 프로젝트
+     * @param invitee 초대 대상 사용자
+     */
+    private void saveProjectMember(Project project, Member invitee) {
+        try {
+            ProjectMember projectMember = ProjectMember.create(project, invitee.getUserId(), INVITED_MEMBER_ROLE);
+            projectMemberRepository.saveAndFlush(projectMember);
+        } catch (DataIntegrityViolationException e) {
+            throw new CustomException(ErrorCode.PROJECT_MEMBER_ALREADY_EXISTS);
+        }
+    }
+}
