@@ -39,6 +39,12 @@ class IFCRenderer:
       iter_max             (default 4)    — 최대 iteration 횟수
     """
 
+    @staticmethod
+    def _is_headless() -> bool:
+        """headless 환경인지 감지. DISPLAY 환경 변수 없거나 vis.get_render_option() 실패 시."""
+        import os
+        return os.environ.get("DISPLAY") is None
+
     def __init__(
         self,
         width: int = 768,
@@ -204,11 +210,26 @@ class IFCRenderer:
         initial_zoom = camera.zoom
         target_ratio = self._resolve_target_ratio(view, base_mesh)
 
+        if self._is_headless():
+            return self._render_mesh_offscreen(mesh, center, camera, initial_zoom, target_ratio)
+        else:
+            return self._render_mesh_windowed(mesh, center, camera, initial_zoom, target_ratio)
+
+    def _render_mesh_windowed(
+        self,
+        mesh: o3d.geometry.TriangleMesh,
+        center: np.ndarray,
+        camera: CameraParams,
+        initial_zoom: float,
+        target_ratio: float,
+    ) -> Image.Image:
         vis = o3d.visualization.Visualizer()
         vis.create_window(visible=False, width=self.width, height=self.height)
         try:
             vis.add_geometry(mesh)
             opt = vis.get_render_option()
+            if opt is None:
+                raise IFCRenderError("Visualizer render option is None. Headless 환경에서 실행 중인가?")
             opt.background_color = np.array([1.0, 1.0, 1.0])
             opt.light_on = True
 
@@ -222,6 +243,57 @@ class IFCRenderer:
             vis.destroy_window()
 
         return self._depth_to_image(depth)
+
+    def _render_mesh_offscreen(
+        self,
+        mesh: o3d.geometry.TriangleMesh,
+        center: np.ndarray,
+        camera: CameraParams,
+        initial_zoom: float,
+        target_ratio: float,
+    ) -> Image.Image:
+        # OffscreenRenderer 사용 — headless 환경용
+        # Raycasting으로 depth 계산
+        scene = o3d.t.geometry.RaycastingScene()
+        mesh_t = o3d.t.geometry.TriangleMesh.from_legacy(mesh)
+        scene.add_triangles(mesh_t)
+
+        # 카메라 intrinsic 설정
+        intrinsic = o3d.camera.PinholeCameraIntrinsic(
+            width=self.width,
+            height=self.height,
+            fx=self.width / 2 * initial_zoom,
+            fy=self.height / 2 * initial_zoom,
+            cx=self.width / 2,
+            cy=self.height / 2,
+        )
+
+        # 카메라 extrinsic 계산
+        # camera.front: 카메라가 바라보는 방향 (center에서 front 방향)
+        # up: 위쪽
+        # center: lookat point
+        eye = center - camera.front * 10  # eye 위치를 center 뒤로
+        extrinsic = self._compute_extrinsic(eye, center, camera.up)
+
+        rays = o3d.t.geometry.RaycastingScene.create_rays_pinhole(intrinsic, extrinsic)
+        ans = scene.cast_rays(rays)
+
+        depth = ans['t_hit'].numpy().reshape((self.height, self.width))
+        return self._depth_to_image(depth)
+
+    @staticmethod
+    def _compute_extrinsic(eye: np.ndarray, lookat: np.ndarray, up: np.ndarray) -> np.ndarray:
+        """Compute camera extrinsic matrix from eye, lookat, up."""
+        z_axis = (eye - lookat) / np.linalg.norm(eye - lookat)  # forward
+        x_axis = np.cross(up, z_axis)
+        x_axis /= np.linalg.norm(x_axis)
+        y_axis = np.cross(z_axis, x_axis)
+        rotation = np.array([x_axis, y_axis, z_axis]).T
+        translation = -rotation @ eye
+        extrinsic = np.eye(4)
+        extrinsic[:3, :3] = rotation
+        extrinsic[:3, 3] = translation
+        return extrinsic
 
     @staticmethod
     def _depth_to_image(depth: np.ndarray) -> Image.Image:
