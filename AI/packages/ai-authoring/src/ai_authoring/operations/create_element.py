@@ -11,11 +11,13 @@ import ifcopenshell.api.root
 
 from ai_authoring.engine_3d import (
     create_door_with_opening,
+    create_door_with_template_reuse,
     create_generic_element,
     create_roof,
     create_slab,
     create_stair_preset,
     create_wall,
+    create_wall_with_template_reuse,
     create_window_with_opening,
     find_host_wall,
 )
@@ -138,6 +140,29 @@ class CreateElementHandler:
         )
 
         if element_type == "IfcWall":
+            template_wall_global_id = parameters.get("template_wall_global_id")
+            if template_wall_global_id:
+                template_wall = model.by_guid(template_wall_global_id)
+                if template_wall is None:
+                    logger.error(
+                        "create_element handler: failed to resolve template wall %s",
+                        template_wall_global_id,
+                    )
+                    return None
+                if end is None:
+                    logger.error("create_element handler: template wall create requires end_mm")
+                    return None
+                return create_wall_with_template_reuse(
+                    model,
+                    resolved_storey,
+                    template_wall=template_wall,
+                    name=str(parameters.get("name") or "거실 가벽"),
+                    start_mm=start,
+                    end_mm=end,
+                    width_mm=width_mm,
+                    height_mm=height_mm,
+                    endpoint_connections=parameters.get("endpoint_connections") or [],
+                )
             return create_wall(model, resolved_storey, **common)
         if element_type == "IfcSlab":
             return create_slab(model, resolved_storey, **common)
@@ -180,11 +205,17 @@ class CreateElementHandler:
                 logger.error(
                     "create_element handler: failed to resolve host wall for %s",
                     element_type,
-                )
+            )
                 return None
             sill_height_mm = parameters.get("sill_height_mm")
+            require_template_reuse = bool(parameters.get("require_template_reuse"))
             if element_type == "IfcDoor":
-                return create_door_with_opening(
+                creator = (
+                    create_door_with_template_reuse
+                    if require_template_reuse
+                    else create_door_with_opening
+                )
+                return creator(
                     model,
                     resolved_storey,
                     **common,

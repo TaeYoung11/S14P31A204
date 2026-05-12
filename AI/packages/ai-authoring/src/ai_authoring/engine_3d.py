@@ -10,6 +10,7 @@ import math
 import ifcopenshell
 import ifcopenshell.api
 import ifcopenshell.guid
+import ifcopenshell.util.element
 import ifcopenshell.util.placement
 from typing import Any
 
@@ -34,9 +35,450 @@ def _solid_signature(solid) -> tuple[float, float, float] | None:
     if not solid or not solid.is_a("IfcExtrudedAreaSolid"):
         return None
     profile = getattr(solid, "SweptArea", None)
-    if not profile or not profile.is_a("IfcRectangleProfileDef"):
+    dims = _profile_xy_dims(profile)
+    if dims is None:
         return None
-    return (float(profile.XDim), float(profile.YDim), float(solid.Depth))
+    return (float(dims[0]), float(dims[1]), float(solid.Depth))
+
+
+def _profile_xy_dims(profile) -> tuple[float, float] | None:
+    if profile is None:
+        return None
+    if profile.is_a("IfcRectangleProfileDef"):
+        return (float(profile.XDim), float(profile.YDim))
+    if profile.is_a("IfcArbitraryClosedProfileDef"):
+        curve = getattr(profile, "OuterCurve", None)
+        points = (
+            getattr(curve, "Points", None)
+            if curve is not None and curve.is_a("IfcPolyline")
+            else None
+        )
+        if not points:
+            return None
+        coords = [tuple(getattr(point, "Coordinates", ()) or ()) for point in points]
+        coords = [point for point in coords if len(point) >= 2]
+        if not coords:
+            return None
+        xs = [float(point[0]) for point in coords]
+        ys = [float(point[1]) for point in coords]
+        return (max(xs) - min(xs), max(ys) - min(ys))
+    return None
+
+
+def _profile_xy_center(profile) -> tuple[float, float] | None:
+    if profile is None:
+        return None
+    if profile.is_a("IfcRectangleProfileDef"):
+        position = getattr(profile, "Position", None)
+        location = getattr(position, "Location", None) if position else None
+        coords = tuple(getattr(location, "Coordinates", ()) or ())
+        if len(coords) >= 2:
+            return (float(coords[0]), float(coords[1]))
+        return (float(profile.XDim) / 2.0, 0.0)
+    if profile.is_a("IfcArbitraryClosedProfileDef"):
+        curve = getattr(profile, "OuterCurve", None)
+        points = (
+            getattr(curve, "Points", None)
+            if curve is not None and curve.is_a("IfcPolyline")
+            else None
+        )
+        if not points:
+            return None
+        coords = [tuple(getattr(point, "Coordinates", ()) or ()) for point in points]
+        coords = [point for point in coords if len(point) >= 2]
+        if not coords:
+            return None
+        xs = [float(point[0]) for point in coords]
+        ys = [float(point[1]) for point in coords]
+        return ((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0)
+    return None
+
+
+def _container_storey_id(product) -> str | None:
+    try:
+        container = ifcopenshell.util.element.get_container(product)
+    except Exception:
+        return None
+    if container is None or not container.is_a("IfcBuildingStorey"):
+        return None
+    return getattr(container, "GlobalId", None)
+
+
+def _copy_product_type_relation(
+    model: ifcopenshell.file,
+    *,
+    template_product,
+    product,
+) -> None:
+    typed_by = list(getattr(template_product, "IsTypedBy", []) or [])
+    if not typed_by:
+        return
+    relating_type = getattr(typed_by[0], "RelatingType", None)
+    if relating_type is None:
+        return
+    model.create_entity(
+        "IfcRelDefinesByType",
+        GlobalId=ifcopenshell.guid.new(),
+        RelatedObjects=[product],
+        RelatingType=relating_type,
+    )
+
+
+def _find_template_product(
+    model: ifcopenshell.file,
+    *,
+    ifc_class: str,
+    storey_id: str | None,
+    target_width_m: float,
+    target_height_m: float,
+) -> ifcopenshell.entity_instance | None:
+    exact_storey: list[tuple[float, ifcopenshell.entity_instance]] = []
+    fallback: list[tuple[float, ifcopenshell.entity_instance]] = []
+    for product in model.by_type(ifc_class):
+        representation = getattr(product, "Representation", None)
+        if representation is None:
+            continue
+        width = float(getattr(product, "OverallWidth", 0.0) or 0.0)
+        height = float(getattr(product, "OverallHeight", 0.0) or 0.0)
+        score = abs(width - target_width_m) + abs(height - target_height_m)
+        item = (score, product)
+        if storey_id and _container_storey_id(product) == storey_id:
+            exact_storey.append(item)
+        fallback.append(item)
+    candidates = exact_storey or fallback
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
+
+
+def _template_opening_for_product(
+    product: ifcopenshell.entity_instance | None,
+) -> ifcopenshell.entity_instance | None:
+    if product is None:
+        return None
+    fills_voids = list(getattr(product, "FillsVoids", []) or [])
+    if not fills_voids:
+        return None
+    return fills_voids[0].RelatingOpeningElement
+
+
+def _template_host_wall_for_opening(
+    opening: ifcopenshell.entity_instance | None,
+) -> ifcopenshell.entity_instance | None:
+    if opening is None:
+        return None
+    voids = list(getattr(opening, "VoidsElements", []) or [])
+    if not voids:
+        return None
+    return getattr(voids[0], "RelatingBuildingElement", None)
+
+
+def _wall_body_item(
+    wall: ifcopenshell.entity_instance | None,
+) -> ifcopenshell.entity_instance | None:
+    representation = getattr(wall, "Representation", None) if wall is not None else None
+    if representation is None:
+        return None
+    for rep in getattr(representation, "Representations", []) or []:
+        if getattr(rep, "RepresentationIdentifier", None) != "Body":
+            continue
+        for item in getattr(rep, "Items", []) or []:
+            if item.is_a("IfcExtrudedAreaSolid"):
+                return item
+            if item.is_a("IfcBooleanClippingResult"):
+                first_operand = getattr(item, "FirstOperand", None)
+                if first_operand is not None and first_operand.is_a("IfcExtrudedAreaSolid"):
+                    return first_operand
+    return None
+
+
+def _is_supported_wall_for_template_door(
+    wall: ifcopenshell.entity_instance | None,
+) -> bool:
+    return bool(
+        wall is not None
+        and wall.is_a("IfcWallStandardCase")
+        and _wall_body_item(wall) is not None
+    )
+
+
+def _wall_profile_dims(
+    wall: ifcopenshell.entity_instance | None,
+) -> tuple[float, float] | None:
+    body_item = _wall_body_item(wall)
+    if body_item is None:
+        return None
+    return _profile_xy_dims(getattr(body_item, "SweptArea", None))
+
+
+def _wall_thickness(
+    wall: ifcopenshell.entity_instance | None,
+) -> float | None:
+    dims = _wall_profile_dims(wall)
+    if dims is None:
+        return None
+    return min(float(dims[0]), float(dims[1]))
+
+
+def _wall_usable_length(
+    wall: ifcopenshell.entity_instance | None,
+) -> float | None:
+    dims = _wall_profile_dims(wall)
+    if dims is None:
+        return None
+    return max(float(dims[0]), float(dims[1]))
+
+
+def _wall_y_bounds(
+    wall: ifcopenshell.entity_instance | None,
+) -> tuple[float, float] | None:
+    body_item = _wall_body_item(wall)
+    if body_item is None:
+        return None
+    profile = getattr(body_item, "SweptArea", None)
+    center = _profile_xy_center(profile)
+    dims = _profile_xy_dims(profile)
+    if center is None or dims is None:
+        return None
+    center_y = float(center[1])
+    size_y = float(dims[1])
+    return (center_y - (size_y / 2.0), center_y + (size_y / 2.0))
+
+
+def _wall_ref_direction(
+    wall: ifcopenshell.entity_instance | None,
+) -> tuple[float, float, float]:
+    relative = (
+        getattr(getattr(wall, "ObjectPlacement", None), "RelativePlacement", None)
+        if wall is not None
+        else None
+    )
+    return _axis_direction_ratios(relative, "RefDirection")
+
+
+def _clone_representation_or_box(
+    model: ifcopenshell.file,
+    *,
+    template_product: ifcopenshell.entity_instance | None,
+    fallback_length_m: float,
+    fallback_width_m: float,
+    fallback_height_m: float,
+):
+    if (
+        template_product is not None
+        and getattr(template_product, "Representation", None) is not None
+    ):
+        return ifcopenshell.util.element.copy_deep(model, template_product.Representation)
+    representation, _ = _box_representation(
+        model,
+        fallback_length_m,
+        fallback_width_m,
+        fallback_height_m,
+        center_origin=False,
+    )
+    return representation
+
+
+
+
+def _clone_opening_representation_with_depth(
+    model: ifcopenshell.file,
+    *,
+    template_opening: ifcopenshell.entity_instance,
+    new_depth: float,
+):
+    representation = getattr(template_opening, "Representation", None)
+    if representation is None:
+        return None
+    cloned = ifcopenshell.util.element.copy_deep(model, representation)
+    for rep in getattr(cloned, "Representations", []) or []:
+        for item in getattr(rep, "Items", []) or []:
+            if item.is_a("IfcExtrudedAreaSolid"):
+                item.Depth = new_depth
+            elif item.is_a("IfcBoundingBox"):
+                dims = {
+                    "XDim": float(getattr(item, "XDim", 0.0) or 0.0),
+                    "YDim": float(getattr(item, "YDim", 0.0) or 0.0),
+                }
+                depth_axis = min(dims, key=dims.get)
+                setattr(item, depth_axis, new_depth)
+    return cloned
+
+
+def _template_door_relative_location(
+    template_door: ifcopenshell.entity_instance,
+    template_opening: ifcopenshell.entity_instance | None,
+) -> tuple[float, float, float]:
+    template_opening_placement = (
+        getattr(template_opening, "ObjectPlacement", None)
+        if template_opening is not None
+        else None
+    )
+    template_door_placement = getattr(template_door, "ObjectPlacement", None)
+    if (
+        template_door_placement is None
+        or getattr(template_door_placement, "PlacementRelTo", None) != template_opening_placement
+    ):
+        return (0.0, 0.0, 0.0)
+    relative_placement = getattr(template_door_placement, "RelativePlacement", None)
+    template_location = (
+        getattr(relative_placement, "Location", None) if relative_placement else None
+    )
+    template_coords = tuple(getattr(template_location, "Coordinates", ()) or ())
+    if len(template_coords) < 3:
+        return (0.0, 0.0, 0.0)
+    return (
+        float(template_coords[0]),
+        float(template_coords[1]),
+        float(template_coords[2]),
+    )
+
+
+def _axis_direction_ratios(placement_3d, attr_name: str) -> tuple[float, float, float]:
+    direction = getattr(placement_3d, attr_name, None) if placement_3d is not None else None
+    coords = tuple(getattr(direction, "DirectionRatios", ()) or ())
+    if len(coords) < 3:
+        return (0.0, 0.0, 1.0) if attr_name == "Axis" else (1.0, 0.0, 0.0)
+    return (float(coords[0]), float(coords[1]), float(coords[2]))
+
+
+def _dot3(
+    left: tuple[float, float, float],
+    right: tuple[float, float, float],
+) -> float:
+    return (
+        (float(left[0]) * float(right[0]))
+        + (float(left[1]) * float(right[1]))
+        + (float(left[2]) * float(right[2]))
+    )
+
+
+def _axis_placement_like(
+    model: ifcopenshell.file,
+    template_placement,
+    *,
+    location: tuple[float, float, float],
+):
+    return _axis_placement_3d(
+        model,
+        location=location,
+        axis=_axis_direction_ratios(template_placement, "Axis"),
+        ref_direction=_axis_direction_ratios(template_placement, "RefDirection"),
+    )
+
+
+def _find_eligible_template_door_pair(
+    model: ifcopenshell.file,
+    *,
+    storey_id: str | None,
+    target_width_m: float,
+    target_height_m: float,
+    host_wall,
+    target_u: float,
+) -> tuple[ifcopenshell.entity_instance, ifcopenshell.entity_instance] | None:
+    if not _is_supported_wall_for_template_door(host_wall):
+        return None
+    host_thickness = _wall_thickness(host_wall)
+    host_length = _wall_usable_length(host_wall)
+    if host_thickness is None or host_length is None:
+        return None
+    host_ref = _wall_ref_direction(host_wall)
+
+    edge_margin = _mm_to_model_units(model, 100.0, 100.0)
+    overlap_margin = _mm_to_model_units(model, 100.0, 100.0)
+    best: (
+        tuple[
+            float,
+            float,
+            ifcopenshell.entity_instance,
+            ifcopenshell.entity_instance,
+        ]
+        | None
+    ) = None
+
+    for template_door in model.by_type("IfcDoor"):
+        template_opening = _template_opening_for_product(template_door)
+        template_wall = _template_host_wall_for_opening(template_opening)
+        if (
+            template_opening is None
+            or template_wall is None
+            or not _is_supported_wall_for_template_door(template_wall)
+        ):
+            continue
+        if storey_id and _container_storey_id(template_door) != storey_id:
+            continue
+        template_door_relto = getattr(
+            getattr(template_door, "ObjectPlacement", None),
+            "PlacementRelTo",
+            None,
+        )
+        if template_door_relto != getattr(template_opening, "ObjectPlacement", None):
+            continue
+
+        opening_signature = _opening_signature(template_opening)
+        if opening_signature is None:
+            continue
+        opening_width, opening_height, _ = opening_signature
+        template_thickness = _wall_thickness(template_wall)
+        if template_thickness is None:
+            continue
+        if abs(host_thickness - template_thickness) > _mm_to_model_units(model, 30.0, 30.0):
+            continue
+        template_ref = _wall_ref_direction(template_wall)
+        orientation_penalty = 1.0 - _dot3(host_ref, template_ref)
+        if host_length < opening_width + (edge_margin * 2.0):
+            continue
+        if target_u - (opening_width / 2.0) < edge_margin:
+            continue
+        if target_u + (opening_width / 2.0) > host_length - edge_margin:
+            continue
+
+        blocked = False
+        for rel in list(getattr(host_wall, "HasOpenings", []) or []):
+            existing_opening = getattr(rel, "RelatedOpeningElement", None)
+            if existing_opening is None:
+                continue
+            existing_signature = _opening_signature(existing_opening)
+            existing_location = _opening_location(existing_opening)
+            if existing_signature is None or existing_location is None:
+                continue
+            existing_width = float(existing_signature[0])
+            existing_center = float(existing_location[0]) + (existing_width / 2.0)
+            min_clearance = ((existing_width + opening_width) / 2.0) + overlap_margin
+            if abs(existing_center - target_u) < min_clearance:
+                blocked = True
+                break
+        if blocked:
+            continue
+
+        width = float(getattr(template_door, "OverallWidth", 0.0) or 0.0)
+        height = float(getattr(template_door, "OverallHeight", 0.0) or 0.0)
+        score = abs(width - target_width_m) + abs(height - target_height_m)
+        candidate = (orientation_penalty, score, template_door, template_opening)
+        if best is None or candidate[:2] < best[:2]:
+            best = candidate
+
+    if best is None:
+        return None
+    return (best[2], best[3])
+
+
+def _copy_material_associations_from_template(
+    model: ifcopenshell.file,
+    *,
+    template_product,
+    product,
+) -> None:
+    for rel in getattr(template_product, "HasAssociations", []) or []:
+        if not rel.is_a("IfcRelAssociatesMaterial"):
+            continue
+        model.create_entity(
+            "IfcRelAssociatesMaterial",
+            GlobalId=ifcopenshell.guid.new(),
+            RelatingMaterial=rel.RelatingMaterial,
+            RelatedObjects=[product],
+        )
 
 
 def _opening_signature(opening) -> tuple[float, float, float] | None:
@@ -1385,6 +1827,247 @@ def _make_placement(
     )
 
 
+def _wall_z_range(
+    wall: ifcopenshell.entity_instance | None,
+) -> tuple[float, float] | None:
+    body = _wall_body_item(wall)
+    if body is None:
+        return None
+    position = getattr(body, "Position", None)
+    location = getattr(position, "Location", None) if position is not None else None
+    coords = tuple(getattr(location, "Coordinates", ()) or ())
+    z0 = float(coords[2]) if len(coords) >= 3 else 0.0
+    return (z0, z0 + float(body.Depth))
+
+
+def _axis_representation_present(
+    wall: ifcopenshell.entity_instance | None,
+) -> bool:
+    representation = getattr(wall, "Representation", None) if wall is not None else None
+    if representation is None:
+        return False
+    for rep in getattr(representation, "Representations", []) or []:
+        if getattr(rep, "RepresentationIdentifier", None) == "Axis":
+            return True
+    return False
+
+
+def _copy_material_association(
+    model: ifcopenshell.file,
+    *,
+    template_product,
+    product,
+) -> None:
+    for rel in getattr(template_product, "HasAssociations", []) or []:
+        if not rel.is_a("IfcRelAssociatesMaterial"):
+            continue
+        material = getattr(rel, "RelatingMaterial", None)
+        if material is None:
+            continue
+        model.create_entity(
+            "IfcRelAssociatesMaterial",
+            GlobalId=ifcopenshell.guid.new(),
+            RelatedObjects=[product],
+            RelatingMaterial=material,
+        )
+        return
+
+
+def _create_wall_product_shape(
+    model: ifcopenshell.file,
+    *,
+    length_m: float,
+    thickness_m: float,
+    height_m: float,
+    y_min_m: float,
+    include_axis: bool,
+) -> ifcopenshell.entity_instance:
+    representations: list[ifcopenshell.entity_instance] = []
+    body_context = _body_context(model)
+    if include_axis:
+        axis_polyline = model.create_entity(
+            "IfcPolyline",
+            Points=(
+                model.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0)),
+                model.create_entity("IfcCartesianPoint", Coordinates=(length_m, 0.0)),
+            ),
+        )
+        representations.append(
+            model.create_entity(
+                "IfcShapeRepresentation",
+                ContextOfItems=body_context,
+                RepresentationIdentifier="Axis",
+                RepresentationType="Curve2D",
+                Items=(axis_polyline,),
+            )
+        )
+
+    profile = model.create_entity(
+        "IfcRectangleProfileDef",
+        ProfileType="AREA",
+        XDim=float(length_m),
+        YDim=float(thickness_m),
+        Position=model.create_entity(
+            "IfcAxis2Placement2D",
+            Location=model.create_entity(
+                "IfcCartesianPoint",
+                Coordinates=(float(length_m / 2.0), float(y_min_m + (thickness_m / 2.0))),
+            ),
+        ),
+    )
+    solid = model.create_entity(
+        "IfcExtrudedAreaSolid",
+        SweptArea=profile,
+        Position=_axis_placement_3d(model, location=(0.0, 0.0, 0.0)),
+        ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        Depth=float(height_m),
+    )
+    representations.append(
+        model.create_entity(
+            "IfcShapeRepresentation",
+            ContextOfItems=body_context,
+            RepresentationIdentifier="Body",
+            RepresentationType="SweptSolid",
+            Items=[solid],
+        )
+    )
+    representations.append(
+        model.create_entity(
+            "IfcShapeRepresentation",
+            ContextOfItems=body_context,
+            RepresentationIdentifier="Box",
+            RepresentationType="BoundingBox",
+            Items=[
+                model.create_entity(
+                    "IfcBoundingBox",
+                    Corner=model.create_entity(
+                        "IfcCartesianPoint",
+                        Coordinates=(0.0, float(y_min_m), 0.0),
+                    ),
+                    XDim=float(length_m),
+                    YDim=float(thickness_m),
+                    ZDim=float(height_m),
+                )
+            ],
+        )
+    )
+    return model.create_entity("IfcProductDefinitionShape", Representations=representations)
+
+
+def _create_path_connection(
+    model: ifcopenshell.file,
+    *,
+    relating_element,
+    related_element,
+    relating_connection_type: str,
+    related_connection_type: str,
+) -> None:
+    model.create_entity(
+        "IfcRelConnectsPathElements",
+        GlobalId=ifcopenshell.guid.new(),
+        RelatingElement=relating_element,
+        RelatedElement=related_element,
+        RelatingConnectionType=relating_connection_type,
+        RelatedConnectionType=related_connection_type,
+    )
+
+
+def create_wall_with_template_reuse(
+    model: ifcopenshell.file,
+    storey: ifcopenshell.entity_instance,
+    *,
+    template_wall: ifcopenshell.entity_instance,
+    name: str,
+    start_mm: dict[str, float],
+    end_mm: dict[str, float],
+    width_mm: float,
+    height_mm: float,
+    endpoint_connections: list[dict[str, str]] | None = None,
+) -> ifcopenshell.entity_instance | None:
+    try:
+        if not template_wall.is_a("IfcWallStandardCase"):
+            logger.error("Template wall for create_wall is not IfcWallStandardCase")
+            return None
+        template_body = _wall_body_item(template_wall)
+        template_y_bounds = _wall_y_bounds(template_wall)
+        template_z_range = _wall_z_range(template_wall)
+        if template_body is None or template_y_bounds is None or template_z_range is None:
+            logger.error("Template wall for create_wall is missing supported body data")
+            return None
+
+        start_x_mm = float(start_mm.get("x", 0.0))
+        start_y_mm = float(start_mm.get("y", 0.0))
+        start_z_mm = float(start_mm.get("z", 0.0))
+        end_x_mm = float(end_mm.get("x", 0.0))
+        end_y_mm = float(end_mm.get("y", 0.0))
+        dx_mm = end_x_mm - start_x_mm
+        dy_mm = end_y_mm - start_y_mm
+        length_mm = math.hypot(dx_mm, dy_mm)
+        if length_mm <= 0.0:
+            raise ValueError("wall segment length must be positive")
+        direction = "north"
+        azimuth = math.degrees(math.atan2(dx_mm, dy_mm)) % 360.0
+        if azimuth < 45.0 or azimuth >= 315.0:
+            direction = "north"
+        elif azimuth < 135.0:
+            direction = "east"
+        elif azimuth < 225.0:
+            direction = "south"
+        else:
+            direction = "west"
+
+        wall = ifcopenshell.api.run(
+            "root.create_entity",
+            model,
+            ifc_class="IfcWallStandardCase",
+            name=name,
+        )
+        wall.ObjectPlacement = _make_placement(
+            model,
+            storey,
+            start_x_mm,
+            start_y_mm,
+            start_z_mm,
+            direction,
+        )
+        wall.Representation = _create_wall_product_shape(
+            model,
+            length_m=_mm_to_model_units(model, length_mm, 3000.0),
+            thickness_m=_mm_to_model_units(model, width_mm, 240.0),
+            height_m=_mm_to_model_units(model, height_mm, 2500.0),
+            y_min_m=float(template_y_bounds[0]),
+            include_axis=_axis_representation_present(template_wall),
+        )
+        _copy_product_type_relation(model, template_product=template_wall, product=wall)
+        _copy_material_association(model, template_product=template_wall, product=wall)
+        _assign_to_storey(model, wall, storey)
+
+        for connection in endpoint_connections or []:
+            existing_wall = model.by_guid(connection["existing_wall_id"])
+            if existing_wall is None:
+                continue
+            if connection.get("mode") == "existing_to_new":
+                _create_path_connection(
+                    model,
+                    relating_element=existing_wall,
+                    related_element=wall,
+                    relating_connection_type=connection["existing_connection_type"],
+                    related_connection_type=connection["new_connection_type"],
+                )
+            else:
+                _create_path_connection(
+                    model,
+                    relating_element=wall,
+                    related_element=existing_wall,
+                    relating_connection_type=connection["new_connection_type"],
+                    related_connection_type=connection["existing_connection_type"],
+                )
+        return wall
+    except Exception as exc:
+        logger.error(f"Template wall creation failed: {exc}")
+        return None
+
+
 def create_wall(
     model: ifcopenshell.file,
     storey: ifcopenshell.entity_instance,
@@ -1628,12 +2311,12 @@ def _get_wall_local_coords(model, host_wall, x_mm, y_mm, z_mm):
             while item.is_a("IfcBooleanResult"):
                 item = item.FirstOperand
             if item.is_a("IfcExtrudedAreaSolid"):
-                ew_wall = item.SweptArea.XDim >= item.SweptArea.YDim
-                if item.Position and item.Position.Location:
-                    cx, cy = (
-                        item.Position.Location.Coordinates[0],
-                        item.Position.Location.Coordinates[1],
-                    )
+                dims = _profile_xy_dims(item.SweptArea)
+                center = _profile_xy_center(item.SweptArea)
+                if dims is not None:
+                    ew_wall = dims[0] >= dims[1]
+                if center is not None:
+                    cx, cy = center
                     if ew_wall:
                         v = cy
                     else:
@@ -1752,6 +2435,166 @@ def create_door_with_opening(
         return door
     except Exception as e:
         logger.error(f"Door 생성 실패: {e}")
+        return None
+
+
+def create_door_with_template_reuse(
+    model,
+    storey,
+    *,
+    length_mm=900,
+    width_mm=200,
+    height_mm=2100,
+    x_mm=0,
+    y_mm=0,
+    z_mm=0,
+    direction="north",
+    color=None,
+    material_name=None,
+    host_wall=None,
+    sill_height_mm=0,
+):
+    del direction, color, material_name
+    created_entities: list[ifcopenshell.entity_instance] = []
+    try:
+        if not host_wall:
+            host_wall = find_host_wall(model, None, x_mm, y_mm, z_mm)
+        if not host_wall:
+            logger.error("Door creation failed: host wall was not found.")
+            return None
+
+        u, v, z, ew_wall = _get_wall_local_coords(
+            model, host_wall, x_mm, y_mm, z_mm + sill_height_mm
+        )
+        del ew_wall
+
+        template_pair = _find_eligible_template_door_pair(
+            model,
+            storey_id=getattr(storey, "GlobalId", None),
+            target_width_m=_mm_to_model_units(model, length_mm, 900),
+            target_height_m=_mm_to_model_units(model, height_mm, 2100),
+            host_wall=host_wall,
+            target_u=u,
+        )
+        if template_pair is None:
+            logger.error("Door creation failed: reusable door-opening template pair was not found.")
+            return None
+        template_door, template_opening = template_pair
+
+        opening_signature = _opening_signature(template_opening)
+        if opening_signature is None:
+            logger.error("Door creation failed: template opening signature was missing.")
+            return None
+        opening_width, opening_height, _ = opening_signature
+
+        host_thickness = _wall_thickness(host_wall)
+        if host_thickness is None:
+            logger.error("Door creation failed: host wall thickness was unavailable.")
+            return None
+        host_y_bounds = _wall_y_bounds(host_wall)
+        if host_y_bounds is None:
+            logger.error("Door creation failed: host wall local Y bounds were unavailable.")
+            return None
+
+        door_loc = _template_door_relative_location(template_door, template_opening)
+        template_opening_location = _opening_location(template_opening) or (0.0, 0.0, 0.0)
+        template_opening_relative = getattr(
+            getattr(template_opening, "ObjectPlacement", None),
+            "RelativePlacement",
+            None,
+        )
+        template_door_relative = getattr(
+            getattr(template_door, "ObjectPlacement", None),
+            "RelativePlacement",
+            None,
+        )
+
+        opening = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcOpeningElement")
+        created_entities.append(opening)
+        opening.Name = f"Generated Opening {opening.GlobalId[:8]}"
+        opening.ObjectPlacement = model.create_entity(
+            "IfcLocalPlacement",
+            PlacementRelTo=host_wall.ObjectPlacement,
+            RelativePlacement=_axis_placement_like(
+                model,
+                template_opening_relative,
+                location=(
+                    u,
+                    float(host_y_bounds[0]),
+                    float(template_opening_location[2]),
+                ),
+            ),
+        )
+        created_entities.append(opening.ObjectPlacement)
+        opening.Representation = _clone_opening_representation_with_depth(
+            model,
+            template_opening=template_opening,
+            new_depth=host_thickness,
+        )
+        if opening.Representation is None:
+            logger.error("Door creation failed: template opening representation was missing.")
+            return None
+        ifcopenshell.api.run("feature.add_feature", model, feature=opening, element=host_wall)
+
+        placement = model.create_entity(
+            "IfcLocalPlacement",
+            PlacementRelTo=opening.ObjectPlacement,
+            RelativePlacement=_axis_placement_like(
+                model,
+                template_door_relative,
+                location=door_loc,
+            ),
+        )
+        created_entities.append(placement)
+
+        door = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcDoor")
+        created_entities.append(door)
+        _assign_to_storey(model, door, storey)
+        door.ObjectPlacement = placement
+        door.Name = f"Generated Door {door.GlobalId[:8]}"
+        door.OverallWidth = float(getattr(template_door, "OverallWidth", 0.0) or opening_width)
+        door.OverallHeight = float(
+            getattr(template_door, "OverallHeight", 0.0) or opening_height
+        )
+        door.Representation = _clone_representation_or_box(
+            model,
+            template_product=template_door,
+            fallback_length_m=door.OverallWidth,
+            fallback_width_m=host_thickness,
+            fallback_height_m=door.OverallHeight,
+        )
+        _copy_product_type_relation(
+            model,
+            template_product=template_door,
+            product=door,
+        )
+        _copy_material_associations_from_template(
+            model,
+            template_product=template_door,
+            product=door,
+        )
+        fill_rel = model.create_entity(
+            "IfcRelFillsElement",
+            GlobalId=ifcopenshell.guid.new(),
+            RelatingOpeningElement=opening,
+            RelatedBuildingElement=door,
+        )
+        created_entities.append(fill_rel)
+        set_element_properties(
+            model,
+            door,
+            door.OverallWidth * 1000.0,
+            width_mm,
+            door.OverallHeight * 1000.0,
+        )
+        return door
+    except Exception as e:
+        for entity in reversed(created_entities):
+            try:
+                model.remove(entity)
+            except Exception:
+                pass
+        logger.error(f"Door creation failed: {e}")
         return None
 
 

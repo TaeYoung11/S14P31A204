@@ -12,6 +12,7 @@ import ifcopenshell.api.pset
 import ifcopenshell.api.root
 import pytest
 
+import ai_authoring.engine_3d as engine_3d_module
 import ai_planning_2d.executor as executor_module
 import ai_planning_2d.session_pipeline as session_pipeline_module
 from ai_domain import IfcEditCommandPayload
@@ -33,7 +34,6 @@ from ai_planning_2d import (
 from ai_planning_2d.add_room_placement import suggest_add_room_start_mm
 from ai_planning_2d.engine import _apply_relative_adjustment, _infer_resize_direction
 from ai_planning_2d.remove_healing import build_remove_merge_plan
-from ai_planning_2d.resize_healing import build_isolated_rectangular_resize_wall_plans
 from ai_planning_2d.toilet_demo import build_toilet_insertion_geometry_plan
 from ai_planning_2d.validator import validate_command_batch
 
@@ -323,7 +323,7 @@ def test_add_room_unknown_floor(ifc_ctx):
 def test_remove_room(ifc_ctx):
     cmd = FloorNLPCommand(
         action="remove_room",
-        target_room_name="嫄곗떎",
+        target_room_name=ifc_ctx["spaces"][0]["name"],
         confidence=0.95,
     )
     batch = to_ifc_commands(cmd, ifc_ctx)
@@ -335,7 +335,7 @@ def test_remove_room(ifc_ctx):
 def test_remove_locked_room(locked_ifc_ctx):
     cmd = FloorNLPCommand(
         action="remove_room",
-        target_room_name="嫄곗떎",
+        target_room_name=locked_ifc_ctx["spaces"][0]["name"],
         confidence=0.95,
     )
     batch = to_ifc_commands(cmd, locked_ifc_ctx)
@@ -382,7 +382,7 @@ def test_remove_room_not_found(ifc_ctx):
 def test_resize_room(ifc_ctx):
     cmd = FloorNLPCommand(
         action="resize_room",
-        target_room_name="嫄곗떎",
+        target_room_name=ifc_ctx["spaces"][0]["name"],
         resize_shape="L",
         resize_width=6000,
         resize_height=8000,
@@ -397,7 +397,7 @@ def test_resize_room(ifc_ctx):
 def test_resize_locked_room(locked_ifc_ctx):
     cmd = FloorNLPCommand(
         action="resize_room",
-        target_room_name="嫄곗떎",
+        target_room_name=locked_ifc_ctx["spaces"][0]["name"],
         resize_shape="L",
         resize_width=6000,
         resize_height=8000,
@@ -708,6 +708,7 @@ def _make_minimal_ifc(
     wall_space_count: int = 2,
     reverse_wall_axis: bool = False,
     include_window: bool = False,
+    include_wall_body: bool = False,
     storey_elevations: tuple[float, float] = (0.0, 3.0),
 ):
     ifc = ifcopenshell.file(schema=schema)
@@ -759,11 +760,20 @@ def _make_minimal_ifc(
 
     wall = ifcopenshell.api.root.create_entity(ifc, ifc_class="IfcWall", name="Wall")
     wall.ObjectPlacement = _local_placement(ifc, 0.0, 0.0, 0.0)
-    wall.Representation = _axis_representation(
-        ifc,
-        (5.0, 0.0) if reverse_wall_axis else (0.0, 0.0),
-        (0.0, 0.0) if reverse_wall_axis else (5.0, 0.0),
-    )
+    if include_wall_body:
+        wall.Representation = executor_module._create_wall_representation(
+            model=ifc,
+            length_m=5.0,
+            thickness_m=0.25,
+            height_m=2.7,
+            context=executor_module._ensure_body_context(ifc),
+        )
+    else:
+        wall.Representation = _axis_representation(
+            ifc,
+            (5.0, 0.0) if reverse_wall_axis else (0.0, 0.0),
+            (0.0, 0.0) if reverse_wall_axis else (5.0, 0.0),
+        )
     ifcopenshell.api.aggregate.assign_object(ifc, products=[wall], relating_object=storey_a)
 
     wall_pset = ifcopenshell.api.pset.add_pset(ifc, product=wall, name="Batang_WallDimensions")
@@ -1029,7 +1039,7 @@ async def test_pipeline_preview_resize_room_boundary_overflow(policy_ifc_ctx):
 
     preview = await pipeline.execute_command_preview(command)
 
-    assert preview["status"] == "unsupported"
+    assert preview["status"] == "needs_clarification"
     assert preview["policy_plan"]["status"] == "unsupported"
     assert preview["policy_plan"]["reason"] == "resize_outside_boundary"
 
@@ -1163,14 +1173,13 @@ async def test_pipeline_preview_remove_room(policy_ifc_ctx):
 
     preview = await pipeline.execute_command_preview(command)
 
-    assert preview["status"] == "preview_ready"
+    assert preview["status"] == "alternatives"
     assert preview["policy_plan"]["status"] == "planned"
     assert preview["policy_plan"]["merge_target_space_id"] == "sp-left"
-    assert preview["matched_count"] == 1
-    assert preview["engine_request"]["mode"] == "preview"
-    operation_types = [op["type"] for op in preview["engine_request"]["operations"]]
-    assert operation_types == ["update_element_properties", "delete_elements"]
-    assert preview["ifc_edit_payload"]["engineRequest"]["mode"] == "preview"
+    assert "session_id" not in preview
+    assert "engine_request" not in preview
+    assert "session_id" not in preview
+    assert preview["alternatives"][0]["alternative_id"] == "merge-primary"
 
 
 @pytest.mark.asyncio
@@ -1198,9 +1207,27 @@ async def test_pipeline_preview_resize_room_auto_selects_only_valid_direction(po
 
     preview = await pipeline.execute_command_preview(command)
 
-    assert preview["status"] == "preview_ready"
+    assert preview["status"] == "needs_clarification"
     assert preview["policy_plan"]["reason"] == "single_direction_resize"
     assert preview["policy_plan"]["direction"] == "west"
+    assert "session_id" not in preview
+
+
+@pytest.mark.asyncio
+async def test_pipeline_preview_room_actions_do_not_expose_local_fallback_apply(policy_ifc_ctx):
+    pipeline = LLM2DPipeline(ifc_context=policy_ifc_ctx)
+    command = FloorNLPCommand(
+        action="remove_room",
+        target_room_name="center",
+        confidence=0.95,
+    )
+
+    preview = await pipeline.execute_command_preview(command)
+
+    assert preview["status"] == "alternatives"
+    assert "engine_capabilities" not in preview or preview["engine_capabilities"].get(
+        "local_fallback_actions", []
+    ) == []
 
 
 def test_infer_resize_direction():
@@ -1237,7 +1264,7 @@ async def test_pipeline_preview_resize_room_uses_explicit_direction(policy_ifc_c
 
     preview = await pipeline.execute_command_preview(command)
 
-    assert preview["status"] == "preview_ready"
+    assert preview["status"] == "needs_clarification"
     assert preview["policy_plan"]["direction"] == "west"
 
 
@@ -1322,14 +1349,12 @@ async def test_pipeline_apply_returns_deferred_command_batch(policy_ifc_ctx):
     )
 
     preview = await pipeline.execute_command_preview(command)
-    result = await pipeline.execute_apply(preview["session_id"])
 
-    assert result["status"] == "apply_deferred"
-    assert result["apply_mode"] == "shared_engine_request"
-    assert result["command_batch"]["commands"][0]["action"] == "delete_space"
-    assert result["policy_plan"]["status"] == "planned"
-    assert result["engine_request"]["mode"] == "apply"
-    assert result["ifc_edit_payload"]["engineRequest"]["mode"] == "apply"
+    assert preview["status"] == "alternatives"
+    assert preview["command_batch"]["commands"][0]["action"] == "delete_space"
+    assert preview["policy_plan"]["status"] == "planned"
+    assert "session_id" not in preview
+    assert "engine_request" not in preview
 
 
 def test_apply_space_plan_remove_room(tmp_path):
@@ -1356,10 +1381,8 @@ def test_apply_space_plan_remove_room(tmp_path):
         },
     )
 
-    updated = ifcopenshell.open(output_path)
-    assert result["status"] == "applied"
-    with pytest.raises(RuntimeError):
-        updated.by_guid(bundle["space_a"].GlobalId)
+    assert result["status"] == "not_applied"
+    assert "planning-assist only" in result["summary"]
 
 
 def test_apply_space_plan_resize_room_west_moves_anchor(tmp_path):
@@ -1386,24 +1409,8 @@ def test_apply_space_plan_resize_room_west_moves_anchor(tmp_path):
         },
     )
 
-    updated = ifcopenshell.open(output_path)
-    space = updated.by_guid(bundle["space_a"].GlobalId)
-    body = space.Representation.Representations[0].Items[0]
-    pset = next(
-        rel.RelatingPropertyDefinition
-        for rel in space.IsDefinedBy
-        if rel.RelatingPropertyDefinition.Name == "Batang_SpaceDimensions"
-    )
-
-    assert result["status"] == "applied"
-    assert body.SweptArea.XDim == pytest.approx(5.0)
-    assert body.SweptArea.YDim == pytest.approx(5.0)
-    assert tuple(space.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
-        (-1.0, 0.0, 0.0)
-    )
-    props = {prop.Name: prop.NominalValue.wrappedValue for prop in pset.HasProperties}
-    assert props["Width"] == 5000
-    assert props["Height"] == 5000
+    assert result["status"] == "not_applied"
+    assert "planning-assist only" in result["summary"]
 
 
 def test_apply_space_plan_remove_room_removes_related_wall_and_window(tmp_path):
@@ -1432,12 +1439,8 @@ def test_apply_space_plan_remove_room_removes_related_wall_and_window(tmp_path):
         },
     )
 
-    updated = ifcopenshell.open(output_path)
-    assert result["status"] == "applied"
-    with pytest.raises(RuntimeError):
-        updated.by_guid(bundle["wall"].GlobalId)
-    with pytest.raises(RuntimeError):
-        updated.by_guid(bundle["window"].GlobalId)
+    assert result["status"] == "not_applied"
+    assert "planning-assist only" in result["summary"]
 
 
 def test_apply_space_plan_resize_room_moves_related_wall_and_window(tmp_path):
@@ -1469,16 +1472,8 @@ def test_apply_space_plan_resize_room_moves_related_wall_and_window(tmp_path):
         },
     )
 
-    updated = ifcopenshell.open(output_path)
-    wall = updated.by_guid(bundle["wall"].GlobalId)
-    window = updated.by_guid(bundle["window"].GlobalId)
-    assert result["status"] == "applied"
-    assert tuple(wall.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
-        (-1.0, 0.0, 0.0)
-    )
-    assert tuple(window.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
-        (-1.0, 2.0, 0.9)
-    )
+    assert result["status"] == "not_applied"
+    assert "planning-assist only" in result["summary"]
 
 
 def test_apply_space_plan_resize_room_isolated_moves_opening_even_when_wall_uses_segment_update(
@@ -1534,18 +1529,81 @@ def test_apply_space_plan_resize_room_isolated_moves_opening_even_when_wall_uses
         },
     )
 
-    updated = ifcopenshell.open(output_path)
-    wall = updated.by_guid(bundle["wall"].GlobalId)
-    window = updated.by_guid(bundle["window"].GlobalId)
-    assert result["status"] == "applied"
-    assert tuple(window.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
-        (-1.0, 2.0, 0.9)
+    assert result["status"] == "not_applied"
+    assert "planning-assist only" in result["summary"]
+
+
+def test_apply_space_plan_insert_toilet_is_planning_assist_only(tmp_path):
+    bundle = _make_minimal_ifc()
+    input_path = _write_ifc(tmp_path, bundle["ifc"])
+    output_path = str(tmp_path / "insert-toilet.ifc")
+
+    result = apply_space_plan(
+        ifc_path=input_path,
+        output_path=output_path,
+        command=FloorNLPCommand(
+            action="insert_toilet",
+            target_floor=1,
+            confidence=0.95,
+        ),
+        policy_plan={
+            "status": "planned",
+            "storey_id": bundle["storey_a"].GlobalId,
+            "donor_room_id": bundle["space_a"].GlobalId,
+        },
     )
-    start, end = _wall_global_segment(wall)
-    assert {
-        (round(start[0] * 1000.0), round(start[1] * 1000.0)),
-        (round(end[0] * 1000.0), round(end[1] * 1000.0)),
-    } == {(-1000, 0), (-1000, 5000)}
+
+    assert result["status"] == "not_applied"
+    assert "planning-assist only" in result["summary"]
+
+
+def test_apply_space_plan_resize_room_skips_double_move_for_host_relative_window(tmp_path):
+    bundle = _make_minimal_ifc(include_window=True)
+    bundle["wall"].ObjectPlacement = _local_placement(bundle["ifc"], 0.0, 0.0, 0.0)
+    bundle["wall"].Representation = _axis_representation(bundle["ifc"], (0.0, 0.0), (0.0, 5.0))
+    opening = list(bundle["wall"].HasOpenings)[0].RelatedOpeningElement
+    opening.ObjectPlacement = bundle["ifc"].create_entity(
+        "IfcLocalPlacement",
+        PlacementRelTo=bundle["wall"].ObjectPlacement,
+        RelativePlacement=bundle["ifc"].create_entity(
+            "IfcAxis2Placement3D",
+            Location=_cartesian_point(bundle["ifc"], 0.0, 2.0, 0.9),
+        ),
+    )
+    bundle["window"].ObjectPlacement = bundle["ifc"].create_entity(
+        "IfcLocalPlacement",
+        PlacementRelTo=opening.ObjectPlacement,
+        RelativePlacement=bundle["ifc"].create_entity(
+            "IfcAxis2Placement3D",
+            Location=_cartesian_point(bundle["ifc"], 0.0, 0.0, 0.0),
+        ),
+    )
+    input_path = _write_ifc(tmp_path, bundle["ifc"])
+    output_path = str(tmp_path / "resize-room-host-relative-window.ifc")
+
+    result = apply_space_plan(
+        ifc_path=input_path,
+        output_path=output_path,
+        command=FloorNLPCommand(
+            action="resize_room",
+            target_room_name="Living",
+            resize_shape="rect",
+            resize_width=5000,
+            resize_height=5000,
+            resize_rects=shape_to_rects("rect", 5000, 5000),
+            confidence=0.95,
+        ),
+        policy_plan={
+            "status": "planned",
+            "target_space_id": bundle["space_a"].GlobalId,
+            "direction": "west",
+            "affected_wall_ids": [bundle["wall"].GlobalId],
+            "affected_opening_ids": [bundle["window"].GlobalId],
+        },
+    )
+
+    assert result["status"] == "not_applied"
+    assert "planning-assist only" in result["summary"]
 
 
 def test_apply_space_plan_resize_room_updates_affected_space(tmp_path):
@@ -1580,21 +1638,8 @@ def test_apply_space_plan_resize_room_updates_affected_space(tmp_path):
         },
     )
 
-    updated = ifcopenshell.open(output_path)
-    target = updated.by_guid(bundle["space_a"].GlobalId)
-    affected = updated.by_guid(bundle["space_b"].GlobalId)
-    target_body = target.Representation.Representations[0].Items[0]
-    affected_body = affected.Representation.Representations[0].Items[0]
-
-    assert result["status"] == "applied"
-    assert tuple(target.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
-        (0.0, 0.0, 0.0)
-    )
-    assert target_body.SweptArea.XDim == pytest.approx(5.0)
-    assert tuple(affected.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
-        (5.0, 0.0, 0.0)
-    )
-    assert affected_body.SweptArea.XDim == pytest.approx(2.0)
+    assert result["status"] == "not_applied"
+    assert "planning-assist only" in result["summary"]
 
 
 @pytest.mark.asyncio
@@ -1609,7 +1654,6 @@ async def test_pipeline_apply_remove_room_writes_ifc(tmp_path, policy_ifc_ctx):
     pipeline_context["doors"] = []
     pipeline_context["windows"] = []
     input_path = _write_ifc(tmp_path, bundle["ifc"])
-    output_path = str(tmp_path / "pipeline-remove.ifc")
 
     pipeline = LLM2DPipeline(ifc_path=input_path, ifc_context=pipeline_context)
     command = FloorNLPCommand(
@@ -1619,12 +1663,9 @@ async def test_pipeline_apply_remove_room_writes_ifc(tmp_path, policy_ifc_ctx):
     )
 
     preview = await pipeline.execute_command_preview(command)
-    result = await pipeline.execute_apply(preview["session_id"], output_path=output_path)
 
-    updated = ifcopenshell.open(output_path)
-    assert result["status"] == "applied"
-    with pytest.raises(RuntimeError):
-        updated.by_guid(bundle["space_a"].GlobalId)
+    assert preview["status"] == "alternatives"
+    assert "session_id" not in preview
 
 
 def test_apply_space_plan_add_room_creates_ifc_space(tmp_path):
@@ -1657,30 +1698,14 @@ def test_apply_space_plan_add_room_creates_ifc_space(tmp_path):
         policy_plan=None,
     )
 
-    updated = ifcopenshell.open(output_path)
-    created = updated.by_guid(result["created_space_id"])
-    body = created.Representation.Representations[0].Items[0]
-    pset = next(
-        rel.RelatingPropertyDefinition
-        for rel in created.IsDefinedBy
-        if rel.RelatingPropertyDefinition.Name == "Batang_SpaceDimensions"
-    )
-
-    assert result["status"] == "applied"
-    assert created.Name == "Kitchen"
-    assert body.SweptArea.XDim == pytest.approx(3.2)
-    assert body.SweptArea.YDim == pytest.approx(2.8)
-    props = {prop.Name: prop.NominalValue.wrappedValue for prop in pset.HasProperties}
-    assert props["Width"] == 3200
-    assert props["Height"] == 2800
-    assert props["SpaceType"] == "kitchen"
+    assert result["status"] == "not_applied"
+    assert "planning-assist only" in result["summary"]
 
 
 @pytest.mark.asyncio
 async def test_pipeline_apply_add_room_writes_ifc(tmp_path):
     bundle = _make_minimal_ifc()
     input_path = _write_ifc(tmp_path, bundle["ifc"])
-    output_path = str(tmp_path / "pipeline-add.ifc")
     pipeline = LLM2DPipeline(ifc_path=input_path, ifc_context=extract_ifc_context(input_path))
     command = FloorNLPCommand(
         action="add_room",
@@ -1697,21 +1722,17 @@ async def test_pipeline_apply_add_room_writes_ifc(tmp_path):
     )
 
     preview = await pipeline.execute_command_preview(command)
-    result = await pipeline.execute_apply(preview["session_id"], output_path=output_path)
 
-    updated = ifcopenshell.open(output_path)
-    created = updated.by_guid(result["created_space_id"])
-    assert result["status"] == "applied"
-    assert result["apply_mode"] == "shared_authoring"
-    assert result["engine_request"]["operations"][0]["type"] == "create_element"
-    assert created.Name == "Study"
+    assert preview["status"] == "needs_clarification"
+    assert "auto-applied" in preview["summary"]
+    assert "session_id" not in preview
+    assert "engine_request" not in preview
 
 
 @pytest.mark.asyncio
 async def test_pipeline_apply_add_room_roundtrip_extracts_space(tmp_path):
     bundle = _make_minimal_ifc()
     input_path = _write_ifc(tmp_path, bundle["ifc"])
-    output_path = str(tmp_path / "pipeline-add-roundtrip.ifc")
     pipeline = LLM2DPipeline(ifc_path=input_path, ifc_context=extract_ifc_context(input_path))
     command = FloorNLPCommand(
         action="add_room",
@@ -1728,14 +1749,10 @@ async def test_pipeline_apply_add_room_roundtrip_extracts_space(tmp_path):
     )
 
     preview = await pipeline.execute_command_preview(command)
-    result = await pipeline.execute_apply(preview["session_id"], output_path=output_path)
-    ctx = extract_ifc_context(output_path)
 
-    assert result["status"] == "applied"
-    guest = next(space for space in ctx["spaces"] if space["id"] == result["created_space_id"])
-    assert guest["name"] == "Guest"
-    assert guest["width"] == 3100
-    assert guest["height"] == 2700
+    assert preview["status"] == "needs_clarification"
+    assert "auto-applied" in preview["summary"]
+    assert "session_id" not in preview
 
 
 @pytest.mark.asyncio
@@ -1761,8 +1778,8 @@ async def test_pipeline_preview_house_kr_add_room_reports_no_feasible_slot():
 
     preview = await pipeline.execute_command_preview(command)
 
-    assert preview["status"] == "unsupported"
-    assert "feasible placement" in preview["summary"]
+    assert preview["status"] == "needs_clarification"
+    assert "not auto-applied" in preview["summary"]
 
 @pytest.mark.asyncio
 async def test_pipeline_preview_add_room_emits_create_element(tmp_path):
@@ -1790,15 +1807,11 @@ async def test_pipeline_preview_add_room_emits_create_element(tmp_path):
 
     preview = await pipeline.execute_command_preview(command)
 
-    assert preview["status"] == "preview_ready"
+    assert preview["status"] == "needs_clarification"
     geometry = preview["command_batch"]["commands"][0]["params"]["geometry"]
     assert geometry["location"][:2] != [0.0, 0.0]
-    assert preview["engine_request"]["project_id"] == "proj-2d"
-    assert preview["engine_request"]["base_revision_id"] == "rev-1"
-    assert preview["engine_request"]["operations"][0]["type"] == "create_element"
-    payload = IfcEditCommandPayload.model_validate(preview["ifc_edit_payload"])
-    assert payload.engineRequest is not None
-    assert payload.engineRequest.operations[0].type == "create_element"
+    assert "engine_request" not in preview
+    assert "ifc_edit_payload" not in preview
 
 
 @pytest.mark.asyncio
@@ -1816,37 +1829,11 @@ async def test_pipeline_preview_resize_room_emits_transform_and_update(policy_if
 
     preview = await pipeline.execute_command_preview(command)
 
-    assert preview["status"] == "preview_ready"
-    operation_types = [op["type"] for op in preview["engine_request"]["operations"]]
-    assert operation_types == [
-        "transform_elements",
-        "transform_elements",
-        "transform_elements",
-        "update_element_properties",
-        "update_element_properties",
-    ]
-    assert preview["engine_request"]["operations"][0]["selector"]["global_ids"] == ["sp-center"]
-    assert preview["engine_request"]["operations"][0]["parameters"]["translate_mm"] == {
-        "x": -1000.0,
-        "y": 0.0,
-        "z": 0.0,
-    }
-    assert preview["engine_request"]["operations"][1]["selector"]["global_ids"] == ["wall-left"]
-    assert preview["engine_request"]["operations"][2]["selector"]["global_ids"] == ["door-left"]
-    assert preview["engine_request"]["operations"][1]["parameters"]["translate_mm"] == {
-        "x": -1000.0,
-        "y": 0.0,
-        "z": 0.0,
-    }
-    assert preview["engine_request"]["operations"][3]["selector"]["global_ids"] == ["sp-center"]
-    assert preview["engine_request"]["operations"][4]["selector"]["global_ids"] == ["sp-left"]
-    assert preview["engine_request"]["operations"][4]["parameters"]["dimensions_mm"] == {
-        "width": 1000,
-        "height": 5000,
-    }
-    payload = IfcEditCommandPayload.model_validate(preview["ifc_edit_payload"])
-    assert payload.engineRequest is not None
-    assert [op.type for op in payload.engineRequest.operations] == operation_types
+    assert preview["status"] == "needs_clarification"
+    assert preview["policy_plan"]["direction"] == "west"
+    assert "adjacent space may change together" in preview["summary"]
+    assert "engine_request" not in preview
+    assert "ifc_edit_payload" not in preview
 
 
 @pytest.mark.asyncio
@@ -1871,29 +1858,16 @@ async def test_pipeline_preview_house_kr_resize_room_with_direction_is_ready():
 
     preview = await pipeline.execute_command_preview(command)
 
-    assert preview["status"] == "preview_ready"
+    assert preview["status"] == "needs_clarification"
     assert preview["policy_plan"]["direction"] == "west"
-    wall_ops = [
-        op
-        for op in preview["engine_request"]["operations"]
-        if op["type"] == "update_element_properties" and op["parameters"].get("segment_mm")
-    ]
-    assert len(wall_ops) == 4
+    assert "engine_request" not in preview
 
 
 @pytest.mark.asyncio
 async def test_pipeline_apply_house_kr_resize_room_updates_boundary_walls(tmp_path):
     house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
-    output_path = str(tmp_path / "house-kr-resize-room.ifc")
     ctx = extract_ifc_context(str(house_kr))
     gallery = next(space for space in ctx["spaces"] if space["floor"] == 2)
-    expected_walls = build_isolated_rectangular_resize_wall_plans(
-        ifc_context=ctx,
-        target_space_id=gallery["id"],
-        direction="west",
-        new_width=10400,
-        new_height=gallery["height"],
-    )
     pipeline = LLM2DPipeline(
         ifc_path=str(house_kr),
         ifc_context=ctx,
@@ -1910,22 +1884,9 @@ async def test_pipeline_apply_house_kr_resize_room_updates_boundary_walls(tmp_pa
     )
 
     preview = await pipeline.execute_command_preview(command)
-    result = await pipeline.execute_apply(preview["session_id"], output_path=output_path)
-    updated = ifcopenshell.open(output_path)
 
-    assert result["status"] == "applied"
-    assert result["apply_mode"] == "shared_authoring"
-    assert expected_walls
-    for wall_plan in expected_walls:
-        wall = updated.by_guid(wall_plan["wall_id"])
-        assert wall is not None
-        start, end = _wall_global_segment(wall)
-        expected = {wall_plan["start_mm"], wall_plan["end_mm"]}
-        actual = {
-            (round(start[0] * 1000.0), round(start[1] * 1000.0)),
-            (round(end[0] * 1000.0), round(end[1] * 1000.0)),
-        }
-        assert actual == expected
+    assert preview["status"] == "needs_clarification"
+    assert preview["policy_plan"]["direction"] == "west"
 
 
 @pytest.mark.asyncio
@@ -1946,15 +1907,10 @@ async def test_pipeline_preview_house_kr_remove_room_is_ready():
 
     preview = await pipeline.execute_command_preview(command)
 
-    assert preview["status"] == "preview_ready"
+    assert preview["status"] == "alternatives"
     assert preview["policy_plan"]["merge_target_space_id"] is not None
-    merge_ops = [
-        op
-        for op in preview["engine_request"]["operations"]
-        if op["type"] == "update_element_properties"
-        and op["selector"]["global_ids"] == [preview["policy_plan"]["merge_target_space_id"]]
-    ]
-    assert len(merge_ops) in {0, 1}
+    assert preview["alternatives"]
+    assert "engine_request" not in preview
 
 
 @pytest.mark.asyncio
@@ -1969,7 +1925,7 @@ async def test_pipeline_execute_preview_house_kr_remove_room_user_text():
     preview = await pipeline.execute_preview("침실을 없애고 거실과 합쳐줘")
     merge_target_name_by_id = {space["id"]: space["name"] for space in ctx["spaces"]}
 
-    assert preview["status"] == "preview_ready"
+    assert preview["status"] == "alternatives"
     assert preview["command"]["action"] == "remove_room"
     assert preview["command"]["target_room_name"] == "침실"
     assert preview["policy_plan"]["reason"] == "preferred_adjacent_absorber"
@@ -1982,7 +1938,6 @@ async def test_pipeline_execute_preview_house_kr_remove_room_user_text():
 @pytest.mark.asyncio
 async def test_pipeline_apply_house_kr_remove_room_writes_ifc(tmp_path):
     house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
-    output_path = str(tmp_path / "house-kr-remove-room.ifc")
     ctx = extract_ifc_context(str(house_kr))
     bathroom = next(space for space in ctx["spaces"] if space["type"] == "bathroom")
     pipeline = LLM2DPipeline(
@@ -1997,25 +1952,10 @@ async def test_pipeline_apply_house_kr_remove_room_writes_ifc(tmp_path):
     )
 
     preview = await pipeline.execute_command_preview(command)
-    result = await pipeline.execute_apply(preview["session_id"], output_path=output_path)
-    updated_ctx = extract_ifc_context(output_path)
-    merge_plan = build_remove_merge_plan(
-        ifc_context=ctx,
-        target_space_id=bathroom["id"],
-        merge_target_space_id=preview["policy_plan"]["merge_target_space_id"],
-    )
-    merge_target = next(
-        space
-        for space in updated_ctx["spaces"]
-        if space["id"] == preview["policy_plan"]["merge_target_space_id"]
-    )
 
-    assert result["status"] == "applied"
-    assert result["apply_mode"] == "shared_authoring"
-    assert len(updated_ctx["spaces"]) == len(ctx["spaces"]) - 1
-    if merge_plan is not None:
-        assert merge_target["width"] == merge_plan["dimensions_mm"]["width"]
-        assert merge_target["height"] == merge_plan["dimensions_mm"]["height"]
+    assert preview["status"] == "alternatives"
+    assert preview["alternatives"]
+    assert "session_id" not in preview
 
 
 @pytest.mark.asyncio
@@ -2032,7 +1972,7 @@ async def test_pipeline_execute_preview_house_kr_resize_room_user_text():
 
     preview = await pipeline.execute_preview("침실을 서쪽으로 넓혀줘")
 
-    assert preview["status"] == "preview_ready"
+    assert preview["status"] == "needs_clarification"
     assert preview["command"]["action"] == "resize_room"
     assert preview["command"]["target_room_name"] == "침실"
     assert preview["command"]["resize_width"] > bedroom["width"]
@@ -2040,6 +1980,7 @@ async def test_pipeline_execute_preview_house_kr_resize_room_user_text():
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="resize_room apply is planning-assist only on this branch")
 async def test_pipeline_execute_apply_house_kr_resize_room_user_text(tmp_path):
     house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
     output_path = str(tmp_path / "house-kr-resize-room-user-text.ifc")
@@ -2057,7 +1998,7 @@ async def test_pipeline_execute_apply_house_kr_resize_room_user_text(tmp_path):
     updated_ctx = extract_ifc_context(output_path)
     updated_bedroom = next(space for space in updated_ctx["spaces"] if space["id"] == bedroom["id"])
 
-    assert preview["status"] == "preview_ready"
+    assert preview["status"] == "alternatives"
     assert result["status"] == "applied"
     assert result["apply_mode"] == "shared_authoring"
     assert updated_bedroom["width"] == preview["command"]["resize_width"]
@@ -2065,6 +2006,7 @@ async def test_pipeline_execute_apply_house_kr_resize_room_user_text(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="remove_room apply payload flow is not used on this branch")
 async def test_pipeline_apply_remove_room_returns_shared_payload_even_on_local_apply(
     tmp_path,
     policy_ifc_ctx,
@@ -2103,6 +2045,7 @@ async def test_pipeline_apply_remove_room_returns_shared_payload_even_on_local_a
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="remove_room no longer produces shared apply sessions on this branch")
 async def test_pipeline_preview_and_apply_share_request_id(policy_ifc_ctx, tmp_path):
     bundle = _make_minimal_ifc()
     pipeline_context = dict(policy_ifc_ctx)
@@ -2130,6 +2073,7 @@ async def test_pipeline_preview_and_apply_share_request_id(policy_ifc_ctx, tmp_p
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="remove_room no longer reaches shared-authoring apply on this branch")
 async def test_pipeline_apply_falls_back_when_shared_authoring_fails(
     tmp_path,
     policy_ifc_ctx,
@@ -2167,6 +2111,7 @@ async def test_pipeline_apply_falls_back_when_shared_authoring_fails(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="remove_room no longer reaches shared-authoring apply on this branch")
 async def test_pipeline_apply_does_not_fallback_on_contract_error(
     tmp_path,
     policy_ifc_ctx,
@@ -2201,6 +2146,358 @@ async def test_pipeline_apply_does_not_fallback_on_contract_error(
     assert result["status"] == "apply_failed"
     assert result["apply_mode"] == "shared_authoring"
     assert "shared payload mismatch" in result["summary"]
+
+
+def test_to_ifc_commands_create_door_on_selected_wall(ifc_ctx):
+    ctx = dict(ifc_ctx)
+    ctx["walls"] = [
+        {
+            "id": "wall-1",
+            "floor": 1,
+            "start": (0.0, 0.0),
+            "end": (5000.0, 0.0),
+            "thickness": 250,
+            "space_ids": ["sp-001"],
+            "kind": "EXTERIOR",
+        }
+    ]
+    command = FloorNLPCommand(
+        action="create_door",
+        target_wall_id="wall-1",
+        target_floor=1,
+        element_width_mm=1000,
+        element_height_mm=2200,
+        confidence=0.95,
+    )
+
+    batch = to_ifc_commands(command, ctx)
+
+    assert batch.requires_clarification is False
+    assert len(batch.commands) == 1
+    ifc_command = batch.commands[0]
+    assert ifc_command.action == ActionType.CREATE_DOOR
+    assert ifc_command.params["metadata"]["host_wall_id"] == "wall-1"
+    assert ifc_command.params["geometry"]["location"] == [2500.0, 0.0, 0.0]
+    assert ifc_command.params["geometry"]["dimensions"] == {"width": 1000, "height": 2200}
+
+
+@pytest.mark.asyncio
+async def test_engine_parse_command_recovers_create_wall_from_selected_room(ifc_ctx):
+    ctx = dict(ifc_ctx)
+    ctx["spaces"] = [
+        {
+            "id": "sp-living",
+            "name": "거실",
+            "type": "living",
+            "floor": 1,
+            "polygon": [(0.0, 0.0), (4000.0, 0.0), (4000.0, 3000.0), (0.0, 3000.0)],
+            "width": 4000,
+            "height": 3000,
+            "x": 0.0,
+            "y": 0.0,
+            "angle": 0.0,
+            "locked": False,
+            "zone_id": None,
+        }
+    ]
+    engine = FloorPlanEngine()
+
+    command = await engine.parse_command("[거실] 여기에 가벽을 세워줘", ctx)
+
+    assert command.action == "create_wall"
+    assert command.target_room_name == "거실"
+    assert command.target_floor == 1
+
+
+def test_to_ifc_commands_create_wall_on_locked_house_kr_candidate():
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    ctx = extract_ifc_context(str(house_kr))
+    living_room_name = next(
+        space["name"] for space in ctx["spaces"] if space["id"] == "0Lt8gR_E9ESeGH5uY_g9e9"
+    )
+    command = FloorNLPCommand(
+        action="create_wall",
+        target_room_name=living_room_name,
+        target_floor=1,
+        confidence=0.95,
+    )
+
+    batch = to_ifc_commands(command, ctx)
+
+    assert batch.requires_clarification is True
+    assert batch.commands == []
+    assert batch.clarification_question
+
+
+@pytest.mark.asyncio
+async def test_engine_parse_command_recovers_create_door_from_selected_wall_id(ifc_ctx):
+    ctx = dict(ifc_ctx)
+    ctx["walls"] = [
+        {
+            "id": "wall-1",
+            "floor": 1,
+            "start": (0.0, 0.0),
+            "end": (5000.0, 0.0),
+            "thickness": 250,
+            "space_ids": ["sp-001"],
+            "kind": "EXTERIOR",
+        }
+    ]
+    engine = FloorPlanEngine()
+
+    command = await engine.parse_command("[wall-1] 여기에 문을 만들어줘", ctx)
+
+    assert command.action == "create_door"
+    assert command.target_wall_id == "wall-1"
+    assert command.element_width_mm == 900
+    assert command.element_height_mm == 2100
+
+
+def test_to_ifc_commands_create_door_requires_usable_wall_segment():
+    ctx: IFCContext = {
+        "spaces": [],
+        "adjacency": [],
+        "walls": [
+            {
+                "id": "wall-short",
+                "floor": 1,
+                "start": (0.0, 0.0),
+                "end": (1000.0, 0.0),
+                "thickness": 250,
+                "space_ids": [],
+                "kind": "EXTERIOR",
+            }
+        ],
+        "doors": [],
+        "windows": [],
+        "boundaries": [],
+        "storeys": [{"id": "st-001", "floor": 1, "elevation": 0.0}],
+    }
+    command = FloorNLPCommand(
+        action="create_door",
+        target_wall_id="wall-short",
+        target_floor=1,
+        element_width_mm=900,
+        element_height_mm=2100,
+        confidence=0.95,
+    )
+
+    batch = to_ifc_commands(command, ctx)
+
+    assert batch.requires_clarification is True
+    assert batch.commands == []
+    assert batch.clarification_question is not None
+
+
+def test_to_ifc_commands_create_door_rejects_overlap_with_existing_opening():
+    ctx: IFCContext = {
+        "spaces": [],
+        "adjacency": [],
+        "walls": [
+            {
+                "id": "wall-1",
+                "floor": 1,
+                "start": (0.0, 0.0),
+                "end": (2500.0, 0.0),
+                "thickness": 250,
+                "space_ids": [],
+                "kind": "EXTERIOR",
+            }
+        ],
+        "doors": [
+            {
+                "id": "door-1",
+                "host_wall_id": "wall-1",
+                "position": 800.0,
+                "width": 900.0,
+                "height": 2100.0,
+                "from_space_id": None,
+                "to_space_id": None,
+                "floor": 1,
+            }
+        ],
+        "windows": [],
+        "boundaries": [],
+        "storeys": [{"id": "st-001", "floor": 1, "elevation": 0.0}],
+    }
+    command = FloorNLPCommand(
+        action="create_door",
+        target_wall_id="wall-1",
+        target_floor=1,
+        element_width_mm=900,
+        element_height_mm=2100,
+        confidence=0.95,
+    )
+
+    batch = to_ifc_commands(command, ctx)
+
+    assert batch.requires_clarification is True
+    assert batch.commands == []
+    assert batch.clarification_question is not None
+
+
+@pytest.mark.asyncio
+async def test_pipeline_apply_create_door_requires_existing_template(tmp_path):
+    bundle = _make_minimal_ifc(include_wall_body=True)
+    input_path = _write_ifc(tmp_path, bundle["ifc"])
+    ctx = extract_ifc_context(input_path)
+    wall_id = ctx["walls"][0]["id"]
+    output_path = str(tmp_path / "pipeline-create-door.ifc")
+    pipeline = LLM2DPipeline(ifc_path=input_path, ifc_context=ctx)
+    command = FloorNLPCommand(
+        action="create_door",
+        target_wall_id=wall_id,
+        target_floor=1,
+        element_width_mm=900,
+        element_height_mm=2100,
+        confidence=0.95,
+    )
+
+    preview = await pipeline.execute_command_preview(command)
+    result = await pipeline.execute_apply(preview["session_id"], output_path=output_path)
+
+    assert preview["status"] == "preview_ready"
+    assert preview["engine_request"]["operations"][0]["type"] == "create_element"
+    assert (
+        preview["engine_request"]["operations"][0]["parameters"]["host_wall_global_id"] == wall_id
+    )
+    assert result["status"] == "apply_failed"
+    assert result["apply_mode"] == "shared_authoring"
+    assert "template pair was not found" in result["summary"]
+    assert result["created_ids"] == []
+    applied_model = ifcopenshell.open(output_path)
+    assert applied_model.by_type("IfcDoor") == []
+    assert applied_model.by_type("IfcOpeningElement") == []
+
+
+@pytest.mark.asyncio
+async def test_pipeline_apply_create_door_on_house_kr_reuses_template(tmp_path):
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    ctx = extract_ifc_context(str(house_kr))
+    wall = next(
+        wall for wall in ctx["walls"] if wall.get("floor") == 1 and wall.get("kind") == "INTERIOR"
+    )
+    before_model = ifcopenshell.open(str(house_kr))
+    before_opening_ids = {opening.GlobalId for opening in before_model.by_type("IfcOpeningElement")}
+    output_path = str(tmp_path / "house-kr-create-door.ifc")
+    pipeline = LLM2DPipeline(ifc_path=str(house_kr), ifc_context=ctx)
+    command = FloorNLPCommand(
+        action="create_door",
+        target_wall_id=wall["id"],
+        target_floor=1,
+        element_width_mm=900,
+        element_height_mm=2100,
+        confidence=0.95,
+    )
+
+    preview = await pipeline.execute_command_preview(command)
+    result = await pipeline.execute_apply(preview["session_id"], output_path=output_path)
+    updated_ctx = extract_ifc_context(output_path)
+
+    assert preview["status"] == "preview_ready"
+    assert result["status"] == "applied"
+    assert result["apply_mode"] == "shared_authoring"
+    assert len(updated_ctx["doors"]) == len(ctx["doors"]) + 1
+    created_door_ctx = next(
+        door for door in updated_ctx["doors"] if door["id"] in result["created_ids"]
+    )
+    assert created_door_ctx["host_wall_id"] == wall["id"]
+    applied_model = ifcopenshell.open(output_path)
+    after_opening_ids = {opening.GlobalId for opening in applied_model.by_type("IfcOpeningElement")}
+    created_opening_ids = after_opening_ids - before_opening_ids
+    assert len(created_opening_ids) == 1
+    created_door = applied_model.by_guid(result["created_ids"][0])
+    assert created_door is not None
+    assert created_door.Name
+    assert len(getattr(created_door, "ContainedInStructure", []) or []) == 1
+    assert float(created_door.OverallWidth or 0.0) > 0.0
+    assert float(created_door.OverallHeight or 0.0) > 0.0
+    rep_types = {
+        rep.RepresentationType
+        for rep in getattr(created_door.Representation, "Representations", []) or []
+    }
+    assert "SweptSolid" not in rep_types
+    assert "Box" in {
+        rep.RepresentationIdentifier
+        for rep in getattr(created_door.Representation, "Representations", []) or []
+    }
+    assert len(getattr(created_door, "FillsVoids", []) or []) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.skip(
+    reason="create_wall auto-apply is disabled until a validated House_KR candidate exists"
+)
+async def test_pipeline_apply_create_wall_on_house_kr_locked_candidate(tmp_path):
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    ctx = extract_ifc_context(str(house_kr))
+    before_model = ifcopenshell.open(str(house_kr))
+    before_wall_ids = {wall.GlobalId for wall in before_model.by_type("IfcWall")}
+    output_path = str(tmp_path / "house-kr-create-wall.ifc")
+    pipeline = LLM2DPipeline(ifc_path=str(house_kr), ifc_context=ctx)
+    command = FloorNLPCommand(
+        action="create_wall",
+        target_room_name="거실",
+        target_floor=1,
+        confidence=0.95,
+    )
+
+    preview = await pipeline.execute_command_preview(command)
+    result = await pipeline.execute_apply(preview["session_id"], output_path=output_path)
+    updated_ctx = extract_ifc_context(output_path)
+
+    assert preview["status"] == "preview_ready"
+    assert preview["engine_request"]["operations"][0]["type"] == "create_element"
+    assert preview["engine_request"]["operations"][0]["parameters"]["element_type"] == "IfcWall"
+    assert result["status"] == "applied"
+    assert result["apply_mode"] == "shared_authoring"
+    assert len(updated_ctx["walls"]) == len(ctx["walls"]) + 1
+
+    applied_model = ifcopenshell.open(output_path)
+    after_walls = {wall.GlobalId for wall in applied_model.by_type("IfcWall")}
+    created_wall_ids = after_walls - before_wall_ids
+    assert len(created_wall_ids) == 1
+    created_wall = applied_model.by_guid(next(iter(created_wall_ids)))
+    assert created_wall is not None
+    assert created_wall.is_a("IfcWallStandardCase")
+    assert created_wall.Name == "거실 가벽"
+    assert len(getattr(created_wall, "ContainedInStructure", []) or []) == 1
+    assert len(getattr(created_wall, "IsTypedBy", []) or []) == 1
+    body_item = engine_3d_module._wall_body_item(created_wall)
+    assert body_item is not None
+    assert body_item.is_a("IfcExtrudedAreaSolid")
+    assert engine_3d_module._wall_y_bounds(created_wall) == pytest.approx((-0.24, 0.0))
+    path_connects = [
+        rel
+        for rel in (
+            list(getattr(created_wall, "ConnectedTo", []) or [])
+            + list(getattr(created_wall, "ConnectedFrom", []) or [])
+        )
+        if rel.is_a("IfcRelConnectsPathElements")
+    ]
+    assert len(path_connects) == 2
+
+
+@pytest.mark.asyncio
+async def test_pipeline_preview_create_wall_on_house_kr_requires_clarification():
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    ctx = extract_ifc_context(str(house_kr))
+    living_room_name = next(
+        space["name"] for space in ctx["spaces"] if space["id"] == "0Lt8gR_E9ESeGH5uY_g9e9"
+    )
+    pipeline = LLM2DPipeline(ifc_path=str(house_kr), ifc_context=ctx)
+    command = FloorNLPCommand(
+        action="create_wall",
+        target_room_name=living_room_name,
+        target_floor=1,
+        confidence=0.95,
+    )
+
+    preview = await pipeline.execute_command_preview(command)
+
+    assert preview["status"] == "needs_clarification"
+    assert "session_id" not in preview
+    assert preview["summary"]
 
 
 def test_translate_relative_placement_location_does_not_mutate_shared_point():
@@ -2256,28 +2553,23 @@ def test_build_engine_request_remove_room_deduplicates_selector(policy_ifc_ctx):
         confidence=0.95,
     )
     batch = to_ifc_commands(command, policy_ifc_ctx)
-    engine_request = build_engine_request(
-        mode="preview",
-        request_id="req-1",
-        project_id="proj-1",
-        base_revision_id="rev-1",
-        command=command,
-        command_batch=batch,
-        policy_plan={
-            "status": "planned",
-            "target_space_id": "sp-center",
-            "merge_target_space_id": "sp-left",
-            "remove_wall_ids": ["wall-left", "wall-left"],
-            "remove_opening_ids": ["door-left", "door-left"],
-        },
-        ifc_context=policy_ifc_ctx,
-    )
-
-    delete_op = next(op for op in engine_request.operations if op.type == "delete_elements")
-    selector_ids = delete_op.selector["global_ids"]
-    assert selector_ids == ["door-left", "wall-left", "sp-center"]
-    assert engine_request.base_revision_id == "rev-1"
-    assert delete_op.parameters["merge_target_space_id"] == "sp-left"
+    with pytest.raises(ValueError, match="planning-assist only"):
+        build_engine_request(
+            mode="preview",
+            request_id="req-1",
+            project_id="proj-1",
+            base_revision_id="rev-1",
+            command=command,
+            command_batch=batch,
+            policy_plan={
+                "status": "planned",
+                "target_space_id": "sp-center",
+                "merge_target_space_id": "sp-left",
+                "remove_wall_ids": ["wall-left", "wall-left"],
+                "remove_opening_ids": ["door-left", "door-left"],
+            },
+            ifc_context=policy_ifc_ctx,
+        )
 
 
 def test_build_remove_merge_plan_rejects_large_gap():
@@ -2330,6 +2622,45 @@ def test_build_remove_merge_plan_rejects_large_gap():
     )
 
 
+def test_build_engine_request_create_wall_rejects_shared_payloads():
+    command = FloorNLPCommand(
+        action="create_wall",
+        target_room_name="거실",
+        confidence=0.95,
+    )
+    batch = CommandBatch(
+        commands=[
+            IFCCommand(
+                action=ActionType.CREATE_WALL,
+                target_id=None,
+                params={
+                    "metadata": {
+                        "storey_id": "st-001",
+                        "template_wall_id": "wall-template",
+                    },
+                    "start_mm": {"x": 0.0, "y": 0.0, "z": 0.0},
+                    "end_mm": {"x": 1000.0, "y": 0.0, "z": 0.0},
+                    "dimensions_mm": {"width": 240, "height": 2500},
+                    "properties": {"name": "거실 가벽"},
+                },
+                confidence=0.95,
+            )
+        ],
+        requires_clarification=False,
+    )
+
+    with pytest.raises(ValueError, match="planning-assist only"):
+        build_engine_request(
+            mode="preview",
+            request_id="req-create-wall",
+            project_id="proj-create-wall",
+            command=command,
+            command_batch=batch,
+            policy_plan=None,
+            ifc_context=None,
+        )
+
+
 def test_build_engine_request_add_room_requires_storey_id(ifc_ctx):
     command = FloorNLPCommand(
         action="add_room",
@@ -2361,7 +2692,7 @@ def test_build_engine_request_add_room_requires_storey_id(ifc_ctx):
         requires_clarification=False,
     )
 
-    with pytest.raises(ValueError, match="storey_id"):
+    with pytest.raises(ValueError, match="planning-assist only"):
         build_engine_request(
             mode="preview",
             request_id="req-2",
@@ -2433,7 +2764,7 @@ def test_build_engine_request_add_room_rejects_when_no_feasible_placement():
     )
     batch = to_ifc_commands(command, ctx)
 
-    with pytest.raises(ValueError, match="feasible placement"):
+    with pytest.raises(ValueError, match="planning-assist only"):
         build_engine_request(
             mode="preview",
             request_id="req-2b",
@@ -2453,7 +2784,7 @@ def test_build_engine_request_remove_room_rejects_empty_selector():
     )
     batch = CommandBatch(commands=[], requires_clarification=False)
 
-    with pytest.raises(ValueError, match="no target global_ids"):
+    with pytest.raises(ValueError, match="planning-assist only"):
         build_engine_request(
             mode="preview",
             request_id="req-3",
@@ -2469,6 +2800,7 @@ def test_build_engine_request_remove_room_rejects_empty_selector():
 
 
 
+@pytest.mark.skip(reason="resize_room shared payload generation is disabled on this branch")
 def test_build_engine_request_resize_east_splits_target_and_affected_transforms():
     ctx: IFCContext = {
         "spaces": [
@@ -2570,6 +2902,7 @@ def test_build_engine_request_resize_east_splits_target_and_affected_transforms(
     }
 
 
+@pytest.mark.skip(reason="resize_room shared payload generation is disabled on this branch")
 def test_build_engine_request_resize_isolated_skips_boundary_transform():
     ctx: IFCContext = {
         "spaces": [
@@ -2696,13 +3029,15 @@ async def test_pipeline_preview_nobathroom_house_kr_routes_to_public_toilet_plan
 
     preview = await pipeline.execute_command_preview(command)
 
-    assert preview["status"] == "preview_ready"
+    assert preview["status"] == "alternatives"
     assert preview["policy_plan"]["strategy"] == "corridor_end"
     assert preview["policy_plan"]["anchor_room_name"] is None
     assert preview["policy_plan"]["donor_room_name"] == "Big Room"
+    assert "session_id" not in preview
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="insert_toilet apply is planning-assist only on this branch")
 async def test_pipeline_apply_nobathroom_big_room_split_clears_existing_openings_on_toilet_edges(
     tmp_path,
 ):
@@ -2917,7 +3252,7 @@ async def test_pipeline_preview_house_kr_insert_toilet_routes_to_demo_plan():
 
     preview = await pipeline.execute_command_preview(command)
 
-    assert preview["status"] == "preview_ready"
+    assert preview["status"] == "alternatives"
     assert preview["policy_plan"]["reason"] == "insert_toilet_demo"
     assert preview["policy_plan"]["anchor_room_name"] == "욕실"
     assert preview["policy_plan"]["donor_room_name"] == "욕실"
@@ -2925,6 +3260,7 @@ async def test_pipeline_preview_house_kr_insert_toilet_routes_to_demo_plan():
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="insert_toilet apply is planning-assist only on this branch")
 async def test_pipeline_apply_insert_toilet_creates_space_and_shrinks_donor(tmp_path):
     def _bbox(polygon: list[tuple[float, float]]) -> tuple[float, float, float, float]:
         xs = [point[0] for point in polygon]
@@ -2970,6 +3306,7 @@ async def test_pipeline_apply_insert_toilet_creates_space_and_shrinks_donor(tmp_
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="insert_toilet apply is planning-assist only on this branch")
 async def test_pipeline_apply_insert_toilet_adds_walls_and_door(tmp_path):
     house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
     ctx = extract_ifc_context(str(house_kr))
@@ -3085,4 +3422,7 @@ async def test_engine_parse_public_insert_toilet_sets_big_room_split_intent_v2()
 
     assert result.action == "insert_toilet"
     assert result.user_intent == "shared_toilet_split_big_room"
+
+
+
 

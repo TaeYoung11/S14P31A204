@@ -231,6 +231,42 @@ def test_window_sill_height_applied_to_opening_placement():
     assert window_z == pytest.approx(0.0)
 
 
+def test_transform_handler_skips_host_relative_window_when_requested():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    assert wall is not None
+    window = create_window_with_opening(
+        model,
+        storey,
+        length_mm=1200,
+        width_mm=200,
+        height_mm=1200,
+        x_mm=1000,
+        y_mm=0,
+        z_mm=0,
+        host_wall=wall,
+        sill_height_mm=900.0,
+    )
+    assert window is not None
+    original_coords = tuple(window.ObjectPlacement.RelativePlacement.Location.Coordinates)
+
+    transform_handler = get("transform_elements")
+    moved = transform_handler.execute(
+        model,
+        None,
+        {
+            "translate_mm": {"x": 1000.0, "y": 0.0, "z": 0.0},
+            "skip_if_host_relative": True,
+        },
+        {"global_ids": [window.GlobalId]},
+    )
+
+    assert moved == []
+    assert tuple(window.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
+        original_coords
+    )
+
+
 def test_create_element_handler_door_with_host_wall():
     model, storey, _ = _make_model()
     wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)

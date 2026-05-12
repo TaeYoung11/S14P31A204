@@ -347,7 +347,7 @@ async def _run_pipeline(
     preview = await pipeline.execute_preview(user_instruction)
 
     status = preview.get("status")
-    if status == "needs_clarification":
+    if status in {"needs_clarification", "alternatives"}:
         raise ClarificationRequiredError(
             code="CLARIFICATION_REQUIRED",
             message=str(preview.get("summary") or "clarification required"),
@@ -486,9 +486,11 @@ def _build_two_d_command_artifact(
             "user_instruction": user_instruction,
             "parsed_command": preview["command"],
             "command_batch": preview["command_batch"],
-            "needs_clarification": preview.get("status") == "needs_clarification",
+            "needs_clarification": preview.get("status") in {"needs_clarification", "alternatives"},
             "clarification_question": (
-                preview.get("summary") if preview.get("status") == "needs_clarification" else None
+                preview.get("summary")
+                if preview.get("status") in {"needs_clarification", "alternatives"}
+                else None
             ),
         }
     )

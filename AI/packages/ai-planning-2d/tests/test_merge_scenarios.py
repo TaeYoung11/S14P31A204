@@ -112,9 +112,10 @@ async def test_pipeline_preview_remove_room_respects_explicit_merge_target() -> 
 
     preview = await pipeline.execute_command_preview(command)
 
-    assert preview["status"] == "preview_ready"
+    assert preview["status"] == "alternatives"
     assert preview["policy_plan"]["reason"] == "preferred_adjacent_absorber"
     assert preview["policy_plan"]["merge_target_space_id"] == "sp-right"
+    assert preview["alternatives"]
 
 
 @pytest.mark.asyncio
@@ -126,7 +127,7 @@ async def test_pipeline_execute_preview_house_kr_explicit_merge_target_user_text
     preview = await pipeline.execute_preview("침실을 거실과 합쳐줘")
 
     merge_target_name_by_id = {space["id"]: space["name"] for space in ctx["spaces"]}
-    assert preview["status"] == "preview_ready"
+    assert preview["status"] == "alternatives"
     assert preview["command"]["action"] == "remove_room"
     assert preview["command"]["adjacency_target"] == "거실"
     assert preview["policy_plan"]["reason"] == "preferred_adjacent_absorber"

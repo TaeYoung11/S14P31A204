@@ -16,3 +16,4 @@ DEVLOG에 결과만 남기는 쪽을 우선한다.
 | `run_diversity_inference.py` | 여러 fixture의 styled inference 다양성 확인용 helper. |
 | `create_minio_buckets.py` | 로컬/인프라 MinIO bucket 준비 helper. |
 | `publish_sample_command.py` | sample publish command 생성/확인 helper. |
+| `generate_2d_llm_viewer_artifacts.py` | 현재 2D LLM 브랜치 시나리오용 IFC/preview artifact 생성 helper. |

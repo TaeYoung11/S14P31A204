@@ -373,6 +373,17 @@ def translate_product(
     return True
 
 
+def is_product_host_relative(product: ifcopenshell.entity_instance) -> bool:
+    placement = getattr(product, "ObjectPlacement", None)
+    parent_placement = getattr(placement, "PlacementRelTo", None) if placement else None
+    if parent_placement is None:
+        return False
+    for parent in list(getattr(parent_placement, "PlacesObject", []) or []):
+        if parent.is_a("IfcWall") or parent.is_a("IfcOpeningElement"):
+            return True
+    return False
+
+
 def assign_space_to_storey(
     model: ifcopenshell.file,
     *,
