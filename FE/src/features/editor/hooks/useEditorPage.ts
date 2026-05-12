@@ -613,6 +613,7 @@ export function useEditorPage() {
   const serverPublishRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingServerPublishRef = useRef<PendingServerPublishRecord | null>(null)
   const awaitingServerSyncRef = useRef<AwaitingServerSyncRecord | null>(null)
+  const suppressGeneratedFloorPlanAutosaveRef = useRef(false)
   const floorPlanHistoryCommandInFlightRef = useRef(false)
   const draftLoadTokenRef = useRef(0)
   const draftLoadedProjectIdRef = useRef<string | null>(null)
@@ -629,6 +630,7 @@ export function useEditorPage() {
   useEffect(() => {
     lastLoadedIfcStorageUrlRef.current = null
     ifcLoadInFlightStorageUrlRef.current = null
+    suppressGeneratedFloorPlanAutosaveRef.current = false
     floorPlanIfcExportAbortRef.current?.abort()
     floorPlanIfcExportAbortRef.current = null
   }, [projectId])
@@ -1445,6 +1447,19 @@ export function useEditorPage() {
         }
       : draftSnapshot
     const serializedSnapshot = JSON.stringify(publishSnapshot)
+
+    if (
+      suppressGeneratedFloorPlanAutosaveRef.current &&
+      resolveServerHistoryDomain(publishSnapshot) === 'floorPlan'
+    ) {
+      pendingServerPublishRef.current = null
+      awaitingServerSyncRef.current = null
+      previousSnapshotRef.current = serializedSnapshot
+      hasUserEditedRef.current = false
+      suppressGeneratedFloorPlanAutosaveRef.current = false
+      setSaveStatus('synced')
+      return
+    }
 
     if (suppressNextAutosaveRef.current) {
       suppressNextAutosaveRef.current = false
@@ -3251,6 +3266,14 @@ export function useEditorPage() {
         }))
       }
       // IFC가 정상 로드되면 완료 action 문자열과 무관하게 편집 상태로 복귀해 무한 로딩을 방지한다.
+      const shouldSuppressGeneratedFloorPlanAutosave = action === 'FLOOR_PLAN_GENERATE_COMPLETED'
+      if (shouldSuppressGeneratedFloorPlanAutosave) {
+        suppressGeneratedFloorPlanAutosaveRef.current = true
+        pendingServerPublishRef.current = null
+        awaitingServerSyncRef.current = null
+        clearServerPublishRetry()
+        hasUserEditedRef.current = false
+      }
       await loadIfcFromStorageUrl(presignedUrl, { webIfcWasmPath: '/wasm/' })
       lastLoadedIfcStorageUrlRef.current = dedupeKey
       setWorkspacePhaseStatus('IFC_EDIT')
@@ -3266,7 +3289,7 @@ export function useEditorPage() {
         ifcLoadInFlightStorageUrlRef.current = null
       }
     }
-  }, [loadIfcFromStorageUrl, projectId, setFloorPlanGenerateStatusText])
+  }, [clearServerPublishRetry, loadIfcFromStorageUrl, projectId, setFloorPlanGenerateStatusText])
 
   useEffect(() => {
     handleIfcSyncMessageRef.current = (
