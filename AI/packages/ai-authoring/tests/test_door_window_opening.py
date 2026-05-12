@@ -422,14 +422,50 @@ def test_delete_wall_void_handler_deletes_parametric_window_pair():
     assert len(model.by_type("IfcRelFillsElement")) == 0
 
 
-def test_delete_wall_void_handler_rejects_direct_opening_target():
-    model, _, _ = _make_model()
+def test_delete_wall_void_handler_deletes_parametric_bare_opening():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
     opening = ifcopenshell.api.root.create_entity(
         model, ifc_class="IfcOpeningElement", name="Bare Opening"
     )
+    opening.ObjectPlacement = model.create_entity(
+        "IfcLocalPlacement",
+        PlacementRelTo=wall.ObjectPlacement,
+        RelativePlacement=model.create_entity(
+            "IfcAxis2Placement3D",
+            Location=model.create_entity("IfcCartesianPoint", Coordinates=(1.0, 0.0, 1.0)),
+        ),
+    )
+    model.create_entity(
+        "IfcRelVoidsElement",
+        GlobalId=ifcopenshell.guid.new(),
+        RelatingBuildingElement=wall,
+        RelatedOpeningElement=opening,
+    )
+    opening_id = opening.GlobalId
 
     handler = get("delete_wall_void")
-    with pytest.raises(ValueError, match="IfcOpeningElement"):
+    deleted = handler.execute(
+        model,
+        None,
+        {"expected_kind": "opening", "allowed_host_body_class": "parametric"},
+        {"global_ids": [opening_id]},
+    )
+
+    assert deleted == [opening_id]
+    assert len(model.by_type("IfcOpeningElement")) == 0
+    assert len(model.by_type("IfcRelVoidsElement")) == 0
+
+
+def test_delete_wall_void_handler_rejects_filled_opening_target():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    window = create_window_with_opening(model, storey, host_wall=wall)
+    assert window is not None
+    opening = list(window.FillsVoids)[0].RelatingOpeningElement
+
+    handler = get("delete_wall_void")
+    with pytest.raises(ValueError, match="bare IfcOpeningElement"):
         handler.execute(
             model,
             None,

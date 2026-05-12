@@ -84,6 +84,30 @@ def _host_wall_body_class(wall: ifcopenshell.entity_instance | None) -> str | No
     return None
 
 
+def _remove_opening_voids(
+    model: ifcopenshell.file,
+    opening: ifcopenshell.entity_instance,
+) -> None:
+    from ai_authoring.engine_3d import _remove_opening_boolean
+
+    for rel_void in list(getattr(opening, "VoidsElements", []) or []):
+        host = getattr(rel_void, "RelatingBuildingElement", None)
+        if host and getattr(host, "Representation", None):
+            for rep in getattr(host.Representation, "Representations", []) or []:
+                if getattr(rep, "RepresentationIdentifier", None) != "Body":
+                    continue
+                items = list(getattr(rep, "Items", []) or [])
+                if not items or not items[0].is_a("IfcBooleanResult"):
+                    continue
+                next_shape, removed = _remove_opening_boolean(items[0], opening)
+                if removed:
+                    rep.Items = [next_shape]
+                    if not next_shape.is_a("IfcBooleanResult"):
+                        rep.RepresentationType = "SweptSolid"
+                break
+        model.remove(rel_void)
+
+
 @register("delete_wall_void")
 class DeleteWallVoidHandler:
     def execute(
@@ -110,12 +134,17 @@ class DeleteWallVoidHandler:
             if expected_kind == "window" and not product.is_a("IfcWindow"):
                 raise ValueError("delete_wall_void expected an IfcWindow target")
             if product.is_a("IfcOpeningElement"):
+                if expected_kind not in (None, "opening"):
+                    raise ValueError("delete_wall_void expected an IfcOpeningElement target")
+                if list(getattr(product, "HasFillings", []) or []):
+                    raise ValueError(
+                        "delete_wall_void only supports bare IfcOpeningElement targets; "
+                        "filled openings must be deleted via their IfcDoor/IfcWindow filler"
+                    )
+            elif not (product.is_a("IfcDoor") or product.is_a("IfcWindow")):
                 raise ValueError(
-                    "delete_wall_void does not support direct IfcOpeningElement delete "
-                    "in this branch"
+                    "delete_wall_void only supports IfcDoor/IfcWindow/IfcOpeningElement targets"
                 )
-            if not (product.is_a("IfcDoor") or product.is_a("IfcWindow")):
-                raise ValueError("delete_wall_void only supports IfcDoor/IfcWindow targets")
 
             host_wall = _host_wall_for_product(product)
             # Keep this classification rule aligned with
@@ -126,6 +155,8 @@ class DeleteWallVoidHandler:
                     "delete_wall_void only supports parametric host walls in this branch"
                 )
             global_id = product.GlobalId
+            if product.is_a("IfcOpeningElement"):
+                _remove_opening_voids(model, product)
             if not delete_element(model, product, product.is_a()):
                 raise ValueError(f"delete_wall_void failed for {global_id}")
             deleted_ids.append(global_id)

@@ -218,6 +218,13 @@ def _find_delete_wall_void_target(
     return None
 
 
+_MSG_DELETE_WALL_VOID_FILLED_OPENING_UNSUPPORTED = (
+    "?ì¢ê¹®??openingì— door/window fillerê°€ ì—°ê²°ëœ ê²½ìš°ì—ëŠ” "
+    "?ê·¸ filler ìš”ì†Œë¥¼ ì§€ì •í•´ ì‚­ì œí•´ì•¼ í•©ë‹ˆë‹¤. "
+    "?ì´ ë™ìž‘ì€ í˜„ìž¬ ë°ëª¨ì—ì„œ opening ì§ì ‘ ì‚­ì œë¡œëŠ” ì§€ì›í•˜ì§€ ì•ŠìŠµë‹ˆë‹¤."
+)
+
+
 def to_ifc_commands(
     command: FloorNLPCommand,
     ifc_context: IFCContext | None = None,
@@ -342,11 +349,11 @@ def to_ifc_commands(
                 clarification_question=_MSG_DELETE_WALL_VOID_NOT_FOUND,
             )
         target_kind, target = match
-        if target_kind == "opening":
+        if target_kind == "opening" and target.get("filled_by_kind") is not None:
             return CommandBatch(
                 commands=[],
                 requires_clarification=True,
-                clarification_question=_MSG_DELETE_WALL_VOID_OPENING_UNVALIDATED,
+                clarification_question=_MSG_DELETE_WALL_VOID_FILLED_OPENING_UNSUPPORTED,
             )
         # Preview source-of-truth: ifc_context.host_wall_body_class is populated
         # by ifc_extractor._classify_wall_body and mirrored by the handler.
