@@ -6,6 +6,13 @@ export interface ThreeDCoordinates {
   z: number
 }
 
+export type ThreeDCameraViewPreset = 'top' | 'front' | 'side' | 'perspective'
+
+export interface ThreeDCameraViewPresetCommand {
+  preset: ThreeDCameraViewPreset
+  token: number
+}
+
 export interface CanvasModeRendererSectionProps {
   mode: EditorCanvasRenderProps['mode']
   zoom: EditorCanvasRenderProps['zoom']
@@ -14,6 +21,7 @@ export interface CanvasModeRendererSectionProps {
   onOpenExport: EditorCanvasRenderProps['handleOpenExportSelectionModal']
   isRotationLocked: boolean
   onThreeDCoordinatesChange: (coords: ThreeDCoordinates) => void
+  cameraViewPresetCommand: ThreeDCameraViewPresetCommand
 }
 
 export interface CanvasLabelOverlaySectionProps {
@@ -63,6 +71,9 @@ export interface CanvasZoomControlsSectionProps {
   isRotationLocked: boolean
   onToggleRotationLock: () => void
   threeDCoordinates: ThreeDCoordinates
+  selectedCameraViewPreset: ThreeDCameraViewPreset | null
+  onSelectCameraViewPreset: (preset: ThreeDCameraViewPreset) => void
+  isThreeDEditingLocked: EditorCanvasRenderProps['isThreeDEditingLocked']
 }
 
 export interface CanvasCollaborationBarSectionProps {
@@ -78,6 +89,7 @@ export function buildCanvasModeRendererSectionProps(
   renderProps: EditorCanvasRenderProps,
   isRotationLocked: boolean,
   onThreeDCoordinatesChange: (coords: ThreeDCoordinates) => void,
+  cameraViewPresetCommand: ThreeDCameraViewPresetCommand,
 ): CanvasModeRendererSectionProps {
   return {
     mode: renderProps.mode,
@@ -87,6 +99,7 @@ export function buildCanvasModeRendererSectionProps(
     onOpenExport: renderProps.handleOpenExportSelectionModal,
     isRotationLocked,
     onThreeDCoordinatesChange,
+    cameraViewPresetCommand,
   }
 }
 
@@ -142,6 +155,8 @@ export function buildCanvasZoomControlsSectionProps(
   isRotationLocked: boolean,
   onToggleRotationLock: () => void,
   threeDCoordinates: ThreeDCoordinates,
+  selectedCameraViewPreset: ThreeDCameraViewPreset | null,
+  onSelectCameraViewPreset: (preset: ThreeDCameraViewPreset) => void,
 ): CanvasZoomControlsSectionProps {
   return {
     mode: renderProps.mode,
@@ -160,6 +175,9 @@ export function buildCanvasZoomControlsSectionProps(
     isRotationLocked,
     onToggleRotationLock,
     threeDCoordinates,
+    selectedCameraViewPreset,
+    onSelectCameraViewPreset,
+    isThreeDEditingLocked: renderProps.isThreeDEditingLocked,
   }
 }
 

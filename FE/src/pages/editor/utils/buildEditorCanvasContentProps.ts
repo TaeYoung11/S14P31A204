@@ -115,6 +115,7 @@ function buildFloorPlanProps(
   | 'selectedIfcElement'
   | 'threeDDeleteRequestToken'
   | 'ifcElementChanges'
+  | 'isThreeDEditingLocked'
   | 'currentIfcUrl'
   | 'currentIfcAssetId'
   | 'localFloorData'
@@ -134,6 +135,7 @@ function buildFloorPlanProps(
     selectedIfcElement: vm.selectedIfcElement,
     threeDDeleteRequestToken: vm.threeDDeleteRequestToken,
     ifcElementChanges: vm.ifcElementChanges,
+    isThreeDEditingLocked: vm.isThreeDEditingLocked,
     currentIfcUrl: vm.currentIfcUrl,
     currentIfcAssetId: vm.currentIfcAssetId,
     localFloorData: vm.localFloorData,

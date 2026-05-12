@@ -64,6 +64,7 @@ type FloorPlanCanvasProps = Pick<
   | 'selectedIfcElement'
   | 'threeDDeleteRequestToken'
   | 'ifcElementChanges'
+  | 'isThreeDEditingLocked'
   | 'currentIfcUrl'
   | 'currentIfcAssetId'
   | 'localFloorData'

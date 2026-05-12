@@ -2,25 +2,41 @@ import { useEffect, useState } from 'react'
 import { CheckCircle2, Download, FileCode2, X } from 'lucide-react'
 import type { IfcElementChange } from '../../types'
 import { applyIfcElementChanges, downloadIfcText } from '../../services/ifcChange.service'
+import { normalizeIfcSourceName, resolveIfcPresignedUrl } from '../../utils/ifcSource'
 
 interface IFCExportModalProps {
   isOpen: boolean
   onClose: () => void
   ifcElementChanges?: IfcElementChange[]
+  sourceIfcUrl?: string | null
+  sourceIfcAssetId?: string | null
 }
 
-export function IFCExportModal({ isOpen, onClose, ifcElementChanges = [] }: IFCExportModalProps) {
+export function IFCExportModal({
+  isOpen,
+  onClose,
+  ifcElementChanges = [],
+  sourceIfcUrl = null,
+  sourceIfcAssetId = null,
+}: IFCExportModalProps) {
   if (!isOpen) return null
 
   return (
     <IFCExportModalContent
       onClose={onClose}
       ifcElementChanges={ifcElementChanges}
+      sourceIfcUrl={sourceIfcUrl}
+      sourceIfcAssetId={sourceIfcAssetId}
     />
   )
 }
 
-function IFCExportModalContent({ onClose, ifcElementChanges = [] }: Omit<IFCExportModalProps, 'isOpen'>) {
+function IFCExportModalContent({
+  onClose,
+  ifcElementChanges = [],
+  sourceIfcUrl = null,
+  sourceIfcAssetId = null,
+}: Omit<IFCExportModalProps, 'isOpen'>) {
   const [progress, setProgress] = useState(0)
   const [isDownloading, setIsDownloading] = useState(false)
   const done = progress >= 100
@@ -42,12 +58,16 @@ function IFCExportModalContent({ onClose, ifcElementChanges = [] }: Omit<IFCExpo
   const handleDownload = async () => {
     setIsDownloading(true)
     try {
-      const response = await fetch('/mock/shinchan_house.ifc')
+      const resolvedIfcUrl = sourceIfcUrl
+        ? await resolveIfcPresignedUrl(sourceIfcUrl, sourceIfcAssetId ?? undefined)
+        : '/mock/shinchan_house.ifc'
+      const response = await fetch(resolvedIfcUrl)
       const sourceIfcText = await response.text()
       const nextIfcText = ifcElementChanges.length > 0
         ? await applyIfcElementChanges(sourceIfcText, ifcElementChanges)
         : sourceIfcText
-      downloadIfcText('project_export.ifc', nextIfcText)
+      const filename = sourceIfcUrl ? normalizeIfcSourceName(sourceIfcUrl, 'project_export.ifc') : 'project_export.ifc'
+      downloadIfcText(filename, nextIfcText)
       onClose()
     } finally {
       setIsDownloading(false)

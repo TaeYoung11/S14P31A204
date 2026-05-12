@@ -15,6 +15,7 @@ export default function CanvasModeRenderer({
   onOpenExport,
   isRotationLocked,
   onThreeDCoordinatesChange,
+  cameraViewPresetCommand,
 }: CanvasModeRendererSectionProps) {
   const scale = canvasZoom / 100
 
@@ -33,6 +34,7 @@ export default function CanvasModeRenderer({
         scale={scale}
         isRotationLocked={isRotationLocked}
         onThreeDCoordinatesChange={onThreeDCoordinatesChange}
+        cameraViewPresetCommand={cameraViewPresetCommand}
       />
     )
   }

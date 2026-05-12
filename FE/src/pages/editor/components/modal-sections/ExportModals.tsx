@@ -13,6 +13,8 @@ type ExportModalsProps = Pick<
   | 'isIFCExportModalOpen'
   | 'onCloseIFCExportModal'
   | 'ifcElementChanges'
+  | 'currentIfcUrl'
+  | 'currentIfcAssetId'
 >
 
 /** 내보내기 관련 모달 묶음 */
@@ -25,6 +27,8 @@ export default function ExportModals({
   isIFCExportModalOpen,
   onCloseIFCExportModal,
   ifcElementChanges,
+  currentIfcUrl,
+  currentIfcAssetId,
 }: ExportModalsProps) {
   return (
     <>
@@ -44,9 +48,14 @@ export default function ExportModals({
       )}
 
       {isIFCExportModalOpen && (
-        <IFCExportModal isOpen onClose={onCloseIFCExportModal} ifcElementChanges={ifcElementChanges} />
+        <IFCExportModal
+          isOpen
+          onClose={onCloseIFCExportModal}
+          ifcElementChanges={ifcElementChanges}
+          sourceIfcUrl={currentIfcUrl}
+          sourceIfcAssetId={currentIfcAssetId}
+        />
       )}
     </>
   )
 }
-

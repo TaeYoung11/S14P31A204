@@ -11,6 +11,7 @@ interface BubbleSidebarToolsProps {
   canAutoLayoutBubbles: boolean
   isFloorPlanGenerated: boolean
   hasDeletableSelection: boolean
+  isDeleteActionLocked?: boolean
   onToolSelect: (tool: string) => void
   onAddSpace: () => void
   onGenerateFloorPlan?: () => void
@@ -29,6 +30,7 @@ export default function BubbleSidebarTools({
   canAutoLayoutBubbles,
   isFloorPlanGenerated,
   hasDeletableSelection,
+  isDeleteActionLocked = false,
   onToolSelect,
   onAddSpace,
   onGenerateFloorPlan,
@@ -96,7 +98,7 @@ export default function BubbleSidebarTools({
         onToolSelect={onToolSelect}
         hasDeletableSelection={hasDeletableSelection}
         onDeleteSelected={onDeleteSelected}
-        disabled={isBubbleReadOnly}
+        disabled={isBubbleReadOnly || isDeleteActionLocked}
       />
     </>
   )
