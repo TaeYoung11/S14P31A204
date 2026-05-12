@@ -4,6 +4,8 @@ import com.a204.batang.domain.auth.entity.Member;
 import com.a204.batang.domain.auth.entity.UserStatus;
 import com.a204.batang.domain.auth.entity.UserType;
 import com.a204.batang.domain.auth.repository.MemberRepository;
+import com.a204.batang.domain.notification.entity.ProjectInvitationNotification;
+import com.a204.batang.domain.notification.repository.ProjectInvitationNotificationRepository;
 import com.a204.batang.domain.project.dto.ProjectInvitationRequest;
 import com.a204.batang.domain.project.dto.ProjectInvitationResponse;
 import com.a204.batang.domain.project.entity.Project;
@@ -48,6 +50,9 @@ class ProjectInvitationServiceTest {
     private MemberRepository memberRepository;
 
     @Mock
+    private ProjectInvitationNotificationRepository projectInvitationNotificationRepository;
+
+    @Mock
     private ProjectAccessService projectAccessService;
 
     @InjectMocks
@@ -58,6 +63,7 @@ class ProjectInvitationServiceTest {
     private UUID inviteeUserId;
 
     private Project project;
+    private Member owner;
     private Member invitee;
 
     @BeforeEach
@@ -69,6 +75,7 @@ class ProjectInvitationServiceTest {
         project = Project.create("test-project", "desc", ownerUserId);
         ReflectionTestUtils.setField(project, "projectId", projectId);
 
+        owner = createMember(ownerUserId, "owner@example.com", UserStatus.ACTIVE);
         invitee = createMember(inviteeUserId, "client@example.com", UserStatus.ACTIVE);
     }
 
@@ -84,6 +91,7 @@ class ProjectInvitationServiceTest {
                 inviteeUserId,
                 ProjectMemberRole.CLIENT
         )).willReturn(false);
+        given(memberRepository.findById(ownerUserId)).willReturn(Optional.of(owner));
 
         ProjectInvitationResponse response = projectInvitationService.inviteProjectMember(projectId, request);
 
@@ -99,6 +107,18 @@ class ProjectInvitationServiceTest {
         assertThat(savedProjectMember.getProject()).isSameAs(project);
         assertThat(savedProjectMember.getUserId()).isEqualTo(inviteeUserId);
         assertThat(savedProjectMember.getMemberRole()).isEqualTo(ProjectMemberRole.CLIENT);
+
+        ArgumentCaptor<ProjectInvitationNotification> notificationCaptor =
+                ArgumentCaptor.forClass(ProjectInvitationNotification.class);
+        verify(projectInvitationNotificationRepository).save(notificationCaptor.capture());
+        ProjectInvitationNotification savedNotification = notificationCaptor.getValue();
+        assertThat(savedNotification.getRecipientUserId()).isEqualTo(inviteeUserId);
+        assertThat(savedNotification.getInviterUserId()).isEqualTo(ownerUserId);
+        assertThat(savedNotification.getProjectId()).isEqualTo(projectId);
+        assertThat(savedNotification.getProjectName()).isEqualTo(project.getName());
+        assertThat(savedNotification.getInviterName()).isEqualTo(owner.getName());
+        assertThat(savedNotification.isRead()).isFalse();
+        assertThat(savedNotification.getReadAt()).isNull();
     }
 
     @Test
@@ -115,6 +135,7 @@ class ProjectInvitationServiceTest {
 
         verifyNoInteractions(memberRepository);
         verify(projectMemberRepository, never()).saveAndFlush(any(ProjectMember.class));
+        verify(projectInvitationNotificationRepository, never()).save(any(ProjectInvitationNotification.class));
     }
 
     @Test
@@ -131,6 +152,7 @@ class ProjectInvitationServiceTest {
         verifyNoInteractions(projectRepository);
         verifyNoInteractions(memberRepository);
         verify(projectMemberRepository, never()).saveAndFlush(any(ProjectMember.class));
+        verify(projectInvitationNotificationRepository, never()).save(any(ProjectInvitationNotification.class));
     }
 
     @Test
@@ -151,6 +173,7 @@ class ProjectInvitationServiceTest {
 
         verifyNoInteractions(memberRepository);
         verify(projectMemberRepository, never()).saveAndFlush(any(ProjectMember.class));
+        verify(projectInvitationNotificationRepository, never()).save(any(ProjectInvitationNotification.class));
     }
 
     @Test
@@ -167,6 +190,7 @@ class ProjectInvitationServiceTest {
                 .isEqualTo(ErrorCode.INVITEE_NOT_FOUND);
 
         verify(projectMemberRepository, never()).saveAndFlush(any(ProjectMember.class));
+        verify(projectInvitationNotificationRepository, never()).save(any(ProjectInvitationNotification.class));
     }
 
     @Test
@@ -184,6 +208,7 @@ class ProjectInvitationServiceTest {
                 .isEqualTo(ErrorCode.USER_NOT_ACTIVE);
 
         verify(projectMemberRepository, never()).saveAndFlush(any(ProjectMember.class));
+        verify(projectInvitationNotificationRepository, never()).save(any(ProjectInvitationNotification.class));
     }
 
     @Test
@@ -201,6 +226,7 @@ class ProjectInvitationServiceTest {
                 .isEqualTo(ErrorCode.SELF_INVITATION_NOT_ALLOWED);
 
         verify(projectMemberRepository, never()).saveAndFlush(any(ProjectMember.class));
+        verify(projectInvitationNotificationRepository, never()).save(any(ProjectInvitationNotification.class));
     }
 
     @Test
@@ -222,6 +248,7 @@ class ProjectInvitationServiceTest {
                 .isEqualTo(ErrorCode.PROJECT_MEMBER_ALREADY_EXISTS);
 
         verify(projectMemberRepository, never()).saveAndFlush(any(ProjectMember.class));
+        verify(projectInvitationNotificationRepository, never()).save(any(ProjectInvitationNotification.class));
     }
 
     @Test
@@ -236,6 +263,7 @@ class ProjectInvitationServiceTest {
                 inviteeUserId,
                 ProjectMemberRole.CLIENT
         )).willReturn(false);
+        given(memberRepository.findById(ownerUserId)).willReturn(Optional.of(owner));
         given(projectMemberRepository.saveAndFlush(any(ProjectMember.class)))
                 .willThrow(new DataIntegrityViolationException("duplicate"));
 
@@ -243,6 +271,8 @@ class ProjectInvitationServiceTest {
                 .isInstanceOf(CustomException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.PROJECT_MEMBER_ALREADY_EXISTS);
+
+        verify(projectInvitationNotificationRepository, never()).save(any(ProjectInvitationNotification.class));
     }
 
     private Member createMember(UUID userId, String email, UserStatus status) {
