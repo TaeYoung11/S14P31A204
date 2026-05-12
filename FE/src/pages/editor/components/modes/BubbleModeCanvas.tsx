@@ -26,6 +26,8 @@ export default function BubbleModeCanvas({ editorProps, scale }: BubbleModeCanva
       connectingFromId={editorProps.connectingFromId}
       onEditZone={editorProps.openEditModal}
       onBubbleDrag={editorProps.handleBubbleDrag}
+      onBubbleDragStart={editorProps.handleBubbleDragStart}
+      onBubbleDragEnd={editorProps.handleBubbleDragEnd}
       onBubbleSelect={editorProps.handleBubbleSelectWithTool}
       onDeleteBubble={editorProps.handleDeleteBubble}
       onConnectionClick={editorProps.handleConnectionClick}

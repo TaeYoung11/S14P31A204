@@ -265,7 +265,10 @@ type ImportedRoom = {
   type: string
   floor: string
   polygon: FloorProjectPoint2D[]
-  metadata: null
+  areaM2?: number
+  grossAreaM2?: number
+  netAreaM2?: number
+  metadata: Record<string, unknown> | null
 }
 
 interface ImportedWall {
@@ -310,6 +313,62 @@ const resolveWallStoreyMap = (entities: Map<number, StepEntity>): Map<number, nu
     })
   }
   return mapping
+}
+
+const normalizeQuantityName = (value: string | null): string => (value ?? '').replace(/[\s_-]+/g, '').toLowerCase()
+
+const readAreaQuantityM2 = (
+  quantityRef: number,
+  entities: Map<number, StepEntity>,
+  areaMultiplier: number,
+): { key: 'areaM2' | 'grossAreaM2' | 'netAreaM2'; value: number } | null => {
+  const quantity = entities.get(quantityRef)
+  if (!quantity || quantity.type !== 'IFCQUANTITYAREA') return null
+
+  const name = normalizeQuantityName(parseStepString(quantity.args[0] ?? ''))
+  const rawArea = parseStepNumber(quantity.args[3] ?? '')
+  if (rawArea === null || rawArea <= 0) return null
+
+  const value = rawArea * areaMultiplier
+  if (!Number.isFinite(value) || value <= 0) return null
+
+  if (name === 'grossfloorarea' || name === 'grossarea') return { key: 'grossAreaM2', value }
+  if (name === 'netfloorarea' || name === 'netarea') return { key: 'netAreaM2', value }
+  if (name === 'area' || name === 'floorarea') return { key: 'areaM2', value }
+  return null
+}
+
+const resolveSpaceAreaMap = (
+  entities: Map<number, StepEntity>,
+  areaMultiplier: number,
+): Map<number, { areaM2?: number; grossAreaM2?: number; netAreaM2?: number }> => {
+  const result = new Map<number, { areaM2?: number; grossAreaM2?: number; netAreaM2?: number }>()
+
+  for (const entity of entities.values()) {
+    if (entity.type !== 'IFCRELDEFINESBYPROPERTIES') continue
+    const relatedRefs = parseStepRefList(entity.args[4] ?? '')
+    const propertyDefinitionRef = parseStepRef(entity.args[5] ?? '$')
+    const propertyDefinition = entities.get(propertyDefinitionRef ?? -1)
+    if (!propertyDefinition || propertyDefinition.type !== 'IFCELEMENTQUANTITY') continue
+
+    const quantityRefs = parseStepRefList(propertyDefinition.args[5] ?? propertyDefinition.args[4] ?? '')
+    if (quantityRefs.length === 0) continue
+
+    const areaValues: { areaM2?: number; grossAreaM2?: number; netAreaM2?: number } = {}
+    quantityRefs.forEach((quantityRef) => {
+      const area = readAreaQuantityM2(quantityRef, entities, areaMultiplier)
+      if (area) areaValues[area.key] = area.value
+    })
+    if (!areaValues.areaM2 && !areaValues.grossAreaM2 && !areaValues.netAreaM2) continue
+
+    relatedRefs.forEach((relatedRef) => {
+      const related = entities.get(relatedRef)
+      if (!related || related.type !== 'IFCSPACE') return
+      result.set(relatedRef, { ...result.get(relatedRef), ...areaValues })
+    })
+  }
+
+  return result
 }
 
 interface ShapeRepresentationData {
@@ -566,6 +625,7 @@ export const parseIfcToFloorProject = (
   }
 
   const spaceStoreyMap = resolveSpaceStoreyMap(entities)
+  const spaceAreaMap = resolveSpaceAreaMap(entities, (lengthMultiplier * lengthMultiplier) / 1_000_000)
   const placementCache = new Map<number, Affine2D>()
   const spaces = Array.from(entities.values()).filter((entity) => entity.type === 'IFCSPACE')
 
@@ -583,6 +643,7 @@ export const parseIfcToFloorProject = (
 
       const name = parseStepString(space.args[2] ?? '') ?? globalId
       const objectType = parseStepString(space.args[4] ?? '$')
+      const areaValues = spaceAreaMap.get(spaceEntityRef)
       const polygon = extractSpacePolygon(space, entities, placementCache)
         .map((point) => ({
           x: roundMm(point.x * lengthMultiplier),
@@ -597,7 +658,10 @@ export const parseIfcToFloorProject = (
         type: normalizeIfcRoomType(objectType),
         floor: floorId,
         polygon,
-        metadata: null,
+        ...(areaValues?.areaM2 ? { areaM2: areaValues.areaM2 } : {}),
+        ...(areaValues?.grossAreaM2 ? { grossAreaM2: areaValues.grossAreaM2 } : {}),
+        ...(areaValues?.netAreaM2 ? { netAreaM2: areaValues.netAreaM2 } : {}),
+        metadata: areaValues ? { ...areaValues } : null,
       }
     })
     .filter((room): room is ImportedRoom => room !== null)

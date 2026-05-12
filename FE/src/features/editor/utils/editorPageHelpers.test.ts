@@ -67,6 +67,11 @@ describe('buildFloorPlanLayoutImportPayload', () => {
     expect(payload.rooms).toHaveLength(1)
     expect(payload.rooms[0].x).toBeCloseTo(600)
     expect(payload.rooms[0].y).toBeCloseTo(600)
+    expect(payload.rooms[0]).toMatchObject({
+      id: 'room-a',
+      sourceBubbleId: 'room-a',
+      source_bubble_id: 'room-a',
+    })
     assertLayoutImportV2(payload)
   })
 

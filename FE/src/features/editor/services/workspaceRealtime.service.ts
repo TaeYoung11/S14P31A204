@@ -1,7 +1,7 @@
 import { ensureStompConnected } from '@/shared/lib/stomp'
-import type { BubbleData, ConnectionData, ConnectionStyle, EditorDraftSnapshot } from '../types'
+import type { BubbleData, ConnectionData, ConnectionStyle, WorkspaceSnapshot } from '../types'
 
-type FloorPlanSceneType = 'TWO_D' | 'THREE_D'
+export type FloorPlanSceneType = 'TWO_D' | 'THREE_D'
 
 interface WorkspaceBubblePayload {
   bubbles: Array<{
@@ -29,25 +29,28 @@ interface WorkspaceFloorPlanPayload extends WorkspaceBubblePayload {
   sceneType: FloorPlanSceneType
   revisionId?: string | null
   layout: {
-    phaseStatus: EditorDraftSnapshot['phaseStatus']
-    floorLayers: EditorDraftSnapshot['floorLayers']
-    activeFloorLayerId: EditorDraftSnapshot['activeFloorLayerId']
-    isFloorPlanGenerated: EditorDraftSnapshot['isFloorPlanGenerated']
-    floorPlanLayoutSource: EditorDraftSnapshot['floorPlanLayoutSource']
-    floorWalls: EditorDraftSnapshot['floorWalls']
-    floorOpenings: EditorDraftSnapshot['floorOpenings']
-    hiddenAutoWallIds: EditorDraftSnapshot['hiddenAutoWallIds']
-    hiddenAutoOpeningIds: EditorDraftSnapshot['hiddenAutoOpeningIds']
-    isProjectStructurePreferred: EditorDraftSnapshot['isProjectStructurePreferred']
+    phaseStatus: WorkspaceSnapshot['phaseStatus']
+    floorLayers: WorkspaceSnapshot['floorLayers']
+    activeFloorLayerId: WorkspaceSnapshot['activeFloorLayerId']
+    isFloorPlanGenerated: WorkspaceSnapshot['isFloorPlanGenerated']
+    floorPlanLayoutSource: WorkspaceSnapshot['floorPlanLayoutSource']
+    floorWalls: WorkspaceSnapshot['floorWalls']
+    floorOpenings: WorkspaceSnapshot['floorOpenings']
+    hiddenAutoWallIds: WorkspaceSnapshot['hiddenAutoWallIds']
+    hiddenAutoOpeningIds: WorkspaceSnapshot['hiddenAutoOpeningIds']
+    isProjectStructurePreferred: WorkspaceSnapshot['isProjectStructurePreferred']
+    ifcElementChanges: WorkspaceSnapshot['ifcElementChanges']
+    mode: 'ifc'
     baseIndex: number
   }
 }
 
 export interface PublishWorkspaceSnapshotInput {
   projectId: string
-  snapshot: EditorDraftSnapshot
+  snapshot: WorkspaceSnapshot
   baseIndex: number
   revisionId?: string | null
+  sceneType?: FloorPlanSceneType
 }
 
 const normalizePositiveNumber = (value: number, fallback: number): number => {
@@ -89,7 +92,7 @@ const normalizeConnections = (
 }
 
 const toBubblePayload = (
-  snapshot: EditorDraftSnapshot,
+  snapshot: WorkspaceSnapshot,
   baseIndex: number,
 ): WorkspaceBubblePayload => {
   const bubbles = snapshot.bubbles.map(toWorkspaceBubble)
@@ -101,12 +104,13 @@ const toBubblePayload = (
 }
 
 const toTwoDFloorPlanPayload = (
-  snapshot: EditorDraftSnapshot,
+  snapshot: WorkspaceSnapshot,
   baseIndex: number,
   revisionId?: string | null,
+  sceneType: FloorPlanSceneType = 'TWO_D',
 ): WorkspaceFloorPlanPayload => ({
   ...toBubblePayload(snapshot, baseIndex),
-  sceneType: 'TWO_D',
+  sceneType,
   revisionId,
   layout: {
     phaseStatus: snapshot.phaseStatus,
@@ -119,6 +123,8 @@ const toTwoDFloorPlanPayload = (
     hiddenAutoWallIds: snapshot.hiddenAutoWallIds,
     hiddenAutoOpeningIds: snapshot.hiddenAutoOpeningIds,
     isProjectStructurePreferred: snapshot.isProjectStructurePreferred,
+    ifcElementChanges: snapshot.ifcElementChanges,
+    mode: 'ifc',
     baseIndex,
   },
 })
@@ -140,8 +146,14 @@ export const workspaceRealtimeService = {
     snapshot,
     baseIndex,
     revisionId,
+    sceneType,
   }: PublishWorkspaceSnapshotInput): Promise<void> => {
-    if (snapshot.phaseStatus === 'BUBBLE_DRAFT') {
+    const shouldPublishBubbleSnapshot =
+      snapshot.phaseStatus === 'BUBBLE_DRAFT' &&
+      !snapshot.isFloorPlanGenerated &&
+      snapshot.floorPlanLayoutSource === null
+
+    if (shouldPublishBubbleSnapshot) {
       return publishJson(
         `/app/project/${projectId}/bubble/update`,
         toBubblePayload(snapshot, baseIndex),
@@ -150,7 +162,7 @@ export const workspaceRealtimeService = {
 
     return publishJson(
       `/app/project/${projectId}/floor-plan/update`,
-      toTwoDFloorPlanPayload(snapshot, baseIndex, revisionId),
+      toTwoDFloorPlanPayload(snapshot, baseIndex, revisionId, sceneType),
     )
   },
 }

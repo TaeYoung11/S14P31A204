@@ -1,3 +1,4 @@
+// IFC STEP 문자열 디코딩 유틸을 검증하는 테스트
 import { describe, expect, it } from 'vitest'
 import { decodeIfcStepString, normalizeIfcDisplayText } from './ifcStepString.ts'
 
