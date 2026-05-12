@@ -6,7 +6,7 @@ Ack ordering guarantee:
   3. handler(command) is called. BaseWorker.handle() publishes events internally.
      If publisher.publish() raises, the exception propagates here.
   4. handler() returns normally → message.ack()   ← only place ack is issued.
-  5. handler() raises          → message.nack(requeue=True), no ack.
+  5. handler() raises          → message.reject(requeue=True), requeue for retry.
 
 prefetch_count=1 ensures at most one unacked message per worker process,
 preventing pipeline overflow during error recovery.
@@ -122,7 +122,7 @@ class RabbitMQConsumer(ConsumerMixinBase):
                 idempotencyKey=getattr(command, "idempotencyKey", None),
                 error=str(exc),
             )
-            message.nack(requeue=True)
+            message.reject(requeue=True)
 
     def _mark_processed(self) -> None:
         self._processed_count += 1

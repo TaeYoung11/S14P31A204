@@ -146,6 +146,7 @@ def test_renderer_calls_depth_buffer() -> None:
             "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
             side_effect=lambda m: m,
         ),
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
         vis = MagicMock()
@@ -180,6 +181,7 @@ def test_render_views_loads_mesh_once() -> None:
             "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
             side_effect=lambda m: m,
         ),
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
         vis = MagicMock()
@@ -251,6 +253,7 @@ def test_renderer_default_uses_static_zoom() -> None:
             "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
             side_effect=lambda m: m,
         ),
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
         vis = MagicMock()
@@ -296,6 +299,7 @@ def test_iterative_zoom_converges_when_target_reached() -> None:
             "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
             side_effect=lambda m: m,
         ),
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
         vis = MagicMock()
@@ -335,6 +339,7 @@ def test_iterative_zoom_max_iter_caps() -> None:
             "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
             side_effect=lambda m: m,
         ),
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
         vis = MagicMock()
@@ -624,6 +629,7 @@ def test_renderer_passes_front_diagonal_ground_extent_override_only_for_diagonal
             "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
             side_effect=fake_attach,
         ),
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
         vis = MagicMock()
@@ -901,6 +907,7 @@ def test_render_passes_base_mesh_to_resolve_target_ratio() -> None:
             return_value=inflated_mesh,
         ),
         patch.object(IFCRenderer, "_resolve_target_ratio", spy),
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
         vis = MagicMock()
@@ -932,6 +939,7 @@ def test_render_uses_static_view_camera() -> None:
             "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
             side_effect=lambda m: m,
         ),
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
         patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
     ):
         vis = MagicMock()
