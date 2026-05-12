@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import type { ConnectionData, ConnectionStyle, ConnectionPair } from '../types'
 import { INITIAL_BUBBLES } from '../constants'
 
@@ -97,9 +97,9 @@ export function useConnections() {
   }
 
   /** 외부 연산(예: AI 미리보기 적용) 결과로 연결선 목록 일괄 교체 */
-  const replaceConnections = (nextConnections: ConnectionData[]) => {
+  const replaceConnections = useCallback((nextConnections: ConnectionData[]) => {
     setConnections(nextConnections)
-  }
+  }, [])
 
   return {
     connections,

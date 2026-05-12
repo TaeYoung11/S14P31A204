@@ -85,6 +85,8 @@ import { runForceDirectedBubbleLayout } from '../utils/forceBubbleLayout'
 import { useBubbleSnapshotRealtime } from './useBubbleSnapshotRealtime'
 import { useIfcLoadingLayer } from './useIfcLoadingLayer'
 import type { FloorPlan3DData } from '../utils/floorPlanTo3D'
+import type { IfcStoreyInfo } from '../components/canvas/thatopen/ifcPropertyParser'
+import type { ThreeDLibraryPreset } from '../components/canvas/threeDLibrary.types'
 import {
   buildFloorPlanLayoutImportPayload,
   collectAutoDoorOpeningIdsFromWallIds,
@@ -138,6 +140,14 @@ export function useEditorPage() {
   const { currentProjectName } = useEditorProjectName(projectId)
   const mode = resolveEditorMode(searchParams.get('mode'))
   const [selectedIfcElement, setSelectedIfcElement] = useState<IfcElementInfo | null>(null)
+  /** 계층구조 패널에서 특정 IFC 요소 선택을 3D 캔버스로 전달하는 요청 localId */
+  const [requestedIfcElementLocalId, setRequestedIfcElementLocalId] = useState<number | null>(null)
+  /** 계층구조 요소 선택 요청 트리거 토큰 (같은 localId 재선택 강제 반영용) */
+  const [ifcElementSelectionRequestToken, setIfcElementSelectionRequestToken] = useState(0)
+  /** 계층구조 패널에서 특정 라이브러리 요소 선택을 3D 캔버스로 전달하는 요청 id */
+  const [requestedLibraryElementId, setRequestedLibraryElementId] = useState<string | null>(null)
+  /** 계층구조 라이브러리 요소 선택 요청 토큰 */
+  const [libraryElementSelectionRequestToken, setLibraryElementSelectionRequestToken] = useState(0)
   /** 3D 사이드바 삭제 버튼으로 선택 요소 삭제를 요청하는 트리거 */
   const [threeDDeleteRequestToken, setThreeDDeleteRequestToken] = useState(0)
   const [ifcElementChangesById, setIfcElementChangesById] = useState<Record<number, IfcElementChange>>({})
@@ -453,6 +463,7 @@ export function useEditorPage() {
   const [commentPins, setCommentPins] = useState<FloorCommentPin[]>([])
   const [commentNotifications, setCommentNotifications] = useState<FloorCommentNotification[]>([])
   const [isLibraryOpen, setIsLibraryOpen] = useState(false)
+  const [libraryElements, setLibraryElements] = useState<ThreeDLibraryPreset[]>([])
   const [isGridVisible, setIsGridVisible] = useState(false)
   const [selectedTool, setSelectedTool] = useState<string>('selection')
   /** 연결 도구에서 첫 번째로 선택된 버블 id */
@@ -601,31 +612,26 @@ export function useEditorPage() {
     },
   })
 
-  // Shift+L: 층 겹쳐보기 모드 토글 (2D/3D 전용)
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-      if (e.repeat) return
-      if (!e.shiftKey || e.code !== 'KeyL') return
-      if (mode !== '2d' && mode !== '3d') return
-      e.preventDefault()
-      setIsLayerOverlayMode((prev) => !prev)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [mode])
-
   useEffect(() => {
     const layerIdSet = new Set(floorLayers.map((layer) => layer.id))
     const syncTimer = window.setTimeout(() => {
-      setOverlayLayerIds((prev) =>
-        prev.filter((layerId) => layerIdSet.has(layerId) && layerId !== activeFloorLayerId),
-      )
+      setOverlayLayerIds((prev) => {
+        const next = prev.filter((layerId) => layerIdSet.has(layerId) && layerId !== activeFloorLayerId)
+        if (next.length === prev.length && next.every((layerId, index) => layerId === prev[index])) {
+          return prev
+        }
+        return next
+      })
       setOverlayOpacityByLayerId((prev) => {
         const next: Record<string, number> = {}
         floorLayers.forEach((layer) => {
           next[layer.id] = prev[layer.id] ?? 0.35
         })
+        // 값이 달라지지 않았으면 동일 참조를 반환해 불필요한 리렌더를 방지한다.
+        const keys = Object.keys(next)
+        if (keys.length === Object.keys(prev).length && keys.every((k) => prev[k] === next[k])) {
+          return prev
+        }
         return next
       })
       if (floorLayers.length === 0) {
@@ -637,7 +643,8 @@ export function useEditorPage() {
 
   /** 자동 생성된 2D 방 경계선을 벽 데이터로 파생 (속성 편집 승격용) */
   // 자동 벽 파생은 단일 유틸 구현을 사용해 2D 캔버스와 동일 규칙을 유지한다.
-  const autoFloorWalls = deriveAutoWallsFromRooms(floorRooms)
+  // floorRooms가 바뀔 때만 재계산해 매 렌더마다 새 참조가 생기는 것을 방지한다.
+  const autoFloorWalls = useMemo(() => deriveAutoWallsFromRooms(floorRooms), [floorRooms])
   const shouldUseAutoWalls = !isProjectStructurePreferred || floorWalls.length === 0
   const autoFloorWallsForMerge = useMemo(
     () => (shouldUseAutoWalls ? autoFloorWalls : []),
@@ -1397,6 +1404,97 @@ export function useEditorPage() {
   // 3D 생성 모달
   const [isGenerate3DModalOpen, setIsGenerate3DModalOpen] = useState(false)
   const [localFloorData, setLocalFloorData] = useState<FloorPlan3DData | null>(null)
+  // IFC 기반 3D에서 파싱된 건물 층(IfcBuildingStorey) 목록
+  const [ifcStoreys, setIfcStoreys] = useState<IfcStoreyInfo[]>([])
+  // 현재 표시 중인 IFC 층 expressId (null = 전체 표시)
+  const [activeIfcStoreyExpressId, setActiveIfcStoreyExpressId] = useState<number | null>(null)
+  // 겹쳐보기로 함께 표시할 IFC 층 expressId 목록
+  const [overlayIfcStoreyExpressIds, setOverlayIfcStoreyExpressIds] = useState<number[]>([])
+  const validIfcStoreyIdSet = useMemo(
+    () => new Set(ifcStoreys.map((storey) => storey.expressId)),
+    [ifcStoreys],
+  )
+
+  // IFC 층보기 투명도 키를 별도로 동기화한다.
+  // 기존 2D floorLayers 기반 동기화는 유지하고, 3D IFC 층 ID 키만 확장한다.
+  useEffect(() => {
+    if (ifcStoreys.length === 0) return
+    const syncTimer = window.setTimeout(() => {
+      setOverlayOpacityByLayerId((prev) => {
+        let hasChanged = false
+        const next = { ...prev }
+        ifcStoreys.forEach((storey) => {
+          const key = String(storey.expressId)
+          if (!Number.isFinite(next[key])) {
+            next[key] = 0.35
+            hasChanged = true
+          }
+        })
+        return hasChanged ? next : prev
+      })
+    }, 0)
+    return () => window.clearTimeout(syncTimer)
+  }, [ifcStoreys])
+
+  // IFC 층 상태 정합성 보정:
+  // - 존재하지 않는 층 ID 제거
+  // - 활성 층과 겹쳐보기 중복 제거
+  // - 겹쳐보기 목록 중복 제거
+  useEffect(() => {
+    const syncTimer = window.setTimeout(() => {
+      if (validIfcStoreyIdSet.size === 0) {
+        if (activeIfcStoreyExpressId !== null) setActiveIfcStoreyExpressId(null)
+        if (overlayIfcStoreyExpressIds.length > 0) setOverlayIfcStoreyExpressIds([])
+        return
+      }
+
+      setActiveIfcStoreyExpressId((prev) => {
+        if (prev == null) return prev
+        return validIfcStoreyIdSet.has(prev) ? prev : null
+      })
+      setOverlayIfcStoreyExpressIds((prev) => {
+        const next: number[] = []
+        const seen = new Set<number>()
+        prev.forEach((id) => {
+          if (!Number.isFinite(id)) return
+          if (!validIfcStoreyIdSet.has(id)) return
+          if (activeIfcStoreyExpressId != null && id === activeIfcStoreyExpressId) return
+          if (seen.has(id)) return
+          seen.add(id)
+          next.push(id)
+        })
+        if (next.length === prev.length && next.every((id, index) => id === prev[index])) return prev
+        return next
+      })
+    }, 0)
+    return () => window.clearTimeout(syncTimer)
+  }, [validIfcStoreyIdSet, activeIfcStoreyExpressId, overlayIfcStoreyExpressIds.length])
+
+  // 3D 이탈 시 3D 선택 요청 트리거를 정리해 재진입 시 stale 요청이 재적용되는 현상을 막는다.
+  useEffect(() => {
+    if (mode === '3d') return
+    const resetTimer = window.setTimeout(() => {
+      setRequestedIfcElementLocalId((prev) => (prev === null ? prev : null))
+      setIfcElementSelectionRequestToken((prev) => (prev === 0 ? prev : 0))
+      setRequestedLibraryElementId((prev) => (prev === null ? prev : null))
+      setLibraryElementSelectionRequestToken((prev) => (prev === 0 ? prev : 0))
+    }, 0)
+    return () => window.clearTimeout(resetTimer)
+  }, [mode])
+
+  // 3D 모드(로컬, IFC 없음)에서 활성 층이 바뀌면 해당 층의 방·벽 데이터로 localFloorData를 갱신한다.
+  // IFC 기반 3D에서는 localFloorData를 사용하지 않으므로 currentIfcUrl이 있을 때는 실행하지 않는다.
+  useEffect(() => {
+    if (mode !== '3d' || currentIfcUrl) return
+    const syncTimer = window.setTimeout(() => {
+      setLocalFloorData((prev) => {
+        if (!prev) return null
+        if (prev.rooms === floorRooms && prev.walls === mergedFloorWalls) return prev
+        return { rooms: floorRooms, walls: mergedFloorWalls, storyHeightMm: prev.storyHeightMm }
+      })
+    }, 0)
+    return () => window.clearTimeout(syncTimer)
+  }, [activeFloorLayerId, floorRooms, mergedFloorWalls, mode, currentIfcUrl])
 
   // ── 핸들러 ────────────────────────────────────────────────────────────────
 
@@ -1404,7 +1502,13 @@ export function useEditorPage() {
   const setMode = useCallback((nextMode: EditorMode) => {
     setSearchParams({ mode: nextMode })
     if (nextMode !== '2d') setIsCollaborationMode(false)
-    if (nextMode !== '3d') setSelectedIfcElement(null)
+    if (nextMode !== '3d') {
+      setSelectedIfcElement(null)
+      setRequestedIfcElementLocalId(null)
+      setIfcElementSelectionRequestToken(0)
+      setRequestedLibraryElementId(null)
+      setLibraryElementSelectionRequestToken(0)
+    }
     setIsLibraryOpen(false)
   }, [setSearchParams])
 
@@ -1695,16 +1799,102 @@ export function useEditorPage() {
     clearConnectionAndTwoDSelection()
   }, [clearSelection, clearConnectionAndTwoDSelection])
 
-  const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId'>) => {
-    if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return
-    setIfcElementChangesById((prev) => ({
+  const handleSelectIfcElementByLocalId = useCallback((localId: number) => {
+    if (!Number.isFinite(localId)) return
+    const normalizedLocalId = Math.trunc(localId)
+    if (normalizedLocalId <= 0) return
+    clearSelection()
+    clearConnectionAndTwoDSelection()
+    setRequestedIfcElementLocalId(normalizedLocalId)
+    setIfcElementSelectionRequestToken((prev) => prev + 1)
+  }, [clearSelection, clearConnectionAndTwoDSelection])
+
+  const handleAddLibraryPreset = useCallback((preset: ThreeDLibraryPreset) => {
+    const storeyExpressId = activeIfcStoreyExpressId ?? null
+
+    // IFC 층이 있는데 현재 활성 층이 없으면 추가를 중단하고 설정 방법을 안내한다.
+    if (storeyExpressId == null && ifcStoreys.length > 0) {
+      window.alert('활성 층이 없습니다.\n우측 "층보기" 패널에서 층 이름을 클릭해 활성 층을 먼저 설정한 뒤 라이브러리를 추가하세요.')
+      return
+    }
+
+    setLibraryElements((prev) => [
       ...prev,
-      [element.expressId as number]: {
-        ...prev[element.expressId as number],
-        ...patch,
-        expressId: element.expressId as number,
+      {
+        ...preset,
+        id: `${preset.id}-${Date.now()}-${prev.length}`,
+        storeyExpressId,
       },
-    }))
+    ])
+    setIsLibraryOpen(false)
+  }, [activeIfcStoreyExpressId, ifcStoreys])
+
+  const handleChangeLibraryElement = useCallback((id: string, patch: Partial<ThreeDLibraryPreset>) => {
+    setLibraryElements((prev) =>
+      prev.map((element) => {
+        if (element.id !== id) return element
+        const merged = { ...element, ...patch }
+        if (Number.isFinite(merged.storeyExpressId)) return merged
+        const fallbackStoreyId = activeIfcStoreyExpressId ?? ifcStoreys[0]?.expressId ?? null
+        return { ...merged, storeyExpressId: fallbackStoreyId }
+      }),
+    )
+  }, [activeIfcStoreyExpressId, ifcStoreys])
+
+  const handleDeleteLibraryElement = useCallback((id: string) => {
+    setLibraryElements((prev) => prev.filter((element) => element.id !== id))
+    setSelectedIfcElement((prev) => (prev?.source === 'library' ? null : prev))
+  }, [])
+
+  const handleSelectLibraryElementById = useCallback((id: string) => {
+    const normalizedId = id.trim()
+    if (!normalizedId) return
+    clearSelection()
+    clearConnectionAndTwoDSelection()
+    setRequestedLibraryElementId(normalizedId)
+    setLibraryElementSelectionRequestToken((prev) => prev + 1)
+  }, [clearSelection, clearConnectionAndTwoDSelection])
+
+  const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId' | 'localId' | 'localIds'>) => {
+    if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return
+    const localIdFromProperties = element.properties?.LocalID
+    const localIdsFromProperties = (() => {
+      const raw = element.properties?.DeletedLocalIds
+      if (typeof raw !== 'string') return []
+      return raw
+        .split(',')
+        .map((token) => Number(token.trim()))
+        .filter(Number.isFinite)
+    })()
+    const parsedLocalIdFromId = (() => {
+      const tokens = element.id.split(':')
+      const token = tokens[tokens.length - 1]
+      if (!token) return undefined
+      const parsed = Number(token)
+      return Number.isFinite(parsed) ? parsed : undefined
+    })()
+    const localId = typeof localIdFromProperties === 'number'
+      ? localIdFromProperties
+      : parsedLocalIdFromId
+
+    setIfcElementChangesById((prev) => {
+      const previous = prev[element.expressId as number]
+      const mergedLocalIds = Array.from(new Set([
+        ...(previous?.localIds ?? []),
+        ...localIdsFromProperties,
+        ...(Number.isFinite(localId) ? [localId as number] : []),
+      ]))
+      return {
+        ...prev,
+        [element.expressId as number]: {
+          ...previous,
+          ...patch,
+          expressId: element.expressId as number,
+          localId: Number.isFinite(localId) ? localId : previous?.localId,
+          localIds: mergedLocalIds.length > 0 ? mergedLocalIds : previous?.localIds,
+        },
+      }
+    })
   }, [])
 
   const handleDeleteIfcElement = useCallback((element: IfcElementInfo) => {
@@ -1925,7 +2115,36 @@ export function useEditorPage() {
     setIsGridSnapEnabled(true)
     if (mode === '2d') setIsGridVisible(true)
   }
-  const toggleLayerOverlayMode = () => setIsLayerOverlayMode((prev) => !prev)
+  const toggleLayerOverlayMode = useCallback(() => {
+    // 3D IFC 모드: 겹쳐보기 ON/OFF를 overlay 층 목록으로 제어한다.
+    if (mode === '3d' && ifcStoreys.length > 0) {
+      setOverlayIfcStoreyExpressIds((prev) => {
+        if (prev.length > 0) return []
+        const activeId = activeIfcStoreyExpressId
+        return ifcStoreys
+          .map((storey) => storey.expressId)
+          .filter((id) => id !== activeId)
+      })
+      return
+    }
+
+    // 2D(및 IFC 층 정보가 없는 3D)에서는 기존 상태 토글을 유지한다.
+    setIsLayerOverlayMode((prev) => !prev)
+  }, [mode, ifcStoreys, activeIfcStoreyExpressId])
+
+  // Shift+L: 층 겹쳐보기 모드 토글 (2D/3D 전용)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.repeat) return
+      if (!e.shiftKey || e.code !== 'KeyL') return
+      if (mode !== '2d' && mode !== '3d') return
+      e.preventDefault()
+      toggleLayerOverlayMode()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mode, toggleLayerOverlayMode])
   const handleToggleOverlayLayer = (layerId: string) => {
     if (!activeFloorLayerId || layerId === activeFloorLayerId) return
     setOverlayLayerIds((prev) =>
@@ -1933,8 +2152,12 @@ export function useEditorPage() {
     )
   }
   const handleSetOverlayLayerOpacity = (layerId: string, opacity: number) => {
-    const next = Math.min(Math.max(opacity, 0.1), 1)
-    setOverlayOpacityByLayerId((prev) => ({ ...prev, [layerId]: next }))
+    const normalized = opacity > 1 ? opacity / 100 : opacity
+    const next = Math.min(Math.max(normalized, 0.1), 1)
+    setOverlayOpacityByLayerId((prev) => {
+      if (prev[layerId] === next) return prev
+      return { ...prev, [layerId]: next }
+    })
   }
 
   const {
@@ -2570,6 +2793,61 @@ export function useEditorPage() {
     setMode('3d')
   }, [currentIfcUrl, floorRooms, mergedFloorWalls, setMode])
 
+  /** IFC 로드 완료 시 호출: 파싱된 층 목록을 저장하고 최초 선택을 초기화한다. */
+  const handleIfcStoreysLoad = useCallback((storeys: IfcStoreyInfo[]) => {
+    const dedupedStoreys = Array.from(
+      storeys.reduce((acc, storey) => {
+        if (!Number.isFinite(storey.expressId)) return acc
+        if (!acc.has(storey.expressId)) acc.set(storey.expressId, storey)
+        return acc
+      }, new Map<number, IfcStoreyInfo>()).values(),
+    )
+    const nextStoreyIdSet = new Set(dedupedStoreys.map((storey) => storey.expressId))
+    const fallbackStoreyId = dedupedStoreys[0]?.expressId ?? null
+    setIfcStoreys(dedupedStoreys)
+    setLibraryElements((prev) =>
+      prev.map((element) => {
+        const normalizedCurrent = Number.isFinite(element.storeyExpressId) ? Number(element.storeyExpressId) : null
+        const nextStoreyId = normalizedCurrent != null && nextStoreyIdSet.has(normalizedCurrent)
+          ? normalizedCurrent
+          : fallbackStoreyId
+        if (normalizedCurrent === nextStoreyId) return element
+        return { ...element, storeyExpressId: nextStoreyId }
+      }),
+    )
+    // 활성 층/겹쳐보기/선택 상태는 가능한 한 유지하고,
+    // 유효성 보정은 validIfcStoreyIdSet effect에서 처리한다.
+    if (nextStoreyIdSet.size > 0) {
+      setActiveIfcStoreyExpressId((prev) => {
+        if (prev == null) return prev
+        return nextStoreyIdSet.has(prev) ? prev : null
+      })
+      setOverlayIfcStoreyExpressIds((prev) => prev.filter((id) => nextStoreyIdSet.has(id)))
+    }
+  }, [])
+
+  /** FloorViewPanel에서 IFC 층 선택 시 호출 (id는 expressId의 문자열 표현) */
+  const handleSelectIfcStorey = useCallback((id: string) => {
+    const expressId = Number(id)
+    if (!Number.isFinite(expressId)) return
+    if (validIfcStoreyIdSet.size > 0 && !validIfcStoreyIdSet.has(expressId)) return
+
+    setActiveIfcStoreyExpressId((prev) => (prev === expressId ? null : expressId))
+    // 활성 층은 겹쳐보기 목록에서 제외한다.
+    setOverlayIfcStoreyExpressIds((prev) => prev.filter((value) => value !== expressId))
+  }, [validIfcStoreyIdSet])
+
+  /** FloorViewPanel에서 IFC 층 겹쳐보기 토글 시 호출 (id는 expressId의 문자열 표현) */
+  const handleToggleIfcStoreyOverlay = useCallback((id: string) => {
+    const expressId = Number(id)
+    if (!Number.isFinite(expressId)) return
+    if (validIfcStoreyIdSet.size > 0 && !validIfcStoreyIdSet.has(expressId)) return
+    if (activeIfcStoreyExpressId != null && expressId === activeIfcStoreyExpressId) return
+    setOverlayIfcStoreyExpressIds((prev) =>
+      prev.includes(expressId) ? prev.filter((e) => e !== expressId) : [...prev, expressId],
+    )
+  }, [activeIfcStoreyExpressId, validIfcStoreyIdSet])
+
   const handleAutoLayoutBubbles = useCallback(() => {
     if (mode !== 'bubble') return
     if (isBubbleReadOnly) return
@@ -2619,7 +2897,13 @@ export function useEditorPage() {
     threeDDeleteRequestToken,
     handleBubbleSelect,
     handleSelectIfcElement,
+    handleSelectIfcElementByLocalId,
+    handleSelectLibraryElementById,
     handleDeleteIfcElement,
+    requestedIfcElementLocalId,
+    ifcElementSelectionRequestToken,
+    requestedLibraryElementId,
+    libraryElementSelectionRequestToken,
     handleBubbleDrag: handleBubbleDragInBubble,
     handleMarqueeSelect,
     handleTwoDMarqueeSelect,
@@ -2711,6 +2995,10 @@ export function useEditorPage() {
     // 라이브러리
     isLibraryOpen,
     setIsLibraryOpen,
+    libraryElements,
+    handleAddLibraryPreset,
+    handleChangeLibraryElement,
+    handleDeleteLibraryElement,
     // 2D 평면도
     isBubbleReadOnly,
     isFloorPlanGenerated,
@@ -2824,6 +3112,12 @@ export function useEditorPage() {
     handleCloseGenerate3DModal,
     handleConfirmGenerate3D,
     localFloorData,
+    ifcStoreys,
+    activeIfcStoreyExpressId,
+    overlayIfcStoreyExpressIds,
+    handleIfcStoreysLoad,
+    handleSelectIfcStorey,
+    handleToggleIfcStoreyOverlay,
     // AI 어시스턴트
     llmProvider: llmEdit.provider,
     llmPrompt: llmEdit.prompt,

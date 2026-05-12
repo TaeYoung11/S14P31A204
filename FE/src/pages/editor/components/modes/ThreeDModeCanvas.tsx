@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { lazy, useMemo } from 'react'
 import { useFreshIfcUrl } from '@/features/editor/hooks/useFreshIfcUrl'
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
 import type { ThreeDCoordinates } from '../canvas-content/buildCanvasSectionProps'
@@ -36,6 +36,25 @@ export default function ThreeDModeCanvas({
     editorProps.currentIfcUrl ?? '/mock/shinchan_house.ifc',
   )
 
+  const overlayIfcStoreyOpacityByExpressId = useMemo(() => {
+    const overlayIds = editorProps.overlayIfcStoreyExpressIds ?? []
+    if (overlayIds.length === 0) return undefined
+
+    // 층보기 투명도 값이 아직 저장되지 않은 층도 기본값(0.35)으로 전달해
+    // IFC 겹쳐보기 렌더 경로가 항상 동일하게 동작하도록 유지한다.
+    const entries = overlayIds.map((storeyId) => {
+      const key = String(storeyId)
+      const stored = editorProps.overlayOpacityByLayerId[key]
+      const normalizedStored = Number.isFinite(stored)
+        ? (stored > 1 ? stored / 100 : stored)
+        : 0.35
+      const rawValue = Number.isFinite(normalizedStored) ? normalizedStored : 0.35
+      const value = Math.min(Math.max(rawValue, 0.1), 1)
+      return [storeyId, value] as const
+    })
+    return Object.fromEntries(entries) as Record<number, number>
+  }, [editorProps.overlayIfcStoreyExpressIds, editorProps.overlayOpacityByLayerId])
+
   return (
     <ThreeDCanvas
       projectId={editorProps.projectId}
@@ -58,7 +77,19 @@ export default function ThreeDModeCanvas({
       threeDDeleteRequestToken={editorProps.threeDDeleteRequestToken}
       onIfcElementSelect={editorProps.handleSelectIfcElement}
       onIfcElementDelete={editorProps.handleDeleteIfcElement}
+      libraryElements={editorProps.libraryElements}
+      onAddLibraryPreset={editorProps.handleAddLibraryPreset}
+      onLibraryElementChange={editorProps.handleChangeLibraryElement}
+      onLibraryElementDelete={editorProps.handleDeleteLibraryElement}
       localFloorData={editorProps.localFloorData}
+      onStoreysLoad={editorProps.handleIfcStoreysLoad}
+      activeStoreyExpressId={editorProps.activeIfcStoreyExpressId}
+      overlayIfcStoreyExpressIds={editorProps.overlayIfcStoreyExpressIds}
+      overlayIfcStoreyOpacityByExpressId={overlayIfcStoreyOpacityByExpressId}
+      requestedIfcElementLocalId={editorProps.requestedIfcElementLocalId}
+      ifcElementSelectionRequestToken={editorProps.ifcElementSelectionRequestToken}
+      requestedLibraryElementId={editorProps.requestedLibraryElementId}
+      libraryElementSelectionRequestToken={editorProps.libraryElementSelectionRequestToken}
       onThreeDCoordinatesChange={onThreeDCoordinatesChange}
     />
   )

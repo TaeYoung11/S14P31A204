@@ -23,6 +23,11 @@ export default function SidebarToolButton({
   title,
   onClick,
 }: SidebarToolButtonProps) {
+  const triggerToolAction = () => {
+    if (isDisabled) return
+    onClick?.()
+  }
+
   const iconBoxBaseClass = 'flex h-10 w-10 items-center justify-center rounded-xl transition-all'
 
   const activeContainerClass = isDanger
@@ -55,7 +60,18 @@ export default function SidebarToolButton({
     <button
       type="button"
       title={title ?? label}
-      onClick={isDisabled ? undefined : onClick}
+      onPointerDown={(event) => {
+        if (isDisabled || !onClick) return
+        if (event.button !== 0) return
+        event.preventDefault()
+        triggerToolAction()
+      }}
+      onClick={(event) => {
+        if (isDisabled || !onClick) return
+        // pointerdown에서 이미 처리한 경우 중복 실행을 피한다.
+        if (event.detail > 0) return
+        triggerToolAction()
+      }}
       disabled={isDisabled}
       className="group flex w-full min-w-0 flex-col items-center gap-1.5 px-0.5 py-1.5 text-center disabled:cursor-not-allowed"
     >

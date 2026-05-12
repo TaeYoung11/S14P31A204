@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from 'react'
 import { ColorSelector } from '../shared/ColorSelector'
 import { ROOM_TYPES } from '../../constants'
 import type { ConnectionStyle } from '../../types'
@@ -67,6 +68,26 @@ export function BubbleAttributePanel({
   connections = [],
   zones = [],
 }: BubbleAttributePanelProps) {
+  // 포커스 중에도 자유롭게 수치를 지우고 입력할 수 있도록 draft 상태를 관리한다.
+  const [widthDraft, setWidthDraft] = useState('')
+  const [heightDraft, setHeightDraft] = useState('')
+  const [ratioDraft, setRatioDraft] = useState('')
+  const widthFocusedRef = useRef(false)
+  const heightFocusedRef = useRef(false)
+  const ratioFocusedRef = useRef(false)
+
+  useEffect(() => {
+    if (!widthFocusedRef.current) setWidthDraft(String(Math.round(selectedBubble?.widthMm ?? 0)))
+  }, [selectedBubble?.widthMm])
+
+  useEffect(() => {
+    if (!heightFocusedRef.current) setHeightDraft(String(Math.round(selectedBubble?.heightMm ?? 0)))
+  }, [selectedBubble?.heightMm])
+
+  useEffect(() => {
+    if (!ratioFocusedRef.current) setRatioDraft(String(selectedBubble?.ratio ?? 0))
+  }, [selectedBubble?.ratio])
+
   if (!selectedBubble) {
     return (
       <div className="p-5 text-center text-[#ADB5BD] text-xs font-medium">
@@ -108,11 +129,19 @@ export function BubbleAttributePanel({
               type="number"
               min={1}
               step={1}
-              value={Math.round(selectedBubble.widthMm)}
+              value={widthDraft}
               onChange={(event) => {
-                const value = Number.parseFloat(event.target.value)
-                if (!Number.isNaN(value) && value > 0) onWidthChange(selectedBubble.id, value)
+                setWidthDraft(event.target.value)
+                const v = Number.parseFloat(event.target.value)
+                if (!Number.isNaN(v) && v > 0) onWidthChange(selectedBubble.id, v)
               }}
+              onFocus={() => { widthFocusedRef.current = true }}
+              onBlur={() => {
+                widthFocusedRef.current = false
+                const parsed = Number.parseFloat(widthDraft)
+                if (Number.isNaN(parsed) || parsed <= 0) setWidthDraft(String(Math.round(selectedBubble.widthMm)))
+              }}
+              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
               className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
             />
           </div>
@@ -122,11 +151,19 @@ export function BubbleAttributePanel({
               type="number"
               min={1}
               step={1}
-              value={Math.round(selectedBubble.heightMm)}
+              value={heightDraft}
               onChange={(event) => {
-                const value = Number.parseFloat(event.target.value)
-                if (!Number.isNaN(value) && value > 0) onHeightChange(selectedBubble.id, value)
+                setHeightDraft(event.target.value)
+                const v = Number.parseFloat(event.target.value)
+                if (!Number.isNaN(v) && v > 0) onHeightChange(selectedBubble.id, v)
               }}
+              onFocus={() => { heightFocusedRef.current = true }}
+              onBlur={() => {
+                heightFocusedRef.current = false
+                const parsed = Number.parseFloat(heightDraft)
+                if (Number.isNaN(parsed) || parsed <= 0) setHeightDraft(String(Math.round(selectedBubble.heightMm)))
+              }}
+              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
               className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
             />
           </div>
@@ -144,11 +181,19 @@ export function BubbleAttributePanel({
             type="number"
             min={1}
             step={0.5}
-            value={selectedBubble.ratio}
-            onChange={e => {
+            value={ratioDraft}
+            onChange={(e) => {
+              setRatioDraft(e.target.value)
               const v = parseFloat(e.target.value)
               if (!isNaN(v) && v > 0) onRatioChange(selectedBubble.id, v)
             }}
+            onFocus={() => { ratioFocusedRef.current = true }}
+            onBlur={() => {
+              ratioFocusedRef.current = false
+              const parsed = parseFloat(ratioDraft)
+              if (isNaN(parsed) || parsed <= 0) setRatioDraft(String(selectedBubble.ratio))
+            }}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
             className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
           />
         </div>

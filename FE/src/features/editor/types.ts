@@ -20,6 +20,8 @@ export interface IfcElementInfo {
 
 export interface IfcElementChange {
   expressId: number
+  localId?: number
+  localIds?: number[]
   lengthMm?: number
   heightMm?: number
   thicknessMm?: number

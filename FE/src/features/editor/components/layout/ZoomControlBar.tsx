@@ -1,4 +1,5 @@
 import { Grid3X3, GripVertical, Hand, Lock, Move, RotateCw, Scaling, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { EditorMode } from '../../types'
 import { useFloatingPanelDrag } from '../../hooks/useFloatingPanelDrag'
 import { useZoomControlBar } from '../../hooks/useZoomControlBar'
@@ -43,6 +44,15 @@ const toolBtnCls = (isActive: boolean) =>
       ? 'bg-[#F0F2FF] text-[#3B45B3]'
       : 'text-[#6B7A99] hover:bg-[#F0F2F9] hover:text-[#1C1C1E]'
   }`
+
+const invokeToolByPointerDown = (
+  event: ReactPointerEvent<HTMLButtonElement>,
+  action: () => void,
+) => {
+  if (event.button !== 0) return
+  event.preventDefault()
+  action()
+}
 
 /**
  * 캔버스 좌하단 고정 줌 컨트롤 바
@@ -137,7 +147,11 @@ export function ZoomControlBar({
       <div className="mx-1.5 h-5 w-px bg-[#E2E6EF]" />
 
       <button
-        onClick={() => onSetTool(selectedTool === 'hand' ? 'selection' : 'hand')}
+        onPointerDown={(event) => invokeToolByPointerDown(event, () => onSetTool(selectedTool === 'hand' ? 'selection' : 'hand'))}
+        onClick={(event) => {
+          if (event.detail > 0) return
+          onSetTool(selectedTool === 'hand' ? 'selection' : 'hand')
+        }}
         aria-label="손 도구 (드래그 패닝)"
         className={toolBtnCls(selectedTool === 'hand')}
       >
@@ -174,7 +188,11 @@ export function ZoomControlBar({
           <div className="mx-2 h-5 w-px bg-[#E2E6EF]" />
           {/* 오브젝트 변환 기즈모: 이동 / 회전 / 크기 */}
           <button
-            onClick={() => onSetTool('selection')}
+            onPointerDown={(event) => invokeToolByPointerDown(event, () => onSetTool('selection'))}
+            onClick={(event) => {
+              if (event.detail > 0) return
+              onSetTool('selection')
+            }}
             title="이동 기즈모 (Move)"
             aria-label="이동 기즈모"
             className={toolBtnCls(selectedTool !== 'hand' && selectedTool !== 'rotate' && selectedTool !== 'scale')}
@@ -182,7 +200,11 @@ export function ZoomControlBar({
             <Move size={20} />
           </button>
           <button
-            onClick={() => onSetTool('rotate')}
+            onPointerDown={(event) => invokeToolByPointerDown(event, () => onSetTool('rotate'))}
+            onClick={(event) => {
+              if (event.detail > 0) return
+              onSetTool('rotate')
+            }}
             title="회전 기즈모 (Rotate)"
             aria-label="회전 기즈모"
             className={toolBtnCls(selectedTool === 'rotate')}
@@ -190,7 +212,11 @@ export function ZoomControlBar({
             <RotateCw size={20} />
           </button>
           <button
-            onClick={() => onSetTool('scale')}
+            onPointerDown={(event) => invokeToolByPointerDown(event, () => onSetTool('scale'))}
+            onClick={(event) => {
+              if (event.detail > 0) return
+              onSetTool('scale')
+            }}
             title="크기 기즈모 (Scale)"
             aria-label="크기 기즈모"
             className={toolBtnCls(selectedTool === 'scale')}

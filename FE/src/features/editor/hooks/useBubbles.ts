@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { BubbleData, AddSpaceFormData } from '../types'
 import { INITIAL_BUBBLES, INITIAL_ADD_SPACE_FORM } from '../constants'
 import {
@@ -15,11 +15,20 @@ export function useBubbles() {
   const [previousSelectedId, setPreviousSelectedId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const selectedIdsRef = useRef<string[]>([])
+  // replaceBubbles/clearSelection을 useCallback으로 안정화하기 위해 최신 state를 ref로 유지한다.
+  const selectedIdRef = useRef<string | null>(null)
+  const previousSelectedIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    selectedIdRef.current = selectedId
+  }, [selectedId])
+  useEffect(() => {
+    previousSelectedIdRef.current = previousSelectedId
+  }, [previousSelectedId])
 
-  const updateSelectedIds = (next: string[]) => {
+  const updateSelectedIds = useCallback((next: string[]) => {
     selectedIdsRef.current = next
     setSelectedIds(next)
-  }
+  }, [])
 
   const getNextBubbleIndex = (count: number) => (count + 1).toString().padStart(2, '0')
 
@@ -101,10 +110,10 @@ export function useBubbles() {
   }
 
   /** 선택 해제 */
-  const clearSelection = () => {
+  const clearSelection = useCallback(() => {
     setSelectedId(null)
     updateSelectedIds([])
-  }
+  }, [updateSelectedIds])
 
   /** 버블 크기·위치 변경 (Transformer onTransformEnd 후 호출) */
   const handleBubbleResize = (id: string, x: number, y: number, width: number, height: number) => {
@@ -275,14 +284,15 @@ export function useBubbles() {
   }
 
   /** 외부 연산(예: AI 미리보기 적용) 결과로 버블 목록 일괄 교체 */
-  const replaceBubbles = (nextBubbles: BubbleData[]) => {
+  const replaceBubbles = useCallback((nextBubbles: BubbleData[]) => {
     setBubbles(nextBubbles)
     const idSet = new Set(nextBubbles.map((bubble) => bubble.id))
     const nextSelectedIds = selectedIdsRef.current.filter((id) => idSet.has(id))
     updateSelectedIds(nextSelectedIds)
-    if (selectedId && !idSet.has(selectedId)) setSelectedId(nextSelectedIds[nextSelectedIds.length - 1] ?? null)
-    if (previousSelectedId && !idSet.has(previousSelectedId)) setPreviousSelectedId(null)
-  }
+    // 최신 selectedId/previousSelectedId는 ref를 통해 읽어 deps 의존성 없이 안정적 참조를 유지한다.
+    if (selectedIdRef.current && !idSet.has(selectedIdRef.current)) setSelectedId(nextSelectedIds[nextSelectedIds.length - 1] ?? null)
+    if (previousSelectedIdRef.current && !idSet.has(previousSelectedIdRef.current)) setPreviousSelectedId(null)
+  }, [updateSelectedIds])
 
   return {
     bubbles,

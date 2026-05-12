@@ -20,6 +20,7 @@ type RightPanelViewModel = Pick<
   | 'selectedFloorWall'
   | 'selectedFloorOpening'
   | 'selectedIfcElement'
+  | 'ifcElementChanges'
   | 'selectedBubbleConnections'
   | 'selectedBubbleZones'
   | 'zoningListItems'
@@ -59,6 +60,14 @@ type RightPanelViewModel = Pick<
   | 'toggleLayerOverlayMode'
   | 'handleToggleOverlayLayer'
   | 'handleSetOverlayLayerOpacity'
+  | 'ifcStoreys'
+  | 'libraryElements'
+  | 'activeIfcStoreyExpressId'
+  | 'overlayIfcStoreyExpressIds'
+  | 'handleSelectIfcStorey'
+  | 'handleSelectIfcElementByLocalId'
+  | 'handleSelectLibraryElementById'
+  | 'handleToggleIfcStoreyOverlay'
   | 'openZoningModal'
   | 'openEditModal'
   | 'deleteZone'
@@ -105,6 +114,7 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
     selectedWall: vm.selectedFloorWall,
     selectedOpening: vm.selectedFloorOpening,
     selectedIfcElement: vm.selectedIfcElement,
+    ifcElementChanges: vm.ifcElementChanges,
     selectedBubbleConnections: vm.selectedBubbleConnections,
     selectedBubbleZones: vm.selectedBubbleZones,
     zoningListItems: vm.zoningListItems,
@@ -141,6 +151,14 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
     onRenameFloorLayer: vm.renameFloorLayer,
     onDeleteFloorLayer: vm.deleteFloorLayer,
     onSelectFloorLayer: vm.setActiveFloorLayerId,
+    ifcStoreys: vm.ifcStoreys,
+    libraryElements: vm.libraryElements,
+    activeIfcStoreyId: vm.activeIfcStoreyExpressId != null ? String(vm.activeIfcStoreyExpressId) : null,
+    overlayIfcStoreyExpressIds: vm.overlayIfcStoreyExpressIds,
+    onSelectIfcStorey: vm.handleSelectIfcStorey,
+    onSelectIfcElementByLocalId: vm.handleSelectIfcElementByLocalId,
+    onSelectLibraryElementById: vm.handleSelectLibraryElementById,
+    onToggleIfcStoreyOverlay: vm.handleToggleIfcStoreyOverlay,
     onToggleLayerOverlayMode: vm.toggleLayerOverlayMode,
     onToggleOverlayLayer: vm.handleToggleOverlayLayer,
     onChangeOverlayLayerOpacity: vm.handleSetOverlayLayerOpacity,

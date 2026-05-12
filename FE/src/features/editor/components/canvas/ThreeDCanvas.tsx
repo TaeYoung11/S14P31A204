@@ -8,16 +8,17 @@
  *  1. ifcUrl이 없고 localFloorData가 있으면 → FloorPlan3DCanvas
  *  2. 그 외 → ThatOpenIfcCanvas (ifcUrl 없을 시 mock IFC로 폴백)
  */
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import type { FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '../../types'
+import type { IfcStoreyInfo } from './thatopen/ifcPropertyParser'
 import { useCtrlWheelZoom } from '../../hooks/useCtrlWheelZoom'
-import { useThreeDLibraryPresets } from '../../hooks/useThreeDLibraryPresets'
 import ThreeDCanvasCollaborationOverlay from './ThreeDCanvasCollaborationOverlay'
 import ThreeDCanvasGridOverlay from './ThreeDCanvasGridOverlay'
 import ThreeDCanvasScene from './ThreeDCanvasScene'
 import ThreeDLibraryPanel from './ThreeDLibraryPanel'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
-import { DEFAULT_MOCK_IFC_URL } from './threeDCanvas.utils'
+import type { ThreeDLibraryPreset } from './threeDLibrary.types'
+import { DEFAULT_MOCK_IFC_URL, shouldRenderLocalFloorPlan } from './threeDCanvas.utils'
 
 type ThreeDCoordinates = { x: number; y: number; z: number }
 
@@ -47,29 +48,38 @@ interface ThreeDCanvasProps {
   threeDDeleteRequestToken?: number
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
+  libraryElements: ThreeDLibraryPreset[]
+  onAddLibraryPreset: (preset: ThreeDLibraryPreset) => void
+  onLibraryElementChange: (id: string, patch: Partial<ThreeDLibraryPreset>) => void
+  onLibraryElementDelete: (id: string) => void
   /** 2D 평면도에서 직접 생성한 로컬 3D 데이터. 있으면 IFC 대신 이를 렌더링한다. */
   localFloorData?: FloorPlan3DData | null
   onThreeDCoordinatesChange?: (coords: ThreeDCoordinates) => void
+  /** IFC 로드 완료 시 파싱된 건물 층 목록을 전달하는 콜백 */
+  onStoreysLoad?: (storeys: IfcStoreyInfo[]) => void
+  /** 현재 표시할 층의 expressId. null이면 전체 표시 */
+  activeStoreyExpressId?: number | null
+  /** 겹쳐보기로 함께 표시할 IFC 층 expressId 목록 */
+  overlayIfcStoreyExpressIds?: number[]
+  /** IFC 겹쳐보기 층별 투명도 (0.1~1) */
+  overlayIfcStoreyOpacityByExpressId?: Record<number, number>
+  /** 계층구조에서 선택 요청한 IFC 요소 localId */
+  requestedIfcElementLocalId?: number | null
+  /** 계층구조 IFC 요소 선택 요청 토큰 */
+  ifcElementSelectionRequestToken?: number
+  /** 계층구조에서 선택 요청한 라이브러리 요소 id */
+  requestedLibraryElementId?: string | null
+  /** 계층구조 라이브러리 요소 선택 요청 토큰 */
+  libraryElementSelectionRequestToken?: number
 }
 
 export function ThreeDCanvas(props: ThreeDCanvasProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const isLocal3DMode = shouldRenderLocalFloorPlan(props.ifcUrl, props.localFloorData)
+  const [selectedCategory, setSelectedCategory] = useState('all')
 
   // ifcUrl이 null(로딩 중 또는 IFC 없음)이어도 mock으로 폴백해 씬을 항상 표시한다
   const effectiveIfcUrl = props.ifcUrl ?? DEFAULT_MOCK_IFC_URL
-
-  // 라이브러리 프리셋 상태 관리 (카테고리 선택, 씬 내 배치 목록, CRUD)
-  // onPresetAdded: 프리셋 추가 직후 라이브러리 패널을 닫는다
-  const {
-    selectedCategory,
-    setSelectedCategory,
-    libraryElements,
-    addLibraryPreset,
-    changeLibraryElement,
-    deleteLibraryElement,
-  } = useThreeDLibraryPresets({
-    onPresetAdded: props.onToggleLibrary,
-  })
 
   useCtrlWheelZoom({
     rootRef,
@@ -86,7 +96,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         ifcUrl={effectiveIfcUrl}
         rawIfcUrl={props.ifcUrl}
         localFloorData={props.localFloorData}
-        libraryElements={libraryElements}
+        libraryElements={props.libraryElements}
         ifcElementChanges={props.ifcElementChanges ?? []}
         isRotationLocked={props.isRotationLocked ?? false}
         zoomScale={props.scale ?? 1}
@@ -95,9 +105,17 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         deleteRequestToken={props.threeDDeleteRequestToken ?? 0}
         onIfcElementSelect={props.onIfcElementSelect}
         onIfcElementDelete={props.onIfcElementDelete}
-        onLibraryElementChange={changeLibraryElement}
-        onLibraryElementDelete={deleteLibraryElement}
+        onLibraryElementChange={props.onLibraryElementChange}
+        onLibraryElementDelete={props.onLibraryElementDelete}
         onThreeDCoordinatesChange={props.onThreeDCoordinatesChange}
+        onStoreysLoad={props.onStoreysLoad}
+        activeStoreyExpressId={props.activeStoreyExpressId}
+        overlayIfcStoreyExpressIds={props.overlayIfcStoreyExpressIds}
+        overlayIfcStoreyOpacityByExpressId={props.overlayIfcStoreyOpacityByExpressId}
+        requestedIfcElementLocalId={props.requestedIfcElementLocalId}
+        ifcElementSelectionRequestToken={props.ifcElementSelectionRequestToken}
+        requestedLibraryElementId={props.requestedLibraryElementId}
+        libraryElementSelectionRequestToken={props.libraryElementSelectionRequestToken}
       />
 
       <ThreeDCanvasGridOverlay isVisible={Boolean(props.isGridVisible)} />
@@ -109,9 +127,13 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
           selectedCategory={selectedCategory}
           onSelectCategory={setSelectedCategory}
           onClose={props.onToggleLibrary ?? (() => {})}
-          onAddPreset={addLibraryPreset}
+          onAddPreset={props.onAddLibraryPreset}
         />
       )}
+
+      <div className="pointer-events-none absolute right-4 top-4 z-50 rounded-md border border-[#CBD5E1] bg-white/90 px-3 py-1 text-[11px] font-semibold tracking-wide text-[#1E293B] shadow-sm backdrop-blur">
+        {isLocal3DMode ? 'Local 3D' : 'IFC Edit'}
+      </div>
     </div>
   )
 }
