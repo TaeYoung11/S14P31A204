@@ -1,6 +1,7 @@
 """IFC → grayscale depth map (PIL Image, mode="L") 렌더러."""
 
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -41,8 +42,7 @@ class IFCRenderer:
 
     @staticmethod
     def _is_headless() -> bool:
-        """headless 환경인지 감지. DISPLAY 환경 변수 없거나 vis.get_render_option() 실패 시."""
-        import os
+        """headless 환경인지 감지."""
         return os.environ.get("DISPLAY") is None
 
     def __init__(
@@ -211,9 +211,18 @@ class IFCRenderer:
         target_ratio = self._resolve_target_ratio(view, base_mesh)
 
         if self._is_headless():
-            return self._render_mesh_offscreen(mesh, center, camera, initial_zoom, target_ratio)
-        else:
-            return self._render_mesh_windowed(mesh, center, camera, initial_zoom, target_ratio)
+            try:
+                return self._render_mesh_windowed(
+                    mesh, center, camera, initial_zoom, target_ratio
+                )
+            except Exception:
+                return self._render_mesh_offscreen(
+                    mesh, center, camera, initial_zoom, target_ratio
+                )
+
+        return self._render_mesh_windowed(
+            mesh, center, camera, initial_zoom, target_ratio
+        )
 
     def _render_mesh_windowed(
         self,
@@ -274,8 +283,10 @@ class IFCRenderer:
         # camera.front: 카메라가 바라보는 방향 (center에서 front 방향)
         # up: 위쪽
         # center: lookat point
-        eye = center - camera.front * 10  # eye 위치를 center 뒤로
-        extrinsic = self._compute_extrinsic(eye, center, camera.up)
+        front = np.asarray(camera.front, dtype=np.float32)
+        up = np.asarray(camera.up, dtype=np.float32)
+        eye = center - front * 10.0  # eye 위치를 center 뒤로
+        extrinsic = self._compute_extrinsic(eye, center, up)
 
         rays = o3d.t.geometry.RaycastingScene.create_rays_pinhole(intrinsic, extrinsic)
         ans = scene.cast_rays(rays)
