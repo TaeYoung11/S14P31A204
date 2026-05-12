@@ -5,6 +5,7 @@ import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.render.dto.ProjectRenderResponse;
 import com.a204.batang.domain.render.dto.ProjectRenderStyleResponse;
+import com.a204.batang.domain.render.dto.RenderUrlsResponse;
 import com.a204.batang.domain.render.entity.RenderArtifact;
 import com.a204.batang.domain.render.entity.RenderJob;
 import com.a204.batang.domain.render.repository.RenderArtifactRepository;
@@ -109,41 +110,68 @@ public class RenderQueryService {
         RenderJob job = renderJobRepository.findByJobIdAndProjectIdAndJobType(renderId, projectId, RENDER_JOB_TYPE)
                 .orElseThrow(() -> new CustomException(ErrorCode.RENDER_JOB_NOT_FOUND));
 
-        String imageUrl = renderArtifactRepository
+        RenderArtifact artifact = renderArtifactRepository
                 .findFirstByProjectIdAndJobIdAndArtifactTypeOrderByCreatedAtDescArtifactIdDesc(
                         projectId,
                         renderId,
                         RENDER_IMAGE_ARTIFACT_TYPE
                 )
-                .map(this::presignArtifactUrl)
                 .orElse(null);
 
-        return toResponse(job, imageUrl);
+        return toResponse(job, artifact);
     }
 
     /**
      * job과 artifact를 응답 DTO로 변환한다.
      */
     private ProjectRenderResponse toResponse(RenderJob job, RenderArtifact artifact) {
-        return toResponse(job, artifact != null ? presignArtifactUrl(artifact) : null);
+        return toResponse(
+                job,
+                artifact != null ? presignArtifactUrl(artifact) : null,
+                artifact != null ? buildRenderUrls(artifact) : null
+        );
     }
 
     /**
      * job과 image URL을 응답 DTO로 변환한다.
      */
-    private ProjectRenderResponse toResponse(RenderJob job, String imageUrl) {
+    private ProjectRenderResponse toResponse(RenderJob job, String imageUrl, RenderUrlsResponse renderUrls) {
         return new ProjectRenderResponse(
                 job.getJobId(),
                 extractStyle(job.getRequestPayload()),
                 imageUrl,
+                renderUrls,
                 normalizeUpper(job.getStatus()),
                 toUtcIso(job.getCreatedAt()),
                 toUtcIso(job.getFinishedAt())
         );
     }
 
+    private RenderUrlsResponse buildRenderUrls(RenderArtifact artifact) {
+        JsonNode metadata = artifact.getMetadataJson();
+        return new RenderUrlsResponse(
+                presignOptional(extractText(metadata, "renderManifestStorageUrl")),
+                presignOptional(firstNonBlank(
+                        extractText(metadata, "renderPhotoFrontDiagonalLeftStorageUrl"),
+                        artifact.getStorageUrl()
+                )),
+                presignOptional(extractText(metadata, "renderPhotoFrontDiagonalRightStorageUrl"))
+        );
+    }
+
     private String presignArtifactUrl(RenderArtifact artifact) {
         return s3ObjectPresigner.presignRequired(artifact.getStorageUrl(), ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
+    }
+
+    private String presignOptional(String storageUrl) {
+        if (storageUrl == null || storageUrl.isBlank()) {
+            return null;
+        }
+        try {
+            return s3ObjectPresigner.presignRequired(storageUrl, ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /**
@@ -178,6 +206,18 @@ public class RenderQueryService {
     /**
      * 우선순위가 있는 두 문자열 중 첫 번째 유효값을 반환한다.
      */
+    private String extractText(JsonNode payload, String key) {
+        if (payload == null) {
+            return null;
+        }
+        JsonNode value = payload.path(key);
+        if (value.isMissingNode() || value.isNull()) {
+            return null;
+        }
+        String text = value.asText(null);
+        return text == null || text.isBlank() ? null : text;
+    }
+
     private String firstNonBlank(String primary, String fallback) {
         if (primary != null && !primary.isBlank()) {
             return primary;
