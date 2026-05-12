@@ -128,6 +128,18 @@ export async function fetchProjectRenders(
   return response.data.data
 }
 
+export async function fetchProjectRender(
+  projectId: string,
+  renderId: string,
+  signal?: AbortSignal,
+): Promise<ProjectRenderResponse> {
+  const response = await api.get<ApiResponse<ProjectRenderResponse>>(
+    `/projects/${projectId}/renders/${renderId}`,
+    { signal },
+  )
+  return response.data.data
+}
+
 export function resolveProjectRenderImageUrl(render: ProjectRenderResponse): string {
   const normalized = (render.presignedUrl ?? render.imageUrl ?? '').trim()
   if (!normalized) return normalized

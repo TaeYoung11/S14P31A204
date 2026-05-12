@@ -7,6 +7,7 @@ interface RenderHistorySidebarProps {
   panelRef: Ref<HTMLDivElement>
   offset: { x: number; y: number }
   renders: ProjectRenderResponse[]
+  selectedRenderId?: string | null
   timeOfDay: string
   season: string
   isRequesting: boolean
@@ -15,6 +16,7 @@ interface RenderHistorySidebarProps {
   onTimeOfDayChange: (value: string) => void
   onSeasonChange: (value: string) => void
   onRequestRender: () => void
+  onSelectRender: (renderId: string) => void
   onDragStart: (event: ReactMouseEvent<HTMLElement>) => void
 }
 
@@ -76,6 +78,7 @@ export default function RenderHistorySidebar({
   panelRef,
   offset,
   renders,
+  selectedRenderId,
   timeOfDay,
   season,
   isRequesting,
@@ -84,6 +87,7 @@ export default function RenderHistorySidebar({
   onTimeOfDayChange,
   onSeasonChange,
   onRequestRender,
+  onSelectRender,
   onDragStart,
 }: RenderHistorySidebarProps) {
   return (
@@ -128,7 +132,12 @@ export default function RenderHistorySidebar({
         {renders.length > 0 ? (
           <div className="flex flex-col gap-3">
             {renders.map((render) => (
-              <RenderHistoryItem key={render.renderId} render={render} />
+              <RenderHistoryItem
+                key={render.renderId}
+                render={render}
+                isSelected={render.renderId === selectedRenderId}
+                onSelect={onSelectRender}
+              />
             ))}
           </div>
         ) : (
@@ -143,11 +152,30 @@ export default function RenderHistorySidebar({
   )
 }
 
-function RenderHistoryItem({ render }: { render: ProjectRenderResponse }) {
+function RenderHistoryItem({
+  render,
+  isSelected,
+  onSelect,
+}: {
+  render: ProjectRenderResponse
+  isSelected: boolean
+  onSelect: (renderId: string) => void
+}) {
   const progress = normalizeProgress(render.progress, render.status)
+  const isSelectable = render.status === 'SUCCEEDED'
+  const itemClassName = [
+    'w-full rounded-2xl border bg-white/[0.06] p-3 text-left transition-colors',
+    isSelected ? 'border-white/45 bg-white/[0.12]' : 'border-white/10',
+    isSelectable ? 'cursor-pointer hover:border-white/25 hover:bg-white/[0.1]' : 'cursor-default',
+  ].join(' ')
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-3">
+    <button
+      type="button"
+      disabled={!isSelectable}
+      onClick={() => onSelect(render.renderId)}
+      className={itemClassName}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-xs font-black text-white/90">렌더링 이미지</p>
@@ -168,7 +196,7 @@ function RenderHistoryItem({ render }: { render: ProjectRenderResponse }) {
       <p className="mt-1 text-right text-[10px] font-bold text-white/40">
         {progress}%
       </p>
-    </div>
+    </button>
   )
 }
 

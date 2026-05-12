@@ -33,9 +33,11 @@ export function RealisticViewer({ projectId }: RealisticViewerProps) {
   const {
     imageUrl,
     renders,
+    selectedRenderId,
     errorMessage,
     isRequesting,
     requestRender,
+    selectRender,
   } = useProjectViewRender(projectId, 0)
   const displayedImageUrl = imageUrl ?? '/mock/rendering_mock.png'
   const canRequestRender = Boolean(projectId && prompt.trim() && !isRequesting)
@@ -95,6 +97,7 @@ export function RealisticViewer({ projectId }: RealisticViewerProps) {
         panelRef={renderPanelRef}
         offset={renderPanelOffset}
         renders={renders}
+        selectedRenderId={selectedRenderId}
         timeOfDay={timeOfDay}
         season={season}
         isRequesting={isRequesting}
@@ -103,6 +106,9 @@ export function RealisticViewer({ projectId }: RealisticViewerProps) {
         onTimeOfDayChange={setTimeOfDay}
         onSeasonChange={setSeason}
         onRequestRender={handleRequestRender}
+        onSelectRender={(renderId) => {
+          void selectRender(renderId)
+        }}
         onDragStart={startRenderPanelDrag}
       />
 
