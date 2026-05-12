@@ -69,6 +69,7 @@ public enum ErrorCode {
     IFC_EDIT_COMMAND_PUBLISH_FAILED(HttpStatus.BAD_GATEWAY, "IFC_EDIT_COMMAND_PUBLISH_FAILED", "IFC 편집 작업 요청 발행에 실패했습니다."),
     IFC_EDIT_COMMAND_CONFIRM_NACK(HttpStatus.BAD_GATEWAY, "IFC_EDIT_COMMAND_CONFIRM_NACK", "IFC 편집 command가 RabbitMQ exchange로 전달되지 못했습니다."),
     IFC_EDIT_COMMAND_RETURNED(HttpStatus.BAD_GATEWAY, "IFC_EDIT_COMMAND_RETURNED", "IFC 편집 command가 queue로 라우팅되지 못하고 반환되었습니다."),
+    IFC_EDIT_COMMAND_DLQ(HttpStatus.BAD_GATEWAY, "IFC_EDIT_COMMAND_DLQ", "IFC 편집 작업이 실패했습니다. 편집 전 상태로 복구했습니다."),
     IFC_EDIT_EVENT_INVALID(HttpStatus.BAD_REQUEST, "IFC_EDIT_EVENT_INVALID", "IFC 편집 worker event가 올바르지 않습니다.");
 
     private final HttpStatus status;

@@ -21,6 +21,7 @@ import com.a204.batang.domain.revision.entity.Revision;
 import com.a204.batang.domain.revision.repository.RevisionRepository;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
+import com.a204.batang.domain.workspace.service.WorkspaceFloorPlanRealtimeService;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -70,6 +71,8 @@ class FloorPlanGenerateEventListenerTest {
     private FloorPlanArtifactRepository floorPlanArtifactRepository;
     @Mock
     private NotificationSseService notificationSseService;
+    @Mock
+    private WorkspaceFloorPlanRealtimeService workspaceFloorPlanRealtimeService;
     @Mock
     private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
@@ -239,6 +242,12 @@ class FloorPlanGenerateEventListenerTest {
         assertThat(project.getLatestRevisionId()).isEqualTo(revisionId);
         assertThat(workspace.getIfcStorageUrl()).isEqualTo("projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc");
         assertThat(workspace.getCurrentRevision()).isEqualTo(revisionId.toString());
+        verify(workspaceFloorPlanRealtimeService).publishFloorPlanUpdatedFromGenerate(
+                eq(projectId),
+                eq(revisionId),
+                eq(revision.getParentRevisionId()),
+                eq("projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc")
+        );
         verify(floorPlanArtifactRepository, times(2)).save(any(FloorPlanArtifact.class));
         verify(eventPublisher).publishEvent(any(FloorPlanStatusChangedEvent.class));
     }
