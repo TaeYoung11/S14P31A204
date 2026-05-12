@@ -108,6 +108,8 @@ import {
   resolveEditorMode,
 } from '../utils/editorPageHelpers'
 import {
+  CURSOR_INVALID_CODE,
+  FLOOR_PLAN_CURSOR_INVALID_CODE,
   IFC_COMPLETED_ACTION_SET,
   isBubbleSnapshotPayload,
   type FloorPlanSnapshotPayload,
@@ -233,10 +235,6 @@ export function useEditorPage() {
   /** 3D 사이드바 삭제 버튼으로 선택 요소 삭제를 요청하는 트리거 */
   const [threeDDeleteRequestToken, setThreeDDeleteRequestToken] = useState(0)
   const [ifcElementChangesById, setIfcElementChangesById] = useState<Record<number, IfcElementChange>>({})
-  const workspaceCommandPublisher = useWorkspaceCommandPublisher({
-    projectId,
-    source: mode,
-  })
 
   const { containerRef, stageSize } = useStageSize()
 
@@ -608,6 +606,12 @@ export function useEditorPage() {
   const currentIfcUrl = projectId ? (ifcSourceByProjectId[projectId]?.url ?? null) : null
   const currentIfcAssetId = projectId ? (ifcSourceByProjectId[projectId]?.assetId ?? null) : null
   const currentIfcRevisionId = projectId ? (ifcRevisionByProjectId[projectId] ?? null) : null
+  const workspaceCommandPublisher = useWorkspaceCommandPublisher({
+    projectId,
+    source: mode === '3d' ? '3d' : '2d',
+    getBaseRevisionId: () => currentIfcRevisionId,
+    getBaseIndex: () => floorPlanHistoryBaseIndexRef.current,
+  })
   const bubbleDbDirtyRef = useRef(false)
   const hasUserEditedRef = useRef(false)
   const serverPublishRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1585,12 +1589,20 @@ export function useEditorPage() {
     }
   }, [projectId])
 
-  const handleWorkspaceServerError = useCallback((_error: StompErrorMessage) => {
+  const handleWorkspaceServerError = useCallback((error: StompErrorMessage) => {
     const awaitingSync = awaitingServerSyncRef.current
     if (!awaitingSync || awaitingSync.projectId !== projectId) return
 
     awaitingServerSyncRef.current = null
     floorPlanHistoryCommandInFlightRef.current = false
+    if (error.code === CURSOR_INVALID_CODE || error.code === FLOOR_PLAN_CURSOR_INVALID_CODE) {
+      pendingServerPublishRef.current = null
+      previousSnapshotRef.current = null
+      clearServerPublishRetry()
+      setSaveStatus('dirty')
+      return
+    }
+
     if (
       pendingServerPublishRef.current?.serializedSnapshot === awaitingSync.serializedSnapshot
     ) {
@@ -1736,8 +1748,13 @@ export function useEditorPage() {
     return true
   }, [applyRemoteBubbleSnapshot, clearServerPublishRetry])
 
-  const refreshHistoryCursorFromServer = useCallback(async () => {
+  const refreshHistoryCursorFromServer = useCallback(async (options?: {
+    republishOnFailure?: boolean
+    republishWhenStale?: boolean
+  }) => {
     if (!projectId) return
+    const republishOnFailure = options?.republishOnFailure ?? true
+    const republishWhenStale = options?.republishWhenStale ?? true
     const awaitingSync = awaitingServerSyncRef.current
     const history = await workspaceSaveService.loadHistorySnapshot(projectId).catch(() => null)
     if (!history) {
@@ -1745,7 +1762,9 @@ export function useEditorPage() {
         awaitingServerSyncRef.current = null
         previousSnapshotRef.current = null
         setSaveStatus('dirty')
-        setWorkspaceSnapshotCommitVersion((version) => version + 1)
+        if (republishOnFailure) {
+          setWorkspaceSnapshotCommitVersion((version) => version + 1)
+        }
       }
       return
     }
@@ -1777,20 +1796,33 @@ export function useEditorPage() {
 
     previousSnapshotRef.current = null
     setSaveStatus('dirty')
-    setWorkspaceSnapshotCommitVersion((version) => version + 1)
+    if (republishWhenStale) {
+      setWorkspaceSnapshotCommitVersion((version) => version + 1)
+    }
   }, [projectId])
 
   const handleBubbleHistoryCursorInvalid = useCallback(() => {
     const awaitingSync = awaitingServerSyncRef.current
     if (!awaitingSync || awaitingSync.projectId !== projectId || awaitingSync.historyDomain !== 'bubble') return
-    void refreshHistoryCursorFromServer()
-  }, [projectId, refreshHistoryCursorFromServer])
+    pendingServerPublishRef.current = null
+    awaitingServerSyncRef.current = null
+    previousSnapshotRef.current = null
+    clearServerPublishRetry()
+    setSaveStatus('dirty')
+    void refreshHistoryCursorFromServer({ republishOnFailure: false, republishWhenStale: false })
+  }, [clearServerPublishRetry, projectId, refreshHistoryCursorFromServer])
 
   const handleFloorPlanHistoryCursorInvalid = useCallback(() => {
     const awaitingSync = awaitingServerSyncRef.current
     if (!awaitingSync || awaitingSync.projectId !== projectId || awaitingSync.historyDomain !== 'floorPlan') return
-    void refreshHistoryCursorFromServer()
-  }, [projectId, refreshHistoryCursorFromServer])
+    pendingServerPublishRef.current = null
+    awaitingServerSyncRef.current = null
+    previousSnapshotRef.current = null
+    floorPlanHistoryCommandInFlightRef.current = false
+    clearServerPublishRetry()
+    setSaveStatus('dirty')
+    void refreshHistoryCursorFromServer({ republishOnFailure: false, republishWhenStale: false })
+  }, [clearServerPublishRetry, projectId, refreshHistoryCursorFromServer])
 
   useEffect(() => {
     if (saveStatus !== 'syncing') return
@@ -2557,20 +2589,26 @@ export function useEditorPage() {
 
   const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId'>) => {
     if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return
+    if (element.globalId && !patch.deleted) {
+      workspaceCommandPublisher.updateIfcElement(element, patch)
+    }
     setIfcElementChangesById((prev) => ({
       ...prev,
       [element.expressId as number]: {
         ...prev[element.expressId as number],
         ...patch,
         expressId: element.expressId as number,
+        globalId: element.globalId,
+        ifcClass: element.ifcClass,
       },
     }))
-  }, [])
+  }, [workspaceCommandPublisher])
 
   const handleDeleteIfcElement = useCallback((element: IfcElementInfo) => {
+    workspaceCommandPublisher.deleteIfcElement(element)
     recordIfcElementChange(element, { deleted: true })
     setSelectedIfcElement((prev) => (prev?.id === element.id ? null : prev))
-  }, [recordIfcElementChange])
+  }, [recordIfcElementChange, workspaceCommandPublisher])
 
   const handleTwoDMarqueeSelect = useCallback(
     (
