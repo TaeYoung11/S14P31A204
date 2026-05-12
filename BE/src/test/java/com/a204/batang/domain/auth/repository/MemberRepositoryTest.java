@@ -22,10 +22,10 @@ class MemberRepositoryTest {
 
     @Test
     void searchActiveMembersByEmailKeywordExcludingCurrentUser_filtersByAllConditions() {
-        Member currentUser = persistMember("owner@example.com", "오너", UserType.DESIGNER, UserStatus.ACTIVE);
-        Member matchingActiveUser = persistMember("Kim@example.com", "김건우", UserType.CUSTOMER, UserStatus.ACTIVE);
-        Member otherActiveUser = persistMember("park@example.com", "박민수", UserType.CUSTOMER, UserStatus.ACTIVE);
-        Member withdrawnUser = persistMember("kim-withdrawn@example.com", "탈퇴회원", UserType.CUSTOMER, UserStatus.WITHDRAWN);
+        Member currentUser = persistMember("owner@example.com", "Owner", UserType.DESIGNER, UserStatus.ACTIVE);
+        Member matchingActiveUser = persistMember("Kim@example.com", "Kim", UserType.CUSTOMER, UserStatus.ACTIVE);
+        Member otherActiveUser = persistMember("park@example.com", "Park", UserType.CUSTOMER, UserStatus.ACTIVE);
+        Member withdrawnUser = persistMember("kim-withdrawn@example.com", "Withdrawn", UserType.CUSTOMER, UserStatus.WITHDRAWN);
 
         List<Member> results = memberRepository.searchActiveMembersByEmailKeywordExcludingCurrentUser(
                 "kim",
@@ -44,10 +44,10 @@ class MemberRepositoryTest {
 
     @Test
     void searchActiveMembersByEmailKeywordExcludingCurrentUser_appliesPageLimitAndSortOrder() {
-        Member currentUser = persistMember("owner@example.com", "오너", UserType.DESIGNER, UserStatus.ACTIVE);
-        Member alpha = persistMember("alpha@example.com", "알파", UserType.CUSTOMER, UserStatus.ACTIVE);
-        Member beta = persistMember("beta@example.com", "베타", UserType.CUSTOMER, UserStatus.ACTIVE);
-        persistMember("gamma@example.com", "감마", UserType.CUSTOMER, UserStatus.ACTIVE);
+        Member currentUser = persistMember("owner@example.com", "Owner", UserType.DESIGNER, UserStatus.ACTIVE);
+        Member alpha = persistMember("alpha@example.com", "Alpha", UserType.CUSTOMER, UserStatus.ACTIVE);
+        Member beta = persistMember("beta@example.com", "Beta", UserType.CUSTOMER, UserStatus.ACTIVE);
+        persistMember("gamma@example.com", "Gamma", UserType.CUSTOMER, UserStatus.ACTIVE);
 
         List<Member> results = memberRepository.searchActiveMembersByEmailKeywordExcludingCurrentUser(
                 "example",
@@ -56,7 +56,6 @@ class MemberRepositoryTest {
                 PageRequest.of(0, 2)
         );
 
-        // 이메일 오름차순 정렬 후 최대 2건만 반환되어야 한다.
         assertThat(results)
                 .extracting(Member::getUserId)
                 .containsExactly(alpha.getUserId(), beta.getUserId());

@@ -72,4 +72,13 @@ class UserSearchControllerTest {
                 .andExpect(jsonPath("$.code").value("COMMON_INVALID_REQUEST"))
                 .andExpect(jsonPath("$.message").value("email: 공백일 수 없습니다."));
     }
+
+    @Test
+    void searchUsers_returnsBadRequestWhenEmailIsMissing() throws Exception {
+        mockMvc.perform(get("/api/v1/users/search"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("COMMON_INVALID_REQUEST"))
+                .andExpect(jsonPath("$.message").value("email: 필수입니다."));
+    }
 }
