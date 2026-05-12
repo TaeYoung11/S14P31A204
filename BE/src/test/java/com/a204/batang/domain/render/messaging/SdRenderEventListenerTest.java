@@ -13,6 +13,7 @@ import com.a204.batang.domain.render.messaging.event.RenderStatusChangedEvent;
 import com.a204.batang.domain.render.repository.RenderArtifactRepository;
 import com.a204.batang.domain.render.repository.RenderJobRepository;
 import com.a204.batang.domain.render.repository.RenderJobStepRepository;
+import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,6 +63,8 @@ class SdRenderEventListenerTest {
     private NotificationSseService notificationSseService;
     @Mock
     private ApplicationEventPublisher eventPublisher;
+    @Mock
+    private S3ObjectPresigner s3ObjectPresigner;
 
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
@@ -113,6 +116,7 @@ class SdRenderEventListenerTest {
         lenient().when(renderJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId)).thenReturn(Optional.of(step));
         lenient().when(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).thenReturn(Optional.of(project));
         lenient().when(projectAccessService.resolveProjectMemberUserIds(project)).thenReturn(Set.of(UUID.randomUUID()));
+        lenient().when(s3ObjectPresigner.presignRequired(any(), any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
@@ -207,6 +211,9 @@ class SdRenderEventListenerTest {
         ArgumentCaptor<RenderStatusChangedEvent> eventCaptor = ArgumentCaptor.forClass(RenderStatusChangedEvent.class);
         verify(eventPublisher).publishEvent(eventCaptor.capture());
         assertThat(eventCaptor.getValue().getPayload().imageUrl()).isEqualTo(leftPhotoUrl);
+        assertThat(eventCaptor.getValue().getPayload().renderUrls().manifestUrl()).isEqualTo(manifestUrl);
+        assertThat(eventCaptor.getValue().getPayload().renderUrls().frontDiagonalLeftUrl()).isEqualTo(leftPhotoUrl);
+        assertThat(eventCaptor.getValue().getPayload().renderUrls().frontDiagonalRightUrl()).isEqualTo(rightPhotoUrl);
     }
 
     @Test
