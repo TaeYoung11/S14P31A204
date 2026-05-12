@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from ai_planning_2d.preview_validators import PreviewValidationResult, validate_preview_plan
+from ai_planning_2d.validators.preview import PreviewValidationResult, validate_preview_plan
 from ai_planning_2d.schemas.command import ActionType, CommandBatch, FloorNLPCommand, IFCCommand
-from ai_planning_2d.validator import validate_command_batch
+from ai_planning_2d.validators.batch import validate_command_batch
 
 from ai_planning_2d.testing.synthetic import make_minimal_ifc_context
 
 
-def test_validate_command_batch_import_path_still_returns_clarification() -> None:
+def test_validate_command_batch_returns_clarification() -> None:
     batch = CommandBatch(
         commands=[
             IFCCommand(
@@ -29,7 +29,7 @@ def test_validate_command_batch_import_path_still_returns_clarification() -> Non
     assert result.clarification_question is not None
 
 
-def test_validate_preview_plan_import_path_still_returns_dataclass_result() -> None:
+def test_validate_preview_plan_returns_dataclass_result() -> None:
     result = validate_preview_plan(
         command=FloorNLPCommand(
             action="remove_room",

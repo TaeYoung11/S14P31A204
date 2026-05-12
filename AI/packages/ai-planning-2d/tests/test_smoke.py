@@ -32,7 +32,7 @@ from ai_planning_2d.add_room_placement import suggest_add_room_start_mm
 from ai_planning_2d.engine import _apply_relative_adjustment, _infer_resize_direction
 from ai_planning_2d.remove_healing import build_remove_merge_plan
 from ai_planning_2d.toilet_demo import build_toilet_insertion_geometry_plan
-from ai_planning_2d.validator import validate_command_batch
+from ai_planning_2d.validators.batch import validate_command_batch
 
 
 @pytest.fixture

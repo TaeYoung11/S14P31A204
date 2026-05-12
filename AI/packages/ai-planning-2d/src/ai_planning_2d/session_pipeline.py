@@ -13,7 +13,7 @@ from .executor import apply_space_plan
 from .ifc_extractor import extract_ifc_context
 from .pipeline import to_ifc_commands
 from .policies import plan_remove_room, plan_resize_room
-from .preview_validators import validate_preview_plan
+from .validators.preview import validate_preview_plan
 from .toilet_demo import build_toilet_insertion_geometry_plan
 
 _ROOM_PLANNING_ACTIONS = {"add_room", "remove_room", "resize_room", "insert_toilet"}

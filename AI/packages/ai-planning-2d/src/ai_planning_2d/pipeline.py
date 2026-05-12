@@ -5,7 +5,7 @@ from .command import ActionType, CommandBatch, FloorNLPCommand, IFCCommand, IFCC
 from .add_room_placement import suggest_add_room_start_mm
 from .toilet_demo import build_toilet_insertion_geometry_plan
 from .toilet_demo import UserIntent as ToiletDemoUserIntent
-from .validator import validate_command_batch
+from .validators.batch import validate_command_batch
 
 _MSG_CREATE_WALL_NO_VALIDATED_CANDIDATE = (
     "? ???? ??? ?? ?? ?? ??? ????. "

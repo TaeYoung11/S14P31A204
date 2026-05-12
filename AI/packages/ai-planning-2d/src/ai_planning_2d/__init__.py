@@ -10,7 +10,7 @@ from .executor import apply_space_plan
 from .ifc_extractor import extract_ifc_context
 from .policies import plan_remove_room, plan_resize_room
 from .pipeline import to_ifc_commands
-from .preview_validators import PreviewValidationResult, validate_preview_plan
+from .validators.preview import PreviewValidationResult, validate_preview_plan
 from .schemas.ifc_context import IFCContext, OpeningContext, SpaceContext, StoreyContext
 from .schemas.plan_v14 import (
     PLAN_SCHEMA_VERSION,
