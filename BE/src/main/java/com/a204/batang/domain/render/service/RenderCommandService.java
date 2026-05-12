@@ -22,6 +22,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,6 +54,9 @@ public class RenderCommandService {
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
+    @Value("${app.aws.s3.bucket}")
+    private String configuredBucket;
+
     /**
      * 프로젝트 권한과 IFC source를 검증한 뒤 render job/step을 생성하고 command를 발행한다.
      */
@@ -67,7 +71,7 @@ public class RenderCommandService {
         ProjectWorkspace workspace = projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.RENDER_SOURCE_NOT_FOUND));
 
-        String sourceIfcStorageUrl = workspace.getIfcStorageUrl();
+        String sourceIfcStorageUrl = toWorkerStorageUrl(workspace.getIfcStorageUrl());
         if (sourceIfcStorageUrl == null || sourceIfcStorageUrl.isBlank()) {
             throw new CustomException(ErrorCode.RENDER_SOURCE_NOT_FOUND);
         }
@@ -78,7 +82,10 @@ public class RenderCommandService {
         UUID correlationId = UUID.randomUUID();
         UUID sourceRevisionId = project.getLatestRevisionId();
         String idempotencyKey = jobId + ":step-1:sd-render";
-        String outputImageStorageUrl = buildOutputImageStorageUrl(projectId, expectedOutputArtifactId);
+        String outputPrefix = buildOutputPrefix(projectId, expectedOutputArtifactId);
+        String outputManifestStorageUrl = outputPrefix + "/manifest.v1.json";
+        String outputLeftPhotoStorageUrl = outputPrefix + "/photo_front_diagonal_left.png";
+        String outputRightPhotoStorageUrl = outputPrefix + "/photo_front_diagonal_right.png";
         LocalDateTime now = LocalDateTime.now();
 
         JsonNode requestPayload = objectMapper.valueToTree(request);
@@ -86,7 +93,9 @@ public class RenderCommandService {
                 sourceIfcStorageUrl,
                 request.cameraState(),
                 expectedOutputArtifactId,
-                outputImageStorageUrl
+                outputManifestStorageUrl,
+                outputLeftPhotoStorageUrl,
+                outputRightPhotoStorageUrl
         ));
 
         RenderJob job = RenderJob.createQueued(
@@ -116,7 +125,7 @@ public class RenderCommandService {
 
         SdRenderCommandMessage command = new SdRenderCommandMessage(
                 UUID.randomUUID(),
-                1,
+                "v1",
                 "COMMAND",
                 "SD_RENDER_GENERATE",
                 RabbitMqConfig.SD_RENDER_COMMAND_ROUTING_KEY,
@@ -130,9 +139,9 @@ public class RenderCommandService {
                 SOURCE_SCENE_TYPE_IFC_MODEL,
                 expectedOutputArtifactId,
                 buildWorkerInput(sourceIfcStorageUrl, request),
-                buildExpectedOutput(outputImageStorageUrl),
+                buildExpectedOutput(outputManifestStorageUrl, outputLeftPhotoStorageUrl, outputRightPhotoStorageUrl),
                 buildWorkerPayload(request),
-                1,
+                0,
                 3,
                 idempotencyKey,
                 correlationId,
@@ -176,13 +185,17 @@ public class RenderCommandService {
             String sourceIfcStorageUrl,
             Object cameraState,
             UUID expectedOutputArtifactId,
-            String outputImageStorageUrl
+            String outputManifestStorageUrl,
+            String outputLeftPhotoStorageUrl,
+            String outputRightPhotoStorageUrl
     ) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("sourceIfcStorageUrl", sourceIfcStorageUrl);
         putIfNotNull(payload, "cameraState", cameraState);
         payload.put("expectedOutputArtifactId", expectedOutputArtifactId.toString());
-        payload.put("outputImageStorageUrl", outputImageStorageUrl);
+        payload.put("renderManifestStorageUrl", outputManifestStorageUrl);
+        payload.put("renderPhotoFrontDiagonalLeftStorageUrl", outputLeftPhotoStorageUrl);
+        payload.put("renderPhotoFrontDiagonalRightStorageUrl", outputRightPhotoStorageUrl);
         return payload;
     }
 
@@ -197,9 +210,15 @@ public class RenderCommandService {
         return input;
     }
 
-    private Map<String, Object> buildExpectedOutput(String outputImageStorageUrl) {
+    private Map<String, Object> buildExpectedOutput(
+            String outputManifestStorageUrl,
+            String outputImageStorageUrl,
+            String outputSecondaryImageStorageUrl
+    ) {
         Map<String, Object> expectedOutput = new LinkedHashMap<>();
-        expectedOutput.put("outputImageStorageUrl", outputImageStorageUrl);
+        expectedOutput.put("renderManifestStorageUrl", outputManifestStorageUrl);
+        expectedOutput.put("renderPhotoFrontDiagonalLeftStorageUrl", outputImageStorageUrl);
+        expectedOutput.put("renderPhotoFrontDiagonalRightStorageUrl", outputSecondaryImageStorageUrl);
         return expectedOutput;
     }
 
@@ -208,11 +227,10 @@ public class RenderCommandService {
      */
     private Map<String, Object> buildWorkerPayload(CreateRenderRequest request) {
         Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("renderMode", "ifc2img");
         payload.put("prompt", request.prompt());
         putIfNotNull(payload, "negativePrompt", request.negativePrompt());
-        putIfNotNull(payload, "style", request.style());
-        payload.put("width", request.width() == null ? 1024 : request.width());
-        payload.put("height", request.height() == null ? 1024 : request.height());
+        putIfNotNull(payload, "sourceImageStorageUrl", request.sourceImageStorageUrl());
         return payload;
     }
 
@@ -222,8 +240,23 @@ public class RenderCommandService {
         }
     }
 
-    private String buildOutputImageStorageUrl(UUID projectId, UUID artifactId) {
-        return "s3://batang/projects/%s/renders/%s.png".formatted(projectId, artifactId);
+    private String buildOutputPrefix(UUID projectId, UUID artifactId) {
+        return "s3://%s/projects/%s/renders/%s".formatted(configuredBucket, projectId, artifactId);
+    }
+
+    private String toWorkerStorageUrl(String storageUrl) {
+        if (storageUrl == null || storageUrl.isBlank()) {
+            return storageUrl;
+        }
+
+        String normalizedStorageUrl = storageUrl.trim();
+        if (normalizedStorageUrl.startsWith("s3://")
+                || normalizedStorageUrl.startsWith("http://")
+                || normalizedStorageUrl.startsWith("https://")) {
+            return normalizedStorageUrl;
+        }
+
+        return "s3://%s/%s".formatted(configuredBucket, normalizedStorageUrl);
     }
 
     private void sendRenderSse(String eventName, RenderStatusSseResponse payload) {
