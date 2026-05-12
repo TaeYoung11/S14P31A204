@@ -57,12 +57,7 @@ const hasTimezoneSuffix = (value: string): boolean => /[zZ]$|[+-]\d{2}:\d{2}$/.t
 
 const formatRenderCreatedAt = (createdAt: string): string => {
   const normalized = createdAt.trim()
-  const localMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
-  if (localMatch && !hasTimezoneSuffix(normalized)) {
-    return `${localMatch[2]}. ${localMatch[3]}. ${localMatch[4]}:${localMatch[5]}`
-  }
-
-  const timestamp = new Date(normalized)
+  const timestamp = new Date(hasTimezoneSuffix(normalized) ? normalized : `${normalized}Z`)
   if (Number.isNaN(timestamp.getTime())) return '-'
   return timestamp.toLocaleString('ko-KR', {
     timeZone: 'Asia/Seoul',

@@ -106,8 +106,8 @@ export function RealisticViewer({ projectId }: RealisticViewerProps) {
 
   const handleRequestRender = () => {
     void requestRender({
-      prompt: '',
-      negativePrompt: '',
+      prompt: 'default',
+      negativePrompt: 'default',
       style: {
         timeOfDay,
         viewpoint: null,

@@ -366,7 +366,7 @@ export function useEditorPage() {
     action: string | null,
     assetId?: string | null,
     revisionId?: string | null,
-  ) => void>(() => {})
+  ) => void>(() => { })
   const isFloorPlanGenerating = isFloorPlanGeneratingLocal || workspacePhaseStatus === 'CONVERTING'
 
   /**
@@ -613,6 +613,7 @@ export function useEditorPage() {
   const serverPublishRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingServerPublishRef = useRef<PendingServerPublishRecord | null>(null)
   const awaitingServerSyncRef = useRef<AwaitingServerSyncRecord | null>(null)
+  const suppressGeneratedFloorPlanAutosaveRef = useRef(false)
   const floorPlanHistoryCommandInFlightRef = useRef(false)
   const draftLoadTokenRef = useRef(0)
   const draftLoadedProjectIdRef = useRef<string | null>(null)
@@ -629,6 +630,7 @@ export function useEditorPage() {
   useEffect(() => {
     lastLoadedIfcStorageUrlRef.current = null
     ifcLoadInFlightStorageUrlRef.current = null
+    suppressGeneratedFloorPlanAutosaveRef.current = false
     floorPlanIfcExportAbortRef.current?.abort()
     floorPlanIfcExportAbortRef.current = null
   }, [projectId])
@@ -656,14 +658,14 @@ export function useEditorPage() {
     snapshot.phaseStatus === 'BUBBLE_DRAFT'
       ? bubbleHistoryBaseIndexRef.current
       : floorPlanHistoryBaseIndexRef.current
-  , [])
+    , [])
   const resolveServerHistoryDomain = useCallback((snapshot: WorkspaceSnapshot): AwaitingServerSyncRecord['historyDomain'] =>
     snapshot.phaseStatus === 'BUBBLE_DRAFT' &&
-    !snapshot.isFloorPlanGenerated &&
-    snapshot.floorPlanLayoutSource === null
+      !snapshot.isFloorPlanGenerated &&
+      snapshot.floorPlanLayoutSource === null
       ? 'bubble'
       : 'floorPlan'
-  , [])
+    , [])
   const applyWorkspaceHistorySiteInfo = useCallback((siteInfo: WorkspaceHistorySnapshotResponse['siteInfo']) => {
     const polygonRing = extractOuterRingFromCoordinates(siteInfo?.polygon?.coordinates)
     const areaM2 =
@@ -683,7 +685,7 @@ export function useEditorPage() {
   }, [])
   const resolveFloorPlanSceneType = useCallback((): FloorPlanSceneType =>
     mode === '3d' ? 'THREE_D' : 'TWO_D'
-  , [mode])
+    , [mode])
   const authUser = useAuthStore((state) => state.user)
   const currentProject = useProjectStore((state) => state.currentProject)
   const {
@@ -1429,22 +1431,35 @@ export function useEditorPage() {
     const shouldPublishBubbleDraft = mode === 'bubble' && workspacePhaseStatus === 'BUBBLE_DRAFT'
     const publishSnapshot: WorkspaceSnapshot = shouldPublishBubbleDraft
       ? {
-          ...draftSnapshot,
-          phaseStatus: 'BUBBLE_DRAFT',
-          zones: [],
-          floorLayers: [],
-          activeFloorLayerId: null,
-          isFloorPlanGenerated: false,
-          floorPlanLayoutSource: null,
-          floorWalls: [],
-          floorOpenings: [],
-          hiddenAutoWallIds: [],
-          hiddenAutoOpeningIds: [],
-          isProjectStructurePreferred: false,
-          ifcElementChanges: [],
-        }
+        ...draftSnapshot,
+        phaseStatus: 'BUBBLE_DRAFT',
+        zones: [],
+        floorLayers: [],
+        activeFloorLayerId: null,
+        isFloorPlanGenerated: false,
+        floorPlanLayoutSource: null,
+        floorWalls: [],
+        floorOpenings: [],
+        hiddenAutoWallIds: [],
+        hiddenAutoOpeningIds: [],
+        isProjectStructurePreferred: false,
+        ifcElementChanges: [],
+      }
       : draftSnapshot
     const serializedSnapshot = JSON.stringify(publishSnapshot)
+
+    if (
+      suppressGeneratedFloorPlanAutosaveRef.current &&
+      resolveServerHistoryDomain(publishSnapshot) === 'floorPlan'
+    ) {
+      pendingServerPublishRef.current = null
+      awaitingServerSyncRef.current = null
+      previousSnapshotRef.current = serializedSnapshot
+      hasUserEditedRef.current = false
+      suppressGeneratedFloorPlanAutosaveRef.current = false
+      setSaveStatus('synced')
+      return
+    }
 
     if (suppressNextAutosaveRef.current) {
       suppressNextAutosaveRef.current = false
@@ -1507,12 +1522,12 @@ export function useEditorPage() {
     }
 
     void workspaceRealtimeService.publishSnapshot({
-        projectId,
-        snapshot: publishSnapshot,
-        baseIndex: serverPublishRecord.baseIndex,
-        revisionId: serverPublishRecord.revisionId,
-        sceneType: serverPublishRecord.sceneType,
-      })
+      projectId,
+      snapshot: publishSnapshot,
+      baseIndex: serverPublishRecord.baseIndex,
+      revisionId: serverPublishRecord.revisionId,
+      sceneType: serverPublishRecord.sceneType,
+    })
       .then(() => {
         // baseline은 매칭되는 서버 history ack를 받은 뒤에만 갱신한다.
       })
@@ -3251,6 +3266,14 @@ export function useEditorPage() {
         }))
       }
       // IFC가 정상 로드되면 완료 action 문자열과 무관하게 편집 상태로 복귀해 무한 로딩을 방지한다.
+      const shouldSuppressGeneratedFloorPlanAutosave = action === 'FLOOR_PLAN_GENERATE_COMPLETED'
+      if (shouldSuppressGeneratedFloorPlanAutosave) {
+        suppressGeneratedFloorPlanAutosaveRef.current = true
+        pendingServerPublishRef.current = null
+        awaitingServerSyncRef.current = null
+        clearServerPublishRetry()
+        hasUserEditedRef.current = false
+      }
       await loadIfcFromStorageUrl(presignedUrl, { webIfcWasmPath: '/wasm/' })
       lastLoadedIfcStorageUrlRef.current = dedupeKey
       setWorkspacePhaseStatus('IFC_EDIT')
@@ -3266,7 +3289,7 @@ export function useEditorPage() {
         ifcLoadInFlightStorageUrlRef.current = null
       }
     }
-  }, [loadIfcFromStorageUrl, projectId, setFloorPlanGenerateStatusText])
+  }, [clearServerPublishRetry, loadIfcFromStorageUrl, projectId, setFloorPlanGenerateStatusText])
 
   useEffect(() => {
     handleIfcSyncMessageRef.current = (
