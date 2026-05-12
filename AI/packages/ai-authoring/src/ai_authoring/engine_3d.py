@@ -161,7 +161,9 @@ def _element_body_bbox_world(
     if not items:
         return None
     item = items[0]
-    while item is not None and item.is_a("IfcBooleanResult"):
+    while item is not None and (
+        item.is_a("IfcBooleanResult") or item.is_a("IfcBooleanClippingResult")
+    ):
         item = item.FirstOperand
     if item is None or not item.is_a("IfcExtrudedAreaSolid"):
         return None
@@ -186,6 +188,51 @@ def _element_body_bbox_world(
 
     try:
         matrix = ifcopenshell.util.placement.get_local_placement(element.ObjectPlacement)
+    except Exception:
+        matrix = None
+
+    world_xs: list[float] = []
+    world_ys: list[float] = []
+    world_zs: list[float] = []
+    for x in (min_x, max_x):
+        for y in (min_y, max_y):
+            for z in (min_z, max_z):
+                if matrix is None:
+                    world_xs.append(x)
+                    world_ys.append(y)
+                    world_zs.append(z)
+                else:
+                    world_xs.append(
+                        float(matrix[0][0] * x + matrix[0][1] * y + matrix[0][2] * z + matrix[0][3])
+                    )
+                    world_ys.append(
+                        float(matrix[1][0] * x + matrix[1][1] * y + matrix[1][2] * z + matrix[1][3])
+                    )
+                    world_zs.append(
+                        float(matrix[2][0] * x + matrix[2][1] * y + matrix[2][2] * z + matrix[2][3])
+                    )
+    return (
+        min(world_xs),
+        max(world_xs),
+        min(world_ys),
+        max(world_ys),
+        min(world_zs),
+        max(world_zs),
+    )
+
+
+def _local_box_bbox_world(
+    placement: ifcopenshell.entity_instance | None,
+    *,
+    min_x: float,
+    max_x: float,
+    min_y: float,
+    max_y: float,
+    min_z: float,
+    max_z: float,
+) -> tuple[float, float, float, float, float, float] | None:
+    try:
+        matrix = ifcopenshell.util.placement.get_local_placement(placement)
     except Exception:
         matrix = None
 
@@ -1983,11 +2030,41 @@ def _clamp_window_z_below_overhead_slabs(
     host_wall: ifcopenshell.entity_instance,
     z: float,
     height: float,
+    *,
+    opening_u: float,
+    opening_v: float,
+    opening_length: float,
+    opening_thickness: float,
+    ew_wall: bool,
 ) -> float:
     wall_bbox = _element_body_bbox_world(host_wall)
     if wall_bbox is None:
         return z
-    wall_min_x, wall_max_x, wall_min_y, wall_max_y, wall_min_z, wall_max_z = wall_bbox
+    _, _, _, _, wall_min_z, wall_max_z = wall_bbox
+
+    if ew_wall:
+        min_x = opening_u - (opening_length / 2.0)
+        max_x = opening_u + (opening_length / 2.0)
+        min_y = opening_v - (opening_thickness / 2.0)
+        max_y = opening_v + (opening_thickness / 2.0)
+    else:
+        min_x = opening_u - (opening_thickness / 2.0)
+        max_x = opening_u + (opening_thickness / 2.0)
+        min_y = opening_v - (opening_length / 2.0)
+        max_y = opening_v + (opening_length / 2.0)
+
+    opening_bbox = _local_box_bbox_world(
+        host_wall.ObjectPlacement,
+        min_x=min_x,
+        max_x=max_x,
+        min_y=min_y,
+        max_y=max_y,
+        min_z=z,
+        max_z=z + height,
+    )
+    if opening_bbox is None:
+        return z
+    opening_min_x, opening_max_x, opening_min_y, opening_max_y, _, _ = opening_bbox
 
     clear_top = wall_max_z
     for slab in model.by_type("IfcSlab"):
@@ -1996,10 +2073,10 @@ def _clamp_window_z_below_overhead_slabs(
             continue
         slab_min_x, slab_max_x, slab_min_y, slab_max_y, slab_min_z, _ = slab_bbox
         overlaps_xy = (
-            wall_min_x < slab_max_x
-            and wall_max_x > slab_min_x
-            and wall_min_y < slab_max_y
-            and wall_max_y > slab_min_y
+            opening_min_x < slab_max_x
+            and opening_max_x > slab_min_x
+            and opening_min_y < slab_max_y
+            and opening_max_y > slab_min_y
         )
         if not overlaps_xy:
             continue
@@ -2562,11 +2639,13 @@ def create_door_with_opening(
         u, v, z, ew_wall = _get_wall_local_coords(
             model, host_wall, x_mm, y_mm, z_mm + sill_height_mm
         )
+        opening_height = _mm_to_model_units(model, height_mm, 2100)
+        z = _clamp_opening_z_to_wall(host_wall, z, opening_height)
         opening = _apply_opening(
             model, host_wall, u, v, z,
             _mm_to_model_units(model, length_mm, 900),
             _mm_to_model_units(model, width_mm, 200),
-            _mm_to_model_units(model, height_mm, 2100),
+            opening_height,
             ew_wall,
         )
         if opening is None:
@@ -2786,12 +2865,24 @@ def create_window_with_opening(
             model, host_wall, x_mm, y_mm, z_mm + sill_height_mm
         )
         opening_height = _mm_to_model_units(model, height_mm, 1200)
+        opening_length = _mm_to_model_units(model, length_mm, 1200)
+        opening_thickness = _mm_to_model_units(model, width_mm, 200)
         z = _clamp_opening_z_to_wall(host_wall, z, opening_height)
-        z = _clamp_window_z_below_overhead_slabs(model, host_wall, z, opening_height)
+        z = _clamp_window_z_below_overhead_slabs(
+            model,
+            host_wall,
+            z,
+            opening_height,
+            opening_u=u,
+            opening_v=v,
+            opening_length=opening_length,
+            opening_thickness=opening_thickness,
+            ew_wall=ew_wall,
+        )
         opening = _apply_opening(
             model, host_wall, u, v, z,
-            _mm_to_model_units(model, length_mm, 1200),
-            _mm_to_model_units(model, width_mm, 200),
+            opening_length,
+            opening_thickness,
             opening_height,
             ew_wall,
         )

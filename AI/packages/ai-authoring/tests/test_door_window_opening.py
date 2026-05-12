@@ -210,6 +210,31 @@ def test_door_opening_uses_solid_position_when_profile_has_no_position():
     assert door_y == pytest.approx(90.0)
 
 
+def test_door_opening_clamps_to_host_wall_height():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    assert wall is not None
+
+    door = create_door_with_opening(
+        model,
+        storey,
+        length_mm=900,
+        width_mm=200,
+        height_mm=2100,
+        x_mm=500,
+        y_mm=0,
+        z_mm=1000,
+        host_wall=wall,
+        sill_height_mm=0.0,
+    )
+
+    assert door is not None
+    opening = model.by_type("IfcOpeningElement")[0]
+    opening_z = float(opening.ObjectPlacement.RelativePlacement.Location.Coordinates[2])
+    assert opening_z == pytest.approx(300.0)
+    assert opening_z + 2100.0 == pytest.approx(2400.0)
+
+
 def test_door_without_host_wall_is_rejected():
     model, storey, _ = _make_model()
 
@@ -426,6 +451,51 @@ def test_create_element_handler_window_clamps_below_overhead_slab():
     opening_z = float(opening.ObjectPlacement.RelativePlacement.Location.Coordinates[2])
     assert opening_z == pytest.approx(1600.0)
     assert opening_z + 1200.0 == pytest.approx(2800.0)
+
+
+def test_window_opening_ignores_overhead_slab_outside_opening_span():
+    model, storey, _ = _make_model()
+    wall = create_wall(
+        model,
+        storey,
+        length_mm=6000,
+        width_mm=200,
+        height_mm=3000,
+        direction="east",
+    )
+    slab = create_slab(
+        model,
+        storey,
+        length_mm=1000,
+        width_mm=3000,
+        height_mm=200,
+        x_mm=0,
+        y_mm=0,
+        z_mm=2800,
+    )
+    assert wall is not None
+    assert slab is not None
+
+    handler = get("create_element")
+    window = handler.execute(
+        model,
+        storey,
+        {
+            "element_type": "IfcWindow",
+            "storey": "1F",
+            "coordinate_space": "PROJECT_ABSOLUTE_MM",
+            "start_mm": {"x": 5000.0, "y": 0.0, "z": 1000.0},
+            "dimensions_mm": {"length": 1200, "width": 200, "height": 1200},
+            "host_wall_global_id": wall.GlobalId,
+            "sill_height_mm": 800.0,
+        },
+    )
+
+    assert window is not None
+    opening = model.by_type("IfcOpeningElement")[0]
+    opening_z = float(opening.ObjectPlacement.RelativePlacement.Location.Coordinates[2])
+    assert opening_z == pytest.approx(1800.0)
+    assert opening_z + 1200.0 == pytest.approx(3000.0)
 
 
 def test_window_opening_uses_solid_position_when_profile_has_no_position():

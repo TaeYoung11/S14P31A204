@@ -6,7 +6,7 @@ from typing import Any
 
 import ifcopenshell
 
-from ai_authoring.engine_3d import modify_position, modify_rotation
+from ai_authoring.engine_3d import modify_rotation
 from ai_authoring.operations.registry import register
 from ai_authoring.operations.space_support import (
     is_product_host_relative,
@@ -53,17 +53,13 @@ class TransformElementsHandler:
                 continue
             changed = False
             if translation:
-                if rotation:
-                    pos_dict: dict[str, Any] = {"mode": "RELATIVE", **translation}
-                    changed |= modify_position(product, pos_dict, scale=1000.0)
-                else:
-                    changed |= translate_product(
-                        model,
-                        product,
-                        x_m=mm_to_model_units(model, translation.get("x"), 0.0),
-                        y_m=mm_to_model_units(model, translation.get("y"), 0.0),
-                        z_m=mm_to_model_units(model, translation.get("z"), 0.0),
-                    )
+                changed |= translate_product(
+                    model,
+                    product,
+                    x_m=mm_to_model_units(model, translation.get("x"), 0.0),
+                    y_m=mm_to_model_units(model, translation.get("y"), 0.0),
+                    z_m=mm_to_model_units(model, translation.get("z"), 0.0),
+                )
             if rotation.get("z") is not None:
                 changed |= modify_rotation(model, product, float(rotation["z"]))
             if changed:
