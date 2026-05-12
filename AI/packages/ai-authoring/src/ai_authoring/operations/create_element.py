@@ -27,6 +27,7 @@ from ai_authoring.operations.space_support import (
     create_local_placement,
     create_space_representation,
     ensure_body_context,
+    mm_to_model_units,
     owner_history,
     resolve_storey,
     update_space,
@@ -245,9 +246,9 @@ class CreateElementHandler:
             return None
 
         start = parameters.get("start_mm") or {}
-        x_m = float(start.get("x", 0.0)) / 1000.0
-        y_m = float(start.get("y", 0.0)) / 1000.0
-        z_m = float(start.get("z", 0.0)) / 1000.0
+        x = mm_to_model_units(model, start.get("x"), 0.0)
+        y = mm_to_model_units(model, start.get("y"), 0.0)
+        z = mm_to_model_units(model, start.get("z"), 0.0)
         properties = parameters.get("properties") or {}
         pset_name = str(parameters.get("pset_name") or "Batang_SpaceDimensions")
 
@@ -261,12 +262,13 @@ class CreateElementHandler:
         space.ObjectPlacement = create_local_placement(
             model=model,
             relative_to=getattr(storey, "ObjectPlacement", None),
-            location=(x_m, y_m, z_m),
+            location=(x, y, z),
         )
         space.Representation = create_space_representation(
             model=model,
-            width_m=float(width_mm) / 1000.0,
-            height_m=float(height_mm) / 1000.0,
+            width=mm_to_model_units(model, width_mm, 0.0),
+            height=mm_to_model_units(model, height_mm, 0.0),
+            depth=mm_to_model_units(model, None, 2700.0),
             context=ensure_body_context(model),
         )
         assign_space_to_storey(model, space=space, storey=storey)
