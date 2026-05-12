@@ -9,11 +9,13 @@ export interface EditorLeftSidebarProps {
   isLineStyleModalOpen: boolean
   isLibraryOpen?: boolean
   isCollaborationMode?: boolean
+  isAgentPanelMode?: boolean
   isGridVisible?: boolean
   selectedTool: string
   onToolSelect: (tool: string) => void
   onAddSpace: () => void
   onToggleCollaboration?: () => void
+  onToggleAgentPanel?: () => void
   onToggleLibrary?: () => void
   onToggleGrid?: () => void
   onExportIFC?: () => void

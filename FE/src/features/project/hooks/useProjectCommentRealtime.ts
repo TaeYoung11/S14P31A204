@@ -25,7 +25,7 @@ const DEFAULT_REALTIME_OPTIONS: UseProjectCommentRealtimeOptions = {}
 const COMMENT_CREATED_EVENT = 'comment-created'
 const TOAST_DURATION_MS = 5000
 const MAX_COMMENT_ITEMS = 50
-const FALLBACK_PROJECT_NAME = 'ÇÁ·ÎÁ§Æ®'
+const FALLBACK_PROJECT_NAME = 'í”„ë¡œì íŠ¸'
 
 const parseCommentCreatedEvent = (data: string): ProjectCommentCreatedEvent | null => {
   try {

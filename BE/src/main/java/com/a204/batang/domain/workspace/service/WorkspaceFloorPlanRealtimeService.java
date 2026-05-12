@@ -14,6 +14,8 @@ import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
 import com.a204.batang.domain.workspace.repository.WorkspaceBubbleSnapshotRedisRepository;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.a204.batang.global.exception.ErrorResponse;
+import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -53,6 +56,7 @@ public class WorkspaceFloorPlanRealtimeService {
     private final WorkspaceBubbleSnapshotRedisRepository workspaceBubbleSnapshotRedisRepository;
     private final FloorPlanS3DeleteQueueService floorPlanS3DeleteQueueService;
     private final DirectIfcEditCommandService directIfcEditCommandService;
+    private final S3ObjectPresigner s3ObjectPresigner;
     private final SimpMessagingTemplate simpMessagingTemplate;
     private final ObjectMapper objectMapper;
 
@@ -63,6 +67,7 @@ public class WorkspaceFloorPlanRealtimeService {
      * @param currentUserId 요청 사용자 ID
      * @param request 도면 업데이트 요청
      */
+    @Transactional
     public void relayFloorPlanDraft(UUID projectId, UUID currentUserId, FloorPlanRealtimeUpdateRequest request) {
         validateRealtimePayloadOrThrow(request);
 
@@ -72,7 +77,15 @@ public class WorkspaceFloorPlanRealtimeService {
         String resolvedRevisionId = resolveRevisionId(request.revisionId(), workspace.getCurrentRevision());
         JsonNode syncPayload = buildSyncPayload(request, resolvedRevisionId);
 
-        requestPythonRenderAsync(projectId, currentUserId, resolvedRevisionId, syncPayload);
+        boolean queued = requestPythonRenderAsync(projectId, currentUserId, resolvedRevisionId, syncPayload);
+        if (!queued) {
+            log.debug(
+                    "Skip floor-plan realtime enqueue because IFC edit job is already active. projectId={}, revisionId={}",
+                    projectId,
+                    resolvedRevisionId
+            );
+            return;
+        }
 
         broadcastFloorPlanSync(
                 projectId,
@@ -172,6 +185,92 @@ public class WorkspaceFloorPlanRealtimeService {
 
         log.info("Floor-plan updated event relayed from ifcedit apply completion. projectId={}, revisionId={}",
                 projectId, revisionId);
+    }
+
+    /**
+     * floor-plan generate 완료 직후 WebSocket sync 이벤트를 발행한다.
+     *
+     * <p>generate 완료 이벤트에는 상세 편집 payload가 없을 수 있으므로,
+     * 클라이언트가 동일한 sync 응답 포맷을 해석할 수 있도록 최소 payload를 구성해 전송한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param revisionId 완료된 revision ID
+     * @param parentRevisionId 부모 revision ID
+     * @param s3Url 생성 결과 IFC S3 URL
+     */
+    public void publishFloorPlanUpdatedFromGenerate(
+            UUID projectId,
+            UUID revisionId,
+            UUID parentRevisionId,
+            String s3Url
+    ) {
+        ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
+        JsonNode payload = buildGenerateCompletionPayload(revisionId, parentRevisionId);
+
+        broadcastFloorPlanSync(
+                projectId,
+                workspace,
+                ACTION_FLOOR_PLAN_UPDATED,
+                revisionId.toString(),
+                payload,
+                normalizeS3Url(s3Url)
+        );
+
+        log.info("Floor-plan updated event relayed from generate completion. projectId={}, revisionId={}",
+                projectId, revisionId);
+    }
+
+    /**
+     * IFC_EDIT command가 DLQ로 이동한 경우 사용자에게 실패를 알리고,
+     * 편집 전(source revision) IFC URL을 다시 브로드캐스트한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param sourceRevisionId 편집 전 revision ID
+     * @param requestedBy 실패 알림을 전달할 사용자 ID
+     * @param failureMessage 사용자에게 전달할 실패 메시지(없으면 기본 메시지)
+     */
+    public void relayIfcEditDlqFailureAndRestoreSource(
+            UUID projectId,
+            UUID sourceRevisionId,
+            UUID requestedBy,
+            String failureMessage
+    ) {
+        notifyIfcEditDlqFailureToUser(requestedBy, failureMessage);
+
+        if (projectId == null || sourceRevisionId == null) {
+            log.warn("Skip IFC_EDIT DLQ rollback relay because projectId/sourceRevisionId is missing. projectId={}, sourceRevisionId={}",
+                    projectId, sourceRevisionId);
+            return;
+        }
+
+        ProjectWorkspace workspace;
+        try {
+            workspace = resolveWorkspaceOrThrow(projectId);
+        } catch (CustomException exception) {
+            log.warn("Skip IFC_EDIT DLQ rollback relay because workspace is missing. projectId={}", projectId, exception);
+            return;
+        }
+
+        String sourceRevisionIdText = sourceRevisionId.toString();
+        JsonNode rollbackPayload = resolveFloorPlanSnapshotPayloadForRevision(projectId, sourceRevisionIdText);
+        if (rollbackPayload == null) {
+            rollbackPayload = buildGenerateCompletionPayload(sourceRevisionId, null);
+        } else if (rollbackPayload instanceof ObjectNode payloadObject) {
+            payloadObject.put("revisionId", sourceRevisionIdText);
+        }
+
+        String sourceIfcS3Url = "projects/%s/revisions/%s/ifc/model.v1.ifc".formatted(projectId, sourceRevisionId);
+        broadcastFloorPlanSync(
+                projectId,
+                workspace,
+                ACTION_FLOOR_PLAN_UPDATED,
+                sourceRevisionIdText,
+                rollbackPayload,
+                sourceIfcS3Url
+        );
+
+        log.info("Relayed IFC_EDIT DLQ rollback floor-plan sync. projectId={}, sourceRevisionId={}",
+                projectId, sourceRevisionId);
     }
 
     /**
@@ -342,7 +441,19 @@ public class WorkspaceFloorPlanRealtimeService {
         return new FloorPlanHistorySnapshot(revisionId, floorPlanPayloadJson, s3Url);
     }
 
-    private void requestPythonRenderAsync(
+    /**
+     * floor-plan draft를 direct ifcedit 작업으로 비동기 요청한다.
+     *
+     * <p>이미 진행 중인 IFC 편집 작업이 있으면 충돌 예외를 재던지지 않고 요청을 스킵한다.
+     * 실시간 STOMP 경로에서 충돌이 사용자 오류로 노출되는 것을 막기 위함이다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param currentUserId 요청 사용자 ID
+     * @param revisionId 기준 revision ID
+     * @param syncPayload ifcedit 엔진 요청 payload
+     * @return 작업이 큐에 정상 등록되면 true, 충돌로 스킵되면 false
+     */
+    private boolean requestPythonRenderAsync(
             UUID projectId,
             UUID currentUserId,
             String revisionId,
@@ -357,9 +468,17 @@ public class WorkspaceFloorPlanRealtimeService {
                 IfcEditConstants.SCENE_TYPE_IFC_MODEL,
                 syncPayload.deepCopy()
         );
-        directIfcEditCommandService.createDirectIfcEdit(projectId, currentUserId, directRequest);
-        log.info("Workspace floor-plan realtime request routed to DirectIfcEditCommandService. projectId={}, baseRevisionId={}",
-                projectId, baseRevisionId);
+        try {
+            directIfcEditCommandService.createDirectIfcEdit(projectId, currentUserId, directRequest);
+            log.info("Workspace floor-plan realtime request routed to DirectIfcEditCommandService. projectId={}, baseRevisionId={}",
+                    projectId, baseRevisionId);
+            return true;
+        } catch (CustomException exception) {
+            if (exception.getErrorCode() == ErrorCode.IFC_EDIT_JOB_CONFLICT) {
+                return false;
+            }
+            throw exception;
+        }
     }
 
     private UUID parseRevisionIdOrThrow(String revisionId) {
@@ -480,6 +599,84 @@ public class WorkspaceFloorPlanRealtimeService {
         return fallbackPayload;
     }
 
+    private void notifyIfcEditDlqFailureToUser(UUID requestedBy, String failureMessage) {
+        if (requestedBy == null) {
+            return;
+        }
+
+        ErrorCode errorCode = ErrorCode.IFC_EDIT_COMMAND_DLQ;
+        String resolvedMessage = (failureMessage == null || failureMessage.isBlank())
+                ? errorCode.getMessage()
+                : failureMessage;
+
+        ErrorResponse response = ErrorResponse.builder()
+                .status(errorCode.getStatus().value())
+                .code(errorCode.getCode())
+                .message(resolvedMessage)
+                .build();
+
+        simpMessagingTemplate.convertAndSendToUser(requestedBy.toString(), "/queue/errors", response);
+    }
+
+    private JsonNode resolveFloorPlanSnapshotPayloadForRevision(UUID projectId, String revisionId) {
+        try {
+            int historySize = workspaceBubbleSnapshotRedisRepository.getFloorPlanSnapshotHistorySize(projectId);
+            if (historySize <= 0) {
+                return null;
+            }
+
+            for (int index = historySize - 1; index >= 0; index--) {
+                JsonNode snapshot = workspaceBubbleSnapshotRedisRepository.findFloorPlanSnapshotByIndex(projectId, index);
+                if (snapshot == null || snapshot.isNull() || !snapshot.isObject()) {
+                    continue;
+                }
+
+                JsonNode payload = snapshot.get("floorPlanPayloadJson");
+                if (payload == null || payload.isNull() || !payload.isObject()) {
+                    continue;
+                }
+
+                JsonNode payloadRevisionIdNode = payload.get("revisionId");
+                if (payloadRevisionIdNode == null || payloadRevisionIdNode.isNull()) {
+                    continue;
+                }
+
+                if (revisionId.equals(payloadRevisionIdNode.asText())) {
+                    return payload.deepCopy();
+                }
+            }
+        } catch (JsonProcessingException exception) {
+            log.warn("Failed to parse floor-plan snapshot while handling IFC_EDIT DLQ rollback. projectId={}, revisionId={}",
+                    projectId, revisionId, exception);
+            return null;
+        } catch (DataAccessException exception) {
+            log.warn("Failed to read floor-plan snapshot while handling IFC_EDIT DLQ rollback. projectId={}, revisionId={}",
+                    projectId, revisionId, exception);
+            return null;
+        }
+
+        return null;
+    }
+
+    /**
+     * generate 완료 시점에 WebSocket sync 응답 포맷을 맞추기 위한 최소 payload를 생성한다.
+     */
+    private JsonNode buildGenerateCompletionPayload(UUID revisionId, UUID parentRevisionId) {
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("baseIndex", -1);
+        payload.put("revisionId", revisionId.toString());
+        if (parentRevisionId != null) {
+            payload.put("parentRevisionId", parentRevisionId.toString());
+        } else {
+            payload.putNull("parentRevisionId");
+        }
+        payload.put("sceneType", "THREE_D");
+        payload.set("bubbles", objectMapper.createArrayNode());
+        payload.set("connections", objectMapper.createArrayNode());
+        payload.putNull("layout");
+        return payload;
+    }
+
     private Integer extractOptionalBaseIndex(JsonNode floorPlanPayloadJson) {
         if (floorPlanPayloadJson == null || floorPlanPayloadJson.isNull()) {
             return null;
@@ -562,13 +759,15 @@ public class WorkspaceFloorPlanRealtimeService {
             JsonNode floorPlanPayloadJson,
             String s3Url
     ) {
+        String broadcastS3Url = resolveBroadcastIfcUrl(s3Url);
+
         FloorPlanProjectSyncResponse response = new FloorPlanProjectSyncResponse(
                 action,
                 projectId,
                 workspace.getPhaseStatus(),
                 revisionId,
                 floorPlanPayloadJson,
-                s3Url,
+                broadcastS3Url,
                 LocalDateTime.now()
         );
 
@@ -576,6 +775,27 @@ public class WorkspaceFloorPlanRealtimeService {
                 PROJECT_FLOOR_PLAN_SYNC_TOPIC_TEMPLATE.formatted(projectId),
                 response
         );
+    }
+
+    /**
+     * WebSocket으로 내려주는 IFC URL을 클라이언트 fetch 가능한 presigned URL로 변환한다.
+     *
+     * <p>presign 실패 시 실시간 동기화 자체를 막지 않기 위해 원본 URL을 그대로 반환한다.
+     *
+     * @param s3Url 원본 IFC 저장 경로
+     * @return 브라우저 접근 가능한 IFC URL
+     */
+    private String resolveBroadcastIfcUrl(String s3Url) {
+        if (s3Url == null || s3Url.isBlank()) {
+            return s3Url;
+        }
+
+        try {
+            return s3ObjectPresigner.presignIfInternal(s3Url, ErrorCode.WORKSPACE_IFC_EXPORT_PRESIGN_FAILED);
+        } catch (CustomException exception) {
+            log.warn("Failed to presign floor-plan IFC URL for websocket sync. rawS3Url={}", s3Url, exception);
+            return s3Url;
+        }
     }
 
     /**

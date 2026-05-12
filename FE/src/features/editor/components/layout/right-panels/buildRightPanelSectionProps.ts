@@ -78,7 +78,7 @@ export function buildZoningSectionProps(vm: EditorRightPanelsProps): ZoningSecti
  * 3D 모드 FloorView 패널 props 매핑
  */
 export function buildFloorViewSectionProps(vm: EditorRightPanelsProps): FloorViewSectionProps | null {
-  if (vm.mode !== '3d') return null
+  if (vm.mode !== '2d' && vm.mode !== '3d') return null
   return {
     isOpen: vm.panelOpenState.floorView,
     offset: vm.panelOffsets.floorView,
@@ -108,7 +108,7 @@ export function buildFloorViewSectionProps(vm: EditorRightPanelsProps): FloorVie
  * 3D 모드 Hierarchy 패널 props 매핑
  */
 export function buildHierarchySectionProps(vm: EditorRightPanelsProps): HierarchySectionProps | null {
-  if (vm.mode !== '3d') return null
+  if (vm.mode !== '2d' && vm.mode !== '3d') return null
   return {
     isOpen: vm.panelOpenState.hierarchy,
     offset: vm.panelOffsets.hierarchy,
@@ -140,12 +140,15 @@ export function buildAssistantSectionProps(vm: EditorRightPanelsProps): Assistan
     suggestions: vm.llmSuggestions,
     preview: vm.llmPreview,
     canRun: vm.llmCanRun,
+    activeJobId: vm.llmActiveJobId,
+    jobProgress: vm.llmJobProgress,
+    chatLogs: vm.llmChatLogs,
+    isChatLogsLoading: vm.llmIsChatLogsLoading,
     onPromptChange: vm.onLlmPromptChange,
     onRun: vm.onRunLlmEdit,
     onApply: vm.onApplyLlmEdit,
     onDiscard: vm.onDiscardLlmEdit,
     floorProjectImportMessage: vm.floorProjectImportMessage,
-    onImportFloorProjectIfc: vm.onImportFloorProjectIfc,
     onDragStart: vm.onPanelDragStart,
     onResizeStart: vm.onPanelResizeStart,
     onToggle: vm.onTogglePanel,

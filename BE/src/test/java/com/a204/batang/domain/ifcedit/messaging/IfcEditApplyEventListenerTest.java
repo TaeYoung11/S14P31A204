@@ -24,6 +24,7 @@ import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
 import com.a204.batang.domain.workspace.service.WorkspaceFloorPlanRealtimeService;
 import com.a204.batang.global.config.RabbitMqConfig;
+import com.a204.batang.global.exception.ErrorCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.amqp.core.MessageBuilder;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -89,6 +91,8 @@ class IfcEditApplyEventListenerTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        objectMapper.findAndRegisterModules();
+
         projectId = UUID.randomUUID();
         jobId = UUID.randomUUID();
         jobStepId = UUID.randomUUID();
@@ -394,6 +398,72 @@ class IfcEditApplyEventListenerTest {
     }
 
     @Test
+    void handleDlq_marksJobFailedAndRelaysRollback() throws Exception {
+        UUID sourceRevisionId = UUID.randomUUID();
+        UUID requestedBy = UUID.randomUUID();
+        IfcEditJob dlqJob = IfcEditJob.createQueued(
+                jobId, projectId, requestedBy, null, sourceRevisionId,
+                "IFC_MODEL", JOB_TYPE_IFC_EDIT, objectMapper.createObjectNode(), LocalDateTime.now()
+        );
+
+        given(ifcEditJobRepository.findByJobId(jobId)).willReturn(Optional.of(dlqJob));
+        given(ifcEditJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId)).willReturn(Optional.of(step));
+        given(revisionRepository.findById(revisionId)).willReturn(Optional.of(revision));
+
+        String commandJson = """
+                {
+                  "message_id": "%s",
+                  "schema_version": "v1",
+                  "message_type": "COMMAND",
+                  "command_type": "IFC_EDIT_APPLY",
+                  "routing_key": "command.ifc-edit.apply",
+                  "job_id": "%s",
+                  "job_step_id": "%s",
+                  "step_no": 1,
+                  "total_steps": 1,
+                  "project_id": "%s",
+                  "requested_by": "%s",
+                  "source_revision_id": "%s",
+                  "source_scene_type": "IFC_MODEL",
+                  "target_revision_id": "%s",
+                  "attempt_no": 1,
+                  "max_attempts": 3,
+                  "idempotency_key": "%s",
+                  "correlation_id": "%s",
+                  "created_at": "%s"
+                }
+                """.formatted(
+                UUID.randomUUID(),
+                jobId,
+                jobStepId,
+                projectId,
+                requestedBy,
+                sourceRevisionId,
+                revisionId,
+                jobId + ":step-1:ifc-edit-apply",
+                UUID.randomUUID(),
+                OffsetDateTime.now(ZoneOffset.UTC)
+        );
+        var amqpMessage = MessageBuilder.withBody(commandJson.getBytes())
+                .setContentType("application/json")
+                .setHeader("x-death", "rejected")
+                .build();
+
+        listener.handleDlq(amqpMessage);
+
+        assertThat(dlqJob.getStatus()).isEqualTo("FAILED");
+        assertThat(step.getStatus()).isEqualTo("FAILED");
+        assertThat(revision.getStatus()).isEqualTo("FAILED");
+        verify(eventPublisher).publishEvent(any(IfcEditStatusChangedEvent.class));
+        verify(workspaceFloorPlanRealtimeService).relayIfcEditDlqFailureAndRestoreSource(
+                eq(projectId),
+                eq(sourceRevisionId),
+                eq(requestedBy),
+                eq(ErrorCode.IFC_EDIT_COMMAND_DLQ.getMessage())
+        );
+    }
+
+    @Test
     void handleIfcEditStatusChanged_sendsNotificationAfterCommit() {
         IfcEditStatusChangedEvent event = new IfcEditStatusChangedEvent(
                 projectId,
@@ -473,11 +543,20 @@ class IfcEditApplyEventListenerTest {
     }
 
     private IfcEditCommandMessage commandMessage(int attemptNo, int maxAttempts) {
+        return commandMessage(attemptNo, maxAttempts, UUID.randomUUID(), UUID.randomUUID());
+    }
+
+    private IfcEditCommandMessage commandMessage(
+            int attemptNo,
+            int maxAttempts,
+            UUID sourceRevisionId,
+            UUID requestedBy
+    ) {
         return new IfcEditCommandMessage(
                 UUID.randomUUID(), "v1", "COMMAND",
                 COMMAND_TYPE_IFC_EDIT_APPLY, RabbitMqConfig.IFC_EDIT_COMMAND_ROUTING_KEY,
                 jobId, jobStepId, 1, TOTAL_STEPS_DIRECT,
-                projectId, UUID.randomUUID(), UUID.randomUUID(), null, "IFC_MODEL",
+                projectId, requestedBy, sourceRevisionId, null, "IFC_MODEL",
                 revisionId, artifactId,
                 Map.of("source_ifc_storage_url", "projects/p/revisions/r/ifc/model.v1.ifc"),
                 new IfcEditCommandMessage.ExpectedOutput(

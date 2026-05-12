@@ -22,6 +22,7 @@ import com.a204.batang.domain.revision.entity.Revision;
 import com.a204.batang.domain.revision.repository.RevisionRepository;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
+import com.a204.batang.domain.workspace.service.WorkspaceFloorPlanRealtimeService;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -73,6 +74,7 @@ public class FloorPlanGenerateEventListener {
     private final FloorPlanJobStepRepository floorPlanJobStepRepository;
     private final FloorPlanArtifactRepository floorPlanArtifactRepository;
     private final NotificationSseService notificationSseService;
+    private final WorkspaceFloorPlanRealtimeService workspaceFloorPlanRealtimeService;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
@@ -368,6 +370,7 @@ public class FloorPlanGenerateEventListener {
 
         project.updateLatestRevisionId(revision.getRevisionId());
         workspace.updateIfcOutput(storageUrl, revision.getRevisionId());
+        publishFloorPlanWebSocketSyncOnCompleted(event.projectId(), revision, storageUrl);
 
         log.info(
                 "Floor-plan completed 이벤트를 반영했습니다. projectId={}, jobId={}, jobStepId={}, targetRevisionId={}, outputArtifactId={}, validationReportIncluded={}",
@@ -389,6 +392,20 @@ public class FloorPlanGenerateEventListener {
                 100,
                 "Floor-plan 생성 작업이 완료되었습니다."
         ));
+    }
+
+    private void publishFloorPlanWebSocketSyncOnCompleted(UUID projectId, Revision revision, String storageUrl) {
+        try {
+            workspaceFloorPlanRealtimeService.publishFloorPlanUpdatedFromGenerate(
+                    projectId,
+                    revision.getRevisionId(),
+                    revision.getParentRevisionId(),
+                    storageUrl
+            );
+        } catch (Exception exception) {
+            log.warn("Floor-plan websocket sync broadcast from generate completion failed. projectId={}, revisionId={}",
+                    projectId, revision.getRevisionId(), exception);
+        }
     }
 
     private void handleFailed(FloorPlanGenerateEventMessage event) {
