@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X, Search, CheckCircle2, Loader2 } from 'lucide-react'
 import { useUserSearch, useSendInvite } from '@/features/project/hooks/useInvitation'
 import type { SendInviteRequest, UserSearchResult } from '@/features/project/services/invitation.service'
+import { projectService } from '@/features/project/services/project.service'
 
 interface InviteModalProps {
   isOpen: boolean
@@ -9,22 +10,55 @@ interface InviteModalProps {
   projectIds: string[]
 }
 
+interface AlreadyInvitedUserTag {
+  userId: string
+  name: string
+}
+
 export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
   const [searchKeyword, setSearchKeyword] = useState('')
   const [selectedUsers, setSelectedUsers] = useState<UserSearchResult[]>([])
-  const [representativeEmail, setRepresentativeEmail] = useState<string | null>(null)
+  const [alreadyInvitedUsers, setAlreadyInvitedUsers] = useState<AlreadyInvitedUserTag[]>([])
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState('')
 
   const { data: searchResults = [], isLoading: isSearching } = useUserSearch(searchKeyword)
   const sendInvite = useSendInvite()
 
+  useEffect(() => {
+    if (!isOpen || projectIds.length === 0) return
+
+    let cancelled = false
+    void (async () => {
+      const details = await Promise.all(
+        projectIds.map((projectId) => projectService.getWorkspaceDetail(projectId).catch(() => null)),
+      )
+      if (cancelled) return
+
+      const invitedUserMap = new Map<string, AlreadyInvitedUserTag>()
+      details.forEach((detail) => {
+        detail?.invitedUsers?.forEach((user) => {
+          invitedUserMap.set(user.userId, {
+            userId: user.userId,
+            name: user.name,
+          })
+        })
+      })
+
+      setAlreadyInvitedUsers(Array.from(invitedUserMap.values()))
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, projectIds])
+
   if (!isOpen) return null
 
   const handleClose = () => {
     setSearchKeyword('')
     setSelectedUsers([])
-    setRepresentativeEmail(null)
+    setAlreadyInvitedUsers([])
     setSubmitStatus('idle')
     setErrorMessage('')
     onClose()
@@ -33,7 +67,6 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
   const toggleSelect = (user: UserSearchResult) => {
     const exists = selectedUsers.some((u) => u.userId === user.userId)
     if (exists) {
-      if (representativeEmail === user.email) setRepresentativeEmail(null)
       setSelectedUsers((prev) => prev.filter((u) => u.userId !== user.userId))
       return
     }
@@ -42,17 +75,7 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
     setSearchKeyword('')
   }
 
-  const handleAssignRepresentative = (e: React.MouseEvent, user: UserSearchResult) => {
-    e.stopPropagation()
-    setRepresentativeEmail(user.email)
-    if (!selectedUsers.some((u) => u.userId === user.userId)) {
-      setSelectedUsers((prev) => [...prev, user])
-      setSearchKeyword('')
-    }
-  }
-
   const handleRemoveSelectedUser = (user: UserSearchResult) => {
-    if (representativeEmail === user.email) setRepresentativeEmail(null)
     setSelectedUsers((prev) => prev.filter((u) => u.userId !== user.userId))
   }
 
@@ -66,7 +89,6 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
         projectId,
         req: {
           inviteeEmail: user.email,
-          role: user.email === representativeEmail ? 'REPRESENTATIVE_CUSTOMER' : 'CUSTOMER',
         },
       })),
     )
@@ -81,8 +103,8 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
         setSubmitStatus('error')
         setErrorMessage(
           successCount > 0
-            ? `${successCount}건은 초대됐고, ${failedCount}건은 실패했습니다. 실패한 대상만 확인해 다시 시도해주세요.`
-            : '초대 전송에 실패했습니다. 다시 시도해주세요.',
+            ? `${successCount}건은 초대됐고, ${failedCount}건은 실패했습니다. 다시 시도해주세요.`
+            : '초대 발송에 실패했습니다. 다시 시도해주세요.',
         )
         return
       }
@@ -100,12 +122,11 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={handleClose} />
-      <div className="relative w-[500px] bg-white rounded-[24px] shadow-[0_20px_60px_rgba(0,0,0,0.2)] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        {/* 헤더 */}
-        <div className="px-8 pt-8 pb-6 border-b border-[#F0F2F9]">
-          <div className="flex items-center justify-between mb-1">
+      <div className="relative w-[500px] overflow-hidden rounded-[24px] bg-white shadow-[0_20px_60px_rgba(0,0,0,0.2)] animate-in fade-in zoom-in-95 duration-200">
+        <div className="border-b border-[#F0F2F9] px-8 pb-6 pt-8">
+          <div className="mb-1 flex items-center justify-between">
             <h2 className="text-[22px] font-black text-[#1C1C1E]">공유 초대</h2>
-            <button onClick={handleClose} className="p-1 text-[#ADB5BD] hover:text-[#1C1C1E] transition-colors">
+            <button onClick={handleClose} className="p-1 text-[#ADB5BD] transition-colors hover:text-[#1C1C1E]">
               <X size={24} />
             </button>
           </div>
@@ -116,11 +137,10 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
           </p>
         </div>
 
-        {/* 본문 */}
         <div className="p-8">
           <div className="relative mb-6">
             {isSearching ? (
-              <Loader2 size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#ADB5BD] animate-spin" />
+              <Loader2 size={18} className="absolute left-4 top-1/2 -translate-y-1/2 animate-spin text-[#ADB5BD]" />
             ) : (
               <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#ADB5BD]" />
             )}
@@ -129,69 +149,71 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
               placeholder="이메일 주소로 검색..."
               value={searchKeyword}
               onChange={(e) => setSearchKeyword(e.target.value)}
-              className="w-full bg-[#F8F9FD] border border-[#E2E6EF] rounded-xl pl-12 pr-4 py-3.5 text-sm font-medium text-[#1C1C1E] placeholder-[#ADB5BD] focus:outline-none focus:border-[#3B45B3] focus:ring-4 focus:ring-[#3B45B3]/5 transition-all"
+              className="w-full rounded-xl border border-[#E2E6EF] bg-[#F8F9FD] py-3.5 pl-12 pr-4 text-sm font-medium text-[#1C1C1E] placeholder-[#ADB5BD] transition-all focus:border-[#3B45B3] focus:outline-none focus:ring-4 focus:ring-[#3B45B3]/5"
             />
           </div>
 
           {selectedUsers.length > 0 && (
             <div className="mb-6 flex flex-wrap gap-2">
-              {selectedUsers.map((user) => {
-                const isRep = representativeEmail === user.email
-
-                return (
-                  <span
-                    key={user.userId}
-                    className={`flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] font-bold ${
-                      isRep
-                        ? 'border-[#3B45B3]/20 bg-[#E7EBFF] text-[#3B45B3]'
-                        : 'border-[#E2E6EF] bg-[#F8F9FD] text-[#4B5563]'
-                    }`}
+              {selectedUsers.map((user) => (
+                <span
+                  key={user.userId}
+                  className="flex max-w-full items-center gap-2 rounded-full border border-[#E2E6EF] bg-[#F8F9FD] px-3 py-1.5 text-[12px] font-bold text-[#4B5563]"
+                >
+                  <span className="max-w-[180px] truncate">{user.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSelectedUser(user)}
+                    className="rounded-full text-current opacity-60 transition-opacity hover:opacity-100"
+                    aria-label={`${user.name} 선택 해제`}
                   >
-                    <span className="max-w-[180px] truncate">{user.name}</span>
-                    {isRep && <span className="text-[10px] font-black">대표</span>}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveSelectedUser(user)}
-                      className="rounded-full text-current opacity-60 transition-opacity hover:opacity-100"
-                      aria-label={`${user.name} 선택 해제`}
-                    >
-                      <X size={13} />
-                    </button>
-                  </span>
-                )
-              })}
+                    <X size={13} />
+                  </button>
+                </span>
+              ))}
             </div>
           )}
 
-          <div className="flex flex-col gap-2 min-h-[160px]">
-            <span className="text-[11px] font-black text-[#ADB5BD] uppercase tracking-widest mb-1">
+          {alreadyInvitedUsers.length > 0 && (
+            <div className="mb-6 flex flex-wrap gap-2">
+              {alreadyInvitedUsers.map((user) => (
+                <span
+                  key={`invited-${user.userId}`}
+                  className="flex max-w-full items-center gap-2 rounded-full border border-[#DCE2F7] bg-[#F5F7FF] px-3 py-1.5 text-[12px] font-bold text-[#51608F]"
+                >
+                  <span className="max-w-[180px] truncate">{user.name}</span>
+                  <span className="text-[10px] font-black">이미 초대됨</span>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="flex min-h-[160px] flex-col gap-2">
+            <span className="mb-1 text-[11px] font-black uppercase tracking-widest text-[#ADB5BD]">
               {searchKeyword.trim() ? `검색 결과 (${searchResults.length})` : '이메일로 초대할 사람을 검색하세요'}
             </span>
 
             {searchKeyword.trim() && searchResults.length === 0 && !isSearching && (
-              <div className="flex-1 flex items-center justify-center text-[#ADB5BD] py-8">
+              <div className="flex flex-1 items-center justify-center py-8 text-[#ADB5BD]">
                 <p className="text-xs font-medium">검색 결과가 없습니다.</p>
               </div>
             )}
 
             {searchResults.map((user) => {
               const isSelected = isUserSelected(user)
-              const isRep = representativeEmail === user.email
 
               return (
                 <div
                   key={user.userId}
                   onClick={() => toggleSelect(user)}
-                  className={`group flex items-center justify-between p-4 rounded-2xl transition-all border cursor-pointer ${
-                    isSelected
-                      ? 'bg-[#F0F2FF]/50 border-[#3B45B3]/20 shadow-sm'
-                      : 'bg-white border-transparent hover:bg-[#F8F9FD]'
-                  }`}
+                  className={`group flex cursor-pointer items-center justify-between rounded-2xl border p-4 transition-all ${isSelected
+                    ? 'border-[#3B45B3]/20 bg-[#F0F2FF]/50 shadow-sm'
+                    : 'border-transparent bg-white hover:bg-[#F8F9FD]'
+                    }`}
                 >
                   <div className="flex items-center gap-4">
-                    <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
-                      isSelected ? 'bg-[#3B45B3] border-[#3B45B3]' : 'bg-white border-[#E2E6EF]'
-                    }`}>
+                    <div className={`flex h-5 w-5 items-center justify-center rounded-md border transition-all ${isSelected ? 'border-[#3B45B3] bg-[#3B45B3]' : 'border-[#E2E6EF] bg-white'
+                      }`}>
                       {isSelected && <CheckCircle2 size={14} className="text-white" />}
                     </div>
                     <div className="flex flex-col">
@@ -199,51 +221,35 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
                       <span className="text-[12px] font-medium text-[#8E95A3]">{user.email}</span>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-2">
-                    {isRep ? (
-                      <span className="px-3 py-1.5 bg-[#E7EBFF] text-[#3B45B3] text-[11px] font-black rounded-lg border border-[#3B45B3]/10 flex items-center gap-1.5">
-                        <div className="w-1.5 h-1.5 bg-[#3B45B3] rounded-full animate-pulse" />
-                        대표 고객
-                      </span>
-                    ) : (
-                      <button
-                        onClick={(e) => handleAssignRepresentative(e, user)}
-                        className="px-3 py-1.5 bg-white border border-[#E2E6EF] text-[#6B7A99] text-[11px] font-bold rounded-lg hover:border-[#3B45B3] hover:text-[#3B45B3] transition-all opacity-0 group-hover:opacity-100"
-                      >
-                        대표 고객 지정
-                      </button>
-                    )}
-                  </div>
+                  <div />
                 </div>
               )
             })}
           </div>
 
           {errorMessage && (
-            <p className="mt-3 text-xs text-[#dc2626] font-medium">{errorMessage}</p>
+            <p className="mt-3 text-xs font-medium text-[#dc2626]">{errorMessage}</p>
           )}
         </div>
 
-        {/* 하단 */}
-        <div className="px-8 py-6 bg-[#F8F9FD] flex items-center justify-between">
+        <div className="flex items-center justify-between bg-[#F8F9FD] px-8 py-6">
           <p className="text-[12px] text-[#ADB5BD]">
-            {selectedUsers.length > 0 ? `${selectedUsers.length}명 선택됨` : 'CUSTOMER로 초대됩니다.'}
+            {selectedUsers.length > 0 ? `${selectedUsers.length}명 선택됨` : '초대됩니다.'}
           </p>
           <div className="flex items-center gap-3">
             <button
               onClick={handleClose}
-              className="px-6 py-3 text-sm font-black text-[#6B7A99] hover:text-[#1C1C1E] transition-colors"
+              className="px-6 py-3 text-sm font-black text-[#6B7A99] transition-colors hover:text-[#1C1C1E]"
             >
               취소
             </button>
             <button
               onClick={handleSubmit}
               disabled={selectedUsers.length === 0 || projectIds.length === 0 || submitStatus === 'loading' || submitStatus === 'success'}
-              className="px-8 py-3 bg-[#3B45B3] text-white text-sm font-black rounded-2xl shadow-lg shadow-[#3B45B3]/30 hover:bg-[#2D3691] hover:-translate-y-0.5 transition-all active:translate-y-0 disabled:opacity-50 disabled:translate-y-0 disabled:shadow-none disabled:cursor-not-allowed flex items-center gap-2"
+              className="flex items-center gap-2 rounded-2xl bg-[#3B45B3] px-8 py-3 text-sm font-black text-white shadow-lg shadow-[#3B45B3]/30 transition-all hover:-translate-y-0.5 hover:bg-[#2D3691] active:translate-y-0 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50 disabled:shadow-none"
             >
               {submitStatus === 'loading' && <Loader2 size={14} className="animate-spin" />}
-              {submitStatus === 'success' ? '초대 완료!' : '초대 발송'}
+              {submitStatus === 'success' ? '초대 완료' : '초대 발송'}
             </button>
           </div>
         </div>

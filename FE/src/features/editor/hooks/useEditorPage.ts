@@ -165,6 +165,15 @@ const formatPinAuthorName = (authorUserId: string | null, fallbackName: string):
   return `\uC0AC\uC6A9\uC790 ${authorUserId.slice(0, 8)}`
 }
 
+const resolvePinAuthorName = (
+  authorUserId: string | null,
+  authorNameByUserId: Record<string, string>,
+  fallbackName: string,
+): string => {
+  if (!authorUserId) return fallbackName
+  return authorNameByUserId[authorUserId] ?? formatPinAuthorName(authorUserId, fallbackName)
+}
+
 const mapApiPinToFloorCommentPin = (
   pin: EditorPinResponse,
   comments: EditorPinCommentResponse[],
@@ -172,11 +181,12 @@ const mapApiPinToFloorCommentPin = (
   currentUserName: string,
   currentUserType: CollaborationUserType,
   counterpartType: CollaborationUserType,
+  authorNameByUserId: Record<string, string>,
 ): FloorCommentPin => {
   const pinAuthorType = pin.authorUserId && pin.authorUserId === currentUserId ? currentUserType : counterpartType
   const pinAuthorName = pin.authorUserId === currentUserId
     ? currentUserName
-    : formatPinAuthorName(pin.authorUserId, '\uC54C \uC218 \uC5C6\uB294 \uC791\uC131\uC790')
+    : resolvePinAuthorName(pin.authorUserId, authorNameByUserId, '\uC54C \uC218 \uC5C6\uB294 \uC791\uC131\uC790')
   const pinMessage = {
     id: `${pin.pinId}:pin`,
     pinId: pin.pinId,
@@ -194,7 +204,9 @@ const mapApiPinToFloorCommentPin = (
       id: comment.commentId,
       pinId: pin.pinId,
       authorId: comment.authorUserId ?? 'unknown-user',
-      authorName: isCurrentUser ? currentUserName : formatPinAuthorName(comment.authorUserId, '\uB2E4\uB978 \uC791\uC131\uC790'),
+      authorName: isCurrentUser
+        ? currentUserName
+        : resolvePinAuthorName(comment.authorUserId, authorNameByUserId, '\uB2E4\uB978 \uC791\uC131\uC790'),
       authorType: isCurrentUser ? currentUserType : counterpartType,
       content: comment.content,
       status: comment.status,
@@ -812,6 +824,28 @@ export function useEditorPage() {
     [projectId, queryClient],
   )
   const projectCommentRealtime = useProjectCommentRealtime(currentProjectForRealtime, editorCommentRealtimeOptions)
+  const pinAuthorDirectoryQuery = useQuery({
+    queryKey: ['editor', 'pin-author-directory', projectId],
+    queryFn: () => {
+      if (!projectId) throw new Error('Missing project id')
+      return projectService.getWorkspaceDetail(projectId)
+    },
+    enabled: Boolean(projectId),
+    staleTime: 60_000,
+  })
+  const pinAuthorNameByUserId = useMemo(() => {
+    const detail = pinAuthorDirectoryQuery.data
+    if (!detail) return {}
+    const nextMap: Record<string, string> = {}
+    if (detail.creator?.userId && detail.creator.name) {
+      nextMap[detail.creator.userId] = detail.creator.name
+    }
+    detail.invitedUsers?.forEach((user) => {
+      if (!user.userId || !user.name) return
+      nextMap[user.userId] = user.name
+    })
+    return nextMap
+  }, [pinAuthorDirectoryQuery.data])
 
   useEffect(() => {
     if (!pinCommentsQuery.data) return
@@ -823,6 +857,7 @@ export function useEditorPage() {
         currentUserName,
         collaborationUserType,
         counterpartType,
+        pinAuthorNameByUserId,
       ),
     )
     const syncTimer = window.setTimeout(() => {
@@ -849,6 +884,7 @@ export function useEditorPage() {
     collaborationUserType,
     counterpartType,
     currentUserName,
+    pinAuthorNameByUserId,
     pinCommentsQuery.data,
   ])
 
