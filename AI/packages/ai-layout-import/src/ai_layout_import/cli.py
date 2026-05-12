@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import sys
 from collections.abc import Sequence
@@ -41,7 +43,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             details=[{"type": "invalid_payload_type", "msg": type(payload).__name__}],
         )
 
-    result = run_layout_import_job(payload, args.output)
+    with contextlib.redirect_stdout(io.StringIO()):
+        result = run_layout_import_job(payload, args.output)
     stream = sys.stdout if result["ok"] else sys.stderr
     print(json.dumps(result, ensure_ascii=False), file=stream)
     return 0 if result["ok"] else _exit_code_for(result["code"])
