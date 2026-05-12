@@ -26,6 +26,19 @@ public interface MemberRepository extends JpaRepository<Member, UUID> {
     Optional<Member> findByEmail(String email);
 
     /**
+     * 이메일을 대소문자 구분 없이 비교해 회원을 조회한다.
+     *
+     * @param email 이메일
+     * @return 회원 Optional
+     */
+    @Query("""
+            SELECT m
+            FROM Member m
+            WHERE LOWER(m.email) = LOWER(:email)
+            """)
+    Optional<Member> findByEmailIgnoreCase(@Param("email") String email);
+
+    /**
      * 특정 상태의 이메일 존재 여부를 확인한다.
      *
      * @param email 이메일
