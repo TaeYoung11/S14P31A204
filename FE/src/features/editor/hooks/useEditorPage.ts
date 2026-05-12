@@ -59,7 +59,7 @@ import {
 } from '../utils/floorRoomDerivedState'
 import type { FloorProject } from '../types/floorProject.types'
 import { workspaceSaveService, type WorkspaceHistorySnapshotResponse } from '../services/workspaceSave.service'
-import { requestFloorPlanGenerate, waitForFloorPlanIfcExport } from '../services/floorPlanGenerate.service'
+import { requestFloorPlanGenerate } from '../services/floorPlanGenerate.service'
 import {
   FloorPlanLayoutValidationError,
 } from '../services/floorPlanGenerate.contract'
@@ -593,7 +593,7 @@ export function useEditorPage() {
   const bubbleDbSaveTimerRef = useRef<number | null>(null)
   const bubbleDbSaveInFlightRef = useRef<Promise<SaveBubbleSnapshotResponse> | null>(null)
   const floorPlanGenerateForbiddenRef = useRef(false)
-  const floorPlanIfcExportAbortRef = useRef<AbortController | null>(null)
+  const pendingOpenThreeDOnGenerateCompleteRef = useRef(false)
   const lastLoadedIfcStorageUrlRef = useRef<string | null>(null)
   const ifcLoadInFlightStorageUrlRef = useRef<string | null>(null)
   /**
@@ -631,14 +631,8 @@ export function useEditorPage() {
     lastLoadedIfcStorageUrlRef.current = null
     ifcLoadInFlightStorageUrlRef.current = null
     suppressGeneratedFloorPlanAutosaveRef.current = false
-    floorPlanIfcExportAbortRef.current?.abort()
-    floorPlanIfcExportAbortRef.current = null
+    pendingOpenThreeDOnGenerateCompleteRef.current = false
   }, [projectId])
-
-  useEffect(() => () => {
-    floorPlanIfcExportAbortRef.current?.abort()
-    floorPlanIfcExportAbortRef.current = null
-  }, [])
 
   const [serverPublishRetryTick, setServerPublishRetryTick] = useState(0)
   const clearServerPublishRetry = useCallback(() => {
@@ -1823,6 +1817,14 @@ export function useEditorPage() {
     onPhaseStatusChanged: setWorkspacePhaseStatus,
     onIfcStorageUrlReceived: (ifcStorageUrl, action, assetId, revisionId) => {
       handleIfcSyncMessageRef.current(ifcStorageUrl, action, assetId, revisionId)
+      if (
+        pendingOpenThreeDOnGenerateCompleteRef.current &&
+        action &&
+        IFC_COMPLETED_ACTION_SET.has(action)
+      ) {
+        pendingOpenThreeDOnGenerateCompleteRef.current = false
+        setMode('3d')
+      }
     },
     onBubbleHistoryCursorChanged: updateBubbleHistoryCursor,
     onFloorPlanHistoryCursorChanged: updateFloorPlanHistoryCursor,
@@ -2705,38 +2707,11 @@ export function useEditorPage() {
       setFloorPlanGenerateStatusText('AI가 평면도 생성 중...')
       setIsFloorPlanEditedIn2D(false)
       setWorkspacePhaseStatus('CONVERTING')
+      pendingOpenThreeDOnGenerateCompleteRef.current = Boolean(options.openThreeDOnComplete)
       startFloorPlanGenerateTimeout()
-      floorPlanIfcExportAbortRef.current?.abort()
-      const floorPlanIfcExportAbortController = new AbortController()
-      floorPlanIfcExportAbortRef.current = floorPlanIfcExportAbortController
-      void waitForFloorPlanIfcExport(projectId, response.targetRevisionId, {
-        signal: floorPlanIfcExportAbortController.signal,
-      })
-        .then((exported) => {
-          if (floorPlanIfcExportAbortController.signal.aborted) return
-          if (floorPlanIfcExportAbortRef.current !== floorPlanIfcExportAbortController) return
-          floorPlanIfcExportAbortRef.current = null
-          clearFloorPlanGenerateTimeout()
-          handleIfcSyncMessageRef.current(
-            exported.presignedUrl,
-            'FLOOR_PLAN_GENERATE_COMPLETED',
-            null,
-            exported.revisionId,
-          )
-          if (options.openThreeDOnComplete) {
-            setMode('3d')
-          }
-        })
-        .catch((pollError: unknown) => {
-          if (floorPlanIfcExportAbortController.signal.aborted) return
-          if (floorPlanIfcExportAbortRef.current !== floorPlanIfcExportAbortController) return
-          floorPlanIfcExportAbortRef.current = null
-          clearFloorPlanGenerateTimeout()
-          setWorkspacePhaseStatus('BUBBLE_DRAFT')
-          setFloorPlanGenerateStatusText('IFC 변환 결과를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.')
-          console.error('[editor] Floor-plan IFC export polling failed:', pollError)
-        })
+
     } catch (error: unknown) {
+      pendingOpenThreeDOnGenerateCompleteRef.current = false
       clearFloorPlanGenerateTimeout()
       setWorkspacePhaseStatus('BUBBLE_DRAFT')
       if (error instanceof FloorPlanLayoutValidationError) {
@@ -2771,7 +2746,6 @@ export function useEditorPage() {
     isCurrentProjectOwnerKnown,
     layoutBoundaryInput,
     projectId,
-    setMode,
     startFloorPlanGenerateTimeout,
     workspacePhaseStatus,
   ])
@@ -3278,6 +3252,7 @@ export function useEditorPage() {
       lastLoadedIfcStorageUrlRef.current = dedupeKey
       setWorkspacePhaseStatus('IFC_EDIT')
       if (action && IFC_COMPLETED_ACTION_SET.has(action)) {
+        clearFloorPlanGenerateTimeout()
         setFloorPlanGenerateStatusText('평면도 생성이 완료되었습니다.')
       }
     } catch (error: unknown) {
@@ -3289,7 +3264,7 @@ export function useEditorPage() {
         ifcLoadInFlightStorageUrlRef.current = null
       }
     }
-  }, [clearServerPublishRetry, loadIfcFromStorageUrl, projectId, setFloorPlanGenerateStatusText])
+  }, [clearFloorPlanGenerateTimeout, clearServerPublishRetry, loadIfcFromStorageUrl, projectId, setFloorPlanGenerateStatusText])
 
   useEffect(() => {
     handleIfcSyncMessageRef.current = (
@@ -3408,12 +3383,12 @@ export function useEditorPage() {
       return
     }
     setIsGenerate3DModalOpen(true)
-  }, [currentIfcUrl, setMode])
+  }, [currentIfcUrl, setIsGenerate3DModalOpen, setMode])
 
   /** 3D 생성 모달 닫기 */
   const handleCloseGenerate3DModal = useCallback(() => {
     setIsGenerate3DModalOpen(false)
-  }, [])
+  }, [setIsGenerate3DModalOpen])
 
   /**
    * 층고 확정 후 현재 평면도 데이터를 스냅샷으로 저장하고 3D 모드로 전환한다.
@@ -3430,7 +3405,7 @@ export function useEditorPage() {
       openThreeDOnComplete: true,
       spaceHeightMm: storyHeightMm,
     })
-  }, [currentIfcUrl, handleGenerateFloorPlan, setMode])
+  }, [currentIfcUrl, handleGenerateFloorPlan, setIsGenerate3DModalOpen, setLocalFloorData, setMode])
 
   const handleAutoLayoutBubbles = useCallback(() => {
     if (mode !== 'bubble') return
