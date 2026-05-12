@@ -3,7 +3,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from ai_common.adapters.rabbitmq.kombu_client import get_command_queue
-from ai_common.worker_sdk.event_factory import ClarificationResult
+from ai_common.worker_sdk.event_factory import ClarificationResult, CompletedResult
 from ai_domain.worker_messages.command import CommandMessage
 from ai_planning_3d.worker import PlanningWorker
 from ai_planning_3d.worker_app import WORKER_TYPE
@@ -20,14 +20,6 @@ def test_three_d_worker_queue_is_registered() -> None:
     }
 
 
-class InMemoryCommandPublisher:
-    def __init__(self) -> None:
-        self.commands: list[CommandMessage] = []
-
-    def publish_command(self, command: CommandMessage) -> None:
-        self.commands.append(command)
-
-
 def _load_sample_command() -> CommandMessage:
     root_dir = Path(__file__).resolve().parents[3]
     message_path = root_dir / "sample_messages" / "command_3d_llm.json"
@@ -40,9 +32,8 @@ def _sample_ifc_bytes() -> bytes:
     return (root_dir / "tests" / "sample_batang.ifc").read_bytes()
 
 
-def test_planning_worker_publishes_ifc_edit_command_for_preview_ready_chat() -> None:
+def test_planning_worker_returns_completed_event_for_preview_ready_chat() -> None:
     command = _load_sample_command()
-    command_publisher = InMemoryCommandPublisher()
     mock_s3 = MagicMock()
     mock_s3.read_bytes.return_value = _sample_ifc_bytes()
     mock_s3.write_text.return_value = "s3://mock-bucket/output.json"
@@ -51,7 +42,6 @@ def test_planning_worker_publishes_ifc_edit_command_for_preview_ready_chat() -> 
         worker_id="test-worker-1",
         event_publisher=MagicMock(),
         s3=mock_s3,
-        command_publisher=command_publisher,
     )
 
     with patch(
@@ -83,33 +73,16 @@ def test_planning_worker_publishes_ifc_edit_command_for_preview_ready_chat() -> 
             },
         }
 
-        worker.process(command)
+        result = worker.process(command)
 
     mock_execute.assert_awaited_once_with(command.payload.userInstruction)
-    [published] = command_publisher.commands
-    assert published.commandType == "IFC_EDIT_APPLY"
-    assert published.routingKey == "command.ifc-edit.apply"
-    assert published.input is not None
-    assert published.input.sourceIfcStorageUrl == command.payload.sourceSceneStorageUrl
-    assert published.payload.engineRequest is not None
-    engine_request = published.payload.engineRequest
-    assert engine_request.mode == "apply"
-    assert engine_request.project_id == command.projectId
-    [operation] = engine_request.operations
-    assert operation.type == "create_element"
-    assert operation.parameters["element_type"] == "IfcWall"
-    assert operation.parameters["storey"] == "1F"
-    assert operation.parameters["start_mm"] == {"x": 0.0, "y": 6000.0, "z": 0.0}
-    assert operation.parameters["dimensions_mm"] == {
-        "length": 3000.0,
-        "width": 200.0,
-        "height": 2800.0,
-    }
+    assert isinstance(result, CompletedResult)
+    assert result.output.storageUrl == "s3://mock-bucket/output.json"
+    mock_s3.write_text.assert_called_once()
 
 
-def test_planning_worker_does_not_publish_ifc_edit_command_for_clarification() -> None:
+def test_planning_worker_returns_clarification_without_downstream_publish() -> None:
     command = _load_sample_command()
-    command_publisher = InMemoryCommandPublisher()
     mock_s3 = MagicMock()
     mock_s3.read_bytes.return_value = _sample_ifc_bytes()
     mock_s3.write_text.return_value = "s3://mock-bucket/output.json"
@@ -118,7 +91,6 @@ def test_planning_worker_does_not_publish_ifc_edit_command_for_clarification() -
         worker_id="test-worker-1",
         event_publisher=MagicMock(),
         s3=mock_s3,
-        command_publisher=command_publisher,
     )
 
     with patch(
@@ -135,7 +107,6 @@ def test_planning_worker_does_not_publish_ifc_edit_command_for_clarification() -
         result = worker.process(command)
 
     assert isinstance(result, ClarificationResult)
-    assert command_publisher.commands == []
 
 
 def test_planning_worker_logic():
