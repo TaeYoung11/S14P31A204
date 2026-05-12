@@ -1250,7 +1250,6 @@ export function useEditorPage() {
           snapshot,
           baseIndex,
         })
-        previousSnapshotRef.current = serializedSnapshot
       } catch (error: unknown) {
         if (awaitingServerSyncRef.current?.serializedSnapshot === serializedSnapshot) {
           awaitingServerSyncRef.current = null
@@ -1390,6 +1389,10 @@ export function useEditorPage() {
     if (!projectId || autosaveReadyProjectId !== projectId) return
     const pendingServerPublish = pendingServerPublishRef.current
     if (!pendingServerPublish || pendingServerPublish.projectId !== projectId) return
+    if (
+      awaitingServerSyncRef.current?.projectId === projectId &&
+      awaitingServerSyncRef.current.serializedSnapshot === pendingServerPublish.serializedSnapshot
+    ) return
 
     let isCancelled = false
     setSaveStatus('syncing')
@@ -1410,16 +1413,8 @@ export function useEditorPage() {
     })
       .then(() => {
         if (isCancelled) return
-        const currentPending = pendingServerPublishRef.current
-        if (
-          currentPending?.projectId === pendingServerPublish.projectId &&
-          currentPending.serializedSnapshot === pendingServerPublish.serializedSnapshot
-        ) {
-          pendingServerPublishRef.current = null
-          if (awaitingServerSyncRef.current?.serializedSnapshot === pendingServerPublish.serializedSnapshot) {
-            previousSnapshotRef.current = pendingServerPublish.serializedSnapshot
-          }
-        }
+        // STOMP publish 성공은 클라이언트 전송 성공만 의미한다.
+        // 서버가 Redis history ack를 브로드캐스트할 때까지 pending snapshot을 유지한다.
       })
       .catch(() => {
         if (isCancelled) return
@@ -1476,6 +1471,13 @@ export function useEditorPage() {
       return
     }
 
+    if (
+      awaitingServerSyncRef.current?.projectId === projectId &&
+      awaitingServerSyncRef.current.serializedSnapshot === serializedSnapshot
+    ) {
+      return
+    }
+
     if (previousSnapshotRef.current === null && !hasUserEditedRef.current) {
       previousSnapshotRef.current = serializedSnapshot
       return
@@ -1503,6 +1505,7 @@ export function useEditorPage() {
     setSaveStatus('dirty')
     setSaveStatus('syncing')
     clearServerPublishRetry()
+    pendingServerPublishRef.current = serverPublishRecord
     awaitingServerSyncRef.current = {
       projectId,
       serializedSnapshot,
@@ -1519,13 +1522,7 @@ export function useEditorPage() {
         sceneType: serverPublishRecord.sceneType,
       })
       .then(() => {
-        const currentPending = pendingServerPublishRef.current
-        if (currentPending?.projectId === serverPublishRecord.projectId) {
-          pendingServerPublishRef.current = null
-        }
-        if (awaitingServerSyncRef.current?.serializedSnapshot === serializedSnapshot) {
-          previousSnapshotRef.current = serializedSnapshot
-        }
+        // baseline은 매칭되는 서버 history ack를 받은 뒤에만 갱신한다.
       })
       .catch(() => {
         if (awaitingServerSyncRef.current?.serializedSnapshot === serializedSnapshot) {
@@ -1553,11 +1550,15 @@ export function useEditorPage() {
   const updateBubbleHistoryCursor = useCallback((baseIndex: number, redoDepth: number) => {
     bubbleHistoryBaseIndexRef.current = baseIndex
     setBubbleHistoryCursor({ baseIndex, redoDepth })
+    const awaitingSync = awaitingServerSyncRef.current
+    if (!awaitingSync) return
     if (
-      awaitingServerSyncRef.current?.projectId === projectId &&
+      awaitingSync.projectId === projectId &&
+      awaitingSync.historyDomain === 'bubble' &&
       workspaceEditTransactionDepthRef.current === 0 &&
       !pendingWorkspaceSnapshotCommitRef.current
     ) {
+      previousSnapshotRef.current = awaitingSync.serializedSnapshot
       pendingServerPublishRef.current = null
       awaitingServerSyncRef.current = null
       setSaveStatus('synced')
@@ -1568,11 +1569,15 @@ export function useEditorPage() {
     floorPlanHistoryCommandInFlightRef.current = false
     floorPlanHistoryBaseIndexRef.current = baseIndex
     setFloorPlanHistoryCursor({ baseIndex, redoDepth })
+    const awaitingSync = awaitingServerSyncRef.current
+    if (!awaitingSync) return
     if (
-      awaitingServerSyncRef.current?.projectId === projectId &&
+      awaitingSync.projectId === projectId &&
+      awaitingSync.historyDomain === 'floorPlan' &&
       workspaceEditTransactionDepthRef.current === 0 &&
       !pendingWorkspaceSnapshotCommitRef.current
     ) {
+      previousSnapshotRef.current = awaitingSync.serializedSnapshot
       pendingServerPublishRef.current = null
       awaitingServerSyncRef.current = null
       setSaveStatus('synced')
@@ -1580,14 +1585,20 @@ export function useEditorPage() {
   }, [projectId])
 
   const handleWorkspaceServerError = useCallback((_error: StompErrorMessage) => {
-    if (awaitingServerSyncRef.current?.projectId === projectId) {
-      awaitingServerSyncRef.current = null
-    }
+    const awaitingSync = awaitingServerSyncRef.current
+    if (!awaitingSync || awaitingSync.projectId !== projectId) return
+
+    awaitingServerSyncRef.current = null
     floorPlanHistoryCommandInFlightRef.current = false
-    pendingServerPublishRef.current = null
-    clearServerPublishRetry()
+    if (
+      pendingServerPublishRef.current?.serializedSnapshot === awaitingSync.serializedSnapshot
+    ) {
+      scheduleServerPublishRetry()
+    } else {
+      clearServerPublishRetry()
+    }
     setSaveStatus('error')
-  }, [clearServerPublishRetry, projectId])
+  }, [clearServerPublishRetry, projectId, scheduleServerPublishRetry])
 
   const applyRemoteBubbleSnapshot = useCallback((snapshot: {
     bubbles: BubbleData[]
@@ -1635,6 +1646,16 @@ export function useEditorPage() {
   }, [replaceBubbles, replaceConnections, setConnectingFromId])
 
   const applyRemoteFloorPlanSnapshot = useCallback((snapshot: FloorPlanSnapshotPayload) => {
+    const hasLocalFloorPlanEditInFlight =
+      workspaceEditTransactionDepthRef.current > 0 ||
+      pendingWorkspaceSnapshotCommitRef.current
+
+    if (hasLocalFloorPlanEditInFlight) {
+      floorPlanHistoryCommandInFlightRef.current = false
+      setSaveStatus('dirty')
+      return
+    }
+
     suppressNextAutosaveRef.current = true
     if (projectId && snapshot.revisionId !== undefined) {
       setIfcRevisionByProjectId((prev) => ({
@@ -1758,6 +1779,18 @@ export function useEditorPage() {
     setWorkspaceSnapshotCommitVersion((version) => version + 1)
   }, [projectId])
 
+  const handleBubbleHistoryCursorInvalid = useCallback(() => {
+    const awaitingSync = awaitingServerSyncRef.current
+    if (!awaitingSync || awaitingSync.projectId !== projectId || awaitingSync.historyDomain !== 'bubble') return
+    void refreshHistoryCursorFromServer()
+  }, [projectId, refreshHistoryCursorFromServer])
+
+  const handleFloorPlanHistoryCursorInvalid = useCallback(() => {
+    const awaitingSync = awaitingServerSyncRef.current
+    if (!awaitingSync || awaitingSync.projectId !== projectId || awaitingSync.historyDomain !== 'floorPlan') return
+    void refreshHistoryCursorFromServer()
+  }, [projectId, refreshHistoryCursorFromServer])
+
   useEffect(() => {
     if (saveStatus !== 'syncing') return
     const awaitingSync = awaitingServerSyncRef.current
@@ -1786,8 +1819,8 @@ export function useEditorPage() {
     },
     onBubbleHistoryCursorChanged: updateBubbleHistoryCursor,
     onFloorPlanHistoryCursorChanged: updateFloorPlanHistoryCursor,
-    onBubbleHistoryCursorInvalid: refreshHistoryCursorFromServer,
-    onFloorPlanHistoryCursorInvalid: refreshHistoryCursorFromServer,
+    onBubbleHistoryCursorInvalid: handleBubbleHistoryCursorInvalid,
+    onFloorPlanHistoryCursorInvalid: handleFloorPlanHistoryCursorInvalid,
     onServerError: handleWorkspaceServerError,
     bubbleHistoryCursor,
     floorPlanHistoryCursor,

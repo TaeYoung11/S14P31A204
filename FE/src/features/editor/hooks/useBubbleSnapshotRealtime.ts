@@ -29,6 +29,8 @@ import {
   type FloorPlanSnapshotPayload,
 } from '../utils/workspaceSyncMessage'
 
+type HistoryCursor = { baseIndex: number; redoDepth: number }
+
 interface UseBubbleSnapshotRealtimeParams {
   projectId: string | undefined
   canPublish: boolean
@@ -43,8 +45,8 @@ interface UseBubbleSnapshotRealtimeParams {
   onBubbleHistoryCursorInvalid?: () => void
   onFloorPlanHistoryCursorInvalid?: () => void
   onServerError?: (error: { code?: string; message?: string }) => void
-  bubbleHistoryCursor?: { baseIndex: number; redoDepth: number }
-  floorPlanHistoryCursor?: { baseIndex: number; redoDepth: number }
+  bubbleHistoryCursor?: HistoryCursor
+  floorPlanHistoryCursor?: HistoryCursor
 }
 
 const IFC_EVENT_DEDUP_TTL_MS = 2000
@@ -159,15 +161,15 @@ export function useBubbleSnapshotRealtime({
       floorPlanHistoryCursorHandlerRef.current?.(floorPlanBaseIndexRef.current, floorPlanRedoDepthRef.current)
     }
 
-    const toRestoredBubbleIndex = (payloadBaseIndex: number | null): number | null =>
+    const toRestoredHistoryIndex = (payloadBaseIndex: number | null): number | null =>
       payloadBaseIndex === null ? null : payloadBaseIndex + 1
 
     const syncBubbleHistoryCursor = (action: string | null, payloadBaseIndex: number | null) => {
       if (action === WORKSPACE_SYNC_ACTION.bubbleUndo) {
-        baseIndexRef.current = toRestoredBubbleIndex(payloadBaseIndex) ?? Math.max(-1, baseIndexRef.current - 1)
+        baseIndexRef.current = toRestoredHistoryIndex(payloadBaseIndex) ?? Math.max(-1, baseIndexRef.current - 1)
         bubbleRedoDepthRef.current += 1
       } else if (action === WORKSPACE_SYNC_ACTION.bubbleRedo) {
-        baseIndexRef.current = toRestoredBubbleIndex(payloadBaseIndex) ?? baseIndexRef.current + 1
+        baseIndexRef.current = toRestoredHistoryIndex(payloadBaseIndex) ?? baseIndexRef.current + 1
         bubbleRedoDepthRef.current = Math.max(0, bubbleRedoDepthRef.current - 1)
       } else {
         baseIndexRef.current = (payloadBaseIndex ?? baseIndexRef.current) + 1
@@ -178,10 +180,14 @@ export function useBubbleSnapshotRealtime({
 
     const syncFloorPlanHistoryCursor = (action: string | null, payloadBaseIndex: number | null) => {
       if (action === WORKSPACE_SYNC_ACTION.floorPlanUndo) {
-        floorPlanBaseIndexRef.current = Math.max(-1, floorPlanBaseIndexRef.current - 1)
+        floorPlanBaseIndexRef.current =
+          toRestoredHistoryIndex(payloadBaseIndex) ?? Math.max(-1, floorPlanBaseIndexRef.current - 1)
         floorPlanRedoDepthRef.current += 1
       } else if (action === WORKSPACE_SYNC_ACTION.floorPlanRedo) {
-        floorPlanBaseIndexRef.current = Math.min(WORKSPACE_HISTORY_MAX_INDEX, floorPlanBaseIndexRef.current + 1)
+        floorPlanBaseIndexRef.current = Math.min(
+          WORKSPACE_HISTORY_MAX_INDEX,
+          toRestoredHistoryIndex(payloadBaseIndex) ?? floorPlanBaseIndexRef.current + 1,
+        )
         floorPlanRedoDepthRef.current = Math.max(0, floorPlanRedoDepthRef.current - 1)
       } else if (action === WORKSPACE_SYNC_ACTION.floorPlanUpdated) {
         floorPlanBaseIndexRef.current = Math.min(
@@ -252,23 +258,25 @@ export function useBubbleSnapshotRealtime({
         return
       }
 
-      const isFloorPlanWorkerCompletion =
-        action !== WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
-        Boolean(extractIfcStorageUrl(parsed))
-
-      if (
-        (action === WORKSPACE_SYNC_ACTION.floorPlanUpdated && isFloorPlanWorkerCompletion) ||
+      const hasIfcStorageUrl = Boolean(extractIfcStorageUrl(parsed))
+      const isFinalFloorPlanWorkerCompletion =
+        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated && hasIfcStorageUrl
+      const shouldApplyFloorPlanHistoryEvent =
+        isFinalFloorPlanWorkerCompletion ||
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
-      ) {
+
+      // 평면도 저장 완료가 곧 발행(publish) 응답(echo)은 아닙니다. 백엔드는 먼저
+      // FLOOR_PLAN_PROCESSING을 발생시키며, 이후 워커 웹훅이 IFC S3 URL을 포함한
+      // FLOOR_PLAN_UPDATED 이벤트를 반환할 때 Redis 히스토리를 저장합니다.
+      // 따라서, IFC URL이 포함되지 않은 업데이트 이벤트는 최종적인 평면도
+      // 히스토리 승인(ack)으로 간주하지 않습니다.
+
+      if (shouldApplyFloorPlanHistoryEvent) {
         syncFloorPlanHistoryCursor(action, extractFloorPlanBaseIndex(parsed))
       }
 
-      if (
-        (action === WORKSPACE_SYNC_ACTION.floorPlanUpdated && isFloorPlanWorkerCompletion) ||
-        action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
-        action === WORKSPACE_SYNC_ACTION.floorPlanRedo
-      ) {
+      if (shouldApplyFloorPlanHistoryEvent) {
         const floorPlanSnapshot = extractFloorPlanSnapshot(parsed)
         if (floorPlanSnapshot) {
           applyFloorPlanSnapshot(floorPlanSnapshot)
