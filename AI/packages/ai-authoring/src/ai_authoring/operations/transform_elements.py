@@ -8,7 +8,11 @@ import ifcopenshell
 
 from ai_authoring.engine_3d import modify_position, modify_rotation
 from ai_authoring.operations.registry import register
-from ai_authoring.operations.space_support import is_product_host_relative, translate_product
+from ai_authoring.operations.space_support import (
+    is_product_host_relative,
+    mm_to_model_units,
+    translate_product,
+)
 
 
 def _selected_products(
@@ -56,9 +60,9 @@ class TransformElementsHandler:
                     changed |= translate_product(
                         model,
                         product,
-                        x_m=float(translation.get("x", 0.0)) / 1000.0,
-                        y_m=float(translation.get("y", 0.0)) / 1000.0,
-                        z_m=float(translation.get("z", 0.0)) / 1000.0,
+                        x_m=mm_to_model_units(model, translation.get("x"), 0.0),
+                        y_m=mm_to_model_units(model, translation.get("y"), 0.0),
+                        z_m=mm_to_model_units(model, translation.get("z"), 0.0),
                     )
             if rotation.get("z") is not None:
                 changed |= modify_rotation(model, product, float(rotation["z"]))

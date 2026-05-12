@@ -175,11 +175,15 @@ def test_create_element_supports_ifc_space_with_storey_id() -> None:
     assert space.is_a("IfcSpace")
     assert space.Name == "Shared Room"
     assert tuple(space.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
-        (1.0, 2.0, 0.0)
+        (1000.0, 2000.0, 0.0)
     )
     body = space.Representation.Representations[0].Items[0]
-    assert body.SweptArea.XDim == pytest.approx(3.2)
-    assert body.SweptArea.YDim == pytest.approx(2.8)
+    assert body.SweptArea.XDim == pytest.approx(3200.0)
+    assert body.SweptArea.YDim == pytest.approx(2800.0)
+    assert tuple(body.SweptArea.Position.Location.Coordinates) == pytest.approx(
+        (1600.0, 1400.0)
+    )
+    assert body.Depth == pytest.approx(2700.0)
     pset = next(
         rel.RelatingPropertyDefinition
         for rel in space.IsDefinedBy
@@ -234,10 +238,10 @@ def test_transform_and_update_handlers_support_ifc_space() -> None:
     assert moved == [space.GlobalId]
     assert updated == [space.GlobalId]
     assert tuple(space.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
-        (1.0, 0.0, 0.0)
+        (1000.0, 0.0, 0.0)
     )
     body = space.Representation.Representations[0].Items[0]
-    assert body.SweptArea.XDim == pytest.approx(5.0)
+    assert body.SweptArea.XDim == pytest.approx(5000.0)
     assert space.Name == "Updated"
 
 
@@ -283,7 +287,7 @@ def test_transform_handler_does_not_mutate_shared_location_point() -> None:
 
     assert moved == [space_a.GlobalId]
     assert tuple(space_a.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
-        (1.0, 0.0, 0.0)
+        (1000.0, 0.0, 0.0)
     )
     assert tuple(space_b.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
         (0.0, 0.0, 0.0)
