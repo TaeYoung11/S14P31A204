@@ -574,6 +574,7 @@ export function useEditorPage() {
   const [bubbleHistoryCursor, setBubbleHistoryCursor] = useState({ baseIndex: -1, redoDepth: 0 })
   const [floorPlanHistoryCursor, setFloorPlanHistoryCursor] = useState({ baseIndex: -1, redoDepth: 0 })
   const attemptedInitialIfcImportProjectIdRef = useRef<string | null>(null)
+  const [historyIfcHydratedProjectIds, setHistoryIfcHydratedProjectIds] = useState<string[]>([])
   const bubbleHistoryBaseIndexRef = useRef(-1)
   const floorPlanHistoryBaseIndexRef = useRef(-1)
   const previousSnapshotRef = useRef<string | null>(null)
@@ -1307,6 +1308,9 @@ export function useEditorPage() {
         }))
       }
       if (history.floorPlan?.s3Url) {
+        setHistoryIfcHydratedProjectIds((prev) =>
+          prev.includes(projectId) ? prev : [...prev, projectId],
+        )
         handleIfcSyncMessageRef.current(
           history.floorPlan.s3Url,
           null,
@@ -3280,7 +3284,7 @@ export function useEditorPage() {
   // 에디터 첫 진입 시 프로젝트 IFC 소스를 1회 조회해 handleOutputIfcStorageUrl로 로드한다.
   useInitialIfcImport({
     projectId,
-    hasIfcUploaded: hasIfcUploadedInCurrentProject,
+    hasIfcUploaded: hasIfcUploadedInCurrentProject && !historyIfcHydratedProjectIds.includes(projectId ?? ''),
     stageWidth: stageSize.width,
     stageHeight: stageSize.height,
     onResolvedIfcUrl: (url, assetId, revisionId) => {
@@ -3580,7 +3584,10 @@ export function useEditorPage() {
     handleGenerateFloorPlan,
     handleGenerateFloorPlanFromBubble,
     handleAutoLayoutBubbles,
-    canGenerateFloorPlanFromBubble: bubbles.length > 0 && authUser?.user_type === 'DESIGNER' && (!isCurrentProjectOwnerKnown || isCurrentProjectOwner),
+    canGenerateFloorPlanFromBubble: bubbles.length > 0
+      && !currentIfcUrl
+      && authUser?.user_type === 'DESIGNER'
+      && (!isCurrentProjectOwnerKnown || isCurrentProjectOwner),
     canAutoLayoutBubbles: bubbles.length > 1,
     handleEditIfc,
     handleIfcUndo,
