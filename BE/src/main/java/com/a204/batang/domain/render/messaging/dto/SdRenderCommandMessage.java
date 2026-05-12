@@ -6,7 +6,7 @@ import java.util.UUID;
 
 public record SdRenderCommandMessage(
         UUID messageId,
-        Integer schemaVersion,
+        String schemaVersion,
         String messageType,
         String commandType,
         String routingKey,
