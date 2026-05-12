@@ -30,6 +30,18 @@ class ExpectedOutputRef(BaseModel):
     draftPlanStorageUrl: StorageUrl | None = Field(default=None, alias="draft_plan_storage_url")
     threeDPlanStorageUrl: StorageUrl | None = Field(default=None, alias="three_d_plan_storage_url")
     renderImageStorageUrl: StorageUrl | None = Field(default=None, alias="render_image_storage_url")
+    renderManifestStorageUrl: StorageUrl | None = Field(
+        default=None,
+        alias="render_manifest_storage_url",
+    )
+    renderPhotoFrontDiagonalLeftStorageUrl: StorageUrl | None = Field(
+        default=None,
+        alias="render_photo_front_diagonal_left_storage_url",
+    )
+    renderPhotoFrontDiagonalRightStorageUrl: StorageUrl | None = Field(
+        default=None,
+        alias="render_photo_front_diagonal_right_storage_url",
+    )
     ifcStorageUrl: StorageUrl | None = Field(default=None, alias="ifc_storage_url")
     validationReportStorageUrl: StorageUrl | None = Field(
         default=None,

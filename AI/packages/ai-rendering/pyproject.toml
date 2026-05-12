@@ -17,6 +17,9 @@ dependencies = [
     "ifcopenshell>=0.8.5",
 ]
 
+[project.scripts]
+rendering-worker = "ai_rendering.worker_app:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

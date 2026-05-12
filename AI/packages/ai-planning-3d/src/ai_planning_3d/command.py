@@ -29,6 +29,7 @@ class LLM3DElementType(StrEnum):
 class LLM3DSizeMode(StrEnum):
     ABSOLUTE = "ABSOLUTE"
     RELATIVE = "RELATIVE"
+    SCALE = "SCALE"
 
 
 class LLM3DMaterialName(StrEnum):
@@ -473,7 +474,11 @@ class LLM3DCommand(BaseModel):
     }
 
     _DIM_CONSTRAINTS: ClassVar[dict[LLM3DElementType, dict[str, tuple[float, float]]]] = {
-        LLM3DElementType.WALL: {"height_mm": (150.0, 5000.0), "width_mm": (50.0, 1000.0)},
+        LLM3DElementType.WALL: {
+            "height_mm": (150.0, 5000.0),
+            "width_mm": (50.0, 1000.0),
+            "length_mm": (100.0, 50000.0),
+        },
         LLM3DElementType.ROOF: {"height_mm": (100.0, 10000.0)},
     }
 
@@ -608,7 +613,9 @@ class LLM3DCommand(BaseModel):
             change = getattr(self.changes, fname)
             if change:
                 base = current_dims.get(fname, 2400.0)
-                if change.mode == LLM3DSizeMode.ABSOLUTE:
+                if change.mode == LLM3DSizeMode.SCALE:
+                    resolved[fname] = base * change.value
+                elif change.mode == LLM3DSizeMode.ABSOLUTE:
                     resolved[fname] = change.value
                 else:
                     resolved[fname] = base + change.value

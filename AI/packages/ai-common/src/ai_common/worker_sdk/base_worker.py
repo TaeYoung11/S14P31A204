@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-import logging
-from typing import Protocol
+from typing import Any, Protocol
 
 from ai_common.errors import (
     ClarificationRequiredError,
@@ -24,7 +23,7 @@ from ai_common.worker_sdk.event_factory import (
 )
 from ai_domain.worker_messages.event import EventMessage
 
-_logger = logging.getLogger(__name__)
+_logger: Any | None = None
 
 
 class EventPublisher(Protocol):
@@ -49,7 +48,10 @@ class BaseWorker(ABC):
         """Run the shared worker loop for a single command."""
 
         context = WorkerContext.from_command(command)
-        self._publish(build_started_event(context, self.worker_id))
+        started_event = build_started_event(context, self.worker_id)
+        self._log_event_publish_started(started_event)
+        self._publish(started_event)
+        self._log_event_publish_completed(started_event)
 
         try:
             result = self.process(command)
@@ -85,7 +87,10 @@ class BaseWorker(ABC):
             )
             terminal_result = FailedResult(error=self._build_unhandled_error(error))
 
-        self._publish(build_terminal_event(context, self.worker_id, terminal_result))
+        terminal_event = build_terminal_event(context, self.worker_id, terminal_result)
+        self._log_event_publish_started(terminal_event)
+        self._publish(terminal_event)
+        self._log_event_publish_completed(terminal_event)
         return terminal_result
 
     def emit_progress(self, context: WorkerContext, progress: float) -> EventMessage:
@@ -97,6 +102,31 @@ class BaseWorker(ABC):
 
     def _publish(self, event: EventMessage) -> None:
         self.event_publisher.publish(event)
+
+    def _log_event_publish_started(self, event: EventMessage) -> None:
+        _get_logger().info(
+            "worker_lifecycle_event_publish_started",
+            workerId=self.worker_id,
+            eventType=event.eventType,
+            routingKey=event.routingKey,
+            status=event.status,
+            jobId=event.jobId,
+            jobStepId=event.jobStepId,
+            correlationId=event.correlationId,
+        )
+
+    def _log_event_publish_completed(self, event: EventMessage) -> None:
+        _get_logger().info(
+            "worker_lifecycle_event_publish_completed",
+            workerId=self.worker_id,
+            eventType=event.eventType,
+            routingKey=event.routingKey,
+            status=event.status,
+            eventId=event.eventId,
+            jobId=event.jobId,
+            jobStepId=event.jobStepId,
+            correlationId=event.correlationId,
+        )
 
     def _coerce_result(self, result: object) -> WorkerResult:
         if isinstance(
@@ -115,6 +145,15 @@ class BaseWorker(ABC):
             code="UNHANDLED_WORKER_EXCEPTION",
             message=message,
         )
+
+
+def _get_logger() -> Any:
+    global _logger
+    if _logger is None:
+        from ai_common.logging import get_logger
+
+        _logger = get_logger(__name__)
+    return _logger
 
 
 __all__ = ["BaseWorker", "EventPublisher"]

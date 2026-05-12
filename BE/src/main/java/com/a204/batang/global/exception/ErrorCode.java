@@ -19,6 +19,7 @@ public enum ErrorCode {
 
     PROJECT_NOT_FOUND(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND", "프로젝트를 찾을 수 없습니다."),
     JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "JOB_NOT_FOUND", "작업을 찾을 수 없습니다."),
+    JOB_RESULT_PRESIGN_FAILED(HttpStatus.BAD_GATEWAY, "JOB_RESULT_PRESIGN_FAILED", "작업 결과 URL 생성에 실패했습니다."),
     WORKSPACE_INVALID_PHASE(HttpStatus.CONFLICT, "WORKSPACE_INVALID_PHASE", "현재 워크스페이스 상태에서는 요청을 수행할 수 없습니다."),
     WORKSPACE_BUBBLE_SNAPSHOT_INVALID(HttpStatus.BAD_REQUEST, "WORKSPACE_BUBBLE_SNAPSHOT_INVALID", "버블 스냅샷 데이터 구조가 올바르지 않습니다."),
     WORKSPACE_BUBBLE_HISTORY_CURSOR_INVALID(HttpStatus.CONFLICT, "WORKSPACE_BUBBLE_HISTORY_CURSOR_INVALID", "Undo/Redo 기준 인덱스가 현재 히스토리와 일치하지 않습니다."),
@@ -40,6 +41,7 @@ public enum ErrorCode {
     RENDER_STEP_NOT_FOUND(HttpStatus.NOT_FOUND, "RENDER_STEP_NOT_FOUND", "렌더링 작업 단계를 찾을 수 없습니다."),
     RENDER_EVENT_INVALID(HttpStatus.BAD_REQUEST, "RENDER_EVENT_INVALID", "렌더링 이벤트 메시지가 올바르지 않습니다."),
     RENDER_COMMAND_PUBLISH_FAILED(HttpStatus.BAD_GATEWAY, "RENDER_COMMAND_PUBLISH_FAILED", "렌더링 작업 요청 발행에 실패했습니다."),
+    RENDER_IMAGE_PRESIGN_FAILED(HttpStatus.BAD_GATEWAY, "RENDER_IMAGE_PRESIGN_FAILED", "렌더링 이미지 URL 생성에 실패했습니다."),
 
     FLOOR_PLAN_LAYOUT_INVALID(HttpStatus.BAD_REQUEST, "FLOOR_PLAN_LAYOUT_INVALID", "Floor-plan layout payload가 올바르지 않습니다."),
     FLOOR_PLAN_SNAPSHOT_NOT_FOUND(HttpStatus.CONFLICT, "FLOOR_PLAN_SNAPSHOT_NOT_FOUND", "Floor-plan 생성에 필요한 workspace snapshot이 없습니다."),

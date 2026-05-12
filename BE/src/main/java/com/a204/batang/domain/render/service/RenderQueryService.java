@@ -11,8 +11,8 @@ import com.a204.batang.domain.render.repository.RenderArtifactRepository;
 import com.a204.batang.domain.render.repository.RenderJobRepository;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.databind.JsonNode;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,7 +30,6 @@ import java.util.UUID;
  * 프로젝트 렌더링 결과 목록 조회를 담당하는 서비스.
  */
 @Service
-@RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class RenderQueryService {
 
@@ -42,6 +41,21 @@ public class RenderQueryService {
     private final ProjectAccessService projectAccessService;
     private final RenderJobRepository renderJobRepository;
     private final RenderArtifactRepository renderArtifactRepository;
+    private final S3ObjectPresigner s3ObjectPresigner;
+
+    public RenderQueryService(
+            ProjectRepository projectRepository,
+            ProjectAccessService projectAccessService,
+            RenderJobRepository renderJobRepository,
+            RenderArtifactRepository renderArtifactRepository,
+            S3ObjectPresigner s3ObjectPresigner
+    ) {
+        this.projectRepository = projectRepository;
+        this.projectAccessService = projectAccessService;
+        this.renderJobRepository = renderJobRepository;
+        this.renderArtifactRepository = renderArtifactRepository;
+        this.s3ObjectPresigner = s3ObjectPresigner;
+    }
 
     /**
      * 프로젝트의 렌더링 결과 목록을 조회한다.
@@ -83,17 +97,53 @@ public class RenderQueryService {
     }
 
     /**
+     * 프로젝트의 렌더링 결과를 단건 조회한다.
+     */
+    public ProjectRenderResponse getProjectRender(UUID projectId, UUID renderId) {
+        Project project = projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)
+                .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
+
+        UUID currentUserId = projectAccessService.resolveCurrentUserId();
+        projectAccessService.validateProjectMemberOrThrow(project, currentUserId);
+
+        RenderJob job = renderJobRepository.findByJobIdAndProjectIdAndJobType(renderId, projectId, RENDER_JOB_TYPE)
+                .orElseThrow(() -> new CustomException(ErrorCode.RENDER_JOB_NOT_FOUND));
+
+        String imageUrl = renderArtifactRepository
+                .findFirstByProjectIdAndJobIdAndArtifactTypeOrderByCreatedAtDescArtifactIdDesc(
+                        projectId,
+                        renderId,
+                        RENDER_IMAGE_ARTIFACT_TYPE
+                )
+                .map(this::presignArtifactUrl)
+                .orElse(null);
+
+        return toResponse(job, imageUrl);
+    }
+
+    /**
      * job과 artifact를 응답 DTO로 변환한다.
      */
     private ProjectRenderResponse toResponse(RenderJob job, RenderArtifact artifact) {
+        return toResponse(job, artifact != null ? presignArtifactUrl(artifact) : null);
+    }
+
+    /**
+     * job과 image URL을 응답 DTO로 변환한다.
+     */
+    private ProjectRenderResponse toResponse(RenderJob job, String imageUrl) {
         return new ProjectRenderResponse(
                 job.getJobId(),
                 extractStyle(job.getRequestPayload()),
-                artifact != null ? artifact.getStorageUrl() : null,
+                imageUrl,
                 normalizeUpper(job.getStatus()),
                 toUtcIso(job.getCreatedAt()),
                 toUtcIso(job.getFinishedAt())
         );
+    }
+
+    private String presignArtifactUrl(RenderArtifact artifact) {
+        return s3ObjectPresigner.presignRequired(artifact.getStorageUrl(), ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
     }
 
     /**

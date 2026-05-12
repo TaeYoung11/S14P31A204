@@ -152,7 +152,7 @@ _WORKER_TYPE_TO_QUEUE: dict[str, kombu.Queue] = {
 
 def build_connection(settings: RabbitMQSettings) -> kombu.Connection:
     """Return a lazy kombu Connection — does not connect until first use."""
-    return kombu.Connection(settings.url, heartbeat=60)
+    return kombu.Connection(settings.url, heartbeat=settings.heartbeat)
 
 
 def get_command_queue(worker_type: str) -> kombu.Queue:

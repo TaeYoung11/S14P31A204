@@ -82,6 +82,59 @@ public class RenderController {
     }
 
     /**
+     * 프로젝트의 렌더링 결과를 단건 조회한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param renderId 렌더링 ID(jobId)
+     * @return 렌더링 결과
+     */
+    @Operation(
+            summary = "프로젝트 렌더링 결과 단건 조회",
+            description = "특정 프로젝트의 렌더링 결과를 jobId 기준으로 조회하며 imageUrl은 presigned URL로 반환합니다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "렌더링 결과 단건 조회 성공",
+                    content = @Content(schema = @Schema(implementation = ProjectRenderResponse.class))
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "잘못된 프로젝트 ID 또는 렌더링 ID 형식"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "프로젝트 접근 권한 없음"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "프로젝트 또는 렌더링 결과를 찾을 수 없음"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "502",
+                    description = "렌더링 이미지 URL 생성 실패"
+            )
+    })
+    @GetMapping("/{projectId}/renders/{renderId}")
+    public ApiResponse<ProjectRenderResponse> getProjectRender(
+            @Parameter(
+                    description = "렌더링 결과를 조회할 프로젝트 ID",
+                    required = true,
+                    example = "96e243de-0abd-41e5-b97f-7c68afea4fa5"
+            )
+            @PathVariable UUID projectId,
+            @Parameter(
+                    description = "렌더링 ID(jobId)",
+                    required = true,
+                    example = "96e243de-0abd-41e5-b97f-7c68afea4fa5"
+            )
+            @PathVariable UUID renderId
+    ) {
+        ProjectRenderResponse response = renderQueryService.getProjectRender(projectId, renderId);
+        return ApiResponse.success("렌더링 결과 조회 성공", response);
+    }
+
+    /**
      * 프로젝트에 대한 실사 렌더링 작업을 생성한다.
      *
      * @param projectId 프로젝트 ID

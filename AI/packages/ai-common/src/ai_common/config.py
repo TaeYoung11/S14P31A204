@@ -28,6 +28,7 @@ class RabbitMQSettings(BaseSettings):
     username: str = Field(default="guest", min_length=1)
     password: str = Field(default="guest", min_length=1)
     vhost: str = Field(default="/")
+    heartbeat: int = Field(default=60, ge=0)
 
     @computed_field
     @property

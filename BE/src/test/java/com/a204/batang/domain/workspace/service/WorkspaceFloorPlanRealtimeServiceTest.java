@@ -29,10 +29,12 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
@@ -56,6 +58,9 @@ class WorkspaceFloorPlanRealtimeServiceTest {
     @Mock
     private DirectIfcEditCommandService directIfcEditCommandService;
 
+    @Mock
+    private FloorPlanS3DeleteQueueService floorPlanS3DeleteQueueService;
+
     private WorkspaceFloorPlanRealtimeService workspaceFloorPlanRealtimeService;
     private ObjectMapper objectMapper;
 
@@ -72,6 +77,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 projectAccessService,
                 bubbleSnapshotHelper,
                 workspaceBubbleSnapshotRedisRepository,
+                floorPlanS3DeleteQueueService,
                 directIfcEditCommandService,
                 simpMessagingTemplate,
                 objectMapper
@@ -240,6 +246,19 @@ class WorkspaceFloorPlanRealtimeServiceTest {
 
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
                 .willReturn(Optional.of(workspace));
+        String removedHistorySnapshotPayload = """
+                {
+                  "floorPlanPayloadJson": {
+                    "baseIndex": 0
+                  },
+                  "s3Url": "s3://bucket/projects/p1/revisions/old-removed/ifc/model.v1.ifc"
+                }
+                """;
+        given(workspaceBubbleSnapshotRedisRepository.saveFloorPlanSnapshotAndReturnGarbage(
+                eq(projectId),
+                any(JsonNode.class),
+                eq(2)
+        )).willReturn(List.of(removedHistorySnapshotPayload));
 
         workspaceFloorPlanRealtimeService.publishFloorPlanUpdated(projectId, request);
 
@@ -259,7 +278,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         assertThat(response.floorPlanPayloadJson().get("parentRevisionId").asText()).isEqualTo(previousRevisionId.toString());
 
         ArgumentCaptor<JsonNode> snapshotCaptor = ArgumentCaptor.forClass(JsonNode.class);
-        verify(workspaceBubbleSnapshotRedisRepository).saveFloorPlanSnapshot(
+        verify(workspaceBubbleSnapshotRedisRepository).saveFloorPlanSnapshotAndReturnGarbage(
                 eq(projectId),
                 snapshotCaptor.capture(),
                 eq(2)
@@ -268,6 +287,8 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         JsonNode historySnapshot = snapshotCaptor.getValue();
         assertThat(historySnapshot.get("s3Url").asText()).isEqualTo(request.s3Url());
         assertThat(historySnapshot.get("floorPlanPayloadJson").get("revisionId").asText()).isEqualTo(response.revisionId());
+
+        verify(floorPlanS3DeleteQueueService).enqueueAll(Set.of("s3://bucket/projects/p1/revisions/old-removed/ifc/model.v1.ifc"));
     }
 
     @Test

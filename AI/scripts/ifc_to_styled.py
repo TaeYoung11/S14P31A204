@@ -29,11 +29,7 @@ from ai_rendering.ifc2img import (
     load_preset,
 )
 from ai_rendering.ifc2img.service import (
-    DEFAULT_PHOTO_HEIGHT,
-    DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR,
-    DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO,
-    DEFAULT_PHOTO_ITER_TOLERANCE,
-    DEFAULT_PHOTO_WIDTH,
+    PHOTO_DEPTH_RENDER_DEFAULTS,
     build_front_diagonal_ground_extent_overrides,
     build_front_diagonal_target_overrides,
     create_photo_ifc_renderer,
@@ -90,7 +86,8 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Override iterative zoom target fill ratio for front diagonal views only. "
-            f"Requires --auto-zoom. Defaults to {DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO} "
+            "Requires --auto-zoom. Defaults to "
+            f"{PHOTO_DEPTH_RENDER_DEFAULTS.front_diagonal_target_ratio} "
             "when --auto-zoom is enabled."
         ),
     )
@@ -100,13 +97,13 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Override ground plane extent factor for front diagonal views only. "
-            f"Defaults to {DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR}."
+            f"Defaults to {PHOTO_DEPTH_RENDER_DEFAULTS.front_diagonal_ground_extent_factor}."
         ),
     )
     parser.add_argument(
         "--iter-tolerance",
         type=float,
-        default=DEFAULT_PHOTO_ITER_TOLERANCE,
+        default=PHOTO_DEPTH_RENDER_DEFAULTS.iter_tolerance,
         help="Iterative auto-zoom fill tolerance. Used with --auto-zoom.",
     )
     return parser.parse_args()
@@ -141,7 +138,7 @@ def _render_depths(
     auto_zoom: bool = False,
     front_diagonal_target_ratio: float | None = None,
     front_diagonal_ground_extent_factor: float | None = None,
-    iter_tolerance: float = DEFAULT_PHOTO_ITER_TOLERANCE,
+    iter_tolerance: float = PHOTO_DEPTH_RENDER_DEFAULTS.iter_tolerance,
 ) -> dict[IFCView, Path]:
     """Render depth PNGs for each requested view."""
     zoom_mode = AutoZoomMode.ITERATIVE if auto_zoom else AutoZoomMode.OFF
@@ -149,7 +146,7 @@ def _render_depths(
         (
             front_diagonal_target_ratio
             if front_diagonal_target_ratio is not None
-            else DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO
+            else PHOTO_DEPTH_RENDER_DEFAULTS.front_diagonal_target_ratio
         )
         if auto_zoom
         else None
@@ -157,7 +154,7 @@ def _render_depths(
     ground_extent_for_log = (
         front_diagonal_ground_extent_factor
         if front_diagonal_ground_extent_factor is not None
-        else DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR
+        else PHOTO_DEPTH_RENDER_DEFAULTS.front_diagonal_ground_extent_factor
     )
     ground_extent_overrides = _build_front_diagonal_ground_extent_overrides(
         ground_extent_for_log
@@ -167,9 +164,13 @@ def _render_depths(
         f"auto_zoom={zoom_mode.value}"
     )
     if target_overrides:
+        target_ratio_for_log = (
+            front_diagonal_target_ratio
+            or PHOTO_DEPTH_RENDER_DEFAULTS.front_diagonal_target_ratio
+        )
         print(
             "  front_diagonal_target_ratio="
-            f"{front_diagonal_target_ratio or DEFAULT_PHOTO_FRONT_DIAGONAL_TARGET_RATIO}"
+            f"{target_ratio_for_log}"
         )
     if ground_extent_overrides:
         print(
@@ -177,8 +178,8 @@ def _render_depths(
             f"{ground_extent_for_log}"
         )
     renderer_kwargs: dict[str, object] = {
-        "width": DEFAULT_PHOTO_WIDTH,
-        "height": DEFAULT_PHOTO_HEIGHT,
+        "width": PHOTO_DEPTH_RENDER_DEFAULTS.width,
+        "height": PHOTO_DEPTH_RENDER_DEFAULTS.height,
         "auto_zoom": auto_zoom,
         "iter_tolerance": iter_tolerance,
     }

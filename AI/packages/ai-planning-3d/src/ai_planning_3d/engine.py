@@ -68,7 +68,9 @@ SYSTEM_PROMPT = (
     "목재/나무=Wood, 유리=Glass, 석재/돌=Stone, 타일=Tile.\n"
     "\n"
     "### RULES\n"
-    "MODIFY dimension fields must be objects: {\"mode\":\"ABSOLUTE|RELATIVE\",\"value\":number}.\n"
+    "MODIFY dimension fields must be objects: "
+    "{\"mode\":\"ABSOLUTE|RELATIVE|SCALE\",\"value\":number}.\n"
+    "\"2배\" and other multiplier expressions must use mode SCALE.\n"
     "두껍게/더/올려/높게 without fixed final size means RELATIVE. 설정/맞춰/로 means ABSOLUTE.\n"
     "DELETE must include changes {\"deletion\":true}.\n"
     "CREATE must fill create_info. If storey or direction is missing, ask ambiguity_question, "
@@ -263,6 +265,8 @@ class LLM3DEngine:
             )
 
         if command_type == LLM3DCommandType.DELETE:
+            if not self._explicit_select_all_delete(text):
+                target = target.model_copy(update={"select_all": False})
             if target.element_type == LLM3DElementType.STAIR or (
                 target.element_type in {LLM3DElementType.DOOR, LLM3DElementType.WINDOW}
                 and self._explicit_select_all_delete(text)
@@ -317,13 +321,26 @@ class LLM3DEngine:
         return any(token in text for token in ("달아", "달고", "달기", "설치"))
 
     def _target(self, text: str) -> LLM3DTarget:
+        element_type = self._element_type(text)
+        storey = self._storey(text)
+        space_name = self._space(text)
+        direction = self._direction(text)
         return LLM3DTarget(
-            element_type=self._element_type(text),
-            storey=self._storey(text),
-            space_name=self._space(text),
-            direction=self._direction(text),
-            select_all=False,
+            element_type=element_type,
+            storey=storey,
+            space_name=space_name,
+            direction=direction,
+            select_all=self._select_all_target(element_type, storey, space_name, direction),
         )
+
+    @staticmethod
+    def _select_all_target(
+        element_type: LLM3DElementType,
+        storey: str | None,
+        space_name: str | None,
+        direction: str | None,
+    ) -> bool:
+        return storey is None and space_name is None and direction is None
 
     def _create_info(self, text: str) -> LLM3DCreateInfo:
         element_type = self._element_type(text)
@@ -378,9 +395,50 @@ class LLM3DEngine:
             sill_height_mm=sill_height_mm,
         )
 
+    def _dimension_change(
+        self,
+        text: str,
+        absolute_words: tuple[str, ...],
+    ) -> LLM3DDimensionChange | None:
+        if "배" in text:
+            value = self._number_before_unit(text, "배")
+            if value is None:
+                return None
+            return LLM3DDimensionChange(mode=LLM3DSizeMode.SCALE, value=value)
+
+        value = self._number_mm(text)
+        if value is None:
+            return None
+        mode = (
+            LLM3DSizeMode.ABSOLUTE
+            if any(word in text for word in absolute_words)
+            else LLM3DSizeMode.RELATIVE
+        )
+        return LLM3DDimensionChange(mode=mode, value=value)
+
     def _changes(self, text: str) -> LLM3DChanges | None:
         material = self._material(text)
         color = self._color(text)
+
+        absolute_words = ("설정", "맞춰", "로", "으로")
+
+        if any(word in text for word in ("길이", "가로", "수평")):
+            change = self._dimension_change(text, absolute_words)
+            if change is None:
+                return None
+            return LLM3DChanges(length_mm=change, material=material, color=color)
+
+        if any(word in text for word in ("두께", "두껍")) and "배" in text:
+            change = self._dimension_change(text, absolute_words)
+            if change is None:
+                return None
+            return LLM3DChanges(width_mm=change, material=material, color=color)
+
+        if any(word in text for word in ("높이", "높게")) and "배" in text:
+            change = self._dimension_change(text, absolute_words)
+            if change is None:
+                return None
+            return LLM3DChanges(height_mm=change, material=material, color=color)
 
         if "두께" in text or "두껍" in text:
             value = self._number_mm(text)
@@ -427,7 +485,7 @@ class LLM3DEngine:
             )
 
         if "돌리" in text or "회전" in text:
-            value = self._number(text)
+            value = self._number_before_unit(text, "도") or self._number(text)
             return LLM3DChanges(rotation_deg=value or 0.0, material=material, color=color)
 
         if material or color:
@@ -511,13 +569,17 @@ class LLM3DEngine:
             return "East"
         if "west" in lower_text:
             return "West"
+        lateral_rotation = (
+            any(word in text for word in ("회전", "돌려"))
+            and ("오른쪽으로" in text or "왼쪽으로" in text)
+        )
         if "북쪽" in text or "북측" in text:
             return "North"
         if "남쪽" in text or "남측" in text:
             return "South"
-        if "동쪽" in text or "동측" in text or "오른쪽" in text:
+        if "동쪽" in text or "동측" in text or ("오른쪽" in text and not lateral_rotation):
             return "East"
-        if "서쪽" in text or "서측" in text or "왼쪽" in text:
+        if "서쪽" in text or "서측" in text or ("왼쪽" in text and not lateral_rotation):
             return "West"
         return None
 
@@ -558,6 +620,12 @@ class LLM3DEngine:
         import re
 
         match = re.search(r"(\d+(?:\.\d+)?)", text)
+        return float(match.group(1)) if match else None
+
+    def _number_before_unit(self, text: str, unit: str) -> float | None:
+        import re
+
+        match = re.search(rf"(\d+(?:\.\d+)?)\s*{re.escape(unit)}", text)
         return float(match.group(1)) if match else None
 
     def _number_mm(self, text: str) -> float | None:
