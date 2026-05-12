@@ -11,12 +11,14 @@ import {
   isSelectionInteractionTool,
   isSelectionTool,
 } from './threeDInteraction.utils'
+import { normalizeSnapIntervalMm, toRotationSnapRadians } from '../../utils/threeDSnap.utils'
 import { disposeObject3DResources, findGroupRootFromObject } from './threeDCanvasObject.utils'
 import { mergeSelectionByKey } from './threeDSelectionCollection.utils'
 import ThreeDMarqueeOverlay from './ThreeDMarqueeOverlay'
 import { resolveLibraryDropPositionPatch } from './threeDLibraryDrop.utils'
 import { applyTransformSnap, type TransformSnapControl } from './threeDTransformSnap.utils'
 import { applyScaleSnapByMm } from './threeDScaleSnap.utils'
+import { createGableRoofGeometry } from './threeDRoofGeometry.utils'
 import {
   appendUniqueSelectionByKey,
   isPointerInsideBounds,
@@ -67,6 +69,11 @@ type MultiSelectionEntry = {
   object: import('three').Object3D
   source: 'library' | 'floor'
   element: IfcElementInfo
+}
+
+const logRoofDebug = (...args: unknown[]) => {
+  if (!import.meta.env.DEV) return
+  console.log('[roof-debug][FloorPlan3DCanvas]', ...args)
 }
 
 /**
@@ -487,16 +494,48 @@ export function FloorPlan3DCanvas({
       ;(tc as unknown as {
         addEventListener: (type: 'dragging-changed' | 'mouseDown' | 'objectChange', listener: (e?: { value: boolean }) => void) => void
       }).addEventListener('objectChange', () => {
+        const isTransformSnapActive = transformSnapEnabledRef.current || isShiftSnapRef.current
+        const selectedEntries = selectedEntriesRef.current
+        const axis = (tc as unknown as { axis?: string | null }).axis
+        const shouldSnapAxis = (token: 'X' | 'Y' | 'Z') => (!axis || axis.includes(token))
+
+        if (isTransformSnapActive && selectedEntries.length === 1) {
+          if (transformModeRef.current === 'translate') {
+            const intervalWorld = normalizeSnapIntervalMm(transformSnapIntervalMmRef.current) * PROJECT_WORLD_UNITS_PER_MM
+            if (intervalWorld > 0) {
+              const targetObject = selectedEntries[0].object
+              const snappedWorldPosition = new THREE.Vector3()
+              targetObject.getWorldPosition(snappedWorldPosition)
+              if (shouldSnapAxis('X')) snappedWorldPosition.x = Math.round(snappedWorldPosition.x / intervalWorld) * intervalWorld
+              if (shouldSnapAxis('Y')) snappedWorldPosition.y = Math.round(snappedWorldPosition.y / intervalWorld) * intervalWorld
+              if (shouldSnapAxis('Z')) snappedWorldPosition.z = Math.round(snappedWorldPosition.z / intervalWorld) * intervalWorld
+              if (targetObject.parent) {
+                const snappedLocalPosition = snappedWorldPosition.clone()
+                targetObject.parent.worldToLocal(snappedLocalPosition)
+                targetObject.position.copy(snappedLocalPosition)
+              } else {
+                targetObject.position.copy(snappedWorldPosition)
+              }
+            }
+          } else if (transformModeRef.current === 'rotate') {
+            const snapStep = toRotationSnapRadians(transformSnapIntervalMmRef.current)
+            if (snapStep > 0) {
+              const targetObject = selectedEntries[0].object
+              if (shouldSnapAxis('X')) targetObject.rotation.x = Math.round(targetObject.rotation.x / snapStep) * snapStep
+              if (shouldSnapAxis('Y')) targetObject.rotation.y = Math.round(targetObject.rotation.y / snapStep) * snapStep
+              if (shouldSnapAxis('Z')) targetObject.rotation.z = Math.round(targetObject.rotation.z / snapStep) * snapStep
+            }
+          }
+        }
+
         const isScaleSnapActive =
           transformModeRef.current === 'scale' &&
-          (transformSnapEnabledRef.current || isShiftSnapRef.current)
+          isTransformSnapActive
         if (isScaleSnapActive) {
-          const entries = selectedEntriesRef.current
-          if (entries.length === 1) {
-            const axis = (tc as unknown as { axis?: string | null }).axis
+          if (selectedEntries.length === 1) {
             applyScaleSnapByMm(
               THREE,
-              entries[0].object,
+              selectedEntries[0].object,
               transformSnapIntervalMmRef.current,
               PROJECT_WORLD_UNITS_PER_MM,
               axis,
@@ -852,6 +891,11 @@ export function FloorPlan3DCanvas({
     const previousSelectedId = selectedPresetRef.current
       ? getLibraryPresetFromObject(selectedPresetRef.current)?.id
       : undefined
+    const previousSelectedLibraryPresetIds = selectedEntriesRef.current
+      .filter((entry) => entry.source === 'library')
+      .map((entry) => getLibraryPresetFromObject(entry.object as LibraryObject3D)?.id)
+      .filter((id): id is string => Boolean(id))
+    const previousSelectedFloorEntries = selectedEntriesRef.current.filter((entry) => entry.source === 'floor')
 
     // TransformControls를 먼저 분리해 dangling reference를 방지한다.
     if (tc) {
@@ -865,7 +909,11 @@ export function FloorPlan3DCanvas({
     presetGroup.clear()
 
     if (!libraryElements?.length) {
-      onIfcElementSelectRef.current?.(null)
+      selectedEntriesRef.current = previousSelectedFloorEntries
+      updateTransformSelection()
+      if (previousSelectedFloorEntries.length === 0) {
+        onIfcElementSelectRef.current?.(null)
+      }
       return
     }
 
@@ -891,14 +939,50 @@ export function FloorPlan3DCanvas({
       ) as LibraryObject3D | undefined
       if (nextRoot) {
         selectedPresetRef.current = nextRoot
-        tc.attach(nextRoot)
-        tc.visible = true
-        tc.enabled = true
+        const remappedLibraryEntries: MultiSelectionEntry[] = []
+        previousSelectedLibraryPresetIds.forEach((presetId) => {
+          const mappedRoot = presetGroup.children.find(
+            (child) => getLibraryPresetFromObject(child as LibraryObject3D)?.id === presetId,
+          ) as LibraryObject3D | undefined
+          if (!mappedRoot) return
+          const element = getLibraryElementInfo(mappedRoot)
+          if (!element) return
+          remappedLibraryEntries.push({
+            key: `library:${element.id}`,
+            object: mappedRoot,
+            source: 'library',
+            element,
+          })
+        })
+        selectedEntriesRef.current = [...previousSelectedFloorEntries, ...remappedLibraryEntries]
+        updateTransformSelection()
       } else {
-        onIfcElementSelectRef.current?.(null)
+        selectedEntriesRef.current = previousSelectedFloorEntries
+        updateTransformSelection()
+        if (previousSelectedFloorEntries.length === 0) {
+          onIfcElementSelectRef.current?.(null)
+        }
       }
+    } else if (previousSelectedLibraryPresetIds.length > 0) {
+      const remappedLibraryEntries: MultiSelectionEntry[] = []
+      previousSelectedLibraryPresetIds.forEach((presetId) => {
+        const mappedRoot = presetGroup.children.find(
+          (child) => getLibraryPresetFromObject(child as LibraryObject3D)?.id === presetId,
+        ) as LibraryObject3D | undefined
+        if (!mappedRoot) return
+        const element = getLibraryElementInfo(mappedRoot)
+        if (!element) return
+        remappedLibraryEntries.push({
+          key: `library:${element.id}`,
+          object: mappedRoot,
+          source: 'library',
+          element,
+        })
+      })
+      selectedEntriesRef.current = [...previousSelectedFloorEntries, ...remappedLibraryEntries]
+      updateTransformSelection()
     }
-  }, [libraryElements])
+  }, [libraryElements, updateTransformSelection])
 
   useEffect(() => {
     if (!cameraViewPresetCommand) return
@@ -955,6 +1039,21 @@ export function FloorPlan3DCanvas({
     if (!THREE || !selectedIfcElement) return
     const selectedEntry = selectedEntriesRef.current[selectedEntriesRef.current.length - 1]
     if (!selectedEntry) return
+    if (
+      selectedIfcElement.category.toLowerCase() === 'roof' ||
+      selectedIfcElement.ifcClass.toLowerCase() === 'ifcroof'
+    ) {
+      logRoofDebug('selectedIfcElement effect', {
+        selectedEntrySource: selectedEntry.source,
+        selectedEntryId: selectedEntry.element.id,
+        selectedIfcElement: {
+          id: selectedIfcElement.id,
+          source: selectedIfcElement.source,
+          roofShape: selectedIfcElement.roofShape,
+          name: selectedIfcElement.name,
+        },
+      })
+    }
     if (selectedEntry.element.id !== selectedIfcElement.id) return
 
     if (selectedEntry.source === 'library') {
@@ -965,6 +1064,15 @@ export function FloorPlan3DCanvas({
         (selectedIfcElement.roofShape === 'flat' || selectedIfcElement.roofShape === 'gable') &&
         selectedPreset.roofShape !== selectedIfcElement.roofShape
       ) {
+        logRoofDebug('apply roofShape to selected preset', {
+          presetId: selectedPreset.id,
+          prevRoofShape: selectedPreset.roofShape,
+          nextRoofShape: selectedIfcElement.roofShape,
+        })
+        // 상태 반영 전에도 현재 선택 객체의 메타를 즉시 갱신해
+        // 속성 패널 값이 이전 roofShape로 되돌아가지 않도록 한다.
+        updateLibraryPresetData(selected, { roofShape: selectedIfcElement.roofShape })
+        onIfcElementSelectRef.current?.(getLibraryElementInfo(selected))
         onLibraryElementChangeRef.current?.(selectedPreset.id, { roofShape: selectedIfcElement.roofShape })
         return
       }
@@ -1009,6 +1117,10 @@ export function FloorPlan3DCanvas({
     }
 
     const selected = selectedEntry.object
+    const isRoofElement =
+      selectedIfcElement.category.toLowerCase() === 'roof' ||
+      selectedIfcElement.ifcClass.toLowerCase() === 'ifcroof'
+    const nextRoofShape = selectedIfcElement.roofShape
     const floorBaseWorldSize = (
       selected.userData as { floorPlanBaseWorldSize?: { x: number; y: number; z: number } }
     ).floorPlanBaseWorldSize
@@ -1026,10 +1138,45 @@ export function FloorPlan3DCanvas({
       z: fallbackSize.z || 1,
     }
 
-    const nextScaleX = selectedIfcElement.lengthMm ? (selectedIfcElement.lengthMm * 0.001) / baseWorldSize.x : selected.scale.x
-    const nextScaleY = selectedIfcElement.heightMm ? (selectedIfcElement.heightMm * 0.001) / baseWorldSize.y : selected.scale.y
-    const nextScaleZ = selectedIfcElement.thicknessMm ? (selectedIfcElement.thicknessMm * 0.001) / baseWorldSize.z : selected.scale.z
-    selected.scale.set(nextScaleX, nextScaleY, nextScaleZ)
+    const shouldBakeRoofGeometry = isRoofElement && (nextRoofShape === 'flat' || nextRoofShape === 'gable')
+    if (shouldBakeRoofGeometry) {
+      // 지붕은 geometry 자체를 mm 기준으로 재생성하므로 scale은 1로 유지한다.
+      selected.scale.set(1, 1, 1)
+      const length = (selectedIfcElement.lengthMm ?? Math.round(baseWorldSize.x / PROJECT_WORLD_UNITS_PER_MM)) * PROJECT_WORLD_UNITS_PER_MM
+      const height = (selectedIfcElement.heightMm ?? Math.round(baseWorldSize.y / PROJECT_WORLD_UNITS_PER_MM)) * PROJECT_WORLD_UNITS_PER_MM
+      const thickness = (selectedIfcElement.thicknessMm ?? Math.round(baseWorldSize.z / PROJECT_WORLD_UNITS_PER_MM)) * PROJECT_WORLD_UNITS_PER_MM
+      const nextGeometry = nextRoofShape === 'gable'
+        ? createGableRoofGeometry(THREE, { length, height, thickness })
+        : new THREE.BoxGeometry(length, Math.max(height, 1e-4), thickness)
+      selected.traverse((child) => {
+        if (!(child as { isMesh?: boolean }).isMesh) return
+        const meshChild = child as import('three').Mesh
+        meshChild.geometry.dispose()
+        meshChild.geometry = nextGeometry.clone()
+      })
+      const userData = selected.userData as {
+        floorPlanElement?: {
+          roofShape?: 'flat' | 'gable'
+          properties?: Record<string, unknown>
+        }
+      }
+      const floorPlanElement = userData.floorPlanElement
+      if (floorPlanElement) {
+        selected.userData.floorPlanElement = {
+          ...floorPlanElement,
+          roofShape: nextRoofShape,
+          properties: {
+            ...(floorPlanElement.properties ?? {}),
+            RoofShape: nextRoofShape,
+          },
+        }
+      }
+    } else {
+      const nextScaleX = selectedIfcElement.lengthMm ? (selectedIfcElement.lengthMm * 0.001) / baseWorldSize.x : selected.scale.x
+      const nextScaleY = selectedIfcElement.heightMm ? (selectedIfcElement.heightMm * 0.001) / baseWorldSize.y : selected.scale.y
+      const nextScaleZ = selectedIfcElement.thicknessMm ? (selectedIfcElement.thicknessMm * 0.001) / baseWorldSize.z : selected.scale.z
+      selected.scale.set(nextScaleX, nextScaleY, nextScaleZ)
+    }
 
     if (
       Number.isFinite(selectedIfcElement.positionX) &&

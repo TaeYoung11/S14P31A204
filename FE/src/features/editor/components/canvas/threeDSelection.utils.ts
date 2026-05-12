@@ -8,6 +8,7 @@ type FloorPlanElementMeta = {
   name: string
   ifcClass: string
   category: string
+  roofShape?: 'flat' | 'gable'
   lengthMm?: number
   heightMm?: number
   thicknessMm?: number
@@ -86,12 +87,21 @@ export const getFloorPlanElementInfo = (object: Object3D): IfcElementInfo | null
     ? Math.round((object.scale.z * baseWorldSize.z) / FLOOR_PLAN_WORLD_UNITS_PER_MM)
     : meta.thicknessMm
 
+  const roofShape = (
+    meta.roofShape === 'flat' || meta.roofShape === 'gable'
+      ? meta.roofShape
+      : (meta.properties?.RoofShape === 'flat' || meta.properties?.RoofShape === 'gable'
+        ? meta.properties.RoofShape
+        : undefined)
+  )
+
   return {
     id: meta.id,
     name: meta.name,
     ifcClass: meta.ifcClass,
     category: meta.category,
     source: 'ifc',
+    roofShape,
     lengthMm: scaledLengthMm,
     heightMm: scaledHeightMm,
     thicknessMm: scaledThicknessMm,
@@ -112,6 +122,7 @@ export const getFloorPlanElementInfo = (object: Object3D): IfcElementInfo | null
       RotationX: Number((((euler.x * 180) / Math.PI)).toFixed(2)),
       RotationY: Number((((euler.y * 180) / Math.PI)).toFixed(2)),
       RotationZ: Number((((euler.z * 180) / Math.PI)).toFixed(2)),
+      ...(roofShape ? { RoofShape: roofShape } : {}),
     },
   }
 }

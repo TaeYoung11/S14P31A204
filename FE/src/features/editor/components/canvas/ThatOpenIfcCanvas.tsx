@@ -71,6 +71,7 @@ import ThreeDMarqueeOverlay from './ThreeDMarqueeOverlay'
 import { resolveLibraryDropPositionPatch } from './threeDLibraryDrop.utils'
 import { applyTransformSnap, type TransformSnapControl } from './threeDTransformSnap.utils'
 import { applyScaleSnapByMm } from './threeDScaleSnap.utils'
+import { normalizeSnapIntervalMm, toRotationSnapRadians } from '../../utils/threeDSnap.utils'
 import {
   appendUniqueSelectionByKey,
   isPointerInsideBounds,
@@ -129,6 +130,12 @@ type IfcRaycastPick = {
 } | null
 type MultiSelectedTarget = Extract<Selected3DTarget, { source: 'ifc' | 'library' }>
 type ResolvedMultiSelectedTarget = MultiSelectedTarget & { object: Object3D }
+
+const logRoofDebug = (...args: unknown[]) => {
+  if (!import.meta.env.DEV) return
+  console.log('[roof-debug][ThatOpenIfcCanvas]', ...args)
+}
+
 export default function ThatOpenIfcCanvas({
   ifcUrl,
   projectId,
@@ -223,7 +230,7 @@ export default function ThatOpenIfcCanvas({
     return editable?.userData.ifcEditTarget?.element ?? null
   }, [])
 
-  const updateSelectionTargets = useCallback(() => {
+  const updateSelectionTargets = useCallback((options?: { emitNullWhenEmpty?: boolean }) => {
     const sceneState = sceneRef.current
     if (!sceneState) return
     const THREE = sceneState.three
@@ -242,7 +249,10 @@ export default function ThatOpenIfcCanvas({
         sceneState.contentGroup.remove(multiAnchorRef.current)
       }
       multiAnchorRef.current = null
-      onIfcElementSelectRef.current?.(null)
+      if (options?.emitNullWhenEmpty) {
+        logRoofDebug('updateSelectionTargets emit null selection')
+        onIfcElementSelectRef.current?.(null)
+      }
       return
     }
 
@@ -322,7 +332,7 @@ export default function ThatOpenIfcCanvas({
         selectedTarget.object.parent?.remove(selectedTarget.object)
       }
       selectedTargetsRef.current = selectedTargetsRef.current.filter((entry) => entry !== selectedTarget)
-      updateSelectionTargets()
+      updateSelectionTargets({ emitNullWhenEmpty: true })
       onThreeDCoordinatesChangeRef.current?.(toDisplayCoordinates(sceneState.camera.position))
       if (deletedElement) onIfcElementDeleteRef.current?.(deletedElement)
       return
@@ -337,7 +347,7 @@ export default function ThatOpenIfcCanvas({
       libraryObject.parent?.remove(libraryObject)
       disposeObjectMaterials(sceneState.three, libraryObject)
       selectedTargetsRef.current = selectedTargetsRef.current.filter((entry) => entry !== selectedTarget)
-      updateSelectionTargets()
+      updateSelectionTargets({ emitNullWhenEmpty: true })
       onThreeDCoordinatesChangeRef.current?.(toDisplayCoordinates(sceneState.camera.position))
       if (preset) onLibraryElementDeleteRef.current?.(preset.id)
     }
@@ -583,16 +593,48 @@ export default function ThatOpenIfcCanvas({
         ;(transformControls as unknown as {
           addEventListener: (type: 'objectChange', listener: () => void) => void
         }).addEventListener('objectChange', () => {
+          const isTransformSnapActive = transformSnapEnabledRef.current || isShiftSnapRef.current
+          const selectedEntries = selectedTargetsRef.current
+          const axis = (transformControls as unknown as { axis?: string | null }).axis
+          const shouldSnapAxis = (token: 'X' | 'Y' | 'Z') => (!axis || axis.includes(token))
+
+          if (isTransformSnapActive && selectedEntries.length === 1 && selectedEntries[0].object) {
+            if (transformModeRef.current === 'translate') {
+              const intervalWorld = normalizeSnapIntervalMm(transformSnapIntervalMmRef.current) * worldUnitsPerMm
+              if (intervalWorld > 0) {
+                const targetObject = selectedEntries[0].object
+                const snappedWorldPosition = new THREE.Vector3()
+                targetObject.getWorldPosition(snappedWorldPosition)
+                if (shouldSnapAxis('X')) snappedWorldPosition.x = Math.round(snappedWorldPosition.x / intervalWorld) * intervalWorld
+                if (shouldSnapAxis('Y')) snappedWorldPosition.y = Math.round(snappedWorldPosition.y / intervalWorld) * intervalWorld
+                if (shouldSnapAxis('Z')) snappedWorldPosition.z = Math.round(snappedWorldPosition.z / intervalWorld) * intervalWorld
+                if (targetObject.parent) {
+                  const snappedLocalPosition = snappedWorldPosition.clone()
+                  targetObject.parent.worldToLocal(snappedLocalPosition)
+                  targetObject.position.copy(snappedLocalPosition)
+                } else {
+                  targetObject.position.copy(snappedWorldPosition)
+                }
+              }
+            } else if (transformModeRef.current === 'rotate') {
+              const snapStep = toRotationSnapRadians(transformSnapIntervalMmRef.current)
+              if (snapStep > 0) {
+                const targetObject = selectedEntries[0].object
+                if (shouldSnapAxis('X')) targetObject.rotation.x = Math.round(targetObject.rotation.x / snapStep) * snapStep
+                if (shouldSnapAxis('Y')) targetObject.rotation.y = Math.round(targetObject.rotation.y / snapStep) * snapStep
+                if (shouldSnapAxis('Z')) targetObject.rotation.z = Math.round(targetObject.rotation.z / snapStep) * snapStep
+              }
+            }
+          }
+
           const isScaleSnapActive =
             transformModeRef.current === 'scale' &&
-            (transformSnapEnabledRef.current || isShiftSnapRef.current)
+            isTransformSnapActive
           if (isScaleSnapActive) {
-            const entries = selectedTargetsRef.current
-            if (entries.length === 1 && entries[0].object) {
-              const axis = (transformControls as unknown as { axis?: string | null }).axis
+            if (selectedEntries.length === 1 && selectedEntries[0].object) {
               applyScaleSnapByMm(
                 THREE,
-                entries[0].object,
+                selectedEntries[0].object,
                 transformSnapIntervalMmRef.current,
                 worldUnitsPerMm,
                 axis,
@@ -786,7 +828,7 @@ export default function ThatOpenIfcCanvas({
 
         const commitSelection = (targets: MultiSelectedTarget[]) => {
           selectedTargetsRef.current = targets
-          updateSelectionTargets()
+          updateSelectionTargets({ emitNullWhenEmpty: true })
         }
         const appendSelection = (target: MultiSelectedTarget) => {
           const previous = selectedTargetsRef.current
@@ -1522,6 +1564,15 @@ export default function ThatOpenIfcCanvas({
     if (!sceneState || !target || !target.object || !selectedIfcElement) return
     const nextRoofShape = selectedIfcElement.roofShape
     if (nextRoofShape !== 'flat' && nextRoofShape !== 'gable') return
+    logRoofDebug('roof effect start', {
+      targetSource: target.source,
+      selectedIfcElement: {
+        id: selectedIfcElement.id,
+        source: selectedIfcElement.source,
+        roofShape: selectedIfcElement.roofShape,
+        name: selectedIfcElement.name,
+      },
+    })
 
     if (target.source === 'library') {
       const libraryObject = target.object as LibraryObject3D
@@ -1529,6 +1580,11 @@ export default function ThatOpenIfcCanvas({
       if (!preset || preset.type !== 'roof') return
       if (preset.roofShape === nextRoofShape) return
 
+      logRoofDebug('apply roofShape to library preset', {
+        presetId: preset.id,
+        prevRoofShape: preset.roofShape,
+        nextRoofShape,
+      })
       updateLibraryPresetData(libraryObject, { roofShape: nextRoofShape })
       onLibraryElementChangeRef.current?.(preset.id, { roofShape: nextRoofShape })
       onIfcElementSelectRef.current?.(getLibraryElementInfo(libraryObject))
@@ -1551,9 +1607,10 @@ export default function ThatOpenIfcCanvas({
       : new THREE.BoxGeometry(length, Math.max(height, 1e-4), thickness)
 
     target.object.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) return
-      child.geometry.dispose()
-      child.geometry = nextGeometry.clone()
+      if (!(child as { isMesh?: boolean }).isMesh) return
+      const meshChild = child as import('three').Mesh
+      meshChild.geometry.dispose()
+      meshChild.geometry = nextGeometry.clone()
     })
 
     const editable = target.object as IfcEditableObject3D
@@ -1639,9 +1696,10 @@ export default function ThatOpenIfcCanvas({
     // Scale 기즈모 결과를 geometry에 베이크한 뒤 scale을 1로 되돌려 배율 중복을 방지한다.
     editable.scale.set(1, 1, 1)
     target.object.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) return
-      child.geometry.dispose()
-      child.geometry = new THREE.BoxGeometry(length, height, thickness)
+      if (!(child as { isMesh?: boolean }).isMesh) return
+      const meshChild = child as import('three').Mesh
+      meshChild.geometry.dispose()
+      meshChild.geometry = new THREE.BoxGeometry(length, height, thickness)
     })
 
     const editTarget = editable.userData.ifcEditTarget
@@ -1841,7 +1899,7 @@ export default function ThatOpenIfcCanvas({
         updateSelectionTargets()
       } else {
         selectedTargetsRef.current = []
-        updateSelectionTargets()
+        updateSelectionTargets({ emitNullWhenEmpty: true })
       }
     }
     sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)

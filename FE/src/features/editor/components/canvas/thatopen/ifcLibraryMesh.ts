@@ -156,7 +156,8 @@ export const getLibraryElementInfo = (object: LibraryObject3D): IfcElementInfo |
   worldRotation.setFromQuaternion(worldQuaternion, 'XYZ')
 
   return {
-    id: object.uuid ?? preset.id,
+    // 패널/선택 동기화는 preset id를 기준으로 유지해야 재생성 후에도 안정적이다.
+    id: preset.id,
     name: preset.name,
     ifcClass: 'LibraryPreset',
     category,
