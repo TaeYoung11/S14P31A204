@@ -6,8 +6,10 @@ import {
   DEFAULT_VIEW_RENDER_REQUEST,
   fetchProjectRenders,
   resolveProjectRenderImageUrl,
+  resolveProjectRenderUrls,
   type CreateProjectRenderRequest,
   type ProjectRenderResponse,
+  type ProjectRenderUrls,
 } from '../services/projectRender.service'
 import { subscribeProjectRenderSse } from '../services/projectRenderSse.service'
 import { useAuthStore } from '@/shared/stores/authStore'
@@ -58,6 +60,7 @@ export const VIEW_RENDER_PRESETS: ViewRenderPreset[] = [
 
 interface ProjectViewRenderState {
   imageUrl: string | null
+  renderUrls: ProjectRenderUrls | null
   renders: ProjectRenderResponse[]
   selectedRenderId: string | null
   status: ViewRenderStatus
@@ -85,7 +88,12 @@ const matchesPreset = (render: ProjectRenderResponse, preset: ViewRenderPreset):
 }
 
 const hasDisplayableImage = (render: ProjectRenderResponse): boolean =>
-  Boolean((render.presignedUrl ?? render.imageUrl)?.trim())
+  Boolean((
+    render.renderUrls?.frontDiagonalLeftUrl
+    ?? render.renderUrls?.frontDiagonalRightUrl
+    ?? render.presignedUrl
+    ?? render.imageUrl
+  )?.trim())
 
 const pickDisplayRender = (
   renders: ProjectRenderResponse[],
@@ -129,28 +137,35 @@ export function useProjectViewRender(
     [presetIndex],
   )
   const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [renderUrls, setRenderUrls] = useState<ProjectRenderUrls | null>(null)
   const [renders, setRenders] = useState<ProjectRenderResponse[]>([])
   const [selectedRenderId, setSelectedRenderId] = useState<string | null>(null)
   const [status, setStatus] = useState<ViewRenderStatus>('idle')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isRequesting, setIsRequesting] = useState(false)
+  const [renderStateProjectId, setRenderStateProjectId] = useState<string | null>(null)
 
   const applyRenderList = useCallback(
     (nextRenders: ProjectRenderResponse[]) => {
       const displayRender = pickDisplayRender(nextRenders, preset)
+      setRenderStateProjectId(projectId ?? null)
       setRenders(nextRenders)
       setErrorMessage(null)
 
       if (displayRender) {
         setImageUrl(resolveProjectRenderImageUrl(displayRender))
+        setRenderUrls(resolveProjectRenderUrls(displayRender))
         setSelectedRenderId(displayRender.renderId)
         setStatus('succeeded')
         return
       }
 
+      setImageUrl(null)
+      setRenderUrls(null)
+      setSelectedRenderId(null)
       setStatus(hasInProgressRender(nextRenders, preset) ? 'loading' : 'idle')
     },
-    [preset],
+    [preset, projectId],
   )
 
   const loadRenderList = useCallback(async (signal: AbortSignal) => {
@@ -163,6 +178,7 @@ export function useProjectViewRender(
     } catch (error: unknown) {
       if (signal.aborted) return
       const message = error instanceof Error ? error.message : 'Project render failed.'
+      setRenderStateProjectId(projectId)
       setStatus('failed')
       setErrorMessage(message)
     }
@@ -179,6 +195,7 @@ export function useProjectViewRender(
       const nextRender = await fetchProjectRender(projectId, renderId, signal)
       if (signal.aborted) return
 
+      setRenderStateProjectId(projectId)
       setRenders((prev) => upsertRender(prev, nextRender))
       setErrorMessage(null)
 
@@ -189,6 +206,7 @@ export function useProjectViewRender(
         }
 
         setImageUrl(resolveProjectRenderImageUrl(nextRender))
+        setRenderUrls(resolveProjectRenderUrls(nextRender))
         setSelectedRenderId(nextRender.renderId)
         setStatus('succeeded')
         return
@@ -196,6 +214,7 @@ export function useProjectViewRender(
 
       if (selectedRenderId === nextRender.renderId && canDisplayRender(nextRender)) {
         setImageUrl(resolveProjectRenderImageUrl(nextRender))
+        setRenderUrls(resolveProjectRenderUrls(nextRender))
         setStatus('succeeded')
         return
       }
@@ -204,6 +223,7 @@ export function useProjectViewRender(
         const displayRender = imageUrl ? null : pickDisplayRender(prev, preset)
         if (displayRender) {
           setImageUrl(resolveProjectRenderImageUrl(displayRender))
+          setRenderUrls(resolveProjectRenderUrls(displayRender))
           setSelectedRenderId(displayRender.renderId)
           setStatus('succeeded')
           return prev
@@ -215,6 +235,7 @@ export function useProjectViewRender(
     } catch (error: unknown) {
       if (signal.aborted) return
       const message = error instanceof Error ? error.message : 'Project render failed.'
+      setRenderStateProjectId(projectId)
       setStatus('failed')
       setErrorMessage(message)
     }
@@ -222,12 +243,14 @@ export function useProjectViewRender(
 
   const selectRender = useCallback(async (renderId: string) => {
     if (!projectId) {
+      setRenderStateProjectId(null)
       setStatus('failed')
       setErrorMessage('?ê¾¨ì¤ˆ?ì•ºë“ƒ ?ëº£ë‚«ç‘œ??ëº¤ì”¤?????ë†ë¼± ?ëš®ëœ‘ï§ê³¸ì“£ ?ë¶¿ê»Œ?????ë†ë’¿?ëˆë–Ž.')
       return
     }
 
     const abortController = new AbortController()
+    setRenderStateProjectId(projectId)
     setStatus('loading')
     setErrorMessage(null)
     await loadSingleRender(renderId, abortController.signal, { display: true })
@@ -235,6 +258,7 @@ export function useProjectViewRender(
 
   const requestRender = useCallback(async (request: CreateProjectRenderRequest = preset.request) => {
     if (!projectId) {
+      setRenderStateProjectId(null)
       setStatus('failed')
       setErrorMessage('프로젝트 정보를 확인할 수 없어 렌더링을 요청할 수 없습니다.')
       return
@@ -242,6 +266,7 @@ export function useProjectViewRender(
     if (isRequesting) return
 
     const abortController = new AbortController()
+    setRenderStateProjectId(projectId)
     setIsRequesting(true)
     setStatus('loading')
     setErrorMessage(null)
@@ -252,6 +277,7 @@ export function useProjectViewRender(
     } catch (error: unknown) {
       if (abortController.signal.aborted) return
       const message = error instanceof Error ? error.message : 'Project render request failed.'
+      setRenderStateProjectId(projectId)
       setStatus('failed')
       setErrorMessage(message)
       pushToast({
@@ -329,12 +355,15 @@ export function useProjectViewRender(
     }
   }, [loadRenderList, loadSingleRender, projectId, pushToast, token])
 
+  const isCurrentProjectState = Boolean(projectId) && renderStateProjectId === projectId
+
   return {
-    imageUrl,
-    renders,
-    selectedRenderId,
-    status,
-    errorMessage,
+    imageUrl: isCurrentProjectState ? imageUrl : null,
+    renderUrls: isCurrentProjectState ? renderUrls : null,
+    renders: isCurrentProjectState ? renders : [],
+    selectedRenderId: isCurrentProjectState ? selectedRenderId : null,
+    status: isCurrentProjectState ? status : 'idle',
+    errorMessage: isCurrentProjectState ? errorMessage : null,
     isRequesting,
     requestRender,
     selectRender,

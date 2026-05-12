@@ -1,48 +1,24 @@
 // 프로젝트 렌더링 API 호출과 결과 이미지 URL 변환을 담당한다.
 import { api } from '@/shared/lib/axios'
+import type {
+  CreateProjectRenderRequest,
+  CreateProjectRenderResponse,
+  ProjectRenderResponse,
+  ProjectRenderUrls,
+} from '../types/projectRender.dto'
+
+export type {
+  CreateProjectRenderRequest,
+  CreateProjectRenderResponse,
+  ProjectRenderResponse,
+  ProjectRenderStyleRequest,
+  ProjectRenderUrls,
+} from '../types/projectRender.dto'
 
 interface ApiResponse<T> {
   status: number
   message: string
   data: T
-}
-
-export interface ProjectRenderStyleRequest {
-  timeOfDay?: string | null
-  viewpoint?: string | null
-  season?: string | null
-  weather?: string | null
-}
-
-export interface CreateProjectRenderRequest {
-  prompt: string
-  negativePrompt?: string
-  style?: ProjectRenderStyleRequest
-  cameraState?: unknown
-  sourceImageStorageUrl?: string | null
-  width?: number
-  height?: number
-}
-
-export interface CreateProjectRenderResponse {
-  renderId: string
-  jobStepId: string
-  projectId: string
-  sourceRevisionId: string
-  expectedOutputArtifactId: string
-  status: string
-  progress: number
-}
-
-export interface ProjectRenderResponse {
-  renderId: string
-  style: ProjectRenderStyleRequest | null
-  imageUrl: string | null
-  presignedUrl?: string | null
-  status: string
-  progress?: number | null
-  createdAt: string
-  completedAt: string | null
 }
 
 interface WaitForProjectRenderImageOptions {
@@ -141,7 +117,12 @@ export async function fetchProjectRender(
 }
 
 export function resolveProjectRenderImageUrl(render: ProjectRenderResponse): string {
-  const normalized = (render.presignedUrl ?? render.imageUrl ?? '').trim()
+  const normalized = (
+    render.renderUrls?.frontDiagonalLeftUrl
+    ?? render.presignedUrl
+    ?? render.imageUrl
+    ?? ''
+  ).trim()
   if (!normalized) return normalized
   if (normalized.startsWith('http://') || normalized.startsWith('https://') || normalized.startsWith('/')) {
     return normalized
@@ -150,6 +131,15 @@ export function resolveProjectRenderImageUrl(render: ProjectRenderResponse): str
     throw new Error('Render image requires a presignedUrl from the backend.')
   }
   return normalized
+}
+
+export function resolveProjectRenderUrls(render: ProjectRenderResponse): ProjectRenderUrls {
+  const leftUrl = resolveProjectRenderImageUrl(render)
+  return {
+    manifestUrl: render.renderUrls?.manifestUrl ?? null,
+    frontDiagonalLeftUrl: leftUrl || null,
+    frontDiagonalRightUrl: render.renderUrls?.frontDiagonalRightUrl ?? null,
+  }
 }
 
 export async function waitForProjectRenderImage(
@@ -168,7 +158,14 @@ export async function waitForProjectRenderImage(
     const renders = await fetchProjectRenders(projectId, signal)
     const target = renders.find((render) => render.renderId === renderId)
 
-    if (target?.status === 'SUCCEEDED' && target.imageUrl?.trim()) {
+    if (
+      target?.status === 'SUCCEEDED'
+      && (
+        target.renderUrls?.frontDiagonalLeftUrl
+        ?? target.renderUrls?.frontDiagonalRightUrl
+        ?? target.imageUrl
+      )?.trim()
+    ) {
       return target
     }
 

@@ -2,27 +2,11 @@
 import { clearAuthState, redirectToLoginIfNeeded, refreshAccessToken } from '@/shared/lib/authToken'
 import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
 import { useAuthStore } from '@/shared/stores/authStore'
+import type { ProjectRenderSseEvent, ProjectRenderSsePayload } from '../types/projectRender.dto'
 
 interface SseEventMessage {
   event: string
   data: string
-}
-
-export interface ProjectRenderSsePayload {
-  action?: string
-  projectId?: string
-  renderId?: string
-  jobId?: string
-  jobStepId?: string
-  status?: string
-  progress?: number
-  imageUrl?: string | null
-  message?: string | null
-}
-
-export interface ProjectRenderSseEvent {
-  event: string
-  payload: ProjectRenderSsePayload
 }
 
 interface SubscribeProjectRenderSseOptions {
