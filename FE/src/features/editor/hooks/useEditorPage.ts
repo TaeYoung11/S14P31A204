@@ -548,6 +548,7 @@ export function useEditorPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [addSpaceFormData, setAddSpaceFormData] = useState<AddSpaceFormData>(INITIAL_ADD_SPACE_FORM)
   const [isCollaborationMode, setIsCollaborationMode] = useState(false)
+  const [isAgentPanelMode, setIsAgentPanelMode] = useState(false)
   const [selectedPinId, setSelectedPinId] = useState<string | null>(null)
   const [commentPins, setCommentPins] = useState<FloorCommentPin[]>([])
   const [commentNotifications, setCommentNotifications] = useState<FloorCommentNotification[]>([])
@@ -1818,6 +1819,27 @@ export function useEditorPage() {
     floorPlanHistoryCursor,
   })
 
+  const getBubbleSnapshotSaveErrorSummary = useCallback((error: unknown) => {
+    if (!isAxiosError(error)) {
+      return error instanceof Error ? error.message : String(error)
+    }
+
+    if (error.response) {
+      const responseData = error.response.data as { message?: unknown } | undefined
+      return {
+        status: error.response.status,
+        message: typeof responseData?.message === 'string' ? responseData.message : error.message,
+      }
+    }
+
+    return {
+      message: error.message,
+      code: error.code,
+      url: error.config?.url,
+      baseURL: error.config?.baseURL,
+    }
+  }, [])
+
   const flushBubbleSnapshotSaveToDb = useCallback(async (force = false): Promise<SaveBubbleSnapshotResponse | null> => {
     if (!projectId) return null
     if (workspacePhaseStatus !== 'BUBBLE_DRAFT') return null
@@ -1841,14 +1863,16 @@ export function useEditorPage() {
     try {
       return await saveTask
     } catch (error: unknown) {
+      const errorSummary = getBubbleSnapshotSaveErrorSummary(error)
       console.warn('[editor] Bubble snapshot DB 저장 실패:', { projectId, error })
+      console.warn('[editor] Bubble snapshot DB 저장 실패 상세:', { projectId, error: errorSummary })
       return null
     } finally {
       if (bubbleDbSaveInFlightRef.current === saveTask) {
         bubbleDbSaveInFlightRef.current = null
       }
     }
-  }, [projectId, workspacePhaseStatus])
+  }, [getBubbleSnapshotSaveErrorSummary, projectId, workspacePhaseStatus])
 
   const scheduleBubbleSnapshotSaveToDb = useCallback((delayMs = BUBBLE_DB_SAVE_DEBOUNCE_MS) => {
     if (!projectId) return
@@ -2312,11 +2336,13 @@ export function useEditorPage() {
   /** 편집 모드 전환 — 협업 모드·라이브러리는 모드 이탈 시 닫힘 */
   const setMode = useCallback((nextMode: EditorMode) => {
     setSearchParams({ mode: nextMode })
+    if (nextMode === '3d' && mode !== '3d' && !currentIfcUrl) setIsGenerate3DModalOpen(true)
     if (nextMode !== mode) resetToolSelection()
     if (nextMode !== '2d') setIsCollaborationMode(false)
+    if (nextMode === 'view' || nextMode === 'bubble') setIsAgentPanelMode(false)
     if (nextMode !== '3d') setSelectedIfcElement(null)
     setIsLibraryOpen(false)
-  }, [mode, resetToolSelection, setSearchParams])
+  }, [currentIfcUrl, mode, resetToolSelection, setSearchParams])
 
   const handleOpenProjectFromCommentToast = useCallback((targetProjectId: string, pinId?: string) => {
     const pinQuery = pinId ? `&pinId=${encodeURIComponent(pinId)}` : ''
@@ -2326,6 +2352,7 @@ export function useEditorPage() {
     }
     setSearchParams({ mode: '2d', ...(pinId ? { pinId } : {}) })
     setIsCollaborationMode(true)
+    setIsAgentPanelMode(false)
     if (pinId) {
       setSelectedPinId(pinId)
     }
@@ -2361,8 +2388,20 @@ export function useEditorPage() {
     setIsCollaborationMode((prev) => {
       if (!prev) {
         setSelectedPinId(null)
+        setIsAgentPanelMode(false)
       }
       return !prev
+    })
+  }
+
+  const handleToggleAgentPanel = () => {
+    setIsAgentPanelMode((prev) => {
+      const next = !prev
+      if (next) {
+        setIsCollaborationMode(false)
+        setSelectedPinId(null)
+      }
+      return next
     })
   }
 
@@ -3530,6 +3569,7 @@ export function useEditorPage() {
     onCloseAddModal: () => setIsAddModalOpen(false),
     // 협업
     isCollaborationMode,
+    isAgentPanelMode,
     selectedPinId,
     setSelectedPinId,
     selectedCommentPin,
@@ -3538,6 +3578,7 @@ export function useEditorPage() {
     currentCollaborationUserType: collaborationUserType,
     currentCollaborationUserName: currentUserName,
     handleToggleCollaboration,
+    handleToggleAgentPanel,
     handlePinClick,
     handleCreateCommentPin,
     handleAddCommentReply,
