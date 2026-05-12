@@ -25,6 +25,8 @@ const TOP_LEVEL_KEYS = new Set([
 
 const ROOM_KEYS = new Set([
   'id',
+  'sourceBubbleId',
+  'source_bubble_id',
   'name',
   'type',
   'width',
@@ -70,6 +72,8 @@ export type FloorPlanRoomType =
 
 export interface LayoutImportV2Room {
   id: string
+  sourceBubbleId?: string
+  source_bubble_id?: string
   name: string
   type: FloorPlanRoomType
   width: number
@@ -182,6 +186,12 @@ function validateRoom(room: unknown, index: number, errors: string[]) {
   pushUnexpectedKeys(room, ROOM_KEYS as Set<string>, path, errors)
 
   if (!isNonBlankString(room.id, 128)) errors.push(`${path}.id: must be a non-empty string (<=128)`)
+  if (room.sourceBubbleId !== undefined && !isNonBlankString(room.sourceBubbleId, 128)) {
+    errors.push(`${path}.sourceBubbleId: must be a non-empty string (<=128)`)
+  }
+  if (room.source_bubble_id !== undefined && !isNonBlankString(room.source_bubble_id, 128)) {
+    errors.push(`${path}.source_bubble_id: must be a non-empty string (<=128)`)
+  }
   if (!isNonBlankString(room.name, 255)) errors.push(`${path}.name: must be a non-empty string (<=255)`)
   if (typeof room.type !== 'string' || !ROOM_TYPES.has(room.type as FloorPlanRoomType)) {
     errors.push(`${path}.type: must be one of ${Array.from(ROOM_TYPES).join(', ')}`)

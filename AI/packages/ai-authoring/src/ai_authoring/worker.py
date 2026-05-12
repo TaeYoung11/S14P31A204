@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,6 +21,7 @@ from ai_authoring.engine_3d import (
     modify_face_offset,
     modify_color,
     modify_height,
+    modify_length,
     modify_material,
     modify_position,
     modify_rotation,
@@ -78,6 +80,7 @@ class AuthoringWorker(BaseWorker):
                     message=f"IFC 파싱 실패: {exc}",
                 ) from exc
 
+            self._validate_operations_before_mutation(engine_req)
             op_results = self._run_operations(model, engine_req, ctx)
 
             applied_count = sum(1 for r in op_results if r["status"] == "applied")
@@ -162,6 +165,82 @@ class AuthoringWorker(BaseWorker):
             params: dict[str, Any] = op.get("parameters") or {}
             results.append(self._apply_operation(model, op_id, op_type, selector, params))
         return results
+
+    def _validate_operations_before_mutation(self, engine_req: dict[str, Any]) -> None:
+        """Reject invalid mutation parameters before touching IFC geometry."""
+        issues: list[str] = []
+        for op in engine_req.get("operations", []) or []:
+            op_id = str(op.get("id") or "<unknown>")
+            op_type = str(op.get("type") or "")
+            params: dict[str, Any] = op.get("parameters") or {}
+            if op_type == "update_element_properties":
+                self._validate_dimension_params(op_id, params.get("dimensions_mm") or {}, issues)
+            if op_type == "transform_elements":
+                self._validate_translation_params(op_id, params.get("translation_mm") or {}, issues)
+                rotation = params.get("rotation_deg") or {}
+                if rotation.get("z") is not None:
+                    self._validate_finite_number(op_id, "rotation_deg.z", rotation.get("z"), issues)
+        if issues:
+            raise NonRetryableWorkerError(
+                code="INVALID_OPERATION_PARAMETERS",
+                message="; ".join(issues),
+            )
+
+    def _validate_dimension_params(
+        self,
+        op_id: str,
+        dimensions_mm: dict[str, Any],
+        issues: list[str],
+    ) -> None:
+        for key in ("width", "length", "height"):
+            if key not in dimensions_mm or dimensions_mm[key] is None:
+                continue
+            value = dimensions_mm[key]
+            if isinstance(value, dict):
+                mode = str(value.get("mode") or "ABSOLUTE").upper()
+                raw = value.get("value")
+                if mode not in {"ABSOLUTE", "RELATIVE", "SCALE"}:
+                    issues.append(f"{op_id}.{key}: unsupported size mode {mode}")
+                    continue
+                number = self._validate_finite_number(op_id, key, raw, issues)
+                if number is None:
+                    continue
+                if mode in {"ABSOLUTE", "SCALE"} and number <= 0.0:
+                    issues.append(f"{op_id}.{key}: {mode} value must be positive")
+                continue
+
+            number = self._validate_finite_number(op_id, key, value, issues)
+            if number is not None and number <= 0.0:
+                issues.append(f"{op_id}.{key}: dimension must be positive millimeters")
+
+    def _validate_translation_params(
+        self,
+        op_id: str,
+        translation_mm: dict[str, Any],
+        issues: list[str],
+    ) -> None:
+        for key in ("x", "y", "z"):
+            if key in translation_mm and translation_mm[key] is not None:
+                self._validate_finite_number(
+                    op_id, f"translation_mm.{key}", translation_mm[key], issues
+                )
+
+    @staticmethod
+    def _validate_finite_number(
+        op_id: str,
+        field_name: str,
+        value: Any,
+        issues: list[str],
+    ) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            issues.append(f"{op_id}.{field_name}: expected numeric value")
+            return None
+        if not math.isfinite(number):
+            issues.append(f"{op_id}.{field_name}: value must be finite")
+            return None
+        return number
 
     def _apply_operation(
         self,
@@ -339,11 +418,13 @@ class AuthoringWorker(BaseWorker):
         changed = False
         if op_type == "update_element_properties":
             dims = params.get("dimensions_mm") or {}
-            # dimensionChangesMm: {"width": {"mode": ..., "value": ...}, "height": {...}}
+            # dimensionChangesMm values are authored in millimeters.
             if dims.get("width"):
-                changed |= bool(modify_thickness(el, dims["width"]))
+                changed |= bool(modify_thickness(el, dims["width"], scale=1000.0))
+            if dims.get("length"):
+                changed |= bool(modify_length(el, dims["length"], scale=1000.0))
             if dims.get("height"):
-                changed |= bool(modify_height(el, dims["height"]))
+                changed |= bool(modify_height(el, dims["height"], scale=1000.0))
             if params.get("material"):
                 changed |= bool(modify_material(model, el, {"name": params["material"]}))
             if params.get("color"):
@@ -351,14 +432,16 @@ class AuthoringWorker(BaseWorker):
             face_offset = params.get("face_offset_mm")
             if face_offset is not None:
                 direction = str(selector.get("direction") or "")
-                changed |= bool(modify_face_offset(el, float(face_offset), direction))
+                changed |= bool(
+                    modify_face_offset(el, float(face_offset), direction, scale=1000.0)
+                )
 
         elif op_type == "transform_elements":
             translation = params.get("translation_mm")
             if translation:
                 # translation 은 항상 delta (RELATIVE)
                 pos_dict: dict[str, Any] = {"mode": "RELATIVE", **translation}
-                changed |= bool(modify_position(el, pos_dict))
+                changed |= bool(modify_position(el, pos_dict, scale=1000.0))
             rotation = params.get("rotation_deg")
             if rotation and rotation.get("z") is not None:
                 changed |= bool(modify_rotation(model, el, float(rotation["z"])))

@@ -76,6 +76,8 @@ export default function TwoDModeCanvas({ editorProps, scale }: TwoDModeCanvasPro
         onRoomMove={editorProps.handleMoveFloorRoom}
         onRoomResize={editorProps.handleResizeFloorRoom}
         onRoomPolygonChange={editorProps.handleUpdateFloorRoomPolygon}
+        onWorkspaceEditStart={editorProps.beginWorkspaceSnapshotTransaction}
+        onWorkspaceEditCommit={editorProps.commitWorkspaceSnapshotTransaction}
         onTwoDMarqueeSelect={editorProps.handleTwoDMarqueeSelect}
         selectedTool={editorProps.selectedTool}
         isGridSnapEnabled={editorProps.isGridSnapEnabled}

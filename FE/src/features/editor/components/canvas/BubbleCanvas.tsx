@@ -54,6 +54,8 @@ interface BubbleCanvasProps {
   connectingFromId?: string | null
   onEditZone: (zone: ZoneData) => void
   onBubbleDrag: (bubbleId: string, x: number, y: number) => void
+  onBubbleDragStart?: () => void
+  onBubbleDragEnd?: () => void
   onBubbleSelect: (bubbleId: string, isShift?: boolean) => void
   onDeleteBubble?: (bubbleId: string) => void
   onConnectionClick?: (conn: ConnectionData) => void
@@ -98,6 +100,8 @@ export function BubbleCanvas({
   connectingFromId,
   onEditZone,
   onBubbleDrag,
+  onBubbleDragStart,
+  onBubbleDragEnd,
   onBubbleSelect,
   onDeleteBubble,
   onConnectionClick,
@@ -142,6 +146,13 @@ export function BubbleCanvas({
     startY: number
     endX: number
     endY: number
+  } | null>(null)
+  const bubblePointerDragRef = useRef<{
+    bubbleId: string
+    startPointerX: number
+    startPointerY: number
+    startBubbleX: number
+    startBubbleY: number
   } | null>(null)
   const isPanMode = selectedTool === 'hand' || isSpacePressed || isMiddlePanning
   const isBubbleEditable = !isReadOnly
@@ -248,6 +259,24 @@ export function BubbleCanvas({
     if (container) container.style.cursor = 'default'
   }
 
+  const finishBubblePointerDrag = () => {
+    if (!bubblePointerDragRef.current) return
+    bubblePointerDragRef.current = null
+    onBubbleDragEnd?.()
+  }
+
+  useEffect(() => {
+    const handleInteractionEnd = () => finishBubblePointerDrag()
+    window.addEventListener('mouseup', handleInteractionEnd)
+    window.addEventListener('touchend', handleInteractionEnd)
+    window.addEventListener('blur', handleInteractionEnd)
+    return () => {
+      window.removeEventListener('mouseup', handleInteractionEnd)
+      window.removeEventListener('touchend', handleInteractionEnd)
+      window.removeEventListener('blur', handleInteractionEnd)
+    }
+  })
+
   return (
     <Stage
       ref={stageRef}
@@ -315,6 +344,19 @@ export function BubbleCanvas({
         setMarquee({ x: pos.x, y: pos.y, width: 0, height: 0 })
       }}
       onMouseMove={(e) => {
+        if (bubblePointerDragRef.current) {
+          const stage = e.target.getStage()
+          if (!stage) return
+          const pos = stage.getRelativePointerPosition()
+          if (!pos) return
+          const drag = bubblePointerDragRef.current
+          onBubbleDrag(
+            drag.bubbleId,
+            drag.startBubbleX + pos.x - drag.startPointerX,
+            drag.startBubbleY + pos.y - drag.startPointerY,
+          )
+          return
+        }
         if (connectionDrag) {
           const stage = e.target.getStage()
           if (!stage) return
@@ -338,6 +380,10 @@ export function BubbleCanvas({
         })
       }}
       onMouseUp={(e) => {
+        if (bubblePointerDragRef.current) {
+          finishBubblePointerDrag()
+          return
+        }
         if (isMiddlePanning) {
           const stage = e.target.getStage()
           if (stage) {
@@ -527,10 +573,11 @@ export function BubbleCanvas({
               }}
               x={bubble.x}
               y={bubble.y}
-              draggable={isBubbleEditable && selectedTool === 'selection' && !isPanMode}
+              draggable={false}
               onDragStart={(e) => {
                 if (!isBubbleEditable || selectedTool !== 'selection' || isPanMode) return
                 e.cancelBubble = true
+                onBubbleDragStart?.()
                 // 다중 선택 이동 시점 일관성:
                 // 선택되지 않은 버블을 바로 드래그하면 먼저 단일 선택으로 맞춘다.
                 if (!selectedIds.includes(bubble.id)) {
@@ -541,9 +588,31 @@ export function BubbleCanvas({
                 if (!isBubbleEditable) return
                 onBubbleDrag(bubble.id, e.target.x(), e.target.y())
               }}
+              onDragEnd={() => {
+                if (!isBubbleEditable || selectedTool !== 'selection' || isPanMode) return
+                onBubbleDragEnd?.()
+              }}
               onMouseDown={(e) => {
                 if (isPanMode) return
                 if (!isBubbleEditable) return
+                if (selectedTool === 'selection') {
+                  const stage = e.target.getStage()
+                  const pos = stage?.getRelativePointerPosition()
+                  if (!pos) return
+                  e.cancelBubble = true
+                  onBubbleDragStart?.()
+                  if (!selectedIds.includes(bubble.id)) {
+                    onBubbleSelect(bubble.id, false)
+                  }
+                  bubblePointerDragRef.current = {
+                    bubbleId: bubble.id,
+                    startPointerX: pos.x,
+                    startPointerY: pos.y,
+                    startBubbleX: bubble.x,
+                    startBubbleY: bubble.y,
+                  }
+                  return
+                }
                 if (selectedTool !== 'connect') return
                 const stage = e.target.getStage()
                 const pos = stage?.getRelativePointerPosition()

@@ -20,10 +20,12 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.jpa.mapping.JpaMetamodelMappingContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -97,7 +99,7 @@ class JobControllerTest {
                 new JobOutputsResponse(
                         null,
                         artifactId,
-                        "https://minio.local/renderings/render-001.png",
+                        "https://download.example.com/render-001.png?signature=test",
                         List.of(
                                 new JobArtifactResponse(
                                         artifactId,
@@ -105,7 +107,7 @@ class JobControllerTest {
                                         null,
                                         "render-001.png",
                                         "image/png",
-                                        "https://minio.local/renderings/render-001.png",
+                                        "https://download.example.com/render-001.png?signature=test",
                                         "2026-05-07T01:05:00Z"
                                 )
                         )
@@ -125,7 +127,7 @@ class JobControllerTest {
                                         """),
                                 1024,
                                 1024,
-                                "s3://batang/reference.png"
+                                "https://download.example.com/reference.png?signature=test"
                         ),
                         null
                 )
@@ -133,7 +135,7 @@ class JobControllerTest {
 
         given(jobStatusQueryService.getJobStatus(eq(jobId))).willReturn(response);
 
-        mockMvc.perform(get("/api/v1/jobs/{jobId}", jobId))
+        MvcResult result = mockMvc.perform(get("/api/v1/jobs/{jobId}", jobId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.message").value("작업 상태 조회 성공"))
@@ -143,7 +145,7 @@ class JobControllerTest {
                 .andExpect(jsonPath("$.data.status").value("SUCCEEDED"))
                 .andExpect(jsonPath("$.data.currentStep.stepNo").value(1))
                 .andExpect(jsonPath("$.data.outputs.primaryArtifactId").value(artifactId.toString()))
-                .andExpect(jsonPath("$.data.outputs.primaryResultUrl").value("https://minio.local/renderings/render-001.png"))
+                .andExpect(jsonPath("$.data.outputs.primaryResultUrl").value("https://download.example.com/render-001.png?signature=test"))
                 .andExpect(jsonPath("$.data.details.render.prompt").value("quiet library exterior"))
                 .andExpect(jsonPath("$.data.details.render.style.timeOfDay").value("EVENING"))
                 .andExpect(jsonPath("$.data.createdAt").value("2026-05-07T01:00:00Z"))
@@ -155,7 +157,13 @@ class JobControllerTest {
                 .andExpect(jsonPath("$.data.outputs.artifacts[0].createdAt").value("2026-05-07T01:05:00Z"))
                 .andExpect(jsonPath("$.data.requestPayload").doesNotExist())
                 .andExpect(jsonPath("$.data.steps[0].inputPayload").doesNotExist())
-                .andExpect(jsonPath("$.data.steps[0].outputPayload").doesNotExist());
+                .andExpect(jsonPath("$.data.steps[0].outputPayload").doesNotExist())
+                .andReturn();
+
+        assertThat(result.getResponse().getContentAsString())
+                .doesNotContain("s3://")
+                .doesNotContain("http://minio")
+                .doesNotContain("https://minio");
     }
 
     @Test

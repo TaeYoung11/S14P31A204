@@ -94,7 +94,7 @@
     },
     "sizeMode": {
       "type": "string",
-      "enum": ["ABSOLUTE", "RELATIVE"]
+      "enum": ["ABSOLUTE", "RELATIVE", "SCALE"]
     },
     "color": {
       "type": "string",

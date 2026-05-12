@@ -23,6 +23,18 @@ const hasAnyKey = (value: JsonObject): boolean => Object.keys(value).length > 0
 export const toProjectBubbleUpdateDestination = (projectId: string): string =>
   `/app/project/${projectId}/bubble/update`
 
+export const toProjectBubbleUndoDestination = (projectId: string): string =>
+  `/app/project/${projectId}/bubble/undo`
+
+export const toProjectBubbleRedoDestination = (projectId: string): string =>
+  `/app/project/${projectId}/bubble/redo`
+
+export const toProjectFloorPlanUndoDestination = (projectId: string): string =>
+  `/app/project/${projectId}/floor-plan/undo`
+
+export const toProjectFloorPlanRedoDestination = (projectId: string): string =>
+  `/app/project/${projectId}/floor-plan/redo`
+
 export const toProjectCommandDestination = (projectId: string): string =>
   `/app/project/${projectId}/command`
 
@@ -41,6 +53,10 @@ export const toProjectIfcRedoDestination = (projectId: string): string =>
 export interface BubbleSnapshotUpdateMessage {
   bubbles: BubbleData[]
   connections: ConnectionData[]
+  baseIndex: number
+}
+
+export interface WorkspaceHistoryCursorMessage {
   baseIndex: number
 }
 
@@ -191,6 +207,46 @@ export const publishBubbleSnapshotUpdate = (
   options?: PublishBubbleSnapshotOptions,
 ): void => {
   const destination = options?.destination ?? toProjectBubbleUpdateDestination(projectId)
+  publishJson(destination, message, options)
+}
+
+/** 버블 스냅샷 Undo 요청을 STOMP로 발행한다. */
+export const publishBubbleUndoRequest = (
+  projectId: string,
+  message: WorkspaceHistoryCursorMessage,
+  options?: PublishJsonOptions & { destination?: string },
+): void => {
+  const destination = options?.destination ?? toProjectBubbleUndoDestination(projectId)
+  publishJson(destination, message, options)
+}
+
+/** 버블 스냅샷 Redo 요청을 STOMP로 발행한다. */
+export const publishBubbleRedoRequest = (
+  projectId: string,
+  message: WorkspaceHistoryCursorMessage,
+  options?: PublishJsonOptions & { destination?: string },
+): void => {
+  const destination = options?.destination ?? toProjectBubbleRedoDestination(projectId)
+  publishJson(destination, message, options)
+}
+
+/** 2D/3D floor-plan Undo 요청을 STOMP로 발행한다. */
+export const publishFloorPlanUndoRequest = (
+  projectId: string,
+  message: WorkspaceHistoryCursorMessage,
+  options?: PublishJsonOptions & { destination?: string },
+): void => {
+  const destination = options?.destination ?? toProjectFloorPlanUndoDestination(projectId)
+  publishJson(destination, message, options)
+}
+
+/** 2D/3D floor-plan Redo 요청을 STOMP로 발행한다. */
+export const publishFloorPlanRedoRequest = (
+  projectId: string,
+  message: WorkspaceHistoryCursorMessage,
+  options?: PublishJsonOptions & { destination?: string },
+): void => {
+  const destination = options?.destination ?? toProjectFloorPlanRedoDestination(projectId)
   publishJson(destination, message, options)
 }
 

@@ -104,7 +104,6 @@ export function useIfcLoadingLayer({
     const fetchUrl = resolveIfcFetchUrl(sourceUrl)
     if (IFC_URL_DEBUG && typeof window !== 'undefined') {
       window.localStorage.setItem('ifc-last-fetch-url', fetchUrl)
-      console.info('[ifc-url][resolved]', { sourceUrl, fetchUrl })
     }
 
     const currentLoadSeq = loadSeqRef.current + 1

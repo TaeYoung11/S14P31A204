@@ -16,5 +16,7 @@ public interface RenderJobRepository extends JpaRepository<RenderJob, UUID> {
 
     Optional<RenderJob> findByJobIdAndProjectId(UUID jobId, UUID projectId);
 
+    Optional<RenderJob> findByJobIdAndProjectIdAndJobType(UUID jobId, UUID projectId, String jobType);
+
     Optional<RenderJob> findByJobIdAndJobType(UUID jobId, String jobType);
 }
