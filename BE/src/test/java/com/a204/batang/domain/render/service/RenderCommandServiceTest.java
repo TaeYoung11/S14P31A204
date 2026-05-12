@@ -6,7 +6,9 @@ import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.render.dto.CreateRenderRequest;
 import com.a204.batang.domain.render.dto.CreateRenderResponse;
 import com.a204.batang.domain.render.dto.RenderStyleRequest;
+import com.a204.batang.domain.render.entity.RenderJobStep;
 import com.a204.batang.domain.render.messaging.SdRenderCommandPublisher;
+import com.a204.batang.domain.render.messaging.dto.SdRenderCommandMessage;
 import com.a204.batang.domain.render.repository.RenderJobRepository;
 import com.a204.batang.domain.render.repository.RenderJobStepRepository;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
@@ -18,6 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -86,7 +89,7 @@ class RenderCommandServiceTest {
     }
 
     @Test
-    void createRender_createsJobAndPublishesCommand() {
+    void createRender_publishesWorkerCompatibleSdRenderCommand() {
         CreateRenderRequest request = new CreateRenderRequest(
                 "quiet library exterior",
                 null,
@@ -112,11 +115,33 @@ class RenderCommandServiceTest {
         assertThat(response.expectedOutputArtifactId()).isNotNull();
 
         verify(renderJobRepository, times(1)).save(any());
-        verify(renderJobStepRepository, times(1)).save(any());
-        verify(sdRenderCommandPublisher, times(1)).publish(any());
+        ArgumentCaptor<RenderJobStep> stepCaptor = ArgumentCaptor.forClass(RenderJobStep.class);
+        verify(renderJobStepRepository, times(1)).save(stepCaptor.capture());
+        ArgumentCaptor<SdRenderCommandMessage> commandCaptor = ArgumentCaptor.forClass(SdRenderCommandMessage.class);
+        verify(sdRenderCommandPublisher, times(1)).publish(commandCaptor.capture());
         // sendRenderSse()는 RenderStatusSseResponse를 받으면 직접 SSE 발송하지 않고
         // ApplicationEventPublisher를 통해 트랜잭션 커밋 후 발송을 위임한다.
         verify(eventPublisher, times(1)).publishEvent(any(RenderStatusChangedEvent.class));
+
+        SdRenderCommandMessage command = commandCaptor.getValue();
+        assertThat(command.schemaVersion()).isEqualTo("v1");
+        assertThat(command.schemaVersion()).isNotEqualTo("1");
+        assertThat(command.expectedOutput())
+                .containsKeys(
+                        "renderManifestStorageUrl",
+                        "renderPhotoFrontDiagonalLeftStorageUrl",
+                        "renderPhotoFrontDiagonalRightStorageUrl"
+                )
+                .doesNotContainKey("outputImageStorageUrl");
+        assertThat((String) command.expectedOutput().get("renderManifestStorageUrl")).endsWith("/manifest.v1.json");
+        assertThat((String) command.expectedOutput().get("renderPhotoFrontDiagonalLeftStorageUrl")).endsWith("/photo_front_diagonal_left.png");
+        assertThat((String) command.expectedOutput().get("renderPhotoFrontDiagonalRightStorageUrl")).endsWith("/photo_front_diagonal_right.png");
+
+        var stepInputPayload = stepCaptor.getValue().getInputPayload();
+        assertThat(stepInputPayload.path("renderManifestStorageUrl").asText()).endsWith("/manifest.v1.json");
+        assertThat(stepInputPayload.path("renderPhotoFrontDiagonalLeftStorageUrl").asText()).endsWith("/photo_front_diagonal_left.png");
+        assertThat(stepInputPayload.path("renderPhotoFrontDiagonalRightStorageUrl").asText()).endsWith("/photo_front_diagonal_right.png");
+        assertThat(stepInputPayload.has("outputImageStorageUrl")).isFalse();
     }
 
     @Test
