@@ -34,7 +34,14 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
     let cancelled = false
     void (async () => {
       const details = await Promise.all(
-        projectIds.map((projectId) => projectService.getWorkspaceDetail(projectId).catch(() => null)),
+        projectIds.map(async (projectId) => {
+          try {
+            return await projectService.getWorkspaceDetail(projectId)
+          } catch (error) {
+            console.error(`[invite-modal] Failed to fetch workspace detail. projectId=${projectId}`, error)
+            return null
+          }
+        }),
       )
       if (cancelled) return
 
