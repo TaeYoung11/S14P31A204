@@ -26,7 +26,7 @@ def test_three_d_llm_and_ifc_edit_queues_consume_live_commands() -> None:
     consumed_3d = _publish_and_consume_once(
         worker_type="THREE_D_LLM",
         sample_name="command_3d_llm.json",
-        routing_key="command.3d-llm.generate",
+        routing_key="command.three-d-llm.generate",
         handler_result=CompletedResult(output={"storage_url": "s3://smoke/3d-plan.json"}),
     )
     consumed_ifc_edit = _publish_and_consume_once(
@@ -47,7 +47,7 @@ def test_three_d_llm_failed_result_moves_command_to_dlq() -> None:
     consumed = _publish_and_consume_once(
         worker_type="THREE_D_LLM",
         sample_name="command_3d_llm.json",
-        routing_key="command.3d-llm.generate",
+        routing_key="command.three-d-llm.generate",
         handler_result=FailedResult(
             error=NonRetryableWorkerError(
                 code="SMOKE_FAILED",

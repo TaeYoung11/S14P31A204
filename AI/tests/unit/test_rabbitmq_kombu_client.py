@@ -32,11 +32,11 @@ def test_build_connection_passes_configured_heartbeat() -> None:
 def test_three_d_llm_command_queue_has_dlq_contract() -> None:
     queue = get_command_queue("THREE_D_LLM")
 
-    assert queue.name == "batang.3d-llm.command.queue"
-    assert queue.routing_key == "command.3d-llm.*"
+    assert queue.name == "batang.three-d-llm.command.queue"
+    assert queue.routing_key == "command.three-d-llm.*"
     assert queue.queue_arguments == {
         "x-dead-letter-exchange": "batang.dlx.exchange",
-        "x-dead-letter-routing-key": "dead.3d-llm",
+        "x-dead-letter-routing-key": "dead.three-d-llm",
     }
 
 

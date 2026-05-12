@@ -29,7 +29,7 @@ _COMMAND_TYPE_MAP = {
     "THREE_D_LLM_GENERATE": {
         "worker_type": "THREE_D_LLM",
         "event_base": "THREE_D_LLM",
-        "routing_segment": "3d-llm",
+        "routing_segment": "three-d-llm",
     },
     "SD_RENDER_GENERATE": {
         "worker_type": "SD_RENDER_GENERATE",

@@ -82,7 +82,7 @@ def run_planning_3d_worker(
             )
             logger.info(
                 "planning_3d_worker_starting",
-                queue="batang.3d-llm.command.queue",
+                queue="batang.three-d-llm.command.queue",
                 once=once,
             )
             consumer.run()

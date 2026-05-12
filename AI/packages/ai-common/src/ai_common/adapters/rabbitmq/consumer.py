@@ -74,7 +74,7 @@ class RabbitMQConsumer(ConsumerMixinBase):
         self._handler = handler
         self._prefetch_count = prefetch_count
         self._stop_after = stop_after
-        self._acked_count = 0
+        self._processed_count = 0
         self.should_stop = False
 
     def get_consumers(
@@ -125,6 +125,6 @@ class RabbitMQConsumer(ConsumerMixinBase):
             message.nack(requeue=True)
 
     def _mark_processed(self) -> None:
-        self._acked_count += 1
-        if self._stop_after is not None and self._acked_count >= self._stop_after:
+        self._processed_count += 1
+        if self._stop_after is not None and self._processed_count >= self._stop_after:
             self.should_stop = True

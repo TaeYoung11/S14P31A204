@@ -120,19 +120,19 @@ IFC_GENERATE_COMMAND_QUEUE = kombu.Queue(
     },
 )
 THREE_D_LLM_COMMAND_QUEUE = kombu.Queue(
-    "batang.3d-llm.command.queue",
+    "batang.three-d-llm.command.queue",
     exchange=COMMANDS_EXCHANGE,
-    routing_key="command.3d-llm.*",
+    routing_key="command.three-d-llm.*",
     durable=True,
     queue_arguments={
         "x-dead-letter-exchange": "batang.dlx.exchange",
-        "x-dead-letter-routing-key": "dead.3d-llm",
+        "x-dead-letter-routing-key": "dead.three-d-llm",
     },
 )
 THREE_D_LLM_DLQ = kombu.Queue(
-    "batang.3d-llm.dlq",
+    "batang.three-d-llm.dlq",
     exchange=DLX_EXCHANGE,
-    routing_key="dead.3d-llm",
+    routing_key="dead.three-d-llm",
     durable=True,
 )
 TWO_D_LLM_COMMAND_QUEUE = kombu.Queue(
