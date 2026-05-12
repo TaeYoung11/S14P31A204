@@ -3,6 +3,7 @@ package com.a204.batang.domain.render.controller;
 import com.a204.batang.domain.render.dto.CreateRenderResponse;
 import com.a204.batang.domain.render.dto.ProjectRenderResponse;
 import com.a204.batang.domain.render.dto.ProjectRenderStyleResponse;
+import com.a204.batang.domain.render.dto.RenderUrlsResponse;
 import com.a204.batang.domain.render.service.RenderCommandService;
 import com.a204.batang.domain.render.service.RenderQueryService;
 import com.a204.batang.global.exception.CustomException;
@@ -57,6 +58,11 @@ class RenderControllerTest {
                 projectId,
                 new ProjectRenderStyleResponse("EVENING", "EXTERIOR", "SPRING", "CLEAR"),
                 "https://minio.local/renderings/render-001.png",
+                new RenderUrlsResponse(
+                        "https://download.example.com/manifest.v1.json?signature=test",
+                        "https://minio.local/renderings/render-001.png",
+                        "https://download.example.com/photo_front_diagonal_right.png?signature=test"
+                ),
                 "SUCCEEDED",
                 "2026-04-15T07:50:00Z",
                 "2026-04-15T07:50:28Z"
@@ -70,6 +76,9 @@ class RenderControllerTest {
                 .andExpect(jsonPath("$.data[0].renderId").value(projectId.toString()))
                 .andExpect(jsonPath("$.data[0].style.timeOfDay").value("EVENING"))
                 .andExpect(jsonPath("$.data[0].imageUrl").value("https://minio.local/renderings/render-001.png"))
+                .andExpect(jsonPath("$.data[0].renderUrls.manifestUrl").value("https://download.example.com/manifest.v1.json?signature=test"))
+                .andExpect(jsonPath("$.data[0].renderUrls.frontDiagonalLeftUrl").value("https://minio.local/renderings/render-001.png"))
+                .andExpect(jsonPath("$.data[0].renderUrls.frontDiagonalRightUrl").value("https://download.example.com/photo_front_diagonal_right.png?signature=test"))
                 .andExpect(jsonPath("$.data[0].status").value("SUCCEEDED"))
                 .andExpect(jsonPath("$.data[0].createdAt").value("2026-04-15T07:50:00Z"))
                 .andExpect(jsonPath("$.data[0].completedAt").value("2026-04-15T07:50:28Z"));
@@ -83,6 +92,11 @@ class RenderControllerTest {
                 renderId,
                 new ProjectRenderStyleResponse("EVENING", "EXTERIOR", "SPRING", "CLEAR"),
                 "https://download.example.com/render.png?signature=test",
+                new RenderUrlsResponse(
+                        "https://download.example.com/manifest.v1.json?signature=test",
+                        "https://download.example.com/render.png?signature=test",
+                        "https://download.example.com/photo_front_diagonal_right.png?signature=test"
+                ),
                 "SUCCEEDED",
                 "2026-04-15T07:50:00Z",
                 "2026-04-15T07:50:28Z"
@@ -96,6 +110,9 @@ class RenderControllerTest {
                 .andExpect(jsonPath("$.data.renderId").value(renderId.toString()))
                 .andExpect(jsonPath("$.data.style.timeOfDay").value("EVENING"))
                 .andExpect(jsonPath("$.data.imageUrl").value("https://download.example.com/render.png?signature=test"))
+                .andExpect(jsonPath("$.data.renderUrls.manifestUrl").value("https://download.example.com/manifest.v1.json?signature=test"))
+                .andExpect(jsonPath("$.data.renderUrls.frontDiagonalLeftUrl").value("https://download.example.com/render.png?signature=test"))
+                .andExpect(jsonPath("$.data.renderUrls.frontDiagonalRightUrl").value("https://download.example.com/photo_front_diagonal_right.png?signature=test"))
                 .andExpect(jsonPath("$.data.status").value("SUCCEEDED"))
                 .andExpect(jsonPath("$.data.createdAt").value("2026-04-15T07:50:00Z"))
                 .andExpect(jsonPath("$.data.completedAt").value("2026-04-15T07:50:28Z"));
