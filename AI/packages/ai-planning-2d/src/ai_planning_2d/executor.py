@@ -22,7 +22,7 @@ from .resize_healing import build_isolated_rectangular_resize_wall_plans
 from .space_healing import build_isolated_resize_space_plan
 
 _DEFAULT_SPACE_HEIGHT_M = 2.7
-_ROOM_PLANNING_ACTIONS = {"add_room", "remove_room", "resize_room"}
+_PLANNING_ASSIST_ONLY_ACTIONS = {"add_room", "remove_room", "resize_room", "insert_toilet"}
 
 
 def apply_space_plan(
@@ -34,7 +34,7 @@ def apply_space_plan(
     policy_plan: dict[str, Any] | None,
     ifc_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if command.action in _ROOM_PLANNING_ACTIONS:
+    if command.action in _PLANNING_ASSIST_ONLY_ACTIONS:
         return {
             "status": "not_applied",
             "summary": (

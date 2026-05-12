@@ -227,6 +227,22 @@ class LLM2DPipeline:
                         output_path=output_path,
                         payload=payload["ifc_edit_payload"],
                     )
+                    if (
+                        session.command.action == "create_door"
+                        and not result.get("created_ids", [])
+                    ):
+                        response.update(result)
+                        response.update(
+                            {
+                                "status": "apply_failed",
+                                "apply_mode": "shared_authoring",
+                                "summary": (
+                                    "shared authoring apply failed: "
+                                    "reusable door-opening template pair was not found."
+                                ),
+                            }
+                        )
+                        return response
                     response.update(result)
                     response["apply_mode"] = "shared_authoring"
                     if len(result.get("created_ids", [])) == 1:

@@ -1533,6 +1533,30 @@ def test_apply_space_plan_resize_room_isolated_moves_opening_even_when_wall_uses
     assert "planning-assist only" in result["summary"]
 
 
+def test_apply_space_plan_insert_toilet_is_planning_assist_only(tmp_path):
+    bundle = _make_minimal_ifc()
+    input_path = _write_ifc(tmp_path, bundle["ifc"])
+    output_path = str(tmp_path / "insert-toilet.ifc")
+
+    result = apply_space_plan(
+        ifc_path=input_path,
+        output_path=output_path,
+        command=FloorNLPCommand(
+            action="insert_toilet",
+            target_floor=1,
+            confidence=0.95,
+        ),
+        policy_plan={
+            "status": "planned",
+            "storey_id": bundle["storey_a"].GlobalId,
+            "donor_room_id": bundle["space_a"].GlobalId,
+        },
+    )
+
+    assert result["status"] == "not_applied"
+    assert "planning-assist only" in result["summary"]
+
+
 def test_apply_space_plan_resize_room_skips_double_move_for_host_relative_window(tmp_path):
     bundle = _make_minimal_ifc(include_window=True)
     bundle["wall"].ObjectPlacement = _local_placement(bundle["ifc"], 0.0, 0.0, 0.0)
@@ -2229,6 +2253,89 @@ async def test_engine_parse_command_recovers_create_door_from_selected_wall_id(i
     assert command.element_height_mm == 2100
 
 
+def test_to_ifc_commands_create_door_requires_usable_wall_segment():
+    ctx: IFCContext = {
+        "spaces": [],
+        "adjacency": [],
+        "walls": [
+            {
+                "id": "wall-short",
+                "floor": 1,
+                "start": (0.0, 0.0),
+                "end": (1000.0, 0.0),
+                "thickness": 250,
+                "space_ids": [],
+                "kind": "EXTERIOR",
+            }
+        ],
+        "doors": [],
+        "windows": [],
+        "boundaries": [],
+        "storeys": [{"id": "st-001", "floor": 1, "elevation": 0.0}],
+    }
+    command = FloorNLPCommand(
+        action="create_door",
+        target_wall_id="wall-short",
+        target_floor=1,
+        element_width_mm=900,
+        element_height_mm=2100,
+        confidence=0.95,
+    )
+
+    batch = to_ifc_commands(command, ctx)
+
+    assert batch.requires_clarification is True
+    assert batch.commands == []
+    assert batch.clarification_question is not None
+
+
+def test_to_ifc_commands_create_door_rejects_overlap_with_existing_opening():
+    ctx: IFCContext = {
+        "spaces": [],
+        "adjacency": [],
+        "walls": [
+            {
+                "id": "wall-1",
+                "floor": 1,
+                "start": (0.0, 0.0),
+                "end": (2500.0, 0.0),
+                "thickness": 250,
+                "space_ids": [],
+                "kind": "EXTERIOR",
+            }
+        ],
+        "doors": [
+            {
+                "id": "door-1",
+                "host_wall_id": "wall-1",
+                "position": 800.0,
+                "width": 900.0,
+                "height": 2100.0,
+                "from_space_id": None,
+                "to_space_id": None,
+                "floor": 1,
+            }
+        ],
+        "windows": [],
+        "boundaries": [],
+        "storeys": [{"id": "st-001", "floor": 1, "elevation": 0.0}],
+    }
+    command = FloorNLPCommand(
+        action="create_door",
+        target_wall_id="wall-1",
+        target_floor=1,
+        element_width_mm=900,
+        element_height_mm=2100,
+        confidence=0.95,
+    )
+
+    batch = to_ifc_commands(command, ctx)
+
+    assert batch.requires_clarification is True
+    assert batch.commands == []
+    assert batch.clarification_question is not None
+
+
 @pytest.mark.asyncio
 async def test_pipeline_apply_create_door_requires_existing_template(tmp_path):
     bundle = _make_minimal_ifc(include_wall_body=True)
@@ -2254,8 +2361,9 @@ async def test_pipeline_apply_create_door_requires_existing_template(tmp_path):
     assert (
         preview["engine_request"]["operations"][0]["parameters"]["host_wall_global_id"] == wall_id
     )
-    assert result["status"] == "applied"
+    assert result["status"] == "apply_failed"
     assert result["apply_mode"] == "shared_authoring"
+    assert "template pair was not found" in result["summary"]
     assert result["created_ids"] == []
     applied_model = ifcopenshell.open(output_path)
     assert applied_model.by_type("IfcDoor") == []
@@ -2512,6 +2620,45 @@ def test_build_remove_merge_plan_rejects_large_gap():
         )
         is None
     )
+
+
+def test_build_engine_request_create_wall_rejects_shared_payloads():
+    command = FloorNLPCommand(
+        action="create_wall",
+        target_room_name="거실",
+        confidence=0.95,
+    )
+    batch = CommandBatch(
+        commands=[
+            IFCCommand(
+                action=ActionType.CREATE_WALL,
+                target_id=None,
+                params={
+                    "metadata": {
+                        "storey_id": "st-001",
+                        "template_wall_id": "wall-template",
+                    },
+                    "start_mm": {"x": 0.0, "y": 0.0, "z": 0.0},
+                    "end_mm": {"x": 1000.0, "y": 0.0, "z": 0.0},
+                    "dimensions_mm": {"width": 240, "height": 2500},
+                    "properties": {"name": "거실 가벽"},
+                },
+                confidence=0.95,
+            )
+        ],
+        requires_clarification=False,
+    )
+
+    with pytest.raises(ValueError, match="planning-assist only"):
+        build_engine_request(
+            mode="preview",
+            request_id="req-create-wall",
+            project_id="proj-create-wall",
+            command=command,
+            command_batch=batch,
+            policy_plan=None,
+            ifc_context=None,
+        )
 
 
 def test_build_engine_request_add_room_requires_storey_id(ifc_ctx):

@@ -181,8 +181,8 @@ def plan_resize_room(
         )
 
     min_x, min_y, max_x, max_y = _bbox(target_space["polygon"])
-    current_width = int(round(max_x - min_x))
-    current_height = int(round(max_y - min_y))
+    current_width = round(max_x - min_x)
+    current_height = round(max_y - min_y)
     changed_width = new_width != current_width
     changed_height = new_height != current_height
 
@@ -227,7 +227,9 @@ def plan_resize_room(
                 [],
             )
         directions = (preferred_direction,)
-    valid_candidates: list[tuple[str, str | None, list[str], list[str]]] = []
+    valid_candidates: list[
+        tuple[Literal["north", "south", "east", "west"], str | None, list[str], list[str]]
+    ] = []
     rejected_for_geometry_healing = False
     rejected_for_boundary = False
 
@@ -630,8 +632,8 @@ def _requires_resize_geometry_healing(
 
 def _point_key(point: tuple[float, float]) -> tuple[int, int]:
     return (
-        int(round(point[0] / _TOLERANCE_MM)),
-        int(round(point[1] / _TOLERANCE_MM)),
+        round(point[0] / _TOLERANCE_MM),
+        round(point[1] / _TOLERANCE_MM),
     )
 
 
