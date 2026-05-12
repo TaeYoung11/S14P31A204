@@ -7,7 +7,7 @@ import json
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from ai_common.adapters.storage.s3_client import S3Client, parse_s3_url
 from ai_common.errors import (
@@ -26,6 +26,7 @@ from ai_common.worker_sdk.event_factory import (
 from ai_domain.worker_messages.command import CommandMessage
 from ai_domain.worker_messages.event import EventOutputRef
 
+from ai_planning_3d.ifc_edit_bridge import build_ifc_edit_command
 from ai_planning_3d.pipeline import LLM3DPipeline
 
 _logger = get_logger(__name__)
@@ -34,6 +35,14 @@ _PIPELINE_TO_SCHEMA_STATUS: dict[str, str] = {
     "preview_ready": "ready",
     "needs_clarification": "clarification_required",
 }
+
+
+class CommandPublisher(Protocol):
+    """Publishes downstream command messages."""
+
+    def publish_command(self, command: CommandMessage) -> None:
+        """Publish a command to the command exchange."""
+        raise NotImplementedError
 
 
 class PlanningWorker(BaseWorker):
@@ -45,9 +54,11 @@ class PlanningWorker(BaseWorker):
         worker_id: str,
         event_publisher: EventPublisher,
         s3: S3Client,
+        command_publisher: CommandPublisher | None = None,
     ) -> None:
         super().__init__(worker_id=worker_id, event_publisher=event_publisher)
         self._s3 = s3
+        self._command_publisher = command_publisher
 
     def process(self, command: CommandMessage) -> WorkerResult:
         payload = command.payload  # ThreeDLlmCommandPayload
@@ -74,7 +85,28 @@ class PlanningWorker(BaseWorker):
                     message=f"Pipeline 실행 실패: {exc}",
                 ) from exc
 
+        self._publish_ifc_edit_command(command, result)
         return self._map_result(result, command, output_url)
+
+    def _publish_ifc_edit_command(
+        self,
+        command: CommandMessage,
+        result: dict[str, Any],
+    ) -> None:
+        if self._command_publisher is None:
+            return
+
+        edit_command = build_ifc_edit_command(command, result)
+        if edit_command is None:
+            return
+
+        try:
+            self._command_publisher.publish_command(edit_command)
+        except Exception as exc:
+            raise RetryableWorkerError(
+                code="IFC_EDIT_COMMAND_PUBLISH_FAILED",
+                message=f"IFC Edit command publish failed: {exc}",
+            ) from exc
 
     def _map_result(
         self,

@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections.abc import Callable, Sequence
 from typing import Protocol, Self
 
 from ai_common.adapters.rabbitmq.consumer import RabbitMQConsumer
+from ai_common.adapters.rabbitmq.kombu_client import COMMANDS_EXCHANGE, build_connection, kombu
 from ai_common.adapters.rabbitmq.publisher import KombuEventPublisher
 from ai_common.adapters.storage import S3Client
 from ai_common.config import RabbitMQSettings, S3Settings, WorkerSettings, load_worker_settings
 from ai_common.health import start_health_server
 from ai_common.logging import bind_worker_logger, configure_logging, get_logger
 from ai_common.worker_sdk.base_worker import EventPublisher
+from ai_domain.worker_messages.command import CommandMessage
 from ai_planning_3d.worker import PlanningWorker
 
 WORKER_TYPE = "THREE_D_LLM"
@@ -32,6 +35,68 @@ class EventPublisherContext(EventPublisher, Protocol):
         """Close the underlying publisher resource."""
 
 
+class CommandPublisherContext(Protocol):
+    def publish_command(self, command: CommandMessage) -> None:
+        """Publish a downstream command."""
+
+    def __enter__(self) -> Self:
+        """Open the underlying publisher resource."""
+
+    def __exit__(self, *_: object) -> None:
+        """Close the underlying publisher resource."""
+
+
+class KombuCommandPublisher:
+    """Kombu-backed command publisher for batang.commands.exchange."""
+
+    def __init__(self, settings: RabbitMQSettings) -> None:
+        self._settings = settings
+        self._connection: kombu.Connection | None = None
+
+    def connect(self) -> None:
+        self._connection = build_connection(self._settings)
+        self._connection.connect()
+
+    def close(self) -> None:
+        if self._connection is not None:
+            self._connection.close()
+            self._connection = None
+
+    def publish_command(self, command: CommandMessage) -> None:
+        if self._connection is None:
+            raise RuntimeError(
+                "KombuCommandPublisher is not connected; call connect() first "
+                "or use it as a context manager."
+            )
+
+        payload = json.dumps(
+            command.model_dump(by_alias=True, exclude_none=True),
+            ensure_ascii=False,
+        )
+        with kombu.producers[self._connection].acquire(block=True) as producer:
+            producer.publish(
+                payload,
+                exchange=COMMANDS_EXCHANGE,
+                routing_key=command.routingKey,
+                content_type="application/json",
+                delivery_mode=2,
+                retry=True,
+                retry_policy={
+                    "interval_start": 0,
+                    "interval_step": 1,
+                    "interval_max": 5,
+                    "max_retries": 3,
+                },
+            )
+
+    def __enter__(self) -> KombuCommandPublisher:
+        self.connect()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+
 class ConsumerLike(Protocol):
     def run(self) -> None:
         """Run the underlying consumer loop."""
@@ -39,6 +104,7 @@ class ConsumerLike(Protocol):
 
 HealthServerFactory = Callable[[WorkerSettings], HealthServerLike]
 PublisherFactory = Callable[[RabbitMQSettings], EventPublisherContext]
+CommandPublisherFactory = Callable[[RabbitMQSettings], CommandPublisherContext]
 StorageFactory = Callable[[S3Settings], S3Client]
 ConsumerFactory = Callable[..., ConsumerLike]
 
@@ -53,6 +119,7 @@ def run_planning_3d_worker(
     once: bool = False,
     health_server_factory: HealthServerFactory = start_health_server,
     publisher_factory: PublisherFactory = KombuEventPublisher,
+    command_publisher_factory: CommandPublisherFactory = KombuCommandPublisher,
     storage_factory: StorageFactory = S3Client,
     consumer_factory: ConsumerFactory = RabbitMQConsumer,
 ) -> int:
@@ -67,12 +134,16 @@ def run_planning_3d_worker(
     logger = bind_worker_logger(_logger, runtime_settings, once=once)
     health_server = health_server_factory(runtime_settings)
     try:
-        with publisher_factory(runtime_settings.rabbitmq) as publisher:
+        with (
+            publisher_factory(runtime_settings.rabbitmq) as publisher,
+            command_publisher_factory(runtime_settings.rabbitmq) as command_publisher,
+        ):
             s3 = storage_factory(runtime_settings.s3)
             worker = PlanningWorker(
                 worker_id=runtime_settings.worker_id,
                 event_publisher=publisher,
                 s3=s3,
+                command_publisher=command_publisher,
             )
             consumer = consumer_factory(
                 settings=runtime_settings.rabbitmq,
