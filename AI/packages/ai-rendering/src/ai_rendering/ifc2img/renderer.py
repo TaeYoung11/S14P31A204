@@ -229,7 +229,9 @@ class IFCRenderer:
             vis.add_geometry(mesh)
             opt = vis.get_render_option()
             if opt is None:
-                raise IFCRenderError("Visualizer render option is None. Headless 환경에서 실행 중인가?")
+                raise IFCRenderError(
+                    "Visualizer render option is None. Headless 환경에서 실행 중인가?"
+                )
             opt.background_color = np.array([1.0, 1.0, 1.0])
             opt.light_on = True
 
