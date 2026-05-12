@@ -52,6 +52,7 @@ interface UseBubbleSnapshotRealtimeParams {
 const IFC_EVENT_DEDUP_TTL_MS = 2000
 const IFC_URL_DEBUG = getRuntimeEnvBoolean('VITE_IFC_URL_DEBUG')
 const WORKSPACE_HISTORY_MAX_INDEX = 9
+const IFC_EDIT_JOB_CONFLICT_CODE = 'IFC_EDIT_JOB_CONFLICT'
 
 /**
  * 버블 스냅샷 실시간 동기화 훅
@@ -302,6 +303,11 @@ export function useBubbleSnapshotRealtime({
       }
       if (parsed.code === FLOOR_PLAN_CURSOR_INVALID_CODE) {
         floorPlanHistoryCursorInvalidHandlerRef.current?.()
+        return
+      }
+      if (parsed.code === IFC_EDIT_JOB_CONFLICT_CODE) {
+        // floor-plan 실시간 편집 중에는 이전 IFC 작업이 끝나기 전 충돌 응답이 올 수 있다.
+        // 이 경우 치명 에러로 간주하지 않고 다음 동기화 사이클에서 재시도를 유도한다.
         return
       }
       serverErrorHandlerRef.current?.(parsed)
