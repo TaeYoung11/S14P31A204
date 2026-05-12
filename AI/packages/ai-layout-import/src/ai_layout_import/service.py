@@ -25,6 +25,10 @@ from ai_domain import (
     ZoneInput,
 )
 from ai_common.logging import get_logger
+from ai_layout_import.layout_optimizer import (
+    LayoutOptimizationSummary,
+    optimize_room_layout_from_adjacency,
+)
 
 Point2DMm = tuple[float, float]
 RoomEdgeMm = tuple[Point2DMm, Point2DMm]
@@ -60,12 +64,15 @@ class LayoutImportNormalizationSummary:
     roomFloors: list[int] = field(default_factory=list)
     topFloorBoundaryMissing: bool = False
     openingsDisabledBecauseWallsDisabled: bool = False
+    layoutOptimization: LayoutOptimizationSummary = field(
+        default_factory=LayoutOptimizationSummary
+    )
     hasWarnings: bool = False
 
     def to_report_warnings(self) -> dict[str, object] | None:
         if not self.hasWarnings:
             return None
-        return {
+        warnings: dict[str, object] = {
             "defaultsApplied": self.defaultsApplied,
             "degradedFeatures": self.degradedFeatures,
             "missingBoundaryFloors": self.missingBoundaryFloors,
@@ -74,6 +81,10 @@ class LayoutImportNormalizationSummary:
             "topFloorBoundaryMissing": self.topFloorBoundaryMissing,
             "openingsDisabledBecauseWallsDisabled": self.openingsDisabledBecauseWallsDisabled,
         }
+        optimization_warnings = self.layoutOptimization.to_report_warnings()
+        if optimization_warnings is not None:
+            warnings.update(optimization_warnings)
+        return warnings
 
 
 @dataclass(frozen=True)
@@ -94,6 +105,13 @@ def convert_layout_to_ifc(
 
     output = Path(output_path)
     normalized_request, normalization_summary = _normalize_generation_request(request)
+    normalized_request, optimization_summary = optimize_room_layout_from_adjacency(
+        normalized_request
+    )
+    normalization_summary = _with_layout_optimization_summary(
+        normalization_summary,
+        optimization_summary,
+    )
     shared_wall_segments = _validate_request(normalized_request)
     model = _create_ifc_file()
     style_cache: StyleAssignmentCache = {}
@@ -154,10 +172,34 @@ def _normalize_generation_request(
         availableBoundaryFloors=degradation_summary.availableBoundaryFloors,
         roomFloors=degradation_summary.roomFloors,
         topFloorBoundaryMissing=degradation_summary.topFloorBoundaryMissing,
-        openingsDisabledBecauseWallsDisabled=degradation_summary.openingsDisabledBecauseWallsDisabled,
+        openingsDisabledBecauseWallsDisabled=(
+            degradation_summary.openingsDisabledBecauseWallsDisabled
+        ),
         hasWarnings=bool(defaults_applied or degradation_summary.degradedFeatures),
     )
     return normalized_request, summary
+
+
+def _with_layout_optimization_summary(
+    summary: LayoutImportNormalizationSummary,
+    optimization_summary: LayoutOptimizationSummary,
+) -> LayoutImportNormalizationSummary:
+    if not optimization_summary.layoutOptimizationApplied:
+        return summary
+    has_optimization_report = (
+        optimization_summary.movedRoomCount > 0 or optimization_summary.hasWarnings
+    )
+    return LayoutImportNormalizationSummary(
+        defaultsApplied=summary.defaultsApplied,
+        degradedFeatures=summary.degradedFeatures,
+        missingBoundaryFloors=summary.missingBoundaryFloors,
+        availableBoundaryFloors=summary.availableBoundaryFloors,
+        roomFloors=summary.roomFloors,
+        topFloorBoundaryMissing=summary.topFloorBoundaryMissing,
+        openingsDisabledBecauseWallsDisabled=summary.openingsDisabledBecauseWallsDisabled,
+        layoutOptimization=optimization_summary,
+        hasWarnings=summary.hasWarnings or has_optimization_report,
+    )
 
 
 def _ensure_modeling_defaults(request: LayoutImportGenerationRequest) -> dict[str, int]:
@@ -303,14 +345,11 @@ def _derive_shared_wall_candidates(
     for adjacency in request.adjacency:
         from_room, to_room = _resolve_adjacency_pair(adjacency, rooms_by_id)
         if from_room.floor != to_room.floor:
-            raise ValueError(
-                f"shared wall adjacency rooms must be on the same floor: "
-                f"{from_room.id} ({from_room.floor}F) and {to_room.id} ({to_room.floor}F)"
-            )
+            continue
         if not math.isclose(from_room.angle, 0.0, abs_tol=1.0e-9):
-            raise ValueError(f"shared wall adjacency does not support rotated room: {from_room.id}")
+            continue
         if not math.isclose(to_room.angle, 0.0, abs_tol=1.0e-9):
-            raise ValueError(f"shared wall adjacency does not support rotated room: {to_room.id}")
+            continue
 
         candidates.append(
             (
@@ -341,11 +380,7 @@ def _validated_shared_wall_segments(
             if not _is_segment_on_any_boundary_edge_mm(segment[1], boundary_edges)
         ]
         if not candidate_segments:
-            floor, from_room_id, to_room_id, _, _ = candidate
-            raise ValueError(
-                "shared wall adjacency must resolve to an interior shared segment: "
-                f"{from_room_id}->{to_room_id} on floor {floor}"
-            )
+            continue
 
         for segment in candidate_segments:
             deduped_segments[_shared_segment_key(segment)] = segment

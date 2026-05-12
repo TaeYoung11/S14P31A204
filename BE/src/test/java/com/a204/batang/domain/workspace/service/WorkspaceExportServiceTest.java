@@ -20,7 +20,7 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 
-import java.net.URL;
+import java.net.URI;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -73,7 +73,7 @@ class WorkspaceExportServiceTest {
     @Test
     void exportFloorPlanIfc_generatesPresignedUrlFromObjectKeyPath() throws Exception {
         PresignedGetObjectRequest presignedRequest = org.mockito.Mockito.mock(PresignedGetObjectRequest.class);
-        given(presignedRequest.url()).willReturn(new URL("https://download.example.com/model.ifc?signature=test"));
+        given(presignedRequest.url()).willReturn(URI.create("https://download.example.com/model.ifc?signature=test").toURL());
 
         given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(userId);
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))

@@ -83,6 +83,8 @@ interface TwoDCanvasProps {
   onRoomMove?: (bubbleId: string, x: number, y: number) => void
   onRoomResize?: (bubbleId: string, x: number, y: number, width: number, height: number) => void
   onRoomPolygonChange?: (bubbleId: string, polygon: Point2D[]) => void
+  onWorkspaceEditStart?: () => void
+  onWorkspaceEditCommit?: () => void
   walls?: FloorWall[]
   openings?: FloorOpening[]
   selectedWallId?: string | null
@@ -146,6 +148,8 @@ export function TwoDCanvas({
   onRoomMove,
   onRoomResize,
   onRoomPolygonChange,
+  onWorkspaceEditStart,
+  onWorkspaceEditCommit,
   walls = [],
   openings = [],
   selectedWallId = null,
@@ -306,11 +310,13 @@ export function TwoDCanvas({
     setOpeningSnapGuide,
     showTemporaryOpeningSnapGuide,
   })
-  const { canResizeRoom, applyRoomResize } = useRoomResizeActions({
+  const { canResizeRoom, applyRoomResize, beginRoomResize, commitRoomResize } = useRoomResizeActions({
     rooms,
     hasSite: siteValidation.hasSite,
     sitePolygon,
     onRoomResize,
+    onWorkspaceEditStart,
+    onWorkspaceEditCommit,
   })
 
   const stageHandlers = useTwoDCanvasStageHandlers({
@@ -410,6 +416,8 @@ export function TwoDCanvas({
         resizingRoomBubbleId={resizingRoomBubbleId}
         canResizeRoom={canResizeRoom}
         applyRoomResize={applyRoomResize}
+        beginRoomResize={beginRoomResize}
+        commitRoomResize={commitRoomResize}
         snapResizeHandle={snapResizeHandle}
         getCanvasPoint={getCanvasPoint}
         syncHandlePosition={syncHandlePosition}

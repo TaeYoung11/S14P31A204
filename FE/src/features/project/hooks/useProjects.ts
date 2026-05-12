@@ -3,6 +3,7 @@ import { projectQueryKeys } from '@/features/project/constants/projectQueryKeys'
 import { projectService } from '@/features/project/services/project.service'
 import { saveProjectSitePolygon } from '@/features/project/utils/projectSiteCache'
 import { getProjectSitePolygonEntry } from '@/features/project/utils/projectSiteCache'
+import { calculateSiteAreaM2 } from '@/features/project/utils/siteGeometry'
 import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
 import type { ProjectSitePolygonResult } from '@/features/project/utils/projectSiteFallback'
 import type { CreateProjectDto, UpdateProjectDto } from '@/shared/types'
@@ -89,7 +90,7 @@ export const useRegisterProjectSite = () => {
         saveProjectSitePolygon(variables.projectId, ring, { source: 'api' })
         qc.setQueryData<ProjectSitePolygonResult>(
           sitePolygonQueryKey,
-          { polygonRing: ring, source: 'api' },
+          { polygonRing: ring, areaM2: calculateSiteAreaM2(ring), source: 'api' },
         )
         return
       }
@@ -112,6 +113,7 @@ export const useProjectSitePolygon = (projectId: string | null, enabled = true) 
 
       return {
         polygonRing: cached.polygonRing,
+        areaM2: calculateSiteAreaM2(cached.polygonRing),
         source: cached.isStale ? 'local_stale' : 'local',
       }
     },

@@ -9,6 +9,8 @@ interface UseRoomResizeActionsParams {
   hasSite: boolean
   sitePolygon: Point2D[]
   onRoomResize?: (bubbleId: string, x: number, y: number, width: number, height: number) => void
+  onWorkspaceEditStart?: () => void
+  onWorkspaceEditCommit?: () => void
 }
 
 /**
@@ -20,6 +22,8 @@ export function useRoomResizeActions({
   hasSite,
   sitePolygon,
   onRoomResize,
+  onWorkspaceEditStart,
+  onWorkspaceEditCommit,
 }: UseRoomResizeActionsParams) {
   const canResizeRoom = useCallback((roomBubbleId: string, nextRect: AxisAlignedRect): boolean => {
     if (hasSite && !isRectInsidePolygon(nextRect, sitePolygon)) return false
@@ -63,5 +67,7 @@ export function useRoomResizeActions({
   return {
     canResizeRoom,
     applyRoomResize,
+    beginRoomResize: onWorkspaceEditStart,
+    commitRoomResize: onWorkspaceEditCommit,
   }
 }

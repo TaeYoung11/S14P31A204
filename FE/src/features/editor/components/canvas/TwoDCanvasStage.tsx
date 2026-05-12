@@ -55,6 +55,8 @@ interface TwoDCanvasStageProps {
   resizingRoomBubbleId: string | null
   canResizeRoom: (roomBubbleId: string, nextRect: AxisAlignedRect) => boolean
   applyRoomResize: (roomBubbleId: string, x: number, y: number, width: number, height: number) => boolean
+  beginRoomResize?: () => void
+  commitRoomResize?: () => void
   snapResizeHandle: (value: number) => number
   getCanvasPoint: (stage: Konva.Stage) => Point2D | null
   syncHandlePosition: (e: KonvaEventObject<DragEvent>, x: number, y: number) => void
@@ -138,6 +140,8 @@ export function TwoDCanvasStage({
   resizingRoomBubbleId,
   canResizeRoom,
   applyRoomResize,
+  beginRoomResize,
+  commitRoomResize,
   snapResizeHandle,
   getCanvasPoint,
   syncHandlePosition,
@@ -233,6 +237,8 @@ export function TwoDCanvasStage({
           resizingRoomBubbleId={resizingRoomBubbleId}
           canResizeRoom={canResizeRoom}
           applyRoomResize={applyRoomResize}
+          beginRoomResize={beginRoomResize}
+          commitRoomResize={commitRoomResize}
           snapResizeHandle={snapResizeHandle}
           getCanvasPoint={getCanvasPoint}
           syncHandlePosition={syncHandlePosition}

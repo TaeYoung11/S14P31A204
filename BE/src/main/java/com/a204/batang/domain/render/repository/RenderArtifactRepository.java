@@ -19,5 +19,11 @@ public interface RenderArtifactRepository extends JpaRepository<RenderArtifact, 
             String artifactType
     );
 
+    Optional<RenderArtifact> findFirstByProjectIdAndJobIdAndArtifactTypeOrderByCreatedAtDescArtifactIdDesc(
+            UUID projectId,
+            UUID jobId,
+            String artifactType
+    );
+
     Optional<RenderArtifact> findByArtifactId(UUID artifactId);
 }

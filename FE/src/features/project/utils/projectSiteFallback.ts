@@ -2,6 +2,7 @@ export type ProjectSiteSource = 'api' | 'local' | 'local_stale' | 'mock' | 'none
 
 export interface ProjectSitePolygonResult {
   polygonRing: number[][] | null
+  areaM2?: number | null
   source: ProjectSiteSource
 }
 
@@ -13,6 +14,7 @@ export interface SiteCacheCandidate {
 
 export interface ResolveProjectSiteFallbackParams {
   apiPolygonRing: number[][] | null
+  apiAreaM2?: number | null
   cacheCandidate: SiteCacheCandidate | null
   mockPolygonRing: number[][] | null
   useMock: boolean
@@ -25,13 +27,20 @@ export interface ResolveProjectSiteFallbackParams {
  */
 export function resolveProjectSiteFallback({
   apiPolygonRing,
+  apiAreaM2,
   cacheCandidate,
   mockPolygonRing,
   useMock,
   allowStaleCache,
 }: ResolveProjectSiteFallbackParams): ProjectSitePolygonResult {
+  const areaM2 = Number.isFinite(apiAreaM2) && (apiAreaM2 ?? 0) > 0 ? apiAreaM2 : null
+
   if (apiPolygonRing && apiPolygonRing.length >= 3) {
-    return { polygonRing: apiPolygonRing, source: 'api' }
+    return { polygonRing: apiPolygonRing, areaM2, source: 'api' }
+  }
+
+  if (areaM2) {
+    return { polygonRing: null, areaM2, source: 'api' }
   }
 
   if (cacheCandidate && !cacheCandidate.isStale) {

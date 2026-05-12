@@ -44,6 +44,8 @@ const toolBtnCls = (isActive: boolean) =>
       : 'text-[#6B7A99] hover:bg-[#F0F2F9] hover:text-[#1C1C1E]'
   }`
 
+const formatZoom = (zoom: number) => (zoom < 10 ? zoom.toFixed(1) : String(Math.round(zoom)))
+
 /**
  * 캔버스 좌하단 고정 줌 컨트롤 바
  * - 줌 아웃 / 수치 입력 / 줌 인 / 손 도구 토글 버튼 포함
@@ -106,13 +108,13 @@ export function ZoomControlBar({
       <input
         key={zoom}
         type="text"
-        defaultValue={`${zoom}%`}
+        defaultValue={`${formatZoom(zoom)}%`}
         onFocus={(e) => {
-          e.currentTarget.value = String(zoom)
+          e.currentTarget.value = formatZoom(zoom)
           e.currentTarget.select()
         }}
         onBlur={(e) => {
-          const num = parseInt(e.currentTarget.value, 10)
+          const num = Number.parseFloat(e.currentTarget.value)
           const clamped = isNaN(num)
             ? zoom
             : Math.min(Math.max(num, MIN_EDITOR_ZOOM_PERCENT), MAX_EDITOR_ZOOM_PERCENT)
@@ -120,7 +122,7 @@ export function ZoomControlBar({
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur()
-          if (!/[0-9]|Backspace|Delete|ArrowLeft|ArrowRight|Tab/.test(e.key)) e.preventDefault()
+          if (!/[0-9.]|Backspace|Delete|ArrowLeft|ArrowRight|Tab/.test(e.key)) e.preventDefault()
         }}
         aria-label="줌 퍼센트 직접 입력"
         className="w-[54px] cursor-text rounded-md bg-transparent text-center text-[13px] font-semibold text-[#1C1C1E] outline-none focus:bg-[#F5F7FD]"

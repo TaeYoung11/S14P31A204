@@ -6,7 +6,13 @@ from typing import Any
 
 import ifcopenshell
 
-from ai_authoring.engine_3d import modify_color, modify_height, modify_material, modify_thickness
+from ai_authoring.engine_3d import (
+    modify_color,
+    modify_height,
+    modify_length,
+    modify_material,
+    modify_thickness,
+)
 from ai_authoring.operations.registry import register
 from ai_authoring.operations.space_support import update_space
 from ai_authoring.operations.wall_support import update_wall_segment
@@ -80,6 +86,12 @@ class UpdateElementPropertiesHandler:
                 modify_thickness(
                     product,
                     {"mode": "ABSOLUTE", "value": float(dimensions_mm["width"])},
+                    scale=1000.0,
+                )
+            if dimensions_mm.get("length") is not None:
+                modify_length(
+                    product,
+                    {"mode": "ABSOLUTE", "value": float(dimensions_mm["length"])},
                     scale=1000.0,
                 )
             if dimensions_mm.get("height") is not None:
