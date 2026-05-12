@@ -112,4 +112,4 @@ class RabbitMQConsumer(ConsumerMixinBase):
                 idempotencyKey=getattr(command, "idempotencyKey", None),
                 error=str(exc),
             )
-            message.nack(requeue=True)
+            message.reject(requeue=True)

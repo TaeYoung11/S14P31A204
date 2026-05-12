@@ -121,9 +121,9 @@ def test_handler_failure_nacks_with_requeue(
 
     consumer._on_message(_VALID_COMMAND, mock_message)
 
-    mock_message.nack.assert_called_once_with(requeue=True)
+    mock_message.reject.assert_called_once_with(requeue=True)
     mock_message.ack.assert_not_called()
-    mock_message.reject.assert_not_called()
+    mock_message.nack.assert_not_called()
     assert consumer.should_stop is False
 
 
