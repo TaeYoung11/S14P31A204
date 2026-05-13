@@ -19,7 +19,12 @@ from PIL import Image
 from ai_common.logging import get_logger
 
 from .exceptions import IFCRenderError
-from .geometry import _estimate_ground_z, attach_ground_plane_to_mesh, load_mesh
+from .geometry import (
+    _estimate_ground_z,
+    attach_ground_plane_to_mesh,
+    diagnose_mesh_orientation,
+    load_mesh,
+)
 from .presets import list_presets, load_preset
 from .style import (
     DEFAULT_CONTROLNET_SEG_ID,
@@ -269,6 +274,7 @@ class Ifc2ImgDebugGeometry:
     mesh: Any | None
     center: np.ndarray | None
     base_bounds: dict[str, object] | None
+    orientation: dict[str, object] | None
     ground_z: float | None
     error: str | None = None
 
@@ -483,6 +489,10 @@ def _load_debug_geometry(ifc_path: Path) -> Ifc2ImgDebugGeometry:
             mesh=mesh,
             center=center,
             base_bounds=bounds,
+            orientation=diagnose_mesh_orientation(
+                np.asarray(mesh.vertices, dtype=np.float64),
+                np.asarray(mesh.triangles, dtype=np.int64),
+            ).to_dict(),
             ground_z=_estimate_ground_z(np.asarray(mesh.vertices, dtype=np.float64)),
         )
     except Exception as exc:
@@ -495,6 +505,7 @@ def _load_debug_geometry(ifc_path: Path) -> Ifc2ImgDebugGeometry:
             mesh=None,
             center=None,
             base_bounds=None,
+            orientation=None,
             ground_z=None,
             error=str(exc),
         )
@@ -551,6 +562,7 @@ def _build_debug_view_payload(
             "base": geometry.base_bounds,
             "withGround": _mesh_bounds(grounded),
         },
+        "orientation": geometry.orientation,
         "groundZ": geometry.ground_z,
         "camera": _camera_debug_payload(grounded, geometry.center, internal_view),
     }
