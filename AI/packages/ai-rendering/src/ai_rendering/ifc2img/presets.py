@@ -24,7 +24,7 @@ _TIME_SUFFIXES: dict[str, str] = {
         "during sunny daytime, natural sunlight, blue sky, realistic soft shadows"
     ),
     "night": (
-        "night exterior, dark sky, warm windows, exterior lights"
+        "night exterior, dark sky, warm windows, exterior lights, low glare"
     ),
 }
 """시간대(낮/밤) prompt suffix.
@@ -35,10 +35,7 @@ _TIME_SUFFIXES: dict[str, str] = {
 
 _TIME_NEGATIVE_SUFFIXES: dict[str, str] = {
     "day": "",
-    "night": (
-        "daytime, sunny sky, blue sky, harsh sunlight, overexposed lights, "
-        "blown-out windows"
-    ),
+    "night": "blue sky",
 }
 
 
