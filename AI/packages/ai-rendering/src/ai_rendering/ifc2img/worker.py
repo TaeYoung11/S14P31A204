@@ -74,8 +74,9 @@ def map_worker_command_to_ifc2img_request(command: object) -> Ifc2ImgWorkerReque
     preset = _read_command_field(payload, "preset")
     if not isinstance(preset, str) or not preset:
         preset = DEFAULT_PHOTO_PRESET
+    time_of_day = _read_command_field(payload, "timeOfDay")
 
-    return {
+    request: Ifc2ImgWorkerRequest = {
         "commandType": command_type,  # type: ignore[typeddict-item]
         "input": {"sourceIfcStorageUrl": source_ifc_url},
         "expectedOutput": output_refs,
@@ -84,6 +85,9 @@ def map_worker_command_to_ifc2img_request(command: object) -> Ifc2ImgWorkerReque
             "preset": preset,
         },
     }
+    if isinstance(time_of_day, str) and time_of_day:
+        request["payload"]["timeOfDay"] = time_of_day  # type: ignore[typeddict-item]
+    return request
 
 
 def run_ifc2img_worker_request(

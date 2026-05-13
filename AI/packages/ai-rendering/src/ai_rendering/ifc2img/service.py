@@ -58,6 +58,7 @@ PhotoViewAlias = Literal["front_diagonal_left", "front_diagonal_right"]
 Ifc2ImgWorkerStatus = Literal["SUCCESS", "ERROR"]
 Ifc2ImgWorkerCommandType = Literal["SD_RENDER_GENERATE"]
 Ifc2ImgWorkerRenderMode = Literal["ifc2img"]
+Ifc2ImgWorkerTimeOfDay = Literal["DAY", "NIGHT"]
 PUBLIC_PHOTO_VIEWS: tuple[PhotoViewAlias, ...] = (
     "front_diagonal_left",
     "front_diagonal_right",
@@ -93,6 +94,7 @@ class Ifc2ImgWorkerPayload(TypedDict):
 
     renderMode: Ifc2ImgWorkerRenderMode
     preset: str
+    timeOfDay: NotRequired[Ifc2ImgWorkerTimeOfDay]
 
 
 class Ifc2ImgWorkerRequest(TypedDict):
