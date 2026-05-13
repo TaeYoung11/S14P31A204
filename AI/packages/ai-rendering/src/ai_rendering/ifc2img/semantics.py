@@ -172,8 +172,15 @@ class IfcProjectionDiagnostics:
     floor_above_roof_on_screen: bool | None
     floor_below_roof_in_world: bool | None
 
+    @property
+    def projection_vertical_inversion_suspected(self) -> bool:
+        return self.vertical_inversion_suspected
+
     def to_dict(self) -> dict[str, object]:
         return {
+            "projectionVerticalInversionSuspected": (
+                self.projection_vertical_inversion_suspected
+            ),
             "verticalInversionSuspected": self.vertical_inversion_suspected,
             "floorScreenRegion": self.floor_screen_region,
             "roofScreenRegion": self.roof_screen_region,
