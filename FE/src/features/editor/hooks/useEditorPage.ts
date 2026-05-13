@@ -2391,7 +2391,7 @@ export function useEditorPage() {
     if (nextMode === 'view' || nextMode === 'bubble') setIsAgentPanelMode(false)
     if (nextMode !== '3d') setSelectedIfcElement(null)
     setIsLibraryOpen(false)
-  }, [currentIfcUrl, mode, resetToolSelection, setSearchParams])
+  }, [currentIfcUrl, mode, resetToolSelection, setIsGenerate3DModalOpen, setSearchParams])
 
   const handleOpenProjectFromCommentToast = useCallback((targetProjectId: string, pinId?: string) => {
     const pinQuery = pinId ? `&pinId=${encodeURIComponent(pinId)}` : ''
