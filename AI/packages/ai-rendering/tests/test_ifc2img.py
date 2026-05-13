@@ -269,6 +269,41 @@ def test_renderer_backend_invalid_env_raises(monkeypatch: pytest.MonkeyPatch) ->
         IFCRenderer._resolve_render_backend()
 
 
+def test_renderer_offscreen_uses_tensor_pinhole_rays() -> None:
+    """RaycastingScene.create_rays_pinhole receives tensor matrices and dimensions."""
+    fake_mesh = MagicMock()
+    fake_center = np.array([0.0, 0.0, 0.0])
+
+    class FakeHit:
+        def numpy(self) -> np.ndarray:
+            return np.array([[np.inf, 2.0], [3.0, np.inf]], dtype=np.float32)
+
+    with patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d:
+        scene = MagicMock()
+        mock_o3d.t.geometry.RaycastingScene.return_value = scene
+        mock_o3d.t.geometry.TriangleMesh.from_legacy.return_value = MagicMock()
+        mock_o3d.core.Tensor.side_effect = lambda data, **_: np.asarray(data)
+        mock_o3d.t.geometry.RaycastingScene.create_rays_pinhole.return_value = "rays"
+        scene.cast_rays.return_value = {"t_hit": FakeHit()}
+
+        renderer = IFCRenderer(width=2, height=2)
+        image = renderer._render_mesh_offscreen(
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            initial_zoom=0.5,
+            target_ratio=0.2,
+        )
+
+    mock_o3d.t.geometry.RaycastingScene.create_rays_pinhole.assert_called_once()
+    args = mock_o3d.t.geometry.RaycastingScene.create_rays_pinhole.call_args.args
+    assert args[0].shape == (3, 3)
+    assert args[1].shape == (4, 4)
+    assert args[2:] == (2, 2)
+    assert image.mode == "L"
+    assert image.size == (2, 2)
+
+
 def test_renderer_calls_depth_buffer() -> None:
     """IFCRenderer가 화면 RGB가 아니라 depth float buffer를 캡처하는지 확인한다.
     
