@@ -701,12 +701,12 @@ def test_delete_window_removes_only_its_opening_boolean():
     assert delete_element(model, first)
     assert len(model.by_type("IfcWindow")) == 1
     assert len(model.by_type("IfcOpeningElement")) == 1
-    assert wall.Representation.Representations[0].Items[0].is_a("IfcBooleanResult")
+    assert _single_body_item(wall).is_a("IfcBooleanResult")
 
     assert delete_element(model, second)
     assert len(model.by_type("IfcWindow")) == 0
     assert len(model.by_type("IfcOpeningElement")) == 0
-    assert not wall.Representation.Representations[0].Items[0].is_a("IfcBooleanResult")
+    assert not _single_body_item(wall).is_a("IfcBooleanResult")
 
 
 def test_delete_wall_void_handler_deletes_parametric_door_pair():
@@ -756,6 +756,7 @@ def test_delete_wall_void_handler_deletes_parametric_window_pair():
 def test_delete_wall_void_handler_deletes_parametric_bare_opening():
     model, storey, _ = _make_model()
     wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    assert wall is not None
     opening = ifcopenshell.api.root.create_entity(
         model, ifc_class="IfcOpeningElement", name="Bare Opening"
     )
