@@ -39,6 +39,7 @@ function IFCExportModalContent({
 }: Omit<IFCExportModalProps, 'isOpen'>) {
   const [progress, setProgress] = useState(0)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
   const done = progress >= 100
 
   useEffect(() => {
@@ -57,11 +58,15 @@ function IFCExportModalContent({
 
   const handleDownload = async () => {
     setIsDownloading(true)
+    setDownloadError(null)
     try {
       const resolvedIfcUrl = sourceIfcUrl
         ? await resolveIfcPresignedUrl(sourceIfcUrl, sourceIfcAssetId ?? undefined)
         : '/mock/shinchan_house.ifc'
       const response = await fetch(resolvedIfcUrl)
+      if (!response.ok) {
+        throw new Error(`IFC 다운로드에 실패했습니다. (${response.status})`)
+      }
       const sourceIfcText = await response.text()
       const nextIfcText = ifcElementChanges.length > 0
         ? await applyIfcElementChanges(sourceIfcText, ifcElementChanges)
@@ -69,6 +74,9 @@ function IFCExportModalContent({
       const filename = sourceIfcUrl ? normalizeIfcSourceName(sourceIfcUrl, 'project_export.ifc') : 'project_export.ifc'
       downloadIfcText(filename, nextIfcText)
       onClose()
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'IFC 다운로드 중 알 수 없는 오류가 발생했습니다.'
+      setDownloadError(message)
     } finally {
       setIsDownloading(false)
     }
@@ -119,6 +127,9 @@ function IFCExportModalContent({
               ? `${ifcElementChanges.length} edited element changes are ready.`
               : 'Applying FE edit state to the IFC export.'}
           </p>
+          {downloadError ? (
+            <p className="mb-4 text-center text-[12px] font-bold text-[#B42318]">{downloadError}</p>
+          ) : null}
 
           <button
             type="button"

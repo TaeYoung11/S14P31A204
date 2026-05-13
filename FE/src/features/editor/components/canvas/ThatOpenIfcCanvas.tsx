@@ -1288,14 +1288,18 @@ export default function ThatOpenIfcCanvas({
       } catch {
         // ThatOpen can throw during renderer cleanup if React has already detached the canvas container.
       }
-      sceneRef.current = null
+      const activeScene = sceneRef.current
       presetGroupRef.current = null
       ifcPsetMetricsRef.current = { byId: {}, byName: {} }
       selectedTargetRef.current = null
       selectedTargetsRef.current = []
       multiDragSnapshotRef.current = null
       setMarqueeRect(null)
+      if (multiAnchorRef.current && activeScene) {
+        activeScene.contentGroup.remove(multiAnchorRef.current)
+      }
       multiAnchorRef.current = null
+      sceneRef.current = null
       cameraMouseButtonsRef.current = null
       rendererDomRef.current = null
       prevZoomScaleRef.current = null
