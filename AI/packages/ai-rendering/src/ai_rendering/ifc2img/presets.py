@@ -24,8 +24,7 @@ _TIME_SUFFIXES: dict[str, str] = {
         "during sunny daytime, natural sunlight, blue sky, realistic soft shadows"
     ),
     "night": (
-        "night exterior, dark sky, warm window lights, "
-        "soft exterior lights, no overexposure"
+        "night exterior, dark sky, warm windows, exterior lights"
     ),
 }
 """시간대(낮/밤) prompt suffix.
@@ -45,7 +44,7 @@ _TIME_NEGATIVE_SUFFIXES: dict[str, str] = {
 
 def _apply_time_of_day_to_prompt(prompt: str, time_of_day: str) -> str:
     if time_of_day == "night":
-        return prompt.replace("outdoor daylight", "outdoor night exterior")
+        return prompt.replace("outdoor daylight", "outdoor night")
     return prompt
 
 
