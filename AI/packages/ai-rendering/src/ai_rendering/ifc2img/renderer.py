@@ -306,32 +306,17 @@ class IFCRenderer:
         mesh_t = o3d.t.geometry.TriangleMesh.from_legacy(mesh)
         scene.add_triangles(mesh_t)
 
-        # 카메라 intrinsic 설정
-        intrinsic = o3d.core.Tensor(
-            [
-                [self.width / 2 * initial_zoom, 0.0, self.width / 2],
-                [0.0, self.height / 2 * initial_zoom, self.height / 2],
-                [0.0, 0.0, 1.0],
-            ],
-            dtype=o3d.core.Dtype.Float32,
-        )
-
-        # 카메라 extrinsic 계산
-        # camera.front: 카메라가 바라보는 방향 (center에서 front 방향)
-        # up: 위쪽
-        # center: lookat point
         front = np.asarray(camera.front, dtype=np.float32)
         up = np.asarray(camera.up, dtype=np.float32)
-        eye = center - front * 10.0  # eye 위치를 center 뒤로
-        extrinsic = self._compute_extrinsic(eye, center, up)
-
-        extrinsic_tensor = o3d.core.Tensor(
-            extrinsic.astype(np.float32),
-            dtype=o3d.core.Dtype.Float32,
-        )
+        verts = np.asarray(mesh.vertices)
+        max_extent = float(np.max(verts.max(axis=0) - verts.min(axis=0)))
+        front /= np.linalg.norm(front)
+        eye = center - front * max(max_extent * 1.25, 1.0)
         rays = o3d.t.geometry.RaycastingScene.create_rays_pinhole(
-            intrinsic,
-            extrinsic_tensor,
+            60.0,
+            o3d.core.Tensor(center.astype(np.float32), dtype=o3d.core.Dtype.Float32),
+            o3d.core.Tensor(eye.astype(np.float32), dtype=o3d.core.Dtype.Float32),
+            o3d.core.Tensor(up, dtype=o3d.core.Dtype.Float32),
             self.width,
             self.height,
         )
