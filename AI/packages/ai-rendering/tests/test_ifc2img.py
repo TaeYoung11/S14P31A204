@@ -307,12 +307,13 @@ def test_renderer_offscreen_uses_tensor_pinhole_rays() -> None:
     assert image.size == (2, 2)
 
 
-def test_renderer_calls_depth_buffer() -> None:
+def test_renderer_calls_depth_buffer(monkeypatch: pytest.MonkeyPatch) -> None:
     """IFCRenderer가 화면 RGB가 아니라 depth float buffer를 캡처하는지 확인한다.
     
     ifc2img의 1차 산출물은 스타일 이미지가 아니라 ControlNet용 depth image다. 따라서
     Open3D visualizer에서 `capture_depth_float_buffer`를 호출하고 RGB 캡처는 쓰지 않아야 한다.
     """
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     fake_mesh = MagicMock()
     fake_center = np.array([0.0, 0.0, 0.0])
 
@@ -341,13 +342,14 @@ def test_renderer_calls_depth_buffer() -> None:
     assert result.size == (768, 448)
 
 
-def test_render_views_loads_mesh_once() -> None:
+def test_render_views_loads_mesh_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """여러 view를 렌더링해도 IFC mesh는 한 번만 로드되어야 한다.
 
     같은 IFC에서 front, side, front diagonal 계열을 연속 생성할 때
     view마다 mesh를 다시 로드하면 시간이 커진다. `render_views`는
     한 번 로드한 mesh를 재사용해 각 view의 depth를 만든다는 점을 검증한다.
     """
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     fake_mesh = MagicMock()
     fake_center = np.array([0.0, 0.0, 0.0])
 
@@ -413,12 +415,13 @@ def test_load_mesh_accepts_ifc4(ifc4_fixture: Path) -> None:
 # --- 자동 zoom 옵션 테스트: 기본 OFF와 ITERATIVE 수렴 동작 ---
 
 
-def test_renderer_default_uses_static_zoom() -> None:
+def test_renderer_default_uses_static_zoom(monkeypatch: pytest.MonkeyPatch) -> None:
     """기본 auto zoom OFF에서는 view 설정의 고정 zoom을 그대로 사용해야 한다.
     
     자동 줌은 opt-in 실험 옵션이므로 기본 경로에서는 기존 `VIEW_CAMERAS` zoom 값과 캡처 횟수가
     변하지 않아야 한다.
     """
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
     fake_center = np.array([5.0, 5.0, 2.5])
@@ -457,12 +460,15 @@ def _make_depth_with_fill(fill_ratio: float, h: int = 448, w: int = 768) -> np.n
     return arr
 
 
-def test_iterative_zoom_converges_when_target_reached() -> None:
+def test_iterative_zoom_converges_when_target_reached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """ITERATIVE zoom이 목표 화면 점유율 범위에 들어오면 즉시 멈추는지 확인한다.
     
     FRONT view의 target ratio와 tolerance 안에 이미 들어온 depth buffer를 주고, 불필요한
     추가 캡처 없이 1회 캡처로 종료되는지 검증한다.
     """
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
     fake_center = np.array([5.0, 5.0, 2.5])
@@ -496,12 +502,13 @@ def test_iterative_zoom_converges_when_target_reached() -> None:
     assert vis.capture_depth_float_buffer.call_count == 1
 
 
-def test_iterative_zoom_max_iter_caps() -> None:
+def test_iterative_zoom_max_iter_caps(monkeypatch: pytest.MonkeyPatch) -> None:
     """ITERATIVE zoom이 목표에 도달하지 못해도 iter_max에서 멈추는지 확인한다.
     
     자동 조정이 수렴하지 않는 depth가 들어올 수 있으므로, 무한 반복 대신 설정한 최대 반복
     횟수까지만 캡처해야 한다.
     """
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
     fake_center = np.array([5.0, 5.0, 2.5])
@@ -783,12 +790,15 @@ def test_attach_ground_plane_to_mesh_appends_4_vertices() -> None:
     assert len(base.vertices) == 3
 
 
-def test_renderer_passes_front_diagonal_ground_extent_override_only_for_diagonal() -> None:
+def test_renderer_passes_front_diagonal_ground_extent_override_only_for_diagonal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """front diagonal ground extent override는 대각선 view에만 적용되어야 한다.
 
     front/side는 기본 ground plane을 유지하고, front diagonal view만
     ground extent 실험값을 받을 수 있는지 검증한다.
     """
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     base_mesh = MagicMock(name="base_mesh")
     base_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 10.0, 5.0]])
     fake_center = np.array([5.0, 5.0, 2.5])
@@ -1061,8 +1071,11 @@ def test_render_mesh_dispatch_uses_base_mesh_not_ground_extended() -> None:
     assert base_ratio != view_ratio
 
 
-def test_render_passes_base_mesh_to_resolve_target_ratio() -> None:
+def test_render_passes_base_mesh_to_resolve_target_ratio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """render 경로에서 `_resolve_target_ratio`에 ground 확장 전 base mesh가 전달되는지 확인한다."""
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     base_mesh = MagicMock(name="base_mesh")
     base_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 10.0, 5.0]])
     inflated_mesh = MagicMock(name="inflated_mesh")
@@ -1103,8 +1116,9 @@ def test_render_passes_base_mesh_to_resolve_target_ratio() -> None:
     assert captured[0] is base_mesh
 
 
-def test_render_uses_static_view_camera() -> None:
+def test_render_uses_static_view_camera(monkeypatch: pytest.MonkeyPatch) -> None:
     """기본 render가 views.py의 static camera vector를 그대로 적용하는지 확인한다."""
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5], [20, 0, 5]])
     fake_center = np.array([10.0, 5.0, 2.5])
