@@ -527,7 +527,15 @@ public class IfcEditApplyEventListener {
             return null;
         }
 
-        JsonNode engineRequest = requestPayload.get("engine_request");
+        JsonNode sourceScenePayload = requestPayload.get("sourceScenePayload");
+        if (isFloorPlanPayload(sourceScenePayload)) {
+            return sourceScenePayload;
+        }
+
+        JsonNode engineRequest = requestPayload.get("engineRequest");
+        if (engineRequest == null || engineRequest.isNull()) {
+            engineRequest = requestPayload.get("engine_request");
+        }
         if (isFloorPlanPayload(engineRequest)) {
             return engineRequest;
         }
@@ -590,7 +598,8 @@ public class IfcEditApplyEventListener {
                 new IfcEditCommandMessage.ExpectedOutput(
                         readOptionalStringHeader(headers, IfcEditCommandPublisher.HEADER_IFC_STORAGE_URL),
                         readOptionalStringHeader(headers, IfcEditCommandPublisher.HEADER_VALIDATION_REPORT_STORAGE_URL),
-                        readOptionalStringHeader(headers, IfcEditCommandPublisher.HEADER_EDIT_PLAN_STORAGE_URL)
+                        readOptionalStringHeader(headers, IfcEditCommandPublisher.HEADER_EDIT_PLAN_STORAGE_URL),
+                        null
                 ),
                 null,
                 readRequiredIntegerHeader(headers, IfcEditCommandPublisher.HEADER_ATTEMPT_NO),

@@ -173,6 +173,57 @@ def test_ifc_edit_inline_engine_request_rejects_invalid_operation_shape() -> Non
     raise AssertionError("ifc_edit inline engineRequest must reject invalid operation items")
 
 
+def test_ifc_edit_accepts_current_ai_authoring_engine_request_key() -> None:
+    data = load_json(SAMPLE_ROOT / "command_ifc_edit.json")
+    data["payload"] = {
+        "engineRequest": {
+            "schema_version": "v1",
+            "request_id": "direct-command-batch-001",
+            "mode": "apply",
+            "project_id": "project-001",
+            "base_revision_id": "revision-001",
+            "operations": [
+                {
+                    "id": "op-update-wall",
+                    "type": "update_element_properties",
+                    "selector": {"global_ids": ["0J$w4y0HD2Gv9QfKZ6B9s1"]},
+                    "parameters": {"material": "concrete"},
+                }
+            ],
+        }
+    }
+
+    model = CommandMessage.model_validate(data)
+
+    assert model.payload.engineRequest.schema_version == "v1"
+
+
+def test_ifc_edit_rejects_snake_case_engine_request_key() -> None:
+    data = load_json(SAMPLE_ROOT / "command_ifc_edit.json")
+    data["payload"] = {
+        "engine_request": {
+            "schema_version": "v1",
+            "request_id": "direct-command-batch-001",
+            "mode": "apply",
+            "project_id": "project-001",
+            "base_revision_id": "revision-001",
+            "operations": [
+                {
+                    "id": "op-update-wall",
+                    "type": "update_element_properties",
+                    "selector": {"global_ids": ["0J$w4y0HD2Gv9QfKZ6B9s1"]},
+                    "parameters": {"material": "concrete"},
+                }
+            ],
+        }
+    }
+    try:
+        CommandMessage.model_validate(data)
+    except ValueError:
+        return
+    raise AssertionError("ifc_edit payload must reject snake_case engine_request")
+
+
 def _to_snake_case_data(value: object) -> object:
     if isinstance(value, dict):
         return {

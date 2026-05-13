@@ -10,6 +10,7 @@ export interface IfcElementInfo {
   category: string
   source?: 'ifc' | 'library'
   expressId?: number | string
+  globalId?: string
   lengthMm?: number
   heightMm?: number
   thicknessMm?: number
@@ -20,6 +21,8 @@ export interface IfcElementInfo {
 
 export interface IfcElementChange {
   expressId: number
+  globalId?: string
+  ifcClass?: string
   lengthMm?: number
   heightMm?: number
   thicknessMm?: number
@@ -196,9 +199,13 @@ export interface FloorLayerOverlay {
 /** 2D 평면도 편집용 벽(선분) 데이터 */
 export interface FloorWall {
   id: string
+  globalId?: string
+  storeyGlobalId?: string
   sourceIfcClass?: 'IfcWall' | 'IfcWallStandardCase'
   start: Point2D
   end: Point2D
+  startMm?: Point2D
+  endMm?: Point2D
   type: FloorWallType
   thickness: number // 실제 두께(mm)
   heightMm: number  // 실제 높이(mm)
@@ -208,10 +215,14 @@ export interface FloorWall {
 /** 2D 평면도 편집용 벽 부착 개구부(문/창문) */
 export interface FloorOpening {
   id: string
+  globalId?: string
+  hostWallGlobalId?: string
+  storeyGlobalId?: string
   sourceIfcClass?: 'IfcDoor' | 'IfcWindow'
   type: FloorOpeningType
   wallId: string
   wallPosition: number // 벽 start~end 정규화 위치(0~1)
+  centerMm?: Point2D
   widthMm: number
   heightMm: number
   sillHeightMm?: number // 창문 창턱 높이(mm)

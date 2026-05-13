@@ -53,6 +53,16 @@ public class DirectIfcEditCommandService {
 
     @Transactional
     public IfcEditJobResponse createDirectIfcEdit(UUID projectId, UUID userId, DirectIfcEditRequest request) {
+        return createDirectIfcEdit(projectId, userId, request, null);
+    }
+
+    @Transactional
+    public IfcEditJobResponse createDirectIfcEdit(
+            UUID projectId,
+            UUID userId,
+            DirectIfcEditRequest request,
+            JsonNode sourceScenePayload
+    ) {
         Project project = projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
 
@@ -99,9 +109,16 @@ public class DirectIfcEditCommandService {
         inputMap.put("revisionNo", nextRevisionNo);
         JsonNode inputPayload = objectMapper.valueToTree(inputMap);
 
-        Map<String, Object> payloadMap = new LinkedHashMap<>();
-        payloadMap.put("engine_request", request.engineRequest());
-        JsonNode requestPayload = objectMapper.valueToTree(payloadMap);
+        Map<String, Object> jobPayloadMap = new LinkedHashMap<>();
+        jobPayloadMap.put("engineRequest", request.engineRequest());
+        if (sourceScenePayload != null && !sourceScenePayload.isNull()) {
+            jobPayloadMap.put("sourceScenePayload", sourceScenePayload);
+        }
+        JsonNode requestPayload = objectMapper.valueToTree(jobPayloadMap);
+
+        Map<String, Object> workerPayloadMap = new LinkedHashMap<>();
+        workerPayloadMap.put("engineRequest", request.engineRequest());
+        JsonNode workerPayload = objectMapper.valueToTree(workerPayloadMap);
 
         LocalDateTime now = LocalDateTime.now();
         Revision revision = Revision.createCreating(
@@ -130,8 +147,8 @@ public class DirectIfcEditCommandService {
                 request.baseRevisionId(), request.sourceSceneStateId(), request.sourceSceneType(),
                 targetRevisionId, expectedOutputArtifactId,
                 Map.of("source_ifc_storage_url", sourceIfcUrl),
-                new IfcEditCommandMessage.ExpectedOutput(outputIfcUrl, validationUrl, null),
-                requestPayload, ATTEMPT_NO, MAX_ATTEMPTS, idempotencyKey, correlationId,
+                new IfcEditCommandMessage.ExpectedOutput(outputIfcUrl, validationUrl, null, null),
+                workerPayload, ATTEMPT_NO, MAX_ATTEMPTS, idempotencyKey, correlationId,
                 OffsetDateTime.now(ZoneOffset.UTC)
         );
 

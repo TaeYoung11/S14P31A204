@@ -1,8 +1,5 @@
 package com.a204.batang.domain.workspace.service;
 
-import com.a204.batang.domain.ifcedit.IfcEditConstants;
-import com.a204.batang.domain.ifcedit.dto.DirectIfcEditRequest;
-import com.a204.batang.domain.ifcedit.service.DirectIfcEditCommandService;
 import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
@@ -31,12 +28,14 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * 2D/3D 도면 실시간 편집 이벤트를 처리한다.
+ * 2D/3D floor-plan 화면 상태의 실시간 동기화, 히스토리, 복구 이벤트를 처리한다.
+ *
+ * <p>화면 snapshot 저장과 IFC 직접 편집 command 발행은 분리한다.
+ * 이 서비스는 snapshot sync와 history 복구를 담당한다.
  */
 @Slf4j
 @Service
@@ -44,24 +43,25 @@ import java.util.UUID;
 public class WorkspaceFloorPlanRealtimeService {
 
     private static final String PROJECT_FLOOR_PLAN_SYNC_TOPIC_TEMPLATE = "/topic/project/%s/floor-plan/sync";
-    private static final String ACTION_FLOOR_PLAN_PROCESSING = "FLOOR_PLAN_PROCESSING";
     private static final String ACTION_FLOOR_PLAN_UPDATED = "FLOOR_PLAN_UPDATED";
+    private static final String ACTION_FLOOR_PLAN_GENERATE_COMPLETED = "FLOOR_PLAN_GENERATE_COMPLETED";
     private static final String ACTION_FLOOR_PLAN_UNDO = "FLOOR_PLAN_UNDO";
     private static final String ACTION_FLOOR_PLAN_REDO = "FLOOR_PLAN_REDO";
-    private static final String DIRECT_IFC_SCHEMA_VERSION = "v1";
 
     private final ProjectWorkspaceRepository projectWorkspaceRepository;
     private final ProjectAccessService projectAccessService;
     private final BubbleSnapshotHelper bubbleSnapshotHelper;
     private final WorkspaceBubbleSnapshotRedisRepository workspaceBubbleSnapshotRedisRepository;
     private final FloorPlanS3DeleteQueueService floorPlanS3DeleteQueueService;
-    private final DirectIfcEditCommandService directIfcEditCommandService;
     private final S3ObjectPresigner s3ObjectPresigner;
     private final SimpMessagingTemplate simpMessagingTemplate;
     private final ObjectMapper objectMapper;
 
     /**
-     * 2D/3D 도면 draft를 받아 브로드캐스트하고 Python 렌더링을 비동기 요청한다.
+     * 2D/3D 도면 draft를 받아 Redis history에 저장하고 브로드캐스트한다.
+     *
+     * <p>이 경로는 화면 상태 동기화 전용이다.
+     * IFC_EDIT job 생성은 command pipeline에서만 처리한다.
      *
      * @param projectId 프로젝트 ID
      * @param currentUserId 요청 사용자 ID
@@ -76,34 +76,26 @@ public class WorkspaceFloorPlanRealtimeService {
 
         String resolvedRevisionId = resolveRevisionId(request.revisionId(), workspace.getCurrentRevision());
         JsonNode syncPayload = buildSyncPayload(request, resolvedRevisionId);
-
-        boolean queued = requestPythonRenderAsync(projectId, currentUserId, resolvedRevisionId, syncPayload);
-        if (!queued) {
-            log.debug(
-                    "Skip floor-plan realtime enqueue because IFC edit job is already active. projectId={}, revisionId={}",
-                    projectId,
-                    resolvedRevisionId
-            );
-            return;
-        }
+        JsonNode floorPlanHistorySnapshot = buildFloorPlanHistorySnapshot(syncPayload, null);
+        saveFloorPlanSnapshotToRedisOrThrow(projectId, floorPlanHistorySnapshot, request.baseIndex());
 
         broadcastFloorPlanSync(
                 projectId,
                 workspace,
-                ACTION_FLOOR_PLAN_PROCESSING,
+                ACTION_FLOOR_PLAN_UPDATED,
                 resolvedRevisionId,
                 syncPayload,
                 null
         );
 
-        log.info("Floor-plan processing event relayed. projectId={}, revisionId={}", projectId, resolvedRevisionId);
+        log.info("Floor-plan snapshot event relayed. projectId={}, revisionId={}", projectId, resolvedRevisionId);
     }
 
     /**
-     * Python 렌더링 완료 이벤트를 받아 floor-plan 히스토리에 저장하고 브로드캐스트한다.
+     * floor-plan 렌더링 완료 이벤트를 받아 Redis history에 저장하고 브로드캐스트한다.
      *
      * @param projectId 프로젝트 ID
-     * @param request Python 완료 이벤트 payload
+     * @param request floor-plan 렌더링 완료 payload
      */
     public void publishFloorPlanUpdated(UUID projectId, PublishFloorPlanUpdatedRequest request) {
         ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
@@ -112,8 +104,7 @@ public class WorkspaceFloorPlanRealtimeService {
         String parentRevisionSource = resolveRevisionId(request.revisionId(), workspace.getCurrentRevision());
         UUID parentRevisionId = parseRevisionIdOrNull(parentRevisionSource);
         UUID nextRevisionId = UUID.randomUUID();
-
-        String normalizedS3Url = request.s3Url().trim();
+        String normalizedS3Url = normalizeS3Url(request.s3Url());
 
         JsonNode payloadWithRevision = enrichFloorPlanPayloadWithRevision(
                 request.floorPlanPayloadJson(),
@@ -141,16 +132,16 @@ public class WorkspaceFloorPlanRealtimeService {
     }
 
     /**
-     * IFC apply 완료 직후 floor-plan 동기화 이벤트를 발행한다.
+     * IFC_EDIT apply 완료 후 sourceScenePayload를 기준으로 floor-plan 동기화 이벤트를 발행한다.
      *
-     * <p>ifcedit의 source_scene payload를 기반으로 revision 정보를 갱신해
-     * Redis 히스토리와 웹소켓 동기화를 함께 처리한다.
+     * <p>sourceScenePayload는 IFC_EDIT 요청 시점의 화면 snapshot이다.
+     * 완료된 IFC revision 정보를 payload에 반영해 클라이언트가 최신 결과를 로드하게 한다.
      *
      * @param projectId 프로젝트 ID
      * @param revisionId 최종 반영된 revision ID
      * @param parentRevisionId 부모 revision ID
      * @param s3Url 최종 IFC 결과 S3 URL
-     * @param sourceScenePayload ifcedit 요청 시점의 source_scene payload
+     * @param sourceScenePayload IFC_EDIT 요청 시점의 floor-plan snapshot payload
      */
     public void publishFloorPlanUpdatedFromIfcEdit(
             UUID projectId,
@@ -188,7 +179,7 @@ public class WorkspaceFloorPlanRealtimeService {
     }
 
     /**
-     * floor-plan generate 완료 직후 WebSocket sync 이벤트를 발행한다.
+     * floor-plan generate 완료 후 클라이언트가 새 IFC revision을 로드하도록 최소 sync payload를 발행한다.
      *
      * <p>generate 완료 이벤트에는 상세 편집 payload가 없을 수 있으므로,
      * 클라이언트가 동일한 sync 응답 포맷을 해석할 수 있도록 최소 payload를 구성해 전송한다.
@@ -210,7 +201,7 @@ public class WorkspaceFloorPlanRealtimeService {
         broadcastFloorPlanSync(
                 projectId,
                 workspace,
-                ACTION_FLOOR_PLAN_UPDATED,
+                ACTION_FLOOR_PLAN_GENERATE_COMPLETED,
                 revisionId.toString(),
                 payload,
                 normalizeS3Url(s3Url)
@@ -221,13 +212,15 @@ public class WorkspaceFloorPlanRealtimeService {
     }
 
     /**
-     * IFC_EDIT command가 DLQ로 이동한 경우 사용자에게 실패를 알리고,
-     * 편집 전(source revision) IFC URL을 다시 브로드캐스트한다.
+     * IFC_EDIT command가 DLQ로 이동한 경우 사용자에게 실패를 알리고 source revision 상태를 다시 브로드캐스트한다.
+     *
+     * <p>이미 workspace가 더 최신 revision으로 이동했다면 오래된 rollback 이벤트로 판단하고
+     * floor-plan broadcast를 생략한다.
      *
      * @param projectId 프로젝트 ID
      * @param sourceRevisionId 편집 전 revision ID
      * @param requestedBy 실패 알림을 전달할 사용자 ID
-     * @param failureMessage 사용자에게 전달할 실패 메시지(없으면 기본 메시지)
+     * @param failureMessage 사용자에게 전달할 실패 메시지
      */
     public void relayIfcEditDlqFailureAndRestoreSource(
             UUID projectId,
@@ -252,6 +245,13 @@ public class WorkspaceFloorPlanRealtimeService {
         }
 
         String sourceRevisionIdText = sourceRevisionId.toString();
+        String latestRevisionId = workspace.getCurrentRevision();
+        if (latestRevisionId != null && !latestRevisionId.isBlank() && !sourceRevisionIdText.equals(latestRevisionId)) {
+            log.info("Skip stale IFC_EDIT DLQ rollback relay. projectId={}, latestRevisionId={}, sourceRevisionId={}",
+                    projectId, latestRevisionId, sourceRevisionIdText);
+            return;
+        }
+
         JsonNode rollbackPayload = resolveFloorPlanSnapshotPayloadForRevision(projectId, sourceRevisionIdText);
         if (rollbackPayload == null) {
             rollbackPayload = buildGenerateCompletionPayload(sourceRevisionId, null);
@@ -274,7 +274,7 @@ public class WorkspaceFloorPlanRealtimeService {
     }
 
     /**
-     * 2D/3D 도면 Undo를 수행한다.
+     * 2D/3D 도면 Undo 요청을 Redis history에서 복원해 브로드캐스트한다.
      *
      * @param projectId 프로젝트 ID
      * @param currentUserId 요청 사용자 ID
@@ -301,7 +301,7 @@ public class WorkspaceFloorPlanRealtimeService {
     }
 
     /**
-     * 2D/3D 도면 Redo를 수행한다.
+     * 2D/3D 도면 Redo 요청을 Redis history에서 복원해 브로드캐스트한다.
      *
      * @param projectId 프로젝트 ID
      * @param currentUserId 요청 사용자 ID
@@ -439,64 +439,6 @@ public class WorkspaceFloorPlanRealtimeService {
         }
 
         return new FloorPlanHistorySnapshot(revisionId, floorPlanPayloadJson, s3Url);
-    }
-
-    /**
-     * floor-plan draft를 direct ifcedit 작업으로 비동기 요청한다.
-     *
-     * <p>이미 진행 중인 IFC 편집 작업이 있으면 충돌 예외를 재던지지 않고 요청을 스킵한다.
-     * 실시간 STOMP 경로에서 충돌이 사용자 오류로 노출되는 것을 막기 위함이다.
-     *
-     * @param projectId 프로젝트 ID
-     * @param currentUserId 요청 사용자 ID
-     * @param revisionId 기준 revision ID
-     * @param syncPayload ifcedit 엔진 요청 payload
-     * @return 작업이 큐에 정상 등록되면 true, 충돌로 스킵되면 false
-     */
-    private boolean requestPythonRenderAsync(
-            UUID projectId,
-            UUID currentUserId,
-            String revisionId,
-            JsonNode syncPayload
-    ) {
-        UUID baseRevisionId = parseRevisionIdOrThrow(revisionId);
-        DirectIfcEditRequest directRequest = new DirectIfcEditRequest(
-                DIRECT_IFC_SCHEMA_VERSION,
-                UUID.randomUUID(),
-                baseRevisionId,
-                null,
-                IfcEditConstants.SCENE_TYPE_IFC_MODEL,
-                syncPayload.deepCopy()
-        );
-        try {
-            directIfcEditCommandService.createDirectIfcEdit(projectId, currentUserId, directRequest);
-            log.info("Workspace floor-plan realtime request routed to DirectIfcEditCommandService. projectId={}, baseRevisionId={}",
-                    projectId, baseRevisionId);
-            return true;
-        } catch (CustomException exception) {
-            if (exception.getErrorCode() == ErrorCode.IFC_EDIT_JOB_CONFLICT) {
-                return false;
-            }
-            throw exception;
-        }
-    }
-
-    private UUID parseRevisionIdOrThrow(String revisionId) {
-        if (revisionId == null || revisionId.isBlank()) {
-            throw new CustomException(
-                    ErrorCode.IFC_EDIT_SOURCE_NOT_FOUND,
-                    "ifcedit 연동에는 UUID 형식의 base revisionId가 필요합니다."
-            );
-        }
-
-        try {
-            return UUID.fromString(revisionId.trim());
-        } catch (IllegalArgumentException exception) {
-            throw new CustomException(
-                    ErrorCode.IFC_EDIT_SOURCE_NOT_FOUND,
-                    "ifcedit 연동에는 UUID 형식의 base revisionId가 필요합니다."
-            );
-        }
     }
 
     private void validateRealtimePayloadOrThrow(FloorPlanRealtimeUpdateRequest request) {
@@ -660,6 +602,10 @@ public class WorkspaceFloorPlanRealtimeService {
 
     /**
      * generate 완료 시점에 WebSocket sync 응답 포맷을 맞추기 위한 최소 payload를 생성한다.
+     *
+     * @param revisionId 완료된 revision ID
+     * @param parentRevisionId 부모 revision ID
+     * @return 클라이언트 sync 응답에 포함할 최소 floor-plan payload
      */
     private JsonNode buildGenerateCompletionPayload(UUID revisionId, UUID parentRevisionId) {
         ObjectNode payload = objectMapper.createObjectNode();
@@ -778,9 +724,9 @@ public class WorkspaceFloorPlanRealtimeService {
     }
 
     /**
-     * WebSocket으로 내려주는 IFC URL을 클라이언트 fetch 가능한 presigned URL로 변환한다.
+     * WebSocket으로 내려줄 IFC URL을 브라우저가 접근 가능한 presigned URL로 변환한다.
      *
-     * <p>presign 실패 시 실시간 동기화 자체를 막지 않기 위해 원본 URL을 그대로 반환한다.
+     * <p>변환에 실패해도 실시간 동기화 자체는 막지 않고 원본 URL을 반환한다.
      *
      * @param s3Url 원본 IFC 저장 경로
      * @return 브라우저 접근 가능한 IFC URL
@@ -799,7 +745,7 @@ public class WorkspaceFloorPlanRealtimeService {
     }
 
     /**
-     * Lua 스크립트가 반환한 제거 대상 payload에서 S3 URL을 추출해 삭제 대기열에 적재한다.
+     * Redis history에서 제거된 snapshot의 S3 URL을 삭제 대기열에 넣는다.
      *
      * @param projectId 프로젝트 ID
      * @param garbagePayloads 히스토리에서 제거된 스냅샷 payload 목록
@@ -820,7 +766,10 @@ public class WorkspaceFloorPlanRealtimeService {
     }
 
     /**
-     * 제거 대상 스냅샷 payload에서 유효한 s3Url만 추출한다.
+     * 제거 대상 snapshot payload에서 유효한 s3Url만 추출한다.
+     *
+     * @param garbagePayloads history에서 제거된 snapshot payload 목록
+     * @return 삭제 대기열에 넣을 S3 URL 목록
      */
     private Set<String> extractGarbageS3Urls(List<String> garbagePayloads) {
         Set<String> garbageS3Urls = new LinkedHashSet<>();

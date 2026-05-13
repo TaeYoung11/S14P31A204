@@ -94,6 +94,178 @@ def _profile_xy_center(profile) -> tuple[float, float] | None:
     return None
 
 
+def _solid_profile_xy_center(solid) -> tuple[float, float] | None:
+    profile = getattr(solid, "SweptArea", None)
+    if profile is None:
+        return None
+
+    position = getattr(solid, "Position", None)
+    location = getattr(position, "Location", None) if position else None
+    coords = tuple(getattr(location, "Coordinates", ()) or ())
+    solid_x = float(coords[0]) if len(coords) >= 1 else 0.0
+    solid_y = float(coords[1]) if len(coords) >= 2 else 0.0
+
+    if profile.is_a("IfcRectangleProfileDef"):
+        profile_position = getattr(profile, "Position", None)
+        profile_location = (
+            getattr(profile_position, "Location", None) if profile_position else None
+        )
+        profile_coords = tuple(getattr(profile_location, "Coordinates", ()) or ())
+        if len(profile_coords) >= 2:
+            return (solid_x + float(profile_coords[0]), solid_y + float(profile_coords[1]))
+        return (solid_x, solid_y)
+
+    profile_center = _profile_xy_center(profile)
+    if profile_center is None:
+        return None
+    return (solid_x + profile_center[0], solid_y + profile_center[1])
+
+
+def _profile_xy_bbox(profile) -> tuple[float, float, float, float] | None:
+    if profile is None:
+        return None
+    if profile.is_a("IfcRectangleProfileDef"):
+        position = getattr(profile, "Position", None)
+        location = getattr(position, "Location", None) if position else None
+        coords = tuple(getattr(location, "Coordinates", ()) or ())
+        center_x = float(coords[0]) if len(coords) >= 1 else 0.0
+        center_y = float(coords[1]) if len(coords) >= 2 else 0.0
+        half_x = float(profile.XDim) / 2.0
+        half_y = float(profile.YDim) / 2.0
+        return (center_x - half_x, center_x + half_x, center_y - half_y, center_y + half_y)
+    if profile.is_a("IfcArbitraryClosedProfileDef"):
+        curve = getattr(profile, "OuterCurve", None)
+        points = (
+            getattr(curve, "Points", None)
+            if curve is not None and curve.is_a("IfcPolyline")
+            else None
+        )
+        if not points:
+            return None
+        coords = [tuple(getattr(point, "Coordinates", ()) or ()) for point in points]
+        coords = [point for point in coords if len(point) >= 2]
+        if not coords:
+            return None
+        xs = [float(point[0]) for point in coords]
+        ys = [float(point[1]) for point in coords]
+        return (min(xs), max(xs), min(ys), max(ys))
+    return None
+
+
+def _element_body_bbox_world(
+    element: ifcopenshell.entity_instance | None,
+) -> tuple[float, float, float, float, float, float] | None:
+    if element is None:
+        return None
+    items = _body_representation_items(element)
+    if not items:
+        return None
+    item = items[0]
+    while item is not None and (
+        item.is_a("IfcBooleanResult") or item.is_a("IfcBooleanClippingResult")
+    ):
+        item = item.FirstOperand
+    if item is None or not item.is_a("IfcExtrudedAreaSolid"):
+        return None
+
+    profile_bbox = _profile_xy_bbox(getattr(item, "SweptArea", None))
+    if profile_bbox is None:
+        return None
+    position = getattr(item, "Position", None)
+    location = getattr(position, "Location", None) if position else None
+    coords = tuple(getattr(location, "Coordinates", ()) or ())
+    ix = float(coords[0]) if len(coords) >= 1 else 0.0
+    iy = float(coords[1]) if len(coords) >= 2 else 0.0
+    iz = float(coords[2]) if len(coords) >= 3 else 0.0
+
+    min_x, max_x, min_y, max_y = profile_bbox
+    min_x += ix
+    max_x += ix
+    min_y += iy
+    max_y += iy
+    min_z = iz
+    max_z = iz + float(item.Depth)
+
+    try:
+        matrix = ifcopenshell.util.placement.get_local_placement(element.ObjectPlacement)
+    except Exception:
+        matrix = None
+
+    world_xs: list[float] = []
+    world_ys: list[float] = []
+    world_zs: list[float] = []
+    for x in (min_x, max_x):
+        for y in (min_y, max_y):
+            for z in (min_z, max_z):
+                if matrix is None:
+                    world_xs.append(x)
+                    world_ys.append(y)
+                    world_zs.append(z)
+                else:
+                    world_xs.append(
+                        float(matrix[0][0] * x + matrix[0][1] * y + matrix[0][2] * z + matrix[0][3])
+                    )
+                    world_ys.append(
+                        float(matrix[1][0] * x + matrix[1][1] * y + matrix[1][2] * z + matrix[1][3])
+                    )
+                    world_zs.append(
+                        float(matrix[2][0] * x + matrix[2][1] * y + matrix[2][2] * z + matrix[2][3])
+                    )
+    return (
+        min(world_xs),
+        max(world_xs),
+        min(world_ys),
+        max(world_ys),
+        min(world_zs),
+        max(world_zs),
+    )
+
+
+def _local_box_bbox_world(
+    placement: ifcopenshell.entity_instance | None,
+    *,
+    min_x: float,
+    max_x: float,
+    min_y: float,
+    max_y: float,
+    min_z: float,
+    max_z: float,
+) -> tuple[float, float, float, float, float, float] | None:
+    try:
+        matrix = ifcopenshell.util.placement.get_local_placement(placement)
+    except Exception:
+        matrix = None
+
+    world_xs: list[float] = []
+    world_ys: list[float] = []
+    world_zs: list[float] = []
+    for x in (min_x, max_x):
+        for y in (min_y, max_y):
+            for z in (min_z, max_z):
+                if matrix is None:
+                    world_xs.append(x)
+                    world_ys.append(y)
+                    world_zs.append(z)
+                else:
+                    world_xs.append(
+                        float(matrix[0][0] * x + matrix[0][1] * y + matrix[0][2] * z + matrix[0][3])
+                    )
+                    world_ys.append(
+                        float(matrix[1][0] * x + matrix[1][1] * y + matrix[1][2] * z + matrix[1][3])
+                    )
+                    world_zs.append(
+                        float(matrix[2][0] * x + matrix[2][1] * y + matrix[2][2] * z + matrix[2][3])
+                    )
+    return (
+        min(world_xs),
+        max(world_xs),
+        min(world_ys),
+        max(world_ys),
+        min(world_zs),
+        max(world_zs),
+    )
+
+
 def _container_storey_id(product) -> str | None:
     try:
         container = ifcopenshell.util.element.get_container(product)
@@ -1840,6 +2012,83 @@ def _wall_z_range(
     return (z0, z0 + float(body.Depth))
 
 
+def _clamp_opening_z_to_wall(
+    host_wall: ifcopenshell.entity_instance,
+    z: float,
+    height: float,
+) -> float:
+    z_range = _wall_z_range(host_wall)
+    if z_range is None:
+        return z
+    min_z, max_z = z_range
+    max_bottom = max(min_z, max_z - height)
+    return min(max(z, min_z), max_bottom)
+
+
+def _clamp_window_z_below_overhead_slabs(
+    model: ifcopenshell.file,
+    host_wall: ifcopenshell.entity_instance,
+    z: float,
+    height: float,
+    *,
+    opening_u: float,
+    opening_v: float,
+    opening_length: float,
+    opening_thickness: float,
+    ew_wall: bool,
+) -> float:
+    wall_bbox = _element_body_bbox_world(host_wall)
+    if wall_bbox is None:
+        return z
+    _, _, _, _, wall_min_z, wall_max_z = wall_bbox
+
+    if ew_wall:
+        min_x = opening_u - (opening_length / 2.0)
+        max_x = opening_u + (opening_length / 2.0)
+        min_y = opening_v - (opening_thickness / 2.0)
+        max_y = opening_v + (opening_thickness / 2.0)
+    else:
+        min_x = opening_u - (opening_thickness / 2.0)
+        max_x = opening_u + (opening_thickness / 2.0)
+        min_y = opening_v - (opening_length / 2.0)
+        max_y = opening_v + (opening_length / 2.0)
+
+    opening_bbox = _local_box_bbox_world(
+        host_wall.ObjectPlacement,
+        min_x=min_x,
+        max_x=max_x,
+        min_y=min_y,
+        max_y=max_y,
+        min_z=z,
+        max_z=z + height,
+    )
+    if opening_bbox is None:
+        return z
+    opening_min_x, opening_max_x, opening_min_y, opening_max_y, _, _ = opening_bbox
+
+    clear_top = wall_max_z
+    for slab in model.by_type("IfcSlab"):
+        slab_bbox = _element_body_bbox_world(slab)
+        if slab_bbox is None:
+            continue
+        slab_min_x, slab_max_x, slab_min_y, slab_max_y, slab_min_z, _ = slab_bbox
+        overlaps_xy = (
+            opening_min_x < slab_max_x
+            and opening_max_x > slab_min_x
+            and opening_min_y < slab_max_y
+            and opening_max_y > slab_min_y
+        )
+        if not overlaps_xy:
+            continue
+        if wall_min_z < slab_min_z < clear_top:
+            clear_top = slab_min_z
+
+    host_origin, _ = _placement_origin_and_x_axis(host_wall.ObjectPlacement)
+    clear_top_local = clear_top - host_origin[2]
+    max_bottom = max(0.0, clear_top_local - height)
+    return min(z, max_bottom)
+
+
 def _axis_representation_present(
     wall: ifcopenshell.entity_instance | None,
 ) -> bool:
@@ -2312,7 +2561,7 @@ def _get_wall_local_coords(model, host_wall, x_mm, y_mm, z_mm):
                 item = item.FirstOperand
             if item.is_a("IfcExtrudedAreaSolid"):
                 dims = _profile_xy_dims(item.SweptArea)
-                center = _profile_xy_center(item.SweptArea)
+                center = _solid_profile_xy_center(item)
                 if dims is not None:
                     ew_wall = dims[0] >= dims[1]
                 if center is not None:
@@ -2390,11 +2639,13 @@ def create_door_with_opening(
         u, v, z, ew_wall = _get_wall_local_coords(
             model, host_wall, x_mm, y_mm, z_mm + sill_height_mm
         )
+        opening_height = _mm_to_model_units(model, height_mm, 2100)
+        z = _clamp_opening_z_to_wall(host_wall, z, opening_height)
         opening = _apply_opening(
             model, host_wall, u, v, z,
             _mm_to_model_units(model, length_mm, 900),
             _mm_to_model_units(model, width_mm, 200),
-            _mm_to_model_units(model, height_mm, 2100),
+            opening_height,
             ew_wall,
         )
         if opening is None:
@@ -2613,11 +2864,26 @@ def create_window_with_opening(
         u, v, z, ew_wall = _get_wall_local_coords(
             model, host_wall, x_mm, y_mm, z_mm + sill_height_mm
         )
+        opening_height = _mm_to_model_units(model, height_mm, 1200)
+        opening_length = _mm_to_model_units(model, length_mm, 1200)
+        opening_thickness = _mm_to_model_units(model, width_mm, 200)
+        z = _clamp_opening_z_to_wall(host_wall, z, opening_height)
+        z = _clamp_window_z_below_overhead_slabs(
+            model,
+            host_wall,
+            z,
+            opening_height,
+            opening_u=u,
+            opening_v=v,
+            opening_length=opening_length,
+            opening_thickness=opening_thickness,
+            ew_wall=ew_wall,
+        )
         opening = _apply_opening(
             model, host_wall, u, v, z,
-            _mm_to_model_units(model, length_mm, 1200),
-            _mm_to_model_units(model, width_mm, 200),
-            _mm_to_model_units(model, height_mm, 1200),
+            opening_length,
+            opening_thickness,
+            opening_height,
             ew_wall,
         )
         if opening is None:

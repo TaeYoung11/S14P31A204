@@ -13,10 +13,11 @@ export type WorkspaceCommandEntity =
   | 'connection'
   | (string & {})
 
-export type WorkspaceCreateOp = `create.${string}`
+export type WorkspaceCreateOp = 'create'
 export type WorkspaceUpdateOp = 'update'
 export type WorkspaceDeleteOp = 'delete'
 export type WorkspaceCommandOp = WorkspaceCreateOp | WorkspaceUpdateOp | WorkspaceDeleteOp
+export type WorkspaceCommandSource = '2d' | '3d'
 
 type WorkspaceRecord = Record<string, unknown>
 
@@ -59,17 +60,21 @@ export type WorkspaceCommand =
   | WorkspaceDeleteCommand
 
 export interface WorkspaceCommandMeta {
-  projectId?: string
-  clientId?: string
-  requestId?: string
-  source?: 'bubble' | '2d' | '3d' | 'assistant' | 'ifc' | (string & {})
+  source: WorkspaceCommandSource
+  clientId: string
+  userId?: string
+  createdAt: string
 }
 
 export interface WorkspaceCommandEnvelope<
   Command extends WorkspaceCommand = WorkspaceCommand,
 > {
   type: 'command'
-  schemaVersion?: 'v1'
+  schemaVersion: 'v1'
+  commandId: string
+  projectId: string
+  baseRevisionId: string
+  baseIndex: number
   command: Command
-  meta?: WorkspaceCommandMeta
+  meta: WorkspaceCommandMeta
 }
