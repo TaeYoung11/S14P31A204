@@ -139,6 +139,7 @@ class Ifc2ImgWorkerSuccessResponse(TypedDict):
     status: Literal["SUCCESS"]
     renderMode: Ifc2ImgWorkerRenderMode
     preset: str
+    timeOfDay: Ifc2ImgWorkerTimeOfDay
     manifestStorageUrl: str
     photos: list[Ifc2ImgWorkerPhotoOutput]
 
@@ -220,6 +221,7 @@ class Ifc2ImgPhotoManifest:
     source_ifc_path: Path
     preset: str
     outputs: tuple[Ifc2ImgPhotoViewResult, ...]
+    time_of_day: Ifc2ImgWorkerTimeOfDay = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY
     schema_version: str = PHOTO_MANIFEST_SCHEMA_VERSION
     render_mode: str = "ifc2img"
 
@@ -230,6 +232,7 @@ class Ifc2ImgPhotoManifest:
             "renderMode": self.render_mode,
             "sourceIfcPath": str(self.source_ifc_path),
             "preset": self.preset,
+            "timeOfDay": self.time_of_day,
             "views": [
                 {
                     "view": output.view,
@@ -250,6 +253,7 @@ class Ifc2ImgPhotoJobResult:
     output_dir: Path
     outputs: tuple[Ifc2ImgPhotoViewResult, ...]
     manifest_path: Path
+    time_of_day: Ifc2ImgWorkerTimeOfDay = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY
 
 
 def resolve_photo_views() -> tuple[PhotoViewAlias, ...]:
@@ -334,12 +338,14 @@ def build_photo_manifest(
     source_ifc_path: Path,
     preset: str,
     outputs: tuple[Ifc2ImgPhotoViewResult, ...],
+    time_of_day: Ifc2ImgWorkerTimeOfDay = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY,
 ) -> dict[str, object]:
     """worker manifest 타입을 기존 JSON dict 구조로 변환한다."""
     return Ifc2ImgPhotoManifest(
         source_ifc_path=source_ifc_path,
         preset=preset,
         outputs=outputs,
+        time_of_day=time_of_day,
     ).to_dict()
 
 
@@ -520,6 +526,9 @@ def run_ifc2img_photo_pipeline(
     if preset not in list_presets():
         raise IFCRenderError(f"unknown preset: {preset}")
     preset_time_of_day = normalize_ifc2img_time_of_day(time_of_day)
+    worker_time_of_day: Ifc2ImgWorkerTimeOfDay = (
+        "DAY" if preset_time_of_day == "day" else "NIGHT"
+    )
 
     public_views = resolve_photo_views()
     internal_views = list(PHOTO_INTERNAL_VIEWS)
@@ -540,6 +549,7 @@ def run_ifc2img_photo_pipeline(
         ifcPath=str(ifc_path),
         outputDir=str(output_dir),
         preset=preset,
+        timeOfDay=worker_time_of_day,
         views=[view.value for view in internal_views],
         requiresSemanticControlnet=requires_semantic,
     )
@@ -571,6 +581,7 @@ def run_ifc2img_photo_pipeline(
             view=public_view,
             internalView=internal_view.value,
             preset=preset,
+            timeOfDay=worker_time_of_day,
             renderOptions=render_option_label(preset, internal_view),
         )
         result = render_photo_view(
@@ -614,6 +625,7 @@ def run_ifc2img_photo_pipeline(
         Ifc2ImgPhotoManifest(
             source_ifc_path=ifc_path,
             preset=preset,
+            time_of_day=worker_time_of_day,
             outputs=output_tuple,
         ),
     )
@@ -627,6 +639,7 @@ def run_ifc2img_photo_pipeline(
         output_dir=output_dir,
         outputs=output_tuple,
         manifest_path=manifest_path,
+        time_of_day=worker_time_of_day,
     )
 
 
@@ -662,10 +675,14 @@ def handle_ifc2img_worker_request(
     )
     preset = request["payload"]["preset"]
     time_of_day = request["payload"].get("timeOfDay")
+    worker_time_of_day: Ifc2ImgWorkerTimeOfDay = (
+        "DAY" if normalize_ifc2img_time_of_day(time_of_day) == "day" else "NIGHT"
+    )
     _logger.info(
         "ifc2img_worker_request_started",
         renderMode=request["payload"]["renderMode"],
         preset=preset,
+        timeOfDay=worker_time_of_day,
         sourceIfcStorageUrl=source_storage_url,
         manifestTargetStorageUrl=manifest_target_url,
         workDir=str(work_dir),
@@ -689,17 +706,19 @@ def handle_ifc2img_worker_request(
         ifcPath=str(source_ifc_path),
         outputDir=str(output_dir),
         preset=preset,
+        timeOfDay=worker_time_of_day,
     )
     result = pipeline(
         source_ifc_path,
         output_dir,
         preset=preset,
-        time_of_day=time_of_day,
+        time_of_day=worker_time_of_day,
     )
     _logger.info(
         "ifc2img_pipeline_completed",
         manifestPath=str(result.manifest_path),
         photoCount=len(result.outputs),
+        timeOfDay=result.time_of_day,
     )
 
     _logger.info(
@@ -760,6 +779,7 @@ def handle_ifc2img_worker_request(
         "ifc2img_worker_request_completed",
         renderMode=IFC2IMG_WORKER_RENDER_MODE,
         preset=result.preset,
+        timeOfDay=result.time_of_day,
         manifestStorageUrl=manifest_url,
         photoCount=len(photos),
     )
@@ -767,6 +787,7 @@ def handle_ifc2img_worker_request(
         "status": "SUCCESS",
         "renderMode": IFC2IMG_WORKER_RENDER_MODE,
         "preset": result.preset,
+        "timeOfDay": result.time_of_day,
         "manifestStorageUrl": manifest_url,
         "photos": photos,
     }
