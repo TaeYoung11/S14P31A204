@@ -81,16 +81,24 @@ def test_load_preset_day_appends_day_suffix() -> None:
 def test_load_preset_night_appends_night_suffix() -> None:
     """night variant가 기본 preset 정체성은 유지하면서 야간 cue만 추가하는지 확인한다."""
     p = load_preset("korean_villa", "night")
-    assert "night exterior photo" in p.prompt
+    assert "night exterior" in p.prompt
     assert "dark sky" in p.prompt
-    assert "warm interior window lights" in p.prompt
-    assert "subtle exterior lighting" in p.prompt
+    assert "warm window lights" in p.prompt
+    assert "soft exterior lights" in p.prompt
     assert "no overexposure" in p.prompt
     assert "outdoor daylight" not in p.prompt
     assert "daytime" in p.negative_prompt
     assert "blue sky" in p.negative_prompt
     assert "overexposed lights" in p.negative_prompt
     assert "minimal Korean house" in p.prompt
+
+
+def test_load_preset_night_prompt_stays_compact_for_clip() -> None:
+    """Night prompt should leave room for view prefixes before CLIP truncation."""
+    p = load_preset("korean_house", "night")
+    prompt_words = len(p.prompt.replace(",", " ").split())
+
+    assert prompt_words <= 45
 
 
 def test_korean_villa_prompt_uses_compact_flat_ground_prior() -> None:
