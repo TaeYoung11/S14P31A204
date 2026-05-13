@@ -157,22 +157,17 @@ async def _execute_preview_for_instruction(
         preview["split_instruction"] = command_text
         previews.append(preview)
 
-    blocked = next(
-        (preview for preview in previews if preview.get("status") != "preview_ready"),
-        None,
-    )
-    if blocked is not None:
-        blocked_index = blocked.get("split_index")
-        summary = blocked.get("summary") or blocked.get("message") or "명령 preview에 실패했습니다."
-        return {
-            **blocked,
-            "summary": (
-                f"{blocked_index}번째 명령 처리 실패: {summary}"
-                if blocked_index
-                else summary
-            ),
-            "split_results": previews,
-        }
+        if preview.get("status") != "preview_ready":
+            summary = (
+                preview.get("summary")
+                or preview.get("message")
+                or "명령 preview에 실패했습니다."
+            )
+            return {
+                **preview,
+                "summary": f"{index}번째 명령 처리 실패: {summary}",
+                "split_results": previews,
+            }
 
     return {
         "status": "preview_ready",

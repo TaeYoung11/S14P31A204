@@ -174,6 +174,53 @@ def test_planning_worker_stores_split_chat_as_multiple_schema_commands() -> None
     ]
 
 
+def test_planning_worker_split_chat_fails_fast_without_partial_commands() -> None:
+    command = _with_user_instruction(
+        _load_sample_command(),
+        "1층 거실에 문 만들어주고 2층 화장실에 창문 만들어주고 지붕 돌려줘",
+    )
+    mock_s3 = MagicMock()
+    mock_s3.read_bytes.return_value = _sample_ifc_bytes()
+    mock_s3.write_text.return_value = "s3://mock-bucket/output.json"
+
+    worker = PlanningWorker(
+        worker_id="test-worker-1",
+        event_publisher=MagicMock(),
+        s3=mock_s3,
+    )
+
+    with patch(
+        "ai_planning_3d.worker.LLM3DPipeline.execute_preview",
+        new_callable=AsyncMock,
+    ) as mock_execute:
+        mock_execute.side_effect = [
+            _preview_ready_create("1층 거실에 문 만들어줘", "IfcDoor"),
+            {
+                "status": "needs_clarification",
+                "session_id": "session-window-clarification",
+                "summary": "창문 위치 확인이 필요합니다.",
+                "clarification_questions": [
+                    {"id": "q1", "label": "창문 위치", "options": []}
+                ],
+            },
+        ]
+
+        result = worker.process(command)
+
+    assert isinstance(result, ClarificationResult)
+    assert [call.args for call in mock_execute.await_args_list] == [
+        ("1층 거실에 문 만들어줘",),
+        ("2층 화장실에 창문 만들어줘",),
+    ]
+    assert result.error.clarification_request_id == "session-window-clarification"
+    assert result.error.message == "2번째 명령 처리 실패: 창문 위치 확인이 필요합니다."
+
+    stored_payload = json.loads(mock_s3.write_text.call_args.kwargs["text"])
+    Draft202012Validator(_planner_3d_schema()).validate(stored_payload)
+    assert stored_payload["status"] == "clarification_required"
+    assert stored_payload["commands"] == []
+
+
 def test_planning_worker_returns_clarification_without_downstream_publish() -> None:
     command = _load_sample_command()
     mock_s3 = MagicMock()
