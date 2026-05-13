@@ -413,6 +413,29 @@ def test_renderer_offscreen_iterative_zoom_uses_target_ratio() -> None:
     assert capture.call_args_list[1].args[3] == pytest.approx(0.5)
 
 
+def test_renderer_offscreen_raycast_produces_non_empty_depth_for_ifc_fixture(
+    ifc4_fixture: Path,
+) -> None:
+    """Real Open3D raycast should produce non-empty depth for an actual IFC mesh."""
+    base_mesh, center = load_mesh(ifc4_fixture)
+    renderer = IFCRenderer(width=160, height=96, auto_zoom=False)
+    view_mesh = renderer._build_grounded_mesh(base_mesh, IFCView.FRONT_DIAGONAL_LEFT)
+
+    image = renderer._render_mesh_offscreen(
+        view_mesh,
+        center,
+        VIEW_CAMERAS[IFCView.FRONT_DIAGONAL_LEFT],
+        initial_zoom=VIEW_CAMERAS[IFCView.FRONT_DIAGONAL_LEFT].zoom,
+        target_ratio=VIEW_TARGET_RATIOS[IFCView.FRONT_DIAGONAL_LEFT],
+    )
+    arr = np.asarray(image)
+
+    assert image.mode == "L"
+    assert image.size == (160, 96)
+    assert arr.max() > 0
+    assert np.count_nonzero(arr) > 0
+
+
 def test_renderer_calls_depth_buffer(monkeypatch: pytest.MonkeyPatch) -> None:
     """IFCRenderer가 화면 RGB가 아니라 depth float buffer를 캡처하는지 확인한다.
     
