@@ -161,15 +161,12 @@ export function useBubbleSnapshotRealtime({
       floorPlanHistoryCursorHandlerRef.current?.(floorPlanBaseIndexRef.current, floorPlanRedoDepthRef.current)
     }
 
-    const toRestoredHistoryIndex = (payloadBaseIndex: number | null): number | null =>
-      payloadBaseIndex === null ? null : payloadBaseIndex + 1
-
     const syncBubbleHistoryCursor = (action: string | null, payloadBaseIndex: number | null) => {
       if (action === WORKSPACE_SYNC_ACTION.bubbleUndo) {
-        baseIndexRef.current = toRestoredHistoryIndex(payloadBaseIndex) ?? Math.max(-1, baseIndexRef.current - 1)
+        baseIndexRef.current = Math.max(-1, baseIndexRef.current - 1)
         bubbleRedoDepthRef.current += 1
       } else if (action === WORKSPACE_SYNC_ACTION.bubbleRedo) {
-        baseIndexRef.current = toRestoredHistoryIndex(payloadBaseIndex) ?? baseIndexRef.current + 1
+        baseIndexRef.current = Math.min(WORKSPACE_HISTORY_MAX_INDEX, baseIndexRef.current + 1)
         bubbleRedoDepthRef.current = Math.max(0, bubbleRedoDepthRef.current - 1)
       } else {
         baseIndexRef.current = (payloadBaseIndex ?? baseIndexRef.current) + 1
@@ -180,13 +177,12 @@ export function useBubbleSnapshotRealtime({
 
     const syncFloorPlanHistoryCursor = (action: string | null, payloadBaseIndex: number | null) => {
       if (action === WORKSPACE_SYNC_ACTION.floorPlanUndo) {
-        floorPlanBaseIndexRef.current =
-          toRestoredHistoryIndex(payloadBaseIndex) ?? Math.max(-1, floorPlanBaseIndexRef.current - 1)
+        floorPlanBaseIndexRef.current = Math.max(-1, floorPlanBaseIndexRef.current - 1)
         floorPlanRedoDepthRef.current += 1
       } else if (action === WORKSPACE_SYNC_ACTION.floorPlanRedo) {
         floorPlanBaseIndexRef.current = Math.min(
           WORKSPACE_HISTORY_MAX_INDEX,
-          toRestoredHistoryIndex(payloadBaseIndex) ?? floorPlanBaseIndexRef.current + 1,
+          floorPlanBaseIndexRef.current + 1,
         )
         floorPlanRedoDepthRef.current = Math.max(0, floorPlanRedoDepthRef.current - 1)
       } else if (action === WORKSPACE_SYNC_ACTION.floorPlanUpdated) {
@@ -258,11 +254,11 @@ export function useBubbleSnapshotRealtime({
         return
       }
 
-      const hasIfcStorageUrl = Boolean(extractIfcStorageUrl(parsed))
-      const isFinalFloorPlanWorkerCompletion =
-        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated && hasIfcStorageUrl
+      const floorPlanSnapshot = extractFloorPlanSnapshot(parsed)
+      const isFloorPlanSnapshotUpdate =
+        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated && floorPlanSnapshot !== null
       const shouldApplyFloorPlanHistoryEvent =
-        isFinalFloorPlanWorkerCompletion ||
+        isFloorPlanSnapshotUpdate ||
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
 
@@ -277,7 +273,6 @@ export function useBubbleSnapshotRealtime({
       }
 
       if (shouldApplyFloorPlanHistoryEvent) {
-        const floorPlanSnapshot = extractFloorPlanSnapshot(parsed)
         if (floorPlanSnapshot) {
           applyFloorPlanSnapshot(floorPlanSnapshot)
         }

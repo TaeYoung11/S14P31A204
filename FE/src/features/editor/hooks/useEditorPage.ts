@@ -575,7 +575,9 @@ export function useEditorPage() {
   const attemptedInitialIfcImportProjectIdRef = useRef<string | null>(null)
   const [historyIfcHydratedProjectIds, setHistoryIfcHydratedProjectIds] = useState<string[]>([])
   const bubbleHistoryBaseIndexRef = useRef(-1)
+  const bubbleHistoryRedoDepthRef = useRef(0)
   const floorPlanHistoryBaseIndexRef = useRef(-1)
+  const floorPlanHistoryRedoDepthRef = useRef(0)
   const previousSnapshotRef = useRef<string | null>(null)
   const latestBubbleSnapshotRef = useRef<{ bubbles: BubbleData[]; connections: ConnectionData[] }>({
     bubbles,
@@ -1160,7 +1162,9 @@ export function useEditorPage() {
     pendingServerPublishRef.current = null
     awaitingServerSyncRef.current = null
     bubbleHistoryBaseIndexRef.current = -1
+    bubbleHistoryRedoDepthRef.current = 0
     floorPlanHistoryBaseIndexRef.current = -1
+    floorPlanHistoryRedoDepthRef.current = 0
     setBubbleHistoryCursor({ baseIndex: -1, redoDepth: 0 })
     setFloorPlanHistoryCursor({ baseIndex: -1, redoDepth: 0 })
     replaceBubblesForBootstrap([])
@@ -1293,7 +1297,9 @@ export function useEditorPage() {
       const floorPlanBaseIndex = history.floorPlan?.baseIndex ?? -1
       const floorPlanRedoDepth = history.floorPlan?.redoDepth ?? 0
       bubbleHistoryBaseIndexRef.current = bubbleBaseIndex
+      bubbleHistoryRedoDepthRef.current = bubbleRedoDepth
       floorPlanHistoryBaseIndexRef.current = floorPlanBaseIndex
+      floorPlanHistoryRedoDepthRef.current = floorPlanRedoDepth
       setBubbleHistoryCursor({ baseIndex: bubbleBaseIndex, redoDepth: bubbleRedoDepth })
       setFloorPlanHistoryCursor({ baseIndex: floorPlanBaseIndex, redoDepth: floorPlanRedoDepth })
 
@@ -1559,6 +1565,7 @@ export function useEditorPage() {
 
   const updateBubbleHistoryCursor = useCallback((baseIndex: number, redoDepth: number) => {
     bubbleHistoryBaseIndexRef.current = baseIndex
+    bubbleHistoryRedoDepthRef.current = redoDepth
     setBubbleHistoryCursor({ baseIndex, redoDepth })
     const awaitingSync = awaitingServerSyncRef.current
     if (!awaitingSync) return
@@ -1578,6 +1585,7 @@ export function useEditorPage() {
   const updateFloorPlanHistoryCursor = useCallback((baseIndex: number, redoDepth: number) => {
     floorPlanHistoryCommandInFlightRef.current = false
     floorPlanHistoryBaseIndexRef.current = baseIndex
+    floorPlanHistoryRedoDepthRef.current = redoDepth
     setFloorPlanHistoryCursor({ baseIndex, redoDepth })
     const awaitingSync = awaitingServerSyncRef.current
     if (!awaitingSync) return
@@ -1780,7 +1788,9 @@ export function useEditorPage() {
     const floorPlanRedoDepth = history.floorPlan?.redoDepth ?? 0
 
     bubbleHistoryBaseIndexRef.current = bubbleBaseIndex
+    bubbleHistoryRedoDepthRef.current = bubbleRedoDepth
     floorPlanHistoryBaseIndexRef.current = floorPlanBaseIndex
+    floorPlanHistoryRedoDepthRef.current = floorPlanRedoDepth
     setBubbleHistoryCursor({ baseIndex: bubbleBaseIndex, redoDepth: bubbleRedoDepth })
     setFloorPlanHistoryCursor({ baseIndex: floorPlanBaseIndex, redoDepth: floorPlanRedoDepth })
 
@@ -2395,7 +2405,17 @@ export function useEditorPage() {
     if (nextMode === 'view' || nextMode === 'bubble') setIsAgentPanelMode(false)
     if (nextMode !== '3d') setSelectedIfcElement(null)
     setIsLibraryOpen(false)
-  }, [currentIfcUrl, mode, resetToolSelection, setSearchParams])
+  }, [
+    currentIfcUrl,
+    mode,
+    resetToolSelection,
+    setIsAgentPanelMode,
+    setIsCollaborationMode,
+    setIsGenerate3DModalOpen,
+    setIsLibraryOpen,
+    setSearchParams,
+    setSelectedIfcElement,
+  ])
 
   const handleOpenProjectFromCommentToast = useCallback((targetProjectId: string, pinId?: string) => {
     const pinQuery = pinId ? `&pinId=${encodeURIComponent(pinId)}` : ''
@@ -3167,6 +3187,7 @@ export function useEditorPage() {
         undoUnsyncedLocalBubbleChange()
         return
       }
+      if (bubbleHistoryBaseIndexRef.current <= 0) return
       try {
         publishBubbleUndoRequest(projectId, { baseIndex: bubbleHistoryBaseIndexRef.current })
       } catch (error: unknown) {
@@ -3177,6 +3198,7 @@ export function useEditorPage() {
 
     if (!isFloorPlanHistoryMode || !canUndo) return
     if (floorPlanHistoryCommandInFlightRef.current) return
+    if (floorPlanHistoryBaseIndexRef.current <= 0) return
     try {
       floorPlanHistoryCommandInFlightRef.current = true
       setSaveStatus('syncing')
@@ -3200,6 +3222,7 @@ export function useEditorPage() {
     if (!projectId) return
     if (mode === 'bubble') {
       if (!canRedo) return
+      if (bubbleHistoryRedoDepthRef.current <= 0) return
       try {
         publishBubbleRedoRequest(projectId, { baseIndex: bubbleHistoryBaseIndexRef.current })
       } catch (error: unknown) {
@@ -3210,6 +3233,7 @@ export function useEditorPage() {
 
     if (!isFloorPlanHistoryMode || !canRedo) return
     if (floorPlanHistoryCommandInFlightRef.current) return
+    if (floorPlanHistoryRedoDepthRef.current <= 0) return
     try {
       floorPlanHistoryCommandInFlightRef.current = true
       setSaveStatus('syncing')
