@@ -13,6 +13,7 @@ import numpy as np
 from .exceptions import IFCRenderError
 
 IfcSemanticCategory = Literal["FLOOR", "ROOF", "WALL", "WINDOW", "DOOR"]
+ScreenRegion = Literal["top", "middle", "bottom", "unknown"]
 SUPPORTED_SEMANTIC_CATEGORIES: tuple[IfcSemanticCategory, ...] = (
     "FLOOR",
     "ROOF",
@@ -127,6 +128,60 @@ class IfcSemanticSummary:
         return tuple(element for element in self.elements if element.category == "DOOR")
 
 
+@dataclass(frozen=True)
+class IfcSemanticScreenMaskStats:
+    category: IfcSemanticCategory
+    pixel_count: int
+    y_min: int | None
+    y_max: int | None
+    image_height: int
+
+    @property
+    def y_center(self) -> float | None:
+        if self.y_min is None or self.y_max is None:
+            return None
+        return (self.y_min + self.y_max) / 2.0
+
+    @property
+    def screen_region(self) -> ScreenRegion:
+        center = self.y_center
+        if self.pixel_count <= 0 or center is None or self.image_height <= 0:
+            return "unknown"
+        if center < self.image_height / 3:
+            return "top"
+        if center > self.image_height * 2 / 3:
+            return "bottom"
+        return "middle"
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "category": self.category,
+            "pixelCount": self.pixel_count,
+            "yMin": self.y_min,
+            "yMax": self.y_max,
+            "yCenter": self.y_center,
+            "screenRegion": self.screen_region,
+        }
+
+
+@dataclass(frozen=True)
+class IfcProjectionDiagnostics:
+    vertical_inversion_suspected: bool
+    floor_screen_region: ScreenRegion
+    roof_screen_region: ScreenRegion
+    floor_above_roof_on_screen: bool | None
+    floor_below_roof_in_world: bool | None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "verticalInversionSuspected": self.vertical_inversion_suspected,
+            "floorScreenRegion": self.floor_screen_region,
+            "roofScreenRegion": self.roof_screen_region,
+            "floorAboveRoofOnScreen": self.floor_above_roof_on_screen,
+            "floorBelowRoofInWorld": self.floor_below_roof_in_world,
+        }
+
+
 def extract_ifc_semantic_summary(ifc_path: Path | str) -> IfcSemanticSummary:
     """Extract key architectural IFC elements with world-space geometry bounds."""
     ifc_path = Path(ifc_path)
@@ -171,6 +226,54 @@ def extract_ifc_semantic_summary(ifc_path: Path | str) -> IfcSemanticSummary:
         source_ifc_path=ifc_path,
         elements=tuple(elements),
         categories=_summarize_categories(elements),
+    )
+
+
+def diagnose_projection_vertical_inversion(
+    semantic_summary: IfcSemanticSummary,
+    screen_masks: dict[IfcSemanticCategory, IfcSemanticScreenMaskStats],
+) -> IfcProjectionDiagnostics:
+    """Compare IFC world z semantics with screen y positions for inversion clues."""
+    floor_summary = semantic_summary.categories["FLOOR"]
+    roof_summary = semantic_summary.categories["ROOF"]
+    floor_below_roof_in_world: bool | None
+    if (
+        floor_summary.z_max is None
+        or roof_summary.z_min is None
+        or floor_summary.count == 0
+        or roof_summary.count == 0
+    ):
+        floor_below_roof_in_world = None
+    else:
+        floor_below_roof_in_world = floor_summary.z_max < roof_summary.z_min
+
+    floor_mask = screen_masks.get("FLOOR")
+    roof_mask = screen_masks.get("ROOF")
+    floor_above_roof_on_screen: bool | None
+    if (
+        floor_mask is None
+        or roof_mask is None
+        or floor_mask.y_center is None
+        or roof_mask.y_center is None
+    ):
+        floor_above_roof_on_screen = None
+    else:
+        floor_above_roof_on_screen = floor_mask.y_center < roof_mask.y_center
+
+    vertical_inversion_suspected = bool(
+        floor_below_roof_in_world is True
+        and floor_above_roof_on_screen is True
+    )
+    return IfcProjectionDiagnostics(
+        vertical_inversion_suspected=vertical_inversion_suspected,
+        floor_screen_region=(
+            floor_mask.screen_region if floor_mask is not None else "unknown"
+        ),
+        roof_screen_region=(
+            roof_mask.screen_region if roof_mask is not None else "unknown"
+        ),
+        floor_above_roof_on_screen=floor_above_roof_on_screen,
+        floor_below_roof_in_world=floor_below_roof_in_world,
     )
 
 
