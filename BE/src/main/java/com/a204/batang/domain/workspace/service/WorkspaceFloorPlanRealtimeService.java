@@ -1,11 +1,15 @@
 package com.a204.batang.domain.workspace.service;
 
+import com.a204.batang.domain.ifcedit.IfcEditConstants;
+import com.a204.batang.domain.ifcedit.dto.DirectIfcEditRequest;
+import com.a204.batang.domain.ifcedit.service.DirectIfcEditCommandService;
 import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanRedoRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanUndoRequest;
 import com.a204.batang.domain.workspace.dto.PublishFloorPlanUpdatedRequest;
+import com.a204.batang.domain.workspace.dto.WorkspaceCommand;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
 import com.a204.batang.domain.workspace.repository.WorkspaceBubbleSnapshotRedisRepository;
@@ -43,16 +47,19 @@ import java.util.UUID;
 public class WorkspaceFloorPlanRealtimeService {
 
     private static final String PROJECT_FLOOR_PLAN_SYNC_TOPIC_TEMPLATE = "/topic/project/%s/floor-plan/sync";
+    private static final String ACTION_FLOOR_PLAN_PROCESSING = "FLOOR_PLAN_PROCESSING";
     private static final String ACTION_FLOOR_PLAN_UPDATED = "FLOOR_PLAN_UPDATED";
     private static final String ACTION_FLOOR_PLAN_GENERATE_COMPLETED = "FLOOR_PLAN_GENERATE_COMPLETED";
     private static final String ACTION_FLOOR_PLAN_UNDO = "FLOOR_PLAN_UNDO";
     private static final String ACTION_FLOOR_PLAN_REDO = "FLOOR_PLAN_REDO";
+    private static final String DIRECT_IFC_SCHEMA_VERSION = "v1";
 
     private final ProjectWorkspaceRepository projectWorkspaceRepository;
     private final ProjectAccessService projectAccessService;
     private final BubbleSnapshotHelper bubbleSnapshotHelper;
     private final WorkspaceBubbleSnapshotRedisRepository workspaceBubbleSnapshotRedisRepository;
     private final FloorPlanS3DeleteQueueService floorPlanS3DeleteQueueService;
+    private final DirectIfcEditCommandService directIfcEditCommandService;
     private final S3ObjectPresigner s3ObjectPresigner;
     private final SimpMessagingTemplate simpMessagingTemplate;
     private final ObjectMapper objectMapper;
@@ -70,25 +77,39 @@ public class WorkspaceFloorPlanRealtimeService {
     @Transactional
     public void relayFloorPlanDraft(UUID projectId, UUID currentUserId, FloorPlanRealtimeUpdateRequest request) {
         validateRealtimePayloadOrThrow(request);
+        validateEnvelope(projectId, currentUserId, request.workspaceCommand());
 
         ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
         projectAccessService.validateProjectOwnerOrThrow(workspace.getProject(), currentUserId);
 
         String resolvedRevisionId = resolveRevisionId(request.revisionId(), workspace.getCurrentRevision());
         JsonNode syncPayload = buildSyncPayload(request, resolvedRevisionId);
-        JsonNode floorPlanHistorySnapshot = buildFloorPlanHistorySnapshot(syncPayload, null);
-        saveFloorPlanSnapshotToRedisOrThrow(projectId, floorPlanHistorySnapshot, request.baseIndex());
+        boolean queued = requestPythonRenderAsync(
+                projectId,
+                currentUserId,
+                resolvedRevisionId,
+                request.workspaceCommand(),
+                syncPayload
+        );
+        if (!queued) {
+            log.debug(
+                    "Skip floor-plan realtime enqueue because IFC edit job is already active. projectId={}, revisionId={}",
+                    projectId,
+                    resolvedRevisionId
+            );
+            return;
+        }
 
         broadcastFloorPlanSync(
                 projectId,
                 workspace,
-                ACTION_FLOOR_PLAN_UPDATED,
+                ACTION_FLOOR_PLAN_PROCESSING,
                 resolvedRevisionId,
                 syncPayload,
                 null
         );
 
-        log.info("Floor-plan snapshot event relayed. projectId={}, revisionId={}", projectId, resolvedRevisionId);
+        log.info("Floor-plan processing event relayed. projectId={}, revisionId={}", projectId, resolvedRevisionId);
     }
 
     /**
@@ -228,7 +249,7 @@ public class WorkspaceFloorPlanRealtimeService {
             UUID requestedBy,
             String failureMessage
     ) {
-        notifyIfcEditDlqFailureToUser(requestedBy, failureMessage);
+        notifyIfcEditFailureToUser(requestedBy, ErrorCode.IFC_EDIT_COMMAND_DLQ, failureMessage);
 
         if (projectId == null || sourceRevisionId == null) {
             log.warn("Skip IFC_EDIT DLQ rollback relay because projectId/sourceRevisionId is missing. projectId={}, sourceRevisionId={}",
@@ -441,8 +462,116 @@ public class WorkspaceFloorPlanRealtimeService {
         return new FloorPlanHistorySnapshot(revisionId, floorPlanPayloadJson, s3Url);
     }
 
+    /**
+     * floor-plan draft를 direct ifcedit 작업으로 비동기 요청한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param currentUserId 요청 사용자 ID
+     * @param revisionId 기준 revision ID
+     * @param workspaceCommand ifcedit 엔진 요청 command
+     * @param sourceScenePayload floor-plan source scene payload
+     * @return 작업이 큐에 정상 등록되면 true, 충돌로 스킵되면 false
+     */
+    private boolean requestPythonRenderAsync(
+            UUID projectId,
+            UUID currentUserId,
+            String revisionId,
+            WorkspaceCommand workspaceCommand,
+            JsonNode sourceScenePayload
+    ) {
+        UUID baseRevisionId = parseRevisionIdOrThrow(revisionId);
+        DirectIfcEditRequest directRequest = new DirectIfcEditRequest(
+                DIRECT_IFC_SCHEMA_VERSION,
+                UUID.randomUUID(),
+                baseRevisionId,
+                null,
+                IfcEditConstants.SCENE_TYPE_IFC_MODEL,
+                workspaceCommand
+        );
+        try {
+            directIfcEditCommandService.createDirectIfcEdit(projectId, currentUserId, directRequest, sourceScenePayload);
+            log.info("Workspace floor-plan realtime request routed to DirectIfcEditCommandService. projectId={}, baseRevisionId={}",
+                    projectId, baseRevisionId);
+            return true;
+        } catch (CustomException exception) {
+            if (exception.getErrorCode() == ErrorCode.IFC_EDIT_JOB_CONFLICT) {
+                return false;
+            }
+            throw exception;
+        }
+    }
+
+    private UUID parseRevisionIdOrThrow(String revisionId) {
+        if (revisionId == null || revisionId.isBlank()) {
+            throw new CustomException(
+                    ErrorCode.IFC_EDIT_SOURCE_NOT_FOUND,
+                    "ifcedit 연동에는 UUID 형식의 base revisionId가 필요합니다."
+            );
+        }
+
+        try {
+            return UUID.fromString(revisionId.trim());
+        } catch (IllegalArgumentException exception) {
+            throw new CustomException(
+                    ErrorCode.IFC_EDIT_SOURCE_NOT_FOUND,
+                    "ifcedit 연동에는 UUID 형식의 base revisionId가 필요합니다."
+            );
+        }
+    }
+
     private void validateRealtimePayloadOrThrow(FloorPlanRealtimeUpdateRequest request) {
         bubbleSnapshotHelper.validatePayloadOrThrow(request);
+    }
+
+    /**
+     * 실시간 floor-plan 요청에 포함된 workspace command를 검증한다.
+     *
+     * @param pathProjectId STOMP 경로 프로젝트 ID
+     * @param currentUserId 인증 사용자 ID
+     * @param workspaceCommand 클라이언트 명령
+     */
+    private void validateEnvelope(UUID pathProjectId, UUID currentUserId, WorkspaceCommand workspaceCommand) {
+        if (pathProjectId == null) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST, "projectId is required.");
+        }
+        if (currentUserId == null) {
+            throw new CustomException(ErrorCode.UNAUTHORIZED);
+        }
+        if (workspaceCommand == null) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST, "workspaceCommand is required.");
+        }
+
+        if ("update".equals(workspaceCommand.op())
+                && (workspaceCommand.patch() == null
+                || !workspaceCommand.patch().isObject()
+                || workspaceCommand.patch().isEmpty())) {
+            throw new CustomException(
+                    ErrorCode.INVALID_REQUEST,
+                    "update command patch must include at least one field."
+            );
+        }
+
+        if ("create".equals(workspaceCommand.op())
+                && (workspaceCommand.data() == null || !workspaceCommand.data().isObject())) {
+            throw new CustomException(
+                    ErrorCode.INVALID_REQUEST,
+                    "create command data is required."
+            );
+        }
+
+        String entity = workspaceCommand.entity();
+        if (!"create".equals(workspaceCommand.op())
+                && ("wall".equals(entity)
+                || "door".equals(entity)
+                || "window".equals(entity)
+                || "opening".equals(entity)
+                || "ifcElement".equals(entity))
+                && (workspaceCommand.id() == null || workspaceCommand.id().isBlank())) {
+            throw new CustomException(
+                    ErrorCode.INVALID_REQUEST,
+                    "existing IFC element command id/globalId is required."
+            );
+        }
     }
 
     private String resolveRevisionId(String requestRevisionId, String workspaceRevisionId) {
@@ -541,19 +670,26 @@ public class WorkspaceFloorPlanRealtimeService {
         return fallbackPayload;
     }
 
-    private void notifyIfcEditDlqFailureToUser(UUID requestedBy, String failureMessage) {
+    /**
+     * IFC_EDIT 비동기 실패를 사용자 개인 에러 채널로 전달한다.
+     *
+     * @param requestedBy 알림 대상 사용자 ID
+     * @param errorCode 응답 코드
+     * @param failureMessage 사용자에게 전달할 메시지
+     */
+    public void notifyIfcEditFailureToUser(UUID requestedBy, ErrorCode errorCode, String failureMessage) {
         if (requestedBy == null) {
             return;
         }
 
-        ErrorCode errorCode = ErrorCode.IFC_EDIT_COMMAND_DLQ;
+        ErrorCode resolvedErrorCode = errorCode == null ? ErrorCode.INTERNAL_SERVER_ERROR : errorCode;
         String resolvedMessage = (failureMessage == null || failureMessage.isBlank())
-                ? errorCode.getMessage()
+                ? resolvedErrorCode.getMessage()
                 : failureMessage;
 
         ErrorResponse response = ErrorResponse.builder()
-                .status(errorCode.getStatus().value())
-                .code(errorCode.getCode())
+                .status(resolvedErrorCode.getStatus().value())
+                .code(resolvedErrorCode.getCode())
                 .message(resolvedMessage)
                 .build();
 
