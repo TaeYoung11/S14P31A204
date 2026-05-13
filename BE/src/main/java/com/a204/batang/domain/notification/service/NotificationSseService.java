@@ -90,8 +90,9 @@ public class NotificationSseService {
                     emitter.send(SseEmitter.event()
                             .name(eventName)
                             .data(payload, MediaType.APPLICATION_JSON));
-                } catch (IOException e) {
+                } catch (IOException | IllegalStateException e) {
                     removeEmitter(targetUserId, emitter);
+                    log.debug("SSE emitter removed due to disconnected client. userId={}, eventName={}", targetUserId, eventName);
                 }
             }
         }

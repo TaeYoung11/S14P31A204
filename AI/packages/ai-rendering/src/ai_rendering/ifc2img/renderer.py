@@ -1,7 +1,9 @@
 """IFC → grayscale depth map (PIL Image, mode="L") 렌더러."""
 
 import math
+import os
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import open3d as o3d  # type: ignore[import-untyped]
@@ -18,6 +20,10 @@ from .views import (
     IFCView,
     resolve_target_ratio_for_mesh,
 )
+
+RenderBackend = Literal["auto", "visualizer", "raycast"]
+RENDER_BACKEND_ENV = "IFC2IMG_RENDER_BACKEND"
+DEFAULT_RENDER_BACKEND: RenderBackend = "auto"
 
 
 class IFCRenderer:
@@ -38,6 +44,32 @@ class IFCRenderer:
       iter_tolerance       (default 0.10) — fill - target 절대값이 이 이하면 종료
       iter_max             (default 4)    — 최대 iteration 횟수
     """
+
+    @staticmethod
+    def _is_headless() -> bool:
+        """headless 환경인지 감지."""
+        return os.environ.get("DISPLAY") is None
+
+    @staticmethod
+    def _is_container_like_runtime() -> bool:
+        """Docker/CI runtime where DISPLAY does not guarantee Visualizer support."""
+        if os.environ.get("CI"):
+            return True
+        if os.environ.get("KUBERNETES_SERVICE_HOST"):
+            return True
+        if Path("/.dockerenv").exists():
+            return True
+        return False
+
+    @staticmethod
+    def _resolve_render_backend() -> RenderBackend:
+        raw_backend = os.environ.get(RENDER_BACKEND_ENV, DEFAULT_RENDER_BACKEND)
+        backend = raw_backend.strip().lower()
+        if backend in ("auto", "visualizer", "raycast"):
+            return backend  # type: ignore[return-value]
+        raise IFCRenderError(
+            f"{RENDER_BACKEND_ENV} must be one of auto, visualizer, raycast: {raw_backend!r}"
+        )
 
     def __init__(
         self,
@@ -203,12 +235,49 @@ class IFCRenderer:
         # ex: SampleHouse 17m → ground 포함 ~20m → MEDIUM 잘못 트리거 위험.
         initial_zoom = camera.zoom
         target_ratio = self._resolve_target_ratio(view, base_mesh)
+        backend = self._resolve_render_backend()
 
+        if backend == "raycast":
+            return self._render_mesh_offscreen(
+                mesh, center, camera, initial_zoom, target_ratio
+            )
+        if backend == "auto" and (
+            self._is_headless() or self._is_container_like_runtime()
+        ):
+            return self._render_mesh_offscreen(
+                mesh, center, camera, initial_zoom, target_ratio
+            )
+
+        try:
+            return self._render_mesh_windowed(
+                mesh, center, camera, initial_zoom, target_ratio
+            )
+        except Exception:
+            if backend == "visualizer":
+                raise
+            return self._render_mesh_offscreen(
+                mesh, center, camera, initial_zoom, target_ratio
+            )
+
+    def _render_mesh_windowed(
+        self,
+        mesh: o3d.geometry.TriangleMesh,
+        center: np.ndarray,
+        camera: CameraParams,
+        initial_zoom: float,
+        target_ratio: float,
+    ) -> Image.Image:
         vis = o3d.visualization.Visualizer()
-        vis.create_window(visible=False, width=self.width, height=self.height)
+        created = vis.create_window(visible=False, width=self.width, height=self.height)
+        if created is False:
+            raise IFCRenderError("Open3D Visualizer window creation failed.")
         try:
             vis.add_geometry(mesh)
             opt = vis.get_render_option()
+            if opt is None:
+                raise IFCRenderError(
+                    "Visualizer render option is None. Headless 환경에서 실행 중인가?"
+                )
             opt.background_color = np.array([1.0, 1.0, 1.0])
             opt.light_on = True
 
@@ -222,6 +291,104 @@ class IFCRenderer:
             vis.destroy_window()
 
         return self._depth_to_image(depth)
+
+    def _render_mesh_offscreen(
+        self,
+        mesh: o3d.geometry.TriangleMesh,
+        center: np.ndarray,
+        camera: CameraParams,
+        initial_zoom: float,
+        target_ratio: float,
+    ) -> Image.Image:
+        if self.auto_zoom == AutoZoomMode.ITERATIVE:
+            depth = self._iterative_raycast_zoom_loop(
+                mesh,
+                center,
+                camera,
+                initial_zoom,
+                target_ratio,
+            )
+        else:
+            depth = self._capture_raycast_depth(mesh, center, camera, initial_zoom)
+        return self._depth_to_image(depth)
+
+    def _iterative_raycast_zoom_loop(
+        self,
+        mesh: o3d.geometry.TriangleMesh,
+        center: np.ndarray,
+        camera: CameraParams,
+        initial_zoom: float,
+        target_ratio: float,
+    ) -> np.ndarray:
+        """Adjust raycast camera zoom until depth fill ratio approaches target_ratio."""
+        zoom = initial_zoom
+        depth = self._capture_raycast_depth(mesh, center, camera, zoom)
+        for _ in range(self.iter_max - 1):
+            fill = float((depth > 0).mean())
+            if abs(fill - target_ratio) <= self.iter_tolerance:
+                return depth
+            if fill < 1e-6:
+                zoom = max(zoom * 0.3, 0.05)
+            else:
+                zoom = float(
+                    np.clip(
+                        zoom * math.sqrt(fill / target_ratio),
+                        0.05,
+                        2.0,
+                    )
+                )
+            depth = self._capture_raycast_depth(mesh, center, camera, zoom)
+        return depth
+
+    def _capture_raycast_depth(
+        self,
+        mesh: o3d.geometry.TriangleMesh,
+        center: np.ndarray,
+        camera: CameraParams,
+        zoom: float,
+    ) -> np.ndarray:
+        # OffscreenRenderer 사용 — headless 환경용
+        # Raycasting으로 depth 계산
+        scene = o3d.t.geometry.RaycastingScene()
+        mesh_t = o3d.t.geometry.TriangleMesh.from_legacy(mesh)
+        scene.add_triangles(mesh_t)
+
+        front = np.asarray(camera.front, dtype=np.float32)
+        up = np.asarray(camera.up, dtype=np.float32)
+        verts = np.asarray(mesh.vertices)
+        max_extent = float(np.max(verts.max(axis=0) - verts.min(axis=0)))
+        front /= np.linalg.norm(front)
+        zoom = float(np.clip(zoom, 0.05, 2.0))
+        eye_distance = max(max_extent * 1.25 / zoom, 1.0)
+        eye = center - front * eye_distance
+        rays = o3d.t.geometry.RaycastingScene.create_rays_pinhole(
+            60.0,
+            o3d.core.Tensor(center.astype(np.float32), dtype=o3d.core.Dtype.Float32),
+            o3d.core.Tensor(eye.astype(np.float32), dtype=o3d.core.Dtype.Float32),
+            o3d.core.Tensor(up, dtype=o3d.core.Dtype.Float32),
+            self.width,
+            self.height,
+        )
+        ans = scene.cast_rays(rays)
+
+        depth = ans['t_hit'].numpy().reshape((self.height, self.width))
+        depth = depth.astype(np.float32, copy=False)
+        depth[~np.isfinite(depth)] = 0.0
+        return depth
+
+    @staticmethod
+    def _compute_extrinsic(eye: np.ndarray, lookat: np.ndarray, up: np.ndarray) -> np.ndarray:
+        """Compute camera extrinsic matrix from eye, lookat, up."""
+        z_axis = (eye - lookat) / np.linalg.norm(eye - lookat)  # forward
+        x_axis = np.cross(up, z_axis)
+        x_axis /= np.linalg.norm(x_axis)
+        y_axis = np.cross(z_axis, x_axis)
+        rotation = np.array([x_axis, y_axis, z_axis]).T
+        translation = -rotation @ eye
+        extrinsic = np.eye(4)
+        extrinsic[:3, :3] = rotation
+        extrinsic[:3, 3] = translation
+        return extrinsic
 
     @staticmethod
     def _depth_to_image(depth: np.ndarray) -> Image.Image:

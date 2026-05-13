@@ -23,12 +23,15 @@ import com.a204.batang.domain.revision.repository.RevisionRepository;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
 import com.a204.batang.domain.workspace.service.WorkspaceFloorPlanRealtimeService;
+import com.a204.batang.global.config.RabbitMqConfig;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
@@ -38,6 +41,7 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -146,11 +150,94 @@ public class IfcEditApplyEventListener {
         if (revision != null && !revision.isTerminal()) {
             revision.markFailed();
         }
+        workspaceFloorPlanRealtimeService.notifyIfcEditFailureToUser(
+                resolveRequestedBy(job, message.requestedBy()),
+                event.returned() ? ErrorCode.IFC_EDIT_COMMAND_RETURNED : ErrorCode.IFC_EDIT_COMMAND_CONFIRM_NACK,
+                errorMessage
+        );
 
         publishStatusEvent(message.projectId(), SSE_IFC_EDIT_FAILED, new IfcEditStatusSseResponse(
                 SSE_IFC_EDIT_FAILED, message.projectId(), message.jobId(), message.jobStepId(),
                 message.targetRevisionId(), job.getJobType(), "FAILED", 0, errorMessage
         ));
+    }
+
+    /**
+     * IFC_EDIT command가 DLQ로 이동한 경우 잡을 실패로 종료하고 편집 전 상태를 재동기화한다.
+     *
+     * @param message DLQ 원본 메시지
+     */
+    @Transactional
+    @RabbitListener(queues = RabbitMqConfig.IFC_EDIT_DLQ)
+    public void handleDlq(Message message) {
+        IfcEditCommandMessage commandMessage = readDlqCommandMessage(message);
+        if (commandMessage == null) {
+            log.error("IFC Edit DLQ message parse failed. routingKey={}, headers={}",
+                    message.getMessageProperties().getReceivedRoutingKey(),
+                    message.getMessageProperties().getHeaders());
+            return;
+        }
+
+        UUID jobId = commandMessage.jobId();
+        UUID jobStepId = commandMessage.jobStepId();
+        if (jobId == null || jobStepId == null) {
+            log.error("IFC Edit DLQ message missing identifiers. projectId={}, jobId={}, jobStepId={}",
+                    commandMessage.projectId(), jobId, jobStepId);
+            return;
+        }
+
+        IfcEditJob job = ifcEditJobRepository.findByJobId(jobId).orElse(null);
+        IfcEditJobStep step = ifcEditJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId).orElse(null);
+        if (job == null || step == null) {
+            log.warn("IFC Edit DLQ message ignored because job state not found. projectId={}, jobId={}, jobStepId={}",
+                    commandMessage.projectId(), jobId, jobStepId);
+            return;
+        }
+
+        if (job.isTerminal() || step.isTerminal()) {
+            log.info("IFC Edit DLQ message ignored because state is already terminal. projectId={}, jobId={}, jobStepId={}",
+                    commandMessage.projectId(), jobId, jobStepId);
+            return;
+        }
+
+        Revision revision = commandMessage.targetRevisionId() != null
+                ? revisionRepository.findById(commandMessage.targetRevisionId()).orElse(null)
+                : null;
+
+        LocalDateTime now = LocalDateTime.now();
+        String failureMessage = ErrorCode.IFC_EDIT_COMMAND_DLQ.getMessage();
+        JsonNode outputPayload = objectMapper.valueToTree(buildDlqFailedPayload(message, commandMessage));
+
+        step.markFailed(ErrorCode.IFC_EDIT_COMMAND_DLQ.getCode(), failureMessage, outputPayload, now);
+        job.markFailed(failureMessage, outputPayload, now);
+        if (revision != null && !revision.isTerminal()) {
+            revision.markFailed();
+        }
+
+        publishStatusEvent(commandMessage.projectId(), SSE_IFC_EDIT_FAILED, new IfcEditStatusSseResponse(
+                SSE_IFC_EDIT_FAILED,
+                commandMessage.projectId(),
+                commandMessage.jobId(),
+                commandMessage.jobStepId(),
+                commandMessage.targetRevisionId(),
+                job.getJobType(),
+                "FAILED",
+                0,
+                failureMessage
+        ));
+
+        try {
+            UUID requestedBy = job.getRequestedBy() != null ? job.getRequestedBy() : commandMessage.requestedBy();
+            workspaceFloorPlanRealtimeService.relayIfcEditDlqFailureAndRestoreSource(
+                    commandMessage.projectId(),
+                    commandMessage.sourceRevisionId(),
+                    requestedBy,
+                    failureMessage
+            );
+        } catch (Exception exception) {
+            log.warn("IFC Edit DLQ rollback relay failed. projectId={}, jobId={}, jobStepId={}",
+                    commandMessage.projectId(), commandMessage.jobId(), commandMessage.jobStepId(), exception);
+        }
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -293,6 +380,11 @@ public class IfcEditApplyEventListener {
         step.markFailed(errorCode, errorMessage, outputPayload, now);
         job.markFailed(errorMessage, outputPayload, now);
         revision.markFailed();
+        workspaceFloorPlanRealtimeService.notifyIfcEditFailureToUser(
+                resolveRequestedBy(job, null),
+                ErrorCode.IFC_EDIT_COMMAND_DLQ,
+                errorMessage
+        );
 
         log.warn("IFC Edit failed 이벤트를 반영했습니다. errorCode={}", errorCode);
 
@@ -378,6 +470,13 @@ public class IfcEditApplyEventListener {
         return value.asText();
     }
 
+    private UUID resolveRequestedBy(IfcEditJob job, UUID fallbackRequestedBy) {
+        if (job != null && job.getRequestedBy() != null) {
+            return job.getRequestedBy();
+        }
+        return fallbackRequestedBy;
+    }
+
     private Map<String, Object> buildCompletedPayload(IfcEditEventMessage event, String ifcUrl, String validationUrl) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("ifcStorageUrl", ifcUrl);
@@ -405,11 +504,17 @@ public class IfcEditApplyEventListener {
 
     private void publishFloorPlanSyncOnIfcCompletedIfNeeded(IfcEditJob job, Revision revision, String ifcUrl) {
         JsonNode sourceScenePayload = resolveFloorPlanSourcePayload(job);
-        if (sourceScenePayload == null) {
-            return;
-        }
-
         try {
+            if (sourceScenePayload == null) {
+                workspaceFloorPlanRealtimeService.publishFloorPlanUpdatedFromGenerate(
+                        job.getProjectId(),
+                        revision.getRevisionId(),
+                        job.getSourceRevisionId(),
+                        ifcUrl
+                );
+                return;
+            }
+
             workspaceFloorPlanRealtimeService.publishFloorPlanUpdatedFromIfcEdit(
                     job.getProjectId(),
                     revision.getRevisionId(),
@@ -445,7 +550,15 @@ public class IfcEditApplyEventListener {
             return null;
         }
 
-        JsonNode engineRequest = requestPayload.get("engine_request");
+        JsonNode sourceScenePayload = requestPayload.get("sourceScenePayload");
+        if (isFloorPlanPayload(sourceScenePayload)) {
+            return sourceScenePayload;
+        }
+
+        JsonNode engineRequest = requestPayload.get("engineRequest");
+        if (engineRequest == null || engineRequest.isNull()) {
+            engineRequest = requestPayload.get("engine_request");
+        }
         if (isFloorPlanPayload(engineRequest)) {
             return engineRequest;
         }
@@ -470,6 +583,104 @@ public class IfcEditApplyEventListener {
                 && bubblesNode.isArray()
                 && connectionsNode != null
                 && connectionsNode.isArray();
+    }
+
+    private IfcEditCommandMessage readDlqCommandMessage(Message message) {
+        try {
+            return objectMapper.readValue(message.getBody(), IfcEditCommandMessage.class);
+        } catch (Exception bodyParseException) {
+            try {
+                return reconstructIfcEditMessageFromHeaders(message.getMessageProperties().getHeaders());
+            } catch (Exception headerParseException) {
+                log.error("IFC Edit DLQ message parse failed. bodyParseError={}, headerParseError={}",
+                        bodyParseException.getMessage(), headerParseException.getMessage());
+                return null;
+            }
+        }
+    }
+
+    private IfcEditCommandMessage reconstructIfcEditMessageFromHeaders(Map<String, Object> headers) {
+        return new IfcEditCommandMessage(
+                readRequiredUuidHeader(headers, IfcEditCommandPublisher.HEADER_MESSAGE_ID),
+                readRequiredStringHeader(headers, IfcEditCommandPublisher.HEADER_SCHEMA_VERSION),
+                readRequiredStringHeader(headers, IfcEditCommandPublisher.HEADER_MESSAGE_TYPE),
+                readRequiredStringHeader(headers, IfcEditCommandPublisher.HEADER_COMMAND_TYPE),
+                readRequiredStringHeader(headers, IfcEditCommandPublisher.HEADER_ROUTING_KEY),
+                readRequiredUuidHeader(headers, IfcEditCommandPublisher.HEADER_JOB_ID),
+                readRequiredUuidHeader(headers, IfcEditCommandPublisher.HEADER_JOB_STEP_ID),
+                readRequiredIntegerHeader(headers, IfcEditCommandPublisher.HEADER_STEP_NO),
+                readRequiredIntegerHeader(headers, IfcEditCommandPublisher.HEADER_TOTAL_STEPS),
+                readRequiredUuidHeader(headers, IfcEditCommandPublisher.HEADER_PROJECT_ID),
+                readOptionalUuidHeader(headers, IfcEditCommandPublisher.HEADER_REQUESTED_BY),
+                readOptionalUuidHeader(headers, IfcEditCommandPublisher.HEADER_SOURCE_REVISION_ID),
+                readOptionalUuidHeader(headers, IfcEditCommandPublisher.HEADER_SOURCE_SCENE_STATE_ID),
+                readOptionalStringHeader(headers, IfcEditCommandPublisher.HEADER_SOURCE_SCENE_TYPE),
+                readOptionalUuidHeader(headers, IfcEditCommandPublisher.HEADER_TARGET_REVISION_ID),
+                readOptionalUuidHeader(headers, IfcEditCommandPublisher.HEADER_EXPECTED_OUTPUT_ARTIFACT_ID),
+                null,
+                new IfcEditCommandMessage.ExpectedOutput(
+                        readOptionalStringHeader(headers, IfcEditCommandPublisher.HEADER_IFC_STORAGE_URL),
+                        readOptionalStringHeader(headers, IfcEditCommandPublisher.HEADER_VALIDATION_REPORT_STORAGE_URL),
+                        readOptionalStringHeader(headers, IfcEditCommandPublisher.HEADER_EDIT_PLAN_STORAGE_URL),
+                        null
+                ),
+                null,
+                readRequiredIntegerHeader(headers, IfcEditCommandPublisher.HEADER_ATTEMPT_NO),
+                readRequiredIntegerHeader(headers, IfcEditCommandPublisher.HEADER_MAX_ATTEMPTS),
+                readRequiredStringHeader(headers, IfcEditCommandPublisher.HEADER_IDEMPOTENCY_KEY),
+                readRequiredUuidHeader(headers, IfcEditCommandPublisher.HEADER_CORRELATION_ID),
+                OffsetDateTime.parse(readRequiredStringHeader(headers, IfcEditCommandPublisher.HEADER_CREATED_AT))
+        );
+    }
+
+    private UUID readRequiredUuidHeader(Map<String, Object> headers, String key) {
+        String value = readRequiredStringHeader(headers, key);
+        return UUID.fromString(value);
+    }
+
+    private UUID readOptionalUuidHeader(Map<String, Object> headers, String key) {
+        String value = readOptionalStringHeader(headers, key);
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return UUID.fromString(value);
+    }
+
+    private Integer readRequiredIntegerHeader(Map<String, Object> headers, String key) {
+        Object value = headers.get(key);
+        if (value == null) {
+            throw new IllegalArgumentException("Missing RabbitMQ header: " + key);
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        return Integer.valueOf(String.valueOf(value));
+    }
+
+    private String readRequiredStringHeader(Map<String, Object> headers, String key) {
+        Object value = headers.get(key);
+        if (value == null) {
+            throw new IllegalArgumentException("Missing RabbitMQ header: " + key);
+        }
+        return String.valueOf(value);
+    }
+
+    private String readOptionalStringHeader(Map<String, Object> headers, String key) {
+        Object value = headers.get(key);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private Map<String, Object> buildDlqFailedPayload(Message message, IfcEditCommandMessage commandMessage) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("eventType", "DLQ_FAILED");
+        payload.put("errorCode", ErrorCode.IFC_EDIT_COMMAND_DLQ.getCode());
+        payload.put("errorMessage", ErrorCode.IFC_EDIT_COMMAND_DLQ.getMessage());
+        payload.put("routingKey", message.getMessageProperties().getReceivedRoutingKey());
+        payload.put("deadLetterQueue", RabbitMqConfig.IFC_EDIT_DLQ);
+        payload.put("sourceRevisionId", commandMessage.sourceRevisionId());
+        payload.put("targetRevisionId", commandMessage.targetRevisionId());
+        payload.put("xDeath", message.getMessageProperties().getHeaders().get("x-death"));
+        return payload;
     }
 
     private Map<String, Object> buildPublishFailedPayload(IfcEditPublishFailedEvent event) {

@@ -1,6 +1,7 @@
 .git
-.gradle
+.gradle*
 build
 out
 *.log
 .env
+src/test

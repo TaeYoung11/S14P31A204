@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useCallback, type RefObject } from 'react'
 import type { EditorMode } from '../types'
+import { normalizeSnapIntervalMm, toRotationSnapDegrees } from '../utils/threeDSnap.utils'
 
 interface UseZoomControlBarParams {
   mode: EditorMode
   isGridVisible: boolean
   isGridSnapEnabled: boolean
+  gridSnapIntervalMm: number
   onToggleGrid?: () => void
   onToggleGridSnap?: () => void
   panelRef: RefObject<HTMLElement | null>
@@ -26,6 +28,7 @@ export function useZoomControlBar({
   mode,
   isGridVisible,
   isGridSnapEnabled,
+  gridSnapIntervalMm,
   onToggleGrid,
   onToggleGridSnap,
   panelRef,
@@ -57,12 +60,15 @@ export function useZoomControlBar({
   )
 
   const gridSnapTitle = useMemo(
-    () => (
-      mode === '2d'
-        ? `그리드 스냅 토글 (그리드 ${isGridVisible ? '표시 중' : '숨김'})`
-        : '그리드 스냅 토글'
-    ),
-    [isGridVisible, mode],
+    () => {
+      if (mode === '2d') {
+        return `그리드 스냅 토글 (그리드 ${isGridVisible ? '표시 중' : '숨김'})`
+      }
+      const translationMm = normalizeSnapIntervalMm(gridSnapIntervalMm)
+      const rotationDeg = toRotationSnapDegrees(gridSnapIntervalMm)
+      return `3D 스냅 토글 (이동 ${translationMm}mm / 회전 ${rotationDeg}° · ${isGridSnapEnabled ? 'ON' : 'OFF'})`
+    },
+    [gridSnapIntervalMm, isGridSnapEnabled, isGridVisible, mode],
   )
 
   return {

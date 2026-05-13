@@ -16,7 +16,7 @@ def input_dir() -> Path:
 @pytest.fixture
 def ifc4_fixture() -> Path:
     """IFC4 스키마 정상 경로 fixture — load_mesh가 통과시켜야 한다."""
-    return Path(__file__).parent / "fixtures" / "ifc" / "AC-20-Smiley-West-10-Bldg.ifc"
+    return Path(__file__).parent / "fixtures" / "ifc" / "shinchan.ifc"
 
 
 @pytest.fixture

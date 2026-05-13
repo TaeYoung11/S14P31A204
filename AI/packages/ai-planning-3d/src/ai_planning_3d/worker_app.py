@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Sequence
-from typing import Protocol, Self
+from typing import Protocol
 
 from ai_common.adapters.rabbitmq.consumer import RabbitMQConsumer
 from ai_common.adapters.rabbitmq.publisher import KombuEventPublisher
@@ -25,7 +25,7 @@ class HealthServerLike(Protocol):
 
 
 class EventPublisherContext(EventPublisher, Protocol):
-    def __enter__(self) -> Self:
+    def __enter__(self) -> EventPublisherContext:
         """Open the underlying publisher resource."""
 
     def __exit__(self, *_: object) -> None:

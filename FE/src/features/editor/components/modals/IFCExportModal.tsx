@@ -2,27 +2,44 @@ import { useEffect, useState } from 'react'
 import { CheckCircle2, Download, FileCode2, X } from 'lucide-react'
 import type { IfcElementChange } from '../../types'
 import { applyIfcElementChanges, downloadIfcText } from '../../services/ifcChange.service'
+import { normalizeIfcSourceName, resolveIfcPresignedUrl } from '../../utils/ifcSource'
 
 interface IFCExportModalProps {
   isOpen: boolean
   onClose: () => void
   ifcElementChanges?: IfcElementChange[]
+  sourceIfcUrl?: string | null
+  sourceIfcAssetId?: string | null
 }
 
-export function IFCExportModal({ isOpen, onClose, ifcElementChanges = [] }: IFCExportModalProps) {
+export function IFCExportModal({
+  isOpen,
+  onClose,
+  ifcElementChanges = [],
+  sourceIfcUrl = null,
+  sourceIfcAssetId = null,
+}: IFCExportModalProps) {
   if (!isOpen) return null
 
   return (
     <IFCExportModalContent
       onClose={onClose}
       ifcElementChanges={ifcElementChanges}
+      sourceIfcUrl={sourceIfcUrl}
+      sourceIfcAssetId={sourceIfcAssetId}
     />
   )
 }
 
-function IFCExportModalContent({ onClose, ifcElementChanges = [] }: Omit<IFCExportModalProps, 'isOpen'>) {
+function IFCExportModalContent({
+  onClose,
+  ifcElementChanges = [],
+  sourceIfcUrl = null,
+  sourceIfcAssetId = null,
+}: Omit<IFCExportModalProps, 'isOpen'>) {
   const [progress, setProgress] = useState(0)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
   const done = progress >= 100
 
   useEffect(() => {
@@ -41,14 +58,25 @@ function IFCExportModalContent({ onClose, ifcElementChanges = [] }: Omit<IFCExpo
 
   const handleDownload = async () => {
     setIsDownloading(true)
+    setDownloadError(null)
     try {
-      const response = await fetch('/mock/shinchan_house.ifc')
+      const resolvedIfcUrl = sourceIfcUrl
+        ? await resolveIfcPresignedUrl(sourceIfcUrl, sourceIfcAssetId ?? undefined)
+        : '/mock/shinchan_house.ifc'
+      const response = await fetch(resolvedIfcUrl)
+      if (!response.ok) {
+        throw new Error(`IFC 다운로드에 실패했습니다. (${response.status})`)
+      }
       const sourceIfcText = await response.text()
       const nextIfcText = ifcElementChanges.length > 0
         ? await applyIfcElementChanges(sourceIfcText, ifcElementChanges)
         : sourceIfcText
-      downloadIfcText('project_export.ifc', nextIfcText)
+      const filename = sourceIfcUrl ? normalizeIfcSourceName(sourceIfcUrl, 'project_export.ifc') : 'project_export.ifc'
+      downloadIfcText(filename, nextIfcText)
       onClose()
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'IFC 다운로드 중 알 수 없는 오류가 발생했습니다.'
+      setDownloadError(message)
     } finally {
       setIsDownloading(false)
     }
@@ -99,6 +127,9 @@ function IFCExportModalContent({ onClose, ifcElementChanges = [] }: Omit<IFCExpo
               ? `${ifcElementChanges.length} edited element changes are ready.`
               : 'Applying FE edit state to the IFC export.'}
           </p>
+          {downloadError ? (
+            <p className="mb-4 text-center text-[12px] font-bold text-[#B42318]">{downloadError}</p>
+          ) : null}
 
           <button
             type="button"

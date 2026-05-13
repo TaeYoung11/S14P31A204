@@ -14,9 +14,10 @@ const normalizeHexColor = (value: string) => {
 interface ColorSelectorProps {
   value?: string
   onChange?: (value: string) => void
+  disabled?: boolean
 }
 
-export function ColorSelector({ value = '#BEC4D1', onChange }: ColorSelectorProps) {
+export function ColorSelector({ value = '#BEC4D1', onChange, disabled = false }: ColorSelectorProps) {
   const colorInputRef = useRef<HTMLInputElement>(null)
   const normalizedValue = normalizeHexColor(value) ?? '#BEC4D1'
 
@@ -31,8 +32,9 @@ export function ColorSelector({ value = '#BEC4D1', onChange }: ColorSelectorProp
 
       <button
         type="button"
+        disabled={disabled}
         onClick={() => colorInputRef.current?.click()}
-        className="flex w-full items-center gap-3 rounded-lg bg-[#F8F9FD] px-3 py-2.5 text-left transition-colors hover:bg-[#F0F2FA]"
+        className="flex w-full items-center gap-3 rounded-lg bg-[#F8F9FD] px-3 py-2.5 text-left transition-colors hover:bg-[#F0F2FA] disabled:cursor-not-allowed disabled:opacity-55"
       >
         <div
           className="h-8 w-8 shrink-0 rounded-lg border border-[#E2E6EF] shadow-inner"
@@ -48,6 +50,7 @@ export function ColorSelector({ value = '#BEC4D1', onChange }: ColorSelectorProp
         ref={colorInputRef}
         type="color"
         value={normalizedValue}
+        disabled={disabled}
         onChange={(event) => onChange?.(event.target.value.toUpperCase())}
         className="sr-only"
       />
@@ -55,8 +58,9 @@ export function ColorSelector({ value = '#BEC4D1', onChange }: ColorSelectorProp
       <input
         type="text"
         value={normalizedValue}
+        disabled={disabled}
         onChange={(event) => handleHexChange(event.target.value)}
-        className="rounded-lg border-none bg-[#F8F9FD] px-3 py-2.5 font-mono text-xs font-bold uppercase text-[#1C1C1E] outline-none focus:ring-1 focus:ring-[#3B45B3]"
+        className="rounded-lg border-none bg-[#F8F9FD] px-3 py-2.5 font-mono text-xs font-bold uppercase text-[#1C1C1E] outline-none focus:ring-1 focus:ring-[#3B45B3] disabled:cursor-not-allowed disabled:opacity-55"
       />
 
       <div className="flex flex-wrap gap-2">
@@ -64,9 +68,10 @@ export function ColorSelector({ value = '#BEC4D1', onChange }: ColorSelectorProp
           <button
             type="button"
             key={color}
+            disabled={disabled}
             onClick={() => onChange?.(color)}
             title={color}
-            className={`h-7 w-7 rounded-lg border border-[#E2E6EF] shadow-sm transition-all hover:scale-110 ${normalizedValue === color ? 'ring-2 ring-[#3B45B3] ring-offset-1' : ''}`}
+            className={`h-7 w-7 rounded-lg border border-[#E2E6EF] shadow-sm transition-all hover:scale-110 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:scale-100 ${normalizedValue === color ? 'ring-2 ring-[#3B45B3] ring-offset-1' : ''}`}
             style={{ backgroundColor: color }}
           />
         ))}

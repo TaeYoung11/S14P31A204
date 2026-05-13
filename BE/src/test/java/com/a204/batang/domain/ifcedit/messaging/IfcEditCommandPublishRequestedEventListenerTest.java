@@ -67,6 +67,7 @@ class IfcEditCommandPublishRequestedEventListenerTest {
                 new IfcEditCommandMessage.ExpectedOutput(
                         "projects/p/revisions/new/ifc/model.v1.ifc",
                         "projects/p/jobs/j/steps/001/engine/validation-report.v1.json",
+                        null,
                         null
                 ),
                 objectMapper.createObjectNode(),

@@ -11,8 +11,14 @@ const THREE_D_MATERIAL_COLOR: Record<string, string> = {
   Tile: '#C56F45',
 }
 
+const logRoofDebug = (...args: unknown[]) => {
+  if (!import.meta.env.DEV) return
+  console.log('[roof-debug][useThreeDIfcAttributeHandlers]', ...args)
+}
+
 interface UseThreeDIfcAttributeHandlersParams {
   mode: EditorMode
+  canEditThreeDAttributes: boolean
   selectedIfcElement: IfcElementInfo | null
   setSelectedIfcElement: Dispatch<SetStateAction<IfcElementInfo | null>>
   recordIfcElementChange: (
@@ -25,6 +31,10 @@ interface UseThreeDIfcAttributeHandlersParams {
   baseHandleHeightChangeForPanel: (id: string, heightMm: number) => void
 }
 
+type PositionAxis = 'x' | 'y' | 'z'
+type RotationAxis = 'x' | 'y' | 'z'
+type RoofShape = 'flat' | 'gable'
+
 /**
  * 3D IFC 요소 속성 편집(재질/색/치수) 로직을 모듈화한다.
  * - 3D + 선택 IFC 요소일 때만 로컬 IFC 상태를 갱신한다.
@@ -32,6 +42,7 @@ interface UseThreeDIfcAttributeHandlersParams {
  */
 export function useThreeDIfcAttributeHandlers({
   mode,
+  canEditThreeDAttributes,
   selectedIfcElement,
   setSelectedIfcElement,
   recordIfcElementChange,
@@ -41,8 +52,10 @@ export function useThreeDIfcAttributeHandlers({
   baseHandleHeightChangeForPanel,
 }: UseThreeDIfcAttributeHandlersParams) {
   const selectedIfcElementId = selectedIfcElement?.id
+  const shouldBlockThreeDEdit = mode === '3d' && !canEditThreeDAttributes
 
   const handleMaterialChangeForPanel = useCallback((id: string, material: string) => {
+    if (shouldBlockThreeDEdit) return
     if (mode !== '3d' || selectedIfcElementId !== id) {
       baseHandleMaterialChangeForPanel(id, material)
       return
@@ -66,13 +79,16 @@ export function useThreeDIfcAttributeHandlers({
     })
   }, [
     baseHandleMaterialChangeForPanel,
+    canEditThreeDAttributes,
     mode,
     recordIfcElementChange,
     selectedIfcElementId,
+    shouldBlockThreeDEdit,
     setSelectedIfcElement,
   ])
 
   const handleColorChangeForPanel = useCallback((id: string, color: string) => {
+    if (shouldBlockThreeDEdit) return
     if (mode !== '3d' || selectedIfcElementId !== id) {
       baseHandleColorChangeForPanel(id, color)
       return
@@ -93,13 +109,16 @@ export function useThreeDIfcAttributeHandlers({
     })
   }, [
     baseHandleColorChangeForPanel,
+    canEditThreeDAttributes,
     mode,
     recordIfcElementChange,
     selectedIfcElementId,
+    shouldBlockThreeDEdit,
     setSelectedIfcElement,
   ])
 
   const handleWidthChangeForPanel = useCallback((id: string, widthMm: number) => {
+    if (shouldBlockThreeDEdit) return
     if (mode !== '3d' || selectedIfcElementId !== id) {
       baseHandleWidthChangeForPanel(id, widthMm)
       return
@@ -120,13 +139,16 @@ export function useThreeDIfcAttributeHandlers({
     })
   }, [
     baseHandleWidthChangeForPanel,
+    canEditThreeDAttributes,
     mode,
     recordIfcElementChange,
     selectedIfcElementId,
+    shouldBlockThreeDEdit,
     setSelectedIfcElement,
   ])
 
   const handleHeightChangeForPanel = useCallback((id: string, heightMm: number) => {
+    if (shouldBlockThreeDEdit) return
     if (mode !== '3d' || selectedIfcElementId !== id) {
       baseHandleHeightChangeForPanel(id, heightMm)
       return
@@ -147,13 +169,16 @@ export function useThreeDIfcAttributeHandlers({
     })
   }, [
     baseHandleHeightChangeForPanel,
+    canEditThreeDAttributes,
     mode,
     recordIfcElementChange,
     selectedIfcElementId,
+    shouldBlockThreeDEdit,
     setSelectedIfcElement,
   ])
 
   const handleThicknessChangeForPanel = useCallback((id: string, thicknessMm: number) => {
+    if (shouldBlockThreeDEdit) return
     if (mode !== '3d' || selectedIfcElementId !== id) return
 
     setSelectedIfcElement((prev) => {
@@ -169,7 +194,122 @@ export function useThreeDIfcAttributeHandlers({
       recordIfcElementChange(next, { thicknessMm })
       return next
     })
-  }, [mode, recordIfcElementChange, selectedIfcElementId, setSelectedIfcElement])
+  }, [mode, recordIfcElementChange, selectedIfcElementId, setSelectedIfcElement, shouldBlockThreeDEdit])
+
+  const handlePositionChangeForPanel = useCallback((id: string, axis: PositionAxis, value: number) => {
+    if (shouldBlockThreeDEdit) return
+    if (mode !== '3d' || selectedIfcElementId !== id) return
+
+    setSelectedIfcElement((prev) => {
+      if (!prev || prev.id !== id) return prev
+      const nextPositionX = axis === 'x' ? value : prev.positionX
+      const nextPositionY = axis === 'y' ? value : prev.positionY
+      const nextPositionZ = axis === 'z' ? value : prev.positionZ
+      return {
+        ...prev,
+        positionX: nextPositionX,
+        positionY: nextPositionY,
+        positionZ: nextPositionZ,
+        properties: {
+          ...prev.properties,
+          PositionX: Number((nextPositionX ?? 0).toFixed(3)),
+          PositionY: Number((nextPositionY ?? 0).toFixed(3)),
+          PositionZ: Number((nextPositionZ ?? 0).toFixed(3)),
+        },
+      }
+    })
+    recordIfcElementChange(selectedIfcElement, {
+      positionX: axis === 'x' ? value : selectedIfcElement?.positionX,
+      positionY: axis === 'y' ? value : selectedIfcElement?.positionY,
+      positionZ: axis === 'z' ? value : selectedIfcElement?.positionZ,
+    })
+  }, [mode, recordIfcElementChange, selectedIfcElement, selectedIfcElementId, setSelectedIfcElement, shouldBlockThreeDEdit])
+
+  const handleRotationChangeForPanel = useCallback((id: string, axis: RotationAxis, degrees: number) => {
+    if (shouldBlockThreeDEdit) return
+    if (mode !== '3d' || selectedIfcElementId !== id) return
+
+    setSelectedIfcElement((prev) => {
+      if (!prev || prev.id !== id) return prev
+      const nextRotationX = axis === 'x' ? degrees : prev.rotationX
+      const nextRotationY = axis === 'y' ? degrees : prev.rotationY
+      const nextRotationZ = axis === 'z' ? degrees : prev.rotationZ
+      return {
+        ...prev,
+        rotationX: nextRotationX,
+        rotationY: nextRotationY,
+        rotationZ: nextRotationZ,
+        properties: {
+          ...prev.properties,
+          RotationX: Number((nextRotationX ?? 0).toFixed(2)),
+          RotationY: Number((nextRotationY ?? 0).toFixed(2)),
+          RotationZ: Number((nextRotationZ ?? 0).toFixed(2)),
+        },
+      }
+    })
+    recordIfcElementChange(selectedIfcElement, {
+      rotationX: axis === 'x' ? degrees : selectedIfcElement?.rotationX,
+      rotationY: axis === 'y' ? degrees : selectedIfcElement?.rotationY,
+      rotationZ: axis === 'z' ? degrees : selectedIfcElement?.rotationZ,
+    })
+  }, [mode, recordIfcElementChange, selectedIfcElement, selectedIfcElementId, setSelectedIfcElement, shouldBlockThreeDEdit])
+
+  const handleRoofShapeChangeForPanel = useCallback((id: string, shape: RoofShape) => {
+    if (shouldBlockThreeDEdit) return
+    if (mode !== '3d') return
+    if (selectedIfcElementId !== id) {
+      logRoofDebug('handler skip: selected id mismatch', {
+        targetId: id,
+        selectedIfcElementId,
+      })
+      return
+    }
+    logRoofDebug('handler called', {
+      targetId: id,
+      shape,
+      selectedIfcElementId,
+      selectedIfcElementSource: selectedIfcElement?.source,
+      selectedIfcRoofShape: selectedIfcElement?.roofShape,
+      shouldBlockThreeDEdit,
+    })
+
+    setSelectedIfcElement((prev) => {
+      if (!prev) {
+        logRoofDebug('setSelectedIfcElement skip: no prev')
+        return prev
+      }
+      if (prev.id !== id) {
+        logRoofDebug('setSelectedIfcElement skip: id mismatch', {
+          prevId: prev.id,
+          targetId: id,
+          source: prev.source,
+        })
+        return prev
+      }
+      const next = {
+        ...prev,
+        roofShape: shape,
+        properties: {
+          ...prev.properties,
+          RoofShape: shape,
+        },
+      }
+      logRoofDebug('setSelectedIfcElement apply', {
+        prevId: prev.id,
+        nextId: next.id,
+        prevRoofShape: prev.roofShape,
+        nextRoofShape: next.roofShape,
+        source: prev.source,
+      })
+      logRoofDebug('recordIfcElementChange', {
+        elementId: next.id,
+        source: next.source,
+        shape,
+      })
+      recordIfcElementChange(next, { roofShape: shape })
+      return next
+    })
+  }, [mode, recordIfcElementChange, selectedIfcElement, selectedIfcElementId, setSelectedIfcElement, shouldBlockThreeDEdit])
 
   return {
     handleMaterialChangeForPanel,
@@ -177,6 +317,8 @@ export function useThreeDIfcAttributeHandlers({
     handleWidthChangeForPanel,
     handleHeightChangeForPanel,
     handleThicknessChangeForPanel,
+    handlePositionChangeForPanel,
+    handleRotationChangeForPanel,
+    handleRoofShapeChangeForPanel,
   }
 }
-

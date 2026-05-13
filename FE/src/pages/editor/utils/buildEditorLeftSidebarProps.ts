@@ -7,11 +7,13 @@ type SidebarViewModel = Pick<
   | 'isLineStyleModalOpen'
   | 'isLibraryOpen'
   | 'isCollaborationMode'
+  | 'isAgentPanelMode'
   | 'isGridVisible'
   | 'selectedTool'
   | 'handleSetSelectedTool'
   | 'handleOpenAddModal'
   | 'handleToggleCollaboration'
+  | 'handleToggleAgentPanel'
   | 'setIsLibraryOpen'
   | 'toggleGrid'
   | 'handleGenerateFloorPlanFromBubble'
@@ -21,6 +23,7 @@ type SidebarViewModel = Pick<
   | 'isFloorPlanGenerated'
   | 'isBubbleReadOnly'
   | 'isEditorReadOnly'
+  | 'isDeleteActionLocked'
   | 'hasDeletableSelection'
   | 'handleDeleteSelected'
   | 'handleOpenIFCExportModal'
@@ -36,11 +39,13 @@ export function buildEditorLeftSidebarProps(vm: SidebarViewModel): EditorLeftSid
     isLineStyleModalOpen: vm.isLineStyleModalOpen,
     isLibraryOpen: vm.isLibraryOpen,
     isCollaborationMode: vm.isCollaborationMode,
+    isAgentPanelMode: vm.isAgentPanelMode,
     isGridVisible: vm.isGridVisible,
     selectedTool: vm.selectedTool,
     onToolSelect: vm.handleSetSelectedTool,
     onAddSpace: vm.handleOpenAddModal,
     onToggleCollaboration: vm.handleToggleCollaboration,
+    onToggleAgentPanel: vm.handleToggleAgentPanel,
     onToggleLibrary: () => vm.setIsLibraryOpen(!vm.isLibraryOpen),
     onToggleGrid: vm.toggleGrid,
     onExportIFC: vm.handleOpenIFCExportModal,
@@ -51,6 +56,7 @@ export function buildEditorLeftSidebarProps(vm: SidebarViewModel): EditorLeftSid
     isFloorPlanGenerated: vm.isFloorPlanGenerated,
     isBubbleReadOnly: vm.isBubbleReadOnly,
     isEditorReadOnly: vm.isEditorReadOnly,
+    isDeleteActionLocked: vm.isDeleteActionLocked,
     hasDeletableSelection: vm.hasDeletableSelection,
     onDeleteSelected: vm.handleDeleteSelected,
   }

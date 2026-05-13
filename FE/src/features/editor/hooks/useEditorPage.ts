@@ -44,6 +44,7 @@ import { EDITOR_SITE_FIT_PADDING_PX, useEditorSiteBoundary } from './useEditorSi
 import { useEditorZoom } from './useEditorZoom'
 import { useEditorAttributePanelHandlers } from './useEditorAttributePanelHandlers'
 import { useEditorStructureEditHandlers } from './useEditorStructureEditHandlers'
+import { useEditorKeyboardShortcuts } from './useEditorKeyboardShortcuts'
 import type { EmptyCanvasDblClickInfo } from '../components/canvas/BubbleCanvas'
 import {
   mapFloorProjectToWalls,
@@ -59,7 +60,7 @@ import {
 } from '../utils/floorRoomDerivedState'
 import type { FloorProject } from '../types/floorProject.types'
 import { workspaceSaveService, type WorkspaceHistorySnapshotResponse } from '../services/workspaceSave.service'
-import { requestFloorPlanGenerate, waitForFloorPlanIfcExport } from '../services/floorPlanGenerate.service'
+import { requestFloorPlanGenerate } from '../services/floorPlanGenerate.service'
 import {
   FloorPlanLayoutValidationError,
 } from '../services/floorPlanGenerate.contract'
@@ -108,11 +109,14 @@ import {
   resolveEditorMode,
 } from '../utils/editorPageHelpers'
 import {
+  CURSOR_INVALID_CODE,
+  FLOOR_PLAN_CURSOR_INVALID_CODE,
   IFC_COMPLETED_ACTION_SET,
   isBubbleSnapshotPayload,
   type FloorPlanSnapshotPayload,
   type StompErrorMessage,
 } from '../utils/workspaceSyncMessage'
+import { isToolAllowedDuringConverting, isTwoDOrThreeDConverting as isTwoDOrThreeDConvertingByPhase } from '../utils/editorModeLocks'
 import { resolveIfcPresignedUrl } from '../utils/ifcSource'
 import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
 
@@ -155,6 +159,11 @@ const BUBBLE_DB_SAVE_DEBOUNCE_MS = 700
 
 const FLOOR_PLAN_GENERATE_TIMEOUT_MS = 120_000
 
+const logRoofDebug = (...args: unknown[]) => {
+  if (!import.meta.env.DEV) return
+  console.log('[roof-debug][useEditorPage]', ...args)
+}
+
 const readPositiveNumber = (value: unknown): number | null => {
   const numericValue = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
   return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null
@@ -165,6 +174,15 @@ const formatPinAuthorName = (authorUserId: string | null, fallbackName: string):
   return `\uC0AC\uC6A9\uC790 ${authorUserId.slice(0, 8)}`
 }
 
+const resolvePinAuthorName = (
+  authorUserId: string | null,
+  authorNameByUserId: Record<string, string>,
+  fallbackName: string,
+): string => {
+  if (!authorUserId) return fallbackName
+  return authorNameByUserId[authorUserId] ?? formatPinAuthorName(authorUserId, fallbackName)
+}
+
 const mapApiPinToFloorCommentPin = (
   pin: EditorPinResponse,
   comments: EditorPinCommentResponse[],
@@ -172,11 +190,12 @@ const mapApiPinToFloorCommentPin = (
   currentUserName: string,
   currentUserType: CollaborationUserType,
   counterpartType: CollaborationUserType,
+  authorNameByUserId: Record<string, string>,
 ): FloorCommentPin => {
   const pinAuthorType = pin.authorUserId && pin.authorUserId === currentUserId ? currentUserType : counterpartType
   const pinAuthorName = pin.authorUserId === currentUserId
     ? currentUserName
-    : formatPinAuthorName(pin.authorUserId, '\uC54C \uC218 \uC5C6\uB294 \uC791\uC131\uC790')
+    : resolvePinAuthorName(pin.authorUserId, authorNameByUserId, '\uC54C \uC218 \uC5C6\uB294 \uC791\uC131\uC790')
   const pinMessage = {
     id: `${pin.pinId}:pin`,
     pinId: pin.pinId,
@@ -194,7 +213,9 @@ const mapApiPinToFloorCommentPin = (
       id: comment.commentId,
       pinId: pin.pinId,
       authorId: comment.authorUserId ?? 'unknown-user',
-      authorName: isCurrentUser ? currentUserName : formatPinAuthorName(comment.authorUserId, '\uB2E4\uB978 \uC791\uC131\uC790'),
+      authorName: isCurrentUser
+        ? currentUserName
+        : resolvePinAuthorName(comment.authorUserId, authorNameByUserId, '\uB2E4\uB978 \uC791\uC131\uC790'),
       authorType: isCurrentUser ? currentUserType : counterpartType,
       content: comment.content,
       status: comment.status,
@@ -233,10 +254,6 @@ export function useEditorPage() {
   /** 3D 사이드바 삭제 버튼으로 선택 요소 삭제를 요청하는 트리거 */
   const [threeDDeleteRequestToken, setThreeDDeleteRequestToken] = useState(0)
   const [ifcElementChangesById, setIfcElementChangesById] = useState<Record<number, IfcElementChange>>({})
-  const workspaceCommandPublisher = useWorkspaceCommandPublisher({
-    projectId,
-    source: mode,
-  })
 
   const { containerRef, stageSize } = useStageSize()
 
@@ -366,7 +383,7 @@ export function useEditorPage() {
     action: string | null,
     assetId?: string | null,
     revisionId?: string | null,
-  ) => void>(() => {})
+  ) => void>(() => { })
   const isFloorPlanGenerating = isFloorPlanGeneratingLocal || workspacePhaseStatus === 'CONVERTING'
 
   /**
@@ -385,6 +402,7 @@ export function useEditorPage() {
     setSelectedConnectionPair(null)
     clearTwoDStructureSelection()
   }, [clearTwoDStructureSelection])
+  const isTwoDOrThreeDConverting = isTwoDOrThreeDConvertingByPhase(workspacePhaseStatus, mode)
 
   // 버블·연결선 변경 시 이미 생성된 평면도를 조용히 갱신 (로딩 없음)
   useEffect(() => {
@@ -415,6 +433,7 @@ export function useEditorPage() {
   // Delete/Backspace 키로 선택된 버블 또는 연결선 삭제 (input 포커스 중엔 무시)
   const handleDeleteSelected = useCallback(() => {
     if (useAuthStore.getState().user?.user_type !== 'DESIGNER') return
+    if (isTwoDOrThreeDConverting) return
     if (mode === 'bubble' && isBubbleEditLocked) return
     if (mode === '3d') {
       if (!selectedIfcElement) return
@@ -500,6 +519,7 @@ export function useEditorPage() {
     canSyncBubbleStateFrom2D,
     mode,
     isBubbleEditLocked,
+    isTwoDOrThreeDConverting,
     selectedIfcElement,
     selectedFloorOpeningId,
     selectedFloorWallId,
@@ -518,36 +538,11 @@ export function useEditorPage() {
     clearTwoDStructureSelection,
   ])
 
-  useEffect(() => {
-    const isEditableTarget = (target: EventTarget | null) => {
-      if (!target || !(target instanceof HTMLElement)) return false
-      if (target.isContentEditable) return true
-      return (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement
-      )
-    }
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (isEditableTarget(e.target)) return
-      const isDeleteKey =
-        e.key === 'Delete' ||
-        e.key === 'Backspace' ||
-        e.code === 'Delete' ||
-        e.code === 'Backspace'
-      if (!isDeleteKey) return
-      e.preventDefault()
-      handleDeleteSelected()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [handleDeleteSelected])
-
   // UI 전용 상태
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [addSpaceFormData, setAddSpaceFormData] = useState<AddSpaceFormData>(INITIAL_ADD_SPACE_FORM)
   const [isCollaborationMode, setIsCollaborationMode] = useState(false)
+  const [isAgentPanelMode, setIsAgentPanelMode] = useState(false)
   const [selectedPinId, setSelectedPinId] = useState<string | null>(null)
   const [commentPins, setCommentPins] = useState<FloorCommentPin[]>([])
   const [commentNotifications, setCommentNotifications] = useState<FloorCommentNotification[]>([])
@@ -560,7 +555,7 @@ export function useEditorPage() {
   } | null>(null)
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false)
-  const [isGridSnapEnabled, setIsGridSnapEnabled] = useState(true)
+  const [isGridSnapEnabled, setIsGridSnapEnabled] = useState(false)
   const [gridSnapIntervalMm, setGridSnapIntervalMm] = useState<number>(DEFAULT_GRID_SNAP_INTERVAL_MM)
   const { wallCreatePreset, setWallCreatePreset } = useFloorWallToolState()
   const [isLayerOverlayMode, setIsLayerOverlayMode] = useState(false)
@@ -593,7 +588,7 @@ export function useEditorPage() {
   const bubbleDbSaveTimerRef = useRef<number | null>(null)
   const bubbleDbSaveInFlightRef = useRef<Promise<SaveBubbleSnapshotResponse> | null>(null)
   const floorPlanGenerateForbiddenRef = useRef(false)
-  const floorPlanIfcExportAbortRef = useRef<AbortController | null>(null)
+  const pendingOpenThreeDOnGenerateCompleteRef = useRef(false)
   const lastLoadedIfcStorageUrlRef = useRef<string | null>(null)
   const ifcLoadInFlightStorageUrlRef = useRef<string | null>(null)
   /**
@@ -608,11 +603,18 @@ export function useEditorPage() {
   const currentIfcUrl = projectId ? (ifcSourceByProjectId[projectId]?.url ?? null) : null
   const currentIfcAssetId = projectId ? (ifcSourceByProjectId[projectId]?.assetId ?? null) : null
   const currentIfcRevisionId = projectId ? (ifcRevisionByProjectId[projectId] ?? null) : null
+  const workspaceCommandPublisher = useWorkspaceCommandPublisher({
+    projectId,
+    source: mode === '3d' ? '3d' : '2d',
+    getBaseRevisionId: () => currentIfcRevisionId,
+    getBaseIndex: () => floorPlanHistoryBaseIndexRef.current,
+  })
   const bubbleDbDirtyRef = useRef(false)
   const hasUserEditedRef = useRef(false)
   const serverPublishRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingServerPublishRef = useRef<PendingServerPublishRecord | null>(null)
   const awaitingServerSyncRef = useRef<AwaitingServerSyncRecord | null>(null)
+  const suppressGeneratedFloorPlanAutosaveRef = useRef(false)
   const floorPlanHistoryCommandInFlightRef = useRef(false)
   const draftLoadTokenRef = useRef(0)
   const draftLoadedProjectIdRef = useRef<string | null>(null)
@@ -629,14 +631,9 @@ export function useEditorPage() {
   useEffect(() => {
     lastLoadedIfcStorageUrlRef.current = null
     ifcLoadInFlightStorageUrlRef.current = null
-    floorPlanIfcExportAbortRef.current?.abort()
-    floorPlanIfcExportAbortRef.current = null
+    suppressGeneratedFloorPlanAutosaveRef.current = false
+    pendingOpenThreeDOnGenerateCompleteRef.current = false
   }, [projectId])
-
-  useEffect(() => () => {
-    floorPlanIfcExportAbortRef.current?.abort()
-    floorPlanIfcExportAbortRef.current = null
-  }, [])
 
   const [serverPublishRetryTick, setServerPublishRetryTick] = useState(0)
   const clearServerPublishRetry = useCallback(() => {
@@ -656,14 +653,14 @@ export function useEditorPage() {
     snapshot.phaseStatus === 'BUBBLE_DRAFT'
       ? bubbleHistoryBaseIndexRef.current
       : floorPlanHistoryBaseIndexRef.current
-  , [])
+    , [])
   const resolveServerHistoryDomain = useCallback((snapshot: WorkspaceSnapshot): AwaitingServerSyncRecord['historyDomain'] =>
     snapshot.phaseStatus === 'BUBBLE_DRAFT' &&
-    !snapshot.isFloorPlanGenerated &&
-    snapshot.floorPlanLayoutSource === null
+      !snapshot.isFloorPlanGenerated &&
+      snapshot.floorPlanLayoutSource === null
       ? 'bubble'
       : 'floorPlan'
-  , [])
+    , [])
   const applyWorkspaceHistorySiteInfo = useCallback((siteInfo: WorkspaceHistorySnapshotResponse['siteInfo']) => {
     const polygonRing = extractOuterRingFromCoordinates(siteInfo?.polygon?.coordinates)
     const areaM2 =
@@ -683,7 +680,7 @@ export function useEditorPage() {
   }, [])
   const resolveFloorPlanSceneType = useCallback((): FloorPlanSceneType =>
     mode === '3d' ? 'THREE_D' : 'TWO_D'
-  , [mode])
+    , [mode])
   const authUser = useAuthStore((state) => state.user)
   const currentProject = useProjectStore((state) => state.currentProject)
   const {
@@ -811,6 +808,28 @@ export function useEditorPage() {
     [projectId, queryClient],
   )
   const projectCommentRealtime = useProjectCommentRealtime(currentProjectForRealtime, editorCommentRealtimeOptions)
+  const pinAuthorDirectoryQuery = useQuery({
+    queryKey: ['editor', 'pin-author-directory', projectId],
+    queryFn: () => {
+      if (!projectId) throw new Error('Missing project id')
+      return projectService.getWorkspaceDetail(projectId)
+    },
+    enabled: Boolean(projectId),
+    staleTime: 60_000,
+  })
+  const pinAuthorNameByUserId = useMemo(() => {
+    const detail = pinAuthorDirectoryQuery.data
+    if (!detail) return {}
+    const nextMap: Record<string, string> = {}
+    if (detail.creator?.userId && detail.creator.name) {
+      nextMap[detail.creator.userId] = detail.creator.name
+    }
+    detail.invitedUsers?.forEach((user) => {
+      if (!user.userId || !user.name) return
+      nextMap[user.userId] = user.name
+    })
+    return nextMap
+  }, [pinAuthorDirectoryQuery.data])
 
   useEffect(() => {
     if (!pinCommentsQuery.data) return
@@ -822,6 +841,7 @@ export function useEditorPage() {
         currentUserName,
         collaborationUserType,
         counterpartType,
+        pinAuthorNameByUserId,
       ),
     )
     const syncTimer = window.setTimeout(() => {
@@ -848,6 +868,7 @@ export function useEditorPage() {
     collaborationUserType,
     counterpartType,
     currentUserName,
+    pinAuthorNameByUserId,
     pinCommentsQuery.data,
   ])
 
@@ -887,15 +908,30 @@ export function useEditorPage() {
     phaseStatus !== 'CONVERTING' &&
     (phaseStatus === 'IFC_EDIT' || isFloorPlanGenerated || floorPlanLayoutSource !== null)
   const isConverting = phaseStatus === 'CONVERTING'
+  const isThreeDEditingLocked = mode === '3d' && isTwoDOrThreeDConverting
+  const isTwoDEditingLocked = mode === '2d' && isTwoDOrThreeDConverting
   const isBubbleReadOnly = !canEditBubble
+  // delete/connect 툴 잠금은 bubble 모드에서만 적용한다.
+  // 3D/2D에서 도구 전환까지 막히지 않도록 모드 조건을 분리한다.
+  const isToolSelectionLockedByBubbleMode = mode === 'bubble' && isBubbleReadOnly
   const {
     selectedTool,
     setSelectedTool,
     connectingFromId,
     setConnectingFromId,
     resetToolSelection,
-    handleSetSelectedTool,
-  } = useEditorToolState({ isBubbleReadOnly })
+    handleSetSelectedTool: baseHandleSetSelectedTool,
+  } = useEditorToolState({ isBubbleReadOnly: isToolSelectionLockedByBubbleMode })
+  const handleSetSelectedTool = useCallback((tool: string) => {
+    if (isTwoDOrThreeDConverting && !isToolAllowedDuringConverting(tool)) return
+    baseHandleSetSelectedTool(tool)
+  }, [baseHandleSetSelectedTool, isTwoDOrThreeDConverting])
+
+  useEffect(() => {
+    if (!isTwoDOrThreeDConverting) return
+    if (selectedTool === 'selection' || selectedTool === 'hand') return
+    baseHandleSetSelectedTool('selection')
+  }, [baseHandleSetSelectedTool, isTwoDOrThreeDConverting, selectedTool])
   const isFloorPlanHistoryMode = mode === '2d' || mode === '3d'
   const hasBubbleUndoHistory = bubbleHistoryCursor.baseIndex > 0
   const hasFloorPlanUndoHistory = floorPlanHistoryCursor.baseIndex > 0
@@ -931,19 +967,14 @@ export function useEditorPage() {
     },
   })
 
-  // Shift+L: 층 겹쳐보기 모드 토글 (2D/3D 전용)
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-      if (e.repeat) return
-      if (!e.shiftKey || e.code !== 'KeyL') return
-      if (mode !== '2d' && mode !== '3d') return
-      e.preventDefault()
-      setIsLayerOverlayMode((prev) => !prev)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [mode])
+  useEditorKeyboardShortcuts({
+    mode,
+    isEditorReadOnly,
+    isDeleteEnabled: !isTwoDOrThreeDConverting,
+    onDeleteSelected: handleDeleteSelected,
+    onToggleLayerOverlay: () => setIsLayerOverlayMode((prev) => !prev),
+    onSetTool: handleSetSelectedTool,
+  })
 
   useEffect(() => {
     const layerIdSet = new Set(floorLayers.map((layer) => layer.id))
@@ -1429,22 +1460,35 @@ export function useEditorPage() {
     const shouldPublishBubbleDraft = mode === 'bubble' && workspacePhaseStatus === 'BUBBLE_DRAFT'
     const publishSnapshot: WorkspaceSnapshot = shouldPublishBubbleDraft
       ? {
-          ...draftSnapshot,
-          phaseStatus: 'BUBBLE_DRAFT',
-          zones: [],
-          floorLayers: [],
-          activeFloorLayerId: null,
-          isFloorPlanGenerated: false,
-          floorPlanLayoutSource: null,
-          floorWalls: [],
-          floorOpenings: [],
-          hiddenAutoWallIds: [],
-          hiddenAutoOpeningIds: [],
-          isProjectStructurePreferred: false,
-          ifcElementChanges: [],
-        }
+        ...draftSnapshot,
+        phaseStatus: 'BUBBLE_DRAFT',
+        zones: [],
+        floorLayers: [],
+        activeFloorLayerId: null,
+        isFloorPlanGenerated: false,
+        floorPlanLayoutSource: null,
+        floorWalls: [],
+        floorOpenings: [],
+        hiddenAutoWallIds: [],
+        hiddenAutoOpeningIds: [],
+        isProjectStructurePreferred: false,
+        ifcElementChanges: [],
+      }
       : draftSnapshot
     const serializedSnapshot = JSON.stringify(publishSnapshot)
+
+    if (
+      suppressGeneratedFloorPlanAutosaveRef.current &&
+      resolveServerHistoryDomain(publishSnapshot) === 'floorPlan'
+    ) {
+      pendingServerPublishRef.current = null
+      awaitingServerSyncRef.current = null
+      previousSnapshotRef.current = serializedSnapshot
+      hasUserEditedRef.current = false
+      suppressGeneratedFloorPlanAutosaveRef.current = false
+      setSaveStatus('synced')
+      return
+    }
 
     if (suppressNextAutosaveRef.current) {
       suppressNextAutosaveRef.current = false
@@ -1507,12 +1551,12 @@ export function useEditorPage() {
     }
 
     void workspaceRealtimeService.publishSnapshot({
-        projectId,
-        snapshot: publishSnapshot,
-        baseIndex: serverPublishRecord.baseIndex,
-        revisionId: serverPublishRecord.revisionId,
-        sceneType: serverPublishRecord.sceneType,
-      })
+      projectId,
+      snapshot: publishSnapshot,
+      baseIndex: serverPublishRecord.baseIndex,
+      revisionId: serverPublishRecord.revisionId,
+      sceneType: serverPublishRecord.sceneType,
+    })
       .then(() => {
         // baseline은 매칭되는 서버 history ack를 받은 뒤에만 갱신한다.
       })
@@ -1576,12 +1620,20 @@ export function useEditorPage() {
     }
   }, [projectId])
 
-  const handleWorkspaceServerError = useCallback((_error: StompErrorMessage) => {
+  const handleWorkspaceServerError = useCallback((error: StompErrorMessage) => {
     const awaitingSync = awaitingServerSyncRef.current
     if (!awaitingSync || awaitingSync.projectId !== projectId) return
 
     awaitingServerSyncRef.current = null
     floorPlanHistoryCommandInFlightRef.current = false
+    if (error.code === CURSOR_INVALID_CODE || error.code === FLOOR_PLAN_CURSOR_INVALID_CODE) {
+      pendingServerPublishRef.current = null
+      previousSnapshotRef.current = null
+      clearServerPublishRetry()
+      setSaveStatus('dirty')
+      return
+    }
+
     if (
       pendingServerPublishRef.current?.serializedSnapshot === awaitingSync.serializedSnapshot
     ) {
@@ -1727,8 +1779,13 @@ export function useEditorPage() {
     return true
   }, [applyRemoteBubbleSnapshot, clearServerPublishRetry])
 
-  const refreshHistoryCursorFromServer = useCallback(async () => {
+  const refreshHistoryCursorFromServer = useCallback(async (options?: {
+    republishOnFailure?: boolean
+    republishWhenStale?: boolean
+  }) => {
     if (!projectId) return
+    const republishOnFailure = options?.republishOnFailure ?? true
+    const republishWhenStale = options?.republishWhenStale ?? true
     const awaitingSync = awaitingServerSyncRef.current
     const history = await workspaceSaveService.loadHistorySnapshot(projectId).catch(() => null)
     if (!history) {
@@ -1736,7 +1793,9 @@ export function useEditorPage() {
         awaitingServerSyncRef.current = null
         previousSnapshotRef.current = null
         setSaveStatus('dirty')
-        setWorkspaceSnapshotCommitVersion((version) => version + 1)
+        if (republishOnFailure) {
+          setWorkspaceSnapshotCommitVersion((version) => version + 1)
+        }
       }
       return
     }
@@ -1768,20 +1827,33 @@ export function useEditorPage() {
 
     previousSnapshotRef.current = null
     setSaveStatus('dirty')
-    setWorkspaceSnapshotCommitVersion((version) => version + 1)
+    if (republishWhenStale) {
+      setWorkspaceSnapshotCommitVersion((version) => version + 1)
+    }
   }, [projectId])
 
   const handleBubbleHistoryCursorInvalid = useCallback(() => {
     const awaitingSync = awaitingServerSyncRef.current
     if (!awaitingSync || awaitingSync.projectId !== projectId || awaitingSync.historyDomain !== 'bubble') return
-    void refreshHistoryCursorFromServer()
-  }, [projectId, refreshHistoryCursorFromServer])
+    pendingServerPublishRef.current = null
+    awaitingServerSyncRef.current = null
+    previousSnapshotRef.current = null
+    clearServerPublishRetry()
+    setSaveStatus('dirty')
+    void refreshHistoryCursorFromServer({ republishOnFailure: false, republishWhenStale: false })
+  }, [clearServerPublishRetry, projectId, refreshHistoryCursorFromServer])
 
   const handleFloorPlanHistoryCursorInvalid = useCallback(() => {
     const awaitingSync = awaitingServerSyncRef.current
     if (!awaitingSync || awaitingSync.projectId !== projectId || awaitingSync.historyDomain !== 'floorPlan') return
-    void refreshHistoryCursorFromServer()
-  }, [projectId, refreshHistoryCursorFromServer])
+    pendingServerPublishRef.current = null
+    awaitingServerSyncRef.current = null
+    previousSnapshotRef.current = null
+    floorPlanHistoryCommandInFlightRef.current = false
+    clearServerPublishRetry()
+    setSaveStatus('dirty')
+    void refreshHistoryCursorFromServer({ republishOnFailure: false, republishWhenStale: false })
+  }, [clearServerPublishRetry, projectId, refreshHistoryCursorFromServer])
 
   useEffect(() => {
     if (saveStatus !== 'syncing') return
@@ -1808,6 +1880,14 @@ export function useEditorPage() {
     onPhaseStatusChanged: setWorkspacePhaseStatus,
     onIfcStorageUrlReceived: (ifcStorageUrl, action, assetId, revisionId) => {
       handleIfcSyncMessageRef.current(ifcStorageUrl, action, assetId, revisionId)
+      if (
+        pendingOpenThreeDOnGenerateCompleteRef.current &&
+        action &&
+        IFC_COMPLETED_ACTION_SET.has(action)
+      ) {
+        pendingOpenThreeDOnGenerateCompleteRef.current = false
+        setMode('3d')
+      }
     },
     onBubbleHistoryCursorChanged: updateBubbleHistoryCursor,
     onFloorPlanHistoryCursorChanged: updateFloorPlanHistoryCursor,
@@ -1817,6 +1897,27 @@ export function useEditorPage() {
     bubbleHistoryCursor,
     floorPlanHistoryCursor,
   })
+
+  const getBubbleSnapshotSaveErrorSummary = useCallback((error: unknown) => {
+    if (!isAxiosError(error)) {
+      return error instanceof Error ? error.message : String(error)
+    }
+
+    if (error.response) {
+      const responseData = error.response.data as { message?: unknown } | undefined
+      return {
+        status: error.response.status,
+        message: typeof responseData?.message === 'string' ? responseData.message : error.message,
+      }
+    }
+
+    return {
+      message: error.message,
+      code: error.code,
+      url: error.config?.url,
+      baseURL: error.config?.baseURL,
+    }
+  }, [])
 
   const flushBubbleSnapshotSaveToDb = useCallback(async (force = false): Promise<SaveBubbleSnapshotResponse | null> => {
     if (!projectId) return null
@@ -1841,14 +1942,16 @@ export function useEditorPage() {
     try {
       return await saveTask
     } catch (error: unknown) {
+      const errorSummary = getBubbleSnapshotSaveErrorSummary(error)
       console.warn('[editor] Bubble snapshot DB 저장 실패:', { projectId, error })
+      console.warn('[editor] Bubble snapshot DB 저장 실패 상세:', { projectId, error: errorSummary })
       return null
     } finally {
       if (bubbleDbSaveInFlightRef.current === saveTask) {
         bubbleDbSaveInFlightRef.current = null
       }
     }
-  }, [projectId, workspacePhaseStatus])
+  }, [getBubbleSnapshotSaveErrorSummary, projectId, workspacePhaseStatus])
 
   const scheduleBubbleSnapshotSaveToDb = useCallback((delayMs = BUBBLE_DB_SAVE_DEBOUNCE_MS) => {
     if (!projectId) return
@@ -2168,6 +2271,7 @@ export function useEditorPage() {
     [commentPins, selectedPinId],
   )
   const hasDeletableSelection = useMemo(() => {
+    if (isTwoDOrThreeDConverting) return false
     if (mode === 'bubble') {
       if (isBubbleReadOnly) return false
       return Boolean(selectedConnectionPair) || selectedIds.length > 0
@@ -2181,10 +2285,13 @@ export function useEditorPage() {
       ) || selectedIds.length > 0
     }
     if (mode === '3d') {
-      return selectedIds.length > 0 || Boolean(selectedIfcElement)
+      // 3D 삭제 가능 여부는 실제 3D 선택 상태(selectedIfcElement)만 기준으로 판단한다.
+      // selectedIds는 버블 모드 선택 잔존값일 수 있어 삭제 버튼 동작을 왜곡할 수 있다.
+      return Boolean(selectedIfcElement)
     }
     return false
   }, [
+    isTwoDOrThreeDConverting,
     mode,
     isBubbleReadOnly,
     selectedConnectionPair,
@@ -2312,11 +2419,13 @@ export function useEditorPage() {
   /** 편집 모드 전환 — 협업 모드·라이브러리는 모드 이탈 시 닫힘 */
   const setMode = useCallback((nextMode: EditorMode) => {
     setSearchParams({ mode: nextMode })
+    if (nextMode === '3d' && mode !== '3d' && !currentIfcUrl) setIsGenerate3DModalOpen(true)
     if (nextMode !== mode) resetToolSelection()
     if (nextMode !== '2d') setIsCollaborationMode(false)
+    if (nextMode === 'view' || nextMode === 'bubble') setIsAgentPanelMode(false)
     if (nextMode !== '3d') setSelectedIfcElement(null)
     setIsLibraryOpen(false)
-  }, [mode, resetToolSelection, setSearchParams])
+  }, [currentIfcUrl, mode, resetToolSelection, setIsGenerate3DModalOpen, setSearchParams])
 
   const handleOpenProjectFromCommentToast = useCallback((targetProjectId: string, pinId?: string) => {
     const pinQuery = pinId ? `&pinId=${encodeURIComponent(pinId)}` : ''
@@ -2326,6 +2435,7 @@ export function useEditorPage() {
     }
     setSearchParams({ mode: '2d', ...(pinId ? { pinId } : {}) })
     setIsCollaborationMode(true)
+    setIsAgentPanelMode(false)
     if (pinId) {
       setSelectedPinId(pinId)
     }
@@ -2361,8 +2471,20 @@ export function useEditorPage() {
     setIsCollaborationMode((prev) => {
       if (!prev) {
         setSelectedPinId(null)
+        setIsAgentPanelMode(false)
       }
       return !prev
+    })
+  }
+
+  const handleToggleAgentPanel = () => {
+    setIsAgentPanelMode((prev) => {
+      const next = !prev
+      if (next) {
+        setIsCollaborationMode(false)
+        setSelectedPinId(null)
+      }
+      return next
     })
   }
 
@@ -2532,28 +2654,102 @@ export function useEditorPage() {
   }
 
   const handleSelectIfcElement = useCallback((element: IfcElementInfo | null) => {
-    setSelectedIfcElement(element)
+    setSelectedIfcElement((previous) => {
+      if (
+        element?.category?.toLowerCase() === 'roof' ||
+        element?.ifcClass?.toLowerCase() === 'ifcroof' ||
+        previous?.category?.toLowerCase() === 'roof' ||
+        previous?.ifcClass?.toLowerCase() === 'ifcroof'
+      ) {
+        logRoofDebug('handleSelectIfcElement setState', {
+          mode,
+          incoming: element
+            ? { id: element.id, source: element.source, roofShape: element.roofShape, name: element.name }
+            : null,
+          previous: previous
+            ? { id: previous.id, source: previous.source, roofShape: previous.roofShape, name: previous.name }
+            : null,
+        })
+      }
+      if (
+        mode === '3d' &&
+        element &&
+        element.source === 'ifc' &&
+        typeof element.expressId === 'number' &&
+        previous &&
+        previous.id === element.id &&
+        previous.source === 'ifc' &&
+        previous.expressId === element.expressId
+      ) {
+        const patch: Omit<IfcElementChange, 'expressId'> = {}
+        if (
+          Number.isFinite(element.positionX) &&
+          Number.isFinite(element.positionY) &&
+          Number.isFinite(element.positionZ) &&
+          (
+            element.positionX !== previous.positionX ||
+            element.positionY !== previous.positionY ||
+            element.positionZ !== previous.positionZ
+          )
+        ) {
+          patch.positionX = element.positionX
+          patch.positionY = element.positionY
+          patch.positionZ = element.positionZ
+        }
+        if (
+          Number.isFinite(element.rotationX) &&
+          Number.isFinite(element.rotationY) &&
+          Number.isFinite(element.rotationZ) &&
+          (
+            element.rotationX !== previous.rotationX ||
+            element.rotationY !== previous.rotationY ||
+            element.rotationZ !== previous.rotationZ
+          )
+        ) {
+          patch.rotationX = element.rotationX
+          patch.rotationY = element.rotationY
+          patch.rotationZ = element.rotationZ
+        }
+        if (Object.keys(patch).length > 0) {
+          setIfcElementChangesById((prev) => ({
+            ...prev,
+            [element.expressId as number]: {
+              ...prev[element.expressId as number],
+              ...patch,
+              expressId: element.expressId as number,
+            },
+          }))
+        }
+      }
+      return element
+    })
     if (!element) return
     clearSelection()
     clearConnectionAndTwoDSelection()
-  }, [clearSelection, clearConnectionAndTwoDSelection])
+  }, [clearSelection, clearConnectionAndTwoDSelection, mode])
 
   const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId'>) => {
     if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return
+    if (element.globalId && !patch.deleted) {
+      workspaceCommandPublisher.updateIfcElement(element, patch)
+    }
     setIfcElementChangesById((prev) => ({
       ...prev,
       [element.expressId as number]: {
         ...prev[element.expressId as number],
         ...patch,
         expressId: element.expressId as number,
+        globalId: element.globalId,
+        ifcClass: element.ifcClass,
       },
     }))
-  }, [])
+  }, [workspaceCommandPublisher])
 
   const handleDeleteIfcElement = useCallback((element: IfcElementInfo) => {
+    workspaceCommandPublisher.deleteIfcElement(element)
     recordIfcElementChange(element, { deleted: true })
     setSelectedIfcElement((prev) => (prev?.id === element.id ? null : prev))
-  }, [recordIfcElementChange])
+  }, [recordIfcElementChange, workspaceCommandPublisher])
 
   const handleTwoDMarqueeSelect = useCallback(
     (
@@ -2690,38 +2886,11 @@ export function useEditorPage() {
       setFloorPlanGenerateStatusText('AI가 평면도 생성 중...')
       setIsFloorPlanEditedIn2D(false)
       setWorkspacePhaseStatus('CONVERTING')
+      pendingOpenThreeDOnGenerateCompleteRef.current = Boolean(options.openThreeDOnComplete)
       startFloorPlanGenerateTimeout()
-      floorPlanIfcExportAbortRef.current?.abort()
-      const floorPlanIfcExportAbortController = new AbortController()
-      floorPlanIfcExportAbortRef.current = floorPlanIfcExportAbortController
-      void waitForFloorPlanIfcExport(projectId, response.targetRevisionId, {
-        signal: floorPlanIfcExportAbortController.signal,
-      })
-        .then((exported) => {
-          if (floorPlanIfcExportAbortController.signal.aborted) return
-          if (floorPlanIfcExportAbortRef.current !== floorPlanIfcExportAbortController) return
-          floorPlanIfcExportAbortRef.current = null
-          clearFloorPlanGenerateTimeout()
-          handleIfcSyncMessageRef.current(
-            exported.presignedUrl,
-            'FLOOR_PLAN_GENERATE_COMPLETED',
-            null,
-            exported.revisionId,
-          )
-          if (options.openThreeDOnComplete) {
-            setMode('3d')
-          }
-        })
-        .catch((pollError: unknown) => {
-          if (floorPlanIfcExportAbortController.signal.aborted) return
-          if (floorPlanIfcExportAbortRef.current !== floorPlanIfcExportAbortController) return
-          floorPlanIfcExportAbortRef.current = null
-          clearFloorPlanGenerateTimeout()
-          setWorkspacePhaseStatus('BUBBLE_DRAFT')
-          setFloorPlanGenerateStatusText('IFC 변환 결과를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.')
-          console.error('[editor] Floor-plan IFC export polling failed:', pollError)
-        })
+
     } catch (error: unknown) {
+      pendingOpenThreeDOnGenerateCompleteRef.current = false
       clearFloorPlanGenerateTimeout()
       setWorkspacePhaseStatus('BUBBLE_DRAFT')
       if (error instanceof FloorPlanLayoutValidationError) {
@@ -2756,7 +2925,6 @@ export function useEditorPage() {
     isCurrentProjectOwnerKnown,
     layoutBoundaryInput,
     projectId,
-    setMode,
     startFloorPlanGenerateTimeout,
     workspacePhaseStatus,
   ])
@@ -3251,10 +3419,19 @@ export function useEditorPage() {
         }))
       }
       // IFC가 정상 로드되면 완료 action 문자열과 무관하게 편집 상태로 복귀해 무한 로딩을 방지한다.
+      const shouldSuppressGeneratedFloorPlanAutosave = action === 'FLOOR_PLAN_GENERATE_COMPLETED'
+      if (shouldSuppressGeneratedFloorPlanAutosave) {
+        suppressGeneratedFloorPlanAutosaveRef.current = true
+        pendingServerPublishRef.current = null
+        awaitingServerSyncRef.current = null
+        clearServerPublishRetry()
+        hasUserEditedRef.current = false
+      }
       await loadIfcFromStorageUrl(presignedUrl, { webIfcWasmPath: '/wasm/' })
       lastLoadedIfcStorageUrlRef.current = dedupeKey
       setWorkspacePhaseStatus('IFC_EDIT')
       if (action && IFC_COMPLETED_ACTION_SET.has(action)) {
+        clearFloorPlanGenerateTimeout()
         setFloorPlanGenerateStatusText('평면도 생성이 완료되었습니다.')
       }
     } catch (error: unknown) {
@@ -3266,7 +3443,7 @@ export function useEditorPage() {
         ifcLoadInFlightStorageUrlRef.current = null
       }
     }
-  }, [loadIfcFromStorageUrl, projectId, setFloorPlanGenerateStatusText])
+  }, [clearFloorPlanGenerateTimeout, clearServerPublishRetry, loadIfcFromStorageUrl, projectId, setFloorPlanGenerateStatusText])
 
   useEffect(() => {
     handleIfcSyncMessageRef.current = (
@@ -3323,6 +3500,7 @@ export function useEditorPage() {
     handleHeightCommitForPanel: baseHandleHeightCommitForPanel,
   } = useEditorAttributePanelHandlers({
     mode,
+    isTwoDEditingLocked,
     canSyncBubbleStateFrom2D,
     isWallFirstEditing,
     isGridSnapEnabled,
@@ -3348,8 +3526,12 @@ export function useEditorPage() {
     handleWidthChangeForPanel,
     handleHeightChangeForPanel,
     handleThicknessChangeForPanel,
+    handlePositionChangeForPanel,
+    handleRotationChangeForPanel,
+    handleRoofShapeChangeForPanel,
   } = useThreeDIfcAttributeHandlers({
     mode,
+    canEditThreeDAttributes: !isThreeDEditingLocked,
     selectedIfcElement,
     setSelectedIfcElement,
     recordIfcElementChange,
@@ -3385,12 +3567,12 @@ export function useEditorPage() {
       return
     }
     setIsGenerate3DModalOpen(true)
-  }, [currentIfcUrl, setMode])
+  }, [currentIfcUrl, setIsGenerate3DModalOpen, setMode])
 
   /** 3D 생성 모달 닫기 */
   const handleCloseGenerate3DModal = useCallback(() => {
     setIsGenerate3DModalOpen(false)
-  }, [])
+  }, [setIsGenerate3DModalOpen])
 
   /**
    * 층고 확정 후 현재 평면도 데이터를 스냅샷으로 저장하고 3D 모드로 전환한다.
@@ -3407,7 +3589,7 @@ export function useEditorPage() {
       openThreeDOnComplete: true,
       spaceHeightMm: storyHeightMm,
     })
-  }, [currentIfcUrl, handleGenerateFloorPlan, setMode])
+  }, [currentIfcUrl, handleGenerateFloorPlan, setIsGenerate3DModalOpen, setLocalFloorData, setMode])
 
   const handleAutoLayoutBubbles = useCallback(() => {
     if (mode !== 'bubble') return
@@ -3473,6 +3655,9 @@ export function useEditorPage() {
     handleWidthChange: handleWidthChangeForPanel,
     handleHeightChange: handleHeightChangeForPanel,
     handleThicknessChange: handleThicknessChangeForPanel,
+    handlePositionChange: handlePositionChangeForPanel,
+    handleRotationChange: handleRotationChangeForPanel,
+    handleRoofShapeChange: handleRoofShapeChangeForPanel,
     handleWidthCommit: handleWidthCommitForPanel,
     handleHeightCommit: handleHeightCommitForPanel,
     handleRatioChange: handleRatioChangeForPanel,
@@ -3530,6 +3715,7 @@ export function useEditorPage() {
     onCloseAddModal: () => setIsAddModalOpen(false),
     // 협업
     isCollaborationMode,
+    isAgentPanelMode,
     selectedPinId,
     setSelectedPinId,
     selectedCommentPin,
@@ -3538,6 +3724,7 @@ export function useEditorPage() {
     currentCollaborationUserType: collaborationUserType,
     currentCollaborationUserName: currentUserName,
     handleToggleCollaboration,
+    handleToggleAgentPanel,
     handlePinClick,
     handleCreateCommentPin,
     handleAddCommentReply,
@@ -3612,6 +3799,8 @@ export function useEditorPage() {
     // 도구 선택
     saveStatus,
     selectedTool,
+    isThreeDEditingLocked,
+    isDeleteActionLocked: isTwoDOrThreeDConverting,
     setSelectedTool,
     handleSetSelectedTool,
     wallCreatePreset,

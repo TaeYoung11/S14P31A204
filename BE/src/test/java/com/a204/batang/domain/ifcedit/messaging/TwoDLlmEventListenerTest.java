@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -135,11 +136,17 @@ class TwoDLlmEventListenerTest {
 
         listener.handle(event);
 
+        ArgumentCaptor<IfcEditCommandPublishRequestedEvent> commandCaptor =
+                ArgumentCaptor.forClass(IfcEditCommandPublishRequestedEvent.class);
+
         assertThat(step1.getStatus()).isEqualTo("SUCCEEDED");
         verify(revisionRepository).save(any(Revision.class));
         verify(ifcEditJobStepRepository).save(any(IfcEditJobStep.class));
-        verify(eventPublisher).publishEvent(any(IfcEditCommandPublishRequestedEvent.class));
+        verify(eventPublisher).publishEvent(commandCaptor.capture());
         verify(eventPublisher).publishEvent(any(IfcEditStatusChangedEvent.class));
+        assertThat(commandCaptor.getValue().message().payload().get("commandJsonStorageUrl").asText())
+                .isEqualTo(editPlanUrl);
+        assertThat(commandCaptor.getValue().message().payload().has("command_json_storage_url")).isFalse();
     }
 
     @Test

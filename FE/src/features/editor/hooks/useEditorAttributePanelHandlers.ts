@@ -8,6 +8,7 @@ import { getPolygonAreaPx, scalePolygonToRect } from '../utils/editorPageHelpers
 
 interface UseEditorAttributePanelHandlersParams {
   mode: EditorMode
+  isTwoDEditingLocked: boolean
   canSyncBubbleStateFrom2D: boolean
   isWallFirstEditing: boolean
   isGridSnapEnabled: boolean
@@ -37,6 +38,7 @@ interface UseEditorAttributePanelHandlersParams {
  */
 export function useEditorAttributePanelHandlers({
   mode,
+  isTwoDEditingLocked,
   canSyncBubbleStateFrom2D,
   isWallFirstEditing,
   isGridSnapEnabled,
@@ -67,6 +69,7 @@ export function useEditorAttributePanelHandlers({
   }, [isGridSnapEnabled, gridSnapIntervalMm])
 
   const handleLabelChangeForPanel = useCallback((id: string, label: string) => {
+    if (mode === '2d' && isTwoDEditingLocked) return
     if (mode !== '2d') {
       markLocalBubbleSnapshotChanged()
       handleLabelChange(id, label)
@@ -77,9 +80,10 @@ export function useEditorAttributePanelHandlers({
       handleLabelChange(id, label)
     }
     updateActiveRoom(id, (room) => ({ ...room, label }))
-  }, [mode, canSyncBubbleStateFrom2D, markLocalBubbleSnapshotChanged, handleLabelChange, updateActiveRoom])
+  }, [mode, isTwoDEditingLocked, canSyncBubbleStateFrom2D, markLocalBubbleSnapshotChanged, handleLabelChange, updateActiveRoom])
 
   const handleTypeChangeForPanel = useCallback((id: string, type: string) => {
+    if (mode === '2d' && isTwoDEditingLocked) return
     if (mode !== '2d') {
       markLocalBubbleSnapshotChanged()
       handleTypeChange(id, type)
@@ -90,7 +94,7 @@ export function useEditorAttributePanelHandlers({
       handleTypeChange(id, type)
     }
     updateActiveRoom(id, (room) => ({ ...room, type }))
-  }, [mode, canSyncBubbleStateFrom2D, markLocalBubbleSnapshotChanged, handleTypeChange, updateActiveRoom])
+  }, [mode, isTwoDEditingLocked, canSyncBubbleStateFrom2D, markLocalBubbleSnapshotChanged, handleTypeChange, updateActiveRoom])
 
   const handleMaterialChangeForPanel = useCallback((id: string, material: string) => {
     if (mode === '2d') return
@@ -100,6 +104,7 @@ export function useEditorAttributePanelHandlers({
 
   const applyRoomDimensionIn2D = useCallback((bubbleId: string, axis: 'width' | 'height', nextMm: number) => {
     if (mode !== '2d') return
+    if (isTwoDEditingLocked) return
     if (isWallFirstEditing) return
     if (!Number.isFinite(nextMm) || nextMm <= 0) return
     setIsFloorPlanEditedIn2D(true)
@@ -170,6 +175,7 @@ export function useEditorAttributePanelHandlers({
     syncFloorDerivedStateFromRooms(nextRooms)
   }, [
     mode,
+    isTwoDEditingLocked,
     isWallFirstEditing,
     floorRooms,
     setIsFloorPlanEditedIn2D,

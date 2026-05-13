@@ -15,6 +15,9 @@ const COLLAPSED_PANEL_SIZE = 44
 const PANEL_EDGE_SNAP_PX = 18
 const PANEL_SIBLING_SNAP_PX = 14
 const DRAG_CLICK_GUARD_PX = 3
+const REGULAR_PANEL_Z_INDEX_MIN = 121
+const REGULAR_PANEL_Z_INDEX_MAX = 160
+const PINNED_PANEL_Z_INDEX_MIN = 181
 
 const PANEL_KEYS: PanelKey[] = ['attributes', 'zoning', 'assistant', 'floorView', 'hierarchy']
 const DEFAULT_PANEL_OFFSETS: Record<PanelKey, PanelOffset> = {
@@ -34,23 +37,23 @@ const DEFAULT_PANEL_OPEN_STATE: Record<PanelKey, boolean> = {
 const DEFAULT_PANEL_HEIGHTS: Record<PanelKey, number> = {
   attributes: 180,
   zoning: 180,
-  assistant: 150,
+  assistant: 420,
   floorView: 130,
   hierarchy: 130,
 }
 const DEFAULT_PANEL_WIDTHS: Record<PanelKey, number> = {
   attributes: 300,
   zoning: 300,
-  assistant: 300,
+  assistant: 340,
   floorView: 300,
   hierarchy: 300,
 }
 const DEFAULT_PANEL_Z_INDEXES: Record<PanelKey, number> = {
-  attributes: 10,
-  zoning: 11,
-  assistant: 12,
-  floorView: 13,
-  hierarchy: 14,
+  attributes: 181,
+  zoning: 121,
+  assistant: 182,
+  floorView: 122,
+  hierarchy: 123,
 }
 const PANEL_VISIBLE_SIZE_CONFIG = {
   openMinVisibleWidthPx: 168,
@@ -101,7 +104,8 @@ export function usePanels(mode: EditorMode) {
   const [panelWidths, setPanelWidths] = useState<Record<PanelKey, number>>(createPanelWidthState)
   const [panelZIndexes, setPanelZIndexes] = useState<Record<PanelKey, number>>(createPanelZIndexState)
 
-  const zCounterRef = useRef(20)
+  const regularZCounterRef = useRef(REGULAR_PANEL_Z_INDEX_MIN + 3)
+  const pinnedZCounterRef = useRef(PINNED_PANEL_Z_INDEX_MIN + 2)
   const dragRef = useRef<DragState | null>(null)
   const resizeRef = useRef<ResizeState | null>(null)
   const dragMovedRef = useRef(false)
@@ -228,8 +232,15 @@ export function usePanels(mode: EditorMode) {
    * 최근 상호작용 패널을 가장 앞으로 올린다.
    */
   const bringPanelToFront = useCallback((panelKey: PanelKey) => {
-    const nextZ = zCounterRef.current + 1
-    zCounterRef.current = nextZ
+    const isPinnedPanel = panelKey === 'attributes' || panelKey === 'assistant'
+    const nextZ = isPinnedPanel
+      ? pinnedZCounterRef.current + 1
+      : Math.min(regularZCounterRef.current + 1, REGULAR_PANEL_Z_INDEX_MAX)
+    if (isPinnedPanel) {
+      pinnedZCounterRef.current = nextZ
+    } else {
+      regularZCounterRef.current = nextZ
+    }
     setPanelZIndexes((prev) => ({ ...prev, [panelKey]: nextZ }))
   }, [])
 
@@ -239,7 +250,8 @@ export function usePanels(mode: EditorMode) {
   const resetPanelPositions = useCallback(() => {
     setPanelOffsets(createPanelOffsetState())
     setPanelZIndexes(createPanelZIndexState())
-    zCounterRef.current = 20
+    regularZCounterRef.current = REGULAR_PANEL_Z_INDEX_MIN + 3
+    pinnedZCounterRef.current = PINNED_PANEL_Z_INDEX_MIN + 2
   }, [])
 
   useEffect(() => {

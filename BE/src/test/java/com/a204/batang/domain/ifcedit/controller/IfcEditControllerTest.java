@@ -64,7 +64,15 @@ class IfcEditControllerTest {
             {
               "schemaVersion": "v1",
               "baseRevisionId": "11111111-1111-1111-1111-111111111111",
-              "engineRequest": {"operation": "add_wall"}
+              "engineRequest": {
+                "op": "create",
+                "entity": "wall",
+                "id": "global-id-1",
+                "data": {
+                  "ifcClass": "IfcWall"
+                },
+                "timestamp": 1700000000000
+              }
             }
             """;
 

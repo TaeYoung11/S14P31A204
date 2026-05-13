@@ -96,6 +96,26 @@ def test_authoring_worker_returns_completed_result():
     print("[OK] CompletedResult 반환 및 S3 업로드 확인")
 
 
+def test_authoring_worker_accepts_inline_engine_request_v1():
+    root_dir = Path(__file__).resolve().parents[3]
+    message_path = root_dir / "sample_messages" / "command_ifc_edit.json"
+    ifc_path = root_dir / "tests" / "sample_batang.ifc"
+
+    with open(message_path, encoding="utf-8") as f:
+        raw = json.load(f)
+    raw["payload"] = {"engineRequest": _ENGINE_REQUEST}
+    command = CommandMessage.model_validate(raw)
+
+    worker, mock_s3 = _make_worker(ifc_path.read_bytes())
+
+    with patch.object(worker, "_run_operations", return_value=_APPLIED_OP_RESULTS) as mock_run_ops:
+        result = worker.process(command)
+
+    assert isinstance(result, CompletedResult)
+    mock_s3.read_text.assert_not_called()
+    assert mock_run_ops.call_args[0][1] == _ENGINE_REQUEST
+
+
 def test_authoring_worker_fails_when_no_operations_applied():
     """오퍼레이션이 하나도 적용되지 않으면 NonRetryableWorkerError 를 raise 한다.
 

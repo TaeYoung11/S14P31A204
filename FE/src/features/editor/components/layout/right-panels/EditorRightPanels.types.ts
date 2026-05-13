@@ -13,7 +13,7 @@ import type {
   PanelResizeAxis,
   ZoneData,
 } from '@/features/editor/types'
-import type { LlmEditPreview, LlmEditStatus } from '@/features/editor/types/llmEdit.types'
+import type { LlmChatLogItem, LlmEditPreview, LlmEditStatus } from '@/features/editor/types/llmEdit.types'
 import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from '@/features/editor/components/panels/BubbleAttributePanel'
 
 /**
@@ -23,6 +23,7 @@ import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from '@/feature
 export interface EditorRightPanelsProps {
   mode: EditorMode
   isCollaborationMode?: boolean
+  isAgentPanelMode?: boolean
   selectedPinId?: string | null
   selectedPin?: FloorCommentPin | null
   commentPins?: FloorCommentPin[]
@@ -36,6 +37,7 @@ export interface EditorRightPanelsProps {
   resolvingPinId?: string | null
   resolvingCommentId?: string | null
   selectedBubble: BubbleInfo | null
+  isThreeDEditingLocked?: boolean
   selectedWall?: FloorWall | null
   selectedOpening?: FloorOpening | null
   selectedIfcElement?: IfcElementInfo | null
@@ -52,6 +54,9 @@ export interface EditorRightPanelsProps {
   onWidthChange: (id: string, width: number) => void
   onHeightChange: (id: string, height: number) => void
   onThicknessChange?: (id: string, thickness: number) => void
+  onPositionChange?: (id: string, axis: 'x' | 'y' | 'z', value: number) => void
+  onRotationChange?: (id: string, axis: 'x' | 'y' | 'z', degrees: number) => void
+  onRoofShapeChange?: (id: string, shape: 'flat' | 'gable') => void
   onWidthCommit?: (id: string, width: number) => void
   onHeightCommit?: (id: string, height: number) => void
   onRatioChange: (id: string, ratio: number) => void
@@ -89,6 +94,10 @@ export interface EditorRightPanelsProps {
   llmSuggestions: string[]
   llmPreview: LlmEditPreview | null
   llmCanRun: boolean
+  llmActiveJobId: string | null
+  llmJobProgress: number | null
+  llmChatLogs: LlmChatLogItem[]
+  llmIsChatLogsLoading: boolean
   onLlmPromptChange: (value: string) => void
   onRunLlmEdit: () => void
   onApplyLlmEdit: () => void
