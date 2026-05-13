@@ -20,14 +20,34 @@ from .exceptions import IFCRenderError
 from .style import DepthStyleParams
 
 _TIME_SUFFIXES: dict[str, str] = {
-    "day": "during sunny daytime, natural sunlight, blue sky",
-    "night": "at night, evening scene, warm interior lights, dramatic night lighting",
+    "day": (
+        "during sunny daytime, natural sunlight, blue sky, realistic soft shadows"
+    ),
+    "night": (
+        "night exterior photo, dark sky, warm interior window lights, "
+        "subtle exterior lighting, realistic night shadows, controlled highlights, "
+        "no overexposure"
+    ),
 }
 """시간대(낮/밤) prompt suffix.
 
 `load_preset(name, time_of_day)`이 base prompt 끝에 합성. preset 자체는 *소재 +
 스타일*만 책임 — 시간대는 호출 시점 결정. day/night 외 값은 IFCRenderError.
 """
+
+_TIME_NEGATIVE_SUFFIXES: dict[str, str] = {
+    "day": "",
+    "night": (
+        "daytime, sunny sky, blue sky, harsh sunlight, overexposed lights, "
+        "blown-out windows"
+    ),
+}
+
+
+def _apply_time_of_day_to_prompt(prompt: str, time_of_day: str) -> str:
+    if time_of_day == "night":
+        return prompt.replace("outdoor daylight", "outdoor night exterior")
+    return prompt
 
 
 _NEGATIVE_BASE = (
@@ -127,4 +147,13 @@ def load_preset(name: str, time_of_day: str = "day") -> DepthStyleParams:
         )
     base = _PRESETS[name]
     suffix = _TIME_SUFFIXES[time_of_day]
-    return dc_replace(base, prompt=f"{base.prompt}, {suffix}")
+    prompt = _apply_time_of_day_to_prompt(base.prompt, time_of_day)
+    negative_suffix = _TIME_NEGATIVE_SUFFIXES[time_of_day]
+    negative_prompt = base.negative_prompt
+    if negative_suffix:
+        negative_prompt = f"{negative_prompt}, {negative_suffix}"
+    return dc_replace(
+        base,
+        prompt=f"{prompt}, {suffix}",
+        negative_prompt=negative_prompt,
+    )
