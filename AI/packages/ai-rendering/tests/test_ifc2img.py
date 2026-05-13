@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
 from ai_rendering.ifc2img.geometry import (
@@ -25,6 +26,7 @@ from ai_rendering.ifc2img.views import (
     DEFAULT_RENDER_VIEWS,
     DISPATCH_LARGE_FACTOR,
     DISPATCH_MEDIUM_FACTOR,
+    VIEW_CAMERAS,
     VIEW_PROMPT_PREFIXES,
     VIEW_PROMPT_SUFFIXES,
     VIEW_TARGET_RATIOS,
@@ -128,12 +130,319 @@ def _make_fake_depth_buffer(value: float = 5.0) -> np.ndarray:
     return arr
 
 
-def test_renderer_calls_depth_buffer() -> None:
+def _make_fake_render_image() -> Image.Image:
+    return Image.fromarray(np.full((448, 768), 255, dtype=np.uint8), mode="L")
+
+
+def test_renderer_backend_raycast_env_forces_offscreen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IFC2IMG_RENDER_BACKEND=raycast uses the offscreen path."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+    expected = _make_fake_render_image()
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "raycast")
+
+    with (
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
+        patch.object(IFCRenderer, "_is_container_like_runtime", return_value=False),
+        patch.object(IFCRenderer, "_render_mesh_offscreen", return_value=expected) as offscreen,
+        patch.object(IFCRenderer, "_render_mesh_windowed") as windowed,
+    ):
+        renderer = IFCRenderer()
+        result = renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            IFCView.FRONT,
+        )
+
+    assert result is expected
+    offscreen.assert_called_once()
+    windowed.assert_not_called()
+
+
+def test_renderer_backend_visualizer_env_forces_windowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IFC2IMG_RENDER_BACKEND=visualizer keeps the legacy Visualizer path."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+    expected = _make_fake_render_image()
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
+
+    with (
+        patch.object(IFCRenderer, "_is_headless", return_value=True),
+        patch.object(IFCRenderer, "_is_container_like_runtime", return_value=True),
+        patch.object(IFCRenderer, "_render_mesh_offscreen") as offscreen,
+        patch.object(IFCRenderer, "_render_mesh_windowed", return_value=expected) as windowed,
+    ):
+        renderer = IFCRenderer()
+        result = renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            IFCView.FRONT,
+        )
+
+    assert result is expected
+    windowed.assert_called_once()
+    offscreen.assert_not_called()
+
+
+def test_renderer_backend_auto_uses_raycast_in_container_like_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """auto prefers raycast in Docker/CI-like runtimes even when DISPLAY exists."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+    expected = _make_fake_render_image()
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "auto")
+
+    with (
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
+        patch.object(IFCRenderer, "_is_container_like_runtime", return_value=True),
+        patch.object(IFCRenderer, "_render_mesh_offscreen", return_value=expected) as offscreen,
+        patch.object(IFCRenderer, "_render_mesh_windowed") as windowed,
+    ):
+        renderer = IFCRenderer()
+        result = renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            IFCView.FRONT,
+        )
+
+    assert result is expected
+    offscreen.assert_called_once()
+    windowed.assert_not_called()
+
+
+def test_renderer_backend_auto_falls_back_to_raycast_when_visualizer_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """auto retries raycast when Visualizer initialization fails."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+    expected = _make_fake_render_image()
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "auto")
+
+    with (
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
+        patch.object(IFCRenderer, "_is_container_like_runtime", return_value=False),
+        patch.object(
+            IFCRenderer,
+            "_render_mesh_windowed",
+            side_effect=IFCRenderError("Visualizer render option is None."),
+        ) as windowed,
+        patch.object(IFCRenderer, "_render_mesh_offscreen", return_value=expected) as offscreen,
+    ):
+        renderer = IFCRenderer()
+        result = renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            IFCView.FRONT,
+        )
+
+    assert result is expected
+    windowed.assert_called_once()
+    offscreen.assert_called_once()
+
+
+def test_renderer_backend_auto_falls_back_to_raycast_when_visualizer_runtime_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """auto retries raycast when Open3D raises a native Visualizer runtime error."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+    expected = _make_fake_render_image()
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "auto")
+
+    with (
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
+        patch.object(IFCRenderer, "_is_container_like_runtime", return_value=False),
+        patch.object(
+            IFCRenderer,
+            "_render_mesh_windowed",
+            side_effect=RuntimeError("Open3D native Visualizer failure"),
+        ) as windowed,
+        patch.object(IFCRenderer, "_render_mesh_offscreen", return_value=expected) as offscreen,
+    ):
+        renderer = IFCRenderer()
+        result = renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            IFCView.FRONT,
+        )
+
+    assert result is expected
+    windowed.assert_called_once()
+    offscreen.assert_called_once()
+
+
+def test_renderer_backend_visualizer_env_does_not_fallback_on_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit visualizer backend should surface native Visualizer failures."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
+
+    with (
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
+        patch.object(IFCRenderer, "_is_container_like_runtime", return_value=False),
+        patch.object(
+            IFCRenderer,
+            "_render_mesh_windowed",
+            side_effect=RuntimeError("Open3D native Visualizer failure"),
+        ) as windowed,
+        patch.object(IFCRenderer, "_render_mesh_offscreen") as offscreen,
+        pytest.raises(RuntimeError, match="Open3D native Visualizer failure"),
+    ):
+        renderer = IFCRenderer()
+        renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            IFCView.FRONT,
+        )
+
+    windowed.assert_called_once()
+    offscreen.assert_not_called()
+
+
+def test_renderer_backend_invalid_env_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "bogus")
+
+    with pytest.raises(IFCRenderError, match="IFC2IMG_RENDER_BACKEND"):
+        IFCRenderer._resolve_render_backend()
+
+
+def test_renderer_offscreen_uses_tensor_pinhole_rays() -> None:
+    """RaycastingScene.create_rays_pinhole receives fov, tensors, and dimensions."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]], dtype=np.float32)
+    fake_center = np.array([0.0, 0.0, 0.0])
+
+    class FakeHit:
+        def numpy(self) -> np.ndarray:
+            return np.array([[np.inf, 2.0], [3.0, np.inf]], dtype=np.float32)
+
+    with patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d:
+        scene = MagicMock()
+        mock_o3d.t.geometry.RaycastingScene.return_value = scene
+        mock_o3d.t.geometry.TriangleMesh.from_legacy.return_value = MagicMock()
+        mock_o3d.core.Tensor.side_effect = lambda data, **_: np.asarray(data)
+        mock_o3d.t.geometry.RaycastingScene.create_rays_pinhole.return_value = "rays"
+        scene.cast_rays.return_value = {"t_hit": FakeHit()}
+
+        renderer = IFCRenderer(width=2, height=2)
+        image = renderer._render_mesh_offscreen(
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            initial_zoom=0.5,
+            target_ratio=0.2,
+        )
+
+    mock_o3d.t.geometry.RaycastingScene.create_rays_pinhole.assert_called_once()
+    args = mock_o3d.t.geometry.RaycastingScene.create_rays_pinhole.call_args.args
+    assert args[0] == 60.0
+    assert args[1].shape == (3,)
+    assert args[2].shape == (3,)
+    assert args[3].shape == (3,)
+    assert args[4:] == (2, 2)
+    assert np.linalg.norm(args[2] - fake_center) == pytest.approx(25.0)
+    assert image.mode == "L"
+    assert image.size == (2, 2)
+
+
+def test_renderer_offscreen_iterative_zoom_uses_target_ratio() -> None:
+    """Raycast path should honor auto_zoom target ratio like the Visualizer path."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]], dtype=np.float32)
+    fake_center = np.array([0.0, 0.0, 0.0])
+    far_from_target = np.zeros((4, 4), dtype=np.float32)
+    far_from_target[0, 0] = 5.0
+    target_depth = np.zeros((4, 4), dtype=np.float32)
+    target_depth[:2, :2] = 5.0
+
+    with patch.object(
+        IFCRenderer,
+        "_capture_raycast_depth",
+        side_effect=[far_from_target, target_depth],
+    ) as capture:
+        renderer = IFCRenderer(
+            width=4,
+            height=4,
+            auto_zoom=AutoZoomMode.ITERATIVE,
+            iter_tolerance=0.01,
+            iter_max=4,
+        )
+        image = renderer._render_mesh_offscreen(
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            initial_zoom=1.0,
+            target_ratio=0.25,
+        )
+
+    assert image.mode == "L"
+    assert capture.call_count == 2
+    assert capture.call_args_list[0].args[3] == pytest.approx(1.0)
+    assert capture.call_args_list[1].args[3] == pytest.approx(0.5)
+
+
+def test_renderer_offscreen_raycast_produces_non_empty_depth_for_ifc_fixture(
+    ifc4_fixture: Path,
+) -> None:
+    """Real Open3D raycast should produce non-empty depth for an actual IFC mesh."""
+    base_mesh, center = load_mesh(ifc4_fixture)
+    renderer = IFCRenderer(width=160, height=96, auto_zoom=False)
+    view_mesh = renderer._build_grounded_mesh(base_mesh, IFCView.FRONT_DIAGONAL_LEFT)
+
+    image = renderer._render_mesh_offscreen(
+        view_mesh,
+        center,
+        VIEW_CAMERAS[IFCView.FRONT_DIAGONAL_LEFT],
+        initial_zoom=VIEW_CAMERAS[IFCView.FRONT_DIAGONAL_LEFT].zoom,
+        target_ratio=VIEW_TARGET_RATIOS[IFCView.FRONT_DIAGONAL_LEFT],
+    )
+    arr = np.asarray(image)
+
+    assert image.mode == "L"
+    assert image.size == (160, 96)
+    assert arr.max() > 0
+    assert np.count_nonzero(arr) > 0
+
+
+def test_renderer_calls_depth_buffer(monkeypatch: pytest.MonkeyPatch) -> None:
     """IFCRenderer가 화면 RGB가 아니라 depth float buffer를 캡처하는지 확인한다.
     
     ifc2img의 1차 산출물은 스타일 이미지가 아니라 ControlNet용 depth image다. 따라서
     Open3D visualizer에서 `capture_depth_float_buffer`를 호출하고 RGB 캡처는 쓰지 않아야 한다.
     """
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     fake_mesh = MagicMock()
     fake_center = np.array([0.0, 0.0, 0.0])
 
@@ -162,13 +471,14 @@ def test_renderer_calls_depth_buffer() -> None:
     assert result.size == (768, 448)
 
 
-def test_render_views_loads_mesh_once() -> None:
+def test_render_views_loads_mesh_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """여러 view를 렌더링해도 IFC mesh는 한 번만 로드되어야 한다.
 
     같은 IFC에서 front, side, front diagonal 계열을 연속 생성할 때
     view마다 mesh를 다시 로드하면 시간이 커진다. `render_views`는
     한 번 로드한 mesh를 재사용해 각 view의 depth를 만든다는 점을 검증한다.
     """
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     fake_mesh = MagicMock()
     fake_center = np.array([0.0, 0.0, 0.0])
 
@@ -234,12 +544,13 @@ def test_load_mesh_accepts_ifc4(ifc4_fixture: Path) -> None:
 # --- 자동 zoom 옵션 테스트: 기본 OFF와 ITERATIVE 수렴 동작 ---
 
 
-def test_renderer_default_uses_static_zoom() -> None:
+def test_renderer_default_uses_static_zoom(monkeypatch: pytest.MonkeyPatch) -> None:
     """기본 auto zoom OFF에서는 view 설정의 고정 zoom을 그대로 사용해야 한다.
     
     자동 줌은 opt-in 실험 옵션이므로 기본 경로에서는 기존 `VIEW_CAMERAS` zoom 값과 캡처 횟수가
     변하지 않아야 한다.
     """
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
     fake_center = np.array([5.0, 5.0, 2.5])
@@ -278,12 +589,15 @@ def _make_depth_with_fill(fill_ratio: float, h: int = 448, w: int = 768) -> np.n
     return arr
 
 
-def test_iterative_zoom_converges_when_target_reached() -> None:
+def test_iterative_zoom_converges_when_target_reached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """ITERATIVE zoom이 목표 화면 점유율 범위에 들어오면 즉시 멈추는지 확인한다.
     
     FRONT view의 target ratio와 tolerance 안에 이미 들어온 depth buffer를 주고, 불필요한
     추가 캡처 없이 1회 캡처로 종료되는지 검증한다.
     """
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
     fake_center = np.array([5.0, 5.0, 2.5])
@@ -317,12 +631,13 @@ def test_iterative_zoom_converges_when_target_reached() -> None:
     assert vis.capture_depth_float_buffer.call_count == 1
 
 
-def test_iterative_zoom_max_iter_caps() -> None:
+def test_iterative_zoom_max_iter_caps(monkeypatch: pytest.MonkeyPatch) -> None:
     """ITERATIVE zoom이 목표에 도달하지 못해도 iter_max에서 멈추는지 확인한다.
     
     자동 조정이 수렴하지 않는 depth가 들어올 수 있으므로, 무한 반복 대신 설정한 최대 반복
     횟수까지만 캡처해야 한다.
     """
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
     fake_center = np.array([5.0, 5.0, 2.5])
@@ -604,12 +919,15 @@ def test_attach_ground_plane_to_mesh_appends_4_vertices() -> None:
     assert len(base.vertices) == 3
 
 
-def test_renderer_passes_front_diagonal_ground_extent_override_only_for_diagonal() -> None:
+def test_renderer_passes_front_diagonal_ground_extent_override_only_for_diagonal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """front diagonal ground extent override는 대각선 view에만 적용되어야 한다.
 
     front/side는 기본 ground plane을 유지하고, front diagonal view만
     ground extent 실험값을 받을 수 있는지 검증한다.
     """
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     base_mesh = MagicMock(name="base_mesh")
     base_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 10.0, 5.0]])
     fake_center = np.array([5.0, 5.0, 2.5])
@@ -882,8 +1200,11 @@ def test_render_mesh_dispatch_uses_base_mesh_not_ground_extended() -> None:
     assert base_ratio != view_ratio
 
 
-def test_render_passes_base_mesh_to_resolve_target_ratio() -> None:
+def test_render_passes_base_mesh_to_resolve_target_ratio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """render 경로에서 `_resolve_target_ratio`에 ground 확장 전 base mesh가 전달되는지 확인한다."""
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     base_mesh = MagicMock(name="base_mesh")
     base_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 10.0, 5.0]])
     inflated_mesh = MagicMock(name="inflated_mesh")
@@ -924,8 +1245,9 @@ def test_render_passes_base_mesh_to_resolve_target_ratio() -> None:
     assert captured[0] is base_mesh
 
 
-def test_render_uses_static_view_camera() -> None:
+def test_render_uses_static_view_camera(monkeypatch: pytest.MonkeyPatch) -> None:
     """기본 render가 views.py의 static camera vector를 그대로 적용하는지 확인한다."""
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5], [20, 0, 5]])
     fake_center = np.array([10.0, 5.0, 2.5])

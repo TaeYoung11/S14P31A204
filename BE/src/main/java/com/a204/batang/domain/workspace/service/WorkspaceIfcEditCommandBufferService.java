@@ -8,6 +8,7 @@ import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.revision.repository.RevisionRepository;
 import com.a204.batang.domain.workspace.dto.WorkspaceCommandAckResponse;
+import com.a204.batang.domain.workspace.dto.WorkspaceCommand;
 import com.a204.batang.domain.workspace.dto.WorkspaceCommandEnvelope;
 import com.a204.batang.domain.workspace.dto.WorkspaceCommandMeta;
 import com.a204.batang.domain.workspace.repository.WorkspaceIfcEditCommandRedisRepository;
@@ -116,7 +117,14 @@ public class WorkspaceIfcEditCommandBufferService {
                 first.baseRevisionId(),
                 null,
                 IfcEditConstants.SCENE_TYPE_IFC_MODEL,
-                engineRequest
+                new WorkspaceCommand(
+                        "create",
+                        "ifcBatch",
+                        requestId,
+                        engineRequest,
+                        null,
+                        System.currentTimeMillis()
+                )
         );
         directIfcEditCommandService.createDirectIfcEdit(
                 first.projectId(),

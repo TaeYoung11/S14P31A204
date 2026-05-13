@@ -49,6 +49,7 @@ import java.util.UUID;
 import static com.a204.batang.domain.ifcedit.IfcEditConstants.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
@@ -288,6 +289,36 @@ class IfcEditApplyEventListenerTest {
     }
 
     @Test
+    void handleCompleted_directIfcEditJobWithoutFloorPlanPayload_broadcastsGenerateFallbackWithS3Url() {
+        String ifcUrl = "projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc";
+        IfcEditEventMessage event = completedEvent(ifcUrl, null);
+        UUID sourceRevisionId = UUID.randomUUID();
+
+        IfcEditJob directJob = IfcEditJob.createQueued(
+                jobId, projectId, UUID.randomUUID(), null, sourceRevisionId,
+                "IFC_MODEL", JOB_TYPE_IFC_EDIT,
+                objectMapper.createObjectNode(),
+                LocalDateTime.now()
+        );
+
+        given(ifcEditJobRepository.findByJobId(jobId)).willReturn(Optional.of(directJob));
+        given(ifcEditJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId)).willReturn(Optional.of(step));
+        given(revisionRepository.findById(revisionId)).willReturn(Optional.of(revision));
+        given(ifcEditArtifactRepository.findByArtifactId(artifactId)).willReturn(Optional.empty());
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)).willReturn(Optional.of(workspace));
+
+        listener.handle(event);
+
+        verify(workspaceFloorPlanRealtimeService).publishFloorPlanUpdatedFromGenerate(
+                eq(projectId),
+                eq(revisionId),
+                eq(sourceRevisionId),
+                eq(ifcUrl)
+        );
+    }
+
+    @Test
     void handleCompleted_savesIfcArtifactOnlyWhenValidationReportMissing() {
         String ifcUrl = "projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc";
         IfcEditEventMessage event = completedEvent(ifcUrl, null);
@@ -334,6 +365,11 @@ class IfcEditApplyEventListenerTest {
         assertThat(step.getStatus()).isEqualTo("FAILED");
         assertThat(revision.getStatus()).isEqualTo("FAILED");
         verify(eventPublisher).publishEvent(any(IfcEditStatusChangedEvent.class));
+        verify(workspaceFloorPlanRealtimeService).notifyIfcEditFailureToUser(
+                eq(job.getRequestedBy()),
+                eq(ErrorCode.IFC_EDIT_COMMAND_DLQ),
+                eq("IFC 편집 실패")
+        );
         verify(projectRepository, never()).findByProjectIdAndDeletedAtIsNull(any());
     }
 
@@ -362,6 +398,11 @@ class IfcEditApplyEventListenerTest {
         listener.handlePublishFailed(event);
 
         verify(eventPublisher).publishEvent(any(IfcEditStatusChangedEvent.class));
+        verify(workspaceFloorPlanRealtimeService).notifyIfcEditFailureToUser(
+                eq(job.getRequestedBy()),
+                eq(ErrorCode.IFC_EDIT_COMMAND_CONFIRM_NACK),
+                anyString()
+        );
         assertThat(job.getStatus()).isEqualTo("FAILED");
         assertThat(step.getStatus()).isEqualTo("FAILED");
         assertThat(revision.getStatus()).isEqualTo("FAILED");
@@ -377,6 +418,11 @@ class IfcEditApplyEventListenerTest {
         listener.handlePublishFailed(event);
 
         verify(eventPublisher).publishEvent(any(IfcEditStatusChangedEvent.class));
+        verify(workspaceFloorPlanRealtimeService).notifyIfcEditFailureToUser(
+                eq(job.getRequestedBy()),
+                eq(ErrorCode.IFC_EDIT_COMMAND_RETURNED),
+                anyString()
+        );
         assertThat(job.getStatus()).isEqualTo("FAILED");
         assertThat(step.getStatus()).isEqualTo("FAILED");
         assertThat(revision.getStatus()).isEqualTo("FAILED");
