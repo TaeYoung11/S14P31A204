@@ -41,6 +41,7 @@ public enum ErrorCode {
     PROJECT_MEMBER_ALREADY_EXISTS(HttpStatus.CONFLICT, "PROJECT_MEMBER_ALREADY_EXISTS", "이미 프로젝트 멤버입니다."),
     OWNER_REMOVAL_NOT_ALLOWED(HttpStatus.CONFLICT, "OWNER_REMOVAL_NOT_ALLOWED", "프로젝트 소유자는 멤버에서 제거할 수 없습니다."),
     PROJECT_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "PROJECT_MEMBER_NOT_FOUND", "해당 프로젝트 멤버를 찾을 수 없습니다."),
+    INVITATION_NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "INVITATION_NOTIFICATION_NOT_FOUND", "초대 알림을 찾을 수 없습니다."),
 
     RENDER_SOURCE_NOT_FOUND(HttpStatus.CONFLICT, "RENDER_SOURCE_NOT_FOUND", "렌더링할 IFC 모델이 없습니다."),
     RENDER_JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "RENDER_JOB_NOT_FOUND", "렌더링 작업을 찾을 수 없습니다."),

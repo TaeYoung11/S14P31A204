@@ -4,6 +4,7 @@ import com.a204.batang.domain.notification.entity.ProjectInvitationNotification;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -29,5 +30,17 @@ public interface ProjectInvitationNotificationRepository extends JpaRepository<P
     List<ProjectInvitationNotification> findByRecipientUserIdAndReadOrderByCreatedAtDesc(
             UUID recipientUserId,
             boolean read
+    );
+
+    /**
+     * 알림 ID와 수신자 기준으로 프로젝트 초대 알림을 조회한다.
+     *
+     * @param notificationId 알림 ID
+     * @param recipientUserId 알림 수신자 사용자 ID
+     * @return 프로젝트 초대 알림 Optional
+     */
+    Optional<ProjectInvitationNotification> findByNotificationIdAndRecipientUserId(
+            UUID notificationId,
+            UUID recipientUserId
     );
 }
