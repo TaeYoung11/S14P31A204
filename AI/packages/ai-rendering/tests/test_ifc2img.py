@@ -372,8 +372,45 @@ def test_renderer_offscreen_uses_tensor_pinhole_rays() -> None:
     assert args[2].shape == (3,)
     assert args[3].shape == (3,)
     assert args[4:] == (2, 2)
+    assert np.linalg.norm(args[2] - fake_center) == pytest.approx(25.0)
     assert image.mode == "L"
     assert image.size == (2, 2)
+
+
+def test_renderer_offscreen_iterative_zoom_uses_target_ratio() -> None:
+    """Raycast path should honor auto_zoom target ratio like the Visualizer path."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]], dtype=np.float32)
+    fake_center = np.array([0.0, 0.0, 0.0])
+    far_from_target = np.zeros((4, 4), dtype=np.float32)
+    far_from_target[0, 0] = 5.0
+    target_depth = np.zeros((4, 4), dtype=np.float32)
+    target_depth[:2, :2] = 5.0
+
+    with patch.object(
+        IFCRenderer,
+        "_capture_raycast_depth",
+        side_effect=[far_from_target, target_depth],
+    ) as capture:
+        renderer = IFCRenderer(
+            width=4,
+            height=4,
+            auto_zoom=AutoZoomMode.ITERATIVE,
+            iter_tolerance=0.01,
+            iter_max=4,
+        )
+        image = renderer._render_mesh_offscreen(
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            initial_zoom=1.0,
+            target_ratio=0.25,
+        )
+
+    assert image.mode == "L"
+    assert capture.call_count == 2
+    assert capture.call_args_list[0].args[3] == pytest.approx(1.0)
+    assert capture.call_args_list[1].args[3] == pytest.approx(0.5)
 
 
 def test_renderer_calls_depth_buffer(monkeypatch: pytest.MonkeyPatch) -> None:
