@@ -806,6 +806,24 @@ def test_delete_wall_void_handler_rejects_filled_opening_target():
         )
 
 
+def test_delete_wall_void_handler_rejects_missing_target():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    window = create_window_with_opening(model, storey, host_wall=wall)
+    assert window is not None
+
+    handler = get("delete_wall_void")
+    with pytest.raises(ValueError, match="target not found"):
+        handler.execute(
+            model,
+            None,
+            {"expected_kind": "window", "allowed_host_body_class": "parametric"},
+            {"global_ids": ["missing-guid-123"]},
+        )
+
+    assert model.by_guid(window.GlobalId) is not None
+
+
 def test_delete_wall_void_handler_rejects_bcr_hosted_house_kr_window():
     house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
     model = ifcopenshell.open(str(house_kr))

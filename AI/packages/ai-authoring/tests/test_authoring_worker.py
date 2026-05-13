@@ -3,9 +3,12 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import ifcopenshell
+import ifcopenshell.api.aggregate
+import ifcopenshell.api.root
 import pytest
 
 from ai_authoring.worker import AuthoringWorker
+from ai_authoring.engine_3d import create_wall, create_window_with_opening
 from ai_common.errors import NonRetryableWorkerError
 from ai_common.worker_sdk.event_factory import CompletedResult
 from ai_domain.worker_messages.command import CommandMessage
@@ -163,6 +166,58 @@ def test_apply_delete_preserves_name_for_post_validation():
     assert result["status"] == "applied"
     assert result["matched_elements"][0]["name"] == "structural wall"
     assert result["matched_elements"][0]["is_load_bearing"] is True
+
+
+def test_apply_operation_dispatches_delete_wall_void_handler():
+    model = ifcopenshell.file(schema="IFC4")
+    project = ifcopenshell.api.root.create_entity(model, ifc_class="IfcProject", name="Project")
+    site = ifcopenshell.api.root.create_entity(model, ifc_class="IfcSite", name="Site")
+    building = ifcopenshell.api.root.create_entity(model, ifc_class="IfcBuilding", name="Building")
+    storey = ifcopenshell.api.root.create_entity(model, ifc_class="IfcBuildingStorey", name="1F")
+    storey.Elevation = 0.0
+    model_ctx = model.create_entity(
+        "IfcGeometricRepresentationContext",
+        ContextIdentifier="Model",
+        ContextType="Model",
+        CoordinateSpaceDimension=3,
+        Precision=1e-5,
+        WorldCoordinateSystem=model.create_entity(
+            "IfcAxis2Placement3D",
+            Location=model.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0, 0.0)),
+        ),
+    )
+    model.create_entity(
+        "IfcGeometricRepresentationSubContext",
+        ContextIdentifier="Body",
+        ContextType="Model",
+        ParentContext=model_ctx,
+        TargetView="MODEL_VIEW",
+    )
+    project.RepresentationContexts = [model_ctx]
+    ifcopenshell.api.aggregate.assign_object(model, products=[site], relating_object=project)
+    ifcopenshell.api.aggregate.assign_object(model, products=[building], relating_object=site)
+    ifcopenshell.api.aggregate.assign_object(model, products=[storey], relating_object=building)
+
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    window = create_window_with_opening(model, storey, host_wall=wall)
+    assert window is not None
+    window_id = window.GlobalId
+
+    worker, _ = _make_worker(b"")
+    result = worker._apply_operation(
+        model,
+        "op-delete-wall-void",
+        "delete_wall_void",
+        {"global_ids": [window_id]},
+        {"expected_kind": "window", "allowed_host_body_class": "parametric"},
+    )
+
+    assert result["status"] == "applied"
+    assert result["matched_elements"][0]["global_id"] == window_id
+    assert len(model.by_type("IfcWindow")) == 0
+    assert len(model.by_type("IfcOpeningElement")) == 0
+    assert len(model.by_type("IfcRelVoidsElement")) == 0
+    assert len(model.by_type("IfcRelFillsElement")) == 0
 
 
 def test_authoring_worker_rejects_zero_scale_dimension_before_mutation():

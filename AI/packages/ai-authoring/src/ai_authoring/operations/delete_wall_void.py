@@ -120,7 +120,7 @@ class DeleteWallVoidHandler:
         del storey
         products = _selected_products(model, selector)
         if not products:
-            return []
+            raise ValueError("delete_wall_void target not found")
         if len(products) != 1:
             raise ValueError("delete_wall_void only supports one target per operation")
         deleted_ids: list[str] = []

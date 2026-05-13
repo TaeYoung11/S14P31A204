@@ -16,6 +16,7 @@ from typing import Any
 
 import ifcopenshell
 
+import ai_authoring.operations  # noqa: F401
 from ai_authoring.engine_3d import (
     delete_element,
     modify_face_offset,
@@ -263,7 +264,11 @@ class AuthoringWorker(BaseWorker):
         if op_type == "delete_elements":
             return self._apply_delete(model, op_id, op_type, elements)
 
-        if op_type in ("update_element_properties", "transform_elements"):
+        if op_type in (
+            "update_element_properties",
+            "transform_elements",
+            "delete_wall_void",
+        ):
             return self._apply_modify(model, op_id, op_type, elements, params, selector)
 
         return _op_result(op_id, op_type, "skipped", len(elements), [], [
@@ -393,15 +398,14 @@ class AuthoringWorker(BaseWorker):
     ) -> dict[str, Any]:
         applied, issues = [], []
         for el in elements:
+            matched = {
+                "global_id": el.GlobalId,
+                "element_type": el.is_a(),
+                "name": el.Name,
+            }
             changed = self._modify_one(model, el, op_type, params, selector)
             if changed:
-                applied.append(
-                    {
-                        "global_id": el.GlobalId,
-                        "element_type": el.is_a(),
-                        "name": el.Name,
-                    }
-                )
+                applied.append(matched)
             else:
                 issues.append(_issue("NO_CHANGE", "info", f"변경 사항 없음: {el.GlobalId}"))
         status = "applied" if applied else "skipped"
@@ -416,6 +420,17 @@ class AuthoringWorker(BaseWorker):
         selector: dict[str, Any],
     ) -> bool:
         changed = False
+        if op_type == "delete_wall_void":
+            global_id = el.GlobalId
+            handler = get_op_handler(op_type)
+            deleted_ids = handler.execute(
+                model,
+                None,
+                params,
+                {"global_ids": [global_id]},
+            )
+            return global_id in deleted_ids
+
         if op_type == "update_element_properties":
             dims = params.get("dimensions_mm") or {}
             # dimensionChangesMm values are authored in millimeters.
