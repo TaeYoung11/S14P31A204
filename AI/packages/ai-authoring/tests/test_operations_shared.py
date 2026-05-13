@@ -175,11 +175,15 @@ def test_create_element_supports_ifc_space_with_storey_id() -> None:
     assert space.is_a("IfcSpace")
     assert space.Name == "Shared Room"
     assert tuple(space.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
-        (1.0, 2.0, 0.0)
+        (1000.0, 2000.0, 0.0)
     )
     body = space.Representation.Representations[0].Items[0]
-    assert body.SweptArea.XDim == pytest.approx(3.2)
-    assert body.SweptArea.YDim == pytest.approx(2.8)
+    assert body.SweptArea.XDim == pytest.approx(3200.0)
+    assert body.SweptArea.YDim == pytest.approx(2800.0)
+    assert tuple(body.SweptArea.Position.Location.Coordinates) == pytest.approx(
+        (1600.0, 1400.0)
+    )
+    assert body.Depth == pytest.approx(2700.0)
     pset = next(
         rel.RelatingPropertyDefinition
         for rel in space.IsDefinedBy
@@ -234,11 +238,67 @@ def test_transform_and_update_handlers_support_ifc_space() -> None:
     assert moved == [space.GlobalId]
     assert updated == [space.GlobalId]
     assert tuple(space.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
-        (1.0, 0.0, 0.0)
+        (1000.0, 0.0, 0.0)
     )
     body = space.Representation.Representations[0].Items[0]
-    assert body.SweptArea.XDim == pytest.approx(5.0)
+    assert body.SweptArea.XDim == pytest.approx(5000.0)
     assert space.Name == "Updated"
+
+
+def test_transform_translation_units_do_not_depend_on_rotation() -> None:
+    bundle = _make_model()
+    create_handler = get("create_element")
+    transform_handler = get("transform_elements")
+
+    space_translate_only = create_handler.execute(
+        bundle["model"],
+        None,
+        {
+            "element_type": "IfcSpace",
+            "storey_id": bundle["storey"].GlobalId,
+            "start_mm": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "dimensions_mm": {"width": 1000, "height": 1000},
+            "properties": {"name": "Translate Only"},
+        },
+    )
+    space_translate_rotate = create_handler.execute(
+        bundle["model"],
+        None,
+        {
+            "element_type": "IfcSpace",
+            "storey_id": bundle["storey"].GlobalId,
+            "start_mm": {"x": 0.0, "y": 2000.0, "z": 0.0},
+            "dimensions_mm": {"width": 1000, "height": 1000},
+            "properties": {"name": "Translate Rotate"},
+        },
+    )
+    assert space_translate_only is not None
+    assert space_translate_rotate is not None
+
+    transform_handler.execute(
+        bundle["model"],
+        None,
+        {"translate_mm": {"x": 1000.0, "y": 0.0, "z": 0.0}},
+        {"global_ids": [space_translate_only.GlobalId]},
+    )
+    transform_handler.execute(
+        bundle["model"],
+        None,
+        {
+            "translate_mm": {"x": 1000.0, "y": 0.0, "z": 0.0},
+            "rotation_deg": {"z": 45.0},
+        },
+        {"global_ids": [space_translate_rotate.GlobalId]},
+    )
+
+    translate_only_x = float(
+        space_translate_only.ObjectPlacement.RelativePlacement.Location.Coordinates[0]
+    )
+    translate_rotate_x = float(
+        space_translate_rotate.ObjectPlacement.RelativePlacement.Location.Coordinates[0]
+    )
+    assert translate_only_x == pytest.approx(translate_rotate_x)
+    assert translate_rotate_x == pytest.approx(1000.0)
 
 
 def test_transform_handler_does_not_mutate_shared_location_point() -> None:
@@ -283,7 +343,7 @@ def test_transform_handler_does_not_mutate_shared_location_point() -> None:
 
     assert moved == [space_a.GlobalId]
     assert tuple(space_a.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
-        (1.0, 0.0, 0.0)
+        (1000.0, 0.0, 0.0)
     )
     assert tuple(space_b.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
         (0.0, 0.0, 0.0)

@@ -52,7 +52,7 @@ export default function EditorRightPanelsCollaborationDock({
   })
 
   return (
-    <div className="relative z-30 flex w-[420px] min-h-0 shrink-0 flex-col overflow-hidden border-l border-[#DFE4F0] bg-white">
+    <div className="relative z-30 flex w-[280px] min-h-0 shrink-0 flex-col overflow-hidden border-l border-[#DFE4F0] bg-white">
       <CollaborationPanel {...collaborationPanelProps} />
     </div>
   )

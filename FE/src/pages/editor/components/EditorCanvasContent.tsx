@@ -5,7 +5,6 @@ import { useEditorCanvasContentSections } from '../hooks/useEditorCanvasContentS
 import CanvasCollaborationBar from './canvas-content/CanvasCollaborationBar'
 import CanvasLabelOverlay from './canvas-content/CanvasLabelOverlay'
 import CanvasModeRenderer from './canvas-content/CanvasModeRenderer'
-import CanvasTwoDLeftPanels from './canvas-content/CanvasTwoDLeftPanels'
 import CanvasZoomControls from './canvas-content/CanvasZoomControls'
 
 /**
@@ -19,7 +18,6 @@ export default function EditorCanvasContent(props: EditorCanvasContentProps) {
     isViewMode,
     modeRendererSectionProps,
     labelOverlaySectionProps,
-    twoDLeftPanelsSectionProps,
     zoomControlsSectionProps,
     collaborationBarSectionProps,
   } = useEditorCanvasContentSections(renderProps)
@@ -27,7 +25,7 @@ export default function EditorCanvasContent(props: EditorCanvasContentProps) {
   return (
     <main
       ref={containerRef}
-      className={`relative min-w-0 flex-1 overflow-hidden ${
+      className={`relative h-full w-full min-w-0 flex-1 overflow-hidden ${
         isViewMode
           ? 'bg-[#0A0A0B]'
           : 'rounded-3xl border border-[#E2E6EF] bg-[linear-gradient(180deg,#ffffff_0%,#f9fbff_100%)] shadow-[0_16px_36px_rgba(32,44,94,0.12)]'
@@ -37,7 +35,6 @@ export default function EditorCanvasContent(props: EditorCanvasContentProps) {
         <CanvasModeRenderer {...modeRendererSectionProps} />
       </Suspense>
       <CanvasLabelOverlay {...labelOverlaySectionProps} />
-      <CanvasTwoDLeftPanels {...twoDLeftPanelsSectionProps} />
       <CanvasZoomControls {...zoomControlsSectionProps} />
       <CanvasCollaborationBar {...collaborationBarSectionProps} />
     </main>

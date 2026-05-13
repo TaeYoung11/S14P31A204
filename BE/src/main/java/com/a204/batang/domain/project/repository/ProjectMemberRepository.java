@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -43,6 +44,20 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, UU
      * @param projectId 프로젝트 ID
      * @return 멤버 사용자 ID 목록
      */
+    /**
+     * 프로젝트의 특정 역할 멤버를 사용자 ID로 조회한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param userId 사용자 ID
+     * @param memberRole 멤버 역할
+     * @return 프로젝트 멤버 Optional
+     */
+    Optional<ProjectMember> findByProjectProjectIdAndUserIdAndMemberRole(
+            UUID projectId,
+            UUID userId,
+            ProjectMemberRole memberRole
+    );
+
     @Query("""
             SELECT pm.userId
             FROM ProjectMember pm

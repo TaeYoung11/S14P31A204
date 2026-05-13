@@ -3,6 +3,8 @@ package com.a204.batang.domain.project.service;
 import com.a204.batang.domain.auth.entity.Member;
 import com.a204.batang.domain.auth.entity.UserStatus;
 import com.a204.batang.domain.auth.repository.MemberRepository;
+import com.a204.batang.domain.notification.entity.ProjectInvitationNotification;
+import com.a204.batang.domain.notification.repository.ProjectInvitationNotificationRepository;
 import com.a204.batang.domain.project.dto.ProjectInvitationRequest;
 import com.a204.batang.domain.project.dto.ProjectInvitationResponse;
 import com.a204.batang.domain.project.entity.Project;
@@ -37,6 +39,7 @@ public class ProjectInvitationService {
     private final ProjectRepository projectRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final MemberRepository memberRepository;
+    private final ProjectInvitationNotificationRepository projectInvitationNotificationRepository;
     private final ProjectAccessService projectAccessService;
 
     /**
@@ -59,7 +62,9 @@ public class ProjectInvitationService {
                 .orElseThrow(() -> new CustomException(ErrorCode.INVITEE_NOT_FOUND));
 
         validateInviteeOrThrow(project, currentUserId, invitee);
+        Member inviter = findInviterOrThrow(currentUserId);
         saveProjectMember(project, invitee);
+        saveProjectInvitationNotification(project, inviter, invitee);
 
         log.info("프로젝트 멤버 초대 완료. projectId={}, inviteeUserId={}", project.getProjectId(), invitee.getUserId());
         return ProjectInvitationResponse.from(project, invitee, INVITED_MEMBER_ROLE);
@@ -80,6 +85,17 @@ public class ProjectInvitationService {
             throw new CustomException(ErrorCode.INVALID_REQUEST, "inviteeEmail은 올바른 이메일 형식이어야 합니다.");
         }
         return normalizedEmail;
+    }
+
+    /**
+     * 초대한 사용자 정보를 조회한다.
+     *
+     * @param inviterUserId 초대한 사용자 ID
+     * @return 초대한 사용자
+     */
+    private Member findInviterOrThrow(UUID inviterUserId) {
+        return memberRepository.findById(inviterUserId)
+                .orElseThrow(() -> new CustomException(ErrorCode.UNAUTHORIZED, "로그인 사용자 정보를 찾을 수 없습니다."));
     }
 
     /**
@@ -126,5 +142,23 @@ public class ProjectInvitationService {
         } catch (DataIntegrityViolationException e) {
             throw new CustomException(ErrorCode.PROJECT_MEMBER_ALREADY_EXISTS);
         }
+    }
+
+    /**
+     * 초대 대상 사용자에게 프로젝트 초대 알림을 저장한다.
+     *
+     * @param project 프로젝트
+     * @param inviter 초대한 사용자
+     * @param invitee 초대 대상 사용자
+     */
+    private void saveProjectInvitationNotification(Project project, Member inviter, Member invitee) {
+        ProjectInvitationNotification notification = ProjectInvitationNotification.create(
+                invitee.getUserId(),
+                inviter.getUserId(),
+                project.getProjectId(),
+                project.getName(),
+                inviter.getName()
+        );
+        projectInvitationNotificationRepository.save(notification);
     }
 }

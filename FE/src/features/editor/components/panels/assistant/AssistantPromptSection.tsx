@@ -1,8 +1,8 @@
-import { Loader2, Wand2 } from 'lucide-react'
+import { Loader2, SendHorizontal, X } from 'lucide-react'
+import type { KeyboardEvent } from 'react'
 import type { LlmEditPreview, LlmEditStatus } from '../../../types/llmEdit.types'
 
 interface AssistantPromptSectionProps {
-  provider: 'mock' | 'api'
   prompt: string
   status: LlmEditStatus
   isLoading: boolean
@@ -14,9 +14,8 @@ interface AssistantPromptSectionProps {
   onDiscard: () => void
 }
 
-/** 자연어 지시 입력과 실행/적용 버튼 영역 */
+/** Agent 채팅 입력창입니다. */
 export function AssistantPromptSection({
-  provider,
   prompt,
   status,
   isLoading,
@@ -27,47 +26,63 @@ export function AssistantPromptSection({
   onApply,
   onDiscard,
 }: AssistantPromptSectionProps) {
+  const handleSubmit = () => {
+    if (!canRun) return
+    onRun()
+  }
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+    event.preventDefault()
+    handleSubmit()
+  }
+
   return (
-    <>
-      <div className="flex items-center justify-between">
-        <label className="text-[11px] font-bold text-[#475569]">수정 요청</label>
-        <span className="text-[10px] font-semibold text-[#64748B]">
-          {provider === 'api' ? 'API 모드' : 'Mock 모드'}
-        </span>
+    <div className="border-t border-[#E2E8F0] bg-[#F8FAFC] px-4 pb-4 pt-3">
+      {(status === 'preview' || status === 'applied') && (
+        <div className="mb-2 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onApply}
+            disabled={!preview || status === 'applied'}
+            className="rounded-md border border-[#CBD5E1] px-2.5 py-1 text-[11px] font-semibold text-[#334155] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            반영
+          </button>
+          <button
+            type="button"
+            onClick={onDiscard}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#CBD5E1] text-[#64748B]"
+            aria-label="미리보기 닫기"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
+      <div className="rounded-2xl border border-[#D8DEE9] bg-white px-3 py-2 shadow-sm">
+        <textarea
+          value={prompt}
+          onChange={(event) => onPromptChange(event.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Ask anything"
+          rows={1}
+          className="max-h-28 min-h-[34px] w-full resize-none bg-transparent py-1.5 text-[12px] leading-5 text-[#1F2937] outline-none placeholder:text-[#94A3B8]"
+          disabled={isLoading}
+        />
+        <div className="mt-1 flex items-center justify-end gap-1.5">
+          <span className="max-w-[92px] truncate text-[11px] font-medium text-[#64748B]">바탕 Agent</span>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!canRun}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#3B45B3] text-white transition-colors hover:bg-[#303A9B] disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="메시지 보내기"
+          >
+            {isLoading ? <Loader2 size={15} className="animate-spin" /> : <SendHorizontal size={15} />}
+          </button>
+        </div>
       </div>
-      <textarea
-        value={prompt}
-        onChange={(event) => onPromptChange(event.target.value)}
-        placeholder="예: 거실과 주방 사이에 연결 추가해줘"
-        className="mt-2 w-full min-h-[84px] resize-none rounded-lg border border-[#E2E6EF] px-3 py-2 text-[12px] text-[#1C1C1E] outline-none focus:border-[#3B45B3]"
-      />
-      <div className="mt-2 flex items-center gap-2">
-        <button
-          onClick={onRun}
-          disabled={!canRun}
-          className="inline-flex items-center gap-1 rounded-lg bg-[#3B45B3] px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isLoading ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
-          실행
-        </button>
-        {(status === 'preview' || status === 'applied') && (
-          <>
-            <button
-              onClick={onApply}
-              disabled={!preview || status === 'applied'}
-              className="rounded-lg border border-[#3B45B3] px-3 py-1.5 text-[11px] font-bold text-[#3B45B3] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              적용
-            </button>
-            <button
-              onClick={onDiscard}
-              className="rounded-lg border border-[#E2E6EF] px-3 py-1.5 text-[11px] font-bold text-[#64748B]"
-            >
-              취소
-            </button>
-          </>
-        )}
-      </div>
-    </>
+    </div>
   )
 }
