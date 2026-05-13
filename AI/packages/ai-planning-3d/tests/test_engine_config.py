@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ai_planning_3d.command import LLM3DTarget
 from ai_planning_3d.engine import LLM3DEngine
 
 
@@ -63,3 +64,28 @@ def test_llm_3d_engine_ignores_invalid_timeout_env(monkeypatch):
 
     assert engine.model == "qwen2.5:7b"
     assert engine._raw_client.timeout == 30.0
+
+
+def test_llm_3d_engine_extracts_raw_json_object():
+    content = """
+    ```json
+    {"command_type":"MODIFY","target":{"element_type":"IfcRoof"},"changes":{"color":"#AABBCC"},"create_info":null,"confidence":1,"raw_instruction":"sample","ambiguity_question":null}
+    ```
+    """
+
+    parsed = LLM3DEngine._json_object_from_text(content)
+
+    assert parsed["command_type"] == "MODIFY"
+    assert parsed["changes"] == {"color": "#AABBCC"}
+
+
+def test_llm_3d_engine_detects_explicit_target_reference():
+    wall_color_request = "\ubaa8\ub4e0 \ubcbd\uc758 \uc0c9\uc0c1\uc744 \ubcc0\uacbd\ud574\uc918"
+    targetless_color_request = "\ubaa8\ub4e0 \uc0c9\uc0c1\uc744 \ubcc0\uacbd\ud574\uc918"
+
+    assert LLM3DEngine._has_explicit_target_reference(wall_color_request)
+    assert not LLM3DEngine._has_explicit_target_reference(targetless_color_request)
+    assert LLM3DEngine._has_explicit_target_reference(
+        targetless_color_request,
+        LLM3DTarget(global_id="0123456789ABCDEFGHIJKL"),
+    )

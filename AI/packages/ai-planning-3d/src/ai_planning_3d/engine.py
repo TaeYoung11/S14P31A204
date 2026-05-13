@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 
@@ -63,6 +64,20 @@ SYSTEM_PROMPT = (
     "space_name: 거실=LivingRoom, 안방=MasterBedroom, 침실=Bedroom, 화장실/욕실=Bathroom.\n"
     "direction: 북쪽=North, 남쪽=South, 동쪽/오른쪽=East, 서쪽/왼쪽=West.\n"
     "color aliases must use HEX values, e.g. white=#FFFFFF, red=#EF4444, blue=#3B82F6.\n"
+    "Understand ordinary Korean BIM object names by meaning, not by exact phrase matching: "
+    "\uc9c0\ubd95/\uc625\uc0c1 roof -> IfcRoof, "
+    "\ubb38/\ub3c4\uc5b4/\ud604\uad00\ubb38 door -> IfcDoor, "
+    "\ucc3d\ubb38/\uc708\ub3c4\uc6b0 window -> IfcWindow, "
+    "\ubcbd/\ubcbd\uccb4 wall -> IfcWall, "
+    "\ubc14\ub2e5/\uc2ac\ub798\ube0c floor/slab -> IfcSlab, "
+    "\uae30\ub465 column -> IfcColumn, \ubcf4 beam -> IfcBeam, "
+    "\uacc4\ub2e8 stair -> IfcStair.\n"
+    "When the user writes a bare HEX value like #AABBCC near a target object, infer "
+    "MODIFY changes.color=\"#AABBCC\" even if the word color is omitted.\n"
+    "For short assignment-style requests such as 'target is #RRGGBB' or 'target #RRGGBB', "
+    "treat them as MODIFY color commands, not clarification requests.\n"
+    "If one message names several independent target/value pairs and one JSON command "
+    "cannot represent them, set ambiguity_question instead of inventing one target.\n"
     f"material allowed values only: {SUPPORTED_MATERIAL_LIST}.\n"
     "material aliases: 콘크리트=Concrete, 벽돌=Brick, 강철/철=Steel, "
     "목재/나무=Wood, 유리=Glass, 석재/돌=Stone, 타일=Tile.\n"
@@ -87,6 +102,14 @@ SYSTEM_PROMPT = (
     "\"create_info\":{\"element_type\":\"IfcRoof\",\"storey\":\"RF\",\"direction\":\"North\","
     "\"color\":\"#EF4444\",\"shape_preset\":\"GABLED\"},\"confidence\":1,"
     "\"raw_instruction\":\"옥상에 빨간색 박공지붕 만들어줘\",\"ambiguity_question\":null}\n"
+    "{\"command_type\":\"MODIFY\",\"target\":{\"element_type\":\"IfcRoof\",\"select_all\":true},"
+    "\"changes\":{\"color\":\"#AABBCC\"},\"create_info\":null,\"confidence\":1,"
+    "\"raw_instruction\":\"\uc9c0\ubd95 \uc0c9\uc0c1\uc744 #AABBCC\ub85c "
+    "\ubc14\uafd4\uc918\",\"ambiguity_question\":null}\n"
+    "{\"command_type\":\"MODIFY\",\"target\":{\"element_type\":\"IfcDoor\",\"select_all\":true},"
+    "\"changes\":{\"color\":\"#884422\"},\"create_info\":null,\"confidence\":1,"
+    "\"raw_instruction\":\"\ubb38\uc740 #884422\ub85c \ubc14\uafd4\uc918\","
+    "\"ambiguity_question\":null}\n"
 )
 
 
@@ -134,6 +157,9 @@ class LLM3DEngine:
             )
             return self._repair_or_replace(user_text, command)
         except InstructorRetryException:
+            raw_command = await self._parse_command_raw_json(user_text, system_content)
+            if raw_command is not None:
+                return raw_command
             logger.warning(f"[LLM3DEngine] 파싱 실패 → 재질문 응답으로 대체: {user_text!r}")
             return self.parse_command_heuristic(user_text)
         except Exception as exc:
@@ -143,6 +169,47 @@ class LLM3DEngine:
     def parse_command_heuristic(self, user_text: str) -> LLM3DCommand:
         """Parse a command without calling the LLM, for deterministic local tests."""
         return self._heuristic_parse(user_text)
+
+    async def _parse_command_raw_json(
+        self,
+        user_text: str,
+        system_content: str,
+    ) -> LLM3DCommand | None:
+        try:
+            response = await self._raw_client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_content
+                        + "\nReturn exactly one strict JSON object matching the schema.",
+                    },
+                    {"role": "user", "content": user_text},
+                ],
+                temperature=0.0,
+                top_p=0.1,
+            )
+            content = response.choices[0].message.content or ""
+            command = LLM3DCommand.model_validate(self._json_object_from_text(content))
+            return self._repair_or_replace(user_text, command)
+        except Exception:
+            logger.warning("[LLM3DEngine] raw_json_fallback_failed", exc_info=True)
+            return None
+
+    @staticmethod
+    def _json_object_from_text(content: str) -> dict[str, object]:
+        text = content.strip()
+        if text.startswith("```"):
+            text = text.removeprefix("```json").removeprefix("```").strip()
+            text = text.removesuffix("```").strip()
+        start = text.find("{")
+        end = text.rfind("}")
+        if start < 0 or end < start:
+            raise ValueError("LLM response does not contain a JSON object")
+        parsed = json.loads(text[start : end + 1])
+        if not isinstance(parsed, dict):
+            raise ValueError("LLM response JSON is not an object")
+        return parsed
 
     def _repair_or_replace(self, user_text: str, command: LLM3DCommand) -> LLM3DCommand:
         if not command.raw_instruction:
@@ -212,6 +279,8 @@ class LLM3DEngine:
         if command.command_type == LLM3DCommandType.MODIFY:
             if command.changes is None:
                 return self._heuristic_parse(user_text)
+            if not self._has_explicit_target_reference(user_text, command.target):
+                return self._ambiguous(user_text, "수정할 대상 요소가 명확하지 않습니다.")
             heuristic_target: LLM3DTarget | None = None
             target = command.target
             if target.storey is None:
@@ -234,6 +303,45 @@ class LLM3DEngine:
             if heuristic.confidence > command.confidence:
                 return heuristic
         return command
+
+    @staticmethod
+    def _has_explicit_target_reference(text: str, target: LLM3DTarget | None = None) -> bool:
+        import re
+
+        if target is not None and (target.global_id or target.name):
+            return True
+        if re.search(r"[0-9A-Za-z_$]{22}", text):
+            return True
+        lower_text = text.lower()
+        english_targets = (
+            "wall",
+            "roof",
+            "door",
+            "window",
+            "slab",
+            "floor",
+            "site",
+            "stair",
+            "column",
+            "beam",
+        )
+        korean_target_patterns = (
+            "\ubcbd\uccb4?",
+            "\uc9c0\ubd95",
+            "\uc625\uc0c1",
+            "(?:\ud604\uad00\ubb38|\ucd9c\uc785\ubb38|\ubc29\ubb38|\ubb38)(?=$|[\\s,.;:!?]|[\uc740\ub294\uc744\ub97c\uc774\uac00\uc758\uc5d0\uacfc\uc640\ub3c4\ub4e4])",
+            "\ub3c4\uc5b4",
+            "\ucc3d\ubb38",
+            "\ubc14\ub2e5",
+            "\ub300\uc9c0",
+            "\uc2ac[\ub798\ub77c]\ube0c",
+            "\uacc4\ub2e8",
+            "\uae30\ub465",
+            "\ubcf4(?=$|[\\s,.;:!?]|[\uc740\ub294\uc744\ub97c\uc774\uac00\uc758\uc5d0\uacfc\uc640\ub3c4\ub4e4])",
+        )
+        return any(target_name in lower_text for target_name in english_targets) or any(
+            re.search(pattern, text) is not None for pattern in korean_target_patterns
+        )
 
     def _heuristic_parse(self, text: str) -> LLM3DCommand:
         invalid_material = self._invalid_material(text)
