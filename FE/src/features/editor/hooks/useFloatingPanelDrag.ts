@@ -6,6 +6,10 @@ interface DragState {
   startClientY: number
   startOffsetX: number
   startOffsetY: number
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
 }
 
 const DRAG_CLICK_GUARD_PX = 3
@@ -19,14 +23,29 @@ export function useFloatingPanelDrag(initialOffset: PanelOffset, margin = 8) {
   const panelRef = useRef<HTMLDivElement | null>(null)
   const [offset, setOffset] = useState<PanelOffset>(initialOffset)
   const dragRef = useRef<DragState | null>(null)
+  const pendingOffsetRef = useRef<PanelOffset | null>(null)
+  const frameRef = useRef<number | null>(null)
   const hasDraggedRef = useRef(false)
   const suppressNextClickRef = useRef(false)
 
   useEffect(() => {
+    const flushPendingOffset = () => {
+      frameRef.current = null
+      const nextOffset = pendingOffsetRef.current
+      if (!nextOffset) return
+      pendingOffsetRef.current = null
+      setOffset(nextOffset)
+    }
+
+    const scheduleOffsetUpdate = (nextOffset: PanelOffset) => {
+      pendingOffsetRef.current = nextOffset
+      if (frameRef.current !== null) return
+      frameRef.current = window.requestAnimationFrame(flushPendingOffset)
+    }
+
     const onMouseMove = (e: MouseEvent) => {
       const dragging = dragRef.current
-      const panelEl = panelRef.current
-      if (!dragging || !panelEl) return
+      if (!dragging) return
 
       const nextRawX = dragging.startOffsetX + (e.clientX - dragging.startClientX)
       const nextRawY = dragging.startOffsetY + (e.clientY - dragging.startClientY)
@@ -38,25 +57,9 @@ export function useFloatingPanelDrag(initialOffset: PanelOffset, margin = 8) {
         hasDraggedRef.current = true
       }
 
-      const parentEl =
-        (panelEl.offsetParent as HTMLElement | null) ??
-        panelEl.parentElement
-
-      if (!parentEl) {
-        setOffset({ x: nextRawX, y: nextRawY })
-        return
-      }
-
-      const parentRect = parentEl.getBoundingClientRect()
-      const panelRect = panelEl.getBoundingClientRect()
-      const minX = margin
-      const minY = margin
-      const maxX = Math.max(minX, parentRect.width - panelRect.width - margin)
-      const maxY = Math.max(minY, parentRect.height - panelRect.height - margin)
-
-      setOffset({
-        x: Math.min(maxX, Math.max(minX, nextRawX)),
-        y: Math.min(maxY, Math.max(minY, nextRawY)),
+      scheduleOffsetUpdate({
+        x: Math.min(dragging.maxX, Math.max(dragging.minX, nextRawX)),
+        y: Math.min(dragging.maxY, Math.max(dragging.minY, nextRawY)),
       })
     }
 
@@ -72,6 +75,10 @@ export function useFloatingPanelDrag(initialOffset: PanelOffset, margin = 8) {
     return () => {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current)
+        frameRef.current = null
+      }
     }
   }, [margin])
 
@@ -79,11 +86,30 @@ export function useFloatingPanelDrag(initialOffset: PanelOffset, margin = 8) {
     e.preventDefault()
     e.stopPropagation()
     hasDraggedRef.current = false
+    const panelEl = panelRef.current
+    const parentEl =
+      (panelEl?.offsetParent as HTMLElement | null) ??
+      panelEl?.parentElement
+    const parentRect = parentEl?.getBoundingClientRect()
+    const panelRect = panelEl?.getBoundingClientRect()
+    const minX = margin
+    const minY = margin
+    const maxX = parentRect && panelRect
+      ? Math.max(minX, parentRect.width - panelRect.width - margin)
+      : Number.POSITIVE_INFINITY
+    const maxY = parentRect && panelRect
+      ? Math.max(minY, parentRect.height - panelRect.height - margin)
+      : Number.POSITIVE_INFINITY
+
     dragRef.current = {
       startClientX: e.clientX,
       startClientY: e.clientY,
       startOffsetX: offset.x,
       startOffsetY: offset.y,
+      minX,
+      maxX,
+      minY,
+      maxY,
     }
   }
 
