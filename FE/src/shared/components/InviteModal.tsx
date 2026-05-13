@@ -13,6 +13,7 @@ interface InviteModalProps {
 interface AlreadyInvitedUserTag {
   userId: string
   name: string
+  projectIds: string[]
 }
 
 export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
@@ -46,11 +47,15 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
       if (cancelled) return
 
       const invitedUserMap = new Map<string, AlreadyInvitedUserTag>()
-      details.forEach((detail) => {
+      details.forEach((detail, index) => {
+        const projectId = projectIds[index]
+        if (!projectId) return
         detail?.invitedUsers?.forEach((user) => {
+          const prev = invitedUserMap.get(user.userId)
           invitedUserMap.set(user.userId, {
             userId: user.userId,
             name: user.name,
+            projectIds: prev ? Array.from(new Set([...prev.projectIds, projectId])) : [projectId],
           })
         })
       })
@@ -77,6 +82,7 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
   }
 
   const toggleSelect = (user: UserSearchResult) => {
+    if (alreadyInvitedUsers.some((invitedUser) => invitedUser.userId === user.userId)) return
     const exists = selectedUsers.some((u) => u.userId === user.userId)
     if (exists) {
       setSelectedUsers((prev) => prev.filter((u) => u.userId !== user.userId))
@@ -94,10 +100,16 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
 
   const handleSubmit = async () => {
     if (selectedUsers.length === 0 || projectIds.length === 0) return
+    const alreadyInvitedUserIds = new Set(alreadyInvitedUsers.map((user) => user.userId))
+    const inviteTargetUsers = selectedUsers.filter((user) => !alreadyInvitedUserIds.has(user.userId))
+    if (inviteTargetUsers.length === 0) {
+      setSelectedUsers([])
+      return
+    }
     setSubmitStatus('loading')
     setErrorMessage('')
 
-    const inviteRequests: { projectId: string; req: SendInviteRequest }[] = selectedUsers.flatMap((user) =>
+    const inviteRequests: { projectId: string; req: SendInviteRequest }[] = inviteTargetUsers.flatMap((user) =>
       projectIds.map((projectId) => ({
         projectId,
         req: {
@@ -136,11 +148,32 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
   const handleConfirmRemoveAlreadyInvitedUser = async () => {
     if (!pendingDeleteUser || projectIds.length === 0) return
     setErrorMessage('')
+    const targetProjectIds = pendingDeleteUser.projectIds.filter((projectId) => projectIds.includes(projectId))
+    if (targetProjectIds.length === 0) {
+      setAlreadyInvitedUsers((prev) => prev.filter((item) => item.userId !== pendingDeleteUser.userId))
+      setPendingDeleteUser(null)
+      return
+    }
     const results = await Promise.allSettled(
-      projectIds.map((projectId) => removeProjectMember.mutateAsync({ projectId, userId: pendingDeleteUser.userId })),
+      targetProjectIds.map((projectId) => removeProjectMember.mutateAsync({ projectId, userId: pendingDeleteUser.userId })),
     )
-    const failedCount = results.filter((result) => result.status === 'rejected').length
+    const failedProjectIds = targetProjectIds.filter((_, index) => results[index]?.status === 'rejected')
+    const failedCount = failedProjectIds.length
     if (failedCount > 0) {
+      const removedProjectIds = new Set(
+        targetProjectIds.filter((_, index) => results[index]?.status === 'fulfilled'),
+      )
+      if (removedProjectIds.size > 0) {
+        setAlreadyInvitedUsers((prev) =>
+          prev
+            .map((item) =>
+              item.userId === pendingDeleteUser.userId
+                ? { ...item, projectIds: item.projectIds.filter((projectId) => !removedProjectIds.has(projectId)) }
+                : item,
+            )
+            .filter((item) => item.projectIds.length > 0),
+        )
+      }
       setErrorMessage('초대 삭제에 실패했습니다. 다시 시도해 주세요.')
       setPendingDeleteUser(null)
       return
@@ -262,14 +295,18 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
 
             {searchResults.map((user) => {
               const isSelected = isUserSelected(user)
+              const isAlreadyInvited = alreadyInvitedUsers.some((invitedUser) => invitedUser.userId === user.userId)
 
               return (
                 <div
                   key={user.userId}
                   onClick={() => toggleSelect(user)}
-                  className={`group flex items-center justify-between p-4 rounded-2xl transition-all border cursor-pointer ${isSelected
-                      ? 'bg-[#F0F2FF]/50 border-[#3B45B3]/20 shadow-sm'
-                      : 'bg-white border-transparent hover:bg-[#F8F9FD]'
+                  className={`group flex items-center justify-between p-4 rounded-2xl transition-all border ${isAlreadyInvited
+                      ? 'cursor-not-allowed bg-[#F3F4F6] border-transparent opacity-60'
+                      : `cursor-pointer ${isSelected
+                          ? 'bg-[#F0F2FF]/50 border-[#3B45B3]/20 shadow-sm'
+                          : 'bg-white border-transparent hover:bg-[#F8F9FD]'
+                        }`
                     }`}
                 >
                   <div className="flex items-center gap-4">
@@ -283,7 +320,13 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
                     </div>
                   </div>
 
-                  <div />
+                  <div>
+                    {isAlreadyInvited && (
+                      <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-[#6B7280]">
+                        Invited
+                      </span>
+                    )}
+                  </div>
                 </div>
               )
             })}
