@@ -2,7 +2,6 @@ package com.a204.batang.domain.workspace.service;
 
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.service.ProjectAccessService;
-import com.a204.batang.domain.ifcedit.dto.DirectIfcEditRequest;
 import com.a204.batang.domain.ifcedit.service.DirectIfcEditCommandService;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
@@ -40,7 +39,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -86,7 +84,6 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 bubbleSnapshotHelper,
                 workspaceBubbleSnapshotRedisRepository,
                 floorPlanS3DeleteQueueService,
-                directIfcEditCommandService,
                 s3ObjectPresigner,
                 simpMessagingTemplate,
                 objectMapper
@@ -146,14 +143,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
 
         workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
 
-        ArgumentCaptor<DirectIfcEditRequest> directRequestCaptor = ArgumentCaptor.forClass(DirectIfcEditRequest.class);
-        verify(directIfcEditCommandService).createDirectIfcEdit(eq(projectId), eq(currentUserId), directRequestCaptor.capture());
-
-        DirectIfcEditRequest directRequest = directRequestCaptor.getValue();
-        assertThat(directRequest.baseRevisionId()).isNotNull();
-        assertThat(directRequest.sourceSceneType()).isEqualTo("IFC_MODEL");
-        assertThat(directRequest.engineRequest()).isNotNull();
-        assertThat(directRequest.engineRequest().get("baseIndex").asInt()).isEqualTo(0);
+        verifyNoInteractions(directIfcEditCommandService);
 
         ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
         verify(simpMessagingTemplate).convertAndSend(
@@ -162,7 +152,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         );
 
         FloorPlanProjectSyncResponse response = responseCaptor.getValue();
-        assertThat(response.action()).isEqualTo("FLOOR_PLAN_PROCESSING");
+        assertThat(response.action()).isEqualTo("FLOOR_PLAN_UPDATED");
         assertThat(response.projectId()).isEqualTo(projectId);
         assertThat(response.revisionId()).isEqualTo(workspace.getCurrentRevision());
         assertThat(response.s3Url()).isNull();
@@ -172,7 +162,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
     }
 
     @Test
-    void relayFloorPlanDraft_routesToDirectIfcEditServiceWhenSceneTypeIsThreeD() throws Exception {
+    void relayFloorPlanDraft_doesNotRouteToDirectIfcEditServiceWhenSceneTypeIsThreeD() throws Exception {
         FloorPlanRealtimeUpdateRequest request = new FloorPlanRealtimeUpdateRequest(
                 List.of(new BubbleUpdateRequest.BubbleData(
                         "bubble-1",
@@ -203,11 +193,11 @@ class WorkspaceFloorPlanRealtimeServiceTest {
 
         workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
 
-        verify(directIfcEditCommandService).createDirectIfcEdit(eq(projectId), eq(currentUserId), org.mockito.ArgumentMatchers.any());
+        verifyNoInteractions(directIfcEditCommandService);
     }
 
     @Test
-    void relayFloorPlanDraft_skipsWhenIfcEditJobConflictOccurs() throws Exception {
+    void relayFloorPlanDraft_doesNotDependOnIfcEditJobAvailability() throws Exception {
         FloorPlanRealtimeUpdateRequest request = new FloorPlanRealtimeUpdateRequest(
                 List.of(new BubbleUpdateRequest.BubbleData(
                         "bubble-1",
@@ -237,13 +227,14 @@ class WorkspaceFloorPlanRealtimeServiceTest {
 
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
                 .willReturn(Optional.of(workspace));
-        doThrow(new CustomException(ErrorCode.IFC_EDIT_JOB_CONFLICT))
-                .when(directIfcEditCommandService)
-                .createDirectIfcEdit(eq(projectId), eq(currentUserId), any(DirectIfcEditRequest.class));
 
         workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
 
-        verifyNoInteractions(simpMessagingTemplate);
+        verifyNoInteractions(directIfcEditCommandService);
+        verify(simpMessagingTemplate).convertAndSend(
+                eq("/topic/project/%s/floor-plan/sync".formatted(projectId)),
+                any(FloorPlanProjectSyncResponse.class)
+        );
     }
 
     @Test
@@ -366,7 +357,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         );
 
         FloorPlanProjectSyncResponse response = responseCaptor.getValue();
-        assertThat(response.action()).isEqualTo("FLOOR_PLAN_UPDATED");
+        assertThat(response.action()).isEqualTo("FLOOR_PLAN_GENERATE_COMPLETED");
         assertThat(response.projectId()).isEqualTo(projectId);
         assertThat(response.revisionId()).isEqualTo(revisionId.toString());
         assertThat(response.s3Url()).isEqualTo(s3Url);
@@ -381,6 +372,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
     void relayIfcEditDlqFailureAndRestoreSource_broadcastsSourceRevisionAndNotifiesUser() throws Exception {
         UUID sourceRevisionId = UUID.randomUUID();
         UUID requestedBy = UUID.randomUUID();
+        ReflectionTestUtils.setField(workspace, "currentRevision", sourceRevisionId.toString());
         JsonNode latestSnapshot = objectMapper.readTree("""
                 {
                   "floorPlanPayloadJson": {
