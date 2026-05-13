@@ -2,7 +2,8 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    XDG_RUNTIME_DIR=/tmp/runtime-root
+    XDG_RUNTIME_DIR=/tmp/runtime-root \
+    IFC2IMG_RENDER_BACKEND=raycast
 
 WORKDIR /app
 
