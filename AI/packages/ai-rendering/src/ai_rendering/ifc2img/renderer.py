@@ -307,13 +307,13 @@ class IFCRenderer:
         scene.add_triangles(mesh_t)
 
         # 카메라 intrinsic 설정
-        intrinsic = o3d.camera.PinholeCameraIntrinsic(
-            width=self.width,
-            height=self.height,
-            fx=self.width / 2 * initial_zoom,
-            fy=self.height / 2 * initial_zoom,
-            cx=self.width / 2,
-            cy=self.height / 2,
+        intrinsic = o3d.core.Tensor(
+            [
+                [self.width / 2 * initial_zoom, 0.0, self.width / 2],
+                [0.0, self.height / 2 * initial_zoom, self.height / 2],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=o3d.core.Dtype.Float32,
         )
 
         # 카메라 extrinsic 계산
@@ -325,10 +325,21 @@ class IFCRenderer:
         eye = center - front * 10.0  # eye 위치를 center 뒤로
         extrinsic = self._compute_extrinsic(eye, center, up)
 
-        rays = o3d.t.geometry.RaycastingScene.create_rays_pinhole(intrinsic, extrinsic)
+        extrinsic_tensor = o3d.core.Tensor(
+            extrinsic.astype(np.float32),
+            dtype=o3d.core.Dtype.Float32,
+        )
+        rays = o3d.t.geometry.RaycastingScene.create_rays_pinhole(
+            intrinsic,
+            extrinsic_tensor,
+            self.width,
+            self.height,
+        )
         ans = scene.cast_rays(rays)
 
         depth = ans['t_hit'].numpy().reshape((self.height, self.width))
+        depth = depth.astype(np.float32, copy=False)
+        depth[~np.isfinite(depth)] = 0.0
         return self._depth_to_image(depth)
 
     @staticmethod
