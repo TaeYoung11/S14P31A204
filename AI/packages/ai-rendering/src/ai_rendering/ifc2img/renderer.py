@@ -3,6 +3,7 @@
 import math
 import os
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import open3d as o3d  # type: ignore[import-untyped]
@@ -19,6 +20,10 @@ from .views import (
     IFCView,
     resolve_target_ratio_for_mesh,
 )
+
+RenderBackend = Literal["auto", "visualizer", "raycast"]
+RENDER_BACKEND_ENV = "IFC2IMG_RENDER_BACKEND"
+DEFAULT_RENDER_BACKEND: RenderBackend = "auto"
 
 
 class IFCRenderer:
@@ -44,6 +49,27 @@ class IFCRenderer:
     def _is_headless() -> bool:
         """headless 환경인지 감지."""
         return os.environ.get("DISPLAY") is None
+
+    @staticmethod
+    def _is_container_like_runtime() -> bool:
+        """Docker/CI runtime where DISPLAY does not guarantee Visualizer support."""
+        if os.environ.get("CI"):
+            return True
+        if os.environ.get("KUBERNETES_SERVICE_HOST"):
+            return True
+        if Path("/.dockerenv").exists():
+            return True
+        return False
+
+    @staticmethod
+    def _resolve_render_backend() -> RenderBackend:
+        raw_backend = os.environ.get(RENDER_BACKEND_ENV, DEFAULT_RENDER_BACKEND)
+        backend = raw_backend.strip().lower()
+        if backend in ("auto", "visualizer", "raycast"):
+            return backend  # type: ignore[return-value]
+        raise IFCRenderError(
+            f"{RENDER_BACKEND_ENV} must be one of auto, visualizer, raycast: {raw_backend!r}"
+        )
 
     def __init__(
         self,
@@ -209,15 +235,29 @@ class IFCRenderer:
         # ex: SampleHouse 17m → ground 포함 ~20m → MEDIUM 잘못 트리거 위험.
         initial_zoom = camera.zoom
         target_ratio = self._resolve_target_ratio(view, base_mesh)
+        backend = self._resolve_render_backend()
 
-        if self._is_headless():
+        if backend == "raycast":
+            return self._render_mesh_offscreen(
+                mesh, center, camera, initial_zoom, target_ratio
+            )
+        if backend == "auto" and (
+            self._is_headless() or self._is_container_like_runtime()
+        ):
             return self._render_mesh_offscreen(
                 mesh, center, camera, initial_zoom, target_ratio
             )
 
-        return self._render_mesh_windowed(
-            mesh, center, camera, initial_zoom, target_ratio
-        )
+        try:
+            return self._render_mesh_windowed(
+                mesh, center, camera, initial_zoom, target_ratio
+            )
+        except IFCRenderError:
+            if backend == "visualizer":
+                raise
+            return self._render_mesh_offscreen(
+                mesh, center, camera, initial_zoom, target_ratio
+            )
 
     def _render_mesh_windowed(
         self,
@@ -228,7 +268,9 @@ class IFCRenderer:
         target_ratio: float,
     ) -> Image.Image:
         vis = o3d.visualization.Visualizer()
-        vis.create_window(visible=False, width=self.width, height=self.height)
+        created = vis.create_window(visible=False, width=self.width, height=self.height)
+        if created is False:
+            raise IFCRenderError("Open3D Visualizer window creation failed.")
         try:
             vis.add_geometry(mesh)
             opt = vis.get_render_option()

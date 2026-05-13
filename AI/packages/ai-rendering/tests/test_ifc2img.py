@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from ai_rendering.ifc2img import IFCRenderError, IFCRenderer, IFCView
 from ai_rendering.ifc2img.geometry import (
@@ -25,6 +26,7 @@ from ai_rendering.ifc2img.views import (
     DEFAULT_RENDER_VIEWS,
     DISPATCH_LARGE_FACTOR,
     DISPATCH_MEDIUM_FACTOR,
+    VIEW_CAMERAS,
     VIEW_PROMPT_PREFIXES,
     VIEW_PROMPT_SUFFIXES,
     VIEW_TARGET_RATIOS,
@@ -126,6 +128,145 @@ def _make_fake_depth_buffer(value: float = 5.0) -> np.ndarray:
     arr = np.zeros((448, 768), dtype=np.float32)
     arr[100:300, 200:500] = value
     return arr
+
+
+def _make_fake_render_image() -> Image.Image:
+    return Image.fromarray(np.full((448, 768), 255, dtype=np.uint8), mode="L")
+
+
+def test_renderer_backend_raycast_env_forces_offscreen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IFC2IMG_RENDER_BACKEND=raycast uses the offscreen path."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+    expected = _make_fake_render_image()
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "raycast")
+
+    with (
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
+        patch.object(IFCRenderer, "_is_container_like_runtime", return_value=False),
+        patch.object(IFCRenderer, "_render_mesh_offscreen", return_value=expected) as offscreen,
+        patch.object(IFCRenderer, "_render_mesh_windowed") as windowed,
+    ):
+        renderer = IFCRenderer()
+        result = renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            IFCView.FRONT,
+        )
+
+    assert result is expected
+    offscreen.assert_called_once()
+    windowed.assert_not_called()
+
+
+def test_renderer_backend_visualizer_env_forces_windowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IFC2IMG_RENDER_BACKEND=visualizer keeps the legacy Visualizer path."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+    expected = _make_fake_render_image()
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
+
+    with (
+        patch.object(IFCRenderer, "_is_headless", return_value=True),
+        patch.object(IFCRenderer, "_is_container_like_runtime", return_value=True),
+        patch.object(IFCRenderer, "_render_mesh_offscreen") as offscreen,
+        patch.object(IFCRenderer, "_render_mesh_windowed", return_value=expected) as windowed,
+    ):
+        renderer = IFCRenderer()
+        result = renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            IFCView.FRONT,
+        )
+
+    assert result is expected
+    windowed.assert_called_once()
+    offscreen.assert_not_called()
+
+
+def test_renderer_backend_auto_uses_raycast_in_container_like_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """auto prefers raycast in Docker/CI-like runtimes even when DISPLAY exists."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+    expected = _make_fake_render_image()
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "auto")
+
+    with (
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
+        patch.object(IFCRenderer, "_is_container_like_runtime", return_value=True),
+        patch.object(IFCRenderer, "_render_mesh_offscreen", return_value=expected) as offscreen,
+        patch.object(IFCRenderer, "_render_mesh_windowed") as windowed,
+    ):
+        renderer = IFCRenderer()
+        result = renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            IFCView.FRONT,
+        )
+
+    assert result is expected
+    offscreen.assert_called_once()
+    windowed.assert_not_called()
+
+
+def test_renderer_backend_auto_falls_back_to_raycast_when_visualizer_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """auto retries raycast when Visualizer initialization fails."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+    expected = _make_fake_render_image()
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "auto")
+
+    with (
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
+        patch.object(IFCRenderer, "_is_container_like_runtime", return_value=False),
+        patch.object(
+            IFCRenderer,
+            "_render_mesh_windowed",
+            side_effect=IFCRenderError("Visualizer render option is None."),
+        ) as windowed,
+        patch.object(IFCRenderer, "_render_mesh_offscreen", return_value=expected) as offscreen,
+    ):
+        renderer = IFCRenderer()
+        result = renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            IFCView.FRONT,
+        )
+
+    assert result is expected
+    windowed.assert_called_once()
+    offscreen.assert_called_once()
+
+
+def test_renderer_backend_invalid_env_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "bogus")
+
+    with pytest.raises(IFCRenderError, match="IFC2IMG_RENDER_BACKEND"):
+        IFCRenderer._resolve_render_backend()
 
 
 def test_renderer_calls_depth_buffer() -> None:
