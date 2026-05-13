@@ -102,8 +102,29 @@ class IfcSemanticSummary:
                 category: summary.to_dict()
                 for category, summary in self.categories.items()
             },
+            "lowestFloor": _element_to_dict_or_none(self.lowest_floor),
+            "highestRoof": _element_to_dict_or_none(self.highest_roof),
+            "doorCandidates": [element.to_dict() for element in self.door_candidates],
             "elements": [element.to_dict() for element in self.elements],
         }
+
+    @property
+    def lowest_floor(self) -> IfcSemanticElement | None:
+        floors = [element for element in self.elements if element.category == "FLOOR"]
+        if not floors:
+            return None
+        return min(floors, key=lambda element: element.bounds.z_min)
+
+    @property
+    def highest_roof(self) -> IfcSemanticElement | None:
+        roofs = [element for element in self.elements if element.category == "ROOF"]
+        if not roofs:
+            return None
+        return max(roofs, key=lambda element: element.bounds.z_max)
+
+    @property
+    def door_candidates(self) -> tuple[IfcSemanticElement, ...]:
+        return tuple(element for element in self.elements if element.category == "DOOR")
 
 
 def extract_ifc_semantic_summary(ifc_path: Path | str) -> IfcSemanticSummary:
@@ -227,3 +248,11 @@ def _is_a(entity: object, ifc_type: str) -> bool:
     if not callable(is_a):
         return False
     return bool(is_a(ifc_type))
+
+
+def _element_to_dict_or_none(
+    element: IfcSemanticElement | None,
+) -> dict[str, object] | None:
+    if element is None:
+        return None
+    return element.to_dict()
