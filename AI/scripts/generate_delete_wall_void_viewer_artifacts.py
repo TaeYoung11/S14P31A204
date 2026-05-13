@@ -10,7 +10,9 @@ from ai_authoring.engine_3d import delete_element
 
 ROOT = Path(__file__).resolve().parents[1]
 HOUSE_KR = ROOT / "scripts" / "House_KR.ifc"
-INSPECTION_JSON = ROOT / "artifacts" / "delete-wall-void" / "house_kr_delete_wall_void_inspection.json"
+INSPECTION_JSON = (
+    ROOT / "artifacts" / "delete-wall-void" / "house_kr_delete_wall_void_inspection.json"
+)
 OUT_DIR = ROOT / "artifacts" / "delete-wall-void"
 
 
