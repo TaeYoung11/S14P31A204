@@ -23,6 +23,7 @@ type SidebarViewModel = Pick<
   | 'isFloorPlanGenerated'
   | 'isBubbleReadOnly'
   | 'isEditorReadOnly'
+  | 'isDeleteActionLocked'
   | 'hasDeletableSelection'
   | 'handleDeleteSelected'
   | 'handleOpenIFCExportModal'
@@ -55,6 +56,7 @@ export function buildEditorLeftSidebarProps(vm: SidebarViewModel): EditorLeftSid
     isFloorPlanGenerated: vm.isFloorPlanGenerated,
     isBubbleReadOnly: vm.isBubbleReadOnly,
     isEditorReadOnly: vm.isEditorReadOnly,
+    isDeleteActionLocked: vm.isDeleteActionLocked,
     hasDeletableSelection: vm.hasDeletableSelection,
     onDeleteSelected: vm.handleDeleteSelected,
   }

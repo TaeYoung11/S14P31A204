@@ -23,10 +23,12 @@ export type ThreeDLibraryPresetType =
  * - color: 기본 표시 색상 (HEX)
  * - lengthMm / heightMm / thicknessMm: 실제 치수값 (없으면 dimensions 파싱으로 산출)
  * - position: 씬 내 배치 위치 (사용자 이동 후 저장됨)
+ * - rotation: 씬 내 배치 회전 (radian)
  */
 export interface ThreeDLibraryPreset {
   id: string
   type: ThreeDLibraryPresetType
+  roofShape?: 'flat' | 'gable'
   name: string
   description: string
   dimensions: string
@@ -37,4 +39,13 @@ export interface ThreeDLibraryPreset {
   heightMm?: number
   thicknessMm?: number
   position?: { x: number; y: number; z: number }
+  rotation?: { x: number; y: number; z: number }
+}
+
+/** 3D 캔버스 드래그앤드롭 배치 요청 페이로드 */
+export interface ThreeDLibraryDropRequest {
+  token: number
+  preset: ThreeDLibraryPreset
+  clientX: number
+  clientY: number
 }

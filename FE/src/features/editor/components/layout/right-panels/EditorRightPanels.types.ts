@@ -37,6 +37,7 @@ export interface EditorRightPanelsProps {
   resolvingPinId?: string | null
   resolvingCommentId?: string | null
   selectedBubble: BubbleInfo | null
+  isThreeDEditingLocked?: boolean
   selectedWall?: FloorWall | null
   selectedOpening?: FloorOpening | null
   selectedIfcElement?: IfcElementInfo | null
@@ -53,6 +54,9 @@ export interface EditorRightPanelsProps {
   onWidthChange: (id: string, width: number) => void
   onHeightChange: (id: string, height: number) => void
   onThicknessChange?: (id: string, thickness: number) => void
+  onPositionChange?: (id: string, axis: 'x' | 'y' | 'z', value: number) => void
+  onRotationChange?: (id: string, axis: 'x' | 'y' | 'z', degrees: number) => void
+  onRoofShapeChange?: (id: string, shape: 'flat' | 'gable') => void
   onWidthCommit?: (id: string, width: number) => void
   onHeightCommit?: (id: string, height: number) => void
   onRatioChange: (id: string, ratio: number) => void

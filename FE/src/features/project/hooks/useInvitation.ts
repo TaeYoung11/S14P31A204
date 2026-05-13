@@ -23,6 +23,12 @@ export const useSendInvite = () =>
       invitationService.sendInvite(projectId, req),
   })
 
+export const useRemoveProjectMember = () =>
+  useMutation({
+    mutationFn: ({ projectId, userId }: { projectId: string; userId: string }) =>
+      invitationService.removeProjectMember(projectId, userId),
+  })
+
 export const useInvitationNotifications = (
   isRead?: boolean,
   options: InvitationNotificationsQueryOptions = {},

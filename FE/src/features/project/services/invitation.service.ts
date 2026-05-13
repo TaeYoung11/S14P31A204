@@ -13,14 +13,14 @@ export interface UserSearchResult {
 
 export interface SendInviteRequest {
   inviteeEmail: string
-  role: InvitationRole
 }
 
 export interface SendInviteResponse {
   projectId: string
-  inviteeEmail: string
+  invitedUserId: string
+  invitedUserName: string
+  invitedUserEmail: string
   role: InvitationRole
-  joinedAt: string
 }
 
 export interface InvitationNotification {
@@ -84,11 +84,16 @@ export const invitationService = {
       await new Promise((resolve) => setTimeout(resolve, 400))
       return {
         projectId,
-        inviteeEmail: req.inviteeEmail,
-        role: req.role,
-        joinedAt: new Date().toISOString(),
+        invitedUserId: `mock-${req.inviteeEmail}`,
+        invitedUserName: req.inviteeEmail.split('@')[0] ?? 'mock-user',
+        invitedUserEmail: req.inviteeEmail,
+        role: 'CUSTOMER',
       }
     }
+  },
+
+  removeProjectMember: async (projectId: string, userId: string): Promise<void> => {
+    await api.delete(`/projects/${projectId}/members/${userId}`)
   },
 
   getNotifications: async (isRead?: boolean): Promise<InvitationNotification[]> => {

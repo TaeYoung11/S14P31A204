@@ -46,6 +46,8 @@ export default function EditorModalLayer({
   isIFCExportModalOpen,
   onCloseIFCExportModal,
   ifcElementChanges,
+  currentIfcUrl,
+  currentIfcAssetId,
 }: EditorModalLayerProps) {
   return (
     <>
@@ -98,6 +100,8 @@ export default function EditorModalLayer({
         isIFCExportModalOpen={isIFCExportModalOpen}
         onCloseIFCExportModal={onCloseIFCExportModal}
         ifcElementChanges={ifcElementChanges}
+        currentIfcUrl={currentIfcUrl}
+        currentIfcAssetId={currentIfcAssetId}
       />
     </>
   )
