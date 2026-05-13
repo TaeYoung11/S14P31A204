@@ -175,6 +175,13 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(tmp_path: Path) -> N
     assert (output_dir / "photo_front_diagonal_right.png").exists()
     assert (output_dir / "depth_front_diagonal_left.png").exists()
     assert (output_dir / "depth_front_diagonal_right.png").exists()
+    debug_dir = output_dir / "debug"
+    debug_manifest_path = debug_dir / "debug_manifest.json"
+    assert debug_manifest_path.exists()
+    assert (debug_dir / "depth_front_diagonal_left.png").exists()
+    assert (debug_dir / "control_depth_front_diagonal_left.png").exists()
+    assert (debug_dir / "semantic_control_front_diagonal_left.png").exists()
+    assert (debug_dir / "final_photo_front_diagonal_left.png").exists()
     assert result.manifest_path == output_dir / "manifest.json"
     assert not hasattr(result, "bundle_path")
     assert not (output_dir / "ifc2img_result.zip").exists()
@@ -194,6 +201,21 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(tmp_path: Path) -> N
         IFCView.FRONT_DIAGONAL_LEFT.value,
         IFCView.FRONT_DIAGONAL_RIGHT.value,
     ]
+    debug_manifest = json.loads(debug_manifest_path.read_text(encoding="utf-8"))
+    assert debug_manifest["schemaVersion"] == "ifc2img.debug.v1"
+    assert debug_manifest["preset"] == "korean_house"
+    assert debug_manifest["timeOfDay"] == "DAY"
+    assert [view["view"] for view in debug_manifest["views"]] == list(
+        PUBLIC_PHOTO_VIEWS
+    )
+    first_debug_view = debug_manifest["views"][0]
+    assert first_debug_view["actualFillRatio"] == 1.0
+    assert first_debug_view["files"]["depthImage"] == (
+        "debug/depth_front_diagonal_left.png"
+    )
+    assert first_debug_view["files"]["semanticControlImage"] == (
+        "debug/semantic_control_front_diagonal_left.png"
+    )
 
 
 def test_run_ifc2img_photo_pipeline_logs_depth_and_style_stages(

@@ -46,6 +46,7 @@ from ai_rendering.ifc2img.style import (
     _build_front_full_width_seg_control,
     _build_front_side_seg_control,
     _build_front_side_semantic_mask,
+    build_debug_control_images,
 )
 @pytest.fixture
 def mock_depth_renderer() -> DepthStyleRenderer:
@@ -909,6 +910,31 @@ def test_render_front_diagonal_ground_plane_control_attenuation_updates_depth_co
 
     assert np.any(control_arr[24, 16] != original[24, 16])
     assert np.all(control_arr[8, 16] == original[8, 16])
+
+
+def test_build_debug_control_images_matches_front_diagonal_semantic_inputs() -> None:
+    """Debug helper exposes the depth and semantic ControlNet inputs without SD."""
+    depth = Image.new("RGB", (32, 32), (0, 0, 0))
+    arr = np.array(depth)
+    arr[6:20, 12:20] = [180, 180, 180]
+    arr[21:27, 7:25] = [240, 240, 240]
+    depth = Image.fromarray(arr, mode="RGB")
+
+    artifacts = build_debug_control_images(
+        depth,
+        view=IFCView.FRONT_DIAGONAL_RIGHT,
+        use_front_diagonal_ground_semantic_control=True,
+        use_front_diagonal_ground_plane_aware_semantic_control=True,
+        use_front_diagonal_ground_plane_control_attenuation=True,
+        front_side_ground_class="grass",
+    )
+
+    assert set(artifacts) == {"depthControl", "semanticControl"}
+    depth_control = np.array(artifacts["depthControl"])
+    semantic = np.array(artifacts["semanticControl"])
+    assert np.any(depth_control[24, 16] != arr[24, 16])
+    assert np.all(semantic[30, 2] == ADE20K_GRASS_RGB)
+    assert np.all(semantic[8, 16] == ADE20K_BUILDING_RGB)
 
 
 def test_build_front_diagonal_ground_plane_aware_mask_reclassifies_lower_geometry() -> None:
