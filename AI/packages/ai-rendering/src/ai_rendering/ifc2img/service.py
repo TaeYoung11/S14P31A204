@@ -508,6 +508,7 @@ def run_ifc2img_photo_pipeline(
     output_dir: Path | str,
     *,
     preset: str = DEFAULT_PHOTO_PRESET,
+    time_of_day: object | None = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY,
     ifc_renderer_cls: type[_IFCRendererProtocol] | None = None,
     depth_style_renderer_cls: type[_DepthStyleRendererProtocol] | None = None,
 ) -> Ifc2ImgPhotoJobResult:
@@ -518,6 +519,7 @@ def run_ifc2img_photo_pipeline(
         raise IFCRenderError(f"IFC not found: {ifc_path}")
     if preset not in list_presets():
         raise IFCRenderError(f"unknown preset: {preset}")
+    preset_time_of_day = normalize_ifc2img_time_of_day(time_of_day)
 
     public_views = resolve_photo_views()
     internal_views = list(PHOTO_INTERNAL_VIEWS)
@@ -548,7 +550,7 @@ def run_ifc2img_photo_pipeline(
         viewCount=len(depth_images),
         views=[view.value for view in depth_images],
     )
-    params = load_preset(preset)
+    params = load_preset(preset, preset_time_of_day)
     outputs: list[Ifc2ImgPhotoViewResult] = []
     for public_view, internal_view in zip(public_views, internal_views, strict=True):
         depth = depth_images[internal_view]
@@ -659,6 +661,7 @@ def handle_ifc2img_worker_request(
         "manifest.v1.json",
     )
     preset = request["payload"]["preset"]
+    time_of_day = request["payload"].get("timeOfDay")
     _logger.info(
         "ifc2img_worker_request_started",
         renderMode=request["payload"]["renderMode"],
@@ -691,6 +694,7 @@ def handle_ifc2img_worker_request(
         source_ifc_path,
         output_dir,
         preset=preset,
+        time_of_day=time_of_day,
     )
     _logger.info(
         "ifc2img_pipeline_completed",
