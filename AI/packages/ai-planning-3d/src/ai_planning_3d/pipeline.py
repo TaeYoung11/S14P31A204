@@ -107,6 +107,16 @@ class LLM3DPipeline:
             lambda match: f"{LLM3DPipeline._complete_connected_verb(match.group(1))}.\n",
             user_text,
         )
+        normalized = re.sub(
+            r"((?:생성|추가|배치|변경|수정|삭제|제거)하)고(?=\s|[,.;])\s*",
+            lambda match: f"{LLM3DPipeline._complete_connected_verb(match.group(1))}.\n",
+            normalized,
+        )
+        normalized = re.sub(
+            r"((?:만들어|생성해|추가해|배치해|넣어|달아|바꿔|변경해|수정해|삭제해|제거해|없애|지워|빼|늘려|줄여|돌려)\s*주)고(?=\s|[,.;])\s*",
+            lambda match: f"{LLM3DPipeline._complete_connected_verb(match.group(1))}.\n",
+            normalized,
+        )
         parts = re.split(r"(?:그리고|\.|,|\n|;)", normalized)
         commands: list[str] = []
         for part in parts:
@@ -219,8 +229,21 @@ class LLM3DPipeline:
             "없애": "없애줘",
             "지우": "지워줘",
             "빼": "빼줘",
+            "생성하": "생성해줘",
+            "추가하": "추가해줘",
+            "배치하": "배치해줘",
+            "변경하": "변경해줘",
+            "수정하": "수정해줘",
+            "삭제하": "삭제해줘",
+            "제거하": "제거해줘",
+            "늘리": "늘려줘",
+            "줄이": "줄여줘",
+            "돌리": "돌려줘",
         }
-        return endings.get(verb, verb)
+        compact_verb = re.sub(r"\s+", "", verb)
+        if compact_verb.endswith("주"):
+            return f"{compact_verb[:-1]}줘"
+        return endings.get(compact_verb, compact_verb)
 
     @staticmethod
     def _expand_direction_pair_command(user_text: str) -> list[str]:

@@ -1,6 +1,9 @@
 from pathlib import Path
 import json
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
 from ai_common.adapters.rabbitmq.kombu_client import get_command_queue
 from ai_common.worker_sdk.event_factory import ClarificationResult, CompletedResult
@@ -30,6 +33,51 @@ def _load_sample_command() -> CommandMessage:
 def _sample_ifc_bytes() -> bytes:
     root_dir = Path(__file__).resolve().parents[3]
     return (root_dir / "tests" / "sample_batang.ifc").read_bytes()
+
+
+def _planner_3d_schema() -> dict[str, Any]:
+    root_dir = Path(__file__).resolve().parents[4]
+    schema_path = root_dir / "shared" / "schemas" / "planner_3d_result.v1.schema.json"
+    with open(schema_path, encoding="utf-8") as f:
+        return cast(dict[str, Any], json.load(f))
+
+
+def _with_user_instruction(command: CommandMessage, user_instruction: str) -> CommandMessage:
+    return command.model_copy(
+        deep=True,
+        update={
+            "payload": command.payload.model_copy(
+                update={"userInstruction": user_instruction}
+            )
+        },
+    )
+
+
+def _preview_ready_create(raw_instruction: str, element_type: str) -> dict[str, Any]:
+    return {
+        "status": "preview_ready",
+        "session_id": f"session-{element_type}",
+        "summary": "preview ready",
+        "command": {
+            "command_type": "CREATE",
+            "target": {"element_type": element_type},
+            "changes": None,
+            "confidence": 0.91,
+            "raw_instruction": raw_instruction,
+            "ambiguity_question": None,
+            "create_info": {
+                "element_type": element_type,
+                "storey": "1F",
+                "direction": "North",
+                "start_point": {"x": 0.0, "y": 6000.0, "z": 0.0},
+                "length_mm": 900.0,
+                "width_mm": 200.0,
+                "height_mm": 2100.0,
+                "material": {"name": "Concrete"},
+                "color": "#CCCCCC",
+            },
+        },
+    }
 
 
 def test_planning_worker_returns_completed_event_for_preview_ready_chat() -> None:
@@ -81,6 +129,51 @@ def test_planning_worker_returns_completed_event_for_preview_ready_chat() -> Non
     mock_s3.write_text.assert_called_once()
 
 
+def test_planning_worker_stores_split_chat_as_multiple_schema_commands() -> None:
+    command = _with_user_instruction(
+        _load_sample_command(),
+        "1층 거실에 문 만들어주고 2층 화장실에 창문 만들어줘",
+    )
+    mock_s3 = MagicMock()
+    mock_s3.read_bytes.return_value = _sample_ifc_bytes()
+    mock_s3.write_text.return_value = "s3://mock-bucket/output.json"
+
+    worker = PlanningWorker(
+        worker_id="test-worker-1",
+        event_publisher=MagicMock(),
+        s3=mock_s3,
+    )
+
+    with patch(
+        "ai_planning_3d.worker.LLM3DPipeline.execute_preview",
+        new_callable=AsyncMock,
+    ) as mock_execute:
+        mock_execute.side_effect = [
+            _preview_ready_create("1층 거실에 문 만들어줘", "IfcDoor"),
+            _preview_ready_create("2층 화장실에 창문 만들어줘", "IfcWindow"),
+        ]
+
+        result = worker.process(command)
+
+    assert isinstance(result, CompletedResult)
+    assert [call.args for call in mock_execute.await_args_list] == [
+        ("1층 거실에 문 만들어줘",),
+        ("2층 화장실에 창문 만들어줘",),
+    ]
+
+    stored_payload = json.loads(mock_s3.write_text.call_args.kwargs["text"])
+    Draft202012Validator(_planner_3d_schema()).validate(stored_payload)
+    assert stored_payload["status"] == "ready"
+    assert [cmd["raw_instruction"] for cmd in stored_payload["commands"]] == [
+        "1층 거실에 문 만들어줘",
+        "2층 화장실에 창문 만들어줘",
+    ]
+    assert [cmd["create_info"]["element_type"] for cmd in stored_payload["commands"]] == [
+        "IfcDoor",
+        "IfcWindow",
+    ]
+
+
 def test_planning_worker_returns_clarification_without_downstream_publish() -> None:
     command = _load_sample_command()
     mock_s3 = MagicMock()
@@ -109,7 +202,7 @@ def test_planning_worker_returns_clarification_without_downstream_publish() -> N
     assert isinstance(result, ClarificationResult)
 
 
-def test_planning_worker_logic():
+def test_planning_worker_logic() -> None:
     # 테스트 환경 및 샘플 데이터 로드
     root_dir = Path(__file__).resolve().parents[3]
     message_path = root_dir / "sample_messages" / "command_3d_llm.json"
@@ -127,7 +220,7 @@ def test_planning_worker_logic():
     worker = PlanningWorker(
         worker_id="test-worker-1",
         event_publisher=mock_publisher,
-        s3=mock_s3
+        s3=mock_s3,
     )
 
     # 파이프라인 실행 시뮬레이션 (AsyncMock을 사용하여 비동기 경고 해결)
@@ -139,7 +232,7 @@ def test_planning_worker_logic():
             "status": "needs_clarification",
             "session_id": "mock-session-123",
             "summary": "Conflict detected",
-            "clarification_questions": [{"id": "q1", "label": "Confirm", "options": []}]
+            "clarification_questions": [{"id": "q1", "label": "Confirm", "options": []}],
         }
 
         result = worker.process(command)
@@ -148,6 +241,7 @@ def test_planning_worker_logic():
         assert result.error.code == "NEEDS_CLARIFICATION"
         assert result.error.clarification_request_id == "mock-session-123"
         print("[OK] result mapping (needs_clarification)")
+
 
 if __name__ == "__main__":
     test_planning_worker_logic()

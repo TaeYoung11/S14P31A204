@@ -7,7 +7,7 @@ import json
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ai_common.adapters.storage.s3_client import S3Client, parse_s3_url
 from ai_common.errors import (
@@ -67,7 +67,7 @@ class PlanningWorker(BaseWorker):
 
             pipeline = LLM3DPipeline(ifc_path=str(ifc_path))
             try:
-                result = asyncio.run(pipeline.execute_preview(user_instruction))
+                result = asyncio.run(_execute_preview_for_instruction(pipeline, user_instruction))
             except Exception as exc:
                 raise NonRetryableWorkerError(
                     code="PIPELINE_FAILED",
@@ -123,11 +123,14 @@ class PlanningWorker(BaseWorker):
         try:
             payload = _build_result_payload(result, command)
             loc = parse_s3_url(output_url)
-            return self._s3.write_text(
-                key=loc.key,
-                text=json.dumps(payload, ensure_ascii=False),
-                content_type="application/json; charset=utf-8",
-                bucket=loc.bucket,
+            return cast(
+                str,
+                self._s3.write_text(
+                    key=loc.key,
+                    text=json.dumps(payload, ensure_ascii=False),
+                    content_type="application/json; charset=utf-8",
+                    bucket=loc.bucket,
+                ),
             )
         except Exception as exc:
             raise RetryableWorkerError(
@@ -137,6 +140,50 @@ class PlanningWorker(BaseWorker):
 
 
 # ── planner_3d_result.v1.schema.json 변환 헬퍼 ───────────────────────────────
+
+
+async def _execute_preview_for_instruction(
+    pipeline: LLM3DPipeline,
+    user_instruction: str,
+) -> dict[str, Any]:
+    command_texts = pipeline.split_chat_commands(user_instruction)
+    if len(command_texts) <= 1:
+        return await pipeline.execute_preview(user_instruction)
+
+    previews: list[dict[str, Any]] = []
+    for index, command_text in enumerate(command_texts, start=1):
+        preview = await pipeline.execute_preview(command_text)
+        preview["split_index"] = index
+        preview["split_instruction"] = command_text
+        previews.append(preview)
+
+    blocked = next(
+        (preview for preview in previews if preview.get("status") != "preview_ready"),
+        None,
+    )
+    if blocked is not None:
+        blocked_index = blocked.get("split_index")
+        summary = blocked.get("summary") or blocked.get("message") or "명령 preview에 실패했습니다."
+        return {
+            **blocked,
+            "summary": (
+                f"{blocked_index}번째 명령 처리 실패: {summary}"
+                if blocked_index
+                else summary
+            ),
+            "split_results": previews,
+        }
+
+    return {
+        "status": "preview_ready",
+        "summary": f"{len(previews)}개 3D 명령 preview가 준비되었습니다.",
+        "commands": [
+            preview["command"]
+            for preview in previews
+            if isinstance(preview.get("command"), dict)
+        ],
+        "split_results": previews,
+    }
 
 
 def _build_result_payload(
@@ -149,9 +196,17 @@ def _build_result_payload(
 
     commands: list[dict[str, Any]] = []
     if schema_status == "ready":
-        raw_cmd = result.get("command")
-        if raw_cmd:
-            commands = [_map_command(raw_cmd)]
+        raw_commands = result.get("commands")
+        if isinstance(raw_commands, list):
+            commands = [
+                _map_command(raw_cmd)
+                for raw_cmd in raw_commands
+                if isinstance(raw_cmd, dict)
+            ]
+        else:
+            raw_cmd = result.get("command")
+            if raw_cmd:
+                commands = [_map_command(raw_cmd)]
 
     clarification = (
         _map_clarification(result) if schema_status == "clarification_required" else None
