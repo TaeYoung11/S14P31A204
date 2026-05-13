@@ -14,6 +14,7 @@ from .exceptions import IFCRenderError
 
 IfcSemanticCategory = Literal["FLOOR", "ROOF", "WALL", "WINDOW", "DOOR"]
 ScreenRegion = Literal["top", "middle", "bottom", "unknown"]
+FootprintSide = Literal["min_x", "max_x", "min_y", "max_y", "unknown"]
 SUPPORTED_SEMANTIC_CATEGORIES: tuple[IfcSemanticCategory, ...] = (
     "FLOOR",
     "ROOF",
@@ -106,6 +107,12 @@ class IfcSemanticSummary:
             "lowestFloor": _element_to_dict_or_none(self.lowest_floor),
             "highestRoof": _element_to_dict_or_none(self.highest_roof),
             "doorCandidates": [element.to_dict() for element in self.door_candidates],
+            "frontDirectionCandidates": [
+                candidate.to_dict() for candidate in self.front_direction_candidates
+            ],
+            "mainDoorCandidate": _front_candidate_to_dict_or_none(
+                self.main_door_candidate
+            ),
             "elements": [element.to_dict() for element in self.elements],
         }
 
@@ -126,6 +133,45 @@ class IfcSemanticSummary:
     @property
     def door_candidates(self) -> tuple[IfcSemanticElement, ...]:
         return tuple(element for element in self.elements if element.category == "DOOR")
+
+    @property
+    def front_direction_candidates(self) -> tuple[IfcFrontDirectionCandidate, ...]:
+        return tuple(build_front_direction_candidates(self.elements))
+
+    @property
+    def main_door_candidate(self) -> IfcFrontDirectionCandidate | None:
+        candidates = self.front_direction_candidates
+        if not candidates:
+            return None
+        return max(candidates, key=lambda candidate: candidate.score)
+
+
+@dataclass(frozen=True)
+class IfcFrontDirectionCandidate:
+    door_entity_id: int
+    door_name: str | None
+    door_center: tuple[float, float, float]
+    nearest_footprint_side: FootprintSide
+    distance_to_footprint_edge: float | None
+    exterior_wall_near: bool
+    nearest_wall_entity_id: int | None
+    nearest_wall_distance: float | None
+    front_vector: tuple[float, float, float]
+    score: float
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "doorEntityId": self.door_entity_id,
+            "doorName": self.door_name,
+            "doorCenter": list(self.door_center),
+            "nearestFootprintSide": self.nearest_footprint_side,
+            "distanceToFootprintEdge": self.distance_to_footprint_edge,
+            "exteriorWallNear": self.exterior_wall_near,
+            "nearestWallEntityId": self.nearest_wall_entity_id,
+            "nearestWallDistance": self.nearest_wall_distance,
+            "frontVector": list(self.front_vector),
+            "score": self.score,
+        }
 
 
 @dataclass(frozen=True)
@@ -271,6 +317,7 @@ def diagnose_projection_vertical_inversion(
         floor_below_roof_in_world is True
         and floor_above_roof_on_screen is True
     )
+
     return IfcProjectionDiagnostics(
         vertical_inversion_suspected=vertical_inversion_suspected,
         floor_screen_region=(
@@ -282,6 +329,75 @@ def diagnose_projection_vertical_inversion(
         floor_above_roof_on_screen=floor_above_roof_on_screen,
         floor_below_roof_in_world=floor_below_roof_in_world,
     )
+
+
+def build_front_direction_candidates(
+    elements: tuple[IfcSemanticElement, ...] | list[IfcSemanticElement],
+) -> list[IfcFrontDirectionCandidate]:
+    """Infer front direction candidates from exterior-like door positions."""
+    doors = [element for element in elements if element.category == "DOOR"]
+    if not doors:
+        return []
+
+    footprint_elements = [
+        element
+        for element in elements
+        if element.category in {"FLOOR", "ROOF", "WALL", "DOOR"}
+    ]
+    footprint = _footprint_bounds(footprint_elements)
+    walls = [element for element in elements if element.category == "WALL"]
+    footprint_extent = max(
+        footprint[1] - footprint[0],
+        footprint[3] - footprint[2],
+        1.0,
+    )
+    edge_threshold = max(0.5, footprint_extent * 0.08)
+    wall_threshold = max(0.25, footprint_extent * 0.05)
+
+    candidates: list[IfcFrontDirectionCandidate] = []
+    for door in doors:
+        side, edge_distance, front_vector = _nearest_footprint_side(
+            door.bounds.center_xyz,
+            footprint,
+        )
+        nearest_wall, wall_distance = _nearest_wall(door, walls)
+        exterior_wall_near = (
+            edge_distance <= edge_threshold
+            and wall_distance is not None
+            and wall_distance <= wall_threshold
+        )
+        door_extent = (
+            door.bounds.max_xyz[0] - door.bounds.min_xyz[0],
+            door.bounds.max_xyz[1] - door.bounds.min_xyz[1],
+            door.bounds.max_xyz[2] - door.bounds.min_xyz[2],
+        )
+        door_size_score = max(door_extent[0], door_extent[1]) * max(door_extent[2], 0.1)
+        edge_score = max(0.0, 1.0 - edge_distance / edge_threshold)
+        wall_score = (
+            max(0.0, 1.0 - wall_distance / wall_threshold)
+            if wall_distance is not None
+            else 0.0
+        )
+        score = door_size_score + edge_score + wall_score
+        if exterior_wall_near:
+            score += 2.0
+        candidates.append(
+            IfcFrontDirectionCandidate(
+                door_entity_id=door.entity_id,
+                door_name=door.name,
+                door_center=door.bounds.center_xyz,
+                nearest_footprint_side=side,
+                distance_to_footprint_edge=edge_distance,
+                exterior_wall_near=exterior_wall_near,
+                nearest_wall_entity_id=(
+                    nearest_wall.entity_id if nearest_wall is not None else None
+                ),
+                nearest_wall_distance=wall_distance,
+                front_vector=front_vector,
+                score=float(score),
+            )
+        )
+    return sorted(candidates, key=lambda candidate: candidate.score, reverse=True)
 
 
 def _semantic_category_for_entity(entity: object) -> IfcSemanticCategory | None:
@@ -360,9 +476,76 @@ def _is_a(entity: object, ifc_type: str) -> bool:
     return bool(is_a(ifc_type))
 
 
+def _footprint_bounds(
+    elements: list[IfcSemanticElement],
+) -> tuple[float, float, float, float]:
+    if not elements:
+        return (0.0, 0.0, 0.0, 0.0)
+    min_x = min(element.bounds.min_xyz[0] for element in elements)
+    max_x = max(element.bounds.max_xyz[0] for element in elements)
+    min_y = min(element.bounds.min_xyz[1] for element in elements)
+    max_y = max(element.bounds.max_xyz[1] for element in elements)
+    return (min_x, max_x, min_y, max_y)
+
+
+def _nearest_footprint_side(
+    center_xyz: tuple[float, float, float],
+    footprint: tuple[float, float, float, float],
+) -> tuple[FootprintSide, float, tuple[float, float, float]]:
+    x, y, _z = center_xyz
+    min_x, max_x, min_y, max_y = footprint
+    distances: dict[FootprintSide, float] = {
+        "min_x": abs(x - min_x),
+        "max_x": abs(max_x - x),
+        "min_y": abs(y - min_y),
+        "max_y": abs(max_y - y),
+    }
+    side = min(distances, key=distances.__getitem__)
+    vectors: dict[FootprintSide, tuple[float, float, float]] = {
+        "min_x": (-1.0, 0.0, 0.0),
+        "max_x": (1.0, 0.0, 0.0),
+        "min_y": (0.0, -1.0, 0.0),
+        "max_y": (0.0, 1.0, 0.0),
+        "unknown": (0.0, -1.0, 0.0),
+    }
+    return side, float(distances[side]), vectors[side]
+
+
+def _nearest_wall(
+    door: IfcSemanticElement,
+    walls: list[IfcSemanticElement],
+) -> tuple[IfcSemanticElement | None, float | None]:
+    if not walls:
+        return None, None
+    nearest = min(walls, key=lambda wall: _xy_aabb_distance(door, wall))
+    return nearest, _xy_aabb_distance(door, nearest)
+
+
+def _xy_aabb_distance(first: IfcSemanticElement, second: IfcSemanticElement) -> float:
+    dx = max(
+        first.bounds.min_xyz[0] - second.bounds.max_xyz[0],
+        second.bounds.min_xyz[0] - first.bounds.max_xyz[0],
+        0.0,
+    )
+    dy = max(
+        first.bounds.min_xyz[1] - second.bounds.max_xyz[1],
+        second.bounds.min_xyz[1] - first.bounds.max_xyz[1],
+        0.0,
+    )
+    return float((dx * dx + dy * dy) ** 0.5)
+
+
 def _element_to_dict_or_none(
     element: IfcSemanticElement | None,
 ) -> dict[str, object] | None:
     if element is None:
         return None
     return element.to_dict()
+
+
+def _front_candidate_to_dict_or_none(
+    candidate: IfcFrontDirectionCandidate | None,
+) -> dict[str, object] | None:
+    if candidate is None:
+        return None
+    return candidate.to_dict()
