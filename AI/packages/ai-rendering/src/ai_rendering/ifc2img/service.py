@@ -59,6 +59,8 @@ Ifc2ImgWorkerStatus = Literal["SUCCESS", "ERROR"]
 Ifc2ImgWorkerCommandType = Literal["SD_RENDER_GENERATE"]
 Ifc2ImgWorkerRenderMode = Literal["ifc2img"]
 Ifc2ImgWorkerTimeOfDay = Literal["DAY", "NIGHT"]
+Ifc2ImgPresetTimeOfDay = Literal["day", "night"]
+DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY: Ifc2ImgWorkerTimeOfDay = "DAY"
 PUBLIC_PHOTO_VIEWS: tuple[PhotoViewAlias, ...] = (
     "front_diagonal_left",
     "front_diagonal_right",
@@ -72,6 +74,22 @@ PHOTO_VIEW_TO_EXPECTED_OUTPUT_FIELD: dict[PhotoViewAlias, str] = {
     "front_diagonal_right": "renderPhotoFrontDiagonalRightStorageUrl",
 }
 PHOTO_INTERNAL_VIEWS = tuple(PUBLIC_TO_INTERNAL_VIEW[view] for view in PUBLIC_PHOTO_VIEWS)
+
+
+def normalize_ifc2img_time_of_day(
+    value: object | None,
+) -> Ifc2ImgPresetTimeOfDay:
+    """Normalize worker timeOfDay values to preset time_of_day values."""
+    if value is None or value == "":
+        value = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY
+    if value == "DAY":
+        return "day"
+    if value == "NIGHT":
+        return "night"
+    raise IFCRenderError(
+        "unsupported timeOfDay: "
+        f"{value!r}. Expected one of: DAY, NIGHT"
+    )
 
 
 class Ifc2ImgWorkerInput(TypedDict):
