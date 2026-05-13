@@ -1,14 +1,18 @@
 package com.a204.batang.domain.notification.service;
 
 import com.a204.batang.domain.notification.dto.ProjectInvitationNotificationListResponse;
+import com.a204.batang.domain.notification.dto.ProjectInvitationNotificationReadResponse;
 import com.a204.batang.domain.notification.dto.ProjectInvitationNotificationResponse;
 import com.a204.batang.domain.notification.entity.ProjectInvitationNotification;
 import com.a204.batang.domain.notification.repository.ProjectInvitationNotificationRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
+import com.a204.batang.global.exception.CustomException;
+import com.a204.batang.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -44,5 +48,23 @@ public class ProjectInvitationNotificationService {
                 .toList();
 
         return ProjectInvitationNotificationListResponse.of(responses);
+    }
+
+    /**
+     * 현재 로그인 사용자의 프로젝트 초대 알림을 읽음 처리한다.
+     *
+     * @param notificationId 알림 ID
+     * @return 프로젝트 초대 알림 읽음 처리 응답
+     */
+    @Transactional
+    public ProjectInvitationNotificationReadResponse markProjectInvitationNotificationAsRead(UUID notificationId) {
+        UUID currentUserId = projectAccessService.resolveCurrentUserIdOrThrow();
+
+        ProjectInvitationNotification notification = projectInvitationNotificationRepository
+                .findByNotificationIdAndRecipientUserId(notificationId, currentUserId)
+                .orElseThrow(() -> new CustomException(ErrorCode.INVITATION_NOTIFICATION_NOT_FOUND));
+
+        notification.markAsRead(LocalDateTime.now());
+        return ProjectInvitationNotificationReadResponse.from(notification);
     }
 }
