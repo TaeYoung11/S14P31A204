@@ -1,6 +1,6 @@
 import { api } from '@/shared/lib/axios'
 import type { ApiResponse } from '@/shared/types'
-import type { BubbleData, ConnectionData, WorkspaceSnapshot } from '../types'
+import type { BubbleData, ConnectionData, IfcElementChange, WorkspaceSnapshot } from '../types'
 import type { BubbleSnapshotPayload } from '../utils/workspaceSyncMessage'
 
 export interface FloorPlanSnapshotPayload {
@@ -18,7 +18,7 @@ export interface FloorPlanSnapshotPayload {
     hiddenAutoWallIds?: WorkspaceSnapshot['hiddenAutoWallIds']
     hiddenAutoOpeningIds?: WorkspaceSnapshot['hiddenAutoOpeningIds']
     isProjectStructurePreferred?: WorkspaceSnapshot['isProjectStructurePreferred']
-    ifcElementChanges?: Array<{ expressId: number }>
+    ifcElementChanges?: IfcElementChange[]
   }
 }
 

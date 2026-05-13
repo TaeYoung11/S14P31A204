@@ -14,6 +14,13 @@ export interface IfcElementInfo {
   lengthMm?: number
   heightMm?: number
   thicknessMm?: number
+  roofShape?: 'flat' | 'gable'
+  positionX?: number
+  positionY?: number
+  positionZ?: number
+  rotationX?: number
+  rotationY?: number
+  rotationZ?: number
   color?: string
   material?: string
   properties: Record<string, string | number | boolean>
@@ -26,6 +33,13 @@ export interface IfcElementChange {
   lengthMm?: number
   heightMm?: number
   thicknessMm?: number
+  roofShape?: 'flat' | 'gable'
+  positionX?: number
+  positionY?: number
+  positionZ?: number
+  rotationX?: number
+  rotationY?: number
+  rotationZ?: number
   color?: string
   material?: string
   deleted?: boolean
@@ -298,4 +312,3 @@ export interface WorkspaceSnapshot {
   isProjectStructurePreferred: boolean
   ifcElementChanges: IfcElementChange[]
 }
-

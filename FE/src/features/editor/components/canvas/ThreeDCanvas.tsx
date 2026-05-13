@@ -18,6 +18,8 @@ import ThreeDCanvasScene from './ThreeDCanvasScene'
 import ThreeDLibraryPanel from './ThreeDLibraryPanel'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
 import { DEFAULT_MOCK_IFC_URL } from './threeDCanvas.utils'
+import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
+import { useThreeDLibraryDrop } from './useThreeDLibraryDrop'
 
 type ThreeDCoordinates = { x: number; y: number; z: number }
 
@@ -50,10 +52,15 @@ interface ThreeDCanvasProps {
   /** 2D 평면도에서 직접 생성한 로컬 3D 데이터. 있으면 IFC 대신 이를 렌더링한다. */
   localFloorData?: FloorPlan3DData | null
   onThreeDCoordinatesChange?: (coords: ThreeDCoordinates) => void
+  cameraViewPresetCommand?: ThreeDCameraViewPresetCommand
+  isTransformSnapEnabled?: boolean
+  transformSnapIntervalMm?: number
+  isEditingLocked?: boolean
 }
 
 export function ThreeDCanvas(props: ThreeDCanvasProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const isEditingLocked = props.isEditingLocked ?? false
 
   // ifcUrl이 null(로딩 중 또는 IFC 없음)이어도 mock으로 폴백해 씬을 항상 표시한다
   const effectiveIfcUrl = props.ifcUrl ?? DEFAULT_MOCK_IFC_URL
@@ -76,9 +83,21 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
     onWheelZoom: props.onWheelZoom,
   })
 
+  const {
+    libraryDropRequest,
+    handleLibraryDragOver,
+    handleLibraryDrop,
+    handleResolveLibraryDrop,
+  } = useThreeDLibraryDrop({
+    isEditingLocked,
+    addLibraryPreset,
+  })
+
   return (
     <div
       ref={rootRef}
+      onDragOver={handleLibraryDragOver}
+      onDrop={handleLibraryDrop}
       className="absolute inset-0 overflow-hidden bg-[#F0F2F9] select-none"
     >
       <ThreeDCanvasScene
@@ -98,6 +117,12 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         onLibraryElementChange={changeLibraryElement}
         onLibraryElementDelete={deleteLibraryElement}
         onThreeDCoordinatesChange={props.onThreeDCoordinatesChange}
+        cameraViewPresetCommand={props.cameraViewPresetCommand}
+        libraryDropRequest={libraryDropRequest}
+        onResolveLibraryDrop={handleResolveLibraryDrop}
+        isTransformSnapEnabled={props.isTransformSnapEnabled ?? true}
+        transformSnapIntervalMm={props.transformSnapIntervalMm ?? 100}
+        isEditingLocked={isEditingLocked}
       />
 
       <ThreeDCanvasGridOverlay isVisible={Boolean(props.isGridVisible)} />
@@ -109,7 +134,11 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
           selectedCategory={selectedCategory}
           onSelectCategory={setSelectedCategory}
           onClose={props.onToggleLibrary ?? (() => {})}
-          onAddPreset={addLibraryPreset}
+          isEditingLocked={isEditingLocked}
+          onAddPreset={(preset) => {
+            if (isEditingLocked) return
+            addLibraryPreset(preset, { closePanel: true })
+          }}
         />
       )}
     </div>

@@ -19,6 +19,7 @@ type RightPanelViewModel = Pick<
   | 'resolvingPinId'
   | 'resolvingCommentId'
   | 'selectedBubble'
+  | 'isThreeDEditingLocked'
   | 'selectedFloorWall'
   | 'selectedFloorOpening'
   | 'selectedIfcElement'
@@ -35,6 +36,9 @@ type RightPanelViewModel = Pick<
   | 'handleWidthChange'
   | 'handleHeightChange'
   | 'handleThicknessChange'
+  | 'handlePositionChange'
+  | 'handleRotationChange'
+  | 'handleRoofShapeChange'
   | 'handleWidthCommit'
   | 'handleHeightCommit'
   | 'handleRatioChange'
@@ -110,6 +114,7 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
     resolvingPinId: vm.resolvingPinId,
     resolvingCommentId: vm.resolvingCommentId,
     selectedBubble: vm.selectedBubble,
+    isThreeDEditingLocked: vm.isThreeDEditingLocked,
     selectedWall: vm.selectedFloorWall,
     selectedOpening: vm.selectedFloorOpening,
     selectedIfcElement: vm.selectedIfcElement,
@@ -126,6 +131,9 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
     onWidthChange: vm.handleWidthChange,
     onHeightChange: vm.handleHeightChange,
     onThicknessChange: vm.handleThicknessChange,
+    onPositionChange: vm.handlePositionChange,
+    onRotationChange: vm.handleRotationChange,
+    onRoofShapeChange: vm.handleRoofShapeChange,
     onWidthCommit: vm.handleWidthCommit,
     onHeightCommit: vm.handleHeightCommit,
     onRatioChange: vm.handleRatioChange,

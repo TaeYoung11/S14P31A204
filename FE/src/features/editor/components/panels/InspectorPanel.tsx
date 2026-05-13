@@ -90,10 +90,14 @@ function AttributeSection(props: AttributesSectionProps) {
     <ThreeDAttributePanel
       selectedBubble={props.selectedBubble}
       selectedIfcElement={props.selectedIfcElement}
+      isEditingLocked={props.isThreeDEditingLocked}
       onLabelChange={props.onLabelChange}
       onWidthChange={props.onWidthChange}
       onHeightChange={props.onHeightChange}
       onThicknessChange={props.onThicknessChange}
+      onPositionChange={props.onPositionChange}
+      onRotationChange={props.onRotationChange}
+      onRoofShapeChange={props.onRoofShapeChange}
       onColorChange={props.onColorChange}
       onMaterialChange={props.onMaterialChange}
     />

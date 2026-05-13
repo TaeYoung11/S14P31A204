@@ -6,6 +6,7 @@ interface TwoDSidebarToolsProps {
   selectedTool: string
   isGridVisible?: boolean
   hasDeletableSelection: boolean
+  isDeleteActionLocked?: boolean
   onToolSelect: (tool: string) => void
   onToggleGrid?: () => void
   onDeleteSelected?: () => void
@@ -31,6 +32,7 @@ export default function TwoDSidebarTools({
   selectedTool,
   isGridVisible,
   hasDeletableSelection,
+  isDeleteActionLocked = false,
   onToolSelect,
   onToggleGrid,
   onDeleteSelected,
@@ -40,6 +42,7 @@ export default function TwoDSidebarTools({
       <SidebarCoreTools
         selectedTool={selectedTool}
         hasDeletableSelection={hasDeletableSelection}
+        isDeleteDisabled={isDeleteActionLocked}
         onToolSelect={onToolSelect}
         showDeleteTool={false}
       />
@@ -57,6 +60,7 @@ export default function TwoDSidebarTools({
       <SidebarCoreTools
         selectedTool={selectedTool}
         hasDeletableSelection={hasDeletableSelection}
+        isDeleteDisabled={isDeleteActionLocked}
         onToolSelect={onToolSelect}
         onDeleteSelected={onDeleteSelected}
         showSelectionTool={false}

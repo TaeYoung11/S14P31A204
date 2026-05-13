@@ -40,6 +40,8 @@ type ModalLayerViewModel = Pick<
   | 'isIFCExportModalOpen'
   | 'onCloseIFCExportModal'
   | 'ifcElementChanges'
+  | 'currentIfcUrl'
+  | 'currentIfcAssetId'
 >
 
 /**
@@ -89,6 +91,8 @@ export function buildEditorModalLayerProps(vm: ModalLayerViewModel): EditorModal
     isIFCExportModalOpen: vm.isIFCExportModalOpen,
     onCloseIFCExportModal: vm.onCloseIFCExportModal,
     ifcElementChanges: vm.ifcElementChanges,
+    currentIfcUrl: vm.currentIfcUrl,
+    currentIfcAssetId: vm.currentIfcAssetId,
 
     isGenerate3DModalOpen: vm.isGenerate3DModalOpen,
     onCloseGenerate3DModal: vm.handleCloseGenerate3DModal,

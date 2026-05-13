@@ -6,6 +6,7 @@ interface ThreeDSidebarToolsProps {
   selectedTool: string
   isLibraryOpen?: boolean
   hasDeletableSelection: boolean
+  isDeleteActionLocked?: boolean
   onToolSelect: (tool: string) => void
   onToggleLibrary?: () => void
   onDeleteSelected?: () => void
@@ -19,6 +20,7 @@ export default function ThreeDSidebarTools({
   selectedTool,
   isLibraryOpen = false,
   hasDeletableSelection,
+  isDeleteActionLocked = false,
   onToolSelect,
   onToggleLibrary,
   onDeleteSelected,
@@ -29,6 +31,7 @@ export default function ThreeDSidebarTools({
       <SidebarCoreTools
         selectedTool={selectedTool}
         hasDeletableSelection={hasDeletableSelection}
+        isDeleteDisabled={isDeleteActionLocked}
         onToolSelect={onToolSelect}
         onDeleteSelected={onDeleteSelected}
       />

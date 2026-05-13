@@ -5,6 +5,10 @@ interface UseThreeDLibraryPresetsParams {
   onPresetAdded?: () => void
 }
 
+interface AddLibraryPresetOptions {
+  closePanel?: boolean
+}
+
 /**
  * 3D 라이브러리 프리셋 목록과 카테고리 선택 상태를 관리한다.
  * - ThreeDCanvas는 렌더링 조합만 담당하도록 이 훅에 상태 로직을 분리한다.
@@ -21,7 +25,7 @@ export function useThreeDLibraryPresets({ onPresetAdded }: UseThreeDLibraryPrese
    * id 충돌을 방지하기 위해 timestamp·인덱스를 suffix로 붙여 고유 id를 생성한다.
    */
   const addLibraryPreset = useCallback(
-    (preset: ThreeDLibraryPreset) => {
+    (preset: ThreeDLibraryPreset, options?: AddLibraryPresetOptions) => {
       setLibraryElements((prev) => [
         ...prev,
         {
@@ -29,7 +33,7 @@ export function useThreeDLibraryPresets({ onPresetAdded }: UseThreeDLibraryPrese
           id: `${preset.id}-${Date.now()}-${prev.length}`,
         },
       ])
-      onPresetAdded?.()
+      if (options?.closePanel ?? true) onPresetAdded?.()
     },
     [onPresetAdded],
   )
@@ -55,4 +59,3 @@ export function useThreeDLibraryPresets({ onPresetAdded }: UseThreeDLibraryPrese
     deleteLibraryElement,
   }
 }
-
