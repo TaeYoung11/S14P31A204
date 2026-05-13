@@ -13,14 +13,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, NotRequired, Protocol, TypedDict
 
+import numpy as np
 from PIL import Image
 
 from ai_common.logging import get_logger
 
 from .exceptions import IFCRenderError
+from .geometry import attach_ground_plane_to_mesh, load_mesh
 from .presets import list_presets, load_preset
-from .style import DEFAULT_CONTROLNET_SEG_ID, resolve_preset_view_render_options
-from .views import AutoZoomMode, IFCView
+from .style import (
+    DEFAULT_CONTROLNET_SEG_ID,
+    build_debug_control_images,
+    resolve_preset_view_render_options,
+)
+from .views import VIEW_CAMERAS, AutoZoomMode, IFCView
 
 PHOTO_MANIFEST_SCHEMA_VERSION = "ifc2img.photo.v1"
 IFC2IMG_WORKER_COMMAND_TYPE = "SD_RENDER_GENERATE"
@@ -28,6 +34,8 @@ IFC2IMG_WORKER_RENDER_MODE = "ifc2img"
 PHOTO_MANIFEST_CONTENT_TYPE = "application/json; charset=utf-8"
 PHOTO_PNG_CONTENT_TYPE = "image/png"
 DEFAULT_PHOTO_PRESET = "korean_house"
+DEBUG_DIR_NAME = "debug"
+DEBUG_MANIFEST_FILE = "debug_manifest.json"
 _logger = get_logger(__name__)
 
 
@@ -256,6 +264,15 @@ class Ifc2ImgPhotoJobResult:
     time_of_day: Ifc2ImgWorkerTimeOfDay = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY
 
 
+@dataclass(frozen=True)
+class Ifc2ImgDebugGeometry:
+    mesh: Any | None
+    center: np.ndarray | None
+    base_bounds: dict[str, object] | None
+    ground_z: float | None
+    error: str | None = None
+
+
 def resolve_photo_views() -> tuple[PhotoViewAlias, ...]:
     """service가 항상 생성하는 front-facing diagonal public view 2개를 반환한다."""
     return PUBLIC_PHOTO_VIEWS
@@ -434,6 +451,166 @@ def write_photo_manifest_file(
     return write_photo_manifest(path, manifest.to_dict())
 
 
+def _path_for_manifest(path: Path, root: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _mesh_bounds(mesh: Any) -> dict[str, object]:
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    if vertices.size == 0:
+        raise IFCRenderError("debug mesh has no vertices")
+    min_xyz = vertices.min(axis=0)
+    max_xyz = vertices.max(axis=0)
+    extent = max_xyz - min_xyz
+    center = (min_xyz + max_xyz) / 2
+    return {
+        "min": [float(value) for value in min_xyz],
+        "max": [float(value) for value in max_xyz],
+        "extent": [float(value) for value in extent],
+        "center": [float(value) for value in center],
+        "vertexCount": int(vertices.shape[0]),
+    }
+
+
+def _load_debug_geometry(ifc_path: Path) -> Ifc2ImgDebugGeometry:
+    try:
+        mesh, center = load_mesh(ifc_path)
+        bounds = _mesh_bounds(mesh)
+        min_xyz = bounds["min"]
+        if not isinstance(min_xyz, list):
+            raise IFCRenderError("debug mesh bounds are invalid")
+        return Ifc2ImgDebugGeometry(
+            mesh=mesh,
+            center=center,
+            base_bounds=bounds,
+            ground_z=float(min_xyz[2]),
+        )
+    except Exception as exc:
+        _logger.info(
+            "ifc2img_debug_geometry_failed",
+            ifcPath=str(ifc_path),
+            error=str(exc),
+        )
+        return Ifc2ImgDebugGeometry(
+            mesh=None,
+            center=None,
+            base_bounds=None,
+            ground_z=None,
+            error=str(exc),
+        )
+
+
+def _debug_grounded_mesh(base_mesh: Any, view: IFCView) -> Any:
+    ground_extent = build_front_diagonal_ground_extent_overrides(
+        PHOTO_DEPTH_RENDER_DEFAULTS.front_diagonal_ground_extent_factor,
+    ).get(view)
+    if ground_extent is None:
+        return attach_ground_plane_to_mesh(base_mesh)
+    return attach_ground_plane_to_mesh(base_mesh, extent_factor=ground_extent)
+
+
+def _camera_debug_payload(mesh: Any, center: np.ndarray, view: IFCView) -> dict[str, object]:
+    camera = VIEW_CAMERAS[view]
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    max_extent = float(np.max(vertices.max(axis=0) - vertices.min(axis=0)))
+    front = np.asarray(camera.front, dtype=np.float64)
+    front_norm = float(np.linalg.norm(front))
+    if front_norm == 0.0:
+        raise IFCRenderError("debug camera front vector is zero")
+    front = front / front_norm
+    zoom = float(np.clip(camera.zoom, 0.05, 2.0))
+    eye_distance = max(max_extent * 1.25 / zoom, 1.0)
+    eye = center - front * eye_distance
+    return {
+        "eye": [float(value) for value in eye],
+        "lookAt": [float(value) for value in center],
+        "up": [float(value) for value in camera.up],
+        "front": [float(value) for value in front],
+        "zoom": zoom,
+        "eyeDistance": float(eye_distance),
+    }
+
+
+def _depth_fill_ratio(depth: Image.Image) -> float:
+    arr = np.asarray(depth.convert("L"), dtype=np.uint8)
+    if arr.size == 0:
+        return 0.0
+    return float(np.count_nonzero(arr) / arr.size)
+
+
+def _build_debug_view_payload(
+    *,
+    geometry: Ifc2ImgDebugGeometry,
+    internal_view: IFCView,
+) -> dict[str, object]:
+    if geometry.mesh is None or geometry.center is None:
+        return {"meshError": geometry.error}
+    grounded = _debug_grounded_mesh(geometry.mesh, internal_view)
+    return {
+        "meshBounds": {
+            "base": geometry.base_bounds,
+            "withGround": _mesh_bounds(grounded),
+        },
+        "groundZ": geometry.ground_z,
+        "camera": _camera_debug_payload(grounded, geometry.center, internal_view),
+    }
+
+
+def _save_debug_artifacts(
+    *,
+    output_dir: Path,
+    debug_dir: Path,
+    preset: str,
+    public_view: PhotoViewAlias,
+    internal_view: IFCView,
+    depth: Image.Image,
+    photo: Image.Image,
+    geometry: Ifc2ImgDebugGeometry,
+) -> dict[str, object]:
+    debug_depth_path = debug_dir / f"depth_{public_view}.png"
+    debug_control_path = debug_dir / f"control_depth_{public_view}.png"
+    debug_photo_path = debug_dir / f"final_photo_{public_view}.png"
+
+    depth.save(debug_depth_path, format="PNG")
+    options = resolve_preset_view_render_options(preset, internal_view)
+    controls = build_debug_control_images(
+        depth,
+        view=internal_view,
+        **options.as_render_kwargs(),
+    )
+    controls["depthControl"].save(debug_control_path, format="PNG")
+    photo.save(debug_photo_path, format="PNG")
+
+    files: dict[str, str | None] = {
+        "depthImage": _path_for_manifest(debug_depth_path, output_dir),
+        "depthControlImage": _path_for_manifest(debug_control_path, output_dir),
+        "semanticControlImage": None,
+        "finalPhoto": _path_for_manifest(debug_photo_path, output_dir),
+    }
+    semantic = controls.get("semanticControl")
+    if semantic is not None:
+        semantic_path = debug_dir / f"semantic_control_{public_view}.png"
+        semantic.save(semantic_path, format="PNG")
+        files["semanticControlImage"] = _path_for_manifest(semantic_path, output_dir)
+
+    payload = _build_debug_view_payload(
+        geometry=geometry,
+        internal_view=internal_view,
+    )
+    payload.update(
+        {
+            "view": public_view,
+            "internalView": internal_view.value,
+            "actualFillRatio": _depth_fill_ratio(depth),
+            "files": files,
+        }
+    )
+    return payload
+
+
 def create_photo_ifc_renderer(
     renderer_cls: type[_IFCRendererProtocol] | None = None,
     *,
@@ -533,6 +710,16 @@ def run_ifc2img_photo_pipeline(
     public_views = resolve_photo_views()
     internal_views = list(PHOTO_INTERNAL_VIEWS)
     output_dir.mkdir(parents=True, exist_ok=True)
+    debug_dir = output_dir / DEBUG_DIR_NAME
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    debug_geometry = _load_debug_geometry(ifc_path)
+    debug_manifest: dict[str, object] = {
+        "schemaVersion": "ifc2img.debug.v1",
+        "sourceIfcPath": str(ifc_path),
+        "preset": preset,
+        "timeOfDay": worker_time_of_day,
+        "views": [],
+    }
 
     requires_semantic = any(
         resolve_preset_view_render_options(preset, view).requires_semantic_controlnet
@@ -594,6 +781,19 @@ def run_ifc2img_photo_pipeline(
         photo_path = output_dir / f"photo_{public_view}.png"
         result.save(photo_path)
         width, height = result.image.size
+        debug_view = _save_debug_artifacts(
+            output_dir=output_dir,
+            debug_dir=debug_dir,
+            preset=preset,
+            public_view=public_view,
+            internal_view=internal_view,
+            depth=depth,
+            photo=result.image,
+            geometry=debug_geometry,
+        )
+        debug_manifest_views = debug_manifest["views"]
+        if isinstance(debug_manifest_views, list):
+            debug_manifest_views.append(debug_view)
         _logger.info(
             "ifc2img_style_render_completed",
             view=public_view,
@@ -601,6 +801,7 @@ def run_ifc2img_photo_pipeline(
             photoPath=str(photo_path),
             width=width,
             height=height,
+            actualFillRatio=debug_view["actualFillRatio"],
         )
         outputs.append(
             Ifc2ImgPhotoViewResult(
@@ -614,6 +815,13 @@ def run_ifc2img_photo_pipeline(
         )
 
     output_tuple = tuple(outputs)
+    debug_manifest_path = debug_dir / DEBUG_MANIFEST_FILE
+    write_photo_manifest(debug_manifest_path, debug_manifest)
+    _logger.info(
+        "ifc2img_debug_manifest_write_completed",
+        debugManifestPath=str(debug_manifest_path),
+        viewCount=len(output_tuple),
+    )
     manifest_path = output_dir / "manifest.json"
     _logger.info(
         "ifc2img_manifest_write_started",
