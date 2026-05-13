@@ -1,9 +1,12 @@
 package com.a204.batang.domain.notification.service;
 
 import com.a204.batang.domain.notification.dto.ProjectInvitationNotificationListResponse;
+import com.a204.batang.domain.notification.dto.ProjectInvitationNotificationReadResponse;
 import com.a204.batang.domain.notification.entity.ProjectInvitationNotification;
 import com.a204.batang.domain.notification.repository.ProjectInvitationNotificationRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
+import com.a204.batang.global.exception.CustomException;
+import com.a204.batang.global.exception.ErrorCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -14,9 +17,11 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -130,6 +135,69 @@ class ProjectInvitationNotificationServiceTest {
                 projectInvitationNotificationService.getMyProjectInvitationNotifications(null);
 
         assertThat(response.notifications()).isEmpty();
+    }
+
+    @Test
+    void markProjectInvitationNotificationAsRead_marksUnreadNotificationAndReturnsResponse() {
+        UUID notificationId = unreadNotification.getNotificationId();
+
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(recipientUserId);
+        given(projectInvitationNotificationRepository.findByNotificationIdAndRecipientUserId(
+                notificationId,
+                recipientUserId
+        )).willReturn(Optional.of(unreadNotification));
+
+        ProjectInvitationNotificationReadResponse response =
+                projectInvitationNotificationService.markProjectInvitationNotificationAsRead(notificationId);
+
+        assertThat(unreadNotification.isRead()).isTrue();
+        assertThat(unreadNotification.getReadAt()).isNotNull();
+        assertThat(response.notificationId()).isEqualTo(notificationId);
+        assertThat(response.isRead()).isTrue();
+        assertThat(response.readAt()).isEqualTo(unreadNotification.getReadAt());
+
+        verify(projectInvitationNotificationRepository)
+                .findByNotificationIdAndRecipientUserId(notificationId, recipientUserId);
+    }
+
+    @Test
+    void markProjectInvitationNotificationAsRead_keepsExistingReadAt_whenNotificationIsAlreadyRead() {
+        UUID notificationId = readNotification.getNotificationId();
+        LocalDateTime originalReadAt = readNotification.getReadAt();
+
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(recipientUserId);
+        given(projectInvitationNotificationRepository.findByNotificationIdAndRecipientUserId(
+                notificationId,
+                recipientUserId
+        )).willReturn(Optional.of(readNotification));
+
+        ProjectInvitationNotificationReadResponse response =
+                projectInvitationNotificationService.markProjectInvitationNotificationAsRead(notificationId);
+
+        assertThat(readNotification.isRead()).isTrue();
+        assertThat(readNotification.getReadAt()).isEqualTo(originalReadAt);
+        assertThat(response.notificationId()).isEqualTo(notificationId);
+        assertThat(response.isRead()).isTrue();
+        assertThat(response.readAt()).isEqualTo(originalReadAt);
+    }
+
+    @Test
+    void markProjectInvitationNotificationAsRead_throwsNotFound_whenNotificationDoesNotExistOrBelongsToOtherUser() {
+        UUID notificationId = UUID.randomUUID();
+
+        given(projectAccessService.resolveCurrentUserIdOrThrow()).willReturn(recipientUserId);
+        given(projectInvitationNotificationRepository.findByNotificationIdAndRecipientUserId(
+                notificationId,
+                recipientUserId
+        )).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> projectInvitationNotificationService.markProjectInvitationNotificationAsRead(notificationId))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INVITATION_NOTIFICATION_NOT_FOUND);
+
+        verify(projectInvitationNotificationRepository)
+                .findByNotificationIdAndRecipientUserId(notificationId, recipientUserId);
     }
 
     private ProjectInvitationNotification createNotification(
