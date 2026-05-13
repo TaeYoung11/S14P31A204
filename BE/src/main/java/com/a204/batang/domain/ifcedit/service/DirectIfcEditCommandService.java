@@ -15,6 +15,7 @@ import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.revision.entity.Revision;
 import com.a204.batang.domain.revision.repository.RevisionRepository;
+import com.a204.batang.domain.workspace.dto.WorkspaceCommand;
 import com.a204.batang.global.config.RabbitMqConfig;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
@@ -109,15 +110,17 @@ public class DirectIfcEditCommandService {
         inputMap.put("revisionNo", nextRevisionNo);
         JsonNode inputPayload = objectMapper.valueToTree(inputMap);
 
+        JsonNode resolvedEngineRequestPayload = resolveEngineRequestPayload(request.engineRequest());
+
         Map<String, Object> jobPayloadMap = new LinkedHashMap<>();
-        jobPayloadMap.put("engineRequest", request.engineRequest());
+        jobPayloadMap.put("engineRequest", resolvedEngineRequestPayload);
         if (sourceScenePayload != null && !sourceScenePayload.isNull()) {
             jobPayloadMap.put("sourceScenePayload", sourceScenePayload);
         }
         JsonNode requestPayload = objectMapper.valueToTree(jobPayloadMap);
 
         Map<String, Object> workerPayloadMap = new LinkedHashMap<>();
-        workerPayloadMap.put("engineRequest", request.engineRequest());
+        workerPayloadMap.put("engineRequest", resolvedEngineRequestPayload);
         JsonNode workerPayload = objectMapper.valueToTree(workerPayloadMap);
 
         LocalDateTime now = LocalDateTime.now();
@@ -171,5 +174,19 @@ public class DirectIfcEditCommandService {
                 projectId, jobId, jobStepId, targetRevisionId, expectedOutputArtifactId,
                 JOB_TYPE_IFC_EDIT, "QUEUED", 0
         );
+    }
+
+    private JsonNode resolveEngineRequestPayload(WorkspaceCommand engineRequest) {
+        if (engineRequest == null) {
+            return null;
+        }
+
+        if ("ifcBatch".equals(engineRequest.entity())
+                && engineRequest.data() != null
+                && engineRequest.data().isObject()) {
+            return engineRequest.data();
+        }
+
+        return objectMapper.valueToTree(engineRequest);
     }
 }
