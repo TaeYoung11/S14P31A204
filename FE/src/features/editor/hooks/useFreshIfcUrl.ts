@@ -58,6 +58,6 @@ export function useFreshIfcUrl(
   }, [assetId, fallbackUrl])
 
   if (!assetId) return fallbackUrl
-  if (!resolvedByAsset || resolvedByAsset.assetId !== assetId) return null
+  if (!resolvedByAsset || resolvedByAsset.assetId !== assetId) return fallbackUrl
   return resolvedByAsset.url
 }

@@ -8,7 +8,7 @@ import { resolveTransformMode, shouldRenderLocalFloorPlan } from './threeDCanvas
 
 interface ThreeDCanvasSceneProps {
   projectId?: string | null
-  ifcUrl: string
+  ifcUrl?: string | null
   rawIfcUrl?: string | null
   localFloorData?: FloorPlan3DData | null
   libraryElements: ThreeDLibraryPreset[]
@@ -61,6 +61,15 @@ export default function ThreeDCanvasScene({
 }: ThreeDCanvasSceneProps) {
   const transformMode = resolveTransformMode(selectedTool)
 
+  if (import.meta.env.DEV) {
+    console.log('[3d-scene-route]', {
+      ifcUrl,
+      rawIfcUrl,
+      hasLocalFloorData: Boolean(localFloorData),
+      renderLocalFloorPlan: shouldRenderLocalFloorPlan(rawIfcUrl, localFloorData),
+    })
+  }
+
   // IFC URL이 아직 없고 로컬 평면도 데이터가 있으면 3D 폴백 씬을 우선 렌더링한다.
   if (shouldRenderLocalFloorPlan(rawIfcUrl, localFloorData) && localFloorData) {
     return (
@@ -83,6 +92,13 @@ export default function ThreeDCanvasScene({
         isEditingLocked={isEditingLocked}
       />
     )
+  }
+
+  if (!ifcUrl) {
+    if (import.meta.env.DEV) {
+      console.warn('[3d-scene-route] skip ThatOpen render: missing ifcUrl')
+    }
+    return null
   }
 
   return (

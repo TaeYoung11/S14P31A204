@@ -228,12 +228,16 @@ export function useBubbleSnapshotRealtime({
       if (action && IFC_COMPLETED_ACTION_SET.has(action)) {
         const ifcStorageUrl = extractIfcStorageUrl(parsed)
         const assetId = extractIfcAssetId(parsed)
+        const revisionId = extractRevisionId(parsed)
         const dedupRaw = assetId ?? ifcStorageUrl
         if (dedupRaw) {
           const dedupKey = `${action}:${dedupRaw}`
           const now = Date.now()
           const previous = recentIfcEventRef.current.get(dedupKey)
           if (typeof previous === 'number' && now - previous < IFC_EVENT_DEDUP_TTL_MS) {
+            if (revisionId) {
+              ifcStorageUrlHandlerRef.current?.(ifcStorageUrl ?? '', action, assetId, revisionId)
+            }
             return
           }
           recentIfcEventRef.current.set(dedupKey, now)
@@ -246,7 +250,9 @@ export function useBubbleSnapshotRealtime({
           if (IFC_URL_DEBUG && typeof window !== 'undefined') {
             window.localStorage.setItem('ifc-last-ws-url', ifcStorageUrl ?? '')
           }
-          ifcStorageUrlHandlerRef.current?.(ifcStorageUrl ?? '', action, assetId, extractRevisionId(parsed))
+          ifcStorageUrlHandlerRef.current?.(ifcStorageUrl ?? '', action, assetId, revisionId)
+        } else if (revisionId) {
+          ifcStorageUrlHandlerRef.current?.('', action, null, revisionId)
         }
       }
 
@@ -254,6 +260,12 @@ export function useBubbleSnapshotRealtime({
         return
       }
 
+      const shouldSkipFloorPlanSnapshotForIfcUpdate =
+        (
+          action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
+          action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
+          action === WORKSPACE_SYNC_ACTION.floorPlanRedo
+        ) && extractIfcStorageUrl(parsed) !== null
       const floorPlanSnapshot = extractFloorPlanSnapshot(parsed)
       const isFloorPlanSnapshotUpdate =
         action === WORKSPACE_SYNC_ACTION.floorPlanUpdated && floorPlanSnapshot !== null
@@ -272,7 +284,7 @@ export function useBubbleSnapshotRealtime({
         syncFloorPlanHistoryCursor(action, extractFloorPlanBaseIndex(parsed))
       }
 
-      if (shouldApplyFloorPlanHistoryEvent) {
+      if (shouldApplyFloorPlanHistoryEvent && !shouldSkipFloorPlanSnapshotForIfcUpdate) {
         if (floorPlanSnapshot) {
           applyFloorPlanSnapshot(floorPlanSnapshot)
         }

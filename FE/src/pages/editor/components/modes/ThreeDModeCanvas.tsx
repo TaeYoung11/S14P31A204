@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { lazy, useEffect } from 'react'
 import { useFreshIfcUrl } from '@/features/editor/hooks/useFreshIfcUrl'
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
 import type { ThreeDCameraViewPresetCommand, ThreeDCoordinates } from '../canvas-content/buildCanvasSectionProps'
@@ -35,8 +35,17 @@ export default function ThreeDModeCanvas({
   // assetId가 없거나 재발급 실패 시 mock IFC로 폴백
   const freshIfcUrl = useFreshIfcUrl(
     editorProps.currentIfcAssetId,
-    editorProps.currentIfcUrl ?? '/mock/shinchan_house.ifc',
+    editorProps.currentIfcUrl,
   )
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    console.log('[3d-ifc-url]', {
+      currentIfcUrl: editorProps.currentIfcUrl,
+      currentIfcAssetId: editorProps.currentIfcAssetId,
+      freshIfcUrl,
+    })
+  }, [editorProps.currentIfcAssetId, editorProps.currentIfcUrl, freshIfcUrl])
 
   return (
     <ThreeDCanvas

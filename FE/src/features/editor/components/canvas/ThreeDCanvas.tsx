@@ -17,7 +17,6 @@ import ThreeDCanvasGridOverlay from './ThreeDCanvasGridOverlay'
 import ThreeDCanvasScene from './ThreeDCanvasScene'
 import ThreeDLibraryPanel from './ThreeDLibraryPanel'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
-import { DEFAULT_MOCK_IFC_URL } from './threeDCanvas.utils'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import { useThreeDLibraryDrop } from './useThreeDLibraryDrop'
 
@@ -63,8 +62,6 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
   const isEditingLocked = props.isEditingLocked ?? false
 
   // ifcUrl이 null(로딩 중 또는 IFC 없음)이어도 mock으로 폴백해 씬을 항상 표시한다
-  const effectiveIfcUrl = props.ifcUrl ?? DEFAULT_MOCK_IFC_URL
-
   // 라이브러리 프리셋 상태 관리 (카테고리 선택, 씬 내 배치 목록, CRUD)
   // onPresetAdded: 프리셋 추가 직후 라이브러리 패널을 닫는다
   const {
@@ -102,7 +99,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
     >
       <ThreeDCanvasScene
         projectId={props.projectId}
-        ifcUrl={effectiveIfcUrl}
+        ifcUrl={props.ifcUrl}
         rawIfcUrl={props.ifcUrl}
         localFloorData={props.localFloorData}
         libraryElements={libraryElements}
