@@ -32,6 +32,8 @@ DEFAULT_LLM_MODEL = "qwen2.5:7b"
 DEFAULT_LLM_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_LLM_API_KEY = "ollama"
 DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
+DEFAULT_RAW_JSON_FALLBACK_ENABLED = True
+DEFAULT_RAW_JSON_FALLBACK_TIMEOUT_SECONDS = 10.0
 
 
 def _env_float(name: str, default: float) -> float:
@@ -44,6 +46,19 @@ def _env_float(name: str, default: float) -> float:
         logger.warning("invalid_float_env env=%s value=%r default=%s", name, value, default)
         return default
     return parsed if parsed > 0 else default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    logger.warning("invalid_bool_env env=%s value=%r default=%s", name, value, default)
+    return default
 
 
 SYSTEM_PROMPT = (
@@ -128,6 +143,14 @@ class LLM3DEngine:
             "LLM_TIMEOUT_SECONDS",
             DEFAULT_LLM_TIMEOUT_SECONDS,
         )
+        self.raw_json_fallback_enabled = _env_bool(
+            "LLM_RAW_JSON_FALLBACK_ENABLED",
+            DEFAULT_RAW_JSON_FALLBACK_ENABLED,
+        )
+        self.raw_json_fallback_timeout = _env_float(
+            "LLM_RAW_JSON_FALLBACK_TIMEOUT_SECONDS",
+            DEFAULT_RAW_JSON_FALLBACK_TIMEOUT_SECONDS,
+        )
         self._raw_client = AsyncOpenAI(
             base_url=resolved_base_url,
             api_key=resolved_api_key,
@@ -157,9 +180,10 @@ class LLM3DEngine:
             )
             return self._repair_or_replace(user_text, command)
         except InstructorRetryException:
-            raw_command = await self._parse_command_raw_json(user_text, system_content)
-            if raw_command is not None:
-                return raw_command
+            if self.raw_json_fallback_enabled:
+                raw_command = await self._parse_command_raw_json(user_text, system_content)
+                if raw_command is not None:
+                    return raw_command
             logger.warning(f"[LLM3DEngine] 파싱 실패 → 재질문 응답으로 대체: {user_text!r}")
             return self.parse_command_heuristic(user_text)
         except Exception as exc:
@@ -188,6 +212,7 @@ class LLM3DEngine:
                 ],
                 temperature=0.0,
                 top_p=0.1,
+                timeout=self.raw_json_fallback_timeout,
             )
             content = response.choices[0].message.content or ""
             command = LLM3DCommand.model_validate(self._json_object_from_text(content))
@@ -277,6 +302,11 @@ class LLM3DEngine:
             return command
 
         if command.command_type == LLM3DCommandType.MODIFY:
+            if self._has_multiple_target_value_pairs(user_text):
+                return self._ambiguous(
+                    user_text,
+                    "여러 대상과 여러 값이 포함되어 있어 한 번에 처리할 수 없습니다.",
+                )
             if command.changes is None:
                 return self._heuristic_parse(user_text)
             if not self._has_explicit_target_reference(user_text, command.target):
@@ -310,6 +340,20 @@ class LLM3DEngine:
 
         if target is not None and (target.global_id or target.name):
             return True
+        if target is not None and LLM3DEngine._has_contextual_target_reference(text):
+            has_context_selector = any(
+                (
+                    target.global_id,
+                    target.name,
+                    target.storey,
+                    target.space_name,
+                    target.direction,
+                    target.tag,
+                    target.element_type != LLM3DElementType.WALL,
+                )
+            )
+            if has_context_selector:
+                return True
         if re.search(r"[0-9A-Za-z_$]{22}", text):
             return True
         lower_text = text.lower()
@@ -342,6 +386,77 @@ class LLM3DEngine:
         return any(target_name in lower_text for target_name in english_targets) or any(
             re.search(pattern, text) is not None for pattern in korean_target_patterns
         )
+
+    @staticmethod
+    def _has_contextual_target_reference(text: str) -> bool:
+        import re
+
+        contextual_patterns = (
+            "\uc774\uac70",
+            "\uc774\uac83",
+            "\uc774 \uac1d\uccb4",
+            "\ud574\ub2f9 \uac1d\uccb4",
+            "\uc120\ud0dd\ud55c",
+            "\uc120\ud0dd\ub41c",
+            "selected",
+            "this",
+        )
+        return any(re.search(pattern, text, re.IGNORECASE) for pattern in contextual_patterns)
+
+    @staticmethod
+    def _has_multiple_target_value_pairs(text: str) -> bool:
+        import re
+
+        target_patterns_by_type = (
+            ("\ubcbd\uccb4?|\\bwall\\b", re.IGNORECASE),
+            ("\uc9c0\ubd95|\uc625\uc0c1|\\broof\\b", re.IGNORECASE),
+            (
+                "(?:\ud604\uad00\ubb38|\ucd9c\uc785\ubb38|\ubc29\ubb38|\ubb38)"
+                "(?=$|[\\s,.;:!?]|[\uc740\ub294\uc744\ub97c\uc774\uac00\uc758\uc5d0"
+                "\uacfc\uc640\ub3c4\ub4e4])|\\bdoor\\b",
+                re.IGNORECASE,
+            ),
+            ("\ucc3d\ubb38|\uc708\ub3c4\uc6b0|\\bwindow\\b", re.IGNORECASE),
+            (
+                "\ubc14\ub2e5|\ub300\uc9c0|\uc2ac[\ub798\ub77c]\ube0c|"
+                "\\b(?:floor|slab|site)\\b",
+                re.IGNORECASE,
+            ),
+            ("\uae30\ub465|\\bcolumn\\b", re.IGNORECASE),
+            (
+                "\ubcf4(?=$|[\\s,.;:!?]|[\uc740\ub294\uc744\ub97c\uc774\uac00\uc758"
+                "\uc5d0\uacfc\uc640\ub3c4\ub4e4])|\\bbeam\\b",
+                re.IGNORECASE,
+            ),
+            ("\uacc4\ub2e8|\\bstair\\b", re.IGNORECASE),
+        )
+        target_count = sum(
+            1 for pattern, flags in target_patterns_by_type if re.search(pattern, text, flags)
+        )
+        if target_count < 2:
+            return False
+
+        hex_values = set(re.findall(r"#[0-9A-Fa-f]{6}", text))
+        color_patterns = (
+            "\ube68\uac04\uc0c9?",
+            "\ud30c\ub780\uc0c9?",
+            "\ucd08\ub85d\uc0c9?",
+            "\ub179\uc0c9",
+            "\ud558\uc580\uc0c9?",
+            "\ud770\uc0c9?",
+            "\uac80\uc815\uc0c9?",
+            "\ub178\ub780\uc0c9?",
+            "\ubd84\ud64d\uc0c9?",
+            "\uac08\uc0c9",
+            "\ud68c\uc0c9",
+            "\ube68\uac15",
+            "\ud30c\ub791",
+            "\ucd08\ub85d",
+        )
+        named_color_count = sum(
+            1 for pattern in color_patterns if re.search(pattern, text, re.IGNORECASE)
+        )
+        return len(hex_values) + named_color_count >= 2
 
     def _heuristic_parse(self, text: str) -> LLM3DCommand:
         invalid_material = self._invalid_material(text)
