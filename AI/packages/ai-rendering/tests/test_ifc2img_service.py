@@ -244,9 +244,10 @@ def test_run_ifc2img_photo_pipeline_passes_time_of_day_to_preset(
     )
 
     params = FakeDepthStyleRenderer.instances[0].render_calls[0]["params"]
-    assert "night exterior photo" in params.prompt
+    assert "night exterior" in params.prompt
     assert "dark sky" in params.prompt
-    assert "warm interior window lights" in params.prompt
+    assert "warm window lights" in params.prompt
+    assert "soft exterior lights" in params.prompt
     assert "outdoor daylight" not in params.prompt
 
 
