@@ -18,7 +18,6 @@ export interface CanvasModeRendererSectionProps {
   zoom: EditorCanvasRenderProps['zoom']
   canvasZoom: EditorCanvasRenderProps['canvasZoom']
   renderProps: EditorCanvasRenderProps
-  onOpenExport: EditorCanvasRenderProps['handleOpenExportSelectionModal']
   isRotationLocked: boolean
   onThreeDCoordinatesChange: (coords: ThreeDCoordinates) => void
   cameraViewPresetCommand: ThreeDCameraViewPresetCommand
@@ -96,7 +95,6 @@ export function buildCanvasModeRendererSectionProps(
     zoom: renderProps.zoom,
     canvasZoom: renderProps.canvasZoom,
     renderProps,
-    onOpenExport: renderProps.handleOpenExportSelectionModal,
     isRotationLocked,
     onThreeDCoordinatesChange,
     cameraViewPresetCommand,

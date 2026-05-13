@@ -371,7 +371,7 @@ export function useEditorPage() {
     action: string | null,
     assetId?: string | null,
     revisionId?: string | null,
-  ) => void>(() => {})
+  ) => void>(() => { })
   const isFloorPlanGenerating = isFloorPlanGeneratingLocal || workspacePhaseStatus === 'CONVERTING'
 
   /**
@@ -641,14 +641,14 @@ export function useEditorPage() {
     snapshot.phaseStatus === 'BUBBLE_DRAFT'
       ? bubbleHistoryBaseIndexRef.current
       : floorPlanHistoryBaseIndexRef.current
-  , [])
+    , [])
   const resolveServerHistoryDomain = useCallback((snapshot: WorkspaceSnapshot): AwaitingServerSyncRecord['historyDomain'] =>
     snapshot.phaseStatus === 'BUBBLE_DRAFT' &&
-    !snapshot.isFloorPlanGenerated &&
-    snapshot.floorPlanLayoutSource === null
+      !snapshot.isFloorPlanGenerated &&
+      snapshot.floorPlanLayoutSource === null
       ? 'bubble'
       : 'floorPlan'
-  , [])
+    , [])
   const applyWorkspaceHistorySiteInfo = useCallback((siteInfo: WorkspaceHistorySnapshotResponse['siteInfo']) => {
     const polygonRing = extractOuterRingFromCoordinates(siteInfo?.polygon?.coordinates)
     const areaM2 =
@@ -668,7 +668,7 @@ export function useEditorPage() {
   }, [])
   const resolveFloorPlanSceneType = useCallback((): FloorPlanSceneType =>
     mode === '3d' ? 'THREE_D' : 'TWO_D'
-  , [mode])
+    , [mode])
   const authUser = useAuthStore((state) => state.user)
   const currentProject = useProjectStore((state) => state.currentProject)
   const {
@@ -1424,20 +1424,20 @@ export function useEditorPage() {
     const shouldPublishBubbleDraft = mode === 'bubble' && workspacePhaseStatus === 'BUBBLE_DRAFT'
     const publishSnapshot: WorkspaceSnapshot = shouldPublishBubbleDraft
       ? {
-          ...draftSnapshot,
-          phaseStatus: 'BUBBLE_DRAFT',
-          zones: [],
-          floorLayers: [],
-          activeFloorLayerId: null,
-          isFloorPlanGenerated: false,
-          floorPlanLayoutSource: null,
-          floorWalls: [],
-          floorOpenings: [],
-          hiddenAutoWallIds: [],
-          hiddenAutoOpeningIds: [],
-          isProjectStructurePreferred: false,
-          ifcElementChanges: [],
-        }
+        ...draftSnapshot,
+        phaseStatus: 'BUBBLE_DRAFT',
+        zones: [],
+        floorLayers: [],
+        activeFloorLayerId: null,
+        isFloorPlanGenerated: false,
+        floorPlanLayoutSource: null,
+        floorWalls: [],
+        floorOpenings: [],
+        hiddenAutoWallIds: [],
+        hiddenAutoOpeningIds: [],
+        isProjectStructurePreferred: false,
+        ifcElementChanges: [],
+      }
       : draftSnapshot
     const serializedSnapshot = JSON.stringify(publishSnapshot)
 
@@ -1515,12 +1515,12 @@ export function useEditorPage() {
     }
 
     void workspaceRealtimeService.publishSnapshot({
-        projectId,
-        snapshot: publishSnapshot,
-        baseIndex: serverPublishRecord.baseIndex,
-        revisionId: serverPublishRecord.revisionId,
-        sceneType: serverPublishRecord.sceneType,
-      })
+      projectId,
+      snapshot: publishSnapshot,
+      baseIndex: serverPublishRecord.baseIndex,
+      revisionId: serverPublishRecord.revisionId,
+      sceneType: serverPublishRecord.sceneType,
+    })
       .then(() => {
         // baseline은 매칭되는 서버 history ack를 받은 뒤에만 갱신한다.
       })

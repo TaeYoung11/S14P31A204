@@ -12,7 +12,6 @@ export default function CanvasModeRenderer({
   mode,
   canvasZoom,
   renderProps,
-  onOpenExport,
   isRotationLocked,
   onThreeDCoordinatesChange,
   cameraViewPresetCommand,
@@ -40,7 +39,7 @@ export default function CanvasModeRenderer({
   }
 
   if (mode === 'view') {
-    return <ViewModeCanvas onExport={onOpenExport} />
+    return <ViewModeCanvas projectId={renderProps.projectId} />
   }
 
   return (
