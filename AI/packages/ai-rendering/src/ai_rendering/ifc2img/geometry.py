@@ -22,6 +22,12 @@ prompt 편향으로 *추가 층/지하* 환각을 만든다. ground plane을 mes
 되면서도 등각 시점 framing을 망가뜨리지 않는 균형점.
 """
 
+GROUND_BASE_Z_PERCENTILE = 5.0
+"""Robust lower percentile used to ignore sparse below-building outliers."""
+
+GROUND_BASE_MIN_VERTEX_COUNT_FOR_ROBUST_Z = 20
+"""Small synthetic meshes keep exact min-z behavior for predictable tests."""
+
 
 WALL_NORMAL_VERTICAL_TOLERANCE = 0.1
 """수직 면(벽) 필터 임계값 — |face_normal_z| < 이 값이면 벽으로 분류.
@@ -203,7 +209,7 @@ def _add_ground_plane(
         return vertices, triangles
     aabb_min = vertices.min(axis=0)
     aabb_max = vertices.max(axis=0)
-    z_ground = float(aabb_min[2])
+    z_ground = _estimate_ground_z(vertices)
     cx = float((aabb_min[0] + aabb_max[0]) / 2)
     cy = float((aabb_min[1] + aabb_max[1]) / 2)
     half_x = float((aabb_max[0] - aabb_min[0]) / 2 * extent_factor)
@@ -230,6 +236,14 @@ def _add_ground_plane(
     new_vertices = np.vstack([vertices, ground_verts])
     new_triangles = np.vstack([triangles, ground_tris])
     return new_vertices, new_triangles
+
+
+def _estimate_ground_z(vertices: np.ndarray) -> float:
+    """Estimate the building base z while ignoring sparse lower outliers."""
+    if len(vertices) < GROUND_BASE_MIN_VERTEX_COUNT_FOR_ROBUST_Z:
+        return float(vertices[:, 2].min())
+    z_values = np.asarray(vertices[:, 2], dtype=np.float64)
+    return float(np.percentile(z_values, GROUND_BASE_Z_PERCENTILE))
 
 
 def _align_walls_to_axes(

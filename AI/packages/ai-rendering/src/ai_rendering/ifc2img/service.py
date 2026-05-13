@@ -19,7 +19,7 @@ from PIL import Image
 from ai_common.logging import get_logger
 
 from .exceptions import IFCRenderError
-from .geometry import attach_ground_plane_to_mesh, load_mesh
+from .geometry import _estimate_ground_z, attach_ground_plane_to_mesh, load_mesh
 from .presets import list_presets, load_preset
 from .style import (
     DEFAULT_CONTROLNET_SEG_ID,
@@ -479,14 +479,11 @@ def _load_debug_geometry(ifc_path: Path) -> Ifc2ImgDebugGeometry:
     try:
         mesh, center = load_mesh(ifc_path)
         bounds = _mesh_bounds(mesh)
-        min_xyz = bounds["min"]
-        if not isinstance(min_xyz, list):
-            raise IFCRenderError("debug mesh bounds are invalid")
         return Ifc2ImgDebugGeometry(
             mesh=mesh,
             center=center,
             base_bounds=bounds,
-            ground_z=float(min_xyz[2]),
+            ground_z=_estimate_ground_z(np.asarray(mesh.vertices, dtype=np.float64)),
         )
     except Exception as exc:
         _logger.info(
