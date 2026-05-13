@@ -74,13 +74,22 @@ def test_load_preset_day_appends_day_suffix() -> None:
     p = load_preset("scandinavian", "day")
     assert "during sunny daytime" in p.prompt
     assert "natural sunlight" in p.prompt
+    assert "blue sky" in p.prompt
+    assert "realistic soft shadows" in p.prompt
 
 
 def test_load_preset_night_appends_night_suffix() -> None:
     """night variant가 기본 preset 정체성은 유지하면서 야간 cue만 추가하는지 확인한다."""
     p = load_preset("korean_villa", "night")
-    assert "at night" in p.prompt
-    assert "warm interior lights" in p.prompt
+    assert "night exterior photo" in p.prompt
+    assert "dark sky" in p.prompt
+    assert "warm interior window lights" in p.prompt
+    assert "subtle exterior lighting" in p.prompt
+    assert "no overexposure" in p.prompt
+    assert "outdoor daylight" not in p.prompt
+    assert "daytime" in p.negative_prompt
+    assert "blue sky" in p.negative_prompt
+    assert "overexposed lights" in p.negative_prompt
     assert "minimal Korean house" in p.prompt
 
 
