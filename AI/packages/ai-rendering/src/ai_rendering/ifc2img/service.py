@@ -11,13 +11,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, NotRequired, Protocol, TypedDict
+from typing import Any, Literal, NotRequired, Protocol, TypedDict, cast
 
 import numpy as np
 from PIL import Image
 
 from ai_common.logging import get_logger
 
+from .element_masks import render_ifc_element_masks
 from .exceptions import IFCRenderError
 from .geometry import (
     _estimate_ground_z,
@@ -617,8 +618,50 @@ def _build_debug_view_payload(
     }
 
 
+def _save_debug_element_masks(
+    *,
+    ifc_path: Path,
+    output_dir: Path,
+    debug_dir: Path,
+    public_view: PhotoViewAlias,
+    camera: dict[str, object],
+    width: int,
+    height: int,
+) -> dict[str, str]:
+    try:
+        result = render_ifc_element_masks(
+            ifc_path,
+            eye=cast(list[float], camera["eye"]),
+            look_at=cast(list[float], camera["lookAt"]),
+            up=cast(list[float], camera["up"]),
+            width=width,
+            height=height,
+        )
+    except Exception as exc:
+        _logger.info(
+            "ifc2img_debug_element_masks_failed",
+            ifcPath=str(ifc_path),
+            view=public_view,
+            error=str(exc),
+        )
+        return {}
+
+    paths: dict[str, str] = {}
+    for category, image in result.masks.items():
+        category_name = category.lower()
+        path = debug_dir / f"element_{category_name}_{public_view}.png"
+        image.save(path, format="PNG")
+        paths[category_name] = _path_for_manifest(path, output_dir)
+
+    composite_path = debug_dir / f"element_composite_{public_view}.png"
+    result.composite.save(composite_path, format="PNG")
+    paths["composite"] = _path_for_manifest(composite_path, output_dir)
+    return paths
+
+
 def _save_debug_artifacts(
     *,
+    ifc_path: Path,
     output_dir: Path,
     debug_dir: Path,
     preset: str,
@@ -658,6 +701,19 @@ def _save_debug_artifacts(
         geometry=geometry,
         internal_view=internal_view,
     )
+    camera = payload.get("camera")
+    if isinstance(camera, dict):
+        element_masks = _save_debug_element_masks(
+            ifc_path=ifc_path,
+            output_dir=output_dir,
+            debug_dir=debug_dir,
+            public_view=public_view,
+            camera=camera,
+            width=depth.width,
+            height=depth.height,
+        )
+        if element_masks:
+            files["elementMasks"] = element_masks
     payload.update(
         {
             "view": public_view,
@@ -843,6 +899,7 @@ def run_ifc2img_photo_pipeline(
         result.save(photo_path)
         width, height = result.image.size
         debug_view = _save_debug_artifacts(
+            ifc_path=ifc_path,
             output_dir=output_dir,
             debug_dir=debug_dir,
             preset=preset,
