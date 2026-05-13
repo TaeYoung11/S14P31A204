@@ -1,12 +1,16 @@
+"""검증된 2D 계획 명령을 공용 엔진 요청 payload 형태로 변환한다."""
+
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, Literal, TypedDict
 
 from ai_domain import EngineRequestInlineRef, IfcEditCommandPayload
 from ai_domain.worker_messages.payloads_ifc_edit import EngineOperationInlineRef
 
 from .add_room_placement import suggest_add_room_start_mm
-from .command import CommandBatch, FloorNLPCommand, IFCContext
+from .schemas.command import CommandBatch, FloorNLPCommand
+from .schemas.ifc_context import IFCContext
 from .remove_healing import build_remove_merge_plan
 from .resize_healing import build_isolated_rectangular_resize_wall_plans
 from .space_healing import build_isolated_resize_space_plan
@@ -14,6 +18,31 @@ from .space_healing import build_isolated_resize_space_plan
 _SPACE_PSET_NAME = "Batang_SpaceDimensions"
 _ROOM_PLANNING_ACTIONS = {"add_room", "remove_room", "resize_room"}
 _PLANNING_ASSIST_ONLY_SHARED_ACTIONS = {"create_wall"}
+ResizeDirection = Literal["north", "south", "east", "west"]
+
+
+class TranslationMm(TypedDict):
+    x: float
+    y: float
+    z: float
+
+
+class DimensionsMm(TypedDict):
+    width: int
+    height: int
+
+
+class ResizeState(TypedDict):
+    target_space_id: str
+    direction: ResizeDirection
+    target_dimensions_mm: DimensionsMm
+    target_anchor_translate_mm: TranslationMm
+    boundary_translate_mm: TranslationMm
+    affected_space_anchor_translate_mm: TranslationMm
+    affected_space_id: str | None
+    affected_space_dimensions_mm: DimensionsMm | None
+    affected_wall_ids: list[str]
+    affected_opening_ids: list[str]
 
 
 def build_engine_request(
@@ -23,7 +52,7 @@ def build_engine_request(
     project_id: str,
     command: FloorNLPCommand,
     command_batch: CommandBatch,
-    policy_plan: dict[str, Any] | None,
+    policy_plan: Mapping[str, Any] | None,
     ifc_context: IFCContext | None,
     base_revision_id: str | None = None,
 ) -> EngineRequestInlineRef:
@@ -52,7 +81,7 @@ def build_ifc_edit_payload(
     project_id: str,
     command: FloorNLPCommand,
     command_batch: CommandBatch,
-    policy_plan: dict[str, Any] | None,
+    policy_plan: Mapping[str, Any] | None,
     ifc_context: IFCContext | None,
     base_revision_id: str | None = None,
 ) -> IfcEditCommandPayload:
@@ -74,7 +103,7 @@ def _build_operations(
     *,
     command: FloorNLPCommand,
     command_batch: CommandBatch,
-    policy_plan: dict[str, Any] | None,
+    policy_plan: Mapping[str, Any] | None,
     ifc_context: IFCContext | None,
 ) -> list[EngineOperationInlineRef]:
     if command.action in _ROOM_PLANNING_ACTIONS:
@@ -129,8 +158,8 @@ def _build_create_door_operations(
                     "z": float(location[2]) if len(location) > 2 else 0.0,
                 },
                 "dimensions_mm": {
-                    "width": int(dimensions.get("width", 900)),
-                    "height": int(dimensions.get("height", 2100)),
+                    "width": dimensions.get("width", 900),
+                    "height": dimensions.get("height", 2100),
                 },
             },
         )
@@ -219,7 +248,7 @@ def _build_add_room_operations(
 def _build_remove_room_operations(
     *,
     command_batch: CommandBatch,
-    policy_plan: dict[str, Any] | None,
+    policy_plan: Mapping[str, Any] | None,
     ifc_context: IFCContext | None = None,
 ) -> list[EngineOperationInlineRef]:
     delete_ids: list[str] = []
@@ -296,17 +325,18 @@ def _build_resize_room_operations(
     *,
     command: FloorNLPCommand,
     command_batch: CommandBatch,
-    policy_plan: dict[str, Any] | None,
+    policy_plan: Mapping[str, Any] | None,
     ifc_context: IFCContext | None,
 ) -> list[EngineOperationInlineRef]:
     target_id = command_batch.commands[0].target_id
     if target_id is None:
         raise ValueError("resize_room shared request requires target_id")
-    resize_state = _resolve_resize_state(
+    resize_state: ResizeState = _resolve_resize_state(
         command=command,
         policy_plan=policy_plan,
         ifc_context=ifc_context,
     )
+    target_dimensions = resize_state["target_dimensions_mm"]
     operations: list[EngineOperationInlineRef] = []
     isolated_wall_plans = []
     isolated_space_plan = None
@@ -315,15 +345,15 @@ def _build_resize_room_operations(
             ifc_context=ifc_context,
             target_space_id=target_id,
             direction=resize_state["direction"],
-            new_width=int(command.resize_width or 0),
-            new_height=int(command.resize_height or 0),
+            new_width=target_dimensions["width"],
+            new_height=target_dimensions["height"],
         )
         isolated_space_plan = build_isolated_resize_space_plan(
             ifc_context=ifc_context,
             target_space_id=target_id,
             direction=resize_state["direction"],
-            new_width=int(command.resize_width or 0),
-            new_height=int(command.resize_height or 0),
+            new_width=target_dimensions["width"],
+            new_height=target_dimensions["height"],
         )
 
     target_translation = resize_state["target_anchor_translate_mm"]
@@ -385,10 +415,7 @@ def _build_resize_room_operations(
             selector={"global_ids": [target_id]},
             parameters={
                 "pset_name": _SPACE_PSET_NAME,
-                "dimensions_mm": {
-                    "width": command.resize_width,
-                    "height": command.resize_height,
-                },
+                "dimensions_mm": target_dimensions,
                 "properties": {
                     "shape": command.resize_shape,
                     "rects": (
@@ -407,8 +434,8 @@ def _build_resize_room_operations(
                 },
                 "pset_updates": {
                     _SPACE_PSET_NAME: _space_pset_updates(
-                        width=command.resize_width,
-                        height=command.resize_height,
+                        width=target_dimensions["width"],
+                        height=target_dimensions["height"],
                         shape=command.resize_shape,
                         rects=(
                             isolated_space_plan["rects"]
@@ -466,15 +493,17 @@ def _build_resize_room_operations(
 def _resolve_resize_state(
     *,
     command: FloorNLPCommand,
-    policy_plan: dict[str, Any] | None,
+    policy_plan: Mapping[str, Any] | None,
     ifc_context: IFCContext | None,
-) -> dict[str, Any]:
+) -> ResizeState:
     if policy_plan is None or ifc_context is None:
         raise ValueError("resize_room shared request requires policy_plan and ifc_context")
     target_id = policy_plan.get("target_space_id")
     direction = policy_plan.get("direction")
     if target_id is None or direction is None:
         raise ValueError("resize_room shared request requires target_space_id and direction")
+    if direction not in {"north", "south", "east", "west"}:
+        raise ValueError(f"unsupported resize_room direction: {direction}")
 
     target = next(
         (space for space in ifc_context.get("spaces", []) if space["id"] == target_id),
@@ -483,15 +512,15 @@ def _resolve_resize_state(
     if target is None:
         raise ValueError(f"resize_room target space not found: {target_id}")
 
-    current_width = int(round(float(target.get("width") or 0.0)))
-    current_height = int(round(float(target.get("height") or 0.0)))
-    new_width = int(round(float(command.resize_width or current_width)))
-    new_height = int(round(float(command.resize_height or current_height)))
+    current_width = _mm_int(target.get("width"))
+    current_height = _mm_int(target.get("height"))
+    new_width = _mm_int(command.resize_width, default=current_width)
+    new_height = _mm_int(command.resize_height, default=current_height)
 
     boundary_translate = {"x": 0.0, "y": 0.0, "z": 0.0}
     target_anchor_translate = {"x": 0.0, "y": 0.0, "z": 0.0}
     affected_anchor_translate = {"x": 0.0, "y": 0.0, "z": 0.0}
-    affected_dimensions: dict[str, int] | None = None
+    affected_dimensions: DimensionsMm | None = None
     affected_space_id = policy_plan.get("affected_space_id")
 
     if direction == "west":
@@ -513,28 +542,29 @@ def _resolve_resize_state(
             None,
         )
         if affected is not None:
-            affected_width = int(round(float(affected.get("width") or 0.0)))
-            affected_height = int(round(float(affected.get("height") or 0.0)))
+            affected_width = _mm_int(affected.get("width"))
+            affected_height = _mm_int(affected.get("height"))
             if direction == "west":
-                next_width = affected_width + int(round(boundary_translate["x"]))
+                next_width = affected_width + _mm_int(boundary_translate["x"])
                 _ensure_positive_dimension(next_width, affected_space_id, "width")
                 affected_dimensions = {"width": next_width, "height": affected_height}
             elif direction == "east":
-                next_width = affected_width - int(round(boundary_translate["x"]))
+                next_width = affected_width - _mm_int(boundary_translate["x"])
                 _ensure_positive_dimension(next_width, affected_space_id, "width")
                 affected_dimensions = {"width": next_width, "height": affected_height}
             elif direction == "south":
-                next_height = affected_height + int(round(boundary_translate["y"]))
+                next_height = affected_height + _mm_int(boundary_translate["y"])
                 _ensure_positive_dimension(next_height, affected_space_id, "height")
                 affected_dimensions = {"width": affected_width, "height": next_height}
             elif direction == "north":
-                next_height = affected_height - int(round(boundary_translate["y"]))
+                next_height = affected_height - _mm_int(boundary_translate["y"])
                 _ensure_positive_dimension(next_height, affected_space_id, "height")
                 affected_dimensions = {"width": affected_width, "height": next_height}
 
     return {
         "target_space_id": target_id,
         "direction": direction,
+        "target_dimensions_mm": {"width": new_width, "height": new_height},
         "target_anchor_translate_mm": target_anchor_translate,
         "boundary_translate_mm": boundary_translate,
         "affected_space_anchor_translate_mm": affected_anchor_translate,
@@ -570,10 +600,16 @@ def _space_pset_updates(
     return updates
 
 
-def _has_non_zero_translation(translation: dict[str, float]) -> bool:
-    return any(abs(value) > 0.0 for value in translation.values())
+def _has_non_zero_translation(translation: TranslationMm) -> bool:
+    return any(abs(value) > 0.0 for value in (translation["x"], translation["y"], translation["z"]))
 
 
 def _ensure_positive_dimension(value: int, space_id: str, axis: str) -> None:
     if value <= 0:
         raise ValueError(f"affected space {space_id} {axis} must stay positive")
+
+
+def _mm_int(value: int | float | None, *, default: int = 0) -> int:
+    if value is None:
+        return default
+    return round(float(value))

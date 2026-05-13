@@ -26,3 +26,4 @@ def shape_to_rects(shape: str, width: int, height: int) -> list[dict]:
         ]
 
     return [{"x": 0, "y": 0, "width": w, "height": h}]
+"""2D 계획 처리 전반에서 공통으로 쓰는 좌표·도형 보조 함수를 제공한다."""

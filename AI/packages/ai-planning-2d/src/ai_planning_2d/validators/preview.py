@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -19,7 +20,7 @@ class PreviewValidationResult:
 def validate_preview_plan(
     *,
     command: FloorNLPCommand,
-    policy_plan: dict[str, Any] | None,
+    policy_plan: Mapping[str, Any] | None,
     ifc_context: IFCContext | None,
 ) -> PreviewValidationResult:
     result = PreviewValidationResult()
@@ -39,7 +40,7 @@ def validate_preview_plan(
 
 def _validate_remove_room_preview(
     result: PreviewValidationResult,
-    policy_plan: dict[str, Any],
+    policy_plan: Mapping[str, Any],
 ) -> None:
     opening_ids = policy_plan.get("remove_opening_ids", [])
     if opening_ids:
@@ -51,7 +52,7 @@ def _validate_remove_room_preview(
 def _validate_resize_room_preview(
     result: PreviewValidationResult,
     command: FloorNLPCommand,
-    policy_plan: dict[str, Any],
+    policy_plan: Mapping[str, Any],
     ifc_context: IFCContext,
 ) -> None:
     target_space_id = policy_plan.get("target_space_id")
