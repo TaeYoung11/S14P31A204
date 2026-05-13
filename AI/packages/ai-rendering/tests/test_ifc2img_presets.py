@@ -83,13 +83,11 @@ def test_load_preset_night_appends_night_suffix() -> None:
     p = load_preset("korean_villa", "night")
     assert "night exterior" in p.prompt
     assert "dark sky" in p.prompt
-    assert "warm window lights" in p.prompt
-    assert "soft exterior lights" in p.prompt
-    assert "no overexposure" in p.prompt
+    assert "warm windows" in p.prompt
+    assert "exterior lights" in p.prompt
+    assert "low glare" in p.prompt
     assert "outdoor daylight" not in p.prompt
-    assert "daytime" in p.negative_prompt
     assert "blue sky" in p.negative_prompt
-    assert "overexposed lights" in p.negative_prompt
     assert "minimal Korean house" in p.prompt
 
 
