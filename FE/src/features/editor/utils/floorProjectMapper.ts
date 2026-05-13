@@ -381,6 +381,18 @@ const createBubbleIndex = (index: number) => String(index + 1).padStart(2, '0')
 const mapStrengthToStyle = (strength: number): ConnectionData['type'] =>
   strength >= 0.75 ? 'bold' : strength >= 0.45 ? 'thin' : 'dashed'
 
+const interpolateMmPoint = (
+  start: FloorProjectPoint2D | undefined,
+  end: FloorProjectPoint2D | undefined,
+  ratio: number,
+): FloorProjectPoint2D | undefined => {
+  if (!start || !end || !Number.isFinite(ratio)) return undefined
+  return {
+    x: start.x + (end.x - start.x) * ratio,
+    y: start.y + (end.y - start.y) * ratio,
+  }
+}
+
 /**
  * BATANG 2D FloorProject를 기존 에디터의 FloorLayer[] 구조로 변환한다.
  * 목적: API 응답 연동 전에도 프론트 렌더링 경로를 고정해 두기 위함.
@@ -494,9 +506,13 @@ export function mapFloorProjectToWalls(project: FloorProject, options: MapperOpt
     const wallType = toFloorWallType(wall.type)
     return {
       id: wall.id,
+      globalId: wall.id,
+      storeyGlobalId: wall.floor,
       sourceIfcClass: wall.ifc_class,
       start: { x: wall.start.x * scale + offsetX, y: wall.start.y * scale + offsetY },
       end: { x: wall.end.x * scale + offsetX, y: wall.end.y * scale + offsetY },
+      startMm: { ...wall.start },
+      endMm: { ...wall.end },
       type: wallType,
       thickness: wall.thickness ?? FLOOR_WALL_PRESETS[wallType].thickness,
       heightMm: wall.height ?? FLOOR_WALL_PRESETS[wallType].heightMm,
@@ -511,18 +527,26 @@ export function mapFloorProjectToWalls(project: FloorProject, options: MapperOpt
  */
 export function mapFloorProjectToOpenings(project: FloorProject): FloorOpening[] {
   if (!project.openings || project.openings.length === 0) return []
-  return project.openings.map((opening) => ({
-    id: opening.id,
-    sourceIfcClass: opening.ifc_class,
-    type: opening.type,
-    wallId: opening.wall_id,
-    wallPosition: opening.wall_position,
-    widthMm: opening.width,
-    heightMm: opening.height ?? (opening.type === 'door' ? 2100 : 1200),
-    sillHeightMm: opening.sill_height,
-    doorHingeSide: opening.type === 'door' ? ('left' as const) : undefined,
-    doorSwingDirection: opening.type === 'door' ? ('inward' as const) : undefined,
-  }))
+  const wallById = new Map((project.walls ?? []).map((wall) => [wall.id, wall]))
+  return project.openings.map((opening) => {
+    const hostWall = wallById.get(opening.wall_id)
+    return {
+      id: opening.id,
+      globalId: opening.id,
+      hostWallGlobalId: opening.wall_id,
+      storeyGlobalId: opening.floor,
+      sourceIfcClass: opening.ifc_class,
+      type: opening.type,
+      wallId: opening.wall_id,
+      wallPosition: opening.wall_position,
+      centerMm: interpolateMmPoint(hostWall?.start, hostWall?.end, opening.wall_position),
+      widthMm: opening.width,
+      heightMm: opening.height ?? (opening.type === 'door' ? 2100 : 1200),
+      sillHeightMm: opening.sill_height,
+      doorHingeSide: opening.type === 'door' ? ('left' as const) : undefined,
+      doorSwingDirection: opening.type === 'door' ? ('inward' as const) : undefined,
+    }
+  })
 }
 
 /**
