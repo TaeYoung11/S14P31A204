@@ -262,6 +262,75 @@ def test_renderer_backend_auto_falls_back_to_raycast_when_visualizer_fails(
     offscreen.assert_called_once()
 
 
+def test_renderer_backend_auto_falls_back_to_raycast_when_visualizer_runtime_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """auto retries raycast when Open3D raises a native Visualizer runtime error."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+    expected = _make_fake_render_image()
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "auto")
+
+    with (
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
+        patch.object(IFCRenderer, "_is_container_like_runtime", return_value=False),
+        patch.object(
+            IFCRenderer,
+            "_render_mesh_windowed",
+            side_effect=RuntimeError("Open3D native Visualizer failure"),
+        ) as windowed,
+        patch.object(IFCRenderer, "_render_mesh_offscreen", return_value=expected) as offscreen,
+    ):
+        renderer = IFCRenderer()
+        result = renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            IFCView.FRONT,
+        )
+
+    assert result is expected
+    windowed.assert_called_once()
+    offscreen.assert_called_once()
+
+
+def test_renderer_backend_visualizer_env_does_not_fallback_on_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit visualizer backend should surface native Visualizer failures."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
+
+    with (
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
+        patch.object(IFCRenderer, "_is_container_like_runtime", return_value=False),
+        patch.object(
+            IFCRenderer,
+            "_render_mesh_windowed",
+            side_effect=RuntimeError("Open3D native Visualizer failure"),
+        ) as windowed,
+        patch.object(IFCRenderer, "_render_mesh_offscreen") as offscreen,
+        pytest.raises(RuntimeError, match="Open3D native Visualizer failure"),
+    ):
+        renderer = IFCRenderer()
+        renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            IFCView.FRONT,
+        )
+
+    windowed.assert_called_once()
+    offscreen.assert_not_called()
+
+
 def test_renderer_backend_invalid_env_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "bogus")
 
