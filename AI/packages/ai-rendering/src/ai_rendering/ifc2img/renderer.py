@@ -252,7 +252,7 @@ class IFCRenderer:
             return self._render_mesh_windowed(
                 mesh, center, camera, initial_zoom, target_ratio
             )
-        except IFCRenderError:
+        except Exception:
             if backend == "visualizer":
                 raise
             return self._render_mesh_offscreen(
