@@ -17,7 +17,6 @@ import type { Object3D } from 'three'
 import type { IfcElementInfo } from '../../../types'
 import type { IfcPsetMetricMaps } from './ifcPropertyParser'
 import {
-  DEFAULT_IFC_COLOR_BY_CATEGORY,
   PROJECT_WORLD_UNITS_PER_MM,
   createElementMaterial,
   type ThreeModule,
@@ -75,6 +74,11 @@ export type IfcEditableObject3D = Object3D & {
       hitItemId?: number
       localIds?: number[]
       element: IfcElementInfo
+    }
+    ifcEditBaseWorldSize?: {
+      x: number
+      y: number
+      z: number
     }
     [key: string]: unknown
   }
@@ -716,9 +720,34 @@ const syncModelMaskOpacity = async (
 
 /**
  * IFC 선택 프록시 표시 상태를 일관되게 갱신한다.
- * - mode='proxy': 원본 숨김 + 프록시 반투명 표시
+ * - mode='proxy': 원본 숨김 + 편집 프록시 표시
  * - mode='model': 원본 표시 + 프록시 불투명 복구
  */
+const cloneMaterialForEditProxy = (material: unknown) => {
+  const cloneable = material as {
+    clone?: () => unknown
+    map?: { clone?: () => unknown; needsUpdate?: boolean }
+  }
+  const cloned = cloneable?.clone?.() ?? material
+  const clonedWithMap = cloned as { map?: unknown; needsUpdate?: boolean }
+  const clonedMap = cloneable?.map?.clone?.()
+  if (clonedMap) {
+    ;(clonedMap as { needsUpdate?: boolean }).needsUpdate = true
+    clonedWithMap.map = clonedMap
+  }
+  clonedWithMap.needsUpdate = true
+  return cloned
+}
+
+const cloneObjectMaterialsForEditProxy = (THREE: ThreeModule, object: Object3D) => {
+  object.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return
+    child.material = Array.isArray(child.material)
+      ? child.material.map((material) => cloneMaterialForEditProxy(material)) as typeof child.material
+      : cloneMaterialForEditProxy(child.material) as typeof child.material
+  })
+}
+
 export const applyIfcSelectionVisibility = async (
   sceneState: ThatOpenSceneState,
   params: {
@@ -855,15 +884,15 @@ export const applyIfcSelectionVisibility = async (
         reason: visibilityReason,
         modelId: params.modelId,
         localIds: visibleLocalIds,
-        opacity: params.proxyOpacity ?? 0.86,
+        opacity: params.proxyOpacity ?? 1,
       })
     }
-    setObjectOpacity(sceneState.three, params.proxyObject, params.proxyOpacity ?? 0.86)
+    setObjectOpacity(sceneState.three, params.proxyObject, params.proxyOpacity ?? 1)
     traceIfcMoveVisibility('visibility_proxy_opacity', {
       reason: visibilityReason,
       mode: params.mode,
       modelId: params.modelId,
-      opacity: params.proxyOpacity ?? 0.86,
+      opacity: params.proxyOpacity ?? 1,
     })
     if (params.forceRender) {
       sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
@@ -984,6 +1013,16 @@ export const clearSelectedTarget = async (
       if (removeObject && target.object) {
         target.object.parent?.remove(target.object)
         disposeObjectMaterials(sceneState.three, target.object)
+      }
+      return
+    }
+    if (!shouldRestoreModelVisibility) {
+      if (target.object) {
+        setObjectOpacity(sceneState.three, target.object, 1)
+        if (removeObject) {
+          target.object.parent?.remove(target.object)
+          disposeObjectMaterials(sceneState.three, target.object)
+        }
       }
       return
     }
@@ -1181,7 +1220,7 @@ export const applyIfcItemColor = async (
 }
 
 /**
- * IFC 요소의 바운딩박스 위에 편집 프록시 오브젝트(BoxGeometry)를 생성하고
+ * IFC 요소의 실제 fragment mesh를 복제한 편집 프록시 오브젝트를 생성하고
  * TransformControls를 연결한다.
  * - 원본 IFC는 선택 중 숨기고, 프록시를 이동 대상으로 사용한다.
  * - 선택 해제 시 clearSelectedTarget에서 프록시를 정리한다.
@@ -1198,7 +1237,6 @@ export const attachIfcTransformProxy = async (
   visibleLocalId: number,
   hitItemId: number | undefined,
   element: IfcElementInfo,
-  keepModelVisibleDuringProxy = false,
 ) => {
   const orderedLocalIds = Array.from(
     new Set<number>([
@@ -1206,99 +1244,131 @@ export const attachIfcTransformProxy = async (
       ...localIds.filter(Number.isFinite),
     ]),
   )
-  for (const localId of orderedLocalIds) {
-    const boxes = await fragments.getBBoxes({ [modelId]: new Set([localId]) })
-    const box = boxes[0]
-    if (!box) continue
+  if (orderedLocalIds.length === 0) return null
 
-    const stableLocalId = Number.isFinite(visibleLocalId) ? visibleLocalId : orderedLocalIds[0]
-    const objectName = `ifc-edit-${modelId}-${stableLocalId}`
-    const existing = editGroup.children.find((child) => child.name === objectName) as IfcEditableObject3D | undefined
-    const size = new THREE.Vector3()
-    const center = new THREE.Vector3()
-    box.getSize(size)
-    box.getCenter(center)
+  const editor = (fragments.core as import('@thatopen/fragments').FragmentsModels & {
+    editor?: import('@thatopen/fragments').Editor
+  }).editor
+  if (!editor) return null
 
-    const editable = existing ?? new THREE.Group()
-    editable.name = objectName
-    editable.position.copy(center)
-    editable.userData = {
-      ...editable.userData,
-      ifcEditTarget: {
-        modelId,
-        localId: stableLocalId,
-        hitLocalId: localId,
-        hitItemId,
-        localIds: Array.from(new Set(localIds.filter(Number.isFinite))),
-        element,
-      },
-    }
+  const boxes = await fragments.getBBoxes({ [modelId]: new Set(orderedLocalIds) })
+  const unionBox = new THREE.Box3()
+  unionBox.makeEmpty()
+  boxes.forEach((box) => {
+    if (!box) return
+    unionBox.union(box)
+  })
+  if (unionBox.isEmpty()) return null
 
-    if (!existing) {
-      const geometry = new THREE.BoxGeometry(size.x, size.y, size.z)
-      const material = createElementMaterial(
-        THREE,
-        element.material,
-        element.color ?? DEFAULT_IFC_COLOR_BY_CATEGORY[element.category] ?? DEFAULT_IFC_COLOR_BY_CATEGORY.Element,
-      )
-      ;(material as unknown as { transparent: boolean; opacity: number; depthWrite: boolean }).transparent = true
-      ;(material as unknown as { transparent: boolean; opacity: number; depthWrite: boolean }).opacity = 0.86
-      ;(material as unknown as { transparent: boolean; opacity: number; depthWrite: boolean }).depthWrite = true
-      const mesh = new THREE.Mesh(geometry, material)
-      editable.add(mesh)
-      editGroup.add(editable)
-    } else {
-      editable.traverse((child) => {
-        if (!(child instanceof THREE.Mesh)) return
-        child.geometry.dispose()
-        child.geometry = new THREE.BoxGeometry(size.x, size.y, size.z)
-      })
-    }
+  const size = new THREE.Vector3()
+  const center = new THREE.Vector3()
+  unionBox.getSize(size)
+  unionBox.getCenter(center)
+  if (size.x <= 0 || size.y <= 0 || size.z <= 0) return null
 
-    const hideLocalIds = Array.from(new Set<number>(
-      orderedLocalIds.filter(Number.isFinite),
-    ))
+  const elements = await editor.getElements(modelId, orderedLocalIds).catch(() => [])
+  if (elements.length === 0) return null
 
-    if (IFC_MOVE_DEBUG) {
-      console.log('[IFC_MOVE] proxy_attach_hide_model', {
-        modelId,
-        localIds: orderedLocalIds,
-        hideLocalIds,
-        localIdCount: orderedLocalIds.length,
-        visibleLocalId,
-        hitLocalId: localId,
-        keepModelVisibleDuringProxy,
-        hiderVisible: keepModelVisibleDuringProxy,
-      })
-    }
-    traceIfcMoveVisibility('proxy_attach_hide_model', {
-      modelId,
-      visibleLocalId,
-      hitLocalId: localId,
-      localIdCount: orderedLocalIds.length,
-      localIdsSample: orderedLocalIds.slice(0, 12),
-      hideLocalIds,
-      keepModelVisibleDuringProxy,
+  const stableLocalId = Number.isFinite(visibleLocalId) ? visibleLocalId : orderedLocalIds[0]
+  const objectName = `ifc-edit-${modelId}-${stableLocalId}`
+  const existing = editGroup.children.find((child) => child.name === objectName) as IfcEditableObject3D | undefined
+  const editable = existing ?? new THREE.Group()
+  const pivotToLocal = new THREE.Matrix4().makeTranslation(-center.x, -center.y, -center.z)
+
+  if (existing) {
+    ;[...editable.children].forEach((child) => {
+      child.parent?.remove(child)
+      disposeObjectMaterials(THREE, child)
     })
-    if (!keepModelVisibleDuringProxy) {
-      traceIfcMoveVisibility('proxy_attach_hider_set_start', {
-        modelId,
-        hideLocalIds,
-      })
-      await hider.set(false, {
-        [modelId]: new Set(hideLocalIds),
-      }).catch(() => undefined)
-      traceIfcMoveVisibility('proxy_attach_hider_set_done', {
-        modelId,
-        hideLocalIds,
-      })
-    }
-    setObjectOpacity(THREE, editable, 0.86)
-    transformControls.attach(editable)
-    transformControls.visible = true
-    transformControls.enabled = true
-    return editable
   }
 
-  return null
+  for (const editableElement of elements) {
+    const meshes = await editableElement.getMeshes().catch(() => null)
+    if (!meshes) continue
+    const cloned = meshes.clone(true)
+    cloneObjectMaterialsForEditProxy(THREE, cloned)
+    cloned.applyMatrix4(pivotToLocal)
+    editable.add(cloned)
+  }
+
+  if (editable.children.length === 0) return null
+
+  editable.name = objectName
+  editable.position.copy(center)
+  editable.rotation.set(0, 0, 0)
+  editable.scale.set(1, 1, 1)
+  editable.userData = {
+    ...editable.userData,
+    ifcEditTarget: {
+      modelId,
+      localId: stableLocalId,
+      hitLocalId: Number.isFinite(visibleLocalId) ? visibleLocalId : orderedLocalIds[0],
+      hitItemId,
+      localIds: Array.from(new Set(orderedLocalIds.filter(Number.isFinite))),
+      element,
+    },
+    ifcEditBaseWorldSize: {
+      x: size.x || 1,
+      y: size.y || 1,
+      z: size.z || 1,
+    },
+  }
+
+  if (!existing) {
+    editGroup.add(editable)
+  }
+  editable.updateMatrixWorld(true)
+
+  const clonedBox = new THREE.Box3().setFromObject(editable)
+  const clonedCenter = new THREE.Vector3()
+  clonedBox.getCenter(clonedCenter)
+  const centerOffset = clonedCenter.sub(center)
+  if (centerOffset.lengthSq() > 1e-8) {
+    editable.children.forEach((child) => {
+      child.position.sub(centerOffset)
+    })
+    editable.updateMatrixWorld(true)
+  }
+
+  const hideLocalIds = Array.from(new Set<number>(
+    orderedLocalIds.filter(Number.isFinite),
+  ))
+
+  if (IFC_MOVE_DEBUG) {
+    console.log('[IFC_MOVE] proxy_attach_hide_model', {
+      modelId,
+      localIds: orderedLocalIds,
+      hideLocalIds,
+      localIdCount: orderedLocalIds.length,
+      visibleLocalId,
+      hitLocalId: stableLocalId,
+      hiderVisible: false,
+      proxyShape: 'ifc-mesh-clone',
+    })
+  }
+  traceIfcMoveVisibility('proxy_attach_hide_model', {
+    modelId,
+    visibleLocalId,
+    hitLocalId: stableLocalId,
+    localIdCount: orderedLocalIds.length,
+    localIdsSample: orderedLocalIds.slice(0, 12),
+    hideLocalIds,
+    proxyShape: 'ifc-mesh-clone',
+  })
+  traceIfcMoveVisibility('proxy_attach_hider_set_start', {
+    modelId,
+    hideLocalIds,
+  })
+  await hider.set(false, {
+    [modelId]: new Set(hideLocalIds),
+  }).catch(() => undefined)
+  traceIfcMoveVisibility('proxy_attach_hider_set_done', {
+    modelId,
+    hideLocalIds,
+  })
+  setObjectOpacity(THREE, editable, 1)
+  transformControls.attach(editable)
+  transformControls.visible = true
+  transformControls.enabled = true
+  return editable
 }

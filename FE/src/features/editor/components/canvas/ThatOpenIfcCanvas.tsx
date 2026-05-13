@@ -62,6 +62,7 @@ import {
   applyIfcItemColor,
   attachIfcTransformProxy,
   createEmptyIfcCanonicalIdMap,
+  findIfcEditableRoot,
   resolveEditorMaterialFromColor,
   resolveIfcCanonicalLocalIds,
 } from './thatopen/ifcSceneHelpers'
@@ -1017,19 +1018,19 @@ export default function ThatOpenIfcCanvas({
 
     const editTarget = (target.object as IfcEditableObject3D).userData.ifcEditTarget
     const proxyColorHex = getFirstMeshColorHex(sceneState.three, target.object)
-    const inferredMaterialFromProxy = resolveEditorMaterialFromColor(proxyColorHex)
-    const commitMaterialName = editTarget?.element?.material ?? inferredMaterialFromProxy
+    const proxyInferredMaterial = resolveEditorMaterialFromColor(proxyColorHex)
+    const commitMaterialName = editTarget?.element?.material
     const commitDisplayColor = editTarget?.element?.color
-      ?? proxyColorHex
       ?? (commitMaterialName ? getMaterialDefaultColor(commitMaterialName) : undefined)
     logIfcMove('commit_visual_style_resolved', {
       targetKey,
       elementMaterial: editTarget?.element?.material ?? null,
       elementColor: editTarget?.element?.color ?? null,
       proxyColorHex: proxyColorHex ?? null,
-      inferredMaterialFromProxy: inferredMaterialFromProxy ?? null,
+      proxyInferredMaterial: proxyInferredMaterial ?? null,
       commitMaterialName: commitMaterialName ?? null,
       commitDisplayColor: commitDisplayColor ?? null,
+      proxyColorUsedForCommit: false,
     })
     const proxyLocalIds = (editTarget?.localIds ?? []).filter(Number.isFinite)
     const rawItemMappedLocalIds = Number.isFinite(target.hitItemId)
@@ -2053,7 +2054,6 @@ export default function ThatOpenIfcCanvas({
               target.hitLocalId,
               target.hitItemId,
               fallbackElement,
-              true,
             )
             if (rebound && isObjectInSceneGraph(rebound)) {
               await applyIfcSelectionVisibility(activeScene, {
@@ -2064,7 +2064,6 @@ export default function ThatOpenIfcCanvas({
                 proxyObject: rebound,
                 mode: 'proxy',
                 proxyOpacity: 1,
-                keepModelVisibleInProxy: true,
                 reason: 'transform_attach_rebind',
                 forceRender: true,
               })
@@ -3292,7 +3291,14 @@ export default function ThatOpenIfcCanvas({
             })
           }
           // 이전 선택을 해제한다. 동일 객체/로컬ID이면 아무 처리도 하지 않는다.
-          const clearPreviousSelection = async (nextObject?: Object3D, nextIfcLocalId?: number) => {
+          const clearPreviousSelection = async (
+            nextObject?: Object3D,
+            nextIfcLocalId?: number,
+            options: {
+              skipOverlayPurge?: boolean
+              skipPendingSaveSync?: boolean
+            } = {},
+          ) => {
             const currentTarget = selectedTargetRef.current
             // sceneRef.current는 loadIfc 완료 후 등록된 핸들러 내부이므로 항상 유효하다.
             const activeScene = sceneRef.current
@@ -3300,6 +3306,30 @@ export default function ThatOpenIfcCanvas({
             if (nextObject && currentTarget.object === nextObject) return
             if (currentTarget.source === 'ifc' && currentTarget.hitLocalId === nextIfcLocalId) return
             const isEmptyPick = !Number.isFinite(nextIfcLocalId)
+            const shouldLightweightClearHiddenIfc = (
+              currentTarget.source === 'ifc'
+              && isEmptyPick
+              && Boolean(currentTarget.keepModelHiddenAfterCommit)
+            )
+            if (shouldLightweightClearHiddenIfc) {
+              clearPendingIfcCommit('selection_switch_empty_keep_hidden')
+              activeScene.transformControls.detach()
+              activeScene.transformControls.visible = false
+              activeScene.transformControls.enabled = false
+              ifcMoveDirtyRef.current = false
+              selectedTargetRef.current = null
+              syncTransformSelectionState(null, 'pick_empty_keep_hidden')
+              logIfcMove('selection_switch_empty_keep_hidden_lightweight_clear', {
+                modelId: currentTarget.modelId,
+                localId: currentTarget.localId,
+                hitLocalId: currentTarget.hitLocalId,
+                keptProxyObject: Boolean(currentTarget.object),
+                skippedSave: true,
+                skippedRestore: true,
+                skippedOverlayPurge: true,
+              })
+              return
+            }
             let deferFinalizeClearAfterSave = false
             let deferredFinalizeTarget: Extract<Selected3DTarget, { source: 'ifc' }> | null = null
             logIfcMove('selection_switch_clear_previous', {
@@ -3365,6 +3395,13 @@ export default function ThatOpenIfcCanvas({
                     hitLocalId: currentTarget.hitLocalId,
                   })
                 }
+              } else if (options.skipPendingSaveSync) {
+                logIfcMove('selection_switch_force_sync_skip_existing_proxy_pick', {
+                  modelId: currentTarget.modelId,
+                  localId: currentTarget.localId,
+                  hitLocalId: currentTarget.hitLocalId,
+                  nextIfcLocalId: Number.isFinite(nextIfcLocalId) ? nextIfcLocalId : null,
+                })
               } else {
                 const didForceSyncSave = await flushPendingIfcSaveSync(
                   activeScene,
@@ -3426,7 +3463,7 @@ export default function ThatOpenIfcCanvas({
                 })
               } else {
               const restoreVisibilityOnClear = currentTarget.source === 'ifc'
-                ? (isEmptyPick ? true : !currentTarget.keepModelHiddenAfterCommit)
+                ? !currentTarget.keepModelHiddenAfterCommit
                 : true
               await clearSelectedTarget(
                 activeScene,
@@ -3442,7 +3479,15 @@ export default function ThatOpenIfcCanvas({
               fromLocalId: currentTarget.source === 'ifc' ? currentTarget.localId : null,
             })
             // alias localId 차이로 남을 수 있는 고아 프록시를 함께 정리한다.
-            purgeIfcEditOverlays(activeScene, 'selection_switch_clear_previous')
+            if (options.skipOverlayPurge) {
+              logIfcMove('selection_switch_overlay_purge_skipped', {
+                reason: 'existing_proxy_pick',
+                fromSource: currentTarget.source,
+                nextIfcLocalId: Number.isFinite(nextIfcLocalId) ? nextIfcLocalId : null,
+              })
+            } else {
+              purgeIfcEditOverlays(activeScene, 'selection_switch_clear_previous')
+            }
             selectedTargetRef.current = null
             syncTransformSelectionState(null, 'selection_switch_clear_previous')
             if (deferFinalizeClearAfterSave && deferredFinalizeTarget) {
@@ -3477,6 +3522,94 @@ export default function ThatOpenIfcCanvas({
               }
               void runFinalize()
             }
+          }
+
+          const clickedIfcProxy = ifcEditHit?.object
+            ? findIfcEditableRoot(ifcEditHit.object, ifcEditGroup)
+            : null
+          const clickedIfcEditTarget = clickedIfcProxy?.userData?.ifcEditTarget
+          if (clickedIfcProxy && clickedIfcEditTarget) {
+            const hitLocalId = Number.isFinite(clickedIfcEditTarget.hitLocalId)
+              ? clickedIfcEditTarget.hitLocalId
+              : clickedIfcEditTarget.localId
+            const proxyLocalIds = Array.from(new Set<number>(
+              (
+                clickedIfcEditTarget.localIds
+                ?? [clickedIfcEditTarget.hitLocalId, clickedIfcEditTarget.localId]
+              ).filter(Number.isFinite),
+            ))
+            const selectedElement = clickedIfcEditTarget.element
+            await clearPreviousSelection(clickedIfcProxy, hitLocalId, {
+              skipOverlayPurge: true,
+              skipPendingSaveSync: true,
+            })
+            if (isStalePick()) {
+              await consumePendingIfcSelectionRestore(
+                undefined,
+                [],
+                'selection_switch_atomic_restore_stale_after_existing_proxy_clear',
+              )
+              logIfcMove('pick_discarded_stale_after_existing_proxy_clear', {
+                pickSequence,
+                hitLocalId,
+              })
+              return
+            }
+            const activeScene = sceneRef.current
+            if (!activeScene) return
+            const keepModelHiddenAfterCommit = typeof clickedIfcProxy.userData.ifcKeepModelHiddenAfterCommit === 'boolean'
+              ? clickedIfcProxy.userData.ifcKeepModelHiddenAfterCommit
+              : true
+            const nextTarget: Extract<Selected3DTarget, { source: 'ifc' }> = {
+              source: 'ifc',
+              modelId: clickedIfcEditTarget.modelId,
+              localId: clickedIfcEditTarget.localId,
+              hitLocalId,
+              hitItemId: clickedIfcEditTarget.hitItemId,
+              object: clickedIfcProxy,
+              keepModelHiddenAfterCommit,
+              selectedSignature: getElementDimensionSignature(selectedElement),
+              selectedColorSignature: getElementColorSignature(selectedElement),
+              selectedMaterialSignature: getElementMaterialSignature(selectedElement),
+            }
+            clickedIfcProxy.visible = true
+            await applyIfcSelectionVisibility(activeScene, {
+              modelId: clickedIfcEditTarget.modelId,
+              localIds: proxyLocalIds.length > 0 ? proxyLocalIds : [hitLocalId].filter(Number.isFinite),
+              proxyObject: clickedIfcProxy,
+              mode: 'proxy',
+              proxyOpacity: 1,
+              reason: 'pick_existing_proxy',
+              forceRender: false,
+            })
+            await consumePendingIfcSelectionRestore(
+              clickedIfcEditTarget.modelId,
+              proxyLocalIds,
+              'selection_switch_atomic_restore_pick_existing_proxy',
+            )
+            transformControls.attach(clickedIfcProxy)
+            transformControls.visible = true
+            transformControls.enabled = true
+            clickedIfcProxy.updateMatrixWorld(true)
+            ;(clickedIfcProxy.userData as { ifcEditProxyWorldMatrix?: number[] }).ifcEditProxyWorldMatrix =
+              Array.from(clickedIfcProxy.matrixWorld.elements)
+            selectedTargetRef.current = nextTarget
+            syncTransformSelectionState(nextTarget, 'pick_existing_ifc_proxy_attach_success', { attachGizmo: true })
+            ifcMoveLifecycleRef.current = {
+              phase: 'idle',
+              targetKey: null,
+              lastError: null,
+            }
+            logIfcMove('pick_existing_proxy_attached', {
+              modelId: clickedIfcEditTarget.modelId,
+              localId: clickedIfcEditTarget.localId,
+              hitLocalId,
+              localIds: proxyLocalIds,
+              keepModelHiddenAfterCommit,
+            })
+            onIfcElementSelectRef.current?.(selectedElement)
+            emitCoordinates(clickedIfcProxy.position)
+            return
           }
 
           const runIfcRaycast = async () => {
@@ -3609,12 +3742,7 @@ export default function ThatOpenIfcCanvas({
                     expressId: selectedExpressId,
                     properties: {},
                   })
-              const selectedElement = !baseSelectedElement.color && resolvedIfcPick.object
-                ? {
-                    ...baseSelectedElement,
-                    color: getFirstMeshColorHex(THREE, resolvedIfcPick.object),
-                  }
-                : baseSelectedElement
+              const selectedElement = baseSelectedElement
               const nextTarget: Extract<Selected3DTarget, { source: 'ifc' }> = {
                 source: 'ifc',
                 modelId: pickedModelId,
@@ -3722,7 +3850,6 @@ export default function ThatOpenIfcCanvas({
                 resolvedIfcPick.localId,
                 Number.isFinite(resolvedIfcPick.itemId) ? resolvedIfcPick.itemId : undefined,
                 selectedElement,
-                true,
               )
               if (isStalePick()) {
                 await consumePendingIfcSelectionRestore(
@@ -3777,7 +3904,6 @@ export default function ThatOpenIfcCanvas({
                 proxyObject: editableObject,
                 mode: 'proxy',
                 proxyOpacity: 1,
-                keepModelVisibleInProxy: true,
                 reason: 'pick_new_proxy',
                 forceRender: false,
               })
@@ -4407,7 +4533,6 @@ export default function ThatOpenIfcCanvas({
           requestedIfcElementLocalId,
           undefined,
           selectedElement,
-          true,
         )
         if (isCancelled) return
 
@@ -4431,7 +4556,6 @@ export default function ThatOpenIfcCanvas({
             proxyObject: editableObject,
             mode: 'proxy',
             proxyOpacity: 1,
-            keepModelVisibleInProxy: true,
             reason: 'requested_select_proxy',
             forceRender: false,
           })
@@ -4766,38 +4890,40 @@ export default function ThatOpenIfcCanvas({
 
     // lengthMm/heightMm/thicknessMm 중 일부만 파싱된 경우,
     // 없는 축은 현재 오브젝트의 바운딩 박스 크기로 fallback한다.
+    const editable = target.object as IfcEditableObject3D
     const currentWorldSize = new THREE.Vector3()
     new THREE.Box3().setFromObject(target.object).getSize(currentWorldSize)
-    const length = selectedIfcElement.lengthMm
-      ? selectedIfcElement.lengthMm * sceneState.worldUnitsPerMm
-      : (currentWorldSize.x || 1)
-    const height = selectedIfcElement.heightMm
-      ? selectedIfcElement.heightMm * sceneState.worldUnitsPerMm
-      : (currentWorldSize.y || 1)
-    const thickness = selectedIfcElement.thicknessMm
-      ? selectedIfcElement.thicknessMm * sceneState.worldUnitsPerMm
-      : (currentWorldSize.z || 1)
-    if (!length || !height || !thickness) return
+    const storedBaseWorldSize = editable.userData.ifcEditBaseWorldSize
+    const baseWorldSize = storedBaseWorldSize ?? {
+      x: currentWorldSize.x / Math.max(Math.abs(target.object.scale.x), 1e-6) || currentWorldSize.x || 1,
+      y: currentWorldSize.y / Math.max(Math.abs(target.object.scale.y), 1e-6) || currentWorldSize.y || 1,
+      z: currentWorldSize.z / Math.max(Math.abs(target.object.scale.z), 1e-6) || currentWorldSize.z || 1,
+    }
+    editable.userData.ifcEditBaseWorldSize = baseWorldSize
+    const nextScaleX = selectedIfcElement.lengthMm
+      ? (selectedIfcElement.lengthMm * sceneState.worldUnitsPerMm) / baseWorldSize.x
+      : target.object.scale.x
+    const nextScaleY = selectedIfcElement.heightMm
+      ? (selectedIfcElement.heightMm * sceneState.worldUnitsPerMm) / baseWorldSize.y
+      : target.object.scale.y
+    const nextScaleZ = selectedIfcElement.thicknessMm
+      ? (selectedIfcElement.thicknessMm * sceneState.worldUnitsPerMm) / baseWorldSize.z
+      : target.object.scale.z
+    if (![nextScaleX, nextScaleY, nextScaleZ].every((value) => Number.isFinite(value) && value > 0)) return
 
-    const ifcLocalIds = ((target.object as IfcEditableObject3D).userData.ifcEditTarget?.localIds ?? [])
-      .filter(Number.isFinite)
+    const ifcLocalIds = (editable.userData.ifcEditTarget?.localIds ?? []).filter(Number.isFinite)
     void applyIfcSelectionVisibility(sceneState, {
       modelId: target.modelId,
       localIds: ifcLocalIds.length > 0 ? ifcLocalIds : [target.hitLocalId],
       proxyObject: target.object,
       mode: 'proxy',
       proxyOpacity: 1,
-      keepModelVisibleInProxy: true,
       reason: 'dimension_edit_sync_proxy',
     })
 
-    target.object.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) return
-      child.geometry.dispose()
-      child.geometry = new THREE.BoxGeometry(length, height, thickness)
-    })
+    target.object.scale.set(nextScaleX, nextScaleY, nextScaleZ)
+    target.object.updateMatrixWorld(true)
 
-    const editable = target.object as IfcEditableObject3D
     const editTarget = editable.userData.ifcEditTarget
     const element = editTarget?.element
     if (editTarget && element) {
