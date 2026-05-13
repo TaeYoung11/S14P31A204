@@ -270,8 +270,9 @@ def test_renderer_backend_invalid_env_raises(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_renderer_offscreen_uses_tensor_pinhole_rays() -> None:
-    """RaycastingScene.create_rays_pinhole receives tensor matrices and dimensions."""
+    """RaycastingScene.create_rays_pinhole receives fov, tensors, and dimensions."""
     fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]], dtype=np.float32)
     fake_center = np.array([0.0, 0.0, 0.0])
 
     class FakeHit:
@@ -297,9 +298,11 @@ def test_renderer_offscreen_uses_tensor_pinhole_rays() -> None:
 
     mock_o3d.t.geometry.RaycastingScene.create_rays_pinhole.assert_called_once()
     args = mock_o3d.t.geometry.RaycastingScene.create_rays_pinhole.call_args.args
-    assert args[0].shape == (3, 3)
-    assert args[1].shape == (4, 4)
-    assert args[2:] == (2, 2)
+    assert args[0] == 60.0
+    assert args[1].shape == (3,)
+    assert args[2].shape == (3,)
+    assert args[3].shape == (3,)
+    assert args[4:] == (2, 2)
     assert image.mode == "L"
     assert image.size == (2, 2)
 
