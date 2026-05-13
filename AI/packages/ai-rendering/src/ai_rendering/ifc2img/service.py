@@ -54,6 +54,7 @@ class PhotoDepthRenderDefaults:
     front_diagonal_target_ratio: float = 0.25
     front_diagonal_ground_extent_factor: float = 1.05
     iter_tolerance: float = 0.05
+    look_at_height_ratio: float = 0.35
 
 
 PHOTO_DEPTH_RENDER_DEFAULTS = PhotoDepthRenderDefaults()
@@ -67,6 +68,7 @@ DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR = (
     PHOTO_DEPTH_RENDER_DEFAULTS.front_diagonal_ground_extent_factor
 )
 DEFAULT_PHOTO_ITER_TOLERANCE = PHOTO_DEPTH_RENDER_DEFAULTS.iter_tolerance
+DEFAULT_PHOTO_LOOK_AT_HEIGHT_RATIO = PHOTO_DEPTH_RENDER_DEFAULTS.look_at_height_ratio
 PhotoViewAlias = Literal["front_diagonal_left", "front_diagonal_right"]
 Ifc2ImgWorkerStatus = Literal["SUCCESS", "ERROR"]
 Ifc2ImgWorkerCommandType = Literal["SD_RENDER_GENERATE"]
@@ -520,7 +522,27 @@ def _debug_grounded_mesh(base_mesh: Any, view: IFCView) -> Any:
     return attach_ground_plane_to_mesh(base_mesh, extent_factor=ground_extent)
 
 
-def _camera_debug_payload(mesh: Any, center: np.ndarray, view: IFCView) -> dict[str, object]:
+def _resolve_debug_lookat(
+    base_mesh: Any,
+    center: np.ndarray,
+    look_at_height_ratio: float,
+) -> np.ndarray:
+    vertices = np.asarray(base_mesh.vertices, dtype=np.float64)
+    if vertices.size == 0:
+        return center.astype(np.float64, copy=True)
+    min_z = float(vertices[:, 2].min())
+    max_z = float(vertices[:, 2].max())
+    lookat = center.astype(np.float64, copy=True)
+    lookat[2] = min_z + (max_z - min_z) * look_at_height_ratio
+    return lookat
+
+
+def _camera_debug_payload(
+    mesh: Any,
+    base_mesh: Any,
+    center: np.ndarray,
+    view: IFCView,
+) -> dict[str, object]:
     camera = VIEW_CAMERAS[view]
     vertices = np.asarray(mesh.vertices, dtype=np.float64)
     max_extent = float(np.max(vertices.max(axis=0) - vertices.min(axis=0)))
@@ -531,14 +553,21 @@ def _camera_debug_payload(mesh: Any, center: np.ndarray, view: IFCView) -> dict[
     front = front / front_norm
     zoom = float(np.clip(camera.zoom, 0.05, 2.0))
     eye_distance = max(max_extent * 1.25 / zoom, 1.0)
-    eye = center - front * eye_distance
+    lookat = _resolve_debug_lookat(
+        base_mesh,
+        center,
+        PHOTO_DEPTH_RENDER_DEFAULTS.look_at_height_ratio,
+    )
+    eye = lookat - front * eye_distance
     return {
         "eye": [float(value) for value in eye],
-        "lookAt": [float(value) for value in center],
+        "lookAt": [float(value) for value in lookat],
+        "rawCenter": [float(value) for value in center],
         "up": [float(value) for value in camera.up],
         "front": [float(value) for value in front],
         "zoom": zoom,
         "eyeDistance": float(eye_distance),
+        "lookAtHeightRatio": PHOTO_DEPTH_RENDER_DEFAULTS.look_at_height_ratio,
     }
 
 
@@ -564,7 +593,12 @@ def _build_debug_view_payload(
         },
         "orientation": geometry.orientation,
         "groundZ": geometry.ground_z,
-        "camera": _camera_debug_payload(grounded, geometry.center, internal_view),
+        "camera": _camera_debug_payload(
+            grounded,
+            geometry.mesh,
+            geometry.center,
+            internal_view,
+        ),
     }
 
 
@@ -631,6 +665,7 @@ def create_photo_ifc_renderer(
     iter_tolerance: float = PHOTO_DEPTH_RENDER_DEFAULTS.iter_tolerance,
     width: int = PHOTO_DEPTH_RENDER_DEFAULTS.width,
     height: int = PHOTO_DEPTH_RENDER_DEFAULTS.height,
+    look_at_height_ratio: float = PHOTO_DEPTH_RENDER_DEFAULTS.look_at_height_ratio,
 ) -> _IFCRendererProtocol:
     """기본 실행에서는 실제 IFCRenderer를 lazy import해 생성한다."""
     if renderer_cls is None:
@@ -648,6 +683,7 @@ def create_photo_ifc_renderer(
         view_ground_extent_overrides=build_front_diagonal_ground_extent_overrides(
             front_diagonal_ground_extent_factor
         ),
+        look_at_height_ratio=look_at_height_ratio,
     )
 
 

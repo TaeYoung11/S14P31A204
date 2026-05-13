@@ -81,6 +81,7 @@ class IFCRenderer:
         iter_max: int = 4,
         view_target_overrides: dict[IFCView, float] | None = None,
         view_ground_extent_overrides: dict[IFCView, float] | None = None,
+        look_at_height_ratio: float = 0.5,
     ) -> None:
         self.width = width
         self.height = height
@@ -93,6 +94,9 @@ class IFCRenderer:
         self.iter_max = iter_max
         self.view_target_overrides = dict(view_target_overrides or {})
         self.view_ground_extent_overrides = dict(view_ground_extent_overrides or {})
+        if not 0.0 <= look_at_height_ratio <= 1.0:
+            raise ValueError("look_at_height_ratio must be between 0 and 1.")
+        self.look_at_height_ratio = look_at_height_ratio
 
     def render(self, ifc_path: Path, view: IFCView = IFCView.FRONT) -> Image.Image:
         base_mesh, center = load_mesh(ifc_path)
@@ -170,6 +174,21 @@ class IFCRenderer:
         max_extent = float(np.max(verts.max(axis=0) - verts.min(axis=0)))
         return resolve_target_ratio_for_mesh(view, max_extent, base_ratio=base)
 
+    def _resolve_lookat(
+        self,
+        base_mesh: o3d.geometry.TriangleMesh,
+        center: np.ndarray,
+    ) -> np.ndarray:
+        """Resolve camera lookAt from base building bounds, excluding added ground."""
+        vertices = np.asarray(base_mesh.vertices, dtype=np.float64)
+        if vertices.size == 0:
+            return center.astype(np.float64, copy=True)
+        min_z = float(vertices[:, 2].min())
+        max_z = float(vertices[:, 2].max())
+        lookat = center.astype(np.float64, copy=True)
+        lookat[2] = min_z + (max_z - min_z) * self.look_at_height_ratio
+        return lookat
+
     @staticmethod
     def _capture_depth(
         vis: o3d.visualization.Visualizer,
@@ -235,28 +254,29 @@ class IFCRenderer:
         # ex: SampleHouse 17m → ground 포함 ~20m → MEDIUM 잘못 트리거 위험.
         initial_zoom = camera.zoom
         target_ratio = self._resolve_target_ratio(view, base_mesh)
+        lookat = self._resolve_lookat(base_mesh, center)
         backend = self._resolve_render_backend()
 
         if backend == "raycast":
             return self._render_mesh_offscreen(
-                mesh, center, camera, initial_zoom, target_ratio
+                mesh, lookat, camera, initial_zoom, target_ratio
             )
         if backend == "auto" and (
             self._is_headless() or self._is_container_like_runtime()
         ):
             return self._render_mesh_offscreen(
-                mesh, center, camera, initial_zoom, target_ratio
+                mesh, lookat, camera, initial_zoom, target_ratio
             )
 
         try:
             return self._render_mesh_windowed(
-                mesh, center, camera, initial_zoom, target_ratio
+                mesh, lookat, camera, initial_zoom, target_ratio
             )
         except IFCRenderError:
             if backend == "visualizer":
                 raise
             return self._render_mesh_offscreen(
-                mesh, center, camera, initial_zoom, target_ratio
+                mesh, lookat, camera, initial_zoom, target_ratio
             )
 
     def _render_mesh_windowed(
