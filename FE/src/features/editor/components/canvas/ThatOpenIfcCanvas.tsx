@@ -150,6 +150,9 @@ const IFC_MOVE_ALWAYS_TRACE_EVENTS = new Set<string>([
   'commit_core_update_done',
   'commit_core_update_failed',
   'commit_visibility_strategy',
+  'commit_visibility_rehide_start',
+  'commit_visibility_rehide_done',
+  'commit_visibility_rehide_failed',
   'commit_unpersisted_delta_color_reapply_start',
   'commit_unpersisted_delta_color_reapply_done',
   'commit_unpersisted_delta_color_reapply_failed',
@@ -157,7 +160,6 @@ const IFC_MOVE_ALWAYS_TRACE_EVENTS = new Set<string>([
   'pending_unpersisted_color_reapply_start',
   'pending_unpersisted_color_reapply_done',
   'pending_unpersisted_color_reapply_failed',
-  'commit_visibility_skip',
   'commit_visibility_scope',
   'canonical_alias_expansion',
   'visibility_scope_suspicious',
@@ -1155,7 +1157,7 @@ export default function ThatOpenIfcCanvas({
       })
     }
     const targetMatricesByLocalId = new Map<number, number[]>()
-    logIfcMove('commit_visibility_skip', {
+    logIfcMove('commit_visibility_prepare_skip', {
       targetKey,
       stage: 'prepare',
       reason: 'proxy_visibility_already_managed_on_pick',
@@ -1566,7 +1568,7 @@ export default function ThatOpenIfcCanvas({
     const deltaModelIdsAfterCommit = relatedModelIdsAfterCommit.filter((candidateId) => isDeltaModelId(candidateId))
     const unpersistedDeltaExists = !didPersistToRootModel && deltaModelIdsAfterCommit.length > 0
     const keepProxyVisibleAfterCommit = options?.keepProxyVisibleAfterCommit === true
-    const shouldKeepModelHiddenAfterCommit = unpersistedDeltaExists
+    const shouldKeepModelHiddenAfterCommit = keepProxyVisibleAfterCommit || unpersistedDeltaExists
     const visibilityModeAfterCommit: 'proxy' | 'model' = keepProxyVisibleAfterCommit ? 'proxy' : 'model'
     logIfcMove('commit_visibility_strategy', {
       targetKey,
@@ -1608,14 +1610,58 @@ export default function ThatOpenIfcCanvas({
         })
       }
     }
-    logIfcMove('commit_visibility_skip', {
+    const rehideLocalIds = Array.from(affectedLocalIds).length > 0
+      ? Array.from(affectedLocalIds)
+      : visibilityLocalIds
+    const rehideModelIds = relatedModelIdsAfterCommit.length > 0
+      ? relatedModelIdsAfterCommit
+      : [editableModelId]
+    logIfcMove('commit_visibility_rehide_start', {
       targetKey,
       stage: 'finalize',
-      reason: 'proxy_visibility_already_managed_on_pick',
-      localIds: visibilityLocalIds,
+      modelIds: rehideModelIds,
+      localIds: rehideLocalIds,
       visibilityModeAfterCommit,
       keepProxyVisibleAfterCommit,
+      keepModelHiddenAfterCommit: shouldKeepModelHiddenAfterCommit,
     })
+    if (shouldKeepModelHiddenAfterCommit && target.object) {
+      target.object.visible = true
+      for (const modelId of rehideModelIds) {
+        try {
+          await applyIfcSelectionVisibility(sceneState, {
+            modelId,
+            localIds: rehideLocalIds,
+            proxyObject: target.object,
+            mode: 'proxy',
+            proxyOpacity: 1,
+            reason: 'commit_rehide_after_core_update',
+            skipCoreUpdate: true,
+            forceRender: false,
+          })
+          logIfcMove('commit_visibility_rehide_done', {
+            targetKey,
+            modelId,
+            localIds: rehideLocalIds,
+          })
+        } catch (error) {
+          logIfcMove('commit_visibility_rehide_failed', {
+            targetKey,
+            modelId,
+            localIds: rehideLocalIds,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+    } else {
+      logIfcMove('commit_visibility_rehide_done', {
+        targetKey,
+        skipped: true,
+        reason: shouldKeepModelHiddenAfterCommit ? 'missing_proxy_object' : 'model_restore_allowed',
+        modelIds: rehideModelIds,
+        localIds: rehideLocalIds,
+      })
+    }
     logCommitTiming('after_visibility_apply')
     if (commitDisplayColor && REAPPLY_DISPLAY_COLOR_AFTER_MOVE) {
       await Promise.all(Array.from(affectedLocalIds).map(async (localId) => (

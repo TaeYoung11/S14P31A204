@@ -758,6 +758,7 @@ export const applyIfcSelectionVisibility = async (
     proxyOpacity?: number
     keepModelVisibleInProxy?: boolean
     skipHiderUpdate?: boolean
+    skipCoreUpdate?: boolean
     deferHiderToNextFrame?: boolean
     reason?: string
     forceRender?: boolean
@@ -792,6 +793,7 @@ export const applyIfcSelectionVisibility = async (
     hasProxyObject: Boolean(params.proxyObject),
     keepModelVisibleInProxy: params.keepModelVisibleInProxy ?? false,
     skipHiderUpdate: params.skipHiderUpdate ?? false,
+    skipCoreUpdate: params.skipCoreUpdate ?? false,
     deferHiderToNextFrame: params.deferHiderToNextFrame ?? false,
   })
   if (visibleLocalIds.length > 0) {
@@ -836,6 +838,7 @@ export const applyIfcSelectionVisibility = async (
         hiderVisible,
         keepModelVisibleInProxy: params.keepModelVisibleInProxy ?? false,
         skipHiderUpdate: params.skipHiderUpdate ?? false,
+        skipCoreUpdate: params.skipCoreUpdate ?? false,
         skipHiderCall,
       })
     }
@@ -871,11 +874,20 @@ export const applyIfcSelectionVisibility = async (
         hiderVisible,
         keepModelVisibleInProxy: params.keepModelVisibleInProxy ?? false,
         skipHiderUpdate: params.skipHiderUpdate ?? false,
+        skipCoreUpdate: params.skipCoreUpdate ?? false,
         skipHiderCall,
         elapsedMs: Number((performance.now() - visibilityStartedAt).toFixed(1)),
       })
     }
-    await syncFragmentsAfterVisibility()
+    if (params.skipCoreUpdate === true) {
+      traceIfcMoveVisibility('visibility_core_update_skipped', {
+        reason: visibilityReason,
+        mode: params.mode,
+        modelId: params.modelId,
+      })
+    } else {
+      await syncFragmentsAfterVisibility()
+    }
   }
   if (!params.proxyObject) return
   if (params.mode === 'proxy') {
