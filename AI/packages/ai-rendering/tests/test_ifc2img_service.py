@@ -205,6 +205,7 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(tmp_path: Path) -> N
     assert debug_manifest["schemaVersion"] == "ifc2img.debug.v1"
     assert debug_manifest["preset"] == "korean_house"
     assert debug_manifest["timeOfDay"] == "DAY"
+    assert "ifcSemanticSummaryError" in debug_manifest
     assert [view["view"] for view in debug_manifest["views"]] == list(
         PUBLIC_PHOTO_VIEWS
     )
@@ -216,6 +217,55 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(tmp_path: Path) -> N
     assert first_debug_view["files"]["semanticControlImage"] == (
         "debug/semantic_control_front_diagonal_left.png"
     )
+
+
+def test_run_ifc2img_photo_pipeline_writes_ifc_semantic_summary(
+    ifc4_fixture: Path,
+    tmp_path: Path,
+) -> None:
+    """A real IFC debug manifest embeds the semantic reader summary."""
+    output_dir = tmp_path / "out"
+
+    run_ifc2img_photo_pipeline(
+        ifc4_fixture,
+        output_dir,
+        preset="korean_house",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    debug_manifest = json.loads(
+        (output_dir / "debug" / "debug_manifest.json").read_text(encoding="utf-8")
+    )
+    semantic = debug_manifest["ifcSemanticSummary"]
+    assert set(semantic["categories"]) == {"FLOOR", "ROOF", "WALL", "WINDOW", "DOOR"}
+    assert all(
+        semantic["categories"][category]["count"] > 0
+        for category in ("FLOOR", "ROOF", "WALL", "WINDOW", "DOOR")
+    )
+    assert semantic["categories"]["FLOOR"]["zMin"] == pytest.approx(-0.362)
+    assert semantic["categories"]["FLOOR"]["zMax"] == pytest.approx(0.0)
+    assert semantic["categories"]["ROOF"]["zMin"] is not None
+    assert semantic["categories"]["ROOF"]["zMax"] == pytest.approx(6.5)
+    assert (
+        semantic["categories"]["FLOOR"]["zMax"]
+        < semantic["categories"]["ROOF"]["zMin"]
+    )
+    assert semantic["lowestFloor"]["category"] == "FLOOR"
+    assert semantic["highestRoof"]["category"] == "ROOF"
+    assert len(semantic["doorCandidates"]) >= 1
+    first_view = debug_manifest["views"][0]
+    element_masks = first_view["files"]["elementMasks"]
+    assert element_masks == {
+        "floor": "debug/element_floor_front_diagonal_left.png",
+        "roof": "debug/element_roof_front_diagonal_left.png",
+        "wall": "debug/element_wall_front_diagonal_left.png",
+        "window": "debug/element_window_front_diagonal_left.png",
+        "door": "debug/element_door_front_diagonal_left.png",
+        "composite": "debug/element_composite_front_diagonal_left.png",
+    }
+    for relative_path in element_masks.values():
+        assert (output_dir / relative_path).exists()
 
 
 def test_run_ifc2img_photo_pipeline_logs_depth_and_style_stages(
