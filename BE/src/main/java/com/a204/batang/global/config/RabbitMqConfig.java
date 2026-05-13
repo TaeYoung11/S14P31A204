@@ -502,7 +502,8 @@ public class RabbitMqConfig {
                 new IfcEditCommandMessage.ExpectedOutput(
                         readStringHeader(headers, IfcEditCommandPublisher.HEADER_IFC_STORAGE_URL),
                         readNullableStringHeader(headers, IfcEditCommandPublisher.HEADER_VALIDATION_REPORT_STORAGE_URL),
-                        readNullableStringHeader(headers, IfcEditCommandPublisher.HEADER_EDIT_PLAN_STORAGE_URL)
+                        readNullableStringHeader(headers, IfcEditCommandPublisher.HEADER_EDIT_PLAN_STORAGE_URL),
+                        null
                 ),
                 null,
                 readIntegerHeader(headers, IfcEditCommandPublisher.HEADER_ATTEMPT_NO),

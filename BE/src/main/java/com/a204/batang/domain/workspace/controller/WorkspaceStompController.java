@@ -9,6 +9,9 @@ import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanRedoRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanUndoRequest;
+import com.a204.batang.domain.workspace.dto.WorkspaceCommandAckResponse;
+import com.a204.batang.domain.workspace.dto.WorkspaceCommandEnvelope;
+import com.a204.batang.domain.workspace.service.WorkspaceIfcEditCommandBufferService;
 import com.a204.batang.domain.workspace.service.WorkspaceFloorPlanRealtimeService;
 import com.a204.batang.domain.workspace.service.WorkspaceRealtimeService;
 import com.a204.batang.global.exception.CustomException;
@@ -42,6 +45,7 @@ public class WorkspaceStompController {
     private final ChatCommandService chatCommandService;
     private final WorkspaceRealtimeService workspaceRealtimeService;
     private final WorkspaceFloorPlanRealtimeService workspaceFloorPlanRealtimeService;
+    private final WorkspaceIfcEditCommandBufferService workspaceIfcEditCommandBufferService;
 
     /**
      * 채팅 기반 편집 요청을 websocket으로 받아 ifcedit 작업을 큐에 등록한다.
@@ -128,6 +132,17 @@ public class WorkspaceStompController {
     ) {
         UUID currentUserId = resolvePrincipalUserIdOrThrow(principal);
         workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
+    }
+
+    @MessageMapping("/project/{projectId}/command")
+    @SendToUser(value = "/queue/command/accepted", broadcast = false)
+    public WorkspaceCommandAckResponse acceptWorkspaceCommand(
+            @DestinationVariable UUID projectId,
+            @Valid WorkspaceCommandEnvelope request,
+            Principal principal
+    ) {
+        UUID currentUserId = resolvePrincipalUserIdOrThrow(principal);
+        return workspaceIfcEditCommandBufferService.acceptCommand(projectId, currentUserId, request);
     }
 
     /**

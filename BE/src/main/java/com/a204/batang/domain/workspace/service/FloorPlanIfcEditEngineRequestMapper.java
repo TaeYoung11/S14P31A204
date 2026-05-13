@@ -1,0 +1,243 @@
+package com.a204.batang.domain.workspace.service;
+
+import com.a204.batang.domain.workspace.dto.WorkspaceCommandEnvelope;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+import java.util.UUID;
+
+@Component
+@RequiredArgsConstructor
+public class FloorPlanIfcEditEngineRequestMapper {
+
+    private final ObjectMapper objectMapper;
+
+    public JsonNode toEngineRequest(String requestId, UUID projectId, UUID baseRevisionId, List<WorkspaceCommandEnvelope> batch) {
+        ObjectNode root = objectMapper.createObjectNode();
+        root.put("schema_version", "v1");
+        root.put("request_id", requestId);
+        root.put("mode", "apply");
+        root.put("project_id", projectId.toString());
+        root.put("base_revision_id", baseRevisionId.toString());
+        ArrayNode operations = root.putArray("operations");
+
+        for (WorkspaceCommandEnvelope envelope : batch) {
+            JsonNode operation = toOperation(envelope);
+            if (operation != null) {
+                operations.add(operation);
+            }
+        }
+        return root;
+    }
+
+    private JsonNode toOperation(WorkspaceCommandEnvelope envelope) {
+        String op = envelope.command().op();
+        return switch (op) {
+            case "create" -> toCreateOperation(envelope);
+            case "update" -> toUpdateOperation(envelope);
+            case "delete" -> toDeleteOperation(envelope);
+            default -> null;
+        };
+    }
+
+    private JsonNode toCreateOperation(WorkspaceCommandEnvelope envelope) {
+        JsonNode data = envelope.command().data();
+        if (data == null || !data.isObject()) {
+            return null;
+        }
+
+        ObjectNode params = objectMapper.createObjectNode();
+        String entity = envelope.command().entity();
+        String elementType = toIfcClass(entity, text(data, "ifcClass"));
+        if (elementType == null) {
+            return null;
+        }
+        params.put("element_type", elementType);
+        putText(params, "storey_global_id", firstText(data, "storeyGlobalId", "storey_global_id"));
+        putPoint(params, "start_mm", firstPoint(data, "startMm", "start_mm"));
+        putPoint(params, "end_mm", firstPoint(data, "endMm", "end_mm"));
+        putPoint(params, "center_mm", firstPoint(data, "centerMm", "center_mm"));
+        putText(params, "host_wall_global_id", firstText(data, "hostWallGlobalId", "host_wall_global_id", "wall_id"));
+        putDimensions(params, data, false);
+        putNumber(params, "sill_height_mm", firstNumber(data, "sill_height", "sillHeightMm"));
+        putText(params, "material", text(data, "material"));
+        putText(params, "color", text(data, "color"));
+
+        return operation(envelope.commandId().toString(), "create_element", null, params);
+    }
+
+    private JsonNode toUpdateOperation(WorkspaceCommandEnvelope envelope) {
+        JsonNode patch = envelope.command().patch();
+        if (patch == null || !patch.isObject() || patch.isEmpty()) {
+            return null;
+        }
+
+        String globalId = firstText(patch, "globalId", "global_id");
+        if (globalId == null || globalId.isBlank()) {
+            globalId = envelope.command().id();
+        }
+        if (globalId == null || globalId.isBlank()) {
+            return null;
+        }
+
+        JsonNode startMm = firstPoint(patch, "startMm", "start_mm");
+        JsonNode endMm = firstPoint(patch, "endMm", "end_mm");
+        if (startMm != null || endMm != null) {
+            ObjectNode params = objectMapper.createObjectNode();
+            putPoint(params, "start_mm", startMm);
+            putPoint(params, "end_mm", endMm);
+            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
+        }
+
+        ObjectNode params = objectMapper.createObjectNode();
+        putDimensions(params, patch, true);
+        putText(params, "material", text(patch, "material"));
+        putText(params, "color", text(patch, "color"));
+        if (!params.has("dimensions_mm") && !params.has("material") && !params.has("color")) {
+            return null;
+        }
+        return operation(envelope.commandId().toString(), "update_element_properties", selector(globalId), params);
+    }
+
+    private JsonNode toDeleteOperation(WorkspaceCommandEnvelope envelope) {
+        String globalId = envelope.command().id();
+        if (globalId == null || globalId.isBlank()) {
+            return null;
+        }
+        return operation(envelope.commandId().toString(), "delete_elements", selector(globalId), objectMapper.createObjectNode());
+    }
+
+    private ObjectNode operation(String id, String type, ObjectNode selector, ObjectNode parameters) {
+        ObjectNode operation = objectMapper.createObjectNode();
+        operation.put("id", id);
+        operation.put("type", type);
+        if (selector != null) {
+            operation.set("selector", selector);
+        }
+        operation.set("parameters", parameters);
+        return operation;
+    }
+
+    private ObjectNode selector(String globalId) {
+        ObjectNode selector = objectMapper.createObjectNode();
+        ArrayNode ids = selector.putArray("global_ids");
+        ids.add(globalId);
+        return selector;
+    }
+
+    private void putDimensions(ObjectNode params, JsonNode source, boolean wrapMode) {
+        ObjectNode dimensions = objectMapper.createObjectNode();
+        putDimension(dimensions, "length", firstNumber(source, "lengthMm", "length", "length_mm"), wrapMode);
+        putDimension(dimensions, "height", firstNumber(source, "heightMm", "height", "height_mm"), wrapMode);
+        putDimension(dimensions, "width", firstNumber(source, "thickness", "thicknessMm", "width", "widthMm", "width_mm"), wrapMode);
+        putDimension(dimensions, "sill_height", firstNumber(source, "sill_height", "sillHeightMm"), wrapMode);
+        if (!dimensions.isEmpty()) {
+            params.set("dimensions_mm", dimensions);
+        }
+    }
+
+    private void putDimension(ObjectNode dimensions, String key, Double value, boolean wrapMode) {
+        if (value == null || !Double.isFinite(value) || value <= 0) {
+            return;
+        }
+        if (!wrapMode) {
+            dimensions.put(key, value);
+            return;
+        }
+        ObjectNode wrapped = objectMapper.createObjectNode();
+        wrapped.put("mode", "ABSOLUTE");
+        wrapped.put("value", value);
+        dimensions.set(key, wrapped);
+    }
+
+    private void putPoint(ObjectNode target, String field, JsonNode point) {
+        if (point != null) {
+            target.set(field, point);
+        }
+    }
+
+    private void putText(ObjectNode target, String field, String value) {
+        if (value != null && !value.isBlank()) {
+            target.put(field, value);
+        }
+    }
+
+    private void putNumber(ObjectNode target, String field, Double value) {
+        if (value != null && Double.isFinite(value)) {
+            target.put(field, value);
+        }
+    }
+
+    private String toIfcClass(String entity, String fallback) {
+        if (fallback != null && fallback.startsWith("Ifc")) {
+            return fallback;
+        }
+        return switch (entity) {
+            case "wall" -> "IfcWall";
+            case "door" -> "IfcDoor";
+            case "window", "opening" -> "IfcWindow";
+            case "slab" -> "IfcSlab";
+            case "column" -> "IfcColumn";
+            case "beam" -> "IfcBeam";
+            case "stair" -> "IfcStair";
+            case "roof" -> "IfcRoof";
+            default -> null;
+        };
+    }
+
+    private String firstText(JsonNode node, String... keys) {
+        for (String key : keys) {
+            String value = text(node, key);
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String text(JsonNode node, String key) {
+        JsonNode value = node == null ? null : node.get(key);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        return value.asText();
+    }
+
+    private Double firstNumber(JsonNode node, String... keys) {
+        for (String key : keys) {
+            JsonNode value = node == null ? null : node.get(key);
+            if (value != null && value.isNumber()) {
+                return value.asDouble();
+            }
+        }
+        return null;
+    }
+
+    private JsonNode firstPoint(JsonNode node, String... keys) {
+        for (String key : keys) {
+            JsonNode value = node == null ? null : node.get(key);
+            if (value == null || value.isNull()) {
+                continue;
+            }
+            if (value.isArray() && value.size() >= 2 && value.get(0).isNumber() && value.get(1).isNumber()) {
+                ObjectNode point = objectMapper.createObjectNode();
+                point.put("x", value.get(0).asDouble());
+                point.put("y", value.get(1).asDouble());
+                return point;
+            }
+            if (value.isObject() && value.get("x") != null && value.get("y") != null
+                    && value.get("x").isNumber() && value.get("y").isNumber()) {
+                ObjectNode point = objectMapper.createObjectNode();
+                point.put("x", value.get("x").asDouble());
+                point.put("y", value.get("y").asDouble());
+                return point;
+            }
+        }
+        return null;
+    }
+}

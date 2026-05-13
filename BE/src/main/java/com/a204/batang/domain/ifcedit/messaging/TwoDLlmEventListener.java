@@ -20,8 +20,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -60,6 +63,65 @@ public class TwoDLlmEventListener {
             default -> {
             }
         }
+    }
+
+    @Transactional
+    @RabbitListener(queues = RabbitMqConfig.TWO_D_LLM_DLQ)
+    public void consumeDlq(Message message) {
+        IfcEditCommandMessage commandMessage;
+        try {
+            commandMessage = objectMapper.readValue(message.getBody(), IfcEditCommandMessage.class);
+        } catch (Exception exception) {
+            log.error("2D LLM DLQ message parse failed. headers={}", message.getMessageProperties().getHeaders(), exception);
+            return;
+        }
+
+        if (commandMessage.jobId() == null || commandMessage.jobStepId() == null) {
+            log.error("2D LLM DLQ message missing identifiers. jobId={}, jobStepId={}",
+                    commandMessage.jobId(), commandMessage.jobStepId());
+            return;
+        }
+
+        IfcEditJob job = ifcEditJobRepository.findByJobIdAndJobType(
+                commandMessage.jobId(), JOB_TYPE_TWO_D_TO_IFC_EDIT
+        ).orElse(null);
+        IfcEditJobStep step = ifcEditJobStepRepository.findByJobStepIdAndJobId(
+                commandMessage.jobStepId(), commandMessage.jobId()
+        ).orElse(null);
+
+        if (job == null || step == null) {
+            log.warn("2D LLM DLQ message ignored because job state not found. jobId={}, jobStepId={}",
+                    commandMessage.jobId(), commandMessage.jobStepId());
+            return;
+        }
+        if (job.isTerminal() || step.isTerminal()) {
+            log.info("2D LLM DLQ message ignored because state is already terminal. jobId={}, jobStepId={}",
+                    commandMessage.jobId(), commandMessage.jobStepId());
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        String failureMessage = ErrorCode.IFC_EDIT_COMMAND_DLQ.getMessage();
+        JsonNode outputPayload = buildDlqPayload(RabbitMqConfig.TWO_D_LLM_DLQ);
+        step.markFailed(ErrorCode.IFC_EDIT_COMMAND_DLQ.getCode(), failureMessage, outputPayload, now);
+        job.markFailed(failureMessage, outputPayload, now);
+        ifcEditJobStepRepository.save(step);
+        ifcEditJobRepository.save(job);
+
+        log.warn("2D LLM DLQ message marked job failed. projectId={}, jobId={}, jobStepId={}",
+                job.getProjectId(), job.getJobId(), step.getJobStepId());
+
+        publishStatusEvent(job.getProjectId(), SSE_IFC_EDIT_FAILED, new IfcEditStatusSseResponse(
+                SSE_IFC_EDIT_FAILED,
+                job.getProjectId(),
+                job.getJobId(),
+                step.getJobStepId(),
+                null,
+                job.getJobType(),
+                "FAILED",
+                0,
+                failureMessage
+        ));
     }
 
     private void handleStarted(IfcEditEventMessage event) {
@@ -166,7 +228,7 @@ public class TwoDLlmEventListener {
         ifcEditJobStepRepository.save(step2);
 
         Map<String, Object> payloadMap = new LinkedHashMap<>();
-        payloadMap.put("command_json_storage_url", commandJsonStorageUrl);
+        payloadMap.put("commandJsonStorageUrl", commandJsonStorageUrl);
         IfcEditCommandMessage cmd = new IfcEditCommandMessage(
                 UUID.randomUUID(), MESSAGE_SCHEMA_VERSION, MESSAGE_TYPE_COMMAND,
                 COMMAND_TYPE_IFC_EDIT_APPLY, RabbitMqConfig.IFC_EDIT_COMMAND_ROUTING_KEY,
@@ -175,7 +237,7 @@ public class TwoDLlmEventListener {
                 sourceRevisionId, job.getSourceSceneStateId(), job.getSourceSceneType(),
                 targetRevisionId, outputArtifactId,
                 Map.of("source_ifc_storage_url", sourceIfcUrl),
-                new IfcEditCommandMessage.ExpectedOutput(outputIfcUrl, validationUrl, null),
+                new IfcEditCommandMessage.ExpectedOutput(outputIfcUrl, validationUrl, null, null),
                 objectMapper.valueToTree(payloadMap), ATTEMPT_NO, MAX_ATTEMPTS,
                 idempotencyKey2, correlationId, OffsetDateTime.now(ZoneOffset.UTC)
         );
@@ -278,6 +340,15 @@ public class TwoDLlmEventListener {
             payload.put("clarificationPossible", error.clarificationPossible());
             payload.put("detailStorageUrl", error.detailStorageUrl());
         }
+        return objectMapper.valueToTree(payload);
+    }
+
+    private JsonNode buildDlqPayload(String deadLetterQueue) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("eventType", "DLQ_FAILED");
+        payload.put("errorCode", ErrorCode.IFC_EDIT_COMMAND_DLQ.getCode());
+        payload.put("errorMessage", ErrorCode.IFC_EDIT_COMMAND_DLQ.getMessage());
+        payload.put("deadLetterQueue", deadLetterQueue);
         return objectMapper.valueToTree(payload);
     }
 }

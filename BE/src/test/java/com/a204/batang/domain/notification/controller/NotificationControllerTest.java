@@ -1,9 +1,12 @@
 package com.a204.batang.domain.notification.controller;
 
 import com.a204.batang.domain.notification.dto.ProjectInvitationNotificationListResponse;
+import com.a204.batang.domain.notification.dto.ProjectInvitationNotificationReadResponse;
 import com.a204.batang.domain.notification.dto.ProjectInvitationNotificationResponse;
 import com.a204.batang.domain.notification.service.NotificationSseService;
 import com.a204.batang.domain.notification.service.ProjectInvitationNotificationService;
+import com.a204.batang.global.exception.CustomException;
+import com.a204.batang.global.exception.ErrorCode;
 import com.a204.batang.global.exception.controller.GlobalExceptionHandler;
 import com.a204.batang.global.jwt.JwtAuthFilter;
 import org.junit.jupiter.api.Test;
@@ -22,6 +25,7 @@ import java.util.UUID;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -110,6 +114,49 @@ class NotificationControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.code").value("COMMON_INVALID_REQUEST"));
+    }
+
+    @Test
+    void readProjectInvitationNotification_returnsWrappedResponse() throws Exception {
+        UUID notificationId = UUID.randomUUID();
+        LocalDateTime readAt = LocalDateTime.of(2026, 5, 13, 10, 30, 0);
+        ProjectInvitationNotificationReadResponse response =
+                new ProjectInvitationNotificationReadResponse(notificationId, true, readAt);
+
+        given(projectInvitationNotificationService.markProjectInvitationNotificationAsRead(notificationId))
+                .willReturn(response);
+
+        mockMvc.perform(patch("/api/v1/notifications/invitations/{notificationId}/read", notificationId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.message").value("초대 알림 읽음 처리 완료"))
+                .andExpect(jsonPath("$.data.notificationId").value(notificationId.toString()))
+                .andExpect(jsonPath("$.data.isRead").value(true))
+                .andExpect(jsonPath("$.data.readAt").value("2026-05-13T10:30:00"));
+
+        verify(projectInvitationNotificationService).markProjectInvitationNotificationAsRead(notificationId);
+    }
+
+    @Test
+    void readProjectInvitationNotification_returnsBadRequest_whenNotificationIdIsInvalidUuid() throws Exception {
+        mockMvc.perform(patch("/api/v1/notifications/invitations/{notificationId}/read", "not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("COMMON_INVALID_REQUEST"));
+    }
+
+    @Test
+    void readProjectInvitationNotification_returnsNotFound_whenNotificationDoesNotExist() throws Exception {
+        UUID notificationId = UUID.randomUUID();
+
+        given(projectInvitationNotificationService.markProjectInvitationNotificationAsRead(notificationId))
+                .willThrow(new CustomException(ErrorCode.INVITATION_NOTIFICATION_NOT_FOUND));
+
+        mockMvc.perform(patch("/api/v1/notifications/invitations/{notificationId}/read", notificationId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.code").value("INVITATION_NOTIFICATION_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("초대 알림을 찾을 수 없습니다."));
     }
 
     private ProjectInvitationNotificationResponse createNotificationResponse(boolean isRead) {
