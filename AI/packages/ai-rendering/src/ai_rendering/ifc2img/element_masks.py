@@ -176,6 +176,8 @@ def _cast_depth(
     ans = scene.cast_rays(rays)
     depth = ans["t_hit"].numpy().reshape((height, width)).astype(np.float32, copy=False)
     depth[~np.isfinite(depth)] = 0.0
+    # Match the raycast depth image row convention used by IFCRenderer.
+    depth = np.flipud(depth).copy()
     return depth
 
 
