@@ -5,6 +5,7 @@ import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.render.dto.CreateRenderRequest;
 import com.a204.batang.domain.render.dto.CreateRenderResponse;
+import com.a204.batang.domain.render.dto.RenderStyleRequest;
 import com.a204.batang.domain.render.dto.RenderStatusSseResponse;
 import com.a204.batang.domain.render.entity.RenderJob;
 import com.a204.batang.domain.render.entity.RenderJobStep;
@@ -44,6 +45,7 @@ public class RenderCommandService {
     private static final String JOB_TYPE_SD_RENDER = "SD_RENDER";
     private static final String WORKER_TYPE_SD_RENDER = "SD_RENDER";
     private static final String SOURCE_SCENE_TYPE_IFC_MODEL = "IFC_MODEL";
+    private static final String DEFAULT_IFC2IMG_TIME_OF_DAY = "DAY";
 
     private final ProjectRepository projectRepository;
     private final ProjectAccessService projectAccessService;
@@ -230,12 +232,21 @@ public class RenderCommandService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("renderMode", "ifc2img");
         payload.put("prompt", request.prompt());
-        if (request.style() != null) {
-            putIfNotNull(payload, "timeOfDay", request.style().timeOfDay());
-        }
+        payload.put("timeOfDay", resolveWorkerTimeOfDay(request.style()));
         putIfNotNull(payload, "negativePrompt", request.negativePrompt());
         putIfNotNull(payload, "sourceImageStorageUrl", request.sourceImageStorageUrl());
         return payload;
+    }
+
+    private String resolveWorkerTimeOfDay(RenderStyleRequest style) {
+        if (style == null || style.timeOfDay() == null || style.timeOfDay().isBlank()) {
+            return DEFAULT_IFC2IMG_TIME_OF_DAY;
+        }
+
+        return switch (style.timeOfDay().trim().toUpperCase()) {
+            case "NIGHT", "DUSK", "EVENING" -> "NIGHT";
+            default -> "DAY";
+        };
     }
 
     private void putIfNotNull(Map<String, Object> map, String key, Object value) {
