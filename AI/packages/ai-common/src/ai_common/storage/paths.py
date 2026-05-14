@@ -42,13 +42,6 @@ def error_detail_key(project_id: str, job_id: str, step_no: int) -> str:
     )
 
 
-def clarification_detail_key(project_id: str, job_id: str, step_no: int) -> str:
-    return (
-        f"projects/{project_id}/jobs/{job_id}/steps/{pad_step(step_no)}"
-        "/clarification/detail.v1.json"
-    )
-
-
 def revision_ifc_key(project_id: str, revision_id: str) -> str:
     return f"projects/{project_id}/revisions/{revision_id}/ifc/model.v1.ifc"
 
@@ -58,7 +51,6 @@ def revision_manifest_key(project_id: str, revision_id: str) -> str:
 
 
 __all__ = [
-    "clarification_detail_key",
     "engine_request_key",
     "error_detail_key",
     "pad_step",

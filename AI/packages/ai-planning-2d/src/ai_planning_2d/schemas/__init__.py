@@ -1,4 +1,3 @@
-from .clarification import ClarificationAlternative, ClarificationArtifact
 from .command import ActionType, CommandBatch, FloorNLPCommand, IFCCommand, NewRoom
 from .error_detail import ErrorDetailArtifact
 from .ifc_context import (
@@ -28,8 +27,6 @@ from .validation import PlanStatus, ValidationIssue, ValidationSeverity
 from .validation_report import ValidationReportArtifact
 
 __all__ = [
-    "ClarificationAlternative",
-    "ClarificationArtifact",
     "ActionType",
     "CommandBatch",
     "FloorNLPCommand",
