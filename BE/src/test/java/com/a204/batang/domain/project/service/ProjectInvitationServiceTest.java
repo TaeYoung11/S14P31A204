@@ -5,6 +5,7 @@ import com.a204.batang.domain.auth.entity.UserStatus;
 import com.a204.batang.domain.auth.entity.UserType;
 import com.a204.batang.domain.auth.repository.MemberRepository;
 import com.a204.batang.domain.notification.entity.ProjectInvitationNotification;
+import com.a204.batang.domain.notification.event.ProjectInvitationNotificationCreatedEvent;
 import com.a204.batang.domain.notification.repository.ProjectInvitationNotificationRepository;
 import com.a204.batang.domain.project.dto.ProjectInvitationRequest;
 import com.a204.batang.domain.project.dto.ProjectInvitationResponse;
@@ -22,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -54,6 +56,9 @@ class ProjectInvitationServiceTest {
 
     @Mock
     private ProjectAccessService projectAccessService;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private ProjectInvitationService projectInvitationService;
@@ -92,6 +97,8 @@ class ProjectInvitationServiceTest {
                 ProjectMemberRole.CLIENT
         )).willReturn(false);
         given(memberRepository.findById(ownerUserId)).willReturn(Optional.of(owner));
+        given(projectInvitationNotificationRepository.save(any(ProjectInvitationNotification.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
 
         ProjectInvitationResponse response = projectInvitationService.inviteProjectMember(projectId, request);
 
@@ -119,6 +126,18 @@ class ProjectInvitationServiceTest {
         assertThat(savedNotification.getInviterName()).isEqualTo(owner.getName());
         assertThat(savedNotification.isRead()).isFalse();
         assertThat(savedNotification.getReadAt()).isNull();
+
+        ArgumentCaptor<ProjectInvitationNotificationCreatedEvent> eventCaptor =
+                ArgumentCaptor.forClass(ProjectInvitationNotificationCreatedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        ProjectInvitationNotificationCreatedEvent publishedEvent = eventCaptor.getValue();
+        assertThat(publishedEvent.recipientUserId()).isEqualTo(inviteeUserId);
+        assertThat(publishedEvent.inviterUserId()).isEqualTo(ownerUserId);
+        assertThat(publishedEvent.projectId()).isEqualTo(projectId);
+        assertThat(publishedEvent.projectName()).isEqualTo(project.getName());
+        assertThat(publishedEvent.inviterName()).isEqualTo(owner.getName());
+        assertThat(publishedEvent.isRead()).isFalse();
+        assertThat(publishedEvent.readAt()).isNull();
     }
 
     @Test
