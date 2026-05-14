@@ -245,6 +245,70 @@ def test_transform_and_update_handlers_support_ifc_space() -> None:
     assert space.Name == "Updated"
 
 
+def test_update_element_properties_unwraps_space_dimension_values() -> None:
+    bundle = _make_model()
+    create_handler = get("create_element")
+    update_handler = get("update_element_properties")
+
+    space = create_handler.execute(
+        bundle["model"],
+        None,
+        {
+            "element_type": "IfcSpace",
+            "storey_id": bundle["storey"].GlobalId,
+            "start_mm": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "dimensions_mm": {"width": 3000, "height": 4000},
+            "properties": {"name": "Wrapped Dimension Space"},
+        },
+    )
+    assert space is not None
+
+    updated = update_handler.execute(
+        bundle["model"],
+        None,
+        {
+            "dimensions_mm": {
+                "width": {"mode": "ABSOLUTE", "value": 5000},
+                "height": {"mode": "ABSOLUTE", "value": 4200},
+            }
+        },
+        {"global_ids": [space.GlobalId]},
+    )
+
+    assert updated == [space.GlobalId]
+    body = space.Representation.Representations[0].Items[0]
+    assert body.SweptArea.XDim == pytest.approx(5000.0)
+    assert body.SweptArea.YDim == pytest.approx(4200.0)
+
+
+def test_update_element_properties_skips_space_pset_name_only_update() -> None:
+    bundle = _make_model()
+    create_handler = get("create_element")
+    update_handler = get("update_element_properties")
+
+    space = create_handler.execute(
+        bundle["model"],
+        None,
+        {
+            "element_type": "IfcSpace",
+            "storey_id": bundle["storey"].GlobalId,
+            "start_mm": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "dimensions_mm": {"width": 3000, "height": 4000},
+            "properties": {"name": "Noop Space"},
+        },
+    )
+    assert space is not None
+
+    updated = update_handler.execute(
+        bundle["model"],
+        None,
+        {"pset_name": "Batang_SpaceDimensions"},
+        {"global_ids": [space.GlobalId]},
+    )
+
+    assert updated == []
+
+
 def test_transform_translation_units_do_not_depend_on_rotation() -> None:
     bundle = _make_model()
     create_handler = get("create_element")

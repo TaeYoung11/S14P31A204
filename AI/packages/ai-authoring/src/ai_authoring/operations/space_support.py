@@ -259,12 +259,18 @@ def update_space(
     properties: dict[str, Any] | None,
     pset_updates: dict[str, Any] | None,
     pset_name: str = DEFAULT_PSET_NAME,
-) -> None:
+) -> bool:
+    changed = False
+    dimensions = _unwrap_dimension_values(dimensions_mm or {})
+    properties = properties or {}
+    pset_updates = pset_updates or {}
+
     if properties and properties.get("name"):
         space.Name = str(properties["name"])
+        changed = True
 
-    width_mm = _int_or_none((dimensions_mm or {}).get("width"))
-    height_mm = _int_or_none((dimensions_mm or {}).get("height"))
+    width_mm = _int_or_none(dimensions.get("width"))
+    height_mm = _int_or_none(dimensions.get("height"))
     polygon_mm = properties.get("polygon_mm") if properties else None
     if polygon_mm:
         current_width, current_height, current_depth = space_dimensions(model, space)
@@ -282,6 +288,7 @@ def update_space(
             depth=current_depth,
             context=body_context(model, space),
         )
+        changed = True
     elif width_mm is not None or height_mm is not None:
         current_width, current_height, current_depth = space_dimensions(model, space)
         new_width = (
@@ -297,8 +304,9 @@ def update_space(
             depth=current_depth,
             context=body_context(model, space),
         )
+        changed = True
 
-    explicit_updates = dict((pset_updates or {}).get(pset_name, {}))
+    explicit_updates = dict(pset_updates.get(pset_name, {}))
     if width_mm is not None:
         explicit_updates.setdefault("Width", width_mm)
     if height_mm is not None:
@@ -341,6 +349,8 @@ def update_space(
             pset_name=pset_name,
             updates=explicit_updates,
         )
+        changed = True
+    return changed
 
 
 def update_space_pset(
@@ -430,3 +440,13 @@ def _int_or_none(value: Any) -> int | None:
     if value is None:
         return None
     return int(round(float(value)))
+
+
+def _unwrap_dimension_values(dimensions_mm: dict[str, Any]) -> dict[str, Any]:
+    unwrapped: dict[str, Any] = {}
+    for key, value in dimensions_mm.items():
+        if isinstance(value, dict) and "value" in value:
+            unwrapped[key] = value["value"]
+        else:
+            unwrapped[key] = value
+    return unwrapped
