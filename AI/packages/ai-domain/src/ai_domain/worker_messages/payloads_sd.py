@@ -13,6 +13,7 @@ class SdRenderCommandPayload(BaseModel):
     negativePrompt: str | None = None
     sourceImageStorageUrl: str | None = Field(default=None, min_length=1, max_length=2048)
     preset: str | None = Field(default=None, min_length=1, max_length=128)
+    timeOfDay: Literal["DAY", "NIGHT"] | None = None
 
     @model_validator(mode="after")
     def validate_mode_specific_fields(self) -> SdRenderCommandPayload:
