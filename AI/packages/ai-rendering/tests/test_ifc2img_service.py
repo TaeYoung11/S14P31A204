@@ -142,6 +142,9 @@ class FakeLogger:
     def warning(self, event: str, **kwargs: object) -> None:
         self.calls.append((event, kwargs))
 
+    def warning(self, event: str, **kwargs: object) -> None:
+        self.calls.append((event, kwargs))
+
 
 class FakeSemanticSummary:
     def __init__(self, source_ifc_path: Path) -> None:
@@ -275,6 +278,7 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(
         ifc_path,
         output_dir,
         preset="korean_house",
+        debug_artifacts=True,
         ifc_renderer_cls=FakeIFCRenderer,
         depth_style_renderer_cls=FakeDepthStyleRenderer,
     )
@@ -333,6 +337,67 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(
     assert first_debug_view["files"]["semanticControlImage"] == (
         "debug/semantic_control_front_diagonal_left.png"
     )
+
+
+def test_run_ifc2img_photo_pipeline_skips_debug_geometry_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """기본 production 경로는 debug geometry를 위해 IFC를 한 번 더 파싱하지 않는다."""
+    import ai_rendering.ifc2img.service as service
+
+    def fail_debug_geometry(_ifc_path: Path) -> None:
+        raise AssertionError("debug geometry should be opt-in")
+
+    monkeypatch.setattr(service, "_load_debug_geometry", fail_debug_geometry)
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        output_dir,
+        preset="korean_house",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    assert not (output_dir / "debug" / "debug_manifest.json").exists()
+
+
+def test_run_ifc2img_photo_pipeline_continues_when_debug_artifacts_fail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """debug artifact 생성 실패는 렌더 job 전체를 실패시키지 않는다."""
+    import ai_rendering.ifc2img.service as service
+
+    logger = FakeLogger()
+    monkeypatch.setattr(service, "_logger", logger)
+
+    def fail_debug_artifacts(**_kwargs: object) -> dict[str, object]:
+        raise RuntimeError("debug png failed")
+
+    monkeypatch.setattr(service, "_save_debug_artifacts", fail_debug_artifacts)
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    result = run_ifc2img_photo_pipeline(
+        ifc_path,
+        output_dir,
+        preset="korean_house",
+        debug_artifacts=True,
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    assert result.manifest_path.exists()
+    assert (output_dir / "photo_front_diagonal_left.png").exists()
+    assert (output_dir / "photo_front_diagonal_right.png").exists()
+    events = [event for event, _ in logger.calls]
+    assert events.count("ifc2img_debug_artifacts_failed") == 2
+    assert "ifc2img_manifest_write_completed" in events
 
 
 def test_run_ifc2img_photo_pipeline_writes_ifc_semantic_summary(

@@ -1,6 +1,6 @@
 package com.a204.batang.domain.ifcedit.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.a204.batang.domain.workspace.dto.WorkspaceCommand;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 
@@ -26,6 +26,6 @@ public record DirectIfcEditRequest(
 
         @NotNull
         @Schema(description = "IFC Edit 워커에 전달할 엔진 요청 페이로드입니다.")
-        JsonNode engineRequest
+        WorkspaceCommand engineRequest
 ) {
 }

@@ -66,15 +66,15 @@ export default function EditorToolbar({
         </div>
 
         <div className="flex items-center gap-5 justify-self-center">
-          <div className={`flex items-center gap-1 rounded-full p-1 ${
-            isView ? 'bg-white/10' : 'border border-[#E4E8F3] bg-[#EEF1F8]'
-          }`}>
-            {TOOLBAR_MODES.map((m) => (
-              <button key={m} type="button" onClick={() => onModeChange(m)} className={getModeTabClass(m)}>
-                {MODE_LABELS[m]}
-              </button>
-            ))}
-          </div>
+          {!isView && (
+            <div className="flex items-center gap-1 rounded-full border border-[#E4E8F3] bg-[#EEF1F8] p-1">
+              {TOOLBAR_MODES.map((m) => (
+                <button key={m} type="button" onClick={() => onModeChange(m)} className={getModeTabClass(m)}>
+                  {MODE_LABELS[m]}
+                </button>
+              ))}
+            </div>
+          )}
 
           {!isView && (
             <div className="flex items-center gap-1 border-l border-[#DDE2ED] pl-5 text-[#8E95A3]">

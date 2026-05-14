@@ -1,7 +1,7 @@
 import { lazy } from 'react'
 import { useFreshIfcUrl } from '@/features/editor/hooks/useFreshIfcUrl'
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
-import type { ThreeDCoordinates } from '../canvas-content/buildCanvasSectionProps'
+import type { ThreeDCameraViewPresetCommand, ThreeDCoordinates } from '../canvas-content/buildCanvasSectionProps'
 
 /** ThreeDCanvas는 ThatOpen 기반 Three.js 렌더러를 포함해 무거우므로 lazy 로드한다. */
 const ThreeDCanvas = lazy(() =>
@@ -15,6 +15,7 @@ interface ThreeDModeCanvasProps {
   scale: number
   isRotationLocked: boolean
   onThreeDCoordinatesChange: (coords: ThreeDCoordinates) => void
+  cameraViewPresetCommand: ThreeDCameraViewPresetCommand
 }
 
 /**
@@ -28,6 +29,7 @@ export default function ThreeDModeCanvas({
   scale,
   isRotationLocked,
   onThreeDCoordinatesChange,
+  cameraViewPresetCommand,
 }: ThreeDModeCanvasProps) {
   // mount 시마다 fresh presigned URL 발급 (만료된 URL로 인한 403 방지)
   // assetId가 없거나 재발급 실패 시 mock IFC로 폴백
@@ -60,6 +62,10 @@ export default function ThreeDModeCanvas({
       onIfcElementDelete={editorProps.handleDeleteIfcElement}
       localFloorData={editorProps.localFloorData}
       onThreeDCoordinatesChange={onThreeDCoordinatesChange}
+      cameraViewPresetCommand={cameraViewPresetCommand}
+      isTransformSnapEnabled={editorProps.isGridSnapEnabled}
+      transformSnapIntervalMm={editorProps.gridSnapIntervalMm}
+      isEditingLocked={editorProps.isThreeDEditingLocked}
     />
   )
 }

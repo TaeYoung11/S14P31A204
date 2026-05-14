@@ -2,14 +2,17 @@ package com.a204.batang.domain.workspace.service;
 
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.service.ProjectAccessService;
+import com.a204.batang.domain.ifcedit.dto.DirectIfcEditRequest;
 import com.a204.batang.domain.ifcedit.service.DirectIfcEditCommandService;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
+import com.a204.batang.domain.workspace.dto.BubbleFloorMeta;
 import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanSceneType;
 import com.a204.batang.domain.workspace.dto.FloorPlanRedoRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanUndoRequest;
 import com.a204.batang.domain.workspace.dto.PublishFloorPlanUpdatedRequest;
+import com.a204.batang.domain.workspace.dto.WorkspaceCommand;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
 import com.a204.batang.domain.workspace.repository.WorkspaceBubbleSnapshotRedisRepository;
@@ -29,6 +32,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -39,6 +43,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -84,6 +89,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 bubbleSnapshotHelper,
                 workspaceBubbleSnapshotRedisRepository,
                 floorPlanS3DeleteQueueService,
+                directIfcEditCommandService,
                 s3ObjectPresigner,
                 simpMessagingTemplate,
                 objectMapper
@@ -119,7 +125,8 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "living-room",
                         "LIVING",
                         84.5,
-                        "#ffffff"
+                        "#ffffff",
+                        null
                 )),
                 List.of(new BubbleUpdateRequest.ConnectionData(
                         "bubble-1",
@@ -129,13 +136,15 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 0,
                 null,
                 FloorPlanSceneType.TWO_D,
+                createWorkspaceCommand("create"),
                 objectMapper.readTree("""
                         {
                           "rooms": [{"bubbleId": "bubble-1", "label": "living-room"}],
                           "walls": [],
                           "openings": []
                         }
-                        """)
+                        """),
+                new BubbleFloorMeta(Map.of(1, "1F"), List.of(3))
         );
 
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
@@ -143,7 +152,19 @@ class WorkspaceFloorPlanRealtimeServiceTest {
 
         workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
 
-        verifyNoInteractions(directIfcEditCommandService);
+        ArgumentCaptor<DirectIfcEditRequest> directRequestCaptor = ArgumentCaptor.forClass(DirectIfcEditRequest.class);
+        verify(directIfcEditCommandService).createDirectIfcEdit(
+                eq(projectId),
+                eq(currentUserId),
+                directRequestCaptor.capture(),
+                any(JsonNode.class)
+        );
+
+        DirectIfcEditRequest directRequest = directRequestCaptor.getValue();
+        assertThat(directRequest.baseRevisionId()).isNotNull();
+        assertThat(directRequest.sourceSceneType()).isEqualTo("IFC_MODEL");
+        assertThat(directRequest.engineRequest()).isNotNull();
+        assertThat(directRequest.engineRequest().op()).isEqualTo("create");
 
         ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
         verify(simpMessagingTemplate).convertAndSend(
@@ -152,12 +173,15 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         );
 
         FloorPlanProjectSyncResponse response = responseCaptor.getValue();
-        assertThat(response.action()).isEqualTo("FLOOR_PLAN_UPDATED");
+        assertThat(response.action()).isEqualTo("FLOOR_PLAN_PROCESSING");
         assertThat(response.projectId()).isEqualTo(projectId);
         assertThat(response.revisionId()).isEqualTo(workspace.getCurrentRevision());
         assertThat(response.s3Url()).isNull();
         assertThat(response.floorPlanPayloadJson().get("baseIndex").asInt()).isEqualTo(0);
         assertThat(response.floorPlanPayloadJson().get("revisionId").asText()).isEqualTo(workspace.getCurrentRevision());
+        assertThat(response.floorPlanPayloadJson().get("bubbles").get(0).get("floor").asInt()).isEqualTo(1);
+        assertThat(response.floorPlanPayloadJson().get("floorMeta").get("namesByFloor").get("1").asText()).isEqualTo("1F");
+        assertThat(response.floorPlanPayloadJson().get("floorMeta").get("extraFloors").get(0).asInt()).isEqualTo(3);
         assertThat(response.updatedAt()).isNotNull();
     }
 
@@ -175,17 +199,20 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "living-room",
                         "LIVING",
                         84.5,
-                        "#ffffff"
+                        "#ffffff",
+                        null
                 )),
                 List.of(),
                 0,
                 null,
                 FloorPlanSceneType.THREE_D,
+                createWorkspaceCommand("create"),
                 objectMapper.readTree("""
                         {
                           "sceneType": "THREE_D"
                         }
-                        """)
+                        """),
+                null
         );
 
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
@@ -193,11 +220,16 @@ class WorkspaceFloorPlanRealtimeServiceTest {
 
         workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
 
-        verifyNoInteractions(directIfcEditCommandService);
+        verify(directIfcEditCommandService).createDirectIfcEdit(
+                eq(projectId),
+                eq(currentUserId),
+                any(DirectIfcEditRequest.class),
+                any(JsonNode.class)
+        );
     }
 
     @Test
-    void relayFloorPlanDraft_doesNotDependOnIfcEditJobAvailability() throws Exception {
+    void relayFloorPlanDraft_skipsWhenIfcEditJobConflictOccurs() throws Exception {
         FloorPlanRealtimeUpdateRequest request = new FloorPlanRealtimeUpdateRequest(
                 List.of(new BubbleUpdateRequest.BubbleData(
                         "bubble-1",
@@ -210,31 +242,33 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "living-room",
                         "LIVING",
                         84.5,
-                        "#ffffff"
+                        "#ffffff",
+                        null
                 )),
                 List.of(),
                 0,
                 null,
                 FloorPlanSceneType.TWO_D,
+                createWorkspaceCommand("create"),
                 objectMapper.readTree("""
                         {
                           "rooms": [{"bubbleId": "bubble-1", "label": "living-room"}],
                           "walls": [],
                           "openings": []
                         }
-                        """)
+                        """),
+                null
         );
 
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
                 .willReturn(Optional.of(workspace));
+        doThrow(new CustomException(ErrorCode.IFC_EDIT_JOB_CONFLICT))
+                .when(directIfcEditCommandService)
+                .createDirectIfcEdit(eq(projectId), eq(currentUserId), any(DirectIfcEditRequest.class), any(JsonNode.class));
 
         workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
 
-        verifyNoInteractions(directIfcEditCommandService);
-        verify(simpMessagingTemplate).convertAndSend(
-                eq("/topic/project/%s/floor-plan/sync".formatted(projectId)),
-                any(FloorPlanProjectSyncResponse.class)
-        );
+        verifyNoInteractions(simpMessagingTemplate);
     }
 
     @Test
@@ -251,7 +285,8 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "living-room",
                         "LIVING",
                         84.5,
-                        "#ffffff"
+                        "#ffffff",
+                        null
                 )),
                 List.of(new BubbleUpdateRequest.ConnectionData(
                         "bubble-1",
@@ -261,6 +296,8 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 0,
                 "rev-200",
                 FloorPlanSceneType.TWO_D,
+                createWorkspaceCommand("create"),
+                null,
                 null
         );
 
@@ -366,6 +403,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         assertThat(response.floorPlanPayloadJson().get("parentRevisionId").asText()).isEqualTo(parentRevisionId.toString());
         assertThat(response.floorPlanPayloadJson().get("bubbles").isArray()).isTrue();
         assertThat(response.floorPlanPayloadJson().get("connections").isArray()).isTrue();
+        assertThat(response.floorPlanPayloadJson().get("floorMeta").isNull()).isTrue();
     }
 
     @Test
@@ -528,5 +566,22 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 .isEqualTo(ErrorCode.WORKSPACE_FLOOR_PLAN_HISTORY_CURSOR_INVALID);
 
         verifyNoInteractions(simpMessagingTemplate);
+    }
+
+    private WorkspaceCommand createWorkspaceCommand(String op) {
+        JsonNode data = objectMapper.createObjectNode()
+                .put("ifcClass", "IfcWall")
+                .put("storeyGlobalId", "storey-1");
+        JsonNode patch = objectMapper.createObjectNode()
+                .put("lengthMm", 3000.0);
+
+        return new WorkspaceCommand(
+                op,
+                "wall",
+                "global-id-1",
+                "create".equals(op) ? data : null,
+                "update".equals(op) ? patch : null,
+                System.currentTimeMillis()
+        );
     }
 }

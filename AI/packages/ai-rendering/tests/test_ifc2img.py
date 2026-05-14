@@ -19,6 +19,7 @@ from ai_rendering.ifc2img.geometry import (
     GROUND_EXTENT_FACTOR,
     _add_ground_plane,
     _align_walls_to_axes,
+    _estimate_ground_z,
     attach_ground_plane_to_mesh,
     load_mesh,
 )
@@ -346,6 +347,75 @@ def test_renderer_backend_auto_falls_back_to_raycast_when_visualizer_fails(
     offscreen.assert_called_once()
 
 
+def test_renderer_backend_auto_falls_back_to_raycast_when_visualizer_runtime_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """auto retries raycast when Open3D raises a native Visualizer runtime error."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+    expected = _make_fake_render_image()
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "auto")
+
+    with (
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
+        patch.object(IFCRenderer, "_is_container_like_runtime", return_value=False),
+        patch.object(
+            IFCRenderer,
+            "_render_mesh_windowed",
+            side_effect=RuntimeError("Open3D native Visualizer failure"),
+        ) as windowed,
+        patch.object(IFCRenderer, "_render_mesh_offscreen", return_value=expected) as offscreen,
+    ):
+        renderer = IFCRenderer()
+        result = renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            IFCView.FRONT,
+        )
+
+    assert result is expected
+    windowed.assert_called_once()
+    offscreen.assert_called_once()
+
+
+def test_renderer_backend_visualizer_env_does_not_fallback_on_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit visualizer backend should surface native Visualizer failures."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
+
+    with (
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
+        patch.object(IFCRenderer, "_is_container_like_runtime", return_value=False),
+        patch.object(
+            IFCRenderer,
+            "_render_mesh_windowed",
+            side_effect=RuntimeError("Open3D native Visualizer failure"),
+        ) as windowed,
+        patch.object(IFCRenderer, "_render_mesh_offscreen") as offscreen,
+        pytest.raises(RuntimeError, match="Open3D native Visualizer failure"),
+    ):
+        renderer = IFCRenderer()
+        renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            IFCView.FRONT,
+        )
+
+    windowed.assert_called_once()
+    offscreen.assert_not_called()
+
+
 def test_renderer_backend_invalid_env_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "bogus")
 
@@ -387,8 +457,68 @@ def test_renderer_offscreen_uses_tensor_pinhole_rays() -> None:
     assert args[2].shape == (3,)
     assert args[3].shape == (3,)
     assert args[4:] == (2, 2)
+    assert np.linalg.norm(args[2] - fake_center) == pytest.approx(25.0)
     assert image.mode == "L"
     assert image.size == (2, 2)
+
+
+def test_renderer_offscreen_iterative_zoom_uses_target_ratio() -> None:
+    """Raycast path should honor auto_zoom target ratio like the Visualizer path."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]], dtype=np.float32)
+    fake_center = np.array([0.0, 0.0, 0.0])
+    far_from_target = np.zeros((4, 4), dtype=np.float32)
+    far_from_target[0, 0] = 5.0
+    target_depth = np.zeros((4, 4), dtype=np.float32)
+    target_depth[:2, :2] = 5.0
+
+    with patch.object(
+        IFCRenderer,
+        "_capture_raycast_depth",
+        side_effect=[far_from_target, target_depth],
+    ) as capture:
+        renderer = IFCRenderer(
+            width=4,
+            height=4,
+            auto_zoom=AutoZoomMode.ITERATIVE,
+            iter_tolerance=0.01,
+            iter_max=4,
+        )
+        image = renderer._render_mesh_offscreen(
+            fake_mesh,
+            fake_center,
+            VIEW_CAMERAS[IFCView.FRONT],
+            initial_zoom=1.0,
+            target_ratio=0.25,
+        )
+
+    assert image.mode == "L"
+    assert capture.call_count == 2
+    assert capture.call_args_list[0].args[3] == pytest.approx(1.0)
+    assert capture.call_args_list[1].args[3] == pytest.approx(0.5)
+
+
+def test_renderer_offscreen_raycast_produces_non_empty_depth_for_ifc_fixture(
+    ifc4_fixture: Path,
+) -> None:
+    """Real Open3D raycast should produce non-empty depth for an actual IFC mesh."""
+    base_mesh, center = load_mesh(ifc4_fixture)
+    renderer = IFCRenderer(width=160, height=96, auto_zoom=False)
+    view_mesh = renderer._build_grounded_mesh(base_mesh, IFCView.FRONT_DIAGONAL_LEFT)
+
+    image = renderer._render_mesh_offscreen(
+        view_mesh,
+        center,
+        VIEW_CAMERAS[IFCView.FRONT_DIAGONAL_LEFT],
+        initial_zoom=VIEW_CAMERAS[IFCView.FRONT_DIAGONAL_LEFT].zoom,
+        target_ratio=VIEW_TARGET_RATIOS[IFCView.FRONT_DIAGONAL_LEFT],
+    )
+    arr = np.asarray(image)
+
+    assert image.mode == "L"
+    assert image.size == (160, 96)
+    assert arr.max() > 0
+    assert np.count_nonzero(arr) > 0
 
 
 def test_renderer_calls_depth_buffer(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -793,6 +923,51 @@ def test_add_ground_plane_z_at_aabb_min() -> None:
     ground_verts = new_verts[len(verts):]
 
     assert np.allclose(ground_verts[:, 2], 1.5), "ground z should match AABB.z_min"
+
+
+def test_estimate_ground_z_uses_min_for_tiny_meshes() -> None:
+    """작은 synthetic mesh는 기존 AABB min-z 동작을 유지한다."""
+    verts = np.array(
+        [[0.0, 0.0, -2.0], [10.0, 5.0, 0.0], [5.0, 0.0, 4.5]],
+        dtype=np.float64,
+    )
+
+    assert _estimate_ground_z(verts) == -2.0
+
+
+def test_estimate_ground_z_uses_low_percentile_for_sparse_lower_outliers() -> None:
+    """일반 크기 mesh는 exact AABB min-z 대신 낮은 z percentile을 사용한다."""
+    base = np.column_stack(
+        [
+            np.linspace(0.0, 19.0, 20),
+            np.zeros(20, dtype=np.float64),
+            np.zeros(20, dtype=np.float64),
+        ]
+    )
+    base[0, 2] = -10.0
+
+    estimated = _estimate_ground_z(base)
+
+    assert estimated == np.percentile(base[:, 2], 5.0)
+    assert -10.0 < estimated < 0.0
+
+
+def test_add_ground_plane_uses_percentile_ground_z_for_normal_sized_mesh() -> None:
+    """일반 크기 mesh에 추가되는 ground plane은 percentile z 경로를 따른다."""
+    verts = np.column_stack(
+        [
+            np.linspace(0.0, 29.0, 30),
+            np.linspace(0.0, 5.0, 30),
+            np.zeros(30, dtype=np.float64),
+        ]
+    )
+    verts[0, 2] = -12.0
+    tris = np.array([[0, 1, 2]], dtype=np.int64)
+
+    new_verts, _ = _add_ground_plane(verts, tris)
+    ground_verts = new_verts[len(verts):]
+
+    np.testing.assert_allclose(ground_verts[:, 2], np.percentile(verts[:, 2], 5.0))
 
 
 def test_add_ground_plane_accepts_ground_z_override() -> None:

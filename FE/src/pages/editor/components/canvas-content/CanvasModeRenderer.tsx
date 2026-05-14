@@ -12,9 +12,9 @@ export default function CanvasModeRenderer({
   mode,
   canvasZoom,
   renderProps,
-  onOpenExport,
   isRotationLocked,
   onThreeDCoordinatesChange,
+  cameraViewPresetCommand,
 }: CanvasModeRendererSectionProps) {
   const scale = canvasZoom / 100
 
@@ -33,12 +33,13 @@ export default function CanvasModeRenderer({
         scale={scale}
         isRotationLocked={isRotationLocked}
         onThreeDCoordinatesChange={onThreeDCoordinatesChange}
+        cameraViewPresetCommand={cameraViewPresetCommand}
       />
     )
   }
 
   if (mode === 'view') {
-    return <ViewModeCanvas onExport={onOpenExport} />
+    return <ViewModeCanvas projectId={renderProps.projectId} />
   }
 
   return (
