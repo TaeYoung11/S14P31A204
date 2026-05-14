@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from .worker_runtime.app import WORKER_TYPE, main
+from .worker_runtime.app import WORKER_TYPE, build_settings, main, run_two_d_llm_worker
 
-__all__ = ["WORKER_TYPE", "main"]
+__all__ = ["WORKER_TYPE", "build_settings", "main", "run_two_d_llm_worker"]
