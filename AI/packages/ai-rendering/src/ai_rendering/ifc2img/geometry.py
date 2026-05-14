@@ -24,10 +24,17 @@ prompt 편향으로 *추가 층/지하* 환각을 만든다. ground plane을 mes
 """
 
 GROUND_BASE_Z_PERCENTILE = 5.0
-"""Robust lower percentile used to ignore sparse below-building outliers."""
+"""일반 크기 mesh의 ground z 배치에 사용하는 낮은 z percentile.
+
+vertex가 충분한 mesh에서는 의도적으로 AABB min-z와 다르게 동작한다. sparse lower
+geometry가 synthetic ground plane을 건물 base보다 과도하게 아래로 끌어내릴 수 있기
+때문이다. 다만 실제 하부 구조가 sparse하게 존재하는 모델에서는 synthetic ground
+plane이 그 구조 위로 올라갈 수 있으므로, 이 동작은 테스트로 고정하고 DAY/NIGHT만의
+변경으로 취급하지 않는다.
+"""
 
 GROUND_BASE_MIN_VERTEX_COUNT_FOR_ROBUST_Z = 20
-"""Small synthetic meshes keep exact min-z behavior for predictable tests."""
+"""이 크기보다 작은 mesh는 예측 가능한 테스트를 위해 exact min-z 동작을 유지한다."""
 
 MIN_PLAUSIBLE_HEIGHT_M = 1.0
 """Below this z extent, a building mesh is suspicious for Z-up rendering."""
@@ -277,7 +284,12 @@ def _add_ground_plane(
 
 
 def _estimate_ground_z(vertices: np.ndarray) -> float:
-    """Estimate the building base z while ignoring sparse lower outliers."""
+    """IFC depth rendering에 사용할 synthetic ground z를 추정한다.
+
+    작은 mesh는 deterministic helper test를 위해 exact min-z를 유지한다. 더 큰 mesh는
+    한두 개의 sparse lower vertex 때문에 ground plane이 시각적 building base보다
+    과도하게 아래로 내려가지 않도록 낮은 percentile을 사용한다.
+    """
     if len(vertices) < GROUND_BASE_MIN_VERTEX_COUNT_FOR_ROBUST_Z:
         return float(vertices[:, 2].min())
     z_values = np.asarray(vertices[:, 2], dtype=np.float64)
