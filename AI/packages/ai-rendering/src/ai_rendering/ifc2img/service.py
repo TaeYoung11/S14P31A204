@@ -29,6 +29,7 @@ from .geometry import (
 from .presets import list_presets, load_preset
 from .semantics import (
     IfcSemanticSummary,
+    extract_ifc_color_summary,
     extract_ifc_semantic_summary,
     is_reliable_main_door_candidate,
 )
@@ -1014,6 +1015,12 @@ def run_ifc2img_photo_pipeline(
         # The production semantic context is the source of truth; the debug manifest
         # only records a serializable snapshot for inspection.
         debug_manifest["ifcSemanticSummary"] = semantic_context.summary.to_dict()
+        try:
+            debug_manifest["ifcColorSummary"] = extract_ifc_color_summary(
+                ifc_path
+            ).to_dict()
+        except Exception as exc:  # pragma: no cover - error type varies by parser.
+            debug_manifest["ifcColorSummaryError"] = str(exc)
         debug_manifest["semanticGroundSelection"] = ground_selection.to_dict()
         debug_manifest["semanticFrontCameraSelection"] = front_camera_selection.to_dict()
 
