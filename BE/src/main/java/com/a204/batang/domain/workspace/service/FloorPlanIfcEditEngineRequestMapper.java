@@ -94,6 +94,7 @@ public class FloorPlanIfcEditEngineRequestMapper {
 
         JsonNode translationMm = firstPoint3d(patch, "translationMm", "translation_mm", "translateMm", "translate_mm");
         if (translationMm != null) {
+            // Realtime workspace commands are single-purpose; movement and property edits must be emitted separately.
             ObjectNode params = objectMapper.createObjectNode();
             params.set("translation_mm", translationMm);
             return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);

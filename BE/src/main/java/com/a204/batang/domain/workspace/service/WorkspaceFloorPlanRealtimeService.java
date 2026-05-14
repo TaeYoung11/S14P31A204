@@ -58,6 +58,7 @@ public class WorkspaceFloorPlanRealtimeService {
     private static final String ACTION_FLOOR_PLAN_UNDO = "FLOOR_PLAN_UNDO";
     private static final String ACTION_FLOOR_PLAN_REDO = "FLOOR_PLAN_REDO";
     private static final String DIRECT_IFC_SCHEMA_VERSION = "v1";
+    private static final int UNKNOWN_FLOOR_PLAN_BASE_INDEX = -1;
 
     private final ProjectWorkspaceRepository projectWorkspaceRepository;
     private final ProjectAccessService projectAccessService;
@@ -506,6 +507,16 @@ public class WorkspaceFloorPlanRealtimeService {
                         workspaceCommand
                 ))
         );
+        if (engineRequest == null) {
+            log.info(
+                    "Skip floor-plan realtime IFC edit enqueue because mapped engine request is null. projectId={}, baseRevisionId={}, op={}, entity={}",
+                    projectId,
+                    baseRevisionId,
+                    workspaceCommand.op(),
+                    workspaceCommand.entity()
+            );
+            return FloorPlanIfcEditQueueResult.SKIPPED_EMPTY_OPERATIONS;
+        }
         JsonNode operations = engineRequest.get("operations");
         if (operations == null || !operations.isArray() || operations.isEmpty()) {
             log.info(
@@ -561,7 +572,7 @@ public class WorkspaceFloorPlanRealtimeService {
                 UUID.randomUUID(),
                 projectId,
                 baseRevisionId,
-                baseIndex == null ? -1 : baseIndex,
+                baseIndex == null ? UNKNOWN_FLOOR_PLAN_BASE_INDEX : baseIndex,
                 workspaceCommand,
                 new WorkspaceCommandMeta(
                         sceneType == FloorPlanSceneType.THREE_D ? "3d" : "2d",

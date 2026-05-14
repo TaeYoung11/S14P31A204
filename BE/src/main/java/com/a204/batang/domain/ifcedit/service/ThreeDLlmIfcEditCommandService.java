@@ -41,6 +41,8 @@ import static com.a204.batang.domain.ifcedit.IfcEditConstants.*;
 @RequiredArgsConstructor
 public class ThreeDLlmIfcEditCommandService {
 
+    private static final String LLM_PAYLOAD_SCHEMA_VERSION = "v1";
+
     private final ProjectRepository projectRepository;
     private final RevisionRepository revisionRepository;
     private final ProjectAccessService projectAccessService;
@@ -88,7 +90,7 @@ public class ThreeDLlmIfcEditCommandService {
         JsonNode inputPayload = objectMapper.valueToTree(inputMap);
 
         Map<String, Object> payloadMap = new LinkedHashMap<>();
-        payloadMap.put("schema_version", "v1");
+        payloadMap.put("schema_version", LLM_PAYLOAD_SCHEMA_VERSION);
         if (request.userInstruction() != null) payloadMap.put("user_instruction", request.userInstruction());
         if (request.sourceSceneStorageUrl() != null) payloadMap.put("source_scene_storage_url", request.sourceSceneStorageUrl());
         if (request.sourceScene() != null) payloadMap.put("source_scene", request.sourceScene());
@@ -97,7 +99,7 @@ public class ThreeDLlmIfcEditCommandService {
         JsonNode requestPayload = objectMapper.valueToTree(payloadMap);
 
         Map<String, Object> workerPayloadMap = new LinkedHashMap<>();
-        workerPayloadMap.put("schema_version", "v1");
+        workerPayloadMap.put("schema_version", LLM_PAYLOAD_SCHEMA_VERSION);
         if (request.userInstruction() != null) {
             workerPayloadMap.put("userInstruction", request.userInstruction());
         }
