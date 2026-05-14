@@ -836,20 +836,28 @@ def run_ifc2img_photo_pipeline(
             and debug_geometry is not None
             and debug_manifest is not None
         ):
-            debug_view = _save_debug_artifacts(
-                output_dir=output_dir,
-                debug_dir=debug_dir,
-                preset=preset,
-                public_view=public_view,
-                internal_view=internal_view,
-                depth=depth,
-                photo=result.image,
-                geometry=debug_geometry,
-            )
-            actual_fill_ratio = float(debug_view["actualFillRatio"])
-            debug_manifest_views = debug_manifest["views"]
-            if isinstance(debug_manifest_views, list):
-                debug_manifest_views.append(debug_view)
+            try:
+                debug_view = _save_debug_artifacts(
+                    output_dir=output_dir,
+                    debug_dir=debug_dir,
+                    preset=preset,
+                    public_view=public_view,
+                    internal_view=internal_view,
+                    depth=depth,
+                    photo=result.image,
+                    geometry=debug_geometry,
+                )
+                actual_fill_ratio = float(debug_view["actualFillRatio"])
+                debug_manifest_views = debug_manifest["views"]
+                if isinstance(debug_manifest_views, list):
+                    debug_manifest_views.append(debug_view)
+            except Exception as exc:
+                _logger.warning(
+                    "ifc2img_debug_artifacts_failed",
+                    view=public_view,
+                    internalView=internal_view.value,
+                    error=str(exc),
+                )
         _logger.info(
             "ifc2img_style_render_completed",
             view=public_view,
@@ -872,13 +880,20 @@ def run_ifc2img_photo_pipeline(
 
     output_tuple = tuple(outputs)
     if debug_artifacts and debug_manifest is not None:
-        debug_manifest_path = debug_dir / DEBUG_MANIFEST_FILE
-        write_photo_manifest(debug_manifest_path, debug_manifest)
-        _logger.info(
-            "ifc2img_debug_manifest_write_completed",
-            debugManifestPath=str(debug_manifest_path),
-            viewCount=len(output_tuple),
-        )
+        try:
+            debug_manifest_path = debug_dir / DEBUG_MANIFEST_FILE
+            write_photo_manifest(debug_manifest_path, debug_manifest)
+            _logger.info(
+                "ifc2img_debug_manifest_write_completed",
+                debugManifestPath=str(debug_manifest_path),
+                viewCount=len(output_tuple),
+            )
+        except Exception as exc:
+            _logger.warning(
+                "ifc2img_debug_manifest_write_failed",
+                debugManifestPath=str(debug_dir / DEBUG_MANIFEST_FILE),
+                error=str(exc),
+            )
     manifest_path = output_dir / "manifest.json"
     _logger.info(
         "ifc2img_manifest_write_started",
