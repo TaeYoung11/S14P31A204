@@ -737,6 +737,7 @@ def run_ifc2img_photo_pipeline(
     *,
     preset: str = DEFAULT_PHOTO_PRESET,
     time_of_day: object | None = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY,
+    debug_artifacts: bool = False,
     ifc_renderer_cls: type[_IFCRendererProtocol] | None = None,
     depth_style_renderer_cls: type[_DepthStyleRendererProtocol] | None = None,
 ) -> Ifc2ImgPhotoJobResult:
@@ -756,15 +757,18 @@ def run_ifc2img_photo_pipeline(
     internal_views = list(PHOTO_INTERNAL_VIEWS)
     output_dir.mkdir(parents=True, exist_ok=True)
     debug_dir = output_dir / DEBUG_DIR_NAME
-    debug_dir.mkdir(parents=True, exist_ok=True)
-    debug_geometry = _load_debug_geometry(ifc_path)
-    debug_manifest: dict[str, object] = {
-        "schemaVersion": "ifc2img.debug.v1",
-        "sourceIfcPath": str(ifc_path),
-        "preset": preset,
-        "timeOfDay": worker_time_of_day,
-        "views": [],
-    }
+    debug_geometry: Ifc2ImgDebugGeometry | None = None
+    debug_manifest: dict[str, object] | None = None
+    if debug_artifacts:
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        debug_geometry = _load_debug_geometry(ifc_path)
+        debug_manifest = {
+            "schemaVersion": "ifc2img.debug.v1",
+            "sourceIfcPath": str(ifc_path),
+            "preset": preset,
+            "timeOfDay": worker_time_of_day,
+            "views": [],
+        }
 
     requires_semantic = any(
         resolve_preset_view_render_options(preset, view).requires_semantic_controlnet
@@ -826,19 +830,26 @@ def run_ifc2img_photo_pipeline(
         photo_path = output_dir / f"photo_{public_view}.png"
         result.save(photo_path)
         width, height = result.image.size
-        debug_view = _save_debug_artifacts(
-            output_dir=output_dir,
-            debug_dir=debug_dir,
-            preset=preset,
-            public_view=public_view,
-            internal_view=internal_view,
-            depth=depth,
-            photo=result.image,
-            geometry=debug_geometry,
-        )
-        debug_manifest_views = debug_manifest["views"]
-        if isinstance(debug_manifest_views, list):
-            debug_manifest_views.append(debug_view)
+        actual_fill_ratio = _depth_fill_ratio(depth)
+        if (
+            debug_artifacts
+            and debug_geometry is not None
+            and debug_manifest is not None
+        ):
+            debug_view = _save_debug_artifacts(
+                output_dir=output_dir,
+                debug_dir=debug_dir,
+                preset=preset,
+                public_view=public_view,
+                internal_view=internal_view,
+                depth=depth,
+                photo=result.image,
+                geometry=debug_geometry,
+            )
+            actual_fill_ratio = float(debug_view["actualFillRatio"])
+            debug_manifest_views = debug_manifest["views"]
+            if isinstance(debug_manifest_views, list):
+                debug_manifest_views.append(debug_view)
         _logger.info(
             "ifc2img_style_render_completed",
             view=public_view,
@@ -846,7 +857,7 @@ def run_ifc2img_photo_pipeline(
             photoPath=str(photo_path),
             width=width,
             height=height,
-            actualFillRatio=debug_view["actualFillRatio"],
+            actualFillRatio=actual_fill_ratio,
         )
         outputs.append(
             Ifc2ImgPhotoViewResult(
@@ -860,13 +871,14 @@ def run_ifc2img_photo_pipeline(
         )
 
     output_tuple = tuple(outputs)
-    debug_manifest_path = debug_dir / DEBUG_MANIFEST_FILE
-    write_photo_manifest(debug_manifest_path, debug_manifest)
-    _logger.info(
-        "ifc2img_debug_manifest_write_completed",
-        debugManifestPath=str(debug_manifest_path),
-        viewCount=len(output_tuple),
-    )
+    if debug_artifacts and debug_manifest is not None:
+        debug_manifest_path = debug_dir / DEBUG_MANIFEST_FILE
+        write_photo_manifest(debug_manifest_path, debug_manifest)
+        _logger.info(
+            "ifc2img_debug_manifest_write_completed",
+            debugManifestPath=str(debug_manifest_path),
+            viewCount=len(output_tuple),
+        )
     manifest_path = output_dir / "manifest.json"
     _logger.info(
         "ifc2img_manifest_write_started",
