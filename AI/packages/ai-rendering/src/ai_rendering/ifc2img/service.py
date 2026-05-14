@@ -40,6 +40,7 @@ from .semantics import (
     inject_ifc_color_prompt,
     is_reliable_main_door_candidate,
     remove_ifc_color_conflicting_prompt_terms,
+    select_ifc_color_summary_category_cues,
 )
 from .style import (
     DEFAULT_CONTROLNET_SEG_ID,
@@ -1111,7 +1112,11 @@ def run_ifc2img_photo_pipeline(
     params = load_preset(preset, preset_time_of_day)
     if use_ifc_color_prompt_suffix and debug_color_summary is not None:
         color_suffix = build_ifc_color_prompt_suffix(debug_color_summary)
-        color_safe_prompt = remove_ifc_color_conflicting_prompt_terms(params.prompt)
+        color_cues = select_ifc_color_summary_category_cues(debug_color_summary)
+        color_safe_prompt = remove_ifc_color_conflicting_prompt_terms(
+            params.prompt,
+            color_cues,
+        )
         params = dataclass_replace(
             params,
             prompt=inject_ifc_color_prompt(color_safe_prompt, color_suffix),

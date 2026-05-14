@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -330,12 +331,18 @@ def inject_ifc_color_prompt(prompt: str, color_prompt: str) -> str:
     return f"{clean_color_prompt}{separator}{clean_prompt}"
 
 
-def remove_ifc_color_conflicting_prompt_terms(prompt: str) -> str:
-    """Remove preset color/material priors that can fight explicit IFC colors."""
+def remove_ifc_color_conflicting_prompt_terms(
+    prompt: str,
+    category_cues: Mapping[str, str] | None = None,
+) -> str:
+    """Replace preset color/material priors with IFC color-aware terms."""
     clean_prompt = prompt.strip()
+    cues = category_cues or {}
+    wall_facade = f"{wall} house facade" if (wall := cues.get("WALL")) else "house facade"
+    roof = f"{roof_color} roof" if (roof_color := cues.get("ROOF")) else "simple roof"
     replacements = {
-        "white concrete facade": "house facade",
-        "simple tile roof": "simple roof",
+        "white concrete facade": wall_facade,
+        "simple tile roof": roof,
     }
     for old, new in replacements.items():
         clean_prompt = clean_prompt.replace(old, new)
