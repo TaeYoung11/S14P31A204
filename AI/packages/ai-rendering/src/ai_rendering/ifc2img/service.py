@@ -1081,6 +1081,7 @@ def run_ifc2img_photo_pipeline(
         debug_manifest_views = debug_manifest["views"]
         if isinstance(debug_manifest_views, list):
             debug_manifest_views.append(debug_view)
+        actual_fill_ratio = debug_view["actualFillRatio"]
         _logger.info(
             "ifc2img_style_render_completed",
             view=public_view,
@@ -1088,7 +1089,7 @@ def run_ifc2img_photo_pipeline(
             photoPath=str(photo_path),
             width=width,
             height=height,
-            actualFillRatio=debug_view["actualFillRatio"],
+            actualFillRatio=actual_fill_ratio,
         )
         outputs.append(
             Ifc2ImgPhotoViewResult(
