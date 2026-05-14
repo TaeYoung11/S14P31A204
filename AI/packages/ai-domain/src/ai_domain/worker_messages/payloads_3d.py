@@ -10,4 +10,8 @@ class ThreeDLlmCommandPayload(BaseModel):
 
     schemaVersion: Literal["v1"] = Field(alias="schema_version")
     userInstruction: str = Field(min_length=1, alias="user_instruction")
-    sourceSceneStorageUrl: str = Field(min_length=1, max_length=2048, alias="source_scene_storage_url")
+    sourceSceneStorageUrl: str = Field(
+        min_length=1,
+        max_length=2048,
+        alias="source_scene_storage_url",
+    )
