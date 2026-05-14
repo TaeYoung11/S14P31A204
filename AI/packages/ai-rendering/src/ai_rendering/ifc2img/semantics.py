@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -13,6 +14,13 @@ import numpy as np
 from .exceptions import IFCRenderError
 
 IfcSemanticCategory = Literal["FLOOR", "ROOF", "WALL", "WINDOW", "DOOR"]
+IfcColorSource = Literal[
+    "surface_style",
+    "material",
+    "category_aggregate",
+    "category_default",
+    "fallback",
+]
 ScreenRegion = Literal["top", "middle", "bottom", "unknown"]
 FootprintSide = Literal["min_x", "max_x", "min_y", "max_y", "unknown"]
 SUPPORTED_SEMANTIC_CATEGORIES: tuple[IfcSemanticCategory, ...] = (
@@ -22,6 +30,192 @@ SUPPORTED_SEMANTIC_CATEGORIES: tuple[IfcSemanticCategory, ...] = (
     "WINDOW",
     "DOOR",
 )
+_IFC_COLOR_SOURCE_PRIORITY: dict[IfcColorSource, int] = {
+    "surface_style": 0,
+    "category_aggregate": 1,
+    "material": 2,
+    "category_default": 3,
+    "fallback": 4,
+}
+
+
+@dataclass(frozen=True)
+class IfcColorCandidate:
+    source: IfcColorSource
+    style_name: str | None = None
+    material_name: str | None = None
+    rgb: tuple[float, float, float] | None = None
+    transparency: float | None = None
+
+    def __post_init__(self) -> None:
+        self._normalize_rgb()
+        self._normalize_transparency()
+
+    def _normalize_rgb(self) -> None:
+        if self.rgb is None:
+            return
+        if len(self.rgb) != 3:
+            msg = "IFC color RGB must contain exactly three channels."
+            raise ValueError(msg)
+        rgb = tuple(float(channel) for channel in self.rgb)
+        if any(
+            not math.isfinite(channel) or channel < 0.0 or channel > 1.0
+            for channel in rgb
+        ):
+            msg = "IFC color RGB channels must be finite floats in the 0.0 to 1.0 range."
+            raise ValueError(msg)
+        object.__setattr__(self, "rgb", rgb)
+
+    def _normalize_transparency(self) -> None:
+        if self.transparency is None:
+            return
+        transparency = float(self.transparency)
+        if not math.isfinite(transparency) or transparency < 0.0 or transparency > 1.0:
+            msg = "IFC color transparency must be a finite float in the 0.0 to 1.0 range."
+            raise ValueError(msg)
+        object.__setattr__(self, "transparency", transparency)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "source": self.source,
+            "styleName": self.style_name,
+            "materialName": self.material_name,
+            "rgb": list(self.rgb) if self.rgb is not None else None,
+            "transparency": self.transparency,
+        }
+
+
+@dataclass(frozen=True)
+class IfcSemanticElementColor:
+    entity_id: int | None
+    category: IfcSemanticCategory
+    color: IfcColorCandidate | None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "entityId": self.entity_id,
+            "category": self.category,
+            "color": self.color.to_dict() if self.color is not None else None,
+        }
+
+
+@dataclass(frozen=True)
+class IfcSemanticCategoryColorSummary:
+    category: IfcSemanticCategory
+    color: IfcColorCandidate | None
+    candidates: tuple[IfcColorCandidate, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "category": self.category,
+            "color": self.color.to_dict() if self.color is not None else None,
+            "candidates": [candidate.to_dict() for candidate in self.candidates],
+        }
+
+
+@dataclass(frozen=True)
+class IfcColorSummary:
+    source_ifc_path: Path
+    categories: dict[IfcSemanticCategory, IfcSemanticCategoryColorSummary]
+    elements: tuple[IfcSemanticElementColor, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "sourceIfcPath": str(self.source_ifc_path),
+            "categories": {
+                category: summary.to_dict()
+                for category, summary in self.categories.items()
+            },
+            "elements": [element.to_dict() for element in self.elements],
+        }
+
+
+def select_representative_ifc_color(
+    candidates: tuple[IfcColorCandidate, ...] | list[IfcColorCandidate],
+) -> IfcColorCandidate | None:
+    """Select the strongest usable IFC color candidate for an entity/category."""
+    usable_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate.rgb is not None
+    ]
+    if not usable_candidates:
+        return None
+    return min(
+        usable_candidates,
+        key=lambda candidate: _IFC_COLOR_SOURCE_PRIORITY[candidate.source],
+    )
+
+
+def build_ifc_semantic_element_color(
+    *,
+    entity_id: int | None,
+    category: IfcSemanticCategory,
+    candidates: tuple[IfcColorCandidate, ...] | list[IfcColorCandidate],
+) -> IfcSemanticElementColor:
+    """Build an entity/category color record using representative color precedence."""
+    return IfcSemanticElementColor(
+        entity_id=entity_id,
+        category=category,
+        color=select_representative_ifc_color(candidates),
+    )
+
+
+def extract_ifc_color_summary(ifc_path: Path | str) -> IfcColorSummary:
+    """Extract IFC color candidates grouped by semantic category and entity."""
+    source_ifc_path = Path(ifc_path)
+    try:
+        model = ifcopenshell.open(str(source_ifc_path))
+    except Exception as exc:  # pragma: no cover - ifcopenshell error type varies.
+        raise IFCRenderError(
+            f"Failed to open IFC color source: {source_ifc_path}"
+        ) from exc
+
+    named_style_colors = _extract_named_style_colors(model)
+    item_to_products = _build_representation_item_product_index(model)
+    product_candidates = _extract_product_style_color_candidates(
+        model,
+        item_to_products,
+    )
+    product_material_names = _extract_product_material_names(model)
+
+    elements: list[IfcSemanticElementColor] = []
+    category_candidates: dict[IfcSemanticCategory, list[IfcColorCandidate]] = {
+        category: [] for category in SUPPORTED_SEMANTIC_CATEGORIES
+    }
+    for product in model.by_type("IfcProduct"):
+        category = _semantic_category_for_entity(product)
+        if category is None:
+            continue
+        candidates = [
+            *product_candidates.get(_entity_id(product), ()),
+            *_material_color_candidates(
+                product_material_names.get(_entity_id(product), ()),
+                named_style_colors,
+            ),
+        ]
+        category_candidates[category].extend(candidates)
+        elements.append(
+            build_ifc_semantic_element_color(
+                entity_id=_entity_id(product),
+                category=category,
+                candidates=candidates,
+            )
+        )
+
+    categories = {
+        category: IfcSemanticCategoryColorSummary(
+            category=category,
+            color=select_representative_ifc_color(candidates),
+            candidates=tuple(candidates),
+        )
+        for category, candidates in category_candidates.items()
+    }
+    return IfcColorSummary(
+        source_ifc_path=source_ifc_path,
+        categories=categories,
+        elements=tuple(elements),
+    )
 
 
 @dataclass(frozen=True)
@@ -495,6 +689,227 @@ def _is_a(entity: object, ifc_type: str) -> bool:
     if not callable(is_a):
         return False
     return bool(is_a(ifc_type))
+
+
+def _entity_id(entity: object) -> int | None:
+    entity_id = getattr(entity, "id", None)
+    if not callable(entity_id):
+        return None
+    value = entity_id()
+    if value is None:
+        return None
+    return int(value)
+
+
+def _extract_named_style_colors(model: object) -> dict[str, IfcColorCandidate]:
+    named_style_colors: dict[str, IfcColorCandidate] = {}
+    for style in model.by_type("IfcSurfaceStyle"):
+        style_name = _entity_name(style)
+        if not style_name:
+            continue
+        color = _color_candidate_from_surface_style(
+            style,
+            source="material",
+            material_name=style_name,
+        )
+        if color is not None:
+            named_style_colors[style_name] = color
+    return named_style_colors
+
+
+def _build_representation_item_product_index(
+    model: object,
+) -> dict[int, list[object]]:
+    item_to_products: dict[int, list[object]] = {}
+    for product in model.by_type("IfcProduct"):
+        representation = getattr(product, "Representation", None)
+        if representation is None:
+            continue
+        for representation_item in getattr(representation, "Representations", ()) or ():
+            stack = list(getattr(representation_item, "Items", ()) or ())
+            seen: set[int] = set()
+            while stack:
+                item = stack.pop()
+                item_id = _entity_id(item)
+                if item_id is None or item_id in seen:
+                    continue
+                seen.add(item_id)
+                item_to_products.setdefault(item_id, []).append(product)
+                stack.extend(_child_representation_items(item))
+    return item_to_products
+
+
+def _child_representation_items(item: object) -> list[object]:
+    children: list[object] = []
+    for attr in (
+        "MappingSource",
+        "MappedRepresentation",
+        "Items",
+        "Outer",
+        "CfsFaces",
+        "Bounds",
+        "Bound",
+        "Polygon",
+    ):
+        value = getattr(item, attr, None)
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple)):
+            children.extend(child for child in value if hasattr(child, "is_a"))
+        elif hasattr(value, "is_a"):
+            children.append(value)
+    return children
+
+
+def _extract_product_style_color_candidates(
+    model: object,
+    item_to_products: dict[int, list[object]],
+) -> dict[int, list[IfcColorCandidate]]:
+    product_candidates: dict[int, list[IfcColorCandidate]] = {}
+    for styled_item in model.by_type("IfcStyledItem"):
+        item = getattr(styled_item, "Item", None)
+        item_id = _entity_id(item) if item is not None else None
+        if item_id is None:
+            continue
+        candidates = _color_candidates_from_styled_item(styled_item)
+        if not candidates:
+            continue
+        for product in item_to_products.get(item_id, ()):
+            product_id = _entity_id(product)
+            if product_id is not None:
+                product_candidates.setdefault(product_id, []).extend(candidates)
+    return product_candidates
+
+
+def _color_candidates_from_styled_item(
+    styled_item: object,
+) -> list[IfcColorCandidate]:
+    candidates: list[IfcColorCandidate] = []
+    for style in _unwrap_presentation_styles(getattr(styled_item, "Styles", ()) or ()):
+        candidate = _color_candidate_from_surface_style(
+            style,
+            source="surface_style",
+        )
+        if candidate is not None:
+            candidates.append(candidate)
+    return candidates
+
+
+def _unwrap_presentation_styles(styles: object) -> list[object]:
+    unwrapped: list[object] = []
+    if not isinstance(styles, (list, tuple)):
+        return unwrapped
+    for style in styles:
+        if style is None:
+            continue
+        if _is_a(style, "IfcPresentationStyleAssignment"):
+            unwrapped.extend(getattr(style, "Styles", ()) or ())
+        else:
+            unwrapped.append(style)
+    return unwrapped
+
+
+def _color_candidate_from_surface_style(
+    style: object,
+    *,
+    source: IfcColorSource,
+    material_name: str | None = None,
+) -> IfcColorCandidate | None:
+    if not _is_a(style, "IfcSurfaceStyle"):
+        return None
+    for surface_item in getattr(style, "Styles", ()) or ():
+        if not (
+            _is_a(surface_item, "IfcSurfaceStyleRendering")
+            or _is_a(surface_item, "IfcSurfaceStyleShading")
+        ):
+            continue
+        rgb = _rgb_from_colour(getattr(surface_item, "SurfaceColour", None))
+        if rgb is None:
+            return None
+        return IfcColorCandidate(
+            source=source,
+            style_name=_entity_name(style),
+            material_name=material_name,
+            rgb=rgb,
+            transparency=_transparency_from_surface_item(surface_item),
+        )
+    return None
+
+
+def _rgb_from_colour(colour: object | None) -> tuple[float, float, float] | None:
+    if colour is None:
+        return None
+    return (
+        float(getattr(colour, "Red")),
+        float(getattr(colour, "Green")),
+        float(getattr(colour, "Blue")),
+    )
+
+
+def _transparency_from_surface_item(surface_item: object) -> float | None:
+    transparency = getattr(surface_item, "Transparency", None)
+    if transparency is None:
+        return None
+    return float(transparency)
+
+
+def _extract_product_material_names(model: object) -> dict[int, list[str]]:
+    product_material_names: dict[int, list[str]] = {}
+    for relation in model.by_type("IfcRelAssociatesMaterial"):
+        material_names = _material_names(getattr(relation, "RelatingMaterial", None))
+        for product in getattr(relation, "RelatedObjects", ()) or ():
+            product_id = _entity_id(product)
+            if product_id is not None:
+                product_material_names.setdefault(product_id, []).extend(material_names)
+    return product_material_names
+
+
+def _material_names(material: object | None) -> list[str]:
+    if material is None:
+        return []
+    names: list[str] = []
+    stack = [material]
+    seen: set[tuple[str, int | None]] = set()
+    while stack:
+        item = stack.pop()
+        marker = (str(getattr(item, "is_a", lambda: type(item).__name__)()), _entity_id(item))
+        if marker in seen:
+            continue
+        seen.add(marker)
+        name = _entity_name(item)
+        if name:
+            names.append(name)
+        for attr in (
+            "Materials",
+            "MaterialLayers",
+            "MaterialConstituents",
+            "ForLayerSet",
+            "Material",
+        ):
+            value = getattr(item, attr, None)
+            if value is None or isinstance(value, str):
+                continue
+            if isinstance(value, (list, tuple)):
+                stack.extend(child for child in value if hasattr(child, "is_a"))
+            elif hasattr(value, "is_a"):
+                stack.append(value)
+    return names
+
+
+def _material_color_candidates(
+    material_names: list[str] | tuple[str, ...],
+    named_style_colors: dict[str, IfcColorCandidate],
+) -> list[IfcColorCandidate]:
+    candidates: list[IfcColorCandidate] = []
+    seen_names: set[str] = set()
+    for material_name in material_names:
+        if material_name in seen_names:
+            continue
+        seen_names.add(material_name)
+        candidate = named_style_colors.get(material_name)
+        if candidate is not None:
+            candidates.append(candidate)
+    return candidates
 
 
 def _footprint_bounds(
