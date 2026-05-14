@@ -303,6 +303,11 @@
           "minLength": 1,
           "maxLength": 128,
           "description": "Informational metadata only. Runtime ignores this field."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
         }
       }
     },
