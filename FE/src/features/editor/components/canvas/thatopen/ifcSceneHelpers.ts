@@ -757,9 +757,11 @@ export const applyIfcSelectionVisibility = async (
     mode: 'proxy' | 'model'
     proxyOpacity?: number
     keepModelVisibleInProxy?: boolean
+    persistModelHidden?: boolean
     skipHiderUpdate?: boolean
     skipCoreUpdate?: boolean
     deferHiderToNextFrame?: boolean
+    skipProxyOpacityUpdate?: boolean
     reason?: string
     forceRender?: boolean
   },
@@ -792,16 +794,22 @@ export const applyIfcSelectionVisibility = async (
     localIdsSample: visibleLocalIds.slice(0, 12),
     hasProxyObject: Boolean(params.proxyObject),
     keepModelVisibleInProxy: params.keepModelVisibleInProxy ?? false,
+    persistModelHidden: params.persistModelHidden ?? false,
     skipHiderUpdate: params.skipHiderUpdate ?? false,
     skipCoreUpdate: params.skipCoreUpdate ?? false,
     deferHiderToNextFrame: params.deferHiderToNextFrame ?? false,
+    skipProxyOpacityUpdate: params.skipProxyOpacityUpdate ?? false,
   })
   if (visibleLocalIds.length > 0) {
     const visibilityStartedAt = performance.now()
     const hiderVisible = params.mode === 'model'
       || (params.mode === 'proxy' && params.keepModelVisibleInProxy === true)
     const skipHiderCall = params.skipHiderUpdate === true
-    if (params.keepModelVisibleInProxy === true || params.mode === 'model') {
+    if (
+      params.persistModelHidden === true
+      || params.keepModelVisibleInProxy === true
+      || params.mode === 'model'
+    ) {
       await syncModelMaskOpacity(
         sceneState,
         params.modelId,
@@ -814,6 +822,7 @@ export const applyIfcSelectionVisibility = async (
         modelId: params.modelId,
         localIdCount: visibleLocalIds.length,
         localIdsSample: visibleLocalIds.slice(0, 12),
+        persistModelHidden: params.persistModelHidden ?? false,
       })
     }
     if (
@@ -837,6 +846,7 @@ export const applyIfcSelectionVisibility = async (
         mode: params.mode,
         hiderVisible,
         keepModelVisibleInProxy: params.keepModelVisibleInProxy ?? false,
+        persistModelHidden: params.persistModelHidden ?? false,
         skipHiderUpdate: params.skipHiderUpdate ?? false,
         skipCoreUpdate: params.skipCoreUpdate ?? false,
         skipHiderCall,
@@ -873,6 +883,7 @@ export const applyIfcSelectionVisibility = async (
         mode: params.mode,
         hiderVisible,
         keepModelVisibleInProxy: params.keepModelVisibleInProxy ?? false,
+        persistModelHidden: params.persistModelHidden ?? false,
         skipHiderUpdate: params.skipHiderUpdate ?? false,
         skipCoreUpdate: params.skipCoreUpdate ?? false,
         skipHiderCall,
@@ -891,6 +902,7 @@ export const applyIfcSelectionVisibility = async (
   }
   if (!params.proxyObject) return
   if (params.mode === 'proxy') {
+    if (params.skipProxyOpacityUpdate === true) return
     if (IFC_MOVE_DEBUG) {
       console.log('[IFC_MOVE] proxy_opacity_apply', {
         reason: visibilityReason,

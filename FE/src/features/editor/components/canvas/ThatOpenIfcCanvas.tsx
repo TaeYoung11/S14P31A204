@@ -887,6 +887,8 @@ export default function ThatOpenIfcCanvas({
             mode: 'proxy',
             proxyOpacity: 1,
             reason: `registry_rehide:${reason}`,
+            persistModelHidden: true,
+            skipProxyOpacityUpdate: true,
             skipCoreUpdate: true,
             forceRender: false,
           })
@@ -1730,6 +1732,7 @@ export default function ThatOpenIfcCanvas({
             mode: 'proxy',
             proxyOpacity: 1,
             reason: 'commit_rehide_after_core_update',
+            persistModelHidden: true,
             skipCoreUpdate: true,
             forceRender: false,
           })
@@ -1947,12 +1950,12 @@ export default function ThatOpenIfcCanvas({
     let lastInteractionAt = performance.now()
     let pointerPickSequence = 0
     let lastIfcDragEndAt = 0
-    let cameraRehideFrame: number | null = null
     let cameraControlsChangeListener: (() => void) | null = null
+    let cameraControlsRestListener: (() => void) | null = null
     let cameraControlsWithEvents:
       | {
-          addEventListener?: (type: 'change', listener: () => void) => void
-          removeEventListener?: (type: 'change', listener: () => void) => void
+          addEventListener?: (type: 'change' | 'rest', listener: () => void) => void
+          removeEventListener?: (type: 'change' | 'rest', listener: () => void) => void
         }
       | null = null
 
@@ -2003,32 +2006,27 @@ export default function ThatOpenIfcCanvas({
         }
         emitCoordinates(world.camera.three.position)
         cameraControlsWithEvents = world.camera.controls as unknown as {
-          addEventListener?: (type: 'change', listener: () => void) => void
-          removeEventListener?: (type: 'change', listener: () => void) => void
+          addEventListener?: (type: 'change' | 'rest', listener: () => void) => void
+          removeEventListener?: (type: 'change' | 'rest', listener: () => void) => void
         } | null
         cameraControlsChangeListener = () => {
-          if (
-            !isTransformDragging
-            && cameraRehideFrame == null
-            && movedIfcProxyRegistryRef.current.size > 0
-          ) {
-            cameraRehideFrame = window.requestAnimationFrame(() => {
-              cameraRehideFrame = null
-              if (disposed) return
-              if (isTransformDragging) return
-              const activeScene = sceneRef.current
-              if (!activeScene || movedIfcProxyRegistryRef.current.size === 0) return
-              void rehideMovedIfcProxyRegistry(activeScene, 'camera_change', {
-                forceRender: false,
-                resetHighlight: false,
-              })
-            })
-          }
           const selectedTarget = selectedTargetRef.current
           if (selectedTarget?.object) return
           emitCoordinates(world.camera.three.position)
         }
+        cameraControlsRestListener = () => {
+          if (disposed) return
+          if (isTransformDragging) return
+          if (movedIfcProxyRegistryRef.current.size === 0) return
+          const activeScene = sceneRef.current
+          if (!activeScene) return
+          void rehideMovedIfcProxyRegistry(activeScene, 'camera_rest', {
+            forceRender: false,
+            resetHighlight: false,
+          })
+        }
         cameraControlsWithEvents?.addEventListener?.('change', cameraControlsChangeListener)
+        cameraControlsWithEvents?.addEventListener?.('rest', cameraControlsRestListener)
 
         const grids = components.get(OBC.Grids)
         grids.create(world)
@@ -4278,10 +4276,6 @@ export default function ThatOpenIfcCanvas({
         window.clearTimeout(pendingIfcCommitTimer)
         pendingIfcCommitTimer = null
       }
-      if (cameraRehideFrame != null) {
-        window.cancelAnimationFrame(cameraRehideFrame)
-        cameraRehideFrame = null
-      }
       if (handlePointerDown && pointerDownDom) {
         pointerDownDom.removeEventListener('pointerdown', handlePointerDown, true)
       }
@@ -4293,6 +4287,9 @@ export default function ThatOpenIfcCanvas({
       if (handleWindowBlur) window.removeEventListener('blur', handleWindowBlur)
       if (cameraControlsWithEvents && cameraControlsChangeListener) {
         cameraControlsWithEvents.removeEventListener?.('change', cameraControlsChangeListener)
+      }
+      if (cameraControlsWithEvents && cameraControlsRestListener) {
+        cameraControlsWithEvents.removeEventListener?.('rest', cameraControlsRestListener)
       }
       try {
         components?.dispose()
