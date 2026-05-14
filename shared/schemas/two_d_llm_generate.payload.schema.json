@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://a204.batang/shared/schemas/two_d_llm_generate.payload.schema.json",
   "title": "TwoDLlmGeneratePayload",
-  "description": "TWO_D_LLM 워커 커맨드 페이로드. 사용자 지시만 담당하며, IFC URL은 CommandMessage 레벨에서 별도 전달된다.",
+  "description": "TWO_D_LLM 워커 커맨드 페이로드. 워커는 user_instruction과 CommandMessage.input.sourceIfcStorageUrl만 사용하지만, BE/FE 하위 호환을 위해 source_scene 등 선택 필드도 허용한다.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "user_instruction"],
@@ -16,10 +16,22 @@
       "maxLength": 4000
     },
     "source_scene_storage_url": {
-      "description": "deprecated: 워커가 무시함. BE 하위 호환을 위해 optional로 허용.",
+      "description": "deprecated: 워커는 무시한다. BE/FE 하위 호환을 위해 optional로 허용.",
       "type": "string",
       "minLength": 1,
       "maxLength": 2048
+    },
+    "source_scene": {
+      "description": "deprecated: 워커는 무시한다. FE가 보내고 BE가 전달할 수 있어 optional로 허용.",
+      "type": "object"
+    },
+    "conversation_history": {
+      "description": "deprecated: 워커는 무시한다. FE가 보내고 BE가 전달할 수 있어 optional로 허용.",
+      "type": "array"
+    },
+    "planner_options": {
+      "description": "deprecated: 워커는 무시한다. FE가 보내고 BE가 전달할 수 있어 optional로 허용.",
+      "type": "object"
     }
   }
 }
