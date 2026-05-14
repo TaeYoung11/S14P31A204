@@ -37,6 +37,17 @@ _IFC_COLOR_SOURCE_PRIORITY: dict[IfcColorSource, int] = {
     "category_default": 3,
     "fallback": 4,
 }
+_PROMPT_COLOR_PALETTE: dict[str, tuple[float, float, float]] = {
+    "black": (0.0, 0.0, 0.0),
+    "white": (1.0, 1.0, 1.0),
+    "gray": (0.5, 0.5, 0.5),
+    "green": (0.0, 0.5, 0.0),
+    "blue": (0.0, 0.5, 0.75),
+    "brown": (0.46, 0.27, 0.2),
+    "tan": (0.82, 0.62, 0.37),
+    "beige": (0.75, 0.72, 0.7),
+    "red": (0.65, 0.16, 0.16),
+}
 
 
 @dataclass(frozen=True)
@@ -159,6 +170,84 @@ def build_ifc_semantic_element_color(
         category=category,
         color=select_representative_ifc_color(candidates),
     )
+
+
+def nearest_prompt_color_name(
+    rgb: tuple[float, float, float],
+) -> str:
+    """Return a simple prompt-friendly color name for normalized RGB."""
+    normalized_rgb = IfcColorCandidate(source="fallback", rgb=rgb).rgb
+    if normalized_rgb is None:  # pragma: no cover - constructor guarantees this.
+        raise ValueError("RGB is required to resolve a prompt color name.")
+    return min(
+        _PROMPT_COLOR_PALETTE,
+        key=lambda name: _rgb_distance_squared(normalized_rgb, _PROMPT_COLOR_PALETTE[name]),
+    )
+
+
+def ifc_color_prompt_cue(candidate: IfcColorCandidate) -> str | None:
+    """Return a compact prompt cue for an IFC color candidate."""
+    if candidate.rgb is None:
+        return None
+    color_name = nearest_prompt_color_name(candidate.rgb)
+    semantic_names = {
+        value.casefold()
+        for value in (candidate.style_name, candidate.material_name)
+        if value
+    }
+    is_glass = any("glass" in name or "유리" in name for name in semantic_names)
+    if is_glass or (candidate.transparency is not None and candidate.transparency >= 0.5):
+        return f"{color_name} glass"
+    return color_name
+
+
+def dedupe_ifc_color_prompt_cues(
+    candidates: tuple[IfcColorCandidate, ...] | list[IfcColorCandidate],
+    *,
+    rgb_tolerance: float = 0.03,
+) -> tuple[str, ...]:
+    """Return prompt cues with duplicate or near-duplicate colors removed."""
+    cues: list[str] = []
+    seen_cues: set[str] = set()
+    seen_rgb: list[tuple[float, float, float]] = []
+    tolerance_squared = rgb_tolerance * rgb_tolerance
+    for candidate in candidates:
+        cue = ifc_color_prompt_cue(candidate)
+        if cue is None:
+            continue
+        normalized_cue = cue.casefold()
+        if normalized_cue in seen_cues:
+            continue
+        if candidate.rgb is not None and any(
+            _rgb_distance_squared(candidate.rgb, rgb) <= tolerance_squared
+            for rgb in seen_rgb
+        ):
+            continue
+        cues.append(cue)
+        seen_cues.add(normalized_cue)
+        if candidate.rgb is not None:
+            seen_rgb.append(candidate.rgb)
+    return tuple(cues)
+
+
+def ifc_category_color_prompt_cues(
+    category: IfcSemanticCategory,
+    candidates: tuple[IfcColorCandidate, ...] | list[IfcColorCandidate],
+) -> tuple[str, ...]:
+    """Return compact prompt color cues with category-specific ordering."""
+    ordered_candidates = sorted(
+        candidates,
+        key=lambda candidate: _category_color_candidate_priority(category, candidate),
+    )
+    cues = dedupe_ifc_color_prompt_cues(ordered_candidates)
+    if category == "WALL":
+        cues = tuple("white" if cue == "beige" else cue for cue in cues)
+    if category == "DOOR":
+        cues = tuple(
+            f"{cue} wood" if cue in {"brown", "tan"} else cue
+            for cue in cues
+        )
+    return cues
 
 
 def extract_ifc_color_summary(ifc_path: Path | str) -> IfcColorSummary:
@@ -910,6 +999,35 @@ def _material_color_candidates(
         if candidate is not None:
             candidates.append(candidate)
     return candidates
+
+
+def _rgb_distance_squared(
+    first: tuple[float, float, float],
+    second: tuple[float, float, float],
+) -> float:
+    return sum(
+        (first_channel - second_channel) ** 2
+        for first_channel, second_channel in zip(first, second, strict=True)
+    )
+
+
+def _category_color_candidate_priority(
+    category: IfcSemanticCategory,
+    candidate: IfcColorCandidate,
+) -> tuple[int, int]:
+    semantic_name = " ".join(
+        value.casefold()
+        for value in (candidate.style_name, candidate.material_name)
+        if value
+    )
+    cue = ifc_color_prompt_cue(candidate)
+    if category == "ROOF" and ("roof" in semantic_name or "지붕" in semantic_name):
+        return (0, _IFC_COLOR_SOURCE_PRIORITY[candidate.source])
+    if category == "WINDOW" and cue is not None and "glass" in cue:
+        return (0, _IFC_COLOR_SOURCE_PRIORITY[candidate.source])
+    if category == "DOOR" and ("door" in semantic_name or "문" in semantic_name):
+        return (0, _IFC_COLOR_SOURCE_PRIORITY[candidate.source])
+    return (1, _IFC_COLOR_SOURCE_PRIORITY[candidate.source])
 
 
 def _footprint_bounds(
