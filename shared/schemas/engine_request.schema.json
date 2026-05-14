@@ -283,6 +283,29 @@
         }
       }
     },
+    "deleteWallVoidParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expected_kind": {
+          "oneOf": [
+            { "type": "string", "enum": ["door", "window", "opening"] },
+            { "type": "null" }
+          ]
+        },
+        "allowed_host_body_class": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "validated_fixture": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Informational metadata only. Runtime ignores this field."
+        }
+      }
+    },
     "engineOperation": {
       "type": "object",
       "additionalProperties": false,
@@ -297,7 +320,8 @@
             "create_wall",
             "update_element_properties",
             "transform_elements",
-            "delete_elements"
+            "delete_elements",
+            "delete_wall_void"
           ]
         },
         "selector": {
@@ -375,6 +399,24 @@
             "properties": {
               "parameters": {
                 "$ref": "#/$defs/deleteElementsParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "delete_wall_void"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["selector"],
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/deleteWallVoidParameters"
               }
             }
           }
