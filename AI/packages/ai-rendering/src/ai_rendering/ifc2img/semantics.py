@@ -298,12 +298,12 @@ def build_ifc_color_prompt_suffix(summary: IfcColorSummary) -> str:
         wall_text = " and ".join(wall_cues)
         parts.append(f"{wall_text} walls")
     if window := cues.get("WINDOW"):
-        parts.append(f"{window} windows")
+        parts.append(window)
     if door := cues.get("DOOR"):
-        parts.append(f"{door} doors")
+        parts.append(f"{door} door")
     if not parts:
         return ""
-    return f"Preserve the IFC colors: {_join_prompt_parts(parts)}."
+    return f"IFC colors: {_join_prompt_parts(parts)}."
 
 
 def append_ifc_color_prompt_suffix(prompt: str, suffix: str) -> str:
@@ -316,6 +316,30 @@ def append_ifc_color_prompt_suffix(prompt: str, suffix: str) -> str:
         return clean_suffix
     separator = " " if clean_prompt.endswith((".", "!", "?")) else ", "
     return f"{clean_prompt}{separator}{clean_suffix}"
+
+
+def inject_ifc_color_prompt(prompt: str, color_prompt: str) -> str:
+    """Put IFC color cues before the base prompt so they survive prompt truncation."""
+    clean_prompt = prompt.strip()
+    clean_color_prompt = color_prompt.strip()
+    if not clean_color_prompt:
+        return clean_prompt
+    if not clean_prompt:
+        return clean_color_prompt
+    separator = " " if clean_color_prompt.endswith((".", "!", "?")) else ". "
+    return f"{clean_color_prompt}{separator}{clean_prompt}"
+
+
+def remove_ifc_color_conflicting_prompt_terms(prompt: str) -> str:
+    """Remove preset color/material priors that can fight explicit IFC colors."""
+    clean_prompt = prompt.strip()
+    replacements = {
+        "white concrete facade": "house facade",
+        "simple tile roof": "simple roof",
+    }
+    for old, new in replacements.items():
+        clean_prompt = clean_prompt.replace(old, new)
+    return clean_prompt
 
 
 def extract_ifc_color_summary(ifc_path: Path | str) -> IfcColorSummary:

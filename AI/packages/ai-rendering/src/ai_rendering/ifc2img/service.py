@@ -34,11 +34,12 @@ from .presets import list_presets, load_preset
 from .semantics import (
     IfcColorSummary,
     IfcSemanticSummary,
-    append_ifc_color_prompt_suffix,
     build_ifc_color_prompt_suffix,
     extract_ifc_color_summary,
     extract_ifc_semantic_summary,
+    inject_ifc_color_prompt,
     is_reliable_main_door_candidate,
+    remove_ifc_color_conflicting_prompt_terms,
 )
 from .style import (
     DEFAULT_CONTROLNET_SEG_ID,
@@ -1110,9 +1111,10 @@ def run_ifc2img_photo_pipeline(
     params = load_preset(preset, preset_time_of_day)
     if use_ifc_color_prompt_suffix and debug_color_summary is not None:
         color_suffix = build_ifc_color_prompt_suffix(debug_color_summary)
+        color_safe_prompt = remove_ifc_color_conflicting_prompt_terms(params.prompt)
         params = dataclass_replace(
             params,
-            prompt=append_ifc_color_prompt_suffix(params.prompt, color_suffix),
+            prompt=inject_ifc_color_prompt(color_safe_prompt, color_suffix),
         )
     outputs: list[Ifc2ImgPhotoViewResult] = []
     for public_view, internal_view in zip(public_views, internal_views, strict=True):
