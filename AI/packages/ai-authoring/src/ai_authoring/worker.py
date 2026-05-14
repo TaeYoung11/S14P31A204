@@ -469,11 +469,15 @@ class AuthoringWorker(BaseWorker):
 
         space_filter: str | None = selector.get("space_name")
         if space_filter:
-            elements = [e for e in elements if _matches_space(e, space_filter)]
+            space_matches = [e for e in elements if _matches_space(e, space_filter)]
+            if space_matches:
+                elements = space_matches
 
         direction_filter: str | None = selector.get("direction")
         if direction_filter:
-            elements = [e for e in elements if _matches_direction(e, direction_filter)]
+            direction_matches = [e for e in elements if _matches_direction(e, direction_filter)]
+            if direction_matches:
+                elements = direction_matches
 
         name_filter: str | None = selector.get("name")
         if name_filter:

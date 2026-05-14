@@ -192,6 +192,30 @@ def test_authoring_worker_applies_space_and_direction_selector(tmp_path: Path):
     assert _property_labels(same_direction_other_space).get("Color") != target_color
 
 
+def test_authoring_worker_keeps_candidates_when_optional_selector_has_no_ifc_match():
+    root_dir = Path(__file__).resolve().parents[3]
+    ifc_path = root_dir / "tests" / "sample_batang.ifc"
+    model = ifcopenshell.open(str(ifc_path))
+
+    for index, wall in enumerate(model.by_type("IfcWall")):
+        wall.Name = f"Wall {index}"
+
+    worker, _ = _make_worker(ifc_path.read_bytes())
+
+    elements = worker._resolve_selector(
+        model,
+        {
+            "element_type": "IfcWall",
+            "storey": "2F",
+            "space_name": "Bedroom",
+            "direction": "East",
+            "select_all": True,
+        },
+    )
+
+    assert elements
+
+
 def test_authoring_worker_fails_when_no_operations_applied():
     """오퍼레이션이 하나도 적용되지 않으면 NonRetryableWorkerError 를 raise 한다.
 
