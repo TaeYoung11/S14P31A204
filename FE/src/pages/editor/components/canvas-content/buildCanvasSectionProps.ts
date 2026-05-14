@@ -45,6 +45,7 @@ export interface CanvasTwoDLeftPanelsSectionProps {
   onSelectLayer: EditorCanvasRenderProps['setActiveFloorLayerId']
   onToggleLayerOverlayMode: EditorCanvasRenderProps['toggleLayerOverlayMode']
   onToggleOverlayLayer: EditorCanvasRenderProps['handleToggleOverlayLayer']
+  onSelectSingleOverlayLayer: EditorCanvasRenderProps['handleSelectSingleOverlayLayer']
   onChangeOverlayLayerOpacity: EditorCanvasRenderProps['handleSetOverlayLayerOpacity']
   rooms: EditorCanvasRenderProps['floorRooms']
   walls: EditorCanvasRenderProps['floorWallsForHierarchy']
@@ -136,6 +137,7 @@ export function buildCanvasTwoDLeftPanelsSectionProps(
     onSelectLayer: renderProps.setActiveFloorLayerId,
     onToggleLayerOverlayMode: renderProps.toggleLayerOverlayMode,
     onToggleOverlayLayer: renderProps.handleToggleOverlayLayer,
+    onSelectSingleOverlayLayer: renderProps.handleSelectSingleOverlayLayer,
     onChangeOverlayLayerOpacity: renderProps.handleSetOverlayLayerOpacity,
     rooms: renderProps.floorRooms,
     walls: renderProps.floorWallsForHierarchy,

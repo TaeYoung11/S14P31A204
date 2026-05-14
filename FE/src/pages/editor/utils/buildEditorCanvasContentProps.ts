@@ -214,6 +214,7 @@ function buildTwoDLayerPanelProps(
   | 'setActiveFloorLayerId'
   | 'toggleLayerOverlayMode'
   | 'handleToggleOverlayLayer'
+  | 'handleSelectSingleOverlayLayer'
   | 'handleSetOverlayLayerOpacity'
 > {
   return {
@@ -228,6 +229,7 @@ function buildTwoDLayerPanelProps(
     setActiveFloorLayerId: vm.setActiveFloorLayerId,
     toggleLayerOverlayMode: vm.toggleLayerOverlayMode,
     handleToggleOverlayLayer: vm.handleToggleOverlayLayer,
+    handleSelectSingleOverlayLayer: vm.handleSelectSingleOverlayLayer,
     handleSetOverlayLayerOpacity: vm.handleSetOverlayLayerOpacity,
   }
 }

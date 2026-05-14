@@ -1040,6 +1040,15 @@ export function useEditorPage() {
     floorWalls.forEach((wall) => merged.set(wall.id, wall))
     return Array.from(merged.values())
   }, [visibleAutoFloorWalls, floorWalls])
+  const activeLayerVisibleFloorWalls = useMemo(() => {
+    if (!activeFloorLayerId) return mergedFloorWalls
+    const scopedWalls = mergedFloorWalls.filter((wall) => wall.floorLayerId === activeFloorLayerId)
+    if (floorRooms.length === 0) return scopedWalls
+    return [
+      ...mergedFloorWalls.filter((wall) => !wall.floorLayerId),
+      ...scopedWalls,
+    ]
+  }, [activeFloorLayerId, floorRooms.length, mergedFloorWalls])
 
   // 자동 벽 재계산으로 사라진 ID는 숨김 목록에서 정리한다.
   useEffect(() => {
@@ -2076,19 +2085,23 @@ export function useEditorPage() {
         ? prev
         : (() => {
           const autoWall = visibleAutoFloorWalls.find((wall) => wall.id === wallId)
-          return autoWall ? [...prev, autoWall] : prev
+          return autoWall
+            ? [...prev, { ...autoWall, floorLayerId: autoWall.floorLayerId ?? activeFloorLayerId ?? undefined }]
+            : prev
         })()
       return ensured.map((wall) => (wall.id === wallId ? updater(wall) : wall))
     })
-  }, [visibleAutoFloorWalls])
+  }, [activeFloorLayerId, visibleAutoFloorWalls])
 
   const ensureFloorWallInManual = useCallback((wallId: string) => {
     setFloorWalls((prev) => {
       if (prev.some((wall) => wall.id === wallId)) return prev
       const autoWall = visibleAutoFloorWalls.find((wall) => wall.id === wallId)
-      return autoWall ? [...prev, autoWall] : prev
+      return autoWall
+        ? [...prev, { ...autoWall, floorLayerId: autoWall.floorLayerId ?? activeFloorLayerId ?? undefined }]
+        : prev
     })
-  }, [visibleAutoFloorWalls])
+  }, [activeFloorLayerId, visibleAutoFloorWalls])
 
   const ensureFloorOpeningInManual = useCallback((openingId: string) => {
     setFloorOpenings((prev) => {
@@ -3004,17 +3017,73 @@ export function useEditorPage() {
     setIsGridSnapEnabled(true)
     if (mode === '2d') setIsGridVisible(true)
   }
-  const toggleLayerOverlayMode = () => setIsLayerOverlayMode((prev) => !prev)
+  const toggleLayerOverlayMode = () => {
+    setIsLayerOverlayMode((prev) => {
+      const next = !prev
+      if (next) {
+        setOverlayLayerIds((current) => {
+          const validCurrent = current.filter((layerId) => layerId !== activeFloorLayerId)
+          if (validCurrent.length > 0) return validCurrent
+          return floorLayers
+            .map((layer) => layer.id)
+            .filter((layerId) => layerId !== activeFloorLayerId)
+        })
+      }
+      return next
+    })
+  }
   const handleToggleOverlayLayer = (layerId: string) => {
     if (!activeFloorLayerId || layerId === activeFloorLayerId) return
     setOverlayLayerIds((prev) =>
       prev.includes(layerId) ? prev.filter((id) => id !== layerId) : [...prev, layerId],
     )
   }
+  const handleSelectSingleOverlayLayer = (layerId: string) => {
+    if (!activeFloorLayerId || layerId === activeFloorLayerId) return
+    setIsLayerOverlayMode(true)
+    setOverlayLayerIds((prev) => (prev.length === 1 && prev[0] === layerId ? [] : [layerId]))
+  }
   const handleSetOverlayLayerOpacity = (layerId: string, opacity: number) => {
     const next = Math.min(Math.max(opacity, 0.1), 1)
     setOverlayOpacityByLayerId((prev) => ({ ...prev, [layerId]: next }))
   }
+  const handleAddFloorLayer = useCallback(() => {
+    addFloorLayer()
+    markLocalFloorPlanSnapshotChanged()
+  }, [addFloorLayer, markLocalFloorPlanSnapshotChanged])
+  const handleRenameFloorLayer = useCallback((layerId: string, name: string) => {
+    if (!name.trim()) return
+    renameFloorLayer(layerId, name)
+    markLocalFloorPlanSnapshotChanged()
+  }, [markLocalFloorPlanSnapshotChanged, renameFloorLayer])
+  const handleDeleteFloorLayer = useCallback((layerId: string) => {
+    if (floorLayers.length <= 1) return
+    const deletedWallIds = new Set(floorWalls.filter((wall) => wall.floorLayerId === layerId).map((wall) => wall.id))
+    deleteFloorLayer(layerId)
+    setFloorWalls((prev) => prev.filter((wall) => wall.floorLayerId !== layerId))
+    setFloorOpenings((prev) => prev.filter((opening) => !deletedWallIds.has(opening.wallId)))
+    setSelectedFloorWallId((prev) => (prev && deletedWallIds.has(prev) ? null : prev))
+    setSelectedFloorWallIds((prev) => prev.filter((wallId) => !deletedWallIds.has(wallId)))
+    setSelectedFloorOpeningId((prev) => {
+      if (!prev) return prev
+      const opening = floorOpenings.find((item) => item.id === prev)
+      return opening && deletedWallIds.has(opening.wallId) ? null : prev
+    })
+    setSelectedFloorOpeningIds((prev) =>
+      prev.filter((openingId) => {
+        const opening = floorOpenings.find((item) => item.id === openingId)
+        return opening ? !deletedWallIds.has(opening.wallId) : false
+      }),
+    )
+    setOverlayLayerIds((prev) => prev.filter((id) => id !== layerId))
+    setOverlayOpacityByLayerId((prev) => {
+      if (!(layerId in prev)) return prev
+      const next = { ...prev }
+      delete next[layerId]
+      return next
+    })
+    markLocalFloorPlanSnapshotChanged()
+  }, [deleteFloorLayer, floorLayers.length, floorOpenings, floorWalls, markLocalFloorPlanSnapshotChanged])
 
   const {
     handleCreateFloorWall,
@@ -3037,6 +3106,7 @@ export function useEditorPage() {
   } = useEditorStructureEditHandlers({
     floorRooms,
     floorWalls,
+    activeFloorLayerId,
     visibleAutoFloorWalls,
     autoFloorWalls,
     mergedFloorOpenings,
@@ -3760,7 +3830,7 @@ export function useEditorPage() {
     overlayLayerIds,
     overlayOpacityByLayerId,
     floorWalls,
-    floorWallsForHierarchy: mergedFloorWalls,
+    floorWallsForHierarchy: activeLayerVisibleFloorWalls,
     floorOpenings: mergedFloorOpenings,
     selectedFloorWallId,
     selectedFloorWallIds,
@@ -3774,12 +3844,13 @@ export function useEditorPage() {
     handleEditIfc,
     handleIfcUndo,
     handleIfcRedo,
-    addFloorLayer,
-    renameFloorLayer,
-    deleteFloorLayer,
+    addFloorLayer: handleAddFloorLayer,
+    renameFloorLayer: handleRenameFloorLayer,
+    deleteFloorLayer: handleDeleteFloorLayer,
     setActiveFloorLayerId,
     toggleLayerOverlayMode,
     handleToggleOverlayLayer,
+    handleSelectSingleOverlayLayer,
     handleSetOverlayLayerOpacity,
     floorPlanConnections: connections,
     floorProjectImportMessage,

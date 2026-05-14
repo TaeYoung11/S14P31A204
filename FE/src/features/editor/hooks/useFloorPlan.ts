@@ -42,7 +42,7 @@ export function useFloorPlan() {
    * - 버블 기반 레이아웃은 1층을 기준으로 갱신하므로 활성층도 `floor-1`로 맞춘다.
    */
   const upsertPrimaryLayer = useCallback((rooms: FloorRoom[]) => {
-    const firstLayer: FloorLayer = { id: 'floor-1', name: '1층 평면도', rooms }
+    const firstLayer: FloorLayer = { id: 'floor-1', name: '1F', rooms }
     setLayers((prev) => {
       if (prev.length === 0) return [firstLayer]
       const hasPrimary = prev.some((layer) => layer.id === 'floor-1')
@@ -112,25 +112,14 @@ export function useFloorPlan() {
   const addFloorLayer = useCallback(() => {
     const newId = `floor-${Date.now()}`
     const floorNum = layers.length + 1
-    const baseRooms = layers.find((l) => l.id === activeLayerId)?.rooms ?? []
-    const bubbleIdMap = new Map<string, string>(
-      baseRooms.map((room) => [room.bubbleId, `${room.bubbleId}-${newId}`] as const),
-    )
-
     const newLayer: FloorLayer = {
       id: newId,
-      name: `${floorNum}층 평면도`,
-      // 레이어 간 식별자 충돌을 막기 위해 room.id / room.bubbleId를 모두 재발급한다.
-      rooms: baseRooms.map((room) => ({
-        ...room,
-        id: `${room.id}-${newId}`,
-        bubbleId: bubbleIdMap.get(room.bubbleId) ?? `${room.bubbleId}-${newId}`,
-        connectedIds: room.connectedIds.map((id) => bubbleIdMap.get(id) ?? `${id}-${newId}`),
-      })),
+      name: `${floorNum}F`,
+      rooms: [],
     }
     setLayers((prev) => [...prev, newLayer])
     setActiveLayerId(newId)
-  }, [layers, activeLayerId])
+  }, [layers.length])
 
   /** 층 이름 수정 */
   const renameFloorLayer = useCallback((layerId: string, name: string) => {

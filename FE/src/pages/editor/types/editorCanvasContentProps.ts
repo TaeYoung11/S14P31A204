@@ -111,6 +111,7 @@ type TwoDLayerPanelProps = Pick<
   | 'setActiveFloorLayerId'
   | 'toggleLayerOverlayMode'
   | 'handleToggleOverlayLayer'
+  | 'handleSelectSingleOverlayLayer'
   | 'handleSetOverlayLayerOpacity'
 >
 
