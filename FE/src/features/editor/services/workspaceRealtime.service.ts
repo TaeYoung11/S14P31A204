@@ -8,6 +8,9 @@ interface WorkspaceBubblePayload {
   bubbles: Array<{
     id: string
     floor?: number
+    layer?: number
+    level?: number
+    floorNumber?: number
     x: number
     y: number
     width: number
@@ -72,6 +75,9 @@ const normalizeText = (value: string, fallback: string): string => {
 const toWorkspaceBubble = (bubble: BubbleData): WorkspaceBubblePayload['bubbles'][number] => ({
   id: bubble.id,
   floor: bubble.floor,
+  layer: bubble.floor,
+  level: bubble.floor,
+  floorNumber: bubble.floor,
   x: Number.isFinite(bubble.x) ? bubble.x : 0,
   y: Number.isFinite(bubble.y) ? bubble.y : 0,
   width: normalizePositiveNumber(bubble.width, 1),

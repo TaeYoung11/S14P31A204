@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import type { BubbleData, AddSpaceFormData } from '../types'
-import { INITIAL_BUBBLES, INITIAL_ADD_SPACE_FORM } from '../constants'
+import { INITIAL_ADD_SPACE_FORM } from '../constants'
 import {
   calcAreaM2FromMm,
   calcMmDimensionsByAreaAndAspect,
@@ -11,7 +11,7 @@ import { normalizeBubbleFloor } from '../utils/bubbleFloorUtils'
 
 /** 버블(공간) 상태와 모든 변경 핸들러를 제공하는 훅 */
 export function useBubbles() {
-  const [bubbles, setBubbles] = useState<BubbleData[]>(INITIAL_BUBBLES)
+  const [bubbles, setBubbles] = useState<BubbleData[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [previousSelectedId, setPreviousSelectedId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])

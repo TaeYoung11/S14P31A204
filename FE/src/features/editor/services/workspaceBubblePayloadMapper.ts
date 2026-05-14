@@ -1,15 +1,9 @@
 import type { BubbleData, ConnectionData, WorkspaceSnapshot } from '../types'
-import { getRuntimeEnvBoolean } from '@/shared/lib/runtimeEnv'
-
-/**
- * BE 호환 스위치:
- * - false(기본): floorMeta 필드를 전송하지 않아 구버전 BE와 호환
- * - true: floorMeta를 포함해 다층 메타데이터를 동기화
- */
-const ENABLE_BUBBLE_FLOOR_META_SYNC = getRuntimeEnvBoolean(
-  'VITE_ENABLE_BUBBLE_FLOOR_META_SYNC',
-  false,
-)
+import {
+  normalizeBubbleFloor,
+  normalizeBubbleFloorName,
+  normalizeBubbleFloorSet,
+} from '../utils/bubbleFloorUtils'
 
 export interface WorkspaceBubbleFloorMetaPayload {
   namesByFloor: Record<number, string>
@@ -19,6 +13,9 @@ export interface WorkspaceBubbleFloorMetaPayload {
 export interface WorkspaceBubbleNodePayload {
   id: string
   floor?: number
+  layer?: number
+  level?: number
+  floorNumber?: number
   x: number
   y: number
   width: number
@@ -48,9 +45,14 @@ export interface WorkspaceBubbleSnapshotPayload {
  */
 export const mapBubbleToWorkspacePayload = (
   bubble: BubbleData,
-): WorkspaceBubbleNodePayload => ({
+): WorkspaceBubbleNodePayload => {
+  const floor = normalizeBubbleFloor(bubble.floor)
+  return {
   id: bubble.id,
-  floor: bubble.floor,
+  floor,
+  layer: floor,
+  level: floor,
+  floorNumber: floor,
   x: bubble.x,
   y: bubble.y,
   width: bubble.width,
@@ -61,7 +63,8 @@ export const mapBubbleToWorkspacePayload = (
   type: bubble.type,
   ratio: bubble.ratio,
   color: bubble.color,
-})
+  }
+}
 
 /**
  * 연결선 데이터를 서버 payload 형식으로 변환한다.
@@ -84,6 +87,49 @@ export const mapFloorMetaFromWorkspaceSnapshot = (
   extraFloors: snapshot.extraBubbleFloors,
 })
 
+const buildFloorMetaPayload = (
+  bubbles: WorkspaceBubbleNodePayload[],
+  floorMeta?: WorkspaceBubbleFloorMetaPayload,
+): WorkspaceBubbleFloorMetaPayload => {
+  const floorSet = new Set<number>()
+  const floorNameEntries = Object.entries(floorMeta?.namesByFloor ?? {})
+
+  bubbles.forEach((bubble) => {
+    floorSet.add(normalizeBubbleFloor(bubble.floor))
+  })
+  ;(floorMeta?.extraFloors ?? []).forEach((floor) => {
+    floorSet.add(normalizeBubbleFloor(floor))
+  })
+  floorNameEntries.forEach(([floor]) => {
+    floorSet.add(normalizeBubbleFloor(Number(floor)))
+  })
+  if (floorSet.size === 0) {
+    floorSet.add(normalizeBubbleFloor(undefined))
+  }
+
+  const floors = normalizeBubbleFloorSet(floorSet)
+  const namesByFloor = Object.fromEntries(
+    floors.map((floor) => [floor, normalizeBubbleFloorName(undefined, floor)]),
+  ) as Record<number, string>
+
+  floorNameEntries.forEach(([rawFloor, rawName]) => {
+    const floor = normalizeBubbleFloor(Number(rawFloor))
+    namesByFloor[floor] = normalizeBubbleFloorName(rawName, floor)
+  })
+
+  const floorsWithBubble = new Set(
+    bubbles.map((bubble) => normalizeBubbleFloor(bubble.floor)),
+  )
+  const explicitExtraFloors = new Set(
+    (floorMeta?.extraFloors ?? []).map((floor) => normalizeBubbleFloor(floor)),
+  )
+  const extraFloors = floors.filter(
+    (floor) => explicitExtraFloors.has(floor) || !floorsWithBubble.has(floor),
+  )
+
+  return { namesByFloor, extraFloors }
+}
+
 /**
  * 버블/연결선/층 메타데이터를 워크스페이스 저장 payload로 합친다.
  */
@@ -91,13 +137,11 @@ export const mapBubbleSnapshotToWorkspacePayload = (
   bubbles: BubbleData[],
   connections: ConnectionData[],
   floorMeta?: WorkspaceBubbleFloorMetaPayload,
-): WorkspaceBubbleSnapshotPayload => ({
-  bubbles: bubbles.map(mapBubbleToWorkspacePayload),
-  connections: connections.map(mapConnectionToWorkspacePayload),
-  ...(ENABLE_BUBBLE_FLOOR_META_SYNC && floorMeta ? {
-    floorMeta: {
-      namesByFloor: floorMeta.namesByFloor,
-      extraFloors: floorMeta.extraFloors,
-    },
-  } : {}),
-})
+): WorkspaceBubbleSnapshotPayload => {
+  const bubblePayload = bubbles.map(mapBubbleToWorkspacePayload)
+  return {
+    bubbles: bubblePayload,
+    connections: connections.map(mapConnectionToWorkspacePayload),
+    floorMeta: buildFloorMetaPayload(bubblePayload, floorMeta),
+  }
+}
