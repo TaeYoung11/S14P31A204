@@ -1,6 +1,7 @@
 """IFC 파일 → Open3D TriangleMesh 변환."""
 
 import math
+from dataclasses import dataclass
 from pathlib import Path
 
 import ifcopenshell
@@ -21,6 +22,28 @@ prompt 편향으로 *추가 층/지하* 환각을 만든다. ground plane을 mes
 망가진다. 1.2는 사방 *약간 확장*만 하여 정면 시점에서 bottom 지면이 충분히 노출
 되면서도 등각 시점 framing을 망가뜨리지 않는 균형점.
 """
+
+GROUND_BASE_Z_PERCENTILE = 5.0
+"""일반 크기 mesh의 ground z 배치에 사용하는 낮은 z percentile.
+
+vertex가 충분한 mesh에서는 의도적으로 AABB min-z와 다르게 동작한다. sparse lower
+geometry가 synthetic ground plane을 건물 base보다 과도하게 아래로 끌어내릴 수 있기
+때문이다. 다만 실제 하부 구조가 sparse하게 존재하는 모델에서는 synthetic ground
+plane이 그 구조 위로 올라갈 수 있으므로, 이 동작은 테스트로 고정하고 DAY/NIGHT만의
+변경으로 취급하지 않는다.
+"""
+
+GROUND_BASE_MIN_VERTEX_COUNT_FOR_ROBUST_Z = 20
+"""이 크기보다 작은 mesh는 예측 가능한 테스트를 위해 exact min-z 동작을 유지한다."""
+
+MIN_PLAUSIBLE_HEIGHT_M = 1.0
+"""Below this z extent, a building mesh is suspicious for Z-up rendering."""
+
+MIN_HEIGHT_TO_FOOTPRINT_RATIO = 0.08
+"""Very flat z extent compared with footprint can indicate a wrong up axis."""
+
+MAX_HEIGHT_TO_FOOTPRINT_RATIO = 3.0
+"""Very tall z extent compared with footprint can indicate a wrong up axis."""
 
 
 WALL_NORMAL_VERTICAL_TOLERANCE = 0.1
@@ -63,6 +86,34 @@ IfcWall/IfcSlab/IfcRoof/IfcDoor/IfcWindow/IfcStair/IfcColumn/IfcBeam/...
 
 전체 씬이 필요하면 `included_base="IfcProduct"` 전달 (escape hatch).
 """
+
+
+@dataclass(frozen=True)
+class MeshOrientationDiagnostics:
+    axis_extents: tuple[float, float, float]
+    assumed_up_axis: str
+    height_axis: str
+    height_to_footprint_ratio: float
+    z_is_plausible_height: bool
+    horizontal_face_ratio: float
+    vertical_face_ratio: float
+    warnings: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "axisExtents": {
+                "x": self.axis_extents[0],
+                "y": self.axis_extents[1],
+                "z": self.axis_extents[2],
+            },
+            "assumedUpAxis": self.assumed_up_axis,
+            "heightAxis": self.height_axis,
+            "heightToFootprintRatio": self.height_to_footprint_ratio,
+            "zIsPlausibleHeight": self.z_is_plausible_height,
+            "horizontalFaceRatio": self.horizontal_face_ratio,
+            "verticalFaceRatio": self.vertical_face_ratio,
+            "warnings": list(self.warnings),
+        }
 
 
 def load_mesh(
@@ -203,7 +254,7 @@ def _add_ground_plane(
         return vertices, triangles
     aabb_min = vertices.min(axis=0)
     aabb_max = vertices.max(axis=0)
-    z_ground = float(aabb_min[2])
+    z_ground = _estimate_ground_z(vertices)
     cx = float((aabb_min[0] + aabb_max[0]) / 2)
     cy = float((aabb_min[1] + aabb_max[1]) / 2)
     half_x = float((aabb_max[0] - aabb_min[0]) / 2 * extent_factor)
@@ -230,6 +281,88 @@ def _add_ground_plane(
     new_vertices = np.vstack([vertices, ground_verts])
     new_triangles = np.vstack([triangles, ground_tris])
     return new_vertices, new_triangles
+
+
+def _estimate_ground_z(vertices: np.ndarray) -> float:
+    """IFC depth rendering에 사용할 synthetic ground z를 추정한다.
+
+    작은 mesh는 deterministic helper test를 위해 exact min-z를 유지한다. 더 큰 mesh는
+    한두 개의 sparse lower vertex 때문에 ground plane이 시각적 building base보다
+    과도하게 아래로 내려가지 않도록 낮은 percentile을 사용한다.
+    """
+    if len(vertices) < GROUND_BASE_MIN_VERTEX_COUNT_FOR_ROBUST_Z:
+        return float(vertices[:, 2].min())
+    z_values = np.asarray(vertices[:, 2], dtype=np.float64)
+    return float(np.percentile(z_values, GROUND_BASE_Z_PERCENTILE))
+
+
+def diagnose_mesh_orientation(
+    vertices: np.ndarray,
+    triangles: np.ndarray,
+) -> MeshOrientationDiagnostics:
+    """Return conservative diagnostics for whether the mesh looks Z-up."""
+    if len(vertices) == 0:
+        raise IFCRenderError("cannot diagnose empty mesh orientation")
+
+    vertices = np.asarray(vertices, dtype=np.float64)
+    triangles = np.asarray(triangles, dtype=np.int64)
+    extents_arr = vertices.max(axis=0) - vertices.min(axis=0)
+    axis_extents = tuple(float(value) for value in extents_arr)
+    axis_names = ("x", "y", "z")
+    height_axis = axis_names[int(np.argmax(extents_arr))]
+    footprint = max(float(extents_arr[0]), float(extents_arr[1]), 1e-9)
+    z_extent = float(extents_arr[2])
+    ratio = z_extent / footprint
+
+    horizontal_face_ratio, vertical_face_ratio = _face_orientation_ratios(
+        vertices,
+        triangles,
+    )
+    warnings: list[str] = []
+    if z_extent < MIN_PLAUSIBLE_HEIGHT_M:
+        warnings.append("z extent is below plausible building height")
+    if ratio < MIN_HEIGHT_TO_FOOTPRINT_RATIO:
+        warnings.append("z extent is very small compared with xy footprint")
+    if ratio > MAX_HEIGHT_TO_FOOTPRINT_RATIO:
+        warnings.append("z extent is very large compared with xy footprint")
+    if triangles.size and horizontal_face_ratio < 0.02:
+        warnings.append("few horizontal faces found for assumed Z-up mesh")
+    if triangles.size and vertical_face_ratio < 0.02:
+        warnings.append("few vertical faces found for assumed Z-up mesh")
+
+    z_is_plausible = not warnings
+    return MeshOrientationDiagnostics(
+        axis_extents=axis_extents,
+        assumed_up_axis="z",
+        height_axis=height_axis,
+        height_to_footprint_ratio=float(ratio),
+        z_is_plausible_height=z_is_plausible,
+        horizontal_face_ratio=float(horizontal_face_ratio),
+        vertical_face_ratio=float(vertical_face_ratio),
+        warnings=tuple(warnings),
+    )
+
+
+def _face_orientation_ratios(
+    vertices: np.ndarray,
+    triangles: np.ndarray,
+) -> tuple[float, float]:
+    if len(triangles) == 0:
+        return 0.0, 0.0
+
+    v0 = vertices[triangles[:, 0]]
+    v1 = vertices[triangles[:, 1]]
+    v2 = vertices[triangles[:, 2]]
+    raw_n = np.cross(v1 - v0, v2 - v0)
+    norm = np.linalg.norm(raw_n, axis=1)
+    valid = norm > 1e-12
+    if not np.any(valid):
+        return 0.0, 0.0
+
+    normal_z = np.abs(raw_n[valid, 2] / norm[valid])
+    horizontal = float(np.count_nonzero(normal_z > 0.75) / normal_z.size)
+    vertical = float(np.count_nonzero(normal_z < 0.25) / normal_z.size)
+    return horizontal, vertical
 
 
 def _align_walls_to_axes(

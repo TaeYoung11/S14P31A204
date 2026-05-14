@@ -35,6 +35,8 @@ public record FloorPlanRealtimeUpdateRequest(
         @Valid
         @NotNull(message = "workspaceCommand is required.")
         WorkspaceCommand workspaceCommand,
-        JsonNode layout
+        JsonNode layout,
+        @Valid
+        BubbleFloorMeta floorMeta
 ) implements BubbleSnapshotPayload {
 }

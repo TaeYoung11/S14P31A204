@@ -131,7 +131,7 @@ class BaseWorker(ABC):
     def _coerce_result(self, result: object) -> WorkerResult:
         if isinstance(
             result,
-            (CompletedResult, FailedResult, ClarificationResult, ProgressResult),
+            CompletedResult | FailedResult | ClarificationResult | ProgressResult,
         ):
             return result
         raise TypeError(

@@ -10,7 +10,7 @@ class EngineOperationInlineRef(BaseModel):
     type: str = Field(
         pattern=(
             "^(create_element|create_wall|update_element_properties|"
-            "transform_elements|delete_elements)$"
+            "transform_elements|delete_elements|delete_wall_void)$"
         )
     )
     selector: dict[str, object] | None = None

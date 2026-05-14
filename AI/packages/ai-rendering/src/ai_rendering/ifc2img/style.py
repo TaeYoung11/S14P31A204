@@ -234,6 +234,60 @@ def _depth_to_control(depth: Image.Image) -> Image.Image:
     return depth
 
 
+def build_debug_control_images(
+    depth_image: Image.Image,
+    *,
+    view: IFCView | None = None,
+    use_front_side_semantic_control: bool = False,
+    use_front_full_width_semantic_control: bool = False,
+    use_front_diagonal_ground_semantic_control: bool = False,
+    use_front_diagonal_ground_plane_aware_semantic_control: bool = False,
+    use_front_diagonal_ground_plane_control_attenuation: bool = False,
+    front_side_ground_class: FrontSideGroundClass = "grass",
+    front_diagonal_ground_plane_control_attenuation_strength: float = (
+        FRONT_DIAGONAL_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH
+    ),
+    **_unused_options: object,
+) -> dict[str, Image.Image]:
+    """Build the exact ControlNet inputs that are useful as debug artifacts."""
+    _validate_semantic_control_flags(
+        view=view,
+        use_front_side_semantic_control=use_front_side_semantic_control,
+        use_front_full_width_semantic_control=use_front_full_width_semantic_control,
+    )
+    control = _depth_to_control(depth_image)
+    if use_front_diagonal_ground_plane_control_attenuation and view in {
+        IFCView.FRONT_DIAGONAL_RIGHT,
+        IFCView.FRONT_DIAGONAL_LEFT,
+    }:
+        control = _apply_front_diagonal_ground_plane_control_attenuation(
+            control,
+            strength=front_diagonal_ground_plane_control_attenuation_strength,
+        )
+
+    artifacts = {"depthControl": control}
+    if use_front_full_width_semantic_control and view is IFCView.FRONT:
+        artifacts["semanticControl"] = _build_front_full_width_seg_control(
+            control,
+            ground_class=front_side_ground_class,
+        )
+    if use_front_diagonal_ground_semantic_control and view in {
+        IFCView.FRONT_DIAGONAL_RIGHT,
+        IFCView.FRONT_DIAGONAL_LEFT,
+    }:
+        artifacts["semanticControl"] = _build_front_diagonal_ground_seg_control(
+            control,
+            ground_class=front_side_ground_class,
+            include_ground_plane=use_front_diagonal_ground_plane_aware_semantic_control,
+        )
+    if use_front_side_semantic_control and view in {IFCView.FRONT, IFCView.SIDE}:
+        artifacts["semanticControl"] = _build_front_side_seg_control(
+            control,
+            ground_class=front_side_ground_class,
+        )
+    return artifacts
+
+
 def _append_negative_terms(base_negative: str, extra_negative: str) -> str:
     if not extra_negative:
         return base_negative

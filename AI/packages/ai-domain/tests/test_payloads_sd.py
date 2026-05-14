@@ -26,6 +26,25 @@ def test_sd_render_payload_allows_ifc2img_without_prompt() -> None:
     assert payload.preset == "korean_house"
 
 
+def test_sd_render_payload_allows_ifc2img_time_of_day() -> None:
+    payload = SdRenderCommandPayload(
+        renderMode="ifc2img",
+        preset="korean_house",
+        timeOfDay="NIGHT",
+    )
+
+    assert payload.timeOfDay == "NIGHT"
+
+
+def test_sd_render_payload_rejects_unknown_time_of_day() -> None:
+    with pytest.raises(ValidationError):
+        SdRenderCommandPayload(
+            renderMode="ifc2img",
+            preset="korean_house",
+            timeOfDay="MORNING",  # type: ignore[arg-type]
+        )
+
+
 def test_sd_render_payload_requires_prompt_for_default_sd_mode() -> None:
     """기본 SD mode에서는 기존처럼 prompt가 필수다."""
     with pytest.raises(ValidationError, match="prompt is required"):

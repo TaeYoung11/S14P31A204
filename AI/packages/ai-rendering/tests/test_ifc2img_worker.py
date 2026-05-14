@@ -12,6 +12,7 @@ from ai_rendering.ifc2img.service import (
     Ifc2ImgPhotoJobResult,
     Ifc2ImgPhotoViewResult,
     Ifc2ImgWorkerRequest,
+    normalize_ifc2img_time_of_day,
 )
 from ai_rendering.ifc2img.views import IFCView
 from ai_rendering.ifc2img.worker import (
@@ -83,7 +84,11 @@ def _worker_request() -> Ifc2ImgWorkerRequest:
                 "s3://bucket/output/job-1/photo_front_diagonal_right.png"
             ),
         },
-        "payload": {"renderMode": "ifc2img", "preset": "korean_house"},
+        "payload": {
+            "renderMode": "ifc2img",
+            "preset": "korean_house",
+            "timeOfDay": "DAY",
+        },
     }
 
 
@@ -109,6 +114,7 @@ def _fake_pipeline(
     output_dir: Path,
     *,
     preset: str,
+    time_of_day: object | None = None,
 ) -> Ifc2ImgPhotoJobResult:
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = output_dir / "manifest.json"
@@ -190,8 +196,34 @@ def test_worker_command_mapping_supports_command_like_object() -> None:
                 "s3://bucket/output/job-1/photo_front_diagonal_right.png"
             ),
         },
-        "payload": {"renderMode": "ifc2img", "preset": "scandinavian"},
+        "payload": {
+            "renderMode": "ifc2img",
+            "preset": "scandinavian",
+            "timeOfDay": "DAY",
+        },
     }
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("DAY", "day"),
+        ("NIGHT", "night"),
+        (None, "day"),
+        ("", "day"),
+    ],
+)
+def test_normalize_ifc2img_time_of_day(
+    value: object | None,
+    expected: str,
+) -> None:
+    assert normalize_ifc2img_time_of_day(value) == expected
+
+
+@pytest.mark.parametrize("value", ["day", "MORNING", 1])
+def test_normalize_ifc2img_time_of_day_rejects_invalid_values(value: object) -> None:
+    with pytest.raises(IFCRenderError, match="unsupported timeOfDay"):
+        normalize_ifc2img_time_of_day(value)
 
 
 def test_worker_command_mapping_uses_default_preset_when_missing() -> None:
@@ -203,6 +235,33 @@ def test_worker_command_mapping_uses_default_preset_when_missing() -> None:
 
     assert request["payload"]["preset"] == "korean_house"
     assert request["payload"]["renderMode"] == "ifc2img"
+    assert request["payload"]["timeOfDay"] == "DAY"
+
+
+def test_worker_command_mapping_preserves_time_of_day() -> None:
+    """command payload timeOfDay is copied into the ifc2img request payload."""
+    command = _worker_command_dict()
+    command["payload"] = {
+        "renderMode": "ifc2img",
+        "preset": "korean_house",
+        "timeOfDay": "NIGHT",
+    }
+
+    request = map_worker_command_to_ifc2img_request(command)
+
+    assert request["payload"]["timeOfDay"] == "NIGHT"
+
+
+def test_worker_command_mapping_rejects_invalid_time_of_day() -> None:
+    command = _worker_command_dict()
+    command["payload"] = {
+        "renderMode": "ifc2img",
+        "preset": "korean_house",
+        "timeOfDay": "MORNING",
+    }
+
+    with pytest.raises(IFCRenderError, match="unsupported timeOfDay"):
+        map_worker_command_to_ifc2img_request(command)
 
 
 def test_worker_command_mapping_ignores_shared_payload_render_mode_default() -> None:
@@ -213,6 +272,7 @@ def test_worker_command_mapping_ignores_shared_payload_render_mode_default() -> 
     request = map_worker_command_to_ifc2img_request(command)
 
     assert request["payload"]["renderMode"] == "ifc2img"
+    assert request["payload"]["timeOfDay"] == "DAY"
 
 
 @pytest.mark.parametrize(

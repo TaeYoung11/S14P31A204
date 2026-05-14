@@ -354,6 +354,7 @@ def test_ifc_to_styled_render_depths_can_enable_auto_zoom(
             "iter_tolerance": 0.05,
             "view_target_overrides": expected_overrides,
             "view_ground_extent_overrides": expected_ground_overrides,
+            "look_at_height_ratio": m.PHOTO_DEPTH_RENDER_DEFAULTS.look_at_height_ratio,
         }
     ]
     assert paths[m.IFCView.FRONT_DIAGONAL_RIGHT].name == "depth_front_diagonal_right.png"
