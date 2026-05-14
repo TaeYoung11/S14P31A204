@@ -134,30 +134,20 @@ export function useFloorPlan(projectId?: string) {
 
   /**
    * 층 추가
-   * 현재 활성 층 레이아웃을 복사해 새 층 생성 후 전환
+   * 빈 새 층 생성 후 전환
    */
   const addFloorLayer = useCallback(() => {
     const newId = `floor-${Date.now()}`
     const floorNum = layers.length + 1
-    const baseRooms = layers.find((l) => l.id === activeLayerId)?.rooms ?? []
-    const bubbleIdMap = new Map<string, string>(
-      baseRooms.map((room) => [room.bubbleId, `${room.bubbleId}-${newId}`] as const),
-    )
 
     const newLayer: FloorLayer = {
       id: newId,
       name: `${floorNum}층 평면도`,
-      // 레이어 간 식별자 충돌을 막기 위해 room.id / room.bubbleId를 모두 재발급한다.
-      rooms: baseRooms.map((room) => ({
-        ...room,
-        id: `${room.id}-${newId}`,
-        bubbleId: bubbleIdMap.get(room.bubbleId) ?? `${room.bubbleId}-${newId}`,
-        connectedIds: room.connectedIds.map((id) => bubbleIdMap.get(id) ?? `${id}-${newId}`),
-      })),
+      rooms: [],
     }
     setLayers((prev) => [...prev, newLayer])
     setActiveLayerId(newId)
-  }, [layers, activeLayerId])
+  }, [layers])
 
   /** 층 이름 수정 */
   const renameFloorLayer = useCallback((layerId: string, name: string) => {
