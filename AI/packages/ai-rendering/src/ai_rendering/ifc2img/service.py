@@ -18,7 +18,11 @@ from PIL import Image
 
 from ai_common.logging import get_logger
 
-from .element_masks import render_ifc_element_masks
+from .element_masks import (
+    IfcElementMaskRenderResult,
+    build_ifc_color_composite_from_element_masks,
+    render_ifc_element_masks,
+)
 from .exceptions import IFCRenderError
 from .geometry import (
     _estimate_ground_z,
@@ -28,6 +32,7 @@ from .geometry import (
 )
 from .presets import list_presets, load_preset
 from .semantics import (
+    IfcColorSummary,
     IfcSemanticSummary,
     extract_ifc_color_summary,
     extract_ifc_semantic_summary,
@@ -456,6 +461,14 @@ class Ifc2ImgDebugGeometry:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class Ifc2ImgDebugElementMaskArtifacts:
+    """Saved element mask paths plus the rendered masks for downstream debug reuse."""
+
+    files: dict[str, str]
+    result: IfcElementMaskRenderResult
+
+
 def resolve_photo_views() -> tuple[PhotoViewAlias, ...]:
     """service가 항상 생성하는 front-facing diagonal public view 2개를 반환한다."""
     return PUBLIC_PHOTO_VIEWS
@@ -785,7 +798,7 @@ def _save_debug_element_masks(
     camera: dict[str, object],
     width: int,
     height: int,
-) -> dict[str, str]:
+) -> Ifc2ImgDebugElementMaskArtifacts | None:
     try:
         result = render_ifc_element_masks(
             ifc_path,
@@ -802,7 +815,7 @@ def _save_debug_element_masks(
             view=public_view,
             error=str(exc),
         )
-        return {}
+        return None
 
     paths: dict[str, str] = {}
     for category, image in result.masks.items():
@@ -814,7 +827,7 @@ def _save_debug_element_masks(
     composite_path = debug_dir / f"element_composite_{public_view}.png"
     result.composite.save(composite_path, format="PNG")
     paths["composite"] = _path_for_manifest(composite_path, output_dir)
-    return paths
+    return Ifc2ImgDebugElementMaskArtifacts(files=paths, result=result)
 
 
 def _save_debug_artifacts(
@@ -828,6 +841,7 @@ def _save_debug_artifacts(
     depth: Image.Image,
     photo: Image.Image,
     geometry: Ifc2ImgDebugGeometry,
+    color_summary: IfcColorSummary | None = None,
 ) -> dict[str, object]:
     debug_depth_path = debug_dir / f"depth_{public_view}.png"
     debug_control_path = debug_dir / f"control_depth_{public_view}.png"
@@ -861,7 +875,7 @@ def _save_debug_artifacts(
     )
     camera = payload.get("camera")
     if isinstance(camera, dict):
-        element_masks = _save_debug_element_masks(
+        element_mask_artifacts = _save_debug_element_masks(
             ifc_path=ifc_path,
             output_dir=output_dir,
             debug_dir=debug_dir,
@@ -870,8 +884,29 @@ def _save_debug_artifacts(
             width=depth.width,
             height=depth.height,
         )
-        if element_masks:
-            files["elementMasks"] = element_masks
+        if element_mask_artifacts is not None:
+            files["elementMasks"] = element_mask_artifacts.files
+            if color_summary is not None:
+                try:
+                    color_composite = build_ifc_color_composite_from_element_masks(
+                        element_mask_artifacts.result,
+                        color_summary,
+                    )
+                    color_composite_path = (
+                        debug_dir / f"ifc_color_composite_{public_view}.png"
+                    )
+                    color_composite.save(color_composite_path, format="PNG")
+                    files["ifcColorCompositeImage"] = _path_for_manifest(
+                        color_composite_path,
+                        output_dir,
+                    )
+                except Exception as exc:
+                    _logger.info(
+                        "ifc2img_debug_color_composite_failed",
+                        ifcPath=str(ifc_path),
+                        view=public_view,
+                        error=str(exc),
+                    )
     payload.update(
         {
             "view": public_view,
@@ -1002,6 +1037,7 @@ def run_ifc2img_photo_pipeline(
     debug_dir = output_dir / DEBUG_DIR_NAME
     debug_geometry: Ifc2ImgDebugGeometry | None = None
     debug_manifest: dict[str, object] | None = None
+    debug_color_summary: IfcColorSummary | None = None
     if debug_artifacts:
         debug_dir.mkdir(parents=True, exist_ok=True)
         debug_geometry = _load_debug_geometry(ifc_path)
@@ -1016,9 +1052,8 @@ def run_ifc2img_photo_pipeline(
         # only records a serializable snapshot for inspection.
         debug_manifest["ifcSemanticSummary"] = semantic_context.summary.to_dict()
         try:
-            debug_manifest["ifcColorSummary"] = extract_ifc_color_summary(
-                ifc_path
-            ).to_dict()
+            debug_color_summary = extract_ifc_color_summary(ifc_path)
+            debug_manifest["ifcColorSummary"] = debug_color_summary.to_dict()
         except Exception as exc:  # pragma: no cover - error type varies by parser.
             debug_manifest["ifcColorSummaryError"] = str(exc)
         debug_manifest["semanticGroundSelection"] = ground_selection.to_dict()
@@ -1105,6 +1140,7 @@ def run_ifc2img_photo_pipeline(
                     depth=depth,
                     photo=result.image,
                     geometry=debug_geometry,
+                    color_summary=debug_color_summary,
                 )
                 actual_fill_ratio = float(debug_view["actualFillRatio"])
                 debug_manifest_views = debug_manifest["views"]

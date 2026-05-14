@@ -250,6 +250,21 @@ def ifc_category_color_prompt_cues(
     return cues
 
 
+def select_ifc_category_color_candidate(
+    category: IfcSemanticCategory,
+    candidates: tuple[IfcColorCandidate, ...] | list[IfcColorCandidate],
+) -> IfcColorCandidate | None:
+    """Select the category-aware representative IFC color candidate."""
+    ordered_candidates = sorted(
+        candidates,
+        key=lambda candidate: _category_color_candidate_priority(category, candidate),
+    )
+    return next(
+        (candidate for candidate in ordered_candidates if candidate.rgb is not None),
+        None,
+    )
+
+
 def select_ifc_color_summary_category_cues(
     summary: IfcColorSummary,
 ) -> dict[IfcSemanticCategory, str]:
@@ -1072,10 +1087,14 @@ def _category_color_candidate_priority(
     cue = ifc_color_prompt_cue(candidate)
     if category == "ROOF" and ("roof" in semantic_name or "지붕" in semantic_name):
         return (0, _IFC_COLOR_SOURCE_PRIORITY[candidate.source])
+    if category == "WALL" and cue in {"gray", "white"}:
+        return (0, _IFC_COLOR_SOURCE_PRIORITY[candidate.source])
     if category == "WINDOW" and cue is not None and "glass" in cue:
         return (0, _IFC_COLOR_SOURCE_PRIORITY[candidate.source])
     if category == "DOOR" and ("door" in semantic_name or "문" in semantic_name):
         return (0, _IFC_COLOR_SOURCE_PRIORITY[candidate.source])
+    if category == "WALL" and cue == "beige":
+        return (2, _IFC_COLOR_SOURCE_PRIORITY[candidate.source])
     return (1, _IFC_COLOR_SOURCE_PRIORITY[candidate.source])
 
 

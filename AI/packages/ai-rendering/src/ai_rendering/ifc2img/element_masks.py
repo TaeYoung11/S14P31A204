@@ -13,7 +13,12 @@ import open3d as o3d
 from PIL import Image
 
 from .exceptions import IFCRenderError
-from .semantics import IfcSemanticCategory, SUPPORTED_SEMANTIC_CATEGORIES
+from .semantics import (
+    IfcColorSummary,
+    IfcSemanticCategory,
+    SUPPORTED_SEMANTIC_CATEGORIES,
+    select_ifc_category_color_candidate,
+)
 from .semantics import _semantic_category_for_entity as semantic_category_for_entity
 
 ELEMENT_MASK_COLORS: dict[IfcSemanticCategory, tuple[int, int, int]] = {
@@ -75,6 +80,48 @@ def render_ifc_element_masks(
     )
 
 
+def build_ifc_color_composite_from_element_masks(
+    element_masks: IfcElementMaskRenderResult,
+    color_summary: IfcColorSummary,
+    *,
+    missing_color_fallback: str = "debug",
+) -> Image.Image:
+    """Paint element mask regions with representative IFC category colors."""
+    width, height = element_masks.composite.size
+    composite_arr = np.zeros((height, width, 3), dtype=np.uint8)
+    for category in SUPPORTED_SEMANTIC_CATEGORIES:
+        category_summary = color_summary.categories.get(category)
+        category_color = (
+            select_ifc_category_color_candidate(
+                category,
+                category_summary.candidates,
+            )
+            if category_summary is not None
+            else None
+        )
+        if (
+            category_color is None
+            and category_summary is not None
+            and category_summary.color is not None
+        ):
+            category_color = category_summary.color
+        color = _category_color_or_fallback(
+            category,
+            category_color.rgb
+            if category_color is not None
+            else None,
+            missing_color_fallback=missing_color_fallback,
+        )
+        if color is None:
+            continue
+        mask = element_masks.masks.get(category)
+        if mask is None:
+            continue
+        mask_arr = np.asarray(mask.convert("L"), dtype=np.uint8) > 0
+        composite_arr[mask_arr] = color
+    return Image.fromarray(composite_arr, mode="RGB")
+
+
 def _load_category_meshes(ifc_path: Path) -> dict[IfcSemanticCategory, Any]:
     try:
         model = ifcopenshell.open(str(ifc_path))
@@ -115,6 +162,32 @@ def _load_category_meshes(ifc_path: Path) -> dict[IfcSemanticCategory, Any]:
         if mesh is not None:
             meshes[category] = mesh
     return meshes
+
+
+def _rgb_float_to_uint8(rgb: tuple[float, float, float]) -> tuple[int, int, int]:
+    return tuple(
+        int(round(min(1.0, max(0.0, channel)) * 255.0))
+        for channel in rgb
+    )
+
+
+def _category_color_or_fallback(
+    category: IfcSemanticCategory,
+    rgb: tuple[float, float, float] | None,
+    *,
+    missing_color_fallback: str,
+) -> tuple[int, int, int] | None:
+    if rgb is not None:
+        return _rgb_float_to_uint8(rgb)
+    if missing_color_fallback == "debug":
+        return ELEMENT_MASK_COLORS[category]
+    if missing_color_fallback == "neutral":
+        return (128, 128, 128)
+    if missing_color_fallback == "none":
+        return None
+    raise ValueError(
+        "missing_color_fallback must be one of: debug, neutral, none"
+    )
 
 
 def _mesh_from_parts(
