@@ -439,15 +439,14 @@ class AuthoringWorker(BaseWorker):
                 properties = params.get("properties") or {}
                 pset_updates = params.get("pset_updates") or {}
                 pset_name = str(params.get("pset_name") or "Batang_SpaceDimensions")
-                update_space(
+                return update_space(
                     model=model,
                     space=el,
-                    dimensions_mm=self._unwrap_dimension_values(dims),
+                    dimensions_mm=dims,
                     properties=properties,
                     pset_updates=pset_updates,
                     pset_name=pset_name,
                 )
-                return bool(dims or properties or pset_updates or params.get("pset_name"))
             # dimensionChangesMm values are authored in millimeters.
             if dims.get("width"):
                 changed |= bool(modify_thickness(el, dims["width"], scale=1000.0))
@@ -479,16 +478,6 @@ class AuthoringWorker(BaseWorker):
         return changed
 
     # ── 셀렉터 처리 ─────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _unwrap_dimension_values(dimensions_mm: dict[str, Any]) -> dict[str, Any]:
-        unwrapped: dict[str, Any] = {}
-        for key, value in dimensions_mm.items():
-            if isinstance(value, dict) and "value" in value:
-                unwrapped[key] = value["value"]
-            else:
-                unwrapped[key] = value
-        return unwrapped
 
     def _resolve_selector(
         self,
