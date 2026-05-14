@@ -199,6 +199,8 @@ export interface FloorRoomTransform2D {
 export interface FloorLayer {
   id: string
   name: string
+  elevationMm?: number
+  ceilingHeightMm?: number
   rooms: FloorRoom[]
 }
 
@@ -266,12 +268,24 @@ export interface FloorCommentPin {
   id: string
   x: number
   y: number
+  worldX: number
+  worldY: number
+  worldZ: number
   createdAt: string
   createdById: string
   createdByName: string
   createdByType: CollaborationUserType
   messages: FloorCommentMessage[]
   hasUnreadCommentByOtherUser?: boolean
+}
+
+export interface CommentPin3DCreatePosition {
+  worldX: number
+  worldY: number
+  worldZ: number
+  cameraX: number
+  cameraY: number
+  cameraZ: number
 }
 
 /** 협업 알림 (백엔드 연동 전 FE 로컬 시뮬레이션용) */

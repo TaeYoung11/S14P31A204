@@ -9,11 +9,21 @@ import { getRightDockWidth, getVisiblePanelKeys } from './right-panels/rightPane
  * - 협업 모드 분기와 도크 폭 계산만 담당한다.
  */
 export function EditorRightPanels(props: EditorRightPanelsProps) {
-  const { mode, isAgentPanelMode, isCollaborationMode, panelOpenState, panelWidths } = props
+  const {
+    mode,
+    isAgentPanelMode,
+    isCollaborationMode,
+    currentCollaborationUserType,
+    panelOpenState,
+    panelWidths,
+  } = props
+  const shouldShowCollaborationPanel =
+    mode !== 'bubble' &&
+    (isCollaborationMode || currentCollaborationUserType === 'CUSTOMER')
   const visiblePanelKeys = getVisiblePanelKeys(mode)
   const rightDockWidth = getRightDockWidth(visiblePanelKeys, panelOpenState, panelWidths)
 
-  if (isCollaborationMode && mode !== 'bubble') {
+  if (shouldShowCollaborationPanel) {
     return <EditorRightPanelsCollaborationDock {...props} />
   }
 

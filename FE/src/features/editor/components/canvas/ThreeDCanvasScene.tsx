@@ -1,4 +1,4 @@
-import type { IfcElementChange, IfcElementInfo } from '../../types'
+import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '../../types'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
@@ -12,6 +12,14 @@ interface ThreeDCanvasSceneProps {
   rawIfcUrl?: string | null
   localFloorData?: FloorPlan3DData | null
   libraryElements: ThreeDLibraryPreset[]
+  commentPins: FloorCommentPin[]
+  isCollaborationMode: boolean
+  selectedPinId: string | null
+  currentUserId: string | null
+  onPinClick?: (id: string) => void
+  onPinCreate?: (x: number, y: number, content?: string, threeDPosition?: CommentPin3DCreatePosition) => void
+  onPinDelete?: (id: string) => void
+  deletingPinId: string | null
   ifcElementChanges: IfcElementChange[]
   isRotationLocked: boolean
   zoomScale: number
@@ -41,6 +49,14 @@ export default function ThreeDCanvasScene({
   rawIfcUrl,
   localFloorData,
   libraryElements,
+  commentPins,
+  isCollaborationMode,
+  selectedPinId,
+  currentUserId,
+  onPinClick,
+  onPinCreate,
+  onPinDelete,
+  deletingPinId,
   ifcElementChanges,
   isRotationLocked,
   zoomScale,
@@ -67,6 +83,14 @@ export default function ThreeDCanvasScene({
       <FloorPlan3DCanvas
         data={localFloorData}
         libraryElements={libraryElements}
+        commentPins={commentPins}
+        isCollaborationMode={isCollaborationMode}
+        selectedPinId={selectedPinId}
+        currentUserId={currentUserId}
+        onPinClick={onPinClick}
+        onPinCreate={onPinCreate}
+        onPinDelete={onPinDelete}
+        deletingPinId={deletingPinId}
         selectedIfcElement={selectedIfcElement}
         deleteRequestToken={deleteRequestToken}
         isRotationLocked={isRotationLocked}
@@ -90,6 +114,14 @@ export default function ThreeDCanvasScene({
       ifcUrl={ifcUrl}
       projectId={projectId}
       libraryElements={libraryElements}
+      commentPins={commentPins}
+      isCollaborationMode={isCollaborationMode}
+      selectedPinId={selectedPinId}
+      currentUserId={currentUserId}
+      onPinClick={onPinClick}
+      onPinCreate={onPinCreate}
+      onPinDelete={onPinDelete}
+      deletingPinId={deletingPinId}
       ifcElementChanges={ifcElementChanges}
       isRotationLocked={isRotationLocked}
       zoomScale={zoomScale}

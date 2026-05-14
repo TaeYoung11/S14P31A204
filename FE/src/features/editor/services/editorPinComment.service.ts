@@ -2,6 +2,7 @@
 import { api } from '@/shared/lib/axios'
 import { DEFAULT_PIN_CONTENT } from '@/shared/constants/pin'
 import { FLOOR_MM_PER_PX } from '../constants'
+import type { CommentPin3DCreatePosition } from '../types'
 
 interface ApiResponse<T> {
   status: number
@@ -97,6 +98,18 @@ const toCameraPositionRequest = (x: number, y: number, floorElevationMm = DEFAUL
   z: floorElevationMm + DEFAULT_2D_PIN_CAMERA_HEIGHT_MM,
 })
 
+const toThreeDWorldPositionRequest = (position: CommentPin3DCreatePosition) => ({
+  x: Math.round(position.worldX),
+  y: Math.round(position.worldY),
+  z: Math.round(position.worldZ),
+})
+
+const toThreeDCameraPositionRequest = (position: CommentPin3DCreatePosition) => ({
+  x: Math.round(position.cameraX),
+  y: Math.round(position.cameraY),
+  z: Math.round(position.cameraZ),
+})
+
 export const editorPinPositionMapper = {
   worldXToCanvasX: (x: number | null | undefined) => (x ?? 0) / FLOOR_MM_PER_PX,
   worldYToCanvasY: (y: number | null | undefined) => (y ?? 0) / FLOOR_MM_PER_PX,
@@ -167,11 +180,16 @@ export const editorPinCommentService = {
     y: number,
     content?: string,
     floorElevationMm = DEFAULT_2D_PIN_FLOOR_ELEVATION_MM,
+    threeDPosition?: CommentPin3DCreatePosition,
   ): Promise<CreatePinResponse> => {
     const normalizedContent = content?.trim() || DEFAULT_PIN_CONTENT
     const response = await api.post<ApiResponse<CreatePinResponse>>(`/projects/${projectId}/pins`, {
-      cameraPosition: toCameraPositionRequest(x, y, floorElevationMm),
-      worldPosition: toWorldPositionRequest(x, y, floorElevationMm),
+      cameraPosition: threeDPosition
+        ? toThreeDCameraPositionRequest(threeDPosition)
+        : toCameraPositionRequest(x, y, floorElevationMm),
+      worldPosition: threeDPosition
+        ? toThreeDWorldPositionRequest(threeDPosition)
+        : toWorldPositionRequest(x, y, floorElevationMm),
       targetElementId: DEFAULT_TARGET_ELEMENT_ID,
       content: normalizedContent,
     })
@@ -204,6 +222,10 @@ export const editorPinCommentService = {
   resolvePin: async (projectId: string, pinId: string): Promise<ResolvePinResponse> => {
     const response = await api.patch<ApiResponse<ResolvePinResponse>>(`/projects/${projectId}/pins/${pinId}/resolve`)
     return response.data.data
+  },
+
+  deletePin: async (projectId: string, pinId: string): Promise<void> => {
+    await api.delete(`/projects/${projectId}/pins/${pinId}`)
   },
 }
 

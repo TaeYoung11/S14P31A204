@@ -10,6 +10,7 @@ import type {
   PhaseStatus,
   FloorCommentNotification,
   FloorCommentPin,
+  CommentPin3DCreatePosition,
   FloorLayerOverlay,
   FloorOpening,
   FloorRoom,
@@ -234,6 +235,9 @@ const mapApiPinToFloorCommentPin = (
     id: pin.pinId,
     x: editorPinPositionMapper.worldXToCanvasX(pin.worldPosition.x),
     y: editorPinPositionMapper.worldYToCanvasY(pin.worldPosition.y),
+    worldX: pin.worldPosition.x ?? 0,
+    worldY: pin.worldPosition.y ?? 0,
+    worldZ: pin.worldPosition.z ?? 0,
     createdAt: pin.createdAt,
     createdById: pin.authorUserId ?? 'unknown-user',
     createdByName: pinAuthorName,
@@ -364,9 +368,9 @@ export function useEditorPage() {
     activeLayerId: activeFloorLayerId,
     activeRooms: floorRooms,
     refreshFloorPlan,
-    addFloorLayer,
-    renameFloorLayer,
-    deleteFloorLayer,
+    addFloorLayer: baseAddFloorLayer,
+    renameFloorLayer: baseRenameFloorLayer,
+    deleteFloorLayer: baseDeleteFloorLayer,
     setActiveLayerId: setActiveFloorLayerId,
     setFloorPlanFromProject,
     moveActiveRoom,
@@ -702,6 +706,9 @@ export function useEditorPage() {
     currentProject,
     projectId,
   })
+  const isReadOnlyUser = currentUserType !== 'DESIGNER'
+  const shouldForceCollaborationMode = isReadOnlyUser && mode !== 'bubble' && mode !== 'view'
+  const effectiveIsCollaborationMode = isCollaborationMode || shouldForceCollaborationMode
   const targetPinId = searchParams.get('pinId')
   const currentProjectForRealtime = useMemo(
     () => (currentProject && currentProject.id === projectId ? [currentProject] : []),
@@ -710,14 +717,26 @@ export function useEditorPage() {
   const pinCommentsQuery = useQuery({
     queryKey: editorPinCommentQueryKeys.pins(projectId),
     queryFn: () => editorPinCommentService.getPinsWithComments(projectId ?? ''),
-    enabled: !!projectId && (isCollaborationMode || !!targetPinId),
+    enabled: !!projectId && (effectiveIsCollaborationMode || !!targetPinId),
     staleTime: 10 * 1000,
     retry: false,
   })
   const createPinMutation = useMutation({
-    mutationFn: async ({ x, y, commentContent }: { x: number; y: number; commentContent?: string }) => {
+    mutationFn: async ({
+      x,
+      y,
+      commentContent,
+      floorElevationMm,
+      threeDPosition,
+    }: {
+      x: number
+      y: number
+      commentContent?: string
+      floorElevationMm?: number
+      threeDPosition?: CommentPin3DCreatePosition
+    }) => {
       if (!projectId) throw new Error('Missing project id')
-      return editorPinCommentService.createPin(projectId, x, y, commentContent)
+      return editorPinCommentService.createPin(projectId, x, y, commentContent, floorElevationMm, threeDPosition)
     },
     onSuccess: (data) => {
       void queryClient.invalidateQueries({ queryKey: editorPinCommentQueryKeys.pins(projectId) })
@@ -731,6 +750,9 @@ export function useEditorPage() {
     },
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: editorPinCommentQueryKeys.pins(projectId) })
+      if (mode !== 'bubble' && mode !== 'view') {
+        setIsCollaborationMode(true)
+      }
       setSelectedPinId(variables.pinId)
     },
   })
@@ -786,6 +808,23 @@ export function useEditorPage() {
       void queryClient.invalidateQueries({ queryKey: editorPinCommentQueryKeys.pins(projectId) })
     },
   })
+  const deletePinMutation = useMutation({
+    mutationFn: (pinId: string) => {
+      if (!projectId) throw new Error('Missing project id')
+      return editorPinCommentService.deletePin(projectId, pinId)
+    },
+    onSuccess: (_data, pinId) => {
+      setCommentPins((prev) => prev.filter((pin) => pin.id !== pinId))
+      setSelectedPinId((prev) => (prev === pinId ? null : prev))
+      queryClient.setQueriesData<ProjectCommentListItem[]>(
+        { queryKey: projectQueryKeys.commentsRoot() },
+        (currentComments) => currentComments?.filter((comment) => comment.pinId !== pinId),
+      )
+      void queryClient.invalidateQueries({ queryKey: editorPinCommentQueryKeys.pins(projectId) })
+      void queryClient.invalidateQueries({ queryKey: projectQueryKeys.commentsRoot() })
+      void queryClient.invalidateQueries({ queryKey: projectQueryKeys.list() })
+    },
+  })
   const { mutate: markPinCommentsRead } = useMutation({
     mutationFn: (pinId: string) => {
       if (!projectId) throw new Error('Missing project id')
@@ -814,10 +853,15 @@ export function useEditorPage() {
     () => ({
       onCommentCreated: (payload: { projectId: string }) => {
         if (payload.projectId !== projectId) return
+        const shouldKeepCollaborationMode =
+          effectiveIsCollaborationMode || Boolean(selectedPinId) || Boolean(targetPinId)
+        if (mode !== 'bubble' && mode !== 'view' && shouldKeepCollaborationMode) {
+          setIsCollaborationMode(true)
+        }
         void queryClient.invalidateQueries({ queryKey: editorPinCommentQueryKeys.pins(projectId) })
       },
     }),
-    [projectId, queryClient],
+    [effectiveIsCollaborationMode, mode, projectId, queryClient, selectedPinId, targetPinId],
   )
   const projectCommentRealtime = useProjectCommentRealtime(currentProjectForRealtime, editorCommentRealtimeOptions)
   const pinAuthorDirectoryQuery = useQuery({
@@ -912,7 +956,7 @@ export function useEditorPage() {
   }, [commentPins, markPinCommentsRead, selectedPinId])
 
   const phaseStatus = workspacePhaseStatus
-  const isEditorReadOnly = currentUserType !== 'DESIGNER'
+  const isEditorReadOnly = isReadOnlyUser
   const canEditBubble = !isEditorReadOnly && mode === 'bubble' && phaseStatus === 'BUBBLE_DRAFT' && !isBubbleEditLocked
   const canEditIfc = !isEditorReadOnly && phaseStatus === 'IFC_EDIT'
   const canEditFloorPlan =
@@ -920,7 +964,7 @@ export function useEditorPage() {
     phaseStatus !== 'CONVERTING' &&
     (phaseStatus === 'IFC_EDIT' || isFloorPlanGenerated || floorPlanLayoutSource !== null)
   const isConverting = phaseStatus === 'CONVERTING'
-  const isThreeDEditingLocked = mode === '3d' && isTwoDOrThreeDConverting
+  const isThreeDEditingLocked = mode === '3d' && (isEditorReadOnly || isTwoDOrThreeDConverting)
   const isTwoDEditingLocked = mode === '2d' && isTwoDOrThreeDConverting
   const isBubbleReadOnly = !canEditBubble
   // delete/connect 툴 잠금은 bubble 모드에서만 적용한다.
@@ -936,14 +980,27 @@ export function useEditorPage() {
   } = useEditorToolState({ isBubbleReadOnly: isToolSelectionLockedByBubbleMode })
   const handleSetSelectedTool = useCallback((tool: string) => {
     if (isTwoDOrThreeDConverting && !isToolAllowedDuringConverting(tool)) return
+    if (isEditorReadOnly && tool !== 'selection' && tool !== 'hand') return
     baseHandleSetSelectedTool(tool)
-  }, [baseHandleSetSelectedTool, isTwoDOrThreeDConverting])
+  }, [baseHandleSetSelectedTool, isEditorReadOnly, isTwoDOrThreeDConverting])
 
   useEffect(() => {
-    if (!isTwoDOrThreeDConverting) return
+    if (!isTwoDOrThreeDConverting && !isEditorReadOnly) return
     if (selectedTool === 'selection' || selectedTool === 'hand') return
     baseHandleSetSelectedTool('selection')
-  }, [baseHandleSetSelectedTool, isTwoDOrThreeDConverting, selectedTool])
+  }, [baseHandleSetSelectedTool, isEditorReadOnly, isTwoDOrThreeDConverting, selectedTool])
+  const addFloorLayer = useCallback(() => {
+    if (!canEditFloorPlan) return
+    baseAddFloorLayer()
+  }, [baseAddFloorLayer, canEditFloorPlan])
+  const renameFloorLayer = useCallback((layerId: string, name: string) => {
+    if (!canEditFloorPlan) return
+    baseRenameFloorLayer(layerId, name)
+  }, [baseRenameFloorLayer, canEditFloorPlan])
+  const deleteFloorLayer = useCallback((layerId: string) => {
+    if (!canEditFloorPlan) return
+    baseDeleteFloorLayer(layerId)
+  }, [baseDeleteFloorLayer, canEditFloorPlan])
   const isFloorPlanHistoryMode = mode === '2d' || mode === '3d'
   const hasBubbleUndoHistory = bubbleHistoryCursor.baseIndex > 0
   const hasFloorPlanUndoHistory = floorPlanHistoryCursor.baseIndex > 0
@@ -2023,6 +2080,7 @@ export function useEditorPage() {
   }, [commitBubbleDragSnapshot])
 
   const handleManualSave = useCallback(() => {
+    if (isEditorReadOnly) return
     hasUserEditedRef.current = true
     flushOpenWorkspaceSnapshotTransaction()
     if (workspacePhaseStatus === 'BUBBLE_DRAFT') {
@@ -2031,7 +2089,7 @@ export function useEditorPage() {
     }
     setSaveStatus('dirty')
     setWorkspaceSnapshotCommitVersion((version) => version + 1)
-  }, [flushBubbleSnapshotSaveToDb, flushOpenWorkspaceSnapshotTransaction, workspacePhaseStatus])
+  }, [flushBubbleSnapshotSaveToDb, flushOpenWorkspaceSnapshotTransaction, isEditorReadOnly, workspacePhaseStatus])
 
   useEffect(() => {
     const handleSaveShortcut = (event: KeyboardEvent) => {
@@ -2433,11 +2491,13 @@ export function useEditorPage() {
     setSearchParams({ mode: nextMode })
     if (nextMode === '3d' && mode !== '3d' && !currentIfcUrl) setIsGenerate3DModalOpen(true)
     if (nextMode !== mode) resetToolSelection()
-    if (nextMode !== '2d') setIsCollaborationMode(false)
+    if (nextMode === 'view' || nextMode === 'bubble' || (!isEditorReadOnly && nextMode !== '2d')) {
+      setIsCollaborationMode(false)
+    }
     if (nextMode === 'view' || nextMode === 'bubble') setIsAgentPanelMode(false)
     if (nextMode !== '3d') setSelectedIfcElement(null)
     setIsLibraryOpen(false)
-  }, [currentIfcUrl, mode, resetToolSelection, setIsGenerate3DModalOpen, setSearchParams])
+  }, [currentIfcUrl, isEditorReadOnly, mode, resetToolSelection, setIsGenerate3DModalOpen, setSearchParams])
 
   const handleOpenProjectFromCommentToast = useCallback((targetProjectId: string, pinId?: string) => {
     const pinQuery = pinId ? `&pinId=${encodeURIComponent(pinId)}` : ''
@@ -2480,6 +2540,11 @@ export function useEditorPage() {
 
   /** 협업 모드 토글 — 진입 시 탭·핀 상태 초기화 */
   const handleToggleCollaboration = () => {
+    if (shouldForceCollaborationMode) {
+      setIsCollaborationMode(true)
+      setIsAgentPanelMode(false)
+      return
+    }
     setIsCollaborationMode((prev) => {
       if (!prev) {
         setSelectedPinId(null)
@@ -2530,14 +2595,30 @@ export function useEditorPage() {
   }, [commentPins, markPinCommentsRead, markPinNotificationsRead, selectedPinId])
 
   /** 2D 평면도 핀 생성 + 첫 댓글 작성 */
+  const resolveActiveFloorPinElevationMm = useCallback(() => {
+    const activeIndex = Math.max(floorLayers.findIndex((layer) => layer.id === activeFloorLayerId), 0)
+    const activeLayer = floorLayers[activeIndex]
+    const fallbackCeilingHeightMm = 2700
+    const elevationMm = activeLayer?.elevationMm ?? activeIndex * fallbackCeilingHeightMm
+    const ceilingHeightMm = activeLayer?.ceilingHeightMm ?? fallbackCeilingHeightMm
+    return elevationMm + ceilingHeightMm / 2
+  }, [activeFloorLayerId, floorLayers])
+
   const handleCreateCommentPin = useCallback((
     x: number,
     y: number,
     content?: string,
+    threeDPosition?: CommentPin3DCreatePosition,
   ) => {
     if (!projectId) return
-    createPinMutation.mutate({ x, y, commentContent: content })
-  }, [createPinMutation, projectId])
+    createPinMutation.mutate({
+      x,
+      y,
+      commentContent: content,
+      floorElevationMm: resolveActiveFloorPinElevationMm(),
+      threeDPosition,
+    })
+  }, [createPinMutation, projectId, resolveActiveFloorPinElevationMm])
 
   const handleAddCommentReply = useCallback((
     pinId: string,
@@ -2551,13 +2632,20 @@ export function useEditorPage() {
 
   const handleResolveComment = useCallback((pinId: string, commentId: string) => {
     if (!projectId) return
+    if (collaborationUserType !== 'DESIGNER') return
     resolvePinCommentMutation.mutate({ pinId, commentId })
-  }, [projectId, resolvePinCommentMutation])
+  }, [collaborationUserType, projectId, resolvePinCommentMutation])
 
   const handleResolvePin = useCallback((pinId: string) => {
     if (!projectId) return
+    if (collaborationUserType !== 'DESIGNER') return
     resolvePinMutation.mutate(pinId)
-  }, [projectId, resolvePinMutation])
+  }, [collaborationUserType, projectId, resolvePinMutation])
+
+  const handleDeletePin = useCallback((pinId: string) => {
+    if (!projectId) return
+    deletePinMutation.mutate(pinId)
+  }, [deletePinMutation, projectId])
 
   const getBubbleLabel = useCallback(
     (bubbleId: string) => bubbles.find((b) => b.id === bubbleId)?.label ?? bubbleId,
@@ -3027,23 +3115,23 @@ export function useEditorPage() {
   }
 
   const {
-    handleCreateFloorWall,
+    handleCreateFloorWall: baseHandleCreateFloorWall,
     handleSelectFloorWall,
-    handleMoveFloorWall,
-    handleUpdateFloorWallEndpoint,
-    handleDeleteFloorWall,
-    handleCreateFloorOpening,
+    handleMoveFloorWall: baseHandleMoveFloorWall,
+    handleUpdateFloorWallEndpoint: baseHandleUpdateFloorWallEndpoint,
+    handleDeleteFloorWall: baseHandleDeleteFloorWall,
+    handleCreateFloorOpening: baseHandleCreateFloorOpening,
     handleSelectFloorOpening,
-    handleMoveFloorOpening,
-    handleUpdateFloorOpeningSize,
-    handleUpdateFloorWindowSillHeight,
-    handleUpdateFloorDoorSwingDirection,
-    handleUpdateFloorDoorHingeSide,
-    handleDeleteFloorOpening,
-    handleUpdateFloorWallType,
-    handleUpdateFloorWallThickness,
-    handleUpdateFloorWallHeight,
-    handleUpdateFloorWallMaterial,
+    handleMoveFloorOpening: baseHandleMoveFloorOpening,
+    handleUpdateFloorOpeningSize: baseHandleUpdateFloorOpeningSize,
+    handleUpdateFloorWindowSillHeight: baseHandleUpdateFloorWindowSillHeight,
+    handleUpdateFloorDoorSwingDirection: baseHandleUpdateFloorDoorSwingDirection,
+    handleUpdateFloorDoorHingeSide: baseHandleUpdateFloorDoorHingeSide,
+    handleDeleteFloorOpening: baseHandleDeleteFloorOpening,
+    handleUpdateFloorWallType: baseHandleUpdateFloorWallType,
+    handleUpdateFloorWallThickness: baseHandleUpdateFloorWallThickness,
+    handleUpdateFloorWallHeight: baseHandleUpdateFloorWallHeight,
+    handleUpdateFloorWallMaterial: baseHandleUpdateFloorWallMaterial,
   } = useEditorStructureEditHandlers({
     floorRooms,
     floorWalls,
@@ -3074,8 +3162,69 @@ export function useEditorPage() {
   })
 
   /** 2D 방 드래그 리사이즈 */
+  const handleCreateFloorWall = useCallback((...args: Parameters<typeof baseHandleCreateFloorWall>) => {
+    if (!canEditFloorPlan) return
+    baseHandleCreateFloorWall(...args)
+  }, [baseHandleCreateFloorWall, canEditFloorPlan])
+  const handleMoveFloorWall = useCallback((...args: Parameters<typeof baseHandleMoveFloorWall>) => {
+    if (!canEditFloorPlan) return
+    baseHandleMoveFloorWall(...args)
+  }, [baseHandleMoveFloorWall, canEditFloorPlan])
+  const handleUpdateFloorWallEndpoint = useCallback((...args: Parameters<typeof baseHandleUpdateFloorWallEndpoint>) => {
+    if (!canEditFloorPlan) return
+    baseHandleUpdateFloorWallEndpoint(...args)
+  }, [baseHandleUpdateFloorWallEndpoint, canEditFloorPlan])
+  const handleDeleteFloorWall = useCallback((...args: Parameters<typeof baseHandleDeleteFloorWall>) => {
+    if (!canEditFloorPlan) return
+    baseHandleDeleteFloorWall(...args)
+  }, [baseHandleDeleteFloorWall, canEditFloorPlan])
+  const handleCreateFloorOpening = useCallback((...args: Parameters<typeof baseHandleCreateFloorOpening>) => {
+    if (!canEditFloorPlan) return
+    baseHandleCreateFloorOpening(...args)
+  }, [baseHandleCreateFloorOpening, canEditFloorPlan])
+  const handleMoveFloorOpening = useCallback((...args: Parameters<typeof baseHandleMoveFloorOpening>) => {
+    if (!canEditFloorPlan) return
+    baseHandleMoveFloorOpening(...args)
+  }, [baseHandleMoveFloorOpening, canEditFloorPlan])
+  const handleUpdateFloorOpeningSize = useCallback((...args: Parameters<typeof baseHandleUpdateFloorOpeningSize>) => {
+    if (!canEditFloorPlan) return
+    baseHandleUpdateFloorOpeningSize(...args)
+  }, [baseHandleUpdateFloorOpeningSize, canEditFloorPlan])
+  const handleUpdateFloorWindowSillHeight = useCallback((...args: Parameters<typeof baseHandleUpdateFloorWindowSillHeight>) => {
+    if (!canEditFloorPlan) return
+    baseHandleUpdateFloorWindowSillHeight(...args)
+  }, [baseHandleUpdateFloorWindowSillHeight, canEditFloorPlan])
+  const handleUpdateFloorDoorSwingDirection = useCallback((...args: Parameters<typeof baseHandleUpdateFloorDoorSwingDirection>) => {
+    if (!canEditFloorPlan) return
+    baseHandleUpdateFloorDoorSwingDirection(...args)
+  }, [baseHandleUpdateFloorDoorSwingDirection, canEditFloorPlan])
+  const handleUpdateFloorDoorHingeSide = useCallback((...args: Parameters<typeof baseHandleUpdateFloorDoorHingeSide>) => {
+    if (!canEditFloorPlan) return
+    baseHandleUpdateFloorDoorHingeSide(...args)
+  }, [baseHandleUpdateFloorDoorHingeSide, canEditFloorPlan])
+  const handleDeleteFloorOpening = useCallback((...args: Parameters<typeof baseHandleDeleteFloorOpening>) => {
+    if (!canEditFloorPlan) return
+    baseHandleDeleteFloorOpening(...args)
+  }, [baseHandleDeleteFloorOpening, canEditFloorPlan])
+  const handleUpdateFloorWallType = useCallback((...args: Parameters<typeof baseHandleUpdateFloorWallType>) => {
+    if (!canEditFloorPlan) return
+    baseHandleUpdateFloorWallType(...args)
+  }, [baseHandleUpdateFloorWallType, canEditFloorPlan])
+  const handleUpdateFloorWallThickness = useCallback((...args: Parameters<typeof baseHandleUpdateFloorWallThickness>) => {
+    if (!canEditFloorPlan) return
+    baseHandleUpdateFloorWallThickness(...args)
+  }, [baseHandleUpdateFloorWallThickness, canEditFloorPlan])
+  const handleUpdateFloorWallHeight = useCallback((...args: Parameters<typeof baseHandleUpdateFloorWallHeight>) => {
+    if (!canEditFloorPlan) return
+    baseHandleUpdateFloorWallHeight(...args)
+  }, [baseHandleUpdateFloorWallHeight, canEditFloorPlan])
+  const handleUpdateFloorWallMaterial = useCallback((...args: Parameters<typeof baseHandleUpdateFloorWallMaterial>) => {
+    if (!canEditFloorPlan) return
+    baseHandleUpdateFloorWallMaterial(...args)
+  }, [baseHandleUpdateFloorWallMaterial, canEditFloorPlan])
+
   const handleResizeFloorRoom = (bubbleId: string, x: number, y: number, width: number, height: number) => {
-    if (isWallFirstEditing) return
+    if (!canEditFloorPlan || isWallFirstEditing) return
     setIsFloorPlanEditedIn2D(true)
     promoteCurrentAutoFloorOpenings()
     const resizeState = buildResizedFloorRoomsState({
@@ -3127,7 +3276,7 @@ export function useEditorPage() {
 
   /** 2D 방 위치 이동 (크기/면적 유지) */
   const handleMoveFloorRoom = (bubbleId: string, x: number, y: number) => {
-    if (isWallFirstEditing) return
+    if (!canEditFloorPlan || isWallFirstEditing) return
     setIsFloorPlanEditedIn2D(true)
     promoteCurrentAutoFloorOpenings()
     const moveState = buildMovedFloorRoomsState({
@@ -3164,7 +3313,7 @@ export function useEditorPage() {
 
   /** 2D 다각형 방 형상(꼭짓점) 갱신 */
   const handleUpdateFloorRoomPolygon = useCallback((bubbleId: string, polygon: Point2D[]) => {
-    if (isWallFirstEditing) return
+    if (!canEditFloorPlan || isWallFirstEditing) return
     setIsFloorPlanEditedIn2D(true)
     promoteCurrentAutoFloorOpenings()
     if (!isFinitePolygonPoints(polygon)) return
@@ -3241,6 +3390,7 @@ export function useEditorPage() {
     syncFloorDerivedStateFromRooms(nextRooms)
   }, [
     floorRooms,
+    canEditFloorPlan,
     isWallFirstEditing,
     setIsFloorPlanEditedIn2D,
     markLocalFloorPlanSnapshotChanged,
@@ -3724,7 +3874,7 @@ export function useEditorPage() {
     handleConfirmAddSpace,
     onCloseAddModal: () => setIsAddModalOpen(false),
     // 협업
-    isCollaborationMode,
+    isCollaborationMode: effectiveIsCollaborationMode,
     isAgentPanelMode,
     selectedPinId,
     setSelectedPinId,
@@ -3732,6 +3882,7 @@ export function useEditorPage() {
     commentPins,
     commentNotifications,
     currentCollaborationUserType: collaborationUserType,
+    currentCollaborationUserId: authUser?.id ?? null,
     currentCollaborationUserName: currentUserName,
     handleToggleCollaboration,
     handleToggleAgentPanel,
@@ -3739,9 +3890,13 @@ export function useEditorPage() {
     handleCreateCommentPin,
     handleAddCommentReply,
     handleResolvePin,
+    handleDeletePin,
     handleResolveComment,
     resolvingPinId: resolvePinMutation.isPending
       ? (resolvePinMutation.variables ?? null)
+      : null,
+    deletingPinId: deletePinMutation.isPending
+      ? (deletePinMutation.variables ?? null)
       : null,
     resolvingCommentId: resolvePinCommentMutation.isPending
       ? (resolvePinCommentMutation.variables?.commentId ?? null)

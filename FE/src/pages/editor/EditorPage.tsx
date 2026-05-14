@@ -27,6 +27,7 @@ export default function EditorPage() {
   const sidebarProps = buildEditorLeftSidebarProps(vm)
   const rightPanelProps = buildEditorRightPanelProps(vm)
   const shouldLiftRightPanel = (vm.isCollaborationMode || vm.isAgentPanelMode) && vm.mode !== 'view'
+  const shouldShowLeftToolbar = vm.mode !== 'view' && !vm.isEditorReadOnly
   const {
     panelRef: leftToolbarRef,
     offset: leftToolbarOffset,
@@ -73,7 +74,7 @@ export default function EditorPage() {
           <div className={`relative min-w-0 flex-1 overflow-hidden ${vm.mode === 'view' ? '' : 'px-5 pb-5 pt-3'}`}>
             <EditorCanvasContent {...canvasContentProps} />
 
-            {vm.mode !== 'view' && (
+            {shouldShowLeftToolbar && (
               <div
                 ref={leftToolbarRef}
                 className="absolute z-[130] h-[calc(100%-112px)]"

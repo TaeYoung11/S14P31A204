@@ -16,12 +16,15 @@ type CollaborationPanelViewModel = Pick<
   | 'commentPins'
   | 'commentNotifications'
   | 'currentCollaborationUserType'
+  | 'currentCollaborationUserId'
   | 'currentCollaborationUserName'
   | 'onSelectPin'
   | 'onCreateCommentReply'
   | 'onResolvePin'
+  | 'onDeletePin'
   | 'onResolveComment'
   | 'resolvingPinId'
+  | 'deletingPinId'
   | 'resolvingCommentId'
 >
 
@@ -35,12 +38,15 @@ export function buildCollaborationPanelProps(vm: CollaborationPanelViewModel): C
     pins: vm.commentPins ?? [],
     notifications: vm.commentNotifications ?? [],
     currentUserType: vm.currentCollaborationUserType ?? DESIGNER_USER_TYPE,
+    currentUserId: vm.currentCollaborationUserId ?? null,
     currentUserName: vm.currentCollaborationUserName,
     onSelectPin: vm.onSelectPin ?? noopSelectPin,
     onCreateCommentReply: vm.onCreateCommentReply ?? noopCreateCommentReply,
     onResolvePin: vm.onResolvePin,
+    onDeletePin: vm.onDeletePin,
     onResolveComment: vm.onResolveComment,
     resolvingPinId: vm.resolvingPinId ?? null,
+    deletingPinId: vm.deletingPinId ?? null,
     resolvingCommentId: vm.resolvingCommentId ?? null,
   }
 }

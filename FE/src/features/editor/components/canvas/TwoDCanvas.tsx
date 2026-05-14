@@ -57,8 +57,11 @@ interface TwoDCanvasProps {
   isCollaborationMode?: boolean
   selectedPinId?: string | null
   commentPins?: FloorCommentPin[]
+  currentUserId?: string | null
   onPinClick?: (id: string) => void
   onPinCreate?: (x: number, y: number, content?: string) => void
+  onPinDelete?: (id: string) => void
+  deletingPinId?: string | null
   rooms?: FloorRoom[]
   overlayLayers?: FloorLayerOverlay[]
   connections?: ConnectionData[]
@@ -129,8 +132,11 @@ export function TwoDCanvas({
   isCollaborationMode,
   selectedPinId,
   commentPins = [],
+  currentUserId,
   onPinClick,
   onPinCreate,
+  onPinDelete,
+  deletingPinId,
   rooms = [],
   overlayLayers = [],
   connections = [],
@@ -451,7 +457,10 @@ export function TwoDCanvas({
         isCollaborationMode={Boolean(isCollaborationMode)}
         commentPins={commentPins}
         selectedPinId={selectedPinId ?? null}
+        currentUserId={currentUserId ?? null}
         onPinClick={onPinClick}
+        onPinDelete={onPinDelete}
+        deletingPinId={deletingPinId ?? null}
         marquee={marquee}
       />
       <TwoDSiteValidationBanner siteValidation={siteValidation} />
