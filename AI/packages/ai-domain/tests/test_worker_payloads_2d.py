@@ -32,14 +32,15 @@ def test_two_d_llm_command_payload_accepts_snake_case() -> None:
     assert payload.sourceSceneStorageUrl == "s3://batang-artifacts/input/house.ifc"
 
 
-def test_two_d_llm_command_payload_requires_schema_version() -> None:
-    with pytest.raises(ValidationError):
-        TwoDLlmCommandPayload.model_validate(
-            {
-                "user_instruction": "거실에 문을 만들어줘",
-                "source_scene_storage_url": "s3://batang-artifacts/input/house.ifc",
-            }
-        )
+def test_two_d_llm_command_payload_defaults_missing_schema_version_to_v1() -> None:
+    payload = TwoDLlmCommandPayload.model_validate(
+        {
+            "user_instruction": "거실에 문을 만들어줘",
+            "source_scene_storage_url": "s3://batang-artifacts/input/house.ifc",
+        }
+    )
+
+    assert payload.schemaVersion == "v1"
 
 
 def test_two_d_llm_command_payload_rejects_unknown_schema_version() -> None:

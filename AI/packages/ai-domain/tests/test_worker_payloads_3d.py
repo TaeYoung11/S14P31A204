@@ -34,14 +34,15 @@ def test_three_d_llm_command_payload_accepts_snake_case() -> None:
     assert payload.sourceSceneStorageUrl == "s3://batang-artifacts/input/house.ifc"
 
 
-def test_three_d_llm_command_payload_rejects_missing_schema_version() -> None:
-    with pytest.raises(ValidationError):
-        ThreeDLlmCommandPayload.model_validate(
-            {
-                "userInstruction": "2층 벽을 이동해줘",
-                "sourceSceneStorageUrl": "s3://batang-artifacts/input/house.ifc",
-            }
-        )
+def test_three_d_llm_command_payload_defaults_missing_schema_version_to_v1() -> None:
+    payload = ThreeDLlmCommandPayload.model_validate(
+        {
+            "userInstruction": "2층 벽을 이동해줘",
+            "sourceSceneStorageUrl": "s3://batang-artifacts/input/house.ifc",
+        }
+    )
+
+    assert payload.schemaVersion == "v1"
 
 
 def test_three_d_llm_command_payload_rejects_unknown_schema_version() -> None:
