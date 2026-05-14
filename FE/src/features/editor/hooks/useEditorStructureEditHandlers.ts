@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import {
   DEFAULT_WALL_MATERIAL,
@@ -9,7 +9,7 @@ import {
   FLOOR_WALL_THICKNESS_MAX_MM,
   FLOOR_WALL_THICKNESS_MIN_MM,
 } from '../constants'
-import type { FloorOpening, FloorRoom, FloorWall, Point2D } from '../types'
+import type { FloorLayer, FloorOpening, FloorRoom, FloorWall, Point2D } from '../types'
 import { collectAutoDoorOpeningIdsFromWallIds, createFloorOpeningId, createFloorWallId } from '../utils/editorPageHelpers'
 import { buildWallOutsideOverlapSegments, getWallGeometryKey, getWallOverlapInterval, projectAxisAlignedWall } from '../utils/wallGeometry'
 import { createsNewWallRoomCollision } from '../utils/wallRoomCollision'
@@ -31,8 +31,38 @@ interface WorkspaceCommandPublisherLike {
   }) => void
 }
 
+export interface FloorWallCreateStorey {
+  storeyGlobalId?: string
+  storeyName?: string
+}
+
+const hasStorey = (storey: FloorWallCreateStorey): boolean =>
+  Boolean(storey.storeyGlobalId || storey.storeyName)
+
+export function resolveActiveFloorLayerStorey(
+  floorLayers: FloorLayer[],
+  activeFloorLayerId: string | null,
+): FloorWallCreateStorey {
+  const activeLayer = activeFloorLayerId
+    ? floorLayers.find((layer) => layer.id === activeFloorLayerId)
+    : null
+  return {
+    storeyGlobalId: activeLayer?.storeyGlobalId,
+    storeyName: activeLayer?.storeyName,
+  }
+}
+
+export function resolveFloorWallCreateStorey(
+  activeLayerStorey: FloorWallCreateStorey,
+  fallbackStorey: FloorWallCreateStorey,
+): FloorWallCreateStorey {
+  return hasStorey(activeLayerStorey) ? activeLayerStorey : fallbackStorey
+}
+
 interface UseEditorStructureEditHandlersParams {
   floorRooms: FloorRoom[]
+  floorLayers: FloorLayer[]
+  activeFloorLayerId: string | null
   floorWalls: FloorWall[]
   visibleAutoFloorWalls: FloorWall[]
   autoFloorWalls: FloorWall[]
@@ -67,6 +97,8 @@ interface UseEditorStructureEditHandlersParams {
  */
 export function useEditorStructureEditHandlers({
   floorRooms,
+  floorLayers,
+  activeFloorLayerId,
   floorWalls,
   visibleAutoFloorWalls,
   autoFloorWalls,
@@ -124,8 +156,18 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     }
   }, [floorWalls, visibleAutoFloorWalls])
 
-  const getReferenceStoreyGlobalId = useCallback((): string | undefined => {
-    return [...floorWalls, ...visibleAutoFloorWalls].find((wall) => wall.storeyGlobalId)?.storeyGlobalId
+  const activeLayerStorey = useMemo(
+    () => resolveActiveFloorLayerStorey(floorLayers, activeFloorLayerId),
+    [floorLayers, activeFloorLayerId],
+  )
+
+  const getReferenceStorey = useCallback((): FloorWallCreateStorey => {
+    const referenceWall = [...floorWalls, ...visibleAutoFloorWalls]
+      .find((wall) => wall.storeyGlobalId || wall.storeyName)
+    return {
+      storeyGlobalId: referenceWall?.storeyGlobalId,
+      storeyName: referenceWall?.storeyName,
+    }
   }, [floorWalls, visibleAutoFloorWalls])
 
   const isWallEditBlockedByRoomCollision = useCallback((
@@ -160,10 +202,12 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
       FLOOR_WALL_HEIGHT_MIN_MM,
       FLOOR_WALL_HEIGHT_MAX_MM,
     )
+    const createStorey = resolveFloorWallCreateStorey(activeLayerStorey, getReferenceStorey())
     const newWall: FloorWall = {
       id: createFloorWallId(),
       type: nextType,
-      storeyGlobalId: getReferenceStoreyGlobalId(),
+      storeyGlobalId: createStorey.storeyGlobalId,
+      storeyName: createStorey.storeyName,
       start,
       end,
       startMm: estimateMmPoint(start),
@@ -188,8 +232,9 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     setSelectedTool('wall')
   }, [
     wallCreatePreset,
+    activeLayerStorey,
     estimateMmPoint,
-    getReferenceStoreyGlobalId,
+    getReferenceStorey,
     workspaceCommandPublisher,
     setFloorWalls,
     setWallCreatePreset,
@@ -401,6 +446,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
         ...rawOpening,
         hostWallGlobalId: hostWall.globalId ?? hostWall.id,
         storeyGlobalId: hostWall.storeyGlobalId,
+        storeyName: hostWall.storeyName,
         centerMm: {
           x: hostWall.startMm.x + (hostWall.endMm.x - hostWall.startMm.x) * clamped,
           y: hostWall.startMm.y + (hostWall.endMm.y - hostWall.startMm.y) * clamped,
@@ -486,6 +532,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     if (hostWall?.startMm && hostWall.endMm) {
       nextOpeningPreNormalized.hostWallGlobalId = hostWall.globalId ?? hostWall.id
       nextOpeningPreNormalized.storeyGlobalId = hostWall.storeyGlobalId
+      nextOpeningPreNormalized.storeyName = hostWall.storeyName
       nextOpeningPreNormalized.centerMm = {
         x: hostWall.startMm.x + (hostWall.endMm.x - hostWall.startMm.x) * clamped,
         y: hostWall.startMm.y + (hostWall.endMm.y - hostWall.startMm.y) * clamped,
@@ -499,6 +546,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
       wall_position: nextOpening.wallPosition,
       hostWallGlobalId: nextOpening.hostWallGlobalId,
       storeyGlobalId: nextOpening.storeyGlobalId,
+      storeyName: nextOpening.storeyName,
       centerMm: nextOpening.centerMm ? [nextOpening.centerMm.x, nextOpening.centerMm.y] : undefined,
     })
   }, [getEditableWallById, mergedFloorOpenings, normalizeOpeningByCurrentWall, onFloorPlanChanged, updateFloorOpeningFromEditable, workspaceCommandPublisher])

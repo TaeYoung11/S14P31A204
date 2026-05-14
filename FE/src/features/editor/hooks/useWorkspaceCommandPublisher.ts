@@ -129,6 +129,7 @@ export function useWorkspaceCommandPublisher({
 
     pendingCommandRef.current = createEntityCommand('wall', wall.id, compactRecord({
       storeyGlobalId: wall.storeyGlobalId,
+      storeyName: wall.storeyName,
       startMm,
       endMm,
       thickness: wall.thickness,
@@ -144,6 +145,11 @@ export function useWorkspaceCommandPublisher({
       : typeof patch.storeyId === 'string'
         ? patch.storeyId
         : undefined
+    const storeyName = typeof patch.storeyName === 'string'
+      ? patch.storeyName
+      : typeof patch.storey === 'string'
+        ? patch.storey
+        : undefined
     const startMm = toWorkerMmPointFromUnknown(patch.startMm) ?? undefined
     const endMm = toWorkerMmPointFromUnknown(patch.endMm) ?? undefined
     const thickness = getFiniteNumber(patch.thickness) ?? getFiniteNumber(patch.thicknessMm) ?? getFiniteNumber(patch.widthMm)
@@ -153,6 +159,7 @@ export function useWorkspaceCommandPublisher({
       if (issuedLocalCreateIdsRef.current.has(wallId)) return
       const createPatch = compactRecord({
         storeyGlobalId,
+        storeyName,
         startMm,
         endMm,
         thickness,
@@ -164,6 +171,7 @@ export function useWorkspaceCommandPublisher({
       if (!startMm || !endMm) return
       pendingCommandRef.current = createEntityCommand('wall', wallId, compactRecord({
         storeyGlobalId,
+        storeyName,
         startMm,
         endMm,
         thickness: thickness ?? 135,
@@ -183,6 +191,7 @@ export function useWorkspaceCommandPublisher({
       const scale = maxAbs > 0 && maxAbs < 1000 ? 1000 : 1
       pendingCommandRef.current = updateEntityCommand('wall', globalId, compactRecord({
         storeyGlobalId,
+        storeyName,
         translationMm: compactRecord({
           x: translationX !== null ? translationX * scale : undefined,
           y: translationY !== null ? translationY * scale : undefined,
@@ -195,6 +204,7 @@ export function useWorkspaceCommandPublisher({
     if (startMm || endMm) {
       pendingCommandRef.current = updateEntityCommand('wall', globalId, compactRecord({
         storeyGlobalId,
+        storeyName,
         startMm,
         endMm,
       }))
@@ -203,6 +213,7 @@ export function useWorkspaceCommandPublisher({
 
     const nextPatch = compactRecord({
       storeyGlobalId,
+      storeyName,
       thickness,
       heightMm,
       material: typeof patch.material === 'string' ? patch.material : undefined,
@@ -228,6 +239,7 @@ export function useWorkspaceCommandPublisher({
 
     pendingCommandRef.current = createEntityCommand(openingEntity(opening.type), opening.id, compactRecord({
       storeyGlobalId: opening.storeyGlobalId,
+      storeyName: opening.storeyName,
       hostWallGlobalId,
       centerMm,
       lengthMm: opening.widthMm,
@@ -244,6 +256,11 @@ export function useWorkspaceCommandPublisher({
           ? patch.storeyGlobalId
           : typeof patch.storeyId === 'string'
             ? patch.storeyId
+            : undefined,
+        storeyName: typeof patch.storeyName === 'string'
+          ? patch.storeyName
+          : typeof patch.storey === 'string'
+            ? patch.storey
             : undefined,
         hostWallGlobalId: typeof patch.hostWallGlobalId === 'string' ? patch.hostWallGlobalId : undefined,
         centerMm: toWorkerMmPointFromUnknown(patch.centerMm),

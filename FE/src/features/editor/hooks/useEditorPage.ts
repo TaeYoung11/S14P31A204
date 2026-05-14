@@ -3205,6 +3205,8 @@ export function useEditorPage() {
     handleUpdateFloorWallMaterial,
   } = useEditorStructureEditHandlers({
     floorRooms,
+    floorLayers,
+    activeFloorLayerId,
     floorWalls,
     visibleAutoFloorWalls,
     autoFloorWalls,
