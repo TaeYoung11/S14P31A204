@@ -224,8 +224,8 @@ def test_worker_clarification_emits_valid_artifact_schema(
     assert artifact.kind == "alternatives"
     assert artifact.question == "어느 층 거실을 삭제할까요?"
     assert len(artifact.alternatives) == 2
-    assert artifact.alternatives[0].fill["target_floor"] == 1
-    assert artifact.alternatives[1].fill["target_floor"] == 2
+    assert artifact.alternatives[0].fill.target_floor == 1
+    assert artifact.alternatives[1].fill.target_floor == 2
     assert artifact.job_id == "job-2d-worker-001"
     assert artifact.step_no == 1
     assert artifact.timestamp is not None

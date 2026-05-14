@@ -584,7 +584,11 @@ class LLM2DPipeline:
             floor = space.get("floor", 0)
             alternatives.append(
                 {
-                    "alternative_id": f"{command.action}-{target_name}-{floor}f",
+                    "alternative_id": (
+                        f"{command.action}-{target_name}-{floor}f-{space['id']}"
+                        if space.get("id")
+                        else f"{command.action}-{target_name}-{floor}f"
+                    ),
                     "title": f"{floor}층 {target_name} {action_label}",
                     "description": f"{floor}층 {target_name}에 대해 작업합니다.",
                     "fill": {"target_floor": floor, "target_room_name": target_name},
