@@ -1,6 +1,8 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type {
   CollaborationUserType,
+  BubbleFloor,
+  BubbleFloorSummary,
   EditorMode,
   FloorCommentNotification,
   FloorCommentPin,
@@ -61,6 +63,15 @@ export interface EditorRightPanelsProps {
   onHeightCommit?: (id: string, height: number) => void
   onRatioChange: (id: string, ratio: number) => void
   onColorChange: (id: string, color: string) => void
+  onBubbleFloorChange?: (id: string, floor: number) => void
+  bubbleFloors?: BubbleFloor[]
+  bubbleFloorSummaries?: BubbleFloorSummary[]
+  activeBubbleFloor?: number
+  onSelectBubbleFloor?: (floor: number) => void
+  onAddBubbleFloor?: () => void
+  onRenameBubbleFloor?: (floor: number, name: string) => void
+  onDeleteBubbleFloor?: (floor: number) => void
+  isBubbleReadOnly?: boolean
   onMaterialChange?: (id: string, material: string) => void
   onWallTypeChange?: (id: string, type: FloorWall['type']) => void
   onWallThicknessChange?: (id: string, thicknessMm: number) => void
