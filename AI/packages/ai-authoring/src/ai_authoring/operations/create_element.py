@@ -105,14 +105,21 @@ def _opening_dimensions_mm(
     element_type: str,
     dimensions_mm: dict[str, Any],
 ) -> tuple[float, float, float]:
+    """Resolve door/window opening span, wall-thickness direction width, and height.
+
+    Preferred contract: length is the opening span and width is the wall-thickness
+    direction. Width-only payloads are accepted for legacy 2D opening commands.
+    """
     default_length = 1200.0 if element_type == "IfcWindow" else 900.0
     default_height = 1200.0 if element_type == "IfcWindow" else 2100.0
     length_value = dimensions_mm.get("length")
     if length_value is None:
         length_value = dimensions_mm.get("width")
-    thickness_value = dimensions_mm.get("thickness")
-    if thickness_value is None and dimensions_mm.get("length") is not None:
-        thickness_value = dimensions_mm.get("width")
+    thickness_value = (
+        dimensions_mm.get("width")
+        if dimensions_mm.get("length") is not None
+        else None
+    )
     return (
         float(length_value or default_length),
         float(thickness_value or 200.0),
@@ -121,6 +128,8 @@ def _opening_dimensions_mm(
 
 
 def _ifc_global_id_or_none(value: Any) -> str | None:
+    # 2D edit payloads may carry a local wall id in this field. Treat only a
+    # valid IFC GlobalId as an explicit host; other values use proximity lookup.
     if not isinstance(value, str):
         return None
     return value if _IFC_GLOBAL_ID_RE.fullmatch(value) else None

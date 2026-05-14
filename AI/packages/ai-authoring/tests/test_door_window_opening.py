@@ -438,7 +438,7 @@ def test_create_element_handler_door_accepts_2d_opening_payload():
             "coordinate_space": "PROJECT_ABSOLUTE_MM",
             "center_mm": [500.0, 0.0],
             "dimensions_mm": {"width": 900, "height": 2100},
-            "host_wall_global_id": "not-a-global-id",
+            "host_wall_global_id": "2d-local-wall-id",
             "sill_height_mm": 0.0,
         },
     )

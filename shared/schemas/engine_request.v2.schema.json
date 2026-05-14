@@ -390,6 +390,7 @@
           "$ref": "#/$defs/polygon2d"
         },
         "dimensions_mm": {
+          "description": "For IfcDoor/IfcWindow create_element operations, length is the opening span, width is the wall-thickness direction, and height is the opening height. Legacy 2D opening payloads may provide width without length; authoring treats that width as the opening span for backward compatibility.",
           "$ref": "#/$defs/absoluteDimensionsMm"
         },
         "location_mm": {
@@ -640,7 +641,10 @@
           "exclusiveMinimum": 0
         },
         "host_wall_global_id": {
-          "$ref": "#/$defs/globalId"
+          "description": "Preferred IFC host wall GlobalId. Legacy 2D opening payloads may pass a local wall id in this field; authoring treats non-IFC GlobalId values as absent and falls back to coordinate-based host wall lookup.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
         },
         "sill_height_mm": {
           "type": "number",
