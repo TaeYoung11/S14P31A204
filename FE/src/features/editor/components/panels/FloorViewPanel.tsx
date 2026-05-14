@@ -1,5 +1,6 @@
 import React from 'react'
 import { Eye, EyeOff, Layers, Pencil, Plus, Trash2 } from 'lucide-react'
+import { DeleteConfirmModal } from '@/shared/components/DeleteConfirmModal'
 import type { FloorLayer, PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
 import { PanelFrame } from '../shared/PanelFrame'
 
@@ -21,6 +22,7 @@ interface FloorViewPanelProps {
   onDeleteLayer?: (layerId: string) => void
   onToggleLayerOverlayMode?: () => void
   onToggleOverlayLayer?: (layerId: string) => void
+  onSelectSingleOverlayLayer?: (layerId: string) => void
   onChangeOverlayLayerOpacity?: (layerId: string, opacity: number) => void
   onDragStart: (key: PanelKey, e: React.MouseEvent<HTMLElement>) => void
   onResizeStart: (key: PanelKey, axis: PanelResizeAxis, e: React.MouseEvent<HTMLButtonElement>) => void
@@ -45,6 +47,7 @@ export function FloorViewPanel({
   onDeleteLayer,
   onToggleLayerOverlayMode,
   onToggleOverlayLayer,
+  onSelectSingleOverlayLayer,
   onChangeOverlayLayerOpacity,
   onDragStart,
   onResizeStart,
@@ -54,6 +57,7 @@ export function FloorViewPanel({
   const canDeleteAnyLayer = layers.length > 1
   const [editingLayerId, setEditingLayerId] = React.useState<string | null>(null)
   const [editingName, setEditingName] = React.useState('')
+  const [pendingDeleteLayer, setPendingDeleteLayer] = React.useState<FloorLayer | null>(null)
 
   const startRenameLayer = (layer: FloorLayer) => {
     setEditingLayerId(layer.id)
@@ -72,12 +76,21 @@ export function FloorViewPanel({
 
   const handleDeleteLayer = (layer: FloorLayer) => {
     if (!canDeleteAnyLayer) return
-    const ok = window.confirm(`"${layer.name}" 층을 삭제하시겠습니까?`)
-    if (!ok) return
-    onDeleteLayer?.(layer.id)
+    setPendingDeleteLayer(layer)
+  }
+
+  const closeDeleteLayerModal = () => {
+    setPendingDeleteLayer(null)
+  }
+
+  const confirmDeleteLayer = () => {
+    if (!pendingDeleteLayer) return
+    onDeleteLayer?.(pendingDeleteLayer.id)
+    closeDeleteLayerModal()
   }
 
   return (
+    <>
     <PanelFrame
       panelKey="floorView"
       title="층보기"
@@ -165,8 +178,11 @@ export function FloorViewPanel({
                     <button
                       onClick={() => {
                         if (isOverlayToggleDisabled) return
-                        if (!isLayerOverlayMode) onToggleLayerOverlayMode?.()
-                        onToggleOverlayLayer?.(layer.id)
+                        if (isLayerOverlayMode) {
+                          onToggleOverlayLayer?.(layer.id)
+                          return
+                        }
+                        onSelectSingleOverlayLayer?.(layer.id)
                       }}
                       disabled={isOverlayToggleDisabled}
                       title={isOverlayToggleDisabled ? '활성 층은 겹쳐보기 대상에서 제외' : '겹쳐보기 토글'}
@@ -242,5 +258,13 @@ export function FloorViewPanel({
         </div>
       )}
     </PanelFrame>
+    <DeleteConfirmModal
+      isOpen={pendingDeleteLayer !== null}
+      title="층 삭제"
+      message={`"${pendingDeleteLayer?.name ?? ''}" 층을 삭제하시겠습니까?`}
+      onClose={closeDeleteLayerModal}
+      onConfirm={confirmDeleteLayer}
+    />
+    </>
   )
 }

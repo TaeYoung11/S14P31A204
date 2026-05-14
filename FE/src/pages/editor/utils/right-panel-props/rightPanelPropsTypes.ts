@@ -76,6 +76,7 @@ export type RightPanelViewModel = Pick<
   | 'setActiveFloorLayerId'
   | 'toggleLayerOverlayMode'
   | 'handleToggleOverlayLayer'
+  | 'handleSelectSingleOverlayLayer'
   | 'handleSetOverlayLayerOpacity'
   | 'openZoningModal'
   | 'openEditModal'

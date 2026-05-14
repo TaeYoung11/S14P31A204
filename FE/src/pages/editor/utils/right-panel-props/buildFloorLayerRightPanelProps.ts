@@ -18,6 +18,7 @@ export function buildFloorLayerRightPanelProps(
   | 'onSelectFloorLayer'
   | 'onToggleLayerOverlayMode'
   | 'onToggleOverlayLayer'
+  | 'onSelectSingleOverlayLayer'
   | 'onChangeOverlayLayerOpacity'
 > {
   return {
@@ -33,6 +34,7 @@ export function buildFloorLayerRightPanelProps(
     onSelectFloorLayer: vm.setActiveFloorLayerId,
     onToggleLayerOverlayMode: vm.toggleLayerOverlayMode,
     onToggleOverlayLayer: vm.handleToggleOverlayLayer,
+    onSelectSingleOverlayLayer: vm.handleSelectSingleOverlayLayer,
     onChangeOverlayLayerOpacity: vm.handleSetOverlayLayerOpacity,
   }
 }

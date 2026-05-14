@@ -1,5 +1,6 @@
 package com.a204.batang.domain.workspace.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -70,6 +71,17 @@ public record BubbleUpdateRequest(
             @Positive(message = "bubble ratio must be positive.")
             Double ratio,
             String color,
+            @JsonAlias({
+                    "floorNumber",
+                    "floorNo",
+                    "layer",
+                    "layerNumber",
+                    "level",
+                    "storey",
+                    "storeyNumber",
+                    "story",
+                    "storyNumber"
+            })
             Integer floor
     ) {
     }

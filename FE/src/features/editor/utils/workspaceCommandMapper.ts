@@ -6,6 +6,7 @@ export const toPointTuple = (point: Point2D): [number, number] => [point.x, poin
 /** 벽 편집 상태를 실시간 command payload로 직렬화한다. */
 export const serializeWallForCommand = (wall: FloorWall) => ({
   globalId: wall.globalId,
+  floorLayerId: wall.floorLayerId,
   storeyGlobalId: wall.storeyGlobalId,
   start: toPointTuple(wall.start),
   end: toPointTuple(wall.end),

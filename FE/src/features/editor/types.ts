@@ -228,6 +228,7 @@ export interface FloorLayerOverlay {
 export interface FloorWall {
   id: string
   globalId?: string
+  floorLayerId?: string
   storeyGlobalId?: string
   sourceIfcClass?: 'IfcWall' | 'IfcWallStandardCase'
   start: Point2D

@@ -18,6 +18,7 @@ export function buildTwoDLayerPanelCanvasProps(
   | 'setActiveFloorLayerId'
   | 'toggleLayerOverlayMode'
   | 'handleToggleOverlayLayer'
+  | 'handleSelectSingleOverlayLayer'
   | 'handleSetOverlayLayerOpacity'
 > {
   return {
@@ -32,6 +33,7 @@ export function buildTwoDLayerPanelCanvasProps(
     setActiveFloorLayerId: vm.setActiveFloorLayerId,
     toggleLayerOverlayMode: vm.toggleLayerOverlayMode,
     handleToggleOverlayLayer: vm.handleToggleOverlayLayer,
+    handleSelectSingleOverlayLayer: vm.handleSelectSingleOverlayLayer,
     handleSetOverlayLayerOpacity: vm.handleSetOverlayLayerOpacity,
   }
 }
