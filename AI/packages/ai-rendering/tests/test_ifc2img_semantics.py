@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from ai_rendering.ifc2img.element_masks import render_ifc_element_masks
+from ai_rendering.ifc2img.service import _build_debug_view_payload, _load_debug_geometry
 from ai_rendering.ifc2img.semantics import (
     IfcFrontDirectionCandidate,
     IfcSemanticBounds,
@@ -17,6 +19,14 @@ from ai_rendering.ifc2img.semantics import (
     extract_ifc_semantic_summary,
     is_reliable_main_door_candidate,
 )
+from ai_rendering.ifc2img.views import IFCView
+
+
+def _mask_y_center(mask: object) -> float:
+    arr = np.asarray(mask, dtype=np.uint8)
+    ys, _xs = np.nonzero(arr > 0)
+    assert len(ys) > 0
+    return float(ys.mean())
 
 
 def test_extract_ifc_semantic_summary_collects_key_elements(
@@ -98,6 +108,35 @@ def test_shinchan_semantic_baseline_lowest_floor_and_highest_roof(
     assert summary.highest_roof.bounds.z_min == pytest.approx(5.0)
     assert summary.highest_roof.bounds.z_max == pytest.approx(6.5)
     assert summary.lowest_floor.bounds.z_max < summary.highest_roof.bounds.z_min
+
+
+def test_shinchan_element_masks_keep_roof_above_floor(
+    ifc4_fixture: Path,
+) -> None:
+    """Element mask projection should preserve semantic roof/floor screen order."""
+    geometry = _load_debug_geometry(ifc4_fixture)
+
+    for view in (IFCView.FRONT_DIAGONAL_LEFT, IFCView.FRONT_DIAGONAL_RIGHT):
+        payload = _build_debug_view_payload(
+            geometry=geometry,
+            internal_view=view,
+        )
+        camera = payload["camera"]
+        assert isinstance(camera, dict)
+
+        result = render_ifc_element_masks(
+            ifc4_fixture,
+            eye=camera["eye"],
+            look_at=camera["lookAt"],
+            up=camera["up"],
+            width=768,
+            height=448,
+        )
+
+        roof_y_center = _mask_y_center(result.masks["ROOF"])
+        floor_y_center = _mask_y_center(result.masks["FLOOR"])
+
+        assert roof_y_center < floor_y_center
 
 
 def test_shinchan_semantic_baseline_main_door_front_vector(
