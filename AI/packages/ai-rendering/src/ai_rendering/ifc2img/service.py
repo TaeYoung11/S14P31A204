@@ -280,6 +280,20 @@ class SemanticRenderContext:
     summary: IfcSemanticSummary
 
 
+@dataclass(frozen=True)
+class SemanticGroundSelection:
+    ground_source: str
+    ground_z: float | None
+    semantic_ground_candidate: float | None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "groundSource": self.ground_source,
+            "groundZ": self.ground_z,
+            "semanticGroundCandidate": self.semantic_ground_candidate,
+        }
+
+
 def load_runtime_semantic_context(
     ifc_path: Path,
     *,
@@ -325,6 +339,22 @@ def resolve_semantic_ground_z(context: SemanticRenderContext) -> float | None:
     if floor is None:
         return None
     return floor.bounds.z_max
+
+
+def select_semantic_ground(context: SemanticRenderContext) -> SemanticGroundSelection:
+    """Describe the ground z source selected from semantic context."""
+    semantic_ground_z = resolve_semantic_ground_z(context)
+    if semantic_ground_z is None:
+        return SemanticGroundSelection(
+            ground_source="geometry_percentile_fallback",
+            ground_z=None,
+            semantic_ground_candidate=None,
+        )
+    return SemanticGroundSelection(
+        ground_source="semantic_floor",
+        ground_z=semantic_ground_z,
+        semantic_ground_candidate=semantic_ground_z,
+    )
 
 
 @dataclass(frozen=True)
@@ -864,6 +894,7 @@ def run_ifc2img_photo_pipeline(
         "DAY" if preset_time_of_day == "day" else "NIGHT"
     )
     semantic_context = load_runtime_semantic_context(ifc_path)
+    ground_selection = select_semantic_ground(semantic_context)
 
     public_views = resolve_photo_views()
     internal_views = list(PHOTO_INTERNAL_VIEWS)
@@ -881,6 +912,7 @@ def run_ifc2img_photo_pipeline(
     # The production semantic context is the source of truth; the debug manifest
     # only records a serializable snapshot for inspection.
     debug_manifest["ifcSemanticSummary"] = semantic_context.summary.to_dict()
+    debug_manifest["semanticGroundSelection"] = ground_selection.to_dict()
 
     requires_semantic = any(
         resolve_preset_view_render_options(preset, view).requires_semantic_controlnet
@@ -888,7 +920,7 @@ def run_ifc2img_photo_pipeline(
     )
     renderer = create_photo_ifc_renderer(
         ifc_renderer_cls,
-        ground_z_override=resolve_semantic_ground_z(semantic_context),
+        ground_z_override=ground_selection.ground_z,
     )
     style_renderer = create_photo_style_renderer(
         requires_semantic=requires_semantic,
