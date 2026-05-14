@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from ai_rendering.ifc2img.element_masks import render_ifc_element_masks
+from ai_rendering.ifc2img.renderer import IFCRenderer, RENDER_BACKEND_ENV
 from ai_rendering.ifc2img.service import _build_debug_view_payload, _load_debug_geometry
 from ai_rendering.ifc2img.semantics import (
     IfcFrontDirectionCandidate,
@@ -19,7 +20,7 @@ from ai_rendering.ifc2img.semantics import (
     extract_ifc_semantic_summary,
     is_reliable_main_door_candidate,
 )
-from ai_rendering.ifc2img.views import IFCView
+from ai_rendering.ifc2img.views import AutoZoomMode, IFCView
 
 
 def _mask_y_center(mask: object) -> float:
@@ -137,6 +138,56 @@ def test_shinchan_element_masks_keep_roof_above_floor(
         floor_y_center = _mask_y_center(result.masks["FLOOR"])
 
         assert roof_y_center < floor_y_center
+
+
+def test_shinchan_renderer_raycast_auto_zoom_path_flips_depth_rows(
+    ifc4_fixture: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """shinchan regression should cover renderer raycast auto-zoom and row flip."""
+    width = 8
+    height = 6
+    target_ratio = 7 / (width * height)
+    low_fill_depth = np.zeros((height, width), dtype=np.float32)
+    low_fill_depth[0, 0] = 5.0
+    target_depth = np.zeros((height, width), dtype=np.float32)
+    target_depth[0, :7] = 5.0
+    depths = iter([low_fill_depth, target_depth])
+    zooms: list[float] = []
+
+    def fake_capture_raycast_depth(
+        _renderer: IFCRenderer,
+        _mesh: object,
+        _center: np.ndarray,
+        _camera: object,
+        zoom: float,
+    ) -> np.ndarray:
+        zooms.append(zoom)
+        return next(depths, target_depth)
+
+    monkeypatch.setenv(RENDER_BACKEND_ENV, "raycast")
+    monkeypatch.setattr(
+        IFCRenderer,
+        "_capture_raycast_depth",
+        fake_capture_raycast_depth,
+    )
+
+    renderer = IFCRenderer(
+        width=width,
+        height=height,
+        auto_zoom=AutoZoomMode.ITERATIVE,
+        iter_tolerance=0.01,
+        iter_max=3,
+        view_target_overrides={IFCView.FRONT_DIAGONAL_LEFT: target_ratio},
+    )
+
+    image = renderer.render(ifc4_fixture, IFCView.FRONT_DIAGONAL_LEFT)
+    arr = np.asarray(image)
+
+    assert len(zooms) == 2
+    assert zooms[1] > zooms[0]
+    assert arr[0].max() == 0
+    assert arr[-1, :7].min() == 255
 
 
 def test_shinchan_semantic_baseline_main_door_front_vector(
