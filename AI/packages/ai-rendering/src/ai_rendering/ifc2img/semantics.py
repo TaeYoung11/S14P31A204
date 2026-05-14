@@ -210,6 +210,27 @@ class IfcSemanticScreenMaskStats:
         }
 
 
+def is_reliable_main_door_candidate(
+    candidate: IfcFrontDirectionCandidate | None,
+) -> bool:
+    """Return whether a door candidate is reliable enough for semantic front camera."""
+    if candidate is None:
+        return False
+    if not candidate.exterior_wall_near:
+        return False
+    if candidate.nearest_footprint_side == "unknown":
+        return False
+    if candidate.score <= 0.0:
+        return False
+    front_vector = np.asarray(candidate.front_vector, dtype=np.float64)
+    if front_vector.shape != (3,):
+        return False
+    if not np.all(np.isfinite(front_vector)):
+        return False
+    xy_length = float(np.linalg.norm(front_vector[:2]))
+    return abs(xy_length - 1.0) <= 1e-3 and abs(float(front_vector[2])) <= 1e-6
+
+
 @dataclass(frozen=True)
 class IfcProjectionDiagnostics:
     vertical_inversion_suspected: bool
