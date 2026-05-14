@@ -462,8 +462,8 @@ def test_renderer_offscreen_uses_tensor_pinhole_rays() -> None:
     assert image.size == (2, 2)
 
 
-def test_renderer_offscreen_iterative_zoom_uses_target_ratio() -> None:
-    """Raycast path should honor auto_zoom target ratio like the Visualizer path."""
+def test_renderer_offscreen_iterative_zoom_increases_when_fill_is_below_target() -> None:
+    """Raycast zoom should increase when depth fill is below the target ratio."""
     fake_mesh = MagicMock()
     fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]], dtype=np.float32)
     fake_center = np.array([0.0, 0.0, 0.0])
@@ -495,7 +495,7 @@ def test_renderer_offscreen_iterative_zoom_uses_target_ratio() -> None:
     assert image.mode == "L"
     assert capture.call_count == 2
     assert capture.call_args_list[0].args[3] == pytest.approx(1.0)
-    assert capture.call_args_list[1].args[3] == pytest.approx(0.5)
+    assert capture.call_args_list[1].args[3] == pytest.approx(2.0)
 
 
 def test_renderer_offscreen_raycast_produces_non_empty_depth_for_ifc_fixture(
