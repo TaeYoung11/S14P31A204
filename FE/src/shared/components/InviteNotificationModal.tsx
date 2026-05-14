@@ -27,7 +27,7 @@ const getNotificationBody = (notification: InvitationNotification) =>
 
 export function InviteNotificationModal({ isOpen, onClose }: InviteNotificationModalProps) {
   const navigate = useNavigate()
-  const { data: notifications = EMPTY_INVITATION_NOTIFICATIONS, isLoading } = useInvitationNotifications(undefined, {
+  const { data: notifications = EMPTY_INVITATION_NOTIFICATIONS, isLoading } = useInvitationNotifications(false, {
     enabled: isOpen,
   })
   const markAsRead = useMarkNotificationRead()

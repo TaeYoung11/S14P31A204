@@ -87,6 +87,9 @@ import { useProjectCommentRealtime } from '@/features/project/hooks/useProjectCo
 import { useAuthStore } from '@/shared/stores/authStore'
 import { useProjectStore } from '@/features/project/stores/projectStore'
 import { projectService } from '@/features/project/services/project.service'
+import { projectQueryKeys } from '@/features/project/constants/projectQueryKeys'
+import type { ProjectCommentListItem } from '@/features/project/services/projectComment.service'
+import { DEFAULT_PIN_CONTENT } from '@/shared/constants/pin'
 import { useEditorProjectName } from './useEditorProjectName'
 import { useInitialIfcImport } from './useInitialIfcImport'
 import { useEditorUserContext } from './useEditorUserContext'
@@ -183,6 +186,9 @@ const resolvePinAuthorName = (
   return authorNameByUserId[authorUserId] ?? formatPinAuthorName(authorUserId, fallbackName)
 }
 
+const normalizePinContentForDisplay = (content: string): string =>
+  content.trim() === DEFAULT_PIN_CONTENT ? '' : content
+
 const mapApiPinToFloorCommentPin = (
   pin: EditorPinResponse,
   comments: EditorPinCommentResponse[],
@@ -202,7 +208,7 @@ const mapApiPinToFloorCommentPin = (
     authorId: pin.authorUserId ?? 'unknown-user',
     authorName: pinAuthorName,
     authorType: pinAuthorType,
-    content: pin.content,
+    content: normalizePinContentForDisplay(pin.content),
     status: pin.status,
     isPinMessage: true,
     createdAt: pin.createdAt,
@@ -709,7 +715,7 @@ export function useEditorPage() {
     retry: false,
   })
   const createPinMutation = useMutation({
-    mutationFn: async ({ x, y, commentContent }: { x: number; y: number; commentContent: string }) => {
+    mutationFn: async ({ x, y, commentContent }: { x: number; y: number; commentContent?: string }) => {
       if (!projectId) throw new Error('Missing project id')
       return editorPinCommentService.createPin(projectId, x, y, commentContent)
     },
@@ -792,7 +798,13 @@ export function useEditorPage() {
           pin.id === pinId ? { ...pin, hasUnreadCommentByOtherUser: false } : pin,
         ),
       )
+      queryClient.setQueriesData<ProjectCommentListItem[]>(
+        { queryKey: projectQueryKeys.commentsRoot() },
+        (currentComments) => currentComments?.filter((comment) => comment.pinId !== pinId),
+      )
       void queryClient.invalidateQueries({ queryKey: editorPinCommentQueryKeys.pins(projectId) })
+      void queryClient.invalidateQueries({ queryKey: projectQueryKeys.commentsRoot() })
+      void queryClient.invalidateQueries({ queryKey: projectQueryKeys.list() })
     },
     onError: (_error, pinId) => {
       readCommentFailureAtRef.current.set(pinId, Date.now())
@@ -2521,12 +2533,10 @@ export function useEditorPage() {
   const handleCreateCommentPin = useCallback((
     x: number,
     y: number,
-    content: string,
+    content?: string,
   ) => {
-    const normalized = content.trim()
-    if (!normalized) return
     if (!projectId) return
-    createPinMutation.mutate({ x, y, commentContent: normalized })
+    createPinMutation.mutate({ x, y, commentContent: content })
   }, [createPinMutation, projectId])
 
   const handleAddCommentReply = useCallback((

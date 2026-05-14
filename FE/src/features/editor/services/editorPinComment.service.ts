@@ -1,5 +1,6 @@
 // 에디터 화면의 핀과 댓글 API 요청을 담당합니다.
 import { api } from '@/shared/lib/axios'
+import { DEFAULT_PIN_CONTENT } from '@/shared/constants/pin'
 import { FLOOR_MM_PER_PX } from '../constants'
 
 interface ApiResponse<T> {
@@ -164,14 +165,15 @@ export const editorPinCommentService = {
     projectId: string,
     x: number,
     y: number,
-    content: string,
+    content?: string,
     floorElevationMm = DEFAULT_2D_PIN_FLOOR_ELEVATION_MM,
   ): Promise<CreatePinResponse> => {
+    const normalizedContent = content?.trim() || DEFAULT_PIN_CONTENT
     const response = await api.post<ApiResponse<CreatePinResponse>>(`/projects/${projectId}/pins`, {
       cameraPosition: toCameraPositionRequest(x, y, floorElevationMm),
       worldPosition: toWorldPositionRequest(x, y, floorElevationMm),
       targetElementId: DEFAULT_TARGET_ELEMENT_ID,
-      content,
+      content: normalizedContent,
     })
     return response.data.data
   },

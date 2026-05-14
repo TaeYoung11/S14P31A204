@@ -21,7 +21,6 @@ import {
 import { toCanvasPolygon } from '../../utils/siteBoundaryValidation'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
 import { FloorPlanEmpty, FloorPlanLoading } from './TwoDCanvasOverlays'
-import { TwoDCanvasPinDraftPanel } from './TwoDCanvasPinDraftPanel'
 import type { RoomDragState } from './TwoDRoomsLayer'
 import { TwoDSiteValidationBanner } from './TwoDSiteValidationBanner'
 import { TwoDCanvasStage } from './TwoDCanvasStage'
@@ -59,7 +58,7 @@ interface TwoDCanvasProps {
   selectedPinId?: string | null
   commentPins?: FloorCommentPin[]
   onPinClick?: (id: string) => void
-  onPinCreate?: (x: number, y: number, content: string) => void
+  onPinCreate?: (x: number, y: number, content?: string) => void
   rooms?: FloorRoom[]
   overlayLayers?: FloorLayerOverlay[]
   connections?: ConnectionData[]
@@ -228,16 +227,10 @@ export function TwoDCanvas({
   } = useWallDraftState({ isWallTool })
   const { openingSnapGuide, setOpeningSnapGuide, showTemporaryOpeningSnapGuide } = useOpeningSnapGuide()
   const {
-    pinDraft,
-    pinInputRef,
     startPinDraftAt,
-    savePinDraft,
-    cancelPinDraft,
-    setPinDraftMessage,
   } = usePinDraft({ isCollaborationMode, onPinCreate })
   const {
     getCanvasPoint,
-    toScreenPoint,
     syncHandlePosition,
     handleMouseEnter,
     handleMouseLeave,
@@ -463,16 +456,6 @@ export function TwoDCanvas({
       />
       <TwoDSiteValidationBanner siteValidation={siteValidation} />
 
-      <TwoDCanvasPinDraftPanel
-        isCollaborationMode={Boolean(isCollaborationMode)}
-        pinDraft={pinDraft}
-        stageSize={stageSize}
-        toScreenPoint={toScreenPoint}
-        pinInputRef={pinInputRef}
-        onMessageChange={setPinDraftMessage}
-        onCancel={cancelPinDraft}
-        onSave={savePinDraft}
-      />
     </div>
   )
 }
