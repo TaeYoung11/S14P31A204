@@ -3,15 +3,9 @@ import type { FloorOpening, FloorWall, IfcElementInfo, Point2D } from '../types'
 import type { WorkspaceCommand, WorkspaceCommandSource } from '../types/workspaceCommand.types'
 import {
   createEntityCommand,
-  createWorkspaceCommandId,
+  deleteEntityCommand,
+  updateEntityCommand,
 } from '../services/workspaceCommand.service'
-
-type EngineOperation = {
-  id: string
-  type: string
-  selector?: Record<string, unknown>
-  parameters: Record<string, unknown>
-}
 
 interface UseWorkspaceCommandPublisherOptions {
   projectId: string | undefined
@@ -21,6 +15,7 @@ interface UseWorkspaceCommandPublisherOptions {
 }
 
 const IFC_GLOBAL_ID_PATTERN = /^[0-9A-Za-z_$]{22}$/
+const TRANSLATION_EPSILON = 1e-6
 
 const toIfcGlobalId = (id: string): string | null => {
   if (IFC_GLOBAL_ID_PATTERN.test(id)) return id
@@ -34,8 +29,21 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const getFiniteNumber = (value: unknown): number | null =>
   typeof value === 'number' && Number.isFinite(value) ? value : null
 
-const toPointObject = (point?: Point2D | null): Record<string, number> | null =>
-  point ? { x: point.x, y: point.y } : null
+const hasNonZeroTranslation = (...values: Array<number | null>): boolean =>
+  values.some((value) => value !== null && Math.abs(value) > TRANSLATION_EPSILON)
+
+const compactRecord = (record: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined && value !== null))
+
+const hasMeaningfulValue = (value: unknown): boolean => {
+  if (value === null || value === undefined) return false
+  if (typeof value === 'number') return Number.isFinite(value)
+  if (typeof value === 'string') return value.trim().length > 0
+  if (typeof value === 'boolean') return true
+  if (Array.isArray(value)) return value.some(hasMeaningfulValue)
+  if (isRecord(value)) return Object.values(value).some(hasMeaningfulValue)
+  return false
+}
 
 const toPointObjectFromUnknown = (value: unknown): Record<string, number> | null => {
   if (Array.isArray(value)) {
@@ -50,235 +58,212 @@ const toPointObjectFromUnknown = (value: unknown): Record<string, number> | null
   return x !== null && y !== null ? { x, y } : null
 }
 
-const toSelector = (globalId: string): Record<string, string[]> => ({ global_ids: [globalId] })
+const toWorkerMmPoint = (point?: Point2D | null): Record<string, number> | null => {
+  if (!point) return null
+  const maxAbs = Math.max(Math.abs(point.x), Math.abs(point.y))
+  const scale = maxAbs > 0 && maxAbs < 1000 ? 1000 : 1
+  return { x: point.x * scale, y: point.y * scale }
+}
 
-const absoluteDimension = (value: number): Record<string, number | string> => ({
-  mode: 'ABSOLUTE',
-  value,
-})
+const toWorkerMmPointFromUnknown = (value: unknown): Record<string, number> | null => {
+  const point = toPointObjectFromUnknown(value)
+  if (!point) return null
+  const maxAbs = Math.max(Math.abs(point.x), Math.abs(point.y))
+  const scale = maxAbs > 0 && maxAbs < 1000 ? 1000 : 1
+  return { x: point.x * scale, y: point.y * scale }
+}
+
+const openingEntity = (type: FloorOpening['type']): 'door' | 'window' =>
+  type === 'door' ? 'door' : 'window'
+
+const hasCommandPayload = (command: WorkspaceCommand): boolean => {
+  if (command.op === 'delete') return true
+  if (command.op === 'create') return hasMeaningfulValue(command.data)
+  if (command.op === 'update') return hasMeaningfulValue(command.patch)
+  return false
+}
 
 export function useWorkspaceCommandPublisher({
   projectId,
-  getBaseRevisionId,
 }: UseWorkspaceCommandPublisherOptions) {
   const pendingCommandRef = useRef<WorkspaceCommand | null>(null)
+  const issuedLocalCreateIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     pendingCommandRef.current = null
+    issuedLocalCreateIdsRef.current.clear()
   }, [projectId])
-
-  const recordEngineOperations = useCallback((operations: EngineOperation[]) => {
-    if (!projectId || operations.length === 0) return
-    const baseRevisionId = getBaseRevisionId()
-    if (!baseRevisionId) return
-    const current = pendingCommandRef.current
-    const currentData = current?.op === 'create' && current.entity === 'ifcBatch' ? current.data : null
-    const existingOperations = Array.isArray(currentData?.operations) ? currentData.operations : []
-    const requestId = typeof currentData?.request_id === 'string' ? currentData.request_id : createWorkspaceCommandId()
-    pendingCommandRef.current = createEntityCommand('ifcBatch', requestId, {
-      schema_version: 'v1',
-      request_id: requestId,
-      mode: 'apply',
-      project_id: projectId,
-      base_revision_id: baseRevisionId,
-      operations: [...existingOperations, ...operations],
-    })
-  }, [getBaseRevisionId, projectId])
-
-  const mutatePendingOperations = useCallback((mutate: (operations: EngineOperation[]) => EngineOperation[]) => {
-    const current = pendingCommandRef.current
-    const currentData = current?.op === 'create' && current.entity === 'ifcBatch' ? current.data : null
-    if (!current || !currentData || !Array.isArray(currentData.operations)) return false
-    const nextOperations = mutate(currentData.operations as EngineOperation[])
-    if (nextOperations === currentData.operations) return false
-    if (nextOperations.length === 0) {
-      pendingCommandRef.current = null
-      return true
-    }
-    pendingCommandRef.current = createEntityCommand('ifcBatch', current.id, {
-      ...currentData,
-      operations: nextOperations,
-    })
-    return true
-  }, [])
-
-  const cancelPendingCreateByClientId = useCallback((clientId: string): boolean => {
-    let removed = false
-    mutatePendingOperations((operations) => {
-      const next = operations.filter((operation) => {
-        const shouldRemove =
-          operation.type === 'create_element' &&
-          isRecord(operation.parameters) &&
-          operation.parameters.client_id === clientId
-        if (shouldRemove) removed = true
-        return !shouldRemove
-      })
-      return removed ? next : operations
-    })
-    return removed
-  }, [mutatePendingOperations])
-
-  const updatePendingCreateByClientId = useCallback((clientId: string, parameters: Record<string, unknown>): boolean => {
-    let updated = false
-    mutatePendingOperations((operations) => {
-      const next = operations.map((operation) => {
-        if (
-          operation.type !== 'create_element' ||
-          !isRecord(operation.parameters) ||
-          operation.parameters.client_id !== clientId
-        ) {
-          return operation
-        }
-        updated = true
-        return {
-          ...operation,
-          parameters: {
-            ...operation.parameters,
-            ...parameters,
-          },
-        }
-      })
-      return updated ? next : operations
-    })
-    return updated
-  }, [mutatePendingOperations])
 
   const consumePendingCommand = useCallback((): WorkspaceCommand | null => {
     const command = pendingCommandRef.current
     pendingCommandRef.current = null
+    if (!command || !hasCommandPayload(command)) return null
+    if (command.op === 'create' && !toIfcGlobalId(command.id)) {
+      issuedLocalCreateIdsRef.current.add(command.id)
+    }
     return command
   }, [])
 
+  const updatePendingCreate = useCallback((localId: string, patch: Record<string, unknown>): boolean => {
+    const current = pendingCommandRef.current
+    if (current?.op !== 'create' || current.id !== localId) return false
+    pendingCommandRef.current = createEntityCommand(current.entity, current.id, {
+      ...current.data,
+      ...compactRecord(patch),
+    })
+    return true
+  }, [])
+
+  const cancelPendingCreate = useCallback((localId: string): boolean => {
+    const current = pendingCommandRef.current
+    if (current?.op !== 'create' || current.id !== localId) return false
+    pendingCommandRef.current = null
+    return true
+  }, [])
+
   const createWall = useCallback((wall: FloorWall) => {
-    const startMm = toPointObject(wall.startMm)
-    const endMm = toPointObject(wall.endMm)
+    if (issuedLocalCreateIdsRef.current.has(wall.id)) return
+    const startMm = toWorkerMmPoint(wall.startMm)
+    const endMm = toWorkerMmPoint(wall.endMm)
     if (!startMm || !endMm) return
-    recordEngineOperations([{
-      id: `op-${createWorkspaceCommandId()}`,
-      type: 'create_element',
-      parameters: {
-        element_type: 'IfcWall',
-        client_id: wall.id,
-        storey_global_id: wall.storeyGlobalId,
-        start_mm: startMm,
-        end_mm: endMm,
-        dimensions_mm: {
-          width: wall.thickness,
-          height: wall.heightMm,
-        },
-        material: wall.material,
-      },
-    }])
-  }, [recordEngineOperations])
+
+    pendingCommandRef.current = createEntityCommand('wall', wall.id, compactRecord({
+      storeyGlobalId: wall.storeyGlobalId,
+      startMm,
+      endMm,
+      thickness: wall.thickness,
+      heightMm: wall.heightMm,
+      material: wall.material,
+    }))
+  }, [])
 
   const updateWall = useCallback((wallId: string, patch: Record<string, unknown>) => {
     const globalId = toIfcGlobalId(wallId)
-    if (!globalId) return
+    const storeyGlobalId = typeof patch.storeyGlobalId === 'string'
+      ? patch.storeyGlobalId
+      : typeof patch.storeyId === 'string'
+        ? patch.storeyId
+        : undefined
+    const startMm = toWorkerMmPointFromUnknown(patch.startMm) ?? undefined
+    const endMm = toWorkerMmPointFromUnknown(patch.endMm) ?? undefined
+    const thickness = getFiniteNumber(patch.thickness) ?? getFiniteNumber(patch.thicknessMm) ?? getFiniteNumber(patch.widthMm)
+    const heightMm = getFiniteNumber(patch.height) ?? getFiniteNumber(patch.heightMm)
 
-    const startMm = isRecord(patch.startMm) ? patch.startMm : null
-    const endMm = isRecord(patch.endMm) ? patch.endMm : null
-    if (startMm || endMm) {
-      recordEngineOperations([{
-        id: `op-${createWorkspaceCommandId()}`,
-        type: 'transform_elements',
-        selector: toSelector(globalId),
-        parameters: {
-          ...(startMm ? { start_mm: startMm } : {}),
-          ...(endMm ? { end_mm: endMm } : {}),
-        },
-      }])
+    if (!globalId) {
+      if (issuedLocalCreateIdsRef.current.has(wallId)) return
+      const createPatch = compactRecord({
+        storeyGlobalId,
+        startMm,
+        endMm,
+        thickness,
+        heightMm,
+        material: typeof patch.material === 'string' ? patch.material : undefined,
+        color: typeof patch.color === 'string' ? patch.color : undefined,
+      })
+      if (Object.keys(createPatch).length > 0 && updatePendingCreate(wallId, createPatch)) return
+      if (!startMm || !endMm) return
+      pendingCommandRef.current = createEntityCommand('wall', wallId, compactRecord({
+        storeyGlobalId,
+        startMm,
+        endMm,
+        thickness: thickness ?? 135,
+        heightMm: heightMm ?? 2800,
+        material: typeof patch.material === 'string' ? patch.material : undefined,
+      }))
       return
     }
 
-    const dimensions: Record<string, Record<string, number | string>> = {}
-    const thickness = getFiniteNumber(patch.thickness) ?? getFiniteNumber(patch.thicknessMm) ?? getFiniteNumber(patch.widthMm)
-    const height = getFiniteNumber(patch.height) ?? getFiniteNumber(patch.heightMm)
-    if (thickness !== null) dimensions.width = absoluteDimension(thickness)
-    if (height !== null) dimensions.height = absoluteDimension(height)
+    const translationMm = isRecord(patch.translationMm) ? patch.translationMm : null
+    const translationX = getFiniteNumber(translationMm?.x)
+    const translationY = getFiniteNumber(translationMm?.y)
+    const translationZ = getFiniteNumber(translationMm?.z)
+    if (translationX !== null || translationY !== null || translationZ !== null) {
+      if (!hasNonZeroTranslation(translationX, translationY, translationZ)) return
+      const maxAbs = Math.max(Math.abs(translationX ?? 0), Math.abs(translationY ?? 0), Math.abs(translationZ ?? 0))
+      const scale = maxAbs > 0 && maxAbs < 1000 ? 1000 : 1
+      pendingCommandRef.current = updateEntityCommand('wall', globalId, compactRecord({
+        storeyGlobalId,
+        translationMm: compactRecord({
+          x: translationX !== null ? translationX * scale : undefined,
+          y: translationY !== null ? translationY * scale : undefined,
+          z: translationZ !== null ? translationZ * scale : undefined,
+        }),
+      }))
+      return
+    }
 
-    const parameters: Record<string, unknown> = {}
-    if (Object.keys(dimensions).length > 0) parameters.dimensions_mm = dimensions
-    if (typeof patch.material === 'string') parameters.material = patch.material
-    if (typeof patch.color === 'string') parameters.color = patch.color
-    if (Object.keys(parameters).length === 0) return
+    if (startMm || endMm) {
+      pendingCommandRef.current = updateEntityCommand('wall', globalId, compactRecord({
+        storeyGlobalId,
+        startMm,
+        endMm,
+      }))
+      return
+    }
 
-    recordEngineOperations([{
-      id: `op-${createWorkspaceCommandId()}`,
-      type: 'update_element_properties',
-      selector: toSelector(globalId),
-      parameters,
-    }])
-  }, [recordEngineOperations])
+    const nextPatch = compactRecord({
+      storeyGlobalId,
+      thickness,
+      heightMm,
+      material: typeof patch.material === 'string' ? patch.material : undefined,
+      color: typeof patch.color === 'string' ? patch.color : undefined,
+      wall_type: typeof patch.wall_type === 'string' ? patch.wall_type : undefined,
+    })
+    if (hasMeaningfulValue(nextPatch)) {
+      pendingCommandRef.current = updateEntityCommand('wall', globalId, nextPatch)
+    }
+  }, [updatePendingCreate])
 
   const deleteWall = useCallback((wallId: string) => {
     const globalId = toIfcGlobalId(wallId)
-    if (!globalId && cancelPendingCreateByClientId(wallId)) return
+    if (!globalId && cancelPendingCreate(wallId)) return
     if (!globalId) return
-    recordEngineOperations([{
-      id: `op-${createWorkspaceCommandId()}`,
-      type: 'delete_elements',
-      selector: toSelector(globalId),
-      parameters: {},
-    }])
-  }, [cancelPendingCreateByClientId, recordEngineOperations])
+    pendingCommandRef.current = deleteEntityCommand('wall', globalId)
+  }, [cancelPendingCreate])
 
   const createOpening = useCallback((opening: FloorOpening) => {
-    const centerMm = toPointObject(opening.centerMm)
+    const centerMm = toWorkerMmPoint(opening.centerMm)
     const hostWallGlobalId = toIfcGlobalId(opening.hostWallGlobalId ?? opening.wallId)
     if (!centerMm || !hostWallGlobalId) return
-    recordEngineOperations([{
-      id: `op-${createWorkspaceCommandId()}`,
-      type: 'create_element',
-      parameters: {
-        element_type: opening.type === 'door' ? 'IfcDoor' : 'IfcWindow',
-        client_id: opening.id,
-        storey_global_id: opening.storeyGlobalId,
-        host_wall_global_id: hostWallGlobalId,
-        center_mm: centerMm,
-        dimensions_mm: {
-          length: opening.widthMm,
-          height: opening.heightMm,
-        },
-        sill_height_mm: opening.sillHeightMm,
-      },
-    }])
-  }, [recordEngineOperations])
+
+    pendingCommandRef.current = createEntityCommand(openingEntity(opening.type), opening.id, compactRecord({
+      storeyGlobalId: opening.storeyGlobalId,
+      hostWallGlobalId,
+      centerMm,
+      lengthMm: opening.widthMm,
+      heightMm: opening.heightMm,
+      sillHeightMm: opening.sillHeightMm,
+      wall_position: opening.wallPosition,
+    }))
+  }, [])
 
   const updateOpening = useCallback(
-    (_openingType: FloorOpening['type'], openingId: string, patch: Record<string, unknown>) => {
-      const dimensions: Record<string, Record<string, number | string>> = {}
-      const width = getFiniteNumber(patch.width) ?? getFiniteNumber(patch.widthMm)
-      const height = getFiniteNumber(patch.height) ?? getFiniteNumber(patch.heightMm)
-      if (width !== null) dimensions.length = absoluteDimension(width)
-      if (height !== null) dimensions.height = absoluteDimension(height)
-      const centerMm = toPointObjectFromUnknown(patch.centerMm)
-      const parameters: Record<string, unknown> = {}
-      if (Object.keys(dimensions).length > 0) parameters.dimensions_mm = dimensions
-      if (centerMm) parameters.center_mm = centerMm
-      if (typeof patch.hostWallGlobalId === 'string') parameters.host_wall_global_id = patch.hostWallGlobalId
-      if (typeof patch.storeyGlobalId === 'string') parameters.storey_global_id = patch.storeyGlobalId
-      if (typeof patch.wall_position === 'number' && Number.isFinite(patch.wall_position)) {
-        parameters.wall_position = patch.wall_position
-      }
-      const sillHeight = getFiniteNumber(patch.sill_height) ?? getFiniteNumber(patch.sillHeightMm)
-      if (sillHeight !== null) parameters.sill_height_mm = sillHeight
-      if (typeof patch.door_swing_direction === 'string') parameters.door_swing_direction = patch.door_swing_direction
-      if (typeof patch.door_hinge_side === 'string') parameters.door_hinge_side = patch.door_hinge_side
-      if (Object.keys(parameters).length === 0) return
+    (openingType: FloorOpening['type'], openingId: string, patch: Record<string, unknown>) => {
+      const nextPatch = compactRecord({
+        storeyGlobalId: typeof patch.storeyGlobalId === 'string'
+          ? patch.storeyGlobalId
+          : typeof patch.storeyId === 'string'
+            ? patch.storeyId
+            : undefined,
+        hostWallGlobalId: typeof patch.hostWallGlobalId === 'string' ? patch.hostWallGlobalId : undefined,
+        centerMm: toWorkerMmPointFromUnknown(patch.centerMm),
+        lengthMm: getFiniteNumber(patch.width) ?? getFiniteNumber(patch.widthMm),
+        heightMm: getFiniteNumber(patch.height) ?? getFiniteNumber(patch.heightMm),
+        wall_position: getFiniteNumber(patch.wall_position),
+        sillHeightMm: getFiniteNumber(patch.sill_height) ?? getFiniteNumber(patch.sillHeightMm),
+        door_swing_direction: typeof patch.door_swing_direction === 'string' ? patch.door_swing_direction : undefined,
+        door_hinge_side: typeof patch.door_hinge_side === 'string' ? patch.door_hinge_side : undefined,
+      })
+      if (!hasMeaningfulValue(nextPatch)) return
 
       const globalId = toIfcGlobalId(openingId)
       if (!globalId) {
-        updatePendingCreateByClientId(openingId, parameters)
+        updatePendingCreate(openingId, nextPatch)
         return
       }
-      recordEngineOperations([{
-        id: `op-${createWorkspaceCommandId()}`,
-        type: 'update_element_properties',
-        selector: toSelector(globalId),
-        parameters,
-      }])
+      pendingCommandRef.current = updateEntityCommand(openingEntity(openingType), globalId, nextPatch)
     },
-    [recordEngineOperations, updatePendingCreateByClientId],
+    [updatePendingCreate],
   )
 
   const upsertOpening = useCallback((opening: FloorOpening, exists: boolean) => {
@@ -294,15 +279,10 @@ export function useWorkspaceCommandPublisher({
 
   const deleteOpening = useCallback((opening: FloorOpening) => {
     const globalId = toIfcGlobalId(opening.globalId ?? opening.id)
-    if (!globalId && cancelPendingCreateByClientId(opening.id)) return
+    if (!globalId && cancelPendingCreate(opening.id)) return
     if (!globalId) return
-    recordEngineOperations([{
-      id: `op-${createWorkspaceCommandId()}`,
-      type: 'delete_elements',
-      selector: toSelector(globalId),
-      parameters: {},
-    }])
-  }, [cancelPendingCreateByClientId, recordEngineOperations])
+    pendingCommandRef.current = deleteEntityCommand(openingEntity(opening.type), globalId)
+  }, [cancelPendingCreate])
 
   const updateIfcElement = useCallback((element: IfcElementInfo, patch: Record<string, unknown>) => {
     if (!element.globalId) return
@@ -310,123 +290,88 @@ export function useWorkspaceCommandPublisher({
     const translationX = getFiniteNumber(translationMm?.x)
     const translationY = getFiniteNumber(translationMm?.y)
     const translationZ = getFiniteNumber(translationMm?.z)
-    const operations: EngineOperation[] = []
     if (translationX !== null || translationY !== null || translationZ !== null) {
-      operations.push({
-        id: `op-${createWorkspaceCommandId()}`,
-        type: 'transform_elements',
-        selector: toSelector(element.globalId),
-        parameters: {
-          translation_mm: {
-            x: translationX ?? 0,
-            y: translationY ?? 0,
-            z: translationZ ?? 0,
-          },
-        },
+      if (!hasNonZeroTranslation(translationX, translationY, translationZ)) return
+      pendingCommandRef.current = updateEntityCommand('ifcElement', element.globalId, {
+        translationMm: compactRecord({
+          x: translationX,
+          y: translationY,
+          z: translationZ,
+        }),
       })
+      return
     }
-    const dimensions: Record<string, Record<string, number | string>> = {}
-    const length = getFiniteNumber(patch.lengthMm)
-    const height = getFiniteNumber(patch.heightMm)
-    const thickness = getFiniteNumber(patch.thicknessMm)
-    if (length !== null) dimensions.length = absoluteDimension(length)
-    if (height !== null) dimensions.height = absoluteDimension(height)
-    if (thickness !== null) dimensions.thickness = absoluteDimension(thickness)
 
-    const propertyParameters: Record<string, unknown> = {}
-    if (Object.keys(dimensions).length > 0) propertyParameters.dimensions_mm = dimensions
-    if (typeof patch.material === 'string') propertyParameters.material = patch.material
-    if (typeof patch.color === 'string') propertyParameters.color = patch.color
-    const rotationX = getFiniteNumber(patch.rotationX)
-    const rotationY = getFiniteNumber(patch.rotationY)
-    const rotationZ = getFiniteNumber(patch.rotationZ)
-    if (rotationX !== null || rotationY !== null || rotationZ !== null) {
-      propertyParameters.rotation_degrees = {
-        x: rotationX ?? 0,
-        y: rotationY ?? 0,
-        z: rotationZ ?? 0,
-      }
+    const nextPatch = compactRecord({
+      lengthMm: getFiniteNumber(patch.lengthMm),
+      heightMm: getFiniteNumber(patch.heightMm),
+      thickness: getFiniteNumber(patch.thicknessMm),
+      material: typeof patch.material === 'string' ? patch.material : undefined,
+      color: typeof patch.color === 'string' ? patch.color : undefined,
+      rotation_degrees: compactRecord({
+        x: getFiniteNumber(patch.rotationX),
+        y: getFiniteNumber(patch.rotationY),
+        z: getFiniteNumber(patch.rotationZ),
+      }),
+    })
+    if (isRecord(nextPatch.rotation_degrees) && Object.keys(nextPatch.rotation_degrees).length === 0) {
+      delete nextPatch.rotation_degrees
     }
-    if (Object.keys(propertyParameters).length > 0) {
-      operations.push({
-        id: `op-${createWorkspaceCommandId()}`,
-        type: 'update_element_properties',
-        selector: toSelector(element.globalId),
-        parameters: propertyParameters,
-      })
+    if (hasMeaningfulValue(nextPatch)) {
+      pendingCommandRef.current = updateEntityCommand('ifcElement', element.globalId, nextPatch)
     }
-    recordEngineOperations(operations)
-  }, [recordEngineOperations])
+  }, [])
 
   const deleteIfcElement = useCallback((element: IfcElementInfo) => {
     if (!element.globalId) return
-    recordEngineOperations([{
-      id: `op-${createWorkspaceCommandId()}`,
-      type: 'delete_elements',
-      selector: toSelector(element.globalId),
-      parameters: {},
-    }])
-  }, [recordEngineOperations])
+    pendingCommandRef.current = deleteEntityCommand('ifcElement', element.globalId)
+  }, [])
 
   const updateRoom = useCallback((roomId: string, patch: Record<string, unknown>) => {
     const globalId = toIfcGlobalId(roomId)
     if (!globalId) return
 
-    const operations: EngineOperation[] = []
     const translationMm = isRecord(patch.translationMm) ? patch.translationMm : null
     const translationX = getFiniteNumber(translationMm?.x)
     const translationY = getFiniteNumber(translationMm?.y)
-    const translationZ = getFiniteNumber(translationMm?.z) ?? 0
-    if (translationX !== null || translationY !== null) {
-      operations.push({
-        id: `op-${createWorkspaceCommandId()}`,
-        type: 'transform_elements',
-        selector: toSelector(globalId),
-        parameters: {
-          translation_mm: {
-            x: translationX ?? 0,
-            y: translationY ?? 0,
-            z: translationZ,
-          },
-        },
+    const translationZ = getFiniteNumber(translationMm?.z)
+    if (translationX !== null || translationY !== null || translationZ !== null) {
+      if (!hasNonZeroTranslation(translationX, translationY, translationZ)) return
+      pendingCommandRef.current = updateEntityCommand('room', globalId, {
+        translationMm: compactRecord({
+          x: translationX,
+          y: translationY,
+          z: translationZ,
+        }),
       })
+      return
     }
 
     const widthMm = getFiniteNumber(patch.widthMm)
     const heightMm = getFiniteNumber(patch.heightMm)
-    if (widthMm !== null || heightMm !== null) {
-      const dimensions: Record<string, Record<string, number | string>> = {}
-      if (widthMm !== null) dimensions.width = absoluteDimension(widthMm)
-      if (heightMm !== null) dimensions.height = absoluteDimension(heightMm)
-      operations.push({
-        id: `op-${createWorkspaceCommandId()}`,
-        type: 'update_element_properties',
-        selector: toSelector(globalId),
-        parameters: {
-          pset_name: 'Batang_SpaceDimensions',
-          dimensions_mm: dimensions,
-          pset_updates: {
-            Batang_SpaceDimensions: {
-              ...(widthMm !== null ? { Width: widthMm } : {}),
-              ...(heightMm !== null ? { Height: heightMm } : {}),
-            },
+    const nextPatch = compactRecord({
+      widthMm,
+      heightMm,
+      pset_name: widthMm !== null || heightMm !== null ? 'Batang_SpaceDimensions' : undefined,
+      pset_updates: widthMm !== null || heightMm !== null
+        ? {
+          Batang_SpaceDimensions: {
+            ...(widthMm !== null ? { Width: widthMm } : {}),
+            ...(heightMm !== null ? { Height: heightMm } : {}),
           },
-        },
-      })
+        }
+        : undefined,
+    })
+    if (hasMeaningfulValue(nextPatch)) {
+      pendingCommandRef.current = updateEntityCommand('room', globalId, nextPatch)
     }
-    recordEngineOperations(operations)
-  }, [recordEngineOperations])
+  }, [])
 
   const deleteRoom = useCallback((roomId: string) => {
     const globalId = toIfcGlobalId(roomId)
     if (!globalId) return
-    recordEngineOperations([{
-      id: `op-${createWorkspaceCommandId()}`,
-      type: 'delete_elements',
-      selector: toSelector(globalId),
-      parameters: {},
-    }])
-  }, [recordEngineOperations])
+    pendingCommandRef.current = deleteEntityCommand('room', globalId)
+  }, [])
 
   const updateWallGeometry = useCallback((wallId: string, start: Point2D, end: Point2D, startMm?: Point2D, endMm?: Point2D) => {
     updateWall(wallId, {
