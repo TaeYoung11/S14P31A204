@@ -195,6 +195,30 @@ def test_rendering_worker_maps_ifc2img_render_error(tmp_path: Path) -> None:
         worker.process(CommandLike())
 
 
+def test_rendering_worker_maps_semantic_retry_failure(tmp_path: Path) -> None:
+    """Semantic retry exhaustion is a non-retryable ifc2img render failure."""
+
+    def runner(*args: object) -> dict[str, object]:
+        raise IFCRenderError(
+            "IFC semantic context load failed after 3 attempts for source.ifc"
+        )
+
+    worker = RenderingWorker(
+        worker_id="rendering-worker-1",
+        event_publisher=FakeEventPublisher(),
+        s3_settings=object(),
+        work_root=tmp_path,
+        ifc2img_runner=runner,
+    )
+
+    with pytest.raises(NonRetryableWorkerError) as exc_info:
+        worker.process(CommandLike())
+
+    assert exc_info.value.code == "IFC2IMG_RENDER_FAILED"
+    assert "3 attempts" in exc_info.value.message
+    assert exc_info.value.retryable is False
+
+
 def test_rendering_worker_maps_retryable_storage_error(tmp_path: Path) -> None:
     """S3 download/upload 장애는 retryable worker error로 변환한다."""
 
@@ -216,6 +240,31 @@ def test_rendering_worker_maps_retryable_storage_error(tmp_path: Path) -> None:
         worker.process(CommandLike())
 
     assert exc_info.value.code == "IFC_SOURCE_DOWNLOAD_FAILED"
+    assert exc_info.value.retryable is True
+
+
+def test_rendering_worker_maps_ifc_download_failure(tmp_path: Path) -> None:
+    """Missing or unavailable source IFC download remains retryable."""
+
+    def runner(*args: object) -> dict[str, object]:
+        raise Ifc2ImgStorageError(
+            code="IFC_SOURCE_DOWNLOAD_FAILED",
+            message="failed to download source IFC: s3://bucket/input/missing.ifc",
+        )
+
+    worker = RenderingWorker(
+        worker_id="rendering-worker-1",
+        event_publisher=FakeEventPublisher(),
+        s3_settings=object(),
+        work_root=tmp_path,
+        ifc2img_runner=runner,
+    )
+
+    with pytest.raises(RetryableWorkerError) as exc_info:
+        worker.process(CommandLike())
+
+    assert exc_info.value.code == "IFC_SOURCE_DOWNLOAD_FAILED"
+    assert "missing.ifc" in exc_info.value.message
     assert exc_info.value.retryable is True
 
 

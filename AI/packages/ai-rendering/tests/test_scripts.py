@@ -354,6 +354,8 @@ def test_ifc_to_styled_render_depths_can_enable_auto_zoom(
             "iter_tolerance": 0.05,
             "view_target_overrides": expected_overrides,
             "view_ground_extent_overrides": expected_ground_overrides,
+            "view_camera_overrides": None,
+            "ground_z_override": None,
             "look_at_height_ratio": m.PHOTO_DEPTH_RENDER_DEFAULTS.look_at_height_ratio,
         }
     ]

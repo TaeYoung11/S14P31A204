@@ -179,6 +179,8 @@ def test_public_api_exports() -> None:
         "list_presets",
         "load_preset",
         "build_view_prompt",
+        "IfcSemanticSummary",
+        "extract_ifc_semantic_summary",
     }
     assert set(ifc2img.__all__) == expected
 
