@@ -165,6 +165,7 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(tmp_path: Path) -> N
         ifc_path,
         output_dir,
         preset="korean_house",
+        debug_artifacts=True,
         ifc_renderer_cls=FakeIFCRenderer,
         depth_style_renderer_cls=FakeDepthStyleRenderer,
     )
@@ -216,6 +217,32 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(tmp_path: Path) -> N
     assert first_debug_view["files"]["semanticControlImage"] == (
         "debug/semantic_control_front_diagonal_left.png"
     )
+
+
+def test_run_ifc2img_photo_pipeline_skips_debug_geometry_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """기본 production 경로는 debug geometry를 위해 IFC를 한 번 더 파싱하지 않는다."""
+    import ai_rendering.ifc2img.service as service
+
+    def fail_debug_geometry(_ifc_path: Path) -> None:
+        raise AssertionError("debug geometry should be opt-in")
+
+    monkeypatch.setattr(service, "_load_debug_geometry", fail_debug_geometry)
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        output_dir,
+        preset="korean_house",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    assert not (output_dir / "debug" / "debug_manifest.json").exists()
 
 
 def test_run_ifc2img_photo_pipeline_logs_depth_and_style_stages(
