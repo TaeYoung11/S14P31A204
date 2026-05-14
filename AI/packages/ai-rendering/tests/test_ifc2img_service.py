@@ -142,9 +142,6 @@ class FakeLogger:
     def warning(self, event: str, **kwargs: object) -> None:
         self.calls.append((event, kwargs))
 
-    def warning(self, event: str, **kwargs: object) -> None:
-        self.calls.append((event, kwargs))
-
 
 class FakeSemanticSummary:
     def __init__(self, source_ifc_path: Path) -> None:
