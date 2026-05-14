@@ -660,7 +660,9 @@ def test_two_d_llm_worker_engine_init_failure_is_retryable(
         s3_client=storage,
     )
 
-    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker.extract_ifc_context", lambda _: {"spaces": []})
+    monkeypatch.setattr(
+        "ai_planning_2d.worker_runtime.worker.extract_ifc_context", lambda _: {"spaces": []}
+    )
     monkeypatch.setattr(
         "ai_planning_2d.worker_runtime.worker.LLM2DPipeline",
         lambda **_: _raise(RuntimeError("engine init failed")),
@@ -899,7 +901,9 @@ def test_run_two_d_llm_job_rejects_active_event_loop(
         return _applied_result()
 
     monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
-    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker.asyncio.get_running_loop", lambda: object())
+    monkeypatch.setattr(
+        "ai_planning_2d.worker_runtime.worker.asyncio.get_running_loop", lambda: object()
+    )
 
     result = run_two_d_llm_job(
         {
