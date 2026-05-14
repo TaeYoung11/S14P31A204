@@ -39,12 +39,17 @@ from ai_rendering.ifc2img.service import (
     create_photo_ifc_renderer,
     create_photo_style_renderer,
     handle_ifc2img_worker_request,
+    load_runtime_semantic_context,
     render_photo_depths,
     render_photo_view,
+    resolve_semantic_front_camera_overrides,
+    resolve_semantic_ground_z,
     run_ifc2img_photo_pipeline,
+    select_semantic_ground,
     write_photo_manifest_file,
 )
-from ai_rendering.ifc2img.views import IFCView
+from ai_rendering.ifc2img.semantics import IfcFrontDirectionCandidate
+from ai_rendering.ifc2img.views import CameraParams, IFCView
 
 
 class FakeIFCRenderer:
@@ -133,11 +138,111 @@ class FakeLogger:
     def info(self, event: str, **kwargs: object) -> None:
         self.calls.append((event, kwargs))
 
+    def warning(self, event: str, **kwargs: object) -> None:
+        self.calls.append((event, kwargs))
+
+
+class FakeSemanticSummary:
+    def __init__(self, source_ifc_path: Path) -> None:
+        self.source_ifc_path = source_ifc_path
+
+    @property
+    def lowest_floor(self) -> None:
+        return None
+
+    @property
+    def main_door_candidate(self) -> None:
+        return None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "sourceIfcPath": str(self.source_ifc_path),
+            "categories": {},
+            "lowestFloor": None,
+            "highestRoof": None,
+            "doorCandidates": [],
+            "frontDirectionCandidates": [],
+            "mainDoorCandidate": None,
+            "elements": [],
+        }
+
+
+class FakeSemanticSummaryWithoutFloor(FakeSemanticSummary):
+    @property
+    def lowest_floor(self) -> None:
+        return None
+
+
+class FakeSemanticBounds:
+    def __init__(self, z_max: float) -> None:
+        self.z_max = z_max
+
+
+class FakeSemanticFloor:
+    def __init__(self, z_max: float) -> None:
+        self.bounds = FakeSemanticBounds(z_max)
+
+
+class FakeSemanticSummaryWithFloor(FakeSemanticSummary):
+    def __init__(self, source_ifc_path: Path, ground_z: float) -> None:
+        super().__init__(source_ifc_path)
+        self._lowest_floor = FakeSemanticFloor(ground_z)
+
+    @property
+    def lowest_floor(self) -> FakeSemanticFloor:
+        return self._lowest_floor
+
+
+class FakeSemanticSummaryWithMainDoor(FakeSemanticSummary):
+    @property
+    def main_door_candidate(self) -> IfcFrontDirectionCandidate:
+        return IfcFrontDirectionCandidate(
+            door_entity_id=703,
+            door_name="main door",
+            door_center=(0.0, 0.0, 1.0),
+            nearest_footprint_side="min_y",
+            distance_to_footprint_edge=0.0,
+            exterior_wall_near=True,
+            nearest_wall_entity_id=691,
+            nearest_wall_distance=0.0,
+            front_vector=(0.0, -1.0, 0.0),
+            score=10.0,
+        )
+
+
+class FakeSemanticSummaryWithFloorAndMainDoor(FakeSemanticSummaryWithMainDoor):
+    def __init__(self, source_ifc_path: Path, ground_z: float) -> None:
+        super().__init__(source_ifc_path)
+        self._lowest_floor = FakeSemanticFloor(ground_z)
+
+    @property
+    def lowest_floor(self) -> FakeSemanticFloor:
+        return self._lowest_floor
+
 
 @pytest.fixture(autouse=True)
 def reset_fake_renderers() -> None:
     FakeIFCRenderer.instances.clear()
     FakeDepthStyleRenderer.instances.clear()
+
+
+def patch_runtime_semantic_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ai_rendering.ifc2img.service as service
+
+    def fake_load_runtime_semantic_context(
+        ifc_path: Path,
+        *,
+        max_attempts: int = 3,
+    ) -> object:
+        return service.SemanticRenderContext(
+            summary=FakeSemanticSummary(Path(ifc_path))
+        )
+
+    monkeypatch.setattr(
+        service,
+        "load_runtime_semantic_context",
+        fake_load_runtime_semantic_context,
+    )
 
 
 def test_service_public_views_are_front_diagonal_only() -> None:
@@ -155,8 +260,12 @@ def test_service_public_views_are_front_diagonal_only() -> None:
     }
 
 
-def test_run_ifc2img_photo_pipeline_writes_contract_outputs(tmp_path: Path) -> None:
+def test_run_ifc2img_photo_pipeline_writes_contract_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A local IFC input produces two photos, debug depths, and manifest."""
+    patch_runtime_semantic_context(monkeypatch)
     ifc_path = tmp_path / "input.ifc"
     ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
     output_dir = tmp_path / "out"
@@ -205,7 +314,13 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(tmp_path: Path) -> N
     assert debug_manifest["schemaVersion"] == "ifc2img.debug.v1"
     assert debug_manifest["preset"] == "korean_house"
     assert debug_manifest["timeOfDay"] == "DAY"
-    assert "ifcSemanticSummaryError" in debug_manifest
+    assert debug_manifest["ifcSemanticSummary"]["sourceIfcPath"] == str(ifc_path)
+    assert debug_manifest["semanticGroundSelection"] == {
+        "groundSource": "geometry_percentile_fallback",
+        "groundZ": None,
+        "semanticGroundCandidate": None,
+    }
+    assert "ifcSemanticSummaryError" not in debug_manifest
     assert [view["view"] for view in debug_manifest["views"]] == list(
         PUBLIC_PHOTO_VIEWS
     )
@@ -254,6 +369,11 @@ def test_run_ifc2img_photo_pipeline_writes_ifc_semantic_summary(
     assert semantic["lowestFloor"]["category"] == "FLOOR"
     assert semantic["highestRoof"]["category"] == "ROOF"
     assert len(semantic["doorCandidates"]) >= 1
+    assert debug_manifest["semanticGroundSelection"] == {
+        "groundSource": "semantic_floor",
+        "groundZ": pytest.approx(0.0),
+        "semanticGroundCandidate": pytest.approx(0.0),
+    }
     first_view = debug_manifest["views"][0]
     element_masks = first_view["files"]["elementMasks"]
     assert element_masks == {
@@ -268,6 +388,468 @@ def test_run_ifc2img_photo_pipeline_writes_ifc_semantic_summary(
         assert (output_dir / relative_path).exists()
 
 
+def test_run_ifc2img_photo_pipeline_reuses_runtime_semantic_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Debug manifest records the runtime semantic context instead of reparsing."""
+    import ai_rendering.ifc2img.service as service
+
+    calls: list[Path] = []
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    def fake_load_runtime_semantic_context(
+        path: Path,
+        *,
+        max_attempts: int = 3,
+    ) -> object:
+        calls.append(Path(path))
+        return service.SemanticRenderContext(summary=FakeSemanticSummary(Path(path)))
+
+    monkeypatch.setattr(
+        service,
+        "load_runtime_semantic_context",
+        fake_load_runtime_semantic_context,
+    )
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        output_dir,
+        preset="korean_house",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    debug_manifest = json.loads(
+        (output_dir / "debug" / "debug_manifest.json").read_text(encoding="utf-8")
+    )
+    assert calls == [ifc_path]
+    assert debug_manifest["ifcSemanticSummary"]["sourceIfcPath"] == str(ifc_path)
+    assert "ifcSemanticSummaryError" not in debug_manifest
+
+
+def test_run_ifc2img_photo_pipeline_passes_semantic_ground_to_renderer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pipeline forwards the runtime semantic ground candidate to IFCRenderer."""
+    import ai_rendering.ifc2img.service as service
+
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    def fake_load_runtime_semantic_context(
+        path: Path,
+        *,
+        max_attempts: int = 3,
+    ) -> object:
+        return service.SemanticRenderContext(
+            summary=FakeSemanticSummaryWithFloor(Path(path), ground_z=0.75)
+        )
+
+    monkeypatch.setattr(
+        service,
+        "load_runtime_semantic_context",
+        fake_load_runtime_semantic_context,
+    )
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    renderer = FakeIFCRenderer.instances[0]
+    assert renderer.kwargs["ground_z_override"] == 0.75
+    assert renderer.kwargs["view_camera_overrides"] == {}
+    debug_manifest = json.loads(
+        (tmp_path / "out" / "debug" / "debug_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert debug_manifest["semanticGroundSelection"] == {
+        "groundSource": "semantic_floor",
+        "groundZ": 0.75,
+        "semanticGroundCandidate": 0.75,
+    }
+
+
+def test_run_ifc2img_photo_pipeline_uses_ground_z_none_without_semantic_floor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing semantic floor keeps renderer ground_z fallback enabled."""
+    import ai_rendering.ifc2img.service as service
+
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    def fake_load_runtime_semantic_context(
+        path: Path,
+        *,
+        max_attempts: int = 3,
+    ) -> object:
+        return service.SemanticRenderContext(
+            summary=FakeSemanticSummaryWithoutFloor(Path(path))
+        )
+
+    monkeypatch.setattr(
+        service,
+        "load_runtime_semantic_context",
+        fake_load_runtime_semantic_context,
+    )
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    renderer = FakeIFCRenderer.instances[0]
+    assert renderer.kwargs["ground_z_override"] is None
+    assert renderer.kwargs["view_camera_overrides"] == {}
+    debug_manifest = json.loads(
+        (tmp_path / "out" / "debug" / "debug_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert debug_manifest["semanticGroundSelection"] == {
+        "groundSource": "geometry_percentile_fallback",
+        "groundZ": None,
+        "semanticGroundCandidate": None,
+    }
+    assert debug_manifest["semanticFrontCameraSelection"] == {
+        "source": "static_view_cameras_fallback",
+        "mainDoorEntityId": None,
+        "frontVector": None,
+        "overriddenViews": [],
+    }
+
+
+def test_run_ifc2img_photo_pipeline_reuses_semantic_context_for_front_camera(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pipeline derives camera overrides from the existing runtime semantic context."""
+    import ai_rendering.ifc2img.service as service
+
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    calls: list[Path] = []
+
+    def fake_load_runtime_semantic_context(
+        path: Path,
+        *,
+        max_attempts: int = 3,
+    ) -> object:
+        calls.append(Path(path))
+        return service.SemanticRenderContext(
+            summary=FakeSemanticSummaryWithMainDoor(Path(path))
+        )
+
+    monkeypatch.setattr(
+        service,
+        "load_runtime_semantic_context",
+        fake_load_runtime_semantic_context,
+    )
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    renderer = FakeIFCRenderer.instances[0]
+    overrides = renderer.kwargs["view_camera_overrides"]
+    assert calls == [ifc_path]
+    assert set(overrides) == {
+        IFCView.FRONT_DIAGONAL_LEFT,
+        IFCView.FRONT_DIAGONAL_RIGHT,
+    }
+
+
+def test_run_ifc2img_photo_pipeline_passes_ground_and_camera_to_renderer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pipeline forwards semantic ground and camera overrides together."""
+    import ai_rendering.ifc2img.service as service
+
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    def fake_load_runtime_semantic_context(
+        path: Path,
+        *,
+        max_attempts: int = 3,
+    ) -> object:
+        return service.SemanticRenderContext(
+            summary=FakeSemanticSummaryWithFloorAndMainDoor(Path(path), ground_z=0.75)
+        )
+
+    monkeypatch.setattr(
+        service,
+        "load_runtime_semantic_context",
+        fake_load_runtime_semantic_context,
+    )
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    renderer = FakeIFCRenderer.instances[0]
+    assert renderer.kwargs["ground_z_override"] == 0.75
+    assert set(renderer.kwargs["view_camera_overrides"]) == {
+        IFCView.FRONT_DIAGONAL_LEFT,
+        IFCView.FRONT_DIAGONAL_RIGHT,
+    }
+    debug_manifest = json.loads(
+        (tmp_path / "out" / "debug" / "debug_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert debug_manifest["semanticFrontCameraSelection"] == {
+        "source": "semantic_main_door",
+        "mainDoorEntityId": 703,
+        "frontVector": [0.0, -1.0, 0.0],
+        "overriddenViews": ["front_diagonal_left", "front_diagonal_right"],
+    }
+
+
+def test_run_ifc2img_photo_pipeline_calls_front_camera_resolver_with_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pipeline calls semantic front camera resolver with the runtime context."""
+    import ai_rendering.ifc2img.service as service
+
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    semantic_context = service.SemanticRenderContext(
+        summary=FakeSemanticSummaryWithMainDoor(ifc_path)
+    )
+    calls: list[object] = []
+
+    def fake_load_runtime_semantic_context(
+        path: Path,
+        *,
+        max_attempts: int = 3,
+    ) -> object:
+        return semantic_context
+
+    def fake_resolve_semantic_front_camera_overrides(context: object) -> dict[object, object]:
+        calls.append(context)
+        return {}
+
+    monkeypatch.setattr(
+        service,
+        "load_runtime_semantic_context",
+        fake_load_runtime_semantic_context,
+    )
+    monkeypatch.setattr(
+        service,
+        "resolve_semantic_front_camera_overrides",
+        fake_resolve_semantic_front_camera_overrides,
+    )
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    assert calls == [semantic_context]
+
+
+def test_load_runtime_semantic_context_returns_summary(ifc4_fixture: Path) -> None:
+    """Runtime semantic context wraps a successful semantic summary."""
+    context = load_runtime_semantic_context(ifc4_fixture)
+
+    assert context.summary.source_ifc_path == ifc4_fixture
+    assert context.summary.lowest_floor is not None
+    assert context.summary.highest_roof is not None
+
+
+def test_load_runtime_semantic_context_retries_until_success(
+    ifc4_fixture: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Transient semantic extraction failures recover within max_attempts."""
+    import ai_rendering.ifc2img.service as service
+
+    real_extract = service.extract_ifc_semantic_summary
+    attempts: list[int] = []
+
+    def flaky_extract(path: Path) -> object:
+        attempts.append(len(attempts) + 1)
+        if len(attempts) < 3:
+            raise IFCRenderError("temporary semantic failure")
+        return real_extract(path)
+
+    monkeypatch.setattr(service, "extract_ifc_semantic_summary", flaky_extract)
+
+    context = load_runtime_semantic_context(ifc4_fixture, max_attempts=3)
+
+    assert context.summary.lowest_floor is not None
+    assert attempts == [1, 2, 3]
+
+
+def test_load_runtime_semantic_context_fails_after_max_attempts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Semantic extraction failure is fatal after the retry budget is exhausted."""
+    import ai_rendering.ifc2img.service as service
+
+    attempts: list[int] = []
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    def always_fail(path: Path) -> object:
+        attempts.append(len(attempts) + 1)
+        raise IFCRenderError(f"semantic failure for {path.name}")
+
+    monkeypatch.setattr(service, "extract_ifc_semantic_summary", always_fail)
+
+    with pytest.raises(IFCRenderError) as exc_info:
+        load_runtime_semantic_context(ifc_path, max_attempts=3)
+
+    message = str(exc_info.value)
+    assert attempts == [1, 2, 3]
+    assert "after attempt 3/3" in message
+    assert str(ifc_path) in message
+
+
+def test_resolve_semantic_ground_z_returns_none_without_floor(tmp_path: Path) -> None:
+    """Missing semantic floor keeps the ground z fallback path available."""
+    import ai_rendering.ifc2img.service as service
+
+    context = service.SemanticRenderContext(
+        summary=FakeSemanticSummaryWithoutFloor(tmp_path / "input.ifc")
+    )
+
+    assert resolve_semantic_ground_z(context) is None
+
+
+def test_resolve_semantic_ground_z_uses_shinchan_lowest_floor(
+    ifc4_fixture: Path,
+) -> None:
+    """The shinchan fixture semantic floor resolves to the expected ground z."""
+    context = load_runtime_semantic_context(ifc4_fixture)
+
+    assert resolve_semantic_ground_z(context) == pytest.approx(0.0)
+
+
+def test_select_semantic_ground_uses_semantic_floor(tmp_path: Path) -> None:
+    """Ground selection records semantic floor as the source when available."""
+    import ai_rendering.ifc2img.service as service
+
+    context = service.SemanticRenderContext(
+        summary=FakeSemanticSummaryWithFloor(tmp_path / "input.ifc", ground_z=0.5)
+    )
+
+    selection = select_semantic_ground(context)
+
+    assert selection.to_dict() == {
+        "groundSource": "semantic_floor",
+        "groundZ": 0.5,
+        "semanticGroundCandidate": 0.5,
+    }
+
+
+def test_select_semantic_ground_uses_fallback_without_floor(tmp_path: Path) -> None:
+    """Ground selection records geometry fallback when no semantic floor exists."""
+    import ai_rendering.ifc2img.service as service
+
+    context = service.SemanticRenderContext(
+        summary=FakeSemanticSummaryWithoutFloor(tmp_path / "input.ifc")
+    )
+
+    selection = select_semantic_ground(context)
+
+    assert selection.to_dict() == {
+        "groundSource": "geometry_percentile_fallback",
+        "groundZ": None,
+        "semanticGroundCandidate": None,
+    }
+
+
+def test_resolve_semantic_front_camera_overrides_uses_reliable_main_door(
+    tmp_path: Path,
+) -> None:
+    """Reliable main door creates front diagonal camera override candidates."""
+    import ai_rendering.ifc2img.service as service
+
+    context = service.SemanticRenderContext(
+        summary=FakeSemanticSummaryWithMainDoor(tmp_path / "input.ifc")
+    )
+
+    overrides = resolve_semantic_front_camera_overrides(context)
+
+    assert set(overrides) == {
+        IFCView.FRONT_DIAGONAL_LEFT,
+        IFCView.FRONT_DIAGONAL_RIGHT,
+    }
+    left = overrides[IFCView.FRONT_DIAGONAL_LEFT]
+    right = overrides[IFCView.FRONT_DIAGONAL_RIGHT]
+    assert left.up == (0.0, 0.0, 1.0)
+    assert right.up == (0.0, 0.0, 1.0)
+    assert left.zoom == pytest.approx(0.5)
+    assert right.zoom == pytest.approx(0.5)
+    assert left.front == pytest.approx((2**-0.5, -(2**-0.5), 0.0))
+    assert right.front == pytest.approx((-(2**-0.5), -(2**-0.5), 0.0))
+    assert sum(value * value for value in left.front) ** 0.5 == pytest.approx(1.0)
+    assert sum(value * value for value in right.front) ** 0.5 == pytest.approx(1.0)
+    assert left.front != right.front
+
+
+def test_resolve_semantic_front_camera_overrides_falls_back_without_main_door(
+    tmp_path: Path,
+) -> None:
+    """Missing main door returns no camera overrides."""
+    import ai_rendering.ifc2img.service as service
+
+    context = service.SemanticRenderContext(
+        summary=FakeSemanticSummary(tmp_path / "input.ifc")
+    )
+
+    assert resolve_semantic_front_camera_overrides(context) == {}
+
+
+def test_resolve_semantic_front_camera_overrides_uses_shinchan_front_vector(
+    ifc4_fixture: Path,
+) -> None:
+    """shinchan.ifc front vector fixes the expected semantic diagonal cameras."""
+    context = load_runtime_semantic_context(ifc4_fixture)
+
+    overrides = resolve_semantic_front_camera_overrides(context)
+
+    assert set(overrides) == {
+        IFCView.FRONT_DIAGONAL_LEFT,
+        IFCView.FRONT_DIAGONAL_RIGHT,
+    }
+    assert overrides[IFCView.FRONT_DIAGONAL_LEFT].front == pytest.approx(
+        (2**-0.5, -(2**-0.5), 0.0)
+    )
+    assert overrides[IFCView.FRONT_DIAGONAL_RIGHT].front == pytest.approx(
+        (-(2**-0.5), -(2**-0.5), 0.0)
+    )
+
+
 def test_run_ifc2img_photo_pipeline_logs_depth_and_style_stages(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -275,6 +857,7 @@ def test_run_ifc2img_photo_pipeline_logs_depth_and_style_stages(
     """Pipeline logs the expensive depth and style render milestones."""
     import ai_rendering.ifc2img.service as service
 
+    patch_runtime_semantic_context(monkeypatch)
     logger = FakeLogger()
     monkeypatch.setattr(service, "_logger", logger)
     ifc_path = tmp_path / "input.ifc"
@@ -301,8 +884,10 @@ def test_run_ifc2img_photo_pipeline_logs_depth_and_style_stages(
 
 def test_run_ifc2img_photo_pipeline_passes_time_of_day_to_preset(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Pipeline should resolve NIGHT to the night preset prompt."""
+    patch_runtime_semantic_context(monkeypatch)
     ifc_path = tmp_path / "input.ifc"
     ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
 
@@ -342,6 +927,8 @@ def test_run_ifc2img_photo_pipeline_calls_load_preset_with_normalized_time(
 
     calls: list[tuple[str, str]] = []
     original_load_preset = service.load_preset
+
+    patch_runtime_semantic_context(monkeypatch)
 
     def spy_load_preset(name: str, preset_time_of_day: str = "day") -> object:
         calls.append((name, preset_time_of_day))
@@ -695,6 +1282,38 @@ def test_run_ifc2img_photo_pipeline_rejects_missing_ifc_before_renderers(
     assert FakeDepthStyleRenderer.instances == []
 
 
+def test_run_ifc2img_photo_pipeline_rejects_semantic_failure_before_renderers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Runtime semantic failure stops the job before depth/style renderers run."""
+    import ai_rendering.ifc2img.service as service
+
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    def fail_semantic_context(ifc_path: Path, *, max_attempts: int = 3) -> object:
+        raise IFCRenderError(f"semantic failed for {ifc_path.name}")
+
+    monkeypatch.setattr(
+        service,
+        "load_runtime_semantic_context",
+        fail_semantic_context,
+    )
+
+    with pytest.raises(IFCRenderError, match="semantic failed"):
+        run_ifc2img_photo_pipeline(
+            ifc_path,
+            tmp_path / "out",
+            preset="korean_house",
+            ifc_renderer_cls=FakeIFCRenderer,
+            depth_style_renderer_cls=FakeDepthStyleRenderer,
+        )
+
+    assert FakeIFCRenderer.instances == []
+    assert FakeDepthStyleRenderer.instances == []
+
+
 def test_create_photo_ifc_renderer_uses_injected_renderer_class() -> None:
     """실제 renderer factory 경계가 테스트용 클래스로 대체 가능한지 확인한다."""
     renderer = create_photo_ifc_renderer(FakeIFCRenderer)
@@ -713,6 +1332,21 @@ def test_create_photo_ifc_renderer_uses_injected_renderer_class() -> None:
         IFCView.FRONT_DIAGONAL_RIGHT: defaults.front_diagonal_ground_extent_factor,
         IFCView.FRONT_DIAGONAL_LEFT: defaults.front_diagonal_ground_extent_factor,
     }
+    assert renderer.kwargs["view_camera_overrides"] is None
+    assert renderer.kwargs["ground_z_override"] is None
+
+
+def test_create_photo_ifc_renderer_passes_view_camera_overrides() -> None:
+    """Renderer factory forwards semantic camera overrides to IFCRenderer."""
+    camera = CameraParams(front=(0.0, -1.0, 0.0), up=(0.0, 0.0, 1.0), zoom=0.4)
+    overrides = {IFCView.FRONT_DIAGONAL_LEFT: camera}
+
+    renderer = create_photo_ifc_renderer(
+        FakeIFCRenderer,
+        view_camera_overrides=overrides,
+    )
+
+    assert renderer.kwargs["view_camera_overrides"] == overrides
 
 
 def test_create_photo_style_renderer_passes_semantic_model_when_required() -> None:
@@ -774,8 +1408,10 @@ def test_render_photo_view_applies_preset_view_options() -> None:
 
 def test_run_ifc2img_photo_pipeline_applies_front_diagonal_semantic_options(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Korean house FRONT_DIAGONAL views require semantic ControlNet and resolver options."""
+    patch_runtime_semantic_context(monkeypatch)
     ifc_path = tmp_path / "input.ifc"
     ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
 

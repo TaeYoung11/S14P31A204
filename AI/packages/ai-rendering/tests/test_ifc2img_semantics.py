@@ -1,10 +1,13 @@
 """IFC semantic element reader tests."""
 
+from dataclasses import replace
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from ai_rendering.ifc2img.semantics import (
+    IfcFrontDirectionCandidate,
     IfcSemanticBounds,
     IfcSemanticElement,
     IfcSemanticScreenMaskStats,
@@ -12,6 +15,7 @@ from ai_rendering.ifc2img.semantics import (
     build_front_direction_candidates,
     diagnose_projection_vertical_inversion,
     extract_ifc_semantic_summary,
+    is_reliable_main_door_candidate,
 )
 
 
@@ -59,6 +63,74 @@ def test_shinchan_semantic_summary_fixture_smoke_has_required_categories_and_z_o
     assert summary.categories["FLOOR"].z_max is not None
     assert summary.categories["ROOF"].z_min is not None
     assert summary.categories["FLOOR"].z_max < summary.categories["ROOF"].z_min
+
+
+def test_shinchan_semantic_baseline_counts_and_z_ranges(
+    ifc4_fixture: Path,
+) -> None:
+    """shinchan.ifc semantic baseline count/z values are fixed for regression."""
+    summary = extract_ifc_semantic_summary(ifc4_fixture)
+
+    assert summary.categories["FLOOR"].count == 1
+    assert summary.categories["ROOF"].count == 13
+    assert summary.categories["WALL"].count == 38
+    assert summary.categories["WINDOW"].count == 15
+    assert summary.categories["DOOR"].count == 5
+    assert summary.categories["FLOOR"].z_min == pytest.approx(-0.362)
+    assert summary.categories["FLOOR"].z_max == pytest.approx(0.0)
+    assert summary.categories["ROOF"].z_min == pytest.approx(2.5)
+    assert summary.categories["ROOF"].z_max == pytest.approx(6.5)
+    assert summary.categories["FLOOR"].z_max < summary.categories["ROOF"].z_min
+
+
+def test_shinchan_semantic_baseline_lowest_floor_and_highest_roof(
+    ifc4_fixture: Path,
+) -> None:
+    """shinchan.ifc establishes floor below roof as a semantic baseline fact."""
+    summary = extract_ifc_semantic_summary(ifc4_fixture)
+
+    assert summary.lowest_floor is not None
+    assert summary.highest_roof is not None
+    assert summary.lowest_floor.category == "FLOOR"
+    assert summary.highest_roof.category == "ROOF"
+    assert summary.lowest_floor.bounds.z_min == pytest.approx(-0.362)
+    assert summary.lowest_floor.bounds.z_max == pytest.approx(0.0)
+    assert summary.highest_roof.bounds.z_min == pytest.approx(5.0)
+    assert summary.highest_roof.bounds.z_max == pytest.approx(6.5)
+    assert summary.lowest_floor.bounds.z_max < summary.highest_roof.bounds.z_min
+
+
+def test_shinchan_semantic_baseline_main_door_front_vector(
+    ifc4_fixture: Path,
+) -> None:
+    """shinchan.ifc front candidate baseline is stable enough for camera work."""
+    summary = extract_ifc_semantic_summary(ifc4_fixture)
+    candidates = summary.front_direction_candidates
+    main = summary.main_door_candidate
+
+    assert len(summary.door_candidates) == summary.categories["DOOR"].count
+    assert len(candidates) == summary.categories["DOOR"].count
+    assert main is not None
+    assert candidates[0] == main
+    assert main.door_entity_id == 703
+    assert main.nearest_footprint_side == "min_y"
+    assert main.exterior_wall_near is True
+    assert main.nearest_wall_entity_id == 691
+    assert main.nearest_wall_distance == pytest.approx(0.0)
+    np.testing.assert_allclose(main.front_vector, (0.0, -1.0, 0.0))
+    assert np.linalg.norm(np.asarray(main.front_vector)) == pytest.approx(1.0)
+    assert main.score > 0.0
+
+
+def test_front_direction_candidates_are_sorted_by_score(
+    ifc4_fixture: Path,
+) -> None:
+    """Front candidates should remain score-descending with main door first."""
+    candidates = extract_ifc_semantic_summary(ifc4_fixture).front_direction_candidates
+    scores = [candidate.score for candidate in candidates]
+
+    assert candidates
+    assert scores == sorted(scores, reverse=True)
 
 
 def test_ifc_semantic_summary_to_dict_is_manifest_ready(
@@ -145,6 +217,40 @@ def test_build_front_direction_candidates_prefers_exterior_door() -> None:
     assert candidates[0].front_vector == (0.0, -1.0, 0.0)
     assert candidates[0].exterior_wall_near is True
     assert candidates[0].nearest_wall_entity_id == 2
+
+
+def test_is_reliable_main_door_candidate_accepts_shinchan_main_door(
+    ifc4_fixture: Path,
+) -> None:
+    """shinchan.ifc main door should be reliable enough for semantic camera work."""
+    summary = extract_ifc_semantic_summary(ifc4_fixture)
+
+    assert is_reliable_main_door_candidate(summary.main_door_candidate) is True
+
+
+def test_is_reliable_main_door_candidate_rejects_none() -> None:
+    """Missing main door should keep static camera fallback enabled."""
+    assert is_reliable_main_door_candidate(None) is False
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"exterior_wall_near": False},
+        {"nearest_footprint_side": "unknown"},
+        {"score": 0.0},
+        {"front_vector": (0.0, -0.5, 0.0)},
+        {"front_vector": (0.0, -1.0, 0.1)},
+        {"front_vector": (0.0, float("nan"), 0.0)},
+    ],
+)
+def test_is_reliable_main_door_candidate_rejects_unreliable_candidates(
+    overrides: dict[str, object],
+) -> None:
+    """Unclear door candidates should fall back to static view cameras."""
+    candidate = replace(_front_candidate(), **overrides)
+
+    assert is_reliable_main_door_candidate(candidate) is False
 
 
 def test_diagnose_projection_vertical_inversion_flags_floor_above_roof(
@@ -245,4 +351,19 @@ def _semantic_element(
             max_xyz=max_xyz,
             center_xyz=center_xyz,
         ),
+    )
+
+
+def _front_candidate() -> IfcFrontDirectionCandidate:
+    return IfcFrontDirectionCandidate(
+        door_entity_id=4,
+        door_name="main door",
+        door_center=(5.0, 0.0, 1.0),
+        nearest_footprint_side="min_y",
+        distance_to_footprint_edge=0.0,
+        exterior_wall_near=True,
+        nearest_wall_entity_id=2,
+        nearest_wall_distance=0.0,
+        front_vector=(0.0, -1.0, 0.0),
+        score=10.0,
     )

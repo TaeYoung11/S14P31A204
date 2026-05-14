@@ -31,6 +31,7 @@ from ai_rendering.ifc2img.views import (
     VIEW_PROMPT_SUFFIXES,
     VIEW_TARGET_RATIOS,
     AutoZoomMode,
+    CameraParams,
     build_view_prompt,
     resolve_target_ratio_for_mesh,
 )
@@ -123,6 +124,31 @@ def test_depth_to_image_all_background_raises() -> None:
 # --- IFCRenderer와 Open3D Visualizer 호출을 mock으로 검증하는 테스트 ---
 
 
+def test_renderer_accepts_view_camera_overrides() -> None:
+    """Renderer stores per-view camera overrides without mutating global cameras."""
+    camera = CameraParams(front=(0.0, -1.0, 0.0), up=(0.0, 0.0, 1.0), zoom=0.4)
+    overrides = {IFCView.FRONT_DIAGONAL_LEFT: camera}
+
+    renderer = IFCRenderer(view_camera_overrides=overrides)
+    overrides.clear()
+
+    assert renderer.view_camera_overrides == {IFCView.FRONT_DIAGONAL_LEFT: camera}
+    assert VIEW_CAMERAS[IFCView.FRONT_DIAGONAL_LEFT] is not camera
+
+
+def test_renderer_resolves_view_camera_override() -> None:
+    """Camera override should be used for the matching view only."""
+    camera = CameraParams(front=(0.0, -1.0, 0.0), up=(0.0, 0.0, 1.0), zoom=0.4)
+    renderer = IFCRenderer(
+        view_camera_overrides={IFCView.FRONT_DIAGONAL_LEFT: camera}
+    )
+
+    assert renderer._resolve_camera(IFCView.FRONT_DIAGONAL_LEFT) is camera
+    assert renderer._resolve_camera(IFCView.FRONT_DIAGONAL_RIGHT) == VIEW_CAMERAS[
+        IFCView.FRONT_DIAGONAL_RIGHT
+    ]
+
+
 def _make_fake_depth_buffer(value: float = 5.0) -> np.ndarray:
     """Open3D depth capture mock이 반환할 간단한 depth buffer를 만든다."""
     arr = np.zeros((448, 768), dtype=np.float32)
@@ -165,6 +191,34 @@ def test_renderer_backend_raycast_env_forces_offscreen(
     windowed.assert_not_called()
 
 
+def test_renderer_backend_raycast_receives_resolved_camera(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Raycast path should receive the same camera resolved for the view."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+    expected = _make_fake_render_image()
+    camera = CameraParams(front=(0.0, -1.0, 0.0), up=(0.0, 0.0, 1.0), zoom=0.4)
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "raycast")
+
+    with patch.object(
+        IFCRenderer, "_render_mesh_offscreen", return_value=expected
+    ) as offscreen:
+        renderer = IFCRenderer()
+        result = renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            camera,
+            IFCView.FRONT_DIAGONAL_LEFT,
+        )
+
+    assert result is expected
+    assert offscreen.call_args.args[2] is camera
+
+
 def test_renderer_backend_visualizer_env_forces_windowed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -194,6 +248,36 @@ def test_renderer_backend_visualizer_env_forces_windowed(
     assert result is expected
     windowed.assert_called_once()
     offscreen.assert_not_called()
+
+
+def test_renderer_backend_visualizer_receives_resolved_camera(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Visualizer path should receive the same camera resolved for the view."""
+    fake_mesh = MagicMock()
+    fake_mesh.vertices = np.array([[0, 0, 0], [10, 10, 5]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+    expected = _make_fake_render_image()
+    camera = CameraParams(front=(0.0, -1.0, 0.0), up=(0.0, 0.0, 1.0), zoom=0.4)
+
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
+
+    with (
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
+        patch.object(IFCRenderer, "_is_container_like_runtime", return_value=False),
+        patch.object(IFCRenderer, "_render_mesh_windowed", return_value=expected) as windowed,
+    ):
+        renderer = IFCRenderer()
+        result = renderer._render_mesh(
+            fake_mesh,
+            fake_mesh,
+            fake_center,
+            camera,
+            IFCView.FRONT_DIAGONAL_LEFT,
+        )
+
+    assert result is expected
+    assert windowed.call_args.args[2] is camera
 
 
 def test_renderer_backend_auto_uses_raycast_in_container_like_runtime(
@@ -711,6 +795,20 @@ def test_add_ground_plane_z_at_aabb_min() -> None:
     assert np.allclose(ground_verts[:, 2], 1.5), "ground z should match AABB.z_min"
 
 
+def test_add_ground_plane_accepts_ground_z_override() -> None:
+    """Explicit ground_z fixes the generated ground plane z coordinate."""
+    verts = np.array(
+        [[0.0, 0.0, -3.0], [10.0, 5.0, 1.5], [5.0, 0.0, 4.5]],
+        dtype=np.float64,
+    )
+    tris = np.array([[0, 1, 2]], dtype=np.int64)
+
+    new_verts, _ = _add_ground_plane(verts, tris, ground_z=0.25)
+    ground_verts = new_verts[len(verts):]
+
+    assert np.allclose(ground_verts[:, 2], 0.25)
+
+
 def test_add_ground_plane_normal_points_up() -> None:
     """추가된 ground plane triangle normal이 위쪽을 향하는지 확인한다.
     
@@ -790,6 +888,24 @@ def test_attach_ground_plane_to_mesh_appends_4_vertices() -> None:
     assert len(base.vertices) == 3
 
 
+def test_attach_ground_plane_to_mesh_accepts_ground_z_override() -> None:
+    """The public mesh helper forwards explicit ground_z to the generated plane."""
+    import open3d as o3d
+
+    base = o3d.geometry.TriangleMesh()
+    base.vertices = o3d.utility.Vector3dVector(
+        np.array([[0.0, 0.0, -2.0], [10.0, 0.0, 0.0], [10.0, 6.0, 3.0]])
+    )
+    base.triangles = o3d.utility.Vector3iVector(np.array([[0, 1, 2]]))
+    base.compute_vertex_normals()
+
+    new_mesh = attach_ground_plane_to_mesh(base, ground_z=1.25)
+    new_verts = np.asarray(new_mesh.vertices)
+    ground_verts = new_verts[len(base.vertices):]
+
+    assert np.allclose(ground_verts[:, 2], 1.25)
+
+
 def test_renderer_passes_front_diagonal_ground_extent_override_only_for_diagonal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -837,6 +953,42 @@ def test_renderer_passes_front_diagonal_ground_extent_override_only_for_diagonal
         {"mesh": base_mesh},
         {"mesh": base_mesh, "extent_factor": 0.9},
     ]
+
+
+def test_renderer_passes_ground_z_override_to_ground_plane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Renderer forwards semantic ground_z override only when configured."""
+    monkeypatch.setenv("IFC2IMG_RENDER_BACKEND", "visualizer")
+    base_mesh = MagicMock(name="base_mesh")
+    base_mesh.vertices = np.array([[0.0, 0.0, 0.0], [10.0, 10.0, 5.0]])
+    fake_center = np.array([5.0, 5.0, 2.5])
+    calls: list[dict[str, object]] = []
+
+    def fake_attach(mesh, **kwargs):
+        calls.append({"mesh": mesh, **kwargs})
+        return mesh
+
+    with (
+        patch(
+            "ai_rendering.ifc2img.renderer.load_mesh",
+            return_value=(base_mesh, fake_center),
+        ),
+        patch(
+            "ai_rendering.ifc2img.renderer.attach_ground_plane_to_mesh",
+            side_effect=fake_attach,
+        ),
+        patch.object(IFCRenderer, "_is_headless", return_value=False),
+        patch("ai_rendering.ifc2img.renderer.o3d") as mock_o3d,
+    ):
+        vis = MagicMock()
+        mock_o3d.visualization.Visualizer.return_value = vis
+        vis.capture_depth_float_buffer.return_value = _make_fake_depth_buffer()
+
+        renderer = IFCRenderer(ground_z_override=0.25)
+        renderer.render_views(Path("dummy.ifc"), views=[IFCView.FRONT])
+
+    assert calls == [{"mesh": base_mesh, "ground_z": 0.25}]
 
 
 def test_iso_views_removed_from_enum() -> None:
