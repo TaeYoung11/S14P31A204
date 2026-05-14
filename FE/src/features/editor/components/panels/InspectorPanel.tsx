@@ -13,6 +13,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
+import { DeleteConfirmModal } from '@/shared/components/DeleteConfirmModal'
 import type { FloorRoom, FloorWall, PanelOffset } from '../../types'
 import { PanelFrame } from '../shared/PanelFrame'
 import { BubbleAttributePanel } from './BubbleAttributePanel'
@@ -144,6 +145,7 @@ function AttributeSection(props: AttributesSectionProps) {
 function FloorViewSection({ panelProps }: { panelProps: FloorViewSectionProps | null }) {
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
+  const [pendingDeleteLayer, setPendingDeleteLayer] = useState<{ id: string; name: string } | null>(null)
   const layers = panelProps?.layers ?? []
   const hasLayerData = layers.length > 0
   const selectedOverlaySet = new Set(panelProps?.selectedOverlayLayerIds ?? [])
@@ -163,8 +165,17 @@ function FloorViewSection({ panelProps }: { panelProps: FloorViewSectionProps | 
 
   const handleDeleteLayer = (layerId: string, name: string) => {
     if (!canDeleteAnyLayer) return
-    if (!window.confirm(`"${name}" 층을 삭제하시겠습니까?`)) return
-    panelProps.onDeleteLayer?.(layerId)
+    setPendingDeleteLayer({ id: layerId, name })
+  }
+
+  const closeDeleteLayerModal = () => {
+    setPendingDeleteLayer(null)
+  }
+
+  const confirmDeleteLayer = () => {
+    if (!pendingDeleteLayer) return
+    panelProps.onDeleteLayer?.(pendingDeleteLayer.id)
+    closeDeleteLayerModal()
   }
 
   if (!panelProps.isGenerated && !hasLayerData) {
@@ -172,8 +183,9 @@ function FloorViewSection({ panelProps }: { panelProps: FloorViewSectionProps | 
   }
 
   return (
-    <div className="space-y-2">
-      {layers.map((layer, index) => {
+    <>
+      <div className="space-y-2">
+        {layers.map((layer, index) => {
         const isActive = panelProps.activeLayerId === layer.id
         const isOverlaySelected = selectedOverlaySet.has(layer.id)
         const opacity = panelProps.overlayOpacityByLayerId?.[layer.id] ?? 0.35
@@ -280,7 +292,7 @@ function FloorViewSection({ panelProps }: { panelProps: FloorViewSectionProps | 
             )}
           </div>
         )
-      })}
+        })}
 
       <div className="flex items-center justify-between rounded-md bg-[#F8FAFC] px-2 py-1.5">
         <span className="text-[10px] font-bold text-[#4B5873]">층 겹쳐보기</span>
@@ -298,15 +310,23 @@ function FloorViewSection({ panelProps }: { panelProps: FloorViewSectionProps | 
         </button>
       </div>
 
-      <button
-        type="button"
-        onClick={panelProps.onAddLayer}
-        className="inline-flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-[#CBD5E1] py-1.5 text-[11px] font-bold text-[#64748B] hover:border-[#3B45B3] hover:text-[#3B45B3]"
-      >
-        <Plus size={12} />
-        새 층 추가
-      </button>
-    </div>
+        <button
+          type="button"
+          onClick={panelProps.onAddLayer}
+          className="inline-flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-[#CBD5E1] py-1.5 text-[11px] font-bold text-[#64748B] hover:border-[#3B45B3] hover:text-[#3B45B3]"
+        >
+          <Plus size={12} />
+          새 층 추가
+        </button>
+      </div>
+      <DeleteConfirmModal
+        isOpen={pendingDeleteLayer !== null}
+        title="층 삭제"
+        message={`"${pendingDeleteLayer?.name ?? ''}" 층을 삭제하시겠습니까?`}
+        onClose={closeDeleteLayerModal}
+        onConfirm={confirmDeleteLayer}
+      />
+    </>
   )
 }
 

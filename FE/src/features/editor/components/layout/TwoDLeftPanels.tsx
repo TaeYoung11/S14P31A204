@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, ChevronDown, ChevronRight, DoorOpen, Eye, EyeOff, GripVertical, Layers, Minus, Pencil, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { DeleteConfirmModal } from '@/shared/components/DeleteConfirmModal'
 import type { FloorLayer, FloorOpening, FloorRoom, FloorWall } from '../../types'
 import { useFloatingPanelDrag } from '../../hooks/useFloatingPanelDrag'
 
@@ -103,6 +104,7 @@ export function TwoDLeftPanels({
   const [showSelectedRoomOnly, setShowSelectedRoomOnly] = useState(false)
   const [isFloorPanelOpen, setIsFloorPanelOpen] = useState(true)
   const [isHierarchyPanelOpen, setIsHierarchyPanelOpen] = useState(true)
+  const [pendingDeleteLayer, setPendingDeleteLayer] = useState<FloorLayer | null>(null)
   const hierarchyMenuRef = useRef<HTMLDivElement | null>(null)
 
   const roomLabelByBubbleId = useMemo(() => {
@@ -156,9 +158,17 @@ export function TwoDLeftPanels({
 
   const handleDeleteLayer = (layer: FloorLayer) => {
     if (!canDeleteAnyLayer) return
-    const ok = window.confirm(`"${layer.name}" 층을 삭제하시겠습니까?`)
-    if (!ok) return
-    onDeleteLayer?.(layer.id)
+    setPendingDeleteLayer(layer)
+  }
+
+  const closeDeleteLayerModal = () => {
+    setPendingDeleteLayer(null)
+  }
+
+  const confirmDeleteLayer = () => {
+    if (!pendingDeleteLayer) return
+    onDeleteLayer?.(pendingDeleteLayer.id)
+    closeDeleteLayerModal()
   }
 
   const toggleRoomExpand = (bubbleId: string) => {
@@ -182,6 +192,7 @@ export function TwoDLeftPanels({
   }, [isHierarchyMenuOpen])
 
   return (
+    <>
     <div className="absolute inset-0 z-10 pointer-events-none">
       <div
         ref={floorPanelRef}
@@ -545,5 +556,13 @@ export function TwoDLeftPanels({
         )}
       </div>
     </div>
+    <DeleteConfirmModal
+      isOpen={pendingDeleteLayer !== null}
+      title="층 삭제"
+      message={`"${pendingDeleteLayer?.name ?? ''}" 층을 삭제하시겠습니까?`}
+      onClose={closeDeleteLayerModal}
+      onConfirm={confirmDeleteLayer}
+    />
+    </>
   )
 }
