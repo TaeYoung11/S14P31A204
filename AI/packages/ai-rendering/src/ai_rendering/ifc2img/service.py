@@ -27,7 +27,7 @@ from .geometry import (
     load_mesh,
 )
 from .presets import list_presets, load_preset
-from .semantics import extract_ifc_semantic_summary
+from .semantics import IfcSemanticSummary, extract_ifc_semantic_summary
 from .style import (
     DEFAULT_CONTROLNET_SEG_ID,
     build_debug_control_images,
@@ -274,6 +274,52 @@ class Ifc2ImgPhotoJobResult:
 
 
 @dataclass(frozen=True)
+class SemanticRenderContext:
+    """Production render context for IFC semantic information."""
+
+    summary: IfcSemanticSummary
+
+
+def load_runtime_semantic_context(
+    ifc_path: Path,
+    *,
+    max_attempts: int = 3,
+) -> SemanticRenderContext:
+    """Load production IFC semantic context with bounded retry."""
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be at least 1.")
+
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            summary = extract_ifc_semantic_summary(ifc_path)
+        except Exception as exc:
+            last_error = exc
+            _logger.warning(
+                "ifc2img_runtime_semantic_context_load_failed",
+                ifcPath=str(ifc_path),
+                attempt=attempt,
+                maxAttempts=max_attempts,
+                error=str(exc),
+            )
+            continue
+
+        if attempt > 1:
+            _logger.info(
+                "ifc2img_runtime_semantic_context_load_recovered",
+                ifcPath=str(ifc_path),
+                attempt=attempt,
+                maxAttempts=max_attempts,
+            )
+        return SemanticRenderContext(summary=summary)
+
+    raise IFCRenderError(
+        "IFC runtime semantic context load failed "
+        f"after attempt {max_attempts}/{max_attempts}: {ifc_path}: {last_error}"
+    )
+
+
+@dataclass(frozen=True)
 class Ifc2ImgDebugGeometry:
     mesh: Any | None
     center: np.ndarray | None
@@ -513,21 +559,6 @@ def _load_debug_geometry(ifc_path: Path) -> Ifc2ImgDebugGeometry:
             ground_z=None,
             error=str(exc),
         )
-
-
-def _load_debug_semantic_summary(ifc_path: Path) -> dict[str, object]:
-    try:
-        return {
-            "ifcSemanticSummary": extract_ifc_semantic_summary(ifc_path).to_dict()
-        }
-    except Exception as exc:
-        _logger.info(
-            "ifc2img_debug_semantic_summary_failed",
-            ifcPath=str(ifc_path),
-            error=str(exc),
-        )
-        return {"ifcSemanticSummaryError": str(exc)}
-
 
 def _debug_grounded_mesh(base_mesh: Any, view: IFCView) -> Any:
     ground_extent = build_front_diagonal_ground_extent_overrides(
@@ -822,6 +853,7 @@ def run_ifc2img_photo_pipeline(
     worker_time_of_day: Ifc2ImgWorkerTimeOfDay = (
         "DAY" if preset_time_of_day == "day" else "NIGHT"
     )
+    semantic_context = load_runtime_semantic_context(ifc_path)
 
     public_views = resolve_photo_views()
     internal_views = list(PHOTO_INTERNAL_VIEWS)
@@ -836,7 +868,9 @@ def run_ifc2img_photo_pipeline(
         "timeOfDay": worker_time_of_day,
         "views": [],
     }
-    debug_manifest.update(_load_debug_semantic_summary(ifc_path))
+    # The production semantic context is the source of truth; the debug manifest
+    # only records a serializable snapshot for inspection.
+    debug_manifest["ifcSemanticSummary"] = semantic_context.summary.to_dict()
 
     requires_semantic = any(
         resolve_preset_view_render_options(preset, view).requires_semantic_controlnet
