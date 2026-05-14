@@ -1,3 +1,4 @@
+"""기존 호출부와의 호환을 위해 간단한 평면 컨텍스트 모델을 제공한다."""
 
 from pydantic import BaseModel, Field, model_validator
 

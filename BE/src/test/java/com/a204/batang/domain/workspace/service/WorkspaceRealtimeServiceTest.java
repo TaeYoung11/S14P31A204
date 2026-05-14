@@ -145,7 +145,9 @@ class WorkspaceRealtimeServiceTest {
         ProjectSyncResponse response = responseCaptor.getValue();
         assertThat(response.action()).isEqualTo("BUBBLE_UPDATED");
         assertThat(response.projectId()).isEqualTo(projectId);
-        assertThat(response.bubbleSnapshotJson()).isEqualTo(snapshot);
+        assertThat(response.bubbleSnapshotJson().get("bubbles")).isEqualTo(snapshot.get("bubbles"));
+        assertThat(response.bubbleSnapshotJson().get("connections")).isEqualTo(snapshot.get("connections"));
+        assertThat(response.bubbleSnapshotJson().get("baseIndex").asInt()).isEqualTo(1);
         assertThat(response.updatedAt()).isNotNull();
     }
 
@@ -209,6 +211,8 @@ class WorkspaceRealtimeServiceTest {
         assertThat(response.bubbleSnapshotJson().get("bubbles").get(0).get("id").asText()).isEqualTo("bubble-1");
         assertThat(response.bubbleSnapshotJson().get("bubbles").get(0).get("floor").asInt()).isEqualTo(1);
         assertThat(response.bubbleSnapshotJson().get("floorMeta").isNull()).isTrue();
+        assertThat(response.bubbleSnapshotJson().get("baseIndex").asInt()).isEqualTo(1);
+        assertThat(response.bubbleSnapshotJson().get("connections").isArray()).isTrue();
     }
 
     @Test
@@ -257,6 +261,8 @@ class WorkspaceRealtimeServiceTest {
         assertThat(response.bubbleSnapshotJson().get("bubbles").get(0).get("id").asText()).isEqualTo("bubble-2");
         assertThat(response.bubbleSnapshotJson().get("bubbles").get(0).get("floor").asInt()).isEqualTo(1);
         assertThat(response.bubbleSnapshotJson().get("floorMeta").isNull()).isTrue();
+        assertThat(response.bubbleSnapshotJson().get("baseIndex").asInt()).isEqualTo(2);
+        assertThat(response.bubbleSnapshotJson().get("connections").isArray()).isTrue();
     }
 
     @Test
