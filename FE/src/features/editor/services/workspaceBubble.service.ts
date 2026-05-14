@@ -1,6 +1,7 @@
 import { api } from '@/shared/lib/axios'
 import type { ApiResponse } from '@/shared/types'
 import type { BubbleData, ConnectionData } from '../types'
+import { resolveBubbleFloorFromUnknown } from '../utils/bubbleSnapshotSyncUtils'
 import {
   mapBubbleSnapshotToWorkspacePayload,
   type WorkspaceBubbleSnapshotPayload,
@@ -24,13 +25,9 @@ function toSaveBubbleRequest(
 const summarizePayload = (payload: WorkspaceBubbleSnapshotPayload) => {
   const floorCounts: Record<number, number> = {}
   payload.bubbles.forEach((bubble) => {
-    const rawFloor =
-      bubble.floor
-      ?? bubble.floorNumber
-      ?? bubble.layer
-      ?? bubble.level
-      ?? 1
-    const floor = Number.isFinite(rawFloor) ? Number(rawFloor) : 1
+    const floor = resolveBubbleFloorFromUnknown(
+      bubble as BubbleData & Record<string, unknown>,
+    )
     floorCounts[floor] = (floorCounts[floor] ?? 0) + 1
   })
 

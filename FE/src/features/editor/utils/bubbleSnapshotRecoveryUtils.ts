@@ -96,6 +96,9 @@ const createBubbleFloorMetaStorageKey = (projectId: string | undefined): string 
 const createBubbleLocalDraftStorageKey = (projectId: string | undefined): string | null =>
   projectId ? `editor:bubble-local-draft:${projectId}` : null
 
+const createBubbleSavedRecoveryStorageKey = (projectId: string | undefined): string | null =>
+  projectId ? `editor:bubble-saved-recovery:${projectId}` : null
+
 /**
  * 브라우저 콘솔 디버그 활성화 여부를 반환한다.
  */
@@ -278,6 +281,44 @@ export const clearBubbleLocalDraftFromStorage = (projectId: string | undefined):
     window.localStorage.removeItem(storageKey)
   } catch {
     // localStorage 삭제 실패는 치명적이지 않아 무시한다.
+  }
+}
+
+/**
+ * 마지막 DB 저장 성공 스냅샷을 복구용으로 로컬스토리지에 보관한다.
+ * - DB 데이터가 일시적으로 평탄화되어 내려오는 경우 복원 후보로 사용한다.
+ */
+export const writeBubbleSavedRecoveryToStorage = (
+  projectId: string | undefined,
+  snapshot: BubbleSnapshotPayload,
+): void => {
+  const storageKey = createBubbleSavedRecoveryStorageKey(projectId)
+  if (!storageKey) return
+  try {
+    const payload: BubbleLocalDraftPayload = { savedAt: Date.now(), snapshot }
+    window.localStorage.setItem(storageKey, JSON.stringify(payload))
+  } catch {
+    // localStorage 저장 실패는 치명적이지 않아 무시한다.
+  }
+}
+
+/**
+ * 마지막 DB 저장 성공 복구본을 읽는다.
+ */
+export const readBubbleSavedRecoveryFromStorage = (
+  projectId: string | undefined,
+): BubbleLocalDraftPayload | null => {
+  const storageKey = createBubbleSavedRecoveryStorageKey(projectId)
+  if (!storageKey) return null
+  try {
+    const raw = window.localStorage.getItem(storageKey)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as BubbleLocalDraftPayload
+    if (!parsed || typeof parsed !== 'object') return null
+    if (!Number.isFinite(parsed.savedAt) || !isBubbleSnapshotPayload(parsed.snapshot)) return null
+    return parsed
+  } catch {
+    return null
   }
 }
 

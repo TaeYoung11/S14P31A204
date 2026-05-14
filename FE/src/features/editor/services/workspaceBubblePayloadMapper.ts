@@ -4,6 +4,7 @@ import {
   normalizeBubbleFloorName,
   normalizeBubbleFloorSet,
 } from '../utils/bubbleFloorUtils'
+import { resolveBubbleFloorFromUnknown } from '../utils/bubbleSnapshotSyncUtils'
 
 export interface WorkspaceBubbleFloorMetaPayload {
   namesByFloor: Record<number, string>
@@ -46,23 +47,23 @@ export interface WorkspaceBubbleSnapshotPayload {
 export const mapBubbleToWorkspacePayload = (
   bubble: BubbleData,
 ): WorkspaceBubbleNodePayload => {
-  const floor = normalizeBubbleFloor(bubble.floor)
+  const floor = resolveBubbleFloorFromUnknown(bubble as BubbleData & Record<string, unknown>)
   return {
-  id: bubble.id,
-  floor,
-  layer: floor,
-  level: floor,
-  floorNumber: floor,
-  x: bubble.x,
-  y: bubble.y,
-  width: bubble.width,
-  height: bubble.height,
-  widthMm: bubble.widthMm,
-  heightMm: bubble.heightMm,
-  label: bubble.label,
-  type: bubble.type,
-  ratio: bubble.ratio,
-  color: bubble.color,
+    id: bubble.id,
+    floor,
+    layer: floor,
+    level: floor,
+    floorNumber: floor,
+    x: bubble.x,
+    y: bubble.y,
+    width: bubble.width,
+    height: bubble.height,
+    widthMm: bubble.widthMm,
+    heightMm: bubble.heightMm,
+    label: bubble.label,
+    type: bubble.type,
+    ratio: bubble.ratio,
+    color: bubble.color,
   }
 }
 
