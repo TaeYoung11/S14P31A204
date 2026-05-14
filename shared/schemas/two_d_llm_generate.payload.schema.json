@@ -5,8 +5,11 @@
   "description": "TWO_D_LLM 워커 커맨드 페이로드. 사용자 지시만 담당하며, IFC URL은 CommandMessage 레벨에서 별도 전달된다.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["user_instruction"],
+  "required": ["schema_version", "user_instruction"],
   "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
     "user_instruction": {
       "type": "string",
       "minLength": 1,
