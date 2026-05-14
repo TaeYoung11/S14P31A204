@@ -773,7 +773,7 @@ export default function ThatOpenIfcCanvas({
     if (!object) return false
     return Array.from(movedIfcProxyRegistryRef.current.values()).some((record) => record.object === object)
   }, [])
-  const findMovedIfcProxyRecord = useCallback((
+  const findMovedIfcProxyRecordByCandidateIds = useCallback((
     sceneState: ThatOpenSceneState,
     modelId: string,
     localIds: number[],
@@ -786,6 +786,13 @@ export default function ThatOpenIfcCanvas({
       && record.hideLocalIds.some((localId) => localIdSet.has(localId))
     )) ?? null
   }, [])
+  const findMovedIfcProxyRecord = useCallback((
+    sceneState: ThatOpenSceneState,
+    modelId: string,
+    localIds: number[],
+  ) => (
+    findMovedIfcProxyRecordByCandidateIds(sceneState, modelId, localIds)
+  ), [findMovedIfcProxyRecordByCandidateIds])
   const registerMovedIfcProxy = useCallback((
     sceneState: ThatOpenSceneState,
     params: {
@@ -850,8 +857,9 @@ export default function ThatOpenIfcCanvas({
   const rehideMovedIfcProxyRegistry = useCallback(async (
     sceneState: ThatOpenSceneState,
     reason: string,
-    options: { forceRender?: boolean } = {},
+    options: { forceRender?: boolean; resetHighlight?: boolean } = {},
   ) => {
+    const shouldResetHighlight = options.resetHighlight ?? true
     const records = Array.from(movedIfcProxyRegistryRef.current.values())
       .filter((record) => record.keepModelHiddenAfterCommit && record.hideLocalIds.length > 0)
     if (records.length === 0) {
@@ -882,6 +890,37 @@ export default function ThatOpenIfcCanvas({
             skipCoreUpdate: true,
             forceRender: false,
           })
+          if (shouldResetHighlight) {
+            const model = (sceneState.fragments.core.models.list as Map<string, unknown>).get(modelId) as {
+              resetOpacity?: (localIds: number[] | undefined) => Promise<void> | void
+            } | undefined
+            logIfcMove('moved_proxy_registry_highlight_reset_start', {
+              reason,
+              key: record.key,
+              modelId,
+              hideLocalIds: record.hideLocalIds,
+            })
+            await Promise.resolve(model?.resetOpacity?.(record.hideLocalIds)).catch((error) => {
+              logIfcMove('moved_proxy_registry_highlight_reset_failed', {
+                reason,
+                key: record.key,
+                modelId,
+                method: 'resetOpacity',
+                error: error instanceof Error ? error.message : String(error),
+              })
+            })
+            await sceneState.fragments.resetHighlight({
+              [modelId]: new Set(record.hideLocalIds),
+            }).catch((error) => {
+              logIfcMove('moved_proxy_registry_highlight_reset_failed', {
+                reason,
+                key: record.key,
+                modelId,
+                method: 'resetHighlight',
+                error: error instanceof Error ? error.message : String(error),
+              })
+            })
+          }
         } catch (error) {
           logIfcMove('moved_proxy_registry_rehide_failed', {
             reason,
@@ -899,6 +938,7 @@ export default function ThatOpenIfcCanvas({
     logIfcMove('moved_proxy_registry_rehide_done', {
       reason,
       recordCount: records.length,
+      resetHighlight: shouldResetHighlight,
     })
   }, [logIfcMove])
   const getMovedIfcProxyHideLocalIds = useCallback(() => (
@@ -1907,6 +1947,7 @@ export default function ThatOpenIfcCanvas({
     let lastInteractionAt = performance.now()
     let pointerPickSequence = 0
     let lastIfcDragEndAt = 0
+    let cameraRehideFrame: number | null = null
     let cameraControlsChangeListener: (() => void) | null = null
     let cameraControlsWithEvents:
       | {
@@ -1966,6 +2007,23 @@ export default function ThatOpenIfcCanvas({
           removeEventListener?: (type: 'change', listener: () => void) => void
         } | null
         cameraControlsChangeListener = () => {
+          if (
+            !isTransformDragging
+            && cameraRehideFrame == null
+            && movedIfcProxyRegistryRef.current.size > 0
+          ) {
+            cameraRehideFrame = window.requestAnimationFrame(() => {
+              cameraRehideFrame = null
+              if (disposed) return
+              if (isTransformDragging) return
+              const activeScene = sceneRef.current
+              if (!activeScene || movedIfcProxyRegistryRef.current.size === 0) return
+              void rehideMovedIfcProxyRegistry(activeScene, 'camera_change', {
+                forceRender: false,
+                resetHighlight: false,
+              })
+            })
+          }
           const selectedTarget = selectedTargetRef.current
           if (selectedTarget?.object) return
           emitCoordinates(world.camera.three.position)
@@ -3616,22 +3674,29 @@ export default function ThatOpenIfcCanvas({
             }
           }
 
-          const clickedIfcProxy = ifcEditHit?.object
-            ? findIfcEditableRoot(ifcEditHit.object, ifcEditGroup)
-            : null
-          const clickedIfcEditTarget = clickedIfcProxy?.userData?.ifcEditTarget
-          if (clickedIfcProxy && clickedIfcEditTarget) {
+          const attachExistingIfcProxySelection = async (
+            clickedIfcProxy: IfcEditableObject3D,
+            params: {
+              localIds?: number[]
+              selectedElement?: IfcElementInfo
+              reason: string
+              nextIfcLocalId?: number
+            },
+          ) => {
+            const clickedIfcEditTarget = clickedIfcProxy.userData?.ifcEditTarget
+            if (!clickedIfcEditTarget) return false
             const hitLocalId = Number.isFinite(clickedIfcEditTarget.hitLocalId)
               ? clickedIfcEditTarget.hitLocalId
               : clickedIfcEditTarget.localId
             const proxyLocalIds = Array.from(new Set<number>(
               (
-                clickedIfcEditTarget.localIds
+                params.localIds
+                ?? clickedIfcEditTarget.localIds
                 ?? [clickedIfcEditTarget.hitLocalId, clickedIfcEditTarget.localId]
               ).filter(Number.isFinite),
             ))
-            const selectedElement = clickedIfcEditTarget.element
-            await clearPreviousSelection(clickedIfcProxy, hitLocalId, {
+            const selectedElement = params.selectedElement ?? clickedIfcEditTarget.element
+            await clearPreviousSelection(clickedIfcProxy, params.nextIfcLocalId ?? hitLocalId, {
               skipOverlayPurge: true,
               skipPendingSaveSync: true,
             })
@@ -3639,16 +3704,17 @@ export default function ThatOpenIfcCanvas({
               await consumePendingIfcSelectionRestore(
                 undefined,
                 [],
-                'selection_switch_atomic_restore_stale_after_existing_proxy_clear',
+                `selection_switch_atomic_restore_stale_after_${params.reason}`,
               )
               logIfcMove('pick_discarded_stale_after_existing_proxy_clear', {
                 pickSequence,
                 hitLocalId,
+                reason: params.reason,
               })
-              return
+              return true
             }
             const activeScene = sceneRef.current
-            if (!activeScene) return
+            if (!activeScene) return true
             const keepModelHiddenAfterCommit = typeof clickedIfcProxy.userData.ifcKeepModelHiddenAfterCommit === 'boolean'
               ? clickedIfcProxy.userData.ifcKeepModelHiddenAfterCommit
               : true
@@ -3671,15 +3737,15 @@ export default function ThatOpenIfcCanvas({
               proxyObject: clickedIfcProxy,
               mode: 'proxy',
               proxyOpacity: 1,
-              reason: 'pick_existing_proxy',
+              reason: params.reason,
               forceRender: false,
             })
             await consumePendingIfcSelectionRestore(
               clickedIfcEditTarget.modelId,
               proxyLocalIds,
-              'selection_switch_atomic_restore_pick_existing_proxy',
+              `selection_switch_atomic_restore_${params.reason}`,
             )
-            await rehideMovedIfcProxyRegistry(activeScene, 'pick_existing_proxy', { forceRender: false })
+            await rehideMovedIfcProxyRegistry(activeScene, params.reason, { forceRender: false })
             transformControls.attach(clickedIfcProxy)
             transformControls.visible = true
             transformControls.enabled = true
@@ -3687,7 +3753,7 @@ export default function ThatOpenIfcCanvas({
             ;(clickedIfcProxy.userData as { ifcEditProxyWorldMatrix?: number[] }).ifcEditProxyWorldMatrix =
               Array.from(clickedIfcProxy.matrixWorld.elements)
             selectedTargetRef.current = nextTarget
-            syncTransformSelectionState(nextTarget, 'pick_existing_ifc_proxy_attach_success', { attachGizmo: true })
+            syncTransformSelectionState(nextTarget, `${params.reason}_attach_success`, { attachGizmo: true })
             ifcMoveLifecycleRef.current = {
               phase: 'idle',
               targetKey: null,
@@ -3699,10 +3765,21 @@ export default function ThatOpenIfcCanvas({
               hitLocalId,
               localIds: proxyLocalIds,
               keepModelHiddenAfterCommit,
+              reason: params.reason,
             })
             onIfcElementSelectRef.current?.(selectedElement)
             emitCoordinates(clickedIfcProxy.position)
-            return
+            return true
+          }
+
+          const clickedIfcProxy = ifcEditHit?.object
+            ? findIfcEditableRoot(ifcEditHit.object, ifcEditGroup)
+            : null
+          if (clickedIfcProxy?.userData?.ifcEditTarget) {
+            const didAttachExistingProxy = await attachExistingIfcProxySelection(clickedIfcProxy, {
+              reason: 'pick_existing_proxy',
+            })
+            if (didAttachExistingProxy) return
           }
 
           const runIfcRaycast = async () => {
@@ -3799,6 +3876,55 @@ export default function ThatOpenIfcCanvas({
               })
               const rawPickedModelId = resolvedIfcPick.fragments.modelId
               const pickedModelId = normalizeRootModelId(rawPickedModelId, sceneRef.current?.modelId ?? rawPickedModelId)
+              const activeSceneForMovedProxyLookup = sceneRef.current
+              const movedProxyItemMappedLocalIds = Number.isFinite(resolvedIfcPick.itemId) && activeSceneForMovedProxyLookup
+                ? await resolveLocalIdsFromItemIds(activeSceneForMovedProxyLookup, pickedModelId, [resolvedIfcPick.itemId as number])
+                : []
+              if (isStalePick()) {
+                await consumePendingIfcSelectionRestore(
+                  undefined,
+                  [],
+                  'selection_switch_atomic_restore_stale_after_moved_proxy_lookup',
+                )
+                logIfcMove('pick_discarded_stale_after_moved_proxy_lookup', {
+                  pickSequence,
+                  hitLocalId: resolvedIfcPick.localId,
+                })
+                return
+              }
+              const movedProxyCandidateLocalIds = Array.from(new Set<number>(
+                [
+                  resolvedIfcPick.localId,
+                  Number.isFinite(resolvedIfcPick.itemId) ? resolvedIfcPick.itemId as number : undefined,
+                  ...movedProxyItemMappedLocalIds,
+                ].filter((value): value is number => Number.isFinite(value)),
+              ))
+              const movedProxyRecord = activeSceneForMovedProxyLookup
+                ? findMovedIfcProxyRecordByCandidateIds(
+                  activeSceneForMovedProxyLookup,
+                  pickedModelId,
+                  movedProxyCandidateLocalIds,
+                )
+                : null
+              if (movedProxyRecord) {
+                logIfcMove('pick_fragment_redirect_moved_proxy', {
+                  pickSequence,
+                  rawPickedModelId,
+                  pickedModelId,
+                  hitLocalId: resolvedIfcPick.localId,
+                  hitItemId: Number.isFinite(resolvedIfcPick.itemId) ? resolvedIfcPick.itemId : null,
+                  candidateLocalIds: movedProxyCandidateLocalIds,
+                  registryKey: movedProxyRecord.key,
+                  registryLocalIds: movedProxyRecord.hideLocalIds,
+                })
+                const didAttachMovedProxy = await attachExistingIfcProxySelection(movedProxyRecord.object, {
+                  localIds: movedProxyRecord.hideLocalIds,
+                  selectedElement: movedProxyRecord.element,
+                  reason: 'pick_fragment_moved_proxy',
+                  nextIfcLocalId: resolvedIfcPick.localId,
+                })
+                if (didAttachMovedProxy) return
+              }
               await clearPreviousSelection(undefined, resolvedIfcPick.localId)
               if (isStalePick()) {
                 await consumePendingIfcSelectionRestore(
@@ -4152,6 +4278,10 @@ export default function ThatOpenIfcCanvas({
         window.clearTimeout(pendingIfcCommitTimer)
         pendingIfcCommitTimer = null
       }
+      if (cameraRehideFrame != null) {
+        window.cancelAnimationFrame(cameraRehideFrame)
+        cameraRehideFrame = null
+      }
       if (handlePointerDown && pointerDownDom) {
         pointerDownDom.removeEventListener('pointerdown', handlePointerDown, true)
       }
@@ -4189,6 +4319,7 @@ export default function ThatOpenIfcCanvas({
     deleteSelectedTarget,
     dispatchTransformRuntimeAction,
     findMovedIfcProxyRecord,
+    findMovedIfcProxyRecordByCandidateIds,
     flushPendingIfcSave,
     flushPendingIfcSaveSync,
     ifcUrl,
@@ -4453,7 +4584,7 @@ export default function ThatOpenIfcCanvas({
     }
 
     const resetOpacityByIds = (ids: Set<number>): Promise<void> => {
-      const targetIds = excludeMovedIfcIds(ids)
+      const targetIds = ids
       if (targetIds.size === 0) return Promise.resolve()
       const idList = Array.from(targetIds)
       const model = resolveFragmentsModel()
