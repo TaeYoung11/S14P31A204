@@ -230,6 +230,9 @@ public class RenderCommandService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("renderMode", "ifc2img");
         payload.put("prompt", request.prompt());
+        if (request.style() != null) {
+            putIfNotNull(payload, "timeOfDay", request.style().timeOfDay());
+        }
         putIfNotNull(payload, "negativePrompt", request.negativePrompt());
         putIfNotNull(payload, "sourceImageStorageUrl", request.sourceImageStorageUrl());
         return payload;
