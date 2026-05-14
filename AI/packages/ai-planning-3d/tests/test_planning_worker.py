@@ -152,6 +152,15 @@ def test_planning_worker_returns_completed_event_for_preview_ready_chat() -> Non
     assert isinstance(result, CompletedResult)
     assert result.output.storageUrl == "s3://mock-bucket/output.json"
     mock_s3.write_text.assert_called_once()
+    stored_payload = json.loads(mock_s3.write_text.call_args.kwargs["text"])
+    [operation] = stored_payload["operations"]
+    assert operation["parameters"]["element_type"] == "IfcWall"
+    assert operation["parameters"]["length_mm"] == 3000.0
+    assert operation["parameters"]["dimensions_mm"] == {
+        "length": 3000.0,
+        "width": 200.0,
+        "height": 2800.0,
+    }
 
 
 def test_planning_worker_stores_split_chat_as_multiple_schema_commands() -> None:
@@ -206,6 +215,7 @@ def test_planning_worker_stores_split_chat_as_multiple_schema_commands() -> None
         "IfcDoor",
         "IfcWindow",
     ]
+    assert all("length_mm" not in op["parameters"] for op in stored_payload["operations"])
 
 
 def test_planning_worker_stores_engine_operations_for_modify_and_delete() -> None:

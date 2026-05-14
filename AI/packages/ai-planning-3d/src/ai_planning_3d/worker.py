@@ -388,8 +388,9 @@ def _map_transform_parameters(changes: dict[str, Any]) -> dict[str, Any]:
 
 
 def _map_create_parameters(create_info: dict[str, Any]) -> dict[str, Any]:
+    element_type = str(create_info.get("element_type") or "IfcWall")
     parameters: dict[str, Any] = {
-        "element_type": create_info.get("element_type", "IfcWall"),
+        "element_type": element_type,
         "storey": create_info.get("storey") or "1F",
         "coordinate_space": create_info.get("coordinate_space") or "PROJECT_ABSOLUTE_MM",
     }
@@ -417,7 +418,9 @@ def _map_create_parameters(create_info: dict[str, Any]) -> dict[str, Any]:
     direction = _normalize_direction(create_info.get("direction"))
     if direction:
         parameters["direction"] = direction
-    if create_info.get("length_mm") is not None:
+
+    requires_top_level_length = element_type in {"IfcWall", "IfcBeam", "IfcRoof"}
+    if requires_top_level_length and create_info.get("length_mm") is not None:
         parameters["length_mm"] = create_info["length_mm"]
     if create_info.get("azimuth_deg") is not None:
         parameters["azimuth_deg"] = create_info["azimuth_deg"]
