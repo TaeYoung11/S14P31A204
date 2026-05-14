@@ -345,6 +345,10 @@ class IFCRenderer:
         depth = ans['t_hit'].numpy().reshape((self.height, self.width))
         depth = depth.astype(np.float32, copy=False)
         depth[~np.isfinite(depth)] = 0.0
+        # Raycast output row order is opposite to the image-space convention used by
+        # the rest of the IFC2IMG pipeline. This flips only the raycast depth image,
+        # not the camera/world up vector or the Visualizer backend.
+        depth = np.flipud(depth).copy()
         return self._depth_to_image(depth)
 
     @staticmethod
