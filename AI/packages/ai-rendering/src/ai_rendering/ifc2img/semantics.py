@@ -250,6 +250,55 @@ def ifc_category_color_prompt_cues(
     return cues
 
 
+def select_ifc_color_summary_category_cues(
+    summary: IfcColorSummary,
+) -> dict[IfcSemanticCategory, str]:
+    """Select one representative prompt color cue per category from a color summary."""
+    selected: dict[IfcSemanticCategory, str] = {}
+    for category in SUPPORTED_SEMANTIC_CATEGORIES:
+        category_summary = summary.categories.get(category)
+        if category_summary is None:
+            continue
+        cues = ifc_category_color_prompt_cues(
+            category,
+            category_summary.candidates,
+        )
+        if cues:
+            selected[category] = cues[0]
+    return selected
+
+
+def build_ifc_color_prompt_suffix(summary: IfcColorSummary) -> str:
+    """Build a short opt-in prompt suffix from IFC color summary cues."""
+    cues = select_ifc_color_summary_category_cues(summary)
+    parts: list[str] = []
+    if roof := cues.get("ROOF"):
+        parts.append(f"{roof} roof")
+    wall_cues = [cue for cue in (cues.get("WALL"),) if cue]
+    if wall_cues:
+        wall_text = " and ".join(wall_cues)
+        parts.append(f"{wall_text} walls")
+    if window := cues.get("WINDOW"):
+        parts.append(f"{window} windows")
+    if door := cues.get("DOOR"):
+        parts.append(f"{door} doors")
+    if not parts:
+        return ""
+    return f"Preserve the IFC colors: {_join_prompt_parts(parts)}."
+
+
+def append_ifc_color_prompt_suffix(prompt: str, suffix: str) -> str:
+    """Append an IFC color suffix after existing style and DAY/NIGHT prompt text."""
+    clean_prompt = prompt.strip()
+    clean_suffix = suffix.strip()
+    if not clean_suffix:
+        return clean_prompt
+    if not clean_prompt:
+        return clean_suffix
+    separator = " " if clean_prompt.endswith((".", "!", "?")) else ", "
+    return f"{clean_prompt}{separator}{clean_suffix}"
+
+
 def extract_ifc_color_summary(ifc_path: Path | str) -> IfcColorSummary:
     """Extract IFC color candidates grouped by semantic category and entity."""
     source_ifc_path = Path(ifc_path)
@@ -1028,6 +1077,14 @@ def _category_color_candidate_priority(
     if category == "DOOR" and ("door" in semantic_name or "문" in semantic_name):
         return (0, _IFC_COLOR_SOURCE_PRIORITY[candidate.source])
     return (1, _IFC_COLOR_SOURCE_PRIORITY[candidate.source])
+
+
+def _join_prompt_parts(parts: list[str]) -> str:
+    if len(parts) == 1:
+        return parts[0]
+    if len(parts) == 2:
+        return " and ".join(parts)
+    return f"{', '.join(parts[:-1])}, and {parts[-1]}"
 
 
 def _footprint_bounds(
