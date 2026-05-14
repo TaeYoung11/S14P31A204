@@ -369,11 +369,11 @@ class IFCRenderer:
             if abs(fill - target_ratio) <= self.iter_tolerance:
                 return depth
             if fill < 1e-6:
-                zoom = max(zoom * 0.3, 0.05)
+                zoom = min(zoom * 2.0, 2.0)
             else:
                 zoom = float(
                     np.clip(
-                        zoom * math.sqrt(fill / target_ratio),
+                        zoom * math.sqrt(target_ratio / fill),
                         0.05,
                         2.0,
                     )
