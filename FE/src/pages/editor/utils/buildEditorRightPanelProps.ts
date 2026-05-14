@@ -4,6 +4,7 @@ import { buildAttributeRightPanelProps } from './right-panel-props/buildAttribut
 import { buildBubbleFloorRightPanelProps } from './right-panel-props/buildBubbleFloorRightPanelProps'
 import { buildCollaborationRightPanelProps } from './right-panel-props/buildCollaborationRightPanelProps'
 import { buildFloorLayerRightPanelProps } from './right-panel-props/buildFloorLayerRightPanelProps'
+import { buildHierarchyRightPanelProps } from './right-panel-props/buildHierarchyRightPanelProps'
 import { buildPanelLayoutRightPanelProps } from './right-panel-props/buildPanelLayoutRightPanelProps'
 import type { RightPanelViewModel } from './right-panel-props/rightPanelPropsTypes'
 import { buildZoningRightPanelProps } from './right-panel-props/buildZoningRightPanelProps'
@@ -19,6 +20,7 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
     ...buildAttributeRightPanelProps(vm),
     ...buildBubbleFloorRightPanelProps(vm),
     ...buildFloorLayerRightPanelProps(vm),
+    ...buildHierarchyRightPanelProps(vm),
     ...buildZoningRightPanelProps(vm),
     ...buildAssistantRightPanelProps(vm),
   }

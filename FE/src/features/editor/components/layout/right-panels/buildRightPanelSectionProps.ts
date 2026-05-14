@@ -4,6 +4,7 @@ import { AttributesPanel } from '../../panels/AttributesPanel'
 import { FloorViewPanel } from '../../panels/FloorViewPanel'
 import { HierarchyPanel } from '../../panels/HierarchyPanel'
 import { ZoningPanel } from '../../panels/ZoningPanel'
+import { buildHierarchyGroups } from '../../panels/hierarchyPanelData'
 import type { BubbleFloorSectionProps } from '../../panels/sections/BubbleFloorSection'
 import type { EditorRightPanelsProps } from './EditorRightPanels.types'
 import type { PanelKey } from '../../../types'
@@ -115,8 +116,29 @@ export function buildFloorViewSectionProps(vm: EditorRightPanelsProps): FloorVie
  */
 export function buildHierarchySectionProps(vm: EditorRightPanelsProps): HierarchySectionProps | null {
   if (vm.mode !== '2d' && vm.mode !== '3d') return null
+  const floorRooms = vm.floorRooms ?? []
+  const floorWalls = vm.floorWalls ?? []
+  const floorOpenings = vm.floorOpenings ?? []
+  const floorLayers = vm.floorLayers ?? []
+  const activeFloorLayerId = vm.activeFloorLayerId ?? null
+  const ifcElementHierarchy = vm.ifcElementHierarchy ?? null
+
   return {
     ...buildCommonPanelFrameProps(vm, 'hierarchy'),
+    floorRooms,
+    floorWalls,
+    floorOpenings,
+    floorLayers,
+    activeFloorLayerId,
+    ifcElementHierarchy,
+    groups: buildHierarchyGroups({
+      floorRooms,
+      floorWalls,
+      floorOpenings,
+      floorLayers,
+      activeFloorLayerId,
+      ifcElementHierarchy,
+    }),
   }
 }
 

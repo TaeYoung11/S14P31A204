@@ -8,6 +8,7 @@ import type {
   FloorCommentPin,
   FloorLayer,
   FloorOpening,
+  FloorRoom,
   FloorWall,
   IfcElementInfo,
   PanelKey,
@@ -94,6 +95,10 @@ export interface EditorRightPanelsProps {
   onToggleLayerOverlayMode?: () => void
   onToggleOverlayLayer?: (layerId: string) => void
   onChangeOverlayLayerOpacity?: (layerId: string, opacity: number) => void
+  floorRooms?: FloorRoom[]
+  floorWalls?: FloorWall[]
+  floorOpenings?: FloorOpening[]
+  ifcElementHierarchy?: unknown
   onOpenZoningModal: () => void
   onOpenEditZoningModal: (zone: ZoneData) => void
   onDeleteZoning: (zoneId: string) => void
