@@ -22,6 +22,7 @@
     "editPlanStorageUrl": "s3://batang-artifacts/jobs/job-2d-001/steps/1/edit-plan.json"
   },
   "payload": {
+    "schema_version": "v1",
     "userInstruction": "거실과 주방을 더 가깝게 배치해줘",
     "sourceSceneStorageUrl": "s3://batang-artifacts/jobs/job-2d-001/steps/1/source-scene.json"
   },
