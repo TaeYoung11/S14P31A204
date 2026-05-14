@@ -67,6 +67,32 @@ class FloorPlanIfcEditEngineRequestMapperTest {
     }
 
     @Test
+    void toEngineRequest_prioritizesTranslationMmOverPropertyPatch() {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode patch = objectMapper.createObjectNode()
+                .put("material", "concrete");
+        patch.putObject("translationMm")
+                .put("x", 1000.0)
+                .put("y", 0.0)
+                .put("z", 0.0);
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-translation-priority",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "update", "wall", "2FStoreyGlobalId00001", null, patch))
+        );
+
+        JsonNode operations = engineRequest.get("operations");
+        assertThat(operations).hasSize(1);
+        JsonNode operation = operations.get(0);
+        assertThat(operation.get("type").asText()).isEqualTo("transform_elements");
+        assertThat(operation.get("parameters").has("translation_mm")).isTrue();
+        assertThat(operation.get("parameters").has("material")).isFalse();
+    }
+
+    @Test
     void toEngineRequest_mapsRoomUpdateToIfcSpacePropertiesWhenGlobalIdExists() {
         UUID projectId = UUID.randomUUID();
         UUID baseRevisionId = UUID.randomUUID();
