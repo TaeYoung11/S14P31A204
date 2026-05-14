@@ -1001,6 +1001,15 @@ def run_ifc2img_photo_pipeline(
             "timeOfDay": worker_time_of_day,
             "views": [],
         }
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    debug_geometry = _load_debug_geometry(ifc_path)
+    debug_manifest: dict[str, object] = {
+        "schemaVersion": "ifc2img.debug.v1",
+        "sourceIfcPath": str(ifc_path),
+        "preset": preset,
+        "timeOfDay": worker_time_of_day,
+        "views": [],
+    }
     # The production semantic context is the source of truth; the debug manifest
     # only records a serializable snapshot for inspection.
     debug_manifest["ifcSemanticSummary"] = semantic_context.summary.to_dict()
@@ -1101,6 +1110,20 @@ def run_ifc2img_photo_pipeline(
                     error=str(exc),
                 )
         actual_fill_ratio = debug_view["actualFillRatio"]
+        debug_view = _save_debug_artifacts(
+            ifc_path=ifc_path,
+            output_dir=output_dir,
+            debug_dir=debug_dir,
+            preset=preset,
+            public_view=public_view,
+            internal_view=internal_view,
+            depth=depth,
+            photo=result.image,
+            geometry=debug_geometry,
+        )
+        debug_manifest_views = debug_manifest["views"]
+        if isinstance(debug_manifest_views, list):
+            debug_manifest_views.append(debug_view)
         _logger.info(
             "ifc2img_style_render_completed",
             view=public_view,

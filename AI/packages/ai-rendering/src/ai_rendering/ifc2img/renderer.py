@@ -415,7 +415,7 @@ class IFCRenderer:
         # the rest of the IFC2IMG pipeline. This flips only the raycast depth image,
         # not the camera/world up vector or the Visualizer backend.
         depth = np.flipud(depth).copy()
-        return depth
+        return self._depth_to_image(depth)
 
     @staticmethod
     def _compute_extrinsic(eye: np.ndarray, lookat: np.ndarray, up: np.ndarray) -> np.ndarray:
