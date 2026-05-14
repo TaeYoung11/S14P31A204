@@ -1,11 +1,14 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type {
   CollaborationUserType,
+  BubbleFloor,
+  BubbleFloorSummary,
   EditorMode,
   FloorCommentNotification,
   FloorCommentPin,
   FloorLayer,
   FloorOpening,
+  FloorRoom,
   FloorWall,
   IfcElementInfo,
   PanelKey,
@@ -29,12 +32,15 @@ export interface EditorRightPanelsProps {
   commentPins?: FloorCommentPin[]
   commentNotifications?: FloorCommentNotification[]
   currentCollaborationUserType?: CollaborationUserType
+  currentCollaborationUserId?: string | null
   currentCollaborationUserName: string
   onSelectPin?: (id: string) => void
   onCreateCommentReply?: (pinId: string, content: string) => void
   onResolvePin?: (pinId: string) => void
+  onDeletePin?: (pinId: string) => void
   onResolveComment?: (pinId: string, commentId: string) => void
   resolvingPinId?: string | null
+  deletingPinId?: string | null
   resolvingCommentId?: string | null
   selectedBubble: BubbleInfo | null
   isThreeDEditingLocked?: boolean
@@ -61,6 +67,15 @@ export interface EditorRightPanelsProps {
   onHeightCommit?: (id: string, height: number) => void
   onRatioChange: (id: string, ratio: number) => void
   onColorChange: (id: string, color: string) => void
+  onBubbleFloorChange?: (id: string, floor: number) => void
+  bubbleFloors?: BubbleFloor[]
+  bubbleFloorSummaries?: BubbleFloorSummary[]
+  activeBubbleFloor?: number
+  onSelectBubbleFloor?: (floor: number) => void
+  onAddBubbleFloor?: () => void
+  onRenameBubbleFloor?: (floor: number, name: string) => void
+  onDeleteBubbleFloor?: (floor: number) => void
+  isBubbleReadOnly?: boolean
   onMaterialChange?: (id: string, material: string) => void
   onWallTypeChange?: (id: string, type: FloorWall['type']) => void
   onWallThicknessChange?: (id: string, thicknessMm: number) => void
@@ -72,6 +87,10 @@ export interface EditorRightPanelsProps {
   onDoorHingeSideChange?: (id: string, hingeSide: NonNullable<FloorOpening['doorHingeSide']>) => void
   floorLayers?: FloorLayer[]
   activeFloorLayerId?: string | null
+  floorRooms?: FloorRoom[]
+  floorWallsForHierarchy?: FloorWall[]
+  floorOpenings?: FloorOpening[]
+  selectedRoomId?: string | null
   isFloorPlanGenerated?: boolean
   isLayerOverlayMode?: boolean
   selectedOverlayLayerIds?: string[]
@@ -80,9 +99,13 @@ export interface EditorRightPanelsProps {
   onRenameFloorLayer?: (layerId: string, name: string) => void
   onDeleteFloorLayer?: (layerId: string) => void
   onSelectFloorLayer?: (id: string) => void
+  onSelectRoom?: (id: string) => void
   onToggleLayerOverlayMode?: () => void
   onToggleOverlayLayer?: (layerId: string) => void
+  onSelectSingleOverlayLayer?: (layerId: string) => void
   onChangeOverlayLayerOpacity?: (layerId: string, opacity: number) => void
+  floorWalls?: FloorWall[]
+  ifcElementHierarchy?: unknown
   onOpenZoningModal: () => void
   onOpenEditZoningModal: (zone: ZoneData) => void
   onDeleteZoning: (zoneId: string) => void

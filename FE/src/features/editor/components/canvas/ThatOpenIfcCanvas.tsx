@@ -11,7 +11,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Object3D } from 'three'
-import type { IfcElementChange, IfcElementInfo } from '../../types'
+import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '../../types'
+import { FLOOR_MM_PER_PX } from '../../constants'
 import { patchIfcTextForMaterialDefaults } from '../../services/ifcChange.service'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import { isSelectableThreeDComponent } from './threeDSelection.utils'
@@ -80,6 +81,7 @@ import {
   toScreenRectFromPointers,
   type ScreenRect,
 } from './threeDPointerSelection.utils'
+import { getThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
 
 /** ThatOpenIfcCanvas 컴포넌트 props */
 interface ThatOpenIfcCanvasProps {
@@ -89,6 +91,14 @@ interface ThatOpenIfcCanvasProps {
   projectId?: string | null
   /** 씬에 배치된 라이브러리 프리셋 목록 */
   libraryElements: ThreeDLibraryPreset[]
+  commentPins?: FloorCommentPin[]
+  isCollaborationMode?: boolean
+  selectedPinId?: string | null
+  currentUserId?: string | null
+  onPinClick?: (id: string) => void
+  onPinCreate?: (x: number, y: number, content?: string, threeDPosition?: CommentPin3DCreatePosition) => void
+  onPinDelete?: (id: string) => void
+  deletingPinId?: string | null
   /** IFC 요소 변경 이력 (색상·재질·삭제 등) */
   ifcElementChanges: IfcElementChange[]
   /** 증가할 때마다 현재 선택 요소를 삭제하는 트리거 토큰 */
@@ -127,6 +137,7 @@ type IfcRaycastPick = {
   localId?: number
   object?: Object3D
   distance?: number
+  point?: import('three').Vector3
 } | null
 type MultiSelectedTarget = Extract<Selected3DTarget, { source: 'ifc' | 'library' }>
 type ResolvedMultiSelectedTarget = MultiSelectedTarget & { object: Object3D }
@@ -140,6 +151,14 @@ export default function ThatOpenIfcCanvas({
   ifcUrl,
   projectId,
   libraryElements,
+  commentPins = [],
+  isCollaborationMode = false,
+  selectedPinId = null,
+  currentUserId = null,
+  onPinClick,
+  onPinCreate,
+  onPinDelete,
+  deletingPinId = null,
   ifcElementChanges,
   deleteRequestToken = 0,
   isRotationLocked,
@@ -162,12 +181,21 @@ export default function ThatOpenIfcCanvas({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const sceneRef = useRef<ThatOpenSceneState | null>(null)
   const presetGroupRef = useRef<import('three').Group | null>(null)
+  const pinMarkerGroupRef = useRef<import('three').Group | null>(null)
+  const commentPinsRef = useRef(commentPins)
+  const selectedPinIdRef = useRef(selectedPinId)
+  const currentUserIdRef = useRef(currentUserId)
+  const isCollaborationModeRef = useRef(isCollaborationMode)
+  const deletingPinIdRef = useRef(deletingPinId)
   const rotationLockedRef = useRef(isRotationLocked)
   const onIfcElementSelectRef = useRef(onIfcElementSelect)
   const onIfcElementDeleteRef = useRef(onIfcElementDelete)
   const onLibraryElementChangeRef = useRef(onLibraryElementChange)
   const onLibraryElementDeleteRef = useRef(onLibraryElementDelete)
   const onThreeDCoordinatesChangeRef = useRef(onThreeDCoordinatesChange)
+  const onPinClickRef = useRef(onPinClick)
+  const onPinCreateRef = useRef(onPinCreate)
+  const onPinDeleteRef = useRef(onPinDelete)
   const ifcPsetMetricsRef = useRef<IfcPsetMetricMaps>({ byId: {}, byName: {} })
   const selectedTargetRef = useRef<Selected3DTarget>(null)
   const handledLibraryDropTokenRef = useRef(0)
@@ -197,6 +225,27 @@ export default function ThatOpenIfcCanvas({
     width: number
     height: number
   } | null>(null)
+
+  useEffect(() => { commentPinsRef.current = commentPins }, [commentPins])
+  useEffect(() => { selectedPinIdRef.current = selectedPinId }, [selectedPinId])
+  useEffect(() => { currentUserIdRef.current = currentUserId }, [currentUserId])
+  useEffect(() => { isCollaborationModeRef.current = isCollaborationMode }, [isCollaborationMode])
+  useEffect(() => { deletingPinIdRef.current = deletingPinId }, [deletingPinId])
+  useEffect(() => { onPinClickRef.current = onPinClick }, [onPinClick])
+  useEffect(() => { onPinCreateRef.current = onPinCreate }, [onPinCreate])
+  useEffect(() => { onPinDeleteRef.current = onPinDelete }, [onPinDelete])
+  useEffect(() => {
+    const sceneState = sceneRef.current
+    const markerGroup = pinMarkerGroupRef.current
+    if (!sceneState || !markerGroup) return
+    syncThreeDPinMarkers(sceneState.three, markerGroup, commentPins, {
+      selectedPinId,
+      currentUserId,
+      deletingPinId,
+      worldUnitsPerMm: sceneState.worldUnitsPerMm,
+    })
+  }, [commentPins, currentUserId, deletingPinId, selectedPinId])
+
   /**
    * 현재 도구 모드와 스냅 상태를 TransformControls에 동기화한다.
    * Move/Rotate/Scale이 동일 규칙으로 적용되도록 공통 유틸을 사용한다.
@@ -534,12 +583,23 @@ export default function ThatOpenIfcCanvas({
         const presetGroup = new THREE.Group()
         presetGroup.name = 'library-presets'
 
+        const pinMarkerGroup = new THREE.Group()
+        pinMarkerGroup.name = 'comment-pins'
+
         const fragmentModel = model as unknown as LoadedFragmentModel
         fragmentModel.useCamera(world.camera.three)
         applyInitialIfcMaterialStyles(THREE, fragmentModel.object, materialsManager)
         const worldUnitsPerMm = inferWorldUnitsPerMm(THREE, fragmentModel.object)
         contentGroup.add(fragmentModel.object)
         contentGroup.add(presetGroup)
+        contentGroup.add(pinMarkerGroup)
+        pinMarkerGroupRef.current = pinMarkerGroup
+        syncThreeDPinMarkers(THREE, pinMarkerGroup, commentPinsRef.current, {
+          selectedPinId: selectedPinIdRef.current,
+          currentUserId: currentUserIdRef.current,
+          deletingPinId: deletingPinIdRef.current,
+          worldUnitsPerMm,
+        })
 
         const ifcEditGroup = new THREE.Group()
         ifcEditGroup.name = 'ifc-edit-overlays'
@@ -844,6 +904,23 @@ export default function ThatOpenIfcCanvas({
             y: ((-worldPosition.y + 1) * 0.5) * bounds.height + bounds.top,
           }
         }
+        const createCommentPinAtWorldPoint = (point: import('three').Vector3) => {
+          const cameraPosition = camera.position
+          const threeDPosition: CommentPin3DCreatePosition = {
+            worldX: point.x / worldUnitsPerMm,
+            worldY: point.z / worldUnitsPerMm,
+            worldZ: point.y / worldUnitsPerMm,
+            cameraX: cameraPosition.x / worldUnitsPerMm,
+            cameraY: cameraPosition.z / worldUnitsPerMm,
+            cameraZ: cameraPosition.y / worldUnitsPerMm,
+          }
+          onPinCreateRef.current?.(
+            threeDPosition.worldX / FLOOR_MM_PER_PX,
+            threeDPosition.worldY / FLOOR_MM_PER_PX,
+            undefined,
+            threeDPosition,
+          )
+        }
         const collectMarqueeTargets = (rect: ScreenRect) => {
           const targets: MultiSelectedTarget[] = []
           presetGroup.children.forEach((child) => {
@@ -885,8 +962,7 @@ export default function ThatOpenIfcCanvas({
           if (event.button !== 0) return
           const isDeleteMode = isDeleteTool(selectedToolRef.current)
           const isSelectionMode = isSelectionTool(selectedToolRef.current)
-          if (isEditingLockedRef.current && isDeleteMode) return
-          if (!isSelectionInteractionTool(selectedToolRef.current)) return
+          if (!isCollaborationModeRef.current && !isSelectionInteractionTool(selectedToolRef.current)) return
           container.focus()
           const bounds = renderer.domElement.getBoundingClientRect()
           if (!isPointerInsideBounds(bounds, event.clientX, event.clientY)) {
@@ -903,6 +979,19 @@ export default function ThatOpenIfcCanvas({
           const screenMouse = new THREE.Vector2(event.clientX, event.clientY)
           const raycaster = new THREE.Raycaster()
           raycaster.setFromCamera(normalizedMouse, camera)
+          const pinHit = pinMarkerGroupRef.current
+            ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)[0]
+            : undefined
+          const pinMarkerHit = getThreeDPinMarkerHit(pinHit?.object)
+          if (pinMarkerHit) {
+            if (pinMarkerHit.action === 'delete') {
+              if (deletingPinIdRef.current === pinMarkerHit.pinId) return
+              onPinDeleteRef.current?.(pinMarkerHit.pinId)
+              return
+            }
+            onPinClickRef.current?.(pinMarkerHit.pinId)
+            return
+          }
           const wasTransformActive = transformControls.visible && transformControls.enabled
           const transformState = transformControls as unknown as { dragging?: boolean }
           if (transformState.dragging || (wasTransformActive && isTransformPointerActive)) {
@@ -910,6 +999,26 @@ export default function ThatOpenIfcCanvas({
           }
           const ifcEditHit = raycaster.intersectObjects(ifcEditGroup.children, true)[0]
           const libraryHit = raycaster.intersectObjects(presetGroup.children, true)[0]
+          if (isCollaborationModeRef.current) {
+            const fragmentPick = await fragments.raycast({
+              camera,
+              mouse: screenMouse,
+              dom: renderer.domElement,
+            })
+            const fastPick = await thatOpenRaycaster.castRay({ position: normalizedMouse })
+            const ifcPick = fragmentPick ?? (fastPick as unknown as IfcRaycastPick)
+            const ifcHit = ifcPick?.point
+              ? { distance: ifcPick.distance ?? Number.POSITIVE_INFINITY, point: ifcPick.point }
+              : ifcPick?.object
+                ? raycaster.intersectObject(ifcPick.object, true)[0]
+                : raycaster.intersectObject(fragmentModel.object, true)[0]
+            const collaborationHit = [libraryHit, ifcEditHit, ifcHit]
+              .filter((hit): hit is import('three').Intersection => Boolean(hit))
+              .sort((a, b) => a.distance - b.distance)[0]
+            if (collaborationHit?.point) createCommentPinAtWorldPoint(collaborationHit.point)
+            return
+          }
+          if (isEditingLockedRef.current) return
           // 이전 선택을 해제한다. 동일 객체/로컬ID이면 아무 처리도 하지 않는다.
           const clearPreviousSelection = async (nextObject?: Object3D, nextIfcLocalId?: number) => {
             if (isAppend) return
@@ -1290,6 +1399,7 @@ export default function ThatOpenIfcCanvas({
       }
       const activeScene = sceneRef.current
       presetGroupRef.current = null
+      pinMarkerGroupRef.current = null
       ifcPsetMetricsRef.current = { byId: {}, byName: {} }
       selectedTargetRef.current = null
       selectedTargetsRef.current = []

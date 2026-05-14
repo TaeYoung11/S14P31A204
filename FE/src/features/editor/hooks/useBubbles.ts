@@ -1,16 +1,17 @@
 import { useCallback, useRef, useState } from 'react'
 import type { BubbleData, AddSpaceFormData } from '../types'
-import { INITIAL_BUBBLES, INITIAL_ADD_SPACE_FORM } from '../constants'
+import { INITIAL_ADD_SPACE_FORM } from '../constants'
 import {
   calcAreaM2FromMm,
   calcMmDimensionsByAreaAndAspect,
   calcPxDimensionsFromMm,
   parsePositiveNumber,
 } from '../utils/bubbleCalc'
+import { normalizeBubbleFloor } from '../utils/bubbleFloorUtils'
 
 /** 버블(공간) 상태와 모든 변경 핸들러를 제공하는 훅 */
 export function useBubbles() {
-  const [bubbles, setBubbles] = useState<BubbleData[]>(INITIAL_BUBBLES)
+  const [bubbles, setBubbles] = useState<BubbleData[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [previousSelectedId, setPreviousSelectedId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -24,6 +25,46 @@ export function useBubbles() {
   const getNextBubbleIndex = (count: number) => (count + 1).toString().padStart(2, '0')
 
   const createBubbleId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+
+  /**
+   * mm 치수를 기반으로 버블 렌더링/표시 필드를 생성한다.
+   * 생성/추가 경로에서 동일한 기본값 규칙을 공유해 중복을 줄인다.
+   */
+  const buildBubbleCore = (
+    input: {
+      id: string
+      floor: number
+      x: number
+      y: number
+      widthMm: number
+      heightMm: number
+      ratio: number
+      label: string
+      type: string
+      color: string
+      material: string
+      index: string
+    },
+  ): BubbleData => {
+    const px = calcPxDimensionsFromMm(input.widthMm, input.heightMm)
+    return {
+      id: input.id,
+      floor: normalizeBubbleFloor(input.floor),
+      x: input.x,
+      y: input.y,
+      width: px.width,
+      height: px.height,
+      widthMm: input.widthMm,
+      heightMm: input.heightMm,
+      label: input.label,
+      type: input.type,
+      ratio: input.ratio,
+      area: `${input.ratio.toFixed(1)} m²`,
+      color: input.color,
+      material: input.material,
+      index: input.index,
+    }
+  }
 
   /** 버블 선택 — Shift 키 시 다중 선택 토글, 이전 선택 ID를 추적해 연결선 생성에 활용 */
   const handleBubbleSelect = (id: string, isShift = false) => {
@@ -178,6 +219,12 @@ export function useBubbles() {
     setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, material } : b)))
   }
 
+  /** 버블 층 변경 */
+  const handleBubbleFloorChange = (id: string, floor: number) => {
+    const nextFloor = normalizeBubbleFloor(floor)
+    setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, floor: nextFloor } : b)))
+  }
+
   /** 버블 삭제 — 선택 상태도 함께 초기화 */
   const deleteBubble = (id: string) => {
     setBubbles((prev) => prev.filter((b) => b.id !== id))
@@ -190,7 +237,7 @@ export function useBubbles() {
    * 공간 추가 모달 폼 데이터로 새 버블 생성
    * 입력 우선순위: (가로+세로) > 면적 > 기본값(10m²)
    */
-  const addBubble = (formData: AddSpaceFormData) => {
+  const addBubble = (formData: AddSpaceFormData, floor = 1) => {
     const widthMmInput = parsePositiveNumber(formData.width)
     const heightMmInput = parsePositiveNumber(formData.height)
     const ratioInput = parsePositiveNumber(formData.ratio)
@@ -223,50 +270,44 @@ export function useBubbles() {
       heightMmValue = mm.heightMm
     }
 
-    const px = calcPxDimensionsFromMm(widthMmValue, heightMmValue)
-
-    const newBubble: BubbleData = {
+    const newBubble = buildBubbleCore({
       id: createBubbleId(),
+      floor,
       x: 150 + Math.random() * 200,
       y: 150 + Math.random() * 200,
-      width: px.width,
-      height: px.height,
       widthMm: widthMmValue,
       heightMm: heightMmValue,
+      ratio: ratioValue,
       label: formData.name || '새 공간',
       type: formData.type,
-      ratio: ratioValue,
-      area: `${ratioValue.toFixed(1)} m²`,
       color: formData.color,
       material: '콘크리트',
       index: getNextBubbleIndex(bubbles.length),
-    }
+    })
     setBubbles((prev) => [...prev, newBubble])
   }
 
   /** 캔버스 좌표에 새 버블 추가 (빈 공간 더블클릭) */
-  const addBubbleAt = (x: number, y: number) => {
+  const addBubbleAt = (x: number, y: number, floor = 1) => {
     const ratioValue = 10
     const mm = calcMmDimensionsByAreaAndAspect(ratioValue, 1)
-    const px = calcPxDimensionsFromMm(mm.widthMm, mm.heightMm)
     const id = createBubbleId()
     const nextIndex = getNextBubbleIndex(bubbles.length)
-    const newBubble: BubbleData = {
+    const px = calcPxDimensionsFromMm(mm.widthMm, mm.heightMm)
+    const newBubble = buildBubbleCore({
       id,
+      floor,
       x: x - px.width / 2,
       y: y - px.height / 2,
-      width: px.width,
-      height: px.height,
       widthMm: mm.widthMm,
       heightMm: mm.heightMm,
+      ratio: ratioValue,
       label: '새 공간',
       type: INITIAL_ADD_SPACE_FORM.type,
-      ratio: ratioValue,
-      area: `${ratioValue.toFixed(1)} m²`,
       color: INITIAL_ADD_SPACE_FORM.color,
       material: '콘크리트',
       index: nextIndex,
-    }
+    })
     if (selectedId && selectedId !== id) setPreviousSelectedId(selectedId)
     setSelectedId(id)
     updateSelectedIds([id])
@@ -310,6 +351,7 @@ export function useBubbles() {
     handleRatioChange,
     handleColorChange,
     handleMaterialChange,
+    handleBubbleFloorChange,
     addBubble,
     addBubbleAt,
     replaceBubbles,

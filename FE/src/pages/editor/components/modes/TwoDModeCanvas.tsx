@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { lazy, useMemo } from 'react'
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
 
 const TwoDCanvas = lazy(() =>
@@ -14,15 +14,31 @@ interface TwoDModeCanvasProps {
  * 2D 평면도 모드의 캔버스 렌더링을 담당한다.
  */
 export default function TwoDModeCanvas({ editorProps, scale }: TwoDModeCanvasProps) {
+  const visibleCommentPins = useMemo(() => {
+    const activeIndex = editorProps.floorLayers.findIndex((layer) => layer.id === editorProps.activeFloorLayerId)
+    if (activeIndex < 0) return editorProps.commentPins
+
+    const activeLayer = editorProps.floorLayers[activeIndex]
+    const fallbackCeilingHeightMm = 2700
+    const floorStartMm = activeLayer.elevationMm ?? activeIndex * fallbackCeilingHeightMm
+    const floorHeightMm = activeLayer.ceilingHeightMm ?? fallbackCeilingHeightMm
+    const floorEndMm = floorStartMm + floorHeightMm
+
+    return editorProps.commentPins.filter((pin) => pin.worldZ >= floorStartMm && pin.worldZ < floorEndMm)
+  }, [editorProps.activeFloorLayerId, editorProps.commentPins, editorProps.floorLayers])
+
   return (
     <TwoDCanvas
       stageSize={editorProps.stageSize}
       sitePoints={editorProps.sitePlanPoints}
       isCollaborationMode={editorProps.isCollaborationMode}
       selectedPinId={editorProps.selectedPinId}
-      commentPins={editorProps.commentPins}
+      commentPins={visibleCommentPins}
+      currentUserId={editorProps.currentCollaborationUserId}
       onPinClick={editorProps.handlePinClick}
       onPinCreate={editorProps.handleCreateCommentPin}
+      onPinDelete={editorProps.handleDeletePin}
+      deletingPinId={editorProps.deletingPinId}
       rooms={editorProps.floorRooms}
       overlayLayers={editorProps.floorLayerOverlayItems}
       connections={editorProps.floorPlanConnections}

@@ -53,15 +53,15 @@ class UpdateElementPropertiesHandler:
 
         for product in _selected_products(model, selector):
             if product.is_a("IfcSpace"):
-                update_space(
+                if update_space(
                     model=model,
                     space=product,
                     dimensions_mm=dimensions_mm,
                     properties=properties,
                     pset_updates=pset_updates,
                     pset_name=pset_name,
-                )
-                updated_ids.append(product.GlobalId)
+                ):
+                    updated_ids.append(product.GlobalId)
                 continue
 
             if product.is_a("IfcWall") and segment_mm:

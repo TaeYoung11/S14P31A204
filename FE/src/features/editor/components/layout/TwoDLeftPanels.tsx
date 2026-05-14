@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, ChevronDown, ChevronRight, DoorOpen, Eye, EyeOff, GripVertical, Layers, Minus, Pencil, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { DeleteConfirmModal } from '@/shared/components/DeleteConfirmModal'
 import type { FloorLayer, FloorOpening, FloorRoom, FloorWall } from '../../types'
 import { useFloatingPanelDrag } from '../../hooks/useFloatingPanelDrag'
 
@@ -21,6 +22,7 @@ interface TwoDLeftPanelsProps {
   onSelectRoom?: (bubbleId: string) => void
   onToggleLayerOverlayMode?: () => void
   onToggleOverlayLayer?: (layerId: string) => void
+  onSelectSingleOverlayLayer?: (layerId: string) => void
   onChangeOverlayLayerOpacity?: (layerId: string, opacity: number) => void
 }
 
@@ -78,8 +80,8 @@ export function TwoDLeftPanels({
   onDeleteLayer,
   onSelectLayer,
   onSelectRoom,
-  onToggleLayerOverlayMode,
   onToggleOverlayLayer,
+  onSelectSingleOverlayLayer,
   onChangeOverlayLayerOpacity,
 }: TwoDLeftPanelsProps) {
   const {
@@ -103,6 +105,7 @@ export function TwoDLeftPanels({
   const [showSelectedRoomOnly, setShowSelectedRoomOnly] = useState(false)
   const [isFloorPanelOpen, setIsFloorPanelOpen] = useState(true)
   const [isHierarchyPanelOpen, setIsHierarchyPanelOpen] = useState(true)
+  const [pendingDeleteLayer, setPendingDeleteLayer] = useState<FloorLayer | null>(null)
   const hierarchyMenuRef = useRef<HTMLDivElement | null>(null)
 
   const roomLabelByBubbleId = useMemo(() => {
@@ -156,9 +159,17 @@ export function TwoDLeftPanels({
 
   const handleDeleteLayer = (layer: FloorLayer) => {
     if (!canDeleteAnyLayer) return
-    const ok = window.confirm(`"${layer.name}" 층을 삭제하시겠습니까?`)
-    if (!ok) return
-    onDeleteLayer?.(layer.id)
+    setPendingDeleteLayer(layer)
+  }
+
+  const closeDeleteLayerModal = () => {
+    setPendingDeleteLayer(null)
+  }
+
+  const confirmDeleteLayer = () => {
+    if (!pendingDeleteLayer) return
+    onDeleteLayer?.(pendingDeleteLayer.id)
+    closeDeleteLayerModal()
   }
 
   const toggleRoomExpand = (bubbleId: string) => {
@@ -182,6 +193,7 @@ export function TwoDLeftPanels({
   }, [isHierarchyMenuOpen])
 
   return (
+    <>
     <div className="absolute inset-0 z-10 pointer-events-none">
       <div
         ref={floorPanelRef}
@@ -285,8 +297,11 @@ export function TwoDLeftPanels({
                           <button
                             onClick={() => {
                               if (isOverlayToggleDisabled) return
-                              if (!isLayerOverlayMode) onToggleLayerOverlayMode?.()
-                              onToggleOverlayLayer?.(layer.id)
+                              if (isLayerOverlayMode) {
+                                onToggleOverlayLayer?.(layer.id)
+                                return
+                              }
+                              onSelectSingleOverlayLayer?.(layer.id)
                             }}
                             disabled={isOverlayToggleDisabled}
                             title={isOverlayToggleDisabled ? '활성 층은 겹쳐보기 대상에서 제외' : '겹쳐보기 토글'}
@@ -545,5 +560,13 @@ export function TwoDLeftPanels({
         )}
       </div>
     </div>
+    <DeleteConfirmModal
+      isOpen={pendingDeleteLayer !== null}
+      title="층 삭제"
+      message={`"${pendingDeleteLayer?.name ?? ''}" 층을 삭제하시겠습니까?`}
+      onClose={closeDeleteLayerModal}
+      onConfirm={confirmDeleteLayer}
+    />
+    </>
   )
 }

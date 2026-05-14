@@ -1,6 +1,8 @@
 // 에디터 화면의 핀과 댓글 API 요청을 담당합니다.
 import { api } from '@/shared/lib/axios'
+import { DEFAULT_PIN_CONTENT } from '@/shared/constants/pin'
 import { FLOOR_MM_PER_PX } from '../constants'
+import type { CommentPin3DCreatePosition } from '../types'
 
 interface ApiResponse<T> {
   status: number
@@ -81,19 +83,30 @@ interface ResolvePinResponse {
 
 const PAGE_SIZE = 50
 const DEFAULT_TARGET_ELEMENT_ID = 'floor-plan'
-const DEFAULT_2D_PIN_FLOOR_ELEVATION_MM = 0
 const DEFAULT_2D_PIN_CAMERA_HEIGHT_MM = 10_000
 
-const toWorldPositionRequest = (x: number, y: number, floorElevationMm = DEFAULT_2D_PIN_FLOOR_ELEVATION_MM) => ({
+const toWorldPositionRequest = (x: number, y: number, floorElevationMm: number) => ({
   x: Math.round(x * FLOOR_MM_PER_PX),
   y: Math.round(y * FLOOR_MM_PER_PX),
   z: floorElevationMm,
 })
 
-const toCameraPositionRequest = (x: number, y: number, floorElevationMm = DEFAULT_2D_PIN_FLOOR_ELEVATION_MM) => ({
+const toCameraPositionRequest = (x: number, y: number, floorElevationMm: number) => ({
   x: Math.round(x * FLOOR_MM_PER_PX),
   y: Math.round(y * FLOOR_MM_PER_PX),
   z: floorElevationMm + DEFAULT_2D_PIN_CAMERA_HEIGHT_MM,
+})
+
+const toThreeDWorldPositionRequest = (position: CommentPin3DCreatePosition) => ({
+  x: Math.round(position.worldX),
+  y: Math.round(position.worldY),
+  z: Math.round(position.worldZ),
+})
+
+const toThreeDCameraPositionRequest = (position: CommentPin3DCreatePosition) => ({
+  x: Math.round(position.cameraX),
+  y: Math.round(position.cameraY),
+  z: Math.round(position.cameraZ),
 })
 
 export const editorPinPositionMapper = {
@@ -164,14 +177,20 @@ export const editorPinCommentService = {
     projectId: string,
     x: number,
     y: number,
-    content: string,
-    floorElevationMm = DEFAULT_2D_PIN_FLOOR_ELEVATION_MM,
+    content: string | undefined,
+    floorElevationMm: number,
+    threeDPosition?: CommentPin3DCreatePosition,
   ): Promise<CreatePinResponse> => {
+    const normalizedContent = content?.trim() || DEFAULT_PIN_CONTENT
     const response = await api.post<ApiResponse<CreatePinResponse>>(`/projects/${projectId}/pins`, {
-      cameraPosition: toCameraPositionRequest(x, y, floorElevationMm),
-      worldPosition: toWorldPositionRequest(x, y, floorElevationMm),
+      cameraPosition: threeDPosition
+        ? toThreeDCameraPositionRequest(threeDPosition)
+        : toCameraPositionRequest(x, y, floorElevationMm),
+      worldPosition: threeDPosition
+        ? toThreeDWorldPositionRequest(threeDPosition)
+        : toWorldPositionRequest(x, y, floorElevationMm),
       targetElementId: DEFAULT_TARGET_ELEMENT_ID,
-      content,
+      content: normalizedContent,
     })
     return response.data.data
   },
@@ -202,6 +221,10 @@ export const editorPinCommentService = {
   resolvePin: async (projectId: string, pinId: string): Promise<ResolvePinResponse> => {
     const response = await api.patch<ApiResponse<ResolvePinResponse>>(`/projects/${projectId}/pins/${pinId}/resolve`)
     return response.data.data
+  },
+
+  deletePin: async (projectId: string, pinId: string): Promise<void> => {
+    await api.delete(`/projects/${projectId}/pins/${pinId}`)
   },
 }
 

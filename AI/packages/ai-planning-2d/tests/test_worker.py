@@ -128,6 +128,7 @@ def _command(
             "input": input_payload,
             "expectedOutput": expected_output,
             "payload": {
+                "schema_version": "v1",
                 "userInstruction": "1층 욕실을 삭제해줘",
                 "sourceSceneStorageUrl": source_scene_url,
             },
@@ -204,6 +205,7 @@ def test_run_two_d_llm_job_validation_error(tmp_path: Path) -> None:
 
     result = run_two_d_llm_job(
         {
+            "schema_version": "v1",
             "userInstruction": "",
             "sourceSceneStorageUrl": "s3://batang-artifacts/input/house.ifc",
         },
@@ -231,6 +233,7 @@ def test_run_two_d_llm_job_accepts_snake_case_payload(
 
     result = run_two_d_llm_job(
         {
+            "schema_version": "v1",
             "user_instruction": "1층에 문을 만들어줘",
             "source_scene_storage_url": "s3://batang-artifacts/input/house.ifc",
         },
@@ -291,6 +294,7 @@ def test_run_two_d_llm_job_success(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
     result = run_two_d_llm_job(
         {
+            "schema_version": "v1",
             "userInstruction": "1층 욕실을 삭제해줘",
             "sourceSceneStorageUrl": "s3://batang-artifacts/input/house.ifc",
         },
@@ -324,6 +328,7 @@ def test_run_two_d_llm_job_clarification(tmp_path: Path, monkeypatch: pytest.Mon
 
     result = run_two_d_llm_job(
         {
+            "schema_version": "v1",
             "userInstruction": "1층 욕실을 삭제해줘",
             "sourceSceneStorageUrl": "s3://batang-artifacts/input/house.ifc",
         },
@@ -907,6 +912,7 @@ def test_run_two_d_llm_job_rejects_active_event_loop(
 
     result = run_two_d_llm_job(
         {
+            "schema_version": "v1",
             "userInstruction": "1층 욕실을 삭제해줘",
             "sourceSceneStorageUrl": "s3://batang-artifacts/input/house.ifc",
         },

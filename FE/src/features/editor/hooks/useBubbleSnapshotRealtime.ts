@@ -36,7 +36,10 @@ interface UseBubbleSnapshotRealtimeParams {
   canPublish: boolean
   bubbles: BubbleData[]
   connections: ConnectionData[]
-  onRemoteSnapshot: (snapshot: BubbleSnapshotPayload) => void
+  onRemoteSnapshot: (
+    snapshot: BubbleSnapshotPayload,
+    meta?: { action: string | null; payloadBaseIndex: number | null },
+  ) => void
   onRemoteFloorPlanSnapshot?: (snapshot: FloorPlanSnapshotPayload) => void
   onPhaseStatusChanged?: (status: PhaseStatus) => void
   onIfcStorageUrlReceived?: (ifcStorageUrl: string, action: string | null, assetId: string | null, revisionId: string | null) => void
@@ -166,13 +169,13 @@ export function useBubbleSnapshotRealtime({
 
     const syncBubbleHistoryCursor = (action: string | null, payloadBaseIndex: number | null) => {
       if (action === WORKSPACE_SYNC_ACTION.bubbleUndo) {
-        baseIndexRef.current = toRestoredHistoryIndex(payloadBaseIndex) ?? Math.max(-1, baseIndexRef.current - 1)
+        baseIndexRef.current = payloadBaseIndex ?? Math.max(-1, baseIndexRef.current - 1)
         bubbleRedoDepthRef.current += 1
       } else if (action === WORKSPACE_SYNC_ACTION.bubbleRedo) {
-        baseIndexRef.current = toRestoredHistoryIndex(payloadBaseIndex) ?? baseIndexRef.current + 1
+        baseIndexRef.current = payloadBaseIndex ?? baseIndexRef.current + 1
         bubbleRedoDepthRef.current = Math.max(0, bubbleRedoDepthRef.current - 1)
       } else {
-        baseIndexRef.current = (payloadBaseIndex ?? baseIndexRef.current) + 1
+        baseIndexRef.current = payloadBaseIndex ?? baseIndexRef.current + 1
         bubbleRedoDepthRef.current = 0
       }
       notifyBubbleHistoryCursor()
@@ -204,7 +207,7 @@ export function useBubbleSnapshotRealtime({
       action: string | null,
       payloadBaseIndex: number | null,
     ) => {
-      remoteSnapshotHandlerRef.current(snapshot)
+      remoteSnapshotHandlerRef.current(snapshot, { action, payloadBaseIndex })
       syncBubbleHistoryCursor(action, payloadBaseIndex)
     }
 

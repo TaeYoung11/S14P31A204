@@ -9,7 +9,7 @@
  *  2. 그 외 → ThatOpenIfcCanvas (ifcUrl 없을 시 mock IFC로 폴백)
  */
 import { useRef } from 'react'
-import type { FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '../../types'
+import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '../../types'
 import { useCtrlWheelZoom } from '../../hooks/useCtrlWheelZoom'
 import { useThreeDLibraryPresets } from '../../hooks/useThreeDLibraryPresets'
 import ThreeDCanvasCollaborationOverlay from './ThreeDCanvasCollaborationOverlay'
@@ -30,6 +30,13 @@ interface ThreeDCanvasProps {
   ifcUrl?: string | null
   sitePoints?: number[]
   isCollaborationMode?: boolean
+  commentPins?: FloorCommentPin[]
+  selectedPinId?: string | null
+  currentUserId?: string | null
+  onPinClick?: (id: string) => void
+  onPinCreate?: (x: number, y: number, content?: string, threeDPosition?: CommentPin3DCreatePosition) => void
+  onPinDelete?: (id: string) => void
+  deletingPinId?: string | null
   /** 라이브러리 패널 표시 여부 */
   isLibraryOpen?: boolean
   onToggleLibrary?: () => void
@@ -106,6 +113,14 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         rawIfcUrl={props.ifcUrl}
         localFloorData={props.localFloorData}
         libraryElements={libraryElements}
+        commentPins={props.commentPins ?? []}
+        isCollaborationMode={Boolean(props.isCollaborationMode)}
+        selectedPinId={props.selectedPinId ?? null}
+        currentUserId={props.currentUserId ?? null}
+        onPinClick={props.onPinClick}
+        onPinCreate={props.onPinCreate}
+        onPinDelete={props.onPinDelete}
+        deletingPinId={props.deletingPinId ?? null}
         ifcElementChanges={props.ifcElementChanges ?? []}
         isRotationLocked={props.isRotationLocked ?? false}
         zoomScale={props.scale ?? 1}
