@@ -200,6 +200,7 @@ def load_mesh(
 def attach_ground_plane_to_mesh(
     mesh: o3d.geometry.TriangleMesh,
     extent_factor: float = GROUND_EXTENT_FACTOR,
+    ground_z: float | None = None,
 ) -> o3d.geometry.TriangleMesh:
     """기존 mesh에 ground plane을 추가한 새 mesh 반환.
 
@@ -215,6 +216,7 @@ def attach_ground_plane_to_mesh(
         vertices,
         triangles,
         extent_factor=extent_factor,
+        ground_z=ground_z,
     )
     new_mesh = o3d.geometry.TriangleMesh()
     new_mesh.vertices = o3d.utility.Vector3dVector(new_verts)
@@ -227,6 +229,7 @@ def _add_ground_plane(
     vertices: np.ndarray,
     triangles: np.ndarray,
     extent_factor: float = GROUND_EXTENT_FACTOR,
+    ground_z: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """mesh AABB의 z_min에 axis-aligned ground plane(2 triangles, normal +z) 추가.
 
@@ -247,7 +250,7 @@ def _add_ground_plane(
         return vertices, triangles
     aabb_min = vertices.min(axis=0)
     aabb_max = vertices.max(axis=0)
-    z_ground = _estimate_ground_z(vertices)
+    z_ground = _estimate_ground_z(vertices) if ground_z is None else float(ground_z)
     cx = float((aabb_min[0] + aabb_max[0]) / 2)
     cy = float((aabb_min[1] + aabb_max[1]) / 2)
     half_x = float((aabb_max[0] - aabb_min[0]) / 2 * extent_factor)
