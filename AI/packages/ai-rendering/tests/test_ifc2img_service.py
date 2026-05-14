@@ -133,6 +133,9 @@ class FakeLogger:
     def info(self, event: str, **kwargs: object) -> None:
         self.calls.append((event, kwargs))
 
+    def warning(self, event: str, **kwargs: object) -> None:
+        self.calls.append((event, kwargs))
+
 
 @pytest.fixture(autouse=True)
 def reset_fake_renderers() -> None:
@@ -243,6 +246,41 @@ def test_run_ifc2img_photo_pipeline_skips_debug_geometry_by_default(
     )
 
     assert not (output_dir / "debug" / "debug_manifest.json").exists()
+
+
+def test_run_ifc2img_photo_pipeline_continues_when_debug_artifacts_fail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """debug artifact 생성 실패는 렌더 job 전체를 실패시키지 않는다."""
+    import ai_rendering.ifc2img.service as service
+
+    logger = FakeLogger()
+    monkeypatch.setattr(service, "_logger", logger)
+
+    def fail_debug_artifacts(**_kwargs: object) -> dict[str, object]:
+        raise RuntimeError("debug png failed")
+
+    monkeypatch.setattr(service, "_save_debug_artifacts", fail_debug_artifacts)
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    result = run_ifc2img_photo_pipeline(
+        ifc_path,
+        output_dir,
+        preset="korean_house",
+        debug_artifacts=True,
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    assert result.manifest_path.exists()
+    assert (output_dir / "photo_front_diagonal_left.png").exists()
+    assert (output_dir / "photo_front_diagonal_right.png").exists()
+    events = [event for event, _ in logger.calls]
+    assert events.count("ifc2img_debug_artifacts_failed") == 2
+    assert "ifc2img_manifest_write_completed" in events
 
 
 def test_run_ifc2img_photo_pipeline_logs_depth_and_style_stages(
