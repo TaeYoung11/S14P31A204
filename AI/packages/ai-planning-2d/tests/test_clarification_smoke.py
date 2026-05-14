@@ -15,10 +15,127 @@ import pytest
 
 from ai_common.errors import ClarificationRequiredError
 from ai_common.storage.paths import clarification_detail_key
+from ai_common.worker_sdk.base_worker import EventPublisher
+from ai_domain import CommandMessage
+from ai_domain.worker_messages.event import EventMessage
 from ai_planning_2d.schemas import ClarificationArtifact
 from ai_planning_2d.worker import TwoDLlmWorker
 
-from test_worker import FakeStorageClient, InMemoryPublisher, _command
+
+class InMemoryPublisher(EventPublisher):
+    def __init__(self) -> None:
+        self.events: list[EventMessage] = []
+
+    def publish(self, event: EventMessage) -> None:
+        self.events.append(event)
+
+
+class FakeStorageClient:
+    def __init__(self) -> None:
+        self.read_map: dict[str, bytes] = {}
+        self.writes: dict[str, bytes] = {}
+        self.read_error: Exception | None = None
+        self.write_error: Exception | None = None
+        self.default_bucket = "batang-artifacts"
+
+    def read_bytes(self, url: str) -> bytes:
+        if self.read_error is not None:
+            raise self.read_error
+        return self.read_map[url]
+
+    def write_bytes(
+        self,
+        key: str,
+        data: bytes,
+        content_type: str = "application/octet-stream",
+        bucket: str | None = None,
+    ) -> str:
+        if self.write_error is not None:
+            raise self.write_error
+        bucket_name = bucket or "default"
+        url = f"s3://{bucket_name}/{key}"
+        self.writes[url] = data
+        return url
+
+    def write_json(
+        self,
+        key: str,
+        payload: object,
+        *,
+        bucket: str | None = None,
+        indent: int = 2,
+    ) -> str:
+        return self.write_bytes(
+            key,
+            json.dumps(payload, ensure_ascii=False, indent=indent).encode("utf-8"),
+            content_type="application/json; charset=utf-8",
+            bucket=bucket,
+        )
+
+
+def _command(
+    *,
+    source_ifc_url: str | None = "s3://batang-artifacts/input/house.ifc",
+    source_scene_url: str = "s3://batang-artifacts/input/house.ifc",
+    edit_plan_url: str | None = (
+        "s3://batang-artifacts/projects/project-alpha/jobs/job-2d-worker-001/"
+        "steps/001/engine/engine-request.v2.json"
+    ),
+    validation_report_url: str | None = (
+        "s3://batang-artifacts/projects/project-alpha/jobs/job-2d-worker-001/"
+        "steps/001/engine/validation-report.v1.json"
+    ),
+    error_detail_url: str | None = (
+        "s3://batang-artifacts/projects/project-alpha/jobs/job-2d-worker-001/"
+        "steps/001/error/error-detail.v1.json"
+    ),
+    ifc_output_url: str | None = "s3://batang-artifacts/output/result.ifc",
+) -> CommandMessage:
+    input_payload: dict[str, str] = {"sourceSceneStorageUrl": source_scene_url}
+    if source_ifc_url is not None:
+        input_payload["sourceIfcStorageUrl"] = source_ifc_url
+
+    expected_output: dict[str, str] = {}
+    if edit_plan_url is not None:
+        expected_output["editPlanStorageUrl"] = edit_plan_url
+    if validation_report_url is not None:
+        expected_output["validationReportStorageUrl"] = validation_report_url
+    if error_detail_url is not None:
+        expected_output["errorDetailStorageUrl"] = error_detail_url
+    if ifc_output_url is not None:
+        expected_output["ifcStorageUrl"] = ifc_output_url
+
+    return CommandMessage.model_validate(
+        {
+            "messageId": "msg-2d-worker-001",
+            "schemaVersion": "v1",
+            "messageType": "COMMAND",
+            "commandType": "TWO_D_LLM_GENERATE",
+            "routingKey": "command.2d-llm.generate",
+            "jobId": "job-2d-worker-001",
+            "jobStepId": "job-step-2d-worker-001",
+            "stepNo": 1,
+            "totalSteps": 1,
+            "projectId": "project-alpha",
+            "requestedBy": "user-001",
+            "sourceRevisionId": "rev-source-001",
+            "sourceSceneStateId": "scene-state-001",
+            "sourceSceneType": "SCENE_2D",
+            "targetRevisionId": "rev-target-001",
+            "expectedOutputArtifactId": "artifact-2d-plan-001",
+            "input": input_payload,
+            "expectedOutput": expected_output,
+            "payload": {
+                "userInstruction": "1층 화장실을 제거해줘",
+                "sourceSceneStorageUrl": source_scene_url,
+            },
+            "attemptNo": 0,
+            "maxAttempts": 3,
+            "idempotencyKey": "job-2d-worker-001:1",
+            "correlationId": "corr-2d-worker-001",
+            "createdAt": "2026-05-06T09:00:00Z",
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
