@@ -47,7 +47,7 @@ def test_ifc2img_publish_sample_passes_command_validation() -> None:
     assert command.expectedOutput.renderPhotoFrontDiagonalLeftStorageUrl is not None
     assert command.expectedOutput.renderPhotoFrontDiagonalRightStorageUrl is not None
     assert command.payload.prompt is not None
-    assert command.payload.renderMode == "sd"
+    assert command.payload.renderMode == "ifc2img"
     assert command.payload.preset is None
 
 
