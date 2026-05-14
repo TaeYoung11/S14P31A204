@@ -1,5 +1,6 @@
 package com.a204.batang.domain.notification.event;
 
+import com.a204.batang.domain.notification.dto.ProjectInvitationNotificationCreatedSseResponse;
 import com.a204.batang.domain.notification.service.NotificationSseService;
 import com.a204.batang.domain.pin.dto.PinCommentCreatedSseResponse;
 import com.a204.batang.domain.pin.dto.PinCommentResolvedSseResponse;
@@ -40,6 +41,7 @@ public class NotificationEventListener {
     private static final String EVENT_COMMENT_CREATED = "comment-created";
     private static final String EVENT_COMMENT_UPDATED = "comment-updated";
     private static final String EVENT_COMMENT_RESOLVED = "comment-resolved";
+    private static final String EVENT_PROJECT_INVITATION_CREATED = "project-invitation-created";
 
     private final NotificationSseService notificationSseService;
     private final ProjectRepository projectRepository;
@@ -132,6 +134,20 @@ public class NotificationEventListener {
                 event.resolvedByUserId(),
                 EVENT_COMMENT_RESOLVED,
                 PinCommentResolvedSseResponse.from(event)
+        );
+    }
+
+    /**
+     * Sends a project invitation notification to the invited user.
+     *
+     * @param event project invitation notification created event
+     */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleProjectInvitationNotificationCreated(ProjectInvitationNotificationCreatedEvent event) {
+        notificationSseService.sendToUsers(
+                Set.of(event.recipientUserId()),
+                EVENT_PROJECT_INVITATION_CREATED,
+                ProjectInvitationNotificationCreatedSseResponse.from(event)
         );
     }
 

@@ -54,6 +54,13 @@
         "$ref": "#/$defs/planner3dCommand"
       }
     },
+    "operations": {
+      "description": "EngineRequest-compatible operations derived from commands for direct ai-authoring consumption.",
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
     "clarification": {
       "oneOf": [
         {

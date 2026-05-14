@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/preview_result_artifact.v2.schema.json",
+  "title": "PreviewResultArtifactV2",
+  "description": "MinIO engine/preview-result.v2.json 에 기록되는 아티팩트. 2D LLM 워커의 preview 단계 전체 결과를 담는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "summary",
+    "command",
+    "command_batch",
+    "matched_count",
+    "validation_warnings",
+    "engine_capabilities"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v2"
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1,
+      "description": "preview 처리 상태. 예: 'planned', 'needs_clarification', 'rejected'"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "사람이 읽을 수 있는 처리 요약 메시지."
+    },
+    "command": {
+      "$ref": "https://a204.batang/shared/schemas/2d_command_artifact.v1.schema.json#/$defs/floorNLPCommand"
+    },
+    "command_batch": {
+      "$ref": "https://a204.batang/shared/schemas/2d_command_artifact.v1.schema.json#/$defs/commandBatch"
+    },
+    "policy_plan": {
+      "description": "action별 결정 정책 결과. 없으면 null.",
+      "oneOf": [{ "type": "object" }, { "type": "null" }]
+    },
+    "matched_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "IFC에서 매칭된 대상 요소 수."
+    },
+    "validation_warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "engine_request": {
+      "description": "ai-authoring으로 전달되는 engine request 페이로드. clarification 시 null.",
+      "oneOf": [{ "type": "object" }, { "type": "null" }]
+    },
+    "ifc_edit_payload": {
+      "description": "IFC 직접 편집 페이로드 (reserved). 현재 null.",
+      "oneOf": [{ "type": "object" }, { "type": "null" }]
+    },
+    "engine_capabilities": {
+      "type": "object",
+      "description": "워커가 지원하는 operation 능력 맵."
+    }
+  }
+}

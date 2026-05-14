@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://a204.batang/shared/schemas/two_d_llm_generate.payload.schema.json",
   "title": "TwoDLlmGeneratePayload",
-  "description": "Payload for TWO_D_LLM_GENERATE worker command.",
+  "description": "TWO_D_LLM 워커 커맨드 페이로드. 워커는 user_instruction과 CommandMessage.input.sourceIfcStorageUrl만 사용하지만, BE/FE 하위 호환을 위해 source_scene 등 선택 필드도 허용한다.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "user_instruction"],
@@ -16,68 +16,22 @@
       "maxLength": 4000
     },
     "source_scene_storage_url": {
+      "description": "deprecated: 워커는 무시한다. BE/FE 하위 호환을 위해 optional로 허용.",
       "type": "string",
       "minLength": 1,
       "maxLength": 2048
     },
     "source_scene": {
-      "$ref": "https://a204.batang/shared/schemas/scene_2d_snapshot_v1.schema.json"
+      "description": "deprecated: 워커는 무시한다. FE가 보내고 BE가 전달할 수 있어 optional로 허용.",
+      "type": "object"
     },
     "conversation_history": {
-      "type": "array",
-      "maxItems": 20,
-      "items": {
-        "$ref": "#/$defs/chatMessage"
-      }
+      "description": "deprecated: 워커는 무시한다. FE가 보내고 BE가 전달할 수 있어 optional로 허용.",
+      "type": "array"
     },
     "planner_options": {
-      "$ref": "#/$defs/plannerOptions"
-    }
-  },
-  "oneOf": [
-    {
-      "required": ["source_scene_storage_url"]
-    },
-    {
-      "required": ["source_scene"]
-    }
-  ],
-  "$defs": {
-    "chatMessage": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["role", "content"],
-      "properties": {
-        "role": {
-          "type": "string",
-          "enum": ["system", "user", "assistant"]
-        },
-        "content": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4000
-        }
-      }
-    },
-    "plannerOptions": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "allow_create": {
-          "type": "boolean"
-        },
-        "allow_delete": {
-          "type": "boolean"
-        },
-        "allow_modify": {
-          "type": "boolean"
-        },
-        "max_commands": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 20
-        }
-      }
+      "description": "deprecated: 워커는 무시한다. FE가 보내고 BE가 전달할 수 있어 optional로 허용.",
+      "type": "object"
     }
   }
 }

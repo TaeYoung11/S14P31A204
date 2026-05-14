@@ -1,7 +1,0 @@
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://a204.batang/shared/schemas/planner_2d_result.schema.json",
-  "title": "Planner2DResult",
-  "description": "Stable entrypoint for the current planner 2D result contract.",
-  "$ref": "https://a204.batang/shared/schemas/planner_2d_result.v1.schema.json"
-}
