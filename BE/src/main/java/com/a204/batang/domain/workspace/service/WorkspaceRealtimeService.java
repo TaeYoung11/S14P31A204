@@ -227,7 +227,7 @@ public class WorkspaceRealtimeService {
                         "요청한 Undo/Redo 버블 스냅샷을 찾을 수 없습니다."
                 );
             }
-            return snapshot;
+            return normalizeBubbleSnapshotOrThrow(snapshot);
         } catch (JsonProcessingException exception) {
             log.error("Failed to deserialize bubble snapshot from redis. projectId={}, index={}", projectId, targetIndex, exception);
             throw new CustomException(
@@ -277,7 +277,8 @@ public class WorkspaceRealtimeService {
             if (fallbackSnapshot == null || fallbackSnapshot.isNull()) {
                 return WorkspaceHistorySnapshotResponse.WorkspaceHistoryState.empty();
             }
-            return WorkspaceHistorySnapshotResponse.WorkspaceHistoryState.latest(0, fallbackSnapshot, null);
+            JsonNode normalizedFallbackSnapshot = normalizeBubbleSnapshotOrThrow(fallbackSnapshot);
+            return WorkspaceHistorySnapshotResponse.WorkspaceHistoryState.latest(0, normalizedFallbackSnapshot, null);
         }
 
         int latestIndex = historySize - 1;
@@ -385,6 +386,17 @@ public class WorkspaceRealtimeService {
             cursor = cursor.getCause();
         }
         return false;
+    }
+
+    private JsonNode normalizeBubbleSnapshotOrThrow(JsonNode snapshot) {
+        try {
+            return bubbleSnapshotHelper.normalizeSnapshotOrThrow(snapshot);
+        } catch (CustomException exception) {
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_BUBBLE_CACHE_READ_FAILED,
+                    "버블 스냅샷 형식이 올바르지 않습니다."
+            );
+        }
     }
 
     private ProjectWorkspace resolveWorkspaceOrThrow(UUID projectId) {

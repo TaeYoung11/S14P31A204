@@ -4,6 +4,7 @@ import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.revision.entity.Revision;
 import com.a204.batang.domain.revision.repository.RevisionRepository;
+import com.a204.batang.domain.workspace.dto.BubbleFloorMeta;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest.BubbleData;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest.ConnectionData;
 import com.a204.batang.domain.workspace.dto.SaveBubbleSnapshotRequest;
@@ -25,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -84,13 +86,15 @@ class WorkspaceCommandServiceTest {
                         "거실",
                         "LIVING",
                         84.5,
-                        "#ffffff"
+                        "#ffffff",
+                        null
                 )),
                 List.of(new ConnectionData(
                         "bubble-1",
                         "bubble-1",
                         "bold"
-                ))
+                )),
+                new BubbleFloorMeta(Map.of(1, "1층"), List.of(3))
         );
     }
 
@@ -104,6 +108,8 @@ class WorkspaceCommandServiceTest {
         assertThat(workspace.getBubbleSnapshotJson()).isNotNull();
         assertThat(workspace.getBubbleSnapshotJson().get("bubbles").size()).isEqualTo(1);
         assertThat(workspace.getBubbleSnapshotJson().get("connections").size()).isEqualTo(1);
+        assertThat(workspace.getBubbleSnapshotJson().get("bubbles").get(0).get("floor").asInt()).isEqualTo(1);
+        assertThat(workspace.getBubbleSnapshotJson().get("floorMeta").isObject()).isTrue();
 
         assertThat(response.projectId()).isEqualTo(projectId);
         assertThat(response.phaseStatus()).isEqualTo(PhaseStatus.BUBBLE_DRAFT);
@@ -132,7 +138,8 @@ class WorkspaceCommandServiceTest {
                         "bubble-1",
                         "unknown-bubble",
                         "bold"
-                ))
+                )),
+                bubbleRequest.floorMeta()
         );
 
         assertThatThrownBy(() -> workspaceCommandService.saveBubbleSnapshot(projectId, invalidRequest))

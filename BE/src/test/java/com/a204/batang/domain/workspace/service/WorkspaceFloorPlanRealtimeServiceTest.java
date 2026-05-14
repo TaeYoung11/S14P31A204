@@ -5,6 +5,7 @@ import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.ifcedit.dto.DirectIfcEditRequest;
 import com.a204.batang.domain.ifcedit.service.DirectIfcEditCommandService;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
+import com.a204.batang.domain.workspace.dto.BubbleFloorMeta;
 import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanSceneType;
@@ -31,6 +32,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -123,7 +125,8 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "living-room",
                         "LIVING",
                         84.5,
-                        "#ffffff"
+                        "#ffffff",
+                        null
                 )),
                 List.of(new BubbleUpdateRequest.ConnectionData(
                         "bubble-1",
@@ -140,7 +143,8 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                           "walls": [],
                           "openings": []
                         }
-                        """)
+                        """),
+                new BubbleFloorMeta(Map.of(1, "1F"), List.of(3))
         );
 
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
@@ -175,6 +179,9 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         assertThat(response.s3Url()).isNull();
         assertThat(response.floorPlanPayloadJson().get("baseIndex").asInt()).isEqualTo(0);
         assertThat(response.floorPlanPayloadJson().get("revisionId").asText()).isEqualTo(workspace.getCurrentRevision());
+        assertThat(response.floorPlanPayloadJson().get("bubbles").get(0).get("floor").asInt()).isEqualTo(1);
+        assertThat(response.floorPlanPayloadJson().get("floorMeta").get("namesByFloor").get("1").asText()).isEqualTo("1F");
+        assertThat(response.floorPlanPayloadJson().get("floorMeta").get("extraFloors").get(0).asInt()).isEqualTo(3);
         assertThat(response.updatedAt()).isNotNull();
     }
 
@@ -192,7 +199,8 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "living-room",
                         "LIVING",
                         84.5,
-                        "#ffffff"
+                        "#ffffff",
+                        null
                 )),
                 List.of(),
                 0,
@@ -203,7 +211,8 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         {
                           "sceneType": "THREE_D"
                         }
-                        """)
+                        """),
+                null
         );
 
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
@@ -233,7 +242,8 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "living-room",
                         "LIVING",
                         84.5,
-                        "#ffffff"
+                        "#ffffff",
+                        null
                 )),
                 List.of(),
                 0,
@@ -246,7 +256,8 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                           "walls": [],
                           "openings": []
                         }
-                        """)
+                        """),
+                null
         );
 
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
@@ -274,7 +285,8 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "living-room",
                         "LIVING",
                         84.5,
-                        "#ffffff"
+                        "#ffffff",
+                        null
                 )),
                 List.of(new BubbleUpdateRequest.ConnectionData(
                         "bubble-1",
@@ -285,6 +297,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 "rev-200",
                 FloorPlanSceneType.TWO_D,
                 createWorkspaceCommand("create"),
+                null,
                 null
         );
 
@@ -390,6 +403,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         assertThat(response.floorPlanPayloadJson().get("parentRevisionId").asText()).isEqualTo(parentRevisionId.toString());
         assertThat(response.floorPlanPayloadJson().get("bubbles").isArray()).isTrue();
         assertThat(response.floorPlanPayloadJson().get("connections").isArray()).isTrue();
+        assertThat(response.floorPlanPayloadJson().get("floorMeta").isNull()).isTrue();
     }
 
     @Test

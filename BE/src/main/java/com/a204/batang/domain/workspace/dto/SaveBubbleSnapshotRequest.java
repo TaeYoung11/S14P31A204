@@ -17,6 +17,8 @@ public record SaveBubbleSnapshotRequest(
         List<BubbleUpdateRequest.BubbleData> bubbles,
         @Valid
         @NotNull(message = "connections is required.")
-        List<BubbleUpdateRequest.ConnectionData> connections
+        List<BubbleUpdateRequest.ConnectionData> connections,
+        @Valid
+        BubbleFloorMeta floorMeta
 ) implements BubbleSnapshotPayload {
 }
