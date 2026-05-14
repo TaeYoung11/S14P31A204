@@ -21,6 +21,22 @@ import { TwoDRoomPolygonHandles } from './TwoDRoomPolygonHandles'
 
 const SITE_OUTSIDE_WARNING = '#DC2626'
 
+function getEstimatedTextWidthUnits(text: string) {
+  const normalizedText = text.trim()
+  if (!normalizedText) return 1
+  return Array.from(normalizedText).reduce((units, char) => {
+    if (/\s/.test(char)) return units + 0.35
+    if (/[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF\u3000-\u9FFF]/.test(char)) return units + 1
+    if (/[A-Z0-9]/.test(char)) return units + 0.68
+    return units + 0.58
+  }, 0)
+}
+
+function fitSingleLineFontSize(text: string, maxWidth: number, maxHeight: number) {
+  const textWidthUnits = Math.max(getEstimatedTextWidthUnits(text), 1)
+  return Math.max(1, Math.min(maxHeight, maxWidth / textWidthUnits))
+}
+
 export interface RoomDragState {
   roomBubbleId: string
   startX: number
@@ -140,8 +156,20 @@ export function TwoDRoomsLayer({
           onRoomPolygonChange !== undefined
         const fill = getRoomFill(room.color)
         const roomStroke = isOutsideSite ? SITE_OUTSIDE_WARNING : isSelected ? '#3B45B3' : '#B8BFCC'
-        const labelFontSize = Math.max(9, Math.min(13, room.width / 8))
-        const areaFontSize = Math.max(8, Math.min(11, room.width / 10))
+        const labelPaddingX = Math.min(12, Math.max(3, room.width * 0.04))
+        const labelPaddingY = Math.min(10, Math.max(3, room.height * 0.04))
+        const labelWidth = Math.max(8, room.width - labelPaddingX * 2)
+        const labelContentHeight = Math.max(1, room.height - labelPaddingY * 2)
+        const areaText = `${room.area.toFixed(1)} m²`
+        const labelBoxHeight = labelContentHeight * 0.68
+        const areaBoxHeight = labelContentHeight * 0.22
+        const labelAreaGap = labelContentHeight * 0.1
+        const labelFontSize = fitSingleLineFontSize(room.label, labelWidth, labelBoxHeight / 1.15)
+        const areaFontSize = fitSingleLineFontSize(areaText, labelWidth, areaBoxHeight / 1.15)
+        const labelLineHeight = labelFontSize * 1.15
+        const areaLineHeight = areaFontSize * 1.15
+        const labelGroupHeight = labelLineHeight + labelAreaGap + areaLineHeight
+        const labelY = room.y + room.height / 2 - labelGroupHeight / 2
 
         /**
          * 다각형 편집 결과를 검증한 뒤 상위 상태에 반영한다.
@@ -328,22 +356,28 @@ export function TwoDRoomsLayer({
                 />
               )}
               <Text
-                x={room.x}
-                y={room.y + room.height / 2 - labelFontSize - 3}
-                width={room.width}
+                x={room.x + labelPaddingX}
+                y={labelY}
+                width={labelWidth}
+                height={labelLineHeight}
                 align="center"
+                verticalAlign="middle"
                 text={room.label}
                 fontSize={labelFontSize}
+                lineHeight={1.15}
                 fontStyle="bold"
                 fill={isSelected ? '#3B45B3' : '#1C1C1E'}
               />
               <Text
-                x={room.x}
-                y={room.y + room.height / 2 + 3}
-                width={room.width}
+                x={room.x + labelPaddingX}
+                y={labelY + labelLineHeight + labelAreaGap}
+                width={labelWidth}
+                height={areaLineHeight}
                 align="center"
-                text={`${room.area.toFixed(1)} m²`}
+                verticalAlign="middle"
+                text={areaText}
                 fontSize={areaFontSize}
+                lineHeight={1.15}
                 fontStyle="bold"
                 fill="#ADB5BD"
               />
