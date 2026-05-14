@@ -15,6 +15,7 @@ import com.a204.batang.global.exception.ErrorCode;
 import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,6 +40,7 @@ public class WorkspaceRealtimeService {
     private static final String ACTION_BUBBLE_UPDATED = "BUBBLE_UPDATED";
     private static final String ACTION_BUBBLE_UNDO = "BUBBLE_UNDO";
     private static final String ACTION_BUBBLE_REDO = "BUBBLE_REDO";
+    private static final int WORKSPACE_HISTORY_MAX_INDEX = 9;
 
     private final ProjectWorkspaceRepository projectWorkspaceRepository;
     private final ProjectAccessService projectAccessService;
@@ -89,7 +91,8 @@ public class WorkspaceRealtimeService {
         JsonNode snapshot = bubbleSnapshotHelper.buildSnapshot(request);
         saveBubbleSnapshotToRedisOrThrow(projectId, snapshot, request.baseIndex());
 
-        broadcastBubbleSync(projectId, workspace, ACTION_BUBBLE_UPDATED, snapshot);
+        int targetIndex = resolveBubbleUpdateTargetIndex(request.baseIndex());
+        broadcastBubbleSync(projectId, workspace, ACTION_BUBBLE_UPDATED, snapshot, targetIndex);
         log.info("Bubble snapshot relayed via websocket. projectId={}", projectId);
     }
 
@@ -106,8 +109,9 @@ public class WorkspaceRealtimeService {
         projectAccessService.validateProjectOwnerOrThrow(workspace.getProject(), currentUserId);
         bubbleSnapshotHelper.validatePhaseOrThrow(workspace.getPhaseStatus());
 
+        int targetIndex = request.baseIndex() - 1;
         JsonNode undoSnapshot = loadUndoBubbleSnapshotOrThrow(projectId, request.baseIndex());
-        broadcastBubbleSync(projectId, workspace, ACTION_BUBBLE_UNDO, undoSnapshot);
+        broadcastBubbleSync(projectId, workspace, ACTION_BUBBLE_UNDO, undoSnapshot, targetIndex);
 
         log.info("Bubble undo relayed via websocket. projectId={}, currentIndex={}", projectId, request.baseIndex());
     }
@@ -125,8 +129,9 @@ public class WorkspaceRealtimeService {
         projectAccessService.validateProjectOwnerOrThrow(workspace.getProject(), currentUserId);
         bubbleSnapshotHelper.validatePhaseOrThrow(workspace.getPhaseStatus());
 
+        int targetIndex = request.baseIndex() + 1;
         JsonNode redoSnapshot = loadRedoBubbleSnapshotOrThrow(projectId, request.baseIndex());
-        broadcastBubbleSync(projectId, workspace, ACTION_BUBBLE_REDO, redoSnapshot);
+        broadcastBubbleSync(projectId, workspace, ACTION_BUBBLE_REDO, redoSnapshot, targetIndex);
 
         log.info("Bubble redo relayed via websocket. projectId={}, currentIndex={}", projectId, request.baseIndex());
     }
@@ -387,16 +392,36 @@ public class WorkspaceRealtimeService {
                 .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
     }
 
-    private void broadcastBubbleSync(UUID projectId, ProjectWorkspace workspace, String action, JsonNode bubbleSnapshotJson) {
+    private void broadcastBubbleSync(
+            UUID projectId,
+            ProjectWorkspace workspace,
+            String action,
+            JsonNode bubbleSnapshotJson,
+            int targetIndex
+    ) {
+        JsonNode payloadWithBaseIndex = appendBaseIndexToBubbleSnapshot(bubbleSnapshotJson, targetIndex);
         ProjectSyncResponse response = new ProjectSyncResponse(
                 action,
                 projectId,
                 workspace.getPhaseStatus(),
-                bubbleSnapshotJson,
+                payloadWithBaseIndex,
                 LocalDateTime.now()
         );
 
         simpMessagingTemplate.convertAndSend(PROJECT_SYNC_TOPIC_TEMPLATE.formatted(projectId), response);
+    }
+
+    private int resolveBubbleUpdateTargetIndex(int baseIndex) {
+        return Math.min(WORKSPACE_HISTORY_MAX_INDEX, baseIndex + 1);
+    }
+
+    private JsonNode appendBaseIndexToBubbleSnapshot(JsonNode bubbleSnapshotJson, int baseIndex) {
+        if (!(bubbleSnapshotJson instanceof ObjectNode bubbleSnapshotObject)) {
+            return bubbleSnapshotJson;
+        }
+        ObjectNode payload = bubbleSnapshotObject.deepCopy();
+        payload.put("baseIndex", baseIndex);
+        return payload;
     }
 
     private void validateRealtimePayloadOrThrow(BubbleUpdateRequest request) {
