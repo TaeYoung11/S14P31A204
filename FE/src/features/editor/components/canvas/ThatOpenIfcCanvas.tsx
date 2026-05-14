@@ -438,6 +438,34 @@ export default function ThatOpenIfcCanvas({
     }
     console.log(`${logPrefix}[${entry.seq}] ${event}`, { at: entry.at })
   }, [isIfcMoveDebugEnabled])
+  const resetIfcLocalRevisionState = useCallback((reason: string) => {
+    const movedProxyCount = movedIfcProxyRegistryRef.current.size
+    const pendingColorRootCount = pendingUnpersistedIfcColorByRootRef.current.size
+    const pendingSaveModelId = pendingIfcSaveModelIdRef.current
+    const pendingSaveReason = pendingIfcSaveReasonRef.current
+    const deferredSaveModelId = deferredSaveModelIdRef.current
+    movedIfcProxyRegistryRef.current.clear()
+    pendingUnpersistedIfcColorByRootRef.current.clear()
+    pendingIfcSaveModelIdRef.current = null
+    pendingIfcSaveReasonRef.current = null
+    deferredSaveModelIdRef.current = null
+    deferredSavePostponeCountRef.current = 0
+    deferredSaveScheduledAtRef.current = 0
+    ifcMoveDirtyRef.current = false
+    ifcMoveLifecycleRef.current = {
+      phase: 'idle',
+      targetKey: null,
+      lastError: null,
+    }
+    logIfcMove('revision_state_reset', {
+      reason,
+      movedProxyCount,
+      pendingColorRootCount,
+      pendingSaveModelId,
+      pendingSaveReason,
+      deferredSaveModelId,
+    })
+  }, [logIfcMove])
   const logTransformRuntimeAction = useCallback((payload: {
     [key: string]: unknown
     reason: string
@@ -4102,6 +4130,7 @@ export default function ThatOpenIfcCanvas({
         window.addEventListener('keydown', handleKeyDown, true)
 
         await fragments.core.update(true)
+        resetIfcLocalRevisionState('ifc_revision_load_success')
         // 최초 로드 시에는 고정 패딩으로 맞추고, 이후 줌 반영은 zoomScale effect에서 처리한다.
         fitObjectWithPadding(THREE, world.camera.three, world.camera.controls, fragmentModel.object, 1.55)
         // 파싱된 IFC 층 목록을 상위 컴포넌트로 전달한다.
@@ -4169,6 +4198,7 @@ export default function ThatOpenIfcCanvas({
     projectId,
     reapplyPendingUnpersistedIfcColors,
     rehideMovedIfcProxyRegistry,
+    resetIfcLocalRevisionState,
     resolveEditableIfcTargets,
     resolveLocalIdsFromItemIds,
     resolveTargetOwnerId,
