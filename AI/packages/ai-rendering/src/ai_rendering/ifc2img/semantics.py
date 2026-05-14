@@ -280,6 +280,10 @@ def select_ifc_color_summary_category_cues(
         )
         if cues:
             selected[category] = cues[0]
+        elif category_summary.color is not None:
+            cue = ifc_color_prompt_cue(category_summary.color)
+            if cue is not None:
+                selected[category] = cue
     return selected
 
 

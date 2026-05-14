@@ -9,7 +9,7 @@ preset resolver가 정한 옵션으로 스타일 이미지를 생성한 뒤 고�
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dataclass_replace
 from pathlib import Path
 from typing import Any, Literal, NotRequired, Protocol, TypedDict, cast
 
@@ -34,6 +34,8 @@ from .presets import list_presets, load_preset
 from .semantics import (
     IfcColorSummary,
     IfcSemanticSummary,
+    append_ifc_color_prompt_suffix,
+    build_ifc_color_prompt_suffix,
     extract_ifc_color_summary,
     extract_ifc_semantic_summary,
     is_reliable_main_door_candidate,
@@ -1005,6 +1007,7 @@ def run_ifc2img_photo_pipeline(
     *,
     preset: str = DEFAULT_PHOTO_PRESET,
     time_of_day: object | None = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY,
+    use_ifc_color_prompt_suffix: bool = False,
     debug_artifacts: bool = False,
     ifc_renderer_cls: type[_IFCRendererProtocol] | None = None,
     depth_style_renderer_cls: type[_DepthStyleRendererProtocol] | None = None,
@@ -1038,6 +1041,22 @@ def run_ifc2img_photo_pipeline(
     debug_geometry: Ifc2ImgDebugGeometry | None = None
     debug_manifest: dict[str, object] | None = None
     debug_color_summary: IfcColorSummary | None = None
+    if debug_artifacts or use_ifc_color_prompt_suffix:
+        try:
+            debug_color_summary = extract_ifc_color_summary(ifc_path)
+        except Exception as exc:  # pragma: no cover - error type varies by parser.
+            if use_ifc_color_prompt_suffix:
+                _logger.warning(
+                    "ifc2img_color_prompt_summary_failed",
+                    ifcPath=str(ifc_path),
+                    error=str(exc),
+                )
+            color_summary_error = str(exc)
+        else:
+            color_summary_error = None
+    else:
+        color_summary_error = None
+
     if debug_artifacts:
         debug_dir.mkdir(parents=True, exist_ok=True)
         debug_geometry = _load_debug_geometry(ifc_path)
@@ -1051,11 +1070,10 @@ def run_ifc2img_photo_pipeline(
         # The production semantic context is the source of truth; the debug manifest
         # only records a serializable snapshot for inspection.
         debug_manifest["ifcSemanticSummary"] = semantic_context.summary.to_dict()
-        try:
-            debug_color_summary = extract_ifc_color_summary(ifc_path)
+        if debug_color_summary is not None:
             debug_manifest["ifcColorSummary"] = debug_color_summary.to_dict()
-        except Exception as exc:  # pragma: no cover - error type varies by parser.
-            debug_manifest["ifcColorSummaryError"] = str(exc)
+        elif color_summary_error is not None:
+            debug_manifest["ifcColorSummaryError"] = color_summary_error
         debug_manifest["semanticGroundSelection"] = ground_selection.to_dict()
         debug_manifest["semanticFrontCameraSelection"] = front_camera_selection.to_dict()
 
@@ -1090,6 +1108,12 @@ def run_ifc2img_photo_pipeline(
         views=[view.value for view in depth_images],
     )
     params = load_preset(preset, preset_time_of_day)
+    if use_ifc_color_prompt_suffix and debug_color_summary is not None:
+        color_suffix = build_ifc_color_prompt_suffix(debug_color_summary)
+        params = dataclass_replace(
+            params,
+            prompt=append_ifc_color_prompt_suffix(params.prompt, color_suffix),
+        )
     outputs: list[Ifc2ImgPhotoViewResult] = []
     for public_view, internal_view in zip(public_views, internal_views, strict=True):
         depth = depth_images[internal_view]
