@@ -732,7 +732,7 @@ export function useEditorPage() {
       x: number
       y: number
       commentContent?: string
-      floorElevationMm?: number
+      floorElevationMm: number
       threeDPosition?: CommentPin3DCreatePosition
     }) => {
       if (!projectId) throw new Error('Missing project id')

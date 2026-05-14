@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bell, X, CheckCircle } from 'lucide-react'
 import {
@@ -25,6 +25,22 @@ const getNotificationBody = (notification: InvitationNotification) =>
     ? `${notification.inviterName}\uB2D8\uC774 '${notification.projectName}' \uD504\uB85C\uC81D\uD2B8\uC5D0 \uCD08\uB300\uD588\uC2B5\uB2C8\uB2E4.`
     : `'${notification.projectName}' \uD504\uB85C\uC81D\uD2B8\uC5D0 \uCD08\uB300\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`
 
+const mergeDisplayNotifications = (
+  current: InvitationNotification[],
+  incoming: InvitationNotification[],
+): InvitationNotification[] => {
+  const byId = new Map(current.map((notification) => [notification.notificationId, notification]))
+  incoming.forEach((notification) => {
+    const existing = byId.get(notification.notificationId)
+    byId.set(notification.notificationId, existing
+      ? { ...notification, isRead: existing.isRead || notification.isRead }
+      : notification)
+  })
+  return Array.from(byId.values()).sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  )
+}
+
 export function InviteNotificationModal({ isOpen, onClose }: InviteNotificationModalProps) {
   const navigate = useNavigate()
   const { data: notifications = EMPTY_INVITATION_NOTIFICATIONS, isLoading } = useInvitationNotifications(false, {
@@ -36,13 +52,31 @@ export function InviteNotificationModal({ isOpen, onClose }: InviteNotificationM
     isPending: isMarkingNotificationsRead,
   } = useMarkNotificationsRead()
   const requestedReadNotificationIdsRef = useRef<Set<string>>(new Set())
+  const [displayNotifications, setDisplayNotifications] = useState<InvitationNotification[]>([])
+
+  useEffect(() => {
+    if (isOpen) return undefined
+    const clearTimer = window.setTimeout(() => {
+      setDisplayNotifications([])
+      requestedReadNotificationIdsRef.current.clear()
+    }, 0)
+    return () => window.clearTimeout(clearTimer)
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen || notifications.length === 0) return undefined
+    const syncTimer = window.setTimeout(() => {
+      setDisplayNotifications((prev) => mergeDisplayNotifications(prev, notifications))
+    }, 0)
+    return () => window.clearTimeout(syncTimer)
+  }, [isOpen, notifications])
 
   const unreadNotificationIds = useMemo(
     () =>
-      notifications
+      displayNotifications
         .filter((notification) => !notification.isRead)
         .map((notification) => notification.notificationId),
-    [notifications],
+    [displayNotifications],
   )
 
   useEffect(() => {
@@ -57,12 +91,21 @@ export function InviteNotificationModal({ isOpen, onClose }: InviteNotificationM
       requestedReadNotificationIdsRef.current.add(notificationId)
     })
 
-    void markNotificationsReadAsync(unreadNotificationIdsToMark).catch((error) => {
-      unreadNotificationIdsToMark.forEach((notificationId) => {
-        requestedReadNotificationIdsRef.current.delete(notificationId)
+    void markNotificationsReadAsync(unreadNotificationIdsToMark)
+      .then(() => {
+        const readSet = new Set(unreadNotificationIdsToMark)
+        setDisplayNotifications((prev) =>
+          prev.map((notification) =>
+            readSet.has(notification.notificationId) ? { ...notification, isRead: true } : notification,
+          ),
+        )
       })
-      console.error('[invite-notification] Failed to mark notifications as read:', error)
-    })
+      .catch((error) => {
+        unreadNotificationIdsToMark.forEach((notificationId) => {
+          requestedReadNotificationIdsRef.current.delete(notificationId)
+        })
+        console.error('[invite-notification] Failed to mark notifications as read:', error)
+      })
   }, [isOpen, isLoading, isMarkingNotificationsRead, markNotificationsReadAsync, unreadNotificationIds])
 
   if (!isOpen) return null
@@ -70,6 +113,11 @@ export function InviteNotificationModal({ isOpen, onClose }: InviteNotificationM
   const handleNotificationClick = async (notificationId: string, projectId: string) => {
     try {
       await markAsRead.mutateAsync(notificationId)
+      setDisplayNotifications((prev) =>
+        prev.map((notification) =>
+          notification.notificationId === notificationId ? { ...notification, isRead: true } : notification,
+        ),
+      )
     } catch (error) {
       console.error('[invite-notification] Failed to mark notification as read:', error)
     } finally {
@@ -78,7 +126,7 @@ export function InviteNotificationModal({ isOpen, onClose }: InviteNotificationM
     }
   }
 
-  const unreadCount = notifications.filter((notification) => !notification.isRead).length
+  const unreadCount = displayNotifications.filter((notification) => !notification.isRead).length
 
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-end pt-16 pr-6">
@@ -104,17 +152,17 @@ export function InviteNotificationModal({ isOpen, onClose }: InviteNotificationM
         </div>
 
         <div className="max-h-[360px] overflow-y-auto">
-          {isLoading ? (
+          {isLoading && displayNotifications.length === 0 ? (
             <div className="flex justify-center py-10">
               <Spinner size="md" />
             </div>
-          ) : notifications.length === 0 ? (
+          ) : displayNotifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-[#ADB5BD]">
               <Bell size={32} className="mb-2 opacity-30" />
               <p className="text-sm font-medium">{INVITATION_EMPTY_MESSAGE}</p>
             </div>
           ) : (
-            notifications.map((notification) => (
+            displayNotifications.map((notification) => (
               <button
                 key={notification.notificationId}
                 onClick={() => void handleNotificationClick(notification.notificationId, notification.projectId)}

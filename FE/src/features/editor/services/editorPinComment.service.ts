@@ -83,16 +83,15 @@ interface ResolvePinResponse {
 
 const PAGE_SIZE = 50
 const DEFAULT_TARGET_ELEMENT_ID = 'floor-plan'
-const DEFAULT_2D_PIN_FLOOR_ELEVATION_MM = 0
 const DEFAULT_2D_PIN_CAMERA_HEIGHT_MM = 10_000
 
-const toWorldPositionRequest = (x: number, y: number, floorElevationMm = DEFAULT_2D_PIN_FLOOR_ELEVATION_MM) => ({
+const toWorldPositionRequest = (x: number, y: number, floorElevationMm: number) => ({
   x: Math.round(x * FLOOR_MM_PER_PX),
   y: Math.round(y * FLOOR_MM_PER_PX),
   z: floorElevationMm,
 })
 
-const toCameraPositionRequest = (x: number, y: number, floorElevationMm = DEFAULT_2D_PIN_FLOOR_ELEVATION_MM) => ({
+const toCameraPositionRequest = (x: number, y: number, floorElevationMm: number) => ({
   x: Math.round(x * FLOOR_MM_PER_PX),
   y: Math.round(y * FLOOR_MM_PER_PX),
   z: floorElevationMm + DEFAULT_2D_PIN_CAMERA_HEIGHT_MM,
@@ -178,8 +177,8 @@ export const editorPinCommentService = {
     projectId: string,
     x: number,
     y: number,
-    content?: string,
-    floorElevationMm = DEFAULT_2D_PIN_FLOOR_ELEVATION_MM,
+    content: string | undefined,
+    floorElevationMm: number,
     threeDPosition?: CommentPin3DCreatePosition,
   ): Promise<CreatePinResponse> => {
     const normalizedContent = content?.trim() || DEFAULT_PIN_CONTENT
