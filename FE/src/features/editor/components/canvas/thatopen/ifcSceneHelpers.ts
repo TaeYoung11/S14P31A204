@@ -1261,7 +1261,13 @@ export const attachIfcTransformProxy = async (
   visibleLocalId: number,
   hitItemId: number | undefined,
   element: IfcElementInfo,
+  options: {
+    deferVisibility?: boolean
+    deferTransformAttach?: boolean
+  } = {},
 ) => {
+  const deferVisibility = options.deferVisibility === true
+  const deferTransformAttach = options.deferTransformAttach === true
   const orderedLocalIds = Array.from(
     new Set<number>([
       ...(Number.isFinite(visibleLocalId) ? [visibleLocalId] : []),
@@ -1382,17 +1388,29 @@ export const attachIfcTransformProxy = async (
   traceIfcMoveVisibility('proxy_attach_hider_set_start', {
     modelId,
     hideLocalIds,
+    deferred: deferVisibility,
   })
-  await hider.set(false, {
-    [modelId]: new Set(hideLocalIds),
-  }).catch(() => undefined)
-  traceIfcMoveVisibility('proxy_attach_hider_set_done', {
-    modelId,
-    hideLocalIds,
-  })
+  if (deferVisibility) {
+    editable.visible = false
+    traceIfcMoveVisibility('proxy_attach_visibility_deferred', {
+      modelId,
+      hideLocalIds,
+    })
+  } else {
+    await hider.set(false, {
+      [modelId]: new Set(hideLocalIds),
+    }).catch(() => undefined)
+    traceIfcMoveVisibility('proxy_attach_hider_set_done', {
+      modelId,
+      hideLocalIds,
+    })
+  }
   setObjectOpacity(THREE, editable, 1)
-  transformControls.attach(editable)
-  transformControls.visible = true
-  transformControls.enabled = true
+  if (!deferTransformAttach) {
+    editable.visible = true
+    transformControls.attach(editable)
+    transformControls.visible = true
+    transformControls.enabled = true
+  }
   return editable
 }
