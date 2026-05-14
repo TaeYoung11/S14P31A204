@@ -36,6 +36,40 @@ class IfcElementMaskRenderResult:
     composite: Image.Image
 
 
+@dataclass(frozen=True)
+class IfcElementMeanColor:
+    category: IfcSemanticCategory
+    pixel_count: int
+    mean_rgb: tuple[float, float, float] | None
+
+
+@dataclass(frozen=True)
+class IfcElementColorDelta:
+    category: IfcSemanticCategory
+    pixel_count: int
+    mean_rgb: tuple[float, float, float] | None
+    target_rgb: tuple[float, float, float] | None
+    delta: float | None
+
+
+@dataclass(frozen=True)
+class IfcElementColorCorrectionCandidate:
+    category: IfcSemanticCategory
+    pixel_count: int
+    mean_rgb: tuple[float, float, float] | None
+    target_rgb: tuple[float, float, float] | None
+    delta: float
+
+
+COLOR_LOCK_MEASURE_CATEGORIES: tuple[IfcSemanticCategory, ...] = (
+    "ROOF",
+    "WALL",
+    "WINDOW",
+    "DOOR",
+)
+DEFAULT_COLOR_CORRECTION_DELTA_THRESHOLD = 0.18
+
+
 def render_ifc_element_masks(
     ifc_path: Path | str,
     *,
@@ -78,6 +112,158 @@ def render_ifc_element_masks(
         masks=masks,
         composite=Image.fromarray(composite_arr, mode="RGB"),
     )
+
+
+def measure_element_mask_mean_colors(
+    image: Image.Image,
+    element_masks: IfcElementMaskRenderResult,
+    *,
+    categories: tuple[IfcSemanticCategory, ...] = COLOR_LOCK_MEASURE_CATEGORIES,
+) -> dict[IfcSemanticCategory, IfcElementMeanColor]:
+    """Measure normalized mean RGB in final-photo regions selected by masks."""
+    image_rgb = image.convert("RGB")
+    image_arr = np.asarray(image_rgb, dtype=np.float32) / 255.0
+    measurements: dict[IfcSemanticCategory, IfcElementMeanColor] = {}
+
+    for category in categories:
+        mask = element_masks.masks.get(category)
+        if mask is None:
+            pixel_count = 0
+            mean_rgb = None
+        else:
+            if mask.size != image_rgb.size:
+                raise IFCRenderError(
+                    "element mask size does not match image size for "
+                    f"{category}: mask={mask.size}, image={image_rgb.size}"
+                )
+            mask_arr = np.asarray(mask.convert("L"), dtype=np.uint8) > 0
+            pixel_count = int(mask_arr.sum())
+            mean_rgb = (
+                None
+                if pixel_count == 0
+                else tuple(
+                    float(channel)
+                    for channel in image_arr[mask_arr].mean(axis=0)
+                )
+            )
+        measurements[category] = IfcElementMeanColor(
+            category=category,
+            pixel_count=pixel_count,
+            mean_rgb=mean_rgb,
+        )
+
+    return measurements
+
+
+def measure_ifc_color_target_deltas(
+    measurements: dict[IfcSemanticCategory, IfcElementMeanColor],
+    color_summary: IfcColorSummary,
+    *,
+    categories: tuple[IfcSemanticCategory, ...] = COLOR_LOCK_MEASURE_CATEGORIES,
+) -> dict[IfcSemanticCategory, IfcElementColorDelta]:
+    """Compare measured final-photo colors with representative IFC target RGB."""
+    deltas: dict[IfcSemanticCategory, IfcElementColorDelta] = {}
+
+    for category in categories:
+        measurement = measurements.get(category)
+        category_summary = color_summary.categories.get(category)
+        target_color = (
+            select_ifc_category_color_candidate(
+                category,
+                category_summary.candidates,
+            )
+            if category_summary is not None
+            else None
+        )
+        if (
+            target_color is None
+            and category_summary is not None
+            and category_summary.color is not None
+        ):
+            target_color = category_summary.color
+        mean_rgb = measurement.mean_rgb if measurement is not None else None
+        target_rgb = target_color.rgb if target_color is not None else None
+        delta = (
+            None
+            if mean_rgb is None or target_rgb is None
+            else _rgb_delta(mean_rgb, target_rgb)
+        )
+        deltas[category] = IfcElementColorDelta(
+            category=category,
+            pixel_count=measurement.pixel_count if measurement is not None else 0,
+            mean_rgb=mean_rgb,
+            target_rgb=target_rgb,
+            delta=delta,
+        )
+
+    return deltas
+
+
+def select_ifc_color_correction_candidates(
+    deltas: dict[IfcSemanticCategory, IfcElementColorDelta],
+    *,
+    delta_threshold: float = DEFAULT_COLOR_CORRECTION_DELTA_THRESHOLD,
+    categories: tuple[IfcSemanticCategory, ...] = COLOR_LOCK_MEASURE_CATEGORIES,
+) -> tuple[IfcElementColorCorrectionCandidate, ...]:
+    """Select categories whose final-photo colors differ enough from IFC targets."""
+    candidates: list[IfcElementColorCorrectionCandidate] = []
+    for category in categories:
+        color_delta = deltas.get(category)
+        if color_delta is None or color_delta.delta is None:
+            continue
+        if color_delta.delta <= delta_threshold:
+            continue
+        candidates.append(
+            IfcElementColorCorrectionCandidate(
+                category=category,
+                pixel_count=color_delta.pixel_count,
+                mean_rgb=color_delta.mean_rgb,
+                target_rgb=color_delta.target_rgb,
+                delta=color_delta.delta,
+            )
+        )
+    return tuple(
+        sorted(
+            candidates,
+            key=lambda candidate: candidate.delta,
+            reverse=True,
+        )
+    )
+
+
+def build_ifc_color_lock_artifact(
+    image: Image.Image,
+    element_masks: IfcElementMaskRenderResult,
+    candidates: tuple[IfcElementColorCorrectionCandidate, ...],
+    *,
+    strength: float,
+) -> Image.Image:
+    """Build an artifact-only color-lock preview without changing production output."""
+    if not 0.0 <= strength <= 1.0:
+        raise ValueError("strength must be between 0.0 and 1.0")
+    if strength == 0.0 or not candidates:
+        return image.convert("RGB")
+
+    image_rgb = image.convert("RGB")
+    output = np.asarray(image_rgb, dtype=np.float32)
+    for candidate in candidates:
+        if candidate.target_rgb is None:
+            continue
+        mask = element_masks.masks.get(candidate.category)
+        if mask is None:
+            continue
+        if mask.size != image_rgb.size:
+            raise IFCRenderError(
+                "element mask size does not match image size for "
+                f"{candidate.category}: mask={mask.size}, image={image_rgb.size}"
+            )
+        mask_arr = np.asarray(mask.convert("L"), dtype=np.uint8) > 0
+        if not mask_arr.any():
+            continue
+        target = np.asarray(candidate.target_rgb, dtype=np.float32) * 255.0
+        output[mask_arr] = output[mask_arr] * (1.0 - strength) + target * strength
+
+    return Image.fromarray(np.clip(np.round(output), 0, 255).astype(np.uint8), mode="RGB")
 
 
 def build_ifc_color_composite_from_element_masks(
@@ -188,6 +374,15 @@ def _category_color_or_fallback(
     raise ValueError(
         "missing_color_fallback must be one of: debug, neutral, none"
     )
+
+
+def _rgb_delta(
+    source_rgb: tuple[float, float, float],
+    target_rgb: tuple[float, float, float],
+) -> float:
+    source = np.asarray(source_rgb, dtype=np.float64)
+    target = np.asarray(target_rgb, dtype=np.float64)
+    return float(np.linalg.norm(source - target))
 
 
 def _mesh_from_parts(
