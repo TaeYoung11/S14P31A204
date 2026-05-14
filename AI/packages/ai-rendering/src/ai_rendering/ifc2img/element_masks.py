@@ -17,6 +17,7 @@ from .semantics import (
     IfcColorSummary,
     IfcSemanticCategory,
     SUPPORTED_SEMANTIC_CATEGORIES,
+    nearest_prompt_color_name,
     select_ifc_category_color_candidate,
 )
 from .semantics import _semantic_category_for_entity as semantic_category_for_entity
@@ -61,6 +62,57 @@ class IfcElementColorCorrectionCandidate:
     delta: float
 
 
+@dataclass(frozen=True)
+class IfcCategoryColorEvaluation:
+    category: IfcSemanticCategory
+    delta_to_target: float | None
+    pixel_count: int
+    pixel_coverage: float
+    measured_color_family: str | None
+    target_color_family: str | None
+    expected_color_families: tuple[str, ...]
+    family_pass: bool
+    delta_pass: bool
+
+
+@dataclass(frozen=True)
+class IfcColorEvaluationReport:
+    categories: dict[IfcSemanticCategory, IfcCategoryColorEvaluation]
+    shape_collapse_notes: str
+    background_regression_notes: str
+
+    @property
+    def color_family_pass(self) -> bool:
+        return all(
+            category.family_pass
+            for category in self.categories.values()
+        )
+
+    @property
+    def delta_pass(self) -> bool:
+        return all(
+            category.delta_pass
+            for category in self.categories.values()
+        )
+
+    @property
+    def shape_pass(self) -> bool:
+        return self.shape_collapse_notes == ""
+
+    @property
+    def background_pass(self) -> bool:
+        return self.background_regression_notes == ""
+
+    @property
+    def success(self) -> bool:
+        return (
+            self.color_family_pass
+            and self.delta_pass
+            and self.shape_pass
+            and self.background_pass
+        )
+
+
 COLOR_LOCK_MEASURE_CATEGORIES: tuple[IfcSemanticCategory, ...] = (
     "ROOF",
     "WALL",
@@ -68,6 +120,13 @@ COLOR_LOCK_MEASURE_CATEGORIES: tuple[IfcSemanticCategory, ...] = (
     "DOOR",
 )
 DEFAULT_COLOR_CORRECTION_DELTA_THRESHOLD = 0.18
+EXPECTED_IFC_COLOR_FAMILIES: dict[IfcSemanticCategory, tuple[str, ...]] = {
+    "FLOOR": (),
+    "ROOF": ("green",),
+    "WALL": ("gray", "white"),
+    "WINDOW": ("blue",),
+    "DOOR": ("tan", "brown"),
+}
 
 
 def render_ifc_element_masks(
@@ -264,6 +323,79 @@ def build_ifc_color_lock_artifact(
         output[mask_arr] = output[mask_arr] * (1.0 - strength) + target * strength
 
     return Image.fromarray(np.clip(np.round(output), 0, 255).astype(np.uint8), mode="RGB")
+
+
+def evaluate_ifc_quantitative_color(
+    deltas: dict[IfcSemanticCategory, IfcElementColorDelta],
+    *,
+    total_pixel_count: int,
+    delta_threshold: float = DEFAULT_COLOR_CORRECTION_DELTA_THRESHOLD,
+    shape_collapse_notes: str = "",
+    background_regression_notes: str = "",
+    categories: tuple[IfcSemanticCategory, ...] = COLOR_LOCK_MEASURE_CATEGORIES,
+) -> IfcColorEvaluationReport:
+    """Evaluate IFC color preservation with numeric and color-family criteria."""
+    if total_pixel_count <= 0:
+        raise ValueError("total_pixel_count must be greater than zero")
+
+    evaluations: dict[IfcSemanticCategory, IfcCategoryColorEvaluation] = {}
+    for category in categories:
+        color_delta = deltas.get(category)
+        pixel_count = color_delta.pixel_count if color_delta is not None else 0
+        measured_rgb = color_delta.mean_rgb if color_delta is not None else None
+        target_rgb = color_delta.target_rgb if color_delta is not None else None
+        measured_family = (
+            nearest_prompt_color_name(measured_rgb)
+            if measured_rgb is not None
+            else None
+        )
+        target_family = (
+            nearest_prompt_color_name(target_rgb)
+            if target_rgb is not None
+            else None
+        )
+        expected_families = EXPECTED_IFC_COLOR_FAMILIES[category]
+        delta = color_delta.delta if color_delta is not None else None
+        evaluations[category] = IfcCategoryColorEvaluation(
+            category=category,
+            delta_to_target=delta,
+            pixel_count=pixel_count,
+            pixel_coverage=pixel_count / total_pixel_count,
+            measured_color_family=measured_family,
+            target_color_family=target_family,
+            expected_color_families=expected_families,
+            family_pass=(
+                measured_family is not None
+                and measured_family in expected_families
+            ),
+            delta_pass=delta is not None and delta <= delta_threshold,
+        )
+
+    return IfcColorEvaluationReport(
+        categories=evaluations,
+        shape_collapse_notes=shape_collapse_notes,
+        background_regression_notes=background_regression_notes,
+    )
+
+
+def compare_ifc_color_family_consistency(
+    first: IfcColorEvaluationReport,
+    second: IfcColorEvaluationReport,
+    *,
+    categories: tuple[IfcSemanticCategory, ...] = COLOR_LOCK_MEASURE_CATEGORIES,
+) -> dict[IfcSemanticCategory, bool]:
+    """Compare whether two artifacts keep the same measured category color families."""
+    consistency: dict[IfcSemanticCategory, bool] = {}
+    for category in categories:
+        first_family = first.categories.get(category)
+        second_family = second.categories.get(category)
+        consistency[category] = (
+            first_family is not None
+            and second_family is not None
+            and first_family.measured_color_family is not None
+            and first_family.measured_color_family == second_family.measured_color_family
+        )
+    return consistency
 
 
 def build_ifc_color_composite_from_element_masks(
