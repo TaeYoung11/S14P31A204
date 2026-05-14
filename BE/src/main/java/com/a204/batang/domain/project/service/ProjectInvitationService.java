@@ -4,6 +4,7 @@ import com.a204.batang.domain.auth.entity.Member;
 import com.a204.batang.domain.auth.entity.UserStatus;
 import com.a204.batang.domain.auth.repository.MemberRepository;
 import com.a204.batang.domain.notification.entity.ProjectInvitationNotification;
+import com.a204.batang.domain.notification.event.ProjectInvitationNotificationCreatedEvent;
 import com.a204.batang.domain.notification.repository.ProjectInvitationNotificationRepository;
 import com.a204.batang.domain.project.dto.ProjectInvitationRequest;
 import com.a204.batang.domain.project.dto.ProjectInvitationResponse;
@@ -16,6 +17,7 @@ import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,6 +43,7 @@ public class ProjectInvitationService {
     private final MemberRepository memberRepository;
     private final ProjectInvitationNotificationRepository projectInvitationNotificationRepository;
     private final ProjectAccessService projectAccessService;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 프로젝트 owner가 가입된 사용자를 프로젝트 CLIENT 멤버로 즉시 등록한다.
@@ -64,7 +67,8 @@ public class ProjectInvitationService {
         validateInviteeOrThrow(project, currentUserId, invitee);
         Member inviter = findInviterOrThrow(currentUserId);
         saveProjectMember(project, invitee);
-        saveProjectInvitationNotification(project, inviter, invitee);
+        ProjectInvitationNotification notification = saveProjectInvitationNotification(project, inviter, invitee);
+        eventPublisher.publishEvent(ProjectInvitationNotificationCreatedEvent.from(notification));
 
         log.info("프로젝트 멤버 초대 완료. projectId={}, inviteeUserId={}", project.getProjectId(), invitee.getUserId());
         return ProjectInvitationResponse.from(project, invitee, INVITED_MEMBER_ROLE);
@@ -151,7 +155,7 @@ public class ProjectInvitationService {
      * @param inviter 초대한 사용자
      * @param invitee 초대 대상 사용자
      */
-    private void saveProjectInvitationNotification(Project project, Member inviter, Member invitee) {
+    private ProjectInvitationNotification saveProjectInvitationNotification(Project project, Member inviter, Member invitee) {
         ProjectInvitationNotification notification = ProjectInvitationNotification.create(
                 invitee.getUserId(),
                 inviter.getUserId(),
@@ -159,6 +163,6 @@ public class ProjectInvitationService {
                 project.getName(),
                 inviter.getName()
         );
-        projectInvitationNotificationRepository.save(notification);
+        return projectInvitationNotificationRepository.save(notification);
     }
 }
