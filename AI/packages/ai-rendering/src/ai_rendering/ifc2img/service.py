@@ -86,12 +86,66 @@ DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR = (
 DEFAULT_PHOTO_ITER_TOLERANCE = PHOTO_DEPTH_RENDER_DEFAULTS.iter_tolerance
 DEFAULT_PHOTO_LOOK_AT_HEIGHT_RATIO = PHOTO_DEPTH_RENDER_DEFAULTS.look_at_height_ratio
 PhotoViewAlias = Literal["front_diagonal_left", "front_diagonal_right"]
+IfcColorControlInputMode = Literal[
+    "default",
+    "color_prompt",
+    "color_composite_probe",
+    "hybrid_color",
+]
+IfcColorMode = Literal["none", "prompt", "composite", "hybrid"]
 Ifc2ImgWorkerStatus = Literal["SUCCESS", "ERROR"]
 Ifc2ImgWorkerCommandType = Literal["SD_RENDER_GENERATE"]
 Ifc2ImgWorkerRenderMode = Literal["ifc2img"]
 Ifc2ImgWorkerTimeOfDay = Literal["DAY", "NIGHT"]
 Ifc2ImgPresetTimeOfDay = Literal["day", "night"]
 DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY: Ifc2ImgWorkerTimeOfDay = "DAY"
+
+
+@dataclass(frozen=True)
+class IfcColorControlInputPlan:
+    """Candidate input switches for IFC color preservation experiments."""
+
+    mode: IfcColorControlInputMode
+    use_depth_control: bool
+    use_prompt_color_injection: bool
+    use_ifc_color_composite: bool
+
+
+IFC_COLOR_CONTROL_INPUT_PLANS: dict[
+    IfcColorControlInputMode,
+    IfcColorControlInputPlan,
+] = {
+    "default": IfcColorControlInputPlan(
+        mode="default",
+        use_depth_control=True,
+        use_prompt_color_injection=False,
+        use_ifc_color_composite=False,
+    ),
+    "color_prompt": IfcColorControlInputPlan(
+        mode="color_prompt",
+        use_depth_control=True,
+        use_prompt_color_injection=True,
+        use_ifc_color_composite=False,
+    ),
+    "color_composite_probe": IfcColorControlInputPlan(
+        mode="color_composite_probe",
+        use_depth_control=True,
+        use_prompt_color_injection=False,
+        use_ifc_color_composite=True,
+    ),
+    "hybrid_color": IfcColorControlInputPlan(
+        mode="hybrid_color",
+        use_depth_control=True,
+        use_prompt_color_injection=True,
+        use_ifc_color_composite=True,
+    ),
+}
+IFC_COLOR_MODE_TO_CONTROL_INPUT_MODE: dict[IfcColorMode, IfcColorControlInputMode] = {
+    "none": "default",
+    "prompt": "color_prompt",
+    "composite": "color_composite_probe",
+    "hybrid": "hybrid_color",
+}
 PUBLIC_PHOTO_VIEWS: tuple[PhotoViewAlias, ...] = (
     "front_diagonal_left",
     "front_diagonal_right",
@@ -105,6 +159,36 @@ PHOTO_VIEW_TO_EXPECTED_OUTPUT_FIELD: dict[PhotoViewAlias, str] = {
     "front_diagonal_right": "renderPhotoFrontDiagonalRightStorageUrl",
 }
 PHOTO_INTERNAL_VIEWS = tuple(PUBLIC_TO_INTERNAL_VIEW[view] for view in PUBLIC_PHOTO_VIEWS)
+
+
+def resolve_ifc_color_control_input_plan(
+    mode: str = "default",
+) -> IfcColorControlInputPlan:
+    """Resolve an IFC color experiment mode to explicit input switches."""
+    plan = IFC_COLOR_CONTROL_INPUT_PLANS.get(cast(IfcColorControlInputMode, mode))
+    if plan is None:
+        expected = ", ".join(IFC_COLOR_CONTROL_INPUT_PLANS)
+        raise IFCRenderError(
+            f"unsupported IFC color control input mode: {mode!r}. "
+            f"Expected one of: {expected}"
+        )
+    return plan
+
+
+def resolve_ifc_color_mode_input_plan(
+    ifc_color_mode: str = "none",
+) -> IfcColorControlInputPlan:
+    """Resolve public IFC color opt-in mode to candidate input switches."""
+    input_mode = IFC_COLOR_MODE_TO_CONTROL_INPUT_MODE.get(
+        cast(IfcColorMode, ifc_color_mode)
+    )
+    if input_mode is None:
+        expected = ", ".join(IFC_COLOR_MODE_TO_CONTROL_INPUT_MODE)
+        raise IFCRenderError(
+            f"unsupported ifc_color_mode: {ifc_color_mode!r}. "
+            f"Expected one of: {expected}"
+        )
+    return resolve_ifc_color_control_input_plan(input_mode)
 
 
 def normalize_ifc2img_time_of_day(
