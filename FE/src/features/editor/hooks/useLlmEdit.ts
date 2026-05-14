@@ -47,8 +47,8 @@ const isSuccessfulJobStatus = (status: string): boolean => {
   return normalized === 'SUCCESS' || normalized === 'SUCCEEDED' || normalized === 'COMPLETED'
 }
 
-const isClarificationJobStatus = (status: string): boolean =>
-  status.toUpperCase() === 'NEEDS_CLARIFICATION'
+const isClarificationJobStatus = (status: string, clarificationPossible: boolean | null | undefined): boolean =>
+  !isSuccessfulJobStatus(status) && clarificationPossible === true
 
 const resolveJobErrorMessage = (job: JobStatusResponseDto): string => (
   job.error?.errorMessage
@@ -198,7 +198,7 @@ export function useLlmEdit({
       const completedJob = await waitForTerminalJob(job.jobId, currentSeq)
       if (!completedJob || currentSeq !== requestSeq.current) return
 
-      if (isClarificationJobStatus(completedJob.status)) {
+      if (isClarificationJobStatus(completedJob.status, completedJob.error?.clarificationPossible)) {
         const detailUrl = completedJob.error?.detailStorageUrl
         if (detailUrl) {
           try {
