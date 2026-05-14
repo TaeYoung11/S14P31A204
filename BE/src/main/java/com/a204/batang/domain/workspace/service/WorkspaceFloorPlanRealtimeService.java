@@ -7,9 +7,12 @@ import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanRedoRequest;
+import com.a204.batang.domain.workspace.dto.FloorPlanSceneType;
 import com.a204.batang.domain.workspace.dto.FloorPlanUndoRequest;
 import com.a204.batang.domain.workspace.dto.PublishFloorPlanUpdatedRequest;
 import com.a204.batang.domain.workspace.dto.WorkspaceCommand;
+import com.a204.batang.domain.workspace.dto.WorkspaceCommandEnvelope;
+import com.a204.batang.domain.workspace.dto.WorkspaceCommandMeta;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
 import com.a204.batang.domain.workspace.repository.WorkspaceBubbleSnapshotRedisRepository;
@@ -30,6 +33,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -60,6 +65,7 @@ public class WorkspaceFloorPlanRealtimeService {
     private final WorkspaceBubbleSnapshotRedisRepository workspaceBubbleSnapshotRedisRepository;
     private final FloorPlanS3DeleteQueueService floorPlanS3DeleteQueueService;
     private final DirectIfcEditCommandService directIfcEditCommandService;
+    private final FloorPlanIfcEditEngineRequestMapper engineRequestMapper;
     private final S3ObjectPresigner s3ObjectPresigner;
     private final SimpMessagingTemplate simpMessagingTemplate;
     private final ObjectMapper objectMapper;
@@ -84,14 +90,16 @@ public class WorkspaceFloorPlanRealtimeService {
 
         String resolvedRevisionId = resolveRevisionId(request.revisionId(), workspace.getCurrentRevision());
         JsonNode syncPayload = buildSyncPayload(request, resolvedRevisionId);
-        boolean queued = requestPythonRenderAsync(
+        FloorPlanIfcEditQueueResult queueResult = requestPythonRenderAsync(
                 projectId,
                 currentUserId,
                 resolvedRevisionId,
+                request.baseIndex(),
+                request.sceneType(),
                 request.workspaceCommand(),
                 syncPayload
         );
-        if (!queued) {
+        if (queueResult == FloorPlanIfcEditQueueResult.CONFLICT) {
             log.debug(
                     "Skip floor-plan realtime enqueue because IFC edit job is already active. projectId={}, revisionId={}",
                     projectId,
@@ -103,13 +111,14 @@ public class WorkspaceFloorPlanRealtimeService {
         broadcastFloorPlanSync(
                 projectId,
                 workspace,
-                ACTION_FLOOR_PLAN_PROCESSING,
+                queueResult == FloorPlanIfcEditQueueResult.QUEUED ? ACTION_FLOOR_PLAN_PROCESSING : ACTION_FLOOR_PLAN_UPDATED,
                 resolvedRevisionId,
                 syncPayload,
                 null
         );
 
-        log.info("Floor-plan processing event relayed. projectId={}, revisionId={}", projectId, resolvedRevisionId);
+        log.info("Floor-plan realtime event relayed. projectId={}, revisionId={}, queueResult={}",
+                projectId, resolvedRevisionId, queueResult);
     }
 
     /**
@@ -472,33 +481,95 @@ public class WorkspaceFloorPlanRealtimeService {
      * @param sourceScenePayload floor-plan source scene payload
      * @return 작업이 큐에 정상 등록되면 true, 충돌로 스킵되면 false
      */
-    private boolean requestPythonRenderAsync(
+    private FloorPlanIfcEditQueueResult requestPythonRenderAsync(
             UUID projectId,
             UUID currentUserId,
             String revisionId,
+            Integer baseIndex,
+            FloorPlanSceneType sceneType,
             WorkspaceCommand workspaceCommand,
             JsonNode sourceScenePayload
     ) {
         UUID baseRevisionId = parseRevisionIdOrThrow(revisionId);
+        String requestId = "floor-plan-realtime-" + UUID.randomUUID();
+        JsonNode engineRequest = engineRequestMapper.toEngineRequest(
+                requestId,
+                projectId,
+                baseRevisionId,
+                List.of(toWorkspaceCommandEnvelope(
+                        requestId,
+                        projectId,
+                        baseRevisionId,
+                        baseIndex,
+                        sceneType,
+                        currentUserId,
+                        workspaceCommand
+                ))
+        );
+        JsonNode operations = engineRequest.get("operations");
+        if (operations == null || !operations.isArray() || operations.isEmpty()) {
+            log.info(
+                    "Skip floor-plan realtime IFC edit enqueue because mapped operations are empty. projectId={}, baseRevisionId={}, op={}, entity={}",
+                    projectId,
+                    baseRevisionId,
+                    workspaceCommand.op(),
+                    workspaceCommand.entity()
+            );
+            return FloorPlanIfcEditQueueResult.SKIPPED_EMPTY_OPERATIONS;
+        }
+
         DirectIfcEditRequest directRequest = new DirectIfcEditRequest(
                 DIRECT_IFC_SCHEMA_VERSION,
                 UUID.randomUUID(),
                 baseRevisionId,
                 null,
                 IfcEditConstants.SCENE_TYPE_IFC_MODEL,
-                workspaceCommand
+                new WorkspaceCommand(
+                        "create",
+                        "ifcBatch",
+                        requestId,
+                        engineRequest,
+                        null,
+                        System.currentTimeMillis()
+                )
         );
         try {
             directIfcEditCommandService.createDirectIfcEdit(projectId, currentUserId, directRequest, sourceScenePayload);
             log.info("Workspace floor-plan realtime request routed to DirectIfcEditCommandService. projectId={}, baseRevisionId={}",
                     projectId, baseRevisionId);
-            return true;
+            return FloorPlanIfcEditQueueResult.QUEUED;
         } catch (CustomException exception) {
             if (exception.getErrorCode() == ErrorCode.IFC_EDIT_JOB_CONFLICT) {
-                return false;
+                return FloorPlanIfcEditQueueResult.CONFLICT;
             }
             throw exception;
         }
+    }
+
+    private WorkspaceCommandEnvelope toWorkspaceCommandEnvelope(
+            String requestId,
+            UUID projectId,
+            UUID baseRevisionId,
+            Integer baseIndex,
+            FloorPlanSceneType sceneType,
+            UUID currentUserId,
+            WorkspaceCommand workspaceCommand
+    ) {
+        return new WorkspaceCommandEnvelope(
+                "command",
+                "v1",
+                UUID.randomUUID(),
+                projectId,
+                baseRevisionId,
+                baseIndex == null ? -1 : baseIndex,
+                workspaceCommand,
+                new WorkspaceCommandMeta(
+                        sceneType == FloorPlanSceneType.THREE_D ? "3d" : "2d",
+                        requestId,
+                        currentUserId == null ? null : currentUserId.toString(),
+                        OffsetDateTime.now(ZoneOffset.UTC).toString()
+                )
+        );
     }
 
     private UUID parseRevisionIdOrThrow(String revisionId) {
@@ -947,6 +1018,12 @@ public class WorkspaceFloorPlanRealtimeService {
             return null;
         }
         return normalized;
+    }
+
+    private enum FloorPlanIfcEditQueueResult {
+        QUEUED,
+        SKIPPED_EMPTY_OPERATIONS,
+        CONFLICT
     }
 
     private record FloorPlanHistorySnapshot(String revisionId, JsonNode floorPlanPayloadJson, String s3Url) {

@@ -88,6 +88,7 @@ public class ThreeDLlmIfcEditCommandService {
         JsonNode inputPayload = objectMapper.valueToTree(inputMap);
 
         Map<String, Object> payloadMap = new LinkedHashMap<>();
+        payloadMap.put("schema_version", "v1");
         if (request.userInstruction() != null) payloadMap.put("user_instruction", request.userInstruction());
         if (request.sourceSceneStorageUrl() != null) payloadMap.put("source_scene_storage_url", request.sourceSceneStorageUrl());
         if (request.sourceScene() != null) payloadMap.put("source_scene", request.sourceScene());
@@ -96,6 +97,7 @@ public class ThreeDLlmIfcEditCommandService {
         JsonNode requestPayload = objectMapper.valueToTree(payloadMap);
 
         Map<String, Object> workerPayloadMap = new LinkedHashMap<>();
+        workerPayloadMap.put("schema_version", "v1");
         if (request.userInstruction() != null) {
             workerPayloadMap.put("userInstruction", request.userInstruction());
         }

@@ -90,6 +90,7 @@ public class TwoDLlmIfcEditCommandService {
 
         // 2D LLM worker에 전달할 payload
         Map<String, Object> payloadMap = new LinkedHashMap<>();
+        payloadMap.put("schema_version", "v1");
         if (request.userInstruction() != null) payloadMap.put("user_instruction", request.userInstruction());
         if (request.sourceSceneStorageUrl() != null) payloadMap.put("source_scene_storage_url", request.sourceSceneStorageUrl());
         if (request.sourceScene() != null) payloadMap.put("source_scene", request.sourceScene());
