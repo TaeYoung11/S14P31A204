@@ -8,7 +8,11 @@ import pytest
 
 import ai_planning_2d
 import ai_planning_2d.worker as worker_module
-from ai_common.storage.paths import planner_2d_command_key, preview_result_key
+from ai_common.storage.paths import (
+    clarification_detail_key,
+    planner_2d_command_key,
+    preview_result_key,
+)
 from ai_common.adapters.rabbitmq.consumer import RabbitMQConsumer
 from ai_common.adapters.rabbitmq.kombu_client import get_command_queue
 from ai_common.errors import ClarificationRequiredError, NonRetryableWorkerError
@@ -16,6 +20,7 @@ from ai_common.worker_sdk.base_worker import EventPublisher
 from ai_domain import CommandMessage
 from ai_domain.worker_messages.event import EventMessage
 from ai_planning_2d.ifc_extractor import UnsupportedIfcLengthUnitError, UnsupportedIfcSchemaError
+from ai_planning_2d.schemas import ClarificationArtifact
 from ai_planning_2d.worker import TwoDLlmWorker, run_two_d_llm_job
 from ai_planning_2d.worker_app import WORKER_TYPE, build_settings, run_two_d_llm_worker
 
@@ -601,6 +606,191 @@ def test_two_d_llm_worker_emits_clarification_with_job_step_id(
 
     assert result.status == "clarification_required"
     assert publisher.events[1].clarificationRequestId == "2d-job-step-2d-worker-001"
+
+
+def _clarification_preview(
+    status: str = "alternatives",
+    alternatives: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    """clarification preview dict 픽스처."""
+    return {
+        "status": status,
+        "summary": "어느 층 거실을 삭제할까요?",
+        "command": {
+            "action": "remove_room",
+            "target_room_name": "거실",
+            "confidence": 0.6,
+        },
+        "command_batch": {"commands": [], "requires_clarification": True},
+        "alternatives": alternatives if alternatives is not None else [
+            {
+                "alternative_id": "remove-living-1f",
+                "title": "1층 거실 삭제",
+                "description": "1층 거실을 삭제합니다.",
+                "fill": {"target_floor": 1, "target_room_name": "거실"},
+                "affected_entities": [],
+                "warnings": [],
+                "metrics": [],
+            },
+            {
+                "alternative_id": "remove-living-2f",
+                "title": "2층 거실 삭제",
+                "description": "2층 거실을 삭제합니다.",
+                "fill": {"target_floor": 2, "target_room_name": "거실"},
+                "affected_entities": [],
+                "warnings": [],
+                "metrics": [],
+            },
+        ],
+    }
+
+
+def test_two_d_llm_worker_clarification_uploads_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """clarification 시 MinIO에 detail.v1.json이 업로드되어야 한다."""
+    storage = FakeStorageClient()
+    storage.read_map["s3://batang-artifacts/input/house.ifc"] = b"ISO-10303-21;source-ifc"
+    worker = TwoDLlmWorker(
+        worker_id="2d-llm-worker-1",
+        event_publisher=InMemoryPublisher(),
+        s3_client=storage,
+    )
+
+    async def _fake_run_pipeline(
+        *,
+        clarification_request_id: str,
+        **_: object,
+    ) -> dict[str, object]:
+        raise ClarificationRequiredError(
+            code="CLARIFICATION_REQUIRED",
+            message="어느 층 거실을 삭제할까요?",
+            clarification_request_id=clarification_request_id,
+            preview_data=_clarification_preview(),
+        )
+
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
+
+    result = worker.handle(_command())
+
+    assert result.status == "clarification_required"
+    expected_key = clarification_detail_key("project-alpha", "job-2d-worker-001", 1)
+    expected_url = f"s3://batang-artifacts/{expected_key}"
+    assert expected_url in storage.writes
+
+
+def test_two_d_llm_worker_clarification_event_has_detail_storage_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """clarification 이벤트의 error.detailStorageUrl이 MinIO URL이어야 한다."""
+    storage = FakeStorageClient()
+    storage.read_map["s3://batang-artifacts/input/house.ifc"] = b"ISO-10303-21;source-ifc"
+    publisher = InMemoryPublisher()
+    worker = TwoDLlmWorker(
+        worker_id="2d-llm-worker-1",
+        event_publisher=publisher,
+        s3_client=storage,
+    )
+
+    async def _fake_run_pipeline(
+        *,
+        clarification_request_id: str,
+        **_: object,
+    ) -> dict[str, object]:
+        raise ClarificationRequiredError(
+            code="CLARIFICATION_REQUIRED",
+            message="어느 층 거실을 삭제할까요?",
+            clarification_request_id=clarification_request_id,
+            preview_data=_clarification_preview(),
+        )
+
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
+
+    worker.handle(_command())
+
+    clarification_event = publisher.events[1]
+    assert clarification_event.status == "clarification_required"
+    assert clarification_event.error is not None
+    assert clarification_event.error.detailStorageUrl is not None
+    expected_key = clarification_detail_key("project-alpha", "job-2d-worker-001", 1)
+    assert clarification_event.error.detailStorageUrl == f"s3://batang-artifacts/{expected_key}"
+
+
+def test_two_d_llm_worker_clarification_artifact_structure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """업로드된 아티팩트 JSON이 ClarificationArtifact 스키마를 준수해야 한다."""
+    storage = FakeStorageClient()
+    storage.read_map["s3://batang-artifacts/input/house.ifc"] = b"ISO-10303-21;source-ifc"
+    worker = TwoDLlmWorker(
+        worker_id="2d-llm-worker-1",
+        event_publisher=InMemoryPublisher(),
+        s3_client=storage,
+    )
+
+    async def _fake_run_pipeline(
+        *,
+        clarification_request_id: str,
+        **_: object,
+    ) -> dict[str, object]:
+        raise ClarificationRequiredError(
+            code="CLARIFICATION_REQUIRED",
+            message="어느 층 거실을 삭제할까요?",
+            clarification_request_id=clarification_request_id,
+            preview_data=_clarification_preview(),
+        )
+
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
+
+    worker.handle(_command())
+
+    expected_key = clarification_detail_key("project-alpha", "job-2d-worker-001", 1)
+    raw = storage.writes[f"s3://batang-artifacts/{expected_key}"]
+    payload = json.loads(raw)
+
+    artifact = ClarificationArtifact.model_validate(payload)
+    assert artifact.schema_version == "v1"
+    assert artifact.kind == "alternatives"
+    assert artifact.question == "어느 층 거실을 삭제할까요?"
+    assert len(artifact.alternatives) == 2
+    assert artifact.alternatives[0].fill == {"target_floor": 1, "target_room_name": "거실"}
+    assert artifact.job_id == "job-2d-worker-001"
+    assert artifact.step_no == 1
+
+
+def test_two_d_llm_worker_needs_clarification_kind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """status=needs_clarification(alternatives 없음)일 때 kind=needs_clarification이어야 한다."""
+    storage = FakeStorageClient()
+    storage.read_map["s3://batang-artifacts/input/house.ifc"] = b"ISO-10303-21;source-ifc"
+    worker = TwoDLlmWorker(
+        worker_id="2d-llm-worker-1",
+        event_publisher=InMemoryPublisher(),
+        s3_client=storage,
+    )
+
+    async def _fake_run_pipeline(
+        *,
+        clarification_request_id: str,
+        **_: object,
+    ) -> dict[str, object]:
+        raise ClarificationRequiredError(
+            code="CLARIFICATION_REQUIRED",
+            message="어느 층 거실을 삭제할까요?",
+            clarification_request_id=clarification_request_id,
+            preview_data=_clarification_preview(status="needs_clarification", alternatives=[]),
+        )
+
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
+
+    worker.handle(_command())
+
+    expected_key = clarification_detail_key("project-alpha", "job-2d-worker-001", 1)
+    raw = storage.writes[f"s3://batang-artifacts/{expected_key}"]
+    payload = json.loads(raw)
+    assert payload["kind"] == "needs_clarification"
+    assert payload["alternatives"] == []
 
 
 def test_two_d_llm_worker_preview_rejected_maps_failed(monkeypatch: pytest.MonkeyPatch) -> None:
