@@ -466,6 +466,8 @@ export function mapFloorProjectToLayers(project: FloorProject, options: MapperOp
       const floor = floorById.get(floorId)
       return {
         id: `floor-${floor?.number ?? floorId}`,
+        storeyGlobalId: floorId,
+        storeyName: floor?.name,
         name: floor?.name ?? `${floorId} 평면도`,
         rooms,
       }
@@ -508,6 +510,7 @@ export function mapFloorProjectToWalls(project: FloorProject, options: MapperOpt
       id: wall.id,
       globalId: wall.id,
       storeyGlobalId: wall.floor,
+      storeyName: project.floors.find((floor) => floor.id === wall.floor)?.name,
       sourceIfcClass: wall.ifc_class,
       start: { x: wall.start.x * scale + offsetX, y: wall.start.y * scale + offsetY },
       end: { x: wall.end.x * scale + offsetX, y: wall.end.y * scale + offsetY },
@@ -528,6 +531,7 @@ export function mapFloorProjectToWalls(project: FloorProject, options: MapperOpt
 export function mapFloorProjectToOpenings(project: FloorProject): FloorOpening[] {
   if (!project.openings || project.openings.length === 0) return []
   const wallById = new Map((project.walls ?? []).map((wall) => [wall.id, wall]))
+  const floorById = new Map(project.floors.map((floor) => [floor.id, floor]))
   return project.openings.map((opening) => {
     const hostWall = wallById.get(opening.wall_id)
     return {
@@ -535,6 +539,7 @@ export function mapFloorProjectToOpenings(project: FloorProject): FloorOpening[]
       globalId: opening.id,
       hostWallGlobalId: opening.wall_id,
       storeyGlobalId: opening.floor,
+      storeyName: floorById.get(opening.floor)?.name,
       sourceIfcClass: opening.ifc_class,
       type: opening.type,
       wallId: opening.wall_id,

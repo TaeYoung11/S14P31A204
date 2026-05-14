@@ -199,6 +199,8 @@ export interface FloorRoomTransform2D {
 export interface FloorLayer {
   id: string
   name: string
+  storeyGlobalId?: string
+  storeyName?: string
   rooms: FloorRoom[]
 }
 
@@ -215,6 +217,7 @@ export interface FloorWall {
   id: string
   globalId?: string
   storeyGlobalId?: string
+  storeyName?: string
   sourceIfcClass?: 'IfcWall' | 'IfcWallStandardCase'
   start: Point2D
   end: Point2D
@@ -232,6 +235,7 @@ export interface FloorOpening {
   globalId?: string
   hostWallGlobalId?: string
   storeyGlobalId?: string
+  storeyName?: string
   sourceIfcClass?: 'IfcDoor' | 'IfcWindow'
   type: FloorOpeningType
   wallId: string
