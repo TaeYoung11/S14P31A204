@@ -2,82 +2,21 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://a204.batang/shared/schemas/two_d_llm_generate.payload.schema.json",
   "title": "TwoDLlmGeneratePayload",
-  "description": "Payload for TWO_D_LLM_GENERATE worker command.",
+  "description": "TWO_D_LLM 워커 커맨드 페이로드. 사용자 지시만 담당하며, IFC URL은 CommandMessage 레벨에서 별도 전달된다.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "user_instruction"],
+  "required": ["user_instruction"],
   "properties": {
-    "schema_version": {
-      "const": "v1"
-    },
     "user_instruction": {
       "type": "string",
       "minLength": 1,
       "maxLength": 4000
     },
     "source_scene_storage_url": {
+      "description": "deprecated: 워커가 무시함. BE 하위 호환을 위해 optional로 허용.",
       "type": "string",
       "minLength": 1,
       "maxLength": 2048
-    },
-    "source_scene": {
-      "$ref": "https://a204.batang/shared/schemas/scene_2d_snapshot_v1.schema.json"
-    },
-    "conversation_history": {
-      "type": "array",
-      "maxItems": 20,
-      "items": {
-        "$ref": "#/$defs/chatMessage"
-      }
-    },
-    "planner_options": {
-      "$ref": "#/$defs/plannerOptions"
-    }
-  },
-  "oneOf": [
-    {
-      "required": ["source_scene_storage_url"]
-    },
-    {
-      "required": ["source_scene"]
-    }
-  ],
-  "$defs": {
-    "chatMessage": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["role", "content"],
-      "properties": {
-        "role": {
-          "type": "string",
-          "enum": ["system", "user", "assistant"]
-        },
-        "content": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4000
-        }
-      }
-    },
-    "plannerOptions": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "allow_create": {
-          "type": "boolean"
-        },
-        "allow_delete": {
-          "type": "boolean"
-        },
-        "allow_modify": {
-          "type": "boolean"
-        },
-        "max_commands": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 20
-        }
-      }
     }
   }
 }

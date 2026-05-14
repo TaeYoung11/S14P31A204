@@ -737,9 +737,11 @@
             "update_space",
             "delete_space",
             "create_element",
+            "create_wall",
             "update_element_properties",
             "transform_elements",
-            "delete_elements"
+            "delete_elements",
+            "delete_wall_void"
           ]
         },
         "selector": {
