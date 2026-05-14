@@ -88,6 +88,7 @@ export interface EditorRightPanelsProps {
   onSelectRoom?: (id: string) => void
   onToggleLayerOverlayMode?: () => void
   onToggleOverlayLayer?: (layerId: string) => void
+  onSelectSingleOverlayLayer?: (layerId: string) => void
   onChangeOverlayLayerOpacity?: (layerId: string, opacity: number) => void
   onOpenZoningModal: () => void
   onOpenEditZoningModal: (zone: ZoneData) => void

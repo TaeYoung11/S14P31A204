@@ -56,6 +56,7 @@ interface PanelFrameProps {
   offset: PanelOffset
   width: number
   height?: number
+  fillHeight?: boolean
   zIndex?: number
   theme?: 'light' | 'dark'
   onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLElement>) => void
@@ -74,6 +75,7 @@ export function PanelFrame({
   offset,
   width,
   height,
+  fillHeight = false,
   zIndex = 10,
   theme = 'light',
   onDragStart,
@@ -112,8 +114,8 @@ export function PanelFrame({
       style={{
         transform: `translate(${offset.x}px, ${offset.y}px)`,
         width: isOpen ? width : COLLAPSED_SIZE,
-        height: isOpen ? height : COLLAPSED_SIZE,
-        maxHeight: isOpen ? 'calc(100vh - 180px)' : COLLAPSED_SIZE,
+        height: isOpen ? (fillHeight ? '100%' : height) : COLLAPSED_SIZE,
+        maxHeight: isOpen ? (fillHeight ? '100%' : 'calc(100vh - 180px)') : COLLAPSED_SIZE,
         zIndex,
       }}
     >

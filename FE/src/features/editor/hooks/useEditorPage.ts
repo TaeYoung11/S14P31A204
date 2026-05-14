@@ -2085,19 +2085,23 @@ export function useEditorPage() {
         ? prev
         : (() => {
           const autoWall = visibleAutoFloorWalls.find((wall) => wall.id === wallId)
-          return autoWall ? [...prev, autoWall] : prev
+          return autoWall
+            ? [...prev, { ...autoWall, floorLayerId: autoWall.floorLayerId ?? activeFloorLayerId ?? undefined }]
+            : prev
         })()
       return ensured.map((wall) => (wall.id === wallId ? updater(wall) : wall))
     })
-  }, [visibleAutoFloorWalls])
+  }, [activeFloorLayerId, visibleAutoFloorWalls])
 
   const ensureFloorWallInManual = useCallback((wallId: string) => {
     setFloorWalls((prev) => {
       if (prev.some((wall) => wall.id === wallId)) return prev
       const autoWall = visibleAutoFloorWalls.find((wall) => wall.id === wallId)
-      return autoWall ? [...prev, autoWall] : prev
+      return autoWall
+        ? [...prev, { ...autoWall, floorLayerId: autoWall.floorLayerId ?? activeFloorLayerId ?? undefined }]
+        : prev
     })
-  }, [visibleAutoFloorWalls])
+  }, [activeFloorLayerId, visibleAutoFloorWalls])
 
   const ensureFloorOpeningInManual = useCallback((openingId: string) => {
     setFloorOpenings((prev) => {
@@ -3034,6 +3038,11 @@ export function useEditorPage() {
       prev.includes(layerId) ? prev.filter((id) => id !== layerId) : [...prev, layerId],
     )
   }
+  const handleSelectSingleOverlayLayer = (layerId: string) => {
+    if (!activeFloorLayerId || layerId === activeFloorLayerId) return
+    setIsLayerOverlayMode(true)
+    setOverlayLayerIds((prev) => (prev.length === 1 && prev[0] === layerId ? [] : [layerId]))
+  }
   const handleSetOverlayLayerOpacity = (layerId: string, opacity: number) => {
     const next = Math.min(Math.max(opacity, 0.1), 1)
     setOverlayOpacityByLayerId((prev) => ({ ...prev, [layerId]: next }))
@@ -3049,9 +3058,32 @@ export function useEditorPage() {
   }, [markLocalFloorPlanSnapshotChanged, renameFloorLayer])
   const handleDeleteFloorLayer = useCallback((layerId: string) => {
     if (floorLayers.length <= 1) return
+    const deletedWallIds = new Set(floorWalls.filter((wall) => wall.floorLayerId === layerId).map((wall) => wall.id))
     deleteFloorLayer(layerId)
+    setFloorWalls((prev) => prev.filter((wall) => wall.floorLayerId !== layerId))
+    setFloorOpenings((prev) => prev.filter((opening) => !deletedWallIds.has(opening.wallId)))
+    setSelectedFloorWallId((prev) => (prev && deletedWallIds.has(prev) ? null : prev))
+    setSelectedFloorWallIds((prev) => prev.filter((wallId) => !deletedWallIds.has(wallId)))
+    setSelectedFloorOpeningId((prev) => {
+      if (!prev) return prev
+      const opening = floorOpenings.find((item) => item.id === prev)
+      return opening && deletedWallIds.has(opening.wallId) ? null : prev
+    })
+    setSelectedFloorOpeningIds((prev) =>
+      prev.filter((openingId) => {
+        const opening = floorOpenings.find((item) => item.id === openingId)
+        return opening ? !deletedWallIds.has(opening.wallId) : false
+      }),
+    )
+    setOverlayLayerIds((prev) => prev.filter((id) => id !== layerId))
+    setOverlayOpacityByLayerId((prev) => {
+      if (!(layerId in prev)) return prev
+      const next = { ...prev }
+      delete next[layerId]
+      return next
+    })
     markLocalFloorPlanSnapshotChanged()
-  }, [deleteFloorLayer, floorLayers.length, markLocalFloorPlanSnapshotChanged])
+  }, [deleteFloorLayer, floorLayers.length, floorOpenings, floorWalls, markLocalFloorPlanSnapshotChanged])
 
   const {
     handleCreateFloorWall,
@@ -3818,6 +3850,7 @@ export function useEditorPage() {
     setActiveFloorLayerId,
     toggleLayerOverlayMode,
     handleToggleOverlayLayer,
+    handleSelectSingleOverlayLayer,
     handleSetOverlayLayerOpacity,
     floorPlanConnections: connections,
     floorProjectImportMessage,

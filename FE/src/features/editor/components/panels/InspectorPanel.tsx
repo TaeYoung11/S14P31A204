@@ -77,7 +77,7 @@ function InspectorSection({ title, icon, children }: InspectorSectionProps) {
         <span className="text-[#3B45B3]">{icon}</span>
         <h3 className="text-[11px] font-extrabold text-[#1F2937]">{title}</h3>
       </div>
-      <div className="max-h-[260px] overflow-y-auto p-2 text-[11px]">{children}</div>
+      <div className="p-2 text-[11px]">{children}</div>
     </section>
   )
 }
@@ -232,8 +232,11 @@ function FloorViewSection({ panelProps }: { panelProps: FloorViewSectionProps | 
                 type="button"
                 onClick={() => {
                   if (isActive) return
-                  if (!panelProps.isLayerOverlayMode) panelProps.onToggleLayerOverlayMode?.()
-                  panelProps.onToggleOverlayLayer?.(layer.id)
+                  if (panelProps.isLayerOverlayMode) {
+                    panelProps.onToggleOverlayLayer?.(layer.id)
+                    return
+                  }
+                  panelProps.onSelectSingleOverlayLayer?.(layer.id)
                 }}
                 disabled={isActive}
                 className={`rounded p-1 ${
@@ -471,7 +474,6 @@ export function InspectorPanel({
 }: InspectorPanelProps) {
   const inspectorOffset: PanelOffset = attributesPanelProps.offset
   const inspectorWidth = Math.max(attributesPanelProps.width, 320)
-  const inspectorHeight = Math.max(attributesPanelProps.height, 620)
 
   return (
     <PanelFrame
@@ -481,7 +483,7 @@ export function InspectorPanel({
       isOpen={attributesPanelProps.isOpen}
       offset={inspectorOffset}
       width={inspectorWidth}
-      height={inspectorHeight}
+      fillHeight
       zIndex={attributesPanelProps.zIndex}
       onDragStart={attributesPanelProps.onDragStart}
       onResizeStart={attributesPanelProps.onResizeStart}

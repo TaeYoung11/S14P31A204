@@ -22,6 +22,7 @@ interface TwoDLeftPanelsProps {
   onSelectRoom?: (bubbleId: string) => void
   onToggleLayerOverlayMode?: () => void
   onToggleOverlayLayer?: (layerId: string) => void
+  onSelectSingleOverlayLayer?: (layerId: string) => void
   onChangeOverlayLayerOpacity?: (layerId: string, opacity: number) => void
 }
 
@@ -79,8 +80,8 @@ export function TwoDLeftPanels({
   onDeleteLayer,
   onSelectLayer,
   onSelectRoom,
-  onToggleLayerOverlayMode,
   onToggleOverlayLayer,
+  onSelectSingleOverlayLayer,
   onChangeOverlayLayerOpacity,
 }: TwoDLeftPanelsProps) {
   const {
@@ -296,8 +297,11 @@ export function TwoDLeftPanels({
                           <button
                             onClick={() => {
                               if (isOverlayToggleDisabled) return
-                              if (!isLayerOverlayMode) onToggleLayerOverlayMode?.()
-                              onToggleOverlayLayer?.(layer.id)
+                              if (isLayerOverlayMode) {
+                                onToggleOverlayLayer?.(layer.id)
+                                return
+                              }
+                              onSelectSingleOverlayLayer?.(layer.id)
                             }}
                             disabled={isOverlayToggleDisabled}
                             title={isOverlayToggleDisabled ? '활성 층은 겹쳐보기 대상에서 제외' : '겹쳐보기 토글'}

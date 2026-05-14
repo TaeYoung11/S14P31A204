@@ -22,6 +22,7 @@ interface FloorViewPanelProps {
   onDeleteLayer?: (layerId: string) => void
   onToggleLayerOverlayMode?: () => void
   onToggleOverlayLayer?: (layerId: string) => void
+  onSelectSingleOverlayLayer?: (layerId: string) => void
   onChangeOverlayLayerOpacity?: (layerId: string, opacity: number) => void
   onDragStart: (key: PanelKey, e: React.MouseEvent<HTMLElement>) => void
   onResizeStart: (key: PanelKey, axis: PanelResizeAxis, e: React.MouseEvent<HTMLButtonElement>) => void
@@ -46,6 +47,7 @@ export function FloorViewPanel({
   onDeleteLayer,
   onToggleLayerOverlayMode,
   onToggleOverlayLayer,
+  onSelectSingleOverlayLayer,
   onChangeOverlayLayerOpacity,
   onDragStart,
   onResizeStart,
@@ -176,8 +178,11 @@ export function FloorViewPanel({
                     <button
                       onClick={() => {
                         if (isOverlayToggleDisabled) return
-                        if (!isLayerOverlayMode) onToggleLayerOverlayMode?.()
-                        onToggleOverlayLayer?.(layer.id)
+                        if (isLayerOverlayMode) {
+                          onToggleOverlayLayer?.(layer.id)
+                          return
+                        }
+                        onSelectSingleOverlayLayer?.(layer.id)
                       }}
                       disabled={isOverlayToggleDisabled}
                       title={isOverlayToggleDisabled ? '활성 층은 겹쳐보기 대상에서 제외' : '겹쳐보기 토글'}

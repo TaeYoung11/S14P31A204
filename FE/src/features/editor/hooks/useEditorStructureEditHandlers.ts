@@ -280,6 +280,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
           outsideSegments.forEach((segment) => {
             manualResidualWalls.push({
               id: createFloorWallId(),
+              floorLayerId: candidate.floorLayerId ?? targetAutoWall.floorLayerId ?? activeFloorLayerId ?? undefined,
               start: segment.start,
               end: segment.end,
               type: candidate.type,
@@ -337,6 +338,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
   }, [
     isAutoDerivedWallId,
     autoFloorWalls,
+    activeFloorLayerId,
     setHiddenAutoWallIds,
     setHiddenAutoOpeningIds,
     setFloorOpenings,

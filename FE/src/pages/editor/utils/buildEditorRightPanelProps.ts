@@ -69,6 +69,7 @@ type RightPanelViewModel = Pick<
   | 'handleBubbleSelect'
   | 'toggleLayerOverlayMode'
   | 'handleToggleOverlayLayer'
+  | 'handleSelectSingleOverlayLayer'
   | 'handleSetOverlayLayerOpacity'
   | 'openZoningModal'
   | 'openEditModal'
@@ -169,6 +170,7 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
     onSelectRoom: vm.handleBubbleSelect,
     onToggleLayerOverlayMode: vm.toggleLayerOverlayMode,
     onToggleOverlayLayer: vm.handleToggleOverlayLayer,
+    onSelectSingleOverlayLayer: vm.handleSelectSingleOverlayLayer,
     onChangeOverlayLayerOpacity: vm.handleSetOverlayLayerOpacity,
     onOpenZoningModal: vm.openZoningModal,
     onOpenEditZoningModal: vm.openEditModal,

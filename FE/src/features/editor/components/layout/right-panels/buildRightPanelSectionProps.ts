@@ -108,6 +108,7 @@ export function buildFloorViewSectionProps(vm: EditorRightPanelsProps): FloorVie
     onDeleteLayer: vm.onDeleteFloorLayer,
     onToggleLayerOverlayMode: vm.onToggleLayerOverlayMode,
     onToggleOverlayLayer: vm.onToggleOverlayLayer,
+    onSelectSingleOverlayLayer: vm.onSelectSingleOverlayLayer,
     onChangeOverlayLayerOpacity: vm.onChangeOverlayLayerOpacity,
     onDragStart: vm.onPanelDragStart,
     onResizeStart: vm.onPanelResizeStart,
