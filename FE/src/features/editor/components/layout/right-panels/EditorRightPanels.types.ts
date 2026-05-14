@@ -32,12 +32,15 @@ export interface EditorRightPanelsProps {
   commentPins?: FloorCommentPin[]
   commentNotifications?: FloorCommentNotification[]
   currentCollaborationUserType?: CollaborationUserType
+  currentCollaborationUserId?: string | null
   currentCollaborationUserName: string
   onSelectPin?: (id: string) => void
   onCreateCommentReply?: (pinId: string, content: string) => void
   onResolvePin?: (pinId: string) => void
+  onDeletePin?: (pinId: string) => void
   onResolveComment?: (pinId: string, commentId: string) => void
   resolvingPinId?: string | null
+  deletingPinId?: string | null
   resolvingCommentId?: string | null
   selectedBubble: BubbleInfo | null
   isThreeDEditingLocked?: boolean

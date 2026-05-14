@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { IfcElementInfo } from '../../types'
+import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementInfo } from '../../types'
+import { FLOOR_MM_PER_PX } from '../../constants'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import { buildFloorPlan3DGroup } from '../../utils/floorPlanTo3D'
@@ -38,10 +39,19 @@ import {
 } from './thatopen/ifcLibraryMesh'
 import { applyObjectColor, applyObjectMaterial, PROJECT_WORLD_UNITS_PER_MM } from './thatopen/ifcMaterials'
 import { disposeObjectMaterials, positionPresetGroupBesideIfc } from './thatopen/ifcSceneHelpers'
+import { getThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
 
 interface FloorPlan3DCanvasProps {
   data: FloorPlan3DData
   libraryElements?: ThreeDLibraryPreset[]
+  commentPins?: FloorCommentPin[]
+  isCollaborationMode?: boolean
+  selectedPinId?: string | null
+  currentUserId?: string | null
+  onPinClick?: (id: string) => void
+  onPinCreate?: (x: number, y: number, content?: string, threeDPosition?: CommentPin3DCreatePosition) => void
+  onPinDelete?: (id: string) => void
+  deletingPinId?: string | null
   selectedIfcElement?: IfcElementInfo | null
   deleteRequestToken?: number
   isRotationLocked?: boolean
@@ -85,6 +95,14 @@ const logRoofDebug = (...args: unknown[]) => {
 export function FloorPlan3DCanvas({
   data,
   libraryElements,
+  commentPins = [],
+  isCollaborationMode = false,
+  selectedPinId = null,
+  currentUserId = null,
+  onPinClick,
+  onPinCreate,
+  onPinDelete,
+  deletingPinId = null,
   selectedIfcElement,
   deleteRequestToken = 0,
   isRotationLocked = false,
@@ -110,7 +128,13 @@ export function FloorPlan3DCanvas({
   const controlsRef = useRef<OrbitControlsInstance | null>(null)
   const transformControlsRef = useRef<TransformControlsInstance | null>(null)
   const floorGroupRef = useRef<import('three').Group | null>(null)
+  const pinMarkerGroupRef = useRef<import('three').Group | null>(null)
   const presetGroupRef = useRef<import('three').Group | null>(null)
+  const commentPinsRef = useRef(commentPins)
+  const selectedPinIdRef = useRef(selectedPinId)
+  const currentUserIdRef = useRef(currentUserId)
+  const isCollaborationModeRef = useRef(isCollaborationMode)
+  const deletingPinIdRef = useRef(deletingPinId)
   const selectedPresetRef = useRef<LibraryObject3D | null>(null)
   const animationFrameIdRef = useRef(0)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
@@ -138,15 +162,26 @@ export function FloorPlan3DCanvas({
   const onLibraryElementChangeRef = useRef(onLibraryElementChange)
   const onLibraryElementDeleteRef = useRef(onLibraryElementDelete)
   const onIfcElementSelectRef = useRef(onIfcElementSelect)
+  const onPinClickRef = useRef(onPinClick)
+  const onPinCreateRef = useRef(onPinCreate)
+  const onPinDeleteRef = useRef(onPinDelete)
 
   useEffect(() => { onLibraryElementChangeRef.current = onLibraryElementChange }, [onLibraryElementChange])
   useEffect(() => { onLibraryElementDeleteRef.current = onLibraryElementDelete }, [onLibraryElementDelete])
   useEffect(() => { onIfcElementSelectRef.current = onIfcElementSelect }, [onIfcElementSelect])
+  useEffect(() => { onPinClickRef.current = onPinClick }, [onPinClick])
+  useEffect(() => { onPinCreateRef.current = onPinCreate }, [onPinCreate])
+  useEffect(() => { onPinDeleteRef.current = onPinDelete }, [onPinDelete])
   useEffect(() => { rotationLockedRef.current = isRotationLocked }, [isRotationLocked])
   useEffect(() => { transformModeRef.current = transformMode }, [transformMode])
   useEffect(() => { selectedToolRef.current = selectedTool }, [selectedTool])
   useEffect(() => { transformSnapEnabledRef.current = transformSnapEnabled }, [transformSnapEnabled])
   useEffect(() => { transformSnapIntervalMmRef.current = transformSnapIntervalMm }, [transformSnapIntervalMm])
+  useEffect(() => { commentPinsRef.current = commentPins }, [commentPins])
+  useEffect(() => { selectedPinIdRef.current = selectedPinId }, [selectedPinId])
+  useEffect(() => { currentUserIdRef.current = currentUserId }, [currentUserId])
+  useEffect(() => { isCollaborationModeRef.current = isCollaborationMode }, [isCollaborationMode])
+  useEffect(() => { deletingPinIdRef.current = deletingPinId }, [deletingPinId])
 
   const syncOrbitPanBinding = useCallback(() => {
     const controls = controlsRef.current as OrbitControlsInstance & {
@@ -250,6 +285,18 @@ export function FloorPlan3DCanvas({
     isEditingLockedRef.current = isEditingLocked
     updateTransformSelection()
   }, [isEditingLocked, updateTransformSelection])
+
+  useEffect(() => {
+    const THREE = threeRef.current
+    const markerGroup = pinMarkerGroupRef.current
+    if (!THREE || !markerGroup) return
+    syncThreeDPinMarkers(THREE, markerGroup, commentPins, {
+      selectedPinId,
+      currentUserId,
+      deletingPinId,
+      worldUnitsPerMm: PROJECT_WORLD_UNITS_PER_MM,
+    })
+  }, [commentPins, currentUserId, deletingPinId, selectedPinId])
 
   /** 현재 선택된 엔트리(라이브러리/평면도)를 씬에서 제거하고 상태를 초기화한다. */
   const deleteSelectedEntry = useCallback(() => {
@@ -399,6 +446,17 @@ export function FloorPlan3DCanvas({
       scene.add(presetGroup)
       presetGroupRef.current = presetGroup
 
+      const pinMarkerGroup = new THREE.Group()
+      pinMarkerGroup.name = 'comment-pins'
+      scene.add(pinMarkerGroup)
+      pinMarkerGroupRef.current = pinMarkerGroup
+      syncThreeDPinMarkers(THREE, pinMarkerGroup, commentPinsRef.current, {
+        selectedPinId: selectedPinIdRef.current,
+        currentUserId: currentUserIdRef.current,
+        deletingPinId: deletingPinIdRef.current,
+        worldUnitsPerMm: PROJECT_WORLD_UNITS_PER_MM,
+      })
+
       // ── TransformControls (프리셋 이동용) ──
       const tc = new TransformControls(camera, renderer.domElement)
       tc.setMode('translate')
@@ -473,6 +531,24 @@ export function FloorPlan3DCanvas({
           })
         })
         return entries
+      }
+
+      const createCommentPinAtWorldPoint = (point: import('three').Vector3) => {
+        const cameraPosition = camera.position
+        const threeDPosition: CommentPin3DCreatePosition = {
+          worldX: point.x / PROJECT_WORLD_UNITS_PER_MM,
+          worldY: point.z / PROJECT_WORLD_UNITS_PER_MM,
+          worldZ: point.y / PROJECT_WORLD_UNITS_PER_MM,
+          cameraX: cameraPosition.x / PROJECT_WORLD_UNITS_PER_MM,
+          cameraY: cameraPosition.z / PROJECT_WORLD_UNITS_PER_MM,
+          cameraZ: cameraPosition.y / PROJECT_WORLD_UNITS_PER_MM,
+        }
+        onPinCreateRef.current?.(
+          threeDPosition.worldX / FLOOR_MM_PER_PX,
+          threeDPosition.worldY / FLOOR_MM_PER_PX,
+          undefined,
+          threeDPosition,
+        )
       }
 
       // 드래그 중 OrbitControls 비활성화 + 다중 선택 그룹 이동
@@ -624,18 +700,38 @@ export function FloorPlan3DCanvas({
         if (event.button !== 0) return
         const isDeleteMode = isDeleteTool(selectedToolRef.current)
         const isSelectionMode = isSelectionTool(selectedToolRef.current)
-        if (isEditingLockedRef.current && isDeleteMode) return
-        if (!isSelectionInteractionTool(selectedToolRef.current)) return
+        if (!isCollaborationModeRef.current && !isSelectionInteractionTool(selectedToolRef.current)) return
         const bounds = renderer.domElement.getBoundingClientRect()
         if (!isPointerInsideBounds(bounds, event.clientX, event.clientY)) return
 
         const normalizedMouse = toNormalizedMouse(THREE, bounds, event.clientX, event.clientY)
         const raycaster = new THREE.Raycaster()
         raycaster.setFromCamera(normalizedMouse, camera)
+        const pinHit = pinMarkerGroupRef.current
+          ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)[0]
+          : undefined
+        const pinMarkerHit = getThreeDPinMarkerHit(pinHit?.object)
+        if (pinMarkerHit) {
+          if (pinMarkerHit.action === 'delete') {
+            if (deletingPinIdRef.current === pinMarkerHit.pinId) return
+            onPinDeleteRef.current?.(pinMarkerHit.pinId)
+            return
+          }
+          onPinClickRef.current?.(pinMarkerHit.pinId)
+          return
+        }
         const libraryHit = raycaster.intersectObjects(presetGroup.children, true)[0]
         const floorHit = floorGroupRef.current
           ? raycaster.intersectObjects(floorGroupRef.current.children, true)[0]
           : undefined
+        if (isCollaborationModeRef.current) {
+          const collaborationHit = [libraryHit, floorHit]
+            .filter((hit): hit is import('three').Intersection => Boolean(hit))
+            .sort((a, b) => a.distance - b.distance)[0]
+          if (collaborationHit?.point) createCommentPinAtWorldPoint(collaborationHit.point)
+          return
+        }
+        if (isEditingLockedRef.current) return
 
         const libraryDistance = typeof (libraryHit as { distance?: unknown } | undefined)?.distance === 'number'
           ? (libraryHit as { distance: number }).distance
@@ -847,8 +943,13 @@ export function FloorPlan3DCanvas({
           disposeObjectMaterials(threeRef.current, presetGroupRef.current)
           sceneRef.current?.remove(presetGroupRef.current)
         }
+        if (pinMarkerGroupRef.current) {
+          disposeObject3DResources(pinMarkerGroupRef.current)
+          sceneRef.current?.remove(pinMarkerGroupRef.current)
+        }
       }
       floorGroupRef.current = null
+      pinMarkerGroupRef.current = null
       presetGroupRef.current = null
 
       const renderer = rendererRef.current

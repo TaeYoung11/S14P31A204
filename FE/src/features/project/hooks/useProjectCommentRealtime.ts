@@ -7,6 +7,7 @@ import type {
 import type { Project } from '@/shared/types'
 import { useProjectNotificationToastStore } from '@/features/project/stores/projectNotificationToastStore'
 import { notificationStreamService } from '@/features/project/services/notificationStream.service'
+import { projectQueryKeys } from '@/features/project/constants/projectQueryKeys'
 
 export interface ProjectCommentToastState {
   projectId: string
@@ -92,7 +93,7 @@ export const useProjectCommentRealtime = (
       }
 
       queryClient.setQueriesData<ProjectCommentListItem[]>(
-        { queryKey: ['projects', 'comments'] },
+        { queryKey: projectQueryKeys.commentsRoot() },
         (currentComments) => mergeRealtimeComment(currentComments, realtimeComment),
       )
 

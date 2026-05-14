@@ -46,6 +46,7 @@ export default function EditorHeaderActions({
   saveStatus,
   siteAreaLabel,
 }: EditorHeaderActionsProps) {
+  const canSave = userType !== 'CUSTOMER'
   const iconButtonClass = `rounded-xl p-2 transition-colors ${
     isViewer
       ? 'text-white/75 hover:bg-white/10 hover:text-white'
@@ -91,6 +92,7 @@ export default function EditorHeaderActions({
         </button>
       )}
 
+      {canSave && (
       <button
         type="button"
         onClick={onSave}
@@ -103,6 +105,7 @@ export default function EditorHeaderActions({
         <Save size={14} />
         {mode === '3d' ? 'IFC 내보내기' : '저장'}
       </button>
+      )}
     </div>
   )
 }

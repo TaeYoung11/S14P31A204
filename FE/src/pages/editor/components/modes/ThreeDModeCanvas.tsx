@@ -44,6 +44,13 @@ export default function ThreeDModeCanvas({
       ifcUrl={freshIfcUrl}
       sitePoints={editorProps.sitePlanPoints}
       isCollaborationMode={editorProps.isCollaborationMode}
+      commentPins={editorProps.commentPins}
+      selectedPinId={editorProps.selectedPinId}
+      currentUserId={editorProps.currentCollaborationUserId}
+      onPinClick={editorProps.handlePinClick}
+      onPinCreate={editorProps.handleCreateCommentPin}
+      onPinDelete={editorProps.handleDeletePin}
+      deletingPinId={editorProps.deletingPinId}
       isLibraryOpen={editorProps.isLibraryOpen}
       onToggleLibrary={() => editorProps.setIsLibraryOpen(!editorProps.isLibraryOpen)}
       isGridVisible={editorProps.isGridVisible}
