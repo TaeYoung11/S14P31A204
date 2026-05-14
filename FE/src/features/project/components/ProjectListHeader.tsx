@@ -16,6 +16,7 @@ interface ProjectListHeaderProps {
   isWithdrawing?: boolean
   onNotificationOpen?: () => void
   onCommentNotificationOpen?: () => void
+  invitationNotificationCount?: number
   commentNotificationCount?: number
 }
 
@@ -30,6 +31,7 @@ export default function ProjectListHeader({
   isWithdrawing = false,
   onNotificationOpen,
   onCommentNotificationOpen,
+  invitationNotificationCount = 0,
   commentNotificationCount = 0,
 }: ProjectListHeaderProps) {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
@@ -58,7 +60,12 @@ export default function ProjectListHeader({
         <div className="flex items-center gap-3">
           {userType === 'CUSTOMER' && (
             <button id="notification-btn" className="btn-icon" title="알림" onClick={onNotificationOpen}>
-              <Bell className="h-[18px] w-[18px]" />
+              <span className="relative">
+                <Bell className="h-[18px] w-[18px]" />
+                {invitationNotificationCount > 0 && (
+                  <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-[#ef4444] ring-2 ring-white" />
+                )}
+              </span>
             </button>
           )}
 
