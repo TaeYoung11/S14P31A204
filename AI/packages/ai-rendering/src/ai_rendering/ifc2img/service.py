@@ -319,6 +319,14 @@ def load_runtime_semantic_context(
     )
 
 
+def resolve_semantic_ground_z(context: SemanticRenderContext) -> float | None:
+    """Return the semantic ground z candidate from the lowest IFC floor."""
+    floor = context.summary.lowest_floor
+    if floor is None:
+        return None
+    return floor.bounds.z_max
+
+
 @dataclass(frozen=True)
 class Ifc2ImgDebugGeometry:
     mesh: Any | None
