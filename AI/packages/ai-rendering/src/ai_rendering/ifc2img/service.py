@@ -298,6 +298,24 @@ class SemanticGroundSelection:
         }
 
 
+@dataclass(frozen=True)
+class SemanticFrontCameraSelection:
+    source: str
+    main_door_entity_id: int | None
+    front_vector: tuple[float, float, float] | None
+    overridden_views: tuple[IFCView, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "source": self.source,
+            "mainDoorEntityId": self.main_door_entity_id,
+            "frontVector": (
+                list(self.front_vector) if self.front_vector is not None else None
+            ),
+            "overriddenViews": [view.value for view in self.overridden_views],
+        }
+
+
 def load_runtime_semantic_context(
     ifc_path: Path,
     *,
@@ -383,6 +401,28 @@ def resolve_semantic_front_camera_overrides(
             VIEW_CAMERAS[IFCView.FRONT_DIAGONAL_RIGHT],
         ),
     }
+
+
+def select_semantic_front_camera(
+    context: SemanticRenderContext,
+    view_camera_overrides: dict[IFCView, CameraParams],
+) -> SemanticFrontCameraSelection:
+    """Describe semantic front camera source for debug manifests."""
+    candidate = context.summary.main_door_candidate
+    if not is_reliable_main_door_candidate(candidate):
+        return SemanticFrontCameraSelection(
+            source="static_view_cameras_fallback",
+            main_door_entity_id=None,
+            front_vector=None,
+            overridden_views=(),
+        )
+    assert candidate is not None
+    return SemanticFrontCameraSelection(
+        source="semantic_main_door",
+        main_door_entity_id=candidate.door_entity_id,
+        front_vector=candidate.front_vector,
+        overridden_views=tuple(view_camera_overrides),
+    )
 
 
 def _camera_from_xy_direction(
@@ -843,6 +883,7 @@ def create_photo_ifc_renderer(
     | None = PHOTO_DEPTH_RENDER_DEFAULTS.front_diagonal_target_ratio,
     front_diagonal_ground_extent_factor: float
     | None = PHOTO_DEPTH_RENDER_DEFAULTS.front_diagonal_ground_extent_factor,
+    view_camera_overrides: dict[IFCView, CameraParams] | None = None,
     ground_z_override: float | None = None,
     iter_tolerance: float = PHOTO_DEPTH_RENDER_DEFAULTS.iter_tolerance,
     width: int = PHOTO_DEPTH_RENDER_DEFAULTS.width,
@@ -865,6 +906,7 @@ def create_photo_ifc_renderer(
         view_ground_extent_overrides=build_front_diagonal_ground_extent_overrides(
             front_diagonal_ground_extent_factor
         ),
+        view_camera_overrides=view_camera_overrides,
         ground_z_override=ground_z_override,
         look_at_height_ratio=look_at_height_ratio,
     )
@@ -936,6 +978,11 @@ def run_ifc2img_photo_pipeline(
     )
     semantic_context = load_runtime_semantic_context(ifc_path)
     ground_selection = select_semantic_ground(semantic_context)
+    view_camera_overrides = resolve_semantic_front_camera_overrides(semantic_context)
+    front_camera_selection = select_semantic_front_camera(
+        semantic_context,
+        view_camera_overrides,
+    )
 
     public_views = resolve_photo_views()
     internal_views = list(PHOTO_INTERNAL_VIEWS)
@@ -954,6 +1001,7 @@ def run_ifc2img_photo_pipeline(
     # only records a serializable snapshot for inspection.
     debug_manifest["ifcSemanticSummary"] = semantic_context.summary.to_dict()
     debug_manifest["semanticGroundSelection"] = ground_selection.to_dict()
+    debug_manifest["semanticFrontCameraSelection"] = front_camera_selection.to_dict()
 
     requires_semantic = any(
         resolve_preset_view_render_options(preset, view).requires_semantic_controlnet
@@ -961,6 +1009,7 @@ def run_ifc2img_photo_pipeline(
     )
     renderer = create_photo_ifc_renderer(
         ifc_renderer_cls,
+        view_camera_overrides=view_camera_overrides,
         ground_z_override=ground_selection.ground_z,
     )
     style_renderer = create_photo_style_renderer(
