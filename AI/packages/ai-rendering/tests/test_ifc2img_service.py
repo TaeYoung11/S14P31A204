@@ -602,11 +602,11 @@ def test_run_ifc2img_photo_pipeline_uses_ground_z_none_without_semantic_floor(
     }
 
 
-def test_run_ifc2img_photo_pipeline_reuses_semantic_context_for_front_camera(
+def test_run_ifc2img_photo_pipeline_defers_semantic_front_camera_override(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pipeline derives camera overrides from the existing runtime semantic context."""
+    """Pipeline records semantic front candidates without overriding cameras."""
     import ai_rendering.ifc2img.service as service
 
     ifc_path = tmp_path / "input.ifc"
@@ -641,17 +641,25 @@ def test_run_ifc2img_photo_pipeline_reuses_semantic_context_for_front_camera(
     renderer = FakeIFCRenderer.instances[0]
     overrides = renderer.kwargs["view_camera_overrides"]
     assert calls == [ifc_path]
-    assert set(overrides) == {
-        IFCView.FRONT_DIAGONAL_LEFT,
-        IFCView.FRONT_DIAGONAL_RIGHT,
+    assert overrides == {}
+    debug_manifest = json.loads(
+        (tmp_path / "out" / "debug" / "debug_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert debug_manifest["semanticFrontCameraSelection"] == {
+        "source": "semantic_main_door_deferred_mesh_alignment",
+        "mainDoorEntityId": 703,
+        "frontVector": [0.0, -1.0, 0.0],
+        "overriddenViews": [],
     }
 
 
-def test_run_ifc2img_photo_pipeline_passes_ground_and_camera_to_renderer(
+def test_run_ifc2img_photo_pipeline_passes_ground_and_defers_camera_to_renderer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pipeline forwards semantic ground and camera overrides together."""
+    """Pipeline forwards semantic ground while deferring front camera overrides."""
     import ai_rendering.ifc2img.service as service
 
     ifc_path = tmp_path / "input.ifc"
@@ -683,28 +691,25 @@ def test_run_ifc2img_photo_pipeline_passes_ground_and_camera_to_renderer(
 
     renderer = FakeIFCRenderer.instances[0]
     assert renderer.kwargs["ground_z_override"] == 0.75
-    assert set(renderer.kwargs["view_camera_overrides"]) == {
-        IFCView.FRONT_DIAGONAL_LEFT,
-        IFCView.FRONT_DIAGONAL_RIGHT,
-    }
+    assert renderer.kwargs["view_camera_overrides"] == {}
     debug_manifest = json.loads(
         (tmp_path / "out" / "debug" / "debug_manifest.json").read_text(
             encoding="utf-8"
         )
     )
     assert debug_manifest["semanticFrontCameraSelection"] == {
-        "source": "semantic_main_door",
+        "source": "semantic_main_door_deferred_mesh_alignment",
         "mainDoorEntityId": 703,
         "frontVector": [0.0, -1.0, 0.0],
-        "overriddenViews": ["front_diagonal_left", "front_diagonal_right"],
+        "overriddenViews": [],
     }
 
 
-def test_run_ifc2img_photo_pipeline_calls_front_camera_resolver_with_context(
+def test_run_ifc2img_photo_pipeline_does_not_apply_front_camera_resolver(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pipeline calls semantic front camera resolver with the runtime context."""
+    """Pipeline avoids production semantic front overrides until coordinates align."""
     import ai_rendering.ifc2img.service as service
 
     ifc_path = tmp_path / "input.ifc"
@@ -744,7 +749,9 @@ def test_run_ifc2img_photo_pipeline_calls_front_camera_resolver_with_context(
         depth_style_renderer_cls=FakeDepthStyleRenderer,
     )
 
-    assert calls == [semantic_context]
+    assert calls == []
+    renderer = FakeIFCRenderer.instances[0]
+    assert renderer.kwargs["view_camera_overrides"] == {}
 
 
 def test_load_runtime_semantic_context_returns_summary(ifc4_fixture: Path) -> None:
@@ -1369,10 +1376,10 @@ def test_worker_handler_runs_semantic_pipeline_with_downloaded_fixture(
         "semanticGroundCandidate": pytest.approx(0.0),
     }
     assert debug_manifest["semanticFrontCameraSelection"] == {
-        "source": "semantic_main_door",
+        "source": "semantic_main_door_deferred_mesh_alignment",
         "mainDoorEntityId": 703,
         "frontVector": [0.0, -1.0, 0.0],
-        "overriddenViews": ["front_diagonal_left", "front_diagonal_right"],
+        "overriddenViews": [],
     }
     assert "ifcSemanticSummaryError" not in debug_manifest
 
