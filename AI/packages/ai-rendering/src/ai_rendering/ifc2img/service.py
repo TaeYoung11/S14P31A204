@@ -27,13 +27,17 @@ from .geometry import (
     load_mesh,
 )
 from .presets import list_presets, load_preset
-from .semantics import IfcSemanticSummary, extract_ifc_semantic_summary
+from .semantics import (
+    IfcSemanticSummary,
+    extract_ifc_semantic_summary,
+    is_reliable_main_door_candidate,
+)
 from .style import (
     DEFAULT_CONTROLNET_SEG_ID,
     build_debug_control_images,
     resolve_preset_view_render_options,
 )
-from .views import VIEW_CAMERAS, AutoZoomMode, IFCView
+from .views import VIEW_CAMERAS, AutoZoomMode, CameraParams, IFCView
 
 PHOTO_MANIFEST_SCHEMA_VERSION = "ifc2img.photo.v1"
 IFC2IMG_WORKER_COMMAND_TYPE = "SD_RENDER_GENERATE"
@@ -354,6 +358,43 @@ def select_semantic_ground(context: SemanticRenderContext) -> SemanticGroundSele
         ground_source="semantic_floor",
         ground_z=semantic_ground_z,
         semantic_ground_candidate=semantic_ground_z,
+    )
+
+
+def resolve_semantic_front_camera_overrides(
+    context: SemanticRenderContext,
+) -> dict[IFCView, CameraParams]:
+    """Return front diagonal camera overrides from a reliable main door."""
+    candidate = context.summary.main_door_candidate
+    if not is_reliable_main_door_candidate(candidate):
+        return {}
+    assert candidate is not None
+    front = np.asarray(candidate.front_vector, dtype=np.float64)
+    front_xy = front[:2] / np.linalg.norm(front[:2])
+    left_xy = np.asarray([-front_xy[1], front_xy[0]], dtype=np.float64)
+    right_xy = np.asarray([front_xy[1], -front_xy[0]], dtype=np.float64)
+    return {
+        IFCView.FRONT_DIAGONAL_LEFT: _camera_from_xy_direction(
+            front_xy + left_xy,
+            VIEW_CAMERAS[IFCView.FRONT_DIAGONAL_LEFT],
+        ),
+        IFCView.FRONT_DIAGONAL_RIGHT: _camera_from_xy_direction(
+            front_xy + right_xy,
+            VIEW_CAMERAS[IFCView.FRONT_DIAGONAL_RIGHT],
+        ),
+    }
+
+
+def _camera_from_xy_direction(
+    xy_direction: np.ndarray,
+    base_camera: CameraParams,
+) -> CameraParams:
+    direction = np.asarray([xy_direction[0], xy_direction[1], 0.0], dtype=np.float64)
+    direction /= np.linalg.norm(direction[:2])
+    return CameraParams(
+        front=tuple(float(value) for value in direction),
+        up=base_camera.up,
+        zoom=base_camera.zoom,
     )
 
 
