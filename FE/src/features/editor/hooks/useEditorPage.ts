@@ -132,6 +132,7 @@ import {
   isBubbleDebugEnabled,
   isPossiblyFlattenedFloorSnapshot,
   isSnapshotPreferredForRecovery,
+  logBubbleTrace,
   logBubbleDebug,
   readBubbleFloorMetaFromSnapshot,
   readBubbleFloorMetaFromStorage,
@@ -145,6 +146,7 @@ import {
   FLOOR_PLAN_CURSOR_INVALID_CODE,
   IFC_COMPLETED_ACTION_SET,
   isBubbleSnapshotPayload,
+  WORKSPACE_SYNC_ACTION,
   type BubbleSnapshotPayload,
   type FloorPlanSnapshotPayload,
   type StompErrorMessage,
@@ -152,6 +154,7 @@ import {
 import { isToolAllowedDuringConverting, isTwoDOrThreeDConverting as isTwoDOrThreeDConvertingByPhase } from '../utils/editorModeLocks'
 import { resolveIfcPresignedUrl } from '../utils/ifcSource'
 import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
+import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
 
 interface PendingServerPublishRecord {
   projectId: string
@@ -188,18 +191,62 @@ const OPENING_NORMALIZE_OPTIONS = {
   maxWidthMm: OPENING_MAX_WIDTH_MM,
 } as const
 const IFC_DERIVED_FLOORPLAN_ONLY = true
-const BUBBLE_DB_SAVE_DEBOUNCE_MS = 700
+const DEFAULT_BUBBLE_DB_SAVE_DEBOUNCE_MS = 1000
+const MIN_BUBBLE_DB_SAVE_DEBOUNCE_MS = 200
+const MAX_BUBBLE_DB_SAVE_DEBOUNCE_MS = 30_000
+const BUBBLE_DB_SAVE_DEBOUNCE_SECONDS_ENV = getRuntimeEnvString('VITE_BUBBLE_DB_SAVE_DEBOUNCE_SECONDS', '1')
+const BUBBLE_DB_SAVE_DEBOUNCE_SECONDS_STORAGE_KEY = 'editor:bubble-save-debounce-seconds'
 
 const FLOOR_PLAN_GENERATE_TIMEOUT_MS = 120_000
+
+const clampBubbleDbSaveDebounceMs = (value: number): number =>
+  Math.min(MAX_BUBBLE_DB_SAVE_DEBOUNCE_MS, Math.max(MIN_BUBBLE_DB_SAVE_DEBOUNCE_MS, Math.round(value)))
+
+const resolveBubbleDbSaveDebounceMs = (): number => {
+  const envSeconds = Number(BUBBLE_DB_SAVE_DEBOUNCE_SECONDS_ENV)
+  const envMs = Number.isFinite(envSeconds) && envSeconds > 0
+    ? clampBubbleDbSaveDebounceMs(envSeconds * 1000)
+    : DEFAULT_BUBBLE_DB_SAVE_DEBOUNCE_MS
+
+  if (typeof window === 'undefined') return envMs
+  const storageSecondsRaw = window.localStorage.getItem(BUBBLE_DB_SAVE_DEBOUNCE_SECONDS_STORAGE_KEY)
+  if (!storageSecondsRaw) return envMs
+
+  const storageSeconds = Number(storageSecondsRaw)
+  if (!Number.isFinite(storageSeconds) || storageSeconds <= 0) return envMs
+  return clampBubbleDbSaveDebounceMs(storageSeconds * 1000)
+}
 
 const logRoofDebug = (...args: unknown[]) => {
   if (!import.meta.env.DEV) return
   console.log('[roof-debug][useEditorPage]', ...args)
 }
 
+const logBootstrapFloor = (label: string, payload: Record<string, unknown>) => {
+  console.info(`[bootstrap-floor] ${label}`, payload)
+}
+
 const readPositiveNumber = (value: unknown): number | null => {
   const numericValue = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
   return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null
+}
+
+const createActiveBubbleFloorStorageKey = (projectId: string | undefined): string | null =>
+  projectId ? `editor:active-bubble-floor:${projectId}` : null
+
+const readActiveBubbleFloorFromStorage = (projectId: string | undefined): number | null => {
+  if (typeof window === 'undefined') return null
+  const storageKey = createActiveBubbleFloorStorageKey(projectId)
+  if (!storageKey) return null
+  try {
+    const raw = window.localStorage.getItem(storageKey)
+    if (!raw) return null
+    const parsed = Number(raw)
+    if (!Number.isFinite(parsed) || parsed === 0) return null
+    return normalizeBubbleFloor(parsed)
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -220,6 +267,70 @@ const normalizeBubbleFloorMetaForSync = (
     ),
     extraFloors: (floorMeta.extraFloors ?? []).map((floor) => normalizeBubbleFloor(floor)),
   }
+}
+
+const resolveAvailableBubbleFloors = (
+  bubbles: BubbleData[],
+  floorMeta: {
+    namesByFloor?: Record<number, string> | Record<string, string>
+    extraFloors?: number[]
+  },
+): number[] => {
+  const floors = normalizeBubbleFloorSet([
+    ...bubbles.map((bubble) => normalizeBubbleFloor(bubble.floor)),
+    ...Object.keys(floorMeta.namesByFloor ?? {}).map((floor) => normalizeBubbleFloor(Number(floor))),
+    ...(floorMeta.extraFloors ?? []).map((floor) => normalizeBubbleFloor(floor)),
+  ])
+  return floors.length > 0 ? floors : [1]
+}
+
+/**
+ * 서버 스키마 차이(floor/layer/level/storey)를 흡수해 버블 층 번호를 복원한다.
+ */
+const resolveBubbleFloorFromUnknown = (bubble: BubbleData & Record<string, unknown>): number => {
+  const candidates: unknown[] = [
+    bubble.floor,
+    bubble.floorNumber,
+    bubble.floorNo,
+    bubble.layer,
+    bubble.layerNumber,
+    bubble.level,
+    bubble.storey,
+    bubble.storeyNumber,
+    bubble.story,
+    bubble.storyNumber,
+  ]
+  for (const raw of candidates) {
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      return normalizeBubbleFloor(raw)
+    }
+    if (typeof raw === 'string') {
+      const parsed = Number(raw.trim())
+      if (Number.isFinite(parsed)) return normalizeBubbleFloor(parsed)
+    }
+  }
+  return 1
+}
+
+const traceBubbleSnapshot = (
+  label: string,
+  projectId: string | undefined,
+  snapshot: BubbleSnapshotPayload | null | undefined,
+  extra?: Record<string, unknown>,
+) => {
+  const summary = summarizeBubbleSnapshotForDebug(snapshot)
+  logBubbleTrace(label, {
+    projectId: projectId ?? null,
+    bubbleCount: summary.bubbleCount,
+    connectionCount: summary.connectionCount,
+    bubbleFloors: summary.bubbleFloors,
+    floorMetaFloors: summary.floorMetaFloors,
+    floorCounts: summary.floorCounts,
+    resolvedFloorCounts: summary.resolvedFloorCounts,
+    floorFieldPresenceCounts: summary.floorFieldPresenceCounts,
+    sampleRows: summary.bubbleFloorRows.slice(0, 10),
+    ...extra,
+  })
 }
 
 /**
@@ -355,7 +466,7 @@ export function useEditorPage() {
     replaceBubbles,
     deleteBubble,
   } = useBubbles()
-  const [activeBubbleFloor, setActiveBubbleFloor] = useState(1)
+  const [activeBubbleFloor, setActiveBubbleFloor] = useState(() => readActiveBubbleFloorFromStorage(projectId) ?? 1)
   const initialBubbleFloorMeta = useMemo(() => readBubbleFloorMetaFromStorage(projectId), [projectId])
   const [bubbleFloorNamesByNumber, setBubbleFloorNamesByNumber] = useState<Record<number, string>>(
     () => ({ 1: '1', ...initialBubbleFloorMeta.namesByFloor }),
@@ -367,9 +478,10 @@ export function useEditorPage() {
     const floors = new Set<number>()
     bubbles.forEach((bubble) => floors.add(normalizeBubbleFloor(bubble.floor)))
     extraBubbleFloors.forEach((floor) => floors.add(normalizeBubbleFloor(floor)))
+    Object.keys(bubbleFloorNamesByNumber).forEach((floor) => floors.add(normalizeBubbleFloor(Number(floor))))
     if (floors.size === 0) floors.add(1)
     return [...floors].sort((left, right) => left - right)
-  }, [bubbles, extraBubbleFloors])
+  }, [bubbles, extraBubbleFloors, bubbleFloorNamesByNumber])
   const bubbleFloors = useMemo<BubbleFloor[]>(
     () =>
       bubbleFloorNumbers.map((floor) => ({
@@ -401,6 +513,17 @@ export function useEditorPage() {
       extraFloors: extraBubbleFloors,
     })
   }, [projectId, bubbleFloorNamesByNumber, extraBubbleFloors])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const storageKey = createActiveBubbleFloorStorageKey(projectId)
+    if (!storageKey) return
+    try {
+      window.localStorage.setItem(storageKey, String(activeBubbleFloor))
+    } catch {
+      // localStorage 접근 실패는 치명적이지 않아 무시한다.
+    }
+  }, [projectId, activeBubbleFloor])
 
   // 연결선 상태
   const {
@@ -488,7 +611,7 @@ export function useEditorPage() {
     removeActiveRooms,
     clearFloorPlan,
     replaceFloorPlanState,
-  } = useFloorPlan()
+  } = useFloorPlan(projectId)
   /** 버블 편집 잠금은 현재 비활성 상태(false 고정) */
   const isBubbleEditLocked = false
   const canSyncBubbleStateFrom2D = false
@@ -548,7 +671,13 @@ export function useEditorPage() {
       clearTwoDStructureSelection()
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [bubbles.length, isFloorPlanGenerated, isFloorPlanGenerating, clearFloorPlan, clearTwoDStructureSelection])
+  }, [
+    bubbles.length,
+    clearFloorPlan,
+    clearTwoDStructureSelection,
+    isFloorPlanGenerated,
+    isFloorPlanGenerating,
+  ])
 
   // Delete/Backspace 키로 선택된 버블 또는 연결선 삭제 (input 포커스 중엔 무시)
   const handleDeleteSelected = useCallback(() => {
@@ -715,6 +844,9 @@ export function useEditorPage() {
   })
   const bubbleDbSaveTimerRef = useRef<number | null>(null)
   const bubbleDbSaveInFlightRef = useRef<Promise<SaveBubbleSnapshotResponse> | null>(null)
+  const bubbleSnapshotChangeVersionRef = useRef(0)
+  const localBubbleChangeFlushRafRef = useRef<number | null>(null)
+  const pendingLocalBubbleChangeTaskRef = useRef<(() => void) | null>(null)
   const floorPlanGenerateForbiddenRef = useRef(false)
   const pendingOpenThreeDOnGenerateCompleteRef = useRef(false)
   const lastLoadedIfcStorageUrlRef = useRef<string | null>(null)
@@ -1367,17 +1499,22 @@ export function useEditorPage() {
     const localStoredBubbleDraftSummary = localStoredBubbleDraft
       ? summarizeBubbleSnapshotForDebug(localStoredBubbleDraft)
       : null
+    let bootstrapAppliedSource = 'none'
     logBubbleDebug('bootstrap:local-draft-loaded', {
       projectId,
       hasLocalDraft: Boolean(localStoredBubbleDraft),
       localDraftSavedAt: localStoredBubbleDraftPayload?.savedAt ?? null,
       localDraftSummary: localStoredBubbleDraftSummary,
     })
+    traceBubbleSnapshot('bootstrap:local-draft', projectId, localStoredBubbleDraft, {
+      localDraftSavedAt: localStoredBubbleDraftPayload?.savedAt ?? null,
+      hasLocalDraft: Boolean(localStoredBubbleDraft),
+    })
 
     const normalizeBootstrapBubbles = (snapshotBubbles: BubbleData[]) =>
       snapshotBubbles.map((bubble, index) => ({
         ...bubble,
-        floor: normalizeBubbleFloor(bubble.floor),
+        floor: resolveBubbleFloorFromUnknown(bubble as BubbleData & Record<string, unknown>),
         area: bubble.area ?? (Number.isFinite(bubble.ratio) ? `${bubble.ratio.toFixed(1)} m2` : '0.0 m2'),
         index: bubble.index ?? (index + 1).toString().padStart(2, '0'),
         color: bubble.color ?? '#93c5fd',
@@ -1416,15 +1553,40 @@ export function useEditorPage() {
     const applyBubbleSnapshot = (snapshot: BubbleSnapshotPayload) => {
       suppressNextAutosaveRef.current = true
       const normalizedBubbles = normalizeBootstrapBubbles(snapshot.bubbles)
+
+      // [포인트 A] bootstrap 스냅샷 적용 직전: raw 입력 vs 정규화 결과의 층 분포 비교
+      logBubbleDebug('[pointA] bootstrap:apply-snapshot:before', {
+        projectId,
+        rawSummary: summarizeBubbleSnapshotForDebug(snapshot),
+        normalizedFloorCounts: normalizedBubbles.reduce<Record<number, number>>((acc, b) => {
+          const floor = normalizeBubbleFloor(b.floor)
+          acc[floor] = (acc[floor] ?? 0) + 1
+          return acc
+        }, {}),
+        rawFloorCounts: snapshot.bubbles.reduce<Record<string, number>>((acc, b) => {
+          const key = String(b.floor ?? 'undefined')
+          acc[key] = (acc[key] ?? 0) + 1
+          return acc
+        }, {}),
+        localStoredFloorMeta: localStoredBubbleFloorMeta,
+      })
+
       const floorMeta = readBubbleFloorMetaFromSnapshot(
         snapshot.floorMeta,
         normalizedBubbles,
         localStoredBubbleFloorMeta,
       )
-      const availableFloors = normalizeBubbleFloorSet([
-        ...normalizedBubbles.map((bubble) => normalizeBubbleFloor(bubble.floor)),
-        ...floorMeta.extraFloors,
-      ])
+
+      // [포인트 B] floorMeta 결정 결과: 어떤 층이 적용될지 확인
+      logBubbleDebug('[pointB] bootstrap:apply-snapshot:floor-meta-resolved', {
+        projectId,
+        resolvedNamesByFloor: floorMeta.namesByFloor,
+        resolvedExtraFloors: floorMeta.extraFloors,
+        snapshotHadFloorMeta: Boolean(snapshot.floorMeta),
+        usedFallback: !snapshot.floorMeta?.namesByFloor && !snapshot.floorMeta?.extraFloors,
+      })
+
+      const availableFloors = resolveAvailableBubbleFloors(normalizedBubbles, floorMeta)
 
       replaceBubblesForBootstrap(normalizedBubbles)
       replaceConnectionsForBootstrap(snapshot.connections)
@@ -1463,15 +1625,18 @@ export function useEditorPage() {
     const applyWorkspaceDetailFallback = async (
       seedBubbleBaseline = false,
       historySummaryForRecovery?: ReturnType<typeof summarizeBubbleSnapshotForDebug>,
-    ): Promise<boolean> => {
+      options?: { preferLocalDraft?: boolean },
+    ): Promise<{ applied: boolean; summary: ReturnType<typeof summarizeBubbleSnapshotForDebug> | null }> => {
+      const preferLocalDraft = options?.preferLocalDraft ?? true
       logBubbleDebug('bootstrap:db-fallback:begin', {
         projectId,
         seedBubbleBaseline,
+        preferLocalDraft,
         historySummaryForRecovery: historySummaryForRecovery ?? null,
       })
       const workspaceDetail = await projectService.getWorkspaceDetail(projectId).catch(() => null)
-      if (isCancelled || draftLoadTokenRef.current !== loadToken) return false
-      if (!workspaceDetail) return false
+      if (isCancelled || draftLoadTokenRef.current !== loadToken) return { applied: false, summary: null }
+      if (!workspaceDetail) return { applied: false, summary: null }
 
       const dbPhaseStatus = workspaceDetail.phaseStatus
       if (dbPhaseStatus === 'BUBBLE_DRAFT' || dbPhaseStatus === 'CONVERTING' || dbPhaseStatus === 'IFC_EDIT') {
@@ -1488,12 +1653,32 @@ export function useEditorPage() {
         ? workspaceDetail.bubbleSnapshotJson
         : null
       const dbSummary = dbBubbleSnapshot ? summarizeBubbleSnapshotForDebug(dbBubbleSnapshot) : null
+      logBootstrapFloor('db-fetched', {
+        projectId,
+        phaseStatus: dbPhaseStatus ?? null,
+        hasDbBubbleSnapshot: Boolean(dbBubbleSnapshot),
+        dbSummary,
+        dbResolvedFloorCounts: dbSummary?.resolvedFloorCounts ?? null,
+        dbFloorFieldPresenceCounts: dbSummary?.floorFieldPresenceCounts ?? null,
+      })
 
       let selectedRecoverySnapshot = dbBubbleSnapshot
       let selectedRecoverySummary = dbSummary
       let selectedRecoverySource: 'db' | 'local-draft' | 'none' = dbBubbleSnapshot ? 'db' : 'none'
 
-      if (localStoredBubbleDraft && localStoredBubbleDraftSummary) {
+      const dbLooksSingleFloorFlattened =
+        (dbSummary?.bubbleCount ?? 0) > 0 &&
+        (dbSummary?.bubbleFloors.length ?? 0) === 1 &&
+        dbSummary?.bubbleFloors[0] === 1 &&
+        (dbSummary?.floorMetaFloors.length ?? 0) === 0
+      const localDraftLooksMultiFloor =
+        Boolean(localStoredBubbleDraftSummary) &&
+        (
+          (localStoredBubbleDraftSummary?.bubbleFloors.some((floor) => floor > 1) ?? false)
+          || (localStoredBubbleDraftSummary?.floorMetaFloors.some((floor) => floor > 1) ?? false)
+        )
+
+      if (preferLocalDraft && localStoredBubbleDraft && localStoredBubbleDraftSummary) {
         if (!selectedRecoverySnapshot || !selectedRecoverySummary) {
           selectedRecoverySnapshot = localStoredBubbleDraft
           selectedRecoverySummary = localStoredBubbleDraftSummary
@@ -1503,6 +1688,16 @@ export function useEditorPage() {
           selectedRecoverySummary = localStoredBubbleDraftSummary
           selectedRecoverySource = 'local-draft'
         }
+      } else if (
+        !preferLocalDraft &&
+        localStoredBubbleDraft &&
+        localStoredBubbleDraftSummary &&
+        dbLooksSingleFloorFlattened &&
+        localDraftLooksMultiFloor
+      ) {
+        selectedRecoverySnapshot = localStoredBubbleDraft
+        selectedRecoverySummary = localStoredBubbleDraftSummary
+        selectedRecoverySource = 'local-draft'
       }
 
       logBubbleDebug('bootstrap:db-fallback:resolved-candidate', {
@@ -1511,6 +1706,22 @@ export function useEditorPage() {
         dbSummary,
         localDraftSummary: localStoredBubbleDraftSummary,
         historySummaryForRecovery: historySummaryForRecovery ?? null,
+      })
+      logBootstrapFloor('db-candidate-selected', {
+        projectId,
+        selectedRecoverySource,
+        selectedRecoverySummary,
+        dbLooksSingleFloorFlattened,
+        localDraftLooksMultiFloor,
+        selectedRecoveryResolvedFloorCounts: selectedRecoverySummary?.resolvedFloorCounts ?? null,
+        selectedRecoveryFloorFieldPresenceCounts: selectedRecoverySummary?.floorFieldPresenceCounts ?? null,
+        historySummaryForRecovery: historySummaryForRecovery ?? null,
+      })
+      traceBubbleSnapshot('bootstrap:db-fallback:db-candidate', projectId, dbBubbleSnapshot, {
+        selectedRecoverySource,
+      })
+      traceBubbleSnapshot('bootstrap:db-fallback:local-draft-candidate', projectId, localStoredBubbleDraft, {
+        selectedRecoverySource,
       })
 
       if (selectedRecoverySnapshot && selectedRecoverySummary) {
@@ -1524,13 +1735,21 @@ export function useEditorPage() {
             selectedRecoverySummary,
             historySummaryForRecovery,
           })
-          return false
+          return { applied: false, summary: selectedRecoverySummary }
         }
         logBubbleDebug('bootstrap:db-fallback:apply-bubble-snapshot', {
           projectId,
           summary: selectedRecoverySummary,
           phaseStatus: dbPhaseStatus,
           source: selectedRecoverySource,
+        })
+        bootstrapAppliedSource = `db:${selectedRecoverySource}`
+        logBootstrapFloor('db-apply', {
+          projectId,
+          source: selectedRecoverySource,
+          summary: selectedRecoverySummary,
+          resolvedFloorCounts: selectedRecoverySummary.resolvedFloorCounts,
+          floorFieldPresenceCounts: selectedRecoverySummary.floorFieldPresenceCounts,
         })
         if (isBubbleDebugEnabled()) {
           console.table(selectedRecoverySummary.bubbleFloorRows)
@@ -1555,13 +1774,15 @@ export function useEditorPage() {
             })
           }
         }
-        return true
+        return { applied: true, summary: selectedRecoverySummary }
       }
 
-      return false
+      return { applied: false, summary: selectedRecoverySummary }
     }
 
-    const applyRedisHistorySnapshot = async () => {
+    const applyRedisHistorySnapshot = async (
+      dbBaselineSummary?: ReturnType<typeof summarizeBubbleSnapshotForDebug> | null,
+    ) => {
       const history = await workspaceSaveService.loadHistorySnapshot(projectId)
       if (isCancelled || draftLoadTokenRef.current !== loadToken) return
       if (hasUserEditedRef.current) return
@@ -1579,6 +1800,37 @@ export function useEditorPage() {
           ? summarizeBubbleSnapshotForDebug(history.floorPlan.snapshot)
           : null,
       })
+      logBootstrapFloor('history-loaded', {
+        projectId,
+        bubbleBaseIndex: history.bubble?.baseIndex ?? -1,
+        bubbleRedoDepth: history.bubble?.redoDepth ?? 0,
+        floorPlanBaseIndex: history.floorPlan?.baseIndex ?? -1,
+        floorPlanRedoDepth: history.floorPlan?.redoDepth ?? 0,
+        historyBubbleSummary: isBubbleSnapshotPayload(history.bubble?.snapshot)
+          ? summarizeBubbleSnapshotForDebug(history.bubble.snapshot)
+          : null,
+        historyFloorPlanBubbleSummary: isBubbleSnapshotPayload(history.floorPlan?.snapshot)
+          ? summarizeBubbleSnapshotForDebug(history.floorPlan.snapshot)
+          : null,
+      })
+      traceBubbleSnapshot(
+        'bootstrap:history:bubble',
+        projectId,
+        isBubbleSnapshotPayload(history.bubble?.snapshot) ? history.bubble.snapshot : null,
+        {
+          bubbleBaseIndex: history.bubble?.baseIndex ?? -1,
+          bubbleRedoDepth: history.bubble?.redoDepth ?? 0,
+        },
+      )
+      traceBubbleSnapshot(
+        'bootstrap:history:floor-plan',
+        projectId,
+        isBubbleSnapshotPayload(history.floorPlan?.snapshot) ? history.floorPlan.snapshot : null,
+        {
+          floorPlanBaseIndex: history.floorPlan?.baseIndex ?? -1,
+          floorPlanRedoDepth: history.floorPlan?.redoDepth ?? 0,
+        },
+      )
 
       const bubbleBaseIndex = history.bubble?.baseIndex ?? -1
       const bubbleRedoDepth = history.bubble?.redoDepth ?? 0
@@ -1594,24 +1846,70 @@ export function useEditorPage() {
 
       const bubbleSnapshot = history.bubble?.snapshot
       const hasBubbleSnapshot = isBubbleSnapshotPayload(bubbleSnapshot)
-      if (hasBubbleSnapshot) {
-        applyBubbleSnapshot(bubbleSnapshot)
-      }
 
       const floorPlanSnapshotRaw = history.floorPlan?.snapshot
       const floorPlanSnapshot: SavedFloorPlanSnapshotPayload | null | undefined = floorPlanSnapshotRaw
       const floorPlanBubbleSnapshot = isBubbleSnapshotPayload(floorPlanSnapshotRaw) ? floorPlanSnapshotRaw : null
-      if (!hasBubbleSnapshot && floorPlanBubbleSnapshot) {
-        applyBubbleSnapshot(floorPlanBubbleSnapshot)
-      }
 
       const resolvedHistoryBubbleSnapshot = hasBubbleSnapshot
         ? bubbleSnapshot
         : floorPlanBubbleSnapshot
+      let shouldApplyHistoryBubbleSnapshot = false
       if (isBubbleSnapshotPayload(resolvedHistoryBubbleSnapshot)) {
         const resolvedSummary = summarizeBubbleSnapshotForDebug(resolvedHistoryBubbleSnapshot)
-        logBubbleDebug('bootstrap:history-applied', { projectId, resolvedSummary })
+        const dbSummary = dbBaselineSummary ?? null
+        const historyPreferred = dbSummary
+          ? isSnapshotPreferredForRecovery(resolvedSummary, dbSummary)
+          : true
+        const dbPreferred = dbSummary
+          ? isSnapshotPreferredForRecovery(dbSummary, resolvedSummary)
+          : false
         const looksFlattenedByHistory = isPossiblyFlattenedFloorSnapshot(resolvedSummary)
+        const historyMissingFloorMeta =
+          resolvedSummary.bubbleCount > 0 &&
+          resolvedSummary.floorMetaFloors.length === 0
+        shouldApplyHistoryBubbleSnapshot = !looksFlattenedByHistory
+          && !historyMissingFloorMeta
+          && (
+            dbSummary === null
+            || historyPreferred
+            || (!dbPreferred && bubbleBaseIndex >= 0)
+          )
+
+        logBubbleDebug('bootstrap:history-compare', {
+          projectId,
+          dbSummary,
+          resolvedSummary,
+          historyPreferred,
+          dbPreferred,
+          bubbleBaseIndex,
+          shouldApplyHistoryBubbleSnapshot,
+          looksFlattenedByHistory,
+          historyMissingFloorMeta,
+        })
+        logBootstrapFloor('history-compare', {
+          projectId,
+          dbSummary,
+          historySummary: resolvedSummary,
+          historyPreferred,
+          dbPreferred,
+          bubbleBaseIndex,
+          shouldApplyHistoryBubbleSnapshot,
+          looksFlattenedByHistory,
+          historyMissingFloorMeta,
+        })
+
+        if (shouldApplyHistoryBubbleSnapshot) {
+          logBubbleDebug('bootstrap:history-applied', { projectId, resolvedSummary })
+          traceBubbleSnapshot('bootstrap:history:resolved-applied', projectId, resolvedHistoryBubbleSnapshot)
+          applyBubbleSnapshot(resolvedHistoryBubbleSnapshot)
+          bootstrapAppliedSource = 'history'
+          logBootstrapFloor('history-applied', {
+            projectId,
+            summary: resolvedSummary,
+          })
+        }
+
         const looksFlattenedByLocalHint =
           Boolean(localStoredBubbleDraftSummary) &&
           resolvedSummary.bubbleCount > 0 &&
@@ -1619,17 +1917,32 @@ export function useEditorPage() {
           resolvedSummary.bubbleFloors[0] === 1 &&
           resolvedSummary.floorMetaFloors.length === 0 &&
           hasMultipleFloorHintFromLocalMeta(localStoredBubbleFloorMeta)
-        if (looksFlattenedByHistory || looksFlattenedByLocalHint) {
+        if (!shouldApplyHistoryBubbleSnapshot && (looksFlattenedByHistory || looksFlattenedByLocalHint || historyMissingFloorMeta)) {
           logBubbleDebug('bootstrap:history-flattened-detected', {
             projectId,
             resolvedSummary,
             looksFlattenedByHistory,
+            historyMissingFloorMeta,
             looksFlattenedByLocalHint,
             localStoredBubbleFloorMeta,
           })
-          const restored = await applyWorkspaceDetailFallback(true, resolvedSummary)
+          // [Fix A] DB 조회(async) 동안 잘못된 층 상태가 보이는 플래시를 방지하기 위해
+          // 다층 로컬 드래프트가 있으면 즉시 적용한다.
+          if (localStoredBubbleDraft && localStoredBubbleDraftSummary?.bubbleFloors.some((f) => f !== 1)) {
+            applyBubbleSnapshot(localStoredBubbleDraft)
+            bootstrapAppliedSource = 'local-draft-recovery'
+            logBootstrapFloor('history-recover-local-draft-applied', {
+              projectId,
+              summary: localStoredBubbleDraftSummary,
+            })
+          }
+          const restored = await applyWorkspaceDetailFallback(
+            true,
+            resolvedSummary,
+            { preferLocalDraft: false },
+          )
           logBubbleDebug('bootstrap:history-flattened-recovery-finished', { projectId, restored })
-          if (restored) {
+          if (restored.applied) {
             return
           }
         }
@@ -1678,16 +1991,31 @@ export function useEditorPage() {
         return
       }
 
-      await applyWorkspaceDetailFallback(bubbleBaseIndex < 0)
+      await applyWorkspaceDetailFallback(
+        bubbleBaseIndex < 0,
+        undefined,
+        { preferLocalDraft: true },
+      )
     }
 
     let didHistoryBootstrapFail = false
 
-    void applyRedisHistorySnapshot()
+    void (async () => {
+      const dbBaseline = await applyWorkspaceDetailFallback(
+        false,
+        undefined,
+        { preferLocalDraft: false },
+      )
+      await applyRedisHistorySnapshot(dbBaseline.summary)
+    })()
       .catch(async () => {
-        const didApplyFallback = await applyWorkspaceDetailFallback()
-        didHistoryBootstrapFail = !didApplyFallback
-        if (!didApplyFallback && !isCancelled && draftLoadTokenRef.current === loadToken) {
+        const didApplyFallback = await applyWorkspaceDetailFallback(
+          false,
+          undefined,
+          { preferLocalDraft: true },
+        )
+        didHistoryBootstrapFail = !didApplyFallback.applied
+        if (!didApplyFallback.applied && !isCancelled && draftLoadTokenRef.current === loadToken) {
           setSaveStatus('error')
         }
       })
@@ -1696,6 +2024,10 @@ export function useEditorPage() {
         draftLoadingProjectIdRef.current = null
         draftLoadBaselineRef.current = null
         if (didHistoryBootstrapFail) return
+        logBootstrapFloor('bootstrap-final', {
+          projectId,
+          bootstrapAppliedSource,
+        })
         draftLoadedProjectIdRef.current = projectId
         setAutosaveReadyProjectId(projectId)
       })
@@ -1860,19 +2192,19 @@ export function useEditorPage() {
       baseIndex: serverPublishRecord.baseIndex,
       startedAt: Date.now(),
     }
-    logBubbleDebug('publish:begin', {
+    // [포인트 E] STOMP 자동저장 publish: BE로 전송되는 floor 데이터 확인
+    const publishDebugSummary = summarizeBubbleSnapshotForDebug(
+      toBubbleSnapshotPayloadFromWorkspaceSnapshot(publishSnapshot),
+    )
+    logBubbleDebug('[pointE] publish:begin', {
       projectId,
       baseIndex: serverPublishRecord.baseIndex,
       historyDomain: resolveServerHistoryDomain(publishSnapshot),
-      summary: summarizeBubbleSnapshotForDebug(
-        toBubbleSnapshotPayloadFromWorkspaceSnapshot(publishSnapshot),
-      ),
+      summary: publishDebugSummary,
+      floorMeta: { namesByFloor: publishSnapshot.bubbleFloorNamesByNumber, extraFloors: publishSnapshot.extraBubbleFloors },
     })
     if (isBubbleDebugEnabled()) {
-      const summary = summarizeBubbleSnapshotForDebug(
-        toBubbleSnapshotPayloadFromWorkspaceSnapshot(publishSnapshot),
-      )
-      console.table(summary.bubbleFloorRows)
+      console.table(publishDebugSummary.bubbleFloorRows)
     }
 
     void workspaceRealtimeService.publishSnapshot({
@@ -1973,7 +2305,10 @@ export function useEditorPage() {
     setSaveStatus('error')
   }, [clearServerPublishRetry, projectId, scheduleServerPublishRetry])
 
-  const applyRemoteBubbleSnapshot = useCallback((snapshot: BubbleSnapshotPayload) => {
+  const applyRemoteBubbleSnapshot = useCallback((
+    snapshot: BubbleSnapshotPayload,
+    meta?: { action: string | null; payloadBaseIndex: number | null },
+  ) => {
     const incomingSignature = JSON.stringify({
       bubbles: snapshot.bubbles,
       connections: snapshot.connections,
@@ -1996,22 +2331,93 @@ export function useEditorPage() {
         projectId,
         incoming: summarizeBubbleSnapshotForDebug(snapshot),
       })
+      traceBubbleSnapshot('remote-bubble:skipped-due-to-local-edit', projectId, snapshot)
+      return
+    }
+
+    const incomingSummary = summarizeBubbleSnapshotForDebug(snapshot)
+    const localSummary = summarizeBubbleSnapshotForDebug(latestLocalSnapshot)
+    const localBubbleIds = new Set(latestLocalSnapshot.bubbles.map((bubble) => bubble.id))
+    const incomingBubbleIds = new Set(snapshot.bubbles.map((bubble) => bubble.id))
+    const sameBubbleIdSet =
+      localBubbleIds.size === incomingBubbleIds.size &&
+      [...localBubbleIds].every((bubbleId) => incomingBubbleIds.has(bubbleId))
+    const looksLikeUnexpectedFloorFlatten =
+      sameBubbleIdSet &&
+      localSummary.bubbleFloors.some((floor) => floor > 1) &&
+      incomingSummary.bubbleFloors.length === 1 &&
+      incomingSummary.bubbleFloors[0] === 1
+
+    if (
+      meta?.action === WORKSPACE_SYNC_ACTION.bubbleUpdated &&
+      looksLikeUnexpectedFloorFlatten
+    ) {
+      logBubbleDebug('remote-bubble:skipped-flattened-overwrite', {
+        projectId,
+        action: meta?.action ?? null,
+        payloadBaseIndex: meta?.payloadBaseIndex ?? null,
+        localSummary,
+        incomingSummary,
+      })
+      traceBubbleSnapshot('remote-bubble:skipped-flattened-overwrite', projectId, snapshot, {
+        action: meta?.action ?? null,
+        payloadBaseIndex: meta?.payloadBaseIndex ?? null,
+      })
       return
     }
 
     suppressNextAutosaveRef.current = true
     const previousById = new Map(latestLocalSnapshot.bubbles.map((bubble) => [bubble.id, bubble] as const))
+
+    // [포인트 C-1] STOMP echo 수신: BE가 어떤 floor 값을 돌려보냈는지 확인
+    logBubbleDebug('[pointC-1] remote-bubble:incoming-floor-data', {
+      projectId,
+      incomingFloorCounts: snapshot.bubbles.reduce<Record<string, number>>((acc, b) => {
+        const raw = (b as BubbleData & Record<string, unknown>)
+        const key = `floor=${String(raw.floor ?? 'undefined')}/layer=${String(raw.layer ?? 'undefined')}`
+        acc[key] = (acc[key] ?? 0) + 1
+        return acc
+      }, {}),
+      incomingFloorMeta: snapshot.floorMeta,
+      localFloorCounts: latestLocalSnapshot.bubbles.reduce<Record<number, number>>((acc, b) => {
+        const floor = normalizeBubbleFloor(b.floor)
+        acc[floor] = (acc[floor] ?? 0) + 1
+        return acc
+      }, {}),
+      localFloorMeta: latestBubbleSnapshotRef.current.floorMeta,
+    })
+
     const normalizedBubbles = snapshot.bubbles.map((bubble, index) => {
       const previous = previousById.get(bubble.id)
       const areaLabel = Number.isFinite(bubble.ratio) ? `${bubble.ratio.toFixed(1)} m²` : (previous?.area ?? '0.0 m²')
       const defaultIndex = (index + 1).toString().padStart(2, '0')
       return {
         ...bubble,
-        floor: normalizeBubbleFloor(bubble.floor),
+        floor: resolveBubbleFloorFromUnknown(bubble as BubbleData & Record<string, unknown>),
         area: areaLabel,
         index: previous?.index ?? defaultIndex,
         material: previous?.material,
       }
+    })
+
+    // [포인트 C-2] 정규화 후 결과: floor 값이 echo에 의해 바뀌었는지 확인
+    logBubbleDebug('[pointC-2] remote-bubble:normalized-floor-result', {
+      projectId,
+      normalizedFloorCounts: normalizedBubbles.reduce<Record<number, number>>((acc, b) => {
+        const floor = normalizeBubbleFloor(b.floor)
+        acc[floor] = (acc[floor] ?? 0) + 1
+        return acc
+      }, {}),
+      floorChangedBubbles: normalizedBubbles
+        .filter((b) => {
+          const prev = previousById.get(b.id)
+          return prev && normalizeBubbleFloor(prev.floor) !== b.floor
+        })
+        .map((b) => ({
+          id: b.id,
+          prevFloor: previousById.get(b.id)?.floor,
+          newFloor: b.floor,
+        })),
     })
 
     replaceBubbles(normalizedBubbles)
@@ -2022,10 +2428,7 @@ export function useEditorPage() {
       normalizedBubbles,
       normalizeBubbleFloorMetaForSync(latestFloorMeta),
     )
-    const availableFloors = normalizeBubbleFloorSet([
-      ...normalizedBubbles.map((bubble) => normalizeBubbleFloor(bubble.floor)),
-      ...floorMeta.extraFloors,
-    ])
+    const availableFloors = resolveAvailableBubbleFloors(normalizedBubbles, floorMeta)
     setBubbleFloorNamesByNumber(floorMeta.namesByFloor)
     setExtraBubbleFloors(floorMeta.extraFloors)
     setActiveBubbleFloor((prev) => (availableFloors.includes(prev) ? prev : (availableFloors[0] ?? 1)))
@@ -2036,6 +2439,7 @@ export function useEditorPage() {
       projectId,
       summary: summarizeBubbleSnapshotForDebug(snapshot),
     })
+    traceBubbleSnapshot('remote-bubble:applied', projectId, snapshot)
     setSaveStatus(workspaceEditTransactionDepthRef.current > 0 || pendingWorkspaceSnapshotCommitRef.current ? 'dirty' : 'synced')
   }, [projectId, replaceBubbles, replaceConnections, setConnectingFromId])
 
@@ -2066,7 +2470,7 @@ export function useEditorPage() {
         const defaultIndex = (index + 1).toString().padStart(2, '0')
         return {
           ...bubble,
-          floor: normalizeBubbleFloor(bubble.floor),
+          floor: resolveBubbleFloorFromUnknown(bubble as BubbleData & Record<string, unknown>),
           area: areaLabel,
           index: previous?.index ?? defaultIndex,
           material: previous?.material,
@@ -2078,10 +2482,7 @@ export function useEditorPage() {
         normalizedBubbles,
         normalizeBubbleFloorMetaForSync(latestFloorMeta),
       )
-      const availableFloors = normalizeBubbleFloorSet([
-        ...normalizedBubbles.map((bubble) => normalizeBubbleFloor(bubble.floor)),
-        ...floorMeta.extraFloors,
-      ])
+      const availableFloors = resolveAvailableBubbleFloors(normalizedBubbles, floorMeta)
       replaceBubbles(normalizedBubbles)
       replaceConnections(snapshot.connections)
       setBubbleFloorNamesByNumber(floorMeta.namesByFloor)
@@ -2323,11 +2724,15 @@ export function useEditorPage() {
     }
 
     const snapshot = latestBubbleSnapshotRef.current
+    const saveStartVersion = bubbleSnapshotChangeVersionRef.current
     logBubbleDebug('db-save:begin', {
       projectId,
       force,
+      saveStartVersion,
       summary: summarizeBubbleSnapshotForDebug(snapshot),
     })
+    traceBubbleSnapshot('db-save:begin', projectId, snapshot, { force, saveStartVersion })
+    let shouldTriggerFollowUpSave = false
     const saveTask = (async () => {
       if (isBubbleDebugEnabled()) {
         const summary = summarizeBubbleSnapshotForDebug(snapshot)
@@ -2339,13 +2744,24 @@ export function useEditorPage() {
         snapshot.connections,
         normalizeBubbleFloorMetaForSync(snapshot.floorMeta),
       )
-      bubbleDbDirtyRef.current = false
+      const changedDuringSave = bubbleSnapshotChangeVersionRef.current !== saveStartVersion
+      bubbleDbDirtyRef.current = changedDuringSave
+      shouldTriggerFollowUpSave = changedDuringSave
       clearBubbleLocalDraftFromStorage(projectId)
       logBubbleDebug('db-save:success', {
         projectId,
         savedAt: saved.savedAt,
         phaseStatus: saved.phaseStatus,
+        saveStartVersion,
+        changedDuringSave,
         summary: summarizeBubbleSnapshotForDebug(snapshot),
+      })
+      traceBubbleSnapshot('db-save:success', projectId, snapshot, {
+        force,
+        savedAt: saved.savedAt,
+        phaseStatus: saved.phaseStatus,
+        saveStartVersion,
+        changedDuringSave,
       })
       return saved
     })()
@@ -2362,10 +2778,14 @@ export function useEditorPage() {
       if (bubbleDbSaveInFlightRef.current === saveTask) {
         bubbleDbSaveInFlightRef.current = null
       }
+      if (shouldTriggerFollowUpSave && projectId && workspacePhaseStatus === 'BUBBLE_DRAFT') {
+        // 저장 중에 수정이 한 번이라도 발생했으면 최신 스냅샷을 즉시 한 번 더 저장한다.
+        void flushBubbleSnapshotSaveToDb(false)
+      }
     }
   }, [getBubbleSnapshotSaveErrorSummary, projectId, workspacePhaseStatus])
 
-  const scheduleBubbleSnapshotSaveToDb = useCallback((delayMs = BUBBLE_DB_SAVE_DEBOUNCE_MS) => {
+  const scheduleBubbleSnapshotSaveToDb = useCallback((delayMs = resolveBubbleDbSaveDebounceMs()) => {
     if (!projectId) return
     if (workspacePhaseStatus !== 'BUBBLE_DRAFT') return
 
@@ -2380,16 +2800,38 @@ export function useEditorPage() {
     }, delayMs)
   }, [flushBubbleSnapshotSaveToDb, projectId, workspacePhaseStatus])
 
+  const flushPendingLocalBubbleChange = useCallback(() => {
+    if (localBubbleChangeFlushRafRef.current !== null) {
+      window.cancelAnimationFrame(localBubbleChangeFlushRafRef.current)
+      localBubbleChangeFlushRafRef.current = null
+    }
+    const pendingTask = pendingLocalBubbleChangeTaskRef.current
+    if (!pendingTask) return
+    pendingLocalBubbleChangeTaskRef.current = null
+    pendingTask()
+  }, [])
+
   const markLocalBubbleSnapshotChanged = useCallback(() => {
     hasUserEditedRef.current = true
-    writeBubbleLocalDraftToStorage(projectId, latestBubbleSnapshotRef.current)
-    logBubbleDebug('local-change:mark', {
-      projectId,
-      summary: summarizeBubbleSnapshotForDebug(latestBubbleSnapshotRef.current),
+    bubbleSnapshotChangeVersionRef.current += 1
+    pendingLocalBubbleChangeTaskRef.current = () => {
+      writeBubbleLocalDraftToStorage(projectId, latestBubbleSnapshotRef.current)
+      logBubbleDebug('local-change:mark', {
+        projectId,
+        changeVersion: bubbleSnapshotChangeVersionRef.current,
+        summary: summarizeBubbleSnapshotForDebug(latestBubbleSnapshotRef.current),
+      })
+      markLocalBubbleSnapshotChangedRealtime()
+      scheduleBubbleSnapshotSaveToDb()
+    }
+    if (localBubbleChangeFlushRafRef.current !== null) {
+      window.cancelAnimationFrame(localBubbleChangeFlushRafRef.current)
+    }
+    localBubbleChangeFlushRafRef.current = window.requestAnimationFrame(() => {
+      localBubbleChangeFlushRafRef.current = null
+      flushPendingLocalBubbleChange()
     })
-    markLocalBubbleSnapshotChangedRealtime()
-    scheduleBubbleSnapshotSaveToDb()
-  }, [markLocalBubbleSnapshotChangedRealtime, projectId, scheduleBubbleSnapshotSaveToDb])
+  }, [flushPendingLocalBubbleChange, markLocalBubbleSnapshotChangedRealtime, projectId, scheduleBubbleSnapshotSaveToDb])
 
   const markLocalFloorPlanSnapshotChanged = useCallback(() => {
     hasUserEditedRef.current = true
@@ -2430,6 +2872,7 @@ export function useEditorPage() {
 
   const handleManualSave = useCallback(() => {
     hasUserEditedRef.current = true
+    flushPendingLocalBubbleChange()
     flushOpenWorkspaceSnapshotTransaction()
     if (workspacePhaseStatus === 'BUBBLE_DRAFT') {
       bubbleDbDirtyRef.current = true
@@ -2437,7 +2880,7 @@ export function useEditorPage() {
     }
     setSaveStatus('dirty')
     setWorkspaceSnapshotCommitVersion((version) => version + 1)
-  }, [flushBubbleSnapshotSaveToDb, flushOpenWorkspaceSnapshotTransaction, workspacePhaseStatus])
+  }, [flushBubbleSnapshotSaveToDb, flushOpenWorkspaceSnapshotTransaction, flushPendingLocalBubbleChange, workspacePhaseStatus])
 
   useEffect(() => {
     const handleSaveShortcut = (event: KeyboardEvent) => {
@@ -2467,6 +2910,7 @@ export function useEditorPage() {
 
   useEffect(() => {
     const handlePageExit = () => {
+      flushPendingLocalBubbleChange()
       logBubbleDebug('page-exit:flush', {
         projectId,
         summary: summarizeBubbleSnapshotForDebug(latestBubbleSnapshotRef.current),
@@ -2485,7 +2929,7 @@ export function useEditorPage() {
       window.removeEventListener('beforeunload', handlePageExit)
       window.removeEventListener('pagehide', handlePageExit)
     }
-  }, [flushBubbleSnapshotSaveToDb, flushOpenWorkspaceSnapshotTransaction, projectId, workspacePhaseStatus])
+  }, [flushBubbleSnapshotSaveToDb, flushOpenWorkspaceSnapshotTransaction, flushPendingLocalBubbleChange, projectId, workspacePhaseStatus])
 
   useEffect(() => {
     if (workspaceEditTransactionDepthRef.current <= 0) return
@@ -2507,8 +2951,62 @@ export function useEditorPage() {
         window.clearTimeout(bubbleDbSaveTimerRef.current)
         bubbleDbSaveTimerRef.current = null
       }
+      if (localBubbleChangeFlushRafRef.current !== null) {
+        window.cancelAnimationFrame(localBubbleChangeFlushRafRef.current)
+        localBubbleChangeFlushRafRef.current = null
+      }
+      pendingLocalBubbleChangeTaskRef.current = null
     }
   }, [])
+
+  useEffect(() => {
+    return () => {
+      // [포인트 D] 컴포넌트 unmount/cleanup 순간의 상태 기록
+      logBubbleDebug('[pointD] cleanup:fired', {
+        projectId,
+        hasUserEdited: hasUserEditedRef.current,
+        willSave: hasUserEditedRef.current,
+        floorSummary: summarizeBubbleSnapshotForDebug(latestBubbleSnapshotRef.current),
+      })
+
+      // 사용자가 편집하지 않은 경우(bootstrap 진행 중이거나 React StrictMode 이중 실행 등)
+      // 초기 상태로 local draft와 DB를 덮어써 기존 드래프트 데이터가 손실되는 것을 방지한다.
+      if (!hasUserEditedRef.current) return
+
+      flushPendingLocalBubbleChange()
+      const latestBubbleSnapshot = latestBubbleSnapshotRef.current
+      writeBubbleLocalDraftToStorage(projectId, latestBubbleSnapshot)
+
+      if (!projectId || workspacePhaseStatus !== 'BUBBLE_DRAFT') return
+
+      bubbleDbDirtyRef.current = true
+      void flushBubbleSnapshotSaveToDb(true)
+
+      const latestSnapshot = latestDraftSnapshotRef.current
+      const publishSnapshot: WorkspaceSnapshot = {
+        ...latestSnapshot,
+        phaseStatus: 'BUBBLE_DRAFT',
+        zones: [],
+        floorLayers: [],
+        activeFloorLayerId: null,
+        isFloorPlanGenerated: false,
+        floorPlanLayoutSource: null,
+        floorWalls: [],
+        floorOpenings: [],
+        hiddenAutoWallIds: [],
+        hiddenAutoOpeningIds: [],
+        isProjectStructurePreferred: false,
+        ifcElementChanges: [],
+      }
+      void workspaceRealtimeService.publishSnapshot({
+        projectId,
+        snapshot: publishSnapshot,
+        baseIndex: resolveServerHistoryBaseIndex(publishSnapshot),
+      }).catch(() => {
+        // 화면 이탈 시점 best-effort sync이므로 실패는 조용히 무시한다.
+      })
+    }
+  }, [flushBubbleSnapshotSaveToDb, flushPendingLocalBubbleChange, projectId, resolveServerHistoryBaseIndex, workspacePhaseStatus])
 
   const updateFloorWallFromEditable = useCallback((wallId: string, updater: (wall: FloorWall) => FloorWall) => {
     setFloorWalls((prev) => {

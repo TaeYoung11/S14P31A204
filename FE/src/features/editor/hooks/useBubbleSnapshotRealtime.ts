@@ -36,7 +36,10 @@ interface UseBubbleSnapshotRealtimeParams {
   canPublish: boolean
   bubbles: BubbleData[]
   connections: ConnectionData[]
-  onRemoteSnapshot: (snapshot: BubbleSnapshotPayload) => void
+  onRemoteSnapshot: (
+    snapshot: BubbleSnapshotPayload,
+    meta?: { action: string | null; payloadBaseIndex: number | null },
+  ) => void
   onRemoteFloorPlanSnapshot?: (snapshot: FloorPlanSnapshotPayload) => void
   onPhaseStatusChanged?: (status: PhaseStatus) => void
   onIfcStorageUrlReceived?: (ifcStorageUrl: string, action: string | null, assetId: string | null, revisionId: string | null) => void
@@ -204,7 +207,7 @@ export function useBubbleSnapshotRealtime({
       action: string | null,
       payloadBaseIndex: number | null,
     ) => {
-      remoteSnapshotHandlerRef.current(snapshot)
+      remoteSnapshotHandlerRef.current(snapshot, { action, payloadBaseIndex })
       syncBubbleHistoryCursor(action, payloadBaseIndex)
     }
 

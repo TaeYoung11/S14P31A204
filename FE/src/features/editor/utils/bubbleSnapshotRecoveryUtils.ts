@@ -25,9 +25,69 @@ export interface BubbleSnapshotDebugSummary {
   bubbleFloors: number[]
   floorMetaFloors: number[]
   floorCounts: Record<number, number>
+  resolvedFloorCounts: Record<number, number>
+  floorFieldPresenceCounts: Record<string, number>
   rawFloorTypeCounts: Record<string, number>
   rawFloorValues: unknown[]
-  bubbleFloorRows: Array<{ id: string; rawFloor: unknown; rawType: string; normalizedFloor: number }>
+  bubbleFloorRows: Array<{
+    id: string
+    rawFloor: unknown
+    rawType: string
+    normalizedFloor: number
+    resolvedFloor: number
+    floorCandidateValues: Record<string, unknown>
+  }>
+}
+
+const BUBBLE_FLOOR_CANDIDATE_KEYS = [
+  'floor',
+  'floorNumber',
+  'floorNo',
+  'layer',
+  'layerNumber',
+  'level',
+  'storey',
+  'storeyNumber',
+  'story',
+  'storyNumber',
+] as const
+
+const resolveFloorFromCandidates = (candidateValues: unknown[]): number => {
+  for (const value of candidateValues) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return normalizeBubbleFloor(value)
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value.trim())
+      if (Number.isFinite(parsed)) return normalizeBubbleFloor(parsed)
+    }
+  }
+  return 1
+}
+
+/**
+ * 원인 파악용 추적 로그 활성화 여부를 반환한다.
+ * - editor:bubble-debug=1 이거나 editor:bubble-trace=1 이면 활성화
+ */
+export const isBubbleTraceEnabled = (): boolean => {
+  if (typeof window === 'undefined') return false
+  try {
+    if ((window as typeof window & { __BUBBLE_TRACE__?: boolean }).__BUBBLE_TRACE__ === true) {
+      return true
+    }
+    if (isBubbleDebugEnabled()) return true
+    return window.localStorage.getItem('editor:bubble-trace') === '1'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 버블 저장/복원 원인 파악용 로그를 출력한다.
+ */
+export const logBubbleTrace = (label: string, payload: Record<string, unknown>): void => {
+  if (!isBubbleTraceEnabled()) return
+  console.log(`[bubble-trace] ${label}`, payload)
 }
 
 const createBubbleFloorMetaStorageKey = (projectId: string | undefined): string | null =>
@@ -130,11 +190,8 @@ export const readBubbleFloorMetaFromSnapshot = (
     normalizedNamesByFloor[floor] = String(floor)
   })
 
-  const hasExplicitFloorNames = Boolean(
-    floorMeta?.namesByFloor && typeof floorMeta.namesByFloor === 'object' && Object.keys(floorMeta.namesByFloor).length > 0,
-  )
-  const hasExplicitExtraFloors = Array.isArray(floorMeta?.extraFloors) && floorMeta.extraFloors.length > 0
-  const shouldUseFallbackMeta = !hasExplicitFloorNames && !hasExplicitExtraFloors && Boolean(fallbackMeta)
+  const hasFloorMetaObject = Boolean(floorMeta && typeof floorMeta === 'object')
+  const shouldUseFallbackMeta = !hasFloorMetaObject && Boolean(fallbackMeta)
 
   if (shouldUseFallbackMeta && fallbackMeta) {
     Object.entries(fallbackMeta.namesByFloor).forEach(([floor, name]) => {
@@ -237,6 +294,8 @@ export const summarizeBubbleSnapshotForDebug = (
       bubbleFloors: [],
       floorMetaFloors: [],
       floorCounts: {},
+      resolvedFloorCounts: {},
+      floorFieldPresenceCounts: {},
       rawFloorTypeCounts: {},
       rawFloorValues: [],
       bubbleFloorRows: [],
@@ -244,13 +303,35 @@ export const summarizeBubbleSnapshotForDebug = (
   }
 
   const floorCounts: Record<number, number> = {}
+  const resolvedFloorCounts: Record<number, number> = {}
+  const floorFieldPresenceCounts: Record<string, number> = {}
   const rawFloorTypeCounts: Record<string, number> = {}
   const rawFloorValues: unknown[] = []
-  const bubbleFloorRows: Array<{ id: string; rawFloor: unknown; rawType: string; normalizedFloor: number }> = []
+  const bubbleFloorRows: Array<{
+    id: string
+    rawFloor: unknown
+    rawType: string
+    normalizedFloor: number
+    resolvedFloor: number
+    floorCandidateValues: Record<string, unknown>
+  }> = []
   snapshot.bubbles.forEach((bubble) => {
-    const rawFloor = (bubble as BubbleData & { floor?: unknown }).floor
+    const bubbleRecord = bubble as BubbleData & Record<string, unknown>
+    const rawFloor = bubbleRecord.floor
+    const floorCandidateValues: Record<string, unknown> = {}
+    BUBBLE_FLOOR_CANDIDATE_KEYS.forEach((key) => {
+      const value = bubbleRecord[key]
+      floorCandidateValues[key] = value
+      if (value !== undefined && value !== null && value !== '') {
+        floorFieldPresenceCounts[key] = (floorFieldPresenceCounts[key] ?? 0) + 1
+      }
+    })
     const floor = normalizeBubbleFloor(bubble.floor)
+    const resolvedFloor = resolveFloorFromCandidates(
+      BUBBLE_FLOOR_CANDIDATE_KEYS.map((key) => bubbleRecord[key]),
+    )
     floorCounts[floor] = (floorCounts[floor] ?? 0) + 1
+    resolvedFloorCounts[resolvedFloor] = (resolvedFloorCounts[resolvedFloor] ?? 0) + 1
     const rawType = Array.isArray(rawFloor) ? 'array' : typeof rawFloor
     rawFloorTypeCounts[rawType] = (rawFloorTypeCounts[rawType] ?? 0) + 1
     rawFloorValues.push(rawFloor)
@@ -259,6 +340,8 @@ export const summarizeBubbleSnapshotForDebug = (
       rawFloor,
       rawType,
       normalizedFloor: floor,
+      resolvedFloor,
+      floorCandidateValues,
     })
   })
 
@@ -274,6 +357,8 @@ export const summarizeBubbleSnapshotForDebug = (
     bubbleFloors,
     floorMetaFloors,
     floorCounts,
+    resolvedFloorCounts,
+    floorFieldPresenceCounts,
     rawFloorTypeCounts,
     rawFloorValues,
     bubbleFloorRows,
