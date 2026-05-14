@@ -24,6 +24,9 @@
     "renderPhotoFrontDiagonalRightStorageUrl": "s3://batang-artifacts/projects/project-ifc2img-001/renders/artifact-ifc2img-render-001/photo_front_diagonal_right.png"
   },
   "payload": {
+    "renderMode": "ifc2img",
+    "preset": "korean_house",
+    "timeOfDay": "NIGHT",
     "prompt": "Create two front diagonal exterior render photos from the source IFC model."
   },
   "attemptNo": 0,

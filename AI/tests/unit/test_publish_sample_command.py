@@ -47,8 +47,9 @@ def test_ifc2img_publish_sample_passes_command_validation() -> None:
     assert command.expectedOutput.renderPhotoFrontDiagonalLeftStorageUrl is not None
     assert command.expectedOutput.renderPhotoFrontDiagonalRightStorageUrl is not None
     assert command.payload.prompt is not None
-    assert command.payload.renderMode == "sd"
-    assert command.payload.preset is None
+    assert command.payload.renderMode == "ifc2img"
+    assert command.payload.preset == "korean_house"
+    assert command.payload.timeOfDay == "NIGHT"
 
 
 def test_ifc2img_smoke_output_prefix_is_uniquified(monkeypatch) -> None:
