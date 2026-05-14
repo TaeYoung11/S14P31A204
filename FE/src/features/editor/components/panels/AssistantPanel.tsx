@@ -1,8 +1,9 @@
 // AI Agent 패널을 어두운 채팅형 UI로 표시합니다.
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
-import type { LlmChatLogItem, LlmEditPreview, LlmEditStatus } from '../../types/llmEdit.types'
+import type { ClarificationAlternative, ClarificationArtifact, LlmChatLogItem, LlmEditPreview, LlmEditStatus } from '../../types/llmEdit.types'
 import { PanelFrame } from '../shared/PanelFrame'
+import { AssistantClarificationCard } from './assistant/AssistantClarificationCard'
 import { AssistantNoticeCard } from './assistant/AssistantNoticeCard'
 import { AssistantPreviewCard } from './assistant/AssistantPreviewCard'
 import { AssistantPromptSection } from './assistant/AssistantPromptSection'
@@ -25,12 +26,14 @@ interface AssistantPanelProps {
   canRun: boolean
   activeJobId: string | null
   jobProgress: number | null
+  clarificationArtifact: ClarificationArtifact | null
   chatLogs: LlmChatLogItem[]
   isChatLogsLoading: boolean
   onPromptChange: (value: string) => void
   onRun: () => void
   onApply: () => void
   onDiscard: () => void
+  onSelectAlternative: (alternative: ClarificationAlternative) => void
   floorProjectImportMessage: string
   onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLElement>) => void
   onResizeStart: (key: PanelKey, axis: PanelResizeAxis, e: ReactMouseEvent<HTMLButtonElement>) => void
@@ -60,12 +63,14 @@ export function AssistantPanel({
   canRun,
   activeJobId,
   jobProgress,
+  clarificationArtifact,
   chatLogs,
   isChatLogsLoading,
   onPromptChange,
   onRun,
   onApply,
   onDiscard,
+  onSelectAlternative,
   floorProjectImportMessage,
   onDragStart,
   onResizeStart,
@@ -144,6 +149,16 @@ export function AssistantPanel({
         {status === 'ambiguous' && (
           <div className="mt-3">
             <AssistantSuggestionsCard suggestions={suggestions} onSelect={onPromptChange} />
+          </div>
+        )}
+
+        {status === 'clarification_required' && clarificationArtifact && (
+          <div className="mt-3">
+            <AssistantClarificationCard
+              question={clarificationArtifact.question}
+              alternatives={clarificationArtifact.alternatives}
+              onSelect={onSelectAlternative}
+            />
           </div>
         )}
 

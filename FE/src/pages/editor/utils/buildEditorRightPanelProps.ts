@@ -78,12 +78,14 @@ type RightPanelViewModel = Pick<
   | 'llmCanRun'
   | 'llmActiveJobId'
   | 'llmJobProgress'
+  | 'llmClarificationArtifact'
   | 'llmChatLogs'
   | 'llmIsChatLogsLoading'
   | 'setLlmPrompt'
   | 'runLlmEdit'
   | 'applyLlmEdit'
   | 'discardLlmEdit'
+  | 'selectLlmAlternative'
   | 'floorProjectImportMessage'
   | 'importFloorProjectFromIfc'
   | 'startDrag'
@@ -173,12 +175,14 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
     llmCanRun: vm.llmCanRun,
     llmActiveJobId: vm.llmActiveJobId,
     llmJobProgress: vm.llmJobProgress,
+    llmClarificationArtifact: vm.llmClarificationArtifact,
     llmChatLogs: vm.llmChatLogs,
     llmIsChatLogsLoading: vm.llmIsChatLogsLoading,
     onLlmPromptChange: vm.setLlmPrompt,
     onRunLlmEdit: vm.runLlmEdit,
     onApplyLlmEdit: vm.applyLlmEdit,
     onDiscardLlmEdit: vm.discardLlmEdit,
+    onSelectLlmAlternative: vm.selectLlmAlternative,
     floorProjectImportMessage: vm.floorProjectImportMessage,
     onImportFloorProjectIfc: vm.importFloorProjectFromIfc,
     onPanelDragStart: vm.startDrag,

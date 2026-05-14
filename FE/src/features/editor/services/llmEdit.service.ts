@@ -1,7 +1,7 @@
 // 자연어 BIM 편집 API와 작업 상태 조회를 담당합니다.
-import { isAxiosError } from 'axios'
+import axios, { isAxiosError } from 'axios'
 import { api } from '@/shared/lib/axios'
-import type { LlmChatLogItem } from '../types/llmEdit.types'
+import type { ClarificationArtifact, LlmChatLogItem } from '../types/llmEdit.types'
 import type {
   ChatCommandRequestDto,
   IfcEditJobResponseDto,
@@ -55,6 +55,11 @@ export async function submitLlmChatCommand({
 export async function fetchLlmJobStatus(jobId: string): Promise<JobStatusResponseDto> {
   const response = await api.get<ApiResponse<JobStatusResponseDto>>(`/jobs/${jobId}`)
   return response.data.data
+}
+
+export async function fetchClarificationArtifact(url: string): Promise<ClarificationArtifact> {
+  const response = await axios.get<ClarificationArtifact>(url)
+  return response.data
 }
 
 export async function fetchLlmChatLogs({

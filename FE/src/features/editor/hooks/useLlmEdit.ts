@@ -9,9 +9,10 @@ import type {
   FloorOpening,
   FloorWall,
 } from '../types'
-import type { LlmEditSceneType, LlmEditStatus } from '../types/llmEdit.types'
+import type { ClarificationAlternative, ClarificationArtifact, LlmEditSceneType, LlmEditStatus } from '../types/llmEdit.types'
 import {
   extractLlmEditErrorMessage,
+  fetchClarificationArtifact,
   fetchLlmChatLogs,
   fetchLlmJobStatus,
   llmEditQueryKeys,
@@ -45,6 +46,9 @@ const isSuccessfulJobStatus = (status: string): boolean => {
   const normalized = status.toUpperCase()
   return normalized === 'SUCCESS' || normalized === 'SUCCEEDED' || normalized === 'COMPLETED'
 }
+
+const isClarificationJobStatus = (status: string): boolean =>
+  status.toUpperCase() === 'NEEDS_CLARIFICATION'
 
 const resolveJobErrorMessage = (job: JobStatusResponseDto): string => (
   job.error?.errorMessage
@@ -101,6 +105,7 @@ export function useLlmEdit({
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [jobProgress, setJobProgress] = useState<number | null>(null)
+  const [clarificationArtifact, setClarificationArtifact] = useState<ClarificationArtifact | null>(null)
 
   useEffect(() => {
     latestIfcRevisionIdRef.current = currentIfcRevisionId
@@ -125,6 +130,7 @@ export function useLlmEdit({
     setSuggestions([])
     setActiveJobId(null)
     setJobProgress(null)
+    setClarificationArtifact(null)
   }, [])
 
   const waitForTerminalJob = useCallback(async (
@@ -192,6 +198,24 @@ export function useLlmEdit({
       const completedJob = await waitForTerminalJob(job.jobId, currentSeq)
       if (!completedJob || currentSeq !== requestSeq.current) return
 
+      if (isClarificationJobStatus(completedJob.status)) {
+        const detailUrl = completedJob.error?.detailStorageUrl
+        if (detailUrl) {
+          try {
+            const artifact = await fetchClarificationArtifact(detailUrl)
+            setClarificationArtifact(artifact)
+            setMessage(artifact.question)
+          } catch {
+            setMessage('추가 정보가 필요합니다.')
+          }
+        } else {
+          setMessage('추가 정보가 필요합니다.')
+        }
+        setStatus('clarification_required')
+        void queryClient.invalidateQueries({ queryKey: llmEditQueryKeys.chatLogs(projectId) })
+        return
+      }
+
       if (!isSuccessfulJobStatus(completedJob.status)) {
         setStatus('error')
         setMessage(resolveJobErrorMessage(completedJob))
@@ -248,6 +272,13 @@ export function useLlmEdit({
     waitForTerminalJob,
   ])
 
+  const selectAlternative = useCallback((alternative: ClarificationAlternative) => {
+    setPrompt(alternative.title)
+    setClarificationArtifact(null)
+    setStatus('idle')
+    setMessage('')
+  }, [])
+
   const discard = useCallback(() => {
     requestSeq.current += 1
     setStatus('idle')
@@ -266,10 +297,12 @@ export function useLlmEdit({
     canRun,
     activeJobId,
     jobProgress,
+    clarificationArtifact,
     chatLogs: chatLogsQuery.data ?? [],
     isChatLogsLoading: chatLogsQuery.isLoading,
     run,
     apply: () => {},
     discard,
+    selectAlternative,
   }
 }

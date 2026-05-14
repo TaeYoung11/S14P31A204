@@ -3878,10 +3878,12 @@ export function useEditorPage() {
     llmCanRun: llmEdit.canRun,
     llmActiveJobId: llmEdit.activeJobId,
     llmJobProgress: llmEdit.jobProgress,
+    llmClarificationArtifact: llmEdit.clarificationArtifact,
     llmChatLogs: llmEdit.chatLogs,
     llmIsChatLogsLoading: llmEdit.isChatLogsLoading,
     runLlmEdit: llmEdit.run,
     applyLlmEdit: llmEdit.apply,
     discardLlmEdit: llmEdit.discard,
+    selectLlmAlternative: llmEdit.selectAlternative,
   }
 }

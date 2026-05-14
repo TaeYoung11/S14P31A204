@@ -11,7 +11,30 @@ import type {
 } from '../types'
 
 /** LLM 편집 요청 진행 상태 */
-export type LlmEditStatus = 'idle' | 'loading' | 'running' | 'preview' | 'ambiguous' | 'error' | 'applied'
+export type LlmEditStatus = 'idle' | 'loading' | 'running' | 'preview' | 'ambiguous' | 'error' | 'applied' | 'clarification_required'
+
+/** clarification alternatives 한 항목 */
+export interface ClarificationAlternative {
+  alternative_id: string
+  title: string
+  description: string
+  fill: Record<string, unknown>
+  affected_entities: string[]
+  warnings: string[]
+  metrics: string[]
+}
+
+/** MinIO clarification/detail.v1.json 아티팩트 스키마 */
+export interface ClarificationArtifact {
+  schema_version: 'v1'
+  kind: 'needs_clarification' | 'alternatives'
+  question: string
+  alternatives: ClarificationAlternative[]
+  job_id: string
+  step_no: number
+  clarification_request_id: string
+  timestamp: string
+}
 
 export type LlmEditSceneType = 'TWO_D' | 'THREE_D'
 
