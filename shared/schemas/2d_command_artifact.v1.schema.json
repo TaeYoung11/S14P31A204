@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/2d_command_artifact.v1.schema.json",
+  "title": "TwoDCommandArtifactV1",
+  "description": "MinIO planner/2d-command.v1.json 에 기록되는 아티팩트. 2D LLM 워커가 LLM 파싱 결과와 CommandBatch를 저장한다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "user_instruction",
+    "parsed_command",
+    "command_batch",
+    "needs_clarification",
+    "parsed_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "user_instruction": {
+      "type": "string",
+      "minLength": 1
+    },
+    "parsed_command": {
+      "$ref": "#/$defs/floorNLPCommand"
+    },
+    "command_batch": {
+      "$ref": "#/$defs/commandBatch"
+    },
+    "needs_clarification": {
+      "type": "boolean"
+    },
+    "clarification_question": {
+      "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+    },
+    "parsed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "newRoom": {
+      "type": "object",
+      "required": ["name", "type", "shape", "width", "height", "floor"],
+      "properties": {
+        "name": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": ["living", "bedroom", "kitchen", "bathroom", "office", "corridor", "other"]
+        },
+        "shape": { "type": "string", "enum": ["rect", "L", "U"] },
+        "width": { "type": "integer", "exclusiveMinimum": 0 },
+        "height": { "type": "integer", "exclusiveMinimum": 0 },
+        "floor": { "type": "integer", "minimum": 1 },
+        "rects": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["x", "y", "width", "height"],
+                "properties": {
+                  "x": { "type": "integer" },
+                  "y": { "type": "integer" },
+                  "width": { "type": "integer", "exclusiveMinimum": 0 },
+                  "height": { "type": "integer", "exclusiveMinimum": 0 }
+                }
+              }
+            },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "floorNLPCommand": {
+      "type": "object",
+      "required": ["action", "confidence", "apply_to_all", "needs_clarification"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "add_room",
+            "create_wall",
+            "create_door",
+            "delete_wall",
+            "delete_wall_void",
+            "insert_toilet",
+            "remove_room",
+            "resize_room",
+            "set_adjacency",
+            "lock_room",
+            "unlock_room"
+          ]
+        },
+        "target_room_name": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+        "target_wall_id": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+        "target_element_id": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+        "target_floor": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
+        "new_room": { "oneOf": [{ "$ref": "#/$defs/newRoom" }, { "type": "null" }] },
+        "adjacency_target": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+        "adjacency_strength": {
+          "oneOf": [{ "type": "number", "minimum": 0.0, "maximum": 1.0 }, { "type": "null" }]
+        },
+        "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "resize_shape": { "type": "string", "enum": ["rect", "L", "U"] },
+        "resize_width": { "oneOf": [{ "type": "integer", "exclusiveMinimum": 0 }, { "type": "null" }] },
+        "resize_height": { "oneOf": [{ "type": "integer", "exclusiveMinimum": 0 }, { "type": "null" }] },
+        "resize_rects": { "oneOf": [{ "type": "array" }, { "type": "null" }] },
+        "resize_direction": {
+          "oneOf": [
+            { "type": "string", "enum": ["north", "south", "east", "west"] },
+            { "type": "null" }
+          ]
+        },
+        "apply_to_all": { "type": "boolean" },
+        "element_width_mm": { "oneOf": [{ "type": "integer", "exclusiveMinimum": 0 }, { "type": "null" }] },
+        "element_height_mm": { "oneOf": [{ "type": "integer", "exclusiveMinimum": 0 }, { "type": "null" }] },
+        "needs_clarification": { "type": "boolean" },
+        "clarification_question": { "oneOf": [{ "type": "string" }, { "type": "null" }] }
+      }
+    },
+    "ifcCommand": {
+      "type": "object",
+      "required": ["action", "params", "confidence"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "create_space", "update_space", "delete_space",
+            "create_wall", "update_wall", "delete_wall",
+            "create_door", "update_door", "delete_door",
+            "delete_wall_void",
+            "create_window", "update_window", "delete_window",
+            "create_stair", "update_stair", "delete_stair"
+          ]
+        },
+        "target_id": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+        "params": { "type": "object" },
+        "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "reason": { "oneOf": [{ "type": "string" }, { "type": "null" }] }
+      }
+    },
+    "commandBatch": {
+      "type": "object",
+      "required": ["commands", "requires_clarification"],
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ifcCommand" }
+        },
+        "requires_clarification": { "type": "boolean" },
+        "clarification_question": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+        "failed_command_indices": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}
