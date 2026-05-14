@@ -582,6 +582,8 @@ public class WorkspaceFloorPlanRealtimeService {
     }
 
     private JsonNode buildSyncPayload(FloorPlanRealtimeUpdateRequest request, String resolvedRevisionId) {
+        JsonNode bubbleSnapshot = bubbleSnapshotHelper.buildSnapshot(request);
+
         ObjectNode root = objectMapper.createObjectNode();
         root.put("baseIndex", request.baseIndex());
         if (resolvedRevisionId != null) {
@@ -590,8 +592,9 @@ public class WorkspaceFloorPlanRealtimeService {
             root.putNull("revisionId");
         }
         root.put("sceneType", request.sceneType().name());
-        root.set("bubbles", objectMapper.valueToTree(request.bubbles()));
-        root.set("connections", objectMapper.valueToTree(request.connections()));
+        root.set("bubbles", bubbleSnapshot.get("bubbles"));
+        root.set("connections", bubbleSnapshot.get("connections"));
+        root.set("floorMeta", bubbleSnapshot.get("floorMeta"));
         if (request.layout() != null) {
             root.set("layout", request.layout());
         } else {
@@ -666,6 +669,7 @@ public class WorkspaceFloorPlanRealtimeService {
         ArrayNode emptyConnections = objectMapper.createArrayNode();
         fallbackPayload.set("bubbles", emptyBubbles);
         fallbackPayload.set("connections", emptyConnections);
+        fallbackPayload.putNull("floorMeta");
         fallbackPayload.putNull("layout");
         return fallbackPayload;
     }
@@ -755,6 +759,7 @@ public class WorkspaceFloorPlanRealtimeService {
         payload.put("sceneType", "THREE_D");
         payload.set("bubbles", objectMapper.createArrayNode());
         payload.set("connections", objectMapper.createArrayNode());
+        payload.putNull("floorMeta");
         payload.putNull("layout");
         return payload;
     }
