@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import ifcopenshell
 import ifcopenshell.geom
@@ -21,6 +21,14 @@ from .semantics import (
     select_ifc_category_color_candidate,
 )
 from .semantics import _semantic_category_for_entity as semantic_category_for_entity
+
+IfcColorArtifactVariant = Literal[
+    "default",
+    "prompt_injection",
+    "hybrid_color",
+    "post_color_lock",
+]
+IfcColorArtifactTimeOfDay = Literal["DAY", "NIGHT"]
 
 ELEMENT_MASK_COLORS: dict[IfcSemanticCategory, tuple[int, int, int]] = {
     "FLOOR": (255, 64, 64),
@@ -113,6 +121,21 @@ class IfcColorEvaluationReport:
         )
 
 
+@dataclass(frozen=True)
+class IfcColorArtifactMatrixCase:
+    variant: IfcColorArtifactVariant
+    time_of_day: IfcColorArtifactTimeOfDay
+    ifc_color_mode: str
+    use_prompt_color_injection: bool
+    use_ifc_color_composite: bool
+    use_post_color_lock: bool
+    post_color_lock_strength: float
+
+    @property
+    def case_name(self) -> str:
+        return f"{self.variant}_{self.time_of_day.lower()}"
+
+
 COLOR_LOCK_MEASURE_CATEGORIES: tuple[IfcSemanticCategory, ...] = (
     "ROOF",
     "WALL",
@@ -127,6 +150,16 @@ EXPECTED_IFC_COLOR_FAMILIES: dict[IfcSemanticCategory, tuple[str, ...]] = {
     "WINDOW": ("blue",),
     "DOOR": ("tan", "brown"),
 }
+COLOR_ARTIFACT_VARIANTS: tuple[IfcColorArtifactVariant, ...] = (
+    "default",
+    "prompt_injection",
+    "hybrid_color",
+    "post_color_lock",
+)
+COLOR_ARTIFACT_TIMES_OF_DAY: tuple[IfcColorArtifactTimeOfDay, ...] = (
+    "DAY",
+    "NIGHT",
+)
 
 
 def render_ifc_element_masks(
@@ -171,6 +204,59 @@ def render_ifc_element_masks(
         masks=masks,
         composite=Image.fromarray(composite_arr, mode="RGB"),
     )
+
+
+def build_ifc_color_artifact_matrix(
+    *,
+    post_color_lock_strength: float = 1.0,
+) -> tuple[IfcColorArtifactMatrixCase, ...]:
+    """Return the fixed DAY/NIGHT artifact matrix for IFC color comparison."""
+    if not 0.0 <= post_color_lock_strength <= 1.0:
+        raise ValueError("post_color_lock_strength must be between 0.0 and 1.0")
+
+    cases: list[IfcColorArtifactMatrixCase] = []
+    for time_of_day in COLOR_ARTIFACT_TIMES_OF_DAY:
+        cases.extend(
+            (
+                IfcColorArtifactMatrixCase(
+                    variant="default",
+                    time_of_day=time_of_day,
+                    ifc_color_mode="none",
+                    use_prompt_color_injection=False,
+                    use_ifc_color_composite=False,
+                    use_post_color_lock=False,
+                    post_color_lock_strength=0.0,
+                ),
+                IfcColorArtifactMatrixCase(
+                    variant="prompt_injection",
+                    time_of_day=time_of_day,
+                    ifc_color_mode="prompt",
+                    use_prompt_color_injection=True,
+                    use_ifc_color_composite=False,
+                    use_post_color_lock=False,
+                    post_color_lock_strength=0.0,
+                ),
+                IfcColorArtifactMatrixCase(
+                    variant="hybrid_color",
+                    time_of_day=time_of_day,
+                    ifc_color_mode="hybrid",
+                    use_prompt_color_injection=True,
+                    use_ifc_color_composite=True,
+                    use_post_color_lock=False,
+                    post_color_lock_strength=0.0,
+                ),
+                IfcColorArtifactMatrixCase(
+                    variant="post_color_lock",
+                    time_of_day=time_of_day,
+                    ifc_color_mode="none",
+                    use_prompt_color_injection=False,
+                    use_ifc_color_composite=False,
+                    use_post_color_lock=True,
+                    post_color_lock_strength=post_color_lock_strength,
+                ),
+            )
+        )
+    return tuple(cases)
 
 
 def measure_element_mask_mean_colors(
