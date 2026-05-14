@@ -6,6 +6,7 @@ import type {
   FloorCommentPin,
   FloorLayer,
   FloorOpening,
+  FloorRoom,
   FloorWall,
   IfcElementInfo,
   PanelKey,
@@ -72,6 +73,10 @@ export interface EditorRightPanelsProps {
   onDoorHingeSideChange?: (id: string, hingeSide: NonNullable<FloorOpening['doorHingeSide']>) => void
   floorLayers?: FloorLayer[]
   activeFloorLayerId?: string | null
+  floorRooms?: FloorRoom[]
+  floorWallsForHierarchy?: FloorWall[]
+  floorOpenings?: FloorOpening[]
+  selectedRoomId?: string | null
   isFloorPlanGenerated?: boolean
   isLayerOverlayMode?: boolean
   selectedOverlayLayerIds?: string[]
@@ -80,6 +85,7 @@ export interface EditorRightPanelsProps {
   onRenameFloorLayer?: (layerId: string, name: string) => void
   onDeleteFloorLayer?: (layerId: string) => void
   onSelectFloorLayer?: (id: string) => void
+  onSelectRoom?: (id: string) => void
   onToggleLayerOverlayMode?: () => void
   onToggleOverlayLayer?: (layerId: string) => void
   onChangeOverlayLayerOpacity?: (layerId: string, opacity: number) => void

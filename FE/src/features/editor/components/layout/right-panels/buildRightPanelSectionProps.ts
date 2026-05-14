@@ -5,11 +5,18 @@ import { FloorViewPanel } from '../../panels/FloorViewPanel'
 import { HierarchyPanel } from '../../panels/HierarchyPanel'
 import { ZoningPanel } from '../../panels/ZoningPanel'
 import type { EditorRightPanelsProps } from './EditorRightPanels.types'
+import type { FloorOpening, FloorRoom, FloorWall } from '../../../types'
 
 export type AttributesSectionProps = ComponentProps<typeof AttributesPanel>
 export type ZoningSectionProps = ComponentProps<typeof ZoningPanel>
 export type FloorViewSectionProps = ComponentProps<typeof FloorViewPanel>
-export type HierarchySectionProps = ComponentProps<typeof HierarchyPanel>
+export type HierarchySectionProps = ComponentProps<typeof HierarchyPanel> & {
+  rooms?: FloorRoom[]
+  walls?: FloorWall[]
+  openings?: FloorOpening[]
+  selectedRoomId?: string | null
+  onSelectRoom?: (id: string) => void
+}
 export type AssistantSectionProps = ComponentProps<typeof AssistantPanel>
 
 /**
@@ -119,6 +126,11 @@ export function buildHierarchySectionProps(vm: EditorRightPanelsProps): Hierarch
     width: vm.panelWidths.hierarchy,
     height: vm.panelHeights.hierarchy,
     zIndex: vm.panelZIndexes.hierarchy,
+    rooms: vm.floorRooms,
+    walls: vm.floorWallsForHierarchy,
+    openings: vm.floorOpenings,
+    selectedRoomId: vm.selectedRoomId,
+    onSelectRoom: vm.onSelectRoom,
     onDragStart: vm.onPanelDragStart,
     onResizeStart: vm.onPanelResizeStart,
     onToggle: vm.onTogglePanel,

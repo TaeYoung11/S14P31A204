@@ -54,6 +54,10 @@ type RightPanelViewModel = Pick<
   | 'handleUpdateFloorDoorHingeSide'
   | 'floorLayers'
   | 'activeFloorLayerId'
+  | 'floorRooms'
+  | 'floorWallsForHierarchy'
+  | 'floorOpenings'
+  | 'selectedId'
   | 'isFloorPlanGenerated'
   | 'isLayerOverlayMode'
   | 'overlayLayerIds'
@@ -62,6 +66,7 @@ type RightPanelViewModel = Pick<
   | 'renameFloorLayer'
   | 'deleteFloorLayer'
   | 'setActiveFloorLayerId'
+  | 'handleBubbleSelect'
   | 'toggleLayerOverlayMode'
   | 'handleToggleOverlayLayer'
   | 'handleSetOverlayLayerOpacity'
@@ -149,6 +154,10 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
     onDoorHingeSideChange: vm.handleUpdateFloorDoorHingeSide,
     floorLayers: vm.floorLayers,
     activeFloorLayerId: vm.activeFloorLayerId,
+    floorRooms: vm.floorRooms,
+    floorWallsForHierarchy: vm.floorWallsForHierarchy,
+    floorOpenings: vm.floorOpenings,
+    selectedRoomId: vm.selectedId,
     isFloorPlanGenerated: vm.isFloorPlanGenerated,
     isLayerOverlayMode: vm.isLayerOverlayMode,
     selectedOverlayLayerIds: vm.overlayLayerIds,
@@ -157,6 +166,7 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
     onRenameFloorLayer: vm.renameFloorLayer,
     onDeleteFloorLayer: vm.deleteFloorLayer,
     onSelectFloorLayer: vm.setActiveFloorLayerId,
+    onSelectRoom: vm.handleBubbleSelect,
     onToggleLayerOverlayMode: vm.toggleLayerOverlayMode,
     onToggleOverlayLayer: vm.handleToggleOverlayLayer,
     onChangeOverlayLayerOpacity: vm.handleSetOverlayLayerOpacity,

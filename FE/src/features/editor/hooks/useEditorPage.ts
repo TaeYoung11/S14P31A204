@@ -1040,6 +1040,15 @@ export function useEditorPage() {
     floorWalls.forEach((wall) => merged.set(wall.id, wall))
     return Array.from(merged.values())
   }, [visibleAutoFloorWalls, floorWalls])
+  const activeLayerVisibleFloorWalls = useMemo(() => {
+    if (!activeFloorLayerId) return mergedFloorWalls
+    const scopedWalls = mergedFloorWalls.filter((wall) => wall.floorLayerId === activeFloorLayerId)
+    if (floorRooms.length === 0) return scopedWalls
+    return [
+      ...mergedFloorWalls.filter((wall) => !wall.floorLayerId),
+      ...scopedWalls,
+    ]
+  }, [activeFloorLayerId, floorRooms.length, mergedFloorWalls])
 
   // 자동 벽 재계산으로 사라진 ID는 숨김 목록에서 정리한다.
   useEffect(() => {
@@ -3004,7 +3013,21 @@ export function useEditorPage() {
     setIsGridSnapEnabled(true)
     if (mode === '2d') setIsGridVisible(true)
   }
-  const toggleLayerOverlayMode = () => setIsLayerOverlayMode((prev) => !prev)
+  const toggleLayerOverlayMode = () => {
+    setIsLayerOverlayMode((prev) => {
+      const next = !prev
+      if (next) {
+        setOverlayLayerIds((current) => {
+          const validCurrent = current.filter((layerId) => layerId !== activeFloorLayerId)
+          if (validCurrent.length > 0) return validCurrent
+          return floorLayers
+            .map((layer) => layer.id)
+            .filter((layerId) => layerId !== activeFloorLayerId)
+        })
+      }
+      return next
+    })
+  }
   const handleToggleOverlayLayer = (layerId: string) => {
     if (!activeFloorLayerId || layerId === activeFloorLayerId) return
     setOverlayLayerIds((prev) =>
@@ -3015,6 +3038,20 @@ export function useEditorPage() {
     const next = Math.min(Math.max(opacity, 0.1), 1)
     setOverlayOpacityByLayerId((prev) => ({ ...prev, [layerId]: next }))
   }
+  const handleAddFloorLayer = useCallback(() => {
+    addFloorLayer()
+    markLocalFloorPlanSnapshotChanged()
+  }, [addFloorLayer, markLocalFloorPlanSnapshotChanged])
+  const handleRenameFloorLayer = useCallback((layerId: string, name: string) => {
+    if (!name.trim()) return
+    renameFloorLayer(layerId, name)
+    markLocalFloorPlanSnapshotChanged()
+  }, [markLocalFloorPlanSnapshotChanged, renameFloorLayer])
+  const handleDeleteFloorLayer = useCallback((layerId: string) => {
+    if (floorLayers.length <= 1) return
+    deleteFloorLayer(layerId)
+    markLocalFloorPlanSnapshotChanged()
+  }, [deleteFloorLayer, floorLayers.length, markLocalFloorPlanSnapshotChanged])
 
   const {
     handleCreateFloorWall,
@@ -3037,6 +3074,7 @@ export function useEditorPage() {
   } = useEditorStructureEditHandlers({
     floorRooms,
     floorWalls,
+    activeFloorLayerId,
     visibleAutoFloorWalls,
     autoFloorWalls,
     mergedFloorOpenings,
@@ -3760,7 +3798,7 @@ export function useEditorPage() {
     overlayLayerIds,
     overlayOpacityByLayerId,
     floorWalls,
-    floorWallsForHierarchy: mergedFloorWalls,
+    floorWallsForHierarchy: activeLayerVisibleFloorWalls,
     floorOpenings: mergedFloorOpenings,
     selectedFloorWallId,
     selectedFloorWallIds,
@@ -3774,9 +3812,9 @@ export function useEditorPage() {
     handleEditIfc,
     handleIfcUndo,
     handleIfcRedo,
-    addFloorLayer,
-    renameFloorLayer,
-    deleteFloorLayer,
+    addFloorLayer: handleAddFloorLayer,
+    renameFloorLayer: handleRenameFloorLayer,
+    deleteFloorLayer: handleDeleteFloorLayer,
     setActiveFloorLayerId,
     toggleLayerOverlayMode,
     handleToggleOverlayLayer,
