@@ -343,6 +343,8 @@ def test_run_ifc2img_photo_pipeline_skips_debug_geometry_by_default(
     """기본 production 경로는 debug geometry를 위해 IFC를 한 번 더 파싱하지 않는다."""
     import ai_rendering.ifc2img.service as service
 
+    patch_runtime_semantic_context(monkeypatch)
+
     def fail_debug_geometry(_ifc_path: Path) -> None:
         raise AssertionError("debug geometry should be opt-in")
 
@@ -371,6 +373,7 @@ def test_run_ifc2img_photo_pipeline_continues_when_debug_artifacts_fail(
 
     logger = FakeLogger()
     monkeypatch.setattr(service, "_logger", logger)
+    patch_runtime_semantic_context(monkeypatch)
 
     def fail_debug_artifacts(**_kwargs: object) -> dict[str, object]:
         raise RuntimeError("debug png failed")
@@ -408,6 +411,7 @@ def test_run_ifc2img_photo_pipeline_writes_ifc_semantic_summary(
         ifc4_fixture,
         output_dir,
         preset="korean_house",
+        debug_artifacts=True,
         ifc_renderer_cls=FakeIFCRenderer,
         depth_style_renderer_cls=FakeDepthStyleRenderer,
     )
@@ -481,6 +485,7 @@ def test_run_ifc2img_photo_pipeline_reuses_runtime_semantic_context(
         ifc_path,
         output_dir,
         preset="korean_house",
+        debug_artifacts=True,
         ifc_renderer_cls=FakeIFCRenderer,
         depth_style_renderer_cls=FakeDepthStyleRenderer,
     )
@@ -522,6 +527,7 @@ def test_run_ifc2img_photo_pipeline_passes_semantic_ground_to_renderer(
         ifc_path,
         tmp_path / "out",
         preset="korean_house",
+        debug_artifacts=True,
         ifc_renderer_cls=FakeIFCRenderer,
         depth_style_renderer_cls=FakeDepthStyleRenderer,
     )
@@ -570,6 +576,7 @@ def test_run_ifc2img_photo_pipeline_uses_ground_z_none_without_semantic_floor(
         ifc_path,
         tmp_path / "out",
         preset="korean_house",
+        debug_artifacts=True,
         ifc_renderer_cls=FakeIFCRenderer,
         depth_style_renderer_cls=FakeDepthStyleRenderer,
     )
@@ -626,6 +633,7 @@ def test_run_ifc2img_photo_pipeline_reuses_semantic_context_for_front_camera(
         ifc_path,
         tmp_path / "out",
         preset="korean_house",
+        debug_artifacts=True,
         ifc_renderer_cls=FakeIFCRenderer,
         depth_style_renderer_cls=FakeDepthStyleRenderer,
     )
@@ -668,6 +676,7 @@ def test_run_ifc2img_photo_pipeline_passes_ground_and_camera_to_renderer(
         ifc_path,
         tmp_path / "out",
         preset="korean_house",
+        debug_artifacts=True,
         ifc_renderer_cls=FakeIFCRenderer,
         depth_style_renderer_cls=FakeDepthStyleRenderer,
     )
@@ -1301,6 +1310,7 @@ def test_worker_handler_runs_semantic_pipeline_with_downloaded_fixture(
             output_dir,
             preset=preset,
             time_of_day=time_of_day,
+            debug_artifacts=True,
             depth_style_renderer_cls=FakeDepthStyleRenderer,
         )
 
