@@ -30,6 +30,7 @@ from ai_authoring.engine_3d import (
 )
 # operations/__init__ 경유 → create_element @register 실행
 from ai_authoring.operations.registry import get as get_op_handler
+from ai_authoring.operations.space_support import update_space
 from ai_authoring.post_validator import PostEditValidator
 from ai_authoring.utils import normalize_space_name, normalize_storey_name
 from ai_common.adapters.storage.s3_client import S3Client, parse_s3_url
@@ -434,6 +435,19 @@ class AuthoringWorker(BaseWorker):
 
         if op_type == "update_element_properties":
             dims = params.get("dimensions_mm") or {}
+            if el.is_a("IfcSpace"):
+                properties = params.get("properties") or {}
+                pset_updates = params.get("pset_updates") or {}
+                pset_name = str(params.get("pset_name") or "Batang_SpaceDimensions")
+                update_space(
+                    model=model,
+                    space=el,
+                    dimensions_mm=self._unwrap_dimension_values(dims),
+                    properties=properties,
+                    pset_updates=pset_updates,
+                    pset_name=pset_name,
+                )
+                return bool(dims or properties or pset_updates or params.get("pset_name"))
             # dimensionChangesMm values are authored in millimeters.
             if dims.get("width"):
                 changed |= bool(modify_thickness(el, dims["width"], scale=1000.0))
@@ -465,6 +479,16 @@ class AuthoringWorker(BaseWorker):
         return changed
 
     # ── 셀렉터 처리 ─────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _unwrap_dimension_values(dimensions_mm: dict[str, Any]) -> dict[str, Any]:
+        unwrapped: dict[str, Any] = {}
+        for key, value in dimensions_mm.items():
+            if isinstance(value, dict) and "value" in value:
+                unwrapped[key] = value["value"]
+            else:
+                unwrapped[key] = value
+        return unwrapped
 
     def _resolve_selector(
         self,
