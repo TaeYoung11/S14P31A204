@@ -16,8 +16,11 @@ function buildCanvasContextProps(
   | 'isCollaborationMode'
   | 'selectedPinId'
   | 'commentPins'
+  | 'currentCollaborationUserId'
   | 'handlePinClick'
   | 'handleCreateCommentPin'
+  | 'handleDeletePin'
+  | 'deletingPinId'
   | 'isGridVisible'
   | 'selectedTool'
   | 'handleWheelZoom'
@@ -32,8 +35,11 @@ function buildCanvasContextProps(
     isCollaborationMode: vm.isCollaborationMode,
     selectedPinId: vm.selectedPinId,
     commentPins: vm.commentPins,
+    currentCollaborationUserId: vm.currentCollaborationUserId,
     handlePinClick: vm.handlePinClick,
     handleCreateCommentPin: vm.handleCreateCommentPin,
+    handleDeletePin: vm.handleDeletePin,
+    deletingPinId: vm.deletingPinId,
     isGridVisible: vm.isGridVisible,
     selectedTool: vm.selectedTool,
     handleWheelZoom: vm.handleWheelZoom,

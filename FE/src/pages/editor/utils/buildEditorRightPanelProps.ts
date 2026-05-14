@@ -11,12 +11,15 @@ type RightPanelViewModel = Pick<
   | 'commentPins'
   | 'commentNotifications'
   | 'currentCollaborationUserType'
+  | 'currentCollaborationUserId'
   | 'currentCollaborationUserName'
   | 'handlePinClick'
   | 'handleAddCommentReply'
   | 'handleResolvePin'
+  | 'handleDeletePin'
   | 'handleResolveComment'
   | 'resolvingPinId'
+  | 'deletingPinId'
   | 'resolvingCommentId'
   | 'selectedBubble'
   | 'isThreeDEditingLocked'
@@ -112,12 +115,15 @@ export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRight
     commentPins: vm.commentPins,
     commentNotifications: vm.commentNotifications,
     currentCollaborationUserType: vm.currentCollaborationUserType,
+    currentCollaborationUserId: vm.currentCollaborationUserId,
     currentCollaborationUserName: vm.currentCollaborationUserName,
     onSelectPin: vm.handlePinClick,
     onCreateCommentReply: vm.handleAddCommentReply,
     onResolvePin: vm.handleResolvePin,
+    onDeletePin: vm.handleDeletePin,
     onResolveComment: vm.handleResolveComment,
     resolvingPinId: vm.resolvingPinId,
+    deletingPinId: vm.deletingPinId,
     resolvingCommentId: vm.resolvingCommentId,
     selectedBubble: vm.selectedBubble,
     isThreeDEditingLocked: vm.isThreeDEditingLocked,

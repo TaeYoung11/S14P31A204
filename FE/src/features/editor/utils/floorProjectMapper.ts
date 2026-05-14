@@ -467,6 +467,8 @@ export function mapFloorProjectToLayers(project: FloorProject, options: MapperOp
       return {
         id: `floor-${floor?.number ?? floorId}`,
         name: floor?.name ?? `${floorId} 평면도`,
+        elevationMm: floor?.elevation,
+        ceilingHeightMm: floor?.ceiling_height,
         rooms,
       }
     })

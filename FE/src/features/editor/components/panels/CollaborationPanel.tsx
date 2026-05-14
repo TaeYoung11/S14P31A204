@@ -1,6 +1,6 @@
 // 에디터 협업 패널에서 핀별 댓글 스레드를 아코디언으로 표시합니다.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CheckCircle2, ChevronDown, MessageSquare, Send, User } from 'lucide-react'
+import { CheckCircle2, ChevronDown, MessageSquare, Send, Trash2, User } from 'lucide-react'
 import type {
   CollaborationUserType,
   FloorCommentNotification,
@@ -14,12 +14,15 @@ interface CollaborationPanelProps {
   pins: FloorCommentPin[]
   notifications: FloorCommentNotification[]
   currentUserType: CollaborationUserType
+  currentUserId: string | null
   currentUserName: string
   onSelectPin: (id: string) => void
   onCreateCommentReply: (pinId: string, content: string) => void
   onResolvePin?: (pinId: string) => void
+  onDeletePin?: (pinId: string) => void
   onResolveComment?: (pinId: string, commentId: string) => void
   resolvingPinId?: string | null
+  deletingPinId?: string | null
   resolvingCommentId?: string | null
 }
 
@@ -29,12 +32,15 @@ export function CollaborationPanel({
   pins,
   notifications,
   currentUserType,
+  currentUserId,
   currentUserName,
   onSelectPin,
   onCreateCommentReply,
   onResolvePin,
+  onDeletePin,
   onResolveComment,
   resolvingPinId,
+  deletingPinId,
   resolvingCommentId,
 }: CollaborationPanelProps) {
   const THREAD_INITIAL_VISIBLE_COUNT = 8
@@ -119,6 +125,10 @@ export function CollaborationPanel({
             && currentUserType === 'DESIGNER'
             && pinMessage?.authorType === 'CUSTOMER'
             && !isPinResolved
+          const canDeletePin =
+            Boolean(onDeletePin)
+            && Boolean(currentUserId)
+            && pin.createdById === currentUserId
           const threadVisibleCount = threadVisibleCountByPinId[pin.id] ?? THREAD_INITIAL_VISIBLE_COUNT
           const hiddenMessageCount = Math.max(visibleMessages.length - threadVisibleCount, 0)
           const threadMessages = visibleMessages.slice(-threadVisibleCount)
@@ -174,6 +184,18 @@ export function CollaborationPanel({
                       className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#C7E7D0] text-[#2F9E44] transition-colors hover:bg-[#EAF8EF] disabled:opacity-50"
                     >
                       <CheckCircle2 size={10} />
+                    </button>
+                  )}
+                  {isExpanded && canDeletePin && (
+                    <button
+                      type="button"
+                      title={'\uD540 \uC0AD\uC81C'}
+                      aria-label={'\uD540 \uC0AD\uC81C'}
+                      onClick={() => onDeletePin?.(pin.id)}
+                      disabled={deletingPinId === pin.id}
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#F3C7C7] text-[#D94848] transition-colors hover:bg-[#FFF0F0] disabled:opacity-50"
+                    >
+                      <Trash2 size={10} />
                     </button>
                   )}
                   <span className="text-[10px] text-[#A0A9BD]">{formatRelativeTime(lastUpdatedAt)}</span>
