@@ -2,10 +2,16 @@ import { api } from '@/shared/lib/axios'
 import type { ApiResponse } from '@/shared/types'
 import type { BubbleData, ConnectionData, IfcElementChange, WorkspaceSnapshot } from '../types'
 import type { BubbleSnapshotPayload } from '../utils/workspaceSyncMessage'
+import {
+  mapBubbleSnapshotToWorkspacePayload,
+  mapFloorMetaFromWorkspaceSnapshot,
+  type WorkspaceBubbleSnapshotPayload,
+} from './workspaceBubblePayloadMapper'
 
 export interface FloorPlanSnapshotPayload {
   bubbles?: BubbleData[]
   connections?: ConnectionData[]
+  floorMeta?: BubbleSnapshotPayload['floorMeta']
   revisionId?: string | null
   layout?: {
     phaseStatus?: WorkspaceSnapshot['phaseStatus']
@@ -33,26 +39,16 @@ interface WorkspaceSiteInfo {
   } | null
 }
 
-interface WorkspaceBubbleSavePayload {
-  bubbles: Array<{
-    id: string
-    x: number
-    y: number
-    width: number
-    height: number
-    widthMm: number
-    heightMm: number
-    label: string
-    type: string
-    ratio: number
-    color?: string
-  }>
-  connections: ConnectionData[]
+interface SaveBubbleSnapshotApiResponse {
+  projectId: string
+  status?: WorkspaceSnapshot['phaseStatus']
+  phaseStatus?: WorkspaceSnapshot['phaseStatus']
+  savedAt: string
 }
 
-interface SaveBubbleSnapshotResponse {
+export interface SaveBubbleSnapshotResponse {
   projectId: string
-  status: WorkspaceSnapshot['phaseStatus']
+  phaseStatus: WorkspaceSnapshot['phaseStatus']
   savedAt: string
 }
 
@@ -78,24 +74,12 @@ export interface WorkspaceHistorySnapshotResponse {
   floorPlan: WorkspaceHistoryEntry<FloorPlanSnapshotPayload>
 }
 
-const toWorkspaceBubble = (bubble: BubbleData): WorkspaceBubbleSavePayload['bubbles'][number] => ({
-  id: bubble.id,
-  x: bubble.x,
-  y: bubble.y,
-  width: bubble.width,
-  height: bubble.height,
-  widthMm: bubble.widthMm,
-  heightMm: bubble.heightMm,
-  label: bubble.label,
-  type: bubble.type,
-  ratio: bubble.ratio,
-  color: bubble.color,
-})
-
-const toBubbleSavePayload = (snapshot: WorkspaceSnapshot): WorkspaceBubbleSavePayload => ({
-  bubbles: snapshot.bubbles.map(toWorkspaceBubble),
-  connections: snapshot.connections,
-})
+const toBubbleSavePayload = (snapshot: WorkspaceSnapshot): WorkspaceBubbleSnapshotPayload =>
+  mapBubbleSnapshotToWorkspacePayload(
+    snapshot.bubbles,
+    snapshot.connections,
+    mapFloorMetaFromWorkspaceSnapshot(snapshot),
+  )
 
 export const workspaceSaveService = {
   loadHistorySnapshot: async (projectId: string): Promise<WorkspaceHistorySnapshotResponse> => {
@@ -109,11 +93,16 @@ export const workspaceSaveService = {
     projectId: string,
     snapshot: WorkspaceSnapshot,
   ): Promise<SaveBubbleSnapshotResponse> => {
-    const response = await api.post<ApiResponse<SaveBubbleSnapshotResponse>>(
+    const response = await api.post<ApiResponse<SaveBubbleSnapshotApiResponse>>(
       `/projects/${projectId}/workspace/bubble/save`,
       toBubbleSavePayload(snapshot),
     )
-    return response.data.data
+    const data = response.data.data
+    return {
+      projectId: data.projectId,
+      phaseStatus: data.phaseStatus ?? data.status ?? snapshot.phaseStatus,
+      savedAt: data.savedAt,
+    }
   },
 
   saveFloorPlanSnapshot: async (

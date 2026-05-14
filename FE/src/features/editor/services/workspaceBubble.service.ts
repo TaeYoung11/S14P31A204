@@ -1,32 +1,11 @@
 import { api } from '@/shared/lib/axios'
+import type { ApiResponse } from '@/shared/types'
 import type { BubbleData, ConnectionData } from '../types'
-
-interface ApiResponse<T> {
-  status: number
-  message: string
-  data: T
-}
-
-interface SaveBubbleSnapshotRequest {
-  bubbles: Array<{
-    id: string
-    x: number
-    y: number
-    width: number
-    height: number
-    widthMm: number
-    heightMm: number
-    label: string
-    type: string
-    ratio: number
-    color: string
-  }>
-  connections: Array<{
-    from: string
-    to: string
-    type: string
-  }>
-}
+import {
+  mapBubbleSnapshotToWorkspacePayload,
+  type WorkspaceBubbleSnapshotPayload,
+  type WorkspaceBubbleFloorMetaPayload,
+} from './workspaceBubblePayloadMapper'
 
 export interface SaveBubbleSnapshotResponse {
   projectId: string
@@ -37,37 +16,20 @@ export interface SaveBubbleSnapshotResponse {
 function toSaveBubbleRequest(
   bubbles: BubbleData[],
   connections: ConnectionData[],
-): SaveBubbleSnapshotRequest {
-  return {
-    bubbles: bubbles.map((bubble) => ({
-      id: bubble.id,
-      x: bubble.x,
-      y: bubble.y,
-      width: bubble.width,
-      height: bubble.height,
-      widthMm: bubble.widthMm,
-      heightMm: bubble.heightMm,
-      label: bubble.label,
-      type: bubble.type,
-      ratio: bubble.ratio,
-      color: bubble.color,
-    })),
-    connections: connections.map((connection) => ({
-      from: connection.from,
-      to: connection.to,
-      type: connection.type,
-    })),
-  }
+  floorMeta?: WorkspaceBubbleFloorMetaPayload,
+): WorkspaceBubbleSnapshotPayload {
+  return mapBubbleSnapshotToWorkspacePayload(bubbles, connections, floorMeta)
 }
 
 export async function saveBubbleSnapshotToDb(
   projectId: string,
   bubbles: BubbleData[],
   connections: ConnectionData[],
+  floorMeta?: WorkspaceBubbleFloorMetaPayload,
 ): Promise<SaveBubbleSnapshotResponse> {
   const response = await api.post<ApiResponse<SaveBubbleSnapshotResponse>>(
     `/projects/${projectId}/workspace/bubble/save`,
-    toSaveBubbleRequest(bubbles, connections),
+    toSaveBubbleRequest(bubbles, connections, floorMeta),
   )
   return response.data.data
 }
