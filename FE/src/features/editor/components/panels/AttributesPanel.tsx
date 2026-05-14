@@ -14,6 +14,7 @@ interface AttributesPanelProps {
   height: number
   zIndex?: number
   selectedBubble: BubbleInfo | null
+  isThreeDEditingLocked?: boolean
   selectedWall?: FloorWall | null
   selectedOpening?: FloorOpening | null
   selectedIfcElement?: IfcElementInfo | null
@@ -24,6 +25,9 @@ interface AttributesPanelProps {
   onWidthChange: (id: string, width: number) => void
   onHeightChange: (id: string, height: number) => void
   onThicknessChange?: (id: string, thickness: number) => void
+  onPositionChange?: (id: string, axis: 'x' | 'y' | 'z', value: number) => void
+  onRotationChange?: (id: string, axis: 'x' | 'y' | 'z', degrees: number) => void
+  onRoofShapeChange?: (id: string, shape: 'flat' | 'gable') => void
   onWidthCommit?: (id: string, width: number) => void
   onHeightCommit?: (id: string, height: number) => void
   onRatioChange: (id: string, ratio: number) => void
@@ -51,6 +55,7 @@ export function AttributesPanel({
   height,
   zIndex,
   selectedBubble,
+  isThreeDEditingLocked = false,
   selectedWall,
   selectedOpening,
   selectedIfcElement,
@@ -61,6 +66,9 @@ export function AttributesPanel({
   onWidthChange,
   onHeightChange,
   onThicknessChange,
+  onPositionChange,
+  onRotationChange,
+  onRoofShapeChange,
   onWidthCommit,
   onHeightCommit,
   onRatioChange,
@@ -131,10 +139,14 @@ export function AttributesPanel({
         <ThreeDAttributePanel
           selectedBubble={selectedBubble}
           selectedIfcElement={selectedIfcElement}
+          isEditingLocked={isThreeDEditingLocked}
           onLabelChange={onLabelChange}
           onWidthChange={onWidthChange}
           onHeightChange={onHeightChange}
           onThicknessChange={onThicknessChange}
+          onPositionChange={onPositionChange}
+          onRotationChange={onRotationChange}
+          onRoofShapeChange={onRoofShapeChange}
           onColorChange={onColorChange}
           onMaterialChange={onMaterialChange}
         />

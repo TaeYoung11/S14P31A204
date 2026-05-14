@@ -9,6 +9,8 @@ from pathlib import Path
 import ifcopenshell
 import ifcopenshell.api.aggregate
 import ifcopenshell.api.root
+import ifcopenshell.util.element
+import ifcopenshell.util.placement
 import pytest
 
 import ai_authoring.operations  # noqa: F401
@@ -17,6 +19,7 @@ from ai_authoring.engine_3d import (
     create_slab,
     create_wall,
     create_window_with_opening,
+    create_window_with_template_reuse,
     delete_element,
     find_host_wall,
 )
@@ -300,6 +303,64 @@ def test_window_sill_height_applied_to_opening_placement():
     assert window_z == pytest.approx(0.0)
 
 
+def test_window_template_reuse_restores_deleted_house_kr_window_position():
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    model = ifcopenshell.open(str(house_kr))
+    target_window_id = "1srAI$R4T8ihLXSNHmUSET"
+
+    template_window = model.by_guid(target_window_id)
+    assert template_window is not None
+    template_opening = list(template_window.FillsVoids)[0].RelatingOpeningElement
+    host_wall = list(template_opening.VoidsElements)[0].RelatingBuildingElement
+    storey = ifcopenshell.util.element.get_container(template_window)
+    target_matrix = ifcopenshell.util.placement.get_local_placement(
+        template_opening.ObjectPlacement
+    )
+    target_x_mm = float(target_matrix[0, 3]) * 1000.0
+    target_y_mm = float(target_matrix[1, 3]) * 1000.0
+    target_z_mm = float(target_matrix[2, 3]) * 1000.0
+    target_width_mm = round(float(template_window.OverallWidth) * 1000.0)
+    target_height_mm = round(float(template_window.OverallHeight) * 1000.0)
+    expected_opening_origin = [target_x_mm, target_y_mm, target_z_mm]
+    template_body = template_window.Representation.Representations[0].Items[0].MappingSource
+    template_styled_count = sum(
+        len(getattr(item, "StyledByItem", None) or [])
+        for item in template_body.MappedRepresentation.Items
+    )
+
+    delete_element(model, template_window)
+    recreated = create_window_with_template_reuse(
+        model,
+        storey,
+        length_mm=target_width_mm,
+        width_mm=200,
+        height_mm=target_height_mm,
+        x_mm=target_x_mm,
+        y_mm=target_y_mm,
+        z_mm=0.0,
+        host_wall=host_wall,
+        sill_height_mm=target_z_mm,
+    )
+
+    assert recreated is not None
+    recreated_opening = list(recreated.FillsVoids)[0].RelatingOpeningElement
+    recreated_matrix = ifcopenshell.util.placement.get_local_placement(
+        recreated_opening.ObjectPlacement
+    )
+    recreated_origin = [
+        float(recreated_matrix[0, 3]) * 1000.0,
+        float(recreated_matrix[1, 3]) * 1000.0,
+        float(recreated_matrix[2, 3]) * 1000.0,
+    ]
+    assert recreated_origin == pytest.approx(expected_opening_origin, abs=1.0)
+    recreated_body = recreated.Representation.Representations[0].Items[0].MappingSource
+    recreated_styled_count = sum(
+        len(getattr(item, "StyledByItem", None) or [])
+        for item in recreated_body.MappedRepresentation.Items
+    )
+    assert recreated_styled_count == template_styled_count
+
+
 def test_transform_handler_skips_host_relative_window_when_requested():
     model, storey, _ = _make_model()
     wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
@@ -386,6 +447,67 @@ def test_create_element_handler_window_uses_default_sill_height():
     opening = model.by_type("IfcOpeningElement")[0]
     z_coord = float(opening.ObjectPlacement.RelativePlacement.Location.Coordinates[2])
     assert z_coord == pytest.approx(900.0)
+
+
+def test_create_element_handler_window_template_reuse_restores_house_kr_window_position():
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    model = ifcopenshell.open(str(house_kr))
+    target_window_id = "1srAI$R4T8ihLXSNHmUSET"
+
+    template_window = model.by_guid(target_window_id)
+    assert template_window is not None
+    template_opening = list(template_window.FillsVoids)[0].RelatingOpeningElement
+    host_wall = list(template_opening.VoidsElements)[0].RelatingBuildingElement
+    storey = ifcopenshell.util.element.get_container(template_window)
+    target_matrix = ifcopenshell.util.placement.get_local_placement(
+        template_opening.ObjectPlacement
+    )
+    target_x_mm = float(target_matrix[0, 3]) * 1000.0
+    target_y_mm = float(target_matrix[1, 3]) * 1000.0
+    target_z_mm = float(target_matrix[2, 3]) * 1000.0
+    target_width_mm = round(float(template_window.OverallWidth) * 1000.0)
+    target_height_mm = round(float(template_window.OverallHeight) * 1000.0)
+    expected_opening_origin = [target_x_mm, target_y_mm, target_z_mm]
+    template_body = template_window.Representation.Representations[0].Items[0].MappingSource
+    template_styled_count = sum(
+        len(getattr(item, "StyledByItem", None) or [])
+        for item in template_body.MappedRepresentation.Items
+    )
+
+    delete_element(model, template_window)
+    handler = get("create_element")
+    created = handler.execute(
+        model,
+        storey,
+        {
+            "element_type": "IfcWindow",
+            "storey": getattr(storey, "Name", "1F"),
+            "coordinate_space": "PROJECT_ABSOLUTE_MM",
+            "start_mm": {"x": target_x_mm, "y": target_y_mm, "z": 0.0},
+            "dimensions_mm": {"length": target_width_mm, "width": 200, "height": target_height_mm},
+            "host_wall_global_id": host_wall.GlobalId,
+            "require_template_reuse": True,
+            "sill_height_mm": target_z_mm,
+        },
+    )
+
+    assert created is not None
+    created_opening = list(created.FillsVoids)[0].RelatingOpeningElement
+    created_matrix = ifcopenshell.util.placement.get_local_placement(
+        created_opening.ObjectPlacement
+    )
+    created_origin = [
+        float(created_matrix[0, 3]) * 1000.0,
+        float(created_matrix[1, 3]) * 1000.0,
+        float(created_matrix[2, 3]) * 1000.0,
+    ]
+    assert created_origin == pytest.approx(expected_opening_origin, abs=1.0)
+    created_body = created.Representation.Representations[0].Items[0].MappingSource
+    created_styled_count = sum(
+        len(getattr(item, "StyledByItem", None) or [])
+        for item in created_body.MappedRepresentation.Items
+    )
+    assert created_styled_count == template_styled_count
 
 
 def test_create_element_handler_window_clamps_sill_to_host_wall_height():
@@ -579,12 +701,144 @@ def test_delete_window_removes_only_its_opening_boolean():
     assert delete_element(model, first)
     assert len(model.by_type("IfcWindow")) == 1
     assert len(model.by_type("IfcOpeningElement")) == 1
-    assert wall.Representation.Representations[0].Items[0].is_a("IfcBooleanResult")
+    assert _single_body_item(wall).is_a("IfcBooleanResult")
 
     assert delete_element(model, second)
     assert len(model.by_type("IfcWindow")) == 0
     assert len(model.by_type("IfcOpeningElement")) == 0
-    assert not wall.Representation.Representations[0].Items[0].is_a("IfcBooleanResult")
+    assert not _single_body_item(wall).is_a("IfcBooleanResult")
+
+
+def test_delete_wall_void_handler_deletes_parametric_door_pair():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    door = create_door_with_opening(model, storey, host_wall=wall)
+    assert door is not None
+    door_id = door.GlobalId
+
+    handler = get("delete_wall_void")
+    deleted = handler.execute(
+        model,
+        None,
+        {"expected_kind": "door", "allowed_host_body_class": "parametric"},
+        {"global_ids": [door_id]},
+    )
+
+    assert deleted == [door_id]
+    assert len(model.by_type("IfcDoor")) == 0
+    assert len(model.by_type("IfcOpeningElement")) == 0
+    assert len(model.by_type("IfcRelVoidsElement")) == 0
+    assert len(model.by_type("IfcRelFillsElement")) == 0
+
+
+def test_delete_wall_void_handler_deletes_parametric_window_pair():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    window = create_window_with_opening(model, storey, host_wall=wall)
+    assert window is not None
+    window_id = window.GlobalId
+
+    handler = get("delete_wall_void")
+    deleted = handler.execute(
+        model,
+        None,
+        {"expected_kind": "window", "allowed_host_body_class": "parametric"},
+        {"global_ids": [window_id]},
+    )
+
+    assert deleted == [window_id]
+    assert len(model.by_type("IfcWindow")) == 0
+    assert len(model.by_type("IfcOpeningElement")) == 0
+    assert len(model.by_type("IfcRelVoidsElement")) == 0
+    assert len(model.by_type("IfcRelFillsElement")) == 0
+
+
+def test_delete_wall_void_handler_deletes_parametric_bare_opening():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    assert wall is not None
+    opening = ifcopenshell.api.root.create_entity(
+        model, ifc_class="IfcOpeningElement", name="Bare Opening"
+    )
+    opening.ObjectPlacement = model.create_entity(
+        "IfcLocalPlacement",
+        PlacementRelTo=wall.ObjectPlacement,
+        RelativePlacement=model.create_entity(
+            "IfcAxis2Placement3D",
+            Location=model.create_entity("IfcCartesianPoint", Coordinates=(1.0, 0.0, 1.0)),
+        ),
+    )
+    model.create_entity(
+        "IfcRelVoidsElement",
+        GlobalId=ifcopenshell.guid.new(),
+        RelatingBuildingElement=wall,
+        RelatedOpeningElement=opening,
+    )
+    opening_id = opening.GlobalId
+
+    handler = get("delete_wall_void")
+    deleted = handler.execute(
+        model,
+        None,
+        {"expected_kind": "opening", "allowed_host_body_class": "parametric"},
+        {"global_ids": [opening_id]},
+    )
+
+    assert deleted == [opening_id]
+    assert len(model.by_type("IfcOpeningElement")) == 0
+    assert len(model.by_type("IfcRelVoidsElement")) == 0
+
+
+def test_delete_wall_void_handler_rejects_filled_opening_target():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    window = create_window_with_opening(model, storey, host_wall=wall)
+    assert window is not None
+    opening = list(window.FillsVoids)[0].RelatingOpeningElement
+
+    handler = get("delete_wall_void")
+    with pytest.raises(ValueError, match="bare IfcOpeningElement"):
+        handler.execute(
+            model,
+            None,
+            {"expected_kind": "opening", "allowed_host_body_class": "parametric"},
+            {"global_ids": [opening.GlobalId]},
+        )
+
+
+def test_delete_wall_void_handler_rejects_missing_target():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    window = create_window_with_opening(model, storey, host_wall=wall)
+    assert window is not None
+
+    handler = get("delete_wall_void")
+    with pytest.raises(ValueError, match="target not found"):
+        handler.execute(
+            model,
+            None,
+            {"expected_kind": "window", "allowed_host_body_class": "parametric"},
+            {"global_ids": ["missing-guid-123"]},
+        )
+
+    assert model.by_guid(window.GlobalId) is not None
+
+
+def test_delete_wall_void_handler_rejects_bcr_hosted_house_kr_window():
+    house_kr = Path(__file__).resolve().parents[3] / "scripts" / "House_KR.ifc"
+    model = ifcopenshell.open(str(house_kr))
+    target_gid = "1zOBw0Gej5Wf0QAJfHnOc0"
+
+    handler = get("delete_wall_void")
+    with pytest.raises(ValueError, match="parametric host walls"):
+        handler.execute(
+            model,
+            None,
+            {"expected_kind": "window", "allowed_host_body_class": "parametric"},
+            {"global_ids": [target_gid]},
+        )
+
+    assert model.by_guid(target_gid) is not None
 
 
 def test_engine_request_v2_schema_accepts_door_host_fields():

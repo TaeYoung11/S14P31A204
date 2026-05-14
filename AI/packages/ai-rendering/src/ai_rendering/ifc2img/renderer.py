@@ -289,7 +289,7 @@ class IFCRenderer:
             return self._render_mesh_windowed(
                 mesh, lookat, camera, initial_zoom, target_ratio
             )
-        except IFCRenderError:
+        except Exception:
             if backend == "visualizer":
                 raise
             return self._render_mesh_offscreen(
@@ -337,6 +337,53 @@ class IFCRenderer:
         initial_zoom: float,
         target_ratio: float,
     ) -> Image.Image:
+        if self.auto_zoom == AutoZoomMode.ITERATIVE:
+            depth = self._iterative_raycast_zoom_loop(
+                mesh,
+                center,
+                camera,
+                initial_zoom,
+                target_ratio,
+            )
+        else:
+            depth = self._capture_raycast_depth(mesh, center, camera, initial_zoom)
+        return self._depth_to_image(depth)
+
+    def _iterative_raycast_zoom_loop(
+        self,
+        mesh: o3d.geometry.TriangleMesh,
+        center: np.ndarray,
+        camera: CameraParams,
+        initial_zoom: float,
+        target_ratio: float,
+    ) -> np.ndarray:
+        """Adjust raycast camera zoom until depth fill ratio approaches target_ratio."""
+        zoom = initial_zoom
+        depth = self._capture_raycast_depth(mesh, center, camera, zoom)
+        for _ in range(self.iter_max - 1):
+            fill = float((depth > 0).mean())
+            if abs(fill - target_ratio) <= self.iter_tolerance:
+                return depth
+            if fill < 1e-6:
+                zoom = max(zoom * 0.3, 0.05)
+            else:
+                zoom = float(
+                    np.clip(
+                        zoom * math.sqrt(fill / target_ratio),
+                        0.05,
+                        2.0,
+                    )
+                )
+            depth = self._capture_raycast_depth(mesh, center, camera, zoom)
+        return depth
+
+    def _capture_raycast_depth(
+        self,
+        mesh: o3d.geometry.TriangleMesh,
+        center: np.ndarray,
+        camera: CameraParams,
+        zoom: float,
+    ) -> np.ndarray:
         # OffscreenRenderer 사용 — headless 환경용
         # Raycasting으로 depth 계산
         scene = o3d.t.geometry.RaycastingScene()
@@ -348,7 +395,9 @@ class IFCRenderer:
         verts = np.asarray(mesh.vertices)
         max_extent = float(np.max(verts.max(axis=0) - verts.min(axis=0)))
         front /= np.linalg.norm(front)
-        eye = center - front * max(max_extent * 1.25, 1.0)
+        zoom = float(np.clip(zoom, 0.05, 2.0))
+        eye_distance = max(max_extent * 1.25 / zoom, 1.0)
+        eye = center - front * eye_distance
         rays = o3d.t.geometry.RaycastingScene.create_rays_pinhole(
             60.0,
             o3d.core.Tensor(center.astype(np.float32), dtype=o3d.core.Dtype.Float32),

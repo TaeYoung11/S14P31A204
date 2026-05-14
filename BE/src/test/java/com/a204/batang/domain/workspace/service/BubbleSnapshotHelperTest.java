@@ -28,20 +28,30 @@ class BubbleSnapshotHelperTest {
                       "height": 80.0,
                       "widthMm": 2500.0,
                       "heightMm": 2000.0,
-                      "label": "거실",
-                      "type": "거실",
+                      "label": "living-room",
+                      "type": "living",
                       "ratio": 5.0,
                       "color": "#ffffff"
                     }
                   ],
-                  "connections": []
+                  "connections": [],
+                  "floorMeta": {
+                    "namesByFloor": {
+                      "1": "1F"
+                    },
+                    "extraFloors": [2]
+                  }
                 }
                 """);
 
         BubbleSnapshotPayload payload = helper.readSnapshotPayloadOrThrow(snapshot);
 
         assertThat(payload.bubbles()).hasSize(1);
+        assertThat(payload.bubbles().get(0).floor()).isEqualTo(1);
         assertThat(payload.connections()).isEmpty();
+        assertThat(payload.floorMeta()).isNotNull();
+        assertThat(payload.floorMeta().namesByFloor()).containsEntry(1, "1F");
+        assertThat(payload.floorMeta().extraFloors()).containsExactly(2);
     }
 
     @Test

@@ -49,9 +49,10 @@ export interface EditorModalLayerProps {
   isIFCExportModalOpen: boolean
   onCloseIFCExportModal: () => void
   ifcElementChanges: IfcElementChange[]
+  currentIfcUrl: string | null
+  currentIfcAssetId: string | null
 
   isGenerate3DModalOpen: boolean
   onCloseGenerate3DModal: () => void
   onConfirmGenerate3D: (storyHeightMm: number) => void
 }
-

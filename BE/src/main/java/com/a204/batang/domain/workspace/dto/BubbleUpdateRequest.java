@@ -23,7 +23,9 @@ public record BubbleUpdateRequest(
         List<@Valid ConnectionData> connections,
         @NotNull(message = "baseIndex is required.")
         @Min(value = -1, message = "baseIndex must be greater than or equal to -1.")
-        Integer baseIndex
+        Integer baseIndex,
+        @Valid
+        BubbleFloorMeta floorMeta
 ) implements BubbleSnapshotPayload {
 
     /**
@@ -67,7 +69,8 @@ public record BubbleUpdateRequest(
             @NotNull(message = "bubble ratio is required.")
             @Positive(message = "bubble ratio must be positive.")
             Double ratio,
-            String color
+            String color,
+            Integer floor
     ) {
     }
 

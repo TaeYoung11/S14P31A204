@@ -49,13 +49,17 @@ export function useFloorPlanGenerateTimeout({
   }, [projectId, userId, resetForbiddenFlag])
 
   useEffect(() => {
-    if (workspacePhaseStatus !== 'CONVERTING') {
-      clearFloorPlanGenerateTimeout()
+    if (workspacePhaseStatus === 'CONVERTING') {
+      if (timeoutRef.current === null) startFloorPlanGenerateTimeout()
+      return () => {
+        clearFloorPlanGenerateTimeout()
+      }
     }
+    clearFloorPlanGenerateTimeout()
     return () => {
       clearFloorPlanGenerateTimeout()
     }
-  }, [workspacePhaseStatus, clearFloorPlanGenerateTimeout])
+  }, [workspacePhaseStatus, clearFloorPlanGenerateTimeout, startFloorPlanGenerateTimeout])
 
   return {
     startFloorPlanGenerateTimeout,

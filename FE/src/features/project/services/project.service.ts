@@ -60,6 +60,14 @@ interface ProjectDetailResponse {
   createdAt?: string
   updatedAt?: string
   unreadCommentCount?: number
+  creator?: {
+    userId: string
+    name?: string | null
+  } | null
+  invitedUsers?: {
+    userId: string
+    name?: string | null
+  }[]
 }
 
 interface ProjectIfcExportResponse {
@@ -366,6 +374,14 @@ export const projectService = {
     bubbleSnapshotJson?: unknown
     ifcStorageUrl?: string
     currentRevision?: string
+    creator?: {
+      userId: string
+      name: string
+    } | null
+    invitedUsers?: {
+      userId: string
+      name: string
+    }[]
   }> => {
     const detail = await _fetchProjectDetail(id)
     return {
@@ -382,6 +398,17 @@ export const projectService = {
       bubbleSnapshotJson: detail.bubbleSnapshotJson,
       ifcStorageUrl: detail.ifcStorageUrl,
       currentRevision: detail.currentRevision,
+      creator: detail.creator
+        ? {
+          userId: detail.creator.userId,
+          name: (detail.creator.name ?? '').trim() || '알 수 없음',
+        }
+        : null,
+      invitedUsers: (detail.invitedUsers ?? [])
+        .map((user) => ({
+          userId: user.userId,
+          name: (user.name ?? '').trim() || '알 수 없음',
+        })),
     }
   },
 

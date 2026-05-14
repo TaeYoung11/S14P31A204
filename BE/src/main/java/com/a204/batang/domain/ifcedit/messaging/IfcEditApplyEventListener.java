@@ -150,6 +150,11 @@ public class IfcEditApplyEventListener {
         if (revision != null && !revision.isTerminal()) {
             revision.markFailed();
         }
+        workspaceFloorPlanRealtimeService.notifyIfcEditFailureToUser(
+                resolveRequestedBy(job, message.requestedBy()),
+                event.returned() ? ErrorCode.IFC_EDIT_COMMAND_RETURNED : ErrorCode.IFC_EDIT_COMMAND_CONFIRM_NACK,
+                errorMessage
+        );
 
         publishStatusEvent(message.projectId(), SSE_IFC_EDIT_FAILED, new IfcEditStatusSseResponse(
                 SSE_IFC_EDIT_FAILED, message.projectId(), message.jobId(), message.jobStepId(),
@@ -375,6 +380,11 @@ public class IfcEditApplyEventListener {
         step.markFailed(errorCode, errorMessage, outputPayload, now);
         job.markFailed(errorMessage, outputPayload, now);
         revision.markFailed();
+        workspaceFloorPlanRealtimeService.notifyIfcEditFailureToUser(
+                resolveRequestedBy(job, null),
+                ErrorCode.IFC_EDIT_COMMAND_DLQ,
+                errorMessage
+        );
 
         log.warn("IFC Edit failed 이벤트를 반영했습니다. errorCode={}", errorCode);
 
@@ -460,6 +470,13 @@ public class IfcEditApplyEventListener {
         return value.asText();
     }
 
+    private UUID resolveRequestedBy(IfcEditJob job, UUID fallbackRequestedBy) {
+        if (job != null && job.getRequestedBy() != null) {
+            return job.getRequestedBy();
+        }
+        return fallbackRequestedBy;
+    }
+
     private Map<String, Object> buildCompletedPayload(IfcEditEventMessage event, String ifcUrl, String validationUrl) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("ifcStorageUrl", ifcUrl);
@@ -487,11 +504,17 @@ public class IfcEditApplyEventListener {
 
     private void publishFloorPlanSyncOnIfcCompletedIfNeeded(IfcEditJob job, Revision revision, String ifcUrl) {
         JsonNode sourceScenePayload = resolveFloorPlanSourcePayload(job);
-        if (sourceScenePayload == null) {
-            return;
-        }
-
         try {
+            if (sourceScenePayload == null) {
+                workspaceFloorPlanRealtimeService.publishFloorPlanUpdatedFromGenerate(
+                        job.getProjectId(),
+                        revision.getRevisionId(),
+                        job.getSourceRevisionId(),
+                        ifcUrl
+                );
+                return;
+            }
+
             workspaceFloorPlanRealtimeService.publishFloorPlanUpdatedFromIfcEdit(
                     job.getProjectId(),
                     revision.getRevisionId(),

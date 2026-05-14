@@ -26,6 +26,7 @@ export interface EditorLeftSidebarProps {
   isFloorPlanGenerated?: boolean
   isBubbleReadOnly?: boolean
   isEditorReadOnly?: boolean
+  isDeleteActionLocked?: boolean
   hasDeletableSelection?: boolean
   onDeleteSelected?: () => void
 }

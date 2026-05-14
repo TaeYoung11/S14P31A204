@@ -275,6 +275,7 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(
         ifc_path,
         output_dir,
         preset="korean_house",
+        debug_artifacts=True,
         ifc_renderer_cls=FakeIFCRenderer,
         depth_style_renderer_cls=FakeDepthStyleRenderer,
     )

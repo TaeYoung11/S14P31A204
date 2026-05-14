@@ -34,6 +34,8 @@ class FloorNLPCommand(BaseModel):
         "add_room",
         "create_wall",
         "create_door",
+        "delete_wall",
+        "delete_wall_void",
         "insert_toilet",
         "remove_room",
         "resize_room",
@@ -43,6 +45,7 @@ class FloorNLPCommand(BaseModel):
     ]
     target_room_name: str | None = Field(None, description="Target room name.")
     target_wall_id: str | None = Field(None, description="Target wall GlobalId.")
+    target_element_id: str | None = Field(None, description="Target element GlobalId.")
     target_floor: int | None = Field(None, ge=1, description="Target floor number.")
     new_room: NewRoom | None = Field(None, description="Room payload for add_room.")
     adjacency_target: str | None = Field(None, description="Adjacency target room name.")
@@ -103,6 +106,10 @@ class FloorNLPCommand(BaseModel):
             raise ValueError("create_wall requires target_room_name.")
         if self.action == "create_door" and self.target_wall_id is None:
             raise ValueError("create_door requires target_wall_id.")
+        if self.action == "delete_wall" and self.target_wall_id is None:
+            raise ValueError("delete_wall requires target_wall_id.")
+        if self.action == "delete_wall_void" and self.target_element_id is None:
+            raise ValueError("delete_wall_void requires target_element_id.")
         if self.action == "resize_room" and self.target_room_name is None:
             raise ValueError("resize_room requires target_room_name.")
         if self.action == "set_adjacency" and self.adjacency_target is None:
@@ -125,6 +132,7 @@ class ActionType(StrEnum):
     CREATE_DOOR = "create_door"
     UPDATE_DOOR = "update_door"
     DELETE_DOOR = "delete_door"
+    DELETE_WALL_VOID = "delete_wall_void"
     CREATE_WINDOW = "create_window"
     UPDATE_WINDOW = "update_window"
     DELETE_WINDOW = "delete_window"

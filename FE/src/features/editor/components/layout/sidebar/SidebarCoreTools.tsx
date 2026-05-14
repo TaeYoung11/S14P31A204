@@ -5,6 +5,7 @@ import SelectionToolButton from './SelectionToolButton'
 interface SidebarCoreToolsProps {
   selectedTool: string
   hasDeletableSelection: boolean
+  isDeleteDisabled?: boolean
   onToolSelect: (tool: string) => void
   onDeleteSelected?: () => void
   showSelectionTool?: boolean
@@ -23,6 +24,7 @@ interface SidebarCoreToolsProps {
 export default function SidebarCoreTools({
   selectedTool,
   hasDeletableSelection,
+  isDeleteDisabled = false,
   onToolSelect,
   onDeleteSelected,
   showSelectionTool = true,
@@ -42,6 +44,7 @@ export default function SidebarCoreTools({
           onToolSelect={onToolSelect}
           hasDeletableSelection={hasDeletableSelection}
           onDeleteSelected={onDeleteSelected}
+          disabled={isDeleteDisabled}
         />
       )}
       {showGridToggle && (
