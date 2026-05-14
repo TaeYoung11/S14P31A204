@@ -133,6 +133,9 @@ class FakeLogger:
     def info(self, event: str, **kwargs: object) -> None:
         self.calls.append((event, kwargs))
 
+    def warning(self, event: str, **kwargs: object) -> None:
+        self.calls.append((event, kwargs))
+
 
 @pytest.fixture(autouse=True)
 def reset_fake_renderers() -> None:
@@ -165,6 +168,7 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(tmp_path: Path) -> N
         ifc_path,
         output_dir,
         preset="korean_house",
+        debug_artifacts=True,
         ifc_renderer_cls=FakeIFCRenderer,
         depth_style_renderer_cls=FakeDepthStyleRenderer,
     )
@@ -175,6 +179,13 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(tmp_path: Path) -> N
     assert (output_dir / "photo_front_diagonal_right.png").exists()
     assert (output_dir / "depth_front_diagonal_left.png").exists()
     assert (output_dir / "depth_front_diagonal_right.png").exists()
+    debug_dir = output_dir / "debug"
+    debug_manifest_path = debug_dir / "debug_manifest.json"
+    assert debug_manifest_path.exists()
+    assert (debug_dir / "depth_front_diagonal_left.png").exists()
+    assert (debug_dir / "control_depth_front_diagonal_left.png").exists()
+    assert (debug_dir / "semantic_control_front_diagonal_left.png").exists()
+    assert (debug_dir / "final_photo_front_diagonal_left.png").exists()
     assert result.manifest_path == output_dir / "manifest.json"
     assert not hasattr(result, "bundle_path")
     assert not (output_dir / "ifc2img_result.zip").exists()
@@ -183,6 +194,8 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(tmp_path: Path) -> N
     assert manifest["schemaVersion"] == PHOTO_MANIFEST_SCHEMA_VERSION
     assert manifest["renderMode"] == "ifc2img"
     assert manifest["preset"] == "korean_house"
+    assert manifest["timeOfDay"] == "DAY"
+    assert result.time_of_day == "DAY"
     assert [view["view"] for view in manifest["views"]] == list(PUBLIC_PHOTO_VIEWS)
     assert [view["photoFile"] for view in manifest["views"]] == [
         "photo_front_diagonal_left.png",
@@ -192,6 +205,82 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(tmp_path: Path) -> N
         IFCView.FRONT_DIAGONAL_LEFT.value,
         IFCView.FRONT_DIAGONAL_RIGHT.value,
     ]
+    debug_manifest = json.loads(debug_manifest_path.read_text(encoding="utf-8"))
+    assert debug_manifest["schemaVersion"] == "ifc2img.debug.v1"
+    assert debug_manifest["preset"] == "korean_house"
+    assert debug_manifest["timeOfDay"] == "DAY"
+    assert [view["view"] for view in debug_manifest["views"]] == list(
+        PUBLIC_PHOTO_VIEWS
+    )
+    first_debug_view = debug_manifest["views"][0]
+    assert first_debug_view["actualFillRatio"] == 1.0
+    assert first_debug_view["files"]["depthImage"] == (
+        "debug/depth_front_diagonal_left.png"
+    )
+    assert first_debug_view["files"]["semanticControlImage"] == (
+        "debug/semantic_control_front_diagonal_left.png"
+    )
+
+
+def test_run_ifc2img_photo_pipeline_skips_debug_geometry_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """기본 production 경로는 debug geometry를 위해 IFC를 한 번 더 파싱하지 않는다."""
+    import ai_rendering.ifc2img.service as service
+
+    def fail_debug_geometry(_ifc_path: Path) -> None:
+        raise AssertionError("debug geometry should be opt-in")
+
+    monkeypatch.setattr(service, "_load_debug_geometry", fail_debug_geometry)
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        output_dir,
+        preset="korean_house",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    assert not (output_dir / "debug" / "debug_manifest.json").exists()
+
+
+def test_run_ifc2img_photo_pipeline_continues_when_debug_artifacts_fail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """debug artifact 생성 실패는 렌더 job 전체를 실패시키지 않는다."""
+    import ai_rendering.ifc2img.service as service
+
+    logger = FakeLogger()
+    monkeypatch.setattr(service, "_logger", logger)
+
+    def fail_debug_artifacts(**_kwargs: object) -> dict[str, object]:
+        raise RuntimeError("debug png failed")
+
+    monkeypatch.setattr(service, "_save_debug_artifacts", fail_debug_artifacts)
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    result = run_ifc2img_photo_pipeline(
+        ifc_path,
+        output_dir,
+        preset="korean_house",
+        debug_artifacts=True,
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    assert result.manifest_path.exists()
+    assert (output_dir / "photo_front_diagonal_left.png").exists()
+    assert (output_dir / "photo_front_diagonal_right.png").exists()
+    events = [event for event, _ in logger.calls]
+    assert events.count("ifc2img_debug_artifacts_failed") == 2
+    assert "ifc2img_manifest_write_completed" in events
 
 
 def test_run_ifc2img_photo_pipeline_logs_depth_and_style_stages(
@@ -221,6 +310,72 @@ def test_run_ifc2img_photo_pipeline_logs_depth_and_style_stages(
     assert events.count("ifc2img_style_render_started") == 2
     assert events.count("ifc2img_style_render_completed") == 2
     assert "ifc2img_manifest_write_completed" in events
+    depth_start = dict(logger.calls)["ifc2img_depth_render_started"]
+    assert depth_start["timeOfDay"] == "DAY"
+
+
+def test_run_ifc2img_photo_pipeline_passes_time_of_day_to_preset(
+    tmp_path: Path,
+) -> None:
+    """Pipeline should resolve NIGHT to the night preset prompt."""
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        time_of_day="NIGHT",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    params = FakeDepthStyleRenderer.instances[0].render_calls[0]["params"]
+    assert "night exterior" in params.prompt
+    assert "dark sky" in params.prompt
+    assert "warm windows" in params.prompt
+    assert "exterior lights" in params.prompt
+    assert "low glare" in params.prompt
+    assert "outdoor daylight" not in params.prompt
+
+
+@pytest.mark.parametrize(
+    ("time_of_day", "expected_preset_time_of_day"),
+    [
+        ("DAY", "day"),
+        ("NIGHT", "night"),
+    ],
+)
+def test_run_ifc2img_photo_pipeline_calls_load_preset_with_normalized_time(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    time_of_day: str,
+    expected_preset_time_of_day: str,
+) -> None:
+    """Pipeline passes normalized day/night values to load_preset."""
+    import ai_rendering.ifc2img.service as service
+
+    calls: list[tuple[str, str]] = []
+    original_load_preset = service.load_preset
+
+    def spy_load_preset(name: str, preset_time_of_day: str = "day") -> object:
+        calls.append((name, preset_time_of_day))
+        return original_load_preset(name, preset_time_of_day)
+
+    monkeypatch.setattr(service, "load_preset", spy_load_preset)
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / f"out-{time_of_day.lower()}",
+        preset="korean_house",
+        time_of_day=time_of_day,
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    assert calls == [("korean_house", expected_preset_time_of_day)]
 
 
 def test_photo_manifest_type_matches_json_contract(tmp_path: Path) -> None:
@@ -248,6 +403,7 @@ def test_photo_manifest_type_matches_json_contract(tmp_path: Path) -> None:
     assert typed_manifest.to_dict() == helper_manifest
     assert helper_manifest["schemaVersion"] == PHOTO_MANIFEST_SCHEMA_VERSION
     assert helper_manifest["renderMode"] == "ifc2img"
+    assert helper_manifest["timeOfDay"] == "DAY"
     assert helper_manifest["views"] == [
         {
             "view": "front_diagonal_left",
@@ -278,6 +434,7 @@ def test_worker_schema_types_match_expected_ifc2img_contract() -> None:
         "status",
         "renderMode",
         "preset",
+        "timeOfDay",
         "manifestStorageUrl",
         "photos",
     }
@@ -349,17 +506,22 @@ def test_worker_handler_downloads_runs_pipeline_and_uploads_outputs(
                 "s3://bucket/output/job-1/photo_front_diagonal_right.png"
             ),
         },
-        "payload": {"renderMode": "ifc2img", "preset": "korean_house"},
+        "payload": {
+            "renderMode": "ifc2img",
+            "preset": "korean_house",
+            "timeOfDay": "NIGHT",
+        },
     }
-    pipeline_calls: list[tuple[Path, Path, str]] = []
+    pipeline_calls: list[tuple[Path, Path, str, object | None]] = []
 
     def fake_pipeline(
         ifc_path: Path,
         output_dir: Path,
         *,
         preset: str,
+        time_of_day: object | None = None,
     ) -> Ifc2ImgPhotoJobResult:
-        pipeline_calls.append((ifc_path, output_dir, preset))
+        pipeline_calls.append((ifc_path, output_dir, preset, time_of_day))
         output_dir.mkdir(parents=True, exist_ok=True)
         manifest_path = output_dir / "manifest.json"
         photo_left = output_dir / "photo_front_diagonal_left.png"
@@ -392,6 +554,7 @@ def test_worker_handler_downloads_runs_pipeline_and_uploads_outputs(
             output_dir=output_dir,
             outputs=outputs,
             manifest_path=manifest_path,
+            time_of_day="NIGHT" if time_of_day == "NIGHT" else "DAY",
         )
 
     response = handle_ifc2img_worker_request(
@@ -409,12 +572,14 @@ def test_worker_handler_downloads_runs_pipeline_and_uploads_outputs(
             tmp_path / "work" / "input" / "source.ifc",
             tmp_path / "work" / "output",
             "korean_house",
+            "NIGHT",
         )
     ]
     assert response == {
         "status": "SUCCESS",
         "renderMode": "ifc2img",
         "preset": "korean_house",
+        "timeOfDay": "NIGHT",
         "manifestStorageUrl": "s3://bucket/output/job-1/manifest.v1.json",
         "photos": [
             {

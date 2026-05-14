@@ -227,7 +227,7 @@ def test_run_two_d_llm_job_accepts_snake_case_payload(
         Path(output_path).write_bytes(b"updated-ifc")
         return _applied_result()
 
-    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
 
     result = run_two_d_llm_job(
         {
@@ -256,7 +256,7 @@ def test_run_two_d_llm_job_ignores_unknown_payload_fields(
         Path(output_path).write_bytes(b"updated-ifc")
         return _applied_result()
 
-    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
 
     result = run_two_d_llm_job(
         {
@@ -287,7 +287,7 @@ def test_run_two_d_llm_job_success(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         Path(output_path).write_bytes(b"updated-ifc")
         return _applied_result()
 
-    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
 
     result = run_two_d_llm_job(
         {
@@ -320,7 +320,7 @@ def test_run_two_d_llm_job_clarification(tmp_path: Path, monkeypatch: pytest.Mon
             clarification_request_id=clarification_request_id,
         )
 
-    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
 
     result = run_two_d_llm_job(
         {
@@ -389,7 +389,7 @@ def test_two_d_llm_worker_uploads_ifc_and_plan(monkeypatch: pytest.MonkeyPatch) 
         Path(output_path).write_bytes(b"updated-ifc")
         return _applied_result()
 
-    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
 
     result = worker.handle(_command())
 
@@ -443,7 +443,7 @@ def test_two_d_llm_worker_prefers_source_ifc_input_url(
         Path(output_path).write_bytes(b"updated-ifc")
         return _applied_result("req-2d-002")
 
-    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
 
     result = worker.handle(
         _command(
@@ -538,7 +538,7 @@ def test_two_d_llm_worker_reports_unsupported_ifc_schema(
     )
 
     monkeypatch.setattr(
-        "ai_planning_2d.worker.extract_ifc_context",
+        "ai_planning_2d.worker_runtime.worker.extract_ifc_context",
         lambda _: _raise(UnsupportedIfcSchemaError("Unsupported IFC schema: IFC2X3")),
     )
 
@@ -560,7 +560,7 @@ def test_two_d_llm_worker_reports_unsupported_ifc_length_unit(
     )
 
     monkeypatch.setattr(
-        "ai_planning_2d.worker.extract_ifc_context",
+        "ai_planning_2d.worker_runtime.worker.extract_ifc_context",
         lambda _: _raise(
             UnsupportedIfcLengthUnitError("Unsupported IFC length unit prefix: MILLI")
         ),
@@ -595,7 +595,7 @@ def test_two_d_llm_worker_emits_clarification_with_job_step_id(
             clarification_request_id=clarification_request_id,
         )
 
-    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
 
     result = worker.handle(_command())
 
@@ -615,7 +615,7 @@ def test_two_d_llm_worker_preview_rejected_maps_failed(monkeypatch: pytest.Monke
     async def _fake_run_pipeline(**_: object) -> dict[str, object]:
         raise NonRetryableWorkerError(code="PREVIEW_REJECTED", message="unsupported")
 
-    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
 
     result = worker.handle(_command())
 
@@ -660,9 +660,11 @@ def test_two_d_llm_worker_engine_init_failure_is_retryable(
         s3_client=storage,
     )
 
-    monkeypatch.setattr("ai_planning_2d.worker.extract_ifc_context", lambda _: {"spaces": []})
     monkeypatch.setattr(
-        "ai_planning_2d.worker.LLM2DPipeline",
+        "ai_planning_2d.worker_runtime.worker.extract_ifc_context", lambda _: {"spaces": []}
+    )
+    monkeypatch.setattr(
+        "ai_planning_2d.worker_runtime.worker.LLM2DPipeline",
         lambda **_: _raise(RuntimeError("engine init failed")),
     )
 
@@ -705,7 +707,7 @@ def test_two_d_llm_worker_storage_write_failure_is_retryable(
         Path(output_path).write_bytes(b"updated-ifc")
         return _applied_result("req-2d-003")
 
-    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
 
     result = worker.handle(_command())
 
@@ -755,7 +757,7 @@ def test_two_d_llm_worker_plan_upload_failure_happens_before_ifc_upload(
         Path(output_path).write_bytes(b"updated-ifc")
         return _applied_result("req-2d-004")
 
-    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
 
     result = worker.handle(_command())
 
@@ -801,7 +803,7 @@ def test_two_d_llm_worker_builds_plan_before_upload(
             "apply": {"status": "applied", "apply_mode": "shared_authoring"},
         }
 
-    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
 
     result = worker.handle(_command())
 
@@ -828,7 +830,7 @@ def test_two_d_llm_worker_supports_ifc_only_output(monkeypatch: pytest.MonkeyPat
         Path(output_path).write_bytes(b"updated-ifc")
         return _applied_result("req-2d-005")
 
-    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
 
     result = worker.handle(_command(edit_plan_url=None, validation_report_url=None))
 
@@ -849,7 +851,7 @@ def test_two_d_llm_worker_rejects_invalid_storage_url(monkeypatch: pytest.Monkey
         Path(output_path).write_bytes(b"updated-ifc")
         return _applied_result("req-2d-006")
 
-    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
 
     result = worker.handle(_command(ifc_output_url="not-an-s3-url"))
 
@@ -875,7 +877,7 @@ def test_two_d_llm_worker_writes_error_detail_on_failure(
             "apply": {"status": "applied", "apply_mode": "shared_authoring"},
         }
 
-    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
 
     result = worker.handle(_command())
 
@@ -898,8 +900,10 @@ def test_run_two_d_llm_job_rejects_active_event_loop(
     async def _fake_run_pipeline(**_: object) -> dict[str, object]:
         return _applied_result()
 
-    monkeypatch.setattr("ai_planning_2d.worker._run_pipeline", _fake_run_pipeline)
-    monkeypatch.setattr("ai_planning_2d.worker.asyncio.get_running_loop", lambda: object())
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr(
+        "ai_planning_2d.worker_runtime.worker.asyncio.get_running_loop", lambda: object()
+    )
 
     result = run_two_d_llm_job(
         {
@@ -1080,7 +1084,7 @@ def test_two_d_worker_app_installs_shutdown_handlers(
     def _fake_signal(sig: signal.Signals, handler: object) -> None:
         registered_handlers[sig] = handler
 
-    monkeypatch.setattr("ai_planning_2d.worker_app.signal.signal", _fake_signal)
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.app.signal.signal", _fake_signal)
 
     consumer_holder: dict[str, FakeConsumer] = {}
 

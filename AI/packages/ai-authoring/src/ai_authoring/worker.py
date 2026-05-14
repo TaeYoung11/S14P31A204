@@ -16,6 +16,7 @@ from typing import Any
 
 import ifcopenshell
 
+import ai_authoring.operations  # noqa: F401
 from ai_authoring.engine_3d import (
     delete_element,
     modify_face_offset,
@@ -30,6 +31,7 @@ from ai_authoring.engine_3d import (
 # operations/__init__ 경유 → create_element @register 실행
 from ai_authoring.operations.registry import get as get_op_handler
 from ai_authoring.post_validator import PostEditValidator
+from ai_authoring.utils import normalize_space_name, normalize_storey_name
 from ai_common.adapters.storage.s3_client import S3Client, parse_s3_url
 from ai_common.errors import NonRetryableWorkerError, RetryableWorkerError, ValidationWorkerError
 from ai_common.logging import get_logger
@@ -263,7 +265,11 @@ class AuthoringWorker(BaseWorker):
         if op_type == "delete_elements":
             return self._apply_delete(model, op_id, op_type, elements)
 
-        if op_type in ("update_element_properties", "transform_elements"):
+        if op_type in (
+            "update_element_properties",
+            "transform_elements",
+            "delete_wall_void",
+        ):
             return self._apply_modify(model, op_id, op_type, elements, params, selector)
 
         return _op_result(op_id, op_type, "skipped", len(elements), [], [
@@ -393,15 +399,14 @@ class AuthoringWorker(BaseWorker):
     ) -> dict[str, Any]:
         applied, issues = [], []
         for el in elements:
+            matched = {
+                "global_id": el.GlobalId,
+                "element_type": el.is_a(),
+                "name": el.Name,
+            }
             changed = self._modify_one(model, el, op_type, params, selector)
             if changed:
-                applied.append(
-                    {
-                        "global_id": el.GlobalId,
-                        "element_type": el.is_a(),
-                        "name": el.Name,
-                    }
-                )
+                applied.append(matched)
             else:
                 issues.append(_issue("NO_CHANGE", "info", f"변경 사항 없음: {el.GlobalId}"))
         status = "applied" if applied else "skipped"
@@ -416,6 +421,17 @@ class AuthoringWorker(BaseWorker):
         selector: dict[str, Any],
     ) -> bool:
         changed = False
+        if op_type == "delete_wall_void":
+            global_id = el.GlobalId
+            handler = get_op_handler(op_type)
+            deleted_ids = handler.execute(
+                model,
+                None,
+                params,
+                {"global_ids": [global_id]},
+            )
+            return global_id in deleted_ids
+
         if op_type == "update_element_properties":
             dims = params.get("dimensions_mm") or {}
             # dimensionChangesMm values are authored in millimeters.
@@ -465,6 +481,18 @@ class AuthoringWorker(BaseWorker):
         storey_filter: str | None = selector.get("storey")
         if storey_filter:
             elements = [e for e in elements if _matches_storey(e, storey_filter)]
+
+        space_filter: str | None = selector.get("space_name")
+        if space_filter:
+            space_matches = [e for e in elements if _matches_space(e, space_filter)]
+            if space_matches:
+                elements = space_matches
+
+        direction_filter: str | None = selector.get("direction")
+        if direction_filter:
+            direction_matches = [e for e in elements if _matches_direction(e, direction_filter)]
+            if direction_matches:
+                elements = direction_matches
 
         name_filter: str | None = selector.get("name")
         if name_filter:
@@ -577,13 +605,78 @@ def _issue(code: str, severity: str, message: str) -> dict[str, str]:
 
 
 def _matches_storey(el: ifcopenshell.entity_instance, storey_name: str) -> bool:
-    storey_lower = storey_name.lower()
+    storey_lower = normalize_storey_name(storey_name).lower()
     for rel in getattr(el, "ContainedInStructure", []):
         if rel.is_a("IfcRelContainedInSpatialStructure"):
             p = rel.RelatingStructure
-            if p.is_a("IfcBuildingStorey") and storey_lower in (p.Name or "").lower():
+            if p.is_a("IfcBuildingStorey") and storey_lower in _storey_key(p.Name):
                 return True
+            if p.is_a("IfcSpace"):
+                for decomposes in getattr(p, "Decomposes", []) or []:
+                    if not decomposes.is_a("IfcRelAggregates"):
+                        continue
+                    storey = decomposes.RelatingObject
+                    if storey.is_a("IfcBuildingStorey") and storey_lower in _storey_key(
+                        storey.Name
+                    ):
+                        return True
     return False
+
+
+def _matches_space(el: ifcopenshell.entity_instance, space_name: str) -> bool:
+    space_key = _space_key(space_name)
+    element_name_key = _space_key(getattr(el, "Name", None))
+    if space_key and space_key in element_name_key:
+        return True
+
+    for rel in getattr(el, "ContainedInStructure", []) or []:
+        if not rel.is_a("IfcRelContainedInSpatialStructure"):
+            continue
+        parent = rel.RelatingStructure
+        if not parent.is_a("IfcSpace"):
+            continue
+        parent_names = [
+            _space_key(getattr(parent, "Name", None)),
+            _space_key(getattr(parent, "LongName", None)),
+        ]
+        if any(space_key and space_key in parent_name for parent_name in parent_names):
+            return True
+    return False
+
+
+def _matches_direction(el: ifcopenshell.entity_instance, direction: str) -> bool:
+    direction_key = direction.strip().lower()
+    if not direction_key:
+        return True
+    aliases = {
+        "north": ("north", "n"),
+        "south": ("south", "s"),
+        "east": ("east", "e"),
+        "west": ("west", "w"),
+    }
+    direction_tokens = aliases.get(direction_key, (direction_key,))
+    name_parts = _name_parts(getattr(el, "Name", None))
+    return any(token in name_parts for token in direction_tokens)
+
+
+def _storey_key(value: str | None) -> str:
+    if not value:
+        return ""
+    return normalize_storey_name(value).lower()
+
+
+def _space_key(value: str | None) -> str:
+    normalized = normalize_space_name(value)
+    if not normalized:
+        return ""
+    return "".join(ch for ch in normalized.lower() if ch.isalnum())
+
+
+def _name_parts(value: str | None) -> set[str]:
+    if not value:
+        return set()
+    normalized = "".join(ch.lower() if ch.isalnum() else " " for ch in value)
+    return set(normalized.split())
 
 
 __all__ = ["AuthoringWorker"]

@@ -19,6 +19,7 @@ from ai_rendering.ifc2img.geometry import (
     GROUND_EXTENT_FACTOR,
     _add_ground_plane,
     _align_walls_to_axes,
+    _estimate_ground_z,
     attach_ground_plane_to_mesh,
     load_mesh,
 )
@@ -838,6 +839,51 @@ def test_add_ground_plane_z_at_aabb_min() -> None:
     ground_verts = new_verts[len(verts):]
 
     assert np.allclose(ground_verts[:, 2], 1.5), "ground z should match AABB.z_min"
+
+
+def test_estimate_ground_z_uses_min_for_tiny_meshes() -> None:
+    """작은 synthetic mesh는 기존 AABB min-z 동작을 유지한다."""
+    verts = np.array(
+        [[0.0, 0.0, -2.0], [10.0, 5.0, 0.0], [5.0, 0.0, 4.5]],
+        dtype=np.float64,
+    )
+
+    assert _estimate_ground_z(verts) == -2.0
+
+
+def test_estimate_ground_z_uses_low_percentile_for_sparse_lower_outliers() -> None:
+    """일반 크기 mesh는 exact AABB min-z 대신 낮은 z percentile을 사용한다."""
+    base = np.column_stack(
+        [
+            np.linspace(0.0, 19.0, 20),
+            np.zeros(20, dtype=np.float64),
+            np.zeros(20, dtype=np.float64),
+        ]
+    )
+    base[0, 2] = -10.0
+
+    estimated = _estimate_ground_z(base)
+
+    assert estimated == np.percentile(base[:, 2], 5.0)
+    assert -10.0 < estimated < 0.0
+
+
+def test_add_ground_plane_uses_percentile_ground_z_for_normal_sized_mesh() -> None:
+    """일반 크기 mesh에 추가되는 ground plane은 percentile z 경로를 따른다."""
+    verts = np.column_stack(
+        [
+            np.linspace(0.0, 29.0, 30),
+            np.linspace(0.0, 5.0, 30),
+            np.zeros(30, dtype=np.float64),
+        ]
+    )
+    verts[0, 2] = -12.0
+    tris = np.array([[0, 1, 2]], dtype=np.int64)
+
+    new_verts, _ = _add_ground_plane(verts, tris)
+    ground_verts = new_verts[len(verts):]
+
+    np.testing.assert_allclose(ground_verts[:, 2], np.percentile(verts[:, 2], 5.0))
 
 
 def test_add_ground_plane_normal_points_up() -> None:

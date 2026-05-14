@@ -8,10 +8,12 @@ from typing import Any
 
 from .service import (
     DEFAULT_PHOTO_PRESET,
+    DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY,
     Ifc2ImgStorageAdapter,
     Ifc2ImgWorkerRequest,
     Ifc2ImgWorkerSuccessResponse,
     handle_ifc2img_worker_request,
+    normalize_ifc2img_time_of_day,
     run_ifc2img_photo_pipeline,
     validate_ifc2img_worker_request,
 )
@@ -74,16 +76,25 @@ def map_worker_command_to_ifc2img_request(command: object) -> Ifc2ImgWorkerReque
     preset = _read_command_field(payload, "preset")
     if not isinstance(preset, str) or not preset:
         preset = DEFAULT_PHOTO_PRESET
+    time_of_day = _read_command_field(payload, "timeOfDay")
+    normalize_ifc2img_time_of_day(time_of_day)
+    worker_time_of_day = (
+        time_of_day
+        if isinstance(time_of_day, str) and time_of_day
+        else DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY
+    )
 
-    return {
+    request: Ifc2ImgWorkerRequest = {
         "commandType": command_type,  # type: ignore[typeddict-item]
         "input": {"sourceIfcStorageUrl": source_ifc_url},
         "expectedOutput": output_refs,
         "payload": {
             "renderMode": "ifc2img",
             "preset": preset,
+            "timeOfDay": worker_time_of_day,
         },
     }
+    return request
 
 
 def run_ifc2img_worker_request(
