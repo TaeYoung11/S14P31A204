@@ -772,6 +772,7 @@ def create_photo_ifc_renderer(
     | None = PHOTO_DEPTH_RENDER_DEFAULTS.front_diagonal_target_ratio,
     front_diagonal_ground_extent_factor: float
     | None = PHOTO_DEPTH_RENDER_DEFAULTS.front_diagonal_ground_extent_factor,
+    ground_z_override: float | None = None,
     iter_tolerance: float = PHOTO_DEPTH_RENDER_DEFAULTS.iter_tolerance,
     width: int = PHOTO_DEPTH_RENDER_DEFAULTS.width,
     height: int = PHOTO_DEPTH_RENDER_DEFAULTS.height,
@@ -793,6 +794,7 @@ def create_photo_ifc_renderer(
         view_ground_extent_overrides=build_front_diagonal_ground_extent_overrides(
             front_diagonal_ground_extent_factor
         ),
+        ground_z_override=ground_z_override,
         look_at_height_ratio=look_at_height_ratio,
     )
 
@@ -884,7 +886,10 @@ def run_ifc2img_photo_pipeline(
         resolve_preset_view_render_options(preset, view).requires_semantic_controlnet
         for view in internal_views
     )
-    renderer = create_photo_ifc_renderer(ifc_renderer_cls)
+    renderer = create_photo_ifc_renderer(
+        ifc_renderer_cls,
+        ground_z_override=resolve_semantic_ground_z(semantic_context),
+    )
     style_renderer = create_photo_style_renderer(
         requires_semantic=requires_semantic,
         renderer_cls=depth_style_renderer_cls,

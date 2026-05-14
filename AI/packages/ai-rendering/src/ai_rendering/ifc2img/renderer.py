@@ -81,6 +81,7 @@ class IFCRenderer:
         iter_max: int = 4,
         view_target_overrides: dict[IFCView, float] | None = None,
         view_ground_extent_overrides: dict[IFCView, float] | None = None,
+        ground_z_override: float | None = None,
         look_at_height_ratio: float = 0.5,
     ) -> None:
         self.width = width
@@ -94,6 +95,7 @@ class IFCRenderer:
         self.iter_max = iter_max
         self.view_target_overrides = dict(view_target_overrides or {})
         self.view_ground_extent_overrides = dict(view_ground_extent_overrides or {})
+        self.ground_z_override = ground_z_override
         if not 0.0 <= look_at_height_ratio <= 1.0:
             raise ValueError("look_at_height_ratio must be between 0 and 1.")
         self.look_at_height_ratio = look_at_height_ratio
@@ -142,11 +144,15 @@ class IFCRenderer:
         view: IFCView,
     ) -> o3d.geometry.TriangleMesh:
         extent_factor = self._resolve_ground_extent_factor(view)
+        kwargs = {}
+        if self.ground_z_override is not None:
+            kwargs["ground_z"] = self.ground_z_override
         if extent_factor == GROUND_EXTENT_FACTOR:
-            return attach_ground_plane_to_mesh(base_mesh)
+            return attach_ground_plane_to_mesh(base_mesh, **kwargs)
         return attach_ground_plane_to_mesh(
             base_mesh,
             extent_factor=extent_factor,
+            **kwargs,
         )
 
     def _resolve_target_ratio(
