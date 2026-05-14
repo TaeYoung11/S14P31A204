@@ -417,6 +417,13 @@ def select_semantic_front_camera(
             overridden_views=(),
         )
     assert candidate is not None
+    if not view_camera_overrides:
+        return SemanticFrontCameraSelection(
+            source="semantic_main_door_deferred_mesh_alignment",
+            main_door_entity_id=candidate.door_entity_id,
+            front_vector=candidate.front_vector,
+            overridden_views=(),
+        )
     return SemanticFrontCameraSelection(
         source="semantic_main_door",
         main_door_entity_id=candidate.door_entity_id,
@@ -979,7 +986,10 @@ def run_ifc2img_photo_pipeline(
     )
     semantic_context = load_runtime_semantic_context(ifc_path)
     ground_selection = select_semantic_ground(semantic_context)
-    view_camera_overrides = resolve_semantic_front_camera_overrides(semantic_context)
+    # Semantic front vectors are in the original IFC world coordinate system.
+    # Production meshes may be yaw-aligned during load_mesh(), so defer camera
+    # overrides until that alignment transform is applied to semantic vectors too.
+    view_camera_overrides: dict[IFCView, CameraParams] = {}
     front_camera_selection = select_semantic_front_camera(
         semantic_context,
         view_camera_overrides,
