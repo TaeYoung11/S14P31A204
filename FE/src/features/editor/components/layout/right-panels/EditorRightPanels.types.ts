@@ -104,9 +104,7 @@ export interface EditorRightPanelsProps {
   onToggleOverlayLayer?: (layerId: string) => void
   onSelectSingleOverlayLayer?: (layerId: string) => void
   onChangeOverlayLayerOpacity?: (layerId: string, opacity: number) => void
-  floorRooms?: FloorRoom[]
   floorWalls?: FloorWall[]
-  floorOpenings?: FloorOpening[]
   ifcElementHierarchy?: unknown
   onOpenZoningModal: () => void
   onOpenEditZoningModal: (zone: ZoneData) => void
