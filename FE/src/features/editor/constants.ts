@@ -148,6 +148,7 @@ export const FLOOR_DOOR_HINGE_OPTIONS: Array<{ value: FloorDoorHingeSide; label:
 export const INITIAL_BUBBLES: BubbleData[] = [
   {
     id: '1',
+    floor: 1,
     x: 230, y: 250,
     width: 141.4, height: 141.4,
     widthMm: 3535, heightMm: 3535,
@@ -157,6 +158,7 @@ export const INITIAL_BUBBLES: BubbleData[] = [
   },
   {
     id: '2',
+    floor: 1,
     x: 340, y: 310,
     width: 268.3, height: 268.3,
     widthMm: 6708, heightMm: 6708,
@@ -166,6 +168,7 @@ export const INITIAL_BUBBLES: BubbleData[] = [
   },
   {
     id: '3',
+    floor: 1,
     x: 310, y: 500,
     width: 178.9, height: 178.9,
     widthMm: 4472, heightMm: 4472,

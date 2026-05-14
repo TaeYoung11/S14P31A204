@@ -1,6 +1,8 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type {
   CollaborationUserType,
+  BubbleFloor,
+  BubbleFloorSummary,
   EditorMode,
   FloorCommentNotification,
   FloorCommentPin,
@@ -65,6 +67,15 @@ export interface EditorRightPanelsProps {
   onHeightCommit?: (id: string, height: number) => void
   onRatioChange: (id: string, ratio: number) => void
   onColorChange: (id: string, color: string) => void
+  onBubbleFloorChange?: (id: string, floor: number) => void
+  bubbleFloors?: BubbleFloor[]
+  bubbleFloorSummaries?: BubbleFloorSummary[]
+  activeBubbleFloor?: number
+  onSelectBubbleFloor?: (floor: number) => void
+  onAddBubbleFloor?: () => void
+  onRenameBubbleFloor?: (floor: number, name: string) => void
+  onDeleteBubbleFloor?: (floor: number) => void
+  isBubbleReadOnly?: boolean
   onMaterialChange?: (id: string, material: string) => void
   onWallTypeChange?: (id: string, type: FloorWall['type']) => void
   onWallThicknessChange?: (id: string, thicknessMm: number) => void
@@ -93,6 +104,8 @@ export interface EditorRightPanelsProps {
   onToggleOverlayLayer?: (layerId: string) => void
   onSelectSingleOverlayLayer?: (layerId: string) => void
   onChangeOverlayLayerOpacity?: (layerId: string, opacity: number) => void
+  floorWalls?: FloorWall[]
+  ifcElementHierarchy?: unknown
   onOpenZoningModal: () => void
   onOpenEditZoningModal: (zone: ZoneData) => void
   onDeleteZoning: (zoneId: string) => void

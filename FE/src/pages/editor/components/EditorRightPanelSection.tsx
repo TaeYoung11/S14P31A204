@@ -16,7 +16,7 @@ interface EditorRightPanelSectionProps {
  * 속성/조닝/AI 패널과 플로어 레이어 패널을 lazy 로딩으로 렌더링한다.
  */
 export default function EditorRightPanelSection({ mode, rightPanelProps }: EditorRightPanelSectionProps) {
-  if (mode === 'view' || mode === 'bubble') return null
+  if (mode === 'view') return null
 
   return (
     <Suspense fallback={<PanelLoadingFallback mode={mode} side="right" />}>

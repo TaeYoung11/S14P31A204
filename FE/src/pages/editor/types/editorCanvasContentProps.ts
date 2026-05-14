@@ -26,7 +26,16 @@ type CanvasContextProps = Pick<
 type BubbleCanvasProps = Pick<
   EditorPageViewModel,
   | 'sitePoints'
+  | 'siteAreaM2'
+  | 'siteAreaPyeong'
   | 'bubbles'
+  | 'bubbleFloors'
+  | 'bubbleFloorNumbers'
+  | 'activeBubbleFloor'
+  | 'setActiveBubbleFloor'
+  | 'handleAddBubbleFloor'
+  | 'handleRenameBubbleFloor'
+  | 'handleDeleteBubbleFloor'
   | 'connections'
   | 'autoZones'
   | 'manualZones'

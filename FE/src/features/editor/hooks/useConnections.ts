@@ -1,42 +1,9 @@
 import { useCallback, useState } from 'react'
 import type { ConnectionData, ConnectionStyle, ConnectionPair } from '../types'
-import { INITIAL_BUBBLES } from '../constants'
-
-const INITIAL_CONNECTION_STYLES: ConnectionStyle[] = ['thin', 'bold', 'dashed']
-
-function createInitialRandomConnections(): ConnectionData[] {
-  const bubbleIds = INITIAL_BUBBLES.map((bubble) => bubble.id)
-  if (bubbleIds.length < 2) return []
-
-  const uniqueEdges = new Set<string>()
-  const edges: Array<{ from: string; to: string }> = []
-
-  // 최소 1개 연결은 보장
-  const minEdges = 1
-  // 너무 많지 않게 기본 버블 수 기준으로 가볍게 생성
-  const maxEdges = Math.min(bubbleIds.length, (bubbleIds.length * (bubbleIds.length - 1)) / 2)
-  const targetEdges = Math.max(minEdges, Math.floor(Math.random() * maxEdges) + 1)
-
-  while (edges.length < targetEdges) {
-    const from = bubbleIds[Math.floor(Math.random() * bubbleIds.length)]
-    const to = bubbleIds[Math.floor(Math.random() * bubbleIds.length)]
-    if (!from || !to || from === to) continue
-    const key = [from, to].sort().join('::')
-    if (uniqueEdges.has(key)) continue
-    uniqueEdges.add(key)
-    edges.push({ from, to })
-  }
-
-  return edges.map(({ from, to }) => ({
-    from,
-    to,
-    type: INITIAL_CONNECTION_STYLES[Math.floor(Math.random() * INITIAL_CONNECTION_STYLES.length)] ?? 'thin',
-  }))
-}
 
 /** 연결선 상태와 선 스타일 모달 핸들러를 제공하는 훅 */
 export function useConnections() {
-  const [connections, setConnections] = useState<ConnectionData[]>(() => createInitialRandomConnections())
+  const [connections, setConnections] = useState<ConnectionData[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedStyle, setSelectedStyle] = useState<ConnectionStyle>('thin')
   const [connectionPair, setConnectionPair] = useState<ConnectionPair | null>(null)

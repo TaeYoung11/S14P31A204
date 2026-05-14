@@ -1,12 +1,11 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
-import type { EditorMode, FloorOpening, FloorWall, IfcElementInfo, PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
-import { BubbleAttributePanel, type BubbleConnectionInfo, type BubbleInfo, type BubbleZoneInfo } from './BubbleAttributePanel'
-import { TwoDAttributePanel } from './TwoDAttributePanel'
-import { ThreeDAttributePanel } from './ThreeDAttributePanel'
+import type { BubbleFloor, EditorMode, FloorOpening, FloorWall, IfcElementInfo, PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
+import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from './BubbleAttributePanel'
 import { PanelFrame } from '../shared/PanelFrame'
+import { ModeAwareAttributeSection } from './sections/ModeAwareAttributeSection'
 
-interface AttributesPanelProps {
+export interface AttributesPanelProps {
   mode: EditorMode
   isOpen: boolean
   offset: PanelOffset
@@ -32,6 +31,8 @@ interface AttributesPanelProps {
   onHeightCommit?: (id: string, height: number) => void
   onRatioChange: (id: string, ratio: number) => void
   onColorChange: (id: string, color: string) => void
+  onBubbleFloorChange?: (id: string, floor: number) => void
+  bubbleFloors?: BubbleFloor[]
   onMaterialChange?: (id: string, material: string) => void
   onWallTypeChange?: (id: string, type: FloorWall['type']) => void
   onWallThicknessChange?: (id: string, thicknessMm: number) => void
@@ -48,109 +49,23 @@ interface AttributesPanelProps {
 
 /** 모드(버블/2D/3D)에 따라 알맞은 속성 패널을 렌더링 */
 export function AttributesPanel({
-  mode,
-  isOpen,
-  offset,
-  width,
-  height,
-  zIndex,
-  selectedBubble,
-  isThreeDEditingLocked = false,
-  selectedWall,
-  selectedOpening,
-  selectedIfcElement,
-  connections,
-  zones,
-  onLabelChange,
-  onTypeChange,
-  onWidthChange,
-  onHeightChange,
-  onThicknessChange,
-  onPositionChange,
-  onRotationChange,
-  onRoofShapeChange,
-  onWidthCommit,
-  onHeightCommit,
-  onRatioChange,
-  onColorChange,
-  onMaterialChange,
-  onWallTypeChange,
-  onWallThicknessChange,
-  onWallHeightChange,
-  onWallMaterialChange,
-  onOpeningSizeChange,
-  onWindowSillHeightChange,
-  onDoorSwingDirectionChange,
-  onDoorHingeSideChange,
-  onDragStart,
-  onResizeStart,
-  onToggle,
+  ...props
 }: AttributesPanelProps) {
   return (
     <PanelFrame
       panelKey="attributes"
       title="속성 관리자"
       titleIcon={<SlidersHorizontal size={14} className="text-[#3B45B3]" />}
-      isOpen={isOpen}
-      offset={offset}
-      width={width}
-      height={height}
-      zIndex={zIndex}
-      onDragStart={onDragStart}
-      onResizeStart={onResizeStart}
-      onToggle={onToggle}
+      isOpen={props.isOpen}
+      offset={props.offset}
+      width={props.width}
+      height={props.height}
+      zIndex={props.zIndex}
+      onDragStart={props.onDragStart}
+      onResizeStart={props.onResizeStart}
+      onToggle={props.onToggle}
     >
-      {mode === 'bubble' && (
-        <BubbleAttributePanel
-          selectedBubble={selectedBubble}
-          onLabelChange={onLabelChange}
-          onTypeChange={onTypeChange}
-          onWidthChange={onWidthChange}
-          onHeightChange={onHeightChange}
-          onRatioChange={onRatioChange}
-          onColorChange={onColorChange}
-          connections={connections}
-          zones={zones}
-        />
-      )}
-      {mode === '2d' && (
-        <TwoDAttributePanel 
-          selectedBubble={selectedBubble}
-          selectedWall={selectedWall}
-          selectedOpening={selectedOpening}
-          onLabelChange={onLabelChange}
-          onTypeChange={onTypeChange}
-          onWidthChange={onWidthChange}
-          onHeightChange={onHeightChange}
-          onWidthCommit={onWidthCommit}
-          onHeightCommit={onHeightCommit}
-          onRatioChange={onRatioChange}
-          onWallTypeChange={onWallTypeChange}
-          onWallThicknessChange={onWallThicknessChange}
-          onWallHeightChange={onWallHeightChange}
-          onWallMaterialChange={onWallMaterialChange}
-          onOpeningSizeChange={onOpeningSizeChange}
-          onWindowSillHeightChange={onWindowSillHeightChange}
-          onDoorSwingDirectionChange={onDoorSwingDirectionChange}
-          onDoorHingeSideChange={onDoorHingeSideChange}
-        />
-      )}
-      {mode === '3d' && (
-        <ThreeDAttributePanel
-          selectedBubble={selectedBubble}
-          selectedIfcElement={selectedIfcElement}
-          isEditingLocked={isThreeDEditingLocked}
-          onLabelChange={onLabelChange}
-          onWidthChange={onWidthChange}
-          onHeightChange={onHeightChange}
-          onThicknessChange={onThicknessChange}
-          onPositionChange={onPositionChange}
-          onRotationChange={onRotationChange}
-          onRoofShapeChange={onRoofShapeChange}
-          onColorChange={onColorChange}
-          onMaterialChange={onMaterialChange}
-        />
-      )}
+      <ModeAwareAttributeSection {...props} />
     </PanelFrame>
   )
 }
