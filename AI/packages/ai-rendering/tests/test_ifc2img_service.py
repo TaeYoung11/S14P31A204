@@ -49,6 +49,7 @@ from ai_rendering.ifc2img.service import (
     write_photo_manifest_file,
 )
 from ai_rendering.ifc2img.semantics import IfcFrontDirectionCandidate
+from ai_rendering.ifc2img.storage import Ifc2ImgStorageError
 from ai_rendering.ifc2img.views import CameraParams, IFCView
 
 
@@ -1191,6 +1192,214 @@ def test_worker_handler_downloads_runs_pipeline_and_uploads_outputs(
     assert events.count("ifc2img_upload_started") == 3
     assert events.count("ifc2img_upload_completed") == 3
     assert "ifc2img_worker_request_completed" in events
+
+
+def test_worker_handler_runs_semantic_pipeline_with_downloaded_fixture(
+    ifc4_fixture: Path,
+    tmp_path: Path,
+) -> None:
+    """Worker E2E: downloaded IFC fixture should drive runtime semantics."""
+
+    class FixtureStorageAdapter(FakeStorageAdapter):
+        def download_ifc(self, source_storage_url: str, destination_path: Path) -> Path:
+            self.downloads.append((source_storage_url, destination_path))
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            destination_path.write_bytes(ifc4_fixture.read_bytes())
+            return destination_path
+
+    storage = FixtureStorageAdapter()
+    request: Ifc2ImgWorkerRequest = {
+        "commandType": "SD_RENDER_GENERATE",
+        "input": {"sourceIfcStorageUrl": "s3://bucket/input/shinchan.ifc"},
+        "expectedOutput": {
+            "renderManifestStorageUrl": "s3://bucket/output/job-1/manifest.v1.json",
+            "renderPhotoFrontDiagonalLeftStorageUrl": (
+                "s3://bucket/output/job-1/photo_front_diagonal_left.png"
+            ),
+            "renderPhotoFrontDiagonalRightStorageUrl": (
+                "s3://bucket/output/job-1/photo_front_diagonal_right.png"
+            ),
+        },
+        "payload": {
+            "renderMode": "ifc2img",
+            "preset": "korean_house",
+            "timeOfDay": "DAY",
+        },
+    }
+
+    def semantic_pipeline(
+        ifc_path: Path,
+        output_dir: Path,
+        *,
+        preset: str,
+        time_of_day: object | None = None,
+    ) -> Ifc2ImgPhotoJobResult:
+        return run_ifc2img_photo_pipeline(
+            ifc_path,
+            output_dir,
+            preset=preset,
+            time_of_day=time_of_day,
+            depth_style_renderer_cls=FakeDepthStyleRenderer,
+        )
+
+    response = handle_ifc2img_worker_request(
+        request,
+        storage,
+        tmp_path / "work",
+        pipeline=semantic_pipeline,
+    )
+
+    assert storage.downloads == [
+        (
+            "s3://bucket/input/shinchan.ifc",
+            tmp_path / "work" / "input" / "source.ifc",
+        )
+    ]
+    assert response["status"] == "SUCCESS"
+    assert response["timeOfDay"] == "DAY"
+    assert [photo["view"] for photo in response["photos"]] == list(PUBLIC_PHOTO_VIEWS)
+    assert storage.uploads == [
+        (
+            tmp_path / "work" / "output" / "manifest.json",
+            "s3://bucket/output/job-1/manifest.v1.json",
+            PHOTO_MANIFEST_CONTENT_TYPE,
+        ),
+        (
+            tmp_path / "work" / "output" / "photo_front_diagonal_left.png",
+            "s3://bucket/output/job-1/photo_front_diagonal_left.png",
+            PHOTO_PNG_CONTENT_TYPE,
+        ),
+        (
+            tmp_path / "work" / "output" / "photo_front_diagonal_right.png",
+            "s3://bucket/output/job-1/photo_front_diagonal_right.png",
+            PHOTO_PNG_CONTENT_TYPE,
+        ),
+    ]
+    uploaded_paths = [local_path for local_path, _, _ in storage.uploads]
+    assert tmp_path / "work" / "output" / "depth_front_diagonal_left.png" not in uploaded_paths
+    assert tmp_path / "work" / "output" / "depth_front_diagonal_right.png" not in uploaded_paths
+    assert not any("debug" in local_path.parts for local_path in uploaded_paths)
+
+    debug_manifest_path = tmp_path / "work" / "output" / "debug" / "debug_manifest.json"
+    debug_manifest = json.loads(debug_manifest_path.read_text(encoding="utf-8"))
+    semantic_summary = debug_manifest["ifcSemanticSummary"]
+    assert semantic_summary["sourceIfcPath"] == str(
+        tmp_path / "work" / "input" / "source.ifc"
+    )
+    assert semantic_summary["categories"]["FLOOR"]["count"] >= 1
+    assert semantic_summary["categories"]["ROOF"]["count"] >= 1
+    assert semantic_summary["categories"]["WALL"]["count"] >= 1
+    assert semantic_summary["categories"]["WINDOW"]["count"] >= 1
+    assert semantic_summary["categories"]["DOOR"]["count"] >= 1
+    assert debug_manifest["semanticGroundSelection"] == {
+        "groundSource": "semantic_floor",
+        "groundZ": pytest.approx(0.0),
+        "semanticGroundCandidate": pytest.approx(0.0),
+    }
+    assert debug_manifest["semanticFrontCameraSelection"] == {
+        "source": "semantic_main_door",
+        "mainDoorEntityId": 703,
+        "frontVector": [0.0, -1.0, 0.0],
+        "overriddenViews": ["front_diagonal_left", "front_diagonal_right"],
+    }
+    assert "ifcSemanticSummaryError" not in debug_manifest
+
+
+def test_worker_handler_stops_without_uploads_when_semantic_pipeline_fails(
+    tmp_path: Path,
+) -> None:
+    """Semantic extraction failure is raised before any worker output upload."""
+    storage = FakeStorageAdapter()
+    request: Ifc2ImgWorkerRequest = {
+        "commandType": "SD_RENDER_GENERATE",
+        "input": {"sourceIfcStorageUrl": "s3://bucket/input/model.ifc"},
+        "expectedOutput": {
+            "renderManifestStorageUrl": "s3://bucket/output/job-1/manifest.v1.json",
+            "renderPhotoFrontDiagonalLeftStorageUrl": (
+                "s3://bucket/output/job-1/photo_front_diagonal_left.png"
+            ),
+            "renderPhotoFrontDiagonalRightStorageUrl": (
+                "s3://bucket/output/job-1/photo_front_diagonal_right.png"
+            ),
+        },
+        "payload": {"renderMode": "ifc2img", "preset": "korean_house"},
+    }
+
+    def semantic_failure_pipeline(*args: object, **kwargs: object) -> None:
+        raise IFCRenderError(
+            "IFC semantic context load failed after 3 attempts for source.ifc"
+        )
+
+    with pytest.raises(IFCRenderError, match="3 attempts"):
+        handle_ifc2img_worker_request(
+            request,
+            storage,
+            tmp_path / "work",
+            pipeline=semantic_failure_pipeline,
+        )
+
+    assert storage.downloads == [
+        (
+            "s3://bucket/input/model.ifc",
+            tmp_path / "work" / "input" / "source.ifc",
+        )
+    ]
+    assert storage.uploads == []
+
+
+def test_worker_handler_stops_before_pipeline_when_ifc_download_fails(
+    tmp_path: Path,
+) -> None:
+    """IFC download failure is raised before semantic/render pipeline starts."""
+
+    class FailingDownloadStorage(FakeStorageAdapter):
+        def download_ifc(
+            self,
+            source_storage_url: str,
+            destination_path: Path,
+        ) -> Path:
+            self.downloads.append((source_storage_url, destination_path))
+            raise Ifc2ImgStorageError(
+                code="IFC_SOURCE_DOWNLOAD_FAILED",
+                message="failed to download source IFC",
+            )
+
+    storage = FailingDownloadStorage()
+    request: Ifc2ImgWorkerRequest = {
+        "commandType": "SD_RENDER_GENERATE",
+        "input": {"sourceIfcStorageUrl": "s3://bucket/input/missing.ifc"},
+        "expectedOutput": {
+            "renderManifestStorageUrl": "s3://bucket/output/job-1/manifest.v1.json",
+            "renderPhotoFrontDiagonalLeftStorageUrl": (
+                "s3://bucket/output/job-1/photo_front_diagonal_left.png"
+            ),
+            "renderPhotoFrontDiagonalRightStorageUrl": (
+                "s3://bucket/output/job-1/photo_front_diagonal_right.png"
+            ),
+        },
+        "payload": {"renderMode": "ifc2img", "preset": "korean_house"},
+    }
+    pipeline_calls: list[object] = []
+
+    def fake_pipeline(*args: object, **kwargs: object) -> None:
+        pipeline_calls.append((args, kwargs))
+
+    with pytest.raises(Ifc2ImgStorageError, match="failed to download"):
+        handle_ifc2img_worker_request(
+            request,
+            storage,
+            tmp_path / "work",
+            pipeline=fake_pipeline,
+        )
+
+    assert storage.downloads == [
+        (
+            "s3://bucket/input/missing.ifc",
+            tmp_path / "work" / "input" / "source.ifc",
+        )
+    ]
+    assert pipeline_calls == []
+    assert storage.uploads == []
 
 
 @pytest.mark.parametrize(
