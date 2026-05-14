@@ -368,15 +368,6 @@ class LLM2DPipeline:
     def _room_planning_assist_preview(self, command: FloorNLPCommand) -> dict[str, Any]:
         batch = to_ifc_commands(command, self.ifc_context)
         if batch.requires_clarification:
-            floor_alts = self._build_floor_alternatives(command)
-            if floor_alts:
-                return {
-                    "status": "alternatives",
-                    "summary": batch.clarification_question or "어느 층 방을 대상으로 할까요?",
-                    "command": command.model_dump(),
-                    "command_batch": batch.model_dump(),
-                    "alternatives": floor_alts,
-                }
             return {
                 "status": "needs_clarification",
                 "summary": batch.clarification_question,
@@ -452,11 +443,6 @@ class LLM2DPipeline:
                             f"Use '{donor_name}' as the donor room and reserve space for a toilet "
                             "after detailed geometry and opening review."
                         ),
-                        "fill": {
-                            "target_room_name": anchor_name or donor_name,
-                            "target_floor": command.target_floor,
-                            "action": "insert_toilet",
-                        },
                         "affected_entities": [
                             item
                             for item in [
@@ -535,10 +521,6 @@ class LLM2DPipeline:
                         "description": (
                             f"Remove '{target_name}' and absorb it into '{merge_target_name}'."
                         ),
-                        "fill": {
-                            "target_room_name": target_name,
-                            "target_floor": command.target_floor,
-                        },
                         "affected_entities": [
                             item
                             for item in [
@@ -566,34 +548,6 @@ class LLM2DPipeline:
             "command_batch": batch.model_dump(),
             "policy_plan": policy_plan,
         }
-
-    def _build_floor_alternatives(self, command: FloorNLPCommand) -> list[dict[str, Any]]:
-        """동일 이름 방이 복수 층에 있을 때 층 선택 alternatives를 생성한다."""
-        if command.action not in {"remove_room", "resize_room"}:
-            return []
-        target_name = command.target_room_name
-        if not target_name or self.ifc_context is None:
-            return []
-        spaces = self.ifc_context.get("spaces", [])
-        matching = [s for s in spaces if s.get("name") == target_name]
-        if len(matching) < 2:
-            return []
-        action_label = "삭제" if command.action == "remove_room" else "변경"
-        alternatives = []
-        for space in sorted(matching, key=lambda s: s.get("floor", 0)):
-            floor = space.get("floor", 0)
-            alternatives.append(
-                {
-                    "alternative_id": f"{command.action}-{target_name}-{floor}f",
-                    "title": f"{floor}층 {target_name} {action_label}",
-                    "description": f"{floor}층 {target_name}에 대해 작업합니다.",
-                    "fill": {"target_floor": floor, "target_room_name": target_name},
-                    "affected_entities": [space["id"]] if space.get("id") else [],
-                    "warnings": [],
-                    "metrics": [],
-                }
-            )
-        return alternatives
 
     def _space_name(self, space_id: str | None) -> str | None:
         if space_id is None or self.ifc_context is None:
