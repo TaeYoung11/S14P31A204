@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +41,20 @@ DEFAULT_OUTPUT_DIR = ROOT / "outputs" / "ifc_geometry_f2_ifc_locked_baseline"
 MANIFEST_NAME = "f2_ifc_locked_baseline_manifest.json"
 TARGET_FRAME_FILL = 0.82
 FRAME_MARGIN_RATIO = 0.04
+DAY_CATEGORY_COLORS = {
+    "floor": (145, 255, 0),
+    "wall": (236, 232, 232),
+    "roof": (236, 132, 145),
+    "window": (20, 129, 186),
+    "door": (214, 166, 94),
+}
+NIGHT_CATEGORY_COLORS = {
+    "floor": (128, 230, 0),
+    "wall": (210, 205, 210),
+    "roof": (224, 124, 138),
+    "window": (26, 118, 176),
+    "door": (184, 140, 84),
+}
 
 
 def _parse_args() -> argparse.Namespace:
@@ -96,9 +111,10 @@ def generate_ifc_locked_baseline_f2(
         "schemaVersion": "ifc2img.f2IfcLockedBaseline.v1",
         "contract": {
             "geometryIdentical": True,
-            "buildingSource": "ifcColorCompositeImage",
+            "buildingSource": "elementMaskRecomposite",
             "backgroundPolicy": (
-                "Building pixels come only from IFC color composite. "
+                "Building pixels are recomposed from IFC element masks and "
+                "canonical category colors. "
                 "Background uses a procedural sky/ground plate."
             ),
             "diffusionUsed": False,
@@ -109,7 +125,10 @@ def generate_ifc_locked_baseline_f2(
         },
         "cases": cases,
         "notes": [
-            "No-background output is the raw IFC color composite with transparent background.",
+            (
+                "No-background output is a clean IFC element-mask recomposite "
+                "with transparent background."
+            ),
             (
                 "With-background output keeps the same building pixels and adds "
                 "only a simple backdrop."
@@ -143,7 +162,15 @@ def _generate_case(
             files["ifcColorCompositeImage"]
         )
         element_masks = files.get("elementMasks") or {}
-        building_rgba = _build_building_rgba(Image.open(color_composite_path).convert("RGBA"))
+        building_rgba = _build_building_rgba(
+            Image.open(color_composite_path).convert("RGBA"),
+            element_mask_paths={
+                key: debug_manifest_path.parent.parent / str(value)
+                for key, value in element_masks.items()
+                if isinstance(value, str)
+            },
+            time_of_day=time_of_day,
+        )
         building_rgba = _fit_building_to_frame(building_rgba)
         no_background_path = case_output_dir / f"baseline_no_background_{view_name}.png"
         building_rgba.save(no_background_path, format="PNG")
@@ -177,16 +204,44 @@ def _generate_case(
     }
 
 
-def _build_building_rgba(color_composite: Image.Image) -> Image.Image:
+def _build_building_rgba(
+    color_composite: Image.Image,
+    *,
+    element_mask_paths: dict[str, Path],
+    time_of_day: str,
+) -> Image.Image:
     rgba = color_composite.convert("RGBA")
-    pixels = rgba.load()
     width, height = rgba.size
-    for y in range(height):
-        for x in range(width):
-            r, g, b, _ = pixels[x, y]
-            alpha = 255 if (r, g, b) != (0, 0, 0) else 0
-            pixels[x, y] = (r, g, b, alpha)
-    return rgba
+    source = np.asarray(rgba.convert("RGB"), dtype=np.uint8)
+    out = np.zeros((height, width, 4), dtype=np.uint8)
+    palette = DAY_CATEGORY_COLORS if time_of_day == "DAY" else NIGHT_CATEGORY_COLORS
+
+    # Compose stable category colors so gray shading artifacts baked into the
+    # raw IFC composite do not leak into the F-2 baseline.
+    for category in ("floor", "wall", "roof", "window", "door"):
+        mask = _load_mask(element_mask_paths.get(category), (width, height))
+        active = mask > 0.5
+        if not np.any(active):
+            continue
+        out[active, :3] = np.asarray(palette[category], dtype=np.uint8)
+        out[active, 3] = 255
+
+    # Preserve any remaining non-black IFC pixels that are not covered by the
+    # known semantic masks so we do not accidentally erase valid geometry.
+    source_active = np.any(source != 0, axis=2)
+    uncovered = source_active & (out[..., 3] == 0)
+    out[uncovered, :3] = source[uncovered]
+    out[uncovered, 3] = 255
+    return Image.fromarray(out, mode="RGBA")
+
+
+def _load_mask(path: Path | None, size: tuple[int, int]) -> np.ndarray:
+    if path is None or not path.exists():
+        return np.zeros((size[1], size[0]), dtype=np.float32)
+    mask = Image.open(path).convert("L")
+    if mask.size != size:
+        mask = mask.resize(size, Image.Resampling.NEAREST)
+    return np.asarray(mask, dtype=np.float32) / 255.0
 
 
 def _compose_with_background(building_rgba: Image.Image, *, time_of_day: str) -> Image.Image:

@@ -374,7 +374,7 @@ def _build_storey_and_color_preserving_building(
         wall_mask,
         scale_x=42.0,
         scale_y=28.0,
-        intensity=0.035 if time_of_day == "DAY" else 0.028,
+        intensity=0.012 if time_of_day == "DAY" else 0.009,
     )
     rgb = _apply_category_texture(
         rgb,
@@ -389,19 +389,19 @@ def _build_storey_and_color_preserving_building(
     rgb = _apply_mask_gain(
         rgb,
         upper_wall_mask,
-        gain=(1.05, 1.05, 1.04) if time_of_day == "DAY" else (0.88, 0.88, 0.90),
+        gain=(1.015, 1.015, 1.012) if time_of_day == "DAY" else (0.97, 0.97, 0.98),
     )
     rgb = _apply_mask_gain(
         rgb,
         lower_wall_mask,
-        gain=(0.93, 0.93, 0.92) if time_of_day == "DAY" else (0.76, 0.76, 0.78),
+        gain=(0.985, 0.985, 0.982) if time_of_day == "DAY" else (0.94, 0.94, 0.95),
     )
 
     separator_mask = _build_separator_mask(wall_mask=wall_mask, split_y=split_y)
     rgb = _apply_mask_gain(
         rgb,
         separator_mask,
-        gain=(0.72, 0.72, 0.72) if time_of_day == "DAY" else (0.62, 0.62, 0.64),
+        gain=(0.90, 0.90, 0.90) if time_of_day == "DAY" else (0.84, 0.84, 0.86),
     )
 
     rgb = _apply_window_reflection(
@@ -517,17 +517,17 @@ def _apply_photo_finish_red_roof_boost(
     rgb = _apply_mask_gain(
         rgb,
         upper_wall_mask,
-        gain=(1.08, 1.07, 1.05) if time_of_day == "DAY" else (0.90, 0.90, 0.92),
+        gain=(1.02, 1.02, 1.015) if time_of_day == "DAY" else (0.97, 0.97, 0.98),
     )
     rgb = _apply_mask_gain(
         rgb,
         lower_wall_mask,
-        gain=(0.88, 0.88, 0.87) if time_of_day == "DAY" else (0.74, 0.74, 0.77),
+        gain=(0.98, 0.98, 0.975) if time_of_day == "DAY" else (0.93, 0.93, 0.95),
     )
     rgb = _apply_mask_gain(
         rgb,
         separator_mask,
-        gain=(0.56, 0.56, 0.56) if time_of_day == "DAY" else (0.48, 0.48, 0.50),
+        gain=(0.88, 0.88, 0.88) if time_of_day == "DAY" else (0.82, 0.82, 0.84),
     )
     rgb = _push_toward_color(
         rgb,
@@ -911,7 +911,7 @@ def _apply_ground_bounce(
     )
     bounce_3 = bounce[..., None]
     target = rgb * tint
-    return rgb * (1.0 - bounce_3 * 0.35) + target * (bounce_3 * 0.35)
+    return rgb * (1.0 - bounce_3 * 0.12) + target * (bounce_3 * 0.12)
 
 
 def _apply_edge_ambient_occlusion(
@@ -925,7 +925,7 @@ def _apply_edge_ambient_occlusion(
     outer = _soften_mask(alpha, radius=5)
     inner = _soften_mask(alpha, radius=1)
     edge = np.clip(outer - inner, 0.0, 1.0)
-    strength = 0.18 if time_of_day == "DAY" else 0.24
+    strength = 0.08 if time_of_day == "DAY" else 0.10
     edge_3 = edge[..., None] * strength
     return np.clip(rgb * (1.0 - edge_3), 0.0, 255.0)
 
