@@ -349,12 +349,37 @@ def test_planning_worker_returns_clarification_without_downstream_publish() -> N
             "status": "needs_clarification",
             "session_id": "mock-session-123",
             "summary": "Conflict detected",
-            "clarification_questions": [{"id": "q1", "label": "Confirm", "options": []}],
+            "clarification_questions": [
+                {
+                    "trigger": "custom",
+                    "question_ko": "Select host wall",
+                    "context": {
+                        "apply_field": "host_wall_global_id",
+                        "reason": "host_wall_not_found",
+                    },
+                    "options": [
+                        {
+                            "id": "2znubWhPDD4wn7Fg4E24GR",
+                            "label": "South wall",
+                            "value": "2znubWhPDD4wn7Fg4E24GR",
+                        }
+                    ],
+                }
+            ],
         }
 
         result = worker.process(command)
 
     assert isinstance(result, ClarificationResult)
+    stored_payload = json.loads(mock_s3.write_text.call_args.kwargs["text"])
+    Draft202012Validator(_planner_3d_schema()).validate(stored_payload)
+    clarification = stored_payload["clarification"]
+    assert clarification["context"]["apply_field"] == "host_wall_global_id"
+    assert clarification["options"][0] == {
+        "id": "2znubWhPDD4wn7Fg4E24GR",
+        "label": "South wall",
+        "value": "2znubWhPDD4wn7Fg4E24GR",
+    }
 
 
 def test_planning_worker_logic() -> None:
