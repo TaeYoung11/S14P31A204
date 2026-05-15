@@ -1,5 +1,6 @@
 import { ensureStompConnected } from '@/shared/lib/stomp'
 import type { BubbleData, ConnectionData, ConnectionStyle, WorkspaceSnapshot } from '../types'
+import type { WorkspaceCommand } from '../types/workspaceCommand.types'
 import { mapFloorMetaFromWorkspaceSnapshot } from './workspaceBubblePayloadMapper'
 import { resolveBubbleFloorFromUnknown } from '../utils/bubbleSnapshotSyncUtils'
 
@@ -38,6 +39,7 @@ interface WorkspaceBubblePayload {
 interface WorkspaceFloorPlanPayload extends WorkspaceBubblePayload {
   sceneType: FloorPlanSceneType
   revisionId?: string | null
+  workspaceCommand: WorkspaceCommand
   layout: {
     phaseStatus: WorkspaceSnapshot['phaseStatus']
     floorLayers: WorkspaceSnapshot['floorLayers']
@@ -61,6 +63,7 @@ export interface PublishWorkspaceSnapshotInput {
   baseIndex: number
   revisionId?: string | null
   sceneType?: FloorPlanSceneType
+  workspaceCommand?: WorkspaceCommand | null
 }
 
 const normalizePositiveNumber = (value: number, fallback: number): number => {
@@ -126,10 +129,12 @@ const toTwoDFloorPlanPayload = (
   baseIndex: number,
   revisionId?: string | null,
   sceneType: FloorPlanSceneType = 'TWO_D',
+  workspaceCommand?: WorkspaceCommand | null,
 ): WorkspaceFloorPlanPayload => ({
   ...toBubblePayload(snapshot, baseIndex),
   sceneType,
   revisionId,
+  workspaceCommand: requireWorkspaceCommand(workspaceCommand),
   layout: {
     phaseStatus: snapshot.phaseStatus,
     floorLayers: snapshot.floorLayers,
@@ -146,6 +151,13 @@ const toTwoDFloorPlanPayload = (
     baseIndex,
   },
 })
+
+function requireWorkspaceCommand(workspaceCommand?: WorkspaceCommand | null): WorkspaceCommand {
+  if (!workspaceCommand) {
+    throw new Error('floor-plan update requires a workspace command.')
+  }
+  return workspaceCommand
+}
 
 const publishJson = async (destination: string, body: unknown): Promise<void> => {
   const client = await ensureStompConnected()
@@ -165,6 +177,7 @@ export const workspaceRealtimeService = {
     baseIndex,
     revisionId,
     sceneType,
+    workspaceCommand,
   }: PublishWorkspaceSnapshotInput): Promise<void> => {
     const shouldPublishBubbleSnapshot = snapshot.phaseStatus === 'BUBBLE_DRAFT'
 
@@ -177,7 +190,7 @@ export const workspaceRealtimeService = {
 
     return publishJson(
       `/app/project/${projectId}/floor-plan/update`,
-      toTwoDFloorPlanPayload(snapshot, baseIndex, revisionId, sceneType),
+      toTwoDFloorPlanPayload(snapshot, baseIndex, revisionId, sceneType, workspaceCommand),
     )
   },
 }

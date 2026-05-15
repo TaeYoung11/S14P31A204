@@ -1,5 +1,6 @@
 import { defineConfig, splitVendorChunkPlugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 export default defineConfig({
@@ -7,6 +8,23 @@ export default defineConfig({
     react(),
     // 벤더 청크를 분리해 초기 번들 크기를 줄인다.
     splitVendorChunkPlugin(),
+    {
+      name: 'batang-fragments-worker-mime',
+      configureServer(server) {
+        server.middlewares.use('/fragments-worker.mjs', (_req, res) => {
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'text/javascript; charset=utf-8')
+          res.end(readFileSync(resolve(__dirname, './public/fragments-worker.mjs')))
+        })
+      },
+      configurePreviewServer(server) {
+        server.middlewares.use('/fragments-worker.mjs', (_req, res) => {
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'text/javascript; charset=utf-8')
+          res.end(readFileSync(resolve(__dirname, './public/fragments-worker.mjs')))
+        })
+      },
+    },
   ],
   resolve: {
     alias: {

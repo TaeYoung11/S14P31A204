@@ -32,6 +32,7 @@ interface ProjectSummaryResponse {
   cadastralAddress?: string
   cadastralInfo?: CadastralInfo
   currentIfcUrl?: string
+  currentIfcStorageUrl?: string
   /** private S3 버킷 접근용 에셋 UUID (BE가 제공하는 경우) */
   currentIfcAssetId?: string
   createdAt: string
@@ -155,6 +156,7 @@ export interface ProjectSiteResponse {
 export interface ProjectIfcSource {
   projectId: string
   currentIfcUrl?: string
+  currentIfcStorageUrl?: string
   /** private S3 버킷 접근용 에셋 UUID */
   currentIfcAssetId?: string
   currentRevision?: string
@@ -464,6 +466,7 @@ export const projectService = {
       return {
         projectId: exported.projectId,
         currentIfcUrl: exported.presignedUrl,
+        currentIfcStorageUrl: exported.ifcStorageUrl,
         currentRevision: exported.revisionId,
       }
     } catch {
@@ -474,6 +477,7 @@ export const projectService = {
     return {
       projectId: project.projectId,
       currentIfcUrl: project.currentIfcUrl,
+      currentIfcStorageUrl: project.currentIfcUrl,
       currentIfcAssetId: project.currentIfcAssetId,
     }
   },
