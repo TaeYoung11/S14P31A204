@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from 'react'
 import {
   DEFAULT_WALL_MATERIAL,
   FLOOR_OPENING_PRESETS,
+  FLOOR_MM_PER_PX,
   FLOOR_WALL_HEIGHT_MAX_MM,
   FLOOR_WALL_HEIGHT_MIN_MM,
   FLOOR_WALL_PRESETS,
@@ -48,7 +49,7 @@ export function resolveActiveFloorLayerStorey(
     : null
   return {
     storeyGlobalId: activeLayer?.storeyGlobalId,
-    storeyName: activeLayer?.storeyName,
+    storeyName: activeLayer?.storeyName ?? activeLayer?.name,
   }
 }
 
@@ -145,7 +146,12 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
 
   const estimateMmPoint = useCallback((point: Point2D): Point2D | undefined => {
     const referenceWall = [...floorWalls, ...visibleAutoFloorWalls].find((wall) => wall.startMm && wall.endMm)
-    if (!referenceWall?.startMm || !referenceWall.endMm) return undefined
+    if (!referenceWall?.startMm || !referenceWall.endMm) {
+      return {
+        x: point.x * FLOOR_MM_PER_PX,
+        y: point.y * FLOOR_MM_PER_PX,
+      }
+    }
     const pxLength = Math.hypot(referenceWall.end.x - referenceWall.start.x, referenceWall.end.y - referenceWall.start.y)
     const mmLength = Math.hypot(referenceWall.endMm.x - referenceWall.startMm.x, referenceWall.endMm.y - referenceWall.startMm.y)
     if (!Number.isFinite(pxLength) || pxLength <= 0 || !Number.isFinite(mmLength) || mmLength <= 0) return undefined

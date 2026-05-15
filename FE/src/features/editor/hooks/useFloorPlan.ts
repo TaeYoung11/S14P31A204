@@ -19,6 +19,14 @@ const normalizeFloorLayerLabels = (layers: FloorLayer[]): FloorLayer[] =>
 const createActiveFloorLayerStorageKey = (projectId: string | undefined): string | null =>
   projectId ? `editor:active-floor-layer:${projectId}` : null
 
+const DEFAULT_FLOOR_CEILING_HEIGHT_MM = 3000
+
+const getFloorLayerDefaults = (floorNumber: number): Pick<FloorLayer, 'storeyName' | 'elevationMm' | 'ceilingHeightMm'> => ({
+  storeyName: `${floorNumber}F`,
+  elevationMm: (floorNumber - 1) * DEFAULT_FLOOR_CEILING_HEIGHT_MM,
+  ceilingHeightMm: DEFAULT_FLOOR_CEILING_HEIGHT_MM,
+})
+
 const readActiveFloorLayerIdFromStorage = (projectId: string | undefined): string | null => {
   if (typeof window === 'undefined') return null
   const storageKey = createActiveFloorLayerStorageKey(projectId)
@@ -69,14 +77,14 @@ export function useFloorPlan(projectId?: string) {
    * - 버블 기반 레이아웃은 1층을 기준으로 갱신하므로 활성층도 `floor-1`로 맞춘다.
    */
   const upsertPrimaryLayer = useCallback((rooms: FloorRoom[]) => {
-    const firstLayer: FloorLayer = { id: 'floor-1', name: '1층 평면도', rooms }
+    const firstLayer: FloorLayer = { id: 'floor-1', name: '1F', ...getFloorLayerDefaults(1), rooms }
     setLayers((prev) => {
       if (prev.length === 0) return [firstLayer]
       const hasPrimary = prev.some((layer) => layer.id === 'floor-1')
       if (hasPrimary) {
         return prev.map((layer) =>
           layer.id === 'floor-1'
-            ? { ...layer, rooms }
+            ? { ...layer, ...getFloorLayerDefaults(1), rooms }
             : layer,
         )
       }
@@ -142,7 +150,8 @@ export function useFloorPlan(projectId?: string) {
 
     const newLayer: FloorLayer = {
       id: newId,
-      name: `${floorNum}층 평면도`,
+      ...getFloorLayerDefaults(floorNum),
+      name: `${floorNum}F`,
       rooms: [],
     }
     setLayers((prev) => [...prev, newLayer])

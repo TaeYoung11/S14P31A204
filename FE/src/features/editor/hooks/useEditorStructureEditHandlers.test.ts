@@ -36,4 +36,18 @@ describe('useEditorStructureEditHandlers storey resolution', () => {
 
     expect(resolved.storeyGlobalId).toBe('1FStoreyGlobalId00001')
   })
+
+  it('uses active layer name as storey name before falling back to another wall', () => {
+    const activeStorey = resolveActiveFloorLayerStorey(
+      [{ id: 'floor-local-2', name: '2F', rooms: [] }],
+      'floor-local-2',
+    )
+    const resolved = resolveFloorWallCreateStorey(
+      activeStorey,
+      { storeyGlobalId: '1FStoreyGlobalId00001', storeyName: '1F' },
+    )
+
+    expect(resolved.storeyGlobalId).toBeUndefined()
+    expect(resolved.storeyName).toBe('2F')
+  })
 })
