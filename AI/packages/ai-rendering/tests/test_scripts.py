@@ -950,6 +950,114 @@ def test_generate_ifc_geometry_e29_decision_recommends_top_scored_case() -> None
     )
 
 
+def test_generate_ifc_geometry_e3_resolves_day_sources() -> None:
+    """E-3는 E-2.6 DAY baseline과 E-2.9 winner를 source로 고정해야 한다."""
+    m = _load_script("generate_ifc_geometry_e3_combined_final_matrix.py")
+
+    baseline = m._resolve_day_baseline_case(
+        {
+            "cases": [
+                {"caseName": "other_case"},
+                {
+                    "caseName": "geometry_depth_edge_ifc_minimal_day",
+                    "caseDir": "outputs/day_baseline",
+                },
+            ]
+        }
+    )
+    improved = m._resolve_e29_recommended_case(
+        {
+            "decision": {
+                "recommendedForE3": "ifc_minimal_post_color_lock_roof_green_push_balanced_day"
+            },
+            "cases": [
+                {"caseName": "other_case"},
+                {
+                    "caseName": "ifc_minimal_post_color_lock_roof_green_push_balanced_day",
+                    "caseDir": "outputs/day_improved",
+                },
+            ],
+        }
+    )
+
+    assert baseline["caseName"] == "geometry_depth_edge_ifc_minimal_day"
+    assert (
+        improved["caseName"]
+        == "ifc_minimal_post_color_lock_roof_green_push_balanced_day"
+    )
+
+
+def test_generate_ifc_geometry_e3_metric_table_records_case_flags() -> None:
+    """E-3 metric table은 shape/color source flag와 view별 category delta를 함께 기록해야 한다."""
+    m = _load_script("generate_ifc_geometry_e3_combined_final_matrix.py")
+
+    rows = m._build_metric_table(
+        [
+            {
+                "caseName": "ifc_minimal_baseline_day",
+                "timeOfDay": "DAY",
+                "geometryMode": "depth_edge",
+                "colorMode": "baseline",
+                "shapeLockPromptUsed": False,
+                "ifcColorPromptUsed": False,
+                "postColorLockStrength": 0.0,
+                "views": [
+                    {
+                        "view": "front_diagonal_left",
+                        "photo": "photo_front_diagonal_left.png",
+                        "geometryFidelity": {
+                            "estimatedPhotoForegroundFillRatio": 0.42
+                        },
+                        "evaluation": {
+                            "categories": {
+                                "ROOF": {
+                                    "deltaToTarget": 0.18,
+                                    "familyPass": True,
+                                },
+                                "WALL": {
+                                    "deltaToTarget": 0.11,
+                                    "familyPass": True,
+                                },
+                                "WINDOW": {
+                                    "deltaToTarget": 0.15,
+                                    "familyPass": True,
+                                },
+                                "DOOR": {
+                                    "deltaToTarget": 0.07,
+                                    "familyPass": True,
+                                },
+                            }
+                        },
+                    }
+                ],
+            }
+        ]
+    )
+
+    assert rows == [
+        {
+            "caseName": "ifc_minimal_baseline_day",
+            "timeOfDay": "DAY",
+            "view": "front_diagonal_left",
+            "geometryMode": "depth_edge",
+            "colorMode": "baseline",
+            "shapeLockPromptUsed": False,
+            "ifcColorPromptUsed": False,
+            "postColorLockStrength": 0.0,
+            "estimatedPhotoForegroundFillRatio": 0.42,
+            "roofDeltaToTarget": 0.18,
+            "wallDeltaToTarget": 0.11,
+            "windowDeltaToTarget": 0.15,
+            "doorDeltaToTarget": 0.07,
+            "roofFamilyPass": True,
+            "wallFamilyPass": True,
+            "windowFamilyPass": True,
+            "doorFamilyPass": True,
+            "photo": "photo_front_diagonal_left.png",
+        }
+    ]
+
+
 def _d7_case_payload(
     case_name: str,
     case_dir: Path,
