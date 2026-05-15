@@ -30,6 +30,8 @@ export interface ClarificationArtifact {
   kind: 'needs_clarification' | 'alternatives'
   question: string
   alternatives: ClarificationAlternative[]
+  parsed_command_preview: Record<string, unknown> | null
+  policy_plan: Record<string, unknown> | null
   job_id: string
   step_no: number
   clarification_request_id: string

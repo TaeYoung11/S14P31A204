@@ -120,7 +120,7 @@ export function AssistantPanel({
           </div>
         )}
 
-        {(status === 'ambiguous' || status === 'error' || status === 'applied' || status === 'running') && message && (
+        {(status === 'ambiguous' || status === 'error' || status === 'applied' || status === 'running' || (status === 'clarification_required' && !clarificationArtifact)) && message && (
           <div className="mt-3">
             <AssistantNoticeCard message={message} />
           </div>

@@ -16,12 +16,14 @@ export function buildAssistantRightPanelProps(
   | 'llmCanRun'
   | 'llmActiveJobId'
   | 'llmJobProgress'
+  | 'llmClarificationArtifact'
   | 'llmChatLogs'
   | 'llmIsChatLogsLoading'
   | 'onLlmPromptChange'
   | 'onRunLlmEdit'
   | 'onApplyLlmEdit'
   | 'onDiscardLlmEdit'
+  | 'onSelectLlmAlternative'
   | 'floorProjectImportMessage'
   | 'onImportFloorProjectIfc'
 > {
@@ -36,12 +38,14 @@ export function buildAssistantRightPanelProps(
     llmCanRun: vm.llmCanRun,
     llmActiveJobId: vm.llmActiveJobId,
     llmJobProgress: vm.llmJobProgress,
+    llmClarificationArtifact: vm.llmClarificationArtifact,
     llmChatLogs: vm.llmChatLogs,
     llmIsChatLogsLoading: vm.llmIsChatLogsLoading,
     onLlmPromptChange: vm.setLlmPrompt,
     onRunLlmEdit: vm.runLlmEdit,
     onApplyLlmEdit: vm.applyLlmEdit,
     onDiscardLlmEdit: vm.discardLlmEdit,
+    onSelectLlmAlternative: vm.selectLlmAlternative,
     floorProjectImportMessage: vm.floorProjectImportMessage,
     onImportFloorProjectIfc: vm.importFloorProjectFromIfc,
   }

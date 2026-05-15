@@ -152,7 +152,7 @@ export function useLlmEdit({
     throw new Error('AI 편집 작업 상태 조회 시간이 초과되었습니다.')
   }, [])
 
-  const run = useCallback(async () => {
+  const run = useCallback(async (promptOverride?: string) => {
     if (!projectId) {
       setStatus('error')
       setMessage('프로젝트 ID가 없어 AI 편집 요청을 보낼 수 없습니다.')
@@ -163,7 +163,8 @@ export function useLlmEdit({
       setMessage('IFC 기준 revision이 없어 AI 편집 요청을 보낼 수 없습니다. 먼저 3D IFC를 생성하거나 불러와 주세요.')
       return
     }
-    if (!prompt.trim() || isLoading) return
+    const effectivePrompt = (promptOverride ?? prompt).trim()
+    if (!effectivePrompt || isLoading) return
 
     const currentSeq = requestSeq.current + 1
     const requestBaseRevisionId = currentIfcRevisionId
@@ -184,7 +185,7 @@ export function useLlmEdit({
         sceneType,
         baseRevisionId: requestBaseRevisionId,
         sourceSceneType: 'IFC_MODEL',
-        message: prompt.trim(),
+        message: effectivePrompt,
         ...sourceScenePayload,
       })
 
@@ -211,6 +212,8 @@ export function useLlmEdit({
         } else {
           setMessage('추가 정보가 필요합니다.')
         }
+        setActiveJobId(null)
+        setJobProgress(null)
         setStatus('clarification_required')
         void queryClient.invalidateQueries({ queryKey: llmEditQueryKeys.chatLogs(projectId) })
         return
@@ -275,9 +278,9 @@ export function useLlmEdit({
   const selectAlternative = useCallback((alternative: ClarificationAlternative) => {
     setPrompt(alternative.title)
     setClarificationArtifact(null)
-    setStatus('idle')
     setMessage('')
-  }, [])
+    void run(alternative.title)
+  }, [run])
 
   const discard = useCallback(() => {
     requestSeq.current += 1
