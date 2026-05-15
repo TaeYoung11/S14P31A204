@@ -55,12 +55,14 @@ def _profile_xy_dims(profile) -> tuple[float, float] | None:
         )
         if not points:
             return None
-        coords = [tuple(getattr(point, "Coordinates", ()) or ()) for point in points]
-        coords = [point for point in coords if len(point) >= 2]
-        if not coords:
+        coords: list[tuple[Any, ...]] = [
+            tuple(getattr(point, "Coordinates", ()) or ()) for point in points
+        ]
+        xy_coords = [point for point in coords if len(point) >= 2]
+        if not xy_coords:
             return None
-        xs = [float(point[0]) for point in coords]
-        ys = [float(point[1]) for point in coords]
+        xs = [float(point[0]) for point in xy_coords]
+        ys = [float(point[1]) for point in xy_coords]
         return (max(xs) - min(xs), max(ys) - min(ys))
     return None
 
@@ -84,12 +86,14 @@ def _profile_xy_center(profile) -> tuple[float, float] | None:
         )
         if not points:
             return None
-        coords = [tuple(getattr(point, "Coordinates", ()) or ()) for point in points]
-        coords = [point for point in coords if len(point) >= 2]
-        if not coords:
+        point_coords: list[tuple[Any, ...]] = [
+            tuple(getattr(point, "Coordinates", ()) or ()) for point in points
+        ]
+        xy_coords = [point for point in point_coords if len(point) >= 2]
+        if not xy_coords:
             return None
-        xs = [float(point[0]) for point in coords]
-        ys = [float(point[1]) for point in coords]
+        xs = [float(point[0]) for point in xy_coords]
+        ys = [float(point[1]) for point in xy_coords]
         return ((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0)
     return None
 
@@ -142,12 +146,12 @@ def _profile_xy_bbox(profile) -> tuple[float, float, float, float] | None:
         )
         if not points:
             return None
-        coords = [tuple(getattr(point, "Coordinates", ()) or ()) for point in points]
-        coords = [point for point in coords if len(point) >= 2]
-        if not coords:
+        point_coords = [tuple(getattr(point, "Coordinates", ()) or ()) for point in points]
+        xy_coords = [point for point in point_coords if len(point) >= 2]
+        if not xy_coords:
             return None
-        xs = [float(point[0]) for point in coords]
-        ys = [float(point[1]) for point in coords]
+        xs = [float(point[0]) for point in xy_coords]
+        ys = [float(point[1]) for point in xy_coords]
         return (min(xs), max(xs), min(ys), max(ys))
     return None
 
@@ -358,10 +362,12 @@ def _wall_body_item(
         for item in getattr(rep, "Items", []) or []:
             if item.is_a("IfcExtrudedAreaSolid"):
                 return item
-            if item.is_a("IfcBooleanClippingResult"):
-                first_operand = getattr(item, "FirstOperand", None)
-                if first_operand is not None and first_operand.is_a("IfcExtrudedAreaSolid"):
-                    return first_operand
+            while item is not None and (
+                item.is_a("IfcBooleanResult") or item.is_a("IfcBooleanClippingResult")
+            ):
+                item = getattr(item, "FirstOperand", None)
+                if item is not None and item.is_a("IfcExtrudedAreaSolid"):
+                    return item
     return None
 
 
@@ -370,7 +376,7 @@ def _is_supported_wall_for_template_door(
 ) -> bool:
     return bool(
         wall is not None
-        and wall.is_a("IfcWallStandardCase")
+        and wall.is_a() in {"IfcWall", "IfcWallStandardCase"}
         and _wall_body_item(wall) is not None
     )
 
@@ -456,6 +462,62 @@ def _clone_representation_or_box(
         center_origin=False,
     )
     return representation
+
+
+def _resize_box_like_representation(
+    representation: ifcopenshell.entity_instance | None,
+    *,
+    length: float,
+    width: float,
+    height: float,
+) -> None:
+    if representation is None:
+        return
+    for rep in getattr(representation, "Representations", []) or []:
+        _resize_box_like_items(getattr(rep, "Items", []) or [], length, width, height)
+
+
+def _resize_box_like_items(
+    items: Any,
+    length: float,
+    width: float,
+    height: float,
+) -> None:
+    for item in items:
+        _resize_box_like_item(item, length, width, height)
+
+
+def _resize_box_like_item(
+    item: ifcopenshell.entity_instance,
+    length: float,
+    width: float,
+    height: float,
+) -> None:
+    if item.is_a("IfcExtrudedAreaSolid"):
+        profile = getattr(item, "SweptArea", None)
+        if profile is not None and profile.is_a("IfcRectangleProfileDef"):
+            profile.XDim = float(length)
+            profile.YDim = float(width)
+            item.Depth = float(height)
+            return
+    if item.is_a("IfcBoundingBox"):
+        item.XDim = float(length)
+        item.YDim = float(width)
+        item.ZDim = float(height)
+        return
+    mapping_source = getattr(item, "MappingSource", None)
+    mapped_representation = (
+        getattr(mapping_source, "MappedRepresentation", None)
+        if mapping_source is not None
+        else None
+    )
+    if mapped_representation is not None:
+        _resize_box_like_items(
+            getattr(mapped_representation, "Items", []) or [],
+            length,
+            width,
+            height,
+        )
 
 
 def _clone_item_styles(
@@ -544,6 +606,8 @@ def _clone_opening_representation_with_depth(
     *,
     template_opening: ifcopenshell.entity_instance,
     new_depth: float,
+    new_width: float | None = None,
+    new_height: float | None = None,
 ):
     representation = getattr(template_opening, "Representation", None)
     if representation is None:
@@ -552,14 +616,20 @@ def _clone_opening_representation_with_depth(
     for rep in getattr(cloned, "Representations", []) or []:
         for item in getattr(rep, "Items", []) or []:
             if item.is_a("IfcExtrudedAreaSolid"):
-                item.Depth = new_depth
+                profile = getattr(item, "SweptArea", None)
+                if profile is not None:
+                    if profile.is_a("IfcRectangleProfileDef"):
+                        if new_width is not None:
+                            profile.XDim = float(new_width)
+                        profile.YDim = float(new_depth)
+                if new_height is not None:
+                    item.Depth = float(new_height)
             elif item.is_a("IfcBoundingBox"):
-                dims = {
-                    "XDim": float(getattr(item, "XDim", 0.0) or 0.0),
-                    "YDim": float(getattr(item, "YDim", 0.0) or 0.0),
-                }
-                depth_axis = min(dims, key=dims.get)
-                setattr(item, depth_axis, new_depth)
+                if new_width is not None:
+                    item.XDim = float(new_width)
+                item.YDim = float(new_depth)
+                if new_height is not None:
+                    item.ZDim = float(new_height)
     return cloned
 
 
@@ -706,10 +776,7 @@ def _find_eligible_template_door_pair(
         if opening_signature is None:
             continue
         opening_width, opening_height, _ = opening_signature
-        template_thickness = _wall_thickness(template_wall)
-        if template_thickness is None:
-            continue
-        if abs(host_thickness - template_thickness) > _mm_to_model_units(model, 30.0, 30.0):
+        if _wall_thickness(template_wall) is None:
             continue
         template_ref = _wall_ref_direction(template_wall)
         orientation_penalty = 1.0 - _dot3(host_ref, template_ref)
@@ -802,10 +869,7 @@ def _find_eligible_template_window_pair(
         if opening_signature is None:
             continue
         opening_width, opening_height, _ = opening_signature
-        template_thickness = _wall_thickness(template_wall)
-        if template_thickness is None:
-            continue
-        if abs(host_thickness - template_thickness) > _mm_to_model_units(model, 30.0, 30.0):
+        if _wall_thickness(template_wall) is None:
             continue
         template_ref = _wall_ref_direction(template_wall)
         orientation_penalty = 1.0 - _dot3(host_ref, template_ref)
@@ -2057,7 +2121,11 @@ def _color_to_rgb(color_value: str) -> tuple[float, float, float]:
     raw = color_value.strip()
     hex_val = raw.lstrip("#")
     if len(hex_val) == 6:
-        return tuple(int(hex_val[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+        return (
+            int(hex_val[0:2], 16) / 255.0,
+            int(hex_val[2:4], 16) / 255.0,
+            int(hex_val[4:6], 16) / 255.0,
+        )
     return _COLOR_RGB.get(raw.lower(), _COLOR_RGB["gray"])
 
 
@@ -2958,7 +3026,8 @@ def create_door_with_template_reuse(
         if opening_signature is None:
             logger.error("Door creation failed: template opening signature was missing.")
             return None
-        opening_width, opening_height, _ = opening_signature
+        target_width = _mm_to_model_units(model, length_mm, 900)
+        target_height = _mm_to_model_units(model, height_mm, 2100)
 
         host_thickness = _wall_thickness(host_wall)
         if host_thickness is None:
@@ -3003,6 +3072,8 @@ def create_door_with_template_reuse(
             model,
             template_opening=template_opening,
             new_depth=host_thickness,
+            new_width=target_width,
+            new_height=target_height,
         )
         if opening.Representation is None:
             logger.error("Door creation failed: template opening representation was missing.")
@@ -3025,16 +3096,20 @@ def create_door_with_template_reuse(
         _assign_to_storey(model, door, storey)
         door.ObjectPlacement = placement
         door.Name = f"Generated Door {door.GlobalId[:8]}"
-        door.OverallWidth = float(getattr(template_door, "OverallWidth", 0.0) or opening_width)
-        door.OverallHeight = float(
-            getattr(template_door, "OverallHeight", 0.0) or opening_height
-        )
+        door.OverallWidth = target_width
+        door.OverallHeight = target_height
         door.Representation = _clone_representation_or_box(
             model,
             template_product=template_door,
             fallback_length_m=door.OverallWidth,
             fallback_width_m=host_thickness,
             fallback_height_m=door.OverallHeight,
+        )
+        _resize_box_like_representation(
+            door.Representation,
+            length=door.OverallWidth,
+            width=host_thickness,
+            height=door.OverallHeight,
         )
         _copy_product_type_relation(
             model,
@@ -3198,7 +3273,8 @@ def create_window_with_template_reuse(
         if opening_signature is None:
             logger.error("Window creation failed: template opening signature was missing.")
             return None
-        opening_width, opening_height, _ = opening_signature
+        target_width = _mm_to_model_units(model, length_mm, 1200)
+        target_height = _mm_to_model_units(model, height_mm, 1200)
 
         host_thickness = _wall_thickness(host_wall)
         if host_thickness is None:
@@ -3239,6 +3315,8 @@ def create_window_with_template_reuse(
             model,
             template_opening=template_opening,
             new_depth=host_thickness,
+            new_width=target_width,
+            new_height=target_height,
         )
         if opening.Representation is None:
             logger.error("Window creation failed: template opening representation was missing.")
@@ -3261,18 +3339,20 @@ def create_window_with_template_reuse(
         _assign_to_storey(model, window, storey)
         window.ObjectPlacement = placement
         window.Name = f"Generated Window {window.GlobalId[:8]}"
-        window.OverallWidth = float(
-            getattr(template_window, "OverallWidth", 0.0) or opening_width
-        )
-        window.OverallHeight = float(
-            getattr(template_window, "OverallHeight", 0.0) or opening_height
-        )
+        window.OverallWidth = target_width
+        window.OverallHeight = target_height
         window.Representation = _clone_representation_or_box(
             model,
             template_product=template_window,
             fallback_length_m=window.OverallWidth,
             fallback_width_m=host_thickness,
             fallback_height_m=window.OverallHeight,
+        )
+        _resize_box_like_representation(
+            window.Representation,
+            length=window.OverallWidth,
+            width=host_thickness,
+            height=window.OverallHeight,
         )
         _copy_product_type_relation(
             model,
