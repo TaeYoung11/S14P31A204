@@ -34,10 +34,12 @@ from .presets import list_presets, load_preset
 from .semantics import (
     IfcColorSummary,
     IfcSemanticSummary,
+    append_ifc_shape_lock_negative_prompt,
     build_ifc_color_prompt_suffix,
     extract_ifc_color_summary,
     extract_ifc_semantic_summary,
     inject_ifc_color_prompt,
+    inject_ifc_shape_lock_prompt,
     is_reliable_main_door_candidate,
     remove_ifc_color_conflicting_prompt_terms,
     select_ifc_color_summary_category_cues,
@@ -1157,6 +1159,7 @@ def run_ifc2img_photo_pipeline(
     preset: str = DEFAULT_PHOTO_PRESET,
     time_of_day: object | None = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY,
     use_ifc_color_prompt_suffix: bool = False,
+    use_ifc_shape_lock_prompt: bool = False,
     geometry_control_input_mode: str | None = None,
     debug_artifacts: bool = False,
     ifc_renderer_cls: type[_IFCRendererProtocol] | None = None,
@@ -1220,6 +1223,7 @@ def run_ifc2img_photo_pipeline(
             "preset": preset,
             "timeOfDay": worker_time_of_day,
             "geometryControlInputMode": geometry_control_mode,
+            "useIfcShapeLockPrompt": use_ifc_shape_lock_prompt,
             "views": [],
         }
         # The production semantic context is the source of truth; the debug manifest
@@ -1273,6 +1277,14 @@ def run_ifc2img_photo_pipeline(
         params = dataclass_replace(
             params,
             prompt=inject_ifc_color_prompt(color_safe_prompt, color_suffix),
+        )
+    if use_ifc_shape_lock_prompt:
+        params = dataclass_replace(
+            params,
+            prompt=inject_ifc_shape_lock_prompt(params.prompt),
+            negative_prompt=append_ifc_shape_lock_negative_prompt(
+                params.negative_prompt
+            ),
         )
     outputs: list[Ifc2ImgPhotoViewResult] = []
     for public_view, internal_view in zip(public_views, internal_views, strict=True):

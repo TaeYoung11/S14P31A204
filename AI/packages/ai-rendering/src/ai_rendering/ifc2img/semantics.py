@@ -331,6 +331,42 @@ def inject_ifc_color_prompt(prompt: str, color_prompt: str) -> str:
     return f"{clean_color_prompt}{separator}{clean_prompt}"
 
 
+IFC_SHAPE_LOCK_PROMPT = "Preserve exact IFC silhouette, windows, and door."
+IFC_SHAPE_LOCK_NEGATIVE_PROMPT = "wrong roof, misplaced windows, changed silhouette"
+
+
+def inject_ifc_shape_lock_prompt(
+    prompt: str,
+    shape_prompt: str = IFC_SHAPE_LOCK_PROMPT,
+) -> str:
+    """Put compact IFC shape cues before style, color, and DAY/NIGHT text."""
+    clean_prompt = prompt.strip()
+    clean_shape_prompt = shape_prompt.strip()
+    if not clean_shape_prompt:
+        return clean_prompt
+    if not clean_prompt:
+        return clean_shape_prompt
+    separator = " " if clean_shape_prompt.endswith((".", "!", "?")) else ". "
+    return f"{clean_shape_prompt}{separator}{clean_prompt}"
+
+
+def append_ifc_shape_lock_negative_prompt(
+    negative_prompt: str | None,
+    shape_negative_prompt: str = IFC_SHAPE_LOCK_NEGATIVE_PROMPT,
+) -> str:
+    """Append compact structural failure cues to an optional negative prompt."""
+    clean_negative = (negative_prompt or "").strip()
+    clean_shape_negative = shape_negative_prompt.strip()
+    if not clean_shape_negative:
+        return clean_negative
+    if not clean_negative:
+        return clean_shape_negative
+    if clean_shape_negative in clean_negative:
+        return clean_negative
+    separator = ", " if not clean_negative.endswith(",") else " "
+    return f"{clean_negative}{separator}{clean_shape_negative}"
+
+
 def remove_ifc_color_conflicting_prompt_terms(
     prompt: str,
     category_cues: Mapping[str, str] | None = None,
