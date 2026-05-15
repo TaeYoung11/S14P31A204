@@ -163,6 +163,7 @@ export const toBubbleSnapshotPayloadFromWorkspaceSnapshot = (
       floor: resolveBubbleFloorFromUnknown(bubble as BubbleData & Record<string, unknown>),
     })),
     connections: snapshot.connections,
+    zones: snapshot.zones,
     floorMeta: {
       namesByFloor: Object.fromEntries(
         Object.entries(normalized.namesByFloor).map(([floor, name]) => [String(floor), name]),

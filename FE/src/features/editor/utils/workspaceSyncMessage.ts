@@ -7,11 +7,13 @@ import type {
   FloorWall,
   IfcElementChange,
   PhaseStatus,
+  ZoneData,
 } from '../types'
 
 export interface BubbleSnapshotPayload {
   bubbles: BubbleData[]
   connections: ConnectionData[]
+  zones?: ZoneData[]
   floorMeta?: {
     namesByFloor?: Record<string, string>
     extraFloors?: number[]
@@ -170,6 +172,52 @@ function extractIfcAssetIdFromRecord(record: Record<string, unknown>): string | 
     ?? extractStringField(record, 'outputArtifactId')
 }
 
+function extractIntegerField(record: Record<string, unknown>, key: string): number | null {
+  const value = record[key]
+  return typeof value === 'number' && Number.isInteger(value) ? value : null
+}
+
+/**
+ * payload / output 루트에서 floorPlanPayloadJson 또는 bubbleSnapshotJson을 순서대로 모은다.
+ * - 최상위 direct payload를 우선
+ * - payload, output 내부 nested payload를 폴백
+ */
+function collectNestedPayloadCandidates(
+  directPayload: unknown,
+  message: ProjectSyncMessage,
+  nestedKey: 'floorPlanPayloadJson' | 'bubbleSnapshotJson',
+): unknown[] {
+  const candidates: unknown[] = [directPayload]
+
+  if (isObjectRecord(message.payload)) {
+    candidates.push(message.payload[nestedKey])
+  }
+  if (isObjectRecord(message.output)) {
+    candidates.push(message.output[nestedKey])
+  }
+
+  return candidates
+}
+
+function collectEnvelopeCandidates(message: ProjectSyncMessage): Array<Record<string, unknown>> {
+  const candidates: Array<Record<string, unknown>> = []
+  if (isObjectRecord(message.payload)) candidates.push(message.payload)
+  if (isObjectRecord(message.output)) candidates.push(message.output)
+  return candidates
+}
+
+function extractBaseIndexFromFloorPlanPayload(payload: unknown): number | null {
+  if (!isObjectRecord(payload)) return null
+  const baseIndex = extractIntegerField(payload, 'baseIndex')
+  if (baseIndex !== null) return baseIndex
+
+  const layout = payload.layout
+  if (isObjectRecord(layout)) {
+    return extractIntegerField(layout, 'baseIndex')
+  }
+  return null
+}
+
 /**
  * 프로젝트 sync 메시지에서 IFC 산출물 URL을 추출한다.
  * - 최상위 필드 우선
@@ -184,25 +232,20 @@ export function extractIfcStorageUrl(message: ProjectSyncMessage): string | null
     return direct.trim()
   }
 
-  if (isObjectRecord(message.payload)) {
-    const payloadUrl = extractIfcUrlFromRecord(message.payload)
-    if (payloadUrl) return payloadUrl
-    if (isObjectRecord(message.payload.floorPlanPayloadJson)) {
-      const nestedPayloadUrl = extractIfcUrlFromRecord(message.payload.floorPlanPayloadJson)
+  for (const envelope of collectEnvelopeCandidates(message)) {
+    const envelopeUrl = extractIfcUrlFromRecord(envelope)
+    if (envelopeUrl) return envelopeUrl
+
+    const nestedFloorPlanPayload = envelope.floorPlanPayloadJson
+    if (isObjectRecord(nestedFloorPlanPayload)) {
+      const nestedPayloadUrl = extractIfcUrlFromRecord(nestedFloorPlanPayload)
       if (nestedPayloadUrl) return nestedPayloadUrl
     }
   }
 
-  if (isObjectRecord(message.output)) {
-    const outputUrl = extractIfcUrlFromRecord(message.output)
-    if (outputUrl) return outputUrl
-    if (isObjectRecord(message.output.floorPlanPayloadJson)) {
-      return extractIfcUrlFromRecord(message.output.floorPlanPayloadJson)
-    }
-  }
-
   if (isObjectRecord(message.floorPlanPayloadJson)) {
-    return extractIfcUrlFromRecord(message.floorPlanPayloadJson)
+    const floorPlanPayloadUrl = extractIfcUrlFromRecord(message.floorPlanPayloadJson)
+    if (floorPlanPayloadUrl) return floorPlanPayloadUrl
   }
   return null
 }
@@ -215,25 +258,20 @@ export function extractIfcAssetId(message: ProjectSyncMessage): string | null {
   const direct = message.assetId ?? message.artifactId ?? message.outputArtifactId
   if (typeof direct === 'string' && direct.trim().length > 0) return direct.trim()
 
-  if (isObjectRecord(message.payload)) {
-    const payloadId = extractIfcAssetIdFromRecord(message.payload)
-    if (payloadId) return payloadId
-    if (isObjectRecord(message.payload.floorPlanPayloadJson)) {
-      const nestedPayloadId = extractIfcAssetIdFromRecord(message.payload.floorPlanPayloadJson)
+  for (const envelope of collectEnvelopeCandidates(message)) {
+    const envelopeId = extractIfcAssetIdFromRecord(envelope)
+    if (envelopeId) return envelopeId
+
+    const nestedFloorPlanPayload = envelope.floorPlanPayloadJson
+    if (isObjectRecord(nestedFloorPlanPayload)) {
+      const nestedPayloadId = extractIfcAssetIdFromRecord(nestedFloorPlanPayload)
       if (nestedPayloadId) return nestedPayloadId
     }
   }
 
-  if (isObjectRecord(message.output)) {
-    const outputId = extractIfcAssetIdFromRecord(message.output)
-    if (outputId) return outputId
-    if (isObjectRecord(message.output.floorPlanPayloadJson)) {
-      return extractIfcAssetIdFromRecord(message.output.floorPlanPayloadJson)
-    }
-  }
-
   if (isObjectRecord(message.floorPlanPayloadJson)) {
-    return extractIfcAssetIdFromRecord(message.floorPlanPayloadJson)
+    const floorPlanPayloadId = extractIfcAssetIdFromRecord(message.floorPlanPayloadJson)
+    if (floorPlanPayloadId) return floorPlanPayloadId
   }
 
   return null
@@ -248,20 +286,13 @@ export function extractRevisionId(message: ProjectSyncMessage): string | null {
     if (payloadRevisionId) return payloadRevisionId
   }
 
-  if (isObjectRecord(message.payload)) {
-    const payloadRevisionId = extractStringField(message.payload, 'revisionId')
-    if (payloadRevisionId) return payloadRevisionId
-    if (isObjectRecord(message.payload.floorPlanPayloadJson)) {
-      const nestedRevisionId = extractStringField(message.payload.floorPlanPayloadJson, 'revisionId')
-      if (nestedRevisionId) return nestedRevisionId
-    }
-  }
+  for (const envelope of collectEnvelopeCandidates(message)) {
+    const envelopeRevisionId = extractStringField(envelope, 'revisionId')
+    if (envelopeRevisionId) return envelopeRevisionId
 
-  if (isObjectRecord(message.output)) {
-    const outputRevisionId = extractStringField(message.output, 'revisionId')
-    if (outputRevisionId) return outputRevisionId
-    if (isObjectRecord(message.output.floorPlanPayloadJson)) {
-      const nestedRevisionId = extractStringField(message.output.floorPlanPayloadJson, 'revisionId')
+    const nestedFloorPlanPayload = envelope.floorPlanPayloadJson
+    if (isObjectRecord(nestedFloorPlanPayload)) {
+      const nestedRevisionId = extractStringField(nestedFloorPlanPayload, 'revisionId')
       if (nestedRevisionId) return nestedRevisionId
     }
   }
@@ -284,140 +315,60 @@ export function isFloorPlanSnapshotPayload(value: unknown): value is FloorPlanSn
 
 /** FLOOR_PLAN_UPDATED 이벤트에서 동봉된 버블 스냅샷을 추출한다. */
 export function extractFloorPlanBubbleSnapshot(message: ProjectSyncMessage): BubbleSnapshotPayload | null {
-  const directPayload = message.floorPlanPayloadJson
-  if (isBubbleSnapshotPayload(directPayload)) {
-    return directPayload
-  }
-
-  if (isObjectRecord(message.payload)) {
-    const nestedPayload = message.payload.floorPlanPayloadJson
-    if (isBubbleSnapshotPayload(nestedPayload)) {
-      return nestedPayload
-    }
-  }
-
-  if (isObjectRecord(message.output)) {
-    const nestedOutput = message.output.floorPlanPayloadJson
-    if (isBubbleSnapshotPayload(nestedOutput)) {
-      return nestedOutput
-    }
+  const candidates = collectNestedPayloadCandidates(
+    message.floorPlanPayloadJson,
+    message,
+    'floorPlanPayloadJson',
+  )
+  for (const candidate of candidates) {
+    if (isBubbleSnapshotPayload(candidate)) return candidate
   }
 
   return null
 }
 
 export function extractFloorPlanSnapshot(message: ProjectSyncMessage): FloorPlanSnapshotPayload | null {
-  const directPayload = message.floorPlanPayloadJson
-  if (isFloorPlanSnapshotPayload(directPayload)) {
-    return directPayload
-  }
-
-  if (isObjectRecord(message.payload)) {
-    const nestedPayload = message.payload.floorPlanPayloadJson
-    if (isFloorPlanSnapshotPayload(nestedPayload)) {
-      return nestedPayload
-    }
-  }
-
-  if (isObjectRecord(message.output)) {
-    const nestedOutput = message.output.floorPlanPayloadJson
-    if (isFloorPlanSnapshotPayload(nestedOutput)) {
-      return nestedOutput
-    }
+  const candidates = collectNestedPayloadCandidates(
+    message.floorPlanPayloadJson,
+    message,
+    'floorPlanPayloadJson',
+  )
+  for (const candidate of candidates) {
+    if (isFloorPlanSnapshotPayload(candidate)) return candidate
   }
 
   return null
 }
 
 export function extractFloorPlanBaseIndex(message: ProjectSyncMessage): number | null {
-  const payload = message.floorPlanPayloadJson
-  if (isObjectRecord(payload) && typeof payload.baseIndex === 'number' && Number.isInteger(payload.baseIndex)) {
-    return payload.baseIndex
-  }
-  if (
-    isObjectRecord(payload) &&
-    isObjectRecord(payload.layout) &&
-    typeof payload.layout.baseIndex === 'number' &&
-    Number.isInteger(payload.layout.baseIndex)
-  ) {
-    return payload.layout.baseIndex
-  }
-
-  if (isObjectRecord(message.payload)) {
-    const nestedPayload = message.payload.floorPlanPayloadJson
-    if (
-      isObjectRecord(nestedPayload) &&
-      typeof nestedPayload.baseIndex === 'number' &&
-      Number.isInteger(nestedPayload.baseIndex)
-    ) {
-      return nestedPayload.baseIndex
-    }
-    if (
-      isObjectRecord(nestedPayload) &&
-      isObjectRecord(nestedPayload.layout) &&
-      typeof nestedPayload.layout.baseIndex === 'number' &&
-      Number.isInteger(nestedPayload.layout.baseIndex)
-    ) {
-      return nestedPayload.layout.baseIndex
-    }
-  }
-
-  if (isObjectRecord(message.output)) {
-    const nestedOutput = message.output.floorPlanPayloadJson
-    if (
-      isObjectRecord(nestedOutput) &&
-      typeof nestedOutput.baseIndex === 'number' &&
-      Number.isInteger(nestedOutput.baseIndex)
-    ) {
-      return nestedOutput.baseIndex
-    }
-    if (
-      isObjectRecord(nestedOutput) &&
-      isObjectRecord(nestedOutput.layout) &&
-      typeof nestedOutput.layout.baseIndex === 'number' &&
-      Number.isInteger(nestedOutput.layout.baseIndex)
-    ) {
-      return nestedOutput.layout.baseIndex
-    }
+  const candidates = collectNestedPayloadCandidates(
+    message.floorPlanPayloadJson,
+    message,
+    'floorPlanPayloadJson',
+  )
+  for (const candidate of candidates) {
+    const baseIndex = extractBaseIndexFromFloorPlanPayload(candidate)
+    if (baseIndex !== null) return baseIndex
   }
 
   return null
 }
 
 export function extractBubbleBaseIndex(message: ProjectSyncMessage): number | null {
-  const payload = message.bubbleSnapshotJson
-  if (isObjectRecord(payload) && typeof payload.baseIndex === 'number' && Number.isInteger(payload.baseIndex)) {
-    return payload.baseIndex
+  const candidates = collectNestedPayloadCandidates(
+    message.bubbleSnapshotJson,
+    message,
+    'bubbleSnapshotJson',
+  )
+  for (const candidate of candidates) {
+    if (!isObjectRecord(candidate)) continue
+    const baseIndex = extractIntegerField(candidate, 'baseIndex')
+    if (baseIndex !== null) return baseIndex
   }
 
-  if (isObjectRecord(message.payload)) {
-    const nestedPayload = message.payload.bubbleSnapshotJson
-    if (
-      isObjectRecord(nestedPayload) &&
-      typeof nestedPayload.baseIndex === 'number' &&
-      Number.isInteger(nestedPayload.baseIndex)
-    ) {
-      return nestedPayload.baseIndex
-    }
-  }
-
-  if (isObjectRecord(message.output)) {
-    const nestedOutput = message.output.bubbleSnapshotJson
-    if (
-      isObjectRecord(nestedOutput) &&
-      typeof nestedOutput.baseIndex === 'number' &&
-      Number.isInteger(nestedOutput.baseIndex)
-    ) {
-      return nestedOutput.baseIndex
-    }
-  }
-
-  if (isObjectRecord(message.payload) && typeof message.payload.baseIndex === 'number' && Number.isInteger(message.payload.baseIndex)) {
-    return message.payload.baseIndex
-  }
-
-  if (isObjectRecord(message.output) && typeof message.output.baseIndex === 'number' && Number.isInteger(message.output.baseIndex)) {
-    return message.output.baseIndex
+  for (const envelope of collectEnvelopeCandidates(message)) {
+    const baseIndex = extractIntegerField(envelope, 'baseIndex')
+    if (baseIndex !== null) return baseIndex
   }
 
   return null
