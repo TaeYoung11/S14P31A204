@@ -1,6 +1,7 @@
 // 프로젝트 메인 화면의 핀 댓글 조회와 읽음 처리를 담당한다.
 import { api } from '@/shared/lib/axios'
 import type { Project } from '@/shared/types'
+import { DEFAULT_PIN_CONTENT } from '@/shared/constants/pin'
 
 interface ApiResponse<T> {
   status: number
@@ -71,7 +72,7 @@ const toProjectCommentItem = (
   projectId: project.id,
   projectName: project.name,
   pinId: pin.pinId,
-  pinContent: pin.content ?? '',
+  pinContent: pin.content?.trim() === DEFAULT_PIN_CONTENT ? '' : (pin.content ?? ''),
   lastCommentAt: pin.lastCommentAt ?? pin.createdAt,
 })
 

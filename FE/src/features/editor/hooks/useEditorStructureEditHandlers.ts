@@ -34,6 +34,7 @@ interface WorkspaceCommandPublisherLike {
 interface UseEditorStructureEditHandlersParams {
   floorRooms: FloorRoom[]
   floorWalls: FloorWall[]
+  activeFloorLayerId: string | null
   visibleAutoFloorWalls: FloorWall[]
   autoFloorWalls: FloorWall[]
   mergedFloorOpenings: FloorOpening[]
@@ -67,6 +68,7 @@ interface UseEditorStructureEditHandlersParams {
 export function useEditorStructureEditHandlers({
   floorRooms,
   floorWalls,
+  activeFloorLayerId,
   visibleAutoFloorWalls,
   autoFloorWalls,
   mergedFloorOpenings,
@@ -143,6 +145,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     )
     const newWall: FloorWall = {
       id: createFloorWallId(),
+      floorLayerId: activeFloorLayerId ?? undefined,
       type: nextType,
       start,
       end,
@@ -165,6 +168,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     setSelectedTool('wall')
   }, [
     wallCreatePreset,
+    activeFloorLayerId,
     workspaceCommandPublisher,
     setFloorWalls,
     setWallCreatePreset,
@@ -276,6 +280,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
           outsideSegments.forEach((segment) => {
             manualResidualWalls.push({
               id: createFloorWallId(),
+              floorLayerId: candidate.floorLayerId ?? targetAutoWall.floorLayerId ?? activeFloorLayerId ?? undefined,
               start: segment.start,
               end: segment.end,
               type: candidate.type,
@@ -333,6 +338,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
   }, [
     isAutoDerivedWallId,
     autoFloorWalls,
+    activeFloorLayerId,
     setHiddenAutoWallIds,
     setHiddenAutoOpeningIds,
     setFloorOpenings,

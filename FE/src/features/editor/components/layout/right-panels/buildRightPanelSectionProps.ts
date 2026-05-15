@@ -4,7 +4,10 @@ import { AttributesPanel } from '../../panels/AttributesPanel'
 import { FloorViewPanel } from '../../panels/FloorViewPanel'
 import { HierarchyPanel } from '../../panels/HierarchyPanel'
 import { ZoningPanel } from '../../panels/ZoningPanel'
+import { buildHierarchyGroups } from '../../panels/hierarchyPanelData'
+import type { BubbleFloorSectionProps } from '../../panels/sections/BubbleFloorSection'
 import type { EditorRightPanelsProps } from './EditorRightPanels.types'
+import type { PanelKey } from '../../../types'
 
 export type AttributesSectionProps = ComponentProps<typeof AttributesPanel>
 export type ZoningSectionProps = ComponentProps<typeof ZoningPanel>
@@ -13,16 +16,31 @@ export type HierarchySectionProps = ComponentProps<typeof HierarchyPanel>
 export type AssistantSectionProps = ComponentProps<typeof AssistantPanel>
 
 /**
+ * 모든 우측 패널에서 공통으로 사용하는 프레임 props를 구성한다.
+ * - 열림 상태
+ * - 위치/크기/zIndex
+ * - 드래그/리사이즈/토글 핸들러
+ */
+function buildCommonPanelFrameProps(vm: EditorRightPanelsProps, panelKey: PanelKey) {
+  return {
+    isOpen: vm.panelOpenState[panelKey],
+    offset: vm.panelOffsets[panelKey],
+    width: vm.panelWidths[panelKey],
+    height: vm.panelHeights[panelKey],
+    zIndex: vm.panelZIndexes[panelKey],
+    onDragStart: vm.onPanelDragStart,
+    onResizeStart: vm.onPanelResizeStart,
+    onToggle: vm.onTogglePanel,
+  }
+}
+
+/**
  * 속성 패널 props 매핑
  */
 export function buildAttributesSectionProps(vm: EditorRightPanelsProps): AttributesSectionProps {
   return {
     mode: vm.mode,
-    isOpen: vm.panelOpenState.attributes,
-    offset: vm.panelOffsets.attributes,
-    width: vm.panelWidths.attributes,
-    height: vm.panelHeights.attributes,
-    zIndex: vm.panelZIndexes.attributes,
+    ...buildCommonPanelFrameProps(vm, 'attributes'),
     selectedBubble: vm.selectedBubble,
     isThreeDEditingLocked: vm.isThreeDEditingLocked,
     selectedWall: vm.selectedWall,
@@ -42,6 +60,8 @@ export function buildAttributesSectionProps(vm: EditorRightPanelsProps): Attribu
     onHeightCommit: vm.onHeightCommit,
     onRatioChange: vm.onRatioChange,
     onColorChange: vm.onColorChange,
+    onBubbleFloorChange: vm.onBubbleFloorChange,
+    bubbleFloors: vm.bubbleFloors,
     onMaterialChange: vm.onMaterialChange,
     onWallTypeChange: vm.onWallTypeChange,
     onWallThicknessChange: vm.onWallThicknessChange,
@@ -51,9 +71,6 @@ export function buildAttributesSectionProps(vm: EditorRightPanelsProps): Attribu
     onWindowSillHeightChange: vm.onWindowSillHeightChange,
     onDoorSwingDirectionChange: vm.onDoorSwingDirectionChange,
     onDoorHingeSideChange: vm.onDoorHingeSideChange,
-    onDragStart: vm.onPanelDragStart,
-    onResizeStart: vm.onPanelResizeStart,
-    onToggle: vm.onTogglePanel,
   }
 }
 
@@ -63,18 +80,11 @@ export function buildAttributesSectionProps(vm: EditorRightPanelsProps): Attribu
 export function buildZoningSectionProps(vm: EditorRightPanelsProps): ZoningSectionProps | null {
   if (vm.mode !== 'bubble') return null
   return {
-    isOpen: vm.panelOpenState.zoning,
-    offset: vm.panelOffsets.zoning,
-    width: vm.panelWidths.zoning,
-    height: vm.panelHeights.zoning,
-    zIndex: vm.panelZIndexes.zoning,
+    ...buildCommonPanelFrameProps(vm, 'zoning'),
     zoningListItems: vm.zoningListItems,
     onOpenZoningModal: vm.onOpenZoningModal,
     onOpenEditZoningModal: vm.onOpenEditZoningModal,
     onDeleteZoning: vm.onDeleteZoning,
-    onDragStart: vm.onPanelDragStart,
-    onResizeStart: vm.onPanelResizeStart,
-    onToggle: vm.onTogglePanel,
   }
 }
 
@@ -84,11 +94,7 @@ export function buildZoningSectionProps(vm: EditorRightPanelsProps): ZoningSecti
 export function buildFloorViewSectionProps(vm: EditorRightPanelsProps): FloorViewSectionProps | null {
   if (vm.mode !== '2d' && vm.mode !== '3d') return null
   return {
-    isOpen: vm.panelOpenState.floorView,
-    offset: vm.panelOffsets.floorView,
-    width: vm.panelWidths.floorView,
-    height: vm.panelHeights.floorView,
-    zIndex: vm.panelZIndexes.floorView,
+    ...buildCommonPanelFrameProps(vm, 'floorView'),
     layers: vm.floorLayers,
     activeLayerId: vm.activeFloorLayerId,
     isGenerated: vm.isFloorPlanGenerated,
@@ -101,10 +107,8 @@ export function buildFloorViewSectionProps(vm: EditorRightPanelsProps): FloorVie
     onDeleteLayer: vm.onDeleteFloorLayer,
     onToggleLayerOverlayMode: vm.onToggleLayerOverlayMode,
     onToggleOverlayLayer: vm.onToggleOverlayLayer,
+    onSelectSingleOverlayLayer: vm.onSelectSingleOverlayLayer,
     onChangeOverlayLayerOpacity: vm.onChangeOverlayLayerOpacity,
-    onDragStart: vm.onPanelDragStart,
-    onResizeStart: vm.onPanelResizeStart,
-    onToggle: vm.onTogglePanel,
   }
 }
 
@@ -113,15 +117,29 @@ export function buildFloorViewSectionProps(vm: EditorRightPanelsProps): FloorVie
  */
 export function buildHierarchySectionProps(vm: EditorRightPanelsProps): HierarchySectionProps | null {
   if (vm.mode !== '2d' && vm.mode !== '3d') return null
+  const floorRooms = vm.floorRooms ?? []
+  const floorWalls = vm.floorWalls ?? []
+  const floorOpenings = vm.floorOpenings ?? []
+  const floorLayers = vm.floorLayers ?? []
+  const activeFloorLayerId = vm.activeFloorLayerId ?? null
+  const ifcElementHierarchy = vm.ifcElementHierarchy ?? null
+
   return {
-    isOpen: vm.panelOpenState.hierarchy,
-    offset: vm.panelOffsets.hierarchy,
-    width: vm.panelWidths.hierarchy,
-    height: vm.panelHeights.hierarchy,
-    zIndex: vm.panelZIndexes.hierarchy,
-    onDragStart: vm.onPanelDragStart,
-    onResizeStart: vm.onPanelResizeStart,
-    onToggle: vm.onTogglePanel,
+    ...buildCommonPanelFrameProps(vm, 'hierarchy'),
+    floorRooms,
+    floorWalls,
+    floorOpenings,
+    floorLayers,
+    activeFloorLayerId,
+    ifcElementHierarchy,
+    groups: buildHierarchyGroups({
+      floorRooms,
+      floorWalls,
+      floorOpenings,
+      floorLayers,
+      activeFloorLayerId,
+      ifcElementHierarchy,
+    }),
   }
 }
 
@@ -131,11 +149,7 @@ export function buildHierarchySectionProps(vm: EditorRightPanelsProps): Hierarch
 export function buildAssistantSectionProps(vm: EditorRightPanelsProps): AssistantSectionProps | null {
   if (vm.mode === 'view') return null
   return {
-    isOpen: vm.panelOpenState.assistant,
-    offset: vm.panelOffsets.assistant,
-    width: vm.panelWidths.assistant,
-    height: vm.panelHeights.assistant,
-    zIndex: vm.panelZIndexes.assistant,
+    ...buildCommonPanelFrameProps(vm, 'assistant'),
     provider: vm.llmProvider,
     prompt: vm.llmPrompt,
     status: vm.llmStatus,
@@ -155,8 +169,22 @@ export function buildAssistantSectionProps(vm: EditorRightPanelsProps): Assistan
     onDiscard: vm.onDiscardLlmEdit,
     onSelectAlternative: vm.onSelectLlmAlternative,
     floorProjectImportMessage: vm.floorProjectImportMessage,
-    onDragStart: vm.onPanelDragStart,
-    onResizeStart: vm.onPanelResizeStart,
-    onToggle: vm.onTogglePanel,
+  }
+}
+
+/**
+ * InspectorPanel의 버블 층 섹션 props를 매핑한다.
+ * 버블 모드 외 상황에서도 null-safe 기본값을 반환해 렌더 분기 단순화를 보장한다.
+ */
+export function buildBubbleFloorSectionProps(vm: EditorRightPanelsProps): BubbleFloorSectionProps {
+  return {
+    floors: vm.bubbleFloors ?? [],
+    summaries: vm.bubbleFloorSummaries ?? [],
+    activeFloor: vm.activeBubbleFloor ?? 1,
+    isReadOnly: vm.isBubbleReadOnly ?? false,
+    onSelectFloor: vm.onSelectBubbleFloor,
+    onAddFloor: vm.onAddBubbleFloor,
+    onRenameFloor: vm.onRenameBubbleFloor,
+    onDeleteFloor: vm.onDeleteBubbleFloor,
   }
 }

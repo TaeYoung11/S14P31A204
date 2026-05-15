@@ -11,6 +11,7 @@ import {
 } from '@/features/project/hooks/useProjects'
 import { useProjectComments } from '@/features/project/hooks/useProjectComments'
 import { useProjectCommentRealtime } from '@/features/project/hooks/useProjectCommentRealtime'
+import { useInvitationNotifications } from '@/features/project/hooks/useInvitation'
 import { useProjectStore } from '@/features/project/stores/projectStore'
 import type { Project } from '@/shared/types'
 import type { ProjectCommentListItem } from '@/features/project/services/projectComment.service'
@@ -72,6 +73,9 @@ export function useProjectListPage() {
 
   const { data: allData, isLoading: isSearchLoading } = useAllProjects(search.length > 0)
   const { data: allProjectsForComments = [], isLoading: areAllProjectsForCommentsLoading } = useAllProjects(true)
+  const { data: unreadInvitationNotifications = [] } = useInvitationNotifications(false, {
+    enabled: user?.user_type === 'CUSTOMER',
+  })
   const sentinelRef = useRef<HTMLDivElement>(null)
 
   /** 무한 스크롤 감시: sentinel이 보이면 다음 페이지를 요청한다. */
@@ -267,6 +271,7 @@ export function useProjectListPage() {
     userType: user?.user_type,
     withdrawError,
     isWithdrawing,
+    invitationNotificationCount: unreadInvitationNotifications.length,
     viewMode,
     deleteConfirmText: DELETE_CONFIRM_TEXT,
     isNotificationModalOpen,

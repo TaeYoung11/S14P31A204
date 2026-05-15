@@ -4,6 +4,7 @@ import type { BubbleData } from '../types'
 import { calcPxDimensionsFromMm } from './bubbleCalc'
 import { DEFAULT_WALL_MATERIAL, FLOOR_MM_PER_PX, FLOOR_WALL_PRESETS } from '../constants'
 import { normalizeIfcDisplayText } from './ifcStepString'
+import { readPositiveNumber } from './numberUtils'
 
 interface Bounds {
   minX: number
@@ -84,11 +85,6 @@ const computeRawPolygonArea = (polygon: FloorProjectPoint2D[]): number => {
 
 const computeRoomAreaM2 = (polygon: FloorProjectPoint2D[], coordinateMmMultiplier = 1): number => {
   return (computeRawPolygonArea(polygon) * coordinateMmMultiplier * coordinateMmMultiplier) / 1_000_000
-}
-
-const readPositiveNumber = (value: unknown): number | null => {
-  const numericValue = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
-  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null
 }
 
 const readPositiveDimension = (value: unknown): number | null => {
@@ -467,6 +463,8 @@ export function mapFloorProjectToLayers(project: FloorProject, options: MapperOp
       return {
         id: `floor-${floor?.number ?? floorId}`,
         name: floor?.name ?? `${floorId} 평면도`,
+        elevationMm: floor?.elevation,
+        ceilingHeightMm: floor?.ceiling_height,
         rooms,
       }
     })

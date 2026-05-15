@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ai_common.storage.paths import (
+    clarification_detail_key,
     engine_request_key,
     error_detail_key,
     pad_step,
@@ -9,6 +10,8 @@ from ai_common.storage.paths import (
     validation_report_key,
 )
 from ai_planning_2d.schemas import (
+    ClarificationArtifact,
+    ClarificationAlternative,
     ErrorDetailArtifact,
     PreviewResultArtifact,
     TwoDCommandArtifact,
@@ -113,3 +116,105 @@ def test_preview_and_command_artifacts_lock_versions() -> None:
 
     assert command_artifact.model_dump(mode="json")["schema_version"] == "v1"
     assert preview_artifact.model_dump(mode="json")["schema_version"] == "v2"
+
+
+# ---------------------------------------------------------------------------
+# ClarificationArtifact 스키마 + clarification_detail_key
+# ---------------------------------------------------------------------------
+
+
+def test_clarification_detail_key_format() -> None:
+    assert clarification_detail_key("proj", "job", 1) == (
+        "projects/proj/jobs/job/steps/001/clarification/detail.v1.json"
+    )
+    assert clarification_detail_key("proj", "job", 10) == (
+        "projects/proj/jobs/job/steps/010/clarification/detail.v1.json"
+    )
+
+
+def test_clarification_artifact_serializes_utc_timestamp() -> None:
+    artifact = ClarificationArtifact(
+        kind="needs_clarification",
+        question="어느 층 거실을 삭제할까요?",
+        job_id="job-1",
+        step_no=1,
+        clarification_request_id="req-1",
+    )
+
+    payload = artifact.model_dump(mode="json")
+
+    assert payload["schema_version"] == "v1"
+    assert payload["timestamp"].endswith("Z")
+
+
+def test_clarification_artifact_kind_alternatives() -> None:
+    artifact = ClarificationArtifact(
+        kind="alternatives",
+        question="어느 거실을 삭제할까요?",
+        alternatives=[
+            ClarificationAlternative(
+                alternative_id="remove-living-1f",
+                title="1층 거실 삭제",
+                description="1층 거실(5000×7000mm)을 삭제합니다.",
+                fill={"target_floor": 1, "target_room_name": "거실"},
+            )
+        ],
+        job_id="job-2",
+        step_no=2,
+        clarification_request_id="req-2",
+    )
+
+    payload = artifact.model_dump(mode="json")
+
+    assert payload["kind"] == "alternatives"
+    assert len(payload["alternatives"]) == 1
+    alt = payload["alternatives"][0]
+    assert alt["alternative_id"] == "remove-living-1f"
+    assert alt["fill"] == {"target_floor": 1, "target_room_name": "거실"}
+    assert alt["affected_entities"] == []
+    assert alt["warnings"] == []
+    assert alt["metrics"] == []
+
+
+def test_clarification_artifact_alternatives_default_empty() -> None:
+    artifact = ClarificationArtifact(
+        kind="needs_clarification",
+        question="더 구체적인 치수를 알려주세요.",
+        job_id="job-3",
+        step_no=1,
+        clarification_request_id="req-3",
+    )
+
+    assert artifact.alternatives == []
+    assert artifact.parsed_command_preview is None
+    assert artifact.policy_plan is None
+
+
+def test_clarification_artifact_forbids_extra_fields() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ClarificationArtifact.model_validate(
+            {
+                "kind": "needs_clarification",
+                "question": "Q",
+                "job_id": "j",
+                "step_no": 1,
+                "clarification_request_id": "r",
+                "unknown_field": "oops",
+            }
+        )
+
+
+def test_clarification_alternative_requires_fill() -> None:
+    alt = ClarificationAlternative(
+        alternative_id="a1",
+        title="옵션 1",
+        description="설명",
+        fill={"target_floor": 2},
+    )
+
+    assert alt.fill.target_floor == 2
+    assert alt.fill.target_room_name is None
+    assert alt.fill.action is None

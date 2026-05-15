@@ -7,6 +7,7 @@ import {
   toPolygonPoints,
   toRectPolygonPoints,
 } from './twoDCanvas.utils'
+import { fitSingleLineFontSize } from './canvasTextFit'
 
 interface TwoDOverlayLayersProps {
   overlayLayers: FloorLayerOverlay[]
@@ -25,6 +26,12 @@ export function TwoDOverlayLayers({ overlayLayers }: TwoDOverlayLayersProps) {
             const polygonPoints = toPolygonPoints(room.polygon)
             const contour = room.contour
             const fill = hexToRgba(room.color, Math.min(Math.max(overlay.opacity * 0.35, 0.06), 0.35))
+            const labelPaddingX = Math.min(12, Math.max(3, room.width * 0.04))
+            const labelPaddingY = Math.min(10, Math.max(3, room.height * 0.04))
+            const labelWidth = Math.max(8, room.width - labelPaddingX * 2)
+            const labelHeight = Math.max(1, (room.height - labelPaddingY * 2) * 0.5)
+            const labelFontSize = fitSingleLineFontSize(overlay.layerName, labelWidth, labelHeight / 1.15)
+            const labelLineHeight = labelFontSize * 1.15
             return (
               <Group
                 key={`overlay-room-${overlay.layerId}-${room.id}`}
@@ -66,12 +73,15 @@ export function TwoDOverlayLayers({ overlayLayers }: TwoDOverlayLayersProps) {
                   />
                 )}
                 <Text
-                  x={room.x}
-                  y={room.y + room.height / 2 - 6}
-                  width={room.width}
+                  x={room.x + labelPaddingX}
+                  y={room.y + room.height / 2 - labelLineHeight / 2}
+                  width={labelWidth}
+                  height={labelLineHeight}
                   align="center"
+                  verticalAlign="middle"
                   text={overlay.layerName}
-                  fontSize={9}
+                  fontSize={labelFontSize}
+                  lineHeight={1.15}
                   fontStyle="bold"
                   fill="#6B7A99"
                 />

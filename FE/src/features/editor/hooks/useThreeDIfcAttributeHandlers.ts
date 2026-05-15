@@ -79,7 +79,6 @@ export function useThreeDIfcAttributeHandlers({
     })
   }, [
     baseHandleMaterialChangeForPanel,
-    canEditThreeDAttributes,
     mode,
     recordIfcElementChange,
     selectedIfcElementId,
@@ -109,7 +108,6 @@ export function useThreeDIfcAttributeHandlers({
     })
   }, [
     baseHandleColorChangeForPanel,
-    canEditThreeDAttributes,
     mode,
     recordIfcElementChange,
     selectedIfcElementId,
@@ -139,7 +137,6 @@ export function useThreeDIfcAttributeHandlers({
     })
   }, [
     baseHandleWidthChangeForPanel,
-    canEditThreeDAttributes,
     mode,
     recordIfcElementChange,
     selectedIfcElementId,
@@ -169,7 +166,6 @@ export function useThreeDIfcAttributeHandlers({
     })
   }, [
     baseHandleHeightChangeForPanel,
-    canEditThreeDAttributes,
     mode,
     recordIfcElementChange,
     selectedIfcElementId,

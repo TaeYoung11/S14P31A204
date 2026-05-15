@@ -97,7 +97,10 @@ interface TwoDCanvasStageProps {
   isCollaborationMode: boolean
   commentPins: FloorCommentPin[]
   selectedPinId: string | null
+  currentUserId: string | null
   onPinClick?: (id: string) => void
+  onPinDelete?: (id: string) => void
+  deletingPinId: string | null
   marquee: { x: number; y: number; width: number; height: number } | null
 }
 
@@ -182,7 +185,10 @@ export function TwoDCanvasStage({
   isCollaborationMode,
   commentPins,
   selectedPinId,
+  currentUserId,
   onPinClick,
+  onPinDelete,
+  deletingPinId,
   marquee,
 }: TwoDCanvasStageProps) {
   return (
@@ -318,8 +324,12 @@ export function TwoDCanvasStage({
         {isCollaborationMode && (
           <CollaborationPinOverlay
             pins={commentPins}
+            viewportScale={scale}
             selectedPinId={selectedPinId}
+            currentUserId={currentUserId}
             onPinClick={onPinClick}
+            onPinDelete={onPinDelete}
+            deletingPinId={deletingPinId}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
           />

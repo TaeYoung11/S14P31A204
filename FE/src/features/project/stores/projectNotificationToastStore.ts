@@ -1,7 +1,7 @@
 // 프로젝트 댓글과 렌더링 알림 토스트 스택을 관리한다.
 import { create } from 'zustand'
 
-export type ProjectNotificationToastType = 'comment' | 'render_completed' | 'render_failed' | 'generic'
+export type ProjectNotificationToastType = 'comment' | 'invitation' | 'render_completed' | 'render_failed' | 'generic'
 
 export interface ProjectNotificationToast {
   id: string
@@ -25,6 +25,7 @@ interface ProjectNotificationToastState {
 const MAX_VISIBLE_TOASTS = 3
 const PRIORITY_BY_TYPE: Record<ProjectNotificationToastType, number> = {
   comment: 400,
+  invitation: 350,
   render_failed: 300,
   render_completed: 200,
   generic: 100,
