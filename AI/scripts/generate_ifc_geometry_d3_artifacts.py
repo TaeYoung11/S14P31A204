@@ -8,10 +8,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 from ai_rendering.ifc2img import service
-from ai_rendering.ifc2img.style import DepthStyleParams
+from ai_rendering.ifc2img.style import DepthStyleParams, build_depth_edge_control_image
 
 
 DEFAULT_IFC_PATH = Path("packages/ai-rendering/tests/fixtures/ifc/shinchan.ifc")
@@ -215,9 +215,7 @@ def _write_control_probe_artifacts(
 
 def _build_edge_silhouette(path: Path) -> Image.Image:
     with Image.open(path) as image:
-        mask = image.convert("L").point(lambda value: 255 if value > 0 else 0)
-    edges = mask.filter(ImageFilter.FIND_EDGES)
-    return edges.filter(ImageFilter.MaxFilter(3)).convert("RGB")
+        return build_depth_edge_control_image(image)
 
 
 def _photo_artifacts(case_dir: Path) -> dict[str, str]:

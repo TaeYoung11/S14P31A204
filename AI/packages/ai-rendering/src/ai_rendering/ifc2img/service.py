@@ -44,6 +44,7 @@ from .semantics import (
 )
 from .style import (
     DEFAULT_CONTROLNET_SEG_ID,
+    build_depth_edge_control_image,
     build_debug_control_images,
     resolve_preset_view_render_options,
 )
@@ -93,12 +94,22 @@ IfcColorControlInputMode = Literal[
     "hybrid_color",
 ]
 IfcColorMode = Literal["none", "prompt", "composite", "hybrid"]
+GeometryControlInputMode = Literal[
+    "default",
+    "depth_edge",
+    "element_composite",
+]
 Ifc2ImgWorkerStatus = Literal["SUCCESS", "ERROR"]
 Ifc2ImgWorkerCommandType = Literal["SD_RENDER_GENERATE"]
 Ifc2ImgWorkerRenderMode = Literal["ifc2img"]
 Ifc2ImgWorkerTimeOfDay = Literal["DAY", "NIGHT"]
 Ifc2ImgPresetTimeOfDay = Literal["day", "night"]
 DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY: Ifc2ImgWorkerTimeOfDay = "DAY"
+GEOMETRY_CONTROL_INPUT_MODES: tuple[GeometryControlInputMode, ...] = (
+    "default",
+    "depth_edge",
+    "element_composite",
+)
 
 
 @dataclass(frozen=True)
@@ -189,6 +200,21 @@ def resolve_ifc_color_mode_input_plan(
             f"Expected one of: {expected}"
         )
     return resolve_ifc_color_control_input_plan(input_mode)
+
+
+def resolve_geometry_control_input_mode(
+    mode: str | None = None,
+) -> GeometryControlInputMode:
+    """Resolve internal IFC geometry control input experiment mode."""
+    if mode is None or mode == "":
+        return "default"
+    if mode in GEOMETRY_CONTROL_INPUT_MODES:
+        return cast(GeometryControlInputMode, mode)
+    expected = ", ".join(GEOMETRY_CONTROL_INPUT_MODES)
+    raise IFCRenderError(
+        f"unsupported geometry_control_input_mode: {mode!r}. "
+        f"Expected one of: {expected}"
+    )
 
 
 def normalize_ifc2img_time_of_day(
@@ -557,6 +583,31 @@ class Ifc2ImgDebugElementMaskArtifacts:
     result: IfcElementMaskRenderResult
 
 
+def build_element_composite_control_image(
+    element_masks: IfcElementMaskRenderResult,
+) -> Image.Image:
+    """Return the rendered IFC element composite as an RGB control candidate."""
+    return element_masks.composite.convert("RGB")
+
+
+def _render_element_composite_control_image(
+    *,
+    ifc_path: Path,
+    camera: dict[str, object],
+    width: int,
+    height: int,
+) -> Image.Image:
+    result = render_ifc_element_masks(
+        ifc_path,
+        eye=cast(list[float], camera["eye"]),
+        look_at=cast(list[float], camera["lookAt"]),
+        up=cast(list[float], camera["up"]),
+        width=width,
+        height=height,
+    )
+    return build_element_composite_control_image(result)
+
+
 def resolve_photo_views() -> tuple[PhotoViewAlias, ...]:
     """service가 항상 생성하는 front-facing diagonal public view 2개를 반환한다."""
     return PUBLIC_PHOTO_VIEWS
@@ -913,7 +964,7 @@ def _save_debug_element_masks(
         paths[category_name] = _path_for_manifest(path, output_dir)
 
     composite_path = debug_dir / f"element_composite_{public_view}.png"
-    result.composite.save(composite_path, format="PNG")
+    build_element_composite_control_image(result).save(composite_path, format="PNG")
     paths["composite"] = _path_for_manifest(composite_path, output_dir)
     return Ifc2ImgDebugElementMaskArtifacts(files=paths, result=result)
 
@@ -1076,14 +1127,26 @@ def render_photo_view(
     *,
     preset: str,
     view: IFCView,
+    geometry_control_image: Image.Image | None = None,
 ) -> _DepthStyleResultProtocol:
     """style renderer 호출과 preset/view option 적용을 한 곳에 모은다."""
     options = resolve_preset_view_render_options(preset, view)
+    render_kwargs = options.as_render_kwargs()
+    if geometry_control_image is not None:
+        render_kwargs.update(
+            {
+                "use_front_side_semantic_control": False,
+                "use_front_full_width_semantic_control": False,
+                "use_front_diagonal_ground_semantic_control": False,
+                "use_front_diagonal_ground_plane_aware_semantic_control": False,
+                "geometry_control_image": geometry_control_image,
+            }
+        )
     return renderer.render(
         depth_image,
         params,
         view=view,
-        **options.as_render_kwargs(),
+        **render_kwargs,
     )
 
 
@@ -1094,6 +1157,7 @@ def run_ifc2img_photo_pipeline(
     preset: str = DEFAULT_PHOTO_PRESET,
     time_of_day: object | None = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY,
     use_ifc_color_prompt_suffix: bool = False,
+    geometry_control_input_mode: str | None = None,
     debug_artifacts: bool = False,
     ifc_renderer_cls: type[_IFCRendererProtocol] | None = None,
     depth_style_renderer_cls: type[_DepthStyleRendererProtocol] | None = None,
@@ -1108,6 +1172,9 @@ def run_ifc2img_photo_pipeline(
     preset_time_of_day = normalize_ifc2img_time_of_day(time_of_day)
     worker_time_of_day: Ifc2ImgWorkerTimeOfDay = (
         "DAY" if preset_time_of_day == "day" else "NIGHT"
+    )
+    geometry_control_mode = resolve_geometry_control_input_mode(
+        geometry_control_input_mode
     )
     semantic_context = load_runtime_semantic_context(ifc_path)
     ground_selection = select_semantic_ground(semantic_context)
@@ -1143,14 +1210,16 @@ def run_ifc2img_photo_pipeline(
     else:
         color_summary_error = None
 
-    if debug_artifacts:
+    if debug_artifacts or geometry_control_mode == "element_composite":
         debug_dir.mkdir(parents=True, exist_ok=True)
         debug_geometry = _load_debug_geometry(ifc_path)
+    if debug_artifacts:
         debug_manifest = {
             "schemaVersion": "ifc2img.debug.v1",
             "sourceIfcPath": str(ifc_path),
             "preset": preset,
             "timeOfDay": worker_time_of_day,
+            "geometryControlInputMode": geometry_control_mode,
             "views": [],
         }
         # The production semantic context is the source of truth; the debug manifest
@@ -1166,7 +1235,7 @@ def run_ifc2img_photo_pipeline(
     requires_semantic = any(
         resolve_preset_view_render_options(preset, view).requires_semantic_controlnet
         for view in internal_views
-    )
+    ) or geometry_control_mode != "default"
     renderer = create_photo_ifc_renderer(
         ifc_renderer_cls,
         view_camera_overrides=view_camera_overrides,
@@ -1208,6 +1277,29 @@ def run_ifc2img_photo_pipeline(
     outputs: list[Ifc2ImgPhotoViewResult] = []
     for public_view, internal_view in zip(public_views, internal_views, strict=True):
         depth = depth_images[internal_view]
+        geometry_control_image: Image.Image | None = None
+        if geometry_control_mode == "depth_edge":
+            geometry_control_image = build_depth_edge_control_image(depth)
+        elif geometry_control_mode == "element_composite":
+            if debug_geometry is None:
+                raise IFCRenderError(
+                    "element_composite geometry control requires debug geometry"
+                )
+            debug_payload = _build_debug_view_payload(
+                geometry=debug_geometry,
+                internal_view=internal_view,
+            )
+            camera = debug_payload.get("camera")
+            if not isinstance(camera, dict):
+                raise IFCRenderError(
+                    "element_composite geometry control requires debug camera"
+                )
+            geometry_control_image = _render_element_composite_control_image(
+                ifc_path=ifc_path,
+                camera=camera,
+                width=depth.width,
+                height=depth.height,
+            )
         depth_path = output_dir / f"depth_{public_view}.png"
         depth.save(depth_path, format="PNG")
         depth_width, depth_height = depth.size
@@ -1234,6 +1326,7 @@ def run_ifc2img_photo_pipeline(
             params,
             preset=preset,
             view=internal_view,
+            geometry_control_image=geometry_control_image,
         )
         photo_path = output_dir / f"photo_{public_view}.png"
         result.save(photo_path)
@@ -1258,6 +1351,15 @@ def run_ifc2img_photo_pipeline(
                     color_summary=debug_color_summary,
                 )
                 actual_fill_ratio = float(debug_view["actualFillRatio"])
+                debug_view["geometryControlInputMode"] = geometry_control_mode
+                debug_view["usesGeometryControlImage"] = (
+                    geometry_control_image is not None
+                )
+                if geometry_control_image is not None:
+                    debug_view["geometryControlImageSize"] = [
+                        geometry_control_image.width,
+                        geometry_control_image.height,
+                    ]
                 debug_manifest_views = debug_manifest["views"]
                 if isinstance(debug_manifest_views, list):
                     debug_manifest_views.append(debug_view)
