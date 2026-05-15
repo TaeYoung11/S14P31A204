@@ -58,6 +58,9 @@ def generate_ifc_house_like_f3_candidates(
         "appearance_only_candidate_4_natural_photo_finish": (
             _build_natural_photo_finish_candidate
         ),
+        "appearance_only_candidate_5_aggressive_material_realism": (
+            _build_aggressive_material_realism_candidate
+        ),
     }
 
     cases: list[dict[str, Any]] = []
@@ -112,7 +115,7 @@ def generate_ifc_house_like_f3_candidates(
         "policy": {
             "geometrySource": "F-2 IFC-locked baseline only",
             "diffusionUsed": False,
-            "acceptedCandidateCount": 4,
+            "acceptedCandidateCount": 5,
         },
         "acceptedCandidates": [
             {
@@ -141,6 +144,13 @@ def generate_ifc_house_like_f3_candidates(
                 "reason": (
                     "Less model-like micro-texture, softer photographic depth and "
                     "tone only; building alpha/silhouette preserved."
+                ),
+            },
+            {
+                "candidateFamily": "appearance_only_candidate_5_aggressive_material_realism",
+                "reason": (
+                    "Category-specific roof/wall/window/door material cues with "
+                    "stronger roughness/specular shading only; building alpha/silhouette preserved."
                 ),
             },
         ],
@@ -293,6 +303,33 @@ def _build_natural_photo_finish_candidate(
     return _apply_natural_photo_finish(composed, time_of_day=time_of_day)
 
 
+def _build_aggressive_material_realism_candidate(
+    *,
+    no_background_path: Path,
+    with_background_path: Path,
+    time_of_day: str,
+    source_element_masks: dict[str, Path],
+) -> Image.Image:
+    building = Image.open(no_background_path).convert("RGBA")
+    background = Image.open(with_background_path).convert("RGB")
+    background = _tune_material_realism_background(background, time_of_day=time_of_day)
+    materialized = _build_material_realism_building(
+        building=building,
+        time_of_day=time_of_day,
+        source_element_masks=source_element_masks,
+    )
+    grounded_background = _apply_contact_shadow(
+        background=background,
+        building=materialized,
+        time_of_day=time_of_day,
+    )
+    composed = Image.alpha_composite(
+        grounded_background.convert("RGBA"),
+        materialized,
+    ).convert("RGB")
+    return _apply_material_realism_finish(composed, time_of_day=time_of_day)
+
+
 def _build_storey_and_color_preserving_building(
     *,
     building: Image.Image,
@@ -419,6 +456,13 @@ def _tune_natural_photo_background(background: Image.Image, *, time_of_day: str)
     tuned = ImageEnhance.Contrast(tuned).enhance(0.98 if time_of_day == "DAY" else 1.02)
     tuned = ImageEnhance.Brightness(tuned).enhance(1.00 if time_of_day == "DAY" else 0.90)
     return tuned.filter(ImageFilter.GaussianBlur(radius=1.2 if time_of_day == "DAY" else 0.8))
+
+
+def _tune_material_realism_background(background: Image.Image, *, time_of_day: str) -> Image.Image:
+    tuned = ImageEnhance.Color(background).enhance(0.88 if time_of_day == "DAY" else 0.78)
+    tuned = ImageEnhance.Contrast(tuned).enhance(1.00 if time_of_day == "DAY" else 1.06)
+    tuned = ImageEnhance.Brightness(tuned).enhance(0.98 if time_of_day == "DAY" else 0.88)
+    return tuned.filter(ImageFilter.GaussianBlur(radius=1.6 if time_of_day == "DAY" else 1.1))
 
 
 def _apply_contact_shadow(
@@ -583,6 +627,80 @@ def _apply_natural_photo_building_finish(
     return Image.merge("RGBA", (*softened.split(), rgba.getchannel("A")))
 
 
+def _build_material_realism_building(
+    *,
+    building: Image.Image,
+    time_of_day: str,
+    source_element_masks: dict[str, Path],
+) -> Image.Image:
+    rgba = building.convert("RGBA")
+    rgb = np.asarray(rgba.convert("RGB"), dtype=np.float32)
+    alpha = np.asarray(rgba.getchannel("A"), dtype=np.float32) / 255.0
+    wall_mask = _load_mask(source_element_masks.get("wall"), rgba.size)
+    roof_mask = _load_mask(source_element_masks.get("roof"), rgba.size)
+    window_mask = _load_mask(source_element_masks.get("window"), rgba.size)
+    door_mask = _load_mask(source_element_masks.get("door"), rgba.size)
+    floor_mask = _load_mask(source_element_masks.get("floor"), rgba.size)
+
+    split_y = _estimate_storey_split_y(wall_mask=wall_mask, window_mask=window_mask)
+    upper_wall_mask, lower_wall_mask = _split_wall_mask(wall_mask, split_y)
+    separator_mask = _build_separator_mask(wall_mask=wall_mask, split_y=split_y)
+
+    rgb = _push_toward_color(
+        rgb,
+        roof_mask,
+        target_rgb=(170.0, 62.0, 48.0) if time_of_day == "DAY" else (126.0, 54.0, 48.0),
+        strength=0.28 if time_of_day == "DAY" else 0.24,
+    )
+    rgb = _apply_roof_tile_material(
+        rgb,
+        roof_mask,
+        time_of_day=time_of_day,
+    )
+    rgb = _apply_wall_plaster_material(
+        rgb,
+        upper_wall_mask=upper_wall_mask,
+        lower_wall_mask=lower_wall_mask,
+        time_of_day=time_of_day,
+    )
+    rgb = _apply_window_glass_material(
+        rgb,
+        window_mask=window_mask,
+        time_of_day=time_of_day,
+    )
+    rgb = _apply_door_wood_material(
+        rgb,
+        door_mask=door_mask,
+        time_of_day=time_of_day,
+    )
+    rgb = _apply_mask_gain(
+        rgb,
+        separator_mask,
+        gain=(0.50, 0.50, 0.50) if time_of_day == "DAY" else (0.42, 0.42, 0.45),
+    )
+    rgb = _apply_ground_bounce(
+        rgb,
+        floor_mask=floor_mask,
+        wall_mask=lower_wall_mask,
+        time_of_day=time_of_day,
+    )
+    rgb = _apply_edge_ambient_occlusion(rgb, alpha=alpha, time_of_day=time_of_day)
+    rgb = _apply_local_clarity(
+        rgb,
+        alpha=alpha,
+        amount=0.10 if time_of_day == "DAY" else 0.08,
+    )
+    material = Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8), mode="RGB")
+    material = material.filter(
+        ImageFilter.UnsharpMask(
+            radius=1.4 if time_of_day == "DAY" else 1.2,
+            percent=100 if time_of_day == "DAY" else 80,
+            threshold=2,
+        )
+    )
+    return Image.merge("RGBA", (*material.split(), rgba.getchannel("A")))
+
+
 def _apply_mask_gain(
     rgb: np.ndarray,
     mask: np.ndarray,
@@ -677,6 +795,100 @@ def _apply_randomized_surface_variation(
     return np.clip(rgb * (1.0 - mask[..., None]) + target * mask[..., None], 0.0, 255.0)
 
 
+def _apply_roof_tile_material(
+    rgb: np.ndarray,
+    roof_mask: np.ndarray,
+    *,
+    time_of_day: str,
+) -> np.ndarray:
+    if roof_mask.max() <= 0.0:
+        return rgb
+    tile = _roof_tile_texture(roof_mask.shape)
+    highlight = np.clip(tile, 0.0, 1.0)
+    shadow = np.clip(-tile, 0.0, 1.0)
+    mask_3 = roof_mask[..., None]
+    out = rgb.copy()
+    out += highlight[..., None] * mask_3 * np.asarray(
+        (18.0, 10.0, 8.0) if time_of_day == "DAY" else (10.0, 6.0, 6.0),
+        dtype=np.float32,
+    )
+    out -= shadow[..., None] * mask_3 * np.asarray(
+        (16.0, 8.0, 7.0) if time_of_day == "DAY" else (12.0, 7.0, 6.0),
+        dtype=np.float32,
+    )
+    return np.clip(out, 0.0, 255.0)
+
+
+def _apply_wall_plaster_material(
+    rgb: np.ndarray,
+    *,
+    upper_wall_mask: np.ndarray,
+    lower_wall_mask: np.ndarray,
+    time_of_day: str,
+) -> np.ndarray:
+    wall_mask = np.maximum(upper_wall_mask, lower_wall_mask)
+    if wall_mask.max() <= 0.0:
+        return rgb
+    plaster = _plaster_texture(wall_mask.shape)
+    out = rgb.copy()
+    out = _apply_mask_gain(
+        out,
+        upper_wall_mask,
+        gain=(1.06, 1.05, 1.04) if time_of_day == "DAY" else (0.90, 0.90, 0.92),
+    )
+    out = _apply_mask_gain(
+        out,
+        lower_wall_mask,
+        gain=(0.92, 0.92, 0.91) if time_of_day == "DAY" else (0.77, 0.77, 0.79),
+    )
+    plaster_boost = plaster[..., None] * wall_mask[..., None] * (
+        10.0 if time_of_day == "DAY" else 7.0
+    )
+    return np.clip(out + plaster_boost, 0.0, 255.0)
+
+
+def _apply_window_glass_material(
+    rgb: np.ndarray,
+    *,
+    window_mask: np.ndarray,
+    time_of_day: str,
+) -> np.ndarray:
+    if window_mask.max() <= 0.0:
+        return rgb
+    out = _apply_window_reflection(rgb, window_mask, time_of_day=time_of_day)
+    glass = _glass_texture(window_mask.shape)
+    mask_3 = window_mask[..., None]
+    tint = np.asarray(
+        (0.0, 8.0, 20.0) if time_of_day == "DAY" else (2.0, 6.0, 18.0),
+        dtype=np.float32,
+    )
+    out += mask_3 * tint
+    out += glass[..., None] * mask_3 * np.asarray((6.0, 8.0, 10.0), dtype=np.float32)
+    return np.clip(out, 0.0, 255.0)
+
+
+def _apply_door_wood_material(
+    rgb: np.ndarray,
+    *,
+    door_mask: np.ndarray,
+    time_of_day: str,
+) -> np.ndarray:
+    if door_mask.max() <= 0.0:
+        return rgb
+    wood = _wood_grain_texture(door_mask.shape)
+    out = _push_toward_color(
+        rgb,
+        door_mask,
+        target_rgb=(152.0, 112.0, 78.0) if time_of_day == "DAY" else (118.0, 90.0, 70.0),
+        strength=0.22 if time_of_day == "DAY" else 0.18,
+    )
+    out += wood[..., None] * door_mask[..., None] * np.asarray(
+        (10.0, 7.0, 3.0) if time_of_day == "DAY" else (8.0, 6.0, 3.0),
+        dtype=np.float32,
+    )
+    return np.clip(out, 0.0, 255.0)
+
+
 def _apply_atmospheric_softness(
     rgb: np.ndarray,
     *,
@@ -759,6 +971,38 @@ def _randomized_texture(shape: tuple[int, int]) -> np.ndarray:
     return (base / 1.25).astype(np.float32)
 
 
+def _roof_tile_texture(shape: tuple[int, int]) -> np.ndarray:
+    height, width = shape
+    yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
+    rows = np.sin(yy * 0.85) * 0.45
+    cols = np.sin(xx * 0.28 + yy * 0.10) * 0.25
+    return (rows + cols).astype(np.float32)
+
+
+def _plaster_texture(shape: tuple[int, int]) -> np.ndarray:
+    height, width = shape
+    yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
+    coarse = np.sin(xx * 0.13 + yy * 0.07) * 0.45
+    fine = np.cos(xx * 0.47 - yy * 0.35) * 0.18
+    return ((coarse + fine) / 1.8).astype(np.float32)
+
+
+def _glass_texture(shape: tuple[int, int]) -> np.ndarray:
+    height, width = shape
+    yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
+    diag = np.sin((xx + yy) * 0.18) * 0.22
+    vertical = np.cos(xx * 0.33) * 0.12
+    return (diag + vertical).astype(np.float32)
+
+
+def _wood_grain_texture(shape: tuple[int, int]) -> np.ndarray:
+    height, width = shape
+    yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
+    grain = np.sin(yy * 0.52 + np.sin(xx * 0.08) * 2.4) * 0.38
+    streak = np.cos(yy * 0.11 - xx * 0.04) * 0.16
+    return (grain + streak).astype(np.float32)
+
+
 def _estimate_storey_split_y(
     *,
     wall_mask: np.ndarray,
@@ -824,6 +1068,17 @@ def _apply_natural_photo_finish(image: Image.Image, *, time_of_day: str) -> Imag
     arr = _apply_filmic_tone_curve(arr)
     arr = _apply_vignette(arr, strength=0.04 if time_of_day == "DAY" else 0.06)
     arr = _apply_sensor_grain(arr, amount=1.2 if time_of_day == "DAY" else 1.0)
+    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), mode="RGB")
+
+
+def _apply_material_realism_finish(image: Image.Image, *, time_of_day: str) -> Image.Image:
+    rgb = ImageEnhance.Color(image).enhance(0.96 if time_of_day == "DAY" else 0.92)
+    rgb = ImageEnhance.Contrast(rgb).enhance(1.08 if time_of_day == "DAY" else 1.10)
+    rgb = ImageEnhance.Sharpness(rgb).enhance(1.04 if time_of_day == "DAY" else 1.02)
+    arr = np.asarray(rgb, dtype=np.float32)
+    arr = _apply_filmic_tone_curve(arr)
+    arr = _apply_vignette(arr, strength=0.06 if time_of_day == "DAY" else 0.08)
+    arr = _apply_sensor_grain(arr, amount=1.8 if time_of_day == "DAY" else 1.5)
     return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), mode="RGB")
 
 
