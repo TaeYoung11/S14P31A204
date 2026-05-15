@@ -14,11 +14,13 @@ import { calculateSiteAreaM2, toPyeong } from '@/features/project/utils/siteGeom
 interface UseProjectSiteModalParams {
   isOpen: boolean
   projectId: string | null
+  isInteractionLocked?: boolean
 }
 
 export const useProjectSiteModal = ({
   isOpen,
   projectId,
+  isInteractionLocked = false,
 }: UseProjectSiteModalParams) => {
   const registerSite = useRegisterProjectSite()
   const sitePolygonQuery = useProjectSitePolygon(projectId, isOpen)
@@ -31,8 +33,21 @@ export const useProjectSiteModal = ({
   const [selectedAddress, setSelectedAddress] = useState('')
   const [searchError, setSearchError] = useState('')
   const [polygonCoords, setPolygonCoords] = useState<number[][] | null>(null)
+  const isOpenRef = useRef(isOpen)
+  const isInteractionLockedRef = useRef(isInteractionLocked)
+  const modalSessionRef = useRef(0)
+  const addressSearchRequestIdRef = useRef(0)
   const cachedPolygonCoords = sitePolygonQuery.data?.polygonRing ?? null
   const effectivePolygonCoords = polygonCoords ?? cachedPolygonCoords
+
+  useEffect(() => {
+    isOpenRef.current = isOpen
+    modalSessionRef.current += 1
+  }, [isOpen])
+
+  useEffect(() => {
+    isInteractionLockedRef.current = isInteractionLocked
+  }, [isInteractionLocked])
 
   const siteAreaM2 = useMemo(
     () => (effectivePolygonCoords ? calculateSiteAreaM2(effectivePolygonCoords) : null),
@@ -102,6 +117,10 @@ export const useProjectSiteModal = ({
    * - 좌표 변환 → 지도 이동 → 대지 등록 API 호출 → 폴리곤 좌표 저장
    */
   const handleAddressSelect = (data: Address) => {
+    if (!isOpenRef.current || isInteractionLockedRef.current) return
+    const sessionId = modalSessionRef.current
+    const requestId = addressSearchRequestIdRef.current + 1
+    addressSearchRequestIdRef.current = requestId
     setShowPostcode(false)
     setSearchError('')
 
@@ -124,6 +143,12 @@ export const useProjectSiteModal = ({
 
     const geocoder = new maps.services.Geocoder()
     geocoder.addressSearch(selectedAddressText, async (result, status) => {
+      if (
+        !isOpenRef.current
+        || isInteractionLockedRef.current
+        || sessionId !== modalSessionRef.current
+        || requestId !== addressSearchRequestIdRef.current
+      ) return
       if (status !== maps.services.Status.OK || result.length === 0) {
         setSearchError('주소 좌표를 가져오지 못했습니다.')
         return
@@ -137,7 +162,19 @@ export const useProjectSiteModal = ({
       updateMap(latitude, longitude)
 
       try {
+        if (
+          !isOpenRef.current
+          || isInteractionLockedRef.current
+          || sessionId !== modalSessionRef.current
+          || requestId !== addressSearchRequestIdRef.current
+        ) return
         const siteResult = await registerSite.mutateAsync({ projectId, latitude, longitude })
+        if (
+          !isOpenRef.current
+          || isInteractionLockedRef.current
+          || sessionId !== modalSessionRef.current
+          || requestId !== addressSearchRequestIdRef.current
+        ) return
         const outerRing = extractOuterRingFromCoordinates(siteResult.cadastralInfo?.polygon?.coordinates)
         if (outerRing) {
           saveProjectSitePolygon(projectId, outerRing, { source: 'api' })
