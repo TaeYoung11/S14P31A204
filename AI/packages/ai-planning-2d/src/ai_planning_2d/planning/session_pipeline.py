@@ -11,7 +11,7 @@ from ai_authoring import apply_ifc_edit_payload
 from ..command import CommandBatch, FloorNLPCommand, IFCContext
 from ..engine_request import build_engine_request, build_ifc_edit_payload
 from ..executor import apply_space_plan
-from ..ifc_extractor import extract_ifc_context
+from ..ifc_extractor import extract_ifc_context, resolve_space_type_from_name
 from ..toilet_demo import (
     UserIntent as ToiletDemoUserIntent,
     build_toilet_insertion_geometry_plan,
@@ -379,7 +379,7 @@ class LLM2DPipeline:
                 }
             return {
                 "status": "needs_clarification",
-                "summary": batch.clarification_question,
+                "summary": self._enrich_clarification(batch.clarification_question),
                 "command": command.model_dump(),
                 "command_batch": batch.model_dump(),
             }
@@ -567,6 +567,18 @@ class LLM2DPipeline:
             "policy_plan": policy_plan,
         }
 
+    def _enrich_clarification(self, question: str | None) -> str | None:
+        """방을 찾지 못한 경우 IFC에 실제로 있는 방 목록을 질문에 덧붙인다."""
+        if not question or self.ifc_context is None:
+            return question
+        spaces = self.ifc_context.get("spaces", [])
+        if not spaces:
+            return question
+        items = sorted(
+            {f"{s.get('floor', '?')}층 {s.get('name', '?')}({s.get('type', '?')})" for s in spaces}
+        )
+        return f"{question} 현재 등록된 방: {', '.join(items)}"
+
     def _build_floor_alternatives(self, command: FloorNLPCommand) -> list[dict[str, Any]]:
         """동일 이름 방이 복수 층에 있을 때 층 선택 alternatives를 생성한다."""
         if command.action not in {"remove_room", "resize_room"}:
@@ -575,8 +587,16 @@ class LLM2DPipeline:
         if not target_name or self.ifc_context is None:
             return []
         spaces = self.ifc_context.get("spaces", [])
-        matching = [s for s in spaces if s.get("name") == target_name]
+        target_type = resolve_space_type_from_name(target_name)
+        matching = [
+            s for s in spaces
+            if s.get("name") == target_name or (target_type and s.get("type") == target_type)
+        ]
         if len(matching) < 2:
+            return []
+        # 모든 매칭 공간이 같은 층이면 층으로 구분할 수 없다 → alternatives 미생성
+        floors = {s.get("floor", 0) for s in matching}
+        if len(floors) < 2:
             return []
         action_label = "삭제" if command.action == "remove_room" else "변경"
         alternatives = []

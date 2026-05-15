@@ -18,6 +18,7 @@ from ..add_room_placement import suggest_add_room_start_mm
 from ..toilet_demo import UserIntent as ToiletDemoUserIntent
 from ..toilet_demo import build_toilet_insertion_geometry_plan
 from ..validators.batch import validate_command_batch
+from ..ifc_extractor import resolve_space_type_from_name
 
 _MSG_CREATE_WALL_NO_VALIDATED_CANDIDATE = (
     "? ???? ??? ?? ?? ?? ??? ????. "
@@ -262,9 +263,11 @@ def to_ifc_commands(
         if not ifc_context or not target_name:
             return []
         spaces = ifc_context["spaces"]
+        target_type = resolve_space_type_from_name(target_name)
         matched = [
             space for space in spaces
-            if space["name"] == target_name and space["id"]
+            if (space["name"] == target_name or (target_type and space.get("type") == target_type))
+            and space["id"]
         ]
         # target_floor가 있으면 같은 층의 공간만 남긴다.
         if command.target_floor is not None:
