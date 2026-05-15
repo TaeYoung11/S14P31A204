@@ -331,8 +331,8 @@ def inject_ifc_color_prompt(prompt: str, color_prompt: str) -> str:
     return f"{clean_color_prompt}{separator}{clean_prompt}"
 
 
-IFC_SHAPE_LOCK_PROMPT = "Preserve exact IFC silhouette, windows, and door."
-IFC_SHAPE_LOCK_NEGATIVE_PROMPT = "wrong roof, misplaced windows, changed silhouette"
+IFC_SHAPE_LOCK_PROMPT = "Shape."
+IFC_SHAPE_LOCK_NEGATIVE_PROMPT = ""
 
 
 def inject_ifc_shape_lock_prompt(
