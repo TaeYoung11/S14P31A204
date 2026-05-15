@@ -180,6 +180,21 @@ def nearest_prompt_color_name(
     normalized_rgb = IfcColorCandidate(source="fallback", rgb=rgb).rgb
     if normalized_rgb is None:  # pragma: no cover - constructor guarantees this.
         raise ValueError("RGB is required to resolve a prompt color name.")
+    red, green, blue = normalized_rgb
+    channel_span = max(normalized_rgb) - min(normalized_rgb)
+    if channel_span <= 0.08 and max(normalized_rgb) >= 0.82:
+        return "white"
+    if channel_span <= 0.08:
+        return "gray"
+    if (
+        red >= 0.68
+        and green >= 0.28
+        and blue >= 0.40
+        and red > green
+        and red - green >= 0.16
+        and abs(green - blue) <= 0.12
+    ):
+        return "red"
     return min(
         _PROMPT_COLOR_PALETTE,
         key=lambda name: _rgb_distance_squared(normalized_rgb, _PROMPT_COLOR_PALETTE[name]),
@@ -245,7 +260,9 @@ def ifc_category_color_prompt_cues(
         cues = tuple("white" if cue == "beige" else cue for cue in cues)
     if category == "DOOR":
         cues = tuple(
-            f"{cue} wood" if cue in {"brown", "tan"} else cue
+            f"{_normalize_door_color_cue(cue)} wood"
+            if _normalize_door_color_cue(cue) in {"brown", "tan"}
+            else _normalize_door_color_cue(cue)
             for cue in cues
         )
     return cues
@@ -1192,6 +1209,13 @@ def _rgb_distance_squared(
     )
 
 
+def _normalize_door_color_cue(cue: str) -> str:
+    """Keep door cues in wood-like families instead of roof-like red accents."""
+    if cue == "red":
+        return "brown"
+    return cue
+
+
 def _category_color_candidate_priority(
     category: IfcSemanticCategory,
     candidate: IfcColorCandidate,
@@ -1202,6 +1226,8 @@ def _category_color_candidate_priority(
         if value
     )
     cue = ifc_color_prompt_cue(candidate)
+    if category == "ROOF" and candidate.source == "surface_style" and cue == "red":
+        return (0, _IFC_COLOR_SOURCE_PRIORITY[candidate.source])
     if category == "ROOF" and ("roof" in semantic_name or "지붕" in semantic_name):
         return (0, _IFC_COLOR_SOURCE_PRIORITY[candidate.source])
     if category == "WALL" and cue in {"gray", "white"}:

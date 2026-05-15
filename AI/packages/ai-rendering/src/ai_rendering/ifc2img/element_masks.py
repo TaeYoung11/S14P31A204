@@ -14,9 +14,11 @@ from PIL import Image
 
 from .exceptions import IFCRenderError
 from .semantics import (
+    IfcColorCandidate,
     IfcColorSummary,
     IfcSemanticCategory,
     SUPPORTED_SEMANTIC_CATEGORIES,
+    ifc_category_color_prompt_cues,
     nearest_prompt_color_name,
     select_ifc_category_color_candidate,
 )
@@ -602,7 +604,7 @@ def evaluate_ifc_quantitative_color(
             else None
         )
         target_family = (
-            nearest_prompt_color_name(target_rgb)
+            _target_color_family_for_category(category, target_rgb)
             if target_rgb is not None
             else None
         )
@@ -628,6 +630,19 @@ def evaluate_ifc_quantitative_color(
         shape_collapse_notes=shape_collapse_notes,
         background_regression_notes=background_regression_notes,
     )
+
+
+def _target_color_family_for_category(
+    category: IfcSemanticCategory,
+    target_rgb: tuple[float, float, float],
+) -> str:
+    cues = ifc_category_color_prompt_cues(
+        category,
+        [IfcColorCandidate(source="fallback", rgb=target_rgb)],
+    )
+    if cues:
+        return cues[0]
+    return nearest_prompt_color_name(target_rgb)
 
 
 def compare_ifc_color_family_consistency(
