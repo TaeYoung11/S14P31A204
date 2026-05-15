@@ -108,7 +108,9 @@ export function useBubbleDbSaveController<TFloorMeta>({
       bubbleDbDirtyRef.current = changedDuringSave
       shouldTriggerFollowUpSave = changedDuringSave
       writeSavedRecovery(projectId, snapshot)
-      clearLocalDraft(projectId)
+      if (!changedDuringSave) {
+        clearLocalDraft(projectId)
+      }
       callbacks?.onSaveSuccess?.({
         saved,
         snapshot,
