@@ -600,8 +600,12 @@ class LLM2DPipeline:
             return []
         action_label = "삭제" if command.action == "remove_room" else "변경"
         alternatives = []
+        seen_floors: set[int] = set()
         for space in sorted(matching, key=lambda s: s.get("floor", 0)):
             floor = space.get("floor", 0)
+            if floor in seen_floors:
+                continue
+            seen_floors.add(floor)
             alternatives.append(
                 {
                     "alternative_id": (
