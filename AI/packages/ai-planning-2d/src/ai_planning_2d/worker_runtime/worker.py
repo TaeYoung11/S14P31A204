@@ -19,6 +19,7 @@ from ai_common.errors import (
     WorkerError,
 )
 from ai_common.storage.paths import (
+    clarification_detail_key,
     error_detail_key,
     pad_step,
     planner_2d_command_key,
@@ -35,6 +36,8 @@ from ..ifc_extractor import (
     extract_ifc_context,
 )
 from ..schemas import (
+    ClarificationAlternative,
+    ClarificationArtifact,
     ErrorDetailArtifact,
     PreviewResultArtifact,
     TwoDCommandArtifact,
@@ -260,6 +263,29 @@ class TwoDLlmWorker(BaseWorker):
                 output=EventOutputRef.model_validate({"storageUrl": uploaded_output_url}),
                 progress=1.0,
             )
+        except ClarificationRequiredError as exc:
+            if exc.preview_data is not None:
+                try:
+                    inherited_bucket = _resolve_bucket(
+                        command,
+                        default_bucket=self.s3_client.default_bucket,
+                    )
+                    clarification_url = _upload_clarification_artifact(
+                        s3_client=self.s3_client,
+                        preview=exc.preview_data,
+                        project_id=command.projectId,
+                        job_id=command.jobId,
+                        step_no=command.stepNo,
+                        clarification_request_id=exc.clarification_request_id,
+                        bucket=inherited_bucket,
+                    )
+                    exc.detail_storage_url = clarification_url
+                except Exception:
+                    _logger.warning(
+                        "clarification_artifact_upload_failed",
+                        extra={"job_id": command.jobId},
+                    )
+            raise
         except WorkerError as error:
             detail_url = _write_error_detail_best_effort(
                 self.s3_client,
@@ -286,6 +312,46 @@ class TwoDLlmWorker(BaseWorker):
             if detail_url is not None:
                 error.detail_storage_url = detail_url
             raise error from exc
+
+
+def _upload_clarification_artifact(
+    *,
+    s3_client: StorageClient,
+    preview: dict[str, Any],
+    project_id: str,
+    job_id: str,
+    step_no: int,
+    clarification_request_id: str,
+    bucket: str | None,
+) -> str:
+    status = str(preview.get("status", "needs_clarification"))
+    kind = "alternatives" if status == "alternatives" else "needs_clarification"
+    raw_alternatives = preview.get("alternatives") or []
+    alternatives = [
+        ClarificationAlternative(
+            alternative_id=str(a.get("alternative_id", "")),
+            title=str(a.get("title", "")),
+            description=str(a.get("description", "")),
+            fill=dict(a.get("fill") or {}),
+            affected_entities=list(a.get("affected_entities") or []),
+            warnings=list(a.get("warnings") or []),
+            metrics=list(a.get("metrics") or []),
+        )
+        for a in raw_alternatives
+        if isinstance(a, dict)
+    ]
+    artifact = ClarificationArtifact(
+        kind=kind,
+        question=str(preview.get("summary") or "clarification required"),
+        alternatives=alternatives,
+        parsed_command_preview=preview.get("command"),
+        policy_plan=preview.get("policy_plan"),
+        job_id=job_id,
+        step_no=step_no,
+        clarification_request_id=clarification_request_id,
+    )
+    key = clarification_detail_key(project_id, job_id, step_no)
+    return s3_client.write_json(key, artifact.model_dump(mode="json"), bucket=bucket)
 
 
 def build_two_d_llm_worker(
@@ -352,6 +418,7 @@ async def _run_pipeline(
             code="CLARIFICATION_REQUIRED",
             message=str(preview.get("summary") or "clarification required"),
             clarification_request_id=clarification_request_id,
+            preview_data=preview,
         )
     if status in {"unsupported", "failed_quality_check"}:
         raise NonRetryableWorkerError(
