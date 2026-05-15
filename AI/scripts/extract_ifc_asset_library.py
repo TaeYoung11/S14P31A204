@@ -4,10 +4,11 @@ import argparse
 import json
 import re
 import shutil
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import ifcopenshell
 import ifcopenshell.api.aggregate
@@ -20,6 +21,7 @@ import ifcopenshell.geom
 import ifcopenshell.guid
 import ifcopenshell.util.element
 import ifcopenshell.util.placement
+import ifcopenshell.util.unit
 import numpy as np
 
 
@@ -48,8 +50,13 @@ def _slugify(value: str) -> str:
     return lowered.strip("-") or "asset"
 
 
+def _clean_text(value: object) -> str:
+    text = str(value or "")
+    return "".join(char for char in text if unicodedata.category(char) != "Cc")
+
+
 def _element_suffix(element: ifcopenshell.entity_instance) -> str:
-    name = str(getattr(element, "Name", "") or "")
+    name = _clean_text(getattr(element, "Name", ""))
     match = re.search(r"(\d+(?:\.\d+)?)$", name)
     if match:
         return match.group(1).replace(".", "-")
@@ -92,6 +99,33 @@ def _children_recursive(
     return children
 
 
+def _filled_opening_context(
+    element: ifcopenshell.entity_instance,
+) -> list[ifcopenshell.entity_instance]:
+    opening_context: list[ifcopenshell.entity_instance] = []
+    for rel in getattr(element, "FillsVoids", []) or []:
+        if not rel.is_a("IfcRelFillsElement"):
+            continue
+        opening = getattr(rel, "RelatingOpeningElement", None)
+        if opening is not None:
+            opening_context.append(opening)
+    return opening_context
+
+
+def _unique_entities(
+    entities: list[ifcopenshell.entity_instance],
+) -> list[ifcopenshell.entity_instance]:
+    seen: set[int] = set()
+    unique: list[ifcopenshell.entity_instance] = []
+    for entity in entities:
+        entity_id = entity.id()
+        if entity_id in seen:
+            continue
+        seen.add(entity_id)
+        unique.append(entity)
+    return unique
+
+
 def _is_aggregated_by_asset(element: ifcopenshell.entity_instance) -> bool:
     for inverse in element.wrapped_data.file.get_inverse(element):
         if not inverse.is_a("IfcRelAggregates"):
@@ -112,14 +146,16 @@ def build_asset_groups(model: ifcopenshell.file) -> list[AssetGroup]:
                 continue
             if ifc_type == "IfcSlab" and predefined == "ROOF":
                 continue
-            members = [element, *_children_recursive(element)]
+            members = _unique_entities(
+                [element, *_children_recursive(element), *_filled_opening_context(element)]
+            )
             if _bbox_for_products(members) is None:
                 continue
             names = tuple(
-                str(getattr(member, "Name", "") or member.is_a())
+                _clean_text(getattr(member, "Name", "") or member.is_a())
                 for member in members
             )
-            global_ids = tuple(str(getattr(member, "GlobalId", "")) for member in members)
+            global_ids = tuple(_clean_text(getattr(member, "GlobalId", "")) for member in members)
             asset_id = _asset_id(element)
             root_global_id = str(getattr(element, "GlobalId", ""))
             if asset_id in seen_ids:
@@ -128,7 +164,7 @@ def build_asset_groups(model: ifcopenshell.file) -> list[AssetGroup]:
             groups.append(
                 AssetGroup(
                     id=asset_id,
-                    label=str(getattr(element, "Name", "") or asset_id),
+                    label=_clean_text(getattr(element, "Name", "") or asset_id),
                     category=_asset_category(element),
                     source_element_names=names,
                     source_global_ids=global_ids,
@@ -147,7 +183,7 @@ def _bbox_for_products(
     zs: list[float] = []
     for product in products:
         try:
-            shape = ifcopenshell.geom.create_shape(settings, product)
+            shape = cast(Any, ifcopenshell.geom.create_shape(settings, product))
         except Exception:
             continue
         verts = shape.geometry.verts
@@ -172,7 +208,7 @@ def _bbox_for_products(
 
 def _asset_material_names(model: ifcopenshell.file) -> list[str]:
     names = {
-        str(getattr(material, "Name", "") or "").strip()
+        _clean_text(getattr(material, "Name", "")).strip()
         for material in model.by_type("IfcMaterial")
     }
     return sorted(name for name in names if name)
@@ -185,7 +221,8 @@ def _asset_colors(model: ifcopenshell.file) -> list[dict[str, float | str | None
         red = round(float(color.Red), 6)
         green = round(float(color.Green), 6)
         blue = round(float(color.Blue), 6)
-        name = str(getattr(color, "Name", "") or "") or None
+        name_text = _clean_text(getattr(color, "Name", ""))
+        name = name_text or None
         key = (name, red, green, blue)
         if key in seen:
             continue
@@ -240,20 +277,48 @@ def _create_spatial_tree(
 def _copy_products(
     source_products: list[ifcopenshell.entity_instance],
     target_model: ifcopenshell.file,
-) -> tuple[list[ifcopenshell.entity_instance], dict[int, ifcopenshell.entity_instance]]:
+) -> tuple[
+    list[ifcopenshell.entity_instance],
+    dict[int, ifcopenshell.entity_instance],
+    dict[int, str],
+]:
     copied_entities: dict[int, ifcopenshell.entity_instance] = {}
     copied_products: list[ifcopenshell.entity_instance] = []
+    source_global_ids_by_copy_id: dict[int, str] = {}
     for source_product in source_products:
         copied = ifcopenshell.util.element.copy_deep(
             target_model,
             source_product,
             copied_entities=copied_entities,
         )
-        source_global_id = str(getattr(source_product, "GlobalId", "") or "")
-        if source_global_id:
-            copied.GlobalId = source_global_id
+        source_global_id = _clean_text(getattr(source_product, "GlobalId", ""))
+        copied.GlobalId = ifcopenshell.guid.new()
+        source_global_ids_by_copy_id[copied.id()] = source_global_id
         copied_products.append(copied)
-    return copied_products, copied_entities
+    return copied_products, copied_entities, source_global_ids_by_copy_id
+
+
+def _has_material_relation(
+    product: ifcopenshell.entity_instance,
+    material: ifcopenshell.entity_instance,
+) -> bool:
+    for rel in getattr(product, "HasAssociations", []) or []:
+        if rel.is_a("IfcRelAssociatesMaterial") and rel.RelatingMaterial == material:
+            return True
+    return False
+
+
+def _has_property_relation(
+    product: ifcopenshell.entity_instance,
+    property_definition: ifcopenshell.entity_instance,
+) -> bool:
+    for rel in getattr(product, "IsDefinedBy", []) or []:
+        if (
+            rel.is_a("IfcRelDefinesByProperties")
+            and rel.RelatingPropertyDefinition == property_definition
+        ):
+            return True
+    return False
 
 
 def _copy_inverse_asset_metadata(
@@ -281,13 +346,21 @@ def _copy_inverse_asset_metadata(
             rel.RelatingMaterial,
             copied_entities=copied_entities,
         )
+        target_products = [copied_by_source_id[product.id()] for product in related]
+        target_products = [
+            product
+            for product in target_products
+            if not _has_material_relation(product, copied_material)
+        ]
+        if not target_products:
+            continue
         target_model.create_entity(
             "IfcRelAssociatesMaterial",
             GlobalId=ifcopenshell.guid.new(),
             OwnerHistory=None,
             Name=getattr(rel, "Name", None),
             Description=getattr(rel, "Description", None),
-            RelatedObjects=[copied_by_source_id[product.id()] for product in related],
+            RelatedObjects=target_products,
             RelatingMaterial=copied_material,
         )
 
@@ -300,13 +373,21 @@ def _copy_inverse_asset_metadata(
             rel.RelatingPropertyDefinition,
             copied_entities=copied_entities,
         )
+        target_products = [copied_by_source_id[product.id()] for product in related]
+        target_products = [
+            product
+            for product in target_products
+            if not _has_property_relation(product, copied_property)
+        ]
+        if not target_products:
+            continue
         target_model.create_entity(
             "IfcRelDefinesByProperties",
             GlobalId=ifcopenshell.guid.new(),
             OwnerHistory=None,
             Name=getattr(rel, "Name", None),
             Description=getattr(rel, "Description", None),
-            RelatedObjects=[copied_by_source_id[product.id()] for product in related],
+            RelatedObjects=target_products,
             RelatingPropertyDefinition=copied_property,
         )
 
@@ -314,10 +395,33 @@ def _copy_inverse_asset_metadata(
         item = getattr(styled_item, "Item", None)
         if item is None or item.id() not in copied_entities:
             continue
+        if styled_item.id() in copied_entities:
+            continue
         ifcopenshell.util.element.copy_deep(
             target_model,
             styled_item,
             copied_entities=copied_entities,
+        )
+
+    for rel in source_model.by_type("IfcRelFillsElement"):
+        opening = getattr(rel, "RelatingOpeningElement", None)
+        filling = getattr(rel, "RelatedBuildingElement", None)
+        if opening is None or filling is None:
+            continue
+        copied_opening = copied_entities.get(opening.id())
+        copied_filling = copied_entities.get(filling.id())
+        if copied_opening is None or copied_filling is None:
+            continue
+        if getattr(copied_filling, "FillsVoids", None):
+            continue
+        target_model.create_entity(
+            "IfcRelFillsElement",
+            GlobalId=ifcopenshell.guid.new(),
+            OwnerHistory=None,
+            Name=getattr(rel, "Name", None),
+            Description=getattr(rel, "Description", None),
+            RelatingOpeningElement=copied_opening,
+            RelatedBuildingElement=copied_filling,
         )
 
 
@@ -325,7 +429,11 @@ def _normalize_to_origin(
     products: list[ifcopenshell.entity_instance],
     origin_m: list[float],
 ) -> None:
-    offset = np.array(origin_m, dtype=float) * 1000.0
+    if not products:
+        return
+    model = products[0].wrapped_data.file
+    unit_scale = ifcopenshell.util.unit.calculate_unit_scale(model)
+    offset = np.array(origin_m, dtype=float)
     for product in products:
         placement = getattr(product, "ObjectPlacement", None)
         if placement is None:
@@ -334,14 +442,48 @@ def _normalize_to_origin(
             ifcopenshell.util.placement.get_local_placement(placement),
             dtype=float,
         )
+        matrix[0:3, 3] = matrix[0:3, 3] * unit_scale
         matrix[0:3, 3] = matrix[0:3, 3] - offset
         ifcopenshell.api.geometry.edit_object_placement(
             product.wrapped_data.file,
             product=product,
             matrix=matrix,
-            is_si=False,
+            is_si=True,
             should_transform_children=False,
         )
+
+
+def _asset_integrity_report(model: ifcopenshell.file) -> dict[str, int]:
+    material_keys: set[tuple[int, int]] = set()
+    duplicate_material_relations = 0
+    for rel in model.by_type("IfcRelAssociatesMaterial"):
+        material_id = rel.RelatingMaterial.id()
+        for product in rel.RelatedObjects:
+            key = (product.id(), material_id)
+            if key in material_keys:
+                duplicate_material_relations += 1
+            material_keys.add(key)
+
+    property_keys: set[tuple[int, int]] = set()
+    duplicate_property_relations = 0
+    for rel in model.by_type("IfcRelDefinesByProperties"):
+        property_id = rel.RelatingPropertyDefinition.id()
+        for product in rel.RelatedObjects:
+            key = (product.id(), property_id)
+            if key in property_keys:
+                duplicate_property_relations += 1
+            property_keys.add(key)
+
+    orphan_styled_items = sum(
+        1
+        for styled_item in model.by_type("IfcStyledItem")
+        if getattr(styled_item, "Item", None) is None
+    )
+    return {
+        "duplicateMaterialRelations": duplicate_material_relations,
+        "duplicatePropertyRelations": duplicate_property_relations,
+        "orphanStyledItems": orphan_styled_items,
+    }
 
 
 def _add_library_pset(
@@ -349,6 +491,7 @@ def _add_library_pset(
     products: list[ifcopenshell.entity_instance],
     group: AssetGroup,
     bbox: dict[str, list[float]] | None,
+    source_global_ids_by_copy_id: dict[int, str],
 ) -> None:
     for index, product in enumerate(products):
         properties: dict[str, str | bool | float] = {
@@ -356,10 +499,12 @@ def _add_library_pset(
             "AssetGroup": group.id,
             "AssetRole": f"member-{index}",
             "Category": group.category,
-            "SourceElementName": str(getattr(product, "Name", "") or product.is_a()),
-            "SourceGlobalId": str(getattr(product, "GlobalId", "")),
+            "SourceElementName": _clean_text(getattr(product, "Name", "") or product.is_a()),
+            "SourceGlobalId": source_global_ids_by_copy_id.get(product.id(), ""),
             "Reusable": True,
         }
+        if product.is_a("IfcOpeningElement"):
+            properties["OpeningImportPolicy"] = "recreate_host_void_on_import"
         if bbox is not None:
             properties.update(
                 {
@@ -390,7 +535,10 @@ def extract_asset_ifc(
 
     asset_model = ifcopenshell.file(schema=source_model.schema)
     storey = _create_spatial_tree(asset_model, group)
-    copied_products, copied_entities = _copy_products(kept_source_products, asset_model)
+    copied_products, copied_entities, source_global_ids_by_copy_id = _copy_products(
+        kept_source_products,
+        asset_model,
+    )
     _copy_inverse_asset_metadata(
         source_model,
         asset_model,
@@ -407,9 +555,16 @@ def extract_asset_ifc(
     if bbox_before is not None:
         _normalize_to_origin(copied_products, bbox_before["min"])
     bbox_after = _bbox_for_products(copied_products)
-    _add_library_pset(asset_model, copied_products, group, bbox_after or bbox_before)
+    _add_library_pset(
+        asset_model,
+        copied_products,
+        group,
+        bbox_after or bbox_before,
+        source_global_ids_by_copy_id,
+    )
     material_names = _asset_material_names(asset_model)
     colors = _asset_colors(asset_model)
+    integrity = _asset_integrity_report(asset_model)
     asset_model.write(str(output_ifc))
     return {
         "bboxBefore": bbox_before,
@@ -417,6 +572,7 @@ def extract_asset_ifc(
         "productCount": len(copied_products),
         "materials": material_names,
         "colors": colors,
+        "integrity": integrity,
     }
 
 
@@ -437,7 +593,33 @@ def write_asset_library(
     manifest_assets: list[dict[str, Any]] = []
     for group in groups:
         asset_ifc = assets_dir / f"{group.id}.ifc"
-        extraction = extract_asset_ifc(source_ifc, group, asset_ifc)
+        try:
+            extraction = extract_asset_ifc(source_ifc, group, asset_ifc)
+        except Exception as exc:
+            manifest_assets.append(
+                {
+                    "id": group.id,
+                    "label": group.label,
+                    "category": group.category,
+                    "sourceFile": source_ifc.name,
+                    "assetIfc": f"assets/{asset_ifc.name}",
+                    "assetFrag": None,
+                    "fragStatus": "failed",
+                    "sourceElementNames": list(group.source_element_names),
+                    "sourceGlobalIds": list(group.source_global_ids),
+                    "unit": "mm",
+                    "placementMode": "fragment-model",
+                    "editable": False,
+                    "bbox": None,
+                    "originalPlacement": None,
+                    "productCount": 0,
+                    "materials": [],
+                    "colors": [],
+                    "integrity": None,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            continue
         manifest_assets.append(
             {
                 "id": group.id,
@@ -457,12 +639,13 @@ def write_asset_library(
                 "productCount": extraction["productCount"],
                 "materials": extraction["materials"],
                 "colors": extraction["colors"],
+                "integrity": extraction["integrity"],
             }
         )
 
     manifest = {
         "schemaVersion": "batang.ifcAssetLibrary.v1",
-        "sourceFile": str(source_ifc),
+        "sourceFile": source_ifc.name,
         "generatedAt": datetime.now().isoformat(timespec="seconds"),
         "unit": "mm",
         "assetRuntime": "ifc-first-frag-pending",
@@ -496,6 +679,10 @@ def main() -> None:
     if not source_ifc.exists():
         raise FileNotFoundError(source_ifc)
     if args.output is None:
+        if not DEFAULT_OUTPUT_ROOT.exists():
+            raise FileNotFoundError(
+                f"Output root directory does not exist: {DEFAULT_OUTPUT_ROOT}"
+            )
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = DEFAULT_OUTPUT_ROOT / f"{source_ifc.stem}_ifc_library_{timestamp}"
     else:

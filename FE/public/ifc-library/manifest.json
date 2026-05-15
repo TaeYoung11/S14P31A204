@@ -1,7 +1,7 @@
 {
   "schemaVersion": "batang.ifcAssetLibrary.v1",
-  "sourceFile": "C:\\Users\\SSAFY\\Downloads\\sample_final.ifc",
-  "generatedAt": "2026-05-14T22:38:07",
+  "sourceFile": "sample_final.ifc",
+  "generatedAt": "2026-05-15T08:53:14",
   "unit": "mm",
   "assetRuntime": "ifc-first-frag-pending",
   "assets": [
@@ -14,10 +14,12 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "단일-플러시:0915 x 2134mm:152970"
+        "단일-플러시:0915 x 2134mm:152970",
+        "단일-플러시:0915 x 2134mm:152970:1"
       ],
       "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E24c3"
+        "2znubWhPDD4wn7Fg4E24c3",
+        "0cH31EpfMxb9mvVVQ5Q6tD"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
@@ -66,7 +68,7 @@
           2500.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "문 - 패널",
         "문 - 프레임"
@@ -78,7 +80,12 @@
           "g": 0.403922,
           "b": 0.266667
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "door-182597",
@@ -89,23 +96,25 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "단일-플러시:0915 x 2134mm:182597"
+        "단일-플러시:0915 x 2134mm:182597",
+        "단일-플러시:0915 x 2134mm:182597:1"
       ],
       "sourceGlobalIds": [
-        "2QLDczdKX9Fg7Ur4rrIUVf"
+        "2QLDczdKX9Fg7Ur4rrIUVf",
+        "2eacg2mDMZr5O8vWsbhect"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
       "editable": true,
       "bbox": {
         "min": [
-          0.0,
-          2.220446049250313e-16,
+          -2.7755575615628914e-17,
+          -1.1102230246251565e-16,
           0.0
         ],
         "max": [
           0.25000000000000555,
-          1.0670000000000002,
+          1.0669999999999997,
           2.21
         ],
         "sizeMm": [
@@ -114,8 +123,8 @@
           2210.0
         ],
         "originMm": [
-          0.0,
-          0.0,
+          -0.0,
+          -0.0,
           0.0
         ]
       },
@@ -141,7 +150,7 @@
           2500.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "문 - 패널",
         "문 - 프레임"
@@ -153,7 +162,12 @@
           "g": 0.403922,
           "b": 0.266667
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "door-143518",
@@ -164,23 +178,25 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "단일-플러시:0915 x 2134mm:143518"
+        "단일-플러시:0915 x 2134mm:143518",
+        "단일-플러시:0915 x 2134mm:143518:1"
       ],
       "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E22oN"
+        "2znubWhPDD4wn7Fg4E22oN",
+        "0SG$ZStsGs3laYSEtfkkWP"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
       "editable": true,
       "bbox": {
         "min": [
-          0.0,
-          3.3306690738754696e-16,
+          3.5388358909926865e-16,
+          1.1102230246251565e-16,
           0.0
         ],
         "max": [
-          0.24999999999999445,
-          1.0670000000000002,
+          0.2499999999999948,
+          1.067,
           2.21
         ],
         "sizeMm": [
@@ -216,7 +232,7 @@
           0.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "문 - 패널",
         "문 - 프레임"
@@ -228,7 +244,12 @@
           "g": 0.403922,
           "b": 0.266667
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "door-143060",
@@ -239,23 +260,25 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "단일-플러시:0915 x 2134mm:143060"
+        "단일-플러시:0915 x 2134mm:143060",
+        "단일-플러시:0915 x 2134mm:143060:1"
       ],
       "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E23BT"
+        "2znubWhPDD4wn7Fg4E23BT",
+        "0WxHRosqtkZrVaZ2xTNzo_"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
       "editable": true,
       "bbox": {
         "min": [
-          0.0,
-          3.3306690738754696e-16,
+          3.5388358909926865e-16,
+          9.992007221626409e-16,
           0.0
         ],
         "max": [
-          0.24999999999999445,
-          1.0670000000000002,
+          0.2499999999999948,
+          1.0670000000000008,
           2.21
         ],
         "sizeMm": [
@@ -291,7 +314,7 @@
           0.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "문 - 패널",
         "문 - 프레임"
@@ -303,7 +326,12 @@
           "g": 0.403922,
           "b": 0.266667
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "door-144293",
@@ -314,10 +342,12 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "단일-플러시:0915 x 2134mm:144293"
+        "단일-플러시:0915 x 2134mm:144293",
+        "단일-플러시:0915 x 2134mm:144293:1"
       ],
       "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E22_i"
+        "2znubWhPDD4wn7Fg4E22_i",
+        "0gFDGh1kd6qIeO6VMVsF$N"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
@@ -325,12 +355,12 @@
       "bbox": {
         "min": [
           -5.551115123125783e-16,
-          1.8318679906315083e-15,
+          0.0,
           0.0
         ],
         "max": [
           1.0669999999999993,
-          0.2500000000000074,
+          0.25000000000000555,
           2.21
         ],
         "sizeMm": [
@@ -366,7 +396,7 @@
           0.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "문 - 패널",
         "문 - 프레임"
@@ -378,7 +408,12 @@
           "g": 0.403922,
           "b": 0.266667
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "window-189252",
@@ -389,23 +424,25 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 0610mm:189252"
+        "고정됨:0406 x 0610mm:189252",
+        "고정됨:0406 x 0610mm:189252:1"
       ],
       "sourceGlobalIds": [
-        "3gwEtOFi5AUg4WULkh2o3a"
+        "3gwEtOFi5AUg4WULkh2o3a",
+        "1$Xwu99c$FuejYicDrCnOA"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
       "editable": true,
       "bbox": {
         "min": [
-          4.440892098500626e-16,
-          1.6514567491299204e-15,
-          4.440892098500626e-16
+          2.220446049250313e-16,
+          2.040034807748725e-15,
+          2.220446049250313e-16
         ],
         "max": [
-          1.9000000000000006,
-          0.2000000000000291,
+          1.9000000000000004,
+          0.2000000000000295,
           2.0000000000000004
         ],
         "sizeMm": [
@@ -441,7 +478,7 @@
           3020.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "섀시",
         "유리"
@@ -459,7 +496,12 @@
           "g": 0.501961,
           "b": 0.752941
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "window-189424",
@@ -470,10 +512,12 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 0610mm:189424"
+        "고정됨:0406 x 0610mm:189424",
+        "고정됨:0406 x 0610mm:189424:1"
       ],
       "sourceGlobalIds": [
-        "3gwEtOFi5AUg4WULkh2o1G"
+        "3gwEtOFi5AUg4WULkh2o1G",
+        "2orlbzWXg5oiBKe1cfZ2x5"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
@@ -481,12 +525,12 @@
       "bbox": {
         "min": [
           -2.220446049250313e-16,
-          1.6514567491299204e-15,
-          4.440892098500626e-16
+          2.040034807748725e-15,
+          2.220446049250313e-16
         ],
         "max": [
           1.9,
-          0.2000000000000291,
+          0.2000000000000295,
           2.0000000000000004
         ],
         "sizeMm": [
@@ -522,7 +566,7 @@
           3020.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "섀시",
         "유리"
@@ -540,7 +584,12 @@
           "g": 0.501961,
           "b": 0.752941
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "window-148309",
@@ -551,10 +600,12 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 1220mm:148309"
+        "고정됨:0406 x 1220mm:148309",
+        "고정됨:0406 x 1220mm:148309:1"
       ],
       "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25zS"
+        "2znubWhPDD4wn7Fg4E25zS",
+        "3OLhglTyvN1GyFV3xjq2L5"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
@@ -562,12 +613,12 @@
       "bbox": {
         "min": [
           0.0,
-          8.881784197001252e-16,
+          5.551115123125783e-16,
           1.1102230246251565e-16
         ],
         "max": [
           0.20000000000002743,
-          0.4060000000000009,
+          0.4060000000000006,
           1.2200000000000002
         ],
         "sizeMm": [
@@ -603,7 +654,7 @@
           915.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "섀시",
         "유리"
@@ -621,7 +672,12 @@
           "g": 0.698039,
           "b": 0.494118
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "window-189190",
@@ -632,10 +688,12 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 0610mm:189190"
+        "고정됨:0406 x 0610mm:189190",
+        "고정됨:0406 x 0610mm:189190:1"
       ],
       "sourceGlobalIds": [
-        "3gwEtOFi5AUg4WULkh2o2c"
+        "3gwEtOFi5AUg4WULkh2o2c",
+        "0vet7fzY3XsI0qgtbavvS4"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
@@ -669,7 +727,7 @@
           3.415
         ],
         "max": [
-          -0.9884848517218062,
+          -0.9884848517218061,
           -2.502109262171641,
           5.415
         ],
@@ -684,7 +742,7 @@
           3415.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "섀시",
         "유리"
@@ -702,7 +760,12 @@
           "g": 0.501961,
           "b": 0.752941
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "window-189034",
@@ -713,22 +776,24 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 0610mm:189034"
+        "고정됨:0406 x 0610mm:189034",
+        "고정됨:0406 x 0610mm:189034:1"
       ],
       "sourceGlobalIds": [
-        "3gwEtOFi5AUg4WULkh2o7A"
+        "3gwEtOFi5AUg4WULkh2o7A",
+        "0KJVqCrksqdRY7UfG4Hqw6"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
       "editable": true,
       "bbox": {
         "min": [
-          -1.5265566588595902e-16,
+          -6.245004513516506e-16,
           0.0,
           0.0
         ],
         "max": [
-          0.2000000000000273,
+          0.20000000000002682,
           1.9000000000000001,
           2.0
         ],
@@ -765,7 +830,7 @@
           3415.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "섀시",
         "유리"
@@ -783,7 +848,12 @@
           "g": 0.501961,
           "b": 0.752941
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "window-149368",
@@ -794,10 +864,12 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 1220mm:149368"
+        "고정됨:0406 x 1220mm:149368",
+        "고정됨:0406 x 1220mm:149368:1"
       ],
       "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25jn"
+        "2znubWhPDD4wn7Fg4E25jn",
+        "1fhKC6DkSXKiGx4KLjsDDB"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
@@ -805,12 +877,12 @@
       "bbox": {
         "min": [
           0.0,
-          0.0,
+          -2.7755575615628914e-16,
           1.1102230246251565e-16
         ],
         "max": [
           0.20000000000002743,
-          0.406,
+          0.4060000000000006,
           1.2200000000000002
         ],
         "sizeMm": [
@@ -820,14 +892,14 @@
         ],
         "originMm": [
           0.0,
-          0.0,
+          -0.0,
           0.0
         ]
       },
       "originalPlacement": {
         "min": [
           5.490520846513263,
-          -13.360963893809366,
+          -13.360963893809368,
           0.9149999999999999
         ],
         "max": [
@@ -846,7 +918,7 @@
           915.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "섀시",
         "유리"
@@ -864,7 +936,12 @@
           "g": 0.698039,
           "b": 0.494118
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "window-149306",
@@ -875,10 +952,12 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 1220mm:149306"
+        "고정됨:0406 x 1220mm:149306",
+        "고정됨:0406 x 1220mm:149306:1"
       ],
       "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25ip"
+        "2znubWhPDD4wn7Fg4E25ip",
+        "1KcOjpdWvjvCbwwDRSum2O"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
@@ -890,8 +969,8 @@
           1.1102230246251565e-16
         ],
         "max": [
-          0.2000000000000282,
-          0.406,
+          0.2000000000000286,
+          0.40600000000000086,
           1.2200000000000002
         ],
         "sizeMm": [
@@ -913,7 +992,7 @@
         ],
         "max": [
           5.690520846513262,
-          -11.800963893809364,
+          -11.800963893809362,
           2.135
         ],
         "sizeMm": [
@@ -927,7 +1006,7 @@
           915.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "섀시",
         "유리"
@@ -945,7 +1024,12 @@
           "g": 0.698039,
           "b": 0.494118
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "window-148065",
@@ -956,10 +1040,12 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 1220mm:148065"
+        "고정됨:0406 x 1220mm:148065",
+        "고정됨:0406 x 1220mm:148065:1"
       ],
       "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25ve"
+        "2znubWhPDD4wn7Fg4E25ve",
+        "1RYtR0jpXOKatp6y8eD2Sr"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
@@ -1008,7 +1094,7 @@
           915.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "섀시",
         "유리"
@@ -1026,7 +1112,12 @@
           "g": 0.698039,
           "b": 0.494118
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "window-148119",
@@ -1037,10 +1128,12 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 1220mm:148119"
+        "고정됨:0406 x 1220mm:148119",
+        "고정됨:0406 x 1220mm:148119:1"
       ],
       "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25wU"
+        "2znubWhPDD4wn7Fg4E25wU",
+        "21GPR72AIKy9TGGw2gE_2_"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
@@ -1048,12 +1141,12 @@
       "bbox": {
         "min": [
           0.0,
-          -4.996003610813204e-16,
+          -3.3306690738754696e-16,
           1.1102230246251565e-16
         ],
         "max": [
           0.20000000000002743,
-          0.40599999999999953,
+          0.4059999999999997,
           1.2200000000000002
         ],
         "sizeMm": [
@@ -1089,7 +1182,7 @@
           915.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "섀시",
         "유리"
@@ -1107,7 +1200,12 @@
           "g": 0.698039,
           "b": 0.494118
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "window-144564",
@@ -1118,22 +1216,24 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 0610mm:144564"
+        "고정됨:0406 x 0610mm:144564",
+        "고정됨:0406 x 0610mm:144564:1"
       ],
       "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E22Yz"
+        "2znubWhPDD4wn7Fg4E22Yz",
+        "2HhwgLBFQ6fhMAeURBcksg"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
       "editable": true,
       "bbox": {
         "min": [
-          -1.5265566588595902e-16,
+          -6.245004513516506e-16,
           0.0,
           0.0
         ],
         "max": [
-          0.2000000000000273,
+          0.20000000000002682,
           1.9000000000000001,
           2.0
         ],
@@ -1170,7 +1270,7 @@
           0.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "섀시",
         "유리"
@@ -1188,7 +1288,12 @@
           "g": 0.501961,
           "b": 0.752941
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "window-188170",
@@ -1199,10 +1304,12 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 0610mm:188170"
+        "고정됨:0406 x 0610mm:188170",
+        "고정됨:0406 x 0610mm:188170:1"
       ],
       "sourceGlobalIds": [
-        "3gwEtOFi5AUg4WULkh2nog"
+        "3gwEtOFi5AUg4WULkh2nog",
+        "3EtNTEMLOM5oCWtI1R3TTw"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
@@ -1210,12 +1317,12 @@
       "bbox": {
         "min": [
           2.220446049250313e-16,
-          1.6514567491299204e-15,
+          2.040034807748725e-15,
           0.0
         ],
         "max": [
           1.9000000000000004,
-          0.2000000000000291,
+          0.2000000000000295,
           2.0
         ],
         "sizeMm": [
@@ -1251,7 +1358,7 @@
           0.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "섀시",
         "유리"
@@ -1269,7 +1376,12 @@
           "g": 0.501961,
           "b": 0.752941
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "window-188066",
@@ -1280,10 +1392,12 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 0610mm:188066"
+        "고정됨:0406 x 0610mm:188066",
+        "고정됨:0406 x 0610mm:188066:1"
       ],
       "sourceGlobalIds": [
-        "3gwEtOFi5AUg4WULkh2nq2"
+        "3gwEtOFi5AUg4WULkh2nq2",
+        "0CQ1Iou2TmMNdab0VvRvgs"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
@@ -1291,12 +1405,12 @@
       "bbox": {
         "min": [
           2.220446049250313e-16,
-          1.6514567491299204e-15,
+          2.040034807748725e-15,
           0.0
         ],
         "max": [
           1.9000000000000004,
-          0.2000000000000291,
+          0.2000000000000295,
           2.0
         ],
         "sizeMm": [
@@ -1332,7 +1446,7 @@
           0.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "섀시",
         "유리"
@@ -1350,7 +1464,12 @@
           "g": 0.501961,
           "b": 0.752941
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "window-148572",
@@ -1361,10 +1480,12 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 0610mm:148572"
+        "고정됨:0406 x 0610mm:148572",
+        "고정됨:0406 x 0610mm:148572:1"
       ],
       "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25XL"
+        "2znubWhPDD4wn7Fg4E25XL",
+        "2RhURAFtAtD9gYd6MvnUfo"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
@@ -1413,7 +1534,7 @@
           0.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "섀시",
         "유리"
@@ -1431,7 +1552,12 @@
           "g": 0.501961,
           "b": 0.752941
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "window-148460",
@@ -1442,10 +1568,12 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 0610mm:148460"
+        "고정됨:0406 x 0610mm:148460",
+        "고정됨:0406 x 0610mm:148460:1"
       ],
       "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25$b"
+        "2znubWhPDD4wn7Fg4E25$b",
+        "3NHwK$0Bd$$3iw4i2YQgss"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
@@ -1494,7 +1622,7 @@
           0.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "섀시",
         "유리"
@@ -1512,7 +1640,12 @@
           "g": 0.501961,
           "b": 0.752941
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "window-150077",
@@ -1523,22 +1656,24 @@
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 0610mm:150077"
+        "고정됨:0406 x 0610mm:150077",
+        "고정됨:0406 x 0610mm:150077:1"
       ],
       "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25Oq"
+        "2znubWhPDD4wn7Fg4E25Oq",
+        "332lk8i7QnVQFhUrIkAPlh"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
       "editable": true,
       "bbox": {
         "min": [
-          -1.5265566588595902e-16,
+          -6.245004513516506e-16,
           0.0,
           0.0
         ],
         "max": [
-          0.2000000000000273,
+          0.20000000000002682,
           1.9000000000000001,
           2.0
         ],
@@ -1575,7 +1710,7 @@
           0.0
         ]
       },
-      "productCount": 1,
+      "productCount": 2,
       "materials": [
         "섀시",
         "유리"
@@ -1593,7 +1728,12 @@
           "g": 0.501961,
           "b": 0.752941
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "stair-145090",
@@ -1670,7 +1810,12 @@
       "materials": [
         "<Unnamed>"
       ],
-      "colors": []
+      "colors": [],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "roof-178223",
@@ -1744,7 +1889,12 @@
           "g": 0.501961,
           "b": 0.545098
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "roof-180558",
@@ -1826,7 +1976,12 @@
           "g": 0.501961,
           "b": 0.545098
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "roof-181099",
@@ -1904,7 +2059,12 @@
           "g": 0.501961,
           "b": 0.545098
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "roof-187335",
@@ -1990,7 +2150,12 @@
           "g": 0.501961,
           "b": 0.545098
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     },
     {
       "id": "slab-185214",
@@ -2066,7 +2231,12 @@
           "g": 0.909804,
           "b": 0.098039
         }
-      ]
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
     }
   ]
 }
