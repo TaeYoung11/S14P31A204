@@ -471,20 +471,8 @@ def _apply_contact_shadow(
     building: Image.Image,
     time_of_day: str,
 ) -> Image.Image:
-    bg = np.asarray(background.convert("RGB"), dtype=np.float32)
-    alpha = np.asarray(building.getchannel("A"), dtype=np.float32) / 255.0
-    shadow = np.roll(alpha, shift=8 if time_of_day == "DAY" else 6, axis=0)
-    shadow = np.roll(shadow, shift=2, axis=1)
-    shadow[:8, :] = 0.0
-    shadow = _soften_mask(shadow, radius=6 if time_of_day == "DAY" else 4)
-    shadow_strength = 0.16 if time_of_day == "DAY" else 0.22
-    shadow_3 = shadow[..., None] * shadow_strength
-    shadow_tint = np.asarray(
-        (180.0, 170.0, 160.0) if time_of_day == "DAY" else (70.0, 78.0, 96.0),
-        dtype=np.float32,
-    )
-    out = bg * (1.0 - shadow_3) + shadow_tint * shadow_3
-    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), mode="RGB")
+    del building, time_of_day
+    return background.convert("RGB")
 
 
 def _apply_photographic_finish(image: Image.Image, *, time_of_day: str) -> Image.Image:

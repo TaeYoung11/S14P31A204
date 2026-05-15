@@ -38,6 +38,8 @@ DEFAULT_NIGHT_DEBUG_MANIFEST = (
 )
 DEFAULT_OUTPUT_DIR = ROOT / "outputs" / "ifc_geometry_f2_ifc_locked_baseline"
 MANIFEST_NAME = "f2_ifc_locked_baseline_manifest.json"
+TARGET_FRAME_FILL = 0.82
+FRAME_MARGIN_RATIO = 0.04
 
 
 def _parse_args() -> argparse.Namespace:
@@ -142,6 +144,7 @@ def _generate_case(
         )
         element_masks = files.get("elementMasks") or {}
         building_rgba = _build_building_rgba(Image.open(color_composite_path).convert("RGBA"))
+        building_rgba = _fit_building_to_frame(building_rgba)
         no_background_path = case_output_dir / f"baseline_no_background_{view_name}.png"
         building_rgba.save(no_background_path, format="PNG")
 
@@ -206,6 +209,38 @@ def _compose_with_background(building_rgba: Image.Image, *, time_of_day: str) ->
         for x in range(width):
             bg[x, y] = (*color, 255)
     return Image.alpha_composite(background, building_rgba).convert("RGB")
+
+
+def _fit_building_to_frame(building_rgba: Image.Image) -> Image.Image:
+    width, height = building_rgba.size
+    bbox = building_rgba.getbbox()
+    if bbox is None:
+        return building_rgba
+
+    left, top, right, bottom = bbox
+    building_w = max(right - left, 1)
+    building_h = max(bottom - top, 1)
+    margin_x = max(int(round(width * FRAME_MARGIN_RATIO)), 1)
+    margin_top = max(int(round(height * FRAME_MARGIN_RATIO)), 1)
+    margin_bottom = max(int(round(height * (FRAME_MARGIN_RATIO * 1.5))), 1)
+    target_w = max(int(round(width * TARGET_FRAME_FILL)) - margin_x * 2, 1)
+    target_h = max(int(round(height * TARGET_FRAME_FILL)) - margin_top - margin_bottom, 1)
+    scale = min(target_w / building_w, target_h / building_h)
+    if scale <= 1.0:
+        return building_rgba
+
+    crop = building_rgba.crop(bbox)
+    scaled_size = (
+        max(int(round(building_w * scale)), 1),
+        max(int(round(building_h * scale)), 1),
+    )
+    resized = crop.resize(scaled_size, Image.Resampling.NEAREST)
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    paste_x = max((width - scaled_size[0]) // 2, margin_x)
+    paste_x = min(paste_x, max(width - margin_x - scaled_size[0], 0))
+    paste_y = max(height - margin_bottom - scaled_size[1], margin_top)
+    canvas.alpha_composite(resized, (paste_x, paste_y))
+    return canvas
 
 
 def _lerp_rgb(
