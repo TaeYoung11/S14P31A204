@@ -1058,6 +1058,366 @@ def test_generate_ifc_geometry_e3_metric_table_records_case_flags() -> None:
     ]
 
 
+def test_review_ifc_geometry_e4_selects_metric_winner_from_passes_and_deltas() -> None:
+    """E-4 metric winner는 family pass 수와 delta를 함께 보고 고른다."""
+    m = _load_script("review_ifc_geometry_e4_visual_review.py")
+
+    summary = m._build_metric_summary(
+        [
+            {
+                "caseName": "baseline_day",
+                "roofFamilyPass": False,
+                "wallFamilyPass": True,
+                "windowFamilyPass": False,
+                "doorFamilyPass": False,
+                "roofDeltaToTarget": 0.5,
+                "wallDeltaToTarget": 0.2,
+                "windowDeltaToTarget": 0.6,
+                "doorDeltaToTarget": 0.8,
+                "estimatedPhotoForegroundFillRatio": 0.8,
+            },
+            {
+                "caseName": "improved_day",
+                "roofFamilyPass": True,
+                "wallFamilyPass": True,
+                "windowFamilyPass": True,
+                "doorFamilyPass": True,
+                "roofDeltaToTarget": 0.18,
+                "wallDeltaToTarget": 0.16,
+                "windowDeltaToTarget": 0.16,
+                "doorDeltaToTarget": 0.05,
+                "estimatedPhotoForegroundFillRatio": 0.8,
+            },
+        ]
+    )
+
+    assert m._select_metric_winner(summary) == "improved_day"
+
+
+def test_review_ifc_geometry_e4_builds_expected_manual_review_decisions() -> None:
+    """E-4 review table은 active case 이름 기준 winner/fallback/rejected를 기록한다."""
+    m = _load_script("review_ifc_geometry_e4_visual_review.py")
+
+    metric_summary = {
+        "ifc_minimal_baseline_day": {
+            "passCount": 1,
+            "roofDeltaSum": 1.0,
+            "wallDeltaSum": 0.3,
+            "windowDeltaSum": 1.2,
+            "doorDeltaSum": 0.8,
+            "foregroundFillRatioSum": 1.4,
+            "rowCount": 2,
+        },
+        "ifc_minimal_post_color_lock_naturalized_from_E2_9_day": {
+            "passCount": 7,
+            "roofDeltaSum": 0.3,
+            "wallDeltaSum": 0.3,
+            "windowDeltaSum": 0.3,
+            "doorDeltaSum": 0.05,
+            "foregroundFillRatioSum": 1.4,
+            "rowCount": 2,
+        },
+        "ifc_minimal_baseline_night": {
+            "passCount": 0,
+            "roofDeltaSum": 0.9,
+            "wallDeltaSum": 0.6,
+            "windowDeltaSum": 1.2,
+            "doorDeltaSum": 0.9,
+            "foregroundFillRatioSum": 1.3,
+            "rowCount": 2,
+        },
+        "ifc_minimal_post_color_lock_naturalized_from_E2_9_night": {
+            "passCount": 2,
+            "roofDeltaSum": 0.38,
+            "wallDeltaSum": 0.67,
+            "windowDeltaSum": 1.0,
+            "doorDeltaSum": 0.97,
+            "foregroundFillRatioSum": 1.3,
+            "rowCount": 2,
+        },
+    }
+    e3_manifest = {
+        "cases": [
+            {"caseName": "ifc_minimal_baseline_day", "timeOfDay": "DAY"},
+            {
+                "caseName": "ifc_minimal_post_color_lock_naturalized_from_E2_9_day",
+                "timeOfDay": "DAY",
+            },
+            {"caseName": "ifc_minimal_baseline_night", "timeOfDay": "NIGHT"},
+            {
+                "caseName": "ifc_minimal_post_color_lock_naturalized_from_E2_9_night",
+                "timeOfDay": "NIGHT",
+            },
+        ]
+    }
+
+    rows = m._build_review_table(
+        e3_manifest,
+        metric_summary,
+        "ifc_minimal_post_color_lock_naturalized_from_E2_9_day",
+    )
+
+    assert [row["decision"] for row in rows] == [
+        "winner",
+        "fallback",
+        "rejected",
+        "rejected",
+    ]
+    assert rows[2]["metricWinner"] is True
+    assert rows[2]["rejectReason"] is not None
+
+
+def test_generate_ifc_locked_baseline_f2_building_rgba_uses_nonblack_alpha() -> None:
+    """F-2 no-background baseline은 IFC color composite의 non-black 픽셀만 건물로 남겨야 한다."""
+    m = _load_script("generate_ifc_locked_baseline_f2.py")
+    from PIL import Image
+
+    image = Image.new("RGB", (2, 2), (0, 0, 0))
+    image.putpixel((1, 0), (10, 20, 30))
+
+    rgba = m._build_building_rgba(image)
+
+    assert rgba.getpixel((0, 0)) == (0, 0, 0, 0)
+    assert rgba.getpixel((1, 0)) == (10, 20, 30, 255)
+
+
+def test_generate_ifc_locked_baseline_f2_background_composite_preserves_building_pixels() -> None:
+    """F-2 with-background baseline도 건물 픽셀 자체는 바꾸지 않아야 한다."""
+    m = _load_script("generate_ifc_locked_baseline_f2.py")
+    from PIL import Image
+
+    building = Image.new("RGBA", (2, 2), (0, 0, 0, 0))
+    building.putpixel((1, 1), (12, 34, 56, 255))
+
+    composed = m._compose_with_background(building, time_of_day="DAY")
+
+    assert composed.getpixel((1, 1)) == (12, 34, 56)
+
+
+def test_generate_ifc_locked_baseline_f2_manifest_summary_lists_case_names() -> None:
+    """F-2 manifest summary는 case/time/view 축을 간단히 보여줘야 한다."""
+    m = _load_script("generate_ifc_locked_baseline_f2.py")
+
+    summary = m._summarize_manifest(
+        {
+            "schemaVersion": "ifc2img.f2IfcLockedBaseline.v1",
+            "cases": [
+                {
+                    "caseName": "ifc_locked_baseline_day",
+                    "timeOfDay": "DAY",
+                    "views": [{"view": "front_diagonal_left"}],
+                }
+            ],
+        }
+    )
+
+    assert summary == {
+        "schemaVersion": "ifc2img.f2IfcLockedBaseline.v1",
+        "cases": [
+            {
+                "caseName": "ifc_locked_baseline_day",
+                "timeOfDay": "DAY",
+                "views": ["front_diagonal_left"],
+            }
+        ],
+    }
+
+
+def test_generate_ifc_house_like_f3_material_relight_preserves_alpha(tmp_path: Path) -> None:
+    """F-3 candidate 1은 appearance만 바꾸고 건물 alpha silhouette은 유지해야 한다."""
+    m = _load_script("generate_ifc_house_like_f3_candidates.py")
+    from PIL import Image
+
+    tmp_no_bg = tmp_path / "no_bg.png"
+    tmp_with_bg = tmp_path / "with_bg.png"
+    no_bg = Image.new("RGBA", (2, 2), (0, 0, 0, 0))
+    no_bg.putpixel((1, 1), (10, 20, 30, 255))
+    no_bg.save(tmp_no_bg, format="PNG")
+    Image.new("RGB", (2, 2), (200, 210, 220)).save(tmp_with_bg, format="PNG")
+
+    output = m._build_material_relight_candidate(
+        no_background_path=tmp_no_bg,
+        with_background_path=tmp_with_bg,
+        time_of_day="DAY",
+    )
+
+    assert output.size == (2, 2)
+    assert output.getpixel((1, 1)) != (200, 210, 220)
+
+
+def test_generate_ifc_house_like_f3_manifest_summary_lists_accepted_families() -> None:
+    """F-3 manifest summary는 accepted family와 case 이름을 간단히 보여줘야 한다."""
+    m = _load_script("generate_ifc_house_like_f3_candidates.py")
+
+    summary = m._summarize_manifest(
+        {
+            "schemaVersion": "ifc2img.f3HouseLikeCandidates.v1",
+            "acceptedCandidates": [
+                {"candidateFamily": "appearance_only_candidate_1_material_relight"},
+                {"candidateFamily": "appearance_only_candidate_2_shadow_contrast_background"},
+            ],
+            "cases": [
+                {"caseName": "appearance_only_candidate_1_material_relight_day"},
+                {"caseName": "appearance_only_candidate_2_shadow_contrast_background_day"},
+            ],
+        }
+    )
+
+    assert summary == {
+        "schemaVersion": "ifc2img.f3HouseLikeCandidates.v1",
+        "acceptedCandidates": [
+            "appearance_only_candidate_1_material_relight",
+            "appearance_only_candidate_2_shadow_contrast_background",
+        ],
+        "caseNames": [
+            "appearance_only_candidate_1_material_relight_day",
+            "appearance_only_candidate_2_shadow_contrast_background_day",
+        ],
+    }
+
+
+def test_generate_ifc_exactness_f4_evaluate_exact_pass_requires_full_contract() -> None:
+    """F-4 exact pass는 silhouette/opening/mass 조건을 모두 동시에 만족해야 한다."""
+    m = _load_script("generate_ifc_exactness_f4_metrics.py")
+
+    ok_metrics = {
+        "silhouetteExactOverlap": 1.0,
+        "roofBboxExact": True,
+        "wallBboxExact": True,
+        "windowOpeningOverlap": 1.0,
+        "doorOpeningOverlap": 1.0,
+        "openingCountConsistency": True,
+        "addedMassDetected": False,
+        "removedMassDetected": False,
+    }
+    bad_metrics = dict(ok_metrics)
+    bad_metrics["windowOpeningOverlap"] = 0.5
+
+    assert m._evaluate_exact_pass(ok_metrics) is True
+    assert m._evaluate_exact_pass(bad_metrics) is False
+    assert m._build_reject_reason(bad_metrics) == "window_opening"
+
+
+def test_generate_ifc_exactness_f4_summary_counts_exact_pass_rows() -> None:
+    """F-4 summary는 case별 exact pass row 수를 집계해야 한다."""
+    m = _load_script("generate_ifc_exactness_f4_metrics.py")
+
+    summary = m._build_summary(
+        [
+            {
+                "caseName": "ifc_locked_baseline_day",
+                "view": "front_diagonal_left",
+                "exactPass": True,
+            },
+            {
+                "caseName": "ifc_locked_baseline_day",
+                "view": "front_diagonal_right",
+                "exactPass": True,
+            },
+            {
+                "caseName": "appearance_only_candidate_1_material_relight_day",
+                "view": "front_diagonal_left",
+                "exactPass": False,
+            },
+        ]
+    )
+
+    assert summary == {
+        "ifc_locked_baseline_day": {
+            "rowCount": 2,
+            "exactPassCount": 2,
+            "views": ["front_diagonal_left", "front_diagonal_right"],
+        },
+        "appearance_only_candidate_1_material_relight_day": {
+            "rowCount": 1,
+            "exactPassCount": 0,
+            "views": ["front_diagonal_left"],
+        },
+    }
+
+
+def test_generate_ifc_identical_f5_resolves_exact_pass_case_names() -> None:
+    """F-5는 F-4 exactPass=true case만 matrix 입력으로 남겨야 한다."""
+    m = _load_script("generate_ifc_identical_f5_final_matrix.py")
+
+    result = m._resolve_exact_pass_case_names(
+        {
+            "summary": {
+                "a": {"rowCount": 2, "exactPassCount": 2},
+                "b": {"rowCount": 2, "exactPassCount": 1},
+            }
+        }
+    )
+
+    assert result == {"a"}
+
+
+def test_generate_ifc_identical_f5_selects_winner_and_baseline_fallback() -> None:
+    """F-5는 appearance winner와 baseline fallback을 함께 고를 수 있어야 한다."""
+    m = _load_script("generate_ifc_identical_f5_final_matrix.py")
+
+    winner, fallback = m._select_winner_and_fallback(
+        {
+            "ifc_locked_baseline": {"averageVisualRealismScore": 0.70},
+            "appearance_only_candidate_1_material_relight": {
+                "averageVisualRealismScore": 0.82
+            },
+            "appearance_only_candidate_2_shadow_contrast_background": {
+                "averageVisualRealismScore": 0.75
+            },
+        }
+    )
+
+    assert winner == "appearance_only_candidate_1_material_relight"
+    assert fallback == "ifc_locked_baseline"
+
+
+def test_generate_ifc_identical_f5_summary_reports_winner_and_count() -> None:
+    """F-5 summary는 winner/fallback/caseCount를 간단히 보여줘야 한다."""
+    m = _load_script("generate_ifc_identical_f5_final_matrix.py")
+
+    summary = m._summarize_manifest(
+        {
+            "schemaVersion": "ifc2img.f5IfcIdenticalFinalMatrix.v1",
+            "winner": {"family": "appearance_only_candidate_1_material_relight"},
+            "fallback": {"family": "ifc_locked_baseline"},
+            "cases": [{}, {}, {}],
+        }
+    )
+
+    assert summary == {
+        "schemaVersion": "ifc2img.f5IfcIdenticalFinalMatrix.v1",
+        "winner": "appearance_only_candidate_1_material_relight",
+        "fallback": "ifc_locked_baseline",
+        "caseCount": 3,
+    }
+
+
+def test_generate_ifc_f6_summary_reports_opt_in_and_fallback() -> None:
+    """F-6 summary는 production default 여부와 winner/fallback family를 보여줘야 한다."""
+    m = _load_script("generate_ifc_f6_production_decision.py")
+
+    summary = m._summarize_manifest(
+        {
+            "schemaVersion": "ifc2img.f6ProductionDecision.v1",
+            "winnerFamily": "appearance_only_candidate_1_material_relight",
+            "fallbackFamily": "ifc_locked_baseline",
+            "decision": {
+                "productionDefault": {"enabled": False},
+                "optIn": {"enabled": True},
+            },
+        }
+    )
+
+    assert summary == {
+        "schemaVersion": "ifc2img.f6ProductionDecision.v1",
+        "productionDefaultEnabled": False,
+        "optInEnabled": True,
+        "winnerFamily": "appearance_only_candidate_1_material_relight",
+        "fallbackFamily": "ifc_locked_baseline",
+    }
+
+
 def _d7_case_payload(
     case_name: str,
     case_dir: Path,
