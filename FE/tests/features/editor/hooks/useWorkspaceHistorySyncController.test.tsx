@@ -24,7 +24,9 @@ interface HookArgs {
   pendingServerPublishRef: { current: PendingServerPublishRecordLike | null }
   previousSnapshotRef: { current: string | null }
   bubbleHistoryBaseIndexRef: { current: number }
+  bubbleHistoryRedoDepthRef: { current: number }
   floorPlanHistoryBaseIndexRef: { current: number }
+  floorPlanHistoryRedoDepthRef: { current: number }
   workspaceEditTransactionDepthRef: { current: number }
   pendingWorkspaceSnapshotCommitRef: { current: boolean }
   floorPlanHistoryCommandInFlightRef: { current: boolean }
@@ -57,7 +59,9 @@ function createHookArgs(overrides?: Partial<HookArgs>): HookArgs {
     pendingServerPublishRef: { current: null },
     previousSnapshotRef: { current: null },
     bubbleHistoryBaseIndexRef: { current: -1 },
+    bubbleHistoryRedoDepthRef: { current: 0 },
     floorPlanHistoryBaseIndexRef: { current: -1 },
+    floorPlanHistoryRedoDepthRef: { current: 0 },
     workspaceEditTransactionDepthRef: { current: 0 },
     pendingWorkspaceSnapshotCommitRef: { current: false },
     floorPlanHistoryCommandInFlightRef: { current: false },
@@ -139,5 +143,4 @@ describe('useWorkspaceHistorySyncController', () => {
     expect(args.loadHistorySnapshot).not.toHaveBeenCalled()
   })
 })
-
 
