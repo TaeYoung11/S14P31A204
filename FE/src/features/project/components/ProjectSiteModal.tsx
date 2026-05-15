@@ -1,5 +1,5 @@
 import { Search } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import Modal from '@/shared/components/Modal'
 import Spinner from '@/shared/components/Spinner'
 import { ProjectSitePolygonPreviewCard } from '@/features/project/components/site-modal/ProjectSitePolygonPreviewCard'
@@ -13,7 +13,7 @@ interface ProjectSiteModalProps {
   isOpen: boolean
   projectId: string | null
   projectName?: string
-  onComplete: () => void
+  onComplete: () => void | Promise<void>
   onCancel: () => void | Promise<void>
   isCancellingProject?: boolean
   cancelErrorMessage?: string
@@ -35,6 +35,7 @@ export default function ProjectSiteModal({
   cancelErrorMessage = '',
   onClearCancelError,
 }: ProjectSiteModalProps) {
+  const [actionErrorMessage, setActionErrorMessage] = useState('')
   const isExternalInteractionLocked = isCancellingProject
   const {
     mapContainerRef,
@@ -60,12 +61,18 @@ export default function ProjectSiteModal({
     isCloseDisabled,
     onCancel,
     onComplete,
+    onActionError: setActionErrorMessage,
   })
   /** 사용자에게 표시할 단일 에러 메시지 */
-  const errorMessage = cancelErrorMessage || sdkError || searchError || (registerError as Error | null)?.message
+  const errorMessage = cancelErrorMessage
+    || (registerError as Error | null)?.message
+    || searchError
+    || sdkError
+    || actionErrorMessage
 
   /** 주소 검색 재시작 시 이전 취소 오류 메시지를 제거한다. */
   const handleOpenPostcode = () => {
+    setActionErrorMessage('')
     onClearCancelError?.()
     setShowPostcode(true)
   }

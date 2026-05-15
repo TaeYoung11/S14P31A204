@@ -312,16 +312,18 @@ export default function ProjectsPage() {
         onCommentClick={handleProjectCommentClick}
       />
 
-      <ProjectSiteModal
-        isOpen={!!siteProject}
-        projectId={siteProject?.id ?? null}
-        projectName={siteProject?.name}
-        onComplete={onCompleteSiteModal}
-        onCancel={onCancelSiteModal}
-        isCancellingProject={isCancellingSiteProject}
-        cancelErrorMessage={siteCancelErrorMessage}
-        onClearCancelError={onClearSiteCancelError}
-      />
+      {siteProject && (
+        <ProjectSiteModal
+          isOpen
+          projectId={siteProject.id}
+          projectName={siteProject.name}
+          onComplete={onCompleteSiteModal}
+          onCancel={onCancelSiteModal}
+          isCancellingProject={isCancellingSiteProject}
+          cancelErrorMessage={siteCancelErrorMessage}
+          onClearCancelError={onClearSiteCancelError}
+        />
+      )}
 
       <ProjectCommentToast
         toast={projectCommentToast}

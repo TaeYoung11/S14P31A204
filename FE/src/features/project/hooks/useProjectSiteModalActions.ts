@@ -4,7 +4,15 @@ interface UseProjectSiteModalActionsParams {
   hasPolygon: boolean
   isCloseDisabled: boolean
   onCancel: () => void | Promise<void>
-  onComplete: () => void
+  onComplete: () => void | Promise<void>
+  onActionError?: (message: string) => void
+}
+
+function getErrorMessage(error: unknown, fallbackMessage: string): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message
+  }
+  return fallbackMessage
 }
 
 /**
@@ -17,18 +25,24 @@ export function useProjectSiteModalActions({
   isCloseDisabled,
   onCancel,
   onComplete,
+  onActionError,
 }: UseProjectSiteModalActionsParams) {
   const handleRequestClose = useCallback(() => {
-    if (isCloseDisabled) return
-    void Promise.resolve(onCancel()).catch(() => {
-      // onCancel 내부에서 오류 처리 정책을 갖도록 하고, 여기서는 unhandled rejection만 방지한다.
+    if (isCloseDisabled) {
+      onActionError?.('현재 작업이 진행 중입니다. 잠시 후 다시 시도해 주세요.')
+      return
+    }
+    void Promise.resolve(onCancel()).catch((error: unknown) => {
+      onActionError?.(getErrorMessage(error, '프로젝트 생성 취소 처리 중 오류가 발생했습니다.'))
     })
-  }, [isCloseDisabled, onCancel])
+  }, [isCloseDisabled, onActionError, onCancel])
 
   const handleComplete = useCallback(() => {
     if (isCloseDisabled || !hasPolygon) return
-    onComplete()
-  }, [hasPolygon, isCloseDisabled, onComplete])
+    void Promise.resolve(onComplete()).catch((error: unknown) => {
+      onActionError?.(getErrorMessage(error, '프로젝트 생성 완료 처리 중 오류가 발생했습니다.'))
+    })
+  }, [hasPolygon, isCloseDisabled, onActionError, onComplete])
 
   return {
     handleRequestClose,
