@@ -180,19 +180,14 @@ export function useBubbleSnapshotRealtime({
 
     const syncFloorPlanHistoryCursor = (action: string | null, payloadBaseIndex: number | null) => {
       if (action === WORKSPACE_SYNC_ACTION.floorPlanUndo) {
-        floorPlanBaseIndexRef.current = Math.max(-1, floorPlanBaseIndexRef.current - 1)
+        floorPlanBaseIndexRef.current = payloadBaseIndex ?? Math.max(-1, floorPlanBaseIndexRef.current - 1)
         floorPlanRedoDepthRef.current += 1
       } else if (action === WORKSPACE_SYNC_ACTION.floorPlanRedo) {
-        floorPlanBaseIndexRef.current = Math.min(
-          WORKSPACE_HISTORY_MAX_INDEX,
-          floorPlanBaseIndexRef.current + 1,
-        )
+        floorPlanBaseIndexRef.current =
+          payloadBaseIndex ?? Math.min(WORKSPACE_HISTORY_MAX_INDEX, floorPlanBaseIndexRef.current + 1)
         floorPlanRedoDepthRef.current = Math.max(0, floorPlanRedoDepthRef.current - 1)
       } else if (action === WORKSPACE_SYNC_ACTION.floorPlanUpdated) {
-        floorPlanBaseIndexRef.current = Math.min(
-          WORKSPACE_HISTORY_MAX_INDEX,
-          (payloadBaseIndex ?? floorPlanBaseIndexRef.current) + 1,
-        )
+        floorPlanBaseIndexRef.current = payloadBaseIndex ?? floorPlanBaseIndexRef.current + 1
         floorPlanRedoDepthRef.current = 0
       }
       notifyFloorPlanHistoryCursor()

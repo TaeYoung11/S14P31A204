@@ -4833,7 +4833,10 @@ export function useEditorPage() {
       }
       return
     }
-    const dedupeKey = normalizedSourceKey ? `${projectId}:${normalizedSourceKey}` : ''
+    const normalizedRevisionKey = revisionId?.trim() || ''
+    const dedupeKey = normalizedSourceKey
+      ? `${projectId}:${normalizedSourceKey}:${normalizedRevisionKey || 'no-revision'}`
+      : ''
     if (!dedupeKey) return
 
     if (ifcLoadInFlightStorageUrlRef.current === dedupeKey) {

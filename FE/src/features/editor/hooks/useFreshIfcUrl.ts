@@ -28,6 +28,7 @@ export function useFreshIfcUrl(
    */
   const [resolvedByAsset, setResolvedByAsset] = useState<{
     assetId: string
+    fallbackUrl: string | null
     url: string | null
   } | null>(null)
 
@@ -41,6 +42,7 @@ export function useFreshIfcUrl(
         if (cancelled) return
         setResolvedByAsset({
           assetId,
+          fallbackUrl,
           url,
         })
       })
@@ -48,6 +50,7 @@ export function useFreshIfcUrl(
         if (cancelled) return
         setResolvedByAsset({
           assetId,
+          fallbackUrl,
           url: fallbackUrl,
         })
       })
@@ -58,6 +61,12 @@ export function useFreshIfcUrl(
   }, [assetId, fallbackUrl])
 
   if (!assetId) return fallbackUrl
-  if (!resolvedByAsset || resolvedByAsset.assetId !== assetId) return fallbackUrl
+  if (
+    !resolvedByAsset ||
+    resolvedByAsset.assetId !== assetId ||
+    resolvedByAsset.fallbackUrl !== fallbackUrl
+  ) {
+    return fallbackUrl
+  }
   return resolvedByAsset.url
 }
