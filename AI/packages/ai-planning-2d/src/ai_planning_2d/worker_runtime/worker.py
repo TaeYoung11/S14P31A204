@@ -279,12 +279,15 @@ class TwoDLlmWorker(BaseWorker):
                         clarification_request_id=exc.clarification_request_id,
                         bucket=inherited_bucket,
                     )
+                    # Reuse detail_storage_url so existing BE/FE contracts can fetch
+                    # the clarification artifact without a new field. The event status
+                    # remains clarification_required; this URL is not a failure detail.
                     exc.detail_storage_url = clarification_url
-                except Exception:
-                    _logger.warning(
-                        "clarification_artifact_upload_failed",
-                        extra={"job_id": command.jobId},
-                    )
+                except Exception as upload_exc:
+                    raise RetryableWorkerError(
+                        code="CLARIFICATION_ARTIFACT_UPLOAD_FAILED",
+                        message="failed to upload clarification artifact",
+                    ) from upload_exc
             raise
         except WorkerError as error:
             detail_url = _write_error_detail_best_effort(

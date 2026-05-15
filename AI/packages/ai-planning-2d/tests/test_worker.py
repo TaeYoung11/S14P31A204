@@ -629,7 +629,7 @@ def _clarification_preview(
         "command_batch": {"commands": [], "requires_clarification": True},
         "alternatives": alternatives if alternatives is not None else [
             {
-                "alternative_id": "remove-living-1f",
+                "alternative_id": "remove-living-1f-sp-living-1f",
                 "title": "1층 거실 삭제",
                 "description": "1층 거실을 삭제합니다.",
                 "fill": {"target_floor": 1, "target_room_name": "거실"},
@@ -638,7 +638,7 @@ def _clarification_preview(
                 "metrics": [],
             },
             {
-                "alternative_id": "remove-living-2f",
+                "alternative_id": "remove-living-2f-sp-living-2f",
                 "title": "2층 거실 삭제",
                 "description": "2층 거실을 삭제합니다.",
                 "fill": {"target_floor": 2, "target_room_name": "거실"},
@@ -721,6 +721,39 @@ def test_two_d_llm_worker_clarification_event_has_detail_storage_url(
     assert clarification_event.error.detailStorageUrl == f"s3://batang-artifacts/{expected_key}"
 
 
+def test_two_d_llm_worker_clarification_upload_failure_becomes_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = FakeStorageClient()
+    storage.read_map["s3://batang-artifacts/input/house.ifc"] = b"ISO-10303-21;source-ifc"
+    storage.write_error = RuntimeError("clarification upload failed")
+    worker = TwoDLlmWorker(
+        worker_id="2d-llm-worker-1",
+        event_publisher=InMemoryPublisher(),
+        s3_client=storage,
+    )
+
+    async def _fake_run_pipeline(
+        *,
+        clarification_request_id: str,
+        **_: object,
+    ) -> dict[str, object]:
+        raise ClarificationRequiredError(
+            code="CLARIFICATION_REQUIRED",
+            message="clarification needed",
+            clarification_request_id=clarification_request_id,
+            preview_data=_clarification_preview(),
+        )
+
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
+
+    result = worker.handle(_command())
+
+    assert result.status == "failed"
+    assert result.error.code == "CLARIFICATION_ARTIFACT_UPLOAD_FAILED"
+    assert result.error.retryable is True
+
+
 def test_two_d_llm_worker_clarification_artifact_structure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -758,7 +791,9 @@ def test_two_d_llm_worker_clarification_artifact_structure(
     assert artifact.kind == "alternatives"
     assert artifact.question == "어느 층 거실을 삭제할까요?"
     assert len(artifact.alternatives) == 2
-    assert artifact.alternatives[0].fill == {"target_floor": 1, "target_room_name": "거실"}
+    assert artifact.alternatives[0].fill.target_floor == 1
+    assert artifact.alternatives[0].fill.target_room_name == "거실"
+    assert artifact.alternatives[0].fill.action is None
     assert artifact.job_id == "job-2d-worker-001"
     assert artifact.step_no == 1
 

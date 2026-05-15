@@ -215,4 +215,6 @@ def test_clarification_alternative_requires_fill() -> None:
         fill={"target_floor": 2},
     )
 
-    assert alt.fill == {"target_floor": 2}
+    assert alt.fill.target_floor == 2
+    assert alt.fill.target_room_name is None
+    assert alt.fill.action is None
