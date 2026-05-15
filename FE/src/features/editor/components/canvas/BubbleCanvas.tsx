@@ -8,6 +8,7 @@ import { hexToRgba } from '../../utils/bubbleCalc'
 import { validateBubblesInSiteBoundary } from '../../utils/siteBoundaryValidation'
 import BubbleZoneLayer from './BubbleZoneLayer'
 import { AUTO_ZONE_STYLE, MANUAL_ZONE_STYLE } from './bubbleZoneStyles'
+import { fitSingleLineFontSize } from './canvasTextFit'
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -39,6 +40,7 @@ const SITE_OUTSIDE_WARNING = '#DC2626'
 const SITE_WARNING_TEXT_FILL = '#991B1B'
 
 interface BubbleCanvasProps {
+  projectId?: string
   stageSize: { width: number; height: number }
   sitePoints: number[]
   bubbles: BubbleData[]
@@ -80,6 +82,42 @@ interface BubbleCanvasProps {
   scale?: number
 }
 
+const createSharedPanStorageKey = (projectId?: string) => (
+  projectId ? `editor:workspace-viewport:pan:${projectId}` : null
+)
+
+const createLegacyBubblePanStorageKey = (projectId?: string) => (
+  projectId ? `editor:bubble-viewport:pan:${projectId}` : null
+)
+
+const readStoredPanOffset = (projectId?: string): { x: number; y: number } => {
+  if (typeof window === 'undefined') return { x: 0, y: 0 }
+  const sharedStorageKey = createSharedPanStorageKey(projectId)
+  const legacyStorageKey = createLegacyBubblePanStorageKey(projectId)
+  const storageKeys = [sharedStorageKey, legacyStorageKey].filter((value): value is string => Boolean(value))
+  if (storageKeys.length === 0) return { x: 0, y: 0 }
+  try {
+    for (const key of storageKeys) {
+      const raw = window.localStorage.getItem(key)
+      if (!raw) continue
+      const parsed = JSON.parse(raw) as { x?: unknown; y?: unknown }
+      const x = typeof parsed.x === 'number' && Number.isFinite(parsed.x) ? parsed.x : 0
+      const y = typeof parsed.y === 'number' && Number.isFinite(parsed.y) ? parsed.y : 0
+      if (sharedStorageKey && key !== sharedStorageKey) {
+        try {
+          window.localStorage.setItem(sharedStorageKey, JSON.stringify({ x, y }))
+        } catch {
+          // localStorage 접근 실패는 치명적이지 않아 무시한다.
+        }
+      }
+      return { x, y }
+    }
+    return { x: 0, y: 0 }
+  } catch {
+    return { x: 0, y: 0 }
+  }
+}
+
 /**
  * 버블 다이어그램 모드 전용 Konva 캔버스
  * - 대지 외곽선, 조닝 영역(자동·수동), 연결선, 버블(공간)을 순서대로 렌더링
@@ -87,6 +125,7 @@ interface BubbleCanvasProps {
  * - 손 도구(hand): Stage 전체 패닝
  */
 export function BubbleCanvas({
+  projectId,
   stageSize,
   sitePoints,
   bubbles,
@@ -139,7 +178,7 @@ export function BubbleCanvas({
   const [hoveredBubbleId, setHoveredBubbleId] = useState<string | null>(null)
   const isSpacePressed = useSpacePanning()
   const [isMiddlePanning, setIsMiddlePanning] = useState(false)
-  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 })
+  const [panOffset, setPanOffset] = useState(() => readStoredPanOffset(projectId))
   const [connectionDrag, setConnectionDrag] = useState<{
     fromId: string
     startX: number
@@ -158,6 +197,16 @@ export function BubbleCanvas({
   const isBubbleEditable = !isReadOnly
   const baseOffsetX = (stageSize.width * (1 - scale)) / 2
   const baseOffsetY = (stageSize.height * (1 - scale)) / 2
+  const emptyClickTrackerRef = useRef<{ count: number; at: number; x: number; y: number }>({
+    count: 0,
+    at: 0,
+    x: 0,
+    y: 0,
+  })
+
+  const resetEmptyClickTracker = () => {
+    emptyClickTrackerRef.current = { count: 0, at: 0, x: 0, y: 0 }
+  }
 
   /** 버블 타원의 상·우·하·좌 4방향 앵커 포인트 반환 (연결 포인트 표시용) */
   const getAnchorPoints = (bubble: BubbleData) => [
@@ -302,8 +351,23 @@ export function BubbleCanvas({
       }}
       onDragEnd={(e) => {
         if (e.target.getType() !== 'Stage') return
+        const nextPanOffset = {
+          x: e.target.x() - baseOffsetX,
+          y: e.target.y() - baseOffsetY,
+        }
+        setPanOffset(nextPanOffset)
         const container = e.target.getStage()?.container()
         if (container && isPanMode) container.style.cursor = 'grab'
+        if (typeof window !== 'undefined') {
+          const storageKey = createSharedPanStorageKey(projectId)
+          if (storageKey) {
+            try {
+              window.localStorage.setItem(storageKey, JSON.stringify(nextPanOffset))
+            } catch {
+              // localStorage 접근 실패는 치명적이지 않아 무시한다.
+            }
+          }
+        }
       }}
       onWheel={(e) => {
         if (!e.evt.ctrlKey && !e.evt.metaKey) return
@@ -328,6 +392,10 @@ export function BubbleCanvas({
         if (!isBubbleEditable) return
         if (selectedTool !== 'selection') return
         const targetType = e.target.getType()
+        const isEmptyCanvasTarget = targetType === 'Stage' || e.target.getParent()?.getType() === 'Stage'
+        if (!isEmptyCanvasTarget) {
+          resetEmptyClickTracker()
+        }
         if (targetType !== 'Stage' && e.target.getParent()?.getType() !== 'Stage') {
           const isOnBubble = bubbles.some((b) => {
             const g = groupRefs.current.get(b.id)
@@ -436,9 +504,6 @@ export function BubbleCanvas({
 
         // 빈 캔버스 단일 클릭: 선택 해제
         onClearSelection?.()
-      }}
-      onDblClick={(e) => {
-        if (selectedTool !== 'selection') return
         if (!isBubbleEditable) return
         if (isPanMode) return
 
@@ -448,10 +513,24 @@ export function BubbleCanvas({
         const containerPos = stage.getPointerPosition()
         if (!pos || !containerPos) return
 
-        // 버블 위 더블클릭은 라벨 편집 흐름을 우선한다.
+        // 버블 위 클릭은 Stage로 올라오지 않지만, 안전하게 한 번 더 필터링한다.
         const hitBubble = findBubbleByPoint(pos.x, pos.y)
         if (hitBubble) return
 
+        const now = Date.now()
+        const tracker = emptyClickTrackerRef.current
+        const dt = now - tracker.at
+        const dx = pos.x - tracker.x
+        const dy = pos.y - tracker.y
+        const distSq = dx * dx + dy * dy
+        const withinDoubleClickWindow = dt <= 320 && distSq <= 14 * 14
+
+        const nextCount = withinDoubleClickWindow ? tracker.count + 1 : 1
+        emptyClickTrackerRef.current = { count: nextCount, at: now, x: pos.x, y: pos.y }
+
+        if (nextCount < 2) return
+
+        resetEmptyClickTracker()
         onEmptyCanvasDblClick?.({
           x: pos.x,
           y: pos.y,
@@ -564,6 +643,21 @@ export function BubbleCanvas({
           const isOutsideSite = outsideBubbleIdSet.has(bubble.id)
           // Transformer 기준 박스가 shadowBlur를 포함하면 리사이즈 체감과 실제 크기 반영이 어긋난다.
           const disableShadowForResize = selectedTool === 'selection' && isSingleSelected
+          const textPaddingX = Math.min(14, Math.max(4, bubble.width * 0.07))
+          const textWidth = Math.max(8, bubble.width - textPaddingX * 2)
+          const textContentHeight = Math.max(1, bubble.height * 0.62)
+          const indexBoxHeight = textContentHeight * 0.2
+          const nameBoxHeight = textContentHeight * 0.5
+          const areaBoxHeight = textContentHeight * 0.2
+          const textRowGap = textContentHeight * 0.05
+          const indexFontSize = fitSingleLineFontSize(bubble.index, textWidth, indexBoxHeight / 1.15)
+          const nameFontSize = fitSingleLineFontSize(bubble.label, textWidth, nameBoxHeight / 1.15)
+          const areaFontSize = fitSingleLineFontSize(bubble.area, textWidth, areaBoxHeight / 1.15)
+          const indexLineHeight = indexFontSize * 1.15
+          const nameLineHeight = nameFontSize * 1.15
+          const areaLineHeight = areaFontSize * 1.15
+          const textGroupHeight = indexLineHeight + nameLineHeight + areaLineHeight + textRowGap * 2
+          const textStartY = bubble.height / 2 - textGroupHeight / 2
           return (
             <Group
               key={bubble.id}
@@ -703,31 +797,37 @@ export function BubbleCanvas({
               {/* 인덱스 번호 */}
               <Text
                 text={bubble.index}
-                fontSize={11}
+                fontSize={indexFontSize}
                 fontStyle="bold"
                 fill="#3B45B3"
-                x={bubble.width / 2 - 5}
-                y={bubble.height / 2 - 30}
+                x={textPaddingX}
+                y={textStartY}
+                width={textWidth}
+                align="center"
               />
               {/* 공간 이름 */}
               <Text
                 text={bubble.label}
-                fontSize={14}
+                fontSize={nameFontSize}
                 fontStyle="bold"
                 fill="#1C1C1E"
-                width={bubble.width}
+                x={textPaddingX}
+                y={textStartY + indexLineHeight + textRowGap}
+                width={textWidth}
+                height={nameLineHeight}
                 align="center"
-                y={bubble.height / 2 - 10}
               />
               {/* 면적 */}
               <Text
                 text={bubble.area}
-                fontSize={10}
+                fontSize={areaFontSize}
                 fontStyle="bold"
                 fill="#ADB5BD"
-                width={bubble.width}
+                x={textPaddingX}
+                y={textStartY + indexLineHeight + textRowGap + nameLineHeight + textRowGap}
+                width={textWidth}
+                height={areaLineHeight}
                 align="center"
-                y={bubble.height / 2 + 10}
               />
             </Group>
           )

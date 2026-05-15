@@ -52,6 +52,7 @@ const OPENING_MIN_CLEARANCE_MM = 300
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface TwoDCanvasProps {
+  projectId?: string
   stageSize: { width: number; height: number }
   sitePoints?: number[]
   isCollaborationMode?: boolean
@@ -119,6 +120,42 @@ interface TwoDCanvasProps {
   onWheelZoom?: (factor: number) => void
 }
 
+const createSharedPanStorageKey = (projectId?: string) => (
+  projectId ? `editor:workspace-viewport:pan:${projectId}` : null
+)
+
+const createLegacyTwoDPanStorageKey = (projectId?: string) => (
+  projectId ? `editor:2d-viewport:pan:${projectId}` : null
+)
+
+const readStoredTwoDPanOffset = (projectId?: string): { x: number; y: number } => {
+  if (typeof window === 'undefined') return { x: 0, y: 0 }
+  const sharedStorageKey = createSharedPanStorageKey(projectId)
+  const legacyStorageKey = createLegacyTwoDPanStorageKey(projectId)
+  const storageKeys = [sharedStorageKey, legacyStorageKey].filter((value): value is string => Boolean(value))
+  if (storageKeys.length === 0) return { x: 0, y: 0 }
+  try {
+    for (const key of storageKeys) {
+      const raw = window.localStorage.getItem(key)
+      if (!raw) continue
+      const parsed = JSON.parse(raw) as { x?: unknown; y?: unknown }
+      const x = typeof parsed.x === 'number' && Number.isFinite(parsed.x) ? parsed.x : 0
+      const y = typeof parsed.y === 'number' && Number.isFinite(parsed.y) ? parsed.y : 0
+      if (sharedStorageKey && key !== sharedStorageKey) {
+        try {
+          window.localStorage.setItem(sharedStorageKey, JSON.stringify({ x, y }))
+        } catch {
+          // localStorage 접근 실패는 치명적이지 않아 무시한다.
+        }
+      }
+      return { x, y }
+    }
+    return { x: 0, y: 0 }
+  } catch {
+    return { x: 0, y: 0 }
+  }
+}
+
 /**
  * 2D 평면도 캔버스
  * - 미생성 상태: 생성 시작 버튼 화면
@@ -127,6 +164,7 @@ interface TwoDCanvasProps {
  * - 손 도구: Stage draggable로 패닝 지원
  */
 export function TwoDCanvas({
+  projectId,
   stageSize,
   sitePoints = [],
   isCollaborationMode,
@@ -180,7 +218,7 @@ export function TwoDCanvas({
   const stageRef = useRef<Konva.Stage | null>(null)
   const isSpacePressed = useSpacePanning()
   const [isMiddlePanning, setIsMiddlePanning] = useState(false)
-  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 })
+  const [panOffset, setPanOffset] = useState(() => readStoredTwoDPanOffset(projectId))
   const [wallDragState, setWallDragState] = useState<{ wallId: string; lastPoint: Point2D } | null>(null)
   const [roomDragState, setRoomDragState] = useState<RoomDragState | null>(null)
   const [openingDragState, setOpeningDragState] = useState<{ openingId: string } | null>(null)
@@ -265,6 +303,24 @@ export function TwoDCanvas({
     baseOffsetY,
     setPanOffset,
   })
+
+  const handleStageDragEnd = (e: Parameters<typeof onStageDragEnd>[0]) => {
+    onStageDragEnd(e)
+    if (e.target.getType() !== 'Stage') return
+    const nextPanOffset = {
+      x: e.target.x() - baseOffsetX,
+      y: e.target.y() - baseOffsetY,
+    }
+    setPanOffset(nextPanOffset)
+    if (typeof window === 'undefined') return
+    const storageKey = createSharedPanStorageKey(projectId)
+    if (!storageKey) return
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(nextPanOffset))
+    } catch {
+      // localStorage 접근 실패는 치명적이지 않아 무시한다.
+    }
+  }
 
   const gridLines = useCanvasGridLines({
     isGridVisible,
@@ -390,7 +446,7 @@ export function TwoDCanvas({
         isPanMode={isPanMode}
         onStageDragMove={onStageDragMove}
         onStageDragStart={onStageDragStart}
-        onStageDragEnd={onStageDragEnd}
+        onStageDragEnd={handleStageDragEnd}
         stageHandlers={stageHandlers}
         sitePoints={sitePoints}
         isGridVisible={isGridVisible}

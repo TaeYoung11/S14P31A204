@@ -29,6 +29,8 @@ export default function TwoDModeCanvas({ editorProps, scale }: TwoDModeCanvasPro
 
   return (
     <TwoDCanvas
+      key={`2d-canvas-${editorProps.projectId ?? 'no-project'}`}
+      projectId={editorProps.projectId}
       stageSize={editorProps.stageSize}
       sitePoints={editorProps.sitePlanPoints}
       isCollaborationMode={editorProps.isCollaborationMode}

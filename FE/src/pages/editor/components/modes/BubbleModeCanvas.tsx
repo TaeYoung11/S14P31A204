@@ -93,6 +93,8 @@ export default function BubbleModeCanvas({ editorProps, scale }: BubbleModeCanva
           <span className="rounded-md bg-[#F8FAFF] px-1.5 py-0.5">{`면적 ${activeFloorSection.floorAreaM2.toFixed(1)}m²`}</span>
         </div>
         <BubbleCanvas
+          key={`bubble-canvas-${editorProps.projectId ?? 'no-project'}`}
+          projectId={editorProps.projectId}
           stageSize={{ width: sectionCanvasWidth, height: sectionCanvasHeight }}
           sitePoints={editorProps.sitePoints}
           bubbles={activeFloorSection.bubbles}
