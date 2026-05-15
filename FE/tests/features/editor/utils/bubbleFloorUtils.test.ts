@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { BubbleFloorPolicy } from './floorPolicy'
+import type { BubbleFloorPolicy } from '@/features/editor/utils/floorPolicy'
 import {
   compactBubbleFloorNumbers,
   formatBubbleFloorLabel,
   normalizeBubbleFloor,
   readNonZeroIntegerFromUnknown,
-} from './bubbleFloorUtils'
+} from '@/features/editor/utils/bubbleFloorUtils'
 
 const basementPolicy: BubbleFloorPolicy = {
   allowBasement: true,
@@ -50,3 +50,5 @@ describe('bubbleFloorUtils', () => {
     expect(formatBubbleFloorLabel('3', basementPolicy)).toBe('3층')
   })
 })
+
+

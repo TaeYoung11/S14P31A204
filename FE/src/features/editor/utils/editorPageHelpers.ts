@@ -3,6 +3,7 @@ import type {
   ConnectionData,
   EditorMode,
   Point2D,
+  ZoneData,
 } from '../types'
 import type { AxisAlignedRect } from './geometry2d'
 import type {
@@ -136,6 +137,26 @@ function getUniqueBubbles(bubbles: BubbleData[]): BubbleData[] {
     if (!uniqueBubbles.has(bubble.id)) uniqueBubbles.set(bubble.id, bubble)
   })
   return [...uniqueBubbles.values()]
+}
+
+/**
+ * 주어진 버블 id 집합을 모든 zone.bubbleIds에서 제거한다.
+ * - zone 자체는 유지하고 bubbleIds만 정리한다.
+ * - 변경이 없으면 동일 참조를 반환한다.
+ */
+export function pruneZoneBubbleIds(zones: ZoneData[], removedBubbleIds: Iterable<string>): ZoneData[] {
+  const removedBubbleIdSet = new Set(removedBubbleIds)
+  if (removedBubbleIdSet.size === 0) return zones
+
+  let changed = false
+  const nextZones = zones.map((zone) => {
+    const nextBubbleIds = zone.bubbleIds.filter((bubbleId) => !removedBubbleIdSet.has(bubbleId))
+    if (nextBubbleIds.length === zone.bubbleIds.length) return zone
+    changed = true
+    return { ...zone, bubbleIds: nextBubbleIds }
+  })
+
+  return changed ? nextZones : zones
 }
 
 function getSignedPolygonArea(polygon: Array<[number, number]>): number {

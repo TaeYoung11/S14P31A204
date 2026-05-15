@@ -1,4 +1,4 @@
-import type { BubbleData, ConnectionData, WorkspaceSnapshot } from '../types'
+import type { BubbleData, ConnectionData, WorkspaceSnapshot, ZoneData } from '../types'
 import {
   normalizeBubbleFloor,
   normalizeBubbleFloorName,
@@ -38,7 +38,16 @@ export interface WorkspaceBubbleConnectionPayload {
 export interface WorkspaceBubbleSnapshotPayload {
   bubbles: WorkspaceBubbleNodePayload[]
   connections: WorkspaceBubbleConnectionPayload[]
+  zones?: WorkspaceBubbleZonePayload[]
   floorMeta?: WorkspaceBubbleFloorMetaPayload
+}
+
+export interface WorkspaceBubbleZonePayload {
+  id: string
+  name: string
+  color: string
+  bubbleIds: string[]
+  source: ZoneData['source']
 }
 
 /**
@@ -79,6 +88,19 @@ export const mapConnectionToWorkspacePayload = (
 })
 
 /**
+ * 조닝 데이터를 서버 payload 형식으로 변환한다.
+ */
+export const mapZoneToWorkspacePayload = (
+  zone: ZoneData,
+): WorkspaceBubbleZonePayload => ({
+  id: zone.id,
+  name: zone.name,
+  color: zone.color,
+  bubbleIds: [...zone.bubbleIds],
+  source: zone.source,
+})
+
+/**
  * workspace snapshot에서 층 보기 메타데이터를 추출한다.
  */
 export const mapFloorMetaFromWorkspaceSnapshot = (
@@ -94,11 +116,12 @@ const buildFloorMetaPayload = (
 ): WorkspaceBubbleFloorMetaPayload => {
   const floorSet = new Set<number>()
   const floorNameEntries = Object.entries(floorMeta?.namesByFloor ?? {})
+  const extraFloorCandidates = floorMeta?.extraFloors ?? []
 
   bubbles.forEach((bubble) => {
     floorSet.add(normalizeBubbleFloor(bubble.floor))
   })
-  ;(floorMeta?.extraFloors ?? []).forEach((floor) => {
+  extraFloorCandidates.forEach((floor) => {
     floorSet.add(normalizeBubbleFloor(floor))
   })
   floorNameEntries.forEach(([floor]) => {
@@ -122,7 +145,7 @@ const buildFloorMetaPayload = (
     bubbles.map((bubble) => normalizeBubbleFloor(bubble.floor)),
   )
   const explicitExtraFloors = new Set(
-    (floorMeta?.extraFloors ?? []).map((floor) => normalizeBubbleFloor(floor)),
+    extraFloorCandidates.map((floor) => normalizeBubbleFloor(floor)),
   )
   const extraFloors = floors.filter(
     (floor) => explicitExtraFloors.has(floor) || !floorsWithBubble.has(floor),
@@ -137,12 +160,14 @@ const buildFloorMetaPayload = (
 export const mapBubbleSnapshotToWorkspacePayload = (
   bubbles: BubbleData[],
   connections: ConnectionData[],
+  zones?: ZoneData[],
   floorMeta?: WorkspaceBubbleFloorMetaPayload,
 ): WorkspaceBubbleSnapshotPayload => {
   const bubblePayload = bubbles.map(mapBubbleToWorkspacePayload)
   return {
     bubbles: bubblePayload,
     connections: connections.map(mapConnectionToWorkspacePayload),
+    zones: zones?.map(mapZoneToWorkspacePayload) ?? [],
     floorMeta: buildFloorMetaPayload(bubblePayload, floorMeta),
   }
 }

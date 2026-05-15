@@ -2,8 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { ThreeDAttributePanel } from './ThreeDAttributePanel'
-import type { IfcElementInfo } from '../../types'
+import { ThreeDAttributePanel } from '@/features/editor/components/panels/ThreeDAttributePanel'
+import type { IfcElementInfo } from '@/features/editor/types'
 
 const SAMPLE_ROOF_ELEMENT: IfcElementInfo = {
   id: 'roof-1',
@@ -79,3 +79,5 @@ describe('ThreeDAttributePanel', () => {
     expect(disabledButtons.length).toBeGreaterThan(0)
   })
 })
+
+

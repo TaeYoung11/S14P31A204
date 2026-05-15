@@ -1,6 +1,6 @@
 import { api } from '@/shared/lib/axios'
 import type { ApiResponse } from '@/shared/types'
-import type { BubbleData, ConnectionData } from '../types'
+import type { BubbleData, ConnectionData, ZoneData } from '../types'
 import { resolveBubbleFloorFromUnknown } from '../utils/bubbleSnapshotSyncUtils'
 import {
   mapBubbleSnapshotToWorkspacePayload,
@@ -17,12 +17,13 @@ export interface SaveBubbleSnapshotResponse {
 function toSaveBubbleRequest(
   bubbles: BubbleData[],
   connections: ConnectionData[],
+  zones: ZoneData[],
   floorMeta?: WorkspaceBubbleFloorMetaPayload,
 ): WorkspaceBubbleSnapshotPayload {
-  return mapBubbleSnapshotToWorkspacePayload(bubbles, connections, floorMeta)
+  return mapBubbleSnapshotToWorkspacePayload(bubbles, connections, zones, floorMeta)
 }
 
-const summarizePayload = (payload: WorkspaceBubbleSnapshotPayload) => {
+function buildBubbleFloorCountMap(payload: WorkspaceBubbleSnapshotPayload): Record<number, number> {
   const floorCounts: Record<number, number> = {}
   payload.bubbles.forEach((bubble) => {
     const floor = resolveBubbleFloorFromUnknown(
@@ -30,22 +31,32 @@ const summarizePayload = (payload: WorkspaceBubbleSnapshotPayload) => {
     )
     floorCounts[floor] = (floorCounts[floor] ?? 0) + 1
   })
+  return floorCounts
+}
 
-  const bubbleFloors = Object.keys(floorCounts)
-    .map((floor) => Number(floor))
-    .sort((left, right) => left - right)
-
-  const floorMetaFloors = [
-    ...Object.keys(payload.floorMeta?.namesByFloor ?? {}).map((floor) => Number(floor)),
-    ...(payload.floorMeta?.extraFloors ?? []),
-  ]
+function toSortedUniqueFloors(values: number[]): number[] {
+  return values
     .filter((floor) => Number.isFinite(floor))
     .filter((floor, index, arr) => arr.indexOf(floor) === index)
     .sort((left, right) => left - right)
+}
+
+const summarizePayload = (payload: WorkspaceBubbleSnapshotPayload) => {
+  const floorCounts = buildBubbleFloorCountMap(payload)
+
+  const bubbleFloors = toSortedUniqueFloors(
+    Object.keys(floorCounts).map((floor) => Number(floor)),
+  )
+
+  const floorMetaFloors = toSortedUniqueFloors([
+    ...Object.keys(payload.floorMeta?.namesByFloor ?? {}).map((floor) => Number(floor)),
+    ...(payload.floorMeta?.extraFloors ?? []),
+  ])
 
   return {
     bubbleCount: payload.bubbles.length,
     connectionCount: payload.connections.length,
+    zoneCount: payload.zones?.length ?? 0,
     bubbleFloors,
     floorMetaFloors,
     floorCounts,
@@ -59,14 +70,16 @@ export async function saveBubbleSnapshotToDb(
   projectId: string,
   bubbles: BubbleData[],
   connections: ConnectionData[],
+  zones: ZoneData[],
   floorMeta?: WorkspaceBubbleFloorMetaPayload,
 ): Promise<SaveBubbleSnapshotResponse> {
-  const payload = toSaveBubbleRequest(bubbles, connections, floorMeta)
+  const payload = toSaveBubbleRequest(bubbles, connections, zones, floorMeta)
   const summary = summarizePayload(payload)
   console.info('[bubble-save][fe] request', {
     projectId,
     bubbleCount: summary.bubbleCount,
     connectionCount: summary.connectionCount,
+    zoneCount: summary.zoneCount,
     bubbleFloors: summary.bubbleFloors,
     floorMetaFloors: summary.floorMetaFloors,
     floorCounts: summary.floorCounts,
