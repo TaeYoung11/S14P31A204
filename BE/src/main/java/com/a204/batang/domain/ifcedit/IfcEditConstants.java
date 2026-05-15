@@ -26,6 +26,7 @@ public final class IfcEditConstants {
     public static final String EVENT_TWO_D_LLM_PROGRESS = "TWO_D_LLM_PROGRESS";
     public static final String EVENT_TWO_D_LLM_COMPLETED = "TWO_D_LLM_COMPLETED";
     public static final String EVENT_TWO_D_LLM_FAILED = "TWO_D_LLM_FAILED";
+    public static final String EVENT_TWO_D_LLM_CLARIFICATION_REQUIRED = "TWO_D_LLM_CLARIFICATION_REQUIRED";
     public static final String EVENT_THREE_D_LLM_STARTED = "THREE_D_LLM_STARTED";
     public static final String EVENT_THREE_D_LLM_PROGRESS = "THREE_D_LLM_PROGRESS";
     public static final String EVENT_THREE_D_LLM_COMPLETED = "THREE_D_LLM_COMPLETED";

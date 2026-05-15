@@ -60,6 +60,7 @@ public class TwoDLlmEventListener {
             case EVENT_TWO_D_LLM_PROGRESS -> handleProgress(event);
             case EVENT_TWO_D_LLM_COMPLETED -> handleCompleted(event);
             case EVENT_TWO_D_LLM_FAILED -> handleFailed(event);
+            case EVENT_TWO_D_LLM_CLARIFICATION_REQUIRED -> handleClarificationRequired(event);
             default -> {
             }
         }
@@ -249,6 +250,40 @@ public class TwoDLlmEventListener {
         publishStatusEvent(event.projectId(), SSE_IFC_EDIT_STARTED, new IfcEditStatusSseResponse(
                 SSE_IFC_EDIT_STARTED, event.projectId(), job.getJobId(), step2Id, targetRevisionId,
                 job.getJobType(), "RUNNING", 50, "LLM 처리가 완료되어 IFC 편집을 진행합니다."
+        ));
+    }
+
+    private void handleClarificationRequired(IfcEditEventMessage event) {
+        LocalDateTime now = LocalDateTime.now();
+        IfcEditJob job = ifcEditJobRepository.findByJobIdAndJobType(event.jobId(), JOB_TYPE_TWO_D_TO_IFC_EDIT)
+                .orElseThrow(() -> new CustomException(ErrorCode.IFC_EDIT_JOB_NOT_FOUND));
+        IfcEditJobStep step1 = ifcEditJobStepRepository.findByJobIdAndStepNo(event.jobId(), 1)
+                .orElseThrow(() -> new CustomException(ErrorCode.IFC_EDIT_STEP_NOT_FOUND));
+
+        if (job.isTerminal() || step1.isTerminal()) {
+            log.info("2D LLM clarification 이벤트를 무시합니다. jobId={}, reason=terminal-state", event.jobId());
+            return;
+        }
+
+        String errorMessage = event.error() != null && event.error().message() != null
+                ? event.error().message() : "추가 정보가 필요합니다.";
+        String detailStorageUrl = event.error() != null ? event.error().detailStorageUrl() : null;
+
+        com.fasterxml.jackson.databind.node.ObjectNode outputPayload = objectMapper.createObjectNode();
+        outputPayload.put("eventType", event.eventType());
+        outputPayload.put("errorCode", "CLARIFICATION_REQUIRED");
+        outputPayload.put("errorMessage", errorMessage);
+        outputPayload.put("clarificationPossible", true);
+        if (detailStorageUrl != null) outputPayload.put("detailStorageUrl", detailStorageUrl);
+
+        step1.markFailed("CLARIFICATION_REQUIRED", errorMessage, outputPayload, now);
+        job.markFailed(errorMessage, outputPayload, now);
+
+        log.info("2D LLM clarification 이벤트를 반영했습니다. jobId={}, detailStorageUrl={}", event.jobId(), detailStorageUrl);
+
+        publishStatusEvent(event.projectId(), SSE_IFC_EDIT_FAILED, new IfcEditStatusSseResponse(
+                SSE_IFC_EDIT_FAILED, event.projectId(), event.jobId(), event.jobStepId(),
+                null, job.getJobType(), "FAILED", 0, errorMessage
         ));
     }
 

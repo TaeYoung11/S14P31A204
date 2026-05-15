@@ -776,45 +776,45 @@ class LLM2DPipeline:
 
     def _policy_summary(self, policy_plan: PolicyPlan | None) -> str:
         if policy_plan is None:
-            return "Policy preview is ready."
+            return "미리보기가 준비되었습니다."
 
         reason = policy_plan.get("reason")
         if reason == "dominant_adjacent_absorber":
-            return "A dominant adjacent absorber was found for room removal."
+            return "인접한 방으로 공간을 흡수하여 삭제합니다."
         if reason == "preferred_adjacent_absorber":
-            return "The requested adjacent merge target can absorb the removed room."
+            return "요청하신 인접 방으로 공간을 합쳐 삭제합니다."
         if reason == "multiple_similar_absorbers":
-            return "Multiple adjacent absorber candidates exist and clarification is needed."
+            return "삭제 후 공간을 어느 방으로 합칠지 선택해 주세요."
         if reason == "preferred_absorber_not_adjacent":
-            return "The requested merge target is not adjacent to the removed room."
+            return "지정하신 방이 삭제할 방과 인접해 있지 않습니다. 인접한 방을 지정해 주세요."
         if reason == "no_adjacent_absorber":
-            return "No adjacent absorber was found for room removal."
+            return "삭제하려는 방에 인접한 공간이 없어 삭제할 수 없습니다. 먼저 옆에 다른 방을 추가해 주세요."
         if reason == "single_direction_resize":
             direction = policy_plan.get("direction")
-            return f"Resize can be applied toward {direction}."
+            return f"{direction} 방향으로 크기를 조정합니다."
         if reason == "resize_direction_ambiguous":
-            return "Resize direction is ambiguous and clarification is needed."
+            return "크기를 조정할 방향이 명확하지 않습니다. 방향을 지정해 주세요."
         if reason == "resize_direction_axis_mismatch":
-            return "The requested resize direction does not match the changed axis."
+            return "요청하신 방향과 변경된 치수의 축이 맞지 않습니다."
         if reason == "multi_axis_resize_unsupported":
-            return "Multi-axis resize is currently unsupported."
+            return "가로와 세로를 동시에 변경하는 것은 현재 지원하지 않습니다. 한 방향씩 요청해 주세요."
         if reason == "resize_outside_boundary":
-            return "Resize is unsupported because the result would leave the floor boundary."
+            return "크기를 변경하면 층 경계를 벗어나기 때문에 적용할 수 없습니다."
         if reason == "non_rectangular_space":
-            return "Resize is unsupported for non-rectangular rooms."
+            return "직사각형이 아닌 방은 현재 크기 조정을 지원하지 않습니다."
         if reason == "locked_room":
-            return "The target room is locked."
+            return "해당 방은 잠금 상태여서 수정할 수 없습니다."
         if reason == "room_not_found":
-            return "The target room was not found."
+            return "해당 방을 찾을 수 없습니다. 방 이름을 다시 확인해 주세요."
         if reason == "insert_toilet_demo":
-            donor = policy_plan.get("donor_room_name") or "adjacent room"
+            donor = policy_plan.get("donor_room_name") or "인접한 방"
             anchor = policy_plan.get("anchor_room_name")
             if anchor is None:
-                return f"Public toilet insertion can proceed by shrinking {donor}."
-            return f"Toilet insertion can proceed near {anchor} by shrinking {donor}."
+                return f"'{donor}'의 공간을 줄여 화장실을 추가할 수 있습니다."
+            return f"'{anchor}' 근처에 '{donor}'의 공간을 줄여 화장실을 배치합니다."
         if reason == "insert_toilet_no_adjacent_donor":
-            return "No adjacent donor room was found for toilet insertion."
-        return f"Policy result: {reason}"
+            return "화장실을 추가할 인접 공간을 찾을 수 없습니다."
+        return f"처리 결과: {reason}"
 
     def _engine_capabilities(self) -> dict[str, Any]:
         return {
