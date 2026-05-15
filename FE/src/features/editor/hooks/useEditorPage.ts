@@ -3315,6 +3315,7 @@ export function useEditorPage() {
     handleZoomOut,
     handleZoomChange,
   } = useEditorZoom({
+    projectId,
     sitePlanPoints: zoomFitPoints,
     stageWidth: stageSize.width,
     stageHeight: stageSize.height,
