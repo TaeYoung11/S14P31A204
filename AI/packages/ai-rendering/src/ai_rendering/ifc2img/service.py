@@ -36,7 +36,9 @@ from .semantics import (
     IfcColorSummary,
     IfcSemanticSummary,
     append_ifc_shape_lock_negative_prompt,
+    build_ifc_compact_color_prompt_suffix,
     build_ifc_color_prompt_suffix,
+    compact_ifc_color_base_prompt,
     extract_ifc_color_summary,
     extract_ifc_semantic_summary,
     inject_ifc_color_prompt,
@@ -1164,6 +1166,7 @@ def run_ifc2img_photo_pipeline(
     preset: str = DEFAULT_PHOTO_PRESET,
     time_of_day: object | None = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY,
     use_ifc_color_prompt_suffix: bool = False,
+    ifc_color_prompt_style: Literal["default", "compact"] = "default",
     use_ifc_shape_lock_prompt: bool = False,
     geometry_control_input_mode: str | None = None,
     debug_artifacts: bool = False,
@@ -1228,6 +1231,7 @@ def run_ifc2img_photo_pipeline(
             "preset": preset,
             "timeOfDay": worker_time_of_day,
             "geometryControlInputMode": geometry_control_mode,
+            "ifcColorPromptStyle": ifc_color_prompt_style,
             "useIfcShapeLockPrompt": use_ifc_shape_lock_prompt,
             "views": [],
         }
@@ -1273,12 +1277,21 @@ def run_ifc2img_photo_pipeline(
     )
     params = load_preset(preset, preset_time_of_day)
     if use_ifc_color_prompt_suffix and debug_color_summary is not None:
-        color_suffix = build_ifc_color_prompt_suffix(debug_color_summary)
+        if ifc_color_prompt_style == "compact":
+            color_suffix = build_ifc_compact_color_prompt_suffix(debug_color_summary)
+        elif ifc_color_prompt_style == "default":
+            color_suffix = build_ifc_color_prompt_suffix(debug_color_summary)
+        else:
+            raise IFCRenderError(
+                f"unsupported ifc_color_prompt_style: {ifc_color_prompt_style}"
+            )
         color_cues = select_ifc_color_summary_category_cues(debug_color_summary)
         color_safe_prompt = remove_ifc_color_conflicting_prompt_terms(
             params.prompt,
             color_cues,
         )
+        if ifc_color_prompt_style == "compact":
+            color_safe_prompt = compact_ifc_color_base_prompt(color_safe_prompt)
         params = dataclass_replace(
             params,
             prompt=inject_ifc_color_prompt(color_safe_prompt, color_suffix),

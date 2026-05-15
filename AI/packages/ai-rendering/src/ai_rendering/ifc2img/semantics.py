@@ -307,6 +307,23 @@ def build_ifc_color_prompt_suffix(summary: IfcColorSummary) -> str:
     return f"IFC colors: {_join_prompt_parts(parts)}."
 
 
+def build_ifc_compact_color_prompt_suffix(summary: IfcColorSummary) -> str:
+    """Build the shortest IFC color prompt phrase for artifact comparisons."""
+    cues = select_ifc_color_summary_category_cues(summary)
+    parts: list[str] = []
+    if roof := cues.get("ROOF"):
+        parts.append(f"{roof} roof")
+    if wall := cues.get("WALL"):
+        parts.append(f"{wall} walls")
+    if window := cues.get("WINDOW"):
+        parts.append(window)
+    if door := cues.get("DOOR"):
+        parts.append(f"{door} door")
+    if not parts:
+        return ""
+    return f"IFC colors: {', '.join(parts)}."
+
+
 def append_ifc_color_prompt_suffix(prompt: str, suffix: str) -> str:
     """Append an IFC color suffix after existing style and DAY/NIGHT prompt text."""
     clean_prompt = prompt.strip()
@@ -329,6 +346,35 @@ def inject_ifc_color_prompt(prompt: str, color_prompt: str) -> str:
         return clean_color_prompt
     separator = " " if clean_color_prompt.endswith((".", "!", "?")) else ". "
     return f"{clean_color_prompt}{separator}{clean_prompt}"
+
+
+def compact_ifc_color_base_prompt(prompt: str) -> str:
+    """Compress preset text when IFC color cues must fit before CLIP truncation."""
+    clean_prompt = prompt.strip()
+    if not clean_prompt:
+        return clean_prompt
+    is_night = "night exterior" in clean_prompt or "dark sky" in clean_prompt
+    base_parts = [
+        "RAW photo",
+        "realistic Korean house exterior",
+        "open paved ground",
+        "ground touches facade",
+        "no balcony",
+        "no foreground wall",
+    ]
+    if is_night:
+        base_parts.extend(
+            [
+                "night exterior",
+                "dark sky",
+                "warm windows",
+                "exterior lights",
+                "low glare",
+            ]
+        )
+    else:
+        base_parts.extend(["daylight", "blue sky", "soft shadows"])
+    return ", ".join(base_parts)
 
 
 IFC_SHAPE_LOCK_PROMPT = "Shape."
