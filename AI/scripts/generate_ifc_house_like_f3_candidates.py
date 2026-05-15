@@ -389,19 +389,19 @@ def _build_storey_and_color_preserving_building(
     rgb = _apply_mask_gain(
         rgb,
         upper_wall_mask,
-        gain=(1.015, 1.015, 1.012) if time_of_day == "DAY" else (0.97, 0.97, 0.98),
+        gain=(1.004, 1.004, 1.003) if time_of_day == "DAY" else (0.988, 0.988, 0.990),
     )
     rgb = _apply_mask_gain(
         rgb,
         lower_wall_mask,
-        gain=(0.985, 0.985, 0.982) if time_of_day == "DAY" else (0.94, 0.94, 0.95),
+        gain=(0.996, 0.996, 0.994) if time_of_day == "DAY" else (0.980, 0.980, 0.984),
     )
 
     separator_mask = _build_separator_mask(wall_mask=wall_mask, split_y=split_y)
     rgb = _apply_mask_gain(
         rgb,
         separator_mask,
-        gain=(0.90, 0.90, 0.90) if time_of_day == "DAY" else (0.84, 0.84, 0.86),
+        gain=(0.965, 0.965, 0.965) if time_of_day == "DAY" else (0.935, 0.935, 0.940),
     )
 
     rgb = _apply_window_reflection(
@@ -517,17 +517,17 @@ def _apply_photo_finish_red_roof_boost(
     rgb = _apply_mask_gain(
         rgb,
         upper_wall_mask,
-        gain=(1.02, 1.02, 1.015) if time_of_day == "DAY" else (0.97, 0.97, 0.98),
+        gain=(1.006, 1.006, 1.004) if time_of_day == "DAY" else (0.988, 0.988, 0.990),
     )
     rgb = _apply_mask_gain(
         rgb,
         lower_wall_mask,
-        gain=(0.98, 0.98, 0.975) if time_of_day == "DAY" else (0.93, 0.93, 0.95),
+        gain=(0.994, 0.994, 0.992) if time_of_day == "DAY" else (0.978, 0.978, 0.982),
     )
     rgb = _apply_mask_gain(
         rgb,
         separator_mask,
-        gain=(0.88, 0.88, 0.88) if time_of_day == "DAY" else (0.82, 0.82, 0.84),
+        gain=(0.955, 0.955, 0.955) if time_of_day == "DAY" else (0.930, 0.930, 0.936),
     )
     rgb = _push_toward_color(
         rgb,
@@ -925,7 +925,7 @@ def _apply_edge_ambient_occlusion(
     outer = _soften_mask(alpha, radius=5)
     inner = _soften_mask(alpha, radius=1)
     edge = np.clip(outer - inner, 0.0, 1.0)
-    strength = 0.08 if time_of_day == "DAY" else 0.10
+    strength = 0.03 if time_of_day == "DAY" else 0.04
     edge_3 = edge[..., None] * strength
     return np.clip(rgb * (1.0 - edge_3), 0.0, 255.0)
 
