@@ -244,11 +244,23 @@ export function useWorkspaceHistorySyncController({
 
   const handleFloorPlanHistoryCursorInvalid = useCallback(() => {
     const awaitingSync = awaitingServerSyncRef.current
-    if (!awaitingSync || awaitingSync.projectId !== projectId || awaitingSync.historyDomain !== 'floorPlan') return
+    const hadFloorPlanCommandInFlight = floorPlanHistoryCommandInFlightRef.current
+    floorPlanHistoryCommandInFlightRef.current = false
+
+    if (!awaitingSync || awaitingSync.projectId !== projectId || awaitingSync.historyDomain !== 'floorPlan') {
+      // floor-plan undo/redo requests do not always create an awaiting sync record.
+      // Ensure command lock is released when server reports cursor-invalid.
+      if (hadFloorPlanCommandInFlight) {
+        clearServerPublishRetry()
+        setSaveStatus('dirty')
+        void refreshHistoryCursorFromServer({ republishOnFailure: false, republishWhenStale: false })
+      }
+      return
+    }
+
     pendingServerPublishRef.current = null
     awaitingServerSyncRef.current = null
     previousSnapshotRef.current = null
-    floorPlanHistoryCommandInFlightRef.current = false
     clearServerPublishRetry()
     setSaveStatus('dirty')
     void refreshHistoryCursorFromServer({ republishOnFailure: false, republishWhenStale: false })
