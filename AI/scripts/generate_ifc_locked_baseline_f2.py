@@ -140,6 +140,7 @@ def _generate_case(
         color_composite_path = debug_manifest_path.parent.parent / str(
             files["ifcColorCompositeImage"]
         )
+        element_masks = files.get("elementMasks") or {}
         building_rgba = _build_building_rgba(Image.open(color_composite_path).convert("RGBA"))
         no_background_path = case_output_dir / f"baseline_no_background_{view_name}.png"
         building_rgba.save(no_background_path, format="PNG")
@@ -152,6 +153,11 @@ def _generate_case(
             {
                 "view": view_name,
                 "sourceIfcColorCompositeImage": _posix(color_composite_path),
+                "sourceElementMasks": {
+                    key: _posix(debug_manifest_path.parent.parent / str(value))
+                    for key, value in element_masks.items()
+                    if isinstance(value, str)
+                },
                 "baselineNoBackgroundImage": _posix(no_background_path),
                 "baselineWithBackgroundImage": _posix(with_background_path),
                 "geometryIdenticalToIfc": True,

@@ -7,7 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageEnhance
+import numpy as np
+from PIL import Image, ImageEnhance, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_F2_MANIFEST = (
@@ -66,11 +67,16 @@ def generate_ifc_house_like_f3_candidates(
                 view_name = str(view_payload["view"])
                 source_no_bg = Path(str(view_payload["baselineNoBackgroundImage"]))
                 source_with_bg = Path(str(view_payload["baselineWithBackgroundImage"]))
+                source_element_masks = {
+                    key: Path(str(value))
+                    for key, value in (view_payload.get("sourceElementMasks") or {}).items()
+                }
                 output_path = case_output_dir / f"photo_{view_name}.png"
                 builder(
                     no_background_path=source_no_bg,
                     with_background_path=source_with_bg,
                     time_of_day=time_of_day,
+                    source_element_masks=source_element_masks,
                 ).save(output_path, format="PNG")
                 views.append(
                     {
@@ -163,14 +169,15 @@ def _build_material_relight_candidate(
     no_background_path: Path,
     with_background_path: Path,
     time_of_day: str,
+    source_element_masks: dict[str, Path],
 ) -> Image.Image:
     building = Image.open(no_background_path).convert("RGBA")
     background = Image.open(with_background_path).convert("RGB")
-    rgb = building.convert("RGB")
-    rgb = ImageEnhance.Color(rgb).enhance(0.78)
-    rgb = ImageEnhance.Contrast(rgb).enhance(1.10)
-    rgb = ImageEnhance.Brightness(rgb).enhance(1.05 if time_of_day == "DAY" else 0.92)
-    relit = Image.merge("RGBA", (*rgb.split(), building.getchannel("A")))
+    relit = _build_storey_and_color_preserving_building(
+        building=building,
+        time_of_day=time_of_day,
+        source_element_masks=source_element_masks,
+    )
     return Image.alpha_composite(background.convert("RGBA"), relit).convert("RGB")
 
 
@@ -179,6 +186,7 @@ def _build_shadow_contrast_background_candidate(
     no_background_path: Path,
     with_background_path: Path,
     time_of_day: str,
+    source_element_masks: dict[str, Path],
 ) -> Image.Image:
     building = Image.open(no_background_path).convert("RGBA")
     background = Image.open(with_background_path).convert("RGBA")
@@ -191,6 +199,139 @@ def _build_shadow_contrast_background_candidate(
     rgb = ImageEnhance.Brightness(rgb).enhance(1.00 if time_of_day == "DAY" else 0.88)
     tuned_building = Image.merge("RGBA", (*rgb.split(), building.getchannel("A")))
     return Image.alpha_composite(tuned_bg.convert("RGBA"), tuned_building).convert("RGB")
+
+
+def _build_storey_and_color_preserving_building(
+    *,
+    building: Image.Image,
+    time_of_day: str,
+    source_element_masks: dict[str, Path],
+) -> Image.Image:
+    rgba = building.convert("RGBA")
+    rgb = np.asarray(rgba.convert("RGB"), dtype=np.float32)
+    alpha = np.asarray(rgba.getchannel("A"), dtype=np.float32) / 255.0
+    wall_mask = _load_mask(source_element_masks.get("wall"), rgba.size)
+    roof_mask = _load_mask(source_element_masks.get("roof"), rgba.size)
+    window_mask = _load_mask(source_element_masks.get("window"), rgba.size)
+    door_mask = _load_mask(source_element_masks.get("door"), rgba.size)
+
+    # Preserve IFC hue first, then add mild relight per category.
+    rgb = _apply_mask_gain(
+        rgb,
+        roof_mask,
+        gain=(0.96, 1.02, 0.96) if time_of_day == "DAY" else (0.88, 0.95, 0.88),
+    )
+    rgb = _apply_mask_gain(
+        rgb,
+        window_mask,
+        gain=(0.93, 0.98, 1.08) if time_of_day == "DAY" else (0.82, 0.88, 1.04),
+    )
+    rgb = _apply_mask_gain(
+        rgb,
+        door_mask,
+        gain=(1.03, 1.00, 0.95) if time_of_day == "DAY" else (0.90, 0.88, 0.84),
+    )
+
+    split_y = _estimate_storey_split_y(wall_mask=wall_mask, window_mask=window_mask)
+    upper_wall_mask, lower_wall_mask = _split_wall_mask(wall_mask, split_y)
+    rgb = _apply_mask_gain(
+        rgb,
+        upper_wall_mask,
+        gain=(1.05, 1.05, 1.04) if time_of_day == "DAY" else (0.88, 0.88, 0.90),
+    )
+    rgb = _apply_mask_gain(
+        rgb,
+        lower_wall_mask,
+        gain=(0.93, 0.93, 0.92) if time_of_day == "DAY" else (0.76, 0.76, 0.78),
+    )
+
+    separator_mask = _build_separator_mask(wall_mask=wall_mask, split_y=split_y)
+    rgb = _apply_mask_gain(
+        rgb,
+        separator_mask,
+        gain=(0.72, 0.72, 0.72) if time_of_day == "DAY" else (0.62, 0.62, 0.64),
+    )
+
+    # Mild global contrast that still keeps original IFC category colors readable.
+    relit = Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8), mode="RGB")
+    relit = ImageEnhance.Contrast(relit).enhance(1.05)
+    relit = ImageEnhance.Brightness(relit).enhance(1.02 if time_of_day == "DAY" else 0.95)
+    relit_rgba = np.dstack(
+        [
+            np.asarray(relit, dtype=np.uint8),
+            np.clip(alpha * 255.0, 0, 255).astype(np.uint8),
+        ]
+    )
+    return Image.fromarray(relit_rgba, mode="RGBA")
+
+
+def _load_mask(path: Path | None, size: tuple[int, int]) -> np.ndarray:
+    if path is None or not path.exists():
+        return np.zeros((size[1], size[0]), dtype=np.float32)
+    mask = Image.open(path).convert("L")
+    if mask.size != size:
+        mask = mask.resize(size, Image.Resampling.NEAREST)
+    return np.asarray(mask, dtype=np.float32) / 255.0
+
+
+def _apply_mask_gain(
+    rgb: np.ndarray,
+    mask: np.ndarray,
+    *,
+    gain: tuple[float, float, float],
+) -> np.ndarray:
+    if mask.max() <= 0.0:
+        return rgb
+    mask_3 = mask[..., None]
+    target = rgb * np.asarray(gain, dtype=np.float32)
+    return rgb * (1.0 - mask_3) + target * mask_3
+
+
+def _estimate_storey_split_y(
+    *,
+    wall_mask: np.ndarray,
+    window_mask: np.ndarray,
+) -> int:
+    window_rows = window_mask.sum(axis=1)
+    window_y = np.where(window_rows > max(window_rows.max() * 0.15, 1.0))[0]
+    if window_y.size >= 8 and window_y.max() - window_y.min() >= 24:
+        median = int(np.median(window_y))
+        top = window_y[window_y < median]
+        bottom = window_y[window_y >= median]
+        if top.size > 0 and bottom.size > 0:
+            return int(round((top.mean() + bottom.mean()) / 2.0))
+    wall_y = np.where(wall_mask.sum(axis=1) > 0)[0]
+    if wall_y.size == 0:
+        return wall_mask.shape[0] // 2
+    top = int(wall_y.min())
+    bottom = int(wall_y.max())
+    return top + int(round((bottom - top) * 0.48))
+
+
+def _split_wall_mask(wall_mask: np.ndarray, split_y: int) -> tuple[np.ndarray, np.ndarray]:
+    upper = np.zeros_like(wall_mask)
+    lower = np.zeros_like(wall_mask)
+    split_y = int(np.clip(split_y, 0, wall_mask.shape[0] - 1))
+    upper[:split_y, :] = wall_mask[:split_y, :]
+    lower[split_y:, :] = wall_mask[split_y:, :]
+    upper = _soften_mask(upper, radius=2)
+    lower = _soften_mask(lower, radius=2)
+    return upper, lower
+
+
+def _build_separator_mask(*, wall_mask: np.ndarray, split_y: int) -> np.ndarray:
+    separator = np.zeros_like(wall_mask)
+    split_y = int(np.clip(split_y, 1, wall_mask.shape[0] - 2))
+    separator[max(split_y - 2, 0) : min(split_y + 3, wall_mask.shape[0]), :] = wall_mask[
+        max(split_y - 2, 0) : min(split_y + 3, wall_mask.shape[0]), :
+    ]
+    return _soften_mask(separator, radius=3)
+
+
+def _soften_mask(mask: np.ndarray, *, radius: int) -> np.ndarray:
+    image = Image.fromarray(np.clip(mask * 255.0, 0, 255).astype(np.uint8), mode="L")
+    softened = image.filter(ImageFilter.GaussianBlur(radius=radius))
+    return np.asarray(softened, dtype=np.float32) / 255.0
 
 
 def _load_json(path: Path) -> dict[str, Any]:

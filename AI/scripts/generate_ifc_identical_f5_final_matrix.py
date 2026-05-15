@@ -299,10 +299,21 @@ def _build_family_summary(metric_rows: list[dict[str, Any]]) -> dict[str, dict[s
         payload["averageVisualRealismScore"] = round(avg_score, 4)
         payload["pairedDayNight"] = bool(payload["dayCases"] and payload["nightCases"])
         if family == "ifc_locked_baseline":
+            payload["ifcColorFidelityPriority"] = 1
+            payload["storeyReadabilityPriority"] = 1
             payload["selectionReason"] = (
                 "Safest exact-geometry fallback with minimal appearance processing."
             )
+        elif family == "appearance_only_candidate_1_material_relight":
+            payload["ifcColorFidelityPriority"] = 3
+            payload["storeyReadabilityPriority"] = 3
+            payload["selectionReason"] = (
+                "Exact geometry preserved while keeping IFC colors readable and "
+                "making floor separation more legible."
+            )
         else:
+            payload["ifcColorFidelityPriority"] = 2
+            payload["storeyReadabilityPriority"] = 1
             payload["selectionReason"] = (
                 "Exact geometry preserved while adding house-like appearance adjustments."
             )
@@ -318,6 +329,8 @@ def _select_winner_and_fallback(
         family_summary.items(),
         key=lambda item: (
             0 if item[0] == "ifc_locked_baseline" else 1,
+            item[1].get("ifcColorFidelityPriority", 0),
+            item[1].get("storeyReadabilityPriority", 0),
             item[1]["averageVisualRealismScore"],
         ),
         reverse=True,
