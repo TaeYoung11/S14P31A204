@@ -134,6 +134,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "bubble-1",
                         "bold"
                 )),
+                List.of(),
                 0,
                 null,
                 FloorPlanSceneType.TWO_D,
@@ -212,6 +213,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         null
                 )),
                 List.of(),
+                List.of(),
                 0,
                 null,
                 FloorPlanSceneType.THREE_D,
@@ -255,6 +257,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         null
                 )),
                 List.of(),
+                List.of(),
                 0,
                 null,
                 FloorPlanSceneType.TWO_D,
@@ -297,6 +300,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "#ffffff",
                         null
                 )),
+                List.of(),
                 List.of(),
                 0,
                 null,
@@ -356,6 +360,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "bubble-2",
                         "bold"
                 )),
+                List.of(),
                 0,
                 "rev-200",
                 FloorPlanSceneType.TWO_D,

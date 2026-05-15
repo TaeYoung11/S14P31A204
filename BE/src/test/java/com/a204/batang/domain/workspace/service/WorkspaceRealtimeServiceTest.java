@@ -115,6 +115,7 @@ class WorkspaceRealtimeServiceTest {
                         "bubble-1",
                         "bold"
                 )),
+                List.of(),
                 0,
                 new BubbleFloorMeta(Map.of(1, "1F"), List.of(2))
         );
