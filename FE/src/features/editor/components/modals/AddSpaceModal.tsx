@@ -69,31 +69,7 @@ export function AddSpaceModal({ isOpen, activeFloorNumber, formData, onClose, on
             onChange={(event) => onChange({ ...formData, ratio: event.target.value })}
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-2">
-            <label className={FIELD_LABEL_CLASS}>가로 (mm)</label>
-            <input
-              type="number"
-              min={1}
-              placeholder="예: 4000"
-              className={INPUT_CLASS}
-              value={formData.width}
-              onChange={(event) => onChange({ ...formData, width: event.target.value })}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <label className={FIELD_LABEL_CLASS}>세로 (mm)</label>
-            <input
-              type="number"
-              min={1}
-              placeholder="예: 3000"
-              className={INPUT_CLASS}
-              value={formData.height}
-              onChange={(event) => onChange({ ...formData, height: event.target.value })}
-            />
-          </div>
-        </div>
-        <p className="text-[10px] font-medium text-[#8A92A5]">면적 또는 가로·세로 중 하나만 입력해도 자동 계산됩니다.</p>
+        <p className="text-[10px] font-medium text-[#8A92A5]">면적 입력값을 기준으로 공간 크기가 자동 계산됩니다.</p>
       </section>
 
       <section className={SECTION_CLASS}>
