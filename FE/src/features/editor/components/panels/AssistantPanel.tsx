@@ -137,7 +137,7 @@ export function AssistantPanel({
           </div>
         )}
 
-        {floorProjectImportMessage && status !== 'loading' && status !== 'running' && (
+        {floorProjectImportMessage && status === 'idle' && (
           <div className="mt-3">
             <AssistantNoticeCard message={floorProjectImportMessage} />
           </div>

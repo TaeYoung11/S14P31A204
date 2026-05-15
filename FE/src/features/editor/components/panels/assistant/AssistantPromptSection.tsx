@@ -39,6 +39,19 @@ export function AssistantPromptSection({
 
   return (
     <div className="border-t border-[#E2E8F0] bg-[#F8FAFC] px-4 pb-4 pt-3">
+      {isLoading && (
+        <div className="mb-2 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={onDiscard}
+            className="inline-flex items-center gap-1 rounded-md border border-[#CBD5E1] px-2.5 py-1 text-[11px] font-semibold text-[#64748B] hover:bg-[#F1F5F9]"
+          >
+            <X size={11} />
+            취소
+          </button>
+        </div>
+      )}
+
       {(status === 'preview' || status === 'applied') && (
         <div className="mb-2 flex items-center justify-end gap-2">
           <button
