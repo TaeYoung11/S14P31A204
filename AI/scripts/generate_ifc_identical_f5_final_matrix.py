@@ -304,6 +304,20 @@ def _build_family_summary(metric_rows: list[dict[str, Any]]) -> dict[str, dict[s
             payload["selectionReason"] = (
                 "Safest exact-geometry fallback with minimal appearance processing."
             )
+        elif family == "appearance_only_candidate_3_photo_finish_red_roof":
+            payload["ifcColorFidelityPriority"] = 4
+            payload["storeyReadabilityPriority"] = 4
+            payload["selectionReason"] = (
+                "Exact geometry preserved while pushing roof red visibility, "
+                "storey separation, and photographic finish more aggressively."
+            )
+        elif family == "appearance_only_candidate_4_natural_photo_finish":
+            payload["ifcColorFidelityPriority"] = 4
+            payload["storeyReadabilityPriority"] = 3
+            payload["selectionReason"] = (
+                "Exact geometry preserved while reducing model-like sharpness and "
+                "micro-patterns for a more natural photograph feel."
+            )
         elif family == "appearance_only_candidate_1_material_relight":
             payload["ifcColorFidelityPriority"] = 3
             payload["storeyReadabilityPriority"] = 3
