@@ -6,6 +6,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from ai_rendering.ifc2img.element_masks import render_ifc_element_masks
+from ai_rendering.ifc2img.renderer import IFCRenderer, RENDER_BACKEND_ENV
+from ai_rendering.ifc2img.service import _build_debug_view_payload, _load_debug_geometry
 from ai_rendering.ifc2img.semantics import (
     IfcFrontDirectionCandidate,
     IfcSemanticBounds,
@@ -17,6 +20,14 @@ from ai_rendering.ifc2img.semantics import (
     extract_ifc_semantic_summary,
     is_reliable_main_door_candidate,
 )
+from ai_rendering.ifc2img.views import AutoZoomMode, IFCView
+
+
+def _mask_y_center(mask: object) -> float:
+    arr = np.asarray(mask, dtype=np.uint8)
+    ys, _xs = np.nonzero(arr > 0)
+    assert len(ys) > 0
+    return float(ys.mean())
 
 
 def test_extract_ifc_semantic_summary_collects_key_elements(
@@ -98,6 +109,85 @@ def test_shinchan_semantic_baseline_lowest_floor_and_highest_roof(
     assert summary.highest_roof.bounds.z_min == pytest.approx(5.0)
     assert summary.highest_roof.bounds.z_max == pytest.approx(6.5)
     assert summary.lowest_floor.bounds.z_max < summary.highest_roof.bounds.z_min
+
+
+def test_shinchan_element_masks_keep_roof_above_floor(
+    ifc4_fixture: Path,
+) -> None:
+    """Element mask projection should preserve semantic roof/floor screen order."""
+    geometry = _load_debug_geometry(ifc4_fixture)
+
+    for view in (IFCView.FRONT_DIAGONAL_LEFT, IFCView.FRONT_DIAGONAL_RIGHT):
+        payload = _build_debug_view_payload(
+            geometry=geometry,
+            internal_view=view,
+        )
+        camera = payload["camera"]
+        assert isinstance(camera, dict)
+
+        result = render_ifc_element_masks(
+            ifc4_fixture,
+            eye=camera["eye"],
+            look_at=camera["lookAt"],
+            up=camera["up"],
+            width=768,
+            height=448,
+        )
+
+        roof_y_center = _mask_y_center(result.masks["ROOF"])
+        floor_y_center = _mask_y_center(result.masks["FLOOR"])
+
+        assert roof_y_center < floor_y_center
+
+
+def test_shinchan_renderer_raycast_auto_zoom_path_flips_depth_rows(
+    ifc4_fixture: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """shinchan regression should cover renderer raycast auto-zoom and row flip."""
+    width = 8
+    height = 6
+    target_ratio = 7 / (width * height)
+    low_fill_depth = np.zeros((height, width), dtype=np.float32)
+    low_fill_depth[0, 0] = 5.0
+    target_depth = np.zeros((height, width), dtype=np.float32)
+    target_depth[0, :7] = 5.0
+    depths = iter([low_fill_depth, target_depth])
+    zooms: list[float] = []
+
+    def fake_capture_raycast_depth(
+        _renderer: IFCRenderer,
+        _mesh: object,
+        _center: np.ndarray,
+        _camera: object,
+        zoom: float,
+    ) -> np.ndarray:
+        zooms.append(zoom)
+        return next(depths, target_depth)
+
+    monkeypatch.setenv(RENDER_BACKEND_ENV, "raycast")
+    monkeypatch.setattr(
+        IFCRenderer,
+        "_capture_raycast_depth",
+        fake_capture_raycast_depth,
+    )
+
+    renderer = IFCRenderer(
+        width=width,
+        height=height,
+        auto_zoom=AutoZoomMode.ITERATIVE,
+        iter_tolerance=0.01,
+        iter_max=3,
+        view_target_overrides={IFCView.FRONT_DIAGONAL_LEFT: target_ratio},
+    )
+
+    image = renderer.render(ifc4_fixture, IFCView.FRONT_DIAGONAL_LEFT)
+    arr = np.asarray(image)
+
+    assert len(zooms) == 2
+    assert zooms[1] > zooms[0]
+    assert arr[0].max() == 0
+    assert arr[-1, :7].min() == 255
 
 
 def test_shinchan_semantic_baseline_main_door_front_vector(
