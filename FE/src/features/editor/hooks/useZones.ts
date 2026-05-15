@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import type { ZoneData, ZoningFormData, BubbleData } from '../types'
 import { DEFAULT_AUTO_ZONE_COLOR } from '../constants'
 import { normalizeColorValue, resolveAutoZoneColor } from '../utils/bubbleCalc'
+import { pruneZoneBubbleIds } from '../utils/editorPageHelpers'
 
 const INITIAL_FORM: ZoningFormData = {
   name: '',
@@ -124,6 +125,20 @@ export function useZones(bubbles: BubbleData[], initialZones: ZoneData[] = []) {
     if (editingZoneId === zoneId) closeModal()
   }, [closeModal, editingZoneId])
 
+  /** 삭제된 버블 id들을 모든 조닝에서 제거한다. */
+  const removeBubbleIds = useCallback((bubbleIds: Iterable<string>) => {
+    const removedBubbleIdSet = new Set(bubbleIds)
+    if (removedBubbleIdSet.size === 0) return
+
+    setZones((prev) => pruneZoneBubbleIds(prev, removedBubbleIdSet))
+    setFormData((prev) => {
+      const nextBubbleIds = prev.bubbleIds.filter((bubbleId) => !removedBubbleIdSet.has(bubbleId))
+      return nextBubbleIds.length === prev.bubbleIds.length
+        ? prev
+        : { ...prev, bubbleIds: nextBubbleIds }
+    })
+  }, [])
+
   const replaceZonesState = useCallback((nextZones: ZoneData[]) => {
     setZones(nextZones)
     setIsModalOpen(false)
@@ -144,6 +159,7 @@ export function useZones(bubbles: BubbleData[], initialZones: ZoneData[] = []) {
     toggleBubble,
     confirmModal,
     deleteZone,
+    removeBubbleIds,
     replaceZonesState,
   }
 }

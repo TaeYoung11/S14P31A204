@@ -450,6 +450,7 @@ export function useEditorPage() {
     toggleBubble: toggleZoningBubble,
     confirmModal: confirmZoningModal,
     deleteZone,
+    removeBubbleIds: removeBubbleIdsFromZones,
     replaceZonesState,
   } = useZones(bubbles)
 
@@ -580,6 +581,7 @@ export function useEditorPage() {
         removeActiveRooms(selectedRoomIds)
         if (canSyncBubbleStateFrom2D) {
           markLocalBubbleSnapshotChangedRef.current()
+          removeBubbleIdsFromZones(selectedRoomIds)
           selectedRoomIds.forEach((id) => {
             deleteBubble(id)
             removeConnectionsForBubble(id)
@@ -642,6 +644,7 @@ export function useEditorPage() {
     }
     if (selectedIds.length > 0) {
       markLocalBubbleSnapshotChangedRef.current()
+      removeBubbleIdsFromZones(selectedIds)
     }
     selectedIds.forEach((id) => {
       deleteBubble(id)
@@ -665,6 +668,7 @@ export function useEditorPage() {
     deleteBubble,
     removeConnectionsForBubble,
     removeConnection,
+    removeBubbleIdsFromZones,
     isAutoDerivedWallId,
     clearConnectionAndTwoDSelection,
     clearTwoDStructureSelection,
@@ -3254,6 +3258,7 @@ export function useEditorPage() {
     ))
 
     if (floorBubbleIds.size > 0) {
+      removeBubbleIdsFromZones(floorBubbleIds)
       replaceConnections(remainingConnections)
       if (
         selectedConnectionPair &&
@@ -3293,6 +3298,7 @@ export function useEditorPage() {
     markLocalBubbleSnapshotChanged,
     replaceBubbles,
     replaceConnections,
+    removeBubbleIdsFromZones,
     resolvedActiveBubbleFloor,
     setConnectingFromId,
     selectedConnectionPair,
@@ -3477,6 +3483,7 @@ export function useEditorPage() {
   const handleDeleteBubble = (id: string) => {
     if (isBubbleReadOnly) return
     markLocalBubbleSnapshotChanged()
+    removeBubbleIdsFromZones([id])
     deleteBubble(id)
     removeConnectionsForBubble(id)
     if (selectedConnectionPair && (selectedConnectionPair.from === id || selectedConnectionPair.to === id)) {
