@@ -12,6 +12,7 @@ from ai_rendering.ifc2img.element_masks import (
     IfcElementColorCorrectionCandidate,
     IfcElementColorDelta,
     IfcElementMeanColor,
+    IfcMaskBoundingBox,
     IfcElementMaskRenderResult,
     build_ifc_color_artifact_matrix,
     build_ifc_color_lock_artifact,
@@ -19,6 +20,7 @@ from ai_rendering.ifc2img.element_masks import (
     compare_ifc_color_family_consistency,
     evaluate_ifc_quantitative_color,
     measure_element_mask_mean_colors,
+    measure_ifc_geometry_fidelity,
     measure_ifc_color_target_deltas,
     render_ifc_element_masks,
     select_ifc_color_correction_candidates,
@@ -34,9 +36,12 @@ from ai_rendering.ifc2img.semantics import (
     IfcSemanticScreenMaskStats,
     SUPPORTED_SEMANTIC_CATEGORIES,
     append_ifc_color_prompt_suffix,
+    append_ifc_shape_lock_negative_prompt,
     build_ifc_semantic_element_color,
     build_front_direction_candidates,
+    build_ifc_compact_color_prompt_suffix,
     build_ifc_color_prompt_suffix,
+    compact_ifc_color_base_prompt,
     dedupe_ifc_color_prompt_cues,
     diagnose_projection_vertical_inversion,
     extract_ifc_color_summary,
@@ -44,6 +49,7 @@ from ai_rendering.ifc2img.semantics import (
     ifc_category_color_prompt_cues,
     ifc_color_prompt_cue,
     inject_ifc_color_prompt,
+    inject_ifc_shape_lock_prompt,
     is_reliable_main_door_candidate,
     nearest_prompt_color_name,
     remove_ifc_color_conflicting_prompt_terms,
@@ -444,6 +450,18 @@ def test_build_ifc_color_prompt_suffix_uses_shinchan_representatives(
     assert "wood door" in suffix
 
 
+def test_build_ifc_compact_color_prompt_suffix_removes_filler_words(
+    ifc4_fixture: Path,
+) -> None:
+    """E-2.5 compact prompt keeps only the category color cues."""
+    summary = extract_ifc_color_summary(ifc4_fixture)
+
+    suffix = build_ifc_compact_color_prompt_suffix(summary)
+
+    assert suffix == "IFC colors: green roof, gray walls, blue glass, tan wood door."
+    assert len(suffix.replace(",", " ").split()) == 11
+
+
 def test_build_ifc_color_prompt_suffix_returns_empty_without_colors(
     tmp_path: Path,
 ) -> None:
@@ -549,6 +567,70 @@ def test_inject_ifc_color_prompt_keeps_prompt_when_color_prompt_empty() -> None:
     base_prompt = load_preset("korean_house", time_of_day="day").prompt
 
     assert inject_ifc_color_prompt(base_prompt, "") == base_prompt
+
+
+def test_compact_ifc_color_base_prompt_keeps_time_of_day_cues() -> None:
+    """E-2.5 compact color mode should shorten preset text without losing time cues."""
+    day_prompt = compact_ifc_color_base_prompt(
+        load_preset("korean_house", time_of_day="day").prompt
+    )
+    night_prompt = compact_ifc_color_base_prompt(
+        load_preset("korean_house", time_of_day="night").prompt
+    )
+
+    assert "daylight" in day_prompt
+    assert "blue sky" in day_prompt
+    assert "night exterior" in night_prompt
+    assert "warm windows" in night_prompt
+    assert "white concrete facade" not in day_prompt
+    assert "simple tile roof" not in day_prompt
+    assert len(day_prompt.replace(",", " ").split()) < 25
+    assert len(night_prompt.replace(",", " ").split()) < 30
+
+
+def test_inject_ifc_shape_lock_prompt_puts_shape_before_color_and_time() -> None:
+    """Shape lock cue should survive before color and DAY/NIGHT prompt text."""
+    base_prompt = load_preset("korean_house", time_of_day="night").prompt
+    color_prompt = "IFC colors: green roof, gray walls, blue glass, tan wood door."
+    color_injected = inject_ifc_color_prompt(base_prompt, color_prompt)
+
+    prompt = inject_ifc_shape_lock_prompt(color_injected)
+
+    assert prompt.startswith("Shape.")
+    assert prompt.index("Shape.") < prompt.index("IFC colors")
+    assert prompt.index("Shape.") < prompt.index("night exterior")
+    assert "warm windows" in prompt
+
+
+def test_inject_ifc_shape_lock_prompt_keeps_compact_word_budget() -> None:
+    """Shape lock cue should stay short enough for prompt-front placement."""
+    base_prompt = load_preset("korean_house", time_of_day="day").prompt
+
+    prompt = inject_ifc_shape_lock_prompt(base_prompt)
+    shape_words = "Shape.".replace(
+        ",",
+        " ",
+    ).split()
+
+    assert len(shape_words) == 1
+    assert prompt.split()[0] == "Shape."
+    assert len(prompt.replace(",", " ").split()) <= 77
+
+
+def test_inject_ifc_shape_lock_prompt_keeps_prompt_when_shape_empty() -> None:
+    """Missing shape cue should keep the production prompt unchanged."""
+    base_prompt = load_preset("korean_house", time_of_day="day").prompt
+
+    assert inject_ifc_shape_lock_prompt(base_prompt, "") == base_prompt
+
+
+def test_append_ifc_shape_lock_negative_prompt_adds_compact_structure_cues() -> None:
+    """Shape lock negative cue should avoid duplicate long negative prompts."""
+    negative = append_ifc_shape_lock_negative_prompt("low quality")
+
+    assert negative == "low quality"
+    assert append_ifc_shape_lock_negative_prompt(negative) == negative
+    assert append_ifc_shape_lock_negative_prompt(None) == ""
 
 
 def test_remove_ifc_color_conflicting_prompt_terms_neutralizes_preset_colors() -> None:
@@ -809,6 +891,101 @@ def test_measure_element_mask_mean_colors_rejects_size_mismatch() -> None:
 
     with pytest.raises(IFCRenderError, match="element mask size does not match"):
         measure_element_mask_mean_colors(
+            Image.new("RGB", (2, 2), "white"),
+            element_masks,
+        )
+
+
+def test_measure_ifc_geometry_fidelity_compares_mask_and_photo_layout() -> None:
+    """Geometry metric should compare IFC mask layout with final-photo foreground."""
+    final_photo = Image.new("RGB", (5, 5), "white")
+    for y in range(1, 4):
+        for x in range(1, 4):
+            final_photo.putpixel((x, y), (0, 0, 0))
+    final_photo.putpixel((2, 2), (64, 64, 64))
+
+    roof_mask = Image.new("L", (5, 5), 0)
+    wall_mask = Image.new("L", (5, 5), 0)
+    window_mask = Image.new("L", (5, 5), 0)
+    door_mask = Image.new("L", (5, 5), 0)
+    for x in range(1, 4):
+        roof_mask.putpixel((x, 1), 255)
+        wall_mask.putpixel((x, 2), 255)
+    window_mask.putpixel((2, 2), 255)
+    door_mask.putpixel((2, 3), 255)
+    element_masks = IfcElementMaskRenderResult(
+        masks={
+            "FLOOR": Image.new("L", (5, 5), 0),
+            "ROOF": roof_mask,
+            "WALL": wall_mask,
+            "WINDOW": window_mask,
+            "DOOR": door_mask,
+        },
+        composite=Image.new("RGB", (5, 5), "black"),
+    )
+
+    report = measure_ifc_geometry_fidelity(final_photo, element_masks)
+
+    assert report.image_size == (5, 5)
+    assert report.building_pixel_count == 7
+    assert report.building_pixel_coverage == pytest.approx(7 / 25)
+    assert report.building_bbox == IfcMaskBoundingBox(
+        left=1,
+        top=1,
+        right=3,
+        bottom=3,
+    )
+    assert report.estimated_photo_foreground_pixel_count == 9
+    assert report.estimated_photo_foreground_fill_ratio == pytest.approx(9 / 25)
+    assert report.building_bbox_overlap == pytest.approx(1.0)
+    assert report.silhouette_iou == pytest.approx(7 / 9)
+    assert report.edge_alignment_score > 0.0
+    assert report.categories["ROOF"].bbox == IfcMaskBoundingBox(1, 1, 3, 1)
+    assert report.categories["ROOF"].foreground_overlap_ratio == pytest.approx(1.0)
+    assert report.categories["WINDOW"].pixel_count == 1
+    assert report.to_dict()["categories"]["DOOR"]["pixelCount"] == 1
+
+
+def test_measure_ifc_geometry_fidelity_handles_empty_masks() -> None:
+    """Missing category masks should stay serializable with zero metrics."""
+    element_masks = IfcElementMaskRenderResult(
+        masks={
+            "FLOOR": Image.new("L", (2, 2), 0),
+            "ROOF": Image.new("L", (2, 2), 0),
+            "WALL": Image.new("L", (2, 2), 0),
+            "WINDOW": Image.new("L", (2, 2), 0),
+            "DOOR": Image.new("L", (2, 2), 0),
+        },
+        composite=Image.new("RGB", (2, 2), "black"),
+    )
+
+    report = measure_ifc_geometry_fidelity(
+        Image.new("RGB", (2, 2), "white"),
+        element_masks,
+    )
+
+    assert report.building_bbox is None
+    assert report.building_bbox_overlap is None
+    assert report.silhouette_iou == 0.0
+    assert report.categories["ROOF"].bbox is None
+    assert report.categories["ROOF"].foreground_overlap_ratio == 0.0
+
+
+def test_measure_ifc_geometry_fidelity_rejects_size_mismatch() -> None:
+    """Mask/photo size mismatch would make geometry metric unreliable."""
+    element_masks = IfcElementMaskRenderResult(
+        masks={
+            "FLOOR": Image.new("L", (1, 1), 0),
+            "ROOF": Image.new("L", (1, 1), 255),
+            "WALL": Image.new("L", (1, 1), 0),
+            "WINDOW": Image.new("L", (1, 1), 0),
+            "DOOR": Image.new("L", (1, 1), 0),
+        },
+        composite=Image.new("RGB", (1, 1), "black"),
+    )
+
+    with pytest.raises(IFCRenderError, match="element mask size does not match"):
+        measure_ifc_geometry_fidelity(
             Image.new("RGB", (2, 2), "white"),
             element_masks,
         )

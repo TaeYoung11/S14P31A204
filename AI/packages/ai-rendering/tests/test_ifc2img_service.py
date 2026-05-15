@@ -27,13 +27,16 @@ from ai_rendering.ifc2img.service import (
     Ifc2ImgPhotoManifest,
     Ifc2ImgPhotoJobResult,
     Ifc2ImgPhotoViewResult,
+    Ifc2ImgDebugGeometry,
     Ifc2ImgStorageAdapter,
     Ifc2ImgWorkerErrorResponse,
     Ifc2ImgWorkerRequest,
     Ifc2ImgWorkerSuccessResponse,
+    GeometryControlInputMode,
     PhotoViewAlias,
     PUBLIC_PHOTO_VIEWS,
     PUBLIC_TO_INTERNAL_VIEW,
+    build_element_composite_control_image,
     build_photo_manifest,
     build_photo_output_storage_url,
     create_photo_ifc_renderer,
@@ -44,6 +47,7 @@ from ai_rendering.ifc2img.service import (
     render_photo_view,
     resolve_ifc_color_control_input_plan,
     resolve_ifc_color_mode_input_plan,
+    resolve_geometry_control_input_mode,
     resolve_semantic_front_camera_overrides,
     resolve_semantic_ground_z,
     run_ifc2img_photo_pipeline,
@@ -325,6 +329,8 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(
     assert debug_manifest["schemaVersion"] == "ifc2img.debug.v1"
     assert debug_manifest["preset"] == "korean_house"
     assert debug_manifest["timeOfDay"] == "DAY"
+    assert debug_manifest["geometryControlInputMode"] == "default"
+    assert debug_manifest["useIfcShapeLockPrompt"] is False
     assert debug_manifest["ifcSemanticSummary"]["sourceIfcPath"] == str(ifc_path)
     assert "ifcColorSummary" not in debug_manifest
     assert "ifcColorSummaryError" in debug_manifest
@@ -339,6 +345,8 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(
     )
     first_debug_view = debug_manifest["views"][0]
     assert first_debug_view["actualFillRatio"] == 1.0
+    assert first_debug_view["geometryControlInputMode"] == "default"
+    assert first_debug_view["usesGeometryControlImage"] is False
     assert first_debug_view["files"]["depthImage"] == (
         "debug/depth_front_diagonal_left.png"
     )
@@ -483,6 +491,18 @@ def test_run_ifc2img_photo_pipeline_writes_ifc_semantic_summary(
     for relative_path in element_masks.values():
         assert (output_dir / relative_path).exists()
     for view_payload in debug_manifest["views"]:
+        geometry_fidelity = view_payload["geometryFidelity"]
+        assert geometry_fidelity["imageSize"] == [8, 4]
+        assert geometry_fidelity["buildingPixelCount"] > 0
+        assert "buildingBboxOverlap" in geometry_fidelity
+        assert "silhouetteIou" in geometry_fidelity
+        assert "edgeAlignmentScore" in geometry_fidelity
+        assert set(geometry_fidelity["categories"]) == {
+            "ROOF",
+            "WALL",
+            "WINDOW",
+            "DOOR",
+        }
         view_files = view_payload["files"]
         final_photo_path = output_dir / view_files["finalPhoto"]
         color_composite_path = output_dir / view_files["ifcColorCompositeImage"]
@@ -553,6 +573,26 @@ def test_save_debug_element_masks_keeps_render_result_for_reuse(
         "debug/element_composite_front_diagonal_left.png"
     )
     assert len(calls) == 1
+
+
+def test_build_element_composite_control_image_returns_rgb_candidate() -> None:
+    """Element composite should be reusable as an RGB style control candidate."""
+    result = IfcElementMaskRenderResult(
+        masks={
+            "FLOOR": Image.new("L", (4, 4), 255),
+            "ROOF": Image.new("L", (4, 4), 0),
+            "WALL": Image.new("L", (4, 4), 0),
+            "WINDOW": Image.new("L", (4, 4), 0),
+            "DOOR": Image.new("L", (4, 4), 0),
+        },
+        composite=Image.new("P", (4, 4)),
+    )
+
+    control = build_element_composite_control_image(result)
+
+    assert control.mode == "RGB"
+    assert control.size == (4, 4)
+    assert control is not result.composite
 
 
 def test_run_ifc2img_photo_pipeline_reuses_runtime_semantic_context(
@@ -1146,6 +1186,39 @@ def test_resolve_ifc_color_mode_input_plan_rejects_unknown_mode() -> None:
         resolve_ifc_color_mode_input_plan("all")
 
 
+def test_geometry_control_input_mode_candidates_are_fixed() -> None:
+    """Geometry control hook modes should stay opt-in and explicit."""
+    assert get_args(GeometryControlInputMode) == (
+        "default",
+        "depth_edge",
+        "element_composite",
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        (None, "default"),
+        ("", "default"),
+        ("default", "default"),
+        ("depth_edge", "depth_edge"),
+        ("element_composite", "element_composite"),
+    ],
+)
+def test_resolve_geometry_control_input_mode(mode: str | None, expected: str) -> None:
+    """Geometry control experiments should resolve to explicit opt-in modes."""
+    assert resolve_geometry_control_input_mode(mode) == expected
+
+
+def test_resolve_geometry_control_input_mode_rejects_unknown_mode() -> None:
+    """Unknown geometry control modes should fail before changing inputs."""
+    with pytest.raises(
+        IFCRenderError,
+        match="unsupported geometry_control_input_mode",
+    ):
+        resolve_geometry_control_input_mode("hybrid_everything")
+
+
 @pytest.mark.parametrize(
     ("time_of_day", "expected_time_cue"),
     [
@@ -1218,6 +1291,91 @@ def test_run_ifc2img_photo_pipeline_can_opt_in_to_ifc_color_prompt_suffix(
     assert "no foreground wall" in params.prompt
 
 
+@pytest.mark.parametrize(
+    ("time_of_day", "expected_time_cue"),
+    [
+        ("DAY", "during sunny daytime"),
+        ("NIGHT", "night exterior"),
+    ],
+)
+def test_run_ifc2img_photo_pipeline_can_opt_in_to_shape_lock_prompt(
+    time_of_day: str,
+    expected_time_cue: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IFC shape lock prompt should be compact and opt-in only."""
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / f"out-{time_of_day.lower()}",
+        preset="korean_house",
+        time_of_day=time_of_day,
+        use_ifc_shape_lock_prompt=True,
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    params = FakeDepthStyleRenderer.instances[-1].render_calls[0]["params"]
+    assert params.prompt.startswith("Shape.")
+    assert params.prompt.index("Shape.") < params.prompt.index(expected_time_cue)
+    assert "low quality" in params.negative_prompt
+    assert "wrong roof" not in params.negative_prompt
+    assert "misplaced windows" not in params.negative_prompt
+    assert "changed silhouette" not in params.negative_prompt
+
+
+def test_run_ifc2img_photo_pipeline_places_shape_lock_before_color_prompt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shape lock should outrank color cue when both experimental knobs are enabled."""
+    import ai_rendering.ifc2img.service as service
+
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    color_summary = IfcColorSummary(
+        source_ifc_path=ifc_path,
+        categories={
+            "ROOF": IfcSemanticCategoryColorSummary(
+                category="ROOF",
+                color=IfcColorCandidate(source="surface_style", rgb=(0.0, 0.5, 0.0)),
+                candidates=(),
+            ),
+        },
+        elements=(),
+    )
+    monkeypatch.setattr(
+        service,
+        "extract_ifc_color_summary",
+        lambda _path: color_summary,
+    )
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        time_of_day="DAY",
+        use_ifc_color_prompt_suffix=True,
+        use_ifc_shape_lock_prompt=True,
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    params = FakeDepthStyleRenderer.instances[-1].render_calls[0]["params"]
+    assert params.prompt.startswith("Shape.")
+    assert params.prompt.index("Shape.") < params.prompt.index("IFC colors")
+    assert params.prompt.index("IFC colors") < params.prompt.index(
+        "during sunny daytime"
+    )
+
+
 def test_run_ifc2img_photo_pipeline_keeps_default_prompt_without_color_opt_in(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1239,6 +1397,8 @@ def test_run_ifc2img_photo_pipeline_keeps_default_prompt_without_color_opt_in(
 
     params = FakeDepthStyleRenderer.instances[-1].render_calls[0]["params"]
     assert "IFC colors" not in params.prompt
+    assert "Preserve exact IFC silhouette" not in params.prompt
+    assert "wrong roof" not in params.negative_prompt
     assert "white concrete facade" in params.prompt
     assert "simple tile roof" in params.prompt
 
@@ -1949,6 +2109,28 @@ def test_render_photo_view_applies_preset_view_options() -> None:
     assert call["kwargs"]["use_front_diagonal_ground_plane_control_attenuation"] is True
 
 
+def test_render_photo_view_geometry_control_overrides_semantic_options() -> None:
+    """Geometry control should use the second control slot instead of semantic control."""
+    renderer = FakeDepthStyleRenderer()
+    depth = Image.new("L", (8, 4), 64)
+    geometry_control = Image.new("RGB", (8, 4), "white")
+
+    render_photo_view(
+        renderer,
+        depth,
+        object(),
+        preset="korean_house",
+        view=IFCView.FRONT_DIAGONAL_LEFT,
+        geometry_control_image=geometry_control,
+    )
+
+    kwargs = renderer.render_calls[0]["kwargs"]
+    assert kwargs["geometry_control_image"] is geometry_control
+    assert kwargs["use_front_diagonal_ground_semantic_control"] is False
+    assert kwargs["use_front_diagonal_ground_plane_aware_semantic_control"] is False
+    assert kwargs["use_front_diagonal_ground_plane_control_attenuation"] is True
+
+
 def test_run_ifc2img_photo_pipeline_applies_front_diagonal_semantic_options(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1983,6 +2165,118 @@ def test_run_ifc2img_photo_pipeline_applies_front_diagonal_semantic_options(
         assert options["use_front_diagonal_ground_semantic_control"] is True
         assert options["use_front_diagonal_ground_plane_aware_semantic_control"] is True
         assert options["use_front_diagonal_ground_plane_control_attenuation"] is True
+
+
+def test_run_ifc2img_photo_pipeline_can_pass_depth_edge_geometry_control(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Depth-edge geometry mode should stay opt-in and pass geometry control images."""
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="scandinavian",
+        geometry_control_input_mode="depth_edge",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    style_renderer = FakeDepthStyleRenderer.instances[-1]
+    assert "semantic_controlnet_model_id" in style_renderer.kwargs
+    for call in style_renderer.render_calls:
+        geometry_control = call["kwargs"]["geometry_control_image"]
+        assert isinstance(geometry_control, Image.Image)
+        assert geometry_control.mode == "RGB"
+        assert geometry_control.size == call["depth_size"]
+
+
+def test_run_ifc2img_photo_pipeline_records_geometry_control_mode_in_debug_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Debug manifest should record selected geometry control mode for artifacts."""
+    patch_runtime_semantic_context(monkeypatch)
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        output_dir,
+        preset="scandinavian",
+        geometry_control_input_mode="depth_edge",
+        debug_artifacts=True,
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    debug_manifest = json.loads(
+        (output_dir / "debug" / "debug_manifest.json").read_text(encoding="utf-8")
+    )
+    assert debug_manifest["geometryControlInputMode"] == "depth_edge"
+    for view_payload in debug_manifest["views"]:
+        assert view_payload["geometryControlInputMode"] == "depth_edge"
+        assert view_payload["usesGeometryControlImage"] is True
+        assert view_payload["geometryControlImageSize"] == [8, 4]
+
+
+def test_run_ifc2img_photo_pipeline_can_pass_element_composite_geometry_control(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Element-composite mode should reuse rendered element masks as style input."""
+    import ai_rendering.ifc2img.service as service
+
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    geometry = Ifc2ImgDebugGeometry(
+        mesh=None,
+        center=None,
+        base_bounds=None,
+        orientation=None,
+        ground_z=None,
+    )
+
+    monkeypatch.setattr(service, "_load_debug_geometry", lambda _ifc_path: geometry)
+    monkeypatch.setattr(
+        service,
+        "_build_debug_view_payload",
+        lambda **_kwargs: {
+            "camera": {
+                "eye": [0.0, 0.0, 1.0],
+                "lookAt": [0.0, 0.0, 0.0],
+                "up": [0.0, 0.0, 1.0],
+            }
+        },
+    )
+    monkeypatch.setattr(
+        service,
+        "_render_element_composite_control_image",
+        lambda **kwargs: Image.new("RGB", (kwargs["width"], kwargs["height"]), "red"),
+    )
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="scandinavian",
+        geometry_control_input_mode="element_composite",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    style_renderer = FakeDepthStyleRenderer.instances[-1]
+    assert "semantic_controlnet_model_id" in style_renderer.kwargs
+    for call in style_renderer.render_calls:
+        geometry_control = call["kwargs"]["geometry_control_image"]
+        assert isinstance(geometry_control, Image.Image)
+        assert geometry_control.getpixel((0, 0)) == (255, 0, 0)
 
 
 def test_run_ifc2img_photo_pipeline_rejects_unknown_preset(tmp_path: Path) -> None:

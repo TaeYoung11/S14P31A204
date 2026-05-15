@@ -260,6 +260,320 @@ def test_front_diagonal_auto_background_inpaint_makes_feathered_bottom_mask() ->
     assert mask.getpixel((2, 9)) == 255
 
 
+def test_select_ifc_geometry_d7_winner_writes_decision_manifest(tmp_path: Path) -> None:
+    """D-7 selector는 D-6/D-6.5 산출물에서 depth_edge winner를 고정해야 한다."""
+    import json
+
+    from PIL import Image
+
+    m = _load_script("select_ifc_geometry_d7_winner.py")
+    d6_dir = tmp_path / "d6"
+    d65_dir = tmp_path / "d65"
+    output_dir = tmp_path / "d7"
+    for case_name in (
+        "baseline_default",
+        "depth_edge_control",
+        "depth_edge_control_plus_shape_lock_compressed",
+    ):
+        case_dir = d65_dir / case_name
+        case_dir.mkdir(parents=True)
+        for view in ("front_diagonal_left", "front_diagonal_right"):
+            Image.new("RGB", (8, 4), (30, 80, 120)).save(
+                case_dir / f"photo_{view}.png"
+            )
+
+    baseline_dir = d6_dir / "baseline_default"
+    baseline_dir.mkdir(parents=True)
+    for view in ("front_diagonal_left", "front_diagonal_right"):
+        Image.new("RGB", (8, 4), (120, 80, 30)).save(
+            baseline_dir / f"photo_{view}.png"
+        )
+
+    d6_manifest = {
+        "sourceIfcPath": "shinchan.ifc",
+        "preset": "korean_house",
+        "timeOfDay": "DAY",
+        "cudaAvailable": True,
+        "cases": [
+            _d7_case_payload("baseline_default", baseline_dir, "default", False),
+            _d7_case_payload(
+                "depth_edge_control_plus_shape_lock",
+                d6_dir / "depth_edge_control_plus_shape_lock",
+                "depth_edge",
+                True,
+            ),
+            _d7_case_payload(
+                "element_composite_control",
+                d6_dir / "element_composite_control",
+                "element_composite",
+                False,
+            ),
+            _d7_case_payload(
+                "element_composite_control_plus_shape_lock",
+                d6_dir / "element_composite_control_plus_shape_lock",
+                "element_composite",
+                True,
+            ),
+            _d7_case_payload("shape_lock_only", d6_dir / "shape_lock_only", "default", True),
+        ],
+    }
+    d65_manifest = {
+        "sourceIfcPath": "shinchan.ifc",
+        "preset": "korean_house",
+        "timeOfDay": "DAY",
+        "cudaAvailable": True,
+        "cases": [
+            _d7_case_payload(
+                "depth_edge_control",
+                d65_dir / "depth_edge_control",
+                "depth_edge",
+                False,
+            ),
+            _d7_case_payload(
+                "depth_edge_control_plus_shape_lock_compressed",
+                d65_dir / "depth_edge_control_plus_shape_lock_compressed",
+                "depth_edge",
+                True,
+            ),
+        ],
+    }
+    d65_delta = [
+        {
+            "case": "depth_edge_control",
+            "view": "front_diagonal_right",
+            "silhouetteIou": 0.07,
+            "deltaSilhouetteIou": -0.01,
+            "edgeAlignmentScore": 0.01,
+            "deltaEdgeAlignmentScore": 0.005,
+            "buildingBboxOverlap": 0.09,
+            "deltaBuildingBboxOverlap": 0.0,
+        }
+    ]
+    d6_dir.mkdir(parents=True, exist_ok=True)
+    d65_dir.mkdir(parents=True, exist_ok=True)
+    (d6_dir / "matrix_manifest.json").write_text(
+        json.dumps(d6_manifest),
+        encoding="utf-8",
+    )
+    (d65_dir / "matrix_manifest.json").write_text(
+        json.dumps(d65_manifest),
+        encoding="utf-8",
+    )
+    (d65_dir / "d65_metric_delta.json").write_text(
+        json.dumps(d65_delta),
+        encoding="utf-8",
+    )
+
+    manifest = m.select_ifc_geometry_d7_winner(
+        d6_dir=d6_dir,
+        d65_dir=d65_dir,
+        output_dir=output_dir,
+    )
+
+    assert manifest["winner"]["caseName"] == "depth_edge_control"
+    assert manifest["phaseEInput"]["geometryControlInputMode"] == "depth_edge"
+    assert manifest["phaseEInput"]["useIfcShapeLockPrompt"] is False
+    assert (output_dir / "geometry_winner_manifest.json").exists()
+    assert (output_dir / "d7_geometry_winner_contact_sheet.png").exists()
+
+
+def test_generate_ifc_geometry_color_e2_requires_depth_edge_without_shape_lock() -> None:
+    """E-2 color 후보는 D-7 depth_edge winner와 shape-lock off 조건을 고정해야 한다."""
+    m = _load_script("generate_ifc_geometry_color_e2_artifacts.py")
+    d7_manifest = {
+        "phaseEInput": {
+            "geometryControlInputMode": "depth_edge",
+            "useIfcShapeLockPrompt": False,
+            "caseDir": "outputs/winner",
+        }
+    }
+
+    phase_e_input = m._resolve_phase_e_input(d7_manifest)
+
+    assert phase_e_input["geometryControlInputMode"] == "depth_edge"
+    assert phase_e_input["useIfcShapeLockPrompt"] is False
+    assert [case.case_name for case in m.E2_CASES] == [
+        "geometry_depth_edge",
+        "geometry_depth_edge_color_prompt",
+        "geometry_depth_edge_color_composite_probe",
+        "geometry_depth_edge_post_color_lock",
+    ]
+
+
+@pytest.mark.parametrize(
+    "phase_e_input",
+    [
+        {
+            "geometryControlInputMode": "default",
+            "useIfcShapeLockPrompt": False,
+        },
+        {
+            "geometryControlInputMode": "depth_edge",
+            "useIfcShapeLockPrompt": True,
+        },
+    ],
+)
+def test_generate_ifc_geometry_color_e2_rejects_unlocked_geometry(
+    phase_e_input: dict[str, object],
+) -> None:
+    """E-2는 geometry mode나 shape-lock 조건이 흔들리면 중단해야 한다."""
+    m = _load_script("generate_ifc_geometry_color_e2_artifacts.py")
+
+    with pytest.raises(ValueError):
+        m._resolve_phase_e_input({"phaseEInput": phase_e_input})
+
+
+def test_generate_ifc_geometry_color_e25_builds_compact_prompt_metadata(
+    ifc4_fixture: Path,
+) -> None:
+    """E-2.5 should record compact prompt length before running GPU artifacts."""
+    m = _load_script("generate_ifc_geometry_color_e25_recheck.py")
+    from ai_rendering.ifc2img.semantics import extract_ifc_color_summary
+
+    metadata = m._build_prompt_metadata(
+        color_summary=extract_ifc_color_summary(ifc4_fixture),
+        preset="korean_house",
+        time_of_day="DAY",
+    )
+
+    assert metadata["compactColorPrompt"] == (
+        "IFC colors: green roof, gray walls, blue glass, tan wood door."
+    )
+    assert metadata["compactColorPromptWordCount"] == 11
+    assert metadata["compactBasePromptWordCount"] < metadata["colorSafePromptWordCount"]
+    assert metadata["compactPromptWithin77WordBudget"] is True
+
+
+def test_generate_ifc_geometry_color_e25_normalizes_post_lock_strengths() -> None:
+    """Post color lock strength candidates should stay clamped and deterministic."""
+    m = _load_script("generate_ifc_geometry_color_e25_recheck.py")
+
+    assert m._normalized_strengths((1.2, 0.75, -0.5, 0.75)) == (0.0, 0.75, 1.0)
+    assert m._post_lock_case_name("DAY", 0.75) == (
+        "geometry_depth_edge_post_color_lock_0_75_day"
+    )
+
+
+def test_generate_ifc_geometry_e26_rejects_korean_house_preset(tmp_path: Path) -> None:
+    """E-2.6 must be an explicit preset-off baseline, not another korean_house run."""
+    m = _load_script("generate_ifc_geometry_e26_preset_off_baseline.py")
+
+    with pytest.raises(ValueError, match="korean_house disabled"):
+        m.generate_ifc_geometry_e26_preset_off_baseline(
+            ifc_path=tmp_path / "dummy.ifc",
+            d7_manifest_path=tmp_path / "d7.json",
+            output_dir=tmp_path / "out",
+            preset="korean_house",
+            time_of_day="DAY",
+            korean_reference_manifest_path=None,
+        )
+
+
+def test_generate_ifc_geometry_e26_builds_minimal_prompt_metadata() -> None:
+    """E-2.6 records that ifc_minimal does not carry korean_house style cues."""
+    m = _load_script("generate_ifc_geometry_e26_preset_off_baseline.py")
+
+    metadata = m._build_prompt_metadata("ifc_minimal", "DAY")
+
+    assert metadata["preset"] == "ifc_minimal"
+    assert metadata["hasKoreanHouseStyleCue"] is False
+    assert "preserve IFC building geometry" in metadata["prompt"]
+    assert metadata["promptWordCount"] <= 35
+
+
+def test_generate_ifc_geometry_e26_case_name_is_stable() -> None:
+    """E-2.6 output directory names should be deterministic for README tracking."""
+    m = _load_script("generate_ifc_geometry_e26_preset_off_baseline.py")
+
+    assert m._case_name("ifc_minimal", "DAY") == (
+        "geometry_depth_edge_ifc_minimal_day"
+    )
+
+
+def test_generate_ifc_geometry_e27_rejects_non_minimal_baseline() -> None:
+    """E-2.7 should only accept the IFC-first ifc_minimal baseline."""
+    m = _load_script("generate_ifc_geometry_e27_color_naturalization.py")
+
+    with pytest.raises(ValueError, match="ifc_minimal"):
+        m._resolve_e26_baseline_case(
+            {
+                "preset": "korean_house",
+                "cases": [
+                    {
+                        "preset": "korean_house",
+                        "geometryMode": "depth_edge",
+                    }
+                ],
+            }
+        )
+
+
+def test_generate_ifc_geometry_e27_soft_alpha_feathers_mask() -> None:
+    """Naturalized color lock should create a soft bounded alpha mask."""
+    from PIL import Image
+
+    m = _load_script("generate_ifc_geometry_e27_color_naturalization.py")
+    mask = Image.new("L", (7, 7), 0)
+    mask.putpixel((3, 3), 255)
+
+    alpha = m._build_soft_alpha_mask(
+        mask,
+        expected_size=(7, 7),
+        config=m.NaturalizedColorLockConfig(
+            strength=0.5,
+            feather_radius=1.0,
+            erosion_radius=0,
+        ),
+    )
+
+    assert 0.0 < alpha[3, 2] < alpha[3, 3] <= 0.5
+    assert alpha[0, 0] == 0.0
+
+
+def test_generate_ifc_geometry_e27_decision_archives_hard_lock() -> None:
+    """E-2.7 winner should be naturalized; hard lock stays archived."""
+    m = _load_script("generate_ifc_geometry_e27_color_naturalization.py")
+
+    decision = m._build_decision(
+        [
+            {"caseName": "ifc_minimal_baseline_day", "views": []},
+            {"caseName": "ifc_minimal_post_color_lock_hard_1_00_day", "views": []},
+            {
+                "caseName": m.NATURALIZED_CASE_NAME,
+                "views": [
+                    {
+                        "view": "front_diagonal_left",
+                        "evaluation": {"categories": {}},
+                    }
+                ],
+            },
+        ]
+    )
+
+    assert decision["recommendedForE3"] == m.NATURALIZED_CASE_NAME
+    assert decision["hardLockHandling"] == "archived_only"
+    assert decision["koreanHouseHandling"] == "historical_record_only"
+
+
+def _d7_case_payload(
+    case_name: str,
+    case_dir: Path,
+    geometry_control_input_mode: str,
+    use_ifc_shape_lock_prompt: bool,
+) -> dict[str, object]:
+    return {
+        "caseName": case_name,
+        "caseDir": str(case_dir),
+        "geometryControlInputMode": geometry_control_input_mode,
+        "useIfcShapeLockPrompt": use_ifc_shape_lock_prompt,
+        "debugManifestPath": str(case_dir / "debug" / "debug_manifest.json"),
+        "photos": [
+            str(case_dir / "photo_front_diagonal_left.png"),
+            str(case_dir / "photo_front_diagonal_right.png"),
+        ],
+    }
+
+
 def test_ifc_to_styled_render_plan_detects_semantic_slots() -> None:
     """preset/view 조합별 semantic ControlNet 필요 여부를 판별하는지 확인한다."""
     m = _load_script("ifc_to_styled.py")
