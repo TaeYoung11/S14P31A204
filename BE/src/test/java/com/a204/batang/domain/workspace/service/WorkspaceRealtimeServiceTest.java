@@ -7,6 +7,7 @@ import com.a204.batang.domain.workspace.dto.BubbleFloorMeta;
 import com.a204.batang.domain.workspace.dto.BubbleRedoRequest;
 import com.a204.batang.domain.workspace.dto.BubbleUndoRequest;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
+import com.a204.batang.domain.workspace.dto.BubbleZoneData;
 import com.a204.batang.domain.workspace.dto.ProjectSyncResponse;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
@@ -115,7 +116,13 @@ class WorkspaceRealtimeServiceTest {
                         "bubble-1",
                         "bold"
                 )),
-                List.of(),
+                List.of(new BubbleZoneData(
+                        "zone-1",
+                        "zone 1",
+                        "#3B45B3",
+                        List.of("bubble-1"),
+                        "manual"
+                )),
                 0,
                 new BubbleFloorMeta(Map.of(1, "1F"), List.of(2))
         );
@@ -137,6 +144,8 @@ class WorkspaceRealtimeServiceTest {
         assertThat(snapshot.get("floorMeta")).isNotNull();
         assertThat(snapshot.get("bubbles").size()).isEqualTo(1);
         assertThat(snapshot.get("connections").size()).isEqualTo(1);
+        assertThat(snapshot.get("zones").size()).isEqualTo(1);
+        assertThat(snapshot.get("zones").get(0).get("id").asText()).isEqualTo("zone-1");
         assertThat(snapshot.get("bubbles").get(0).get("floor").asInt()).isEqualTo(1);
 
         ArgumentCaptor<ProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(ProjectSyncResponse.class);
@@ -148,6 +157,7 @@ class WorkspaceRealtimeServiceTest {
         assertThat(response.projectId()).isEqualTo(projectId);
         assertThat(response.bubbleSnapshotJson().get("bubbles")).isEqualTo(snapshot.get("bubbles"));
         assertThat(response.bubbleSnapshotJson().get("connections")).isEqualTo(snapshot.get("connections"));
+        assertThat(response.bubbleSnapshotJson().get("zones").get(0).get("id").asText()).isEqualTo("zone-1");
         assertThat(response.bubbleSnapshotJson().get("baseIndex").asInt()).isEqualTo(1);
         assertThat(response.updatedAt()).isNotNull();
     }
