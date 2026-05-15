@@ -158,6 +158,7 @@ export interface ZoningFormData {
 /** 2D 평면도 위의 방(공간) 한 칸 */
 export interface FloorRoom {
   id: string
+  globalId?: string
   bubbleId: string
   label: string
   type: string
@@ -213,6 +214,8 @@ export interface FloorRoomTransform2D {
 export interface FloorLayer {
   id: string
   name: string
+  storeyGlobalId?: string
+  storeyName?: string
   elevationMm?: number
   ceilingHeightMm?: number
   rooms: FloorRoom[]
@@ -232,6 +235,7 @@ export interface FloorWall {
   globalId?: string
   floorLayerId?: string
   storeyGlobalId?: string
+  storeyName?: string
   sourceIfcClass?: 'IfcWall' | 'IfcWallStandardCase'
   start: Point2D
   end: Point2D
@@ -249,6 +253,7 @@ export interface FloorOpening {
   globalId?: string
   hostWallGlobalId?: string
   storeyGlobalId?: string
+  storeyName?: string
   sourceIfcClass?: 'IfcDoor' | 'IfcWindow'
   type: FloorOpeningType
   wallId: string

@@ -22,7 +22,9 @@ interface UseWorkspaceHistorySyncControllerInput {
   pendingServerPublishRef: MutableRefObject<PendingServerPublishRecordLike | null>
   previousSnapshotRef: MutableRefObject<string | null>
   bubbleHistoryBaseIndexRef: MutableRefObject<number>
+  bubbleHistoryRedoDepthRef: MutableRefObject<number>
   floorPlanHistoryBaseIndexRef: MutableRefObject<number>
+  floorPlanHistoryRedoDepthRef: MutableRefObject<number>
   workspaceEditTransactionDepthRef: MutableRefObject<number>
   pendingWorkspaceSnapshotCommitRef: MutableRefObject<boolean>
   floorPlanHistoryCommandInFlightRef: MutableRefObject<boolean>
@@ -34,6 +36,7 @@ interface UseWorkspaceHistorySyncControllerInput {
   scheduleServerPublishRetry: () => void
   loadHistorySnapshot: (projectId: string) => Promise<WorkspaceHistorySnapshotResponse>
   isCursorInvalidCode: (code: string | undefined) => boolean
+  isNonRetriableServerErrorCode?: (code: string | undefined) => boolean
   maxHistoryIndex?: number
 }
 
@@ -49,7 +52,9 @@ export function useWorkspaceHistorySyncController({
   pendingServerPublishRef,
   previousSnapshotRef,
   bubbleHistoryBaseIndexRef,
+  bubbleHistoryRedoDepthRef,
   floorPlanHistoryBaseIndexRef,
+  floorPlanHistoryRedoDepthRef,
   workspaceEditTransactionDepthRef,
   pendingWorkspaceSnapshotCommitRef,
   floorPlanHistoryCommandInFlightRef,
@@ -61,6 +66,7 @@ export function useWorkspaceHistorySyncController({
   scheduleServerPublishRetry,
   loadHistorySnapshot,
   isCursorInvalidCode,
+  isNonRetriableServerErrorCode,
   maxHistoryIndex = 9,
 }: UseWorkspaceHistorySyncControllerInput) {
   const refreshHistoryCursorFromServer = useCallback(async (options?: {
@@ -91,7 +97,9 @@ export function useWorkspaceHistorySyncController({
     const floorPlanRedoDepth = history.floorPlan?.redoDepth ?? 0
 
     bubbleHistoryBaseIndexRef.current = bubbleBaseIndex
+    bubbleHistoryRedoDepthRef.current = bubbleRedoDepth
     floorPlanHistoryBaseIndexRef.current = floorPlanBaseIndex
+    floorPlanHistoryRedoDepthRef.current = floorPlanRedoDepth
     setBubbleHistoryCursor({ baseIndex: bubbleBaseIndex, redoDepth: bubbleRedoDepth })
     setFloorPlanHistoryCursor({ baseIndex: floorPlanBaseIndex, redoDepth: floorPlanRedoDepth })
 
@@ -118,7 +126,9 @@ export function useWorkspaceHistorySyncController({
   }, [
     awaitingServerSyncRef,
     bubbleHistoryBaseIndexRef,
+    bubbleHistoryRedoDepthRef,
     floorPlanHistoryBaseIndexRef,
+    floorPlanHistoryRedoDepthRef,
     loadHistorySnapshot,
     maxHistoryIndex,
     pendingServerPublishRef,
@@ -132,6 +142,7 @@ export function useWorkspaceHistorySyncController({
 
   const updateBubbleHistoryCursor = useCallback((baseIndex: number, redoDepth: number) => {
     bubbleHistoryBaseIndexRef.current = baseIndex
+    bubbleHistoryRedoDepthRef.current = redoDepth
     setBubbleHistoryCursor({ baseIndex, redoDepth })
     const awaitingSync = awaitingServerSyncRef.current
     if (!awaitingSync) return
@@ -150,6 +161,7 @@ export function useWorkspaceHistorySyncController({
   }, [
     awaitingServerSyncRef,
     bubbleHistoryBaseIndexRef,
+    bubbleHistoryRedoDepthRef,
     pendingServerPublishRef,
     pendingWorkspaceSnapshotCommitRef,
     previousSnapshotRef,
@@ -162,6 +174,7 @@ export function useWorkspaceHistorySyncController({
   const updateFloorPlanHistoryCursor = useCallback((baseIndex: number, redoDepth: number) => {
     floorPlanHistoryCommandInFlightRef.current = false
     floorPlanHistoryBaseIndexRef.current = baseIndex
+    floorPlanHistoryRedoDepthRef.current = redoDepth
     setFloorPlanHistoryCursor({ baseIndex, redoDepth })
     const awaitingSync = awaitingServerSyncRef.current
     if (!awaitingSync) return
@@ -180,6 +193,7 @@ export function useWorkspaceHistorySyncController({
   }, [
     awaitingServerSyncRef,
     floorPlanHistoryBaseIndexRef,
+    floorPlanHistoryRedoDepthRef,
     floorPlanHistoryCommandInFlightRef,
     pendingServerPublishRef,
     pendingWorkspaceSnapshotCommitRef,
@@ -192,7 +206,14 @@ export function useWorkspaceHistorySyncController({
 
   const handleWorkspaceServerError = useCallback((error: { code?: string }) => {
     const awaitingSync = awaitingServerSyncRef.current
-    if (!awaitingSync || awaitingSync.projectId !== projectId) return
+    if (!awaitingSync || awaitingSync.projectId !== projectId) {
+      if (isCursorInvalidCode(error.code)) {
+        floorPlanHistoryCommandInFlightRef.current = false
+        setSaveStatus('dirty')
+        void refreshHistoryCursorFromServer({ republishOnFailure: false, republishWhenStale: false })
+      }
+      return
+    }
 
     awaitingServerSyncRef.current = null
     floorPlanHistoryCommandInFlightRef.current = false
@@ -202,6 +223,14 @@ export function useWorkspaceHistorySyncController({
       previousSnapshotRef.current = null
       clearServerPublishRetry()
       setSaveStatus('dirty')
+      return
+    }
+
+    if (isNonRetriableServerErrorCode?.(error.code)) {
+      pendingServerPublishRef.current = null
+      previousSnapshotRef.current = awaitingSync.serializedSnapshot
+      clearServerPublishRetry()
+      setSaveStatus('error')
       return
     }
 
@@ -216,9 +245,11 @@ export function useWorkspaceHistorySyncController({
     clearServerPublishRetry,
     floorPlanHistoryCommandInFlightRef,
     isCursorInvalidCode,
+    isNonRetriableServerErrorCode,
     pendingServerPublishRef,
     previousSnapshotRef,
     projectId,
+    refreshHistoryCursorFromServer,
     scheduleServerPublishRetry,
     setSaveStatus,
   ])

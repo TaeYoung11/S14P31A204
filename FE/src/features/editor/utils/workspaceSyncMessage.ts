@@ -46,6 +46,10 @@ export interface ProjectSyncMessage {
   action?: string
   status?: string
   revisionId?: string | null
+  targetRevisionId?: string | null
+  currentRevision?: string | null
+  currentRevisionId?: string | null
+  sourceRevisionId?: string | null
   bubbleSnapshotJson?: unknown
   floorPlanPayloadJson?: unknown
   payload?: unknown
@@ -218,6 +222,14 @@ function extractBaseIndexFromFloorPlanPayload(payload: unknown): number | null {
   return null
 }
 
+function extractRevisionIdFromRecord(record: Record<string, unknown>): string | null {
+  return extractStringField(record, 'revisionId')
+    ?? extractStringField(record, 'targetRevisionId')
+    ?? extractStringField(record, 'currentRevisionId')
+    ?? extractStringField(record, 'currentRevision')
+    ?? extractStringField(record, 'sourceRevisionId')
+}
+
 /**
  * 프로젝트 sync 메시지에서 IFC 산출물 URL을 추출한다.
  * - 최상위 필드 우선
@@ -278,21 +290,21 @@ export function extractIfcAssetId(message: ProjectSyncMessage): string | null {
 }
 
 export function extractRevisionId(message: ProjectSyncMessage): string | null {
-  const direct = message.revisionId
-  if (typeof direct === 'string' && direct.trim().length > 0) return direct.trim()
+  const direct = extractRevisionIdFromRecord(message as unknown as Record<string, unknown>)
+  if (direct) return direct
 
   if (isObjectRecord(message.floorPlanPayloadJson)) {
-    const payloadRevisionId = extractStringField(message.floorPlanPayloadJson, 'revisionId')
+    const payloadRevisionId = extractRevisionIdFromRecord(message.floorPlanPayloadJson)
     if (payloadRevisionId) return payloadRevisionId
   }
 
   for (const envelope of collectEnvelopeCandidates(message)) {
-    const envelopeRevisionId = extractStringField(envelope, 'revisionId')
+    const envelopeRevisionId = extractRevisionIdFromRecord(envelope)
     if (envelopeRevisionId) return envelopeRevisionId
 
     const nestedFloorPlanPayload = envelope.floorPlanPayloadJson
     if (isObjectRecord(nestedFloorPlanPayload)) {
-      const nestedRevisionId = extractStringField(nestedFloorPlanPayload, 'revisionId')
+      const nestedRevisionId = extractRevisionIdFromRecord(nestedFloorPlanPayload)
       if (nestedRevisionId) return nestedRevisionId
     }
   }

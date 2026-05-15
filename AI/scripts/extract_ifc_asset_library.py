@@ -12,6 +12,7 @@ from typing import Any, cast
 
 import ifcopenshell
 import ifcopenshell.api.aggregate
+import ifcopenshell.api.context
 import ifcopenshell.api.geometry
 import ifcopenshell.api.pset
 import ifcopenshell.api.root
@@ -28,11 +29,20 @@ import numpy as np
 ASSET_TYPES = (
     "IfcDoor",
     "IfcWindow",
+    "IfcWallStandardCase",
     "IfcStair",
     "IfcRoof",
     "IfcRailing",
-    "IfcSlab",
 )
+SINGLE_ASSET_CATEGORIES = {"door", "window", "wall"}
+WALL_REPRESENTATIVE_GLOBAL_ID = "2znubWhPDD4wn7Fg4E20CS"
+TERRACE_ASSET_ID = "terrace"
+TERRACE_WALL_GLOBAL_IDS = (
+    "2znubWhPDD4wn7Fg4E24GR",
+    "2znubWhPDD4wn7Fg4E24k8",
+    "2znubWhPDD4wn7Fg4E24Nq",
+)
+TERRACE_FLOOR_THICKNESS_M = 0.12
 DEFAULT_OUTPUT_ROOT = Path.home() / "Downloads" / "batang_history"
 
 
@@ -68,13 +78,12 @@ def _asset_category(element: ifcopenshell.entity_instance) -> str:
         return "door"
     if element.is_a("IfcWindow"):
         return "window"
+    if element.is_a("IfcWall") or element.is_a("IfcWallStandardCase"):
+        return "wall"
     if element.is_a("IfcStair"):
         return "stair"
     if element.is_a("IfcRoof"):
         return "roof"
-    if element.is_a("IfcSlab"):
-        predefined = str(getattr(element, "PredefinedType", "") or "").upper()
-        return "roof-slab" if predefined == "ROOF" else "slab"
     if element.is_a("IfcRailing"):
         return "railing"
     return _slugify(element.is_a())
@@ -82,6 +91,53 @@ def _asset_category(element: ifcopenshell.entity_instance) -> str:
 
 def _asset_id(element: ifcopenshell.entity_instance) -> str:
     return f"{_asset_category(element)}-{_element_suffix(element)}"
+
+
+def _terrace_walls(
+    model: ifcopenshell.file,
+) -> list[ifcopenshell.entity_instance]:
+    walls: list[ifcopenshell.entity_instance] = []
+    for global_id in TERRACE_WALL_GLOBAL_IDS:
+        wall = model.by_guid(global_id)
+        if wall is None:
+            continue
+        if not (wall.is_a("IfcWall") or wall.is_a("IfcWallStandardCase")):
+            continue
+        walls.append(wall)
+    return walls
+
+
+def _is_non_representative_wall(element: ifcopenshell.entity_instance) -> bool:
+    if not (element.is_a("IfcWall") or element.is_a("IfcWallStandardCase")):
+        return False
+    return _clean_text(getattr(element, "GlobalId", "")) != WALL_REPRESENTATIVE_GLOBAL_ID
+
+
+def _composite_asset_groups(
+    model: ifcopenshell.file,
+) -> tuple[list[AssetGroup], set[int]]:
+    groups: list[AssetGroup] = []
+    consumed_ids: set[int] = set()
+    terrace_products = _terrace_walls(model)
+    if len(terrace_products) == len(TERRACE_WALL_GLOBAL_IDS):
+        if _bbox_for_products(terrace_products) is not None:
+            consumed_ids.update(product.id() for product in terrace_products)
+            groups.append(
+                AssetGroup(
+                    id=TERRACE_ASSET_ID,
+                    label="Terrace",
+                    category="terrace",
+                    source_element_names=tuple(
+                        _clean_text(getattr(product, "Name", "") or product.is_a())
+                        for product in terrace_products
+                    ),
+                    source_global_ids=tuple(
+                        _clean_text(getattr(product, "GlobalId", ""))
+                        for product in terrace_products
+                    ),
+                )
+            )
+    return groups, consumed_ids
 
 
 def _children_recursive(
@@ -137,18 +193,28 @@ def _is_aggregated_by_asset(element: ifcopenshell.entity_instance) -> bool:
 
 
 def build_asset_groups(model: ifcopenshell.file) -> list[AssetGroup]:
-    groups: list[AssetGroup] = []
+    groups, consumed_source_ids = _composite_asset_groups(model)
     seen_ids: set[str] = set()
+    seen_ids.update(group.id for group in groups)
+    selected_single_categories: set[str] = set()
     for ifc_type in ASSET_TYPES:
-        for element in model.by_type(ifc_type):
-            predefined = str(getattr(element, "PredefinedType", "") or "").upper()
+        elements = list(model.by_type(ifc_type))
+        for element in elements:
+            if element.id() in consumed_source_ids:
+                continue
+            if _is_non_representative_wall(element):
+                continue
             if _is_aggregated_by_asset(element):
                 continue
-            if ifc_type == "IfcSlab" and predefined == "ROOF":
+            category = _asset_category(element)
+            if category in selected_single_categories:
                 continue
             members = _unique_entities(
                 [element, *_children_recursive(element), *_filled_opening_context(element)]
             )
+            members = [
+                member for member in members if member.id() not in consumed_source_ids
+            ]
             if _bbox_for_products(members) is None:
                 continue
             names = tuple(
@@ -161,11 +227,13 @@ def build_asset_groups(model: ifcopenshell.file) -> list[AssetGroup]:
             if asset_id in seen_ids:
                 asset_id = f"{asset_id}-{root_global_id[-6:]}"
             seen_ids.add(asset_id)
+            if category in SINGLE_ASSET_CATEGORIES:
+                selected_single_categories.add(category)
             groups.append(
                 AssetGroup(
                     id=asset_id,
                     label=_clean_text(getattr(element, "Name", "") or asset_id),
-                    category=_asset_category(element),
+                    category=category,
                     source_element_names=names,
                     source_global_ids=global_ids,
                 )
@@ -272,6 +340,94 @@ def _create_spatial_tree(
         relating_object=building,
     )
     return storey
+
+
+def _body_context(model: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    fallback_body_context: ifcopenshell.entity_instance | None = None
+    for context in model.by_type("IfcGeometricRepresentationSubContext"):
+        identifier = _clean_text(getattr(context, "ContextIdentifier", "")).casefold()
+        target_view = _clean_text(getattr(context, "TargetView", "")).casefold()
+        if (
+            identifier == "body"
+            and target_view in {"model_view", "modelview", ""}
+        ):
+            return context
+        if identifier == "body" and fallback_body_context is None:
+            fallback_body_context = context
+    if fallback_body_context is not None:
+        return fallback_body_context
+    for context in model.by_type("IfcGeometricRepresentationContext"):
+        context_type = _clean_text(getattr(context, "ContextType", "")).casefold()
+        if context_type == "model":
+            return ifcopenshell.api.context.add_context(
+                model,
+                context_identifier="Body",
+                target_view="MODEL_VIEW",
+                parent=context,
+            )
+    model_context = ifcopenshell.api.context.add_context(model, context_type="Model")
+    return ifcopenshell.api.context.add_context(
+        model,
+        context_identifier="Body",
+        target_view="MODEL_VIEW",
+        parent=model_context,
+    )
+
+
+def _add_terrace_floor(
+    model: ifcopenshell.file,
+    storey: ifcopenshell.entity_instance,
+    wall_bbox: dict[str, list[float]] | None,
+) -> ifcopenshell.entity_instance:
+    if wall_bbox is None:
+        raise ValueError("Terrace wall bbox is required to generate a terrace floor.")
+    min_x, min_y, min_z = wall_bbox["min"]
+    max_x, max_y, _ = wall_bbox["max"]
+    width = max_x - min_x
+    depth = max_y - min_y
+    if width <= 0.0 or depth <= 0.0:
+        raise ValueError(
+            f"Terrace floor footprint must be positive, got width={width}, depth={depth}."
+        )
+    slab = ifcopenshell.api.root.create_entity(
+        model,
+        ifc_class="IfcSlab",
+        name="Terrace floor",
+    )
+    slab.PredefinedType = "FLOOR"
+    representation = ifcopenshell.api.geometry.add_slab_representation(
+        model,
+        context=_body_context(model),
+        depth=TERRACE_FLOOR_THICKNESS_M,
+        direction_sense="NEGATIVE",
+        polyline=[
+            (0.0, 0.0),
+            (width, 0.0),
+            (width, depth),
+            (0.0, depth),
+            (0.0, 0.0),
+        ],
+    )
+    ifcopenshell.api.geometry.assign_representation(
+        model,
+        product=slab,
+        representation=representation,
+    )
+    matrix = np.eye(4)
+    matrix[0:3, 3] = np.array([min_x, min_y, min_z], dtype=float)
+    ifcopenshell.api.geometry.edit_object_placement(
+        model,
+        product=slab,
+        matrix=matrix,
+        is_si=True,
+        should_transform_children=False,
+    )
+    ifcopenshell.api.spatial.assign_container(
+        model,
+        products=[slab],
+        relating_structure=storey,
+    )
+    return slab
 
 
 def _copy_products(
@@ -552,6 +708,10 @@ def extract_asset_ifc(
             products=copied_products,
             relating_structure=storey,
         )
+    if group.category == "terrace":
+        terrace_floor = _add_terrace_floor(asset_model, storey, bbox_before)
+        copied_products.append(terrace_floor)
+        source_global_ids_by_copy_id[terrace_floor.id()] = ""
     if bbox_before is not None:
         _normalize_to_origin(copied_products, bbox_before["min"])
     bbox_after = _bbox_for_products(copied_products)
