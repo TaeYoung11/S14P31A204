@@ -132,6 +132,30 @@ const readMetadataNumber = (metadata: FloorProjectRoom['metadata'], keys: string
   return null
 }
 
+const IFC_GLOBAL_ID_PATTERN = /^[0-9A-Za-z_$]{22}$/
+
+const readMetadataString = (metadata: FloorProjectRoom['metadata'], keys: string[]): string | null => {
+  if (!metadata) return null
+  for (const key of keys) {
+    const value = metadata[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return null
+}
+
+const resolveRoomGlobalId = (room: FloorProjectRoom): string | undefined => {
+  if (IFC_GLOBAL_ID_PATTERN.test(room.id)) return room.id
+  const metadataGlobalId = readMetadataString(room.metadata, [
+    'globalId',
+    'global_id',
+    'ifcGlobalId',
+    'ifc_global_id',
+  ])
+  return metadataGlobalId && IFC_GLOBAL_ID_PATTERN.test(metadataGlobalId)
+    ? metadataGlobalId
+    : undefined
+}
+
 const readRoomAreaM2 = (room: FloorProjectRoom): number | null => {
   const directAreaM2 =
     readPositiveNumber(room.areaM2)
@@ -338,16 +362,7 @@ const computeProjectTransform = (rooms: FloorProjectRoom[], options: MapperOptio
   }
 
   if (options.scaleMode === 'real') {
-    const scale = 1 / FLOOR_MM_PER_PX
-    if (!projectBounds) return { scale, offsetX: 0, offsetY: 0 }
-
-    const layoutWidth = projectBounds.maxX - projectBounds.minX
-    const layoutHeight = projectBounds.maxY - projectBounds.minY
-    const width = Math.max(0, options.width)
-    const height = Math.max(0, options.height)
-    const offsetX = (width - layoutWidth * scale) / 2 - projectBounds.minX * scale
-    const offsetY = (height - layoutHeight * scale) / 2 - projectBounds.minY * scale
-    return { scale, offsetX, offsetY }
+    return { scale: 1 / FLOOR_MM_PER_PX, offsetX: 0, offsetY: 0 }
   }
 
   const width = Math.max(0, options.width)
@@ -360,9 +375,7 @@ const computeProjectTransform = (rooms: FloorProjectRoom[], options: MapperOptio
   const scale = projectBounds
     ? clamp(Math.min(availableWidth / layoutWidth, availableHeight / layoutHeight), 0.01, 100)
     : 1
-  const offsetX = projectBounds ? (width - layoutWidth * scale) / 2 - projectBounds.minX * scale : 0
-  const offsetY = projectBounds ? (height - layoutHeight * scale) / 2 - projectBounds.minY * scale : 0
-  return { scale, offsetX, offsetY }
+  return { scale, offsetX: 0, offsetY: 0 }
 }
 
 /** FloorProjectWallType → FE FloorWallType 변환 */
@@ -431,6 +444,7 @@ export function mapFloorProjectToLayers(project: FloorProject, options: MapperOp
 
     floorRooms.push({
       id: room.id,
+      globalId: resolveRoomGlobalId(room),
       bubbleId: room.id,
       label: roomLabel,
       type: roomType,

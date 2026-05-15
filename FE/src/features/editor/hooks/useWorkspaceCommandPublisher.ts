@@ -347,7 +347,8 @@ export function useWorkspaceCommandPublisher({
   }, [])
 
   const updateRoom = useCallback((roomId: string, patch: Record<string, unknown>) => {
-    const globalId = toIfcGlobalId(roomId)
+    const patchGlobalId = typeof patch.globalId === 'string' ? toIfcGlobalId(patch.globalId) : null
+    const globalId = toIfcGlobalId(roomId) ?? patchGlobalId
     if (!globalId) return
 
     const translationMm = isRecord(patch.translationMm) ? patch.translationMm : null

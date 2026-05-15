@@ -158,6 +158,7 @@ export interface ZoningFormData {
 /** 2D 평면도 위의 방(공간) 한 칸 */
 export interface FloorRoom {
   id: string
+  globalId?: string
   bubbleId: string
   label: string
   type: string

@@ -180,14 +180,15 @@ export function useBubbleSnapshotRealtime({
 
     const syncFloorPlanHistoryCursor = (action: string | null, payloadBaseIndex: number | null) => {
       if (action === WORKSPACE_SYNC_ACTION.floorPlanUndo) {
-        floorPlanBaseIndexRef.current = payloadBaseIndex ?? Math.max(-1, floorPlanBaseIndexRef.current - 1)
+        floorPlanBaseIndexRef.current = Math.max(-1, floorPlanBaseIndexRef.current - 1)
         floorPlanRedoDepthRef.current += 1
       } else if (action === WORKSPACE_SYNC_ACTION.floorPlanRedo) {
-        floorPlanBaseIndexRef.current =
-          payloadBaseIndex ?? Math.min(WORKSPACE_HISTORY_MAX_INDEX, floorPlanBaseIndexRef.current + 1)
+        floorPlanBaseIndexRef.current = Math.min(WORKSPACE_HISTORY_MAX_INDEX, floorPlanBaseIndexRef.current + 1)
         floorPlanRedoDepthRef.current = Math.max(0, floorPlanRedoDepthRef.current - 1)
       } else if (action === WORKSPACE_SYNC_ACTION.floorPlanUpdated) {
-        floorPlanBaseIndexRef.current = payloadBaseIndex ?? floorPlanBaseIndexRef.current + 1
+        floorPlanBaseIndexRef.current = payloadBaseIndex !== null
+          ? Math.min(WORKSPACE_HISTORY_MAX_INDEX, payloadBaseIndex + 1)
+          : floorPlanBaseIndexRef.current + 1
         floorPlanRedoDepthRef.current = 0
       }
       notifyFloorPlanHistoryCursor()
@@ -259,16 +260,10 @@ export function useBubbleSnapshotRealtime({
       }
 
       const shouldSkipFloorPlanSnapshotForIfcUpdate =
-        (
-          action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
-          action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
-          action === WORKSPACE_SYNC_ACTION.floorPlanRedo
-        ) && extractIfcStorageUrl(parsed) !== null
+        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated && extractIfcStorageUrl(parsed) !== null
       const floorPlanSnapshot = extractFloorPlanSnapshot(parsed)
-      const isFloorPlanSnapshotUpdate =
-        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated && floorPlanSnapshot !== null
       const shouldApplyFloorPlanHistoryEvent =
-        isFloorPlanSnapshotUpdate ||
+        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
 
