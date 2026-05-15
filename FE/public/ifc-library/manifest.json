@@ -1,10 +1,93 @@
 {
   "schemaVersion": "batang.ifcAssetLibrary.v1",
   "sourceFile": "sample_final.ifc",
-  "generatedAt": "2026-05-15T08:53:14",
+  "generatedAt": "2026-05-15T11:20:18",
   "unit": "mm",
   "assetRuntime": "ifc-first-frag-pending",
   "assets": [
+    {
+      "id": "terrace",
+      "label": "Terrace",
+      "category": "terrace",
+      "sourceFile": "sample_final.ifc",
+      "assetIfc": "assets/terrace.ifc",
+      "assetFrag": null,
+      "fragStatus": "pending_converter",
+      "sourceElementNames": [
+        "기본 벽:일반 - 200mm:153618",
+        "기본 벽:일반 - 200mm:153473",
+        "기본 벽:일반 - 200mm:154109"
+      ],
+      "sourceGlobalIds": [
+        "2znubWhPDD4wn7Fg4E24GR",
+        "2znubWhPDD4wn7Fg4E24k8",
+        "2znubWhPDD4wn7Fg4E24Nq"
+      ],
+      "unit": "mm",
+      "placementMode": "fragment-model",
+      "editable": true,
+      "bbox": {
+        "min": [
+          -2.7755575615628914e-16,
+          0.0,
+          -0.12
+        ],
+        "max": [
+          6.494223203901509,
+          1.3800000000000026,
+          1.5
+        ],
+        "sizeMm": [
+          6494.223,
+          1380.0,
+          1620.0
+        ],
+        "originMm": [
+          -0.0,
+          0.0,
+          -120.0
+        ]
+      },
+      "originalPlacement": {
+        "min": [
+          -4.32848485172182,
+          -14.260963893809338,
+          2.5
+        ],
+        "max": [
+          2.165738352179689,
+          -12.880963893809335,
+          4.0
+        ],
+        "sizeMm": [
+          6494.223,
+          1380.0,
+          1500.0
+        ],
+        "originMm": [
+          -4328.485,
+          -14260.964,
+          2500.0
+        ]
+      },
+      "productCount": 4,
+      "materials": [
+        "기본 벽"
+      ],
+      "colors": [
+        {
+          "name": null,
+          "r": 0.870588,
+          "g": 0.85098,
+          "b": 0.85098
+        }
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
+    },
     {
       "id": "door-152970",
       "label": "단일-플러시:0915 x 2134mm:152970",
@@ -66,334 +149,6 @@
           1095.515,
           -9199.342,
           2500.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "문 - 패널",
-        "문 - 프레임"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.658824,
-          "g": 0.403922,
-          "b": 0.266667
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "door-182597",
-      "label": "단일-플러시:0915 x 2134mm:182597",
-      "category": "door",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/door-182597.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "단일-플러시:0915 x 2134mm:182597",
-        "단일-플러시:0915 x 2134mm:182597:1"
-      ],
-      "sourceGlobalIds": [
-        "2QLDczdKX9Fg7Ur4rrIUVf",
-        "2eacg2mDMZr5O8vWsbhect"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          -2.7755575615628914e-17,
-          -1.1102230246251565e-16,
-          0.0
-        ],
-        "max": [
-          0.25000000000000555,
-          1.0669999999999997,
-          2.21
-        ],
-        "sizeMm": [
-          250.0,
-          1067.0,
-          2210.0
-        ],
-        "originMm": [
-          -0.0,
-          -0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          0.44651514827818994,
-          -7.350342012607194,
-          2.5
-        ],
-        "max": [
-          0.6965151482781955,
-          -6.283342012607194,
-          4.710000000000001
-        ],
-        "sizeMm": [
-          250.0,
-          1067.0,
-          2210.0
-        ],
-        "originMm": [
-          446.515,
-          -7350.342,
-          2500.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "문 - 패널",
-        "문 - 프레임"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.658824,
-          "g": 0.403922,
-          "b": 0.266667
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "door-143518",
-      "label": "단일-플러시:0915 x 2134mm:143518",
-      "category": "door",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/door-143518.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "단일-플러시:0915 x 2134mm:143518",
-        "단일-플러시:0915 x 2134mm:143518:1"
-      ],
-      "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E22oN",
-        "0SG$ZStsGs3laYSEtfkkWP"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          3.5388358909926865e-16,
-          1.1102230246251565e-16,
-          0.0
-        ],
-        "max": [
-          0.2499999999999948,
-          1.067,
-          2.21
-        ],
-        "sizeMm": [
-          250.0,
-          1067.0,
-          2210.0
-        ],
-        "originMm": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          5.640738352179717,
-          -6.146744865967023,
-          0.0
-        ],
-        "max": [
-          5.890738352179712,
-          -5.079744865967023,
-          2.21
-        ],
-        "sizeMm": [
-          250.0,
-          1067.0,
-          2210.0
-        ],
-        "originMm": [
-          5640.738,
-          -6146.745,
-          0.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "문 - 패널",
-        "문 - 프레임"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.658824,
-          "g": 0.403922,
-          "b": 0.266667
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "door-143060",
-      "label": "단일-플러시:0915 x 2134mm:143060",
-      "category": "door",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/door-143060.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "단일-플러시:0915 x 2134mm:143060",
-        "단일-플러시:0915 x 2134mm:143060:1"
-      ],
-      "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E23BT",
-        "0WxHRosqtkZrVaZ2xTNzo_"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          3.5388358909926865e-16,
-          9.992007221626409e-16,
-          0.0
-        ],
-        "max": [
-          0.2499999999999948,
-          1.0670000000000008,
-          2.21
-        ],
-        "sizeMm": [
-          250.0,
-          1067.0,
-          2210.0
-        ],
-        "originMm": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          5.465520846513263,
-          -7.760643875778356,
-          0.0
-        ],
-        "max": [
-          5.715520846513257,
-          -6.693643875778355,
-          2.21
-        ],
-        "sizeMm": [
-          250.0,
-          1067.0,
-          2210.0
-        ],
-        "originMm": [
-          5465.521,
-          -7760.644,
-          0.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "문 - 패널",
-        "문 - 프레임"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.658824,
-          "g": 0.403922,
-          "b": 0.266667
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "door-144293",
-      "label": "단일-플러시:0915 x 2134mm:144293",
-      "category": "door",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/door-144293.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "단일-플러시:0915 x 2134mm:144293",
-        "단일-플러시:0915 x 2134mm:144293:1"
-      ],
-      "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E22_i",
-        "0gFDGh1kd6qIeO6VMVsF$N"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          -5.551115123125783e-16,
-          0.0,
-          0.0
-        ],
-        "max": [
-          1.0669999999999993,
-          0.25000000000000555,
-          2.21
-        ],
-        "sizeMm": [
-          1067.0,
-          250.0,
-          2210.0
-        ],
-        "originMm": [
-          -0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          3.599520846513264,
-          -14.085963893809353,
-          0.0
-        ],
-        "max": [
-          4.666520846513264,
-          -13.835963893809348,
-          2.21
-        ],
-        "sizeMm": [
-          1067.0,
-          250.0,
-          2210.0
-        ],
-        "originMm": [
-          3599.521,
-          -14085.964,
-          0.0
         ]
       },
       "productCount": 2,
@@ -504,127 +259,37 @@
       }
     },
     {
-      "id": "window-189424",
-      "label": "고정됨:0406 x 0610mm:189424",
-      "category": "window",
+      "id": "wall-139029",
+      "label": "기본 벽:일반 - 200mm:139029",
+      "category": "wall",
       "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/window-189424.ifc",
+      "assetIfc": "assets/wall-139029.ifc",
       "assetFrag": null,
       "fragStatus": "pending_converter",
       "sourceElementNames": [
-        "고정됨:0406 x 0610mm:189424",
-        "고정됨:0406 x 0610mm:189424:1"
+        "기본 벽:일반 - 200mm:139029"
       ],
       "sourceGlobalIds": [
-        "3gwEtOFi5AUg4WULkh2o1G",
-        "2orlbzWXg5oiBKe1cfZ2x5"
+        "2znubWhPDD4wn7Fg4E20CS"
       ],
       "unit": "mm",
       "placementMode": "fragment-model",
       "editable": true,
       "bbox": {
         "min": [
-          -2.220446049250313e-16,
-          2.040034807748725e-15,
-          2.220446049250313e-16
-        ],
-        "max": [
-          1.9,
-          0.2000000000000295,
-          2.0000000000000004
-        ],
-        "sizeMm": [
-          1900.0,
-          200.0,
-          2000.0
-        ],
-        "originMm": [
-          -0.0,
           0.0,
+          8.326672684688674e-17,
           0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          -1.3284848517218204,
-          -12.880963893809396,
-          3.0199999999999996
         ],
         "max": [
-          0.5715151482781797,
-          -12.680963893809368,
-          5.02
+          12.000000000000004,
+          0.2000000000000001,
+          2.5
         ],
         "sizeMm": [
-          1900.0,
+          12000.0,
           200.0,
-          2000.0
-        ],
-        "originMm": [
-          -1328.485,
-          -12880.964,
-          3020.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "섀시",
-        "유리"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.878431,
-          "g": 0.698039,
-          "b": 0.494118
-        },
-        {
-          "name": null,
-          "r": 0.0,
-          "g": 0.501961,
-          "b": 0.752941
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "window-148309",
-      "label": "고정됨:0406 x 1220mm:148309",
-      "category": "window",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/window-148309.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "고정됨:0406 x 1220mm:148309",
-        "고정됨:0406 x 1220mm:148309:1"
-      ],
-      "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25zS",
-        "3OLhglTyvN1GyFV3xjq2L5"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          0.0,
-          5.551115123125783e-16,
-          1.1102230246251565e-16
-        ],
-        "max": [
-          0.20000000000002743,
-          0.4060000000000006,
-          1.2200000000000002
-        ],
-        "sizeMm": [
-          200.0,
-          406.0,
-          1220.0
+          2500.0
         ],
         "originMm": [
           0.0,
@@ -634,1099 +299,36 @@
       },
       "originalPlacement": {
         "min": [
-          8.19052084651327,
-          -5.290744865967028,
-          0.9149999999999999
-        ],
-        "max": [
-          8.390520846513297,
-          -4.884744865967027,
-          2.135
-        ],
-        "sizeMm": [
-          200.0,
-          406.0,
-          1220.0
-        ],
-        "originMm": [
-          8190.521,
-          -5290.745,
-          915.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "섀시",
-        "유리"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.0,
-          "g": 0.501961,
-          "b": 0.752941
-        },
-        {
-          "name": null,
-          "r": 0.878431,
-          "g": 0.698039,
-          "b": 0.494118
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "window-189190",
-      "label": "고정됨:0406 x 0610mm:189190",
-      "category": "window",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/window-189190.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "고정됨:0406 x 0610mm:189190",
-        "고정됨:0406 x 0610mm:189190:1"
-      ],
-      "sourceGlobalIds": [
-        "3gwEtOFi5AUg4WULkh2o2c",
-        "0vet7fzY3XsI0qgtbavvS4"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          4.440892098500626e-16,
-          -1.5265566588595902e-16,
+          -8.334261647820284,
+          -1.7646438757782974,
           0.0
         ],
         "max": [
-          1.9000000000000006,
-          0.2000000000000273,
-          2.0
+          3.6657383521797193,
+          -1.5646438757782972,
+          2.5
         ],
         "sizeMm": [
-          1900.0,
+          12000.0,
           200.0,
-          2000.0
-        ],
-        "originMm": [
-          0.0,
-          -0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          -2.8884848517218065,
-          -2.7021092621716685,
-          3.415
-        ],
-        "max": [
-          -0.9884848517218061,
-          -2.502109262171641,
-          5.415
-        ],
-        "sizeMm": [
-          1900.0,
-          200.0,
-          2000.0
-        ],
-        "originMm": [
-          -2888.485,
-          -2702.109,
-          3415.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "섀시",
-        "유리"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.878431,
-          "g": 0.698039,
-          "b": 0.494118
-        },
-        {
-          "name": null,
-          "r": 0.0,
-          "g": 0.501961,
-          "b": 0.752941
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "window-189034",
-      "label": "고정됨:0406 x 0610mm:189034",
-      "category": "window",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/window-189034.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "고정됨:0406 x 0610mm:189034",
-        "고정됨:0406 x 0610mm:189034:1"
-      ],
-      "sourceGlobalIds": [
-        "3gwEtOFi5AUg4WULkh2o7A",
-        "0KJVqCrksqdRY7UfG4Hqw6"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          -6.245004513516506e-16,
-          0.0,
-          0.0
-        ],
-        "max": [
-          0.20000000000002682,
-          1.9000000000000001,
-          2.0
-        ],
-        "sizeMm": [
-          200.0,
-          1900.0,
-          2000.0
-        ],
-        "originMm": [
-          -0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          -4.548484851721849,
-          -6.634342012607178,
-          3.415
-        ],
-        "max": [
-          -4.348484851721822,
-          -4.734342012607177,
-          5.415
-        ],
-        "sizeMm": [
-          200.0,
-          1900.0,
-          2000.0
-        ],
-        "originMm": [
-          -4548.485,
-          -6634.342,
-          3415.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "섀시",
-        "유리"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.878431,
-          "g": 0.698039,
-          "b": 0.494118
-        },
-        {
-          "name": null,
-          "r": 0.0,
-          "g": 0.501961,
-          "b": 0.752941
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "window-149368",
-      "label": "고정됨:0406 x 1220mm:149368",
-      "category": "window",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/window-149368.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "고정됨:0406 x 1220mm:149368",
-        "고정됨:0406 x 1220mm:149368:1"
-      ],
-      "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25jn",
-        "1fhKC6DkSXKiGx4KLjsDDB"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          0.0,
-          -2.7755575615628914e-16,
-          1.1102230246251565e-16
-        ],
-        "max": [
-          0.20000000000002743,
-          0.4060000000000006,
-          1.2200000000000002
-        ],
-        "sizeMm": [
-          200.0,
-          406.0,
-          1220.0
-        ],
-        "originMm": [
-          0.0,
-          -0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          5.490520846513263,
-          -13.360963893809368,
-          0.9149999999999999
-        ],
-        "max": [
-          5.690520846513291,
-          -12.954963893809367,
-          2.135
-        ],
-        "sizeMm": [
-          200.0,
-          406.0,
-          1220.0
-        ],
-        "originMm": [
-          5490.521,
-          -13360.964,
-          915.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "섀시",
-        "유리"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.0,
-          "g": 0.501961,
-          "b": 0.752941
-        },
-        {
-          "name": null,
-          "r": 0.878431,
-          "g": 0.698039,
-          "b": 0.494118
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "window-149306",
-      "label": "고정됨:0406 x 1220mm:149306",
-      "category": "window",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/window-149306.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "고정됨:0406 x 1220mm:149306",
-        "고정됨:0406 x 1220mm:149306:1"
-      ],
-      "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25ip",
-        "1KcOjpdWvjvCbwwDRSum2O"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          7.632783294297951e-16,
-          0.0,
-          1.1102230246251565e-16
-        ],
-        "max": [
-          0.2000000000000286,
-          0.40600000000000086,
-          1.2200000000000002
-        ],
-        "sizeMm": [
-          200.0,
-          406.0,
-          1220.0
-        ],
-        "originMm": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          5.490520846513235,
-          -12.206963893809363,
-          0.9149999999999999
-        ],
-        "max": [
-          5.690520846513262,
-          -11.800963893809362,
-          2.135
-        ],
-        "sizeMm": [
-          200.0,
-          406.0,
-          1220.0
-        ],
-        "originMm": [
-          5490.521,
-          -12206.964,
-          915.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "섀시",
-        "유리"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.0,
-          "g": 0.501961,
-          "b": 0.752941
-        },
-        {
-          "name": null,
-          "r": 0.878431,
-          "g": 0.698039,
-          "b": 0.494118
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "window-148065",
-      "label": "고정됨:0406 x 1220mm:148065",
-      "category": "window",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/window-148065.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "고정됨:0406 x 1220mm:148065",
-        "고정됨:0406 x 1220mm:148065:1"
-      ],
-      "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25ve",
-        "1RYtR0jpXOKatp6y8eD2Sr"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          7.632783294297951e-16,
-          0.0,
-          1.1102230246251565e-16
-        ],
-        "max": [
-          0.2000000000000282,
-          0.406,
-          1.2200000000000002
-        ],
-        "sizeMm": [
-          200.0,
-          406.0,
-          1220.0
-        ],
-        "originMm": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          8.190520846513241,
-          -7.280694370872687,
-          0.9149999999999999
-        ],
-        "max": [
-          8.390520846513269,
-          -6.874694370872686,
-          2.135
-        ],
-        "sizeMm": [
-          200.0,
-          406.0,
-          1220.0
-        ],
-        "originMm": [
-          8190.521,
-          -7280.694,
-          915.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "섀시",
-        "유리"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.0,
-          "g": 0.501961,
-          "b": 0.752941
-        },
-        {
-          "name": null,
-          "r": 0.878431,
-          "g": 0.698039,
-          "b": 0.494118
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "window-148119",
-      "label": "고정됨:0406 x 1220mm:148119",
-      "category": "window",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/window-148119.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "고정됨:0406 x 1220mm:148119",
-        "고정됨:0406 x 1220mm:148119:1"
-      ],
-      "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25wU",
-        "21GPR72AIKy9TGGw2gE_2_"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          0.0,
-          -3.3306690738754696e-16,
-          1.1102230246251565e-16
-        ],
-        "max": [
-          0.20000000000002743,
-          0.4059999999999997,
-          1.2200000000000002
-        ],
-        "sizeMm": [
-          200.0,
-          406.0,
-          1220.0
-        ],
-        "originMm": [
-          0.0,
-          -0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          8.19052084651327,
-          -3.67064387577835,
-          0.9149999999999999
-        ],
-        "max": [
-          8.390520846513297,
-          -3.2646438757783502,
-          2.135
-        ],
-        "sizeMm": [
-          200.0,
-          406.0,
-          1220.0
-        ],
-        "originMm": [
-          8190.521,
-          -3670.644,
-          915.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "섀시",
-        "유리"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.0,
-          "g": 0.501961,
-          "b": 0.752941
-        },
-        {
-          "name": null,
-          "r": 0.878431,
-          "g": 0.698039,
-          "b": 0.494118
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "window-144564",
-      "label": "고정됨:0406 x 0610mm:144564",
-      "category": "window",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/window-144564.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "고정됨:0406 x 0610mm:144564",
-        "고정됨:0406 x 0610mm:144564:1"
-      ],
-      "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E22Yz",
-        "2HhwgLBFQ6fhMAeURBcksg"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          -6.245004513516506e-16,
-          0.0,
-          0.0
-        ],
-        "max": [
-          0.20000000000002682,
-          1.9000000000000001,
-          2.0
-        ],
-        "sizeMm": [
-          200.0,
-          1900.0,
-          2000.0
-        ],
-        "originMm": [
-          -0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          -4.548484851721849,
-          -11.164643875778285,
-          0.0
-        ],
-        "max": [
-          -4.348484851721822,
-          -9.264643875778287,
-          2.0
-        ],
-        "sizeMm": [
-          200.0,
-          1900.0,
-          2000.0
-        ],
-        "originMm": [
-          -4548.485,
-          -11164.644,
-          0.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "섀시",
-        "유리"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.878431,
-          "g": 0.698039,
-          "b": 0.494118
-        },
-        {
-          "name": null,
-          "r": 0.0,
-          "g": 0.501961,
-          "b": 0.752941
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "window-188170",
-      "label": "고정됨:0406 x 0610mm:188170",
-      "category": "window",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/window-188170.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "고정됨:0406 x 0610mm:188170",
-        "고정됨:0406 x 0610mm:188170:1"
-      ],
-      "sourceGlobalIds": [
-        "3gwEtOFi5AUg4WULkh2nog",
-        "3EtNTEMLOM5oCWtI1R3TTw"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          2.220446049250313e-16,
-          2.040034807748725e-15,
-          0.0
-        ],
-        "max": [
-          1.9000000000000004,
-          0.2000000000000295,
-          2.0
-        ],
-        "sizeMm": [
-          1900.0,
-          200.0,
-          2000.0
-        ],
-        "originMm": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          -1.0342616478203113,
-          -14.864643875778336,
-          0.0
-        ],
-        "max": [
-          0.8657383521796889,
-          -14.664643875778308,
-          2.0
-        ],
-        "sizeMm": [
-          1900.0,
-          200.0,
-          2000.0
-        ],
-        "originMm": [
-          -1034.262,
-          -14864.644,
-          0.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "섀시",
-        "유리"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.878431,
-          "g": 0.698039,
-          "b": 0.494118
-        },
-        {
-          "name": null,
-          "r": 0.0,
-          "g": 0.501961,
-          "b": 0.752941
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "window-188066",
-      "label": "고정됨:0406 x 0610mm:188066",
-      "category": "window",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/window-188066.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "고정됨:0406 x 0610mm:188066",
-        "고정됨:0406 x 0610mm:188066:1"
-      ],
-      "sourceGlobalIds": [
-        "3gwEtOFi5AUg4WULkh2nq2",
-        "0CQ1Iou2TmMNdab0VvRvgs"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          2.220446049250313e-16,
-          2.040034807748725e-15,
-          0.0
-        ],
-        "max": [
-          1.9000000000000004,
-          0.2000000000000295,
-          2.0
-        ],
-        "sizeMm": [
-          1900.0,
-          200.0,
-          2000.0
-        ],
-        "originMm": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          -2.9542616478203114,
-          -14.864643875778336,
-          0.0
-        ],
-        "max": [
-          -1.054261647820311,
-          -14.664643875778308,
-          2.0
-        ],
-        "sizeMm": [
-          1900.0,
-          200.0,
-          2000.0
-        ],
-        "originMm": [
-          -2954.262,
-          -14864.644,
-          0.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "섀시",
-        "유리"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.878431,
-          "g": 0.698039,
-          "b": 0.494118
-        },
-        {
-          "name": null,
-          "r": 0.0,
-          "g": 0.501961,
-          "b": 0.752941
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "window-148572",
-      "label": "고정됨:0406 x 0610mm:148572",
-      "category": "window",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/window-148572.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "고정됨:0406 x 0610mm:148572",
-        "고정됨:0406 x 0610mm:148572:1"
-      ],
-      "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25XL",
-        "2RhURAFtAtD9gYd6MvnUfo"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          2.5673907444456745e-15,
-          0.0,
-          0.0
-        ],
-        "max": [
-          0.20000000000003001,
-          1.9000000000000001,
-          2.0
-        ],
-        "sizeMm": [
-          200.0,
-          1900.0,
-          2000.0
-        ],
-        "originMm": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          -8.334261647820313,
-          -6.564643875778296,
-          0.0
-        ],
-        "max": [
-          -8.134261647820285,
-          -4.664643875778296,
-          2.0
-        ],
-        "sizeMm": [
-          200.0,
-          1900.0,
-          2000.0
+          2500.0
         ],
         "originMm": [
           -8334.262,
-          -6564.644,
+          -1764.644,
           0.0
         ]
       },
-      "productCount": 2,
+      "productCount": 1,
       "materials": [
-        "섀시",
-        "유리"
+        "기본 벽"
       ],
       "colors": [
         {
           "name": null,
-          "r": 0.878431,
-          "g": 0.698039,
-          "b": 0.494118
-        },
-        {
-          "name": null,
-          "r": 0.0,
-          "g": 0.501961,
-          "b": 0.752941
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "window-148460",
-      "label": "고정됨:0406 x 0610mm:148460",
-      "category": "window",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/window-148460.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "고정됨:0406 x 0610mm:148460",
-        "고정됨:0406 x 0610mm:148460:1"
-      ],
-      "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25$b",
-        "3NHwK$0Bd$$3iw4i2YQgss"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          2.5673907444456745e-15,
-          0.0,
-          0.0
-        ],
-        "max": [
-          0.20000000000003001,
-          1.9000000000000001,
-          2.0
-        ],
-        "sizeMm": [
-          200.0,
-          1900.0,
-          2000.0
-        ],
-        "originMm": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          -8.334261647820313,
-          -4.644643875778296,
-          0.0
-        ],
-        "max": [
-          -8.134261647820285,
-          -2.744643875778296,
-          2.0
-        ],
-        "sizeMm": [
-          200.0,
-          1900.0,
-          2000.0
-        ],
-        "originMm": [
-          -8334.262,
-          -4644.644,
-          0.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "섀시",
-        "유리"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.878431,
-          "g": 0.698039,
-          "b": 0.494118
-        },
-        {
-          "name": null,
-          "r": 0.0,
-          "g": 0.501961,
-          "b": 0.752941
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "window-150077",
-      "label": "고정됨:0406 x 0610mm:150077",
-      "category": "window",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/window-150077.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "고정됨:0406 x 0610mm:150077",
-        "고정됨:0406 x 0610mm:150077:1"
-      ],
-      "sourceGlobalIds": [
-        "2znubWhPDD4wn7Fg4E25Oq",
-        "332lk8i7QnVQFhUrIkAPlh"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          -6.245004513516506e-16,
-          0.0,
-          0.0
-        ],
-        "max": [
-          0.20000000000002682,
-          1.9000000000000001,
-          2.0
-        ],
-        "sizeMm": [
-          200.0,
-          1900.0,
-          2000.0
-        ],
-        "originMm": [
-          -0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          -4.548484851721849,
-          -13.064643875778284,
-          0.0
-        ],
-        "max": [
-          -4.348484851721822,
-          -11.164643875778285,
-          2.0
-        ],
-        "sizeMm": [
-          200.0,
-          1900.0,
-          2000.0
-        ],
-        "originMm": [
-          -4548.485,
-          -13064.644,
-          0.0
-        ]
-      },
-      "productCount": 2,
-      "materials": [
-        "섀시",
-        "유리"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.878431,
-          "g": 0.698039,
-          "b": 0.494118
-        },
-        {
-          "name": null,
-          "r": 0.0,
-          "g": 0.501961,
-          "b": 0.752941
+          "r": 0.870588,
+          "g": 0.85098,
+          "b": 0.85098
         }
       ],
       "integrity": {
@@ -2149,87 +751,6 @@
           "r": 0.909804,
           "g": 0.501961,
           "b": 0.545098
-        }
-      ],
-      "integrity": {
-        "duplicateMaterialRelations": 0,
-        "duplicatePropertyRelations": 0,
-        "orphanStyledItems": 0
-      }
-    },
-    {
-      "id": "slab-185214",
-      "label": "바닥:콘크리트-상용 362mm:185214",
-      "category": "slab",
-      "sourceFile": "sample_final.ifc",
-      "assetIfc": "assets/slab-185214.ifc",
-      "assetFrag": null,
-      "fragStatus": "pending_converter",
-      "sourceElementNames": [
-        "바닥:콘크리트-상용 362mm:185214"
-      ],
-      "sourceGlobalIds": [
-        "2QLDczdKX9Fg7Ur4rrIVtI"
-      ],
-      "unit": "mm",
-      "placementMode": "fragment-model",
-      "editable": true,
-      "bbox": {
-        "min": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "max": [
-          16.724782494333564,
-          13.299999999999972,
-          0.362
-        ],
-        "sizeMm": [
-          16724.782,
-          13300.0,
-          362.0
-        ],
-        "originMm": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "originalPlacement": {
-        "min": [
-          -8.334261647820302,
-          -14.864643875778299,
-          -0.362
-        ],
-        "max": [
-          8.390520846513262,
-          -1.5646438757783274,
-          0.0
-        ],
-        "sizeMm": [
-          16724.782,
-          13300.0,
-          362.0
-        ],
-        "originMm": [
-          -8334.262,
-          -14864.644,
-          -362.0
-        ]
-      },
-      "productCount": 1,
-      "materials": [
-        "대지 - 하드코어",
-        "모래",
-        "콘크리트, 현장치기"
-      ],
-      "colors": [
-        {
-          "name": null,
-          "r": 0.572549,
-          "g": 0.909804,
-          "b": 0.098039
         }
       ],
       "integrity": {
