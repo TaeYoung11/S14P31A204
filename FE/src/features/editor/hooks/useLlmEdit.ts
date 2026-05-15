@@ -174,12 +174,10 @@ export function useLlmEdit({
 
     try {
       const sceneType = resolveSceneType(mode)
-      const sourceScenePayload = sceneType === 'THREE_D'
-        ? {
-            ...(currentIfcUrl ? { sourceSceneStorageUrl: currentIfcUrl } : {}),
-            sourceScene: buildSourceScene(mode, bubbles, connections, floorLayers, activeFloorLayerId, floorWalls, floorOpenings),
-          }
-        : {}
+      const sourceScenePayload = {
+        ...(currentIfcUrl ? { sourceSceneStorageUrl: currentIfcUrl } : {}),
+        sourceScene: buildSourceScene(mode, bubbles, connections, floorLayers, activeFloorLayerId, floorWalls, floorOpenings),
+      }
       const job = await submitLlmChatCommand({
         projectId,
         sceneType,

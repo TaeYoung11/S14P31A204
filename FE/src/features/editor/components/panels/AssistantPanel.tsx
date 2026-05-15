@@ -116,31 +116,28 @@ export function AssistantPanel({
 
         {(isLoading || status === 'running') && (
           <div className="mt-3 rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-[12px] text-[#475569] shadow-sm">
-            바탕 Agent가 작업을 처리하는 중입니다.
-          </div>
-        )}
-
-        {(status === 'ambiguous' || status === 'error' || status === 'applied' || status === 'running' || (status === 'clarification_required' && !clarificationArtifact)) && message && (
-          <div className="mt-3">
-            <AssistantNoticeCard message={message} />
-          </div>
-        )}
-
-        {(activeJobId || jobProgress !== null) && (
-          <div className="mt-3 rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-[11px] text-[#475569] shadow-sm">
-            {activeJobId && <p className="truncate">작업 ID {activeJobId}</p>}
+            <p>바탕 Agent가 작업을 처리하는 중입니다.</p>
             {jobProgress !== null && (
-              <div className="mt-2 h-1 overflow-hidden rounded-full bg-[#E2E8F0]">
-                <div
-                  className="h-full rounded-full bg-[#3B45B3]"
-                  style={{ width: `${Math.max(0, Math.min(100, jobProgress))}%` }}
-                />
+              <div className="mt-2 flex items-center gap-2">
+                <div className="h-1 flex-1 overflow-hidden rounded-full bg-[#E2E8F0]">
+                  <div
+                    className="h-full rounded-full bg-[#3B45B3] transition-all duration-500"
+                    style={{ width: `${Math.max(0, Math.min(100, jobProgress))}%` }}
+                  />
+                </div>
+                <span className="text-[10px] tabular-nums text-[#94A3B8]">{Math.round(jobProgress)}%</span>
               </div>
             )}
           </div>
         )}
 
-        {floorProjectImportMessage && (
+        {(status === 'ambiguous' || status === 'error' || status === 'applied' || (status === 'clarification_required' && !clarificationArtifact)) && message && (
+          <div className="mt-3">
+            <AssistantNoticeCard message={message} />
+          </div>
+        )}
+
+        {floorProjectImportMessage && status !== 'loading' && status !== 'running' && (
           <div className="mt-3">
             <AssistantNoticeCard message={floorProjectImportMessage} />
           </div>
