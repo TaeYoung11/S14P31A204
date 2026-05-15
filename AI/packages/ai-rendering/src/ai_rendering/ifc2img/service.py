@@ -21,6 +21,7 @@ from ai_common.logging import get_logger
 from .element_masks import (
     IfcElementMaskRenderResult,
     build_ifc_color_composite_from_element_masks,
+    measure_ifc_geometry_fidelity,
     render_ifc_element_masks,
 )
 from .exceptions import IFCRenderError
@@ -1027,6 +1028,10 @@ def _save_debug_artifacts(
         )
         if element_mask_artifacts is not None:
             files["elementMasks"] = element_mask_artifacts.files
+            payload["geometryFidelity"] = measure_ifc_geometry_fidelity(
+                photo,
+                element_mask_artifacts.result,
+            ).to_dict()
             if color_summary is not None:
                 try:
                     color_composite = build_ifc_color_composite_from_element_masks(

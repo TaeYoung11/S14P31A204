@@ -122,6 +122,102 @@ class IfcColorEvaluationReport:
 
 
 @dataclass(frozen=True)
+class IfcMaskBoundingBox:
+    left: int
+    top: int
+    right: int
+    bottom: int
+
+    @property
+    def width(self) -> int:
+        return self.right - self.left + 1
+
+    @property
+    def height(self) -> int:
+        return self.bottom - self.top + 1
+
+    @property
+    def area(self) -> int:
+        return self.width * self.height
+
+    def to_dict(self) -> dict[str, int]:
+        return {
+            "left": self.left,
+            "top": self.top,
+            "right": self.right,
+            "bottom": self.bottom,
+            "width": self.width,
+            "height": self.height,
+            "area": self.area,
+        }
+
+
+@dataclass(frozen=True)
+class IfcCategoryGeometryFidelity:
+    category: IfcSemanticCategory
+    pixel_count: int
+    pixel_coverage: float
+    bbox: IfcMaskBoundingBox | None
+    bbox_area_coverage: float
+    foreground_overlap_ratio: float
+    region_visibility_score: float
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "category": self.category,
+            "pixelCount": self.pixel_count,
+            "pixelCoverage": self.pixel_coverage,
+            "bbox": None if self.bbox is None else self.bbox.to_dict(),
+            "bboxAreaCoverage": self.bbox_area_coverage,
+            "foregroundOverlapRatio": self.foreground_overlap_ratio,
+            "regionVisibilityScore": self.region_visibility_score,
+        }
+
+
+@dataclass(frozen=True)
+class IfcGeometryFidelityReport:
+    image_size: tuple[int, int]
+    building_pixel_count: int
+    building_pixel_coverage: float
+    building_bbox: IfcMaskBoundingBox | None
+    estimated_photo_foreground_pixel_count: int
+    estimated_photo_foreground_fill_ratio: float
+    estimated_photo_foreground_bbox: IfcMaskBoundingBox | None
+    building_bbox_overlap: float | None
+    silhouette_iou: float
+    edge_alignment_score: float
+    categories: dict[IfcSemanticCategory, IfcCategoryGeometryFidelity]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "imageSize": [self.image_size[0], self.image_size[1]],
+            "buildingPixelCount": self.building_pixel_count,
+            "buildingPixelCoverage": self.building_pixel_coverage,
+            "buildingBbox": (
+                None if self.building_bbox is None else self.building_bbox.to_dict()
+            ),
+            "estimatedPhotoForegroundPixelCount": (
+                self.estimated_photo_foreground_pixel_count
+            ),
+            "estimatedPhotoForegroundFillRatio": (
+                self.estimated_photo_foreground_fill_ratio
+            ),
+            "estimatedPhotoForegroundBbox": (
+                None
+                if self.estimated_photo_foreground_bbox is None
+                else self.estimated_photo_foreground_bbox.to_dict()
+            ),
+            "buildingBboxOverlap": self.building_bbox_overlap,
+            "silhouetteIou": self.silhouette_iou,
+            "edgeAlignmentScore": self.edge_alignment_score,
+            "categories": {
+                category: item.to_dict()
+                for category, item in self.categories.items()
+            },
+        }
+
+
+@dataclass(frozen=True)
 class IfcColorArtifactMatrixCase:
     variant: IfcColorArtifactVariant
     time_of_day: IfcColorArtifactTimeOfDay
@@ -342,6 +438,76 @@ def measure_ifc_color_target_deltas(
         )
 
     return deltas
+
+
+def measure_ifc_geometry_fidelity(
+    image: Image.Image,
+    element_masks: IfcElementMaskRenderResult,
+    *,
+    categories: tuple[IfcSemanticCategory, ...] = COLOR_LOCK_MEASURE_CATEGORIES,
+    foreground_threshold: float = 0.08,
+) -> IfcGeometryFidelityReport:
+    """Measure approximate shape fidelity between IFC masks and the final photo."""
+    image_rgb = image.convert("RGB")
+    width, height = image_rgb.size
+    total_pixels = width * height
+    if total_pixels <= 0:
+        raise IFCRenderError("image must contain at least one pixel")
+
+    category_masks = {
+        category: _mask_to_bool_array(
+            element_masks.masks.get(category),
+            expected_size=image_rgb.size,
+            category=category,
+        )
+        for category in SUPPORTED_SEMANTIC_CATEGORIES
+    }
+    building_mask = np.zeros((height, width), dtype=bool)
+    for mask_arr in category_masks.values():
+        building_mask |= mask_arr
+
+    foreground_mask = _estimate_photo_foreground_mask(
+        image_rgb,
+        threshold=foreground_threshold,
+    )
+    building_bbox = _mask_bbox(building_mask)
+    foreground_bbox = _mask_bbox(foreground_mask)
+    building_pixels = int(building_mask.sum())
+    foreground_pixels = int(foreground_mask.sum())
+    silhouette_iou = _mask_iou(building_mask, foreground_mask)
+    category_reports: dict[IfcSemanticCategory, IfcCategoryGeometryFidelity] = {}
+    for category in categories:
+        mask_arr = category_masks[category]
+        pixel_count = int(mask_arr.sum())
+        bbox = _mask_bbox(mask_arr)
+        foreground_overlap_ratio = (
+            0.0
+            if pixel_count == 0
+            else float(np.logical_and(mask_arr, foreground_mask).sum()) / pixel_count
+        )
+        category_reports[category] = IfcCategoryGeometryFidelity(
+            category=category,
+            pixel_count=pixel_count,
+            pixel_coverage=pixel_count / total_pixels,
+            bbox=bbox,
+            bbox_area_coverage=0.0 if bbox is None else bbox.area / total_pixels,
+            foreground_overlap_ratio=foreground_overlap_ratio,
+            region_visibility_score=_masked_luma_std(image_rgb, mask_arr),
+        )
+
+    return IfcGeometryFidelityReport(
+        image_size=image_rgb.size,
+        building_pixel_count=building_pixels,
+        building_pixel_coverage=building_pixels / total_pixels,
+        building_bbox=building_bbox,
+        estimated_photo_foreground_pixel_count=foreground_pixels,
+        estimated_photo_foreground_fill_ratio=foreground_pixels / total_pixels,
+        estimated_photo_foreground_bbox=foreground_bbox,
+        building_bbox_overlap=_bbox_iou(building_bbox, foreground_bbox),
+        silhouette_iou=silhouette_iou,
+        edge_alignment_score=_edge_alignment_score(building_mask, foreground_mask),
+        categories=category_reports,
+    )
 
 
 def select_ifc_color_correction_candidates(
@@ -601,6 +767,114 @@ def _rgb_delta(
     source = np.asarray(source_rgb, dtype=np.float64)
     target = np.asarray(target_rgb, dtype=np.float64)
     return float(np.linalg.norm(source - target))
+
+
+def _mask_to_bool_array(
+    mask: Image.Image | None,
+    *,
+    expected_size: tuple[int, int],
+    category: IfcSemanticCategory,
+) -> np.ndarray:
+    width, height = expected_size
+    if mask is None:
+        return np.zeros((height, width), dtype=bool)
+    if mask.size != expected_size:
+        raise IFCRenderError(
+            "element mask size does not match image size for "
+            f"{category}: mask={mask.size}, image={expected_size}"
+        )
+    return np.asarray(mask.convert("L"), dtype=np.uint8) > 0
+
+
+def _estimate_photo_foreground_mask(
+    image: Image.Image,
+    *,
+    threshold: float,
+) -> np.ndarray:
+    image_arr = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    height, width, _ = image_arr.shape
+    corners = np.asarray(
+        [
+            image_arr[0, 0],
+            image_arr[0, width - 1],
+            image_arr[height - 1, 0],
+            image_arr[height - 1, width - 1],
+        ],
+        dtype=np.float32,
+    )
+    background = np.median(corners, axis=0)
+    distance = np.linalg.norm(image_arr - background, axis=2)
+    return distance > threshold
+
+
+def _mask_bbox(mask: np.ndarray) -> IfcMaskBoundingBox | None:
+    ys, xs = np.nonzero(mask)
+    if len(xs) == 0 or len(ys) == 0:
+        return None
+    return IfcMaskBoundingBox(
+        left=int(xs.min()),
+        top=int(ys.min()),
+        right=int(xs.max()),
+        bottom=int(ys.max()),
+    )
+
+
+def _bbox_iou(
+    first: IfcMaskBoundingBox | None,
+    second: IfcMaskBoundingBox | None,
+) -> float | None:
+    if first is None or second is None:
+        return None
+    left = max(first.left, second.left)
+    top = max(first.top, second.top)
+    right = min(first.right, second.right)
+    bottom = min(first.bottom, second.bottom)
+    if right < left or bottom < top:
+        return 0.0
+    intersection = (right - left + 1) * (bottom - top + 1)
+    union = first.area + second.area - intersection
+    return 0.0 if union <= 0 else intersection / union
+
+
+def _mask_iou(first: np.ndarray, second: np.ndarray) -> float:
+    union = int(np.logical_or(first, second).sum())
+    if union == 0:
+        return 0.0
+    intersection = int(np.logical_and(first, second).sum())
+    return intersection / union
+
+
+def _masked_luma_std(image: Image.Image, mask: np.ndarray) -> float:
+    if not mask.any():
+        return 0.0
+    image_arr = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    luma = (
+        image_arr[..., 0] * 0.2126
+        + image_arr[..., 1] * 0.7152
+        + image_arr[..., 2] * 0.0722
+    )
+    return float(luma[mask].std())
+
+
+def _edge_alignment_score(reference: np.ndarray, candidate: np.ndarray) -> float:
+    reference_edge = _mask_edge(reference)
+    candidate_edge = _mask_edge(candidate)
+    return _mask_iou(reference_edge, candidate_edge)
+
+
+def _mask_edge(mask: np.ndarray) -> np.ndarray:
+    if not mask.any():
+        return np.zeros_like(mask, dtype=bool)
+    padded = np.pad(mask, 1, mode="constant", constant_values=False)
+    center = padded[1:-1, 1:-1]
+    eroded = (
+        center
+        & padded[:-2, 1:-1]
+        & padded[2:, 1:-1]
+        & padded[1:-1, :-2]
+        & padded[1:-1, 2:]
+    )
+    return center & ~eroded
 
 
 def _mesh_from_parts(
