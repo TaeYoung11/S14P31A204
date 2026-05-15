@@ -399,7 +399,7 @@ def test_ifc_category_color_prompt_cues_match_shinchan_completion_criteria(
     )
     door = ifc_category_color_prompt_cues("DOOR", summary.categories["DOOR"].candidates)
 
-    assert roof[0] == "green"
+    assert roof[0] == "red"
     assert any(cue in {"gray", "white"} for cue in wall)
     assert window[0] == "blue glass"
     assert any(cue in {"brown wood", "tan wood"} for cue in door)
@@ -413,7 +413,7 @@ def test_select_ifc_color_summary_category_cues_uses_shinchan_representatives(
 
     selected = select_ifc_color_summary_category_cues(summary)
 
-    assert selected["ROOF"] == "green"
+    assert selected["ROOF"] == "red"
     assert selected["WALL"] in {"gray", "white"}
     assert selected["WINDOW"] == "blue glass"
     assert selected["DOOR"] in {"brown wood", "tan wood"}
@@ -432,7 +432,7 @@ def test_select_ifc_category_color_candidate_uses_shinchan_category_priority(
 
     assert roof is not None
     assert roof.rgb is not None
-    assert nearest_prompt_color_name(roof.rgb) == "green"
+    assert nearest_prompt_color_name(roof.rgb) == "red"
 
 
 def test_build_ifc_color_prompt_suffix_uses_shinchan_representatives(
@@ -444,7 +444,7 @@ def test_build_ifc_color_prompt_suffix_uses_shinchan_representatives(
     suffix = build_ifc_color_prompt_suffix(summary)
 
     assert suffix.startswith("IFC colors: ")
-    assert "green roof" in suffix
+    assert "red roof" in suffix
     assert "walls" in suffix
     assert "blue glass" in suffix
     assert "wood door" in suffix
@@ -458,7 +458,7 @@ def test_build_ifc_compact_color_prompt_suffix_removes_filler_words(
 
     suffix = build_ifc_compact_color_prompt_suffix(summary)
 
-    assert suffix == "IFC colors: green roof, gray walls, blue glass, tan wood door."
+    assert suffix == "IFC colors: red roof, white walls, blue glass, tan wood door."
     assert len(suffix.replace(",", " ").split()) == 11
 
 
@@ -1570,7 +1570,7 @@ def test_shinchan_ifc_color_composite_matches_completion_criteria(
         for category, rgb in category_colors.items()
     }
 
-    assert category_cues["ROOF"] == "green"
+    assert category_cues["ROOF"] == "red"
     assert category_cues["WALL"] in {"gray", "white"}
     assert category_cues["WINDOW"] == "blue"
     assert category_cues["DOOR"] in {"brown", "tan"}

@@ -1239,10 +1239,105 @@ def test_generate_ifc_house_like_f3_material_relight_preserves_alpha(tmp_path: P
         no_background_path=tmp_no_bg,
         with_background_path=tmp_with_bg,
         time_of_day="DAY",
+        source_element_masks={},
     )
 
     assert output.size == (2, 2)
     assert output.getpixel((1, 1)) != (200, 210, 220)
+
+
+def test_generate_ifc_house_like_f3_estimates_storey_split_from_window_rows() -> None:
+    """F-3는 window row 분포를 이용해 층 분리선을 추정해야 한다."""
+    m = _load_script("generate_ifc_house_like_f3_candidates.py")
+    import numpy as np
+
+    wall_mask = np.zeros((40, 20), dtype=np.float32)
+    wall_mask[5:35, 3:17] = 1.0
+    window_mask = np.zeros((40, 20), dtype=np.float32)
+    window_mask[10:14, 5:15] = 1.0
+    window_mask[24:28, 5:15] = 1.0
+
+    split_y = m._estimate_storey_split_y(wall_mask=wall_mask, window_mask=window_mask)
+
+    assert 16 <= split_y <= 22
+
+
+def test_generate_ifc_house_like_f3_material_relight_keeps_ifc_color_family(
+    tmp_path: Path,
+) -> None:
+    """F-3 candidate 1은 층 강조를 넣어도 IFC 색 계열을 크게 잃지 않아야 한다."""
+    m = _load_script("generate_ifc_house_like_f3_candidates.py")
+    from PIL import Image
+
+    tmp_no_bg = tmp_path / "no_bg.png"
+    tmp_with_bg = tmp_path / "with_bg.png"
+    wall_mask = tmp_path / "wall.png"
+    roof_mask = tmp_path / "roof.png"
+    window_mask = tmp_path / "window.png"
+    door_mask = tmp_path / "door.png"
+
+    no_bg = Image.new("RGBA", (6, 6), (0, 0, 0, 0))
+    for y in range(1, 5):
+        for x in range(1, 5):
+            no_bg.putpixel((x, y), (180, 180, 180, 255))
+    for x in range(1, 5):
+        no_bg.putpixel((x, 1), (40, 160, 60, 255))
+    no_bg.putpixel((3, 4), (150, 100, 60, 255))
+    no_bg.save(tmp_no_bg, format="PNG")
+    Image.new("RGB", (6, 6), (220, 230, 240)).save(tmp_with_bg, format="PNG")
+
+    roof = Image.new("L", (6, 6), 0)
+    for x in range(1, 5):
+        roof.putpixel((x, 1), 255)
+    roof.save(roof_mask, format="PNG")
+
+    wall = Image.new("L", (6, 6), 0)
+    for y in range(1, 5):
+        for x in range(1, 5):
+            wall.putpixel((x, y), 255)
+    wall.save(wall_mask, format="PNG")
+
+    window = Image.new("L", (6, 6), 0)
+    for x in range(1, 5):
+        window.putpixel((x, 2), 255)
+        window.putpixel((x, 3), 255)
+    window.save(window_mask, format="PNG")
+
+    door = Image.new("L", (6, 6), 0)
+    door.putpixel((3, 4), 255)
+    door.save(door_mask, format="PNG")
+
+    output = m._build_material_relight_candidate(
+        no_background_path=tmp_no_bg,
+        with_background_path=tmp_with_bg,
+        time_of_day="DAY",
+        source_element_masks={
+            "wall": wall_mask,
+            "roof": roof_mask,
+            "window": window_mask,
+            "door": door_mask,
+        },
+    )
+
+    roof_pixel = output.getpixel((2, 1))
+    assert roof_pixel[1] >= roof_pixel[0]
+    assert roof_pixel[1] >= roof_pixel[2]
+
+
+def test_ifc_semantics_prefers_red_surface_style_for_shinchan_roof() -> None:
+    """shinchan roof는 green material보다 red/pink surface style을 우선 해석해야 한다."""
+    from ai_rendering.ifc2img.semantics import (
+        extract_ifc_color_summary,
+        select_ifc_color_summary_category_cues,
+    )
+
+    summary = extract_ifc_color_summary(
+        REPO_ROOT / "packages" / "ai-rendering" / "tests" / "fixtures" / "ifc" / "shinchan.ifc"
+    )
+    cues = select_ifc_color_summary_category_cues(summary)
+
+    assert cues["ROOF"] == "red"
+    assert cues["DOOR"] == "tan wood"
 
 
 def test_generate_ifc_house_like_f3_manifest_summary_lists_accepted_families() -> None:
@@ -1364,6 +1459,34 @@ def test_generate_ifc_identical_f5_selects_winner_and_baseline_fallback() -> Non
             },
             "appearance_only_candidate_2_shadow_contrast_background": {
                 "averageVisualRealismScore": 0.75
+            },
+        }
+    )
+
+    assert winner == "appearance_only_candidate_1_material_relight"
+    assert fallback == "ifc_locked_baseline"
+
+
+def test_generate_ifc_identical_f5_prefers_color_and_storey_priority() -> None:
+    """F-5 winner는 IFC 색 충실도/층 가독성 우선순위를 반영해야 한다."""
+    m = _load_script("generate_ifc_identical_f5_final_matrix.py")
+
+    winner, fallback = m._select_winner_and_fallback(
+        {
+            "ifc_locked_baseline": {
+                "averageVisualRealismScore": 0.80,
+                "ifcColorFidelityPriority": 1,
+                "storeyReadabilityPriority": 1,
+            },
+            "appearance_only_candidate_1_material_relight": {
+                "averageVisualRealismScore": 0.39,
+                "ifcColorFidelityPriority": 3,
+                "storeyReadabilityPriority": 3,
+            },
+            "appearance_only_candidate_2_shadow_contrast_background": {
+                "averageVisualRealismScore": 0.41,
+                "ifcColorFidelityPriority": 2,
+                "storeyReadabilityPriority": 1,
             },
         }
     )
