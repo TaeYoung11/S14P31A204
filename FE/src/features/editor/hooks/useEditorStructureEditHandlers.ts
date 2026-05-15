@@ -470,13 +470,18 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
       : rawOpening
     const newOpening = normalizeOpeningByCurrentWall(openingWithIfcTarget)
     const existingOpening = mergedFloorOpenings.find((opening) => opening.id === newOpening.id)
+    const shouldUpdateExistingOpening = Boolean(
+      existingOpening &&
+      !existingOpening.id.startsWith('auto-') &&
+      (existingOpening.globalId || existingOpening.sourceIfcClass),
+    )
     onFloorPlanChanged()
     setFloorOpenings((prev) => {
       const exists = prev.some((opening) => opening.id === newOpening.id)
       if (exists) return prev.map((opening) => (opening.id === newOpening.id ? newOpening : opening))
       return [...prev, newOpening]
     })
-    workspaceCommandPublisher.upsertOpening(newOpening, Boolean(existingOpening))
+    workspaceCommandPublisher.upsertOpening(newOpening, shouldUpdateExistingOpening)
     setHiddenAutoOpeningIds((prev) => prev.filter((id) => id !== newOpening.id))
     setSelectedFloorWallId(null)
     setSelectedFloorWallIds([])
