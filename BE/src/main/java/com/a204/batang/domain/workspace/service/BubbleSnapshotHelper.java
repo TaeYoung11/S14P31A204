@@ -31,6 +31,7 @@ import java.util.Set;
 public class BubbleSnapshotHelper {
 
     private static final int DEFAULT_BUBBLE_FLOOR = 1;
+    private static final String HEX_COLOR_PATTERN = "^#[0-9A-Fa-f]{6}$";
 
     private final ObjectMapper objectMapper;
 
@@ -116,6 +117,8 @@ public class BubbleSnapshotHelper {
         }
 
         List<BubbleZoneData> zones = resolveZones(payload);
+        Set<String> zoneIds = new HashSet<>();
+        Map<String, String> zoneIdByBubbleId = new LinkedHashMap<>();
         for (BubbleZoneData zone : zones) {
             if (zone == null) {
                 throw new CustomException(
@@ -127,6 +130,13 @@ public class BubbleSnapshotHelper {
                 throw new CustomException(
                         ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
                         "zone id is required."
+                );
+            }
+            String normalizedZoneId = zone.id().trim();
+            if (!zoneIds.add(normalizedZoneId)) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                        "duplicate zone id is not allowed."
                 );
             }
             if (!hasText(zone.name())) {
@@ -141,12 +151,13 @@ public class BubbleSnapshotHelper {
                         "zone color is required."
                 );
             }
-            if (!hasText(zone.source())) {
+            if (!zone.color().trim().matches(HEX_COLOR_PATTERN)) {
                 throw new CustomException(
                         ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
-                        "zone source is required."
+                        "zone color must be #RRGGBB hex format."
                 );
             }
+            validateOptionalZoneSourceOrThrow(zone.source());
             if (zone.bubbleIds() == null || zone.bubbleIds().isEmpty()) {
                 throw new CustomException(
                         ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
@@ -173,6 +184,13 @@ public class BubbleSnapshotHelper {
                     throw new CustomException(
                             ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
                             "zone references unknown bubble id."
+                    );
+                }
+                String previousZoneId = zoneIdByBubbleId.putIfAbsent(normalizedBubbleId, normalizedZoneId);
+                if (previousZoneId != null && !previousZoneId.equals(normalizedZoneId)) {
+                    throw new CustomException(
+                            ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                            "same bubble id cannot belong to multiple zones."
                     );
                 }
             }
@@ -334,50 +352,70 @@ public class BubbleSnapshotHelper {
 
         List<BubbleZoneData> normalized = new ArrayList<>(zones.size());
         Set<String> normalizedZoneIds = new HashSet<>();
+        Set<String> assignedBubbleIds = new HashSet<>();
         for (BubbleZoneData zone : zones) {
             String zoneId = zone.id() == null ? "" : zone.id().trim();
             String zoneName = zone.name() == null ? "" : zone.name().trim();
             String zoneColor = zone.color() == null ? "" : zone.color().trim();
-            String zoneSource = zone.source() == null ? "" : zone.source().trim();
+            String zoneSource = normalizeOptionalText(zone.source());
+            if (!normalizedZoneIds.add(zoneId)) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                        "duplicate zone id is not allowed."
+                );
+            }
 
             List<String> normalizedBubbleIds = zone.bubbleIds() == null
                     ? List.of()
                     : zone.bubbleIds().stream()
                     .map(String::trim)
-                    .filter(floorByBubbleId::containsKey)
                     .distinct()
                     .toList();
 
-            Map<Integer, List<String>> bubbleIdsByFloor = new LinkedHashMap<>();
             for (String bubbleId : normalizedBubbleIds) {
-                Integer floor = floorByBubbleId.get(bubbleId);
-                if (floor == null) continue;
-                bubbleIdsByFloor.computeIfAbsent(floor, ignored -> new ArrayList<>()).add(bubbleId);
-            }
-            if (bubbleIdsByFloor.isEmpty()) {
-                continue;
-            }
-
-            boolean splitByFloor = bubbleIdsByFloor.size() > 1;
-            for (Map.Entry<Integer, List<String>> entry : bubbleIdsByFloor.entrySet()) {
-                Integer floor = entry.getKey();
-                String resolvedZoneId = splitByFloor ? zoneId + "-f" + floor : zoneId;
-                if (!normalizedZoneIds.add(resolvedZoneId)) {
+                if (!floorByBubbleId.containsKey(bubbleId)) {
                     throw new CustomException(
                             ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
-                            "duplicate zone id after floor split is not allowed."
+                            "zone references unknown bubble id."
                     );
                 }
-                normalized.add(new BubbleZoneData(
-                        resolvedZoneId,
-                        zoneName,
-                        zoneColor,
-                        entry.getValue(),
-                        zoneSource
-                ));
+                if (!assignedBubbleIds.add(bubbleId)) {
+                    throw new CustomException(
+                            ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                            "same bubble id cannot belong to multiple zones."
+                    );
+                }
             }
+
+            normalized.add(new BubbleZoneData(
+                    zoneId,
+                    zoneName,
+                    zoneColor,
+                    normalizedBubbleIds,
+                    zoneSource
+            ));
         }
         return normalized;
+    }
+
+    private void validateOptionalZoneSourceOrThrow(String source) {
+        String normalizedSource = normalizeOptionalText(source);
+        if (normalizedSource == null) {
+            return;
+        }
+        if (!"auto".equalsIgnoreCase(normalizedSource) && !"manual".equalsIgnoreCase(normalizedSource)) {
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                    "zone source must be one of auto, manual."
+            );
+        }
+    }
+
+    private String normalizeOptionalText(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 
     private boolean hasText(String value) {

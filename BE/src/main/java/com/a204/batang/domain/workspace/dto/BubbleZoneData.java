@@ -21,12 +21,15 @@ public record BubbleZoneData(
         @NotBlank(message = "zone name is required.")
         String name,
         @NotBlank(message = "zone color is required.")
+        @Pattern(
+                regexp = "^#[0-9A-Fa-f]{6}$",
+                message = "zone color must be #RRGGBB hex format."
+        )
         String color,
         @NotNull(message = "zone bubbleIds is required.")
         List<@NotBlank(message = "zone bubble id is required.") String> bubbleIds,
-        @NotBlank(message = "zone source is required.")
         @Pattern(
-                regexp = "(?i)auto|manual",
+                regexp = "(?i)^\\s*(auto|manual)?\\s*$",
                 message = "zone source must be one of auto, manual."
         )
         String source
