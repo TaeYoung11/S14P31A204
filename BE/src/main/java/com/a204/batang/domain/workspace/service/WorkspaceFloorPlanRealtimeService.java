@@ -676,6 +676,7 @@ public class WorkspaceFloorPlanRealtimeService {
         root.put("sceneType", request.sceneType().name());
         root.set("bubbles", bubbleSnapshot.get("bubbles"));
         root.set("connections", bubbleSnapshot.get("connections"));
+        root.set("zones", bubbleSnapshot.get("zones"));
         root.set("floorMeta", bubbleSnapshot.get("floorMeta"));
         if (request.layout() != null) {
             root.set("layout", request.layout());
