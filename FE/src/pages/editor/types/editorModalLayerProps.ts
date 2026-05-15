@@ -18,6 +18,7 @@ export interface EditorModalLayerProps {
   isZoningModalOpen: boolean
   editingZoneId: string | null
   zoningFormData: ZoningFormData
+  zoningValidationMessage: string | null
   bubbles: BubbleData[]
   zoningAutoColorPreview: string
   onCloseZoningModal: () => void

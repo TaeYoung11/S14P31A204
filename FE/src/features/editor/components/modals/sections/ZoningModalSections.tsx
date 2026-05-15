@@ -12,6 +12,7 @@ interface ZoningBubblePickerSectionProps {
   floorBubbles: BubbleData[]
   selectedBubbleIds: string[]
   selectedCount: number
+  validationMessage?: string | null
   onToggleBubble: (bubbleId: string) => void
 }
 
@@ -90,6 +91,7 @@ export function ZoningBubblePickerSection({
   floorBubbles,
   selectedBubbleIds,
   selectedCount,
+  validationMessage,
   onToggleBubble,
 }: ZoningBubblePickerSectionProps) {
   const selectedBubbleIdSet = useMemo(() => new Set(selectedBubbleIds), [selectedBubbleIds])
@@ -101,6 +103,11 @@ export function ZoningBubblePickerSection({
         <span className="text-[10px] font-black text-[#3B45B3]">{selectedCount}개 선택</span>
       </div>
       <div className="flex max-h-[220px] flex-col gap-2 overflow-y-auto rounded-2xl border border-[#EEF1FA] bg-[#F8F9FD] p-2">
+        {validationMessage ? (
+          <div className="sticky top-0 z-10 rounded-xl border border-[#F5C2C7] bg-[#FFF5F5] px-3 py-2 text-[11px] font-bold text-[#C92A2A]">
+            {validationMessage}
+          </div>
+        ) : null}
         {floorBubbles.length === 0 ? (
           <div className="py-3 text-center text-[11px] font-medium text-[#ADB5BD]">
             현재 층에 포함할 공간이 없습니다

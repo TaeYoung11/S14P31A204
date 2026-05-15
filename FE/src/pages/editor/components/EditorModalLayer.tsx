@@ -18,6 +18,7 @@ function buildSpaceAndZoningModalProps(props: EditorModalLayerProps) {
     isZoningModalOpen: props.isZoningModalOpen,
     editingZoneId: props.editingZoneId,
     zoningFormData: props.zoningFormData,
+    zoningValidationMessage: props.zoningValidationMessage,
     bubbles: props.bubbles,
     zoningAutoColorPreview: props.zoningAutoColorPreview,
     onCloseZoningModal: props.onCloseZoningModal,

@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import type { SetStateAction } from 'react'
 import type { ZoneData, ZoningFormData, BubbleData } from '../types'
 import { DEFAULT_AUTO_ZONE_COLOR } from '../constants'
 import { normalizeColorValue, resolveAutoZoneColor } from '../utils/bubbleCalc'
@@ -29,6 +30,10 @@ function buildUniqueBubbleIds(
   )
 }
 
+function buildZoneBubbleMembershipKey(bubbleIds: string[]): string {
+  return [...bubbleIds].sort().join('|')
+}
+
 function generateZoneId(): string {
   const randomUuid = globalThis.crypto?.randomUUID
   if (typeof randomUuid === 'function') {
@@ -45,7 +50,13 @@ export function useZones(bubbles: BubbleData[], initialZones: ZoneData[] = []) {
   const [zones, setZones] = useState<ZoneData[]>(initialZones)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingZoneId, setEditingZoneId] = useState<string | null>(null)
-  const [formData, setFormData] = useState<ZoningFormData>(createInitialForm)
+  const [formData, setFormDataState] = useState<ZoningFormData>(createInitialForm)
+  const [validationMessage, setValidationMessage] = useState<string | null>(null)
+
+  const setFormData = useCallback((next: SetStateAction<ZoningFormData>) => {
+    setValidationMessage(null)
+    setFormDataState(next)
+  }, [])
 
   /** 선택된 버블 색상 기준으로 자동 색상 미리보기 */
   const autoColorPreview = useMemo(() => {
@@ -56,14 +67,16 @@ export function useZones(bubbles: BubbleData[], initialZones: ZoneData[] = []) {
   /** 신규 조닝 추가 모달 열기 */
   const openAddModal = useCallback(() => {
     setEditingZoneId(null)
-    setFormData(createInitialForm())
+    setValidationMessage(null)
+    setFormDataState(createInitialForm())
     setIsModalOpen(true)
   }, [])
 
   /** 기존 조닝 수정 모달 열기 */
   const openEditModal = useCallback((zone: ZoneData) => {
     setEditingZoneId(zone.id)
-    setFormData({
+    setValidationMessage(null)
+    setFormDataState({
       name: zone.name,
       color: zone.color,
       bubbleIds: [...zone.bubbleIds],
@@ -75,11 +88,13 @@ export function useZones(bubbles: BubbleData[], initialZones: ZoneData[] = []) {
   const closeModal = useCallback(() => {
     setIsModalOpen(false)
     setEditingZoneId(null)
+    setValidationMessage(null)
   }, [])
 
   /** 포함 공간 토글 선택/해제 */
   const toggleBubble = useCallback((bubbleId: string) => {
-    setFormData((prev) => ({
+    setValidationMessage(null)
+    setFormDataState((prev) => ({
       ...prev,
       bubbleIds: prev.bubbleIds.includes(bubbleId)
         ? prev.bubbleIds.filter((id) => id !== bubbleId)
@@ -90,7 +105,22 @@ export function useZones(bubbles: BubbleData[], initialZones: ZoneData[] = []) {
   /** 조닝 생성 또는 수정 확정 — 실제 변경이 발생하면 true 반환 */
   const confirmModal = useCallback((allowedBubbleIds?: Set<string>): boolean => {
     const uniqueIds = buildUniqueBubbleIds(formData.bubbleIds, allowedBubbleIds)
-    if (uniqueIds.length === 0) return false
+    if (uniqueIds.length === 0) {
+      setValidationMessage('최소 1개 공간을 선택해 주세요.')
+      return false
+    }
+
+    const nextMembershipKey = buildZoneBubbleMembershipKey(uniqueIds)
+    const hasDuplicateMembershipInScope = zones.some((zone) => {
+      if (editingZoneId && zone.id === editingZoneId) return false
+      const scopedBubbleIds = buildUniqueBubbleIds(zone.bubbleIds, allowedBubbleIds)
+      if (scopedBubbleIds.length === 0) return false
+      return buildZoneBubbleMembershipKey(scopedBubbleIds) === nextMembershipKey
+    })
+    if (hasDuplicateMembershipInScope) {
+      setValidationMessage('같은 층에 동일한 공간 구성의 조닝이 이미 있습니다. 다른 조합으로 설정해 주세요.')
+      return false
+    }
 
     const bubble = bubbles.find((b) => uniqueIds.includes(b.id))
     const zoneColor =
@@ -115,9 +145,10 @@ export function useZones(bubbles: BubbleData[], initialZones: ZoneData[] = []) {
         ]
       })
     }
+    setValidationMessage(null)
     closeModal()
     return true
-  }, [bubbles, closeModal, editingZoneId, formData])
+  }, [bubbles, closeModal, editingZoneId, formData, zones])
 
   /** 조닝 삭제 (수정 중인 조닝이면 모달도 닫기) */
   const deleteZone = useCallback((zoneId: string) => {
@@ -137,14 +168,14 @@ export function useZones(bubbles: BubbleData[], initialZones: ZoneData[] = []) {
         ? prev
         : { ...prev, bubbleIds: nextBubbleIds }
     })
-  }, [])
+  }, [setFormData])
 
   const replaceZonesState = useCallback((nextZones: ZoneData[]) => {
     setZones(nextZones)
     setIsModalOpen(false)
     setEditingZoneId(null)
     setFormData(createInitialForm())
-  }, [])
+  }, [setFormData])
 
   return {
     zones,
@@ -152,6 +183,7 @@ export function useZones(bubbles: BubbleData[], initialZones: ZoneData[] = []) {
     editingZoneId,
     formData,
     setFormData,
+    validationMessage,
     autoColorPreview,
     openAddModal,
     openEditModal,
