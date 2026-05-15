@@ -888,15 +888,15 @@ export function useEditorPage() {
     }, 3000)
   }, [])
   const resolveServerHistoryBaseIndex = useCallback((snapshot: WorkspaceSnapshot): number =>
-    snapshot.phaseStatus === 'BUBBLE_DRAFT'
+    mode === 'bubble' && snapshot.phaseStatus === 'BUBBLE_DRAFT'
       ? bubbleHistoryBaseIndexRef.current
       : floorPlanHistoryBaseIndexRef.current
-    , [])
+    , [mode])
   const resolveServerHistoryDomain = useCallback((snapshot: WorkspaceSnapshot): AwaitingServerSyncRecord['historyDomain'] =>
-    snapshot.phaseStatus === 'BUBBLE_DRAFT'
+    mode === 'bubble' && snapshot.phaseStatus === 'BUBBLE_DRAFT'
       ? 'bubble'
       : 'floorPlan'
-    , [])
+    , [mode])
   const applyWorkspaceHistorySiteInfo = useCallback((siteInfo: WorkspaceHistorySnapshotResponse['siteInfo']) => {
     const polygonRing = extractOuterRingFromCoordinates(siteInfo?.polygon?.coordinates)
     const areaM2 = resolveWorkspaceSiteAreaM2(siteInfo as Record<string, unknown> | null | undefined)
@@ -2237,10 +2237,12 @@ export function useEditorPage() {
       }
       : draftSnapshot
     const serializedSnapshot = JSON.stringify(publishSnapshot)
+    const historyDomain = resolveServerHistoryDomain(publishSnapshot)
+    const hasPendingFloorPlanCommand = historyDomain === 'floorPlan' && workspaceCommandPublisher.hasPendingCommand()
 
     if (
       suppressGeneratedFloorPlanAutosaveRef.current &&
-      resolveServerHistoryDomain(publishSnapshot) === 'floorPlan'
+      historyDomain === 'floorPlan'
     ) {
       pendingServerPublishRef.current = null
       awaitingServerSyncRef.current = null
@@ -2260,13 +2262,18 @@ export function useEditorPage() {
       return
     }
 
-    if (previousSnapshotRef.current !== null && previousSnapshotRef.current === serializedSnapshot) {
+    if (
+      previousSnapshotRef.current !== null &&
+      previousSnapshotRef.current === serializedSnapshot &&
+      !hasPendingFloorPlanCommand
+    ) {
       return
     }
 
     if (
       awaitingServerSyncRef.current?.projectId === projectId &&
-      awaitingServerSyncRef.current.serializedSnapshot === serializedSnapshot
+      awaitingServerSyncRef.current.serializedSnapshot === serializedSnapshot &&
+      !hasPendingFloorPlanCommand
     ) {
       return
     }
@@ -2286,7 +2293,6 @@ export function useEditorPage() {
       return
     }
 
-    const historyDomain = resolveServerHistoryDomain(publishSnapshot)
     const workspaceCommand = historyDomain === 'floorPlan'
       ? workspaceCommandPublisher.consumePendingCommand()
       : null

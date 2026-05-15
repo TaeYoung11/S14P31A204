@@ -9,6 +9,7 @@ interface UseCanvasGridLinesParams {
   baseOffsetY: number
   panOffsetX: number
   panOffsetY: number
+  gridStepPx: number
 }
 
 export interface GridLines {
@@ -28,13 +29,14 @@ export function useCanvasGridLines({
   baseOffsetY,
   panOffsetX,
   panOffsetY,
+  gridStepPx,
 }: UseCanvasGridLinesParams): GridLines {
   return useMemo(() => {
     if (!isGridVisible || stageWidth === 0 || stageHeight === 0) {
       return { minor: [] as number[][], major: [] as number[][] }
     }
-    const MINOR = 50
-    const MAJOR = 250
+    const minorStep = Math.max(gridStepPx, 1)
+    const majorEvery = 5
     const minor: number[][] = []
     const major: number[][] = []
 
@@ -46,21 +48,27 @@ export function useCanvasGridLines({
     const worldMinY = (-stageY) / safeScale
     const worldMaxY = (stageHeight - stageY) / safeScale
 
-    const startX = Math.floor(worldMinX / MINOR) * MINOR
-    const endX = Math.ceil(worldMaxX / MINOR) * MINOR
-    const startY = Math.floor(worldMinY / MINOR) * MINOR
-    const endY = Math.ceil(worldMaxY / MINOR) * MINOR
+    const startXIndex = Math.floor(worldMinX / minorStep)
+    const endXIndex = Math.ceil(worldMaxX / minorStep)
+    const startYIndex = Math.floor(worldMinY / minorStep)
+    const endYIndex = Math.ceil(worldMaxY / minorStep)
+    const startX = startXIndex * minorStep
+    const endX = endXIndex * minorStep
+    const startY = startYIndex * minorStep
+    const endY = endYIndex * minorStep
 
-    for (let x = startX; x <= endX; x += MINOR) {
+    for (let xIndex = startXIndex; xIndex <= endXIndex; xIndex += 1) {
+      const x = xIndex * minorStep
       const pts = [x, startY, x, endY]
-      if (x % MAJOR === 0) major.push(pts)
+      if (xIndex % majorEvery === 0) major.push(pts)
       else minor.push(pts)
     }
-    for (let y = startY; y <= endY; y += MINOR) {
+    for (let yIndex = startYIndex; yIndex <= endYIndex; yIndex += 1) {
+      const y = yIndex * minorStep
       const pts = [startX, y, endX, y]
-      if (y % MAJOR === 0) major.push(pts)
+      if (yIndex % majorEvery === 0) major.push(pts)
       else minor.push(pts)
     }
     return { minor, major }
-  }, [isGridVisible, stageWidth, stageHeight, scale, baseOffsetX, baseOffsetY, panOffsetX, panOffsetY])
+  }, [isGridVisible, stageWidth, stageHeight, scale, baseOffsetX, baseOffsetY, panOffsetX, panOffsetY, gridStepPx])
 }
