@@ -6,6 +6,7 @@ import com.a204.batang.domain.ifcedit.dto.DirectIfcEditRequest;
 import com.a204.batang.domain.ifcedit.service.DirectIfcEditCommandService;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
 import com.a204.batang.domain.workspace.dto.BubbleFloorMeta;
+import com.a204.batang.domain.workspace.dto.BubbleZoneData;
 import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanSceneType;
@@ -134,6 +135,13 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "bubble-1",
                         "bold"
                 )),
+                List.of(new BubbleZoneData(
+                        "zone-1",
+                        "zone 1",
+                        "#3B45B3",
+                        List.of("bubble-1"),
+                        "manual"
+                )),
                 0,
                 null,
                 FloorPlanSceneType.TWO_D,
@@ -189,6 +197,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         assertThat(response.floorPlanPayloadJson().get("baseIndex").asInt()).isEqualTo(0);
         assertThat(response.floorPlanPayloadJson().get("revisionId").asText()).isEqualTo(workspace.getCurrentRevision());
         assertThat(response.floorPlanPayloadJson().get("bubbles").get(0).get("floor").asInt()).isEqualTo(1);
+        assertThat(response.floorPlanPayloadJson().get("zones").get(0).get("id").asText()).isEqualTo("zone-1");
         assertThat(response.floorPlanPayloadJson().get("floorMeta").get("namesByFloor").get("1").asText()).isEqualTo("1F");
         assertThat(response.floorPlanPayloadJson().get("floorMeta").get("extraFloors").get(0).asInt()).isEqualTo(3);
         assertThat(response.updatedAt()).isNotNull();
@@ -211,6 +220,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "#ffffff",
                         null
                 )),
+                List.of(),
                 List.of(),
                 0,
                 null,
@@ -255,6 +265,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         null
                 )),
                 List.of(),
+                List.of(),
                 0,
                 null,
                 FloorPlanSceneType.TWO_D,
@@ -297,6 +308,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "#ffffff",
                         null
                 )),
+                List.of(),
                 List.of(),
                 0,
                 null,
@@ -356,6 +368,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "bubble-2",
                         "bold"
                 )),
+                List.of(),
                 0,
                 "rev-200",
                 FloorPlanSceneType.TWO_D,

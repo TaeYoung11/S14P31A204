@@ -22,6 +22,8 @@ public record BubbleUpdateRequest(
         List<@Valid BubbleData> bubbles,
         @NotNull(message = "connections is required.")
         List<@Valid ConnectionData> connections,
+        @Valid
+        List<BubbleZoneData> zones,
         @NotNull(message = "baseIndex is required.")
         @Min(value = -1, message = "baseIndex must be greater than or equal to -1.")
         Integer baseIndex,

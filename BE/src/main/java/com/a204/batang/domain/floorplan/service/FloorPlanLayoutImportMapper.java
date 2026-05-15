@@ -5,6 +5,7 @@ import com.a204.batang.domain.floorplan.dto.LayoutImportV2Payload;
 import com.a204.batang.domain.workspace.dto.BubbleSnapshotPayload;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest.BubbleData;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest.ConnectionData;
+import com.a204.batang.domain.workspace.dto.BubbleZoneData;
 import com.a204.batang.domain.workspace.service.BubbleSnapshotHelper;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
@@ -17,9 +18,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -95,6 +98,7 @@ public class FloorPlanLayoutImportMapper {
 
         List<BubbleData> bubbles = payload.bubbles();
         List<ConnectionData> connections = payload.connections();
+        List<BubbleZoneData> zones = payload.zones() == null ? List.of() : payload.zones();
 
         if (bubbles == null || bubbles.isEmpty()) {
             throw new CustomException(
@@ -105,6 +109,13 @@ public class FloorPlanLayoutImportMapper {
 
         validateSnapshotBubblesOrThrow(bubbles);
         validateSnapshotConnectionsOrThrow(bubbles, connections);
+
+        Map<String, Integer> floorByBubbleId = new LinkedHashMap<>();
+        for (BubbleData bubble : bubbles) {
+            floorByBubbleId.put(bubble.id(), normalizeFloorNumber(bubble.floor()));
+        }
+
+        SnapshotZoneMappingResult zoneMapping = mapSnapshotZonesByFloor(zones, floorByBubbleId);
 
         double mmPerPx = resolveMmPerPx(bubbles);
         int unmappedRoomTypeCount = 0;
@@ -121,12 +132,12 @@ public class FloorPlanLayoutImportMapper {
                     normalizedType,
                     roundPositiveMillimeter(bubble.widthMm(), "bubble widthMm"),
                     roundPositiveMillimeter(bubble.heightMm(), "bubble heightMm"),
-                    1,
+                    normalizeFloorNumber(bubble.floor()),
                     bubble.x() * mmPerPx,
                     bubble.y() * mmPerPx,
                     0.0,
                     false,
-                    null
+                    zoneMapping.zoneIdByBubbleId().get(bubble.id())
             ));
         }
 
@@ -143,7 +154,7 @@ public class FloorPlanLayoutImportMapper {
                 projectId.toString(),
                 resolvedProjectName,
                 rooms,
-                null,
+                zoneMapping.zones().isEmpty() ? null : zoneMapping.zones(),
                 adjacency.isEmpty() ? null : adjacency,
                 null,
                 defaultGenerationOptions(),
@@ -319,11 +330,95 @@ public class FloorPlanLayoutImportMapper {
         return new LayoutImportV2Payload.GenerationPolicy("outer_boundary", "from_adjacency", "flat");
     }
 
+    private SnapshotZoneMappingResult mapSnapshotZonesByFloor(
+            List<BubbleZoneData> zones,
+            Map<String, Integer> floorByBubbleId
+    ) {
+        if (zones == null || zones.isEmpty()) {
+            return new SnapshotZoneMappingResult(List.of(), Map.of());
+        }
+
+        List<LayoutImportV2Payload.Zone> mappedZones = new ArrayList<>();
+        Map<String, String> zoneIdByBubbleId = new LinkedHashMap<>();
+        Set<String> mappedZoneIds = new HashSet<>();
+
+        for (BubbleZoneData zone : zones) {
+            if (
+                    zone == null
+                            || !hasText(zone.id())
+                            || !hasText(zone.name())
+                            || !hasText(zone.color())
+                            || zone.bubbleIds() == null
+                            || zone.bubbleIds().isEmpty()
+            ) {
+                throw new CustomException(
+                        ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
+                        "zone 필드(id/name/color/bubbleIds)는 모두 유효해야 합니다."
+                );
+            }
+
+            Map<Integer, List<String>> bubbleIdsByFloor = new LinkedHashMap<>();
+            for (String bubbleId : zone.bubbleIds()) {
+                Integer floor = floorByBubbleId.get(bubbleId);
+                if (floor == null) continue;
+                bubbleIdsByFloor.computeIfAbsent(floor, key -> new ArrayList<>()).add(bubbleId);
+            }
+
+            if (bubbleIdsByFloor.isEmpty()) {
+                continue;
+            }
+
+            boolean splitByFloor = bubbleIdsByFloor.size() > 1;
+            for (Map.Entry<Integer, List<String>> entry : bubbleIdsByFloor.entrySet()) {
+                Integer floor = entry.getKey();
+                String zoneId = zone.id().trim();
+                String resolvedZoneId = splitByFloor ? zoneId + "-f" + floor : zoneId;
+                if (!mappedZoneIds.add(resolvedZoneId)) {
+                    throw new CustomException(
+                            ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
+                            "zone id가 층 분할 후 중복됩니다: " + resolvedZoneId
+                    );
+                }
+                mappedZones.add(new LayoutImportV2Payload.Zone(
+                        resolvedZoneId,
+                        zone.name().trim(),
+                        zone.color().trim(),
+                        floor
+                ));
+
+                for (String bubbleId : entry.getValue()) {
+                    String previousZoneId = zoneIdByBubbleId.putIfAbsent(bubbleId, resolvedZoneId);
+                    if (previousZoneId != null && !previousZoneId.equals(resolvedZoneId)) {
+                        throw new CustomException(
+                                ErrorCode.FLOOR_PLAN_SNAPSHOT_CONVERSION_FAILED,
+                                "동일 bubble이 여러 zone에 매핑되었습니다. bubbleId="
+                                        + bubbleId
+                                        + ", zones="
+                                        + previousZoneId
+                                        + ","
+                                        + resolvedZoneId
+                        );
+                    }
+                }
+            }
+        }
+
+        return new SnapshotZoneMappingResult(mappedZones, zoneIdByBubbleId);
+    }
+
     private String requireProjectName(String projectName) {
         if (projectName == null || projectName.isBlank()) {
             throw new CustomException(ErrorCode.FLOOR_PLAN_LAYOUT_INVALID, "project name은 비어 있을 수 없습니다.");
         }
         return projectName;
+    }
+
+    private int normalizeFloorNumber(Integer floor) {
+        return floor != null && floor > 0 ? floor : 1;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private void requireFinite(Double value, String fieldName) {
@@ -346,5 +441,11 @@ public class FloorPlanLayoutImportMapper {
 
     private boolean isFinitePositive(Double value) {
         return value != null && Double.isFinite(value) && value > 0.0;
+    }
+
+    private record SnapshotZoneMappingResult(
+            List<LayoutImportV2Payload.Zone> zones,
+            Map<String, String> zoneIdByBubbleId
+    ) {
     }
 }

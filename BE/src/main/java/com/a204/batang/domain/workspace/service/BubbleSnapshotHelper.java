@@ -4,6 +4,7 @@ import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest.BubbleData;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest.ConnectionData;
 import com.a204.batang.domain.workspace.dto.BubbleFloorMeta;
 import com.a204.batang.domain.workspace.dto.BubbleSnapshotPayload;
+import com.a204.batang.domain.workspace.dto.BubbleZoneData;
 import com.a204.batang.domain.workspace.dto.SaveBubbleSnapshotRequest;
 import com.a204.batang.domain.workspace.entity.PhaseStatus;
 import com.a204.batang.global.exception.CustomException;
@@ -30,6 +31,7 @@ import java.util.Set;
 public class BubbleSnapshotHelper {
 
     private static final int DEFAULT_BUBBLE_FLOOR = 1;
+    private static final String HEX_COLOR_PATTERN = "^#[0-9A-Fa-f]{6}$";
 
     private final ObjectMapper objectMapper;
 
@@ -73,6 +75,18 @@ public class BubbleSnapshotHelper {
 
         Set<String> bubbleIds = new HashSet<>();
         for (BubbleData bubble : bubbles) {
+            if (bubble == null) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                        "bubble must not be null."
+                );
+            }
+            if (!hasText(bubble.id())) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                        "bubble id is required."
+                );
+            }
             if (!bubbleIds.add(bubble.id())) {
                 throw new CustomException(
                         ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
@@ -82,11 +96,103 @@ public class BubbleSnapshotHelper {
         }
 
         for (ConnectionData connection : connections) {
+            if (connection == null) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                        "connection must not be null."
+                );
+            }
+            if (!hasText(connection.from()) || !hasText(connection.to())) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                        "connection from and to are required."
+                );
+            }
             if (!bubbleIds.contains(connection.from()) || !bubbleIds.contains(connection.to())) {
                 throw new CustomException(
                         ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
                         "connection references unknown bubble id."
                 );
+            }
+        }
+
+        List<BubbleZoneData> zones = resolveZones(payload);
+        Set<String> zoneIds = new HashSet<>();
+        Map<String, String> zoneIdByBubbleId = new LinkedHashMap<>();
+        for (BubbleZoneData zone : zones) {
+            if (zone == null) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                        "zone must not be null."
+                );
+            }
+            if (!hasText(zone.id())) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                        "zone id is required."
+                );
+            }
+            String normalizedZoneId = zone.id().trim();
+            if (!zoneIds.add(normalizedZoneId)) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                        "duplicate zone id is not allowed."
+                );
+            }
+            if (!hasText(zone.name())) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                        "zone name is required."
+                );
+            }
+            if (!hasText(zone.color())) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                        "zone color is required."
+                );
+            }
+            if (!zone.color().trim().matches(HEX_COLOR_PATTERN)) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                        "zone color must be #RRGGBB hex format."
+                );
+            }
+            validateOptionalZoneSourceOrThrow(zone.source());
+            if (zone.bubbleIds() == null || zone.bubbleIds().isEmpty()) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                        "zone bubbleIds is required."
+                );
+            }
+
+            Set<String> normalizedZoneBubbleIds = new HashSet<>();
+            for (String bubbleId : zone.bubbleIds()) {
+                if (!hasText(bubbleId)) {
+                    throw new CustomException(
+                            ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                            "zone bubble id is required."
+                    );
+                }
+                String normalizedBubbleId = bubbleId.trim();
+                if (!normalizedZoneBubbleIds.add(normalizedBubbleId)) {
+                    throw new CustomException(
+                            ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                            "duplicate bubble id in zone is not allowed."
+                    );
+                }
+                if (!bubbleIds.contains(normalizedBubbleId)) {
+                    throw new CustomException(
+                            ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                            "zone references unknown bubble id."
+                    );
+                }
+                String previousZoneId = zoneIdByBubbleId.putIfAbsent(normalizedBubbleId, normalizedZoneId);
+                if (previousZoneId != null && !previousZoneId.equals(normalizedZoneId)) {
+                    throw new CustomException(
+                            ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                            "same bubble id cannot belong to multiple zones."
+                    );
+                }
             }
         }
     }
@@ -104,6 +210,7 @@ public class BubbleSnapshotHelper {
         ObjectNode root = objectMapper.createObjectNode();
         root.set("bubbles", objectMapper.valueToTree(normalizedPayload.bubbles()));
         root.set("connections", objectMapper.valueToTree(normalizedPayload.connections()));
+        root.set("zones", objectMapper.valueToTree(normalizedPayload.zones()));
         root.set("floorMeta", objectMapper.valueToTree(normalizedPayload.floorMeta()));
         return root;
     }
@@ -160,12 +267,19 @@ public class BubbleSnapshotHelper {
 
     private SaveBubbleSnapshotRequest normalizePayload(BubbleSnapshotPayload payload) {
         List<BubbleData> normalizedBubbles = normalizeBubbles(payload.bubbles());
+        Map<String, Integer> floorByBubbleId = buildFloorByBubbleId(normalizedBubbles);
         BubbleFloorMeta normalizedFloorMeta = normalizeFloorMeta(payload.floorMeta());
+        List<BubbleZoneData> normalizedZones = normalizeZones(resolveZones(payload), floorByBubbleId);
         return new SaveBubbleSnapshotRequest(
                 normalizedBubbles,
                 payload.connections(),
+                normalizedZones,
                 normalizedFloorMeta
         );
+    }
+
+    private List<BubbleZoneData> resolveZones(BubbleSnapshotPayload payload) {
+        return payload.zones() == null ? List.of() : payload.zones();
     }
 
     private List<BubbleData> normalizeBubbles(List<BubbleData> bubbles) {
@@ -183,7 +297,7 @@ public class BubbleSnapshotHelper {
                     bubble.type(),
                     bubble.ratio(),
                     bubble.color(),
-                    bubble.floor() == null ? DEFAULT_BUBBLE_FLOOR : bubble.floor()
+                    normalizeFloorNumber(bubble.floor())
             ));
         }
         return normalized;
@@ -214,5 +328,97 @@ public class BubbleSnapshotHelper {
                 .toList();
 
         return new BubbleFloorMeta(normalizedNamesByFloor, normalizedExtraFloors);
+    }
+
+    private int normalizeFloorNumber(Integer floor) {
+        if (floor == null || floor <= 0) {
+            return DEFAULT_BUBBLE_FLOOR;
+        }
+        return floor;
+    }
+
+    private Map<String, Integer> buildFloorByBubbleId(List<BubbleData> bubbles) {
+        Map<String, Integer> floorByBubbleId = new LinkedHashMap<>();
+        for (BubbleData bubble : bubbles) {
+            floorByBubbleId.put(bubble.id(), normalizeFloorNumber(bubble.floor()));
+        }
+        return floorByBubbleId;
+    }
+
+    private List<BubbleZoneData> normalizeZones(List<BubbleZoneData> zones, Map<String, Integer> floorByBubbleId) {
+        if (zones == null || zones.isEmpty()) {
+            return List.of();
+        }
+
+        List<BubbleZoneData> normalized = new ArrayList<>(zones.size());
+        Set<String> normalizedZoneIds = new HashSet<>();
+        Set<String> assignedBubbleIds = new HashSet<>();
+        for (BubbleZoneData zone : zones) {
+            String zoneId = zone.id() == null ? "" : zone.id().trim();
+            String zoneName = zone.name() == null ? "" : zone.name().trim();
+            String zoneColor = zone.color() == null ? "" : zone.color().trim();
+            String zoneSource = normalizeOptionalText(zone.source());
+            if (!normalizedZoneIds.add(zoneId)) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                        "duplicate zone id is not allowed."
+                );
+            }
+
+            List<String> normalizedBubbleIds = zone.bubbleIds() == null
+                    ? List.of()
+                    : zone.bubbleIds().stream()
+                    .map(String::trim)
+                    .distinct()
+                    .toList();
+
+            for (String bubbleId : normalizedBubbleIds) {
+                if (!floorByBubbleId.containsKey(bubbleId)) {
+                    throw new CustomException(
+                            ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                            "zone references unknown bubble id."
+                    );
+                }
+                if (!assignedBubbleIds.add(bubbleId)) {
+                    throw new CustomException(
+                            ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                            "same bubble id cannot belong to multiple zones."
+                    );
+                }
+            }
+
+            normalized.add(new BubbleZoneData(
+                    zoneId,
+                    zoneName,
+                    zoneColor,
+                    normalizedBubbleIds,
+                    zoneSource
+            ));
+        }
+        return normalized;
+    }
+
+    private void validateOptionalZoneSourceOrThrow(String source) {
+        String normalizedSource = normalizeOptionalText(source);
+        if (normalizedSource == null) {
+            return;
+        }
+        if (!"auto".equalsIgnoreCase(normalizedSource) && !"manual".equalsIgnoreCase(normalizedSource)) {
+            throw new CustomException(
+                    ErrorCode.WORKSPACE_BUBBLE_SNAPSHOT_INVALID,
+                    "zone source must be one of auto, manual."
+            );
+        }
+    }
+
+    private String normalizeOptionalText(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }
