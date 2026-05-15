@@ -361,7 +361,13 @@ class IFCRenderer:
         initial_zoom: float,
         target_ratio: float,
     ) -> np.ndarray:
-        """Adjust raycast camera zoom until depth fill ratio approaches target_ratio."""
+        """Adjust raycast camera zoom until depth fill ratio approaches target_ratio.
+
+        Raycast zoom is not Open3D Visualizer set_zoom. In this backend it is an
+        inverse eye-distance scale used by _capture_raycast_depth(), so larger
+        zoom moves the camera closer and increases screen fill. This is why the
+        correction uses target_ratio / fill, opposite to the Visualizer loop.
+        """
         zoom = initial_zoom
         depth = self._capture_raycast_depth(mesh, center, camera, zoom)
         for _ in range(self.iter_max - 1):
@@ -400,6 +406,9 @@ class IFCRenderer:
         max_extent = float(np.max(verts.max(axis=0) - verts.min(axis=0)))
         front /= np.linalg.norm(front)
         zoom = float(np.clip(zoom, 0.05, 2.0))
+        # This backend defines zoom as an inverse distance scale. It intentionally
+        # differs from Visualizer.set_zoom(): larger zoom means a closer eye and
+        # therefore a larger projected fill ratio.
         eye_distance = max(max_extent * 1.25 / zoom, 1.0)
         eye = center - front * eye_distance
         rays = o3d.t.geometry.RaycastingScene.create_rays_pinhole(
