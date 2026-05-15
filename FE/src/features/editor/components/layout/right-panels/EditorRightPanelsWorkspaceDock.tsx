@@ -1,8 +1,5 @@
 import type { EditorRightPanelsProps } from './EditorRightPanels.types'
 import {
-  BubbleModePanelSection,
-} from './EditorRightPanelsPanelSections'
-import {
   buildAttributesSectionProps,
   buildBubbleFloorSectionProps,
   buildFloorViewSectionProps,
@@ -34,8 +31,8 @@ export default function EditorRightPanelsWorkspaceDock({ rightDockWidth, props }
         floorViewPanelProps={floorViewPanelProps}
         hierarchyPanelProps={hierarchyPanelProps}
         bubbleFloorSectionProps={bubbleFloorSectionProps}
+        zoningSectionProps={zoningPanelProps}
       />
-      <BubbleModePanelSection panelProps={zoningPanelProps} />
     </div>
   )
 }
