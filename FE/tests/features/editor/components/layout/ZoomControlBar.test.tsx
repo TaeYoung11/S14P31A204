@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { ZoomControlBar } from './ZoomControlBar'
+import { ZoomControlBar } from '@/features/editor/components/layout/ZoomControlBar'
 
 describe('ZoomControlBar', () => {
   let container: HTMLDivElement
@@ -58,3 +58,5 @@ describe('ZoomControlBar', () => {
     expect(snapIntervalSelect?.disabled).toBe(true)
   })
 })
+
+
