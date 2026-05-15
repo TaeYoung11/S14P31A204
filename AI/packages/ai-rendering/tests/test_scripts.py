@@ -555,6 +555,401 @@ def test_generate_ifc_geometry_e27_decision_archives_hard_lock() -> None:
     assert decision["koreanHouseHandling"] == "historical_record_only"
 
 
+def test_generate_ifc_geometry_e28_requires_e27_naturalized_case() -> None:
+    """E-2.8 should only start when the E-2.7 naturalized artifact exists."""
+    m = _load_script("generate_ifc_geometry_e28_category_tuning.py")
+
+    with pytest.raises(ValueError, match="E-2.7 first naturalized case"):
+        m._resolve_e27_naturalized_case({"cases": [{"caseName": "other_case"}]})
+
+
+def test_generate_ifc_geometry_e28_case_score_prefers_left_door_and_roof() -> None:
+    """E-2.8 winner scoring should favor roof improvement and visible left-door recovery."""
+    m = _load_script("generate_ifc_geometry_e28_category_tuning.py")
+
+    def payload(
+        *,
+        pixel_count: int,
+        delta: float,
+        family_pass: bool,
+        delta_pass: bool,
+    ) -> dict[str, object]:
+        return {
+            "pixelCount": pixel_count,
+            "deltaToTarget": delta,
+            "familyPass": family_pass,
+            "deltaPass": delta_pass,
+        }
+
+    better = {
+        "caseName": "better",
+        "colorMode": "category_tuned_post_lock",
+        "views": [
+            {
+                "view": "front_diagonal_left",
+                "evaluation": {
+                    "categories": {
+                        "ROOF": payload(
+                            pixel_count=10, delta=0.2, family_pass=True, delta_pass=True
+                        ),
+                        "WALL": payload(
+                            pixel_count=10, delta=0.2, family_pass=True, delta_pass=True
+                        ),
+                        "WINDOW": payload(
+                            pixel_count=10, delta=0.2, family_pass=True, delta_pass=True
+                        ),
+                        "DOOR": payload(
+                            pixel_count=10, delta=0.2, family_pass=True, delta_pass=False
+                        ),
+                    }
+                },
+            },
+            {
+                "view": "front_diagonal_right",
+                "evaluation": {
+                    "categories": {
+                        "ROOF": payload(
+                            pixel_count=10, delta=0.3, family_pass=True, delta_pass=False
+                        ),
+                        "WALL": payload(
+                            pixel_count=10, delta=0.2, family_pass=True, delta_pass=True
+                        ),
+                        "WINDOW": payload(
+                            pixel_count=10, delta=0.2, family_pass=True, delta_pass=True
+                        ),
+                        "DOOR": payload(
+                            pixel_count=0, delta=1.0, family_pass=False, delta_pass=False
+                        ),
+                    }
+                },
+            },
+        ],
+    }
+    weaker = {
+        "caseName": "weaker",
+        "colorMode": "category_tuned_post_lock",
+        "views": [
+            {
+                "view": "front_diagonal_left",
+                "evaluation": {
+                    "categories": {
+                        "ROOF": payload(
+                            pixel_count=10, delta=0.5, family_pass=False, delta_pass=False
+                        ),
+                        "WALL": payload(
+                            pixel_count=10, delta=0.2, family_pass=True, delta_pass=True
+                        ),
+                        "WINDOW": payload(
+                            pixel_count=10, delta=0.4, family_pass=False, delta_pass=False
+                        ),
+                        "DOOR": payload(
+                            pixel_count=10, delta=0.8, family_pass=False, delta_pass=False
+                        ),
+                    }
+                },
+            },
+            {
+                "view": "front_diagonal_right",
+                "evaluation": {
+                    "categories": {
+                        "ROOF": payload(
+                            pixel_count=10, delta=0.5, family_pass=False, delta_pass=False
+                        ),
+                        "WALL": payload(
+                            pixel_count=10, delta=0.2, family_pass=True, delta_pass=True
+                        ),
+                        "WINDOW": payload(
+                            pixel_count=10, delta=0.4, family_pass=False, delta_pass=False
+                        ),
+                        "DOOR": payload(
+                            pixel_count=0, delta=1.0, family_pass=False, delta_pass=False
+                        ),
+                    }
+                },
+            },
+        ],
+    }
+
+    assert m._case_score(better) > m._case_score(weaker)
+
+
+def test_generate_ifc_geometry_e28_decision_recommends_top_scored_case() -> None:
+    """E-2.8 should forward the highest-scoring tuned case to E-3."""
+    m = _load_script("generate_ifc_geometry_e28_category_tuning.py")
+
+    def roof_only_payload(
+        *,
+        delta: float,
+        family_pass: bool,
+        delta_pass: bool,
+    ) -> dict[str, object]:
+        return {
+            "view": "front_diagonal_left",
+            "evaluation": {
+                "categories": {
+                    "ROOF": {
+                        "pixelCount": 10,
+                        "deltaToTarget": delta,
+                        "familyPass": family_pass,
+                        "deltaPass": delta_pass,
+                    }
+                }
+            },
+        }
+
+    def roof_only_payload_right(
+        *, delta: float, family_pass: bool, delta_pass: bool
+    ) -> dict[str, object]:
+        return {
+            "view": "front_diagonal_right",
+            "evaluation": {
+                "categories": {
+                    "ROOF": {
+                        "pixelCount": 10,
+                        "deltaToTarget": delta,
+                        "familyPass": family_pass,
+                        "deltaPass": delta_pass,
+                    }
+                }
+            },
+        }
+
+    decision = m._build_decision(
+        [
+            {"caseName": "ifc_minimal_baseline_day", "colorMode": "baseline", "views": []},
+            {
+                "caseName": "ifc_minimal_post_color_lock_naturalized_balanced_day",
+                "colorMode": "category_tuned_post_lock",
+                "views": [
+                    roof_only_payload(delta=0.2, family_pass=True, delta_pass=True),
+                    roof_only_payload_right(delta=0.2, family_pass=True, delta_pass=True),
+                ],
+            },
+            {
+                "caseName": "ifc_minimal_post_color_lock_naturalized_roof_soft_day",
+                "colorMode": "category_tuned_post_lock",
+                "views": [
+                    roof_only_payload(delta=0.6, family_pass=False, delta_pass=False),
+                    roof_only_payload_right(delta=0.6, family_pass=False, delta_pass=False),
+                ],
+            },
+        ]
+    )
+
+    assert decision["recommendedForE3"] == "ifc_minimal_post_color_lock_naturalized_balanced_day"
+    assert decision["archivedCases"] == [
+        "ifc_minimal_post_color_lock_hard_1_00_day",
+        "ifc_minimal_post_color_lock_naturalized_day",
+    ]
+
+
+def test_generate_ifc_geometry_e29_resolves_e28_winner_case() -> None:
+    """E-2.9 should start from the E-2.8 recommended winner."""
+    m = _load_script("generate_ifc_geometry_e29_roof_window_polish.py")
+
+    winner = m._resolve_e28_winner_case(
+        {
+            "decision": {"recommendedForE3": "winner_case"},
+            "cases": [
+                {"caseName": "other_case"},
+                {"caseName": "winner_case", "caseDir": "outputs/winner_case"},
+            ],
+        }
+    )
+
+    assert winner["caseName"] == "winner_case"
+
+
+def test_generate_ifc_geometry_e29_case_score_preserves_door_and_improves_roof() -> None:
+    """E-2.9 scoring should favor roof/window gains without losing the left door fix."""
+    m = _load_script("generate_ifc_geometry_e29_roof_window_polish.py")
+
+    def category(
+        *,
+        pixel_count: int,
+        delta: float,
+        family_pass: bool,
+        delta_pass: bool,
+    ) -> dict[str, object]:
+        return {
+            "pixelCount": pixel_count,
+            "deltaToTarget": delta,
+            "familyPass": family_pass,
+            "deltaPass": delta_pass,
+        }
+
+    stronger = {
+        "caseName": "stronger",
+        "colorMode": "roof_window_polish",
+        "views": [
+            {
+                "view": "front_diagonal_left",
+                "evaluation": {
+                    "categories": {
+                        "ROOF": category(
+                            pixel_count=10, delta=0.25, family_pass=True, delta_pass=False
+                        ),
+                        "WALL": category(
+                            pixel_count=10, delta=0.15, family_pass=True, delta_pass=True
+                        ),
+                        "WINDOW": category(
+                            pixel_count=10, delta=0.16, family_pass=True, delta_pass=True
+                        ),
+                        "DOOR": category(
+                            pixel_count=10, delta=0.05, family_pass=True, delta_pass=True
+                        ),
+                    }
+                },
+            },
+            {
+                "view": "front_diagonal_right",
+                "evaluation": {
+                    "categories": {
+                        "ROOF": category(
+                            pixel_count=10, delta=0.30, family_pass=True, delta_pass=False
+                        ),
+                        "WALL": category(
+                            pixel_count=10, delta=0.15, family_pass=True, delta_pass=True
+                        ),
+                        "WINDOW": category(
+                            pixel_count=10, delta=0.18, family_pass=True, delta_pass=False
+                        ),
+                        "DOOR": category(
+                            pixel_count=0, delta=1.0, family_pass=False, delta_pass=False
+                        ),
+                    }
+                },
+            },
+        ],
+    }
+    weaker = {
+        "caseName": "weaker",
+        "colorMode": "roof_window_polish",
+        "views": [
+            {
+                "view": "front_diagonal_left",
+                "evaluation": {
+                    "categories": {
+                        "ROOF": category(
+                            pixel_count=10, delta=0.40, family_pass=False, delta_pass=False
+                        ),
+                        "WALL": category(
+                            pixel_count=10, delta=0.15, family_pass=True, delta_pass=True
+                        ),
+                        "WINDOW": category(
+                            pixel_count=10, delta=0.25, family_pass=True, delta_pass=False
+                        ),
+                        "DOOR": category(
+                            pixel_count=10, delta=0.20, family_pass=True, delta_pass=True
+                        ),
+                    }
+                },
+            },
+            {
+                "view": "front_diagonal_right",
+                "evaluation": {
+                    "categories": {
+                        "ROOF": category(
+                            pixel_count=10, delta=0.45, family_pass=False, delta_pass=False
+                        ),
+                        "WALL": category(
+                            pixel_count=10, delta=0.15, family_pass=True, delta_pass=True
+                        ),
+                        "WINDOW": category(
+                            pixel_count=10, delta=0.28, family_pass=True, delta_pass=False
+                        ),
+                        "DOOR": category(
+                            pixel_count=0, delta=1.0, family_pass=False, delta_pass=False
+                        ),
+                    }
+                },
+            },
+        ],
+    }
+
+    assert m._case_score(stronger, source_left_door_delta=0.054) > m._case_score(
+        weaker, source_left_door_delta=0.054
+    )
+
+
+def test_generate_ifc_geometry_e29_decision_recommends_top_scored_case() -> None:
+    """E-2.9 should pick one final polish winner for E-3."""
+    m = _load_script("generate_ifc_geometry_e29_roof_window_polish.py")
+
+    def view_payload(
+        view: str,
+        roof_delta: float,
+        roof_family: bool,
+        window_delta: float,
+        door_delta: float,
+    ) -> dict[str, object]:
+        return {
+            "view": view,
+            "evaluation": {
+                "categories": {
+                    "ROOF": {
+                        "pixelCount": 10,
+                        "deltaToTarget": roof_delta,
+                        "familyPass": roof_family,
+                        "deltaPass": False,
+                    },
+                    "WALL": {
+                        "pixelCount": 10,
+                        "deltaToTarget": 0.15,
+                        "familyPass": True,
+                        "deltaPass": True,
+                    },
+                    "WINDOW": {
+                        "pixelCount": 10,
+                        "deltaToTarget": window_delta,
+                        "familyPass": True,
+                        "deltaPass": False,
+                    },
+                    "DOOR": {
+                        "pixelCount": 10 if view == "front_diagonal_left" else 0,
+                        "deltaToTarget": door_delta,
+                        "familyPass": True if view == "front_diagonal_left" else False,
+                        "deltaPass": True if view == "front_diagonal_left" else False,
+                    },
+                }
+            },
+        }
+
+    decision = m._build_decision(
+        [
+            {
+                "caseName": "ifc_minimal_post_color_lock_naturalized_door_strong_day",
+                "colorMode": "e28_winner_baseline",
+                "views": [
+                    view_payload("front_diagonal_left", 0.37, False, 0.19, 0.054),
+                    view_payload("front_diagonal_right", 0.34, False, 0.20, 1.0),
+                ],
+            },
+            {
+                "caseName": "ifc_minimal_post_color_lock_roof_green_push_balanced_day",
+                "colorMode": "roof_window_polish",
+                "views": [
+                    view_payload("front_diagonal_left", 0.28, True, 0.17, 0.06),
+                    view_payload("front_diagonal_right", 0.30, True, 0.18, 1.0),
+                ],
+            },
+            {
+                "caseName": "ifc_minimal_post_color_lock_window_delta_balanced_day",
+                "colorMode": "roof_window_polish",
+                "views": [
+                    view_payload("front_diagonal_left", 0.36, False, 0.14, 0.05),
+                    view_payload("front_diagonal_right", 0.34, False, 0.16, 1.0),
+                ],
+            },
+        ]
+    )
+
+    assert (
+        decision["recommendedForE3"]
+        == "ifc_minimal_post_color_lock_roof_green_push_balanced_day"
+    )
+
+
 def _d7_case_payload(
     case_name: str,
     case_dir: Path,
