@@ -559,7 +559,7 @@ export function useEditorPage() {
     action: string | null,
     assetId?: string | null,
     revisionId?: string | null,
-  ) => void>(() => { })
+  ) => Promise<boolean>>(async () => false)
   const workspaceCommandPublisherRef = useRef<ReturnType<typeof useWorkspaceCommandPublisher> | null>(null)
   const mergedFloorOpeningsRef = useRef<FloorOpening[]>([])
   const isFloorPlanGenerating = isFloorPlanGeneratingLocal || workspacePhaseStatus === 'CONVERTING'
@@ -2049,27 +2049,31 @@ export function useEditorPage() {
         }))
       }
       if (history.floorPlan?.s3Url) {
-        setHistoryIfcHydratedProjectIds((prev) =>
-          prev.includes(projectId) ? prev : [...prev, projectId],
-        )
-        handleIfcSyncMessageRef.current(
+        const loaded = await handleIfcSyncMessageRef.current(
           history.floorPlan.s3Url,
           null,
           undefined,
           floorPlanSnapshot?.revisionId ?? undefined,
         )
-      } else {
-        const cachedIfcSource = readCachedIfcSource(projectId)
-        if (cachedIfcSource) {
+        if (loaded) {
           setHistoryIfcHydratedProjectIds((prev) =>
             prev.includes(projectId) ? prev : [...prev, projectId],
           )
-          handleIfcSyncMessageRef.current(
+        }
+      } else {
+        const cachedIfcSource = readCachedIfcSource(projectId)
+        if (cachedIfcSource) {
+          const loaded = await handleIfcSyncMessageRef.current(
             cachedIfcSource.storageUrl ?? cachedIfcSource.url,
             null,
             cachedIfcSource.assetId,
             cachedIfcSource.revisionId ?? floorPlanSnapshot?.revisionId ?? undefined,
           )
+          if (loaded) {
+            setHistoryIfcHydratedProjectIds((prev) =>
+              prev.includes(projectId) ? prev : [...prev, projectId],
+            )
+          }
         }
       }
       if (floorPlanSnapshot?.layout) {
@@ -4861,8 +4865,8 @@ export function useEditorPage() {
     action: string | null,
     assetId?: string | null,
     revisionId?: string | null,
-  ) => {
-    if (!projectId) return
+  ): Promise<boolean> => {
+    if (!projectId) return false
     // assetId가 있으면 이를 dedup 키로 사용 (presigned URL은 매번 달라질 수 있어 불안정)
     // 프로젝트 ID를 포함해 프로젝트 간 dedup 충돌을 방지한다.
     if (revisionId !== undefined) {
@@ -4884,7 +4888,7 @@ export function useEditorPage() {
     if (!normalizedSourceKey && revisionId) {
       if (currentIfcUrl && currentIfcRevisionId === revisionId) {
         setWorkspacePhaseStatus('IFC_EDIT')
-        return
+        return true
       }
 
       const source = await projectService.getIfcSource(projectId).catch((error: unknown) => {
@@ -4910,29 +4914,30 @@ export function useEditorPage() {
             currentRevision: source.currentRevision,
           })
         }
-        handleIfcSyncMessageRef.current(
+        return handleIfcSyncMessageRef.current(
           source.currentIfcStorageUrl ?? source.currentIfcUrl,
           action,
           source.currentIfcAssetId,
           source.currentRevision ?? revisionId,
         )
       }
-      return
+      return false
     }
     const normalizedRevisionKey = revisionId?.trim() || ''
     const dedupeKey = normalizedSourceKey
       ? `${projectId}:${normalizedSourceKey}:${normalizedRevisionKey || 'no-revision'}`
       : ''
-    if (!dedupeKey) return
+    if (!dedupeKey) return false
 
     if (ifcLoadInFlightStorageUrlRef.current === dedupeKey) {
-      return
+      return true
     }
     if (lastLoadedIfcStorageUrlRef.current === dedupeKey) {
-      return
+      return true
     }
 
     ifcLoadInFlightStorageUrlRef.current = dedupeKey
+    let didLoadIfc = false
 
     try {
       // private S3 버킷: assetId 또는 s3:// URL → download-url API로 presigned URL 발급
@@ -5058,6 +5063,7 @@ export function useEditorPage() {
         setSaveStatus('synced')
       }
       setWorkspacePhaseStatus('IFC_EDIT')
+      didLoadIfc = true
       if (action && IFC_COMPLETED_ACTION_SET.has(action)) {
         clearFloorPlanGenerateTimeout()
         setFloorPlanGenerateStatusText('평면도 생성이 완료되었습니다.')
@@ -5071,10 +5077,29 @@ export function useEditorPage() {
         ifcLoadInFlightStorageUrlRef.current = null
       }
     }
+    if (!didLoadIfc) {
+      setIfcSourceByProjectId((prev) => {
+        if (currentIfcUrl) {
+          return {
+            ...prev,
+            [projectId]: {
+              url: currentIfcUrl,
+              storageUrl: currentIfcStorageUrl,
+              assetId: currentIfcAssetId,
+            },
+          }
+        }
+        const { [projectId]: _removed, ...rest } = prev
+        return rest
+      })
+    }
+    return didLoadIfc
   }, [
     clearFloorPlanGenerateTimeout,
     clearServerPublishRetry,
+    currentIfcAssetId,
     currentIfcRevisionId,
+    currentIfcStorageUrl,
     currentIfcUrl,
     loadIfcFromStorageUrl,
     projectId,
@@ -5088,7 +5113,7 @@ export function useEditorPage() {
       assetId?: string | null,
       revisionId?: string | null,
     ) => {
-      void handleOutputIfcStorageUrl(url, action, assetId, revisionId)
+      return handleOutputIfcStorageUrl(url, action, assetId, revisionId)
     }
   }, [handleOutputIfcStorageUrl])
 
