@@ -202,7 +202,8 @@ def _build_material_relight_candidate(
     source_element_masks: dict[str, Path],
 ) -> Image.Image:
     building = Image.open(no_background_path).convert("RGBA")
-    background = Image.open(with_background_path).convert("RGB")
+    del with_background_path
+    background = _build_background_plate(building.size, time_of_day=time_of_day)
     background = _tune_photographic_background(background, time_of_day=time_of_day)
     relit = _build_storey_and_color_preserving_building(
         building=building,
@@ -226,7 +227,8 @@ def _build_shadow_contrast_background_candidate(
     source_element_masks: dict[str, Path],
 ) -> Image.Image:
     building = Image.open(no_background_path).convert("RGBA")
-    background = Image.open(with_background_path).convert("RGBA")
+    del with_background_path
+    background = _build_background_plate(building.size, time_of_day=time_of_day).convert("RGBA")
     tuned_bg = ImageEnhance.Color(background.convert("RGB")).enhance(
         0.92 if time_of_day == "DAY" else 0.78
     )
@@ -247,7 +249,8 @@ def _build_photo_finish_red_roof_candidate(
     source_element_masks: dict[str, Path],
 ) -> Image.Image:
     building = Image.open(no_background_path).convert("RGBA")
-    background = Image.open(with_background_path).convert("RGB")
+    del with_background_path
+    background = _build_background_plate(building.size, time_of_day=time_of_day)
     background = _tune_photographic_background(background, time_of_day=time_of_day)
     background = background.filter(
         ImageFilter.GaussianBlur(radius=1.4 if time_of_day == "DAY" else 1.0)
@@ -279,7 +282,8 @@ def _build_natural_photo_finish_candidate(
     source_element_masks: dict[str, Path],
 ) -> Image.Image:
     building = Image.open(no_background_path).convert("RGBA")
-    background = Image.open(with_background_path).convert("RGB")
+    del with_background_path
+    background = _build_background_plate(building.size, time_of_day=time_of_day)
     background = _tune_natural_photo_background(background, time_of_day=time_of_day)
     relit = _build_storey_and_color_preserving_building(
         building=building,
@@ -311,7 +315,8 @@ def _build_aggressive_material_realism_candidate(
     source_element_masks: dict[str, Path],
 ) -> Image.Image:
     building = Image.open(no_background_path).convert("RGBA")
-    background = Image.open(with_background_path).convert("RGB")
+    del with_background_path
+    background = _build_background_plate(building.size, time_of_day=time_of_day)
     background = _tune_material_realism_background(background, time_of_day=time_of_day)
     materialized = _build_material_realism_building(
         building=building,
@@ -463,6 +468,39 @@ def _tune_material_realism_background(background: Image.Image, *, time_of_day: s
     tuned = ImageEnhance.Contrast(tuned).enhance(1.00 if time_of_day == "DAY" else 1.06)
     tuned = ImageEnhance.Brightness(tuned).enhance(0.98 if time_of_day == "DAY" else 0.88)
     return tuned.filter(ImageFilter.GaussianBlur(radius=1.6 if time_of_day == "DAY" else 1.1))
+
+
+def _build_background_plate(size: tuple[int, int], *, time_of_day: str) -> Image.Image:
+    width, height = size
+    background = Image.new("RGB", (width, height))
+    bg = background.load()
+    sky_top = (176, 211, 242) if time_of_day == "DAY" else (26, 35, 58)
+    sky_bottom = (222, 233, 242) if time_of_day == "DAY" else (58, 69, 94)
+    ground_top = (151, 149, 140) if time_of_day == "DAY" else (60, 58, 55)
+    ground_bottom = (118, 116, 110) if time_of_day == "DAY" else (40, 39, 38)
+    horizon = int(height * 0.72)
+
+    for y in range(height):
+        if y < horizon:
+            t = 0.0 if horizon <= 1 else y / max(horizon - 1, 1)
+            color = _lerp_rgb(sky_top, sky_bottom, t)
+        else:
+            t = 0.0 if height - horizon <= 1 else (y - horizon) / max(height - horizon - 1, 1)
+            color = _lerp_rgb(ground_top, ground_bottom, t)
+        for x in range(width):
+            bg[x, y] = color
+    return background
+
+
+def _lerp_rgb(
+    start: tuple[int, int, int],
+    end: tuple[int, int, int],
+    t: float,
+) -> tuple[int, int, int]:
+    return tuple(
+        int(round(start[idx] + (end[idx] - start[idx]) * t))
+        for idx in range(3)
+    )
 
 
 def _apply_contact_shadow(
