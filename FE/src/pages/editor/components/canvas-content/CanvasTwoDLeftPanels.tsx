@@ -25,6 +25,7 @@ export default function CanvasTwoDLeftPanels({
   onSelectLayer,
   onToggleLayerOverlayMode,
   onToggleOverlayLayer,
+  onSelectSingleOverlayLayer,
   onChangeOverlayLayerOpacity,
   rooms,
   walls,
@@ -49,6 +50,7 @@ export default function CanvasTwoDLeftPanels({
         onSelectLayer={onSelectLayer}
         onToggleLayerOverlayMode={onToggleLayerOverlayMode}
         onToggleOverlayLayer={onToggleOverlayLayer}
+        onSelectSingleOverlayLayer={onSelectSingleOverlayLayer}
         onChangeOverlayLayerOpacity={onChangeOverlayLayerOpacity}
         rooms={rooms}
         walls={walls}

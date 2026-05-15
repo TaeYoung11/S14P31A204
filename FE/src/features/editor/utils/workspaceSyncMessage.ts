@@ -12,6 +12,10 @@ import type {
 export interface BubbleSnapshotPayload {
   bubbles: BubbleData[]
   connections: ConnectionData[]
+  floorMeta?: {
+    namesByFloor?: Record<string, string>
+    extraFloors?: number[]
+  } | null
 }
 
 export interface FloorPlanSnapshotPayload extends BubbleSnapshotPayload {

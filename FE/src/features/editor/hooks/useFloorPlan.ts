@@ -16,13 +16,28 @@ const normalizeFloorLayerLabels = (layers: FloorLayer[]): FloorLayer[] =>
     })),
   }))
 
+const createActiveFloorLayerStorageKey = (projectId: string | undefined): string | null =>
+  projectId ? `editor:active-floor-layer:${projectId}` : null
+
+const readActiveFloorLayerIdFromStorage = (projectId: string | undefined): string | null => {
+  if (typeof window === 'undefined') return null
+  const storageKey = createActiveFloorLayerStorageKey(projectId)
+  if (!storageKey) return null
+  try {
+    const raw = window.localStorage.getItem(storageKey)?.trim()
+    return raw ? raw : null
+  } catch {
+    return null
+  }
+}
+
 /** 2D 평면도 층·생성 상태를 관리하는 훅 */
-export function useFloorPlan() {
+export function useFloorPlan(projectId?: string) {
   const [isGenerated, setIsGenerated] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [layoutSource, setLayoutSource] = useState<'bubble' | 'project' | null>(null)
   const [layers, setLayers] = useState<FloorLayer[]>([])
-  const [activeLayerId, setActiveLayerId] = useState<string | null>(null)
+  const [activeLayerId, setActiveLayerId] = useState<string | null>(() => readActiveFloorLayerIdFromStorage(projectId))
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -30,6 +45,18 @@ export function useFloorPlan() {
       if (timerRef.current !== null) clearTimeout(timerRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const storageKey = createActiveFloorLayerStorageKey(projectId)
+    if (!storageKey) return
+    try {
+      if (!activeLayerId) return
+      window.localStorage.setItem(storageKey, activeLayerId)
+    } catch {
+      // localStorage 접근 실패는 치명적이지 않아 무시한다.
+    }
+  }, [projectId, activeLayerId])
 
   /** 현재 활성 층의 방 목록 */
   const activeRooms: FloorRoom[] = layers.find((l) => l.id === activeLayerId)?.rooms ?? []
@@ -107,30 +134,20 @@ export function useFloorPlan() {
 
   /**
    * 층 추가
-   * 현재 활성 층 레이아웃을 복사해 새 층 생성 후 전환
+   * 빈 새 층 생성 후 전환
    */
   const addFloorLayer = useCallback(() => {
     const newId = `floor-${Date.now()}`
     const floorNum = layers.length + 1
-    const baseRooms = layers.find((l) => l.id === activeLayerId)?.rooms ?? []
-    const bubbleIdMap = new Map<string, string>(
-      baseRooms.map((room) => [room.bubbleId, `${room.bubbleId}-${newId}`] as const),
-    )
 
     const newLayer: FloorLayer = {
       id: newId,
       name: `${floorNum}층 평면도`,
-      // 레이어 간 식별자 충돌을 막기 위해 room.id / room.bubbleId를 모두 재발급한다.
-      rooms: baseRooms.map((room) => ({
-        ...room,
-        id: `${room.id}-${newId}`,
-        bubbleId: bubbleIdMap.get(room.bubbleId) ?? `${room.bubbleId}-${newId}`,
-        connectedIds: room.connectedIds.map((id) => bubbleIdMap.get(id) ?? `${id}-${newId}`),
-      })),
+      rooms: [],
     }
     setLayers((prev) => [...prev, newLayer])
     setActiveLayerId(newId)
-  }, [layers, activeLayerId])
+  }, [layers])
 
   /** 층 이름 수정 */
   const renameFloorLayer = useCallback((layerId: string, name: string) => {
@@ -181,7 +198,10 @@ export function useFloorPlan() {
       })
       if (mappedLayers.length === 0) return
       setLayers(normalizeFloorLayerLabels(mappedLayers))
-      setActiveLayerId(mappedLayers[0].id)
+      setActiveLayerId((current) => {
+        if (current && mappedLayers.some((layer) => layer.id === current)) return current
+        return mappedLayers[0].id
+      })
       setIsGenerated(true)
       setIsGenerating(false)
       setLayoutSource('project')
@@ -313,8 +333,14 @@ export function useFloorPlan() {
     setIsGenerated(next.isGenerated)
     setIsGenerating(false)
     setLayoutSource(next.layoutSource ?? (next.isGenerated ? 'project' : null))
-    setLayers(normalizeFloorLayerLabels(next.layers))
-    setActiveLayerId(next.activeLayerId ?? next.layers[0]?.id ?? null)
+    const normalizedLayers = normalizeFloorLayerLabels(next.layers)
+    const layerIdSet = new Set(normalizedLayers.map((layer) => layer.id))
+    setLayers(normalizedLayers)
+    setActiveLayerId((current) => {
+      if (next.activeLayerId && layerIdSet.has(next.activeLayerId)) return next.activeLayerId
+      if (current && layerIdSet.has(current)) return current
+      return normalizedLayers[0]?.id ?? null
+    })
   }, [])
 
   return {

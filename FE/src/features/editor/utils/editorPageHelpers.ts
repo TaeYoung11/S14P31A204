@@ -80,6 +80,14 @@ function toPositiveMillimeter(value: number): number {
   return rounded > 0 ? rounded : 0
 }
 
+/**
+ * Floor-plan layoutImport payload에 들어가는 층 번호를 정규화한다.
+ * floor-plan 생성 파이프라인은 1층 이상만 허용하므로 음수/0/비정수는 1층으로 보정한다.
+ */
+function normalizeFloorPlanFloor(value: number | undefined): number {
+  return Number.isInteger(value) && value && value > 0 ? value : 1
+}
+
 /** 버블 위치(좌상단)를 버블 중심(mm)으로 변환 */
 function toBubbleCenterMillimeterPosition(bubble: BubbleData, mmPerPx: number) {
   return {
@@ -143,6 +151,7 @@ function getSignedPolygonArea(polygon: Array<[number, number]>): number {
 
 function toLayoutImportBoundaryFromPolygonMm(
   polygonMm: Array<[number, number]>,
+  floor: number,
 ): LayoutImportV2Boundary | null {
   const normalizedPolygon = stripClosingCoordinatePair(polygonMm)
   if (normalizedPolygon.length < 3) return null
@@ -151,7 +160,7 @@ function toLayoutImportBoundaryFromPolygonMm(
   if (!Number.isFinite(signedArea) || signedArea === 0) return null
 
   return {
-    floor: 1,
+    floor: normalizeFloorPlanFloor(floor),
     polygon: signedArea > 0 ? normalizedPolygon : [...normalizedPolygon].reverse(),
   }
 }
@@ -159,18 +168,20 @@ function toLayoutImportBoundaryFromPolygonMm(
 function toSiteLayoutImportBoundary(
   sitePlanPoints: number[],
   mmPerPx: number,
+  floor: number,
 ): LayoutImportV2Boundary | null {
   const polygonPx = stripClosingCoordinatePair(toBoundaryPolygonPairs(sitePlanPoints))
   if (polygonPx.length < 3) return null
 
   const polygonMm = polygonPx.map(([x, y]) => [x * mmPerPx, y * mmPerPx] as [number, number])
-  return toLayoutImportBoundaryFromPolygonMm(polygonMm)
+  return toLayoutImportBoundaryFromPolygonMm(polygonMm, floor)
 }
 
 function toDefaultLayoutImportBoundary(
   bubbles: BubbleData[],
   mmPerPx: number,
   paddingMm: number,
+  floor: number,
 ): { boundary: LayoutImportV2Boundary | null; omitReason?: LayoutImportBoundaryOmitReason } {
   if (bubbles.length === 0) return { boundary: null, omitReason: 'empty-bubbles' }
   if (!Number.isFinite(paddingMm) || paddingMm <= 0) return { boundary: null, omitReason: 'invalid-padding' }
@@ -203,7 +214,7 @@ function toDefaultLayoutImportBoundary(
     [maxXMm, minYMm],
     [maxXMm, maxYMm],
     [minXMm, maxYMm],
-  ])
+  ], floor)
 
   return boundary ? { boundary } : { boundary: null, omitReason: 'invalid-bubble-bounds' }
 }
@@ -212,13 +223,14 @@ function toLayoutImportBoundaryFromInput(
   boundaryInput: LayoutImportBoundaryInput,
   bubbles: BubbleData[],
   mmPerPx: number,
+  floor: number,
 ): { boundary: LayoutImportV2Boundary | null; omitReason?: LayoutImportBoundaryOmitReason } {
   if (boundaryInput.source === 'site') {
-    const boundary = toSiteLayoutImportBoundary(boundaryInput.sitePlanPoints, mmPerPx)
+    const boundary = toSiteLayoutImportBoundary(boundaryInput.sitePlanPoints, mmPerPx, floor)
     return boundary ? { boundary } : { boundary: null, omitReason: 'invalid-site-boundary' }
   }
   if (boundaryInput.source === 'default') {
-    return toDefaultLayoutImportBoundary(bubbles, mmPerPx, boundaryInput.paddingMm)
+    return toDefaultLayoutImportBoundary(bubbles, mmPerPx, boundaryInput.paddingMm, floor)
   }
   return { boundary: null, omitReason: boundaryInput.reason }
 }
@@ -232,7 +244,7 @@ export function getLayoutImportBoundaryLogMetadata(
   const mmPerPx = resolveMmPerPxForFloorPlan(bubbles)
   const boundaryResult = boundaryIncluded
     ? { boundary: layoutImport.boundaries?.[0] ?? null }
-    : toLayoutImportBoundaryFromInput(boundaryInput, getUniqueBubbles(bubbles), mmPerPx)
+    : toLayoutImportBoundaryFromInput(boundaryInput, getUniqueBubbles(bubbles), mmPerPx, 1)
 
   return {
     boundarySource: boundaryInput.source,
@@ -273,7 +285,7 @@ export function buildFloorPlanLayoutImportPayload(
       type: normalizeFloorPlanRoomType(bubble.type),
       width: toPositiveMillimeter(bubble.widthMm),
       height: toPositiveMillimeter(bubble.heightMm),
-      floor: 1,
+      floor: normalizeFloorPlanFloor(bubble.floor),
       x: center.x,
       y: center.y,
       angle: 0,
@@ -282,14 +294,17 @@ export function buildFloorPlanLayoutImportPayload(
     }
   })
 
-  const boundary = toLayoutImportBoundaryFromInput(boundaryInput, uniqueBubbles, mmPerPx).boundary
+  const floors = Array.from(new Set(rooms.map((room) => room.floor))).sort((a, b) => a - b)
+  const boundaries = floors
+    .map((floor) => toLayoutImportBoundaryFromInput(boundaryInput, uniqueBubbles, mmPerPx, floor).boundary)
+    .filter((boundary): boundary is LayoutImportV2Boundary => Boolean(boundary))
 
   return {
     schema_version: 'v2',
     id: projectId,
     name: projectName.trim() || '프로젝트',
     rooms: rooms.map((room) => ({ ...room })),
-    ...(boundary ? { boundaries: [boundary] } : {}),
+    ...(boundaries.length > 0 ? { boundaries } : {}),
     generation_options: {
       generate_spaces: true,
       generate_walls: true,
@@ -371,7 +386,6 @@ export function scalePolygonToRect(
   }))
 }
 
-/** 댓글 입력 첨부를 화면 상태에서 사용하는 첨부 타입으로 정규화한다. */
 /** 두 연결선 쌍이 동일한지 비교 (방향 무관) */
 export function isSameConnection(
   a: { from: string; to: string },

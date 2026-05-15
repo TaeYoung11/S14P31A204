@@ -1,12 +1,18 @@
 import { ensureStompConnected } from '@/shared/lib/stomp'
 import type { BubbleData, ConnectionData, ConnectionStyle, WorkspaceSnapshot } from '../types'
 import type { WorkspaceCommand } from '../types/workspaceCommand.types'
+import { mapFloorMetaFromWorkspaceSnapshot } from './workspaceBubblePayloadMapper'
+import { resolveBubbleFloorFromUnknown } from '../utils/bubbleSnapshotSyncUtils'
 
 export type FloorPlanSceneType = 'TWO_D' | 'THREE_D'
 
 interface WorkspaceBubblePayload {
   bubbles: Array<{
     id: string
+    floor?: number
+    layer?: number
+    level?: number
+    floorNumber?: number
     x: number
     y: number
     width: number
@@ -23,6 +29,10 @@ interface WorkspaceBubblePayload {
     to: string
     type: ConnectionStyle
   }>
+  floorMeta?: {
+    namesByFloor: Record<number, string>
+    extraFloors: number[]
+  }
   baseIndex: number
 }
 
@@ -66,19 +76,26 @@ const normalizeText = (value: string, fallback: string): string => {
   return normalized || fallback
 }
 
-const toWorkspaceBubble = (bubble: BubbleData): WorkspaceBubblePayload['bubbles'][number] => ({
-  id: bubble.id,
-  x: Number.isFinite(bubble.x) ? bubble.x : 0,
-  y: Number.isFinite(bubble.y) ? bubble.y : 0,
-  width: normalizePositiveNumber(bubble.width, 1),
-  height: normalizePositiveNumber(bubble.height, 1),
-  widthMm: normalizePositiveNumber(bubble.widthMm, 100),
-  heightMm: normalizePositiveNumber(bubble.heightMm, 100),
-  label: normalizeText(bubble.label, 'Untitled'),
-  type: normalizeText(bubble.type, 'room'),
-  ratio: normalizePositiveNumber(bubble.ratio, 0.01),
-  color: bubble.color,
-})
+const toWorkspaceBubble = (bubble: BubbleData): WorkspaceBubblePayload['bubbles'][number] => {
+  const floor = resolveBubbleFloorFromUnknown(bubble as BubbleData & Record<string, unknown>)
+  return {
+    id: bubble.id,
+    floor,
+    layer: floor,
+    level: floor,
+    floorNumber: floor,
+    x: Number.isFinite(bubble.x) ? bubble.x : 0,
+    y: Number.isFinite(bubble.y) ? bubble.y : 0,
+    width: normalizePositiveNumber(bubble.width, 1),
+    height: normalizePositiveNumber(bubble.height, 1),
+    widthMm: normalizePositiveNumber(bubble.widthMm, 100),
+    heightMm: normalizePositiveNumber(bubble.heightMm, 100),
+    label: normalizeText(bubble.label, 'Untitled'),
+    type: normalizeText(bubble.type, 'room'),
+    ratio: normalizePositiveNumber(bubble.ratio, 0.01),
+    color: bubble.color,
+  }
+}
 
 const normalizeConnections = (
   connections: ConnectionData[],
@@ -102,6 +119,7 @@ const toBubblePayload = (
   return {
     bubbles,
     connections: normalizeConnections(snapshot.connections, bubbles),
+    floorMeta: mapFloorMetaFromWorkspaceSnapshot(snapshot),
     baseIndex,
   }
 }
@@ -161,10 +179,7 @@ export const workspaceRealtimeService = {
     sceneType,
     workspaceCommand,
   }: PublishWorkspaceSnapshotInput): Promise<void> => {
-    const shouldPublishBubbleSnapshot =
-      snapshot.phaseStatus === 'BUBBLE_DRAFT' &&
-      !snapshot.isFloorPlanGenerated &&
-      snapshot.floorPlanLayoutSource === null
+    const shouldPublishBubbleSnapshot = snapshot.phaseStatus === 'BUBBLE_DRAFT'
 
     if (shouldPublishBubbleSnapshot) {
       return publishJson(

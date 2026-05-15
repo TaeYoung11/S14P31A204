@@ -22,6 +22,7 @@
     "threeDPlanStorageUrl": "s3://batang-artifacts/jobs/job-3d-001/steps/2/3d-plan.json"
   },
   "payload": {
+    "schema_version": "v1",
     "userInstruction": "주방과 거실의 연결감을 높이는 3D 배치안을 만들어줘",
     "sourceSceneStorageUrl": "s3://batang-artifacts/jobs/job-3d-001/steps/2/source-scene.json"
   },

@@ -76,6 +76,7 @@ export default function ProjectsPage() {
     userType,
     withdrawError,
     isWithdrawing,
+    invitationNotificationCount,
     viewMode,
   } = useProjectListPage()
 
@@ -92,6 +93,7 @@ export default function ProjectsPage() {
         withdrawError={withdrawError ? (withdrawError as Error).message : ''}
         isWithdrawing={isWithdrawing}
         onNotificationOpen={onOpenNotificationModal}
+        invitationNotificationCount={invitationNotificationCount}
         onCommentNotificationOpen={onOpenProjectCommentModal}
         commentNotificationCount={projectComments.length}
       />

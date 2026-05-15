@@ -423,6 +423,33 @@ def test_create_element_handler_door_with_host_wall():
     assert len(list(wall.HasOpenings)) == 1
 
 
+def test_create_element_handler_door_accepts_2d_opening_payload():
+    model, storey, _ = _make_model()
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    assert wall is not None
+
+    handler = get("create_element")
+    door = handler.execute(
+        model,
+        storey,
+        {
+            "element_type": "IfcDoor",
+            "storey": "1F",
+            "coordinate_space": "PROJECT_ABSOLUTE_MM",
+            "center_mm": [500.0, 0.0],
+            "dimensions_mm": {"width": 900, "height": 2100},
+            "host_wall_global_id": "2d-local-wall-id",
+            "sill_height_mm": 0.0,
+        },
+    )
+
+    assert door is not None
+    assert door.is_a("IfcDoor")
+    assert len(model.by_type("IfcOpeningElement")) == 1
+    assert len(list(wall.HasOpenings)) == 1
+    assert door.GlobalId in {item.GlobalId for item in model.by_type("IfcDoor")}
+
+
 def test_create_element_handler_window_uses_default_sill_height():
     model, storey, _ = _make_model()
     wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)

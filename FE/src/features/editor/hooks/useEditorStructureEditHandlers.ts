@@ -205,6 +205,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     const createStorey = resolveFloorWallCreateStorey(activeLayerStorey, getReferenceStorey())
     const newWall: FloorWall = {
       id: createFloorWallId(),
+      floorLayerId: activeFloorLayerId ?? undefined,
       type: nextType,
       storeyGlobalId: createStorey.storeyGlobalId,
       storeyName: createStorey.storeyName,
@@ -232,6 +233,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     setSelectedTool('wall')
   }, [
     wallCreatePreset,
+    activeFloorLayerId,
     activeLayerStorey,
     estimateMmPoint,
     getReferenceStorey,
@@ -350,6 +352,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
           outsideSegments.forEach((segment) => {
             manualResidualWalls.push({
               id: createFloorWallId(),
+              floorLayerId: candidate.floorLayerId ?? targetAutoWall.floorLayerId ?? activeFloorLayerId ?? undefined,
               start: segment.start,
               end: segment.end,
               type: candidate.type,
@@ -407,6 +410,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
   }, [
     isAutoDerivedWallId,
     autoFloorWalls,
+    activeFloorLayerId,
     setHiddenAutoWallIds,
     setHiddenAutoOpeningIds,
     setFloorOpenings,
@@ -441,16 +445,27 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
       doorSwingDirection: type === 'door' ? 'inward' : undefined,
     }
     const hostWall = getEditableWallById(wallId)
-    const openingWithIfcTarget = hostWall?.startMm && hostWall.endMm
+    const center = hostWall
+      ? {
+        x: hostWall.start.x + (hostWall.end.x - hostWall.start.x) * clamped,
+        y: hostWall.start.y + (hostWall.end.y - hostWall.start.y) * clamped,
+      }
+      : null
+    const centerMm = hostWall?.startMm && hostWall.endMm
+      ? {
+        x: hostWall.startMm.x + (hostWall.endMm.x - hostWall.startMm.x) * clamped,
+        y: hostWall.startMm.y + (hostWall.endMm.y - hostWall.startMm.y) * clamped,
+      }
+      : center
+        ? estimateMmPoint(center)
+        : undefined
+    const openingWithIfcTarget = hostWall
       ? {
         ...rawOpening,
         hostWallGlobalId: hostWall.globalId ?? hostWall.id,
         storeyGlobalId: hostWall.storeyGlobalId,
         storeyName: hostWall.storeyName,
-        centerMm: {
-          x: hostWall.startMm.x + (hostWall.endMm.x - hostWall.startMm.x) * clamped,
-          y: hostWall.startMm.y + (hostWall.endMm.y - hostWall.startMm.y) * clamped,
-        },
+        centerMm,
       }
       : rawOpening
     const newOpening = normalizeOpeningByCurrentWall(openingWithIfcTarget)
@@ -472,6 +487,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
   }, [
     promoteCurrentAutoFloorOpenings,
     getEditableWallById,
+    estimateMmPoint,
     normalizeOpeningByCurrentWall,
     mergedFloorOpenings,
     setFloorOpenings,

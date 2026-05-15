@@ -9,12 +9,15 @@ type CollaborationDockProps = Pick<
   | 'commentPins'
   | 'commentNotifications'
   | 'currentCollaborationUserType'
+  | 'currentCollaborationUserId'
   | 'currentCollaborationUserName'
   | 'onSelectPin'
   | 'onCreateCommentReply'
   | 'onResolvePin'
+  | 'onDeletePin'
   | 'onResolveComment'
   | 'resolvingPinId'
+  | 'deletingPinId'
   | 'resolvingCommentId'
 >
 
@@ -28,12 +31,15 @@ export default function EditorRightPanelsCollaborationDock({
   commentPins,
   commentNotifications,
   currentCollaborationUserType,
+  currentCollaborationUserId,
   currentCollaborationUserName,
   onSelectPin,
   onCreateCommentReply,
   onResolvePin,
+  onDeletePin,
   onResolveComment,
   resolvingPinId,
+  deletingPinId,
   resolvingCommentId,
 }: CollaborationDockProps) {
   const collaborationPanelProps = buildCollaborationPanelProps({
@@ -42,12 +48,15 @@ export default function EditorRightPanelsCollaborationDock({
     commentPins,
     commentNotifications,
     currentCollaborationUserType,
+    currentCollaborationUserId,
     currentCollaborationUserName,
     onSelectPin,
     onCreateCommentReply,
     onResolvePin,
+    onDeletePin,
     onResolveComment,
     resolvingPinId,
+    deletingPinId,
     resolvingCommentId,
   })
 

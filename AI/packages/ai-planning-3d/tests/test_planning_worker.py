@@ -42,6 +42,31 @@ def _planner_3d_schema() -> dict[str, Any]:
         return cast(dict[str, Any], json.load(f))
 
 
+def _authoring_engine_request_schema() -> dict[str, Any]:
+    root_dir = Path(__file__).resolve().parents[4]
+    schema_path = root_dir / "shared" / "schemas" / "engine_request.v2.schema.json"
+    with open(schema_path, encoding="utf-8") as f:
+        return cast(dict[str, Any], json.load(f))
+
+
+def _validate_authoring_operations_contract(
+    command: CommandMessage,
+    operations: list[dict[str, Any]],
+) -> None:
+    # The stored planner result remains planner_3d_result.v1. This wrapper only validates
+    # that its nested operations match the authoring worker's EngineRequest operation contract.
+    Draft202012Validator(_authoring_engine_request_schema()).validate(
+        {
+            "schema_version": "v2",
+            "request_id": command.jobStepId,
+            "mode": "apply",
+            "project_id": command.projectId,
+            "base_revision_id": command.sourceRevisionId,
+            "operations": operations,
+        }
+    )
+
+
 def _with_user_instruction(command: CommandMessage, user_instruction: str) -> CommandMessage:
     return command.model_copy(
         deep=True,
@@ -127,6 +152,15 @@ def test_planning_worker_returns_completed_event_for_preview_ready_chat() -> Non
     assert isinstance(result, CompletedResult)
     assert result.output.storageUrl == "s3://mock-bucket/output.json"
     mock_s3.write_text.assert_called_once()
+    stored_payload = json.loads(mock_s3.write_text.call_args.kwargs["text"])
+    [operation] = stored_payload["operations"]
+    assert operation["parameters"]["element_type"] == "IfcWall"
+    assert operation["parameters"]["length_mm"] == 3000.0
+    assert operation["parameters"]["dimensions_mm"] == {
+        "length": 3000.0,
+        "width": 200.0,
+        "height": 2800.0,
+    }
 
 
 def test_planning_worker_stores_split_chat_as_multiple_schema_commands() -> None:
@@ -172,6 +206,80 @@ def test_planning_worker_stores_split_chat_as_multiple_schema_commands() -> None
         "IfcDoor",
         "IfcWindow",
     ]
+    _validate_authoring_operations_contract(command, stored_payload["operations"])
+    assert [op["type"] for op in stored_payload["operations"]] == [
+        "create_element",
+        "create_element",
+    ]
+    assert [op["parameters"]["element_type"] for op in stored_payload["operations"]] == [
+        "IfcDoor",
+        "IfcWindow",
+    ]
+    assert all("length_mm" not in op["parameters"] for op in stored_payload["operations"])
+
+
+def test_planning_worker_stores_engine_operations_for_modify_and_delete() -> None:
+    command = _with_user_instruction(_load_sample_command(), "modify and delete")
+    mock_s3 = MagicMock()
+    mock_s3.read_bytes.return_value = _sample_ifc_bytes()
+    mock_s3.write_text.return_value = "s3://mock-bucket/output.json"
+
+    worker = PlanningWorker(
+        worker_id="test-worker-1",
+        event_publisher=MagicMock(),
+        s3=mock_s3,
+    )
+
+    with patch(
+        "ai_planning_3d.worker.LLM3DPipeline.execute_preview",
+        new_callable=AsyncMock,
+    ) as mock_execute:
+        mock_execute.return_value = {
+            "status": "preview_ready",
+            "session_id": "session-modify-delete",
+            "summary": "preview ready",
+            "commands": [
+                {
+                    "command_type": "MODIFY",
+                    "target": {"element_type": "IfcWall", "storey": "1F", "direction": "North"},
+                    "changes": {
+                        "height_mm": {"mode": "ABSOLUTE", "value": 3000.0},
+                        "color": "#AABBCC",
+                        "position_mm": {"mode": "RELATIVE", "x": 100.0, "y": 0.0, "z": 0.0},
+                        "rotation_deg": 15.0,
+                    },
+                    "confidence": 0.95,
+                    "raw_instruction": "modify wall",
+                },
+                {
+                    "command_type": "DELETE",
+                    "target": {"element_type": "IfcDoor", "select_all": True},
+                    "changes": {"deletion": True},
+                    "confidence": 0.95,
+                    "raw_instruction": "delete doors",
+                },
+            ],
+        }
+
+        result = worker.process(command)
+
+    assert isinstance(result, CompletedResult)
+    stored_payload = json.loads(mock_s3.write_text.call_args.kwargs["text"])
+    Draft202012Validator(_planner_3d_schema()).validate(stored_payload)
+    _validate_authoring_operations_contract(command, stored_payload["operations"])
+    assert [op["type"] for op in stored_payload["operations"]] == [
+        "update_element_properties",
+        "transform_elements",
+        "delete_elements",
+    ]
+    assert stored_payload["operations"][0]["parameters"] == {
+        "dimensions_mm": {"height": {"mode": "ABSOLUTE", "value": 3000.0}},
+        "color": "#AABBCC",
+    }
+    assert stored_payload["operations"][1]["parameters"] == {
+        "translation_mm": {"x": 100.0, "y": 0.0, "z": 0.0},
+        "rotation_deg": {"x": 0.0, "y": 0.0, "z": 15.0},
+    }
 
 
 def test_planning_worker_split_chat_fails_fast_without_partial_commands() -> None:

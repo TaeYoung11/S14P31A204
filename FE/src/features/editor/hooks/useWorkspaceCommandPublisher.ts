@@ -234,13 +234,15 @@ export function useWorkspaceCommandPublisher({
 
   const createOpening = useCallback((opening: FloorOpening) => {
     const centerMm = toWorkerMmPoint(opening.centerMm)
-    const hostWallGlobalId = toIfcGlobalId(opening.hostWallGlobalId ?? opening.wallId)
-    if (!centerMm || !hostWallGlobalId) return
+    if (!centerMm) return
+    const rawHostWallId = opening.hostWallGlobalId ?? opening.wallId
+    const hostWallGlobalId = toIfcGlobalId(rawHostWallId)
 
     pendingCommandRef.current = createEntityCommand(openingEntity(opening.type), opening.id, compactRecord({
       storeyGlobalId: opening.storeyGlobalId,
       storeyName: opening.storeyName,
       hostWallGlobalId,
+      wall_id: hostWallGlobalId ? undefined : rawHostWallId,
       centerMm,
       lengthMm: opening.widthMm,
       heightMm: opening.heightMm,

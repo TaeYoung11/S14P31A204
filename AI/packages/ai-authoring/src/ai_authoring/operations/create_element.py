@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from typing import Any
 
 import ifcopenshell
@@ -42,6 +43,8 @@ _AZIMUTH_THRESHOLDS: list[tuple[float, str]] = [
     (225.0, "south"),
     (315.0, "west"),
 ]
+
+_IFC_GLOBAL_ID_RE = re.compile(r"^[0-9A-Za-z_$]{22}$")
 
 
 def _azimuth_to_direction(deg: float) -> str:
@@ -83,6 +86,55 @@ def _optional_float(value: Any, field_name: str) -> float | None:
         return None
 
 
+def _point_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, list | tuple):
+        point: dict[str, Any] = {}
+        if len(value) > 0:
+            point["x"] = value[0]
+        if len(value) > 1:
+            point["y"] = value[1]
+        if len(value) > 2:
+            point["z"] = value[2]
+        return point
+    return {}
+
+
+def _opening_dimensions_mm(
+    element_type: str,
+    dimensions_mm: dict[str, Any],
+) -> tuple[float, float, float]:
+    """Resolve door/window opening span, wall-thickness direction width, and height.
+
+    Preferred contract: length is the opening span and width is the wall-thickness
+    direction. Width-only payloads are accepted for legacy 2D opening commands.
+    """
+    default_length = 1200.0 if element_type == "IfcWindow" else 900.0
+    default_height = 1200.0 if element_type == "IfcWindow" else 2100.0
+    length_value = dimensions_mm.get("length")
+    if length_value is None:
+        length_value = dimensions_mm.get("width")
+    thickness_value = (
+        dimensions_mm.get("width")
+        if dimensions_mm.get("length") is not None
+        else None
+    )
+    return (
+        float(length_value or default_length),
+        float(thickness_value or 200.0),
+        float(dimensions_mm.get("height", default_height)),
+    )
+
+
+def _ifc_global_id_or_none(value: Any) -> str | None:
+    # 2D edit payloads may carry a local wall id in this field. Treat only a
+    # valid IFC GlobalId as an explicit host; other values use proximity lookup.
+    if not isinstance(value, str):
+        return None
+    return value if _IFC_GLOBAL_ID_RE.fullmatch(value) else None
+
+
 @register("create_element")
 class CreateElementHandler:
     def execute(
@@ -106,7 +158,9 @@ class CreateElementHandler:
             return self._create_space(model, resolved_storey, parameters)
 
         dims: dict[str, Any] = parameters.get("dimensions_mm") or {}
-        start: dict[str, Any] = parameters.get("start_mm") or {}
+        start: dict[str, Any] = _point_dict(
+            parameters.get("start_mm") or parameters.get("center_mm") or {}
+        )
         end: dict[str, Any] | None = parameters.get("end_mm")
 
         x_mm = float(start.get("x", 0.0))
@@ -122,10 +176,13 @@ class CreateElementHandler:
             length_mm = float(dims.get("length", 3000.0))
             direction = str(parameters.get("direction") or "north").lower()
 
-        width_default = 1000.0 if element_type == "IfcStair" else 200.0
-        height_default = 1800.0 if element_type == "IfcStair" else 2400.0
-        width_mm = float(dims.get("width", width_default))
-        height_mm = float(dims.get("height", height_default))
+        if element_type in ("IfcDoor", "IfcWindow"):
+            length_mm, width_mm, height_mm = _opening_dimensions_mm(element_type, dims)
+        else:
+            width_default = 1000.0 if element_type == "IfcStair" else 200.0
+            height_default = 1800.0 if element_type == "IfcStair" else 2400.0
+            width_mm = float(dims.get("width", width_default))
+            height_mm = float(dims.get("height", height_default))
         color: str | None = parameters.get("color")
         material_name: str | None = parameters.get("material")
 
@@ -201,7 +258,7 @@ class CreateElementHandler:
                 tread_depth_mm=tread_depth_mm,
             )
         if element_type in ("IfcDoor", "IfcWindow"):
-            host_wall_global_id = parameters.get("host_wall_global_id")
+            host_wall_global_id = _ifc_global_id_or_none(parameters.get("host_wall_global_id"))
             host_wall = find_host_wall(model, host_wall_global_id, x_mm, y_mm, z_mm)
             if host_wall is None:
                 logger.error(

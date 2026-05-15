@@ -81,6 +81,8 @@ class IFCRenderer:
         iter_max: int = 4,
         view_target_overrides: dict[IFCView, float] | None = None,
         view_ground_extent_overrides: dict[IFCView, float] | None = None,
+        view_camera_overrides: dict[IFCView, CameraParams] | None = None,
+        ground_z_override: float | None = None,
         look_at_height_ratio: float = 0.5,
     ) -> None:
         self.width = width
@@ -94,6 +96,8 @@ class IFCRenderer:
         self.iter_max = iter_max
         self.view_target_overrides = dict(view_target_overrides or {})
         self.view_ground_extent_overrides = dict(view_ground_extent_overrides or {})
+        self.view_camera_overrides = dict(view_camera_overrides or {})
+        self.ground_z_override = ground_z_override
         if not 0.0 <= look_at_height_ratio <= 1.0:
             raise ValueError("look_at_height_ratio must be between 0 and 1.")
         self.look_at_height_ratio = look_at_height_ratio
@@ -101,7 +105,13 @@ class IFCRenderer:
     def render(self, ifc_path: Path, view: IFCView = IFCView.FRONT) -> Image.Image:
         base_mesh, center = load_mesh(ifc_path)
         view_mesh = self._build_grounded_mesh(base_mesh, view)
-        return self._render_mesh(view_mesh, base_mesh, center, VIEW_CAMERAS[view], view)
+        return self._render_mesh(
+            view_mesh,
+            base_mesh,
+            center,
+            self._resolve_camera(view),
+            view,
+        )
 
     def render_views(
         self,
@@ -128,10 +138,13 @@ class IFCRenderer:
                 view_mesh,
                 base_mesh,
                 center,
-                VIEW_CAMERAS[view],
+                self._resolve_camera(view),
                 view,
             )
         return results
+
+    def _resolve_camera(self, view: IFCView) -> CameraParams:
+        return self.view_camera_overrides.get(view, VIEW_CAMERAS[view])
 
     def _resolve_ground_extent_factor(self, view: IFCView) -> float:
         return self.view_ground_extent_overrides.get(view, GROUND_EXTENT_FACTOR)
@@ -142,11 +155,15 @@ class IFCRenderer:
         view: IFCView,
     ) -> o3d.geometry.TriangleMesh:
         extent_factor = self._resolve_ground_extent_factor(view)
+        kwargs = {}
+        if self.ground_z_override is not None:
+            kwargs["ground_z"] = self.ground_z_override
         if extent_factor == GROUND_EXTENT_FACTOR:
-            return attach_ground_plane_to_mesh(base_mesh)
+            return attach_ground_plane_to_mesh(base_mesh, **kwargs)
         return attach_ground_plane_to_mesh(
             base_mesh,
             extent_factor=extent_factor,
+            **kwargs,
         )
 
     def _resolve_target_ratio(
@@ -330,6 +347,10 @@ class IFCRenderer:
             )
         else:
             depth = self._capture_raycast_depth(mesh, center, camera, initial_zoom)
+        # Raycast output row order is opposite to the image-space convention used by
+        # the rest of the IFC2IMG pipeline. This flips only the raycast depth image,
+        # not the camera/world up vector or the Visualizer backend.
+        depth = np.flipud(depth).copy()
         return self._depth_to_image(depth)
 
     def _iterative_raycast_zoom_loop(
