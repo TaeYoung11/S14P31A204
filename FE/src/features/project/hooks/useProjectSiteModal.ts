@@ -60,9 +60,11 @@ export const useProjectSiteModal = ({
 
   useEffect(() => {
     if (!isOpen) return
+    const sessionId = modalSessionRef.current
 
     loadKakaoMapSdk()
       .then(() => {
+        if (!isOpenRef.current || sessionId !== modalSessionRef.current) return
         const maps = getKakaoMaps()
         if (!mapContainerRef.current || !maps) return
 
@@ -73,6 +75,7 @@ export const useProjectSiteModal = ({
         })
       })
       .catch((error: Error) => {
+        if (!isOpenRef.current || sessionId !== modalSessionRef.current) return
         setSdkError(error.message)
       })
   }, [isOpen])
@@ -121,6 +124,12 @@ export const useProjectSiteModal = ({
     const sessionId = modalSessionRef.current
     const requestId = addressSearchRequestIdRef.current + 1
     addressSearchRequestIdRef.current = requestId
+    const isActiveRequest = () => (
+      isOpenRef.current
+      && !isInteractionLockedRef.current
+      && sessionId === modalSessionRef.current
+      && requestId === addressSearchRequestIdRef.current
+    )
     setShowPostcode(false)
     setSearchError('')
 
@@ -143,12 +152,7 @@ export const useProjectSiteModal = ({
 
     const geocoder = new maps.services.Geocoder()
     geocoder.addressSearch(selectedAddressText, async (result, status) => {
-      if (
-        !isOpenRef.current
-        || isInteractionLockedRef.current
-        || sessionId !== modalSessionRef.current
-        || requestId !== addressSearchRequestIdRef.current
-      ) return
+      if (!isActiveRequest()) return
       if (status !== maps.services.Status.OK || result.length === 0) {
         setSearchError('주소 좌표를 가져오지 못했습니다.')
         return
@@ -162,19 +166,9 @@ export const useProjectSiteModal = ({
       updateMap(latitude, longitude)
 
       try {
-        if (
-          !isOpenRef.current
-          || isInteractionLockedRef.current
-          || sessionId !== modalSessionRef.current
-          || requestId !== addressSearchRequestIdRef.current
-        ) return
+        if (!isActiveRequest()) return
         const siteResult = await registerSite.mutateAsync({ projectId, latitude, longitude })
-        if (
-          !isOpenRef.current
-          || isInteractionLockedRef.current
-          || sessionId !== modalSessionRef.current
-          || requestId !== addressSearchRequestIdRef.current
-        ) return
+        if (!isActiveRequest()) return
         const outerRing = extractOuterRingFromCoordinates(siteResult.cadastralInfo?.polygon?.coordinates)
         if (outerRing) {
           saveProjectSitePolygon(projectId, outerRing, { source: 'api' })
@@ -183,6 +177,7 @@ export const useProjectSiteModal = ({
           setSearchError('선택한 주소의 대지 경계를 가져오지 못했습니다. 다른 주소를 선택해주세요.')
         }
       } catch {
+        if (!isActiveRequest()) return
         setSearchError('대지 정보 저장에 실패했습니다. 다시 시도해주세요.')
       }
     })

@@ -27,6 +27,9 @@ interface HarnessProps {
   projectId: string | null
   isInteractionLocked?: boolean
   onHandleAddressSelectReady: (handler: (data: Address) => void) => void
+  onSearchErrorChange?: (value: string) => void
+  onSdkErrorChange?: (value: string) => void
+  onSelectedAddressChange?: (value: string) => void
 }
 
 interface GeocoderResult {
@@ -42,12 +45,32 @@ function Harness({
   projectId,
   isInteractionLocked = false,
   onHandleAddressSelectReady,
+  onSearchErrorChange,
+  onSdkErrorChange,
+  onSelectedAddressChange,
 }: HarnessProps) {
-  const { handleAddressSelect } = useProjectSiteModal({ isOpen, projectId, isInteractionLocked })
+  const {
+    handleAddressSelect,
+    searchError,
+    sdkError,
+    selectedAddress,
+  } = useProjectSiteModal({ isOpen, projectId, isInteractionLocked })
 
   useEffect(() => {
     onHandleAddressSelectReady(handleAddressSelect)
   }, [handleAddressSelect, onHandleAddressSelectReady])
+
+  useEffect(() => {
+    onSearchErrorChange?.(searchError)
+  }, [onSearchErrorChange, searchError])
+
+  useEffect(() => {
+    onSdkErrorChange?.(sdkError)
+  }, [onSdkErrorChange, sdkError])
+
+  useEffect(() => {
+    onSelectedAddressChange?.(selectedAddress)
+  }, [onSelectedAddressChange, selectedAddress])
 
   return null
 }
@@ -232,5 +255,215 @@ describe('useProjectSiteModal', () => {
       latitude: 37.61,
       longitude: 127.11,
     })
+  })
+
+  it('이전 요청이 늦게 실패해도 최신 요청이 성공했다면 에러 메시지를 덮어쓰지 않는다', async () => {
+    let rejectFirstRequest: ((error: Error) => void) | null = null
+
+    mutateAsync = vi.fn().mockImplementation(({ longitude }: { longitude: number }) => {
+      if (longitude === 127.01) {
+        return new Promise((_, reject) => {
+          rejectFirstRequest = reject
+        })
+      }
+      return Promise.resolve({
+        cadastralInfo: {
+          polygon: {
+            coordinates: [[[
+              [127.0, 37.0],
+              [127.1, 37.0],
+              [127.1, 37.1],
+              [127.0, 37.1],
+              [127.0, 37.0],
+            ]]],
+          },
+        },
+      })
+    })
+
+    vi.mocked(useRegisterProjectSite).mockReturnValue({
+      mutateAsync,
+      reset,
+      error: null,
+      isPending: false,
+    } as ReturnType<typeof useRegisterProjectSite>)
+
+    let latestSearchError = ''
+
+    act(() => {
+      root.render(
+        <Harness
+          isOpen
+          projectId="project-1"
+          onHandleAddressSelectReady={(handler) => {
+            latestHandleAddressSelect = handler
+          }}
+          onSearchErrorChange={(value) => {
+            latestSearchError = value
+          }}
+        />,
+      )
+    })
+
+    act(() => {
+      latestHandleAddressSelect?.({
+        address: '서울특별시 강남구 1',
+      } as Address)
+      latestHandleAddressSelect?.({
+        address: '서울특별시 강남구 2',
+      } as Address)
+    })
+
+    expect(capturedAddressSearchCallbacks).toHaveLength(2)
+
+    let firstRequestTask: void | Promise<void>
+    await act(async () => {
+      firstRequestTask = capturedAddressSearchCallbacks[0]?.([{ x: '127.01', y: '37.51' }], 'OK')
+      await capturedAddressSearchCallbacks[1]?.([{ x: '127.11', y: '37.61' }], 'OK')
+    })
+
+    await act(async () => {
+      rejectFirstRequest?.(new Error('stale fail'))
+      if (firstRequestTask) {
+        await firstRequestTask
+      }
+      await Promise.resolve()
+    })
+
+    expect(latestSearchError).toBe('')
+    expect(saveProjectSitePolygon).toHaveBeenCalledTimes(1)
+  })
+
+  it('닫힌 모달 세션에서 늦게 도착한 SDK 로딩 실패는 에러 메시지를 갱신하지 않는다', async () => {
+    let rejectSdkLoad: ((error: Error) => void) | null = null
+    vi.mocked(loadKakaoMapSdk).mockReturnValue(
+      new Promise((_, reject) => {
+        rejectSdkLoad = reject
+      }),
+    )
+
+    let latestSdkError = ''
+
+    act(() => {
+      root.render(
+        <Harness
+          isOpen
+          projectId="project-1"
+          onHandleAddressSelectReady={(handler) => {
+            latestHandleAddressSelect = handler
+          }}
+          onSdkErrorChange={(value) => {
+            latestSdkError = value
+          }}
+        />,
+      )
+    })
+
+    act(() => {
+      root.render(
+        <Harness
+          isOpen={false}
+          projectId="project-1"
+          onHandleAddressSelectReady={(handler) => {
+            latestHandleAddressSelect = handler
+          }}
+          onSdkErrorChange={(value) => {
+            latestSdkError = value
+          }}
+        />,
+      )
+    })
+
+    await act(async () => {
+      rejectSdkLoad?.(new Error('sdk failed'))
+      await Promise.resolve()
+    })
+
+    expect(latestSdkError).toBe('')
+  })
+
+  it('isOpen 토글 재사용 시 닫힘 단계에서 선택 주소/검색 에러를 초기화한다', async () => {
+    let latestSearchError = ''
+    let latestSelectedAddress = ''
+
+    act(() => {
+      root.render(
+        <Harness
+          isOpen
+          projectId="project-1"
+          onHandleAddressSelectReady={(handler) => {
+            latestHandleAddressSelect = handler
+          }}
+          onSearchErrorChange={(value) => {
+            latestSearchError = value
+          }}
+          onSelectedAddressChange={(value) => {
+            latestSelectedAddress = value
+          }}
+        />,
+      )
+    })
+
+    act(() => {
+      latestHandleAddressSelect?.({
+        address: '서울특별시 강남구',
+      } as Address)
+    })
+
+    await act(async () => {
+      await capturedAddressSearchCallbacks[0]?.([{ x: '127.02', y: '37.50' }], 'OK')
+    })
+
+    expect(latestSelectedAddress).toBe('서울특별시 강남구')
+
+    act(() => {
+      latestHandleAddressSelect?.({} as Address)
+    })
+    expect(latestSearchError).toBe('선택한 주소를 확인할 수 없습니다. 다시 선택해주세요.')
+
+    act(() => {
+      root.render(
+        <Harness
+          isOpen={false}
+          projectId="project-1"
+          onHandleAddressSelectReady={(handler) => {
+            latestHandleAddressSelect = handler
+          }}
+          onSearchErrorChange={(value) => {
+            latestSearchError = value
+          }}
+          onSelectedAddressChange={(value) => {
+            latestSelectedAddress = value
+          }}
+        />,
+      )
+    })
+
+    await act(async () => {
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 0)
+      })
+    })
+
+    act(() => {
+      root.render(
+        <Harness
+          isOpen
+          projectId="project-1"
+          onHandleAddressSelectReady={(handler) => {
+            latestHandleAddressSelect = handler
+          }}
+          onSearchErrorChange={(value) => {
+            latestSearchError = value
+          }}
+          onSelectedAddressChange={(value) => {
+            latestSelectedAddress = value
+          }}
+        />,
+      )
+    })
+
+    expect(latestSelectedAddress).toBe('')
+    expect(latestSearchError).toBe('')
   })
 })
