@@ -2663,6 +2663,40 @@ export function useEditorPage() {
     markLocalBubbleSnapshotChangedRef.current = markLocalBubbleSnapshotChanged
   }, [markLocalBubbleSnapshotChanged])
 
+  const unmountCleanupContextRef = useRef<{
+    projectId: string | undefined
+    workspacePhaseStatus: PhaseStatus
+    markBubbleSnapshotDirty: () => void
+    flushBubbleSnapshotSaveToDb: (force?: boolean) => Promise<unknown>
+    flushPendingLocalBubbleChange: () => void
+    resolveServerHistoryBaseIndex: (snapshot: WorkspaceSnapshot) => number
+  }>({
+    projectId,
+    workspacePhaseStatus,
+    markBubbleSnapshotDirty,
+    flushBubbleSnapshotSaveToDb,
+    flushPendingLocalBubbleChange,
+    resolveServerHistoryBaseIndex,
+  })
+
+  useEffect(() => {
+    unmountCleanupContextRef.current = {
+      projectId,
+      workspacePhaseStatus,
+      markBubbleSnapshotDirty,
+      flushBubbleSnapshotSaveToDb,
+      flushPendingLocalBubbleChange,
+      resolveServerHistoryBaseIndex,
+    }
+  }, [
+    flushBubbleSnapshotSaveToDb,
+    flushPendingLocalBubbleChange,
+    markBubbleSnapshotDirty,
+    projectId,
+    resolveServerHistoryBaseIndex,
+    workspacePhaseStatus,
+  ])
+
   useEffect(() => {
     return () => {
       cancelScheduledBubbleSnapshotSave()
@@ -2676,9 +2710,18 @@ export function useEditorPage() {
 
   useEffect(() => {
     return () => {
+      const {
+        projectId: cleanupProjectId,
+        workspacePhaseStatus: cleanupPhaseStatus,
+        markBubbleSnapshotDirty: markDirtyForCleanup,
+        flushBubbleSnapshotSaveToDb: flushSaveForCleanup,
+        flushPendingLocalBubbleChange: flushLocalChangeForCleanup,
+        resolveServerHistoryBaseIndex: resolveBaseIndexForCleanup,
+      } = unmountCleanupContextRef.current
+
       // 프로젝트 전환/언마운트 시점 상태를 기록해 유실 원인 추적에 사용한다.
       logBubbleDebug('cleanup:fired', {
-        projectId,
+        projectId: cleanupProjectId,
         hasUserEdited: hasUserEditedRef.current,
         willSave: hasUserEditedRef.current,
         floorSummary: summarizeBubbleSnapshotForDebug(latestBubbleSnapshotRef.current),
@@ -2688,14 +2731,14 @@ export function useEditorPage() {
       // 초기 상태로 local draft와 DB를 덮어써 기존 드래프트 데이터가 손실되는 것을 방지한다.
       if (!hasUserEditedRef.current) return
 
-      flushPendingLocalBubbleChange()
+      flushLocalChangeForCleanup()
       const latestBubbleSnapshot = latestBubbleSnapshotRef.current
-      writeBubbleLocalDraftToStorage(projectId, latestBubbleSnapshot)
+      writeBubbleLocalDraftToStorage(cleanupProjectId, latestBubbleSnapshot)
 
-      if (!projectId || workspacePhaseStatus !== 'BUBBLE_DRAFT') return
+      if (!cleanupProjectId || cleanupPhaseStatus !== 'BUBBLE_DRAFT') return
 
-      markBubbleSnapshotDirty()
-      void flushBubbleSnapshotSaveToDb(true)
+      markDirtyForCleanup()
+      void flushSaveForCleanup(true)
 
       const latestSnapshot = latestDraftSnapshotRef.current
       const publishSnapshot: WorkspaceSnapshot = {
@@ -2713,14 +2756,14 @@ export function useEditorPage() {
         ifcElementChanges: [],
       }
       void workspaceRealtimeService.publishSnapshot({
-        projectId,
+        projectId: cleanupProjectId,
         snapshot: publishSnapshot,
-        baseIndex: resolveServerHistoryBaseIndex(publishSnapshot),
+        baseIndex: resolveBaseIndexForCleanup(publishSnapshot),
       }).catch(() => {
         // 화면 이탈 시점 best-effort sync이므로 실패는 조용히 무시한다.
       })
     }
-  }, [flushBubbleSnapshotSaveToDb, flushPendingLocalBubbleChange, markBubbleSnapshotDirty, projectId, resolveServerHistoryBaseIndex, workspacePhaseStatus])
+  }, [])
 
   const updateFloorWallFromEditable = useCallback((wallId: string, updater: (wall: FloorWall) => FloorWall) => {
     setFloorWalls((prev) => {
