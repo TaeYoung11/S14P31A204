@@ -10,6 +10,7 @@ import pytest
 
 from ai_authoring.worker import AuthoringWorker
 from ai_authoring.engine_3d import create_wall, create_window_with_opening
+from ai_authoring.operations.registry import get as get_op_handler
 from ai_common.errors import NonRetryableWorkerError
 from ai_common.worker_sdk.event_factory import CompletedResult
 from ai_domain.worker_messages.command import CommandMessage
@@ -90,6 +91,34 @@ def _wall_by_name(
 ) -> ifcopenshell.entity_instance:
     walls = list(model.by_type("IfcWall")) + list(model.by_type("IfcWallStandardCase"))
     return next(element for element in walls if getattr(element, "Name", None) == name)
+
+
+def _make_space_model() -> tuple[ifcopenshell.file, ifcopenshell.entity_instance]:
+    model = ifcopenshell.file(schema="IFC4")
+    project = ifcopenshell.api.root.create_entity(model, ifc_class="IfcProject", name="Project")
+    site = ifcopenshell.api.root.create_entity(model, ifc_class="IfcSite", name="Site")
+    building = ifcopenshell.api.root.create_entity(model, ifc_class="IfcBuilding", name="Building")
+    storey = ifcopenshell.api.root.create_entity(model, ifc_class="IfcBuildingStorey", name="L1")
+    storey.Elevation = 0.0
+
+    ifcopenshell.api.aggregate.assign_object(model, products=[site], relating_object=project)
+    ifcopenshell.api.aggregate.assign_object(model, products=[building], relating_object=site)
+    ifcopenshell.api.aggregate.assign_object(model, products=[storey], relating_object=building)
+
+    create_handler = get_op_handler("create_element")
+    space = create_handler.execute(
+        model,
+        None,
+        {
+            "element_type": "IfcSpace",
+            "storey_id": storey.GlobalId,
+            "start_mm": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "dimensions_mm": {"width": 3000, "height": 4000},
+            "properties": {"name": "Worker Space"},
+        },
+    )
+    assert space is not None
+    return model, space
 
 
 def _command_with_inline_engine_request(engine_request: dict[str, Any]) -> CommandMessage:
@@ -340,6 +369,47 @@ def test_authoring_worker_rejects_zero_scale_dimension_before_mutation():
 
     assert exc_info.value.code == "INVALID_OPERATION_PARAMETERS"
     assert "op-invalid-scale.length" in str(exc_info.value)
+
+
+def test_authoring_worker_updates_space_with_wrapped_dimensions():
+    model, space = _make_space_model()
+    worker, _ = _make_worker(b"")
+
+    result = worker._apply_operation(
+        model,
+        "op-update-space-dimensions",
+        "update_element_properties",
+        {"global_ids": [space.GlobalId]},
+        {
+            "dimensions_mm": {
+                "width": {"mode": "ABSOLUTE", "value": 5000},
+                "height": {"mode": "ABSOLUTE", "value": 4200},
+            }
+        },
+    )
+
+    assert result["status"] == "applied"
+    assert result["matched_elements"][0]["global_id"] == space.GlobalId
+    body = space.Representation.Representations[0].Items[0]
+    assert body.SweptArea.XDim == pytest.approx(5000.0)
+    assert body.SweptArea.YDim == pytest.approx(4200.0)
+
+
+def test_authoring_worker_skips_space_pset_name_only_update():
+    model, space = _make_space_model()
+    worker, _ = _make_worker(b"")
+
+    result = worker._apply_operation(
+        model,
+        "op-update-space-noop",
+        "update_element_properties",
+        {"global_ids": [space.GlobalId]},
+        {"pset_name": "Batang_SpaceDimensions"},
+    )
+
+    assert result["status"] == "skipped"
+    assert result["matched_elements"] == []
+    assert result["issues"][0]["code"] == "NO_CHANGE"
 
 
 if __name__ == "__main__":

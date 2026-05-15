@@ -55,6 +55,7 @@ class ClarificationRequiredError(WorkerError):
     clarification_request_id: str = ""
     retryable: bool = False
     clarification_possible: bool = True
+    preview_data: dict[str, object] | None = None
 
     def __post_init__(self) -> None:
         WorkerError.__post_init__(self)
