@@ -470,11 +470,18 @@ def _resize_box_like_representation(
     length: float,
     width: float,
     height: float,
-) -> None:
-    if representation is None:
-        return
+) -> bool:
+    if representation is None or not getattr(representation, "Representations", None):
+        return False
+    changed = False
     for rep in getattr(representation, "Representations", []) or []:
-        _resize_box_like_items(getattr(rep, "Items", []) or [], length, width, height)
+        changed |= _resize_box_like_items(
+            getattr(rep, "Items", []) or [],
+            length,
+            width,
+            height,
+        )
+    return changed
 
 
 def _resize_box_like_items(
@@ -482,9 +489,11 @@ def _resize_box_like_items(
     length: float,
     width: float,
     height: float,
-) -> None:
+) -> bool:
+    changed = False
     for item in items:
-        _resize_box_like_item(item, length, width, height)
+        changed |= _resize_box_like_item(item, length, width, height)
+    return changed
 
 
 def _resize_box_like_item(
@@ -492,32 +501,78 @@ def _resize_box_like_item(
     length: float,
     width: float,
     height: float,
-) -> None:
+) -> bool:
     if item.is_a("IfcExtrudedAreaSolid"):
         profile = getattr(item, "SweptArea", None)
         if profile is not None and profile.is_a("IfcRectangleProfileDef"):
             profile.XDim = float(length)
             profile.YDim = float(width)
             item.Depth = float(height)
-            return
+            return True
     if item.is_a("IfcBoundingBox"):
         item.XDim = float(length)
         item.YDim = float(width)
         item.ZDim = float(height)
-        return
-    mapping_source = getattr(item, "MappingSource", None)
-    mapped_representation = (
-        getattr(mapping_source, "MappedRepresentation", None)
-        if mapping_source is not None
-        else None
-    )
-    if mapped_representation is not None:
-        _resize_box_like_items(
-            getattr(mapped_representation, "Items", []) or [],
-            length,
-            width,
-            height,
+        return True
+    return False
+
+
+def _dimension_axis_mapping(
+    current_values: tuple[float, float, float],
+    source_values: tuple[float, float, float],
+) -> dict[int, int]:
+    remaining = {0, 1, 2}
+    mapping: dict[int, int] = {}
+    for source_index, source_value in enumerate(source_values):
+        axis = min(
+            remaining,
+            key=lambda candidate: abs(current_values[candidate] - source_value),
         )
+        mapping[axis] = source_index
+        remaining.remove(axis)
+    return mapping
+
+
+def _resize_opening_box_like_item(
+    item: ifcopenshell.entity_instance,
+    *,
+    source_signature: tuple[float, float, float],
+    target_signature: tuple[float, float, float],
+) -> bool:
+    if item.is_a("IfcExtrudedAreaSolid"):
+        profile = getattr(item, "SweptArea", None)
+        if profile is None or not profile.is_a("IfcRectangleProfileDef"):
+            return False
+        current_values = (float(profile.XDim), float(profile.YDim), float(item.Depth))
+        mapped_targets = {
+            axis: target_signature[source_index]
+            for axis, source_index in _dimension_axis_mapping(
+                current_values,
+                source_signature,
+            ).items()
+        }
+        profile.XDim = float(mapped_targets[0])
+        profile.YDim = float(mapped_targets[1])
+        item.Depth = float(mapped_targets[2])
+        return True
+    if item.is_a("IfcBoundingBox"):
+        current_values = (
+            float(getattr(item, "XDim", 0.0) or 0.0),
+            float(getattr(item, "YDim", 0.0) or 0.0),
+            float(getattr(item, "ZDim", 0.0) or 0.0),
+        )
+        mapped_targets = {
+            axis: target_signature[source_index]
+            for axis, source_index in _dimension_axis_mapping(
+                current_values,
+                source_signature,
+            ).items()
+        }
+        item.XDim = float(mapped_targets[0])
+        item.YDim = float(mapped_targets[1])
+        item.ZDim = float(mapped_targets[2])
+        return True
+    return False
 
 
 def _clone_item_styles(
@@ -612,24 +667,22 @@ def _clone_opening_representation_with_depth(
     representation = getattr(template_opening, "Representation", None)
     if representation is None:
         return None
+    source_signature = _opening_signature(template_opening)
+    if source_signature is None:
+        return None
+    target_signature = (
+        float(new_width if new_width is not None else source_signature[0]),
+        float(new_depth),
+        float(new_height if new_height is not None else source_signature[2]),
+    )
     cloned = ifcopenshell.util.element.copy_deep(model, representation)
     for rep in getattr(cloned, "Representations", []) or []:
         for item in getattr(rep, "Items", []) or []:
-            if item.is_a("IfcExtrudedAreaSolid"):
-                profile = getattr(item, "SweptArea", None)
-                if profile is not None:
-                    if profile.is_a("IfcRectangleProfileDef"):
-                        if new_width is not None:
-                            profile.XDim = float(new_width)
-                        profile.YDim = float(new_depth)
-                if new_height is not None:
-                    item.Depth = float(new_height)
-            elif item.is_a("IfcBoundingBox"):
-                if new_width is not None:
-                    item.XDim = float(new_width)
-                item.YDim = float(new_depth)
-                if new_height is not None:
-                    item.ZDim = float(new_height)
+            _resize_opening_box_like_item(
+                item,
+                source_signature=source_signature,
+                target_signature=target_signature,
+            )
     return cloned
 
 
@@ -747,6 +800,7 @@ def _find_eligible_template_door_pair(
         tuple[
             float,
             float,
+            float,
             ifcopenshell.entity_instance,
             ifcopenshell.entity_instance,
         ]
@@ -776,8 +830,10 @@ def _find_eligible_template_door_pair(
         if opening_signature is None:
             continue
         opening_width, opening_height, _ = opening_signature
-        if _wall_thickness(template_wall) is None:
+        template_thickness = _wall_thickness(template_wall)
+        if template_thickness is None:
             continue
+        thickness_delta = abs(host_thickness - template_thickness)
         template_ref = _wall_ref_direction(template_wall)
         orientation_penalty = 1.0 - _dot3(host_ref, template_ref)
         if host_length < opening_width + (edge_margin * 2.0):
@@ -808,13 +864,19 @@ def _find_eligible_template_door_pair(
         width = float(getattr(template_door, "OverallWidth", 0.0) or 0.0)
         height = float(getattr(template_door, "OverallHeight", 0.0) or 0.0)
         score = abs(width - target_width_m) + abs(height - target_height_m)
-        candidate = (orientation_penalty, score, template_door, template_opening)
-        if best is None or candidate[:2] < best[:2]:
+        candidate = (
+            orientation_penalty,
+            thickness_delta,
+            score,
+            template_door,
+            template_opening,
+        )
+        if best is None or candidate[:3] < best[:3]:
             best = candidate
 
     if best is None:
         return None
-    return (best[2], best[3])
+    return (best[3], best[4])
 
 
 def _find_eligible_template_window_pair(
@@ -838,6 +900,7 @@ def _find_eligible_template_window_pair(
     overlap_margin = _mm_to_model_units(model, 100.0, 100.0)
     best: (
         tuple[
+            float,
             float,
             float,
             ifcopenshell.entity_instance,
@@ -869,8 +932,10 @@ def _find_eligible_template_window_pair(
         if opening_signature is None:
             continue
         opening_width, opening_height, _ = opening_signature
-        if _wall_thickness(template_wall) is None:
+        template_thickness = _wall_thickness(template_wall)
+        if template_thickness is None:
             continue
+        thickness_delta = abs(host_thickness - template_thickness)
         template_ref = _wall_ref_direction(template_wall)
         orientation_penalty = 1.0 - _dot3(host_ref, template_ref)
         if host_length < opening_width + (edge_margin * 2.0):
@@ -901,13 +966,19 @@ def _find_eligible_template_window_pair(
         width = float(getattr(template_window, "OverallWidth", 0.0) or 0.0)
         height = float(getattr(template_window, "OverallHeight", 0.0) or 0.0)
         score = abs(width - target_width_m) + abs(height - target_height_m)
-        candidate = (orientation_penalty, score, template_window, template_opening)
-        if best is None or candidate[:2] < best[:2]:
+        candidate = (
+            orientation_penalty,
+            thickness_delta,
+            score,
+            template_window,
+            template_opening,
+        )
+        if best is None or candidate[:3] < best[:3]:
             best = candidate
 
     if best is None:
         return None
-    return (best[2], best[3])
+    return (best[3], best[4])
 
 
 def _copy_material_associations_from_template(
