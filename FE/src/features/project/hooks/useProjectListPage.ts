@@ -225,7 +225,14 @@ export function useProjectListPage() {
    * - "대지 미입력 시 프로젝트 생성 불가" 정책을 보장하는 핵심 메서드다.
    */
   const handleCancelSiteModal = async () => {
-    if (!siteProject || isCancellingSiteProjectRef.current) return
+    if (!siteProject) {
+      setSiteCancelErrorMessage('생성 취소 대상 프로젝트를 찾을 수 없습니다. 새로 시도해주세요.')
+      return
+    }
+    if (isCancellingSiteProjectRef.current) {
+      setSiteCancelErrorMessage('프로젝트 생성 취소를 처리 중입니다. 잠시만 기다려주세요.')
+      return
+    }
     isCancellingSiteProjectRef.current = true
     setIsCancellingSiteProject(true)
     setSiteCancelErrorMessage('')
