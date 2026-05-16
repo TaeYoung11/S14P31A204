@@ -347,6 +347,36 @@
             "minLength": 1,
             "maxLength": 255
           }
+        },
+        "option_details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "label", "value"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              }
+            }
+          }
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
         }
       }
     },
@@ -514,6 +544,29 @@
         "ridge_height_mm": {
           "type": "number",
           "exclusiveMinimum": 0
+        },
+        "step_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "riser_height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "tread_depth_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "host_wall_global_id": {
+          "$ref": "#/$defs/globalId"
+        },
+        "sill_height_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "opening_offset_mm": {
+          "type": "number",
+          "minimum": 0
         }
       },
       "allOf": [
