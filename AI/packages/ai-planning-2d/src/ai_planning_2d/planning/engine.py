@@ -15,6 +15,7 @@ from ..command import FloorNLPCommand, IFCContext, SpaceContext
 from ..utils import shape_to_rects
 
 ResizeDirection = Literal["north", "south", "east", "west"]
+_FLOOR_NUMBER_PATTERN = re.compile(r"(\d+)\s*층")
 
 # 상대적 크기 표현 → 배율 (우선순위 순서로 정렬)
 _RELATIVE_SIZE_PATTERNS: list[tuple[str, float]] = [
@@ -113,6 +114,98 @@ def _resolve_space_for_user_text(
     if inferred_name is None:
         return None
     return next((space for space in spaces if space.get("name") == inferred_name), None)
+
+
+def _extract_target_floor(user_text: str) -> int | None:
+    match = _FLOOR_NUMBER_PATTERN.search(user_text)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def _extract_recent_user_remove_target(
+    conversation_history: list[ChatCompletionMessageParam] | None,
+    ifc_context: IFCContext | None,
+) -> tuple[str | None, int | None]:
+    if not conversation_history:
+        return (None, None)
+
+    for entry in reversed(conversation_history):
+        if entry.get("role") != "user":
+            continue
+        content = entry.get("content")
+        if not isinstance(content, str):
+            continue
+        simple_remove = _maybe_parse_simple_remove_command(content) or _maybe_parse_remove_command_v2(
+            content
+        )
+        if simple_remove is not None:
+            return simple_remove.target_room_name, simple_remove.target_floor
+        resolved_space = _resolve_space_for_user_text(content, ifc_context)
+        if resolved_space is not None:
+            return resolved_space.get("name"), resolved_space.get("floor")
+    return (None, None)
+
+
+def _conversation_is_remove_clarification(
+    conversation_history: list[ChatCompletionMessageParam] | None,
+) -> bool:
+    if not conversation_history:
+        return False
+
+    recent_messages = conversation_history[-4:]
+    assistant_mentions_remove = any(
+        entry.get("role") == "assistant"
+        and isinstance(entry.get("content"), str)
+        and (
+            ("삭제" in entry["content"] and "층" in entry["content"])
+            or "몇 층 방" in entry["content"]
+        )
+        for entry in recent_messages
+    )
+    user_mentions_remove = any(
+        entry.get("role") == "user"
+        and isinstance(entry.get("content"), str)
+        and any(keyword in entry["content"] for keyword in ("삭제", "지워", "없애"))
+        for entry in recent_messages
+    )
+    return assistant_mentions_remove and user_mentions_remove
+
+
+def _recover_followup_remove_command(
+    user_text: str,
+    ifc_context: IFCContext | None,
+    conversation_history: list[ChatCompletionMessageParam] | None,
+) -> FloorNLPCommand | None:
+    if not _conversation_is_remove_clarification(conversation_history):
+        return None
+
+    target_floor = _extract_target_floor(user_text)
+    resolved_space = _resolve_space_for_user_text(user_text, ifc_context)
+    target_room_name = resolved_space.get("name") if resolved_space is not None else None
+
+    if target_room_name is None:
+        inferred_name, _ = _infer_room_name_and_type(user_text)
+        target_room_name = inferred_name
+
+    previous_target_name, previous_target_floor = _extract_recent_user_remove_target(
+        conversation_history,
+        ifc_context,
+    )
+    target_room_name = target_room_name or previous_target_name
+    target_floor = target_floor or previous_target_floor
+
+    if target_room_name is None:
+        return None
+
+    return FloorNLPCommand(
+        action="remove_room",
+        target_room_name=target_room_name,
+        target_floor=target_floor,
+        confidence=0.96,
+        needs_clarification=False,
+        clarification_question=None,
+    )
 
 
 def _apply_relative_adjustment(
@@ -702,6 +795,14 @@ class FloorPlanEngine:
         ifc_context: IFCContext | None = None,
         conversation_history: list[ChatCompletionMessageParam] | None = None,
     ) -> FloorNLPCommand:
+        clarification_followup_remove = _recover_followup_remove_command(
+            user_text,
+            ifc_context,
+            conversation_history,
+        )
+        if clarification_followup_remove is not None:
+            return clarification_followup_remove
+
         generic_room_change = _maybe_parse_generic_room_change_clarification(user_text)
         if generic_room_change is not None:
             return generic_room_change
@@ -791,9 +892,25 @@ class FloorPlanEngine:
             return command
 
         except Exception as e:
+            recovered_followup = _recover_followup_remove_command(
+                user_text,
+                ifc_context,
+                conversation_history,
+            )
+            if recovered_followup is not None:
+                return recovered_followup
             recovered = _recover_command_from_exception(e, user_text, ifc_context)
             if recovered is not None:
                 return recovered
+            return FloorNLPCommand(
+                action="add_room",
+                confidence=0.0,
+                needs_clarification=True,
+                clarification_question=(
+                    "명령을 구조화해서 해석하지 못했습니다. "
+                    "삭제 또는 변경할 방 이름과 층을 짧게 다시 알려주세요."
+                ),
+            )
             return FloorNLPCommand(
                 action="add_room",
                 confidence=0.0,

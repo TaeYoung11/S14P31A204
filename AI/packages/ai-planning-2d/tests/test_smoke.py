@@ -541,6 +541,24 @@ async def test_engine_remove_room():
     assert result.target_room_name is not None
 
 
+@pytest.mark.asyncio
+async def test_engine_remove_room_clarification_followup_uses_history(ifc_ctx):
+    engine = FloorPlanEngine()
+    result = await engine.parse_command(
+        "2층 거실에 대해 작업합니다.",
+        ifc_ctx,
+        conversation_history=[
+            {"role": "user", "content": "거실 삭제해줘."},
+            {"role": "assistant", "content": "같은 이름의 방이 여러 개 있습니다. 몇 층 방을 삭제할까요?"},
+        ],
+    )
+
+    assert result.action == "remove_room"
+    assert result.target_room_name == "거실"
+    assert result.target_floor == 2
+    assert result.needs_clarification is False
+
+
 def test_engine_reads_model_settings_from_env(monkeypatch):
     monkeypatch.setenv("2D_LLM_MODEL_NAME", "gms-2d-model")
     monkeypatch.setenv("MODEL_ENDPOINT", "https://gms.example/v1")

@@ -7,6 +7,7 @@ from typing import Any, cast
 import uuid
 
 from ai_authoring import apply_ifc_edit_payload
+from openai.types.chat import ChatCompletionMessageParam
 
 from ..command import CommandBatch, FloorNLPCommand, IFCContext
 from ..engine_request import build_engine_request, build_ifc_edit_payload
@@ -59,8 +60,17 @@ class LLM2DPipeline:
         self.base_revision_id = base_revision_id
         self.store: dict[str, PreviewSession2D] = {}
 
-    async def execute_preview(self, user_text: str) -> dict[str, Any]:
-        command = await self.engine.parse_command(user_text, self.ifc_context)
+    async def execute_preview(
+        self,
+        user_text: str,
+        *,
+        conversation_history: list[ChatCompletionMessageParam] | None = None,
+    ) -> dict[str, Any]:
+        command = await self.engine.parse_command(
+            user_text,
+            self.ifc_context,
+            conversation_history=conversation_history,
+        )
         return await self.execute_command_preview(command)
 
     async def execute_command_preview(self, command: FloorNLPCommand) -> dict[str, Any]:

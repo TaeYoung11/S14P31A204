@@ -28,6 +28,7 @@ from ai_common.storage.paths import (
 from ai_common.worker_sdk.base_worker import BaseWorker, EventPublisher
 from ai_common.worker_sdk.event_factory import CompletedResult, WorkerResult
 from ai_domain import CommandMessage, EventOutputRef, TwoDLlmCommandPayload
+from openai.types.chat import ChatCompletionMessageParam
 from pydantic import ValidationError
 
 from ..ifc_extractor import (
@@ -95,6 +96,9 @@ def run_two_d_llm_job(
         result = _run_async(
             _run_pipeline(
                 user_instruction=request.userInstruction,
+                conversation_history=_conversation_history_to_openai_messages(
+                    request.conversationHistory
+                ),
                 input_path=str(Path(input_path)),
                 output_path=str(Path(output_path)),
                 project_id="local-2d",
@@ -185,6 +189,9 @@ class TwoDLlmWorker(BaseWorker):
                 result = _run_async(
                     _run_pipeline(
                         user_instruction=payload.userInstruction,
+                        conversation_history=_conversation_history_to_openai_messages(
+                            payload.conversationHistory
+                        ),
                         input_path=str(source_path),
                         output_path=str(output_path),
                         project_id=command.projectId,
@@ -373,6 +380,7 @@ def build_two_d_llm_worker(
 async def _run_pipeline(
     *,
     user_instruction: str,
+    conversation_history: list[ChatCompletionMessageParam] | None,
     input_path: str,
     output_path: str,
     project_id: str,
@@ -413,7 +421,10 @@ async def _run_pipeline(
             code="ENGINE_INIT_FAILED",
             message=f"failed to initialize 2D planning engine: {exc}",
         ) from exc
-    preview = await pipeline.execute_preview(user_instruction)
+    preview = await pipeline.execute_preview(
+        user_instruction,
+        conversation_history=conversation_history,
+    )
 
     status = preview.get("status")
     if status in {"needs_clarification", "alternatives"}:
@@ -743,6 +754,26 @@ def _error_result(code: str, message: str, details: Sequence[object]) -> dict[st
         "message": message,
         "details": details,
     }
+
+
+def _conversation_history_to_openai_messages(
+    history: Sequence[object] | None,
+) -> list[ChatCompletionMessageParam]:
+    if not history:
+        return []
+
+    messages: list[ChatCompletionMessageParam] = []
+    for item in history:
+        if not hasattr(item, "role") or not hasattr(item, "content"):
+            continue
+        role = getattr(item, "role")
+        content = getattr(item, "content")
+        if role not in {"system", "user", "assistant"}:
+            continue
+        if not isinstance(content, str) or not content.strip():
+            continue
+        messages.append({"role": role, "content": content})
+    return messages
 
 
 __all__ = [

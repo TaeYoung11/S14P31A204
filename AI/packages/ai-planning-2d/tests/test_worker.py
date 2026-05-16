@@ -283,6 +283,42 @@ def test_run_two_d_llm_job_ignores_unknown_payload_fields(
     assert result["result"]["apply"]["status"] == "applied"
 
 
+def test_run_two_d_llm_job_passes_conversation_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_path = tmp_path / "input.ifc"
+    output_path = tmp_path / "worker.ifc"
+    input_path.write_bytes(b"ISO-10303-21;")
+    captured: dict[str, object] = {}
+
+    async def _fake_run_pipeline(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        Path(output_path).write_bytes(b"updated-ifc")
+        return _applied_result()
+
+    monkeypatch.setattr("ai_planning_2d.worker_runtime.worker._run_pipeline", _fake_run_pipeline)
+
+    result = run_two_d_llm_job(
+        {
+            "user_instruction": "2층 거실에 대해 작업합니다.",
+            "source_scene_storage_url": "s3://batang-artifacts/input/house.ifc",
+            "conversation_history": [
+                {"role": "user", "content": "거실 삭제해줘."},
+                {"role": "assistant", "content": "같은 이름의 방이 여러 개 있습니다. 몇 층 방을 삭제할까요?"},
+            ],
+        },
+        input_path=input_path,
+        output_path=output_path,
+    )
+
+    assert result["ok"] is True
+    assert captured["conversation_history"] == [
+        {"role": "user", "content": "거실 삭제해줘."},
+        {"role": "assistant", "content": "같은 이름의 방이 여러 개 있습니다. 몇 층 방을 삭제할까요?"},
+    ]
+
+
 def test_run_two_d_llm_job_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     input_path = tmp_path / "input.ifc"
     output_path = tmp_path / "worker.ifc"
@@ -1221,7 +1257,7 @@ def test_two_d_worker_app_wires_consumer(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_two_d_worker_queue_is_registered() -> None:
     queue = get_command_queue(WORKER_TYPE)
 
-    assert queue.name == "batang.2d-llm.command.queue"
+    assert queue.name == "batang.two-d-llm.command.queue"
 
 
 def test_two_d_worker_app_default_consumer_resolves_queue(
@@ -1269,7 +1305,7 @@ def test_two_d_worker_app_default_consumer_resolves_queue(
     monkeypatch.setattr(RabbitMQConsumer, "run", original_run)
 
     assert exit_code == 0
-    assert run_calls == ["batang.2d-llm.command.queue"]
+    assert run_calls == ["batang.two-d-llm.command.queue"]
     assert fake_health.stopped is True
 
 

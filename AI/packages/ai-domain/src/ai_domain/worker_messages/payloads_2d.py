@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class ConversationHistoryMessage(BaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: str = Field(min_length=1)
 
 
 class TwoDLlmCommandPayload(BaseModel):
@@ -16,4 +23,8 @@ class TwoDLlmCommandPayload(BaseModel):
             "Deprecated. The 2D worker reads IFC input from command.input.sourceIfcStorageUrl "
             "and ignores this field."
         ),
+    )
+    conversationHistory: list[ConversationHistoryMessage] = Field(
+        default_factory=list,
+        alias="conversation_history",
     )
