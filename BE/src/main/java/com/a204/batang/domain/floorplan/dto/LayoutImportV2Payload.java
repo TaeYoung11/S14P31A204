@@ -133,7 +133,11 @@ public record LayoutImportV2Payload(
             @NotBlank
             @Pattern(regexp = "^#[0-9A-Fa-f]{6}$")
             @Schema(description = "존 색상입니다.", example = "#FF5733")
-            String color
+            String color,
+
+            @Min(1)
+            @Schema(description = "층 번호입니다. 없으면 room.floor를 통해 해석됩니다.", example = "1")
+            Integer floor
     ) {
     }
 

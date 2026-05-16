@@ -10,6 +10,13 @@ import pytest
 
 sys.path.append(str(Path(__file__).resolve().parent))
 
+from ai_planning_3d.command import (
+    LLM3DCommand,
+    LLM3DCommandType,
+    LLM3DCreateInfo,
+    LLM3DElementType,
+    LLM3DPoint3D,
+)
 from ai_planning_3d.pipeline import LLM3DPipeline
 from test_door_window_chat_e2e import _SAMPLE_IFC, run_door_window_chat_commands
 
@@ -63,6 +70,44 @@ def test_door_window_delete_select_all_requires_explicit_all_expression():
 
     assert single.target.select_all is False
     assert all_windows.target.select_all is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _SAMPLE_IFC.exists(), reason="sample IFC not found")
+async def test_door_host_wall_missing_returns_wall_clarification_options():
+    pipeline = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC))
+    command = LLM3DCommand(
+        command_type=LLM3DCommandType.CREATE,
+        raw_instruction="create a door far from every wall",
+        create_info=LLM3DCreateInfo(
+            element_type=LLM3DElementType.DOOR,
+            storey="1F",
+            start_point=LLM3DPoint3D(x=999_000.0, y=999_000.0, z=0.0),
+            length_mm=900.0,
+            width_mm=200.0,
+            height_mm=2100.0,
+            direction=None,
+        ),
+    )
+
+    result = await pipeline.execute_command_preview(command)
+
+    assert result["status"] == "needs_clarification"
+    assert result["session_id"]
+    assert result["clarification_questions"]
+    [question] = result["clarification_questions"]
+    assert question["trigger"] == "custom"
+    assert question["context"]["apply_field"] == "host_wall_global_id"
+    assert question["options"]
+    first_option = question["options"][0]
+    assert first_option["id"] == first_option["value"]
+    assert first_option["label"]
+
+    command.create_info.host_wall_global_id = first_option["value"]
+    resolved = await pipeline.execute_command_preview(command)
+
+    assert resolved["status"] == "preview_ready"
+    assert command.create_info.host_wall_global_id == first_option["value"]
 
 
 @pytest.mark.asyncio

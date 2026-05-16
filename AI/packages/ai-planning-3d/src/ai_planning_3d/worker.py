@@ -573,8 +573,34 @@ def _map_clarification(result: dict[str, Any]) -> dict[str, Any]:
     if questions:
         first = questions[0]
         question_text = first.get("question_ko") or result.get("summary", "추가 정보가 필요합니다.")
-        options = [o["label"] for o in first.get("options", []) if o.get("label")]
-        return {"question": question_text, "options": options}
+        options: list[str | dict[str, Any]] = []
+        for option in first.get("options", []):
+            if not isinstance(option, dict):
+                continue
+            label = option.get("label")
+            if not label:
+                continue
+            option_id = option.get("id")
+            if option_id:
+                mapped_option: dict[str, Any] = {
+                    "id": str(option_id),
+                    "label": str(label),
+                }
+                if option.get("value") is not None:
+                    mapped_option["value"] = option["value"]
+                if option.get("description"):
+                    mapped_option["description"] = str(option["description"])
+                options.append(mapped_option)
+            else:
+                options.append(str(label))
+
+        clarification: dict[str, Any] = {"question": question_text}
+        if options:
+            clarification["options"] = options
+        context = first.get("context")
+        if isinstance(context, dict) and context:
+            clarification["context"] = context
+        return clarification
     # ambiguity_question 경로: 질문만 있고 선택지 없음
     return {"question": result.get("summary", "추가 정보가 필요합니다.")}
 
