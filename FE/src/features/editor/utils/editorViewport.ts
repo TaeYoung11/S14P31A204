@@ -4,13 +4,9 @@ import {
   scaleFlatPointsAround,
   translateFlatPoints,
 } from './sitePointTransform'
-
-export interface ViewportInsets {
-  left: number
-  right: number
-  top: number
-  bottom: number
-}
+import { normalizeViewportInsets } from './viewportInsets'
+import type { ViewportInsets } from './viewportInsets'
+export type { ViewportInsets } from './viewportInsets'
 
 /**
  * 점 배열이 스테이지 내부에 맞도록 필요한 줌 비율(%)을 계산한다.
@@ -26,12 +22,7 @@ export function computeFitZoomPercent(
   const bounds = getFlatPointsBounds(points)
   if (!bounds) return null
 
-  const insets: ViewportInsets = {
-    left: Math.max(0, viewportInsets?.left ?? 0),
-    right: Math.max(0, viewportInsets?.right ?? 0),
-    top: Math.max(0, viewportInsets?.top ?? 0),
-    bottom: Math.max(0, viewportInsets?.bottom ?? 0),
-  }
+  const insets = normalizeViewportInsets(viewportInsets)
   const availableWidth = Math.max(stageWidth - marginPx * 2 - insets.left - insets.right, 1)
   const availableHeight = Math.max(stageHeight - marginPx * 2 - insets.top - insets.bottom, 1)
   const fitScale = Math.min(availableWidth / bounds.width, availableHeight / bounds.height)

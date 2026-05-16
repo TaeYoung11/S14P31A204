@@ -99,6 +99,7 @@ import { useFloorPlanGenerateTimeout } from './useFloorPlanGenerateTimeout'
 import { useThreeDIfcAttributeHandlers } from './useThreeDIfcAttributeHandlers'
 import { useEditorToolState } from './useEditorToolState'
 import { useFloorWallToolState } from './useFloorWallToolState'
+import { useEditorViewportInsets } from './useEditorViewportInsets'
 import { runForceDirectedBubbleLayout } from '../utils/forceBubbleLayout'
 import { useBubbleSnapshotRealtime } from './useBubbleSnapshotRealtime'
 import { useIfcLoadingLayer } from './useIfcLoadingLayer'
@@ -3456,29 +3457,14 @@ export function useEditorPage() {
     [activeFloorBubbleIdSet, autoZones, manualZones],
   )
 
-  const viewportInsets = useMemo(() => {
-    if (mode === 'view') {
-      return { left: 0, right: 0, top: 0, bottom: 0 }
-    }
-    const leftInset = isEditorReadOnly ? 24 : 140
-    const hasFloatingRightPanel = !effectiveIsCollaborationMode && !isAgentPanelMode
-    const rightPanelWidth = panelOpenState.attributes ? (panelWidths.attributes ?? 300) : 44
-    // 우측 패널은 내부 카드/여백까지 포함해 실제 점유폭이 panelWidth보다 크므로 보정치를 더한다.
-    const rightInset = hasFloatingRightPanel ? rightPanelWidth + 180 : 24
-    return {
-      left: leftInset,
-      right: rightInset,
-      top: 0,
-      bottom: 0,
-    }
-  }, [
-    effectiveIsCollaborationMode,
-    isAgentPanelMode,
-    isEditorReadOnly,
+  const viewportInsets = useEditorViewportInsets({
     mode,
-    panelOpenState.attributes,
-    panelWidths.attributes,
-  ])
+    isEditorReadOnly,
+    isCollaborationMode: effectiveIsCollaborationMode,
+    isAgentPanelMode,
+    isAttributePanelOpen: panelOpenState.attributes,
+    attributePanelWidth: panelWidths.attributes,
+  })
 
   const {
     fixedScaleSitePoints,
