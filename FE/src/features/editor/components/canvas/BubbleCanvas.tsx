@@ -37,7 +37,6 @@ export interface EmptyCanvasDblClickInfo {
 const MIN_BUBBLE_SIZE = 8
 const SITE_GUIDE_STROKE = '#3B45B3'
 const SITE_OUTSIDE_WARNING = '#DC2626'
-const SITE_WARNING_TEXT_FILL = '#991B1B'
 
 interface BubbleCanvasProps {
   projectId?: string
@@ -162,7 +161,6 @@ export function BubbleCanvas({
     [bubbles, sitePoints],
   )
   const outsideBubbleIdSet = siteValidation.outsideBubbleIds
-  const outsideBubbleCount = siteValidation.outsideCount
 
   /** 각 버블 Group ref — Transformer 연결용 */
   const groupRefs = useRef<Map<string, Konva.Group>>(new Map())
@@ -551,17 +549,6 @@ export function BubbleCanvas({
           listening={false}
         />
         <Line points={sitePoints} closed stroke="#2D359980" strokeWidth={1} dash={[8, 6]} listening={false} />
-        {outsideBubbleCount > 0 && (
-          <Text
-            x={14}
-            y={12}
-            text={`대지 경계 밖 배치 ${outsideBubbleCount}개`}
-            fontSize={12}
-            fontStyle="bold"
-            fill={SITE_WARNING_TEXT_FILL}
-            listening={false}
-          />
-        )}
 
         {/* 층 겹쳐보기 오버레이 (버블 다이어그램 확인용) */}
         {overlayLayers.map((overlay) => (
@@ -772,18 +759,6 @@ export function BubbleCanvas({
                 shadowOpacity={disableShadowForResize ? 0 : isConnectingFrom ? 0.25 : 0.05}
                 shadowOffset={{ x: 0, y: 4 }}
               />
-              {isOutsideSite && (
-                <Text
-                  text="대지 밖"
-                  fontSize={10}
-                  fontStyle="bold"
-                  fill={SITE_OUTSIDE_WARNING}
-                  width={bubble.width}
-                  align="center"
-                  y={Math.max(4, bubble.height / 2 - 44)}
-                />
-              )}
-
               {/* 선택 핸들 (타원 4방향 극점) — Transformer 없을 때만 표시 */}
               {isSingleSelected && selectedIds.length !== 1 && (
                 <>
