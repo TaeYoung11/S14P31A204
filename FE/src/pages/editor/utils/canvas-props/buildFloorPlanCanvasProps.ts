@@ -24,7 +24,18 @@ export function buildFloorPlanCanvasProps(
   | 'isThreeDEditingLocked'
   | 'currentIfcUrl'
   | 'currentIfcAssetId'
+  | 'libraryElements'
+  | 'handleAddLibraryPreset'
+  | 'handleChangeLibraryElement'
+  | 'handleDeleteLibraryElement'
   | 'localFloorData'
+  | 'activeIfcStoreyExpressId'
+  | 'overlayIfcStoreyExpressIds'
+  | 'requestedIfcElementLocalId'
+  | 'ifcElementSelectionRequestToken'
+  | 'requestedLibraryElementId'
+  | 'libraryElementSelectionRequestToken'
+  | 'handleIfcStoreysLoad'
 > {
   return {
     sitePlanPoints: vm.sitePlanPoints,
@@ -44,6 +55,17 @@ export function buildFloorPlanCanvasProps(
     isThreeDEditingLocked: vm.isThreeDEditingLocked,
     currentIfcUrl: vm.currentIfcUrl,
     currentIfcAssetId: vm.currentIfcAssetId,
+    libraryElements: vm.libraryElements,
+    handleAddLibraryPreset: vm.handleAddLibraryPreset,
+    handleChangeLibraryElement: vm.handleChangeLibraryElement,
+    handleDeleteLibraryElement: vm.handleDeleteLibraryElement,
     localFloorData: vm.localFloorData,
+    activeIfcStoreyExpressId: vm.activeIfcStoreyExpressId,
+    overlayIfcStoreyExpressIds: vm.overlayIfcStoreyExpressIds,
+    requestedIfcElementLocalId: vm.requestedIfcElementLocalId,
+    ifcElementSelectionRequestToken: vm.ifcElementSelectionRequestToken,
+    requestedLibraryElementId: vm.requestedLibraryElementId,
+    libraryElementSelectionRequestToken: vm.libraryElementSelectionRequestToken,
+    handleIfcStoreysLoad: vm.handleIfcStoreysLoad,
   }
 }

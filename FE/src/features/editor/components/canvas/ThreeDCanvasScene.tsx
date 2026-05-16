@@ -133,7 +133,6 @@ export default function ThreeDCanvasScene({
         onLibraryElementDelete={onLibraryElementDelete}
         onIfcElementSelect={onIfcElementSelect}
         transformMode={transformMode}
-        selectedTool={selectedTool}
         libraryDropRequest={libraryDropRequest}
         onResolveLibraryDrop={onResolveLibraryDrop}
         cameraViewPresetCommand={cameraViewPresetCommand}

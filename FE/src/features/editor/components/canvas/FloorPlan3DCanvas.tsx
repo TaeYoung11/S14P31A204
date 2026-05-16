@@ -30,6 +30,7 @@ import {
 } from './threeDPointerSelection.utils'
 import {
   createPresetMesh,
+  findLibraryRoot,
   getLibraryElementInfo,
   getLibraryScaleDimensionPatch,
   getLibraryPresetFromObject,
@@ -80,17 +81,19 @@ type MultiSelectionEntry = {
   element: IfcElementInfo
 }
 
+const PRESET_MOVE_DEBUG = import.meta.env.DEV || import.meta.env.VITE_3D_MOVE_DEBUG === 'true'
+const ALWAYS_TRACE_LOCAL3D_EVENTS = new Set<string>([
+  'pick_candidates',
+  'pick_floor_object',
+  'library_sync_start',
+  'library_sync_rebuild_done',
+  'transform_commit',
+])
+
 const logRoofDebug = (...args: unknown[]) => {
   if (!import.meta.env.DEV) return
   console.log('[roof-debug][FloorPlan3DCanvas]', ...args)
 }
-
-/** 선택 프리셋의 현재 transform을 저장용 patch 형식으로 변환한다. */
-const toPresetTransformPatch = (presetObject: LibraryObject3D) => ({
-  position: { x: presetObject.position.x, y: presetObject.position.y, z: presetObject.position.z },
-  rotation: { x: presetObject.rotation.x, y: presetObject.rotation.y, z: presetObject.rotation.z },
-  scale: { x: presetObject.scale.x, y: presetObject.scale.y, z: presetObject.scale.z },
-})
 
 /**
  * 2D 평면도 데이터를 Three.js로 즉시 3D 변환하여 표시하는 캔버스.
@@ -114,7 +117,6 @@ export function FloorPlan3DCanvas({
   deleteRequestToken = 0,
   isRotationLocked = false,
   transformMode = 'translate',
-  selectedTool = 'selection',
   onLibraryElementChange,
   onLibraryElementDelete,
   onIfcElementSelect,
@@ -150,7 +152,6 @@ export function FloorPlan3DCanvas({
   const handledLibraryDropTokenRef = useRef(0)
   const handledCameraPresetTokenRef = useRef(0)
   const transformModeRef = useRef<'translate' | 'rotate' | 'scale'>(transformMode)
-  const selectedToolRef = useRef(selectedTool)
   const rotationLockedRef = useRef(isRotationLocked)
   const isEditingLockedRef = useRef(isEditingLocked)
   const transformSnapEnabledRef = useRef(transformSnapEnabled)
@@ -294,6 +295,44 @@ export function FloorPlan3DCanvas({
     isEditingLockedRef.current = isEditingLocked
     updateTransformSelection()
   }, [isEditingLocked, updateTransformSelection])
+
+  const logPresetMove = useCallback((event: string, payload?: Record<string, unknown>) => {
+    const runtimeDebugEnabled = (() => {
+      if (typeof window === 'undefined') return false
+      try {
+        const search = new URLSearchParams(window.location.search)
+        if (search.get('local3dDebug') === '1' || search.get('local3dDebug') === 'true') return true
+        if (window.localStorage?.getItem('local3dDebug') === '1') return true
+        const runtimeFlag = (window as Window & { __LOCAL3D_PRESET_DEBUG__?: boolean }).__LOCAL3D_PRESET_DEBUG__
+        return runtimeFlag === true
+      } catch {
+        return false
+      }
+    })()
+    const shouldTrace = PRESET_MOVE_DEBUG || runtimeDebugEnabled || ALWAYS_TRACE_LOCAL3D_EVENTS.has(event)
+    if (!shouldTrace) return
+    if (payload) {
+      console.log(`[LOCAL3D_PRESET] ${event}`, payload)
+      return
+    }
+    console.log(`[LOCAL3D_PRESET] ${event}`)
+  }, [])
+
+  const clearTransformSelection = useCallback(() => {
+    const targetTc = transformControlsRef.current
+    if (!targetTc) return
+    const selectedPreset = selectedPresetRef.current
+    logPresetMove('selection_clear', {
+      presetId: selectedPreset ? getLibraryPresetFromObject(selectedPreset)?.id ?? null : null,
+    })
+    targetTc.detach()
+    targetTc.visible = false
+    targetTc.enabled = false
+    selectedPresetRef.current = null
+    selectedFloorObjectRef.current = null
+    selectedEntriesRef.current = []
+    onIfcElementSelectRef.current?.(null)
+  }, [logPresetMove])
 
   useEffect(() => {
     const THREE = threeRef.current
@@ -646,6 +685,7 @@ export function FloorPlan3DCanvas({
           }
         })
       })
+      let isTransformDragging = false
       ;(tc as unknown as {
         addEventListener: (type: 'dragging-changed' | 'mouseDown' | 'objectChange', listener: (e: { value: boolean }) => void) => void
       }).addEventListener('dragging-changed', (event) => {
@@ -709,6 +749,7 @@ export function FloorPlan3DCanvas({
       // ── 선택/마퀴 ──
       handlePointerDown = (event: PointerEvent) => {
         if (cancelled) return
+        if (isTransformDragging) return
         if (event.button !== 0) return
         const isDeleteMode = isDeleteTool(selectedToolRef.current)
         const isSelectionMode = isSelectionTool(selectedToolRef.current)
@@ -1102,7 +1143,7 @@ export function FloorPlan3DCanvas({
       selectedEntriesRef.current = [...previousSelectedFloorEntries, ...remappedLibraryEntries]
       updateTransformSelection()
     }
-  }, [libraryElements, updateTransformSelection])
+  }, [clearTransformSelection, libraryElements, logPresetMove, updateTransformSelection])
 
   useEffect(() => {
     if (!cameraViewPresetCommand) return

@@ -8,7 +8,7 @@
  *  1. ifcUrl이 없고 localFloorData가 있으면 → FloorPlan3DCanvas
  *  2. 그 외 → ThatOpenIfcCanvas (ifcUrl 없을 시 mock IFC로 폴백)
  */
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '../../types'
 import type { IfcStoreyInfo } from './thatopen/ifcPropertyParser'
 import { useCtrlWheelZoom } from '../../hooks/useCtrlWheelZoom'
@@ -95,12 +95,13 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
   // ifcUrl이 null(로딩 중 또는 IFC 없음)이어도 mock으로 폴백해 씬을 항상 표시한다
   const effectiveIfcUrl = props.ifcUrl ?? DEFAULT_MOCK_IFC_URL
 
+  const { onAddLibraryPreset } = props
   const addLibraryPreset = useCallback(
   (preset: ThreeDLibraryPreset) => {
     if (isEditingLocked) return
-    props.onAddLibraryPreset(preset)
+    onAddLibraryPreset(preset)
   },
-  [isEditingLocked, props.onAddLibraryPreset],
+  [isEditingLocked, onAddLibraryPreset],
 )
 
   useCtrlWheelZoom({
