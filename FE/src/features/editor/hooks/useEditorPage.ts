@@ -3356,8 +3356,8 @@ export function useEditorPage() {
 
   // ── 핸들러 ────────────────────────────────────────────────────────────────
 
-  /** 편집 모드 전환 — 협업 모드·라이브러리는 모드 이탈 시 닫힘 */
-  const setMode = useCallback((nextMode: EditorMode) => {
+  /** 실제 모드 전환 적용 — 협업 모드·라이브러리는 모드 이탈 시 닫힘 */
+  const applyMode = useCallback((nextMode: EditorMode) => {
     setSearchParams({ mode: nextMode })
     if (nextMode !== mode) resetToolSelection()
     if (nextMode === 'view' || nextMode === 'bubble' || (!isEditorReadOnly && nextMode !== '2d')) {
@@ -4039,18 +4039,15 @@ export function useEditorPage() {
     workspacePhaseStatus,
   ])
 
-  /**
-   * 버블 다이어그램 기준 2D 평면도 생성 진입점
-   * - 버블이 있을 때만 생성
-   * - 생성 시작 직후 2D 모드로 전환해 로딩/결과를 확인할 수 있게 한다.
-   */
-  const handleGenerateFloorPlanFromBubble = useCallback(() => {
-    if (bubbles.length === 0) return
-    setSelectedTool('selection')
-    setConnectingFromId(null)
-    handleGenerateFloorPlan()
-    setMode('2d')
-  }, [bubbles.length, handleGenerateFloorPlan, setConnectingFromId, setMode, setSelectedTool])
+  const canGenerateFloorPlanFromBubble = bubbles.length > 0
+    && !currentIfcUrl
+    && authUser?.user_type === 'DESIGNER'
+    && (!isCurrentProjectOwnerKnown || isCurrentProjectOwner)
+
+  /** 외부 UI에서 사용하는 모드 전환 핸들러 */
+  const setMode = useCallback((nextMode: EditorMode) => {
+    applyMode(nextMode)
+  }, [applyMode])
 
   const handleEditIfc = useCallback((elementId: string, action: string, value: unknown) => {
     if (!projectId) return
@@ -5320,12 +5317,8 @@ export function useEditorPage() {
     selectedFloorOpeningId,
     selectedFloorOpeningIds,
     handleGenerateFloorPlan,
-    handleGenerateFloorPlanFromBubble,
     handleAutoLayoutBubbles,
-    canGenerateFloorPlanFromBubble: bubbles.length > 0
-      && !currentIfcUrl
-      && authUser?.user_type === 'DESIGNER'
-      && (!isCurrentProjectOwnerKnown || isCurrentProjectOwner),
+    canGenerateFloorPlanFromBubble,
     canAutoLayoutBubbles: bubbles.length > 1,
     handleEditIfc,
     handleIfcUndo,

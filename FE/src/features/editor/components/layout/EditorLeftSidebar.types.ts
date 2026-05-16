@@ -19,11 +19,8 @@ export interface EditorLeftSidebarProps {
   onToggleLibrary?: () => void
   onToggleGrid?: () => void
   onExportIFC?: () => void
-  onGenerateFloorPlan?: () => void
   onAutoLayoutBubbles?: () => void
-  canGenerateFloorPlan?: boolean
   canAutoLayoutBubbles?: boolean
-  isFloorPlanGenerated?: boolean
   isBubbleReadOnly?: boolean
   isEditorReadOnly?: boolean
   isDeleteActionLocked?: boolean

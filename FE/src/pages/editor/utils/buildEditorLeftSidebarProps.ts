@@ -16,11 +16,8 @@ type SidebarViewModel = Pick<
   | 'handleToggleAgentPanel'
   | 'setIsLibraryOpen'
   | 'toggleGrid'
-  | 'handleGenerateFloorPlanFromBubble'
   | 'handleAutoLayoutBubbles'
-  | 'canGenerateFloorPlanFromBubble'
   | 'canAutoLayoutBubbles'
-  | 'isFloorPlanGenerated'
   | 'isBubbleReadOnly'
   | 'isEditorReadOnly'
   | 'isDeleteActionLocked'
@@ -51,9 +48,6 @@ export function buildEditorLeftSidebarProps(vm: SidebarViewModel): EditorLeftSid
     onExportIFC: vm.handleOpenIFCExportModal,
     onAutoLayoutBubbles: vm.handleAutoLayoutBubbles,
     canAutoLayoutBubbles: vm.canAutoLayoutBubbles,
-    onGenerateFloorPlan: vm.handleGenerateFloorPlanFromBubble,
-    canGenerateFloorPlan: vm.canGenerateFloorPlanFromBubble,
-    isFloorPlanGenerated: vm.isFloorPlanGenerated,
     isBubbleReadOnly: vm.isBubbleReadOnly,
     isEditorReadOnly: vm.isEditorReadOnly,
     isDeleteActionLocked: vm.isDeleteActionLocked,
