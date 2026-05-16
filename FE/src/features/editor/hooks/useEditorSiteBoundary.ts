@@ -32,6 +32,26 @@ interface StableSiteAnchor {
 }
 
 const siteAnchorCacheByProjectId = new Map<string, StableSiteAnchor>()
+const MAX_SITE_ANCHOR_CACHE_ENTRIES = 100
+
+function getCachedSiteAnchor(projectId: string): StableSiteAnchor | null {
+  return siteAnchorCacheByProjectId.get(projectId) ?? null
+}
+
+function setCachedSiteAnchor(projectId: string, anchor: { x: number; y: number }) {
+  // Map은 삽입 순서를 유지하므로 가장 오래된 항목부터 제거해 캐시 크기를 제한한다.
+  if (!siteAnchorCacheByProjectId.has(projectId) && siteAnchorCacheByProjectId.size >= MAX_SITE_ANCHOR_CACHE_ENTRIES) {
+    const oldestKey = siteAnchorCacheByProjectId.keys().next().value
+    if (typeof oldestKey === 'string') {
+      siteAnchorCacheByProjectId.delete(oldestKey)
+    }
+  }
+  siteAnchorCacheByProjectId.set(projectId, {
+    projectId,
+    x: anchor.x,
+    y: anchor.y,
+  })
+}
 
 interface RectLikeContent {
   x: number
@@ -204,27 +224,23 @@ export function useEditorSiteBoundary({
   }, [bubbles, floorRooms, viewportFrame.centerX, viewportFrame.centerY])
 
   const siteAnchorCenter = useMemo(() => {
-    const anchorProjectId = projectId ?? ''
     const hasContent = bubbles.length > 0 || floorRooms.length > 0
     const viewportAnchor = { x: viewportFrame.centerX, y: viewportFrame.centerY }
-    const cachedAnchor = siteAnchorCacheByProjectId.get(anchorProjectId)
+    if (!projectId) {
+      return hasContent ? contentCenter : viewportAnchor
+    }
+
+    const cachedAnchor = getCachedSiteAnchor(projectId)
     if (cachedAnchor) {
       if (!hasContent) {
-        siteAnchorCacheByProjectId.set(anchorProjectId, {
-          projectId: anchorProjectId,
-          x: viewportAnchor.x,
-          y: viewportAnchor.y,
-        })
+        setCachedSiteAnchor(projectId, viewportAnchor)
         return viewportAnchor
       }
       return { x: cachedAnchor.x, y: cachedAnchor.y }
     }
+
     const initialAnchor = hasContent ? contentCenter : viewportAnchor
-    siteAnchorCacheByProjectId.set(anchorProjectId, {
-      projectId: anchorProjectId,
-      x: initialAnchor.x,
-      y: initialAnchor.y,
-    })
+    setCachedSiteAnchor(projectId, initialAnchor)
     return initialAnchor
   }, [bubbles.length, contentCenter, floorRooms.length, projectId, viewportFrame.centerX, viewportFrame.centerY])
 
