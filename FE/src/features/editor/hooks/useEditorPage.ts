@@ -158,6 +158,7 @@ import {
 } from '../utils/workspaceSyncMessage'
 import { isToolAllowedDuringConverting, isTwoDOrThreeDConverting as isTwoDOrThreeDConvertingByPhase } from '../utils/editorModeLocks'
 import { isExpiredPresignedIfcUrl, resolveIfcPresignedUrl } from '../utils/ifcSource'
+import { getDominantEdgeAngleRadians, getFlatPointsBounds } from '../utils/sitePointTransform'
 import {
   buildPinAuthorNameByUserId,
   buildUnreadCommentNotifications,
@@ -201,6 +202,15 @@ interface GenerateFloorPlanOptions {
   spaceHeightMm?: number
 }
 
+interface SiteSimilarityTransform {
+  centerX: number
+  centerY: number
+  nextCenterX: number
+  nextCenterY: number
+  rotationRadians: number
+  scale: number
+}
+
 const OPENING_MIN_WIDTH_MM = 1
 const OPENING_MAX_WIDTH_MM = 4000
 const WORKSPACE_HISTORY_MAX_INDEX = 9
@@ -230,6 +240,186 @@ interface CachedIfcSource {
 
 const clampBubbleDbSaveDebounceMs = (value: number): number =>
   Math.min(MAX_BUBBLE_DB_SAVE_DEBOUNCE_MS, Math.max(MIN_BUBBLE_DB_SAVE_DEBOUNCE_MS, Math.round(value)))
+
+const normalizeAngleDelta = (radians: number): number => {
+  let value = radians
+  while (value > Math.PI) value -= Math.PI * 2
+  while (value < -Math.PI) value += Math.PI * 2
+  return value
+}
+
+const computeEdgeAverageScale = (previousPoints: number[], nextPoints: number[]): number | null => {
+  if (previousPoints.length !== nextPoints.length) return null
+  const count = Math.floor(previousPoints.length / 2)
+  if (count < 3) return null
+  let sum = 0
+  let matched = 0
+  for (let i = 0; i < count; i += 1) {
+    const prevIdx = i * 2
+    const prevNextIdx = ((i + 1) % count) * 2
+    const nextIdx = i * 2
+    const nextNextIdx = ((i + 1) % count) * 2
+    const prevLen = Math.hypot(
+      previousPoints[prevNextIdx] - previousPoints[prevIdx],
+      previousPoints[prevNextIdx + 1] - previousPoints[prevIdx + 1],
+    )
+    const nextLen = Math.hypot(
+      nextPoints[nextNextIdx] - nextPoints[nextIdx],
+      nextPoints[nextNextIdx + 1] - nextPoints[nextIdx + 1],
+    )
+    if (prevLen <= 1e-6 || nextLen <= 1e-6) continue
+    sum += nextLen / prevLen
+    matched += 1
+  }
+  if (matched === 0) return null
+  return Math.max(0.01, Math.min(100, sum / matched))
+}
+
+const computeSiteSimilarityTransform = (
+  previousPoints: number[],
+  nextPoints: number[],
+): SiteSimilarityTransform | null => {
+  const prevBounds = getFlatPointsBounds(previousPoints)
+  const nextBounds = getFlatPointsBounds(nextPoints)
+  if (!prevBounds || !nextBounds) return null
+  const prevAngle = getDominantEdgeAngleRadians(previousPoints) ?? 0
+  const nextAngle = getDominantEdgeAngleRadians(nextPoints) ?? 0
+  const rotationRadians = normalizeAngleDelta(nextAngle - prevAngle)
+  const edgeScale = computeEdgeAverageScale(previousPoints, nextPoints)
+  const fallbackScaleX = prevBounds.width > 1e-6 ? nextBounds.width / prevBounds.width : 1
+  const fallbackScaleY = prevBounds.height > 1e-6 ? nextBounds.height / prevBounds.height : 1
+  const fallbackScale = Number.isFinite(fallbackScaleX) && Number.isFinite(fallbackScaleY)
+    ? Math.max(0.01, Math.min(100, (fallbackScaleX + fallbackScaleY) / 2))
+    : 1
+  const scale = edgeScale ?? fallbackScale
+  return {
+    centerX: prevBounds.cx,
+    centerY: prevBounds.cy,
+    nextCenterX: nextBounds.cx,
+    nextCenterY: nextBounds.cy,
+    rotationRadians,
+    scale,
+  }
+}
+
+const applySimilarityPoint = (
+  x: number,
+  y: number,
+  transform: SiteSimilarityTransform,
+): Point2D => ({
+  x:
+    transform.nextCenterX
+    + ((x - transform.centerX) * Math.cos(transform.rotationRadians)
+      - (y - transform.centerY) * Math.sin(transform.rotationRadians)) * transform.scale,
+  y:
+    transform.nextCenterY
+    + ((x - transform.centerX) * Math.sin(transform.rotationRadians)
+      + (y - transform.centerY) * Math.cos(transform.rotationRadians)) * transform.scale,
+})
+
+const applySimilarityVector = (
+  x: number,
+  y: number,
+  transform: SiteSimilarityTransform,
+): Point2D => ({
+  x: (x * Math.cos(transform.rotationRadians) - y * Math.sin(transform.rotationRadians)) * transform.scale,
+  y: (x * Math.sin(transform.rotationRadians) + y * Math.cos(transform.rotationRadians)) * transform.scale,
+})
+
+const toRectPolygonFromRoom = (
+  room: Pick<FloorRoom, 'x' | 'y' | 'width' | 'height'>,
+): Point2D[] => ([
+  { x: room.x, y: room.y },
+  { x: room.x + room.width, y: room.y },
+  { x: room.x + room.width, y: room.y + room.height },
+  { x: room.x, y: room.y + room.height },
+])
+
+const transformRoomContourBySiteSimilarity = (
+  contour: FloorRoom['contour'],
+  transform: SiteSimilarityTransform,
+): FloorRoom['contour'] => {
+  if (!contour || contour.length === 0) return contour
+  return contour.map((segment) => {
+    if (segment.type === 'line') {
+      return {
+        type: 'line',
+        from: applySimilarityPoint(segment.from.x, segment.from.y, transform),
+        to: applySimilarityPoint(segment.to.x, segment.to.y, transform),
+      }
+    }
+    return {
+      ...segment,
+      center: applySimilarityPoint(segment.center.x, segment.center.y, transform),
+      radius: segment.radius * transform.scale,
+    }
+  })
+}
+
+const transformRoomTransformBySiteSimilarity = (
+  roomTransform: FloorRoom['transform'],
+  transform: SiteSimilarityTransform,
+): FloorRoom['transform'] => {
+  if (!roomTransform) return roomTransform
+  const translation = applySimilarityVector(
+    roomTransform.translationX ?? 0,
+    roomTransform.translationY ?? 0,
+    transform,
+  )
+  return {
+    ...roomTransform,
+    translationX: translation.x,
+    translationY: translation.y,
+    rotationDeg: (roomTransform.rotationDeg ?? 0) + (transform.rotationRadians * 180) / Math.PI,
+    scaleX: (roomTransform.scaleX ?? 1) * transform.scale,
+    scaleY: (roomTransform.scaleY ?? 1) * transform.scale,
+    origin: roomTransform.origin
+      ? applySimilarityPoint(roomTransform.origin.x, roomTransform.origin.y, transform)
+      : roomTransform.origin,
+  }
+}
+
+const transformRoomBySiteSimilarity = (
+  room: FloorRoom,
+  transform: SiteSimilarityTransform,
+): FloorRoom => {
+  // transform 메타가 있는 IFC 원형상 Room은 기존 렌더링 경로를 유지한다.
+  if (room.transform) {
+    const topLeft = applySimilarityPoint(room.x, room.y, transform)
+    const transformedPolygon = room.polygon?.map((point) =>
+      applySimilarityPoint(point.x, point.y, transform))
+    return {
+      ...room,
+      x: topLeft.x,
+      y: topLeft.y,
+      width: room.width * transform.scale,
+      height: room.height * transform.scale,
+      polygon: transformedPolygon,
+      contour: transformRoomContourBySiteSimilarity(room.contour, transform),
+      transform: transformRoomTransformBySiteSimilarity(room.transform, transform),
+    }
+  }
+
+  const sourcePolygon = room.polygon && room.polygon.length >= 3
+    ? room.polygon
+    : toRectPolygonFromRoom(room)
+  const transformedPolygon = sourcePolygon.map((point) =>
+    applySimilarityPoint(point.x, point.y, transform))
+  const bounds = getPolygonBounds(transformedPolygon)
+  const nextWidth = Math.max(bounds.maxX - bounds.minX, 1)
+  const nextHeight = Math.max(bounds.maxY - bounds.minY, 1)
+
+  return {
+    ...room,
+    x: bounds.minX,
+    y: bounds.minY,
+    width: nextWidth,
+    height: nextHeight,
+    polygon: transformedPolygon,
+    contour: transformRoomContourBySiteSimilarity(room.contour, transform),
+    transform: transformRoomTransformBySiteSimilarity(room.transform, transform),
+  }
+}
 
 const resolveBubbleDbSaveDebounceMs = (): number => {
   const envSeconds = Number(BUBBLE_DB_SAVE_DEBOUNCE_SECONDS_ENV)
@@ -776,6 +966,7 @@ export function useEditorPage() {
   const [commentPins, setCommentPins] = useState<FloorCommentPin[]>([])
   const [commentNotifications, setCommentNotifications] = useState<FloorCommentNotification[]>([])
   const [isLibraryOpen, setIsLibraryOpen] = useState(false)
+  const [isTrueNorthView, setIsTrueNorthView] = useState(false)
   const [isGridVisible, setIsGridVisible] = useState(false)
   /** 연결 도구에서 첫 번째로 선택된 버블 id */
   /** 인라인 라벨 편집 상태 */
@@ -804,6 +995,7 @@ export function useEditorPage() {
   const floorPlanHistoryBaseIndexRef = useRef(-1)
   const floorPlanHistoryRedoDepthRef = useRef(0)
   const previousSnapshotRef = useRef<string | null>(null)
+  const previousSiteBoundaryTransformRef = useRef<{ key: string; points: number[] } | null>(null)
   const latestBubbleSnapshotRef = useRef<{
     bubbles: BubbleData[]
     connections: ConnectionData[]
@@ -3283,10 +3475,89 @@ export function useEditorPage() {
     siteAreaM2: workspaceSiteBoundary.areaM2,
     sitePolygonQueryEnabled: false,
     siteBoundaryHydrated: isWorkspaceSiteBoundaryHydrated,
+    isTrueNorthView,
     setSaveStatus,
   })
   const bubbleSitePoints = fixedScaleSitePoints
   const sharedSitePlanPoints = bubbles.length > 0 ? bubbleSitePoints : sitePlanPoints
+  const siteBoundaryTransformKey = useMemo(() => {
+    if (!workspaceSiteBoundary.polygonRing || workspaceSiteBoundary.polygonRing.length === 0) return ''
+    return `${isTrueNorthView ? 'north' : 'aligned'}:${JSON.stringify(workspaceSiteBoundary.polygonRing)}`
+  }, [isTrueNorthView, workspaceSiteBoundary.polygonRing])
+
+  useEffect(() => {
+    if (!siteBoundaryTransformKey) {
+      previousSiteBoundaryTransformRef.current = null
+      return
+    }
+    if (sharedSitePlanPoints.length < 8) return
+    const previous = previousSiteBoundaryTransformRef.current
+    if (!previous || previous.key === siteBoundaryTransformKey) {
+      previousSiteBoundaryTransformRef.current = {
+        key: siteBoundaryTransformKey,
+        points: [...sharedSitePlanPoints],
+      }
+      return
+    }
+
+    const transform = computeSiteSimilarityTransform(previous.points, sharedSitePlanPoints)
+    previousSiteBoundaryTransformRef.current = {
+      key: siteBoundaryTransformKey,
+      points: [...sharedSitePlanPoints],
+    }
+    if (!transform) return
+
+    if (bubbles.length > 0) {
+      const transformedBubbles = bubbles.map((bubble) => {
+        const topLeft = applySimilarityPoint(bubble.x, bubble.y, transform)
+        return {
+        ...bubble,
+          x: topLeft.x,
+          y: topLeft.y,
+          width: bubble.width * transform.scale,
+          height: bubble.height * transform.scale,
+        }
+      })
+      replaceBubbles(transformedBubbles)
+    }
+
+    if (floorLayers.length > 0) {
+      const transformedLayers = floorLayers.map((layer) => ({
+        ...layer,
+        rooms: layer.rooms.map((room) => transformRoomBySiteSimilarity(room, transform)),
+      }))
+      replaceFloorPlanState({
+        isGenerated: isFloorPlanGenerated,
+        layoutSource: floorPlanLayoutSource,
+        layers: transformedLayers,
+        activeLayerId: activeFloorLayerId,
+      })
+    }
+
+    setFloorWalls((prev) =>
+      prev.map((wall) => ({
+        ...wall,
+        start: applySimilarityPoint(wall.start.x, wall.start.y, transform),
+        end: applySimilarityPoint(wall.end.x, wall.end.y, transform),
+      })))
+
+    setCommentPins((prev) =>
+      prev.map((pin) => {
+        const mapped = applySimilarityPoint(pin.x, pin.y, transform)
+        return { ...pin, x: mapped.x, y: mapped.y }
+      }))
+    setLabelEditState(null)
+  }, [
+    activeFloorLayerId,
+    bubbles,
+    floorLayers,
+    floorPlanLayoutSource,
+    isFloorPlanGenerated,
+    replaceBubbles,
+    replaceFloorPlanState,
+    sharedSitePlanPoints,
+    siteBoundaryTransformKey,
+  ])
 
   const zoomFitPoints = useMemo(() => {
     if (bubbles.length > 0) return bubbleSitePoints
@@ -5142,6 +5413,8 @@ export function useEditorPage() {
   return {
     // 모드
     mode,
+    isTrueNorthView,
+    setIsTrueNorthView,
     projectId,
     currentProjectName,
     latestFloorPlanJobId,

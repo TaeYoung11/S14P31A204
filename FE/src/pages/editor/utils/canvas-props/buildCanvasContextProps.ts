@@ -22,6 +22,7 @@ export function buildCanvasContextProps(
   | 'handleDeletePin'
   | 'deletingPinId'
   | 'isGridVisible'
+  | 'isTrueNorthView'
   | 'selectedTool'
   | 'handleWheelZoom'
   | 'canvasZoom'
@@ -42,6 +43,7 @@ export function buildCanvasContextProps(
     handleDeletePin: vm.handleDeletePin,
     deletingPinId: vm.deletingPinId,
     isGridVisible: vm.isGridVisible,
+    isTrueNorthView: vm.isTrueNorthView,
     selectedTool: vm.selectedTool,
     handleWheelZoom: vm.handleWheelZoom,
     canvasZoom: vm.canvasZoom,

@@ -11,6 +11,7 @@ import { FLOOR_MM_PER_PX, SITE_RAW_POINTS } from '../constants'
 import type { BubbleData, FloorOpening, FloorRoom, FloorWall, SaveStatus } from '../types'
 import { centerSitePoints, fitSitePointsToStage } from '../utils/bubbleCalc'
 import { ensureSiteContainsBubbles } from '../utils/editorViewport'
+import { alignFlatPointsToAxis } from '../utils/sitePointTransform'
 import {
   DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
   resolveMmPerPxForFloorPlan,
@@ -43,6 +44,7 @@ interface UseEditorSiteBoundaryParams {
   siteAreaM2?: number | null
   sitePolygonQueryEnabled?: boolean
   siteBoundaryHydrated?: boolean
+  isTrueNorthView?: boolean
   setSaveStatus: Dispatch<SetStateAction<SaveStatus>>
 }
 
@@ -64,6 +66,7 @@ export function useEditorSiteBoundary({
   siteAreaM2: siteAreaM2Override,
   sitePolygonQueryEnabled = true,
   siteBoundaryHydrated = true,
+  isTrueNorthView = false,
   setSaveStatus,
 }: UseEditorSiteBoundaryParams) {
   const sitePolygonQuery = useProjectSitePolygon(
@@ -84,6 +87,11 @@ export function useEditorSiteBoundary({
     [siteAreaM2],
   )
 
+  const maybeAlignToWorkingAxis = useCallback(
+    (points: number[]): number[] => (isTrueNorthView ? points : alignFlatPointsToAxis(points).points),
+    [isTrueNorthView],
+  )
+
   // 파생 상태: 대지 외곽선 포인트 (캔버스 중앙 정렬)
   const sitePoints = useMemo(() => {
     const targetWidth = Math.max(stageWidth - EDITOR_SITE_FIT_PADDING_PX * 2, 1)
@@ -98,7 +106,7 @@ export function useEditorSiteBoundary({
     const cachedRawPoints = cachedCanvasPoints?.flatMap((point) => [point.x, point.y]) ?? null
 
     if (cachedRawPoints) {
-      return centerSitePoints(cachedRawPoints, stageWidth, stageHeight)
+      return maybeAlignToWorkingAxis(centerSitePoints(cachedRawPoints, stageWidth, stageHeight))
     }
 
     // 실제 대지 하이드레이션 이전에는 기본(mock) 대지를 그리지 않아 플리커를 방지한다.
@@ -110,13 +118,13 @@ export function useEditorSiteBoundary({
       padding: EDITOR_SITE_FIT_PADDING_PX,
       fitRatio: 1,
     })
-    return ensureSiteContainsBubbles(
+    return maybeAlignToWorkingAxis(ensureSiteContainsBubbles(
       fitted,
       bubbles,
       SITE_CONTAIN_BUBBLE_PADDING_PX,
       SITE_CONTAIN_MAX_SCALE,
-    )
-  }, [cachedSiteRing, stageWidth, stageHeight, bubbles, siteBoundaryHydrated])
+    ))
+  }, [cachedSiteRing, stageWidth, stageHeight, bubbles, siteBoundaryHydrated, maybeAlignToWorkingAxis])
 
   const floorPlanMmPerPx = useMemo(() => {
     if (bubbles.length > 0) {
@@ -184,8 +192,8 @@ export function useEditorSiteBoundary({
       centerY: siteAnchorCenter.y,
     })
     if (!mapped) return sitePoints
-    return mapped.flatMap((point) => [point.x, point.y])
-  }, [cachedSiteRing, floorPlanMmPerPx, siteAnchorCenter, sitePoints])
+    return maybeAlignToWorkingAxis(mapped.flatMap((point) => [point.x, point.y]))
+  }, [cachedSiteRing, floorPlanMmPerPx, siteAnchorCenter, sitePoints, maybeAlignToWorkingAxis])
 
   const fixedScaleSitePoints = useMemo(() => {
     if (!cachedSiteRing) return sitePoints
@@ -195,8 +203,8 @@ export function useEditorSiteBoundary({
       centerY: siteAnchorCenter.y,
     })
     if (!mapped) return sitePoints
-    return mapped.flatMap((point) => [point.x, point.y])
-  }, [bubbleMmPerPx, cachedSiteRing, siteAnchorCenter, sitePoints])
+    return maybeAlignToWorkingAxis(mapped.flatMap((point) => [point.x, point.y]))
+  }, [bubbleMmPerPx, cachedSiteRing, siteAnchorCenter, sitePoints, maybeAlignToWorkingAxis])
 
   const layoutBoundaryInput = useMemo<LayoutImportBoundaryInput>(() => {
     return {

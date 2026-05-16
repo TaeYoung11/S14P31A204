@@ -5,6 +5,8 @@ interface EditorToolbarProps {
   mode: EditorMode
   projectName?: string
   onModeChange: (mode: EditorMode) => void
+  isTrueNorthView?: boolean
+  onToggleTrueNorthView?: () => void
   onUndo?: () => void
   onRedo?: () => void
   canUndo?: boolean
@@ -29,6 +31,8 @@ export default function EditorToolbar({
   mode,
   projectName,
   onModeChange,
+  isTrueNorthView = false,
+  onToggleTrueNorthView,
   onUndo,
   onRedo,
   canUndo = false,
@@ -74,6 +78,21 @@ export default function EditorToolbar({
                 </button>
               ))}
             </div>
+          )}
+
+          {!isView && (
+            <button
+              type="button"
+              onClick={onToggleTrueNorthView}
+              className={`rounded-full border px-3 py-1.5 text-[11px] font-bold transition-all ${
+                isTrueNorthView
+                  ? 'border-[#3B45B3] bg-[#3B45B3] text-white'
+                  : 'border-[#D8DDED] bg-white text-[#4E5A76] hover:bg-[#F5F7FC]'
+              }`}
+              title={isTrueNorthView ? '정렬 보기로 전환' : '실제 북향으로 전환'}
+            >
+              {isTrueNorthView ? '실제 북향' : '정렬 보기'}
+            </button>
           )}
 
           {!isView && (
