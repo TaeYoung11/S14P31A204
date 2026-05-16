@@ -52,7 +52,11 @@ class PlanningWorker(BaseWorker):
     def process(self, command: CommandMessage) -> WorkerResult:
         payload = command.payload  # ThreeDLlmCommandPayload
         ifc_url: str = payload.sourceSceneStorageUrl
-        user_instruction: str = payload.userInstruction
+        user_instruction: str = _resolve_effective_instruction(
+            payload.userInstruction,
+            payload.conversationHistory,
+            payload.plannerOptions,
+        )
         output_url: str | None = command.expectedOutput.threeDPlanStorageUrl
 
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -67,7 +71,13 @@ class PlanningWorker(BaseWorker):
 
             pipeline = LLM3DPipeline(ifc_path=str(ifc_path))
             try:
-                result = asyncio.run(_execute_preview_for_instruction(pipeline, user_instruction))
+                result = asyncio.run(
+                    _execute_preview_for_instruction(
+                        pipeline,
+                        user_instruction,
+                        payload.plannerOptions,
+                    )
+                )
             except Exception as exc:
                 raise NonRetryableWorkerError(
                     code="PIPELINE_FAILED",
@@ -145,14 +155,53 @@ class PlanningWorker(BaseWorker):
 async def _execute_preview_for_instruction(
     pipeline: LLM3DPipeline,
     user_instruction: str,
+    planner_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    has_host_wall_override = isinstance(planner_options, dict) and isinstance(
+        planner_options.get("host_wall_global_id"),
+        str,
+    ) and bool(str(planner_options.get("host_wall_global_id")).strip())
+
     command_texts = pipeline.split_chat_commands(user_instruction)
     if len(command_texts) <= 1:
-        return await pipeline.execute_preview(user_instruction)
+        if not has_host_wall_override:
+            return await pipeline.execute_preview(user_instruction)
+        command = await pipeline.engine.parse_command(
+            user_instruction,
+            ifc_context=pipeline._ifc_context_text,
+        )
+        return await pipeline.execute_command_preview(
+            _apply_planner_options(command, planner_options)
+        )
 
     previews: list[dict[str, Any]] = []
     for index, command_text in enumerate(command_texts, start=1):
-        preview = await pipeline.execute_preview(command_text)
+        if not has_host_wall_override:
+            preview = await pipeline.execute_preview(command_text)
+            preview["split_index"] = index
+            preview["split_instruction"] = command_text
+            previews.append(preview)
+
+            if preview.get("status") != "preview_ready":
+                summary = (
+                    preview.get("summary")
+                    or preview.get("message")
+                    or "Preview generation failed."
+                )
+                return {
+                    **preview,
+                    "summary": f"Command {index} failed: {summary}",
+                    "split_results": previews,
+                }
+            continue
+
+        command = await pipeline.engine.parse_command(
+            command_text,
+            ifc_context=pipeline._ifc_context_text,
+        )
+        preview = await pipeline.execute_command_preview(
+            _apply_planner_options(command, planner_options if index == 1 else None)
+        )
         preview["split_index"] = index
         preview["split_instruction"] = command_text
         previews.append(preview)
@@ -161,17 +210,17 @@ async def _execute_preview_for_instruction(
             summary = (
                 preview.get("summary")
                 or preview.get("message")
-                or "명령 preview에 실패했습니다."
+                or "Preview generation failed."
             )
             return {
                 **preview,
-                "summary": f"{index}번째 명령 처리 실패: {summary}",
+                "summary": f"Command {index} failed: {summary}",
                 "split_results": previews,
             }
 
     return {
         "status": "preview_ready",
-        "summary": f"{len(previews)}개 3D 명령 preview가 준비되었습니다.",
+        "summary": f"Generated {len(previews)} preview commands.",
         "commands": [
             preview["command"]
             for preview in previews
@@ -179,6 +228,45 @@ async def _execute_preview_for_instruction(
         ],
         "split_results": previews,
     }
+
+def _resolve_effective_instruction(
+    user_instruction: str,
+    conversation_history: list[Any],
+    planner_options: dict[str, Any] | None,
+) -> str:
+    if not isinstance(planner_options, dict):
+        return user_instruction
+
+    host_wall_global_id = planner_options.get("host_wall_global_id")
+    if not isinstance(host_wall_global_id, str) or not host_wall_global_id.strip():
+        return user_instruction
+
+    for entry in reversed(conversation_history):
+        role = getattr(entry, "role", None)
+        content = getattr(entry, "content", None)
+        if role == "user" and isinstance(content, str) and content.strip():
+            return content.strip()
+    return user_instruction
+
+
+def _apply_planner_options(command: Any, planner_options: dict[str, Any] | None) -> Any:
+    if not isinstance(planner_options, dict):
+        return command
+
+    host_wall_global_id = planner_options.get("host_wall_global_id")
+    if not isinstance(host_wall_global_id, str) or not host_wall_global_id.strip():
+        return command
+
+    create_info = getattr(command, "create_info", None)
+    if str(getattr(command, "command_type", "")) != "CREATE" or create_info is None:
+        return command
+
+    element_type = str(getattr(create_info, "element_type", ""))
+    if element_type not in {"IfcDoor", "IfcWindow"}:
+        return command
+
+    create_info.host_wall_global_id = host_wall_global_id.strip()
+    return command
 
 
 def _build_result_payload(
@@ -573,8 +661,23 @@ def _map_clarification(result: dict[str, Any]) -> dict[str, Any]:
     if questions:
         first = questions[0]
         question_text = first.get("question_ko") or result.get("summary", "추가 정보가 필요합니다.")
-        options = [o["label"] for o in first.get("options", []) if o.get("label")]
-        return {"question": question_text, "options": options}
+        option_details = [
+            {
+                "id": str(option.get("id") or ""),
+                "label": str(option.get("label") or ""),
+                "value": str(option.get("value") or ""),
+            }
+            for option in first.get("options", [])
+            if option.get("label")
+        ]
+        options = [option["label"] for option in option_details]
+        clarification = {"question": question_text, "options": options}
+        if option_details:
+            clarification["option_details"] = option_details
+        trigger = first.get("trigger")
+        if isinstance(trigger, str) and trigger:
+            clarification["trigger"] = trigger
+        return clarification
     # ambiguity_question 경로: 질문만 있고 선택지 없음
     return {"question": result.get("summary", "추가 정보가 필요합니다.")}
 

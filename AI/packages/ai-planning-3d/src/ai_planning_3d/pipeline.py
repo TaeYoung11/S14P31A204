@@ -21,7 +21,12 @@ import ai_authoring.operations  # noqa: F401
 from ai_authoring.operations.registry import get as get_operation
 
 # 검증 모듈 및 컨텍스트 추출기 임포트
-from .clarification import ClarificationGenerator, ClarificationQuestion
+from .clarification import (
+    ClarificationGenerator,
+    ClarificationOption,
+    ClarificationQuestion,
+    ClarificationTrigger,
+)
 from .context_extractor import IFCContextExtractor
 from .validators import (
     CollisionValidator,
@@ -70,7 +75,7 @@ class PreviewSession:
 
 
 class LLM3DPipeline:
-    def __init__(self, ifc_path: str | None = None, model_name: str = "qwen2.5:7b"):
+    def __init__(self, ifc_path: str | None = None, model_name: str = "gemma3:4b"):
         self.engine = LLM3DEngine(model=model_name)
         ifc_model = None
         if ifc_path:
@@ -908,6 +913,69 @@ class LLM3DPipeline:
                     best_wall = wall
         return best_wall
 
+    def _build_host_wall_clarification_question(
+        self,
+        storey: ifcopenshell.entity_instance,
+        direction: Any,
+    ) -> ClarificationQuestion:
+        normalized_direction = str(direction or "").strip().lower()
+        options: list[ClarificationOption] = []
+        for wall in self._storey_walls(storey):
+            wall_id = getattr(wall, "GlobalId", None)
+            if not wall_id:
+                continue
+            wall_name = str(getattr(wall, "Name", "") or "").strip() or str(wall_id)
+            label = wall_name
+            axis = self._wall_axis_info_mm(wall)
+            if axis:
+                projected_length_x = abs(
+                    float(axis.get("axis_x", 0.0)) * float(axis.get("length", 0.0))
+                )
+                projected_length_y = abs(
+                    float(axis.get("axis_y", 0.0)) * float(axis.get("length", 0.0))
+                )
+                orientation = (
+                    "North/South" if projected_length_x >= projected_length_y else "East/West"
+                )
+                label = f"{wall_name} ({orientation})"
+            options.append(
+                ClarificationOption(
+                    id=str(wall_id),
+                    label=label,
+                    value=str(wall_id),
+                )
+            )
+
+        if normalized_direction:
+            options.sort(
+                key=lambda option: (
+                    normalized_direction not in option.label.lower(),
+                    option.label.lower(),
+                )
+            )
+        else:
+            options.sort(key=lambda option: option.label.lower())
+
+        if not options:
+            options.append(
+                ClarificationOption(
+                    id="manual",
+                    label="ë²½ì„ ì§ì ‘ ì§€ì •í•´ ì£¼ì„¸ìš”.",
+                    value="manual",
+                )
+            )
+
+        return ClarificationQuestion(
+            trigger=ClarificationTrigger.CUSTOM,
+            question_ko="ë¬¸/ì°½ë¬¸ì„ ì„¤ì¹˜í•  ë²½ì„ ì„ íƒí•´ ì£¼ì„¸ìš”.",
+            options=tuple(options[:8]),
+            context={
+                "storey": getattr(storey, "Name", None),
+                "direction": direction,
+            },
+            is_blocking=True,
+        )
+
     def _wall_local_u_mm(self, wall: Any, point: dict[str, Any]) -> float | None:
         placement = getattr(wall, "ObjectPlacement", None)
         if not placement or not placement.is_a("IfcLocalPlacement"):
@@ -1295,7 +1363,12 @@ class LLM3DPipeline:
                     "status": "needs_clarification",
                     "command": command.model_dump(),
                     "summary": "문/창문을 붙일 host wall을 찾지 못해 IFC를 생성하지 않았습니다.",
-                    "clarification_questions": [],
+                    "clarification_questions": [
+                        self._build_host_wall_clarification_question(
+                            target_storey,
+                            ci_dump.get("direction"),
+                        ).to_dict()
+                    ],
                     "collision_warnings": [
                         "문/창문 생성에는 벽 위치 또는 host_wall_global_id가 필요합니다."
                     ],

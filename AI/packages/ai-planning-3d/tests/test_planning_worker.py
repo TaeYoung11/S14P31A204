@@ -8,7 +8,19 @@ from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 from ai_common.adapters.rabbitmq.kombu_client import get_command_queue
 from ai_common.worker_sdk.event_factory import ClarificationResult, CompletedResult
 from ai_domain.worker_messages.command import CommandMessage
-from ai_planning_3d.worker import PlanningWorker
+from ai_planning_3d.command import (
+    LLM3DCommand,
+    LLM3DCommandType,
+    LLM3DCreateInfo,
+    LLM3DElementType,
+)
+from ai_planning_3d.pipeline import LLM3DPipeline
+from ai_planning_3d.worker import (
+    PlanningWorker,
+    _apply_planner_options,
+    _map_clarification,
+    _resolve_effective_instruction,
+)
 from ai_planning_3d.worker_app import WORKER_TYPE
 
 
@@ -98,6 +110,9 @@ def _preview_ready_create(raw_instruction: str, element_type: str) -> dict[str, 
                 "length_mm": 900.0,
                 "width_mm": 200.0,
                 "height_mm": 2100.0,
+                "host_wall_global_id": "2gZV8wAqn1z8b8s4l1mNQF",
+                "sill_height_mm": 900.0,
+                "opening_offset_mm": 120.0,
                 "material": {"name": "Concrete"},
                 "color": "#CCCCCC",
             },
@@ -321,7 +336,7 @@ def test_planning_worker_split_chat_fails_fast_without_partial_commands() -> Non
         ("2층 화장실에 창문 만들어줘",),
     ]
     assert result.error.clarification_request_id == "session-window-clarification"
-    assert result.error.message == "2번째 명령 처리 실패: 창문 위치 확인이 필요합니다."
+    assert result.error.message.startswith("Command 2 failed:")
 
     stored_payload = json.loads(mock_s3.write_text.call_args.kwargs["text"])
     Draft202012Validator(_planner_3d_schema()).validate(stored_payload)
@@ -396,6 +411,87 @@ def test_planning_worker_logic() -> None:
         assert result.error.code == "NEEDS_CLARIFICATION"
         assert result.error.clarification_request_id == "mock-session-123"
         print("[OK] result mapping (needs_clarification)")
+
+
+def test_resolve_effective_instruction_prefers_previous_user_message_when_host_wall_selected(
+) -> None:
+    history = [
+        type("Entry", (), {"role": "assistant", "content": "어느 벽에 설치할까요?"})(),
+        type("Entry", (), {"role": "user", "content": "남쪽 벽에 문을 만들어줘"})(),
+    ]
+
+    resolved = _resolve_effective_instruction(
+        "Wall A",
+        history,
+        {"host_wall_global_id": "2gZV8wAqn1z8b8s4l1mNQF"},
+    )
+
+    assert resolved == "남쪽 벽에 문을 만들어줘"
+
+
+def test_apply_planner_options_sets_host_wall_for_door_create() -> None:
+    command = LLM3DCommand(
+        command_type=LLM3DCommandType.CREATE,
+        create_info=LLM3DCreateInfo(element_type=LLM3DElementType.DOOR),
+        raw_instruction="문 만들어줘",
+    )
+
+    updated = _apply_planner_options(
+        command,
+        {"host_wall_global_id": "2gZV8wAqn1z8b8s4l1mNQF"},
+    )
+
+    assert updated.create_info is not None
+    assert updated.create_info.host_wall_global_id == "2gZV8wAqn1z8b8s4l1mNQF"
+
+
+def test_map_clarification_keeps_option_details_for_custom_trigger() -> None:
+    mapped = _map_clarification(
+        {
+            "clarification_questions": [
+                {
+                    "trigger": "custom",
+                    "question_ko": "벽을 선택해 주세요.",
+                    "options": [
+                        {
+                            "id": "wall-1",
+                            "label": "South Wall",
+                            "value": "2gZV8wAqn1z8b8s4l1mNQF",
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+
+    assert mapped["question"] == "벽을 선택해 주세요."
+    assert mapped["options"] == ["South Wall"]
+    assert mapped["trigger"] == "custom"
+    assert mapped["option_details"] == [
+        {
+            "id": "wall-1",
+            "label": "South Wall",
+            "value": "2gZV8wAqn1z8b8s4l1mNQF",
+        }
+    ]
+
+
+def test_build_host_wall_clarification_question_uses_axis_projection_lengths() -> None:
+    pipeline = object.__new__(LLM3DPipeline)
+    wall = type("Wall", (), {"GlobalId": "2gZV8wAqn1z8b8s4l1mNQF", "Name": "South Wall"})()
+    storey = type("Storey", (), {"Name": "1F"})()
+
+    pipeline._storey_walls = lambda _: [wall]  # type: ignore[attr-defined]
+    pipeline._wall_axis_info_mm = lambda _: {  # type: ignore[attr-defined]
+        "axis_x": 0.0,
+        "axis_y": 1.0,
+        "length": 4200.0,
+    }
+
+    question = pipeline._build_host_wall_clarification_question(storey, "south")
+
+    assert question.options[0].label == "South Wall (East/West)"
+    assert question.options[0].value == "2gZV8wAqn1z8b8s4l1mNQF"
 
 
 if __name__ == "__main__":
