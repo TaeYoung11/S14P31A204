@@ -7,6 +7,7 @@ type CanvasContextProps = Pick<
   | 'mode'
   | 'containerRef'
   | 'stageSize'
+  | 'isWorkspaceBootstrapping'
   | 'isCollaborationMode'
   | 'selectedPinId'
   | 'commentPins'

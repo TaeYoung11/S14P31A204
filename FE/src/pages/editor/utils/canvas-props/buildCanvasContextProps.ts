@@ -11,6 +11,7 @@ export function buildCanvasContextProps(
   | 'mode'
   | 'containerRef'
   | 'stageSize'
+  | 'isWorkspaceBootstrapping'
   | 'zoom'
   | 'isCollaborationMode'
   | 'selectedPinId'
@@ -30,6 +31,7 @@ export function buildCanvasContextProps(
     mode: vm.mode,
     containerRef: vm.containerRef,
     stageSize: vm.stageSize,
+    isWorkspaceBootstrapping: vm.isWorkspaceBootstrapping,
     zoom: vm.zoom,
     isCollaborationMode: vm.isCollaborationMode,
     selectedPinId: vm.selectedPinId,

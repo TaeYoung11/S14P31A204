@@ -42,6 +42,7 @@ interface UseEditorSiteBoundaryParams {
   sitePolygonRing?: number[][] | null
   siteAreaM2?: number | null
   sitePolygonQueryEnabled?: boolean
+  siteBoundaryHydrated?: boolean
   setSaveStatus: Dispatch<SetStateAction<SaveStatus>>
 }
 
@@ -62,6 +63,7 @@ export function useEditorSiteBoundary({
   sitePolygonRing,
   siteAreaM2: siteAreaM2Override,
   sitePolygonQueryEnabled = true,
+  siteBoundaryHydrated = true,
   setSaveStatus,
 }: UseEditorSiteBoundaryParams) {
   const sitePolygonQuery = useProjectSitePolygon(
@@ -98,6 +100,12 @@ export function useEditorSiteBoundary({
     if (cachedRawPoints) {
       return centerSitePoints(cachedRawPoints, stageWidth, stageHeight)
     }
+
+    // 실제 대지 하이드레이션 이전에는 기본(mock) 대지를 그리지 않아 플리커를 방지한다.
+    if (!siteBoundaryHydrated) {
+      return []
+    }
+
     const fitted = fitSitePointsToStage(SITE_RAW_POINTS, stageWidth, stageHeight, {
       padding: EDITOR_SITE_FIT_PADDING_PX,
       fitRatio: 1,
@@ -108,7 +116,7 @@ export function useEditorSiteBoundary({
       SITE_CONTAIN_BUBBLE_PADDING_PX,
       SITE_CONTAIN_MAX_SCALE,
     )
-  }, [cachedSiteRing, stageWidth, stageHeight, bubbles])
+  }, [cachedSiteRing, stageWidth, stageHeight, bubbles, siteBoundaryHydrated])
 
   const floorPlanMmPerPx = useMemo(() => {
     if (bubbles.length > 0) {

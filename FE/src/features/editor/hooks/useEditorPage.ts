@@ -564,6 +564,7 @@ export function useEditorPage() {
     polygonRing: null,
     areaM2: null,
   })
+  const [isWorkspaceSiteBoundaryHydrated, setIsWorkspaceSiteBoundaryHydrated] = useState(false)
   const handleIfcSyncMessageRef = useRef<(
     url: string,
     action: string | null,
@@ -917,6 +918,7 @@ export function useEditorPage() {
       if (prev.polygonRing === nextPolygonRing && prev.areaM2 === nextAreaM2) return prev
       return { polygonRing: nextPolygonRing, areaM2: nextAreaM2 }
     })
+    setIsWorkspaceSiteBoundaryHydrated(true)
   }, [])
   const resolveFloorPlanSceneType = useCallback((): FloorPlanSceneType =>
     mode === '3d' ? 'THREE_D' : 'TWO_D'
@@ -1592,6 +1594,7 @@ export function useEditorPage() {
     resetFloorPlanStructureState()
     setWorkspacePhaseStatus('BUBBLE_DRAFT')
     setWorkspaceSiteBoundary({ polygonRing: null, areaM2: null })
+    setIsWorkspaceSiteBoundaryHydrated(false)
     clearBootstrapBubbleSelection()
     setSelectedFloorWallId(null)
     setSelectedFloorOpeningId(null)
@@ -2195,6 +2198,7 @@ export function useEditorPage() {
       })
       .finally(() => {
         if (isCancelled || draftLoadTokenRef.current !== loadToken) return
+        setIsWorkspaceSiteBoundaryHydrated(true)
         draftLoadingProjectIdRef.current = null
         draftLoadBaselineRef.current = null
         if (didHistoryBootstrapFail) return
@@ -3278,6 +3282,7 @@ export function useEditorPage() {
     sitePolygonRing: workspaceSiteBoundary.polygonRing,
     siteAreaM2: workspaceSiteBoundary.areaM2,
     sitePolygonQueryEnabled: false,
+    siteBoundaryHydrated: isWorkspaceSiteBoundaryHydrated,
     setSaveStatus,
   })
   const bubbleSitePoints = fixedScaleSitePoints
@@ -3321,6 +3326,7 @@ export function useEditorPage() {
     stageHeight: stageSize.height,
     fitPaddingPx: EDITOR_SITE_FIT_PADDING_PX,
   })
+  const isWorkspaceBootstrapping = Boolean(projectId) && autosaveReadyProjectId !== projectId
 
   const {
     syncPerimeterManualWallsForRoomResize,
@@ -5156,6 +5162,7 @@ export function useEditorPage() {
     // 캔버스 크기·대지
     containerRef,
     stageSize,
+    isWorkspaceBootstrapping,
     sitePoints: bubbleSitePoints,
     sitePlanPoints: sharedSitePlanPoints,
     siteAreaM2,
