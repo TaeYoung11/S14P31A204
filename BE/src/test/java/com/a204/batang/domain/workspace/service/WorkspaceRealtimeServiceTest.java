@@ -2,15 +2,19 @@ package com.a204.batang.domain.workspace.service;
 
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.service.ProjectAccessService;
+import com.a204.batang.domain.project.service.ProjectQueryService;
+import com.a204.batang.domain.workspace.dto.BubbleFloorMeta;
 import com.a204.batang.domain.workspace.dto.BubbleRedoRequest;
 import com.a204.batang.domain.workspace.dto.BubbleUndoRequest;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
+import com.a204.batang.domain.workspace.dto.BubbleZoneData;
 import com.a204.batang.domain.workspace.dto.ProjectSyncResponse;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
 import com.a204.batang.domain.workspace.repository.WorkspaceBubbleSnapshotRedisRepository;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,6 +27,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -30,9 +35,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -51,6 +58,12 @@ class WorkspaceRealtimeServiceTest {
     @Mock
     private ProjectAccessService projectAccessService;
 
+    @Mock
+    private ProjectQueryService projectQueryService;
+
+    @Mock
+    private S3ObjectPresigner s3ObjectPresigner;
+
     private WorkspaceRealtimeService workspaceRealtimeService;
     private ObjectMapper objectMapper;
 
@@ -67,10 +80,15 @@ class WorkspaceRealtimeServiceTest {
         workspaceRealtimeService = new WorkspaceRealtimeService(
                 projectWorkspaceRepository,
                 projectAccessService,
+                projectQueryService,
                 workspaceBubbleSnapshotRedisRepository,
                 bubbleSnapshotHelper,
+                s3ObjectPresigner,
                 simpMessagingTemplate
         );
+
+        lenient().when(s3ObjectPresigner.presignIfInternal(anyString(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
         projectId = UUID.randomUUID();
         currentUserId = UUID.randomUUID();
@@ -87,17 +105,26 @@ class WorkspaceRealtimeServiceTest {
                         40.0,
                         3000.0,
                         4000.0,
-                        "거실",
+                        "living-room",
                         "LIVING",
                         84.5,
-                        "#ffffff"
+                        "#ffffff",
+                        null
                 )),
                 List.of(new BubbleUpdateRequest.ConnectionData(
                         "bubble-1",
                         "bubble-1",
                         "bold"
                 )),
-                0
+                List.of(new BubbleZoneData(
+                        "zone-1",
+                        "zone 1",
+                        "#3B45B3",
+                        List.of("bubble-1"),
+                        "manual"
+                )),
+                0,
+                new BubbleFloorMeta(Map.of(1, "1F"), List.of(2))
         );
     }
 
@@ -114,8 +141,12 @@ class WorkspaceRealtimeServiceTest {
         JsonNode snapshot = snapshotCaptor.getValue();
         assertThat(snapshot.get("bubbles")).isNotNull();
         assertThat(snapshot.get("connections")).isNotNull();
+        assertThat(snapshot.get("floorMeta")).isNotNull();
         assertThat(snapshot.get("bubbles").size()).isEqualTo(1);
         assertThat(snapshot.get("connections").size()).isEqualTo(1);
+        assertThat(snapshot.get("zones").size()).isEqualTo(1);
+        assertThat(snapshot.get("zones").get(0).get("id").asText()).isEqualTo("zone-1");
+        assertThat(snapshot.get("bubbles").get(0).get("floor").asInt()).isEqualTo(1);
 
         ArgumentCaptor<ProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(ProjectSyncResponse.class);
         verify(simpMessagingTemplate)
@@ -124,7 +155,10 @@ class WorkspaceRealtimeServiceTest {
         ProjectSyncResponse response = responseCaptor.getValue();
         assertThat(response.action()).isEqualTo("BUBBLE_UPDATED");
         assertThat(response.projectId()).isEqualTo(projectId);
-        assertThat(response.bubbleSnapshotJson()).isEqualTo(snapshot);
+        assertThat(response.bubbleSnapshotJson().get("bubbles")).isEqualTo(snapshot.get("bubbles"));
+        assertThat(response.bubbleSnapshotJson().get("connections")).isEqualTo(snapshot.get("connections"));
+        assertThat(response.bubbleSnapshotJson().get("zones").get(0).get("id").asText()).isEqualTo("zone-1");
+        assertThat(response.bubbleSnapshotJson().get("baseIndex").asInt()).isEqualTo(1);
         assertThat(response.updatedAt()).isNotNull();
     }
 
@@ -185,7 +219,11 @@ class WorkspaceRealtimeServiceTest {
 
         ProjectSyncResponse response = responseCaptor.getValue();
         assertThat(response.action()).isEqualTo("BUBBLE_UNDO");
-        assertThat(response.bubbleSnapshotJson()).isEqualTo(undoSnapshot);
+        assertThat(response.bubbleSnapshotJson().get("bubbles").get(0).get("id").asText()).isEqualTo("bubble-1");
+        assertThat(response.bubbleSnapshotJson().get("bubbles").get(0).get("floor").asInt()).isEqualTo(1);
+        assertThat(response.bubbleSnapshotJson().get("floorMeta").isNull()).isTrue();
+        assertThat(response.bubbleSnapshotJson().get("baseIndex").asInt()).isEqualTo(1);
+        assertThat(response.bubbleSnapshotJson().get("connections").isArray()).isTrue();
     }
 
     @Test
@@ -231,7 +269,11 @@ class WorkspaceRealtimeServiceTest {
 
         ProjectSyncResponse response = responseCaptor.getValue();
         assertThat(response.action()).isEqualTo("BUBBLE_REDO");
-        assertThat(response.bubbleSnapshotJson()).isEqualTo(redoSnapshot);
+        assertThat(response.bubbleSnapshotJson().get("bubbles").get(0).get("id").asText()).isEqualTo("bubble-2");
+        assertThat(response.bubbleSnapshotJson().get("bubbles").get(0).get("floor").asInt()).isEqualTo(1);
+        assertThat(response.bubbleSnapshotJson().get("floorMeta").isNull()).isTrue();
+        assertThat(response.bubbleSnapshotJson().get("baseIndex").asInt()).isEqualTo(2);
+        assertThat(response.bubbleSnapshotJson().get("connections").isArray()).isTrue();
     }
 
     @Test

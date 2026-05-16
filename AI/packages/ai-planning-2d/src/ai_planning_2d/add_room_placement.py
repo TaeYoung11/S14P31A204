@@ -1,16 +1,19 @@
+"""새 방 추가 시 시작 좌표와 기본 배치 위치를 계산하는 보조 로직을 담는다."""
+
 from __future__ import annotations
 
-from typing import Any
+from typing import TypedDict
 
-from .command import IFCContext
-
-try:
-    from shapely.geometry import Polygon, box
-except Exception:  # pragma: no cover
-    Polygon = None
-    box = None
+from .schemas.ifc_context import BoundaryContext, IFCContext, SpaceContext
+from shapely.geometry import Polygon, box  # type: ignore[import-untyped]
 
 _GRID_STEP_MM = 250
+
+
+class PlacementRegion(TypedDict):
+    bbox: tuple[float, float, float, float]
+    enforce_bbox: bool
+    polygon: Polygon | None
 
 
 def suggest_add_room_start_mm(
@@ -23,13 +26,13 @@ def suggest_add_room_start_mm(
     if ifc_context is None:
         return (0.0, 0.0)
 
-    same_floor_spaces = [
+    same_floor_spaces: list[SpaceContext] = [
         space for space in ifc_context.get("spaces", []) if space.get("floor") == floor
     ]
     if not same_floor_spaces:
         return (0.0, 0.0)
 
-    boundary = next(
+    boundary: BoundaryContext | None = next(
         (entry for entry in ifc_context.get("boundaries", []) if entry.get("floor") == floor),
         None,
     )
@@ -55,7 +58,7 @@ def suggest_add_room_start_mm(
         return (x, y)
 
     if len(same_floor_spaces) == 1:
-        relaxed_region = {
+        relaxed_region: PlacementRegion = {
             "bbox": region["bbox"],
             "enforce_bbox": False,
             "polygon": None,
@@ -86,7 +89,7 @@ def _adjacent_candidates(
     host_rect: tuple[float, float, float, float],
     width: int,
     height: int,
-    region: dict[str, Any],
+    region: PlacementRegion,
     existing_rects: list[tuple[float, float, float, float]],
 ) -> list[tuple[float, float, tuple[float, float]]]:
     min_x, min_y, max_x, max_y = host_rect
@@ -118,7 +121,7 @@ def _grid_search_candidate(
     *,
     width: int,
     height: int,
-    region: dict[str, Any],
+    region: PlacementRegion,
     existing_rects: list[tuple[float, float, float, float]],
 ) -> tuple[float, float] | None:
     min_x, min_y, max_x, max_y = region["bbox"]
@@ -174,9 +177,9 @@ def _shared_length_mm(a: tuple[float, float], b: tuple[float, float]) -> float:
 
 
 def _placement_region(
-    boundary: dict[str, Any] | None,
-    spaces: list[dict[str, Any]],
-) -> dict[str, Any]:
+    boundary: BoundaryContext | None,
+    spaces: list[SpaceContext],
+) -> PlacementRegion:
     if boundary is not None and boundary.get("outer_polygon"):
         points = boundary["outer_polygon"]
     else:
@@ -184,7 +187,7 @@ def _placement_region(
     xs = [point[0] for point in points]
     ys = [point[1] for point in points]
     polygon = None
-    if Polygon is not None and len(points) >= 3:
+    if len(points) >= 3:
         polygon = Polygon(points)
         if not polygon.is_valid:
             polygon = polygon.buffer(0)
@@ -195,13 +198,16 @@ def _placement_region(
     }
 
 
-def _fits_region(region: dict[str, Any], rect: tuple[float, float, float, float]) -> bool:
+def _fits_region(
+    region: PlacementRegion,
+    rect: tuple[float, float, float, float],
+) -> bool:
     polygon = region["polygon"]
     if region.get("enforce_bbox", False):
         min_x, min_y, max_x, max_y = region["bbox"]
         if rect[0] < min_x or rect[1] < min_y or rect[2] > max_x or rect[3] > max_y:
             return False
-    if polygon is None or box is None:
+    if polygon is None:
         return True
     return polygon.buffer(1e-6).covers(box(*rect))
 
@@ -228,7 +234,7 @@ def _rectangles_overlap(
     )
 
 
-def _space_rect(space: dict[str, Any]) -> tuple[float, float, float, float]:
+def _space_rect(space: SpaceContext) -> tuple[float, float, float, float]:
     xs = [point[0] for point in space["polygon"]]
     ys = [point[1] for point in space["polygon"]]
     return (min(xs), min(ys), max(xs), max(ys))

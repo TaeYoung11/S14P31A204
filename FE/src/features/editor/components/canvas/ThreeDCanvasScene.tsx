@@ -1,17 +1,26 @@
-import type { IfcElementChange, IfcElementInfo } from '../../types'
+import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '../../types'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
-import type { ThreeDLibraryPreset } from './threeDLibrary.types'
+import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import type { IfcStoreyInfo } from './thatopen/ifcPropertyParser'
+import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import ThatOpenIfcCanvas from './ThatOpenIfcCanvas'
 import { FloorPlan3DCanvas } from './FloorPlan3DCanvas'
 import { resolveTransformMode, shouldRenderLocalFloorPlan } from './threeDCanvas.utils'
 
 interface ThreeDCanvasSceneProps {
   projectId?: string | null
-  ifcUrl: string
+  ifcUrl?: string | null
   rawIfcUrl?: string | null
   localFloorData?: FloorPlan3DData | null
   libraryElements: ThreeDLibraryPreset[]
+  commentPins: FloorCommentPin[]
+  isCollaborationMode: boolean
+  selectedPinId: string | null
+  currentUserId: string | null
+  onPinClick?: (id: string) => void
+  onPinCreate?: (x: number, y: number, content?: string, threeDPosition?: CommentPin3DCreatePosition) => void
+  onPinDelete?: (id: string) => void
+  deletingPinId: string | null
   ifcElementChanges: IfcElementChange[]
   isRotationLocked: boolean
   zoomScale: number
@@ -37,6 +46,12 @@ interface ThreeDCanvasSceneProps {
   requestedLibraryElementId?: string | null
   /** 계층구조 라이브러리 요소 선택 요청 토큰 */
   libraryElementSelectionRequestToken?: number
+  libraryDropRequest?: ThreeDLibraryDropRequest | null
+  onResolveLibraryDrop?: (token: number, patch?: Partial<ThreeDLibraryPreset>) => void
+  cameraViewPresetCommand?: ThreeDCameraViewPresetCommand
+  isTransformSnapEnabled: boolean
+  transformSnapIntervalMm: number
+  isEditingLocked: boolean
 }
 
 /**
@@ -49,6 +64,14 @@ export default function ThreeDCanvasScene({
   rawIfcUrl,
   localFloorData,
   libraryElements,
+  commentPins,
+  isCollaborationMode,
+  selectedPinId,
+  currentUserId,
+  onPinClick,
+  onPinCreate,
+  onPinDelete,
+  deletingPinId,
   ifcElementChanges,
   isRotationLocked,
   zoomScale,
@@ -68,8 +91,25 @@ export default function ThreeDCanvasScene({
   ifcElementSelectionRequestToken,
   requestedLibraryElementId,
   libraryElementSelectionRequestToken,
+  libraryDropRequest,
+  onResolveLibraryDrop,
+  cameraViewPresetCommand,
+  isTransformSnapEnabled,
+  transformSnapIntervalMm,
+  isEditingLocked,
 }: ThreeDCanvasSceneProps) {
   const useLocalFloorPlan = shouldRenderLocalFloorPlan(rawIfcUrl, localFloorData) && Boolean(localFloorData)
+
+  const transformMode = resolveTransformMode(selectedTool)
+
+  if (import.meta.env.DEV) {
+    console.log('[3d-scene-route]', {
+      ifcUrl,
+      rawIfcUrl,
+      hasLocalFloorData: Boolean(localFloorData),
+      renderLocalFloorPlan: shouldRenderLocalFloorPlan(rawIfcUrl, localFloorData),
+    })
+  }
 
   // IFC URL이 아직 없고 로컬 평면도 데이터가 있으면 3D 폴백 씬을 우선 렌더링한다.
   if (useLocalFloorPlan && localFloorData) {
@@ -78,12 +118,37 @@ export default function ThreeDCanvasScene({
         data={localFloorData}
         selectedTool={selectedTool}
         libraryElements={libraryElements}
+        commentPins={commentPins}
+        isCollaborationMode={isCollaborationMode}
+        selectedPinId={selectedPinId}
+        currentUserId={currentUserId}
+        onPinClick={onPinClick}
+        onPinCreate={onPinCreate}
+        onPinDelete={onPinDelete}
+        deletingPinId={deletingPinId}
+        selectedIfcElement={selectedIfcElement}
         deleteRequestToken={deleteRequestToken}
+        isRotationLocked={isRotationLocked}
         onLibraryElementChange={onLibraryElementChange}
         onLibraryElementDelete={onLibraryElementDelete}
         onIfcElementSelect={onIfcElementSelect}
+        transformMode={transformMode}
+        selectedTool={selectedTool}
+        libraryDropRequest={libraryDropRequest}
+        onResolveLibraryDrop={onResolveLibraryDrop}
+        cameraViewPresetCommand={cameraViewPresetCommand}
+        transformSnapEnabled={isTransformSnapEnabled}
+        transformSnapIntervalMm={transformSnapIntervalMm}
+        isEditingLocked={isEditingLocked}
       />
     )
+  }
+
+  if (!ifcUrl) {
+    if (import.meta.env.DEV) {
+      console.warn('[3d-scene-route] skip ThatOpen render: missing ifcUrl')
+    }
+    return null
   }
 
   return (
@@ -91,6 +156,14 @@ export default function ThreeDCanvasScene({
       ifcUrl={ifcUrl}
       projectId={projectId}
       libraryElements={libraryElements}
+      commentPins={commentPins}
+      isCollaborationMode={isCollaborationMode}
+      selectedPinId={selectedPinId}
+      currentUserId={currentUserId}
+      onPinClick={onPinClick}
+      onPinCreate={onPinCreate}
+      onPinDelete={onPinDelete}
+      deletingPinId={deletingPinId}
       ifcElementChanges={ifcElementChanges}
       isRotationLocked={isRotationLocked}
       zoomScale={zoomScale}
@@ -109,7 +182,14 @@ export default function ThreeDCanvasScene({
       ifcElementSelectionRequestToken={ifcElementSelectionRequestToken}
       requestedLibraryElementId={requestedLibraryElementId}
       libraryElementSelectionRequestToken={libraryElementSelectionRequestToken}
-      transformMode={resolveTransformMode(selectedTool)}
+      transformMode={transformMode}
+      selectedTool={selectedTool}
+      libraryDropRequest={libraryDropRequest}
+      onResolveLibraryDrop={onResolveLibraryDrop}
+      cameraViewPresetCommand={cameraViewPresetCommand}
+      transformSnapEnabled={isTransformSnapEnabled}
+      transformSnapIntervalMm={transformSnapIntervalMm}
+      isEditingLocked={isEditingLocked}
     />
   )
 }

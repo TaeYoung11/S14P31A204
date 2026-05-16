@@ -2,6 +2,8 @@ package com.a204.batang.domain.job.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import com.a204.batang.domain.render.dto.RenderUrlsResponse;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -13,6 +15,8 @@ public record JobOutputsResponse(
         UUID primaryArtifactId,
         @Schema(description = "대표 결과 URL")
         String primaryResultUrl,
+        @Schema(description = "렌더링 결과 URL 묶음", nullable = true)
+        RenderUrlsResponse renderUrls,
         @Schema(description = "산출물 목록")
         List<JobArtifactResponse> artifacts
 ) {

@@ -20,11 +20,19 @@ dependencies = [
 ]
 
 [dependency-groups]
+lint = [
+    "ruff>=0.14.0",
+]
+test = [
+    "pytest>=9.0.0",
+    "pytest-asyncio>=1.3.0",
+]
 dev = [
     "mypy>=1.18.0",
     "pytest>=9.0.0",
     "pytest-asyncio>=1.3.0",
     "ruff>=0.14.0",
+    "types-shapely>=2.1.0.20260508",
 ]
 
 [tool.uv.workspace]
@@ -79,7 +87,13 @@ norecursedirs = [
     ".uv-cache",
     ".uv-python",
     ".venv",
+    ".pytest-local",
+    ".pytest-tmp",
+    ".pytest-tmp-run",
+    ".pytest-tmp-run-*",
+    ".tmp",
     "pytest-cache-files-*",
+    "pytest_run_local",
 ]
 
 [tool.mypy]
@@ -105,6 +119,7 @@ project-excludes = [
 ]
 
 search-path = [
+    "stubs",
     "packages/ai-domain/src",
     "packages/ai-layout-import/src",
     "packages/ai-common/src",

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,10 +16,13 @@ from typing import Any
 
 import ifcopenshell
 
+import ai_authoring.operations  # noqa: F401
 from ai_authoring.engine_3d import (
     delete_element,
     modify_face_offset,
+    modify_color,
     modify_height,
+    modify_length,
     modify_material,
     modify_position,
     modify_rotation,
@@ -26,7 +30,9 @@ from ai_authoring.engine_3d import (
 )
 # operations/__init__ 경유 → create_element @register 실행
 from ai_authoring.operations.registry import get as get_op_handler
+from ai_authoring.operations.space_support import update_space
 from ai_authoring.post_validator import PostEditValidator
+from ai_authoring.utils import normalize_space_name, normalize_storey_name
 from ai_common.adapters.storage.s3_client import S3Client, parse_s3_url
 from ai_common.errors import NonRetryableWorkerError, RetryableWorkerError, ValidationWorkerError
 from ai_common.logging import get_logger
@@ -77,6 +83,7 @@ class AuthoringWorker(BaseWorker):
                     message=f"IFC 파싱 실패: {exc}",
                 ) from exc
 
+            self._validate_operations_before_mutation(engine_req)
             op_results = self._run_operations(model, engine_req, ctx)
 
             applied_count = sum(1 for r in op_results if r["status"] == "applied")
@@ -162,6 +169,82 @@ class AuthoringWorker(BaseWorker):
             results.append(self._apply_operation(model, op_id, op_type, selector, params))
         return results
 
+    def _validate_operations_before_mutation(self, engine_req: dict[str, Any]) -> None:
+        """Reject invalid mutation parameters before touching IFC geometry."""
+        issues: list[str] = []
+        for op in engine_req.get("operations", []) or []:
+            op_id = str(op.get("id") or "<unknown>")
+            op_type = str(op.get("type") or "")
+            params: dict[str, Any] = op.get("parameters") or {}
+            if op_type == "update_element_properties":
+                self._validate_dimension_params(op_id, params.get("dimensions_mm") or {}, issues)
+            if op_type == "transform_elements":
+                self._validate_translation_params(op_id, params.get("translation_mm") or {}, issues)
+                rotation = params.get("rotation_deg") or {}
+                if rotation.get("z") is not None:
+                    self._validate_finite_number(op_id, "rotation_deg.z", rotation.get("z"), issues)
+        if issues:
+            raise NonRetryableWorkerError(
+                code="INVALID_OPERATION_PARAMETERS",
+                message="; ".join(issues),
+            )
+
+    def _validate_dimension_params(
+        self,
+        op_id: str,
+        dimensions_mm: dict[str, Any],
+        issues: list[str],
+    ) -> None:
+        for key in ("width", "length", "height"):
+            if key not in dimensions_mm or dimensions_mm[key] is None:
+                continue
+            value = dimensions_mm[key]
+            if isinstance(value, dict):
+                mode = str(value.get("mode") or "ABSOLUTE").upper()
+                raw = value.get("value")
+                if mode not in {"ABSOLUTE", "RELATIVE", "SCALE"}:
+                    issues.append(f"{op_id}.{key}: unsupported size mode {mode}")
+                    continue
+                number = self._validate_finite_number(op_id, key, raw, issues)
+                if number is None:
+                    continue
+                if mode in {"ABSOLUTE", "SCALE"} and number <= 0.0:
+                    issues.append(f"{op_id}.{key}: {mode} value must be positive")
+                continue
+
+            number = self._validate_finite_number(op_id, key, value, issues)
+            if number is not None and number <= 0.0:
+                issues.append(f"{op_id}.{key}: dimension must be positive millimeters")
+
+    def _validate_translation_params(
+        self,
+        op_id: str,
+        translation_mm: dict[str, Any],
+        issues: list[str],
+    ) -> None:
+        for key in ("x", "y", "z"):
+            if key in translation_mm and translation_mm[key] is not None:
+                self._validate_finite_number(
+                    op_id, f"translation_mm.{key}", translation_mm[key], issues
+                )
+
+    @staticmethod
+    def _validate_finite_number(
+        op_id: str,
+        field_name: str,
+        value: Any,
+        issues: list[str],
+    ) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            issues.append(f"{op_id}.{field_name}: expected numeric value")
+            return None
+        if not math.isfinite(number):
+            issues.append(f"{op_id}.{field_name}: value must be finite")
+            return None
+        return number
+
     def _apply_operation(
         self,
         model: ifcopenshell.file,
@@ -183,7 +266,11 @@ class AuthoringWorker(BaseWorker):
         if op_type == "delete_elements":
             return self._apply_delete(model, op_id, op_type, elements)
 
-        if op_type in ("update_element_properties", "transform_elements"):
+        if op_type in (
+            "update_element_properties",
+            "transform_elements",
+            "delete_wall_void",
+        ):
             return self._apply_modify(model, op_id, op_type, elements, params, selector)
 
         return _op_result(op_id, op_type, "skipped", len(elements), [], [
@@ -313,15 +400,14 @@ class AuthoringWorker(BaseWorker):
     ) -> dict[str, Any]:
         applied, issues = [], []
         for el in elements:
+            matched = {
+                "global_id": el.GlobalId,
+                "element_type": el.is_a(),
+                "name": el.Name,
+            }
             changed = self._modify_one(model, el, op_type, params, selector)
             if changed:
-                applied.append(
-                    {
-                        "global_id": el.GlobalId,
-                        "element_type": el.is_a(),
-                        "name": el.Name,
-                    }
-                )
+                applied.append(matched)
             else:
                 issues.append(_issue("NO_CHANGE", "info", f"변경 사항 없음: {el.GlobalId}"))
         status = "applied" if applied else "skipped"
@@ -336,26 +422,55 @@ class AuthoringWorker(BaseWorker):
         selector: dict[str, Any],
     ) -> bool:
         changed = False
+        if op_type == "delete_wall_void":
+            global_id = el.GlobalId
+            handler = get_op_handler(op_type)
+            deleted_ids = handler.execute(
+                model,
+                None,
+                params,
+                {"global_ids": [global_id]},
+            )
+            return global_id in deleted_ids
+
         if op_type == "update_element_properties":
             dims = params.get("dimensions_mm") or {}
-            # dimensionChangesMm: {"width": {"mode": ..., "value": ...}, "height": {...}}
+            if el.is_a("IfcSpace"):
+                properties = params.get("properties") or {}
+                pset_updates = params.get("pset_updates") or {}
+                pset_name = str(params.get("pset_name") or "Batang_SpaceDimensions")
+                return update_space(
+                    model=model,
+                    space=el,
+                    dimensions_mm=dims,
+                    properties=properties,
+                    pset_updates=pset_updates,
+                    pset_name=pset_name,
+                )
+            # dimensionChangesMm values are authored in millimeters.
             if dims.get("width"):
-                changed |= bool(modify_thickness(el, dims["width"]))
+                changed |= bool(modify_thickness(el, dims["width"], scale=1000.0))
+            if dims.get("length"):
+                changed |= bool(modify_length(el, dims["length"], scale=1000.0))
             if dims.get("height"):
-                changed |= bool(modify_height(el, dims["height"]))
+                changed |= bool(modify_height(el, dims["height"], scale=1000.0))
             if params.get("material"):
                 changed |= bool(modify_material(model, el, {"name": params["material"]}))
+            if params.get("color"):
+                changed |= bool(modify_color(model, el, str(params["color"])))
             face_offset = params.get("face_offset_mm")
             if face_offset is not None:
                 direction = str(selector.get("direction") or "")
-                changed |= bool(modify_face_offset(el, float(face_offset), direction))
+                changed |= bool(
+                    modify_face_offset(el, float(face_offset), direction, scale=1000.0)
+                )
 
         elif op_type == "transform_elements":
             translation = params.get("translation_mm")
             if translation:
                 # translation 은 항상 delta (RELATIVE)
                 pos_dict: dict[str, Any] = {"mode": "RELATIVE", **translation}
-                changed |= bool(modify_position(el, pos_dict))
+                changed |= bool(modify_position(el, pos_dict, scale=1000.0))
             rotation = params.get("rotation_deg")
             if rotation and rotation.get("z") is not None:
                 changed |= bool(modify_rotation(model, el, float(rotation["z"])))
@@ -379,6 +494,18 @@ class AuthoringWorker(BaseWorker):
         storey_filter: str | None = selector.get("storey")
         if storey_filter:
             elements = [e for e in elements if _matches_storey(e, storey_filter)]
+
+        space_filter: str | None = selector.get("space_name")
+        if space_filter:
+            space_matches = [e for e in elements if _matches_space(e, space_filter)]
+            if space_matches:
+                elements = space_matches
+
+        direction_filter: str | None = selector.get("direction")
+        if direction_filter:
+            direction_matches = [e for e in elements if _matches_direction(e, direction_filter)]
+            if direction_matches:
+                elements = direction_matches
 
         name_filter: str | None = selector.get("name")
         if name_filter:
@@ -491,13 +618,78 @@ def _issue(code: str, severity: str, message: str) -> dict[str, str]:
 
 
 def _matches_storey(el: ifcopenshell.entity_instance, storey_name: str) -> bool:
-    storey_lower = storey_name.lower()
+    storey_lower = normalize_storey_name(storey_name).lower()
     for rel in getattr(el, "ContainedInStructure", []):
         if rel.is_a("IfcRelContainedInSpatialStructure"):
             p = rel.RelatingStructure
-            if p.is_a("IfcBuildingStorey") and storey_lower in (p.Name or "").lower():
+            if p.is_a("IfcBuildingStorey") and storey_lower in _storey_key(p.Name):
                 return True
+            if p.is_a("IfcSpace"):
+                for decomposes in getattr(p, "Decomposes", []) or []:
+                    if not decomposes.is_a("IfcRelAggregates"):
+                        continue
+                    storey = decomposes.RelatingObject
+                    if storey.is_a("IfcBuildingStorey") and storey_lower in _storey_key(
+                        storey.Name
+                    ):
+                        return True
     return False
+
+
+def _matches_space(el: ifcopenshell.entity_instance, space_name: str) -> bool:
+    space_key = _space_key(space_name)
+    element_name_key = _space_key(getattr(el, "Name", None))
+    if space_key and space_key in element_name_key:
+        return True
+
+    for rel in getattr(el, "ContainedInStructure", []) or []:
+        if not rel.is_a("IfcRelContainedInSpatialStructure"):
+            continue
+        parent = rel.RelatingStructure
+        if not parent.is_a("IfcSpace"):
+            continue
+        parent_names = [
+            _space_key(getattr(parent, "Name", None)),
+            _space_key(getattr(parent, "LongName", None)),
+        ]
+        if any(space_key and space_key in parent_name for parent_name in parent_names):
+            return True
+    return False
+
+
+def _matches_direction(el: ifcopenshell.entity_instance, direction: str) -> bool:
+    direction_key = direction.strip().lower()
+    if not direction_key:
+        return True
+    aliases = {
+        "north": ("north", "n"),
+        "south": ("south", "s"),
+        "east": ("east", "e"),
+        "west": ("west", "w"),
+    }
+    direction_tokens = aliases.get(direction_key, (direction_key,))
+    name_parts = _name_parts(getattr(el, "Name", None))
+    return any(token in name_parts for token in direction_tokens)
+
+
+def _storey_key(value: str | None) -> str:
+    if not value:
+        return ""
+    return normalize_storey_name(value).lower()
+
+
+def _space_key(value: str | None) -> str:
+    normalized = normalize_space_name(value)
+    if not normalized:
+        return ""
+    return "".join(ch for ch in normalized.lower() if ch.isalnum())
+
+
+def _name_parts(value: str | None) -> set[str]:
+    if not value:
+        return set()
+    normalized = "".join(ch.lower() if ch.isalnum() else " " for ch in value)
+    return set(normalized.split())
 
 
 __all__ = ["AuthoringWorker"]

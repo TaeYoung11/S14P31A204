@@ -11,12 +11,25 @@ import { FLOOR_MM_PER_PX, SITE_RAW_POINTS } from '../constants'
 import type { BubbleData, FloorOpening, FloorRoom, FloorWall, SaveStatus } from '../types'
 import { centerSitePoints, fitSitePointsToStage } from '../utils/bubbleCalc'
 import { ensureSiteContainsBubbles } from '../utils/editorViewport'
+import {
+  DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
+  resolveMmPerPxForFloorPlan,
+} from '../utils/editorPageHelpers'
+import type { LayoutImportBoundaryInput } from '../utils/editorPageHelpers'
 import { buildSiteBoundaryBlockReason } from '../utils/siteBoundaryMessage'
 
 /** 스테이지 여백을 포함한 대지 자동 맞춤 padding(px) */
 export const EDITOR_SITE_FIT_PADDING_PX = 72
 const SITE_CONTAIN_BUBBLE_PADDING_PX = 80
 const SITE_CONTAIN_MAX_SCALE = 3.5
+
+interface StableSiteAnchor {
+  projectId: string
+  x: number
+  y: number
+}
+
+const siteAnchorCacheByProjectId = new Map<string, StableSiteAnchor>()
 
 interface UseEditorSiteBoundaryParams {
   projectId: string | undefined
@@ -26,6 +39,9 @@ interface UseEditorSiteBoundaryParams {
   floorRooms: FloorRoom[]
   floorWalls: FloorWall[]
   floorOpenings: FloorOpening[]
+  sitePolygonRing?: number[][] | null
+  siteAreaM2?: number | null
+  sitePolygonQueryEnabled?: boolean
   setSaveStatus: Dispatch<SetStateAction<SaveStatus>>
 }
 
@@ -43,14 +59,22 @@ export function useEditorSiteBoundary({
   floorRooms,
   floorWalls,
   floorOpenings,
+  sitePolygonRing,
+  siteAreaM2: siteAreaM2Override,
+  sitePolygonQueryEnabled = true,
   setSaveStatus,
 }: UseEditorSiteBoundaryParams) {
-  const sitePolygonQuery = useProjectSitePolygon(projectId ?? null, !!projectId)
-  const cachedSiteRing = sitePolygonQuery.data?.polygonRing ?? null
+  const sitePolygonQuery = useProjectSitePolygon(
+    projectId ?? null,
+    sitePolygonQueryEnabled && !!projectId && !sitePolygonRing,
+  )
+  const sitePolygonQueryData = sitePolygonQueryEnabled ? sitePolygonQuery.data : undefined
+  const cachedSiteRing = sitePolygonRing ?? sitePolygonQueryData?.polygonRing ?? null
+  const apiSiteAreaM2 = siteAreaM2Override ?? sitePolygonQueryData?.areaM2 ?? null
 
   const siteAreaM2 = useMemo(
-    () => (cachedSiteRing ? calculateSiteAreaM2(cachedSiteRing) : null),
-    [cachedSiteRing],
+    () => apiSiteAreaM2 ?? (cachedSiteRing ? calculateSiteAreaM2(cachedSiteRing) : null),
+    [apiSiteAreaM2, cachedSiteRing],
   )
 
   const siteAreaPyeong = useMemo(
@@ -87,23 +111,91 @@ export function useEditorSiteBoundary({
   }, [cachedSiteRing, stageWidth, stageHeight, bubbles])
 
   const floorPlanMmPerPx = useMemo(() => {
+    if (bubbles.length > 0) {
+      return resolveMmPerPxForFloorPlan(bubbles)
+    }
     for (const room of floorRooms) {
       if (room.width > 1 && room.widthMm > 0) return room.widthMm / room.width
       if (room.height > 1 && room.heightMm > 0) return room.heightMm / room.height
     }
     return FLOOR_MM_PER_PX
-  }, [floorRooms])
+  }, [bubbles, floorRooms])
+
+  const bubbleMmPerPx = useMemo(
+    () => resolveMmPerPxForFloorPlan(bubbles),
+    [bubbles],
+  )
+
+  const contentCenter = useMemo(() => {
+    if (floorRooms.length > 0) {
+      const minX = Math.min(...floorRooms.map((room) => room.x))
+      const minY = Math.min(...floorRooms.map((room) => room.y))
+      const maxX = Math.max(...floorRooms.map((room) => room.x + room.width))
+      const maxY = Math.max(...floorRooms.map((room) => room.y + room.height))
+      if (Number.isFinite(minX) && Number.isFinite(minY) && Number.isFinite(maxX) && Number.isFinite(maxY)) {
+        return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+      }
+    }
+
+    if (bubbles.length > 0) {
+      const minX = Math.min(...bubbles.map((bubble) => bubble.x))
+      const minY = Math.min(...bubbles.map((bubble) => bubble.y))
+      const maxX = Math.max(...bubbles.map((bubble) => bubble.x + bubble.width))
+      const maxY = Math.max(...bubbles.map((bubble) => bubble.y + bubble.height))
+      if (Number.isFinite(minX) && Number.isFinite(minY) && Number.isFinite(maxX) && Number.isFinite(maxY)) {
+        return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+      }
+    }
+
+    return { x: stageWidth / 2, y: stageHeight / 2 }
+  }, [bubbles, floorRooms, stageWidth, stageHeight])
+
+  const siteAnchorCenter = useMemo(() => {
+    const anchorProjectId = projectId ?? ''
+    const cachedAnchor = siteAnchorCacheByProjectId.get(anchorProjectId)
+    if (cachedAnchor) {
+      return { x: cachedAnchor.x, y: cachedAnchor.y }
+    }
+    if (bubbles.length > 0 || floorRooms.length > 0) {
+      siteAnchorCacheByProjectId.set(anchorProjectId, {
+        projectId: anchorProjectId,
+        x: contentCenter.x,
+        y: contentCenter.y,
+      })
+      return contentCenter
+    }
+    siteAnchorCacheByProjectId.delete(anchorProjectId)
+    return { x: stageWidth / 2, y: stageHeight / 2 }
+  }, [bubbles.length, contentCenter, floorRooms.length, projectId, stageHeight, stageWidth])
 
   const sitePlanPoints = useMemo(() => {
     if (!cachedSiteRing) return sitePoints
     const mapped = mapSiteRingToCanvasPointsByMmScale(cachedSiteRing, {
       mmPerPx: floorPlanMmPerPx,
-      centerX: stageWidth / 2,
-      centerY: stageHeight / 2,
+      centerX: siteAnchorCenter.x,
+      centerY: siteAnchorCenter.y,
     })
     if (!mapped) return sitePoints
     return mapped.flatMap((point) => [point.x, point.y])
-  }, [cachedSiteRing, floorPlanMmPerPx, sitePoints, stageWidth, stageHeight])
+  }, [cachedSiteRing, floorPlanMmPerPx, siteAnchorCenter, sitePoints])
+
+  const fixedScaleSitePoints = useMemo(() => {
+    if (!cachedSiteRing) return sitePoints
+    const mapped = mapSiteRingToCanvasPointsByMmScale(cachedSiteRing, {
+      mmPerPx: bubbleMmPerPx,
+      centerX: siteAnchorCenter.x,
+      centerY: siteAnchorCenter.y,
+    })
+    if (!mapped) return sitePoints
+    return mapped.flatMap((point) => [point.x, point.y])
+  }, [bubbleMmPerPx, cachedSiteRing, siteAnchorCenter, sitePoints])
+
+  const layoutBoundaryInput = useMemo<LayoutImportBoundaryInput>(() => {
+    return {
+      source: 'default',
+      paddingMm: DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
+    }
+  }, [])
 
   const getSiteBoundaryBlockReason = useCallback((): string | null => {
     return buildSiteBoundaryBlockReason({
@@ -129,7 +221,9 @@ export function useEditorSiteBoundary({
   return {
     sitePolygonQuery,
     sitePoints,
+    fixedScaleSitePoints,
     sitePlanPoints,
+    layoutBoundaryInput,
     siteAreaM2,
     siteAreaPyeong,
     canStartSaveFlow,

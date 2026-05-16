@@ -3,6 +3,7 @@ import { projectQueryKeys } from '@/features/project/constants/projectQueryKeys'
 import { projectService } from '@/features/project/services/project.service'
 import { saveProjectSitePolygon } from '@/features/project/utils/projectSiteCache'
 import { getProjectSitePolygonEntry } from '@/features/project/utils/projectSiteCache'
+import { calculateSiteAreaM2 } from '@/features/project/utils/siteGeometry'
 import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
 import type { ProjectSitePolygonResult } from '@/features/project/utils/projectSiteFallback'
 import type { CreateProjectDto, UpdateProjectDto } from '@/shared/types'
@@ -89,7 +90,7 @@ export const useRegisterProjectSite = () => {
         saveProjectSitePolygon(variables.projectId, ring, { source: 'api' })
         qc.setQueryData<ProjectSitePolygonResult>(
           sitePolygonQueryKey,
-          { polygonRing: ring, source: 'api' },
+          { polygonRing: ring, areaM2: calculateSiteAreaM2(ring), source: 'api' },
         )
         return
       }
@@ -108,10 +109,12 @@ export const useProjectSitePolygon = (projectId: string | null, enabled = true) 
     initialData: (): ProjectSitePolygonResult | undefined => {
       if (!projectId) return undefined
       const cached = getProjectSitePolygonEntry(projectId)
-      if (!cached) return undefined
+      // mock 데이터는 initialData로 사용하지 않음 — 실제 대지가 있을 때 가짜 대지가 잠깐 보이는 문제 방지
+      if (!cached || cached.source === 'mock') return undefined
 
       return {
         polygonRing: cached.polygonRing,
+        areaM2: calculateSiteAreaM2(cached.polygonRing),
         source: cached.isStale ? 'local_stale' : 'local',
       }
     },

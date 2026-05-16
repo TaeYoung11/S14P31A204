@@ -4,7 +4,7 @@
  * 라이브러리 패널에서 선택된 프리셋을 Three.js Group으로 생성하고,
  * userData에 프리셋 정보·기본 치수·월드 크기를 저장해 편집 시 참조할 수 있도록 한다.
  */
-import type { Object3D } from 'three'
+import { Euler, Quaternion, Vector3, type Object3D } from 'three'
 import type { IfcElementInfo } from '../../../types'
 import type { ThreeDLibraryPreset } from '../threeDLibrary.types'
 import {
@@ -12,6 +12,7 @@ import {
   PROJECT_WORLD_UNITS_PER_MM,
   createElementMaterial,
   getMaterialDefaultColor,
+  type MaybeThatOpenMaterialsManager,
   type ThreeModule,
 } from './ifcMaterials'
 
@@ -48,6 +49,11 @@ const CATEGORY_BY_LIBRARY_TYPE: Record<ThreeDLibraryPreset['type'], string> = {
   furniture: 'Furniture',
 }
 
+const resolveRoofShape = (preset: ThreeDLibraryPreset): 'flat' | 'gable' => {
+  if (preset.roofShape === 'flat' || preset.roofShape === 'gable') return preset.roofShape
+  return preset.id.includes('gable') ? 'gable' : 'flat'
+}
+
 /**
  * 프리셋의 dimensions 문자열 또는 직접 지정된 치수값을 파싱해 mm 단위 크기를 반환한다.
  * 타입별로 치수 해석 방식이 다르다 (예: column은 높이가 세 번째 값).
@@ -56,9 +62,10 @@ export const parsePresetDimensions = (preset: ThreeDLibraryPreset) => {
   const values = preset.dimensions.match(/\d+/g)?.map(Number) ?? []
 
   if (preset.type === 'roof') {
+    const roofShape = resolveRoofShape(preset)
     return {
       lengthMm: preset.lengthMm ?? values[0],
-      heightMm: preset.heightMm ?? (preset.id.includes('gable') ? 1200 : 240),
+      heightMm: preset.heightMm ?? (roofShape === 'gable' ? 1200 : 240),
       thicknessMm: preset.thicknessMm ?? values[1],
     }
   }
@@ -141,16 +148,30 @@ export const getLibraryElementInfo = (object: LibraryObject3D): IfcElementInfo |
   const { lengthMm, heightMm, thicknessMm } = parsePresetDimensions(preset)
   const material = preset.material ?? DEFAULT_LIBRARY_MATERIAL_BY_TYPE[preset.type]
   const category = CATEGORY_BY_LIBRARY_TYPE[preset.type]
+  const worldPosition = new Vector3()
+  const worldQuaternion = new Quaternion()
+  const worldRotation = new Euler()
+  object.getWorldPosition(worldPosition)
+  object.getWorldQuaternion(worldQuaternion)
+  worldRotation.setFromQuaternion(worldQuaternion, 'XYZ')
 
   return {
-    id: object.uuid ?? preset.id,
+    // 패널/선택 동기화는 preset id를 기준으로 유지해야 재생성 후에도 안정적이다.
+    id: preset.id,
     name: preset.name,
     ifcClass: 'LibraryPreset',
     category,
     source: 'library',
+    roofShape: preset.type === 'roof' ? resolveRoofShape(preset) : undefined,
     lengthMm,
     heightMm,
     thicknessMm,
+    positionX: worldPosition.x,
+    positionY: worldPosition.y,
+    positionZ: worldPosition.z,
+    rotationX: (worldRotation.x * 180) / Math.PI,
+    rotationY: (worldRotation.y * 180) / Math.PI,
+    rotationZ: (worldRotation.z * 180) / Math.PI,
     color: preset.color ?? getMaterialDefaultColor(material),
     material,
     properties: {
@@ -158,9 +179,16 @@ export const getLibraryElementInfo = (object: LibraryObject3D): IfcElementInfo |
       Type: preset.type,
       PresetId: preset.id,
       StoreyExpressID: preset.storeyExpressId ?? '-',
+      RoofShape: preset.type === 'roof' ? resolveRoofShape(preset) : '-',
       Length: lengthMm ?? '-',
       Height: heightMm ?? '-',
       Thickness: thicknessMm ?? '-',
+      PositionX: Number(worldPosition.x.toFixed(3)),
+      PositionY: Number(worldPosition.y.toFixed(3)),
+      PositionZ: Number(worldPosition.z.toFixed(3)),
+      RotationX: Number((((worldRotation.x * 180) / Math.PI)).toFixed(2)),
+      RotationY: Number((((worldRotation.y * 180) / Math.PI)).toFixed(2)),
+      RotationZ: Number((((worldRotation.z * 180) / Math.PI)).toFixed(2)),
       Color: preset.color ?? getMaterialDefaultColor(material),
       Material: material,
     },
@@ -178,20 +206,24 @@ export const createPresetMesh = (
   preset: ThreeDLibraryPreset,
   index: number,
   worldUnitsPerMm = PROJECT_WORLD_UNITS_PER_MM,
+  materialsManager?: MaybeThatOpenMaterialsManager,
 ) => {
   const group = new THREE.Group()
   const parsedDimensions = parsePresetDimensions(preset)
   const presetMaterial = preset.material ?? DEFAULT_LIBRARY_MATERIAL_BY_TYPE[preset.type]
-  const material = createElementMaterial(THREE, presetMaterial, preset.color)
-  const darkMaterial = new THREE.MeshStandardMaterial({ color: '#1F2937', roughness: 0.5 })
-  const glassMaterial = new THREE.MeshStandardMaterial({
-    color: '#8FD3FF',
-    transparent: true,
-    opacity: 0.45,
-    roughness: 0.2,
-  })
+  const material = createElementMaterial(THREE, presetMaterial, preset.color, materialsManager)
+  const darkMaterial = createElementMaterial(THREE, 'Steel', '#1F2937', materialsManager)
+  darkMaterial.roughness = 0.5
+  darkMaterial.metalness = 0.75
+  darkMaterial.needsUpdate = true
+  const glassMaterial = createElementMaterial(THREE, 'Glass', '#8FD3FF', materialsManager)
+  glassMaterial.opacity = 0.45
+  glassMaterial.transparent = true
+  glassMaterial.roughness = 0.2
+  glassMaterial.needsUpdate = true
 
-  if (preset.id.includes('gable')) {
+  const roofShape = preset.type === 'roof' ? resolveRoofShape(preset) : undefined
+  if (roofShape === 'gable') {
     const geometryConstructors = THREE as unknown as {
       BufferGeometry: new () => {
         setAttribute: (name: string, attribute: unknown) => void
@@ -303,7 +335,11 @@ export const createPresetMesh = (
       group.add(top, ...legs)
     } else if (preset.id.includes('bed')) {
       const frame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.28, 2.0), material)
-      const pillow = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 0.4), new THREE.MeshStandardMaterial({ color: '#F6F5F3', roughness: 0.9 }))
+      const pillowMaterial = createElementMaterial(THREE, 'Concrete', '#F6F5F3', materialsManager)
+      pillowMaterial.roughness = 0.9
+      pillowMaterial.metalness = 0
+      pillowMaterial.needsUpdate = true
+      const pillow = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 0.4), pillowMaterial)
       pillow.position.set(0, 0.2, -0.72)
       group.add(frame, pillow)
     } else if (preset.id.includes('wardrobe')) {
@@ -399,4 +435,31 @@ export const updateLibraryPresetData = (
       },
     }
   })
+}
+
+/**
+ * 라이브러리 루트 오브젝트의 현재 스케일을 mm 치수 패치로 변환한다.
+ * TransformControls Scale 드래그 결과를 상태에 영속화할 때 사용한다.
+ */
+export const getLibraryScaleDimensionPatch = (
+  object: LibraryObject3D,
+  worldUnitsPerMm = PROJECT_WORLD_UNITS_PER_MM,
+): Pick<ThreeDLibraryPreset, 'lengthMm' | 'heightMm' | 'thicknessMm'> | null => {
+  if (!(worldUnitsPerMm > 0)) return null
+  const baseWorldSize = object.userData?.libraryBaseWorldSize
+  if (!baseWorldSize) return null
+
+  const lengthMm = Math.round((object.scale.x * baseWorldSize.x) / worldUnitsPerMm)
+  const heightMm = Math.round((object.scale.y * baseWorldSize.y) / worldUnitsPerMm)
+  const thicknessMm = Math.round((object.scale.z * baseWorldSize.z) / worldUnitsPerMm)
+
+  if (!Number.isFinite(lengthMm) || !Number.isFinite(heightMm) || !Number.isFinite(thicknessMm)) {
+    return null
+  }
+
+  return {
+    lengthMm: Math.max(1, lengthMm),
+    heightMm: Math.max(1, heightMm),
+    thicknessMm: Math.max(1, thicknessMm),
+  }
 }

@@ -10,13 +10,13 @@ import type { CanvasModeRendererSectionProps } from './buildCanvasSectionProps'
  */
 export default function CanvasModeRenderer({
   mode,
-  zoom,
+  canvasZoom,
   renderProps,
-  onOpenExport,
   isRotationLocked,
   onThreeDCoordinatesChange,
+  cameraViewPresetCommand,
 }: CanvasModeRendererSectionProps) {
-  const scale = zoom / 100
+  const scale = canvasZoom / 100
 
   if (mode === 'bubble') {
     return <BubbleModeCanvas editorProps={renderProps} scale={scale} />
@@ -33,12 +33,13 @@ export default function CanvasModeRenderer({
         scale={scale}
         isRotationLocked={isRotationLocked}
         onThreeDCoordinatesChange={onThreeDCoordinatesChange}
+        cameraViewPresetCommand={cameraViewPresetCommand}
       />
     )
   }
 
   if (mode === 'view') {
-    return <ViewModeCanvas onExport={onOpenExport} />
+    return <ViewModeCanvas projectId={renderProps.projectId} />
   }
 
   return (

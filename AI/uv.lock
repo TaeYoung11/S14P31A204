@@ -258,6 +258,14 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
+    { name = "types-shapely" },
+]
+lint = [
+    { name = "ruff" },
+]
+test = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
 ]
 
 [package.metadata]
@@ -284,6 +292,12 @@ dev = [
     { name = "pytest", specifier = ">=9.0.0" },
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
     { name = "ruff", specifier = ">=0.14.0" },
+    { name = "types-shapely", specifier = ">=2.1.0.20260508" },
+]
+lint = [{ name = "ruff", specifier = ">=0.14.0" }]
+test = [
+    { name = "pytest", specifier = ">=9.0.0" },
+    { name = "pytest-asyncio", specifier = ">=1.3.0" },
 ]
 
 [[package]]
@@ -2223,6 +2237,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/7b/27/ede8cec7596e0041ba7e7b80b47d132562f56ff454313a16f6084e555c9f/typer-0.25.0.tar.gz", hash = "sha256:123eaf9f19bb40fd268310e12a542c0c6b4fab9c98d9d23342a01ff95e3ce930", size = 120150, upload-time = "2026-04-26T08:46:14.767Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9a/72/193d4e586ec5a4db834a36bbeb47641a62f951f114ffd0fe5b1b46e8d56f/typer-0.25.0-py3-none-any.whl", hash = "sha256:ac01b48823d3db9a83c9e164338057eadbb1c9957a2a6b4eeb486669c560b5dc", size = 55993, upload-time = "2026-04-26T08:46:15.889Z" },
+]
+
+[[package]]
+name = "types-shapely"
+version = "2.1.0.20260508"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/59/96/dc9a62f3e127c58fa1a4b8e1570ade77d441e233c55ed914b8c03b9c9e8d/types_shapely-2.1.0.20260508.tar.gz", hash = "sha256:a9068de7784904d30ae0d3481146e8a9f5a74ff567a4f899021baa75f883774b", size = 26552, upload-time = "2026-05-08T04:50:49.574Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/02/b6c896effca13423371b32b8ace5d1ef891e291f7a1dd371f902415ed16f/types_shapely-2.1.0.20260508-py3-none-any.whl", hash = "sha256:ee6f149af1292246c9d0284c6e2e7d00b140e78c1188633b3173261ff67ce4c9", size = 37692, upload-time = "2026-05-08T04:50:48.343Z" },
 ]
 
 [[package]]

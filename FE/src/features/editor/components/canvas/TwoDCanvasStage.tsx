@@ -55,6 +55,8 @@ interface TwoDCanvasStageProps {
   resizingRoomBubbleId: string | null
   canResizeRoom: (roomBubbleId: string, nextRect: AxisAlignedRect) => boolean
   applyRoomResize: (roomBubbleId: string, x: number, y: number, width: number, height: number) => boolean
+  beginRoomResize?: () => void
+  commitRoomResize?: () => void
   snapResizeHandle: (value: number) => number
   getCanvasPoint: (stage: Konva.Stage) => Point2D | null
   syncHandlePosition: (e: KonvaEventObject<DragEvent>, x: number, y: number) => void
@@ -95,7 +97,10 @@ interface TwoDCanvasStageProps {
   isCollaborationMode: boolean
   commentPins: FloorCommentPin[]
   selectedPinId: string | null
+  currentUserId: string | null
   onPinClick?: (id: string) => void
+  onPinDelete?: (id: string) => void
+  deletingPinId: string | null
   marquee: { x: number; y: number; width: number; height: number } | null
 }
 
@@ -138,6 +143,8 @@ export function TwoDCanvasStage({
   resizingRoomBubbleId,
   canResizeRoom,
   applyRoomResize,
+  beginRoomResize,
+  commitRoomResize,
   snapResizeHandle,
   getCanvasPoint,
   syncHandlePosition,
@@ -178,7 +185,10 @@ export function TwoDCanvasStage({
   isCollaborationMode,
   commentPins,
   selectedPinId,
+  currentUserId,
   onPinClick,
+  onPinDelete,
+  deletingPinId,
   marquee,
 }: TwoDCanvasStageProps) {
   return (
@@ -233,6 +243,8 @@ export function TwoDCanvasStage({
           resizingRoomBubbleId={resizingRoomBubbleId}
           canResizeRoom={canResizeRoom}
           applyRoomResize={applyRoomResize}
+          beginRoomResize={beginRoomResize}
+          commitRoomResize={commitRoomResize}
           snapResizeHandle={snapResizeHandle}
           getCanvasPoint={getCanvasPoint}
           syncHandlePosition={syncHandlePosition}
@@ -312,8 +324,12 @@ export function TwoDCanvasStage({
         {isCollaborationMode && (
           <CollaborationPinOverlay
             pins={commentPins}
+            viewportScale={scale}
             selectedPinId={selectedPinId}
+            currentUserId={currentUserId}
             onPinClick={onPinClick}
+            onPinDelete={onPinDelete}
+            deletingPinId={deletingPinId}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
           />

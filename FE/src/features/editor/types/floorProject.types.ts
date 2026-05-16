@@ -20,6 +20,13 @@ export interface FloorProjectFloor extends FloorProjectEntityBase {
 export interface FloorProjectRoom extends FloorProjectEntityBase {
   name: string
   type: string
+  area?: number | string
+  areaM2?: number | string
+  area_m2?: number | string
+  grossAreaM2?: number | string
+  gross_area_m2?: number | string
+  netAreaM2?: number | string
+  net_area_m2?: number | string
   /** FloorProjectFloor.id 참조 (IFC IfcBuildingStorey GlobalId) */
   floor: string
   polygon: FloorProjectPoint2D[]

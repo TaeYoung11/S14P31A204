@@ -2,7 +2,6 @@ import { useMemo, useRef, useState } from 'react'
 import type Konva from 'konva'
 import type {
   ConnectionData,
-  FloorCommentAttachmentInput,
   FloorCommentPin,
   FloorLayerOverlay,
   FloorOpening,
@@ -22,7 +21,6 @@ import {
 import { toCanvasPolygon } from '../../utils/siteBoundaryValidation'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
 import { FloorPlanEmpty, FloorPlanLoading } from './TwoDCanvasOverlays'
-import { TwoDCanvasPinDraftPanel } from './TwoDCanvasPinDraftPanel'
 import type { RoomDragState } from './TwoDRoomsLayer'
 import { TwoDSiteValidationBanner } from './TwoDSiteValidationBanner'
 import { TwoDCanvasStage } from './TwoDCanvasStage'
@@ -59,8 +57,11 @@ interface TwoDCanvasProps {
   isCollaborationMode?: boolean
   selectedPinId?: string | null
   commentPins?: FloorCommentPin[]
+  currentUserId?: string | null
   onPinClick?: (id: string) => void
-  onPinCreate?: (x: number, y: number, content: string, attachments?: FloorCommentAttachmentInput[]) => void
+  onPinCreate?: (x: number, y: number, content?: string) => void
+  onPinDelete?: (id: string) => void
+  deletingPinId?: string | null
   rooms?: FloorRoom[]
   overlayLayers?: FloorLayerOverlay[]
   connections?: ConnectionData[]
@@ -84,6 +85,8 @@ interface TwoDCanvasProps {
   onRoomMove?: (bubbleId: string, x: number, y: number) => void
   onRoomResize?: (bubbleId: string, x: number, y: number, width: number, height: number) => void
   onRoomPolygonChange?: (bubbleId: string, polygon: Point2D[]) => void
+  onWorkspaceEditStart?: () => void
+  onWorkspaceEditCommit?: () => void
   walls?: FloorWall[]
   openings?: FloorOpening[]
   selectedWallId?: string | null
@@ -129,8 +132,11 @@ export function TwoDCanvas({
   isCollaborationMode,
   selectedPinId,
   commentPins = [],
+  currentUserId,
   onPinClick,
   onPinCreate,
+  onPinDelete,
+  deletingPinId,
   rooms = [],
   overlayLayers = [],
   connections = [],
@@ -147,6 +153,8 @@ export function TwoDCanvas({
   onRoomMove,
   onRoomResize,
   onRoomPolygonChange,
+  onWorkspaceEditStart,
+  onWorkspaceEditCommit,
   walls = [],
   openings = [],
   selectedWallId = null,
@@ -225,20 +233,10 @@ export function TwoDCanvas({
   } = useWallDraftState({ isWallTool })
   const { openingSnapGuide, setOpeningSnapGuide, showTemporaryOpeningSnapGuide } = useOpeningSnapGuide()
   const {
-    pinDraft,
-    pinInputRef,
-    pinImageInputRef,
-    pinFileInputRef,
     startPinDraftAt,
-    addPinDraftFiles,
-    removePinDraftAttachment,
-    savePinDraft,
-    cancelPinDraft,
-    setPinDraftMessage,
   } = usePinDraft({ isCollaborationMode, onPinCreate })
   const {
     getCanvasPoint,
-    toScreenPoint,
     syncHandlePosition,
     handleMouseEnter,
     handleMouseLeave,
@@ -311,11 +309,13 @@ export function TwoDCanvas({
     setOpeningSnapGuide,
     showTemporaryOpeningSnapGuide,
   })
-  const { canResizeRoom, applyRoomResize } = useRoomResizeActions({
+  const { canResizeRoom, applyRoomResize, beginRoomResize, commitRoomResize } = useRoomResizeActions({
     rooms,
     hasSite: siteValidation.hasSite,
     sitePolygon,
     onRoomResize,
+    onWorkspaceEditStart,
+    onWorkspaceEditCommit,
   })
 
   const stageHandlers = useTwoDCanvasStageHandlers({
@@ -415,6 +415,8 @@ export function TwoDCanvas({
         resizingRoomBubbleId={resizingRoomBubbleId}
         canResizeRoom={canResizeRoom}
         applyRoomResize={applyRoomResize}
+        beginRoomResize={beginRoomResize}
+        commitRoomResize={commitRoomResize}
         snapResizeHandle={snapResizeHandle}
         getCanvasPoint={getCanvasPoint}
         syncHandlePosition={syncHandlePosition}
@@ -455,25 +457,14 @@ export function TwoDCanvas({
         isCollaborationMode={Boolean(isCollaborationMode)}
         commentPins={commentPins}
         selectedPinId={selectedPinId ?? null}
+        currentUserId={currentUserId ?? null}
         onPinClick={onPinClick}
+        onPinDelete={onPinDelete}
+        deletingPinId={deletingPinId ?? null}
         marquee={marquee}
       />
       <TwoDSiteValidationBanner siteValidation={siteValidation} />
 
-      <TwoDCanvasPinDraftPanel
-        isCollaborationMode={Boolean(isCollaborationMode)}
-        pinDraft={pinDraft}
-        stageSize={stageSize}
-        toScreenPoint={toScreenPoint}
-        pinInputRef={pinInputRef}
-        pinImageInputRef={pinImageInputRef}
-        pinFileInputRef={pinFileInputRef}
-        onAddFiles={addPinDraftFiles}
-        onRemoveAttachment={removePinDraftAttachment}
-        onMessageChange={setPinDraftMessage}
-        onCancel={cancelPinDraft}
-        onSave={savePinDraft}
-      />
     </div>
   )
 }

@@ -5,6 +5,7 @@ import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.render.dto.RenderStatusSseResponse;
+import com.a204.batang.domain.render.dto.RenderUrlsResponse;
 import com.a204.batang.domain.render.entity.RenderArtifact;
 import com.a204.batang.domain.render.entity.RenderJob;
 import com.a204.batang.domain.render.entity.RenderJobStep;
@@ -18,6 +19,7 @@ import com.a204.batang.domain.render.repository.RenderJobStepRepository;
 import com.a204.batang.global.config.RabbitMqConfig;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -49,6 +51,10 @@ public class SdRenderEventListener {
     private static final String EVENT_PROGRESS = "SD_RENDER_PROGRESS";
     private static final String EVENT_COMPLETED = "SD_RENDER_COMPLETED";
     private static final String EVENT_FAILED = "SD_RENDER_FAILED";
+    private static final String EVENT_GENERATE_STARTED = "SD_RENDER_GENERATE_STARTED";
+    private static final String EVENT_GENERATE_PROGRESS = "SD_RENDER_GENERATE_PROGRESS";
+    private static final String EVENT_GENERATE_COMPLETED = "SD_RENDER_GENERATE_COMPLETED";
+    private static final String EVENT_GENERATE_FAILED = "SD_RENDER_GENERATE_FAILED";
     private static final String JOB_TYPE_SD_RENDER = "SD_RENDER";
 
     private final ProjectRepository projectRepository;
@@ -60,11 +66,11 @@ public class SdRenderEventListener {
     private final NotificationSseService notificationSseService;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
+    private final S3ObjectPresigner s3ObjectPresigner;
 
     /**
      * sd-render 외 event는 무시하고, render event만 상태 전이 처리한다.
      */
-    @RabbitListener(queues = RabbitMqConfig.BE_JOB_EVENTS_QUEUE)
     @Transactional
     public void handle(SdRenderEventMessage event) {
         if (event == null || event.eventType() == null) {
@@ -77,7 +83,7 @@ public class SdRenderEventListener {
             return;
         }
 
-        switch (event.eventType()) {
+        switch (normalizeEventType(event.eventType())) {
             case EVENT_STARTED -> handleStarted(event);
             case EVENT_PROGRESS -> handleProgress(event);
             case EVENT_COMPLETED -> handleCompleted(event);
@@ -164,6 +170,7 @@ public class SdRenderEventListener {
                     "FAILED",
                     0,
                     null,
+                    null,
                     "메시지 전송 실패로 인해 작업을 중단합니다."
             ));
         }
@@ -190,6 +197,7 @@ public class SdRenderEventListener {
                 "RUNNING",
                 safeProgress(event.progress(), 1),
                 null,
+                null,
                 "렌더링이 시작되었습니다."
         ));
     }
@@ -215,6 +223,7 @@ public class SdRenderEventListener {
                 "RUNNING",
                 progress,
                 null,
+                null,
                 extractString(event.output(), "message", "렌더링 진행 중입니다.")
         ));
     }
@@ -234,7 +243,15 @@ public class SdRenderEventListener {
             throw new CustomException(ErrorCode.RENDER_EVENT_INVALID);
         }
 
-        String imageUrl = extractRequiredString(event.output(), "outputImageStorageUrl");
+        String imageUrl = firstNonBlank(
+                extractString(event.output(), "renderPhotoFrontDiagonalLeftStorageUrl", null),
+                extractJsonText(step.getInputPayload(), "renderPhotoFrontDiagonalLeftStorageUrl"),
+                extractString(event.output(), "outputImageStorageUrl", null),
+                extractJsonText(step.getInputPayload(), "outputImageStorageUrl")
+        );
+        if (imageUrl == null || imageUrl.isBlank()) {
+            throw new CustomException(ErrorCode.RENDER_EVENT_INVALID);
+        }
         String mimeType = extractString(event.output(), "mimeType", "image/png");
         String summary = extractString(event.output(), "summary", "실사 렌더링 이미지 생성 완료");
         JsonNode outputPayload = objectMapper.valueToTree(event.output());
@@ -252,11 +269,14 @@ public class SdRenderEventListener {
                     "render-" + artifactId + ".png",
                     mimeType,
                     imageUrl,
-                    objectMapper.valueToTree(buildArtifactMetadata(event, job, summary)),
+                    objectMapper.valueToTree(buildArtifactMetadata(event, job, step, summary, imageUrl)),
                     now
             );
             renderArtifactRepository.save(artifact);
         }
+
+        RenderUrlsResponse renderUrls = buildRenderUrls(event, step, imageUrl);
+        String sseImageUrl = firstNonBlank(renderUrls.frontDiagonalLeftUrl(), imageUrl);
 
         sendSse(event.projectId(), "RENDER_COMPLETED", new RenderStatusSseResponse(
                 "RENDER_COMPLETED",
@@ -265,7 +285,8 @@ public class SdRenderEventListener {
                 event.jobStepId(),
                 "SUCCEEDED",
                 100,
-                imageUrl,
+                sseImageUrl,
+                renderUrls,
                 summary
         ));
     }
@@ -313,19 +334,67 @@ public class SdRenderEventListener {
                 "FAILED",
                 safeProgress(event.progress(), 0),
                 null,
+                null,
                 userMessage
         ));
+    }
+
+    private RenderUrlsResponse buildRenderUrls(SdRenderEventMessage event, RenderJobStep step, String imageUrl) {
+        return new RenderUrlsResponse(
+                presignOptional(firstNonBlank(
+                        extractString(event.output(), "renderManifestStorageUrl", null),
+                        extractString(event.output(), "storageUrl", null),
+                        extractString(event.output(), "storage_url", null),
+                        extractJsonText(step.getInputPayload(), "renderManifestStorageUrl")
+                )),
+                presignOptional(firstNonBlank(
+                        extractString(event.output(), "renderPhotoFrontDiagonalLeftStorageUrl", null),
+                        imageUrl
+                )),
+                presignOptional(firstNonBlank(
+                        extractString(event.output(), "renderPhotoFrontDiagonalRightStorageUrl", null),
+                        extractJsonText(step.getInputPayload(), "renderPhotoFrontDiagonalRightStorageUrl")
+                ))
+        );
+    }
+
+    private String presignOptional(String storageUrl) {
+        if (storageUrl == null || storageUrl.isBlank()) {
+            return null;
+        }
+        try {
+            return s3ObjectPresigner.presignRequired(storageUrl, ErrorCode.RENDER_IMAGE_PRESIGN_FAILED);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /**
      * worker output을 우선 사용하고, 빠진 렌더 옵션은 request payload에서 복원한다.
      */
-    private Map<String, Object> buildArtifactMetadata(SdRenderEventMessage event, RenderJob job, String summary) {
+    private Map<String, Object> buildArtifactMetadata(
+            SdRenderEventMessage event,
+            RenderJob job,
+            RenderJobStep step,
+            String summary,
+            String imageUrl
+    ) {
         Map<String, Object> metadata = new LinkedHashMap<>();
         putIfPresent(metadata, "width", extractInteger(event.output(), "width"));
         putIfPresent(metadata, "height", extractInteger(event.output(), "height"));
         putIfPresent(metadata, "workerId", event.workerId());
         putIfPresent(metadata, "summary", summary);
+        putIfPresent(metadata, "renderPhotoFrontDiagonalLeftStorageUrl", imageUrl);
+        putIfPresent(metadata, "renderManifestStorageUrl", firstNonBlank(
+                extractString(event.output(), "renderManifestStorageUrl", null),
+                extractString(event.output(), "storageUrl", null),
+                extractString(event.output(), "storage_url", null),
+                extractJsonText(step.getInputPayload(), "renderManifestStorageUrl")
+        ));
+        putIfPresent(metadata, "renderPhotoFrontDiagonalRightStorageUrl", firstNonBlank(
+                extractString(event.output(), "renderPhotoFrontDiagonalRightStorageUrl", null),
+                extractJsonText(step.getInputPayload(), "renderPhotoFrontDiagonalRightStorageUrl")
+        ));
 
         // prompt/style은 worker event에 없을 수 있으므로 요청 원본을 fallback source로 사용한다.
         String prompt = firstNonBlank(
@@ -344,11 +413,15 @@ public class SdRenderEventListener {
     }
 
     private String extractRequestPayloadText(JsonNode requestPayload, String key) {
-        if (requestPayload == null) {
+        return extractJsonText(requestPayload, key);
+    }
+
+    private String extractJsonText(JsonNode payload, String key) {
+        if (payload == null) {
             return null;
         }
 
-        JsonNode value = requestPayload.path(key);
+        JsonNode value = payload.path(key);
         if (value.isMissingNode() || value.isNull()) {
             return null;
         }
@@ -377,12 +450,24 @@ public class SdRenderEventListener {
     /**
      * 빈 문자열이 아닌 첫 번째 값을 선택한다.
      */
-    private String firstNonBlank(String primary, String fallback) {
-        if (primary != null && !primary.isBlank()) {
-            return primary;
+    private String normalizeEventType(String eventType) {
+        return switch (eventType) {
+            case EVENT_GENERATE_STARTED -> EVENT_STARTED;
+            case EVENT_GENERATE_PROGRESS -> EVENT_PROGRESS;
+            case EVENT_GENERATE_COMPLETED -> EVENT_COMPLETED;
+            case EVENT_GENERATE_FAILED -> EVENT_FAILED;
+            default -> eventType;
+        };
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
         }
-        if (fallback != null && !fallback.isBlank()) {
-            return fallback;
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
         }
         return null;
     }
@@ -405,22 +490,14 @@ public class SdRenderEventListener {
         eventPublisher.publishEvent(new RenderStatusChangedEvent(projectId, eventName, payload));
     }
 
-    private Integer safeProgress(Integer progress, Integer fallback) {
+    private Integer safeProgress(Double progress, Integer fallback) {
         if (progress == null) {
             return fallback;
         }
-        return Math.max(0, Math.min(progress, 100));
-    }
 
-    /**
-     * 필수 문자열 필드가 비어 있으면 잘못된 worker event로 본다.
-     */
-    private String extractRequiredString(Map<String, Object> output, String key) {
-        String value = extractString(output, key, null);
-        if (value == null || value.isBlank()) {
-            throw new CustomException(ErrorCode.RENDER_EVENT_INVALID);
-        }
-        return value;
+        double normalized = progress <= 1.0d ? progress * 100.0d : progress;
+        int resolved = (int) Math.round(normalized);
+        return Math.max(0, Math.min(resolved, 100));
     }
 
     private String extractString(Map<String, Object> output, String key, String fallback) {

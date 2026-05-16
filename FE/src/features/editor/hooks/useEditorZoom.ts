@@ -5,10 +5,8 @@ import { computeFitZoomPercent } from '../utils/editorViewport'
 const DEFAULT_EDITOR_ZOOM_PERCENT = 100
 
 function clampEditorZoom(value: number): number {
-  return Math.min(
-    Math.max(Math.round(value), MIN_EDITOR_ZOOM_PERCENT),
-    MAX_EDITOR_ZOOM_PERCENT,
-  )
+  const clamped = Math.min(Math.max(value, MIN_EDITOR_ZOOM_PERCENT), MAX_EDITOR_ZOOM_PERCENT)
+  return clamped < 10 ? Math.round(clamped * 10) / 10 : Math.round(clamped)
 }
 
 interface UseEditorZoomParams {
@@ -33,8 +31,7 @@ export function useEditorZoom({
   const [isUserZoomAdjusted, setIsUserZoomAdjusted] = useState(false)
 
   // 사용자가 수동 줌을 건드리기 전에는 모드별 대지 크기에 맞춰 자동 맞춤 줌을 적용한다.
-  const autoFitZoom = useMemo(() => {
-    if (isUserZoomAdjusted) return null
+  const fitBaseZoom = useMemo(() => {
     if (stageWidth <= 0 || stageHeight <= 0) return null
 
     const fitZoom = computeFitZoomPercent(
@@ -46,11 +43,12 @@ export function useEditorZoom({
     if (!fitZoom) return null
 
     return clampEditorZoom(Math.min(DEFAULT_EDITOR_ZOOM_PERCENT, fitZoom))
-  }, [isUserZoomAdjusted, sitePlanPoints, stageWidth, stageHeight, fitPaddingPx])
+  }, [sitePlanPoints, stageWidth, stageHeight, fitPaddingPx])
 
-  const currentZoom = autoFitZoom ?? zoom
+  const currentZoom = zoom
+  const canvasZoom = (fitBaseZoom ?? DEFAULT_EDITOR_ZOOM_PERCENT) * (currentZoom / DEFAULT_EDITOR_ZOOM_PERCENT)
 
-  const getBaseZoom = () => (isUserZoomAdjusted ? zoom : currentZoom)
+  const getBaseZoom = () => currentZoom
 
   /** 사용자 수동 줌을 적용하고 클램프한다. */
   const applyUserZoom = (nextValue: number) => {
@@ -80,7 +78,8 @@ export function useEditorZoom({
 
   return {
     zoom: currentZoom,
-    autoFitZoom,
+    canvasZoom,
+    autoFitZoom: fitBaseZoom,
     handleWheelZoom,
     handleZoomIn,
     handleZoomOut,

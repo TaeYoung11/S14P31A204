@@ -1,4 +1,8 @@
-﻿"""Run the ifc2img baseline over the supported production views.`n`nSupported views are front, side, eye_ne, eye_nw, and eye_se.`nOutput: outputs/ifc2img_baseline/{depth_*,style_*}.png`n"""
+"""Run the ifc2img baseline over the supported production views.
+
+Supported views are front, side, front_diagonal_right, and front_diagonal_left.
+Output: outputs/ifc2img_baseline/{depth_*,style_*}.png
+"""
 
 from __future__ import annotations
 

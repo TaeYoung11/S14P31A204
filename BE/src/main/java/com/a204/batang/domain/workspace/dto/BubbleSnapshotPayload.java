@@ -23,4 +23,18 @@ public interface BubbleSnapshotPayload {
      * @return 연결 목록
      */
     List<ConnectionData> connections();
+
+    /**
+     * 조닝 목록을 반환한다.
+     *
+     * @return 조닝 목록
+     */
+    List<BubbleZoneData> zones();
+
+    /**
+     * 층 메타 정보를 반환한다.
+     *
+     * @return 층 메타 정보
+     */
+    BubbleFloorMeta floorMeta();
 }

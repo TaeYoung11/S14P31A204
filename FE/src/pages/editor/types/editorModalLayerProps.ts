@@ -9,6 +9,7 @@ import type { AddSpaceFormData, BubbleData, ZoningFormData, ConnectionStyle, Ifc
 /** EditorPage 모달 레이어에 전달하는 props 타입 */
 export interface EditorModalLayerProps {
   isAddModalOpen: boolean
+  activeBubbleFloor: number
   addSpaceFormData: AddSpaceFormData
   onCloseAddModal: () => void
   onConfirmAddSpace: () => void
@@ -49,9 +50,10 @@ export interface EditorModalLayerProps {
   isIFCExportModalOpen: boolean
   onCloseIFCExportModal: () => void
   ifcElementChanges: IfcElementChange[]
+  currentIfcUrl: string | null
+  currentIfcAssetId: string | null
 
   isGenerate3DModalOpen: boolean
   onCloseGenerate3DModal: () => void
   onConfirmGenerate3D: (storyHeightMm: number) => void
 }
-

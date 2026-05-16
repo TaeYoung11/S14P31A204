@@ -8,11 +8,14 @@ export interface EditorLeftSidebarProps {
   mode: EditorMode
   isLineStyleModalOpen: boolean
   isLibraryOpen?: boolean
+  isCollaborationMode?: boolean
+  isAgentPanelMode?: boolean
   isGridVisible?: boolean
   selectedTool: string
   onToolSelect: (tool: string) => void
   onAddSpace: () => void
   onToggleCollaboration?: () => void
+  onToggleAgentPanel?: () => void
   onToggleLibrary?: () => void
   onToggleGrid?: () => void
   onExportIFC?: () => void
@@ -23,6 +26,7 @@ export interface EditorLeftSidebarProps {
   isFloorPlanGenerated?: boolean
   isBubbleReadOnly?: boolean
   isEditorReadOnly?: boolean
+  isDeleteActionLocked?: boolean
   hasDeletableSelection?: boolean
   onDeleteSelected?: () => void
 }

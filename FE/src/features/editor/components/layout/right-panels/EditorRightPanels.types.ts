@@ -1,12 +1,14 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type {
   CollaborationUserType,
+  BubbleFloor,
+  BubbleFloorSummary,
   EditorMode,
-  FloorCommentAttachmentInput,
   FloorCommentNotification,
   FloorCommentPin,
   FloorLayer,
   FloorOpening,
+  FloorRoom,
   FloorWall,
   IfcElementChange,
   IfcElementInfo,
@@ -17,7 +19,7 @@ import type {
 } from '@/features/editor/types'
 import type { IfcStoreyInfo } from '@/features/editor/components/canvas/thatopen/ifcPropertyParser'
 import type { ThreeDLibraryPreset } from '@/features/editor/components/canvas/threeDLibrary.types'
-import type { LlmEditPreview, LlmEditStatus } from '@/features/editor/types/llmEdit.types'
+import type { LlmChatLogItem, LlmEditPreview, LlmEditStatus } from '@/features/editor/types/llmEdit.types'
 import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from '@/features/editor/components/panels/BubbleAttributePanel'
 
 /**
@@ -27,18 +29,24 @@ import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from '@/feature
 export interface EditorRightPanelsProps {
   mode: EditorMode
   isCollaborationMode?: boolean
-  collaborationTab?: 'history' | 'thread'
-  onCollaborationTabChange?: (tab: 'history' | 'thread') => void
+  isAgentPanelMode?: boolean
   selectedPinId?: string | null
   selectedPin?: FloorCommentPin | null
   commentPins?: FloorCommentPin[]
   commentNotifications?: FloorCommentNotification[]
-  unreadCommentNotifications?: FloorCommentNotification[]
   currentCollaborationUserType?: CollaborationUserType
-  currentCollaborationUserName?: string
+  currentCollaborationUserId?: string | null
+  currentCollaborationUserName: string
   onSelectPin?: (id: string) => void
-  onCreateCommentReply?: (pinId: string, content: string, attachments?: FloorCommentAttachmentInput[]) => void
+  onCreateCommentReply?: (pinId: string, content: string) => void
+  onResolvePin?: (pinId: string) => void
+  onDeletePin?: (pinId: string) => void
+  onResolveComment?: (pinId: string, commentId: string) => void
+  resolvingPinId?: string | null
+  deletingPinId?: string | null
+  resolvingCommentId?: string | null
   selectedBubble: BubbleInfo | null
+  isThreeDEditingLocked?: boolean
   selectedWall?: FloorWall | null
   selectedOpening?: FloorOpening | null
   selectedIfcElement?: IfcElementInfo | null
@@ -56,10 +64,22 @@ export interface EditorRightPanelsProps {
   onWidthChange: (id: string, width: number) => void
   onHeightChange: (id: string, height: number) => void
   onThicknessChange?: (id: string, thickness: number) => void
+  onPositionChange?: (id: string, axis: 'x' | 'y' | 'z', value: number) => void
+  onRotationChange?: (id: string, axis: 'x' | 'y' | 'z', degrees: number) => void
+  onRoofShapeChange?: (id: string, shape: 'flat' | 'gable') => void
   onWidthCommit?: (id: string, width: number) => void
   onHeightCommit?: (id: string, height: number) => void
   onRatioChange: (id: string, ratio: number) => void
   onColorChange: (id: string, color: string) => void
+  onBubbleFloorChange?: (id: string, floor: number) => void
+  bubbleFloors?: BubbleFloor[]
+  bubbleFloorSummaries?: BubbleFloorSummary[]
+  activeBubbleFloor?: number
+  onSelectBubbleFloor?: (floor: number) => void
+  onAddBubbleFloor?: () => void
+  onRenameBubbleFloor?: (floor: number, name: string) => void
+  onDeleteBubbleFloor?: (floor: number) => void
+  isBubbleReadOnly?: boolean
   onMaterialChange?: (id: string, material: string) => void
   onWallTypeChange?: (id: string, type: FloorWall['type']) => void
   onWallThicknessChange?: (id: string, thicknessMm: number) => void
@@ -71,6 +91,10 @@ export interface EditorRightPanelsProps {
   onDoorHingeSideChange?: (id: string, hingeSide: NonNullable<FloorOpening['doorHingeSide']>) => void
   floorLayers?: FloorLayer[]
   activeFloorLayerId?: string | null
+  floorRooms?: FloorRoom[]
+  floorWallsForHierarchy?: FloorWall[]
+  floorOpenings?: FloorOpening[]
+  selectedRoomId?: string | null
   isFloorPlanGenerated?: boolean
   isLayerOverlayMode?: boolean
   selectedOverlayLayerIds?: string[]
@@ -95,9 +119,13 @@ export interface EditorRightPanelsProps {
   onSelectIfcElementByLocalId?: (localId: number) => void
   /** 3D 계층구조 라이브러리 요소 선택 핸들러 */
   onSelectLibraryElementById?: (id: string) => void
+  onSelectRoom?: (id: string) => void
   onToggleLayerOverlayMode?: () => void
   onToggleOverlayLayer?: (layerId: string) => void
+  onSelectSingleOverlayLayer?: (layerId: string) => void
   onChangeOverlayLayerOpacity?: (layerId: string, opacity: number) => void
+  floorWalls?: FloorWall[]
+  ifcElementHierarchy?: unknown
   onOpenZoningModal: () => void
   onOpenEditZoningModal: (zone: ZoneData) => void
   onDeleteZoning: (zoneId: string) => void
@@ -109,6 +137,10 @@ export interface EditorRightPanelsProps {
   llmSuggestions: string[]
   llmPreview: LlmEditPreview | null
   llmCanRun: boolean
+  llmActiveJobId: string | null
+  llmJobProgress: number | null
+  llmChatLogs: LlmChatLogItem[]
+  llmIsChatLogsLoading: boolean
   onLlmPromptChange: (value: string) => void
   onRunLlmEdit: () => void
   onApplyLlmEdit: () => void

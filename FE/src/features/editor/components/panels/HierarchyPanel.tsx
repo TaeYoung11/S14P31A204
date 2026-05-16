@@ -1,25 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { Box, ChevronDown, ChevronRight, Eye, EyeOff, SlidersHorizontal } from 'lucide-react'
-import type { PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
+import type {
+  FloorLayer,
+  FloorOpening,
+  FloorRoom,
+  FloorWall,
+  PanelKey,
+  PanelOffset,
+  PanelResizeAxis,
+} from '../../types'
 import type { IfcStoreyInfo } from '../canvas/thatopen/ifcPropertyParser'
 import type { ThreeDLibraryPreset } from '../canvas/threeDLibrary.types'
 import { PanelFrame } from '../shared/PanelFrame'
+import { buildHierarchyGroups, type HierarchyGroup } from './hierarchyPanelData'
 
-// ── 정적 계층 데이터 (IFC 미로드 시 fallback 목업) ───────────────────────────
-
-interface HierarchyGroup {
-  id: string
-  name: string
-  children: string[]
-}
-
-const HIERARCHY_ITEMS: HierarchyGroup[] = [
-  { id: 'ext', name: '외벽 구조', children: ['벽체-01', '벽체-02', '창호-01'] },
-  { id: 'int', name: '내부 공간', children: ['거실', '주방', '침실'] },
-  { id: 'roof', name: '지붕 상세', children: ['박공지붕-A'] },
-]
-
-const DEFAULT_EXPANDED_GROUP_IDS = HIERARCHY_ITEMS.map((group) => group.id)
 const STOREY_ELEMENT_PREVIEW_LIMIT = 10
 
 const IFC_CATEGORY_KO: Record<string, string> = {
@@ -33,6 +27,17 @@ const IFC_CATEGORY_KO: Record<string, string> = {
   Beam: '보',
   Space: '공간',
   Element: '요소',
+  roof: '지붕',
+  'exterior-wall': '외벽',
+  'interior-wall': '내벽',
+  window: '창문',
+  'room-door': '방문',
+  'front-door': '현관문',
+  stairs: '계단',
+  column: '기둥',
+  floor: '바닥',
+  ceiling: '천장',
+  furniture: '가구',
 }
 
 const ELEMENT_TOKEN_KO: Record<string, string> = {
@@ -53,14 +58,13 @@ const toKoreanElementName = (name: string) => {
   return parts.map((part) => ELEMENT_TOKEN_KO[part] ?? part).join(' ')
 }
 
-// ── Props ─────────────────────────────────────────────────────────────────────
-
 interface HierarchyPanelProps {
   isOpen: boolean
   offset: PanelOffset
   width: number
   height: number
   zIndex?: number
+
   ifcStoreys?: IfcStoreyInfo[]
   activeIfcStoreyId?: string | null
   overlayIfcStoreyExpressIds?: number[]
@@ -71,16 +75,24 @@ interface HierarchyPanelProps {
   onSelectLibraryElementById?: (id: string) => void
   onToggleIfcStoreyOverlay?: (id: string) => void
   onChangeOverlayLayerOpacity?: (layerId: string, opacity: number) => void
+
   onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLElement>) => void
   onResizeStart: (key: PanelKey, axis: PanelResizeAxis, e: ReactMouseEvent<HTMLButtonElement>) => void
   onToggle: (key: PanelKey) => void
+
+  floorRooms?: FloorRoom[]
+  floorWalls?: FloorWall[]
+  floorOpenings?: FloorOpening[]
+  floorLayers?: FloorLayer[]
+  activeFloorLayerId?: string | null
+  ifcElementHierarchy?: unknown
+  groups?: HierarchyGroup[]
 }
 
 /**
  * 3D 뷰어 계층 구조 패널
- * - IFC 층 정보가 있으면 실제 트리(층 선택/상세)를 렌더링한다.
- * - IFC 정보가 없으면 기존 정적 목업을 fallback으로 유지한다.
- * - 2D 계층구조와 동일한 옵션 메뉴(전체 펼치기/접기/선택 항목만 보기)를 제공한다.
+ * - IFC 층 정보가 있으면 실제 IFC 층/요소 트리를 렌더링한다.
+ * - IFC 정보가 없으면 실제 에디터 상태(rooms/walls/openings/ifc hierarchy) 기반 계층을 렌더링한다.
  */
 export function HierarchyPanel(props: HierarchyPanelProps) {
   const {
@@ -89,6 +101,7 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
     width,
     height,
     zIndex,
+
     ifcStoreys = [],
     activeIfcStoreyId = null,
     overlayIfcStoreyExpressIds = [],
@@ -97,47 +110,76 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
     onToggleIfcStoreyOverlay,
     onSelectIfcElementByLocalId,
     onSelectLibraryElementById,
+
     onDragStart,
     onResizeStart,
     onToggle,
+
+    floorRooms,
+    floorWalls,
+    floorOpenings,
+    floorLayers,
+    activeFloorLayerId,
+    ifcElementHierarchy,
+    groups,
   } = props
 
-  // 활성 층이 하나라도 있으면 true — Eye/EyeOff 아이콘 표시 기준으로 사용
+  const hierarchyGroups = useMemo(
+    () =>
+      groups ?? buildHierarchyGroups({
+        floorRooms,
+        floorWalls,
+        floorOpenings,
+        floorLayers,
+        activeFloorLayerId,
+        ifcElementHierarchy,
+      }),
+    [
+      groups,
+      floorRooms,
+      floorWalls,
+      floorOpenings,
+      floorLayers,
+      activeFloorLayerId,
+      ifcElementHierarchy,
+    ],
+  )
+
+  const hasIfcStoreys = ifcStoreys.length > 0
   const hasAnyActiveStorey = activeIfcStoreyId !== null
+
   const [isIfcRootExpanded, setIsIfcRootExpanded] = useState(true)
   const [expandedStoreyIds, setExpandedStoreyIds] = useState<Record<string, boolean>>({})
   const [expandedElementListByStoreyId, setExpandedElementListByStoreyId] = useState<Record<string, boolean>>({})
-  const [expandedMockGroupIds, setExpandedMockGroupIds] = useState<string[]>(DEFAULT_EXPANDED_GROUP_IDS)
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Record<string, boolean>>({})
   const [isHierarchyMenuOpen, setIsHierarchyMenuOpen] = useState(false)
   const [showSelectedRoomOnly, setShowSelectedRoomOnly] = useState(false)
   const hierarchyMenuRef = useRef<HTMLDivElement | null>(null)
 
-  const hasIfcStoreys = ifcStoreys.length > 0
-  const visibleIfcStoreys = useMemo(
-    () => {
-      if (!showSelectedRoomOnly) return ifcStoreys
-      if (!activeIfcStoreyId) return ifcStoreys
-      return ifcStoreys.filter((storey) => String(storey.expressId) === activeIfcStoreyId)
-    },
-    [ifcStoreys, activeIfcStoreyId, showSelectedRoomOnly],
-  )
+  const visibleIfcStoreys = useMemo(() => {
+    if (!showSelectedRoomOnly) return ifcStoreys
+    if (!activeIfcStoreyId) return ifcStoreys
+    return ifcStoreys.filter((storey) => String(storey.expressId) === activeIfcStoreyId)
+  }, [ifcStoreys, activeIfcStoreyId, showSelectedRoomOnly])
 
   const toggleStoreyExpanded = (storeyId: string) => {
     setExpandedStoreyIds((prev) => ({ ...prev, [storeyId]: !prev[storeyId] }))
   }
+
   const toggleStoreyElementListExpanded = (storeyId: string) => {
     setExpandedElementListByStoreyId((prev) => ({ ...prev, [storeyId]: !prev[storeyId] }))
   }
-  const toggleMockGroupExpanded = (groupId: string) => {
-    setExpandedMockGroupIds((prev) => (
-      prev.includes(groupId)
-        ? prev.filter((id) => id !== groupId)
-        : [...prev, groupId]
-    ))
+
+  const toggleGroupExpanded = (groupId: string) => {
+    setExpandedGroupIds((prev) => ({
+      ...prev,
+      [groupId]: !(prev[groupId] ?? true),
+    }))
   }
 
   const handleExpandAll = () => {
     setShowSelectedRoomOnly(false)
+
     if (hasIfcStoreys) {
       setIsIfcRootExpanded(true)
       setExpandedStoreyIds(
@@ -148,18 +190,25 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
       setIsHierarchyMenuOpen(false)
       return
     }
-    setExpandedMockGroupIds(DEFAULT_EXPANDED_GROUP_IDS)
+
+    setExpandedGroupIds(
+      Object.fromEntries(hierarchyGroups.map((group) => [group.id, true] as const)),
+    )
     setIsHierarchyMenuOpen(false)
   }
 
   const handleCollapseAll = () => {
     setShowSelectedRoomOnly(false)
+
     if (hasIfcStoreys) {
       setExpandedStoreyIds({})
       setIsHierarchyMenuOpen(false)
       return
     }
-    setExpandedMockGroupIds([])
+
+    setExpandedGroupIds(
+      Object.fromEntries(hierarchyGroups.map((group) => [group.id, false] as const)),
+    )
     setIsHierarchyMenuOpen(false)
   }
 
@@ -174,6 +223,7 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
         return next
       })
     }
+
     setIsHierarchyMenuOpen(false)
   }
 
@@ -185,6 +235,7 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
         setIsHierarchyMenuOpen(false)
       }
     }
+
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [isHierarchyMenuOpen])
@@ -209,13 +260,13 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
           >
             <SlidersHorizontal size={14} />
           </button>
+
           {isHierarchyMenuOpen && (
             <div className="absolute right-0 top-8 z-20 w-[220px] rounded-xl border border-[#E1E7F3] bg-white p-2 shadow-lg">
               <button
                 type="button"
                 onClick={handleExpandAll}
                 className="flex h-9 w-full items-center rounded-md px-3 text-left text-[12px] font-semibold tracking-tight text-[#2F3D55] hover:bg-[#F3F6FD]"
-                style={{ whiteSpace: 'nowrap', wordBreak: 'keep-all' }}
               >
                 전체 펼치기
               </button>
@@ -223,22 +274,23 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
                 type="button"
                 onClick={handleCollapseAll}
                 className="mt-1 flex h-9 w-full items-center rounded-md px-3 text-left text-[12px] font-semibold tracking-tight text-[#2F3D55] hover:bg-[#F3F6FD]"
-                style={{ whiteSpace: 'nowrap', wordBreak: 'keep-all' }}
               >
                 전체 접기
               </button>
-              <button
-                type="button"
-                onClick={handleToggleSelectedOnly}
-                className={`mt-1 flex h-9 w-full items-center rounded-md px-3 text-left text-[12px] font-semibold tracking-tight ${
-                  showSelectedRoomOnly
-                    ? 'bg-[#EEF2FF] text-[#3B45B3]'
-                    : 'text-[#2F3D55] hover:bg-[#F3F6FD]'
-                }`}
-                style={{ whiteSpace: 'nowrap', wordBreak: 'keep-all' }}
-              >
-                선택 Room만 보기
-              </button>
+
+              {hasIfcStoreys && (
+                <button
+                  type="button"
+                  onClick={handleToggleSelectedOnly}
+                  className={`mt-1 flex h-9 w-full items-center rounded-md px-3 text-left text-[12px] font-semibold tracking-tight ${
+                    showSelectedRoomOnly
+                      ? 'bg-[#EEF2FF] text-[#3B45B3]'
+                      : 'text-[#2F3D55] hover:bg-[#F3F6FD]'
+                  }`}
+                >
+                  선택 층만 보기
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -252,7 +304,7 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
       onResizeStart={onResizeStart}
       onToggle={onToggle}
     >
-      <div className="p-4 flex flex-col gap-3">
+      <div className="flex flex-col gap-3 p-4">
         {hasIfcStoreys ? (
           <div className="flex flex-col gap-1">
             <button
@@ -284,10 +336,7 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
                     ? storeyElements
                     : storeyElements.slice(0, STOREY_ELEMENT_PREVIEW_LIMIT)
                   const hiddenElementCount = Math.max(storeyElements.length - STOREY_ELEMENT_PREVIEW_LIMIT, 0)
-
-                  // 겹쳐보기 목록에 포함되어 있으면 오버레이 표시 중
                   const isOverlay = overlayIfcStoreyExpressIds.includes(storey.expressId)
-                  // 눈 아이콘: 활성 층이 없으면 모두 보임(Eye), 있으면 해당 층만 Eye
                   const isEyeOn = !hasAnyActiveStorey || isActive
 
                   return (
@@ -301,6 +350,7 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
                         >
                           {isExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
                         </button>
+
                         <button
                           type="button"
                           onClick={() => onSelectIfcStorey?.(storeyId)}
@@ -311,7 +361,7 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
                           </p>
                           <p className="text-[9px] text-[#9AA4BA]">{isActive ? '활성 층' : '비활성 층'}</p>
                         </button>
-                        {/* 층 가시성 토글: 클릭 시 해당 층을 활성/비활성 전환 */}
+
                         <button
                           type="button"
                           onClick={() => onSelectIfcStorey?.(storeyId)}
@@ -325,7 +375,7 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
                         >
                           {isEyeOn ? <Eye size={11} /> : <EyeOff size={11} />}
                         </button>
-                        {/* 겹쳐보기 토글: 활성 층이 있을 때만 표시 */}
+
                         {hasAnyActiveStorey && !isActive && onToggleIfcStoreyOverlay && (
                           <button
                             type="button"
@@ -354,6 +404,7 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
                           <p className="text-[9px] text-[#7C89A1]">
                             고도: <span className="font-bold">{storey.elevation ?? '-'}</span>
                           </p>
+
                           {previewElements.length > 0 && (
                             <div className="mt-1.5 border-t border-[#F1F4FA] pt-1.5">
                               <p className="mb-1 text-[9px] font-bold text-[#6B7A99]">요소</p>
@@ -375,17 +426,19 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
                                   </button>
                                 ))}
                               </div>
+
                               {hiddenElementCount > 0 && (
                                 <button
                                   type="button"
                                   onClick={() => toggleStoreyElementListExpanded(storeyId)}
                                   className="mt-1 text-[9px] font-semibold text-[#6A76A0] hover:text-[#3B45B3]"
                                 >
-                                  {isElementListExpanded ? '접기' : `${hiddenElementCount}개 더`}
+                                  {isElementListExpanded ? '접기' : `${hiddenElementCount}개 더 보기`}
                                 </button>
                               )}
                             </div>
                           )}
+
                           {storeyLibraryElements.length > 0 && (
                             <div className="mt-1.5 border-t border-[#F1F4FA] pt-1.5">
                               <p className="mb-1 text-[9px] font-bold text-[#6B7A99]">
@@ -416,42 +469,55 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
                     </div>
                   )
                 })}
+
                 {visibleIfcStoreys.length === 0 && (
                   <p className="px-2 py-3 text-center text-[10px] text-[#ADB5BD]">표시할 층이 없습니다.</p>
                 )}
               </div>
             )}
           </div>
+        ) : hierarchyGroups.length === 0 ? (
+          <p className="px-2 py-3 text-center text-[10px] text-[#ADB5BD]">표시할 계층 구조가 없습니다.</p>
         ) : (
-          HIERARCHY_ITEMS.map((group) => (
-            <div key={group.id} className="flex flex-col gap-1">
-              <button
-                type="button"
-                onClick={() => toggleMockGroupExpanded(group.id)}
-                className="flex w-full items-center justify-between rounded-md p-1 transition-colors hover:bg-[#F8F9FD]"
-              >
-                <div className="flex min-w-0 items-center gap-1.5">
-                  {expandedMockGroupIds.includes(group.id)
-                    ? <ChevronDown size={12} className="text-[#ADB5BD]" />
-                    : <ChevronRight size={12} className="text-[#ADB5BD]" />}
-                  <span className="text-[11px] font-black text-[#1C1C1E] truncate">{group.name}</span>
-                </div>
-              </button>
+          hierarchyGroups.map((group) => {
+            const isExpanded = expandedGroupIds[group.id] ?? true
 
-              {expandedMockGroupIds.includes(group.id) && (
-                <div className="ml-4 pl-3 border-l border-[#F0F2F9] flex flex-col gap-1.5 mt-1">
-                  {group.children.map((child) => (
-                    <div
-                      key={child}
-                      className="flex items-center justify-between hover:bg-[#F8F9FD] px-2 py-0.5 rounded-sm transition-colors"
-                    >
-                      <span className="text-[10px] font-bold text-[#6B7A99]">{child}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))
+            return (
+              <div key={group.id} className="flex flex-col gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleGroupExpanded(group.id)}
+                  className="flex w-full items-center justify-between rounded-md p-1 transition-colors hover:bg-[#F8F9FD]"
+                >
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    {isExpanded
+                      ? <ChevronDown size={12} className="text-[#ADB5BD]" />
+                      : <ChevronRight size={12} className="text-[#ADB5BD]" />}
+                    <span className="truncate text-[11px] font-black text-[#1C1C1E]">{group.name}</span>
+                  </div>
+                  <Eye size={12} className="text-[#ADB5BD]" />
+                </button>
+
+                {isExpanded && (
+                  <div className="ml-4 mt-1 flex flex-col gap-1.5 border-l border-[#F0F2F9] pl-3">
+                    {group.children.map((child) => (
+                      <div
+                        key={`${group.id}-${child.id}`}
+                        className="flex items-center justify-between rounded-sm px-2 py-0.5 transition-colors hover:bg-[#F8F9FD]"
+                      >
+                        <span className="text-[10px] font-bold text-[#6B7A99]">{child.label}</span>
+                        <Eye size={10} className="text-[#E2E6EF]" />
+                      </div>
+                    ))}
+
+                    {group.children.length === 0 && (
+                      <p className="px-2 py-0.5 text-[9px] text-[#A3ACBA]">하위 요소 없음</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })
         )}
       </div>
     </PanelFrame>

@@ -61,6 +61,24 @@ export function buildFloorPlan3DGroup(
     })
     const mesh = new THREE.Mesh(geo, mat)
     mesh.position.set(posX, posY, posZ)
+    mesh.userData.floorPlanElement = {
+      id: room.id,
+      name: room.label || 'Room',
+      ifcClass: 'IfcSpace',
+      category: 'Space',
+      lengthMm: room.widthMm,
+      heightMm: storyHeightMm,
+      thicknessMm: room.heightMm,
+      properties: {
+        Category: 'Space',
+        Class: 'IfcSpace',
+      },
+    }
+    mesh.userData.floorPlanBaseWorldSize = {
+      x: sizeX,
+      y: sizeY,
+      z: sizeZ,
+    }
 
     // 엣지 윤곽선
     const edgesGeo = new THREE.EdgesGeometry(geo)
@@ -89,6 +107,29 @@ export function buildFloorPlan3DGroup(
     const mesh = new THREE.Mesh(geo, mat)
     mesh.position.set(midX, height / 2, midZ)
     mesh.rotation.y = -Math.atan2(dz, dx)
+    const wallCategory = wall.type === 'exterior'
+      ? 'Exterior wall'
+      : wall.type === 'partition'
+        ? 'Interior wall'
+        : 'Wall'
+    mesh.userData.floorPlanElement = {
+      id: wall.id,
+      name: wallCategory,
+      ifcClass: wall.type === 'exterior' ? 'IfcWallStandardCase' : 'IfcWall',
+      category: wallCategory,
+      lengthMm: Math.round(length / MM_TO_WORLD),
+      heightMm: wall.heightMm || storyHeightMm,
+      thicknessMm: wall.thickness,
+      properties: {
+        Category: wallCategory,
+        Class: wall.type === 'exterior' ? 'IfcWallStandardCase' : 'IfcWall',
+      },
+    }
+    mesh.userData.floorPlanBaseWorldSize = {
+      x: length,
+      y: height,
+      z: wallThickness,
+    }
     group.add(mesh)
   })
 
@@ -113,6 +154,24 @@ export function buildFloorPlan3DGroup(
       const floorMat = new THREE.MeshLambertMaterial({ color: '#e8e4de' })
       const floorMesh = new THREE.Mesh(floorGeo, floorMat)
       floorMesh.position.set(minX + floorW / 2, -0.025, minZ + floorD / 2)
+      floorMesh.userData.floorPlanElement = {
+        id: 'local-floor-slab',
+        name: 'Floor',
+        ifcClass: 'IfcSlab',
+        category: 'Floor',
+        lengthMm: Math.round(floorW / MM_TO_WORLD),
+        thicknessMm: Math.round(0.05 / MM_TO_WORLD),
+        heightMm: Math.round(floorD / MM_TO_WORLD),
+        properties: {
+          Category: 'Floor',
+          Class: 'IfcSlab',
+        },
+      }
+      floorMesh.userData.floorPlanBaseWorldSize = {
+        x: floorW,
+        y: 0.05,
+        z: floorD,
+      }
       group.add(floorMesh)
     }
   }

@@ -19,6 +19,7 @@ import type { IfcPsetMetricMaps } from './ifcPropertyParser'
 import {
   PROJECT_WORLD_UNITS_PER_MM,
   createElementMaterial,
+  type MaybeThatOpenMaterialsManager,
   type ThreeModule,
 } from './ifcMaterials'
 const IFC_MOVE_DEBUG = import.meta.env.VITE_3D_MOVE_DEBUG === 'true'
@@ -287,6 +288,7 @@ export type ThatOpenSceneState = {
   ifcObject: Object3D
   modelId: string
   worldUnitsPerMm: number
+  materialsManager?: MaybeThatOpenMaterialsManager
   worldCamera?: {
     fitToItems?: () => Promise<void> | void
   }
@@ -466,6 +468,8 @@ export const hasIdentityMatrixDelta = (matrixElements: number[], epsilon = 1e-7)
 
 /** projectId가 없을 때 사용하는 fallback 모델 ID */
 export const FALLBACK_IFC_MODEL_ID = 'mock-shinchan-house'
+/** IFC 좌표 단위를 mm(1:1)로 판별할 최소 모델 길이 임계값 */
+const IFC_MM_UNIT_SIZE_THRESHOLD = 500
 
 /**
  * 프로젝트 ID에서 씬 내 모델 ID를 생성한다.
@@ -487,12 +491,37 @@ export const fetchIfcText = async (ifcUrl: string) => {
   ]))
 
   let lastStatus: number | null = null
+  let lastError: unknown = null
+
   for (const candidate of candidates) {
-    const response = await fetch(candidate)
-    if (response.ok) {
-      return response.text()
+    if (import.meta.env.DEV) {
+      console.log('[3d-ifc-fetch][request]', { ifcUrl: candidate })
     }
-    lastStatus = response.status
+
+    try {
+      const response = await fetch(candidate)
+
+      if (import.meta.env.DEV) {
+        console.log('[3d-ifc-fetch][response]', {
+          ifcUrl: candidate,
+          ok: response.ok,
+          status: response.status,
+          contentType: response.headers.get('content-type'),
+        })
+      }
+
+      if (response.ok) {
+        return response.text()
+      }
+
+      lastStatus = response.status
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  if (lastError instanceof Error && lastStatus === null) {
+    throw new Error(`IFC file load failed. (${lastError.message})`)
   }
 
   throw new Error(`IFC file load failed. (${lastStatus ?? 'network'})`)
@@ -1123,15 +1152,18 @@ export const positionPresetGroupBesideIfc = (
 
 /**
  * IFC 모델 크기를 보고 월드 단위/mm 비율을 추정한다.
- * - 모델이 100 유닛보다 크면 이미 mm 단위이므로 1:1로 간주한다.
- * - 그보다 작으면 프로젝트 기본값(PROJECT_WORLD_UNITS_PER_MM)을 사용한다.
+ * - 모델 최대 길이가 충분히 크면(mm 기반 좌표) 1:1로 간주한다.
+ * - 그렇지 않으면 프로젝트 기본값(미터 기반 좌표 추정)을 사용한다.
+ *
+ * 기존 100 임계값은 meter 기반 대형 모델(예: 120m)을 mm로 오인해
+ * 이동 스냅 간격이 과도하게 커지는 문제가 있어 보수적으로 상향한다.
  */
 export const inferWorldUnitsPerMm = (THREE: ThreeModule, ifcObject: Object3D) => {
   const ifcSize = new THREE.Vector3()
   new THREE.Box3().setFromObject(ifcObject).getSize(ifcSize)
   const maxSize = Math.max(ifcSize.x, ifcSize.y, ifcSize.z)
 
-  return maxSize > 100 ? 1 : PROJECT_WORLD_UNITS_PER_MM
+  return maxSize > IFC_MM_UNIT_SIZE_THRESHOLD ? 1 : PROJECT_WORLD_UNITS_PER_MM
 }
 
 /** Three.js 재질 객체에서 HEX 색상 문자열을 추출한다. */
@@ -1153,7 +1185,14 @@ export const getObjectSizeMm = (
   if (!object) return null
   if (!Number.isFinite(worldUnitsPerMm) || worldUnitsPerMm <= 0) return null
   const size = new THREE.Vector3()
-  const box = new THREE.Box3().setFromObject(object)
+  // 회전된 오브젝트의 월드 AABB는 치수가 과대해질 수 있으므로,
+  // 측정 전 루트 회전을 제거한 복제본에서 스케일 기반 크기를 계산한다.
+  const measurementRoot = object.clone(true)
+  measurementRoot.position.set(0, 0, 0)
+  measurementRoot.rotation.set(0, 0, 0)
+  measurementRoot.quaternion.identity()
+  measurementRoot.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(measurementRoot)
   if (box.isEmpty()) return null
   box.getSize(size)
   if (!Number.isFinite(size.x) || !Number.isFinite(size.y) || !Number.isFinite(size.z)) return null
@@ -1202,7 +1241,11 @@ export const toDisplayCoordinates = (position: { x: number; y: number; z: number
  * IFC 모델 최초 로드 시 기존 재질 색상으로부터 에디터 재질 스타일을 적용한다.
  * 인식된 색상의 메시에만 createElementMaterial로 교체하고, 그 외는 유지한다.
  */
-export const applyInitialIfcMaterialStyles = (THREE: ThreeModule, ifcObject: Object3D) => {
+export const applyInitialIfcMaterialStyles = (
+  THREE: ThreeModule,
+  ifcObject: Object3D,
+  materialsManager?: MaybeThatOpenMaterialsManager,
+) => {
   ifcObject.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return
 
@@ -1216,7 +1259,7 @@ export const applyInitialIfcMaterialStyles = (THREE: ThreeModule, ifcObject: Obj
       map?.dispose?.()
       material.dispose()
     })
-    child.material = createElementMaterial(THREE, materialName, color)
+    child.material = createElementMaterial(THREE, materialName, color, materialsManager)
   })
 }
 

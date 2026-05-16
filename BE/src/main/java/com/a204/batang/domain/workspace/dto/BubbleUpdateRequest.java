@@ -1,5 +1,6 @@
 package com.a204.batang.domain.workspace.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -21,9 +22,13 @@ public record BubbleUpdateRequest(
         List<@Valid BubbleData> bubbles,
         @NotNull(message = "connections is required.")
         List<@Valid ConnectionData> connections,
+        @Valid
+        List<BubbleZoneData> zones,
         @NotNull(message = "baseIndex is required.")
         @Min(value = -1, message = "baseIndex must be greater than or equal to -1.")
-        Integer baseIndex
+        Integer baseIndex,
+        @Valid
+        BubbleFloorMeta floorMeta
 ) implements BubbleSnapshotPayload {
 
     /**
@@ -67,7 +72,19 @@ public record BubbleUpdateRequest(
             @NotNull(message = "bubble ratio is required.")
             @Positive(message = "bubble ratio must be positive.")
             Double ratio,
-            String color
+            String color,
+            @JsonAlias({
+                    "floorNumber",
+                    "floorNo",
+                    "layer",
+                    "layerNumber",
+                    "level",
+                    "storey",
+                    "storeyNumber",
+                    "story",
+                    "storyNumber"
+            })
+            Integer floor
     ) {
     }
 

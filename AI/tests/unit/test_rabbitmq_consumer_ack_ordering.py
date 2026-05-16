@@ -7,6 +7,8 @@ import pytest
 
 from ai_common.adapters.rabbitmq.consumer import RabbitMQConsumer
 from ai_common.config import RabbitMQSettings
+from ai_common.errors import NonRetryableWorkerError
+from ai_common.worker_sdk.event_factory import FailedResult
 from ai_domain.worker_messages.command import CommandMessage
 
 _VALID_COMMAND: dict = {
@@ -121,10 +123,57 @@ def test_handler_failure_nacks_with_requeue(
 
     consumer._on_message(_VALID_COMMAND, mock_message)
 
-    mock_message.nack.assert_called_once_with(requeue=True)
+    mock_message.reject.assert_called_once_with(requeue=True)
     mock_message.ack.assert_not_called()
-    mock_message.reject.assert_not_called()
+    mock_message.nack.assert_not_called()
     assert consumer.should_stop is False
+
+
+def test_failed_result_rejects_without_requeue(
+    mock_message: MagicMock,
+) -> None:
+    consumer = RabbitMQConsumer(
+        settings=RabbitMQSettings(host="localhost", port=5672),
+        worker_type="SD_RENDER_GENERATE",
+        handler=MagicMock(
+            return_value=FailedResult(
+                error=NonRetryableWorkerError(
+                    code="PROCESSING_FAILED",
+                    message="processing failed",
+                )
+            )
+        ),
+    )
+
+    consumer._on_message(_VALID_COMMAND, mock_message)
+
+    mock_message.reject.assert_called_once_with(requeue=False)
+    mock_message.ack.assert_not_called()
+    mock_message.nack.assert_not_called()
+    assert consumer.should_stop is False
+
+
+def test_failed_result_counts_toward_stop_after(
+    mock_message: MagicMock,
+) -> None:
+    consumer = RabbitMQConsumer(
+        settings=RabbitMQSettings(host="localhost", port=5672),
+        worker_type="SD_RENDER_GENERATE",
+        handler=MagicMock(
+            return_value=FailedResult(
+                error=NonRetryableWorkerError(
+                    code="PROCESSING_FAILED",
+                    message="processing failed",
+                )
+            )
+        ),
+        stop_after=1,
+    )
+
+    consumer._on_message(_VALID_COMMAND, mock_message)
+
+    mock_message.reject.assert_called_once_with(requeue=False)
+    assert consumer.should_stop is True
 
 
 def test_parse_failure_rejects_without_requeue(
@@ -136,6 +185,22 @@ def test_parse_failure_rejects_without_requeue(
     mock_message.reject.assert_called_once_with(requeue=False)
     mock_message.ack.assert_not_called()
     mock_message.nack.assert_not_called()
+
+
+def test_parse_failure_counts_toward_stop_after(
+    mock_message: MagicMock,
+) -> None:
+    consumer = RabbitMQConsumer(
+        settings=RabbitMQSettings(host="localhost", port=5672),
+        worker_type="SD_RENDER_GENERATE",
+        handler=MagicMock(),
+        stop_after=1,
+    )
+
+    consumer._on_message("{invalid-json", mock_message)
+
+    mock_message.reject.assert_called_once_with(requeue=False)
+    assert consumer.should_stop is True
 
 
 def test_invalid_schema_version_rejects_without_requeue(

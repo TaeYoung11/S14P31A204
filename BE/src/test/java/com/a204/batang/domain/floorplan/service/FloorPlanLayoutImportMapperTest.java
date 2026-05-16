@@ -71,6 +71,53 @@ class FloorPlanLayoutImportMapperTest {
     }
 
     @Test
+    void fromRawRequest_parsesBoundaryPolygonCoordinatePairs() throws Exception {
+        JsonNode raw = objectMapper.readTree("""
+                {
+                  "schema_version": "v2",
+                  "id": "550e8400-e29b-41d4-a716-446655440000",
+                  "name": "sample-project",
+                  "rooms": [
+                    {
+                      "id": "room-1",
+                      "name": "living",
+                      "type": "living",
+                      "width": 4200,
+                      "height": 3800,
+                      "floor": 1,
+                      "x": 100.0,
+                      "y": 200.0,
+                      "angle": 0.0,
+                      "locked": false,
+                      "zoneId": null
+                    }
+                  ],
+                  "boundaries": [
+                    {
+                      "floor": 1,
+                      "polygon": [
+                        [0.0, 0.0],
+                        [14000.0, 0.0],
+                        [14000.0, 9000.0],
+                        [0.0, 9000.0]
+                      ]
+                    }
+                  ]
+                }
+                """);
+
+        LayoutImportV2Payload payload = mapper.fromRawRequest(UUID.randomUUID(), "project-name", raw);
+
+        assertThat(payload.boundaries()).isNotNull();
+        assertThat(payload.boundaries()).hasSize(1);
+        assertThat(payload.boundaries().get(0).polygon()).hasSize(4);
+        assertThat(payload.boundaries().get(0).polygon().get(0).x()).isEqualTo(0.0);
+        assertThat(payload.boundaries().get(0).polygon().get(0).y()).isEqualTo(0.0);
+        assertThat(payload.boundaries().get(0).polygon().get(1).x()).isEqualTo(14000.0);
+        assertThat(payload.boundaries().get(0).polygon().get(1).y()).isEqualTo(0.0);
+    }
+
+    @Test
     void fromRawRequest_throwsWhenSchemaVersionIsInvalid() throws Exception {
         JsonNode raw = objectMapper.readTree("""
                 {
@@ -430,5 +477,106 @@ class FloorPlanLayoutImportMapperTest {
 
         assertThat(payload.adjacency()).extracting(LayoutImportV2Payload.Adjacency::strength)
                 .containsExactly(1.0, 0.6, 0.3);
+    }
+
+    @Test
+    void fromBubbleSnapshot_mapsRoomFloorFromBubbleFloor() throws Exception {
+        JsonNode snapshot = objectMapper.readTree("""
+                {
+                  "bubbles": [
+                    {
+                      "id": "bubble-1",
+                      "x": 10.0,
+                      "y": 20.0,
+                      "width": 100.0,
+                      "height": 80.0,
+                      "widthMm": 2500.0,
+                      "heightMm": 2000.0,
+                      "label": "거실",
+                      "type": "거실",
+                      "ratio": 5.0,
+                      "color": "#ffffff",
+                      "floor": 3
+                    },
+                    {
+                      "id": "bubble-2",
+                      "x": 40.0,
+                      "y": 50.0,
+                      "width": 120.0,
+                      "height": 90.0,
+                      "widthMm": 3600.0,
+                      "heightMm": 2700.0,
+                      "label": "주방",
+                      "type": "주방",
+                      "ratio": 9.0,
+                      "color": "#ffffff"
+                    }
+                  ],
+                  "connections": []
+                }
+                """);
+
+        LayoutImportV2Payload payload = mapper.fromBubbleSnapshot(UUID.randomUUID(), "sample", snapshot);
+
+        assertThat(payload.rooms()).extracting(LayoutImportV2Payload.Room::floor)
+                .containsExactly(3, 1);
+    }
+
+    @Test
+    void fromBubbleSnapshot_mapsZonesByFloorAndRoomZoneId() throws Exception {
+        JsonNode snapshot = objectMapper.readTree("""
+                {
+                  "bubbles": [
+                    {
+                      "id": "bubble-1",
+                      "x": 10.0,
+                      "y": 20.0,
+                      "width": 100.0,
+                      "height": 80.0,
+                      "widthMm": 2500.0,
+                      "heightMm": 2000.0,
+                      "label": "거실",
+                      "type": "거실",
+                      "ratio": 5.0,
+                      "color": "#ffffff",
+                      "floor": 1
+                    },
+                    {
+                      "id": "bubble-2",
+                      "x": 40.0,
+                      "y": 50.0,
+                      "width": 120.0,
+                      "height": 90.0,
+                      "widthMm": 3600.0,
+                      "heightMm": 2700.0,
+                      "label": "안방",
+                      "type": "방",
+                      "ratio": 9.0,
+                      "color": "#ffffff",
+                      "floor": 2
+                    }
+                  ],
+                  "connections": [],
+                  "zones": [
+                    {
+                      "id": "zone-1",
+                      "name": "조닝 1",
+                      "color": "#3B45B3",
+                      "bubbleIds": ["bubble-1", "bubble-2"],
+                      "source": "manual"
+                    }
+                  ]
+                }
+                """);
+
+        LayoutImportV2Payload payload = mapper.fromBubbleSnapshot(UUID.randomUUID(), "sample", snapshot);
+
+        assertThat(payload.zones()).isNotNull();
+        assertThat(payload.zones()).extracting(LayoutImportV2Payload.Zone::id)
+                .containsExactly("zone-1-f1", "zone-1-f2");
+        assertThat(payload.zones()).extracting(LayoutImportV2Payload.Zone::floor)
+                .containsExactly(1, 2);
+        assertThat(payload.rooms()).extracting(LayoutImportV2Payload.Room::zoneId)
+                .containsExactly("zone-1-f1", "zone-1-f2");
     }
 }

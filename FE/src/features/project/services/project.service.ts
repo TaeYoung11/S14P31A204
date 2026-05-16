@@ -32,6 +32,7 @@ interface ProjectSummaryResponse {
   cadastralAddress?: string
   cadastralInfo?: CadastralInfo
   currentIfcUrl?: string
+  currentIfcStorageUrl?: string
   /** private S3 버킷 접근용 에셋 UUID (BE가 제공하는 경우) */
   currentIfcAssetId?: string
   createdAt: string
@@ -47,9 +48,35 @@ interface ProjectDetailResponse {
   bubbleSnapshotJson?: unknown
   ifcStorageUrl?: string
   currentRevision?: string
+  siteInfo?: {
+    pnu?: string | null
+    address?: string | null
+    areaM2?: number | string | null
+    area_m2?: number | string | null
+    area?: number | string | null
+    landAreaM2?: number | string | null
+    land_area_m2?: number | string | null
+    polygon?: CadastralPolygon | null
+  } | null
   createdAt?: string
   updatedAt?: string
   unreadCommentCount?: number
+  creator?: {
+    userId: string
+    name?: string | null
+  } | null
+  invitedUsers?: {
+    userId: string
+    name?: string | null
+  }[]
+}
+
+interface ProjectIfcExportResponse {
+  projectId: string
+  revisionId: string
+  ifcStorageUrl: string
+  presignedUrl: string
+  expiresAt: string
 }
 
 interface ProjectListResponse {
@@ -93,6 +120,11 @@ interface CadastralInfo {
   polygon: CadastralPolygon
 }
 
+const readPositiveNumber = (value: unknown): number | null => {
+  const numericValue = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null
+}
+
 const MOCK_SITE_POLYGON_RING: number[][] = [
   [127.0281304, 37.4981036],
   [127.0283847, 37.4981036],
@@ -101,7 +133,7 @@ const MOCK_SITE_POLYGON_RING: number[][] = [
 ]
 
 const shouldUseSiteMock = import.meta.env.VITE_USE_SITE_MOCK === 'true'
-const shouldFetchSiteFromProjectDetailApi = import.meta.env.VITE_USE_PROJECT_DETAIL_SITE_API === 'true'
+const shouldFetchSiteFromProjectDetailApi = import.meta.env.VITE_USE_PROJECT_DETAIL_SITE_API !== 'false'
 const SITE_CACHE_TTL_MS = PROJECT_SITE_CACHE_TTL_MS
 const PROJECT_DETAIL_FETCH_FAILED_MESSAGE = '프로젝트 상세 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.'
 const projectSummaryCache = new Map<string, ProjectSummaryResponse>()
@@ -124,8 +156,10 @@ export interface ProjectSiteResponse {
 export interface ProjectIfcSource {
   projectId: string
   currentIfcUrl?: string
+  currentIfcStorageUrl?: string
   /** private S3 버킷 접근용 에셋 UUID */
   currentIfcAssetId?: string
+  currentRevision?: string
 }
 
 const mapProjectSummary = (project: ProjectSummaryResponse): Project => ({
@@ -246,6 +280,7 @@ async function fetchProjectSummary(projectId: string): Promise<ProjectSummaryRes
       projectId: detail.projectId,
       name: detail.name,
       description: detail.description,
+      cadastralInfo: detail.siteInfo?.polygon ? { polygon: detail.siteInfo.polygon } : undefined,
       currentIfcUrl: detail.ifcStorageUrl,
       createdAt: detail.createdAt ?? new Date().toISOString(),
       updatedAt: detail.updatedAt ?? detail.createdAt ?? new Date().toISOString(),
@@ -281,14 +316,27 @@ async function _fetchProjectDetail(projectId: string): Promise<ProjectDetailResp
   }
 }
 
+async function fetchProjectIfcExport(projectId: string): Promise<ProjectIfcExportResponse> {
+  const response = await api.get<ApiResponse<ProjectIfcExportResponse>>(`/projects/${projectId}/ifc/export`)
+  return response.data.data
+}
+
 /**
  * 프로젝트 상세 응답에서 대지 폴리곤을 읽어온다.
  * - 응답에 대지 정보가 없거나 형식이 맞지 않으면 null
  * - 네트워크/서버 오류는 상위 fallback 체인에서 처리
  */
-async function fetchSitePolygonFromProjectDetail(projectId: string): Promise<number[][] | null> {
-  const project = await fetchProjectSummary(projectId)
-  return extractOuterRingFromCoordinates(project?.cadastralInfo?.polygon?.coordinates)
+async function fetchSiteInfoFromProjectDetail(projectId: string): Promise<{ polygonRing: number[][] | null; areaM2: number | null }> {
+  const detail = await _fetchProjectDetail(projectId)
+  return {
+    polygonRing: extractOuterRingFromCoordinates(detail.siteInfo?.polygon?.coordinates),
+    areaM2:
+      readPositiveNumber(detail.siteInfo?.areaM2)
+      ?? readPositiveNumber(detail.siteInfo?.area_m2)
+      ?? readPositiveNumber(detail.siteInfo?.landAreaM2)
+      ?? readPositiveNumber(detail.siteInfo?.land_area_m2)
+      ?? readPositiveNumber(detail.siteInfo?.area),
+  }
 }
 
 export interface ProjectListPageResult {
@@ -328,11 +376,41 @@ export const projectService = {
     bubbleSnapshotJson?: unknown
     ifcStorageUrl?: string
     currentRevision?: string
+    creator?: {
+      userId: string
+      name: string
+    } | null
+    invitedUsers?: {
+      userId: string
+      name: string
+    }[]
   }> => {
-    const summary = await fetchProjectSummary(id)
+    const detail = await _fetchProjectDetail(id)
     return {
-      project: mapProjectSummary(summary),
-      ifcStorageUrl: summary.currentIfcUrl,
+      project: mapProjectSummary({
+        projectId: detail.projectId,
+        name: detail.name,
+        description: detail.description,
+        currentIfcUrl: detail.ifcStorageUrl,
+        createdAt: detail.createdAt ?? new Date().toISOString(),
+        updatedAt: detail.updatedAt ?? detail.createdAt ?? new Date().toISOString(),
+        unreadCommentCount: detail.unreadCommentCount,
+      }),
+      phaseStatus: detail.phaseStatus,
+      bubbleSnapshotJson: detail.bubbleSnapshotJson,
+      ifcStorageUrl: detail.ifcStorageUrl,
+      currentRevision: detail.currentRevision,
+      creator: detail.creator
+        ? {
+          userId: detail.creator.userId,
+          name: (detail.creator.name ?? '').trim() || '알 수 없음',
+        }
+        : null,
+      invitedUsers: (detail.invitedUsers ?? [])
+        .map((user) => ({
+          userId: user.userId,
+          name: (user.name ?? '').trim() || '알 수 없음',
+        })),
     }
   },
 
@@ -340,10 +418,18 @@ export const projectService = {
     if (!projectId) return { polygonRing: null, source: 'none' }
 
     let apiPolygonRing: number[][] | null = null
+    let apiAreaM2: number | null = null
 
-    if (shouldFetchSiteFromProjectDetailApi) {
+    // 신선한 실제 대지 캐시가 있으면 project detail API를 호출하지 않는다.
+    // 호출하면 다른 polygon이 반환돼 캐시를 덮어쓰고 잘못된 대지가 잠깐 표시된다.
+    const existingCache = getProjectSitePolygonEntry(projectId, { ttlMs: SITE_CACHE_TTL_MS })
+    const hasFreshRealCache = Boolean(existingCache && !existingCache.isStale && existingCache.source !== 'mock')
+
+    if (shouldFetchSiteFromProjectDetailApi && !hasFreshRealCache) {
       try {
-        apiPolygonRing = await fetchSitePolygonFromProjectDetail(projectId)
+        const apiSiteInfo = await fetchSiteInfoFromProjectDetail(projectId)
+        apiPolygonRing = apiSiteInfo.polygonRing
+        apiAreaM2 = apiSiteInfo.areaM2
         if (apiPolygonRing) {
           saveProjectSitePolygon(projectId, apiPolygonRing, { source: 'api' })
         }
@@ -360,6 +446,7 @@ export const projectService = {
 
     const resolved = resolveProjectSiteFallback({
       apiPolygonRing,
+      apiAreaM2,
       cacheCandidate,
       mockPolygonRing: MOCK_SITE_POLYGON_RING,
       useMock: shouldUseSiteMock,
@@ -374,10 +461,23 @@ export const projectService = {
   },
 
   getIfcSource: async (projectId: string): Promise<ProjectIfcSource> => {
+    try {
+      const exported = await fetchProjectIfcExport(projectId)
+      return {
+        projectId: exported.projectId,
+        currentIfcUrl: exported.presignedUrl,
+        currentIfcStorageUrl: exported.ifcStorageUrl,
+        currentRevision: exported.revisionId,
+      }
+    } catch {
+      // 아직 IFC가 없거나 export 권한이 없으면 기존 프로젝트 상세 기반 조회로 fallback한다.
+    }
+
     const project = await fetchProjectSummary(projectId)
     return {
       projectId: project.projectId,
       currentIfcUrl: project.currentIfcUrl,
+      currentIfcStorageUrl: project.currentIfcUrl,
       currentIfcAssetId: project.currentIfcAssetId,
     }
   },

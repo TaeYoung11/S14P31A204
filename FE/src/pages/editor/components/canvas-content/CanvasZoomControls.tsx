@@ -21,8 +21,12 @@ export default function CanvasZoomControls({
   isRotationLocked,
   onToggleRotationLock,
   threeDCoordinates,
+  selectedCameraViewPreset,
+  onSelectCameraViewPreset,
+  isThreeDEditingLocked,
 }: CanvasZoomControlsSectionProps) {
   if (mode === 'view') return null
+  if (mode === '3d' && isThreeDEditingLocked) return null
 
   return (
     <ZoomControlBar
@@ -42,6 +46,9 @@ export default function CanvasZoomControls({
       isRotationLocked={isRotationLocked}
       onToggleRotationLock={onToggleRotationLock}
       threeDCoordinates={threeDCoordinates}
+      selectedCameraViewPreset={selectedCameraViewPreset}
+      onSelectCameraViewPreset={onSelectCameraViewPreset}
+      isEditingLocked={isThreeDEditingLocked}
     />
   )
 }

@@ -1,7 +1,6 @@
 import { isAxiosError } from 'axios'
 import { api } from '@/shared/lib/axios'
 import type { ApiResponse } from '@/shared/types'
-import { MOCK_INVITE_USERS, MOCK_INVITE_NOTIFICATIONS } from '@/features/project/mocks/invitation.mock'
 
 export type InvitationRole = 'CUSTOMER' | 'REPRESENTATIVE_CUSTOMER'
 
@@ -13,98 +12,57 @@ export interface UserSearchResult {
 
 export interface SendInviteRequest {
   inviteeEmail: string
-  role: InvitationRole
 }
 
 export interface SendInviteResponse {
   projectId: string
-  inviteeEmail: string
+  invitedUserId: string
+  invitedUserName: string
+  invitedUserEmail: string
   role: InvitationRole
-  joinedAt: string
 }
 
 export interface InvitationNotification {
   notificationId: string
   isRead: boolean
-  title: string
-  body: string
   projectId: string
   projectName: string
-  role: InvitationRole
+  inviterUserId: string
+  inviterName: string
+  readAt: string | null
   createdAt: string
 }
 
-// Temporary mock fallback for local API integration work.
-// In dev, user search and mock-user invites may fall back on HTTP errors for UI testing.
-// Other invitation APIs only fall back on network-level failures; real HTTP responses surface to the UI.
-const shouldUseMockFallback = (error: unknown) =>
-  isAxiosError(error) && !error.response
-
-const shouldUseMockSearchFallback = (error: unknown) =>
-  isAxiosError(error)
-
-const isMockInviteUser = (email: string) =>
-  MOCK_INVITE_USERS.some((user) => user.email === email)
-
-const shouldUseMockInviteFallback = (error: unknown, email: string) =>
-  isAxiosError(error) && isMockInviteUser(email)
-
-const searchMockUsers = (keyword: string) => {
-  const q = keyword.toLowerCase()
-  return MOCK_INVITE_USERS.filter(
-    (u) => u.email.includes(q) || u.name.toLowerCase().includes(q),
-  )
+interface InvitationNotificationListResponse {
+  notifications: InvitationNotification[]
 }
 
 export const invitationService = {
   searchUsers: async (keyword: string): Promise<UserSearchResult[]> => {
-    try {
-      const res = await api.get<ApiResponse<UserSearchResult[]>>('/users/search', {
-        params: { email: keyword },
-      })
-      const users = res.data.data
-      return users.length === 0 ? searchMockUsers(keyword) : users
-    } catch (error: unknown) {
-      if (!shouldUseMockSearchFallback(error)) throw error
-
-      return searchMockUsers(keyword)
-    }
+    const res = await api.get<ApiResponse<UserSearchResult[]>>('/users/search', {
+      params: { email: keyword },
+    })
+    return res.data.data
   },
 
   sendInvite: async (projectId: string, req: SendInviteRequest): Promise<SendInviteResponse> => {
-    try {
-      const res = await api.post<ApiResponse<SendInviteResponse>>(
-        `/projects/${projectId}/invitations`,
-        req,
-      )
-      return res.data.data
-    } catch (error: unknown) {
-      if (!shouldUseMockInviteFallback(error, req.inviteeEmail)) throw error
+    const res = await api.post<ApiResponse<SendInviteResponse>>(
+      `/projects/${projectId}/invitations`,
+      req,
+    )
+    return res.data.data
+  },
 
-      await new Promise((resolve) => setTimeout(resolve, 400))
-      return {
-        projectId,
-        inviteeEmail: req.inviteeEmail,
-        role: req.role,
-        joinedAt: new Date().toISOString(),
-      }
-    }
+  removeProjectMember: async (projectId: string, userId: string): Promise<void> => {
+    await api.delete(`/projects/${projectId}/members/${userId}`)
   },
 
   getNotifications: async (isRead?: boolean): Promise<InvitationNotification[]> => {
-    try {
-      const res = await api.get<ApiResponse<InvitationNotification[]>>(
-        '/notifications/invitations',
-        { params: isRead !== undefined ? { isRead } : {} },
-      )
-      return res.data.data
-    } catch (error: unknown) {
-      if (!shouldUseMockFallback(error)) throw error
-
-      return isRead !== undefined
-        ? MOCK_INVITE_NOTIFICATIONS.filter((n) => n.isRead === isRead)
-        : [...MOCK_INVITE_NOTIFICATIONS]
-    }
+    const res = await api.get<ApiResponse<InvitationNotificationListResponse>>(
+      '/notifications/invitations',
+      { params: isRead !== undefined ? { isRead } : {} },
+    )
+    return res.data.data.notifications
   },
 
   markAsRead: async (notificationId: string): Promise<void> => {
@@ -113,7 +71,6 @@ export const invitationService = {
     } catch (error: unknown) {
       const status = isAxiosError(error) ? error.response?.status : undefined
       if (status === 409) return
-      if (shouldUseMockFallback(error)) return
       throw error
     }
   },

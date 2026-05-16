@@ -1,6 +1,8 @@
+// 프로젝트 목록 상단의 브랜드, 알림, 사용자 프로필 메뉴를 렌더링합니다.
 import { useState } from 'react'
-import { Bell, LogOut, UserRoundX } from 'lucide-react'
+import { Bell, LogOut, MessageSquareText, UserRoundX } from 'lucide-react'
 import Modal from '@/shared/components/Modal'
+import logoSrc from '@/assets/logo.svg'
 
 interface ProjectListHeaderProps {
   userId?: string
@@ -13,6 +15,9 @@ interface ProjectListHeaderProps {
   withdrawError?: string
   isWithdrawing?: boolean
   onNotificationOpen?: () => void
+  onCommentNotificationOpen?: () => void
+  invitationNotificationCount?: number
+  commentNotificationCount?: number
 }
 
 export default function ProjectListHeader({
@@ -25,6 +30,9 @@ export default function ProjectListHeader({
   withdrawError = '',
   isWithdrawing = false,
   onNotificationOpen,
+  onCommentNotificationOpen,
+  invitationNotificationCount = 0,
+  commentNotificationCount = 0,
 }: ProjectListHeaderProps) {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false)
@@ -44,17 +52,34 @@ export default function ProjectListHeader({
     <>
       <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b border-[#e5e7eb] bg-white px-8">
         <div className="flex items-center gap-2">
-          <a href="/projects">
-            <span className="text-base font-semibold tracking-tight text-[#111827]">바탕: BATANG</span>
+          <a href="/projects" aria-label="바탕 프로젝트 목록으로 이동">
+            <img src={logoSrc} alt="바탕 : BATANG" className="h-[22px] w-auto" />
           </a>
         </div>
 
         <div className="flex items-center gap-3">
           {userType === 'CUSTOMER' && (
             <button id="notification-btn" className="btn-icon" title="알림" onClick={onNotificationOpen}>
-              <Bell className="h-[18px] w-[18px]" />
+              <span className="relative">
+                <Bell className="h-[18px] w-[18px]" />
+                {invitationNotificationCount > 0 && (
+                  <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-[#ef4444] ring-2 ring-white" />
+                )}
+              </span>
             </button>
           )}
+
+          <button
+            id="comment-notification-btn"
+            className="btn-icon relative"
+            title="댓글 알림"
+            onClick={onCommentNotificationOpen}
+          >
+            <MessageSquareText className="h-[18px] w-[18px]" />
+            {(commentNotificationCount > 0) && (
+              <span className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-[#ef4444] ring-2 ring-white" />
+            )}
+          </button>
 
           <button
             className="flex items-center gap-2 rounded-full border border-[#e5e7eb] bg-white px-2 py-1.5 transition-all hover:border-[#c7d2fe] hover:bg-[#f8faff]"

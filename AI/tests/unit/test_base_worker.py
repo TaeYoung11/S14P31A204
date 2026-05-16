@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from ai_common.errors import ClarificationRequiredError, NonRetryableWorkerError
 from ai_common.worker_sdk.base_worker import BaseWorker
 from ai_common.worker_sdk.event_factory import (
@@ -27,6 +29,14 @@ class InMemoryPublisher:
 
     def publish(self, event: EventMessage) -> None:
         self.events.append(event)
+
+
+class FakeLogger:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def info(self, event: str, **kwargs: object) -> None:
+        self.calls.append((event, kwargs))
 
 
 class CompletedWorker(BaseWorker):
@@ -113,6 +123,29 @@ def test_base_worker_started_then_completed_flow() -> None:
     assert isinstance(result, CompletedResult)
     assert [event.status for event in publisher.events] == ["started", "completed"]
     _assert_schema_valid(publisher.events[1])
+
+
+def test_base_worker_logs_lifecycle_event_publish_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ai_common.worker_sdk.base_worker as base_worker
+
+    logger = FakeLogger()
+    monkeypatch.setattr(base_worker, "_logger", logger)
+    publisher = InMemoryPublisher()
+    worker = CompletedWorker(worker_id="2d-llm-worker-1", event_publisher=publisher)
+
+    worker.handle(_command())
+
+    events = [event for event, _ in logger.calls]
+    statuses = [fields["status"] for _, fields in logger.calls]
+    assert events == [
+        "worker_lifecycle_event_publish_started",
+        "worker_lifecycle_event_publish_completed",
+        "worker_lifecycle_event_publish_started",
+        "worker_lifecycle_event_publish_completed",
+    ]
+    assert statuses == ["started", "started", "completed", "completed"]
 
 
 def test_base_worker_started_then_failed_flow_from_result() -> None:

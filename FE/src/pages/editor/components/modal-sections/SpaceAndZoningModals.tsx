@@ -5,6 +5,7 @@ import type { EditorModalLayerProps } from '../../types/editorModalLayerProps'
 type SpaceAndZoningModalsProps = Pick<
   EditorModalLayerProps,
   | 'isAddModalOpen'
+  | 'activeBubbleFloor'
   | 'addSpaceFormData'
   | 'onCloseAddModal'
   | 'onConfirmAddSpace'
@@ -23,6 +24,7 @@ type SpaceAndZoningModalsProps = Pick<
 /** 공간 추가/조닝 관련 모달 묶음 */
 export default function SpaceAndZoningModals({
   isAddModalOpen,
+  activeBubbleFloor,
   addSpaceFormData,
   onCloseAddModal,
   onConfirmAddSpace,
@@ -41,6 +43,7 @@ export default function SpaceAndZoningModals({
     <>
       <AddSpaceModal
         isOpen={isAddModalOpen}
+        activeFloorNumber={activeBubbleFloor}
         formData={addSpaceFormData}
         onClose={onCloseAddModal}
         onConfirm={onConfirmAddSpace}
@@ -50,6 +53,7 @@ export default function SpaceAndZoningModals({
       <ZoningModal
         isOpen={isZoningModalOpen}
         isEditing={Boolean(editingZoneId)}
+        activeFloorNumber={activeBubbleFloor}
         formData={zoningFormData}
         bubbles={bubbles}
         autoColorPreview={zoningAutoColorPreview}
@@ -61,4 +65,3 @@ export default function SpaceAndZoningModals({
     </>
   )
 }
-

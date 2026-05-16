@@ -5,11 +5,16 @@ import com.a204.batang.domain.project.dto.CreateProjectResponse;
 import com.a204.batang.domain.project.dto.DeleteProjectsRequest;
 import com.a204.batang.domain.project.dto.DeleteProjectsResponse;
 import com.a204.batang.domain.project.dto.ProjectDetailResponse;
+import com.a204.batang.domain.project.dto.ProjectInvitationRequest;
+import com.a204.batang.domain.project.dto.ProjectInvitationResponse;
 import com.a204.batang.domain.project.dto.ProjectListResponse;
+import com.a204.batang.domain.project.dto.ProjectMemberRemovalResponse;
 import com.a204.batang.domain.project.dto.ProjectSiteResponse;
 import com.a204.batang.domain.project.dto.RegisterProjectSiteRequest;
 import com.a204.batang.domain.project.dto.UpdateProjectRequest;
 import com.a204.batang.domain.project.dto.UpdateProjectResponse;
+import com.a204.batang.domain.project.service.ProjectInvitationService;
+import com.a204.batang.domain.project.service.ProjectMemberService;
 import com.a204.batang.domain.project.service.ProjectQueryService;
 import com.a204.batang.domain.project.service.ProjectService;
 import com.a204.batang.domain.project.service.ProjectSiteService;
@@ -45,6 +50,8 @@ public class ProjectController {
     private final ProjectService projectService;
     private final ProjectQueryService projectQueryService;
     private final ProjectSiteService projectSiteService;
+    private final ProjectInvitationService projectInvitationService;
+    private final ProjectMemberService projectMemberService;
 
     /**
      * 새 프로젝트를 생성한다.
@@ -145,5 +152,38 @@ public class ProjectController {
     ) {
         ProjectSiteResponse response = projectSiteService.registerProjectSite(projectId, request);
         return ApiResponse.success("대지정보 등록 완료", response);
+    }
+
+    /**
+     * 프로젝트 owner가 가입된 사용자를 프로젝트 CLIENT 멤버로 초대한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param request 초대 요청
+     * @return 초대 결과
+     */
+    @PostMapping("/{projectId}/invitations")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<ProjectInvitationResponse> inviteProjectMember(
+            @PathVariable UUID projectId,
+            @Valid @RequestBody ProjectInvitationRequest request
+    ) {
+        ProjectInvitationResponse response = projectInvitationService.inviteProjectMember(projectId, request);
+        return ApiResponse.created("프로젝트 멤버 초대 완료", response);
+    }
+
+    /**
+     * 프로젝트 owner가 CLIENT 멤버를 제거한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param userId 제거할 사용자 ID
+     * @return 제거 결과
+     */
+    @DeleteMapping("/{projectId}/members/{userId}")
+    public ApiResponse<ProjectMemberRemovalResponse> removeProjectMember(
+            @PathVariable UUID projectId,
+            @PathVariable UUID userId
+    ) {
+        ProjectMemberRemovalResponse response = projectMemberService.removeProjectMember(projectId, userId);
+        return ApiResponse.success("프로젝트 멤버 제거 완료", response);
     }
 }

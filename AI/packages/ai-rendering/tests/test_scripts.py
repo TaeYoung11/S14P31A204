@@ -1,7 +1,7 @@
-"""scripts 디렉터리의 보조 실행 스크립트 계약을 importlib로 검증한다.
+﻿"""scripts 디렉터리의 보조 실행 스크립트 계약을 importlib로 검증한다.
 
 이 테스트는 스크립트를 CLI로 직접 실행하지 않고 모듈로 로드해, 기본 경로/옵션/내부 helper가
-production 연결에서 기대한 값을 유지하는지 확인한다. 특히 EYE auto-background 실험,
+production 연결에서 기대한 값을 유지하는지 확인한다. 특히 front diagonal auto-background 실험,
 strip cleanup preset, ifc_to_styled.py의 semantic/auto-zoom 연결처럼 스크립트 기본값이
 품질 회귀에 직접 영향을 주는 부분을 고정한다.
 """
@@ -14,6 +14,8 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+
+from ai_rendering.ifc2img.style import DEFAULT_CONTROLNET_SEG_ID
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
@@ -72,66 +74,66 @@ def test_display_path_does_not_raise_value_error(script_name: str) -> None:
     m._display_path(outside)
 
 
-def test_eye_auto_background_mask_script_defaults_to_latest_eye_smoke() -> None:
-    """EYE auto-background mask preview 기본 입출력 경로를 확인한다."""
-    m = _load_script("generate_eye_auto_background_masks.py")
+def test_front_diagonal_auto_background_mask_script_defaults_to_latest_smoke() -> None:
+    """front diagonal auto-background mask preview 기본 입출력 경로를 확인한다."""
+    m = _load_script("generate_front_diagonal_auto_background_masks.py")
 
     assert (
         m.DEFAULT_INPUT_DIR
         == m.ROOT
         / "outputs"
-        / "ifc2img_eye_ground_extent_105_style_smoke1"
+        / "ifc2img_front_diagonal_ground_extent_105_style_smoke1"
         / "AC20-FZK-Haus"
     )
     assert (
         m.DEFAULT_OUTPUT_DIR
         == m.ROOT
         / "outputs"
-        / "ifc2img_eye_auto_background_mask_tight_preview1"
+        / "ifc2img_front_diagonal_auto_background_mask_tight_preview1"
         / "AC20-FZK-Haus"
     )
     assert m.DEFAULT_PRESET == "korean_house"
-    assert m.DEPTH_NAMES == ("depth_eye_ne.png", "depth_eye_nw.png", "depth_eye_se.png")
+    assert m.DEPTH_NAMES == ("depth_front_diagonal_right.png", "depth_front_diagonal_left.png")
     assert m.DEFAULT_PROTECT_EXPAND_PX == 5
     assert m.DEFAULT_TARGET_FEATHER_RADIUS == 4
 
 
-def test_eye_auto_background_inpaint_script_defaults_to_korean_house_eye_smoke() -> None:
-    """EYE auto-background inpaint smoke 기본 경로와 옵션을 확인한다."""
-    m = _load_script("run_eye_auto_background_inpaint.py")
+def test_front_diagonal_auto_background_inpaint_script_defaults_to_korean_house_smoke() -> None:
+    """front diagonal auto-background inpaint smoke 기본 경로와 옵션을 확인한다."""
+    m = _load_script("run_front_diagonal_auto_background_inpaint.py")
 
     assert (
         m.DEFAULT_INPUT_DIR
         == m.ROOT
         / "outputs"
-        / "ifc2img_eye_ground_extent_105_style_smoke1"
+        / "ifc2img_front_diagonal_ground_extent_105_style_smoke1"
         / "AC20-FZK-Haus"
     )
     assert (
         m.DEFAULT_MASK_DIR
         == m.ROOT
         / "outputs"
-        / "ifc2img_eye_auto_background_mask_tight_preview1"
+        / "ifc2img_front_diagonal_auto_background_mask_tight_preview1"
         / "AC20-FZK-Haus"
     )
     assert (
         m.DEFAULT_OUTPUT_DIR
         == m.ROOT
         / "outputs"
-        / "ifc2img_eye_auto_background_inpaint_smoke1"
+        / "ifc2img_front_diagonal_auto_background_inpaint_smoke1"
         / "AC20-FZK-Haus"
     )
     assert m.DEFAULT_PRESET == "korean_house"
-    assert m.DEFAULT_VIEWS == ("eye_ne", "eye_nw", "eye_se")
+    assert m.DEFAULT_VIEWS == ("front_diagonal_right", "front_diagonal_left")
     assert m.DEFAULT_BACKGROUND_MODE == "guided"
     assert m.BACKGROUND_MODES == ("guided", "free")
     assert m.DEFAULT_STRENGTH == 0.55
-    assert m.EYE_STRIP_CLEANUP_BACKGROUND_MODE == "free"
-    assert m.EYE_STRIP_CLEANUP_BOTTOM_STRIP_RATIO == 0.10
-    assert m.EYE_STRIP_CLEANUP_BOTTOM_STRIP_PREFILL_MODE == "feather"
-    assert m.EYE_STRIP_CLEANUP_SECOND_PASS_BOTTOM_STRIP_RATIO == 0.28
-    assert m.EYE_STRIP_CLEANUP_SECOND_PASS_STRENGTH == 1.0
-    assert m.EYE_STRIP_CLEANUP_SECOND_PASS_FEATHER_RATIO == 0.45
+    assert m.FRONT_DIAGONAL_STRIP_CLEANUP_BACKGROUND_MODE == "free"
+    assert m.FRONT_DIAGONAL_STRIP_CLEANUP_BOTTOM_STRIP_RATIO == 0.10
+    assert m.FRONT_DIAGONAL_STRIP_CLEANUP_BOTTOM_STRIP_PREFILL_MODE == "feather"
+    assert m.FRONT_DIAGONAL_STRIP_CLEANUP_SECOND_PASS_BOTTOM_STRIP_RATIO == 0.28
+    assert m.FRONT_DIAGONAL_STRIP_CLEANUP_SECOND_PASS_STRENGTH == 1.0
+    assert m.FRONT_DIAGONAL_STRIP_CLEANUP_SECOND_PASS_FEATHER_RATIO == 0.45
     assert m.DEFAULT_BOTTOM_STRIP_RATIO == 0.10
     assert m.DEFAULT_BOTTOM_STRIP_PREFILL_MODE == "solid"
     assert m.BOTTOM_STRIP_PREFILL_MODES == ("solid", "feather")
@@ -144,13 +146,13 @@ def test_eye_auto_background_inpaint_script_defaults_to_korean_house_eye_smoke()
     assert "caption" in m.BOTTOM_STRIP_SECOND_PASS_NEGATIVE
 
 
-def test_eye_auto_background_inpaint_strip_cleanup_flag_applies_success_preset() -> None:
-    """strip cleanup flag가 성공했던 EYE 하단 strip 제거 조합으로 옵션을 묶는지 확인한다."""
-    m = _load_script("run_eye_auto_background_inpaint.py")
+def test_front_diagonal_auto_background_inpaint_strip_cleanup_flag_applies_success_preset() -> None:
+    """strip cleanup flag가 성공했던 하단 strip 제거 조합을 묶는지 확인한다."""
+    m = _load_script("run_front_diagonal_auto_background_inpaint.py")
 
-    args = m._parse_args(["--eye-strip-cleanup"])
+    args = m._parse_args(["--front-diagonal-strip-cleanup"])
 
-    assert args.eye_strip_cleanup
+    assert args.front_diagonal_strip_cleanup
     assert args.background_mode == "free"
     assert args.prefill_bottom_strip
     assert args.bottom_strip_ratio == 0.10
@@ -162,13 +164,13 @@ def test_eye_auto_background_inpaint_strip_cleanup_flag_applies_success_preset()
     assert args.second_pass_feather_ratio == 0.45
 
 
-def test_eye_auto_background_inpaint_strip_cleanup_is_opt_in() -> None:
+def test_front_diagonal_auto_background_inpaint_strip_cleanup_is_opt_in() -> None:
     """cleanup flag를 켜지 않은 기본 경로는 guided mode와 보수적인 옵션을 유지해야 한다."""
-    m = _load_script("run_eye_auto_background_inpaint.py")
+    m = _load_script("run_front_diagonal_auto_background_inpaint.py")
 
     args = m._parse_args([])
 
-    assert not args.eye_strip_cleanup
+    assert not args.front_diagonal_strip_cleanup
     assert args.background_mode == "guided"
     assert not args.prefill_bottom_strip
     assert args.bottom_strip_prefill_mode == "solid"
@@ -178,9 +180,9 @@ def test_eye_auto_background_inpaint_strip_cleanup_is_opt_in() -> None:
     assert args.second_pass_feather_ratio == 0.35
 
 
-def test_eye_auto_background_inpaint_script_can_resolve_free_prompt() -> None:
+def test_front_diagonal_auto_background_inpaint_script_can_resolve_free_prompt() -> None:
     """free background mode는 yard/ground 소재를 직접 지정하지 않고 모델 자유도를 높여야 한다."""
-    m = _load_script("run_eye_auto_background_inpaint.py")
+    m = _load_script("run_front_diagonal_auto_background_inpaint.py")
 
     prompt, negative = m._resolve_background_prompt_pair("korean_house", "free")
 
@@ -197,9 +199,9 @@ def test_eye_auto_background_inpaint_script_can_resolve_free_prompt() -> None:
     assert "retaining wall" not in negative
 
 
-def test_eye_auto_background_inpaint_script_keeps_guided_prompt() -> None:
+def test_front_diagonal_auto_background_inpaint_script_keeps_guided_prompt() -> None:
     """guided background mode는 preset별 yard/background prior를 그대로 유지해야 한다."""
-    m = _load_script("run_eye_auto_background_inpaint.py")
+    m = _load_script("run_front_diagonal_auto_background_inpaint.py")
 
     prompt, negative = m._resolve_background_prompt_pair("korean_house", "guided")
 
@@ -208,11 +210,11 @@ def test_eye_auto_background_inpaint_script_keeps_guided_prompt() -> None:
     assert "retaining wall" in negative
 
 
-def test_eye_auto_background_inpaint_prefills_bottom_strip_only() -> None:
+def test_front_diagonal_auto_background_inpaint_prefills_bottom_strip_only() -> None:
     """bottom strip prefill은 설정한 하단 band만 바꾸고 나머지 source 픽셀은 보존해야 한다."""
     from PIL import Image
 
-    m = _load_script("run_eye_auto_background_inpaint.py")
+    m = _load_script("run_front_diagonal_auto_background_inpaint.py")
     source = Image.new("RGB", (10, 10), (20, 30, 40))
 
     result = m._prefill_bottom_strip(
@@ -227,11 +229,11 @@ def test_eye_auto_background_inpaint_prefills_bottom_strip_only() -> None:
     assert result.getpixel((5, 9)) == m.BOTTOM_STRIP_COLORS["neutral_paved"]
 
 
-def test_eye_auto_background_inpaint_feather_prefill_blends_bottom_strip() -> None:
+def test_front_diagonal_auto_background_inpaint_feather_prefill_blends_bottom_strip() -> None:
     """feather prefill은 원본 픽셀에서 목표 색으로 점진적으로 섞이도록 적용되어야 한다."""
     from PIL import Image
 
-    m = _load_script("run_eye_auto_background_inpaint.py")
+    m = _load_script("run_front_diagonal_auto_background_inpaint.py")
     source = Image.new("RGB", (4, 4), (10, 20, 30))
 
     result = m._prefill_bottom_strip(
@@ -246,9 +248,9 @@ def test_eye_auto_background_inpaint_feather_prefill_blends_bottom_strip() -> No
     assert result.getpixel((2, 3)) == m.BOTTOM_STRIP_COLORS["neutral_paved"]
 
 
-def test_eye_auto_background_inpaint_makes_feathered_bottom_mask() -> None:
+def test_front_diagonal_auto_background_inpaint_makes_feathered_bottom_mask() -> None:
     """second-pass 하단 strip mask는 위쪽 경계는 feather 처리하고 아래쪽은 완전히 채워야 한다."""
-    m = _load_script("run_eye_auto_background_inpaint.py")
+    m = _load_script("run_front_diagonal_auto_background_inpaint.py")
 
     mask = m._make_bottom_strip_mask((4, 10), ratio=0.4, feather_ratio=0.5)
 
@@ -301,7 +303,7 @@ def test_ifc_to_styled_creates_semantic_renderer_only_when_needed() -> None:
     assert depth_renderer.kwargs == {}
     assert semantic_mode == "depth+semantic"
     assert semantic_renderer.kwargs == {
-        "semantic_controlnet_model_id": m.DEFAULT_CONTROLNET_SEG_ID
+        "semantic_controlnet_model_id": DEFAULT_CONTROLNET_SEG_ID
     }
 
 
@@ -329,17 +331,20 @@ def test_ifc_to_styled_render_depths_can_enable_auto_zoom(
 
     paths = m._render_depths(
         tmp_path / "dummy.ifc",
-        [m.IFCView.EYE_NE],
+        [m.IFCView.FRONT_DIAGONAL_RIGHT],
         tmp_path / "out",
         auto_zoom=True,
-        eye_target_ratio=0.25,
+        front_diagonal_target_ratio=0.25,
         iter_tolerance=0.05,
     )
 
     expected_overrides = {
-        m.IFCView.EYE_NE: 0.25,
-        m.IFCView.EYE_NW: 0.25,
-        m.IFCView.EYE_SE: 0.25,
+        m.IFCView.FRONT_DIAGONAL_RIGHT: 0.25,
+        m.IFCView.FRONT_DIAGONAL_LEFT: 0.25,
+    }
+    expected_ground_overrides = {
+        m.IFCView.FRONT_DIAGONAL_RIGHT: 1.05,
+        m.IFCView.FRONT_DIAGONAL_LEFT: 1.05,
     }
     assert inits == [
         {
@@ -348,46 +353,89 @@ def test_ifc_to_styled_render_depths_can_enable_auto_zoom(
             "auto_zoom": m.AutoZoomMode.ITERATIVE,
             "iter_tolerance": 0.05,
             "view_target_overrides": expected_overrides,
-            "view_ground_extent_overrides": {},
+            "view_ground_extent_overrides": expected_ground_overrides,
+            "view_camera_overrides": None,
+            "ground_z_override": None,
+            "look_at_height_ratio": m.PHOTO_DEPTH_RENDER_DEFAULTS.look_at_height_ratio,
         }
     ]
-    assert paths[m.IFCView.EYE_NE].name == "depth_eye_ne.png"
-    assert paths[m.IFCView.EYE_NE].exists()
+    assert paths[m.IFCView.FRONT_DIAGONAL_RIGHT].name == "depth_front_diagonal_right.png"
+    assert paths[m.IFCView.FRONT_DIAGONAL_RIGHT].exists()
 
 
-def test_ifc_to_styled_builds_eye_target_overrides() -> None:
-    """EYE target ratio override는 대각선 EYE view 3종에만 적용되어야 한다."""
-    m = _load_script("ifc_to_styled.py")
-
-    assert m._build_eye_target_overrides(None) == {}
-    assert m._build_eye_target_overrides(0.25) == {
-        m.IFCView.EYE_NE: 0.25,
-        m.IFCView.EYE_NW: 0.25,
-        m.IFCView.EYE_SE: 0.25,
-    }
-    with pytest.raises(SystemExit):
-        m._build_eye_target_overrides(1.5)
-
-
-def test_ifc_to_styled_builds_eye_ground_extent_overrides() -> None:
-    """EYE ground extent override는 대각선 EYE view 3종에만 적용되어야 한다."""
-    m = _load_script("ifc_to_styled.py")
-
-    assert m._build_eye_ground_extent_overrides(None) == {}
-    assert m._build_eye_ground_extent_overrides(0.9) == {
-        m.IFCView.EYE_NE: 0.9,
-        m.IFCView.EYE_NW: 0.9,
-        m.IFCView.EYE_SE: 0.9,
-    }
-    with pytest.raises(SystemExit):
-        m._build_eye_ground_extent_overrides(0.0)
-
-
-def test_ifc_to_styled_render_depths_passes_eye_ground_extent_override(
+def test_ifc_to_styled_render_depths_leaves_front_diagonal_defaults_to_service(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """EYE ground geometry override를 IFCRenderer 생성 인자로 넘기는지 확인한다."""
+    """CLI에서 생략한 front diagonal 기본값은 service factory가 단일하게 결정해야 한다."""
+    from PIL import Image
+
+    m = _load_script("ifc_to_styled.py")
+    factory_calls: list[dict[str, object]] = []
+
+    class FakeIFCRenderer:
+        def render_views(self, _ifc_path: Path, views: list[object]) -> dict[object, Image.Image]:
+            return {
+                view: Image.new("L", (4, 4), 128)
+                for view in views
+            }
+
+    def fake_create_photo_ifc_renderer(_renderer_cls: type, **kwargs: object) -> FakeIFCRenderer:
+        factory_calls.append(kwargs)
+        return FakeIFCRenderer()
+
+    monkeypatch.setattr(m, "create_photo_ifc_renderer", fake_create_photo_ifc_renderer)
+
+    m._render_depths(
+        tmp_path / "dummy.ifc",
+        [m.IFCView.FRONT_DIAGONAL_RIGHT],
+        tmp_path / "out",
+        auto_zoom=True,
+    )
+
+    assert factory_calls == [
+        {
+            "width": m.PHOTO_DEPTH_RENDER_DEFAULTS.width,
+            "height": m.PHOTO_DEPTH_RENDER_DEFAULTS.height,
+            "auto_zoom": True,
+            "iter_tolerance": m.PHOTO_DEPTH_RENDER_DEFAULTS.iter_tolerance,
+        }
+    ]
+
+
+def test_ifc_to_styled_builds_front_diagonal_target_overrides() -> None:
+    """front diagonal target ratio override는 대각선 front diagonal view 3종에만 적용되어야 한다."""
+    m = _load_script("ifc_to_styled.py")
+
+    assert m._build_front_diagonal_target_overrides(None) == {}
+    assert m._build_front_diagonal_target_overrides(0.25) == {
+        m.IFCView.FRONT_DIAGONAL_RIGHT: 0.25,
+        m.IFCView.FRONT_DIAGONAL_LEFT: 0.25,
+        
+    }
+    with pytest.raises(SystemExit):
+        m._build_front_diagonal_target_overrides(1.5)
+
+
+def test_ifc_to_styled_builds_front_diagonal_ground_extent_overrides() -> None:
+    """front diagonal ground extent override는 좌/우 대각선 2시점에만 적용되어야 한다."""
+    m = _load_script("ifc_to_styled.py")
+
+    assert m._build_front_diagonal_ground_extent_overrides(None) == {}
+    assert m._build_front_diagonal_ground_extent_overrides(0.9) == {
+        m.IFCView.FRONT_DIAGONAL_RIGHT: 0.9,
+        m.IFCView.FRONT_DIAGONAL_LEFT: 0.9,
+        
+    }
+    with pytest.raises(SystemExit):
+        m._build_front_diagonal_ground_extent_overrides(0.0)
+
+
+def test_ifc_to_styled_render_depths_passes_front_diagonal_ground_extent_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """front diagonal ground geometry override를 IFCRenderer 생성 인자로 넘기는지 확인한다."""
     from PIL import Image
 
     m = _load_script("ifc_to_styled.py")
@@ -407,15 +455,15 @@ def test_ifc_to_styled_render_depths_passes_eye_ground_extent_override(
 
     m._render_depths(
         tmp_path / "dummy.ifc",
-        [m.IFCView.EYE_NE],
+        [m.IFCView.FRONT_DIAGONAL_RIGHT],
         tmp_path / "out",
-        eye_ground_extent_factor=0.9,
+        front_diagonal_ground_extent_factor=0.9,
     )
 
     expected_ground_overrides = {
-        m.IFCView.EYE_NE: 0.9,
-        m.IFCView.EYE_NW: 0.9,
-        m.IFCView.EYE_SE: 0.9,
+        m.IFCView.FRONT_DIAGONAL_RIGHT: 0.9,
+        m.IFCView.FRONT_DIAGONAL_LEFT: 0.9,
+        
     }
     assert inits[0]["view_ground_extent_overrides"] == expected_ground_overrides
 
@@ -467,7 +515,7 @@ def test_ifc_to_styled_render_styles_passes_resolved_options(
 
     assert len(calls) == 4
     assert {} in renderer_inits
-    assert {"semantic_controlnet_model_id": m.DEFAULT_CONTROLNET_SEG_ID} in renderer_inits
+    assert {"semantic_controlnet_model_id": DEFAULT_CONTROLNET_SEG_ID} in renderer_inits
 
     korean_front = next(
         c
@@ -483,23 +531,23 @@ def test_ifc_to_styled_render_styles_passes_resolved_options(
     ]
 
     assert korean_front["renderer_kwargs"] == {
-        "semantic_controlnet_model_id": m.DEFAULT_CONTROLNET_SEG_ID
+        "semantic_controlnet_model_id": DEFAULT_CONTROLNET_SEG_ID
     }
     assert korean_front["front_side_ground_class"] == "neutral"
     assert korean_front["front_side_semantic_control_scale"] == 0.35
     assert korean_side["renderer_kwargs"] == {
-        "semantic_controlnet_model_id": m.DEFAULT_CONTROLNET_SEG_ID
+        "semantic_controlnet_model_id": DEFAULT_CONTROLNET_SEG_ID
     }
     assert korean_side["front_side_ground_class"] == "neutral"
     assert korean_side["front_side_semantic_control_scale"] == 0.35
     assert len(scandinavian_calls) == 2
 
 
-def test_ifc_to_styled_render_styles_passes_eye_ground_plane_aware_options(
+def test_ifc_to_styled_render_styles_passes_front_diagonal_ground_plane_aware_options(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """korean_house EYE slot의 ground-plane-aware semantic 옵션을 확인한다."""
+    """korean_house front diagonal slot의 ground-plane-aware semantic 옵션을 확인한다."""
     from PIL import Image
 
     import ai_rendering.ifc2img as ifc2img
@@ -522,26 +570,25 @@ def test_ifc_to_styled_render_styles_passes_eye_ground_plane_aware_options(
             return FakeResult()
 
     monkeypatch.setattr(ifc2img, "DepthStyleRenderer", FakeRenderer)
-    depth = tmp_path / "depth_eye_ne.png"
+    depth = tmp_path / "depth_front_diagonal_right.png"
     Image.new("RGB", (8, 8), (0, 0, 0)).save(depth)
 
     m._render_styles(
-        {m.IFCView.EYE_NE: depth},
+        {m.IFCView.FRONT_DIAGONAL_RIGHT: depth},
         ["korean_house"],
         tmp_path / "styled",
     )
 
     assert calls == [
         {
-            "view": m.IFCView.EYE_NE,
+            "view": m.IFCView.FRONT_DIAGONAL_RIGHT,
             "use_front_side_semantic_control": False,
             "use_front_full_width_semantic_control": False,
-            "use_eye_ground_semantic_control": True,
-            "use_eye_ground_plane_aware_semantic_control": True,
-            "use_eye_ground_plane_control_attenuation": True,
+            "use_front_diagonal_ground_semantic_control": True,
+            "use_front_diagonal_ground_plane_aware_semantic_control": True,
+            "use_front_diagonal_ground_plane_control_attenuation": True,
             "front_side_ground_class": "grass",
             "front_side_semantic_control_scale": 0.25,
-            "eye_ground_plane_control_attenuation_strength": 0.18,
+            "front_diagonal_ground_plane_control_attenuation_strength": 0.18,
         }
     ]
-

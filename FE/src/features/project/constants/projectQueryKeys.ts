@@ -7,5 +7,7 @@ export const projectQueryKeys = {
   all: () => ['projects', 'all'] as const,
   detail: (projectId: string) => ['projects', projectId] as const,
   members: (projectId: string) => ['projects', projectId, 'members'] as const,
+  commentsRoot: () => ['projects', 'comments'] as const,
+  comments: (projectIds: string[]) => ['projects', 'comments', [...projectIds].sort()] as const,
   sitePolygon: (projectId: string | null) => ['projects', projectId, 'site-polygon'] as const,
 }

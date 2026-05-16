@@ -53,5 +53,7 @@ Thumbs.db
 .vscode/
 .claude/
 
-
 docker-compose.local.yml
+
+# AI Agent Guidelines
+AGENTS.md

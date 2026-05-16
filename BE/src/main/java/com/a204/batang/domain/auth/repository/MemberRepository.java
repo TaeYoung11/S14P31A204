@@ -2,11 +2,13 @@ package com.a204.batang.domain.auth.repository;
 
 import com.a204.batang.domain.auth.entity.Member;
 import com.a204.batang.domain.auth.entity.UserStatus;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -22,6 +24,19 @@ public interface MemberRepository extends JpaRepository<Member, UUID> {
      * @return 회원 Optional
      */
     Optional<Member> findByEmail(String email);
+
+    /**
+     * 이메일을 대소문자 구분 없이 비교해 회원을 조회한다.
+     *
+     * @param email 이메일
+     * @return 회원 Optional
+     */
+    @Query("""
+            SELECT m
+            FROM Member m
+            WHERE LOWER(m.email) = LOWER(:email)
+            """)
+    Optional<Member> findByEmailIgnoreCase(@Param("email") String email);
 
     /**
      * 특정 상태의 이메일 존재 여부를 확인한다.
@@ -40,6 +55,31 @@ public interface MemberRepository extends JpaRepository<Member, UUID> {
      * @return 회원 Optional
      */
     Optional<Member> findByUserIdAndStatus(UUID userId, UserStatus status);
+
+    /**
+     * 현재 로그인 사용자를 제외한 ACTIVE 회원 중에서 이메일 부분 검색 결과를 조회한다.
+     * 이메일 비교는 대소문자를 무시하며, 정렬/개수 제한은 Pageable로 제어한다.
+     *
+     * @param keyword 이메일 검색어
+     * @param status 회원 상태
+     * @param currentUserId 현재 로그인 사용자 ID
+     * @param pageable 정렬 및 조회 개수 제한
+     * @return 검색 결과 회원 목록
+     */
+    @Query("""
+            SELECT m
+            FROM Member m
+            WHERE m.status = :status
+              AND m.userId <> :currentUserId
+              AND lower(m.email) LIKE lower(concat('%', :keyword, '%'))
+            ORDER BY m.email ASC
+            """)
+    List<Member> searchActiveMembersByEmailKeywordExcludingCurrentUser(
+            @Param("keyword") String keyword,
+            @Param("status") UserStatus status,
+            @Param("currentUserId") UUID currentUserId,
+            Pageable pageable
+    );
 
     /**
      * 테스트 계정을 users 테이블에 native SQL로 직접 생성한다.

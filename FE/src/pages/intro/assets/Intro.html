@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>바탕:BATANG — 건축의 정밀함을 디지털로 설계하다</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css"
+    rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js"
+    integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L"
+    crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"
+    integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm"
+    crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"
+    integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"
+    crossorigin="anonymous"></script>
+
+  <style>
+    :root {
+      --bg: #f4f5f9;
+      --bg-2: #eaecf2;
+      --paper: #ffffff;
+      --ink: #111827;
+      --ink-2: #374151;
+      --muted: #6b7280;
+      --muted-2: #9ca3af;
+      --line: #e5e7eb;
+      --line-2: #d1d5db;
+      --accent: #4f46e5;
+      --accent-soft: rgba(79, 70, 229, 0.08);
+      --serif: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      font-family: var(--serif);
+      color: var(--ink);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      letter-spacing: -0.005em;
+    }
+
+    #scene-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+      cursor: pointer;
+    }
+
+    body.interactive #scene-canvas {
+      cursor: grab;
+    }
+
+    body.interactive #scene-canvas:active {
+      cursor: grabbing;
+    }
+
+    /* faint gradient veil over the scene to lift text */
+    .veil {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      background:
+        radial-gradient(60% 60% at 18% 50%, rgba(244, 245, 249, 0.85) 0%, rgba(244, 245, 249, 0) 60%),
+        radial-gradient(40% 40% at 90% 10%, rgba(79, 70, 229, 0.06) 0%, rgba(79, 70, 229, 0) 70%);
+    }
+
+    /* tiny grid overlay */
+    .grid-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      background-image:
+        linear-gradient(to right, rgba(17, 24, 39, 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(17, 24, 39, 0.04) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: radial-gradient(ellipse 100% 80% at 50% 50%, black 30%, transparent 80%);
+    }
+
+    /* ── HEADER ────────────────────────────────── */
+    header.nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 28px 40px;
+    }
+
+    .logo-link {
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+    }
+
+    .logo-img {
+      height: 22px;
+      width: auto;
+      display: block;
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .nav-link {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--ink-2);
+      text-decoration: none;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      transition: color .15s ease;
+    }
+
+    .nav-link:hover {
+      color: var(--accent);
+    }
+
+    .nav-cta {
+      background: var(--ink);
+      color: white;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 9px 16px;
+      border-radius: 8px;
+      border: 0;
+      cursor: pointer;
+      transition: background .15s ease, transform .15s ease;
+    }
+
+    .nav-cta:hover {
+      background: #1f2937;
+      transform: translateY(-1px);
+    }
+
+    /* ── HERO TEXT ─────────────────────────────── */
+    main {
+      position: relative;
+      z-index: 5;
+      height: 100vh;
+      pointer-events: none;
+    }
+
+    .hero {
+      position: absolute;
+      left: 56px;
+      top: 50%;
+      transform: translateY(-50%);
+      max-width: 560px;
+      pointer-events: none;
+    }
+
+    .hero>* {
+      pointer-events: auto;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 28px;
+      padding: 6px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(8px);
+    }
+
+    .eyebrow .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.4;
+      }
+    }
+
+    h1.title {
+      font-size: clamp(40px, 5.4vw, 76px);
+      font-weight: 700;
+      line-height: 1.06;
+      letter-spacing: -0.035em;
+      color: var(--ink);
+      margin-bottom: 24px;
+      text-wrap: balance;
+    }
+
+    h1.title .accent {
+      color: var(--accent);
+      font-style: normal;
+      position: relative;
+    }
+
+    h1.title .underline {
+      position: relative;
+      display: inline-block;
+    }
+
+    .hero p.lead {
+      font-size: 16px;
+      line-height: 1.7;
+      color: var(--ink-2);
+      max-width: 460px;
+      margin-bottom: 36px;
+      text-wrap: pretty;
+    }
+
+    .ctas {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-family: var(--serif);
+      font-weight: 500;
+      font-size: 14px;
+      padding: 12px 22px;
+      border-radius: 10px;
+      border: 0;
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform .15s ease, box-shadow .2s ease, background .15s ease;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.28), 0 1px 0 rgba(255, 255, 255, 0.2) inset;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 22px rgba(79, 70, 229, 0.36), 0 1px 0 rgba(255, 255, 255, 0.2) inset;
+      background: #4338ca;
+    }
+
+    .btn-ghost {
+      background: rgba(255, 255, 255, 0.7);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      backdrop-filter: blur(8px);
+    }
+
+    .btn-ghost:hover {
+      background: white;
+      border-color: var(--line-2);
+    }
+
+    .btn .arrow {
+      transition: transform .2s ease;
+    }
+
+    .btn:hover .arrow {
+      transform: translateX(3px);
+    }
+
+    /* readout panel (data tag floating over scene) */
+    .readout {
+      position: fixed;
+      right: 40px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 6;
+      width: 260px;
+      background: rgba(255, 255, 255, 0.78);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px 18px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--ink-2);
+      box-shadow: 0 12px 40px rgba(17, 24, 39, 0.06);
+    }
+
+    .readout .ro-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 10px;
+      margin-bottom: 10px;
+      border-bottom: 1px dashed var(--line);
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .readout .ro-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      color: var(--ink-2);
+    }
+
+    .readout .ro-row .k {
+      color: var(--muted);
+    }
+
+    .readout .ro-row .v {
+      font-weight: 500;
+      color: var(--ink);
+    }
+
+    .readout .ro-foot {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--line);
+      font-size: 10px;
+      color: var(--muted-2);
+      letter-spacing: 0.05em;
+    }
+
+    .ro-pill {
+      display: inline-block;
+      padding: 2px 6px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-radius: 4px;
+      font-weight: 500;
+    }
+
+    /* ── FOOTER STRIP ──────────────────────────── */
+    footer.foot {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 6;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 24px 40px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.16em;
+    }
+
+    .keywords {
+      display: flex;
+      gap: 28px;
+    }
+
+    .keywords span {
+      position: relative;
+    }
+
+    .keywords span:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      right: -16px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 2px;
+      height: 2px;
+      border-radius: 50%;
+      background: var(--muted-2);
+    }
+
+    .interact-hint {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted-2);
+    }
+
+    .interact-hint .ico {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border: 1px solid var(--line-2);
+      border-radius: 4px;
+      color: var(--ink-2);
+      font-size: 10px;
+    }
+
+    /* ── SIDE MARKER ─────────────────────────── */
+    .side-marker {
+      position: fixed;
+      right: 40px;
+      bottom: 80px;
+      z-index: 6;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted-2);
+      letter-spacing: 0.2em;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+    }
+
+    /* big watermark */
+    .watermark {
+      position: fixed;
+      right: -4px;
+      bottom: -28px;
+      z-index: 2;
+      font-family: var(--serif);
+      font-weight: 700;
+      font-size: clamp(140px, 18vw, 260px);
+      line-height: 1;
+      letter-spacing: -0.045em;
+      color: rgba(17, 24, 39, 0.04);
+      pointer-events: none;
+      user-select: none;
+    }
+
+    /* tweaks */
+    .tweaks {
+      position: fixed;
+      bottom: 80px;
+      left: 40px;
+      z-index: 12;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 16px;
+      width: 240px;
+      box-shadow: 0 16px 50px rgba(17, 24, 39, 0.08);
+      font-size: 12px;
+      display: none;
+    }
+
+    .tweaks.show {
+      display: block;
+    }
+
+    .tweaks h4 {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .tweaks h4 .close {
+      cursor: pointer;
+      color: var(--muted-2);
+      font-weight: 400;
+      font-size: 14px;
+      background: none;
+      border: 0;
+    }
+
+    .tweak-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      color: var(--ink-2);
+    }
+
+    .swatches {
+      display: flex;
+      gap: 6px;
+    }
+
+    .sw {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: transform .15s ease;
+    }
+
+    .sw.active {
+      border-color: var(--ink);
+    }
+
+    .sw:hover {
+      transform: scale(1.1);
+    }
+
+    .seg {
+      display: flex;
+      background: var(--bg-2);
+      border-radius: 6px;
+      padding: 2px;
+    }
+
+    .seg button {
+      border: 0;
+      background: transparent;
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      color: var(--ink-2);
+      font-family: var(--mono);
+    }
+
+    .seg button.active {
+      background: white;
+      color: var(--ink);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+    }
+
+    /* tiny corner ticks */
+    .ticks {
+      position: fixed;
+      pointer-events: none;
+      z-index: 3;
+      width: 24px;
+      height: 24px;
+      border-color: var(--muted-2);
+    }
+
+    .ticks.tl {
+      top: 80px;
+      left: 40px;
+      border-top: 1px solid;
+      border-left: 1px solid;
+    }
+
+    .ticks.tr {
+      top: 80px;
+      right: 40px;
+      border-top: 1px solid;
+      border-right: 1px solid;
+    }
+
+    .ticks.bl {
+      bottom: 64px;
+      left: 40px;
+      border-bottom: 1px solid;
+      border-left: 1px solid;
+    }
+
+    .ticks.br {
+      bottom: 64px;
+      right: 40px;
+      border-bottom: 1px solid;
+      border-right: 1px solid;
+    }
+
+    /* loading curtain */
+    .loader {
+      position: fixed;
+      inset: 0;
+      z-index: 99;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity .6s ease;
+    }
+
+    .loader.hide {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loader .bar {
+      width: 180px;
+      height: 1px;
+      background: var(--line);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .loader .bar::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 40%;
+      background: var(--accent);
+      animation: load 1.2s ease-in-out infinite;
+    }
+
+    @keyframes load {
+      0% {
+        transform: translateX(-100%);
+      }
+
+      100% {
+        transform: translateX(350%);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="scene-canvas"></canvas>
+  <div class="grid-overlay"></div>
+  <div class="veil"></div>
+
+  <div class="ticks tl"></div>
+  <div class="ticks tr"></div>
+  <div class="ticks bl"></div>
+  <div class="ticks br"></div>
+
+  <header class="nav">
+    <a href="Intro.html" class="logo-link">
+      <img src="logo.svg" alt="바탕 : BATANG" class="logo-img" />
+    </a>
+    <nav class="nav-right">
+      <a class="nav-link" href="About.html">ABOUT</a>
+      <button class="nav-cta" onclick="document.getElementById('go-login').click()">로그인 →</button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1 class="title">
+        <span class="accent">설계</span>의 언어를<br>
+        바꾸다.
+      </h1>
+      <p class="lead">
+        건축사의 초기 설계, 이제 AI와 함께 시작합니다.
+      </p>
+      <div class="ctas">
+        <a id="go-login" class="btn btn-primary" href="Login.html">
+          시작하기 <span class="arrow">→</span>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <span class="side-marker">DRAG TO ROTATE</span>
+
+  <footer class="foot">
+    <div class="keywords">
+      <span>PRECISION</span>
+      <span>CLARITY</span>
+      <span>STRUCTURE</span>
+    </div>
+    <div class="interact-hint">
+      <span class="ico">↻</span>
+      <span>CLICK · INTERACTIVE</span>
+    </div>
+  </footer>
+
+  <div class="watermark">Batang</div>
+
+  <!-- Tweaks panel -->
+  <div class="tweaks" id="tweaks-panel">
+    <h4>
+      TWEAKS
+      <button class="close" id="tweaks-close">×</button>
+    </h4>
+    <div class="tweak-row">
+      <span>Accent</span>
+      <div class="swatches" id="sw-accent">
+        <div class="sw active" data-color="#4f46e5" style="background:#4f46e5"></div>
+        <div class="sw" data-color="#0ea5e9" style="background:#0ea5e9"></div>
+        <div class="sw" data-color="#dc2626" style="background:#dc2626"></div>
+        <div class="sw" data-color="#111827" style="background:#111827"></div>
+      </div>
+    </div>
+    <div class="tweak-row">
+      <span>Composition</span>
+      <div class="seg" id="seg-comp">
+        <button class="active" data-comp="city">city</button>
+        <button data-comp="tower">tower</button>
+        <button data-comp="campus">campus</button>
+      </div>
+    </div>
+    <div class="tweak-row">
+      <span>Auto-orbit</span>
+      <div class="seg" id="seg-orbit">
+        <button class="active" data-orbit="1">on</button>
+        <button data-orbit="0">off</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="loader" id="loader">
+    <div class="bar"></div>
+  </div>
+
+  <!-- Three.js (importmap) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+
+    /* ─── Scene setup ─── */
+    const canvas = document.getElementById('scene-canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    const scene = new THREE.Scene();
+    scene.background = null;
+
+    const W = () => window.innerWidth, H = () => window.innerHeight;
+    const camera = new THREE.PerspectiveCamera(28, W() / H(), 0.1, 200);
+    const camTarget = new THREE.Vector3(0, 1.4, 0);
+
+    /* ─── Lights ─── */
+    const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+    scene.add(ambient);
+
+    const hemi = new THREE.HemisphereLight(0xeef0ff, 0xd9dbe5, 0.45);
+    scene.add(hemi);
+
+    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    sun.position.set(8, 14, 6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -14;
+    sun.shadow.camera.right = 14;
+    sun.shadow.camera.top = 14;
+    sun.shadow.camera.bottom = -14;
+    sun.shadow.camera.near = 0.5;
+    sun.shadow.camera.far = 60;
+    sun.shadow.bias = -0.0005;
+    sun.shadow.radius = 6;
+    scene.add(sun);
+
+    const fill = new THREE.DirectionalLight(0xc8d0ff, 0.4);
+    fill.position.set(-6, 4, -4);
+    scene.add(fill);
+
+    /* ─── Ground (blueprint) ─── */
+    function makeBlueprintTexture() {
+      const c = document.createElement('canvas');
+      c.width = c.height = 1024;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fafbff';
+      ctx.fillRect(0, 0, 1024, 1024);
+
+      // fine grid
+      ctx.strokeStyle = 'rgba(17,24,39,0.05)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 32; i++) {
+        const p = (i / 32) * 1024;
+        ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, 1024); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(1024, p); ctx.stroke();
+      }
+      // major grid
+      ctx.strokeStyle = 'rgba(17,24,39,0.10)';
+      ctx.lineWidth = 1.5;
+      for (let i = 0; i <= 8; i++) {
+        const p = (i / 8) * 1024;
+        ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, 1024); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(1024, p); ctx.stroke();
+      }
+      // floor plan sketch
+      ctx.strokeStyle = 'rgba(17,24,39,0.18)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(180, 220, 660, 580);
+      ctx.strokeRect(220, 260, 280, 240);
+      ctx.strokeRect(540, 260, 260, 200);
+      ctx.strokeRect(220, 540, 580, 220);
+      // dashed dimensions
+      ctx.setLineDash([8, 8]);
+      ctx.strokeStyle = 'rgba(79,70,229,0.45)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(140, 180, 740, 660);
+      ctx.setLineDash([]);
+      // tiny labels
+      ctx.fillStyle = 'rgba(17,24,39,0.35)';
+      ctx.font = '14px monospace';
+      ctx.fillText('A-01', 188, 210);
+      ctx.fillText('+0.000', 545, 252);
+      ctx.fillText('PLAN · 1F', 222, 800);
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      return tex;
+    }
+
+    const groundMat = new THREE.MeshStandardMaterial({
+      map: makeBlueprintTexture(),
+      roughness: 0.95,
+      metalness: 0.0,
+    });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(28, 28), groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    /* ─── Building blocks (architectural massing) ─── */
+    const blocksGroup = new THREE.Group();
+    scene.add(blocksGroup);
+
+    let ACCENT = new THREE.Color('#4f46e5');
+
+    const concreteColors = [0xeceef3, 0xdfe1e8, 0xd0d2dc, 0xc1c4cf];
+
+    function makeBlock(x, z, w, h, d, opts = {}) {
+      const isAccent = opts.accent || false;
+      const baseColor = isAccent ? ACCENT.clone() : new THREE.Color(concreteColors[Math.floor(Math.random() * concreteColors.length)]);
+
+      // Main concrete mass — clean solid box, no flat texture
+      const mainMat = new THREE.MeshStandardMaterial({
+        color: baseColor,
+        roughness: isAccent ? 0.55 : 0.86,
+        metalness: isAccent ? 0.08 : 0.02,
+      });
+      const geo = new THREE.BoxGeometry(w, h, d);
+      const m = new THREE.Mesh(geo, mainMat);
+      m.castShadow = true;
+      m.receiveShadow = true;
+
+      // Detail group — real 3D geometry, hidden until morph completes
+      const details = new THREE.Group();
+      details.visible = false;
+      details.scale.y = 0.001;
+      m.add(details);
+
+      // Window grid — individual recessed window panes (real 3D)
+      const darkGlass = new THREE.MeshStandardMaterial({
+        color: isAccent ? 0x1e1b4b : 0x1a2030,
+        roughness: 0.18, metalness: 0.55,
+      });
+      const litGlass = new THREE.MeshStandardMaterial({
+        color: 0xffe7a8,
+        roughness: 0.3, metalness: 0.0,
+        emissive: 0xffc764, emissiveIntensity: 0.7,
+      });
+      const accentLit = new THREE.MeshStandardMaterial({
+        color: 0xfff0d0,
+        roughness: 0.3, metalness: 0.0,
+        emissive: 0xffd97a, emissiveIntensity: 0.85,
+      });
+      const sillMat = new THREE.MeshStandardMaterial({
+        color: isAccent ? 0x3730a3 : 0x6b7280,
+        roughness: 0.7,
+      });
+
+      const floorH = 0.5;
+      const floors = Math.max(1, Math.floor((h - 0.4) / floorH));
+      const winH = 0.28;
+      const winW = 0.22;
+      const colSpacing = 0.34;
+      const inset = 0.045;
+      const litChance = isAccent ? 0.42 : 0.28;
+      // deterministic-ish pseudo random per building
+      const seed = (x * 1000 + z * 100 + w * 10) | 0;
+      const rand = (i) => {
+        const v = Math.sin((seed + i) * 12.9898) * 43758.5453;
+        return v - Math.floor(v);
+      };
+      let winIdx = 0;
+      const placeFace = (faceW, faceY, normalAxis, sign) => {
+        const cols = Math.max(2, Math.floor((faceW - 0.3) / colSpacing));
+        const total = cols * colSpacing;
+        const startX = -total / 2 + colSpacing / 2;
+        for (let c = 0; c < cols; c++) {
+          const localX = startX + c * colSpacing;
+          // glass pane
+          const isLit = rand(winIdx++) < litChance;
+          const glassMat = isLit ? (isAccent ? accentLit : litGlass) : darkGlass;
+          let geomW, geomD;
+          if (normalAxis === 'z') { geomW = winW; geomD = 0.04; }
+          else { geomW = 0.04; geomD = winW; }
+          const pane = new THREE.Mesh(
+            new THREE.BoxGeometry(geomW, winH, geomD),
+            glassMat
+          );
+          if (normalAxis === 'z') {
+            pane.position.set(localX, faceY, sign * (d / 2 - inset));
+          } else {
+            pane.position.set(sign * (w / 2 - inset), faceY, localX);
+          }
+          details.add(pane);
+          // sill (thin lip below window)
+          const sill = new THREE.Mesh(
+            new THREE.BoxGeometry(geomW + 0.04, 0.025, normalAxis === 'z' ? 0.06 : geomD + 0.02),
+            sillMat
+          );
+          if (normalAxis === 'z') {
+            sill.position.set(localX, faceY - winH / 2 - 0.02, sign * (d / 2 - inset / 2));
+          } else {
+            sill.position.set(sign * (w / 2 - inset / 2), faceY - winH / 2 - 0.02, localX);
+            sill.geometry = new THREE.BoxGeometry(0.06, 0.025, geomD + 0.04);
+          }
+          details.add(sill);
+        }
+      };
+      for (let i = 0; i < floors; i++) {
+        const cy = -h / 2 + 0.45 + i * floorH;
+        placeFace(w, cy, 'z', 1);
+        placeFace(w, cy, 'z', -1);
+        placeFace(d, cy, 'x', 1);
+        placeFace(d, cy, 'x', -1);
+      }
+      // floor slab bands between window rows (subtle horizontal lines)
+      const slabMat = new THREE.MeshStandardMaterial({
+        color: isAccent ? 0x312e81 : 0x9ca3af,
+        roughness: 0.85,
+      });
+      for (let i = 1; i < floors; i++) {
+        const cy = -h / 2 + 0.45 + i * floorH - winH / 2 - 0.06;
+        const slab = new THREE.Mesh(
+          new THREE.BoxGeometry(w + 0.02, 0.04, d + 0.02),
+          slabMat
+        );
+        slab.position.y = cy;
+        details.add(slab);
+      }
+
+      // Rooftop volume (smaller box on top — parapet/penthouse)
+      const roofW = w * 0.55, roofD = d * 0.55, roofH = 0.18;
+      const roofMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(roofW, roofH, roofD),
+        new THREE.MeshStandardMaterial({
+          color: isAccent ? 0x4338ca : 0x9aa0ad,
+          roughness: 0.7,
+        })
+      );
+      roofMesh.position.set(w * 0.1, h / 2 + roofH / 2, -d * 0.1);
+      roofMesh.castShadow = true;
+      details.add(roofMesh);
+
+      // Entry portal at ground level (only on wider buildings)
+      if (w >= 1.4) {
+        const portal = new THREE.Mesh(
+          new THREE.BoxGeometry(0.42, 0.5, 0.04),
+          new THREE.MeshStandardMaterial({
+            color: isAccent ? 0x1e1b4b : 0x1f2937,
+            roughness: 0.4,
+            metalness: 0.3,
+          })
+        );
+        portal.position.set(0, -h / 2 + 0.25, d / 2 + 0.001);
+        details.add(portal);
+      }
+
+      // Antenna for tall accent buildings
+      if (isAccent && h >= 3.5) {
+        const pole = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.025, 0.025, 0.8, 6),
+          new THREE.MeshStandardMaterial({ color: 0x111827 })
+        );
+        pole.position.y = h / 2 + roofH + 0.4;
+        pole.castShadow = true;
+        details.add(pole);
+      }
+
+      // wireframe edge for crisp architectural look
+      const edges = new THREE.EdgesGeometry(geo);
+      const lineMat = new THREE.LineBasicMaterial({
+        color: isAccent ? 0x312e81 : 0x111827,
+        transparent: true,
+        opacity: isAccent ? 0.4 : 0.2,
+      });
+      const wf = new THREE.LineSegments(edges, lineMat);
+      m.add(wf);
+
+      // morph state — start flat on floor, animate to cube, then to building
+      const finalH = h;
+      const flatRatio = Math.max(0.04 / finalH, 0.02);
+      const cubeRatio = Math.min(w, d) / finalH;
+      const morphStart = performance.now() / 1000 + (blocksGroup.children.length * 0.08);
+      m.userData = {
+        baseY: h / 2, hover: 0, isAccent,
+        finalH, flatRatio, cubeRatio,
+        morphStart, morphDone: false,
+        details, detailReveal: 0,
+      };
+      m.scale.y = flatRatio;
+      m.position.set(x, finalH * flatRatio / 2, z);
+      blocksGroup.add(m);
+
+      return m;
+    }
+
+    /* compositions */
+    const COMPOSITIONS = {
+      city: [
+        { x: -4.0, z: -1.5, w: 1.4, h: 2.6, d: 1.4 },
+        { x: -2.3, z: 0.5, w: 1.6, h: 4.2, d: 1.6, accent: true },
+        { x: 0.0, z: -2.0, w: 2.0, h: 1.6, d: 1.6 },
+        { x: 0.6, z: 1.6, w: 1.2, h: 3.4, d: 1.8 },
+        { x: 2.6, z: 0.2, w: 1.8, h: 2.4, d: 1.4 },
+        { x: 2.4, z: -2.4, w: 1.2, h: 1.2, d: 1.2 },
+        { x: 4.4, z: 1.2, w: 1.4, h: 3.0, d: 1.4 },
+        { x: -1.0, z: 3.4, w: 1.6, h: 1.2, d: 1.2 },
+      ],
+      tower: [
+        { x: 0.0, z: 0.0, w: 2.4, h: 6.6, d: 2.4, accent: true },
+        { x: -2.6, z: -1.6, w: 1.4, h: 1.6, d: 1.4 },
+        { x: 2.6, z: -1.6, w: 1.4, h: 2.0, d: 1.4 },
+        { x: 2.4, z: 2.2, w: 1.6, h: 1.2, d: 1.2 },
+        { x: -2.6, z: 2.2, w: 1.6, h: 1.6, d: 1.6 },
+        { x: 0.0, z: -3.0, w: 3.2, h: 0.8, d: 1.0 },
+      ],
+      campus: [
+        { x: -4.0, z: -1.0, w: 2.4, h: 1.6, d: 2.4 },
+        { x: -1.2, z: 1.2, w: 2.6, h: 1.2, d: 2.0 },
+        { x: 2.0, z: -0.6, w: 2.2, h: 2.4, d: 2.6, accent: true },
+        { x: 4.4, z: 1.6, w: 1.6, h: 1.4, d: 1.6 },
+        { x: -2.6, z: 3.4, w: 1.6, h: 1.0, d: 1.6 },
+        { x: 1.4, z: 3.4, w: 1.2, h: 1.6, d: 1.2 },
+        { x: -4.6, z: 2.6, w: 1.0, h: 1.0, d: 1.2 },
+      ],
+    };
+
+    function loadComposition(name) {
+      // clear existing
+      while (blocksGroup.children.length) {
+        const c = blocksGroup.children.pop();
+        c.geometry?.dispose();
+        c.material?.dispose();
+      }
+      const comp = COMPOSITIONS[name] || COMPOSITIONS.city;
+      comp.forEach(b => makeBlock(b.x, b.z, b.w, b.h, b.d, { accent: b.accent }));
+      updateReadout(name);
+    }
+
+    /* ─── Morph easing ─── */
+    const easeInOut = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    // Phase A: flat → cube (1.0s), Phase B: hold cube (0.25s), Phase C: cube → building (1.4s)
+    const PHASE_A = 1.0, PHASE_HOLD = 0.25, PHASE_C = 1.4;
+    function morphScale(elapsed, flatR, cubeR) {
+      if (elapsed <= 0) return flatR;
+      if (elapsed < PHASE_A) {
+        const t = easeInOut(elapsed / PHASE_A);
+        return flatR + (cubeR - flatR) * t;
+      }
+      if (elapsed < PHASE_A + PHASE_HOLD) return cubeR;
+      const t2 = (elapsed - PHASE_A - PHASE_HOLD) / PHASE_C;
+      if (t2 >= 1) return 1;
+      return cubeR + (1 - cubeR) * easeInOut(t2);
+    }
+    loadComposition('city');
+
+    function updateReadout(name) {
+      const r = document.getElementById('readout');
+      if (!r) return;
+      const stories = name === 'tower' ? '12F · B2' : name === 'campus' ? '3F · B1' : '4F · B1';
+      const gfa = name === 'tower' ? '1,840.0㎡' : name === 'campus' ? '768.4㎡' : '412.6㎡';
+      const storiesNode = document.getElementById('ro-stories');
+      const gfaNode = document.getElementById('ro-gfa');
+      if (storiesNode) storiesNode.textContent = stories;
+      if (gfaNode) gfaNode.textContent = gfa;
+    }
+
+    /* ─── Mouse interaction ─── */
+    const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
+    let dragging = false, dragStart = { x: 0, y: 0 }, manualRot = 0, manualRotTarget = 0, manualTilt = 0, manualTiltTarget = 0;
+    let dragVelX = 0, dragVelY = 0;
+    let zoom = 1, zoomTarget = 1;
+    let userInteracted = false;
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!userInteracted) return;
+      mouse.tx = (e.clientX / window.innerWidth) - 0.5;
+      mouse.ty = (e.clientY / window.innerHeight) - 0.5;
+      if (dragging) {
+        const dx = (e.clientX - dragStart.x) / window.innerWidth;
+        const dy = (e.clientY - dragStart.y) / window.innerHeight;
+        manualRotTarget += dx * 3.0;
+        manualTiltTarget = Math.max(-0.35, Math.min(0.55, manualTiltTarget + dy * 1.0));
+        dragVelX = dx * 3.0;
+        dragVelY = dy * 1.0;
+        dragStart = { x: e.clientX, y: e.clientY };
+      }
+      hoverPick(e.clientX, e.clientY);
+    });
+    canvas.addEventListener('mousedown', (e) => {
+      if (!userInteracted) {
+        userInteracted = true;
+        manualRotTarget = baseAngle;
+        manualRot = baseAngle;
+        document.body.classList.add('interactive');
+      }
+      dragging = true;
+      dragStart = { x: e.clientX, y: e.clientY };
+      dragVelX = 0; dragVelY = 0;
+    });
+    window.addEventListener('mouseup', () => dragging = false);
+    canvas.addEventListener('mouseleave', () => {
+      mouse.tx = 0; mouse.ty = 0;
+    });
+
+    /* wheel to zoom */
+    canvas.addEventListener('wheel', (e) => {
+      if (!userInteracted) return;
+      e.preventDefault();
+      zoomTarget = Math.max(0.6, Math.min(1.8, zoomTarget + e.deltaY * 0.0012));
+    }, { passive: false });
+
+    /* touch (basic) */
+    let touchStart = null;
+    canvas.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        if (!userInteracted) {
+          userInteracted = true;
+          manualRotTarget = baseAngle;
+          manualRot = baseAngle;
+          document.body.classList.add('interactive');
+        }
+        touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+    }, { passive: true });
+    canvas.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 1 && touchStart) {
+        const dx = (e.touches[0].clientX - touchStart.x) / window.innerWidth;
+        const dy = (e.touches[0].clientY - touchStart.y) / window.innerHeight;
+        manualRotTarget += dx * 3.0;
+        manualTiltTarget = Math.max(-0.35, Math.min(0.55, manualTiltTarget + dy * 1.0));
+        touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+    }, { passive: true });
+    canvas.addEventListener('touchend', () => touchStart = null);
+
+    /* hover picking */
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    let hovered = null;
+    function hoverPick(cx, cy) {
+      ndc.x = (cx / window.innerWidth) * 2 - 1;
+      ndc.y = -(cy / window.innerHeight) * 2 + 1;
+      ray.setFromCamera(ndc, camera);
+      const hits = ray.intersectObjects(blocksGroup.children, false);
+      const newHovered = hits.length ? hits[0].object : null;
+      if (newHovered !== hovered) {
+        if (hovered) hovered.userData.hoverTarget = 0;
+        hovered = newHovered;
+        if (hovered) {
+          hovered.userData.hoverTarget = 1;
+          // update azimuth read for fun
+          const conf = 84 + Math.round(((hovered.position.x + hovered.position.z) * 31 + 100) % 16);
+          const azimuth = document.getElementById('ro-azi');
+          if (azimuth) azimuth.textContent = conf + '%';
+        }
+      }
+    }
+
+    /* ─── Animation loop ─── */
+    let autoOrbit = true;
+    let baseAngle = 0;
+    function tick(t) {
+      // ease mouse
+      mouse.x += (mouse.tx - mouse.x) * 0.06;
+      mouse.y += (mouse.ty - mouse.y) * 0.06;
+      manualRot += (manualRotTarget - manualRot) * 0.12;
+      manualTilt += (manualTiltTarget - manualTilt) * 0.12;
+      zoom += (zoomTarget - zoom) * 0.08;
+
+      // momentum after release
+      if (!dragging) {
+        manualRotTarget += dragVelX * 0.92;
+        manualTiltTarget = Math.max(-0.35, Math.min(0.55, manualTiltTarget + dragVelY * 0.92));
+        dragVelX *= 0.92;
+        dragVelY *= 0.92;
+        if (Math.abs(dragVelX) < 0.0005) dragVelX = 0;
+        if (Math.abs(dragVelY) < 0.0005) dragVelY = 0;
+      }
+
+      if (!userInteracted) baseAngle += 0.0014;
+
+      const radius = 18 * zoom;
+      const yaw = userInteracted
+        ? (manualRot + mouse.x * 0.6)
+        : baseAngle;
+      const pitchOffset = userInteracted
+        ? (manualTilt + mouse.y * 0.22)
+        : 0;
+      camera.position.x = Math.sin(yaw) * radius;
+      camera.position.z = Math.cos(yaw) * radius;
+      camera.position.y = Math.max(2, 9 - pitchOffset * 10);
+      camera.lookAt(camTarget);
+
+      // morph + hover
+      const now = performance.now() / 1000;
+      blocksGroup.children.forEach(m => {
+        const ud = m.userData;
+        // morph scale
+        if (!ud.morphDone) {
+          const sy = morphScale(now - ud.morphStart, ud.flatRatio, ud.cubeRatio);
+          m.scale.y = sy;
+          ud.baseY = (ud.finalH * sy) / 2;
+          if (sy >= 1) ud.morphDone = true;
+        } else if (ud.details) {
+          // reveal 3D detail only after morph completes
+          ud.detailReveal += (1 - ud.detailReveal) * 0.08;
+          if (!ud.details.visible) ud.details.visible = true;
+          ud.details.scale.y = ud.detailReveal;
+          ud.details.scale.x = 0.5 + 0.5 * ud.detailReveal;
+          ud.details.scale.z = 0.5 + 0.5 * ud.detailReveal;
+        }
+        const target = (ud.hoverTarget || 0);
+        ud.hover += (target - ud.hover) * 0.12;
+        m.position.y = ud.baseY + ud.hover * 0.4;
+        m.rotation.y = ud.hover * 0.04;
+      });
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(tick);
+    }
+
+    function resize() {
+      renderer.setSize(W(), H(), false);
+      camera.aspect = W() / H();
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    requestAnimationFrame(tick);
+
+    // hide loader
+    setTimeout(() => {
+      document.getElementById('loader').classList.add('hide');
+    }, 350);
+
+    /* ─── Tweaks ─── */
+    // accent
+    document.querySelectorAll('#sw-accent .sw').forEach(el => {
+      el.addEventListener('click', () => {
+        document.querySelectorAll('#sw-accent .sw').forEach(s => s.classList.remove('active'));
+        el.classList.add('active');
+        const c = el.dataset.color;
+        ACCENT = new THREE.Color(c);
+        document.documentElement.style.setProperty('--accent', c);
+        // recolor accent blocks
+        blocksGroup.children.forEach(m => {
+          if (m.userData.isAccent) {
+            if (Array.isArray(m.material)) m.material.forEach(mm => mm.color?.set(c));
+            else m.material.color?.set(c);
+          }
+        });
+      });
+    });
+    // composition
+    document.querySelectorAll('#seg-comp button').forEach(b => {
+      b.addEventListener('click', () => {
+        document.querySelectorAll('#seg-comp button').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        loadComposition(b.dataset.comp);
+      });
+    });
+    // orbit
+    document.querySelectorAll('#seg-orbit button').forEach(b => {
+      b.addEventListener('click', () => {
+        document.querySelectorAll('#seg-orbit button').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        autoOrbit = b.dataset.orbit === '1';
+      });
+    });
+
+    /* ─── Tweaks panel (host protocol) ─── */
+    const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+      "accent": "#4f46e5",
+      "composition": "city"
+    }/*EDITMODE-END*/;
+    const panel = document.getElementById('tweaks-panel');
+    const closeBtn = document.getElementById('tweaks-close');
+    window.addEventListener('message', (e) => {
+      const d = e.data || {};
+      if (d.type === '__activate_edit_mode') panel.classList.add('show');
+      if (d.type === '__deactivate_edit_mode') panel.classList.remove('show');
+    });
+    closeBtn.addEventListener('click', () => {
+      panel.classList.remove('show');
+      window.parent.postMessage({ type: '__edit_mode_dismissed' }, '*');
+    });
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+  </script>
+</body>
+
+</html>

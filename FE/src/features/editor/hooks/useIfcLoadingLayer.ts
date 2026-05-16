@@ -55,6 +55,7 @@ export type IfcFragmentsLoader = (ifcArray: Uint8Array, ifcBuffer: ArrayBuffer) 
 export interface LoadIfcFromStorageUrlOptions {
   sourceName?: string
   webIfcWasmPath?: string
+  skipFloorProjectImport?: boolean
 }
 
 const decoder = new TextDecoder('utf-8')
@@ -104,7 +105,6 @@ export function useIfcLoadingLayer({
     const fetchUrl = resolveIfcFetchUrl(sourceUrl)
     if (IFC_URL_DEBUG && typeof window !== 'undefined') {
       window.localStorage.setItem('ifc-last-fetch-url', fetchUrl)
-      console.info('[ifc-url][resolved]', { sourceUrl, fetchUrl })
     }
 
     const currentLoadSeq = loadSeqRef.current + 1
@@ -122,6 +122,7 @@ export function useIfcLoadingLayer({
       const ifcArray = new Uint8Array(ifcBuffer)
       const ifcText = decoder.decode(ifcBuffer)
       const sourceName = options?.sourceName ?? normalizeIfcSourceName(sourceUrl)
+      const skipFloorProjectImport = options?.skipFloorProjectImport === true
 
       const contextBase: IfcContext = {
         sourceUrl,
@@ -144,7 +145,7 @@ export function useIfcLoadingLayer({
           await ifcApi.Init()
           modelId = ifcApi.OpenModel(ifcArray)
 
-          if (importFloorProjectFromWebIfc) {
+          if (!skipFloorProjectImport && importFloorProjectFromWebIfc) {
             webIfcParseCompleted = await importFloorProjectFromWebIfc(ifcApi, modelId, sourceName)
           }
 
@@ -169,7 +170,7 @@ export function useIfcLoadingLayer({
 
       // 2D 업데이트 후 3D 업데이트 순으로 처리한다. (동일 IFC 버퍼 재사용)
       // 2D는 web-ifc 직접 추출을 우선 시도하고, 실패하면 STEP 파서로 폴백한다.
-      if (!webIfcParseCompleted) {
+      if (!skipFloorProjectImport && !webIfcParseCompleted) {
         await importFloorProjectFromIfc(ifcText, sourceName)
       }
       if (fragmentsLoader) {

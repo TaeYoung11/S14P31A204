@@ -1,7 +1,9 @@
+"""IFC 모델에서 벽, 공간, 개구부, 인접 정보를 단순화해 추출한다."""
+
 import json
 import math
 from collections import defaultdict
-from typing import Any
+from typing import Any, cast
 
 import ifcopenshell
 import ifcopenshell.util.element
@@ -12,18 +14,19 @@ from .command import (
     BoundaryContext,
     DoorContext,
     IFCContext,
+    OpeningContext,
     SpaceContext,
     StoreyContext,
     WallContext,
     WindowContext,
 )
 
-try:
-    from shapely.geometry import Polygon
-    from shapely.ops import unary_union
-except ImportError:  # pragma: no cover
-    Polygon = None
-    unary_union = None
+from shapely import contains as shapely_contains, union_all as shapely_union_all  # type: ignore[import-untyped]
+from shapely.geometry import (  # type: ignore[import-untyped]
+    LineString as ShapelyLineString,
+    Point as ShapelyPoint,
+    Polygon as ShapelyPolygon,
+)
 
 
 _SPACE_TYPE_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -40,28 +43,35 @@ class UnsupportedIfcSchemaError(ValueError):
     """Raised when the IFC file schema is valid but unsupported."""
 
 
+class UnsupportedIfcLengthUnitError(ValueError):
+    """Raised when the IFC file uses a length unit this extractor does not support."""
+
+
 def extract_ifc_context(ifc_path: str) -> IFCContext:
     """Open an IFC4-family file and extract IFCContext."""
     ifc = ifcopenshell.open(ifc_path)
     if not str(ifc.schema).upper().startswith("IFC4"):
         raise UnsupportedIfcSchemaError(f"Unsupported IFC schema: {ifc.schema}")
+    _assert_meter_length_unit(ifc)
 
     storeys = _extract_storeys(ifc)
     storey_floors = {storey["id"]: storey["floor"] for storey in storeys}
 
     wall_to_spaces = _collect_wall_space_ids(ifc)
     spaces = _extract_spaces(ifc, storey_floors)
+    boundaries = _extract_boundaries(spaces)
     walls = _extract_walls(ifc, storey_floors, wall_to_spaces)
     wall_map = {wall["id"]: wall for wall in walls}
+    openings = _extract_openings(ifc, storey_floors, wall_map)
     doors = _extract_doors(ifc, storey_floors, wall_map)
-    windows = _extract_windows(ifc, storey_floors, wall_map)
+    windows = _extract_windows(ifc, storey_floors, wall_map, spaces, boundaries)
     adjacency = _extract_adjacency(wall_to_spaces)
-    boundaries = _extract_boundaries(spaces)
 
     return {
         "spaces": spaces,
         "adjacency": adjacency,
         "walls": walls,
+        "openings": openings,
         "doors": doors,
         "windows": windows,
         "boundaries": boundaries,
@@ -134,11 +144,11 @@ def _extract_spaces(
             if width is None:
                 width = _mm_from_custom_value(base_quantities.get("Width"), min_value=2)
                 if width is None:
-                    width = int(round(max_x - min_x))
+                    width = round(max_x - min_x)
             if height is None:
                 height = _mm_from_custom_value(base_quantities.get("Depth"), min_value=2)
                 if height is None:
-                    height = int(round(max_y - min_y))
+                    height = round(max_y - min_y)
 
         spaces.append(
             {
@@ -174,6 +184,8 @@ def _extract_walls(
         if start_end is None:
             continue
         start, end = start_end
+        # IFCContext stores wall segments in normalized order for easier spatial reasoning.
+        # The original IFC axis direction is not preserved in wall["start"]/wall["end"].
         start, end = _normalize_segment(start, end)
 
         psets = ifcopenshell.util.element.get_psets(wall)
@@ -204,9 +216,43 @@ def _extract_walls(
                 "thickness": thickness,
                 "space_ids": space_ids,
                 "kind": kind,
+                "body_class": _classify_wall_body(wall),
             }
         )
     return walls
+
+
+def _classify_wall_body(wall: ifcopenshell.entity_instance) -> str | None:
+    representation = getattr(wall, "Representation", None)
+    if not representation:
+        return None
+    body_rep = next(
+        (
+            rep
+            for rep in getattr(representation, "Representations", []) or []
+            if getattr(rep, "RepresentationIdentifier", None) == "Body"
+        ),
+        None,
+    )
+    if body_rep is None:
+        return None
+    items = list(getattr(body_rep, "Items", []) or [])
+    if not items:
+        return None
+    return _classify_shape_item(items[0])
+
+
+def _classify_shape_item(item: ifcopenshell.entity_instance) -> str:
+    if item.is_a("IfcExtrudedAreaSolid"):
+        return "parametric"
+    if item.is_a("IfcBooleanClippingResult"):
+        return "bcr"
+    if item.is_a("IfcBooleanResult"):
+        first_operand = getattr(item, "FirstOperand", None)
+        if first_operand is None:
+            return "boolean_other"
+        return _classify_shape_item(first_operand)
+    return item.is_a()
 
 
 def _extract_doors(
@@ -234,6 +280,7 @@ def _extract_doors(
                 "id": door.GlobalId,
                 "floor": floor,
                 "host_wall_id": host_wall_id,
+                "host_wall_body_class": wall.get("body_class"),
                 "from_space_id": space_ids[0] if len(space_ids) >= 1 else None,
                 "to_space_id": space_ids[1] if len(space_ids) >= 2 else None,
                 "width": width,
@@ -247,26 +294,80 @@ def _extract_doors(
     return doors
 
 
+def _extract_openings(
+    ifc: ifcopenshell.file,
+    storey_floors: dict[str, int],
+    wall_map: dict[str, WallContext],
+) -> list[OpeningContext]:
+    openings: list[OpeningContext] = []
+    for opening in ifc.by_type("IfcOpeningElement"):
+        host_wall_id = _get_opening_host_wall_id(opening)
+        if not host_wall_id or host_wall_id not in wall_map:
+            continue
+
+        wall = wall_map[host_wall_id]
+        floor = _get_floor(opening, storey_floors) or wall["floor"]
+        filled_by_id = None
+        filled_by_kind = None
+        for rel in getattr(opening, "HasFillings", []) or []:
+            filler = getattr(rel, "RelatedBuildingElement", None)
+            if filler is None:
+                continue
+            filled_by_id = filler.GlobalId
+            if filler.is_a("IfcDoor"):
+                filled_by_kind = "door"
+            elif filler.is_a("IfcWindow"):
+                filled_by_kind = "window"
+            else:
+                filled_by_kind = filler.is_a()
+            break
+
+        openings.append(
+            {
+                "id": opening.GlobalId,
+                "floor": floor,
+                "host_wall_id": host_wall_id,
+                "host_wall_body_class": wall.get("body_class"),
+                "filled_by_id": filled_by_id,
+                "filled_by_kind": filled_by_kind,
+            }
+        )
+    return openings
+
+
 def _extract_windows(
     ifc: ifcopenshell.file,
     storey_floors: dict[str, int],
     wall_map: dict[str, WallContext],
+    spaces: list[SpaceContext],
+    boundaries: list[BoundaryContext],
 ) -> list[WindowContext]:
     windows: list[WindowContext] = []
+    spaces_by_id = {space["id"]: space for space in spaces}
+    boundary_by_floor = {boundary["floor"]: boundary for boundary in boundaries}
     for window in ifc.by_type("IfcWindow"):
         host_wall_id = _get_host_wall_id(window)
         if not host_wall_id or host_wall_id not in wall_map:
             continue
 
         wall = wall_map[host_wall_id]
-        if len(wall["space_ids"]) != 1:
-            continue
-
         floor = _get_floor(window, storey_floors) or wall["floor"]
         width = _mm_from_ifc_length(getattr(window, "OverallWidth", None), default=900)
         height = _mm_from_ifc_length(getattr(window, "OverallHeight", None), default=2100)
         position = _project_position_on_wall(window, wall, width)
         if position is None:
+            continue
+        opening_point = _opening_world_point_from_element(window)
+        if opening_point is None:
+            continue
+
+        adjacent_space_id = _resolve_window_adjacent_space_id(
+            wall=wall,
+            spaces_by_id=spaces_by_id,
+            boundary=boundary_by_floor.get(floor),
+            point_mm=opening_point,
+        )
+        if adjacent_space_id is None:
             continue
 
         placement = _get_placement_matrix(window)
@@ -279,7 +380,8 @@ def _extract_windows(
                 "id": window.GlobalId,
                 "floor": floor,
                 "host_wall_id": host_wall_id,
-                "adjacent_space_id": wall["space_ids"][0],
+                "host_wall_body_class": wall.get("body_class"),
+                "adjacent_space_id": adjacent_space_id,
                 "width": width,
                 "height": height,
                 "sill_height": sill_height,
@@ -325,6 +427,9 @@ def _extract_boundaries(spaces: list[SpaceContext]) -> list[BoundaryContext]:
 
 
 def _collect_wall_space_ids(ifc: ifcopenshell.file) -> dict[str, list[str]]:
+    # This extractor relies on IfcRelSpaceBoundary as the primary wall-space linkage source.
+    # Files that omit space boundaries may still yield usable space polygons, but wall.kind and
+    # wall_to_spaces-derived adjacency become conservative.
     wall_to_spaces: dict[str, set[str]] = defaultdict(set)
     for rel in ifc.by_type("IfcRelSpaceBoundary"):
         wall = getattr(rel, "RelatedBuildingElement", None)
@@ -537,7 +642,7 @@ def _get_wall_length_mm(wall: Any) -> float | None:
 
     psets = ifcopenshell.util.element.get_psets(wall)
     length = psets.get("Qto_WallBaseQuantities", {}).get("Length")
-    if isinstance(length, (int, float)):
+    if isinstance(length, int | float):
         return float(length) * 1000.0
 
     representation = getattr(wall, "Representation", None)
@@ -549,7 +654,7 @@ def _get_wall_length_mm(wall: Any) -> float | None:
         for item in shape.Items or []:
             if item.is_a("IfcExtrudedAreaSolid"):
                 depth = getattr(item, "Depth", None)
-                if isinstance(depth, (int, float)):
+                if isinstance(depth, int | float):
                     return float(depth) * 1000.0
     return None
 
@@ -559,10 +664,17 @@ def _get_host_wall_id(element: Any) -> str | None:
         opening = getattr(fills, "RelatingOpeningElement", None)
         if opening is None:
             continue
-        for rel in getattr(opening, "VoidsElements", []) or []:
-            host = getattr(rel, "RelatingBuildingElement", None)
-            if host is not None and host.is_a("IfcWall"):
-                return host.GlobalId
+        host_wall_id = _get_opening_host_wall_id(opening)
+        if host_wall_id is not None:
+            return host_wall_id
+    return None
+
+
+def _get_opening_host_wall_id(opening: Any) -> str | None:
+    for rel in getattr(opening, "VoidsElements", []) or []:
+        host = getattr(rel, "RelatingBuildingElement", None)
+        if host is not None and host.is_a("IfcWall"):
+            return host.GlobalId
     return None
 
 
@@ -584,6 +696,49 @@ def _project_position_on_wall(element: Any, wall: WallContext, width: int) -> in
     uy = dy / length
     offset = (point[0] - start[0]) * ux + (point[1] - start[1]) * uy
     return int(round(offset + width / 2))
+
+
+def _opening_world_point_from_element(element: Any) -> tuple[float, float] | None:
+    placement = _get_placement_matrix(element)
+    if placement is None:
+        return None
+    return (placement[0][3] * 1000.0, placement[1][3] * 1000.0)
+
+
+def _resolve_window_adjacent_space_id(
+    *,
+    wall: WallContext,
+    spaces_by_id: dict[str, SpaceContext],
+    boundary: BoundaryContext | None,
+    point_mm: tuple[float, float],
+) -> str | None:
+    if len(wall["space_ids"]) == 1:
+        return wall["space_ids"][0]
+    if boundary is None:
+        return None
+    if not _wall_segment_on_outer_polygon(wall, boundary["outer_polygon"]):
+        return None
+    point = cast(Any, ShapelyPoint)(point_mm)
+    matches: list[str] = []
+    for space_id in wall["space_ids"]:
+        space = spaces_by_id.get(space_id)
+        polygon = space["polygon"] if space is not None else None
+        if not polygon:
+            continue
+        if shapely_contains(cast(Any, ShapelyPolygon)(polygon).buffer(400.0), point):
+            matches.append(space_id)
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _wall_segment_on_outer_polygon(
+    wall: WallContext,
+    outer_polygon: list[tuple[float, float]],
+) -> bool:
+    wall_line = cast(Any, ShapelyLineString)([tuple(wall["start"]), tuple(wall["end"])])
+    outer_line = cast(Any, ShapelyLineString)([*outer_polygon, outer_polygon[0]])
+    return wall_line.distance(outer_line) <= 400.0
 
 
 def _apply_placement_mm(point: tuple[float, float], placement: Any | None) -> tuple[float, float]:
@@ -623,6 +778,37 @@ def _normalize_segment(
     return start, end
 
 
+def _assert_meter_length_unit(ifc: ifcopenshell.file) -> None:
+    project = next(iter(ifc.by_type("IfcProject")), None)
+    unit_assignment = getattr(project, "UnitsInContext", None) if project is not None else None
+    if unit_assignment is None:
+        return
+
+    length_unit = next(
+        (
+            unit
+            for unit in getattr(unit_assignment, "Units", []) or []
+            if unit and getattr(unit, "UnitType", None) == "LENGTHUNIT"
+        ),
+        None,
+    )
+    if length_unit is None:
+        raise UnsupportedIfcLengthUnitError("Unsupported IFC length unit: missing LENGTHUNIT")
+    if not length_unit.is_a("IfcSIUnit"):
+        raise UnsupportedIfcLengthUnitError(
+            f"Unsupported IFC length unit type: {length_unit.is_a()}"
+        )
+    if getattr(length_unit, "Name", None) != "METRE":
+        raise UnsupportedIfcLengthUnitError(
+            f"Unsupported IFC length unit: {getattr(length_unit, 'Name', None)}"
+        )
+    prefix = getattr(length_unit, "Prefix", None)
+    if prefix not in (None, ""):
+        raise UnsupportedIfcLengthUnitError(
+            f"Unsupported IFC length unit prefix: {prefix}"
+        )
+
+
 def _signed_area(points: list[tuple[float, float]]) -> float:
     if len(points) < 3:
         return 0.0
@@ -640,15 +826,25 @@ def _bbox(points: list[tuple[float, float]]) -> tuple[float, float, float, float
 
 
 def _union_outer_polygon(polygons: list[list[tuple[float, float]]]) -> list[tuple[float, float]]:
-    if Polygon is not None and unary_union is not None:
-        shape_polygons = [Polygon(polygon) for polygon in polygons if len(polygon) >= 3]
-        if shape_polygons:
-            merged = unary_union(shape_polygons)
+    shape_polygons = [
+        cast(Any, ShapelyPolygon)(polygon) for polygon in polygons if len(polygon) >= 3
+    ]
+    if shape_polygons:
+        merged = shapely_union_all(shape_polygons)
+        if merged.geom_type == "MultiPolygon":
+            # IFC space polygons usually describe the interior face of walls.
+            # When multiple rooms are separated by wall thickness, the raw union can
+            # split the same storey outline into disconnected islands. Bridge small
+            # gaps first so the extracted floor boundary still matches the building
+            # exterior used by walls/openings.
+            merged = shapely_union_all(
+                [geom.buffer(400.0, join_style=2) for geom in merged.geoms]
+            ).buffer(-400.0, join_style=2)
             if merged.geom_type == "MultiPolygon":
                 merged = max(merged.geoms, key=lambda geom: geom.area)
-            return _normalize_polygon(
-                [(float(x), float(y)) for x, y in merged.exterior.coords[:-1]]
-            )
+        return _normalize_polygon(
+            [(float(x), float(y)) for x, y in merged.exterior.coords[:-1]]
+        )
 
     all_points = [point for polygon in polygons for point in polygon]
     min_x, min_y, max_x, max_y = _bbox(all_points)
@@ -662,8 +858,8 @@ def _mm_from_custom_value(value: Any, min_value: int | None = None) -> int | Non
         return None
     if isinstance(value, bool):
         return None
-    if isinstance(value, (int, float)):
-        mm_value = int(round(float(value)))
+    if isinstance(value, int | float):
+        mm_value = round(float(value))
         if min_value is not None and mm_value < min_value:
             return None
         return mm_value
@@ -671,6 +867,6 @@ def _mm_from_custom_value(value: Any, min_value: int | None = None) -> int | Non
 
 
 def _mm_from_ifc_length(value: Any, default: int) -> int:
-    if isinstance(value, (int, float)):
-        return int(round(float(value) * 1000.0))
+    if isinstance(value, int | float):
+        return round(float(value) * 1000.0)
     return default

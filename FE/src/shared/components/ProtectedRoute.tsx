@@ -1,5 +1,6 @@
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuthSessionGuard } from '@/features/auth/hooks/useAuthSessionGuard'
+import { useProjectInvitationRealtime } from '@/features/project/hooks/useInvitation'
 import FullPageSpinner from '@/shared/components/FullPageSpinner'
 
 /**
@@ -9,6 +10,7 @@ import FullPageSpinner from '@/shared/components/FullPageSpinner'
  */
 export function ProtectedRoute() {
   const { status, isLoading } = useAuthSessionGuard()
+  useProjectInvitationRealtime(status === 'authenticated')
 
   if (isLoading) {
     return <FullPageSpinner />

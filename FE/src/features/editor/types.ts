@@ -10,9 +10,17 @@ export interface IfcElementInfo {
   category: string
   source?: 'ifc' | 'library'
   expressId?: number | string
+  globalId?: string
   lengthMm?: number
   heightMm?: number
   thicknessMm?: number
+  roofShape?: 'flat' | 'gable'
+  positionX?: number
+  positionY?: number
+  positionZ?: number
+  rotationX?: number
+  rotationY?: number
+  rotationZ?: number
   color?: string
   material?: string
   properties: Record<string, string | number | boolean>
@@ -22,9 +30,18 @@ export interface IfcElementChange {
   expressId: number
   localId?: number
   localIds?: number[]
+  globalId?: string
+  ifcClass?: string
   lengthMm?: number
   heightMm?: number
   thicknessMm?: number
+  roofShape?: 'flat' | 'gable'
+  positionX?: number
+  positionY?: number
+  positionZ?: number
+  rotationX?: number
+  rotationY?: number
+  rotationZ?: number
   color?: string
   material?: string
   deleted?: boolean
@@ -51,6 +68,7 @@ export type PanelResizeAxis = 'x' | 'y' | 'both'
 /** 버블(공간) 데이터 */
 export interface BubbleData {
   id: string
+  floor?: number    // 층 번호(기본 정책: 1 이상 정수, 지하층 정책 활성 시 0 제외 정수). 누락 시 기본층으로 처리
   x: number         // 캔버스 X 위치 (px)
   y: number         // 캔버스 Y 위치 (px)
   width: number     // 캔버스 렌더링 가로 (px)
@@ -64,6 +82,19 @@ export interface BubbleData {
   color: string     // 버블 배경 색상
   material?: string // 주요 재질
   index: string     // 표시 번호 (예: '01')
+}
+
+/** 버블 모드 층 메타데이터 */
+export interface BubbleFloor {
+  floor: number
+  name: string
+}
+
+/** 버블 모드 층별 요약 정보 */
+export interface BubbleFloorSummary {
+  floor: number
+  bubbleCount: number
+  totalAreaM2: number
 }
 
 /** 공간 간 연결선 */
@@ -107,7 +138,6 @@ export type FloorOpeningType = 'door' | 'window'
 export type FloorDoorHingeSide = 'left' | 'right'
 export type FloorDoorSwingDirection = 'inward' | 'outward' | 'sliding'
 export type CollaborationUserType = 'DESIGNER' | 'CUSTOMER'
-export type FloorCommentAttachmentKind = 'image' | 'file'
 
 /** 공간 추가 모달 폼 데이터 */
 export interface AddSpaceFormData {
@@ -130,6 +160,7 @@ export interface ZoningFormData {
 /** 2D 평면도 위의 방(공간) 한 칸 */
 export interface FloorRoom {
   id: string
+  globalId?: string
   bubbleId: string
   label: string
   type: string
@@ -185,6 +216,10 @@ export interface FloorRoomTransform2D {
 export interface FloorLayer {
   id: string
   name: string
+  storeyGlobalId?: string
+  storeyName?: string
+  elevationMm?: number
+  ceilingHeightMm?: number
   rooms: FloorRoom[]
 }
 
@@ -199,9 +234,15 @@ export interface FloorLayerOverlay {
 /** 2D 평면도 편집용 벽(선분) 데이터 */
 export interface FloorWall {
   id: string
+  globalId?: string
+  floorLayerId?: string
+  storeyGlobalId?: string
+  storeyName?: string
   sourceIfcClass?: 'IfcWall' | 'IfcWallStandardCase'
   start: Point2D
   end: Point2D
+  startMm?: Point2D
+  endMm?: Point2D
   type: FloorWallType
   thickness: number // 실제 두께(mm)
   heightMm: number  // 실제 높이(mm)
@@ -211,34 +252,20 @@ export interface FloorWall {
 /** 2D 평면도 편집용 벽 부착 개구부(문/창문) */
 export interface FloorOpening {
   id: string
+  globalId?: string
+  hostWallGlobalId?: string
+  storeyGlobalId?: string
+  storeyName?: string
   sourceIfcClass?: 'IfcDoor' | 'IfcWindow'
   type: FloorOpeningType
   wallId: string
   wallPosition: number // 벽 start~end 정규화 위치(0~1)
+  centerMm?: Point2D
   widthMm: number
   heightMm: number
   sillHeightMm?: number // 창문 창턱 높이(mm)
   doorHingeSide?: FloorDoorHingeSide
   doorSwingDirection?: FloorDoorSwingDirection
-}
-
-/** 2D 협업 핀 내 댓글(스레드 단위의 메시지) */
-export interface FloorCommentAttachment {
-  id: string
-  kind: FloorCommentAttachmentKind
-  name: string
-  mimeType: string
-  sizeBytes: number
-  url: string
-}
-
-/** 댓글 작성 시 임시 첨부 입력(백엔드 연동 전 FE 로컬 전용) */
-export interface FloorCommentAttachmentInput {
-  kind: FloorCommentAttachmentKind
-  name: string
-  mimeType: string
-  sizeBytes: number
-  url: string
 }
 
 /** 2D 협업 핀 내 댓글(스레드 단위의 메시지) */
@@ -249,7 +276,8 @@ export interface FloorCommentMessage {
   authorName: string
   authorType: CollaborationUserType
   content: string
-  attachments: FloorCommentAttachment[]
+  status?: string
+  isPinMessage?: boolean
   createdAt: string
 }
 
@@ -258,11 +286,24 @@ export interface FloorCommentPin {
   id: string
   x: number
   y: number
+  worldX: number
+  worldY: number
+  worldZ: number
   createdAt: string
   createdById: string
   createdByName: string
   createdByType: CollaborationUserType
   messages: FloorCommentMessage[]
+  hasUnreadCommentByOtherUser?: boolean
+}
+
+export interface CommentPin3DCreatePosition {
+  worldX: number
+  worldY: number
+  worldZ: number
+  cameraX: number
+  cameraY: number
+  cameraZ: number
 }
 
 /** 협업 알림 (백엔드 연동 전 FE 로컬 시뮬레이션용) */
@@ -291,6 +332,8 @@ export interface WorkspaceSnapshot {
   phaseStatus: PhaseStatus
   bubbles: BubbleData[]
   connections: ConnectionData[]
+  bubbleFloorNamesByNumber: Record<number, string>
+  extraBubbleFloors: number[]
   zones: ZoneData[]
   floorLayers: FloorLayer[]
   activeFloorLayerId: string | null
@@ -301,19 +344,5 @@ export interface WorkspaceSnapshot {
   hiddenAutoWallIds: string[]
   hiddenAutoOpeningIds: string[]
   isProjectStructurePreferred: boolean
-}
-
-export type EditorDraftSnapshot = WorkspaceSnapshot
-
-export interface EditorDraftHistory {
-  bubbleUndoHistory: unknown[]
-  bubbleRedoHistory: unknown[]
-}
-
-export interface EditorDraftRecord {
-  projectId: string
-  versionNo: number
-  data: EditorDraftSnapshot
-  history?: EditorDraftHistory
-  savedAt: string
+  ifcElementChanges: IfcElementChange[]
 }

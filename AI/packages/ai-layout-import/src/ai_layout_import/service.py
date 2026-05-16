@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import ifcopenshell
@@ -17,11 +17,17 @@ from ai_domain import (
     LayoutImportV1,
     LayoutImportV2,
     LayoutImportV3,
+    ModelingDefaultsV2,
     OpeningInput,
     OpeningType,
     RoomInput,
     RoofShape,
     ZoneInput,
+)
+from ai_common.logging import get_logger
+from ai_layout_import.layout_optimizer import (
+    LayoutOptimizationSummary,
+    optimize_room_layout_from_adjacency,
 )
 
 Point2DMm = tuple[float, float]
@@ -31,6 +37,10 @@ SharedWallSegment = tuple[int, RoomEdgeMm]
 StyleAssignmentCache = dict[str, ifcopenshell.entity_instance]
 LayoutImportRequestModel = LayoutImportV1 | LayoutImportV2 | LayoutImportV3
 LayoutImportGenerationRequest = LayoutImportV2 | LayoutImportV3
+_logger = get_logger(__name__)
+_DEFAULT_WALL_THICKNESS_MM = 200
+_DEFAULT_SLAB_THICKNESS_MM = 150
+_DEFAULT_ROOF_HEIGHT_MM = 1000
 
 
 @dataclass(frozen=True)
@@ -45,30 +55,87 @@ class HostWallRegistryEntry:
 HostWallRegistry = dict[str, HostWallRegistryEntry]
 
 
+@dataclass(frozen=True)
+class LayoutImportNormalizationSummary:
+    defaultsApplied: dict[str, int] = field(default_factory=dict)
+    degradedFeatures: list[str] = field(default_factory=list)
+    missingBoundaryFloors: list[int] = field(default_factory=list)
+    availableBoundaryFloors: list[int] = field(default_factory=list)
+    roomFloors: list[int] = field(default_factory=list)
+    topFloorBoundaryMissing: bool = False
+    openingsDisabledBecauseWallsDisabled: bool = False
+    layoutOptimization: LayoutOptimizationSummary = field(
+        default_factory=LayoutOptimizationSummary
+    )
+    hasWarnings: bool = False
+
+    def to_report_warnings(self) -> dict[str, object] | None:
+        if not self.hasWarnings:
+            return None
+        warnings: dict[str, object] = {
+            "defaultsApplied": self.defaultsApplied,
+            "degradedFeatures": self.degradedFeatures,
+            "missingBoundaryFloors": self.missingBoundaryFloors,
+            "availableBoundaryFloors": self.availableBoundaryFloors,
+            "roomFloors": self.roomFloors,
+            "topFloorBoundaryMissing": self.topFloorBoundaryMissing,
+            "openingsDisabledBecauseWallsDisabled": self.openingsDisabledBecauseWallsDisabled,
+        }
+        optimization_warnings = self.layoutOptimization.to_report_warnings()
+        if optimization_warnings is not None:
+            warnings.update(optimization_warnings)
+        return warnings
+
+
+@dataclass(frozen=True)
+class GenerationDegradationSummary:
+    degradedFeatures: list[str] = field(default_factory=list)
+    missingBoundaryFloors: list[int] = field(default_factory=list)
+    availableBoundaryFloors: list[int] = field(default_factory=list)
+    roomFloors: list[int] = field(default_factory=list)
+    topFloorBoundaryMissing: bool = False
+    openingsDisabledBecauseWallsDisabled: bool = False
+
+
 def convert_layout_to_ifc(
     request: LayoutImportRequestModel,
     output_path: str | Path,
-) -> None:
+) -> LayoutImportNormalizationSummary:
     """Write a space-only IFC file from the validated layout import request."""
 
     output = Path(output_path)
-    shared_wall_segments = _validate_request(request)
+    normalized_request, normalization_summary = _normalize_generation_request(request)
+    normalized_request, optimization_summary = optimize_room_layout_from_adjacency(
+        normalized_request
+    )
+    normalization_summary = _with_layout_optimization_summary(
+        normalization_summary,
+        optimization_summary,
+    )
+    shared_wall_segments = _validate_request(normalized_request)
     model = _create_ifc_file()
     style_cache: StyleAssignmentCache = {}
-    owner_history, context, project, storeys = _create_project_tree(model, request)
-    zones = _create_zones(model, owner_history, request)
-    _attach_project_metadata_property_set(model, owner_history, project, request)
-    _attach_storey_metadata_property_sets(model, owner_history, storeys, request)
+    owner_history, context, project, storeys = _create_project_tree(model, normalized_request)
+    zones = _create_zones(model, owner_history, normalized_request)
+    _attach_project_metadata_property_set(model, owner_history, project, normalized_request)
+    _attach_storey_metadata_property_sets(model, owner_history, storeys, normalized_request)
     host_wall_registry: HostWallRegistry = {}
     host_wall_registry.update(
-        _create_v2_walls(model, owner_history, context, request, storeys, style_cache)
+        _create_v2_walls(
+            model,
+            owner_history,
+            context,
+            normalized_request,
+            storeys,
+            style_cache,
+        )
     )
     host_wall_registry.update(
         _create_v2_shared_walls(
             model,
             owner_history,
             context,
-            request,
+            normalized_request,
             storeys,
             shared_wall_segments,
             style_cache,
@@ -78,59 +145,189 @@ def convert_layout_to_ifc(
         model,
         owner_history,
         context,
-        request,
+        normalized_request,
         host_wall_registry,
     )
-    _create_v2_slabs(model, owner_history, context, request, storeys, style_cache)
-    _create_v2_roof(model, owner_history, context, request, storeys, style_cache)
-    _create_spaces(model, owner_history, context, request, storeys, zones)
+    _create_v2_slabs(model, owner_history, context, normalized_request, storeys, style_cache)
+    _create_v2_roof(model, owner_history, context, normalized_request, storeys, style_cache)
+    _create_spaces(model, owner_history, context, normalized_request, storeys, zones)
     output.parent.mkdir(parents=True, exist_ok=True)
     model.write(str(output))
+    return normalization_summary
+
+
+def _normalize_generation_request(
+    request: LayoutImportRequestModel,
+) -> tuple[LayoutImportRequestModel, LayoutImportNormalizationSummary]:
+    if not isinstance(request, (LayoutImportV2, LayoutImportV3)):
+        return request, LayoutImportNormalizationSummary()
+
+    normalized_request = request.model_copy(deep=True)
+    defaults_applied = _ensure_modeling_defaults(normalized_request)
+    degradation_summary = _degrade_generation_options_for_missing_boundaries(normalized_request)
+    summary = LayoutImportNormalizationSummary(
+        defaultsApplied=defaults_applied,
+        degradedFeatures=degradation_summary.degradedFeatures,
+        missingBoundaryFloors=degradation_summary.missingBoundaryFloors,
+        availableBoundaryFloors=degradation_summary.availableBoundaryFloors,
+        roomFloors=degradation_summary.roomFloors,
+        topFloorBoundaryMissing=degradation_summary.topFloorBoundaryMissing,
+        openingsDisabledBecauseWallsDisabled=(
+            degradation_summary.openingsDisabledBecauseWallsDisabled
+        ),
+        hasWarnings=bool(defaults_applied or degradation_summary.degradedFeatures),
+    )
+    return normalized_request, summary
+
+
+def _with_layout_optimization_summary(
+    summary: LayoutImportNormalizationSummary,
+    optimization_summary: LayoutOptimizationSummary,
+) -> LayoutImportNormalizationSummary:
+    if not optimization_summary.layoutOptimizationApplied:
+        return summary
+    has_optimization_report = (
+        optimization_summary.movedRoomCount > 0 or optimization_summary.hasWarnings
+    )
+    return LayoutImportNormalizationSummary(
+        defaultsApplied=summary.defaultsApplied,
+        degradedFeatures=summary.degradedFeatures,
+        missingBoundaryFloors=summary.missingBoundaryFloors,
+        availableBoundaryFloors=summary.availableBoundaryFloors,
+        roomFloors=summary.roomFloors,
+        topFloorBoundaryMissing=summary.topFloorBoundaryMissing,
+        openingsDisabledBecauseWallsDisabled=summary.openingsDisabledBecauseWallsDisabled,
+        layoutOptimization=optimization_summary,
+        hasWarnings=summary.hasWarnings or has_optimization_report,
+    )
+
+
+def _ensure_modeling_defaults(request: LayoutImportGenerationRequest) -> dict[str, int]:
+    current_defaults = request.modeling_defaults
+    applied_defaults: dict[str, int] = {}
+    space_height_mm = None if current_defaults is None else current_defaults.space_height_mm
+    wall_thickness_mm = _ensure_modeling_default_value(
+        current_defaults,
+        "wall_thickness_mm",
+        _DEFAULT_WALL_THICKNESS_MM,
+        applied_defaults,
+    )
+    slab_thickness_mm = _ensure_modeling_default_value(
+        current_defaults,
+        "slab_thickness_mm",
+        _DEFAULT_SLAB_THICKNESS_MM,
+        applied_defaults,
+    )
+    roof_height_mm = _ensure_modeling_default_value(
+        current_defaults,
+        "roof_height_mm",
+        _DEFAULT_ROOF_HEIGHT_MM,
+        applied_defaults,
+    )
+
+    request.modeling_defaults = ModelingDefaultsV2(
+        space_height_mm=space_height_mm,
+        wall_thickness_mm=wall_thickness_mm,
+        slab_thickness_mm=slab_thickness_mm,
+        roof_height_mm=roof_height_mm,
+    )
+
+    if applied_defaults:
+        _logger.info(
+            "layout_import_modeling_defaults_applied",
+            source="fe_payload_missing",
+            schemaVersion=request.schema_version,
+            missingFields=list(applied_defaults),
+            appliedDefaults=applied_defaults,
+        )
+    return applied_defaults
+
+
+def _ensure_modeling_default_value(
+    defaults: ModelingDefaultsV2 | None,
+    field_name: str,
+    fallback_value: int,
+    applied_defaults: dict[str, int],
+) -> int:
+    if defaults is not None:
+        value = getattr(defaults, field_name)
+        if value is not None:
+            return value
+    applied_defaults[field_name] = fallback_value
+    return fallback_value
+
+
+def _degrade_generation_options_for_missing_boundaries(
+    request: LayoutImportGenerationRequest,
+) -> GenerationDegradationSummary:
+    boundaries_by_floor = {boundary.floor: boundary for boundary in request.boundaries or []}
+    room_floors = sorted({room.floor for room in request.rooms})
+    if not room_floors:
+        return GenerationDegradationSummary()
+
+    current_options = request.generation_options
+    next_options = current_options.model_copy(deep=True)
+    disabled_features: list[str] = []
+    missing_boundary_floors = _missing_boundary_floors(boundaries_by_floor, room_floors)
+
+    if next_options.generate_walls and missing_boundary_floors:
+        next_options.generate_walls = False
+        disabled_features.append("generate_walls")
+
+    if next_options.generate_slabs and missing_boundary_floors:
+        next_options.generate_slabs = False
+        disabled_features.append("generate_slabs")
+
+    top_floor = max(room_floors)
+    top_floor_boundary_missing = top_floor not in boundaries_by_floor
+    if next_options.generate_roof and top_floor not in boundaries_by_floor:
+        next_options.generate_roof = False
+        disabled_features.append("generate_roof")
+
+    openings_disabled_because_walls_disabled = False
+    if next_options.generate_openings and not next_options.generate_walls:
+        next_options.generate_openings = False
+        disabled_features.append("generate_openings")
+        openings_disabled_because_walls_disabled = True
+
+    request.generation_options = next_options
+
+    if disabled_features:
+        _logger.warning(
+            "layout_import_generation_options_degraded",
+            source="fe_payload_missing",
+            schemaVersion=request.schema_version,
+            disabledFeatures=disabled_features,
+            missingBoundaryFloors=missing_boundary_floors,
+            availableBoundaryFloors=sorted(boundaries_by_floor),
+            roomFloors=room_floors,
+            topFloorBoundaryMissing=top_floor_boundary_missing,
+            openingsDisabledBecauseWallsDisabled=openings_disabled_because_walls_disabled,
+        )
+    return GenerationDegradationSummary(
+        degradedFeatures=disabled_features,
+        missingBoundaryFloors=missing_boundary_floors,
+        availableBoundaryFloors=sorted(boundaries_by_floor),
+        roomFloors=room_floors,
+        topFloorBoundaryMissing=top_floor_boundary_missing,
+        openingsDisabledBecauseWallsDisabled=openings_disabled_because_walls_disabled,
+    )
+
+
+def _missing_boundary_floors(
+    boundaries_by_floor: dict[int, BoundaryInput],
+    floors: list[int],
+) -> list[int]:
+    return [floor for floor in floors if floor not in boundaries_by_floor]
 
 
 def _validate_request(request: LayoutImportRequestModel) -> list[SharedWallSegment]:
     if isinstance(request, (LayoutImportV2, LayoutImportV3)):
-        _validate_v2_generation_prerequisites(request)
         shared_wall_segments = _validated_shared_wall_segments(request)
-        if isinstance(request, LayoutImportV3):
+        if isinstance(request, LayoutImportV3) and request.generation_options.generate_openings:
             _validate_explicit_openings(request)
         return shared_wall_segments
     return []
-
-
-def _validate_v2_generation_prerequisites(request: LayoutImportGenerationRequest) -> None:
-    boundaries_by_floor = {boundary.floor: boundary for boundary in request.boundaries or []}
-    room_floors = sorted({room.floor for room in request.rooms})
-
-    if request.generation_options.generate_walls:
-        _require_modeling_default(request, "wall_thickness_mm")
-        _require_boundaries_for_floors(boundaries_by_floor, room_floors, "walls")
-
-    if request.generation_options.generate_slabs:
-        _require_modeling_default(request, "slab_thickness_mm")
-        _require_boundaries_for_floors(boundaries_by_floor, room_floors, "slabs")
-
-    if request.generation_options.generate_roof:
-        _require_modeling_default(request, "roof_height_mm")
-        top_floor = max(room_floors)
-        if top_floor not in boundaries_by_floor:
-            raise ValueError(f"missing boundary for roof generation on floor {top_floor}")
-
-
-def _require_modeling_default(request: LayoutImportGenerationRequest, field_name: str) -> None:
-    if request.modeling_defaults is None or getattr(request.modeling_defaults, field_name) is None:
-        raise ValueError(f"{field_name} is required when its generation option is enabled")
-
-
-def _require_boundaries_for_floors(
-    boundaries_by_floor: dict[int, BoundaryInput],
-    floors: list[int],
-    feature_name: str,
-) -> None:
-    missing_floors = [floor for floor in floors if floor not in boundaries_by_floor]
-    if missing_floors:
-        missing_text = ", ".join(str(floor) for floor in missing_floors)
-        raise ValueError(f"missing boundaries for {feature_name} on floors: {missing_text}")
 
 
 def _derive_shared_wall_candidates(
@@ -148,14 +345,11 @@ def _derive_shared_wall_candidates(
     for adjacency in request.adjacency:
         from_room, to_room = _resolve_adjacency_pair(adjacency, rooms_by_id)
         if from_room.floor != to_room.floor:
-            raise ValueError(
-                f"shared wall adjacency rooms must be on the same floor: "
-                f"{from_room.id} ({from_room.floor}F) and {to_room.id} ({to_room.floor}F)"
-            )
+            continue
         if not math.isclose(from_room.angle, 0.0, abs_tol=1.0e-9):
-            raise ValueError(f"shared wall adjacency does not support rotated room: {from_room.id}")
+            continue
         if not math.isclose(to_room.angle, 0.0, abs_tol=1.0e-9):
-            raise ValueError(f"shared wall adjacency does not support rotated room: {to_room.id}")
+            continue
 
         candidates.append(
             (
@@ -186,11 +380,7 @@ def _validated_shared_wall_segments(
             if not _is_segment_on_any_boundary_edge_mm(segment[1], boundary_edges)
         ]
         if not candidate_segments:
-            floor, from_room_id, to_room_id, _, _ = candidate
-            raise ValueError(
-                "shared wall adjacency must resolve to an interior shared segment: "
-                f"{from_room_id}->{to_room_id} on floor {floor}"
-            )
+            continue
 
         for segment in candidate_segments:
             deduped_segments[_shared_segment_key(segment)] = segment
@@ -1400,6 +1590,8 @@ def _create_v3_openings(
     host_wall_registry: HostWallRegistry,
 ) -> None:
     if not isinstance(request, LayoutImportV3):
+        return
+    if not request.generation_options.generate_openings:
         return
     openings = request.openings or []
     if not openings:

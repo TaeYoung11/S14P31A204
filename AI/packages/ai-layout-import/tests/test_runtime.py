@@ -176,6 +176,7 @@ def test_ifc_generate_worker_publishes_completed_event_and_echoes_reserved_refs(
             "steps/001/engine/validation-report.v1.json"
         )
     )
+    assert publisher.events[1].output.hasWarnings is False
     assert (
         storage.binary_uploads[0][0]
         == "projects/project-layout-001/revisions/rev-layout-target-001/ifc/model.v1.ifc"
@@ -195,9 +196,10 @@ def test_ifc_generate_worker_publishes_completed_event_and_echoes_reserved_refs(
     assert report["status"] == "completed"
     assert report["layoutImport"]["schemaVersion"] == "v2"
     assert report["layoutImport"]["roomCount"] == 1
+    assert "warnings" not in report
 
 
-def test_ifc_generate_worker_maps_validation_failure_and_uploads_detail_report() -> None:
+def test_ifc_generate_worker_applies_missing_modeling_defaults_and_completes() -> None:
     publisher = InMemoryPublisher()
     storage = FakeStorageClient()
     worker = IfcGenerateWorker(
@@ -222,20 +224,13 @@ def test_ifc_generate_worker_maps_validation_failure_and_uploads_detail_report()
 
     result = worker.handle(command)
 
-    assert result.status == "failed"
+    assert result.status == "completed"
     assert len(publisher.events) == 2
-    assert publisher.events[1].status == "failed"
-    assert publisher.events[1].error is not None
-    assert publisher.events[1].error.code == "validation_error"
-    assert publisher.events[1].error.retryable is False
-    assert (
-        publisher.events[1].error.detailStorageUrl
-        == (
-            "projects/project-layout-001/jobs/job-ifc-generate-001/"
-            "steps/001/engine/validation-report.v1.json"
-        )
-    )
-    assert storage.binary_uploads == []
+    assert publisher.events[1].status == "completed"
+    assert publisher.events[1].error is None
+    assert publisher.events[1].output is not None
+    assert publisher.events[1].output.hasWarnings is True
+    assert len(storage.binary_uploads) == 1
     assert (
         storage.text_uploads[0][0]
         == (
@@ -248,9 +243,98 @@ def test_ifc_generate_worker_maps_validation_failure_and_uploads_detail_report()
     validate_json_schema(publisher.events[1].model_dump(by_alias=True, exclude_none=True), schema)
 
     report = json.loads(storage.text_uploads[0][1])
-    assert report["status"] == "failed"
-    assert report["error"]["code"] == "validation_error"
-    assert "wall_thickness_mm" in report["error"]["message"]
+    assert report["status"] == "completed"
+    assert "error" not in report
+    assert report["warnings"] == {
+        "defaultsApplied": {"wall_thickness_mm": 200},
+        "degradedFeatures": [],
+        "missingBoundaryFloors": [],
+        "availableBoundaryFloors": [1],
+        "roomFloors": [1],
+        "topFloorBoundaryMissing": False,
+        "openingsDisabledBecauseWallsDisabled": False,
+    }
+
+
+def test_ifc_generate_worker_reports_layout_optimization_warnings() -> None:
+    publisher = InMemoryPublisher()
+    storage = FakeStorageClient()
+    worker = IfcGenerateWorker(
+        worker_id="ifc-generate-worker-1",
+        event_publisher=publisher,
+        storage_client=storage,
+    )
+    layout_import = _valid_v2_layout_import()
+    layout_import["rooms"] = [
+        {
+            "id": "room-left-01",
+            "name": "Left Room",
+            "type": "living",
+            "width": 4200,
+            "height": 3800,
+            "floor": 1,
+            "x": 2100.0,
+            "y": 1900.0,
+            "angle": 0.0,
+            "locked": True,
+        },
+        {
+            "id": "room-right-01",
+            "name": "Right Room",
+            "type": "bedroom",
+            "width": 4200,
+            "height": 3800,
+            "floor": 1,
+            "x": 9000.0,
+            "y": 1900.0,
+            "angle": 0.0,
+            "locked": True,
+        },
+    ]
+    layout_import["adjacency"] = [
+        {
+            "from_room_id": "room-left-01",
+            "to_room_id": "room-right-01",
+            "strength": 1.0,
+        }
+    ]
+    layout_import["boundaries"] = [
+        {
+            "floor": 1,
+            "polygon": [
+                [0.0, 0.0],
+                [12000.0, 0.0],
+                [12000.0, 3800.0],
+                [0.0, 3800.0],
+            ],
+        }
+    ]
+    command = _command(
+        layout_import=layout_import,
+        ifc_ref="projects/project-layout-001/revisions/rev-layout-target-001/ifc/model.v1.ifc",
+        report_ref=(
+            "projects/project-layout-001/jobs/job-ifc-generate-001/"
+            "steps/001/engine/validation-report.v1.json"
+        ),
+    )
+
+    result = worker.handle(command)
+
+    assert result.status == "completed"
+    assert publisher.events[1].output is not None
+    assert publisher.events[1].output.hasWarnings is True
+    report = json.loads(storage.text_uploads[0][1])
+    assert report["warnings"]["layoutOptimizationApplied"] is True
+    assert report["warnings"]["movedRoomCount"] == 0
+    assert report["warnings"]["unsatisfiedAdjacencyRefs"] == [
+        "room-left-01<->room-right-01"
+    ]
+    assert report["warnings"]["skippedAdjacencyReasons"] == [
+        {
+            "adjacencyRef": "room-left-01<->room-right-01",
+            "reason": "both_rooms_locked",
+        }
+    ]
 
 
 def test_ifc_generate_worker_accepts_canonical_s3_refs() -> None:
@@ -263,7 +347,10 @@ def test_ifc_generate_worker_accepts_canonical_s3_refs() -> None:
     )
     command = _command(
         layout_import=_valid_v2_layout_import(),
-        ifc_ref="s3://batang/projects/project-layout-001/revisions/rev-layout-target-001/ifc/model.v1.ifc",
+        ifc_ref=(
+            "s3://batang/projects/project-layout-001/revisions/"
+            "rev-layout-target-001/ifc/model.v1.ifc"
+        ),
         report_ref=(
             "s3://batang/projects/project-layout-001/jobs/job-ifc-generate-001/"
             "steps/001/engine/validation-report.v1.json"
@@ -276,6 +363,34 @@ def test_ifc_generate_worker_accepts_canonical_s3_refs() -> None:
     assert publisher.events[1].status == "completed"
     assert storage.binary_uploads[0][0].startswith("s3://batang/")
     assert storage.text_uploads[0][0].startswith("s3://batang/")
+
+
+def test_ifc_generate_worker_accepts_path_style_http_refs() -> None:
+    publisher = InMemoryPublisher()
+    storage = FakeStorageClient()
+    worker = IfcGenerateWorker(
+        worker_id="ifc-generate-worker-1",
+        event_publisher=publisher,
+        storage_client=storage,
+    )
+    command = _command(
+        layout_import=_valid_v2_layout_import(),
+        ifc_ref=(
+            "http://minio:9000/batang/"
+            "projects/project-layout-001/revisions/rev-layout-target-001/ifc/model.v1.ifc"
+        ),
+        report_ref=(
+            "https://minio.example.com/batang/projects/project-layout-001/jobs/"
+            "job-ifc-generate-001/steps/001/engine/validation-report.v1.json"
+        ),
+    )
+
+    result = worker.handle(command)
+
+    assert result.status == "completed"
+    assert publisher.events[1].status == "completed"
+    assert storage.binary_uploads[0][0].startswith("http://minio:9000/batang/")
+    assert storage.text_uploads[0][0].startswith("https://minio.example.com/batang/")
 
 
 def test_ifc_generate_worker_rejects_legacy_ifc_storage_path() -> None:

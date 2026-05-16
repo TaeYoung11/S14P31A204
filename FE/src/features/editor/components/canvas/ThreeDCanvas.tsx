@@ -9,7 +9,7 @@
  *  2. 그 외 → ThatOpenIfcCanvas (ifcUrl 없을 시 mock IFC로 폴백)
  */
 import { useRef, useState } from 'react'
-import type { FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '../../types'
+import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '../../types'
 import type { IfcStoreyInfo } from './thatopen/ifcPropertyParser'
 import { useCtrlWheelZoom } from '../../hooks/useCtrlWheelZoom'
 import ThreeDCanvasCollaborationOverlay from './ThreeDCanvasCollaborationOverlay'
@@ -17,8 +17,10 @@ import ThreeDCanvasGridOverlay from './ThreeDCanvasGridOverlay'
 import ThreeDCanvasScene from './ThreeDCanvasScene'
 import ThreeDLibraryPanel from './ThreeDLibraryPanel'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
-import type { ThreeDLibraryPreset } from './threeDLibrary.types'
 import { DEFAULT_MOCK_IFC_URL, shouldRenderLocalFloorPlan } from './threeDCanvas.utils'
+import type { ThreeDLibraryPreset } from './threeDLibrary.types'
+import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
+import { useThreeDLibraryDrop } from './useThreeDLibraryDrop'
 
 type ThreeDCoordinates = { x: number; y: number; z: number }
 
@@ -29,6 +31,13 @@ interface ThreeDCanvasProps {
   ifcUrl?: string | null
   sitePoints?: number[]
   isCollaborationMode?: boolean
+  commentPins?: FloorCommentPin[]
+  selectedPinId?: string | null
+  currentUserId?: string | null
+  onPinClick?: (id: string) => void
+  onPinCreate?: (x: number, y: number, content?: string, threeDPosition?: CommentPin3DCreatePosition) => void
+  onPinDelete?: (id: string) => void
+  deletingPinId?: string | null
   /** 라이브러리 패널 표시 여부 */
   isLibraryOpen?: boolean
   onToggleLibrary?: () => void
@@ -71,24 +80,49 @@ interface ThreeDCanvasProps {
   requestedLibraryElementId?: string | null
   /** 계층구조 라이브러리 요소 선택 요청 토큰 */
   libraryElementSelectionRequestToken?: number
+  cameraViewPresetCommand?: ThreeDCameraViewPresetCommand
+  isTransformSnapEnabled?: boolean
+  transformSnapIntervalMm?: number
+  isEditingLocked?: boolean
 }
 
 export function ThreeDCanvas(props: ThreeDCanvasProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
-  const isLocal3DMode = shouldRenderLocalFloorPlan(props.ifcUrl, props.localFloorData)
   const [selectedCategory, setSelectedCategory] = useState('all')
+  const isEditingLocked = props.isEditingLocked ?? false
+  const isLocal3DMode = shouldRenderLocalFloorPlan(props.ifcUrl, props.localFloorData)
 
   // ifcUrl이 null(로딩 중 또는 IFC 없음)이어도 mock으로 폴백해 씬을 항상 표시한다
   const effectiveIfcUrl = props.ifcUrl ?? DEFAULT_MOCK_IFC_URL
+
+  const addLibraryPreset = useCallback(
+  (preset: ThreeDLibraryPreset) => {
+    if (isEditingLocked) return
+    props.onAddLibraryPreset(preset)
+  },
+  [isEditingLocked, props.onAddLibraryPreset],
+)
 
   useCtrlWheelZoom({
     rootRef,
     onWheelZoom: props.onWheelZoom,
   })
 
+  const {
+    libraryDropRequest,
+    handleLibraryDragOver,
+    handleLibraryDrop,
+    handleResolveLibraryDrop,
+  } = useThreeDLibraryDrop({
+    isEditingLocked,
+    addLibraryPreset,
+  })
+
   return (
     <div
       ref={rootRef}
+      onDragOver={handleLibraryDragOver}
+      onDrop={handleLibraryDrop}
       className="absolute inset-0 overflow-hidden bg-[#F0F2F9] select-none"
     >
       <ThreeDCanvasScene
@@ -97,6 +131,14 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         rawIfcUrl={props.ifcUrl}
         localFloorData={props.localFloorData}
         libraryElements={props.libraryElements}
+        commentPins={props.commentPins ?? []}
+        isCollaborationMode={Boolean(props.isCollaborationMode)}
+        selectedPinId={props.selectedPinId ?? null}
+        currentUserId={props.currentUserId ?? null}
+        onPinClick={props.onPinClick}
+        onPinCreate={props.onPinCreate}
+        onPinDelete={props.onPinDelete}
+        deletingPinId={props.deletingPinId ?? null}
         ifcElementChanges={props.ifcElementChanges ?? []}
         isRotationLocked={props.isRotationLocked ?? false}
         zoomScale={props.scale ?? 1}
@@ -116,6 +158,12 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         ifcElementSelectionRequestToken={props.ifcElementSelectionRequestToken}
         requestedLibraryElementId={props.requestedLibraryElementId}
         libraryElementSelectionRequestToken={props.libraryElementSelectionRequestToken}
+        cameraViewPresetCommand={props.cameraViewPresetCommand}
+        libraryDropRequest={libraryDropRequest}
+        onResolveLibraryDrop={handleResolveLibraryDrop}
+        isTransformSnapEnabled={props.isTransformSnapEnabled ?? true}
+        transformSnapIntervalMm={props.transformSnapIntervalMm ?? 100}
+        isEditingLocked={isEditingLocked}
       />
 
       <ThreeDCanvasGridOverlay isVisible={Boolean(props.isGridVisible)} />
@@ -127,7 +175,12 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
           selectedCategory={selectedCategory}
           onSelectCategory={setSelectedCategory}
           onClose={props.onToggleLibrary ?? (() => {})}
-          onAddPreset={props.onAddLibraryPreset}
+          isEditingLocked={isEditingLocked}
+          onAddPreset={(preset) => {
+            if (isEditingLocked) return
+            props.onAddLibraryPreset(preset)
+            props.onToggleLibrary?.()
+          }}
         />
       )}
 

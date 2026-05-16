@@ -5,7 +5,7 @@
  * - value가 목록에 없는 경우(IFC 정의값) 상단에 별도로 표시한다.
  * - 재질 색상은 시각적 구분용으로, 실제 물성과는 무관하다.
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { DEFAULT_WALL_MATERIAL, FLOOR_WALL_MATERIAL_OPTIONS, FLOOR_WALL_MATERIAL_VISUALS, IFC_MATERIAL_NAME_KO } from '../../constants'
 
@@ -19,6 +19,7 @@ interface MaterialSelectorProps {
   fallbackLabel?: string
   /** 재질 선택 시 호출되는 콜백 */
   onChange?: (value: string) => void
+  disabled?: boolean
 }
 
 /**
@@ -27,7 +28,7 @@ interface MaterialSelectorProps {
  * - 목록에 없는 값(IFC 정의 재질)은 상단에 별도 표시하고 선택은 불가하다.
  * - 각 항목에 색상 스와치를 함께 표시해 시각적 구분을 돕는다.
  */
-export function MaterialSelector({ value, fallbackLabel, onChange }: MaterialSelectorProps) {
+export function MaterialSelector({ value, fallbackLabel, onChange, disabled = false }: MaterialSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
   // IFC 파일에서 영문으로 정의된 재질명은 한글로 변환해 표시한다.
   const rawCurrent = value?.trim() || fallbackLabel?.trim() || DEFAULT_WALL_MATERIAL
@@ -40,9 +41,19 @@ export function MaterialSelector({ value, fallbackLabel, onChange }: MaterialSel
 
   /** 재질 항목 클릭 시 변경 콜백을 호출하고 드롭다운을 닫는다. */
   const handleSelect = (label: string) => {
+    if (disabled) return
     onChange?.(label)
     setIsOpen(false)
   }
+
+  // 잠금 전환 시 열려 있던 드롭다운을 즉시 닫아, 재활성화 후 자동 재오픈을 방지한다.
+  useEffect(() => {
+    if (!disabled) return
+    const closeTimer = window.setTimeout(() => {
+      setIsOpen(false)
+    }, 0)
+    return () => window.clearTimeout(closeTimer)
+  }, [disabled])
 
   return (
     <div className="flex flex-col gap-3">
@@ -50,8 +61,9 @@ export function MaterialSelector({ value, fallbackLabel, onChange }: MaterialSel
       <div className="relative">
         <button
           type="button"
+          disabled={disabled}
           onClick={() => setIsOpen(!isOpen)}
-          className="group flex w-full items-center justify-between rounded-lg bg-[#F8F9FD] px-3 py-2.5 transition-colors hover:bg-[#F0F2FA]"
+          className="group flex w-full items-center justify-between rounded-lg bg-[#F8F9FD] px-3 py-2.5 transition-colors hover:bg-[#F0F2FA] disabled:cursor-not-allowed disabled:opacity-55"
         >
           <span className="inline-flex items-center gap-2">
             <span
@@ -63,7 +75,7 @@ export function MaterialSelector({ value, fallbackLabel, onChange }: MaterialSel
           </span>
           <ChevronDown size={14} className="text-[#ADB5BD] group-hover:text-[#3B45B3]" />
         </button>
-        {isOpen && (
+        {isOpen && !disabled && (
           <div className="absolute left-0 right-0 top-full z-10 mt-1 overflow-hidden rounded-lg border border-[#E2E6EF] bg-white shadow-lg">
             {current && !(FLOOR_WALL_MATERIAL_OPTIONS as readonly string[]).includes(current) && (
               <div className="border-b border-[#EEF1F7] px-3 py-2.5">

@@ -93,6 +93,11 @@ EVENTS_EXCHANGE = kombu.Exchange(
     type="topic",
     durable=True,
 )
+DLX_EXCHANGE = kombu.Exchange(
+    "batang.dlx.exchange",
+    type="direct",
+    durable=True,
+)
 
 SD_RENDER_COMMAND_QUEUE = kombu.Queue(
     "batang.sd-render.command.queue",
@@ -115,10 +120,30 @@ IFC_GENERATE_COMMAND_QUEUE = kombu.Queue(
     },
 )
 THREE_D_LLM_COMMAND_QUEUE = kombu.Queue(
-    "batang.3d-llm.command.queue",
+    "batang.three-d-llm.command.queue",
     exchange=COMMANDS_EXCHANGE,
-    routing_key="command.3d-llm.*",
+    routing_key="command.three-d-llm.*",
     durable=True,
+    queue_arguments={
+        "x-dead-letter-exchange": "batang.dlx.exchange",
+        "x-dead-letter-routing-key": "dead.three-d-llm",
+    },
+)
+THREE_D_LLM_DLQ = kombu.Queue(
+    "batang.three-d-llm.dlq",
+    exchange=DLX_EXCHANGE,
+    routing_key="dead.three-d-llm",
+    durable=True,
+)
+TWO_D_LLM_COMMAND_QUEUE = kombu.Queue(
+    "batang.2d-llm.command.queue",
+    exchange=COMMANDS_EXCHANGE,
+    routing_key="command.2d-llm.*",
+    durable=True,
+    queue_arguments={
+        "x-dead-letter-exchange": "batang.dlx.exchange",
+        "x-dead-letter-routing-key": "dead.2d-llm",
+    },
 )
 IFC_EDIT_COMMAND_QUEUE = kombu.Queue(
     "batang.ifc-edit.command.queue",
@@ -130,18 +155,25 @@ IFC_EDIT_COMMAND_QUEUE = kombu.Queue(
         "x-dead-letter-routing-key": "dead.ifc-edit",
     },
 )
+IFC_EDIT_DLQ = kombu.Queue(
+    "batang.ifc-edit.dlq",
+    exchange=DLX_EXCHANGE,
+    routing_key="dead.ifc-edit",
+    durable=True,
+)
 
 _WORKER_TYPE_TO_QUEUE: dict[str, kombu.Queue] = {
     "SD_RENDER_GENERATE": SD_RENDER_COMMAND_QUEUE,
     "IFC_GENERATE_FROM_BUBBLE": IFC_GENERATE_COMMAND_QUEUE,
     "THREE_D_LLM": THREE_D_LLM_COMMAND_QUEUE,
+    "TWO_D_LLM": TWO_D_LLM_COMMAND_QUEUE,
     "IFC_EDIT_APPLY": IFC_EDIT_COMMAND_QUEUE,
 }
 
 
 def build_connection(settings: RabbitMQSettings) -> kombu.Connection:
     """Return a lazy kombu Connection — does not connect until first use."""
-    return kombu.Connection(settings.url, heartbeat=60)
+    return kombu.Connection(settings.url, heartbeat=settings.heartbeat)
 
 
 def get_command_queue(worker_type: str) -> kombu.Queue:
@@ -157,3 +189,11 @@ def get_command_queue(worker_type: str) -> kombu.Queue:
             f"No command queue registered for worker_type: {worker_type!r}. "
             f"Registered types: {list(_WORKER_TYPE_TO_QUEUE)}"
         ) from exc
+
+
+def declare_supporting_topology(channel: Any) -> None:
+    """Declare DLX/DLQ resources not auto-declared by a command consumer."""
+
+    DLX_EXCHANGE.declare(channel=channel)
+    THREE_D_LLM_DLQ.declare(channel=channel)
+    IFC_EDIT_DLQ.declare(channel=channel)

@@ -1,9 +1,10 @@
-import { Grid3X3, GripVertical, Hand, Lock, Move, RotateCw, Scaling, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import { Grid3X3, GripVertical, Hand, Lock, Magnet, Move, RotateCw, Scaling, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
 import type { EditorMode } from '../../types'
 import { useFloatingPanelDrag } from '../../hooks/useFloatingPanelDrag'
 import { useZoomControlBar } from '../../hooks/useZoomControlBar'
 import { MAX_EDITOR_ZOOM_PERCENT, MIN_EDITOR_ZOOM_PERCENT } from '../../constants'
+import type { ThreeDCameraViewPreset } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
+import { CAMERA_VIEW_PRESETS, GRID_SNAP_INTERVAL_OPTIONS } from './zoomControlBar.constants'
 
 interface ZoomControlBarProps {
   /** 현재 줌 퍼센트 (예: 100 = 100%) */
@@ -32,6 +33,10 @@ interface ZoomControlBarProps {
   /** 3D 카메라 회전 잠금 여부 */
   isRotationLocked?: boolean
   onToggleRotationLock?: () => void
+  selectedCameraViewPreset?: ThreeDCameraViewPreset | null
+  onSelectCameraViewPreset?: (preset: ThreeDCameraViewPreset) => void
+  /** CONVERTING 등 편집 잠금 상태 */
+  isEditingLocked?: boolean
 }
 
 /**
@@ -39,20 +44,13 @@ interface ZoomControlBarProps {
  * 활성 상태일 때는 파란 배경·글자, 비활성일 때는 회색 글자에 호버 효과를 적용한다.
  */
 const toolBtnCls = (isActive: boolean) =>
-  `rounded-xl p-1.5 transition-colors ${
+  `rounded-xl p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
     isActive
       ? 'bg-[#F0F2FF] text-[#3B45B3]'
       : 'text-[#6B7A99] hover:bg-[#F0F2F9] hover:text-[#1C1C1E]'
   }`
 
-const invokeToolByPointerDown = (
-  event: ReactPointerEvent<HTMLButtonElement>,
-  action: () => void,
-) => {
-  if (event.button !== 0) return
-  event.preventDefault()
-  action()
-}
+const formatZoom = (zoom: number) => (zoom < 10 ? zoom.toFixed(1) : String(Math.round(zoom)))
 
 /**
  * 캔버스 좌하단 고정 줌 컨트롤 바
@@ -76,12 +74,16 @@ export function ZoomControlBar({
   onGridSnapIntervalChange,
   isRotationLocked = false,
   onToggleRotationLock,
+  selectedCameraViewPreset = null,
+  onSelectCameraViewPreset,
+  isEditingLocked = false,
 }: ZoomControlBarProps) {
   const { panelRef, offset, setOffset, startDrag } = useFloatingPanelDrag({ x: 24, y: 24 }, 12)
   const { isGridControlActive, gridSnapTitle, handleGridSnapToggle } = useZoomControlBar({
     mode,
     isGridVisible,
     isGridSnapEnabled,
+    gridSnapIntervalMm,
     onToggleGrid,
     onToggleGridSnap,
     panelRef,
@@ -116,13 +118,13 @@ export function ZoomControlBar({
       <input
         key={zoom}
         type="text"
-        defaultValue={`${zoom}%`}
+        defaultValue={`${formatZoom(zoom)}%`}
         onFocus={(e) => {
-          e.currentTarget.value = String(zoom)
+          e.currentTarget.value = formatZoom(zoom)
           e.currentTarget.select()
         }}
         onBlur={(e) => {
-          const num = parseInt(e.currentTarget.value, 10)
+          const num = Number.parseFloat(e.currentTarget.value)
           const clamped = isNaN(num)
             ? zoom
             : Math.min(Math.max(num, MIN_EDITOR_ZOOM_PERCENT), MAX_EDITOR_ZOOM_PERCENT)
@@ -130,7 +132,7 @@ export function ZoomControlBar({
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur()
-          if (!/[0-9]|Backspace|Delete|ArrowLeft|ArrowRight|Tab/.test(e.key)) e.preventDefault()
+          if (!/[0-9.]|Backspace|Delete|ArrowLeft|ArrowRight|Tab/.test(e.key)) e.preventDefault()
         }}
         aria-label="줌 퍼센트 직접 입력"
         className="w-[54px] cursor-text rounded-md bg-transparent text-center text-[13px] font-semibold text-[#1C1C1E] outline-none focus:bg-[#F5F7FD]"
@@ -176,9 +178,9 @@ export function ZoomControlBar({
             title="그리드 스냅 간격(mm)"
             aria-label="Grid snap interval"
           >
-            <option value={100}>100mm</option>
-            <option value={250}>250mm</option>
-            <option value={500}>500mm</option>
+            {GRID_SNAP_INTERVAL_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
           </select>
         </>
       )}
@@ -188,41 +190,53 @@ export function ZoomControlBar({
           <div className="mx-2 h-5 w-px bg-[#E2E6EF]" />
           {/* 오브젝트 변환 기즈모: 이동 / 회전 / 크기 */}
           <button
-            onPointerDown={(event) => invokeToolByPointerDown(event, () => onSetTool('selection'))}
-            onClick={(event) => {
-              if (event.detail > 0) return
-              onSetTool('selection')
-            }}
-            title="이동 기즈모 (Move)"
+            onClick={() => onSetTool('selection')}
+            title="이동 기즈모 (Move) · W"
             aria-label="이동 기즈모"
             className={toolBtnCls(selectedTool !== 'hand' && selectedTool !== 'rotate' && selectedTool !== 'scale')}
           >
             <Move size={20} />
           </button>
           <button
-            onPointerDown={(event) => invokeToolByPointerDown(event, () => onSetTool('rotate'))}
-            onClick={(event) => {
-              if (event.detail > 0) return
-              onSetTool('rotate')
-            }}
-            title="회전 기즈모 (Rotate)"
+            onClick={() => onSetTool('rotate')}
+            title="회전 기즈모 (Rotate) · E"
             aria-label="회전 기즈모"
+            disabled={isEditingLocked}
             className={toolBtnCls(selectedTool === 'rotate')}
           >
             <RotateCw size={20} />
           </button>
           <button
-            onPointerDown={(event) => invokeToolByPointerDown(event, () => onSetTool('scale'))}
-            onClick={(event) => {
-              if (event.detail > 0) return
-              onSetTool('scale')
-            }}
-            title="크기 기즈모 (Scale)"
+            onClick={() => onSetTool('scale')}
+            title="크기 기즈모 (Scale) · R"
             aria-label="크기 기즈모"
+            disabled={isEditingLocked}
             className={toolBtnCls(selectedTool === 'scale')}
           >
             <Scaling size={20} />
           </button>
+          <div className="mx-2 h-5 w-px bg-[#E2E6EF]" />
+          <button
+            onClick={handleGridSnapToggle}
+            title={gridSnapTitle}
+            aria-label={gridSnapTitle}
+            disabled={isEditingLocked}
+            className={toolBtnCls(isGridControlActive)}
+          >
+            <Magnet size={20} />
+          </button>
+          <select
+            value={gridSnapIntervalMm}
+            onChange={(e) => onGridSnapIntervalChange?.(Number(e.target.value))}
+            disabled={isEditingLocked}
+            className="ml-1 h-8 rounded-lg border border-[#E2E6EF] bg-white px-2 text-[11px] font-semibold text-[#505764] outline-none transition-colors focus:border-[#3B45B3] disabled:cursor-not-allowed disabled:opacity-55"
+            title="3D 스냅 간격(mm)"
+            aria-label="3D snap interval"
+          >
+            {GRID_SNAP_INTERVAL_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
           <div className="mx-2 h-5 w-px bg-[#E2E6EF]" />
           <button
             onClick={onToggleRotationLock}
@@ -232,6 +246,24 @@ export function ZoomControlBar({
           >
             {isRotationLocked ? <Lock size={20} /> : <Unlock size={20} />}
           </button>
+          <div className="mx-2 h-5 w-px bg-[#E2E6EF]" />
+          <div className="flex items-center gap-1">
+            {CAMERA_VIEW_PRESETS.map((preset) => (
+              <button
+                key={preset.key}
+                onClick={() => onSelectCameraViewPreset?.(preset.key)}
+                title={preset.title}
+                aria-label={preset.title}
+                className={`rounded-lg px-2 py-1 text-[10px] font-bold transition-colors ${
+                  selectedCameraViewPreset === preset.key
+                    ? 'bg-[#F0F2FF] text-[#3B45B3]'
+                    : 'text-[#6B7A99] hover:bg-[#F0F2F9] hover:text-[#1C1C1E]'
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
           <div className="mx-2 h-5 w-px bg-[#E2E6EF]" />
           <span className="px-2 text-[11px] font-bold tabular-nums text-[#6B7A99]">
             X Y Z: {threeDCoordinates.x.toFixed(1)}, {threeDCoordinates.y.toFixed(1)},{' '}

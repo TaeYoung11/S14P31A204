@@ -6,17 +6,21 @@ import { buildCollaborationPanelProps } from './buildCollaborationPanelProps'
 
 type CollaborationDockProps = Pick<
   EditorRightPanelsProps,
-  | 'collaborationTab'
-  | 'onCollaborationTabChange'
   | 'selectedPinId'
   | 'selectedPin'
   | 'commentPins'
   | 'commentNotifications'
-  | 'unreadCommentNotifications'
   | 'currentCollaborationUserType'
+  | 'currentCollaborationUserId'
   | 'currentCollaborationUserName'
   | 'onSelectPin'
   | 'onCreateCommentReply'
+  | 'onResolvePin'
+  | 'onDeletePin'
+  | 'onResolveComment'
+  | 'resolvingPinId'
+  | 'deletingPinId'
+  | 'resolvingCommentId'
 >
 
 interface DragState {
@@ -47,17 +51,21 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
  * - 버블 모드가 아닌 경우, 일반 패널 대신 협업 패널만 표시한다.
  */
 export default function EditorRightPanelsCollaborationDock({
-  collaborationTab,
-  onCollaborationTabChange,
   selectedPinId,
   selectedPin,
   commentPins,
   commentNotifications,
-  unreadCommentNotifications,
   currentCollaborationUserType,
+  currentCollaborationUserId,
   currentCollaborationUserName,
   onSelectPin,
   onCreateCommentReply,
+  onResolvePin,
+  onDeletePin,
+  onResolveComment,
+  resolvingPinId,
+  deletingPinId,
+  resolvingCommentId,
 }: CollaborationDockProps) {
   const [isVisible, setIsVisible] = useState(true)
   const [isMinimized, setIsMinimized] = useState(false)
@@ -68,17 +76,21 @@ export default function EditorRightPanelsCollaborationDock({
   const resizeRef = useRef<ResizeState | null>(null)
 
   const collaborationPanelProps = buildCollaborationPanelProps({
-    collaborationTab,
-    onCollaborationTabChange,
     selectedPinId,
     selectedPin,
     commentPins,
     commentNotifications,
-    unreadCommentNotifications,
     currentCollaborationUserType,
+    currentCollaborationUserId,
     currentCollaborationUserName,
     onSelectPin,
     onCreateCommentReply,
+    onResolvePin,
+    onDeletePin,
+    onResolveComment,
+    resolvingPinId,
+    deletingPinId,
+    resolvingCommentId,
   })
 
   useEffect(() => {

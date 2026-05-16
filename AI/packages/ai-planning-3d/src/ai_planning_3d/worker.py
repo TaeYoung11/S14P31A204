@@ -7,7 +7,7 @@ import json
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ai_common.adapters.storage.s3_client import S3Client, parse_s3_url
 from ai_common.errors import (
@@ -67,7 +67,7 @@ class PlanningWorker(BaseWorker):
 
             pipeline = LLM3DPipeline(ifc_path=str(ifc_path))
             try:
-                result = asyncio.run(pipeline.execute_preview(user_instruction))
+                result = asyncio.run(_execute_preview_for_instruction(pipeline, user_instruction))
             except Exception as exc:
                 raise NonRetryableWorkerError(
                     code="PIPELINE_FAILED",
@@ -123,11 +123,14 @@ class PlanningWorker(BaseWorker):
         try:
             payload = _build_result_payload(result, command)
             loc = parse_s3_url(output_url)
-            return self._s3.write_text(
-                key=loc.key,
-                text=json.dumps(payload, ensure_ascii=False),
-                content_type="application/json; charset=utf-8",
-                bucket=loc.bucket,
+            return cast(
+                str,
+                self._s3.write_text(
+                    key=loc.key,
+                    text=json.dumps(payload, ensure_ascii=False),
+                    content_type="application/json; charset=utf-8",
+                    bucket=loc.bucket,
+                ),
             )
         except Exception as exc:
             raise RetryableWorkerError(
@@ -137,6 +140,45 @@ class PlanningWorker(BaseWorker):
 
 
 # ── planner_3d_result.v1.schema.json 변환 헬퍼 ───────────────────────────────
+
+
+async def _execute_preview_for_instruction(
+    pipeline: LLM3DPipeline,
+    user_instruction: str,
+) -> dict[str, Any]:
+    command_texts = pipeline.split_chat_commands(user_instruction)
+    if len(command_texts) <= 1:
+        return await pipeline.execute_preview(user_instruction)
+
+    previews: list[dict[str, Any]] = []
+    for index, command_text in enumerate(command_texts, start=1):
+        preview = await pipeline.execute_preview(command_text)
+        preview["split_index"] = index
+        preview["split_instruction"] = command_text
+        previews.append(preview)
+
+        if preview.get("status") != "preview_ready":
+            summary = (
+                preview.get("summary")
+                or preview.get("message")
+                or "명령 preview에 실패했습니다."
+            )
+            return {
+                **preview,
+                "summary": f"{index}번째 명령 처리 실패: {summary}",
+                "split_results": previews,
+            }
+
+    return {
+        "status": "preview_ready",
+        "summary": f"{len(previews)}개 3D 명령 preview가 준비되었습니다.",
+        "commands": [
+            preview["command"]
+            for preview in previews
+            if isinstance(preview.get("command"), dict)
+        ],
+        "split_results": previews,
+    }
 
 
 def _build_result_payload(
@@ -149,9 +191,17 @@ def _build_result_payload(
 
     commands: list[dict[str, Any]] = []
     if schema_status == "ready":
-        raw_cmd = result.get("command")
-        if raw_cmd:
-            commands = [_map_command(raw_cmd)]
+        raw_commands = result.get("commands")
+        if isinstance(raw_commands, list):
+            commands = [
+                _map_command(raw_cmd)
+                for raw_cmd in raw_commands
+                if isinstance(raw_cmd, dict)
+            ]
+        else:
+            raw_cmd = result.get("command")
+            if raw_cmd:
+                commands = [_map_command(raw_cmd)]
 
     clarification = (
         _map_clarification(result) if schema_status == "clarification_required" else None
@@ -167,6 +217,7 @@ def _build_result_payload(
         "source_scene_type": "SCENE_3D",
         "status": schema_status,
         "commands": commands,
+        "operations": _map_operations(commands),
         "clarification": clarification,
         "issues": issues,
     }
@@ -204,6 +255,216 @@ def _map_target(raw: dict[str, Any]) -> dict[str, Any]:
     if raw.get("select_all"):
         target["select_all"] = True
     return target
+
+
+def _map_operations(commands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    operations: list[dict[str, Any]] = []
+    for index, command in enumerate(commands, start=1):
+        mapped = _map_operation(command, index)
+        if mapped is not None:
+            operations.extend(mapped)
+    return operations
+
+
+def _map_operation(command: dict[str, Any], index: int) -> list[dict[str, Any]] | None:
+    cmd_type = command.get("command_type")
+    if cmd_type == "CREATE":
+        create_info = command.get("create_info")
+        if isinstance(create_info, dict):
+            return [
+                {
+                    "id": f"op-{index:03d}",
+                    "type": "create_element",
+                    "parameters": _map_create_parameters(create_info),
+                }
+            ]
+        return None
+
+    selector = _map_selector(command.get("target") or {})
+    if not selector:
+        return None
+
+    if cmd_type == "DELETE":
+        return [
+            {
+                "id": f"op-{index:03d}",
+                "type": "delete_elements",
+                "selector": selector,
+                "parameters": {},
+            }
+        ]
+
+    if cmd_type != "MODIFY":
+        return None
+
+    changes = command.get("changes")
+    if not isinstance(changes, dict):
+        return None
+
+    operations: list[dict[str, Any]] = []
+    update_params = _map_update_parameters(changes)
+    if update_params:
+        operations.append(
+            {
+                "id": f"op-{index:03d}-update",
+                "type": "update_element_properties",
+                "selector": selector,
+                "parameters": update_params,
+            }
+        )
+
+    transform_params = _map_transform_parameters(changes)
+    if transform_params:
+        operations.append(
+            {
+                "id": f"op-{index:03d}-transform",
+                "type": "transform_elements",
+                "selector": selector,
+                "parameters": transform_params,
+            }
+        )
+
+    return operations or None
+
+
+def _map_selector(target: dict[str, Any]) -> dict[str, Any]:
+    selector: dict[str, Any] = {}
+    global_id = target.get("global_id")
+    if global_id:
+        selector["global_ids"] = [global_id]
+    for field in ("element_type", "name", "storey", "space_name", "tag"):
+        val = target.get(field)
+        if val is not None and val != "":
+            selector[field] = val
+    direction = _normalize_direction(target.get("direction"))
+    if direction:
+        selector["direction"] = direction
+    if target.get("select_all"):
+        selector["select_all"] = True
+    return selector
+
+
+def _map_update_parameters(changes: dict[str, Any]) -> dict[str, Any]:
+    parameters: dict[str, Any] = {}
+    dimensions: dict[str, Any] = {}
+    for source, target in (
+        ("length_mm", "length"),
+        ("width_mm", "width"),
+        ("height_mm", "height"),
+    ):
+        val = changes.get(source)
+        if isinstance(val, dict):
+            dimensions[target] = {
+                "mode": val.get("mode", "ABSOLUTE"),
+                "value": val.get("value", 0.0),
+            }
+    if dimensions:
+        parameters["dimensions_mm"] = dimensions
+
+    for field in ("color", "material", "face_offset_mm"):
+        val = changes.get(field)
+        if val is not None:
+            parameters[field] = val
+    return parameters
+
+
+def _map_transform_parameters(changes: dict[str, Any]) -> dict[str, Any]:
+    parameters: dict[str, Any] = {}
+    position = changes.get("position_mm")
+    if isinstance(position, dict):
+        parameters["translation_mm"] = {
+            "x": position.get("x", 0.0),
+            "y": position.get("y", 0.0),
+            "z": position.get("z", 0.0),
+        }
+    rotation = changes.get("rotation_deg")
+    if isinstance(rotation, dict):
+        parameters["rotation_deg"] = {
+            "x": rotation.get("x", 0.0),
+            "y": rotation.get("y", 0.0),
+            "z": rotation.get("z", 0.0),
+        }
+    return parameters
+
+
+def _map_create_parameters(create_info: dict[str, Any]) -> dict[str, Any]:
+    element_type = str(create_info.get("element_type") or "IfcWall")
+    parameters: dict[str, Any] = {
+        "element_type": element_type,
+        "storey": create_info.get("storey") or "1F",
+        "coordinate_space": create_info.get("coordinate_space") or "PROJECT_ABSOLUTE_MM",
+    }
+
+    start = create_info.get("start_point_mm")
+    if isinstance(start, dict):
+        parameters["start_mm"] = {
+            "x": start.get("x", 0.0),
+            "y": start.get("y", 0.0),
+            "z": start.get("z", 0.0),
+        }
+
+    dimensions: dict[str, Any] = {}
+    for field, target in (
+        ("length_mm", "length"),
+        ("width_mm", "width"),
+        ("height_mm", "height"),
+    ):
+        val = create_info.get(field)
+        if val is not None:
+            dimensions[target] = val
+    if dimensions:
+        parameters["dimensions_mm"] = dimensions
+
+    direction = _normalize_direction(create_info.get("direction"))
+    if direction:
+        parameters["direction"] = direction
+
+    requires_top_level_length = element_type in {"IfcWall", "IfcBeam", "IfcRoof"}
+    if requires_top_level_length and create_info.get("length_mm") is not None:
+        parameters["length_mm"] = create_info["length_mm"]
+    if create_info.get("azimuth_deg") is not None:
+        parameters["azimuth_deg"] = create_info["azimuth_deg"]
+    elif direction is not None:
+        parameters["azimuth_deg"] = _direction_to_azimuth(direction)
+
+    for field in (
+        "space_name",
+        "color",
+        "material",
+        "roof_shape_preset",
+        "ridge_height_mm",
+        "step_count",
+        "riser_height_mm",
+        "tread_depth_mm",
+        "host_wall_global_id",
+        "sill_height_mm",
+        "opening_offset_mm",
+    ):
+        val = create_info.get(field)
+        if val is not None and val != "":
+            parameters[field] = val
+    return parameters
+
+
+def _normalize_direction(value: Any) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    normalized = value.strip().lower()
+    return {
+        "north": "North",
+        "south": "South",
+        "east": "East",
+        "west": "West",
+    }.get(normalized)
+
+
+def _direction_to_azimuth(direction: str) -> float:
+    return {
+        "North": 90.0,
+        "South": 270.0,
+        "East": 0.0,
+        "West": 180.0,
+    }.get(direction, 0.0)
 
 
 def _map_changes(raw: dict[str, Any]) -> dict[str, Any] | None:
@@ -271,12 +532,22 @@ def _map_create_info(raw: dict[str, Any]) -> dict[str, Any] | None:
             "z": sp.get("z", 0.0),
         }
 
-    for field in ("length_mm", "width_mm", "height_mm", "azimuth_deg"):
+    for field in (
+        "length_mm",
+        "width_mm",
+        "height_mm",
+        "azimuth_deg",
+        "step_count",
+        "riser_height_mm",
+        "tread_depth_mm",
+        "sill_height_mm",
+        "opening_offset_mm",
+    ):
         val = raw.get(field)
         if val is not None:
             ci[field] = val
 
-    for field in ("space_name", "direction", "color"):
+    for field in ("space_name", "direction", "color", "host_wall_global_id"):
         val = raw.get(field)
         if val:
             ci[field] = val

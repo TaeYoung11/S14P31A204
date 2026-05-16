@@ -1,95 +1,13 @@
-import type { EditorPageViewModel } from '../types/editorPageViewModel'
 import type { EditorRightPanelProps } from '../types/editorRightPanelProps'
-
-type RightPanelViewModel = Pick<
-  EditorPageViewModel,
-  | 'mode'
-  | 'isCollaborationMode'
-  | 'collaborationTab'
-  | 'setCollaborationTab'
-  | 'selectedPinId'
-  | 'selectedCommentPin'
-  | 'commentPins'
-  | 'commentNotifications'
-  | 'unreadCommentNotifications'
-  | 'currentCollaborationUserType'
-  | 'currentCollaborationUserName'
-  | 'handlePinClick'
-  | 'handleAddCommentReply'
-  | 'selectedBubble'
-  | 'selectedFloorWall'
-  | 'selectedFloorOpening'
-  | 'selectedIfcElement'
-  | 'ifcElementChanges'
-  | 'selectedBubbleConnections'
-  | 'selectedBubbleZones'
-  | 'zoningListItems'
-  | 'panelOffsets'
-  | 'panelOpenState'
-  | 'panelHeights'
-  | 'panelWidths'
-  | 'panelZIndexes'
-  | 'handleLabelChange'
-  | 'handleTypeChange'
-  | 'handleWidthChange'
-  | 'handleHeightChange'
-  | 'handleThicknessChange'
-  | 'handleWidthCommit'
-  | 'handleHeightCommit'
-  | 'handleRatioChange'
-  | 'handleColorChange'
-  | 'handleMaterialChange'
-  | 'handleUpdateFloorWallType'
-  | 'handleUpdateFloorWallThickness'
-  | 'handleUpdateFloorWallHeight'
-  | 'handleUpdateFloorWallMaterial'
-  | 'handleUpdateFloorOpeningSize'
-  | 'handleUpdateFloorWindowSillHeight'
-  | 'handleUpdateFloorDoorSwingDirection'
-  | 'handleUpdateFloorDoorHingeSide'
-  | 'floorLayers'
-  | 'activeFloorLayerId'
-  | 'isFloorPlanGenerated'
-  | 'isLayerOverlayMode'
-  | 'overlayLayerIds'
-  | 'overlayOpacityByLayerId'
-  | 'addFloorLayer'
-  | 'renameFloorLayer'
-  | 'deleteFloorLayer'
-  | 'setActiveFloorLayerId'
-  | 'toggleLayerOverlayMode'
-  | 'handleToggleOverlayLayer'
-  | 'handleSetOverlayLayerOpacity'
-  | 'ifcStoreys'
-  | 'libraryElements'
-  | 'activeIfcStoreyExpressId'
-  | 'overlayIfcStoreyExpressIds'
-  | 'handleSelectIfcStorey'
-  | 'handleSelectIfcElementByLocalId'
-  | 'handleSelectLibraryElementById'
-  | 'handleToggleIfcStoreyOverlay'
-  | 'openZoningModal'
-  | 'openEditModal'
-  | 'deleteZone'
-  | 'llmProvider'
-  | 'llmPrompt'
-  | 'llmStatus'
-  | 'llmIsLoading'
-  | 'llmMessage'
-  | 'llmSuggestions'
-  | 'llmPreview'
-  | 'llmCanRun'
-  | 'setLlmPrompt'
-  | 'runLlmEdit'
-  | 'applyLlmEdit'
-  | 'discardLlmEdit'
-  | 'floorProjectImportMessage'
-  | 'importFloorProjectFromIfc'
-  | 'startDrag'
-  | 'startResize'
-  | 'togglePanel'
-  | 'resetPanelPositions'
->
+import { buildAssistantRightPanelProps } from './right-panel-props/buildAssistantRightPanelProps'
+import { buildAttributeRightPanelProps } from './right-panel-props/buildAttributeRightPanelProps'
+import { buildBubbleFloorRightPanelProps } from './right-panel-props/buildBubbleFloorRightPanelProps'
+import { buildCollaborationRightPanelProps } from './right-panel-props/buildCollaborationRightPanelProps'
+import { buildFloorLayerRightPanelProps } from './right-panel-props/buildFloorLayerRightPanelProps'
+import { buildHierarchyRightPanelProps } from './right-panel-props/buildHierarchyRightPanelProps'
+import { buildPanelLayoutRightPanelProps } from './right-panel-props/buildPanelLayoutRightPanelProps'
+import type { RightPanelViewModel } from './right-panel-props/rightPanelPropsTypes'
+import { buildZoningRightPanelProps } from './right-panel-props/buildZoningRightPanelProps'
 
 /**
  * EditorPage ViewModel을 우측 패널 전용 props로 매핑한다.
@@ -97,91 +15,13 @@ type RightPanelViewModel = Pick<
  */
 export function buildEditorRightPanelProps(vm: RightPanelViewModel): EditorRightPanelProps {
   return {
-    mode: vm.mode,
-    isCollaborationMode: vm.isCollaborationMode,
-    collaborationTab: vm.collaborationTab,
-    onCollaborationTabChange: vm.setCollaborationTab,
-    selectedPinId: vm.selectedPinId,
-    selectedPin: vm.selectedCommentPin,
-    commentPins: vm.commentPins,
-    commentNotifications: vm.commentNotifications,
-    unreadCommentNotifications: vm.unreadCommentNotifications,
-    currentCollaborationUserType: vm.currentCollaborationUserType,
-    currentCollaborationUserName: vm.currentCollaborationUserName,
-    onSelectPin: vm.handlePinClick,
-    onCreateCommentReply: vm.handleAddCommentReply,
-    selectedBubble: vm.selectedBubble,
-    selectedWall: vm.selectedFloorWall,
-    selectedOpening: vm.selectedFloorOpening,
-    selectedIfcElement: vm.selectedIfcElement,
-    ifcElementChanges: vm.ifcElementChanges,
-    selectedBubbleConnections: vm.selectedBubbleConnections,
-    selectedBubbleZones: vm.selectedBubbleZones,
-    zoningListItems: vm.zoningListItems,
-    panelOffsets: vm.panelOffsets,
-    panelOpenState: vm.panelOpenState,
-    panelHeights: vm.panelHeights,
-    panelWidths: vm.panelWidths,
-    panelZIndexes: vm.panelZIndexes,
-    onLabelChange: vm.handleLabelChange,
-    onTypeChange: vm.handleTypeChange,
-    onWidthChange: vm.handleWidthChange,
-    onHeightChange: vm.handleHeightChange,
-    onThicknessChange: vm.handleThicknessChange,
-    onWidthCommit: vm.handleWidthCommit,
-    onHeightCommit: vm.handleHeightCommit,
-    onRatioChange: vm.handleRatioChange,
-    onColorChange: vm.handleColorChange,
-    onMaterialChange: vm.handleMaterialChange,
-    onWallTypeChange: vm.handleUpdateFloorWallType,
-    onWallThicknessChange: vm.handleUpdateFloorWallThickness,
-    onWallHeightChange: vm.handleUpdateFloorWallHeight,
-    onWallMaterialChange: vm.handleUpdateFloorWallMaterial,
-    onOpeningSizeChange: vm.handleUpdateFloorOpeningSize,
-    onWindowSillHeightChange: vm.handleUpdateFloorWindowSillHeight,
-    onDoorSwingDirectionChange: vm.handleUpdateFloorDoorSwingDirection,
-    onDoorHingeSideChange: vm.handleUpdateFloorDoorHingeSide,
-    floorLayers: vm.floorLayers,
-    activeFloorLayerId: vm.activeFloorLayerId,
-    isFloorPlanGenerated: vm.isFloorPlanGenerated,
-    isLayerOverlayMode: vm.isLayerOverlayMode,
-    selectedOverlayLayerIds: vm.overlayLayerIds,
-    overlayOpacityByLayerId: vm.overlayOpacityByLayerId,
-    onAddFloorLayer: vm.addFloorLayer,
-    onRenameFloorLayer: vm.renameFloorLayer,
-    onDeleteFloorLayer: vm.deleteFloorLayer,
-    onSelectFloorLayer: vm.setActiveFloorLayerId,
-    ifcStoreys: vm.ifcStoreys,
-    libraryElements: vm.libraryElements,
-    activeIfcStoreyId: vm.activeIfcStoreyExpressId != null ? String(vm.activeIfcStoreyExpressId) : null,
-    overlayIfcStoreyExpressIds: vm.overlayIfcStoreyExpressIds,
-    onSelectIfcStorey: vm.handleSelectIfcStorey,
-    onSelectIfcElementByLocalId: vm.handleSelectIfcElementByLocalId,
-    onSelectLibraryElementById: vm.handleSelectLibraryElementById,
-    onToggleIfcStoreyOverlay: vm.handleToggleIfcStoreyOverlay,
-    onToggleLayerOverlayMode: vm.toggleLayerOverlayMode,
-    onToggleOverlayLayer: vm.handleToggleOverlayLayer,
-    onChangeOverlayLayerOpacity: vm.handleSetOverlayLayerOpacity,
-    onOpenZoningModal: vm.openZoningModal,
-    onOpenEditZoningModal: vm.openEditModal,
-    onDeleteZoning: vm.deleteZone,
-    llmProvider: vm.llmProvider,
-    llmPrompt: vm.llmPrompt,
-    llmStatus: vm.llmStatus,
-    llmIsLoading: vm.llmIsLoading,
-    llmMessage: vm.llmMessage,
-    llmSuggestions: vm.llmSuggestions,
-    llmPreview: vm.llmPreview,
-    llmCanRun: vm.llmCanRun,
-    onLlmPromptChange: vm.setLlmPrompt,
-    onRunLlmEdit: vm.runLlmEdit,
-    onApplyLlmEdit: vm.applyLlmEdit,
-    onDiscardLlmEdit: vm.discardLlmEdit,
-    floorProjectImportMessage: vm.floorProjectImportMessage,
-    onImportFloorProjectIfc: vm.importFloorProjectFromIfc,
-    onPanelDragStart: vm.startDrag,
-    onPanelResizeStart: vm.startResize,
-    onTogglePanel: vm.togglePanel,
-    onResetPanelPositions: vm.resetPanelPositions,
+    ...buildPanelLayoutRightPanelProps(vm),
+    ...buildCollaborationRightPanelProps(vm),
+    ...buildAttributeRightPanelProps(vm),
+    ...buildBubbleFloorRightPanelProps(vm),
+    ...buildFloorLayerRightPanelProps(vm),
+    ...buildHierarchyRightPanelProps(vm),
+    ...buildZoningRightPanelProps(vm),
+    ...buildAssistantRightPanelProps(vm),
   }
 }

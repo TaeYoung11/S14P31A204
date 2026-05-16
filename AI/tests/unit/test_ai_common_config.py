@@ -3,7 +3,13 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from ai_common.config import S3Settings, WorkerSettings, load_worker_settings, settings_to_env_dict
+from ai_common.config import (
+    RabbitMQSettings,
+    S3Settings,
+    WorkerSettings,
+    load_worker_settings,
+    settings_to_env_dict,
+)
 
 
 def _clear_worker_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -20,6 +26,7 @@ def _clear_worker_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "RABBITMQ_USERNAME",
         "RABBITMQ_PASSWORD",
         "RABBITMQ_VHOST",
+        "RABBITMQ_HEARTBEAT",
         "S3_BUCKET",
     ]:
         monkeypatch.delenv(key, raising=False)
@@ -51,6 +58,18 @@ def test_worker_settings_applies_defaults_and_ignores_unrelated_env(
     assert settings.log_json is True
     assert settings.health_host == "0.0.0.0"
     assert settings.health_port == 8080
+    assert settings.rabbitmq.heartbeat == 60
+
+
+def test_rabbitmq_settings_reads_heartbeat_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_worker_env(monkeypatch)
+    monkeypatch.setenv("RABBITMQ_HEARTBEAT", "0")
+
+    settings = RabbitMQSettings()
+
+    assert settings.heartbeat == 0
 
 
 def test_load_worker_settings_and_settings_to_env_dict_round_trip() -> None:

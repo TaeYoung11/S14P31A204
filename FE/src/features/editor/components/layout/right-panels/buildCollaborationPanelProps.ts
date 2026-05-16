@@ -2,10 +2,7 @@ import type { ComponentProps } from 'react'
 import { CollaborationPanel } from '../../panels/CollaborationPanel'
 import type { EditorRightPanelsProps } from './EditorRightPanels.types'
 import {
-  DEFAULT_TAB,
-  DEFAULT_USER_NAME,
   DESIGNER_USER_TYPE,
-  noop,
   noopCreateCommentReply,
   noopSelectPin,
 } from './rightPanelFallbacks'
@@ -14,17 +11,21 @@ export type CollaborationPanelProps = ComponentProps<typeof CollaborationPanel>
 
 type CollaborationPanelViewModel = Pick<
   EditorRightPanelsProps,
-  | 'collaborationTab'
-  | 'onCollaborationTabChange'
   | 'selectedPinId'
   | 'selectedPin'
   | 'commentPins'
   | 'commentNotifications'
-  | 'unreadCommentNotifications'
   | 'currentCollaborationUserType'
+  | 'currentCollaborationUserId'
   | 'currentCollaborationUserName'
   | 'onSelectPin'
   | 'onCreateCommentReply'
+  | 'onResolvePin'
+  | 'onDeletePin'
+  | 'onResolveComment'
+  | 'resolvingPinId'
+  | 'deletingPinId'
+  | 'resolvingCommentId'
 >
 
 /**
@@ -32,16 +33,20 @@ type CollaborationPanelViewModel = Pick<
  */
 export function buildCollaborationPanelProps(vm: CollaborationPanelViewModel): CollaborationPanelProps {
   return {
-    activeTab: vm.collaborationTab ?? DEFAULT_TAB,
-    onTabChange: vm.onCollaborationTabChange ?? noop,
     selectedPinId: vm.selectedPinId ?? null,
     selectedPin: vm.selectedPin ?? null,
     pins: vm.commentPins ?? [],
     notifications: vm.commentNotifications ?? [],
-    unreadNotifications: vm.unreadCommentNotifications ?? [],
     currentUserType: vm.currentCollaborationUserType ?? DESIGNER_USER_TYPE,
-    currentUserName: vm.currentCollaborationUserName ?? DEFAULT_USER_NAME,
+    currentUserId: vm.currentCollaborationUserId ?? null,
+    currentUserName: vm.currentCollaborationUserName,
     onSelectPin: vm.onSelectPin ?? noopSelectPin,
     onCreateCommentReply: vm.onCreateCommentReply ?? noopCreateCommentReply,
+    onResolvePin: vm.onResolvePin,
+    onDeletePin: vm.onDeletePin,
+    onResolveComment: vm.onResolveComment,
+    resolvingPinId: vm.resolvingPinId ?? null,
+    deletingPinId: vm.deletingPinId ?? null,
+    resolvingCommentId: vm.resolvingCommentId ?? null,
   }
 }

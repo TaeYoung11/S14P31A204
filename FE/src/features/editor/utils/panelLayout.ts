@@ -55,8 +55,8 @@ export function getPanelBoundsFromMetrics(
   viewportHeight: number,
   config: PanelBoundsConfig,
 ): PanelBounds {
-  const minLeftViewport =
-    metrics.baseLeftViewport - (metrics.panelWidth - visibleWidth) - config.leftDockBleedPx
+  void visibleWidth
+  const minLeftViewport = config.leftDockBleedPx
   const maxLeftViewport = metrics.baseLeftViewport + config.rightDragLimitPx
   const minTopViewport = config.topReservedPx - (metrics.panelHeight - visibleHeight)
   const maxTopViewport = viewportHeight - config.bottomReservedPx - visibleHeight
@@ -79,7 +79,9 @@ export function getPanelBoundsFallback(
   viewportHeight: number,
   config: PanelBoundsConfig,
 ): PanelBounds {
-  const minX = -(panelWidth - visibleWidth) - config.leftDockBleedPx
+  void panelWidth
+  void visibleWidth
+  const minX = config.leftDockBleedPx
   const maxX = config.rightDragLimitPx
   const minY = -Math.max(0, viewportHeight - config.topReservedPx - visibleHeight)
   const maxY = Math.max(minY, viewportHeight - config.topReservedPx - config.bottomReservedPx - visibleHeight)

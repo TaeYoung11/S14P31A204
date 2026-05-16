@@ -14,9 +14,11 @@ import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.revision.entity.Revision;
 import com.a204.batang.domain.revision.repository.RevisionRepository;
+import com.a204.batang.domain.workspace.dto.WorkspaceCommand;
 import com.a204.batang.global.config.RabbitMqConfig;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -88,10 +90,22 @@ class DirectIfcEditCommandServiceTest {
 
     @Test
     void createDirectIfcEdit_success_savesEntitiesAndSchedulesPublish() throws Exception {
+        WorkspaceCommand engineRequest = createWorkspaceCommand("create");
+        JsonNode sourceScenePayload = objectMapper.readTree("""
+                {
+                  "baseIndex": 9,
+                  "revisionId": "abb0ee73-7523-4ccd-83a2-2a36990bdf8c",
+                  "sceneType": "TWO_D",
+                  "layout": {
+                    "mode": "ifc",
+                    "baseIndex": 9
+                  }
+                }
+                """);
         DirectIfcEditRequest request = new DirectIfcEditRequest(
                 "v1", UUID.randomUUID(), baseRevisionId,
                 UUID.randomUUID(), "IFC_MODEL",
-                objectMapper.readTree("{\"operation\": \"add_wall\"}")
+                engineRequest
         );
 
         given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId))
@@ -108,7 +122,7 @@ class DirectIfcEditCommandServiceTest {
                 .willReturn("projects/p/jobs/j/steps/001/engine/validation-report.v1.json");
         given(pathBuilder.buildSceneSnapshotStorageUrl(any(), any(), any())).willReturn("projects/p/revisions/new/ifc/snapshot.v1.json");
 
-        IfcEditJobResponse response = service.createDirectIfcEdit(projectId, userId, request);
+        IfcEditJobResponse response = service.createDirectIfcEdit(projectId, userId, request, sourceScenePayload);
 
         ArgumentCaptor<Revision> revisionCaptor = ArgumentCaptor.forClass(Revision.class);
         ArgumentCaptor<IfcEditJob> jobCaptor = ArgumentCaptor.forClass(IfcEditJob.class);
@@ -133,6 +147,9 @@ class DirectIfcEditCommandServiceTest {
         assertThat(savedJob.getJobType()).isEqualTo(JOB_TYPE_IFC_EDIT);
         assertThat(savedJob.getStatus()).isEqualTo("QUEUED");
         assertThat(savedJob.getSourceRevisionId()).isEqualTo(baseRevisionId);
+        assertThat(savedJob.getRequestPayload().get("engineRequest"))
+                .isEqualTo(objectMapper.valueToTree(engineRequest));
+        assertThat(savedJob.getRequestPayload().get("sourceScenePayload")).isEqualTo(sourceScenePayload);
 
         IfcEditJobStep savedStep = stepCaptor.getValue();
         assertThat(savedStep.getWorkerType()).isEqualTo(WORKER_TYPE_IFC_EDIT_APPLY);
@@ -144,6 +161,9 @@ class DirectIfcEditCommandServiceTest {
         assertThat(cmd.commandType()).isEqualTo(COMMAND_TYPE_IFC_EDIT_APPLY);
         assertThat(cmd.routingKey()).isEqualTo(RabbitMqConfig.IFC_EDIT_COMMAND_ROUTING_KEY);
         assertThat(cmd.totalSteps()).isEqualTo(TOTAL_STEPS_DIRECT);
+        assertThat(cmd.payload().get("engineRequest"))
+                .isEqualTo(objectMapper.valueToTree(engineRequest));
+        assertThat(cmd.payload().has("sourceScenePayload")).isFalse();
 
         assertThat(savedStep.getInputPayload().get("ifcStorageUrl").asText())
                 .isEqualTo("projects/p/revisions/new/ifc/model.v1.ifc");
@@ -157,7 +177,7 @@ class DirectIfcEditCommandServiceTest {
     void createDirectIfcEdit_conflict_throws409() {
         DirectIfcEditRequest request = new DirectIfcEditRequest(
                 "v1", null, baseRevisionId, null, "IFC_MODEL",
-                objectMapper.createObjectNode()
+                createWorkspaceCommand("update")
         );
 
         given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId))
@@ -177,7 +197,7 @@ class DirectIfcEditCommandServiceTest {
     void createDirectIfcEdit_baseRevisionNotFound_throws404() {
         DirectIfcEditRequest request = new DirectIfcEditRequest(
                 "v1", null, baseRevisionId, null, "IFC_MODEL",
-                objectMapper.createObjectNode()
+                createWorkspaceCommand("update")
         );
 
         given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId))
@@ -192,5 +212,16 @@ class DirectIfcEditCommandServiceTest {
                 .isEqualTo(ErrorCode.IFC_EDIT_SOURCE_NOT_FOUND);
 
         verify(revisionRepository, never()).save(any());
+    }
+
+    private WorkspaceCommand createWorkspaceCommand(String op) {
+        return new WorkspaceCommand(
+                op,
+                "wall",
+                "global-id-1",
+                "create".equals(op) ? objectMapper.createObjectNode().put("ifcClass", "IfcWall") : null,
+                "update".equals(op) ? objectMapper.createObjectNode().put("lengthMm", 3000.0) : null,
+                System.currentTimeMillis()
+        );
     }
 }

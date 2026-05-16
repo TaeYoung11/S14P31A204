@@ -1,5 +1,6 @@
 package com.a204.batang.domain.render.messaging;
 
+import com.a204.batang.domain.notification.service.NotificationSseService;
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
@@ -10,9 +11,9 @@ import com.a204.batang.domain.render.messaging.dto.SdRenderError;
 import com.a204.batang.domain.render.messaging.dto.SdRenderEventMessage;
 import com.a204.batang.domain.render.messaging.event.RenderStatusChangedEvent;
 import com.a204.batang.domain.render.repository.RenderArtifactRepository;
-import com.a204.batang.domain.notification.service.NotificationSseService;
 import com.a204.batang.domain.render.repository.RenderJobRepository;
 import com.a204.batang.domain.render.repository.RenderJobStepRepository;
+import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,6 +63,8 @@ class SdRenderEventListenerTest {
     private NotificationSseService notificationSseService;
     @Mock
     private ApplicationEventPublisher eventPublisher;
+    @Mock
+    private S3ObjectPresigner s3ObjectPresigner;
 
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
@@ -95,7 +98,7 @@ class SdRenderEventListenerTest {
         ReflectionTestUtils.setField(job, "createdAt", LocalDateTime.now());
         ReflectionTestUtils.setField(job, "requestPayload", objectMapper.readTree("""
                 {
-                  "prompt": "남산 숲과 어울리는 조용한 도서관 외관",
+                  "prompt": "quiet library facade",
                   "style": {
                     "timeOfDay": "DAY",
                     "viewpoint": "EXTERIOR"
@@ -113,31 +116,34 @@ class SdRenderEventListenerTest {
         lenient().when(renderJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId)).thenReturn(Optional.of(step));
         lenient().when(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).thenReturn(Optional.of(project));
         lenient().when(projectAccessService.resolveProjectMemberUserIds(project)).thenReturn(Set.of(UUID.randomUUID()));
+        lenient().when(s3ObjectPresigner.presignRequired(any(), any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
-    void handleStarted_updatesRunningStateAndSendsSse() {
-        listener.handle(event("SD_RENDER_STARTED", "event.sd-render.started", 1, null, null));
+    void handleStarted_convertsFractionalProgressToPercent() {
+        listener.handle(event("SD_RENDER_STARTED", "event.sd-render.started", 0.1d, null, null));
 
         assertThat(job.getStatus()).isEqualTo("RUNNING");
         assertThat(step.getStatus()).isEqualTo("RUNNING");
-        verify(eventPublisher, times(1)).publishEvent(any(RenderStatusChangedEvent.class));
+        ArgumentCaptor<RenderStatusChangedEvent> eventCaptor = ArgumentCaptor.forClass(RenderStatusChangedEvent.class);
+        verify(eventPublisher, times(1)).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getPayload().progress()).isEqualTo(10);
     }
 
     @Test
-    void handleProgress_updatesProgressAndSendsSse() {
+    void handleProgress_convertsFractionalProgressToPercent() {
         listener.handle(event(
                 "SD_RENDER_PROGRESS",
                 "event.sd-render.progress",
-                45,
-                Map.of("message", "이미지 생성 중"),
+                0.6d,
+                Map.of("message", "render in progress"),
                 null
         ));
 
         assertThat(job.getStatus()).isEqualTo("RUNNING");
         assertThat(step.getStatus()).isEqualTo("RUNNING");
-        assertThat(job.getProgress()).isEqualTo(45);
-        assertThat(step.getProgress()).isEqualTo(45);
+        assertThat(job.getProgress()).isEqualTo(60);
+        assertThat(step.getProgress()).isEqualTo(60);
         verify(eventPublisher, times(1)).publishEvent(any(RenderStatusChangedEvent.class));
     }
 
@@ -148,10 +154,10 @@ class SdRenderEventListenerTest {
         output.put("mimeType", "image/png");
         output.put("width", 1024);
         output.put("height", 1024);
-        output.put("summary", "실사 렌더링 이미지 생성 완료");
+        output.put("summary", "render completed");
         given(renderArtifactRepository.existsById(artifactId)).willReturn(false);
 
-        listener.handle(event("SD_RENDER_COMPLETED", "event.sd-render.completed", 100, output, null));
+        listener.handle(event("SD_RENDER_COMPLETED", "event.sd-render.completed", 1.0d, output, null));
 
         assertThat(job.getStatus()).isEqualTo("SUCCEEDED");
         assertThat(step.getStatus()).isEqualTo("SUCCEEDED");
@@ -164,8 +170,8 @@ class SdRenderEventListenerTest {
         assertThat(metadata.path("width").asInt()).isEqualTo(1024);
         assertThat(metadata.path("height").asInt()).isEqualTo(1024);
         assertThat(metadata.path("workerId").asText()).isEqualTo("sd-render-worker-1");
-        assertThat(metadata.path("summary").asText()).isEqualTo("실사 렌더링 이미지 생성 완료");
-        assertThat(metadata.path("prompt").asText()).isEqualTo("남산 숲과 어울리는 조용한 도서관 외관");
+        assertThat(metadata.path("summary").asText()).isEqualTo("render completed");
+        assertThat(metadata.path("prompt").asText()).isEqualTo("quiet library facade");
         assertThat(metadata.path("style").path("timeOfDay").asText()).isEqualTo("DAY");
         assertThat(metadata.path("style").path("viewpoint").asText()).isEqualTo("EXTERIOR");
 
@@ -173,11 +179,49 @@ class SdRenderEventListenerTest {
     }
 
     @Test
-    void handleFailed_marksFailedAndDoesNotCreateArtifact() {
+    void handleCompleted_usesPhotoUrlNotManifestStorageUrl() throws Exception {
+        String manifestUrl = "s3://batang/projects/" + projectId + "/renders/" + artifactId + "/manifest.v1.json";
+        String leftPhotoUrl = "s3://batang/projects/" + projectId + "/renders/" + artifactId + "/photo_front_diagonal_left.png";
+        String rightPhotoUrl = "s3://batang/projects/" + projectId + "/renders/" + artifactId + "/photo_front_diagonal_right.png";
+        ReflectionTestUtils.setField(step, "inputPayload", objectMapper.readTree("""
+                {
+                  "expectedOutputArtifactId": "%s",
+                  "renderManifestStorageUrl": "%s",
+                  "renderPhotoFrontDiagonalLeftStorageUrl": "%s",
+                  "renderPhotoFrontDiagonalRightStorageUrl": "%s"
+                }
+                """.formatted(artifactId, manifestUrl, leftPhotoUrl, rightPhotoUrl)));
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("storage_url", manifestUrl);
+        given(renderArtifactRepository.existsById(artifactId)).willReturn(false);
+
+        listener.handle(event("SD_RENDER_GENERATE_COMPLETED", "event.sd-render.completed", 1.0d, output, null));
+
+        assertThat(job.getStatus()).isEqualTo("SUCCEEDED");
+        assertThat(step.getStatus()).isEqualTo("SUCCEEDED");
+
+        ArgumentCaptor<RenderArtifact> artifactCaptor = ArgumentCaptor.forClass(RenderArtifact.class);
+        verify(renderArtifactRepository).save(artifactCaptor.capture());
+        RenderArtifact artifact = artifactCaptor.getValue();
+        assertThat(artifact.getStorageUrl()).isEqualTo(leftPhotoUrl);
+        assertThat(artifact.getStorageUrl()).isNotEqualTo(manifestUrl);
+        assertThat(artifact.getMetadataJson().path("renderManifestStorageUrl").asText()).isEqualTo(manifestUrl);
+        assertThat(artifact.getMetadataJson().path("renderPhotoFrontDiagonalRightStorageUrl").asText()).isEqualTo(rightPhotoUrl);
+
+        ArgumentCaptor<RenderStatusChangedEvent> eventCaptor = ArgumentCaptor.forClass(RenderStatusChangedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getPayload().imageUrl()).isEqualTo(leftPhotoUrl);
+        assertThat(eventCaptor.getValue().getPayload().renderUrls().manifestUrl()).isEqualTo(manifestUrl);
+        assertThat(eventCaptor.getValue().getPayload().renderUrls().frontDiagonalLeftUrl()).isEqualTo(leftPhotoUrl);
+        assertThat(eventCaptor.getValue().getPayload().renderUrls().frontDiagonalRightUrl()).isEqualTo(rightPhotoUrl);
+    }
+
+    @Test
+    void handleFailed_convertsFractionalProgressToPercent() {
         listener.handle(event(
                 "SD_RENDER_FAILED",
                 "event.sd-render.failed",
-                60,
+                1.0d,
                 null,
                 new SdRenderError("SD_RENDER_FAILED", "Stable Diffusion rendering failed", false, false, null)
         ));
@@ -185,7 +229,10 @@ class SdRenderEventListenerTest {
         assertThat(job.getStatus()).isEqualTo("FAILED");
         assertThat(step.getStatus()).isEqualTo("FAILED");
         verify(renderArtifactRepository, never()).save(any());
-        verify(eventPublisher, times(1)).publishEvent(any(RenderStatusChangedEvent.class));
+
+        ArgumentCaptor<RenderStatusChangedEvent> eventCaptor = ArgumentCaptor.forClass(RenderStatusChangedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getPayload().progress()).isEqualTo(100);
     }
 
     @Test
@@ -197,7 +244,7 @@ class SdRenderEventListenerTest {
                 "outputImageStorageUrl",
                 "s3://batang/projects/" + projectId + "/renders/" + artifactId + ".png"
         );
-        listener.handle(event("SD_RENDER_COMPLETED", "event.sd-render.completed", 100, output, null));
+        listener.handle(event("SD_RENDER_COMPLETED", "event.sd-render.completed", 1.0d, output, null));
 
         assertThat(job.getStatus()).isEqualTo("SUCCEEDED");
         assertThat(step.getStatus()).isEqualTo("SUCCEEDED");
@@ -213,7 +260,7 @@ class SdRenderEventListenerTest {
         listener.handle(event(
                 "SD_RENDER_FAILED",
                 "event.sd-render.failed",
-                60,
+                0.6d,
                 null,
                 new SdRenderError("SD_RENDER_FAILED", "Stable Diffusion rendering failed", false, false, null)
         ));
@@ -228,7 +275,7 @@ class SdRenderEventListenerTest {
     void handle_ignoresNonRenderEvent() {
         listener.handle(new SdRenderEventMessage(
                 UUID.randomUUID(),
-                1,
+                "v1",
                 "EVENT",
                 "OTHER_EVENT",
                 "event.other",
@@ -242,7 +289,7 @@ class SdRenderEventListenerTest {
                 null,
                 artifactId,
                 "RUNNING",
-                10,
+                0.1d,
                 null,
                 null,
                 "idempotency",
@@ -256,13 +303,13 @@ class SdRenderEventListenerTest {
     private SdRenderEventMessage event(
             String eventType,
             String routingKey,
-            Integer progress,
+            Double progress,
             Map<String, Object> output,
             SdRenderError error
     ) {
         return new SdRenderEventMessage(
                 UUID.randomUUID(),
-                1,
+                "v1",
                 "EVENT",
                 eventType,
                 routingKey,
@@ -275,7 +322,7 @@ class SdRenderEventListenerTest {
                 "sd-render-worker-1",
                 UUID.randomUUID(),
                 artifactId,
-                progress != null && progress == 100 ? "COMPLETED" : "RUNNING",
+                progress != null && progress >= 1.0d ? "COMPLETED" : "RUNNING",
                 progress,
                 output,
                 error,

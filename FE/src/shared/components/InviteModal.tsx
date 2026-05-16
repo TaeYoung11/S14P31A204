@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { X, Search, CheckCircle2, Loader2 } from 'lucide-react'
-import { useUserSearch, useSendInvite } from '@/features/project/hooks/useInvitation'
+import { useEffect, useState } from 'react'
+import { X, CheckCircle2, Loader2 } from 'lucide-react'
+import { useUserSearch, useSendInvite, useRemoveProjectMember } from '@/features/project/hooks/useInvitation'
 import type { SendInviteRequest, UserSearchResult } from '@/features/project/services/invitation.service'
+import { projectService } from '@/features/project/services/project.service'
 
 interface InviteModalProps {
   isOpen: boolean
@@ -9,68 +10,113 @@ interface InviteModalProps {
   projectIds: string[]
 }
 
+interface AlreadyInvitedUserTag {
+  userId: string
+  name: string
+  projectIds: string[]
+}
+
 export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
+  const [searchInput, setSearchInput] = useState('')
   const [searchKeyword, setSearchKeyword] = useState('')
   const [selectedUsers, setSelectedUsers] = useState<UserSearchResult[]>([])
-  const [representativeEmail, setRepresentativeEmail] = useState<string | null>(null)
+  const [alreadyInvitedUsers, setAlreadyInvitedUsers] = useState<AlreadyInvitedUserTag[]>([])
+  const [pendingDeleteUser, setPendingDeleteUser] = useState<AlreadyInvitedUserTag | null>(null)
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState('')
 
   const { data: searchResults = [], isLoading: isSearching } = useUserSearch(searchKeyword)
   const sendInvite = useSendInvite()
+  const removeProjectMember = useRemoveProjectMember()
+
+  useEffect(() => {
+    if (!isOpen || projectIds.length === 0) return
+
+    let cancelled = false
+    void (async () => {
+      const details = await Promise.all(
+        projectIds.map(async (projectId) => {
+          try {
+            return await projectService.getWorkspaceDetail(projectId)
+          } catch (error) {
+            console.error(`[invite-modal] Failed to fetch workspace detail. projectId=${projectId}`, error)
+            return null
+          }
+        }),
+      )
+      if (cancelled) return
+
+      const invitedUserMap = new Map<string, AlreadyInvitedUserTag>()
+      details.forEach((detail, index) => {
+        const projectId = projectIds[index]
+        if (!projectId) return
+        detail?.invitedUsers?.forEach((user) => {
+          const prev = invitedUserMap.get(user.userId)
+          invitedUserMap.set(user.userId, {
+            userId: user.userId,
+            name: user.name,
+            projectIds: prev ? Array.from(new Set([...prev.projectIds, projectId])) : [projectId],
+          })
+        })
+      })
+
+      setAlreadyInvitedUsers(Array.from(invitedUserMap.values()))
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, projectIds])
 
   if (!isOpen) return null
 
   const handleClose = () => {
+    setSearchInput('')
     setSearchKeyword('')
     setSelectedUsers([])
-    setRepresentativeEmail(null)
+    setAlreadyInvitedUsers([])
+    setPendingDeleteUser(null)
     setSubmitStatus('idle')
     setErrorMessage('')
     onClose()
   }
 
   const toggleSelect = (user: UserSearchResult) => {
+    if (alreadyInvitedUsers.some((invitedUser) => invitedUser.userId === user.userId)) return
     const exists = selectedUsers.some((u) => u.userId === user.userId)
     if (exists) {
-      if (representativeEmail === user.email) setRepresentativeEmail(null)
       setSelectedUsers((prev) => prev.filter((u) => u.userId !== user.userId))
       return
     }
 
     setSelectedUsers((prev) => [...prev, user])
+    setSearchInput('')
     setSearchKeyword('')
   }
 
-  const handleAssignRepresentative = (e: React.MouseEvent, user: UserSearchResult) => {
-    e.stopPropagation()
-    setRepresentativeEmail(user.email)
-    if (!selectedUsers.some((u) => u.userId === user.userId)) {
-      setSelectedUsers((prev) => [...prev, user])
-      setSearchKeyword('')
-    }
-  }
-
   const handleRemoveSelectedUser = (user: UserSearchResult) => {
-    if (representativeEmail === user.email) setRepresentativeEmail(null)
     setSelectedUsers((prev) => prev.filter((u) => u.userId !== user.userId))
   }
 
   const handleSubmit = async () => {
     if (selectedUsers.length === 0 || projectIds.length === 0) return
+    const alreadyInvitedUserIds = new Set(alreadyInvitedUsers.map((user) => user.userId))
+    const inviteTargetUsers = selectedUsers.filter((user) => !alreadyInvitedUserIds.has(user.userId))
+    if (inviteTargetUsers.length === 0) {
+      setSelectedUsers([])
+      return
+    }
     setSubmitStatus('loading')
     setErrorMessage('')
 
-    const inviteRequests: { projectId: string; req: SendInviteRequest }[] = selectedUsers.flatMap((user) =>
+    const inviteRequests: { projectId: string; req: SendInviteRequest }[] = inviteTargetUsers.flatMap((user) =>
       projectIds.map((projectId) => ({
         projectId,
         req: {
           inviteeEmail: user.email,
-          role: user.email === representativeEmail ? 'REPRESENTATIVE_CUSTOMER' : 'CUSTOMER',
         },
       })),
     )
-
     try {
       const results = await Promise.allSettled(
         inviteRequests.map((request) => sendInvite.mutateAsync(request)),
@@ -94,8 +140,67 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
     }
   }
 
+  const handleRemoveAlreadyInvitedUser = async (user: AlreadyInvitedUserTag) => {
+    if (projectIds.length === 0) return
+    setPendingDeleteUser(user)
+  }
+
+  const handleConfirmRemoveAlreadyInvitedUser = async () => {
+    if (!pendingDeleteUser || projectIds.length === 0) return
+    setErrorMessage('')
+    const targetProjectIds = pendingDeleteUser.projectIds.filter((projectId) => projectIds.includes(projectId))
+    if (targetProjectIds.length === 0) {
+      setAlreadyInvitedUsers((prev) => prev.filter((item) => item.userId !== pendingDeleteUser.userId))
+      setPendingDeleteUser(null)
+      return
+    }
+    const results = await Promise.allSettled(
+      targetProjectIds.map((projectId) => removeProjectMember.mutateAsync({ projectId, userId: pendingDeleteUser.userId })),
+    )
+    const failedProjectIds = targetProjectIds.filter((_, index) => results[index]?.status === 'rejected')
+    const failedCount = failedProjectIds.length
+    if (failedCount > 0) {
+      const removedProjectIds = new Set(
+        targetProjectIds.filter((_, index) => results[index]?.status === 'fulfilled'),
+      )
+      if (removedProjectIds.size > 0) {
+        setAlreadyInvitedUsers((prev) =>
+          prev
+            .map((item) =>
+              item.userId === pendingDeleteUser.userId
+                ? { ...item, projectIds: item.projectIds.filter((projectId) => !removedProjectIds.has(projectId)) }
+                : item,
+            )
+            .filter((item) => item.projectIds.length > 0),
+        )
+      }
+      setErrorMessage('초대 삭제에 실패했습니다. 다시 시도해 주세요.')
+      setPendingDeleteUser(null)
+      return
+    }
+
+    setAlreadyInvitedUsers((prev) => prev.filter((item) => item.userId !== pendingDeleteUser.userId))
+    setPendingDeleteUser(null)
+  }
+
   const isUserSelected = (user: UserSearchResult) =>
     selectedUsers.some((u) => u.userId === user.userId)
+
+  const handleSearch = () => {
+    const normalized = searchInput.trim()
+    if (!normalized) {
+      setSearchKeyword('')
+      return
+    }
+    const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)
+    if (!isValidEmail) {
+      setErrorMessage('정확한 이메일 형식으로 입력해 주세요.')
+      setSearchKeyword('')
+      return
+    }
+    setErrorMessage('')
+    setSearchKeyword(normalized)
+  }
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
@@ -118,37 +223,51 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
 
         {/* 본문 */}
         <div className="p-8">
-          <div className="relative mb-6">
-            {isSearching ? (
-              <Loader2 size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#ADB5BD] animate-spin" />
-            ) : (
-              <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#ADB5BD]" />
-            )}
+          <div className="mb-6 relative">
             <input
               type="text"
-              placeholder="이메일 주소로 검색..."
-              value={searchKeyword}
-              onChange={(e) => setSearchKeyword(e.target.value)}
-              className="w-full bg-[#F8F9FD] border border-[#E2E6EF] rounded-xl pl-12 pr-4 py-3.5 text-sm font-medium text-[#1C1C1E] placeholder-[#ADB5BD] focus:outline-none focus:border-[#3B45B3] focus:ring-4 focus:ring-[#3B45B3]/5 transition-all"
+              placeholder="이메일 주소를 입력하세요"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleSearch()
+                }
+              }}
+              className="w-full bg-[#F8F9FD] border border-[#E2E6EF] rounded-xl pl-4 pr-20 py-3.5 text-sm font-medium text-[#1C1C1E] placeholder-[#ADB5BD] focus:outline-none focus:border-[#3B45B3] focus:ring-4 focus:ring-[#3B45B3]/5 transition-all"
             />
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 rounded-md border border-[#D1D5DB] bg-[#F3F4F6] px-2 py-0.5 text-[10px] font-bold text-[#6B7280]">
+              <span aria-hidden="true">↵</span>
+              <span>Enter</span>
+            </span>
           </div>
 
-          {selectedUsers.length > 0 && (
+          {(selectedUsers.length > 0 || alreadyInvitedUsers.length > 0) && (
             <div className="mb-6 flex flex-wrap gap-2">
+              {alreadyInvitedUsers.map((user) => (
+                <span
+                  key={`invited-${user.userId}`}
+                  className="flex max-w-full items-center gap-2 rounded-full border border-[#D1D5DB] bg-[#F3F4F6] px-3 py-1.5 text-[12px] font-bold text-[#6B7280]"
+                >
+                  <span className="max-w-[180px] truncate">{user.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => void handleRemoveAlreadyInvitedUser(user)}
+                    className="rounded-full text-current opacity-50 transition-opacity hover:opacity-80"
+                    aria-label={`${user.name} 초대 삭제`}
+                  >
+                    <X size={13} />
+                  </button>
+                </span>
+              ))}
               {selectedUsers.map((user) => {
-                const isRep = representativeEmail === user.email
-
                 return (
                   <span
                     key={user.userId}
-                    className={`flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] font-bold ${
-                      isRep
-                        ? 'border-[#3B45B3]/20 bg-[#E7EBFF] text-[#3B45B3]'
-                        : 'border-[#E2E6EF] bg-[#F8F9FD] text-[#4B5563]'
-                    }`}
+                    className="flex max-w-full items-center gap-2 rounded-full border border-[#E2E6EF] bg-[#F8F9FD] px-3 py-1.5 text-[12px] font-bold text-[#4B5563]"
                   >
                     <span className="max-w-[180px] truncate">{user.name}</span>
-                    {isRep && <span className="text-[10px] font-black">대표</span>}
                     <button
                       type="button"
                       onClick={() => handleRemoveSelectedUser(user)}
@@ -176,22 +295,23 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
 
             {searchResults.map((user) => {
               const isSelected = isUserSelected(user)
-              const isRep = representativeEmail === user.email
+              const isAlreadyInvited = alreadyInvitedUsers.some((invitedUser) => invitedUser.userId === user.userId)
 
               return (
                 <div
                   key={user.userId}
                   onClick={() => toggleSelect(user)}
-                  className={`group flex items-center justify-between p-4 rounded-2xl transition-all border cursor-pointer ${
-                    isSelected
-                      ? 'bg-[#F0F2FF]/50 border-[#3B45B3]/20 shadow-sm'
-                      : 'bg-white border-transparent hover:bg-[#F8F9FD]'
-                  }`}
+                  className={`group flex items-center justify-between p-4 rounded-2xl transition-all border ${isAlreadyInvited
+                      ? 'cursor-not-allowed bg-[#F3F4F6] border-transparent opacity-60'
+                      : `cursor-pointer ${isSelected
+                          ? 'bg-[#F0F2FF]/50 border-[#3B45B3]/20 shadow-sm'
+                          : 'bg-white border-transparent hover:bg-[#F8F9FD]'
+                        }`
+                    }`}
                 >
                   <div className="flex items-center gap-4">
-                    <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
-                      isSelected ? 'bg-[#3B45B3] border-[#3B45B3]' : 'bg-white border-[#E2E6EF]'
-                    }`}>
+                    <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${isSelected ? 'bg-[#3B45B3] border-[#3B45B3]' : 'bg-white border-[#E2E6EF]'
+                      }`}>
                       {isSelected && <CheckCircle2 size={14} className="text-white" />}
                     </div>
                     <div className="flex flex-col">
@@ -200,19 +320,11 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    {isRep ? (
-                      <span className="px-3 py-1.5 bg-[#E7EBFF] text-[#3B45B3] text-[11px] font-black rounded-lg border border-[#3B45B3]/10 flex items-center gap-1.5">
-                        <div className="w-1.5 h-1.5 bg-[#3B45B3] rounded-full animate-pulse" />
-                        대표 고객
+                  <div>
+                    {isAlreadyInvited && (
+                      <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-[#6B7280]">
+                        Invited
                       </span>
-                    ) : (
-                      <button
-                        onClick={(e) => handleAssignRepresentative(e, user)}
-                        className="px-3 py-1.5 bg-white border border-[#E2E6EF] text-[#6B7A99] text-[11px] font-bold rounded-lg hover:border-[#3B45B3] hover:text-[#3B45B3] transition-all opacity-0 group-hover:opacity-100"
-                      >
-                        대표 고객 지정
-                      </button>
                     )}
                   </div>
                 </div>
@@ -248,6 +360,32 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
           </div>
         </div>
       </div>
+
+      {pendingDeleteUser && (
+        <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/45">
+          <div className="w-[360px] rounded-2xl bg-white p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+            <p className="text-[15px] font-bold text-[#1C1C1E]">
+              '{pendingDeleteUser.name}' 님을 초대 목록에서 제거할까요?
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingDeleteUser(null)}
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-[#6B7280] hover:bg-[#F3F4F6]"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmRemoveAlreadyInvitedUser()}
+                className="rounded-lg bg-[#DC2626] px-4 py-2 text-sm font-semibold text-white hover:bg-[#B91C1C]"
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

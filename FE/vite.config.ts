@@ -1,5 +1,6 @@
 import { defineConfig, splitVendorChunkPlugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 export default defineConfig({
@@ -7,16 +8,20 @@ export default defineConfig({
     react(),
     // 벤더 청크를 분리해 초기 번들 크기를 줄인다.
     splitVendorChunkPlugin(),
-    // fragments-worker.mjs: 개발 서버에서 .mjs 파일 MIME 타입을 text/javascript로 강제한다.
-    // Vite 개발 서버가 public/ 폴더의 .mjs를 application/octet-stream으로 서빙하는 문제를 해결한다.
     {
-      name: 'mjs-mime-fix',
+      name: 'batang-fragments-worker-mime',
       configureServer(server) {
-        server.middlewares.use((req, res, next) => {
-          if (req.url?.endsWith('.mjs')) {
-            res.setHeader('Content-Type', 'text/javascript; charset=utf-8')
-          }
-          next()
+        server.middlewares.use('/fragments-worker.mjs', (_req, res) => {
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'text/javascript; charset=utf-8')
+          res.end(readFileSync(resolve(__dirname, './public/fragments-worker.mjs')))
+        })
+      },
+      configurePreviewServer(server) {
+        server.middlewares.use('/fragments-worker.mjs', (_req, res) => {
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'text/javascript; charset=utf-8')
+          res.end(readFileSync(resolve(__dirname, './public/fragments-worker.mjs')))
         })
       },
     },

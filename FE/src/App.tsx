@@ -1,10 +1,11 @@
 import { Suspense, lazy } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
-import { useAuthSessionGuard } from '@/features/auth/hooks/useAuthSessionGuard'
-import FullPageSpinner from '@/shared/components/FullPageSpinner'
+import { BrowserRouter, Route, Routes, useParams } from 'react-router-dom'
 import { ProtectedRoute } from './shared/components/ProtectedRoute'
+import PublicLandingHeader from './shared/components/PublicLandingHeader'
 import RouteLoadingFallback from './shared/components/RouteLoadingFallback'
 
+const IntroPage = lazy(() => import('./pages/intro/IntroPage'))
+const AboutPage = lazy(() => import('./pages/about/AboutPage'))
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'))
 const ProjectListPage = lazy(() => import('./pages/projects/ProjectListPage'))
@@ -14,16 +15,6 @@ const ViewerPage = lazy(() => import('./pages/view/ViewerPage'))
 const InviteAcceptPage = lazy(() => import('./pages/invite/InviteAcceptPage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 
-function RootRedirect() {
-  const { status, isLoading } = useAuthSessionGuard()
-
-  if (isLoading) {
-    return <FullPageSpinner />
-  }
-
-  return <Navigate to={status === 'authenticated' ? '/projects' : '/login'} replace />
-}
-
 function EditorPageRoute() {
   const { projectId } = useParams<{ projectId: string }>()
   return <EditorPage key={projectId ?? 'editor'} />
@@ -31,15 +22,12 @@ function EditorPageRoute() {
 
 export default function App() {
   return (
-    <BrowserRouter
-      future={{
-        v7_startTransition: true,
-        v7_relativeSplatPath: true,
-      }}
-    >
+    <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+      <PublicLandingHeader />
       <Suspense fallback={<RouteLoadingFallback />}>
         <Routes>
-          <Route path="/" element={<RootRedirect />} />
+          <Route path="/" element={<IntroPage />} />
+          <Route path="/about" element={<AboutPage />} />
 
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />

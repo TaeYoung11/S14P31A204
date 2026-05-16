@@ -20,8 +20,10 @@ import com.a204.batang.domain.job.repository.JobStepRecordRepository;
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.domain.project.service.ProjectAccessService;
+import com.a204.batang.domain.render.dto.RenderUrlsResponse;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.a204.batang.global.storage.S3ObjectPresigner;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -62,6 +64,7 @@ public class JobStatusQueryService {
     private final JobArtifactRecordRepository jobArtifactRecordRepository;
     private final ProjectRepository projectRepository;
     private final ProjectAccessService projectAccessService;
+    private final S3ObjectPresigner s3ObjectPresigner;
 
     /**
      * 공통 jobId 기준으로 단건 작업 상태를 조회한다.
@@ -89,7 +92,7 @@ public class JobStatusQueryService {
         JobStepResponse currentStep = currentStepRecord != null ? toStepResponse(currentStepRecord) : null;
         JobOutputsResponse outputs = buildOutputs(jobDomain, artifacts, lastStepRecord);
         JobDetailsResponse details = buildDetails(job, jobDomain, steps, artifacts, outputs);
-        JobErrorResponse error = buildTopLevelError(job, currentStepRecord, lastStepRecord);
+        JobErrorResponse error = presignErrorDetailUrl(buildTopLevelError(job, currentStepRecord, lastStepRecord));
 
         return new GetJobStatusResponse(
                 job.getJobId(),
@@ -103,8 +106,10 @@ public class JobStatusQueryService {
                 toUtcIso(job.getStartedAt()),
                 toUtcIso(job.getFinishedAt()),
                 error,
-                currentStep,
-                stepResponses,
+                currentStep != null ? presignStepErrorDetailUrl(currentStep) : null,
+                stepResponses.stream()
+                        .map(this::presignStepErrorDetailUrl)
+                        .toList(),
                 outputs,
                 details
         );
@@ -148,7 +153,7 @@ public class JobStatusQueryService {
                 toUtcIso(step.getCreatedAt()),
                 toUtcIso(step.getStartedAt()),
                 toUtcIso(step.getFinishedAt()),
-                buildStepError(step)
+                presignErrorDetailUrl(buildStepError(step))
         );
     }
 
@@ -201,6 +206,40 @@ public class JobStatusQueryService {
         return new JobErrorResponse(errorCode, errorMessage, retryable, clarificationPossible, detailStorageUrl);
     }
 
+    private JobStepResponse presignStepErrorDetailUrl(JobStepResponse step) {
+        if (step.error() == null) {
+            return step;
+        }
+        return new JobStepResponse(
+                step.jobStepId(),
+                step.stepNo(),
+                step.workerType(),
+                step.status(),
+                step.progress(),
+                step.attemptCount(),
+                step.createdAt(),
+                step.startedAt(),
+                step.finishedAt(),
+                presignErrorDetailUrl(step.error())
+        );
+    }
+
+    private JobErrorResponse presignErrorDetailUrl(JobErrorResponse error) {
+        if (error == null) {
+            return null;
+        }
+        return new JobErrorResponse(
+                error.code(),
+                error.message(),
+                error.retryable(),
+                error.clarificationPossible(),
+                s3ObjectPresigner.presignIfInternal(
+                        error.detailStorageUrl(),
+                        ErrorCode.JOB_RESULT_PRESIGN_FAILED
+                )
+        );
+    }
+
     private JobOutputsResponse buildOutputs(String jobDomain, List<JobArtifactRecord> artifacts, JobStepRecord lastStep) {
         List<JobArtifactResponse> artifactResponses = artifacts.stream()
                 .map(this::toArtifactResponse)
@@ -214,9 +253,42 @@ public class JobStatusQueryService {
         return new JobOutputsResponse(
                 targetRevisionId,
                 primaryArtifact != null ? primaryArtifact.getArtifactId() : null,
-                primaryArtifact != null ? primaryArtifact.getStorageUrl() : null,
+                primaryArtifact != null
+                        ? s3ObjectPresigner.presignRequired(
+                                primaryArtifact.getStorageUrl(),
+                                ErrorCode.JOB_RESULT_PRESIGN_FAILED
+                        )
+                        : null,
+                buildRenderUrls(jobDomain, primaryArtifact),
                 artifactResponses
         );
+    }
+
+    private RenderUrlsResponse buildRenderUrls(String jobDomain, JobArtifactRecord primaryArtifact) {
+        if (!JOB_DOMAIN_RENDER.equals(jobDomain) || primaryArtifact == null) {
+            return null;
+        }
+
+        JsonNode metadata = primaryArtifact.getMetadataJson();
+        return new RenderUrlsResponse(
+                presignOptional(extractText(metadata, "renderManifestStorageUrl")),
+                presignOptional(firstNonBlank(
+                        extractText(metadata, "renderPhotoFrontDiagonalLeftStorageUrl"),
+                        primaryArtifact.getStorageUrl()
+                )),
+                presignOptional(extractText(metadata, "renderPhotoFrontDiagonalRightStorageUrl"))
+        );
+    }
+
+    private String presignOptional(String storageUrl) {
+        if (storageUrl == null || storageUrl.isBlank()) {
+            return null;
+        }
+        try {
+            return s3ObjectPresigner.presignRequired(storageUrl, ErrorCode.JOB_RESULT_PRESIGN_FAILED);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     private JobArtifactRecord resolvePrimaryArtifact(String jobDomain, List<JobArtifactRecord> artifacts) {
@@ -243,7 +315,10 @@ public class JobStatusQueryService {
                 artifact.getRevisionId(),
                 artifact.getFileName(),
                 artifact.getMimeType(),
-                artifact.getStorageUrl(),
+                s3ObjectPresigner.presignRequired(
+                        artifact.getStorageUrl(),
+                        ErrorCode.JOB_RESULT_PRESIGN_FAILED
+                ),
                 toUtcIso(artifact.getCreatedAt())
         );
     }
@@ -324,7 +399,10 @@ public class JobStatusQueryService {
                 extractNode(requestPayload, "style"),
                 extractInteger(requestPayload, "width"),
                 extractInteger(requestPayload, "height"),
-                extractText(requestPayload, "sourceImageStorageUrl", "source_image_storage_url")
+                s3ObjectPresigner.presignIfInternal(
+                        extractText(requestPayload, "sourceImageStorageUrl", "source_image_storage_url"),
+                        ErrorCode.JOB_RESULT_PRESIGN_FAILED
+                )
         );
     }
 

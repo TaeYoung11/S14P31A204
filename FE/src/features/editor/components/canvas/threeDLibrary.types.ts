@@ -29,6 +29,7 @@ export type ThreeDLibraryPresetType =
 export interface ThreeDLibraryPreset {
   id: string
   type: ThreeDLibraryPresetType
+  roofShape?: 'flat' | 'gable'
   name: string
   description: string
   dimensions: string
@@ -42,4 +43,12 @@ export interface ThreeDLibraryPreset {
   position?: { x: number; y: number; z: number }
   rotation?: { x: number; y: number; z: number }
   scale?: { x: number; y: number; z: number }
+}
+
+/** 3D 캔버스 드래그앤드롭 배치 요청 페이로드 */
+export interface ThreeDLibraryDropRequest {
+  token: number
+  preset: ThreeDLibraryPreset
+  clientX: number
+  clientY: number
 }

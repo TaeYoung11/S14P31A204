@@ -9,8 +9,12 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * IFC Edit worker command 메시지 DTO.
- * payload는 직접 편집 시 {"engine_request": ...}, LLM path 시 {"command_json_storage_url": "..."} 형태로 달라지므로 JsonNode로 처리한다.
+ * IFC Edit worker command message DTO.
+ *
+ * <p>{@code input.command_json_storage_url} follows the shared command envelope alias,
+ * while authoring {@code payload} follows the current ai-authoring payload model:
+ * {@code {"engineRequest": ...}} for direct edits or {@code {"commandJsonStorageUrl": "..."}}
+ * for LLM planning results.</p>
  */
 @JsonInclude(JsonInclude.Include.ALWAYS)
 public record IfcEditCommandMessage(
@@ -43,7 +47,8 @@ public record IfcEditCommandMessage(
     public record ExpectedOutput(
             @JsonProperty("ifc_storage_url") String ifcStorageUrl,
             @JsonProperty("validation_report_storage_url") String validationReportStorageUrl,
-            @JsonProperty("edit_plan_storage_url") String editPlanStorageUrl
+            @JsonProperty("edit_plan_storage_url") String editPlanStorageUrl,
+            @JsonProperty("three_d_plan_storage_url") String threeDPlanStorageUrl
     ) {
     }
 }

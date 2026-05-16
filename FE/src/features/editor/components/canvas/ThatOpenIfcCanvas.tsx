@@ -11,9 +11,15 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Object3D } from 'three'
-import type { IfcElementChange, IfcElementInfo } from '../../types'
+import type {
+  CommentPin3DCreatePosition,
+  FloorCommentPin,
+  IfcElementChange,
+  IfcElementInfo,
+} from '../../types'
 import { patchIfcTextForMaterialDefaults } from '../../services/ifcChange.service'
-import type { ThreeDLibraryPreset } from './threeDLibrary.types'
+import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
+import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import {
   applyObjectColor,
   applyObjectMaterial,
@@ -83,6 +89,15 @@ interface ThatOpenIfcCanvasProps {
   projectId?: string | null
   /** 씬에 배치된 라이브러리 프리셋 목록 */
   libraryElements: ThreeDLibraryPreset[]
+  /** 3D 코멘트 핀 목록. 현재 IFC 편집 안정화를 위해 prop 계약만 유지한다. */
+  commentPins?: FloorCommentPin[]
+  isCollaborationMode?: boolean
+  selectedPinId?: string | null
+  currentUserId?: string | null
+  onPinClick?: (id: string) => void
+  onPinCreate?: (x: number, y: number, content?: string, threeDPosition?: CommentPin3DCreatePosition) => void
+  onPinDelete?: (id: string) => void
+  deletingPinId?: string | null
   /** IFC 요소 변경 이력 (색상·재질·삭제 등) */
   ifcElementChanges: IfcElementChange[]
   /** 증가할 때마다 현재 선택 요소를 삭제하는 트리거 토큰 */
@@ -116,6 +131,14 @@ interface ThatOpenIfcCanvasProps {
   libraryElementSelectionRequestToken?: number
   /** TransformControls 모드: 이동(translate) / 회전(rotate) / 크기(scale) */
   transformMode?: 'translate' | 'rotate' | 'scale'
+  /** 상위 3D 툴 상태. IFC 캔버스는 transformMode를 기준으로 동작한다. */
+  selectedTool?: string
+  libraryDropRequest?: ThreeDLibraryDropRequest | null
+  onResolveLibraryDrop?: (token: number, patch?: Partial<ThreeDLibraryPreset>) => void
+  cameraViewPresetCommand?: ThreeDCameraViewPresetCommand
+  transformSnapEnabled?: boolean
+  transformSnapIntervalMm?: number
+  isEditingLocked?: boolean
 }
 
 interface LoadedFragmentModel {

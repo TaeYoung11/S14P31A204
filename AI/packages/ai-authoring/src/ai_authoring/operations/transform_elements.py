@@ -6,8 +6,13 @@ from typing import Any
 
 import ifcopenshell
 
+from ai_authoring.engine_3d import modify_rotation
 from ai_authoring.operations.registry import register
-from ai_authoring.operations.space_support import translate_product
+from ai_authoring.operations.space_support import (
+    is_product_host_relative,
+    mm_to_model_units,
+    translate_product,
+)
 
 
 def _selected_products(
@@ -36,12 +41,27 @@ class TransformElementsHandler:
         selector: dict[str, Any] | None = None,
     ) -> list[str]:
         del storey
-        translation = parameters.get("translate_mm") or {}
-        x_m = float(translation.get("x", 0.0)) / 1000.0
-        y_m = float(translation.get("y", 0.0)) / 1000.0
-        z_m = float(translation.get("z", 0.0)) / 1000.0
-        moved_ids: list[str] = []
+        translation = parameters.get("translation_mm")
+        if translation is None:
+            translation = parameters.get("translate_mm")
+        translation = translation or {}
+        rotation = parameters.get("rotation_deg") or {}
+        skip_if_host_relative = bool(parameters.get("skip_if_host_relative"))
+        transformed_ids: list[str] = []
         for product in _selected_products(model, selector):
-            if translate_product(product, x_m=x_m, y_m=y_m, z_m=z_m):
-                moved_ids.append(product.GlobalId)
-        return moved_ids
+            if skip_if_host_relative and is_product_host_relative(product):
+                continue
+            changed = False
+            if translation:
+                changed |= translate_product(
+                    model,
+                    product,
+                    x_m=mm_to_model_units(model, translation.get("x"), 0.0),
+                    y_m=mm_to_model_units(model, translation.get("y"), 0.0),
+                    z_m=mm_to_model_units(model, translation.get("z"), 0.0),
+                )
+            if rotation.get("z") is not None:
+                changed |= modify_rotation(model, product, float(rotation["z"]))
+            if changed:
+                transformed_ids.append(product.GlobalId)
+        return transformed_ids

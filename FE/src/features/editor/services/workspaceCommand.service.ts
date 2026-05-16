@@ -14,6 +14,20 @@ import type {
 type JsonObject = Record<string, unknown>
 
 const nowTimestamp = (): number => Date.now()
+const nowIsoString = (): string => new Date().toISOString()
+
+const createClientId = (): string => {
+  const storageKey = 'batang.workspaceCommand.clientId'
+  const storage = typeof window !== 'undefined' ? window.localStorage : null
+  const existing = storage?.getItem(storageKey)
+  if (existing) return existing
+  const next = globalThis.crypto?.randomUUID?.() ?? `client-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  storage?.setItem(storageKey, next)
+  return next
+}
+
+export const createWorkspaceCommandId = (): string =>
+  globalThis.crypto?.randomUUID?.() ?? `command-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
 const isObjectRecord = (value: unknown): value is JsonObject =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -22,6 +36,18 @@ const hasAnyKey = (value: JsonObject): boolean => Object.keys(value).length > 0
 
 export const toProjectBubbleUpdateDestination = (projectId: string): string =>
   `/app/project/${projectId}/bubble/update`
+
+export const toProjectBubbleUndoDestination = (projectId: string): string =>
+  `/app/project/${projectId}/bubble/undo`
+
+export const toProjectBubbleRedoDestination = (projectId: string): string =>
+  `/app/project/${projectId}/bubble/redo`
+
+export const toProjectFloorPlanUndoDestination = (projectId: string): string =>
+  `/app/project/${projectId}/floor-plan/undo`
+
+export const toProjectFloorPlanRedoDestination = (projectId: string): string =>
+  `/app/project/${projectId}/floor-plan/redo`
 
 export const toProjectCommandDestination = (projectId: string): string =>
   `/app/project/${projectId}/command`
@@ -41,6 +67,10 @@ export const toProjectIfcRedoDestination = (projectId: string): string =>
 export interface BubbleSnapshotUpdateMessage {
   bubbles: BubbleData[]
   connections: ConnectionData[]
+  baseIndex: number
+}
+
+export interface WorkspaceHistoryCursorMessage {
   baseIndex: number
 }
 
@@ -64,7 +94,7 @@ export const createEntityCommand = <
   data: Data,
   options?: CreateCommandOptions,
 ): WorkspaceCreateCommand<Entity, Data> => ({
-  op: `create.${entity}` as const,
+  op: 'create',
   entity,
   id,
   data,
@@ -114,25 +144,44 @@ export const deleteEntityCommand = <Entity extends WorkspaceCommandEntity>(
 })
 
 export interface CreateWorkspaceCommandEnvelopeOptions {
-  schemaVersion?: 'v1'
-  meta?: WorkspaceCommandMeta
+  projectId: string
+  baseRevisionId: string
+  baseIndex: number
+  commandId?: string
+  meta: Pick<WorkspaceCommandMeta, 'source'> & Partial<WorkspaceCommandMeta>
 }
 
 /** command 본문을 실시간 전송 envelope로 감싼다. */
 export const createWorkspaceCommandEnvelope = <Command extends WorkspaceCommand>(
   command: Command,
-  options?: CreateWorkspaceCommandEnvelopeOptions,
+  options: CreateWorkspaceCommandEnvelopeOptions,
 ): WorkspaceCommandEnvelope<Command> => ({
   type: 'command',
-  schemaVersion: options?.schemaVersion ?? 'v1',
+  schemaVersion: 'v1',
+  commandId: options.commandId ?? createWorkspaceCommandId(),
+  projectId: options.projectId,
+  baseRevisionId: options.baseRevisionId,
+  baseIndex: options.baseIndex,
   command,
-  meta: options?.meta,
+  meta: {
+    source: options.meta.source,
+    clientId: options.meta.clientId ?? createClientId(),
+    userId: options.meta.userId,
+    createdAt: options.meta.createdAt ?? nowIsoString(),
+  },
 })
 
 export const isWorkspaceCommandEnvelope = (value: unknown): value is WorkspaceCommandEnvelope => {
   if (!isObjectRecord(value)) return false
   if (value.type !== 'command') return false
+  if (value.schemaVersion !== 'v1') return false
+  if (typeof value.commandId !== 'string' || value.commandId.length === 0) return false
+  if (typeof value.projectId !== 'string' || value.projectId.length === 0) return false
+  if (typeof value.baseRevisionId !== 'string' || value.baseRevisionId.length === 0) return false
+  if (typeof value.baseIndex !== 'number' || !Number.isInteger(value.baseIndex)) return false
   if (!isObjectRecord(value.command)) return false
+  if (!isObjectRecord(value.meta)) return false
+  if (value.meta.source !== '2d' && value.meta.source !== '3d') return false
 
   const command = value.command as JsonObject
   if (typeof command.op !== 'string') return false
@@ -145,7 +194,7 @@ export const isWorkspaceCommandEnvelope = (value: unknown): value is WorkspaceCo
   if (command.op === 'delete') {
     return true
   }
-  if (command.op.startsWith('create.')) {
+  if (command.op === 'create') {
     return isObjectRecord(command.data)
   }
   return false
@@ -191,6 +240,46 @@ export const publishBubbleSnapshotUpdate = (
   options?: PublishBubbleSnapshotOptions,
 ): void => {
   const destination = options?.destination ?? toProjectBubbleUpdateDestination(projectId)
+  publishJson(destination, message, options)
+}
+
+/** 버블 스냅샷 Undo 요청을 STOMP로 발행한다. */
+export const publishBubbleUndoRequest = (
+  projectId: string,
+  message: WorkspaceHistoryCursorMessage,
+  options?: PublishJsonOptions & { destination?: string },
+): void => {
+  const destination = options?.destination ?? toProjectBubbleUndoDestination(projectId)
+  publishJson(destination, message, options)
+}
+
+/** 버블 스냅샷 Redo 요청을 STOMP로 발행한다. */
+export const publishBubbleRedoRequest = (
+  projectId: string,
+  message: WorkspaceHistoryCursorMessage,
+  options?: PublishJsonOptions & { destination?: string },
+): void => {
+  const destination = options?.destination ?? toProjectBubbleRedoDestination(projectId)
+  publishJson(destination, message, options)
+}
+
+/** 2D/3D floor-plan Undo 요청을 STOMP로 발행한다. */
+export const publishFloorPlanUndoRequest = (
+  projectId: string,
+  message: WorkspaceHistoryCursorMessage,
+  options?: PublishJsonOptions & { destination?: string },
+): void => {
+  const destination = options?.destination ?? toProjectFloorPlanUndoDestination(projectId)
+  publishJson(destination, message, options)
+}
+
+/** 2D/3D floor-plan Redo 요청을 STOMP로 발행한다. */
+export const publishFloorPlanRedoRequest = (
+  projectId: string,
+  message: WorkspaceHistoryCursorMessage,
+  options?: PublishJsonOptions & { destination?: string },
+): void => {
+  const destination = options?.destination ?? toProjectFloorPlanRedoDestination(projectId)
   publishJson(destination, message, options)
 }
 

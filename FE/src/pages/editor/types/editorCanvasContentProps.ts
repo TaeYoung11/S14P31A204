@@ -10,11 +10,15 @@ type CanvasContextProps = Pick<
   | 'isCollaborationMode'
   | 'selectedPinId'
   | 'commentPins'
+  | 'currentCollaborationUserId'
   | 'handlePinClick'
   | 'handleCreateCommentPin'
+  | 'handleDeletePin'
+  | 'deletingPinId'
   | 'isGridVisible'
   | 'selectedTool'
   | 'zoom'
+  | 'canvasZoom'
   | 'handleWheelZoom'
 >
 
@@ -22,7 +26,16 @@ type CanvasContextProps = Pick<
 type BubbleCanvasProps = Pick<
   EditorPageViewModel,
   | 'sitePoints'
+  | 'siteAreaM2'
+  | 'siteAreaPyeong'
   | 'bubbles'
+  | 'bubbleFloors'
+  | 'bubbleFloorNumbers'
+  | 'activeBubbleFloor'
+  | 'setActiveBubbleFloor'
+  | 'handleAddBubbleFloor'
+  | 'handleRenameBubbleFloor'
+  | 'handleDeleteBubbleFloor'
   | 'connections'
   | 'autoZones'
   | 'manualZones'
@@ -31,6 +44,8 @@ type BubbleCanvasProps = Pick<
   | 'connectingFromId'
   | 'openEditModal'
   | 'handleBubbleDrag'
+  | 'handleBubbleDragStart'
+  | 'handleBubbleDragEnd'
   | 'handleBubbleSelectWithTool'
   | 'handleDeleteBubble'
   | 'handleConnectionClick'
@@ -61,6 +76,7 @@ type FloorPlanCanvasProps = Pick<
   | 'selectedIfcElement'
   | 'threeDDeleteRequestToken'
   | 'ifcElementChanges'
+  | 'isThreeDEditingLocked'
   | 'currentIfcUrl'
   | 'currentIfcAssetId'
   | 'libraryElements'
@@ -99,6 +115,8 @@ type TwoDStructureProps = Pick<
   | 'handleMoveFloorRoom'
   | 'handleResizeFloorRoom'
   | 'handleUpdateFloorRoomPolygon'
+  | 'beginWorkspaceSnapshotTransaction'
+  | 'commitWorkspaceSnapshotTransaction'
   | 'handleTwoDMarqueeSelect'
 >
 
@@ -116,6 +134,7 @@ type TwoDLayerPanelProps = Pick<
   | 'setActiveFloorLayerId'
   | 'toggleLayerOverlayMode'
   | 'handleToggleOverlayLayer'
+  | 'handleSelectSingleOverlayLayer'
   | 'handleSetOverlayLayerOpacity'
 >
 

@@ -41,6 +41,8 @@ import static com.a204.batang.domain.ifcedit.IfcEditConstants.*;
 @RequiredArgsConstructor
 public class TwoDLlmIfcEditCommandService {
 
+    private static final String LLM_PAYLOAD_SCHEMA_VERSION = "v1";
+
     private final ProjectRepository projectRepository;
     private final RevisionRepository revisionRepository;
     private final ProjectAccessService projectAccessService;
@@ -73,6 +75,7 @@ public class TwoDLlmIfcEditCommandService {
 
         UUID jobId = UUID.randomUUID();
         UUID jobStepId = UUID.randomUUID();
+        UUID expectedOutputArtifactId = UUID.randomUUID();
         UUID correlationId = UUID.randomUUID();
         String idempotencyKey = jobId + ":step-1:two-d-llm";
 
@@ -82,12 +85,14 @@ public class TwoDLlmIfcEditCommandService {
         // step 1 inputPayload — step 2 생성 시 필요한 값 저장 (Revision은 step 1 완료 후 생성)
         Map<String, Object> inputMap = new LinkedHashMap<>();
         inputMap.put("sourceRevisionId", request.baseRevisionId().toString());
+        inputMap.put("expectedOutputArtifactId", expectedOutputArtifactId.toString());
         inputMap.put("sourceIfcStorageUrl", sourceIfcUrl);
         inputMap.put("editPlanStorageUrl", editPlanUrl);
         JsonNode inputPayload = objectMapper.valueToTree(inputMap);
 
         // 2D LLM worker에 전달할 payload
         Map<String, Object> payloadMap = new LinkedHashMap<>();
+        payloadMap.put("schema_version", LLM_PAYLOAD_SCHEMA_VERSION);
         if (request.userInstruction() != null) payloadMap.put("user_instruction", request.userInstruction());
         if (request.sourceSceneStorageUrl() != null) payloadMap.put("source_scene_storage_url", request.sourceSceneStorageUrl());
         if (request.sourceScene() != null) payloadMap.put("source_scene", request.sourceScene());
@@ -116,9 +121,9 @@ public class TwoDLlmIfcEditCommandService {
                 COMMAND_TYPE_TWO_D_LLM_GENERATE, RabbitMqConfig.TWO_D_LLM_COMMAND_ROUTING_KEY,
                 jobId, jobStepId, 1, TOTAL_STEPS_LLM, projectId, currentUserId,
                 request.baseRevisionId(), request.sourceSceneStateId(), request.sourceSceneType(),
-                null, null,
+                null, expectedOutputArtifactId,
                 Map.of("source_ifc_storage_url", sourceIfcUrl),
-                new IfcEditCommandMessage.ExpectedOutput(null, null, editPlanUrl),
+                new IfcEditCommandMessage.ExpectedOutput(null, null, editPlanUrl, null),
                 requestPayload, ATTEMPT_NO, MAX_ATTEMPTS, idempotencyKey, correlationId,
                 OffsetDateTime.now(ZoneOffset.UTC)
         );
@@ -138,7 +143,7 @@ public class TwoDLlmIfcEditCommandService {
         ));
 
         return new IfcEditJobResponse(
-                projectId, jobId, jobStepId, null, null,
+                projectId, jobId, jobStepId, null, expectedOutputArtifactId,
                 JOB_TYPE_TWO_D_TO_IFC_EDIT, "QUEUED", 0
         );
     }

@@ -41,6 +41,8 @@ import static com.a204.batang.domain.ifcedit.IfcEditConstants.*;
 @RequiredArgsConstructor
 public class ThreeDLlmIfcEditCommandService {
 
+    private static final String LLM_PAYLOAD_SCHEMA_VERSION = "v1";
+
     private final ProjectRepository projectRepository;
     private final RevisionRepository revisionRepository;
     private final ProjectAccessService projectAccessService;
@@ -73,6 +75,7 @@ public class ThreeDLlmIfcEditCommandService {
 
         UUID jobId = UUID.randomUUID();
         UUID jobStepId = UUID.randomUUID();
+        UUID expectedOutputArtifactId = UUID.randomUUID();
         UUID correlationId = UUID.randomUUID();
         String idempotencyKey = jobId + ":step-1:three-d-llm";
 
@@ -81,17 +84,27 @@ public class ThreeDLlmIfcEditCommandService {
 
         Map<String, Object> inputMap = new LinkedHashMap<>();
         inputMap.put("sourceRevisionId", request.baseRevisionId().toString());
+        inputMap.put("expectedOutputArtifactId", expectedOutputArtifactId.toString());
         inputMap.put("sourceIfcStorageUrl", sourceIfcUrl);
         inputMap.put("editPlanStorageUrl", editPlanUrl);
         JsonNode inputPayload = objectMapper.valueToTree(inputMap);
 
         Map<String, Object> payloadMap = new LinkedHashMap<>();
+        payloadMap.put("schema_version", LLM_PAYLOAD_SCHEMA_VERSION);
         if (request.userInstruction() != null) payloadMap.put("user_instruction", request.userInstruction());
         if (request.sourceSceneStorageUrl() != null) payloadMap.put("source_scene_storage_url", request.sourceSceneStorageUrl());
         if (request.sourceScene() != null) payloadMap.put("source_scene", request.sourceScene());
         if (request.conversationHistory() != null) payloadMap.put("conversation_history", request.conversationHistory());
         if (request.plannerOptions() != null) payloadMap.put("planner_options", request.plannerOptions());
         JsonNode requestPayload = objectMapper.valueToTree(payloadMap);
+
+        Map<String, Object> workerPayloadMap = new LinkedHashMap<>();
+        workerPayloadMap.put("schema_version", LLM_PAYLOAD_SCHEMA_VERSION);
+        if (request.userInstruction() != null) {
+            workerPayloadMap.put("userInstruction", request.userInstruction());
+        }
+        workerPayloadMap.put("sourceSceneStorageUrl", sourceIfcUrl);
+        JsonNode workerPayload = objectMapper.valueToTree(workerPayloadMap);
 
         LocalDateTime now = LocalDateTime.now();
         IfcEditJob job = IfcEditJob.createQueued(
@@ -113,10 +126,10 @@ public class ThreeDLlmIfcEditCommandService {
                 COMMAND_TYPE_THREE_D_LLM_GENERATE, RabbitMqConfig.THREE_D_LLM_COMMAND_ROUTING_KEY,
                 jobId, jobStepId, 1, TOTAL_STEPS_LLM, projectId, currentUserId,
                 request.baseRevisionId(), request.sourceSceneStateId(), request.sourceSceneType(),
-                null, null,
+                null, expectedOutputArtifactId,
                 Map.of("source_ifc_storage_url", sourceIfcUrl),
-                new IfcEditCommandMessage.ExpectedOutput(null, null, editPlanUrl),
-                requestPayload, ATTEMPT_NO, MAX_ATTEMPTS, idempotencyKey, correlationId,
+                new IfcEditCommandMessage.ExpectedOutput(null, null, null, editPlanUrl),
+                workerPayload, ATTEMPT_NO, MAX_ATTEMPTS, idempotencyKey, correlationId,
                 OffsetDateTime.now(ZoneOffset.UTC)
         );
 
@@ -135,7 +148,7 @@ public class ThreeDLlmIfcEditCommandService {
         ));
 
         return new IfcEditJobResponse(
-                projectId, jobId, jobStepId, null, null,
+                projectId, jobId, jobStepId, null, expectedOutputArtifactId,
                 JOB_TYPE_THREE_D_TO_IFC_EDIT, "QUEUED", 0
         );
     }

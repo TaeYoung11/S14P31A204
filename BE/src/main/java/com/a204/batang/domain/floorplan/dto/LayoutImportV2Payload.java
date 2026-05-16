@@ -1,7 +1,9 @@
 package com.a204.batang.domain.floorplan.dto;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
@@ -131,7 +133,11 @@ public record LayoutImportV2Payload(
             @NotBlank
             @Pattern(regexp = "^#[0-9A-Fa-f]{6}$")
             @Schema(description = "존 색상입니다.", example = "#FF5733")
-            String color
+            String color,
+
+            @Min(1)
+            @Schema(description = "층 번호입니다. 없으면 room.floor를 통해 해석됩니다.", example = "1")
+            Integer floor
     ) {
     }
 
@@ -168,10 +174,11 @@ public record LayoutImportV2Payload(
     ) {
     }
 
+    @JsonFormat(shape = JsonFormat.Shape.ARRAY)
+    @JsonPropertyOrder({"x", "y"})
+    @Schema(type = "array", example = "[0.0, 0.0]", description = "좌표 쌍 [x, y]입니다.")
     public record CoordinatePair(
-            @Schema(description = "x 좌표입니다.")
             @NotNull Double x,
-            @Schema(description = "y 좌표입니다.")
             @NotNull Double y
     ) {
     }

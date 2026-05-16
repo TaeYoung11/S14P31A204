@@ -10,6 +10,10 @@ if TYPE_CHECKING:
     from .exceptions import IFCRenderError
     from .presets import list_presets, load_preset
     from .renderer import IFCRenderer
+    from .semantics import (
+        IfcSemanticSummary,
+        extract_ifc_semantic_summary,
+    )
     from .style import (
         DepthStyleParams,
         DepthStyleRenderer,
@@ -33,6 +37,11 @@ _LAZY_EXPORTS = {
     "list_presets": (".presets", "list_presets"),
     "load_preset": (".presets", "load_preset"),
     "build_view_prompt": (".views", "build_view_prompt"),
+    "IfcSemanticSummary": (".semantics", "IfcSemanticSummary"),
+    "extract_ifc_semantic_summary": (
+        ".semantics",
+        "extract_ifc_semantic_summary",
+    ),
 }
 
 __all__ = list(_LAZY_EXPORTS)

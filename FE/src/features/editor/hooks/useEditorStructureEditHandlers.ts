@@ -1,15 +1,16 @@
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import {
   DEFAULT_WALL_MATERIAL,
   FLOOR_OPENING_PRESETS,
+  FLOOR_MM_PER_PX,
   FLOOR_WALL_HEIGHT_MAX_MM,
   FLOOR_WALL_HEIGHT_MIN_MM,
   FLOOR_WALL_PRESETS,
   FLOOR_WALL_THICKNESS_MAX_MM,
   FLOOR_WALL_THICKNESS_MIN_MM,
 } from '../constants'
-import type { FloorOpening, FloorRoom, FloorWall, Point2D } from '../types'
+import type { FloorLayer, FloorOpening, FloorRoom, FloorWall, Point2D } from '../types'
 import { collectAutoDoorOpeningIdsFromWallIds, createFloorOpeningId, createFloorWallId } from '../utils/editorPageHelpers'
 import { buildWallOutsideOverlapSegments, getWallGeometryKey, getWallOverlapInterval, projectAxisAlignedWall } from '../utils/wallGeometry'
 import { createsNewWallRoomCollision } from '../utils/wallRoomCollision'
@@ -17,8 +18,8 @@ import { clampWallHeightMm, clampWallThicknessMm } from '../utils/wallSync'
 
 interface WorkspaceCommandPublisherLike {
   createWall: (wall: FloorWall) => void
-  updateWallGeometry: (wallId: string, start: Point2D, end: Point2D) => void
-  updateWallEndpoint: (wallId: string, endpoint: 'start' | 'end', point: Point2D) => void
+  updateWallGeometry: (wallId: string, start: Point2D, end: Point2D, startMm?: Point2D, endMm?: Point2D) => void
+  updateWallEndpoint: (wallId: string, endpoint: 'start' | 'end', point: Point2D, pointMm?: Point2D) => void
   deleteWall: (wallId: string) => void
   upsertOpening: (opening: FloorOpening, exists: boolean) => void
   updateOpening: (openingType: FloorOpening['type'], openingId: string, patch: Record<string, unknown>) => void
@@ -31,8 +32,38 @@ interface WorkspaceCommandPublisherLike {
   }) => void
 }
 
+export interface FloorWallCreateStorey {
+  storeyGlobalId?: string
+  storeyName?: string
+}
+
+const hasStorey = (storey: FloorWallCreateStorey): boolean =>
+  Boolean(storey.storeyGlobalId || storey.storeyName)
+
+export function resolveActiveFloorLayerStorey(
+  floorLayers: FloorLayer[],
+  activeFloorLayerId: string | null,
+): FloorWallCreateStorey {
+  const activeLayer = activeFloorLayerId
+    ? floorLayers.find((layer) => layer.id === activeFloorLayerId)
+    : null
+  return {
+    storeyGlobalId: activeLayer?.storeyGlobalId,
+    storeyName: activeLayer?.storeyName ?? activeLayer?.name,
+  }
+}
+
+export function resolveFloorWallCreateStorey(
+  activeLayerStorey: FloorWallCreateStorey,
+  fallbackStorey: FloorWallCreateStorey,
+): FloorWallCreateStorey {
+  return hasStorey(activeLayerStorey) ? activeLayerStorey : fallbackStorey
+}
+
 interface UseEditorStructureEditHandlersParams {
   floorRooms: FloorRoom[]
+  floorLayers: FloorLayer[]
+  activeFloorLayerId: string | null
   floorWalls: FloorWall[]
   visibleAutoFloorWalls: FloorWall[]
   autoFloorWalls: FloorWall[]
@@ -58,6 +89,7 @@ interface UseEditorStructureEditHandlersParams {
   updateFloorWallFromEditable: (wallId: string, updater: (wall: FloorWall) => FloorWall) => void
   promoteCurrentAutoFloorOpenings: () => void
   normalizeOpeningByCurrentWall: (opening: FloorOpening) => FloorOpening
+  onFloorPlanChanged: () => void
 }
 
 /**
@@ -66,6 +98,8 @@ interface UseEditorStructureEditHandlersParams {
  */
 export function useEditorStructureEditHandlers({
   floorRooms,
+  floorLayers,
+  activeFloorLayerId,
   floorWalls,
   visibleAutoFloorWalls,
   autoFloorWalls,
@@ -91,13 +125,55 @@ export function useEditorStructureEditHandlers({
   updateFloorWallFromEditable,
   promoteCurrentAutoFloorOpenings,
   normalizeOpeningByCurrentWall,
+  onFloorPlanChanged,
 }: UseEditorStructureEditHandlersParams) {
-  const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
+const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     return (
       floorWalls.find((wall) => wall.id === wallId) ??
       visibleAutoFloorWalls.find((wall) => wall.id === wallId) ??
       null
     )
+  }, [floorWalls, visibleAutoFloorWalls])
+
+  const estimateMmDelta = useCallback((wall: FloorWall, dx: number, dy: number): Point2D | null => {
+    if (!wall.startMm || !wall.endMm) return null
+    const pxLength = Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y)
+    const mmLength = Math.hypot(wall.endMm.x - wall.startMm.x, wall.endMm.y - wall.startMm.y)
+    if (!Number.isFinite(pxLength) || pxLength <= 0 || !Number.isFinite(mmLength) || mmLength <= 0) return null
+    const mmPerPx = mmLength / pxLength
+    return { x: dx * mmPerPx, y: dy * mmPerPx }
+  }, [])
+
+  const estimateMmPoint = useCallback((point: Point2D): Point2D | undefined => {
+    const referenceWall = [...floorWalls, ...visibleAutoFloorWalls].find((wall) => wall.startMm && wall.endMm)
+    if (!referenceWall?.startMm || !referenceWall.endMm) {
+      return {
+        x: point.x * FLOOR_MM_PER_PX,
+        y: point.y * FLOOR_MM_PER_PX,
+      }
+    }
+    const pxLength = Math.hypot(referenceWall.end.x - referenceWall.start.x, referenceWall.end.y - referenceWall.start.y)
+    const mmLength = Math.hypot(referenceWall.endMm.x - referenceWall.startMm.x, referenceWall.endMm.y - referenceWall.startMm.y)
+    if (!Number.isFinite(pxLength) || pxLength <= 0 || !Number.isFinite(mmLength) || mmLength <= 0) return undefined
+    const mmPerPx = mmLength / pxLength
+    return {
+      x: referenceWall.startMm.x + (point.x - referenceWall.start.x) * mmPerPx,
+      y: referenceWall.startMm.y + (point.y - referenceWall.start.y) * mmPerPx,
+    }
+  }, [floorWalls, visibleAutoFloorWalls])
+
+  const activeLayerStorey = useMemo(
+    () => resolveActiveFloorLayerStorey(floorLayers, activeFloorLayerId),
+    [floorLayers, activeFloorLayerId],
+  )
+
+  const getReferenceStorey = useCallback((): FloorWallCreateStorey => {
+    const referenceWall = [...floorWalls, ...visibleAutoFloorWalls]
+      .find((wall) => wall.storeyGlobalId || wall.storeyName)
+    return {
+      storeyGlobalId: referenceWall?.storeyGlobalId,
+      storeyName: referenceWall?.storeyName,
+    }
   }, [floorWalls, visibleAutoFloorWalls])
 
   const isWallEditBlockedByRoomCollision = useCallback((
@@ -132,15 +208,22 @@ export function useEditorStructureEditHandlers({
       FLOOR_WALL_HEIGHT_MIN_MM,
       FLOOR_WALL_HEIGHT_MAX_MM,
     )
+    const createStorey = resolveFloorWallCreateStorey(activeLayerStorey, getReferenceStorey())
     const newWall: FloorWall = {
       id: createFloorWallId(),
+      floorLayerId: activeFloorLayerId ?? undefined,
       type: nextType,
+      storeyGlobalId: createStorey.storeyGlobalId,
+      storeyName: createStorey.storeyName,
       start,
       end,
+      startMm: estimateMmPoint(start),
+      endMm: estimateMmPoint(end),
       thickness: nextThickness,
       heightMm: nextHeightMm,
       material: DEFAULT_WALL_MATERIAL,
     }
+    onFloorPlanChanged()
     workspaceCommandPublisher.createWall(newWall)
     setFloorWalls((prev) => [...prev, newWall])
     setWallCreatePreset({
@@ -156,6 +239,10 @@ export function useEditorStructureEditHandlers({
     setSelectedTool('wall')
   }, [
     wallCreatePreset,
+    activeFloorLayerId,
+    activeLayerStorey,
+    estimateMmPoint,
+    getReferenceStorey,
     workspaceCommandPublisher,
     setFloorWalls,
     setWallCreatePreset,
@@ -165,6 +252,7 @@ export function useEditorStructureEditHandlers({
     setSelectedFloorOpeningId,
     clearSelection,
     setSelectedTool,
+    onFloorPlanChanged,
   ])
 
   const handleSelectFloorWall = useCallback((wallId: string | null, append = false) => {
@@ -202,18 +290,26 @@ export function useEditorStructureEditHandlers({
     if (!targetWall) return
     const nextStart = { x: targetWall.start.x + dx, y: targetWall.start.y + dy }
     const nextEnd = { x: targetWall.end.x + dx, y: targetWall.end.y + dy }
+    const mmDelta = estimateMmDelta(targetWall, dx, dy)
+    const nextStartMm = targetWall.startMm && mmDelta
+      ? { x: targetWall.startMm.x + mmDelta.x, y: targetWall.startMm.y + mmDelta.y }
+      : targetWall.startMm
+    const nextEndMm = targetWall.endMm && mmDelta
+      ? { x: targetWall.endMm.x + mmDelta.x, y: targetWall.endMm.y + mmDelta.y }
+      : targetWall.endMm
     if (isWallEditBlockedByRoomCollision(targetWall, nextStart, nextEnd)) return
 
+    onFloorPlanChanged()
     ensureFloorWallInManual(wallId)
     setFloorWalls((prev) =>
       prev.map((wall) =>
         wall.id === wallId
-          ? { ...wall, start: nextStart, end: nextEnd }
+          ? { ...wall, start: nextStart, end: nextEnd, startMm: nextStartMm, endMm: nextEndMm }
           : wall,
       ),
     )
-    workspaceCommandPublisher.updateWallGeometry(wallId, nextStart, nextEnd)
-  }, [getEditableWallById, isWallEditBlockedByRoomCollision, ensureFloorWallInManual, setFloorWalls, workspaceCommandPublisher])
+    workspaceCommandPublisher.updateWallGeometry(wallId, nextStart, nextEnd, nextStartMm, nextEndMm)
+  }, [getEditableWallById, estimateMmDelta, isWallEditBlockedByRoomCollision, onFloorPlanChanged, ensureFloorWallInManual, setFloorWalls, workspaceCommandPublisher])
 
   const handleUpdateFloorWallEndpoint = useCallback((
     wallId: string,
@@ -224,14 +320,23 @@ export function useEditorStructureEditHandlers({
     if (!targetWall) return
     const nextStart = endpoint === 'start' ? point : targetWall.start
     const nextEnd = endpoint === 'end' ? point : targetWall.end
+    const pxDelta = endpoint === 'start'
+      ? { x: point.x - targetWall.start.x, y: point.y - targetWall.start.y }
+      : { x: point.x - targetWall.end.x, y: point.y - targetWall.end.y }
+    const mmDelta = estimateMmDelta(targetWall, pxDelta.x, pxDelta.y)
+    const pointMm = endpoint === 'start'
+      ? (targetWall.startMm && mmDelta ? { x: targetWall.startMm.x + mmDelta.x, y: targetWall.startMm.y + mmDelta.y } : targetWall.startMm)
+      : (targetWall.endMm && mmDelta ? { x: targetWall.endMm.x + mmDelta.x, y: targetWall.endMm.y + mmDelta.y } : targetWall.endMm)
     if (isWallEditBlockedByRoomCollision(targetWall, nextStart, nextEnd)) return
 
+    onFloorPlanChanged()
     ensureFloorWallInManual(wallId)
-    setFloorWalls((prev) => prev.map((wall) => (wall.id === wallId ? { ...wall, [endpoint]: point } : wall)))
-    workspaceCommandPublisher.updateWallEndpoint(wallId, endpoint, point)
-  }, [getEditableWallById, isWallEditBlockedByRoomCollision, ensureFloorWallInManual, setFloorWalls, workspaceCommandPublisher])
+    setFloorWalls((prev) => prev.map((wall) => (wall.id === wallId ? { ...wall, [endpoint]: point, [`${endpoint}Mm`]: pointMm } : wall)))
+    workspaceCommandPublisher.updateWallEndpoint(wallId, endpoint, point, pointMm)
+  }, [getEditableWallById, estimateMmDelta, isWallEditBlockedByRoomCollision, onFloorPlanChanged, ensureFloorWallInManual, setFloorWalls, workspaceCommandPublisher])
 
   const handleDeleteFloorWall = useCallback((wallId: string) => {
+    onFloorPlanChanged()
     const hiddenIds = new Set<string>([wallId])
     const manualResidualWalls: FloorWall[] = []
 
@@ -253,6 +358,7 @@ export function useEditorStructureEditHandlers({
           outsideSegments.forEach((segment) => {
             manualResidualWalls.push({
               id: createFloorWallId(),
+              floorLayerId: candidate.floorLayerId ?? targetAutoWall.floorLayerId ?? activeFloorLayerId ?? undefined,
               start: segment.start,
               end: segment.end,
               type: candidate.type,
@@ -310,6 +416,7 @@ export function useEditorStructureEditHandlers({
   }, [
     isAutoDerivedWallId,
     autoFloorWalls,
+    activeFloorLayerId,
     setHiddenAutoWallIds,
     setHiddenAutoOpeningIds,
     setFloorOpenings,
@@ -317,6 +424,7 @@ export function useEditorStructureEditHandlers({
     mergedFloorOpenings,
     setFloorWalls,
     workspaceCommandPublisher,
+    onFloorPlanChanged,
     selectedFloorWallId,
     setSelectedFloorWallId,
     setSelectedFloorWallIds,
@@ -342,14 +450,44 @@ export function useEditorStructureEditHandlers({
       doorHingeSide: type === 'door' ? 'left' : undefined,
       doorSwingDirection: type === 'door' ? 'inward' : undefined,
     }
-    const newOpening = normalizeOpeningByCurrentWall(rawOpening)
+    const hostWall = getEditableWallById(wallId)
+    const center = hostWall
+      ? {
+        x: hostWall.start.x + (hostWall.end.x - hostWall.start.x) * clamped,
+        y: hostWall.start.y + (hostWall.end.y - hostWall.start.y) * clamped,
+      }
+      : null
+    const centerMm = hostWall?.startMm && hostWall.endMm
+      ? {
+        x: hostWall.startMm.x + (hostWall.endMm.x - hostWall.startMm.x) * clamped,
+        y: hostWall.startMm.y + (hostWall.endMm.y - hostWall.startMm.y) * clamped,
+      }
+      : center
+        ? estimateMmPoint(center)
+        : undefined
+    const openingWithIfcTarget = hostWall
+      ? {
+        ...rawOpening,
+        hostWallGlobalId: hostWall.globalId ?? hostWall.id,
+        storeyGlobalId: hostWall.storeyGlobalId,
+        storeyName: hostWall.storeyName,
+        centerMm,
+      }
+      : rawOpening
+    const newOpening = normalizeOpeningByCurrentWall(openingWithIfcTarget)
     const existingOpening = mergedFloorOpenings.find((opening) => opening.id === newOpening.id)
+    const shouldUpdateExistingOpening = Boolean(
+      existingOpening &&
+      !existingOpening.id.startsWith('auto-') &&
+      (existingOpening.globalId || existingOpening.sourceIfcClass),
+    )
+    onFloorPlanChanged()
     setFloorOpenings((prev) => {
       const exists = prev.some((opening) => opening.id === newOpening.id)
       if (exists) return prev.map((opening) => (opening.id === newOpening.id ? newOpening : opening))
       return [...prev, newOpening]
     })
-    workspaceCommandPublisher.upsertOpening(newOpening, Boolean(existingOpening))
+    workspaceCommandPublisher.upsertOpening(newOpening, shouldUpdateExistingOpening)
     setHiddenAutoOpeningIds((prev) => prev.filter((id) => id !== newOpening.id))
     setSelectedFloorWallId(null)
     setSelectedFloorWallIds([])
@@ -359,6 +497,8 @@ export function useEditorStructureEditHandlers({
     setSelectedTool(type)
   }, [
     promoteCurrentAutoFloorOpenings,
+    getEditableWallById,
+    estimateMmPoint,
     normalizeOpeningByCurrentWall,
     mergedFloorOpenings,
     setFloorOpenings,
@@ -370,6 +510,7 @@ export function useEditorStructureEditHandlers({
     setSelectedFloorOpeningIds,
     clearSelection,
     setSelectedTool,
+    onFloorPlanChanged,
   ])
 
   const handleSelectFloorOpening = useCallback((openingId: string | null, append = false) => {
@@ -414,13 +555,28 @@ export function useEditorStructureEditHandlers({
       wallPosition: clamped,
       wallId: wallId ?? targetOpening.wallId,
     }
+    const hostWall = getEditableWallById(nextOpeningPreNormalized.wallId)
+    if (hostWall?.startMm && hostWall.endMm) {
+      nextOpeningPreNormalized.hostWallGlobalId = hostWall.globalId ?? hostWall.id
+      nextOpeningPreNormalized.storeyGlobalId = hostWall.storeyGlobalId
+      nextOpeningPreNormalized.storeyName = hostWall.storeyName
+      nextOpeningPreNormalized.centerMm = {
+        x: hostWall.startMm.x + (hostWall.endMm.x - hostWall.startMm.x) * clamped,
+        y: hostWall.startMm.y + (hostWall.endMm.y - hostWall.startMm.y) * clamped,
+      }
+    }
     const nextOpening = normalizeOpeningByCurrentWall(nextOpeningPreNormalized)
+    onFloorPlanChanged()
     updateFloorOpeningFromEditable(openingId, () => nextOpening)
     workspaceCommandPublisher.updateOpening(nextOpening.type, openingId, {
       wall_id: nextOpening.wallId,
       wall_position: nextOpening.wallPosition,
+      hostWallGlobalId: nextOpening.hostWallGlobalId,
+      storeyGlobalId: nextOpening.storeyGlobalId,
+      storeyName: nextOpening.storeyName,
+      centerMm: nextOpening.centerMm ? [nextOpening.centerMm.x, nextOpening.centerMm.y] : undefined,
     })
-  }, [mergedFloorOpenings, normalizeOpeningByCurrentWall, updateFloorOpeningFromEditable, workspaceCommandPublisher])
+  }, [getEditableWallById, mergedFloorOpenings, normalizeOpeningByCurrentWall, onFloorPlanChanged, updateFloorOpeningFromEditable, workspaceCommandPublisher])
 
   const handleUpdateFloorOpeningSize = useCallback((openingId: string, widthMm: number, heightMm: number) => {
     if (!Number.isFinite(widthMm) || !Number.isFinite(heightMm)) return
@@ -434,24 +590,26 @@ export function useEditorStructureEditHandlers({
       heightMm: nextHeight,
     }
     const nextOpening = normalizeOpeningByCurrentWall(nextOpeningPreNormalized)
+    onFloorPlanChanged()
     updateFloorOpeningFromEditable(openingId, () => nextOpening)
     workspaceCommandPublisher.updateOpening(nextOpening.type, openingId, {
       width: nextOpening.widthMm,
       height: nextOpening.heightMm,
       wall_position: nextOpening.wallPosition,
     })
-  }, [mergedFloorOpenings, normalizeOpeningByCurrentWall, updateFloorOpeningFromEditable, workspaceCommandPublisher])
+  }, [mergedFloorOpenings, normalizeOpeningByCurrentWall, onFloorPlanChanged, updateFloorOpeningFromEditable, workspaceCommandPublisher])
 
   const handleUpdateFloorWindowSillHeight = useCallback((openingId: string, sillHeightMm: number) => {
     if (!Number.isFinite(sillHeightMm)) return
     const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
     if (!targetOpening || targetOpening.type !== 'window') return
     const next = Math.min(Math.max(sillHeightMm, 0), 2500)
+    onFloorPlanChanged()
     updateFloorOpeningFromEditable(openingId, (opening) => ({ ...opening, sillHeightMm: next }))
     workspaceCommandPublisher.updateOpening('window', openingId, {
       sill_height: next,
     })
-  }, [mergedFloorOpenings, updateFloorOpeningFromEditable, workspaceCommandPublisher])
+  }, [mergedFloorOpenings, onFloorPlanChanged, updateFloorOpeningFromEditable, workspaceCommandPublisher])
 
   const handleUpdateFloorDoorSwingDirection = useCallback((
     openingId: string,
@@ -459,11 +617,12 @@ export function useEditorStructureEditHandlers({
   ) => {
     const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
     if (!targetOpening || targetOpening.type !== 'door') return
+    onFloorPlanChanged()
     updateFloorOpeningFromEditable(openingId, (opening) => ({ ...opening, doorSwingDirection: swingDirection }))
     workspaceCommandPublisher.updateOpening('door', openingId, {
       door_swing_direction: swingDirection,
     })
-  }, [mergedFloorOpenings, updateFloorOpeningFromEditable, workspaceCommandPublisher])
+  }, [mergedFloorOpenings, onFloorPlanChanged, updateFloorOpeningFromEditable, workspaceCommandPublisher])
 
   const handleUpdateFloorDoorHingeSide = useCallback((
     openingId: string,
@@ -471,14 +630,16 @@ export function useEditorStructureEditHandlers({
   ) => {
     const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
     if (!targetOpening || targetOpening.type !== 'door') return
+    onFloorPlanChanged()
     updateFloorOpeningFromEditable(openingId, (opening) => ({ ...opening, doorHingeSide: hingeSide }))
     workspaceCommandPublisher.updateOpening('door', openingId, {
       door_hinge_side: hingeSide,
     })
-  }, [mergedFloorOpenings, updateFloorOpeningFromEditable, workspaceCommandPublisher])
+  }, [mergedFloorOpenings, onFloorPlanChanged, updateFloorOpeningFromEditable, workspaceCommandPublisher])
 
   const handleDeleteFloorOpening = useCallback((openingId: string) => {
     const targetOpening = mergedFloorOpenings.find((opening) => opening.id === openingId)
+    onFloorPlanChanged()
     setFloorOpenings((prev) => prev.filter((opening) => opening.id !== openingId))
     if (openingId.startsWith('auto-door-')) {
       setHiddenAutoOpeningIds((prev) => {
@@ -491,13 +652,14 @@ export function useEditorStructureEditHandlers({
     }
     setSelectedFloorOpeningId((prev) => (prev === openingId ? null : prev))
     setSelectedFloorOpeningIds((prev) => prev.filter((id) => id !== openingId))
-  }, [mergedFloorOpenings, setFloorOpenings, setHiddenAutoOpeningIds, workspaceCommandPublisher, setSelectedFloorOpeningId, setSelectedFloorOpeningIds])
+  }, [mergedFloorOpenings, onFloorPlanChanged, setFloorOpenings, setHiddenAutoOpeningIds, workspaceCommandPublisher, setSelectedFloorOpeningId, setSelectedFloorOpeningIds])
 
   const handleUpdateFloorWallType = useCallback((wallId: string, type: FloorWall['type']) => {
+    onFloorPlanChanged()
     updateFloorWallFromEditable(wallId, (wall) => ({ ...wall, type }))
     workspaceCommandPublisher.updateWallStyle(wallId, { wallType: type })
     setWallCreatePreset((prev) => ({ ...prev, type }))
-  }, [updateFloorWallFromEditable, workspaceCommandPublisher, setWallCreatePreset])
+  }, [onFloorPlanChanged, updateFloorWallFromEditable, workspaceCommandPublisher, setWallCreatePreset])
 
   const handleUpdateFloorWallThickness = useCallback((wallId: string, thickness: number) => {
     if (!Number.isFinite(thickness)) return
@@ -506,10 +668,11 @@ export function useEditorStructureEditHandlers({
       FLOOR_WALL_THICKNESS_MIN_MM,
       FLOOR_WALL_THICKNESS_MAX_MM,
     )
+    onFloorPlanChanged()
     updateFloorWallFromEditable(wallId, (wall) => ({ ...wall, thickness: next }))
     workspaceCommandPublisher.updateWallStyle(wallId, { thickness: next })
     setWallCreatePreset((prev) => ({ ...prev, thickness: next }))
-  }, [updateFloorWallFromEditable, workspaceCommandPublisher, setWallCreatePreset])
+  }, [onFloorPlanChanged, updateFloorWallFromEditable, workspaceCommandPublisher, setWallCreatePreset])
 
   const handleUpdateFloorWallHeight = useCallback((wallId: string, heightMm: number) => {
     if (!Number.isFinite(heightMm)) return
@@ -518,17 +681,19 @@ export function useEditorStructureEditHandlers({
       FLOOR_WALL_HEIGHT_MIN_MM,
       FLOOR_WALL_HEIGHT_MAX_MM,
     )
+    onFloorPlanChanged()
     updateFloorWallFromEditable(wallId, (wall) => ({ ...wall, heightMm: next }))
     workspaceCommandPublisher.updateWallStyle(wallId, { height: next })
     setWallCreatePreset((prev) => ({ ...prev, heightMm: next }))
-  }, [updateFloorWallFromEditable, workspaceCommandPublisher, setWallCreatePreset])
+  }, [onFloorPlanChanged, updateFloorWallFromEditable, workspaceCommandPublisher, setWallCreatePreset])
 
   const handleUpdateFloorWallMaterial = useCallback((wallId: string, material: string) => {
     const next = material.trim()
     if (!next) return
+    onFloorPlanChanged()
     updateFloorWallFromEditable(wallId, (wall) => ({ ...wall, material: next }))
     workspaceCommandPublisher.updateWallStyle(wallId, { material: next })
-  }, [updateFloorWallFromEditable, workspaceCommandPublisher])
+  }, [onFloorPlanChanged, updateFloorWallFromEditable, workspaceCommandPublisher])
 
   return {
     handleCreateFloorWall,

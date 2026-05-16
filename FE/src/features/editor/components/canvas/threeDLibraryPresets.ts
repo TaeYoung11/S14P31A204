@@ -107,6 +107,7 @@ export const PRESETS: ThreeDLibraryPreset[] = [
   {
     id: 'roof-gable',
     type: 'roof',
+    roofShape: 'gable',
     name: '박공지붕',
     description: '단독주택에 사용하는 기본 경사지붕',
     dimensions: '7000 x 1200 x 6000',
@@ -118,6 +119,7 @@ export const PRESETS: ThreeDLibraryPreset[] = [
   {
     id: 'roof-flat',
     type: 'roof',
+    roofShape: 'flat',
     name: '평지붕',
     description: '옥상 활용이 가능한 평지붕',
     dimensions: '4800 x 3400',

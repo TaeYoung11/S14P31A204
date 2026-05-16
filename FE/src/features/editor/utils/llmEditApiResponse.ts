@@ -1,4 +1,4 @@
-import type { LlmEditApiResponse } from '../services/llmEdit.contract'
+import type { LlmEditApiResponseDto } from '../types/llmEdit.dto'
 import type { LlmEditOperation, LlmEditResponse } from '../types/llmEdit.types'
 import { createErrorResponse } from './llmEditResponseFactory'
 
@@ -117,7 +117,7 @@ const isOperationArray = (value: unknown): value is LlmEditOperation[] =>
   Array.isArray(value) && value.every(isOperation)
 
 /** 백엔드 응답을 프론트 공통 LlmEditResponse 형태로 정규화한다. */
-export function normalizeLlmEditApiResponse(raw: LlmEditApiResponse | unknown): LlmEditResponse {
+export function normalizeLlmEditApiResponse(raw: LlmEditApiResponseDto | unknown): LlmEditResponse {
   if (!isRecord(raw)) {
     return createErrorResponse('LLM 응답 형식을 해석하지 못했습니다.')
   }

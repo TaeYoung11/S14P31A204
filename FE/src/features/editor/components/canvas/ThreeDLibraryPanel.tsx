@@ -16,7 +16,9 @@ import {
   Square,
   X,
 } from 'lucide-react'
+import { useRef } from 'react'
 import { buildPresetPreviewDataUri, PRESETS } from './threeDLibraryPresets'
+import { writeLibraryPresetToDataTransfer } from './threeDLibraryDnd'
 import type { ThreeDLibraryPreset } from './threeDLibrary.types'
 
 // ─────────────────────────────────────────────
@@ -88,6 +90,7 @@ interface LibraryPresetCardProps {
   preset: ThreeDLibraryPreset
   /** 씬에 프리셋을 추가하는 콜백 */
   onAdd: (preset: ThreeDLibraryPreset) => void
+  isEditingLocked: boolean
 }
 
 /**
@@ -95,15 +98,40 @@ interface LibraryPresetCardProps {
  * - 미리보기 이미지(SVG fallback 포함), 이름, 카테고리 뱃지, 치수를 표시한다.
  * - 클릭 시 씬에 추가된다.
  */
-function LibraryPresetCard({ preset, onAdd }: LibraryPresetCardProps) {
+function LibraryPresetCard({ preset, onAdd, isEditingLocked }: LibraryPresetCardProps) {
   const fallbackPreviewSrc = buildPresetPreviewDataUri(preset)
   const previewSrc = preset.previewImageUrl ?? fallbackPreviewSrc
   const categoryLabel = LIBRARY_CATEGORIES.find((c) => c.id === preset.type)?.label
+  const suppressNextClickRef = useRef(false)
 
   return (
     <button
-      onClick={() => onAdd(preset)}
-      className="group rounded-2xl border border-[#E2E6EF] bg-white p-4 text-left transition-all hover:border-[#3B45B3]/40 hover:shadow-lg hover:shadow-[#3B45B3]/10"
+      draggable={!isEditingLocked}
+      onClick={() => {
+        if (isEditingLocked) return
+        // 드래그 후 소스 버튼에 전달되는 합성 click 1회를 무시한다.
+        if (suppressNextClickRef.current) {
+          suppressNextClickRef.current = false
+          return
+        }
+        onAdd(preset)
+      }}
+      onDragStart={(event) => {
+        if (isEditingLocked) return
+        writeLibraryPresetToDataTransfer(event.dataTransfer, preset)
+        event.dataTransfer.effectAllowed = 'copy'
+      }}
+      onDragEnd={() => {
+        suppressNextClickRef.current = true
+        window.setTimeout(() => {
+          suppressNextClickRef.current = false
+        }, 200)
+      }}
+      className={`group rounded-2xl border border-[#E2E6EF] bg-white p-4 text-left transition-all ${
+        isEditingLocked
+          ? 'cursor-not-allowed opacity-60'
+          : 'hover:border-[#3B45B3]/40 hover:shadow-lg hover:shadow-[#3B45B3]/10'
+      }`}
     >
       <div className="mb-3 h-16 overflow-hidden rounded-xl border border-black/5 bg-[#EEF1F8]">
         <img
@@ -155,6 +183,7 @@ interface ThreeDLibraryPanelProps {
   onClose: () => void
   /** 프리셋을 씬에 추가하는 콜백 */
   onAddPreset: (preset: ThreeDLibraryPreset) => void
+  isEditingLocked?: boolean
 }
 
 /**
@@ -167,6 +196,7 @@ export default function ThreeDLibraryPanel({
   onSelectCategory,
   onClose,
   onAddPreset,
+  isEditingLocked = false,
 }: ThreeDLibraryPanelProps) {
   const activeCategory =
     LIBRARY_CATEGORIES.find((category) => category.id === selectedCategory) ??
@@ -179,7 +209,10 @@ export default function ThreeDLibraryPanel({
       : PRESETS.filter((preset) => preset.type === activeCategory.id)
 
   return (
-    <div className="absolute left-8 top-[7%] z-50 flex h-[82%] w-[620px] overflow-hidden rounded-[24px] border border-white/40 bg-white/90 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-left-4 duration-300">
+    <div
+      data-3d-library-panel="true"
+      className="absolute left-8 top-[7%] z-50 flex h-[82%] w-[620px] overflow-hidden rounded-[24px] border border-white/40 bg-white/90 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-left-4 duration-300"
+    >
       {/* 닫기 버튼 */}
       <button
         onClick={onClose}
@@ -212,6 +245,7 @@ export default function ThreeDLibraryPanel({
               key={preset.id}
               preset={preset}
               onAdd={onAddPreset}
+              isEditingLocked={isEditingLocked}
             />
           ))}
         </div>
