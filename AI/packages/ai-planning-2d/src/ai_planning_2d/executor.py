@@ -7,9 +7,11 @@ from typing import Any, cast
 import ifcopenshell
 import ifcopenshell.api.aggregate
 import ifcopenshell.api.root
+import numpy as np
 from ai_authoring.engine_3d import delete_element
 from ai_authoring.operations.space_support import is_product_host_relative
 from ai_authoring.operations.wall_support import update_wall_segment
+from ifcopenshell.util.placement import get_local_placement
 from shapely import union_all as _shapely_union_all  # type: ignore[import-untyped]
 from shapely.geometry import MultiPolygon, Polygon  # type: ignore[import-untyped]
 
@@ -17,6 +19,7 @@ from .add_room_placement import suggest_add_room_start_mm
 from .command import CommandBatch, FloorNLPCommand, IFCContext, SpaceContext, WallContext
 from .executor_support.ifc import (
     body_context as _body_context,
+    create_box_representation as _create_box_representation,
     create_local_placement as _create_local_placement,
     create_space_representation as _create_space_representation,
     create_space_representation_from_polygon as _create_space_representation_from_polygon,
@@ -24,6 +27,7 @@ from .executor_support.ifc import (
     ensure_body_context as _ensure_body_context,
     owner_history as _owner_history,
     update_space_pset as _update_space_pset,
+    wall_thickness_m as _wall_thickness_m,
 )
 from .ifc_extractor import extract_ifc_context
 from .policies import RemoveRoomPolicyResult, ResizeRoomPolicyResult
@@ -86,6 +90,20 @@ def apply_space_plan(
             command=command,
             command_batch=command_batch,
             ifc_context=ifc_context,
+        )
+    if command.action == "create_door":
+        return _apply_create_door(
+            model=model,
+            output_path=output_path,
+            command=command,
+            command_batch=command_batch,
+        )
+    if command.action == "delete_wall_void":
+        return _apply_delete_wall_void(
+            model=model,
+            output_path=output_path,
+            command=command,
+            command_batch=command_batch,
         )
 
     if policy_plan is None or policy_plan.get("status") != "planned":
@@ -292,6 +310,157 @@ def _apply_delete_wall(
         "survivor_space_id": survivor_space_context["id"],
         "removed_space_id": removed_space_context["id"],
     }
+
+
+def _apply_create_door(
+    *,
+    model: ifcopenshell.file,
+    output_path: str,
+    command: FloorNLPCommand,
+    command_batch: CommandBatch | None,
+) -> dict[str, Any]:
+    del command
+    try:
+        if command_batch is None or not command_batch.commands:
+            return {"status": "not_applied", "summary": "문 생성 command 정보가 없습니다."}
+
+        params = command_batch.commands[0].params
+        metadata = params.get("metadata", {})
+        geometry = params.get("geometry", {})
+        dimensions = geometry.get("dimensions", {})
+        host_wall_id = metadata.get("host_wall_id")
+        storey_id = metadata.get("storey_id")
+        location = geometry.get("location")
+        if host_wall_id is None or storey_id is None or not isinstance(location, list | tuple):
+            return {
+                "status": "not_applied",
+                "summary": "문 생성 metadata 또는 geometry가 없습니다.",
+            }
+
+        wall = model.by_guid(host_wall_id)
+        if wall is None:
+            return {"status": "not_applied", "summary": "대상 wall을 IFC에서 찾지 못했습니다."}
+
+        storey = model.by_guid(storey_id)
+        if storey is None:
+            return {"status": "not_applied", "summary": "대상 storey를 IFC에서 찾지 못했습니다."}
+
+        x_m = float(location[0]) / 1000.0
+        y_m = float(location[1]) / 1000.0
+        width_m = float(dimensions.get("width", 900.0)) / 1000.0
+        height_m = float(dimensions.get("height", 2100.0)) / 1000.0
+        thickness_m = _wall_thickness_m(wall)
+
+        wall_matrix = get_local_placement(wall.ObjectPlacement)
+        inv_matrix = np.linalg.inv(wall_matrix)
+        world_pt = np.array([x_m, y_m, 0.0, 1.0])
+        local_pt = inv_matrix @ world_pt
+        local_x = float(local_pt[0])
+
+        owner_history = _owner_history(model)
+        _ensure_body_context(model)
+
+        opening = ifcopenshell.api.root.create_entity(model, ifc_class="IfcOpeningElement")
+        opening.PredefinedType = "OPENING"
+        opening.ObjectPlacement = _create_local_placement(
+            model=model,
+            relative_to=wall.ObjectPlacement,
+            location=(local_x - (width_m / 2.0), 0.0, 0.0),
+            ref_direction=(1.0, 0.0, 0.0),
+        )
+        opening.Representation = _create_box_representation(
+            model=model,
+            length_m=width_m,
+            width_m=thickness_m,
+            height_m=height_m,
+        )
+        model.create_entity(
+            "IfcRelVoidsElement",
+            GlobalId=ifcopenshell.guid.new(),
+            OwnerHistory=owner_history,
+            RelatingBuildingElement=wall,
+            RelatedOpeningElement=opening,
+        )
+
+        door = ifcopenshell.api.root.create_entity(model, ifc_class="IfcDoor")
+        door.OverallWidth = width_m
+        door.OverallHeight = height_m
+        door.ObjectPlacement = _create_local_placement(
+            model=model,
+            relative_to=opening.ObjectPlacement,
+            location=(0.0, 0.0, 0.0),
+            ref_direction=(1.0, 0.0, 0.0),
+        )
+        door.Representation = _create_box_representation(
+            model=model,
+            length_m=width_m,
+            width_m=thickness_m,
+            height_m=height_m,
+        )
+        model.create_entity(
+            "IfcRelFillsElement",
+            GlobalId=ifcopenshell.guid.new(),
+            OwnerHistory=owner_history,
+            RelatingOpeningElement=opening,
+            RelatedBuildingElement=door,
+        )
+
+        ifcopenshell.api.aggregate.assign_object(model, products=[door], relating_object=storey)
+        model.write(output_path)
+        return {
+            "status": "applied",
+            "summary": "문이 추가되었습니다.",
+            "created_door_id": door.GlobalId,
+        }
+    except Exception as e:
+        return {"status": "not_applied", "summary": str(e)}
+
+
+def _apply_delete_wall_void(
+    *,
+    model: ifcopenshell.file,
+    output_path: str,
+    command: FloorNLPCommand,
+    command_batch: CommandBatch | None,
+) -> dict[str, Any]:
+    del command
+    try:
+        target_id = (
+            command_batch.commands[0].target_id
+            if command_batch and command_batch.commands
+            else None
+        )
+        if target_id is None:
+            return {"status": "not_applied", "summary": "삭제 대상 element id가 없습니다."}
+
+        element = model.by_guid(target_id)
+        if element is None:
+            return {
+                "status": "not_applied",
+                "summary": "삭제 대상 element를 IFC에서 찾지 못했습니다.",
+            }
+
+        opening = None
+        for rel in model.get_inverse(element):
+            if rel.is_a("IfcRelFillsElement"):
+                opening = rel.RelatingOpeningElement
+                break
+
+        if opening is None:
+            return {
+                "status": "not_applied",
+                "summary": "연결된 opening element를 찾지 못했습니다.",
+            }
+
+        _remove_hosted_opening_pair(model=model, opening=opening, filled=element)
+        model.write(output_path)
+        return {
+            "status": "applied",
+            "summary": "문/창문이 삭제되었습니다.",
+            "deleted_element_id": target_id,
+        }
+    except Exception as e:
+        return {"status": "not_applied", "summary": str(e)}
 
 
 def _apply_remove_room(

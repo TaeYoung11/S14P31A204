@@ -72,6 +72,7 @@ _RESIZE_DIRECTION_HINTS: tuple[tuple[str, ResizeDirection], ...] = (
 
 _CREATE_DOOR_KEYWORDS: tuple[str, ...] = ("문", "door")
 _CREATE_DOOR_ACTION_HINTS: tuple[str, ...] = ("만들", "추가", "뚫")
+_DELETE_VOID_KEYWORDS: tuple[str, ...] = ("삭제", "제거", "없애", "지워")
 _CREATE_WALL_KEYWORDS: tuple[str, ...] = ("가벽", "벽", "partition", "wall")
 _CREATE_WALL_ACTION_HINTS: tuple[str, ...] = ("세워", "만들", "추가", "설치")
 
@@ -546,24 +547,118 @@ def _maybe_parse_simple_create_door_command(
     if ifc_context is None:
         return None
 
-    matched_walls = [
+    mentioned_space = next(
+        (
+            space
+            for space in ifc_context.get("spaces", [])
+            if space.get("name") and space["name"] in user_text
+        ),
+        None,
+    )
+    if mentioned_space is None:
+        return FloorNLPCommand(
+            action="create_door",
+            confidence=0.3,
+            needs_clarification=True,
+            clarification_question="어느 방의 벽에 문을 만들까요? 방 이름을 알려주세요.",
+        )
+
+    candidate_walls = [
         wall
         for wall in ifc_context.get("walls", [])
-        if wall.get("id") and wall["id"] in user_text
+        if mentioned_space.get("id") and mentioned_space["id"] in wall.get("space_ids", [])
     ]
-    if len(matched_walls) != 1:
-        return None
+    if not candidate_walls:
+        return FloorNLPCommand(
+            action="create_door",
+            confidence=0.3,
+            needs_clarification=True,
+            clarification_question=f"'{mentioned_space['name']}' 방의 벽 정보를 찾을 수 없습니다.",
+        )
 
-    wall = matched_walls[0]
+    interior_walls = [wall for wall in candidate_walls if wall.get("kind") == "INTERIOR"]
+    wall = interior_walls[0] if interior_walls else candidate_walls[0]
     return FloorNLPCommand(
         action="create_door",
         target_wall_id=wall["id"],
         target_floor=wall.get("floor"),
         element_width_mm=900,
         element_height_mm=2100,
-        confidence=0.9,
+        confidence=0.88,
         needs_clarification=False,
         clarification_question=None,
+    )
+
+
+def _maybe_parse_simple_delete_wall_void_command(
+    user_text: str,
+    ifc_context: IFCContext | None,
+) -> FloorNLPCommand | None:
+    if not any(keyword in user_text for keyword in _DELETE_VOID_KEYWORDS):
+        return None
+
+    lowered = user_text.casefold()
+    is_window = any(
+        keyword in user_text or keyword in lowered
+        for keyword in ("창문", "창", "window")
+    )
+    is_door = not is_window and any(
+        keyword in user_text or keyword in lowered for keyword in ("문", "도어", "door")
+    )
+    if not is_door and not is_window:
+        return None
+    if ifc_context is None:
+        return None
+
+    mentioned_space = next(
+        (
+            space
+            for space in ifc_context.get("spaces", [])
+            if space.get("name") and space["name"] in user_text
+        ),
+        None,
+    )
+
+    candidate_wall_ids: set[str] | None = None
+    if mentioned_space is not None:
+        candidate_wall_ids = {
+            wall["id"]
+            for wall in ifc_context.get("walls", [])
+            if mentioned_space.get("id") and mentioned_space["id"] in wall.get("space_ids", [])
+        }
+
+    pool = ifc_context.get("doors", []) if is_door else ifc_context.get("windows", [])
+    candidates = [
+        element
+        for element in pool
+        if candidate_wall_ids is None or element.get("host_wall_id") in candidate_wall_ids
+    ]
+
+    if len(candidates) == 1:
+        candidate = candidates[0]
+        return FloorNLPCommand(
+            action="delete_wall_void",
+            target_element_id=candidate["id"],
+            target_floor=candidate.get("floor"),
+            confidence=0.9,
+            needs_clarification=False,
+            clarification_question=None,
+        )
+    if len(candidates) == 0:
+        what = "문" if is_door else "창문"
+        return FloorNLPCommand(
+            action="delete_wall_void",
+            confidence=0.3,
+            needs_clarification=True,
+            clarification_question=f"삭제할 {what}을 찾지 못했습니다.",
+        )
+
+    what = "문" if is_door else "창문"
+    return FloorNLPCommand(
+        action="delete_wall_void",
+        confidence=0.4,
+        needs_clarification=True,
+        clarification_question=f"{what}이 여러 개 있습니다. 어느 방의 {what}을 삭제할까요?",
     )
 
 
@@ -605,6 +700,8 @@ SYSTEM_PROMPT = """
 
 ## 지원 액션
 - add_room: 방 추가
+- create_door: 지정 방 또는 벽에 문(IfcDoor) 생성. 방 이름 또는 target_wall_id 필수
+- delete_wall_void: 기존 문/창문 삭제. target_element_id 필수
 - remove_room: 방 삭제
 - resize_room: 방 크기 변경
 - set_adjacency: 방 인접 관계 설정
@@ -814,6 +911,10 @@ class FloorPlanEngine:
         create_door = _maybe_parse_simple_create_door_command(user_text, ifc_context)
         if create_door is not None:
             return create_door
+
+        delete_void = _maybe_parse_simple_delete_wall_void_command(user_text, ifc_context)
+        if delete_void is not None:
+            return delete_void
 
         insert_toilet = _maybe_parse_insert_toilet_command_v3(user_text)
         if insert_toilet is not None:
