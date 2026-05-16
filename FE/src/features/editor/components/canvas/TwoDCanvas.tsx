@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import type Konva from 'konva'
 import type {
   ConnectionData,
@@ -37,7 +37,9 @@ import { useWallDraftState } from './useWallDraftState'
 import { useTwoDCanvasStageHandlers } from './twoDCanvasStageHandlers'
 import {
   ROOM_POLYGON_MIN_VERTEX_COUNT,
+  distancePointToSegment,
   snapCoordinate,
+  wallThicknessMmToPx,
 } from './twoDCanvas.utils'
 
 // ── 유틸 ─────────────────────────────────────────────────────────────────────
@@ -102,6 +104,8 @@ interface TwoDCanvasProps {
   onWallMove?: (wallId: string, dx: number, dy: number) => void
   onWallEndpointChange?: (wallId: string, endpoint: 'start' | 'end', point: Point2D) => void
   onWallDelete?: (wallId: string) => void
+  selectedWallForChat?: { wallId: string } | null
+  onSelectWallForChat?: (wallId: string) => void
   onOpeningCreate?: (
     wallId: string,
     type: FloorOpening['type'],
@@ -166,6 +170,8 @@ export function TwoDCanvas({
   onWallMove,
   onWallEndpointChange,
   onWallDelete,
+  selectedWallForChat,
+  onSelectWallForChat,
   onOpeningCreate,
   onOpeningSelect,
   onOpeningMove,
@@ -186,6 +192,7 @@ export function TwoDCanvas({
   const [openingDragState, setOpeningDragState] = useState<{ openingId: string } | null>(null)
   const [resizingRoomBubbleId, setResizingRoomBubbleId] = useState<string | null>(null)
   const [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
+  const [wallContextMenu, setWallContextMenu] = useState<{ wallId: string; x: number; y: number } | null>(null)
   const isDrawingMarquee = useRef(false)
   const marqueeStart = useRef<Point2D | null>(null)
   const marqueeAppendRef = useRef(false)
@@ -373,13 +380,55 @@ export function TwoDCanvas({
     skipStageClickClearRef,
   })
 
+  const findContextMenuWallId = (point: Point2D): string | null => {
+    let nearestWallId: string | null = null
+    let nearestDistance = Number.POSITIVE_INFINITY
+
+    dedupedRenderWalls.forEach((wall) => {
+      const distance = distancePointToSegment(point, wall.start, wall.end)
+      const hitThreshold = Math.max(
+        24 / Math.max(scale, 0.25),
+        wallThicknessMmToPx(wall.thickness) + 14,
+      )
+      if (distance <= hitThreshold && distance < nearestDistance) {
+        nearestWallId = wall.id
+        nearestDistance = distance
+      }
+    })
+
+    return nearestWallId
+  }
+
+  const handleCanvasContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    if (!onSelectWallForChat || isInteractionLockedByCollaboration || isResizeTool) return
+    const stage = stageRef.current
+    if (!stage) return
+
+    stage.setPointersPositions(event.nativeEvent)
+    const point = getCanvasPoint(stage)
+    const wallId = point ? findContextMenuWallId(point) : null
+    if (!wallId) {
+      setWallContextMenu(null)
+      return
+    }
+    setWallContextMenu({ wallId, x: event.clientX, y: event.clientY })
+  }
+
+  useEffect(() => {
+    if (!wallContextMenu) return
+    const close = () => setWallContextMenu(null)
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [wallContextMenu])
+
   // ── 생성 전 / 생성 중 화면 ───────────────────────────────────────────────
   if (!isGenerated && !isGenerating) return <FloorPlanEmpty onGenerate={onGenerate} canGenerate={canGenerate} />
   if (isGenerating) return <FloorPlanLoading />
 
   // ── 생성 완료: Konva 평면도 렌더링 ───────────────────────────────────────
   return (
-    <div className="absolute inset-0">
+    <div className="absolute inset-0" onContextMenu={handleCanvasContextMenu}>
       <TwoDCanvasStage
         stageRef={stageRef}
         stageSize={stageSize}
@@ -433,6 +482,7 @@ export function TwoDCanvas({
         selectedWallId={selectedWallId}
         selectedWallIds={selectedWallIds}
         selectedWallGeometryKey={selectedWallGeometryKey}
+        chatSelectedWallId={selectedWallForChat?.wallId ?? null}
         wallById={wallById}
         openingSnapGuide={openingSnapGuide}
         outsideWallIds={siteValidation.outsideWallIds}
@@ -464,7 +514,32 @@ export function TwoDCanvas({
         marquee={marquee}
       />
       <TwoDSiteValidationBanner siteValidation={siteValidation} />
-
+      {wallContextMenu && (
+        <div
+          className="fixed z-[9999] min-w-[140px] rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg"
+          style={{ top: wallContextMenu.y, left: wallContextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+        >
+          <div className="border-b border-[#E2E8F0] px-3 py-1.5 text-[11px] font-semibold text-[#64748B]">
+            대상: 벽
+          </div>
+          <button
+            type="button"
+            className="w-full px-3 py-2 text-left text-[12px] text-[#1F2937] hover:bg-[#F0F2FF] hover:text-[#3B45B3]"
+            onClick={() => {
+              const wall = wallById.get(wallContextMenu.wallId)
+              onSelectWallForChat?.(wall?.globalId ?? wallContextMenu.wallId)
+              setWallContextMenu(null)
+            }}
+          >
+            채팅에서 선택
+          </button>
+        </div>
+      )}
     </div>
   )
 }

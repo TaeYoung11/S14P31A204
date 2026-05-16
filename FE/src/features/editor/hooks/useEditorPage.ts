@@ -524,7 +524,6 @@ export function useEditorPage() {
 
   // 우측 패널 드래그·리사이즈 상태
   const { panelOffsets, panelOpenState, panelHeights, panelWidths, panelZIndexes, startDrag, startResize, togglePanel, resetPanelPositions } = usePanels(mode)
-
   // 2D 평면도 층 상태
   const {
     isGenerated: isFloorPlanGenerated,
@@ -3792,6 +3791,12 @@ export function useEditorPage() {
     })
   }
 
+  const openAssistantPanel = useCallback(() => {
+    setIsAgentPanelMode(true)
+    setIsCollaborationMode(false)
+    setSelectedPinId(null)
+  }, [])
+
   const markPinNotificationsRead = useCallback((pinId: string) => {
     setCommentNotifications((prev) =>
       prev.map((notification) =>
@@ -5197,6 +5202,7 @@ export function useEditorPage() {
     floorWalls: floorWalls.length > 0 ? floorWalls : autoFloorWalls,
     floorOpenings: mergedFloorOpenings,
     onIfcResult: handleLlmIfcResult,
+    onToggleAssistantPanel: openAssistantPanel,
   })
 
   const {
@@ -5626,6 +5632,7 @@ export function useEditorPage() {
     llmMessage: llmEdit.message,
     llmSuggestions: llmEdit.suggestions,
     llmPreview: llmEdit.preview,
+    selectedWallForChat: llmEdit.selectedWallForChat,
     llmCanRun: llmEdit.canRun,
     llmActiveJobId: llmEdit.activeJobId,
     llmJobProgress: llmEdit.jobProgress,
@@ -5636,5 +5643,7 @@ export function useEditorPage() {
     applyLlmEdit: llmEdit.apply,
     discardLlmEdit: llmEdit.discard,
     selectLlmAlternative: llmEdit.selectAlternative,
+    selectWallForChat: llmEdit.selectWallForChat,
+    clearSelectedWallForChat: llmEdit.clearSelectedWallForChat,
   }
 }

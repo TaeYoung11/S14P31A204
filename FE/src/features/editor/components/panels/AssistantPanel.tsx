@@ -23,6 +23,7 @@ interface AssistantPanelProps {
   message: string
   suggestions: string[]
   preview: LlmEditPreview | null
+  selectedWallForChat?: { wallId: string } | null
   canRun: boolean
   activeJobId: string | null
   jobProgress: number | null
@@ -33,6 +34,7 @@ interface AssistantPanelProps {
   onRun: () => void
   onApply: () => void
   onDiscard: () => void
+  onClearSelectedWall?: () => void
   onSelectAlternative: (alternative: ClarificationAlternative) => void
   floorProjectImportMessage: string
   onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLElement>) => void
@@ -41,8 +43,9 @@ interface AssistantPanelProps {
 }
 
 const formatChatType = (type: LlmChatLogItem['type']) => {
-  if (type === 'assistant') return '바탕 Agent'
-  if (type === 'system') return 'System'
+  const upper = type?.toUpperCase()
+  if (upper === 'AI' || upper === 'ASSISTANT') return '바탕 Agent'
+  if (upper === 'SYSTEM') return 'System'
   return 'You'
 }
 
@@ -60,8 +63,8 @@ export function AssistantPanel({
   message,
   suggestions,
   preview,
+  selectedWallForChat,
   canRun,
-  activeJobId,
   jobProgress,
   clarificationArtifact,
   chatLogs,
@@ -70,6 +73,7 @@ export function AssistantPanel({
   onRun,
   onApply,
   onDiscard,
+  onClearSelectedWall,
   onSelectAlternative,
   floorProjectImportMessage,
   onDragStart,
@@ -93,7 +97,7 @@ export function AssistantPanel({
 
         <div className="space-y-3">
           {chatLogs.map((log) => {
-            const isUser = log.type === 'user'
+            const isUser = log.type?.toUpperCase() === 'USER'
             return (
               <div key={log.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
                 <div
@@ -172,10 +176,12 @@ export function AssistantPanel({
         isLoading={isLoading}
         canRun={canRun}
         preview={preview}
+        selectedWallForChat={selectedWallForChat}
         onPromptChange={onPromptChange}
         onRun={onRun}
         onApply={onApply}
         onDiscard={onDiscard}
+        onClearSelectedWall={onClearSelectedWall}
       />
     </div>
   )

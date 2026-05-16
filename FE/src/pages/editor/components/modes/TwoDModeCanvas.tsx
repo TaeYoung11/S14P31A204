@@ -8,12 +8,13 @@ const TwoDCanvas = lazy(() =>
 interface TwoDModeCanvasProps {
   editorProps: EditorCanvasRenderProps
   scale: number
+  onSelectWallForChat?: (wallId: string) => void
 }
 
 /**
  * 2D 평면도 모드의 캔버스 렌더링을 담당한다.
  */
-export default function TwoDModeCanvas({ editorProps, scale }: TwoDModeCanvasProps) {
+export default function TwoDModeCanvas({ editorProps, scale, onSelectWallForChat }: TwoDModeCanvasProps) {
   const visibleCommentPins = useMemo(() => {
     const activeIndex = editorProps.floorLayers.findIndex((layer) => layer.id === editorProps.activeFloorLayerId)
     if (activeIndex < 0) return editorProps.commentPins
@@ -63,6 +64,8 @@ export default function TwoDModeCanvas({ editorProps, scale }: TwoDModeCanvasPro
       onWallMove={editorProps.handleMoveFloorWall}
       onWallEndpointChange={editorProps.handleUpdateFloorWallEndpoint}
       onWallDelete={editorProps.handleDeleteFloorWall}
+      selectedWallForChat={editorProps.selectedWallForChat}
+      onSelectWallForChat={onSelectWallForChat}
       onOpeningCreate={editorProps.handleCreateFloorOpening}
       onOpeningSelect={editorProps.handleSelectFloorOpening}
       onOpeningMove={editorProps.handleMoveFloorOpening}

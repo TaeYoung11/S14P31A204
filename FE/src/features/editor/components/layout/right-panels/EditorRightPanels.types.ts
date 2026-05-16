@@ -116,6 +116,7 @@ export interface EditorRightPanelsProps {
   llmMessage: string
   llmSuggestions: string[]
   llmPreview: LlmEditPreview | null
+  selectedWallForChat?: { wallId: string } | null
   llmCanRun: boolean
   llmActiveJobId: string | null
   llmJobProgress: number | null
@@ -127,6 +128,7 @@ export interface EditorRightPanelsProps {
   onApplyLlmEdit: () => void
   onDiscardLlmEdit: () => void
   onSelectLlmAlternative: (alternative: ClarificationAlternative) => void
+  onClearSelectedWall?: () => void
   floorProjectImportMessage: string
   onImportFloorProjectIfc: (rawIfc: string, sourceName: string) => Promise<void>
   onPanelDragStart: (panelKey: PanelKey, event: ReactMouseEvent<HTMLElement>) => void

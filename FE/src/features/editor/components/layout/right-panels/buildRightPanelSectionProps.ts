@@ -157,6 +157,7 @@ export function buildAssistantSectionProps(vm: EditorRightPanelsProps): Assistan
     message: vm.llmMessage,
     suggestions: vm.llmSuggestions,
     preview: vm.llmPreview,
+    selectedWallForChat: vm.selectedWallForChat,
     canRun: vm.llmCanRun,
     activeJobId: vm.llmActiveJobId,
     jobProgress: vm.llmJobProgress,
@@ -168,6 +169,7 @@ export function buildAssistantSectionProps(vm: EditorRightPanelsProps): Assistan
     onApply: vm.onApplyLlmEdit,
     onDiscard: vm.onDiscardLlmEdit,
     onSelectAlternative: vm.onSelectLlmAlternative,
+    onClearSelectedWall: vm.onClearSelectedWall,
     floorProjectImportMessage: vm.floorProjectImportMessage,
   }
 }

@@ -32,6 +32,7 @@ interface UseLlmEditParams {
   floorWalls: FloorWall[]
   floorOpenings: FloorOpening[]
   onIfcResult: (ifcStorageUrl: string, assetId: string | null, revisionId: string | null) => void
+  onToggleAssistantPanel?: () => void
 }
 
 const JOB_POLL_INTERVAL_MS = 1500
@@ -95,6 +96,7 @@ export function useLlmEdit({
   floorWalls,
   floorOpenings,
   onIfcResult,
+  onToggleAssistantPanel,
 }: UseLlmEditParams) {
   const queryClient = useQueryClient()
   const requestSeq = useRef(0)
@@ -107,6 +109,7 @@ export function useLlmEdit({
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [jobProgress, setJobProgress] = useState<number | null>(null)
   const [clarificationArtifact, setClarificationArtifact] = useState<ClarificationArtifact | null>(null)
+  const [selectedWallForChat, setSelectedWallForChat] = useState<{ wallId: string } | null>(null)
 
   useEffect(() => {
     latestIfcRevisionIdRef.current = currentIfcRevisionId
@@ -132,6 +135,15 @@ export function useLlmEdit({
     setActiveJobId(null)
     setJobProgress(null)
     setClarificationArtifact(null)
+  }, [])
+
+  const selectWallForChat = useCallback((wallId: string) => {
+    setSelectedWallForChat({ wallId })
+    onToggleAssistantPanel?.()
+  }, [onToggleAssistantPanel])
+
+  const clearSelectedWallForChat = useCallback(() => {
+    setSelectedWallForChat(null)
   }, [])
 
   const waitForTerminalJob = useCallback(async (
@@ -182,6 +194,13 @@ export function useLlmEdit({
         sourceScene: buildSourceScene(mode, bubbles, connections, floorLayers, activeFloorLayerId, floorWalls, floorOpenings),
       }
       const history = clarificationHistoryRef.current
+      const wallPlannerOptions = selectedWallForChat
+        ? { selectedWallId: selectedWallForChat.wallId }
+        : undefined
+      const mergedPlannerOptions = {
+        ...(extras?.plannerOptions ?? {}),
+        ...(wallPlannerOptions ?? {}),
+      }
       const job = await submitLlmChatCommand({
         projectId,
         sceneType,
@@ -189,10 +208,11 @@ export function useLlmEdit({
         sourceSceneType: 'IFC_MODEL',
         message: effectivePrompt,
         ...(history.length > 0 ? { conversationHistory: history } : {}),
-        ...(extras?.plannerOptions ? { plannerOptions: extras.plannerOptions } : {}),
+        ...(Object.keys(mergedPlannerOptions).length > 0 ? { plannerOptions: mergedPlannerOptions } : {}),
         ...sourceScenePayload,
       })
       clarificationHistoryRef.current = []
+      setSelectedWallForChat(null)
 
       if (currentSeq !== requestSeq.current) return
       setActiveJobId(job.jobId)
@@ -245,7 +265,11 @@ export function useLlmEdit({
         return
       }
 
-      if (latestIfcRevisionIdRef.current !== requestBaseRevisionId) {
+      const latestRevisionId = latestIfcRevisionIdRef.current
+      const alreadyAdvancedToJobRevision = Boolean(
+        targetRevisionId && latestRevisionId === targetRevisionId,
+      )
+      if (latestRevisionId !== requestBaseRevisionId && !alreadyAdvancedToJobRevision) {
         setStatus('error')
         setMessage('LLM 요청 중 IFC revision이 변경되어 결과를 적용하지 않았습니다.')
         void queryClient.invalidateQueries({ queryKey: llmEditQueryKeys.chatLogs(projectId) })
@@ -253,8 +277,8 @@ export function useLlmEdit({
       }
 
       onIfcResult(outputUrl, outputArtifactId ?? null, targetRevisionId ?? null)
-      setStatus('applied')
-      setMessage('AI 편집 결과 IFC를 불러오는 중입니다.')
+      setStatus('idle')
+      setMessage('')
       setPrompt('')
       void queryClient.invalidateQueries({ queryKey: llmEditQueryKeys.chatLogs(projectId) })
     } catch (error: unknown) {
@@ -278,6 +302,7 @@ export function useLlmEdit({
     isLoading,
     mode,
     onIfcResult,
+    selectedWallForChat,
     projectId,
     prompt,
     queryClient,
@@ -297,6 +322,7 @@ export function useLlmEdit({
   const discard = useCallback(() => {
     clarificationHistoryRef.current = []
     requestSeq.current += 1
+    setSelectedWallForChat(null)
     setStatus('idle')
     resetResultState()
   }, [resetResultState])
@@ -314,11 +340,14 @@ export function useLlmEdit({
     activeJobId,
     jobProgress,
     clarificationArtifact,
+    selectedWallForChat,
     chatLogs: chatLogsQuery.data ?? [],
     isChatLogsLoading: chatLogsQuery.isLoading,
     run,
     apply: () => {},
     discard,
     selectAlternative,
+    selectWallForChat,
+    clearSelectedWallForChat,
   }
 }

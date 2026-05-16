@@ -359,8 +359,8 @@ export function useTwoDCanvasStageHandlers({
   }
 
   const onContextMenu = (e: KonvaEventObject<MouseEvent>) => {
-    if (!isWallTool || !isDrawingWall) return
     e.evt.preventDefault()
+    if (!isWallTool || !isDrawingWall) return
     cancelWallDraft()
   }
 
