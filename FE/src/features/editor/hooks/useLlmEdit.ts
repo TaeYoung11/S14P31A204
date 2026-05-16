@@ -99,6 +99,7 @@ export function useLlmEdit({
   const queryClient = useQueryClient()
   const requestSeq = useRef(0)
   const latestIfcRevisionIdRef = useRef(currentIfcRevisionId)
+  const clarificationHistoryRef = useRef<Array<{ role: 'user' | 'assistant' | 'system'; content: string }>>([])
   const [prompt, setPrompt] = useState('')
   const [status, setStatus] = useState<LlmEditStatus>('idle')
   const [message, setMessage] = useState('')
@@ -152,7 +153,9 @@ export function useLlmEdit({
     throw new Error('AI 편집 작업 상태 조회 시간이 초과되었습니다.')
   }, [])
 
-  const run = useCallback(async (promptOverride?: string) => {
+  const run = useCallback(async (promptOverride?: string, extras?: {
+    plannerOptions?: Record<string, unknown>
+  }) => {
     if (!projectId) {
       setStatus('error')
       setMessage('프로젝트 ID가 없어 AI 편집 요청을 보낼 수 없습니다.')
@@ -178,14 +181,18 @@ export function useLlmEdit({
         ...(currentIfcUrl ? { sourceSceneStorageUrl: currentIfcUrl } : {}),
         sourceScene: buildSourceScene(mode, bubbles, connections, floorLayers, activeFloorLayerId, floorWalls, floorOpenings),
       }
+      const history = clarificationHistoryRef.current
       const job = await submitLlmChatCommand({
         projectId,
         sceneType,
         baseRevisionId: requestBaseRevisionId,
         sourceSceneType: 'IFC_MODEL',
         message: effectivePrompt,
+        ...(history.length > 0 ? { conversationHistory: history } : {}),
+        ...(extras?.plannerOptions ? { plannerOptions: extras.plannerOptions } : {}),
         ...sourceScenePayload,
       })
+      clarificationHistoryRef.current = []
 
       if (currentSeq !== requestSeq.current) return
       setActiveJobId(job.jobId)
@@ -204,6 +211,10 @@ export function useLlmEdit({
             const artifact = await fetchClarificationArtifact(detailUrl)
             setClarificationArtifact(artifact)
             setMessage(artifact.question)
+            clarificationHistoryRef.current = [
+              { role: 'user', content: effectivePrompt },
+              { role: 'assistant', content: artifact.question },
+            ]
           } catch {
             setMessage('추가 정보가 필요합니다.')
           }
@@ -247,6 +258,7 @@ export function useLlmEdit({
       setPrompt('')
       void queryClient.invalidateQueries({ queryKey: llmEditQueryKeys.chatLogs(projectId) })
     } catch (error: unknown) {
+      clarificationHistoryRef.current = []
       if (currentSeq !== requestSeq.current) return
       setStatus('error')
       setMessage(extractLlmEditErrorMessage(error))
@@ -274,13 +286,16 @@ export function useLlmEdit({
   ])
 
   const selectAlternative = useCallback((alternative: ClarificationAlternative) => {
+    const hasFill = alternative.fill && Object.keys(alternative.fill).length > 0
+    const plannerOptions = hasFill ? (alternative.fill as Record<string, unknown>) : undefined
     setPrompt(alternative.title)
     setClarificationArtifact(null)
     setMessage('')
-    void run(alternative.title)
+    void run(alternative.title, plannerOptions ? { plannerOptions } : undefined)
   }, [run])
 
   const discard = useCallback(() => {
+    clarificationHistoryRef.current = []
     requestSeq.current += 1
     setStatus('idle')
     resetResultState()
