@@ -253,7 +253,7 @@ public class TwoDLlmEventListener {
         ));
     }
 
-    private void handleClarificationRequired(IfcEditEventMessage event) {
+    private void handleLegacyClarificationRequired(IfcEditEventMessage event) {
         LocalDateTime now = LocalDateTime.now();
         IfcEditJob job = ifcEditJobRepository.findByJobIdAndJobType(event.jobId(), JOB_TYPE_TWO_D_TO_IFC_EDIT)
                 .orElseThrow(() -> new CustomException(ErrorCode.IFC_EDIT_JOB_NOT_FOUND));

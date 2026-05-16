@@ -61,7 +61,6 @@ public class ThreeDLlmEventListener {
             case EVENT_THREE_D_LLM_COMPLETED -> handleCompleted(event);
             case EVENT_THREE_D_LLM_CLARIFICATION_REQUIRED -> handleClarificationRequired(event);
             case EVENT_THREE_D_LLM_FAILED -> handleFailed(event);
-            case EVENT_THREE_D_LLM_CLARIFICATION_REQUIRED -> handleClarificationRequired(event);
             default -> {
             }
         }
@@ -254,7 +253,7 @@ public class ThreeDLlmEventListener {
         ));
     }
 
-    private void handleClarificationRequired(IfcEditEventMessage event) {
+    private void handleLegacyClarificationRequired(IfcEditEventMessage event) {
         LocalDateTime now = LocalDateTime.now();
         IfcEditJob job = ifcEditJobRepository.findByJobIdAndJobType(event.jobId(), JOB_TYPE_THREE_D_TO_IFC_EDIT)
                 .orElseThrow(() -> new CustomException(ErrorCode.IFC_EDIT_JOB_NOT_FOUND));
