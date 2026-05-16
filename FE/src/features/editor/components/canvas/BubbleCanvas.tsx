@@ -9,6 +9,7 @@ import { validateBubblesInSiteBoundary } from '../../utils/siteBoundaryValidatio
 import BubbleZoneLayer from './BubbleZoneLayer'
 import { AUTO_ZONE_STYLE, MANUAL_ZONE_STYLE } from './bubbleZoneStyles'
 import { fitSingleLineFontSize } from './canvasTextFit'
+import { useCanvasCoordinateHelpers } from './useCanvasCoordinateHelpers'
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -195,6 +196,15 @@ export function BubbleCanvas({
   const isBubbleEditable = !isReadOnly
   const baseOffsetX = (stageSize.width * (1 - scale)) / 2
   const baseOffsetY = (stageSize.height * (1 - scale)) / 2
+  // 스케일/패닝이 적용된 Stage에서도 항상 동일한 로컬 캔버스 좌표를 얻기 위한 변환 헬퍼.
+  const { getCanvasPoint } = useCanvasCoordinateHelpers({
+    scale,
+    baseOffsetX,
+    baseOffsetY,
+    panOffsetX: panOffset.x,
+    panOffsetY: panOffset.y,
+    isPanMode,
+  })
 
   /** 버블 타원의 상·우·하·좌 4방향 앵커 포인트 반환 (연결 포인트 표시용) */
   const getAnchorPoints = (bubble: BubbleData) => [
@@ -389,7 +399,7 @@ export function BubbleCanvas({
         }
         const stage = e.target.getStage()
         if (!stage) return
-        const pos = stage.getRelativePointerPosition()
+        const pos = getCanvasPoint(stage)
         if (!pos) return
         isDrawingMarquee.current = true
         marqueeStart.current = pos
@@ -399,7 +409,7 @@ export function BubbleCanvas({
         if (bubblePointerDragRef.current) {
           const stage = e.target.getStage()
           if (!stage) return
-          const pos = stage.getRelativePointerPosition()
+          const pos = getCanvasPoint(stage)
           if (!pos) return
           const drag = bubblePointerDragRef.current
           onBubbleDrag(
@@ -412,7 +422,7 @@ export function BubbleCanvas({
         if (connectionDrag) {
           const stage = e.target.getStage()
           if (!stage) return
-          const pos = stage.getRelativePointerPosition()
+          const pos = getCanvasPoint(stage)
           if (!pos) return
           setConnectionDrag((prev) => (prev ? { ...prev, endX: pos.x, endY: pos.y } : prev))
           return
@@ -420,7 +430,7 @@ export function BubbleCanvas({
         if (!isDrawingMarquee.current || !marqueeStart.current) return
         const stage = e.target.getStage()
         if (!stage) return
-        const pos = stage.getRelativePointerPosition()
+        const pos = getCanvasPoint(stage)
         if (!pos) return
         const sx = marqueeStart.current.x
         const sy = marqueeStart.current.y
@@ -448,7 +458,7 @@ export function BubbleCanvas({
         }
         if (connectionDrag) {
           const stage = e.target.getStage()
-          const pos = stage?.getRelativePointerPosition()
+          const pos = stage ? getCanvasPoint(stage) : null
           if (pos) {
             const target = findBubbleByPoint(pos.x, pos.y)
             if (target && target.id !== connectionDrag.fromId) {
@@ -498,7 +508,9 @@ export function BubbleCanvas({
         if (!stage) return
         const containerPos = stage.getPointerPosition()
         if (!containerPos) return
-        const localPos = stage.getAbsoluteTransform().copy().invert().point(containerPos)
+        // getCanvasPoint를 사용해 현재 Stage transform을 역변환한 실제 캔버스 좌표를 얻는다.
+        const localPos = getCanvasPoint(stage)
+        if (!localPos) return
         if (!Number.isFinite(localPos.x) || !Number.isFinite(localPos.y)) return
 
         // 버블 위 클릭은 Stage로 올라오지 않지만, 안전하게 한 번 더 필터링한다.
@@ -654,7 +666,7 @@ export function BubbleCanvas({
                 if (!isBubbleEditable) return
                 if (selectedTool === 'selection') {
                   const stage = e.target.getStage()
-                  const pos = stage?.getRelativePointerPosition()
+                  const pos = stage ? getCanvasPoint(stage) : null
                   if (!pos) return
                   e.cancelBubble = true
                   onBubbleDragStart?.()
@@ -672,7 +684,7 @@ export function BubbleCanvas({
                 }
                 if (selectedTool !== 'connect') return
                 const stage = e.target.getStage()
-                const pos = stage?.getRelativePointerPosition()
+                const pos = stage ? getCanvasPoint(stage) : null
                 if (!pos) return
                 const anchor = getNearestAnchorPoint(bubble, pos.x, pos.y)
                 e.cancelBubble = true
