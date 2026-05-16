@@ -1,6 +1,7 @@
-import { Loader2, SendHorizontal, X } from 'lucide-react'
-import { useEffect, useRef, type KeyboardEvent } from 'react'
+import { Loader2, SendHorizontal, Sparkles, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import type { LlmEditPreview, LlmEditStatus } from '../../../types/llmEdit.types'
+import { filterLlmDemoShortcuts, resolveLlmDemoShortcut } from '../../../utils/llmDemoShortcuts'
 
 interface AssistantPromptSectionProps {
   prompt: string
@@ -31,6 +32,9 @@ export function AssistantPromptSection({
   onClearSelectedWall,
 }: AssistantPromptSectionProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const [isFocused, setIsFocused] = useState(false)
+  const shortcutOptions = useMemo(() => filterLlmDemoShortcuts(prompt), [prompt])
+  const showShortcuts = isFocused && !isLoading && prompt.trim().startsWith('/') && shortcutOptions.length > 0
   const selectedWallPreview = selectedWallForChat
     ? selectedWallForChat.wallId.slice(0, 12)
     : ''
@@ -46,8 +50,18 @@ export function AssistantPromptSection({
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Tab' && showShortcuts) {
+      event.preventDefault()
+      onPromptChange(shortcutOptions[0].prompt)
+      return
+    }
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
     event.preventDefault()
+    const shortcut = resolveLlmDemoShortcut(prompt)
+    if (shortcut) {
+      onPromptChange(shortcut.prompt)
+      return
+    }
     handleSubmit()
   }
 
@@ -111,12 +125,38 @@ export function AssistantPromptSection({
         </div>
       )}
 
-      <div className="rounded-2xl border border-[#D8DEE9] bg-white px-3 py-2 shadow-sm">
+      <div className="relative rounded-2xl border border-[#D8DEE9] bg-white px-3 py-2 shadow-sm">
+        {showShortcuts && (
+          <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 overflow-hidden rounded-lg border border-[#D8DEE9] bg-white shadow-lg">
+            {shortcutOptions.map((shortcut) => (
+              <button
+                key={shortcut.command}
+                type="button"
+                onMouseDown={(event) => {
+                  event.preventDefault()
+                  onPromptChange(shortcut.prompt)
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[#F1F5F9]"
+              >
+                <Sparkles size={13} className="shrink-0 text-[#3B45B3]" />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2">
+                    <span className="text-[12px] font-bold text-[#1F2937]">{shortcut.command}</span>
+                    <span className="truncate text-[11px] font-medium text-[#475569]">{shortcut.label}</span>
+                  </span>
+                  <span className="block truncate text-[11px] text-[#64748B]">{shortcut.description}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           value={prompt}
           onChange={(event) => onPromptChange(event.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
           placeholder="Ask anything"
           rows={1}
           className="max-h-28 min-h-[34px] w-full resize-none bg-transparent py-1.5 text-[12px] leading-5 text-[#1F2937] outline-none placeholder:text-[#94A3B8]"
