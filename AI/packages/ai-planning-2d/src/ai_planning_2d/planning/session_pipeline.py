@@ -65,11 +65,13 @@ class LLM2DPipeline:
         user_text: str,
         *,
         conversation_history: list[ChatCompletionMessageParam] | None = None,
+        selected_wall_id: str | None = None,
     ) -> dict[str, Any]:
         command = await self.engine.parse_command(
             user_text,
             self.ifc_context,
             conversation_history=conversation_history,
+            selected_wall_id=selected_wall_id,
         )
         return await self.execute_command_preview(command)
 

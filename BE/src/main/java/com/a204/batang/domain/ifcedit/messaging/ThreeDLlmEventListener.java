@@ -61,6 +61,7 @@ public class ThreeDLlmEventListener {
             case EVENT_THREE_D_LLM_COMPLETED -> handleCompleted(event);
             case EVENT_THREE_D_LLM_CLARIFICATION_REQUIRED -> handleClarificationRequired(event);
             case EVENT_THREE_D_LLM_FAILED -> handleFailed(event);
+            case EVENT_THREE_D_LLM_CLARIFICATION_REQUIRED -> handleClarificationRequired(event);
             default -> {
             }
         }
@@ -322,6 +323,36 @@ public class ThreeDLlmEventListener {
         ));
     }
 
+    private void handleClarificationRequired(IfcEditEventMessage event) {
+        LocalDateTime now = LocalDateTime.now();
+        IfcEditJob job = findJob(event);
+        IfcEditJobStep step = findStep(event);
+
+        if (job.isTerminal() || step.isTerminal()) {
+            log.info("3D LLM clarification_required 이벤트를 무시합니다. jobId={}, reason=terminal-state",
+                    event.jobId());
+            return;
+        }
+
+        IfcEditWorkerError error = event.error();
+        String errorCode = error != null && error.code() != null
+                ? error.code() : "CLARIFICATION_REQUIRED";
+        String errorMessage = error != null && error.message() != null
+                ? error.message() : "추가 확인이 필요합니다.";
+
+        JsonNode outputPayload = buildClarificationRequiredPayload(event, errorCode, errorMessage);
+        step.markFailed(errorCode, errorMessage, outputPayload, now);
+        job.markFailed(errorMessage, outputPayload, now);
+
+        log.warn("3D LLM clarification_required 이벤트를 반영했습니다. jobId={}, detailStorageUrl={}",
+                event.jobId(), error != null ? error.detailStorageUrl() : null);
+
+        publishStatusEvent(event.projectId(), SSE_IFC_EDIT_CLARIFICATION_REQUIRED, new IfcEditStatusSseResponse(
+                SSE_IFC_EDIT_CLARIFICATION_REQUIRED, event.projectId(), event.jobId(), event.jobStepId(),
+                null, job.getJobType(), "FAILED", 0, errorMessage
+        ));
+    }
+
     private IfcEditJob findJob(IfcEditEventMessage event) {
         return ifcEditJobRepository.findByJobIdAndJobType(event.jobId(), JOB_TYPE_THREE_D_TO_IFC_EDIT)
                 .orElseThrow(() -> new CustomException(ErrorCode.IFC_EDIT_JOB_NOT_FOUND));
@@ -381,6 +412,22 @@ public class ThreeDLlmEventListener {
             payload.put("clarificationPossible", error.clarificationPossible());
             payload.put("detailStorageUrl", error.detailStorageUrl());
         }
+        return objectMapper.valueToTree(payload);
+    }
+
+    private JsonNode buildClarificationRequiredPayload(
+            IfcEditEventMessage event,
+            String errorCode,
+            String errorMessage
+    ) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("eventType", event.eventType());
+        payload.put("errorCode", errorCode);
+        payload.put("errorMessage", errorMessage);
+        IfcEditWorkerError error = event.error();
+        payload.put("retryable", error != null && Boolean.TRUE.equals(error.retryable()));
+        payload.put("clarificationPossible", true);
+        payload.put("detailStorageUrl", error != null ? error.detailStorageUrl() : null);
         return objectMapper.valueToTree(payload);
     }
 

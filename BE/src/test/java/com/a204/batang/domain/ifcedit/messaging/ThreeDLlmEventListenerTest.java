@@ -183,6 +183,46 @@ class ThreeDLlmEventListenerTest {
         verify(eventPublisher).publishEvent(any(IfcEditStatusChangedEvent.class));
     }
 
+    @Test
+    void handleClarificationRequired_marksJobAndStepFailedWithClarificationPayload() {
+        String detailStorageUrl = "s3://batang-artifacts/projects/p/clarification/detail.v1.json";
+        IfcEditEventMessage event = buildEvent(
+                EVENT_THREE_D_LLM_CLARIFICATION_REQUIRED,
+                null,
+                new IfcEditWorkerError(
+                        "CLARIFICATION_REQUIRED",
+                        "어느 요소를 수정할까요?",
+                        false,
+                        true,
+                        detailStorageUrl
+                ),
+                0.0
+        );
+
+        given(ifcEditJobRepository.findByJobIdAndJobType(jobId, JOB_TYPE_THREE_D_TO_IFC_EDIT))
+                .willReturn(Optional.of(job));
+        given(ifcEditJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId))
+                .willReturn(Optional.of(step1));
+
+        listener.handle(event);
+
+        assertThat(job.getStatus()).isEqualTo("FAILED");
+        assertThat(step1.getStatus()).isEqualTo("FAILED");
+        assertThat(job.isTerminal()).isTrue();
+        assertThat(job.getResultPayload().get("errorCode").asText())
+                .isEqualTo("CLARIFICATION_REQUIRED");
+        assertThat(job.getResultPayload().get("clarificationPossible").asBoolean()).isTrue();
+        assertThat(job.getResultPayload().get("detailStorageUrl").asText())
+                .isEqualTo(detailStorageUrl);
+        assertThat(step1.getOutputPayload().get("clarificationPossible").asBoolean()).isTrue();
+
+        ArgumentCaptor<IfcEditStatusChangedEvent> eventCaptor =
+                ArgumentCaptor.forClass(IfcEditStatusChangedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().eventName()).isEqualTo(SSE_IFC_EDIT_CLARIFICATION_REQUIRED);
+        assertThat(eventCaptor.getValue().payload().status()).isEqualTo("FAILED");
+    }
+
     private IfcEditEventMessage buildEvent(String eventType, Map<String, Object> output,
                                            IfcEditWorkerError error, double progress) {
         return new IfcEditEventMessage(

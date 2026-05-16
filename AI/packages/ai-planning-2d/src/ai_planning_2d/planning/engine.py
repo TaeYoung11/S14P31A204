@@ -124,6 +124,24 @@ def _extract_target_floor(user_text: str) -> int | None:
     return int(match.group(1))
 
 
+def _selected_wall_id_from_text(
+    user_text: str,
+    ifc_context: IFCContext | None,
+) -> str | None:
+    if ifc_context is None:
+        return None
+    wall_ids = {
+        wall.get("id")
+        for wall in ifc_context.get("walls", [])
+        if isinstance(wall.get("id"), str)
+    }
+    for match in re.findall(r"\[([^\]]+)\]", user_text):
+        candidate = match.strip()
+        if candidate in wall_ids:
+            return candidate
+    return None
+
+
 def _extract_recent_user_remove_target(
     conversation_history: list[ChatCompletionMessageParam] | None,
     ifc_context: IFCContext | None,
@@ -891,7 +909,29 @@ class FloorPlanEngine:
         user_text: str,
         ifc_context: IFCContext | None = None,
         conversation_history: list[ChatCompletionMessageParam] | None = None,
+        selected_wall_id: str | None = None,
     ) -> FloorNLPCommand:
+        if selected_wall_id is None:
+            selected_wall_id = _selected_wall_id_from_text(user_text, ifc_context)
+        if selected_wall_id is not None:
+            target_floor: int | None = None
+            if ifc_context is not None:
+                for wall in ifc_context.get("walls", []):
+                    if wall.get("id") == selected_wall_id:
+                        floor = wall.get("floor")
+                        target_floor = floor if isinstance(floor, int) else None
+                        break
+            return FloorNLPCommand(
+                action="create_door",
+                target_wall_id=selected_wall_id,
+                target_floor=target_floor,
+                element_width_mm=900,
+                element_height_mm=2100,
+                confidence=0.99,
+                needs_clarification=False,
+                clarification_question=None,
+            )
+
         clarification_followup_remove = _recover_followup_remove_command(
             user_text,
             ifc_context,

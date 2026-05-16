@@ -105,6 +105,9 @@ def run_two_d_llm_job(
                 project_id="local-2d",
                 base_revision_id=None,
                 clarification_request_id=f"2d-local-{Path(input_path).stem}",
+                selected_wall_id=_selected_wall_id_from_planner_options(
+                    request.plannerOptions
+                ),
             )
         )
     except ClarificationRequiredError as exc:
@@ -192,6 +195,9 @@ class TwoDLlmWorker(BaseWorker):
                         user_instruction=payload.userInstruction,
                         conversation_history=_conversation_history_to_openai_messages(
                             payload.conversationHistory
+                        ),
+                        selected_wall_id=_selected_wall_id_from_planner_options(
+                            payload.plannerOptions
                         ),
                         input_path=str(source_path),
                         output_path=str(output_path),
@@ -387,6 +393,7 @@ async def _run_pipeline(
     project_id: str,
     base_revision_id: str | None,
     clarification_request_id: str,
+    selected_wall_id: str | None = None,
 ) -> dict[str, Any]:
     try:
         ifc_context = extract_ifc_context(input_path)
@@ -425,6 +432,7 @@ async def _run_pipeline(
     preview = await pipeline.execute_preview(
         user_instruction,
         conversation_history=conversation_history,
+        selected_wall_id=selected_wall_id,
     )
 
     status = preview.get("status")
@@ -755,6 +763,15 @@ def _error_result(code: str, message: str, details: Sequence[object]) -> dict[st
         "message": message,
         "details": details,
     }
+
+
+def _selected_wall_id_from_planner_options(
+    planner_options: dict[str, Any] | None,
+) -> str | None:
+    if not isinstance(planner_options, dict):
+        return None
+    selected_wall_id = planner_options.get("selectedWallId")
+    return selected_wall_id if isinstance(selected_wall_id, str) else None
 
 
 def _conversation_history_to_openai_messages(

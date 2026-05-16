@@ -118,7 +118,7 @@ def _build_operations(
             "shared apply payloads"
         )
     if command.action == "create_door":
-        return _build_create_door_operations(command_batch=command_batch)
+        return _build_create_door_operations(command=command, command_batch=command_batch)
     if command.action == "delete_wall_void":
         return _build_delete_wall_void_operations(command_batch=command_batch)
 
@@ -127,6 +127,7 @@ def _build_operations(
 
 def _build_create_door_operations(
     *,
+    command: FloorNLPCommand,
     command_batch: CommandBatch,
 ) -> list[EngineOperationInlineRef]:
     if not command_batch.commands:
@@ -151,7 +152,7 @@ def _build_create_door_operations(
                 "element_type": "IfcDoor",
                 "storey_id": storey_id,
                 "host_wall_global_id": host_wall_id,
-                "require_template_reuse": True,
+                "require_template_reuse": command.confidence < 0.99,
                 "start_mm": {
                     "x": float(location[0]),
                     "y": float(location[1]),

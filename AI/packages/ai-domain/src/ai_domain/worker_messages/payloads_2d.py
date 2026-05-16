@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -14,6 +14,8 @@ class TwoDLlmCommandPayload(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     userInstruction: str = Field(min_length=1, alias="user_instruction")
+    plannerOptions: dict[str, Any] | None = Field(default=None, alias="planner_options")
+    sourceScene: dict[str, Any] | None = Field(default=None, alias="source_scene")
     sourceSceneStorageUrl: str | None = Field(
         default=None,
         min_length=1,

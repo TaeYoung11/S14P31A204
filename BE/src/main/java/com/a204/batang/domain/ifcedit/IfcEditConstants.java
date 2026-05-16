@@ -45,6 +45,7 @@ public final class IfcEditConstants {
     public static final String SSE_IFC_EDIT_PROGRESS = "IFC_EDIT_PROGRESS";
     public static final String SSE_IFC_EDIT_COMPLETED = "IFC_EDIT_COMPLETED";
     public static final String SSE_IFC_EDIT_FAILED = "IFC_EDIT_FAILED";
+    public static final String SSE_IFC_EDIT_CLARIFICATION_REQUIRED = "IFC_EDIT_CLARIFICATION_REQUIRED";
 
     public static final int TOTAL_STEPS_DIRECT = 1;
     public static final int TOTAL_STEPS_LLM = 2;
