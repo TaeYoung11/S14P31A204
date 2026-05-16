@@ -11,16 +11,11 @@ interface FloorPlanEmptyProps {
 
 /**
  * 평면도가 아직 생성되지 않은 경우 표시되는 안내 화면
- * "평면도 생성 시작" 버튼 클릭 시 onGenerate 호출
  */
 export function FloorPlanEmpty({ onGenerate, canGenerate = true }: FloorPlanEmptyProps) {
   const description = canGenerate
-    ? '버블 다이어그램의 공간 크기와 연결 관계를 바탕으로\n2D 평면도 초안을 자동 생성합니다.'
-    : '버블 다이어그램에서 공간을 1개 이상 추가하면\n2D 평면도를 생성할 수 있습니다.'
-
-  const helper = canGenerate
-    ? '생성 후 바로 2D 편집 모드로 이어집니다.'
-    : '먼저 버블 탭에서 공간을 추가한 뒤 다시 시도해 주세요.'
+    ? '생성 후 2D 편집이 열립니다.'
+    : '버블 공간을 1개 이상 추가해 주세요.'
 
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-white">
@@ -32,7 +27,7 @@ export function FloorPlanEmpty({ onGenerate, canGenerate = true }: FloorPlanEmpt
 
           <div className="flex flex-col gap-2">
             <h3 className="text-[16px] font-extrabold tracking-[-0.01em] text-[#1C1C1E]">
-              2D 평면도 자동 생성
+              평면도 편집 시작
             </h3>
             <p className="whitespace-pre-line text-[12px] leading-relaxed text-[#637190]">
               {description}
@@ -45,12 +40,9 @@ export function FloorPlanEmpty({ onGenerate, canGenerate = true }: FloorPlanEmpt
             className="inline-flex items-center gap-2 rounded-2xl bg-[#3B45B3] px-6 py-3 text-[12px] font-extrabold text-white shadow-md transition-all hover:bg-[#2D3599] hover:shadow-lg active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Sparkles size={15} />
-            평면도 생성 시작
+            평면도 자동 생성
           </button>
 
-          <p className={`text-[11px] leading-relaxed ${canGenerate ? 'text-[#8A94AB]' : 'text-[#D14343]'}`}>
-            {helper}
-          </p>
         </div>
       </div>
     </div>
