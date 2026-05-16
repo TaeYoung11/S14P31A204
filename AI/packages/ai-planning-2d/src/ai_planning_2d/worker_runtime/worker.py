@@ -28,6 +28,7 @@ from ai_common.storage.paths import (
 from ai_common.worker_sdk.base_worker import BaseWorker, EventPublisher
 from ai_common.worker_sdk.event_factory import CompletedResult, WorkerResult
 from ai_domain import CommandMessage, EventOutputRef, TwoDLlmCommandPayload
+from ai_domain.worker_messages.payloads_2d import ConversationHistoryMessage
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import ValidationError
 
@@ -757,22 +758,15 @@ def _error_result(code: str, message: str, details: Sequence[object]) -> dict[st
 
 
 def _conversation_history_to_openai_messages(
-    history: Sequence[object] | None,
+    history: Sequence[ConversationHistoryMessage] | None,
 ) -> list[ChatCompletionMessageParam]:
     if not history:
         return []
 
     messages: list[ChatCompletionMessageParam] = []
     for item in history:
-        if not hasattr(item, "role") or not hasattr(item, "content"):
-            continue
-        role = getattr(item, "role")
-        content = getattr(item, "content")
-        if role not in {"system", "user", "assistant"}:
-            continue
-        if not isinstance(content, str) or not content.strip():
-            continue
-        messages.append({"role": role, "content": content})
+        if item.content.strip():
+            messages.append({"role": item.role, "content": item.content})
     return messages
 
 
