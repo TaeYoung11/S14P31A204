@@ -31,6 +31,7 @@ public final class IfcEditConstants {
     public static final String EVENT_THREE_D_LLM_PROGRESS = "THREE_D_LLM_PROGRESS";
     public static final String EVENT_THREE_D_LLM_COMPLETED = "THREE_D_LLM_COMPLETED";
     public static final String EVENT_THREE_D_LLM_FAILED = "THREE_D_LLM_FAILED";
+    public static final String EVENT_THREE_D_LLM_CLARIFICATION_REQUIRED = "THREE_D_LLM_CLARIFICATION_REQUIRED";
 
     public static final String ARTIFACT_TYPE_IFC_MODEL = "IFC_MODEL";
     public static final String ARTIFACT_TYPE_VALIDATION_REPORT = "VALIDATION_REPORT";
