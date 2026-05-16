@@ -10,8 +10,8 @@ import {
 import { FLOOR_MM_PER_PX, SITE_RAW_POINTS } from '../constants'
 import type { BubbleData, FloorOpening, FloorRoom, FloorWall, SaveStatus } from '../types'
 import { centerSitePoints, fitSitePointsToStage } from '../utils/bubbleCalc'
-import { ensureSiteContainsBubbles } from '../utils/editorViewport'
-import { alignFlatPointsToAxis } from '../utils/sitePointTransform'
+import { ensureSiteContainsBubbles, type ViewportInsets } from '../utils/editorViewport'
+import { alignFlatPointsToAxis, getFlatPointsBounds, translateFlatPoints } from '../utils/sitePointTransform'
 import {
   DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
   resolveMmPerPxForFloorPlan,
@@ -36,6 +36,7 @@ interface UseEditorSiteBoundaryParams {
   projectId: string | undefined
   stageWidth: number
   stageHeight: number
+  viewportInsets?: Partial<ViewportInsets>
   bubbles: BubbleData[]
   floorRooms: FloorRoom[]
   floorWalls: FloorWall[]
@@ -58,6 +59,7 @@ export function useEditorSiteBoundary({
   projectId,
   stageWidth,
   stageHeight,
+  viewportInsets,
   bubbles,
   floorRooms,
   floorWalls,
@@ -92,10 +94,34 @@ export function useEditorSiteBoundary({
     [isTrueNorthView],
   )
 
+  const safeViewportInsets = useMemo<ViewportInsets>(() => ({
+    left: Math.max(0, viewportInsets?.left ?? 0),
+    right: Math.max(0, viewportInsets?.right ?? 0),
+    top: Math.max(0, viewportInsets?.top ?? 0),
+    bottom: Math.max(0, viewportInsets?.bottom ?? 0),
+  }), [viewportInsets])
+
+  const viewportCenter = useMemo(() => {
+    const viewportWidth = Math.max(stageWidth - safeViewportInsets.left - safeViewportInsets.right, 1)
+    const viewportHeight = Math.max(stageHeight - safeViewportInsets.top - safeViewportInsets.bottom, 1)
+    return {
+      x: safeViewportInsets.left + viewportWidth / 2,
+      y: safeViewportInsets.top + viewportHeight / 2,
+      width: viewportWidth,
+      height: viewportHeight,
+    }
+  }, [safeViewportInsets.bottom, safeViewportInsets.left, safeViewportInsets.right, safeViewportInsets.top, stageHeight, stageWidth])
+
+  const recenterToViewport = useCallback((points: number[]): number[] => {
+    const bounds = getFlatPointsBounds(points)
+    if (!bounds) return points
+    return translateFlatPoints(points, viewportCenter.x - bounds.cx, viewportCenter.y - bounds.cy)
+  }, [viewportCenter.x, viewportCenter.y])
+
   // 파생 상태: 대지 외곽선 포인트 (캔버스 중앙 정렬)
   const sitePoints = useMemo(() => {
-    const targetWidth = Math.max(stageWidth - EDITOR_SITE_FIT_PADDING_PX * 2, 1)
-    const targetHeight = Math.max(stageHeight - EDITOR_SITE_FIT_PADDING_PX * 2, 1)
+    const targetWidth = Math.max(viewportCenter.width - EDITOR_SITE_FIT_PADDING_PX * 2, 1)
+    const targetHeight = Math.max(viewportCenter.height - EDITOR_SITE_FIT_PADDING_PX * 2, 1)
     const cachedCanvasPoints = cachedSiteRing
       ? mapSiteRingToCanvasPoints(cachedSiteRing, {
           targetWidth,
@@ -106,7 +132,8 @@ export function useEditorSiteBoundary({
     const cachedRawPoints = cachedCanvasPoints?.flatMap((point) => [point.x, point.y]) ?? null
 
     if (cachedRawPoints) {
-      return maybeAlignToWorkingAxis(centerSitePoints(cachedRawPoints, stageWidth, stageHeight))
+      const centeredToViewport = recenterToViewport(centerSitePoints(cachedRawPoints, stageWidth, stageHeight))
+      return maybeAlignToWorkingAxis(centeredToViewport)
     }
 
     // 실제 대지 하이드레이션 이전에는 기본(mock) 대지를 그리지 않아 플리커를 방지한다.
@@ -114,17 +141,30 @@ export function useEditorSiteBoundary({
       return []
     }
 
-    const fitted = fitSitePointsToStage(SITE_RAW_POINTS, stageWidth, stageHeight, {
+    const fitted = fitSitePointsToStage(SITE_RAW_POINTS, viewportCenter.width, viewportCenter.height, {
       padding: EDITOR_SITE_FIT_PADDING_PX,
       fitRatio: 1,
     })
+    const fittedInViewport = translateFlatPoints(fitted, safeViewportInsets.left, safeViewportInsets.top)
     return maybeAlignToWorkingAxis(ensureSiteContainsBubbles(
-      fitted,
+      fittedInViewport,
       bubbles,
       SITE_CONTAIN_BUBBLE_PADDING_PX,
       SITE_CONTAIN_MAX_SCALE,
     ))
-  }, [cachedSiteRing, stageWidth, stageHeight, bubbles, siteBoundaryHydrated, maybeAlignToWorkingAxis])
+  }, [
+    bubbles,
+    cachedSiteRing,
+    maybeAlignToWorkingAxis,
+    recenterToViewport,
+    safeViewportInsets.left,
+    safeViewportInsets.top,
+    siteBoundaryHydrated,
+    stageHeight,
+    stageWidth,
+    viewportCenter.height,
+    viewportCenter.width,
+  ])
 
   const floorPlanMmPerPx = useMemo(() => {
     if (bubbles.length > 0) {
@@ -163,26 +203,33 @@ export function useEditorSiteBoundary({
       }
     }
 
-    return { x: stageWidth / 2, y: stageHeight / 2 }
-  }, [bubbles, floorRooms, stageWidth, stageHeight])
+    return { x: viewportCenter.x, y: viewportCenter.y }
+  }, [bubbles, floorRooms, viewportCenter.x, viewportCenter.y])
 
   const siteAnchorCenter = useMemo(() => {
     const anchorProjectId = projectId ?? ''
+    const hasContent = bubbles.length > 0 || floorRooms.length > 0
+    const viewportAnchor = { x: viewportCenter.x, y: viewportCenter.y }
     const cachedAnchor = siteAnchorCacheByProjectId.get(anchorProjectId)
     if (cachedAnchor) {
+      if (!hasContent) {
+        siteAnchorCacheByProjectId.set(anchorProjectId, {
+          projectId: anchorProjectId,
+          x: viewportAnchor.x,
+          y: viewportAnchor.y,
+        })
+        return viewportAnchor
+      }
       return { x: cachedAnchor.x, y: cachedAnchor.y }
     }
-    if (bubbles.length > 0 || floorRooms.length > 0) {
-      siteAnchorCacheByProjectId.set(anchorProjectId, {
-        projectId: anchorProjectId,
-        x: contentCenter.x,
-        y: contentCenter.y,
-      })
-      return contentCenter
-    }
-    siteAnchorCacheByProjectId.delete(anchorProjectId)
-    return { x: stageWidth / 2, y: stageHeight / 2 }
-  }, [bubbles.length, contentCenter, floorRooms.length, projectId, stageHeight, stageWidth])
+    const initialAnchor = hasContent ? contentCenter : viewportAnchor
+    siteAnchorCacheByProjectId.set(anchorProjectId, {
+      projectId: anchorProjectId,
+      x: initialAnchor.x,
+      y: initialAnchor.y,
+    })
+    return initialAnchor
+  }, [bubbles.length, contentCenter, floorRooms.length, projectId, viewportCenter.x, viewportCenter.y])
 
   const sitePlanPoints = useMemo(() => {
     if (!cachedSiteRing) return sitePoints

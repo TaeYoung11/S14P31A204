@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MAX_EDITOR_ZOOM_PERCENT, MIN_EDITOR_ZOOM_PERCENT } from '../constants'
-import { computeFitZoomPercent } from '../utils/editorViewport'
+import { computeFitZoomPercent, type ViewportInsets } from '../utils/editorViewport'
 
 const DEFAULT_EDITOR_ZOOM_PERCENT = 100
 
@@ -15,6 +15,7 @@ interface UseEditorZoomParams {
   stageWidth: number
   stageHeight: number
   fitPaddingPx: number
+  viewportInsets?: Partial<ViewportInsets>
 }
 
 const createZoomStorageKey = (projectId?: string) => (
@@ -47,6 +48,7 @@ export function useEditorZoom({
   stageWidth,
   stageHeight,
   fitPaddingPx,
+  viewportInsets,
 }: UseEditorZoomParams) {
   const [zoom, setZoom] = useState(() => readStoredZoom(projectId) ?? DEFAULT_EDITOR_ZOOM_PERCENT)
   const [isUserZoomAdjusted, setIsUserZoomAdjusted] = useState(false)
@@ -71,11 +73,12 @@ export function useEditorZoom({
       stageWidth,
       stageHeight,
       fitPaddingPx,
+      viewportInsets,
     )
     if (!fitZoom) return null
 
     return clampEditorZoom(Math.min(DEFAULT_EDITOR_ZOOM_PERCENT, fitZoom))
-  }, [sitePlanPoints, stageWidth, stageHeight, fitPaddingPx])
+  }, [sitePlanPoints, stageWidth, stageHeight, fitPaddingPx, viewportInsets])
 
   const currentZoom = zoom
   const canvasZoom = (fitBaseZoom ?? DEFAULT_EDITOR_ZOOM_PERCENT) * (currentZoom / DEFAULT_EDITOR_ZOOM_PERCENT)

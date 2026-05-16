@@ -5,6 +5,13 @@ import {
   translateFlatPoints,
 } from './sitePointTransform'
 
+export interface ViewportInsets {
+  left: number
+  right: number
+  top: number
+  bottom: number
+}
+
 /**
  * 점 배열이 스테이지 내부에 맞도록 필요한 줌 비율(%)을 계산한다.
  * 반환값은 clamp 전 원시 값이며, 호출부에서 편집기 min/max 줌 규칙을 적용한다.
@@ -14,12 +21,19 @@ export function computeFitZoomPercent(
   stageWidth: number,
   stageHeight: number,
   marginPx: number,
+  viewportInsets?: Partial<ViewportInsets>,
 ): number | null {
   const bounds = getFlatPointsBounds(points)
   if (!bounds) return null
 
-  const availableWidth = Math.max(stageWidth - marginPx * 2, 1)
-  const availableHeight = Math.max(stageHeight - marginPx * 2, 1)
+  const insets: ViewportInsets = {
+    left: Math.max(0, viewportInsets?.left ?? 0),
+    right: Math.max(0, viewportInsets?.right ?? 0),
+    top: Math.max(0, viewportInsets?.top ?? 0),
+    bottom: Math.max(0, viewportInsets?.bottom ?? 0),
+  }
+  const availableWidth = Math.max(stageWidth - marginPx * 2 - insets.left - insets.right, 1)
+  const availableHeight = Math.max(stageHeight - marginPx * 2 - insets.top - insets.bottom, 1)
   const fitScale = Math.min(availableWidth / bounds.width, availableHeight / bounds.height)
   if (!Number.isFinite(fitScale) || fitScale <= 0) return null
 

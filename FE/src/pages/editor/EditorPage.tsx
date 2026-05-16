@@ -32,7 +32,7 @@ export default function EditorPage() {
     panelRef: leftToolbarRef,
     offset: leftToolbarOffset,
     startDrag: startLeftToolbarDrag,
-  } = useFloatingPanelDrag({ x: 28, y: 84 }, 16)
+  } = useFloatingPanelDrag({ x: 28, y: 56 }, 16)
 
   return (
     <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-[radial-gradient(circle_at_12%_10%,#f8f9ff_0%,#edf1fb_36%,#e8edf9_70%,#e6ebf8_100%)] text-[#1D1E20] font-sans">

@@ -3456,6 +3456,30 @@ export function useEditorPage() {
     [activeFloorBubbleIdSet, autoZones, manualZones],
   )
 
+  const viewportInsets = useMemo(() => {
+    if (mode === 'view') {
+      return { left: 0, right: 0, top: 0, bottom: 0 }
+    }
+    const leftInset = isEditorReadOnly ? 24 : 140
+    const hasFloatingRightPanel = !effectiveIsCollaborationMode && !isAgentPanelMode
+    const rightPanelWidth = panelOpenState.attributes ? (panelWidths.attributes ?? 300) : 44
+    // 우측 패널은 내부 카드/여백까지 포함해 실제 점유폭이 panelWidth보다 크므로 보정치를 더한다.
+    const rightInset = hasFloatingRightPanel ? rightPanelWidth + 180 : 24
+    return {
+      left: leftInset,
+      right: rightInset,
+      top: 0,
+      bottom: 0,
+    }
+  }, [
+    effectiveIsCollaborationMode,
+    isAgentPanelMode,
+    isEditorReadOnly,
+    mode,
+    panelOpenState.attributes,
+    panelWidths.attributes,
+  ])
+
   const {
     fixedScaleSitePoints,
     sitePlanPoints,
@@ -3467,6 +3491,7 @@ export function useEditorPage() {
     projectId,
     stageWidth: stageSize.width,
     stageHeight: stageSize.height,
+    viewportInsets,
     bubbles,
     floorRooms,
     floorWalls: mergedFloorWalls,
@@ -3596,6 +3621,7 @@ export function useEditorPage() {
     stageWidth: stageSize.width,
     stageHeight: stageSize.height,
     fitPaddingPx: EDITOR_SITE_FIT_PADDING_PX,
+    viewportInsets,
   })
   const isWorkspaceBootstrapping = Boolean(projectId) && autosaveReadyProjectId !== projectId
 
