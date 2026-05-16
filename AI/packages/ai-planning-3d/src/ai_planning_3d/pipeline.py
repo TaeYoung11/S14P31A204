@@ -106,7 +106,13 @@ class LLM3DPipeline:
     @staticmethod
     def split_chat_commands(user_text: str) -> list[str]:
         decimal_dot = "__BATANG_DECIMAL_DOT__"
+        dimension_comma = "__BATANG_DIMENSION_COMMA__"
         user_text = re.sub(r"(?<=\d)\.(?=\d)", decimal_dot, user_text)
+        user_text = re.sub(
+            r"(?<=[0-9a-zA-Z])\s*,\s*(?=[^,.;\n]*(?:\d|mm|cm|m))",
+            f"{dimension_comma} ",
+            user_text,
+        )
         normalized = re.sub(
             r"((?:만들|생성|추가|배치|넣|달|바꾸|변경|수정|삭제|제거|없애|지우|빼))고(?=\s|[,.;])\s*",
             lambda match: f"{LLM3DPipeline._complete_connected_verb(match.group(1))}.\n",
@@ -125,7 +131,7 @@ class LLM3DPipeline:
         parts = re.split(r"(?:그리고|\.|,|\n|;)", normalized)
         commands: list[str] = []
         for part in parts:
-            part = part.replace(decimal_dot, ".").strip()
+            part = part.replace(decimal_dot, ".").replace(dimension_comma, ",").strip()
             if part:
                 commands.extend(LLM3DPipeline._expand_direction_pair_command(part))
         return LLM3DPipeline._carry_forward_command_subjects(commands or [user_text])
@@ -1140,11 +1146,15 @@ class LLM3DPipeline:
         storey_z = self._storey_elevation_mm(target_storey)
 
         if element_type == LLM3DElementType.ROOF:
+            # Place the roof on top of existing walls, not at the storey floor elevation.
+            # storey_z is the floor elevation (e.g. 0mm for 1F), but we need the wall tops.
+            # storey_bbox max_z is the highest point of any element in the storey (≈ wall height).
+            roof_z = storey_bbox["max_z"] if storey_bbox else storey_z
             return {
                 "start_point": {
                     "x": center_x,
                     "y": center_y,
-                    "z": storey_z,
+                    "z": roof_z,
                 },
                 "length_mm": max(span_x * 1.05, 4000.0),
                 "width_mm": max(span_y * 1.05, 3000.0),
