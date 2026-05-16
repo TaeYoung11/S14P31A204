@@ -6,6 +6,9 @@ import { MAX_EDITOR_ZOOM_PERCENT, MIN_EDITOR_ZOOM_PERCENT } from '../../constant
 import type { ThreeDCameraViewPreset } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import { CAMERA_VIEW_PRESETS, GRID_SNAP_INTERVAL_OPTIONS } from './zoomControlBar.constants'
 
+/** 좌측 툴바와 겹치지 않는 기본 위치 (캔버스 좌하단 기준) */
+const ZOOM_CONTROL_INITIAL_OFFSET = { x: 136, y: 24 }
+
 interface ZoomControlBarProps {
   /** 현재 줌 퍼센트 (예: 100 = 100%) */
   zoom: number
@@ -78,7 +81,7 @@ export function ZoomControlBar({
   onSelectCameraViewPreset,
   isEditingLocked = false,
 }: ZoomControlBarProps) {
-  const { panelRef, offset, setOffset, startDrag } = useFloatingPanelDrag({ x: 136, y: 24 }, 12)
+  const { panelRef, offset, setOffset, startDrag } = useFloatingPanelDrag(ZOOM_CONTROL_INITIAL_OFFSET, 12)
   const { isGridControlActive, gridSnapTitle, handleGridSnapToggle } = useZoomControlBar({
     mode,
     isGridVisible,
