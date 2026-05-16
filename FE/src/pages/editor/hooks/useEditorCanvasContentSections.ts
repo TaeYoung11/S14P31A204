@@ -2,10 +2,10 @@ import { useCallback, useMemo, useState } from 'react'
 import type { EditorCanvasRenderProps } from '../types/editorCanvasContentProps'
 import {
   buildCanvasCollaborationBarSectionProps,
-  type ThreeDCameraViewPreset,
   buildCanvasLabelOverlaySectionProps,
   buildCanvasModeRendererSectionProps,
   buildCanvasZoomControlsSectionProps,
+  type ThreeDCameraViewPreset,
   type ThreeDCoordinates,
 } from '../components/canvas-content/buildCanvasSectionProps'
 

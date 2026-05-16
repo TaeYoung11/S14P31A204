@@ -40,6 +40,8 @@ import static com.a204.batang.domain.ifcedit.IfcEditConstants.*;
 @RequiredArgsConstructor
 public class TwoDLlmIfcEditCommandService {
 
+    private static final String LLM_PAYLOAD_SCHEMA_VERSION = "v1";
+
     private final ProjectRepository projectRepository;
     private final RevisionRepository revisionRepository;
     private final ProjectAccessService projectAccessService;
@@ -86,6 +88,7 @@ public class TwoDLlmIfcEditCommandService {
 
         // 2D LLM worker에 전달할 payload
         Map<String, Object> payloadMap = new LinkedHashMap<>();
+        payloadMap.put("schema_version", LLM_PAYLOAD_SCHEMA_VERSION);
         if (request.userInstruction() != null) payloadMap.put("user_instruction", request.userInstruction());
         if (request.sourceSceneStorageUrl() != null) payloadMap.put("source_scene_storage_url", request.sourceSceneStorageUrl());
         if (request.sourceScene() != null) payloadMap.put("source_scene", request.sourceScene());

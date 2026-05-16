@@ -20,6 +20,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -126,6 +128,9 @@ class RenderCommandServiceTest {
         SdRenderCommandMessage command = commandCaptor.getValue();
         assertThat(command.schemaVersion()).isEqualTo("v1");
         assertThat(command.schemaVersion()).isNotEqualTo("1");
+        assertThat(command.payload())
+                .containsEntry("renderMode", "ifc2img")
+                .containsEntry("timeOfDay", "DAY");
         assertThat(command.expectedOutput())
                 .containsKeys(
                         "renderManifestStorageUrl",
@@ -142,6 +147,51 @@ class RenderCommandServiceTest {
         assertThat(stepInputPayload.path("renderPhotoFrontDiagonalLeftStorageUrl").asText()).endsWith("/photo_front_diagonal_left.png");
         assertThat(stepInputPayload.path("renderPhotoFrontDiagonalRightStorageUrl").asText()).endsWith("/photo_front_diagonal_right.png");
         assertThat(stepInputPayload.has("outputImageStorageUrl")).isFalse();
+    }
+
+    @Test
+    void createRender_passesNightTimeOfDayToWorkerPayload() {
+        SdRenderCommandMessage command = publishCommandWithStyle(
+                new RenderStyleRequest("NIGHT", "EXTERIOR", "SPRING", "CLEAR")
+        );
+
+        assertThat(command.payload()).containsEntry("timeOfDay", "NIGHT");
+    }
+
+    @Test
+    void createRender_defaultsWorkerTimeOfDayToDayWhenStyleIsMissing() {
+        SdRenderCommandMessage command = publishCommandWithStyle(null);
+
+        assertThat(command.payload()).containsEntry("timeOfDay", "DAY");
+    }
+
+    @Test
+    void createRender_defaultsWorkerTimeOfDayToDayWhenStyleTimeOfDayIsBlank() {
+        SdRenderCommandMessage command = publishCommandWithStyle(
+                new RenderStyleRequest("   ", "EXTERIOR", "SPRING", "CLEAR")
+        );
+
+        assertThat(command.payload()).containsEntry("timeOfDay", "DAY");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "DAYLIGHT, DAY",
+            "DUSK, NIGHT",
+            "evening, NIGHT",
+            "MORNING, DAY",
+            "NOON, DAY",
+            "SUNSET, DAY"
+    })
+    void createRender_normalizesWorkerTimeOfDayAliases(
+            String requestTimeOfDay,
+            String expectedWorkerTimeOfDay
+    ) {
+        SdRenderCommandMessage command = publishCommandWithStyle(
+                new RenderStyleRequest(requestTimeOfDay, "EXTERIOR", "SPRING", "CLEAR")
+        );
+
+        assertThat(command.payload()).containsEntry("timeOfDay", expectedWorkerTimeOfDay);
     }
 
     @Test
@@ -194,5 +244,28 @@ class RenderCommandServiceTest {
                 .isInstanceOf(CustomException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.RENDER_COMMAND_PUBLISH_FAILED);
+    }
+
+    private SdRenderCommandMessage publishCommandWithStyle(RenderStyleRequest style) {
+        CreateRenderRequest request = new CreateRenderRequest(
+                "quiet library exterior",
+                null,
+                style,
+                null,
+                null,
+                1024,
+                1024
+        );
+
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectAccessService.resolveCurrentUserId()).willReturn(userId);
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)).willReturn(Optional.of(workspace));
+        doNothing().when(sdRenderCommandPublisher).publish(any());
+
+        renderCommandService.createRender(projectId, request);
+
+        ArgumentCaptor<SdRenderCommandMessage> commandCaptor = ArgumentCaptor.forClass(SdRenderCommandMessage.class);
+        verify(sdRenderCommandPublisher, times(1)).publish(commandCaptor.capture());
+        return commandCaptor.getValue();
     }
 }

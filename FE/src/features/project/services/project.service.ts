@@ -32,6 +32,7 @@ interface ProjectSummaryResponse {
   cadastralAddress?: string
   cadastralInfo?: CadastralInfo
   currentIfcUrl?: string
+  currentIfcStorageUrl?: string
   /** private S3 버킷 접근용 에셋 UUID (BE가 제공하는 경우) */
   currentIfcAssetId?: string
   createdAt: string
@@ -155,6 +156,7 @@ export interface ProjectSiteResponse {
 export interface ProjectIfcSource {
   projectId: string
   currentIfcUrl?: string
+  currentIfcStorageUrl?: string
   /** private S3 버킷 접근용 에셋 UUID */
   currentIfcAssetId?: string
   currentRevision?: string
@@ -418,7 +420,12 @@ export const projectService = {
     let apiPolygonRing: number[][] | null = null
     let apiAreaM2: number | null = null
 
-    if (shouldFetchSiteFromProjectDetailApi) {
+    // 신선한 실제 대지 캐시가 있으면 project detail API를 호출하지 않는다.
+    // 호출하면 다른 polygon이 반환돼 캐시를 덮어쓰고 잘못된 대지가 잠깐 표시된다.
+    const existingCache = getProjectSitePolygonEntry(projectId, { ttlMs: SITE_CACHE_TTL_MS })
+    const hasFreshRealCache = Boolean(existingCache && !existingCache.isStale && existingCache.source !== 'mock')
+
+    if (shouldFetchSiteFromProjectDetailApi && !hasFreshRealCache) {
       try {
         const apiSiteInfo = await fetchSiteInfoFromProjectDetail(projectId)
         apiPolygonRing = apiSiteInfo.polygonRing
@@ -459,6 +466,7 @@ export const projectService = {
       return {
         projectId: exported.projectId,
         currentIfcUrl: exported.presignedUrl,
+        currentIfcStorageUrl: exported.ifcStorageUrl,
         currentRevision: exported.revisionId,
       }
     } catch {
@@ -469,6 +477,7 @@ export const projectService = {
     return {
       projectId: project.projectId,
       currentIfcUrl: project.currentIfcUrl,
+      currentIfcStorageUrl: project.currentIfcUrl,
       currentIfcAssetId: project.currentIfcAssetId,
     }
   },

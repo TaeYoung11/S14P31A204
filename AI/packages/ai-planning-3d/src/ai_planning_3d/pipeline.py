@@ -547,6 +547,54 @@ class LLM3DPipeline:
                         walls.append(element)
         return walls
 
+    def _host_wall_clarification_options(
+        self,
+        storey: ifcopenshell.entity_instance,
+        min_height_mm: float,
+    ) -> tuple[ClarificationOption, ...]:
+        options: list[ClarificationOption] = []
+        for wall in self._storey_walls(storey):
+            global_id = str(getattr(wall, "GlobalId", "") or "")
+            if not global_id:
+                continue
+            name = str(getattr(wall, "Name", "") or "").strip()
+            wall_name = name or wall.is_a()
+            lower_name = wall_name.lower()
+            if any(token in lower_name for token in ("rail", "fence")):
+                continue
+            length_mm, width_mm, height_mm = self._element_size_mm(wall)
+            if min_height_mm > 0.0 and height_mm > 0.0 and height_mm < min_height_mm:
+                continue
+            label = (
+                f"{wall_name} / {global_id} "
+                f"({length_mm:.0f}x{width_mm:.0f}x{height_mm:.0f}mm)"
+            )
+            options.append(ClarificationOption(id=global_id, label=label, value=global_id))
+        return tuple(options)
+
+    def _host_wall_clarification_question(
+        self,
+        storey: ifcopenshell.entity_instance,
+        ci_dump: dict[str, Any],
+        min_height_mm: float,
+    ) -> ClarificationQuestion | None:
+        options = self._host_wall_clarification_options(storey, min_height_mm)
+        if not options:
+            return None
+        return ClarificationQuestion(
+            trigger=ClarificationTrigger.CUSTOM,
+            question_ko="문/창문을 설치할 벽을 선택해 주세요.",
+            options=options,
+            context={
+                "reason": "host_wall_not_found",
+                "apply_field": "host_wall_global_id",
+                "element_type": str(ci_dump.get("element_type") or ""),
+                "storey_global_id": str(getattr(storey, "GlobalId", "") or ""),
+                "storey_name": str(getattr(storey, "Name", "") or ""),
+            },
+            is_blocking=True,
+        )
+
     def _bbox_for_elements(self, elements: list[Any]) -> dict[str, float] | None:
         xs: list[float] = []
         ys: list[float] = []
@@ -1359,18 +1407,51 @@ class LLM3DPipeline:
                     float(start_point.get("y", 0.0)),
                 )
             if host_wall is None:
+                min_host_height_mm = float(ci_dump.get("height_mm") or 0.0) + float(
+                    ci_dump.get("sill_height_mm") or 0.0
+                )
+                question = self._host_wall_clarification_question(
+                    target_storey,
+                    ci_dump,
+                    min_host_height_mm,
+                )
+                if question is None:
+                    return {
+                        "status": "not_found",
+                        "command": command.model_dump(),
+                        "summary": "No eligible host wall was found for the door/window.",
+                        "clarification_questions": [],
+                        "collision_warnings": [
+                            "Door/window creation requires a wall position or host_wall_global_id."
+                        ],
+                        "structural_warnings": [],
+                    }
+                session = PreviewSession(
+                    session_id=str(uuid.uuid4()),
+                    command=command,
+                    matched=[
+                        {
+                            "create_info": ci_dump,
+                            "storey_guid": target_storey.GlobalId,
+                            "start_point": start_point,
+                        }
+                    ],
+                    quality_ok=True,
+                    collision_warnings=[
+                        "Door/window creation requires a wall position or host_wall_global_id."
+                    ],
+                    structural_warnings=[],
+                )
+                session.clarification_questions = [question]
+                self.store[session.session_id] = session
                 return {
                     "status": "needs_clarification",
+                    "session_id": session.session_id,
                     "command": command.model_dump(),
                     "summary": "문/창문을 붙일 host wall을 찾지 못해 IFC를 생성하지 않았습니다.",
-                    "clarification_questions": [
-                        self._build_host_wall_clarification_question(
-                            target_storey,
-                            ci_dump.get("direction"),
-                        ).to_dict()
-                    ],
+                    "clarification_questions": [question.to_dict()],
                     "collision_warnings": [
-                        "문/창문 생성에는 벽 위치 또는 host_wall_global_id가 필요합니다."
+                        "Door/window creation requires a wall position or host_wall_global_id."
                     ],
                     "structural_warnings": [],
                 }

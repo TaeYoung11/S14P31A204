@@ -87,8 +87,12 @@ export function FloorPlanLoading() {
 
 interface CollaborationPinOverlayProps {
   pins: FloorCommentPin[]
+  viewportScale: number
   selectedPinId?: string | null
+  currentUserId?: string | null
   onPinClick?: (id: string) => void
+  onPinDelete?: (id: string) => void
+  deletingPinId?: string | null
   onMouseEnter?: (e: KonvaEventObject<MouseEvent>) => void
   onMouseLeave?: (e: KonvaEventObject<MouseEvent>) => void
 }
@@ -99,21 +103,38 @@ interface CollaborationPinOverlayProps {
  */
 export function CollaborationPinOverlay({
   pins,
+  viewportScale,
   selectedPinId,
+  currentUserId,
   onPinClick,
+  onPinDelete,
+  deletingPinId,
   onMouseEnter,
   onMouseLeave,
 }: CollaborationPinOverlayProps) {
+  const inverseScale = 1 / Math.max(viewportScale, 0.01)
+  const markerScale = Math.min(Math.max(inverseScale, 0.65), 2.2)
+
   return (
     <>
       {pins.map((pin, index) => {
         const isSelected = selectedPinId === pin.id
+        const canDeletePin =
+          isSelected &&
+          Boolean(onPinDelete) &&
+          Boolean(currentUserId) &&
+          pin.createdById === currentUserId
+        const isDeleting = deletingPinId === pin.id
         const indexText = String(index + 1)
+        const pinRadius = 16
+        const pinLabelSize = pinRadius * 2
         return (
           <Group
             key={pin.id}
             x={pin.x}
             y={pin.y}
+            scaleX={markerScale}
+            scaleY={markerScale}
             onClick={(e) => {
               e.cancelBubble = true
               onPinClick?.(pin.id)
@@ -121,11 +142,38 @@ export function CollaborationPinOverlay({
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
           >
-            <Line points={[0, 12, 0, 22]} stroke={isSelected ? '#3B45B3' : '#1C1C1E'} strokeWidth={2} />
-            <Circle radius={12} fill={isSelected ? '#3B45B3' : '#1C1C1E'} />
-            <Text text={indexText} x={-3.8} y={-5.2} fill="white" fontSize={11} fontStyle="bold" />
+            <Line points={[0, pinRadius, 0, 30]} stroke={isSelected ? '#3B45B3' : '#1C1C1E'} strokeWidth={2.5} />
+            <Circle radius={pinRadius} fill={isSelected ? '#3B45B3' : '#1C1C1E'} />
+            <Text
+              text={indexText}
+              x={-pinRadius}
+              y={-8}
+              width={pinLabelSize}
+              align="center"
+              fill="white"
+              fontSize={14}
+              fontStyle="bold"
+            />
             {!isSelected && pin.hasUnreadCommentByOtherUser && (
-              <Circle x={9} y={-9} radius={4} fill="#ef4444" stroke="white" strokeWidth={1.5} />
+              <Circle x={12} y={-12} radius={5} fill="#ef4444" stroke="white" strokeWidth={1.5} />
+            )}
+            {canDeletePin && (
+              <Group
+                x={26}
+                y={-24}
+                opacity={isDeleting ? 0.5 : 1}
+                onClick={(e) => {
+                  e.cancelBubble = true
+                  if (isDeleting) return
+                  onPinDelete?.(pin.id)
+                }}
+                onMouseEnter={onMouseEnter}
+                onMouseLeave={onMouseLeave}
+              >
+                <Circle radius={10} fill="white" stroke="#D94848" strokeWidth={1.7} shadowColor="black" shadowOpacity={0.12} shadowBlur={4} />
+                <Line points={[-4, -4, 4, 4]} stroke="#D94848" strokeWidth={1.8} lineCap="round" />
+                <Line points={[4, -4, -4, 4]} stroke="#D94848" strokeWidth={1.8} lineCap="round" />
+              </Group>
             )}
           </Group>
         )

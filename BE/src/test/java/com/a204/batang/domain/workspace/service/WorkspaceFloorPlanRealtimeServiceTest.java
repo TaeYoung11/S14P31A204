@@ -6,6 +6,7 @@ import com.a204.batang.domain.ifcedit.dto.DirectIfcEditRequest;
 import com.a204.batang.domain.ifcedit.service.DirectIfcEditCommandService;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest;
 import com.a204.batang.domain.workspace.dto.BubbleFloorMeta;
+import com.a204.batang.domain.workspace.dto.BubbleZoneData;
 import com.a204.batang.domain.workspace.dto.FloorPlanProjectSyncResponse;
 import com.a204.batang.domain.workspace.dto.FloorPlanRealtimeUpdateRequest;
 import com.a204.batang.domain.workspace.dto.FloorPlanSceneType;
@@ -90,6 +91,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 workspaceBubbleSnapshotRedisRepository,
                 floorPlanS3DeleteQueueService,
                 directIfcEditCommandService,
+                new FloorPlanIfcEditEngineRequestMapper(objectMapper),
                 s3ObjectPresigner,
                 simpMessagingTemplate,
                 objectMapper
@@ -133,6 +135,13 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "bubble-1",
                         "bold"
                 )),
+                List.of(new BubbleZoneData(
+                        "zone-1",
+                        "zone 1",
+                        "#3B45B3",
+                        List.of("bubble-1"),
+                        "manual"
+                )),
                 0,
                 null,
                 FloorPlanSceneType.TWO_D,
@@ -165,6 +174,14 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         assertThat(directRequest.sourceSceneType()).isEqualTo("IFC_MODEL");
         assertThat(directRequest.engineRequest()).isNotNull();
         assertThat(directRequest.engineRequest().op()).isEqualTo("create");
+        assertThat(directRequest.engineRequest().entity()).isEqualTo("ifcBatch");
+        JsonNode engineRequest = directRequest.engineRequest().data();
+        assertThat(engineRequest.get("schema_version").asText()).isEqualTo("v1");
+        assertThat(engineRequest.get("operations")).hasSize(1);
+        assertThat(engineRequest.get("operations").get(0).get("type").asText()).isEqualTo("create_element");
+        JsonNode params = engineRequest.get("operations").get(0).get("parameters");
+        assertThat(params.get("storey_id").asText()).isEqualTo("storey-1");
+        assertThat(params.has("storey_global_id")).isFalse();
 
         ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
         verify(simpMessagingTemplate).convertAndSend(
@@ -180,6 +197,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         assertThat(response.floorPlanPayloadJson().get("baseIndex").asInt()).isEqualTo(0);
         assertThat(response.floorPlanPayloadJson().get("revisionId").asText()).isEqualTo(workspace.getCurrentRevision());
         assertThat(response.floorPlanPayloadJson().get("bubbles").get(0).get("floor").asInt()).isEqualTo(1);
+        assertThat(response.floorPlanPayloadJson().get("zones").get(0).get("id").asText()).isEqualTo("zone-1");
         assertThat(response.floorPlanPayloadJson().get("floorMeta").get("namesByFloor").get("1").asText()).isEqualTo("1F");
         assertThat(response.floorPlanPayloadJson().get("floorMeta").get("extraFloors").get(0).asInt()).isEqualTo(3);
         assertThat(response.updatedAt()).isNotNull();
@@ -202,6 +220,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "#ffffff",
                         null
                 )),
+                List.of(),
                 List.of(),
                 0,
                 null,
@@ -246,6 +265,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         null
                 )),
                 List.of(),
+                List.of(),
                 0,
                 null,
                 FloorPlanSceneType.TWO_D,
@@ -272,6 +292,61 @@ class WorkspaceFloorPlanRealtimeServiceTest {
     }
 
     @Test
+    void relayFloorPlanDraft_doesNotCreateIfcEditJobWhenMappedOperationsAreEmpty() throws Exception {
+        FloorPlanRealtimeUpdateRequest request = new FloorPlanRealtimeUpdateRequest(
+                List.of(new BubbleUpdateRequest.BubbleData(
+                        "bubble-1",
+                        10.0,
+                        20.0,
+                        30.0,
+                        40.0,
+                        3000.0,
+                        4000.0,
+                        "living-room",
+                        "LIVING",
+                        84.5,
+                        "#ffffff",
+                        null
+                )),
+                List.of(),
+                List.of(),
+                0,
+                null,
+                FloorPlanSceneType.TWO_D,
+                new WorkspaceCommand(
+                        "update",
+                        "room",
+                        "bubble-1",
+                        null,
+                        objectMapper.createObjectNode().put("widthMm", 3200.0),
+                        System.currentTimeMillis()
+                ),
+                objectMapper.readTree("""
+                        {
+                          "rooms": [{"bubbleId": "bubble-1", "label": "living-room"}],
+                          "walls": [],
+                          "openings": []
+                        }
+                        """),
+                null
+        );
+
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+
+        workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
+
+        verifyNoInteractions(directIfcEditCommandService);
+
+        ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
+        verify(simpMessagingTemplate).convertAndSend(
+                eq("/topic/project/%s/floor-plan/sync".formatted(projectId)),
+                responseCaptor.capture()
+        );
+        assertThat(responseCaptor.getValue().action()).isEqualTo("FLOOR_PLAN_UPDATED");
+    }
+
+    @Test
     void relayFloorPlanDraft_throwsWhenPayloadReferencesUnknownBubble() {
         FloorPlanRealtimeUpdateRequest request = new FloorPlanRealtimeUpdateRequest(
                 List.of(new BubbleUpdateRequest.BubbleData(
@@ -293,6 +368,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                         "bubble-2",
                         "bold"
                 )),
+                List.of(),
                 0,
                 "rev-200",
                 FloorPlanSceneType.TWO_D,

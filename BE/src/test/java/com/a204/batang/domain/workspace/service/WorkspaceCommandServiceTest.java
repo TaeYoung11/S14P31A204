@@ -5,6 +5,7 @@ import com.a204.batang.domain.project.service.ProjectAccessService;
 import com.a204.batang.domain.revision.entity.Revision;
 import com.a204.batang.domain.revision.repository.RevisionRepository;
 import com.a204.batang.domain.workspace.dto.BubbleFloorMeta;
+import com.a204.batang.domain.workspace.dto.BubbleZoneData;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest.BubbleData;
 import com.a204.batang.domain.workspace.dto.BubbleUpdateRequest.ConnectionData;
 import com.a204.batang.domain.workspace.dto.SaveBubbleSnapshotRequest;
@@ -94,6 +95,13 @@ class WorkspaceCommandServiceTest {
                         "bubble-1",
                         "bold"
                 )),
+                List.of(new BubbleZoneData(
+                        "zone-1",
+                        "조닝 1",
+                        "#ffffff",
+                        List.of("bubble-1"),
+                        "manual"
+                )),
                 new BubbleFloorMeta(Map.of(1, "1층"), List.of(3))
         );
     }
@@ -108,6 +116,7 @@ class WorkspaceCommandServiceTest {
         assertThat(workspace.getBubbleSnapshotJson()).isNotNull();
         assertThat(workspace.getBubbleSnapshotJson().get("bubbles").size()).isEqualTo(1);
         assertThat(workspace.getBubbleSnapshotJson().get("connections").size()).isEqualTo(1);
+        assertThat(workspace.getBubbleSnapshotJson().get("zones").size()).isEqualTo(1);
         assertThat(workspace.getBubbleSnapshotJson().get("bubbles").get(0).get("floor").asInt()).isEqualTo(1);
         assertThat(workspace.getBubbleSnapshotJson().get("floorMeta").isObject()).isTrue();
 
@@ -139,6 +148,7 @@ class WorkspaceCommandServiceTest {
                         "unknown-bubble",
                         "bold"
                 )),
+                bubbleRequest.zones(),
                 bubbleRequest.floorMeta()
         );
 

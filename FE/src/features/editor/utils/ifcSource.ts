@@ -69,6 +69,42 @@ export const resolveIfcPresignedUrl = async (rawUrl: string, assetId?: string): 
 /**
  * IFC URL/경로에서 파일명을 추출한다.
  */
+const AWS_PRESIGNED_DATE_PATTERN =
+  /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/
+
+export const getPresignedUrlExpiresAt = (url: string): number | null => {
+  try {
+    const parsed = new URL(url)
+    const amzDate = parsed.searchParams.get('X-Amz-Date')
+    const expiresRaw = parsed.searchParams.get('X-Amz-Expires')
+    if (!amzDate || !expiresRaw) return null
+
+    const match = AWS_PRESIGNED_DATE_PATTERN.exec(amzDate)
+    if (!match) return null
+
+    const expiresSeconds = Number.parseInt(expiresRaw, 10)
+    if (!Number.isFinite(expiresSeconds) || expiresSeconds <= 0) return null
+
+    const [, year, month, day, hour, minute, second] = match
+    const issuedAt = Date.UTC(
+      Number.parseInt(year, 10),
+      Number.parseInt(month, 10) - 1,
+      Number.parseInt(day, 10),
+      Number.parseInt(hour, 10),
+      Number.parseInt(minute, 10),
+      Number.parseInt(second, 10),
+    )
+    return issuedAt + expiresSeconds * 1000
+  } catch {
+    return null
+  }
+}
+
+export const isExpiredPresignedIfcUrl = (url: string, skewMs = 30_000): boolean => {
+  const expiresAt = getPresignedUrlExpiresAt(url)
+  return expiresAt !== null && Date.now() + skewMs >= expiresAt
+}
+
 export const normalizeIfcSourceName = (sourceUrl: string, fallback = 'model.ifc'): string => {
   try {
     const parsed = new URL(sourceUrl)

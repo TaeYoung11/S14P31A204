@@ -8,6 +8,11 @@ import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePo
 import type { ProjectSitePolygonResult } from '@/features/project/utils/projectSiteFallback'
 import type { CreateProjectDto, UpdateProjectDto } from '@/shared/types'
 
+const invalidateProjectListQueries = (qc: ReturnType<typeof useQueryClient>) => Promise.all([
+  qc.invalidateQueries({ queryKey: projectQueryKeys.list(), exact: true }),
+  qc.invalidateQueries({ queryKey: projectQueryKeys.all(), exact: true }),
+])
+
 export const useProjects = () => {
   return useInfiniteQuery({
     queryKey: projectQueryKeys.list(),
@@ -49,7 +54,7 @@ export const useCreateProject = () => {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: CreateProjectDto) => projectService.create(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: projectQueryKeys.list() }),
+    onSuccess: () => invalidateProjectListQueries(qc),
   })
 }
 
@@ -58,7 +63,7 @@ export const useUpdateProject = () => {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateProjectDto }) =>
       projectService.update(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: projectQueryKeys.list() }),
+    onSuccess: () => invalidateProjectListQueries(qc),
   })
 }
 
@@ -66,7 +71,10 @@ export const useDeleteProject = () => {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => projectService.delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: projectQueryKeys.list() }),
+    onSuccess: (_data, deletedProjectId) => Promise.all([
+      invalidateProjectListQueries(qc),
+      qc.removeQueries({ queryKey: projectQueryKeys.detail(deletedProjectId), exact: true }),
+    ]),
   })
 }
 
@@ -109,7 +117,8 @@ export const useProjectSitePolygon = (projectId: string | null, enabled = true) 
     initialData: (): ProjectSitePolygonResult | undefined => {
       if (!projectId) return undefined
       const cached = getProjectSitePolygonEntry(projectId)
-      if (!cached) return undefined
+      // mock 데이터는 initialData로 사용하지 않음 — 실제 대지가 있을 때 가짜 대지가 잠깐 보이는 문제 방지
+      if (!cached || cached.source === 'mock') return undefined
 
       return {
         polygonRing: cached.polygonRing,

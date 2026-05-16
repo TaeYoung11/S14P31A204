@@ -1,6 +1,7 @@
 // 프로젝트 메인 목록 화면과 댓글 알림 UI를 렌더링하는 페이지입니다.
 import { Plus, FolderOpen, LayoutGrid, List, Search, CheckSquare, Share2, Trash2, X } from 'lucide-react'
 import ProjectCreateModal from '@/features/project/components/ProjectCreateModal'
+import ProjectDeleteConfirmModal from '@/features/project/components/ProjectDeleteConfirmModal'
 import ProjectCard from '@/features/project/components/ProjectCard'
 import ProjectCommentNotificationModal from '@/features/project/components/ProjectCommentNotificationModal'
 import ProjectCommentToast from '@/features/project/components/ProjectCommentToast'
@@ -10,7 +11,6 @@ import { InviteNotificationModal } from '@/shared/components/InviteNotificationM
 import ProjectSiteModal from '@/features/project/components/ProjectSiteModal'
 import { useProjectListPage } from '@/features/project/hooks/useProjectListPage'
 import EmptyState from '@/shared/components/EmptyState'
-import Modal from '@/shared/components/Modal'
 import Spinner from '@/shared/components/Spinner'
 
 export default function ProjectsPage() {
@@ -44,7 +44,11 @@ export default function ProjectsPage() {
     onCloseCreateModal,
     onCloseDeleteModal,
     onCloseShareModal,
-    onCloseSiteModal,
+    onCompleteSiteModal,
+    onCancelSiteModal,
+    isCancellingSiteProject,
+    siteCancelErrorMessage,
+    onClearSiteCancelError,
     isNotificationModalOpen,
     isProjectCommentModalOpen,
     onOpenNotificationModal,
@@ -76,6 +80,7 @@ export default function ProjectsPage() {
     userType,
     withdrawError,
     isWithdrawing,
+    invitationNotificationCount,
     viewMode,
   } = useProjectListPage()
 
@@ -92,6 +97,7 @@ export default function ProjectsPage() {
         withdrawError={withdrawError ? (withdrawError as Error).message : ''}
         isWithdrawing={isWithdrawing}
         onNotificationOpen={onOpenNotificationModal}
+        invitationNotificationCount={invitationNotificationCount}
         onCommentNotificationOpen={onOpenProjectCommentModal}
         commentNotificationCount={projectComments.length}
       />
@@ -281,73 +287,17 @@ export default function ProjectsPage() {
         projectIds={shareProjects.map((p) => p.id)}
       />
 
-      <Modal
+      <ProjectDeleteConfirmModal
         isOpen={isDeleteModalOpen}
         onClose={onCloseDeleteModal}
-        title={deleteProjects.length > 1 ? '프로젝트 삭제 확인' : '프로젝트 삭제'}
-        maxWidth="max-w-[440px]"
-      >
-        <div className="space-y-5">
-          <div className="space-y-2">
-            <p className="text-sm text-[#374151]">
-              {deleteProjects.length > 1
-                ? `선택한 ${deleteProjects.length}개 프로젝트를 삭제하시겠습니까?`
-                : '이 프로젝트를 삭제하시겠습니까?'}
-            </p>
-            <p className="text-xs text-[#9ca3af]">삭제 후에는 되돌릴 수 없습니다.</p>
-          </div>
-
-          <div className="rounded-lg bg-[#f8f9fa] px-3 py-3">
-            {deleteProjects.length > 1 ? (
-              <div className="space-y-1.5">
-                {deleteProjects.slice(0, 5).map((project) => (
-                  <p key={project.id} className="truncate text-sm font-medium text-[#111827]">
-                    {project.name}
-                  </p>
-                ))}
-                {deleteProjects.length > 5 && (
-                  <p className="text-xs text-[#6b7280]">외 {deleteProjects.length - 5}개</p>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm font-medium text-[#111827]">{deleteProjects[0]?.name}</p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <label htmlFor="delete-project-confirm" className="block text-xs font-medium text-[#374151]">
-              삭제를 진행하려면 <span className="font-semibold text-[#dc2626]">{deleteConfirmText}</span> 를 입력하세요.
-            </label>
-            <input
-              id="delete-project-confirm"
-              type="text"
-              className="input-base w-full"
-              placeholder={deleteConfirmText}
-              value={deleteConfirmName}
-              onChange={(e) => setDeleteConfirmName(e.target.value)}
-            />
-          </div>
-
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={onCloseDeleteModal}
-              disabled={deleteProject.isPending}
-            >
-              취소
-            </button>
-            <button
-              type="button"
-              className="btn-danger"
-              onClick={handleConfirmDelete}
-              disabled={deleteProject.isPending || !isDeleteConfirmValid}
-            >
-              {deleteProject.isPending ? '삭제 중...' : '삭제'}
-            </button>
-          </div>
-        </div>
-      </Modal>
+        projects={deleteProjects}
+        confirmText={deleteConfirmText}
+        confirmName={deleteConfirmName}
+        isConfirmValid={isDeleteConfirmValid}
+        isDeleting={deleteProject.isPending}
+        onConfirm={handleConfirmDelete}
+        onConfirmNameChange={setDeleteConfirmName}
+      />
 
       <InviteNotificationModal
         isOpen={isNotificationModalOpen}
@@ -362,12 +312,18 @@ export default function ProjectsPage() {
         onCommentClick={handleProjectCommentClick}
       />
 
-      <ProjectSiteModal
-        isOpen={!!siteProject}
-        projectId={siteProject?.id ?? null}
-        projectName={siteProject?.name}
-        onClose={onCloseSiteModal}
-      />
+      {siteProject && (
+        <ProjectSiteModal
+          isOpen
+          projectId={siteProject.id}
+          projectName={siteProject.name}
+          onComplete={onCompleteSiteModal}
+          onCancel={onCancelSiteModal}
+          isCancellingProject={isCancellingSiteProject}
+          cancelErrorMessage={siteCancelErrorMessage}
+          onClearCancelError={onClearSiteCancelError}
+        />
+      )}
 
       <ProjectCommentToast
         toast={projectCommentToast}

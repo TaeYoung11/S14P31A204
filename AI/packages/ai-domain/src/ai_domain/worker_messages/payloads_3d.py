@@ -11,8 +11,9 @@ class ConversationHistoryMessage(BaseModel):
 
 
 class ThreeDLlmCommandPayload(BaseModel):
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
+    schemaVersion: Literal["v1"] = Field(default="v1", alias="schema_version")
     userInstruction: str = Field(min_length=1, alias="user_instruction")
     sourceSceneStorageUrl: str = Field(
         min_length=1,

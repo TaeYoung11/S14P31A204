@@ -6,7 +6,9 @@ export const toPointTuple = (point: Point2D): [number, number] => [point.x, poin
 /** 벽 편집 상태를 실시간 command payload로 직렬화한다. */
 export const serializeWallForCommand = (wall: FloorWall) => ({
   globalId: wall.globalId,
+  floorLayerId: wall.floorLayerId,
   storeyGlobalId: wall.storeyGlobalId,
+  storeyName: wall.storeyName,
   start: toPointTuple(wall.start),
   end: toPointTuple(wall.end),
   startMm: wall.startMm ? toPointTuple(wall.startMm) : undefined,
@@ -22,6 +24,7 @@ export const serializeOpeningForCommand = (opening: FloorOpening) => ({
   globalId: opening.globalId,
   hostWallGlobalId: opening.hostWallGlobalId,
   storeyGlobalId: opening.storeyGlobalId,
+  storeyName: opening.storeyName,
   wall_id: opening.wallId,
   wall_position: opening.wallPosition,
   centerMm: opening.centerMm ? toPointTuple(opening.centerMm) : undefined,

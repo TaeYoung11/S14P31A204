@@ -365,12 +365,38 @@ def test_planning_worker_returns_clarification_without_downstream_publish() -> N
             "status": "needs_clarification",
             "session_id": "mock-session-123",
             "summary": "Conflict detected",
-            "clarification_questions": [{"id": "q1", "label": "Confirm", "options": []}],
+            "clarification_questions": [
+                {
+                    "trigger": "custom",
+                    "question_ko": "Select host wall",
+                    "context": {
+                        "apply_field": "host_wall_global_id",
+                        "reason": "host_wall_not_found",
+                    },
+                    "options": [
+                        {
+                            "id": "2znubWhPDD4wn7Fg4E24GR",
+                            "label": "South wall",
+                            "value": "2znubWhPDD4wn7Fg4E24GR",
+                        }
+                    ],
+                }
+            ],
         }
 
         result = worker.process(command)
 
     assert isinstance(result, ClarificationResult)
+    # _store_result (planner_3d_result format) is the first write; _store_clarification_artifact is second
+    stored_payload = json.loads(mock_s3.write_text.call_args_list[0].kwargs["text"])
+    Draft202012Validator(_planner_3d_schema()).validate(stored_payload)
+    clarification = stored_payload["clarification"]
+    assert clarification["context"]["apply_field"] == "host_wall_global_id"
+    assert clarification["options"][0] == {
+        "id": "2znubWhPDD4wn7Fg4E24GR",
+        "label": "South wall",
+        "value": "2znubWhPDD4wn7Fg4E24GR",
+    }
 
 
 def test_planning_worker_logic() -> None:
@@ -466,15 +492,15 @@ def test_map_clarification_keeps_option_details_for_custom_trigger() -> None:
     )
 
     assert mapped["question"] == "벽을 선택해 주세요."
-    assert mapped["options"] == ["South Wall"]
-    assert mapped["trigger"] == "custom"
-    assert mapped["option_details"] == [
+    assert mapped["options"] == [
         {
             "id": "wall-1",
             "label": "South Wall",
             "value": "2gZV8wAqn1z8b8s4l1mNQF",
         }
     ]
+    assert "trigger" not in mapped
+    assert "option_details" not in mapped
 
 
 def test_build_host_wall_clarification_question_uses_axis_projection_lengths() -> None:

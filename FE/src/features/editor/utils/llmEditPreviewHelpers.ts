@@ -38,6 +38,7 @@ export function buildNewBubble(label: string, type: string, near: BubbleData | u
 
   return {
     id: `llm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    floor: near?.floor ?? 1,
     x,
     y,
     width: px.width,

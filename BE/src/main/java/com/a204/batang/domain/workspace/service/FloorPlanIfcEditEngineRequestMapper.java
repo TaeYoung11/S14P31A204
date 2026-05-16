@@ -15,6 +15,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class FloorPlanIfcEditEngineRequestMapper {
 
+    private static final String IFC_GLOBAL_ID_PATTERN = "^[0-9A-Za-z_$]{22}$";
+
     private final ObjectMapper objectMapper;
 
     public JsonNode toEngineRequest(String requestId, UUID projectId, UUID baseRevisionId, List<WorkspaceCommandEnvelope> batch) {
@@ -58,7 +60,8 @@ public class FloorPlanIfcEditEngineRequestMapper {
             return null;
         }
         params.put("element_type", elementType);
-        putText(params, "storey_global_id", firstText(data, "storeyGlobalId", "storey_global_id"));
+        putText(params, "storey_id", firstText(data, "storeyGlobalId", "storey_global_id", "storey_id"));
+        putText(params, "storey", firstText(data, "storeyName", "storey"));
         putPoint(params, "start_mm", firstPoint(data, "startMm", "start_mm"));
         putPoint(params, "end_mm", firstPoint(data, "endMm", "end_mm"));
         putPoint(params, "center_mm", firstPoint(data, "centerMm", "center_mm"));
@@ -77,12 +80,24 @@ public class FloorPlanIfcEditEngineRequestMapper {
             return null;
         }
 
+        String entity = envelope.command().entity();
         String globalId = firstText(patch, "globalId", "global_id");
         if (globalId == null || globalId.isBlank()) {
             globalId = envelope.command().id();
         }
         if (globalId == null || globalId.isBlank()) {
             return null;
+        }
+        if ("room".equals(entity) && !isIfcGlobalId(globalId)) {
+            return null;
+        }
+
+        JsonNode translationMm = firstPoint3d(patch, "translationMm", "translation_mm", "translateMm", "translate_mm");
+        if (translationMm != null) {
+            // Realtime workspace commands are single-purpose; movement and property edits must be emitted separately.
+            ObjectNode params = objectMapper.createObjectNode();
+            params.set("translation_mm", translationMm);
+            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
         }
 
         JsonNode startMm = firstPoint(patch, "startMm", "start_mm");
@@ -95,10 +110,16 @@ public class FloorPlanIfcEditEngineRequestMapper {
         }
 
         ObjectNode params = objectMapper.createObjectNode();
-        putDimensions(params, patch, true);
+        putDimensions(params, patch, !"room".equals(entity));
         putText(params, "material", text(patch, "material"));
         putText(params, "color", text(patch, "color"));
-        if (!params.has("dimensions_mm") && !params.has("material") && !params.has("color")) {
+        putRoomProperties(params, patch, entity);
+        if (!params.has("dimensions_mm")
+                && !params.has("material")
+                && !params.has("color")
+                && !params.has("properties")
+                && !params.has("pset_updates")
+                && !params.has("pset_name")) {
             return null;
         }
         return operation(envelope.commandId().toString(), "update_element_properties", selector(globalId), params);
@@ -107,6 +128,9 @@ public class FloorPlanIfcEditEngineRequestMapper {
     private JsonNode toDeleteOperation(WorkspaceCommandEnvelope envelope) {
         String globalId = envelope.command().id();
         if (globalId == null || globalId.isBlank()) {
+            return null;
+        }
+        if ("room".equals(envelope.command().entity()) && !isIfcGlobalId(globalId)) {
             return null;
         }
         return operation(envelope.commandId().toString(), "delete_elements", selector(globalId), objectMapper.createObjectNode());
@@ -173,12 +197,39 @@ public class FloorPlanIfcEditEngineRequestMapper {
         }
     }
 
+    private void putRoomProperties(ObjectNode params, JsonNode patch, String entity) {
+        if (!"room".equals(entity)) {
+            return;
+        }
+
+        ObjectNode properties = objectMapper.createObjectNode();
+        putText(properties, "name", firstText(patch, "name", "label"));
+        putText(properties, "space_type", firstText(patch, "spaceType", "space_type", "type"));
+        JsonNode polygonMm = patch.get("polygonMm");
+        if (polygonMm == null || polygonMm.isNull()) {
+            polygonMm = patch.get("polygon_mm");
+        }
+        if (polygonMm != null && polygonMm.isArray() && !polygonMm.isEmpty()) {
+            properties.set("polygon_mm", polygonMm);
+        }
+        if (!properties.isEmpty()) {
+            params.set("properties", properties);
+        }
+
+        JsonNode psetUpdates = patch.get("pset_updates");
+        if (psetUpdates != null && psetUpdates.isObject() && !psetUpdates.isEmpty()) {
+            params.set("pset_updates", psetUpdates);
+        }
+        putText(params, "pset_name", text(patch, "pset_name"));
+    }
+
     private String toIfcClass(String entity, String fallback) {
         if (fallback != null && fallback.startsWith("Ifc")) {
             return fallback;
         }
         return switch (entity) {
             case "wall" -> "IfcWall";
+            case "room" -> "IfcSpace";
             case "door" -> "IfcDoor";
             case "window", "opening" -> "IfcWindow";
             case "slab" -> "IfcSlab";
@@ -239,5 +290,41 @@ public class FloorPlanIfcEditEngineRequestMapper {
             }
         }
         return null;
+    }
+
+    private boolean isIfcGlobalId(String value) {
+        return value != null && value.matches(IFC_GLOBAL_ID_PATTERN);
+    }
+
+    private JsonNode firstPoint3d(JsonNode node, String... keys) {
+        for (String key : keys) {
+            JsonNode value = node == null ? null : node.get(key);
+            if (value == null || value.isNull()) {
+                continue;
+            }
+            if (value.isArray() && value.size() >= 2 && value.get(0).isNumber() && value.get(1).isNumber()) {
+                ObjectNode point = objectMapper.createObjectNode();
+                point.put("x", value.get(0).asDouble());
+                point.put("y", value.get(1).asDouble());
+                if (value.size() >= 3 && value.get(2).isNumber()) {
+                    point.put("z", value.get(2).asDouble());
+                }
+                return point;
+            }
+            if (value.isObject() && hasNumber(value, "x") && hasNumber(value, "y")) {
+                ObjectNode point = objectMapper.createObjectNode();
+                point.put("x", value.get("x").asDouble());
+                point.put("y", value.get("y").asDouble());
+                if (hasNumber(value, "z")) {
+                    point.put("z", value.get("z").asDouble());
+                }
+                return point;
+            }
+        }
+        return null;
+    }
+
+    private boolean hasNumber(JsonNode node, String key) {
+        return node.get(key) != null && node.get(key).isNumber();
     }
 }

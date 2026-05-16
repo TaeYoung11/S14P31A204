@@ -26,6 +26,7 @@ export default function CanvasZoomControls({
   isThreeDEditingLocked,
 }: CanvasZoomControlsSectionProps) {
   if (mode === 'view') return null
+  if (mode === '3d' && isThreeDEditingLocked) return null
 
   return (
     <ZoomControlBar
