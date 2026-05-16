@@ -308,7 +308,13 @@ def test_run_two_d_llm_job_passes_conversation_history(
             "source_scene_storage_url": "s3://batang-artifacts/input/house.ifc",
             "conversation_history": [
                 {"role": "user", "content": "거실 삭제해줘."},
-                {"role": "assistant", "content": "같은 이름의 방이 여러 개 있습니다. 몇 층 방을 삭제할까요?"},
+                {
+                    "role": "assistant",
+                    "content": (
+                        "같은 이름의 방이 여러 개 있습니다. "
+                        "몇 층 방을 삭제할까요?"
+                    ),
+                },
             ],
         },
         input_path=input_path,
@@ -318,7 +324,13 @@ def test_run_two_d_llm_job_passes_conversation_history(
     assert result["ok"] is True
     assert captured["conversation_history"] == [
         {"role": "user", "content": "거실 삭제해줘."},
-        {"role": "assistant", "content": "같은 이름의 방이 여러 개 있습니다. 몇 층 방을 삭제할까요?"},
+        {
+            "role": "assistant",
+            "content": (
+                "같은 이름의 방이 여러 개 있습니다. "
+                "몇 층 방을 삭제할까요?"
+            ),
+        },
     ]
 
 

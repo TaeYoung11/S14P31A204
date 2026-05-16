@@ -155,8 +155,9 @@ def _extract_recent_user_remove_target(
         content = entry.get("content")
         if not isinstance(content, str):
             continue
-        simple_remove = _maybe_parse_simple_remove_command(content) or _maybe_parse_remove_command_v2(
-            content
+        simple_remove = (
+            _maybe_parse_simple_remove_command(content)
+            or _maybe_parse_remove_command_v2(content)
         )
         if simple_remove is not None:
             return simple_remove.target_room_name, simple_remove.target_floor

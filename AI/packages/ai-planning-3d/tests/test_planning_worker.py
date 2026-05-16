@@ -387,7 +387,8 @@ def test_planning_worker_returns_clarification_without_downstream_publish() -> N
         result = worker.process(command)
 
     assert isinstance(result, ClarificationResult)
-    # _store_result (planner_3d_result format) is the first write; _store_clarification_artifact is second
+    # _store_result (planner_3d_result format) is the first write;
+    # _store_clarification_artifact is second.
     stored_payload = json.loads(mock_s3.write_text.call_args_list[0].kwargs["text"])
     Draft202012Validator(_planner_3d_schema()).validate(stored_payload)
     clarification = stored_payload["clarification"]

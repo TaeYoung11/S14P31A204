@@ -800,7 +800,10 @@ class LLM2DPipeline:
         if reason == "preferred_absorber_not_adjacent":
             return "지정하신 방이 삭제할 방과 인접해 있지 않습니다. 인접한 방을 지정해 주세요."
         if reason == "no_adjacent_absorber":
-            return "삭제하려는 방에 인접한 공간이 없어 삭제할 수 없습니다. 먼저 옆에 다른 방을 추가해 주세요."
+            return (
+                "삭제하려는 방에 인접한 공간이 없어 삭제할 수 없습니다. "
+                "먼저 옆에 다른 방을 추가해 주세요."
+            )
         if reason == "single_direction_resize":
             direction = policy_plan.get("direction")
             return f"{direction} 방향으로 크기를 조정합니다."
@@ -809,7 +812,10 @@ class LLM2DPipeline:
         if reason == "resize_direction_axis_mismatch":
             return "요청하신 방향과 변경된 치수의 축이 맞지 않습니다."
         if reason == "multi_axis_resize_unsupported":
-            return "가로와 세로를 동시에 변경하는 것은 현재 지원하지 않습니다. 한 방향씩 요청해 주세요."
+            return (
+                "가로와 세로를 동시에 변경하는 것은 현재 지원하지 않습니다. "
+                "한 방향씩 요청해 주세요."
+            )
         if reason == "resize_outside_boundary":
             return "크기를 변경하면 층 경계를 벗어나기 때문에 적용할 수 없습니다."
         if reason == "non_rectangular_space":

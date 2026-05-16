@@ -8,12 +8,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import io
-import json
 import os
 import sys
 import tempfile
-import uuid
 from pathlib import Path
 
 import boto3
@@ -167,7 +164,7 @@ def _create_2f_living_room(
     _add_pset_to_space(ifc, space, dims)
 
     # storey에 포함 — IfcRelContainedInSpatialStructure 직접 생성
-    rel = ifc.createIfcRelContainedInSpatialStructure(
+    _ = ifc.createIfcRelContainedInSpatialStructure(
         ifcopenshell.guid.new(),
         owner_history,
         None,
@@ -175,7 +172,10 @@ def _create_2f_living_room(
         [space],
         storey_2f,
     )
-    print(f"  2층 거실 생성: {space.GlobalId} (width={dims.get('Width')}, height={dims.get('Height')})")
+    print(
+        f"  2층 거실 생성: {space.GlobalId} "
+        f"(width={dims.get('Width')}, height={dims.get('Height')})"
+    )
     return space
 
 
@@ -228,7 +228,11 @@ def main() -> None:
         ref_space = _find_1f_living_room(ifc, storey_1f)
         print(f"1층 거실 참조: {ref_space.GlobalId if ref_space else '없음'}")
 
-        owner_history = ifc.by_type("IfcOwnerHistory")[0] if ifc.by_type("IfcOwnerHistory") else None
+        owner_history = (
+            ifc.by_type("IfcOwnerHistory")[0]
+            if ifc.by_type("IfcOwnerHistory")
+            else None
+        )
 
         # 2층에 이미 거실이 있으면 스킵
         existing_2f_spaces = []

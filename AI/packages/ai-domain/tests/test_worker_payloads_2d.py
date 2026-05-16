@@ -25,7 +25,13 @@ def test_two_d_llm_command_payload_keeps_conversation_history() -> None:
             "user_instruction": "2층 거실에 대해 작업합니다.",
             "conversation_history": [
                 {"role": "user", "content": "거실 삭제해줘."},
-                {"role": "assistant", "content": "같은 이름의 방이 여러 개 있습니다. 몇 층 방을 삭제할까요?"},
+                {
+                    "role": "assistant",
+                    "content": (
+                        "같은 이름의 방이 여러 개 있습니다. "
+                        "몇 층 방을 삭제할까요?"
+                    ),
+                },
             ],
         }
     )

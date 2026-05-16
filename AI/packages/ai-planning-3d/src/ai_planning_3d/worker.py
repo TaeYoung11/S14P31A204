@@ -6,7 +6,7 @@ import asyncio
 import json
 import tempfile
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any, cast
 
@@ -759,7 +759,7 @@ def _build_clarification_artifact(
         "job_id": session_id,
         "step_no": 1,
         "clarification_request_id": session_id,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 

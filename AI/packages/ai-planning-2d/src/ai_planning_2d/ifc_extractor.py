@@ -609,7 +609,11 @@ def _extract_space_type(space: Any, psets: dict[str, Any], dims: dict[str, Any])
 
     # Batang BE 생성 IFC는 Pset_BatangLayoutImportRoom.RoomType에 타입을 저장한다.
     batang_room_type = psets.get("Pset_BatangLayoutImportRoom", {}).get("RoomType")
-    if isinstance(batang_room_type, str) and batang_room_type.strip() and batang_room_type.strip() != "other":
+    if (
+        isinstance(batang_room_type, str)
+        and batang_room_type.strip()
+        and batang_room_type.strip() != "other"
+    ):
         return batang_room_type.strip()
 
     candidates = [
