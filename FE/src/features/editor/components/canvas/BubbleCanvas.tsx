@@ -195,16 +195,6 @@ export function BubbleCanvas({
   const isBubbleEditable = !isReadOnly
   const baseOffsetX = (stageSize.width * (1 - scale)) / 2
   const baseOffsetY = (stageSize.height * (1 - scale)) / 2
-  const emptyClickTrackerRef = useRef<{ count: number; at: number; x: number; y: number }>({
-    count: 0,
-    at: 0,
-    x: 0,
-    y: 0,
-  })
-
-  const resetEmptyClickTracker = () => {
-    emptyClickTrackerRef.current = { count: 0, at: 0, x: 0, y: 0 }
-  }
 
   /** 버블 타원의 상·우·하·좌 4방향 앵커 포인트 반환 (연결 포인트 표시용) */
   const getAnchorPoints = (bubble: BubbleData) => [
@@ -390,10 +380,6 @@ export function BubbleCanvas({
         if (!isBubbleEditable) return
         if (selectedTool !== 'selection') return
         const targetType = e.target.getType()
-        const isEmptyCanvasTarget = targetType === 'Stage' || e.target.getParent()?.getType() === 'Stage'
-        if (!isEmptyCanvasTarget) {
-          resetEmptyClickTracker()
-        }
         if (targetType !== 'Stage' && e.target.getParent()?.getType() !== 'Stage') {
           const isOnBubble = bubbles.some((b) => {
             const g = groupRefs.current.get(b.id)
@@ -502,36 +488,26 @@ export function BubbleCanvas({
 
         // 빈 캔버스 단일 클릭: 선택 해제
         onClearSelection?.()
+      }}
+      onDblClick={(e) => {
         if (!isBubbleEditable) return
         if (isPanMode) return
+        if (selectedTool !== 'selection') return
 
         const stage = e.target.getStage()
         if (!stage) return
-        const pos = stage.getRelativePointerPosition()
         const containerPos = stage.getPointerPosition()
-        if (!pos || !containerPos) return
+        if (!containerPos) return
+        const localPos = stage.getAbsoluteTransform().copy().invert().point(containerPos)
+        if (!Number.isFinite(localPos.x) || !Number.isFinite(localPos.y)) return
 
         // 버블 위 클릭은 Stage로 올라오지 않지만, 안전하게 한 번 더 필터링한다.
-        const hitBubble = findBubbleByPoint(pos.x, pos.y)
+        const hitBubble = findBubbleByPoint(localPos.x, localPos.y)
         if (hitBubble) return
 
-        const now = Date.now()
-        const tracker = emptyClickTrackerRef.current
-        const dt = now - tracker.at
-        const dx = pos.x - tracker.x
-        const dy = pos.y - tracker.y
-        const distSq = dx * dx + dy * dy
-        const withinDoubleClickWindow = dt <= 320 && distSq <= 14 * 14
-
-        const nextCount = withinDoubleClickWindow ? tracker.count + 1 : 1
-        emptyClickTrackerRef.current = { count: nextCount, at: now, x: pos.x, y: pos.y }
-
-        if (nextCount < 2) return
-
-        resetEmptyClickTracker()
         onEmptyCanvasDblClick?.({
-          x: pos.x,
-          y: pos.y,
+          x: localPos.x,
+          y: localPos.y,
           screenX: containerPos.x,
           screenY: containerPos.y,
         })

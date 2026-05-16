@@ -4167,7 +4167,7 @@ export function useEditorPage() {
     if (isBubbleReadOnly) return
     markLocalBubbleSnapshotChanged()
     const newBubble = addBubbleAt(info.x, info.y, floor)
-    const scale = currentZoom / 100
+    const scale = canvasZoom / 100
     setLabelEditState({
       id: newBubble.id,
       label: newBubble.label,
