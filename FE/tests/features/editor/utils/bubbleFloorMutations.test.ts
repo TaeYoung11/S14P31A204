@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { BubbleData } from '../types'
-import type { BubbleFloorPolicy } from './floorPolicy'
+import type { BubbleData } from '@/features/editor/types'
+import type { BubbleFloorPolicy } from '@/features/editor/utils/floorPolicy'
 import {
   buildFloorRemapMapForRename,
   buildSummaryByFloorMap,
   computeBubbleStateAfterFloorDelete,
   getNextBubbleFloorToAdd,
-} from './bubbleFloorMutations'
+} from '@/features/editor/utils/bubbleFloorMutations'
 
 const basementPolicy: BubbleFloorPolicy = {
   allowBasement: true,
@@ -90,3 +90,5 @@ describe('bubbleFloorMutations', () => {
     expect(map.get(2)?.totalAreaM2).toBe(4.2)
   })
 })
+
+

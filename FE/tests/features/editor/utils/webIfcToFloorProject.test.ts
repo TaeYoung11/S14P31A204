@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toRoomPolygonFromAabb, type Aabb3D } from './webIfcToFloorProject.ts'
+import { toRoomPolygonFromAabb, type Aabb3D } from '@/features/editor/utils/webIfcToFloorProject'
 
 describe('toRoomPolygonFromAabb', () => {
   it('uses X/Y as the floor-plane axes even when Z has the largest span', () => {
@@ -20,3 +20,5 @@ describe('toRoomPolygonFromAabb', () => {
     ])
   })
 })
+
+

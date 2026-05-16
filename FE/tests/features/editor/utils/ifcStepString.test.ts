@@ -1,6 +1,6 @@
 // IFC STEP 문자열 디코딩 유틸을 검증하는 테스트
 import { describe, expect, it } from 'vitest'
-import { decodeIfcStepString, normalizeIfcDisplayText } from './ifcStepString.ts'
+import { decodeIfcStepString, normalizeIfcDisplayText } from '@/features/editor/utils/ifcStepString'
 
 describe('decodeIfcStepString', () => {
   it('decodes IFC STEP unicode escape sequences', () => {
@@ -17,3 +17,5 @@ describe('normalizeIfcDisplayText', () => {
     expect(normalizeIfcDisplayText('  \\X2\\AC70C2E4\\X0\\  ')).toBe('거실')
   })
 })
+
+

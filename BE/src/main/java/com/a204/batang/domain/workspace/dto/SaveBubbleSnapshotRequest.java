@@ -10,6 +10,7 @@ import java.util.List;
  *
  * @param bubbles 저장할 버블 목록
  * @param connections 저장할 연결 목록
+ * @param zones 저장할 조닝 목록
  */
 public record SaveBubbleSnapshotRequest(
         @Valid
@@ -18,6 +19,8 @@ public record SaveBubbleSnapshotRequest(
         @Valid
         @NotNull(message = "connections is required.")
         List<BubbleUpdateRequest.ConnectionData> connections,
+        @Valid
+        List<BubbleZoneData> zones,
         @Valid
         BubbleFloorMeta floorMeta
 ) implements BubbleSnapshotPayload {

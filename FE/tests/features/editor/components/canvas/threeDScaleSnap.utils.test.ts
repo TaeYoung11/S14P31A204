@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
-import { applyScaleSnapByMm } from './threeDScaleSnap.utils'
+import { applyScaleSnapByMm } from '@/features/editor/components/canvas/threeDScaleSnap.utils'
 
 describe('threeDScaleSnap.utils', () => {
   it('scale을 mm 기준 간격으로 스냅한다', () => {
@@ -28,3 +28,5 @@ describe('threeDScaleSnap.utils', () => {
     expect(object.scale.z).toBeCloseTo(1.12, 8)
   })
 })
+
+

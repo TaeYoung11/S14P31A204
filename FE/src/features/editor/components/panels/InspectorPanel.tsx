@@ -1,11 +1,12 @@
 // 속성, 층 보기, 계층 구조를 하나의 컴팩트 인스펙터로 표시합니다.
-import { Box, Layers, SlidersHorizontal } from 'lucide-react'
+import { Box, Layers, LayoutGrid, SlidersHorizontal } from 'lucide-react'
 import { PanelFrame } from '../shared/PanelFrame'
 import { BubbleFloorSection, type BubbleFloorSectionProps } from './sections/BubbleFloorSection'
 import { InspectorFloorViewSection } from './sections/InspectorFloorViewSection'
 import { InspectorHierarchySection } from './sections/InspectorHierarchySection'
 import { InspectorSectionFrame } from './sections/InspectorSectionFrame'
 import { ModeAwareAttributeSection } from './sections/ModeAwareAttributeSection'
+import { ZoningSection, type ZoningSectionProps } from './sections/ZoningSection'
 import type {
   AttributesSectionProps,
   FloorViewSectionProps,
@@ -18,10 +19,7 @@ interface InspectorPanelProps {
   floorViewPanelProps: FloorViewSectionProps | null
   hierarchyPanelProps: HierarchySectionProps | null
   bubbleFloorSectionProps: BubbleFloorSectionProps
-}
-
-function AttributeSection(props: AttributesSectionProps) {
-  return <ModeAwareAttributeSection {...props} />
+  zoningSectionProps: ZoningSectionProps | null
 }
 
 export function InspectorPanel({
@@ -29,6 +27,7 @@ export function InspectorPanel({
   floorViewPanelProps,
   hierarchyPanelProps,
   bubbleFloorSectionProps,
+  zoningSectionProps,
 }: InspectorPanelProps) {
   const inspectorLayout = resolveInspectorPanelLayout({
     offset: attributesPanelProps.offset,
@@ -53,13 +52,18 @@ export function InspectorPanel({
       <div className="h-full min-h-0 overflow-y-auto bg-[#F8FAFC] p-2.5 pb-3">
         <div className="space-y-2.5">
           <InspectorSectionFrame title="속성 관리자" icon={<SlidersHorizontal size={13} />}>
-            <AttributeSection {...attributesPanelProps} />
+            <ModeAwareAttributeSection {...attributesPanelProps} />
           </InspectorSectionFrame>
           <InspectorSectionFrame title="층 보기" icon={<Layers size={13} />}>
             {attributesPanelProps.mode === 'bubble'
               ? <BubbleFloorSection {...bubbleFloorSectionProps} />
               : <InspectorFloorViewSection panelProps={floorViewPanelProps} />}
           </InspectorSectionFrame>
+          {attributesPanelProps.mode === 'bubble' && zoningSectionProps ? (
+            <InspectorSectionFrame title="조닝 영역" icon={<LayoutGrid size={13} />}>
+              <ZoningSection {...zoningSectionProps} />
+            </InspectorSectionFrame>
+          ) : null}
           <InspectorSectionFrame title="계층 구조" icon={<Box size={13} />}>
             <InspectorHierarchySection panelProps={hierarchyPanelProps} />
           </InspectorSectionFrame>

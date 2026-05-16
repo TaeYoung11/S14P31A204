@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import type { BubbleData, ConnectionData } from '../types'
-import { assertLayoutImportV2 } from '../services/floorPlanGenerate.contract'
+import type { BubbleData, ConnectionData, ZoneData } from '@/features/editor/types'
+import { assertLayoutImportV2 } from '@/features/editor/services/floorPlanGenerate.contract'
 import {
   DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
   buildFloorPlanLayoutImportPayload,
   getLayoutImportBoundaryLogMetadata,
+  pruneZoneBubbleIds,
   type LayoutImportBoundaryInput,
-} from './editorPageHelpers'
+} from '@/features/editor/utils/editorPageHelpers'
 
 const PROJECT_ID = '123e4567-e89b-42d3-a456-426614174000'
 
@@ -285,3 +286,31 @@ describe('getLayoutImportBoundaryLogMetadata', () => {
     })
   })
 })
+
+describe('pruneZoneBubbleIds', () => {
+  it('삭제된 버블 id를 각 조닝의 bubbleIds에서 제거한다', () => {
+    const zones: ZoneData[] = [
+      { id: 'zone-1', name: 'A', color: '#111111', source: 'manual', bubbleIds: ['b1', 'b2', 'b3'] },
+      { id: 'zone-2', name: 'B', color: '#222222', source: 'auto', bubbleIds: ['b3', 'b4'] },
+    ]
+
+    const next = pruneZoneBubbleIds(zones, ['b3', 'bX'])
+
+    expect(next).toEqual([
+      { id: 'zone-1', name: 'A', color: '#111111', source: 'manual', bubbleIds: ['b1', 'b2'] },
+      { id: 'zone-2', name: 'B', color: '#222222', source: 'auto', bubbleIds: ['b4'] },
+    ])
+  })
+
+  it('변경 대상이 없으면 동일 참조를 반환한다', () => {
+    const zones: ZoneData[] = [
+      { id: 'zone-1', name: 'A', color: '#111111', source: 'manual', bubbleIds: ['b1', 'b2'] },
+    ]
+
+    const next = pruneZoneBubbleIds(zones, ['b9'])
+
+    expect(next).toBe(zones)
+  })
+})
+
+

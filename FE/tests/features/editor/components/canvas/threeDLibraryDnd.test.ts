@@ -4,8 +4,8 @@ import {
   hasLibraryPresetInDataTransfer,
   readLibraryPresetFromDataTransfer,
   writeLibraryPresetToDataTransfer,
-} from './threeDLibraryDnd'
-import type { ThreeDLibraryPreset } from './threeDLibrary.types'
+} from '@/features/editor/components/canvas/threeDLibraryDnd'
+import type { ThreeDLibraryPreset } from '@/features/editor/components/canvas/threeDLibrary.types'
 
 function createMockDataTransfer() {
   const store = new Map<string, string>()
@@ -48,3 +48,5 @@ describe('threeDLibraryDnd', () => {
     expect(readLibraryPresetFromDataTransfer(dataTransfer)).toEqual(SAMPLE_PRESET)
   })
 })
+
+
