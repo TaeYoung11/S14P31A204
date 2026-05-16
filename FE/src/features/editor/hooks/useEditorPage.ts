@@ -3555,7 +3555,14 @@ export function useEditorPage() {
     setCommentPins((prev) =>
       prev.map((pin) => {
         const mapped = applySimilarityPoint(pin.x, pin.y, transform)
-        return { ...pin, x: mapped.x, y: mapped.y }
+        return {
+          ...pin,
+          x: mapped.x,
+          y: mapped.y,
+          // 2D 캔버스 좌표와 3D 마커 world 좌표를 함께 유지해 뷰 전환 시 핀 위치가 어긋나지 않게 한다.
+          worldX: mapped.x * FLOOR_MM_PER_PX,
+          worldY: mapped.y * FLOOR_MM_PER_PX,
+        }
       }))
     setLabelEditState(null)
   }, [
