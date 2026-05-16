@@ -93,7 +93,7 @@ export function ZoomControlBar({
   return (
     <div
       ref={panelRef}
-      className="absolute z-10 flex items-center rounded-2xl border border-[#DFE4F0] bg-white/95 px-1.5 py-1.5 shadow-[0_14px_28px_rgba(34,44,92,0.16)] backdrop-blur-sm transition-all"
+      className="absolute z-10 flex items-center rounded-2xl border border-[#DFE4F0] bg-white/95 px-1.5 py-1.5 shadow-[0_14px_28px_rgba(34,44,92,0.16)] backdrop-blur-sm"
       style={{ left: offset.x, top: offset.y }}
     >
       <button
