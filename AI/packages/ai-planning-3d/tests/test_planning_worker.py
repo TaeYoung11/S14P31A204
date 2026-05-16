@@ -338,7 +338,8 @@ def test_planning_worker_split_chat_fails_fast_without_partial_commands() -> Non
     assert result.error.clarification_request_id == "session-window-clarification"
     assert result.error.message.startswith("Command 2 failed:")
 
-    stored_payload = json.loads(mock_s3.write_text.call_args.kwargs["text"])
+    # write_text: [0] = full planner result (schema-validated), [1] = ClarificationArtifact
+    stored_payload = json.loads(mock_s3.write_text.call_args_list[0].kwargs["text"])
     Draft202012Validator(_planner_3d_schema()).validate(stored_payload)
     assert stored_payload["status"] == "clarification_required"
     assert stored_payload["commands"] == []

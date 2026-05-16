@@ -1,4 +1,4 @@
-import uuid
+﻿import uuid
 import logging
 import re
 from typing import Any
@@ -960,14 +960,14 @@ class LLM3DPipeline:
             options.append(
                 ClarificationOption(
                     id="manual",
-                    label="ë²½ì„ ì§ì ‘ ì§€ì •í•´ ì£¼ì„¸ìš”.",
+                    label="벽을 직접 지정해 주세요.",
                     value="manual",
                 )
             )
 
         return ClarificationQuestion(
             trigger=ClarificationTrigger.CUSTOM,
-            question_ko="ë¬¸/ì°½ë¬¸ì„ ì„¤ì¹˜í•  ë²½ì„ ì„ íƒí•´ ì£¼ì„¸ìš”.",
+            question_ko="문/창문을 설치할 벽을 선택해 주세요.",
             options=tuple(options[:8]),
             context={
                 "storey": getattr(storey, "Name", None),

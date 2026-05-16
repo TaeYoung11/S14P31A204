@@ -6,6 +6,7 @@ import asyncio
 import json
 import tempfile
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
@@ -103,12 +104,13 @@ class PlanningWorker(BaseWorker):
                 session_id=session_id,
                 question_count=len(result.get("clarification_questions", [])),
             )
+            clarification_url = self._store_clarification_artifact(result, session_id, output_url)
             return ClarificationResult(
                 error=ClarificationRequiredError(
                     code="NEEDS_CLARIFICATION",
                     message=result.get("summary", "생성 전 확인이 필요합니다."),
                     clarification_request_id=session_id,
-                    detail_storage_url=stored_url,
+                    detail_storage_url=clarification_url,
                 )
             )
 
@@ -147,6 +149,36 @@ class PlanningWorker(BaseWorker):
                 code="RESULT_UPLOAD_FAILED",
                 message=f"결과 업로드 실패: {exc}",
             ) from exc
+
+    def _store_clarification_artifact(
+        self,
+        result: dict[str, Any],
+        session_id: str,
+        output_url: str | None,
+    ) -> str | None:
+        """FE가 소비하는 ClarificationArtifact 형식 JSON을 별도 S3 객체로 저장한다."""
+        if not output_url:
+            return None
+        try:
+            artifact = _build_clarification_artifact(result, session_id)
+            loc = parse_s3_url(output_url)
+            clarification_key = loc.key.rstrip("/") + ".clarification.json"
+            return cast(
+                str,
+                self._s3.write_text(
+                    key=clarification_key,
+                    text=json.dumps(artifact, ensure_ascii=False),
+                    content_type="application/json; charset=utf-8",
+                    bucket=loc.bucket,
+                ),
+            )
+        except Exception as exc:
+            _logger.warning(
+                "clarification_artifact_upload_failed",
+                session_id=session_id,
+                error=str(exc),
+            )
+            return None
 
 
 # ── planner_3d_result.v1.schema.json 변환 헬퍼 ───────────────────────────────
@@ -680,6 +712,44 @@ def _map_clarification(result: dict[str, Any]) -> dict[str, Any]:
         return clarification
     # ambiguity_question 경로: 질문만 있고 선택지 없음
     return {"question": result.get("summary", "추가 정보가 필요합니다.")}
+
+
+def _build_clarification_artifact(
+    result: dict[str, Any],
+    session_id: str,
+) -> dict[str, Any]:
+    """파이프라인 clarification 결과 → FE ClarificationArtifact 계약 형식으로 변환."""
+    clarification = _map_clarification(result)
+    question = clarification.get("question", "추가 정보가 필요합니다.")
+    option_details: list[dict[str, Any]] = clarification.get("option_details") or []
+    trigger: str | None = clarification.get("trigger")
+
+    alternatives = [
+        {
+            "alternative_id": opt["id"],
+            "title": opt["label"],
+            "description": "",
+            "fill": {trigger: opt["value"]} if trigger else {},
+            "affected_entities": [],
+            "warnings": [],
+            "metrics": [],
+        }
+        for opt in option_details
+        if opt.get("id") and opt.get("label")
+    ]
+
+    return {
+        "schema_version": "v1",
+        "kind": "alternatives" if alternatives else "open_ended",
+        "question": question,
+        "alternatives": alternatives,
+        "parsed_command_preview": None,
+        "policy_plan": None,
+        "job_id": session_id,
+        "step_no": 1,
+        "clarification_request_id": session_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def _map_issues(
