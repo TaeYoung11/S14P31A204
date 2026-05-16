@@ -22,7 +22,6 @@ import { toCanvasPolygon } from '../../utils/siteBoundaryValidation'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
 import { FloorPlanEmpty, FloorPlanLoading } from './TwoDCanvasOverlays'
 import type { RoomDragState } from './TwoDRoomsLayer'
-import { TwoDSiteValidationBanner } from './TwoDSiteValidationBanner'
 import { TwoDCanvasStage } from './TwoDCanvasStage'
 import { useCanvasGridLines } from './useCanvasGridLines'
 import { useCanvasCoordinateHelpers } from './useCanvasCoordinateHelpers'
@@ -519,8 +518,6 @@ export function TwoDCanvas({
         deletingPinId={deletingPinId ?? null}
         marquee={marquee}
       />
-      <TwoDSiteValidationBanner siteValidation={siteValidation} />
-
     </div>
   )
 }
