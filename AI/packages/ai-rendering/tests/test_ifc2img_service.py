@@ -1376,6 +1376,129 @@ def test_run_ifc2img_photo_pipeline_places_shape_lock_before_color_prompt(
     )
 
 
+def test_run_ifc2img_photo_pipeline_opt_in_success_marks_color_preservation_applied(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """opt-in + color summary 추출 성공 시 manifest/result에 applied=True가 노출돼야 한다."""
+    import ai_rendering.ifc2img.service as service
+    import json
+
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    color_summary = IfcColorSummary(
+        source_ifc_path=ifc_path,
+        categories={
+            "ROOF": IfcSemanticCategoryColorSummary(
+                category="ROOF",
+                color=IfcColorCandidate(source="surface_style", rgb=(0.0, 0.5, 0.0)),
+                candidates=(),
+            ),
+        },
+        elements=(),
+    )
+    monkeypatch.setattr(
+        service,
+        "extract_ifc_color_summary",
+        lambda _path: color_summary,
+    )
+
+    result = run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        time_of_day="DAY",
+        use_ifc_color_prompt_suffix=True,
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    assert result.ifc_color_preservation_opted_in is True
+    assert result.ifc_color_preservation_applied is True
+    assert result.ifc_color_preservation_error is None
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["ifcColorPreservationOptedIn"] is True
+    assert manifest["ifcColorPreservationApplied"] is True
+    assert manifest["ifcColorPreservationError"] is None
+
+
+def test_run_ifc2img_photo_pipeline_opt_in_failure_marks_color_preservation_not_applied(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """opt-in 상태에서 extract 실패 시 caller가 응답에서 fidelity 실패를 알 수 있어야 한다."""
+    import ai_rendering.ifc2img.service as service
+    import json
+
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    def _raise(_path: Path) -> IfcColorSummary:
+        raise RuntimeError("parser failed: malformed IFC color block")
+
+    monkeypatch.setattr(service, "extract_ifc_color_summary", _raise)
+
+    result = run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        time_of_day="DAY",
+        use_ifc_color_prompt_suffix=True,
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    assert result.ifc_color_preservation_opted_in is True
+    assert result.ifc_color_preservation_applied is False
+    assert result.ifc_color_preservation_error is not None
+    assert "parser failed" in result.ifc_color_preservation_error
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["ifcColorPreservationOptedIn"] is True
+    assert manifest["ifcColorPreservationApplied"] is False
+    assert "parser failed" in manifest["ifcColorPreservationError"]
+
+    # Caller가 opt-in을 안 한 경우는 영향 없어야 한다.
+    params = FakeDepthStyleRenderer.instances[-1].render_calls[0]["params"]
+    assert "IFC colors" not in params.prompt
+
+
+def test_run_ifc2img_photo_pipeline_no_opt_in_leaves_color_preservation_neutral(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """opt-in을 안 한 default 경로에서는 manifest의 색 보존 상태가 모두 false/none이다."""
+    import json
+
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    result = run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        time_of_day="DAY",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    assert result.ifc_color_preservation_opted_in is False
+    assert result.ifc_color_preservation_applied is False
+    assert result.ifc_color_preservation_error is None
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["ifcColorPreservationOptedIn"] is False
+    assert manifest["ifcColorPreservationApplied"] is False
+    assert manifest["ifcColorPreservationError"] is None
+
+
 def test_run_ifc2img_photo_pipeline_keeps_default_prompt_without_color_opt_in(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
