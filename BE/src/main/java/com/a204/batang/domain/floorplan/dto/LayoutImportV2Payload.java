@@ -71,13 +71,28 @@ public record LayoutImportV2Payload(
             @Schema(description = "공간 식별자입니다.")
             String id,
 
+            @JsonProperty("source_bubble_id")
+            @Size(max = 128)
+            @Schema(description = "Source bubble id preserved for downstream authoring.")
+            String sourceBubbleId,
+
+            @JsonProperty("original_label")
+            @Size(max = 255)
+            @Schema(description = "Original FE label before canonical mapping.")
+            String originalLabel,
+
+            @JsonProperty("original_type")
+            @Size(max = 128)
+            @Schema(description = "Original FE room type before canonical mapping.")
+            String originalType,
+
             @NotBlank
             @Size(max = 255)
             @Schema(description = "공간 이름입니다.")
             String name,
 
             @NotBlank
-            @Pattern(regexp = "living|bedroom|kitchen|bathroom|office|corridor|other")
+            @Pattern(regexp = "living|bedroom|kitchen|bathroom|office|entrance|corridor|other")
             @Schema(description = "정규화된 공간 타입입니다.", example = "living")
             String type,
 
@@ -112,11 +127,39 @@ public record LayoutImportV2Payload(
             @Schema(description = "공간 고정 여부입니다.", example = "false")
             Boolean locked,
 
+            @Size(max = 128)
+            @Schema(description = "Primary room material preserved from FE.")
+            String material,
+
+            @Pattern(regexp = "^#[0-9A-Fa-f]{6}$")
+            @Schema(description = "Room color preserved from FE.", example = "#FF5733")
+            String color,
+
+            @JsonProperty("wall_type")
+            @Pattern(regexp = "general|exterior|load_bearing|partition")
+            @Schema(description = "Default wall intent around this room.")
+            String wallType,
+
             @JsonProperty("zoneId")
             @Size(max = 128)
             @Schema(description = "존 식별자입니다. 없으면 null입니다.")
             String zoneId
     ) {
+        public Room(
+                String id,
+                String name,
+                String type,
+                Integer width,
+                Integer height,
+                Integer floor,
+                Double x,
+                Double y,
+                Double angle,
+                Boolean locked,
+                String zoneId
+        ) {
+            this(id, null, null, null, name, type, width, height, floor, x, y, angle, locked, null, null, null, zoneId);
+        }
     }
 
     public record Zone(
@@ -142,6 +185,10 @@ public record LayoutImportV2Payload(
     }
 
     public record Adjacency(
+            @Size(max = 128)
+            @Schema(description = "Source connection id preserved for opening inference.")
+            String id,
+
             @JsonProperty("from_room_id")
             @NotBlank
             @Size(max = 128)
@@ -158,8 +205,30 @@ public record LayoutImportV2Payload(
             @DecimalMin("0.0")
             @DecimalMax("1.0")
             @Schema(description = "인접 강도입니다.", example = "1.0")
-            Double strength
+            Double strength,
+
+            @Pattern(regexp = "circulation|open_passage|weak_relation|merge")
+            @Schema(description = "Connection intent for downstream opening inference.")
+            String intent,
+
+            @JsonProperty("connection_strength")
+            @Pattern(regexp = "strong|normal|weak")
+            @Schema(description = "Named connection strength.")
+            String connectionStrength,
+
+            @JsonProperty("source_bubble_id")
+            @Size(max = 128)
+            @Schema(description = "Source bubble id for the connection start.")
+            String sourceBubbleId,
+
+            @JsonProperty("target_bubble_id")
+            @Size(max = 128)
+            @Schema(description = "Target bubble id for the connection end.")
+            String targetBubbleId
     ) {
+        public Adjacency(String fromRoomId, String toRoomId, Double strength) {
+            this(null, fromRoomId, toRoomId, strength, null, null, null, null);
+        }
     }
 
     public record Boundary(
