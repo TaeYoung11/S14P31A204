@@ -14,20 +14,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import numpy as np
 from PIL import Image
 
 from .exceptions import IFCRenderError
 
-if TYPE_CHECKING:
-    import torch
-
 
 DEFAULT_MODEL_ID = "runwayml/stable-diffusion-v1-5"
 DEFAULT_CONTROLNET_DEPTH_ID = "lllyasviel/sd-controlnet-depth"
 DEFAULT_CONTROLNET_SEG_ID = "lllyasviel/sd-controlnet-seg"
+DEFAULT_CONTROLNET_CANNY_ID = "lllyasviel/sd-controlnet-canny"
 
 CategoryName = Literal["roof", "wall", "window", "door", "floor"]
 
@@ -125,6 +123,35 @@ def build_ade20k_seg_control(
     return Image.fromarray(out, mode="RGB")
 
 
+def build_canny_control_from_no_background(
+    image_path: Path | str,
+    *,
+    low_threshold: int = 80,
+    high_threshold: int = 180,
+) -> Image.Image:
+    """Build a canny edge ControlNet input from the F-2 no-background RGBA.
+
+    The alpha-derived building region is converted to grayscale and edge-detected.
+    The output is RGB with white edges on black background, matching the format
+    expected by lllyasviel/sd-controlnet-canny.
+    """
+    try:
+        import cv2
+    except ImportError as exc:  # pragma: no cover - environment guard
+        raise IFCRenderError(
+            "OpenCV (cv2) is required for canny control image"
+        ) from exc
+
+    with Image.open(image_path) as raw:
+        rgba = raw.convert("RGBA")
+    rgb = np.asarray(rgba.convert("RGB"))
+    alpha = np.asarray(rgba.split()[-1]) > 0
+    gray = np.where(alpha, np.mean(rgb, axis=2), 0).astype(np.uint8)
+    edges = cv2.Canny(gray, low_threshold, high_threshold)
+    edges_rgb = np.stack([edges, edges, edges], axis=-1)
+    return Image.fromarray(edges_rgb, mode="RGB")
+
+
 def building_mask_from_no_background(image_path: Path | str) -> Image.Image:
     """Return an L-mode mask from the alpha channel of an RGBA no-background image."""
     with Image.open(image_path) as image:
@@ -218,7 +245,7 @@ class SoftLockDiffusionRenderer:
         depth_controlnet_id: str = DEFAULT_CONTROLNET_DEPTH_ID,
         seg_controlnet_id: str | None = DEFAULT_CONTROLNET_SEG_ID,
         device: str | None = None,
-        dtype: "torch.dtype | None" = None,
+        dtype: object = None,
     ) -> None:
         import torch as _torch
         from diffusers import (

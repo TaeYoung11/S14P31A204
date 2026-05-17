@@ -100,9 +100,25 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--strength", type=float, default=None)
     parser.add_argument("--depth-cn-scale", type=float, default=DEFAULT_DEPTH_CN_SCALE)
     parser.add_argument("--seg-cn-scale", type=float, default=DEFAULT_SEG_CN_SCALE)
+    parser.add_argument(
+        "--second-cn-mode",
+        choices=("seg", "canny"),
+        default="seg",
+        help=(
+            "Second ControlNet input: 'seg' (ADE20K) or 'canny' (edge-locked)."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--guidance-scale", type=float, default=DEFAULT_GUIDANCE_SCALE)
     parser.add_argument("--steps", type=int, default=None)
+    parser.add_argument(
+        "--model-id",
+        default=None,
+        help=(
+            "Override SD model. Use SG161222/Realistic_Vision_V6.0_B1_noVAE for "
+            "photoreal-finetuned output."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -157,6 +173,8 @@ def main() -> None:
                 seed=args.seed,
                 guidance_scale=args.guidance_scale,
                 steps=args.steps or MINI_STEPS,
+                second_cn_mode=args.second_cn_mode,
+                model_id=args.model_id,
             )
         elif stage == "final_day":
             _run_final_stage(
@@ -170,6 +188,8 @@ def main() -> None:
                 seed=args.seed,
                 guidance_scale=args.guidance_scale,
                 steps=args.steps or FINAL_STEPS,
+                second_cn_mode=args.second_cn_mode,
+                model_id=args.model_id,
             )
         elif stage == "final_night":
             _run_final_stage(
@@ -183,9 +203,12 @@ def main() -> None:
                 seed=args.seed,
                 guidance_scale=args.guidance_scale,
                 steps=args.steps or FINAL_STEPS,
+                second_cn_mode=args.second_cn_mode,
+                model_id=args.model_id,
             )
 
     _write_combined_manifest(args.output_root.resolve(), args.f2_manifest.resolve())
+    _write_g4_contact_sheet(args.output_root.resolve())
 
 
 def _resolve_view_sources(
@@ -275,6 +298,21 @@ def _build_seg_image(source: ViewSources) -> Image.Image:
 
     mask = building_mask_from_no_background(source.init_no_background)
     return build_ade20k_seg_control(building_mask=mask, ground_class="grass")
+
+
+def _build_canny_image(source: ViewSources) -> Image.Image:
+    """Build a Canny edge ControlNet image from the F-2 no-background composite."""
+    from ai_rendering.ifc2img.soft_lock import (
+        build_canny_control_from_no_background,
+    )
+
+    return build_canny_control_from_no_background(source.init_no_background)
+
+
+def _build_second_cn_image(source: ViewSources, mode: str) -> Image.Image:
+    if mode == "canny":
+        return _build_canny_image(source)
+    return _build_seg_image(source)
 
 
 def _run_smoke_stage(
@@ -377,6 +415,8 @@ def _run_mini_stage(
     seed: int,
     guidance_scale: float,
     steps: int,
+    second_cn_mode: str = "seg",
+    model_id: str | None = None,
 ) -> None:
     from ai_rendering.ifc2img.soft_lock import (
         SoftLockRenderParams,
@@ -393,10 +433,16 @@ def _run_mini_stage(
     prompt = build_region_aware_prompt(visible_categories=visible, time_of_day="DAY")
     negative = build_region_aware_negative_prompt(time_of_day="DAY")
 
-    renderer = _get_renderer(renderer_cache, key="depth_plus_seg", depth_only=False)
+    renderer = _get_renderer(
+        renderer_cache,
+        key=f"depth_plus_{second_cn_mode}",
+        depth_only=False,
+        second_cn_mode=second_cn_mode,
+        model_id=model_id,
+    )
     init_image = Image.open(source.init_with_background).convert("RGB")
     depth_image = Image.open(source.depth_control).convert("RGB")
-    seg_image = _build_seg_image(source)
+    seg_image = _build_second_cn_image(source, second_cn_mode)
 
     cases_payload: list[dict[str, Any]] = []
     for strength in MINI_STRENGTHS:
@@ -467,6 +513,8 @@ def _run_final_stage(
     seed: int,
     guidance_scale: float,
     steps: int,
+    second_cn_mode: str = "seg",
+    model_id: str | None = None,
 ) -> None:
     from ai_rendering.ifc2img.soft_lock import (
         SoftLockRenderParams,
@@ -482,7 +530,13 @@ def _run_final_stage(
     stage_dir = output_root / f"final_{time_of_day.lower()}"
     stage_dir.mkdir(parents=True, exist_ok=True)
 
-    renderer = _get_renderer(renderer_cache, key="depth_plus_seg", depth_only=False)
+    renderer = _get_renderer(
+        renderer_cache,
+        key=f"depth_plus_{second_cn_mode}",
+        depth_only=False,
+        second_cn_mode=second_cn_mode,
+        model_id=model_id,
+    )
 
     family_name = (
         f"diffusion_soft_lock_final_s{int(round(chosen_strength * 100)):03d}"
@@ -498,7 +552,7 @@ def _run_final_stage(
         negative = build_region_aware_negative_prompt(time_of_day=time_of_day)
         init_image = Image.open(source.init_with_background).convert("RGB")
         depth_image = Image.open(source.depth_control).convert("RGB")
-        seg_image = _build_seg_image(source)
+        seg_image = _build_second_cn_image(source, second_cn_mode)
 
         started = time.time()
         result = renderer.render(
@@ -581,20 +635,36 @@ def _get_renderer(
     *,
     key: str,
     depth_only: bool,
+    second_cn_mode: str = "seg",
+    model_id: str | None = None,
 ) -> Any:
-    if key in cache:
-        return cache[key]
+    full_key = f"{key}|{model_id or 'default'}"
+    if full_key in cache:
+        return cache[full_key]
     from ai_rendering.ifc2img.soft_lock import (
+        DEFAULT_CONTROLNET_CANNY_ID,
         DEFAULT_CONTROLNET_SEG_ID,
+        DEFAULT_MODEL_ID,
         SoftLockDiffusionRenderer,
     )
 
+    if depth_only:
+        second_id: str | None = None
+    elif second_cn_mode == "canny":
+        second_id = DEFAULT_CONTROLNET_CANNY_ID
+    else:
+        second_id = DEFAULT_CONTROLNET_SEG_ID
+
     started = time.time()
     renderer = SoftLockDiffusionRenderer(
-        seg_controlnet_id=None if depth_only else DEFAULT_CONTROLNET_SEG_ID,
+        model_id=model_id or DEFAULT_MODEL_ID,
+        seg_controlnet_id=second_id,
     )
-    cache[key] = renderer
-    print(f"[g4] loaded renderer key={key} in {time.time() - started:.1f}s")
+    cache[full_key] = renderer
+    print(
+        f"[g4] loaded renderer key={key} model={model_id or DEFAULT_MODEL_ID} "
+        f"in {time.time() - started:.1f}s"
+    )
     return renderer
 
 
@@ -629,6 +699,48 @@ def _write_manifest(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def _write_g4_contact_sheet(output_root: Path) -> None:
+    """Tile DAY/NIGHT final outputs side by side for visual review."""
+    from PIL import ImageDraw, ImageFont
+
+    day_left = output_root / "final_day"
+    night_left = output_root / "final_night"
+    pairs: list[tuple[str, Path]] = []
+    for stage_dir, label in (
+        (day_left, "DAY"),
+        (night_left, "NIGHT"),
+    ):
+        if not stage_dir.exists():
+            continue
+        for image_path in sorted(stage_dir.glob("*.png")):
+            pairs.append((f"{label} {image_path.stem}", image_path))
+    if not pairs:
+        return
+    sample = Image.open(pairs[0][1]).convert("RGB")
+    width, height = sample.size
+    header_h = 28
+    cols = 2
+    rows = (len(pairs) + cols - 1) // cols
+    canvas = Image.new(
+        "RGB", (cols * width, rows * (height + header_h)), (248, 248, 248)
+    )
+    draw = ImageDraw.Draw(canvas)
+    font = ImageFont.load_default()
+    for index, (label, image_path) in enumerate(pairs):
+        row = index // cols
+        col = index % cols
+        x = col * width
+        y = row * (height + header_h)
+        draw.text((x + 8, y + 8), label, fill=(20, 20, 20), font=font)
+        canvas.paste(
+            Image.open(image_path).convert("RGB"),
+            (x, y + header_h),
+        )
+    sheet_path = output_root / "g4_final_contact_sheet.png"
+    canvas.save(sheet_path, format="PNG")
+    print(f"[g4] contact sheet -> {sheet_path}")
 
 
 def _write_combined_manifest(output_root: Path, f2_manifest_path: Path) -> None:
