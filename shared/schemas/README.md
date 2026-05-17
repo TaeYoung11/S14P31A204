@@ -46,9 +46,16 @@ This directory contains JSON Schemas shared across the BE/AI boundary and AI wor
   - `generation_options`
   - extended `modeling_defaults`
   - `generation_policy`
+  - semantic room metadata for authoring-ready BIM seed generation:
+    - `entrance` room type
+    - `source_bubble_id`, `original_label`, `original_type`
+    - `material`, `color`, `wall_type`
+  - connection intent metadata:
+    - `id`, `intent`, `connection_strength`
+    - `source_bubble_id`, `target_bubble_id`
 - `v2` currently fixes policy support to:
   - `boundary_wall_mode = outer_boundary`
   - `shared_wall_policy = from_adjacency`
   - `roof_shape = flat`
 
-The `v2` contract is intended to lock input validation and feature prerequisites for future wall/slab/roof generation. It does not imply those IFC elements are generated today.
+`layout_import_v2.schema.json` is the official contract for the current bubble-to-IFC generation path. Do not introduce or switch FE/BE generation payloads to `layout_import_v3` in this implementation. Any future V3 rollout should be a separate contract migration for explicit `walls[]`, `openings[]`, `doors[]`, and `windows[]` inputs.

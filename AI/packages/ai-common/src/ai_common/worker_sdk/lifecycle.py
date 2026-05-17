@@ -24,7 +24,7 @@ _COMMAND_TYPE_MAP = {
     "TWO_D_LLM_GENERATE": {
         "worker_type": "TWO_D_LLM",
         "event_base": "TWO_D_LLM",
-        "routing_segment": "2d-llm",
+        "routing_segment": "two-d-llm",
     },
     "THREE_D_LLM_GENERATE": {
         "worker_type": "THREE_D_LLM",

@@ -23,7 +23,13 @@ export default function CanvasModeRenderer({
   }
 
   if (mode === '2d') {
-    return <TwoDModeCanvas editorProps={renderProps} scale={scale} />
+    return (
+      <TwoDModeCanvas
+        editorProps={renderProps}
+        scale={scale}
+        onSelectWallForChat={renderProps.selectWallForChat}
+      />
+    )
   }
 
   if (mode === '3d') {

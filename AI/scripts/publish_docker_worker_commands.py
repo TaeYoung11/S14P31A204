@@ -35,7 +35,7 @@ def main() -> None:
         schemaVersion="v1",
         messageType="COMMAND",
         commandType="THREE_D_LLM_GENERATE",
-        routingKey="command.3d-llm.generate",
+        routingKey="command.three-d-llm.generate",
         jobId=str(uuid.uuid4()),
         jobStepId=str(uuid.uuid4()),
         stepNo=1,
@@ -99,7 +99,7 @@ def main() -> None:
             producer.publish(
                 command_3d,
                 exchange=COMMANDS_EXCHANGE,
-                routing_key="command.3d-llm.generate",
+                routing_key="command.three-d-llm.generate",
                 declare=[COMMANDS_EXCHANGE],
             )
             print("[SUCCESS] 3D LLM 워커로 메시지 발송 완료")

@@ -95,6 +95,7 @@ export type TwoDStructureProps = Pick<
   | 'selectedFloorWallIds'
   | 'selectedFloorOpeningId'
   | 'selectedFloorOpeningIds'
+  | 'selectedWallForChat'
   | 'handleSelectFloorWall'
   | 'handleCreateFloorWall'
   | 'wallCreatePreset'
@@ -111,6 +112,7 @@ export type TwoDStructureProps = Pick<
   | 'beginWorkspaceSnapshotTransaction'
   | 'commitWorkspaceSnapshotTransaction'
   | 'handleTwoDMarqueeSelect'
+  | 'selectWallForChat'
 >
 
 /** 2D 레이어 패널 상태/동작 */

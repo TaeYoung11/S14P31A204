@@ -75,6 +75,7 @@ interface TwoDCanvasStageProps {
   selectedWallId: string | null
   selectedWallIds: string[]
   selectedWallGeometryKey: string | null
+  chatSelectedWallId?: string | null
   wallById: Map<string, FloorWall>
   openingSnapGuide: { wallId: string; wallPosition: number } | null
   outsideWallIds: Set<string>
@@ -164,6 +165,7 @@ export function TwoDCanvasStage({
   selectedWallId,
   selectedWallIds,
   selectedWallGeometryKey,
+  chatSelectedWallId,
   wallById,
   openingSnapGuide,
   outsideWallIds,
@@ -269,6 +271,7 @@ export function TwoDCanvasStage({
             selectedWallId={selectedWallId}
             selectedWallIds={selectedWallIds}
             selectedWallGeometryKey={selectedWallGeometryKey}
+            chatSelectedWallId={chatSelectedWallId}
             outsideWallIds={outsideWallIds}
             wallById={wallById}
             openingSnapGuide={openingSnapGuide}

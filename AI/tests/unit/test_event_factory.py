@@ -32,7 +32,7 @@ def _context() -> WorkerContext:
     return WorkerContext(
         message_id="cmd-001",
         command_type="TWO_D_LLM_GENERATE",
-        routing_key="command.2d-llm.generate",
+        routing_key="command.two-d-llm.generate",
         job_id="job-001",
         job_step_id="step-001",
         step_no=1,

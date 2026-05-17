@@ -128,6 +128,11 @@ public class FloorPlanLayoutImportMapper {
 
             rooms.add(new LayoutImportV2Payload.Room(
                     bubble.id(),
+                    bubble.id(),
+                    bubble.label(),
+                    bubble.originalType() == null || bubble.originalType().isBlank()
+                            ? bubble.type()
+                            : bubble.originalType(),
                     bubble.label(),
                     normalizedType,
                     roundPositiveMillimeter(bubble.widthMm(), "bubble widthMm"),
@@ -137,15 +142,23 @@ public class FloorPlanLayoutImportMapper {
                     bubble.y() * mmPerPx,
                     0.0,
                     false,
+                    hasText(bubble.material()) ? bubble.material().trim() : null,
+                    hasText(bubble.color()) ? bubble.color().trim() : null,
+                    normalizeWallType(bubble.wallType()),
                     zoneMapping.zoneIdByBubbleId().get(bubble.id())
             ));
         }
 
         List<LayoutImportV2Payload.Adjacency> adjacency = connections.stream()
                 .map(connection -> new LayoutImportV2Payload.Adjacency(
+                        hasText(connection.id()) ? connection.id().trim() : null,
                         connection.from(),
                         connection.to(),
-                        mapConnectionStrength(connection.type())
+                        mapConnectionStrength(connection.type()),
+                        mapConnectionIntent(connection),
+                        mapConnectionStrengthName(connection.type()),
+                        connection.from(),
+                        connection.to()
                 ))
                 .toList();
 
@@ -279,8 +292,9 @@ public class FloorPlanLayoutImportMapper {
             case "거실", "living" -> "living";
             case "침실", "bedroom", "방" -> "bedroom";
             case "주방", "kitchen" -> "kitchen";
-            case "화장실", "bathroom" -> "bathroom";
-            case "복도", "corridor", "현관" -> "corridor";
+            case "화장실", "욕실", "bathroom" -> "bathroom";
+            case "현관", "entrance" -> "entrance";
+            case "복도", "corridor" -> "corridor";
             case "사무실", "office" -> "office";
             case "미선택", "other" -> "other";
             default -> "other";
@@ -296,8 +310,9 @@ public class FloorPlanLayoutImportMapper {
                 "거실", "living",
                 "침실", "bedroom", "방",
                 "주방", "kitchen",
-                "화장실", "bathroom",
-                "복도", "corridor", "현관",
+                "화장실", "욕실", "bathroom",
+                "현관", "entrance",
+                "복도", "corridor",
                 "사무실", "office",
                 "미선택", "other"
         ).contains(normalized);
@@ -322,8 +337,47 @@ public class FloorPlanLayoutImportMapper {
         };
     }
 
+    private String mapConnectionStrengthName(String type) {
+        if (type == null) {
+            return "normal";
+        }
+        return switch (type.trim().toLowerCase(Locale.ROOT)) {
+            case "bold" -> "strong";
+            case "dashed" -> "weak";
+            default -> "normal";
+        };
+    }
+
+    private String mapConnectionIntent(ConnectionData connection) {
+        if (hasText(connection.intent())) {
+            String intent = connection.intent().trim();
+            if (Set.of("circulation", "open_passage", "weak_relation", "merge").contains(intent)) {
+                return intent;
+            }
+        }
+        if (connection.type() == null) {
+            return "circulation";
+        }
+        return switch (connection.type().trim().toLowerCase(Locale.ROOT)) {
+            case "bold" -> "open_passage";
+            case "dashed" -> "weak_relation";
+            default -> "circulation";
+        };
+    }
+
+    private String normalizeWallType(String wallType) {
+        if (!hasText(wallType)) {
+            return null;
+        }
+        return switch (wallType.trim()) {
+            case "general", "exterior", "partition", "load_bearing" -> wallType.trim();
+            case "loadBearing" -> "load_bearing";
+            default -> null;
+        };
+    }
+
     private LayoutImportV2Payload.GenerationOptions defaultGenerationOptions() {
-        return new LayoutImportV2Payload.GenerationOptions(true, true, true, true, false);
+        return new LayoutImportV2Payload.GenerationOptions(true, true, true, true, true);
     }
 
     private LayoutImportV2Payload.GenerationPolicy defaultGenerationPolicy() {

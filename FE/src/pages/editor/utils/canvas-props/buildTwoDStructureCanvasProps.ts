@@ -10,6 +10,7 @@ const TWO_D_STRUCTURE_KEYS = [
   'selectedFloorWallIds',
   'selectedFloorOpeningId',
   'selectedFloorOpeningIds',
+  'selectedWallForChat',
   'handleSelectFloorWall',
   'handleCreateFloorWall',
   'wallCreatePreset',
@@ -26,6 +27,7 @@ const TWO_D_STRUCTURE_KEYS = [
   'beginWorkspaceSnapshotTransaction',
   'commitWorkspaceSnapshotTransaction',
   'handleTwoDMarqueeSelect',
+  'selectWallForChat',
 ] as const
 
 /**
@@ -40,6 +42,7 @@ export function buildTwoDStructureCanvasProps(
   | 'selectedFloorWallIds'
   | 'selectedFloorOpeningId'
   | 'selectedFloorOpeningIds'
+  | 'selectedWallForChat'
   | 'handleSelectFloorWall'
   | 'handleCreateFloorWall'
   | 'wallCreatePreset'
@@ -56,6 +59,7 @@ export function buildTwoDStructureCanvasProps(
   | 'beginWorkspaceSnapshotTransaction'
   | 'commitWorkspaceSnapshotTransaction'
   | 'handleTwoDMarqueeSelect'
+  | 'selectWallForChat'
 > {
   const safeHandleUpdateFloorRoomPolygon = createSafeFloorRoomPolygonHandler(
     vm.handleUpdateFloorRoomPolygon,
