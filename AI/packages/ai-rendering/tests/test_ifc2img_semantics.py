@@ -11,6 +11,7 @@ from ai_rendering.ifc2img.exceptions import IFCRenderError
 from ai_rendering.ifc2img.element_masks import (
     IfcElementColorCorrectionCandidate,
     IfcElementColorDelta,
+    IfcElementMaskCoverage,
     IfcElementMeanColor,
     IfcMaskBoundingBox,
     IfcElementMaskRenderResult,
@@ -19,11 +20,13 @@ from ai_rendering.ifc2img.element_masks import (
     build_ifc_color_composite_from_element_masks,
     compare_ifc_color_family_consistency,
     evaluate_ifc_quantitative_color,
+    has_critical_coverage_warning,
     measure_element_mask_mean_colors,
     measure_ifc_geometry_fidelity,
     measure_ifc_color_target_deltas,
     render_ifc_element_masks,
     select_ifc_color_correction_candidates,
+    summarize_coverage_warnings,
 )
 from ai_rendering.ifc2img.service import _build_debug_view_payload, _load_debug_geometry
 from ai_rendering.ifc2img.semantics import (
@@ -1829,6 +1832,158 @@ def _semantic_element(
             center_xyz=center_xyz,
         ),
     )
+
+
+def _build_coverage_result(
+    *,
+    window_visible: int,
+    window_hit: int,
+    door_visible: int = 200,
+    door_hit: int = 200,
+    floor_visible: int = 0,
+    floor_hit: int = 0,
+    floor_warning: str | None = None,
+) -> IfcElementMaskRenderResult:
+    coverage: dict[str, IfcElementMaskCoverage] = {
+        "FLOOR": IfcElementMaskCoverage(
+            category="FLOOR",
+            visible_pixel_count=floor_visible,
+            category_hit_count=floor_hit,
+            visible_to_hit_ratio=1.0 if floor_hit == 0 else floor_visible / floor_hit,
+            warning=floor_warning,
+        ),
+        "ROOF": IfcElementMaskCoverage(
+            category="ROOF",
+            visible_pixel_count=1000,
+            category_hit_count=1000,
+            visible_to_hit_ratio=1.0,
+            warning=None,
+        ),
+        "WALL": IfcElementMaskCoverage(
+            category="WALL",
+            visible_pixel_count=2000,
+            category_hit_count=2000,
+            visible_to_hit_ratio=1.0,
+            warning=None,
+        ),
+        "WINDOW": IfcElementMaskCoverage(
+            category="WINDOW",
+            visible_pixel_count=window_visible,
+            category_hit_count=window_hit,
+            visible_to_hit_ratio=(
+                1.0 if window_hit == 0 else window_visible / window_hit
+            ),
+            warning=(
+                "coverage_below_threshold"
+                if window_hit > 0
+                and (
+                    window_visible / window_hit < 0.5
+                    or window_visible < 50
+                )
+                else None
+            ),
+        ),
+        "DOOR": IfcElementMaskCoverage(
+            category="DOOR",
+            visible_pixel_count=door_visible,
+            category_hit_count=door_hit,
+            visible_to_hit_ratio=(
+                1.0 if door_hit == 0 else door_visible / door_hit
+            ),
+            warning=(
+                "coverage_below_threshold"
+                if door_hit > 0
+                and (door_visible / door_hit < 0.5 or door_visible < 50)
+                else None
+            ),
+        ),
+    }
+    return IfcElementMaskRenderResult(
+        masks={
+            category: Image.new("L", (1, 1), 0)
+            for category in coverage
+        },
+        composite=Image.new("RGB", (1, 1), "black"),
+        coverage=coverage,
+    )
+
+
+def test_summarize_coverage_warnings_returns_only_categories_with_warning() -> None:
+    """warning이 None인 카테고리는 요약 결과에서 빠져야 한다."""
+    result = _build_coverage_result(
+        window_visible=10, window_hit=1000,  # ratio 0.01 -> warning
+        door_visible=200, door_hit=200,       # OK
+        floor_warning="missing_mesh",
+    )
+
+    warnings = summarize_coverage_warnings(result)
+
+    assert warnings == {
+        "FLOOR": "missing_mesh",
+        "WINDOW": "coverage_below_threshold",
+    }
+
+
+def test_has_critical_coverage_warning_true_when_window_dropouts() -> None:
+    """WINDOW가 epsilon dropout으로 거의 사라지면 critical signal이 떠야 한다."""
+    result = _build_coverage_result(
+        window_visible=5, window_hit=900,  # ratio 0.005
+        door_visible=200, door_hit=200,
+    )
+
+    assert has_critical_coverage_warning(result) is True
+
+
+def test_has_critical_coverage_warning_false_when_key_categories_pass() -> None:
+    """WINDOW/DOOR coverage가 충분하면 missing_mesh가 다른 카테고리에 있어도 critical 아님."""
+    result = _build_coverage_result(
+        window_visible=300, window_hit=300,
+        door_visible=200, door_hit=200,
+        floor_warning="missing_mesh",  # not in key categories
+    )
+
+    assert has_critical_coverage_warning(result) is False
+
+
+def test_has_critical_coverage_warning_respects_custom_categories() -> None:
+    """caller가 지정한 카테고리에서만 critical 여부를 판단해야 한다."""
+    result = _build_coverage_result(
+        window_visible=5, window_hit=900,  # WINDOW warning
+        door_visible=200, door_hit=200,
+        floor_warning=None,
+    )
+
+    assert has_critical_coverage_warning(result, categories=("DOOR",)) is False
+    assert has_critical_coverage_warning(result, categories=("WINDOW",)) is True
+
+
+def test_render_ifc_element_masks_populates_coverage_for_shinchan(
+    ifc4_fixture: Path,
+) -> None:
+    """shinchan fixture render는 모든 카테고리의 coverage info를 채워야 한다."""
+    geometry = _load_debug_geometry(ifc4_fixture)
+    payload = _build_debug_view_payload(
+        geometry=geometry,
+        internal_view=IFCView.FRONT_DIAGONAL_LEFT,
+    )
+    camera = payload["camera"]
+    assert isinstance(camera, dict)
+
+    result = render_ifc_element_masks(
+        ifc4_fixture,
+        eye=camera["eye"],
+        look_at=camera["lookAt"],
+        up=camera["up"],
+        width=768,
+        height=448,
+    )
+
+    assert set(result.coverage.keys()) == set(SUPPORTED_SEMANTIC_CATEGORIES)
+    for category, cov in result.coverage.items():
+        assert cov.category == category
+        assert cov.visible_pixel_count >= 0
+        assert cov.category_hit_count >= 0
+        assert 0.0 <= cov.visible_to_hit_ratio <= 1.0
 
 
 def _front_candidate() -> IfcFrontDirectionCandidate:
