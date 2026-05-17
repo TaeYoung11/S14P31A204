@@ -27,13 +27,16 @@ from ai_rendering.ifc2img.service import (
     Ifc2ImgPhotoManifest,
     Ifc2ImgPhotoJobResult,
     Ifc2ImgPhotoViewResult,
+    Ifc2ImgDebugGeometry,
     Ifc2ImgStorageAdapter,
     Ifc2ImgWorkerErrorResponse,
     Ifc2ImgWorkerRequest,
     Ifc2ImgWorkerSuccessResponse,
+    GeometryControlInputMode,
     PhotoViewAlias,
     PUBLIC_PHOTO_VIEWS,
     PUBLIC_TO_INTERNAL_VIEW,
+    build_element_composite_control_image,
     build_photo_manifest,
     build_photo_output_storage_url,
     create_photo_ifc_renderer,
@@ -42,13 +45,23 @@ from ai_rendering.ifc2img.service import (
     load_runtime_semantic_context,
     render_photo_depths,
     render_photo_view,
+    resolve_ifc_color_control_input_plan,
+    resolve_ifc_color_mode_input_plan,
+    resolve_geometry_control_input_mode,
     resolve_semantic_front_camera_overrides,
     resolve_semantic_ground_z,
     run_ifc2img_photo_pipeline,
     select_semantic_ground,
     write_photo_manifest_file,
+    _save_debug_element_masks,
 )
-from ai_rendering.ifc2img.semantics import IfcFrontDirectionCandidate
+from ai_rendering.ifc2img.element_masks import IfcElementMaskRenderResult
+from ai_rendering.ifc2img.semantics import (
+    IfcColorCandidate,
+    IfcColorSummary,
+    IfcFrontDirectionCandidate,
+    IfcSemanticCategoryColorSummary,
+)
 from ai_rendering.ifc2img.storage import Ifc2ImgStorageError
 from ai_rendering.ifc2img.views import CameraParams, IFCView
 
@@ -316,7 +329,11 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(
     assert debug_manifest["schemaVersion"] == "ifc2img.debug.v1"
     assert debug_manifest["preset"] == "korean_house"
     assert debug_manifest["timeOfDay"] == "DAY"
+    assert debug_manifest["geometryControlInputMode"] == "default"
+    assert debug_manifest["useIfcShapeLockPrompt"] is False
     assert debug_manifest["ifcSemanticSummary"]["sourceIfcPath"] == str(ifc_path)
+    assert "ifcColorSummary" not in debug_manifest
+    assert "ifcColorSummaryError" in debug_manifest
     assert debug_manifest["semanticGroundSelection"] == {
         "groundSource": "geometry_percentile_fallback",
         "groundZ": None,
@@ -328,6 +345,8 @@ def test_run_ifc2img_photo_pipeline_writes_contract_outputs(
     )
     first_debug_view = debug_manifest["views"][0]
     assert first_debug_view["actualFillRatio"] == 1.0
+    assert first_debug_view["geometryControlInputMode"] == "default"
+    assert first_debug_view["usesGeometryControlImage"] is False
     assert first_debug_view["files"]["depthImage"] == (
         "debug/depth_front_diagonal_left.png"
     )
@@ -420,7 +439,18 @@ def test_run_ifc2img_photo_pipeline_writes_ifc_semantic_summary(
         (output_dir / "debug" / "debug_manifest.json").read_text(encoding="utf-8")
     )
     semantic = debug_manifest["ifcSemanticSummary"]
+    color_summary = debug_manifest["ifcColorSummary"]
     assert set(semantic["categories"]) == {"FLOOR", "ROOF", "WALL", "WINDOW", "DOOR"}
+    assert set(color_summary["categories"]) == {
+        "FLOOR",
+        "ROOF",
+        "WALL",
+        "WINDOW",
+        "DOOR",
+    }
+    assert "ifcColorSummaryError" not in debug_manifest
+    for category in ("ROOF", "WALL", "WINDOW", "DOOR"):
+        assert color_summary["categories"][category]["color"]["rgb"] is not None
     assert all(
         semantic["categories"][category]["count"] > 0
         for category in ("FLOOR", "ROOF", "WALL", "WINDOW", "DOOR")
@@ -442,6 +472,13 @@ def test_run_ifc2img_photo_pipeline_writes_ifc_semantic_summary(
         "semanticGroundCandidate": pytest.approx(0.0),
     }
     first_view = debug_manifest["views"][0]
+    files = first_view["files"]
+    assert files["ifcColorCompositeImage"] == (
+        "debug/ifc_color_composite_front_diagonal_left.png"
+    )
+    assert (output_dir / files["ifcColorCompositeImage"]).exists()
+    assert files["ifcColorCompositeImage"].startswith("debug/ifc_color_composite_")
+    assert files["ifcColorCompositeImage"].endswith(".png")
     element_masks = first_view["files"]["elementMasks"]
     assert element_masks == {
         "floor": "debug/element_floor_front_diagonal_left.png",
@@ -453,6 +490,109 @@ def test_run_ifc2img_photo_pipeline_writes_ifc_semantic_summary(
     }
     for relative_path in element_masks.values():
         assert (output_dir / relative_path).exists()
+    for view_payload in debug_manifest["views"]:
+        geometry_fidelity = view_payload["geometryFidelity"]
+        assert geometry_fidelity["imageSize"] == [8, 4]
+        assert geometry_fidelity["buildingPixelCount"] > 0
+        assert "buildingBboxOverlap" in geometry_fidelity
+        assert "silhouetteIou" in geometry_fidelity
+        assert "edgeAlignmentScore" in geometry_fidelity
+        assert set(geometry_fidelity["categories"]) == {
+            "ROOF",
+            "WALL",
+            "WINDOW",
+            "DOOR",
+        }
+        view_files = view_payload["files"]
+        final_photo_path = output_dir / view_files["finalPhoto"]
+        color_composite_path = output_dir / view_files["ifcColorCompositeImage"]
+        element_composite_path = output_dir / view_files["elementMasks"]["composite"]
+        with (
+            Image.open(final_photo_path) as final_photo,
+            Image.open(color_composite_path) as color_composite,
+            Image.open(element_composite_path) as element_composite,
+        ):
+            assert color_composite.size == final_photo.size
+            assert color_composite.size == element_composite.size
+            assert color_composite.getbbox() == element_composite.getbbox()
+
+
+def test_save_debug_element_masks_keeps_render_result_for_reuse(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Element mask debug saving should keep the rendered masks for color artifacts."""
+    import ai_rendering.ifc2img.service as service
+
+    result = IfcElementMaskRenderResult(
+        masks={
+            "FLOOR": Image.new("L", (4, 4), 255),
+            "ROOF": Image.new("L", (4, 4), 0),
+            "WALL": Image.new("L", (4, 4), 0),
+            "WINDOW": Image.new("L", (4, 4), 0),
+            "DOOR": Image.new("L", (4, 4), 0),
+        },
+        composite=Image.new("RGB", (4, 4), "black"),
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_render_ifc_element_masks(
+        ifc_path: Path,
+        **kwargs: object,
+    ) -> IfcElementMaskRenderResult:
+        calls.append({"ifc_path": ifc_path, **kwargs})
+        return result
+
+    monkeypatch.setattr(
+        service,
+        "render_ifc_element_masks",
+        fake_render_ifc_element_masks,
+    )
+
+    output_dir = tmp_path / "out"
+    debug_dir = output_dir / "debug"
+    debug_dir.mkdir(parents=True)
+    artifacts = _save_debug_element_masks(
+        ifc_path=tmp_path / "input.ifc",
+        output_dir=output_dir,
+        debug_dir=debug_dir,
+        public_view="front_diagonal_left",
+        camera={
+            "eye": [0.0, 0.0, 1.0],
+            "lookAt": [0.0, 0.0, 0.0],
+            "up": [0.0, 0.0, 1.0],
+        },
+        width=4,
+        height=4,
+    )
+
+    assert artifacts is not None
+    assert artifacts.result is result
+    assert artifacts.files["floor"] == "debug/element_floor_front_diagonal_left.png"
+    assert artifacts.files["composite"] == (
+        "debug/element_composite_front_diagonal_left.png"
+    )
+    assert len(calls) == 1
+
+
+def test_build_element_composite_control_image_returns_rgb_candidate() -> None:
+    """Element composite should be reusable as an RGB style control candidate."""
+    result = IfcElementMaskRenderResult(
+        masks={
+            "FLOOR": Image.new("L", (4, 4), 255),
+            "ROOF": Image.new("L", (4, 4), 0),
+            "WALL": Image.new("L", (4, 4), 0),
+            "WINDOW": Image.new("L", (4, 4), 0),
+            "DOOR": Image.new("L", (4, 4), 0),
+        },
+        composite=Image.new("P", (4, 4)),
+    )
+
+    control = build_element_composite_control_image(result)
+
+    assert control.mode == "RGB"
+    assert control.size == (4, 4)
+    assert control is not result.composite
 
 
 def test_run_ifc2img_photo_pipeline_reuses_runtime_semantic_context(
@@ -986,6 +1126,404 @@ def test_run_ifc2img_photo_pipeline_passes_time_of_day_to_preset(
     assert "exterior lights" in params.prompt
     assert "low glare" in params.prompt
     assert "outdoor daylight" not in params.prompt
+
+
+def test_resolve_ifc_color_control_input_plan_separates_candidates() -> None:
+    """IFC color modes should map to explicit depth/prompt/composite inputs."""
+    expected = {
+        "default": (True, False, False),
+        "color_prompt": (True, True, False),
+        "color_composite_probe": (True, False, True),
+        "hybrid_color": (True, True, True),
+    }
+
+    for mode, flags in expected.items():
+        plan = resolve_ifc_color_control_input_plan(mode)
+
+        assert plan.mode == mode
+        assert (
+            plan.use_depth_control,
+            plan.use_prompt_color_injection,
+            plan.use_ifc_color_composite,
+        ) == flags
+
+
+def test_resolve_ifc_color_control_input_plan_rejects_unknown_mode() -> None:
+    """Unknown IFC color modes should fail before changing production inputs."""
+    with pytest.raises(
+        IFCRenderError,
+        match="unsupported IFC color control input mode",
+    ):
+        resolve_ifc_color_control_input_plan("color_everything")
+
+
+def test_resolve_ifc_color_mode_input_plan_maps_public_opt_in_options() -> None:
+    """Public ifc_color_mode values should map to the internal input plan."""
+    expected = {
+        "none": "default",
+        "prompt": "color_prompt",
+        "composite": "color_composite_probe",
+        "hybrid": "hybrid_color",
+    }
+
+    for ifc_color_mode, input_mode in expected.items():
+        assert resolve_ifc_color_mode_input_plan(ifc_color_mode).mode == input_mode
+
+
+def test_resolve_ifc_color_mode_input_plan_defaults_to_none() -> None:
+    """The public IFC color option should default to production depth-only."""
+    plan = resolve_ifc_color_mode_input_plan()
+
+    assert plan.mode == "default"
+    assert plan.use_depth_control is True
+    assert plan.use_prompt_color_injection is False
+    assert plan.use_ifc_color_composite is False
+
+
+def test_resolve_ifc_color_mode_input_plan_rejects_unknown_mode() -> None:
+    """Unknown public IFC color modes should fail before changing inputs."""
+    with pytest.raises(IFCRenderError, match="unsupported ifc_color_mode"):
+        resolve_ifc_color_mode_input_plan("all")
+
+
+def test_geometry_control_input_mode_candidates_are_fixed() -> None:
+    """Geometry control hook modes should stay opt-in and explicit."""
+    assert get_args(GeometryControlInputMode) == (
+        "default",
+        "depth_edge",
+        "element_composite",
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        (None, "default"),
+        ("", "default"),
+        ("default", "default"),
+        ("depth_edge", "depth_edge"),
+        ("element_composite", "element_composite"),
+    ],
+)
+def test_resolve_geometry_control_input_mode(mode: str | None, expected: str) -> None:
+    """Geometry control experiments should resolve to explicit opt-in modes."""
+    assert resolve_geometry_control_input_mode(mode) == expected
+
+
+def test_resolve_geometry_control_input_mode_rejects_unknown_mode() -> None:
+    """Unknown geometry control modes should fail before changing inputs."""
+    with pytest.raises(
+        IFCRenderError,
+        match="unsupported geometry_control_input_mode",
+    ):
+        resolve_geometry_control_input_mode("hybrid_everything")
+
+
+@pytest.mark.parametrize(
+    ("time_of_day", "expected_time_cue"),
+    [
+        ("DAY", "during sunny daytime"),
+        ("NIGHT", "night exterior"),
+    ],
+)
+def test_run_ifc2img_photo_pipeline_can_opt_in_to_ifc_color_prompt_suffix(
+    time_of_day: str,
+    expected_time_cue: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IFC color prompt opt-in should inject colors before DAY/NIGHT text."""
+    import ai_rendering.ifc2img.service as service
+
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    color_summary = IfcColorSummary(
+        source_ifc_path=ifc_path,
+        categories={
+            "ROOF": IfcSemanticCategoryColorSummary(
+                category="ROOF",
+                color=IfcColorCandidate(source="surface_style", rgb=(0.0, 0.5, 0.0)),
+                candidates=(),
+            ),
+            "WALL": IfcSemanticCategoryColorSummary(
+                category="WALL",
+                color=IfcColorCandidate(source="surface_style", rgb=(0.5, 0.5, 0.5)),
+                candidates=(),
+            ),
+        },
+        elements=(),
+    )
+    monkeypatch.setattr(
+        service,
+        "extract_ifc_color_summary",
+        lambda _path: color_summary,
+    )
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        time_of_day=time_of_day,
+        use_ifc_color_prompt_suffix=True,
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    params = FakeDepthStyleRenderer.instances[-1].render_calls[0]["params"]
+    assert expected_time_cue in params.prompt
+    assert params.prompt.index("IFC colors") < params.prompt.index(
+        expected_time_cue
+    )
+    assert params.prompt.startswith("IFC colors")
+    assert "IFC colors: green roof and gray walls." in params.prompt
+    assert "white concrete facade" not in params.prompt
+    assert "simple tile roof" not in params.prompt
+    assert "concrete" not in params.prompt
+    assert "tile" not in params.prompt
+    assert "gray house facade" in params.prompt
+    assert "green roof" in params.prompt
+    assert "subtle brick trim" in params.prompt
+    assert "simple Korean house" in params.prompt
+    assert "open flat paved ground in front" in params.prompt
+    assert "ground touches facade" in params.prompt
+    assert "no foreground wall" in params.prompt
+
+
+@pytest.mark.parametrize(
+    ("time_of_day", "expected_time_cue"),
+    [
+        ("DAY", "during sunny daytime"),
+        ("NIGHT", "night exterior"),
+    ],
+)
+def test_run_ifc2img_photo_pipeline_can_opt_in_to_shape_lock_prompt(
+    time_of_day: str,
+    expected_time_cue: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IFC shape lock prompt should be compact and opt-in only."""
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / f"out-{time_of_day.lower()}",
+        preset="korean_house",
+        time_of_day=time_of_day,
+        use_ifc_shape_lock_prompt=True,
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    params = FakeDepthStyleRenderer.instances[-1].render_calls[0]["params"]
+    assert params.prompt.startswith("Shape.")
+    assert params.prompt.index("Shape.") < params.prompt.index(expected_time_cue)
+    assert "low quality" in params.negative_prompt
+    assert "wrong roof" not in params.negative_prompt
+    assert "misplaced windows" not in params.negative_prompt
+    assert "changed silhouette" not in params.negative_prompt
+
+
+def test_run_ifc2img_photo_pipeline_places_shape_lock_before_color_prompt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shape lock should outrank color cue when both experimental knobs are enabled."""
+    import ai_rendering.ifc2img.service as service
+
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    color_summary = IfcColorSummary(
+        source_ifc_path=ifc_path,
+        categories={
+            "ROOF": IfcSemanticCategoryColorSummary(
+                category="ROOF",
+                color=IfcColorCandidate(source="surface_style", rgb=(0.0, 0.5, 0.0)),
+                candidates=(),
+            ),
+        },
+        elements=(),
+    )
+    monkeypatch.setattr(
+        service,
+        "extract_ifc_color_summary",
+        lambda _path: color_summary,
+    )
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        time_of_day="DAY",
+        use_ifc_color_prompt_suffix=True,
+        use_ifc_shape_lock_prompt=True,
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    params = FakeDepthStyleRenderer.instances[-1].render_calls[0]["params"]
+    assert params.prompt.startswith("Shape.")
+    assert params.prompt.index("Shape.") < params.prompt.index("IFC colors")
+    assert params.prompt.index("IFC colors") < params.prompt.index(
+        "during sunny daytime"
+    )
+
+
+def test_run_ifc2img_photo_pipeline_opt_in_success_marks_color_preservation_applied(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """opt-in + color summary 추출 성공 시 manifest/result에 applied=True가 노출돼야 한다."""
+    import ai_rendering.ifc2img.service as service
+    import json
+
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    color_summary = IfcColorSummary(
+        source_ifc_path=ifc_path,
+        categories={
+            "ROOF": IfcSemanticCategoryColorSummary(
+                category="ROOF",
+                color=IfcColorCandidate(source="surface_style", rgb=(0.0, 0.5, 0.0)),
+                candidates=(),
+            ),
+        },
+        elements=(),
+    )
+    monkeypatch.setattr(
+        service,
+        "extract_ifc_color_summary",
+        lambda _path: color_summary,
+    )
+
+    result = run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        time_of_day="DAY",
+        use_ifc_color_prompt_suffix=True,
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    assert result.ifc_color_preservation_opted_in is True
+    assert result.ifc_color_preservation_applied is True
+    assert result.ifc_color_preservation_error is None
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["ifcColorPreservationOptedIn"] is True
+    assert manifest["ifcColorPreservationApplied"] is True
+    assert manifest["ifcColorPreservationError"] is None
+
+
+def test_run_ifc2img_photo_pipeline_opt_in_failure_marks_color_preservation_not_applied(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """opt-in 상태에서 extract 실패 시 caller가 응답에서 fidelity 실패를 알 수 있어야 한다."""
+    import ai_rendering.ifc2img.service as service
+    import json
+
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    def _raise(_path: Path) -> IfcColorSummary:
+        raise RuntimeError("parser failed: malformed IFC color block")
+
+    monkeypatch.setattr(service, "extract_ifc_color_summary", _raise)
+
+    result = run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        time_of_day="DAY",
+        use_ifc_color_prompt_suffix=True,
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    assert result.ifc_color_preservation_opted_in is True
+    assert result.ifc_color_preservation_applied is False
+    assert result.ifc_color_preservation_error is not None
+    assert "parser failed" in result.ifc_color_preservation_error
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["ifcColorPreservationOptedIn"] is True
+    assert manifest["ifcColorPreservationApplied"] is False
+    assert "parser failed" in manifest["ifcColorPreservationError"]
+
+    # Caller가 opt-in을 안 한 경우는 영향 없어야 한다.
+    params = FakeDepthStyleRenderer.instances[-1].render_calls[0]["params"]
+    assert "IFC colors" not in params.prompt
+
+
+def test_run_ifc2img_photo_pipeline_no_opt_in_leaves_color_preservation_neutral(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """opt-in을 안 한 default 경로에서는 manifest의 색 보존 상태가 모두 false/none이다."""
+    import json
+
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    result = run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        time_of_day="DAY",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    assert result.ifc_color_preservation_opted_in is False
+    assert result.ifc_color_preservation_applied is False
+    assert result.ifc_color_preservation_error is None
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["ifcColorPreservationOptedIn"] is False
+    assert manifest["ifcColorPreservationApplied"] is False
+    assert manifest["ifcColorPreservationError"] is None
+
+
+def test_run_ifc2img_photo_pipeline_keeps_default_prompt_without_color_opt_in(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default production path should not add IFC color prompt text."""
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="korean_house",
+        time_of_day="DAY",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    params = FakeDepthStyleRenderer.instances[-1].render_calls[0]["params"]
+    assert "IFC colors" not in params.prompt
+    assert "Preserve exact IFC silhouette" not in params.prompt
+    assert "wrong roof" not in params.negative_prompt
+    assert "white concrete facade" in params.prompt
+    assert "simple tile roof" in params.prompt
 
 
 @pytest.mark.parametrize(
@@ -1694,6 +2232,28 @@ def test_render_photo_view_applies_preset_view_options() -> None:
     assert call["kwargs"]["use_front_diagonal_ground_plane_control_attenuation"] is True
 
 
+def test_render_photo_view_geometry_control_overrides_semantic_options() -> None:
+    """Geometry control should use the second control slot instead of semantic control."""
+    renderer = FakeDepthStyleRenderer()
+    depth = Image.new("L", (8, 4), 64)
+    geometry_control = Image.new("RGB", (8, 4), "white")
+
+    render_photo_view(
+        renderer,
+        depth,
+        object(),
+        preset="korean_house",
+        view=IFCView.FRONT_DIAGONAL_LEFT,
+        geometry_control_image=geometry_control,
+    )
+
+    kwargs = renderer.render_calls[0]["kwargs"]
+    assert kwargs["geometry_control_image"] is geometry_control
+    assert kwargs["use_front_diagonal_ground_semantic_control"] is False
+    assert kwargs["use_front_diagonal_ground_plane_aware_semantic_control"] is False
+    assert kwargs["use_front_diagonal_ground_plane_control_attenuation"] is True
+
+
 def test_run_ifc2img_photo_pipeline_applies_front_diagonal_semantic_options(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1728,6 +2288,118 @@ def test_run_ifc2img_photo_pipeline_applies_front_diagonal_semantic_options(
         assert options["use_front_diagonal_ground_semantic_control"] is True
         assert options["use_front_diagonal_ground_plane_aware_semantic_control"] is True
         assert options["use_front_diagonal_ground_plane_control_attenuation"] is True
+
+
+def test_run_ifc2img_photo_pipeline_can_pass_depth_edge_geometry_control(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Depth-edge geometry mode should stay opt-in and pass geometry control images."""
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="scandinavian",
+        geometry_control_input_mode="depth_edge",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    style_renderer = FakeDepthStyleRenderer.instances[-1]
+    assert "semantic_controlnet_model_id" in style_renderer.kwargs
+    for call in style_renderer.render_calls:
+        geometry_control = call["kwargs"]["geometry_control_image"]
+        assert isinstance(geometry_control, Image.Image)
+        assert geometry_control.mode == "RGB"
+        assert geometry_control.size == call["depth_size"]
+
+
+def test_run_ifc2img_photo_pipeline_records_geometry_control_mode_in_debug_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Debug manifest should record selected geometry control mode for artifacts."""
+    patch_runtime_semantic_context(monkeypatch)
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        output_dir,
+        preset="scandinavian",
+        geometry_control_input_mode="depth_edge",
+        debug_artifacts=True,
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    debug_manifest = json.loads(
+        (output_dir / "debug" / "debug_manifest.json").read_text(encoding="utf-8")
+    )
+    assert debug_manifest["geometryControlInputMode"] == "depth_edge"
+    for view_payload in debug_manifest["views"]:
+        assert view_payload["geometryControlInputMode"] == "depth_edge"
+        assert view_payload["usesGeometryControlImage"] is True
+        assert view_payload["geometryControlImageSize"] == [8, 4]
+
+
+def test_run_ifc2img_photo_pipeline_can_pass_element_composite_geometry_control(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Element-composite mode should reuse rendered element masks as style input."""
+    import ai_rendering.ifc2img.service as service
+
+    patch_runtime_semantic_context(monkeypatch)
+    FakeDepthStyleRenderer.instances.clear()
+    ifc_path = tmp_path / "input.ifc"
+    ifc_path.write_text("ISO-10303-21;", encoding="utf-8")
+    geometry = Ifc2ImgDebugGeometry(
+        mesh=None,
+        center=None,
+        base_bounds=None,
+        orientation=None,
+        ground_z=None,
+    )
+
+    monkeypatch.setattr(service, "_load_debug_geometry", lambda _ifc_path: geometry)
+    monkeypatch.setattr(
+        service,
+        "_build_debug_view_payload",
+        lambda **_kwargs: {
+            "camera": {
+                "eye": [0.0, 0.0, 1.0],
+                "lookAt": [0.0, 0.0, 0.0],
+                "up": [0.0, 0.0, 1.0],
+            }
+        },
+    )
+    monkeypatch.setattr(
+        service,
+        "_render_element_composite_control_image",
+        lambda **kwargs: Image.new("RGB", (kwargs["width"], kwargs["height"]), "red"),
+    )
+
+    run_ifc2img_photo_pipeline(
+        ifc_path,
+        tmp_path / "out",
+        preset="scandinavian",
+        geometry_control_input_mode="element_composite",
+        ifc_renderer_cls=FakeIFCRenderer,
+        depth_style_renderer_cls=FakeDepthStyleRenderer,
+    )
+
+    style_renderer = FakeDepthStyleRenderer.instances[-1]
+    assert "semantic_controlnet_model_id" in style_renderer.kwargs
+    for call in style_renderer.render_calls:
+        geometry_control = call["kwargs"]["geometry_control_image"]
+        assert isinstance(geometry_control, Image.Image)
+        assert geometry_control.getpixel((0, 0)) == (255, 0, 0)
 
 
 def test_run_ifc2img_photo_pipeline_rejects_unknown_preset(tmp_path: Path) -> None:

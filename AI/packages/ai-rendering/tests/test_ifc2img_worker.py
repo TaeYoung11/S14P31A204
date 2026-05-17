@@ -11,7 +11,9 @@ from ai_rendering.ifc2img.exceptions import IFCRenderError
 from ai_rendering.ifc2img.service import (
     Ifc2ImgPhotoJobResult,
     Ifc2ImgPhotoViewResult,
+    Ifc2ImgWorkerPayload,
     Ifc2ImgWorkerRequest,
+    handle_ifc2img_worker_request,
     normalize_ifc2img_time_of_day,
 )
 from ai_rendering.ifc2img.views import IFCView
@@ -351,3 +353,77 @@ def test_worker_entry_rejects_invalid_request_before_storage_creation(
         )
 
     assert factory_calls == []
+
+
+# Contract-gap regression: worker payload + pipeline call site currently do NOT
+# expose any IFC color preservation opt-in. The following two tests fixate that
+# state so the worker integration MR that wires use_ifc_color_prompt_suffix /
+# ifc_color_mode / use_ifc_shape_lock_prompt / geometry_control_input_mode into
+# the worker payload must update or delete these tests deliberately, surfacing
+# the contract change in PR diff.
+
+WORKER_PAYLOAD_EXPECTED_KEYS = {"renderMode", "preset", "timeOfDay"}
+COLOR_PRESERVATION_PIPELINE_KWARGS = (
+    "use_ifc_color_prompt_suffix",
+    "ifc_color_prompt_style",
+    "use_ifc_shape_lock_prompt",
+    "geometry_control_input_mode",
+    "ifc_color_mode",
+)
+
+
+def test_worker_payload_currently_exposes_no_color_preservation_field() -> None:
+    """Ifc2ImgWorkerPayload schema should not yet expose color preservation hooks.
+
+    Worker 통합 MR에서 ifcColorMode 또는 useIfcColorPromptSuffix 같은 필드를
+    추가하면 이 테스트가 실패한다. 그 시점에 contract 변경을 명시적으로
+    확인하고 이 테스트는 갱신/제거한다.
+    """
+    annotations = set(Ifc2ImgWorkerPayload.__annotations__.keys())
+
+    assert annotations == WORKER_PAYLOAD_EXPECTED_KEYS, (
+        "Ifc2ImgWorkerPayload schema가 바뀌었습니다. 색 보존 opt-in 필드가 "
+        "추가되었다면 worker → pipeline 매핑과 contract 테스트를 같이 "
+        "갱신해주세요."
+    )
+
+
+def test_handle_ifc2img_worker_request_does_not_propagate_color_preservation_kwargs(
+    tmp_path: Path,
+) -> None:
+    """handle_ifc2img_worker_request는 현재 색 보존 hook을 pipeline에 넘기지 않는다.
+
+    pipeline로 전달되는 kwargs를 그대로 캡쳐해서, default production 경로가
+    여전히 (preset, time_of_day)만 옵션으로 사용하고 있다는 contract를 fixate
+    한다. worker 통합 MR이 색 보존 옵션을 매핑하기 시작하면 이 테스트가
+    실패하므로, contract 변화가 PR diff에 명시적으로 드러난다.
+    """
+    captured_kwargs: dict[str, object] = {}
+
+    def capturing_pipeline(
+        ifc_path: Path,
+        output_dir: Path,
+        **kwargs: object,
+    ) -> Ifc2ImgPhotoJobResult:
+        captured_kwargs.update(kwargs)
+        return _fake_pipeline(
+            ifc_path,
+            output_dir,
+            preset=str(kwargs["preset"]),
+            time_of_day=kwargs.get("time_of_day"),
+        )
+
+    handle_ifc2img_worker_request(
+        _worker_request(),
+        FakeStorageAdapter(),
+        tmp_path / "work",
+        pipeline=capturing_pipeline,
+    )
+
+    for color_kwarg in COLOR_PRESERVATION_PIPELINE_KWARGS:
+        assert color_kwarg not in captured_kwargs, (
+            f"worker handler가 {color_kwarg!r}를 pipeline에 전달하기 시작했습니다. "
+            "색 보존 contract가 바뀐 것이므로 이 테스트와 worker payload 스키마를 "
+            "함께 갱신해주세요."
+        )
+    assert set(captured_kwargs.keys()) == {"preset", "time_of_day"}
