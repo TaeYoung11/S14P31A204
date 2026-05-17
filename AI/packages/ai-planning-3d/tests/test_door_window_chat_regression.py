@@ -112,6 +112,40 @@ async def test_door_host_wall_missing_returns_wall_clarification_options():
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not _SAMPLE_IFC.exists(), reason="sample IFC not found")
+async def test_door_host_wall_missing_returns_manual_clarification_without_options(monkeypatch):
+    pipeline = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC))
+    monkeypatch.setattr(
+        pipeline,
+        "_host_wall_clarification_options",
+        lambda _storey, _min_height_mm: (),
+    )
+    command = LLM3DCommand(
+        command_type=LLM3DCommandType.CREATE,
+        raw_instruction="create a door far from every wall",
+        create_info=LLM3DCreateInfo(
+            element_type=LLM3DElementType.DOOR,
+            storey="1F",
+            start_point=LLM3DPoint3D(x=999_000.0, y=999_000.0, z=0.0),
+            length_mm=900.0,
+            width_mm=200.0,
+            height_mm=2100.0,
+            direction=None,
+        ),
+    )
+
+    result = await pipeline.execute_command_preview(command)
+
+    assert result["status"] == "needs_clarification"
+    assert result["session_id"]
+    [question] = result["clarification_questions"]
+    assert question["context"]["reason"] == "no_eligible_host_wall_options"
+    assert question["context"]["apply_field"] == "host_wall_global_id"
+    assert question["options"] == []
+    assert "설치 가능한 벽을 자동으로 찾지 못했습니다" in question["question_ko"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _SAMPLE_IFC.exists(), reason="sample IFC not found")
 async def test_chat_window_command_creates_opening_relationships(tmp_path):
     output_ifc = tmp_path / f"{_SAMPLE_IFC.stem}_window_command.ifc"
     log_path = tmp_path / f"{_SAMPLE_IFC.stem}_window_command.json"

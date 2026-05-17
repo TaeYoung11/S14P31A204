@@ -577,16 +577,22 @@ class LLM3DPipeline:
         storey: ifcopenshell.entity_instance,
         ci_dump: dict[str, Any],
         min_height_mm: float,
-    ) -> ClarificationQuestion | None:
+    ) -> ClarificationQuestion:
         options = self._host_wall_clarification_options(storey, min_height_mm)
-        if not options:
-            return None
+        question_ko = (
+            "문/창문을 설치할 벽을 선택해 주세요."
+            if options
+            else (
+                "설치 가능한 벽을 자동으로 찾지 못했습니다. "
+                "벽 이름이나 방향(남/북/동/서)을 더 구체적으로 입력해 주세요."
+            )
+        )
         return ClarificationQuestion(
             trigger=ClarificationTrigger.CUSTOM,
-            question_ko="문/창문을 설치할 벽을 선택해 주세요.",
+            question_ko=question_ko,
             options=options,
             context={
-                "reason": "host_wall_not_found",
+                "reason": "host_wall_not_found" if options else "no_eligible_host_wall_options",
                 "apply_field": "host_wall_global_id",
                 "element_type": str(ci_dump.get("element_type") or ""),
                 "storey_global_id": str(getattr(storey, "GlobalId", "") or ""),
@@ -1410,22 +1416,23 @@ class LLM3DPipeline:
                 min_host_height_mm = float(ci_dump.get("height_mm") or 0.0) + float(
                     ci_dump.get("sill_height_mm") or 0.0
                 )
-                question = self._host_wall_clarification_question(
+                question: ClarificationQuestion | None = self._host_wall_clarification_question(
                     target_storey,
                     ci_dump,
                     min_host_height_mm,
                 )
                 if question is None:
-                    return {
-                        "status": "not_found",
-                        "command": command.model_dump(),
-                        "summary": "No eligible host wall was found for the door/window.",
-                        "clarification_questions": [],
-                        "collision_warnings": [
-                            "Door/window creation requires a wall position or host_wall_global_id."
-                        ],
-                        "structural_warnings": [],
-                    }
+                    # 방어 코드: 정상적으로는 도달하지 않음
+                    question = ClarificationQuestion(
+                        trigger=ClarificationTrigger.CUSTOM,
+                        question_ko=(
+                            "문/창문을 붙일 벽을 찾지 못했습니다. "
+                            "벽 이름이나 방향을 더 구체적으로 입력해 주세요."
+                        ),
+                        options=(),
+                        context={"reason": "host_wall_not_found_fallback"},
+                        is_blocking=True,
+                    )
                 session = PreviewSession(
                     session_id=str(uuid.uuid4()),
                     command=command,
