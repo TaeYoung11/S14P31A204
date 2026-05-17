@@ -61,7 +61,7 @@ export function AssistantPromptSection({
             className="inline-flex items-center gap-1 rounded-md border border-[#CBD5E1] px-2.5 py-1 text-[11px] font-semibold text-[#64748B] hover:bg-[#F1F5F9]"
           >
             <X size={11} />
-            취소
+            응답 대기 중단
           </button>
         </div>
       )}

@@ -183,8 +183,13 @@ export function useLlmEdit({
     if (!effectivePrompt || isLoading) return
 
     // selectAlternative()는 항상 promptOverride를 넘긴다.
-    // promptOverride가 없는 직접 입력이 clarification 문맥과 함께 오면 문맥을 버린다.
-    if (promptOverride === undefined && clarificationHistoryRef.current.length > 0) {
+    // 완전히 새로운 명령(clarification 문맥 밖의 직접 입력)이면 문맥을 버린다.
+    // clarification_required 상태의 직접 입력은 follow-up으로 보고 history를 유지한다.
+    if (
+      promptOverride === undefined &&
+      clarificationHistoryRef.current.length > 0 &&
+      status !== 'clarification_required'
+    ) {
       clarificationHistoryRef.current = []
     }
 
@@ -202,7 +207,10 @@ export function useLlmEdit({
       }
       const history = clarificationHistoryRef.current
       const wallPlannerOptions = selectedWallForChat
-        ? { selectedWallId: selectedWallForChat.wallId }
+        ? {
+            host_wall_global_id: selectedWallForChat.wallId,
+            selectedWallId: selectedWallForChat.wallId,
+          }
         : undefined
       const mergedPlannerOptions = {
         ...(extras?.plannerOptions ?? {}),
@@ -319,6 +327,7 @@ export function useLlmEdit({
     mode,
     onIfcResult,
     selectedWallForChat,
+    status,
     projectId,
     prompt,
     queryClient,

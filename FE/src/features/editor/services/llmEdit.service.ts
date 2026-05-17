@@ -65,8 +65,17 @@ export async function fetchLlmJobStatus(jobId: string): Promise<JobStatusRespons
 }
 
 export async function fetchClarificationArtifact(url: string): Promise<ClarificationArtifact> {
-  const response = await axios.get<ClarificationArtifact>(url)
-  return response.data
+  const response = await axios.get<unknown>(url)
+  const data = response.data
+  if (
+    typeof data !== 'object' ||
+    data === null ||
+    typeof (data as Record<string, unknown>).question !== 'string' ||
+    !Array.isArray((data as Record<string, unknown>).alternatives)
+  ) {
+    throw new Error('invalid clarification artifact schema')
+  }
+  return data as ClarificationArtifact
 }
 
 export async function fetchLlmChatLogs({
