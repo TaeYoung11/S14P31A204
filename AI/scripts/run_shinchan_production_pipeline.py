@@ -42,11 +42,12 @@ H1_DAY_STRENGTH = 0.68
 H1_DAY_DEPTH_CN = 0.5
 H1_DAY_CANNY_CN = 0.4
 H1_DAY_SEED = 42
-# NIGHT: tighter conditioning to prevent SD amplifying small IFC protrusions
-# into a fake second building behind. Verified seed 33 clean both views.
-H1_NIGHT_STRENGTH = 0.55
-H1_NIGHT_DEPTH_CN = 0.6
-H1_NIGHT_CANNY_CN = 0.7
+# NIGHT: sweet spot — slightly higher strength than DAY-tight to keep photoreal
+# texture while still discouraging the small IFC rooftop protrusion from being
+# amplified into a fake background building. Verified seed 33 photoreal both views.
+H1_NIGHT_STRENGTH = 0.65
+H1_NIGHT_DEPTH_CN = 0.5
+H1_NIGHT_CANNY_CN = 0.55
 H1_NIGHT_SEED = 33
 
 PRESET = "ifc_minimal"
