@@ -202,7 +202,10 @@ export default function ThatOpenIfcCanvas({
   const onPinClickRef = useRef(onPinClick)
   const onPinCreateRef = useRef(onPinCreate)
   const onPinDeleteRef = useRef(onPinDelete)
+  const ifcUrlRef = useRef(ifcUrl)
   const ifcPsetMetricsRef = useRef<IfcPsetMetricMaps>({ byId: {}, byName: {} })
+  const loadedIfcUrlRef = useRef<string | null>(null)
+  const ifcSwapRequestRef = useRef(0)
   const selectedTargetRef = useRef<Selected3DTarget>(null)
   const handledLibraryDropTokenRef = useRef(0)
   const handledCameraPresetTokenRef = useRef(0)
@@ -240,6 +243,7 @@ export default function ThatOpenIfcCanvas({
   useEffect(() => { onPinClickRef.current = onPinClick }, [onPinClick])
   useEffect(() => { onPinCreateRef.current = onPinCreate }, [onPinCreate])
   useEffect(() => { onPinDeleteRef.current = onPinDelete }, [onPinDelete])
+  useEffect(() => { ifcUrlRef.current = ifcUrl }, [ifcUrl])
   useEffect(() => {
     const sceneState = sceneRef.current
     const markerGroup = pinMarkerGroupRef.current
@@ -486,7 +490,7 @@ export default function ThatOpenIfcCanvas({
       | null = null
 
     const loadIfc = async () => {
-      if (!ifcUrl) return
+      if (!ifcUrlRef.current) return
       try {
         setStatus('loading')
         setErrorMessage('')
@@ -578,7 +582,9 @@ export default function ThatOpenIfcCanvas({
           fragments.core.models.materials as unknown as MaybeThatOpenMaterialsManager | undefined
         ) ?? undefined
 
-        const ifcText = await fetchIfcText(ifcUrl)
+        const initialIfcUrl = ifcUrlRef.current
+        if (!initialIfcUrl) return
+        const ifcText = await fetchIfcText(initialIfcUrl)
         const modelId = getRuntimeIfcModelId(projectId)
         const patchedIfcText = patchIfcTextForMaterialDefaults(ifcText)
         const data = new TextEncoder().encode(patchedIfcText)
@@ -670,7 +676,7 @@ export default function ThatOpenIfcCanvas({
 
           if (isTransformSnapActive && selectedEntries.length === 1 && selectedEntries[0].object) {
             if (transformModeRef.current === 'translate') {
-              const intervalWorld = normalizeSnapIntervalMm(transformSnapIntervalMmRef.current) * worldUnitsPerMm
+              const intervalWorld = normalizeSnapIntervalMm(transformSnapIntervalMmRef.current) * getActiveWorldUnitsPerMm()
               if (intervalWorld > 0) {
                 const targetObject = selectedEntries[0].object
                 const snappedWorldPosition = new THREE.Vector3()
@@ -706,7 +712,7 @@ export default function ThatOpenIfcCanvas({
                 THREE,
                 selectedEntries[0].object,
                 transformSnapIntervalMmRef.current,
-                worldUnitsPerMm,
+                getActiveWorldUnitsPerMm(),
                 axis,
               )
             }
@@ -737,6 +743,20 @@ export default function ThatOpenIfcCanvas({
           if (world.camera.controls) {
             ;(world.camera.controls as unknown as { enabled: boolean }).enabled = !event.value
           }
+          console.info('[3d-ifc-transform-end]', {
+            dragging: event.value,
+            selectedTargets: selectedTargetsRef.current.map((target) => ({
+              key: getTargetKey(target),
+              source: target.source,
+              hasObject: Boolean(target.object),
+            })),
+            selectedTarget: selectedTargetRef.current
+              ? {
+                  source: selectedTargetRef.current.source,
+                  hasObject: Boolean(selectedTargetRef.current.object),
+                }
+              : null,
+          })
           if (event.value) return
           const multiEntries = selectedTargetsRef.current
           if (multiEntries.length > 1) {
@@ -779,10 +799,19 @@ export default function ThatOpenIfcCanvas({
                   PositionZ: Number(worldPosition.z.toFixed(3)),
                 },
               }
+              console.info('[3d-ifc-transform-commit]', {
+                source: 'multi',
+                elementId: element.id,
+                globalId: element.globalId,
+                previous: { x: element.positionX, y: element.positionY, z: element.positionZ },
+                next: { x: nextElement.positionX, y: nextElement.positionY, z: nextElement.positionZ },
+                translationMm: getIfcTranslationMm(element, worldPosition),
+              })
               onIfcElementTransformCommitRef.current?.(element, {
                 positionX: nextElement.positionX,
                 positionY: nextElement.positionY,
                 positionZ: nextElement.positionZ,
+                translationMm: getIfcTranslationMm(element, worldPosition),
               })
               editable.userData.ifcEditTarget = { ...editTarget, element: nextElement }
             })
@@ -813,7 +842,7 @@ export default function ThatOpenIfcCanvas({
                 },
               }
               if (transformModeRef.current === 'scale') {
-                const scalePatch = getLibraryScaleDimensionPatch(libraryObject, worldUnitsPerMm)
+                const scalePatch = getLibraryScaleDimensionPatch(libraryObject, getActiveWorldUnitsPerMm())
                 if (scalePatch) {
                   patch.lengthMm = scalePatch.lengthMm
                   patch.heightMm = scalePatch.heightMm
@@ -834,7 +863,7 @@ export default function ThatOpenIfcCanvas({
               const worldQuaternion = new THREE.Quaternion()
               const worldEuler = new THREE.Euler()
               const sizeMm = transformModeRef.current === 'scale'
-                ? getObjectSizeMm(THREE, editable, worldUnitsPerMm)
+                ? getObjectSizeMm(THREE, editable, getActiveWorldUnitsPerMm())
                 : null
               editable.getWorldPosition(worldPosition)
               editable.getWorldQuaternion(worldQuaternion)
@@ -863,6 +892,14 @@ export default function ThatOpenIfcCanvas({
                   RotationZ: Number((((worldEuler.z * 180) / Math.PI)).toFixed(2)),
                 },
               }
+              console.info('[3d-ifc-transform-commit]', {
+                source: 'single',
+                elementId: element.id,
+                globalId: element.globalId,
+                previous: { x: element.positionX, y: element.positionY, z: element.positionZ },
+                next: { x: nextElement.positionX, y: nextElement.positionY, z: nextElement.positionZ },
+                translationMm: getIfcTranslationMm(element, worldPosition),
+              })
               onIfcElementTransformCommitRef.current?.(element, {
                 lengthMm: nextElement.lengthMm,
                 heightMm: nextElement.heightMm,
@@ -870,6 +907,7 @@ export default function ThatOpenIfcCanvas({
                 positionX: nextElement.positionX,
                 positionY: nextElement.positionY,
                 positionZ: nextElement.positionZ,
+                translationMm: getIfcTranslationMm(element, worldPosition),
                 rotationX: nextElement.rotationX,
                 rotationY: nextElement.rotationY,
                 rotationZ: nextElement.rotationZ,
@@ -895,6 +933,7 @@ export default function ThatOpenIfcCanvas({
           camera: world.camera.three,
           renderer: world.renderer.three,
           fragments,
+          ifcLoader,
           hider,
           raycaster: thatOpenRaycaster,
           transformControls,
@@ -911,6 +950,26 @@ export default function ThatOpenIfcCanvas({
         positionPresetGroupBesideIfc(THREE, fragmentModel.object, presetGroup, worldUnitsPerMm)
         const renderer = world.renderer.three
         const camera = world.camera.three
+        const getActiveWorldUnitsPerMm = () => sceneRef.current?.worldUnitsPerMm ?? worldUnitsPerMm
+        const getIfcTranslationMm = (
+          previous: IfcElementInfo,
+          nextWorldPosition: import('three').Vector3,
+        ) => {
+          const activeWorldUnitsPerMm = getActiveWorldUnitsPerMm()
+          if (
+            !(activeWorldUnitsPerMm > 0) ||
+            typeof previous.positionX !== 'number' ||
+            typeof previous.positionY !== 'number' ||
+            typeof previous.positionZ !== 'number'
+          ) {
+            return undefined
+          }
+          return {
+            x: (nextWorldPosition.x - previous.positionX) / activeWorldUnitsPerMm,
+            y: (previous.positionZ - nextWorldPosition.z) / activeWorldUnitsPerMm,
+            z: (nextWorldPosition.y - previous.positionY) / activeWorldUnitsPerMm,
+          }
+        }
 
         const commitSelection = (targets: MultiSelectedTarget[]) => {
           selectedTargetsRef.current = targets
@@ -932,13 +991,14 @@ export default function ThatOpenIfcCanvas({
         }
         const createCommentPinAtWorldPoint = (point: import('three').Vector3) => {
           const cameraPosition = camera.position
+          const activeWorldUnitsPerMm = getActiveWorldUnitsPerMm()
           const threeDPosition: CommentPin3DCreatePosition = {
-            worldX: point.x / worldUnitsPerMm,
-            worldY: point.z / worldUnitsPerMm,
-            worldZ: point.y / worldUnitsPerMm,
-            cameraX: cameraPosition.x / worldUnitsPerMm,
-            cameraY: cameraPosition.z / worldUnitsPerMm,
-            cameraZ: cameraPosition.y / worldUnitsPerMm,
+            worldX: point.x / activeWorldUnitsPerMm,
+            worldY: point.z / activeWorldUnitsPerMm,
+            worldZ: point.y / activeWorldUnitsPerMm,
+            cameraX: cameraPosition.x / activeWorldUnitsPerMm,
+            cameraY: cameraPosition.z / activeWorldUnitsPerMm,
+            cameraZ: cameraPosition.y / activeWorldUnitsPerMm,
           }
           onPinCreateRef.current?.(
             threeDPosition.worldX / FLOOR_MM_PER_PX,
@@ -1037,7 +1097,7 @@ export default function ThatOpenIfcCanvas({
               ? { distance: ifcPick.distance ?? Number.POSITIVE_INFINITY, point: ifcPick.point }
               : ifcPick?.object
                 ? raycaster.intersectObject(ifcPick.object, true)[0]
-                : raycaster.intersectObject(fragmentModel.object, true)[0]
+                : raycaster.intersectObject(sceneRef.current?.ifcObject ?? fragmentModel.object, true)[0]
             const collaborationHit = [libraryHit, ifcEditHit, ifcHit]
               .filter((hit): hit is import('three').Intersection => Boolean(hit))
               .sort((a, b) => a.distance - b.distance)[0]
@@ -1154,7 +1214,8 @@ export default function ThatOpenIfcCanvas({
                 selectedColorSignature: getElementColorSignature(selectedElement),
                 selectedMaterialSignature: getElementMaterialSignature(selectedElement),
               }
-              const pickedObjectSize = getObjectSizeMm(THREE, ifcPick.object, worldUnitsPerMm)
+              const activeWorldUnitsPerMm = getActiveWorldUnitsPerMm()
+              const pickedObjectSize = getObjectSizeMm(THREE, ifcPick.object, activeWorldUnitsPerMm)
               const editableObject = await attachIfcTransformProxy(
                 THREE,
                 fragments,
@@ -1175,7 +1236,7 @@ export default function ThatOpenIfcCanvas({
                 editableObject.getWorldQuaternion(editableWorldQuaternion)
                 editableWorldEuler.setFromQuaternion(editableWorldQuaternion, 'XYZ')
 
-                const fallbackSize = pickedObjectSize ?? getObjectSizeMm(THREE, editableObject, worldUnitsPerMm)
+                const fallbackSize = pickedObjectSize ?? getObjectSizeMm(THREE, editableObject, activeWorldUnitsPerMm)
                 if (fallbackSize) {
                   const nextLength = selectedElement.lengthMm ?? fallbackSize.lengthMm
                   const nextHeight = selectedElement.heightMm ?? fallbackSize.heightMm
@@ -1391,6 +1452,7 @@ export default function ThatOpenIfcCanvas({
         await fragments.core.update(true)
         // 최초 로드 시에는 고정 패딩으로 맞추고, 이후 줌 반영은 zoomScale effect에서 처리한다.
         fitObjectWithPadding(THREE, world.camera.three, world.camera.controls, fragmentModel.object, 1.55)
+        loadedIfcUrlRef.current = initialIfcUrl
         setStatus('ready')
       } catch (error) {
         if (disposed) return
@@ -1439,8 +1501,103 @@ export default function ThatOpenIfcCanvas({
       cameraMouseButtonsRef.current = null
       rendererDomRef.current = null
       prevZoomScaleRef.current = null
+      loadedIfcUrlRef.current = null
     }
-  }, [deleteSelectedTarget, getTargetKey, ifcUrl, projectId, syncTransformSnap, updateSelectionTargets])
+  }, [deleteSelectedTarget, getTargetKey, projectId, syncTransformSnap, updateSelectionTargets])
+
+  useEffect(() => {
+    if (!ifcUrl) return
+    const sceneState = sceneRef.current
+    if (!sceneState) return
+    if (loadedIfcUrlRef.current === ifcUrl) return
+
+    const requestId = ifcSwapRequestRef.current + 1
+    ifcSwapRequestRef.current = requestId
+
+    const swapIfcModel = async () => {
+      try {
+        setErrorMessage('')
+        const ifcText = await fetchIfcText(ifcUrl)
+        if (ifcSwapRequestRef.current !== requestId || !sceneRef.current) return
+
+        const patchedIfcText = patchIfcTextForMaterialDefaults(ifcText)
+        const nextMetrics = parseBatangDimensionProperties(patchedIfcText)
+        const data = new TextEncoder().encode(patchedIfcText)
+        const nextModelId = `${getRuntimeIfcModelId(projectId)}-${Date.now()}`
+        const model = await sceneState.ifcLoader.load(data, true, nextModelId)
+        if (ifcSwapRequestRef.current !== requestId || !sceneRef.current) {
+          void sceneState.fragments.core.disposeModel(nextModelId).catch(() => undefined)
+          return
+        }
+
+        const fragmentModel = model as unknown as LoadedFragmentModel
+        fragmentModel.useCamera(sceneState.camera)
+        applyInitialIfcMaterialStyles(sceneState.three, fragmentModel.object, sceneState.materialsManager)
+        const nextWorldUnitsPerMm = inferWorldUnitsPerMm(sceneState.three, fragmentModel.object)
+
+        const currentScene = sceneRef.current
+        const previousObject = currentScene.ifcObject
+        const previousModelId = currentScene.modelId
+        const currentTarget = selectedTargetRef.current
+        if (currentTarget) {
+          await clearSelectedTarget(currentScene, currentTarget)
+        }
+        selectedTargetRef.current = null
+        selectedTargetsRef.current = []
+        multiDragSnapshotRef.current = null
+        if (multiAnchorRef.current) {
+          currentScene.contentGroup.remove(multiAnchorRef.current)
+          multiAnchorRef.current = null
+        }
+        currentScene.ifcEditGroup.children.forEach((child) => {
+          disposeObjectMaterials(currentScene.three, child)
+        })
+        currentScene.ifcEditGroup.clear()
+
+        currentScene.contentGroup.add(fragmentModel.object)
+        currentScene.contentGroup.remove(previousObject)
+        disposeObjectMaterials(currentScene.three, previousObject)
+        void currentScene.fragments.core.disposeModel(previousModelId).catch(() => undefined)
+
+        currentScene.ifcObject = fragmentModel.object
+        currentScene.modelId = nextModelId
+        currentScene.worldUnitsPerMm = nextWorldUnitsPerMm
+        ifcPsetMetricsRef.current = nextMetrics
+        loadedIfcUrlRef.current = ifcUrl
+
+        const presetGroup = presetGroupRef.current
+        if (presetGroup) {
+          positionPresetGroupBesideIfc(
+            currentScene.three,
+            fragmentModel.object,
+            presetGroup,
+            nextWorldUnitsPerMm,
+          )
+          presetGroup.userData.libraryPositioned = true
+        }
+        const pinMarkerGroup = pinMarkerGroupRef.current
+        if (pinMarkerGroup) {
+          syncThreeDPinMarkers(currentScene.three, pinMarkerGroup, commentPinsRef.current, {
+            selectedPinId: selectedPinIdRef.current,
+            currentUserId: currentUserIdRef.current,
+            deletingPinId: deletingPinIdRef.current,
+            worldUnitsPerMm: nextWorldUnitsPerMm,
+          })
+        }
+
+        await currentScene.fragments.core.update(true)
+        currentScene.renderer.render(currentScene.scene, currentScene.camera as import('three').PerspectiveCamera)
+        updateSelectionTargets({ emitNullWhenEmpty: true })
+        setStatus('ready')
+      } catch (error) {
+        if (ifcSwapRequestRef.current !== requestId) return
+        setStatus('error')
+        setErrorMessage(error instanceof Error ? error.message : 'IFC model load failed.')
+      }
+    }
+
+    void swapIfcModel()
+  }, [ifcUrl, projectId, updateSelectionTargets])
 
   useEffect(() => {
     if (deleteRequestToken <= 0) return

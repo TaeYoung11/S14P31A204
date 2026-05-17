@@ -3791,25 +3791,6 @@ export function useEditorPage() {
       next: element,
     })
     if (selectionPatch && previous) {
-      const commandPatch: Record<string, unknown> = { ...selectionPatch.patch }
-      const nextX = typeof selectionPatch.patch.positionX === 'number' ? selectionPatch.patch.positionX : null
-      const nextY = typeof selectionPatch.patch.positionY === 'number' ? selectionPatch.patch.positionY : null
-      const nextZ = typeof selectionPatch.patch.positionZ === 'number' ? selectionPatch.patch.positionZ : null
-      if (
-        nextX !== null &&
-        nextY !== null &&
-        nextZ !== null &&
-        typeof previous.positionX === 'number' &&
-        typeof previous.positionY === 'number' &&
-        typeof previous.positionZ === 'number'
-      ) {
-        commandPatch.translationMm = {
-          x: nextX - previous.positionX,
-          y: nextY - previous.positionY,
-          z: nextZ - previous.positionZ,
-        }
-      }
-      workspaceCommandPublisher.updateIfcElement(previous, commandPatch)
       setIfcElementChangesById((prev) =>
         mergeIfcElementChangeByExpressId(
           prev,
@@ -3848,18 +3829,38 @@ export function useEditorPage() {
     markLocalFloorPlanSnapshotChanged,
     mode,
     selectedIfcElement,
-    workspaceCommandPublisher,
   ])
 
   const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId'>) => {
-    if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return
+    console.info('[3d-ifc-record-change]', {
+      element: element
+        ? {
+            id: element.id,
+            source: element.source,
+            expressId: element.expressId,
+            globalId: element.globalId,
+          }
+        : null,
+      patch,
+    })
+    if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') {
+      console.info('[3d-ifc-record-change][skip]', {
+        reason: 'invalid-element',
+        hasElement: Boolean(element),
+        source: element?.source,
+        expressId: element?.expressId,
+      })
+      return
+    }
     const expressId = element.expressId
     if (shouldPublishIfcElementPatch(element, patch)) {
       const commandPatch: Record<string, unknown> = { ...patch }
       const nextX = typeof patch.positionX === 'number' ? patch.positionX : null
       const nextY = typeof patch.positionY === 'number' ? patch.positionY : null
       const nextZ = typeof patch.positionZ === 'number' ? patch.positionZ : null
-      if (
+      if (patch.translationMm) {
+        commandPatch.translationMm = patch.translationMm
+      } else if (
         nextX !== null &&
         nextY !== null &&
         nextZ !== null &&
@@ -3869,11 +3870,26 @@ export function useEditorPage() {
       ) {
         commandPatch.translationMm = {
           x: nextX - element.positionX,
-          y: nextY - element.positionY,
-          z: nextZ - element.positionZ,
+          y: element.positionZ - nextZ,
+          z: nextY - element.positionY,
         }
       }
+      if (commandPatch.translationMm) {
+        console.info('[3d-ifc-transform-command]', {
+          source: 'record-change',
+          elementId: element.id,
+          globalId: element.globalId,
+          previous: { x: element.positionX, y: element.positionY, z: element.positionZ },
+          next: { x: nextX, y: nextY, z: nextZ },
+          translationMm: commandPatch.translationMm,
+        })
+      }
       workspaceCommandPublisher.updateIfcElement(element, commandPatch)
+    } else {
+      console.info('[3d-ifc-record-change][skip]', {
+        reason: 'not-publishable',
+        patch,
+      })
     }
     setIfcElementChangesById((prev) =>
       mergeIfcElementChangeByExpressId(
