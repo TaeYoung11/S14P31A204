@@ -28,7 +28,7 @@ from .command import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LLM_MODEL = "qwen2.5:7b"
+DEFAULT_LLM_MODEL = "gemma3:4b"
 DEFAULT_LLM_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_LLM_API_KEY = "ollama"
 DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
