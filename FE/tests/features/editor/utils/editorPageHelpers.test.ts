@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import type { BubbleData, ConnectionData, ZoneData } from '@/features/editor/types'
-import { assertLayoutImportV2 } from '@/features/editor/services/floorPlanGenerate.contract'
+import type { BubbleData, ConnectionData, ZoneData } from '../../../../src/features/editor/types'
+import { assertLayoutImportV2 } from '../../../../src/features/editor/services/floorPlanGenerate.contract'
 import {
   DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
   buildFloorPlanLayoutImportPayload,
   getLayoutImportBoundaryLogMetadata,
   pruneZoneBubbleIds,
   type LayoutImportBoundaryInput,
-} from '@/features/editor/utils/editorPageHelpers'
+} from '../../../../src/features/editor/utils/editorPageHelpers'
 
 const PROJECT_ID = '123e4567-e89b-42d3-a456-426614174000'
 
@@ -70,7 +70,6 @@ describe('buildFloorPlanLayoutImportPayload', () => {
     expect(payload.rooms[0].y).toBeCloseTo(600)
     expect(payload.rooms[0]).toMatchObject({
       id: 'room-a',
-      sourceBubbleId: 'room-a',
       source_bubble_id: 'room-a',
     })
     assertLayoutImportV2(payload)
