@@ -567,6 +567,7 @@ export function useEditorPage() {
     action: string | null,
     assetId?: string | null,
     revisionId?: string | null,
+    floorPlanSnapshot?: FloorPlanSnapshotPayload | null,
   ) => Promise<boolean>>(async () => false)
   const workspaceCommandPublisherRef = useRef<ReturnType<typeof useWorkspaceCommandPublisher> | null>(null)
   const mergedFloorOpeningsRef = useRef<FloorOpening[]>([])
@@ -2522,8 +2523,8 @@ export function useEditorPage() {
     onRemoteSnapshot: applyRemoteBubbleSnapshot,
     onRemoteFloorPlanSnapshot: applyRemoteFloorPlanSnapshot,
     onPhaseStatusChanged: setWorkspacePhaseStatus,
-    onIfcStorageUrlReceived: (ifcStorageUrl, action, assetId, revisionId) => {
-      handleIfcSyncMessageRef.current(ifcStorageUrl, action, assetId, revisionId)
+    onIfcStorageUrlReceived: (ifcStorageUrl, action, assetId, revisionId, floorPlanSnapshot) => {
+      handleIfcSyncMessageRef.current(ifcStorageUrl, action, assetId, revisionId, floorPlanSnapshot)
       if (
         pendingOpenThreeDOnGenerateCompleteRef.current &&
         action &&
@@ -4720,6 +4721,7 @@ export function useEditorPage() {
     action: string | null,
     assetId?: string | null,
     revisionId?: string | null,
+    floorPlanSnapshot?: FloorPlanSnapshotPayload | null,
   ): Promise<boolean> => {
     if (!projectId) return false
     // assetId가 있으면 이를 dedup 키로 사용 (presigned URL은 매번 달라질 수 있어 불안정)
@@ -4788,6 +4790,9 @@ export function useEditorPage() {
       return true
     }
     if (lastLoadedIfcStorageUrlRef.current === dedupeKey) {
+      if (floorPlanSnapshot) {
+        applyRemoteFloorPlanSnapshot(floorPlanSnapshot)
+      }
       return true
     }
 
@@ -4910,6 +4915,9 @@ export function useEditorPage() {
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
       ) {
+        if (floorPlanSnapshot) {
+          applyRemoteFloorPlanSnapshot(floorPlanSnapshot)
+        }
         pendingServerPublishRef.current = null
         awaitingServerSyncRef.current = null
         clearServerPublishRetry()
@@ -4950,6 +4958,7 @@ export function useEditorPage() {
     }
     return didLoadIfc
   }, [
+    applyRemoteFloorPlanSnapshot,
     clearFloorPlanGenerateTimeout,
     clearServerPublishRetry,
     currentIfcAssetId,
@@ -4967,8 +4976,9 @@ export function useEditorPage() {
       action: string | null,
       assetId?: string | null,
       revisionId?: string | null,
+      floorPlanSnapshot?: FloorPlanSnapshotPayload | null,
     ) => {
-      return handleOutputIfcStorageUrl(url, action, assetId, revisionId)
+      return handleOutputIfcStorageUrl(url, action, assetId, revisionId, floorPlanSnapshot)
     }
   }, [handleOutputIfcStorageUrl])
 
