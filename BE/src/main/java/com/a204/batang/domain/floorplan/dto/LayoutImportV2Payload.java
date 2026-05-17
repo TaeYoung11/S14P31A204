@@ -223,7 +223,7 @@ public record LayoutImportV2Payload(
 
             @JsonProperty("target_bubble_id")
             @Size(max = 128)
-            @Schema(description = "Source bubble id for the connection end.")
+            @Schema(description = "Target bubble id for the connection end.")
             String targetBubbleId
     ) {
         public Adjacency(String fromRoomId, String toRoomId, Double strength) {
