@@ -26,6 +26,7 @@ interface TwoDWallsLayerProps {
   selectedWallId: string | null
   selectedWallIds: string[]
   selectedWallGeometryKey: string | null
+  chatSelectedWallId?: string | null
   outsideWallIds: Set<string>
   wallById: Map<string, FloorWall>
   openingSnapGuide: OpeningSnapGuideState | null
@@ -68,6 +69,7 @@ export function TwoDWallsLayer({
   selectedWallId,
   selectedWallIds,
   selectedWallGeometryKey,
+  chatSelectedWallId,
   outsideWallIds,
   wallById,
   openingSnapGuide,
@@ -101,6 +103,7 @@ export function TwoDWallsLayer({
           isMultiSelectedWall ||
           selectedWallId === wall.id ||
           (selectedWallGeometryKey !== null && getWallGeometryKey(wall) === selectedWallGeometryKey)
+        const isChatSelectedWall = chatSelectedWallId === wall.id || chatSelectedWallId === wall.globalId
         const isOutsideSiteWall = outsideWallIds.has(wall.id)
         const presetStroke = FLOOR_WALL_PRESETS[wall.type]?.stroke ?? '#2F3448'
         const wallTypeVisual = FLOOR_WALL_TYPE_VISUALS[wall.type] ?? FLOOR_WALL_TYPE_VISUALS.general
@@ -126,7 +129,7 @@ export function TwoDWallsLayer({
         const wallSpecLabelHeight = 18
         const wallSpecLabelX = wallMidX + normalX * (strokeWidthPx + 20) - wallSpecLabelWidth / 2
         const wallSpecLabelY = wallMidY + normalY * (strokeWidthPx + 20) - wallSpecLabelHeight / 2
-        const shouldListen =
+        const canInteractWithWall =
           !isInteractionLockedByCollaboration &&
           !isResizeTool &&
           (
@@ -140,8 +143,23 @@ export function TwoDWallsLayer({
         return (
           <Group
             key={wall.id}
-            listening={shouldListen}
+            listening={canInteractWithWall}
           >
+            {isChatSelectedWall && (
+              <Line
+                points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
+                stroke="#F59E0B"
+                strokeWidth={strokeWidthPx + 8}
+                lineCap="round"
+                lineJoin="round"
+                dash={[10, 6]}
+                opacity={0.62}
+                shadowColor="#F59E0B"
+                shadowBlur={10}
+                shadowOpacity={0.38}
+                listening={false}
+              />
+            )}
             <Line
               points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
               stroke={wallStroke}
@@ -152,7 +170,9 @@ export function TwoDWallsLayer({
               shadowColor={isSelectedWall ? '#3B45B3' : undefined}
               shadowBlur={isSelectedWall ? 6 : 0}
               shadowOpacity={isSelectedWall ? 0.2 : 0}
+              hitStrokeWidth={Math.max(strokeWidthPx + 18, 28)}
               onClick={(e) => {
+                if (!canInteractWithWall) return
                 if (isPanMode) return
                 e.cancelBubble = true
                 const stage = e.target.getStage()
@@ -167,6 +187,7 @@ export function TwoDWallsLayer({
                 }
               }}
               onMouseDown={(e) => {
+                if (!canInteractWithWall) return
                 if (selectedTool !== 'selection' || isPanMode) return
                 if (e.evt.button !== 0) return
                 if (e.evt.shiftKey) {
@@ -202,6 +223,16 @@ export function TwoDWallsLayer({
                 width={wallSpecLabelWidth}
                 height={wallSpecLabelHeight}
                 text={wallSpecLabel}
+              />
+            )}
+
+            {isChatSelectedWall && !isSelectedWall && (
+              <TwoDSelectionSpecBadge
+                x={wallSpecLabelX}
+                y={wallSpecLabelY}
+                width={118}
+                height={wallSpecLabelHeight}
+                text="채팅 선택 벽"
               />
             )}
 

@@ -1,4 +1,5 @@
 import { lazy, useMemo } from 'react'
+import { Plus } from 'lucide-react'
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
 import { formatBubbleFloorLabel, normalizeBubbleFloor } from '@/features/editor/utils/bubbleFloorUtils'
 
@@ -87,10 +88,37 @@ export default function BubbleModeCanvas({ editorProps, scale }: BubbleModeCanva
         className="relative overflow-hidden rounded-2xl border border-[#D8E0F2] bg-white shadow-[0_8px_20px_rgba(45,53,153,0.08)]"
         style={{ width: sectionCanvasWidth, height: sectionCanvasHeight }}
       >
-        <div className="pointer-events-none absolute left-1/2 top-3 z-20 flex -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded-xl border border-[#D8E0F2] bg-white/90 px-2 py-1 text-[10px] font-semibold text-[#4F5B78] shadow-sm backdrop-blur">
-          <span className="rounded-md bg-[#F3F6FF] px-1.5 py-0.5 font-black text-[#2B2F38]">{activeFloorSection.floorName}</span>
-          <span className="rounded-md bg-[#F8FAFF] px-1.5 py-0.5">{`버블 ${activeFloorSection.bubbles.length}`}</span>
-          <span className="rounded-md bg-[#F8FAFF] px-1.5 py-0.5">{`면적 ${activeFloorSection.floorAreaM2.toFixed(1)}m²`}</span>
+        <div className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-1 rounded-xl border border-[#D8E0F2] bg-white/95 px-1.5 py-1 shadow-sm backdrop-blur">
+          {editorProps.bubbleFloors.map((floorMeta) => {
+            const isActive = normalizeBubbleFloor(floorMeta.floor) === activeFloor
+            return (
+              <button
+                key={`floor-tab-${floorMeta.floor}`}
+                type="button"
+                onClick={() => editorProps.setActiveBubbleFloor(floorMeta.floor)}
+                className={`rounded-lg px-2.5 py-1 text-[10px] font-bold transition-colors ${
+                  isActive
+                    ? 'bg-[#3B45B3] text-white shadow-sm'
+                    : 'text-[#4F5B78] hover:bg-[#F0F2FF] hover:text-[#3B45B3]'
+                }`}
+              >
+                {formatBubbleFloorLabel(floorMeta.name)}
+              </button>
+            )
+          })}
+          {!editorProps.isBubbleReadOnly && (
+            <button
+              type="button"
+              onClick={editorProps.handleAddBubbleFloor}
+              className="flex h-6 w-6 items-center justify-center rounded-lg text-[#94A3B8] hover:bg-[#F0F2FF] hover:text-[#3B45B3] transition-colors"
+              title="층 추가"
+            >
+              <Plus size={12} />
+            </button>
+          )}
+          <span className="ml-1 border-l border-[#E2E8F0] pl-1.5 text-[9px] font-semibold text-[#94A3B8]">
+            {`${activeFloorSection.bubbles.length}개 · ${activeFloorSection.floorAreaM2.toFixed(1)}m²`}
+          </span>
         </div>
         <BubbleCanvas
           stageSize={{ width: sectionCanvasWidth, height: sectionCanvasHeight }}

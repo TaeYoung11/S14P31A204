@@ -16,7 +16,7 @@ import type {
   PanelResizeAxis,
   ZoneData,
 } from '@/features/editor/types'
-import type { LlmChatLogItem, LlmEditPreview, LlmEditStatus } from '@/features/editor/types/llmEdit.types'
+import type { ClarificationAlternative, ClarificationArtifact, LlmChatLogItem, LlmEditPreview, LlmEditStatus } from '@/features/editor/types/llmEdit.types'
 import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from '@/features/editor/components/panels/BubbleAttributePanel'
 
 /**
@@ -116,15 +116,19 @@ export interface EditorRightPanelsProps {
   llmMessage: string
   llmSuggestions: string[]
   llmPreview: LlmEditPreview | null
+  selectedWallForChat?: { wallId: string } | null
   llmCanRun: boolean
   llmActiveJobId: string | null
   llmJobProgress: number | null
+  llmClarificationArtifact: ClarificationArtifact | null
   llmChatLogs: LlmChatLogItem[]
   llmIsChatLogsLoading: boolean
   onLlmPromptChange: (value: string) => void
   onRunLlmEdit: () => void
   onApplyLlmEdit: () => void
   onDiscardLlmEdit: () => void
+  onSelectLlmAlternative: (alternative: ClarificationAlternative) => void
+  onClearSelectedWall?: () => void
   floorProjectImportMessage: string
   onImportFloorProjectIfc: (rawIfc: string, sourceName: string) => Promise<void>
   onPanelDragStart: (panelKey: PanelKey, event: ReactMouseEvent<HTMLElement>) => void

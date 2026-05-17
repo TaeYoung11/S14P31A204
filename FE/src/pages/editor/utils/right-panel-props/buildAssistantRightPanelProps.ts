@@ -13,15 +13,19 @@ export function buildAssistantRightPanelProps(
   | 'llmMessage'
   | 'llmSuggestions'
   | 'llmPreview'
+  | 'selectedWallForChat'
   | 'llmCanRun'
   | 'llmActiveJobId'
   | 'llmJobProgress'
+  | 'llmClarificationArtifact'
   | 'llmChatLogs'
   | 'llmIsChatLogsLoading'
   | 'onLlmPromptChange'
   | 'onRunLlmEdit'
   | 'onApplyLlmEdit'
   | 'onDiscardLlmEdit'
+  | 'onSelectLlmAlternative'
+  | 'onClearSelectedWall'
   | 'floorProjectImportMessage'
   | 'onImportFloorProjectIfc'
 > {
@@ -33,15 +37,19 @@ export function buildAssistantRightPanelProps(
     llmMessage: vm.llmMessage,
     llmSuggestions: vm.llmSuggestions,
     llmPreview: vm.llmPreview,
+    selectedWallForChat: vm.selectedWallForChat,
     llmCanRun: vm.llmCanRun,
     llmActiveJobId: vm.llmActiveJobId,
     llmJobProgress: vm.llmJobProgress,
+    llmClarificationArtifact: vm.llmClarificationArtifact,
     llmChatLogs: vm.llmChatLogs,
     llmIsChatLogsLoading: vm.llmIsChatLogsLoading,
     onLlmPromptChange: vm.setLlmPrompt,
     onRunLlmEdit: vm.runLlmEdit,
     onApplyLlmEdit: vm.applyLlmEdit,
     onDiscardLlmEdit: vm.discardLlmEdit,
+    onSelectLlmAlternative: vm.selectLlmAlternative,
+    onClearSelectedWall: vm.clearSelectedWallForChat,
     floorProjectImportMessage: vm.floorProjectImportMessage,
     onImportFloorProjectIfc: vm.importFloorProjectFromIfc,
   }
