@@ -191,7 +191,7 @@ class TwoDLlmEventListenerTest {
                 null,
                 new IfcEditWorkerError(
                         "CLARIFICATION_REQUIRED",
-                        "어느 방의 벽에 문을 만들까요?",
+                        "추가 확인이 필요합니다",
                         false,
                         true,
                         detailStorageUrl

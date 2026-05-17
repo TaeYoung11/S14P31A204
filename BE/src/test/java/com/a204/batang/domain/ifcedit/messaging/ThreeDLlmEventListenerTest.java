@@ -191,7 +191,7 @@ class ThreeDLlmEventListenerTest {
                 null,
                 new IfcEditWorkerError(
                         "CLARIFICATION_REQUIRED",
-                        "어느 요소를 수정할까요?",
+                        "추가 입력이 필요합니다",
                         false,
                         true,
                         detailStorageUrl

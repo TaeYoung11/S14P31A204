@@ -770,8 +770,13 @@ def _selected_wall_id_from_planner_options(
 ) -> str | None:
     if not isinstance(planner_options, dict):
         return None
-    selected_wall_id = planner_options.get("selectedWallId")
-    return selected_wall_id if isinstance(selected_wall_id, str) else None
+    # host_wall_global_id를 우선 확인 (3D 워커와 동일한 키 이름)
+    # selectedWallId는 이전 FE 계약과의 하위 호환을 위해 fallback으로 유지
+    for key in ("host_wall_global_id", "selectedWallId"):
+        value = planner_options.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
 
 
 def _conversation_history_to_openai_messages(

@@ -76,6 +76,12 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 20
+        },
+        "host_wall_global_id": {
+          "description": "Clarification answer: IFC GlobalId of the host wall selected by the user for door/window placement.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
         }
       }
     }

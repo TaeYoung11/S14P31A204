@@ -732,21 +732,24 @@ def _build_clarification_artifact(
     """파이프라인 clarification 결과 → FE ClarificationArtifact 계약 형식으로 변환."""
     clarification = _map_clarification(result)
     question = clarification.get("question", "추가 정보가 필요합니다.")
-    option_details: list[dict[str, Any]] = clarification.get("option_details") or []
-    trigger: str | None = clarification.get("trigger")
+    options: list[Any] = clarification.get("options") or []
+    context: dict[str, Any] = clarification.get("context") or {}
+    apply_field: str | None = context.get("apply_field") if isinstance(context, dict) else None
 
     alternatives = [
         {
             "alternative_id": opt["id"],
             "title": opt["label"],
-            "description": "",
-            "fill": {trigger: opt["value"]} if trigger else {},
+            "description": opt.get("description", ""),
+            "fill": {apply_field: opt["value"]}
+            if apply_field and opt.get("value") is not None
+            else {},
             "affected_entities": [],
             "warnings": [],
             "metrics": [],
         }
-        for opt in option_details
-        if opt.get("id") and opt.get("label")
+        for opt in options
+        if isinstance(opt, dict) and opt.get("id") and opt.get("label")
     ]
 
     return {

@@ -72,6 +72,17 @@ _RESIZE_DIRECTION_HINTS: tuple[tuple[str, ResizeDirection], ...] = (
 
 _CREATE_DOOR_KEYWORDS: tuple[str, ...] = ("문", "door")
 _CREATE_DOOR_ACTION_HINTS: tuple[str, ...] = ("만들", "추가", "뚫")
+_NON_DOOR_CREATE_SIGNALS: tuple[str, ...] = (
+    "삭제",
+    "제거",
+    "없애",
+    "지워",
+    "늘려",
+    "줄여",
+    "넓혀",
+    "키워",
+    "확장",
+)
 _DELETE_VOID_KEYWORDS: tuple[str, ...] = ("삭제", "제거", "없애", "지워")
 _CREATE_WALL_KEYWORDS: tuple[str, ...] = ("가벽", "벽", "partition", "wall")
 _CREATE_WALL_ACTION_HINTS: tuple[str, ...] = ("세워", "만들", "추가", "설치")
@@ -915,23 +926,28 @@ class FloorPlanEngine:
         if selected_wall_id is None:
             selected_wall_id = _selected_wall_id_from_text(user_text, ifc_context)
         if selected_wall_id is not None:
-            target_floor: int | None = None
-            if ifc_context is not None:
-                for wall in ifc_context.get("walls", []):
-                    if wall.get("id") == selected_wall_id:
-                        floor = wall.get("floor")
-                        target_floor = floor if isinstance(floor, int) else None
-                        break
-            return FloorNLPCommand(
-                action="create_door",
-                target_wall_id=selected_wall_id,
-                target_floor=target_floor,
-                element_width_mm=900,
-                element_height_mm=2100,
-                confidence=0.99,
-                needs_clarification=False,
-                clarification_question=None,
+            lowered = user_text.casefold()
+            has_non_create_intent = any(
+                k in user_text or k in lowered for k in _NON_DOOR_CREATE_SIGNALS
             )
+            if not has_non_create_intent:
+                target_floor: int | None = None
+                if ifc_context is not None:
+                    for wall in ifc_context.get("walls", []):
+                        if wall.get("id") == selected_wall_id:
+                            floor = wall.get("floor")
+                            target_floor = floor if isinstance(floor, int) else None
+                            break
+                return FloorNLPCommand(
+                    action="create_door",
+                    target_wall_id=selected_wall_id,
+                    target_floor=target_floor,
+                    element_width_mm=900,
+                    element_height_mm=2100,
+                    confidence=0.99,
+                    needs_clarification=False,
+                    clarification_question=None,
+                )
 
         clarification_followup_remove = _recover_followup_remove_command(
             user_text,

@@ -33,6 +33,7 @@ from ai_planning_2d.engine import _apply_relative_adjustment, _infer_resize_dire
 from ai_planning_2d.remove_healing import build_remove_merge_plan
 from ai_planning_2d.toilet_demo import build_toilet_insertion_geometry_plan
 from ai_planning_2d.validators.batch import validate_command_batch
+from ai_planning_2d.worker_runtime.worker import _selected_wall_id_from_planner_options
 
 
 @pytest.fixture
@@ -2103,6 +2104,80 @@ async def test_engine_parse_command_recovers_create_door_from_selected_wall_id(i
     assert command.target_wall_id == "wall-1"
     assert command.element_width_mm == 900
     assert command.element_height_mm == 2100
+
+
+@pytest.mark.asyncio
+async def test_engine_parse_command_creates_door_from_planner_selected_wall_id(ifc_ctx):
+    ctx = dict(ifc_ctx)
+    ctx["walls"] = [
+        {
+            "id": "wall-1",
+            "floor": 1,
+            "start": (0.0, 0.0),
+            "end": (5000.0, 0.0),
+            "thickness": 250,
+            "space_ids": ["sp-001"],
+            "kind": "EXTERIOR",
+        }
+    ]
+    engine = FloorPlanEngine()
+
+    command = await engine.parse_command("문 만들어줘", ctx, selected_wall_id="wall-1")
+
+    assert command.action == "create_door"
+    assert command.target_wall_id == "wall-1"
+    assert command.target_floor == 1
+    assert command.element_width_mm == 900
+    assert command.element_height_mm == 2100
+
+
+def test_selected_wall_id_from_planner_options_accepts_host_wall_global_id():
+    assert (
+        _selected_wall_id_from_planner_options({"host_wall_global_id": "wall-1"})
+        == "wall-1"
+    )
+
+
+class _FailingCompletions:
+    async def create(self, *_args, **_kwargs):
+        raise RuntimeError("LLM disabled in test")
+
+
+class _FailingChat:
+    def __init__(self):
+        self.completions = _FailingCompletions()
+
+
+class _FailingClient:
+    def __init__(self):
+        self.chat = _FailingChat()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_text", ["이 벽 삭제해줘", "벽 크기 늘려줘"])
+async def test_engine_parse_command_ignores_selected_wall_id_for_non_door_intent(
+    ifc_ctx,
+    user_text,
+):
+    ctx = dict(ifc_ctx)
+    ctx["walls"] = [
+        {
+            "id": "wall-1",
+            "floor": 1,
+            "start": (0.0, 0.0),
+            "end": (5000.0, 0.0),
+            "thickness": 250,
+            "space_ids": ["sp-001"],
+            "kind": "EXTERIOR",
+        }
+    ]
+    engine = FloorPlanEngine()
+    engine._client = _FailingClient()
+
+    command = await engine.parse_command(user_text, ctx, selected_wall_id="wall-1")
+
+    assert command.action != "create_door"
+    assert command.target_wall_id is None
 
 
 def test_to_ifc_commands_create_door_requires_usable_wall_segment():
