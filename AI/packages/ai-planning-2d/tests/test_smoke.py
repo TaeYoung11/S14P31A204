@@ -2131,6 +2131,52 @@ async def test_engine_parse_command_creates_door_from_planner_selected_wall_id(i
     assert command.element_height_mm == 2100
 
 
+@pytest.mark.asyncio
+async def test_engine_parse_command_returns_clarification_for_stale_selected_wall_id(
+    ifc_ctx,
+):
+    ctx = dict(ifc_ctx)
+    ctx["walls"] = [
+        {
+            "id": "wall-1",
+            "floor": 1,
+            "start": (0.0, 0.0),
+            "end": (5000.0, 0.0),
+            "thickness": 250,
+            "space_ids": ["sp-001"],
+            "kind": "EXTERIOR",
+        }
+    ]
+    engine = FloorPlanEngine()
+
+    command = await engine.parse_command("문 만들어줘", ctx, selected_wall_id="stale-wall")
+
+    assert command.action == "create_door"
+    assert command.target_wall_id is None
+    assert command.needs_clarification is True
+    assert command.confidence == 0.3
+    assert (
+        command.clarification_question
+        == "선택한 벽 정보를 IFC에서 찾을 수 없습니다. 어느 벽에 문을 만들까요?"
+    )
+
+
+@pytest.mark.asyncio
+async def test_engine_parse_command_proceeds_without_ifc_context_for_selected_wall_id():
+    engine = FloorPlanEngine()
+
+    command = await engine.parse_command(
+        "문 만들어줘",
+        ifc_context=None,
+        selected_wall_id="wall-1",
+    )
+
+    assert command.action == "create_door"
+    assert command.target_wall_id == "wall-1"
+    assert command.target_floor is None
+    assert command.needs_clarification is False
+
+
 def test_selected_wall_id_from_planner_options_accepts_host_wall_global_id():
     assert (
         _selected_wall_id_from_planner_options({"host_wall_global_id": "wall-1"})

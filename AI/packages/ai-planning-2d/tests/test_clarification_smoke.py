@@ -111,7 +111,7 @@ def _command(
             "schemaVersion": "v1",
             "messageType": "COMMAND",
             "commandType": "TWO_D_LLM_GENERATE",
-            "routingKey": "command.2d-llm.generate",
+            "routingKey": "command.two-d-llm.generate",
             "jobId": "job-2d-worker-001",
             "jobStepId": "job-step-2d-worker-001",
             "stepNo": 1,

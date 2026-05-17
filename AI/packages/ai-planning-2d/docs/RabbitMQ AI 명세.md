@@ -1,4 +1,4 @@
-# RabbitMQ AI 명세
+﻿# RabbitMQ AI 명세
 
 상태: AI
 
@@ -172,11 +172,11 @@ sequenceDiagram
 
 | Worker | Event Routing Key |
 | --- | --- |
-| 2D LLM Worker | `event.2d-llm.started` |
-| 2D LLM Worker | `event.2d-llm.progress` |
-| 2D LLM Worker | `event.2d-llm.completed` |
-| 2D LLM Worker | `event.2d-llm.failed` |
-| 2D LLM Worker | `event.2d-llm.clarification_required` |
+| 2D LLM Worker | `event.two-d-llm.started` |
+| 2D LLM Worker | `event.two-d-llm.progress` |
+| 2D LLM Worker | `event.two-d-llm.completed` |
+| 2D LLM Worker | `event.two-d-llm.failed` |
+| 2D LLM Worker | `event.two-d-llm.clarification_required` |
 | 3D LLM Worker | `event.3d-llm.started` |
 | 3D LLM Worker | `event.3d-llm.progress` |
 | 3D LLM Worker | `event.3d-llm.completed` |
@@ -291,7 +291,7 @@ projects/{projectId}/renders/{artifactId}.png
 
 | 항목 | 값 |
 | --- | --- |
-| Routing Key | `event.2d-llm.completed` |
+| Routing Key | `event.two-d-llm.completed` |
 | Event Type | `TWO_D_LLM_COMPLETED` |
 | 필수 output | `editPlanStorageUrl` 또는 `planStorageUrl` |
 
@@ -299,7 +299,7 @@ projects/{projectId}/renders/{artifactId}.png
 
 | 항목 | 값 |
 | --- | --- |
-| Routing Key | `event.2d-llm.clarification_required` |
+| Routing Key | `event.two-d-llm.clarification_required` |
 | Event Type | `TWO_D_LLM_CLARIFICATION_REQUIRED` |
 | 사용 조건 | 사용자 의도/공간 방향/수정 범위가 모호한 경우 |
 
@@ -307,7 +307,7 @@ projects/{projectId}/renders/{artifactId}.png
 
 | 항목 | 값 |
 | --- | --- |
-| Routing Key | `event.2d-llm.failed` |
+| Routing Key | `event.two-d-llm.failed` |
 | Event Type | `TWO_D_LLM_FAILED` |
 
 ---
@@ -666,7 +666,7 @@ edit plan이 부족하거나 잘못되었으면 failed event를 발행한다.
   "schemaVersion": 1,
   "messageType": "EVENT",
   "eventType": "TWO_D_LLM_COMPLETED",
-  "routingKey": "event.2d-llm.completed",
+  "routingKey": "event.two-d-llm.completed",
 
   "jobId": "job-123",
   "jobStepId": "step-001",
@@ -706,7 +706,7 @@ edit plan이 부족하거나 잘못되었으면 failed event를 발행한다.
   "schemaVersion": 1,
   "messageType": "EVENT",
   "eventType": "TWO_D_LLM_CLARIFICATION_REQUIRED",
-  "routingKey": "event.2d-llm.clarification_required",
+  "routingKey": "event.two-d-llm.clarification_required",
 
   "jobId": "job-123",
   "jobStepId": "step-001",

@@ -921,11 +921,23 @@ class FloorPlanEngine:
             if has_door_keyword and has_door_action:
                 target_floor: int | None = None
                 if ifc_context is not None:
+                    target_wall = None
                     for wall in ifc_context.get("walls", []):
                         if wall.get("id") == selected_wall_id:
-                            floor = wall.get("floor")
-                            target_floor = floor if isinstance(floor, int) else None
+                            target_wall = wall
                             break
+                    if target_wall is None:
+                        return FloorNLPCommand(
+                            action="create_door",
+                            confidence=0.3,
+                            needs_clarification=True,
+                            clarification_question=(
+                                "선택한 벽 정보를 IFC에서 찾을 수 없습니다. "
+                                "어느 벽에 문을 만들까요?"
+                            ),
+                        )
+                    floor = target_wall.get("floor")
+                    target_floor = floor if isinstance(floor, int) else None
                 return FloorNLPCommand(
                     action="create_door",
                     target_wall_id=selected_wall_id,

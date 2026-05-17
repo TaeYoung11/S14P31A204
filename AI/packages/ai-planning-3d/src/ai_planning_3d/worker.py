@@ -155,10 +155,13 @@ class PlanningWorker(BaseWorker):
         result: dict[str, Any],
         session_id: str,
         output_url: str | None,
-    ) -> str | None:
+    ) -> str:
         """FE가 소비하는 ClarificationArtifact 형식 JSON을 별도 S3 객체로 저장한다."""
         if not output_url:
-            return None
+            raise RetryableWorkerError(
+                code="CLARIFICATION_ARTIFACT_UPLOAD_FAILED",
+                message="clarification artifact 저장 위치(output_url)가 없습니다.",
+            )
         try:
             artifact = _build_clarification_artifact(result, session_id)
             loc = parse_s3_url(output_url)
@@ -173,12 +176,10 @@ class PlanningWorker(BaseWorker):
                 ),
             )
         except Exception as exc:
-            _logger.warning(
-                "clarification_artifact_upload_failed",
-                session_id=session_id,
-                error=str(exc),
-            )
-            return None
+            raise RetryableWorkerError(
+                code="CLARIFICATION_ARTIFACT_UPLOAD_FAILED",
+                message=f"clarification artifact 업로드 실패: {exc}",
+            ) from exc
 
 
 # ── planner_3d_result.v1.schema.json 변환 헬퍼 ───────────────────────────────
@@ -198,6 +199,9 @@ async def _execute_preview_for_instruction(
     if len(command_texts) <= 1:
         if not has_host_wall_override:
             return await pipeline.execute_preview(user_instruction)
+        host_wall_global_id = str(planner_options.get("host_wall_global_id", "")).strip()
+        if _is_stale_host_wall(pipeline, host_wall_global_id):
+            return _stale_host_wall_result(host_wall_global_id)
         command = await pipeline.engine.parse_command(
             user_instruction,
             ifc_context=pipeline._ifc_context_text,
@@ -231,6 +235,10 @@ async def _execute_preview_for_instruction(
             command_text,
             ifc_context=pipeline._ifc_context_text,
         )
+        if index == 1:
+            host_wall_global_id = str(planner_options.get("host_wall_global_id", "")).strip()
+            if _is_stale_host_wall(pipeline, host_wall_global_id):
+                return _stale_host_wall_result(host_wall_global_id)
         preview = await pipeline.execute_command_preview(
             _apply_planner_options(command, planner_options if index == 1 else None)
         )
@@ -260,6 +268,37 @@ async def _execute_preview_for_instruction(
         ],
         "split_results": previews,
     }
+
+
+def _is_stale_host_wall(pipeline: LLM3DPipeline, global_id: str) -> bool:
+    model = pipeline.query_engine.get_model()
+    if model is None:
+        return False
+    try:
+        entity = model.by_guid(global_id)
+    except Exception:
+        return True
+    return entity is None or not entity.is_a("IfcWall")
+
+
+def _stale_host_wall_result(global_id: str) -> dict[str, Any]:
+    question = "선택한 벽이 현재 모델에서 유효하지 않습니다. 벽을 다시 선택해 주세요."
+    return {
+        "status": "needs_clarification",
+        "summary": question,
+        "clarification_questions": [
+            {
+                "question_ko": question,
+                "options": [],
+                "context": {
+                    "reason": "invalid_host_wall_selection",
+                    "invalid_global_id": global_id,
+                    "apply_field": "host_wall_global_id",
+                },
+            }
+        ],
+    }
+
 
 def _resolve_effective_instruction(
     user_instruction: str,
