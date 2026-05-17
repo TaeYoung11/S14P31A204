@@ -895,15 +895,15 @@ export function useEditorPage() {
     }, 3000)
   }, [])
   const resolveServerHistoryBaseIndex = useCallback((snapshot: WorkspaceSnapshot): number =>
-    snapshot.phaseStatus === 'BUBBLE_DRAFT'
+    snapshot.phaseStatus === 'BUBBLE_DRAFT' && mode === 'bubble'
       ? bubbleHistoryBaseIndexRef.current
       : floorPlanHistoryBaseIndexRef.current
-    , [])
+    , [mode])
   const resolveServerHistoryDomain = useCallback((snapshot: WorkspaceSnapshot): AwaitingServerSyncRecord['historyDomain'] =>
-    snapshot.phaseStatus === 'BUBBLE_DRAFT'
+    snapshot.phaseStatus === 'BUBBLE_DRAFT' && mode === 'bubble'
       ? 'bubble'
       : 'floorPlan'
-    , [])
+    , [mode])
   const applyWorkspaceHistorySiteInfo = useCallback((siteInfo: WorkspaceHistorySnapshotResponse['siteInfo']) => {
     const polygonRing = extractOuterRingFromCoordinates(siteInfo?.polygon?.coordinates)
     const areaM2 = resolveWorkspaceSiteAreaM2(siteInfo as Record<string, unknown> | null | undefined)
@@ -3784,6 +3784,42 @@ export function useEditorPage() {
   }
 
   const handleSelectIfcElement = useCallback((element: IfcElementInfo | null) => {
+    const previous = selectedIfcElement
+    const selectionPatch = buildIfcSelectionTransformPatch({
+      mode,
+      previous,
+      next: element,
+    })
+    if (selectionPatch && previous) {
+      const commandPatch: Record<string, unknown> = { ...selectionPatch.patch }
+      const nextX = typeof selectionPatch.patch.positionX === 'number' ? selectionPatch.patch.positionX : null
+      const nextY = typeof selectionPatch.patch.positionY === 'number' ? selectionPatch.patch.positionY : null
+      const nextZ = typeof selectionPatch.patch.positionZ === 'number' ? selectionPatch.patch.positionZ : null
+      if (
+        nextX !== null &&
+        nextY !== null &&
+        nextZ !== null &&
+        typeof previous.positionX === 'number' &&
+        typeof previous.positionY === 'number' &&
+        typeof previous.positionZ === 'number'
+      ) {
+        commandPatch.translationMm = {
+          x: nextX - previous.positionX,
+          y: nextY - previous.positionY,
+          z: nextZ - previous.positionZ,
+        }
+      }
+      workspaceCommandPublisher.updateIfcElement(previous, commandPatch)
+      setIfcElementChangesById((prev) =>
+        mergeIfcElementChangeByExpressId(
+          prev,
+          selectionPatch.expressId,
+          selectionPatch.patch,
+          { globalId: previous.globalId, ifcClass: previous.ifcClass },
+        ))
+      markLocalFloorPlanSnapshotChanged()
+    }
+
     setSelectedIfcElement((previous) => {
       if (
         element?.category?.toLowerCase() === 'roof' ||
@@ -3801,25 +3837,19 @@ export function useEditorPage() {
             : null,
         })
       }
-      const selectionPatch = buildIfcSelectionTransformPatch({
-        mode,
-        previous,
-        next: element,
-      })
-      if (selectionPatch) {
-        setIfcElementChangesById((prev) =>
-          mergeIfcElementChangeByExpressId(
-            prev,
-            selectionPatch.expressId,
-            selectionPatch.patch,
-          ))
-      }
       return element
     })
     if (!element) return
     clearSelection()
     clearConnectionAndTwoDSelection()
-  }, [clearSelection, clearConnectionAndTwoDSelection, mode])
+  }, [
+    clearSelection,
+    clearConnectionAndTwoDSelection,
+    markLocalFloorPlanSnapshotChanged,
+    mode,
+    selectedIfcElement,
+    workspaceCommandPublisher,
+  ])
 
   const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId'>) => {
     if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return
@@ -3852,13 +3882,21 @@ export function useEditorPage() {
         patch,
         { globalId: element.globalId, ifcClass: element.ifcClass },
       ))
-  }, [workspaceCommandPublisher])
+    markLocalFloorPlanSnapshotChanged()
+  }, [markLocalFloorPlanSnapshotChanged, workspaceCommandPublisher])
 
   const handleDeleteIfcElement = useCallback((element: IfcElementInfo) => {
     workspaceCommandPublisher.deleteIfcElement(element)
     recordIfcElementChange(element, { deleted: true })
     setSelectedIfcElement((prev) => (prev?.id === element.id ? null : prev))
   }, [recordIfcElementChange, workspaceCommandPublisher])
+
+  const handleCommitIfcElementTransform = useCallback((
+    element: IfcElementInfo,
+    patch: Omit<IfcElementChange, 'expressId'>,
+  ) => {
+    recordIfcElementChange(element, patch)
+  }, [recordIfcElementChange])
 
   const handleTwoDMarqueeSelect = useCallback(
     (
@@ -5184,6 +5222,7 @@ export function useEditorPage() {
     handleBubbleSelect,
     handleSelectIfcElement,
     handleDeleteIfcElement,
+    handleCommitIfcElementTransform,
     handleBubbleDrag: handleBubbleDragInBubble,
     handleBubbleDragStart: handleBubbleDragStartInBubble,
     handleBubbleDragEnd: handleBubbleDragEndInBubble,

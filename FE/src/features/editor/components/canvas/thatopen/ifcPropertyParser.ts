@@ -1,6 +1,6 @@
 import type { Object3D } from 'three'
-import type { IfcElementInfo } from '../../../types'
-import { decodeIfcStepString } from '../../../utils/ifcStepString'
+import type { IfcElementInfo } from '@/features/editor/types'
+import { decodeIfcStepString } from '@/features/editor/utils/ifcStepString'
 import {
   DEFAULT_IFC_COLOR_BY_CATEGORY,
   getMaterialDefaultColor,
@@ -243,6 +243,64 @@ const parseIfcPropertyValue = (line: string) => {
   return undefined
 }
 
+const PRODUCT_TYPE_BY_STEP_ENTITY: Record<string, string> = {
+  WALL: 'IfcWall',
+  WALLSTANDARDCASE: 'IfcWallStandardCase',
+  SLAB: 'IfcSlab',
+  ROOF: 'IfcRoof',
+  DOOR: 'IfcDoor',
+  WINDOW: 'IfcWindow',
+  STAIR: 'IfcStair',
+  STAIRFLIGHT: 'IfcStairFlight',
+  COLUMN: 'IfcColumn',
+  BEAM: 'IfcBeam',
+}
+
+const splitIfcStepArguments = (text: string): string[] => {
+  const args: string[] = []
+  let current = ''
+  let depth = 0
+  let inString = false
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    current += char
+
+    if (char === "'") {
+      if (text[index + 1] === "'") {
+        current += text[index + 1]
+        index += 1
+        continue
+      }
+      inString = !inString
+      continue
+    }
+
+    if (inString) continue
+    if (char === '(') depth += 1
+    if (char === ')') depth = Math.max(0, depth - 1)
+    if (char === ',' && depth === 0) {
+      args.push(current.slice(0, -1).trim())
+      current = ''
+    }
+  }
+
+  if (current.trim()) args.push(current.trim())
+  return args
+}
+
+const parseIfcStepStringArgument = (value?: string): string | undefined => {
+  if (!value || value === '$' || value === '*') return undefined
+  const match = value.match(/^'((?:''|[^'])*)'$/)
+  if (!match) return undefined
+  return decodeIfcStepString(match[1].replace(/''/g, "'"))
+}
+
+const parseIfcReferenceId = (value?: string): number | undefined => {
+  const match = value?.match(/^#(\d+)$/)
+  return match ? Number(match[1]) : undefined
+}
+
 export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMaps => {
   const propertyValues: Record<string, string | number> = {}
   const propertySetToValues: Record<string, IfcElementMetrics> = {}
@@ -251,20 +309,28 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
   const metricsByElementId: Record<number, ParsedIfcElementInfo> = {}
   const metricsByElementName: Record<string, ParsedIfcElementInfo> = {}
 
-  Array.from(ifcText.matchAll(/#(\d+)=IFC(WALL|SLAB|ROOF|DOOR|WINDOW|STAIR|COLUMN|BEAM)\('([^']+)',\$,'([^']+)',[^;]+,#(\d+),\$/gi)).forEach((match) => {
+  Array.from(ifcText.matchAll(/#(\d+)=IFC(WALLSTANDARDCASE|WALL|SLAB|ROOF|DOOR|WINDOW|STAIRFLIGHT|STAIR|COLUMN|BEAM)\(([^;]*)\);/gi)).forEach((match) => {
     const productId = Number(match[1])
-    const ifcClass = `Ifc${match[2][0]}${match[2].slice(1).toLowerCase()}`
+    const ifcClass = PRODUCT_TYPE_BY_STEP_ENTITY[match[2].toUpperCase()]
+    if (!ifcClass) return
+    const args = splitIfcStepArguments(match[3])
+    const globalId = parseIfcStepStringArgument(args[0])
+    if (!globalId) return
+    const decodedName = parseIfcStepStringArgument(args[2])
     const category = IFC_CATEGORY_LABELS.find(([candidate]) => candidate.toLowerCase() === ifcClass.toLowerCase())?.[1]
       ?? ifcClass.replace(/^Ifc/i, '')
     productById[productId] = {
       expressId: productId,
-      globalId: decodeIfcStepString(match[3]),
-      name: decodeIfcStepString(match[4]),
+      globalId,
+      name: decodedName ?? category,
       ifcClass,
       category,
     }
     aliasToProductId[productId] = productId
-    aliasToProductId[Number(match[5])] = productId
+    const objectPlacementId = parseIfcReferenceId(args[5])
+    const representationId = parseIfcReferenceId(args[6])
+    if (objectPlacementId !== undefined) aliasToProductId[objectPlacementId] = productId
+    if (representationId !== undefined) aliasToProductId[representationId] = productId
   })
 
   Array.from(ifcText.matchAll(/#(\d+)=IFCPRODUCTDEFINITIONSHAPE\([^;]+,\(#(\d+),#(\d+)\)\);/gi)).forEach((match) => {
@@ -280,6 +346,13 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
     const productId = aliasToProductId[shapeRepresentationId]
     if (!productId) return
     aliasToProductId[Number(match[2])] = productId
+  })
+
+  Object.entries(aliasToProductId).forEach(([aliasId, productId]) => {
+    const product = productById[productId]
+    if (!product) return
+    metricsByElementId[Number(aliasId)] = product
+    metricsByElementName[product.name] = product
   })
 
   Array.from(ifcText.matchAll(/#(\d+)=IFCPROPERTYSINGLEVALUE\('([^']+)',\$,(.+?),\$\);/gi)).forEach((match) => {

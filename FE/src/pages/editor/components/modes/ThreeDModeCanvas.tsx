@@ -1,7 +1,7 @@
 import { lazy, useEffect } from 'react'
 import { useFreshIfcUrl } from '@/features/editor/hooks/useFreshIfcUrl'
-import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
-import type { ThreeDCameraViewPresetCommand, ThreeDCoordinates } from '../canvas-content/buildCanvasSectionProps'
+import type { EditorCanvasRenderProps } from '@/pages/editor/types/editorCanvasContentProps'
+import type { ThreeDCameraViewPresetCommand, ThreeDCoordinates } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 
 /** ThreeDCanvas는 ThatOpen 기반 Three.js 렌더러를 포함해 무거우므로 lazy 로드한다. */
 const ThreeDCanvas = lazy(() =>
@@ -76,6 +76,7 @@ export default function ThreeDModeCanvas({
       threeDDeleteRequestToken={editorProps.threeDDeleteRequestToken}
       onIfcElementSelect={editorProps.handleSelectIfcElement}
       onIfcElementDelete={editorProps.handleDeleteIfcElement}
+      onIfcElementTransformCommit={editorProps.handleCommitIfcElementTransform}
       localFloorData={editorProps.localFloorData}
       onThreeDCoordinatesChange={onThreeDCoordinatesChange}
       cameraViewPresetCommand={cameraViewPresetCommand}

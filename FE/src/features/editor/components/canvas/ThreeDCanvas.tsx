@@ -9,14 +9,14 @@
  *  2. 그 외 → ThatOpenIfcCanvas (ifcUrl 없을 시 mock IFC로 폴백)
  */
 import { useRef } from 'react'
-import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '../../types'
-import { useCtrlWheelZoom } from '../../hooks/useCtrlWheelZoom'
-import { useThreeDLibraryPresets } from '../../hooks/useThreeDLibraryPresets'
+import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '@/features/editor/types'
+import { useCtrlWheelZoom } from '@/features/editor/hooks/useCtrlWheelZoom'
+import { useThreeDLibraryPresets } from '@/features/editor/hooks/useThreeDLibraryPresets'
 import ThreeDCanvasCollaborationOverlay from './ThreeDCanvasCollaborationOverlay'
 import ThreeDCanvasGridOverlay from './ThreeDCanvasGridOverlay'
 import ThreeDCanvasScene from './ThreeDCanvasScene'
 import ThreeDLibraryPanel from './ThreeDLibraryPanel'
-import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
+import type { FloorPlan3DData } from '@/features/editor/utils/floorPlanTo3D'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import { useThreeDLibraryDrop } from './useThreeDLibraryDrop'
 
@@ -55,6 +55,10 @@ interface ThreeDCanvasProps {
   threeDDeleteRequestToken?: number
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
+  onIfcElementTransformCommit?: (
+    element: IfcElementInfo,
+    patch: Omit<IfcElementChange, 'expressId'>,
+  ) => void
   /** 2D 평면도에서 직접 생성한 로컬 3D 데이터. 있으면 IFC 대신 이를 렌더링한다. */
   localFloorData?: FloorPlan3DData | null
   onThreeDCoordinatesChange?: (coords: ThreeDCoordinates) => void
@@ -126,6 +130,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         deleteRequestToken={props.threeDDeleteRequestToken ?? 0}
         onIfcElementSelect={props.onIfcElementSelect}
         onIfcElementDelete={props.onIfcElementDelete}
+        onIfcElementTransformCommit={props.onIfcElementTransformCommit}
         onLibraryElementChange={changeLibraryElement}
         onLibraryElementDelete={deleteLibraryElement}
         onThreeDCoordinatesChange={props.onThreeDCoordinatesChange}

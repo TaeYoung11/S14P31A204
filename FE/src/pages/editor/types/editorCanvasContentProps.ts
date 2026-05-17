@@ -1,4 +1,4 @@
-import type { EditorPageViewModel } from './editorPageViewModel'
+import type { EditorPageViewModel } from '@/pages/editor/types/editorPageViewModel'
 
 /** 공통 캔버스 렌더링 컨텍스트 */
 type CanvasContextProps = Pick<
@@ -73,6 +73,7 @@ type FloorPlanCanvasProps = Pick<
   | 'handleBubbleSelect'
   | 'handleSelectIfcElement'
   | 'handleDeleteIfcElement'
+  | 'handleCommitIfcElementTransform'
   | 'selectedIfcElement'
   | 'threeDDeleteRequestToken'
   | 'ifcElementChanges'

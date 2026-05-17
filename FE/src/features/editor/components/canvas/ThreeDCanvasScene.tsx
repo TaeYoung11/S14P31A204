@@ -1,5 +1,5 @@
-import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '../../types'
-import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
+import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '@/features/editor/types'
+import type { FloorPlan3DData } from '@/features/editor/utils/floorPlanTo3D'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import ThatOpenIfcCanvas from './ThatOpenIfcCanvas'
@@ -28,6 +28,10 @@ interface ThreeDCanvasSceneProps {
   deleteRequestToken: number
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
+  onIfcElementTransformCommit?: (
+    element: IfcElementInfo,
+    patch: Omit<IfcElementChange, 'expressId'>,
+  ) => void
   onLibraryElementChange: (id: string, patch: Partial<ThreeDLibraryPreset>) => void
   onLibraryElementDelete: (id: string) => void
   onThreeDCoordinatesChange?: (coords: { x: number; y: number; z: number }) => void
@@ -65,6 +69,7 @@ export default function ThreeDCanvasScene({
   deleteRequestToken,
   onIfcElementSelect,
   onIfcElementDelete,
+  onIfcElementTransformCommit,
   onLibraryElementChange,
   onLibraryElementDelete,
   onThreeDCoordinatesChange,
@@ -106,6 +111,7 @@ export default function ThreeDCanvasScene({
         onLibraryElementChange={onLibraryElementChange}
         onLibraryElementDelete={onLibraryElementDelete}
         onIfcElementSelect={onIfcElementSelect}
+        onIfcElementTransformCommit={onIfcElementTransformCommit}
         transformMode={transformMode}
         selectedTool={selectedTool}
         libraryDropRequest={libraryDropRequest}
@@ -145,6 +151,7 @@ export default function ThreeDCanvasScene({
       deleteRequestToken={deleteRequestToken}
       onIfcElementSelect={onIfcElementSelect}
       onIfcElementDelete={onIfcElementDelete}
+      onIfcElementTransformCommit={onIfcElementTransformCommit}
       onLibraryElementChange={onLibraryElementChange}
       onLibraryElementDelete={onLibraryElementDelete}
       onThreeDCoordinatesChange={onThreeDCoordinatesChange}

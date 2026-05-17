@@ -11,9 +11,9 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Object3D } from 'three'
-import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '../../types'
-import { FLOOR_MM_PER_PX } from '../../constants'
-import { patchIfcTextForMaterialDefaults } from '../../services/ifcChange.service'
+import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '@/features/editor/types'
+import { FLOOR_MM_PER_PX } from '@/features/editor/constants'
+import { patchIfcTextForMaterialDefaults } from '@/features/editor/services/ifcChange.service'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import { isSelectableThreeDComponent } from './threeDSelection.utils'
 import {
@@ -72,7 +72,7 @@ import ThreeDMarqueeOverlay from './ThreeDMarqueeOverlay'
 import { resolveLibraryDropPositionPatch } from './threeDLibraryDrop.utils'
 import { applyTransformSnap, type TransformSnapControl } from './threeDTransformSnap.utils'
 import { applyScaleSnapByMm } from './threeDScaleSnap.utils'
-import { normalizeSnapIntervalMm, toRotationSnapRadians } from '../../utils/threeDSnap.utils'
+import { normalizeSnapIntervalMm, toRotationSnapRadians } from '@/features/editor/utils/threeDSnap.utils'
 import {
   appendUniqueSelectionByKey,
   isPointerInsideBounds,
@@ -111,6 +111,10 @@ interface ThatOpenIfcCanvasProps {
   selectedIfcElement?: IfcElementInfo | null
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
+  onIfcElementTransformCommit?: (
+    element: IfcElementInfo,
+    patch: Omit<IfcElementChange, 'expressId'>,
+  ) => void
   onLibraryElementChange?: (id: string, patch: Partial<ThreeDLibraryPreset>) => void
   onLibraryElementDelete?: (id: string) => void
   onThreeDCoordinatesChange?: (coords: { x: number; y: number; z: number }) => void
@@ -166,6 +170,7 @@ export default function ThatOpenIfcCanvas({
   selectedIfcElement,
   onIfcElementSelect,
   onIfcElementDelete,
+  onIfcElementTransformCommit,
   onLibraryElementChange,
   onLibraryElementDelete,
   onThreeDCoordinatesChange,
@@ -190,6 +195,7 @@ export default function ThatOpenIfcCanvas({
   const rotationLockedRef = useRef(isRotationLocked)
   const onIfcElementSelectRef = useRef(onIfcElementSelect)
   const onIfcElementDeleteRef = useRef(onIfcElementDelete)
+  const onIfcElementTransformCommitRef = useRef(onIfcElementTransformCommit)
   const onLibraryElementChangeRef = useRef(onLibraryElementChange)
   const onLibraryElementDeleteRef = useRef(onLibraryElementDelete)
   const onThreeDCoordinatesChangeRef = useRef(onThreeDCoordinatesChange)
@@ -408,6 +414,10 @@ export default function ThatOpenIfcCanvas({
   useEffect(() => {
     onIfcElementDeleteRef.current = onIfcElementDelete
   }, [onIfcElementDelete])
+
+  useEffect(() => {
+    onIfcElementTransformCommitRef.current = onIfcElementTransformCommit
+  }, [onIfcElementTransformCommit])
 
   useEffect(() => {
     onLibraryElementChangeRef.current = onLibraryElementChange
@@ -769,6 +779,11 @@ export default function ThatOpenIfcCanvas({
                   PositionZ: Number(worldPosition.z.toFixed(3)),
                 },
               }
+              onIfcElementTransformCommitRef.current?.(element, {
+                positionX: nextElement.positionX,
+                positionY: nextElement.positionY,
+                positionZ: nextElement.positionZ,
+              })
               editable.userData.ifcEditTarget = { ...editTarget, element: nextElement }
             })
             multiDragSnapshotRef.current = null
@@ -848,6 +863,17 @@ export default function ThatOpenIfcCanvas({
                   RotationZ: Number((((worldEuler.z * 180) / Math.PI)).toFixed(2)),
                 },
               }
+              onIfcElementTransformCommitRef.current?.(element, {
+                lengthMm: nextElement.lengthMm,
+                heightMm: nextElement.heightMm,
+                thicknessMm: nextElement.thicknessMm,
+                positionX: nextElement.positionX,
+                positionY: nextElement.positionY,
+                positionZ: nextElement.positionZ,
+                rotationX: nextElement.rotationX,
+                rotationY: nextElement.rotationY,
+                rotationZ: nextElement.rotationZ,
+              })
               editable.userData.ifcEditTarget = { ...editTarget, element: nextElement }
               onIfcElementSelectRef.current?.(nextElement)
             }

@@ -169,7 +169,8 @@ export const workspaceRealtimeService = {
     sceneType,
     workspaceCommand,
   }: PublishWorkspaceSnapshotInput): Promise<void> => {
-    const shouldPublishBubbleSnapshot = snapshot.phaseStatus === 'BUBBLE_DRAFT'
+    const shouldPublishFloorPlanSnapshot = Boolean(sceneType || workspaceCommand)
+    const shouldPublishBubbleSnapshot = snapshot.phaseStatus === 'BUBBLE_DRAFT' && !shouldPublishFloorPlanSnapshot
 
     if (shouldPublishBubbleSnapshot) {
       return publishJson(

@@ -1,5 +1,5 @@
-import type { EditorPageViewModel } from '../../types/editorPageViewModel'
-import type { CanvasPropsSubset } from './canvasPropsSubset'
+import type { EditorPageViewModel } from '@/pages/editor/types/editorPageViewModel'
+import type { CanvasPropsSubset } from '@/pages/editor/utils/canvas-props/canvasPropsSubset'
 
 /**
  * 2D/3D 공통 평면 데이터와 자동 생성 상태를 매핑한다.
@@ -18,6 +18,7 @@ export function buildFloorPlanCanvasProps(
   | 'handleBubbleSelect'
   | 'handleSelectIfcElement'
   | 'handleDeleteIfcElement'
+  | 'handleCommitIfcElementTransform'
   | 'selectedIfcElement'
   | 'threeDDeleteRequestToken'
   | 'ifcElementChanges'
@@ -38,6 +39,7 @@ export function buildFloorPlanCanvasProps(
     handleBubbleSelect: vm.handleBubbleSelect,
     handleSelectIfcElement: vm.handleSelectIfcElement,
     handleDeleteIfcElement: vm.handleDeleteIfcElement,
+    handleCommitIfcElementTransform: vm.handleCommitIfcElementTransform,
     selectedIfcElement: vm.selectedIfcElement,
     threeDDeleteRequestToken: vm.threeDDeleteRequestToken,
     ifcElementChanges: vm.ifcElementChanges,
