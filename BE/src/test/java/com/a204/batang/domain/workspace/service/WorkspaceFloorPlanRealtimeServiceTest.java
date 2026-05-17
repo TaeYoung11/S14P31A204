@@ -90,6 +90,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 workspaceBubbleSnapshotRedisRepository,
                 floorPlanS3DeleteQueueService,
                 directIfcEditCommandService,
+                new FloorPlanIfcEditEngineRequestMapper(objectMapper),
                 s3ObjectPresigner,
                 simpMessagingTemplate,
                 objectMapper
@@ -165,6 +166,14 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         assertThat(directRequest.sourceSceneType()).isEqualTo("IFC_MODEL");
         assertThat(directRequest.engineRequest()).isNotNull();
         assertThat(directRequest.engineRequest().op()).isEqualTo("create");
+        assertThat(directRequest.engineRequest().entity()).isEqualTo("ifcBatch");
+        JsonNode engineRequest = directRequest.engineRequest().data();
+        assertThat(engineRequest.get("schema_version").asText()).isEqualTo("v1");
+        assertThat(engineRequest.get("operations")).hasSize(1);
+        assertThat(engineRequest.get("operations").get(0).get("type").asText()).isEqualTo("create_element");
+        JsonNode params = engineRequest.get("operations").get(0).get("parameters");
+        assertThat(params.get("storey_id").asText()).isEqualTo("storey-1");
+        assertThat(params.has("storey_global_id")).isFalse();
 
         ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
         verify(simpMessagingTemplate).convertAndSend(
@@ -269,6 +278,60 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
 
         verifyNoInteractions(simpMessagingTemplate);
+    }
+
+    @Test
+    void relayFloorPlanDraft_doesNotCreateIfcEditJobWhenMappedOperationsAreEmpty() throws Exception {
+        FloorPlanRealtimeUpdateRequest request = new FloorPlanRealtimeUpdateRequest(
+                List.of(new BubbleUpdateRequest.BubbleData(
+                        "bubble-1",
+                        10.0,
+                        20.0,
+                        30.0,
+                        40.0,
+                        3000.0,
+                        4000.0,
+                        "living-room",
+                        "LIVING",
+                        84.5,
+                        "#ffffff",
+                        null
+                )),
+                List.of(),
+                0,
+                null,
+                FloorPlanSceneType.TWO_D,
+                new WorkspaceCommand(
+                        "update",
+                        "room",
+                        "bubble-1",
+                        null,
+                        objectMapper.createObjectNode().put("widthMm", 3200.0),
+                        System.currentTimeMillis()
+                ),
+                objectMapper.readTree("""
+                        {
+                          "rooms": [{"bubbleId": "bubble-1", "label": "living-room"}],
+                          "walls": [],
+                          "openings": []
+                        }
+                        """),
+                null
+        );
+
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+
+        workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
+
+        verifyNoInteractions(directIfcEditCommandService);
+
+        ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
+        verify(simpMessagingTemplate).convertAndSend(
+                eq("/topic/project/%s/floor-plan/sync".formatted(projectId)),
+                responseCaptor.capture()
+        );
+        assertThat(responseCaptor.getValue().action()).isEqualTo("FLOOR_PLAN_UPDATED");
     }
 
     @Test

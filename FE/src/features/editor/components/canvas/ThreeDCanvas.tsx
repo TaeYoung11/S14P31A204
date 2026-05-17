@@ -9,7 +9,7 @@
  *  2. 그 외 → ThatOpenIfcCanvas (ifcUrl 없을 시 mock IFC로 폴백)
  */
 import { useRef } from 'react'
-import type { FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '../../types'
+import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '../../types'
 import { useCtrlWheelZoom } from '../../hooks/useCtrlWheelZoom'
 import { useThreeDLibraryPresets } from '../../hooks/useThreeDLibraryPresets'
 import ThreeDCanvasCollaborationOverlay from './ThreeDCanvasCollaborationOverlay'
@@ -17,7 +17,6 @@ import ThreeDCanvasGridOverlay from './ThreeDCanvasGridOverlay'
 import ThreeDCanvasScene from './ThreeDCanvasScene'
 import ThreeDLibraryPanel from './ThreeDLibraryPanel'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
-import { DEFAULT_MOCK_IFC_URL } from './threeDCanvas.utils'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import { useThreeDLibraryDrop } from './useThreeDLibraryDrop'
 
@@ -30,6 +29,13 @@ interface ThreeDCanvasProps {
   ifcUrl?: string | null
   sitePoints?: number[]
   isCollaborationMode?: boolean
+  commentPins?: FloorCommentPin[]
+  selectedPinId?: string | null
+  currentUserId?: string | null
+  onPinClick?: (id: string) => void
+  onPinCreate?: (x: number, y: number, content?: string, threeDPosition?: CommentPin3DCreatePosition) => void
+  onPinDelete?: (id: string) => void
+  deletingPinId?: string | null
   /** 라이브러리 패널 표시 여부 */
   isLibraryOpen?: boolean
   onToggleLibrary?: () => void
@@ -63,8 +69,6 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
   const isEditingLocked = props.isEditingLocked ?? false
 
   // ifcUrl이 null(로딩 중 또는 IFC 없음)이어도 mock으로 폴백해 씬을 항상 표시한다
-  const effectiveIfcUrl = props.ifcUrl ?? DEFAULT_MOCK_IFC_URL
-
   // 라이브러리 프리셋 상태 관리 (카테고리 선택, 씬 내 배치 목록, CRUD)
   // onPresetAdded: 프리셋 추가 직후 라이브러리 패널을 닫는다
   const {
@@ -102,10 +106,18 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
     >
       <ThreeDCanvasScene
         projectId={props.projectId}
-        ifcUrl={effectiveIfcUrl}
+        ifcUrl={props.ifcUrl}
         rawIfcUrl={props.ifcUrl}
         localFloorData={props.localFloorData}
         libraryElements={libraryElements}
+        commentPins={props.commentPins ?? []}
+        isCollaborationMode={Boolean(props.isCollaborationMode)}
+        selectedPinId={props.selectedPinId ?? null}
+        currentUserId={props.currentUserId ?? null}
+        onPinClick={props.onPinClick}
+        onPinCreate={props.onPinCreate}
+        onPinDelete={props.onPinDelete}
+        deletingPinId={props.deletingPinId ?? null}
         ifcElementChanges={props.ifcElementChanges ?? []}
         isRotationLocked={props.isRotationLocked ?? false}
         zoomScale={props.scale ?? 1}

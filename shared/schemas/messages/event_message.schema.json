@@ -260,7 +260,12 @@
           "type": "boolean"
         },
         "detail_storage_url": {
-          "$ref": "#/$defs/storageUrl"
+          "allOf": [
+            {
+              "$ref": "#/$defs/storageUrl"
+            }
+          ],
+          "description": "Optional artifact URL for additional machine-readable details. In failed events this usually points to an error-detail artifact; in clarification_required events it may point to a clarification/options artifact that the client should fetch to continue the workflow."
         }
       }
     }

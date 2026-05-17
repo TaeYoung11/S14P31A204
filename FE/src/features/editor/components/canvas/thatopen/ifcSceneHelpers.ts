@@ -146,7 +146,18 @@ export const getRuntimeIfcModelId = (projectId?: string | null) => (
 
 /** IFC 파일을 URL에서 텍스트로 가져온다. 실패 시 에러를 throw한다. */
 export const fetchIfcText = async (ifcUrl: string) => {
+  if (import.meta.env.DEV) {
+    console.log('[3d-ifc-fetch][request]', { ifcUrl })
+  }
   const response = await fetch(ifcUrl)
+  if (import.meta.env.DEV) {
+    console.log('[3d-ifc-fetch][response]', {
+      ifcUrl,
+      ok: response.ok,
+      status: response.status,
+      contentType: response.headers.get('content-type'),
+    })
+  }
   if (!response.ok) {
     throw new Error(`IFC file load failed. (${response.status})`)
   }

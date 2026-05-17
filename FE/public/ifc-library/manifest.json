@@ -1,0 +1,763 @@
+{
+  "schemaVersion": "batang.ifcAssetLibrary.v1",
+  "sourceFile": "sample_final.ifc",
+  "generatedAt": "2026-05-15T12:54:03",
+  "unit": "mm",
+  "assetRuntime": "ifc-first-frag-pending",
+  "assets": [
+    {
+      "id": "terrace",
+      "label": "Terrace",
+      "category": "terrace",
+      "sourceFile": "sample_final.ifc",
+      "assetIfc": "assets/terrace.ifc",
+      "assetFrag": null,
+      "fragStatus": "pending_converter",
+      "sourceElementNames": [
+        "기본 벽:일반 - 200mm:153618",
+        "기본 벽:일반 - 200mm:153473",
+        "기본 벽:일반 - 200mm:154109"
+      ],
+      "sourceGlobalIds": [
+        "2znubWhPDD4wn7Fg4E24GR",
+        "2znubWhPDD4wn7Fg4E24k8",
+        "2znubWhPDD4wn7Fg4E24Nq"
+      ],
+      "unit": "mm",
+      "placementMode": "fragment-model",
+      "editable": true,
+      "bbox": {
+        "min": [
+          -2.7755575615628914e-16,
+          0.0,
+          -0.12
+        ],
+        "max": [
+          6.494223203901509,
+          1.3800000000000026,
+          1.5
+        ],
+        "sizeMm": [
+          6494.223,
+          1380.0,
+          1620.0
+        ],
+        "originMm": [
+          -0.0,
+          0.0,
+          -120.0
+        ]
+      },
+      "originalPlacement": {
+        "min": [
+          -4.32848485172182,
+          -14.260963893809338,
+          2.5
+        ],
+        "max": [
+          2.165738352179689,
+          -12.880963893809335,
+          4.0
+        ],
+        "sizeMm": [
+          6494.223,
+          1380.0,
+          1500.0
+        ],
+        "originMm": [
+          -4328.485,
+          -14260.964,
+          2500.0
+        ]
+      },
+      "productCount": 4,
+      "materials": [
+        "기본 벽"
+      ],
+      "colors": [
+        {
+          "name": null,
+          "r": 0.870588,
+          "g": 0.85098,
+          "b": 0.85098
+        }
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
+    },
+    {
+      "id": "door-152970",
+      "label": "단일-플러시:0915 x 2134mm:152970",
+      "category": "door",
+      "sourceFile": "sample_final.ifc",
+      "assetIfc": "assets/door-152970.ifc",
+      "assetFrag": null,
+      "fragStatus": "pending_converter",
+      "sourceElementNames": [
+        "단일-플러시:0915 x 2134mm:152970",
+        "단일-플러시:0915 x 2134mm:152970:1"
+      ],
+      "sourceGlobalIds": [
+        "2znubWhPDD4wn7Fg4E24c3",
+        "0cH31EpfMxb9mvVVQ5Q6tD"
+      ],
+      "unit": "mm",
+      "placementMode": "fragment-model",
+      "editable": true,
+      "bbox": {
+        "min": [
+          -3.3306690738754696e-16,
+          0.0,
+          0.0
+        ],
+        "max": [
+          1.0669999999999995,
+          0.25000000000000555,
+          2.21
+        ],
+        "sizeMm": [
+          1067.0,
+          250.0,
+          2210.0
+        ],
+        "originMm": [
+          -0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "originalPlacement": {
+        "min": [
+          1.095515148278186,
+          -9.199342012607195,
+          2.5
+        ],
+        "max": [
+          2.1625151482781857,
+          -8.94934201260719,
+          4.710000000000001
+        ],
+        "sizeMm": [
+          1067.0,
+          250.0,
+          2210.0
+        ],
+        "originMm": [
+          1095.515,
+          -9199.342,
+          2500.0
+        ]
+      },
+      "productCount": 2,
+      "materials": [
+        "문 - 패널",
+        "문 - 프레임"
+      ],
+      "colors": [
+        {
+          "name": null,
+          "r": 0.658824,
+          "g": 0.403922,
+          "b": 0.266667
+        }
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
+    },
+    {
+      "id": "window-189252",
+      "label": "고정됨:0406 x 0610mm:189252",
+      "category": "window",
+      "sourceFile": "sample_final.ifc",
+      "assetIfc": "assets/window-189252.ifc",
+      "assetFrag": null,
+      "fragStatus": "pending_converter",
+      "sourceElementNames": [
+        "고정됨:0406 x 0610mm:189252",
+        "고정됨:0406 x 0610mm:189252:1"
+      ],
+      "sourceGlobalIds": [
+        "3gwEtOFi5AUg4WULkh2o3a",
+        "1$Xwu99c$FuejYicDrCnOA"
+      ],
+      "unit": "mm",
+      "placementMode": "fragment-model",
+      "editable": true,
+      "bbox": {
+        "min": [
+          2.220446049250313e-16,
+          2.040034807748725e-15,
+          2.220446049250313e-16
+        ],
+        "max": [
+          1.9000000000000004,
+          0.2000000000000295,
+          2.0000000000000004
+        ],
+        "sizeMm": [
+          1900.0,
+          200.0,
+          2000.0
+        ],
+        "originMm": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "originalPlacement": {
+        "min": [
+          -3.22848485172182,
+          -12.880963893809396,
+          3.0199999999999996
+        ],
+        "max": [
+          -1.3284848517218197,
+          -12.680963893809368,
+          5.02
+        ],
+        "sizeMm": [
+          1900.0,
+          200.0,
+          2000.0
+        ],
+        "originMm": [
+          -3228.485,
+          -12880.964,
+          3020.0
+        ]
+      },
+      "productCount": 2,
+      "materials": [
+        "섀시",
+        "유리"
+      ],
+      "colors": [
+        {
+          "name": null,
+          "r": 0.878431,
+          "g": 0.698039,
+          "b": 0.494118
+        },
+        {
+          "name": null,
+          "r": 0.0,
+          "g": 0.501961,
+          "b": 0.752941
+        }
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
+    },
+    {
+      "id": "wall-139029",
+      "label": "기본 벽:일반 - 200mm:139029",
+      "category": "wall",
+      "sourceFile": "sample_final.ifc",
+      "assetIfc": "assets/wall-139029.ifc",
+      "assetFrag": null,
+      "fragStatus": "pending_converter",
+      "sourceElementNames": [
+        "기본 벽:일반 - 200mm:139029"
+      ],
+      "sourceGlobalIds": [
+        "2znubWhPDD4wn7Fg4E20CS"
+      ],
+      "unit": "mm",
+      "placementMode": "fragment-model",
+      "editable": true,
+      "bbox": {
+        "min": [
+          0.0,
+          8.326672684688674e-17,
+          0.0
+        ],
+        "max": [
+          12.000000000000004,
+          0.2000000000000001,
+          2.5
+        ],
+        "sizeMm": [
+          12000.0,
+          200.0,
+          2500.0
+        ],
+        "originMm": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "originalPlacement": {
+        "min": [
+          -8.334261647820284,
+          -1.7646438757782974,
+          0.0
+        ],
+        "max": [
+          3.6657383521797193,
+          -1.5646438757782972,
+          2.5
+        ],
+        "sizeMm": [
+          12000.0,
+          200.0,
+          2500.0
+        ],
+        "originMm": [
+          -8334.262,
+          -1764.644,
+          0.0
+        ]
+      },
+      "productCount": 1,
+      "materials": [
+        "기본 벽"
+      ],
+      "colors": [
+        {
+          "name": null,
+          "r": 0.870588,
+          "g": 0.85098,
+          "b": 0.85098
+        }
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
+    },
+    {
+      "id": "stair-145090",
+      "label": "조합된 계단:계단:145090",
+      "category": "stair",
+      "sourceFile": "sample_final.ifc",
+      "assetIfc": "assets/stair-145090.ifc",
+      "assetFrag": null,
+      "fragStatus": "pending_converter",
+      "sourceElementNames": [
+        "조합된 계단:계단:145090",
+        "조합된 계단:계단:145090 Run 1",
+        "조합된 계단:계단:145090 Stringer 1",
+        "조합된 계단:계단:145090 Stringer 2",
+        "난간:900mm 배관:145811",
+        "난간:900mm 배관:145815"
+      ],
+      "sourceGlobalIds": [
+        "2znubWhPDD4wn7Fg4E22hB",
+        "2znubWhPDD4wn7Fg4E22lW",
+        "2znubWhPDD4wn7Fg4E22lY",
+        "2znubWhPDD4wn7Fg4E22lb",
+        "2znubWhPDD4wn7Fg4E22MQ",
+        "2znubWhPDD4wn7Fg4E22MU"
+      ],
+      "unit": "mm",
+      "placementMode": "fragment-model",
+      "editable": true,
+      "bbox": {
+        "min": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max": [
+          1.6999999999999984,
+          2.762000000000004,
+          3.0395643055595243
+        ],
+        "sizeMm": [
+          1700.0,
+          2762.0,
+          3039.564
+        ],
+        "originMm": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "originalPlacement": {
+        "min": [
+          3.78490110712988,
+          -11.275344154425978,
+          0.0
+        ],
+        "max": [
+          5.484901107129879,
+          -8.513344154425974,
+          3.0395643055595243
+        ],
+        "sizeMm": [
+          1700.0,
+          2762.0,
+          3039.564
+        ],
+        "originMm": [
+          3784.901,
+          -11275.344,
+          0.0
+        ]
+      },
+      "productCount": 6,
+      "materials": [
+        "<Unnamed>"
+      ],
+      "colors": [],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
+    },
+    {
+      "id": "roof-178223",
+      "label": "기본 지붕:일반 - 400mm:178223",
+      "category": "roof",
+      "sourceFile": "sample_final.ifc",
+      "assetIfc": "assets/roof-178223.ifc",
+      "assetFrag": null,
+      "fragStatus": "pending_converter",
+      "sourceElementNames": [
+        "기본 지붕:일반 - 400mm:178223"
+      ],
+      "sourceGlobalIds": [
+        "2QLDczdKX9Fg7Ur4rrIPQ3"
+      ],
+      "unit": "mm",
+      "placementMode": "fragment-model",
+      "editable": true,
+      "bbox": {
+        "min": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max": [
+          16.72478249433359,
+          6.5,
+          1.2
+        ],
+        "sizeMm": [
+          16724.782,
+          6500.0,
+          1200.0
+        ],
+        "originMm": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "originalPlacement": {
+        "min": [
+          -8.33426164782032,
+          -8.064643875778279,
+          2.5
+        ],
+        "max": [
+          8.390520846513269,
+          -1.5646438757782786,
+          3.7
+        ],
+        "sizeMm": [
+          16724.782,
+          6500.0,
+          1200.0
+        ],
+        "originMm": [
+          -8334.262,
+          -8064.644,
+          2500.0
+        ]
+      },
+      "productCount": 1,
+      "materials": [
+        "기본 지붕"
+      ],
+      "colors": [
+        {
+          "name": null,
+          "r": 0.909804,
+          "g": 0.501961,
+          "b": 0.545098
+        }
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
+    },
+    {
+      "id": "roof-180558",
+      "label": "기본 지붕:일반 - 400mm:180558",
+      "category": "roof",
+      "sourceFile": "sample_final.ifc",
+      "assetIfc": "assets/roof-180558.ifc",
+      "assetFrag": null,
+      "fragStatus": "pending_converter",
+      "sourceElementNames": [
+        "기본 지붕:일반 - 400mm:180558",
+        "기본 지붕:일반 - 400mm:180558.003",
+        "기본 지붕:일반 - 400mm:180558",
+        "기본 지붕:일반 - 400mm:180558.001",
+        "기본 지붕:일반 - 400mm:180558.002"
+      ],
+      "sourceGlobalIds": [
+        "2QLDczdKX9Fg7Ur4rrIU$Y",
+        "2QLDczdKX9Fg7Ur4zrIU$Y",
+        "2QLDczdKX9Fg7Ur4vrIU$Y",
+        "2QLDczdKX9Fg7Ur4brIU$Y",
+        "2QLDczdKX9Fg7Ur4XrIU$Y"
+      ],
+      "unit": "mm",
+      "placementMode": "fragment-model",
+      "editable": true,
+      "bbox": {
+        "min": [
+          0.0,
+          0.0,
+          -6.938893903907228e-17
+        ],
+        "max": [
+          6.714223203901514,
+          1.9836799819689657,
+          0.6000000000000031
+        ],
+        "sizeMm": [
+          6714.223,
+          1983.68,
+          600.0
+        ],
+        "originMm": [
+          0.0,
+          0.0,
+          -0.0
+        ]
+      },
+      "originalPlacement": {
+        "min": [
+          -4.548484851721824,
+          -14.864643875778302,
+          2.5
+        ],
+        "max": [
+          2.16573835217969,
+          -12.880963893809337,
+          3.100000000000003
+        ],
+        "sizeMm": [
+          6714.223,
+          1983.68,
+          600.0
+        ],
+        "originMm": [
+          -4548.485,
+          -14864.644,
+          2500.0
+        ]
+      },
+      "productCount": 5,
+      "materials": [
+        "기본 지붕"
+      ],
+      "colors": [
+        {
+          "name": null,
+          "r": 0.909804,
+          "g": 0.501961,
+          "b": 0.545098
+        }
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
+    },
+    {
+      "id": "roof-181099",
+      "label": "기본 지붕:일반 - 400mm:181099",
+      "category": "roof",
+      "sourceFile": "sample_final.ifc",
+      "assetIfc": "assets/roof-181099.ifc",
+      "assetFrag": null,
+      "fragStatus": "pending_converter",
+      "sourceElementNames": [
+        "기본 지붕:일반 - 400mm:181099",
+        "기본 지붕:일반 - 400mm:181099",
+        "기본 지붕:일반 - 400mm:181099.001"
+      ],
+      "sourceGlobalIds": [
+        "2QLDczdKX9Fg7Ur4rrIUt7",
+        "2QLDczdKX9Fg7Ur4zrIUt7",
+        "2QLDczdKX9Fg7Ur4vrIUt7"
+      ],
+      "unit": "mm",
+      "placementMode": "fragment-model",
+      "editable": true,
+      "bbox": {
+        "min": [
+          0.0,
+          -4.218847493575595e-15,
+          -1.1102230246251565e-15
+        ],
+        "max": [
+          3.5247824943335733,
+          1.1800000000000044,
+          0.6500000000000012
+        ],
+        "sizeMm": [
+          3524.782,
+          1180.0,
+          650.0
+        ],
+        "originMm": [
+          0.0,
+          -0.0,
+          -0.0
+        ]
+      },
+      "originalPlacement": {
+        "min": [
+          2.1657383521796887,
+          -14.06096389380937,
+          2.499999999999999
+        ],
+        "max": [
+          5.690520846513262,
+          -12.880963893809362,
+          3.1500000000000012
+        ],
+        "sizeMm": [
+          3524.782,
+          1180.0,
+          650.0
+        ],
+        "originMm": [
+          2165.738,
+          -14060.964,
+          2500.0
+        ]
+      },
+      "productCount": 3,
+      "materials": [
+        "기본 지붕"
+      ],
+      "colors": [
+        {
+          "name": null,
+          "r": 0.909804,
+          "g": 0.501961,
+          "b": 0.545098
+        }
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
+    },
+    {
+      "id": "roof-187335",
+      "label": "기본 지붕:일반 - 400mm:187335",
+      "category": "roof",
+      "sourceFile": "sample_final.ifc",
+      "assetIfc": "assets/roof-187335.ifc",
+      "assetFrag": null,
+      "fragStatus": "pending_converter",
+      "sourceElementNames": [
+        "기본 지붕:일반 - 400mm:187335",
+        "기본 지붕:일반 - 400mm:187335",
+        "기본 지붕:일반 - 400mm:187335.001",
+        "기본 지붕:일반 - 400mm:187335.002",
+        "기본 지붕:일반 - 400mm:187335.003",
+        "기본 지붕:일반 - 400mm:187335.004",
+        "기본 지붕:일반 - 400mm:187335.005"
+      ],
+      "sourceGlobalIds": [
+        "2fJd5P2ULAuO12Ns0rUnDL",
+        "2fJd5P2ULAuO12Ns8rUnDL",
+        "2fJd5P2ULAuO12NsCrUnDL",
+        "2fJd5P2ULAuO12NsGrUnDL",
+        "2fJd5P2ULAuO12NsKrUnDL",
+        "2fJd5P2ULAuO12NsOrUnDL",
+        "2fJd5P2ULAuO12NsSrUnDL"
+      ],
+      "unit": "mm",
+      "placementMode": "fragment-model",
+      "editable": true,
+      "bbox": {
+        "min": [
+          0.0,
+          -8.881784197001252e-16,
+          -3.774758283725532e-15
+        ],
+        "max": [
+          10.239005698235083,
+          10.378854631637727,
+          1.5000000000000018
+        ],
+        "sizeMm": [
+          10239.006,
+          10378.855,
+          1500.0
+        ],
+        "originMm": [
+          0.0,
+          -0.0,
+          -0.0
+        ]
+      },
+      "originalPlacement": {
+        "min": [
+          -4.548484851721821,
+          -12.88096389380937,
+          4.9999999999999964
+        ],
+        "max": [
+          5.690520846513262,
+          -2.5021092621716416,
+          6.500000000000002
+        ],
+        "sizeMm": [
+          10239.006,
+          10378.855,
+          1500.0
+        ],
+        "originMm": [
+          -4548.485,
+          -12880.964,
+          5000.0
+        ]
+      },
+      "productCount": 7,
+      "materials": [
+        "기본 지붕"
+      ],
+      "colors": [
+        {
+          "name": null,
+          "r": 0.909804,
+          "g": 0.501961,
+          "b": 0.545098
+        }
+      ],
+      "integrity": {
+        "duplicateMaterialRelations": 0,
+        "duplicatePropertyRelations": 0,
+        "orphanStyledItems": 0
+      }
+    }
+  ]
+}
