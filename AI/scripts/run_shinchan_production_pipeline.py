@@ -35,13 +35,19 @@ DEFAULT_OUTPUT_ROOT = ROOT / "outputs/ifc_production_shinchan"
 DEFAULT_REALVISION_MODEL = "SG161222/Realistic_Vision_V6.0_B1_noVAE"
 
 H1_RENDER_SIZE = (768, 448)
-H1_STRENGTH = 0.68
-H1_DEPTH_CN = 0.5
-H1_CANNY_CN = 0.4
 H1_GUIDANCE = 7.5
 H1_STEPS = 30
+# DAY: H-1.b hot winner (photoreal, no extra hallucination at 0.68)
+H1_DAY_STRENGTH = 0.68
+H1_DAY_DEPTH_CN = 0.5
+H1_DAY_CANNY_CN = 0.4
 H1_DAY_SEED = 42
-H1_NIGHT_SEED = 555
+# NIGHT: tighter conditioning to prevent SD amplifying small IFC protrusions
+# into a fake second building behind. Verified seed 33 clean both views.
+H1_NIGHT_STRENGTH = 0.55
+H1_NIGHT_DEPTH_CN = 0.6
+H1_NIGHT_CANNY_CN = 0.7
+H1_NIGHT_SEED = 33
 
 PRESET = "ifc_minimal"
 VIEWS = ("front_diagonal_left", "front_diagonal_right")
@@ -209,7 +215,11 @@ def _step_h1_diffusion(
     h1_dir.mkdir(parents=True, exist_ok=True)
     results: dict[tuple[str, str], Path] = {}
 
-    for tod, seed in (("DAY", day_seed), ("NIGHT", night_seed)):
+    tod_params = {
+        "DAY": (day_seed, H1_DAY_STRENGTH, H1_DAY_DEPTH_CN, H1_DAY_CANNY_CN),
+        "NIGHT": (night_seed, H1_NIGHT_STRENGTH, H1_NIGHT_DEPTH_CN, H1_NIGHT_CANNY_CN),
+    }
+    for tod, (seed, strength, depth_cn, canny_cn) in tod_params.items():
         source_dir = source_dirs[tod]
         debug_manifest = json.loads(
             (source_dir / "debug" / "debug_manifest.json").read_text(encoding="utf-8")
@@ -246,11 +256,11 @@ def _step_h1_diffusion(
                 params=SoftLockRenderParams(
                     prompt=prompt,
                     negative_prompt=negative,
-                    strength=H1_STRENGTH,
+                    strength=strength,
                     guidance_scale=H1_GUIDANCE,
                     num_inference_steps=H1_STEPS,
-                    depth_conditioning_scale=H1_DEPTH_CN,
-                    seg_conditioning_scale=H1_CANNY_CN,
+                    depth_conditioning_scale=depth_cn,
+                    seg_conditioning_scale=canny_cn,
                     seed=seed,
                 ),
                 width=H1_RENDER_SIZE[0],
@@ -261,6 +271,7 @@ def _step_h1_diffusion(
             results[(tod, view)] = out_path
             print(
                 f"[prod] H-1.b {tod} {view} seed={seed} "
+                f"strength={strength} cn(d/c)={depth_cn}/{canny_cn} "
                 f"{time.time() - t1:.1f}s -> {out_path}"
             )
 
@@ -351,13 +362,20 @@ def _write_manifest(
         "modelId": args.model_id,
         "preset": PRESET,
         "h1RenderSize": list(H1_RENDER_SIZE),
-        "h1Strength": H1_STRENGTH,
-        "h1DepthCnScale": H1_DEPTH_CN,
-        "h1CannyCnScale": H1_CANNY_CN,
         "h1Guidance": H1_GUIDANCE,
         "h1Steps": H1_STEPS,
-        "daySeed": args.day_seed,
-        "nightSeed": args.night_seed,
+        "h1Day": {
+            "seed": args.day_seed,
+            "strength": H1_DAY_STRENGTH,
+            "depthCnScale": H1_DAY_DEPTH_CN,
+            "cannyCnScale": H1_DAY_CANNY_CN,
+        },
+        "h1Night": {
+            "seed": args.night_seed,
+            "strength": H1_NIGHT_STRENGTH,
+            "depthCnScale": H1_NIGHT_DEPTH_CN,
+            "cannyCnScale": H1_NIGHT_CANNY_CN,
+        },
         "h3UpscaleApplied": bool(h3_outputs),
         "timings": {k: round(v, 2) for k, v in timings.items()},
         "totalElapsedSeconds": round(total_elapsed, 2),

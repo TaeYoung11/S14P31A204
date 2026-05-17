@@ -67,7 +67,10 @@ NIGHT_NEGATIVE = (
     "looming structure, warehouse, factory, industrial building, "
     "second house, neighboring house, building in background, "
     "dark silhouette, large dark structure, tall building, "
-    "city skyline, cluttered background"
+    "city skyline, cluttered background, "
+    "two-story upper block, second floor protrusion, attic, loft, "
+    "rear building, detached annex, oversized rooftop block, "
+    "large windows on upper block, dormer windows"
 )
 NIGHT_SCENE_SUFFIX_CLEAR = (
     "photoreal exterior night photo, small detached house, "
