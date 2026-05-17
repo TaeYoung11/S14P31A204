@@ -17,6 +17,9 @@ export interface GridLines {
   major: number[][]
 }
 
+const MIN_GRID_SCREEN_STEP_PX = 12
+const MAX_GRID_LINES_PER_AXIS = 240
+
 /**
  * 현재 줌/패닝 상태를 반영한 캔버스 그리드 선분 목록을 생성한다.
  */
@@ -35,7 +38,7 @@ export function useCanvasGridLines({
     if (!isGridVisible || stageWidth === 0 || stageHeight === 0) {
       return { minor: [] as number[][], major: [] as number[][] }
     }
-    const minorStep = Math.max(gridStepPx, 1)
+    const baseMinorStep = Math.max(gridStepPx, 1)
     const majorEvery = 5
     const minor: number[][] = []
     const major: number[][] = []
@@ -47,6 +50,14 @@ export function useCanvasGridLines({
     const worldMaxX = (stageWidth - stageX) / safeScale
     const worldMinY = (-stageY) / safeScale
     const worldMaxY = (stageHeight - stageY) / safeScale
+    const worldWidth = Math.max(worldMaxX - worldMinX, 0)
+    const worldHeight = Math.max(worldMaxY - worldMinY, 0)
+    const screenStep = baseMinorStep * Math.abs(safeScale)
+    const screenStepFactor = screenStep > 0 ? Math.ceil(MIN_GRID_SCREEN_STEP_PX / screenStep) : 1
+    const xLineCountFactor = Math.ceil(worldWidth / (baseMinorStep * MAX_GRID_LINES_PER_AXIS))
+    const yLineCountFactor = Math.ceil(worldHeight / (baseMinorStep * MAX_GRID_LINES_PER_AXIS))
+    const minorStepFactor = Math.max(1, screenStepFactor, xLineCountFactor, yLineCountFactor)
+    const minorStep = baseMinorStep * minorStepFactor
 
     const startXIndex = Math.floor(worldMinX / minorStep)
     const endXIndex = Math.ceil(worldMaxX / minorStep)
