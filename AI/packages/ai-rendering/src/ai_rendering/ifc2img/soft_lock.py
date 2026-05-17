@@ -48,7 +48,8 @@ DAY_SCENE_SUFFIX = (
 )
 NIGHT_SCENE_SUFFIX = (
     "photoreal exterior night photo, small detached house, "
-    "dark blue sky, warm interior window lights, realistic materials, 35mm photograph"
+    "dark blue sky, clear empty sky, no other buildings, "
+    "warm interior window lights, realistic materials, 35mm photograph"
 )
 DAY_NEGATIVE = (
     "drawing, illustration, cartoon, painting, render, low quality, "
@@ -62,7 +63,16 @@ NIGHT_NEGATIVE = (
     "blurry, oversaturated, bright daylight, blue sky, toy, miniature, "
     "chimney, dome, tower, spire, antenna, smoke, statue, sculpture, "
     "extra building, extra wing, balcony, porch railing, "
-    "people, person, car, vehicle, tree, fence"
+    "people, person, car, vehicle, tree, fence, "
+    "looming structure, warehouse, factory, industrial building, "
+    "second house, neighboring house, building in background, "
+    "dark silhouette, large dark structure, tall building, "
+    "city skyline, cluttered background"
+)
+NIGHT_SCENE_SUFFIX_CLEAR = (
+    "photoreal exterior night photo, small detached house, "
+    "dark blue sky, clear empty sky with stars, no other buildings, "
+    "warm interior window lights, realistic materials, 35mm photograph"
 )
 
 CATEGORY_ORDER: tuple[str, ...] = ("roof", "wall", "window", "door")
