@@ -67,6 +67,10 @@ def _parse_args() -> argparse.Namespace:
         help="Enable sequential CPU offload (slower but safer for low VRAM).",
     )
     parser.add_argument(
+        "--lightning-steps", type=int, choices=(4, 8), default=None,
+        help="Load SDXL Lightning N-step LoRA for distilled fast inference.",
+    )
+    parser.add_argument(
         "--skip-regen", action="store_true",
         help="Reuse cached H-1 source/F-2 artifacts.",
     )
@@ -130,6 +134,7 @@ def main() -> None:
         width=args.width,
         height=args.height,
         cpu_offload=args.cpu_offload,
+        lightning_steps=args.lightning_steps,
     )
 
     _write_h2_winner_day_night_sheet(output_root, all_outputs)
@@ -195,6 +200,7 @@ def _run_h2(
     width: int,
     height: int,
     cpu_offload: bool,
+    lightning_steps: int | None = None,
 ) -> list[dict[str, Any]]:
     from ai_rendering.ifc2img.sdxl_soft_lock import (
         DEFAULT_SDXL_DEPTH_CONTROLNET_ID,
@@ -214,11 +220,12 @@ def _run_h2(
         depth_controlnet_id=DEFAULT_SDXL_DEPTH_CONTROLNET_ID,
         vae_id=DEFAULT_SDXL_VAE_FP16_FIX_ID,
         cpu_offload=cpu_offload,
+        lightning_steps=lightning_steps,
     )
     print(
         f"[h2] renderer load {time.time() - started:.1f}s "
         f"(model={model_id}, depth_cn={DEFAULT_SDXL_DEPTH_CONTROLNET_ID}, "
-        f"offload={cpu_offload})"
+        f"offload={cpu_offload}, lightning_steps={lightning_steps})"
     )
 
     results: list[dict[str, Any]] = []
@@ -412,6 +419,7 @@ def _write_h2_manifest(
         "seed": args.seed,
         "timeOfDay": args.time_of_day,
         "cpuOffload": args.cpu_offload,
+        "lightningSteps": args.lightning_steps,
         "preset": PRESET,
         "views": list(VIEWS),
         "outputs": h2_outputs,

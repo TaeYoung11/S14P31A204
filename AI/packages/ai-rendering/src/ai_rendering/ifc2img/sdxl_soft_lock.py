@@ -24,6 +24,11 @@ DEFAULT_SDXL_BASE_ID = "stabilityai/stable-diffusion-xl-base-1.0"
 DEFAULT_SDXL_PHOTOREAL_ID = "RunDiffusion/Juggernaut-XL-v9"
 DEFAULT_SDXL_VAE_FP16_FIX_ID = "madebyollin/sdxl-vae-fp16-fix"
 DEFAULT_SDXL_DEPTH_CONTROLNET_ID = "diffusers/controlnet-depth-sdxl-1.0"
+LIGHTNING_LORA_REPO = "ByteDance/SDXL-Lightning"
+LIGHTNING_LORA_FILES = {
+    4: "sdxl_lightning_4step_lora.safetensors",
+    8: "sdxl_lightning_8step_lora.safetensors",
+}
 
 
 @dataclass
@@ -61,14 +66,18 @@ class SdxlSoftLockDiffusionRenderer:
         device: str | None = None,
         dtype: object = None,
         cpu_offload: bool = False,
+        variant: str | None = "fp16",
+        lightning_steps: int | None = None,
     ) -> None:
         import torch as _torch
         from diffusers import (
             AutoencoderKL,
             ControlNetModel,
             DPMSolverMultistepScheduler,
+            EulerDiscreteScheduler,
             StableDiffusionXLControlNetImg2ImgPipeline,
         )
+        from huggingface_hub import hf_hub_download
 
         if device is None:
             device = "cuda" if _torch.cuda.is_available() else "cpu"
@@ -100,24 +109,58 @@ class SdxlSoftLockDiffusionRenderer:
         }
         if vae is not None:
             pipeline_kwargs["vae"] = vae
+        if variant is not None:
+            pipeline_kwargs["variant"] = variant
 
         try:
             pipe = StableDiffusionXLControlNetImg2ImgPipeline.from_pretrained(
                 model_id, **pipeline_kwargs
             )
-        except Exception as exc:
-            raise IFCRenderError(
-                f"SDXL pipeline load failed ({model_id}): {exc}"
-            ) from exc
+        except Exception:
+            # Some checkpoints only ship one variant; retry without variant.
+            pipeline_kwargs.pop("variant", None)
+            try:
+                pipe = StableDiffusionXLControlNetImg2ImgPipeline.from_pretrained(
+                    model_id, **pipeline_kwargs
+                )
+            except Exception as exc:
+                raise IFCRenderError(
+                    f"SDXL pipeline load failed ({model_id}): {exc}"
+                ) from exc
 
-        try:
-            pipe.scheduler = DPMSolverMultistepScheduler.from_config(
-                pipe.scheduler.config,
-                use_karras_sigmas=True,
-                algorithm_type="dpmsolver++",
-            )
-        except Exception as exc:
-            raise IFCRenderError(f"Scheduler setup failed: {exc}") from exc
+        if lightning_steps is not None:
+            if lightning_steps not in LIGHTNING_LORA_FILES:
+                raise IFCRenderError(
+                    f"unsupported lightning_steps={lightning_steps}; "
+                    f"choose from {sorted(LIGHTNING_LORA_FILES)}"
+                )
+            try:
+                lora_path = hf_hub_download(
+                    LIGHTNING_LORA_REPO, LIGHTNING_LORA_FILES[lightning_steps]
+                )
+                pipe.load_lora_weights(lora_path)
+                pipe.fuse_lora()
+            except Exception as exc:
+                raise IFCRenderError(
+                    f"SDXL Lightning LoRA load failed ({lightning_steps}-step): {exc}"
+                ) from exc
+            try:
+                pipe.scheduler = EulerDiscreteScheduler.from_config(
+                    pipe.scheduler.config, timestep_spacing="trailing"
+                )
+            except Exception as exc:
+                raise IFCRenderError(
+                    f"Lightning scheduler setup failed: {exc}"
+                ) from exc
+        else:
+            try:
+                pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+                    pipe.scheduler.config,
+                    use_karras_sigmas=True,
+                    algorithm_type="dpmsolver++",
+                )
+            except Exception as exc:
+                raise IFCRenderError(f"Scheduler setup failed: {exc}") from exc
 
         if device.startswith("cuda"):
             try:
@@ -145,6 +188,7 @@ class SdxlSoftLockDiffusionRenderer:
         self.device = device
         self.dtype = dtype
         self.cpu_offload = cpu_offload
+        self.lightning_steps = lightning_steps
         self.pipe = pipe
         self._torch = _torch
 
