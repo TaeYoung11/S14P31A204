@@ -1,5 +1,28 @@
 import type { EditorPageViewModel } from '../../types/editorPageViewModel'
 import type { CanvasPropsSubset } from './canvasPropsSubset'
+import { pickCanvasProps } from './pickCanvasProps'
+
+const CANVAS_CONTEXT_KEYS = [
+  'projectId',
+  'mode',
+  'containerRef',
+  'stageSize',
+  'isWorkspaceBootstrapping',
+  'zoom',
+  'isCollaborationMode',
+  'selectedPinId',
+  'commentPins',
+  'currentCollaborationUserId',
+  'handlePinClick',
+  'handleCreateCommentPin',
+  'handleDeletePin',
+  'deletingPinId',
+  'isGridVisible',
+  'isTrueNorthView',
+  'selectedTool',
+  'handleWheelZoom',
+  'canvasZoom',
+] as const
 
 /**
  * 공통 캔버스 컨텍스트(모드/뷰포트/협업 기본 상태)를 매핑한다.
@@ -27,25 +50,5 @@ export function buildCanvasContextProps(
   | 'handleWheelZoom'
   | 'canvasZoom'
 > {
-  return {
-    projectId: vm.projectId,
-    mode: vm.mode,
-    containerRef: vm.containerRef,
-    stageSize: vm.stageSize,
-    isWorkspaceBootstrapping: vm.isWorkspaceBootstrapping,
-    zoom: vm.zoom,
-    isCollaborationMode: vm.isCollaborationMode,
-    selectedPinId: vm.selectedPinId,
-    commentPins: vm.commentPins,
-    currentCollaborationUserId: vm.currentCollaborationUserId,
-    handlePinClick: vm.handlePinClick,
-    handleCreateCommentPin: vm.handleCreateCommentPin,
-    handleDeletePin: vm.handleDeletePin,
-    deletingPinId: vm.deletingPinId,
-    isGridVisible: vm.isGridVisible,
-    isTrueNorthView: vm.isTrueNorthView,
-    selectedTool: vm.selectedTool,
-    handleWheelZoom: vm.handleWheelZoom,
-    canvasZoom: vm.canvasZoom,
-  }
+  return pickCanvasProps(vm, CANVAS_CONTEXT_KEYS)
 }
