@@ -6,9 +6,14 @@ const ROOM_TYPES = new Set([
   'kitchen',
   'bathroom',
   'office',
+  'entrance',
   'corridor',
   'other',
 ] as const)
+
+const WALL_TYPES = new Set(['general', 'exterior', 'load_bearing', 'partition'] as const)
+const CONNECTION_INTENTS = new Set(['circulation', 'open_passage', 'weak_relation', 'merge'] as const)
+const CONNECTION_STRENGTHS = new Set(['strong', 'normal', 'weak'] as const)
 
 const TOP_LEVEL_KEYS = new Set([
   'schema_version',
@@ -27,6 +32,8 @@ const ROOM_KEYS = new Set([
   'id',
   'sourceBubbleId',
   'source_bubble_id',
+  'original_label',
+  'original_type',
   'name',
   'type',
   'width',
@@ -36,10 +43,22 @@ const ROOM_KEYS = new Set([
   'y',
   'angle',
   'locked',
+  'material',
+  'color',
+  'wall_type',
   'zoneId',
 ] as const)
 
-const ADJACENCY_KEYS = new Set(['from_room_id', 'to_room_id', 'strength'] as const)
+const ADJACENCY_KEYS = new Set([
+  'id',
+  'from_room_id',
+  'to_room_id',
+  'strength',
+  'intent',
+  'connection_strength',
+  'source_bubble_id',
+  'target_bubble_id',
+] as const)
 const ZONE_KEYS = new Set(['id', 'name', 'color'] as const)
 const BOUNDARY_KEYS = new Set(['floor', 'polygon'] as const)
 const GENERATION_OPTIONS_KEYS = new Set([
@@ -67,13 +86,20 @@ export type FloorPlanRoomType =
   | 'kitchen'
   | 'bathroom'
   | 'office'
+  | 'entrance'
   | 'corridor'
   | 'other'
+
+export type FloorPlanWallType = 'general' | 'exterior' | 'load_bearing' | 'partition'
+export type LayoutImportConnectionIntent = 'circulation' | 'open_passage' | 'weak_relation' | 'merge'
+export type LayoutImportConnectionStrength = 'strong' | 'normal' | 'weak'
 
 export interface LayoutImportV2Room {
   id: string
   sourceBubbleId?: string
   source_bubble_id?: string
+  original_label?: string
+  original_type?: string
   name: string
   type: FloorPlanRoomType
   width: number
@@ -83,6 +109,9 @@ export interface LayoutImportV2Room {
   y: number
   angle: number
   locked: boolean
+  material?: string
+  color?: string
+  wall_type?: FloorPlanWallType
   zoneId?: string | null
 }
 
@@ -93,9 +122,14 @@ export interface LayoutImportV2Zone {
 }
 
 export interface LayoutImportV2Adjacency {
+  id?: string
   from_room_id: string
   to_room_id: string
   strength: number
+  intent?: LayoutImportConnectionIntent
+  connection_strength?: LayoutImportConnectionStrength
+  source_bubble_id?: string
+  target_bubble_id?: string
 }
 
 export interface LayoutImportV2Boundary {
@@ -192,6 +226,12 @@ function validateRoom(room: unknown, index: number, errors: string[]) {
   if (room.source_bubble_id !== undefined && !isNonBlankString(room.source_bubble_id, 128)) {
     errors.push(`${path}.source_bubble_id: must be a non-empty string (<=128)`)
   }
+  if (room.original_label !== undefined && !isNonBlankString(room.original_label, 255)) {
+    errors.push(`${path}.original_label: must be a non-empty string (<=255)`)
+  }
+  if (room.original_type !== undefined && !isNonBlankString(room.original_type, 128)) {
+    errors.push(`${path}.original_type: must be a non-empty string (<=128)`)
+  }
   if (!isNonBlankString(room.name, 255)) errors.push(`${path}.name: must be a non-empty string (<=255)`)
   if (typeof room.type !== 'string' || !ROOM_TYPES.has(room.type as FloorPlanRoomType)) {
     errors.push(`${path}.type: must be one of ${Array.from(ROOM_TYPES).join(', ')}`)
@@ -203,6 +243,15 @@ function validateRoom(room: unknown, index: number, errors: string[]) {
   if (!isFiniteNumber(room.y)) errors.push(`${path}.y: must be a finite number`)
   if (!isFiniteNumber(room.angle)) errors.push(`${path}.angle: must be a finite number`)
   if (typeof room.locked !== 'boolean') errors.push(`${path}.locked: must be a boolean`)
+  if (room.material !== undefined && !isNonBlankString(room.material, 128)) {
+    errors.push(`${path}.material: must be a non-empty string (<=128)`)
+  }
+  if (room.color !== undefined && (typeof room.color !== 'string' || /^#[0-9A-Fa-f]{6}$/.exec(room.color) === null)) {
+    errors.push(`${path}.color: must match #RRGGBB`)
+  }
+  if (room.wall_type !== undefined && (typeof room.wall_type !== 'string' || !WALL_TYPES.has(room.wall_type as FloorPlanWallType))) {
+    errors.push(`${path}.wall_type: must be one of ${Array.from(WALL_TYPES).join(', ')}`)
+  }
 
   if (room.zoneId !== undefined && room.zoneId !== null && !isNonBlankString(room.zoneId, 128)) {
     errors.push(`${path}.zoneId: must be null or a non-empty string (<=128)`)
@@ -217,10 +266,27 @@ function validateAdjacencyItem(item: unknown, index: number, errors: string[]) {
   }
   pushUnexpectedKeys(item, ADJACENCY_KEYS as Set<string>, path, errors)
 
+  if (item.id !== undefined && !isNonBlankString(item.id, 128)) errors.push(`${path}.id: must be a non-empty string (<=128)`)
   if (!isNonBlankString(item.from_room_id, 128)) errors.push(`${path}.from_room_id: must be a non-empty string (<=128)`)
   if (!isNonBlankString(item.to_room_id, 128)) errors.push(`${path}.to_room_id: must be a non-empty string (<=128)`)
   if (!isFiniteNumber(item.strength) || item.strength < 0 || item.strength > 1) {
     errors.push(`${path}.strength: must be a finite number between 0 and 1`)
+  }
+  if (item.intent !== undefined && (typeof item.intent !== 'string' || !CONNECTION_INTENTS.has(item.intent as LayoutImportConnectionIntent))) {
+    errors.push(`${path}.intent: must be one of ${Array.from(CONNECTION_INTENTS).join(', ')}`)
+  }
+  if (
+    item.connection_strength !== undefined &&
+    (typeof item.connection_strength !== 'string' ||
+      !CONNECTION_STRENGTHS.has(item.connection_strength as LayoutImportConnectionStrength))
+  ) {
+    errors.push(`${path}.connection_strength: must be one of ${Array.from(CONNECTION_STRENGTHS).join(', ')}`)
+  }
+  if (item.source_bubble_id !== undefined && !isNonBlankString(item.source_bubble_id, 128)) {
+    errors.push(`${path}.source_bubble_id: must be a non-empty string (<=128)`)
+  }
+  if (item.target_bubble_id !== undefined && !isNonBlankString(item.target_bubble_id, 128)) {
+    errors.push(`${path}.target_bubble_id: must be a non-empty string (<=128)`)
   }
 }
 

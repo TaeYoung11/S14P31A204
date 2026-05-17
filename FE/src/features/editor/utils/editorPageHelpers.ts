@@ -9,6 +9,7 @@ import type { AxisAlignedRect } from './geometry2d'
 import type {
   FloorPlanRoomType,
   LayoutImportV2,
+  LayoutImportV2Adjacency,
   LayoutImportV2Boundary,
 } from '../services/floorPlanGenerate.contract'
 
@@ -45,6 +46,13 @@ export interface LayoutImportBoundaryLogMetadata {
 
 function normalizeFloorPlanRoomType(rawType: string): FloorPlanRoomType {
   const normalized = rawType.trim().toLowerCase()
+  if (normalized === '거실') return 'living'
+  if (normalized === '침실' || normalized === '방') return 'bedroom'
+  if (normalized === '주방') return 'kitchen'
+  if (normalized === '화장실' || normalized === '욕실') return 'bathroom'
+  if (normalized === '현관' || normalized === 'entrance') return 'entrance'
+  if (normalized === '복도') return 'corridor'
+  if (normalized === '사무실') return 'office'
   switch (normalized) {
     case '거실':
     case 'living':
@@ -79,6 +87,72 @@ function toPositiveMillimeter(value: number): number {
   if (!Number.isFinite(value) || value <= 0) return 0
   const rounded = Math.round(value)
   return rounded > 0 ? rounded : 0
+}
+
+function toOptionalNonBlankString(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
+function toLayoutImportWallType(value: string | undefined): 'general' | 'exterior' | 'load_bearing' | 'partition' | undefined {
+  if (value === undefined) return undefined
+  switch (value.trim()) {
+    case 'general':
+      return 'general'
+    case 'exterior':
+      return 'exterior'
+    case 'partition':
+      return 'partition'
+    case 'loadBearing':
+    case 'load_bearing':
+      return 'load_bearing'
+    default:
+      return undefined
+  }
+}
+
+function connectionStrengthFromStyle(type: ConnectionData['type']): LayoutImportV2Adjacency['connection_strength'] {
+  switch (type) {
+    case 'bold':
+      return 'strong'
+    case 'thin':
+      return 'normal'
+    case 'dashed':
+      return 'weak'
+    default:
+      return 'normal'
+  }
+}
+
+function connectionIntentFromStyle(
+  type: ConnectionData['type'],
+  explicitIntent?: ConnectionData['intent'],
+): LayoutImportV2Adjacency['intent'] {
+  if (explicitIntent) return explicitIntent
+  switch (type) {
+    case 'bold':
+      return 'open_passage'
+    case 'thin':
+      return 'circulation'
+    case 'dashed':
+      return 'weak_relation'
+    default:
+      return 'circulation'
+  }
+}
+
+function strengthNumberFromStyle(type: ConnectionData['type']): number {
+  switch (type) {
+    case 'bold':
+      return 1.0
+    case 'thin':
+      return 0.6
+    case 'dashed':
+      return 0.3
+    default:
+      return 0.6
+  }
 }
 
 /**
@@ -288,7 +362,7 @@ export function buildFloorPlanLayoutImportPayload(
   projectId: string,
   projectName: string,
   bubbles: BubbleData[],
-  _connections: ConnectionData[],
+  connections: ConnectionData[],
   boundaryInput: LayoutImportBoundaryInput,
   options: { spaceHeightMm?: number } = {},
 ): LayoutImportV2 {
@@ -300,8 +374,9 @@ export function buildFloorPlanLayoutImportPayload(
     const sourceBubbleId = bubble.id
     return {
       id: sourceBubbleId,
-      sourceBubbleId,
       source_bubble_id: sourceBubbleId,
+      original_label: bubble.label.trim() || sourceBubbleId,
+      original_type: toOptionalNonBlankString(bubble.originalType) ?? bubble.type,
       name: bubble.label.trim() || sourceBubbleId,
       type: normalizeFloorPlanRoomType(bubble.type),
       width: toPositiveMillimeter(bubble.widthMm),
@@ -311,9 +386,26 @@ export function buildFloorPlanLayoutImportPayload(
       y: center.y,
       angle: 0,
       locked: false,
+      ...(toOptionalNonBlankString(bubble.material) ? { material: toOptionalNonBlankString(bubble.material) } : {}),
+      ...(typeof bubble.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(bubble.color) ? { color: bubble.color } : {}),
+      ...(toLayoutImportWallType(bubble.wallType) ? { wall_type: toLayoutImportWallType(bubble.wallType) } : {}),
       zoneId: null,
     }
   })
+
+  const roomIds = new Set(rooms.map((room) => room.id))
+  const adjacency = connections
+    .filter((connection) => roomIds.has(connection.from) && roomIds.has(connection.to) && connection.from !== connection.to)
+    .map((connection, index): LayoutImportV2Adjacency => ({
+      id: connection.id ?? `connection-${index + 1}-${connection.from}-${connection.to}`,
+      from_room_id: connection.from,
+      to_room_id: connection.to,
+      strength: strengthNumberFromStyle(connection.type),
+      intent: connectionIntentFromStyle(connection.type, connection.intent),
+      connection_strength: connectionStrengthFromStyle(connection.type),
+      source_bubble_id: connection.from,
+      target_bubble_id: connection.to,
+    }))
 
   const floors = Array.from(new Set(rooms.map((room) => room.floor))).sort((a, b) => a - b)
   const boundaries = floors
@@ -325,15 +417,16 @@ export function buildFloorPlanLayoutImportPayload(
     id: projectId,
     name: projectName.trim() || '프로젝트',
     rooms: rooms.map((room) => ({ ...room })),
+    ...(adjacency.length > 0 ? { adjacency } : {}),
     ...(boundaries.length > 0 ? { boundaries } : {}),
     generation_options: {
       generate_spaces: true,
       generate_walls: true,
       generate_slabs: true,
       generate_roof: true,
-      generate_openings: false,
-      ...(options.spaceHeightMm ? { space_height_mm: Math.round(options.spaceHeightMm) } : {}),
+      generate_openings: true,
     },
+    ...(options.spaceHeightMm ? { modeling_defaults: { space_height_mm: Math.round(options.spaceHeightMm) } } : {}),
     generation_policy: {
       boundary_wall_mode: 'outer_boundary',
       shared_wall_policy: 'from_adjacency',
