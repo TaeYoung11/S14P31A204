@@ -233,6 +233,22 @@ def test_planning_worker_stores_split_chat_as_multiple_schema_commands() -> None
     assert all("length_mm" not in op["parameters"] for op in stored_payload["operations"])
 
 
+def test_split_chat_commands_keeps_dimension_comma_inside_single_command() -> None:
+    command = "1층 거실 북쪽 벽 중앙에 폭 900mm, 높이 2100mm의 나무 문을 설치해줘."
+
+    commands = LLM3DPipeline.split_chat_commands(command)
+
+    assert commands == ["1층 거실 북쪽 벽 중앙에 폭 900mm, 높이 2100mm의 나무 문을 설치해줘"]
+
+
+def test_split_chat_commands_keeps_color_commands_split_on_comma() -> None:
+    command = "1층 외벽 색상 #E5E7EB, 2층 외벽 색상 #CBD5E1로 바꿔줘"
+
+    commands = LLM3DPipeline.split_chat_commands(command)
+
+    assert commands == ["1층 외벽 색상 #E5E7EB", "2층 외벽 색상 #CBD5E1로 바꿔줘"]
+
+
 def test_planning_worker_stores_engine_operations_for_modify_and_delete() -> None:
     command = _with_user_instruction(_load_sample_command(), "modify and delete")
     mock_s3 = MagicMock()

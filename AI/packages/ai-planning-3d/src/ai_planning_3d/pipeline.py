@@ -106,7 +106,16 @@ class LLM3DPipeline:
     @staticmethod
     def split_chat_commands(user_text: str) -> list[str]:
         decimal_dot = "__BATANG_DECIMAL_DOT__"
+        dimension_comma = "__BATANG_DIMENSION_COMMA__"
+        dimension_value = (
+            r"(?:[가-힣A-Za-z]+\s*)?\d+(?:\.\d+)?\s*(?:mm|cm|m)(?![A-Za-z0-9])"
+        )
         user_text = re.sub(r"(?<=\d)\.(?=\d)", decimal_dot, user_text)
+        user_text = re.sub(
+            rf"({dimension_value})\s*,\s*(?={dimension_value})",
+            rf"\1{dimension_comma} ",
+            user_text,
+        )
         normalized = re.sub(
             r"((?:만들|생성|추가|배치|넣|달|바꾸|변경|수정|삭제|제거|없애|지우|빼))고(?=\s|[,.;])\s*",
             lambda match: f"{LLM3DPipeline._complete_connected_verb(match.group(1))}.\n",
@@ -125,7 +134,7 @@ class LLM3DPipeline:
         parts = re.split(r"(?:그리고|\.|,|\n|;)", normalized)
         commands: list[str] = []
         for part in parts:
-            part = part.replace(decimal_dot, ".").strip()
+            part = part.replace(decimal_dot, ".").replace(dimension_comma, ",").strip()
             if part:
                 commands.extend(LLM3DPipeline._expand_direction_pair_command(part))
         return LLM3DPipeline._carry_forward_command_subjects(commands or [user_text])
@@ -325,7 +334,7 @@ class LLM3DPipeline:
         host_wall = None
         if model and ci.get("host_wall_global_id"):
             host_wall = model.by_guid(ci["host_wall_global_id"])
-        if host_wall is not None:
+        if model is not None and host_wall is not None:
             fraction = (copy_index + 1) / (repeat_count + 1)
             target_storey = None
             target_name = normalize_storey_name(str(ci.get("storey") or "1F"))
@@ -468,7 +477,12 @@ class LLM3DPipeline:
         coords = tuple(getattr(location, "Coordinates", ()) or ())
         while len(coords) < 3:
             coords += (0.0,)
-        return tuple(self._model_units_to_mm(float(v)) for v in coords[:3])
+        x, y, z = coords[:3]
+        return (
+            self._model_units_to_mm(float(x)),
+            self._model_units_to_mm(float(y)),
+            self._model_units_to_mm(float(z)),
+        )
 
     def _element_size_mm(self, element: ifcopenshell.entity_instance) -> tuple[float, float, float]:
         representation = getattr(element, "Representation", None)
@@ -631,6 +645,8 @@ class LLM3DPipeline:
             return None
         wanted = space_name.replace(" ", "").lower()
         model = self.query_engine.get_model()
+        if model is None:
+            return None
         spaces = self._storey_spaces(storey) or model.by_type("IfcSpace")
         candidates: list[Any] = []
         for space in spaces:
@@ -1140,11 +1156,15 @@ class LLM3DPipeline:
         storey_z = self._storey_elevation_mm(target_storey)
 
         if element_type == LLM3DElementType.ROOF:
+            # Place the roof on top of existing walls, not at the storey floor elevation.
+            # storey_z is the floor elevation (e.g. 0mm for 1F), but we need the wall tops.
+            # storey_bbox max_z is the highest point of any element in the storey (≈ wall height).
+            roof_z = storey_bbox["max_z"] if storey_bbox else storey_z
             return {
                 "start_point": {
                     "x": center_x,
                     "y": center_y,
-                    "z": storey_z,
+                    "z": roof_z,
                 },
                 "length_mm": max(span_x * 1.05, 4000.0),
                 "width_mm": max(span_y * 1.05, 3000.0),
@@ -1596,6 +1616,8 @@ class LLM3DPipeline:
         if not session:
             return {"status": "error", "summary": "세션을 찾을 수 없습니다."}
         model = self.query_engine.get_model()
+        if model is None:
+            return {"status": "error", "summary": "IFC model is not loaded."}
         info = session.matched[0]
         ci = info["create_info"]
         storey = model.by_guid(info["storey_guid"])

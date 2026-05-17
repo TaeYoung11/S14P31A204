@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ai_planning_3d.command import LLM3DElementType, LLM3DTarget
-from ai_planning_3d.engine import LLM3DEngine
+from ai_planning_3d.engine import LLM3DEngine, SYSTEM_PROMPT
 
 
 def test_llm_3d_engine_uses_llm_env(monkeypatch):
@@ -106,3 +106,10 @@ def test_llm_3d_engine_detects_multiple_target_value_pairs():
     assert not LLM3DEngine._has_multiple_target_value_pairs(
         "\ubaa8\ub4e0 \ubcbd\uc744 #FF0000\ub85c \ubc14\uafd4\uc918"
     )
+
+
+def test_system_prompt_includes_demo_shortcut_guidance():
+    assert "DEMO SHORTCUT REQUESTS" in SYSTEM_PROMPT
+    assert "/방생성" in SYSTEM_PROMPT
+    assert "/창문수정" in SYSTEM_PROMPT
+    assert "IfcDoor" in SYSTEM_PROMPT
