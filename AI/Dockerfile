@@ -1,5 +1,7 @@
 FROM python:3.11-slim
 
+ARG INSTALL_RENDERING_DEPS=false
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     XDG_RUNTIME_DIR=/tmp/runtime-root \
@@ -41,8 +43,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
         -e ./packages/ai-layout-import \
         -e ./packages/ai-planning-2d \
         -e ./packages/ai-authoring \
-        -e ./packages/ai-planning-3d \
-        -e ./packages/ai-rendering
+        -e ./packages/ai-planning-3d && \
+    if [ "$INSTALL_RENDERING_DEPS" = "true" ]; then \
+        pip install --no-cache-dir -e ./packages/ai-rendering; \
+    fi
 
 ENTRYPOINT ["sh", "-c", "mkdir -p \"$XDG_RUNTIME_DIR\" && chmod 700 \"$XDG_RUNTIME_DIR\"; Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp & export DISPLAY=:99; exec python main.py \"$@\"", "--"]
 CMD []

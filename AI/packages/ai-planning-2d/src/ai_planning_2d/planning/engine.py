@@ -15,6 +15,7 @@ from ..command import FloorNLPCommand, IFCContext, SpaceContext
 from ..utils import shape_to_rects
 
 ResizeDirection = Literal["north", "south", "east", "west"]
+_FLOOR_NUMBER_PATTERN = re.compile(r"(\d+)\s*층")
 
 # 상대적 크기 표현 → 배율 (우선순위 순서로 정렬)
 _RELATIVE_SIZE_PATTERNS: list[tuple[str, float]] = [
@@ -71,6 +72,7 @@ _RESIZE_DIRECTION_HINTS: tuple[tuple[str, ResizeDirection], ...] = (
 
 _CREATE_DOOR_KEYWORDS: tuple[str, ...] = ("문", "door")
 _CREATE_DOOR_ACTION_HINTS: tuple[str, ...] = ("만들", "추가", "뚫")
+_DELETE_VOID_KEYWORDS: tuple[str, ...] = ("삭제", "제거", "없애", "지워")
 _CREATE_WALL_KEYWORDS: tuple[str, ...] = ("가벽", "벽", "partition", "wall")
 _CREATE_WALL_ACTION_HINTS: tuple[str, ...] = ("세워", "만들", "추가", "설치")
 
@@ -113,6 +115,117 @@ def _resolve_space_for_user_text(
     if inferred_name is None:
         return None
     return next((space for space in spaces if space.get("name") == inferred_name), None)
+
+
+def _extract_target_floor(user_text: str) -> int | None:
+    match = _FLOOR_NUMBER_PATTERN.search(user_text)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def _selected_wall_id_from_text(
+    user_text: str,
+    ifc_context: IFCContext | None,
+) -> str | None:
+    if ifc_context is None:
+        return None
+    wall_ids = {
+        wall.get("id")
+        for wall in ifc_context.get("walls", [])
+        if isinstance(wall.get("id"), str)
+    }
+    for match in re.findall(r"\[([^\]]+)\]", user_text):
+        candidate = match.strip()
+        if candidate in wall_ids:
+            return candidate
+    return None
+
+
+def _extract_recent_user_remove_target(
+    conversation_history: list[ChatCompletionMessageParam] | None,
+    ifc_context: IFCContext | None,
+) -> tuple[str | None, int | None]:
+    if not conversation_history:
+        return (None, None)
+
+    for entry in reversed(conversation_history):
+        if entry.get("role") != "user":
+            continue
+        content = entry.get("content")
+        if not isinstance(content, str):
+            continue
+        simple_remove = (
+            _maybe_parse_simple_remove_command(content)
+            or _maybe_parse_remove_command_v2(content)
+        )
+        if simple_remove is not None:
+            return simple_remove.target_room_name, simple_remove.target_floor
+        resolved_space = _resolve_space_for_user_text(content, ifc_context)
+        if resolved_space is not None:
+            return resolved_space.get("name"), resolved_space.get("floor")
+    return (None, None)
+
+
+def _conversation_is_remove_clarification(
+    conversation_history: list[ChatCompletionMessageParam] | None,
+) -> bool:
+    if not conversation_history:
+        return False
+
+    recent_messages = conversation_history[-4:]
+    assistant_mentions_remove = any(
+        entry.get("role") == "assistant"
+        and isinstance(entry.get("content"), str)
+        and (
+            ("삭제" in entry["content"] and "층" in entry["content"])
+            or "몇 층 방" in entry["content"]
+        )
+        for entry in recent_messages
+    )
+    user_mentions_remove = any(
+        entry.get("role") == "user"
+        and isinstance(entry.get("content"), str)
+        and any(keyword in entry["content"] for keyword in ("삭제", "지워", "없애"))
+        for entry in recent_messages
+    )
+    return assistant_mentions_remove and user_mentions_remove
+
+
+def _recover_followup_remove_command(
+    user_text: str,
+    ifc_context: IFCContext | None,
+    conversation_history: list[ChatCompletionMessageParam] | None,
+) -> FloorNLPCommand | None:
+    if not _conversation_is_remove_clarification(conversation_history):
+        return None
+
+    target_floor = _extract_target_floor(user_text)
+    resolved_space = _resolve_space_for_user_text(user_text, ifc_context)
+    target_room_name = resolved_space.get("name") if resolved_space is not None else None
+
+    if target_room_name is None:
+        inferred_name, _ = _infer_room_name_and_type(user_text)
+        target_room_name = inferred_name
+
+    previous_target_name, previous_target_floor = _extract_recent_user_remove_target(
+        conversation_history,
+        ifc_context,
+    )
+    target_room_name = target_room_name or previous_target_name
+    target_floor = target_floor or previous_target_floor
+
+    if target_room_name is None:
+        return None
+
+    return FloorNLPCommand(
+        action="remove_room",
+        target_room_name=target_room_name,
+        target_floor=target_floor,
+        confidence=0.96,
+        needs_clarification=False,
+        clarification_question=None,
+    )
 
 
 def _apply_relative_adjustment(
@@ -453,24 +566,118 @@ def _maybe_parse_simple_create_door_command(
     if ifc_context is None:
         return None
 
-    matched_walls = [
+    mentioned_space = next(
+        (
+            space
+            for space in ifc_context.get("spaces", [])
+            if space.get("name") and space["name"] in user_text
+        ),
+        None,
+    )
+    if mentioned_space is None:
+        return FloorNLPCommand(
+            action="create_door",
+            confidence=0.3,
+            needs_clarification=True,
+            clarification_question="어느 방의 벽에 문을 만들까요? 방 이름을 알려주세요.",
+        )
+
+    candidate_walls = [
         wall
         for wall in ifc_context.get("walls", [])
-        if wall.get("id") and wall["id"] in user_text
+        if mentioned_space.get("id") and mentioned_space["id"] in wall.get("space_ids", [])
     ]
-    if len(matched_walls) != 1:
-        return None
+    if not candidate_walls:
+        return FloorNLPCommand(
+            action="create_door",
+            confidence=0.3,
+            needs_clarification=True,
+            clarification_question=f"'{mentioned_space['name']}' 방의 벽 정보를 찾을 수 없습니다.",
+        )
 
-    wall = matched_walls[0]
+    interior_walls = [wall for wall in candidate_walls if wall.get("kind") == "INTERIOR"]
+    wall = interior_walls[0] if interior_walls else candidate_walls[0]
     return FloorNLPCommand(
         action="create_door",
         target_wall_id=wall["id"],
         target_floor=wall.get("floor"),
         element_width_mm=900,
         element_height_mm=2100,
-        confidence=0.9,
+        confidence=0.88,
         needs_clarification=False,
         clarification_question=None,
+    )
+
+
+def _maybe_parse_simple_delete_wall_void_command(
+    user_text: str,
+    ifc_context: IFCContext | None,
+) -> FloorNLPCommand | None:
+    if not any(keyword in user_text for keyword in _DELETE_VOID_KEYWORDS):
+        return None
+
+    lowered = user_text.casefold()
+    is_window = any(
+        keyword in user_text or keyword in lowered
+        for keyword in ("창문", "창", "window")
+    )
+    is_door = not is_window and any(
+        keyword in user_text or keyword in lowered for keyword in ("문", "도어", "door")
+    )
+    if not is_door and not is_window:
+        return None
+    if ifc_context is None:
+        return None
+
+    mentioned_space = next(
+        (
+            space
+            for space in ifc_context.get("spaces", [])
+            if space.get("name") and space["name"] in user_text
+        ),
+        None,
+    )
+
+    candidate_wall_ids: set[str] | None = None
+    if mentioned_space is not None:
+        candidate_wall_ids = {
+            wall["id"]
+            for wall in ifc_context.get("walls", [])
+            if mentioned_space.get("id") and mentioned_space["id"] in wall.get("space_ids", [])
+        }
+
+    pool = ifc_context.get("doors", []) if is_door else ifc_context.get("windows", [])
+    candidates = [
+        element
+        for element in pool
+        if candidate_wall_ids is None or element.get("host_wall_id") in candidate_wall_ids
+    ]
+
+    if len(candidates) == 1:
+        candidate = candidates[0]
+        return FloorNLPCommand(
+            action="delete_wall_void",
+            target_element_id=candidate["id"],
+            target_floor=candidate.get("floor"),
+            confidence=0.9,
+            needs_clarification=False,
+            clarification_question=None,
+        )
+    if len(candidates) == 0:
+        what = "문" if is_door else "창문"
+        return FloorNLPCommand(
+            action="delete_wall_void",
+            confidence=0.3,
+            needs_clarification=True,
+            clarification_question=f"삭제할 {what}을 찾지 못했습니다.",
+        )
+
+    what = "문" if is_door else "창문"
+    return FloorNLPCommand(
+        action="delete_wall_void",
+        confidence=0.4,
+        needs_clarification=True,
+        clarification_question=f"{what}이 여러 개 있습니다. 어느 방의 {what}을 삭제할까요?",
     )
 
 
@@ -512,6 +719,8 @@ SYSTEM_PROMPT = """
 
 ## 지원 액션
 - add_room: 방 추가
+- create_door: 지정 방 또는 벽에 문(IfcDoor) 생성. 방 이름 또는 target_wall_id 필수
+- delete_wall_void: 기존 문/창문 삭제. target_element_id 필수
 - remove_room: 방 삭제
 - resize_room: 방 크기 변경
 - set_adjacency: 방 인접 관계 설정
@@ -701,7 +910,54 @@ class FloorPlanEngine:
         user_text: str,
         ifc_context: IFCContext | None = None,
         conversation_history: list[ChatCompletionMessageParam] | None = None,
+        selected_wall_id: str | None = None,
     ) -> FloorNLPCommand:
+        if selected_wall_id is None:
+            selected_wall_id = _selected_wall_id_from_text(user_text, ifc_context)
+        if selected_wall_id is not None:
+            lowered = user_text.casefold()
+            has_door_keyword = any(k in user_text or k in lowered for k in _CREATE_DOOR_KEYWORDS)
+            has_door_action = any(k in user_text for k in _CREATE_DOOR_ACTION_HINTS)
+            if has_door_keyword and has_door_action:
+                target_floor: int | None = None
+                if ifc_context is not None:
+                    target_wall = None
+                    for wall in ifc_context.get("walls", []):
+                        if wall.get("id") == selected_wall_id:
+                            target_wall = wall
+                            break
+                    if target_wall is None:
+                        return FloorNLPCommand(
+                            action="create_door",
+                            confidence=0.3,
+                            needs_clarification=True,
+                            clarification_question=(
+                                "선택한 벽 정보를 IFC에서 찾을 수 없습니다. "
+                                "어느 벽에 문을 만들까요?"
+                            ),
+                        )
+                    floor = target_wall.get("floor")
+                    target_floor = floor if isinstance(floor, int) else None
+                return FloorNLPCommand(
+                    action="create_door",
+                    target_wall_id=selected_wall_id,
+                    target_floor=target_floor,
+                    element_width_mm=900,
+                    element_height_mm=2100,
+                    confidence=0.99,
+                    needs_clarification=False,
+                    clarification_question=None,
+                )
+            # 문 생성 의도가 명확하지 않으면 selected_wall_id 무시하고 일반 파싱으로 폴스루
+
+        clarification_followup_remove = _recover_followup_remove_command(
+            user_text,
+            ifc_context,
+            conversation_history,
+        )
+        if clarification_followup_remove is not None:
+            return clarification_followup_remove
+
         generic_room_change = _maybe_parse_generic_room_change_clarification(user_text)
         if generic_room_change is not None:
             return generic_room_change
@@ -713,6 +969,10 @@ class FloorPlanEngine:
         create_door = _maybe_parse_simple_create_door_command(user_text, ifc_context)
         if create_door is not None:
             return create_door
+
+        delete_void = _maybe_parse_simple_delete_wall_void_command(user_text, ifc_context)
+        if delete_void is not None:
+            return delete_void
 
         insert_toilet = _maybe_parse_insert_toilet_command_v3(user_text)
         if insert_toilet is not None:
@@ -791,9 +1051,25 @@ class FloorPlanEngine:
             return command
 
         except Exception as e:
+            recovered_followup = _recover_followup_remove_command(
+                user_text,
+                ifc_context,
+                conversation_history,
+            )
+            if recovered_followup is not None:
+                return recovered_followup
             recovered = _recover_command_from_exception(e, user_text, ifc_context)
             if recovered is not None:
                 return recovered
+            return FloorNLPCommand(
+                action="add_room",
+                confidence=0.0,
+                needs_clarification=True,
+                clarification_question=(
+                    "명령을 구조화해서 해석하지 못했습니다. "
+                    "삭제 또는 변경할 방 이름과 층을 짧게 다시 알려주세요."
+                ),
+            )
             return FloorNLPCommand(
                 action="add_room",
                 confidence=0.0,

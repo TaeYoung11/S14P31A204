@@ -55,7 +55,7 @@ def test_llm_3d_engine_defaults_to_ollama_without_llm_env(monkeypatch):
 
     engine = LLM3DEngine()
 
-    assert engine.model == "qwen2.5:7b"
+    assert engine.model == "gemma3:4b"
     assert engine.base_url == "http://localhost:11434/v1"
     assert engine._raw_client.api_key == "ollama"
     assert engine._raw_client.timeout == 30.0
@@ -66,7 +66,7 @@ def test_llm_3d_engine_ignores_invalid_timeout_env(monkeypatch):
 
     engine = LLM3DEngine()
 
-    assert engine.model == "qwen2.5:7b"
+    assert engine.model == "gemma3:4b"
     assert engine._raw_client.timeout == 30.0
 
 

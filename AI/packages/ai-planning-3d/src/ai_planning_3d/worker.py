@@ -6,6 +6,7 @@ import asyncio
 import json
 import tempfile
 import uuid
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any, cast
 
@@ -52,7 +53,11 @@ class PlanningWorker(BaseWorker):
     def process(self, command: CommandMessage) -> WorkerResult:
         payload = command.payload  # ThreeDLlmCommandPayload
         ifc_url: str = payload.sourceSceneStorageUrl
-        user_instruction: str = payload.userInstruction
+        user_instruction: str = _resolve_effective_instruction(
+            payload.userInstruction,
+            payload.conversationHistory,
+            payload.plannerOptions,
+        )
         output_url: str | None = command.expectedOutput.threeDPlanStorageUrl
 
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -67,7 +72,13 @@ class PlanningWorker(BaseWorker):
 
             pipeline = LLM3DPipeline(ifc_path=str(ifc_path))
             try:
-                result = asyncio.run(_execute_preview_for_instruction(pipeline, user_instruction))
+                result = asyncio.run(
+                    _execute_preview_for_instruction(
+                        pipeline,
+                        user_instruction,
+                        payload.plannerOptions,
+                    )
+                )
             except Exception as exc:
                 raise NonRetryableWorkerError(
                     code="PIPELINE_FAILED",
@@ -93,12 +104,13 @@ class PlanningWorker(BaseWorker):
                 session_id=session_id,
                 question_count=len(result.get("clarification_questions", [])),
             )
+            clarification_url = self._store_clarification_artifact(result, session_id, output_url)
             return ClarificationResult(
                 error=ClarificationRequiredError(
                     code="NEEDS_CLARIFICATION",
                     message=result.get("summary", "생성 전 확인이 필요합니다."),
                     clarification_request_id=session_id,
-                    detail_storage_url=stored_url,
+                    detail_storage_url=clarification_url,
                 )
             )
 
@@ -138,6 +150,37 @@ class PlanningWorker(BaseWorker):
                 message=f"결과 업로드 실패: {exc}",
             ) from exc
 
+    def _store_clarification_artifact(
+        self,
+        result: dict[str, Any],
+        session_id: str,
+        output_url: str | None,
+    ) -> str:
+        """FE가 소비하는 ClarificationArtifact 형식 JSON을 별도 S3 객체로 저장한다."""
+        if not output_url:
+            raise RetryableWorkerError(
+                code="CLARIFICATION_ARTIFACT_UPLOAD_FAILED",
+                message="clarification artifact 저장 위치(output_url)가 없습니다.",
+            )
+        try:
+            artifact = _build_clarification_artifact(result, session_id)
+            loc = parse_s3_url(output_url)
+            clarification_key = loc.key.rstrip("/") + ".clarification.json"
+            return cast(
+                str,
+                self._s3.write_text(
+                    key=clarification_key,
+                    text=json.dumps(artifact, ensure_ascii=False),
+                    content_type="application/json; charset=utf-8",
+                    bucket=loc.bucket,
+                ),
+            )
+        except Exception as exc:
+            raise RetryableWorkerError(
+                code="CLARIFICATION_ARTIFACT_UPLOAD_FAILED",
+                message=f"clarification artifact 업로드 실패: {exc}",
+            ) from exc
+
 
 # ── planner_3d_result.v1.schema.json 변환 헬퍼 ───────────────────────────────
 
@@ -145,14 +188,60 @@ class PlanningWorker(BaseWorker):
 async def _execute_preview_for_instruction(
     pipeline: LLM3DPipeline,
     user_instruction: str,
+    planner_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    has_host_wall_override = isinstance(planner_options, dict) and isinstance(
+        planner_options.get("host_wall_global_id"),
+        str,
+    ) and bool(str(planner_options.get("host_wall_global_id")).strip())
+
     command_texts = pipeline.split_chat_commands(user_instruction)
     if len(command_texts) <= 1:
-        return await pipeline.execute_preview(user_instruction)
+        if not has_host_wall_override:
+            return await pipeline.execute_preview(user_instruction)
+        host_wall_global_id = str(planner_options.get("host_wall_global_id", "")).strip()
+        if _is_stale_host_wall(pipeline, host_wall_global_id):
+            return _stale_host_wall_result(host_wall_global_id)
+        command = await pipeline.engine.parse_command(
+            user_instruction,
+            ifc_context=pipeline._ifc_context_text,
+        )
+        return await pipeline.execute_command_preview(
+            _apply_planner_options(command, planner_options)
+        )
 
     previews: list[dict[str, Any]] = []
     for index, command_text in enumerate(command_texts, start=1):
-        preview = await pipeline.execute_preview(command_text)
+        if not has_host_wall_override:
+            preview = await pipeline.execute_preview(command_text)
+            preview["split_index"] = index
+            preview["split_instruction"] = command_text
+            previews.append(preview)
+
+            if preview.get("status") != "preview_ready":
+                summary = (
+                    preview.get("summary")
+                    or preview.get("message")
+                    or "Preview generation failed."
+                )
+                return {
+                    **preview,
+                    "summary": f"Command {index} failed: {summary}",
+                    "split_results": previews,
+                }
+            continue
+
+        command = await pipeline.engine.parse_command(
+            command_text,
+            ifc_context=pipeline._ifc_context_text,
+        )
+        if index == 1:
+            host_wall_global_id = str(planner_options.get("host_wall_global_id", "")).strip()
+            if _is_stale_host_wall(pipeline, host_wall_global_id):
+                return _stale_host_wall_result(host_wall_global_id)
+        preview = await pipeline.execute_command_preview(
+            _apply_planner_options(command, planner_options if index == 1 else None)
+        )
         preview["split_index"] = index
         preview["split_instruction"] = command_text
         previews.append(preview)
@@ -161,17 +250,17 @@ async def _execute_preview_for_instruction(
             summary = (
                 preview.get("summary")
                 or preview.get("message")
-                or "명령 preview에 실패했습니다."
+                or "Preview generation failed."
             )
             return {
                 **preview,
-                "summary": f"{index}번째 명령 처리 실패: {summary}",
+                "summary": f"Command {index} failed: {summary}",
                 "split_results": previews,
             }
 
     return {
         "status": "preview_ready",
-        "summary": f"{len(previews)}개 3D 명령 preview가 준비되었습니다.",
+        "summary": f"Generated {len(previews)} preview commands.",
         "commands": [
             preview["command"]
             for preview in previews
@@ -179,6 +268,76 @@ async def _execute_preview_for_instruction(
         ],
         "split_results": previews,
     }
+
+
+def _is_stale_host_wall(pipeline: LLM3DPipeline, global_id: str) -> bool:
+    model = pipeline.query_engine.get_model()
+    if model is None:
+        return False
+    try:
+        entity = model.by_guid(global_id)
+    except Exception:
+        return True
+    return entity is None or not entity.is_a("IfcWall")
+
+
+def _stale_host_wall_result(global_id: str) -> dict[str, Any]:
+    question = "선택한 벽이 현재 모델에서 유효하지 않습니다. 벽을 다시 선택해 주세요."
+    return {
+        "status": "needs_clarification",
+        "summary": question,
+        "clarification_questions": [
+            {
+                "question_ko": question,
+                "options": [],
+                "context": {
+                    "reason": "invalid_host_wall_selection",
+                    "invalid_global_id": global_id,
+                    "apply_field": "host_wall_global_id",
+                },
+            }
+        ],
+    }
+
+
+def _resolve_effective_instruction(
+    user_instruction: str,
+    conversation_history: list[Any],
+    planner_options: dict[str, Any] | None,
+) -> str:
+    if not isinstance(planner_options, dict):
+        return user_instruction
+
+    host_wall_global_id = planner_options.get("host_wall_global_id")
+    if not isinstance(host_wall_global_id, str) or not host_wall_global_id.strip():
+        return user_instruction
+
+    for entry in reversed(conversation_history):
+        role = getattr(entry, "role", None)
+        content = getattr(entry, "content", None)
+        if role == "user" and isinstance(content, str) and content.strip():
+            return content.strip()
+    return user_instruction
+
+
+def _apply_planner_options(command: Any, planner_options: dict[str, Any] | None) -> Any:
+    if not isinstance(planner_options, dict):
+        return command
+
+    host_wall_global_id = planner_options.get("host_wall_global_id")
+    if not isinstance(host_wall_global_id, str) or not host_wall_global_id.strip():
+        return command
+
+    create_info = getattr(command, "create_info", None)
+    if str(getattr(command, "command_type", "")) != "CREATE" or create_info is None:
+        return command
+
+    element_type = str(getattr(create_info, "element_type", ""))
+    if element_type not in {"IfcDoor", "IfcWindow"}:
+        return command
+
+    create_info.host_wall_global_id = host_wall_global_id.strip()
+    return command
 
 
 def _build_result_payload(
@@ -603,6 +762,47 @@ def _map_clarification(result: dict[str, Any]) -> dict[str, Any]:
         return clarification
     # ambiguity_question 경로: 질문만 있고 선택지 없음
     return {"question": result.get("summary", "추가 정보가 필요합니다.")}
+
+
+def _build_clarification_artifact(
+    result: dict[str, Any],
+    session_id: str,
+) -> dict[str, Any]:
+    """파이프라인 clarification 결과 → FE ClarificationArtifact 계약 형식으로 변환."""
+    clarification = _map_clarification(result)
+    question = clarification.get("question", "추가 정보가 필요합니다.")
+    options: list[Any] = clarification.get("options") or []
+    context: dict[str, Any] = clarification.get("context") or {}
+    apply_field: str | None = context.get("apply_field") if isinstance(context, dict) else None
+
+    alternatives = [
+        {
+            "alternative_id": opt["id"],
+            "title": opt["label"],
+            "description": opt.get("description", ""),
+            "fill": {apply_field: opt["value"]}
+            if apply_field and opt.get("value") is not None
+            else {},
+            "affected_entities": [],
+            "warnings": [],
+            "metrics": [],
+        }
+        for opt in options
+        if isinstance(opt, dict) and opt.get("id") and opt.get("label")
+    ]
+
+    return {
+        "schema_version": "v1",
+        "kind": "alternatives" if alternatives else "open_ended",
+        "question": question,
+        "alternatives": alternatives,
+        "parsed_command_preview": None,
+        "policy_plan": None,
+        "job_id": session_id,
+        "step_no": 1,
+        "clarification_request_id": session_id,
+        "timestamp": datetime.now(UTC).isoformat(),
+    }
 
 
 def _map_issues(

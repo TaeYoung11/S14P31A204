@@ -26,10 +26,12 @@ public final class IfcEditConstants {
     public static final String EVENT_TWO_D_LLM_PROGRESS = "TWO_D_LLM_PROGRESS";
     public static final String EVENT_TWO_D_LLM_COMPLETED = "TWO_D_LLM_COMPLETED";
     public static final String EVENT_TWO_D_LLM_FAILED = "TWO_D_LLM_FAILED";
+    public static final String EVENT_TWO_D_LLM_CLARIFICATION_REQUIRED = "TWO_D_LLM_CLARIFICATION_REQUIRED";
     public static final String EVENT_THREE_D_LLM_STARTED = "THREE_D_LLM_STARTED";
     public static final String EVENT_THREE_D_LLM_PROGRESS = "THREE_D_LLM_PROGRESS";
     public static final String EVENT_THREE_D_LLM_COMPLETED = "THREE_D_LLM_COMPLETED";
     public static final String EVENT_THREE_D_LLM_FAILED = "THREE_D_LLM_FAILED";
+    public static final String EVENT_THREE_D_LLM_CLARIFICATION_REQUIRED = "THREE_D_LLM_CLARIFICATION_REQUIRED";
 
     public static final String ARTIFACT_TYPE_IFC_MODEL = "IFC_MODEL";
     public static final String ARTIFACT_TYPE_VALIDATION_REPORT = "VALIDATION_REPORT";
@@ -43,6 +45,7 @@ public final class IfcEditConstants {
     public static final String SSE_IFC_EDIT_PROGRESS = "IFC_EDIT_PROGRESS";
     public static final String SSE_IFC_EDIT_COMPLETED = "IFC_EDIT_COMPLETED";
     public static final String SSE_IFC_EDIT_FAILED = "IFC_EDIT_FAILED";
+    public static final String SSE_IFC_EDIT_CLARIFICATION_REQUIRED = "IFC_EDIT_CLARIFICATION_REQUIRED";
 
     public static final int TOTAL_STEPS_DIRECT = 1;
     public static final int TOTAL_STEPS_LLM = 2;

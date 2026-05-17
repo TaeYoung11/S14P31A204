@@ -38,8 +38,8 @@ _WORKER_TYPE_TO_SAMPLE: dict[str, str] = {
 _WORKER_TYPE_TO_ROUTING_KEY: dict[str, str] = {
     "SD_RENDER_GENERATE": "command.sd-render.generate",
     "IFC_GENERATE_FROM_BUBBLE": "command.ifc-generate.from-bubble",
-    "TWO_D_LLM_GENERATE": "command.2d-llm.generate",
-    "THREE_D_LLM_GENERATE": "command.3d-llm.generate",
+    "TWO_D_LLM_GENERATE": "command.two-d-llm.generate",
+    "THREE_D_LLM_GENERATE": "command.three-d-llm.generate",
     "IFC_EDIT_APPLY": "command.ifc-edit.apply",
 }
 
