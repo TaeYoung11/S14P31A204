@@ -370,6 +370,12 @@ class Ifc2ImgPhotoManifest:
     time_of_day: Ifc2ImgWorkerTimeOfDay = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY
     schema_version: str = PHOTO_MANIFEST_SCHEMA_VERSION
     render_mode: str = "ifc2img"
+    # Soft fidelity-status surface: caller가 opt-in한 IFC 색 보존이 실제 photo에
+    # 반영됐는지 success 응답 안에서 알 수 있도록 노출한다. opted_in=False면
+    # applied/error는 의미 없음.
+    ifc_color_preservation_opted_in: bool = False
+    ifc_color_preservation_applied: bool = False
+    ifc_color_preservation_error: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         """manifest dataclass를 기존 JSON 출력 구조로 변환한다."""
@@ -379,6 +385,9 @@ class Ifc2ImgPhotoManifest:
             "sourceIfcPath": str(self.source_ifc_path),
             "preset": self.preset,
             "timeOfDay": self.time_of_day,
+            "ifcColorPreservationOptedIn": self.ifc_color_preservation_opted_in,
+            "ifcColorPreservationApplied": self.ifc_color_preservation_applied,
+            "ifcColorPreservationError": self.ifc_color_preservation_error,
             "views": [
                 {
                     "view": output.view,
@@ -400,6 +409,9 @@ class Ifc2ImgPhotoJobResult:
     outputs: tuple[Ifc2ImgPhotoViewResult, ...]
     manifest_path: Path
     time_of_day: Ifc2ImgWorkerTimeOfDay = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY
+    ifc_color_preservation_opted_in: bool = False
+    ifc_color_preservation_applied: bool = False
+    ifc_color_preservation_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1276,6 +1288,7 @@ def run_ifc2img_photo_pipeline(
         views=[view.value for view in depth_images],
     )
     params = load_preset(preset, preset_time_of_day)
+    ifc_color_preservation_applied = False
     if use_ifc_color_prompt_suffix and debug_color_summary is not None:
         if ifc_color_prompt_style == "compact":
             color_suffix = build_ifc_compact_color_prompt_suffix(debug_color_summary)
@@ -1296,6 +1309,12 @@ def run_ifc2img_photo_pipeline(
             params,
             prompt=inject_ifc_color_prompt(color_safe_prompt, color_suffix),
         )
+        ifc_color_preservation_applied = True
+    ifc_color_preservation_error = (
+        color_summary_error
+        if use_ifc_color_prompt_suffix and not ifc_color_preservation_applied
+        else None
+    )
     if use_ifc_shape_lock_prompt:
         params = dataclass_replace(
             params,
@@ -1449,12 +1468,18 @@ def run_ifc2img_photo_pipeline(
             preset=preset,
             time_of_day=worker_time_of_day,
             outputs=output_tuple,
+            ifc_color_preservation_opted_in=use_ifc_color_prompt_suffix,
+            ifc_color_preservation_applied=ifc_color_preservation_applied,
+            ifc_color_preservation_error=ifc_color_preservation_error,
         ),
     )
     _logger.info(
         "ifc2img_manifest_write_completed",
         manifestPath=str(manifest_path),
         photoCount=len(output_tuple),
+        ifcColorPreservationOptedIn=use_ifc_color_prompt_suffix,
+        ifcColorPreservationApplied=ifc_color_preservation_applied,
+        ifcColorPreservationError=ifc_color_preservation_error,
     )
     return Ifc2ImgPhotoJobResult(
         preset=preset,
@@ -1462,6 +1487,9 @@ def run_ifc2img_photo_pipeline(
         outputs=output_tuple,
         manifest_path=manifest_path,
         time_of_day=worker_time_of_day,
+        ifc_color_preservation_opted_in=use_ifc_color_prompt_suffix,
+        ifc_color_preservation_applied=ifc_color_preservation_applied,
+        ifc_color_preservation_error=ifc_color_preservation_error,
     )
 
 
