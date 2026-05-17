@@ -24,11 +24,17 @@
 
 ## V2 contract boundaries
 
-`v2` adds contract fields and boundary-driven generation for wall/slab/roof:
+`v2` is the official contract for the current bubble-to-IFC generation path. `LayoutImportV3` remains supported for existing explicit-opening callers, but this package does not require FE/BE to switch generation payloads to V3.
+
+`v2` adds contract fields and generation controls for room walls, site boundary
+walls, slabs, roof, and inferred openings:
 
 - `generation_options`
 - extended `modeling_defaults`
 - `generation_policy`
+- `entrance` room type
+- room metadata: `source_bubble_id`, `original_label`, `original_type`, `material`, `color`, `wall_type`
+- connection metadata: `id`, `intent`, `connection_strength`, `source_bubble_id`, `target_bubble_id`
 
 Supported `v2` policy values are currently fixed to:
 
@@ -41,16 +47,24 @@ When a boundary-driven generation option is enabled, the service now degrades mi
 - missing `wall_thickness_mm` -> default `200`
 - missing `slab_thickness_mm` -> default `150`
 - missing `roof_height_mm` -> default `1000`
-- missing floor boundary for any room floor -> `generate_walls=false` and `generate_slabs=false`
+- missing floor boundary for any room floor -> `generate_slabs=false`
 - missing top-floor boundary -> `generate_roof=false`
 - `generate_walls=false` also forces `generate_openings=false`
+- V3 explicit openings that target a missing `wall-boundary-*` ref are disabled
+  rather than failing the whole job
 
-This is a feature downgrade, not geometry healing. The service does not synthesize missing boundaries.
+This is a feature downgrade, not geometry healing. The service does not synthesize
+missing site boundaries. Room boundary walls are generated from room rectangles and
+do not require a site boundary polygon.
 
 When enabled, generated elements follow these rules:
 
-- wall: one `IfcWall` per floor boundary edge
-- shared wall: one `IfcWall` per deduped room-edge overlap when `shared_wall_policy=from_adjacency`
+- site boundary wall: one `IfcWall` per floor boundary edge when a boundary polygon exists
+- room boundary wall: one `IfcWall` per room perimeter segment
+- shared room boundary wall: one deduped `IfcWall` for each actual room-edge overlap
+- legacy shared wall: one compatibility `IfcWall` per deduped room-edge overlap when `shared_wall_policy=from_adjacency`
+- `IfcRelSpaceBoundary`: one physical relationship from each `IfcSpace` to each room boundary wall it touches
+- inferred opening: V2 `generate_openings=true` creates openings only when final room geometry produced a shared room boundary wall
 - slab: one `IfcSlab` per floor boundary
 - roof: one `IfcRoof` from the top-floor boundary
 
@@ -63,6 +77,38 @@ Shared wall generation rules are currently:
 - `strength` is used as a soft placement optimization weight before IFC generation
 - cross-floor adjacency and rotated-room shared wall candidates are skipped with warnings
 
+V2 inferred opening rules:
+
+- `connection_strength=strong`, `intent=open_passage`, or `strength >= 0.95` creates a large doorless `IfcOpeningElement`
+- normal circulation creates `IfcOpeningElement + IfcDoor`
+- weak relation or `strength < 0.5` records adjacency metadata only; no opening is generated
+- an opening is never generated unless the final room geometry produced a host shared room boundary wall
+- space merge is never inferred from a strong connection; merge requires an explicit future contract
+
+Generated IFC semantic property sets:
+
+- `IfcSpace`: `Pset_BatangLayoutImportRoom` and `Pset_BatangRoom`
+- `IfcWall`: `Pset_WallCommon` and `Pset_BatangWall`
+- inferred `IfcOpeningElement`/`IfcDoor`: `Pset_BatangOpening`
+
+`Pset_BatangWall` distinguishes site shell walls from room-specific authoring targets:
+
+- `WallKind = SITE_BOUNDARY`: site/floor shell wall generated from `boundaries`
+- `WallKind = ROOM_BOUNDARY`: one room touches this wall segment
+- `WallKind = SHARED_ROOM_BOUNDARY`: two rooms share this wall segment
+
+Room boundary walls also include:
+
+- `BoundedRoomIdsJson`
+- `BoundedRoomNamesJson`
+- `BoundedRoomTypesJson`
+- `WallSideByRoomJson`
+- `Source = room_perimeter`
+
+The standard `IfcRelSpaceBoundary` relationship is the primary downstream contract
+for resolving requests such as "bathroom west wall". Custom property sets are
+secondary metadata for search, debugging, and authoring context.
+
 `v3` explicit opening rules:
 
 - `generate_openings=true` requires `opening_policy=explicit_only`
@@ -70,7 +116,9 @@ Shared wall generation rules are currently:
 - `door` -> `IfcDoor`
 - `window` -> `IfcWindow`
 - `window` sill height is fixed at `900mm`
-- if walls are degraded off, openings are also disabled
+- if `generate_walls=false`, openings are also disabled
+- if an explicit opening targets a missing boundary wall on a floor without a
+  boundary, openings are disabled for fail-soft behavior
 
 ## Units
 
@@ -157,12 +205,12 @@ Completed validation report example:
     "defaultsApplied": {
       "wall_thickness_mm": 200
     },
-    "degradedFeatures": ["generate_walls"],
+    "degradedFeatures": ["generate_slabs"],
     "missingBoundaryFloors": [2],
     "availableBoundaryFloors": [1],
     "roomFloors": [1, 2],
     "topFloorBoundaryMissing": false,
-    "openingsDisabledBecauseWallsDisabled": true,
+    "openingsDisabledBecauseWallsDisabled": false,
     "layoutOptimizationApplied": true,
     "movedRoomCount": 1,
     "satisfiedAdjacencyCount": 1,
@@ -214,8 +262,9 @@ On validation failure, stderr prints:
 ## Notes
 
 - `v1` input behavior remains unchanged.
-- `v2` now generates `IfcWall`, `IfcSlab`, and `IfcRoof` from `boundaries`.
-- `v2` also generates interior shared walls from `adjacency` when `shared_wall_policy=from_adjacency`.
+- `v2` now generates room boundary `IfcWall` entities and `IfcRelSpaceBoundary` links from room rectangles.
+- `v2` still generates site boundary `IfcWall`, `IfcSlab`, and `IfcRoof` from `boundaries` when boundaries exist.
+- `v2` also generates compatibility interior shared walls from `adjacency` when `shared_wall_policy=from_adjacency`.
 - `v2`/`v3` use `adjacency.strength` to optimize unlocked room placement before generation.
 - `v3` generates explicit openings, doors, and windows.
 - Worker logs now record automatic default application and feature downgrade decisions.
