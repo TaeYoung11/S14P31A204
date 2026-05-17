@@ -231,6 +231,9 @@ export function FloorPlan3DCanvas({
       tc.detach()
       tc.visible = false
       tc.enabled = false
+      if (multiAnchorRef.current) {
+        scene.remove(multiAnchorRef.current)
+      }
       multiAnchorRef.current = null
       selectedPresetRef.current = null
       onIfcElementSelectRef.current?.(null)
@@ -749,11 +752,12 @@ export function FloorPlan3DCanvas({
       // ── 선택/마퀴 ──
       handlePointerDown = (event: PointerEvent) => {
         if (cancelled) return
-        if (isTransformDragging) return
         if (event.button !== 0) return
         const isDeleteMode = isDeleteTool(selectedToolRef.current)
         const isSelectionMode = isSelectionTool(selectedToolRef.current)
-        if (!isCollaborationModeRef.current && !isSelectionInteractionTool(selectedToolRef.current)) return
+        // 기즈모가 활성 상태면 도구 제한 없이 선택/해제를 처리한다.
+        const wasTransformActive = tc.visible && tc.enabled
+        if (!isCollaborationModeRef.current && !isSelectionInteractionTool(selectedToolRef.current) && !wasTransformActive) return
         const bounds = renderer.domElement.getBoundingClientRect()
         if (!isPointerInsideBounds(bounds, event.clientX, event.clientY)) return
 
@@ -793,47 +797,67 @@ export function FloorPlan3DCanvas({
           ? (floorHit as { distance: number }).distance
           : Number.POSITIVE_INFINITY
 
+        // TC의 pointerDown은 hover로 남은 axis가 있으면 planeIntersect 성공 여부와 무관하게
+        // dragging=true를 설정한다(TC 소스의 구조적 결함). isTransformDragging=true라도
+        // 실제로 다른 오브젝트를 클릭한 경우는 TC drag를 취소하고 재선택을 허용한다.
+        if (isTransformDragging) {
+          const tcObj = (tc as unknown as { object: import('three').Object3D | undefined }).object
+          if (tcObj === multiAnchorRef.current) return
+          let isDifferentObject = false
+          if (libraryHit?.object && libraryDistance <= floorDistance) {
+            const hitRoot = findLibraryRoot(libraryHit.object, presetGroup) ?? libraryHit.object
+            isDifferentObject = hitRoot !== tcObj
+          } else if (floorHit?.object && floorGroupRef.current) {
+            const hitRoot = findGroupRootFromObject(floorHit.object, floorGroupRef.current)
+            isDifferentObject = hitRoot !== null && hitRoot !== tcObj
+          }
+          if (!isDifferentObject) return
+          ;(tc as unknown as { dragging: boolean }).dragging = false
+        }
+
         const isAppend = isSelectionMode && event.shiftKey
         if (libraryHit?.object && libraryDistance <= floorDistance) {
           const root = findLibraryRoot(libraryHit.object, presetGroup) ?? (libraryHit.object as LibraryObject3D)
           const elementInfo = getLibraryElementInfo(root)
-          if (!elementInfo || !isSelectableThreeDComponent(elementInfo)) return
-          const nextEntry: MultiSelectionEntry = {
-            key: `library:${elementInfo.id}`,
-            object: root,
-            source: 'library',
-            element: elementInfo,
-          }
-          if (isDeleteMode) {
-            commitSelection([nextEntry])
-            deleteSelectedEntry()
+          if (elementInfo && isSelectableThreeDComponent(elementInfo)) {
+            const nextEntry: MultiSelectionEntry = {
+              key: `library:${elementInfo.id}`,
+              object: root,
+              source: 'library',
+              element: elementInfo,
+            }
+            if (isDeleteMode) {
+              commitSelection([nextEntry])
+              deleteSelectedEntry()
+              return
+            }
+            upsertSelection(nextEntry, isAppend)
             return
           }
-          upsertSelection(nextEntry, isAppend)
-          return
         }
 
         if (floorHit?.object && floorGroupRef.current) {
           const root = findGroupRootFromObject(floorHit.object, floorGroupRef.current)
           const elementInfo = root ? getFloorPlanElementInfo(root) : null
-          if (!root || !elementInfo || !isSelectableThreeDComponent(elementInfo)) return
-          if (isDeleteMode) {
-            commitSelection([{
+          if (root && elementInfo && isSelectableThreeDComponent(elementInfo)) {
+            if (isDeleteMode) {
+              commitSelection([{
+                key: `floor:${elementInfo.id}`,
+                object: root,
+                source: 'floor',
+                element: elementInfo,
+              }])
+              deleteSelectedEntry()
+              return
+            }
+            upsertSelection({
               key: `floor:${elementInfo.id}`,
               object: root,
               source: 'floor',
               element: elementInfo,
-            }])
-            deleteSelectedEntry()
+            }, isAppend)
             return
           }
-          upsertSelection({
-            key: `floor:${elementInfo.id}`,
-            object: root,
-            source: 'floor',
-            element: elementInfo,
-          }, isAppend)
-          return
         }
 
         if (!isAppend && !isDeleteMode) {
@@ -1040,6 +1064,39 @@ export function FloorPlan3DCanvas({
     const presetGroup = presetGroupRef.current
     const tc = transformControlsRef.current
     if (!THREE || !presetGroup) return
+
+    const elements = libraryElements ?? []
+    const existingChildren = presetGroup.children as unknown as LibraryObject3D[]
+
+    // 구조 변경 없이 위치/회전/스케일만 달라진 경우 in-place 업데이트로 깜빡임을 방지한다.
+    const canUpdateInPlace =
+      existingChildren.length === elements.length &&
+      elements.length > 0 &&
+      elements.every((preset, i) => {
+        const existing = getLibraryPresetFromObject(existingChildren[i])
+        return (
+          existing?.id === preset.id &&
+          existing?.type === preset.type &&
+          existing?.material === preset.material &&
+          existing?.color === preset.color &&
+          existing?.lengthMm === preset.lengthMm &&
+          existing?.heightMm === preset.heightMm &&
+          existing?.thicknessMm === preset.thicknessMm &&
+          existing?.roofShape === preset.roofShape
+        )
+      })
+
+    if (canUpdateInPlace) {
+      elements.forEach((preset, i) => {
+        const mesh = existingChildren[i] as import('three').Object3D
+        if (preset.position) mesh.position.set(preset.position.x, preset.position.y, preset.position.z)
+        if (preset.rotation) mesh.rotation.set(preset.rotation.x, preset.rotation.y, preset.rotation.z)
+        if (preset.scale) mesh.scale.set(preset.scale.x, preset.scale.y, preset.scale.z)
+        if (mesh.userData) mesh.userData.libraryPreset = preset
+      })
+      return
+    }
+
     logPresetMove('library_sync_start', {
       presetCount: libraryElements?.length ?? 0,
       existingScenePresetCount: presetGroup.children.length,

@@ -17,8 +17,10 @@ import type {
   IfcElementChange,
   IfcElementInfo,
 } from '../../types'
+import { FLOOR_MM_PER_PX } from '../../constants'
 import { patchIfcTextForMaterialDefaults } from '../../services/ifcChange.service'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
+import { getThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import {
   applyObjectColor,
@@ -156,6 +158,17 @@ type MovedIfcProxyRegistryRecord = {
   keepModelHiddenAfterCommit: boolean
 }
 
+type DeferredIfcProxyCleanupRecord = {
+  token: number
+  target: Extract<Selected3DTarget, { source: 'ifc' }>
+  object: IfcEditableObject3D
+  modelId: string
+  localIds: number[]
+  restoreModelVisibility: boolean
+  reason: string
+  scheduledAt: number
+}
+
 type ComponentsModule = typeof import('@thatopen/components')
 type TransformControlsModule = typeof import('three/examples/jsm/controls/TransformControls.js')
 type IfcRaycastPick = {
@@ -203,6 +216,25 @@ const IFC_MOVE_ALWAYS_TRACE_EVENTS = new Set<string>([
   'selection_switch_atomic_defer_restore',
   'selection_switch_atomic_restore_apply',
   'selection_switch_atomic_restore_skip',
+  'pick_ifc_previous_target_decision',
+  'pick_ifc_previous_proxy_kept_until_swap',
+  'pick_ifc_previous_restore_decision',
+  'pick_ifc_previous_restore_deferred',
+  'pick_ifc_previous_proxy_cleanup_after_swap',
+  'pick_ifc_previous_proxy_cleanup_deferred_done',
+  'pick_ifc_previous_proxy_cleanup_deferred_cancelled',
+  'pick_ifc_defer_previous_proxy_cleanup',
+  'pick_ifc_skip_previous_restore_moved_registry',
+  'pick_ifc_transaction_core_update_start',
+  'pick_ifc_transaction_core_update_done',
+  'pick_ifc_transaction_core_update_failed',
+  'pick_ifc_emit_selection',
+  'selected_ifc_element_color_effect',
+  'selected_ifc_element_material_effect',
+  'selected_ifc_element_dimension_effect',
+  'moved_proxy_registry_rehide_start',
+  'moved_proxy_registry_rehide_done',
+  'moved_proxy_registry_rehide_skip_duplicate',
   'storey_visibility_effect_apply',
   'storey_visibility_effect_skip_same_signature',
   'window_blur_flush_skip_clean',
@@ -300,6 +332,14 @@ export default function ThatOpenIfcCanvas({
   ifcUrl,
   projectId,
   libraryElements,
+  commentPins = [],
+  isCollaborationMode = false,
+  selectedPinId = null,
+  currentUserId = null,
+  onPinClick,
+  onPinCreate,
+  onPinDelete,
+  deletingPinId = null,
   ifcElementChanges,
   deleteRequestToken = 0,
   isRotationLocked,
@@ -319,10 +359,20 @@ export default function ThatOpenIfcCanvas({
   requestedLibraryElementId,
   libraryElementSelectionRequestToken = 0,
   transformMode = 'translate',
+  cameraViewPresetCommand,
 }: ThatOpenIfcCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const sceneRef = useRef<ThatOpenSceneState | null>(null)
   const presetGroupRef = useRef<import('three').Group | null>(null)
+  const pinMarkerGroupRef = useRef<import('three').Group | null>(null)
+  const commentPinsRef = useRef(commentPins)
+  const selectedPinIdRef = useRef(selectedPinId)
+  const currentUserIdRef = useRef(currentUserId)
+  const isCollaborationModeRef = useRef(isCollaborationMode)
+  const deletingPinIdRef = useRef(deletingPinId)
+  const onPinClickRef = useRef(onPinClick)
+  const onPinCreateRef = useRef(onPinCreate)
+  const onPinDeleteRef = useRef(onPinDelete)
   const rotationLockedRef = useRef(isRotationLocked)
   const onIfcElementSelectRef = useRef(onIfcElementSelect)
   const onIfcElementDeleteRef = useRef(onIfcElementDelete)
@@ -336,6 +386,7 @@ export default function ThatOpenIfcCanvas({
   const canonicalIdMapRef = useRef<IfcCanonicalIdMap>(createEmptyIfcCanonicalIdMap())
   const ifcPsetMetricsRef = useRef<IfcPsetMetricMaps>({ byId: {}, byName: {} })
   const selectedTargetRef = useRef<Selected3DTarget>(null)
+  const handledCameraPresetTokenRef = useRef(0)
   const ifcMoveLifecycleRef = useRef<IfcMoveLifecycleState>({
     phase: 'idle',
     targetKey: null,
@@ -350,6 +401,8 @@ export default function ThatOpenIfcCanvas({
   const pendingIfcSaveReasonRef = useRef<string | null>(null)
   const pendingUnpersistedIfcColorByRootRef = useRef<Map<string, Map<number, string>>>(new Map())
   const movedIfcProxyRegistryRef = useRef<Map<string, MovedIfcProxyRegistryRecord>>(new Map())
+  const deferredIfcProxyCleanupRecordsRef = useRef<Map<number, DeferredIfcProxyCleanupRecord>>(new Map())
+  const deferredIfcProxyCleanupTokenRef = useRef(0)
   const deletedIfcLocalIdSetRef = useRef<Set<number>>(new Set())
   const resetTransformInteractionRef = useRef<((reason: string) => void) | null>(null)
   const storeyVisibilitySignatureRef = useRef<string | null>(null)
@@ -461,6 +514,143 @@ export default function ThatOpenIfcCanvas({
     }
     console.log(`${logPrefix}[${entry.seq}] ${event}`, { at: entry.at })
   }, [isIfcMoveDebugEnabled])
+  const cancelDeferredIfcProxyCleanupForObject = useCallback((
+    object: IfcEditableObject3D,
+    reason: string,
+  ) => {
+    const cancelled: DeferredIfcProxyCleanupRecord[] = []
+    deferredIfcProxyCleanupRecordsRef.current.forEach((record, token) => {
+      if (record.object !== object) return
+      deferredIfcProxyCleanupRecordsRef.current.delete(token)
+      cancelled.push(record)
+    })
+    cancelled.forEach((record) => {
+      logIfcMove('pick_ifc_previous_proxy_cleanup_deferred_cancelled', {
+        reason,
+        token: record.token,
+        modelId: record.modelId,
+        localId: record.target.localId,
+        hitLocalId: record.target.hitLocalId,
+        localIds: record.localIds,
+        restoreModelVisibility: record.restoreModelVisibility,
+      })
+    })
+  }, [logIfcMove])
+  const scheduleDeferredIfcProxyCleanup = useCallback((
+    target: Extract<Selected3DTarget, { source: 'ifc' }>,
+    localIds: number[],
+    options: {
+      reason: string
+      restoreModelVisibility: boolean
+      pickSequence?: number
+      nextModelId?: string
+      nextHitLocalId?: number
+    },
+  ) => {
+    const object = target.object as IfcEditableObject3D | undefined
+    if (!object) return
+    const token = ++deferredIfcProxyCleanupTokenRef.current
+    const record: DeferredIfcProxyCleanupRecord = {
+      token,
+      target,
+      object,
+      modelId: target.modelId,
+      localIds: Array.from(new Set<number>(localIds.filter(Number.isFinite))),
+      restoreModelVisibility: options.restoreModelVisibility,
+      reason: options.reason,
+      scheduledAt: performance.now(),
+    }
+    deferredIfcProxyCleanupRecordsRef.current.set(token, record)
+    logIfcMove('pick_ifc_previous_restore_deferred', {
+      reason: options.reason,
+      token,
+      pickSequence: options.pickSequence,
+      previousModelId: target.modelId,
+      previousLocalId: target.localId,
+      previousHitLocalId: target.hitLocalId,
+      deferredLocalIds: record.localIds,
+      restoreModelVisibility: record.restoreModelVisibility,
+      nextModelId: options.nextModelId ?? null,
+      nextHitLocalId: options.nextHitLocalId ?? null,
+    })
+
+    const runCleanup = async () => {
+      const currentRecord = deferredIfcProxyCleanupRecordsRef.current.get(token)
+      if (!currentRecord) return
+      const currentSelection = selectedTargetRef.current
+      if (currentSelection?.source === 'ifc' && currentSelection.object === currentRecord.object) {
+        deferredIfcProxyCleanupRecordsRef.current.delete(token)
+        logIfcMove('pick_ifc_previous_proxy_cleanup_deferred_cancelled', {
+          reason: `${options.reason}:reselected_before_cleanup`,
+          token,
+          modelId: currentRecord.modelId,
+          localId: currentRecord.target.localId,
+          hitLocalId: currentRecord.target.hitLocalId,
+          localIds: currentRecord.localIds,
+          restoreModelVisibility: currentRecord.restoreModelVisibility,
+        })
+        return
+      }
+      const activeScene = sceneRef.current
+      if (!activeScene) {
+        deferredIfcProxyCleanupRecordsRef.current.delete(token)
+        logIfcMove('pick_ifc_previous_proxy_cleanup_deferred_cancelled', {
+          reason: `${options.reason}:scene_missing`,
+          token,
+          modelId: currentRecord.modelId,
+          localId: currentRecord.target.localId,
+          hitLocalId: currentRecord.target.hitLocalId,
+          localIds: currentRecord.localIds,
+          restoreModelVisibility: currentRecord.restoreModelVisibility,
+        })
+        return
+      }
+
+      // 프록시를 visibility 복원보다 먼저 제거해 core render 시 원본+프록시가 동시에
+      // 보이는 프레임(깜빡임)이 생기지 않도록 한다.
+      currentRecord.object.parent?.remove(currentRecord.object)
+      disposeObjectMaterials(activeScene.three, currentRecord.object)
+      if (currentRecord.restoreModelVisibility && currentRecord.localIds.length > 0) {
+        await applyIfcSelectionVisibility(activeScene, {
+          modelId: currentRecord.modelId,
+          localIds: currentRecord.localIds,
+          proxyObject: currentRecord.object,
+          mode: 'model',
+          keepModelVisibleInProxy: true,
+          reason: `${options.reason}_deferred_cleanup_restore`,
+          forceRender: false,
+          skipCoreUpdate: true,
+        })
+      }
+      deferredIfcProxyCleanupRecordsRef.current.delete(token)
+      activeScene.renderer.render(
+        activeScene.scene,
+        activeScene.camera as import('three').PerspectiveCamera,
+      )
+      logIfcMove('pick_ifc_previous_proxy_cleanup_deferred_done', {
+        reason: options.reason,
+        token,
+        modelId: currentRecord.modelId,
+        localId: currentRecord.target.localId,
+        hitLocalId: currentRecord.target.hitLocalId,
+        localIds: currentRecord.localIds,
+        restoreModelVisibility: currentRecord.restoreModelVisibility,
+        elapsedMs: Number((performance.now() - currentRecord.scheduledAt).toFixed(1)),
+      })
+    }
+
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          void runCleanup()
+        })
+      })
+      return
+    }
+    globalThis.setTimeout(() => {
+      void runCleanup()
+    }, 32)
+  }, [logIfcMove])
   const resetIfcLocalRevisionState = useCallback((reason: string) => {
     const movedProxyCount = movedIfcProxyRegistryRef.current.size
     const pendingColorRootCount = pendingUnpersistedIfcColorByRootRef.current.size
@@ -880,7 +1070,7 @@ export default function ThatOpenIfcCanvas({
   const rehideMovedIfcProxyRegistry = useCallback(async (
     sceneState: ThatOpenSceneState,
     reason: string,
-    options: { forceRender?: boolean; resetHighlight?: boolean } = {},
+    options: { forceRender?: boolean; resetHighlight?: boolean; skipCoreUpdate?: boolean } = {},
   ) => {
     const shouldResetHighlight = options.resetHighlight ?? true
     const records = Array.from(movedIfcProxyRegistryRef.current.values())
@@ -895,6 +1085,7 @@ export default function ThatOpenIfcCanvas({
       recordCount: records.length,
       registrySize: movedIfcProxyRegistryRef.current.size,
     })
+    const processedVisibilityKeys = new Set<string>()
     for (const record of records) {
       record.object.visible = true
       const relatedModelIds = allModelIds.filter((candidateId) => (
@@ -902,17 +1093,29 @@ export default function ThatOpenIfcCanvas({
       ))
       const modelIds = relatedModelIds.length > 0 ? relatedModelIds : [record.modelId]
       for (const modelId of modelIds) {
+        const normalizedHideLocalIds = Array.from(new Set(record.hideLocalIds.filter(Number.isFinite))).sort((a, b) => a - b)
+        const visibilityKey = `${modelId}:${normalizedHideLocalIds.join(',')}`
+        if (processedVisibilityKeys.has(visibilityKey)) {
+          logIfcMove('moved_proxy_registry_rehide_skip_duplicate', {
+            reason,
+            key: record.key,
+            modelId,
+            hideLocalIds: normalizedHideLocalIds,
+          })
+          continue
+        }
+        processedVisibilityKeys.add(visibilityKey)
         try {
           await applyIfcSelectionVisibility(sceneState, {
             modelId,
-            localIds: record.hideLocalIds,
+            localIds: normalizedHideLocalIds,
             proxyObject: record.object,
             mode: 'proxy',
             proxyOpacity: 1,
             reason: `registry_rehide:${reason}`,
             persistModelHidden: true,
             skipProxyOpacityUpdate: true,
-            skipCoreUpdate: true,
+            skipCoreUpdate: options.skipCoreUpdate ?? true,
             forceRender: false,
           })
           if (shouldResetHighlight) {
@@ -923,9 +1126,9 @@ export default function ThatOpenIfcCanvas({
               reason,
               key: record.key,
               modelId,
-              hideLocalIds: record.hideLocalIds,
+              hideLocalIds: normalizedHideLocalIds,
             })
-            await Promise.resolve(model?.resetOpacity?.(record.hideLocalIds)).catch((error) => {
+            await Promise.resolve(model?.resetOpacity?.(normalizedHideLocalIds)).catch((error) => {
               logIfcMove('moved_proxy_registry_highlight_reset_failed', {
                 reason,
                 key: record.key,
@@ -935,7 +1138,7 @@ export default function ThatOpenIfcCanvas({
               })
             })
             await sceneState.fragments.resetHighlight({
-              [modelId]: new Set(record.hideLocalIds),
+              [modelId]: new Set(normalizedHideLocalIds),
             }).catch((error) => {
               logIfcMove('moved_proxy_registry_highlight_reset_failed', {
                 reason,
@@ -951,7 +1154,7 @@ export default function ThatOpenIfcCanvas({
             reason,
             key: record.key,
             modelId,
-            hideLocalIds: record.hideLocalIds,
+            hideLocalIds: normalizedHideLocalIds,
             error: error instanceof Error ? error.message : String(error),
           })
         }
@@ -1939,6 +2142,26 @@ export default function ThatOpenIfcCanvas({
     onStoreysLoadRef.current = onStoreysLoad
   }, [onStoreysLoad])
 
+  useEffect(() => { commentPinsRef.current = commentPins }, [commentPins])
+  useEffect(() => { selectedPinIdRef.current = selectedPinId }, [selectedPinId])
+  useEffect(() => { currentUserIdRef.current = currentUserId }, [currentUserId])
+  useEffect(() => { isCollaborationModeRef.current = isCollaborationMode }, [isCollaborationMode])
+  useEffect(() => { deletingPinIdRef.current = deletingPinId }, [deletingPinId])
+  useEffect(() => { onPinClickRef.current = onPinClick }, [onPinClick])
+  useEffect(() => { onPinCreateRef.current = onPinCreate }, [onPinCreate])
+  useEffect(() => { onPinDeleteRef.current = onPinDelete }, [onPinDelete])
+  useEffect(() => {
+    const sceneState = sceneRef.current
+    const markerGroup = pinMarkerGroupRef.current
+    if (!sceneState || !markerGroup) return
+    syncThreeDPinMarkers(sceneState.three, markerGroup, commentPins, {
+      selectedPinId,
+      currentUserId,
+      deletingPinId,
+      worldUnitsPerMm: sceneState.worldUnitsPerMm,
+    })
+  }, [commentPins, currentUserId, deletingPinId, selectedPinId])
+
   useEffect(() => () => {
     if (typeof window === 'undefined') return
     if (!feedbackTimeoutRef.current) return
@@ -2122,12 +2345,23 @@ export default function ThatOpenIfcCanvas({
         const presetGroup = new THREE.Group()
         presetGroup.name = 'library-presets'
 
+        const pinMarkerGroup = new THREE.Group()
+        pinMarkerGroup.name = 'comment-pins'
+
         const fragmentModel = model as unknown as LoadedFragmentModel
         fragmentModel.useCamera(world.camera.three)
         applyInitialIfcMaterialStyles(THREE, fragmentModel.object)
         const worldUnitsPerMm = inferWorldUnitsPerMm(THREE, fragmentModel.object)
         contentGroup.add(fragmentModel.object)
         contentGroup.add(presetGroup)
+        contentGroup.add(pinMarkerGroup)
+        pinMarkerGroupRef.current = pinMarkerGroup
+        syncThreeDPinMarkers(THREE, pinMarkerGroup, commentPinsRef.current, {
+          selectedPinId: selectedPinIdRef.current,
+          currentUserId: currentUserIdRef.current,
+          deletingPinId: deletingPinIdRef.current,
+          worldUnitsPerMm,
+        })
 
         const ifcEditGroup = new THREE.Group()
         ifcEditGroup.name = 'ifc-edit-overlays'
@@ -3349,16 +3583,26 @@ export default function ThatOpenIfcCanvas({
               return false
             })
             if (axisHit) {
-              isTransformPointerActive = true
-              if (transformPointerActiveSince <= 0) transformPointerActiveSince = performance.now()
-              logIfcMove('pick_blocked_by_transform_helper_hit', {
+              const activeAxis = (transformControls as unknown as { axis?: string | null }).axis ?? currentAxis ?? null
+              if (activeAxis || transformState.dragging || isTransformPointerActive) {
+                isTransformPointerActive = true
+                if (transformPointerActiveSince <= 0) transformPointerActiveSince = performance.now()
+                logIfcMove('pick_blocked_by_transform_helper_hit', {
+                  pickSequence,
+                  helperDistance: axisHit.distance,
+                  selectedSource: selectedTargetRef.current?.source ?? null,
+                  axis: activeAxis,
+                  action: 'skip_scene_pick_keep_transform_interaction',
+                })
+                return
+              }
+              logIfcMove('pick_ignored_transform_helper_false_positive', {
                 pickSequence,
                 helperDistance: axisHit.distance,
                 selectedSource: selectedTargetRef.current?.source ?? null,
-                axis: (transformControls as unknown as { axis?: string | null }).axis ?? null,
-                action: 'skip_scene_pick_keep_transform_interaction',
+                axis: activeAxis,
+                action: 'continue_scene_pick',
               })
-              return
             }
           }
           if (ifcCommitInFlightRef.current) {
@@ -3398,8 +3642,59 @@ export default function ThatOpenIfcCanvas({
             })
             return
           }
+          const pinHit = pinMarkerGroupRef.current
+            ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)[0]
+            : undefined
+          const pinMarkerHit = getThreeDPinMarkerHit(pinHit?.object)
+          if (pinMarkerHit) {
+            if (pinMarkerHit.action === 'delete') {
+              if (deletingPinIdRef.current === pinMarkerHit.pinId) return
+              onPinDeleteRef.current?.(pinMarkerHit.pinId)
+              return
+            }
+            onPinClickRef.current?.(pinMarkerHit.pinId)
+            return
+          }
+
           const ifcEditHit = raycaster.intersectObjects(ifcEditGroup.children, true)[0]
           const libraryHit = raycaster.intersectObjects(presetGroup.children, true)[0]
+
+          if (isCollaborationModeRef.current) {
+            const createCommentPinAtWorldPoint = (point: import('three').Vector3) => {
+              const cameraPosition = camera.position
+              const threeDPosition: CommentPin3DCreatePosition = {
+                worldX: point.x / worldUnitsPerMm,
+                worldY: point.z / worldUnitsPerMm,
+                worldZ: point.y / worldUnitsPerMm,
+                cameraX: cameraPosition.x / worldUnitsPerMm,
+                cameraY: cameraPosition.z / worldUnitsPerMm,
+                cameraZ: cameraPosition.y / worldUnitsPerMm,
+              }
+              onPinCreateRef.current?.(
+                threeDPosition.worldX / FLOOR_MM_PER_PX,
+                threeDPosition.worldY / FLOOR_MM_PER_PX,
+                undefined,
+                threeDPosition,
+              )
+            }
+            // fragmentModel.object는 InterleavedBuffer 기반이라 표준 raycaster를 쓸 수 없다.
+            // ThatOpen API가 런타임에 Three.js Intersection(point 포함)을 반환하므로 직접 추출한다.
+            type WithPoint = { point?: import('three').Vector3; distance?: number }
+            const fragmentRaycastRaw = await fragments.raycast({ camera, mouse: screenMouse, dom: renderer.domElement }) as WithPoint | null
+            const castRayRaw = fragmentRaycastRaw?.point
+              ? null
+              : await thatOpenRaycaster.castRay({ position: normalizedMouse }) as WithPoint | null
+            const ifcRaw = fragmentRaycastRaw ?? castRayRaw
+            const ifcModelHit = ifcRaw?.point
+              ? { point: ifcRaw.point, distance: ifcRaw.distance ?? Number.POSITIVE_INFINITY }
+              : null
+            const collaborationHit = [libraryHit, ifcEditHit, ifcModelHit]
+              .filter((hit): hit is import('three').Intersection => Boolean(hit?.point))
+              .sort((a, b) => a.distance - b.distance)[0]
+            if (collaborationHit?.point) createCommentPinAtWorldPoint(collaborationHit.point)
+            return
+          }
+
           logIfcMove('pick_candidates', {
             pickSequence,
             hasIfcEditHit: Boolean(ifcEditHit),
@@ -3417,14 +3712,29 @@ export default function ThatOpenIfcCanvas({
             nextModelId?: string,
             nextHiddenLocalIds: number[] = [],
             reason = 'selection_switch_atomic_restore',
+            options: { skipCoreUpdate?: boolean } = {},
           ) => {
             if (!pendingIfcSelectionRestore) return
             const pending = pendingIfcSelectionRestore
             pendingIfcSelectionRestore = null
+            const activeScene = sceneRef.current
+            const pendingRootModelId = activeScene
+              ? normalizeRootModelId(pending.modelId, activeScene.modelId)
+              : pending.modelId
+            const nextRootModelId = activeScene && nextModelId
+              ? normalizeRootModelId(nextModelId, activeScene.modelId)
+              : nextModelId
+            const blockedByNextSelection = pendingRootModelId === nextRootModelId
+              ? Array.from(new Set(nextHiddenLocalIds.filter(Number.isFinite)))
+              : []
+            const blockedByMovedRegistry = Array.from(new Set(
+              Array.from(movedIfcProxyRegistryRef.current.values())
+                .filter((record) => record.rootModelId === pendingRootModelId)
+                .flatMap((record) => record.hideLocalIds)
+                .filter(Number.isFinite),
+            ))
             const blockSet = new Set(
-              pending.modelId === nextModelId
-                ? nextHiddenLocalIds.filter(Number.isFinite)
-                : [],
+              [...blockedByNextSelection, ...blockedByMovedRegistry],
             )
             const restoreIds = pending.localIds.filter((localId) => !blockSet.has(localId))
             if (restoreIds.length === 0) {
@@ -3433,10 +3743,11 @@ export default function ThatOpenIfcCanvas({
                 modelId: pending.modelId,
                 pendingLocalIds: pending.localIds,
                 blockedLocalIds: Array.from(blockSet),
+                blockedByNextSelection,
+                blockedByMovedRegistry,
               })
               return
             }
-            const activeScene = sceneRef.current
             if (!activeScene) return
             await applyIfcSelectionVisibility(activeScene, {
               modelId: pending.modelId,
@@ -3444,12 +3755,16 @@ export default function ThatOpenIfcCanvas({
               mode: 'model',
               keepModelVisibleInProxy: true,
               reason,
+              skipCoreUpdate: options.skipCoreUpdate,
+              forceRender: false,
             })
             logIfcMove('selection_switch_atomic_restore_apply', {
               reason,
               modelId: pending.modelId,
               restoreLocalIds: restoreIds,
               blockedLocalIds: Array.from(blockSet),
+              blockedByNextSelection,
+              blockedByMovedRegistry,
             })
           }
           // 이전 선택을 해제한다. 동일 객체/로컬ID이면 아무 처리도 하지 않는다.
@@ -3729,6 +4044,7 @@ export default function ThatOpenIfcCanvas({
           ) => {
             const clickedIfcEditTarget = clickedIfcProxy.userData?.ifcEditTarget
             if (!clickedIfcEditTarget) return false
+            cancelDeferredIfcProxyCleanupForObject(clickedIfcProxy, params.reason)
             const hitLocalId = Number.isFinite(clickedIfcEditTarget.hitLocalId)
               ? clickedIfcEditTarget.hitLocalId
               : clickedIfcEditTarget.localId
@@ -3740,9 +4056,57 @@ export default function ThatOpenIfcCanvas({
               ).filter(Number.isFinite),
             ))
             const selectedElement = params.selectedElement ?? clickedIfcEditTarget.element
+            const currentTarget = selectedTargetRef.current
+            const activeSceneBeforeClear = sceneRef.current
+            if (
+              activeSceneBeforeClear &&
+              currentTarget?.source === 'ifc' &&
+              currentTarget.object === clickedIfcProxy
+            ) {
+              const keepModelHiddenAfterCommit = typeof clickedIfcProxy.userData.ifcKeepModelHiddenAfterCommit === 'boolean'
+                ? clickedIfcProxy.userData.ifcKeepModelHiddenAfterCommit
+                : currentTarget.keepModelHiddenAfterCommit
+              const nextTarget: Extract<Selected3DTarget, { source: 'ifc' }> = {
+                ...currentTarget,
+                modelId: clickedIfcEditTarget.modelId,
+                localId: clickedIfcEditTarget.localId,
+                hitLocalId,
+                hitItemId: clickedIfcEditTarget.hitItemId,
+                object: clickedIfcProxy,
+                keepModelHiddenAfterCommit,
+                selectedSignature: getElementDimensionSignature(selectedElement),
+                selectedColorSignature: getElementColorSignature(selectedElement),
+                selectedMaterialSignature: getElementMaterialSignature(selectedElement),
+              }
+              clickedIfcProxy.visible = true
+              transformControls.attach(clickedIfcProxy)
+              transformControls.visible = true
+              transformControls.enabled = true
+              clickedIfcProxy.updateMatrixWorld(true)
+              ;(clickedIfcProxy.userData as { ifcEditProxyWorldMatrix?: number[] }).ifcEditProxyWorldMatrix =
+                Array.from(clickedIfcProxy.matrixWorld.elements)
+              selectedTargetRef.current = nextTarget
+              syncTransformSelectionState(nextTarget, `${params.reason}_same_proxy`, { attachGizmo: true })
+              activeSceneBeforeClear.renderer.render(
+                activeSceneBeforeClear.scene,
+                activeSceneBeforeClear.camera as import('three').PerspectiveCamera,
+              )
+              logIfcMove('pick_existing_proxy_fast_path', {
+                modelId: clickedIfcEditTarget.modelId,
+                localId: clickedIfcEditTarget.localId,
+                hitLocalId,
+                localIds: proxyLocalIds,
+                reason: params.reason,
+              })
+              onIfcElementSelectRef.current?.(selectedElement)
+              emitCoordinates(clickedIfcProxy.position)
+              return true
+            }
             await clearPreviousSelection(clickedIfcProxy, params.nextIfcLocalId ?? hitLocalId, {
               skipOverlayPurge: true,
               skipPendingSaveSync: true,
+              skipRegistryRehide: true,
+              skipTransformDetach: true,
             })
             if (isStalePick()) {
               await consumePendingIfcSelectionRestore(
@@ -4171,7 +4535,7 @@ export default function ThatOpenIfcCanvas({
                 emitCoordinates(world.camera.three.position)
                 return
               }
-              if (!containsAllIds(editability.editableLocalIds, requiredEditableIds)) {
+              if (!containsAllIds(editability.editableLocalIds, requiredEditableIds) && editability.editableLocalIds.length === 0) {
                 await consumePendingIfcSelectionRestore(
                   undefined,
                   [],
@@ -4193,6 +4557,14 @@ export default function ThatOpenIfcCanvas({
                 emitCoordinates(world.camera.three.position)
                 return
               }
+              if (!containsAllIds(editability.editableLocalIds, requiredEditableIds)) {
+                logIfcMove('pick_partial_coverage_continue_with_editable_subset', {
+                  modelId: pickedModelId,
+                  hitLocalId: resolvedIfcPick.localId,
+                  requiredEditableIds,
+                  editableLocalIds: editability.editableLocalIds,
+                })
+              }
               logIfcMove('pick_ifc_prepare_done', {
                 pickSequence,
                 modelId: editability.modelId,
@@ -4211,11 +4583,105 @@ export default function ThatOpenIfcCanvas({
                 hitLocalId: resolvedIfcPick.localId,
                 existingMovedProxy: Boolean(existingMovedProxyRecord),
               })
-              await clearPreviousSelection(undefined, resolvedIfcPick.localId, {
-                skipOverlayPurge: true,
-                skipRegistryRehide: true,
-                skipTransformDetach: true,
+              const currentTargetBeforeSwap = selectedTargetRef.current
+              const previousIfcTargetForCleanup =
+                currentTargetBeforeSwap?.source === 'ifc' &&
+                currentTargetBeforeSwap.object &&
+                currentTargetBeforeSwap.hitLocalId !== resolvedIfcPick.localId
+                  ? currentTargetBeforeSwap
+                  : null
+              const previousIfcTargetWasMovedProxy = previousIfcTargetForCleanup
+                ? isMovedIfcProxyObject(previousIfcTargetForCleanup.object)
+                : false
+              const previousDeferredLocalIds = previousIfcTargetForCleanup
+                ? Array.from(new Set<number>(
+                  (
+                    (previousIfcTargetForCleanup.object as IfcEditableObject3D | undefined)?.userData?.ifcEditTarget?.localIds
+                    ?? [previousIfcTargetForCleanup.hitLocalId, previousIfcTargetForCleanup.localId]
+                  ).filter(Number.isFinite),
+                ))
+                : []
+              const previousMovedProxyRecord = previousIfcTargetForCleanup && activeScene
+                ? findMovedIfcProxyRecord(activeScene, previousIfcTargetForCleanup.modelId, previousDeferredLocalIds)
+                : null
+              const shouldRestorePreviousIfcModel = Boolean(
+                previousIfcTargetForCleanup &&
+                !previousIfcTargetForCleanup.keepModelHiddenAfterCommit &&
+                !previousIfcTargetWasMovedProxy &&
+                !previousMovedProxyRecord,
+              )
+              logIfcMove('pick_ifc_previous_target_decision', {
+                pickSequence,
+                hasPreviousIfcTarget: Boolean(previousIfcTargetForCleanup),
+                previousModelId: previousIfcTargetForCleanup?.modelId ?? null,
+                previousLocalId: previousIfcTargetForCleanup?.localId ?? null,
+                previousHitLocalId: previousIfcTargetForCleanup?.hitLocalId ?? null,
+                previousKeepModelHiddenAfterCommit: previousIfcTargetForCleanup
+                  ? Boolean(previousIfcTargetForCleanup.keepModelHiddenAfterCommit)
+                  : null,
+                previousIsMovedProxy: previousIfcTargetWasMovedProxy,
+                previousHasMovedRegistryRecord: Boolean(previousMovedProxyRecord),
+                previousRestoreModelVisibility: shouldRestorePreviousIfcModel,
+                previousCleanupDeferred: Boolean(previousIfcTargetForCleanup),
+                ifcMoveDirty: ifcMoveDirtyRef.current,
+                ifcCommitInFlight: ifcCommitInFlightRef.current,
+                nextModelId: editability.modelId,
+                nextHitLocalId: resolvedIfcPick.localId,
               })
+              if (previousIfcTargetForCleanup) {
+                logIfcMove('pick_ifc_previous_proxy_kept_until_swap', {
+                  pickSequence,
+                  previousModelId: previousIfcTargetForCleanup.modelId,
+                  previousLocalId: previousIfcTargetForCleanup.localId,
+                  previousHitLocalId: previousIfcTargetForCleanup.hitLocalId,
+                  deferredLocalIds: previousDeferredLocalIds,
+                  keepModelHiddenAfterCommit: Boolean(previousIfcTargetForCleanup.keepModelHiddenAfterCommit),
+                  isMovedProxy: previousIfcTargetWasMovedProxy,
+                  hasMovedRegistryRecord: Boolean(previousMovedProxyRecord),
+                  restoreModelVisibility: shouldRestorePreviousIfcModel,
+                  cleanupDeferred: true,
+                })
+                if (!shouldRestorePreviousIfcModel) {
+                  logIfcMove('pick_ifc_skip_previous_restore_moved_registry', {
+                    pickSequence,
+                    previousModelId: previousIfcTargetForCleanup.modelId,
+                    previousLocalId: previousIfcTargetForCleanup.localId,
+                    previousHitLocalId: previousIfcTargetForCleanup.hitLocalId,
+                    deferredLocalIds: previousDeferredLocalIds,
+                    registryKey: previousMovedProxyRecord?.key ?? null,
+                    keepModelHiddenAfterCommit: Boolean(previousIfcTargetForCleanup.keepModelHiddenAfterCommit),
+                    isMovedProxy: previousIfcTargetWasMovedProxy,
+                  })
+                }
+                logIfcMove('pick_ifc_previous_restore_decision', {
+                  pickSequence,
+                  previousModelId: previousIfcTargetForCleanup.modelId,
+                  previousLocalId: previousIfcTargetForCleanup.localId,
+                  previousHitLocalId: previousIfcTargetForCleanup.hitLocalId,
+                  deferredLocalIds: previousDeferredLocalIds,
+                  keepModelHiddenAfterCommit: Boolean(previousIfcTargetForCleanup.keepModelHiddenAfterCommit),
+                  isMovedProxy: previousIfcTargetWasMovedProxy,
+                  hasMovedRegistryRecord: Boolean(previousMovedProxyRecord),
+                  restoreModelVisibility: shouldRestorePreviousIfcModel,
+                  cleanupDeferred: true,
+                })
+                logIfcMove('pick_ifc_defer_previous_proxy_cleanup', {
+                  pickSequence,
+                  previousModelId: previousIfcTargetForCleanup.modelId,
+                  previousLocalId: previousIfcTargetForCleanup.localId,
+                  previousHitLocalId: previousIfcTargetForCleanup.hitLocalId,
+                  deferredLocalIds: previousDeferredLocalIds,
+                  restoreModelVisibility: shouldRestorePreviousIfcModel,
+                  nextModelId: editability.modelId,
+                  nextHitLocalId: resolvedIfcPick.localId,
+                })
+              } else if (currentTargetBeforeSwap) {
+                await clearPreviousSelection(undefined, resolvedIfcPick.localId, {
+                  skipOverlayPurge: true,
+                  skipRegistryRehide: true,
+                  skipTransformDetach: true,
+                })
+              }
               if (isStalePick()) {
                 await consumePendingIfcSelectionRestore(
                   undefined,
@@ -4304,11 +4770,9 @@ export default function ThatOpenIfcCanvas({
                 mode: 'proxy',
                 proxyOpacity: 1,
                 reason: 'pick_new_proxy',
+                skipCoreUpdate: true,
                 forceRender: false,
               })
-              transformControls.attach(editableObject)
-              transformControls.visible = true
-              transformControls.enabled = true
               const activeSceneForNewProxyPick = sceneRef.current
               if (activeSceneForNewProxyPick) {
                 await reapplyPendingUnpersistedIfcColors(
@@ -4321,13 +4785,43 @@ export default function ThatOpenIfcCanvas({
                 editability.modelId,
                 editability.editableLocalIds,
                 'selection_switch_atomic_restore_pick_new_proxy',
+                { skipCoreUpdate: true },
               )
               const activeSceneForRegistryRehide = sceneRef.current
               if (activeSceneForRegistryRehide) {
-                await rehideMovedIfcProxyRegistry(activeSceneForRegistryRehide, 'pick_new_proxy', { forceRender: false })
+                await rehideMovedIfcProxyRegistry(activeSceneForRegistryRehide, 'pick_new_proxy', {
+                  forceRender: false,
+                  skipCoreUpdate: true,
+                })
               }
+              transformControls.attach(editableObject)
+              transformControls.visible = true
+              transformControls.enabled = true
               const activeSceneAfterNewProxyPick = sceneRef.current
               if (activeSceneAfterNewProxyPick) {
+                const fragmentsCore = activeSceneAfterNewProxyPick.fragments.core as {
+                  update?: (force?: boolean) => Promise<void> | void
+                }
+                if (typeof fragmentsCore.update === 'function') {
+                  logIfcMove('pick_ifc_transaction_core_update_start', {
+                    pickSequence,
+                    modelId: editability.modelId,
+                    hitLocalId: resolvedIfcPick.localId,
+                  })
+                  await Promise.resolve(fragmentsCore.update(true)).catch((error) => {
+                    logIfcMove('pick_ifc_transaction_core_update_failed', {
+                      pickSequence,
+                      modelId: editability.modelId,
+                      hitLocalId: resolvedIfcPick.localId,
+                      error: error instanceof Error ? error.message : String(error),
+                    })
+                  })
+                  logIfcMove('pick_ifc_transaction_core_update_done', {
+                    pickSequence,
+                    modelId: editability.modelId,
+                    hitLocalId: resolvedIfcPick.localId,
+                  })
+                }
                 activeSceneAfterNewProxyPick.renderer.render(
                   activeSceneAfterNewProxyPick.scene,
                   activeSceneAfterNewProxyPick.camera as import('three').PerspectiveCamera,
@@ -4343,6 +4837,20 @@ export default function ThatOpenIfcCanvas({
               })
               selectedTargetRef.current = nextTarget
               syncTransformSelectionState(nextTarget, 'pick_ifc_attach_success', { attachGizmo: true })
+              if (
+                previousIfcTargetForCleanup &&
+                previousIfcTargetForCleanup.object &&
+                previousIfcTargetForCleanup.object !== editableObject &&
+                shouldRestorePreviousIfcModel
+              ) {
+                scheduleDeferredIfcProxyCleanup(previousIfcTargetForCleanup, previousDeferredLocalIds, {
+                  reason: 'pick_ifc_previous_proxy',
+                  restoreModelVisibility: true,
+                  pickSequence,
+                  nextModelId: editability.modelId,
+                  nextHitLocalId: resolvedIfcPick.localId,
+                })
+              }
               ifcMoveLifecycleRef.current = {
                 phase: 'idle',
                 targetKey: null,
@@ -4354,6 +4862,15 @@ export default function ThatOpenIfcCanvas({
                 hitLocalId: resolvedIfcPick.localId,
                 editableLocalIds: editability.editableLocalIds,
                 reusedMovedProxy: Boolean(existingMovedProxyRecord),
+              })
+              logIfcMove('pick_ifc_emit_selection', {
+                pickSequence,
+                modelId: editability.modelId,
+                localId: selectedElement.expressId ?? selectedLocalId,
+                hitLocalId: resolvedIfcPick.localId,
+                selectedId: selectedElement.id,
+                selectedName: selectedElement.name,
+                hasObject: Boolean(editableObject),
               })
               onIfcElementSelectRef.current?.(selectedElement)
               emitCoordinates(editableObject.position)
@@ -4453,6 +4970,7 @@ export default function ThatOpenIfcCanvas({
     }
 
     void loadIfc()
+    const deferredIfcProxyCleanupRecords = deferredIfcProxyCleanupRecordsRef.current
 
     return () => {
       disposed = true
@@ -4482,11 +5000,13 @@ export default function ThatOpenIfcCanvas({
       }
       sceneRef.current = null
       presetGroupRef.current = null
+      pinMarkerGroupRef.current = null
       resetTransformInteractionRef.current = null
       ifcPsetMetricsRef.current = { byId: {}, byName: {} }
       elementIdsByStoreyRef.current = new Map()
       canonicalIdMapRef.current = createEmptyIfcCanonicalIdMap()
       selectedTargetRef.current = null
+      deferredIfcProxyCleanupRecords.clear()
       syncTransformSelectionState(null, 'scene_dispose')
       dispatchTransformRuntimeAction(
         { type: 'CANCEL_TRANSFORM', reason: 'scene_disposed' },
@@ -4496,6 +5016,7 @@ export default function ThatOpenIfcCanvas({
     }
   }, [
     commitIfcProxyTransformToModel,
+    cancelDeferredIfcProxyCleanupForObject,
     createTransformSessionId,
     deleteSelectedTarget,
     dispatchTransformRuntimeAction,
@@ -4516,6 +5037,7 @@ export default function ThatOpenIfcCanvas({
     resolveTargetOwnerId,
     registerCanonicalIds,
     sanitizeMappedLocalIds,
+    scheduleDeferredIfcProxyCleanup,
     showIfcEditFeedback,
     syncTransformSelectionState,
     transformRuntimeStateRef,
@@ -5238,12 +5760,94 @@ export default function ThatOpenIfcCanvas({
   }, [zoomScale])
 
   useEffect(() => {
+    if (!cameraViewPresetCommand) return
+    if (cameraViewPresetCommand.token <= handledCameraPresetTokenRef.current) return
+    handledCameraPresetTokenRef.current = cameraViewPresetCommand.token
+
+    const sceneState = sceneRef.current
+    if (!sceneState) return
+
+    const THREE = sceneState.three
+    const focusObject = selectedTargetRef.current?.object ?? sceneState.ifcObject
+    const box = new THREE.Box3().setFromObject(focusObject)
+    const center = new THREE.Vector3()
+    const size = new THREE.Vector3()
+    if (box.isEmpty()) {
+      center.set(0, 0, 0)
+      size.set(1, 1, 1)
+    } else {
+      box.getCenter(center)
+      box.getSize(size)
+    }
+
+    const maxSize = Math.max(size.x, size.y, size.z, 1)
+    const distance = maxSize * 2.2
+    const nextPosition = new THREE.Vector3()
+    const nextUp = new THREE.Vector3(0, 1, 0)
+
+    if (cameraViewPresetCommand.preset === 'top') {
+      nextPosition.set(center.x, center.y + distance, center.z + 0.001)
+      nextUp.set(0, 0, -1)
+    } else if (cameraViewPresetCommand.preset === 'front') {
+      nextPosition.set(center.x, center.y + distance * 0.15, center.z + distance)
+    } else if (cameraViewPresetCommand.preset === 'side') {
+      nextPosition.set(center.x + distance, center.y + distance * 0.15, center.z)
+    } else {
+      nextPosition.set(center.x + distance, center.y + distance * 0.65, center.z + distance)
+    }
+
+    sceneState.camera.up.copy(nextUp)
+    const controls = sceneState.cameraControls as {
+      setLookAt?: (
+        x: number,
+        y: number,
+        z: number,
+        targetX: number,
+        targetY: number,
+        targetZ: number,
+        enableTransition?: boolean,
+      ) => Promise<void> | void
+      target?: { copy: (value: import('three').Vector3) => void }
+      update?: () => void
+    } | null
+
+    if (controls?.setLookAt) {
+      void controls.setLookAt(
+        nextPosition.x,
+        nextPosition.y,
+        nextPosition.z,
+        center.x,
+        center.y,
+        center.z,
+        true,
+      )
+    } else {
+      sceneState.camera.position.copy(nextPosition)
+      sceneState.camera.lookAt(center)
+      controls?.target?.copy(center)
+      controls?.update?.()
+    }
+
+    sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
+  }, [cameraViewPresetCommand])
+
+  useEffect(() => {
     const sceneState = sceneRef.current
     if (!sceneState) return
     const target = selectedTargetRef.current
     if (!target) return
     const currentColorSignature = getElementColorSignature(selectedIfcElement)
     if (target.selectedColorSignature === currentColorSignature) return
+    logIfcMove('selected_ifc_element_color_effect', {
+      targetSource: target.source,
+      targetLocalId: target.source === 'ifc' ? target.localId : null,
+      targetHitLocalId: target.source === 'ifc' ? target.hitLocalId : null,
+      hasObject: Boolean(target.object),
+      previousSignature: target.selectedColorSignature ?? null,
+      nextSignature: currentColorSignature,
+      selectedId: selectedIfcElement?.id ?? null,
+      selectedName: selectedIfcElement?.name ?? null,
+    })
     target.selectedColorSignature = currentColorSignature
 
     if (target.source === 'library') {
@@ -5279,7 +5883,7 @@ export default function ThatOpenIfcCanvas({
     }
 
     void applyIfcItemColor(sceneState.three, sceneState.fragments, target, selectedIfcElement?.color).catch(() => undefined)
-  }, [selectedIfcElement])
+  }, [logIfcMove, selectedIfcElement])
 
   useEffect(() => {
     const sceneState = sceneRef.current
@@ -5287,6 +5891,16 @@ export default function ThatOpenIfcCanvas({
     if (!sceneState || !target || !selectedIfcElement?.material) return
     const currentMaterialSignature = getElementMaterialSignature(selectedIfcElement)
     if (target.selectedMaterialSignature === currentMaterialSignature) return
+    logIfcMove('selected_ifc_element_material_effect', {
+      targetSource: target.source,
+      targetLocalId: target.source === 'ifc' ? target.localId : null,
+      targetHitLocalId: target.source === 'ifc' ? target.hitLocalId : null,
+      hasObject: Boolean(target.object),
+      previousSignature: target.selectedMaterialSignature ?? null,
+      nextSignature: currentMaterialSignature,
+      selectedId: selectedIfcElement.id,
+      selectedName: selectedIfcElement.name,
+    })
     target.selectedMaterialSignature = currentMaterialSignature
 
     if (target.source === 'library') {
@@ -5328,7 +5942,7 @@ export default function ThatOpenIfcCanvas({
         }
       }
     }
-  }, [applyLibraryVisibilityByStorey, selectedIfcElement])
+  }, [applyLibraryVisibilityByStorey, logIfcMove, selectedIfcElement])
 
   useEffect(() => {
     const sceneState = sceneRef.current
@@ -5336,6 +5950,19 @@ export default function ThatOpenIfcCanvas({
     if (!sceneState || !target || !selectedIfcElement) return
     const currentSignature = getElementDimensionSignature(selectedIfcElement)
     if (target.selectedSignature === currentSignature) return
+    logIfcMove('selected_ifc_element_dimension_effect', {
+      targetSource: target.source,
+      targetLocalId: target.source === 'ifc' ? target.localId : null,
+      targetHitLocalId: target.source === 'ifc' ? target.hitLocalId : null,
+      hasObject: Boolean(target.object),
+      previousSignature: target.selectedSignature ?? null,
+      nextSignature: currentSignature,
+      selectedId: selectedIfcElement.id,
+      selectedName: selectedIfcElement.name,
+      lengthMm: selectedIfcElement.lengthMm ?? null,
+      heightMm: selectedIfcElement.heightMm ?? null,
+      thicknessMm: selectedIfcElement.thicknessMm ?? null,
+    })
     target.selectedSignature = currentSignature
 
     const { three: THREE } = sceneState
@@ -5431,7 +6058,7 @@ export default function ThatOpenIfcCanvas({
         },
       }
     }
-  }, [selectedIfcElement?.lengthMm, selectedIfcElement?.heightMm, selectedIfcElement?.thicknessMm, selectedIfcElement])
+  }, [logIfcMove, selectedIfcElement?.lengthMm, selectedIfcElement?.heightMm, selectedIfcElement?.thicknessMm, selectedIfcElement])
 
   useEffect(() => {
     rotationLockedRef.current = isRotationLocked

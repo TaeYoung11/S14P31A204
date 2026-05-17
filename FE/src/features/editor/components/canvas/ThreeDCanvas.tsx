@@ -17,7 +17,7 @@ import ThreeDCanvasGridOverlay from './ThreeDCanvasGridOverlay'
 import ThreeDCanvasScene from './ThreeDCanvasScene'
 import ThreeDLibraryPanel from './ThreeDLibraryPanel'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
-import { DEFAULT_MOCK_IFC_URL, shouldRenderLocalFloorPlan } from './threeDCanvas.utils'
+import { DEFAULT_MOCK_IFC_URL } from './threeDCanvas.utils'
 import type { ThreeDLibraryPreset } from './threeDLibrary.types'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import { useThreeDLibraryDrop } from './useThreeDLibraryDrop'
@@ -90,8 +90,6 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const [selectedCategory, setSelectedCategory] = useState('all')
   const isEditingLocked = props.isEditingLocked ?? false
-  const isLocal3DMode = shouldRenderLocalFloorPlan(props.ifcUrl, props.localFloorData)
-
   // ifcUrl이 null(로딩 중 또는 IFC 없음)이어도 mock으로 폴백해 씬을 항상 표시한다
   const effectiveIfcUrl = props.ifcUrl ?? DEFAULT_MOCK_IFC_URL
 
@@ -185,9 +183,6 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         />
       )}
 
-      <div className="pointer-events-none absolute right-4 top-4 z-50 rounded-md border border-[#CBD5E1] bg-white/90 px-3 py-1 text-[11px] font-semibold tracking-wide text-[#1E293B] shadow-sm backdrop-blur">
-        {isLocal3DMode ? 'Local 3D' : 'IFC Edit'}
-      </div>
     </div>
   )
 }
