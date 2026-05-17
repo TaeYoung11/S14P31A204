@@ -46,6 +46,11 @@ export function AssistantPromptSection({
 
   const handleSubmit = () => {
     if (!canRun) return
+    const shortcut = resolveLlmDemoShortcut(prompt)
+    if (shortcut) {
+      onPromptChange(shortcut.prompt)
+      return
+    }
     onRun()
   }
 
@@ -57,11 +62,6 @@ export function AssistantPromptSection({
     }
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
     event.preventDefault()
-    const shortcut = resolveLlmDemoShortcut(prompt)
-    if (shortcut) {
-      onPromptChange(shortcut.prompt)
-      return
-    }
     handleSubmit()
   }
 

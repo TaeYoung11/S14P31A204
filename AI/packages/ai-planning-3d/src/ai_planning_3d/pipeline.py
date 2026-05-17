@@ -107,10 +107,13 @@ class LLM3DPipeline:
     def split_chat_commands(user_text: str) -> list[str]:
         decimal_dot = "__BATANG_DECIMAL_DOT__"
         dimension_comma = "__BATANG_DIMENSION_COMMA__"
+        dimension_value = (
+            r"(?:[가-힣A-Za-z]+\s*)?\d+(?:\.\d+)?\s*(?:mm|cm|m)(?![A-Za-z0-9])"
+        )
         user_text = re.sub(r"(?<=\d)\.(?=\d)", decimal_dot, user_text)
         user_text = re.sub(
-            r"(?<=[0-9a-zA-Z])\s*,\s*(?=[^,.;\n]*(?:\d|mm|cm|m))",
-            f"{dimension_comma} ",
+            rf"({dimension_value})\s*,\s*(?={dimension_value})",
+            rf"\1{dimension_comma} ",
             user_text,
         )
         normalized = re.sub(
