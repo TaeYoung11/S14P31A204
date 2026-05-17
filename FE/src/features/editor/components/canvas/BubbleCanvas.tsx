@@ -1,12 +1,13 @@
-import { useMemo, useRef, useEffect, useState } from 'react'
+import { useCallback, useMemo, useRef, useEffect, useState } from 'react'
 import { Circle, Ellipse, Group, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import type Konva from 'konva'
-import type { BubbleData, ConnectionData, FloorLayerOverlay, ZoneData } from '../../types'
+import type { BubbleData, CanvasViewTransform, ConnectionData, FloorLayerOverlay, ZoneData } from '../../types'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
 import { hexToRgba } from '../../utils/bubbleCalc'
 import { validateBubblesInSiteBoundary } from '../../utils/siteBoundaryValidation'
 import BubbleZoneLayer from './BubbleZoneLayer'
+import CanvasViewTransformGroup from './CanvasViewTransformGroup'
 import { AUTO_ZONE_STYLE, MANUAL_ZONE_STYLE } from './bubbleZoneStyles'
 import { fitSingleLineFontSize } from './canvasTextFit'
 import { useCanvasCoordinateHelpers } from './useCanvasCoordinateHelpers'
@@ -43,6 +44,7 @@ interface BubbleCanvasProps {
   projectId?: string
   stageSize: { width: number; height: number }
   sitePoints: number[]
+  viewTransform?: CanvasViewTransform | null
   bubbles: BubbleData[]
   overlayLayers?: FloorLayerOverlay[]
   connections: ConnectionData[]
@@ -128,6 +130,7 @@ export function BubbleCanvas({
   projectId,
   stageSize,
   sitePoints,
+  viewTransform = null,
   bubbles,
   overlayLayers = [],
   connections,
@@ -177,7 +180,8 @@ export function BubbleCanvas({
   const [hoveredBubbleId, setHoveredBubbleId] = useState<string | null>(null)
   const isSpacePressed = useSpacePanning()
   const [isMiddlePanning, setIsMiddlePanning] = useState(false)
-  const [panOffset, setPanOffset] = useState(() => readStoredPanOffset(projectId))
+  const [panOffsetByProjectId, setPanOffsetByProjectId] = useState<Record<string, { x: number; y: number }>>({})
+  const [anonymousPanOffset, setAnonymousPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [connectionDrag, setConnectionDrag] = useState<{
     fromId: string
     startX: number
@@ -196,14 +200,34 @@ export function BubbleCanvas({
   const isBubbleEditable = !isReadOnly
   const baseOffsetX = (stageSize.width * (1 - scale)) / 2
   const baseOffsetY = (stageSize.height * (1 - scale)) / 2
+  const storedProjectPanOffset = useMemo(() => readStoredPanOffset(projectId), [projectId])
+  const panOffset = projectId
+    ? (panOffsetByProjectId[projectId] ?? storedProjectPanOffset)
+    : anonymousPanOffset
+  const applyPanOffset = useCallback((nextPanOffset: { x: number; y: number }) => {
+    if (!projectId) {
+      setAnonymousPanOffset(nextPanOffset)
+      return
+    }
+    setPanOffsetByProjectId((prev) => {
+      const current = prev[projectId]
+      if (current && current.x === nextPanOffset.x && current.y === nextPanOffset.y) return prev
+      return {
+        ...prev,
+        [projectId]: nextPanOffset,
+      }
+    })
+  }, [projectId])
+
   // 스케일/패닝이 적용된 Stage에서도 항상 동일한 로컬 캔버스 좌표를 얻기 위한 변환 헬퍼.
-  const { getCanvasPoint } = useCanvasCoordinateHelpers({
+  const { getCanvasPoint, toScreenPoint } = useCanvasCoordinateHelpers({
     scale,
     baseOffsetX,
     baseOffsetY,
     panOffsetX: panOffset.x,
     panOffsetY: panOffset.y,
     isPanMode,
+    viewTransform,
   })
 
   /** 버블 타원의 상·우·하·좌 4방향 앵커 포인트 반환 (연결 포인트 표시용) */
@@ -306,11 +330,11 @@ export function BubbleCanvas({
     if (container) container.style.cursor = 'default'
   }
 
-  const finishBubblePointerDrag = () => {
+  const finishBubblePointerDrag = useCallback(() => {
     if (!bubblePointerDragRef.current) return
     bubblePointerDragRef.current = null
     onBubbleDragEnd?.()
-  }
+  }, [onBubbleDragEnd])
 
   useEffect(() => {
     const handleInteractionEnd = () => finishBubblePointerDrag()
@@ -322,7 +346,7 @@ export function BubbleCanvas({
       window.removeEventListener('touchend', handleInteractionEnd)
       window.removeEventListener('blur', handleInteractionEnd)
     }
-  })
+  }, [finishBubblePointerDrag])
 
   return (
     <Stage
@@ -337,7 +361,7 @@ export function BubbleCanvas({
       draggable={isPanMode}
       onDragMove={(e) => {
         if (e.target.getType() !== 'Stage') return
-        setPanOffset({
+        applyPanOffset({
           x: e.target.x() - baseOffsetX,
           y: e.target.y() - baseOffsetY,
         })
@@ -353,7 +377,7 @@ export function BubbleCanvas({
           x: e.target.x() - baseOffsetX,
           y: e.target.y() - baseOffsetY,
         }
-        setPanOffset(nextPanOffset)
+        applyPanOffset(nextPanOffset)
         const container = e.target.getStage()?.container()
         if (container && isPanMode) container.style.cursor = 'grab'
         if (typeof window !== 'undefined') {
@@ -526,17 +550,19 @@ export function BubbleCanvas({
       }}
     >
       <Layer>
-        {/* 대지 외곽선 */}
-        <Line
-          points={sitePoints}
-          closed
-          fill="#3B45B319"
-          stroke={SITE_GUIDE_STROKE}
-          strokeWidth={1.8}
-          // 대지 내부 빈 영역 클릭/더블클릭은 Stage로 전달해 버블 생성 로직을 타게 한다.
-          listening={false}
-        />
-        <Line points={sitePoints} closed stroke="#2D359980" strokeWidth={1} dash={[8, 6]} listening={false} />
+        {/* 정렬/북향 토글은 렌더 계층 회전으로만 반영한다. */}
+        <CanvasViewTransformGroup viewTransform={viewTransform}>
+          {/* 대지 외곽선 */}
+          <Line
+            points={sitePoints}
+            closed
+            fill="#3B45B319"
+            stroke={SITE_GUIDE_STROKE}
+            strokeWidth={1.8}
+            // 대지 내부 빈 영역 클릭/더블클릭은 Stage로 전달해 버블 생성 로직을 타게 한다.
+            listening={false}
+          />
+          <Line points={sitePoints} closed stroke="#2D359980" strokeWidth={1} dash={[8, 6]} listening={false} />
 
         {/* 층 겹쳐보기 오버레이 (버블 다이어그램 확인용) */}
         {overlayLayers.map((overlay) => (
@@ -704,16 +730,15 @@ export function BubbleCanvas({
               onDblClick={(e) => {
                 if (!isBubbleEditable) return
                 e.cancelBubble = true
-                const stage = e.target.getStage()
-                if (!stage) return
-                const s = stage.scaleX()
+                const topLeft = toScreenPoint({ x: bubble.x, y: bubble.y })
+                const bottomRight = toScreenPoint({ x: bubble.x + bubble.width, y: bubble.y + bubble.height })
                 onBubbleLabelEdit?.({
                   id: bubble.id,
                   label: bubble.label,
-                  x: stage.x() + bubble.x * s,
-                  y: stage.y() + bubble.y * s,
-                  width: bubble.width * s,
-                  height: bubble.height * s,
+                  x: Math.min(topLeft.x, bottomRight.x),
+                  y: Math.min(topLeft.y, bottomRight.y),
+                  width: Math.abs(bottomRight.x - topLeft.x),
+                  height: Math.abs(bottomRight.y - topLeft.y),
                 })
               }}
               onMouseEnter={handleMouseEnter}
@@ -898,6 +923,7 @@ export function BubbleCanvas({
             listening={false}
           />
         )}
+        </CanvasViewTransformGroup>
       </Layer>
     </Stage>
   )

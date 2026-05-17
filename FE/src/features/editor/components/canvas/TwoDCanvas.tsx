@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type Konva from 'konva'
 import type {
+  CanvasViewTransform,
   ConnectionData,
   FloorCommentPin,
   FloorLayerOverlay,
@@ -54,6 +55,7 @@ interface TwoDCanvasProps {
   projectId?: string
   stageSize: { width: number; height: number }
   sitePoints?: number[]
+  viewTransform?: CanvasViewTransform | null
   isCollaborationMode?: boolean
   selectedPinId?: string | null
   commentPins?: FloorCommentPin[]
@@ -166,6 +168,7 @@ export function TwoDCanvas({
   projectId,
   stageSize,
   sitePoints = [],
+  viewTransform = null,
   isCollaborationMode,
   selectedPinId,
   commentPins = [],
@@ -217,7 +220,8 @@ export function TwoDCanvas({
   const stageRef = useRef<Konva.Stage | null>(null)
   const isSpacePressed = useSpacePanning()
   const [isMiddlePanning, setIsMiddlePanning] = useState(false)
-  const [panOffset, setPanOffset] = useState(() => readStoredTwoDPanOffset(projectId))
+  const [panOffsetByProjectId, setPanOffsetByProjectId] = useState<Record<string, { x: number; y: number }>>({})
+  const [anonymousPanOffset, setAnonymousPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [wallDragState, setWallDragState] = useState<{ wallId: string; lastPoint: Point2D } | null>(null)
   const [roomDragState, setRoomDragState] = useState<RoomDragState | null>(null)
   const [openingDragState, setOpeningDragState] = useState<{ openingId: string } | null>(null)
@@ -230,6 +234,24 @@ export function TwoDCanvas({
   const isPanMode = selectedTool === 'hand' || isSpacePressed || isMiddlePanning
   const baseOffsetX = (stageSize.width * (1 - scale)) / 2
   const baseOffsetY = (stageSize.height * (1 - scale)) / 2
+  const storedProjectPanOffset = useMemo(() => readStoredTwoDPanOffset(projectId), [projectId])
+  const panOffset = projectId
+    ? (panOffsetByProjectId[projectId] ?? storedProjectPanOffset)
+    : anonymousPanOffset
+  const applyPanOffset = useCallback((nextPanOffset: { x: number; y: number }) => {
+    if (!projectId) {
+      setAnonymousPanOffset(nextPanOffset)
+      return
+    }
+    setPanOffsetByProjectId((prev) => {
+      const current = prev[projectId]
+      if (current && current.x === nextPanOffset.x && current.y === nextPanOffset.y) return prev
+      return {
+        ...prev,
+        [projectId]: nextPanOffset,
+      }
+    })
+  }, [projectId])
 
   const isWallTool = selectedTool === 'wall'
   const isDoorTool = selectedTool === 'door'
@@ -284,6 +306,7 @@ export function TwoDCanvas({
     panOffsetX: panOffset.x,
     panOffsetY: panOffset.y,
     isPanMode,
+    viewTransform,
   })
   const { getSnappedWallPoint } = useWallSnap({
     walls,
@@ -300,7 +323,7 @@ export function TwoDCanvas({
     isMiddlePanning,
     baseOffsetX,
     baseOffsetY,
-    setPanOffset,
+    setPanOffset: applyPanOffset,
   })
 
   const handleStageDragEnd = (e: Parameters<typeof onStageDragEnd>[0]) => {
@@ -310,7 +333,7 @@ export function TwoDCanvas({
       x: e.target.x() - baseOffsetX,
       y: e.target.y() - baseOffsetY,
     }
-    setPanOffset(nextPanOffset)
+    applyPanOffset(nextPanOffset)
     if (typeof window === 'undefined') return
     const storageKey = createSharedPanStorageKey(projectId)
     if (!storageKey) return
@@ -448,6 +471,7 @@ export function TwoDCanvas({
         onStageDragEnd={handleStageDragEnd}
         stageHandlers={stageHandlers}
         sitePoints={sitePoints}
+        viewTransform={viewTransform}
         isGridVisible={isGridVisible}
         gridLines={gridLines}
         dimensionGuides={dimensionGuides}

@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { useProjectSitePolygon } from '@/features/project/hooks/useProjects'
 import {
@@ -11,7 +11,7 @@ import { FLOOR_MM_PER_PX, SITE_RAW_POINTS } from '../constants'
 import type { BubbleData, FloorOpening, FloorRoom, FloorWall, SaveStatus } from '../types'
 import { centerSitePoints, fitSitePointsToStage } from '../utils/bubbleCalc'
 import { ensureSiteContainsBubbles, type ViewportInsets } from '../utils/editorViewport'
-import { alignFlatPointsToAxis, getFlatPointsBounds, translateFlatPoints } from '../utils/sitePointTransform'
+import { getFlatPointsBounds, translateFlatPoints } from '../utils/sitePointTransform'
 import { getViewportFrame } from '../utils/viewportInsets'
 import {
   DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
@@ -89,7 +89,6 @@ interface UseEditorSiteBoundaryParams {
   siteAreaM2?: number | null
   sitePolygonQueryEnabled?: boolean
   siteBoundaryHydrated?: boolean
-  isTrueNorthView?: boolean
   setSaveStatus: Dispatch<SetStateAction<SaveStatus>>
 }
 
@@ -112,7 +111,6 @@ export function useEditorSiteBoundary({
   siteAreaM2: siteAreaM2Override,
   sitePolygonQueryEnabled = true,
   siteBoundaryHydrated = true,
-  isTrueNorthView = false,
   setSaveStatus,
 }: UseEditorSiteBoundaryParams) {
   const sitePolygonQuery = useProjectSitePolygon(
@@ -131,11 +129,6 @@ export function useEditorSiteBoundary({
   const siteAreaPyeong = useMemo(
     () => (siteAreaM2 ? toPyeong(siteAreaM2) : null),
     [siteAreaM2],
-  )
-
-  const maybeAlignToWorkingAxis = useCallback(
-    (points: number[]): number[] => (isTrueNorthView ? points : alignFlatPointsToAxis(points).points),
-    [isTrueNorthView],
   )
 
   const viewportFrame = useMemo(
@@ -164,7 +157,7 @@ export function useEditorSiteBoundary({
 
     if (cachedRawPoints) {
       const centeredToViewport = recenterToViewport(centerSitePoints(cachedRawPoints, stageWidth, stageHeight))
-      return maybeAlignToWorkingAxis(centeredToViewport)
+      return centeredToViewport
     }
 
     // 실제 대지 하이드레이션 이전에는 기본(mock) 대지를 그리지 않아 플리커를 방지한다.
@@ -177,16 +170,15 @@ export function useEditorSiteBoundary({
       fitRatio: 1,
     })
     const fittedInViewport = translateFlatPoints(fitted, viewportFrame.insets.left, viewportFrame.insets.top)
-    return maybeAlignToWorkingAxis(ensureSiteContainsBubbles(
+    return ensureSiteContainsBubbles(
       fittedInViewport,
       bubbles,
       SITE_CONTAIN_BUBBLE_PADDING_PX,
       SITE_CONTAIN_MAX_SCALE,
-    ))
+    )
   }, [
     bubbles,
     cachedSiteRing,
-    maybeAlignToWorkingAxis,
     recenterToViewport,
     siteBoundaryHydrated,
     stageHeight,
@@ -223,26 +215,44 @@ export function useEditorSiteBoundary({
     return { x: viewportFrame.centerX, y: viewportFrame.centerY }
   }, [bubbles, floorRooms, viewportFrame.centerX, viewportFrame.centerY])
 
-  const siteAnchorCenter = useMemo(() => {
+  const siteAnchorResolution = useMemo(() => {
     const hasContent = bubbles.length > 0 || floorRooms.length > 0
     const viewportAnchor = { x: viewportFrame.centerX, y: viewportFrame.centerY }
     if (!projectId) {
-      return hasContent ? contentCenter : viewportAnchor
+      return {
+        anchor: hasContent ? contentCenter : viewportAnchor,
+        shouldPersist: false,
+      }
     }
 
     const cachedAnchor = getCachedSiteAnchor(projectId)
     if (cachedAnchor) {
       if (!hasContent) {
-        setCachedSiteAnchor(projectId, viewportAnchor)
-        return viewportAnchor
+        return {
+          anchor: viewportAnchor,
+          shouldPersist: cachedAnchor.x !== viewportAnchor.x || cachedAnchor.y !== viewportAnchor.y,
+        }
       }
-      return { x: cachedAnchor.x, y: cachedAnchor.y }
+      return {
+        anchor: { x: cachedAnchor.x, y: cachedAnchor.y },
+        shouldPersist: false,
+      }
     }
 
     const initialAnchor = hasContent ? contentCenter : viewportAnchor
-    setCachedSiteAnchor(projectId, initialAnchor)
-    return initialAnchor
+    return {
+      anchor: initialAnchor,
+      shouldPersist: true,
+    }
   }, [bubbles.length, contentCenter, floorRooms.length, projectId, viewportFrame.centerX, viewportFrame.centerY])
+
+  useEffect(() => {
+    if (!projectId) return
+    if (!siteAnchorResolution.shouldPersist) return
+    setCachedSiteAnchor(projectId, siteAnchorResolution.anchor)
+  }, [projectId, siteAnchorResolution])
+
+  const siteAnchorCenter = siteAnchorResolution.anchor
 
   const sitePlanPoints = useMemo(() => {
     if (!cachedSiteRing) return sitePoints
@@ -252,8 +262,8 @@ export function useEditorSiteBoundary({
       centerY: siteAnchorCenter.y,
     })
     if (!mapped) return sitePoints
-    return maybeAlignToWorkingAxis(mapped.flatMap((point) => [point.x, point.y]))
-  }, [cachedSiteRing, floorPlanMmPerPx, siteAnchorCenter, sitePoints, maybeAlignToWorkingAxis])
+    return mapped.flatMap((point) => [point.x, point.y])
+  }, [cachedSiteRing, floorPlanMmPerPx, siteAnchorCenter, sitePoints])
 
   const fixedScaleSitePoints = useMemo(() => {
     if (!cachedSiteRing) return sitePoints
@@ -263,8 +273,8 @@ export function useEditorSiteBoundary({
       centerY: siteAnchorCenter.y,
     })
     if (!mapped) return sitePoints
-    return maybeAlignToWorkingAxis(mapped.flatMap((point) => [point.x, point.y]))
-  }, [bubbleMmPerPx, cachedSiteRing, siteAnchorCenter, sitePoints, maybeAlignToWorkingAxis])
+    return mapped.flatMap((point) => [point.x, point.y])
+  }, [bubbleMmPerPx, cachedSiteRing, siteAnchorCenter, sitePoints])
 
   const layoutBoundaryInput = useMemo<LayoutImportBoundaryInput>(() => {
     return {
