@@ -41,6 +41,13 @@ export function extractLlmEditErrorMessage(error: unknown): string {
   return 'AI 편집 요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.'
 }
 
+export function isJobConflictError(error: unknown): boolean {
+  if (!isAxiosError(error)) return false
+  if (error.response?.status === 409) return true
+  const code = error.response?.data?.code
+  return typeof code === 'string' && code === 'IFC_EDIT_JOB_CONFLICT'
+}
+
 export async function submitLlmChatCommand({
   projectId,
   ...body

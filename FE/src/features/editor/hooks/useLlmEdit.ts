@@ -15,6 +15,7 @@ import {
   fetchClarificationArtifact,
   fetchLlmChatLogs,
   fetchLlmJobStatus,
+  isJobConflictError,
   llmEditQueryKeys,
   submitLlmChatCommand,
 } from '../services/llmEdit.service'
@@ -181,6 +182,12 @@ export function useLlmEdit({
     const effectivePrompt = (promptOverride ?? prompt).trim()
     if (!effectivePrompt || isLoading) return
 
+    // selectAlternative()는 항상 promptOverride를 넘긴다.
+    // promptOverride가 없는 직접 입력이 clarification 문맥과 함께 오면 문맥을 버린다.
+    if (promptOverride === undefined && clarificationHistoryRef.current.length > 0) {
+      clarificationHistoryRef.current = []
+    }
+
     const currentSeq = requestSeq.current + 1
     const requestBaseRevisionId = currentIfcRevisionId
     requestSeq.current = currentSeq
@@ -226,6 +233,7 @@ export function useLlmEdit({
 
       if (isClarificationJobStatus(completedJob.status, completedJob.error?.clarificationPossible)) {
         const detailUrl = completedJob.error?.detailStorageUrl
+        let gotArtifact = false
         if (detailUrl) {
           try {
             const artifact = await fetchClarificationArtifact(detailUrl)
@@ -235,15 +243,19 @@ export function useLlmEdit({
               { role: 'user', content: effectivePrompt },
               { role: 'assistant', content: artifact.question },
             ]
+            gotArtifact = true
           } catch {
-            setMessage('추가 정보가 필요합니다.')
+            // artifact fetch 실패 → fallback error로 처리
           }
-        } else {
-          setMessage('추가 정보가 필요합니다.')
         }
         setActiveJobId(null)
         setJobProgress(null)
-        setStatus('clarification_required')
+        if (gotArtifact) {
+          setStatus('clarification_required')
+        } else {
+          setStatus('error')
+          setMessage('AI가 추가 선택 정보를 만들지 못했습니다. 다시 요청하거나, 벽/층/방 이름을 더 구체적으로 입력해 주세요.')
+        }
         void queryClient.invalidateQueries({ queryKey: llmEditQueryKeys.chatLogs(projectId) })
         return
       }
@@ -285,7 +297,11 @@ export function useLlmEdit({
       clarificationHistoryRef.current = []
       if (currentSeq !== requestSeq.current) return
       setStatus('error')
-      setMessage(extractLlmEditErrorMessage(error))
+      if (isJobConflictError(error)) {
+        setMessage('진행 중인 편집 작업이 아직 종료되지 않았습니다. 이전 요청의 clarification 또는 실패 상태를 먼저 정리해 주세요.')
+      } else {
+        setMessage(extractLlmEditErrorMessage(error))
+      }
       if (projectId) {
         void queryClient.invalidateQueries({ queryKey: llmEditQueryKeys.chatLogs(projectId) })
       }
