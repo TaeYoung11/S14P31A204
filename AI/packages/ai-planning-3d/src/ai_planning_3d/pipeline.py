@@ -331,7 +331,7 @@ class LLM3DPipeline:
         host_wall = None
         if model and ci.get("host_wall_global_id"):
             host_wall = model.by_guid(ci["host_wall_global_id"])
-        if host_wall is not None:
+        if model is not None and host_wall is not None:
             fraction = (copy_index + 1) / (repeat_count + 1)
             target_storey = None
             target_name = normalize_storey_name(str(ci.get("storey") or "1F"))
@@ -474,7 +474,12 @@ class LLM3DPipeline:
         coords = tuple(getattr(location, "Coordinates", ()) or ())
         while len(coords) < 3:
             coords += (0.0,)
-        return tuple(self._model_units_to_mm(float(v)) for v in coords[:3])
+        x, y, z = coords[:3]
+        return (
+            self._model_units_to_mm(float(x)),
+            self._model_units_to_mm(float(y)),
+            self._model_units_to_mm(float(z)),
+        )
 
     def _element_size_mm(self, element: ifcopenshell.entity_instance) -> tuple[float, float, float]:
         representation = getattr(element, "Representation", None)
@@ -637,6 +642,8 @@ class LLM3DPipeline:
             return None
         wanted = space_name.replace(" ", "").lower()
         model = self.query_engine.get_model()
+        if model is None:
+            return None
         spaces = self._storey_spaces(storey) or model.by_type("IfcSpace")
         candidates: list[Any] = []
         for space in spaces:
@@ -1606,6 +1613,8 @@ class LLM3DPipeline:
         if not session:
             return {"status": "error", "summary": "세션을 찾을 수 없습니다."}
         model = self.query_engine.get_model()
+        if model is None:
+            return {"status": "error", "summary": "IFC model is not loaded."}
         info = session.matched[0]
         ci = info["create_info"]
         storey = model.by_guid(info["storey_guid"])
