@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import ifcopenshell
@@ -119,7 +120,7 @@ def _properties_by_name(
     return {prop.Name: prop for prop in pset.HasProperties or []}
 
 
-def _unwrap_property_value(prop: ifcopenshell.entity_instance) -> str | bool:
+def _unwrap_property_value(prop: ifcopenshell.entity_instance) -> Any:
     nominal = prop.NominalValue
     if hasattr(nominal, "wrappedValue"):
         return nominal.wrappedValue
@@ -238,6 +239,35 @@ def _boundary_walls(model: ifcopenshell.file) -> dict[str, ifcopenshell.entity_i
     }
 
 
+def _room_boundary_walls(model: ifcopenshell.file) -> dict[str, ifcopenshell.entity_instance]:
+    return {
+        name: entity
+        for name, entity in _named_entities(model, "IfcWall").items()
+        if name.startswith("Room Wall ")
+    }
+
+
+def _shared_room_boundary_walls(
+    model: ifcopenshell.file,
+) -> dict[str, ifcopenshell.entity_instance]:
+    return {
+        name: entity
+        for name, entity in _named_entities(model, "IfcWall").items()
+        if name.startswith("Shared Room Wall ")
+    }
+
+
+def _space_boundaries_for_wall(
+    model: ifcopenshell.file,
+    wall: ifcopenshell.entity_instance,
+) -> list[ifcopenshell.entity_instance]:
+    return [
+        rel
+        for rel in model.by_type("IfcRelSpaceBoundary")
+        if rel.RelatedBuildingElement == wall
+    ]
+
+
 def _styled_items(
     item: ifcopenshell.entity_instance,
 ) -> list[ifcopenshell.entity_instance]:
@@ -308,6 +338,41 @@ def test_convert_layout_to_ifc_creates_single_room_space(tmp_path: Path) -> None
     assert _unwrap_property_value(room_props["RoomType"]) == "living"
     assert _unwrap_property_value(room_props["Locked"]) is False
     assert "ZoneId" not in room_props
+
+
+def test_convert_layout_to_ifc_writes_semantic_room_metadata(tmp_path: Path) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            {
+                **_base_room(
+                    room_id="bathroom-1",
+                    name="화장실",
+                    room_type="bathroom",
+                ),
+                "source_bubble_id": "bubble-bathroom-1",
+                "original_label": "화장실",
+                "original_type": "화장실",
+                "material": "tile",
+                "color": "#AABBCC",
+            }
+        ],
+        modeling_defaults={"space_height_mm": 3000},
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "semantic-room.ifc")
+
+    space = model.by_type("IfcSpace")[0]
+    psets = _property_sets_by_name(space)
+    assert "Pset_BatangRoom" in psets
+    props = _properties_by_name(psets["Pset_BatangRoom"])
+    assert _unwrap_property_value(props["SourceBubbleId"]) == "bubble-bathroom-1"
+    assert _unwrap_property_value(props["OriginalLabel"]) == "화장실"
+    assert _unwrap_property_value(props["Material"]) == "tile"
+    assert "화장실" in _unwrap_property_value(props["SearchText"])
+    aliases = json.loads(_unwrap_property_value(props["RoomTypeAliasesJson"]))
+    assert "bathroom" in aliases
+    assert "toilet" in aliases
 
 
 def test_convert_layout_to_ifc_creates_zone_and_assigns_space(tmp_path: Path) -> None:
@@ -558,7 +623,10 @@ def test_convert_layout_to_ifc_generates_v2_boundary_elements_for_single_floor(
     model = _open_generated_ifc(tmp_path, request, "v2-single-floor-elements.ifc")
 
     assert len(model.by_type("IfcSpace")) == 1
-    assert len(model.by_type("IfcWall")) == 4
+    assert len(model.by_type("IfcWall")) == 8
+    assert len(_boundary_walls(model)) == 4
+    assert len(_room_boundary_walls(model)) == 4
+    assert len(model.by_type("IfcRelSpaceBoundary")) == 4
     assert len(model.by_type("IfcSlab")) == 1
     assert len(model.by_type("IfcRoof")) == 1
 
@@ -594,6 +662,10 @@ def test_convert_layout_to_ifc_generates_v2_boundary_elements_for_single_floor(
         "Boundary Wall 1-2": "1F",
         "Boundary Wall 1-3": "1F",
         "Boundary Wall 1-4": "1F",
+        "Room Wall 1-room-living-01-east": "1F",
+        "Room Wall 1-room-living-01-north": "1F",
+        "Room Wall 1-room-living-01-south": "1F",
+        "Room Wall 1-room-living-01-west": "1F",
         "Boundary Slab 1": "1F",
         "Boundary Roof 1": "1F",
     }
@@ -645,7 +717,10 @@ def test_convert_layout_to_ifc_generates_v2_boundary_elements_for_multiple_floor
 
     model = _open_generated_ifc(tmp_path, request, "v2-multi-floor-elements.ifc")
 
-    assert len(model.by_type("IfcWall")) == 8
+    assert len(model.by_type("IfcWall")) == 16
+    assert len(_boundary_walls(model)) == 8
+    assert len(_room_boundary_walls(model)) == 8
+    assert len(model.by_type("IfcRelSpaceBoundary")) == 8
     assert len(model.by_type("IfcSlab")) == 2
     assert len(model.by_type("IfcRoof")) == 1
 
@@ -659,6 +734,14 @@ def test_convert_layout_to_ifc_generates_v2_boundary_elements_for_multiple_floor
         "Boundary Wall 2-2": "2F",
         "Boundary Wall 2-3": "2F",
         "Boundary Wall 2-4": "2F",
+        "Room Wall 1-room-living-01-east": "1F",
+        "Room Wall 1-room-living-01-north": "1F",
+        "Room Wall 1-room-living-01-south": "1F",
+        "Room Wall 1-room-living-01-west": "1F",
+        "Room Wall 2-room-bed-01-east": "2F",
+        "Room Wall 2-room-bed-01-north": "2F",
+        "Room Wall 2-room-bed-01-south": "2F",
+        "Room Wall 2-room-bed-01-west": "2F",
         "Boundary Slab 1": "1F",
         "Boundary Slab 2": "2F",
         "Boundary Roof 2": "2F",
@@ -744,7 +827,7 @@ def test_convert_layout_to_ifc_skips_slabs_when_generate_slabs_is_false(
 
     model = _open_generated_ifc(tmp_path, request, "v2-no-slabs.ifc")
 
-    assert len(model.by_type("IfcWall")) == 4
+    assert len(model.by_type("IfcWall")) == 8
     assert len(model.by_type("IfcSlab")) == 0
     assert len(model.by_type("IfcRoof")) == 1
 
@@ -783,9 +866,163 @@ def test_convert_layout_to_ifc_skips_roof_when_generate_roof_is_false(
 
     model = _open_generated_ifc(tmp_path, request, "v2-no-roof.ifc")
 
-    assert len(model.by_type("IfcWall")) == 4
+    assert len(model.by_type("IfcWall")) == 8
     assert len(model.by_type("IfcSlab")) == 1
     assert len(model.by_type("IfcRoof")) == 0
+
+
+def test_convert_layout_to_ifc_creates_room_boundary_space_boundaries(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            _base_room(
+                room_id="bathroom-id",
+                name="화장실",
+                room_type="bathroom",
+                x=2100.0,
+                y=1900.0,
+            )
+        ],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v2-room-boundary-walls.ifc")
+
+    assert len(model.by_type("IfcWall")) == 4
+    assert len(model.by_type("IfcRelSpaceBoundary")) == 4
+    west_wall = _named_entities(model, "IfcWall")["Room Wall 1-bathroom-id-west"]
+    west_wall_pset = _property_sets_by_name(west_wall)["Pset_BatangWall"]
+    west_wall_props = _properties_by_name(west_wall_pset)
+    assert _unwrap_property_value(west_wall_props["WallKind"]) == "ROOM_BOUNDARY"
+    assert _unwrap_property_value(west_wall_props["Source"]) == "room_perimeter"
+    assert json.loads(_unwrap_property_value(west_wall_props["BoundedRoomIdsJson"])) == [
+        "bathroom-id"
+    ]
+    assert json.loads(_unwrap_property_value(west_wall_props["BoundedRoomNamesJson"])) == [
+        "화장실"
+    ]
+    assert json.loads(_unwrap_property_value(west_wall_props["BoundedRoomTypesJson"])) == [
+        "bathroom"
+    ]
+    assert json.loads(_unwrap_property_value(west_wall_props["WallSideByRoomJson"])) == {
+        "bathroom-id": "west"
+    }
+
+    space = _named_entities(model, "IfcSpace")["화장실"]
+    boundaries = _space_boundaries_for_wall(model, west_wall)
+    assert len(boundaries) == 1
+    assert boundaries[0].RelatingSpace == space
+    assert boundaries[0].PhysicalOrVirtualBoundary == "PHYSICAL"
+    assert boundaries[0].InternalOrExternalBoundary == "EXTERNAL"
+
+
+def test_convert_layout_to_ifc_creates_room_boundary_walls_for_fractional_coordinates(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            _base_room(
+                room_id="fractional-room-id",
+                name="Fractional Bathroom",
+                room_type="bathroom",
+                x=15586.956521739124,
+                y=-3360.869565217394,
+            )
+        ],
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": False,
+            "generate_roof": False,
+            "generate_openings": False,
+        },
+        modeling_defaults={
+            "space_height_mm": 2700,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v2-fractional-room-boundary-walls.ifc")
+
+    assert len(model.by_type("IfcWall")) == 4
+    assert len(_room_boundary_walls(model)) == 4
+    assert len(model.by_type("IfcRelSpaceBoundary")) == 4
+    west_wall = _named_entities(model, "IfcWall")["Room Wall 1-fractional-room-id-west"]
+    west_wall_props = _properties_by_name(
+        _property_sets_by_name(west_wall)["Pset_BatangWall"]
+    )
+    assert json.loads(_unwrap_property_value(west_wall_props["WallSideByRoomJson"])) == {
+        "fractional-room-id": "west"
+    }
+    assert _space_boundaries_for_wall(model, west_wall)[0].RelatingSpace.Name == (
+        "Fractional Bathroom"
+    )
+
+
+def test_convert_layout_to_ifc_dedupes_fractional_shared_room_boundary_wall(
+    tmp_path: Path,
+) -> None:
+    left_room = _base_room(
+        room_id="fractional-left-id",
+        name="Fractional Left",
+        x=15586.956521739124,
+        y=-3360.869565217394,
+    )
+    right_room = _base_room(
+        room_id="fractional-right-id",
+        name="Fractional Right",
+        room_type="living",
+        x=19786.956521739124,
+        y=-3360.869565217394,
+    )
+    request = _make_request(
+        schema_version="v2",
+        rooms=[left_room, right_room],
+        adjacency=[
+            {
+                "from_room_id": "fractional-left-id",
+                "to_room_id": "fractional-right-id",
+                "strength": 0.8,
+            }
+        ],
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": False,
+            "generate_roof": False,
+            "generate_openings": False,
+        },
+        modeling_defaults={
+            "space_height_mm": 2700,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v2-fractional-shared-room-wall.ifc")
+
+    assert len(_shared_room_boundary_walls(model)) == 1
+    shared_wall = next(iter(_shared_room_boundary_walls(model).values()))
+    assert len(_space_boundaries_for_wall(model, shared_wall)) == 2
+    shared_wall_props = _properties_by_name(
+        _property_sets_by_name(shared_wall)["Pset_BatangWall"]
+    )
+    assert _unwrap_property_value(shared_wall_props["WallKind"]) == "SHARED_ROOM_BOUNDARY"
+    assert json.loads(_unwrap_property_value(shared_wall_props["WallSideByRoomJson"])) == {
+        "fractional-left-id": "east",
+        "fractional-right-id": "west",
+    }
 
 
 def test_convert_layout_to_ifc_generates_shared_wall_for_same_floor_adjacency(
@@ -845,9 +1082,12 @@ def test_convert_layout_to_ifc_generates_shared_wall_for_same_floor_adjacency(
 
     model = _open_generated_ifc(tmp_path, request, "v2-shared-wall.ifc")
 
-    assert len(model.by_type("IfcWall")) == 5
+    assert len(model.by_type("IfcWall")) == 12
     assert len(_boundary_walls(model)) == 4
     assert len(_shared_walls(model)) == 1
+    assert len(_room_boundary_walls(model)) == 6
+    assert len(_shared_room_boundary_walls(model)) == 1
+    assert len(model.by_type("IfcRelSpaceBoundary")) == 8
     shared_wall = _shared_walls(model)["Shared Wall 1-1"]
     shared_wall_body = _body_item(shared_wall)
     assert shared_wall_body.is_a("IfcExtrudedAreaSolid")
@@ -874,7 +1114,150 @@ def test_convert_layout_to_ifc_generates_shared_wall_for_same_floor_adjacency(
             "strength": 0.8,
         }
     ]
-    assert _property_sets_by_name(shared_wall) == {}
+    shared_wall_psets = _property_sets_by_name(shared_wall)
+    assert "Pset_WallCommon" in shared_wall_psets
+    assert "Pset_BatangWall" in shared_wall_psets
+    shared_room_wall = next(iter(_shared_room_boundary_walls(model).values()))
+    shared_room_wall_pset = _property_sets_by_name(shared_room_wall)["Pset_BatangWall"]
+    shared_room_wall_props = _properties_by_name(shared_room_wall_pset)
+    assert _unwrap_property_value(shared_room_wall_props["WallKind"]) == "SHARED_ROOM_BOUNDARY"
+    assert json.loads(_unwrap_property_value(shared_room_wall_props["BoundedRoomIdsJson"])) == [
+        "room-left-01",
+        "room-right-01",
+    ]
+    assert json.loads(_unwrap_property_value(shared_room_wall_props["BoundedRoomNamesJson"])) == [
+        "Left Room",
+        "Right Room",
+    ]
+    assert json.loads(_unwrap_property_value(shared_room_wall_props["BoundedRoomTypesJson"])) == [
+        "living",
+        "bedroom",
+    ]
+
+
+def test_convert_layout_to_ifc_generates_v2_inferred_door_for_shared_wall(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            _base_room(room_id="room-left-01", name="Left Room", x=2100.0, y=1900.0),
+            _base_room(
+                room_id="room-right-01",
+                name="Right Room",
+                room_type="bedroom",
+                x=6300.0,
+                y=1900.0,
+            ),
+        ],
+        adjacency=[
+            {
+                "id": "conn-door-1",
+                "from_room_id": "room-left-01",
+                "to_room_id": "room-right-01",
+                "strength": 0.6,
+                "intent": "circulation",
+                "connection_strength": "normal",
+            }
+        ],
+        boundaries=[
+            {
+                "floor": 1,
+                "polygon": [
+                    [0.0, 0.0],
+                    [8400.0, 0.0],
+                    [8400.0, 3800.0],
+                    [0.0, 3800.0],
+                ],
+            }
+        ],
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": True,
+            "generate_roof": True,
+            "generate_openings": True,
+        },
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v2-inferred-door.ifc")
+
+    assert len(model.by_type("IfcOpeningElement")) == 1
+    assert len(model.by_type("IfcDoor")) == 1
+    opening = model.by_type("IfcOpeningElement")[0]
+    pset = _property_sets_by_name(opening)["Pset_BatangOpening"]
+    props = _properties_by_name(pset)
+    assert _unwrap_property_value(props["OpeningType"]) == "door"
+    assert _unwrap_property_value(props["SourceConnectionId"]) == "conn-door-1"
+    host_wall = next(
+        rel.RelatingBuildingElement
+        for rel in model.by_type("IfcRelVoidsElement")
+        if rel.RelatedOpeningElement == opening
+    )
+    assert host_wall.Name.startswith("Shared Room Wall ")
+    assert len(_space_boundaries_for_wall(model, host_wall)) == 2
+
+
+def test_convert_layout_to_ifc_generates_v2_open_passage_for_strong_connection(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            _base_room(room_id="room-left-01", name="Left Room", x=2100.0, y=1900.0),
+            _base_room(
+                room_id="room-right-01",
+                name="Right Room",
+                room_type="kitchen",
+                x=6300.0,
+                y=1900.0,
+            ),
+        ],
+        adjacency=[
+            {
+                "id": "conn-open-1",
+                "from_room_id": "room-left-01",
+                "to_room_id": "room-right-01",
+                "strength": 1.0,
+                "intent": "open_passage",
+                "connection_strength": "strong",
+            }
+        ],
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": False,
+            "generate_roof": False,
+            "generate_openings": True,
+        },
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v2-inferred-open-passage.ifc")
+
+    assert len(model.by_type("IfcOpeningElement")) == 1
+    assert len(model.by_type("IfcDoor")) == 0
+    opening = model.by_type("IfcOpeningElement")[0]
+    pset = _property_sets_by_name(opening)["Pset_BatangOpening"]
+    props = _properties_by_name(pset)
+    assert _unwrap_property_value(props["OpeningType"]) == "open_passage"
+    host_wall = next(
+        rel.RelatingBuildingElement
+        for rel in model.by_type("IfcRelVoidsElement")
+        if rel.RelatedOpeningElement == opening
+    )
+    assert host_wall.Name.startswith("Shared Room Wall ")
 
 
 def test_convert_layout_to_ifc_optimizes_strong_adjacency_before_shared_wall_generation(
@@ -1184,9 +1567,10 @@ def test_convert_layout_to_ifc_dedupes_bidirectional_shared_wall_adjacency(
 
     model = _open_generated_ifc(tmp_path, request, "v2-shared-wall-dedupe.ifc")
 
-    assert len(model.by_type("IfcWall")) == 5
+    assert len(model.by_type("IfcWall")) == 12
     assert len(_boundary_walls(model)) == 4
     assert len(_shared_walls(model)) == 1
+    assert len(_shared_room_boundary_walls(model)) == 1
     assert "Shared Wall 1-1" in _shared_walls(model)
 
 
@@ -1547,12 +1931,13 @@ def test_convert_layout_to_ifc_disables_boundary_driven_features_when_floor_boun
 
     summary, model = _convert_request(tmp_path, request, "missing-wall-boundary.ifc")
 
-    assert len(model.by_type("IfcWall")) == 0
+    assert len(model.by_type("IfcWall")) == 11
+    assert len(model.by_type("IfcRelSpaceBoundary")) == 8
     assert len(model.by_type("IfcSlab")) == 0
     assert len(model.by_type("IfcRoof")) == 0
     assert len(model.by_type("IfcSpace")) == 2
     assert summary.defaultsApplied == {}
-    assert summary.degradedFeatures == ["generate_walls", "generate_slabs", "generate_roof"]
+    assert summary.degradedFeatures == ["generate_slabs", "generate_roof"]
     assert summary.missingBoundaryFloors == [2]
     assert summary.availableBoundaryFloors == [1]
     assert summary.roomFloors == [1, 2]
@@ -1565,7 +1950,7 @@ def test_convert_layout_to_ifc_disables_boundary_driven_features_when_floor_boun
             {
                 "source": "fe_payload_missing",
                 "schemaVersion": "v2",
-                "disabledFeatures": ["generate_walls", "generate_slabs", "generate_roof"],
+                "disabledFeatures": ["generate_slabs", "generate_roof"],
                 "missingBoundaryFloors": [2],
                 "availableBoundaryFloors": [1],
                 "roomFloors": [1, 2],
@@ -1634,7 +2019,9 @@ def test_convert_layout_to_ifc_keeps_spaces_when_boundaries_are_missing(tmp_path
     model = _open_generated_ifc(tmp_path, request, "missing-boundaries-spaces-only.ifc")
 
     assert len(model.by_type("IfcSpace")) == 1
-    assert len(model.by_type("IfcWall")) == 0
+    assert len(model.by_type("IfcWall")) == 4
+    assert len(_room_boundary_walls(model)) == 4
+    assert len(model.by_type("IfcRelSpaceBoundary")) == 4
     assert len(model.by_type("IfcSlab")) == 0
     assert len(model.by_type("IfcRoof")) == 0
 
@@ -1671,8 +2058,8 @@ def test_convert_layout_to_ifc_reuses_style_assignment_for_same_color(tmp_path: 
 
     model = _open_generated_ifc(tmp_path, request, "style-reuse.ifc")
 
-    # There are 4 boundary walls, 1 slab, and 1 roof = 6 entities sharing the same color.
-    assert len(model.by_type("IfcWall")) == 4
+    # There are 4 site boundary walls, 4 room boundary walls, 1 slab, and 1 roof.
+    assert len(model.by_type("IfcWall")) == 8
     assert len(model.by_type("IfcSlab")) == 1
     assert len(model.by_type("IfcRoof")) == 1
 
@@ -1771,7 +2158,7 @@ def test_convert_layout_to_ifc_generates_v3_explicit_door_and_window_entities(
     assert summary.defaultsApplied == {}
     assert summary.degradedFeatures == []
     assert summary.hasWarnings is False
-    assert len(model.by_type("IfcWall")) == 5
+    assert len(model.by_type("IfcWall")) == 12
     assert len(model.by_type("IfcOpeningElement")) == 2
     assert len(model.by_type("IfcDoor")) == 1
     assert len(model.by_type("IfcWindow")) == 1
@@ -1779,7 +2166,7 @@ def test_convert_layout_to_ifc_generates_v3_explicit_door_and_window_entities(
     assert len(model.by_type("IfcRelFillsElement")) == 2
     _assert_opening_graph_is_well_formed(model)
 
-    shared_wall = _named_entities(model, "IfcWall")["Shared Wall 1-1"]
+    shared_wall = next(iter(_shared_room_boundary_walls(model).values()))
     boundary_wall = _named_entities(model, "IfcWall")["Boundary Wall 1-2"]
 
     door_opening = _voided_opening_for_wall(model, shared_wall)
@@ -1869,19 +2256,60 @@ def test_convert_layout_to_ifc_accepts_v3_reversed_shared_wall_ref(tmp_path: Pat
 
     model = _open_generated_ifc(tmp_path, request, "v3-reversed-shared-ref.ifc")
 
-    assert len(model.by_type("IfcWall")) == 5
+    assert len(model.by_type("IfcWall")) == 12
     assert len(model.by_type("IfcOpeningElement")) == 1
     assert len(model.by_type("IfcDoor")) == 1
     assert len(model.by_type("IfcRelVoidsElement")) == 1
     assert len(model.by_type("IfcRelFillsElement")) == 1
     _assert_opening_graph_is_well_formed(model)
 
-    shared_wall = _named_entities(model, "IfcWall")["Shared Wall 1-1"]
+    shared_wall = next(iter(_shared_room_boundary_walls(model).values()))
     door_opening = _voided_opening_for_wall(model, shared_wall)
     door = _filled_element_for_opening(model, door_opening)
     assert door_opening.Name == "opening-door-01"
     assert door.is_a("IfcDoor")
     assert door.Name == "Door opening-door-01"
+
+
+def test_convert_layout_to_ifc_accepts_v3_room_side_wall_ref(tmp_path: Path) -> None:
+    request = _make_request(
+        schema_version="v3",
+        rooms=[_base_room(x=5000.0, y=4000.0)],
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": False,
+            "generate_roof": False,
+            "generate_openings": True,
+        },
+        openings=[
+            {
+                "id": "opening-door-west",
+                "type": "door",
+                "floor": 1,
+                "host_wall_ref": "wall-room-room-living-01-west",
+                "x": 2900.0,
+                "y": 4000.0,
+                "width": 900.0,
+                "height": 2100.0,
+            }
+        ],
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v3-room-side-ref.ifc")
+
+    west_wall = _named_entities(model, "IfcWall")["Room Wall 1-room-living-01-west"]
+    opening = _voided_opening_for_wall(model, west_wall)
+    door = _filled_element_for_opening(model, opening)
+    assert opening.Name == "opening-door-west"
+    assert door.Name == "Door opening-door-west"
+    assert len(_space_boundaries_for_wall(model, west_wall)) == 1
 
 
 def test_convert_layout_to_ifc_keeps_v3_without_explicit_openings_free_of_opening_entities(
@@ -1971,13 +2399,13 @@ def test_convert_layout_to_ifc_disables_openings_when_walls_are_degraded_off(
     )
 
     assert len(model.by_type("IfcSpace")) == 1
-    assert len(model.by_type("IfcWall")) == 0
+    assert len(model.by_type("IfcWall")) == 4
+    assert len(model.by_type("IfcRelSpaceBoundary")) == 4
     assert len(model.by_type("IfcOpeningElement")) == 0
     assert len(model.by_type("IfcDoor")) == 0
     assert len(model.by_type("IfcWindow")) == 0
     assert summary.defaultsApplied == {}
     assert summary.degradedFeatures == [
-        "generate_walls",
         "generate_slabs",
         "generate_roof",
         "generate_openings",
@@ -1986,7 +2414,7 @@ def test_convert_layout_to_ifc_disables_openings_when_walls_are_degraded_off(
     assert summary.availableBoundaryFloors == []
     assert summary.roomFloors == [1]
     assert summary.topFloorBoundaryMissing is True
-    assert summary.openingsDisabledBecauseWallsDisabled is True
+    assert summary.openingsDisabledBecauseWallsDisabled is False
     assert summary.hasWarnings is True
     assert log_calls == [
         (
@@ -1995,7 +2423,6 @@ def test_convert_layout_to_ifc_disables_openings_when_walls_are_degraded_off(
                 "source": "fe_payload_missing",
                 "schemaVersion": "v3",
                 "disabledFeatures": [
-                    "generate_walls",
                     "generate_slabs",
                     "generate_roof",
                     "generate_openings",
@@ -2004,7 +2431,7 @@ def test_convert_layout_to_ifc_disables_openings_when_walls_are_degraded_off(
                 "availableBoundaryFloors": [],
                 "roomFloors": [1],
                 "topFloorBoundaryMissing": True,
-                "openingsDisabledBecauseWallsDisabled": True,
+                "openingsDisabledBecauseWallsDisabled": False,
             },
         )
     ]
