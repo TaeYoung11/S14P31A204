@@ -26,6 +26,7 @@ DEFAULT_MODEL_ID = "runwayml/stable-diffusion-v1-5"
 DEFAULT_CONTROLNET_DEPTH_ID = "lllyasviel/sd-controlnet-depth"
 DEFAULT_CONTROLNET_SEG_ID = "lllyasviel/sd-controlnet-seg"
 DEFAULT_CONTROLNET_CANNY_ID = "lllyasviel/sd-controlnet-canny"
+CONTROLNET_V11_CANNY_ID = "lllyasviel/control_v11p_sd15_canny"
 
 CategoryName = Literal["roof", "wall", "window", "door", "floor"]
 
