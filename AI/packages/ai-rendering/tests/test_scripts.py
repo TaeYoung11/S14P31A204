@@ -13,7 +13,9 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import numpy as np
 import pytest
+from PIL import Image
 
 from ai_rendering.ifc2img.style import DEFAULT_CONTROLNET_SEG_ID
 
@@ -1175,10 +1177,39 @@ def test_generate_ifc_locked_baseline_f2_building_rgba_uses_nonblack_alpha() -> 
     image = Image.new("RGB", (2, 2), (0, 0, 0))
     image.putpixel((1, 0), (10, 20, 30))
 
-    rgba = m._build_building_rgba(image)
+    rgba = m._build_building_rgba(
+        image,
+        element_mask_paths={},
+        time_of_day="DAY",
+    )
 
     assert rgba.getpixel((0, 0)) == (0, 0, 0, 0)
     assert rgba.getpixel((1, 0)) == (10, 20, 30, 255)
+
+
+def test_generate_ifc_locked_baseline_f2_recomposes_clean_category_colors(tmp_path: Path) -> None:
+    """F-2 should rebuild masked categories with stable colors."""
+    m = _load_script("generate_ifc_locked_baseline_f2.py")
+    from PIL import Image
+
+    image = Image.new("RGB", (4, 3), (0, 0, 0))
+    image.putpixel((1, 1), (160, 160, 160))
+    image.putpixel((2, 1), (180, 180, 180))
+
+    wall_mask = Image.new("L", (4, 3), 0)
+    wall_mask.putpixel((1, 1), 255)
+    wall_mask.putpixel((2, 1), 255)
+    wall_path = tmp_path / "wall.png"
+    wall_mask.save(wall_path)
+
+    rgba = m._build_building_rgba(
+        image,
+        element_mask_paths={"wall": wall_path},
+        time_of_day="DAY",
+    )
+
+    assert rgba.getpixel((1, 1)) == (*m.DAY_CATEGORY_COLORS["wall"], 255)
+    assert rgba.getpixel((2, 1)) == (*m.DAY_CATEGORY_COLORS["wall"], 255)
 
 
 def test_generate_ifc_locked_baseline_f2_background_composite_preserves_building_pixels() -> None:
@@ -1192,6 +1223,30 @@ def test_generate_ifc_locked_baseline_f2_background_composite_preserves_building
     composed = m._compose_with_background(building, time_of_day="DAY")
 
     assert composed.getpixel((1, 1)) == (12, 34, 56)
+
+
+def test_generate_ifc_locked_baseline_f2_fits_building_larger_without_clipping() -> None:
+    """F-2 should enlarge a small building in-frame while keeping it fully inside the canvas."""
+    m = _load_script("generate_ifc_locked_baseline_f2.py")
+    from PIL import Image
+
+    building = Image.new("RGBA", (20, 20), (0, 0, 0, 0))
+    for y in range(8, 14):
+        for x in range(8, 12):
+            building.putpixel((x, y), (100, 120, 140, 255))
+
+    fitted = m._fit_building_to_frame(building)
+
+    assert fitted.size == (20, 20)
+    bbox = fitted.getbbox()
+    assert bbox is not None
+    left, top, right, bottom = bbox
+    assert left > 0
+    assert top > 0
+    assert right < 20
+    assert bottom < 20
+    assert (right - left) > 4
+    assert (bottom - top) > 6
 
 
 def test_generate_ifc_locked_baseline_f2_manifest_summary_lists_case_names() -> None:
@@ -1350,10 +1405,16 @@ def test_generate_ifc_house_like_f3_manifest_summary_lists_accepted_families() -
             "acceptedCandidates": [
                 {"candidateFamily": "appearance_only_candidate_1_material_relight"},
                 {"candidateFamily": "appearance_only_candidate_2_shadow_contrast_background"},
+                {"candidateFamily": "appearance_only_candidate_3_photo_finish_red_roof"},
+                {"candidateFamily": "appearance_only_candidate_4_natural_photo_finish"},
+                {"candidateFamily": "appearance_only_candidate_5_aggressive_material_realism"},
             ],
             "cases": [
                 {"caseName": "appearance_only_candidate_1_material_relight_day"},
                 {"caseName": "appearance_only_candidate_2_shadow_contrast_background_day"},
+                {"caseName": "appearance_only_candidate_3_photo_finish_red_roof_day"},
+                {"caseName": "appearance_only_candidate_4_natural_photo_finish_day"},
+                {"caseName": "appearance_only_candidate_5_aggressive_material_realism_day"},
             ],
         }
     )
@@ -1363,12 +1424,187 @@ def test_generate_ifc_house_like_f3_manifest_summary_lists_accepted_families() -
         "acceptedCandidates": [
             "appearance_only_candidate_1_material_relight",
             "appearance_only_candidate_2_shadow_contrast_background",
+            "appearance_only_candidate_3_photo_finish_red_roof",
+            "appearance_only_candidate_4_natural_photo_finish",
+            "appearance_only_candidate_5_aggressive_material_realism",
         ],
         "caseNames": [
             "appearance_only_candidate_1_material_relight_day",
             "appearance_only_candidate_2_shadow_contrast_background_day",
+            "appearance_only_candidate_3_photo_finish_red_roof_day",
+            "appearance_only_candidate_4_natural_photo_finish_day",
+            "appearance_only_candidate_5_aggressive_material_realism_day",
         ],
     }
+
+
+def test_generate_ifc_house_like_f3_contact_shadow_is_disabled() -> None:
+    """F-3 no longer paints a foreground contact shadow onto the ground plate."""
+    m = _load_script("generate_ifc_house_like_f3_candidates.py")
+
+    background = Image.new("RGB", (12, 12), (220, 220, 220))
+    building = Image.new("RGBA", (12, 12), (0, 0, 0, 0))
+    for y in range(2, 8):
+        for x in range(3, 9):
+            building.putpixel((x, y), (180, 160, 140, 255))
+
+    shadowed = m._apply_contact_shadow(
+        background=background,
+        building=building,
+        time_of_day="DAY",
+    )
+
+    assert shadowed.size == background.size
+    assert np.array_equal(np.asarray(shadowed), np.asarray(background))
+
+
+def test_generate_ifc_house_like_f3_background_plate_has_no_building_pixels() -> None:
+    """F-3 background plate should be a clean sky/ground image with no embedded building."""
+    m = _load_script("generate_ifc_house_like_f3_candidates.py")
+
+    plate = m._build_background_plate((8, 6), time_of_day="NIGHT")
+
+    assert plate.getpixel((0, 0)) != plate.getpixel((0, 5))
+
+
+def test_generate_ifc_house_like_f3_window_reflection_boosts_blue_channel() -> None:
+    """Window reflection helper should brighten glazing in a photo-like way."""
+    m = _load_script("generate_ifc_house_like_f3_candidates.py")
+
+    rgb = np.full((6, 6, 3), 80.0, dtype=np.float32)
+    window_mask = np.zeros((6, 6), dtype=np.float32)
+    window_mask[1:5, 1:5] = 1.0
+
+    reflected = m._apply_window_reflection(
+        rgb,
+        window_mask,
+        time_of_day="DAY",
+    )
+
+    assert reflected[2, 2, 2] > rgb[2, 2, 2]
+
+
+def test_generate_ifc_house_like_f3_photo_finish_boost_pushes_roof_toward_red(
+    tmp_path: Path,
+) -> None:
+    """New photo-finish candidate should visibly push roof pixels toward red family."""
+    m = _load_script("generate_ifc_house_like_f3_candidates.py")
+
+    relit = Image.new("RGBA", (6, 6), (180, 180, 180, 255))
+    roof_mask_path = tmp_path / "roof.png"
+    wall_mask_path = tmp_path / "wall.png"
+    roof = Image.new("L", (6, 6), 0)
+    wall = Image.new("L", (6, 6), 0)
+    for x in range(1, 5):
+        roof.putpixel((x, 1), 255)
+        wall.putpixel((x, 2), 255)
+        wall.putpixel((x, 3), 255)
+        wall.putpixel((x, 4), 255)
+    roof.save(roof_mask_path, format="PNG")
+    wall.save(wall_mask_path, format="PNG")
+
+    boosted = m._apply_photo_finish_red_roof_boost(
+        relit=relit,
+        time_of_day="DAY",
+        source_element_masks={
+            "roof": roof_mask_path,
+            "wall": wall_mask_path,
+        },
+    )
+
+    roof_pixel = boosted.convert("RGB").getpixel((2, 1))
+    assert roof_pixel[0] > roof_pixel[1]
+    assert roof_pixel[0] > roof_pixel[2]
+
+
+def test_generate_ifc_house_like_f3_natural_photo_finish_softens_high_contrast(
+    tmp_path: Path,
+) -> None:
+    """Natural-photo candidate should avoid exaggerated contrast while keeping geometry locked."""
+    m = _load_script("generate_ifc_house_like_f3_candidates.py")
+
+    no_bg = Image.new("RGBA", (8, 8), (0, 0, 0, 0))
+    for y in range(1, 7):
+        for x in range(1, 7):
+            no_bg.putpixel((x, y), (190, 190, 190, 255))
+    with_bg = Image.new("RGB", (8, 8), (210, 218, 224))
+    no_bg_path = tmp_path / "no_bg.png"
+    with_bg_path = tmp_path / "with_bg.png"
+    no_bg.save(no_bg_path, format="PNG")
+    with_bg.save(with_bg_path, format="PNG")
+
+    output = m._build_natural_photo_finish_candidate(
+        no_background_path=no_bg_path,
+        with_background_path=with_bg_path,
+        time_of_day="DAY",
+        source_element_masks={},
+    )
+
+    assert output.size == (8, 8)
+    assert output.getpixel((4, 4))[0] < 230
+
+
+def test_generate_ifc_house_like_f3_aggressive_material_realism_changes_material_read(
+    tmp_path: Path,
+) -> None:
+    """Aggressive material candidate should visibly change roof/window/door material response."""
+    m = _load_script("generate_ifc_house_like_f3_candidates.py")
+
+    no_bg = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
+    for y in range(1, 9):
+        for x in range(1, 9):
+            no_bg.putpixel((x, y), (180, 180, 180, 255))
+    for x in range(2, 8):
+        no_bg.putpixel((x, 2), (160, 70, 60, 255))
+    no_bg.putpixel((5, 7), (140, 110, 80, 255))
+
+    with_bg = Image.new("RGB", (10, 10), (215, 220, 225))
+    no_bg_path = tmp_path / "no_bg.png"
+    with_bg_path = tmp_path / "with_bg.png"
+    roof_mask = tmp_path / "roof.png"
+    wall_mask = tmp_path / "wall.png"
+    window_mask = tmp_path / "window.png"
+    door_mask = tmp_path / "door.png"
+    no_bg.save(no_bg_path, format="PNG")
+    with_bg.save(with_bg_path, format="PNG")
+
+    roof = Image.new("L", (10, 10), 0)
+    wall = Image.new("L", (10, 10), 0)
+    window = Image.new("L", (10, 10), 0)
+    door = Image.new("L", (10, 10), 0)
+    for x in range(2, 8):
+        roof.putpixel((x, 2), 255)
+    for y in range(2, 8):
+        for x in range(2, 8):
+            wall.putpixel((x, y), 255)
+    for x in range(3, 7):
+        window.putpixel((x, 4), 255)
+        window.putpixel((x, 5), 255)
+    door.putpixel((5, 7), 255)
+    roof.save(roof_mask, format="PNG")
+    wall.save(wall_mask, format="PNG")
+    window.save(window_mask, format="PNG")
+    door.save(door_mask, format="PNG")
+
+    output = m._build_aggressive_material_realism_candidate(
+        no_background_path=no_bg_path,
+        with_background_path=with_bg_path,
+        time_of_day="DAY",
+        source_element_masks={
+            "roof": roof_mask,
+            "wall": wall_mask,
+            "window": window_mask,
+            "door": door_mask,
+        },
+    )
+
+    assert output.size == (10, 10)
+    roof_px = output.getpixel((4, 2))
+    window_px = output.getpixel((4, 4))
+    door_px = output.getpixel((5, 7))
+    assert roof_px[0] > roof_px[1]
+    assert window_px[2] >= window_px[1]
+    assert door_px[0] != window_px[0]
 
 
 def test_generate_ifc_exactness_f4_evaluate_exact_pass_requires_full_contract() -> None:
@@ -1460,10 +1696,20 @@ def test_generate_ifc_identical_f5_selects_winner_and_baseline_fallback() -> Non
             "appearance_only_candidate_2_shadow_contrast_background": {
                 "averageVisualRealismScore": 0.75
             },
+            "appearance_only_candidate_3_photo_finish_red_roof": {
+                "averageVisualRealismScore": 0.80,
+                "ifcColorFidelityPriority": 4,
+                "storeyReadabilityPriority": 4,
+            },
+            "appearance_only_candidate_4_natural_photo_finish": {
+                "averageVisualRealismScore": 0.84,
+                "ifcColorFidelityPriority": 4,
+                "storeyReadabilityPriority": 3,
+            },
         }
     )
 
-    assert winner == "appearance_only_candidate_1_material_relight"
+    assert winner == "appearance_only_candidate_3_photo_finish_red_roof"
     assert fallback == "ifc_locked_baseline"
 
 
@@ -1488,10 +1734,20 @@ def test_generate_ifc_identical_f5_prefers_color_and_storey_priority() -> None:
                 "ifcColorFidelityPriority": 2,
                 "storeyReadabilityPriority": 1,
             },
+            "appearance_only_candidate_3_photo_finish_red_roof": {
+                "averageVisualRealismScore": 0.35,
+                "ifcColorFidelityPriority": 4,
+                "storeyReadabilityPriority": 4,
+            },
+            "appearance_only_candidate_4_natural_photo_finish": {
+                "averageVisualRealismScore": 0.80,
+                "ifcColorFidelityPriority": 4,
+                "storeyReadabilityPriority": 3,
+            },
         }
     )
 
-    assert winner == "appearance_only_candidate_1_material_relight"
+    assert winner == "appearance_only_candidate_3_photo_finish_red_roof"
     assert fallback == "ifc_locked_baseline"
 
 

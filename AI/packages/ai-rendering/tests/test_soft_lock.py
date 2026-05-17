@@ -1,0 +1,154 @@
+"""Soft-lock helper tests.
+
+Covers prompt assembly and visible-category detection. The actual diffusion
+renderer is GPU/model bound and is exercised through the G-4 sweep script
+rather than this unit test file.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from PIL import Image
+
+from ai_rendering.ifc2img.soft_lock import (
+    ADE20K_BUILDING_RGB,
+    ADE20K_GRASS_RGB,
+    ADE20K_ROAD_RGB,
+    ADE20K_SKY_RGB,
+    CATEGORY_ORDER,
+    DAY_CATEGORY_PHRASE,
+    DAY_NEGATIVE,
+    DAY_SCENE_SUFFIX,
+    NIGHT_CATEGORY_PHRASE,
+    NIGHT_NEGATIVE,
+    NIGHT_SCENE_SUFFIX,
+    build_ade20k_seg_control,
+    build_region_aware_negative_prompt,
+    build_region_aware_prompt,
+    building_mask_from_no_background,
+    visible_categories_from_element_masks,
+)
+
+
+def test_build_region_aware_prompt_day_orders_categories_and_appends_suffix() -> None:
+    prompt = build_region_aware_prompt(
+        visible_categories={"door", "roof", "wall", "window"},
+        time_of_day="DAY",
+    )
+    expected = ", ".join(
+        [DAY_CATEGORY_PHRASE[cat] for cat in CATEGORY_ORDER]
+        + [DAY_SCENE_SUFFIX]
+    )
+    assert prompt == expected
+
+
+def test_build_region_aware_prompt_skips_missing_categories() -> None:
+    prompt = build_region_aware_prompt(
+        visible_categories={"roof", "wall"},
+        time_of_day="DAY",
+    )
+    assert DAY_CATEGORY_PHRASE["roof"] in prompt
+    assert DAY_CATEGORY_PHRASE["wall"] in prompt
+    assert DAY_CATEGORY_PHRASE["window"] not in prompt
+    assert DAY_CATEGORY_PHRASE["door"] not in prompt
+    assert prompt.endswith(DAY_SCENE_SUFFIX)
+
+
+def test_build_region_aware_prompt_night_uses_night_phrases_and_suffix() -> None:
+    prompt = build_region_aware_prompt(
+        visible_categories={"roof", "window"},
+        time_of_day="NIGHT",
+    )
+    assert NIGHT_CATEGORY_PHRASE["roof"] in prompt
+    assert NIGHT_CATEGORY_PHRASE["window"] in prompt
+    assert prompt.endswith(NIGHT_SCENE_SUFFIX)
+
+
+def test_build_region_aware_prompt_with_no_visible_categories_uses_suffix_only() -> None:
+    prompt = build_region_aware_prompt(
+        visible_categories=set(),
+        time_of_day="DAY",
+    )
+    assert prompt == DAY_SCENE_SUFFIX
+
+
+def test_build_region_aware_prompt_rejects_unknown_time_of_day() -> None:
+    with pytest.raises(ValueError):
+        build_region_aware_prompt(visible_categories={"roof"}, time_of_day="EVENING")
+
+
+def test_build_region_aware_negative_prompt_day_vs_night() -> None:
+    assert build_region_aware_negative_prompt(time_of_day="DAY") == DAY_NEGATIVE
+    assert build_region_aware_negative_prompt(time_of_day="NIGHT") == NIGHT_NEGATIVE
+
+
+def test_build_region_aware_negative_prompt_rejects_unknown_time() -> None:
+    with pytest.raises(ValueError):
+        build_region_aware_negative_prompt(time_of_day="DUSK")
+
+
+def test_build_ade20k_seg_control_paints_building_sky_and_ground() -> None:
+    mask = Image.new("L", (8, 8), 0)
+    for x in range(3, 6):
+        for y in range(3, 6):
+            mask.putpixel((x, y), 255)
+    seg = build_ade20k_seg_control(building_mask=mask, ground_class="grass")
+    assert seg.size == (8, 8)
+    assert seg.getpixel((0, 0)) == ADE20K_SKY_RGB
+    assert seg.getpixel((4, 4)) == ADE20K_BUILDING_RGB
+    assert seg.getpixel((0, 7)) == ADE20K_GRASS_RGB
+
+
+def test_build_ade20k_seg_control_uses_road_when_requested() -> None:
+    mask = Image.new("L", (6, 6), 0)
+    for x in range(1, 5):
+        for y in range(2, 4):
+            mask.putpixel((x, y), 255)
+    seg = build_ade20k_seg_control(building_mask=mask, ground_class="road")
+    assert seg.getpixel((0, 5)) == ADE20K_ROAD_RGB
+
+
+def test_build_ade20k_seg_control_handles_empty_mask() -> None:
+    mask = Image.new("L", (4, 8), 0)
+    seg = build_ade20k_seg_control(building_mask=mask, ground_class="grass")
+    assert seg.getpixel((0, 0)) == ADE20K_SKY_RGB
+    assert seg.getpixel((0, 7)) == ADE20K_GRASS_RGB
+
+
+def test_building_mask_from_no_background_keeps_nonzero_alpha(tmp_path: Path) -> None:
+    rgba = Image.new("RGBA", (4, 4), (0, 0, 0, 0))
+    rgba.putpixel((1, 1), (10, 20, 30, 200))
+    rgba.putpixel((2, 2), (50, 60, 70, 255))
+    path = tmp_path / "building.png"
+    rgba.save(path)
+    mask = building_mask_from_no_background(path)
+    assert mask.getpixel((0, 0)) == 0
+    assert mask.getpixel((1, 1)) == 255
+    assert mask.getpixel((2, 2)) == 255
+
+
+def test_visible_categories_from_element_masks_uses_only_non_empty_masks(
+    tmp_path: Path,
+) -> None:
+    roof_path = tmp_path / "element_roof.png"
+    wall_path = tmp_path / "element_wall.png"
+    window_path = tmp_path / "element_window.png"
+
+    roof = Image.new("L", (4, 4), 0)
+    roof.putpixel((1, 1), 255)
+    roof.save(roof_path)
+
+    Image.new("L", (4, 4), 0).save(wall_path)
+    Image.new("L", (4, 4), 128).save(window_path)
+
+    visible = visible_categories_from_element_masks(
+        {
+            "roof": roof_path,
+            "wall": wall_path,
+            "window": window_path,
+            "door": tmp_path / "missing_door.png",
+        }
+    )
+    assert visible == {"roof", "window"}
