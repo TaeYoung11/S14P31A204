@@ -2154,7 +2154,7 @@ class _FailingClient:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("user_text", ["이 벽 삭제해줘", "벽 크기 늘려줘"])
+@pytest.mark.parametrize("user_text", ["이 벽 삭제해줘", "벽 크기 늘려줘", "색 바꿔줘", "이동해줘"])
 async def test_engine_parse_command_ignores_selected_wall_id_for_non_door_intent(
     ifc_ctx,
     user_text,

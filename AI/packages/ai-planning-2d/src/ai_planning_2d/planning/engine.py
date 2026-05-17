@@ -72,17 +72,6 @@ _RESIZE_DIRECTION_HINTS: tuple[tuple[str, ResizeDirection], ...] = (
 
 _CREATE_DOOR_KEYWORDS: tuple[str, ...] = ("문", "door")
 _CREATE_DOOR_ACTION_HINTS: tuple[str, ...] = ("만들", "추가", "뚫")
-_NON_DOOR_CREATE_SIGNALS: tuple[str, ...] = (
-    "삭제",
-    "제거",
-    "없애",
-    "지워",
-    "늘려",
-    "줄여",
-    "넓혀",
-    "키워",
-    "확장",
-)
 _DELETE_VOID_KEYWORDS: tuple[str, ...] = ("삭제", "제거", "없애", "지워")
 _CREATE_WALL_KEYWORDS: tuple[str, ...] = ("가벽", "벽", "partition", "wall")
 _CREATE_WALL_ACTION_HINTS: tuple[str, ...] = ("세워", "만들", "추가", "설치")
@@ -927,10 +916,9 @@ class FloorPlanEngine:
             selected_wall_id = _selected_wall_id_from_text(user_text, ifc_context)
         if selected_wall_id is not None:
             lowered = user_text.casefold()
-            has_non_create_intent = any(
-                k in user_text or k in lowered for k in _NON_DOOR_CREATE_SIGNALS
-            )
-            if not has_non_create_intent:
+            has_door_keyword = any(k in user_text or k in lowered for k in _CREATE_DOOR_KEYWORDS)
+            has_door_action = any(k in user_text for k in _CREATE_DOOR_ACTION_HINTS)
+            if has_door_keyword and has_door_action:
                 target_floor: int | None = None
                 if ifc_context is not None:
                     for wall in ifc_context.get("walls", []):
@@ -948,6 +936,7 @@ class FloorPlanEngine:
                     needs_clarification=False,
                     clarification_question=None,
                 )
+            # 문 생성 의도가 명확하지 않으면 selected_wall_id 무시하고 일반 파싱으로 폴스루
 
         clarification_followup_remove = _recover_followup_remove_command(
             user_text,
