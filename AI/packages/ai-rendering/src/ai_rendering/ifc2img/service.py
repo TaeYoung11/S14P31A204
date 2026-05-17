@@ -254,7 +254,17 @@ class Ifc2ImgWorkerExpectedOutput(TypedDict):
 
 
 class Ifc2ImgWorkerPayload(TypedDict):
-    """ifc2img 실행에 필요한 렌더 모드와 preset 선택 값."""
+    """ifc2img 실행에 필요한 렌더 모드와 preset 선택 값.
+
+    NOTE: IFC 색 보존 hook (use_ifc_color_prompt_suffix, ifc_color_mode,
+    use_ifc_shape_lock_prompt, geometry_control_input_mode)은 의도적으로
+    여기 노출하지 않는다. 이들은 Phase E 실험 옵션으로 production photo path에
+    아직 wiring되지 않은 상태이며, G-4 soft_lock path를 worker로 끌어올리는
+    통합 MR에서 일괄적으로 노출/정리할 예정이다. 그때까지 기본 production worker
+    경로는 색 보존 hook 없이 conservative default로만 동작한다.
+    test_worker_payload_currently_exposes_no_color_preservation_field가 이
+    contract를 회귀 방지로 fixate한다.
+    """
 
     renderMode: Ifc2ImgWorkerRenderMode
     preset: str
@@ -370,6 +380,12 @@ class Ifc2ImgPhotoManifest:
     time_of_day: Ifc2ImgWorkerTimeOfDay = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY
     schema_version: str = PHOTO_MANIFEST_SCHEMA_VERSION
     render_mode: str = "ifc2img"
+    # Soft fidelity-status surface: caller가 opt-in한 IFC 색 보존이 실제 photo
+    # 생성 단계까지 반영됐는지 success 응답 안에서 알 수 있도록 노출한다.
+    # opted_in=False면 applied/error는 의미 없다.
+    ifc_color_preservation_opted_in: bool = False
+    ifc_color_preservation_applied: bool = False
+    ifc_color_preservation_error: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         """manifest dataclass를 기존 JSON 출력 구조로 변환한다."""
@@ -379,6 +395,9 @@ class Ifc2ImgPhotoManifest:
             "sourceIfcPath": str(self.source_ifc_path),
             "preset": self.preset,
             "timeOfDay": self.time_of_day,
+            "ifcColorPreservationOptedIn": self.ifc_color_preservation_opted_in,
+            "ifcColorPreservationApplied": self.ifc_color_preservation_applied,
+            "ifcColorPreservationError": self.ifc_color_preservation_error,
             "views": [
                 {
                     "view": output.view,
@@ -400,6 +419,9 @@ class Ifc2ImgPhotoJobResult:
     outputs: tuple[Ifc2ImgPhotoViewResult, ...]
     manifest_path: Path
     time_of_day: Ifc2ImgWorkerTimeOfDay = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY
+    ifc_color_preservation_opted_in: bool = False
+    ifc_color_preservation_applied: bool = False
+    ifc_color_preservation_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1276,6 +1298,7 @@ def run_ifc2img_photo_pipeline(
         views=[view.value for view in depth_images],
     )
     params = load_preset(preset, preset_time_of_day)
+    ifc_color_preservation_applied = False
     if use_ifc_color_prompt_suffix and debug_color_summary is not None:
         if ifc_color_prompt_style == "compact":
             color_suffix = build_ifc_compact_color_prompt_suffix(debug_color_summary)
@@ -1296,6 +1319,12 @@ def run_ifc2img_photo_pipeline(
             params,
             prompt=inject_ifc_color_prompt(color_safe_prompt, color_suffix),
         )
+        ifc_color_preservation_applied = True
+    ifc_color_preservation_error = (
+        color_summary_error
+        if use_ifc_color_prompt_suffix and not ifc_color_preservation_applied
+        else None
+    )
     if use_ifc_shape_lock_prompt:
         params = dataclass_replace(
             params,
@@ -1449,12 +1478,18 @@ def run_ifc2img_photo_pipeline(
             preset=preset,
             time_of_day=worker_time_of_day,
             outputs=output_tuple,
+            ifc_color_preservation_opted_in=use_ifc_color_prompt_suffix,
+            ifc_color_preservation_applied=ifc_color_preservation_applied,
+            ifc_color_preservation_error=ifc_color_preservation_error,
         ),
     )
     _logger.info(
         "ifc2img_manifest_write_completed",
         manifestPath=str(manifest_path),
         photoCount=len(output_tuple),
+        ifcColorPreservationOptedIn=use_ifc_color_prompt_suffix,
+        ifcColorPreservationApplied=ifc_color_preservation_applied,
+        ifcColorPreservationError=ifc_color_preservation_error,
     )
     return Ifc2ImgPhotoJobResult(
         preset=preset,
@@ -1462,6 +1497,9 @@ def run_ifc2img_photo_pipeline(
         outputs=output_tuple,
         manifest_path=manifest_path,
         time_of_day=worker_time_of_day,
+        ifc_color_preservation_opted_in=use_ifc_color_prompt_suffix,
+        ifc_color_preservation_applied=ifc_color_preservation_applied,
+        ifc_color_preservation_error=ifc_color_preservation_error,
     )
 
 
