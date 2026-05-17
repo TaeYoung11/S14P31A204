@@ -14,6 +14,7 @@ export function buildTwoDStructureCanvasProps(
   | 'selectedFloorWallIds'
   | 'selectedFloorOpeningId'
   | 'selectedFloorOpeningIds'
+  | 'selectedWallForChat'
   | 'handleSelectFloorWall'
   | 'handleCreateFloorWall'
   | 'wallCreatePreset'
@@ -30,6 +31,7 @@ export function buildTwoDStructureCanvasProps(
   | 'beginWorkspaceSnapshotTransaction'
   | 'commitWorkspaceSnapshotTransaction'
   | 'handleTwoDMarqueeSelect'
+  | 'selectWallForChat'
 > {
   const safeHandleUpdateFloorRoomPolygon = createSafeFloorRoomPolygonHandler(
     vm.handleUpdateFloorRoomPolygon,
@@ -42,6 +44,7 @@ export function buildTwoDStructureCanvasProps(
     selectedFloorWallIds: vm.selectedFloorWallIds,
     selectedFloorOpeningId: vm.selectedFloorOpeningId,
     selectedFloorOpeningIds: vm.selectedFloorOpeningIds,
+    selectedWallForChat: vm.selectedWallForChat,
     handleSelectFloorWall: vm.handleSelectFloorWall,
     handleCreateFloorWall: vm.handleCreateFloorWall,
     wallCreatePreset: vm.wallCreatePreset,
@@ -58,5 +61,6 @@ export function buildTwoDStructureCanvasProps(
     beginWorkspaceSnapshotTransaction: vm.beginWorkspaceSnapshotTransaction,
     commitWorkspaceSnapshotTransaction: vm.commitWorkspaceSnapshotTransaction,
     handleTwoDMarqueeSelect: vm.handleTwoDMarqueeSelect,
+    selectWallForChat: vm.selectWallForChat,
   }
 }

@@ -15,7 +15,9 @@ import pytest
 
 import ai_authoring.operations  # noqa: F401
 from ai_authoring.engine_3d import (
+    _find_eligible_template_door_pair,
     create_door_with_opening,
+    create_door_with_template_reuse,
     create_slab,
     create_wall,
     create_window_with_opening,
@@ -67,6 +69,30 @@ def _single_body_item(element):
         if rep.RepresentationIdentifier == "Body"
     )
     return body.Items[0]
+
+
+def _assert_opening_box_dimensions(opening, length: float, width: float, height: float) -> None:
+    solid = _single_body_item(opening)
+    profile = solid.SweptArea
+
+    assert solid.is_a("IfcExtrudedAreaSolid")
+    assert profile.is_a("IfcRectangleProfileDef")
+    assert profile.XDim == pytest.approx(length)
+    assert profile.YDim == pytest.approx(width)
+    assert solid.Depth == pytest.approx(height)
+
+
+def _assert_filled_opening_relation(product, opening, host_wall) -> None:
+    assert list(product.FillsVoids)[0].RelatingOpeningElement == opening
+    assert list(opening.HasFillings)[0].RelatedBuildingElement == product
+    assert any(
+        rel.RelatedOpeningElement == opening
+        for rel in list(getattr(host_wall, "HasOpenings", []) or [])
+    )
+    assert any(
+        rel.RelatingBuildingElement == host_wall
+        for rel in list(getattr(opening, "VoidsElements", []) or [])
+    )
 
 
 def _convert_wall_to_sample_style_centered_solid(model, wall):
@@ -359,6 +385,183 @@ def test_window_template_reuse_restores_deleted_house_kr_window_position():
         for item in recreated_body.MappedRepresentation.Items
     )
     assert recreated_styled_count == template_styled_count
+
+
+def test_door_template_reuse_resizes_opening_and_body_to_host_wall_thickness():
+    model, storey, _ = _make_model()
+    template_wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    assert template_wall is not None
+    template_door = create_door_with_opening(
+        model,
+        storey,
+        length_mm=900,
+        width_mm=200,
+        height_mm=2100,
+        x_mm=500,
+        y_mm=0,
+        z_mm=0,
+        host_wall=template_wall,
+        sill_height_mm=0.0,
+    )
+    assert template_door is not None
+    target_wall = create_wall(
+        model,
+        storey,
+        length_mm=5000,
+        width_mm=300,
+        height_mm=2600,
+        x_mm=0,
+        y_mm=1000,
+        z_mm=0,
+    )
+    assert target_wall is not None
+
+    created = create_door_with_template_reuse(
+        model,
+        storey,
+        length_mm=1000,
+        width_mm=300,
+        height_mm=2200,
+        x_mm=0,
+        y_mm=3000,
+        z_mm=0,
+        host_wall=target_wall,
+        sill_height_mm=0.0,
+    )
+
+    assert created is not None
+    assert created.OverallWidth == pytest.approx(1000.0)
+    assert created.OverallHeight == pytest.approx(2200.0)
+    opening = list(created.FillsVoids)[0].RelatingOpeningElement
+    _assert_opening_box_dimensions(opening, 1000.0, 300.0, 2200.0)
+    _assert_filled_opening_relation(created, opening, target_wall)
+
+
+def test_door_template_reuse_prefers_closest_template_wall_thickness():
+    model, storey, _ = _make_model()
+    thin_wall = create_wall(
+        model,
+        storey,
+        length_mm=3000,
+        width_mm=200,
+        height_mm=2400,
+        x_mm=0,
+        y_mm=0,
+        z_mm=0,
+    )
+    thick_wall = create_wall(
+        model,
+        storey,
+        length_mm=3000,
+        width_mm=300,
+        height_mm=2400,
+        x_mm=0,
+        y_mm=5000,
+        z_mm=0,
+    )
+    target_wall = create_wall(
+        model,
+        storey,
+        length_mm=5000,
+        width_mm=300,
+        height_mm=2600,
+        x_mm=0,
+        y_mm=10000,
+        z_mm=0,
+    )
+    assert thin_wall is not None
+    assert thick_wall is not None
+    assert target_wall is not None
+
+    thin_door = create_door_with_opening(
+        model,
+        storey,
+        length_mm=900,
+        width_mm=200,
+        height_mm=2100,
+        x_mm=0,
+        y_mm=1500,
+        z_mm=0,
+        host_wall=thin_wall,
+        sill_height_mm=0.0,
+    )
+    thick_door = create_door_with_opening(
+        model,
+        storey,
+        length_mm=900,
+        width_mm=300,
+        height_mm=2100,
+        x_mm=0,
+        y_mm=6500,
+        z_mm=0,
+        host_wall=thick_wall,
+        sill_height_mm=0.0,
+    )
+    assert thin_door is not None
+    assert thick_door is not None
+
+    selected = _find_eligible_template_door_pair(
+        model,
+        storey_id=storey.GlobalId,
+        target_width_m=900.0,
+        target_height_m=2100.0,
+        host_wall=target_wall,
+        target_u=2000.0,
+    )
+
+    assert selected is not None
+    selected_door, _selected_opening = selected
+    assert selected_door.GlobalId == thick_door.GlobalId
+
+
+def test_window_template_reuse_resizes_opening_and_body_to_host_wall_thickness():
+    model, storey, _ = _make_model()
+    template_wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    assert template_wall is not None
+    template_window = create_window_with_opening(
+        model,
+        storey,
+        length_mm=1200,
+        width_mm=200,
+        height_mm=1200,
+        x_mm=700,
+        y_mm=0,
+        z_mm=0,
+        host_wall=template_wall,
+        sill_height_mm=900.0,
+    )
+    assert template_window is not None
+    target_wall = create_wall(
+        model,
+        storey,
+        length_mm=5000,
+        width_mm=350,
+        height_mm=2800,
+        x_mm=0,
+        y_mm=1000,
+        z_mm=0,
+    )
+    assert target_wall is not None
+
+    created = create_window_with_template_reuse(
+        model,
+        storey,
+        length_mm=1500,
+        width_mm=350,
+        height_mm=1300,
+        x_mm=0,
+        y_mm=3200,
+        z_mm=0,
+        host_wall=target_wall,
+        sill_height_mm=900.0,
+    )
+
+    assert created is not None
+    assert created.OverallWidth == pytest.approx(1500.0)
+    assert created.OverallHeight == pytest.approx(1300.0)
+    opening = list(created.FillsVoids)[0].RelatingOpeningElement
+    _assert_opening_box_dimensions(opening, 1500.0, 350.0, 1300.0)
+    _assert_filled_opening_relation(created, opening, target_wall)
 
 
 def test_transform_handler_skips_host_relative_window_when_requested():

@@ -41,7 +41,6 @@ import static com.a204.batang.domain.ifcedit.IfcEditConstants.WORKER_TYPE_IFC_ED
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
@@ -55,6 +54,7 @@ class DirectIfcEditCommandServiceTest {
     @Mock private ProjectAccessService projectAccessService;
     @Mock private IfcEditJobRepository ifcEditJobRepository;
     @Mock private IfcEditJobStepRepository ifcEditJobStepRepository;
+    @Mock private IfcEditActiveJobGuard ifcEditActiveJobGuard;
     @Mock private IfcEditStoragePathBuilder pathBuilder;
     @Mock private ApplicationEventPublisher eventPublisher;
 
@@ -110,8 +110,7 @@ class DirectIfcEditCommandServiceTest {
 
         given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId))
                 .willReturn(Optional.of(project));
-        given(ifcEditJobRepository.existsByProjectIdAndJobTypeInAndStatusIn(any(UUID.class), anyCollection(), anyCollection()))
-                .willReturn(false);
+        given(ifcEditActiveJobGuard.hasBlockingActiveJob(projectId)).willReturn(false);
         given(revisionRepository.findById(baseRevisionId))
                 .willReturn(Optional.of(sourceRevision));
         given(revisionRepository.findTopByProjectIdOrderByRevisionNoDesc(projectId))
@@ -182,8 +181,7 @@ class DirectIfcEditCommandServiceTest {
 
         given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId))
                 .willReturn(Optional.of(project));
-        given(ifcEditJobRepository.existsByProjectIdAndJobTypeInAndStatusIn(any(UUID.class), anyCollection(), anyCollection()))
-                .willReturn(true);
+        given(ifcEditActiveJobGuard.hasBlockingActiveJob(projectId)).willReturn(true);
 
         assertThatThrownBy(() -> service.createDirectIfcEdit(projectId, userId, request))
                 .isInstanceOf(CustomException.class)
@@ -202,8 +200,7 @@ class DirectIfcEditCommandServiceTest {
 
         given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId))
                 .willReturn(Optional.of(project));
-        given(ifcEditJobRepository.existsByProjectIdAndJobTypeInAndStatusIn(any(), any(), any()))
-                .willReturn(false);
+        given(ifcEditActiveJobGuard.hasBlockingActiveJob(projectId)).willReturn(false);
         given(revisionRepository.findById(baseRevisionId)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.createDirectIfcEdit(projectId, userId, request))

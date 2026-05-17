@@ -78,10 +78,12 @@ const toBubbleSavePayload = (snapshot: WorkspaceSnapshot): WorkspaceBubbleSnapsh
   mapBubbleSnapshotToWorkspacePayload(
     snapshot.bubbles,
     snapshot.connections,
+    snapshot.zones,
     mapFloorMetaFromWorkspaceSnapshot(snapshot),
   )
 
 export const workspaceSaveService = {
+  /** 워크스페이스 히스토리(버블/평면도 커서 포함) 초기 부트스트랩 데이터 조회 */
   loadHistorySnapshot: async (projectId: string): Promise<WorkspaceHistorySnapshotResponse> => {
     const response = await api.get<ApiResponse<WorkspaceHistorySnapshotResponse>>(
       `/projects/${projectId}/workspace/history`,
@@ -105,6 +107,7 @@ export const workspaceSaveService = {
     }
   },
 
+  /** floor-plan 저장 메타(revision/S3 URL)를 서버에 확정 저장 */
   saveFloorPlanSnapshot: async (
     projectId: string,
     input: { revisionId?: string | null; s3Url: string },

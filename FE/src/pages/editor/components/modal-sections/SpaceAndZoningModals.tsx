@@ -53,6 +53,7 @@ export default function SpaceAndZoningModals({
       <ZoningModal
         isOpen={isZoningModalOpen}
         isEditing={Boolean(editingZoneId)}
+        activeFloorNumber={activeBubbleFloor}
         formData={zoningFormData}
         bubbles={bubbles}
         autoColorPreview={zoningAutoColorPreview}

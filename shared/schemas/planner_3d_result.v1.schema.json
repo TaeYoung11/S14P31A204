@@ -343,10 +343,59 @@
         "options": {
           "type": "array",
           "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 255
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              {
+                "$ref": "#/$defs/clarificationOption"
+              }
+            ]
           }
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "clarificationOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "value": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
         }
       }
     },
@@ -514,6 +563,29 @@
         "ridge_height_mm": {
           "type": "number",
           "exclusiveMinimum": 0
+        },
+        "step_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "riser_height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "tread_depth_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "host_wall_global_id": {
+          "$ref": "#/$defs/globalId"
+        },
+        "sill_height_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "opening_offset_mm": {
+          "type": "number",
+          "minimum": 0
         }
       },
       "allOf": [

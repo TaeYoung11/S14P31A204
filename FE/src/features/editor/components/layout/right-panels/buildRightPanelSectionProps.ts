@@ -3,17 +3,25 @@ import { AssistantPanel } from '../../panels/AssistantPanel'
 import { AttributesPanel } from '../../panels/AttributesPanel'
 import { FloorViewPanel } from '../../panels/FloorViewPanel'
 import { HierarchyPanel } from '../../panels/HierarchyPanel'
-import { ZoningPanel } from '../../panels/ZoningPanel'
 import { buildHierarchyGroups } from '../../panels/hierarchyPanelData'
 import type { BubbleFloorSectionProps } from '../../panels/sections/BubbleFloorSection'
+import { ZoningSection } from '../../panels/sections/ZoningSection'
 import type { EditorRightPanelsProps } from './EditorRightPanels.types'
 import type { PanelKey } from '../../../types'
 
 export type AttributesSectionProps = ComponentProps<typeof AttributesPanel>
-export type ZoningSectionProps = ComponentProps<typeof ZoningPanel>
+export type ZoningSectionProps = ComponentProps<typeof ZoningSection>
 export type FloorViewSectionProps = ComponentProps<typeof FloorViewPanel>
 export type HierarchySectionProps = ComponentProps<typeof HierarchyPanel>
 export type AssistantSectionProps = ComponentProps<typeof AssistantPanel>
+
+function isFloorWorkspaceMode(mode: EditorRightPanelsProps['mode']): boolean {
+  return mode === '2d' || mode === '3d'
+}
+
+function coalesceArray<T>(items: T[] | null | undefined): T[] {
+  return items ?? []
+}
 
 /**
  * 모든 우측 패널에서 공통으로 사용하는 프레임 props를 구성한다.
@@ -80,7 +88,6 @@ export function buildAttributesSectionProps(vm: EditorRightPanelsProps): Attribu
 export function buildZoningSectionProps(vm: EditorRightPanelsProps): ZoningSectionProps | null {
   if (vm.mode !== 'bubble') return null
   return {
-    ...buildCommonPanelFrameProps(vm, 'zoning'),
     zoningListItems: vm.zoningListItems,
     onOpenZoningModal: vm.onOpenZoningModal,
     onOpenEditZoningModal: vm.onOpenEditZoningModal,
@@ -92,7 +99,7 @@ export function buildZoningSectionProps(vm: EditorRightPanelsProps): ZoningSecti
  * 3D 모드 FloorView 패널 props 매핑
  */
 export function buildFloorViewSectionProps(vm: EditorRightPanelsProps): FloorViewSectionProps | null {
-  if (vm.mode !== '2d' && vm.mode !== '3d') return null
+  if (!isFloorWorkspaceMode(vm.mode)) return null
   return {
     ...buildCommonPanelFrameProps(vm, 'floorView'),
     layers: vm.floorLayers,
@@ -116,30 +123,20 @@ export function buildFloorViewSectionProps(vm: EditorRightPanelsProps): FloorVie
  * 3D 모드 Hierarchy 패널 props 매핑
  */
 export function buildHierarchySectionProps(vm: EditorRightPanelsProps): HierarchySectionProps | null {
-  if (vm.mode !== '2d' && vm.mode !== '3d') return null
-  const floorRooms = vm.floorRooms ?? []
-  const floorWalls = vm.floorWalls ?? []
-  const floorOpenings = vm.floorOpenings ?? []
-  const floorLayers = vm.floorLayers ?? []
-  const activeFloorLayerId = vm.activeFloorLayerId ?? null
-  const ifcElementHierarchy = vm.ifcElementHierarchy ?? null
+  if (!isFloorWorkspaceMode(vm.mode)) return null
+  const hierarchySource = {
+    floorRooms: coalesceArray(vm.floorRooms),
+    floorWalls: coalesceArray(vm.floorWalls),
+    floorOpenings: coalesceArray(vm.floorOpenings),
+    floorLayers: coalesceArray(vm.floorLayers),
+    activeFloorLayerId: vm.activeFloorLayerId ?? null,
+    ifcElementHierarchy: vm.ifcElementHierarchy ?? null,
+  }
 
   return {
     ...buildCommonPanelFrameProps(vm, 'hierarchy'),
-    floorRooms,
-    floorWalls,
-    floorOpenings,
-    floorLayers,
-    activeFloorLayerId,
-    ifcElementHierarchy,
-    groups: buildHierarchyGroups({
-      floorRooms,
-      floorWalls,
-      floorOpenings,
-      floorLayers,
-      activeFloorLayerId,
-      ifcElementHierarchy,
-    }),
+    ...hierarchySource,
+    groups: buildHierarchyGroups(hierarchySource),
   }
 }
 
@@ -157,15 +154,19 @@ export function buildAssistantSectionProps(vm: EditorRightPanelsProps): Assistan
     message: vm.llmMessage,
     suggestions: vm.llmSuggestions,
     preview: vm.llmPreview,
+    selectedWallForChat: vm.selectedWallForChat,
     canRun: vm.llmCanRun,
     activeJobId: vm.llmActiveJobId,
     jobProgress: vm.llmJobProgress,
+    clarificationArtifact: vm.llmClarificationArtifact,
     chatLogs: vm.llmChatLogs,
     isChatLogsLoading: vm.llmIsChatLogsLoading,
     onPromptChange: vm.onLlmPromptChange,
     onRun: vm.onRunLlmEdit,
     onApply: vm.onApplyLlmEdit,
     onDiscard: vm.onDiscardLlmEdit,
+    onSelectAlternative: vm.onSelectLlmAlternative,
+    onClearSelectedWall: vm.onClearSelectedWall,
     floorProjectImportMessage: vm.floorProjectImportMessage,
   }
 }
@@ -176,8 +177,8 @@ export function buildAssistantSectionProps(vm: EditorRightPanelsProps): Assistan
  */
 export function buildBubbleFloorSectionProps(vm: EditorRightPanelsProps): BubbleFloorSectionProps {
   return {
-    floors: vm.bubbleFloors ?? [],
-    summaries: vm.bubbleFloorSummaries ?? [],
+    floors: coalesceArray(vm.bubbleFloors),
+    summaries: coalesceArray(vm.bubbleFloorSummaries),
     activeFloor: vm.activeBubbleFloor ?? 1,
     isReadOnly: vm.isBubbleReadOnly ?? false,
     onSelectFloor: vm.onSelectBubbleFloor,

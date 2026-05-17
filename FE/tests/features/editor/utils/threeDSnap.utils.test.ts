@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeSnapIntervalMm, toRotationSnapDegrees, toRotationSnapRadians } from './threeDSnap.utils'
+import { normalizeSnapIntervalMm, toRotationSnapDegrees, toRotationSnapRadians } from '@/features/editor/utils/threeDSnap.utils'
 
 describe('threeDSnap.utils', () => {
   it('snap 간격을 최소 1mm 정수로 정규화한다', () => {
@@ -20,3 +20,5 @@ describe('threeDSnap.utils', () => {
     expect(toRotationSnapRadians(500)).toBeCloseTo(Math.PI / 6, 8)
   })
 })
+
+

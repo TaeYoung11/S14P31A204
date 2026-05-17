@@ -1,24 +1,42 @@
 import { Search } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import Modal from '@/shared/components/Modal'
 import Spinner from '@/shared/components/Spinner'
 import { ProjectSitePolygonPreviewCard } from '@/features/project/components/site-modal/ProjectSitePolygonPreviewCard'
 import { ProjectSitePostcodeOverlay } from '@/features/project/components/site-modal/ProjectSitePostcodeOverlay'
+import { ProjectSiteCreateAction } from '@/features/project/components/site-modal/ProjectSiteCreateAction'
 import { useProjectSiteModal } from '@/features/project/hooks/useProjectSiteModal'
+import { useProjectSiteModalActions } from '@/features/project/hooks/useProjectSiteModalActions'
 import { formatAreaM2, formatAreaPyeong } from '@/features/project/utils/siteGeometry'
 
 interface ProjectSiteModalProps {
   isOpen: boolean
   projectId: string | null
   projectName?: string
-  onClose: () => void
+  onComplete: () => void | Promise<void>
+  onCancel: () => void | Promise<void>
+  isCancellingProject?: boolean
+  cancelErrorMessage?: string
+  onClearCancelError?: () => void
 }
 
+/**
+ * 프로젝트 생성 직후 대지 정보를 입력받는 모달.
+ * - 대지 좌표(폴리곤)가 확보되기 전에는 생성 확정 버튼을 노출하지 않는다.
+ * - 모달 닫기(X/ESC/오버레이)는 생성 취소 흐름으로 연결된다.
+ */
 export default function ProjectSiteModal({
   isOpen,
   projectId,
   projectName,
-  onClose,
+  onComplete,
+  onCancel,
+  isCancellingProject = false,
+  cancelErrorMessage = '',
+  onClearCancelError,
 }: ProjectSiteModalProps) {
+  const [actionErrorMessage, setActionErrorMessage] = useState('')
+  const isExternalInteractionLocked = isCancellingProject
   const {
     mapContainerRef,
     showPostcode,
@@ -32,12 +50,38 @@ export default function ProjectSiteModal({
     registerError,
     isRegistering,
     handleAddressSelect,
-  } = useProjectSiteModal({ isOpen, projectId })
-  const isCloseDisabled = isRegistering
-  const handleRequestClose = () => {
-    if (isCloseDisabled) return
-    onClose()
+  } = useProjectSiteModal({ isOpen, projectId, isInteractionLocked: isExternalInteractionLocked })
+
+  /** 등록/취소 API 진행 중에는 사용자 입력을 잠시 막아 중복 요청을 방지한다. */
+  const isCloseDisabled = isRegistering || isCancellingProject
+  /** 폴리곤 존재 여부는 생성 버튼 노출 조건과 완료 액션 검증 조건으로 함께 사용한다. */
+  const hasPolygon = Boolean(polygonCoords)
+  const { handleRequestClose, handleComplete } = useProjectSiteModalActions({
+    hasPolygon,
+    isCloseDisabled,
+    onCancel,
+    onComplete,
+    onActionError: setActionErrorMessage,
+  })
+  /** 사용자에게 표시할 단일 에러 메시지 */
+  const errorMessage = cancelErrorMessage
+    || (registerError as Error | null)?.message
+    || searchError
+    || sdkError
+    || actionErrorMessage
+
+  /** 주소 검색 재시작 시 이전 취소 오류 메시지를 제거한다. */
+  const handleOpenPostcode = () => {
+    setActionErrorMessage('')
+    onClearCancelError?.()
+    setShowPostcode(true)
   }
+
+  /** 취소/저장 처리 중에는 주소 검색 오버레이를 강제로 닫아 추가 입력을 막는다. */
+  useEffect(() => {
+    if (!isCloseDisabled) return
+    setShowPostcode(false)
+  }, [isCloseDisabled, setShowPostcode])
 
   return (
     <Modal
@@ -61,8 +105,8 @@ export default function ProjectSiteModal({
             <button
               type="button"
               className="inline-flex min-w-[112px] items-center justify-center gap-2 rounded-2xl bg-[#111827] px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-[#1f2937] disabled:opacity-70"
-              onClick={() => setShowPostcode(true)}
-              disabled={isRegistering}
+              onClick={handleOpenPostcode}
+              disabled={isCloseDisabled}
             >
               <Search className="h-4 w-4" />
               주소 검색
@@ -97,22 +141,13 @@ export default function ProjectSiteModal({
             </div>
           )}
 
-          {(sdkError || searchError || registerError) && (
+          {errorMessage && (
             <p className="rounded-2xl border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#b91c1c]">
-              {sdkError || searchError || (registerError as Error).message}
+              {errorMessage}
             </p>
           )}
 
-          <div className="flex items-center justify-end">
-            <button
-              type="button"
-              className="rounded-2xl border border-[#dbe2f0] px-5 py-3 text-sm font-medium text-[#475569] transition-colors hover:bg-[#f8fafc]"
-              onClick={handleRequestClose}
-              disabled={isCloseDisabled}
-            >
-              {isCloseDisabled ? '저장 중...' : polygonCoords ? '프로젝트로 이동' : '나중에 입력'}
-            </button>
-          </div>
+          {hasPolygon && <ProjectSiteCreateAction isProcessing={isCloseDisabled} onComplete={handleComplete} />}
         </div>
       </div>
     </Modal>

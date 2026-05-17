@@ -75,9 +75,22 @@
         "kitchen",
         "bathroom",
         "office",
+        "entrance",
         "corridor",
         "other"
       ]
+    },
+    "wallType": {
+      "type": "string",
+      "enum": ["general", "exterior", "load_bearing", "partition"]
+    },
+    "connectionIntent": {
+      "type": "string",
+      "enum": ["circulation", "open_passage", "weak_relation", "merge"]
+    },
+    "connectionStrength": {
+      "type": "string",
+      "enum": ["strong", "normal", "weak"]
     },
     "hexColor": {
       "type": "string",
@@ -114,6 +127,21 @@
           "minLength": 1,
           "maxLength": 128
         },
+        "source_bubble_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "original_label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "original_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
         "name": {
           "type": "string",
           "minLength": 1,
@@ -145,6 +173,17 @@
         },
         "locked": {
           "type": "boolean"
+        },
+        "material": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "color": {
+          "$ref": "#/$defs/hexColor"
+        },
+        "wall_type": {
+          "$ref": "#/$defs/wallType"
         },
         "zoneId": {
           "oneOf": [
@@ -185,6 +224,11 @@
       "additionalProperties": false,
       "required": ["from_room_id", "to_room_id", "strength"],
       "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
         "from_room_id": {
           "type": "string",
           "minLength": 1,
@@ -199,6 +243,22 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1
+        },
+        "intent": {
+          "$ref": "#/$defs/connectionIntent"
+        },
+        "connection_strength": {
+          "$ref": "#/$defs/connectionStrength"
+        },
+        "source_bubble_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "target_bubble_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
         }
       }
     },
@@ -298,6 +358,9 @@
       "rooms": [
         {
           "id": "room-living-01",
+          "source_bubble_id": "bubble-living-01",
+          "original_label": "Living Room",
+          "original_type": "living",
           "name": "Living Room",
           "type": "living",
           "width": 4200,
@@ -307,6 +370,9 @@
           "y": 4000.0,
           "angle": 0.0,
           "locked": false,
+          "material": "wood",
+          "color": "#FF5733",
+          "wall_type": "general",
           "zoneId": "zone-common"
         }
       ],
