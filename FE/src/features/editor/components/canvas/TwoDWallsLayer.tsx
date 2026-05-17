@@ -4,7 +4,6 @@ import type { FloorWall, Point2D } from '../../types'
 import {
   DEFAULT_WALL_MATERIAL,
   FLOOR_WALL_MATERIAL_VISUALS,
-  FLOOR_WALL_PRESETS,
   FLOOR_WALL_TYPE_OPTIONS,
   FLOOR_WALL_TYPE_VISUALS,
 } from '../../constants'
@@ -105,10 +104,10 @@ export function TwoDWallsLayer({
           (selectedWallGeometryKey !== null && getWallGeometryKey(wall) === selectedWallGeometryKey)
         const isChatSelectedWall = chatSelectedWallId === wall.id || chatSelectedWallId === wall.globalId
         const isOutsideSiteWall = outsideWallIds.has(wall.id)
-        const presetStroke = FLOOR_WALL_PRESETS[wall.type]?.stroke ?? '#2F3448'
+        const presetStroke = '#858585'
         const wallTypeVisual = FLOOR_WALL_TYPE_VISUALS[wall.type] ?? FLOOR_WALL_TYPE_VISUALS.general
         const wallStroke = isSelectedWall
-          ? '#3B45B3'
+          ? '#6F7FA3'
           : isOutsideSiteWall
             ? SITE_OUTSIDE_WARNING
             : presetStroke
@@ -167,9 +166,9 @@ export function TwoDWallsLayer({
               lineCap="round"
               lineJoin="round"
               dash={wallTypeVisual.marker === 'dashed' ? wallTypeVisual.dash : undefined}
-              shadowColor={isSelectedWall ? '#3B45B3' : undefined}
+              shadowColor={isSelectedWall ? '#2563EB' : undefined}
               shadowBlur={isSelectedWall ? 6 : 0}
-              shadowOpacity={isSelectedWall ? 0.2 : 0}
+              shadowOpacity={isSelectedWall ? 0.15 : 0}
               hitStrokeWidth={Math.max(strokeWidthPx + 18, 28)}
               onClick={(e) => {
                 if (!canInteractWithWall) return
