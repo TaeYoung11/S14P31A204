@@ -94,6 +94,7 @@ services:
     build:
       context: ../AI
       dockerfile: Dockerfile
+      target: ai-core
     container_name: batang-worker-ifc-generate
     restart: unless-stopped
     environment:
@@ -127,6 +128,7 @@ services:
     build:
       context: ../AI
       dockerfile: Dockerfile
+      target: ai-core
     container_name: batang-worker-planning-2d
     restart: unless-stopped
     environment:
@@ -162,6 +164,7 @@ services:
     build:
       context: ../AI
       dockerfile: Dockerfile
+      target: ai-core
     container_name: batang-worker-planning-3d
     restart: unless-stopped
     environment:
@@ -197,6 +200,7 @@ services:
     build:
       context: ../AI
       dockerfile: Dockerfile
+      target: ai-core
     container_name: batang-worker-authoring
     restart: unless-stopped
     environment:
@@ -231,6 +235,7 @@ services:
     build:
       context: ../AI
       dockerfile: Dockerfile
+      target: ai-rendering
     container_name: batang-worker-rendering
     restart: unless-stopped
     environment:
