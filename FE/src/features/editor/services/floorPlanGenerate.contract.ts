@@ -30,7 +30,6 @@ const TOP_LEVEL_KEYS = new Set([
 
 const ROOM_KEYS = new Set([
   'id',
-  'sourceBubbleId',
   'source_bubble_id',
   'original_label',
   'original_type',
@@ -96,7 +95,6 @@ export type LayoutImportConnectionStrength = 'strong' | 'normal' | 'weak'
 
 export interface LayoutImportV2Room {
   id: string
-  sourceBubbleId?: string
   source_bubble_id?: string
   original_label?: string
   original_type?: string
@@ -220,9 +218,6 @@ function validateRoom(room: unknown, index: number, errors: string[]) {
   pushUnexpectedKeys(room, ROOM_KEYS as Set<string>, path, errors)
 
   if (!isNonBlankString(room.id, 128)) errors.push(`${path}.id: must be a non-empty string (<=128)`)
-  if (room.sourceBubbleId !== undefined && !isNonBlankString(room.sourceBubbleId, 128)) {
-    errors.push(`${path}.sourceBubbleId: must be a non-empty string (<=128)`)
-  }
   if (room.source_bubble_id !== undefined && !isNonBlankString(room.source_bubble_id, 128)) {
     errors.push(`${path}.source_bubble_id: must be a non-empty string (<=128)`)
   }
