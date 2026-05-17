@@ -288,33 +288,13 @@ public class FloorPlanLayoutImportMapper {
         }
 
         String normalized = rawType.trim().toLowerCase(Locale.ROOT);
-        if ("거실".equals(normalized)) {
-            return "living";
-        }
-        if ("침실".equals(normalized) || "방".equals(normalized)) {
-            return "bedroom";
-        }
-        if ("주방".equals(normalized)) {
-            return "kitchen";
-        }
-        if ("화장실".equals(normalized) || "욕실".equals(normalized)) {
-            return "bathroom";
-        }
-        if ("현관".equals(normalized) || "entrance".equals(normalized)) {
-            return "entrance";
-        }
-        if ("복도".equals(normalized)) {
-            return "corridor";
-        }
-        if ("사무실".equals(normalized)) {
-            return "office";
-        }
         return switch (normalized) {
             case "거실", "living" -> "living";
             case "침실", "bedroom", "방" -> "bedroom";
             case "주방", "kitchen" -> "kitchen";
-            case "화장실", "bathroom" -> "bathroom";
-            case "복도", "corridor", "현관" -> "corridor";
+            case "화장실", "욕실", "bathroom" -> "bathroom";
+            case "현관", "entrance" -> "entrance";
+            case "복도", "corridor" -> "corridor";
             case "사무실", "office" -> "office";
             case "미선택", "other" -> "other";
             default -> "other";
@@ -326,26 +306,13 @@ public class FloorPlanLayoutImportMapper {
             return false;
         }
         String normalized = rawType.trim().toLowerCase(Locale.ROOT);
-        if (Set.of(
-                "거실",
-                "침실",
-                "방",
-                "주방",
-                "화장실",
-                "욕실",
-                "현관",
-                "entrance",
-                "복도",
-                "사무실"
-        ).contains(normalized)) {
-            return true;
-        }
         return Set.of(
                 "거실", "living",
                 "침실", "bedroom", "방",
                 "주방", "kitchen",
-                "화장실", "bathroom",
-                "복도", "corridor", "현관",
+                "화장실", "욕실", "bathroom",
+                "현관", "entrance",
+                "복도", "corridor",
                 "사무실", "office",
                 "미선택", "other"
         ).contains(normalized);
