@@ -108,6 +108,13 @@ public class WorkspaceFloorPlanRealtimeService {
             );
             return;
         }
+        if (queueResult == FloorPlanIfcEditQueueResult.SKIPPED_EMPTY_OPERATIONS) {
+            saveFloorPlanSnapshotToRedisOrThrow(
+                    projectId,
+                    buildFloorPlanHistorySnapshot(syncPayload, null),
+                    request.baseIndex()
+            );
+        }
 
         broadcastFloorPlanSync(
                 projectId,

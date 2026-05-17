@@ -130,7 +130,7 @@ public class FloorPlanIfcEditEngineRequestMapper {
         if (globalId == null || globalId.isBlank()) {
             return null;
         }
-        if ("room".equals(envelope.command().entity()) && !isIfcGlobalId(globalId)) {
+        if (!isIfcGlobalId(globalId)) {
             return null;
         }
         return operation(envelope.commandId().toString(), "delete_elements", selector(globalId), objectMapper.createObjectNode());
