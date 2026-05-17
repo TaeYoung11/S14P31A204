@@ -439,7 +439,7 @@ def test_generate_ifc_geometry_color_e25_builds_compact_prompt_metadata(
     )
 
     assert metadata["compactColorPrompt"] == (
-        "IFC colors: green roof, gray walls, blue glass, tan wood door."
+        "IFC colors: red roof, white walls, blue glass, tan wood door."
     )
     assert metadata["compactColorPromptWordCount"] == 11
     assert metadata["compactBasePromptWordCount"] < metadata["colorSafePromptWordCount"]
