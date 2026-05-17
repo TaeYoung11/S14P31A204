@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -41,10 +41,53 @@ ELEMENT_MASK_COLORS: dict[IfcSemanticCategory, tuple[int, int, int]] = {
 }
 
 
+IfcElementMaskCoverageWarning = Literal[
+    "missing_mesh",
+    "coverage_below_threshold",
+]
+
+
+# Categories that mask quality drops matter most for downstream color/metric work.
+# WINDOW/DOOR are typically thin and coplanar with walls so they are most exposed
+# to depth-epsilon dropouts in `_visible_category_mask`.
+KEY_COVERAGE_CATEGORIES: tuple[IfcSemanticCategory, ...] = ("WINDOW", "DOOR")
+DEFAULT_VISIBLE_TO_HIT_RATIO_THRESHOLD = 0.5
+DEFAULT_MIN_VISIBLE_PIXEL_COUNT = 50
+
+
+@dataclass(frozen=True)
+class IfcElementMaskCoverage:
+    """Per-category visibility summary for a rendered element mask set.
+
+    `visible_pixel_count` counts pixels passing the occlusion-aware visibility
+    filter. `category_hit_count` is the raw raycast hit count before the filter;
+    a low `visible_to_hit_ratio` suggests epsilon dropouts at coplanar
+    boundaries (thin window/door panels inside walls etc.).
+    """
+
+    category: IfcSemanticCategory
+    visible_pixel_count: int
+    category_hit_count: int
+    visible_to_hit_ratio: float
+    warning: IfcElementMaskCoverageWarning | None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "category": self.category,
+            "visiblePixelCount": self.visible_pixel_count,
+            "categoryHitCount": self.category_hit_count,
+            "visibleToHitRatio": self.visible_to_hit_ratio,
+            "warning": self.warning,
+        }
+
+
 @dataclass(frozen=True)
 class IfcElementMaskRenderResult:
     masks: dict[IfcSemanticCategory, Image.Image]
     composite: Image.Image
+    coverage: dict[IfcSemanticCategory, IfcElementMaskCoverage] = field(
+        default_factory=dict
+    )
 
 
 @dataclass(frozen=True)
@@ -268,8 +311,17 @@ def render_ifc_element_masks(
     up: tuple[float, float, float] | list[float],
     width: int,
     height: int,
+    visible_to_hit_ratio_threshold: float = DEFAULT_VISIBLE_TO_HIT_RATIO_THRESHOLD,
+    min_visible_pixel_count: int = DEFAULT_MIN_VISIBLE_PIXEL_COUNT,
+    key_coverage_categories: tuple[IfcSemanticCategory, ...] = KEY_COVERAGE_CATEGORIES,
 ) -> IfcElementMaskRenderResult:
-    """Render visible FLOOR/ROOF/WALL/WINDOW/DOOR masks from IFC geometry."""
+    """Render visible FLOOR/ROOF/WALL/WINDOW/DOOR masks from IFC geometry.
+
+    Also records per-category coverage info so downstream metric / color-lock
+    callers can detect categories where the depth-epsilon visibility filter
+    silently dropped most pixels (typically thin window/door coplanar with
+    walls).
+    """
     ifc_path = Path(ifc_path)
     category_meshes = _load_category_meshes(ifc_path)
     all_mesh = _merge_meshes(list(category_meshes.values()))
@@ -285,23 +337,82 @@ def render_ifc_element_masks(
     )
     full_depth = _cast_depth(all_mesh, rays, width=width, height=height)
     masks: dict[IfcSemanticCategory, Image.Image] = {}
+    coverage: dict[IfcSemanticCategory, IfcElementMaskCoverage] = {}
     composite_arr = np.zeros((height, width, 3), dtype=np.uint8)
 
     for category in SUPPORTED_SEMANTIC_CATEGORIES:
         mesh = category_meshes.get(category)
         if mesh is None:
             mask_arr = np.zeros((height, width), dtype=np.uint8)
+            coverage[category] = IfcElementMaskCoverage(
+                category=category,
+                visible_pixel_count=0,
+                category_hit_count=0,
+                visible_to_hit_ratio=0.0,
+                warning="missing_mesh",
+            )
         else:
             category_depth = _cast_depth(mesh, rays, width=width, height=height)
             visible = _visible_category_mask(full_depth, category_depth)
             mask_arr = visible.astype(np.uint8) * 255
             composite_arr[visible] = ELEMENT_MASK_COLORS[category]
+            visible_count = int(visible.sum())
+            hit_count = int((category_depth > 0).sum())
+            ratio = 1.0 if hit_count == 0 else visible_count / hit_count
+            warning: IfcElementMaskCoverageWarning | None = None
+            if (
+                category in key_coverage_categories
+                and hit_count > 0
+                and (
+                    ratio < visible_to_hit_ratio_threshold
+                    or visible_count < min_visible_pixel_count
+                )
+            ):
+                warning = "coverage_below_threshold"
+            coverage[category] = IfcElementMaskCoverage(
+                category=category,
+                visible_pixel_count=visible_count,
+                category_hit_count=hit_count,
+                visible_to_hit_ratio=ratio,
+                warning=warning,
+            )
         masks[category] = Image.fromarray(mask_arr, mode="L")
 
     return IfcElementMaskRenderResult(
         masks=masks,
         composite=Image.fromarray(composite_arr, mode="RGB"),
+        coverage=coverage,
     )
+
+
+def summarize_coverage_warnings(
+    result: IfcElementMaskRenderResult,
+) -> dict[IfcSemanticCategory, IfcElementMaskCoverageWarning]:
+    """Return only categories with a coverage warning."""
+    return {
+        category: cov.warning
+        for category, cov in result.coverage.items()
+        if cov.warning is not None
+    }
+
+
+def has_critical_coverage_warning(
+    result: IfcElementMaskRenderResult,
+    *,
+    categories: tuple[IfcSemanticCategory, ...] = KEY_COVERAGE_CATEGORIES,
+) -> bool:
+    """True when any of the key categories carries a coverage warning.
+
+    Callers (color lock / metric) can use this to refuse silent acceptance of
+    a mask set that has likely epsilon dropouts on critical category surfaces.
+    """
+    for category in categories:
+        cov = result.coverage.get(category)
+        if cov is None:
+            continue
+        if cov.warning is not None:
+            return True
+    return False
 
 
 def build_ifc_color_artifact_matrix(
@@ -551,7 +662,13 @@ def build_ifc_color_lock_artifact(
     *,
     strength: float,
 ) -> Image.Image:
-    """Build an artifact-only color-lock preview without changing production output."""
+    """Build an artifact-only color-lock preview without changing production output.
+
+    이 helper는 debug/probe 비교 전용이고, production `photo_*.png` 저장 경로에는
+    호출되지 않는다 (`run_ifc2img_photo_pipeline()`에서 사용되지 않음). 색 보존을
+    최종 photo에 실제 적용하는 wiring은 G-4 soft_lock path를 worker로 통합하는
+    별도 MR에서 결정한다.
+    """
     if not 0.0 <= strength <= 1.0:
         raise ValueError("strength must be between 0.0 and 1.0")
     if strength == 0.0 or not candidates:
@@ -960,6 +1077,11 @@ def _visible_category_mask(
     full_depth: np.ndarray,
     category_depth: np.ndarray,
 ) -> np.ndarray:
+    # Epsilon은 두 raycast의 부동소수점 차이를 허용하기 위함이지만, 벽 안에 박힌
+    # 얇은 window/door처럼 coplanar에 가까운 geometry에서는 일부 픽셀이 boundary
+    # 근처에서 드롭될 수 있다. `IfcElementMaskRenderResult.coverage`가 카테고리별
+    # visible/hit ratio + warning을 노출하므로, 후속 metric/color-lock 호출자는
+    # `has_critical_coverage_warning()`으로 dropout 위험을 확인할 수 있다.
     full_hit = full_depth > 0
     category_hit = category_depth > 0
     epsilon = np.maximum(full_depth * 1e-3, 1e-3)
