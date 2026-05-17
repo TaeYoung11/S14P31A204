@@ -1,7 +1,7 @@
 import { lazy, useMemo } from 'react'
 import { Plus } from 'lucide-react'
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
-import { normalizeBubbleFloor } from '@/features/editor/utils/bubbleFloorUtils'
+import { formatBubbleFloorLabel, normalizeBubbleFloor } from '@/features/editor/utils/bubbleFloorUtils'
 import { buildActiveFloorBubbleSection } from '../../utils/bubbleModeSection'
 
 const BubbleCanvas = lazy(() =>
