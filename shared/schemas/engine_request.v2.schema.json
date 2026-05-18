@@ -176,6 +176,9 @@
     "rotationDeg3": {
       "oneOf": [
         {
+          "type": "number"
+        },
+        {
           "type": "object",
           "additionalProperties": false,
           "minProperties": 1,
@@ -194,7 +197,7 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["axis", "angle", "pivot"],
+          "required": ["axis", "angle"],
           "properties": {
             "axis": {
               "type": "object",
