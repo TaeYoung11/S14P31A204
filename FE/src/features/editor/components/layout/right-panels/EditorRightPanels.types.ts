@@ -10,12 +10,15 @@ import type {
   FloorOpening,
   FloorRoom,
   FloorWall,
+  IfcElementChange,
   IfcElementInfo,
   PanelKey,
   PanelOffset,
   PanelResizeAxis,
   ZoneData,
 } from '@/features/editor/types'
+import type { IfcStoreyInfo } from '@/features/editor/components/canvas/thatopen/ifcPropertyParser'
+import type { ThreeDLibraryPreset } from '@/features/editor/components/canvas/threeDLibrary.types'
 import type { ClarificationAlternative, ClarificationArtifact, LlmChatLogItem, LlmEditPreview, LlmEditStatus } from '@/features/editor/types/llmEdit.types'
 import type { BubbleConnectionInfo, BubbleInfo, BubbleZoneInfo } from '@/features/editor/components/panels/BubbleAttributePanel'
 
@@ -47,6 +50,7 @@ export interface EditorRightPanelsProps {
   selectedWall?: FloorWall | null
   selectedOpening?: FloorOpening | null
   selectedIfcElement?: IfcElementInfo | null
+  ifcElementChanges?: IfcElementChange[]
   selectedBubbleConnections: BubbleConnectionInfo[]
   selectedBubbleZones: BubbleZoneInfo[]
   zoningListItems: ZoneData[]
@@ -99,6 +103,22 @@ export interface EditorRightPanelsProps {
   onRenameFloorLayer?: (layerId: string, name: string) => void
   onDeleteFloorLayer?: (layerId: string) => void
   onSelectFloorLayer?: (id: string) => void
+  /** IFC 기반 3D에서 파싱된 건물 층 목록 */
+  ifcStoreys?: IfcStoreyInfo[]
+  /** 씬에 배치된 3D 라이브러리 요소 목록 */
+  libraryElements?: ThreeDLibraryPreset[]
+  /** IFC 모드에서 현재 선택된 층 expressId의 문자열 표현 */
+  activeIfcStoreyId?: string | null
+  /** IFC 층 선택 핸들러 */
+  onSelectIfcStorey?: (id: string) => void
+  /** IFC 겹쳐보기 중인 층 expressId 목록 */
+  overlayIfcStoreyExpressIds?: number[]
+  /** IFC 층 겹쳐보기 토글 핸들러 */
+  onToggleIfcStoreyOverlay?: (id: string) => void
+  /** 3D 계층구조 요소(localId) 선택 핸들러 */
+  onSelectIfcElementByLocalId?: (localId: number) => void
+  /** 3D 계층구조 라이브러리 요소 선택 핸들러 */
+  onSelectLibraryElementById?: (id: string) => void
   onSelectRoom?: (id: string) => void
   onSelectWall?: (id: string) => void
   onSelectOpening?: (id: string) => void

@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import type { BubbleData, ConnectionData, ZoneData } from '@/features/editor/types'
-import { assertLayoutImportV2 } from '@/features/editor/services/floorPlanGenerate.contract'
+import type { BubbleData, ConnectionData, ZoneData } from '../../../../src/features/editor/types'
+import { assertLayoutImportV2 } from '../../../../src/features/editor/services/floorPlanGenerate.contract'
 import {
   DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
   buildFloorPlanLayoutImportPayload,
   getLayoutImportBoundaryLogMetadata,
   pruneZoneBubbleIds,
   type LayoutImportBoundaryInput,
-} from '@/features/editor/utils/editorPageHelpers'
+} from '../../../../src/features/editor/utils/editorPageHelpers'
 
 const PROJECT_ID = '123e4567-e89b-42d3-a456-426614174000'
 
@@ -70,7 +70,6 @@ describe('buildFloorPlanLayoutImportPayload', () => {
     expect(payload.rooms[0].y).toBeCloseTo(600)
     expect(payload.rooms[0]).toMatchObject({
       id: 'room-a',
-      sourceBubbleId: 'room-a',
       source_bubble_id: 'room-a',
     })
     assertLayoutImportV2(payload)
@@ -202,6 +201,93 @@ describe('buildFloorPlanLayoutImportPayload', () => {
 
     expect(payload.boundaries).toBeUndefined()
     expectNoBoundaryMetadata(payload)
+    assertLayoutImportV2(payload)
+  })
+
+  it('null optional bubble metadata is omitted from layoutImport rooms', () => {
+    const payload = buildPayload(
+      [
+        createBubble({
+          originalType: null,
+          material: null,
+          wallType: null,
+        } as Partial<BubbleData>),
+      ],
+      { source: 'none', reason: 'empty-bubbles' },
+    )
+
+    expect(payload.rooms[0]).toMatchObject({
+      id: 'room-a',
+      source_bubble_id: 'room-a',
+      original_label: 'Room A',
+      original_type: 'living',
+    })
+    expect(payload.rooms[0]).not.toHaveProperty('material')
+    expect(payload.rooms[0]).not.toHaveProperty('wall_type')
+    assertLayoutImportV2(payload)
+  })
+
+  it('falls back to bubble id when label is null or blank', () => {
+    const payload = buildPayload(
+      [
+        createBubble({
+          label: null,
+        } as Partial<BubbleData>),
+        createBubble({
+          id: 'room-b',
+          label: '   ',
+          index: '02',
+        }),
+      ],
+      { source: 'none', reason: 'empty-bubbles' },
+    )
+
+    expect(payload.rooms[0]).toMatchObject({
+      id: 'room-a',
+      name: 'room-a',
+      original_label: 'room-a',
+    })
+    expect(payload.rooms[1]).toMatchObject({
+      id: 'room-b',
+      name: 'room-b',
+      original_label: 'room-b',
+    })
+    assertLayoutImportV2(payload)
+  })
+
+  it('normalizes Korean room types to canonical layoutImport room types', () => {
+    const payload = buildPayload(
+      [
+        createBubble({ id: 'bathroom', type: '화장실', index: '01' }),
+        createBubble({ id: 'entrance', type: '현관', index: '02' }),
+        createBubble({ id: 'room', type: '방', index: '03' }),
+      ],
+      { source: 'none', reason: 'empty-bubbles' },
+    )
+
+    expect(payload.rooms.map((room) => [room.id, room.type])).toEqual([
+      ['bathroom', 'bathroom'],
+      ['entrance', 'entrance'],
+      ['room', 'bedroom'],
+    ])
+    assertLayoutImportV2(payload)
+  })
+
+  it('normalizes wall type casing and separators', () => {
+    const payload = buildPayload(
+      [
+        createBubble({ id: 'general', wallType: 'GENERAL' as BubbleData['wallType'], index: '01' }),
+        createBubble({ id: 'load-bearing', wallType: 'load-bearing' as BubbleData['wallType'], index: '02' }),
+        createBubble({ id: 'load-bearing-title', wallType: 'Load_Bearing' as BubbleData['wallType'], index: '03' }),
+      ],
+      { source: 'none', reason: 'empty-bubbles' },
+    )
+
+    expect(payload.rooms.map((room) => [room.id, room.wall_type])).toEqual([
+      ['general', 'general'],
+      ['load-bearing', 'load_bearing'],
+      ['load-bearing-title', 'load_bearing'],
+    ])
     assertLayoutImportV2(payload)
   })
 })

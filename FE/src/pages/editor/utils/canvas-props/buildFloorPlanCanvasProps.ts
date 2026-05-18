@@ -15,13 +15,25 @@ const FLOOR_PLAN_CANVAS_KEYS = [
   'handleBubbleSelect',
   'handleSelectIfcElement',
   'handleDeleteIfcElement',
+  'handleCommitIfcElementTransform',
   'selectedIfcElement',
   'threeDDeleteRequestToken',
   'ifcElementChanges',
   'isThreeDEditingLocked',
   'currentIfcUrl',
   'currentIfcAssetId',
+  'libraryElements',
+  'handleAddLibraryPreset',
+  'handleChangeLibraryElement',
+  'handleDeleteLibraryElement',
   'localFloorData',
+  'activeIfcStoreyExpressId',
+  'overlayIfcStoreyExpressIds',
+  'requestedIfcElementLocalId',
+  'ifcElementSelectionRequestToken',
+  'requestedLibraryElementId',
+  'libraryElementSelectionRequestToken',
+  'handleIfcStoreysLoad',
 ] as const
 
 /**
@@ -42,13 +54,25 @@ export function buildFloorPlanCanvasProps(
   | 'handleBubbleSelect'
   | 'handleSelectIfcElement'
   | 'handleDeleteIfcElement'
+  | 'handleCommitIfcElementTransform'
   | 'selectedIfcElement'
   | 'threeDDeleteRequestToken'
   | 'ifcElementChanges'
   | 'isThreeDEditingLocked'
   | 'currentIfcUrl'
   | 'currentIfcAssetId'
+  | 'libraryElements'
+  | 'handleAddLibraryPreset'
+  | 'handleChangeLibraryElement'
+  | 'handleDeleteLibraryElement'
   | 'localFloorData'
+  | 'activeIfcStoreyExpressId'
+  | 'overlayIfcStoreyExpressIds'
+  | 'requestedIfcElementLocalId'
+  | 'ifcElementSelectionRequestToken'
+  | 'requestedLibraryElementId'
+  | 'libraryElementSelectionRequestToken'
+  | 'handleIfcStoreysLoad'
 > {
   return pickCanvasProps(vm, FLOOR_PLAN_CANVAS_KEYS)
 }

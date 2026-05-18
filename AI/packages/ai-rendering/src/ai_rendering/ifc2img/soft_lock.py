@@ -20,26 +20,71 @@ import numpy as np
 from PIL import Image
 
 from .exceptions import IFCRenderError
+from .semantics import (
+    IfcColorSummary,
+    IfcSemanticCategory,
+    nearest_prompt_color_name,
+)
 
 
 DEFAULT_MODEL_ID = "runwayml/stable-diffusion-v1-5"
 DEFAULT_CONTROLNET_DEPTH_ID = "lllyasviel/sd-controlnet-depth"
 DEFAULT_CONTROLNET_SEG_ID = "lllyasviel/sd-controlnet-seg"
 DEFAULT_CONTROLNET_CANNY_ID = "lllyasviel/sd-controlnet-canny"
+CONTROLNET_V11_CANNY_ID = "lllyasviel/control_v11p_sd15_canny"
 
 CategoryName = Literal["roof", "wall", "window", "door", "floor"]
 
-DAY_CATEGORY_PHRASE: dict[str, str] = {
+# Generic material-only phrases. Used when the caller does not supply a style
+# profile or an IFC color summary, so the renderer stays IFC-agnostic by default.
+NEUTRAL_DAY_CATEGORY_PHRASE: dict[str, str] = {
+    "roof": "tile roof",
+    "wall": "plaster walls",
+    "window": "glass windows",
+    "door": "wood door",
+}
+NEUTRAL_NIGHT_CATEGORY_PHRASE: dict[str, str] = {
+    "roof": "tile roof under night sky",
+    "wall": "plaster walls in evening light",
+    "window": "warm lit glass windows",
+    "door": "wood door",
+}
+
+# Project-specific palette tuned for shinchan.ifc.
+SHINCHAN_DAY_CATEGORY_PHRASE: dict[str, str] = {
     "roof": "red tile roof",
     "wall": "white plaster walls",
     "window": "blue glass windows",
     "door": "tan wood door",
 }
-NIGHT_CATEGORY_PHRASE: dict[str, str] = {
+SHINCHAN_NIGHT_CATEGORY_PHRASE: dict[str, str] = {
     "roof": "red tile roof under night sky",
     "wall": "pale plaster walls in evening light",
     "window": "warm lit blue glass windows",
     "door": "tan wood door",
+}
+
+# Templates used when deriving a style profile from an IFC color summary.
+_CATEGORY_DAY_TEMPLATE: dict[str, str] = {
+    "roof": "{color} tile roof",
+    "wall": "{color} plaster walls",
+    "window": "{color} glass windows",
+    "door": "{color} wood door",
+    "floor": "{color} floor",
+}
+_CATEGORY_NIGHT_TEMPLATE: dict[str, str] = {
+    "roof": "{color} tile roof under night sky",
+    "wall": "{color} plaster walls in evening light",
+    "window": "warm lit {color} glass windows",
+    "door": "{color} wood door",
+    "floor": "{color} floor",
+}
+_CATEGORY_NAME_TO_SEMANTIC: dict[str, IfcSemanticCategory] = {
+    "roof": "ROOF",
+    "wall": "WALL",
+    "window": "WINDOW",
+    "door": "DOOR",
+    "floor": "FLOOR",
 }
 DAY_SCENE_SUFFIX = (
     "photoreal exterior architectural photo, small detached house, "
@@ -47,7 +92,8 @@ DAY_SCENE_SUFFIX = (
 )
 NIGHT_SCENE_SUFFIX = (
     "photoreal exterior night photo, small detached house, "
-    "dark blue sky, warm interior window lights, realistic materials, 35mm photograph"
+    "dark blue sky, clear empty sky, no other buildings, "
+    "warm interior window lights, realistic materials, 35mm photograph"
 )
 DAY_NEGATIVE = (
     "drawing, illustration, cartoon, painting, render, low quality, "
@@ -61,7 +107,19 @@ NIGHT_NEGATIVE = (
     "blurry, oversaturated, bright daylight, blue sky, toy, miniature, "
     "chimney, dome, tower, spire, antenna, smoke, statue, sculpture, "
     "extra building, extra wing, balcony, porch railing, "
-    "people, person, car, vehicle, tree, fence"
+    "people, person, car, vehicle, tree, fence, "
+    "looming structure, warehouse, factory, industrial building, "
+    "second house, neighboring house, building in background, "
+    "dark silhouette, large dark structure, tall building, "
+    "city skyline, cluttered background, "
+    "two-story upper block, second floor protrusion, attic, loft, "
+    "rear building, detached annex, oversized rooftop block, "
+    "large windows on upper block, dormer windows"
+)
+NIGHT_SCENE_SUFFIX_CLEAR = (
+    "photoreal exterior night photo, small detached house, "
+    "dark blue sky, clear empty sky with stars, no other buildings, "
+    "warm interior window lights, realistic materials, 35mm photograph"
 )
 
 CATEGORY_ORDER: tuple[str, ...] = ("roof", "wall", "window", "door")
@@ -163,21 +221,86 @@ def building_mask_from_no_background(image_path: Path | str) -> Image.Image:
     return alpha.point(lambda value: 255 if value > 0 else 0).convert("L")
 
 
+@dataclass(frozen=True)
+class StylePrompt:
+    """Per-category prompt phrase bundle, separated from generic scene suffix.
+
+    `day_phrases` / `night_phrases` map lowercase category names
+    ("roof","wall","window","door","floor") to a noun phrase. Categories
+    without a phrase fall back to the neutral phrase for that category.
+    """
+
+    day_phrases: dict[str, str]
+    night_phrases: dict[str, str]
+
+
+NEUTRAL_STYLE_PROFILE = StylePrompt(
+    day_phrases=dict(NEUTRAL_DAY_CATEGORY_PHRASE),
+    night_phrases=dict(NEUTRAL_NIGHT_CATEGORY_PHRASE),
+)
+SHINCHAN_STYLE_PROFILE = StylePrompt(
+    day_phrases=dict(SHINCHAN_DAY_CATEGORY_PHRASE),
+    night_phrases=dict(SHINCHAN_NIGHT_CATEGORY_PHRASE),
+)
+
+
+def style_profile_from_ifc_color_summary(summary: IfcColorSummary) -> StylePrompt:
+    """Build a StylePrompt by reading the dominant color of each IFC category.
+
+    Categories without a usable representative color fall back to the neutral
+    palette for that category. This keeps a non-shinchan IFC self-describing
+    (its own colors) instead of inheriting the shinchan tuning.
+    """
+    day = dict(NEUTRAL_DAY_CATEGORY_PHRASE)
+    night = dict(NEUTRAL_NIGHT_CATEGORY_PHRASE)
+    for name, semantic in _CATEGORY_NAME_TO_SEMANTIC.items():
+        category_summary = summary.categories.get(semantic)
+        if category_summary is None or category_summary.color is None:
+            continue
+        rgb = category_summary.color.rgb
+        if rgb is None:
+            continue
+        color_name = nearest_prompt_color_name(rgb)
+        day[name] = _CATEGORY_DAY_TEMPLATE[name].format(color=color_name)
+        night[name] = _CATEGORY_NIGHT_TEMPLATE[name].format(color=color_name)
+    return StylePrompt(day_phrases=day, night_phrases=night)
+
+
 def build_region_aware_prompt(
     *,
     visible_categories: set[str],
     time_of_day: str,
+    style_profile: StylePrompt | None = None,
+    ifc_color_summary: IfcColorSummary | None = None,
 ) -> str:
     """Return a region-aware prompt naming visible IFC categories by family.
 
     visible_categories must be a subset of {"roof","wall","window","door","floor"}.
     time_of_day must be "DAY" or "NIGHT".
+
+    Palette resolution order:
+    1. explicit `style_profile` (e.g. SHINCHAN_STYLE_PROFILE)
+    2. derived from `ifc_color_summary` via the IFC dominant colors
+    3. NEUTRAL_STYLE_PROFILE (material-only phrases, no color words)
+
+    The renderer is IFC-agnostic by default; shinchan-flavored phrasing only
+    appears when the caller explicitly opts in.
     """
     if time_of_day not in {"DAY", "NIGHT"}:
         raise ValueError(f"unknown time_of_day: {time_of_day!r}")
-    palette = DAY_CATEGORY_PHRASE if time_of_day == "DAY" else NIGHT_CATEGORY_PHRASE
+    if style_profile is not None:
+        profile = style_profile
+    elif ifc_color_summary is not None:
+        profile = style_profile_from_ifc_color_summary(ifc_color_summary)
+    else:
+        profile = NEUTRAL_STYLE_PROFILE
+    palette = profile.day_phrases if time_of_day == "DAY" else profile.night_phrases
     suffix = DAY_SCENE_SUFFIX if time_of_day == "DAY" else NIGHT_SCENE_SUFFIX
-    phrases = [palette[cat] for cat in CATEGORY_ORDER if cat in visible_categories]
+    phrases = [
+        palette[cat]
+        for cat in CATEGORY_ORDER
+        if cat in visible_categories and cat in palette
+    ]
     if not phrases:
         return suffix
     return ", ".join(phrases + [suffix])

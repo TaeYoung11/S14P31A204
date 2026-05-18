@@ -7,6 +7,7 @@ import type {
   TwoDLayerPanelProps,
   TwoDStructureProps,
 } from './editorCanvasSectionProps'
+
 export type {
   BubbleCanvasProps,
   CanvasContextProps,
@@ -17,7 +18,7 @@ export type {
   TwoDStructureProps,
 } from './editorCanvasSectionProps'
 
-/** EditorPage가 EditorCanvasContent에 전달하는 전체 props 계약 */
+/** Full props contract passed from EditorPage to EditorCanvasContent. */
 export type EditorCanvasContentProps =
   & CanvasContextProps
   & BubbleCanvasProps
@@ -27,5 +28,5 @@ export type EditorCanvasContentProps =
   & LabelEditProps
   & CanvasControlProps
 
-/** 렌더 단계에서 ref를 제외한 캔버스 전달 전용 타입 */
+/** Canvas render props without the container ref. */
 export type EditorCanvasRenderProps = Omit<EditorCanvasContentProps, 'containerRef'>

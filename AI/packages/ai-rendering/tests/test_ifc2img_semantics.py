@@ -13,12 +13,15 @@ from ai_rendering.ifc2img.element_masks import (
     IfcElementColorDelta,
     IfcElementMaskCoverage,
     IfcElementMeanColor,
+    IfcGeometryFidelityReport,
+    IfcGeometryFidelityThresholds,
     IfcMaskBoundingBox,
     IfcElementMaskRenderResult,
     build_ifc_color_artifact_matrix,
     build_ifc_color_lock_artifact,
     build_ifc_color_composite_from_element_masks,
     compare_ifc_color_family_consistency,
+    evaluate_ifc_geometry_fidelity_gate,
     evaluate_ifc_quantitative_color,
     has_critical_coverage_warning,
     measure_element_mask_mean_colors,
@@ -992,6 +995,83 @@ def test_measure_ifc_geometry_fidelity_rejects_size_mismatch() -> None:
             Image.new("RGB", (2, 2), "white"),
             element_masks,
         )
+
+
+def _build_fidelity_report(
+    *,
+    sky_edge_density: float,
+    silhouette_iou: float = 0.0,
+    edge_alignment_score: float = 0.0,
+    building_bbox_overlap: float | None = 0.0,
+) -> IfcGeometryFidelityReport:
+    return IfcGeometryFidelityReport(
+        image_size=(4, 4),
+        building_pixel_count=4,
+        building_pixel_coverage=0.25,
+        building_bbox=IfcMaskBoundingBox(0, 0, 1, 1),
+        estimated_photo_foreground_pixel_count=4,
+        estimated_photo_foreground_fill_ratio=0.25,
+        estimated_photo_foreground_bbox=IfcMaskBoundingBox(0, 0, 1, 1),
+        building_bbox_overlap=building_bbox_overlap,
+        silhouette_iou=silhouette_iou,
+        edge_alignment_score=edge_alignment_score,
+        sky_edge_density=sky_edge_density,
+        categories={},
+    )
+
+
+def test_evaluate_ifc_geometry_fidelity_gate_accepts_clean_sky() -> None:
+    """Soft-lock gate accepts when the sky band has almost no Canny edges."""
+    report = _build_fidelity_report(sky_edge_density=0.01)
+
+    decision = evaluate_ifc_geometry_fidelity_gate(report)
+
+    assert decision.accepted is True
+    assert decision.fail_reasons == ()
+    payload = decision.to_dict()
+    assert payload["accepted"] is True
+    assert payload["failReasons"] == []
+    assert payload["thresholds"]["skyEdgeDensityMax"] > 0.0
+
+
+def test_evaluate_ifc_geometry_fidelity_gate_rejects_cluttered_sky() -> None:
+    """High edge density above the building bbox indicates drift in the sky band."""
+    report = _build_fidelity_report(sky_edge_density=0.20)
+
+    decision = evaluate_ifc_geometry_fidelity_gate(report)
+
+    assert decision.accepted is False
+    assert decision.fail_reasons == ("sky_edge_density_above_threshold",)
+
+
+def test_evaluate_ifc_geometry_fidelity_gate_honors_custom_threshold() -> None:
+    """Caller-supplied thresholds override the default."""
+    report = _build_fidelity_report(sky_edge_density=0.04)
+
+    strict = evaluate_ifc_geometry_fidelity_gate(
+        report,
+        thresholds=IfcGeometryFidelityThresholds(sky_edge_density_max=0.01),
+    )
+
+    assert strict.accepted is False
+    assert "sky_edge_density_above_threshold" in strict.fail_reasons
+
+
+def test_evaluate_ifc_geometry_fidelity_gate_preserves_measurement_metrics() -> None:
+    """Silhouette / edge / bbox stay on the decision payload as measurements only."""
+    report = _build_fidelity_report(
+        sky_edge_density=0.01,
+        silhouette_iou=0.12,
+        edge_alignment_score=0.0,
+        building_bbox_overlap=0.07,
+    )
+
+    decision = evaluate_ifc_geometry_fidelity_gate(report)
+
+    assert decision.accepted is True
+    assert decision.silhouette_iou == 0.12
+    assert decision.edge_alignment_score == 0.0
+    assert decision.building_bbox_overlap == 0.07
 
 
 def test_measure_ifc_color_target_deltas_compares_mean_to_target(
@@ -1999,3 +2079,4 @@ def _front_candidate() -> IfcFrontDirectionCandidate:
         front_vector=(0.0, -1.0, 0.0),
         score=10.0,
     )
+

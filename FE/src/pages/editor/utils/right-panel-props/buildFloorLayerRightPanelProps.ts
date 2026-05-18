@@ -20,6 +20,12 @@ export function buildFloorLayerRightPanelProps(
   | 'onToggleOverlayLayer'
   | 'onSelectSingleOverlayLayer'
   | 'onChangeOverlayLayerOpacity'
+  | 'ifcStoreys'
+  | 'activeIfcStoreyId'
+  | 'overlayIfcStoreyExpressIds'
+  | 'onSelectIfcStorey'
+  | 'onToggleIfcStoreyOverlay'
+  | 'libraryElements'
 > {
   return {
     floorLayers: vm.floorLayers,
@@ -36,5 +42,13 @@ export function buildFloorLayerRightPanelProps(
     onToggleOverlayLayer: vm.handleToggleOverlayLayer,
     onSelectSingleOverlayLayer: vm.handleSelectSingleOverlayLayer,
     onChangeOverlayLayerOpacity: vm.handleSetOverlayLayerOpacity,
+    ifcStoreys: vm.ifcStoreys,
+    activeIfcStoreyId: vm.activeIfcStoreyExpressId != null
+      ? String(vm.activeIfcStoreyExpressId)
+      : null,
+    overlayIfcStoreyExpressIds: vm.overlayIfcStoreyExpressIds,
+    onSelectIfcStorey: vm.handleSelectIfcStorey,
+    onToggleIfcStoreyOverlay: vm.handleToggleIfcStoreyOverlay,
+    libraryElements: vm.libraryElements,
   }
 }

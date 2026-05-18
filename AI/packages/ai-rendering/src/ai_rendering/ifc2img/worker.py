@@ -14,9 +14,9 @@ from .service import (
     Ifc2ImgWorkerSuccessResponse,
     handle_ifc2img_worker_request,
     normalize_ifc2img_time_of_day,
-    run_ifc2img_photo_pipeline,
     validate_ifc2img_worker_request,
 )
+from .soft_lock_pipeline import run_ifc2img_soft_lock_photo_pipeline
 from .storage import create_s3_ifc2img_storage_adapter
 
 StorageAdapterFactory = Callable[[object], Ifc2ImgStorageAdapter]
@@ -103,7 +103,7 @@ def run_ifc2img_worker_request(
     work_dir: Path | str,
     *,
     storage_factory: StorageAdapterFactory = create_s3_ifc2img_storage_adapter,
-    pipeline: Any = run_ifc2img_photo_pipeline,
+    pipeline: Any = run_ifc2img_soft_lock_photo_pipeline,
 ) -> Ifc2ImgWorkerSuccessResponse:
     """S3 설정과 worker 요청을 받아 ifc2img handler까지 실행하는 진입점."""
     validate_ifc2img_worker_request(request)
@@ -122,7 +122,7 @@ def run_ifc2img_worker_command(
     work_dir: Path | str,
     *,
     storage_factory: StorageAdapterFactory = create_s3_ifc2img_storage_adapter,
-    pipeline: Any = run_ifc2img_photo_pipeline,
+    pipeline: Any = run_ifc2img_soft_lock_photo_pipeline,
 ) -> Ifc2ImgWorkerSuccessResponse:
     """공통 worker command를 ifc2img request로 매핑한 뒤 entry를 실행한다."""
     request = map_worker_command_to_ifc2img_request(command)

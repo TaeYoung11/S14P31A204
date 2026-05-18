@@ -61,8 +61,8 @@ class IfcElementMaskCoverage:
 
     `visible_pixel_count` counts pixels passing the occlusion-aware visibility
     filter. `category_hit_count` is the raw raycast hit count before the filter;
-    a low `visible_to_hit_ratio` suggests epsilon dropouts at coplanar boundaries
-    (thin window/door panels inside walls etc.).
+    a low `visible_to_hit_ratio` suggests epsilon dropouts at coplanar
+    boundaries (thin window/door panels inside walls etc.).
     """
 
     category: IfcSemanticCategory
@@ -231,6 +231,7 @@ class IfcGeometryFidelityReport:
     building_bbox_overlap: float | None
     silhouette_iou: float
     edge_alignment_score: float
+    sky_edge_density: float
     categories: dict[IfcSemanticCategory, IfcCategoryGeometryFidelity]
 
     def to_dict(self) -> dict[str, object]:
@@ -255,6 +256,7 @@ class IfcGeometryFidelityReport:
             "buildingBboxOverlap": self.building_bbox_overlap,
             "silhouetteIou": self.silhouette_iou,
             "edgeAlignmentScore": self.edge_alignment_score,
+            "skyEdgeDensity": self.sky_edge_density,
             "categories": {
                 category: item.to_dict()
                 for category, item in self.categories.items()
@@ -319,7 +321,8 @@ def render_ifc_element_masks(
 
     Also records per-category coverage info so downstream metric / color-lock
     callers can detect categories where the depth-epsilon visibility filter
-    silently dropped most pixels (typically thin window/door coplanar with walls).
+    silently dropped most pixels (typically thin window/door coplanar with
+    walls).
     """
     ifc_path = Path(ifc_path)
     category_meshes = _load_category_meshes(ifc_path)
@@ -618,7 +621,85 @@ def measure_ifc_geometry_fidelity(
         building_bbox_overlap=_bbox_iou(building_bbox, foreground_bbox),
         silhouette_iou=silhouette_iou,
         edge_alignment_score=_edge_alignment_score(building_mask, foreground_mask),
+        sky_edge_density=_sky_edge_density(image_rgb, building_mask),
         categories=category_reports,
+    )
+
+
+# The gate uses sky_edge_density only. Earlier silhouette / edge / bbox
+# metrics depend on `_estimate_photo_foreground_mask`, whose corner-color
+# heuristic falls apart on photoreal diffusion output (sky gradients, white
+# walls indistinguishable from sky). Those metrics remain in the fidelity
+# report as measurement data but no longer drive the accept/reject decision.
+#
+# sky_edge_density measures Canny edge density in the region above the IFC
+# building bbox top: a clean sky has almost no edges, while a hallucinated
+# rear building / second-floor block contributes dense structured edges.
+# Default 0.05 = at most 5% edge pixels in the sky band; H-1.b hot outputs
+# on shinchan.ifc measure well under 0.02 in normal runs.
+DEFAULT_SKY_EDGE_DENSITY_MAX = 0.05
+
+IfcGeometryFidelityFailReason = Literal[
+    "sky_edge_density_above_threshold",
+]
+
+
+@dataclass(frozen=True)
+class IfcGeometryFidelityThresholds:
+    sky_edge_density_max: float = DEFAULT_SKY_EDGE_DENSITY_MAX
+
+    def to_dict(self) -> dict[str, float]:
+        return {
+            "skyEdgeDensityMax": self.sky_edge_density_max,
+        }
+
+
+@dataclass(frozen=True)
+class IfcGeometryFidelityGateDecision:
+    accepted: bool
+    fail_reasons: tuple[IfcGeometryFidelityFailReason, ...]
+    thresholds: IfcGeometryFidelityThresholds
+    sky_edge_density: float
+    silhouette_iou: float
+    edge_alignment_score: float
+    building_bbox_overlap: float | None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "accepted": self.accepted,
+            "failReasons": list(self.fail_reasons),
+            "thresholds": self.thresholds.to_dict(),
+            "skyEdgeDensity": self.sky_edge_density,
+            "silhouetteIou": self.silhouette_iou,
+            "edgeAlignmentScore": self.edge_alignment_score,
+            "buildingBboxOverlap": self.building_bbox_overlap,
+        }
+
+
+def evaluate_ifc_geometry_fidelity_gate(
+    report: IfcGeometryFidelityReport,
+    *,
+    thresholds: IfcGeometryFidelityThresholds | None = None,
+) -> IfcGeometryFidelityGateDecision:
+    """Decide whether a diffusion output passes the soft-lock fidelity gate.
+
+    Used by the production pipeline immediately after H-1 diffusion to reject
+    drift (fake structure intruding into the sky band) before the result is
+    persisted or amplified by upscale. The other fidelity metrics are kept on
+    the report as measurement data only.
+    """
+    th = thresholds or IfcGeometryFidelityThresholds()
+    reasons: list[IfcGeometryFidelityFailReason] = []
+    if report.sky_edge_density > th.sky_edge_density_max:
+        reasons.append("sky_edge_density_above_threshold")
+    return IfcGeometryFidelityGateDecision(
+        accepted=not reasons,
+        fail_reasons=tuple(reasons),
+        thresholds=th,
+        sky_edge_density=report.sky_edge_density,
+        silhouette_iou=report.silhouette_iou,
+        edge_alignment_score=report.edge_alignment_score,
+        building_bbox_overlap=report.building_bbox_overlap,
     )
 
 
@@ -661,7 +742,13 @@ def build_ifc_color_lock_artifact(
     *,
     strength: float,
 ) -> Image.Image:
-    """Build an artifact-only color-lock preview without changing production output."""
+    """Build an artifact-only color-lock preview without changing production output.
+
+    이 helper는 debug/probe 비교 전용이고, production `photo_*.png` 저장 경로에는
+    호출되지 않는다 (`run_ifc2img_photo_pipeline()`에서 사용되지 않음). 색 보존을
+    최종 photo에 실제 적용하는 wiring은 G-4 soft_lock path를 worker로 통합하는
+    별도 MR에서 결정한다.
+    """
     if not 0.0 <= strength <= 1.0:
         raise ValueError("strength must be between 0.0 and 1.0")
     if strength == 0.0 or not candidates:
@@ -987,6 +1074,38 @@ def _edge_alignment_score(reference: np.ndarray, candidate: np.ndarray) -> float
     return _mask_iou(reference_edge, candidate_edge)
 
 
+def _sky_edge_density(
+    image: Image.Image,
+    building_mask: np.ndarray,
+    *,
+    margin: int = 8,
+    canny_low: int = 80,
+    canny_high: int = 180,
+) -> float:
+    """Fraction of Canny edge pixels in the sky band above the building bbox.
+
+    A clean sky has ~0; hallucinated rear buildings or extra rooftop blocks
+    push the density up. Returns 0.0 when the building mask is empty or the
+    sky band has no pixels (mask touches the top edge).
+    """
+    ys, _ = np.nonzero(building_mask)
+    if len(ys) == 0:
+        return 0.0
+    top = int(ys.min()) - margin
+    if top <= 0:
+        return 0.0
+    gray = np.asarray(image.convert("L"), dtype=np.uint8)
+    sky_region = gray[:top, :]
+    if sky_region.size == 0:
+        return 0.0
+    try:
+        import cv2
+    except ImportError:  # pragma: no cover - environment guard
+        return 0.0
+    edges = cv2.Canny(sky_region, canny_low, canny_high)
+    return float((edges > 0).sum() / edges.size)
+
+
 def _mask_edge(mask: np.ndarray) -> np.ndarray:
     if not mask.any():
         return np.zeros_like(mask, dtype=bool)
@@ -1070,6 +1189,11 @@ def _visible_category_mask(
     full_depth: np.ndarray,
     category_depth: np.ndarray,
 ) -> np.ndarray:
+    # Epsilon은 두 raycast의 부동소수점 차이를 허용하기 위함이지만, 벽 안에 박힌
+    # 얇은 window/door처럼 coplanar에 가까운 geometry에서는 일부 픽셀이 boundary
+    # 근처에서 드롭될 수 있다. `IfcElementMaskRenderResult.coverage`가 카테고리별
+    # visible/hit ratio + warning을 노출하므로, 후속 metric/color-lock 호출자는
+    # `has_critical_coverage_warning()`으로 dropout 위험을 확인할 수 있다.
     full_hit = full_depth > 0
     category_hit = category_depth > 0
     epsilon = np.maximum(full_depth * 1e-3, 1e-3)

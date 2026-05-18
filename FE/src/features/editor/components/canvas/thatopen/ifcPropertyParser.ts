@@ -1,6 +1,6 @@
 import type { Object3D } from 'three'
-import type { IfcElementInfo } from '../../../types'
-import { decodeIfcStepString } from '../../../utils/ifcStepString'
+import type { IfcElementInfo } from '@/features/editor/types'
+import { decodeIfcStepString } from '@/features/editor/utils/ifcStepString'
 import {
   DEFAULT_IFC_COLOR_BY_CATEGORY,
   getMaterialDefaultColor,
@@ -243,6 +243,64 @@ const parseIfcPropertyValue = (line: string) => {
   return undefined
 }
 
+const PRODUCT_TYPE_BY_STEP_ENTITY: Record<string, string> = {
+  WALL: 'IfcWall',
+  WALLSTANDARDCASE: 'IfcWallStandardCase',
+  SLAB: 'IfcSlab',
+  ROOF: 'IfcRoof',
+  DOOR: 'IfcDoor',
+  WINDOW: 'IfcWindow',
+  STAIR: 'IfcStair',
+  STAIRFLIGHT: 'IfcStairFlight',
+  COLUMN: 'IfcColumn',
+  BEAM: 'IfcBeam',
+}
+
+const splitIfcStepArguments = (text: string): string[] => {
+  const args: string[] = []
+  let current = ''
+  let depth = 0
+  let inString = false
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    current += char
+
+    if (char === "'") {
+      if (text[index + 1] === "'") {
+        current += text[index + 1]
+        index += 1
+        continue
+      }
+      inString = !inString
+      continue
+    }
+
+    if (inString) continue
+    if (char === '(') depth += 1
+    if (char === ')') depth = Math.max(0, depth - 1)
+    if (char === ',' && depth === 0) {
+      args.push(current.slice(0, -1).trim())
+      current = ''
+    }
+  }
+
+  if (current.trim()) args.push(current.trim())
+  return args
+}
+
+const parseIfcStepStringArgument = (value?: string): string | undefined => {
+  if (!value || value === '$' || value === '*') return undefined
+  const match = value.match(/^'((?:''|[^'])*)'$/)
+  if (!match) return undefined
+  return decodeIfcStepString(match[1].replace(/''/g, "'"))
+}
+
+const parseIfcReferenceId = (value?: string): number | undefined => {
+  const match = value?.match(/^#(\d+)$/)
+  return match ? Number(match[1]) : undefined
+}
+
 export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMaps => {
   const propertyValues: Record<string, string | number> = {}
   const propertySetToValues: Record<string, IfcElementMetrics> = {}
@@ -251,20 +309,28 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
   const metricsByElementId: Record<number, ParsedIfcElementInfo> = {}
   const metricsByElementName: Record<string, ParsedIfcElementInfo> = {}
 
-  Array.from(ifcText.matchAll(/#(\d+)=IFC(WALL|SLAB|ROOF|DOOR|WINDOW|STAIR|COLUMN|BEAM)\('([^']+)',\$,'([^']+)',[^;]+,#(\d+),\$/gi)).forEach((match) => {
+  Array.from(ifcText.matchAll(/#(\d+)=IFC(WALLSTANDARDCASE|WALL|SLAB|ROOF|DOOR|WINDOW|STAIRFLIGHT|STAIR|COLUMN|BEAM)\(([^;]*)\);/gi)).forEach((match) => {
     const productId = Number(match[1])
-    const ifcClass = `Ifc${match[2][0]}${match[2].slice(1).toLowerCase()}`
+    const ifcClass = PRODUCT_TYPE_BY_STEP_ENTITY[match[2].toUpperCase()]
+    if (!ifcClass) return
+    const args = splitIfcStepArguments(match[3])
+    const globalId = parseIfcStepStringArgument(args[0])
+    if (!globalId) return
+    const decodedName = parseIfcStepStringArgument(args[2])
     const category = IFC_CATEGORY_LABELS.find(([candidate]) => candidate.toLowerCase() === ifcClass.toLowerCase())?.[1]
       ?? ifcClass.replace(/^Ifc/i, '')
     productById[productId] = {
       expressId: productId,
-      globalId: decodeIfcStepString(match[3]),
-      name: decodeIfcStepString(match[4]),
+      globalId,
+      name: decodedName ?? category,
       ifcClass,
       category,
     }
     aliasToProductId[productId] = productId
-    aliasToProductId[Number(match[5])] = productId
+    const objectPlacementId = parseIfcReferenceId(args[5])
+    const representationId = parseIfcReferenceId(args[6])
+    if (objectPlacementId !== undefined) aliasToProductId[objectPlacementId] = productId
+    if (representationId !== undefined) aliasToProductId[representationId] = productId
   })
 
   Array.from(ifcText.matchAll(/#(\d+)=IFCPRODUCTDEFINITIONSHAPE\([^;]+,\(#(\d+),#(\d+)\)\);/gi)).forEach((match) => {
@@ -280,6 +346,13 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
     const productId = aliasToProductId[shapeRepresentationId]
     if (!productId) return
     aliasToProductId[Number(match[2])] = productId
+  })
+
+  Object.entries(aliasToProductId).forEach(([aliasId, productId]) => {
+    const product = productById[productId]
+    if (!product) return
+    metricsByElementId[Number(aliasId)] = product
+    metricsByElementName[product.name] = product
   })
 
   Array.from(ifcText.matchAll(/#(\d+)=IFCPROPERTYSINGLEVALUE\('([^']+)',\$,(.+?),\$\);/gi)).forEach((match) => {
@@ -335,6 +408,87 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
     byId: metricsByElementId,
     byName: metricsByElementName,
   }
+}
+
+/** IFC IfcBuildingStorey 파싱 결과 */
+export type IfcStoreyInfo = {
+  expressId: number
+  name: string
+  elevation: number | null
+  /** 해당 층에 속하는 요소의 localId 집합 (IFCRELCONTAINEDINSPATIALSTRUCTURE 기반) */
+  elementLocalIds: Set<number>
+  /** 계층 패널 표시용 요소 미리보기 목록 (없으면 localId 기반 fallback 렌더링) */
+  elements?: Array<{
+    localId: number
+    name: string
+    ifcClass: string
+    category: string
+  }>
+}
+
+/** IFC 층 이름 영문 → 한글 변환 맵 (일반적인 약칭 대응) */
+const IFC_STOREY_NAME_KO: Record<string, string> = {
+  // 외부/마당
+  Yard: '마당',
+  Exterior: '외부',
+  Site: '대지',
+  // 지하층
+  B3: '지하 3층', B3F: '지하 3층',
+  B2: '지하 2층', B2F: '지하 2층',
+  B1: '지하 1층', B1F: '지하 1층',
+  // 지상층
+  GF: '지층', 'Ground Floor': '지층', 'Ground': '지층',
+  '1F': '1층', '1st Floor': '1층',
+  '2F': '2층', '2nd Floor': '2층',
+  '3F': '3층', '3rd Floor': '3층',
+  '4F': '4층', '4th Floor': '4층',
+  '5F': '5층', '5th Floor': '5층',
+  '6F': '6층', '7F': '7층', '8F': '8층', '9F': '9층', '10F': '10층',
+  // 옥상/지붕
+  RF: '옥상', Roof: '지붕층', Rooftop: '옥상', 'Roof Floor': '지붕층',
+  PH: '펜트하우스', Penthouse: '펜트하우스',
+}
+
+/**
+ * IFC 층 이름을 한글로 변환한다. 매핑이 없으면 원본 이름을 반환한다.
+ */
+const toKoreanStoreyName = (name: string): string =>
+  IFC_STOREY_NAME_KO[name.trim()] ?? name
+
+/**
+ * IFC 텍스트에서 건물 층(IfcBuildingStorey) 목록과 각 층에 속하는 요소 ID를 추출한다.
+ * IFCBUILDINGSTOREY와 IFCRELCONTAINEDINSPATIALSTRUCTURE를 정규식으로 파싱한다.
+ * 층 순서는 IFC 파일 내 등장 순서(= 통상 고도 오름차순)를 따른다.
+ */
+export const parseIfcStoreys = (ifcText: string): IfcStoreyInfo[] => {
+  // 파일 등장 순서를 보존하기 위해 배열로 관리한다.
+  const storeyList: IfcStoreyInfo[] = []
+  const storeyById = new Map<number, IfcStoreyInfo>()
+
+  // IFCBUILDINGSTOREY 파싱 — 이름 추출
+  // 형식: #id=IFCBUILDINGSTOREY('GlobalId',#ref,'Name'|$,...);
+  // 3번째 인수(Name)가 문자열이면 캡처하고, $이면 빈 문자열로 처리한다.
+  Array.from(ifcText.matchAll(/#(\d+)=IFCBUILDINGSTOREY\('[^']+',#\d+,(?:'([^']*)'|\$)/gi)).forEach((match) => {
+    const expressId = Number(match[1])
+    if (storeyById.has(expressId)) return
+    const rawName = match[2]?.trim() || `층 ${expressId}`
+    const name = toKoreanStoreyName(rawName)
+    const storey: IfcStoreyInfo = { expressId, name, elevation: null, elementLocalIds: new Set() }
+    storeyList.push(storey)
+    storeyById.set(expressId, storey)
+  })
+
+  // IFCRELCONTAINEDINSPATIALSTRUCTURE 파싱 — 요소 → 층 매핑
+  // 형식: IFCRELCONTAINEDINSPATIALSTRUCTURE('guid',#ref,$,$,(#a,#b,...),#storeyId)
+  Array.from(ifcText.matchAll(/IFCRELCONTAINEDINSPATIALSTRUCTURE\('[^']+',#\d+,[^,]*,[^,]*,\(((?:#\d+,?\s*)+)\),#(\d+)\)/gi)).forEach((match) => {
+    const storeyId = Number(match[2])
+    const storey = storeyById.get(storeyId)
+    if (!storey) return
+    const elementRefs = match[1].match(/#\d+/g) ?? []
+    elementRefs.forEach((ref) => storey.elementLocalIds.add(Number(ref.slice(1))))
+  })
+
+  return storeyList
 }
 
 export const getIfcElementFromFragments = async (

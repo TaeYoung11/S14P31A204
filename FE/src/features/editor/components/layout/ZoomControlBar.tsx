@@ -1,4 +1,5 @@
 import { Grid3X3, GripVertical, Hand, Lock, Magnet, Move, RotateCw, Scaling, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { EditorMode } from '../../types'
 import { useFloatingPanelDrag } from '../../hooks/useFloatingPanelDrag'
 import { useZoomControlBar } from '../../hooks/useZoomControlBar'
@@ -52,6 +53,15 @@ const toolBtnCls = (isActive: boolean) =>
       ? 'bg-[#F0F2FF] text-[#3B45B3]'
       : 'text-[#6B7A99] hover:bg-[#F0F2F9] hover:text-[#1C1C1E]'
   }`
+
+const invokeToolByPointerDown = (
+  event: ReactPointerEvent<HTMLButtonElement>,
+  action: () => void,
+) => {
+  if (event.button !== 0) return
+  event.preventDefault()
+  action()
+}
 
 const formatZoom = (zoom: number) => (zoom < 10 ? zoom.toFixed(1) : String(Math.round(zoom)))
 
@@ -152,7 +162,11 @@ export function ZoomControlBar({
       <div className="mx-1.5 h-5 w-px bg-[#E2E6EF]" />
 
       <button
-        onClick={() => onSetTool(selectedTool === 'hand' ? 'selection' : 'hand')}
+        onPointerDown={(event) => invokeToolByPointerDown(event, () => onSetTool(selectedTool === 'hand' ? 'selection' : 'hand'))}
+        onClick={(event) => {
+          if (event.detail > 0) return
+          onSetTool(selectedTool === 'hand' ? 'selection' : 'hand')
+        }}
         aria-label="손 도구 (드래그 패닝)"
         className={toolBtnCls(selectedTool === 'hand')}
       >

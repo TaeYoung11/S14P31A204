@@ -2,6 +2,7 @@ import type {
   BubbleData,
   ConnectionData,
   EditorMode,
+  FloorRoom,
   Point2D,
   ZoneData,
 } from '../types'
@@ -9,6 +10,7 @@ import type { AxisAlignedRect } from './geometry2d'
 import type {
   FloorPlanRoomType,
   LayoutImportV2,
+  LayoutImportV2Adjacency,
   LayoutImportV2Boundary,
 } from '../services/floorPlanGenerate.contract'
 
@@ -43,32 +45,30 @@ export interface LayoutImportBoundaryLogMetadata {
   boundaryOmitReason?: LayoutImportBoundaryOmitReason
 }
 
-function normalizeFloorPlanRoomType(rawType: string): FloorPlanRoomType {
-  const normalized = rawType.trim().toLowerCase()
-  switch (normalized) {
-    case '거실':
-    case 'living':
-      return 'living'
-    case '침실':
-    case 'bedroom':
-    case '방':
-      return 'bedroom'
-    case '주방':
-    case 'kitchen':
-      return 'kitchen'
-    case '화장실':
-    case 'bathroom':
-      return 'bathroom'
-    case '복도':
-    case 'corridor':
-    case '현관':
-      return 'corridor'
-    case '사무실':
-    case 'office':
-      return 'office'
-    default:
-      return 'other'
-  }
+const FLOOR_PLAN_ROOM_TYPE_MAP: Record<string, FloorPlanRoomType> = {
+  living: 'living',
+  bedroom: 'bedroom',
+  kitchen: 'kitchen',
+  bathroom: 'bathroom',
+  office: 'office',
+  entrance: 'entrance',
+  corridor: 'corridor',
+  other: 'other',
+  '거실': 'living',
+  '침실': 'bedroom',
+  '방': 'bedroom',
+  '주방': 'kitchen',
+  '화장실': 'bathroom',
+  '욕실': 'bathroom',
+  '현관': 'entrance',
+  '복도': 'corridor',
+  '사무실': 'office',
+  '미선택': 'other',
+}
+
+function normalizeFloorPlanRoomType(rawType: string | null | undefined): FloorPlanRoomType {
+  const normalized = typeof rawType === 'string' ? rawType.trim().toLowerCase() : ''
+  return FLOOR_PLAN_ROOM_TYPE_MAP[normalized] ?? 'other'
 }
 
 function toFiniteNumber(value: number): number {
@@ -79,6 +79,73 @@ function toPositiveMillimeter(value: number): number {
   if (!Number.isFinite(value) || value <= 0) return 0
   const rounded = Math.round(value)
   return rounded > 0 ? rounded : 0
+}
+
+function toOptionalNonBlankString(value: string | null | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
+function toLayoutImportWallType(value: string | null | undefined): 'general' | 'exterior' | 'load_bearing' | 'partition' | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.trim().replace(/[-\s]/g, '_').toLowerCase()
+  switch (normalized) {
+    case 'general':
+      return 'general'
+    case 'exterior':
+      return 'exterior'
+    case 'partition':
+      return 'partition'
+    case 'loadbearing':
+    case 'load_bearing':
+      return 'load_bearing'
+    default:
+      return undefined
+  }
+}
+
+function connectionStrengthFromStyle(type: ConnectionData['type']): LayoutImportV2Adjacency['connection_strength'] {
+  switch (type) {
+    case 'bold':
+      return 'strong'
+    case 'thin':
+      return 'normal'
+    case 'dashed':
+      return 'weak'
+    default:
+      return 'normal'
+  }
+}
+
+function connectionIntentFromStyle(
+  type: ConnectionData['type'],
+  explicitIntent?: ConnectionData['intent'],
+): LayoutImportV2Adjacency['intent'] {
+  if (explicitIntent) return explicitIntent
+  switch (type) {
+    case 'bold':
+      return 'open_passage'
+    case 'thin':
+      return 'circulation'
+    case 'dashed':
+      return 'weak_relation'
+    default:
+      return 'circulation'
+  }
+}
+
+function strengthNumberFromStyle(type: ConnectionData['type']): number {
+  switch (type) {
+    case 'bold':
+      return 1.0
+    case 'thin':
+      return 0.6
+    case 'dashed':
+      return 0.3
+    default:
+      return 0.6
+  }
 }
 
 /**
@@ -288,7 +355,7 @@ export function buildFloorPlanLayoutImportPayload(
   projectId: string,
   projectName: string,
   bubbles: BubbleData[],
-  _connections: ConnectionData[],
+  connections: ConnectionData[],
   boundaryInput: LayoutImportBoundaryInput,
   options: { spaceHeightMm?: number } = {},
 ): LayoutImportV2 {
@@ -298,11 +365,15 @@ export function buildFloorPlanLayoutImportPayload(
   const rooms = uniqueBubbles.map((bubble) => {
     const center = toBubbleCenterMillimeterPosition(bubble, mmPerPx)
     const sourceBubbleId = bubble.id
+    const roomLabel = toOptionalNonBlankString(bubble.label) ?? sourceBubbleId
+    const roomMaterial = toOptionalNonBlankString(bubble.material)
+    const roomWallType = toLayoutImportWallType(bubble.wallType)
     return {
       id: sourceBubbleId,
-      sourceBubbleId,
       source_bubble_id: sourceBubbleId,
-      name: bubble.label.trim() || sourceBubbleId,
+      original_label: roomLabel,
+      original_type: toOptionalNonBlankString(bubble.originalType) ?? toOptionalNonBlankString(bubble.type) ?? 'other',
+      name: roomLabel,
       type: normalizeFloorPlanRoomType(bubble.type),
       width: toPositiveMillimeter(bubble.widthMm),
       height: toPositiveMillimeter(bubble.heightMm),
@@ -311,9 +382,26 @@ export function buildFloorPlanLayoutImportPayload(
       y: center.y,
       angle: 0,
       locked: false,
+      ...(roomMaterial ? { material: roomMaterial } : {}),
+      ...(typeof bubble.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(bubble.color) ? { color: bubble.color } : {}),
+      ...(roomWallType ? { wall_type: roomWallType } : {}),
       zoneId: null,
     }
   })
+
+  const roomIds = new Set(rooms.map((room) => room.id))
+  const adjacency = connections
+    .filter((connection) => roomIds.has(connection.from) && roomIds.has(connection.to) && connection.from !== connection.to)
+    .map((connection, index): LayoutImportV2Adjacency => ({
+      id: connection.id ?? `connection-${index + 1}-${connection.from}-${connection.to}`,
+      from_room_id: connection.from,
+      to_room_id: connection.to,
+      strength: strengthNumberFromStyle(connection.type),
+      intent: connectionIntentFromStyle(connection.type, connection.intent),
+      connection_strength: connectionStrengthFromStyle(connection.type),
+      source_bubble_id: connection.from,
+      target_bubble_id: connection.to,
+    }))
 
   const floors = Array.from(new Set(rooms.map((room) => room.floor))).sort((a, b) => a - b)
   const boundaries = floors
@@ -325,15 +413,16 @@ export function buildFloorPlanLayoutImportPayload(
     id: projectId,
     name: projectName.trim() || '프로젝트',
     rooms: rooms.map((room) => ({ ...room })),
+    ...(adjacency.length > 0 ? { adjacency } : {}),
     ...(boundaries.length > 0 ? { boundaries } : {}),
     generation_options: {
       generate_spaces: true,
       generate_walls: true,
       generate_slabs: true,
       generate_roof: true,
-      generate_openings: false,
-      ...(options.spaceHeightMm ? { space_height_mm: Math.round(options.spaceHeightMm) } : {}),
+      generate_openings: true,
     },
+    ...(options.spaceHeightMm ? { modeling_defaults: { space_height_mm: Math.round(options.spaceHeightMm) } } : {}),
     generation_policy: {
       boundary_wall_mode: 'outer_boundary',
       shared_wall_policy: 'from_adjacency',
@@ -421,6 +510,57 @@ export function mergeSelectedIds(primaryIds: string[], focusedId: string | null)
     ...primaryIds,
     ...(focusedId ? [focusedId] : []),
   ]))
+}
+
+/**
+ * 연결선 목록에서 특정 Room(bubble)과 직접 연결된 room id 목록을 중복 없이 반환한다.
+ * - 방향(from/to)에 관계없이 계산한다.
+ * - 자기 자신 id는 제외한다.
+ */
+export function collectConnectedRoomIds(roomBubbleId: string, connections: ConnectionData[]): string[] {
+  return Array.from(new Set(
+    connections.flatMap((connection) => {
+      if (connection.from === roomBubbleId && connection.to !== roomBubbleId) return [connection.to]
+      if (connection.to === roomBubbleId && connection.from !== roomBubbleId) return [connection.from]
+      return []
+    }),
+  ))
+}
+
+/** BubbleData를 2D 편집용 FloorRoom 모델로 변환한다. */
+export function toFloorRoomFromBubble(
+  bubble: BubbleData,
+  connectedIds: string[],
+): FloorRoom {
+  return {
+    id: bubble.id,
+    bubbleId: bubble.id,
+    label: bubble.label,
+    type: bubble.type,
+    x: bubble.x,
+    y: bubble.y,
+    width: bubble.width,
+    height: bubble.height,
+    widthMm: bubble.widthMm,
+    heightMm: bubble.heightMm,
+    area: bubble.ratio,
+    color: bubble.color,
+    material: bubble.material,
+    connectedIds,
+  }
+}
+
+/**
+ * bubbleId 기준으로 Room을 삽입/교체한다.
+ * - 동일 bubbleId가 있으면 교체
+ * - 없으면 마지막에 추가
+ */
+export function upsertFloorRoomByBubbleId(rooms: FloorRoom[], targetRoom: FloorRoom): FloorRoom[] {
+  const targetIndex = rooms.findIndex((room) => room.bubbleId === targetRoom.bubbleId)
+  if (targetIndex < 0) return [...rooms, targetRoom]
+  const nextRooms = [...rooms]
+  nextRooms[targetIndex] = targetRoom
+  return nextRooms
 }
 
 /** auto-shared 벽 ID를 대응되는 auto-door 개구부 ID로 변환한다. */

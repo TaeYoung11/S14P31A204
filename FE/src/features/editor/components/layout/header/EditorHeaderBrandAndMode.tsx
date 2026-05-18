@@ -1,11 +1,10 @@
-// 에디터 헤더의 브랜드 로고와 편집/뷰어 모드 전환을 렌더링합니다.
 import { PanelLeftOpen } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import type { EditorMode } from '@/features/editor/types'
 import logoSrc from '@/assets/logo.svg'
 
-const TEXT_PROJECT_SWITCH = '프로젝트 목록'
-const TEXT_PROJECT_SWITCH_OPEN = '프로젝트 목록 열기'
+const TEXT_PROJECT_SWITCH = '프로젝트 전환'
+const TEXT_PROJECT_SWITCH_OPEN = '프로젝트 전환 열기'
 const TEXT_PROJECT_HOME = '프로젝트 홈'
 const TEXT_PROJECT_LIST_GO = '프로젝트 목록으로 이동'
 const TEXT_EDIT_MODE = '편집 모드'
@@ -24,8 +23,6 @@ export default function EditorHeaderBrandAndMode({
   onModeChange,
   onOpenProjectSwitcher,
 }: EditorHeaderBrandAndModeProps) {
-  const navigate = useNavigate()
-
   const getModeButtonClass = (active: boolean) => `rounded-full px-3 py-1.5 text-[11px] font-bold transition-all ${active
     ? 'bg-[#3B45B3] text-white shadow-sm shadow-[#3B45B3]/25'
     : isViewer
@@ -50,10 +47,9 @@ export default function EditorHeaderBrandAndMode({
             <PanelLeftOpen className="h-4 w-4" />
           </button>
         )}
-        <button
-          type="button"
-          className="flex cursor-pointer items-center gap-2 text-sm font-black tracking-tight transition-opacity hover:opacity-80"
-          onClick={() => navigate('/projects')}
+        <Link
+          to="/projects"
+          className="flex items-center gap-2 text-sm font-black tracking-tight no-underline transition-opacity hover:opacity-80"
           title={TEXT_PROJECT_HOME}
           aria-label={TEXT_PROJECT_LIST_GO}
         >
@@ -62,8 +58,8 @@ export default function EditorHeaderBrandAndMode({
             alt="바탕 : BATANG"
             className={`h-5 w-auto ${isViewer ? 'brightness-0 invert opacity-80' : 'opacity-80'}`}
           />
-          <span className={isViewer ? 'text-white' : 'text-[#1C1C1E]'}>Workspace</span>
-        </button>
+          <span className={isViewer ? 'text-white' : 'text-[#1C1C1E]'}>바탕</span>
+        </Link>
       </div>
 
       <nav className={`flex items-center gap-1 rounded-full p-1 ${isViewer ? 'bg-white/10' : 'border border-[#E4E8F3] bg-[#F7F8FC]'
