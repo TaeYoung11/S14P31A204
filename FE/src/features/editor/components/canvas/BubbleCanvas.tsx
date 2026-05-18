@@ -504,6 +504,11 @@ export function BubbleCanvas({
       (h) => Math.abs(point.x - h.x) <= handleHitHalf && Math.abs(point.y - h.y) <= handleHitHalf,
     ) ?? null
   )
+  const isPointInsideActiveResizeBubble = (point: { x: number; y: number }) => (
+    activeResizeBubble
+      ? findDisplayBubbleByPoint(point.x, point.y)?.id === activeResizeBubble.id
+      : false
+  )
 
   return (
     <Stage
@@ -575,11 +580,13 @@ export function BubbleCanvas({
         const stagePos = getStagePoint(stage)
         // 활성 resize 핸들 hit 영역 내부면 marquee/bubble drag 대신 resize 시작 —
         // 코너 핸들처럼 ellipse 바깥에 위치한 핸들이 Stage로 라우팅되는 경우의 fallback.
-        if (stagePos && activeResizeBubble && activeResizeHandles.length > 0) {
-          const half = (RESIZE_HANDLE_HIT_SIZE / 2) / scale
-          const handleHit = activeResizeHandles.find(
-            (h) => Math.abs(stagePos.x - h.x) <= half && Math.abs(stagePos.y - h.y) <= half,
-          )
+        if (
+          stagePos &&
+          activeResizeBubble &&
+          activeResizeHandles.length > 0 &&
+          !isPointInsideActiveResizeBubble(stagePos)
+        ) {
+          const handleHit = findActiveResizeHandleAtPoint(stagePos)
           if (handleHit) {
             e.evt.preventDefault()
             const startRect = getBubbleDisplayRect(activeResizeBubble)
@@ -645,8 +652,13 @@ export function BubbleCanvas({
           const stage = e.target.getStage()
           if (stage && activeResizeBubble && activeResizeHandles.length > 0) {
             const pos = getStagePoint(stage)
-            const handleHit = pos ? findActiveResizeHandleAtPoint(pos) : null
+            const isInsideActiveBubble = pos ? isPointInsideActiveResizeBubble(pos) : false
+            const handleHit = pos && !isInsideActiveBubble ? findActiveResizeHandleAtPoint(pos) : null
             const container = stage.container()
+            if (container && isInsideActiveBubble) {
+              container.style.cursor = 'move'
+              return
+            }
             if (container && handleHit) {
               container.style.cursor = getResizeCursor(handleHit.name)
               return
@@ -966,11 +978,13 @@ export function BubbleCanvas({
                   const stagePos = getStagePoint(stage)
                   // Konva hit이 핸들 대신 ellipse로 라우팅된 경우의 fallback —
                   // 활성 resize 핸들 hit 영역 내부면 bubble drag 대신 resize 시작.
-                  if (stagePos && activeResizeBubble && activeResizeBubble.id === bubble.id) {
-                    const half = (RESIZE_HANDLE_HIT_SIZE / 2) / scale
-                    const handleHit = activeResizeHandles.find(
-                      (h) => Math.abs(stagePos.x - h.x) <= half && Math.abs(stagePos.y - h.y) <= half,
-                    )
+                  if (
+                    stagePos &&
+                    activeResizeBubble &&
+                    activeResizeBubble.id === bubble.id &&
+                    !isPointInsideActiveResizeBubble(stagePos)
+                  ) {
+                    const handleHit = findActiveResizeHandleAtPoint(stagePos)
                     if (handleHit) {
                       e.cancelBubble = true
                       e.evt.preventDefault()
