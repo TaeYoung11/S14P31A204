@@ -4,6 +4,8 @@ from ai_domain.layout_import import (
     AdjacencyInput,
     BoundaryInput,
     BoundaryWallMode,
+    ConnectionIntent,
+    ConnectionStrength,
     GenerationOptionsV2,
     GenerationPolicyV2,
     GenerationPolicyV3,
@@ -21,6 +23,7 @@ from ai_domain.layout_import import (
     RoomType,
     SharedWallPolicy,
     ZoneInput,
+    WallType,
     parse_layout_import,
 )
 from ai_domain.worker_messages import (
@@ -43,6 +46,8 @@ __all__ = [
     "AdjacencyInput",
     "BoundaryInput",
     "BoundaryWallMode",
+    "ConnectionIntent",
+    "ConnectionStrength",
     "CommandInputRef",
     "CommandMessage",
     "EngineOperationInlineRef",
@@ -73,5 +78,6 @@ __all__ = [
     "ThreeDLlmCommandPayload",
     "TwoDLlmCommandPayload",
     "ZoneInput",
+    "WallType",
     "parse_layout_import",
 ]

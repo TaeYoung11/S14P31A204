@@ -28,8 +28,29 @@ class RoomType(StrEnum):
     KITCHEN = "kitchen"
     BATHROOM = "bathroom"
     OFFICE = "office"
+    ENTRANCE = "entrance"
     CORRIDOR = "corridor"
     OTHER = "other"
+
+
+class WallType(StrEnum):
+    GENERAL = "general"
+    EXTERIOR = "exterior"
+    LOAD_BEARING = "load_bearing"
+    PARTITION = "partition"
+
+
+class ConnectionIntent(StrEnum):
+    CIRCULATION = "circulation"
+    OPEN_PASSAGE = "open_passage"
+    WEAK_RELATION = "weak_relation"
+    MERGE = "merge"
+
+
+class ConnectionStrength(StrEnum):
+    STRONG = "strong"
+    NORMAL = "normal"
+    WEAK = "weak"
 
 
 class BoundaryWallMode(StrEnum):
@@ -107,11 +128,16 @@ PolygonHoles: TypeAlias = list[Annotated[PolygonRing, Field(min_length=3)]]
 class AdjacencyInput(LayoutImportBaseModel):
     """Adjacency relationship between rooms."""
 
+    id: str | None = Field(default=None, min_length=1, max_length=128)
     from_room_id: str | None = Field(default=None, min_length=1, max_length=128)
     to_room_id: str | None = Field(default=None, min_length=1, max_length=128)
     room_a_id: str | None = Field(default=None, min_length=1, max_length=128)
     room_b_id: str | None = Field(default=None, min_length=1, max_length=128)
     strength: float = Field(ge=0, le=1)
+    intent: ConnectionIntent | None = None
+    connection_strength: ConnectionStrength | None = None
+    source_bubble_id: str | None = Field(default=None, min_length=1, max_length=128)
+    target_bubble_id: str | None = Field(default=None, min_length=1, max_length=128)
 
     @model_validator(mode="after")
     def validate_room_id_pair(self) -> AdjacencyInput:
@@ -146,6 +172,20 @@ class AdjacencyInput(LayoutImportBaseModel):
 
         if self.from_room_id == self.to_room_id:
             raise ValueError("from_room_id and to_room_id must be different")
+        return self
+
+    @model_validator(mode="after")
+    def validate_bubble_id_pair(self) -> AdjacencyInput:
+        if self.source_bubble_id is None and self.target_bubble_id is None:
+            return self
+
+        if self.source_bubble_id is None or self.target_bubble_id is None:
+            raise ValueError(
+                "source_bubble_id and target_bubble_id must both be provided together"
+            )
+
+        if self.source_bubble_id == self.target_bubble_id:
+            raise ValueError("source_bubble_id and target_bubble_id must be different")
         return self
 
 
@@ -201,6 +241,9 @@ class RoomInput(LayoutImportBaseModel):
     """Room input."""
 
     id: str = Field(min_length=1, max_length=128)
+    source_bubble_id: str | None = Field(default=None, min_length=1, max_length=128)
+    original_label: str | None = Field(default=None, min_length=1, max_length=255)
+    original_type: str | None = Field(default=None, min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=255)
     type: RoomType
     width: int = Field(gt=0, strict=True)
@@ -210,6 +253,9 @@ class RoomInput(LayoutImportBaseModel):
     y: float
     angle: float
     locked: bool
+    material: str | None = Field(default=None, min_length=1, max_length=128)
+    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    wall_type: WallType | None = None
     zone_id: str | None = Field(
         default=None,
         alias="zoneId",
@@ -274,6 +320,14 @@ class LayoutImportCommon(LayoutImportBaseModel):
         room_ids = [room.id for room in self.rooms]
         if len(room_ids) != len(set(room_ids)):
             raise ValueError("room.id values must be unique")
+
+        source_bubble_ids = [
+            room.source_bubble_id
+            for room in self.rooms
+            if room.source_bubble_id is not None
+        ]
+        if len(source_bubble_ids) != len(set(source_bubble_ids)):
+            raise ValueError("room.source_bubble_id values must be unique")
 
         if self.zones is not None:
             zone_ids = [zone.id for zone in self.zones]
@@ -348,7 +402,7 @@ class LayoutImportV1(LayoutImportCommon):
 
 
 class LayoutImportV2(LayoutImportCommon):
-    """v2 request model for new IFC import."""
+    """v2 request model for new IFC import with adjacency-inferred openings."""
 
     schema_version: Literal["v2"]
     generation_options: GenerationOptionsV2 = Field(default_factory=GenerationOptionsV2)
@@ -360,14 +414,13 @@ class LayoutImportV2(LayoutImportCommon):
         if not self.generation_options.generate_spaces:
             raise ValueError("generate_spaces=false is not supported in this ticket")
 
-        if self.generation_options.generate_openings:
-            raise ValueError("opening rules are not supported in this ticket")
-
+        # In v2, generate_openings enables adjacency/connection-intent inference.
+        # Explicit openings[] remain a v3-only contract.
         return self
 
 
 class LayoutImportV3(LayoutImportCommon):
-    """v3 request model for explicit openings validation."""
+    """v3 request model for explicit openings[] validation."""
 
     schema_version: Literal["v3"]
     generation_options: GenerationOptionsV2 = Field(default_factory=GenerationOptionsV2)
@@ -409,7 +462,7 @@ LayoutImportRequest: TypeAlias = Annotated[
 _LAYOUT_IMPORT_REQUEST_ADAPTER = TypeAdapter(LayoutImportRequest)
 
 
-def parse_layout_import(payload: object) -> LayoutImportV1 | LayoutImportV2:
+def parse_layout_import(payload: object) -> LayoutImportV1 | LayoutImportV2 | LayoutImportV3:
     """Parse any supported layout import payload."""
 
     return _LAYOUT_IMPORT_REQUEST_ADAPTER.validate_python(payload)
