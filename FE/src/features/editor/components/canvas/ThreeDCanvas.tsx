@@ -57,6 +57,10 @@ interface ThreeDCanvasProps {
   threeDDeleteRequestToken?: number
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
+  onIfcElementTransformCommit?: (
+    element: IfcElementInfo,
+    patch: Omit<IfcElementChange, 'expressId'>,
+  ) => void
   libraryElements: ThreeDLibraryPreset[]
   onAddLibraryPreset: (preset: ThreeDLibraryPreset) => void
   onLibraryElementChange: (id: string, patch: Partial<ThreeDLibraryPreset>) => void
@@ -147,6 +151,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         deleteRequestToken={props.threeDDeleteRequestToken ?? 0}
         onIfcElementSelect={props.onIfcElementSelect}
         onIfcElementDelete={props.onIfcElementDelete}
+        onIfcElementTransformCommit={props.onIfcElementTransformCommit}
         onLibraryElementChange={props.onLibraryElementChange}
         onLibraryElementDelete={props.onLibraryElementDelete}
         onThreeDCoordinatesChange={props.onThreeDCoordinatesChange}

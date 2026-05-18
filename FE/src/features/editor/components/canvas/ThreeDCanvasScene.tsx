@@ -1,5 +1,5 @@
-import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '../../types'
-import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
+import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '@/features/editor/types'
+import type { FloorPlan3DData } from '@/features/editor/utils/floorPlanTo3D'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import type { IfcStoreyInfo } from './thatopen/ifcPropertyParser'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
@@ -29,6 +29,10 @@ interface ThreeDCanvasSceneProps {
   deleteRequestToken: number
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
+  onIfcElementTransformCommit?: (
+    element: IfcElementInfo,
+    patch: Omit<IfcElementChange, 'expressId'>,
+  ) => void
   onLibraryElementChange: (id: string, patch: Partial<ThreeDLibraryPreset>) => void
   onLibraryElementDelete: (id: string) => void
   onThreeDCoordinatesChange?: (coords: { x: number; y: number; z: number }) => void
@@ -80,6 +84,7 @@ export default function ThreeDCanvasScene({
   deleteRequestToken,
   onIfcElementSelect,
   onIfcElementDelete,
+  onIfcElementTransformCommit,
   onLibraryElementChange,
   onLibraryElementDelete,
   onThreeDCoordinatesChange,
@@ -102,15 +107,6 @@ export default function ThreeDCanvasScene({
 
   const transformMode = resolveTransformMode(selectedTool)
 
-  if (import.meta.env.DEV) {
-    console.log('[3d-scene-route]', {
-      ifcUrl,
-      rawIfcUrl,
-      hasLocalFloorData: Boolean(localFloorData),
-      renderLocalFloorPlan: shouldRenderLocalFloorPlan(rawIfcUrl, localFloorData),
-    })
-  }
-
   // IFC URL이 아직 없고 로컬 평면도 데이터가 있으면 3D 폴백 씬을 우선 렌더링한다.
   if (useLocalFloorPlan && localFloorData) {
     return (
@@ -132,6 +128,7 @@ export default function ThreeDCanvasScene({
         onLibraryElementChange={onLibraryElementChange}
         onLibraryElementDelete={onLibraryElementDelete}
         onIfcElementSelect={onIfcElementSelect}
+        onIfcElementTransformCommit={onIfcElementTransformCommit}
         transformMode={transformMode}
         libraryDropRequest={libraryDropRequest}
         onResolveLibraryDrop={onResolveLibraryDrop}
@@ -144,9 +141,6 @@ export default function ThreeDCanvasScene({
   }
 
   if (!ifcUrl) {
-    if (import.meta.env.DEV) {
-      console.warn('[3d-scene-route] skip ThatOpen render: missing ifcUrl')
-    }
     return null
   }
 
@@ -170,6 +164,7 @@ export default function ThreeDCanvasScene({
       deleteRequestToken={deleteRequestToken}
       onIfcElementSelect={onIfcElementSelect}
       onIfcElementDelete={onIfcElementDelete}
+      onIfcElementTransformCommit={onIfcElementTransformCommit}
       onLibraryElementChange={onLibraryElementChange}
       onLibraryElementDelete={onLibraryElementDelete}
       onThreeDCoordinatesChange={onThreeDCoordinatesChange}

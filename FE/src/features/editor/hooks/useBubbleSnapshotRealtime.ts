@@ -42,7 +42,13 @@ interface UseBubbleSnapshotRealtimeParams {
   ) => void
   onRemoteFloorPlanSnapshot?: (snapshot: FloorPlanSnapshotPayload) => void
   onPhaseStatusChanged?: (status: PhaseStatus) => void
-  onIfcStorageUrlReceived?: (ifcStorageUrl: string, action: string | null, assetId: string | null, revisionId: string | null) => void
+  onIfcStorageUrlReceived?: (
+    ifcStorageUrl: string,
+    action: string | null,
+    assetId: string | null,
+    revisionId: string | null,
+    floorPlanSnapshot?: FloorPlanSnapshotPayload | null,
+  ) => void
   onBubbleHistoryCursorChanged?: (baseIndex: number, redoDepth: number) => void
   onFloorPlanHistoryCursorChanged?: (baseIndex: number, redoDepth: number) => void
   onBubbleHistoryCursorInvalid?: () => void
@@ -237,6 +243,7 @@ export function useBubbleSnapshotRealtime({
         const ifcStorageUrl = extractIfcStorageUrl(parsed)
         const assetId = extractIfcAssetId(parsed)
         const revisionId = extractRevisionId(parsed)
+        const floorPlanSnapshot = extractFloorPlanSnapshot(parsed)
         const dedupRaw = assetId ?? ifcStorageUrl
         if (dedupRaw) {
           const dedupKey = `${action}:${dedupRaw}`
@@ -244,7 +251,7 @@ export function useBubbleSnapshotRealtime({
           const previous = recentIfcEventRef.current.get(dedupKey)
           if (typeof previous === 'number' && now - previous < IFC_EVENT_DEDUP_TTL_MS) {
             if (revisionId) {
-              ifcStorageUrlHandlerRef.current?.(ifcStorageUrl ?? '', action, assetId, revisionId)
+              ifcStorageUrlHandlerRef.current?.(ifcStorageUrl ?? '', action, assetId, revisionId, floorPlanSnapshot)
             }
             return
           }
@@ -258,9 +265,9 @@ export function useBubbleSnapshotRealtime({
           if (IFC_URL_DEBUG && typeof window !== 'undefined') {
             window.localStorage.setItem('ifc-last-ws-url', ifcStorageUrl ?? '')
           }
-          ifcStorageUrlHandlerRef.current?.(ifcStorageUrl ?? '', action, assetId, revisionId)
+          ifcStorageUrlHandlerRef.current?.(ifcStorageUrl ?? '', action, assetId, revisionId, floorPlanSnapshot)
         } else if (revisionId) {
-          ifcStorageUrlHandlerRef.current?.('', action, null, revisionId)
+          ifcStorageUrlHandlerRef.current?.('', action, null, revisionId, floorPlanSnapshot)
         }
       }
 

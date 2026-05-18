@@ -4105,6 +4105,13 @@ export function useEditorPage() {
     setSelectedIfcElement((prev) => (prev?.id === element.id ? null : prev))
   }, [recordIfcElementChange, workspaceCommandPublisher])
 
+  const handleCommitIfcElementTransform = useCallback((
+    element: IfcElementInfo,
+    patch: Omit<IfcElementChange, 'expressId'>,
+  ) => {
+    recordIfcElementChange(element, patch)
+  }, [recordIfcElementChange])
+
   const handleTwoDMarqueeSelect = useCallback(
     (
       payload: { roomIds: string[]; wallIds: string[]; openingIds: string[] },
@@ -5508,6 +5515,7 @@ export function useEditorPage() {
     handleSelectIfcElementByLocalId,
     handleSelectLibraryElementById,
     handleDeleteIfcElement,
+    handleCommitIfcElementTransform,
     requestedIfcElementLocalId,
     ifcElementSelectionRequestToken,
     requestedLibraryElementId,
