@@ -1760,14 +1760,24 @@ def _create_v2_inferred_openings(
         return
 
     rooms_by_id = _rooms_by_id(request.rooms)
+    processed_room_pairs: set[tuple[str, str]] = set()
     for index, adjacency in enumerate(request.adjacency, start=1):
         if _is_weak_connection(adjacency):
             continue
         from_room, to_room = _resolve_adjacency_pair(adjacency, rooms_by_id)
+        pair_key = (
+            (from_room.id, to_room.id)
+            if from_room.id <= to_room.id
+            else (to_room.id, from_room.id)
+        )
+        if pair_key in processed_room_pairs:
+            continue
+
         host_wall_ref = f"wall-room-{from_room.id}-{to_room.id}"
         host_wall = host_wall_registry.get(host_wall_ref)
         if host_wall is None:
             continue
+        processed_room_pairs.add(pair_key)
 
         opening_id = adjacency.id or f"auto-opening-{index}-{from_room.id}-{to_room.id}"
         center = _segment_midpoint_mm(host_wall.segment_mm)
