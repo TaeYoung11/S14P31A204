@@ -162,7 +162,7 @@ def test_layout_import_v1_accepts_legacy_adjacency() -> None:
                 {
                     **_base_room(),
                     "id": "room-bed-01",
-                    "name": "\uce68\uc2e4",
+                    "name": "침실",
                     "type": "bedroom",
                 },
             ],
@@ -468,6 +468,81 @@ def test_layout_import_v1_rejects_duplicate_room_ids() -> None:
         )
 
 
+def test_layout_import_v2_rejects_duplicate_room_source_bubble_ids() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="room.source_bubble_id values must be unique",
+    ):
+        LayoutImportV2.model_validate(
+            {
+                "schema_version": "v2",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [
+                    {
+                        **_base_room(),
+                        "id": "room-1",
+                        "source_bubble_id": "bubble-1",
+                    },
+                    {
+                        **_base_room(),
+                        "id": "room-2",
+                        "name": "Bedroom",
+                        "type": "bedroom",
+                        "source_bubble_id": "bubble-1",
+                    },
+                ],
+            }
+        )
+
+
+def test_layout_import_v2_allows_missing_room_source_bubble_ids() -> None:
+    request = LayoutImportV2.model_validate(
+        {
+            "schema_version": "v2",
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "sample-project",
+            "rooms": [
+                {**_base_room(), "id": "room-1"},
+                {
+                    **_base_room(),
+                    "id": "room-2",
+                    "name": "Bedroom",
+                    "type": "bedroom",
+                },
+            ],
+        }
+    )
+
+    assert [room.source_bubble_id for room in request.rooms] == [None, None]
+
+
+def test_layout_import_v2_allows_unique_room_source_bubble_ids() -> None:
+    request = LayoutImportV2.model_validate(
+        {
+            "schema_version": "v2",
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "sample-project",
+            "rooms": [
+                {
+                    **_base_room(),
+                    "id": "room-1",
+                    "source_bubble_id": "bubble-1",
+                },
+                {
+                    **_base_room(),
+                    "id": "room-2",
+                    "name": "Bedroom",
+                    "type": "bedroom",
+                    "source_bubble_id": "bubble-2",
+                },
+            ],
+        }
+    )
+
+    assert [room.source_bubble_id for room in request.rooms] == ["bubble-1", "bubble-2"]
+
+
 def test_layout_import_v1_rejects_duplicate_zone_ids() -> None:
     with pytest.raises(ValidationError, match="zone.id values must be unique"):
         LayoutImportV1.model_validate(
@@ -621,21 +696,108 @@ def test_layout_import_v2_rejects_unsupported_generation_policy() -> None:
         )
 
 
-def test_layout_import_v2_rejects_generate_openings_true() -> None:
-    with pytest.raises(ValidationError, match="opening rules are not supported"):
+def test_layout_import_v2_accepts_semantic_metadata_for_inferred_openings() -> None:
+    request = LayoutImportV2.model_validate(
+        {
+            "schema_version": "v2",
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "sample-project",
+            "rooms": [
+                {
+                    **_base_room(),
+                    "id": "room-1",
+                    "type": "entrance",
+                    "source_bubble_id": "bubble-entry",
+                    "original_label": "현관",
+                    "original_type": "현관",
+                    "material": "tile",
+                    "color": "#AABBCC",
+                    "wall_type": "load_bearing",
+                },
+                {
+                    **_base_room(),
+                    "id": "room-2",
+                    "name": "Living",
+                    "x": 4200.0,
+                },
+            ],
+            "adjacency": [
+                {
+                    "id": "conn-1",
+                    "from_room_id": "room-1",
+                    "to_room_id": "room-2",
+                    "strength": 1.0,
+                    "intent": "open_passage",
+                    "connection_strength": "strong",
+                    "source_bubble_id": "room-1",
+                    "target_bubble_id": "room-2",
+                }
+            ],
+            "generation_options": {
+                "generate_spaces": True,
+                "generate_walls": True,
+                "generate_slabs": True,
+                "generate_roof": True,
+                "generate_openings": True,
+            },
+        }
+    )
+
+    room = request.rooms[0]
+    assert room.type is RoomType.ENTRANCE
+    assert room.source_bubble_id == "bubble-entry"
+    assert room.original_label == "현관"
+    assert room.wall_type is not None
+    assert room.wall_type.value == "load_bearing"
+    assert request.generation_options.generate_openings is True
+    assert request.adjacency is not None
+    assert request.adjacency[0].intent is not None
+    assert request.adjacency[0].intent.value == "open_passage"
+    assert request.adjacency[0].connection_strength is not None
+    assert request.adjacency[0].connection_strength.value == "strong"
+    assert request.adjacency[0].source_bubble_id == "room-1"
+    assert request.adjacency[0].target_bubble_id == "room-2"
+
+
+@pytest.mark.parametrize(
+    ("bubble_metadata", "message"),
+    [
+        (
+            {"source_bubble_id": "bubble-1"},
+            "source_bubble_id and target_bubble_id must both be provided together",
+        ),
+        (
+            {"target_bubble_id": "bubble-2"},
+            "source_bubble_id and target_bubble_id must both be provided together",
+        ),
+        (
+            {"source_bubble_id": "bubble-1", "target_bubble_id": "bubble-1"},
+            "source_bubble_id and target_bubble_id must be different",
+        ),
+    ],
+)
+def test_layout_import_v2_rejects_invalid_adjacency_bubble_id_pair(
+    bubble_metadata: dict[str, str],
+    message: str,
+) -> None:
+    with pytest.raises(ValidationError, match=message):
         LayoutImportV2.model_validate(
             {
                 "schema_version": "v2",
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "name": "sample-project",
-                "rooms": [_base_room()],
-                "generation_options": {
-                    "generate_spaces": True,
-                    "generate_walls": True,
-                    "generate_slabs": True,
-                    "generate_roof": True,
-                    "generate_openings": True,
-                },
+                "rooms": [
+                    {**_base_room(), "id": "room-1"},
+                    {**_base_room(), "id": "room-2", "x": 4200.0},
+                ],
+                "adjacency": [
+                    {
+                        "from_room_id": "room-1",
+                        "to_room_id": "room-2",
+                        "strength": 1.0,
+                        **bubble_metadata,
+                    }
+                ],
             }
         )
 
