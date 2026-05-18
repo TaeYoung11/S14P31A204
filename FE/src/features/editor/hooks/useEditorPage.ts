@@ -111,6 +111,7 @@ import type { IfcStoreyInfo } from '../components/canvas/thatopen/ifcPropertyPar
 import type { ThreeDLibraryPreset } from '../components/canvas/threeDLibrary.types'
 import {
   buildFloorPlanLayoutImportPayload,
+  collectConnectedRoomIds,
   collectAutoDoorOpeningIdsFromWallIds,
   getPolygonAreaPx,
   getPolygonBounds,
@@ -118,6 +119,8 @@ import {
   isSameConnection,
   mergeSelectedIds,
   resolveEditorMode,
+  toFloorRoomFromBubble,
+  upsertFloorRoomByBubbleId,
 } from '../utils/editorPageHelpers'
 import {
   buildBubbleFloorMetaDerivedState,
@@ -562,6 +565,7 @@ export function useEditorPage() {
     setFloorPlanFromProject,
     moveActiveRoom,
     updateActiveRoom,
+    addActiveRoom,
     removeActiveRooms,
     clearFloorPlan,
     replaceFloorPlanState,
@@ -3538,13 +3542,47 @@ export function useEditorPage() {
     }
   }, [navigate, projectId, setSearchParams])
 
-  const handleOpenAddModal = () => {
-    if (isBubbleReadOnly) return
+  /** 공간/방 생성 모달을 기본값으로 연다. */
+  const openAddSpaceModal = () => {
     setAddSpaceFormData(INITIAL_ADD_SPACE_FORM)
     setIsAddModalOpen(true)
   }
 
+  const handleOpenAddModal = () => {
+    const canOpenAddModal = mode === '2d' ? canEditFloorPlan : !isBubbleReadOnly
+    if (!canOpenAddModal) return
+    openAddSpaceModal()
+  }
+
+  /**
+   * 2D 모드에서 버블 생성 결과를 즉시 FloorRoom으로 동기화한다.
+   * - 버블/평면도 스냅샷 dirty 플래그를 모두 갱신한다.
+   * - 생성 직후 선택/동기화 상태를 한 번에 정리한다.
+   */
+  const handleConfirmAddSpaceInTwoD = () => {
+    if (!canEditFloorPlan) return
+    setIsFloorPlanEditedIn2D(true)
+    markLocalBubbleSnapshotChanged()
+    markLocalFloorPlanSnapshotChanged()
+
+    const createdBubble = addBubble(addSpaceFormData, resolvedActiveBubbleFloor)
+    const connectedIds = collectConnectedRoomIds(createdBubble.id, connections)
+    const createdRoom = toFloorRoomFromBubble(createdBubble, connectedIds)
+
+    addActiveRoom(createdRoom)
+    const nextRooms = upsertFloorRoomByBubbleId(floorRooms, createdRoom)
+    syncFloorDerivedStateFromRooms(nextRooms)
+
+    handleBubbleSelect(createdBubble.id)
+    clearConnectionAndTwoDSelection()
+    setIsAddModalOpen(false)
+  }
+
   const handleConfirmAddSpace = () => {
+    if (mode === '2d') {
+      handleConfirmAddSpaceInTwoD()
+      return
+    }
     if (isBubbleReadOnly) return
     markLocalBubbleSnapshotChanged()
     addBubble(addSpaceFormData, resolvedActiveBubbleFloor)

@@ -2,6 +2,7 @@ import type {
   BubbleData,
   ConnectionData,
   EditorMode,
+  FloorRoom,
   Point2D,
   ZoneData,
 } from '../types'
@@ -509,6 +510,57 @@ export function mergeSelectedIds(primaryIds: string[], focusedId: string | null)
     ...primaryIds,
     ...(focusedId ? [focusedId] : []),
   ]))
+}
+
+/**
+ * 연결선 목록에서 특정 Room(bubble)과 직접 연결된 room id 목록을 중복 없이 반환한다.
+ * - 방향(from/to)에 관계없이 계산한다.
+ * - 자기 자신 id는 제외한다.
+ */
+export function collectConnectedRoomIds(roomBubbleId: string, connections: ConnectionData[]): string[] {
+  return Array.from(new Set(
+    connections.flatMap((connection) => {
+      if (connection.from === roomBubbleId && connection.to !== roomBubbleId) return [connection.to]
+      if (connection.to === roomBubbleId && connection.from !== roomBubbleId) return [connection.from]
+      return []
+    }),
+  ))
+}
+
+/** BubbleData를 2D 편집용 FloorRoom 모델로 변환한다. */
+export function toFloorRoomFromBubble(
+  bubble: BubbleData,
+  connectedIds: string[],
+): FloorRoom {
+  return {
+    id: bubble.id,
+    bubbleId: bubble.id,
+    label: bubble.label,
+    type: bubble.type,
+    x: bubble.x,
+    y: bubble.y,
+    width: bubble.width,
+    height: bubble.height,
+    widthMm: bubble.widthMm,
+    heightMm: bubble.heightMm,
+    area: bubble.ratio,
+    color: bubble.color,
+    material: bubble.material,
+    connectedIds,
+  }
+}
+
+/**
+ * bubbleId 기준으로 Room을 삽입/교체한다.
+ * - 동일 bubbleId가 있으면 교체
+ * - 없으면 마지막에 추가
+ */
+export function upsertFloorRoomByBubbleId(rooms: FloorRoom[], targetRoom: FloorRoom): FloorRoom[] {
+  const targetIndex = rooms.findIndex((room) => room.bubbleId === targetRoom.bubbleId)
+  if (targetIndex < 0) return [...rooms, targetRoom]
+  const nextRooms = [...rooms]
+  nextRooms[targetIndex] = targetRoom
+  return nextRooms
 }
 
 /** auto-shared 벽 ID를 대응되는 auto-door 개구부 ID로 변환한다. */

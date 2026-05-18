@@ -4,6 +4,7 @@ import { generateFloorPlanLayout } from '../utils/floorPlanLayout'
 import { mapFloorProjectToLayers } from '../utils/floorProjectMapper'
 import { translateFloorRoom } from '../utils/floorRoomTransform'
 import { normalizeIfcDisplayText } from '../utils/ifcStepString'
+import { upsertFloorRoomByBubbleId } from '../utils/editorPageHelpers'
 import type { FloorProject } from '../types/floorProject.types'
 
 const normalizeFloorLayerLabels = (layers: FloorLayer[]): FloorLayer[] =>
@@ -306,6 +307,23 @@ export function useFloorPlan(projectId?: string) {
   )
 
   /**
+   * 활성 층에 Room을 추가한다.
+   * 동일 bubbleId가 이미 있으면 해당 Room을 교체한다.
+   */
+  const addActiveRoom = useCallback((room: FloorRoom) => {
+    if (!activeLayerId) return
+    setLayers((prev) =>
+      prev.map((layer) => {
+        if (layer.id !== activeLayerId) return layer
+        return {
+          ...layer,
+          rooms: upsertFloorRoomByBubbleId(layer.rooms, room),
+        }
+      }),
+    )
+  }, [activeLayerId])
+
+  /**
    * 활성 층에서 지정한 Room(들)을 제거한다.
    * 2D 편집 모드 삭제 키 동작에서 버블 상태와 층 상태를 함께 맞출 때 사용한다.
    */
@@ -369,6 +387,7 @@ export function useFloorPlan(projectId?: string) {
     syncFloorPlanFromBubbles,
     moveActiveRoom,
     updateActiveRoom,
+    addActiveRoom,
     removeActiveRooms,
     clearFloorPlan,
     replaceFloorPlanState,
