@@ -304,25 +304,7 @@ uv run python scripts/run_shinchan_production_pipeline.py  # production 렌더 �
 
 ## 7. 시스템 아키텍처
 
-```
-┌─────────────┐         REST + STOMP/SSE          ┌─────────────────┐
-│  FE (React) │ ◀────────────────────────────────▶│  BE (Spring)    │
-│  IFC Viewer │                                    │  - JPA + PG     │
-│  2D Canvas  │                                    │  - JWT          │
-│  STOMP      │                                    │  - STOMP + AMQP │
-└─────────────┘                                    │  - Redis        │
-                                                   │  - S3           │
-                                                   └────────┬────────┘
-                                                            │  큐 (RabbitMQ)
-                                                            ▼
-                                                   ┌─────────────────┐
-                                                   │  AI Worker      │
-                                                   │  - 평면도 생성  │
-                                                   │  - IFC 편집 LLM │
-                                                   │  - SD + CN +    │
-                                                   │    Real-ESRGAN  │
-                                                   └─────────────────┘
-```
+![서비스 아키텍처](img/service_architecture.png)
 
 | 채널 | 용도 |
 | :--- | :--- |
