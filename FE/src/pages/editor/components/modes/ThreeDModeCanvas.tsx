@@ -95,6 +95,7 @@ export default function ThreeDModeCanvas({
       threeDDeleteRequestToken={editorProps.threeDDeleteRequestToken}
       onIfcElementSelect={editorProps.handleSelectIfcElement}
       onIfcElementDelete={editorProps.handleDeleteIfcElement}
+      onSelectWallForChat={editorProps.selectWallForChat}
       onIfcElementTransformCommit={editorProps.handleCommitIfcElementTransform}
       libraryElements={editorProps.libraryElements}
       onAddLibraryPreset={editorProps.handleAddLibraryPreset}
