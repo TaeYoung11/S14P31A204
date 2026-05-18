@@ -154,7 +154,7 @@ export const toIfcRotationAxisAngle = (quaternion: QuaternionLike): IfcRotationA
   let x = quaternion.x / length
   let y = quaternion.y / length
   let z = quaternion.z / length
-  let w = quaternion.w / length
+  const w = quaternion.w / length
   const vectorLength = Math.hypot(x, y, z)
   if (!Number.isFinite(vectorLength) || vectorLength <= 1e-8) return null
 
