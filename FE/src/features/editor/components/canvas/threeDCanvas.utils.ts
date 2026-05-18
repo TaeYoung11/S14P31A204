@@ -1,7 +1,6 @@
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
 
 export const DEFAULT_MOCK_IFC_URL = '/mock/shinchan_house.ifc'
-const ENABLE_LOCAL_3D_FALLBACK = import.meta.env.VITE_ENABLE_LOCAL_3D_FALLBACK === 'true'
 
 /** 선택 도구 문자열을 TransformControls 모드로 변환한다. */
 export const resolveTransformMode = (selectedTool?: string): 'translate' | 'rotate' | 'scale' => {
@@ -14,4 +13,4 @@ export const resolveTransformMode = (selectedTool?: string): 'translate' | 'rota
 export const shouldRenderLocalFloorPlan = (
   ifcUrl?: string | null,
   localFloorData?: FloorPlan3DData | null,
-) => ENABLE_LOCAL_3D_FALLBACK && !ifcUrl && Boolean(localFloorData)
+) => !ifcUrl && Boolean(localFloorData)

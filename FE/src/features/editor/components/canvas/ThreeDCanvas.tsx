@@ -90,7 +90,8 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const [selectedCategory, setSelectedCategory] = useState('all')
   const isEditingLocked = props.isEditingLocked ?? false
-  // ifcUrl이 null(로딩 중 또는 IFC 없음)이어도 mock으로 폴백해 씬을 항상 표시한다
+  // 실제 IFC URL이 없으면 ThreeDCanvasScene에서 localFloorData를 먼저 사용한다.
+  // local 3D 데이터도 없을 때만 mock IFC를 fallback으로 사용한다.
   const effectiveIfcUrl = props.ifcUrl ?? DEFAULT_MOCK_IFC_URL
 
   const { onAddLibraryPreset } = props
