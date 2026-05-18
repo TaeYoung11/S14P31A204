@@ -44,38 +44,30 @@ export interface LayoutImportBoundaryLogMetadata {
   boundaryOmitReason?: LayoutImportBoundaryOmitReason
 }
 
-function normalizeFloorPlanRoomType(rawType: string): FloorPlanRoomType {
-  const normalized = rawType.trim().toLowerCase()
-  if (normalized === '거실') return 'living'
-  if (normalized === '침실' || normalized === '방') return 'bedroom'
-  if (normalized === '주방') return 'kitchen'
-  if (normalized === '화장실' || normalized === '욕실') return 'bathroom'
-  if (normalized === '현관' || normalized === 'entrance') return 'entrance'
-  if (normalized === '복도') return 'corridor'
-  if (normalized === '사무실') return 'office'
-  switch (normalized) {
-    case '거실':
-    case 'living':
-      return 'living'
-    case '침실':
-    case 'bedroom':
-    case '방':
-      return 'bedroom'
-    case '주방':
-    case 'kitchen':
-      return 'kitchen'
-    case '화장실':
-    case 'bathroom':
-      return 'bathroom'
-    case '복도':
-    case 'corridor':
-      return 'corridor'
-    case '사무실':
-    case 'office':
-      return 'office'
-    default:
-      return 'other'
-  }
+const FLOOR_PLAN_ROOM_TYPE_MAP: Record<string, FloorPlanRoomType> = {
+  living: 'living',
+  bedroom: 'bedroom',
+  kitchen: 'kitchen',
+  bathroom: 'bathroom',
+  office: 'office',
+  entrance: 'entrance',
+  corridor: 'corridor',
+  other: 'other',
+  '거실': 'living',
+  '침실': 'bedroom',
+  '방': 'bedroom',
+  '주방': 'kitchen',
+  '화장실': 'bathroom',
+  '욕실': 'bathroom',
+  '현관': 'entrance',
+  '복도': 'corridor',
+  '사무실': 'office',
+  '미선택': 'other',
+}
+
+function normalizeFloorPlanRoomType(rawType: string | null | undefined): FloorPlanRoomType {
+  const normalized = typeof rawType === 'string' ? rawType.trim().toLowerCase() : ''
+  return FLOOR_PLAN_ROOM_TYPE_MAP[normalized] ?? 'other'
 }
 
 function toFiniteNumber(value: number): number {
@@ -88,22 +80,23 @@ function toPositiveMillimeter(value: number): number {
   return rounded > 0 ? rounded : 0
 }
 
-function toOptionalNonBlankString(value: string | undefined): string | undefined {
-  if (value === undefined) return undefined
+function toOptionalNonBlankString(value: string | null | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : undefined
 }
 
-function toLayoutImportWallType(value: string | undefined): 'general' | 'exterior' | 'load_bearing' | 'partition' | undefined {
-  if (value === undefined) return undefined
-  switch (value.trim()) {
+function toLayoutImportWallType(value: string | null | undefined): 'general' | 'exterior' | 'load_bearing' | 'partition' | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.trim().replace(/[-\s]/g, '_').toLowerCase()
+  switch (normalized) {
     case 'general':
       return 'general'
     case 'exterior':
       return 'exterior'
     case 'partition':
       return 'partition'
-    case 'loadBearing':
+    case 'loadbearing':
     case 'load_bearing':
       return 'load_bearing'
     default:
@@ -371,12 +364,15 @@ export function buildFloorPlanLayoutImportPayload(
   const rooms = uniqueBubbles.map((bubble) => {
     const center = toBubbleCenterMillimeterPosition(bubble, mmPerPx)
     const sourceBubbleId = bubble.id
+    const roomLabel = toOptionalNonBlankString(bubble.label) ?? sourceBubbleId
+    const roomMaterial = toOptionalNonBlankString(bubble.material)
+    const roomWallType = toLayoutImportWallType(bubble.wallType)
     return {
       id: sourceBubbleId,
       source_bubble_id: sourceBubbleId,
-      original_label: bubble.label.trim() || sourceBubbleId,
+      original_label: roomLabel,
       original_type: toOptionalNonBlankString(bubble.originalType) ?? toOptionalNonBlankString(bubble.type) ?? 'other',
-      name: bubble.label.trim() || sourceBubbleId,
+      name: roomLabel,
       type: normalizeFloorPlanRoomType(bubble.type),
       width: toPositiveMillimeter(bubble.widthMm),
       height: toPositiveMillimeter(bubble.heightMm),
@@ -385,9 +381,9 @@ export function buildFloorPlanLayoutImportPayload(
       y: center.y,
       angle: 0,
       locked: false,
-      ...(toOptionalNonBlankString(bubble.material) ? { material: toOptionalNonBlankString(bubble.material) } : {}),
+      ...(roomMaterial ? { material: roomMaterial } : {}),
       ...(typeof bubble.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(bubble.color) ? { color: bubble.color } : {}),
-      ...(toLayoutImportWallType(bubble.wallType) ? { wall_type: toLayoutImportWallType(bubble.wallType) } : {}),
+      ...(roomWallType ? { wall_type: roomWallType } : {}),
       zoneId: null,
     }
   })
