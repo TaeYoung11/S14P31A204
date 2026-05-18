@@ -69,7 +69,6 @@ function normalizeFloorPlanRoomType(rawType: string): FloorPlanRoomType {
       return 'bathroom'
     case '복도':
     case 'corridor':
-    case '현관':
       return 'corridor'
     case '사무실':
     case 'office':
