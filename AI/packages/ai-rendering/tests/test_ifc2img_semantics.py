@@ -13,12 +13,15 @@ from ai_rendering.ifc2img.element_masks import (
     IfcElementColorDelta,
     IfcElementMaskCoverage,
     IfcElementMeanColor,
+    IfcGeometryFidelityReport,
+    IfcGeometryFidelityThresholds,
     IfcMaskBoundingBox,
     IfcElementMaskRenderResult,
     build_ifc_color_artifact_matrix,
     build_ifc_color_lock_artifact,
     build_ifc_color_composite_from_element_masks,
     compare_ifc_color_family_consistency,
+    evaluate_ifc_geometry_fidelity_gate,
     evaluate_ifc_quantitative_color,
     has_critical_coverage_warning,
     measure_element_mask_mean_colors,
@@ -992,6 +995,116 @@ def test_measure_ifc_geometry_fidelity_rejects_size_mismatch() -> None:
             Image.new("RGB", (2, 2), "white"),
             element_masks,
         )
+
+
+def _build_fidelity_report(
+    *,
+    silhouette_iou: float,
+    edge_alignment_score: float,
+    building_bbox_overlap: float | None,
+) -> IfcGeometryFidelityReport:
+    return IfcGeometryFidelityReport(
+        image_size=(4, 4),
+        building_pixel_count=4,
+        building_pixel_coverage=0.25,
+        building_bbox=IfcMaskBoundingBox(0, 0, 1, 1),
+        estimated_photo_foreground_pixel_count=4,
+        estimated_photo_foreground_fill_ratio=0.25,
+        estimated_photo_foreground_bbox=IfcMaskBoundingBox(0, 0, 1, 1),
+        building_bbox_overlap=building_bbox_overlap,
+        silhouette_iou=silhouette_iou,
+        edge_alignment_score=edge_alignment_score,
+        categories={},
+    )
+
+
+def test_evaluate_ifc_geometry_fidelity_gate_accepts_high_quality_metrics() -> None:
+    """Soft-lock gate should accept when every metric clears its default threshold."""
+    report = _build_fidelity_report(
+        silhouette_iou=0.80,
+        edge_alignment_score=0.40,
+        building_bbox_overlap=0.90,
+    )
+
+    decision = evaluate_ifc_geometry_fidelity_gate(report)
+
+    assert decision.accepted is True
+    assert decision.fail_reasons == ()
+    payload = decision.to_dict()
+    assert payload["accepted"] is True
+    assert payload["failReasons"] == []
+    assert payload["thresholds"]["silhouetteIouMin"] > 0.0
+
+
+def test_evaluate_ifc_geometry_fidelity_gate_rejects_when_iou_below_threshold() -> None:
+    """Below-threshold silhouette IoU should trigger reject so the pipeline can fallback."""
+    report = _build_fidelity_report(
+        silhouette_iou=0.10,
+        edge_alignment_score=0.40,
+        building_bbox_overlap=0.90,
+    )
+
+    decision = evaluate_ifc_geometry_fidelity_gate(report)
+
+    assert decision.accepted is False
+    assert "silhouette_iou_below_threshold" in decision.fail_reasons
+
+
+def test_evaluate_ifc_geometry_fidelity_gate_rejects_multiple_reasons() -> None:
+    """All failing metrics must be reported so logs explain the rejection."""
+    report = _build_fidelity_report(
+        silhouette_iou=0.10,
+        edge_alignment_score=0.05,
+        building_bbox_overlap=0.10,
+    )
+
+    decision = evaluate_ifc_geometry_fidelity_gate(report)
+
+    assert decision.accepted is False
+    assert set(decision.fail_reasons) == {
+        "silhouette_iou_below_threshold",
+        "edge_alignment_below_threshold",
+        "bbox_overlap_below_threshold",
+    }
+
+
+def test_evaluate_ifc_geometry_fidelity_gate_flags_missing_bbox_overlap() -> None:
+    """An unmeasurable bbox overlap is treated as a fail-safe reject."""
+    report = _build_fidelity_report(
+        silhouette_iou=0.80,
+        edge_alignment_score=0.40,
+        building_bbox_overlap=None,
+    )
+
+    decision = evaluate_ifc_geometry_fidelity_gate(report)
+
+    assert decision.accepted is False
+    assert decision.fail_reasons == ("bbox_overlap_unavailable",)
+
+
+def test_evaluate_ifc_geometry_fidelity_gate_honors_custom_thresholds() -> None:
+    """Caller-supplied thresholds override the defaults exactly."""
+    report = _build_fidelity_report(
+        silhouette_iou=0.55,
+        edge_alignment_score=0.25,
+        building_bbox_overlap=0.60,
+    )
+
+    strict = evaluate_ifc_geometry_fidelity_gate(
+        report,
+        thresholds=IfcGeometryFidelityThresholds(
+            silhouette_iou_min=0.95,
+            edge_alignment_min=0.95,
+            bbox_overlap_min=0.95,
+        ),
+    )
+
+    assert strict.accepted is False
+    assert set(strict.fail_reasons) == {
+        "silhouette_iou_below_threshold",
+        "edge_alignment_below_threshold",
+        "bbox_overlap_below_threshold",
+    }
 
 
 def test_measure_ifc_color_target_deltas_compares_mean_to_target(
