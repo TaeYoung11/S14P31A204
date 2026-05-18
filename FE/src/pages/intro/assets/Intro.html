@@ -56,9 +56,16 @@
       font-family: var(--serif);
       color: var(--ink);
       background: var(--bg);
+      user-select: none;
+      -webkit-user-select: none;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
       letter-spacing: -0.005em;
+    }
+
+    img,
+    canvas {
+      -webkit-user-drag: none;
     }
 
     #scene-canvas {
@@ -679,21 +686,15 @@
     </section>
   </main>
 
-  <span class="side-marker">DRAG TO ROTATE</span>
-
   <footer class="foot">
     <div class="keywords">
       <span>PRECISION</span>
       <span>CLARITY</span>
       <span>STRUCTURE</span>
     </div>
-    <div class="interact-hint">
-      <span class="ico">↻</span>
-      <span>CLICK · INTERACTIVE</span>
-    </div>
   </footer>
 
-  <div class="watermark">Batang</div>
+  <div class="watermark">BATANG</div>
 
   <!-- Tweaks panel -->
   <div class="tweaks" id="tweaks-panel">

@@ -31,10 +31,18 @@
     font-family: var(--serif);
     color: var(--ink);
     background: var(--bg);
+    word-break: keep-all;
+    overflow-wrap: break-word;
+    line-break: strict;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     letter-spacing: -0.005em;
     overflow-x: hidden;
+  }
+
+  h1, h2, h3, p, a, span, button, .tag{
+    word-break: keep-all;
+    overflow-wrap: break-word;
   }
 
   /* faint grid backdrop */
@@ -204,9 +212,10 @@
   }
   .section-head .desc{
     margin-left: auto;
+    flex: 1 1 560px;
     font-size: 14px;
     color: var(--muted);
-    max-width: 360px;
+    max-width: 620px;
     text-align: right;
   }
 
@@ -450,7 +459,8 @@
     <div class="hero-side">
       <p>
         BATANG은 건축사의 <strong>초기 설계</strong> 단계를 AI와 함께 다시 디자인하는 팀입니다.
-        손으로 그어둔 선, 머릿속에서만 굴리던 매스, 클라이언트와 주고받던 메모 — 흩어진 설계의 <em>바탕</em>을 한 자리로 모아냅니다.
+        손으로 그어둔 선, 머릿속에서만 굴리던 매스, 클라이언트와 주고받던 메모 —<br>
+        흩어진 설계의 <em>바탕</em>을 한 자리로 모아냅니다.
       </p>
       <div class="meta-row">
         <div class="cell">

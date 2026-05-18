@@ -144,7 +144,7 @@ export default function AuthLayout({ children, fitViewport = false }: AuthLayout
             <span>STRUCTURE</span>
           </div>
           <span className="select-none text-[clamp(32px,3.4vw,56px)] font-bold leading-none tracking-[-0.04em] text-[#111827]/5">
-            Batang
+            BATANG
           </span>
         </div>
       </section>
