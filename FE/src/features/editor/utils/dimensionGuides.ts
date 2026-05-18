@@ -1,5 +1,6 @@
 import { FLOOR_MM_PER_PX } from '../constants'
 import type { FloorRoom, FloorWall } from '../types'
+import { getFlatPointsBounds } from './sitePointTransform'
 
 export interface DimensionGuideRenderData {
   lines: Array<{ key: string; points: number[]; dashed?: boolean }>
@@ -10,6 +11,86 @@ interface ComputeDimensionGuidesParams {
   isGenerated: boolean
   rooms: FloorRoom[]
   walls: FloorWall[]
+}
+
+const EPSILON = 1e-9
+
+function rotatePointAround(
+  x: number,
+  y: number,
+  radians: number,
+  cx: number,
+  cy: number,
+): { x: number; y: number } {
+  if (!Number.isFinite(radians) || Math.abs(radians) < EPSILON) return { x, y }
+  const dx = x - cx
+  const dy = y - cy
+  const cos = Math.cos(radians)
+  const sin = Math.sin(radians)
+  return {
+    x: cx + dx * cos - dy * sin,
+    y: cy + dx * sin + dy * cos,
+  }
+}
+
+function toRoomReferencePolygon(room: FloorRoom): Array<{ x: number; y: number }> {
+  if (room.polygon && room.polygon.length >= 3) return room.polygon
+  return [
+    { x: room.x, y: room.y },
+    { x: room.x + room.width, y: room.y },
+    { x: room.x + room.width, y: room.y + room.height },
+    { x: room.x, y: room.y + room.height },
+  ]
+}
+
+function collectGeometryFlatPoints(rooms: FloorRoom[], walls: FloorWall[]): number[] {
+  const points: number[] = []
+  rooms.forEach((room) => {
+    toRoomReferencePolygon(room).forEach((point) => {
+      points.push(point.x, point.y)
+    })
+  })
+  walls.forEach((wall) => {
+    points.push(wall.start.x, wall.start.y, wall.end.x, wall.end.y)
+  })
+  return points
+}
+
+function normalizeUndirectedAngle(radians: number): number {
+  let angle = radians
+  while (angle >= Math.PI / 2) angle -= Math.PI
+  while (angle < -Math.PI / 2) angle += Math.PI
+  return angle
+}
+
+function resolveGuideAxisAngleRadians(rooms: FloorRoom[], walls: FloorWall[]): number | null {
+  let bestAngle: number | null = null
+  let bestLength = 0
+
+  const considerSegment = (x1: number, y1: number, x2: number, y2: number) => {
+    const dx = x2 - x1
+    const dy = y2 - y1
+    const length = Math.hypot(dx, dy)
+    if (!Number.isFinite(length) || length <= 1e-6) return
+    if (length <= bestLength) return
+    bestLength = length
+    bestAngle = normalizeUndirectedAngle(Math.atan2(dy, dx))
+  }
+
+  walls.forEach((wall) => {
+    considerSegment(wall.start.x, wall.start.y, wall.end.x, wall.end.y)
+  })
+
+  rooms.forEach((room) => {
+    const polygon = toRoomReferencePolygon(room)
+    for (let i = 0; i < polygon.length; i += 1) {
+      const current = polygon[i]
+      const next = polygon[(i + 1) % polygon.length]
+      considerSegment(current.x, current.y, next.x, next.y)
+    }
+  })
+
+  return bestAngle
 }
 
 /**
@@ -50,17 +131,11 @@ function collectGuides(values: number[], tolerance: number): number[] {
  * - 상/하/좌/우 체인 치수선 + 전체 길이 치수선을 함께 생성
  * - 렌더링 전용 데이터만 반환해 Canvas 컴포넌트의 책임을 줄인다.
  */
-export function computeDimensionGuides({
-  isGenerated,
-  rooms,
-  walls,
-}: ComputeDimensionGuidesParams): DimensionGuideRenderData {
-  if (!isGenerated) return { lines: [], labels: [] }
-  if (rooms.length === 0 && walls.length === 0) return { lines: [], labels: [] }
-
-  /** 실제 렌더 scale에서 역산한 mm/px 비율 — 고정 상수(25) 대신 사용 */
-  const mmPerPx = deriveMmPerPx(rooms)
-
+function buildAxisAlignedDimensionGuides(
+  rooms: FloorRoom[],
+  walls: FloorWall[],
+  mmPerPx: number,
+): DimensionGuideRenderData {
   const rectBounds = rooms.length > 0
     ? {
         minX: Math.min(...rooms.map((room) => room.x)),
@@ -210,5 +285,77 @@ export function computeDimensionGuides({
   return {
     lines: lines.map((line) => ({ ...line, dashed: false })),
     labels,
+  }
+}
+
+export function computeDimensionGuides({
+  isGenerated,
+  rooms,
+  walls,
+}: ComputeDimensionGuidesParams): DimensionGuideRenderData {
+  if (!isGenerated) return { lines: [], labels: [] }
+  if (rooms.length === 0 && walls.length === 0) return { lines: [], labels: [] }
+
+  /** 실제 렌더 scale에서 역산한 mm/px 비율 — 고정 상수(25) 대신 사용 */
+  const mmPerPx = deriveMmPerPx(rooms)
+  const geometryPoints = collectGeometryFlatPoints(rooms, walls)
+  const geometryBounds = getFlatPointsBounds(geometryPoints)
+  const dominantAngle = resolveGuideAxisAngleRadians(rooms, walls)
+  if (!geometryBounds || dominantAngle === null || Math.abs(dominantAngle) < 0.01) {
+    return buildAxisAlignedDimensionGuides(rooms, walls, mmPerPx)
+  }
+
+  const localRotation = -dominantAngle
+  const localRooms = rooms.map((room) => {
+    const localPolygon = toRoomReferencePolygon(room).map((point) =>
+      rotatePointAround(point.x, point.y, localRotation, geometryBounds.cx, geometryBounds.cy))
+    const xs = localPolygon.map((point) => point.x)
+    const ys = localPolygon.map((point) => point.y)
+    const minX = Math.min(...xs)
+    const maxX = Math.max(...xs)
+    const minY = Math.min(...ys)
+    const maxY = Math.max(...ys)
+    return {
+      ...room,
+      x: minX,
+      y: minY,
+      width: Math.max(maxX - minX, 1),
+      height: Math.max(maxY - minY, 1),
+      polygon: localPolygon,
+    }
+  })
+  const localWalls = walls.map((wall) => ({
+    ...wall,
+    start: rotatePointAround(wall.start.x, wall.start.y, localRotation, geometryBounds.cx, geometryBounds.cy),
+    end: rotatePointAround(wall.end.x, wall.end.y, localRotation, geometryBounds.cx, geometryBounds.cy),
+  }))
+
+  const axisGuides = buildAxisAlignedDimensionGuides(localRooms, localWalls, mmPerPx)
+  const rotationDeg = (dominantAngle * 180) / Math.PI
+
+  return {
+    lines: axisGuides.lines.map((line) => {
+      const rotatedPoints: number[] = []
+      for (let i = 0; i + 1 < line.points.length; i += 2) {
+        const mapped = rotatePointAround(
+          line.points[i],
+          line.points[i + 1],
+          dominantAngle,
+          geometryBounds.cx,
+          geometryBounds.cy,
+        )
+        rotatedPoints.push(mapped.x, mapped.y)
+      }
+      return { ...line, points: rotatedPoints }
+    }),
+    labels: axisGuides.labels.map((label) => {
+      const mapped = rotatePointAround(label.x, label.y, dominantAngle, geometryBounds.cx, geometryBounds.cy)
+      return {
+        ...label,
+        x: mapped.x,
+        y: mapped.y,
+        rotation: (label.rotation ?? 0) + rotationDeg,
+      }
+    }),
   }
 }

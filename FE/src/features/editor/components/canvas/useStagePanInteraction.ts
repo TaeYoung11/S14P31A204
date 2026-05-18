@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react'
-import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
+import type { MutableRefObject } from 'react'
 import type Konva from 'konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 
@@ -9,7 +9,7 @@ interface UseStagePanInteractionParams {
   isMiddlePanning: boolean
   baseOffsetX: number
   baseOffsetY: number
-  setPanOffset: Dispatch<SetStateAction<{ x: number; y: number }>>
+  setPanOffset: (nextPanOffset: { x: number; y: number }) => void
 }
 
 /**

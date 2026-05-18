@@ -328,18 +328,6 @@ export function TwoDRoomsLayer({
                   lineJoin="round"
                 />
               )}
-              {isOutsideSite && (
-                <Text
-                  x={room.x}
-                  y={room.y + 4}
-                  width={room.width}
-                  align="center"
-                  text="대지 밖"
-                  fontSize={10}
-                  fontStyle="bold"
-                  fill={SITE_OUTSIDE_WARNING}
-                />
-              )}
               <Text
                 x={room.x + labelPaddingX}
                 y={labelY}

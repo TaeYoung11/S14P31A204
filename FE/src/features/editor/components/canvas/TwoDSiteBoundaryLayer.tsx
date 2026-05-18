@@ -10,7 +10,11 @@ interface TwoDSiteBoundaryLayerProps {
  * 대지 경계(채움 + 외곽 점선)를 렌더링한다.
  * - 평면도 요소의 경계 기준이 되는 시각적 가이드를 제공한다.
  */
-export function TwoDSiteBoundaryLayer({ hasSite, sitePoints, listening }: TwoDSiteBoundaryLayerProps) {
+export function TwoDSiteBoundaryLayer({
+  hasSite,
+  sitePoints,
+  listening,
+}: TwoDSiteBoundaryLayerProps) {
   if (!hasSite) return null
   return (
     <>
