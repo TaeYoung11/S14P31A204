@@ -5,7 +5,7 @@ import type Konva from 'konva'
 import type { BubbleData, CanvasViewTransform, ConnectionData, FloorLayerOverlay, ZoneData } from '../../types'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
 import { hexToRgba } from '../../utils/bubbleCalc'
-import { radiansToDegrees } from '../../utils/canvasViewTransform'
+import { rotatePointAround } from '../../utils/canvasViewTransform'
 import { validateBubblesInSiteBoundary } from '../../utils/siteBoundaryValidation'
 import BubbleZoneLayer from './BubbleZoneLayer'
 import CanvasViewTransformGroup from './CanvasViewTransformGroup'
@@ -161,6 +161,20 @@ export function BubbleCanvas({
 }: BubbleCanvasProps) {
   /** id → BubbleData 빠른 조회 맵 */
   const bubbleMap = useMemo(() => new Map(bubbles.map((b) => [b.id, b])), [bubbles])
+  const bubbleDisplayPositions = useMemo(() => {
+    const map = new Map<string, { x: number; y: number }>()
+    for (const b of bubbles) {
+      map.set(b.id, viewTransform
+        ? rotatePointAround(
+            { x: b.x, y: b.y },
+            viewTransform.rotationRadians,
+            viewTransform.centerX,
+            viewTransform.centerY,
+          )
+        : { x: b.x, y: b.y })
+    }
+    return map
+  }, [bubbles, viewTransform])
   const siteValidation = useMemo(
     () => validateBubblesInSiteBoundary(sitePoints, bubbles),
     [bubbles, sitePoints],
@@ -171,6 +185,7 @@ export function BubbleCanvas({
   const groupRefs = useRef<Map<string, Konva.Group>>(new Map())
   /** Konva Transformer ref */
   const trRef = useRef<Konva.Transformer | null>(null)
+  const isTransformingRef = useRef(false)
   /** Konva Stage ref — 커서 즉시 동기화용 */
   const stageRef = useRef<Konva.Stage | null>(null)
 
@@ -179,6 +194,7 @@ export function BubbleCanvas({
   const isDrawingMarquee = useRef(false)
   const marqueeStart = useRef<{ x: number; y: number } | null>(null)
   const [hoveredBubbleId, setHoveredBubbleId] = useState<string | null>(null)
+  const [transformingBubbleId, setTransformingBubbleId] = useState<string | null>(null)
   const isSpacePressed = useSpacePanning()
   const [isMiddlePanning, setIsMiddlePanning] = useState(false)
   const [panOffsetByProjectId, setPanOffsetByProjectId] = useState<Record<string, { x: number; y: number }>>({})
@@ -221,7 +237,7 @@ export function BubbleCanvas({
   }, [projectId])
 
   // 스케일/패닝이 적용된 Stage에서도 항상 동일한 로컬 캔버스 좌표를 얻기 위한 변환 헬퍼.
-  const { getCanvasPoint, toScreenPoint } = useCanvasCoordinateHelpers({
+  const { getCanvasPoint, getStagePoint, toScreenPoint } = useCanvasCoordinateHelpers({
     scale,
     baseOffsetX,
     baseOffsetY,
@@ -266,6 +282,40 @@ export function BubbleCanvas({
       }
     }
     return null
+  }
+
+  const findDisplayBubbleByPoint = (x: number, y: number): BubbleData | null => {
+    for (let i = bubbles.length - 1; i >= 0; i -= 1) {
+      const b = bubbles[i]
+      const displayPos = bubbleDisplayPositions.get(b.id) ?? b
+      const cx = displayPos.x + b.width / 2
+      const cy = displayPos.y + b.height / 2
+      const rx = b.width / 2
+      const ry = b.height / 2
+      if (rx > 0 && ry > 0) {
+        const normalized = ((x - cx) ** 2) / (rx ** 2) + ((y - cy) ** 2) / (ry ** 2)
+        if (normalized <= 1) return b
+      }
+    }
+    return null
+  }
+
+  const beginBubblePointerDrag = (bubble: BubbleData, stage: Konva.Stage, event?: MouseEvent) => {
+    event?.preventDefault()
+    const pos = getCanvasPoint(stage)
+    if (!pos) return false
+    onBubbleDragStart?.()
+    if (!selectedIds.includes(bubble.id)) {
+      onBubbleSelect(bubble.id, false)
+    }
+    bubblePointerDragRef.current = {
+      bubbleId: bubble.id,
+      startPointerX: pos.x,
+      startPointerY: pos.y,
+      startBubbleX: bubble.x,
+      startBubbleY: bubble.y,
+    }
+    return true
   }
 
   /** 단일 선택 시 Transformer를 해당 Group에 연결 */
@@ -414,17 +464,20 @@ export function BubbleCanvas({
         if (isPanMode) return
         if (!isBubbleEditable) return
         if (selectedTool !== 'selection') return
-        const targetType = e.target.getType()
-        if (targetType !== 'Stage' && e.target.getParent()?.getType() !== 'Stage') {
-          const isOnBubble = bubbles.some((b) => {
-            const g = groupRefs.current.get(b.id)
-            return g && (e.target === g || g.isAncestorOf(e.target as Konva.Node))
-          })
-          if (isOnBubble) return
-        }
         const stage = e.target.getStage()
         if (!stage) return
-        const pos = getCanvasPoint(stage)
+        const targetNode = e.target as Konva.Node
+        const transformer = trRef.current
+        if (transformer && (targetNode === transformer || transformer.isAncestorOf(targetNode))) {
+          return
+        }
+        const stagePos = getStagePoint(stage)
+        const hitBubble = stagePos ? findDisplayBubbleByPoint(stagePos.x, stagePos.y) : null
+        if (hitBubble) {
+          beginBubblePointerDrag(hitBubble, stage, e.evt)
+          return
+        }
+        const pos = stagePos
         if (!pos) return
         isDrawingMarquee.current = true
         marqueeStart.current = pos
@@ -455,7 +508,7 @@ export function BubbleCanvas({
         if (!isDrawingMarquee.current || !marqueeStart.current) return
         const stage = e.target.getStage()
         if (!stage) return
-        const pos = getCanvasPoint(stage)
+        const pos = getStagePoint(stage)
         if (!pos) return
         const sx = marqueeStart.current.x
         const sy = marqueeStart.current.y
@@ -501,15 +554,26 @@ export function BubbleCanvas({
         marqueeStart.current = null
         // 마퀴 영역과 겹치는 버블 선택
         if (marquee.width > 5 || marquee.height > 5) {
-          const selected = bubbles
-            .filter((b) => {
-              const bRight = b.x + b.width
-              const bBottom = b.y + b.height
-              const mRight = marquee.x + marquee.width
-              const mBottom = marquee.y + marquee.height
-              return b.x < mRight && bRight > marquee.x && b.y < mBottom && bBottom > marquee.y
-            })
-            .map((b) => b.id)
+          const corners = [
+            { x: marquee.x, y: marquee.y },
+            { x: marquee.x + marquee.width, y: marquee.y },
+            { x: marquee.x, y: marquee.y + marquee.height },
+            { x: marquee.x + marquee.width, y: marquee.y + marquee.height },
+          ]
+          const cCorners = viewTransform
+            ? corners.map((c) =>
+                rotatePointAround(c, -viewTransform.rotationRadians, viewTransform.centerX, viewTransform.centerY),
+              )
+            : corners
+          const cMinX = Math.min(...cCorners.map((c) => c.x))
+          const cMaxX = Math.max(...cCorners.map((c) => c.x))
+          const cMinY = Math.min(...cCorners.map((c) => c.y))
+          const cMaxY = Math.max(...cCorners.map((c) => c.y))
+          const selected = bubbles.filter((b) => {
+            const bRight = b.x + b.width
+            const bBottom = b.y + b.height
+            return b.x < cMaxX && bRight > cMinX && b.y < cMaxY && bBottom > cMinY
+          }).map((b) => b.id)
           onMarqueeSelect?.(selected, e.evt.shiftKey)
         }
         setMarquee(null)
@@ -637,199 +701,6 @@ export function BubbleCanvas({
           )
         })}
 
-        {/* 버블(공간) 목록 */}
-        {bubbles.map((bubble) => {
-          const isSelected = selectedIds.includes(bubble.id)
-          const isSingleSelected = selectedId === bubble.id
-          const isConnectingFrom = connectingFromId === bubble.id
-          const isOutsideSite = outsideBubbleIdSet.has(bubble.id)
-          // Transformer 기준 박스가 shadowBlur를 포함하면 리사이즈 체감과 실제 크기 반영이 어긋난다.
-          const disableShadowForResize = selectedTool === 'selection' && isSingleSelected
-          const textPaddingX = Math.min(14, Math.max(4, bubble.width * 0.07))
-          const textWidth = Math.max(8, bubble.width - textPaddingX * 2)
-          const textContentHeight = Math.max(1, bubble.height * 0.62)
-          const indexBoxHeight = textContentHeight * 0.2
-          const nameBoxHeight = textContentHeight * 0.5
-          const areaBoxHeight = textContentHeight * 0.2
-          const textRowGap = textContentHeight * 0.05
-          const indexFontSize = fitSingleLineFontSize(bubble.index, textWidth, indexBoxHeight / 1.15)
-          const nameFontSize = fitSingleLineFontSize(bubble.label, textWidth, nameBoxHeight / 1.15)
-          const areaFontSize = fitSingleLineFontSize(bubble.area, textWidth, areaBoxHeight / 1.15)
-          const indexLineHeight = indexFontSize * 1.15
-          const nameLineHeight = nameFontSize * 1.15
-          const areaLineHeight = areaFontSize * 1.15
-          const textGroupHeight = indexLineHeight + nameLineHeight + areaLineHeight + textRowGap * 2
-          const textStartY = bubble.height / 2 - textGroupHeight / 2
-          return (
-            <Group
-              key={bubble.id}
-              ref={(node) => {
-                if (node) groupRefs.current.set(bubble.id, node)
-                else groupRefs.current.delete(bubble.id)
-              }}
-              x={bubble.x}
-              y={bubble.y}
-              draggable={false}
-              onDragStart={(e) => {
-                if (!isBubbleEditable || selectedTool !== 'selection' || isPanMode) return
-                e.cancelBubble = true
-                onBubbleDragStart?.()
-                // 다중 선택 이동 시점 일관성:
-                // 선택되지 않은 버블을 바로 드래그하면 먼저 단일 선택으로 맞춘다.
-                if (!selectedIds.includes(bubble.id)) {
-                  onBubbleSelect(bubble.id, false)
-                }
-              }}
-              onDragMove={(e) => {
-                if (!isBubbleEditable) return
-                onBubbleDrag(bubble.id, e.target.x(), e.target.y())
-              }}
-              onDragEnd={() => {
-                if (!isBubbleEditable || selectedTool !== 'selection' || isPanMode) return
-                onBubbleDragEnd?.()
-              }}
-              onMouseDown={(e) => {
-                if (isPanMode) return
-                if (!isBubbleEditable) return
-                if (selectedTool === 'selection') {
-                  const stage = e.target.getStage()
-                  const pos = stage ? getCanvasPoint(stage) : null
-                  if (!pos) return
-                  e.cancelBubble = true
-                  onBubbleDragStart?.()
-                  if (!selectedIds.includes(bubble.id)) {
-                    onBubbleSelect(bubble.id, false)
-                  }
-                  bubblePointerDragRef.current = {
-                    bubbleId: bubble.id,
-                    startPointerX: pos.x,
-                    startPointerY: pos.y,
-                    startBubbleX: bubble.x,
-                    startBubbleY: bubble.y,
-                  }
-                  return
-                }
-                if (selectedTool !== 'connect') return
-                const stage = e.target.getStage()
-                const pos = stage ? getCanvasPoint(stage) : null
-                if (!pos) return
-                const anchor = getNearestAnchorPoint(bubble, pos.x, pos.y)
-                e.cancelBubble = true
-                setConnectionDrag({
-                  fromId: bubble.id,
-                  startX: anchor.x,
-                  startY: anchor.y,
-                  endX: pos.x,
-                  endY: pos.y,
-                })
-              }}
-              onClick={(e) => {
-                e.cancelBubble = true
-                if (selectedTool === 'delete' && isBubbleEditable) onDeleteBubble?.(bubble.id)
-                else onBubbleSelect(bubble.id, e.evt.shiftKey)
-              }}
-              onDblClick={(e) => {
-                if (!isBubbleEditable) return
-                e.cancelBubble = true
-                const topLeft = toScreenPoint({ x: bubble.x, y: bubble.y })
-                const bottomRight = toScreenPoint({ x: bubble.x + bubble.width, y: bubble.y + bubble.height })
-                onBubbleLabelEdit?.({
-                  id: bubble.id,
-                  label: bubble.label,
-                  x: Math.min(topLeft.x, bottomRight.x),
-                  y: Math.min(topLeft.y, bottomRight.y),
-                  width: Math.abs(bottomRight.x - topLeft.x),
-                  height: Math.abs(bottomRight.y - topLeft.y),
-                })
-              }}
-              onMouseEnter={handleMouseEnter}
-              onMouseLeave={(e) => {
-                handleMouseLeave(e)
-                if (!connectionDrag) setHoveredBubbleId((prev) => (prev === bubble.id ? null : prev))
-              }}
-              onMouseOver={() => {
-                if (isBubbleEditable && selectedTool === 'connect') setHoveredBubbleId(bubble.id)
-              }}
-            >
-              {/* 버블 배경 (타원) */}
-              <Ellipse
-                x={bubble.width / 2}
-                y={bubble.height / 2}
-                radiusX={bubble.width / 2}
-                radiusY={bubble.height / 2}
-                fill={bubble.color}
-                stroke={
-                  isConnectingFrom
-                    ? '#F59F00'
-                    : isSelected
-                      ? '#3B45B3'
-                      : isOutsideSite
-                        ? SITE_OUTSIDE_WARNING
-                        : '#E2E6EF'
-                }
-                strokeWidth={isConnectingFrom ? 2.5 : isSelected ? 2 : 1}
-                shadowColor={isConnectingFrom ? '#F59F00' : 'black'}
-                shadowBlur={disableShadowForResize ? 0 : isConnectingFrom ? 12 : isSingleSelected ? 10 : 2}
-                shadowOpacity={disableShadowForResize ? 0 : isConnectingFrom ? 0.25 : 0.05}
-                shadowOffset={{ x: 0, y: 4 }}
-              />
-              {/* 선택 핸들 (타원 4방향 극점) — Transformer 없을 때만 표시 */}
-              {isSingleSelected && selectedIds.length !== 1 && (
-                <>
-                  <Circle x={bubble.width / 2} y={0} radius={3.5} fill="#3B45B3" />
-                  <Circle x={bubble.width / 2} y={bubble.height} radius={3.5} fill="#3B45B3" />
-                  <Circle x={0} y={bubble.height / 2} radius={3.5} fill="#3B45B3" />
-                  <Circle x={bubble.width} y={bubble.height / 2} radius={3.5} fill="#3B45B3" />
-                </>
-              )}
-
-              {/* 인덱스 번호 */}
-              <Group
-                x={bubble.width / 2}
-                y={bubble.height / 2}
-                offsetX={bubble.width / 2}
-                offsetY={bubble.height / 2}
-                rotation={viewTransform ? -radiansToDegrees(viewTransform.rotationRadians) : 0}
-              >
-                <Text
-                  text={bubble.index}
-                  fontSize={indexFontSize}
-                  fontStyle="bold"
-                  fill="#3B45B3"
-                  x={textPaddingX}
-                  y={textStartY}
-                  width={textWidth}
-                  align="center"
-                />
-                {/* 공간 이름 */}
-                <Text
-                  text={bubble.label}
-                  fontSize={nameFontSize}
-                  fontStyle="bold"
-                  fill="#1C1C1E"
-                  x={textPaddingX}
-                  y={textStartY + indexLineHeight + textRowGap}
-                  width={textWidth}
-                  height={nameLineHeight}
-                  align="center"
-                />
-                {/* 면적 */}
-                <Text
-                  text={bubble.area}
-                  fontSize={areaFontSize}
-                  fontStyle="bold"
-                  fill="#ADB5BD"
-                  x={textPaddingX}
-                  y={textStartY + indexLineHeight + textRowGap + nameLineHeight + textRowGap}
-                  width={textWidth}
-                  height={areaLineHeight}
-                  align="center"
-                />
-              </Group>
-            </Group>
-          )
-        })}
-
         {/* 연결 포인트 (connect 도구 + 버블 호버 시 표시) */}
         {isBubbleEditable && selectedTool === 'connect' && hoveredBubbleId && !connectionDrag && (() => {
           const hovered = bubbleMap.get(hoveredBubbleId)
@@ -872,6 +743,187 @@ export function BubbleCanvas({
           />
         )}
 
+        </CanvasViewTransformGroup>
+
+        {/* 버블(공간) 목록 */}
+        {bubbles.map((bubble) => {
+          const isSelected = selectedIds.includes(bubble.id)
+          const isSingleSelected = selectedId === bubble.id
+          const isConnectingFrom = connectingFromId === bubble.id
+          const isOutsideSite = outsideBubbleIdSet.has(bubble.id)
+          const displayPosition = bubbleDisplayPositions.get(bubble.id) ?? bubble
+          const isTransformingBubble = transformingBubbleId === bubble.id
+          // Transformer 기준 박스가 shadowBlur를 포함하면 리사이즈 체감과 실제 크기 반영이 어긋난다.
+          const disableShadowForResize = selectedTool === 'selection' && isSingleSelected
+          const textPaddingX = Math.min(14, Math.max(4, bubble.width * 0.07))
+          const textWidth = Math.max(8, bubble.width - textPaddingX * 2)
+          const textContentHeight = Math.max(1, bubble.height * 0.62)
+          const indexBoxHeight = textContentHeight * 0.2
+          const nameBoxHeight = textContentHeight * 0.5
+          const areaBoxHeight = textContentHeight * 0.2
+          const textRowGap = textContentHeight * 0.05
+          const indexFontSize = fitSingleLineFontSize(bubble.index, textWidth, indexBoxHeight / 1.15)
+          const nameFontSize = fitSingleLineFontSize(bubble.label, textWidth, nameBoxHeight / 1.15)
+          const areaFontSize = fitSingleLineFontSize(bubble.area, textWidth, areaBoxHeight / 1.15)
+          const indexLineHeight = indexFontSize * 1.15
+          const nameLineHeight = nameFontSize * 1.15
+          const areaLineHeight = areaFontSize * 1.15
+          const textGroupHeight = indexLineHeight + nameLineHeight + areaLineHeight + textRowGap * 2
+          const textStartY = bubble.height / 2 - textGroupHeight / 2
+          return (
+            <Group
+              key={bubble.id}
+              ref={(node) => {
+                if (node) groupRefs.current.set(bubble.id, node)
+                else groupRefs.current.delete(bubble.id)
+              }}
+              {...(isTransformingBubble ? {} : { x: displayPosition.x, y: displayPosition.y })}
+              draggable={false}
+              onDragStart={(e) => {
+                if (!isBubbleEditable || selectedTool !== 'selection' || isPanMode) return
+                e.cancelBubble = true
+                onBubbleDragStart?.()
+                // 다중 선택 이동 시점 일관성:
+                // 선택되지 않은 버블을 바로 드래그하면 먼저 단일 선택으로 맞춘다.
+                if (!selectedIds.includes(bubble.id)) {
+                  onBubbleSelect(bubble.id, false)
+                }
+              }}
+              onDragMove={(e) => {
+                if (!isBubbleEditable) return
+                onBubbleDrag(bubble.id, e.target.x(), e.target.y())
+              }}
+              onDragEnd={() => {
+                if (!isBubbleEditable || selectedTool !== 'selection' || isPanMode) return
+                onBubbleDragEnd?.()
+              }}
+              onMouseDown={(e) => {
+                if (isPanMode) return
+                if (!isBubbleEditable) return
+                if (selectedTool === 'selection') {
+                  const stage = e.target.getStage()
+                  if (!stage) return
+                  const stagePos = getStagePoint(stage)
+                  const hitBubble = stagePos ? (findDisplayBubbleByPoint(stagePos.x, stagePos.y) ?? bubble) : bubble
+                  e.cancelBubble = true
+                  beginBubblePointerDrag(hitBubble, stage, e.evt)
+                  return
+                }
+                if (selectedTool !== 'connect') return
+                const stage = e.target.getStage()
+                const pos = stage ? getCanvasPoint(stage) : null
+                if (!pos) return
+                const anchor = getNearestAnchorPoint(bubble, pos.x, pos.y)
+                e.cancelBubble = true
+                setConnectionDrag({
+                  fromId: bubble.id,
+                  startX: anchor.x,
+                  startY: anchor.y,
+                  endX: pos.x,
+                  endY: pos.y,
+                })
+              }}
+              onClick={(e) => {
+                e.cancelBubble = true
+                if (selectedTool === 'delete' && isBubbleEditable) onDeleteBubble?.(bubble.id)
+                else onBubbleSelect(bubble.id, e.evt.shiftKey)
+              }}
+              onDblClick={(e) => {
+                if (!isBubbleEditable) return
+                e.cancelBubble = true
+                const topLeft = toScreenPoint({ x: bubble.x, y: bubble.y })
+                const bottomRight = toScreenPoint({ x: bubble.x + bubble.width, y: bubble.y + bubble.height })
+                onBubbleLabelEdit?.({
+                  id: bubble.id,
+                  label: bubble.label,
+                  x: Math.min(topLeft.x, bottomRight.x),
+                  y: Math.min(topLeft.y, bottomRight.y),
+                  width: Math.abs(bottomRight.x - topLeft.x),
+                  height: Math.abs(bottomRight.y - topLeft.y),
+                })
+              }}
+              onMouseEnter={handleMouseEnter}
+              onMouseLeave={(e) => {
+                handleMouseLeave(e)
+                if (!connectionDrag && !isTransformingRef.current && !bubblePointerDragRef.current) {
+                  setHoveredBubbleId((prev) => (prev === bubble.id ? null : prev))
+                }
+              }}
+              onMouseOver={() => {
+                if (isBubbleEditable && selectedTool === 'connect') setHoveredBubbleId(bubble.id)
+              }}
+            >
+              {/* 버블 배경 (타원) */}
+              <Ellipse
+                x={bubble.width / 2}
+                y={bubble.height / 2}
+                radiusX={bubble.width / 2}
+                radiusY={bubble.height / 2}
+                fill={bubble.color}
+                stroke={
+                  isConnectingFrom
+                    ? '#F59F00'
+                    : isSelected
+                      ? '#3B45B3'
+                      : isOutsideSite
+                        ? SITE_OUTSIDE_WARNING
+                        : '#E2E6EF'
+                }
+                strokeWidth={isConnectingFrom ? 2.5 : isSelected ? 2 : 1}
+                shadowColor={isConnectingFrom ? '#F59F00' : 'black'}
+                shadowBlur={disableShadowForResize ? 0 : isConnectingFrom ? 12 : isSingleSelected ? 10 : 2}
+                shadowOpacity={disableShadowForResize ? 0 : isConnectingFrom ? 0.25 : 0.05}
+                shadowOffset={{ x: 0, y: 4 }}
+              />
+              {/* 선택 핸들 (타원 4방향 극점) — Transformer 없을 때만 표시 */}
+              {isSingleSelected && selectedIds.length !== 1 && (
+                <>
+                  <Circle x={bubble.width / 2} y={0} radius={3.5} fill="#3B45B3" />
+                  <Circle x={bubble.width / 2} y={bubble.height} radius={3.5} fill="#3B45B3" />
+                  <Circle x={0} y={bubble.height / 2} radius={3.5} fill="#3B45B3" />
+                  <Circle x={bubble.width} y={bubble.height / 2} radius={3.5} fill="#3B45B3" />
+                </>
+              )}
+
+              {/* 인덱스 번호 */}
+                <Text
+                  text={bubble.index}
+                  fontSize={indexFontSize}
+                  fontStyle="bold"
+                  fill="#3B45B3"
+                  x={textPaddingX}
+                  y={textStartY}
+                  width={textWidth}
+                  align="center"
+                />
+                {/* 공간 이름 */}
+                <Text
+                  text={bubble.label}
+                  fontSize={nameFontSize}
+                  fontStyle="bold"
+                  fill="#1C1C1E"
+                  x={textPaddingX}
+                  y={textStartY + indexLineHeight + textRowGap}
+                  width={textWidth}
+                  height={nameLineHeight}
+                  align="center"
+                />
+                {/* 면적 */}
+                <Text
+                  text={bubble.area}
+                  fontSize={areaFontSize}
+                  fontStyle="bold"
+                  fill="#ADB5BD"
+                  x={textPaddingX}
+                  y={textStartY + indexLineHeight + textRowGap + nameLineHeight + textRowGap}
+                  width={textWidth}
+                  height={areaLineHeight}
+                  align="center"
+                />
+            </Group>
+          )
+        })}
+
         {/* Transformer — selection 도구 + 단일 선택일 때만 활성 */}
         {isBubbleEditable && selectedTool === 'selection' && (
           <Transformer
@@ -900,20 +952,47 @@ export function BubbleCanvas({
               width: Math.max(newBox.width, MIN_BUBBLE_SIZE),
               height: Math.max(newBox.height, MIN_BUBBLE_SIZE),
             })}
-            onTransformEnd={() => {
+            onTransformStart={() => {
               const activeId = selectedIds.length === 1 ? selectedIds[0] : selectedId
-              if (!activeId) return
+              isTransformingRef.current = true
+              setTransformingBubbleId(activeId ?? null)
+              bubblePointerDragRef.current = null
+              isDrawingMarquee.current = false
+              marqueeStart.current = null
+            }}
+            onTransformEnd={() => {
+              isTransformingRef.current = false
+              const activeId = selectedIds.length === 1 ? selectedIds[0] : selectedId
+              if (!activeId) {
+                setTransformingBubbleId(null)
+                return
+              }
               const group = groupRefs.current.get(activeId)
-              if (!group) return
+              if (!group) {
+                setTransformingBubbleId(null)
+                return
+              }
               const bubble = bubbles.find((b) => b.id === activeId)
-              if (!bubble) return
+              if (!bubble) {
+                setTransformingBubbleId(null)
+                return
+              }
               const newW = Math.max(bubble.width * group.scaleX(), MIN_BUBBLE_SIZE)
               const newH = Math.max(bubble.height * group.scaleY(), MIN_BUBBLE_SIZE)
-              const newX = group.x()
-              const newY = group.y()
+              const displayX = group.x()
+              const displayY = group.y()
+              const canonicalPos = viewTransform
+                ? rotatePointAround(
+                    { x: displayX, y: displayY },
+                    -viewTransform.rotationRadians,
+                    viewTransform.centerX,
+                    viewTransform.centerY,
+                  )
+                : { x: displayX, y: displayY }
               group.scaleX(1)
               group.scaleY(1)
-              onBubbleResize?.(activeId, newX, newY, newW, newH)
+              onBubbleResize?.(activeId, canonicalPos.x, canonicalPos.y, newW, newH)
+              setTransformingBubbleId(null)
             }}
           />
         )}
@@ -932,7 +1011,6 @@ export function BubbleCanvas({
             listening={false}
           />
         )}
-        </CanvasViewTransformGroup>
       </Layer>
     </Stage>
   )
