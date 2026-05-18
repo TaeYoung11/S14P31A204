@@ -6,7 +6,9 @@ One command runs the full Phase H pipeline:
 3. Run H-1.b hot diffusion (SD 1.5 + Realistic Vision V6 + ControlNet 1.1 canny)
    - DAY  seed 42  (default photoreal winner)
    - NIGHT seed 555 (no background-building hallucination)
-4. Run H-3 Real-ESRGAN x4 upscale on the 4 photoreal outputs
+   - Each output passes through evaluate_ifc_geometry_fidelity_gate; below-threshold
+     views fall back to the F-2 IFC-locked baseline before persistence.
+4. Run H-3 Real-ESRGAN x4 upscale on the 4 photoreal outputs (accepted or fallback)
 5. Write a final 2x2 DAY/NIGHT contact sheet and manifest
 
 Output root default: AI/outputs/ifc_production_shinchan/
@@ -88,8 +90,8 @@ def main() -> None:
     f2_dir, t = _step_build_f2(source_dirs, output_root, args.skip_regen)
     timings["f2_baseline"] = t
 
-    # Step 3: H-1.b hot diffusion
-    h1_outputs, t = _step_h1_diffusion(
+    # Step 3: H-1.b hot diffusion + fidelity gate
+    h1_outputs, t, gate_log = _step_h1_diffusion(
         source_dirs=source_dirs,
         f2_dir=f2_dir,
         output_root=output_root,
@@ -113,6 +115,7 @@ def main() -> None:
         timings=timings,
         h1_outputs=h1_outputs,
         h3_outputs=h3_outputs,
+        gate_log=gate_log,
         total_elapsed=time.time() - overall_started,
     )
 
@@ -180,6 +183,15 @@ def _step_build_f2(
     return f2_dir, time.time() - t0
 
 
+_CATEGORY_KEY_TO_SEMANTIC: dict[str, str] = {
+    "floor": "FLOOR",
+    "roof": "ROOF",
+    "wall": "WALL",
+    "window": "WINDOW",
+    "door": "DOOR",
+}
+
+
 def _step_h1_diffusion(
     *,
     source_dirs: dict[str, Path],
@@ -188,8 +200,13 @@ def _step_h1_diffusion(
     model_id: str,
     day_seed: int,
     night_seed: int,
-) -> tuple[dict[tuple[str, str], Path], float]:
+) -> tuple[dict[tuple[str, str], Path], float, dict[tuple[str, str], dict]]:
     t0 = time.time()
+    from ai_rendering.ifc2img.element_masks import (
+        IfcElementMaskRenderResult,
+        evaluate_ifc_geometry_fidelity_gate,
+        measure_ifc_geometry_fidelity,
+    )
     from ai_rendering.ifc2img.soft_lock import (
         CONTROLNET_V11_CANNY_ID,
         DEFAULT_CONTROLNET_DEPTH_ID,
@@ -215,6 +232,7 @@ def _step_h1_diffusion(
     h1_dir = output_root / "h1_photoreal"
     h1_dir.mkdir(parents=True, exist_ok=True)
     results: dict[tuple[str, str], Path] = {}
+    gate_log: dict[tuple[str, str], dict] = {}
 
     tod_params = {
         "DAY": (day_seed, H1_DAY_STRENGTH, H1_DAY_DEPTH_CN, H1_DAY_CANNY_CN),
@@ -268,15 +286,46 @@ def _step_h1_diffusion(
                 height=H1_RENDER_SIZE[1],
             )
             out_path = h1_dir / f"prod_{tod.lower()}_{view}.png"
-            result.save(out_path)
-            results[(tod, view)] = out_path
-            print(
-                f"[prod] H-1.b {tod} {view} seed={seed} "
-                f"strength={strength} cn(d/c)={depth_cn}/{canny_cn} "
-                f"{time.time() - t1:.1f}s -> {out_path}"
+            mask_images = {
+                _CATEGORY_KEY_TO_SEMANTIC[key]: Image.open(path).convert("L")
+                for key, path in masks.items()
+                if key in _CATEGORY_KEY_TO_SEMANTIC
+            }
+            mask_set = IfcElementMaskRenderResult(
+                masks=mask_images,
+                composite=Image.new("RGB", result.image.size, (0, 0, 0)),
             )
+            fidelity_report = measure_ifc_geometry_fidelity(result.image, mask_set)
+            decision = evaluate_ifc_geometry_fidelity_gate(fidelity_report)
+            entry: dict[str, object] = {
+                "decision": decision.to_dict(),
+                "fidelity": fidelity_report.to_dict(),
+                "fallbackUsed": False,
+            }
+            if decision.accepted:
+                result.save(out_path)
+                print(
+                    f"[prod] H-1.b {tod} {view} seed={seed} "
+                    f"strength={strength} cn(d/c)={depth_cn}/{canny_cn} "
+                    f"{time.time() - t1:.1f}s -> {out_path} "
+                    f"[gate:pass iou={decision.silhouette_iou:.3f}]"
+                )
+            else:
+                init_image.save(out_path, format="PNG")
+                entry["fallbackUsed"] = True
+                entry["fallbackSource"] = init_path.as_posix()
+                print(
+                    f"[prod] H-1.b {tod} {view} seed={seed} REJECTED "
+                    f"reasons={list(decision.fail_reasons)} "
+                    f"iou={decision.silhouette_iou:.3f} "
+                    f"edge={decision.edge_alignment_score:.3f} "
+                    f"bbox={decision.building_bbox_overlap} "
+                    f"-> fallback F-2 baseline -> {out_path}"
+                )
+            results[(tod, view)] = out_path
+            gate_log[(tod, view)] = entry
 
-    return results, time.time() - t0
+    return results, time.time() - t0, gate_log
 
 
 def _step_h3_upscale(
@@ -355,6 +404,7 @@ def _write_manifest(
     timings: dict[str, float],
     h1_outputs: dict[tuple[str, str], Path],
     h3_outputs: dict[tuple[str, str], Path],
+    gate_log: dict[tuple[str, str], dict],
     total_elapsed: float,
 ) -> None:
     payload = {
@@ -388,6 +438,12 @@ def _write_manifest(
             f"{tod}|{view}": path.as_posix()
             for (tod, view), path in h3_outputs.items()
         },
+        "h1FidelityGate": {
+            f"{tod}|{view}": entry for (tod, view), entry in gate_log.items()
+        },
+        "h1FidelityFallbackCount": sum(
+            1 for entry in gate_log.values() if entry.get("fallbackUsed")
+        ),
     }
     out = output_root / "production_manifest.json"
     out.write_text(

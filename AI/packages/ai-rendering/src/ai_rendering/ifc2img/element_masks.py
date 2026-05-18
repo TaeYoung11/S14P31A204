@@ -623,6 +623,88 @@ def measure_ifc_geometry_fidelity(
     )
 
 
+# Defaults derived from the H-1.b hot DAY/NIGHT runs on shinchan.ifc where
+# accepted outputs sit comfortably above each bound; values dropping under
+# these limits in earlier seed sweeps coincided with visible drift
+# (background buildings, roof protrusions, wall reshape).
+DEFAULT_SILHOUETTE_IOU_MIN = 0.55
+DEFAULT_EDGE_ALIGNMENT_MIN = 0.25
+DEFAULT_BBOX_OVERLAP_MIN = 0.60
+
+IfcGeometryFidelityFailReason = Literal[
+    "silhouette_iou_below_threshold",
+    "edge_alignment_below_threshold",
+    "bbox_overlap_below_threshold",
+    "bbox_overlap_unavailable",
+]
+
+
+@dataclass(frozen=True)
+class IfcGeometryFidelityThresholds:
+    silhouette_iou_min: float = DEFAULT_SILHOUETTE_IOU_MIN
+    edge_alignment_min: float = DEFAULT_EDGE_ALIGNMENT_MIN
+    bbox_overlap_min: float = DEFAULT_BBOX_OVERLAP_MIN
+
+    def to_dict(self) -> dict[str, float]:
+        return {
+            "silhouetteIouMin": self.silhouette_iou_min,
+            "edgeAlignmentMin": self.edge_alignment_min,
+            "bboxOverlapMin": self.bbox_overlap_min,
+        }
+
+
+@dataclass(frozen=True)
+class IfcGeometryFidelityGateDecision:
+    accepted: bool
+    fail_reasons: tuple[IfcGeometryFidelityFailReason, ...]
+    thresholds: IfcGeometryFidelityThresholds
+    silhouette_iou: float
+    edge_alignment_score: float
+    building_bbox_overlap: float | None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "accepted": self.accepted,
+            "failReasons": list(self.fail_reasons),
+            "thresholds": self.thresholds.to_dict(),
+            "silhouetteIou": self.silhouette_iou,
+            "edgeAlignmentScore": self.edge_alignment_score,
+            "buildingBboxOverlap": self.building_bbox_overlap,
+        }
+
+
+def evaluate_ifc_geometry_fidelity_gate(
+    report: IfcGeometryFidelityReport,
+    *,
+    thresholds: IfcGeometryFidelityThresholds | None = None,
+) -> IfcGeometryFidelityGateDecision:
+    """Decide whether a diffusion output passes the soft-lock fidelity gate.
+
+    Used by the production pipeline immediately after H-1 diffusion to reject
+    drift (silhouette / edge / bbox overlap below threshold) before the result
+    is persisted or amplified by upscale.
+    """
+    th = thresholds or IfcGeometryFidelityThresholds()
+    reasons: list[IfcGeometryFidelityFailReason] = []
+    if report.silhouette_iou < th.silhouette_iou_min:
+        reasons.append("silhouette_iou_below_threshold")
+    if report.edge_alignment_score < th.edge_alignment_min:
+        reasons.append("edge_alignment_below_threshold")
+    overlap = report.building_bbox_overlap
+    if overlap is None:
+        reasons.append("bbox_overlap_unavailable")
+    elif overlap < th.bbox_overlap_min:
+        reasons.append("bbox_overlap_below_threshold")
+    return IfcGeometryFidelityGateDecision(
+        accepted=not reasons,
+        fail_reasons=tuple(reasons),
+        thresholds=th,
+        silhouette_iou=report.silhouette_iou,
+        edge_alignment_score=report.edge_alignment_score,
+        building_bbox_overlap=overlap,
+    )
+
+
 def select_ifc_color_correction_candidates(
     deltas: dict[IfcSemanticCategory, IfcElementColorDelta],
     *,
