@@ -21,17 +21,17 @@ export function TwoDSiteBoundaryLayer({
       <Line
         points={sitePoints}
         closed
-        fill="#3B45B314"
-        stroke="#3B45B3"
-        strokeWidth={1.8}
+        fill="#8B7D5E10"
+        stroke="#8B7D5E"
+        strokeWidth={1.2}
         listening={listening}
       />
       <Line
         points={sitePoints}
         closed
-        stroke="#2D359980"
-        strokeWidth={1}
-        dash={[8, 6]}
+        stroke="#6F655580"
+        strokeWidth={0.8}
+        dash={[10, 8]}
         listening={listening}
       />
     </>

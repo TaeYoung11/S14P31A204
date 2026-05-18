@@ -1,4 +1,4 @@
-"""ifc2img 스타일 프리셋 (scandinavian / korean_villa / korean_house).
+"""ifc2img 스타일 프리셋.
 
 img2img 프리셋과 *값을 복제* — 코드 import는 하지 않는다.
 복제 정책:
@@ -58,6 +58,21 @@ _NEGATIVE_BASE = (
 
 
 _PRESETS: dict[str, DepthStyleParams] = {
+    "ifc_minimal": DepthStyleParams(
+        prompt=(
+            "RAW photo, outdoor daylight, preserve IFC building geometry, "
+            "open ground, realistic exterior photo, no added style"
+        ),
+        negative_prompt=(
+            "low quality, cgi, render, cartoon, text, watermark, interior, "
+            "basement, extra floor, wrong roof, misplaced windows, changed silhouette, "
+            "foreground wall, fence, raised platform, podium, balcony"
+        ),
+        guidance_scale=7.0,
+        num_inference_steps=25,
+        controlnet_conditioning_scale=1.15,
+        seed=7,
+    ),
     "scandinavian": DepthStyleParams(
         prompt=(
             "RAW photo, outdoor daylight, white concrete facade, "

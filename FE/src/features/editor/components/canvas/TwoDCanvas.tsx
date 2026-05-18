@@ -361,6 +361,7 @@ export function TwoDCanvas({
     baseOffsetY,
     panOffsetX: panOffset.x,
     panOffsetY: panOffset.y,
+    gridStepPx: gridSnapStepPx,
   })
 
   const {
