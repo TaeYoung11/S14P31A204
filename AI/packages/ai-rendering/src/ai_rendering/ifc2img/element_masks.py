@@ -231,6 +231,7 @@ class IfcGeometryFidelityReport:
     building_bbox_overlap: float | None
     silhouette_iou: float
     edge_alignment_score: float
+    sky_edge_density: float
     categories: dict[IfcSemanticCategory, IfcCategoryGeometryFidelity]
 
     def to_dict(self) -> dict[str, object]:
@@ -255,6 +256,7 @@ class IfcGeometryFidelityReport:
             "buildingBboxOverlap": self.building_bbox_overlap,
             "silhouetteIou": self.silhouette_iou,
             "edgeAlignmentScore": self.edge_alignment_score,
+            "skyEdgeDensity": self.sky_edge_density,
             "categories": {
                 category: item.to_dict()
                 for category, item in self.categories.items()
@@ -619,37 +621,36 @@ def measure_ifc_geometry_fidelity(
         building_bbox_overlap=_bbox_iou(building_bbox, foreground_bbox),
         silhouette_iou=silhouette_iou,
         edge_alignment_score=_edge_alignment_score(building_mask, foreground_mask),
+        sky_edge_density=_sky_edge_density(image_rgb, building_mask),
         categories=category_reports,
     )
 
 
-# Defaults derived from the H-1.b hot DAY/NIGHT runs on shinchan.ifc where
-# accepted outputs sit comfortably above each bound; values dropping under
-# these limits in earlier seed sweeps coincided with visible drift
-# (background buildings, roof protrusions, wall reshape).
-DEFAULT_SILHOUETTE_IOU_MIN = 0.55
-DEFAULT_EDGE_ALIGNMENT_MIN = 0.25
-DEFAULT_BBOX_OVERLAP_MIN = 0.60
+# The gate uses sky_edge_density only. Earlier silhouette / edge / bbox
+# metrics depend on `_estimate_photo_foreground_mask`, whose corner-color
+# heuristic falls apart on photoreal diffusion output (sky gradients, white
+# walls indistinguishable from sky). Those metrics remain in the fidelity
+# report as measurement data but no longer drive the accept/reject decision.
+#
+# sky_edge_density measures Canny edge density in the region above the IFC
+# building bbox top: a clean sky has almost no edges, while a hallucinated
+# rear building / second-floor block contributes dense structured edges.
+# Default 0.05 = at most 5% edge pixels in the sky band; H-1.b hot outputs
+# on shinchan.ifc measure well under 0.02 in normal runs.
+DEFAULT_SKY_EDGE_DENSITY_MAX = 0.05
 
 IfcGeometryFidelityFailReason = Literal[
-    "silhouette_iou_below_threshold",
-    "edge_alignment_below_threshold",
-    "bbox_overlap_below_threshold",
-    "bbox_overlap_unavailable",
+    "sky_edge_density_above_threshold",
 ]
 
 
 @dataclass(frozen=True)
 class IfcGeometryFidelityThresholds:
-    silhouette_iou_min: float = DEFAULT_SILHOUETTE_IOU_MIN
-    edge_alignment_min: float = DEFAULT_EDGE_ALIGNMENT_MIN
-    bbox_overlap_min: float = DEFAULT_BBOX_OVERLAP_MIN
+    sky_edge_density_max: float = DEFAULT_SKY_EDGE_DENSITY_MAX
 
     def to_dict(self) -> dict[str, float]:
         return {
-            "silhouetteIouMin": self.silhouette_iou_min,
-            "edgeAlignmentMin": self.edge_alignment_min,
-            "bboxOverlapMin": self.bbox_overlap_min,
+            "skyEdgeDensityMax": self.sky_edge_density_max,
         }
 
 
@@ -658,6 +659,7 @@ class IfcGeometryFidelityGateDecision:
     accepted: bool
     fail_reasons: tuple[IfcGeometryFidelityFailReason, ...]
     thresholds: IfcGeometryFidelityThresholds
+    sky_edge_density: float
     silhouette_iou: float
     edge_alignment_score: float
     building_bbox_overlap: float | None
@@ -667,6 +669,7 @@ class IfcGeometryFidelityGateDecision:
             "accepted": self.accepted,
             "failReasons": list(self.fail_reasons),
             "thresholds": self.thresholds.to_dict(),
+            "skyEdgeDensity": self.sky_edge_density,
             "silhouetteIou": self.silhouette_iou,
             "edgeAlignmentScore": self.edge_alignment_score,
             "buildingBboxOverlap": self.building_bbox_overlap,
@@ -681,27 +684,22 @@ def evaluate_ifc_geometry_fidelity_gate(
     """Decide whether a diffusion output passes the soft-lock fidelity gate.
 
     Used by the production pipeline immediately after H-1 diffusion to reject
-    drift (silhouette / edge / bbox overlap below threshold) before the result
-    is persisted or amplified by upscale.
+    drift (fake structure intruding into the sky band) before the result is
+    persisted or amplified by upscale. The other fidelity metrics are kept on
+    the report as measurement data only.
     """
     th = thresholds or IfcGeometryFidelityThresholds()
     reasons: list[IfcGeometryFidelityFailReason] = []
-    if report.silhouette_iou < th.silhouette_iou_min:
-        reasons.append("silhouette_iou_below_threshold")
-    if report.edge_alignment_score < th.edge_alignment_min:
-        reasons.append("edge_alignment_below_threshold")
-    overlap = report.building_bbox_overlap
-    if overlap is None:
-        reasons.append("bbox_overlap_unavailable")
-    elif overlap < th.bbox_overlap_min:
-        reasons.append("bbox_overlap_below_threshold")
+    if report.sky_edge_density > th.sky_edge_density_max:
+        reasons.append("sky_edge_density_above_threshold")
     return IfcGeometryFidelityGateDecision(
         accepted=not reasons,
         fail_reasons=tuple(reasons),
         thresholds=th,
+        sky_edge_density=report.sky_edge_density,
         silhouette_iou=report.silhouette_iou,
         edge_alignment_score=report.edge_alignment_score,
-        building_bbox_overlap=overlap,
+        building_bbox_overlap=report.building_bbox_overlap,
     )
 
 
@@ -1074,6 +1072,38 @@ def _edge_alignment_score(reference: np.ndarray, candidate: np.ndarray) -> float
     reference_edge = _mask_edge(reference)
     candidate_edge = _mask_edge(candidate)
     return _mask_iou(reference_edge, candidate_edge)
+
+
+def _sky_edge_density(
+    image: Image.Image,
+    building_mask: np.ndarray,
+    *,
+    margin: int = 8,
+    canny_low: int = 80,
+    canny_high: int = 180,
+) -> float:
+    """Fraction of Canny edge pixels in the sky band above the building bbox.
+
+    A clean sky has ~0; hallucinated rear buildings or extra rooftop blocks
+    push the density up. Returns 0.0 when the building mask is empty or the
+    sky band has no pixels (mask touches the top edge).
+    """
+    ys, _ = np.nonzero(building_mask)
+    if len(ys) == 0:
+        return 0.0
+    top = int(ys.min()) - margin
+    if top <= 0:
+        return 0.0
+    gray = np.asarray(image.convert("L"), dtype=np.uint8)
+    sky_region = gray[:top, :]
+    if sky_region.size == 0:
+        return 0.0
+    try:
+        import cv2
+    except ImportError:  # pragma: no cover - environment guard
+        return 0.0
+    edges = cv2.Canny(sky_region, canny_low, canny_high)
+    return float((edges > 0).sum() / edges.size)
 
 
 def _mask_edge(mask: np.ndarray) -> np.ndarray:

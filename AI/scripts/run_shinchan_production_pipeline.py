@@ -196,15 +196,19 @@ _CATEGORY_KEY_TO_SEMANTIC: dict[str, str] = {
 }
 
 # Color-name fingerprint of shinchan.ifc as classified by
-# `nearest_prompt_color_name`. When an incoming IFC matches enough of these
-# categories, the production script opts into SHINCHAN_STYLE_PROFILE so the
-# tuned palette is applied. Other IFCs fall through to a profile derived from
-# their own color summary.
+# `nearest_prompt_color_name`. These are the *classified* color families of
+# the IFC dominant colors, not the prompt words used in SHINCHAN_STYLE_PROFILE.
+# The two diverge intentionally: the classifier maps shinchan's window blue to
+# "tan" and its door tan to "brown" because the IFC RGB values land closer to
+# those palette anchors than to "blue"/"tan". The prompt words (blue glass /
+# tan wood door) were chosen separately for natural-language readability.
+# When an incoming IFC matches enough of these classified families, the
+# production script opts into SHINCHAN_STYLE_PROFILE.
 SHINCHAN_COLOR_SIGNATURE: dict[str, str] = {
     "ROOF": "red",
     "WALL": "white",
-    "WINDOW": "blue",
-    "DOOR": "tan",
+    "WINDOW": "tan",
+    "DOOR": "brown",
 }
 SHINCHAN_SIGNATURE_MIN_MATCHES = 3
 
@@ -367,7 +371,7 @@ def _step_h1_diffusion(
                     f"[prod] H-1.b {tod} {view} seed={seed} "
                     f"strength={strength} cn(d/c)={depth_cn}/{canny_cn} "
                     f"{time.time() - t1:.1f}s -> {out_path} "
-                    f"[gate:pass iou={decision.silhouette_iou:.3f}]"
+                    f"[gate:pass sky_edge={decision.sky_edge_density:.4f}]"
                 )
             else:
                 init_image.save(out_path, format="PNG")
@@ -376,9 +380,7 @@ def _step_h1_diffusion(
                 print(
                     f"[prod] H-1.b {tod} {view} seed={seed} REJECTED "
                     f"reasons={list(decision.fail_reasons)} "
-                    f"iou={decision.silhouette_iou:.3f} "
-                    f"edge={decision.edge_alignment_score:.3f} "
-                    f"bbox={decision.building_bbox_overlap} "
+                    f"sky_edge={decision.sky_edge_density:.4f} "
                     f"-> fallback F-2 baseline -> {out_path}"
                 )
             results[(tod, view)] = out_path
