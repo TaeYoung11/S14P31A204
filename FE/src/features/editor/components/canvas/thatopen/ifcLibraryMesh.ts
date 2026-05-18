@@ -177,6 +177,8 @@ export const getLibraryElementInfo = (object: LibraryObject3D): IfcElementInfo |
     properties: {
       Category: category,
       Type: preset.type,
+      PresetId: preset.id,
+      StoreyExpressID: preset.storeyExpressId ?? '-',
       RoofShape: preset.type === 'roof' ? resolveRoofShape(preset) : '-',
       Length: lengthMm ?? '-',
       Height: heightMm ?? '-',
@@ -388,6 +390,9 @@ export const createPresetMesh = (
   }
   if (preset.rotation) {
     group.rotation.set(preset.rotation.x, preset.rotation.y, preset.rotation.z)
+  }
+  if (preset.scale) {
+    group.scale.set(preset.scale.x, preset.scale.y, preset.scale.z)
   }
   ;(group as LibraryObject3D).userData = {
     ...(group as LibraryObject3D).userData,

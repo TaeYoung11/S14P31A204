@@ -13,9 +13,12 @@ interface FloorViewPanelProps {
   layers?: FloorLayer[]
   activeLayerId?: string | null
   isGenerated?: boolean
+  /** true이면 층 선택만 가능하며 추가·이름변경·삭제 버튼을 숨긴다 (3D 모드) */
+  isViewOnly?: boolean
   isLayerOverlayMode?: boolean
   selectedOverlayLayerIds?: string[]
   overlayOpacityByLayerId?: Record<string, number>
+  libraryCountByLayerId?: Record<string, number>
   onSelectLayer?: (id: string) => void
   onAddLayer?: () => void
   onRenameLayer?: (layerId: string, name: string) => void
@@ -38,9 +41,11 @@ export function FloorViewPanel({
   layers = [],
   activeLayerId = null,
   isGenerated = false,
+  isViewOnly = false,
   isLayerOverlayMode = false,
   selectedOverlayLayerIds = [],
   overlayOpacityByLayerId = {},
+  libraryCountByLayerId = {},
   onSelectLayer,
   onAddLayer,
   onRenameLayer,
@@ -111,18 +116,20 @@ export function FloorViewPanel({
             Shift+L
           </span>
         </div>
-        <button
-          onClick={isGenerated ? onAddLayer : undefined}
-          disabled={!isGenerated}
-          title={isGenerated ? '새 층 추가' : '평면도 생성 후 층 추가 가능'}
-          className={`rounded-md p-1 ${
-            isGenerated
-              ? 'text-[#6F7C96] hover:bg-[#EEF1F8] hover:text-[#3B45B3]'
-              : 'cursor-not-allowed text-[#D9DEE8]'
-          }`}
-        >
-          <Plus size={14} />
-        </button>
+        {!isViewOnly && (
+          <button
+            onClick={isGenerated ? onAddLayer : undefined}
+            disabled={!isGenerated}
+            title={isGenerated ? '새 층 추가' : '평면도 생성 후 층 추가 가능'}
+            className={`rounded-md p-1 ${
+              isGenerated
+                ? 'text-[#6F7C96] hover:bg-[#EEF1F8] hover:text-[#3B45B3]'
+                : 'cursor-not-allowed text-[#D9DEE8]'
+            }`}
+          >
+            <Plus size={14} />
+          </button>
+        )}
       </div>
 
       {!isGenerated ? (
@@ -139,6 +146,7 @@ export function FloorViewPanel({
               const isOverlayToggleDisabled = isActive
               const displayName = layer.name || `${index + 1}층 평면도`
               const isEditing = editingLayerId === layer.id
+              const libraryCount = libraryCountByLayerId[layer.id] ?? 0
               return (
                 <div
                   key={layer.id}
@@ -172,7 +180,10 @@ export function FloorViewPanel({
                           {displayName}
                         </p>
                       )}
-                      <p className="text-[9px] text-[#9AA4BA]">{isActive ? '활성 층' : '비활성 층'}</p>
+                      <p className="text-[9px] text-[#9AA4BA]">
+                        {isActive ? '활성 층' : '비활성 층'}
+                        {libraryCount > 0 ? ` · 라이브러리 ${libraryCount}개` : ''}
+                      </p>
                     </button>
 
                     <button
@@ -197,26 +208,30 @@ export function FloorViewPanel({
                       {isOverlaySelected ? <Eye size={12} /> : <EyeOff size={12} />}
                     </button>
 
-                    <button
-                      onClick={() => startRenameLayer(layer)}
-                      title="층 이름 수정"
-                      className="rounded-md p-1 text-[#7C8AA4] hover:bg-[#E8ECF8] hover:text-[#3B45B3]"
-                    >
-                      <Pencil size={12} />
-                    </button>
+                    {!isViewOnly && (
+                      <button
+                        onClick={() => startRenameLayer(layer)}
+                        title="층 이름 수정"
+                        className="rounded-md p-1 text-[#7C8AA4] hover:bg-[#E8ECF8] hover:text-[#3B45B3]"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                    )}
 
-                    <button
-                      onClick={() => handleDeleteLayer(layer)}
-                      disabled={!canDeleteAnyLayer}
-                      title={canDeleteAnyLayer ? '층 삭제' : '최소 1개 층은 유지됩니다'}
-                      className={`rounded-md p-1 ${
-                        canDeleteAnyLayer
-                          ? 'text-[#B56A6A] hover:bg-[#FDEEEE] hover:text-[#C23E3E]'
-                          : 'cursor-not-allowed text-[#D9DEE8]'
-                      }`}
-                    >
-                      <Trash2 size={12} />
-                    </button>
+                    {!isViewOnly && (
+                      <button
+                        onClick={() => handleDeleteLayer(layer)}
+                        disabled={!canDeleteAnyLayer}
+                        title={canDeleteAnyLayer ? '층 삭제' : '최소 1개 층은 유지됩니다'}
+                        className={`rounded-md p-1 ${
+                          canDeleteAnyLayer
+                            ? 'text-[#B56A6A] hover:bg-[#FDEEEE] hover:text-[#C23E3E]'
+                            : 'cursor-not-allowed text-[#D9DEE8]'
+                        }`}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
                   </div>
 
                   {isLayerOverlayMode && !isActive && isOverlaySelected && (

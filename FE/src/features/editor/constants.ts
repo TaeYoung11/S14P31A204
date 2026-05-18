@@ -87,6 +87,17 @@ export const FLOOR_WALL_MATERIAL_OPTIONS = [
 ] as const
 export type FloorWallMaterialOption = typeof FLOOR_WALL_MATERIAL_OPTIONS[number]
 
+/** IFC 파일에서 영문으로 정의된 재질명 → 한글 변환 맵 */
+export const IFC_MATERIAL_NAME_KO: Record<string, string> = {
+  Concrete: '콘크리트',
+  Brick: '벽돌',
+  Steel: '금속',
+  Wood: '목재',
+  Glass: '유리',
+  Stone: '석재',
+  Tile: '타일',
+}
+
 /** 2D 벽 재질 식별용 색상(의미 단정이 아닌 시각 구분 전용) */
 export const FLOOR_WALL_MATERIAL_VISUALS: Record<string, { color: string }> = {
   콘크리트: { color: '#6B7280' },
@@ -95,6 +106,7 @@ export const FLOOR_WALL_MATERIAL_VISUALS: Record<string, { color: string }> = {
   벽돌: { color: '#C2410C' },
   금속: { color: '#0F766E' },
   석재: { color: '#52525B' },
+  타일: { color: '#C56F45' },
 }
 
 /** 벽 타입별 기본 사양(mm) */

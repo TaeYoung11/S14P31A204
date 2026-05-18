@@ -2,6 +2,7 @@ import { useCallback, type Dispatch, type SetStateAction } from 'react'
 import type { EditorMode, IfcElementChange, IfcElementInfo } from '../types'
 
 const THREE_D_MATERIAL_COLOR: Record<string, string> = {
+  // 영문 IFC 재질명
   Concrete: '#A8A29E',
   Brick: '#A3472C',
   Steel: '#8A94A3',
@@ -9,6 +10,14 @@ const THREE_D_MATERIAL_COLOR: Record<string, string> = {
   Glass: '#8FD3FF',
   Stone: '#8D8D86',
   Tile: '#C56F45',
+  // 한글 재질명 대응 (MaterialSelector에서 한글 선택 시 색상 반영)
+  콘크리트: '#A8A29E',
+  벽돌: '#A3472C',
+  금속: '#8A94A3',
+  목재: '#9A6232',
+  유리: '#8FD3FF',
+  석재: '#8D8D86',
+  타일: '#C56F45',
 }
 
 const logRoofDebug = (...args: unknown[]) => {

@@ -28,6 +28,8 @@ export interface IfcElementInfo {
 
 export interface IfcElementChange {
   expressId: number
+  localId?: number
+  localIds?: number[]
   globalId?: string
   ifcClass?: string
   lengthMm?: number

@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
-import { DEFAULT_WALL_MATERIAL, FLOOR_WALL_MATERIAL_OPTIONS, FLOOR_WALL_MATERIAL_VISUALS } from '../../constants'
+import { DEFAULT_WALL_MATERIAL, FLOOR_WALL_MATERIAL_OPTIONS, FLOOR_WALL_MATERIAL_VISUALS, IFC_MATERIAL_NAME_KO } from '../../constants'
 
 interface MaterialSelectorProps {
   /** 현재 선택된 재질 이름 */
@@ -30,7 +30,9 @@ interface MaterialSelectorProps {
  */
 export function MaterialSelector({ value, fallbackLabel, onChange, disabled = false }: MaterialSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const current = value?.trim() || fallbackLabel?.trim() || DEFAULT_WALL_MATERIAL
+  // IFC 파일에서 영문으로 정의된 재질명은 한글로 변환해 표시한다.
+  const rawCurrent = value?.trim() || fallbackLabel?.trim() || DEFAULT_WALL_MATERIAL
+  const current = IFC_MATERIAL_NAME_KO[rawCurrent] ?? rawCurrent
   const currentColor = FLOOR_WALL_MATERIAL_VISUALS[current]?.color ?? (
     fallbackLabel?.trim()
       ? '#ADB5BD'
