@@ -6,9 +6,16 @@ import com.a204.batang.domain.workspace.dto.WorkspaceCommandMeta;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.networknt.schema.JsonSchema;
+import com.networknt.schema.JsonSchemaFactory;
+import com.networknt.schema.SpecVersion;
+import com.networknt.schema.ValidationMessage;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -116,7 +123,7 @@ class FloorPlanIfcEditEngineRequestMapperTest {
     }
 
     @Test
-    void toEngineRequest_mapsRotationAxisAngleToV2TransformElements() {
+    void toEngineRequest_mapsRotationAxisAngleToV2TransformElements() throws Exception {
         UUID projectId = UUID.randomUUID();
         UUID baseRevisionId = UUID.randomUUID();
         ObjectNode patch = objectMapper.createObjectNode();
@@ -142,6 +149,7 @@ class FloorPlanIfcEditEngineRequestMapperTest {
         assertThat(rotationDeg.get("axis").get("z").asDouble()).isEqualTo(1.0);
         assertThat(rotationDeg.get("angle").asDouble()).isEqualTo(90.0);
         assertThat(rotationDeg.get("pivot").asText()).isEqualTo("BBOX_CENTER");
+        assertValidEngineRequestV2(engineRequest);
     }
 
     @Test
@@ -172,7 +180,7 @@ class FloorPlanIfcEditEngineRequestMapperTest {
     }
 
     @Test
-    void toEngineRequest_mapsZOnlyRotationDegreesToTransformElements() {
+    void toEngineRequest_mapsZOnlyRotationDegreesToTransformElements() throws Exception {
         UUID projectId = UUID.randomUUID();
         UUID baseRevisionId = UUID.randomUUID();
         ObjectNode patch = objectMapper.createObjectNode();
@@ -194,6 +202,7 @@ class FloorPlanIfcEditEngineRequestMapperTest {
         assertThat(operation.get("type").asText()).isEqualTo("transform_elements");
         assertThat(operation.get("selector").get("global_ids").get(0).asText()).isEqualTo("2HlybO1QH4A9HpWyE9qInJ");
         assertThat(operation.get("parameters").get("rotation_deg").get("z").asDouble()).isEqualTo(26.84518417599014);
+        assertValidEngineRequestV2(engineRequest);
     }
 
     @Test
@@ -314,5 +323,20 @@ class FloorPlanIfcEditEngineRequestMapperTest {
                 ),
                 new WorkspaceCommandMeta("2d", "client-1", null, "2026-05-14T00:00:00Z")
         );
+    }
+
+    private void assertValidEngineRequestV2(JsonNode engineRequest) throws Exception {
+        JsonSchema schema = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012)
+                .getSchema(objectMapper.readTree(engineRequestV2SchemaPath().toFile()));
+        Set<ValidationMessage> errors = schema.validate(engineRequest);
+        assertThat(errors).as("engine_request.v2 schema errors").isEmpty();
+    }
+
+    private Path engineRequestV2SchemaPath() {
+        Path fromBeModule = Path.of("..", "shared", "schemas", "engine_request.v2.schema.json").normalize();
+        if (Files.exists(fromBeModule)) {
+            return fromBeModule;
+        }
+        return Path.of("shared", "schemas", "engine_request.v2.schema.json").normalize();
     }
 }
