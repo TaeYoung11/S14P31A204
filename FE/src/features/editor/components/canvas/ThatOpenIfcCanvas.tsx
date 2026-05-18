@@ -20,7 +20,7 @@ import type {
 import { FLOOR_MM_PER_PX } from '../../constants'
 import { patchIfcTextForMaterialDefaults } from '../../services/ifcChange.service'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
-import { getThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
+import { resolveThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import {
   applyObjectColor,
@@ -2246,6 +2246,7 @@ export default function ThatOpenIfcCanvas({
     let pointerDownDom: HTMLCanvasElement | null = null
     let components: import('@thatopen/components').Components | null = null
         let handlePointerDown: ((event: PointerEvent) => void) | null = null
+        let handleDoubleClick: ((event: MouseEvent) => void) | null = null
         let handleKeyDown: ((event: KeyboardEvent) => void) | null = null
         let handleGlobalPointerUp: ((event: PointerEvent) => void) | null = null
     let handleWindowBlur: (() => void) | null = null
@@ -3516,6 +3517,68 @@ export default function ThatOpenIfcCanvas({
         pointerDownDom = renderer.domElement
         const camera = world.camera.three
 
+        const createCommentPinAtWorldPoint = (point: import('three').Vector3) => {
+          const cameraPosition = camera.position
+          const threeDPosition: CommentPin3DCreatePosition = {
+            worldX: point.x / worldUnitsPerMm,
+            worldY: point.z / worldUnitsPerMm,
+            worldZ: point.y / worldUnitsPerMm,
+            cameraX: cameraPosition.x / worldUnitsPerMm,
+            cameraY: cameraPosition.z / worldUnitsPerMm,
+            cameraZ: cameraPosition.y / worldUnitsPerMm,
+          }
+          onPinCreateRef.current?.(
+            threeDPosition.worldX / FLOOR_MM_PER_PX,
+            threeDPosition.worldY / FLOOR_MM_PER_PX,
+            undefined,
+            threeDPosition,
+          )
+        }
+
+        const createCommentPinFromPointer = async (event: MouseEvent) => {
+          if (!isCollaborationModeRef.current) return
+          const bounds = renderer.domElement.getBoundingClientRect()
+          if (
+            event.clientX < bounds.left ||
+            event.clientX > bounds.right ||
+            event.clientY < bounds.top ||
+            event.clientY > bounds.bottom
+          ) {
+            return
+          }
+
+          const normalizedMouse = new THREE.Vector2(
+            ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
+            -((event.clientY - bounds.top) / bounds.height) * 2 + 1,
+          )
+          const screenMouse = new THREE.Vector2(event.clientX, event.clientY)
+          const raycaster = new THREE.Raycaster()
+          raycaster.setFromCamera(normalizedMouse, camera)
+          const pinHits = pinMarkerGroupRef.current
+            ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)
+            : []
+          if (resolveThreeDPinMarkerHit(pinHits)) return
+
+          const ifcEditHit = raycaster.intersectObjects(ifcEditGroup.children, true)[0]
+          const libraryHit = raycaster.intersectObjects(presetGroup.children, true)[0]
+          type WithPoint = { point?: import('three').Vector3; distance?: number }
+          const fragmentRaycastRaw = await fragments.raycast({ camera, mouse: screenMouse, dom: renderer.domElement }) as WithPoint | null
+          const castRayRaw = fragmentRaycastRaw?.point
+            ? null
+            : await thatOpenRaycaster.castRay({ position: normalizedMouse }) as WithPoint | null
+          const ifcRaw = fragmentRaycastRaw ?? castRayRaw
+          const ifcModelHit = ifcRaw?.point
+            ? { point: ifcRaw.point, distance: ifcRaw.distance ?? Number.POSITIVE_INFINITY }
+            : null
+          const collaborationHit = [libraryHit, ifcEditHit, ifcModelHit]
+            .filter((hit): hit is { point: import('three').Vector3; distance: number } => Boolean(hit?.point))
+            .sort((a, b) => a.distance - b.distance)[0]
+          if (!collaborationHit?.point) return
+          event.preventDefault()
+          event.stopPropagation()
+          createCommentPinAtWorldPoint(collaborationHit.point)
+        }
+
         handlePointerDown = async (event: PointerEvent) => {
           lastInteractionAt = performance.now()
           const transformStateNow = transformControls as unknown as { dragging?: boolean; axis?: string | null }
@@ -3702,13 +3765,14 @@ export default function ThatOpenIfcCanvas({
             })
             return
           }
-          const pinHit = pinMarkerGroupRef.current
-            ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)[0]
-            : undefined
-          const pinMarkerHit = getThreeDPinMarkerHit(pinHit?.object)
+          const pinHits = pinMarkerGroupRef.current
+            ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)
+            : []
+          const pinMarkerHit = resolveThreeDPinMarkerHit(pinHits)
           if (pinMarkerHit) {
             if (pinMarkerHit.action === 'delete') {
               if (deletingPinIdRef.current === pinMarkerHit.pinId) return
+              renderer.domElement.style.cursor = 'default'
               onPinDeleteRef.current?.(pinMarkerHit.pinId)
               return
             }
@@ -3718,6 +3782,8 @@ export default function ThatOpenIfcCanvas({
 
           const ifcEditHit = raycaster.intersectObjects(ifcEditGroup.children, true)[0]
           const libraryHit = raycaster.intersectObjects(presetGroup.children, true)[0]
+
+          if (isCollaborationModeRef.current) return
 
           if (isCollaborationModeRef.current) {
             const createCommentPinAtWorldPoint = (point: import('three').Vector3) => {
@@ -4986,6 +5052,10 @@ export default function ThatOpenIfcCanvas({
           emitCoordinates(world.camera.three.position)
         }
         pointerDownDom.addEventListener('pointerdown', handlePointerDown, true)
+        handleDoubleClick = (event: MouseEvent) => {
+          void createCommentPinFromPointer(event)
+        }
+        pointerDownDom.addEventListener('dblclick', handleDoubleClick, true)
 
         handleKeyDown = async (event: KeyboardEvent) => {
           const isDeleteKey =
@@ -5040,6 +5110,9 @@ export default function ThatOpenIfcCanvas({
       }
       if (handlePointerDown && pointerDownDom) {
         pointerDownDom.removeEventListener('pointerdown', handlePointerDown, true)
+      }
+      if (handleDoubleClick && pointerDownDom) {
+        pointerDownDom.removeEventListener('dblclick', handleDoubleClick, true)
       }
       if (handleKeyDown) window.removeEventListener('keydown', handleKeyDown, true)
       if (handleGlobalPointerUp) {

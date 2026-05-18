@@ -1,8 +1,8 @@
-import { Circle, Group, Line, Text } from 'react-konva'
+import { Circle, Group, Line, Rect, Text } from 'react-konva'
 import { LayoutDashboard, Sparkles } from 'lucide-react'
-import type { KonvaEventObject } from 'konva/lib/Node'
 import Spinner from '../../../../shared/components/Spinner'
-import type { FloorCommentPin } from '../../types'
+import type { CanvasViewTransform, FloorCommentPin } from '../../types'
+import { rotatePointAround } from '../../utils/canvasViewTransform'
 
 interface FloorPlanEmptyProps {
   onGenerate?: () => void
@@ -82,11 +82,9 @@ interface CollaborationPinOverlayProps {
   viewportScale: number
   selectedPinId?: string | null
   currentUserId?: string | null
-  onPinClick?: (id: string) => void
+  viewTransform?: CanvasViewTransform | null
   onPinDelete?: (id: string) => void
   deletingPinId?: string | null
-  onMouseEnter?: (e: KonvaEventObject<MouseEvent>) => void
-  onMouseLeave?: (e: KonvaEventObject<MouseEvent>) => void
 }
 
 /**
@@ -98,11 +96,9 @@ export function CollaborationPinOverlay({
   viewportScale,
   selectedPinId,
   currentUserId,
-  onPinClick,
+  viewTransform = null,
   onPinDelete,
   deletingPinId,
-  onMouseEnter,
-  onMouseLeave,
 }: CollaborationPinOverlayProps) {
   const inverseScale = 1 / Math.max(viewportScale, 0.01)
   const markerScale = Math.min(Math.max(inverseScale, 0.65), 2.2)
@@ -120,22 +116,28 @@ export function CollaborationPinOverlay({
         const indexText = String(index + 1)
         const pinRadius = 16
         const pinLabelSize = pinRadius * 2
+        const displayPosition = viewTransform
+          ? rotatePointAround(
+              { x: pin.x, y: pin.y },
+              viewTransform.rotationRadians,
+              viewTransform.centerX,
+              viewTransform.centerY,
+            )
+          : { x: pin.x, y: pin.y }
         return (
           <Group
             key={pin.id}
-            x={pin.x}
-            y={pin.y}
+            name="comment-pin-overlay"
+            x={displayPosition.x}
+            y={displayPosition.y}
             scaleX={markerScale}
             scaleY={markerScale}
-            onClick={(e) => {
-              e.cancelBubble = true
-              onPinClick?.(pin.id)
-            }}
-            onMouseEnter={onMouseEnter}
-            onMouseLeave={onMouseLeave}
+            listening={false}
           >
-            <Line points={[0, pinRadius, 0, 30]} stroke={isSelected ? '#3B45B3' : '#1C1C1E'} strokeWidth={2.5} />
-            <Circle radius={pinRadius} fill={isSelected ? '#3B45B3' : '#1C1C1E'} />
+            <Circle radius={22} fill="rgba(0,0,0,0.01)" />
+            <Rect x={-10} y={10} width={20} height={26} fill="rgba(0,0,0,0.01)" />
+            <Line points={[0, pinRadius, 0, 30]} stroke={isSelected ? '#3B45B3' : '#1C1C1E'} strokeWidth={2.5} listening={false} />
+            <Circle radius={pinRadius} fill={isSelected ? '#3B45B3' : '#1C1C1E'} listening={false} />
             <Text
               text={indexText}
               x={-pinRadius}
@@ -145,26 +147,21 @@ export function CollaborationPinOverlay({
               fill="white"
               fontSize={14}
               fontStyle="bold"
+              listening={false}
             />
             {!isSelected && pin.hasUnreadCommentByOtherUser && (
-              <Circle x={12} y={-12} radius={5} fill="#ef4444" stroke="white" strokeWidth={1.5} />
+              <Circle x={12} y={-12} radius={5} fill="#ef4444" stroke="white" strokeWidth={1.5} listening={false} />
             )}
             {canDeletePin && (
               <Group
                 x={26}
                 y={-24}
                 opacity={isDeleting ? 0.5 : 1}
-                onClick={(e) => {
-                  e.cancelBubble = true
-                  if (isDeleting) return
-                  onPinDelete?.(pin.id)
-                }}
-                onMouseEnter={onMouseEnter}
-                onMouseLeave={onMouseLeave}
               >
+                <Circle radius={16} fill="rgba(0,0,0,0.01)" />
                 <Circle radius={10} fill="white" stroke="#D94848" strokeWidth={1.7} shadowColor="black" shadowOpacity={0.12} shadowBlur={4} />
-                <Line points={[-4, -4, 4, 4]} stroke="#D94848" strokeWidth={1.8} lineCap="round" />
-                <Line points={[4, -4, -4, 4]} stroke="#D94848" strokeWidth={1.8} lineCap="round" />
+                <Line points={[-4, -4, 4, 4]} stroke="#D94848" strokeWidth={1.8} lineCap="round" listening={false} />
+                <Line points={[4, -4, -4, 4]} stroke="#D94848" strokeWidth={1.8} lineCap="round" listening={false} />
               </Group>
             )}
           </Group>

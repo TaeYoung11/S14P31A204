@@ -39,7 +39,7 @@ import {
 } from './thatopen/ifcLibraryMesh'
 import { applyObjectColor, applyObjectMaterial, PROJECT_WORLD_UNITS_PER_MM } from './thatopen/ifcMaterials'
 import { disposeObjectMaterials, positionPresetGroupBesideIfc } from './thatopen/ifcSceneHelpers'
-import { getThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
+import { resolveThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
 
 interface FloorPlan3DCanvasProps {
   data: FloorPlan3DData
@@ -430,6 +430,7 @@ export function FloorPlan3DCanvas({
     let cancelled = false
     // cleanup 클로저가 참조할 수 있도록 외부 스코프에 선언한다 (ThatOpenIfcCanvas와 동일 패턴)
     let handlePointerDown: ((event: PointerEvent) => void) | null = null
+    let handleDoubleClick: ((event: MouseEvent) => void) | null = null
     let handlePointerMove: ((event: PointerEvent) => void) | null = null
     let handlePointerUp: ((event: PointerEvent) => void) | null = null
     let handleHandCursorDown: ((event: PointerEvent) => void) | null = null
@@ -603,6 +604,32 @@ export function FloorPlan3DCanvas({
       }
 
       // 드래그 중 OrbitControls 비활성화 + 다중 선택 그룹 이동
+      const createCommentPinFromPointer = (event: MouseEvent) => {
+        if (!isCollaborationModeRef.current) return
+        const bounds = renderer.domElement.getBoundingClientRect()
+        if (!isPointerInsideBounds(bounds, event.clientX, event.clientY)) return
+
+        const normalizedMouse = toNormalizedMouse(THREE, bounds, event.clientX, event.clientY)
+        const raycaster = new THREE.Raycaster()
+        raycaster.setFromCamera(normalizedMouse, camera)
+        const pinHits = pinMarkerGroupRef.current
+          ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)
+          : []
+        if (resolveThreeDPinMarkerHit(pinHits)) return
+
+        const libraryHit = raycaster.intersectObjects(presetGroup.children, true)[0]
+        const floorHit = floorGroupRef.current
+          ? raycaster.intersectObjects(floorGroupRef.current.children, true)[0]
+          : undefined
+        const collaborationHit = [libraryHit, floorHit]
+          .filter((hit): hit is import('three').Intersection => Boolean(hit))
+          .sort((a, b) => a.distance - b.distance)[0]
+        if (!collaborationHit?.point) return
+        event.preventDefault()
+        event.stopPropagation()
+        createCommentPinAtWorldPoint(collaborationHit.point)
+      }
+
       ;(tc as unknown as {
         addEventListener: (type: 'dragging-changed' | 'mouseDown' | 'objectChange', listener: (e?: { value: boolean }) => void) => void
       }).addEventListener('mouseDown', () => {
@@ -764,13 +791,14 @@ export function FloorPlan3DCanvas({
         const normalizedMouse = toNormalizedMouse(THREE, bounds, event.clientX, event.clientY)
         const raycaster = new THREE.Raycaster()
         raycaster.setFromCamera(normalizedMouse, camera)
-        const pinHit = pinMarkerGroupRef.current
-          ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)[0]
-          : undefined
-        const pinMarkerHit = getThreeDPinMarkerHit(pinHit?.object)
+        const pinHits = pinMarkerGroupRef.current
+          ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)
+          : []
+        const pinMarkerHit = resolveThreeDPinMarkerHit(pinHits)
         if (pinMarkerHit) {
           if (pinMarkerHit.action === 'delete') {
             if (deletingPinIdRef.current === pinMarkerHit.pinId) return
+            syncCanvasCursor()
             onPinDeleteRef.current?.(pinMarkerHit.pinId)
             return
           }
@@ -781,13 +809,7 @@ export function FloorPlan3DCanvas({
         const floorHit = floorGroupRef.current
           ? raycaster.intersectObjects(floorGroupRef.current.children, true)[0]
           : undefined
-        if (isCollaborationModeRef.current) {
-          const collaborationHit = [libraryHit, floorHit]
-            .filter((hit): hit is import('three').Intersection => Boolean(hit))
-            .sort((a, b) => a.distance - b.distance)[0]
-          if (collaborationHit?.point) createCommentPinAtWorldPoint(collaborationHit.point)
-          return
-        }
+        if (isCollaborationModeRef.current) return
         if (isEditingLockedRef.current) return
 
         const libraryDistance = typeof (libraryHit as { distance?: unknown } | undefined)?.distance === 'number'
@@ -917,6 +939,8 @@ export function FloorPlan3DCanvas({
         window.addEventListener('pointerup', handlePointerUp, true)
       }
       container.addEventListener('pointerdown', handlePointerDown)
+      handleDoubleClick = createCommentPinFromPointer
+      renderer.domElement.addEventListener('dblclick', handleDoubleClick, true)
 
       handleHandCursorDown = (event: PointerEvent) => {
         if (event.button === 1) {
@@ -985,6 +1009,9 @@ export function FloorPlan3DCanvas({
       resizeObserverRef.current = null
 
       if (handlePointerDown) container.removeEventListener('pointerdown', handlePointerDown)
+      if (handleDoubleClick && rendererRef.current?.domElement) {
+        rendererRef.current.domElement.removeEventListener('dblclick', handleDoubleClick, true)
+      }
       if (handlePointerMove) window.removeEventListener('pointermove', handlePointerMove, true)
       if (handlePointerUp) window.removeEventListener('pointerup', handlePointerUp, true)
       if (handleHandCursorDown && rendererRef.current?.domElement) {

@@ -3751,10 +3751,6 @@ export function useEditorPage() {
 
   /** 협업 핀 클릭 — 해당 핀의 스레드 탭으로 이동 */
   const handlePinClick = useCallback((pinId: string) => {
-    if (selectedPinId === pinId) {
-      setSelectedPinId(null)
-      return
-    }
     setSelectedPinId(pinId)
     markPinNotificationsRead(pinId)
     const targetPin = commentPins.find((pin) => pin.id === pinId)
@@ -3768,7 +3764,7 @@ export function useEditorPage() {
         },
       })
     }
-  }, [commentPins, markPinCommentsRead, markPinNotificationsRead, selectedPinId])
+  }, [commentPins, markPinCommentsRead, markPinNotificationsRead])
 
   /** 2D 평면도 핀 생성 + 첫 댓글 작성 */
   const resolveActiveFloorPinElevationMm = useCallback(() => {
