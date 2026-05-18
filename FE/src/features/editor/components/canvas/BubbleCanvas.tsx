@@ -274,16 +274,19 @@ export function BubbleCanvas({
   })
 
   /** 버블 타원의 상·우·하·좌 4방향 앵커 포인트 반환 (연결 포인트 표시용) */
-  const getAnchorPoints = (bubble: BubbleData) => [
-    { x: bubble.x + bubble.width / 2, y: bubble.y },
-    { x: bubble.x + bubble.width, y: bubble.y + bubble.height / 2 },
-    { x: bubble.x + bubble.width / 2, y: bubble.y + bubble.height },
-    { x: bubble.x, y: bubble.y + bubble.height / 2 },
-  ]
+  const getDisplayAnchorPoints = (bubble: BubbleData) => {
+    const base = bubbleDisplayPositions.get(bubble.id) ?? { x: bubble.x, y: bubble.y }
+    return [
+      { x: base.x + bubble.width / 2, y: base.y },
+      { x: base.x + bubble.width, y: base.y + bubble.height / 2 },
+      { x: base.x + bubble.width / 2, y: base.y + bubble.height },
+      { x: base.x, y: base.y + bubble.height / 2 },
+    ]
+  }
 
   /** 주어진 좌표에서 가장 가까운 앵커 포인트 반환 (연결 드래그 시작점 결정) */
   const getNearestAnchorPoint = (bubble: BubbleData, x: number, y: number) => {
-    const anchors = getAnchorPoints(bubble)
+    const anchors = getDisplayAnchorPoints(bubble)
     return anchors.reduce((best, current) => {
       const bestDist = (best.x - x) ** 2 + (best.y - y) ** 2
       const currentDist = (current.x - x) ** 2 + (current.y - y) ** 2
@@ -643,7 +646,7 @@ export function BubbleCanvas({
         if (connectionDrag) {
           const stage = e.target.getStage()
           if (!stage) return
-          const pos = getCanvasPoint(stage)
+          const pos = getStagePoint(stage)
           if (!pos) return
           setConnectionDrag((prev) => (prev ? { ...prev, endX: pos.x, endY: pos.y } : prev))
           return
@@ -704,9 +707,9 @@ export function BubbleCanvas({
         }
         if (connectionDrag) {
           const stage = e.target.getStage()
-          const pos = stage ? getCanvasPoint(stage) : null
+          const pos = stage ? getStagePoint(stage) : null
           if (pos) {
-            const target = findBubbleByPoint(pos.x, pos.y)
+            const target = findDisplayBubbleByPoint(pos.x, pos.y)
             if (target && target.id !== connectionDrag.fromId) {
               onConnectionCreate?.(connectionDrag.fromId, target.id)
             }
@@ -878,47 +881,7 @@ export function BubbleCanvas({
         })}
 
         {/* 연결 포인트 (connect 도구 + 버블 호버 시 표시) */}
-        {isBubbleEditable && selectedTool === 'connect' && hoveredBubbleId && !connectionDrag && (() => {
-          const hovered = bubbleMap.get(hoveredBubbleId)
-          if (!hovered) return null
-          const anchors = getAnchorPoints(hovered)
-          return anchors.map((anchor, index) => (
-            <Circle
-              key={`anchor-${hovered.id}-${index}`}
-              x={anchor.x}
-              y={anchor.y}
-              radius={5}
-              fill="#FFFFFF"
-              stroke="#3B45B3"
-              strokeWidth={2}
-              shadowColor="#3B45B3"
-              shadowBlur={4}
-              shadowOpacity={0.2}
-              onMouseDown={(e) => {
-                e.cancelBubble = true
-                setConnectionDrag({
-                  fromId: hovered.id,
-                  startX: anchor.x,
-                  startY: anchor.y,
-                  endX: anchor.x,
-                  endY: anchor.y,
-                })
-              }}
-            />
-          ))
-        })()}
-
         {/* 연결선 드래그 프리뷰 */}
-        {connectionDrag && (
-          <Line
-            points={[connectionDrag.startX, connectionDrag.startY, connectionDrag.endX, connectionDrag.endY]}
-            stroke="#3B45B3"
-            strokeWidth={1.5}
-            dash={[6, 4]}
-            listening={false}
-          />
-        )}
-
         </CanvasViewTransformGroup>
 
         {/* 버블(공간) 목록 */}
@@ -1011,7 +974,7 @@ export function BubbleCanvas({
                 }
                 if (selectedTool !== 'connect') return
                 const stage = e.target.getStage()
-                const pos = stage ? getCanvasPoint(stage) : null
+                const pos = stage ? getStagePoint(stage) : null
                 if (!pos) return
                 const anchor = getNearestAnchorPoint(bubble, pos.x, pos.y)
                 e.cancelBubble = true
@@ -1115,6 +1078,46 @@ export function BubbleCanvas({
         })}
 
         {/* 리사이즈 핸들 — selection 도구 + 단일 선택일 때만 활성 */}
+        {isBubbleEditable && selectedTool === 'connect' && hoveredBubbleId && !connectionDrag && (() => {
+          const hovered = bubbleMap.get(hoveredBubbleId)
+          if (!hovered) return null
+          const anchors = getDisplayAnchorPoints(hovered)
+          return anchors.map((anchor, index) => (
+            <Circle
+              key={`anchor-${hovered.id}-${index}`}
+              x={anchor.x}
+              y={anchor.y}
+              radius={5}
+              fill="#FFFFFF"
+              stroke="#3B45B3"
+              strokeWidth={2}
+              shadowColor="#3B45B3"
+              shadowBlur={4}
+              shadowOpacity={0.2}
+              onMouseDown={(e) => {
+                e.cancelBubble = true
+                setConnectionDrag({
+                  fromId: hovered.id,
+                  startX: anchor.x,
+                  startY: anchor.y,
+                  endX: anchor.x,
+                  endY: anchor.y,
+                })
+              }}
+            />
+          ))
+        })()}
+
+        {connectionDrag && (
+          <Line
+            points={[connectionDrag.startX, connectionDrag.startY, connectionDrag.endX, connectionDrag.endY]}
+            stroke="#3B45B3"
+            strokeWidth={1.5}
+            dash={[6, 4]}
+            listening={false}
+          />
+        )}
+
         {isBubbleEditable && selectedTool === 'selection' && activeResizeBubble && activeResizeRect && (
           <Group>
             <Rect
