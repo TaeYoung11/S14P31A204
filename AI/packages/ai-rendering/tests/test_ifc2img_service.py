@@ -1463,7 +1463,6 @@ def test_run_ifc2img_photo_pipeline_opt_in_failure_marks_color_preservation_not_
     assert manifest["ifcColorPreservationApplied"] is False
     assert "parser failed" in manifest["ifcColorPreservationError"]
 
-    # Caller가 opt-in을 안 한 경우는 영향 없어야 한다.
     params = FakeDepthStyleRenderer.instances[-1].render_calls[0]["params"]
     assert "IFC colors" not in params.prompt
 
