@@ -93,6 +93,29 @@ class FloorPlanIfcEditEngineRequestMapperTest {
     }
 
     @Test
+    void toEngineRequest_mapsRotationDegreesToTransformElements() {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode patch = objectMapper.createObjectNode();
+        patch.putObject("rotation_degrees")
+                .put("x", 0.0)
+                .put("y", 15.0)
+                .put("z", 0.0);
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-rotation",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "update", "wall", "2FStoreyGlobalId00001", null, patch))
+        );
+
+        JsonNode operation = engineRequest.get("operations").get(0);
+        assertThat(operation.get("type").asText()).isEqualTo("transform_elements");
+        assertThat(operation.get("parameters").has("rotation_degrees")).isFalse();
+        assertThat(operation.get("parameters").get("rotation_deg").get("z").asDouble()).isEqualTo(15.0);
+    }
+
+    @Test
     void toEngineRequest_mapsRoomUpdateToIfcSpacePropertiesWhenGlobalIdExists() {
         UUID projectId = UUID.randomUUID();
         UUID baseRevisionId = UUID.randomUUID();

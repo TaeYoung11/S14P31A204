@@ -84,7 +84,18 @@ export type FloorPlanCanvasProps = Pick<
   | 'isThreeDEditingLocked'
   | 'currentIfcUrl'
   | 'currentIfcAssetId'
+  | 'libraryElements'
+  | 'handleAddLibraryPreset'
+  | 'handleChangeLibraryElement'
+  | 'handleDeleteLibraryElement'
   | 'localFloorData'
+  | 'activeIfcStoreyExpressId'
+  | 'overlayIfcStoreyExpressIds'
+  | 'requestedIfcElementLocalId'
+  | 'ifcElementSelectionRequestToken'
+  | 'requestedLibraryElementId'
+  | 'libraryElementSelectionRequestToken'
+  | 'handleIfcStoreysLoad'
 >
 
 /** 2D 벽/개구부 편집 상호작용 */

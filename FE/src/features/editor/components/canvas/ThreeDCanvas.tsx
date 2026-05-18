@@ -8,15 +8,17 @@
  *  1. ifcUrl이 없고 localFloorData가 있으면 → FloorPlan3DCanvas
  *  2. 그 외 → ThatOpenIfcCanvas (ifcUrl 없을 시 mock IFC로 폴백)
  */
-import { useRef } from 'react'
-import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '@/features/editor/types'
-import { useCtrlWheelZoom } from '@/features/editor/hooks/useCtrlWheelZoom'
-import { useThreeDLibraryPresets } from '@/features/editor/hooks/useThreeDLibraryPresets'
+import { useCallback, useRef, useState } from 'react'
+import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '../../types'
+import type { IfcStoreyInfo } from './thatopen/ifcPropertyParser'
+import { useCtrlWheelZoom } from '../../hooks/useCtrlWheelZoom'
 import ThreeDCanvasCollaborationOverlay from './ThreeDCanvasCollaborationOverlay'
 import ThreeDCanvasGridOverlay from './ThreeDCanvasGridOverlay'
 import ThreeDCanvasScene from './ThreeDCanvasScene'
 import ThreeDLibraryPanel from './ThreeDLibraryPanel'
-import type { FloorPlan3DData } from '@/features/editor/utils/floorPlanTo3D'
+import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
+import { DEFAULT_MOCK_IFC_URL } from './threeDCanvas.utils'
+import type { ThreeDLibraryPreset } from './threeDLibrary.types'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import { useThreeDLibraryDrop } from './useThreeDLibraryDrop'
 
@@ -59,9 +61,29 @@ interface ThreeDCanvasProps {
     element: IfcElementInfo,
     patch: Omit<IfcElementChange, 'expressId'>,
   ) => void
+  libraryElements: ThreeDLibraryPreset[]
+  onAddLibraryPreset: (preset: ThreeDLibraryPreset) => void
+  onLibraryElementChange: (id: string, patch: Partial<ThreeDLibraryPreset>) => void
+  onLibraryElementDelete: (id: string) => void
   /** 2D 평면도에서 직접 생성한 로컬 3D 데이터. 있으면 IFC 대신 이를 렌더링한다. */
   localFloorData?: FloorPlan3DData | null
   onThreeDCoordinatesChange?: (coords: ThreeDCoordinates) => void
+  /** IFC 로드 완료 시 파싱된 건물 층 목록을 전달하는 콜백 */
+  onStoreysLoad?: (storeys: IfcStoreyInfo[]) => void
+  /** 현재 표시할 층의 expressId. null이면 전체 표시 */
+  activeStoreyExpressId?: number | null
+  /** 겹쳐보기로 함께 표시할 IFC 층 expressId 목록 */
+  overlayIfcStoreyExpressIds?: number[]
+  /** IFC 겹쳐보기 층별 투명도 (0.1~1) */
+  overlayIfcStoreyOpacityByExpressId?: Record<number, number>
+  /** 계층구조에서 선택 요청한 IFC 요소 localId */
+  requestedIfcElementLocalId?: number | null
+  /** 계층구조 IFC 요소 선택 요청 토큰 */
+  ifcElementSelectionRequestToken?: number
+  /** 계층구조에서 선택 요청한 라이브러리 요소 id */
+  requestedLibraryElementId?: string | null
+  /** 계층구조 라이브러리 요소 선택 요청 토큰 */
+  libraryElementSelectionRequestToken?: number
   cameraViewPresetCommand?: ThreeDCameraViewPresetCommand
   isTransformSnapEnabled?: boolean
   transformSnapIntervalMm?: number
@@ -70,21 +92,20 @@ interface ThreeDCanvasProps {
 
 export function ThreeDCanvas(props: ThreeDCanvasProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const [selectedCategory, setSelectedCategory] = useState('all')
   const isEditingLocked = props.isEditingLocked ?? false
+  // 실제 IFC URL이 없으면 ThreeDCanvasScene에서 localFloorData를 먼저 사용한다.
+  // local 3D 데이터도 없을 때만 mock IFC를 fallback으로 사용한다.
+  const effectiveIfcUrl = props.ifcUrl ?? DEFAULT_MOCK_IFC_URL
 
-  // ifcUrl이 null(로딩 중 또는 IFC 없음)이어도 mock으로 폴백해 씬을 항상 표시한다
-  // 라이브러리 프리셋 상태 관리 (카테고리 선택, 씬 내 배치 목록, CRUD)
-  // onPresetAdded: 프리셋 추가 직후 라이브러리 패널을 닫는다
-  const {
-    selectedCategory,
-    setSelectedCategory,
-    libraryElements,
-    addLibraryPreset,
-    changeLibraryElement,
-    deleteLibraryElement,
-  } = useThreeDLibraryPresets({
-    onPresetAdded: props.onToggleLibrary,
-  })
+  const { onAddLibraryPreset } = props
+  const addLibraryPreset = useCallback(
+  (preset: ThreeDLibraryPreset) => {
+    if (isEditingLocked) return
+    onAddLibraryPreset(preset)
+  },
+  [isEditingLocked, onAddLibraryPreset],
+)
 
   useCtrlWheelZoom({
     rootRef,
@@ -110,10 +131,10 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
     >
       <ThreeDCanvasScene
         projectId={props.projectId}
-        ifcUrl={props.ifcUrl}
+        ifcUrl={effectiveIfcUrl}
         rawIfcUrl={props.ifcUrl}
         localFloorData={props.localFloorData}
-        libraryElements={libraryElements}
+        libraryElements={props.libraryElements}
         commentPins={props.commentPins ?? []}
         isCollaborationMode={Boolean(props.isCollaborationMode)}
         selectedPinId={props.selectedPinId ?? null}
@@ -131,9 +152,17 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         onIfcElementSelect={props.onIfcElementSelect}
         onIfcElementDelete={props.onIfcElementDelete}
         onIfcElementTransformCommit={props.onIfcElementTransformCommit}
-        onLibraryElementChange={changeLibraryElement}
-        onLibraryElementDelete={deleteLibraryElement}
+        onLibraryElementChange={props.onLibraryElementChange}
+        onLibraryElementDelete={props.onLibraryElementDelete}
         onThreeDCoordinatesChange={props.onThreeDCoordinatesChange}
+        onStoreysLoad={props.onStoreysLoad}
+        activeStoreyExpressId={props.activeStoreyExpressId}
+        overlayIfcStoreyExpressIds={props.overlayIfcStoreyExpressIds}
+        overlayIfcStoreyOpacityByExpressId={props.overlayIfcStoreyOpacityByExpressId}
+        requestedIfcElementLocalId={props.requestedIfcElementLocalId}
+        ifcElementSelectionRequestToken={props.ifcElementSelectionRequestToken}
+        requestedLibraryElementId={props.requestedLibraryElementId}
+        libraryElementSelectionRequestToken={props.libraryElementSelectionRequestToken}
         cameraViewPresetCommand={props.cameraViewPresetCommand}
         libraryDropRequest={libraryDropRequest}
         onResolveLibraryDrop={handleResolveLibraryDrop}
@@ -154,10 +183,12 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
           isEditingLocked={isEditingLocked}
           onAddPreset={(preset) => {
             if (isEditingLocked) return
-            addLibraryPreset(preset, { closePanel: true })
+            props.onAddLibraryPreset(preset)
+            props.onToggleLibrary?.()
           }}
         />
       )}
+
     </div>
   )
 }

@@ -22,7 +22,18 @@ const FLOOR_PLAN_CANVAS_KEYS = [
   'isThreeDEditingLocked',
   'currentIfcUrl',
   'currentIfcAssetId',
+  'libraryElements',
+  'handleAddLibraryPreset',
+  'handleChangeLibraryElement',
+  'handleDeleteLibraryElement',
   'localFloorData',
+  'activeIfcStoreyExpressId',
+  'overlayIfcStoreyExpressIds',
+  'requestedIfcElementLocalId',
+  'ifcElementSelectionRequestToken',
+  'requestedLibraryElementId',
+  'libraryElementSelectionRequestToken',
+  'handleIfcStoreysLoad',
 ] as const
 
 /**
@@ -50,7 +61,18 @@ export function buildFloorPlanCanvasProps(
   | 'isThreeDEditingLocked'
   | 'currentIfcUrl'
   | 'currentIfcAssetId'
+  | 'libraryElements'
+  | 'handleAddLibraryPreset'
+  | 'handleChangeLibraryElement'
+  | 'handleDeleteLibraryElement'
   | 'localFloorData'
+  | 'activeIfcStoreyExpressId'
+  | 'overlayIfcStoreyExpressIds'
+  | 'requestedIfcElementLocalId'
+  | 'ifcElementSelectionRequestToken'
+  | 'requestedLibraryElementId'
+  | 'libraryElementSelectionRequestToken'
+  | 'handleIfcStoreysLoad'
 > {
   return pickCanvasProps(vm, FLOOR_PLAN_CANVAS_KEYS)
 }

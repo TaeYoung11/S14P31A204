@@ -15,13 +15,27 @@
  */
 import type { Object3D } from 'three'
 import type { IfcElementInfo } from '../../../types'
+import type { IfcPsetMetricMaps } from './ifcPropertyParser'
 import {
-  DEFAULT_IFC_COLOR_BY_CATEGORY,
   PROJECT_WORLD_UNITS_PER_MM,
   createElementMaterial,
   type MaybeThatOpenMaterialsManager,
   type ThreeModule,
 } from './ifcMaterials'
+const IFC_MOVE_DEBUG = import.meta.env.VITE_3D_MOVE_DEBUG === 'true'
+const IFC_MOVE_USE_MODEL_OPACITY_API = false
+const IFC_MOVE_USE_MODEL_VISIBILITY_API = true
+const traceIfcMoveVisibility = (event: string, payload?: Record<string, unknown>) => {
+  try {
+    if (payload) {
+      console.log(`[IFC_MOVE][TRACE] ${event}`, payload)
+      return
+    }
+    console.log(`[IFC_MOVE][TRACE] ${event}`)
+  } catch {
+    // no-op
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 공유 타입 정의
@@ -34,7 +48,10 @@ export type Selected3DTarget =
       modelId: string
       localId: number
       hitLocalId: number
+      hitItemId?: number
       object?: Object3D
+      keepModelHiddenAfterCommit?: boolean
+      visibilityRestoredAtCommit?: boolean
       selectedSignature?: string
       selectedColorSignature?: string
       selectedMaterialSignature?: string
@@ -55,6 +72,8 @@ export type IfcEditableObject3D = Object3D & {
       modelId: string
       localId: number
       hitLocalId: number
+      hitItemId?: number
+      localIds?: number[]
       element: IfcElementInfo
     }
     ifcEditBaseWorldSize?: {
@@ -64,6 +83,191 @@ export type IfcEditableObject3D = Object3D & {
     }
     [key: string]: unknown
   }
+}
+
+/** IFC 요소 식별자 표준화 맵 */
+export type IfcCanonicalIdMap = {
+  expressIdByLocalId: Map<number, number>
+  localIdsByExpressId: Map<number, Set<number>>
+}
+
+/** IFC 이동 상태기계 단계 */
+export type IfcMovePhase = 'idle' | 'dragging' | 'commit' | 'cleanup'
+
+/** IFC 이동 상태기계 상태 */
+export type IfcMoveLifecycleState = {
+  phase: IfcMovePhase
+  targetKey: string | null
+  lastError: string | null
+}
+
+/** IFC 이동 상태 전이 이벤트 */
+export type IfcMoveTransitionEvent =
+  | { type: 'start_drag'; targetKey: string }
+  | { type: 'commit_start'; targetKey: string }
+  | { type: 'commit_success'; targetKey: string }
+  | { type: 'commit_failure'; targetKey: string; message: string }
+  | { type: 'cleanup_done' }
+
+/** Session 기반 transform phase */
+export type TransformSessionPhase = 'idle' | 'attached' | 'dragging' | 'commit' | 'cleanup'
+
+/** Session 기반 transform runtime delta */
+export type TransformRuntimeDelta = {
+  position: { x: number; y: number; z: number }
+  rotation: { x: number; y: number; z: number }
+  scale: { x: number; y: number; z: number }
+}
+
+/** Session 기반 transform snapshot */
+export type TransformCommitSnapshot = {
+  targetId: number
+  transformSessionId: string
+  committedAt: number
+}
+
+/** Session 기반 transform runtime state */
+export type TransformRuntimeState = {
+  selectedTargetId: number | null
+  activeTransformTargetId: number | null
+  transformSessionId: string | null
+  phase: TransformSessionPhase
+  runtimeDelta: TransformRuntimeDelta | null
+  pendingCommitSessionId: string | null
+  lastCommittedSnapshot: TransformCommitSnapshot | null
+  lastError: string | null
+}
+
+/** Session 기반 transform state 전이 액션 */
+export type TransformStateAction =
+  | { type: 'SELECT_TARGET'; targetId: number | null }
+  | { type: 'ATTACH_GIZMO'; targetId: number }
+  | { type: 'START_DRAG'; targetId: number; transformSessionId: string }
+  | { type: 'UPDATE_DELTA'; transformSessionId: string; delta: TransformRuntimeDelta }
+  | { type: 'REQUEST_COMMIT'; transformSessionId: string }
+  | { type: 'COMMIT_SUCCESS'; transformSessionId: string; targetId: number; committedAt?: number }
+  | { type: 'COMMIT_FAIL'; transformSessionId: string; message: string }
+  | { type: 'CANCEL_TRANSFORM'; reason: string }
+  | { type: 'CLEANUP'; transformSessionId?: string }
+
+/** 초기 transform runtime state */
+export const createInitialTransformRuntimeState = (): TransformRuntimeState => ({
+  selectedTargetId: null,
+  activeTransformTargetId: null,
+  transformSessionId: null,
+  phase: 'idle',
+  runtimeDelta: null,
+  pendingCommitSessionId: null,
+  lastCommittedSnapshot: null,
+  lastError: null,
+})
+
+/** Session 기반 transform state reducer */
+export const nextTransformRuntimeState = (
+  current: TransformRuntimeState,
+  action: TransformStateAction,
+): TransformRuntimeState => {
+  if (action.type === 'SELECT_TARGET') {
+    return {
+      ...current,
+      selectedTargetId: action.targetId,
+    }
+  }
+  if (action.type === 'ATTACH_GIZMO') {
+    const isLockedBySession = (
+      current.phase === 'dragging'
+      || current.phase === 'commit'
+      || current.phase === 'cleanup'
+    ) && Number.isFinite(current.activeTransformTargetId)
+    if (isLockedBySession && current.activeTransformTargetId !== action.targetId) {
+      return {
+        ...current,
+        selectedTargetId: action.targetId,
+      }
+    }
+    return {
+      ...current,
+      selectedTargetId: action.targetId,
+      activeTransformTargetId: action.targetId,
+      phase: current.phase === 'idle' ? 'attached' : current.phase,
+      lastError: null,
+    }
+  }
+  if (action.type === 'START_DRAG') {
+    const targetId = Number.isFinite(current.activeTransformTargetId)
+      ? current.activeTransformTargetId
+      : current.selectedTargetId
+    if (!Number.isFinite(targetId) || targetId !== action.targetId) return current
+    return {
+      ...current,
+      activeTransformTargetId: action.targetId,
+      transformSessionId: action.transformSessionId,
+      pendingCommitSessionId: null,
+      phase: 'dragging',
+      runtimeDelta: null,
+      lastError: null,
+    }
+  }
+  if (action.type === 'UPDATE_DELTA') {
+    if (current.phase !== 'dragging') return current
+    if (current.transformSessionId !== action.transformSessionId) return current
+    return {
+      ...current,
+      runtimeDelta: action.delta,
+    }
+  }
+  if (action.type === 'REQUEST_COMMIT') {
+    if (current.phase !== 'dragging') return current
+    if (current.transformSessionId !== action.transformSessionId) return current
+    return {
+      ...current,
+      phase: 'commit',
+      pendingCommitSessionId: action.transformSessionId,
+    }
+  }
+  if (action.type === 'COMMIT_SUCCESS') {
+    if (current.pendingCommitSessionId !== action.transformSessionId) return current
+    return {
+      ...current,
+      phase: 'cleanup',
+      lastError: null,
+      lastCommittedSnapshot: {
+        targetId: action.targetId,
+        transformSessionId: action.transformSessionId,
+        committedAt: action.committedAt ?? Date.now(),
+      },
+    }
+  }
+  if (action.type === 'COMMIT_FAIL') {
+    if (current.pendingCommitSessionId !== action.transformSessionId) return current
+    return {
+      ...current,
+      phase: 'cleanup',
+      lastError: action.message,
+    }
+  }
+  if (action.type === 'CANCEL_TRANSFORM') {
+    return {
+      ...current,
+      phase: 'cleanup',
+      lastError: action.reason,
+      runtimeDelta: null,
+      pendingCommitSessionId: null,
+      transformSessionId: null,
+    }
+  }
+  if (action.type === 'CLEANUP') {
+    if (action.transformSessionId && current.transformSessionId !== action.transformSessionId) return current
+    return {
+      ...current,
+      activeTransformTargetId: null,
+      transformSessionId: null,
+      pendingCommitSessionId: null,
+      runtimeDelta: null,
+      phase: 'idle',
+    }
+  }
+  return current
 }
 
 /**
@@ -128,6 +332,137 @@ export const getElementMaterialSignature = (element?: IfcElementInfo | null) => 
   element?.material ?? '',
 ].join(':')
 
+/** 빈 canonical ID 맵을 생성한다. */
+export const createEmptyIfcCanonicalIdMap = (): IfcCanonicalIdMap => ({
+  expressIdByLocalId: new Map<number, number>(),
+  localIdsByExpressId: new Map<number, Set<number>>(),
+})
+
+/**
+ * IFC 파싱 메트릭으로 expressId <-> localId canonical 매핑을 구축한다.
+ * - byId 키(localId)와 내부 expressId를 모두 반영한다.
+ */
+export const buildIfcCanonicalIdMap = (psetMetrics: IfcPsetMetricMaps): IfcCanonicalIdMap => {
+  const map = createEmptyIfcCanonicalIdMap()
+  Object.entries(psetMetrics.byId).forEach(([localIdKey, info]) => {
+    const localId = Number(localIdKey)
+    const expressId = info?.expressId
+    if (!Number.isFinite(localId) || !Number.isFinite(expressId)) return
+    map.expressIdByLocalId.set(localId, expressId)
+    const existingLocalIds = map.localIdsByExpressId.get(expressId)
+    if (existingLocalIds) {
+      existingLocalIds.add(localId)
+      return
+    }
+    map.localIdsByExpressId.set(expressId, new Set<number>([localId]))
+  })
+  return map
+}
+
+/**
+ * IFC 이동 커밋 대상 localId 후보를 canonical 규칙으로 계산한다.
+ * 우선순위: item 매핑 > 프록시 localIds > hit/local/express 기반 확장.
+ */
+export const resolveIfcCanonicalLocalIds = (
+  canonicalMap: IfcCanonicalIdMap,
+  params: {
+    hitLocalId?: number
+    localId?: number
+    expressId?: number
+    proxyLocalIds?: number[]
+    itemMappedLocalIds?: number[]
+  },
+) => {
+  const {
+    hitLocalId,
+    localId,
+    expressId,
+    proxyLocalIds = [],
+    itemMappedLocalIds = [],
+  } = params
+  const orderedCandidates: number[] = []
+  const pushCandidate = (value?: number) => {
+    if (!Number.isFinite(value)) return
+    orderedCandidates.push(value as number)
+  }
+
+  itemMappedLocalIds.forEach((value) => pushCandidate(value))
+  proxyLocalIds.forEach((value) => pushCandidate(value))
+  pushCandidate(hitLocalId)
+  pushCandidate(localId)
+
+  const resolvedExpressIds = new Set<number>()
+  // expressId는 localId가 아니므로 direct candidate로 넣지 않는다.
+  // runtime에서 검증된 localId -> expressId 매핑에 한해 alias 확장을 허용한다.
+  if (Number.isFinite(expressId)) resolvedExpressIds.add(expressId as number)
+  orderedCandidates.forEach((candidate) => {
+    const mappedExpressId = canonicalMap.expressIdByLocalId.get(candidate)
+    if (Number.isFinite(mappedExpressId)) resolvedExpressIds.add(mappedExpressId as number)
+  })
+
+  resolvedExpressIds.forEach((id) => {
+    const aliasLocalIds = canonicalMap.localIdsByExpressId.get(id)
+    if (!aliasLocalIds) return
+    aliasLocalIds.forEach((localIdValue) => pushCandidate(localIdValue))
+  })
+
+  return Array.from(new Set<number>(orderedCandidates))
+}
+
+/** IFC 이동 상태 전이 reducer */
+export const nextIfcMoveLifecycleState = (
+  current: IfcMoveLifecycleState,
+  event: IfcMoveTransitionEvent,
+): IfcMoveLifecycleState => {
+  if (event.type === 'start_drag') {
+    return {
+      phase: 'dragging',
+      targetKey: event.targetKey,
+      lastError: null,
+    }
+  }
+  if (event.type === 'commit_start') {
+    if (current.targetKey !== event.targetKey) return current
+    return {
+      ...current,
+      phase: 'commit',
+      lastError: null,
+    }
+  }
+  if (event.type === 'commit_success') {
+    if (current.targetKey !== event.targetKey) return current
+    return {
+      ...current,
+      phase: 'cleanup',
+      lastError: null,
+    }
+  }
+  if (event.type === 'commit_failure') {
+    if (current.targetKey !== event.targetKey) return current
+    return {
+      ...current,
+      phase: 'cleanup',
+      lastError: event.message,
+    }
+  }
+  return {
+    phase: 'idle',
+    targetKey: null,
+    lastError: current.lastError,
+  }
+}
+
+/** 이동 대상 키를 생성한다. */
+export const getIfcMoveTargetKey = (modelId: string, localId: number) => `${modelId}:${localId}`
+
+/** Matrix4 delta가 사실상 항등행렬인지 판별한다. */
+export const hasIdentityMatrixDelta = (matrixElements: number[], epsilon = 1e-7) => (
+  matrixElements.every((value, index) => {
+    const expected = index % 5 === 0 ? 1 : 0
+    return Math.abs(value - expected) < epsilon
+  })
+)
+
 // ─────────────────────────────────────────────────────────────────────────────
 // IFC 모델 로드 유틸
 // ─────────────────────────────────────────────────────────────────────────────
@@ -147,22 +482,50 @@ export const getRuntimeIfcModelId = (projectId?: string | null) => (
 
 /** IFC 파일을 URL에서 텍스트로 가져온다. 실패 시 에러를 throw한다. */
 export const fetchIfcText = async (ifcUrl: string) => {
-  if (import.meta.env.DEV) {
-    console.log('[3d-ifc-fetch][request]', { ifcUrl })
+  const baseUrl = (import.meta.env.BASE_URL ?? '/').replace(/\/+$/, '/')
+  const normalizedIfcUrl = ifcUrl.trim()
+  const candidates = Array.from(new Set<string>([
+    normalizedIfcUrl,
+    normalizedIfcUrl.startsWith('/')
+      ? `${baseUrl}${normalizedIfcUrl.replace(/^\/+/, '')}`
+      : `${baseUrl}${normalizedIfcUrl}`,
+  ]))
+
+  let lastStatus: number | null = null
+  let lastError: unknown = null
+
+  for (const candidate of candidates) {
+    if (import.meta.env.DEV) {
+      console.log('[3d-ifc-fetch][request]', { ifcUrl: candidate })
+    }
+
+    try {
+      const response = await fetch(candidate)
+
+      if (import.meta.env.DEV) {
+        console.log('[3d-ifc-fetch][response]', {
+          ifcUrl: candidate,
+          ok: response.ok,
+          status: response.status,
+          contentType: response.headers.get('content-type'),
+        })
+      }
+
+      if (response.ok) {
+        return response.text()
+      }
+
+      lastStatus = response.status
+    } catch (error) {
+      lastError = error
+    }
   }
-  const response = await fetch(ifcUrl)
-  if (import.meta.env.DEV) {
-    console.log('[3d-ifc-fetch][response]', {
-      ifcUrl,
-      ok: response.ok,
-      status: response.status,
-      contentType: response.headers.get('content-type'),
-    })
+
+  if (lastError instanceof Error && lastStatus === null) {
+    throw new Error(`IFC file load failed. (${lastError.message})`)
   }
-  if (!response.ok) {
-    throw new Error(`IFC file load failed. (${response.status})`)
-  }
-  return response.text()
+
+  throw new Error(`IFC file load failed. (${lastStatus ?? 'network'})`)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -282,6 +645,344 @@ export const setObjectOpacity = (THREE: ThreeModule, object: Object3D | undefine
   })
 }
 
+const resolveFragmentsModel = (sceneState: ThatOpenSceneState, modelId: string) => {
+  const modelList = sceneState.fragments.core.models.list as Map<string, unknown>
+  const directModel = modelList.get(modelId)
+  const fallbackModel = directModel ?? Array.from(modelList.values())[0]
+  return fallbackModel as {
+    setVisible?: (localIds: number[] | undefined, visible: boolean) => Promise<void> | void
+    setOpacity?: (localIds: number[] | undefined, opacity: number) => Promise<void> | void
+    resetOpacity?: (localIds: number[] | undefined) => Promise<void> | void
+  } | undefined
+}
+
+const syncModelMaskOpacity = async (
+  sceneState: ThatOpenSceneState,
+  modelId: string,
+  localIds: number[],
+  mode: 'hide' | 'restore',
+) => {
+  const startedAt = performance.now()
+  const ids = Array.from(new Set(localIds.filter(Number.isFinite)))
+  if (ids.length === 0) return
+  const model = resolveFragmentsModel(sceneState, modelId)
+  const hasSetVisible = Boolean(model?.setVisible) && IFC_MOVE_USE_MODEL_VISIBILITY_API
+  const hasSetOpacity = Boolean(model?.setOpacity) && IFC_MOVE_USE_MODEL_OPACITY_API
+  const hasResetOpacity = Boolean(model?.resetOpacity) && IFC_MOVE_USE_MODEL_OPACITY_API
+  traceIfcMoveVisibility('visibility_model_mask_request', {
+    modelId,
+    mode,
+    localIdCount: ids.length,
+    localIdsSample: ids.slice(0, 12),
+    hasSetVisible,
+    hasSetOpacity,
+    hasResetOpacity,
+  })
+  if (mode === 'hide') {
+    if (IFC_MOVE_USE_MODEL_VISIBILITY_API && model?.setVisible) {
+      await Promise.resolve(model.setVisible(ids, false)).catch(() => undefined)
+      traceIfcMoveVisibility('visibility_model_mask_result', {
+        modelId,
+        mode,
+        method: 'setVisible(false)',
+        elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+      })
+      return
+    }
+    if (IFC_MOVE_USE_MODEL_OPACITY_API && model?.setOpacity) {
+      await Promise.resolve(model.setOpacity(ids, 0)).catch(() => undefined)
+      traceIfcMoveVisibility('visibility_model_mask_result', {
+        modelId,
+        mode,
+        method: 'setOpacity',
+        elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+      })
+      return
+    }
+    await sceneState.fragments.highlight({
+      color: new sceneState.three.Color('#FFFFFF'),
+      opacity: 0,
+      transparent: true,
+      renderedFaces: 1,
+      preserveOriginalMaterial: true,
+      depthWrite: false,
+    }, {
+      [modelId]: new Set(ids),
+    }).catch(() => undefined)
+    traceIfcMoveVisibility('visibility_model_mask_result', {
+      modelId,
+      mode,
+      method: 'highlight',
+      elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+    })
+    return
+  }
+  if (IFC_MOVE_USE_MODEL_VISIBILITY_API && model?.setVisible) {
+    await Promise.resolve(model.setVisible(ids, true)).catch(() => undefined)
+    traceIfcMoveVisibility('visibility_model_mask_result', {
+      modelId,
+      mode,
+      method: 'setVisible(true)',
+      elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+    })
+    return
+  }
+  if (IFC_MOVE_USE_MODEL_OPACITY_API && model?.resetOpacity) {
+    await Promise.resolve(model.resetOpacity(ids)).catch(() => undefined)
+    traceIfcMoveVisibility('visibility_model_mask_result', {
+      modelId,
+      mode,
+      method: 'resetOpacity',
+      elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+    })
+    return
+  }
+  await sceneState.fragments.resetHighlight({
+    [modelId]: new Set(ids),
+  }).catch(() => undefined)
+  traceIfcMoveVisibility('visibility_model_mask_result', {
+    modelId,
+    mode,
+    method: 'resetHighlight',
+    elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+  })
+}
+
+/**
+ * IFC 선택 프록시 표시 상태를 일관되게 갱신한다.
+ * - mode='proxy': 원본 숨김 + 편집 프록시 표시
+ * - mode='model': 원본 표시 + 프록시 불투명 복구
+ */
+const cloneMaterialForEditProxy = (material: unknown) => {
+  const cloneable = material as {
+    clone?: () => unknown
+    map?: { clone?: () => unknown; needsUpdate?: boolean }
+  }
+  const cloned = cloneable?.clone?.() ?? material
+  const clonedWithMap = cloned as { map?: unknown; needsUpdate?: boolean }
+  const clonedMap = cloneable?.map?.clone?.()
+  if (clonedMap) {
+    ;(clonedMap as { needsUpdate?: boolean }).needsUpdate = true
+    clonedWithMap.map = clonedMap
+  }
+  clonedWithMap.needsUpdate = true
+  return cloned
+}
+
+const cloneObjectMaterialsForEditProxy = (THREE: ThreeModule, object: Object3D) => {
+  object.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return
+    child.material = Array.isArray(child.material)
+      ? child.material.map((material) => cloneMaterialForEditProxy(material)) as typeof child.material
+      : cloneMaterialForEditProxy(child.material) as typeof child.material
+  })
+}
+
+export const applyIfcSelectionVisibility = async (
+  sceneState: ThatOpenSceneState,
+  params: {
+    modelId: string
+    localIds: number[]
+    proxyObject?: Object3D
+    mode: 'proxy' | 'model'
+    proxyOpacity?: number
+    keepModelVisibleInProxy?: boolean
+    persistModelHidden?: boolean
+    skipHiderUpdate?: boolean
+    skipCoreUpdate?: boolean
+    deferHiderToNextFrame?: boolean
+    skipProxyOpacityUpdate?: boolean
+    reason?: string
+    forceRender?: boolean
+  },
+) => {
+  const syncFragmentsAfterVisibility = async () => {
+    const fragmentsCore = sceneState.fragments.core as {
+      update?: (force?: boolean) => Promise<void> | void
+    }
+    if (typeof fragmentsCore.update !== 'function') return
+    traceIfcMoveVisibility('visibility_core_update_start', {
+      reason: params.reason ?? 'unspecified',
+      mode: params.mode,
+      modelId: params.modelId,
+    })
+    await Promise.resolve(fragmentsCore.update(true)).catch(() => undefined)
+    traceIfcMoveVisibility('visibility_core_update_done', {
+      reason: params.reason ?? 'unspecified',
+      mode: params.mode,
+      modelId: params.modelId,
+    })
+  }
+
+  const visibleLocalIds = params.localIds.filter(Number.isFinite)
+  const visibilityReason = params.reason ?? 'unspecified'
+  traceIfcMoveVisibility('visibility_call', {
+    reason: visibilityReason,
+    mode: params.mode,
+    modelId: params.modelId,
+    localIdCount: visibleLocalIds.length,
+    localIdsSample: visibleLocalIds.slice(0, 12),
+    hasProxyObject: Boolean(params.proxyObject),
+    keepModelVisibleInProxy: params.keepModelVisibleInProxy ?? false,
+    persistModelHidden: params.persistModelHidden ?? false,
+    skipHiderUpdate: params.skipHiderUpdate ?? false,
+    skipCoreUpdate: params.skipCoreUpdate ?? false,
+    deferHiderToNextFrame: params.deferHiderToNextFrame ?? false,
+    skipProxyOpacityUpdate: params.skipProxyOpacityUpdate ?? false,
+  })
+  if (visibleLocalIds.length > 0) {
+    const visibilityStartedAt = performance.now()
+    const hiderVisible = params.mode === 'model'
+      || (params.mode === 'proxy' && params.keepModelVisibleInProxy === true)
+    const skipHiderCall = params.skipHiderUpdate === true
+    if (
+      params.persistModelHidden === true
+      || params.keepModelVisibleInProxy === true
+      || params.mode === 'model'
+    ) {
+      await syncModelMaskOpacity(
+        sceneState,
+        params.modelId,
+        visibleLocalIds,
+        params.mode === 'proxy' ? 'hide' : 'restore',
+      )
+      traceIfcMoveVisibility('visibility_model_mask_sync', {
+        reason: visibilityReason,
+        mode: params.mode,
+        modelId: params.modelId,
+        localIdCount: visibleLocalIds.length,
+        localIdsSample: visibleLocalIds.slice(0, 12),
+        persistModelHidden: params.persistModelHidden ?? false,
+      })
+    }
+    if (
+      params.mode === 'proxy'
+      && !skipHiderCall
+      && visibleLocalIds.length > 12
+      && typeof console !== 'undefined'
+    ) {
+      console.warn('[IFC_MOVE] visibility_scope_large', {
+        reason: visibilityReason,
+        modelId: params.modelId,
+        localIdCount: visibleLocalIds.length,
+        localIdsSample: visibleLocalIds.slice(0, 8),
+      })
+    }
+    if (IFC_MOVE_DEBUG) {
+      console.log('[IFC_MOVE] visibility_apply', {
+        reason: visibilityReason,
+        modelId: params.modelId,
+        localIds: visibleLocalIds,
+        mode: params.mode,
+        hiderVisible,
+        keepModelVisibleInProxy: params.keepModelVisibleInProxy ?? false,
+        persistModelHidden: params.persistModelHidden ?? false,
+        skipHiderUpdate: params.skipHiderUpdate ?? false,
+        skipCoreUpdate: params.skipCoreUpdate ?? false,
+        skipHiderCall,
+      })
+    }
+    if (!skipHiderCall) {
+      if (params.deferHiderToNextFrame && typeof window !== 'undefined') {
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => resolve())
+        })
+      }
+      traceIfcMoveVisibility('visibility_hider_set_start', {
+        reason: visibilityReason,
+        mode: params.mode,
+        modelId: params.modelId,
+        localIdCount: visibleLocalIds.length,
+      })
+      await sceneState.hider.set(hiderVisible, {
+        [params.modelId]: new Set(visibleLocalIds),
+      }).catch(() => undefined)
+      traceIfcMoveVisibility('visibility_hider_set_done', {
+        reason: visibilityReason,
+        mode: params.mode,
+        modelId: params.modelId,
+        localIdCount: visibleLocalIds.length,
+        elapsedMs: Number((performance.now() - visibilityStartedAt).toFixed(1)),
+      })
+    }
+    if (IFC_MOVE_DEBUG) {
+      console.log('[IFC_MOVE] visibility_applied', {
+        reason: visibilityReason,
+        modelId: params.modelId,
+        localIds: visibleLocalIds,
+        mode: params.mode,
+        hiderVisible,
+        keepModelVisibleInProxy: params.keepModelVisibleInProxy ?? false,
+        persistModelHidden: params.persistModelHidden ?? false,
+        skipHiderUpdate: params.skipHiderUpdate ?? false,
+        skipCoreUpdate: params.skipCoreUpdate ?? false,
+        skipHiderCall,
+        elapsedMs: Number((performance.now() - visibilityStartedAt).toFixed(1)),
+      })
+    }
+    if (params.skipCoreUpdate === true) {
+      traceIfcMoveVisibility('visibility_core_update_skipped', {
+        reason: visibilityReason,
+        mode: params.mode,
+        modelId: params.modelId,
+      })
+    } else {
+      await syncFragmentsAfterVisibility()
+    }
+  }
+  if (!params.proxyObject) return
+  if (params.mode === 'proxy') {
+    if (params.skipProxyOpacityUpdate === true) return
+    if (IFC_MOVE_DEBUG) {
+      console.log('[IFC_MOVE] proxy_opacity_apply', {
+        reason: visibilityReason,
+        modelId: params.modelId,
+        localIds: visibleLocalIds,
+        opacity: params.proxyOpacity ?? 1,
+      })
+    }
+    setObjectOpacity(sceneState.three, params.proxyObject, params.proxyOpacity ?? 1)
+    traceIfcMoveVisibility('visibility_proxy_opacity', {
+      reason: visibilityReason,
+      mode: params.mode,
+      modelId: params.modelId,
+      opacity: params.proxyOpacity ?? 1,
+    })
+    if (params.forceRender) {
+      sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
+      traceIfcMoveVisibility('visibility_force_render', {
+        reason: visibilityReason,
+        mode: params.mode,
+        modelId: params.modelId,
+      })
+    }
+    return
+  }
+  if (IFC_MOVE_DEBUG) {
+    console.log('[IFC_MOVE] proxy_opacity_apply', {
+      reason: visibilityReason,
+      modelId: params.modelId,
+      localIds: visibleLocalIds,
+      opacity: 1,
+    })
+  }
+  setObjectOpacity(sceneState.three, params.proxyObject, 1)
+  traceIfcMoveVisibility('visibility_proxy_opacity', {
+    reason: visibilityReason,
+    mode: params.mode,
+    modelId: params.modelId,
+    opacity: 1,
+  })
+  if (params.forceRender) {
+    sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
+    traceIfcMoveVisibility('visibility_force_render', {
+      reason: visibilityReason,
+      mode: params.mode,
+      modelId: params.modelId,
+    })
+  }
+}
+
 /**
  * TransformControls를 분리하고 선택 상태를 초기화한다.
  * removeObject=true이면 씬에서 오브젝트도 제거하고 GPU 메모리를 해제한다.
@@ -290,6 +991,8 @@ export const clearSelectedTarget = async (
   sceneState: ThatOpenSceneState,
   target: Selected3DTarget,
   removeObject = false,
+  restoreModelVisibility?: boolean,
+  skipVisibilitySync = false,
 ) => {
   if (!target) return
 
@@ -298,7 +1001,93 @@ export const clearSelectedTarget = async (
   sceneState.transformControls.enabled = false
 
   if (target.source === 'ifc') {
-    setObjectOpacity(sceneState.three, target.object, 1)
+    if (skipVisibilitySync) {
+      if (removeObject && target.object) {
+        target.object.parent?.remove(target.object)
+        disposeObjectMaterials(sceneState.three, target.object)
+      }
+      return
+    }
+    if (!target.object) {
+      // 프록시가 이미 정리된 보존 타겟이라도, 원본 표시 모드여야 한다면
+      // 최소 식별자(hot/hit localId) 기준으로 가시성을 복구한다.
+      // 이 복구가 없으면 선택 전환 시 숨김 상태가 누적되어 "요소가 사라짐"처럼 보일 수 있다.
+      const shouldRestoreModelVisibility = restoreModelVisibility
+        ?? !target.keepModelHiddenAfterCommit
+      if (shouldRestoreModelVisibility && target.visibilityRestoredAtCommit) {
+        if (IFC_MOVE_DEBUG) {
+          console.log('[IFC_MOVE] clear_preserved_target_skip_restore_visibility', {
+            modelId: target.modelId,
+            hitLocalId: target.hitLocalId,
+            localId: target.localId,
+          })
+        }
+        return
+      }
+      if (shouldRestoreModelVisibility) {
+        const visibleLocalIds = Array.from(new Set<number>(
+          [target.hitLocalId, target.localId].filter(Number.isFinite),
+        ))
+        if (IFC_MOVE_DEBUG) {
+          console.log('[IFC_MOVE] clear_preserved_target_restore_visibility', {
+            modelId: target.modelId,
+            localIds: visibleLocalIds,
+            keepModelHiddenAfterCommit: Boolean(target.keepModelHiddenAfterCommit),
+          })
+        }
+        if (visibleLocalIds.length > 0) {
+          await applyIfcSelectionVisibility(sceneState, {
+            modelId: target.modelId,
+            localIds: visibleLocalIds,
+            mode: 'model',
+            keepModelVisibleInProxy: true,
+            reason: 'clear_preserved_target_restore',
+          })
+        }
+      }
+      return
+    }
+    const proxyLocalIds = (
+      (target.object as IfcEditableObject3D | undefined)?.userData?.ifcEditTarget?.localIds
+      ?? []
+    ).filter(Number.isFinite)
+    const visibleLocalIds = Array.from(new Set<number>(
+      [...proxyLocalIds, target.hitLocalId, target.localId].filter(Number.isFinite),
+    ))
+    const shouldRestoreModelVisibility = restoreModelVisibility
+      ?? !target.keepModelHiddenAfterCommit
+    if (shouldRestoreModelVisibility && target.visibilityRestoredAtCommit) {
+      if (IFC_MOVE_DEBUG) {
+        console.log('[IFC_MOVE] clear_target_skip_restore_visibility', {
+          modelId: target.modelId,
+          hitLocalId: target.hitLocalId,
+          localId: target.localId,
+        })
+      }
+      if (removeObject && target.object) {
+        target.object.parent?.remove(target.object)
+        disposeObjectMaterials(sceneState.three, target.object)
+      }
+      return
+    }
+    if (!shouldRestoreModelVisibility) {
+      if (target.object) {
+        setObjectOpacity(sceneState.three, target.object, 1)
+        if (removeObject) {
+          target.object.parent?.remove(target.object)
+          disposeObjectMaterials(sceneState.three, target.object)
+        }
+      }
+      return
+    }
+    await applyIfcSelectionVisibility(sceneState, {
+      modelId: target.modelId,
+      localIds: visibleLocalIds,
+      proxyObject: target.object,
+      mode: shouldRestoreModelVisibility ? 'model' : 'proxy',
+      keepModelVisibleInProxy: true,
+      reason: 'clear_selected_target',
+    })
     if (target.object) {
       if (removeObject) {
         target.object.parent?.remove(target.object)
@@ -499,9 +1288,10 @@ export const applyIfcItemColor = async (
 }
 
 /**
- * IFC 요소의 바운딩박스 위에 편집 프록시 오브젝트(BoxGeometry)를 생성하고
+ * IFC 요소의 실제 fragment mesh를 복제한 편집 프록시 오브젝트를 생성하고
  * TransformControls를 연결한다.
- * - hider.set(false)로 원본 IFC 요소를 숨겨 프록시만 보이게 한다.
+ * - 원본 IFC는 선택 중 숨기고, 프록시를 이동 대상으로 사용한다.
+ * - 선택 해제 시 clearSelectedTarget에서 프록시를 정리한다.
  * - 이미 같은 ID의 프록시가 있으면 재사용한다.
  */
 export const attachIfcTransformProxy = async (
@@ -513,98 +1303,158 @@ export const attachIfcTransformProxy = async (
   modelId: string,
   localIds: number[],
   visibleLocalId: number,
+  hitItemId: number | undefined,
   element: IfcElementInfo,
-  materialsManager?: MaybeThatOpenMaterialsManager,
+  options: {
+    deferVisibility?: boolean
+    deferTransformAttach?: boolean
+  } = {},
 ) => {
-  const buildProxyMaterial = (color?: string, materialName?: string): import('three').Material => {
-    const material = createElementMaterial(
-      THREE,
-      materialName,
-      color,
-      materialsManager,
-    ) as unknown as import('three').Material & {
-      map?: { dispose?: () => void } | null
-      transparent?: boolean
-      opacity?: number
-      depthWrite?: boolean
-      needsUpdate?: boolean
-    }
-    // 선택 프록시는 원본과 시각 불일치를 줄이기 위해 패턴 텍스처/반투명을 쓰지 않는다.
-    material.map?.dispose?.()
-    material.map = null
-    material.transparent = false
-    material.opacity = 1
-    material.depthWrite = true
-    material.needsUpdate = true
-    return material as import('three').Material
+  const deferVisibility = options.deferVisibility === true
+  const deferTransformAttach = options.deferTransformAttach === true
+  const orderedLocalIds = Array.from(
+    new Set<number>([
+      ...(Number.isFinite(visibleLocalId) ? [visibleLocalId] : []),
+      ...localIds.filter(Number.isFinite),
+    ]),
+  )
+  if (orderedLocalIds.length === 0) return null
+
+  const editor = (fragments.core as import('@thatopen/fragments').FragmentsModels & {
+    editor?: import('@thatopen/fragments').Editor
+  }).editor
+  if (!editor) return null
+
+  const boxes = await fragments.getBBoxes({ [modelId]: new Set(orderedLocalIds) })
+  const unionBox = new THREE.Box3()
+  unionBox.makeEmpty()
+  boxes.forEach((box) => {
+    if (!box) return
+    unionBox.union(box)
+  })
+  if (unionBox.isEmpty()) return null
+
+  const size = new THREE.Vector3()
+  const center = new THREE.Vector3()
+  unionBox.getSize(size)
+  unionBox.getCenter(center)
+  if (size.x <= 0 || size.y <= 0 || size.z <= 0) return null
+
+  const elements = await editor.getElements(modelId, orderedLocalIds).catch(() => [])
+  if (elements.length === 0) return null
+
+  const stableLocalId = Number.isFinite(visibleLocalId) ? visibleLocalId : orderedLocalIds[0]
+  const objectName = `ifc-edit-${modelId}-${stableLocalId}`
+  const existing = editGroup.children.find((child) => child.name === objectName) as IfcEditableObject3D | undefined
+  const editable = existing ?? new THREE.Group()
+  const pivotToLocal = new THREE.Matrix4().makeTranslation(-center.x, -center.y, -center.z)
+
+  if (existing) {
+    ;[...editable.children].forEach((child) => {
+      child.parent?.remove(child)
+      disposeObjectMaterials(THREE, child)
+    })
   }
 
-  for (const localId of localIds) {
-    const boxes = await fragments.getBBoxes({ [modelId]: new Set([localId]) })
-    const box = boxes[0]
-    if (!box) continue
+  for (const editableElement of elements) {
+    const meshes = await editableElement.getMeshes().catch(() => null)
+    if (!meshes) continue
+    const cloned = meshes.clone(true)
+    cloneObjectMaterialsForEditProxy(THREE, cloned)
+    cloned.applyMatrix4(pivotToLocal)
+    editable.add(cloned)
+  }
 
-    const stableLocalId = localIds[0]
-    const objectName = `ifc-edit-${modelId}-${stableLocalId}`
-    const existing = editGroup.children.find((child) => child.name === objectName) as IfcEditableObject3D | undefined
-    const size = new THREE.Vector3()
-    const center = new THREE.Vector3()
-    box.getSize(size)
-    box.getCenter(center)
+  if (editable.children.length === 0) return null
 
-    const editable = existing ?? new THREE.Group()
-    editable.name = objectName
-    if (!existing) {
-      editable.position.copy(center)
-    }
-    editable.userData = {
-      ...editable.userData,
-      ifcEditTarget: {
-        modelId,
-        localId: stableLocalId,
-        hitLocalId: localId,
-        element,
-      },
-      ifcEditBaseWorldSize: {
-        x: size.x,
-        y: size.y,
-        z: size.z,
-      },
-    }
+  editable.name = objectName
+  editable.position.copy(center)
+  editable.rotation.set(0, 0, 0)
+  editable.scale.set(1, 1, 1)
+  editable.userData = {
+    ...editable.userData,
+    ifcEditTarget: {
+      modelId,
+      localId: stableLocalId,
+      hitLocalId: Number.isFinite(visibleLocalId) ? visibleLocalId : orderedLocalIds[0],
+      hitItemId,
+      localIds: Array.from(new Set(orderedLocalIds.filter(Number.isFinite))),
+      element,
+    },
+    ifcEditBaseWorldSize: {
+      x: size.x || 1,
+      y: size.y || 1,
+      z: size.z || 1,
+    },
+  }
 
-    if (!existing) {
-      const geometry = new THREE.BoxGeometry(size.x, size.y, size.z)
-      const material = buildProxyMaterial(
-        element.color ?? DEFAULT_IFC_COLOR_BY_CATEGORY[element.category] ?? DEFAULT_IFC_COLOR_BY_CATEGORY.Element,
-        element.material,
-      )
-      const mesh = new THREE.Mesh(geometry, material)
-      editable.add(mesh)
-      editGroup.add(editable)
-    } else {
-      editable.traverse((child) => {
-        if (!(child instanceof THREE.Mesh)) return
-        const previousMaterials = Array.isArray(child.material) ? child.material : [child.material]
-        previousMaterials.forEach((previousMaterial) => {
-          const map = (previousMaterial as { map?: { dispose?: () => void } }).map
-          map?.dispose?.()
-          previousMaterial.dispose()
-        })
-        child.material = buildProxyMaterial(
-          element.color ?? DEFAULT_IFC_COLOR_BY_CATEGORY[element.category] ?? DEFAULT_IFC_COLOR_BY_CATEGORY.Element,
-          element.material,
-        )
-      })
-    }
+  if (!existing) {
+    editGroup.add(editable)
+  }
+  editable.updateMatrixWorld(true)
 
-    await hider.set(false, {
-      [modelId]: new Set([visibleLocalId]),
+  const clonedBox = new THREE.Box3().setFromObject(editable)
+  const clonedCenter = new THREE.Vector3()
+  clonedBox.getCenter(clonedCenter)
+  const centerOffset = clonedCenter.sub(center)
+  if (centerOffset.lengthSq() > 1e-8) {
+    editable.children.forEach((child) => {
+      child.position.sub(centerOffset)
     })
+    editable.updateMatrixWorld(true)
+  }
+
+  const hideLocalIds = Array.from(new Set<number>(
+    orderedLocalIds.filter(Number.isFinite),
+  ))
+
+  if (IFC_MOVE_DEBUG) {
+    console.log('[IFC_MOVE] proxy_attach_hide_model', {
+      modelId,
+      localIds: orderedLocalIds,
+      hideLocalIds,
+      localIdCount: orderedLocalIds.length,
+      visibleLocalId,
+      hitLocalId: stableLocalId,
+      hiderVisible: false,
+      proxyShape: 'ifc-mesh-clone',
+    })
+  }
+  traceIfcMoveVisibility('proxy_attach_hide_model', {
+    modelId,
+    visibleLocalId,
+    hitLocalId: stableLocalId,
+    localIdCount: orderedLocalIds.length,
+    localIdsSample: orderedLocalIds.slice(0, 12),
+    hideLocalIds,
+    proxyShape: 'ifc-mesh-clone',
+  })
+  traceIfcMoveVisibility('proxy_attach_hider_set_start', {
+    modelId,
+    hideLocalIds,
+    deferred: deferVisibility,
+  })
+  if (deferVisibility) {
+    editable.visible = false
+    traceIfcMoveVisibility('proxy_attach_visibility_deferred', {
+      modelId,
+      hideLocalIds,
+    })
+  } else {
+    await hider.set(false, {
+      [modelId]: new Set(hideLocalIds),
+    }).catch(() => undefined)
+    traceIfcMoveVisibility('proxy_attach_hider_set_done', {
+      modelId,
+      hideLocalIds,
+    })
+  }
+  setObjectOpacity(THREE, editable, 1)
+  if (!deferTransformAttach) {
+    editable.visible = true
     transformControls.attach(editable)
     transformControls.visible = true
     transformControls.enabled = true
-    return editable
   }
-
-  return null
+  return editable
 }

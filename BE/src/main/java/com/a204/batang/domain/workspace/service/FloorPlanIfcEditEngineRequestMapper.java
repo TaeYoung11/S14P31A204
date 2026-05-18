@@ -96,10 +96,19 @@ public class FloorPlanIfcEditEngineRequestMapper {
         }
 
         JsonNode translationMm = firstPoint3d(patch, "translationMm", "translation_mm", "translateMm", "translate_mm");
+        JsonNode rotationDegrees = firstPoint3d(patch, "rotation_degrees", "rotationDegrees", "rotationDeg");
         if (translationMm != null) {
             // Realtime workspace commands are single-purpose; movement and property edits must be emitted separately.
             ObjectNode params = objectMapper.createObjectNode();
             params.set("translation_mm", translationMm);
+            if (rotationDegrees != null) {
+                params.set("rotation_deg", toIfcRotationDeg(rotationDegrees));
+            }
+            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
+        }
+        if (rotationDegrees != null) {
+            ObjectNode params = objectMapper.createObjectNode();
+            params.set("rotation_deg", toIfcRotationDeg(rotationDegrees));
             return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
         }
 
@@ -333,5 +342,26 @@ public class FloorPlanIfcEditEngineRequestMapper {
 
     private boolean hasNumber(JsonNode node, String key) {
         return node.get(key) != null && node.get(key).isNumber();
+    }
+
+    private ObjectNode toIfcRotationDeg(JsonNode rotationDegrees) {
+        ObjectNode rotation = objectMapper.createObjectNode();
+        if (rotationDegrees == null || rotationDegrees.isNull()) {
+            return rotation;
+        }
+        if (rotationDegrees.isNumber()) {
+            rotation.put("z", rotationDegrees.asDouble());
+            return rotation;
+        }
+        if (rotationDegrees.isObject()) {
+            if (hasNumber(rotationDegrees, "y")) {
+                rotation.put("z", rotationDegrees.get("y").asDouble());
+                return rotation;
+            }
+            if (hasNumber(rotationDegrees, "z")) {
+                rotation.put("z", rotationDegrees.get("z").asDouble());
+            }
+        }
+        return rotation;
     }
 }

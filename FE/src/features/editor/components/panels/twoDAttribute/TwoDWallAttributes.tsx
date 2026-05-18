@@ -75,6 +75,7 @@ export function TwoDWallAttributes({
             onChange={(e) => onWallThicknessDraftChange(e.target.value)}
             onFocus={onWallThicknessFocus}
             onBlur={onWallThicknessBlur}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
             className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
           />
         </div>
@@ -89,6 +90,7 @@ export function TwoDWallAttributes({
             onChange={(e) => onWallHeightDraftChange(e.target.value)}
             onFocus={onWallHeightFocus}
             onBlur={onWallHeightBlur}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
             className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
           />
         </div>

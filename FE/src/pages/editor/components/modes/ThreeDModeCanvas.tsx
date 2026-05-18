@@ -1,7 +1,7 @@
-import { lazy, useEffect } from 'react'
+import { lazy, useEffect, useMemo } from 'react'
 import { useFreshIfcUrl } from '@/features/editor/hooks/useFreshIfcUrl'
-import type { EditorCanvasRenderProps } from '@/pages/editor/types/editorCanvasContentProps'
-import type { ThreeDCameraViewPresetCommand, ThreeDCoordinates } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
+import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
+import type { ThreeDCameraViewPresetCommand, ThreeDCoordinates } from '../canvas-content/buildCanvasSectionProps'
 
 /** ThreeDCanvas는 ThatOpen 기반 Three.js 렌더러를 포함해 무거우므로 lazy 로드한다. */
 const ThreeDCanvas = lazy(() =>
@@ -35,7 +35,7 @@ export default function ThreeDModeCanvas({
   // assetId가 없거나 재발급 실패 시 mock IFC로 폴백
   const freshIfcUrl = useFreshIfcUrl(
     editorProps.currentIfcAssetId,
-    editorProps.currentIfcUrl,
+    editorProps.currentIfcUrl ?? '/mock/shinchan_house.ifc',
   )
 
   useEffect(() => {
@@ -46,6 +46,25 @@ export default function ThreeDModeCanvas({
       freshIfcUrl,
     })
   }, [editorProps.currentIfcAssetId, editorProps.currentIfcUrl, freshIfcUrl])
+
+  const overlayIfcStoreyOpacityByExpressId = useMemo(() => {
+    const overlayIds = editorProps.overlayIfcStoreyExpressIds ?? []
+    if (overlayIds.length === 0) return undefined
+
+    // 층보기 투명도 값이 아직 저장되지 않은 층도 기본값(0.35)으로 전달해
+    // IFC 겹쳐보기 렌더 경로가 항상 동일하게 동작하도록 유지한다.
+    const entries = overlayIds.map((storeyId) => {
+      const key = String(storeyId)
+      const stored = editorProps.overlayOpacityByLayerId[key]
+      const normalizedStored = Number.isFinite(stored)
+        ? (stored > 1 ? stored / 100 : stored)
+        : 0.35
+      const rawValue = Number.isFinite(normalizedStored) ? normalizedStored : 0.35
+      const value = Math.min(Math.max(rawValue, 0.1), 1)
+      return [storeyId, value] as const
+    })
+    return Object.fromEntries(entries) as Record<number, number>
+  }, [editorProps.overlayIfcStoreyExpressIds, editorProps.overlayOpacityByLayerId])
 
   return (
     <ThreeDCanvas
@@ -77,7 +96,19 @@ export default function ThreeDModeCanvas({
       onIfcElementSelect={editorProps.handleSelectIfcElement}
       onIfcElementDelete={editorProps.handleDeleteIfcElement}
       onIfcElementTransformCommit={editorProps.handleCommitIfcElementTransform}
+      libraryElements={editorProps.libraryElements}
+      onAddLibraryPreset={editorProps.handleAddLibraryPreset}
+      onLibraryElementChange={editorProps.handleChangeLibraryElement}
+      onLibraryElementDelete={editorProps.handleDeleteLibraryElement}
       localFloorData={editorProps.localFloorData}
+      onStoreysLoad={editorProps.handleIfcStoreysLoad}
+      activeStoreyExpressId={editorProps.activeIfcStoreyExpressId}
+      overlayIfcStoreyExpressIds={editorProps.overlayIfcStoreyExpressIds}
+      overlayIfcStoreyOpacityByExpressId={overlayIfcStoreyOpacityByExpressId}
+      requestedIfcElementLocalId={editorProps.requestedIfcElementLocalId}
+      ifcElementSelectionRequestToken={editorProps.ifcElementSelectionRequestToken}
+      requestedLibraryElementId={editorProps.requestedLibraryElementId}
+      libraryElementSelectionRequestToken={editorProps.libraryElementSelectionRequestToken}
       onThreeDCoordinatesChange={onThreeDCoordinatesChange}
       cameraViewPresetCommand={cameraViewPresetCommand}
       isTransformSnapEnabled={editorProps.isGridSnapEnabled}

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '@/features/editor/types'
-import { FLOOR_MM_PER_PX } from '@/features/editor/constants'
-import type { FloorPlan3DData } from '@/features/editor/utils/floorPlanTo3D'
+import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '../../types'
+import { FLOOR_MM_PER_PX } from '../../constants'
+import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
-import { buildFloorPlan3DGroup } from '@/features/editor/utils/floorPlanTo3D'
+import { buildFloorPlan3DGroup } from '../../utils/floorPlanTo3D'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import { getFloorPlanElementInfo, isSelectableThreeDComponent } from './threeDSelection.utils'
 import {
@@ -12,7 +12,7 @@ import {
   isSelectionInteractionTool,
   isSelectionTool,
 } from './threeDInteraction.utils'
-import { normalizeSnapIntervalMm, toRotationSnapRadians } from '@/features/editor/utils/threeDSnap.utils'
+import { normalizeSnapIntervalMm, toRotationSnapRadians } from '../../utils/threeDSnap.utils'
 import { disposeObject3DResources, findGroupRootFromObject } from './threeDCanvasObject.utils'
 import { mergeSelectionByKey } from './threeDSelectionCollection.utils'
 import ThreeDMarqueeOverlay from './ThreeDMarqueeOverlay'
@@ -85,6 +85,15 @@ type MultiSelectionEntry = {
   element: IfcElementInfo
 }
 
+const PRESET_MOVE_DEBUG = import.meta.env.DEV || import.meta.env.VITE_3D_MOVE_DEBUG === 'true'
+const ALWAYS_TRACE_LOCAL3D_EVENTS = new Set<string>([
+  'pick_candidates',
+  'pick_floor_object',
+  'library_sync_start',
+  'library_sync_rebuild_done',
+  'transform_commit',
+])
+
 const logRoofDebug = (...args: unknown[]) => {
   if (!import.meta.env.DEV) return
   console.log('[roof-debug][FloorPlan3DCanvas]', ...args)
@@ -98,6 +107,7 @@ const logRoofDebug = (...args: unknown[]) => {
  */
 export function FloorPlan3DCanvas({
   data,
+  selectedTool = 'selection',
   libraryElements,
   commentPins = [],
   isCollaborationMode = false,
@@ -111,7 +121,6 @@ export function FloorPlan3DCanvas({
   deleteRequestToken = 0,
   isRotationLocked = false,
   transformMode = 'translate',
-  selectedTool = 'selection',
   onLibraryElementChange,
   onLibraryElementDelete,
   onIfcElementSelect,
@@ -141,12 +150,13 @@ export function FloorPlan3DCanvas({
   const isCollaborationModeRef = useRef(isCollaborationMode)
   const deletingPinIdRef = useRef(deletingPinId)
   const selectedPresetRef = useRef<LibraryObject3D | null>(null)
+  const selectedFloorObjectRef = useRef<import('three').Object3D | null>(null)
+  const selectedToolRef = useRef(selectedTool)
   const animationFrameIdRef = useRef(0)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const handledLibraryDropTokenRef = useRef(0)
   const handledCameraPresetTokenRef = useRef(0)
   const transformModeRef = useRef<'translate' | 'rotate' | 'scale'>(transformMode)
-  const selectedToolRef = useRef(selectedTool)
   const rotationLockedRef = useRef(isRotationLocked)
   const isEditingLockedRef = useRef(isEditingLocked)
   const transformSnapEnabledRef = useRef(transformSnapEnabled)
@@ -175,9 +185,7 @@ export function FloorPlan3DCanvas({
   useEffect(() => { onLibraryElementChangeRef.current = onLibraryElementChange }, [onLibraryElementChange])
   useEffect(() => { onLibraryElementDeleteRef.current = onLibraryElementDelete }, [onLibraryElementDelete])
   useEffect(() => { onIfcElementSelectRef.current = onIfcElementSelect }, [onIfcElementSelect])
-  useEffect(() => {
-    onIfcElementTransformCommitRef.current = onIfcElementTransformCommit
-  }, [onIfcElementTransformCommit])
+  useEffect(() => { onIfcElementTransformCommitRef.current = onIfcElementTransformCommit }, [onIfcElementTransformCommit])
   useEffect(() => { onPinClickRef.current = onPinClick }, [onPinClick])
   useEffect(() => { onPinCreateRef.current = onPinCreate }, [onPinCreate])
   useEffect(() => { onPinDeleteRef.current = onPinDelete }, [onPinDelete])
@@ -230,6 +238,9 @@ export function FloorPlan3DCanvas({
       tc.detach()
       tc.visible = false
       tc.enabled = false
+      if (multiAnchorRef.current) {
+        scene.remove(multiAnchorRef.current)
+      }
       multiAnchorRef.current = null
       selectedPresetRef.current = null
       onIfcElementSelectRef.current?.(null)
@@ -294,6 +305,44 @@ export function FloorPlan3DCanvas({
     isEditingLockedRef.current = isEditingLocked
     updateTransformSelection()
   }, [isEditingLocked, updateTransformSelection])
+
+  const logPresetMove = useCallback((event: string, payload?: Record<string, unknown>) => {
+    const runtimeDebugEnabled = (() => {
+      if (typeof window === 'undefined') return false
+      try {
+        const search = new URLSearchParams(window.location.search)
+        if (search.get('local3dDebug') === '1' || search.get('local3dDebug') === 'true') return true
+        if (window.localStorage?.getItem('local3dDebug') === '1') return true
+        const runtimeFlag = (window as Window & { __LOCAL3D_PRESET_DEBUG__?: boolean }).__LOCAL3D_PRESET_DEBUG__
+        return runtimeFlag === true
+      } catch {
+        return false
+      }
+    })()
+    const shouldTrace = PRESET_MOVE_DEBUG || runtimeDebugEnabled || ALWAYS_TRACE_LOCAL3D_EVENTS.has(event)
+    if (!shouldTrace) return
+    if (payload) {
+      console.log(`[LOCAL3D_PRESET] ${event}`, payload)
+      return
+    }
+    console.log(`[LOCAL3D_PRESET] ${event}`)
+  }, [])
+
+  const clearTransformSelection = useCallback(() => {
+    const targetTc = transformControlsRef.current
+    if (!targetTc) return
+    const selectedPreset = selectedPresetRef.current
+    logPresetMove('selection_clear', {
+      presetId: selectedPreset ? getLibraryPresetFromObject(selectedPreset)?.id ?? null : null,
+    })
+    targetTc.detach()
+    targetTc.visible = false
+    targetTc.enabled = false
+    selectedPresetRef.current = null
+    selectedFloorObjectRef.current = null
+    selectedEntriesRef.current = []
+    onIfcElementSelectRef.current?.(null)
+  }, [logPresetMove])
 
   useEffect(() => {
     const THREE = threeRef.current
@@ -646,9 +695,11 @@ export function FloorPlan3DCanvas({
           }
         })
       })
+      let isTransformDragging = false
       ;(tc as unknown as {
         addEventListener: (type: 'dragging-changed' | 'mouseDown' | 'objectChange', listener: (e: { value: boolean }) => void) => void
       }).addEventListener('dragging-changed', (event) => {
+        isTransformDragging = event.value
         ;(controls as unknown as { enabled: boolean }).enabled = !event.value
         if (event.value) return
 
@@ -671,13 +722,13 @@ export function FloorPlan3DCanvas({
             }
             const libraryObject = entry.object as LibraryObject3D
             const preset = getLibraryPresetFromObject(libraryObject)
-            if (preset) {
-              const patch: Partial<ThreeDLibraryPreset> = {
-                position: { x: libraryObject.position.x, y: libraryObject.position.y, z: libraryObject.position.z },
-                rotation: { x: libraryObject.rotation.x, y: libraryObject.rotation.y, z: libraryObject.rotation.z },
-              }
-              onLibraryElementChangeRef.current?.(preset.id, patch)
+            if (!preset) return
+            const patch: Partial<ThreeDLibraryPreset> = {
+              position: { x: libraryObject.position.x, y: libraryObject.position.y, z: libraryObject.position.z },
+              rotation: { x: libraryObject.rotation.x, y: libraryObject.rotation.y, z: libraryObject.rotation.z },
+              scale: { x: libraryObject.scale.x, y: libraryObject.scale.y, z: libraryObject.scale.z },
             }
+            onLibraryElementChangeRef.current?.(preset.id, patch)
           })
           multiDragSnapshotRef.current = null
           return
@@ -711,6 +762,7 @@ export function FloorPlan3DCanvas({
         const patch: Partial<ThreeDLibraryPreset> = {
           position: { x: selected.position.x, y: selected.position.y, z: selected.position.z },
           rotation: { x: selected.rotation.x, y: selected.rotation.y, z: selected.rotation.z },
+          scale: { x: selected.scale.x, y: selected.scale.y, z: selected.scale.z },
         }
         if (transformModeRef.current === 'scale') {
           const scalePatch = getLibraryScaleDimensionPatch(selected)
@@ -731,7 +783,9 @@ export function FloorPlan3DCanvas({
         if (event.button !== 0) return
         const isDeleteMode = isDeleteTool(selectedToolRef.current)
         const isSelectionMode = isSelectionTool(selectedToolRef.current)
-        if (!isCollaborationModeRef.current && !isSelectionInteractionTool(selectedToolRef.current)) return
+        // 기즈모가 활성 상태면 도구 제한 없이 선택/해제를 처리한다.
+        const wasTransformActive = tc.visible && tc.enabled
+        if (!isCollaborationModeRef.current && !isSelectionInteractionTool(selectedToolRef.current) && !wasTransformActive) return
         const bounds = renderer.domElement.getBoundingClientRect()
         if (!isPointerInsideBounds(bounds, event.clientX, event.clientY)) return
 
@@ -771,47 +825,67 @@ export function FloorPlan3DCanvas({
           ? (floorHit as { distance: number }).distance
           : Number.POSITIVE_INFINITY
 
+        // TC의 pointerDown은 hover로 남은 axis가 있으면 planeIntersect 성공 여부와 무관하게
+        // dragging=true를 설정한다(TC 소스의 구조적 결함). isTransformDragging=true라도
+        // 실제로 다른 오브젝트를 클릭한 경우는 TC drag를 취소하고 재선택을 허용한다.
+        if (isTransformDragging) {
+          const tcObj = (tc as unknown as { object: import('three').Object3D | undefined }).object
+          if (tcObj === multiAnchorRef.current) return
+          let isDifferentObject = false
+          if (libraryHit?.object && libraryDistance <= floorDistance) {
+            const hitRoot = findLibraryRoot(libraryHit.object, presetGroup) ?? libraryHit.object
+            isDifferentObject = hitRoot !== tcObj
+          } else if (floorHit?.object && floorGroupRef.current) {
+            const hitRoot = findGroupRootFromObject(floorHit.object, floorGroupRef.current)
+            isDifferentObject = hitRoot !== null && hitRoot !== tcObj
+          }
+          if (!isDifferentObject) return
+          ;(tc as unknown as { dragging: boolean }).dragging = false
+        }
+
         const isAppend = isSelectionMode && event.shiftKey
         if (libraryHit?.object && libraryDistance <= floorDistance) {
           const root = findLibraryRoot(libraryHit.object, presetGroup) ?? (libraryHit.object as LibraryObject3D)
           const elementInfo = getLibraryElementInfo(root)
-          if (!elementInfo || !isSelectableThreeDComponent(elementInfo)) return
-          const nextEntry: MultiSelectionEntry = {
-            key: `library:${elementInfo.id}`,
-            object: root,
-            source: 'library',
-            element: elementInfo,
-          }
-          if (isDeleteMode) {
-            commitSelection([nextEntry])
-            deleteSelectedEntry()
+          if (elementInfo && isSelectableThreeDComponent(elementInfo)) {
+            const nextEntry: MultiSelectionEntry = {
+              key: `library:${elementInfo.id}`,
+              object: root,
+              source: 'library',
+              element: elementInfo,
+            }
+            if (isDeleteMode) {
+              commitSelection([nextEntry])
+              deleteSelectedEntry()
+              return
+            }
+            upsertSelection(nextEntry, isAppend)
             return
           }
-          upsertSelection(nextEntry, isAppend)
-          return
         }
 
         if (floorHit?.object && floorGroupRef.current) {
           const root = findGroupRootFromObject(floorHit.object, floorGroupRef.current)
           const elementInfo = root ? getFloorPlanElementInfo(root) : null
-          if (!root || !elementInfo || !isSelectableThreeDComponent(elementInfo)) return
-          if (isDeleteMode) {
-            commitSelection([{
+          if (root && elementInfo && isSelectableThreeDComponent(elementInfo)) {
+            if (isDeleteMode) {
+              commitSelection([{
+                key: `floor:${elementInfo.id}`,
+                object: root,
+                source: 'floor',
+                element: elementInfo,
+              }])
+              deleteSelectedEntry()
+              return
+            }
+            upsertSelection({
               key: `floor:${elementInfo.id}`,
               object: root,
               source: 'floor',
               element: elementInfo,
-            }])
-            deleteSelectedEntry()
+            }, isAppend)
             return
           }
-          upsertSelection({
-            key: `floor:${elementInfo.id}`,
-            object: root,
-            source: 'floor',
-            element: elementInfo,
-          }, isAppend)
-          return
         }
 
         if (!isAppend && !isDeleteMode) {
@@ -1019,6 +1093,44 @@ export function FloorPlan3DCanvas({
     const tc = transformControlsRef.current
     if (!THREE || !presetGroup) return
 
+    const elements = libraryElements ?? []
+    const existingChildren = presetGroup.children as unknown as LibraryObject3D[]
+
+    // 구조 변경 없이 위치/회전/스케일만 달라진 경우 in-place 업데이트로 깜빡임을 방지한다.
+    const canUpdateInPlace =
+      existingChildren.length === elements.length &&
+      elements.length > 0 &&
+      elements.every((preset, i) => {
+        const existing = getLibraryPresetFromObject(existingChildren[i])
+        return (
+          existing?.id === preset.id &&
+          existing?.type === preset.type &&
+          existing?.material === preset.material &&
+          existing?.color === preset.color &&
+          existing?.lengthMm === preset.lengthMm &&
+          existing?.heightMm === preset.heightMm &&
+          existing?.thicknessMm === preset.thicknessMm &&
+          existing?.roofShape === preset.roofShape
+        )
+      })
+
+    if (canUpdateInPlace) {
+      elements.forEach((preset, i) => {
+        const mesh = existingChildren[i] as import('three').Object3D
+        if (preset.position) mesh.position.set(preset.position.x, preset.position.y, preset.position.z)
+        if (preset.rotation) mesh.rotation.set(preset.rotation.x, preset.rotation.y, preset.rotation.z)
+        if (preset.scale) mesh.scale.set(preset.scale.x, preset.scale.y, preset.scale.z)
+        if (mesh.userData) mesh.userData.libraryPreset = preset
+      })
+      return
+    }
+
+    logPresetMove('library_sync_start', {
+      presetCount: libraryElements?.length ?? 0,
+      existingScenePresetCount: presetGroup.children.length,
+      presetIds: (libraryElements ?? []).map((preset) => preset.id),
+    })
+
     // 변경 전 선택된 프리셋 ID를 보존해 재구성 후 재선택한다.
     const previousSelectedId = selectedPresetRef.current
       ? getLibraryPresetFromObject(selectedPresetRef.current)?.id
@@ -1030,11 +1142,7 @@ export function FloorPlan3DCanvas({
     const previousSelectedFloorEntries = selectedEntriesRef.current.filter((entry) => entry.source === 'floor')
 
     // TransformControls를 먼저 분리해 dangling reference를 방지한다.
-    if (tc) {
-      tc.detach()
-      tc.visible = false
-      tc.enabled = false
-    }
+    if (tc) clearTransformSelection()
     selectedPresetRef.current = null
 
     presetGroup.children.forEach((child) => disposeObjectMaterials(THREE, child))
@@ -1056,6 +1164,12 @@ export function FloorPlan3DCanvas({
         mesh.position.set(preset.position.x, preset.position.y, preset.position.z)
       }
       presetGroup.add(mesh)
+    })
+    logPresetMove('library_sync_rebuild_done', {
+      scenePresetCount: presetGroup.children.length,
+      scenePresetIds: presetGroup.children.map((child) => (
+        getLibraryPresetFromObject(child as LibraryObject3D)?.id ?? child.name ?? '(unknown)'
+      )),
     })
 
     // floor 그룹이 준비된 경우에만 자동 배치한다.
@@ -1114,7 +1228,7 @@ export function FloorPlan3DCanvas({
       selectedEntriesRef.current = [...previousSelectedFloorEntries, ...remappedLibraryEntries]
       updateTransformSelection()
     }
-  }, [libraryElements, updateTransformSelection])
+  }, [clearTransformSelection, libraryElements, logPresetMove, updateTransformSelection])
 
   useEffect(() => {
     if (!cameraViewPresetCommand) return
