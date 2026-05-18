@@ -226,6 +226,7 @@ const FLOOR_PLAN_GENERATE_TIMEOUT_MS = 120_000
 const IFC_SOURCE_CACHE_KEY_PREFIX = 'batang:editor:ifc-source:'
 const PRESIGNED_IFC_CACHE_TTL_MS = 4 * 60 * 1000
 const IFC_EDIT_COMMAND_DLQ_CODE = 'IFC_EDIT_COMMAND_DLQ'
+const UUID_LIKE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 interface CachedIfcSource {
   url: string
   storageUrl: string | null
@@ -335,6 +336,27 @@ const readActiveBubbleFloorFromStorage = (projectId: string | undefined): number
   } catch {
     return null
   }
+}
+
+const parseSafeFloorFromLayerId = (value: string): number | null => {
+  const match = value.match(/^floor-(-?\d+)$/i)
+  if (!match?.[1]) return null
+  const parsed = Number.parseInt(match[1], 10)
+  if (!Number.isFinite(parsed) || Math.abs(parsed) > 200) return null
+  return normalizeBubbleFloor(parsed)
+}
+
+const resolveBubbleFloorFromLayer = (layer: FloorLayer, layerIndex: number): number => {
+  const parsedFromStoreyName = readNonZeroIntegerFromUnknown(layer.storeyName)
+  if (parsedFromStoreyName !== null) return normalizeBubbleFloor(parsedFromStoreyName)
+
+  const parsedFromLayerName = readNonZeroIntegerFromUnknown(layer.name)
+  if (parsedFromLayerName !== null) return normalizeBubbleFloor(parsedFromLayerName)
+
+  const parsedFromLayerId = parseSafeFloorFromLayerId(layer.id)
+  if (parsedFromLayerId !== null) return parsedFromLayerId
+
+  return normalizeBubbleFloor(layerIndex + 1)
 }
 
 const traceBubbleSnapshot = (
@@ -561,7 +583,7 @@ export function useEditorPage() {
     addFloorLayer: baseAddFloorLayer,
     renameFloorLayer: baseRenameFloorLayer,
     deleteFloorLayer: baseDeleteFloorLayer,
-    setActiveLayerId: setActiveFloorLayerId,
+    setActiveLayerId: baseSetActiveFloorLayerId,
     setFloorPlanFromProject,
     moveActiveRoom,
     updateActiveRoom,
@@ -2693,46 +2715,77 @@ export function useEditorPage() {
   const saveFloorPlanSnapshotToDb = useCallback(async () => {
     if (!projectId) return null
 
-    const s3Url = (currentIfcStorageUrl ?? currentIfcUrl)?.trim()
+    const baseIndex = floorPlanHistoryBaseIndexRef.current
+    const hasValidBaseIndex = Number.isInteger(baseIndex) && baseIndex >= 0
+    let s3Url = currentIfcStorageUrl?.trim() || null
+    if (!s3Url && currentIfcUrl && isIfcObjectStorageKey(currentIfcUrl)) {
+      s3Url = currentIfcUrl.trim()
+    }
     if (!s3Url) {
-      console.warn('[editor] Floor-plan DB save skipped: IFC URL is unavailable.', { projectId })
+      const workspaceDetail = await projectService.getWorkspaceDetail(projectId).catch(() => null)
+      const fallbackStorageUrl = workspaceDetail?.ifcStorageUrl?.trim() || null
+      if (fallbackStorageUrl) s3Url = fallbackStorageUrl
+    }
+    if (!hasValidBaseIndex && !s3Url) {
+      console.warn('[editor] Floor-plan DB save skipped: missing baseIndex and IFC URL.', { projectId, baseIndex })
       setSaveStatus('error')
       return null
     }
 
+    const normalizedRevisionId = currentIfcRevisionId?.trim() || null
+    const revisionId = normalizedRevisionId && UUID_LIKE_PATTERN.test(normalizedRevisionId)
+      ? normalizedRevisionId
+      : null
+
     setSaveStatus('syncing')
     try {
       const saved = await workspaceSaveService.saveFloorPlanSnapshot(projectId, {
-        revisionId: currentIfcRevisionId,
+        revisionId,
+        baseIndex: hasValidBaseIndex ? baseIndex : undefined,
         s3Url,
       })
-      setWorkspacePhaseStatus(saved.status)
-      setIfcRevisionByProjectId((prev) => ({
-        ...prev,
-        [projectId]: saved.revisionId,
-      }))
-      setIfcSourceByProjectId((prev) => ({
-        ...prev,
-        [projectId]: {
-          url: currentIfcUrl ?? saved.s3Url,
-          storageUrl: saved.s3Url,
+      setWorkspacePhaseStatus(saved.phaseStatus ?? saved.status ?? workspacePhaseStatus)
+
+      if (saved.revisionId) {
+        setIfcRevisionByProjectId((prev) => ({
+          ...prev,
+          [projectId]: saved.revisionId ?? null,
+        }))
+      }
+
+      if (saved.s3Url?.trim()) {
+        const resolvedS3Url = saved.s3Url.trim()
+        setIfcSourceByProjectId((prev) => ({
+          ...prev,
+          [projectId]: {
+            url: currentIfcUrl ?? resolvedS3Url,
+            storageUrl: resolvedS3Url,
+            assetId: currentIfcAssetId,
+          },
+        }))
+        writeCachedIfcSource(projectId, {
+          url: currentIfcUrl ?? resolvedS3Url,
+          storageUrl: resolvedS3Url,
           assetId: currentIfcAssetId,
-        },
-      }))
-      writeCachedIfcSource(projectId, {
-        url: currentIfcUrl ?? saved.s3Url,
-        storageUrl: saved.s3Url,
-        assetId: currentIfcAssetId,
-        revisionId: saved.revisionId,
-      })
+          revisionId: saved.revisionId ?? revisionId,
+        })
+      }
+
       setSaveStatus('synced')
       return saved
     } catch (error: unknown) {
-      console.warn('[editor] Floor-plan snapshot DB save failed:', { projectId, error })
+      const parsedError = isAxiosError(error)
+        ? {
+          status: error.response?.status,
+          code: (error.response?.data as { code?: unknown } | undefined)?.code,
+          message: (error.response?.data as { message?: unknown } | undefined)?.message ?? error.message,
+        }
+        : error
+      console.warn('[editor] Floor-plan snapshot DB save failed:', { projectId, error: parsedError })
       setSaveStatus('error')
       return null
     }
-  }, [currentIfcAssetId, currentIfcRevisionId, currentIfcStorageUrl, currentIfcUrl, projectId])
+  }, [currentIfcAssetId, currentIfcRevisionId, currentIfcStorageUrl, currentIfcUrl, projectId, workspacePhaseStatus])
 
   const flushPendingLocalBubbleChange = useCallback(() => {
     if (localBubbleChangeFlushRafRef.current !== null) {
@@ -3565,13 +3618,47 @@ export function useEditorPage() {
     markLocalBubbleSnapshotChanged()
     markLocalFloorPlanSnapshotChanged()
 
-    const createdBubble = addBubble(addSpaceFormData, resolvedActiveBubbleFloor)
+    const activeLayer = activeFloorLayerId
+      ? floorLayers.find((layer) => layer.id === activeFloorLayerId) ?? null
+      : null
+    const activeLayerIndex = activeLayer
+      ? floorLayers.findIndex((layer) => layer.id === activeLayer.id)
+      : -1
+    const targetFloor = activeLayer && activeLayerIndex >= 0
+      ? resolveBubbleFloorFromLayer(activeLayer, activeLayerIndex)
+      : resolvedActiveBubbleFloor
+    const createdBubble = addBubble(addSpaceFormData, targetFloor)
     const connectedIds = collectConnectedRoomIds(createdBubble.id, connections)
     const createdRoom = toFloorRoomFromBubble(createdBubble, connectedIds)
+    const targetLayerId = `floor-${normalizeBubbleFloor(createdBubble.floor)}`
+    const matchedLayer = activeLayer
+      ?? floorLayers.find((layer) => layer.id === targetLayerId)
+      ?? null
+    workspaceCommandPublisher.createRoom(createdRoom, {
+      storeyGlobalId: matchedLayer?.storeyGlobalId,
+      storeyName: matchedLayer?.storeyName ?? matchedLayer?.name,
+    })
 
-    addActiveRoom(createdRoom)
-    const nextRooms = upsertFloorRoomByBubbleId(floorRooms, createdRoom)
-    syncFloorDerivedStateFromRooms(nextRooms)
+    if (matchedLayer) {
+      const nextRooms = upsertFloorRoomByBubbleId(matchedLayer.rooms, createdRoom)
+      const nextLayers = floorLayers.map((layer) => (
+        layer.id === matchedLayer.id
+          ? { ...layer, rooms: nextRooms }
+          : layer
+      ))
+      replaceFloorPlanState({
+        isGenerated: isFloorPlanGenerated,
+        layoutSource: floorPlanLayoutSource,
+        layers: nextLayers,
+        activeLayerId: matchedLayer.id,
+      })
+      syncFloorDerivedStateFromRooms(nextRooms)
+    } else {
+      // 레이어 매핑 정보가 없을 때는 기존 활성 층 경로로 폴백한다.
+      addActiveRoom(createdRoom)
+      const nextRooms = upsertFloorRoomByBubbleId(floorRooms, createdRoom)
+      syncFloorDerivedStateFromRooms(nextRooms)
+    }
 
     handleBubbleSelect(createdBubble.id)
     clearConnectionAndTwoDSelection()
@@ -3585,7 +3672,8 @@ export function useEditorPage() {
     }
     if (isBubbleReadOnly) return
     markLocalBubbleSnapshotChanged()
-    addBubble(addSpaceFormData, resolvedActiveBubbleFloor)
+    const createdBubble = addBubble(addSpaceFormData, resolvedActiveBubbleFloor)
+    handleBubbleSelect(createdBubble.id)
     setIsAddModalOpen(false)
   }
 
@@ -4486,6 +4574,25 @@ export function useEditorPage() {
     })
     markLocalFloorPlanSnapshotChanged()
   }, [deleteFloorLayer, floorLayers.length, floorOpenings, floorWalls, markLocalFloorPlanSnapshotChanged])
+
+  const resolveBubbleFloorForLayerSelection = useCallback((layerId: string): number | null => {
+    const targetLayer = floorLayers.find((layer) => layer.id === layerId)
+    if (!targetLayer) return null
+
+    const layerIndex = floorLayers.findIndex((layer) => layer.id === layerId)
+    if (layerIndex < 0) return null
+    return resolveBubbleFloorFromLayer(targetLayer, layerIndex)
+  }, [floorLayers])
+
+  const setActiveFloorLayerId = useCallback((layerId: string) => {
+    baseSetActiveFloorLayerId(layerId)
+    const nextFloor = resolveBubbleFloorForLayerSelection(layerId)
+    if (nextFloor === null) return
+
+    setActiveBubbleFloor(nextFloor)
+    setExtraBubbleFloors((prev) => (prev.includes(nextFloor) ? prev : [...prev, nextFloor]))
+    setBubbleFloorNamesByNumber((prev) => (prev[nextFloor] ? prev : { ...prev, [nextFloor]: String(nextFloor) }))
+  }, [baseSetActiveFloorLayerId, resolveBubbleFloorForLayerSelection])
 
   const {
     handleCreateFloorWall: baseHandleCreateFloorWall,

@@ -25,7 +25,7 @@ export default function AddSpaceToolButton({
       label={label}
       title={title}
       isDisabled={isDisabled}
-      onClick={onClick}
+      onClick={!isDisabled ? onClick : undefined}
       icon={icon}
     />
   )
