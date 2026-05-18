@@ -90,6 +90,8 @@ def main() -> None:
     f2_dir, t = _step_build_f2(source_dirs, output_root, args.skip_regen)
     timings["f2_baseline"] = t
 
+    style_profile, _, shinchan_match = _resolve_style_profile(args.ifc.resolve())
+
     # Step 3: H-1.b hot diffusion + fidelity gate
     h1_outputs, t, gate_log = _step_h1_diffusion(
         source_dirs=source_dirs,
@@ -98,6 +100,7 @@ def main() -> None:
         model_id=args.model_id,
         day_seed=args.day_seed,
         night_seed=args.night_seed,
+        style_profile=style_profile,
     )
     timings["h1_diffusion"] = t
 
@@ -116,6 +119,7 @@ def main() -> None:
         h1_outputs=h1_outputs,
         h3_outputs=h3_outputs,
         gate_log=gate_log,
+        shinchan_signature_matched=shinchan_match,
         total_elapsed=time.time() - overall_started,
     )
 
@@ -191,6 +195,58 @@ _CATEGORY_KEY_TO_SEMANTIC: dict[str, str] = {
     "door": "DOOR",
 }
 
+# Color-name fingerprint of shinchan.ifc as classified by
+# `nearest_prompt_color_name`. When an incoming IFC matches enough of these
+# categories, the production script opts into SHINCHAN_STYLE_PROFILE so the
+# tuned palette is applied. Other IFCs fall through to a profile derived from
+# their own color summary.
+SHINCHAN_COLOR_SIGNATURE: dict[str, str] = {
+    "ROOF": "red",
+    "WALL": "white",
+    "WINDOW": "blue",
+    "DOOR": "tan",
+}
+SHINCHAN_SIGNATURE_MIN_MATCHES = 3
+
+
+def _classify_category_color(summary, semantic: str) -> str | None:
+    from ai_rendering.ifc2img.semantics import nearest_prompt_color_name
+
+    category_summary = summary.categories.get(semantic)
+    if category_summary is None or category_summary.color is None:
+        return None
+    rgb = category_summary.color.rgb
+    if rgb is None:
+        return None
+    return nearest_prompt_color_name(rgb)
+
+
+def _matches_shinchan_signature(summary) -> bool:
+    matches = 0
+    for semantic, expected in SHINCHAN_COLOR_SIGNATURE.items():
+        if _classify_category_color(summary, semantic) == expected:
+            matches += 1
+    return matches >= SHINCHAN_SIGNATURE_MIN_MATCHES
+
+
+def _resolve_style_profile(ifc_path: Path):
+    """Pick a StylePrompt: SHINCHAN profile on signature match, IFC-derived otherwise."""
+    from ai_rendering.ifc2img.semantics import extract_ifc_color_summary
+    from ai_rendering.ifc2img.soft_lock import (
+        SHINCHAN_STYLE_PROFILE,
+        style_profile_from_ifc_color_summary,
+    )
+
+    summary = extract_ifc_color_summary(ifc_path)
+    if _matches_shinchan_signature(summary):
+        print("[prod] style profile: SHINCHAN (IFC color signature matched)")
+        return SHINCHAN_STYLE_PROFILE, summary, True
+    print(
+        "[prod] style profile: derived from IFC color summary "
+        "(no shinchan signature match)"
+    )
+    return style_profile_from_ifc_color_summary(summary), summary, False
+
 
 def _step_h1_diffusion(
     *,
@@ -200,6 +256,7 @@ def _step_h1_diffusion(
     model_id: str,
     day_seed: int,
     night_seed: int,
+    style_profile,
 ) -> tuple[dict[tuple[str, str], Path], float, dict[tuple[str, str], dict]]:
     t0 = time.time()
     from ai_rendering.ifc2img.element_masks import (
@@ -260,7 +317,9 @@ def _step_h1_diffusion(
 
             visible = visible_categories_from_element_masks(masks)
             prompt = build_region_aware_prompt(
-                visible_categories=visible, time_of_day=tod
+                visible_categories=visible,
+                time_of_day=tod,
+                style_profile=style_profile,
             )
             negative = build_region_aware_negative_prompt(time_of_day=tod)
             init_image = Image.open(init_path).convert("RGB")
@@ -405,6 +464,7 @@ def _write_manifest(
     h1_outputs: dict[tuple[str, str], Path],
     h3_outputs: dict[tuple[str, str], Path],
     gate_log: dict[tuple[str, str], dict],
+    shinchan_signature_matched: bool,
     total_elapsed: float,
 ) -> None:
     payload = {
@@ -444,6 +504,14 @@ def _write_manifest(
         "h1FidelityFallbackCount": sum(
             1 for entry in gate_log.values() if entry.get("fallbackUsed")
         ),
+        "stylePrompt": {
+            "source": (
+                "SHINCHAN_STYLE_PROFILE"
+                if shinchan_signature_matched
+                else "derived_from_ifc_color_summary"
+            ),
+            "shinchanSignatureMatched": shinchan_signature_matched,
+        },
     }
     out = output_root / "production_manifest.json"
     out.write_text(
