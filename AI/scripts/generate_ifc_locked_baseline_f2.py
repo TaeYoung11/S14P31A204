@@ -80,6 +80,41 @@ def main() -> None:
     print(json.dumps(_summarize_manifest(manifest), ensure_ascii=False, indent=2))
 
 
+def generate_ifc_locked_baseline_f2_for_time_of_day(
+    *,
+    time_of_day: str,
+    debug_manifest_path: Path,
+    output_dir: Path,
+) -> dict[str, Any]:
+    """Single-TOD F-2 baseline generator for soft_lock photo pipeline callers."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    debug_manifest = _load_json(debug_manifest_path)
+    case_name = f"ifc_locked_baseline_{time_of_day.lower()}"
+    case = _generate_case(
+        case_name=case_name,
+        time_of_day=time_of_day,
+        debug_manifest=debug_manifest,
+        debug_manifest_path=debug_manifest_path,
+        case_output_dir=output_dir / case_name,
+    )
+    manifest = {
+        "schemaVersion": "ifc2img.f2IfcLockedBaseline.v1",
+        "contract": {
+            "geometryIdentical": True,
+            "buildingSource": "elementMaskRecomposite",
+            "diffusionUsed": False,
+            "scope": "single_time_of_day",
+        },
+        "sources": {"debugManifest": _posix(debug_manifest_path)},
+        "cases": [case],
+    }
+    (output_dir / MANIFEST_NAME).write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
 def generate_ifc_locked_baseline_f2(
     *,
     day_debug_manifest_path: Path,
