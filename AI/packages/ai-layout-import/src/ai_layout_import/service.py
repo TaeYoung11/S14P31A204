@@ -1956,6 +1956,7 @@ def _create_v3_openings(
     request: LayoutImportRequestModel,
     host_wall_registry: HostWallRegistry,
 ) -> None:
+    # V3 openings are explicit openings[] payload entries with host refs and dimensions.
     if not isinstance(request, LayoutImportV3):
         return
     if not request.generation_options.generate_openings:
@@ -2028,6 +2029,8 @@ def _create_v2_inferred_openings(
     request: LayoutImportRequestModel,
     host_wall_registry: HostWallRegistry,
 ) -> None:
+    # V2 openings are inferred from shared room walls plus adjacency/connection intent.
+    # Explicit openings[] remain a V3-only contract.
     if not isinstance(request, LayoutImportV2):
         return
     if not request.generation_options.generate_openings:

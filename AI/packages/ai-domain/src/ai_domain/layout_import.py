@@ -380,7 +380,7 @@ class LayoutImportV1(LayoutImportCommon):
 
 
 class LayoutImportV2(LayoutImportCommon):
-    """v2 request model for new IFC import."""
+    """v2 request model for new IFC import with adjacency-inferred openings."""
 
     schema_version: Literal["v2"]
     generation_options: GenerationOptionsV2 = Field(default_factory=GenerationOptionsV2)
@@ -392,11 +392,13 @@ class LayoutImportV2(LayoutImportCommon):
         if not self.generation_options.generate_spaces:
             raise ValueError("generate_spaces=false is not supported in this ticket")
 
+        # In v2, generate_openings enables adjacency/connection-intent inference.
+        # Explicit openings[] remain a v3-only contract.
         return self
 
 
 class LayoutImportV3(LayoutImportCommon):
-    """v3 request model for explicit openings validation."""
+    """v3 request model for explicit openings[] validation."""
 
     schema_version: Literal["v3"]
     generation_options: GenerationOptionsV2 = Field(default_factory=GenerationOptionsV2)
