@@ -44,8 +44,8 @@ export interface LayoutImportBoundaryLogMetadata {
   boundaryOmitReason?: LayoutImportBoundaryOmitReason
 }
 
-function normalizeFloorPlanRoomType(rawType: string): FloorPlanRoomType {
-  const normalized = rawType.trim().toLowerCase()
+function normalizeFloorPlanRoomType(rawType: string | null | undefined): FloorPlanRoomType {
+  const normalized = typeof rawType === 'string' ? rawType.trim().toLowerCase() : ''
   if (normalized === '거실') return 'living'
   if (normalized === '침실' || normalized === '방') return 'bedroom'
   if (normalized === '주방') return 'kitchen'
@@ -88,14 +88,14 @@ function toPositiveMillimeter(value: number): number {
   return rounded > 0 ? rounded : 0
 }
 
-function toOptionalNonBlankString(value: string | undefined): string | undefined {
-  if (value === undefined) return undefined
+function toOptionalNonBlankString(value: string | null | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : undefined
 }
 
-function toLayoutImportWallType(value: string | undefined): 'general' | 'exterior' | 'load_bearing' | 'partition' | undefined {
-  if (value === undefined) return undefined
+function toLayoutImportWallType(value: string | null | undefined): 'general' | 'exterior' | 'load_bearing' | 'partition' | undefined {
+  if (typeof value !== 'string') return undefined
   switch (value.trim()) {
     case 'general':
       return 'general'
@@ -371,12 +371,15 @@ export function buildFloorPlanLayoutImportPayload(
   const rooms = uniqueBubbles.map((bubble) => {
     const center = toBubbleCenterMillimeterPosition(bubble, mmPerPx)
     const sourceBubbleId = bubble.id
+    const roomLabel = toOptionalNonBlankString(bubble.label) ?? sourceBubbleId
+    const roomMaterial = toOptionalNonBlankString(bubble.material)
+    const roomWallType = toLayoutImportWallType(bubble.wallType)
     return {
       id: sourceBubbleId,
       source_bubble_id: sourceBubbleId,
-      original_label: bubble.label.trim() || sourceBubbleId,
+      original_label: roomLabel,
       original_type: toOptionalNonBlankString(bubble.originalType) ?? toOptionalNonBlankString(bubble.type) ?? 'other',
-      name: bubble.label.trim() || sourceBubbleId,
+      name: roomLabel,
       type: normalizeFloorPlanRoomType(bubble.type),
       width: toPositiveMillimeter(bubble.widthMm),
       height: toPositiveMillimeter(bubble.heightMm),
@@ -385,9 +388,9 @@ export function buildFloorPlanLayoutImportPayload(
       y: center.y,
       angle: 0,
       locked: false,
-      ...(toOptionalNonBlankString(bubble.material) ? { material: toOptionalNonBlankString(bubble.material) } : {}),
+      ...(roomMaterial ? { material: roomMaterial } : {}),
       ...(typeof bubble.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(bubble.color) ? { color: bubble.color } : {}),
-      ...(toLayoutImportWallType(bubble.wallType) ? { wall_type: toLayoutImportWallType(bubble.wallType) } : {}),
+      ...(roomWallType ? { wall_type: roomWallType } : {}),
       zoneId: null,
     }
   })
