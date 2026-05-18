@@ -176,7 +176,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         assertThat(directRequest.engineRequest().op()).isEqualTo("create");
         assertThat(directRequest.engineRequest().entity()).isEqualTo("ifcBatch");
         JsonNode engineRequest = directRequest.engineRequest().data();
-        assertThat(engineRequest.get("schema_version").asText()).isEqualTo("v1");
+        assertThat(engineRequest.get("schema_version").asText()).isEqualTo("v2");
         assertThat(engineRequest.get("operations")).hasSize(1);
         assertThat(engineRequest.get("operations").get(0).get("type").asText()).isEqualTo("create_element");
         JsonNode params = engineRequest.get("operations").get(0).get("parameters");
