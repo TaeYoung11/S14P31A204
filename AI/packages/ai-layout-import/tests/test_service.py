@@ -1205,6 +1205,71 @@ def test_convert_layout_to_ifc_generates_v2_inferred_door_for_shared_wall(
     assert len(_space_boundaries_for_wall(model, host_wall)) == 2
 
 
+def test_convert_layout_to_ifc_dedupes_v2_inferred_openings_by_room_pair(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            _base_room(room_id="room-left-01", name="Left Room", x=2100.0, y=1900.0),
+            _base_room(
+                room_id="room-right-01",
+                name="Right Room",
+                room_type="bedroom",
+                x=6300.0,
+                y=1900.0,
+            ),
+        ],
+        adjacency=[
+            {
+                "id": "conn-door-1",
+                "from_room_id": "room-left-01",
+                "to_room_id": "room-right-01",
+                "strength": 0.7,
+                "intent": "circulation",
+                "connection_strength": "normal",
+            },
+            {
+                "id": "conn-door-duplicate",
+                "from_room_id": "room-right-01",
+                "to_room_id": "room-left-01",
+                "strength": 0.8,
+                "intent": "circulation",
+                "connection_strength": "normal",
+            },
+        ],
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": False,
+            "generate_roof": False,
+            "generate_openings": True,
+        },
+        modeling_defaults={
+            "space_height_mm": 3000,
+            "wall_thickness_mm": 200,
+            "slab_thickness_mm": 180,
+            "roof_height_mm": 400,
+        },
+    )
+
+    model = _open_generated_ifc(tmp_path, request, "v2-inferred-opening-dedupe.ifc")
+
+    assert len(model.by_type("IfcOpeningElement")) == 1
+    assert len(model.by_type("IfcDoor")) == 1
+    assert len(model.by_type("IfcRelVoidsElement")) == 1
+    opening = model.by_type("IfcOpeningElement")[0]
+    pset = _property_sets_by_name(opening)["Pset_BatangOpening"]
+    props = _properties_by_name(pset)
+    assert _unwrap_property_value(props["SourceConnectionId"]) == "conn-door-1"
+    host_wall = next(
+        rel.RelatingBuildingElement
+        for rel in model.by_type("IfcRelVoidsElement")
+        if rel.RelatedOpeningElement == opening
+    )
+    assert host_wall.Name.startswith("Shared Room Wall ")
+
+
 def test_convert_layout_to_ifc_generates_v2_open_passage_for_strong_connection(
     tmp_path: Path,
 ) -> None:
