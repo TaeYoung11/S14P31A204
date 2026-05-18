@@ -341,13 +341,13 @@ export function FloorPlan3DCanvas({
     const THREE = threeRef.current
     const markerGroup = pinMarkerGroupRef.current
     if (!THREE || !markerGroup) return
-    syncThreeDPinMarkers(THREE, markerGroup, commentPins, {
+    syncThreeDPinMarkers(THREE, markerGroup, isCollaborationMode ? commentPins : [], {
       selectedPinId,
       currentUserId,
       deletingPinId,
       worldUnitsPerMm: PROJECT_WORLD_UNITS_PER_MM,
     })
-  }, [commentPins, currentUserId, deletingPinId, selectedPinId])
+  }, [commentPins, currentUserId, deletingPinId, isCollaborationMode, selectedPinId])
 
   /** 현재 선택된 엔트리(라이브러리/평면도)를 씬에서 제거하고 상태를 초기화한다. */
   const deleteSelectedEntry = useCallback(() => {
@@ -501,7 +501,7 @@ export function FloorPlan3DCanvas({
       pinMarkerGroup.name = 'comment-pins'
       scene.add(pinMarkerGroup)
       pinMarkerGroupRef.current = pinMarkerGroup
-      syncThreeDPinMarkers(THREE, pinMarkerGroup, commentPinsRef.current, {
+      syncThreeDPinMarkers(THREE, pinMarkerGroup, isCollaborationModeRef.current ? commentPinsRef.current : [], {
         selectedPinId: selectedPinIdRef.current,
         currentUserId: currentUserIdRef.current,
         deletingPinId: deletingPinIdRef.current,

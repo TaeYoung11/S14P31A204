@@ -7,6 +7,9 @@ import { MAX_EDITOR_ZOOM_PERCENT, MIN_EDITOR_ZOOM_PERCENT } from '../../constant
 import type { ThreeDCameraViewPreset } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import { CAMERA_VIEW_PRESETS, GRID_SNAP_INTERVAL_OPTIONS } from './zoomControlBar.constants'
 
+/** 좌측 툴바와 겹치지 않는 기본 위치 (캔버스 좌하단 기준) */
+const ZOOM_CONTROL_INITIAL_OFFSET = { x: 136, y: 24 }
+
 interface ZoomControlBarProps {
   /** 현재 줌 퍼센트 (예: 100 = 100%) */
   zoom: number
@@ -88,7 +91,7 @@ export function ZoomControlBar({
   onSelectCameraViewPreset,
   isEditingLocked = false,
 }: ZoomControlBarProps) {
-  const { panelRef, offset, setOffset, startDrag } = useFloatingPanelDrag({ x: 24, y: 24 }, 12)
+  const { panelRef, offset, setOffset, startDrag } = useFloatingPanelDrag(ZOOM_CONTROL_INITIAL_OFFSET, 12)
   const { isGridControlActive, gridSnapTitle, handleGridSnapToggle } = useZoomControlBar({
     mode,
     isGridVisible,
@@ -103,7 +106,7 @@ export function ZoomControlBar({
   return (
     <div
       ref={panelRef}
-      className="absolute z-10 flex items-center rounded-2xl border border-[#DFE4F0] bg-white/95 px-1.5 py-1.5 shadow-[0_14px_28px_rgba(34,44,92,0.16)] backdrop-blur-sm transition-all"
+      className="absolute z-[140] flex items-center rounded-2xl border border-[#DFE4F0] bg-white/95 px-1.5 py-1.5 shadow-[0_14px_28px_rgba(34,44,92,0.16)] backdrop-blur-sm"
       style={{ left: offset.x, top: offset.y }}
     >
       <button

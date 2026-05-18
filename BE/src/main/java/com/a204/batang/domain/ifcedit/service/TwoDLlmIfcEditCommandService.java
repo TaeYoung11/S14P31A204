@@ -29,7 +29,6 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -48,6 +47,7 @@ public class TwoDLlmIfcEditCommandService {
     private final ProjectAccessService projectAccessService;
     private final IfcEditJobRepository ifcEditJobRepository;
     private final IfcEditJobStepRepository ifcEditJobStepRepository;
+    private final IfcEditActiveJobGuard ifcEditActiveJobGuard;
     private final IfcEditStoragePathBuilder pathBuilder;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
@@ -61,11 +61,7 @@ public class TwoDLlmIfcEditCommandService {
                 .orElseGet(projectAccessService::resolveCurrentUserIdOrThrow);
         projectAccessService.validateProjectOwnerOrThrow(project, currentUserId);
 
-        boolean hasActive = ifcEditJobRepository.existsByProjectIdAndJobTypeInAndStatusIn(
-                projectId,
-                List.of(JOB_TYPE_IFC_EDIT, JOB_TYPE_TWO_D_TO_IFC_EDIT, JOB_TYPE_THREE_D_TO_IFC_EDIT),
-                List.of("QUEUED", "RUNNING")
-        );
+        boolean hasActive = ifcEditActiveJobGuard.hasBlockingActiveJob(projectId);
         if (hasActive) {
             throw new CustomException(ErrorCode.IFC_EDIT_JOB_CONFLICT);
         }

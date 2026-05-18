@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from .exceptions import IFCRenderError
 from .views import IFCView, build_view_prompt
@@ -232,6 +232,13 @@ def _depth_to_control(depth: Image.Image) -> Image.Image:
     if depth.mode != "RGB":
         return depth.convert("RGB")
     return depth
+
+
+def build_depth_edge_control_image(depth: Image.Image) -> Image.Image:
+    """Build an RGB silhouette/edge control image from a depth image."""
+    mask = depth.convert("L").point(lambda value: 255 if value > 0 else 0)
+    edges = mask.filter(ImageFilter.FIND_EDGES)
+    return edges.filter(ImageFilter.MaxFilter(3)).convert("RGB")
 
 
 def build_debug_control_images(
@@ -811,6 +818,8 @@ class DepthStyleRenderer:
         front_diagonal_ground_plane_control_attenuation_strength: float = (
             FRONT_DIAGONAL_GROUND_PLANE_CONTROL_ATTENUATION_STRENGTH
         ),
+        geometry_control_image: Image.Image | None = None,
+        geometry_control_scale: float = FRONT_SIDE_SEMANTIC_CONTROL_SCALE,
     ) -> DepthStyleResult:
         _validate_semantic_control_flags(
             view=view,
@@ -831,6 +840,30 @@ class DepthStyleRenderer:
             )
         control_image: Image.Image | list[Image.Image] = control
         conditioning_scale: float | list[float] = params.controlnet_conditioning_scale
+        if geometry_control_image is not None:
+            if (
+                use_front_full_width_semantic_control
+                or use_front_diagonal_ground_semantic_control
+                or use_front_side_semantic_control
+            ):
+                raise IFCRenderError(
+                    "geometry control image cannot be combined with semantic "
+                    "control options"
+                )
+            if not self.semantic_controlnet_model_id:
+                raise IFCRenderError(
+                    "geometry control image requires semantic_controlnet_model_id"
+                )
+            geometry_control = geometry_control_image.convert("RGB")
+            if geometry_control.size != control.size:
+                raise IFCRenderError(
+                    "geometry control image size must match depth control size"
+                )
+            control_image = [control, geometry_control]
+            conditioning_scale = [
+                params.controlnet_conditioning_scale,
+                geometry_control_scale,
+            ]
         if use_front_full_width_semantic_control and view is IFCView.FRONT:
             if not self.semantic_controlnet_model_id:
                 raise IFCRenderError(

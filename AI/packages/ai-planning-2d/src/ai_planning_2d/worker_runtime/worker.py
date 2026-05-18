@@ -28,6 +28,8 @@ from ai_common.storage.paths import (
 from ai_common.worker_sdk.base_worker import BaseWorker, EventPublisher
 from ai_common.worker_sdk.event_factory import CompletedResult, WorkerResult
 from ai_domain import CommandMessage, EventOutputRef, TwoDLlmCommandPayload
+from ai_domain.worker_messages.payloads_2d import ConversationHistoryMessage
+from openai.types.chat import ChatCompletionMessageParam
 from pydantic import ValidationError
 
 from ..ifc_extractor import (
@@ -95,11 +97,17 @@ def run_two_d_llm_job(
         result = _run_async(
             _run_pipeline(
                 user_instruction=request.userInstruction,
+                conversation_history=_conversation_history_to_openai_messages(
+                    request.conversationHistory
+                ),
                 input_path=str(Path(input_path)),
                 output_path=str(Path(output_path)),
                 project_id="local-2d",
                 base_revision_id=None,
                 clarification_request_id=f"2d-local-{Path(input_path).stem}",
+                selected_wall_id=_selected_wall_id_from_planner_options(
+                    request.plannerOptions
+                ),
             )
         )
     except ClarificationRequiredError as exc:
@@ -185,6 +193,12 @@ class TwoDLlmWorker(BaseWorker):
                 result = _run_async(
                     _run_pipeline(
                         user_instruction=payload.userInstruction,
+                        conversation_history=_conversation_history_to_openai_messages(
+                            payload.conversationHistory
+                        ),
+                        selected_wall_id=_selected_wall_id_from_planner_options(
+                            payload.plannerOptions
+                        ),
                         input_path=str(source_path),
                         output_path=str(output_path),
                         project_id=command.projectId,
@@ -373,11 +387,13 @@ def build_two_d_llm_worker(
 async def _run_pipeline(
     *,
     user_instruction: str,
+    conversation_history: list[ChatCompletionMessageParam] | None,
     input_path: str,
     output_path: str,
     project_id: str,
     base_revision_id: str | None,
     clarification_request_id: str,
+    selected_wall_id: str | None = None,
 ) -> dict[str, Any]:
     try:
         ifc_context = extract_ifc_context(input_path)
@@ -413,7 +429,11 @@ async def _run_pipeline(
             code="ENGINE_INIT_FAILED",
             message=f"failed to initialize 2D planning engine: {exc}",
         ) from exc
-    preview = await pipeline.execute_preview(user_instruction)
+    preview = await pipeline.execute_preview(
+        user_instruction,
+        conversation_history=conversation_history,
+        selected_wall_id=selected_wall_id,
+    )
 
     status = preview.get("status")
     if status in {"needs_clarification", "alternatives"}:
@@ -743,6 +763,33 @@ def _error_result(code: str, message: str, details: Sequence[object]) -> dict[st
         "message": message,
         "details": details,
     }
+
+
+def _selected_wall_id_from_planner_options(
+    planner_options: dict[str, Any] | None,
+) -> str | None:
+    if not isinstance(planner_options, dict):
+        return None
+    # host_wall_global_id를 우선 확인 (3D 워커와 동일한 키 이름)
+    # selectedWallId는 이전 FE 계약과의 하위 호환을 위해 fallback으로 유지
+    for key in ("host_wall_global_id", "selectedWallId"):
+        value = planner_options.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def _conversation_history_to_openai_messages(
+    history: Sequence[ConversationHistoryMessage] | None,
+) -> list[ChatCompletionMessageParam]:
+    if not history:
+        return []
+
+    messages: list[ChatCompletionMessageParam] = []
+    for item in history:
+        if item.content.strip():
+            messages.append({"role": item.role, "content": item.content})
+    return messages
 
 
 __all__ = [

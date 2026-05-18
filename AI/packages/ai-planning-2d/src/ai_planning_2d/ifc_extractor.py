@@ -39,6 +39,15 @@ _SPACE_TYPE_KEYWORDS: dict[str, tuple[str, ...]] = {
 }
 
 
+def resolve_space_type_from_name(name: str) -> str | None:
+    """방 이름(한국어 포함)에서 내부 space type 문자열을 추론한다."""
+    name_lower = name.lower().strip()
+    for space_type, keywords in _SPACE_TYPE_KEYWORDS.items():
+        if name_lower in keywords:
+            return space_type
+    return None
+
+
 class UnsupportedIfcSchemaError(ValueError):
     """Raised when the IFC file schema is valid but unsupported."""
 
@@ -100,12 +109,34 @@ def _extract_storeys(ifc: ifcopenshell.file) -> list[StoreyContext]:
     return storeys
 
 
+def _build_containment_map(ifc: ifcopenshell.file, storey_floors: dict[str, int]) -> dict[str, int]:
+    """IfcRelContainedInSpatialStructure를 직접 순회해 element GlobalId → floor 매핑을 만든다.
+
+    일부 BE 생성 IFC에서 ifcopenshell get_container() 역방향 속성이 동작하지 않아
+    spaces가 추출되지 않는 경우의 fallback으로 사용한다.
+    """
+    mapping: dict[str, int] = {}
+    for rel in ifc.by_type("IfcRelContainedInSpatialStructure"):
+        storey = rel.RelatingStructure
+        if not storey.is_a("IfcBuildingStorey"):
+            continue
+        floor = storey_floors.get(storey.GlobalId)
+        if floor is None:
+            continue
+        for element in rel.RelatedElements:
+            mapping[element.GlobalId] = floor
+    return mapping
+
+
 def _extract_spaces(
     ifc: ifcopenshell.file, storey_floors: dict[str, int]
 ) -> list[SpaceContext]:
+    containment = _build_containment_map(ifc, storey_floors)
     spaces: list[SpaceContext] = []
     for space in ifc.by_type("IfcSpace"):
         floor = _get_floor(space, storey_floors)
+        if floor is None:
+            floor = containment.get(space.GlobalId)
         if floor is None:
             continue
 
@@ -575,6 +606,15 @@ def _extract_space_type(space: Any, psets: dict[str, Any], dims: dict[str, Any])
     explicit = dims.get("SpaceType")
     if isinstance(explicit, str) and explicit.strip():
         return explicit.strip()
+
+    # Batang BE 생성 IFC는 Pset_BatangLayoutImportRoom.RoomType에 타입을 저장한다.
+    batang_room_type = psets.get("Pset_BatangLayoutImportRoom", {}).get("RoomType")
+    if (
+        isinstance(batang_room_type, str)
+        and batang_room_type.strip()
+        and batang_room_type.strip() != "other"
+    ):
+        return batang_room_type.strip()
 
     candidates = [
         getattr(space, "LongName", None),

@@ -19,7 +19,7 @@ export function BubbleZonesSection({ selectedBubble, zones }: BubbleZonesSection
           {zones.map((zone) => (
             <div
               key={`${selectedBubble.id}-${zone.id}`}
-              className="bg-[#F8F9FD] rounded-lg px-3 py-2.5 flex items-center justify-between gap-3"
+              className="bg-[#F8F9FD] rounded-lg px-3 py-2.5 flex items-center gap-3"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <span
@@ -28,15 +28,6 @@ export function BubbleZonesSection({ selectedBubble, zones }: BubbleZonesSection
                 />
                 <span className="text-xs font-bold text-[#1C1C1E] truncate">{zone.name}</span>
               </div>
-              <span
-                className={`text-[10px] font-black px-2 py-1 rounded-md ${
-                  zone.source === 'auto'
-                    ? 'text-[#5D4AD8] bg-[#EEE9FF]'
-                    : 'text-[#3B45B3] bg-[#EAF0FF]'
-                }`}
-              >
-                {zone.source === 'auto' ? '자동' : '수동'}
-              </span>
             </div>
           ))}
         </div>
@@ -44,4 +35,3 @@ export function BubbleZonesSection({ selectedBubble, zones }: BubbleZonesSection
     </div>
   )
 }
-

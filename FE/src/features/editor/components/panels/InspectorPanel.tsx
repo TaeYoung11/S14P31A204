@@ -64,9 +64,11 @@ export function InspectorPanel({
               <ZoningSection {...zoningSectionProps} />
             </InspectorSectionFrame>
           ) : null}
-          <InspectorSectionFrame title="계층 구조" icon={<Box size={13} />}>
-            <InspectorHierarchySection panelProps={hierarchyPanelProps} />
-          </InspectorSectionFrame>
+          {attributesPanelProps.mode !== 'bubble' ? (
+            <InspectorSectionFrame title="계층 구조" icon={<Box size={13} />}>
+              <InspectorHierarchySection panelProps={hierarchyPanelProps} />
+            </InspectorSectionFrame>
+          ) : null}
         </div>
       </div>
     </PanelFrame>

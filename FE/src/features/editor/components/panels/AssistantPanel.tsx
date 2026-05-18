@@ -1,8 +1,9 @@
 // AI Agent 패널을 어두운 채팅형 UI로 표시합니다.
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
-import type { LlmChatLogItem, LlmEditPreview, LlmEditStatus } from '../../types/llmEdit.types'
+import type { ClarificationAlternative, ClarificationArtifact, LlmChatLogItem, LlmEditPreview, LlmEditStatus } from '../../types/llmEdit.types'
 import { PanelFrame } from '../shared/PanelFrame'
+import { AssistantClarificationCard } from './assistant/AssistantClarificationCard'
 import { AssistantNoticeCard } from './assistant/AssistantNoticeCard'
 import { AssistantPreviewCard } from './assistant/AssistantPreviewCard'
 import { AssistantPromptSection } from './assistant/AssistantPromptSection'
@@ -22,15 +23,19 @@ interface AssistantPanelProps {
   message: string
   suggestions: string[]
   preview: LlmEditPreview | null
+  selectedWallForChat?: { wallId: string } | null
   canRun: boolean
   activeJobId: string | null
   jobProgress: number | null
+  clarificationArtifact: ClarificationArtifact | null
   chatLogs: LlmChatLogItem[]
   isChatLogsLoading: boolean
   onPromptChange: (value: string) => void
   onRun: () => void
   onApply: () => void
   onDiscard: () => void
+  onClearSelectedWall?: () => void
+  onSelectAlternative: (alternative: ClarificationAlternative) => void
   floorProjectImportMessage: string
   onDragStart: (key: PanelKey, e: ReactMouseEvent<HTMLElement>) => void
   onResizeStart: (key: PanelKey, axis: PanelResizeAxis, e: ReactMouseEvent<HTMLButtonElement>) => void
@@ -38,8 +43,9 @@ interface AssistantPanelProps {
 }
 
 const formatChatType = (type: LlmChatLogItem['type']) => {
-  if (type === 'assistant') return '바탕 Agent'
-  if (type === 'system') return 'System'
+  const upper = type?.toUpperCase()
+  if (upper === 'AI' || upper === 'ASSISTANT') return '바탕 Agent'
+  if (upper === 'SYSTEM') return 'System'
   return 'You'
 }
 
@@ -57,15 +63,18 @@ export function AssistantPanel({
   message,
   suggestions,
   preview,
+  selectedWallForChat,
   canRun,
-  activeJobId,
   jobProgress,
+  clarificationArtifact,
   chatLogs,
   isChatLogsLoading,
   onPromptChange,
   onRun,
   onApply,
   onDiscard,
+  onClearSelectedWall,
+  onSelectAlternative,
   floorProjectImportMessage,
   onDragStart,
   onResizeStart,
@@ -88,7 +97,7 @@ export function AssistantPanel({
 
         <div className="space-y-3">
           {chatLogs.map((log) => {
-            const isUser = log.type === 'user'
+            const isUser = log.type?.toUpperCase() === 'USER'
             return (
               <div key={log.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
                 <div
@@ -111,31 +120,28 @@ export function AssistantPanel({
 
         {(isLoading || status === 'running') && (
           <div className="mt-3 rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-[12px] text-[#475569] shadow-sm">
-            바탕 Agent가 작업을 처리하는 중입니다.
-          </div>
-        )}
-
-        {(status === 'ambiguous' || status === 'error' || status === 'applied' || status === 'running') && message && (
-          <div className="mt-3">
-            <AssistantNoticeCard message={message} />
-          </div>
-        )}
-
-        {(activeJobId || jobProgress !== null) && (
-          <div className="mt-3 rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-[11px] text-[#475569] shadow-sm">
-            {activeJobId && <p className="truncate">작업 ID {activeJobId}</p>}
+            <p>바탕 Agent가 작업을 처리하는 중입니다.</p>
             {jobProgress !== null && (
-              <div className="mt-2 h-1 overflow-hidden rounded-full bg-[#E2E8F0]">
-                <div
-                  className="h-full rounded-full bg-[#3B45B3]"
-                  style={{ width: `${Math.max(0, Math.min(100, jobProgress))}%` }}
-                />
+              <div className="mt-2 flex items-center gap-2">
+                <div className="h-1 flex-1 overflow-hidden rounded-full bg-[#E2E8F0]">
+                  <div
+                    className="h-full rounded-full bg-[#3B45B3] transition-all duration-500"
+                    style={{ width: `${Math.max(0, Math.min(100, jobProgress))}%` }}
+                  />
+                </div>
+                <span className="text-[10px] tabular-nums text-[#94A3B8]">{Math.round(jobProgress)}%</span>
               </div>
             )}
           </div>
         )}
 
-        {floorProjectImportMessage && (
+        {(status === 'ambiguous' || status === 'error' || status === 'applied' || (status === 'clarification_required' && !clarificationArtifact)) && message && (
+          <div className="mt-3">
+            <AssistantNoticeCard message={message} />
+          </div>
+        )}
+
+        {floorProjectImportMessage && status === 'idle' && (
           <div className="mt-3">
             <AssistantNoticeCard message={floorProjectImportMessage} />
           </div>
@@ -144,6 +150,16 @@ export function AssistantPanel({
         {status === 'ambiguous' && (
           <div className="mt-3">
             <AssistantSuggestionsCard suggestions={suggestions} onSelect={onPromptChange} />
+          </div>
+        )}
+
+        {status === 'clarification_required' && clarificationArtifact && (
+          <div className="mt-3">
+            <AssistantClarificationCard
+              question={clarificationArtifact.question}
+              alternatives={clarificationArtifact.alternatives}
+              onSelect={onSelectAlternative}
+            />
           </div>
         )}
 
@@ -160,10 +176,12 @@ export function AssistantPanel({
         isLoading={isLoading}
         canRun={canRun}
         preview={preview}
+        selectedWallForChat={selectedWallForChat}
         onPromptChange={onPromptChange}
         onRun={onRun}
         onApply={onApply}
         onDiscard={onDiscard}
+        onClearSelectedWall={onClearSelectedWall}
       />
     </div>
   )

@@ -99,6 +99,7 @@ import { useFloorPlanGenerateTimeout } from './useFloorPlanGenerateTimeout'
 import { useThreeDIfcAttributeHandlers } from './useThreeDIfcAttributeHandlers'
 import { useEditorToolState } from './useEditorToolState'
 import { useFloorWallToolState } from './useFloorWallToolState'
+import { useEditorViewportInsets } from './useEditorViewportInsets'
 import { runForceDirectedBubbleLayout } from '../utils/forceBubbleLayout'
 import { useBubbleSnapshotRealtime } from './useBubbleSnapshotRealtime'
 import { useIfcLoadingLayer } from './useIfcLoadingLayer'
@@ -174,6 +175,7 @@ import { resolveWorkspaceSiteAreaM2 } from '../utils/numberUtils'
 import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
 import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
 import type { WorkspaceCommand } from '../types/workspaceCommand.types'
+import { useWorkspaceCoordinateFramePolicy } from './useWorkspaceCoordinateFramePolicy'
 
 interface PendingServerPublishRecord {
   projectId: string
@@ -221,7 +223,6 @@ const FLOOR_PLAN_GENERATE_TIMEOUT_MS = 120_000
 const IFC_SOURCE_CACHE_KEY_PREFIX = 'batang:editor:ifc-source:'
 const PRESIGNED_IFC_CACHE_TTL_MS = 4 * 60 * 1000
 const IFC_EDIT_COMMAND_DLQ_CODE = 'IFC_EDIT_COMMAND_DLQ'
-
 interface CachedIfcSource {
   url: string
   storageUrl: string | null
@@ -514,6 +515,7 @@ export function useEditorPage() {
   const [isFloorPlanEditedIn2D, setIsFloorPlanEditedIn2D] = useState(false)
   const markLocalBubbleSnapshotChangedRef = useRef<() => void>(() => { })
   const markLocalFloorPlanSnapshotChangedRef = useRef<() => void>(() => { })
+  const mapSnapshotForPersistenceRef = useRef<(snapshot: WorkspaceSnapshot) => WorkspaceSnapshot>((snapshot) => snapshot)
   const refreshHistoryCursorFromServerRef = useRef<(options?: {
     republishOnFailure?: boolean
     republishWhenStale?: boolean
@@ -530,6 +532,7 @@ export function useEditorPage() {
     editingZoneId,
     formData: zoningFormData,
     setFormData: setZoningFormData,
+    validationMessage: zoningValidationMessage,
     autoColorPreview: zoningAutoColorPreview,
     openAddModal: openZoningModal,
     openEditModal,
@@ -543,7 +546,6 @@ export function useEditorPage() {
 
   // 우측 패널 드래그·리사이즈 상태
   const { panelOffsets, panelOpenState, panelHeights, panelWidths, panelZIndexes, startDrag, startResize, togglePanel, resetPanelPositions } = usePanels(mode)
-
   // 2D 평면도 층 상태
   const {
     isGenerated: isFloorPlanGenerated,
@@ -573,6 +575,7 @@ export function useEditorPage() {
     polygonRing: null,
     areaM2: null,
   })
+  const [isWorkspaceSiteBoundaryHydrated, setIsWorkspaceSiteBoundaryHydrated] = useState(false)
   const handleIfcSyncMessageRef = useRef<(
     url: string,
     action: string | null,
@@ -785,6 +788,7 @@ export function useEditorPage() {
   const [commentNotifications, setCommentNotifications] = useState<FloorCommentNotification[]>([])
   const [isLibraryOpen, setIsLibraryOpen] = useState(false)
   const [libraryElements, setLibraryElements] = useState<ThreeDLibraryPreset[]>([])
+  const [isTrueNorthView, setIsTrueNorthView] = useState(false)
   const [isGridVisible, setIsGridVisible] = useState(false)
   /** 연결 도구에서 첫 번째로 선택된 버블 id */
   /** 인라인 라벨 편집 상태 */
@@ -907,15 +911,15 @@ export function useEditorPage() {
     }, 3000)
   }, [])
   const resolveServerHistoryBaseIndex = useCallback((snapshot: WorkspaceSnapshot): number =>
-    snapshot.phaseStatus === 'BUBBLE_DRAFT'
+    mode === 'bubble' && snapshot.phaseStatus === 'BUBBLE_DRAFT'
       ? bubbleHistoryBaseIndexRef.current
       : floorPlanHistoryBaseIndexRef.current
-    , [])
+    , [mode])
   const resolveServerHistoryDomain = useCallback((snapshot: WorkspaceSnapshot): AwaitingServerSyncRecord['historyDomain'] =>
-    snapshot.phaseStatus === 'BUBBLE_DRAFT'
+    mode === 'bubble' && snapshot.phaseStatus === 'BUBBLE_DRAFT'
       ? 'bubble'
       : 'floorPlan'
-    , [])
+    , [mode])
   const applyWorkspaceHistorySiteInfo = useCallback((siteInfo: WorkspaceHistorySnapshotResponse['siteInfo']) => {
     const polygonRing = extractOuterRingFromCoordinates(siteInfo?.polygon?.coordinates)
     const areaM2 = resolveWorkspaceSiteAreaM2(siteInfo as Record<string, unknown> | null | undefined)
@@ -927,6 +931,7 @@ export function useEditorPage() {
       if (prev.polygonRing === nextPolygonRing && prev.areaM2 === nextAreaM2) return prev
       return { polygonRing: nextPolygonRing, areaM2: nextAreaM2 }
     })
+    setIsWorkspaceSiteBoundaryHydrated(true)
   }, [])
   const resolveFloorPlanSceneType = useCallback((): FloorPlanSceneType =>
     mode === '3d' ? 'THREE_D' : 'TWO_D'
@@ -1603,6 +1608,7 @@ export function useEditorPage() {
     resetFloorPlanStructureState()
     setWorkspacePhaseStatus('BUBBLE_DRAFT')
     setWorkspaceSiteBoundary({ polygonRing: null, areaM2: null })
+    setIsWorkspaceSiteBoundaryHydrated(false)
     clearBootstrapBubbleSelection()
     setSelectedFloorWallId(null)
     setSelectedFloorOpeningId(null)
@@ -1736,19 +1742,20 @@ export function useEditorPage() {
     }
 
     const publishBubbleSnapshotToRedis = async (snapshot: WorkspaceSnapshot, baseIndex: number) => {
-      const serializedSnapshot = JSON.stringify(snapshot)
+      const persistedSnapshot = mapSnapshotForPersistenceRef.current(snapshot)
+      const serializedSnapshot = JSON.stringify(persistedSnapshot)
       setSaveStatus('syncing')
       awaitingServerSyncRef.current = {
         projectId,
         serializedSnapshot,
-        historyDomain: resolveServerHistoryDomain(snapshot),
+        historyDomain: resolveServerHistoryDomain(persistedSnapshot),
         baseIndex,
         startedAt: Date.now(),
       }
       try {
         await workspaceRealtimeService.publishSnapshot({
           projectId,
-          snapshot,
+          snapshot: persistedSnapshot,
           baseIndex,
         })
       } catch (error: unknown) {
@@ -2206,6 +2213,7 @@ export function useEditorPage() {
       })
       .finally(() => {
         if (isCancelled || draftLoadTokenRef.current !== loadToken) return
+        setIsWorkspaceSiteBoundaryHydrated(true)
         draftLoadingProjectIdRef.current = null
         draftLoadBaselineRef.current = null
         if (didHistoryBootstrapFail) return
@@ -2297,7 +2305,7 @@ export function useEditorPage() {
     if (draftLoadingProjectIdRef.current === projectId) return
 
     const shouldPublishBubbleDraft = mode === 'bubble' && workspacePhaseStatus === 'BUBBLE_DRAFT'
-    const publishSnapshot: WorkspaceSnapshot = shouldPublishBubbleDraft
+    const publishSourceSnapshot: WorkspaceSnapshot = shouldPublishBubbleDraft
       ? {
         ...draftSnapshot,
         phaseStatus: 'BUBBLE_DRAFT',
@@ -2313,11 +2321,14 @@ export function useEditorPage() {
         ifcElementChanges: [],
       }
       : draftSnapshot
+    const publishSnapshot = mapSnapshotForPersistenceRef.current(publishSourceSnapshot)
     const serializedSnapshot = JSON.stringify(publishSnapshot)
+    const historyDomain = resolveServerHistoryDomain(publishSnapshot)
+    const hasPendingFloorPlanCommand = historyDomain === 'floorPlan' && workspaceCommandPublisher.hasPendingCommand()
 
     if (
       suppressGeneratedFloorPlanAutosaveRef.current &&
-      resolveServerHistoryDomain(publishSnapshot) === 'floorPlan'
+      historyDomain === 'floorPlan'
     ) {
       pendingServerPublishRef.current = null
       awaitingServerSyncRef.current = null
@@ -2337,13 +2348,18 @@ export function useEditorPage() {
       return
     }
 
-    if (previousSnapshotRef.current !== null && previousSnapshotRef.current === serializedSnapshot) {
+    if (
+      previousSnapshotRef.current !== null &&
+      previousSnapshotRef.current === serializedSnapshot &&
+      !hasPendingFloorPlanCommand
+    ) {
       return
     }
 
     if (
       awaitingServerSyncRef.current?.projectId === projectId &&
-      awaitingServerSyncRef.current.serializedSnapshot === serializedSnapshot
+      awaitingServerSyncRef.current.serializedSnapshot === serializedSnapshot &&
+      !hasPendingFloorPlanCommand
     ) {
       return
     }
@@ -2363,7 +2379,6 @@ export function useEditorPage() {
       return
     }
 
-    const historyDomain = resolveServerHistoryDomain(publishSnapshot)
     const workspaceCommand = historyDomain === 'floorPlan'
       ? workspaceCommandPublisher.consumePendingCommand()
       : null
@@ -2985,10 +3000,11 @@ export function useEditorPage() {
         isProjectStructurePreferred: false,
         ifcElementChanges: [],
       }
+      const persistedSnapshot = mapSnapshotForPersistenceRef.current(publishSnapshot)
       void workspaceRealtimeService.publishSnapshot({
         projectId: cleanupProjectId,
-        snapshot: publishSnapshot,
-        baseIndex: resolveBaseIndexForCleanup(publishSnapshot),
+        snapshot: persistedSnapshot,
+        baseIndex: resolveBaseIndexForCleanup(persistedSnapshot),
       }).catch(() => {
         // 화면 이탈 시점 best-effort sync이므로 실패는 조용히 무시한다.
       })
@@ -3271,6 +3287,15 @@ export function useEditorPage() {
     [activeFloorBubbleIdSet, autoZones, manualZones],
   )
 
+  const viewportInsets = useEditorViewportInsets({
+    mode,
+    isEditorReadOnly,
+    isCollaborationMode: effectiveIsCollaborationMode,
+    isAgentPanelMode,
+    isAttributePanelOpen: panelOpenState.attributes,
+    attributePanelWidth: panelWidths.attributes,
+  })
+
   const {
     fixedScaleSitePoints,
     sitePlanPoints,
@@ -3282,6 +3307,7 @@ export function useEditorPage() {
     projectId,
     stageWidth: stageSize.width,
     stageHeight: stageSize.height,
+    viewportInsets,
     bubbles,
     floorRooms,
     floorWalls: mergedFloorWalls,
@@ -3289,10 +3315,26 @@ export function useEditorPage() {
     sitePolygonRing: workspaceSiteBoundary.polygonRing,
     siteAreaM2: workspaceSiteBoundary.areaM2,
     sitePolygonQueryEnabled: false,
+    siteBoundaryHydrated: isWorkspaceSiteBoundaryHydrated,
     setSaveStatus,
   })
   const bubbleSitePoints = fixedScaleSitePoints
   const sharedSitePlanPoints = bubbles.length > 0 ? bubbleSitePoints : sitePlanPoints
+  const {
+    bubbleCanvasViewTransform,
+    floorCanvasViewTransform,
+    mapSnapshotForPersistence,
+    mapBubblesForFloorPlanGenerate,
+    mapLayoutBoundaryInputForFloorPlanGenerate,
+  } = useWorkspaceCoordinateFramePolicy({
+    bubbleSitePoints,
+    sharedSitePlanPoints,
+    isTrueNorthView,
+  })
+  // layout effect에서 먼저 ref를 갱신해 bootstrap 초기 publish 경로도 최신 매핑을 사용하게 한다.
+  useLayoutEffect(() => {
+    mapSnapshotForPersistenceRef.current = mapSnapshotForPersistence
+  }, [mapSnapshotForPersistence])
 
   const zoomFitPoints = useMemo(() => {
     if (bubbles.length > 0) return bubbleSitePoints
@@ -3326,11 +3368,14 @@ export function useEditorPage() {
     handleZoomOut,
     handleZoomChange,
   } = useEditorZoom({
+    projectId,
     sitePlanPoints: zoomFitPoints,
     stageWidth: stageSize.width,
     stageHeight: stageSize.height,
     fitPaddingPx: EDITOR_SITE_FIT_PADDING_PX,
+    viewportInsets,
   })
+  const isWorkspaceBootstrapping = Boolean(projectId) && autosaveReadyProjectId !== projectId
 
   const {
     syncPerimeterManualWallsForRoomResize,
@@ -3451,8 +3496,8 @@ export function useEditorPage() {
 
   // ── 핸들러 ────────────────────────────────────────────────────────────────
 
-  /** 편집 모드 전환 — 협업 모드·라이브러리는 모드 이탈 시 닫힘 */
-  const setMode = useCallback((nextMode: EditorMode) => {
+  /** 실제 모드 전환 적용 — 협업 모드·라이브러리는 모드 이탈 시 닫힘 */
+  const applyMode = useCallback((nextMode: EditorMode) => {
     setSearchParams({ mode: nextMode })
     if (nextMode !== mode) resetToolSelection()
     if (nextMode === 'view' || nextMode === 'bubble' || (!isEditorReadOnly && nextMode !== '2d')) {
@@ -3689,6 +3734,12 @@ export function useEditorPage() {
       return next
     })
   }
+
+  const openAssistantPanel = useCallback(() => {
+    setIsAgentPanelMode(true)
+    setIsCollaborationMode(false)
+    setSelectedPinId(null)
+  }, [])
 
   const markPinNotificationsRead = useCallback((pinId: string) => {
     setCommentNotifications((prev) =>
@@ -4087,7 +4138,7 @@ export function useEditorPage() {
     if (isBubbleReadOnly) return
     markLocalBubbleSnapshotChanged()
     const newBubble = addBubbleAt(info.x, info.y, floor)
-    const scale = currentZoom / 100
+    const scale = canvasZoom / 100
     setLabelEditState({
       id: newBubble.id,
       label: newBubble.label,
@@ -4169,12 +4220,14 @@ export function useEditorPage() {
         return
       }
       const latestSnapshot = latestBubbleSnapshotRef.current
+      const generationBubbles = mapBubblesForFloorPlanGenerate(latestSnapshot.bubbles)
+      const generationBoundaryInput = mapLayoutBoundaryInputForFloorPlanGenerate(layoutBoundaryInput)
       const layoutImport = buildFloorPlanLayoutImportPayload(
         projectId,
         currentProjectName,
-        latestSnapshot.bubbles,
+        generationBubbles,
         latestSnapshot.connections,
-        layoutBoundaryInput,
+        generationBoundaryInput,
         { spaceHeightMm: options.spaceHeightMm },
       )
       const response = await requestFloorPlanGenerate({
@@ -4224,24 +4277,23 @@ export function useEditorPage() {
     isCurrentProjectOwner,
     isCurrentProjectOwnerKnown,
     layoutBoundaryInput,
+    mapBubblesForFloorPlanGenerate,
+    mapLayoutBoundaryInputForFloorPlanGenerate,
     projectId,
     cancelScheduledBubbleSnapshotSave,
     startFloorPlanGenerateTimeout,
     workspacePhaseStatus,
   ])
 
-  /**
-   * 버블 다이어그램 기준 2D 평면도 생성 진입점
-   * - 버블이 있을 때만 생성
-   * - 생성 시작 직후 2D 모드로 전환해 로딩/결과를 확인할 수 있게 한다.
-   */
-  const handleGenerateFloorPlanFromBubble = useCallback(() => {
-    if (bubbles.length === 0) return
-    setSelectedTool('selection')
-    setConnectingFromId(null)
-    handleGenerateFloorPlan()
-    setMode('2d')
-  }, [bubbles.length, handleGenerateFloorPlan, setConnectingFromId, setMode, setSelectedTool])
+  const canGenerateFloorPlanFromBubble = bubbles.length > 0
+    && !currentIfcUrl
+    && authUser?.user_type === 'DESIGNER'
+    && (!isCurrentProjectOwnerKnown || isCurrentProjectOwner)
+
+  /** 외부 UI에서 사용하는 모드 전환 핸들러 */
+  const setMode = useCallback((nextMode: EditorMode) => {
+    applyMode(nextMode)
+  }, [applyMode])
 
   const handleEditIfc = useCallback((elementId: string, action: string, value: unknown) => {
     if (!projectId) return
@@ -5209,6 +5261,7 @@ export function useEditorPage() {
     floorWalls: floorWalls.length > 0 ? floorWalls : autoFloorWalls,
     floorOpenings: mergedFloorOpenings,
     onIfcResult: handleLlmIfcResult,
+    onToggleAssistantPanel: openAssistantPanel,
   })
 
   const {
@@ -5407,6 +5460,8 @@ export function useEditorPage() {
   return {
     // 모드
     mode,
+    isTrueNorthView,
+    setIsTrueNorthView,
     projectId,
     currentProjectName,
     latestFloorPlanJobId,
@@ -5424,8 +5479,11 @@ export function useEditorPage() {
     // 캔버스 크기·대지
     containerRef,
     stageSize,
+    isWorkspaceBootstrapping,
     sitePoints: bubbleSitePoints,
     sitePlanPoints: sharedSitePlanPoints,
+    bubbleCanvasViewTransform,
+    floorCanvasViewTransform,
     siteAreaM2,
     siteAreaPyeong,
     bubbleFloors,
@@ -5502,6 +5560,7 @@ export function useEditorPage() {
     isZoningModalOpen,
     editingZoneId,
     zoningFormData,
+    zoningValidationMessage,
     setZoningFormData,
     zoningAutoColorPreview,
     openZoningModal: handleOpenZoningModal,
@@ -5590,12 +5649,8 @@ export function useEditorPage() {
     selectedFloorOpeningId,
     selectedFloorOpeningIds,
     handleGenerateFloorPlan,
-    handleGenerateFloorPlanFromBubble,
     handleAutoLayoutBubbles,
-    canGenerateFloorPlanFromBubble: bubbles.length > 0
-      && !currentIfcUrl
-      && authUser?.user_type === 'DESIGNER'
-      && (!isCurrentProjectOwnerKnown || isCurrentProjectOwner),
+    canGenerateFloorPlanFromBubble,
     canAutoLayoutBubbles: bubbles.length > 1,
     handleEditIfc,
     handleIfcUndo,
@@ -5708,13 +5763,18 @@ export function useEditorPage() {
     llmMessage: llmEdit.message,
     llmSuggestions: llmEdit.suggestions,
     llmPreview: llmEdit.preview,
+    selectedWallForChat: llmEdit.selectedWallForChat,
     llmCanRun: llmEdit.canRun,
     llmActiveJobId: llmEdit.activeJobId,
     llmJobProgress: llmEdit.jobProgress,
+    llmClarificationArtifact: llmEdit.clarificationArtifact,
     llmChatLogs: llmEdit.chatLogs,
     llmIsChatLogsLoading: llmEdit.isChatLogsLoading,
     runLlmEdit: llmEdit.run,
     applyLlmEdit: llmEdit.apply,
     discardLlmEdit: llmEdit.discard,
+    selectLlmAlternative: llmEdit.selectAlternative,
+    selectWallForChat: llmEdit.selectWallForChat,
+    clearSelectedWallForChat: llmEdit.clearSelectedWallForChat,
   }
 }

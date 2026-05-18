@@ -38,6 +38,7 @@ class LlmIfcEditCommandServicePayloadTest {
     @Mock private ProjectAccessService projectAccessService;
     @Mock private IfcEditJobRepository ifcEditJobRepository;
     @Mock private IfcEditJobStepRepository ifcEditJobStepRepository;
+    @Mock private IfcEditActiveJobGuard ifcEditActiveJobGuard;
     @Mock private IfcEditStoragePathBuilder pathBuilder;
     @Mock private ApplicationEventPublisher eventPublisher;
 
@@ -56,7 +57,7 @@ class LlmIfcEditCommandServicePayloadTest {
         given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId))
                 .willReturn(Optional.of(Project.create("llm-test", "desc")));
         given(revisionRepository.findById(baseRevisionId)).willReturn(Optional.of(mock(Revision.class)));
-        given(ifcEditJobRepository.existsByProjectIdAndJobTypeInAndStatusIn(any(), any(), any())).willReturn(false);
+        given(ifcEditActiveJobGuard.hasBlockingActiveJob(projectId)).willReturn(false);
         given(pathBuilder.buildSourceIfcStorageUrl(projectId, baseRevisionId)).willReturn("s3://bucket/source.ifc");
     }
 
@@ -70,6 +71,7 @@ class LlmIfcEditCommandServicePayloadTest {
                 projectAccessService,
                 ifcEditJobRepository,
                 ifcEditJobStepRepository,
+                ifcEditActiveJobGuard,
                 pathBuilder,
                 eventPublisher,
                 objectMapper
@@ -92,6 +94,7 @@ class LlmIfcEditCommandServicePayloadTest {
                 projectAccessService,
                 ifcEditJobRepository,
                 ifcEditJobStepRepository,
+                ifcEditActiveJobGuard,
                 pathBuilder,
                 eventPublisher,
                 objectMapper

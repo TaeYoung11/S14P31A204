@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useCallback, type RefObject } from 'react'
+import { useLayoutEffect, useMemo, useRef, useCallback, type RefObject } from 'react'
 import type { EditorMode } from '../types'
 import { normalizeSnapIntervalMm, toRotationSnapDegrees } from '../utils/threeDSnap.utils'
 
@@ -37,7 +37,7 @@ export function useZoomControlBar({
   // 첫 마운트 시 1회만 위치 보정한다. (사용자 드래그 위치를 이후에는 보존)
   const didInitPositionRef = useRef(false)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (didInitPositionRef.current) return
     const panelEl = panelRef.current
     const parentEl = (panelEl?.offsetParent as HTMLElement | null) ?? panelEl?.parentElement

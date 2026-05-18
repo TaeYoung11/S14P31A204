@@ -175,6 +175,7 @@ type DeferredHierarchySelectionRequest =
 
 type ComponentsModule = typeof import('@thatopen/components')
 type TransformControlsModule = typeof import('three/examples/jsm/controls/TransformControls.js')
+type DisposableThreeResource = { dispose?: () => void }
 type IfcRaycastPick = {
   fragments?: { modelId: string }
   localId?: number
@@ -331,6 +332,32 @@ const TRANSFORM_GIZMO_AXIS_NAMES = new Set([
   'XY', 'YZ', 'XZ',
   'XYZ', 'XYZE',
 ])
+
+const disposeMaybeThreeResource = (resource: unknown) => {
+  if (Array.isArray(resource)) {
+    resource.forEach(disposeMaybeThreeResource)
+    return
+  }
+  ;(resource as DisposableThreeResource | undefined)?.dispose?.()
+}
+
+const removeDuplicateSceneGridHelpers = (scene: Object3D) => {
+  const gridHelpers: Object3D[] = []
+  scene.traverse((child) => {
+    if (child.type === 'GridHelper') gridHelpers.push(child)
+  })
+  if (gridHelpers.length <= 1) return
+
+  gridHelpers.slice(0, -1).forEach((gridHelper) => {
+    gridHelper.parent?.remove(gridHelper)
+    const disposableGrid = gridHelper as Object3D & {
+      geometry?: DisposableThreeResource
+      material?: DisposableThreeResource | DisposableThreeResource[]
+    }
+    disposableGrid.geometry?.dispose?.()
+    disposeMaybeThreeResource(disposableGrid.material)
+  })
+}
 
 export default function ThatOpenIfcCanvas({
   ifcUrl,
@@ -2308,6 +2335,7 @@ export default function ThatOpenIfcCanvas({
 
         const grids = components.get(OBC.Grids)
         grids.create(world)
+        removeDuplicateSceneGridHelpers(world.scene.three)
 
         const fragments = components.get(OBC.FragmentsManager)
         // MIME 이슈를 피하기 위해 .js 워커 엔트리를 사용한다.
@@ -2388,7 +2416,7 @@ export default function ThatOpenIfcCanvas({
         contentGroup.add(presetGroup)
         contentGroup.add(pinMarkerGroup)
         pinMarkerGroupRef.current = pinMarkerGroup
-        syncThreeDPinMarkers(THREE, pinMarkerGroup, commentPinsRef.current, {
+        syncThreeDPinMarkers(THREE, pinMarkerGroup, isCollaborationModeRef.current ? commentPinsRef.current : [], {
           selectedPinId: selectedPinIdRef.current,
           currentUserId: currentUserIdRef.current,
           deletingPinId: deletingPinIdRef.current,

@@ -44,6 +44,7 @@ export default defineConfig({
     dedupe: ['three'],
   },
   server: {
+    host: '0.0.0.0',
     proxy: {
       // 개발 서버에서 API 요청을 백엔드로 프록시한다.
       '/api': {

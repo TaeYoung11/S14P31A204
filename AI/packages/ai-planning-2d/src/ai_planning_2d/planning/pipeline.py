@@ -2,6 +2,7 @@
 
 from typing import Any, Literal, cast
 import math
+import re
 
 from ..command import (
     ActionType,
@@ -18,6 +19,7 @@ from ..add_room_placement import suggest_add_room_start_mm
 from ..toilet_demo import UserIntent as ToiletDemoUserIntent
 from ..toilet_demo import build_toilet_insertion_geometry_plan
 from ..validators.batch import validate_command_batch
+from ..ifc_extractor import resolve_space_type_from_name
 
 _MSG_CREATE_WALL_NO_VALIDATED_CANDIDATE = (
     "? ???? ??? ?? ?? ?? ??? ????. "
@@ -261,14 +263,23 @@ def to_ifc_commands(
     def _find_space_ids(target_name: str | None) -> list[str]:
         if not ifc_context or not target_name:
             return []
+        # "1층 거실" 같이 층 접두어가 붙은 경우 분리한다.
+        floor_from_name: int | None = None
+        name = target_name
+        m = re.match(r"^(\d+)층\s+(.+)$", target_name.strip())
+        if m:
+            floor_from_name = int(m.group(1))
+            name = m.group(2).strip()
         spaces = ifc_context["spaces"]
+        target_type = resolve_space_type_from_name(name)
         matched = [
             space for space in spaces
-            if space["name"] == target_name and space["id"]
+            if (space["name"] == name or (target_type and space.get("type") == target_type))
+            and space["id"]
         ]
-        # target_floor가 있으면 같은 층의 공간만 남긴다.
-        if command.target_floor is not None:
-            matched = [s for s in matched if s["floor"] == command.target_floor]
+        effective_floor = floor_from_name if floor_from_name is not None else command.target_floor
+        if effective_floor is not None:
+            matched = [s for s in matched if s["floor"] == effective_floor]
         return [s["id"] for s in matched]
 
     def _find_storey_id(floor: int) -> str | None:

@@ -46,8 +46,11 @@ from ai_rendering.ifc2img.style import (
     _build_front_full_width_seg_control,
     _build_front_side_seg_control,
     _build_front_side_semantic_mask,
+    build_depth_edge_control_image,
     build_debug_control_images,
 )
+
+
 @pytest.fixture
 def mock_depth_renderer() -> DepthStyleRenderer:
     """실제 SD/ControlNet pipeline 없이 render 호출 인자만 관찰하는 renderer fixture를 만든다."""
@@ -143,6 +146,30 @@ def test_l_mode_depth_converted_to_rgb(
 
     control = mock_depth_renderer.pipe.call_args.kwargs["image"]
     assert control.mode == "RGB"
+
+
+def test_build_depth_edge_control_image_returns_rgb_edges() -> None:
+    """Depth edge control should convert non-empty depth silhouettes to RGB edges."""
+    depth = Image.new("L", (16, 16), 0)
+    pixels = depth.load()
+    for y in range(4, 12):
+        for x in range(5, 11):
+            pixels[x, y] = 180
+
+    edge = build_depth_edge_control_image(depth)
+
+    assert edge.mode == "RGB"
+    assert edge.size == depth.size
+    assert edge.getbbox() is not None
+
+
+def test_build_depth_edge_control_image_handles_empty_depth() -> None:
+    """Empty depth should produce an empty RGB edge control image."""
+    edge = build_depth_edge_control_image(Image.new("L", (8, 8), 0))
+
+    assert edge.mode == "RGB"
+    assert edge.size == (8, 8)
+    assert edge.getbbox() is None
 
 
 def test_result_save_creates_parent_dir(tmp_path: Path) -> None:
@@ -808,6 +835,76 @@ def test_render_rejects_front_semantic_control_conflict(
         )
 
     mock_depth_renderer.pipe.assert_not_called()
+
+
+def test_render_geometry_control_requires_semantic_model(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Geometry control uses the second ControlNet slot and requires a second model."""
+    depth = Image.new("L", (16, 16), 100)
+    geometry = Image.new("RGB", (16, 16), "white")
+
+    with pytest.raises(IFCRenderError, match="geometry control image requires"):
+        mock_depth_renderer.render(
+            depth,
+            DepthStyleParams(prompt="x"),
+            geometry_control_image=geometry,
+        )
+
+
+def test_render_geometry_control_passes_two_control_images(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Geometry control should explicitly pass depth and geometry images as a list."""
+    mock_depth_renderer.semantic_controlnet_model_id = "mock-seg"
+    depth = Image.new("L", (16, 16), 100)
+    geometry = Image.new("L", (16, 16), 255)
+    params = DepthStyleParams(prompt="x", controlnet_conditioning_scale=1.15)
+
+    mock_depth_renderer.render(
+        depth,
+        params,
+        geometry_control_image=geometry,
+        geometry_control_scale=0.45,
+    )
+
+    call_kwargs = mock_depth_renderer.pipe.call_args.kwargs
+    assert len(call_kwargs["image"]) == 2
+    assert call_kwargs["image"][0].mode == "RGB"
+    assert call_kwargs["image"][1].mode == "RGB"
+    assert call_kwargs["image"][0].size == (16, 16)
+    assert call_kwargs["image"][1].size == (16, 16)
+    assert call_kwargs["controlnet_conditioning_scale"] == [1.15, 0.45]
+
+
+def test_render_geometry_control_rejects_size_mismatch(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Geometry control image must share the depth control size."""
+    mock_depth_renderer.semantic_controlnet_model_id = "mock-seg"
+
+    with pytest.raises(IFCRenderError, match="size must match"):
+        mock_depth_renderer.render(
+            Image.new("L", (16, 16), 100),
+            DepthStyleParams(prompt="x"),
+            geometry_control_image=Image.new("RGB", (8, 8), "white"),
+        )
+
+
+def test_render_geometry_control_rejects_semantic_control_combination(
+    mock_depth_renderer: DepthStyleRenderer,
+) -> None:
+    """Geometry control occupies the second control slot, so semantic control is separate."""
+    mock_depth_renderer.semantic_controlnet_model_id = "mock-seg"
+
+    with pytest.raises(IFCRenderError, match="cannot be combined"):
+        mock_depth_renderer.render(
+            Image.new("L", (16, 16), 100),
+            DepthStyleParams(prompt="x"),
+            view=IFCView.FRONT_DIAGONAL_LEFT,
+            geometry_control_image=Image.new("RGB", (16, 16), "white"),
+            use_front_diagonal_ground_semantic_control=True,
+        )
 
 
 def test_render_front_diagonal_ground_semantic_control_requires_semantic_model(

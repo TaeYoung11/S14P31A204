@@ -13,8 +13,6 @@ export function BubbleBasicFieldSection({
   bubbleFloors,
   onLabelChange,
   onTypeChange,
-  onWidthChange,
-  onHeightChange,
   onRatioChange,
   onColorChange,
   onFloorChange,
@@ -44,76 +42,46 @@ export function BubbleBasicFieldSection({
         </select>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <span className="text-[9px] font-bold text-[#ADB5BD] uppercase">층</span>
-        <select
-          value={selectedBubble.floor ?? 1}
-          onChange={(event) => {
-            const value = Number.parseInt(event.target.value, 10)
-            if (!isAllowedBubbleFloorNumber(value)) return
-            onFloorChange?.(selectedBubble.id, value)
-          }}
-          className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
-        >
-          {(bubbleFloors.length > 0 ? bubbleFloors : [{ floor: selectedBubble.floor ?? 1, name: String(selectedBubble.floor ?? 1) }])
-            .map((floorMeta) => (
-              <option key={`bubble-floor-option-${floorMeta.floor}`} value={floorMeta.floor}>
-                {formatBubbleFloorLabel(floorMeta.name)}
-              </option>
-            ))}
-        </select>
-      </div>
-
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
-          <span className="text-[9px] font-bold text-[#ADB5BD] uppercase">가로 (mm)</span>
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={Math.round(selectedBubble.widthMm)}
+          <span className="text-[9px] font-bold text-[#ADB5BD] uppercase">층</span>
+          <select
+            value={selectedBubble.floor ?? 1}
             onChange={(event) => {
-              const value = Number.parseFloat(event.target.value)
-              if (!Number.isNaN(value) && value > 0) onWidthChange(selectedBubble.id, value)
+              const value = Number.parseInt(event.target.value, 10)
+              if (!isAllowedBubbleFloorNumber(value)) return
+              onFloorChange?.(selectedBubble.id, value)
             }}
             className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
-          />
+          >
+            {(bubbleFloors.length > 0 ? bubbleFloors : [{ floor: selectedBubble.floor ?? 1, name: String(selectedBubble.floor ?? 1) }])
+              .map((floorMeta) => (
+                <option key={`bubble-floor-option-${floorMeta.floor}`} value={floorMeta.floor}>
+                  {formatBubbleFloorLabel(floorMeta.name)}
+                </option>
+              ))}
+          </select>
         </div>
         <div className="flex flex-col gap-1.5">
-          <span className="text-[9px] font-bold text-[#ADB5BD] uppercase">세로 (mm)</span>
+          <label
+            htmlFor="bubble-ratio"
+            className="text-[9px] font-bold text-[#ADB5BD] uppercase"
+          >
+            면적 (m²)
+          </label>
           <input
+            id="bubble-ratio"
             type="number"
             min={1}
-            step={1}
-            value={Math.round(selectedBubble.heightMm)}
+            step={0.5}
+            value={selectedBubble.ratio}
             onChange={(event) => {
               const value = Number.parseFloat(event.target.value)
-              if (!Number.isNaN(value) && value > 0) onHeightChange(selectedBubble.id, value)
+              if (!Number.isNaN(value) && value > 0) onRatioChange(selectedBubble.id, value)
             }}
             className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
           />
         </div>
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <label
-          htmlFor="bubble-ratio"
-          className="text-[9px] font-bold text-[#ADB5BD] uppercase"
-        >
-          면적 (m²)
-        </label>
-        <input
-          id="bubble-ratio"
-          type="number"
-          min={1}
-          step={0.5}
-          value={selectedBubble.ratio}
-          onChange={(event) => {
-            const value = Number.parseFloat(event.target.value)
-            if (!Number.isNaN(value) && value > 0) onRatioChange(selectedBubble.id, value)
-          }}
-          className="bg-[#F8F9FD] border-none rounded-lg px-3 py-2.5 text-xs font-bold text-[#1C1C1E] focus:ring-1 focus:ring-[#3B45B3] outline-none"
-        />
       </div>
 
       <ColorSelector
@@ -123,4 +91,3 @@ export function BubbleBasicFieldSection({
     </div>
   )
 }
-

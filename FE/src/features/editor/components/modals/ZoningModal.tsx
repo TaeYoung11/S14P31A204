@@ -11,6 +11,7 @@ interface ZoningModalProps {
   isEditing: boolean
   activeFloorNumber: number
   formData: ZoningFormData
+  validationMessage?: string | null
   bubbles: BubbleData[]
   autoColorPreview: string
   onClose: () => void
@@ -25,6 +26,7 @@ export function ZoningModal({
   isEditing,
   activeFloorNumber,
   formData,
+  validationMessage,
   bubbles,
   autoColorPreview,
   onClose,
@@ -58,6 +60,7 @@ export function ZoningModal({
         floorBubbles={floorBubbles}
         selectedBubbleIds={formData.bubbleIds}
         selectedCount={selectedCount}
+        validationMessage={validationMessage}
         onToggleBubble={onToggleBubble}
       />
     </EditorModal>
