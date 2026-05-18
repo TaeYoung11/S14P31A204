@@ -36,7 +36,6 @@ from ai_layout_import.layout_optimizer import (
 Point2DMm = tuple[float, float]
 RoomEdgeMm = tuple[Point2DMm, Point2DMm]
 RoomEdgeSideMm = tuple[str, RoomEdgeMm]
-SharedWallCandidate = tuple[int, str, str, tuple[RoomEdgeMm, ...], tuple[RoomEdgeMm, ...]]
 SharedWallSegment = tuple[int, RoomEdgeMm]
 RoomWallSegment = tuple[int, RoomEdgeMm, tuple[tuple[RoomInput, str], ...]]
 StyleAssignmentCache = dict[str, ifcopenshell.entity_instance]
@@ -120,7 +119,7 @@ def convert_layout_to_ifc(
         normalization_summary,
         optimization_summary,
     )
-    shared_wall_segments = _validate_request(normalized_request)
+    _validate_request(normalized_request)
     model = _create_ifc_file()
     style_cache: StyleAssignmentCache = {}
     owner_history, context, project, storeys = _create_project_tree(model, normalized_request)
@@ -135,17 +134,6 @@ def convert_layout_to_ifc(
             context,
             normalized_request,
             storeys,
-            style_cache,
-        )
-    )
-    host_wall_registry.update(
-        _create_v2_shared_walls(
-            model,
-            owner_history,
-            context,
-            normalized_request,
-            storeys,
-            shared_wall_segments,
             style_cache,
         )
     )
@@ -372,14 +360,12 @@ def _missing_boundary_floors(
     return [floor for floor in floors if floor not in boundaries_by_floor]
 
 
-def _validate_request(request: LayoutImportRequestModel) -> list[SharedWallSegment]:
+def _validate_request(request: LayoutImportRequestModel) -> None:
     if isinstance(request, (LayoutImportV2, LayoutImportV3)):
         _validate_room_boundary_wall_support(request)
-        shared_wall_segments = _validated_shared_wall_segments(request)
         if isinstance(request, LayoutImportV3) and request.generation_options.generate_openings:
             _validate_explicit_openings(request)
-        return shared_wall_segments
-    return []
+        return
 
 
 def _validate_room_boundary_wall_support(
@@ -396,64 +382,6 @@ def _validate_room_boundary_wall_support(
             )
 
 
-def _derive_shared_wall_candidates(
-    request: LayoutImportGenerationRequest,
-) -> list[SharedWallCandidate]:
-    if not request.generation_options.generate_walls:
-        return []
-    if request.generation_policy.shared_wall_policy.value != "from_adjacency":
-        return []
-    if not request.adjacency:
-        return []
-
-    rooms_by_id = _rooms_by_id(request.rooms)
-    candidates: list[SharedWallCandidate] = []
-    for adjacency in request.adjacency:
-        from_room, to_room = _resolve_adjacency_pair(adjacency, rooms_by_id)
-        if from_room.floor != to_room.floor:
-            continue
-        if not math.isclose(from_room.angle, 0.0, abs_tol=1.0e-9):
-            continue
-        if not math.isclose(to_room.angle, 0.0, abs_tol=1.0e-9):
-            continue
-
-        candidates.append(
-            (
-                from_room.floor,
-                from_room.id,
-                to_room.id,
-                _room_rectangle_edges_mm(from_room),
-                _room_rectangle_edges_mm(to_room),
-            )
-        )
-    return candidates
-
-
-def _validated_shared_wall_segments(
-    request: LayoutImportGenerationRequest,
-) -> list[SharedWallSegment]:
-    candidates = _derive_shared_wall_candidates(request)
-    if not candidates:
-        return []
-
-    boundary_edges = _boundary_edge_set_mm(request.boundaries or [])
-    deduped_segments: dict[tuple[int, Point2DMm, Point2DMm], SharedWallSegment] = {}
-
-    for candidate in candidates:
-        candidate_segments = [
-            segment
-            for segment in _shared_segments_for_candidate(candidate)
-            if not _is_segment_on_any_boundary_edge_mm(segment[1], boundary_edges)
-        ]
-        if not candidate_segments:
-            continue
-
-        for segment in candidate_segments:
-            deduped_segments[_shared_segment_key(segment)] = segment
-
-    return list(deduped_segments.values())
-
-
 def _validate_explicit_openings(request: LayoutImportV3) -> None:
     openings = request.openings or []
     if not openings:
@@ -462,13 +390,11 @@ def _validate_explicit_openings(request: LayoutImportV3) -> None:
         raise ValueError("explicit openings require generate_walls=true")
 
     boundary_segments_by_ref = _boundary_segments_by_ref(request)
-    shared_segments_by_ref = _shared_segments_by_ref(request)
     room_boundary_segments_by_ref = _room_boundary_segments_by_ref(request)
     for opening in openings:
         floor, host_segment = _resolve_host_wall_segment(
             opening,
             boundary_segments_by_ref,
-            shared_segments_by_ref,
             room_boundary_segments_by_ref,
         )
         if floor != opening.floor:
@@ -492,28 +418,6 @@ def _boundary_segments_by_ref(
     return refs
 
 
-def _shared_segments_by_ref(request: LayoutImportGenerationRequest) -> dict[str, SharedWallSegment]:
-    boundary_edges = _boundary_edge_set_mm(request.boundaries or [])
-    refs: dict[str, SharedWallSegment] = {}
-    for candidate in _derive_shared_wall_candidates(request):
-        floor, room_a_id, room_b_id, _, _ = candidate
-        candidate_segments = [
-            segment
-            for segment in _shared_segments_for_candidate(candidate)
-            if not _is_segment_on_any_boundary_edge_mm(segment[1], boundary_edges)
-        ]
-        if not candidate_segments:
-            continue
-        if len(candidate_segments) != 1:
-            raise ValueError(
-                "shared wall adjacency must resolve to exactly one interior shared segment: "
-                f"{room_a_id}<->{room_b_id} on floor {floor}"
-            )
-        refs[f"wall-room-{room_a_id}-{room_b_id}"] = candidate_segments[0]
-        refs[f"wall-room-{room_b_id}-{room_a_id}"] = candidate_segments[0]
-    return refs
-
-
 def _room_boundary_segments_by_ref(
     request: LayoutImportGenerationRequest,
 ) -> dict[str, SharedWallSegment]:
@@ -529,16 +433,11 @@ def _room_boundary_segments_by_ref(
 def _resolve_host_wall_segment(
     opening: OpeningInput,
     boundary_segments_by_ref: dict[str, SharedWallSegment],
-    shared_segments_by_ref: dict[str, SharedWallSegment],
     room_boundary_segments_by_ref: dict[str, SharedWallSegment],
 ) -> SharedWallSegment:
     boundary_match = boundary_segments_by_ref.get(opening.host_wall_ref)
     if boundary_match is not None:
         return boundary_match
-
-    shared_match = shared_segments_by_ref.get(opening.host_wall_ref)
-    if shared_match is not None:
-        return shared_match
 
     room_boundary_match = room_boundary_segments_by_ref.get(opening.host_wall_ref)
     if room_boundary_match is not None:
@@ -587,19 +486,6 @@ def _opening_width_fits_segment_mm(
     )
 
 
-def _shared_segments_for_candidate(
-    candidate: SharedWallCandidate,
-) -> list[SharedWallSegment]:
-    floor, _, _, from_edges, to_edges = candidate
-    shared_segments: list[SharedWallSegment] = []
-    for from_edge in from_edges:
-        for to_edge in to_edges:
-            shared_edge = _overlapping_collinear_segment_mm(from_edge, to_edge)
-            if shared_edge is not None:
-                shared_segments.append((floor, shared_edge))
-    return shared_segments
-
-
 def _overlapping_collinear_segment_mm(
     edge_a: RoomEdgeMm,
     edge_b: RoomEdgeMm,
@@ -632,61 +518,12 @@ def _overlapping_collinear_segment_mm(
     return None
 
 
-def _boundary_edge_set_mm(boundaries: list[BoundaryInput]) -> set[RoomEdgeMm]:
-    boundary_edges: set[RoomEdgeMm] = set()
-    for boundary in boundaries:
-        polygon = boundary.polygon_mm or boundary.outer_polygon_mm
-        assert polygon is not None
-        for index, start_point in enumerate(polygon):
-            end_point = polygon[(index + 1) % len(polygon)]
-            boundary_edges.add(_canonical_edge_mm(start_point, end_point))
-    return boundary_edges
-
-
 def _shared_segment_key(
     segment: SharedWallSegment,
 ) -> tuple[int, Point2DMm, Point2DMm]:
     floor, edge = segment
     start_point, end_point = edge
     return floor, start_point, end_point
-
-
-def _is_segment_on_any_boundary_edge_mm(
-    shared_edge: RoomEdgeMm,
-    boundary_edges: set[RoomEdgeMm],
-) -> bool:
-    return any(
-        _is_segment_on_boundary_edge_mm(shared_edge, boundary_edge)
-        for boundary_edge in boundary_edges
-    )
-
-
-def _is_segment_on_boundary_edge_mm(
-    shared_edge: RoomEdgeMm,
-    boundary_edge: RoomEdgeMm,
-) -> bool:
-    (sx1, sy1), (sx2, sy2) = shared_edge
-    (bx1, by1), (bx2, by2) = boundary_edge
-
-    shared_is_horizontal = math.isclose(sy1, sy2, abs_tol=1.0e-9)
-    boundary_is_horizontal = math.isclose(by1, by2, abs_tol=1.0e-9)
-    if shared_is_horizontal and boundary_is_horizontal:
-        return (
-            math.isclose(sy1, by1, abs_tol=1.0e-9)
-            and bx1 <= sx1 <= bx2
-            and bx1 <= sx2 <= bx2
-        )
-
-    shared_is_vertical = math.isclose(sx1, sx2, abs_tol=1.0e-9)
-    boundary_is_vertical = math.isclose(bx1, bx2, abs_tol=1.0e-9)
-    if shared_is_vertical and boundary_is_vertical:
-        return (
-            math.isclose(sx1, bx1, abs_tol=1.0e-9)
-            and by1 <= sy1 <= by2
-            and by1 <= sy2 <= by2
-        )
-
-    return False
 
 
 def _rooms_by_id(rooms: list[RoomInput]) -> dict[str, RoomInput]:
@@ -1430,90 +1267,6 @@ def _create_v2_slabs(
         )
 
 
-def _create_v2_shared_walls(
-    model: ifcopenshell.file,
-    owner_history: ifcopenshell.entity_instance,
-    context: ifcopenshell.entity_instance,
-    request: LayoutImportRequestModel,
-    storeys: dict[int, ifcopenshell.entity_instance],
-    shared_wall_segments: list[SharedWallSegment],
-    style_cache: StyleAssignmentCache,
-) -> HostWallRegistry:
-    if not shared_wall_segments:
-        return {}
-
-    if not isinstance(request, (LayoutImportV2, LayoutImportV3)):
-        raise TypeError("shared walls generation requires a V2 or V3 request")
-    if request.modeling_defaults is None:
-        raise RuntimeError("modeling_defaults must be validated before shared wall generation")
-    wall_thickness_m = _mm_to_m(request.modeling_defaults.wall_thickness_mm or 0)
-    wall_height_m = _effective_space_height_m(request)
-    shared_segments = sorted(
-        shared_wall_segments,
-        key=lambda segment: (
-            segment[0],
-            segment[1][0][0],
-            segment[1][0][1],
-            segment[1][1][0],
-            segment[1][1][1],
-        ),
-    )
-    floor_indices: dict[int, int] = {}
-    refs_by_segment_key = _shared_host_wall_refs_by_segment_key(request)
-    registry: HostWallRegistry = {}
-
-    for floor, edge in shared_segments:
-        storey = storeys.get(floor)
-        if storey is None:
-            continue
-
-        zone_color = _zone_color_for_shared_wall(request, floor, edge)
-        floor_indices[floor] = floor_indices.get(floor, 0) + 1
-        segment_index = floor_indices[floor]
-        wall = _create_shared_wall_from_segment(
-            model,
-            owner_history,
-            context,
-            storey,
-            floor,
-            segment_index,
-            edge,
-            wall_thickness_m,
-            wall_height_m,
-        )
-        bounded_rooms = _rooms_matching_edge_on_floor(request.rooms, floor, edge)
-        _attach_wall_metadata_property_sets(
-            model,
-            owner_history,
-            wall,
-            wall_kind="INTERIOR",
-            wall_type=_resolve_wall_type_for_rooms(bounded_rooms, default=WallType.GENERAL),
-            bounded_room_ids=[room.id for room in bounded_rooms],
-            bounded_room_names=[room.name for room in bounded_rooms],
-            bounded_room_types=[room.type.value for room in bounded_rooms],
-            is_external=False,
-            source="inferred_shared_wall",
-        )
-        _apply_zone_style(model, wall, zone_color, style_cache)
-        _contain_in_storey(
-            model,
-            owner_history,
-            wall,
-            storey,
-            f"shared-wall-{floor}-{segment_index}-StoreyContainment",
-        )
-        entry = HostWallRegistryEntry(
-            wall=wall,
-            storey=storey,
-            floor=floor,
-            segment_mm=edge,
-            thickness_m=wall_thickness_m,
-        )
-        for reference in refs_by_segment_key.get(_shared_segment_key((floor, edge)), ()):
-            registry[reference] = entry
-    return registry
-
-
 def _create_v2_roof(
     model: ifcopenshell.file,
     owner_history: ifcopenshell.entity_instance,
@@ -1601,27 +1354,6 @@ def _top_floor_boundary(request: LayoutImportGenerationRequest) -> BoundaryInput
         return None
     top_floor = max(room.floor for room in request.rooms)
     return next((boundary for boundary in request.boundaries if boundary.floor == top_floor), None)
-
-
-def _shared_host_wall_refs_by_segment_key(
-    request: LayoutImportGenerationRequest,
-) -> dict[tuple[int, Point2DMm, Point2DMm], set[str]]:
-    boundary_edges = _boundary_edge_set_mm(request.boundaries or [])
-    refs_by_segment_key: dict[tuple[int, Point2DMm, Point2DMm], set[str]] = {}
-    for candidate in _derive_shared_wall_candidates(request):
-        floor, room_a_id, room_b_id, _, _ = candidate
-        candidate_segments = [
-            segment
-            for segment in _shared_segments_for_candidate(candidate)
-            if not _is_segment_on_any_boundary_edge_mm(segment[1], boundary_edges)
-        ]
-        if len(candidate_segments) != 1:
-            continue
-        segment_key = _shared_segment_key(candidate_segments[0])
-        refs = refs_by_segment_key.setdefault(segment_key, set())
-        refs.add(f"wall-room-{room_a_id}-{room_b_id}")
-        refs.add(f"wall-room-{room_b_id}-{room_a_id}")
-    return refs_by_segment_key
 
 
 def _create_wall_from_segment(
@@ -1936,32 +1668,6 @@ def _create_roof_from_boundary(
             Representations=[representation],
         ),
     )
-
-
-def _create_shared_wall_from_segment(
-    model: ifcopenshell.file,
-    owner_history: ifcopenshell.entity_instance,
-    context: ifcopenshell.entity_instance,
-    storey: ifcopenshell.entity_instance,
-    floor: int,
-    segment_index: int,
-    edge: RoomEdgeMm,
-    thickness_m: float,
-    height_m: float,
-) -> ifcopenshell.entity_instance:
-    start_point_mm, end_point_mm = edge
-    wall = _create_wall_from_segment(
-        model,
-        owner_history,
-        context,
-        storey,
-        f"Shared Wall {floor}-{segment_index}",
-        (_mm_to_m(start_point_mm[0]), _mm_to_m(start_point_mm[1])),
-        (_mm_to_m(end_point_mm[0]), _mm_to_m(end_point_mm[1])),
-        thickness_m,
-        height_m,
-    )
-    return wall
 
 
 def _create_v3_openings(
