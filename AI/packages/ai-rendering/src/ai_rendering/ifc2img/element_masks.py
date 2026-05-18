@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -314,9 +313,6 @@ def render_ifc_element_masks(
     up: tuple[float, float, float] | list[float],
     width: int,
     height: int,
-    visible_to_hit_ratio_threshold: float = DEFAULT_VISIBLE_TO_HIT_RATIO_THRESHOLD,
-    min_visible_pixel_count: int = DEFAULT_MIN_VISIBLE_PIXEL_COUNT,
-    key_coverage_categories: tuple[IfcSemanticCategory, ...] = KEY_COVERAGE_CATEGORIES,
     visible_to_hit_ratio_threshold: float = DEFAULT_VISIBLE_TO_HIT_RATIO_THRESHOLD,
     min_visible_pixel_count: int = DEFAULT_MIN_VISIBLE_PIXEL_COUNT,
     key_coverage_categories: tuple[IfcSemanticCategory, ...] = KEY_COVERAGE_CATEGORIES,
