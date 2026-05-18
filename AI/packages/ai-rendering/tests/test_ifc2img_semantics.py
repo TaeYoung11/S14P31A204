@@ -999,9 +999,10 @@ def test_measure_ifc_geometry_fidelity_rejects_size_mismatch() -> None:
 
 def _build_fidelity_report(
     *,
-    silhouette_iou: float,
-    edge_alignment_score: float,
-    building_bbox_overlap: float | None,
+    sky_edge_density: float,
+    silhouette_iou: float = 0.0,
+    edge_alignment_score: float = 0.0,
+    building_bbox_overlap: float | None = 0.0,
 ) -> IfcGeometryFidelityReport:
     return IfcGeometryFidelityReport(
         image_size=(4, 4),
@@ -1014,17 +1015,14 @@ def _build_fidelity_report(
         building_bbox_overlap=building_bbox_overlap,
         silhouette_iou=silhouette_iou,
         edge_alignment_score=edge_alignment_score,
+        sky_edge_density=sky_edge_density,
         categories={},
     )
 
 
-def test_evaluate_ifc_geometry_fidelity_gate_accepts_high_quality_metrics() -> None:
-    """Soft-lock gate should accept when every metric clears its default threshold."""
-    report = _build_fidelity_report(
-        silhouette_iou=0.80,
-        edge_alignment_score=0.40,
-        building_bbox_overlap=0.90,
-    )
+def test_evaluate_ifc_geometry_fidelity_gate_accepts_clean_sky() -> None:
+    """Soft-lock gate accepts when the sky band has almost no Canny edges."""
+    report = _build_fidelity_report(sky_edge_density=0.01)
 
     decision = evaluate_ifc_geometry_fidelity_gate(report)
 
@@ -1033,78 +1031,47 @@ def test_evaluate_ifc_geometry_fidelity_gate_accepts_high_quality_metrics() -> N
     payload = decision.to_dict()
     assert payload["accepted"] is True
     assert payload["failReasons"] == []
-    assert payload["thresholds"]["silhouetteIouMin"] > 0.0
+    assert payload["thresholds"]["skyEdgeDensityMax"] > 0.0
 
 
-def test_evaluate_ifc_geometry_fidelity_gate_rejects_when_iou_below_threshold() -> None:
-    """Below-threshold silhouette IoU should trigger reject so the pipeline can fallback."""
-    report = _build_fidelity_report(
-        silhouette_iou=0.10,
-        edge_alignment_score=0.40,
-        building_bbox_overlap=0.90,
-    )
+def test_evaluate_ifc_geometry_fidelity_gate_rejects_cluttered_sky() -> None:
+    """High edge density above the building bbox indicates drift in the sky band."""
+    report = _build_fidelity_report(sky_edge_density=0.20)
 
     decision = evaluate_ifc_geometry_fidelity_gate(report)
 
     assert decision.accepted is False
-    assert "silhouette_iou_below_threshold" in decision.fail_reasons
+    assert decision.fail_reasons == ("sky_edge_density_above_threshold",)
 
 
-def test_evaluate_ifc_geometry_fidelity_gate_rejects_multiple_reasons() -> None:
-    """All failing metrics must be reported so logs explain the rejection."""
-    report = _build_fidelity_report(
-        silhouette_iou=0.10,
-        edge_alignment_score=0.05,
-        building_bbox_overlap=0.10,
-    )
-
-    decision = evaluate_ifc_geometry_fidelity_gate(report)
-
-    assert decision.accepted is False
-    assert set(decision.fail_reasons) == {
-        "silhouette_iou_below_threshold",
-        "edge_alignment_below_threshold",
-        "bbox_overlap_below_threshold",
-    }
-
-
-def test_evaluate_ifc_geometry_fidelity_gate_flags_missing_bbox_overlap() -> None:
-    """An unmeasurable bbox overlap is treated as a fail-safe reject."""
-    report = _build_fidelity_report(
-        silhouette_iou=0.80,
-        edge_alignment_score=0.40,
-        building_bbox_overlap=None,
-    )
-
-    decision = evaluate_ifc_geometry_fidelity_gate(report)
-
-    assert decision.accepted is False
-    assert decision.fail_reasons == ("bbox_overlap_unavailable",)
-
-
-def test_evaluate_ifc_geometry_fidelity_gate_honors_custom_thresholds() -> None:
-    """Caller-supplied thresholds override the defaults exactly."""
-    report = _build_fidelity_report(
-        silhouette_iou=0.55,
-        edge_alignment_score=0.25,
-        building_bbox_overlap=0.60,
-    )
+def test_evaluate_ifc_geometry_fidelity_gate_honors_custom_threshold() -> None:
+    """Caller-supplied thresholds override the default."""
+    report = _build_fidelity_report(sky_edge_density=0.04)
 
     strict = evaluate_ifc_geometry_fidelity_gate(
         report,
-        thresholds=IfcGeometryFidelityThresholds(
-            silhouette_iou_min=0.95,
-            edge_alignment_min=0.95,
-            bbox_overlap_min=0.95,
-        ),
+        thresholds=IfcGeometryFidelityThresholds(sky_edge_density_max=0.01),
     )
 
     assert strict.accepted is False
-    assert set(strict.fail_reasons) == {
-        "silhouette_iou_below_threshold",
-        "edge_alignment_below_threshold",
-        "bbox_overlap_below_threshold",
-    }
+    assert "sky_edge_density_above_threshold" in strict.fail_reasons
+
+
+def test_evaluate_ifc_geometry_fidelity_gate_preserves_measurement_metrics() -> None:
+    """Silhouette / edge / bbox stay on the decision payload as measurements only."""
+    report = _build_fidelity_report(
+        sky_edge_density=0.01,
+        silhouette_iou=0.12,
+        edge_alignment_score=0.0,
+        building_bbox_overlap=0.07,
+    )
+
+    decision = evaluate_ifc_geometry_fidelity_gate(report)
+
+    assert decision.accepted is True
+    assert decision.silhouette_iou == 0.12
+    assert decision.edge_alignment_score == 0.0
+    assert decision.building_bbox_overlap == 0.07
 
 
 def test_measure_ifc_color_target_deltas_compares_mean_to_target(
