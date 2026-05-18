@@ -235,6 +235,8 @@ public class WorkspaceFloorPlanRealtimeService {
     ) {
         ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
         JsonNode payload = buildGenerateCompletionPayload(revisionId, parentRevisionId);
+        JsonNode floorPlanHistorySnapshot = buildFloorPlanHistorySnapshot(payload, normalizeS3Url(s3Url));
+        saveFloorPlanSnapshotToRedisOrThrow(projectId, floorPlanHistorySnapshot, UNKNOWN_FLOOR_PLAN_BASE_INDEX);
 
         broadcastFloorPlanSync(
                 projectId,

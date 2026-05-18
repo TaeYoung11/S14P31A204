@@ -46,6 +46,20 @@ public class IfcEditStoragePathBuilder {
                 + "/planner/3d-command.v1.json");
     }
 
+    public String toWorkerStorageUrl(String storageUrl) {
+        if (!StringUtils.hasText(storageUrl)) {
+            return storageUrl;
+        }
+
+        String normalized = storageUrl.trim();
+        if (normalized.startsWith("s3://")
+                || normalized.startsWith("http://")
+                || normalized.startsWith("https://")) {
+            return normalized;
+        }
+        return toS3Url(normalized);
+    }
+
     private String formatStepNo(int stepNo) {
         return String.format("%03d", stepNo);
     }
