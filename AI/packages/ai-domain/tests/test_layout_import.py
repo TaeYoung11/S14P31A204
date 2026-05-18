@@ -468,6 +468,81 @@ def test_layout_import_v1_rejects_duplicate_room_ids() -> None:
         )
 
 
+def test_layout_import_v2_rejects_duplicate_room_source_bubble_ids() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="room.source_bubble_id values must be unique",
+    ):
+        LayoutImportV2.model_validate(
+            {
+                "schema_version": "v2",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [
+                    {
+                        **_base_room(),
+                        "id": "room-1",
+                        "source_bubble_id": "bubble-1",
+                    },
+                    {
+                        **_base_room(),
+                        "id": "room-2",
+                        "name": "Bedroom",
+                        "type": "bedroom",
+                        "source_bubble_id": "bubble-1",
+                    },
+                ],
+            }
+        )
+
+
+def test_layout_import_v2_allows_missing_room_source_bubble_ids() -> None:
+    request = LayoutImportV2.model_validate(
+        {
+            "schema_version": "v2",
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "sample-project",
+            "rooms": [
+                {**_base_room(), "id": "room-1"},
+                {
+                    **_base_room(),
+                    "id": "room-2",
+                    "name": "Bedroom",
+                    "type": "bedroom",
+                },
+            ],
+        }
+    )
+
+    assert [room.source_bubble_id for room in request.rooms] == [None, None]
+
+
+def test_layout_import_v2_allows_unique_room_source_bubble_ids() -> None:
+    request = LayoutImportV2.model_validate(
+        {
+            "schema_version": "v2",
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "sample-project",
+            "rooms": [
+                {
+                    **_base_room(),
+                    "id": "room-1",
+                    "source_bubble_id": "bubble-1",
+                },
+                {
+                    **_base_room(),
+                    "id": "room-2",
+                    "name": "Bedroom",
+                    "type": "bedroom",
+                    "source_bubble_id": "bubble-2",
+                },
+            ],
+        }
+    )
+
+    assert [room.source_bubble_id for room in request.rooms] == ["bubble-1", "bubble-2"]
+
+
 def test_layout_import_v1_rejects_duplicate_zone_ids() -> None:
     with pytest.raises(ValidationError, match="zone.id values must be unique"):
         LayoutImportV1.model_validate(
