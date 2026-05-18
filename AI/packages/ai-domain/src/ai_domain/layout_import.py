@@ -321,6 +321,14 @@ class LayoutImportCommon(LayoutImportBaseModel):
         if len(room_ids) != len(set(room_ids)):
             raise ValueError("room.id values must be unique")
 
+        source_bubble_ids = [
+            room.source_bubble_id
+            for room in self.rooms
+            if room.source_bubble_id is not None
+        ]
+        if len(source_bubble_ids) != len(set(source_bubble_ids)):
+            raise ValueError("room.source_bubble_id values must be unique")
+
         if self.zones is not None:
             zone_ids = [zone.id for zone in self.zones]
             if len(zone_ids) != len(set(zone_ids)):
