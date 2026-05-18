@@ -130,7 +130,7 @@ export const FLOOR_MM_PER_PX = 25
 export const FLOOR_PLAN_EDIT_AUTHORITY: FloorPlanEditAuthority = 'room-first'
 
 /** 에디터 줌 범위(%) */
-export const MIN_EDITOR_ZOOM_PERCENT = 1
+export const MIN_EDITOR_ZOOM_PERCENT = 50
 export const MAX_EDITOR_ZOOM_PERCENT = 300
 
 /** 전역 그리드 스냅 간격 옵션(mm) */

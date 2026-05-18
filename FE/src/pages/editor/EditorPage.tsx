@@ -78,7 +78,7 @@ export default function EditorPage() {
           <div className="relative min-w-0 flex-1 overflow-hidden">
             <EditorCanvasContent {...canvasContentProps} />
 
-            {vm.mode === 'bubble' && (
+            {(vm.mode === 'bubble' || vm.mode === '2d') && (
               <div className="absolute right-6 top-6 z-[125]">
                 <CompassControl
                   rotationRadians={vm.userViewRotationRadians}

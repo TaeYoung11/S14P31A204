@@ -3,6 +3,7 @@ import { MAX_EDITOR_ZOOM_PERCENT, MIN_EDITOR_ZOOM_PERCENT } from '../constants'
 import { computeFitZoomPercent, type ViewportInsets } from '../utils/editorViewport'
 
 const DEFAULT_EDITOR_ZOOM_PERCENT = 100
+const EDITOR_CANVAS_ZOOM_DISPLAY_SCALE = 0.7
 
 function clampEditorZoom(value: number): number {
   const clamped = Math.min(Math.max(value, MIN_EDITOR_ZOOM_PERCENT), MAX_EDITOR_ZOOM_PERCENT)
@@ -93,7 +94,10 @@ export function useEditorZoom({
     return clampEditorZoom(Math.min(DEFAULT_EDITOR_ZOOM_PERCENT, fitZoom))
   }, [sitePlanPoints, stageWidth, stageHeight, fitPaddingPx, viewportInsets])
 
-  const canvasZoom = (fitBaseZoom ?? DEFAULT_EDITOR_ZOOM_PERCENT) * (currentZoom / DEFAULT_EDITOR_ZOOM_PERCENT)
+  const canvasZoom =
+    (fitBaseZoom ?? DEFAULT_EDITOR_ZOOM_PERCENT) *
+    (currentZoom / DEFAULT_EDITOR_ZOOM_PERCENT) *
+    EDITOR_CANVAS_ZOOM_DISPLAY_SCALE
 
   const getBaseZoom = () => currentZoom
 
