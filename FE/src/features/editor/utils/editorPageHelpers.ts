@@ -44,38 +44,30 @@ export interface LayoutImportBoundaryLogMetadata {
   boundaryOmitReason?: LayoutImportBoundaryOmitReason
 }
 
+const FLOOR_PLAN_ROOM_TYPE_MAP: Record<string, FloorPlanRoomType> = {
+  living: 'living',
+  bedroom: 'bedroom',
+  kitchen: 'kitchen',
+  bathroom: 'bathroom',
+  office: 'office',
+  entrance: 'entrance',
+  corridor: 'corridor',
+  other: 'other',
+  '거실': 'living',
+  '침실': 'bedroom',
+  '방': 'bedroom',
+  '주방': 'kitchen',
+  '화장실': 'bathroom',
+  '욕실': 'bathroom',
+  '현관': 'entrance',
+  '복도': 'corridor',
+  '사무실': 'office',
+  '미선택': 'other',
+}
+
 function normalizeFloorPlanRoomType(rawType: string | null | undefined): FloorPlanRoomType {
   const normalized = typeof rawType === 'string' ? rawType.trim().toLowerCase() : ''
-  if (normalized === '거실') return 'living'
-  if (normalized === '침실' || normalized === '방') return 'bedroom'
-  if (normalized === '주방') return 'kitchen'
-  if (normalized === '화장실' || normalized === '욕실') return 'bathroom'
-  if (normalized === '현관' || normalized === 'entrance') return 'entrance'
-  if (normalized === '복도') return 'corridor'
-  if (normalized === '사무실') return 'office'
-  switch (normalized) {
-    case '거실':
-    case 'living':
-      return 'living'
-    case '침실':
-    case 'bedroom':
-    case '방':
-      return 'bedroom'
-    case '주방':
-    case 'kitchen':
-      return 'kitchen'
-    case '화장실':
-    case 'bathroom':
-      return 'bathroom'
-    case '복도':
-    case 'corridor':
-      return 'corridor'
-    case '사무실':
-    case 'office':
-      return 'office'
-    default:
-      return 'other'
-  }
+  return FLOOR_PLAN_ROOM_TYPE_MAP[normalized] ?? 'other'
 }
 
 function toFiniteNumber(value: number): number {
@@ -96,14 +88,15 @@ function toOptionalNonBlankString(value: string | null | undefined): string | un
 
 function toLayoutImportWallType(value: string | null | undefined): 'general' | 'exterior' | 'load_bearing' | 'partition' | undefined {
   if (typeof value !== 'string') return undefined
-  switch (value.trim()) {
+  const normalized = value.trim().replace(/[-\s]/g, '_').toLowerCase()
+  switch (normalized) {
     case 'general':
       return 'general'
     case 'exterior':
       return 'exterior'
     case 'partition':
       return 'partition'
-    case 'loadBearing':
+    case 'loadbearing':
     case 'load_bearing':
       return 'load_bearing'
     default:
