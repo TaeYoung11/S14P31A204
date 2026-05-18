@@ -174,11 +174,15 @@ export function InspectorHierarchySection({ panelProps }: InspectorHierarchySect
   const handleSelectRoomByAnyId = useCallback((roomId: string) => {
     const room = roomByEitherId.get(roomId)
     if (!room) {
-      panelProps.onSelectRoom?.(roomId)
+      panelProps?.onSelectRoom?.(roomId)
       return
     }
-    panelProps.onSelectRoom?.(room.bubbleId || room.id)
+    panelProps?.onSelectRoom?.(room.bubbleId || room.id)
   }, [panelProps, roomByEitherId])
+
+  if (!panelProps) {
+    return <p className="text-[11px] text-[#94A3B8]">계층 정보가 없습니다.</p>
+  }
 
   if (rooms.length > 0) {
     return (
@@ -432,6 +436,10 @@ export function InspectorHierarchySection({ panelProps }: InspectorHierarchySect
                   key={`${group.id}-${child.id}`}
                   type="button"
                   onClick={() => {
+                    if (group.id === 'floors') {
+                      panelProps.onSelectFloor?.(child.id)
+                      return
+                    }
                     if (group.id === 'rooms') {
                       handleSelectRoomByAnyId(child.id)
                       return

@@ -22,6 +22,7 @@ interface HierarchyPanelProps {
   activeFloorLayerId?: string | null
   ifcElementHierarchy?: unknown
   groups?: HierarchyGroup[]
+  onSelectFloor?: (id: string) => void
 }
 
 /**
@@ -44,6 +45,7 @@ export function HierarchyPanel({
   activeFloorLayerId,
   ifcElementHierarchy,
   groups,
+  onSelectFloor,
 }: HierarchyPanelProps) {
   const hierarchyGroups = groups ?? buildHierarchyGroups({
     floorRooms,
@@ -86,6 +88,9 @@ export function HierarchyPanel({
                 {group.children.map((child) => (
                   <div
                     key={`${group.id}-${child.id}`}
+                    onClick={() => {
+                      if (group.id === 'floors') onSelectFloor?.(child.id)
+                    }}
                     className="flex items-center justify-between group/item cursor-pointer hover:bg-[#F8F9FD] px-2 py-0.5 rounded-sm transition-colors"
                   >
                     <span className="text-[10px] font-bold text-[#6B7A99] group-hover/item:text-[#3B45B3]">{child.label}</span>

@@ -16,6 +16,7 @@ export type HierarchySectionProps = ComponentProps<typeof HierarchyPanel> & {
   selectedRoomId?: string | null
   selectedFloorWallId?: string | null
   selectedFloorOpeningId?: string | null
+  onSelectFloor?: (id: string) => void
   onSelectRoom?: (id: string) => void
   onSelectWall?: (id: string) => void
   onSelectOpening?: (id: string) => void
@@ -146,6 +147,7 @@ export function buildHierarchySectionProps(vm: EditorRightPanelsProps): Hierarch
     selectedRoomId: vm.selectedRoomId,
     selectedFloorWallId: vm.selectedFloorWallId,
     selectedFloorOpeningId: vm.selectedFloorOpeningId,
+    onSelectFloor: vm.onSelectFloorLayer,
     onSelectRoom: vm.onSelectRoom,
     onSelectWall: vm.onSelectWall,
     onSelectOpening: vm.onSelectOpening,
