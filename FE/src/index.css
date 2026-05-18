@@ -53,18 +53,25 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
-input,
-textarea,
-select,
-[contenteditable="true"],
-[data-text-select="allow"],
-[data-text-select="allow"] * {
-  user-select: text;
-  -webkit-user-select: text;
+button,
+a,
+label,
+summary,
+img,
+svg,
+canvas,
+[role='button'],
+[draggable='true'],
+.btn-primary,
+.btn-secondary,
+.btn-danger,
+.btn-icon,
+.auth-watermark,
+.floating-panel-header {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 html, body, #root {

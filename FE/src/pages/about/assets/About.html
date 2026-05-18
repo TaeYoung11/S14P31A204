@@ -33,7 +33,6 @@
     background: var(--bg);
     word-break: keep-all;
     overflow-wrap: break-word;
-    line-break: strict;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     letter-spacing: -0.005em;
@@ -426,7 +425,7 @@
     .value:last-child{ border-bottom: 0; }
     .cta-block{ flex-direction: column; align-items: flex-start; }
     .section-head{ flex-direction: column; align-items: flex-start; gap: 12px; }
-    .section-head .desc{ margin-left: 0; text-align: left; }
+    .section-head .desc{ flex: initial; margin-left: 0; max-width: none; text-align: left; }
   }
 </style>
 </head>
