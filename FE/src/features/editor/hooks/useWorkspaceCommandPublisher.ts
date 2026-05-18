@@ -109,6 +109,11 @@ export function useWorkspaceCommandPublisher({
     return command
   }, [])
 
+  const hasPendingCommand = useCallback((): boolean => {
+    const command = pendingCommandRef.current
+    return Boolean(command && hasCommandPayload(command))
+  }, [])
+
   const updatePendingCreate = useCallback((localId: string, patch: Record<string, unknown>): boolean => {
     const current = pendingCommandRef.current
     if (current?.op !== 'create' || current.id !== localId) return false
@@ -231,8 +236,7 @@ export function useWorkspaceCommandPublisher({
   const deleteWall = useCallback((wallId: string) => {
     const globalId = toIfcGlobalId(wallId)
     if (!globalId && cancelPendingCreate(wallId)) return
-    if (!globalId) return
-    pendingCommandRef.current = deleteEntityCommand('wall', globalId)
+    pendingCommandRef.current = deleteEntityCommand('wall', globalId ?? wallId)
   }, [cancelPendingCreate])
 
   const createOpening = useCallback((opening: FloorOpening) => {
@@ -452,6 +456,7 @@ export function useWorkspaceCommandPublisher({
     deleteIfcElement,
     updateRoom,
     deleteRoom,
+    hasPendingCommand,
     consumePendingCommand,
   }), [
     consumePendingCommand,
@@ -461,6 +466,7 @@ export function useWorkspaceCommandPublisher({
     deleteOpening,
     deleteRoom,
     deleteWall,
+    hasPendingCommand,
     updateIfcElement,
     updateOpening,
     updateRoom,

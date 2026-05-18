@@ -29,9 +29,8 @@ export function InspectorFloorViewSection({ panelProps }: InspectorFloorViewSect
         return (
           <div
             key={layer.id}
-            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 ${
-              isActive ? 'border-[#C8D2FF] bg-[#F4F6FF]' : 'border-[#EEF2F7] bg-[#FCFDFF]'
-            }`}
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 ${isActive ? 'border-[#C8D2FF] bg-[#F4F6FF]' : 'border-[#EEF2F7] bg-[#FCFDFF]'
+              }`}
           >
             <button
               type="button"
@@ -41,7 +40,6 @@ export function InspectorFloorViewSection({ panelProps }: InspectorFloorViewSect
               <p className={`truncate text-[11px] font-bold ${isActive ? 'text-[#3B45B3]' : 'text-[#334155]'}`}>
                 {layer.name || `${index + 1}F`}
               </p>
-              <p className="text-[9px] text-[#94A3B8]">{isActive ? '현재 층' : '비활성 층'}</p>
             </button>
             <button
               type="button"
@@ -51,13 +49,12 @@ export function InspectorFloorViewSection({ panelProps }: InspectorFloorViewSect
                 panelProps.onToggleOverlayLayer?.(layer.id)
               }}
               disabled={isActive}
-              className={`rounded p-1 ${
-                isActive
+              className={`rounded p-1 ${isActive
                   ? 'cursor-not-allowed text-[#CBD5E1]'
                   : isOverlaySelected
                     ? 'bg-[#3B45B3] text-white'
                     : 'text-[#64748B] hover:bg-[#EEF2FF] hover:text-[#3B45B3]'
-              }`}
+                }`}
               aria-label="층 오버레이"
             >
               {isOverlaySelected ? <Eye size={12} /> : <EyeOff size={12} />}

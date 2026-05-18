@@ -9,7 +9,7 @@ preset resolver가 정한 옵션으로 스타일 이미지를 생성한 뒤 고�
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dataclass_replace
 from pathlib import Path
 from typing import Any, Literal, NotRequired, Protocol, TypedDict, cast
 
@@ -18,7 +18,12 @@ from PIL import Image
 
 from ai_common.logging import get_logger
 
-from .element_masks import render_ifc_element_masks
+from .element_masks import (
+    IfcElementMaskRenderResult,
+    build_ifc_color_composite_from_element_masks,
+    measure_ifc_geometry_fidelity,
+    render_ifc_element_masks,
+)
 from .exceptions import IFCRenderError
 from .geometry import (
     _estimate_ground_z,
@@ -28,12 +33,23 @@ from .geometry import (
 )
 from .presets import list_presets, load_preset
 from .semantics import (
+    IfcColorSummary,
     IfcSemanticSummary,
+    append_ifc_shape_lock_negative_prompt,
+    build_ifc_compact_color_prompt_suffix,
+    build_ifc_color_prompt_suffix,
+    compact_ifc_color_base_prompt,
+    extract_ifc_color_summary,
     extract_ifc_semantic_summary,
+    inject_ifc_color_prompt,
+    inject_ifc_shape_lock_prompt,
     is_reliable_main_door_candidate,
+    remove_ifc_color_conflicting_prompt_terms,
+    select_ifc_color_summary_category_cues,
 )
 from .style import (
     DEFAULT_CONTROLNET_SEG_ID,
+    build_depth_edge_control_image,
     build_debug_control_images,
     resolve_preset_view_render_options,
 )
@@ -76,12 +92,76 @@ DEFAULT_PHOTO_FRONT_DIAGONAL_GROUND_EXTENT_FACTOR = (
 DEFAULT_PHOTO_ITER_TOLERANCE = PHOTO_DEPTH_RENDER_DEFAULTS.iter_tolerance
 DEFAULT_PHOTO_LOOK_AT_HEIGHT_RATIO = PHOTO_DEPTH_RENDER_DEFAULTS.look_at_height_ratio
 PhotoViewAlias = Literal["front_diagonal_left", "front_diagonal_right"]
+IfcColorControlInputMode = Literal[
+    "default",
+    "color_prompt",
+    "color_composite_probe",
+    "hybrid_color",
+]
+IfcColorMode = Literal["none", "prompt", "composite", "hybrid"]
+GeometryControlInputMode = Literal[
+    "default",
+    "depth_edge",
+    "element_composite",
+]
 Ifc2ImgWorkerStatus = Literal["SUCCESS", "ERROR"]
 Ifc2ImgWorkerCommandType = Literal["SD_RENDER_GENERATE"]
 Ifc2ImgWorkerRenderMode = Literal["ifc2img"]
 Ifc2ImgWorkerTimeOfDay = Literal["DAY", "NIGHT"]
 Ifc2ImgPresetTimeOfDay = Literal["day", "night"]
 DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY: Ifc2ImgWorkerTimeOfDay = "DAY"
+GEOMETRY_CONTROL_INPUT_MODES: tuple[GeometryControlInputMode, ...] = (
+    "default",
+    "depth_edge",
+    "element_composite",
+)
+
+
+@dataclass(frozen=True)
+class IfcColorControlInputPlan:
+    """Candidate input switches for IFC color preservation experiments."""
+
+    mode: IfcColorControlInputMode
+    use_depth_control: bool
+    use_prompt_color_injection: bool
+    use_ifc_color_composite: bool
+
+
+IFC_COLOR_CONTROL_INPUT_PLANS: dict[
+    IfcColorControlInputMode,
+    IfcColorControlInputPlan,
+] = {
+    "default": IfcColorControlInputPlan(
+        mode="default",
+        use_depth_control=True,
+        use_prompt_color_injection=False,
+        use_ifc_color_composite=False,
+    ),
+    "color_prompt": IfcColorControlInputPlan(
+        mode="color_prompt",
+        use_depth_control=True,
+        use_prompt_color_injection=True,
+        use_ifc_color_composite=False,
+    ),
+    "color_composite_probe": IfcColorControlInputPlan(
+        mode="color_composite_probe",
+        use_depth_control=True,
+        use_prompt_color_injection=False,
+        use_ifc_color_composite=True,
+    ),
+    "hybrid_color": IfcColorControlInputPlan(
+        mode="hybrid_color",
+        use_depth_control=True,
+        use_prompt_color_injection=True,
+        use_ifc_color_composite=True,
+    ),
+}
+IFC_COLOR_MODE_TO_CONTROL_INPUT_MODE: dict[IfcColorMode, IfcColorControlInputMode] = {
+    "none": "default",
+    "prompt": "color_prompt",
+    "composite": "color_composite_probe",
+    "hybrid": "hybrid_color",
+}
 PUBLIC_PHOTO_VIEWS: tuple[PhotoViewAlias, ...] = (
     "front_diagonal_left",
     "front_diagonal_right",
@@ -95,6 +175,51 @@ PHOTO_VIEW_TO_EXPECTED_OUTPUT_FIELD: dict[PhotoViewAlias, str] = {
     "front_diagonal_right": "renderPhotoFrontDiagonalRightStorageUrl",
 }
 PHOTO_INTERNAL_VIEWS = tuple(PUBLIC_TO_INTERNAL_VIEW[view] for view in PUBLIC_PHOTO_VIEWS)
+
+
+def resolve_ifc_color_control_input_plan(
+    mode: str = "default",
+) -> IfcColorControlInputPlan:
+    """Resolve an IFC color experiment mode to explicit input switches."""
+    plan = IFC_COLOR_CONTROL_INPUT_PLANS.get(cast(IfcColorControlInputMode, mode))
+    if plan is None:
+        expected = ", ".join(IFC_COLOR_CONTROL_INPUT_PLANS)
+        raise IFCRenderError(
+            f"unsupported IFC color control input mode: {mode!r}. "
+            f"Expected one of: {expected}"
+        )
+    return plan
+
+
+def resolve_ifc_color_mode_input_plan(
+    ifc_color_mode: str = "none",
+) -> IfcColorControlInputPlan:
+    """Resolve public IFC color opt-in mode to candidate input switches."""
+    input_mode = IFC_COLOR_MODE_TO_CONTROL_INPUT_MODE.get(
+        cast(IfcColorMode, ifc_color_mode)
+    )
+    if input_mode is None:
+        expected = ", ".join(IFC_COLOR_MODE_TO_CONTROL_INPUT_MODE)
+        raise IFCRenderError(
+            f"unsupported ifc_color_mode: {ifc_color_mode!r}. "
+            f"Expected one of: {expected}"
+        )
+    return resolve_ifc_color_control_input_plan(input_mode)
+
+
+def resolve_geometry_control_input_mode(
+    mode: str | None = None,
+) -> GeometryControlInputMode:
+    """Resolve internal IFC geometry control input experiment mode."""
+    if mode is None or mode == "":
+        return "default"
+    if mode in GEOMETRY_CONTROL_INPUT_MODES:
+        return cast(GeometryControlInputMode, mode)
+    expected = ", ".join(GEOMETRY_CONTROL_INPUT_MODES)
+    raise IFCRenderError(
+        f"unsupported geometry_control_input_mode: {mode!r}. "
+        f"Expected one of: {expected}"
+    )
 
 
 def normalize_ifc2img_time_of_day(
@@ -245,6 +370,12 @@ class Ifc2ImgPhotoManifest:
     time_of_day: Ifc2ImgWorkerTimeOfDay = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY
     schema_version: str = PHOTO_MANIFEST_SCHEMA_VERSION
     render_mode: str = "ifc2img"
+    # Soft fidelity-status surface: caller가 opt-in한 IFC 색 보존이 실제 photo에
+    # 반영됐는지 success 응답 안에서 알 수 있도록 노출한다. opted_in=False면
+    # applied/error는 의미 없음.
+    ifc_color_preservation_opted_in: bool = False
+    ifc_color_preservation_applied: bool = False
+    ifc_color_preservation_error: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         """manifest dataclass를 기존 JSON 출력 구조로 변환한다."""
@@ -254,6 +385,9 @@ class Ifc2ImgPhotoManifest:
             "sourceIfcPath": str(self.source_ifc_path),
             "preset": self.preset,
             "timeOfDay": self.time_of_day,
+            "ifcColorPreservationOptedIn": self.ifc_color_preservation_opted_in,
+            "ifcColorPreservationApplied": self.ifc_color_preservation_applied,
+            "ifcColorPreservationError": self.ifc_color_preservation_error,
             "views": [
                 {
                     "view": output.view,
@@ -275,6 +409,9 @@ class Ifc2ImgPhotoJobResult:
     outputs: tuple[Ifc2ImgPhotoViewResult, ...]
     manifest_path: Path
     time_of_day: Ifc2ImgWorkerTimeOfDay = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY
+    ifc_color_preservation_opted_in: bool = False
+    ifc_color_preservation_applied: bool = False
+    ifc_color_preservation_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -453,6 +590,39 @@ class Ifc2ImgDebugGeometry:
     orientation: dict[str, object] | None
     ground_z: float | None
     error: str | None = None
+
+
+@dataclass(frozen=True)
+class Ifc2ImgDebugElementMaskArtifacts:
+    """Saved element mask paths plus the rendered masks for downstream debug reuse."""
+
+    files: dict[str, str]
+    result: IfcElementMaskRenderResult
+
+
+def build_element_composite_control_image(
+    element_masks: IfcElementMaskRenderResult,
+) -> Image.Image:
+    """Return the rendered IFC element composite as an RGB control candidate."""
+    return element_masks.composite.convert("RGB")
+
+
+def _render_element_composite_control_image(
+    *,
+    ifc_path: Path,
+    camera: dict[str, object],
+    width: int,
+    height: int,
+) -> Image.Image:
+    result = render_ifc_element_masks(
+        ifc_path,
+        eye=cast(list[float], camera["eye"]),
+        look_at=cast(list[float], camera["lookAt"]),
+        up=cast(list[float], camera["up"]),
+        width=width,
+        height=height,
+    )
+    return build_element_composite_control_image(result)
 
 
 def resolve_photo_views() -> tuple[PhotoViewAlias, ...]:
@@ -784,7 +954,7 @@ def _save_debug_element_masks(
     camera: dict[str, object],
     width: int,
     height: int,
-) -> dict[str, str]:
+) -> Ifc2ImgDebugElementMaskArtifacts | None:
     try:
         result = render_ifc_element_masks(
             ifc_path,
@@ -801,7 +971,7 @@ def _save_debug_element_masks(
             view=public_view,
             error=str(exc),
         )
-        return {}
+        return None
 
     paths: dict[str, str] = {}
     for category, image in result.masks.items():
@@ -811,9 +981,9 @@ def _save_debug_element_masks(
         paths[category_name] = _path_for_manifest(path, output_dir)
 
     composite_path = debug_dir / f"element_composite_{public_view}.png"
-    result.composite.save(composite_path, format="PNG")
+    build_element_composite_control_image(result).save(composite_path, format="PNG")
     paths["composite"] = _path_for_manifest(composite_path, output_dir)
-    return paths
+    return Ifc2ImgDebugElementMaskArtifacts(files=paths, result=result)
 
 
 def _save_debug_artifacts(
@@ -827,6 +997,7 @@ def _save_debug_artifacts(
     depth: Image.Image,
     photo: Image.Image,
     geometry: Ifc2ImgDebugGeometry,
+    color_summary: IfcColorSummary | None = None,
 ) -> dict[str, object]:
     debug_depth_path = debug_dir / f"depth_{public_view}.png"
     debug_control_path = debug_dir / f"control_depth_{public_view}.png"
@@ -860,7 +1031,7 @@ def _save_debug_artifacts(
     )
     camera = payload.get("camera")
     if isinstance(camera, dict):
-        element_masks = _save_debug_element_masks(
+        element_mask_artifacts = _save_debug_element_masks(
             ifc_path=ifc_path,
             output_dir=output_dir,
             debug_dir=debug_dir,
@@ -869,8 +1040,33 @@ def _save_debug_artifacts(
             width=depth.width,
             height=depth.height,
         )
-        if element_masks:
-            files["elementMasks"] = element_masks
+        if element_mask_artifacts is not None:
+            files["elementMasks"] = element_mask_artifacts.files
+            payload["geometryFidelity"] = measure_ifc_geometry_fidelity(
+                photo,
+                element_mask_artifacts.result,
+            ).to_dict()
+            if color_summary is not None:
+                try:
+                    color_composite = build_ifc_color_composite_from_element_masks(
+                        element_mask_artifacts.result,
+                        color_summary,
+                    )
+                    color_composite_path = (
+                        debug_dir / f"ifc_color_composite_{public_view}.png"
+                    )
+                    color_composite.save(color_composite_path, format="PNG")
+                    files["ifcColorCompositeImage"] = _path_for_manifest(
+                        color_composite_path,
+                        output_dir,
+                    )
+                except Exception as exc:
+                    _logger.info(
+                        "ifc2img_debug_color_composite_failed",
+                        ifcPath=str(ifc_path),
+                        view=public_view,
+                        error=str(exc),
+                    )
     payload.update(
         {
             "view": public_view,
@@ -952,14 +1148,26 @@ def render_photo_view(
     *,
     preset: str,
     view: IFCView,
+    geometry_control_image: Image.Image | None = None,
 ) -> _DepthStyleResultProtocol:
     """style renderer 호출과 preset/view option 적용을 한 곳에 모은다."""
     options = resolve_preset_view_render_options(preset, view)
+    render_kwargs = options.as_render_kwargs()
+    if geometry_control_image is not None:
+        render_kwargs.update(
+            {
+                "use_front_side_semantic_control": False,
+                "use_front_full_width_semantic_control": False,
+                "use_front_diagonal_ground_semantic_control": False,
+                "use_front_diagonal_ground_plane_aware_semantic_control": False,
+                "geometry_control_image": geometry_control_image,
+            }
+        )
     return renderer.render(
         depth_image,
         params,
         view=view,
-        **options.as_render_kwargs(),
+        **render_kwargs,
     )
 
 
@@ -969,6 +1177,10 @@ def run_ifc2img_photo_pipeline(
     *,
     preset: str = DEFAULT_PHOTO_PRESET,
     time_of_day: object | None = DEFAULT_IFC2IMG_WORKER_TIME_OF_DAY,
+    use_ifc_color_prompt_suffix: bool = False,
+    ifc_color_prompt_style: Literal["default", "compact"] = "default",
+    use_ifc_shape_lock_prompt: bool = False,
+    geometry_control_input_mode: str | None = None,
     debug_artifacts: bool = False,
     ifc_renderer_cls: type[_IFCRendererProtocol] | None = None,
     depth_style_renderer_cls: type[_DepthStyleRendererProtocol] | None = None,
@@ -983,6 +1195,9 @@ def run_ifc2img_photo_pipeline(
     preset_time_of_day = normalize_ifc2img_time_of_day(time_of_day)
     worker_time_of_day: Ifc2ImgWorkerTimeOfDay = (
         "DAY" if preset_time_of_day == "day" else "NIGHT"
+    )
+    geometry_control_mode = resolve_geometry_control_input_mode(
+        geometry_control_input_mode
     )
     semantic_context = load_runtime_semantic_context(ifc_path)
     ground_selection = select_semantic_ground(semantic_context)
@@ -1001,26 +1216,51 @@ def run_ifc2img_photo_pipeline(
     debug_dir = output_dir / DEBUG_DIR_NAME
     debug_geometry: Ifc2ImgDebugGeometry | None = None
     debug_manifest: dict[str, object] | None = None
-    if debug_artifacts:
+    debug_color_summary: IfcColorSummary | None = None
+    if debug_artifacts or use_ifc_color_prompt_suffix:
+        try:
+            debug_color_summary = extract_ifc_color_summary(ifc_path)
+        except Exception as exc:  # pragma: no cover - error type varies by parser.
+            if use_ifc_color_prompt_suffix:
+                _logger.warning(
+                    "ifc2img_color_prompt_summary_failed",
+                    ifcPath=str(ifc_path),
+                    error=str(exc),
+                )
+            color_summary_error = str(exc)
+        else:
+            color_summary_error = None
+    else:
+        color_summary_error = None
+
+    if debug_artifacts or geometry_control_mode == "element_composite":
         debug_dir.mkdir(parents=True, exist_ok=True)
         debug_geometry = _load_debug_geometry(ifc_path)
+    if debug_artifacts:
         debug_manifest = {
             "schemaVersion": "ifc2img.debug.v1",
             "sourceIfcPath": str(ifc_path),
             "preset": preset,
             "timeOfDay": worker_time_of_day,
+            "geometryControlInputMode": geometry_control_mode,
+            "ifcColorPromptStyle": ifc_color_prompt_style,
+            "useIfcShapeLockPrompt": use_ifc_shape_lock_prompt,
             "views": [],
         }
         # The production semantic context is the source of truth; the debug manifest
         # only records a serializable snapshot for inspection.
         debug_manifest["ifcSemanticSummary"] = semantic_context.summary.to_dict()
+        if debug_color_summary is not None:
+            debug_manifest["ifcColorSummary"] = debug_color_summary.to_dict()
+        elif color_summary_error is not None:
+            debug_manifest["ifcColorSummaryError"] = color_summary_error
         debug_manifest["semanticGroundSelection"] = ground_selection.to_dict()
         debug_manifest["semanticFrontCameraSelection"] = front_camera_selection.to_dict()
 
     requires_semantic = any(
         resolve_preset_view_render_options(preset, view).requires_semantic_controlnet
         for view in internal_views
-    )
+    ) or geometry_control_mode != "default"
     renderer = create_photo_ifc_renderer(
         ifc_renderer_cls,
         view_camera_overrides=view_camera_overrides,
@@ -1048,9 +1288,67 @@ def run_ifc2img_photo_pipeline(
         views=[view.value for view in depth_images],
     )
     params = load_preset(preset, preset_time_of_day)
+    ifc_color_preservation_applied = False
+    if use_ifc_color_prompt_suffix and debug_color_summary is not None:
+        if ifc_color_prompt_style == "compact":
+            color_suffix = build_ifc_compact_color_prompt_suffix(debug_color_summary)
+        elif ifc_color_prompt_style == "default":
+            color_suffix = build_ifc_color_prompt_suffix(debug_color_summary)
+        else:
+            raise IFCRenderError(
+                f"unsupported ifc_color_prompt_style: {ifc_color_prompt_style}"
+            )
+        color_cues = select_ifc_color_summary_category_cues(debug_color_summary)
+        color_safe_prompt = remove_ifc_color_conflicting_prompt_terms(
+            params.prompt,
+            color_cues,
+        )
+        if ifc_color_prompt_style == "compact":
+            color_safe_prompt = compact_ifc_color_base_prompt(color_safe_prompt)
+        params = dataclass_replace(
+            params,
+            prompt=inject_ifc_color_prompt(color_safe_prompt, color_suffix),
+        )
+        ifc_color_preservation_applied = True
+    ifc_color_preservation_error = (
+        color_summary_error
+        if use_ifc_color_prompt_suffix and not ifc_color_preservation_applied
+        else None
+    )
+    if use_ifc_shape_lock_prompt:
+        params = dataclass_replace(
+            params,
+            prompt=inject_ifc_shape_lock_prompt(params.prompt),
+            negative_prompt=append_ifc_shape_lock_negative_prompt(
+                params.negative_prompt
+            ),
+        )
     outputs: list[Ifc2ImgPhotoViewResult] = []
     for public_view, internal_view in zip(public_views, internal_views, strict=True):
         depth = depth_images[internal_view]
+        geometry_control_image: Image.Image | None = None
+        if geometry_control_mode == "depth_edge":
+            geometry_control_image = build_depth_edge_control_image(depth)
+        elif geometry_control_mode == "element_composite":
+            if debug_geometry is None:
+                raise IFCRenderError(
+                    "element_composite geometry control requires debug geometry"
+                )
+            debug_payload = _build_debug_view_payload(
+                geometry=debug_geometry,
+                internal_view=internal_view,
+            )
+            camera = debug_payload.get("camera")
+            if not isinstance(camera, dict):
+                raise IFCRenderError(
+                    "element_composite geometry control requires debug camera"
+                )
+            geometry_control_image = _render_element_composite_control_image(
+                ifc_path=ifc_path,
+                camera=camera,
+                width=depth.width,
+                height=depth.height,
+            )
         depth_path = output_dir / f"depth_{public_view}.png"
         depth.save(depth_path, format="PNG")
         depth_width, depth_height = depth.size
@@ -1077,6 +1375,7 @@ def run_ifc2img_photo_pipeline(
             params,
             preset=preset,
             view=internal_view,
+            geometry_control_image=geometry_control_image,
         )
         photo_path = output_dir / f"photo_{public_view}.png"
         result.save(photo_path)
@@ -1098,8 +1397,18 @@ def run_ifc2img_photo_pipeline(
                     depth=depth,
                     photo=result.image,
                     geometry=debug_geometry,
+                    color_summary=debug_color_summary,
                 )
                 actual_fill_ratio = float(debug_view["actualFillRatio"])
+                debug_view["geometryControlInputMode"] = geometry_control_mode
+                debug_view["usesGeometryControlImage"] = (
+                    geometry_control_image is not None
+                )
+                if geometry_control_image is not None:
+                    debug_view["geometryControlImageSize"] = [
+                        geometry_control_image.width,
+                        geometry_control_image.height,
+                    ]
                 debug_manifest_views = debug_manifest["views"]
                 if isinstance(debug_manifest_views, list):
                     debug_manifest_views.append(debug_view)
@@ -1159,12 +1468,18 @@ def run_ifc2img_photo_pipeline(
             preset=preset,
             time_of_day=worker_time_of_day,
             outputs=output_tuple,
+            ifc_color_preservation_opted_in=use_ifc_color_prompt_suffix,
+            ifc_color_preservation_applied=ifc_color_preservation_applied,
+            ifc_color_preservation_error=ifc_color_preservation_error,
         ),
     )
     _logger.info(
         "ifc2img_manifest_write_completed",
         manifestPath=str(manifest_path),
         photoCount=len(output_tuple),
+        ifcColorPreservationOptedIn=use_ifc_color_prompt_suffix,
+        ifcColorPreservationApplied=ifc_color_preservation_applied,
+        ifcColorPreservationError=ifc_color_preservation_error,
     )
     return Ifc2ImgPhotoJobResult(
         preset=preset,
@@ -1172,6 +1487,9 @@ def run_ifc2img_photo_pipeline(
         outputs=output_tuple,
         manifest_path=manifest_path,
         time_of_day=worker_time_of_day,
+        ifc_color_preservation_opted_in=use_ifc_color_prompt_suffix,
+        ifc_color_preservation_applied=ifc_color_preservation_applied,
+        ifc_color_preservation_error=ifc_color_preservation_error,
     )
 
 

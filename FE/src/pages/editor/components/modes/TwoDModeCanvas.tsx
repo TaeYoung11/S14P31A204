@@ -1,5 +1,6 @@
 import { lazy, useMemo } from 'react'
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
+import { resolveVisibleCommentPinsInTwoD } from '../../utils/twoDVisibleCommentPins'
 
 const TwoDCanvas = lazy(() =>
   import('@/features/editor/components/canvas/TwoDCanvas').then((module) => ({ default: module.TwoDCanvas })),
@@ -15,23 +16,22 @@ interface TwoDModeCanvasProps {
  * 2D 평면도 모드의 캔버스 렌더링을 담당한다.
  */
 export default function TwoDModeCanvas({ editorProps, scale, onSelectWallForChat }: TwoDModeCanvasProps) {
-  const visibleCommentPins = useMemo(() => {
-    const activeIndex = editorProps.floorLayers.findIndex((layer) => layer.id === editorProps.activeFloorLayerId)
-    if (activeIndex < 0) return editorProps.commentPins
-
-    const activeLayer = editorProps.floorLayers[activeIndex]
-    const fallbackCeilingHeightMm = 2700
-    const floorStartMm = activeLayer.elevationMm ?? activeIndex * fallbackCeilingHeightMm
-    const floorHeightMm = activeLayer.ceilingHeightMm ?? fallbackCeilingHeightMm
-    const floorEndMm = floorStartMm + floorHeightMm
-
-    return editorProps.commentPins.filter((pin) => pin.worldZ >= floorStartMm && pin.worldZ < floorEndMm)
-  }, [editorProps.activeFloorLayerId, editorProps.commentPins, editorProps.floorLayers])
+  const visibleCommentPins = useMemo(
+    () => resolveVisibleCommentPinsInTwoD(
+      editorProps.floorLayers,
+      editorProps.activeFloorLayerId,
+      editorProps.commentPins,
+    ),
+    [editorProps.activeFloorLayerId, editorProps.commentPins, editorProps.floorLayers],
+  )
 
   return (
     <TwoDCanvas
+      key={`2d-canvas-${editorProps.projectId ?? 'no-project'}`}
+      projectId={editorProps.projectId}
       stageSize={editorProps.stageSize}
       sitePoints={editorProps.sitePlanPoints}
+      viewTransform={editorProps.floorCanvasViewTransform}
       isCollaborationMode={editorProps.isCollaborationMode}
       selectedPinId={editorProps.selectedPinId}
       commentPins={visibleCommentPins}

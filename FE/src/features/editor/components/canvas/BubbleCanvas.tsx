@@ -1,13 +1,16 @@
-import { useMemo, useRef, useEffect, useState } from 'react'
+import { useCallback, useMemo, useRef, useEffect, useState } from 'react'
 import { Circle, Ellipse, Group, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import type Konva from 'konva'
-import type { BubbleData, ConnectionData, FloorLayerOverlay, ZoneData } from '../../types'
+import type { BubbleData, CanvasViewTransform, ConnectionData, FloorLayerOverlay, ZoneData } from '../../types'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
 import { hexToRgba } from '../../utils/bubbleCalc'
 import { validateBubblesInSiteBoundary } from '../../utils/siteBoundaryValidation'
 import BubbleZoneLayer from './BubbleZoneLayer'
+import CanvasViewTransformGroup from './CanvasViewTransformGroup'
 import { AUTO_ZONE_STYLE, MANUAL_ZONE_STYLE } from './bubbleZoneStyles'
+import { fitSingleLineFontSize } from './canvasTextFit'
+import { useCanvasCoordinateHelpers } from './useCanvasCoordinateHelpers'
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -36,11 +39,12 @@ export interface EmptyCanvasDblClickInfo {
 const MIN_BUBBLE_SIZE = 8
 const SITE_GUIDE_STROKE = '#3B45B3'
 const SITE_OUTSIDE_WARNING = '#DC2626'
-const SITE_WARNING_TEXT_FILL = '#991B1B'
 
 interface BubbleCanvasProps {
+  projectId?: string
   stageSize: { width: number; height: number }
   sitePoints: number[]
+  viewTransform?: CanvasViewTransform | null
   bubbles: BubbleData[]
   overlayLayers?: FloorLayerOverlay[]
   connections: ConnectionData[]
@@ -80,6 +84,42 @@ interface BubbleCanvasProps {
   scale?: number
 }
 
+const createSharedPanStorageKey = (projectId?: string) => (
+  projectId ? `editor:workspace-viewport:pan:${projectId}` : null
+)
+
+const createLegacyBubblePanStorageKey = (projectId?: string) => (
+  projectId ? `editor:bubble-viewport:pan:${projectId}` : null
+)
+
+const readStoredPanOffset = (projectId?: string): { x: number; y: number } => {
+  if (typeof window === 'undefined') return { x: 0, y: 0 }
+  const sharedStorageKey = createSharedPanStorageKey(projectId)
+  const legacyStorageKey = createLegacyBubblePanStorageKey(projectId)
+  const storageKeys = [sharedStorageKey, legacyStorageKey].filter((value): value is string => Boolean(value))
+  if (storageKeys.length === 0) return { x: 0, y: 0 }
+  try {
+    for (const key of storageKeys) {
+      const raw = window.localStorage.getItem(key)
+      if (!raw) continue
+      const parsed = JSON.parse(raw) as { x?: unknown; y?: unknown }
+      const x = typeof parsed.x === 'number' && Number.isFinite(parsed.x) ? parsed.x : 0
+      const y = typeof parsed.y === 'number' && Number.isFinite(parsed.y) ? parsed.y : 0
+      if (sharedStorageKey && key !== sharedStorageKey) {
+        try {
+          window.localStorage.setItem(sharedStorageKey, JSON.stringify({ x, y }))
+        } catch {
+          // localStorage 접근 실패는 치명적이지 않아 무시한다.
+        }
+      }
+      return { x, y }
+    }
+    return { x: 0, y: 0 }
+  } catch {
+    return { x: 0, y: 0 }
+  }
+}
+
 /**
  * 버블 다이어그램 모드 전용 Konva 캔버스
  * - 대지 외곽선, 조닝 영역(자동·수동), 연결선, 버블(공간)을 순서대로 렌더링
@@ -87,8 +127,10 @@ interface BubbleCanvasProps {
  * - 손 도구(hand): Stage 전체 패닝
  */
 export function BubbleCanvas({
+  projectId,
   stageSize,
   sitePoints,
+  viewTransform = null,
   bubbles,
   overlayLayers = [],
   connections,
@@ -123,7 +165,6 @@ export function BubbleCanvas({
     [bubbles, sitePoints],
   )
   const outsideBubbleIdSet = siteValidation.outsideBubbleIds
-  const outsideBubbleCount = siteValidation.outsideCount
 
   /** 각 버블 Group ref — Transformer 연결용 */
   const groupRefs = useRef<Map<string, Konva.Group>>(new Map())
@@ -139,7 +180,8 @@ export function BubbleCanvas({
   const [hoveredBubbleId, setHoveredBubbleId] = useState<string | null>(null)
   const isSpacePressed = useSpacePanning()
   const [isMiddlePanning, setIsMiddlePanning] = useState(false)
-  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 })
+  const [panOffsetByProjectId, setPanOffsetByProjectId] = useState<Record<string, { x: number; y: number }>>({})
+  const [anonymousPanOffset, setAnonymousPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [connectionDrag, setConnectionDrag] = useState<{
     fromId: string
     startX: number
@@ -158,6 +200,35 @@ export function BubbleCanvas({
   const isBubbleEditable = !isReadOnly
   const baseOffsetX = (stageSize.width * (1 - scale)) / 2
   const baseOffsetY = (stageSize.height * (1 - scale)) / 2
+  const storedProjectPanOffset = useMemo(() => readStoredPanOffset(projectId), [projectId])
+  const panOffset = projectId
+    ? (panOffsetByProjectId[projectId] ?? storedProjectPanOffset)
+    : anonymousPanOffset
+  const applyPanOffset = useCallback((nextPanOffset: { x: number; y: number }) => {
+    if (!projectId) {
+      setAnonymousPanOffset(nextPanOffset)
+      return
+    }
+    setPanOffsetByProjectId((prev) => {
+      const current = prev[projectId]
+      if (current && current.x === nextPanOffset.x && current.y === nextPanOffset.y) return prev
+      return {
+        ...prev,
+        [projectId]: nextPanOffset,
+      }
+    })
+  }, [projectId])
+
+  // 스케일/패닝이 적용된 Stage에서도 항상 동일한 로컬 캔버스 좌표를 얻기 위한 변환 헬퍼.
+  const { getCanvasPoint, toScreenPoint } = useCanvasCoordinateHelpers({
+    scale,
+    baseOffsetX,
+    baseOffsetY,
+    panOffsetX: panOffset.x,
+    panOffsetY: panOffset.y,
+    isPanMode,
+    viewTransform,
+  })
 
   /** 버블 타원의 상·우·하·좌 4방향 앵커 포인트 반환 (연결 포인트 표시용) */
   const getAnchorPoints = (bubble: BubbleData) => [
@@ -259,11 +330,11 @@ export function BubbleCanvas({
     if (container) container.style.cursor = 'default'
   }
 
-  const finishBubblePointerDrag = () => {
+  const finishBubblePointerDrag = useCallback(() => {
     if (!bubblePointerDragRef.current) return
     bubblePointerDragRef.current = null
     onBubbleDragEnd?.()
-  }
+  }, [onBubbleDragEnd])
 
   useEffect(() => {
     const handleInteractionEnd = () => finishBubblePointerDrag()
@@ -275,7 +346,7 @@ export function BubbleCanvas({
       window.removeEventListener('touchend', handleInteractionEnd)
       window.removeEventListener('blur', handleInteractionEnd)
     }
-  })
+  }, [finishBubblePointerDrag])
 
   return (
     <Stage
@@ -290,7 +361,7 @@ export function BubbleCanvas({
       draggable={isPanMode}
       onDragMove={(e) => {
         if (e.target.getType() !== 'Stage') return
-        setPanOffset({
+        applyPanOffset({
           x: e.target.x() - baseOffsetX,
           y: e.target.y() - baseOffsetY,
         })
@@ -302,8 +373,23 @@ export function BubbleCanvas({
       }}
       onDragEnd={(e) => {
         if (e.target.getType() !== 'Stage') return
+        const nextPanOffset = {
+          x: e.target.x() - baseOffsetX,
+          y: e.target.y() - baseOffsetY,
+        }
+        applyPanOffset(nextPanOffset)
         const container = e.target.getStage()?.container()
         if (container && isPanMode) container.style.cursor = 'grab'
+        if (typeof window !== 'undefined') {
+          const storageKey = createSharedPanStorageKey(projectId)
+          if (storageKey) {
+            try {
+              window.localStorage.setItem(storageKey, JSON.stringify(nextPanOffset))
+            } catch {
+              // localStorage 접근 실패는 치명적이지 않아 무시한다.
+            }
+          }
+        }
       }}
       onWheel={(e) => {
         if (!e.evt.ctrlKey && !e.evt.metaKey) return
@@ -337,7 +423,7 @@ export function BubbleCanvas({
         }
         const stage = e.target.getStage()
         if (!stage) return
-        const pos = stage.getRelativePointerPosition()
+        const pos = getCanvasPoint(stage)
         if (!pos) return
         isDrawingMarquee.current = true
         marqueeStart.current = pos
@@ -347,7 +433,7 @@ export function BubbleCanvas({
         if (bubblePointerDragRef.current) {
           const stage = e.target.getStage()
           if (!stage) return
-          const pos = stage.getRelativePointerPosition()
+          const pos = getCanvasPoint(stage)
           if (!pos) return
           const drag = bubblePointerDragRef.current
           onBubbleDrag(
@@ -360,7 +446,7 @@ export function BubbleCanvas({
         if (connectionDrag) {
           const stage = e.target.getStage()
           if (!stage) return
-          const pos = stage.getRelativePointerPosition()
+          const pos = getCanvasPoint(stage)
           if (!pos) return
           setConnectionDrag((prev) => (prev ? { ...prev, endX: pos.x, endY: pos.y } : prev))
           return
@@ -368,7 +454,7 @@ export function BubbleCanvas({
         if (!isDrawingMarquee.current || !marqueeStart.current) return
         const stage = e.target.getStage()
         if (!stage) return
-        const pos = stage.getRelativePointerPosition()
+        const pos = getCanvasPoint(stage)
         if (!pos) return
         const sx = marqueeStart.current.x
         const sy = marqueeStart.current.y
@@ -396,7 +482,7 @@ export function BubbleCanvas({
         }
         if (connectionDrag) {
           const stage = e.target.getStage()
-          const pos = stage?.getRelativePointerPosition()
+          const pos = stage ? getCanvasPoint(stage) : null
           if (pos) {
             const target = findBubbleByPoint(pos.x, pos.y)
             if (target && target.id !== connectionDrag.fromId) {
@@ -438,51 +524,45 @@ export function BubbleCanvas({
         onClearSelection?.()
       }}
       onDblClick={(e) => {
-        if (selectedTool !== 'selection') return
         if (!isBubbleEditable) return
         if (isPanMode) return
+        if (selectedTool !== 'selection') return
 
         const stage = e.target.getStage()
         if (!stage) return
-        const pos = stage.getRelativePointerPosition()
         const containerPos = stage.getPointerPosition()
-        if (!pos || !containerPos) return
+        if (!containerPos) return
+        // getCanvasPoint를 사용해 현재 Stage transform을 역변환한 실제 캔버스 좌표를 얻는다.
+        const localPos = getCanvasPoint(stage)
+        if (!localPos) return
+        if (!Number.isFinite(localPos.x) || !Number.isFinite(localPos.y)) return
 
-        // 버블 위 더블클릭은 라벨 편집 흐름을 우선한다.
-        const hitBubble = findBubbleByPoint(pos.x, pos.y)
+        // 버블 위 클릭은 Stage로 올라오지 않지만, 안전하게 한 번 더 필터링한다.
+        const hitBubble = findBubbleByPoint(localPos.x, localPos.y)
         if (hitBubble) return
 
         onEmptyCanvasDblClick?.({
-          x: pos.x,
-          y: pos.y,
+          x: localPos.x,
+          y: localPos.y,
           screenX: containerPos.x,
           screenY: containerPos.y,
         })
       }}
     >
       <Layer>
-        {/* 대지 외곽선 */}
-        <Line
-          points={sitePoints}
-          closed
-          fill="#3B45B319"
-          stroke={SITE_GUIDE_STROKE}
-          strokeWidth={1.8}
-          // 대지 내부 빈 영역 클릭/더블클릭은 Stage로 전달해 버블 생성 로직을 타게 한다.
-          listening={false}
-        />
-        <Line points={sitePoints} closed stroke="#2D359980" strokeWidth={1} dash={[8, 6]} listening={false} />
-        {outsideBubbleCount > 0 && (
-          <Text
-            x={14}
-            y={12}
-            text={`대지 경계 밖 배치 ${outsideBubbleCount}개`}
-            fontSize={12}
-            fontStyle="bold"
-            fill={SITE_WARNING_TEXT_FILL}
+        {/* 정렬/북향 토글은 렌더 계층 회전으로만 반영한다. */}
+        <CanvasViewTransformGroup viewTransform={viewTransform}>
+          {/* 대지 외곽선 */}
+          <Line
+            points={sitePoints}
+            closed
+            fill="#3B45B319"
+            stroke={SITE_GUIDE_STROKE}
+            strokeWidth={1.8}
+            // 대지 내부 빈 영역 클릭/더블클릭은 Stage로 전달해 버블 생성 로직을 타게 한다.
             listening={false}
           />
-        )}
+          <Line points={sitePoints} closed stroke="#2D359980" strokeWidth={1} dash={[8, 6]} listening={false} />
 
         {/* 층 겹쳐보기 오버레이 (버블 다이어그램 확인용) */}
         {overlayLayers.map((overlay) => (
@@ -564,6 +644,21 @@ export function BubbleCanvas({
           const isOutsideSite = outsideBubbleIdSet.has(bubble.id)
           // Transformer 기준 박스가 shadowBlur를 포함하면 리사이즈 체감과 실제 크기 반영이 어긋난다.
           const disableShadowForResize = selectedTool === 'selection' && isSingleSelected
+          const textPaddingX = Math.min(14, Math.max(4, bubble.width * 0.07))
+          const textWidth = Math.max(8, bubble.width - textPaddingX * 2)
+          const textContentHeight = Math.max(1, bubble.height * 0.62)
+          const indexBoxHeight = textContentHeight * 0.2
+          const nameBoxHeight = textContentHeight * 0.5
+          const areaBoxHeight = textContentHeight * 0.2
+          const textRowGap = textContentHeight * 0.05
+          const indexFontSize = fitSingleLineFontSize(bubble.index, textWidth, indexBoxHeight / 1.15)
+          const nameFontSize = fitSingleLineFontSize(bubble.label, textWidth, nameBoxHeight / 1.15)
+          const areaFontSize = fitSingleLineFontSize(bubble.area, textWidth, areaBoxHeight / 1.15)
+          const indexLineHeight = indexFontSize * 1.15
+          const nameLineHeight = nameFontSize * 1.15
+          const areaLineHeight = areaFontSize * 1.15
+          const textGroupHeight = indexLineHeight + nameLineHeight + areaLineHeight + textRowGap * 2
+          const textStartY = bubble.height / 2 - textGroupHeight / 2
           return (
             <Group
               key={bubble.id}
@@ -597,7 +692,7 @@ export function BubbleCanvas({
                 if (!isBubbleEditable) return
                 if (selectedTool === 'selection') {
                   const stage = e.target.getStage()
-                  const pos = stage?.getRelativePointerPosition()
+                  const pos = stage ? getCanvasPoint(stage) : null
                   if (!pos) return
                   e.cancelBubble = true
                   onBubbleDragStart?.()
@@ -615,7 +710,7 @@ export function BubbleCanvas({
                 }
                 if (selectedTool !== 'connect') return
                 const stage = e.target.getStage()
-                const pos = stage?.getRelativePointerPosition()
+                const pos = stage ? getCanvasPoint(stage) : null
                 if (!pos) return
                 const anchor = getNearestAnchorPoint(bubble, pos.x, pos.y)
                 e.cancelBubble = true
@@ -635,16 +730,15 @@ export function BubbleCanvas({
               onDblClick={(e) => {
                 if (!isBubbleEditable) return
                 e.cancelBubble = true
-                const stage = e.target.getStage()
-                if (!stage) return
-                const s = stage.scaleX()
+                const topLeft = toScreenPoint({ x: bubble.x, y: bubble.y })
+                const bottomRight = toScreenPoint({ x: bubble.x + bubble.width, y: bubble.y + bubble.height })
                 onBubbleLabelEdit?.({
                   id: bubble.id,
                   label: bubble.label,
-                  x: stage.x() + bubble.x * s,
-                  y: stage.y() + bubble.y * s,
-                  width: bubble.width * s,
-                  height: bubble.height * s,
+                  x: Math.min(topLeft.x, bottomRight.x),
+                  y: Math.min(topLeft.y, bottomRight.y),
+                  width: Math.abs(bottomRight.x - topLeft.x),
+                  height: Math.abs(bottomRight.y - topLeft.y),
                 })
               }}
               onMouseEnter={handleMouseEnter}
@@ -678,18 +772,6 @@ export function BubbleCanvas({
                 shadowOpacity={disableShadowForResize ? 0 : isConnectingFrom ? 0.25 : 0.05}
                 shadowOffset={{ x: 0, y: 4 }}
               />
-              {isOutsideSite && (
-                <Text
-                  text="대지 밖"
-                  fontSize={10}
-                  fontStyle="bold"
-                  fill={SITE_OUTSIDE_WARNING}
-                  width={bubble.width}
-                  align="center"
-                  y={Math.max(4, bubble.height / 2 - 44)}
-                />
-              )}
-
               {/* 선택 핸들 (타원 4방향 극점) — Transformer 없을 때만 표시 */}
               {isSingleSelected && selectedIds.length !== 1 && (
                 <>
@@ -703,31 +785,37 @@ export function BubbleCanvas({
               {/* 인덱스 번호 */}
               <Text
                 text={bubble.index}
-                fontSize={11}
+                fontSize={indexFontSize}
                 fontStyle="bold"
                 fill="#3B45B3"
-                x={bubble.width / 2 - 5}
-                y={bubble.height / 2 - 30}
+                x={textPaddingX}
+                y={textStartY}
+                width={textWidth}
+                align="center"
               />
               {/* 공간 이름 */}
               <Text
                 text={bubble.label}
-                fontSize={14}
+                fontSize={nameFontSize}
                 fontStyle="bold"
                 fill="#1C1C1E"
-                width={bubble.width}
+                x={textPaddingX}
+                y={textStartY + indexLineHeight + textRowGap}
+                width={textWidth}
+                height={nameLineHeight}
                 align="center"
-                y={bubble.height / 2 - 10}
               />
               {/* 면적 */}
               <Text
                 text={bubble.area}
-                fontSize={10}
+                fontSize={areaFontSize}
                 fontStyle="bold"
                 fill="#ADB5BD"
-                width={bubble.width}
+                x={textPaddingX}
+                y={textStartY + indexLineHeight + textRowGap + nameLineHeight + textRowGap}
+                width={textWidth}
+                height={areaLineHeight}
                 align="center"
-                y={bubble.height / 2 + 10}
               />
             </Group>
           )
@@ -835,6 +923,7 @@ export function BubbleCanvas({
             listening={false}
           />
         )}
+        </CanvasViewTransformGroup>
       </Layer>
     </Stage>
   )

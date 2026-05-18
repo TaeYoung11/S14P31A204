@@ -1,4 +1,5 @@
-import { Line } from 'react-konva'
+import { Group, Line } from 'react-konva'
+
 import type { GridLines } from './useCanvasGridLines'
 
 interface TwoDGridLayerProps {
@@ -12,14 +13,29 @@ interface TwoDGridLayerProps {
  */
 export function TwoDGridLayer({ isGridVisible, gridLines }: TwoDGridLayerProps) {
   if (!isGridVisible) return null
+
   return (
-    <>
+    <Group listening={false}>
       {gridLines.minor.map((points, index) => (
-        <Line key={`grid-minor-${index}`} points={points} stroke="#EAECF4" strokeWidth={0.5} />
+        <Line
+          key={`minor-${index}`}
+          points={points}
+          stroke="#E3E6EB"
+          strokeWidth={0.6}
+          opacity={0.55}
+          listening={false}
+        />
       ))}
       {gridLines.major.map((points, index) => (
-        <Line key={`grid-major-${index}`} points={points} stroke="#D4D8EC" strokeWidth={1} />
+        <Line
+          key={`major-${index}`}
+          points={points}
+          stroke="#C6CDD8"
+          strokeWidth={1}
+          opacity={0.85}
+          listening={false}
+        />
       ))}
-    </>
+    </Group>
   )
 }

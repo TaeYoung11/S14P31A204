@@ -1,5 +1,29 @@
-import type { EditorPageViewModel } from '@/pages/editor/types/editorPageViewModel'
-import type { CanvasPropsSubset } from '@/pages/editor/utils/canvas-props/canvasPropsSubset'
+import type { EditorPageViewModel } from '../../types/editorPageViewModel'
+import type { CanvasPropsSubset } from './canvasPropsSubset'
+import { pickCanvasProps } from './pickCanvasProps'
+
+const FLOOR_PLAN_CANVAS_KEYS = [
+  'sitePlanPoints',
+  'floorCanvasViewTransform',
+  'floorRooms',
+  'floorLayerOverlayItems',
+  'floorPlanConnections',
+  'isFloorPlanGenerated',
+  'isFloorPlanGenerating',
+  'handleGenerateFloorPlan',
+  'canGenerateFloorPlanFromBubble',
+  'handleBubbleSelect',
+  'handleSelectIfcElement',
+  'handleDeleteIfcElement',
+  'handleCommitIfcElementTransform',
+  'selectedIfcElement',
+  'threeDDeleteRequestToken',
+  'ifcElementChanges',
+  'isThreeDEditingLocked',
+  'currentIfcUrl',
+  'currentIfcAssetId',
+  'localFloorData',
+] as const
 
 /**
  * 2D/3D 공통 평면 데이터와 자동 생성 상태를 매핑한다.
@@ -8,6 +32,7 @@ export function buildFloorPlanCanvasProps(
   vm: EditorPageViewModel,
 ): CanvasPropsSubset<
   | 'sitePlanPoints'
+  | 'floorCanvasViewTransform'
   | 'floorRooms'
   | 'floorLayerOverlayItems'
   | 'floorPlanConnections'
@@ -27,25 +52,5 @@ export function buildFloorPlanCanvasProps(
   | 'currentIfcAssetId'
   | 'localFloorData'
 > {
-  return {
-    sitePlanPoints: vm.sitePlanPoints,
-    floorRooms: vm.floorRooms,
-    floorLayerOverlayItems: vm.floorLayerOverlayItems,
-    floorPlanConnections: vm.floorPlanConnections,
-    isFloorPlanGenerated: vm.isFloorPlanGenerated,
-    isFloorPlanGenerating: vm.isFloorPlanGenerating,
-    handleGenerateFloorPlan: vm.handleGenerateFloorPlan,
-    canGenerateFloorPlanFromBubble: vm.canGenerateFloorPlanFromBubble,
-    handleBubbleSelect: vm.handleBubbleSelect,
-    handleSelectIfcElement: vm.handleSelectIfcElement,
-    handleDeleteIfcElement: vm.handleDeleteIfcElement,
-    handleCommitIfcElementTransform: vm.handleCommitIfcElementTransform,
-    selectedIfcElement: vm.selectedIfcElement,
-    threeDDeleteRequestToken: vm.threeDDeleteRequestToken,
-    ifcElementChanges: vm.ifcElementChanges,
-    isThreeDEditingLocked: vm.isThreeDEditingLocked,
-    currentIfcUrl: vm.currentIfcUrl,
-    currentIfcAssetId: vm.currentIfcAssetId,
-    localFloorData: vm.localFloorData,
-  }
+  return pickCanvasProps(vm, FLOOR_PLAN_CANVAS_KEYS)
 }

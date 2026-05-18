@@ -295,8 +295,11 @@ public class BubbleSnapshotHelper {
                     bubble.heightMm(),
                     bubble.label(),
                     bubble.type(),
+                    bubble.originalType(),
                     bubble.ratio(),
                     bubble.color(),
+                    bubble.material(),
+                    bubble.wallType(),
                     normalizeFloorNumber(bubble.floor())
             ));
         }

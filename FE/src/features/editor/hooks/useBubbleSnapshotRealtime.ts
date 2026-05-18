@@ -221,9 +221,18 @@ export function useBubbleSnapshotRealtime({
       const parsed = parseProjectSyncMessage(message)
       if (!parsed) return
       const action = normalizeAction(parsed)
+      const floorPlanSnapshot = extractFloorPlanSnapshot(parsed)
+      const shouldApplyFloorPlanHistoryEvent =
+        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
+        action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
+        action === WORKSPACE_SYNC_ACTION.floorPlanRedo
 
-      const status = normalizePhaseStatus(parsed.status)
-        ?? (isObjectRecord(parsed.payload) ? normalizePhaseStatus(parsed.payload.status) : null)
+      const status = shouldApplyFloorPlanHistoryEvent
+        ? normalizePhaseStatus(floorPlanSnapshot?.layout?.phaseStatus)
+          ?? normalizePhaseStatus(parsed.status)
+          ?? (isObjectRecord(parsed.payload) ? normalizePhaseStatus(parsed.payload.status) : null)
+        : normalizePhaseStatus(parsed.status)
+          ?? (isObjectRecord(parsed.payload) ? normalizePhaseStatus(parsed.payload.status) : null)
       if (status) {
         phaseStatusHandlerRef.current?.(status)
       } else if (action && IFC_STARTED_ACTION_SET.has(action)) {
@@ -268,11 +277,6 @@ export function useBubbleSnapshotRealtime({
 
       const shouldSkipFloorPlanSnapshotForIfcUpdate =
         action === WORKSPACE_SYNC_ACTION.floorPlanUpdated && extractIfcStorageUrl(parsed) !== null
-      const floorPlanSnapshot = extractFloorPlanSnapshot(parsed)
-      const shouldApplyFloorPlanHistoryEvent =
-        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
-        action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
-        action === WORKSPACE_SYNC_ACTION.floorPlanRedo
 
       // 평면도 저장 완료가 곧 발행(publish) 응답(echo)은 아닙니다. 백엔드는 먼저
       // FLOOR_PLAN_PROCESSING을 발생시키며, 이후 워커 웹훅이 IFC S3 URL을 포함한

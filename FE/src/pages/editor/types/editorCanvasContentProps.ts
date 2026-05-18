@@ -1,161 +1,22 @@
-import type { EditorPageViewModel } from '@/pages/editor/types/editorPageViewModel'
+import type {
+  BubbleCanvasProps,
+  CanvasContextProps,
+  CanvasControlProps,
+  FloorPlanCanvasProps,
+  LabelEditProps,
+  TwoDLayerPanelProps,
+  TwoDStructureProps,
+} from './editorCanvasSectionProps'
 
-/** 공통 캔버스 렌더링 컨텍스트 */
-type CanvasContextProps = Pick<
-  EditorPageViewModel,
-  | 'projectId'
-  | 'mode'
-  | 'containerRef'
-  | 'stageSize'
-  | 'isCollaborationMode'
-  | 'selectedPinId'
-  | 'commentPins'
-  | 'currentCollaborationUserId'
-  | 'handlePinClick'
-  | 'handleCreateCommentPin'
-  | 'handleDeletePin'
-  | 'deletingPinId'
-  | 'isGridVisible'
-  | 'selectedTool'
-  | 'zoom'
-  | 'canvasZoom'
-  | 'handleWheelZoom'
->
-
-/** 버블 모드 캔버스 상호작용 */
-type BubbleCanvasProps = Pick<
-  EditorPageViewModel,
-  | 'sitePoints'
-  | 'siteAreaM2'
-  | 'siteAreaPyeong'
-  | 'bubbles'
-  | 'bubbleFloors'
-  | 'bubbleFloorNumbers'
-  | 'activeBubbleFloor'
-  | 'setActiveBubbleFloor'
-  | 'handleAddBubbleFloor'
-  | 'handleRenameBubbleFloor'
-  | 'handleDeleteBubbleFloor'
-  | 'connections'
-  | 'autoZones'
-  | 'manualZones'
-  | 'selectedId'
-  | 'selectedIds'
-  | 'connectingFromId'
-  | 'openEditModal'
-  | 'handleBubbleDrag'
-  | 'handleBubbleDragStart'
-  | 'handleBubbleDragEnd'
-  | 'handleBubbleSelectWithTool'
-  | 'handleDeleteBubble'
-  | 'handleConnectionClick'
-  | 'selectedConnectionPair'
-  | 'handleConnectionCreate'
-  | 'handleBubbleLabelEdit'
-  | 'handleEmptyCanvasDblClick'
-  | 'handleMarqueeSelect'
-  | 'clearSelection'
-  | 'handleBubbleResize'
-  | 'isBubbleReadOnly'
->
-
-/** 2D/3D 공통 평면 데이터 */
-type FloorPlanCanvasProps = Pick<
-  EditorPageViewModel,
-  | 'sitePlanPoints'
-  | 'floorRooms'
-  | 'floorLayerOverlayItems'
-  | 'floorPlanConnections'
-  | 'isFloorPlanGenerated'
-  | 'isFloorPlanGenerating'
-  | 'handleGenerateFloorPlan'
-  | 'canGenerateFloorPlanFromBubble'
-  | 'handleBubbleSelect'
-  | 'handleSelectIfcElement'
-  | 'handleDeleteIfcElement'
-  | 'handleCommitIfcElementTransform'
-  | 'selectedIfcElement'
-  | 'threeDDeleteRequestToken'
-  | 'ifcElementChanges'
-  | 'isThreeDEditingLocked'
-  | 'currentIfcUrl'
-  | 'currentIfcAssetId'
-  | 'localFloorData'
->
-
-/** 2D 벽/개구부 편집 상호작용 */
-type TwoDStructureProps = Pick<
-  EditorPageViewModel,
-  | 'floorWallsForHierarchy'
-  | 'floorOpenings'
-  | 'selectedFloorWallId'
-  | 'selectedFloorWallIds'
-  | 'selectedFloorOpeningId'
-  | 'selectedFloorOpeningIds'
-  | 'selectedWallForChat'
-  | 'handleSelectFloorWall'
-  | 'handleCreateFloorWall'
-  | 'wallCreatePreset'
-  | 'handleMoveFloorWall'
-  | 'handleUpdateFloorWallEndpoint'
-  | 'handleDeleteFloorWall'
-  | 'handleCreateFloorOpening'
-  | 'handleSelectFloorOpening'
-  | 'handleMoveFloorOpening'
-  | 'handleDeleteFloorOpening'
-  | 'handleMoveFloorRoom'
-  | 'handleResizeFloorRoom'
-  | 'handleUpdateFloorRoomPolygon'
-  | 'beginWorkspaceSnapshotTransaction'
-  | 'commitWorkspaceSnapshotTransaction'
-  | 'handleTwoDMarqueeSelect'
-  | 'selectWallForChat'
->
-
-/** 2D 레이어 패널 상태/동작 */
-type TwoDLayerPanelProps = Pick<
-  EditorPageViewModel,
-  | 'floorLayers'
-  | 'activeFloorLayerId'
-  | 'isLayerOverlayMode'
-  | 'overlayLayerIds'
-  | 'overlayOpacityByLayerId'
-  | 'addFloorLayer'
-  | 'renameFloorLayer'
-  | 'deleteFloorLayer'
-  | 'setActiveFloorLayerId'
-  | 'toggleLayerOverlayMode'
-  | 'handleToggleOverlayLayer'
-  | 'handleSelectSingleOverlayLayer'
-  | 'handleSetOverlayLayerOpacity'
->
-
-/** 라벨 편집 오버레이 */
-type LabelEditProps = Pick<
-  EditorPageViewModel,
-  | 'labelEditState'
-  | 'confirmLabelEdit'
-  | 'closeLabelEdit'
->
-
-/** 줌/그리드/도구 컨트롤 */
-type CanvasControlProps = Pick<
-  EditorPageViewModel,
-  | 'isGridSnapEnabled'
-  | 'gridSnapIntervalMm'
-  | 'isLibraryOpen'
-  | 'setIsLibraryOpen'
-  | 'handleOpenExportSelectionModal'
-  | 'handleZoomIn'
-  | 'handleZoomOut'
-  | 'handleZoomChange'
-  | 'handleSetSelectedTool'
-  | 'toggleGrid'
-  | 'toggleGridSnap'
-  | 'handleSetGridSnapIntervalMm'
-  | 'handleToggleCollaboration'
-  | 'handleOpenGenerate3DModal'
->
+export type {
+  BubbleCanvasProps,
+  CanvasContextProps,
+  CanvasControlProps,
+  FloorPlanCanvasProps,
+  LabelEditProps,
+  TwoDLayerPanelProps,
+  TwoDStructureProps,
+} from './editorCanvasSectionProps'
 
 /** EditorPage가 EditorCanvasContent에 전달하는 전체 props 계약 */
 export type EditorCanvasContentProps =
@@ -167,5 +28,5 @@ export type EditorCanvasContentProps =
   & LabelEditProps
   & CanvasControlProps
 
-/** 렌더 단계에서 ref를 제외한 캔버스 전달 전용 타입 */
+/** 컨테이너 ref를 제외하고 실제 캔버스에 전달되는 렌더 props */
 export type EditorCanvasRenderProps = Omit<EditorCanvasContentProps, 'containerRef'>

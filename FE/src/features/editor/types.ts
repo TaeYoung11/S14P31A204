@@ -135,6 +135,13 @@ export interface Point2D {
   y: number
 }
 
+/** 캔버스 렌더 계층 전용 회전 변환(데이터는 불변) */
+export interface CanvasViewTransform {
+  centerX: number
+  centerY: number
+  rotationRadians: number
+}
+
 /** 2D 벽 타입 분류 */
 export type FloorWallType = 'general' | 'exterior' | 'loadBearing' | 'partition'
 export type FloorOpeningType = 'door' | 'window'

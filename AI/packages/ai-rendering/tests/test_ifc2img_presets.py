@@ -16,9 +16,14 @@ from ai_rendering.ifc2img import (
 )
 
 
-def test_list_presets_returns_three() -> None:
+def test_list_presets_returns_registered_presets() -> None:
     """production에서 쓰는 세 preset만 안정적인 정렬 순서로 노출되는지 확인한다."""
-    assert list_presets() == ["korean_house", "korean_villa", "scandinavian"]
+    assert list_presets() == [
+        "ifc_minimal",
+        "korean_house",
+        "korean_villa",
+        "scandinavian",
+    ]
 
 
 def test_load_preset_returns_depth_style_params() -> None:
@@ -179,6 +184,27 @@ def test_korean_house_prompt_uses_compact_flat_ground_prior() -> None:
     assert "blue wall" in negative
     assert "black facade" in negative
     assert "wood cladding" in negative
+
+
+def test_ifc_minimal_prompt_has_no_korean_house_style_bias() -> None:
+    """ifc_minimal keeps the baseline free from korean_house hard style/color cues."""
+    p = load_preset("ifc_minimal")
+    prompt = p.prompt.lower()
+    negative = p.negative_prompt.lower()
+    prompt_words = len(prompt.replace(",", " ").split())
+
+    assert prompt.startswith("raw photo, outdoor daylight")
+    assert prompt_words <= 35
+    assert "preserve ifc building geometry" in prompt
+    assert "open ground" in prompt
+    assert "no added style" in prompt
+    assert "korean house" not in prompt
+    assert "white concrete facade" not in prompt
+    assert "simple tile roof" not in prompt
+    assert "subtle brick trim" not in prompt
+    assert "wrong roof" in negative
+    assert "misplaced windows" in negative
+    assert "changed silhouette" in negative
 
 
 def test_load_preset_default_time_is_day() -> None:

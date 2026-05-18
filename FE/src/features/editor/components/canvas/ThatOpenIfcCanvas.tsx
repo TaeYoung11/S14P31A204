@@ -136,6 +136,7 @@ interface LoadedFragmentModel {
 
 type ComponentsModule = typeof import('@thatopen/components')
 type TransformControlsModule = typeof import('three/examples/jsm/controls/TransformControls.js')
+type DisposableThreeResource = { dispose?: () => void }
 type IfcRaycastPick = {
   fragments?: { modelId: string }
   localId?: number
@@ -149,6 +150,32 @@ type ResolvedMultiSelectedTarget = MultiSelectedTarget & { object: Object3D }
 const logRoofDebug = (...args: unknown[]) => {
   if (!import.meta.env.DEV) return
   console.log('[roof-debug][ThatOpenIfcCanvas]', ...args)
+}
+
+const disposeMaybeThreeResource = (resource: unknown) => {
+  if (Array.isArray(resource)) {
+    resource.forEach(disposeMaybeThreeResource)
+    return
+  }
+  ;(resource as DisposableThreeResource | undefined)?.dispose?.()
+}
+
+const removeDuplicateSceneGridHelpers = (scene: Object3D) => {
+  const gridHelpers: Object3D[] = []
+  scene.traverse((child) => {
+    if (child.type === 'GridHelper') gridHelpers.push(child)
+  })
+  if (gridHelpers.length <= 1) return
+
+  gridHelpers.slice(0, -1).forEach((gridHelper) => {
+    gridHelper.parent?.remove(gridHelper)
+    const disposableGrid = gridHelper as Object3D & {
+      geometry?: DisposableThreeResource
+      material?: DisposableThreeResource | DisposableThreeResource[]
+    }
+    disposableGrid.geometry?.dispose?.()
+    disposeMaybeThreeResource(disposableGrid.material)
+  })
 }
 
 export default function ThatOpenIfcCanvas({
@@ -248,13 +275,13 @@ export default function ThatOpenIfcCanvas({
     const sceneState = sceneRef.current
     const markerGroup = pinMarkerGroupRef.current
     if (!sceneState || !markerGroup) return
-    syncThreeDPinMarkers(sceneState.three, markerGroup, commentPins, {
+    syncThreeDPinMarkers(sceneState.three, markerGroup, isCollaborationMode ? commentPins : [], {
       selectedPinId,
       currentUserId,
       deletingPinId,
       worldUnitsPerMm: sceneState.worldUnitsPerMm,
     })
-  }, [commentPins, currentUserId, deletingPinId, selectedPinId])
+  }, [commentPins, currentUserId, deletingPinId, isCollaborationMode, selectedPinId])
 
   /**
    * 현재 도구 모드와 스냅 상태를 TransformControls에 동기화한다.
@@ -564,6 +591,7 @@ export default function ThatOpenIfcCanvas({
 
         const grids = components.get(OBC.Grids)
         grids.create(world)
+        removeDuplicateSceneGridHelpers(world.scene.three)
 
         const fragments = components.get(OBC.FragmentsManager)
         // unpkg 네트워크 의존 없이 로컬 워커 파일 사용
@@ -610,7 +638,7 @@ export default function ThatOpenIfcCanvas({
         contentGroup.add(presetGroup)
         contentGroup.add(pinMarkerGroup)
         pinMarkerGroupRef.current = pinMarkerGroup
-        syncThreeDPinMarkers(THREE, pinMarkerGroup, commentPinsRef.current, {
+        syncThreeDPinMarkers(THREE, pinMarkerGroup, isCollaborationModeRef.current ? commentPinsRef.current : [], {
           selectedPinId: selectedPinIdRef.current,
           currentUserId: currentUserIdRef.current,
           deletingPinId: deletingPinIdRef.current,

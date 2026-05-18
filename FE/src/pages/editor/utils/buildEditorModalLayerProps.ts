@@ -15,6 +15,7 @@ type ModalLayerViewModel = Pick<
   | 'isZoningModalOpen'
   | 'editingZoneId'
   | 'zoningFormData'
+  | 'zoningValidationMessage'
   | 'bubbles'
   | 'zoningAutoColorPreview'
   | 'closeZoningModal'
@@ -62,6 +63,7 @@ function buildSpaceAndZoningModalProps(
   | 'isZoningModalOpen'
   | 'editingZoneId'
   | 'zoningFormData'
+  | 'zoningValidationMessage'
   | 'bubbles'
   | 'zoningAutoColorPreview'
   | 'onCloseZoningModal'
@@ -79,6 +81,7 @@ function buildSpaceAndZoningModalProps(
     isZoningModalOpen: vm.isZoningModalOpen,
     editingZoneId: vm.editingZoneId,
     zoningFormData: vm.zoningFormData,
+    zoningValidationMessage: vm.zoningValidationMessage,
     bubbles: vm.bubbles,
     zoningAutoColorPreview: vm.zoningAutoColorPreview,
     onCloseZoningModal: vm.closeZoningModal,
