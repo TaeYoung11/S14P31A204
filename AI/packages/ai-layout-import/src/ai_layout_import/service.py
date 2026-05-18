@@ -374,11 +374,26 @@ def _missing_boundary_floors(
 
 def _validate_request(request: LayoutImportRequestModel) -> list[SharedWallSegment]:
     if isinstance(request, (LayoutImportV2, LayoutImportV3)):
+        _validate_room_boundary_wall_support(request)
         shared_wall_segments = _validated_shared_wall_segments(request)
         if isinstance(request, LayoutImportV3) and request.generation_options.generate_openings:
             _validate_explicit_openings(request)
         return shared_wall_segments
     return []
+
+
+def _validate_room_boundary_wall_support(
+    request: LayoutImportGenerationRequest,
+) -> None:
+    if not request.generation_options.generate_walls:
+        return
+
+    for room in request.rooms:
+        if not math.isclose(room.angle, 0.0, abs_tol=1.0e-9):
+            raise ValueError(
+                "room boundary wall generation does not support rotated rooms: "
+                f"{room.id}"
+            )
 
 
 def _derive_shared_wall_candidates(
