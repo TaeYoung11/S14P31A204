@@ -5,6 +5,7 @@ import type Konva from 'konva'
 import type { BubbleData, CanvasViewTransform, ConnectionData, FloorLayerOverlay, ZoneData } from '../../types'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
 import { hexToRgba } from '../../utils/bubbleCalc'
+import { radiansToDegrees } from '../../utils/canvasViewTransform'
 import { validateBubblesInSiteBoundary } from '../../utils/siteBoundaryValidation'
 import BubbleZoneLayer from './BubbleZoneLayer'
 import CanvasViewTransformGroup from './CanvasViewTransformGroup'
@@ -783,40 +784,48 @@ export function BubbleCanvas({
               )}
 
               {/* 인덱스 번호 */}
-              <Text
-                text={bubble.index}
-                fontSize={indexFontSize}
-                fontStyle="bold"
-                fill="#3B45B3"
-                x={textPaddingX}
-                y={textStartY}
-                width={textWidth}
-                align="center"
-              />
-              {/* 공간 이름 */}
-              <Text
-                text={bubble.label}
-                fontSize={nameFontSize}
-                fontStyle="bold"
-                fill="#1C1C1E"
-                x={textPaddingX}
-                y={textStartY + indexLineHeight + textRowGap}
-                width={textWidth}
-                height={nameLineHeight}
-                align="center"
-              />
-              {/* 면적 */}
-              <Text
-                text={bubble.area}
-                fontSize={areaFontSize}
-                fontStyle="bold"
-                fill="#ADB5BD"
-                x={textPaddingX}
-                y={textStartY + indexLineHeight + textRowGap + nameLineHeight + textRowGap}
-                width={textWidth}
-                height={areaLineHeight}
-                align="center"
-              />
+              <Group
+                x={bubble.width / 2}
+                y={bubble.height / 2}
+                offsetX={bubble.width / 2}
+                offsetY={bubble.height / 2}
+                rotation={viewTransform ? -radiansToDegrees(viewTransform.rotationRadians) : 0}
+              >
+                <Text
+                  text={bubble.index}
+                  fontSize={indexFontSize}
+                  fontStyle="bold"
+                  fill="#3B45B3"
+                  x={textPaddingX}
+                  y={textStartY}
+                  width={textWidth}
+                  align="center"
+                />
+                {/* 공간 이름 */}
+                <Text
+                  text={bubble.label}
+                  fontSize={nameFontSize}
+                  fontStyle="bold"
+                  fill="#1C1C1E"
+                  x={textPaddingX}
+                  y={textStartY + indexLineHeight + textRowGap}
+                  width={textWidth}
+                  height={nameLineHeight}
+                  align="center"
+                />
+                {/* 면적 */}
+                <Text
+                  text={bubble.area}
+                  fontSize={areaFontSize}
+                  fontStyle="bold"
+                  fill="#ADB5BD"
+                  x={textPaddingX}
+                  y={textStartY + indexLineHeight + textRowGap + nameLineHeight + textRowGap}
+                  width={textWidth}
+                  height={areaLineHeight}
+                  align="center"
+                />
+              </Group>
             </Group>
           )
         })}
