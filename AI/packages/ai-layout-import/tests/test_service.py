@@ -1674,7 +1674,7 @@ def test_convert_layout_to_ifc_warns_for_v2_cross_floor_shared_wall_adjacency(
     ]
 
 
-def test_convert_layout_to_ifc_warns_for_v2_rotated_room_shared_wall_adjacency(
+def test_convert_layout_to_ifc_rejects_v2_rotated_room_when_generating_walls(
     tmp_path: Path,
 ) -> None:
     request = _make_request(
@@ -1716,16 +1716,77 @@ def test_convert_layout_to_ifc_warns_for_v2_rotated_room_shared_wall_adjacency(
         },
     )
 
-    summary, model = _convert_request(tmp_path, request, "rotated-shared-wall.ifc")
+    output = tmp_path / "rotated-shared-wall.ifc"
+    with pytest.raises(
+        ValueError,
+        match="room boundary wall generation does not support rotated rooms: room-right-01",
+    ):
+        convert_layout_to_ifc(request, output)
 
-    assert len(_shared_walls(model)) == 0
-    assert summary.hasWarnings is True
-    spaces = {space.Name: space for space in model.by_type("IfcSpace")}
-    right_room_direction = tuple(
-        spaces["Right Room"].ObjectPlacement.RelativePlacement.RefDirection.DirectionRatios
+    assert not output.exists()
+
+
+def test_convert_layout_to_ifc_rejects_v3_rotated_room_when_generating_walls(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v3",
+        rooms=[
+            _base_room(
+                room_id="room-rotated-01",
+                name="Rotated Room",
+                angle=math.pi / 4,
+            )
+        ],
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": True,
+            "generate_slabs": False,
+            "generate_roof": False,
+            "generate_openings": False,
+        },
     )
-    assert right_room_direction[0] == pytest.approx(math.cos(math.pi / 4))
-    assert right_room_direction[1] == pytest.approx(math.sin(math.pi / 4))
+
+    output = tmp_path / "v3-rotated-room-walls.ifc"
+    with pytest.raises(
+        ValueError,
+        match="room boundary wall generation does not support rotated rooms: room-rotated-01",
+    ):
+        convert_layout_to_ifc(request, output)
+
+    assert not output.exists()
+
+
+def test_convert_layout_to_ifc_allows_v2_rotated_room_when_walls_disabled(
+    tmp_path: Path,
+) -> None:
+    request = _make_request(
+        schema_version="v2",
+        rooms=[
+            _base_room(
+                room_id="room-rotated-01",
+                name="Rotated Room",
+                angle=math.pi / 4,
+            )
+        ],
+        generation_options={
+            "generate_spaces": True,
+            "generate_walls": False,
+            "generate_slabs": False,
+            "generate_roof": False,
+            "generate_openings": False,
+        },
+    )
+
+    _, model = _convert_request(tmp_path, request, "v2-rotated-room-no-walls.ifc")
+
+    assert len(model.by_type("IfcWall")) == 0
+    spaces = {space.Name: space for space in model.by_type("IfcSpace")}
+    rotated_room_direction = tuple(
+        spaces["Rotated Room"].ObjectPlacement.RelativePlacement.RefDirection.DirectionRatios
+    )
+    assert rotated_room_direction[0] == pytest.approx(math.cos(math.pi / 4))
+    assert rotated_room_direction[1] == pytest.approx(math.sin(math.pi / 4))
 
 
 def test_convert_layout_to_ifc_skips_v2_shared_wall_that_matches_exterior_boundary_subset(
