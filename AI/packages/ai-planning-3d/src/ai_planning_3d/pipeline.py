@@ -1017,6 +1017,8 @@ class LLM3DPipeline:
         if not walls:
             return None
         if direction not in {"north", "south", "east", "west"}:
+            if candidate_walls is None and not preferred_name_tokens:
+                return None
             preferred = [
                 wall for wall in walls
                 if any(
@@ -1892,7 +1894,7 @@ class LLM3DPipeline:
 
     # ── 요약 생성 헬퍼 ────────────────────────────────────────────────────
 
-    def _generate_summary(self, command, count, errors) -> str:
+    def _generate_summary(self, command: LLM3DCommand, count: int, errors: list[str]) -> str:
         if errors:
             return f"품질 검증 실패: {errors[0]}"
         return f"[{command.command_type.value}] {count}개 요소 준비 완료"
