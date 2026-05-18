@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { FloorOpening, FloorWall, IfcElementInfo, Point2D } from '../types'
+import type { ThreeDLibraryPreset } from '../components/canvas/threeDLibrary.types'
 import type { WorkspaceCommand, WorkspaceCommandSource } from '../types/workspaceCommand.types'
 import {
   createEntityCommand,
@@ -25,6 +26,8 @@ const toIfcGlobalId = (id: string): string | null => {
 
 const toIfcElementCommandId = (element: IfcElementInfo): string | null => {
   if (element.globalId && element.globalId.trim()) return element.globalId.trim()
+  const rawGlobalId = element.properties?.GlobalId ?? element.properties?.globalId ?? element.properties?.global_id
+  if (typeof rawGlobalId === 'string' && rawGlobalId.trim()) return rawGlobalId.trim()
   return null
 }
 
@@ -37,8 +40,83 @@ const getFiniteNumber = (value: unknown): number | null =>
 const hasNonZeroTranslation = (...values: Array<number | null>): boolean =>
   values.some((value) => value !== null && Math.abs(value) > TRANSLATION_EPSILON)
 
+const hasNonZeroRotation = (record: Record<string, unknown>): boolean =>
+  Object.values(record).some((value) => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) > 1e-6)
+
 const compactRecord = (record: Record<string, unknown>): Record<string, unknown> =>
   Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined && value !== null))
+
+const compactRotationRecord = (record: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(record).filter(([, value]) => (
+    typeof value === 'number' && Number.isFinite(value) && Math.abs(value) > 1e-6
+  )))
+
+const toRotationAxisAngleRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!isRecord(value) || !isRecord(value.axis)) return null
+  const x = getFiniteNumber(value.axis.x)
+  const y = getFiniteNumber(value.axis.y)
+  const z = getFiniteNumber(value.axis.z)
+  const angle = getFiniteNumber(value.angle_degrees)
+    ?? getFiniteNumber(value.angleDegrees)
+    ?? getFiniteNumber(value.angle)
+  if (x === null || y === null || z === null || angle === null || Math.abs(angle) <= 1e-6) {
+    return null
+  }
+  const axisLength = Math.hypot(x, y, z)
+  if (!Number.isFinite(axisLength) || axisLength <= 1e-8) return null
+  return {
+    axis: {
+      x: x / axisLength,
+      y: y / axisLength,
+      z: z / axisLength,
+    },
+    angle_degrees: angle,
+    frame: 'IFC_WORLD',
+    pivot: 'BBOX_CENTER',
+  }
+}
+
+const LIBRARY_ENTITY_BY_TYPE: Record<ThreeDLibraryPreset['type'], string> = {
+  roof: 'roof',
+  'exterior-wall': 'wall',
+  'interior-wall': 'wall',
+  window: 'window',
+  'room-door': 'door',
+  'front-door': 'door',
+  stairs: 'stair',
+  column: 'column',
+  floor: 'slab',
+  ceiling: 'slab',
+  furniture: 'ifcElement',
+}
+
+const LIBRARY_IFC_CLASS_BY_TYPE: Record<ThreeDLibraryPreset['type'], string> = {
+  roof: 'IfcRoof',
+  'exterior-wall': 'IfcWall',
+  'interior-wall': 'IfcWall',
+  window: 'IfcWindow',
+  'room-door': 'IfcDoor',
+  'front-door': 'IfcDoor',
+  stairs: 'IfcStair',
+  column: 'IfcColumn',
+  floor: 'IfcSlab',
+  ceiling: 'IfcSlab',
+  furniture: 'IfcFurnishingElement',
+}
+
+const toLibraryElementCommandData = (preset: ThreeDLibraryPreset): Record<string, unknown> => compactRecord({
+  ifcClass: LIBRARY_IFC_CLASS_BY_TYPE[preset.type],
+  name: preset.name,
+  type: preset.type,
+  lengthMm: preset.lengthMm,
+  heightMm: preset.heightMm,
+  thicknessMm: preset.thicknessMm,
+  material: preset.material,
+  color: preset.color,
+  roofShape: preset.roofShape,
+  position: preset.position,
+  rotation: preset.rotation,
+})
 
 const hasMeaningfulValue = (value: unknown): boolean => {
   if (value === null || value === undefined) return false
@@ -317,10 +395,57 @@ export function useWorkspaceCommandPublisher({
     const translationX = getFiniteNumber(translationMm?.x)
     const translationY = getFiniteNumber(translationMm?.y)
     const translationZ = getFiniteNumber(translationMm?.z)
-    if (translationX !== null || translationY !== null || translationZ !== null) {
-      if (!hasNonZeroTranslation(translationX, translationY, translationZ)) return
-      pendingCommandRef.current = updateEntityCommand('ifcElement', commandId, {
-        globalId: element.globalId,
+    const toRotationDelta = (next: unknown, previous: unknown) => {
+      const nextValue = getFiniteNumber(next)
+      if (nextValue === null) return null
+      const previousValue = getFiniteNumber(previous)
+      const delta = previousValue === null ? nextValue : nextValue - previousValue
+      return Math.abs(delta) > 1e-6 ? delta : null
+    }
+    const rotationDegrees = compactRotationRecord({
+      x: toRotationDelta(patch.rotationX, element.rotationX),
+      y: toRotationDelta(patch.rotationY, element.rotationY),
+      z: toRotationDelta(patch.rotationZ, element.rotationZ),
+    })
+    const hasExplicitRotationDegrees = isRecord(patch.rotationDegrees) || isRecord(patch.rotation_degrees)
+    const explicitRotationDegrees = hasExplicitRotationDegrees
+      ? compactRotationRecord({
+          x: getFiniteNumber((patch.rotationDegrees as Record<string, unknown> | undefined)?.x)
+            ?? getFiniteNumber((patch.rotation_degrees as Record<string, unknown> | undefined)?.x),
+          y: getFiniteNumber((patch.rotationDegrees as Record<string, unknown> | undefined)?.y)
+            ?? getFiniteNumber((patch.rotation_degrees as Record<string, unknown> | undefined)?.y),
+          z: getFiniteNumber((patch.rotationDegrees as Record<string, unknown> | undefined)?.z)
+            ?? getFiniteNumber((patch.rotation_degrees as Record<string, unknown> | undefined)?.z),
+        })
+      : {}
+    const commandRotationDegrees = hasExplicitRotationDegrees
+      ? explicitRotationDegrees
+      : rotationDegrees
+    const commandRotationAxisAngle = toRotationAxisAngleRecord(
+      patch.rotationAxisAngle ?? patch.rotation_axis_angle,
+    )
+    const hasCommandRotation = commandRotationAxisAngle !== null || hasNonZeroRotation(commandRotationDegrees)
+    if (import.meta.env.DEV && (commandRotationAxisAngle || Object.keys(commandRotationDegrees).length > 0)) {
+      console.log('[ifc-rotate-save][command-publisher]', {
+        commandId,
+        elementId: element.id,
+        expressId: element.expressId,
+        globalId: element.globalId ?? commandId,
+        patchRotationAxisAngle: patch.rotationAxisAngle ?? patch.rotation_axis_angle ?? null,
+        commandRotationAxisAngle,
+        patchRotationDegrees: patch.rotationDegrees ?? patch.rotation_degrees ?? null,
+        inferredRotationDegrees: rotationDegrees,
+        commandRotationDegrees,
+        hasCommandRotation,
+        commandRotationJson: JSON.stringify(commandRotationDegrees),
+      })
+    }
+    if (
+      (translationX !== null || translationY !== null || translationZ !== null) &&
+      hasNonZeroTranslation(translationX, translationY, translationZ)
+    ) {
+      pendingCommandRef.current = updateEntityCommand('ifcElement', commandId, compactRecord({
+        globalId: element.globalId ?? commandId,
         expressId: element.expressId,
         ifcClass: element.ifcClass,
         translationMm: compactRecord({
@@ -328,7 +453,9 @@ export function useWorkspaceCommandPublisher({
           y: translationY !== null ? translationY : undefined,
           z: translationZ !== null ? translationZ : undefined,
         }),
-      })
+        rotation_axis_angle: commandRotationAxisAngle ?? undefined,
+        rotation_degrees: commandRotationAxisAngle === null && hasCommandRotation ? commandRotationDegrees : undefined,
+      }))
       return
     }
 
@@ -338,22 +465,22 @@ export function useWorkspaceCommandPublisher({
       thickness: getFiniteNumber(patch.thicknessMm),
       material: typeof patch.material === 'string' ? patch.material : undefined,
       color: typeof patch.color === 'string' ? patch.color : undefined,
-      rotation_degrees: compactRecord({
-        x: getFiniteNumber(patch.rotationX),
-        y: getFiniteNumber(patch.rotationY),
-        z: getFiniteNumber(patch.rotationZ),
-      }),
+      rotation_axis_angle: commandRotationAxisAngle ?? undefined,
+      rotation_degrees: commandRotationAxisAngle === null && hasCommandRotation ? commandRotationDegrees : undefined,
     })
-    if (isRecord(nextPatch.rotation_degrees) && Object.keys(nextPatch.rotation_degrees).length === 0) {
-      delete nextPatch.rotation_degrees
-    }
     if (hasMeaningfulValue(nextPatch)) {
       pendingCommandRef.current = updateEntityCommand('ifcElement', commandId, compactRecord({
-        globalId: element.globalId,
+        globalId: element.globalId ?? commandId,
         expressId: element.expressId,
         ifcClass: element.ifcClass,
         ...nextPatch,
       }))
+      if (import.meta.env.DEV && hasCommandRotation) {
+        console.log('[ifc-rotate-save][pending-command]', {
+          command: pendingCommandRef.current,
+          commandJson: JSON.stringify(pendingCommandRef.current),
+        })
+      }
     }
   }, [])
 
@@ -361,6 +488,27 @@ export function useWorkspaceCommandPublisher({
     const commandId = toIfcElementCommandId(element)
     if (!commandId) return
     pendingCommandRef.current = deleteEntityCommand('ifcElement', commandId)
+  }, [])
+
+  const createLibraryElement = useCallback((preset: ThreeDLibraryPreset) => {
+    const entity = LIBRARY_ENTITY_BY_TYPE[preset.type]
+    pendingCommandRef.current = createEntityCommand(entity, preset.id, toLibraryElementCommandData(preset))
+  }, [])
+
+  const deleteLibraryElement = useCallback((preset: ThreeDLibraryPreset) => {
+    const pendingCommand = pendingCommandRef.current
+    if (pendingCommand?.op === 'create' && pendingCommand.id === preset.id) {
+      pendingCommandRef.current = null
+      return
+    }
+    if (issuedLocalCreateIdsRef.current.has(preset.id)) {
+      pendingCommandRef.current = null
+      issuedLocalCreateIdsRef.current.delete(preset.id)
+      return
+    }
+    const globalId = toIfcGlobalId(preset.id)
+    if (!globalId) return
+    pendingCommandRef.current = deleteEntityCommand('ifcElement', globalId)
   }, [])
 
   const updateRoom = useCallback((roomId: string, patch: Record<string, unknown>) => {
@@ -454,6 +602,8 @@ export function useWorkspaceCommandPublisher({
     updateWallStyle,
     updateIfcElement,
     deleteIfcElement,
+    createLibraryElement,
+    deleteLibraryElement,
     updateRoom,
     deleteRoom,
     hasPendingCommand,
@@ -461,8 +611,10 @@ export function useWorkspaceCommandPublisher({
   }), [
     consumePendingCommand,
     createOpening,
+    createLibraryElement,
     createWall,
     deleteIfcElement,
+    deleteLibraryElement,
     deleteOpening,
     deleteRoom,
     deleteWall,

@@ -120,9 +120,14 @@ export function buildFloorPlan3DGroup(
       lengthMm: Math.round(length / MM_TO_WORLD),
       heightMm: wall.heightMm || storyHeightMm,
       thicknessMm: wall.thickness,
+      startMm: wall.startMm,
+      endMm: wall.endMm,
+      rotationY: -(Math.atan2(dz, dx) * 180) / Math.PI,
       properties: {
         Category: wallCategory,
         Class: wall.type === 'exterior' ? 'IfcWallStandardCase' : 'IfcWall',
+        ...(wall.startMm ? { StartMmX: wall.startMm.x, StartMmY: wall.startMm.y } : {}),
+        ...(wall.endMm ? { EndMmX: wall.endMm.x, EndMmY: wall.endMm.y } : {}),
       },
     }
     mesh.userData.floorPlanBaseWorldSize = {
