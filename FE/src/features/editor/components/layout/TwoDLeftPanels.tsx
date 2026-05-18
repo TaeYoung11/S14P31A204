@@ -64,6 +64,10 @@ function wallTouchesRoom(wall: FloorWall, room: FloorRoom): boolean {
   return false
 }
 
+function getRoomKey(room: FloorRoom): string {
+  return room.bubbleId || room.id
+}
+
 export function TwoDLeftPanels({
   layers = [],
   activeLayerId = null,
@@ -80,6 +84,7 @@ export function TwoDLeftPanels({
   onDeleteLayer,
   onSelectLayer,
   onSelectRoom,
+  onToggleLayerOverlayMode,
   onToggleOverlayLayer,
   onSelectSingleOverlayLayer,
   onChangeOverlayLayerOpacity,
@@ -110,36 +115,40 @@ export function TwoDLeftPanels({
 
   const roomLabelByBubbleId = useMemo(() => {
     const map = new Map<string, string>()
-    rooms.forEach((room) => map.set(room.bubbleId, room.label))
+    rooms.forEach((room) => {
+      if (room.bubbleId) map.set(room.bubbleId, room.label)
+      if (room.id) map.set(room.id, room.label)
+    })
     return map
   }, [rooms])
 
-  const roomWallIdSetByBubbleId = useMemo(() => {
+  const roomWallIdSetByRoomKey = useMemo(() => {
     const map = new Map<string, Set<string>>()
     rooms.forEach((room) => {
       const touching = new Set<string>()
       walls.forEach((wall) => {
         if (wallTouchesRoom(wall, room)) touching.add(wall.id)
       })
-      map.set(room.bubbleId, touching)
+      map.set(getRoomKey(room), touching)
     })
     return map
   }, [rooms, walls])
 
-  const roomOpeningsByBubbleId = useMemo(() => {
+  const roomOpeningsByRoomKey = useMemo(() => {
     const map = new Map<string, FloorOpening[]>()
     rooms.forEach((room) => {
-      const wallIdSet = roomWallIdSetByBubbleId.get(room.bubbleId) ?? new Set<string>()
+      const roomKey = getRoomKey(room)
+      const wallIdSet = roomWallIdSetByRoomKey.get(roomKey) ?? new Set<string>()
       const matched = openings.filter((opening) => wallIdSet.has(opening.wallId))
-      map.set(room.bubbleId, matched)
+      map.set(roomKey, matched)
     })
     return map
-  }, [rooms, openings, roomWallIdSetByBubbleId])
+  }, [rooms, openings, roomWallIdSetByRoomKey])
 
   const hierarchyRooms = useMemo(() => {
     if (!showSelectedRoomOnly) return rooms
     if (!selectedRoomId) return rooms
-    return rooms.filter((room) => room.bubbleId === selectedRoomId)
+    return rooms.filter((room) => room.bubbleId === selectedRoomId || room.id === selectedRoomId)
   }, [rooms, selectedRoomId, showSelectedRoomOnly])
 
   const startRenameLayer = (layer: FloorLayer) => {
@@ -359,6 +368,21 @@ export function TwoDLeftPanels({
                     )
                   })}
                 </div>
+                <div className="mt-2 flex items-center justify-between rounded-md bg-[#F8FAFC] px-2 py-1.5">
+                  <span className="text-[10px] font-bold text-[#4B5873]">층 겹쳐보기</span>
+                  <button
+                    type="button"
+                    onClick={onToggleLayerOverlayMode}
+                    className={`rounded p-1 ${
+                      isLayerOverlayMode
+                        ? 'bg-[#3B45B3] text-white'
+                        : 'text-[#64748B] hover:bg-[#EEF2FF] hover:text-[#3B45B3]'
+                    }`}
+                    aria-label="층 겹쳐보기 토글"
+                  >
+                    {isLayerOverlayMode ? <Eye size={12} /> : <EyeOff size={12} />}
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -421,7 +445,7 @@ export function TwoDLeftPanels({
                       <button
                         onClick={() => {
                           setShowSelectedRoomOnly(false)
-                          setExpandedRoomIds(rooms.map((room) => room.bubbleId))
+                          setExpandedRoomIds(rooms.map((room) => getRoomKey(room)))
                           setIsHierarchyMenuOpen(false)
                         }}
                         className="flex h-9 w-full items-center rounded-md px-3 text-left text-[12px] font-semibold tracking-tight text-[#2F3D55] hover:bg-[#F3F6FD]"
@@ -483,16 +507,17 @@ export function TwoDLeftPanels({
               ) : (
                 <div className="space-y-2">
                   {hierarchyRooms.map((room) => {
-                    const isExpanded = expandedRoomIds.includes(room.bubbleId)
-                    const isSelected = selectedRoomId === room.bubbleId
+                    const roomKey = getRoomKey(room)
+                    const isExpanded = expandedRoomIds.includes(roomKey)
+                    const isSelected = selectedRoomId === room.bubbleId || selectedRoomId === room.id
                     const connected = room.connectedIds
-                    const roomOpenings = roomOpeningsByBubbleId.get(room.bubbleId) ?? []
+                    const roomOpenings = roomOpeningsByRoomKey.get(roomKey) ?? []
                     return (
-                      <div key={room.id} className="rounded-lg px-1 py-1">
+                      <div key={room.id || roomKey} className="rounded-lg px-1 py-1">
                         <button
                           onClick={() => {
-                            toggleRoomExpand(room.bubbleId)
-                            onSelectRoom?.(room.bubbleId)
+                            toggleRoomExpand(roomKey)
+                            onSelectRoom?.(room.bubbleId || room.id)
                           }}
                           className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[#F6F8FD]"
                         >
