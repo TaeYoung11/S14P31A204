@@ -192,15 +192,13 @@ export function useWorkspaceCommandPublisher({
     const translationZ = getFiniteNumber(translationMm?.z)
     if (translationX !== null || translationY !== null || translationZ !== null) {
       if (!hasNonZeroTranslation(translationX, translationY, translationZ)) return
-      const maxAbs = Math.max(Math.abs(translationX ?? 0), Math.abs(translationY ?? 0), Math.abs(translationZ ?? 0))
-      const scale = maxAbs > 0 && maxAbs < 1000 ? 1000 : 1
       pendingCommandRef.current = updateEntityCommand('wall', globalId, compactRecord({
         storeyGlobalId,
         storeyName,
         translationMm: compactRecord({
-          x: translationX !== null ? translationX * scale : undefined,
-          y: translationY !== null ? translationY * scale : undefined,
-          z: translationZ !== null ? translationZ * scale : undefined,
+          x: translationX !== null ? translationX : undefined,
+          y: translationY !== null ? translationY : undefined,
+          z: translationZ !== null ? translationZ : undefined,
         }),
       }))
       return
@@ -317,16 +315,14 @@ export function useWorkspaceCommandPublisher({
     const translationZ = getFiniteNumber(translationMm?.z)
     if (translationX !== null || translationY !== null || translationZ !== null) {
       if (!hasNonZeroTranslation(translationX, translationY, translationZ)) return
-      const maxAbs = Math.max(Math.abs(translationX ?? 0), Math.abs(translationY ?? 0), Math.abs(translationZ ?? 0))
-      const scale = maxAbs > 0 && maxAbs < 1000 ? 1000 : 1
       pendingCommandRef.current = updateEntityCommand('ifcElement', commandId, {
         globalId: element.globalId,
         expressId: element.expressId,
         ifcClass: element.ifcClass,
         translationMm: compactRecord({
-          x: translationX !== null ? translationX * scale : undefined,
-          y: translationY !== null ? translationY * scale : undefined,
-          z: translationZ !== null ? translationZ * scale : undefined,
+          x: translationX !== null ? translationX : undefined,
+          y: translationY !== null ? translationY : undefined,
+          z: translationZ !== null ? translationZ : undefined,
         }),
       })
       return

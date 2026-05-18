@@ -743,20 +743,6 @@ export default function ThatOpenIfcCanvas({
           if (world.camera.controls) {
             ;(world.camera.controls as unknown as { enabled: boolean }).enabled = !event.value
           }
-          console.info('[3d-ifc-transform-end]', {
-            dragging: event.value,
-            selectedTargets: selectedTargetsRef.current.map((target) => ({
-              key: getTargetKey(target),
-              source: target.source,
-              hasObject: Boolean(target.object),
-            })),
-            selectedTarget: selectedTargetRef.current
-              ? {
-                  source: selectedTargetRef.current.source,
-                  hasObject: Boolean(selectedTargetRef.current.object),
-                }
-              : null,
-          })
           if (event.value) return
           const multiEntries = selectedTargetsRef.current
           if (multiEntries.length > 1) {
@@ -799,14 +785,6 @@ export default function ThatOpenIfcCanvas({
                   PositionZ: Number(worldPosition.z.toFixed(3)),
                 },
               }
-              console.info('[3d-ifc-transform-commit]', {
-                source: 'multi',
-                elementId: element.id,
-                globalId: element.globalId,
-                previous: { x: element.positionX, y: element.positionY, z: element.positionZ },
-                next: { x: nextElement.positionX, y: nextElement.positionY, z: nextElement.positionZ },
-                translationMm: getIfcTranslationMm(element, worldPosition),
-              })
               onIfcElementTransformCommitRef.current?.(element, {
                 positionX: nextElement.positionX,
                 positionY: nextElement.positionY,
@@ -892,14 +870,6 @@ export default function ThatOpenIfcCanvas({
                   RotationZ: Number((((worldEuler.z * 180) / Math.PI)).toFixed(2)),
                 },
               }
-              console.info('[3d-ifc-transform-commit]', {
-                source: 'single',
-                elementId: element.id,
-                globalId: element.globalId,
-                previous: { x: element.positionX, y: element.positionY, z: element.positionZ },
-                next: { x: nextElement.positionX, y: nextElement.positionY, z: nextElement.positionZ },
-                translationMm: getIfcTranslationMm(element, worldPosition),
-              })
               onIfcElementTransformCommitRef.current?.(element, {
                 lengthMm: nextElement.lengthMm,
                 heightMm: nextElement.heightMm,

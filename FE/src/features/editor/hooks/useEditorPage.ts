@@ -3833,24 +3833,7 @@ export function useEditorPage() {
   ])
 
   const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId'>) => {
-    console.info('[3d-ifc-record-change]', {
-      element: element
-        ? {
-            id: element.id,
-            source: element.source,
-            expressId: element.expressId,
-            globalId: element.globalId,
-          }
-        : null,
-      patch,
-    })
     if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') {
-      console.info('[3d-ifc-record-change][skip]', {
-        reason: 'invalid-element',
-        hasElement: Boolean(element),
-        source: element?.source,
-        expressId: element?.expressId,
-      })
       return
     }
     const expressId = element.expressId
@@ -3875,22 +3858,7 @@ export function useEditorPage() {
           z: nextY - element.positionY,
         }
       }
-      if (commandPatch.translationMm) {
-        console.info('[3d-ifc-transform-command]', {
-          source: 'record-change',
-          elementId: element.id,
-          globalId: element.globalId,
-          previous: { x: element.positionX, y: element.positionY, z: element.positionZ },
-          next: { x: nextX, y: nextY, z: nextZ },
-          translationMm: commandPatch.translationMm,
-        })
-      }
       workspaceCommandPublisher.updateIfcElement(element, commandPatch)
-    } else {
-      console.info('[3d-ifc-record-change][skip]', {
-        reason: 'not-publishable',
-        patch,
-      })
     }
     setIfcElementChangesById((prev) =>
       mergeIfcElementChangeByExpressId(
