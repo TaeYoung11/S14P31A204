@@ -354,7 +354,9 @@ def test_wall_rotation_can_be_applied_twice_without_profile_conversion():
     assert modify_rotation(model, wall, 90.0)
     first_ref_direction = tuple(wall.ObjectPlacement.RelativePlacement.RefDirection.DirectionRatios)
     assert modify_rotation(model, wall, 90.0)
-    second_ref_direction = tuple(wall.ObjectPlacement.RelativePlacement.RefDirection.DirectionRatios)
+    second_ref_direction = tuple(
+        wall.ObjectPlacement.RelativePlacement.RefDirection.DirectionRatios
+    )
 
     assert solid.SweptArea.is_a("IfcRectangleProfileDef")
     assert second_ref_direction != first_ref_direction
@@ -501,12 +503,15 @@ def test_wall_axis_angle_rotation_preserves_rectangle_dimensions_and_updates_pla
     model, storey = _make_model()
     wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
     solid = _wall_solid(wall)
-    before_ref_direction = tuple(wall.ObjectPlacement.RelativePlacement.RefDirection.DirectionRatios)
+    before_ref_direction = tuple(
+        wall.ObjectPlacement.RelativePlacement.RefDirection.DirectionRatios
+    )
 
     assert modify_rotation_axis_angle(model, wall, {"x": 0.0, "y": 0.0, "z": 1.0}, 90.0)
 
     assert solid.SweptArea.XDim == pytest.approx(3000.0)
     assert solid.SweptArea.YDim == pytest.approx(200.0)
-    assert tuple(wall.ObjectPlacement.RelativePlacement.RefDirection.DirectionRatios) != pytest.approx(
-        before_ref_direction
+    next_ref_direction = tuple(
+        wall.ObjectPlacement.RelativePlacement.RefDirection.DirectionRatios
     )
+    assert next_ref_direction != pytest.approx(before_ref_direction)

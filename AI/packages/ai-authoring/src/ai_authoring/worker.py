@@ -226,12 +226,20 @@ class AuthoringWorker(BaseWorker):
                             )
                             if axis_value is not None:
                                 axis_values.append(axis_value)
-                        if len(axis_values) == 3 and math.sqrt(sum(value * value for value in axis_values)) <= 1.0e-8:
+                        if (
+                            len(axis_values) == 3
+                            and math.sqrt(sum(value * value for value in axis_values)) <= 1.0e-8
+                        ):
                             issues.append(f"{op_id}: rotation_deg.axis must be non-zero")
                     angle = rotation.get("angle")
                     if angle is None:
                         angle = rotation.get("angle_degrees")
-                    angle_value = self._validate_finite_number(op_id, "rotation_deg.angle", angle, issues)
+                    angle_value = self._validate_finite_number(
+                        op_id,
+                        "rotation_deg.angle",
+                        angle,
+                        issues,
+                    )
                     if angle_value is not None and abs(angle_value) <= 1.0e-6:
                         issues.append(f"{op_id}: rotation_deg.angle must be non-zero")
                     pivot = str(rotation.get("pivot") or "BBOX_CENTER").upper()

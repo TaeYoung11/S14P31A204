@@ -1554,7 +1554,10 @@ def _mat4_mul(a: list[list[float]], b: list[list[float]]) -> list[list[float]]:
     ]
 
 
-def _mat4_transform_point(matrix: list[list[float]], point: tuple[float, float, float]) -> tuple[float, float, float]:
+def _mat4_transform_point(
+    matrix: list[list[float]],
+    point: tuple[float, float, float],
+) -> tuple[float, float, float]:
     x, y, z = point
     return (
         matrix[0][0] * x + matrix[0][1] * y + matrix[0][2] * z + matrix[0][3],
@@ -1563,7 +1566,10 @@ def _mat4_transform_point(matrix: list[list[float]], point: tuple[float, float, 
     )
 
 
-def _mat4_transform_vector(matrix: list[list[float]], vector: tuple[float, float, float]) -> tuple[float, float, float]:
+def _mat4_transform_vector(
+    matrix: list[list[float]],
+    vector: tuple[float, float, float],
+) -> tuple[float, float, float]:
     x, y, z = vector
     return (
         matrix[0][0] * x + matrix[0][1] * y + matrix[0][2] * z,
@@ -1591,7 +1597,10 @@ def _normalize_vec3(vector: tuple[float, float, float]) -> tuple[float, float, f
     return (vector[0] / length, vector[1] / length, vector[2] / length)
 
 
-def _rotation_matrix_axis_angle(axis: tuple[float, float, float], angle_rad: float) -> list[list[float]]:
+def _rotation_matrix_axis_angle(
+    axis: tuple[float, float, float],
+    angle_rad: float,
+) -> list[list[float]]:
     x, y, z = axis
     cos_a = math.cos(angle_rad)
     sin_a = math.sin(angle_rad)
@@ -1616,7 +1625,9 @@ def _local_placement_matrix(placement: ifcopenshell.entity_instance | None) -> l
     return _mat4_from_ifc(ifcopenshell.util.placement.get_local_placement(placement))
 
 
-def _unwrap_boolean_item(item: ifcopenshell.entity_instance | None) -> ifcopenshell.entity_instance | None:
+def _unwrap_boolean_item(
+    item: ifcopenshell.entity_instance | None,
+) -> ifcopenshell.entity_instance | None:
     while item is not None and (
         item.is_a("IfcBooleanResult") or item.is_a("IfcBooleanClippingResult")
     ):
@@ -1646,7 +1657,9 @@ def _remove_box_representations(element: ifcopenshell.entity_instance) -> bool:
     return True
 
 
-def _solid_local_bbox_points(item: ifcopenshell.entity_instance) -> list[tuple[float, float, float]]:
+def _solid_local_bbox_points(
+    item: ifcopenshell.entity_instance,
+) -> list[tuple[float, float, float]]:
     profile_bbox = _profile_xy_bbox(getattr(item, "SweptArea", None))
     if profile_bbox is None:
         return []
@@ -1667,7 +1680,9 @@ def _solid_local_bbox_points(item: ifcopenshell.entity_instance) -> list[tuple[f
     ]
 
 
-def _element_body_world_points(element: ifcopenshell.entity_instance) -> list[tuple[float, float, float]]:
+def _element_body_world_points(
+    element: ifcopenshell.entity_instance,
+) -> list[tuple[float, float, float]]:
     placement_matrix = _local_placement_matrix(getattr(element, "ObjectPlacement", None))
     world_points: list[tuple[float, float, float]] = []
     for item in _body_representation_items(element):
@@ -1706,7 +1721,9 @@ def _element_body_world_points(element: ifcopenshell.entity_instance) -> list[tu
     return world_points
 
 
-def _element_world_bbox_center(element: ifcopenshell.entity_instance) -> tuple[float, float, float] | None:
+def _element_world_bbox_center(
+    element: ifcopenshell.entity_instance,
+) -> tuple[float, float, float] | None:
     world_points = _element_body_world_points(element)
     if not world_points:
         bbox = _element_body_bbox_world(element)
@@ -1731,7 +1748,10 @@ def _set_axis_placement_from_matrix(
     if ref_direction is None or axis is None:
         raise ValueError("cannot decompose rotation matrix into placement axes")
     relative_placement.Location = model.create_entity("IfcCartesianPoint", Coordinates=location)
-    relative_placement.RefDirection = model.create_entity("IfcDirection", DirectionRatios=ref_direction)
+    relative_placement.RefDirection = model.create_entity(
+        "IfcDirection",
+        DirectionRatios=ref_direction,
+    )
     relative_placement.Axis = model.create_entity("IfcDirection", DirectionRatios=axis)
 
 
@@ -1870,7 +1890,11 @@ def modify_rotation_axis_angle(
 ) -> bool:
     try:
         if isinstance(axis, dict):
-            axis_tuple = (float(axis.get("x", 0.0)), float(axis.get("y", 0.0)), float(axis.get("z", 0.0)))
+            axis_tuple = (
+                float(axis.get("x", 0.0)),
+                float(axis.get("y", 0.0)),
+                float(axis.get("z", 0.0)),
+            )
         else:
             axis_tuple = (float(axis[0]), float(axis[1]), float(axis[2]))
         normalized_axis = _normalize_vec3(axis_tuple)
@@ -2013,7 +2037,11 @@ def modify_rotation(
                     position = getattr(item, "Position", None)
                     profile = getattr(item, "SweptArea", None)
                     if profile and profile.is_a("IfcRectangleProfileDef"):
-                        if not placement_changed and position and position.is_a("IfcAxis2Placement3D"):
+                        if (
+                            not placement_changed
+                            and position
+                            and position.is_a("IfcAxis2Placement3D")
+                        ):
                             ref_dir = position.RefDirection
                             if not ref_dir:
                                 ref_dir = model.create_entity(
