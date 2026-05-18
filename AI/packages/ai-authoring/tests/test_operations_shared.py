@@ -443,6 +443,62 @@ def test_transform_translation_units_do_not_depend_on_rotation() -> None:
     assert translate_rotate_x == pytest.approx(1000.0)
 
 
+def test_transform_handler_accepts_legacy_zero_xy_z_rotation() -> None:
+    bundle = _make_model()
+    create_handler = get("create_element")
+    transform_handler = get("transform_elements")
+
+    space = create_handler.execute(
+        bundle["model"],
+        None,
+        {
+            "element_type": "IfcSpace",
+            "storey_id": bundle["storey"].GlobalId,
+            "start_mm": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "dimensions_mm": {"width": 1000, "height": 1000},
+            "properties": {"name": "Legacy Z Rotation"},
+        },
+    )
+    assert space is not None
+
+    moved = transform_handler.execute(
+        bundle["model"],
+        None,
+        {"rotation_deg": {"x": 0.0, "y": 0.0, "z": 45.0}},
+        {"global_ids": [space.GlobalId]},
+    )
+
+    assert moved == [space.GlobalId]
+
+
+@pytest.mark.parametrize("axis", ["x", "y"])
+def test_transform_handler_rejects_legacy_xy_rotation(axis: str) -> None:
+    bundle = _make_model()
+    create_handler = get("create_element")
+    transform_handler = get("transform_elements")
+
+    space = create_handler.execute(
+        bundle["model"],
+        None,
+        {
+            "element_type": "IfcSpace",
+            "storey_id": bundle["storey"].GlobalId,
+            "start_mm": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "dimensions_mm": {"width": 1000, "height": 1000},
+            "properties": {"name": "Reject Legacy Rotation"},
+        },
+    )
+    assert space is not None
+
+    with pytest.raises(ValueError, match="legacy rotation_deg only supports z"):
+        transform_handler.execute(
+            bundle["model"],
+            None,
+            {"rotation_deg": {axis: 30.0, "z": 45.0}},
+            {"global_ids": [space.GlobalId]},
+        )
+
+
 def test_transform_handler_does_not_mutate_shared_location_point() -> None:
     bundle = _make_model()
     transform_handler = get("transform_elements")
