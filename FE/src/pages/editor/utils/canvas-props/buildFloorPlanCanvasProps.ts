@@ -15,6 +15,7 @@ const FLOOR_PLAN_CANVAS_KEYS = [
   'handleBubbleSelect',
   'handleSelectIfcElement',
   'handleDeleteIfcElement',
+  'handleCommitIfcElementTransform',
   'selectedIfcElement',
   'threeDDeleteRequestToken',
   'ifcElementChanges',
@@ -53,6 +54,7 @@ export function buildFloorPlanCanvasProps(
   | 'handleBubbleSelect'
   | 'handleSelectIfcElement'
   | 'handleDeleteIfcElement'
+  | 'handleCommitIfcElementTransform'
   | 'selectedIfcElement'
   | 'threeDDeleteRequestToken'
   | 'ifcElementChanges'

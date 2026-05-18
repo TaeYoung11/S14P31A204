@@ -92,8 +92,7 @@ export const mergeIfcElementChangeByExpressId = (
 export const shouldPublishIfcElementPatch = (
   element: IfcElementInfo | null,
   patch: IfcElementPatch,
-): element is IfcElementInfo & { source: 'ifc'; expressId: number; globalId: string } =>
-  Boolean(element?.globalId) &&
+): element is IfcElementInfo & { source: 'ifc'; expressId: number } =>
   element?.source === 'ifc' &&
   typeof element?.expressId === 'number' &&
   !patch.deleted

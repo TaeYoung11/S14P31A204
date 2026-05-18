@@ -1,4 +1,3 @@
-// 프로젝트 목록 상단의 브랜드, 알림, 사용자 프로필 메뉴를 렌더링합니다.
 import { useState } from 'react'
 import { Bell, LogOut, MessageSquareText, UserRoundX } from 'lucide-react'
 import Modal from '@/shared/components/Modal'
@@ -52,8 +51,13 @@ export default function ProjectListHeader({
     <>
       <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b border-[#e5e7eb] bg-white px-8">
         <div className="flex items-center gap-2">
-          <a href="/projects" aria-label="바탕 프로젝트 목록으로 이동">
+          <a
+            href="/projects"
+            className="flex items-center gap-2 text-sm font-black tracking-tight no-underline transition-opacity hover:opacity-80"
+            aria-label="바탕 프로젝트 목록으로 이동"
+          >
             <img src={logoSrc} alt="바탕 : BATANG" className="h-[22px] w-auto" />
+            <span className="text-[#1C1C1E]">바탕</span>
           </a>
         </div>
 
@@ -76,7 +80,7 @@ export default function ProjectListHeader({
             onClick={onCommentNotificationOpen}
           >
             <MessageSquareText className="h-[18px] w-[18px]" />
-            {(commentNotificationCount > 0) && (
+            {commentNotificationCount > 0 && (
               <span className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-[#ef4444] ring-2 ring-white" />
             )}
           </button>
@@ -149,7 +153,7 @@ export default function ProjectListHeader({
       >
         <div className="space-y-4">
           <p className="text-sm text-[#374151]">
-            회원탈퇴를 진행하려면 현재 계정 비밀번호를 입력해야 합니다. 탈퇴 후에는 계정을 복구할 수 없습니다.
+            회원탈퇴를 진행하면 계정과 관련된 정보가 삭제되며 복구할 수 없습니다. 계속하려면 비밀번호를 입력해 주세요.
           </p>
 
           <div>
@@ -160,7 +164,7 @@ export default function ProjectListHeader({
               id="withdraw-password"
               type="password"
               className="input-base"
-              placeholder="비밀번호를 입력하세요"
+              placeholder="비밀번호를 입력해 주세요"
               value={withdrawPassword}
               onChange={(e) => setWithdrawPassword(e.target.value)}
             />

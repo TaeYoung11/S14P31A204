@@ -39,6 +39,11 @@ export interface IfcElementChange {
   positionX?: number
   positionY?: number
   positionZ?: number
+  translationMm?: {
+    x: number
+    y: number
+    z: number
+  }
   rotationX?: number
   rotationY?: number
   rotationZ?: number

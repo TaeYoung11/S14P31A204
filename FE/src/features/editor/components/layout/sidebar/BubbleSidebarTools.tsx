@@ -1,4 +1,5 @@
-import { PlusCircle, Sparkles, TrendingUp } from 'lucide-react'
+import { CirclePlus, Sparkles, TrendingUp } from 'lucide-react'
+import AddSpaceToolButton from './AddSpaceToolButton'
 import DeleteToolButton from './DeleteToolButton'
 import SelectionToolButton from './SelectionToolButton'
 import SidebarToolButton from './SidebarToolButton'
@@ -40,16 +41,18 @@ export default function BubbleSidebarTools({
       : '버블을 2개 이상 배치해 주세요'
 
   const isConnectActive = !isBubbleReadOnly && (selectedTool === 'connect' || isLineStyleModalOpen)
+  const handleToggleConnectTool = () => onToolSelect(selectedTool === 'connect' ? 'selection' : 'connect')
 
   return (
     <>
       <SelectionToolButton selectedTool={selectedTool} onToolSelect={onToolSelect} />
 
-      <SidebarToolButton
-        label="공간 만들기"
+      <AddSpaceToolButton
+        label="버블 생성"
+        title="버블 생성"
         isDisabled={isBubbleReadOnly}
         onClick={isBubbleReadOnly ? undefined : onAddSpace}
-        icon={<PlusCircle size={24} />}
+        icon={<CirclePlus size={24} />}
       />
 
       <SidebarToolButton
@@ -59,7 +62,7 @@ export default function BubbleSidebarTools({
         onClick={
           isBubbleReadOnly
             ? undefined
-            : () => onToolSelect(selectedTool === 'connect' ? 'selection' : 'connect')
+            : handleToggleConnectTool
         }
         icon={<TrendingUp size={24} />}
       />

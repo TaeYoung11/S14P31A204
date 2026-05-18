@@ -236,8 +236,9 @@ export function useBubbles() {
   /**
    * 공간 추가 모달 폼 데이터로 새 버블 생성
    * 입력 우선순위: (가로+세로) > 면적 > 기본값(10m²)
+   * @returns 생성된 버블 객체 (호출부에서 즉시 동기화할 때 사용)
    */
-  const addBubble = (formData: AddSpaceFormData, floor = 1) => {
+  const addBubble = (formData: AddSpaceFormData, floor = 1): BubbleData => {
     const widthMmInput = parsePositiveNumber(formData.width)
     const heightMmInput = parsePositiveNumber(formData.height)
     const ratioInput = parsePositiveNumber(formData.ratio)
@@ -285,10 +286,14 @@ export function useBubbles() {
       index: getNextBubbleIndex(bubbles.length),
     })
     setBubbles((prev) => [...prev, newBubble])
+    return newBubble
   }
 
-  /** 캔버스 좌표에 새 버블 추가 (빈 공간 더블클릭) */
-  const addBubbleAt = (x: number, y: number, floor = 1) => {
+  /**
+   * 캔버스 좌표에 새 버블 추가 (빈 공간 더블클릭)
+   * @returns 생성 후 자동 선택된 버블 객체
+   */
+  const addBubbleAt = (x: number, y: number, floor = 1): BubbleData => {
     const ratioValue = 10
     const mm = calcMmDimensionsByAreaAndAspect(ratioValue, 1)
     const id = createBubbleId()

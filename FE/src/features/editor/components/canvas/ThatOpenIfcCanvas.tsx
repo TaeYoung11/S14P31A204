@@ -65,6 +65,7 @@ import {
   clearSelectedTarget,
   positionPresetGroupBesideIfc,
   inferWorldUnitsPerMm,
+  getObjectSizeMm,
   toDisplayCoordinates,
   applyInitialIfcMaterialStyles,
   applyIfcItemColor,
@@ -112,6 +113,10 @@ interface ThatOpenIfcCanvasProps {
   selectedIfcElement?: IfcElementInfo | null
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
+  onIfcElementTransformCommit?: (
+    element: IfcElementInfo,
+    patch: Omit<IfcElementChange, 'expressId'>,
+  ) => void
   onLibraryElementChange?: (id: string, patch: Partial<ThreeDLibraryPreset>) => void
   onLibraryElementDelete?: (id: string) => void
   onThreeDCoordinatesChange?: (coords: { x: number; y: number; z: number }) => void
@@ -378,6 +383,7 @@ export default function ThatOpenIfcCanvas({
   selectedIfcElement,
   onIfcElementSelect,
   onIfcElementDelete,
+  onIfcElementTransformCommit,
   onLibraryElementChange,
   onLibraryElementDelete,
   onThreeDCoordinatesChange,
@@ -407,6 +413,7 @@ export default function ThatOpenIfcCanvas({
   const rotationLockedRef = useRef(isRotationLocked)
   const onIfcElementSelectRef = useRef(onIfcElementSelect)
   const onIfcElementDeleteRef = useRef(onIfcElementDelete)
+  const onIfcElementTransformCommitRef = useRef(onIfcElementTransformCommit)
   const onLibraryElementChangeRef = useRef(onLibraryElementChange)
   const onLibraryElementDeleteRef = useRef(onLibraryElementDelete)
   const onThreeDCoordinatesChangeRef = useRef(onThreeDCoordinatesChange)
@@ -2186,6 +2193,10 @@ export default function ThatOpenIfcCanvas({
   }, [onIfcElementDelete])
 
   useEffect(() => {
+    onIfcElementTransformCommitRef.current = onIfcElementTransformCommit
+  }, [onIfcElementTransformCommit])
+
+  useEffect(() => {
     onLibraryElementChangeRef.current = onLibraryElementChange
   }, [onLibraryElementChange])
 
@@ -2831,6 +2842,33 @@ export default function ThatOpenIfcCanvas({
             try {
               const activeScene = sceneRef.current
               if (activeScene) {
+                const editable = selectedTarget.object as IfcEditableObject3D
+                const editTarget = editable.userData.ifcEditTarget
+                const transformCommit = (() => {
+                  const element = editTarget?.element
+                  if (!element) return null
+                  const worldPosition = new activeScene.three.Vector3()
+                  const worldQuaternion = new activeScene.three.Quaternion()
+                  const worldEuler = new activeScene.three.Euler()
+                  editable.getWorldPosition(worldPosition)
+                  editable.getWorldQuaternion(worldQuaternion)
+                  worldEuler.setFromQuaternion(worldQuaternion, 'XYZ')
+                  const sizeMm = getObjectSizeMm(activeScene.three, editable, activeScene.worldUnitsPerMm)
+                  return {
+                    element,
+                    patch: {
+                      lengthMm: sizeMm?.lengthMm ?? element.lengthMm,
+                      heightMm: sizeMm?.heightMm ?? element.heightMm,
+                      thicknessMm: sizeMm?.thicknessMm ?? element.thicknessMm,
+                      positionX: worldPosition.x,
+                      positionY: worldPosition.y,
+                      positionZ: worldPosition.z,
+                      rotationX: worldEuler.x,
+                      rotationY: worldEuler.y,
+                      rotationZ: worldEuler.z,
+                    },
+                  }
+                })()
                 await commitIfcProxyTransformToModel(activeScene, selectedTarget, {
                   keepProxyVisibleAfterCommit: true,
                   transformSessionId: queuedSessionId,
@@ -2848,6 +2886,9 @@ export default function ThatOpenIfcCanvas({
                 }
                 const moveState = ifcMoveLifecycleRef.current
                 if (!moveState.lastError) {
+                  if (transformCommit) {
+                    onIfcElementTransformCommitRef.current?.(transformCommit.element, transformCommit.patch)
+                  }
                   if (queuedSessionId) {
                     dispatchTransformRuntimeAction(
                       {
@@ -3500,6 +3541,7 @@ export default function ThatOpenIfcCanvas({
           camera: world.camera.three,
           renderer: world.renderer.three,
           fragments,
+          ifcLoader,
           hider,
           raycaster: thatOpenRaycaster,
           transformControls,

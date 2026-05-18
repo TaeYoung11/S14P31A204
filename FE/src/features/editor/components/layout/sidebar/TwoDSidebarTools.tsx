@@ -1,4 +1,5 @@
-import { DoorOpen, LayoutGrid, Scaling, Square, type LucideIcon } from 'lucide-react'
+import { DoorOpen, HousePlus, LayoutGrid, Scaling, Square, type LucideIcon } from 'lucide-react'
+import AddSpaceToolButton from './AddSpaceToolButton'
 import SidebarCoreTools from './SidebarCoreTools'
 import SidebarToolButton from './SidebarToolButton'
 
@@ -8,6 +9,7 @@ interface TwoDSidebarToolsProps {
   hasDeletableSelection: boolean
   isDeleteActionLocked?: boolean
   onToolSelect: (tool: string) => void
+  onAddRoom?: () => void
   onToggleGrid?: () => void
   onDeleteSelected?: () => void
 }
@@ -34,6 +36,7 @@ export default function TwoDSidebarTools({
   hasDeletableSelection,
   isDeleteActionLocked = false,
   onToolSelect,
+  onAddRoom,
   onToggleGrid,
   onDeleteSelected,
 }: TwoDSidebarToolsProps) {
@@ -45,6 +48,14 @@ export default function TwoDSidebarTools({
         isDeleteDisabled={isDeleteActionLocked}
         onToolSelect={onToolSelect}
         showDeleteTool={false}
+      />
+
+      <AddSpaceToolButton
+        label="방"
+        title="방 생성"
+        isDisabled={!onAddRoom}
+        onClick={onAddRoom}
+        icon={<HousePlus size={24} />}
       />
 
       {TOOLS_2D.map(({ id, icon: Icon, label }) => (
