@@ -16,6 +16,7 @@ from .engine_3d import (
     modify_position as modify_position,
     modify_rotation as modify_rotation,
     modify_thickness as modify_thickness,
+    rotation_targets as rotation_targets,
 )
 from .query_engine import IFCQueryEngine as IFCQueryEngine
 from .utils import (
@@ -38,6 +39,7 @@ __all__ = [
     "modify_position",
     "modify_rotation",
     "modify_thickness",
+    "rotation_targets",
     "normalize_space_name",
     "normalize_storey_name",
 ]

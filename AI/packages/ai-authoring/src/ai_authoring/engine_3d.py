@@ -1534,6 +1534,374 @@ def modify_position(
         return False
 
 
+def _mat4_from_ifc(value: Any) -> list[list[float]]:
+    return [[float(value[row][col]) for col in range(4)] for row in range(4)]
+
+
+def _mat4_identity() -> list[list[float]]:
+    return [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+
+
+def _mat4_mul(a: list[list[float]], b: list[list[float]]) -> list[list[float]]:
+    return [
+        [sum(a[row][k] * b[k][col] for k in range(4)) for col in range(4)]
+        for row in range(4)
+    ]
+
+
+def _mat4_transform_point(matrix: list[list[float]], point: tuple[float, float, float]) -> tuple[float, float, float]:
+    x, y, z = point
+    return (
+        matrix[0][0] * x + matrix[0][1] * y + matrix[0][2] * z + matrix[0][3],
+        matrix[1][0] * x + matrix[1][1] * y + matrix[1][2] * z + matrix[1][3],
+        matrix[2][0] * x + matrix[2][1] * y + matrix[2][2] * z + matrix[2][3],
+    )
+
+
+def _mat4_transform_vector(matrix: list[list[float]], vector: tuple[float, float, float]) -> tuple[float, float, float]:
+    x, y, z = vector
+    return (
+        matrix[0][0] * x + matrix[0][1] * y + matrix[0][2] * z,
+        matrix[1][0] * x + matrix[1][1] * y + matrix[1][2] * z,
+        matrix[2][0] * x + matrix[2][1] * y + matrix[2][2] * z,
+    )
+
+
+def _mat4_rigid_inverse(matrix: list[list[float]]) -> list[list[float]]:
+    inverse = _mat4_identity()
+    for row in range(3):
+        for col in range(3):
+            inverse[row][col] = matrix[col][row]
+    tx, ty, tz = matrix[0][3], matrix[1][3], matrix[2][3]
+    inverse[0][3] = -(inverse[0][0] * tx + inverse[0][1] * ty + inverse[0][2] * tz)
+    inverse[1][3] = -(inverse[1][0] * tx + inverse[1][1] * ty + inverse[1][2] * tz)
+    inverse[2][3] = -(inverse[2][0] * tx + inverse[2][1] * ty + inverse[2][2] * tz)
+    return inverse
+
+
+def _normalize_vec3(vector: tuple[float, float, float]) -> tuple[float, float, float] | None:
+    length = math.sqrt(vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2])
+    if not math.isfinite(length) or length <= 1.0e-8:
+        return None
+    return (vector[0] / length, vector[1] / length, vector[2] / length)
+
+
+def _rotation_matrix_axis_angle(axis: tuple[float, float, float], angle_rad: float) -> list[list[float]]:
+    x, y, z = axis
+    cos_a = math.cos(angle_rad)
+    sin_a = math.sin(angle_rad)
+    one_c = 1.0 - cos_a
+    return [
+        [cos_a + x * x * one_c, x * y * one_c - z * sin_a, x * z * one_c + y * sin_a, 0.0],
+        [y * x * one_c + z * sin_a, cos_a + y * y * one_c, y * z * one_c - x * sin_a, 0.0],
+        [z * x * one_c - y * sin_a, z * y * one_c + x * sin_a, cos_a + z * z * one_c, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+
+
+def _translation_matrix(offset: tuple[float, float, float]) -> list[list[float]]:
+    matrix = _mat4_identity()
+    matrix[0][3], matrix[1][3], matrix[2][3] = offset
+    return matrix
+
+
+def _local_placement_matrix(placement: ifcopenshell.entity_instance | None) -> list[list[float]]:
+    if placement is None:
+        return _mat4_identity()
+    return _mat4_from_ifc(ifcopenshell.util.placement.get_local_placement(placement))
+
+
+def _unwrap_boolean_item(item: ifcopenshell.entity_instance | None) -> ifcopenshell.entity_instance | None:
+    while item is not None and (
+        item.is_a("IfcBooleanResult") or item.is_a("IfcBooleanClippingResult")
+    ):
+        item = item.FirstOperand
+    return item
+
+
+def _element_has_extruded_body(element: ifcopenshell.entity_instance) -> bool:
+    for item in _body_representation_items(element):
+        item = _unwrap_boolean_item(item)
+        if item is not None and item.is_a("IfcExtrudedAreaSolid"):
+            return True
+    return False
+
+
+def _remove_box_representations(element: ifcopenshell.entity_instance) -> bool:
+    representation = getattr(element, "Representation", None)
+    if not representation:
+        return False
+    reps = list(getattr(representation, "Representations", []) or [])
+    kept_reps = [
+        rep for rep in reps if getattr(rep, "RepresentationIdentifier", None) != "Box"
+    ]
+    if len(kept_reps) == len(reps):
+        return False
+    representation.Representations = kept_reps
+    return True
+
+
+def _solid_local_bbox_points(item: ifcopenshell.entity_instance) -> list[tuple[float, float, float]]:
+    profile_bbox = _profile_xy_bbox(getattr(item, "SweptArea", None))
+    if profile_bbox is None:
+        return []
+    position = getattr(item, "Position", None)
+    location = getattr(position, "Location", None) if position else None
+    coords = tuple(getattr(location, "Coordinates", ()) or ())
+    ix = float(coords[0]) if len(coords) >= 1 else 0.0
+    iy = float(coords[1]) if len(coords) >= 2 else 0.0
+    iz = float(coords[2]) if len(coords) >= 3 else 0.0
+    min_x, max_x, min_y, max_y = profile_bbox
+    min_z = iz
+    max_z = iz + float(item.Depth)
+    return [
+        (x + ix, y + iy, z)
+        for x in (min_x, max_x)
+        for y in (min_y, max_y)
+        for z in (min_z, max_z)
+    ]
+
+
+def _element_body_world_points(element: ifcopenshell.entity_instance) -> list[tuple[float, float, float]]:
+    placement_matrix = _local_placement_matrix(getattr(element, "ObjectPlacement", None))
+    world_points: list[tuple[float, float, float]] = []
+    for item in _body_representation_items(element):
+        item = _unwrap_boolean_item(item)
+        if item is None:
+            continue
+        if item.is_a("IfcExtrudedAreaSolid"):
+            world_points.extend(
+                _mat4_transform_point(placement_matrix, point)
+                for point in _solid_local_bbox_points(item)
+            )
+        elif item.is_a("IfcFacetedBrep"):
+            for point in _brep_cartesian_points(item):
+                coords = tuple(getattr(point, "Coordinates", ()) or ())
+                if len(coords) >= 3:
+                    world_points.append(
+                        _mat4_transform_point(
+                            placement_matrix,
+                            (float(coords[0]), float(coords[1]), float(coords[2])),
+                        )
+                    )
+        elif item.is_a("IfcPolyline"):
+            for point in getattr(item, "Points", []) or []:
+                coords = tuple(getattr(point, "Coordinates", ()) or ())
+                if len(coords) >= 2:
+                    world_points.append(
+                        _mat4_transform_point(
+                            placement_matrix,
+                            (
+                                float(coords[0]),
+                                float(coords[1]),
+                                float(coords[2]) if len(coords) >= 3 else 0.0,
+                            ),
+                        )
+                    )
+    return world_points
+
+
+def _element_world_bbox_center(element: ifcopenshell.entity_instance) -> tuple[float, float, float] | None:
+    world_points = _element_body_world_points(element)
+    if not world_points:
+        bbox = _element_body_bbox_world(element)
+        if bbox is None:
+            return None
+        min_x, max_x, min_y, max_y, min_z, max_z = bbox
+        return ((min_x + max_x) / 2.0, (min_y + max_y) / 2.0, (min_z + max_z) / 2.0)
+    xs = [point[0] for point in world_points]
+    ys = [point[1] for point in world_points]
+    zs = [point[2] for point in world_points]
+    return ((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0, (min(zs) + max(zs)) / 2.0)
+
+
+def _set_axis_placement_from_matrix(
+    model: ifcopenshell.file,
+    relative_placement: ifcopenshell.entity_instance,
+    matrix: list[list[float]],
+) -> None:
+    location = (float(matrix[0][3]), float(matrix[1][3]), float(matrix[2][3]))
+    ref_direction = _normalize_vec3((float(matrix[0][0]), float(matrix[1][0]), float(matrix[2][0])))
+    axis = _normalize_vec3((float(matrix[0][2]), float(matrix[1][2]), float(matrix[2][2])))
+    if ref_direction is None or axis is None:
+        raise ValueError("cannot decompose rotation matrix into placement axes")
+    relative_placement.Location = model.create_entity("IfcCartesianPoint", Coordinates=location)
+    relative_placement.RefDirection = model.create_entity("IfcDirection", DirectionRatios=ref_direction)
+    relative_placement.Axis = model.create_entity("IfcDirection", DirectionRatios=axis)
+
+
+def _apply_axis_angle_to_placement(
+    model: ifcopenshell.file,
+    element: ifcopenshell.entity_instance,
+    transform: list[list[float]],
+) -> bool:
+    placement = getattr(element, "ObjectPlacement", None)
+    if placement is None or not placement.is_a("IfcLocalPlacement"):
+        return False
+    relative_placement = getattr(placement, "RelativePlacement", None)
+    if relative_placement is None or not relative_placement.is_a("IfcAxis2Placement3D"):
+        return False
+    current_world = _local_placement_matrix(placement)
+    parent_world = _local_placement_matrix(getattr(placement, "PlacementRelTo", None))
+    next_world = _mat4_mul(transform, current_world)
+    next_relative = _mat4_mul(_mat4_rigid_inverse(parent_world), next_world)
+    _set_axis_placement_from_matrix(model, relative_placement, next_relative)
+    return True
+
+
+def _apply_axis_angle_to_geometry_points(
+    element: ifcopenshell.entity_instance,
+    transform: list[list[float]],
+) -> bool:
+    placement_matrix = _local_placement_matrix(getattr(element, "ObjectPlacement", None))
+    world_to_local = _mat4_rigid_inverse(placement_matrix)
+    changed = False
+    for item in _body_representation_items(element):
+        item = _unwrap_boolean_item(item)
+        points: list[ifcopenshell.entity_instance] = []
+        if item is None:
+            continue
+        if item.is_a("IfcFacetedBrep"):
+            points.extend(_brep_cartesian_points(item))
+        elif item.is_a("IfcPolyline"):
+            points.extend(list(getattr(item, "Points", []) or []))
+        for point in points:
+            coords = list(getattr(point, "Coordinates", ()) or ())
+            if len(coords) < 2:
+                continue
+            local = (
+                float(coords[0]),
+                float(coords[1]),
+                float(coords[2]) if len(coords) >= 3 else 0.0,
+            )
+            world = _mat4_transform_point(placement_matrix, local)
+            rotated_world = _mat4_transform_point(transform, world)
+            next_local = _mat4_transform_point(world_to_local, rotated_world)
+            coords[0], coords[1] = next_local[0], next_local[1]
+            if len(coords) >= 3:
+                coords[2] = next_local[2]
+            point.Coordinates = tuple(coords)
+            changed = True
+    return changed
+
+
+def _translate_axis_angle_placement_world(
+    element: ifcopenshell.entity_instance,
+    delta_world: tuple[float, float, float],
+) -> bool:
+    placement = getattr(element, "ObjectPlacement", None)
+    if placement is None or not placement.is_a("IfcLocalPlacement"):
+        return False
+    relative_placement = getattr(placement, "RelativePlacement", None)
+    location = getattr(relative_placement, "Location", None) if relative_placement else None
+    if location is None:
+        return False
+    parent_world = _local_placement_matrix(getattr(placement, "PlacementRelTo", None))
+    delta_local = _mat4_transform_vector(_mat4_rigid_inverse(parent_world), delta_world)
+    coords = list(getattr(location, "Coordinates", ()) or ())
+    while len(coords) < 3:
+        coords.append(0.0)
+    coords[0] = float(coords[0]) + delta_local[0]
+    coords[1] = float(coords[1]) + delta_local[1]
+    coords[2] = float(coords[2]) + delta_local[2]
+    location.Coordinates = tuple(coords)
+    return True
+
+
+def _translate_axis_angle_geometry_world(
+    element: ifcopenshell.entity_instance,
+    delta_world: tuple[float, float, float],
+) -> bool:
+    placement_matrix = _local_placement_matrix(getattr(element, "ObjectPlacement", None))
+    delta_local = _mat4_transform_vector(_mat4_rigid_inverse(placement_matrix), delta_world)
+    changed = False
+    for item in _body_representation_items(element):
+        item = _unwrap_boolean_item(item)
+        points: list[ifcopenshell.entity_instance] = []
+        if item is None:
+            continue
+        if item.is_a("IfcFacetedBrep"):
+            points.extend(_brep_cartesian_points(item))
+        elif item.is_a("IfcPolyline"):
+            points.extend(list(getattr(item, "Points", []) or []))
+        for point in points:
+            coords = list(getattr(point, "Coordinates", ()) or ())
+            if len(coords) < 2:
+                continue
+            coords[0] = float(coords[0]) + delta_local[0]
+            coords[1] = float(coords[1]) + delta_local[1]
+            if len(coords) >= 3:
+                coords[2] = float(coords[2]) + delta_local[2]
+            point.Coordinates = tuple(coords)
+            changed = True
+    return changed
+
+
+def _recenter_axis_angle_result(
+    element: ifcopenshell.entity_instance,
+    pivot_point: tuple[float, float, float],
+) -> bool:
+    next_center = _element_world_bbox_center(element)
+    if next_center is None:
+        return False
+    delta = (
+        pivot_point[0] - next_center[0],
+        pivot_point[1] - next_center[1],
+        pivot_point[2] - next_center[2],
+    )
+    if math.sqrt(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]) <= 1.0e-7:
+        return False
+    if _element_has_extruded_body(element):
+        return _translate_axis_angle_placement_world(element, delta)
+    return _translate_axis_angle_geometry_world(element, delta)
+
+
+def modify_rotation_axis_angle(
+    model: ifcopenshell.file,
+    element: ifcopenshell.entity_instance,
+    axis: dict[str, Any] | tuple[float, float, float],
+    angle_deg: float,
+    pivot: str = "BBOX_CENTER",
+) -> bool:
+    try:
+        if isinstance(axis, dict):
+            axis_tuple = (float(axis.get("x", 0.0)), float(axis.get("y", 0.0)), float(axis.get("z", 0.0)))
+        else:
+            axis_tuple = (float(axis[0]), float(axis[1]), float(axis[2]))
+        normalized_axis = _normalize_vec3(axis_tuple)
+        if normalized_axis is None or not math.isfinite(float(angle_deg)):
+            return False
+        if abs(float(angle_deg)) <= 1.0e-6:
+            return False
+        if str(pivot or "BBOX_CENTER").upper() != "BBOX_CENTER":
+            return False
+        pivot_point = _element_world_bbox_center(element)
+        if pivot_point is None:
+            return False
+        rotation = _rotation_matrix_axis_angle(normalized_axis, math.radians(float(angle_deg)))
+        transform = _mat4_mul(
+            _mat4_mul(_translation_matrix(pivot_point), rotation),
+            _translation_matrix((-pivot_point[0], -pivot_point[1], -pivot_point[2])),
+        )
+
+        if _element_has_extruded_body(element):
+            changed = _apply_axis_angle_to_placement(model, element, transform)
+        else:
+            changed = _apply_axis_angle_to_geometry_points(element, transform)
+        if changed:
+            _recenter_axis_angle_result(element, pivot_point)
+            _remove_box_representations(element)
+        return changed
+    except Exception as e:
+        logger.error(f"Axis-angle rotation update failed: {e}")
+        return False
+
+
 def modify_rotation(
     model: ifcopenshell.file, element: ifcopenshell.entity_instance, rotation_deg: float
 ) -> bool:
@@ -1576,10 +1944,57 @@ def modify_rotation(
             ratios[0], ratios[1] = rotate_xy(float(ratios[0]), float(ratios[1]))
             direction.DirectionRatios = tuple(ratios[:size])
 
+        def is_arbitrary_closed_profile_extrusion(
+            item: ifcopenshell.entity_instance,
+        ) -> bool:
+            if not item.is_a("IfcExtrudedAreaSolid"):
+                return False
+            profile = getattr(item, "SweptArea", None)
+            if not profile or not profile.is_a("IfcArbitraryClosedProfileDef"):
+                return False
+            outer_curve = getattr(profile, "OuterCurve", None)
+            return bool(outer_curve and outer_curve.is_a("IfcPolyline"))
+
+        def uses_center_geometry_rotation(
+            representation: ifcopenshell.entity_instance | None,
+        ) -> bool:
+            if not representation:
+                return False
+            has_center_rotated_geometry = False
+            has_placement_rotated_solid = False
+            for rep in list(getattr(representation, "Representations", []) or []):
+                if getattr(rep, "RepresentationIdentifier", None) == "Box":
+                    continue
+                for item in getattr(rep, "Items", []) or []:
+                    if item.is_a("IfcFacetedBrep") or is_arbitrary_closed_profile_extrusion(
+                        item
+                    ):
+                        has_center_rotated_geometry = True
+                    elif item.is_a("IfcExtrudedAreaSolid"):
+                        has_placement_rotated_solid = True
+            return has_center_rotated_geometry and not has_placement_rotated_solid
+
         changed = False
+        placement_changed = False
         representation = getattr(element, "Representation", None)
+        center_geometry_rotation = uses_center_geometry_rotation(representation)
+        object_placement = getattr(element, "ObjectPlacement", None)
+        relative_placement = getattr(object_placement, "RelativePlacement", None)
+        if (
+            not center_geometry_rotation
+            and relative_placement
+            and relative_placement.is_a("IfcAxis2Placement3D")
+        ):
+            ref_dir = relative_placement.RefDirection
+            if not ref_dir:
+                ref_dir = model.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0, 0.0))
+                relative_placement.RefDirection = ref_dir
+            rotate_direction(ref_dir, 3)
+            changed = True
+            placement_changed = True
+
         if not representation:
-            return False
+            return changed
 
         kept_reps = []
         for rep in list(getattr(representation, "Representations", []) or []):
@@ -1598,38 +2013,15 @@ def modify_rotation(
                     position = getattr(item, "Position", None)
                     profile = getattr(item, "SweptArea", None)
                     if profile and profile.is_a("IfcRectangleProfileDef"):
-                        location = getattr(position, "Location", None)
-                        coords = list(getattr(location, "Coordinates", (0.0, 0.0, 0.0)))
-                        while len(coords) < 3:
-                            coords.append(0.0)
-                        cx, cy = float(coords[0]), float(coords[1])
-                        half_x = float(profile.XDim) / 2.0
-                        half_y = float(profile.YDim) / 2.0
-                        corners = [
-                            (cx - half_x, cy - half_y),
-                            (cx + half_x, cy - half_y),
-                            (cx + half_x, cy + half_y),
-                            (cx - half_x, cy + half_y),
-                            (cx - half_x, cy - half_y),
-                        ]
-                        points = [
-                            model.create_entity(
-                                "IfcCartesianPoint",
-                                Coordinates=rotate_about(x, y, cx, cy),
-                            )
-                            for x, y in corners
-                        ]
-                        item.SweptArea = model.create_entity(
-                            "IfcArbitraryClosedProfileDef",
-                            ProfileType="AREA",
-                            OuterCurve=model.create_entity("IfcPolyline", Points=points),
-                        )
-                        item.Position = model.create_entity(
-                            "IfcAxis2Placement3D",
-                            Location=model.create_entity(
-                                "IfcCartesianPoint", Coordinates=(0.0, 0.0, coords[2])
-                            ),
-                        )
+                        if not placement_changed and position and position.is_a("IfcAxis2Placement3D"):
+                            ref_dir = position.RefDirection
+                            if not ref_dir:
+                                ref_dir = model.create_entity(
+                                    "IfcDirection", DirectionRatios=(1.0, 0.0, 0.0)
+                                )
+                                position.RefDirection = ref_dir
+                            rotate_direction(ref_dir, 3)
+                            changed = True
                         changed = True
                         continue
                     elif profile and profile.is_a("IfcArbitraryClosedProfileDef"):
@@ -1690,6 +2082,40 @@ def modify_rotation(
     except Exception as e:
         logger.error(f"Rotation update failed: {e}")
         return False
+
+
+def decomposed_products(
+    element: ifcopenshell.entity_instance,
+) -> list[ifcopenshell.entity_instance]:
+    """Return product descendants from IfcRelAggregates without including the parent."""
+    products: list[ifcopenshell.entity_instance] = []
+    seen: set[int] = set()
+
+    def visit(current: ifcopenshell.entity_instance) -> None:
+        for rel in getattr(current, "IsDecomposedBy", []) or []:
+            if not rel.is_a("IfcRelAggregates"):
+                continue
+            for child in getattr(rel, "RelatedObjects", []) or []:
+                child_id = child.id()
+                if child_id in seen:
+                    continue
+                seen.add(child_id)
+                if child.is_a("IfcProduct"):
+                    products.append(child)
+                visit(child)
+
+    visit(element)
+    return products
+
+
+def rotation_targets(
+    element: ifcopenshell.entity_instance,
+) -> list[ifcopenshell.entity_instance]:
+    """Rotate aggregate children when the selected parent has no direct geometry."""
+    targets = [element]
+    if getattr(element, "Representation", None):
+        return targets
+    return targets + decomposed_products(element)
 
 def modify_material(
     model: ifcopenshell.file, element: ifcopenshell.entity_instance, mat_change: dict[str, Any]
@@ -2340,6 +2766,7 @@ def _make_placement(
     y_mm: float,
     z_mm: float,
     direction: str,
+    ref_direction: tuple[float, float, float] | None = None,
 ) -> ifcopenshell.entity_instance:
     return model.create_entity(
         "IfcLocalPlacement",
@@ -2352,7 +2779,7 @@ def _make_placement(
                 _mm_to_model_units(model, z_mm, 0.0),
             ),
             axis=(0.0, 0.0, 1.0),
-            ref_direction=_DIRECTION_REF_DIRECTIONS.get(
+            ref_direction=ref_direction or _DIRECTION_REF_DIRECTIONS.get(
                 direction.lower(),
                 _DIRECTION_REF_DIRECTIONS["north"],
             ),
@@ -2615,6 +3042,7 @@ def create_wall_with_template_reuse(
         length_mm = math.hypot(dx_mm, dy_mm)
         if length_mm <= 0.0:
             raise ValueError("wall segment length must be positive")
+        ref_direction = (dx_mm / length_mm, dy_mm / length_mm, 0.0)
         direction = "north"
         azimuth = math.degrees(math.atan2(dx_mm, dy_mm)) % 360.0
         if azimuth < 45.0 or azimuth >= 315.0:
@@ -2639,6 +3067,7 @@ def create_wall_with_template_reuse(
             start_y_mm,
             start_z_mm,
             direction,
+            ref_direction=ref_direction,
         )
         wall.Representation = _create_wall_product_shape(
             model,
@@ -2689,13 +3118,22 @@ def create_wall(
     y_mm: float = 0.0,
     z_mm: float = 0.0,
     direction: str = "north",
+    ref_direction: tuple[float, float, float] | None = None,
     color: str | None = None,
     material_name: str | None = None,
 ) -> ifcopenshell.entity_instance | None:
     """신규 벽체 생성"""
     try:
         wall = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWall")
-        wall.ObjectPlacement = _make_placement(model, storey, x_mm, y_mm, z_mm, direction)
+        wall.ObjectPlacement = _make_placement(
+            model,
+            storey,
+            x_mm,
+            y_mm,
+            z_mm,
+            direction,
+            ref_direction=ref_direction,
+        )
         wall.Representation, _ = _box_representation(
             model,
             _mm_to_model_units(model, length_mm, 3000.0),

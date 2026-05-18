@@ -18,6 +18,12 @@ from ai_authoring.operations.space_support import update_space
 from ai_authoring.operations.wall_support import update_wall_segment
 
 
+def _dimension_change(value: Any) -> dict[str, float | str]:
+    if isinstance(value, dict):
+        return value
+    return {"mode": "ABSOLUTE", "value": float(value)}
+
+
 def _selected_products(
     model: ifcopenshell.file,
     selector: dict[str, Any] | None,
@@ -85,19 +91,19 @@ class UpdateElementPropertiesHandler:
             if product.is_a("IfcWall") and dimensions_mm.get("width") is not None:
                 modify_thickness(
                     product,
-                    {"mode": "ABSOLUTE", "value": float(dimensions_mm["width"])},
+                    _dimension_change(dimensions_mm["width"]),
                     scale=1000.0,
                 )
             if dimensions_mm.get("length") is not None:
                 modify_length(
                     product,
-                    {"mode": "ABSOLUTE", "value": float(dimensions_mm["length"])},
+                    _dimension_change(dimensions_mm["length"]),
                     scale=1000.0,
                 )
             if dimensions_mm.get("height") is not None:
                 modify_height(
                     product,
-                    {"mode": "ABSOLUTE", "value": float(dimensions_mm["height"])},
+                    _dimension_change(dimensions_mm["height"]),
                     scale=1000.0,
                 )
             if properties.get("name") is not None:

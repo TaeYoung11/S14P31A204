@@ -6,13 +6,39 @@ from typing import Any
 
 import ifcopenshell
 
-from ai_authoring.engine_3d import modify_rotation
+from ai_authoring.engine_3d import modify_rotation, modify_rotation_axis_angle, rotation_targets
 from ai_authoring.operations.registry import register
 from ai_authoring.operations.space_support import (
     is_product_host_relative,
     mm_to_model_units,
     translate_product,
 )
+
+
+def _rotation_axis_angle(rotation: Any) -> tuple[dict[str, Any], float, str] | None:
+    if not isinstance(rotation, dict):
+        return None
+    axis = rotation.get("axis")
+    angle = rotation.get("angle")
+    if angle is None:
+        angle = rotation.get("angle_degrees")
+    if angle is None or not isinstance(axis, dict):
+        return None
+    try:
+        return (axis, float(angle), str(rotation.get("pivot") or "BBOX_CENTER"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _legacy_rotation_z(rotation: Any) -> float | None:
+    if isinstance(rotation, (int, float)):
+        return float(rotation)
+    if isinstance(rotation, dict) and rotation.get("z") is not None:
+        try:
+            return float(rotation["z"])
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 def _selected_products(
@@ -45,7 +71,7 @@ class TransformElementsHandler:
         if translation is None:
             translation = parameters.get("translate_mm")
         translation = translation or {}
-        rotation = parameters.get("rotation_deg") or {}
+        rotation = parameters.get("rotation_deg")
         skip_if_host_relative = bool(parameters.get("skip_if_host_relative"))
         transformed_ids: list[str] = []
         for product in _selected_products(model, selector):
@@ -60,8 +86,16 @@ class TransformElementsHandler:
                     y_m=mm_to_model_units(model, translation.get("y"), 0.0),
                     z_m=mm_to_model_units(model, translation.get("z"), 0.0),
                 )
-            if rotation.get("z") is not None:
-                changed |= modify_rotation(model, product, float(rotation["z"]))
+            axis_angle = _rotation_axis_angle(rotation)
+            if axis_angle is not None:
+                axis, angle, pivot = axis_angle
+                for target in rotation_targets(product):
+                    changed |= modify_rotation_axis_angle(model, target, axis, angle, pivot)
+            else:
+                legacy_z = _legacy_rotation_z(rotation)
+                if legacy_z is not None:
+                    for target in rotation_targets(product):
+                        changed |= modify_rotation(model, target, legacy_z)
             if changed:
                 transformed_ids.append(product.GlobalId)
         return transformed_ids
