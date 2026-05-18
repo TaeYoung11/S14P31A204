@@ -49,6 +49,7 @@ export interface IfcElementChange {
 
 /** 연결선 스타일 */
 export type ConnectionStyle = 'bold' | 'thin' | 'dashed'
+export type ConnectionIntent = 'circulation' | 'open_passage' | 'weak_relation' | 'merge'
 
 /** 조닝 색상 지정 방식 */
 export type ZoneColorMode = 'auto' | 'manual'
@@ -85,6 +86,11 @@ export interface BubbleData {
 }
 
 /** 버블 모드 층 메타데이터 */
+export interface BubbleData {
+  originalType?: string
+  wallType?: FloorWallType
+}
+
 export interface BubbleFloor {
   floor: number
   name: string
@@ -105,6 +111,11 @@ export interface ConnectionData {
 }
 
 /** 연결선 생성용 공간 쌍 */
+export interface ConnectionData {
+  id?: string
+  intent?: ConnectionIntent
+}
+
 export interface ConnectionPair {
   from: string
   to: string
