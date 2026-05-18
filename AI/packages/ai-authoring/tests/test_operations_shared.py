@@ -21,10 +21,28 @@ def _make_model() -> dict[str, ifcopenshell.entity_instance | ifcopenshell.file]
     storey = ifcopenshell.api.root.create_entity(model, ifc_class="IfcBuildingStorey", name="L1")
     storey.Elevation = 0.0
 
+    model_ctx = model.create_entity(
+        "IfcGeometricRepresentationContext",
+        ContextIdentifier="Model",
+        ContextType="Model",
+        CoordinateSpaceDimension=3,
+        Precision=1e-5,
+        WorldCoordinateSystem=model.create_entity(
+            "IfcAxis2Placement3D",
+            Location=model.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0, 0.0)),
+        ),
+    )
+    project.RepresentationContexts = [model_ctx]
+
     ifcopenshell.api.aggregate.assign_object(model, products=[site], relating_object=project)
     ifcopenshell.api.aggregate.assign_object(model, products=[building], relating_object=site)
     ifcopenshell.api.aggregate.assign_object(model, products=[storey], relating_object=building)
     return {"model": model, "storey": storey}
+
+
+def _add_metre_length_unit(model: ifcopenshell.file) -> None:
+    unit = model.create_entity("IfcSIUnit", UnitType="LENGTHUNIT", Prefix=None, Name="METRE")
+    model.create_entity("IfcUnitAssignment", Units=[unit])
 
 
 def _make_wall(
@@ -245,6 +263,27 @@ def test_transform_and_update_handlers_support_ifc_space() -> None:
     assert space.Name == "Updated"
 
 
+def test_create_element_wall_preserves_diagonal_start_end_direction() -> None:
+    bundle = _make_model()
+    create_handler = get("create_element")
+
+    wall = create_handler.execute(
+        bundle["model"],
+        None,
+        {
+            "element_type": "IfcWall",
+            "storey_id": bundle["storey"].GlobalId,
+            "start_mm": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "end_mm": {"x": 3000.0, "y": 4000.0, "z": 0.0},
+            "dimensions_mm": {"width": 200.0, "height": 2400.0},
+        },
+    )
+
+    assert wall is not None
+    ref_direction = wall.ObjectPlacement.RelativePlacement.RefDirection.DirectionRatios
+    assert tuple(ref_direction) == pytest.approx((0.6, 0.8, 0.0))
+
+
 def test_update_element_properties_unwraps_space_dimension_values() -> None:
     bundle = _make_model()
     create_handler = get("create_element")
@@ -279,6 +318,45 @@ def test_update_element_properties_unwraps_space_dimension_values() -> None:
     body = space.Representation.Representations[0].Items[0]
     assert body.SweptArea.XDim == pytest.approx(5000.0)
     assert body.SweptArea.YDim == pytest.approx(4200.0)
+
+
+def test_update_element_properties_accepts_wrapped_wall_dimensions() -> None:
+    bundle = _make_model()
+    _add_metre_length_unit(bundle["model"])
+    create_handler = get("create_element")
+    update_handler = get("update_element_properties")
+
+    wall = create_handler.execute(
+        bundle["model"],
+        None,
+        {
+            "element_type": "IfcWall",
+            "storey_id": bundle["storey"].GlobalId,
+            "start_mm": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "end_mm": {"x": 3000.0, "y": 0.0, "z": 0.0},
+            "dimensions_mm": {"width": 200.0, "height": 2400.0},
+        },
+    )
+    assert wall is not None
+
+    updated = update_handler.execute(
+        bundle["model"],
+        None,
+        {
+            "dimensions_mm": {
+                "length": {"mode": "ABSOLUTE", "value": 4500.0},
+                "width": {"mode": "ABSOLUTE", "value": 250.0},
+                "height": {"mode": "ABSOLUTE", "value": 2800.0},
+            }
+        },
+        {"global_ids": [wall.GlobalId]},
+    )
+
+    assert updated == [wall.GlobalId]
+    body = wall.Representation.Representations[0].Items[0]
+    assert body.SweptArea.XDim == pytest.approx(4.5)
+    assert body.SweptArea.YDim == pytest.approx(0.25)
+    assert body.Depth == pytest.approx(2.8)
 
 
 def test_update_element_properties_skips_space_pset_name_only_update() -> None:
