@@ -1,51 +1,183 @@
-# LLM Edit FE Handshake
+# LLM Edit FE–BE Handshake
 
-## 목적
-- 프론트는 캔버스를 직접 렌더링한다.
-- 백엔드/AI는 이미지가 아닌 JSON 명령(`operations`)을 반환한다.
+> 최종 갱신: 2026-05-15 (FE-381 기준)
 
-## 현재 프론트 준비 상태
-- API 우선 호출 + 실패 시 mock fallback 지원
-- 응답 정규화(`kind` / `status` 모두 허용)
-- 잘못된 응답(이미지 기반 등) 차단
-- 변경 미리보기 + 적용/취소 UI 완료
+## 전체 흐름
 
-## 현재 고정 설정
-- provider는 코드 상수(`LLM_EDIT_PROVIDER='api'`)로 고정한다.
-- API endpoint는 `/projects/{projectId}/floor/command`를 사용한다.
+```
+FE
+ ├─ POST /projects/{projectId}/chat-commands   → jobId 수신
+ └─ GET  /jobs/{jobId}  (1.5s 폴링, 최대 180s)
+         ├─ terminal: true + SUCCESS  → IFC 결과 URL 적용
+         ├─ terminal: true + clarificationPossible: true
+         │    └─ GET detailStorageUrl (MinIO)  → clarification 카드 표시
+         └─ terminal: true + 기타 오류  → 에러 메시지 표시
+```
 
-## 요청 본문
+---
+
+## 1. 명령 전송
+
+```
+POST /projects/{projectId}/chat-commands
+```
+
+### 요청 본문
+
 ```json
 {
-  "text": "거실과 주방 연결 추가해줘",
-  "context": {
-    "bubbles": [],
-    "connections": []
+  "sceneType": "TWO_D",
+  "baseRevisionId": "rev-uuid",
+  "sourceSceneType": "IFC_MODEL",
+  "message": "침실 삭제해줘"
+}
+```
+
+> 3D 경로는 `sceneType: "THREE_D"`, `sourceSceneStorageUrl`, `sourceScene` 추가 포함.
+
+### 응답
+
+```json
+{
+  "jobId": "job-uuid",
+  "progress": 0
+}
+```
+
+---
+
+## 2. 작업 상태 폴링
+
+```
+GET /jobs/{jobId}
+```
+
+### 공통 응답 구조
+
+```json
+{
+  "jobId": "job-uuid",
+  "status": "PROCESSING",
+  "terminal": false,
+  "progress": 42,
+  "outputs": null,
+  "error": null
+}
+```
+
+| 필드 | 설명 |
+|---|---|
+| `terminal` | `true`이면 폴링 종료 |
+| `status` | `SUCCESS` 계열이면 성공, 그 외는 실패 또는 clarification |
+| `progress` | 0~100 진행률 (null 가능) |
+
+---
+
+## 3. 성공 응답
+
+```json
+{
+  "terminal": true,
+  "status": "SUCCESS",
+  "outputs": {
+    "primaryResultUrl": "https://minio/.../result.ifc",
+    "primaryArtifactId": "artifact-uuid",
+    "targetRevisionId": "rev-uuid-next"
   }
 }
 ```
 
-## 응답 권장 포맷
+FE는 `primaryResultUrl`로 IFC를 fetch해 뷰어에 적용합니다.
+
+---
+
+## 4. Clarification 응답
+
+AI가 명령이 모호하다고 판단한 경우입니다.
+
 ```json
 {
-  "kind": "ok",
-  "summary": "요청한 두 공간 사이에 연결을 추가합니다.",
-  "operations": [
-    {
-      "kind": "add_connection",
-      "fromId": "room-a",
-      "toId": "room-b",
-      "style": "thin"
-    }
-  ]
+  "terminal": true,
+  "status": "FAILED",
+  "error": {
+    "clarificationPossible": true,
+    "detailStorageUrl": "https://minio/.../clarification/detail.v1.json"
+  }
 }
 ```
 
-## 모호/오류 포맷
-```json
-{ "kind": "ambiguous", "message": "대상이 모호합니다.", "suggestions": ["..."] }
-```
+FE는 `detailStorageUrl`에서 MinIO 아티팩트를 직접 fetch합니다.
+
+### MinIO Clarification 아티팩트 (`detail.v1.json`)
 
 ```json
-{ "kind": "error", "message": "처리 중 오류가 발생했습니다." }
+{
+  "schema_version": "v1",
+  "kind": "alternatives",
+  "question": "어느 층의 침실을 삭제할까요?",
+  "alternatives": [
+    {
+      "alternative_id": "remove_room-침실-1f-space-001",
+      "title": "1층 침실 삭제",
+      "description": "1층 침실에 대해 작업합니다.",
+      "fill": { "target_floor": 1, "target_room_name": "침실" },
+      "affected_entities": ["space-001"],
+      "warnings": [],
+      "metrics": []
+    },
+    {
+      "alternative_id": "remove_room-침실-2f-space-002",
+      "title": "2층 침실 삭제",
+      "description": "2층 침실에 대해 작업합니다.",
+      "fill": { "target_floor": 2, "target_room_name": "침실" },
+      "affected_entities": ["space-002"],
+      "warnings": [],
+      "metrics": []
+    }
+  ],
+  "job_id": "job-uuid",
+  "step_no": 1,
+  "clarification_request_id": "clarif-uuid",
+  "timestamp": "2026-05-15T12:00:00Z"
+}
+```
+
+| `kind` 값 | 의미 | `alternatives` |
+|---|---|---|
+| `alternatives` | 선택지 제공 | 1개 이상 |
+| `needs_clarification` | 자유 입력 요청 | 빈 배열 |
+
+### FE 처리
+
+1. `AssistantClarificationCard`로 질문 + 칩 버튼 렌더링
+2. 칩 클릭 → `alternative.title`을 메시지로 자동 재전송 (`run()` 호출)
+3. `alternatives`가 빈 배열이면 "아래 입력창에 직접 답변을 입력해주세요." 안내
+
+---
+
+## 5. 오류 응답
+
+```json
+{
+  "terminal": true,
+  "status": "FAILED",
+  "error": {
+    "errorMessage": "IFC 컨텍스트를 읽을 수 없습니다.",
+    "clarificationPossible": false
+  }
+}
+```
+
+---
+
+## FE 상태 전이
+
+```
+idle
+ └─ run() 호출
+      → loading  (submitLlmChatCommand 중)
+      → running  (폴링 중, 진행률 바 표시)
+           ├─ clarification_required  (칩 카드 표시, 자동 재전송 대기)
+           ├─ error                   (에러 메시지 표시)
+           └─ applied                 (IFC 뷰어 갱신 중)
 ```

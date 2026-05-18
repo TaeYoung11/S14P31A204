@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import type Konva from 'konva'
 import type {
+  CanvasViewTransform,
   ConnectionData,
   FloorCommentPin,
   FloorLayerOverlay,
@@ -21,8 +22,8 @@ import {
 import { toCanvasPolygon } from '../../utils/siteBoundaryValidation'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
 import { FloorPlanEmpty, FloorPlanLoading } from './TwoDCanvasOverlays'
-import type { RoomDragState } from './TwoDRoomsLayer'
 import { TwoDSiteValidationBanner } from './TwoDSiteValidationBanner'
+import type { RoomDragState } from './TwoDRoomsLayer'
 import { TwoDCanvasStage } from './TwoDCanvasStage'
 import { useCanvasGridLines } from './useCanvasGridLines'
 import { useCanvasCoordinateHelpers } from './useCanvasCoordinateHelpers'
@@ -37,7 +38,9 @@ import { useWallDraftState } from './useWallDraftState'
 import { useTwoDCanvasStageHandlers } from './twoDCanvasStageHandlers'
 import {
   ROOM_POLYGON_MIN_VERTEX_COUNT,
+  distancePointToSegment,
   snapCoordinate,
+  wallThicknessMmToPx,
 } from './twoDCanvas.utils'
 
 // ── 유틸 ─────────────────────────────────────────────────────────────────────
@@ -52,8 +55,10 @@ const OPENING_MIN_CLEARANCE_MM = 300
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface TwoDCanvasProps {
+  projectId?: string
   stageSize: { width: number; height: number }
   sitePoints?: number[]
+  viewTransform?: CanvasViewTransform | null
   isCollaborationMode?: boolean
   selectedPinId?: string | null
   commentPins?: FloorCommentPin[]
@@ -102,6 +107,8 @@ interface TwoDCanvasProps {
   onWallMove?: (wallId: string, dx: number, dy: number) => void
   onWallEndpointChange?: (wallId: string, endpoint: 'start' | 'end', point: Point2D) => void
   onWallDelete?: (wallId: string) => void
+  selectedWallForChat?: { wallId: string } | null
+  onSelectWallForChat?: (wallId: string) => void
   onOpeningCreate?: (
     wallId: string,
     type: FloorOpening['type'],
@@ -119,6 +126,42 @@ interface TwoDCanvasProps {
   onWheelZoom?: (factor: number) => void
 }
 
+const createSharedPanStorageKey = (projectId?: string) => (
+  projectId ? `editor:workspace-viewport:pan:${projectId}` : null
+)
+
+const createLegacyTwoDPanStorageKey = (projectId?: string) => (
+  projectId ? `editor:2d-viewport:pan:${projectId}` : null
+)
+
+const readStoredTwoDPanOffset = (projectId?: string): { x: number; y: number } => {
+  if (typeof window === 'undefined') return { x: 0, y: 0 }
+  const sharedStorageKey = createSharedPanStorageKey(projectId)
+  const legacyStorageKey = createLegacyTwoDPanStorageKey(projectId)
+  const storageKeys = [sharedStorageKey, legacyStorageKey].filter((value): value is string => Boolean(value))
+  if (storageKeys.length === 0) return { x: 0, y: 0 }
+  try {
+    for (const key of storageKeys) {
+      const raw = window.localStorage.getItem(key)
+      if (!raw) continue
+      const parsed = JSON.parse(raw) as { x?: unknown; y?: unknown }
+      const x = typeof parsed.x === 'number' && Number.isFinite(parsed.x) ? parsed.x : 0
+      const y = typeof parsed.y === 'number' && Number.isFinite(parsed.y) ? parsed.y : 0
+      if (sharedStorageKey && key !== sharedStorageKey) {
+        try {
+          window.localStorage.setItem(sharedStorageKey, JSON.stringify({ x, y }))
+        } catch {
+          // localStorage 접근 실패는 치명적이지 않아 무시한다.
+        }
+      }
+      return { x, y }
+    }
+    return { x: 0, y: 0 }
+  } catch {
+    return { x: 0, y: 0 }
+  }
+}
+
 /**
  * 2D 평면도 캔버스
  * - 미생성 상태: 생성 시작 버튼 화면
@@ -127,8 +170,10 @@ interface TwoDCanvasProps {
  * - 손 도구: Stage draggable로 패닝 지원
  */
 export function TwoDCanvas({
+  projectId,
   stageSize,
   sitePoints = [],
+  viewTransform = null,
   isCollaborationMode,
   selectedPinId,
   commentPins = [],
@@ -166,6 +211,8 @@ export function TwoDCanvas({
   onWallMove,
   onWallEndpointChange,
   onWallDelete,
+  selectedWallForChat,
+  onSelectWallForChat,
   onOpeningCreate,
   onOpeningSelect,
   onOpeningMove,
@@ -180,12 +227,14 @@ export function TwoDCanvas({
   const stageRef = useRef<Konva.Stage | null>(null)
   const isSpacePressed = useSpacePanning()
   const [isMiddlePanning, setIsMiddlePanning] = useState(false)
-  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 })
+  const [panOffsetByProjectId, setPanOffsetByProjectId] = useState<Record<string, { x: number; y: number }>>({})
+  const [anonymousPanOffset, setAnonymousPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [wallDragState, setWallDragState] = useState<{ wallId: string; lastPoint: Point2D } | null>(null)
   const [roomDragState, setRoomDragState] = useState<RoomDragState | null>(null)
   const [openingDragState, setOpeningDragState] = useState<{ openingId: string } | null>(null)
   const [resizingRoomBubbleId, setResizingRoomBubbleId] = useState<string | null>(null)
   const [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
+  const [wallContextMenu, setWallContextMenu] = useState<{ wallId: string; x: number; y: number } | null>(null)
   const isDrawingMarquee = useRef(false)
   const marqueeStart = useRef<Point2D | null>(null)
   const marqueeAppendRef = useRef(false)
@@ -193,6 +242,24 @@ export function TwoDCanvas({
   const isPanMode = selectedTool === 'hand' || isSpacePressed || isMiddlePanning
   const baseOffsetX = (stageSize.width * (1 - scale)) / 2
   const baseOffsetY = (stageSize.height * (1 - scale)) / 2
+  const storedProjectPanOffset = useMemo(() => readStoredTwoDPanOffset(projectId), [projectId])
+  const panOffset = projectId
+    ? (panOffsetByProjectId[projectId] ?? storedProjectPanOffset)
+    : anonymousPanOffset
+  const applyPanOffset = useCallback((nextPanOffset: { x: number; y: number }) => {
+    if (!projectId) {
+      setAnonymousPanOffset(nextPanOffset)
+      return
+    }
+    setPanOffsetByProjectId((prev) => {
+      const current = prev[projectId]
+      if (current && current.x === nextPanOffset.x && current.y === nextPanOffset.y) return prev
+      return {
+        ...prev,
+        [projectId]: nextPanOffset,
+      }
+    })
+  }, [projectId])
 
   const isWallTool = selectedTool === 'wall'
   const isDoorTool = selectedTool === 'door'
@@ -247,6 +314,7 @@ export function TwoDCanvas({
     panOffsetX: panOffset.x,
     panOffsetY: panOffset.y,
     isPanMode,
+    viewTransform,
   })
   const { getSnappedWallPoint } = useWallSnap({
     walls,
@@ -263,8 +331,26 @@ export function TwoDCanvas({
     isMiddlePanning,
     baseOffsetX,
     baseOffsetY,
-    setPanOffset,
+    setPanOffset: applyPanOffset,
   })
+
+  const handleStageDragEnd = (e: Parameters<typeof onStageDragEnd>[0]) => {
+    onStageDragEnd(e)
+    if (e.target.getType() !== 'Stage') return
+    const nextPanOffset = {
+      x: e.target.x() - baseOffsetX,
+      y: e.target.y() - baseOffsetY,
+    }
+    applyPanOffset(nextPanOffset)
+    if (typeof window === 'undefined') return
+    const storageKey = createSharedPanStorageKey(projectId)
+    if (!storageKey) return
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(nextPanOffset))
+    } catch {
+      // localStorage 접근 실패는 치명적이지 않아 무시한다.
+    }
+  }
 
   const gridLines = useCanvasGridLines({
     isGridVisible,
@@ -275,6 +361,7 @@ export function TwoDCanvas({
     baseOffsetY,
     panOffsetX: panOffset.x,
     panOffsetY: panOffset.y,
+    gridStepPx: gridSnapStepPx,
   })
 
   const {
@@ -373,13 +460,55 @@ export function TwoDCanvas({
     skipStageClickClearRef,
   })
 
+  const findContextMenuWallId = (point: Point2D): string | null => {
+    let nearestWallId: string | null = null
+    let nearestDistance = Number.POSITIVE_INFINITY
+
+    dedupedRenderWalls.forEach((wall) => {
+      const distance = distancePointToSegment(point, wall.start, wall.end)
+      const hitThreshold = Math.max(
+        24 / Math.max(scale, 0.25),
+        wallThicknessMmToPx(wall.thickness) + 14,
+      )
+      if (distance <= hitThreshold && distance < nearestDistance) {
+        nearestWallId = wall.id
+        nearestDistance = distance
+      }
+    })
+
+    return nearestWallId
+  }
+
+  const handleCanvasContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    if (!onSelectWallForChat || isInteractionLockedByCollaboration || isResizeTool) return
+    const stage = stageRef.current
+    if (!stage) return
+
+    stage.setPointersPositions(event.nativeEvent)
+    const point = getCanvasPoint(stage)
+    const wallId = point ? findContextMenuWallId(point) : null
+    if (!wallId) {
+      setWallContextMenu(null)
+      return
+    }
+    setWallContextMenu({ wallId, x: event.clientX, y: event.clientY })
+  }
+
+  useEffect(() => {
+    if (!wallContextMenu) return
+    const close = () => setWallContextMenu(null)
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [wallContextMenu])
+
   // ── 생성 전 / 생성 중 화면 ───────────────────────────────────────────────
   if (!isGenerated && !isGenerating) return <FloorPlanEmpty onGenerate={onGenerate} canGenerate={canGenerate} />
   if (isGenerating) return <FloorPlanLoading />
 
   // ── 생성 완료: Konva 평면도 렌더링 ───────────────────────────────────────
   return (
-    <div className="absolute inset-0">
+    <div className="absolute inset-0" onContextMenu={handleCanvasContextMenu}>
       <TwoDCanvasStage
         stageRef={stageRef}
         stageSize={stageSize}
@@ -390,9 +519,10 @@ export function TwoDCanvas({
         isPanMode={isPanMode}
         onStageDragMove={onStageDragMove}
         onStageDragStart={onStageDragStart}
-        onStageDragEnd={onStageDragEnd}
+        onStageDragEnd={handleStageDragEnd}
         stageHandlers={stageHandlers}
         sitePoints={sitePoints}
+        viewTransform={viewTransform}
         isGridVisible={isGridVisible}
         gridLines={gridLines}
         dimensionGuides={dimensionGuides}
@@ -433,6 +563,7 @@ export function TwoDCanvas({
         selectedWallId={selectedWallId}
         selectedWallIds={selectedWallIds}
         selectedWallGeometryKey={selectedWallGeometryKey}
+        chatSelectedWallId={selectedWallForChat?.wallId ?? null}
         wallById={wallById}
         openingSnapGuide={openingSnapGuide}
         outsideWallIds={siteValidation.outsideWallIds}
@@ -464,7 +595,32 @@ export function TwoDCanvas({
         marquee={marquee}
       />
       <TwoDSiteValidationBanner siteValidation={siteValidation} />
-
+      {wallContextMenu && (
+        <div
+          className="fixed z-[9999] min-w-[140px] rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg"
+          style={{ top: wallContextMenu.y, left: wallContextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+        >
+          <div className="border-b border-[#E2E8F0] px-3 py-1.5 text-[11px] font-semibold text-[#64748B]">
+            대상: 벽
+          </div>
+          <button
+            type="button"
+            className="w-full px-3 py-2 text-left text-[12px] text-[#1F2937] hover:bg-[#F0F2FF] hover:text-[#3B45B3]"
+            onClick={() => {
+              const wall = wallById.get(wallContextMenu.wallId)
+              onSelectWallForChat?.(wall?.globalId ?? wallContextMenu.wallId)
+              setWallContextMenu(null)
+            }}
+          >
+            채팅에서 선택
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isToolAllowedDuringConverting, isTwoDOrThreeDConverting } from './editorModeLocks'
+import { isToolAllowedDuringConverting, isTwoDOrThreeDConverting } from '@/features/editor/utils/editorModeLocks'
 
 describe('isTwoDOrThreeDConverting', () => {
   it('CONVERTING + 2d/3d 모드에서 true를 반환한다', () => {
@@ -27,3 +27,5 @@ describe('isToolAllowedDuringConverting', () => {
     expect(isToolAllowedDuringConverting('wall')).toBe(false)
   })
 })
+
+

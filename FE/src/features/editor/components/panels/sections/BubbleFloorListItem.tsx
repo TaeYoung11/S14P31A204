@@ -16,7 +16,7 @@ interface BubbleFloorListItemProps {
   onCommitRename: (floor: number) => void
   onCancelRename: () => void
   onChangeEditingName: (value: string) => void
-  onDeleteFloor?: (floor: number) => void
+  onRequestDelete?: () => void
 }
 
 /**
@@ -36,7 +36,7 @@ export function BubbleFloorListItem({
   onCommitRename,
   onCancelRename,
   onChangeEditingName,
-  onDeleteFloor,
+  onRequestDelete,
 }: BubbleFloorListItemProps) {
   const bubbleCount = summary?.bubbleCount ?? 0
   const totalAreaM2 = summary?.totalAreaM2 ?? 0
@@ -134,14 +134,7 @@ export function BubbleFloorListItem({
               type="button"
               onClick={() => {
                 if (!canDeleteFloor || isReadOnly) return
-                const ok = window.confirm(
-                  `"${formatBubbleFloorLabel(floorMeta.name)}" 층을 삭제하시겠습니까?\n` +
-                  `- 버블 ${bubbleCount}개\n` +
-                  `- 총 면적 ${totalAreaM2.toFixed(1)}m²\n` +
-                  '해당 층 데이터가 함께 삭제됩니다.',
-                )
-                if (!ok) return
-                onDeleteFloor?.(floorMeta.floor)
+                onRequestDelete?.()
               }}
               disabled={!canDeleteFloor || isReadOnly}
               className={`rounded p-1 ${

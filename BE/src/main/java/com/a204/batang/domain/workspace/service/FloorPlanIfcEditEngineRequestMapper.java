@@ -70,6 +70,9 @@ public class FloorPlanIfcEditEngineRequestMapper {
         putNumber(params, "sill_height_mm", firstNumber(data, "sill_height", "sillHeightMm"));
         putText(params, "material", text(data, "material"));
         putText(params, "color", text(data, "color"));
+        if ("wall".equals(entity)) {
+            putText(params, "wall_type", firstText(data, "wall_type", "wallType", "type"));
+        }
 
         return operation(envelope.commandId().toString(), "create_element", null, params);
     }
@@ -113,10 +116,14 @@ public class FloorPlanIfcEditEngineRequestMapper {
         putDimensions(params, patch, !"room".equals(entity));
         putText(params, "material", text(patch, "material"));
         putText(params, "color", text(patch, "color"));
+        if ("wall".equals(entity)) {
+            putText(params, "wall_type", firstText(patch, "wall_type", "wallType", "type"));
+        }
         putRoomProperties(params, patch, entity);
         if (!params.has("dimensions_mm")
                 && !params.has("material")
                 && !params.has("color")
+                && !params.has("wall_type")
                 && !params.has("properties")
                 && !params.has("pset_updates")
                 && !params.has("pset_name")) {
@@ -130,7 +137,7 @@ public class FloorPlanIfcEditEngineRequestMapper {
         if (globalId == null || globalId.isBlank()) {
             return null;
         }
-        if ("room".equals(envelope.command().entity()) && !isIfcGlobalId(globalId)) {
+        if (!isIfcGlobalId(globalId)) {
             return null;
         }
         return operation(envelope.commandId().toString(), "delete_elements", selector(globalId), objectMapper.createObjectNode());

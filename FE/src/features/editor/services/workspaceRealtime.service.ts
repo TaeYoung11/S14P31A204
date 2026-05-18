@@ -1,38 +1,21 @@
 import { ensureStompConnected } from '@/shared/lib/stomp'
-import type { BubbleData, ConnectionData, ConnectionStyle, WorkspaceSnapshot } from '../types'
+import type { BubbleData, ConnectionData, WorkspaceSnapshot } from '../types'
+import {
+  mapFloorMetaFromWorkspaceSnapshot,
+  type WorkspaceBubbleConnectionPayload,
+  type WorkspaceBubbleFloorMetaPayload,
+  type WorkspaceBubbleNodePayload,
+} from './workspaceBubblePayloadMapper'
 import type { WorkspaceCommand } from '../types/workspaceCommand.types'
-import { mapFloorMetaFromWorkspaceSnapshot } from './workspaceBubblePayloadMapper'
 import { resolveBubbleFloorFromUnknown } from '../utils/bubbleSnapshotSyncUtils'
 
 export type FloorPlanSceneType = 'TWO_D' | 'THREE_D'
 
 interface WorkspaceBubblePayload {
-  bubbles: Array<{
-    id: string
-    floor?: number
-    layer?: number
-    level?: number
-    floorNumber?: number
-    x: number
-    y: number
-    width: number
-    height: number
-    widthMm: number
-    heightMm: number
-    label: string
-    type: string
-    ratio: number
-    color?: string
-  }>
-  connections: Array<{
-    from: string
-    to: string
-    type: ConnectionStyle
-  }>
-  floorMeta?: {
-    namesByFloor: Record<number, string>
-    extraFloors: number[]
-  }
+  bubbles: WorkspaceBubbleNodePayload[]
+  connections: WorkspaceBubbleConnectionPayload[]
+  zones?: WorkspaceSnapshot['zones']
+  floorMeta?: WorkspaceBubbleFloorMetaPayload
   baseIndex: number
 }
 
@@ -115,10 +98,12 @@ const toBubblePayload = (
   snapshot: WorkspaceSnapshot,
   baseIndex: number,
 ): WorkspaceBubblePayload => {
+  // 실시간 전송 payload는 서버 검증 실패를 줄이기 위해 기본값 보정을 적용한다.
   const bubbles = snapshot.bubbles.map(toWorkspaceBubble)
   return {
     bubbles,
     connections: normalizeConnections(snapshot.connections, bubbles),
+    zones: snapshot.zones,
     floorMeta: mapFloorMetaFromWorkspaceSnapshot(snapshot),
     baseIndex,
   }
@@ -171,6 +156,11 @@ const publishJson = async (destination: string, body: unknown): Promise<void> =>
 }
 
 export const workspaceRealtimeService = {
+  /**
+   * 현재 phaseStatus에 따라 버블 또는 2D/3D floor-plan 채널로 snapshot을 발행한다.
+   * - BUBBLE_DRAFT: `/bubble/update`
+   * - 그 외: `/floor-plan/update`
+   */
   publishSnapshot: ({
     projectId,
     snapshot,
@@ -179,7 +169,7 @@ export const workspaceRealtimeService = {
     sceneType,
     workspaceCommand,
   }: PublishWorkspaceSnapshotInput): Promise<void> => {
-    const shouldPublishBubbleSnapshot = snapshot.phaseStatus === 'BUBBLE_DRAFT'
+    const shouldPublishBubbleSnapshot = snapshot.phaseStatus === 'BUBBLE_DRAFT' && !sceneType && !workspaceCommand
 
     if (shouldPublishBubbleSnapshot) {
       return publishJson(

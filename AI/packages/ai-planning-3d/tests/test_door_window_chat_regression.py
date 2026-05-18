@@ -10,7 +10,15 @@ import pytest
 
 sys.path.append(str(Path(__file__).resolve().parent))
 
+from ai_planning_3d.command import (
+    LLM3DCommand,
+    LLM3DCommandType,
+    LLM3DCreateInfo,
+    LLM3DElementType,
+    LLM3DPoint3D,
+)
 from ai_planning_3d.pipeline import LLM3DPipeline
+from ai_planning_3d.worker import _execute_preview_for_instruction
 from test_door_window_chat_e2e import _SAMPLE_IFC, run_door_window_chat_commands
 
 
@@ -63,6 +71,135 @@ def test_door_window_delete_select_all_requires_explicit_all_expression():
 
     assert single.target.select_all is False
     assert all_windows.target.select_all is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _SAMPLE_IFC.exists(), reason="sample IFC not found")
+async def test_door_host_wall_missing_returns_wall_clarification_options():
+    pipeline = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC))
+    command = LLM3DCommand(
+        command_type=LLM3DCommandType.CREATE,
+        raw_instruction="create a door far from every wall",
+        create_info=LLM3DCreateInfo(
+            element_type=LLM3DElementType.DOOR,
+            storey="1F",
+            start_point=LLM3DPoint3D(x=999_000.0, y=999_000.0, z=0.0),
+            length_mm=900.0,
+            width_mm=200.0,
+            height_mm=2100.0,
+            direction=None,
+        ),
+    )
+
+    result = await pipeline.execute_command_preview(command)
+
+    assert result["status"] == "needs_clarification"
+    assert result["session_id"]
+    assert result["clarification_questions"]
+    [question] = result["clarification_questions"]
+    assert question["trigger"] == "custom"
+    assert question["context"]["apply_field"] == "host_wall_global_id"
+    assert question["options"]
+    first_option = question["options"][0]
+    assert first_option["id"] == first_option["value"]
+    assert first_option["label"]
+
+    command.create_info.host_wall_global_id = first_option["value"]
+    resolved = await pipeline.execute_command_preview(command)
+
+    assert resolved["status"] == "preview_ready"
+    assert command.create_info.host_wall_global_id == first_option["value"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _SAMPLE_IFC.exists(), reason="sample IFC not found")
+async def test_door_host_wall_missing_returns_manual_clarification_without_options(monkeypatch):
+    pipeline = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC))
+    monkeypatch.setattr(
+        pipeline,
+        "_host_wall_clarification_options",
+        lambda _storey, _min_height_mm: (),
+    )
+    command = LLM3DCommand(
+        command_type=LLM3DCommandType.CREATE,
+        raw_instruction="create a door far from every wall",
+        create_info=LLM3DCreateInfo(
+            element_type=LLM3DElementType.DOOR,
+            storey="1F",
+            start_point=LLM3DPoint3D(x=999_000.0, y=999_000.0, z=0.0),
+            length_mm=900.0,
+            width_mm=200.0,
+            height_mm=2100.0,
+            direction=None,
+        ),
+    )
+
+    result = await pipeline.execute_command_preview(command)
+
+    assert result["status"] == "needs_clarification"
+    assert result["session_id"]
+    [question] = result["clarification_questions"]
+    assert question["context"]["reason"] == "no_eligible_host_wall_options"
+    assert question["context"]["apply_field"] == "host_wall_global_id"
+    assert question["options"] == []
+    assert "설치 가능한 벽을 자동으로 찾지 못했습니다" in question["question_ko"]
+
+def _door_create_command() -> LLM3DCommand:
+    return LLM3DCommand(
+        command_type=LLM3DCommandType.CREATE,
+        raw_instruction="문 만들어줘",
+        create_info=LLM3DCreateInfo(
+            element_type=LLM3DElementType.DOOR,
+            storey="1F",
+            start_point=LLM3DPoint3D(x=0.0, y=0.0, z=0.0),
+            length_mm=900.0,
+            width_mm=200.0,
+            height_mm=2100.0,
+            direction=None,
+        ),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _SAMPLE_IFC.exists(), reason="sample IFC not found")
+async def test_stale_host_wall_global_id_returns_needs_clarification(monkeypatch):
+    pipeline = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC))
+
+    async def parse_command(_user_text: str, ifc_context: str | None = None):  # noqa: ARG001
+        return _door_create_command()
+
+    monkeypatch.setattr(pipeline.engine, "parse_command", parse_command)
+
+    result = await _execute_preview_for_instruction(
+        pipeline,
+        "문 만들어줘",
+        planner_options={"host_wall_global_id": "STALE-NONEXISTENT-ID"},
+    )
+
+    assert result["status"] == "needs_clarification"
+    assert "invalid_host_wall_selection" in str(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _SAMPLE_IFC.exists(), reason="sample IFC not found")
+async def test_valid_host_wall_global_id_proceeds_to_preview(monkeypatch):
+    pipeline = LLM3DPipeline(ifc_path=str(_SAMPLE_IFC))
+    model = pipeline.query_engine.get_model()
+    assert model is not None
+    valid_host_wall_id = next(wall.GlobalId for wall in model.by_type("IfcWall"))
+
+    async def parse_command(_user_text: str, ifc_context: str | None = None):  # noqa: ARG001
+        return _door_create_command()
+
+    monkeypatch.setattr(pipeline.engine, "parse_command", parse_command)
+
+    result = await _execute_preview_for_instruction(
+        pipeline,
+        "문 만들어줘",
+        planner_options={"host_wall_global_id": valid_host_wall_id},
+    )
+
+    assert result["status"] != "needs_clarification"
 
 
 @pytest.mark.asyncio

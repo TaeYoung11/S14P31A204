@@ -2,11 +2,12 @@ import { Layer, Rect, Stage } from 'react-konva'
 import type { MutableRefObject } from 'react'
 import type Konva from 'konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
-import type { FloorCommentPin, FloorLayerOverlay, FloorOpening, FloorRoom, FloorWall, Point2D } from '../../types'
+import type { CanvasViewTransform, FloorCommentPin, FloorLayerOverlay, FloorOpening, FloorRoom, FloorWall, Point2D } from '../../types'
 import { SITE_BOUNDARY_LISTENING } from '../../constants'
 import type { AxisAlignedRect } from '../../utils/geometry2d'
 import type { DoorInfo } from '../../utils/floorPlanLayout'
 import { DimensionGuidesLayer } from './DimensionGuidesLayer'
+import CanvasViewTransformGroup from './CanvasViewTransformGroup'
 import { CollaborationPinOverlay } from './TwoDCanvasOverlays'
 import { TwoDFallbackDoorsLayer } from './TwoDFallbackDoorsLayer'
 import { TwoDGridLayer } from './TwoDGridLayer'
@@ -33,6 +34,7 @@ interface TwoDCanvasStageProps {
   onStageDragEnd: ReturnType<typeof useStagePanInteraction>['onStageDragEnd']
   stageHandlers: ReturnType<typeof useTwoDCanvasStageHandlers>
   sitePoints: number[]
+  viewTransform?: CanvasViewTransform | null
   isGridVisible: boolean
   gridLines: ReturnType<typeof useCanvasGridLines>
   dimensionGuides: ReturnType<typeof useTwoDCanvasDerivedData>['dimensionGuides']
@@ -73,6 +75,7 @@ interface TwoDCanvasStageProps {
   selectedWallId: string | null
   selectedWallIds: string[]
   selectedWallGeometryKey: string | null
+  chatSelectedWallId?: string | null
   wallById: Map<string, FloorWall>
   openingSnapGuide: { wallId: string; wallPosition: number } | null
   outsideWallIds: Set<string>
@@ -121,6 +124,7 @@ export function TwoDCanvasStage({
   onStageDragEnd,
   stageHandlers,
   sitePoints,
+  viewTransform = null,
   isGridVisible,
   gridLines,
   dimensionGuides,
@@ -161,6 +165,7 @@ export function TwoDCanvasStage({
   selectedWallId,
   selectedWallIds,
   selectedWallGeometryKey,
+  chatSelectedWallId,
   wallById,
   openingSnapGuide,
   outsideWallIds,
@@ -214,140 +219,144 @@ export function TwoDCanvasStage({
       onWheel={stageHandlers.onWheel}
     >
       <Layer>
-        <TwoDSiteBoundaryLayer
-          hasSite={siteValidation.hasSite}
-          sitePoints={sitePoints}
-          listening={SITE_BOUNDARY_LISTENING}
-        />
         <TwoDGridLayer isGridVisible={isGridVisible} gridLines={gridLines} />
-        <DimensionGuidesLayer guides={dimensionGuides} />
-        <TwoDOverlayLayers overlayLayers={overlayLayers} />
+        {/* 정렬/북향 토글은 렌더 계층 회전으로만 반영한다. */}
+        <CanvasViewTransformGroup viewTransform={viewTransform}>
+          <TwoDSiteBoundaryLayer
+            hasSite={siteValidation.hasSite}
+            sitePoints={sitePoints}
+            listening={SITE_BOUNDARY_LISTENING}
+          />
+          <DimensionGuidesLayer guides={dimensionGuides} />
+          <TwoDOverlayLayers overlayLayers={overlayLayers} />
 
-        <TwoDRoomsLayer
-          rooms={rooms}
-          selectedId={selectedId}
-          selectedIds={selectedIds}
-          selectedTool={selectedTool}
-          isPanMode={isPanModeEnabled}
-          isWallTool={isWallTool}
-          isOpeningTool={isOpeningTool}
-          isResizeTool={isResizeTool}
-          isWallFirstEditing={isWallFirstEditing}
-          isInteractionLockedByCollaboration={isInteractionLockedByCollaboration}
-          isGridSnapEnabled={isGridSnapEnabled}
-          gridSnapStepPx={gridSnapStepPx}
-          hasSite={siteValidation.hasSite}
-          sitePolygon={sitePolygon}
-          outsideRoomIds={siteValidation.outsideRoomIds}
-          roomDragState={roomDragState}
-          resizingRoomBubbleId={resizingRoomBubbleId}
-          canResizeRoom={canResizeRoom}
-          applyRoomResize={applyRoomResize}
-          beginRoomResize={beginRoomResize}
-          commitRoomResize={commitRoomResize}
-          snapResizeHandle={snapResizeHandle}
-          getCanvasPoint={getCanvasPoint}
-          syncHandlePosition={syncHandlePosition}
-          onRoomMove={onRoomMove}
-          onRoomPolygonChange={onRoomPolygonChange}
-          onSelect={onSelect}
-          onWallSelect={onWallSelect}
-          onOpeningSelect={onOpeningSelect}
-          onRoomDragStateChange={onRoomDragStateChange}
-          onResizingRoomBubbleIdChange={onResizingRoomBubbleIdChange}
-          onMouseEnter={onMouseEnter}
-          onMouseLeave={onMouseLeave}
-        />
-
-        <TwoDWallsLayer
-          dedupedRenderWalls={dedupedRenderWalls}
-          selectedWallId={selectedWallId}
-          selectedWallIds={selectedWallIds}
-          selectedWallGeometryKey={selectedWallGeometryKey}
-          outsideWallIds={outsideWallIds}
-          wallById={wallById}
-          openingSnapGuide={openingSnapGuide}
-          isPanMode={isPanModeEnabled}
-          isWallTool={isWallTool}
-          isOpeningTool={isOpeningTool}
-          isResizeTool={isResizeTool}
-          isInteractionLockedByCollaboration={isInteractionLockedByCollaboration}
-          selectedTool={selectedTool}
-          isGridSnapEnabled={isGridSnapEnabled}
-          gridSnapStepPx={gridSnapStepPx}
-          isDrawingWall={isDrawingWall}
-          wallDraftStart={wallDraftStart}
-          wallDraftEnd={wallDraftEnd}
-          wallDraftType={wallDraftType}
-          wallDraftThicknessMm={wallDraftThicknessMm}
-          getCanvasPoint={getCanvasPoint}
-          createOpeningOnWall={createOpeningOnWall}
-          onWallDelete={onWallDelete}
-          onWallSelect={onWallSelect}
-          onWallEndpointChange={onWallEndpointChange}
-          onWallDragStart={onWallDragStart}
-        />
-
-        <TwoDOpeningsLayer
-          openings={openings}
-          wallById={wallById}
-          selectedOpeningId={selectedOpeningId}
-          selectedOpeningIds={selectedOpeningIds}
-          selectedTool={selectedTool}
-          isPanMode={isPanModeEnabled}
-          isWallTool={isWallTool}
-          isOpeningTool={isOpeningTool}
-          isInteractionLockedByCollaboration={isInteractionLockedByCollaboration}
-          getCanvasPoint={getCanvasPoint}
-          createOpeningOnWall={createOpeningOnWall}
-          onOpeningDelete={onOpeningDelete}
-          onOpeningSelect={onOpeningSelect}
-          onWallSelect={onWallSelect}
-          onSelect={onSelect}
-          onOpeningDragStart={onOpeningDragStart}
-          onClearOpeningSnapGuide={onClearOpeningSnapGuide}
-        />
-
-        <TwoDFallbackDoorsLayer
-          fallbackDoorList={fallbackDoorList}
-          isInteractionLockedByCollaboration={isInteractionLockedByCollaboration}
-          isPanMode={isPanModeEnabled}
-          selectedTool={selectedTool}
-          isDoorTool={isDoorTool}
-          promoteFallbackDoorToOpening={promoteFallbackDoorToOpening}
-          onOpeningDelete={onOpeningDelete}
-          onOpeningSelect={onOpeningSelect}
-          onWallSelect={onWallSelect}
-          onSelect={onSelect}
-        />
-
-        {isCollaborationMode && (
-          <CollaborationPinOverlay
-            pins={commentPins}
-            viewportScale={scale}
-            selectedPinId={selectedPinId}
-            currentUserId={currentUserId}
-            onPinClick={onPinClick}
-            onPinDelete={onPinDelete}
-            deletingPinId={deletingPinId}
+          <TwoDRoomsLayer
+            rooms={rooms}
+            selectedId={selectedId}
+            selectedIds={selectedIds}
+            selectedTool={selectedTool}
+            isPanMode={isPanModeEnabled}
+            isWallTool={isWallTool}
+            isOpeningTool={isOpeningTool}
+            isResizeTool={isResizeTool}
+            isWallFirstEditing={isWallFirstEditing}
+            isInteractionLockedByCollaboration={isInteractionLockedByCollaboration}
+            isGridSnapEnabled={isGridSnapEnabled}
+            gridSnapStepPx={gridSnapStepPx}
+            hasSite={siteValidation.hasSite}
+            sitePolygon={sitePolygon}
+            outsideRoomIds={siteValidation.outsideRoomIds}
+            roomDragState={roomDragState}
+            resizingRoomBubbleId={resizingRoomBubbleId}
+            canResizeRoom={canResizeRoom}
+            applyRoomResize={applyRoomResize}
+            beginRoomResize={beginRoomResize}
+            commitRoomResize={commitRoomResize}
+            snapResizeHandle={snapResizeHandle}
+            getCanvasPoint={getCanvasPoint}
+            syncHandlePosition={syncHandlePosition}
+            onRoomMove={onRoomMove}
+            onRoomPolygonChange={onRoomPolygonChange}
+            onSelect={onSelect}
+            onWallSelect={onWallSelect}
+            onOpeningSelect={onOpeningSelect}
+            onRoomDragStateChange={onRoomDragStateChange}
+            onResizingRoomBubbleIdChange={onResizingRoomBubbleIdChange}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
           />
-        )}
 
-        {marquee && (
-          <Rect
-            x={marquee.x}
-            y={marquee.y}
-            width={marquee.width}
-            height={marquee.height}
-            fill="rgba(59,69,179,0.07)"
-            stroke="#3B45B3"
-            strokeWidth={1}
-            dash={[4, 3]}
-            listening={false}
+          <TwoDWallsLayer
+            dedupedRenderWalls={dedupedRenderWalls}
+            selectedWallId={selectedWallId}
+            selectedWallIds={selectedWallIds}
+            selectedWallGeometryKey={selectedWallGeometryKey}
+            chatSelectedWallId={chatSelectedWallId}
+            outsideWallIds={outsideWallIds}
+            wallById={wallById}
+            openingSnapGuide={openingSnapGuide}
+            isPanMode={isPanModeEnabled}
+            isWallTool={isWallTool}
+            isOpeningTool={isOpeningTool}
+            isResizeTool={isResizeTool}
+            isInteractionLockedByCollaboration={isInteractionLockedByCollaboration}
+            selectedTool={selectedTool}
+            isGridSnapEnabled={isGridSnapEnabled}
+            gridSnapStepPx={gridSnapStepPx}
+            isDrawingWall={isDrawingWall}
+            wallDraftStart={wallDraftStart}
+            wallDraftEnd={wallDraftEnd}
+            wallDraftType={wallDraftType}
+            wallDraftThicknessMm={wallDraftThicknessMm}
+            getCanvasPoint={getCanvasPoint}
+            createOpeningOnWall={createOpeningOnWall}
+            onWallDelete={onWallDelete}
+            onWallSelect={onWallSelect}
+            onWallEndpointChange={onWallEndpointChange}
+            onWallDragStart={onWallDragStart}
           />
-        )}
+
+          <TwoDOpeningsLayer
+            openings={openings}
+            wallById={wallById}
+            selectedOpeningId={selectedOpeningId}
+            selectedOpeningIds={selectedOpeningIds}
+            selectedTool={selectedTool}
+            isPanMode={isPanModeEnabled}
+            isWallTool={isWallTool}
+            isOpeningTool={isOpeningTool}
+            isInteractionLockedByCollaboration={isInteractionLockedByCollaboration}
+            getCanvasPoint={getCanvasPoint}
+            createOpeningOnWall={createOpeningOnWall}
+            onOpeningDelete={onOpeningDelete}
+            onOpeningSelect={onOpeningSelect}
+            onWallSelect={onWallSelect}
+            onSelect={onSelect}
+            onOpeningDragStart={onOpeningDragStart}
+            onClearOpeningSnapGuide={onClearOpeningSnapGuide}
+          />
+
+          <TwoDFallbackDoorsLayer
+            fallbackDoorList={fallbackDoorList}
+            isInteractionLockedByCollaboration={isInteractionLockedByCollaboration}
+            isPanMode={isPanModeEnabled}
+            selectedTool={selectedTool}
+            isDoorTool={isDoorTool}
+            promoteFallbackDoorToOpening={promoteFallbackDoorToOpening}
+            onOpeningDelete={onOpeningDelete}
+            onOpeningSelect={onOpeningSelect}
+            onWallSelect={onWallSelect}
+            onSelect={onSelect}
+          />
+
+          {isCollaborationMode && (
+            <CollaborationPinOverlay
+              pins={commentPins}
+              viewportScale={scale}
+              selectedPinId={selectedPinId}
+              currentUserId={currentUserId}
+              onPinClick={onPinClick}
+              onPinDelete={onPinDelete}
+              deletingPinId={deletingPinId}
+              onMouseEnter={onMouseEnter}
+              onMouseLeave={onMouseLeave}
+            />
+          )}
+
+          {marquee && (
+            <Rect
+              x={marquee.x}
+              y={marquee.y}
+              width={marquee.width}
+              height={marquee.height}
+              fill="rgba(59,69,179,0.07)"
+              stroke="#3B45B3"
+              strokeWidth={1}
+              dash={[4, 3]}
+              listening={false}
+            />
+          )}
+        </CanvasViewTransformGroup>
       </Layer>
     </Stage>
   )

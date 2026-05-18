@@ -27,11 +27,8 @@ export default function EditorLeftSidebar({
   onToggleLibrary,
   onToggleGrid,
   onExportIFC,
-  onGenerateFloorPlan,
   onAutoLayoutBubbles,
-  canGenerateFloorPlan = false,
   canAutoLayoutBubbles = false,
-  isFloorPlanGenerated = false,
   isBubbleReadOnly = false,
   isEditorReadOnly = false,
   isDeleteActionLocked = false,
@@ -80,14 +77,11 @@ export default function EditorLeftSidebar({
           selectedTool={selectedTool}
           isLineStyleModalOpen={isLineStyleModalOpen}
           isBubbleReadOnly={isBubbleReadOnly}
-          canGenerateFloorPlan={canGenerateFloorPlan}
           canAutoLayoutBubbles={canAutoLayoutBubbles}
-          isFloorPlanGenerated={isFloorPlanGenerated}
           hasDeletableSelection={hasDeletableSelection}
           isDeleteActionLocked={isDeleteActionLocked}
           onToolSelect={onToolSelect}
           onAddSpace={onAddSpace}
-          onGenerateFloorPlan={onGenerateFloorPlan}
           onAutoLayoutBubbles={onAutoLayoutBubbles}
           onDeleteSelected={onDeleteSelected}
         />

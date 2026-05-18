@@ -21,10 +21,10 @@ fi
 
 docker compose version
 docker compose -f docker-compose.yml config >/dev/null
-docker compose -f docker-compose.yml build fe be
+docker compose -f docker-compose.yml build fe be worker-ifc-generate worker-authoring worker-planning-2d worker-planning-3d
 
 if [[ "${DEPLOY_AI_PROFILE:-false}" == "true" ]]; then
-  docker compose -f docker-compose.yml build worker
+  docker compose -f docker-compose.yml build worker-rendering
 fi
 
 docker compose -f docker-compose.yml up -d --remove-orphans

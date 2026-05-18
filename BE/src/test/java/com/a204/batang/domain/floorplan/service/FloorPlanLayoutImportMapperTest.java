@@ -228,13 +228,18 @@ class FloorPlanLayoutImportMapperTest {
         assertThat(payload.id()).isEqualTo("550e8400-e29b-41d4-a716-446655440000");
         assertThat(payload.name()).isEqualTo("sample");
         assertThat(payload.rooms()).hasSize(2);
-        assertThat(payload.rooms().get(0).type()).isEqualTo("corridor");
+        assertThat(payload.rooms().get(0).type()).isEqualTo("entrance");
         assertThat(payload.rooms().get(1).type()).isEqualTo("bedroom");
+        assertThat(payload.rooms().get(0).sourceBubbleId()).isEqualTo("bubble-1");
+        assertThat(payload.rooms().get(0).originalLabel()).isEqualTo("현관");
+        assertThat(payload.rooms().get(0).color()).isEqualTo("#ffffff");
         assertThat(payload.rooms().get(0).x()).isEqualTo(250.0);
         assertThat(payload.rooms().get(0).y()).isEqualTo(500.0);
         assertThat(payload.adjacency()).hasSize(1);
+        assertThat(payload.adjacency().get(0).intent()).isEqualTo("open_passage");
+        assertThat(payload.adjacency().get(0).connectionStrength()).isEqualTo("strong");
         assertThat(payload.adjacency().get(0).strength()).isEqualTo(1.0);
-        assertThat(payload.generationOptions().generateOpenings()).isFalse();
+        assertThat(payload.generationOptions().generateOpenings()).isTrue();
         assertThat(payload.generationPolicy().boundaryWallMode()).isEqualTo("outer_boundary");
         assertThat(payload.zones()).isNull();
         assertThat(payload.boundaries()).isNull();
@@ -477,5 +482,106 @@ class FloorPlanLayoutImportMapperTest {
 
         assertThat(payload.adjacency()).extracting(LayoutImportV2Payload.Adjacency::strength)
                 .containsExactly(1.0, 0.6, 0.3);
+    }
+
+    @Test
+    void fromBubbleSnapshot_mapsRoomFloorFromBubbleFloor() throws Exception {
+        JsonNode snapshot = objectMapper.readTree("""
+                {
+                  "bubbles": [
+                    {
+                      "id": "bubble-1",
+                      "x": 10.0,
+                      "y": 20.0,
+                      "width": 100.0,
+                      "height": 80.0,
+                      "widthMm": 2500.0,
+                      "heightMm": 2000.0,
+                      "label": "거실",
+                      "type": "거실",
+                      "ratio": 5.0,
+                      "color": "#ffffff",
+                      "floor": 3
+                    },
+                    {
+                      "id": "bubble-2",
+                      "x": 40.0,
+                      "y": 50.0,
+                      "width": 120.0,
+                      "height": 90.0,
+                      "widthMm": 3600.0,
+                      "heightMm": 2700.0,
+                      "label": "주방",
+                      "type": "주방",
+                      "ratio": 9.0,
+                      "color": "#ffffff"
+                    }
+                  ],
+                  "connections": []
+                }
+                """);
+
+        LayoutImportV2Payload payload = mapper.fromBubbleSnapshot(UUID.randomUUID(), "sample", snapshot);
+
+        assertThat(payload.rooms()).extracting(LayoutImportV2Payload.Room::floor)
+                .containsExactly(3, 1);
+    }
+
+    @Test
+    void fromBubbleSnapshot_mapsZonesByFloorAndRoomZoneId() throws Exception {
+        JsonNode snapshot = objectMapper.readTree("""
+                {
+                  "bubbles": [
+                    {
+                      "id": "bubble-1",
+                      "x": 10.0,
+                      "y": 20.0,
+                      "width": 100.0,
+                      "height": 80.0,
+                      "widthMm": 2500.0,
+                      "heightMm": 2000.0,
+                      "label": "거실",
+                      "type": "거실",
+                      "ratio": 5.0,
+                      "color": "#ffffff",
+                      "floor": 1
+                    },
+                    {
+                      "id": "bubble-2",
+                      "x": 40.0,
+                      "y": 50.0,
+                      "width": 120.0,
+                      "height": 90.0,
+                      "widthMm": 3600.0,
+                      "heightMm": 2700.0,
+                      "label": "안방",
+                      "type": "방",
+                      "ratio": 9.0,
+                      "color": "#ffffff",
+                      "floor": 2
+                    }
+                  ],
+                  "connections": [],
+                  "zones": [
+                    {
+                      "id": "zone-1",
+                      "name": "조닝 1",
+                      "color": "#3B45B3",
+                      "bubbleIds": ["bubble-1", "bubble-2"],
+                      "source": "manual"
+                    }
+                  ]
+                }
+                """);
+
+        LayoutImportV2Payload payload = mapper.fromBubbleSnapshot(UUID.randomUUID(), "sample", snapshot);
+
+        assertThat(payload.zones()).isNotNull();
+        assertThat(payload.zones()).extracting(LayoutImportV2Payload.Zone::id)
+                .containsExactly("zone-1-f1", "zone-1-f2");
+        assertThat(payload.zones()).extracting(LayoutImportV2Payload.Zone::floor)
+                .containsExactly(1, 2);
+        assertThat(payload.rooms()).extracting(LayoutImportV2Payload.Room::zoneId)
+                .containsExactly("zone-1-f1", "zone-1-f2");
     }
 }

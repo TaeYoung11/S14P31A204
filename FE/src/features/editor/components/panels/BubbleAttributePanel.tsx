@@ -61,11 +61,6 @@ export function BubbleAttributePanel({
         <BubbleZonesSection selectedBubble={selectedBubble} zones={zones} />
         <BubbleConnectionsSection selectedBubble={selectedBubble} connections={connections} />
       </div>
-
-      <div className="pt-4 border-t border-[#F0F2F9] flex items-center justify-between">
-        <span className="text-[10px] font-bold text-[#ADB5BD]">계산 면적</span>
-        <span className="text-sm font-black text-[#3B45B3]">{selectedBubble.ratio.toFixed(2)} m²</span>
-      </div>
     </div>
   )
 }

@@ -28,7 +28,7 @@ from .command import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LLM_MODEL = "qwen2.5:7b"
+DEFAULT_LLM_MODEL = "gemma3:4b"
 DEFAULT_LLM_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_LLM_API_KEY = "ollama"
 DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
@@ -107,6 +107,20 @@ SYSTEM_PROMPT = (
     "except roof on 옥상 may use storey RF and direction North.\n"
     "박공지붕 means create_info.shape_preset=\"GABLED\".\n"
     "If target or numeric value is too vague, set ambiguity_question and confidence 0.1.\n"
+    "\n"
+    "### DEMO SHORTCUT REQUESTS\n"
+    "The frontend may expand slash shortcuts into complete Korean demo prompts. Treat those "
+    "expanded prompts as normal user requests; never include the slash command itself in JSON.\n"
+    "/방생성 style prompts usually create IfcWall room boundaries; preserve storey, "
+    "space_name and dimensions when present.\n"
+    "/창문수정 style prompts modify IfcWindow targets. If they say 북쪽/남쪽/동쪽/서쪽, "
+    "put that value in target.direction.\n"
+    "/문추가 style prompts create IfcDoor. Use length_mm for door width, height_mm for height, "
+    "sill_height_mm=0 when the prompt describes a normal door.\n"
+    "/벽수정 style prompts modify IfcWall targets and may combine dimension and color changes.\n"
+    "/지붕생성 style prompts create IfcRoof on RF/옥상 with direction North when no other "
+    "direction is provided.\n"
+    "/계단생성 style prompts create IfcStair and may default direction to North.\n"
     "\n"
     "### EXAMPLES\n"
     "{\"command_type\":\"MODIFY\",\"target\":{\"element_type\":\"IfcWall\",\"storey\":\"1F\"},"

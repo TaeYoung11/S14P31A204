@@ -422,6 +422,9 @@ class Ifc2ImgPhotoJobResult:
     ifc_color_preservation_opted_in: bool = False
     ifc_color_preservation_applied: bool = False
     ifc_color_preservation_error: str | None = None
+    ifc_color_preservation_opted_in: bool = False
+    ifc_color_preservation_applied: bool = False
+    ifc_color_preservation_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1325,6 +1328,13 @@ def run_ifc2img_photo_pipeline(
         if use_ifc_color_prompt_suffix and not ifc_color_preservation_applied
         else None
     )
+        )
+        ifc_color_preservation_applied = True
+    ifc_color_preservation_error = (
+        color_summary_error
+        if use_ifc_color_prompt_suffix and not ifc_color_preservation_applied
+        else None
+    )
     if use_ifc_shape_lock_prompt:
         params = dataclass_replace(
             params,
@@ -1490,6 +1500,9 @@ def run_ifc2img_photo_pipeline(
         ifcColorPreservationOptedIn=use_ifc_color_prompt_suffix,
         ifcColorPreservationApplied=ifc_color_preservation_applied,
         ifcColorPreservationError=ifc_color_preservation_error,
+        ifcColorPreservationOptedIn=use_ifc_color_prompt_suffix,
+        ifcColorPreservationApplied=ifc_color_preservation_applied,
+        ifcColorPreservationError=ifc_color_preservation_error,
     )
     return Ifc2ImgPhotoJobResult(
         preset=preset,
@@ -1497,6 +1510,9 @@ def run_ifc2img_photo_pipeline(
         outputs=output_tuple,
         manifest_path=manifest_path,
         time_of_day=worker_time_of_day,
+        ifc_color_preservation_opted_in=use_ifc_color_prompt_suffix,
+        ifc_color_preservation_applied=ifc_color_preservation_applied,
+        ifc_color_preservation_error=ifc_color_preservation_error,
         ifc_color_preservation_opted_in=use_ifc_color_prompt_suffix,
         ifc_color_preservation_applied=ifc_color_preservation_applied,
         ifc_color_preservation_error=ifc_color_preservation_error,

@@ -13,6 +13,7 @@ type SpaceAndZoningModalsProps = Pick<
   | 'isZoningModalOpen'
   | 'editingZoneId'
   | 'zoningFormData'
+  | 'zoningValidationMessage'
   | 'bubbles'
   | 'zoningAutoColorPreview'
   | 'onCloseZoningModal'
@@ -32,6 +33,7 @@ export default function SpaceAndZoningModals({
   isZoningModalOpen,
   editingZoneId,
   zoningFormData,
+  zoningValidationMessage,
   bubbles,
   zoningAutoColorPreview,
   onCloseZoningModal,
@@ -53,7 +55,9 @@ export default function SpaceAndZoningModals({
       <ZoningModal
         isOpen={isZoningModalOpen}
         isEditing={Boolean(editingZoneId)}
+        activeFloorNumber={activeBubbleFloor}
         formData={zoningFormData}
+        validationMessage={zoningValidationMessage}
         bubbles={bubbles}
         autoColorPreview={zoningAutoColorPreview}
         onClose={onCloseZoningModal}

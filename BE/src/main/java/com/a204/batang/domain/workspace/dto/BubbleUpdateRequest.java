@@ -22,6 +22,8 @@ public record BubbleUpdateRequest(
         List<@Valid BubbleData> bubbles,
         @NotNull(message = "connections is required.")
         List<@Valid ConnectionData> connections,
+        @Valid
+        List<BubbleZoneData> zones,
         @NotNull(message = "baseIndex is required.")
         @Min(value = -1, message = "baseIndex must be greater than or equal to -1.")
         Integer baseIndex,
@@ -67,10 +69,13 @@ public record BubbleUpdateRequest(
             String label,
             @NotBlank(message = "bubble type is required.")
             String type,
+            String originalType,
             @NotNull(message = "bubble ratio is required.")
             @Positive(message = "bubble ratio must be positive.")
             Double ratio,
             String color,
+            String material,
+            String wallType,
             @JsonAlias({
                     "floorNumber",
                     "floorNo",
@@ -84,6 +89,22 @@ public record BubbleUpdateRequest(
             })
             Integer floor
     ) {
+        public BubbleData(
+                String id,
+                Double x,
+                Double y,
+                Double width,
+                Double height,
+                Double widthMm,
+                Double heightMm,
+                String label,
+                String type,
+                Double ratio,
+                String color,
+                Integer floor
+        ) {
+            this(id, x, y, width, height, widthMm, heightMm, label, type, null, ratio, color, null, null, floor);
+        }
     }
 
     /**
@@ -94,6 +115,7 @@ public record BubbleUpdateRequest(
      * @param type 연결 유형(bold/thin/dashed)
      */
     public record ConnectionData(
+            String id,
             @NotBlank(message = "connection from is required.")
             String from,
             @NotBlank(message = "connection to is required.")
@@ -103,7 +125,11 @@ public record BubbleUpdateRequest(
                     regexp = "(?i)bold|thin|dashed",
                     message = "connection type must be one of bold, thin, dashed."
             )
-            String type
+            String type,
+            String intent
     ) {
+        public ConnectionData(String from, String to, String type) {
+            this(null, from, to, type, null);
+        }
     }
 }

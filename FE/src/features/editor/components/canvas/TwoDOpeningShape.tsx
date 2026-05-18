@@ -20,13 +20,26 @@ export function TwoDOpeningShape({
 }: TwoDOpeningShapeProps) {
   if (opening.type === 'window') {
     return (
-      <Line
-        points={[-openingWidthPx / 2, 0, openingWidthPx / 2, 0]}
-        stroke={isSelectedOpening ? '#0B7DAA' : '#0EA5E9'}
-        strokeWidth={Math.max(wallStrokePx - 1, 4)}
-        lineCap="round"
-        dash={[10, 4]}
-      />
+      <>
+        <Line
+          points={[-openingWidthPx / 2, 0, openingWidthPx / 2, 0]}
+          stroke="#FDFBF7"
+          strokeWidth={Math.max(wallStrokePx + 1, 5)}
+          lineCap="square"
+        />
+        <Line
+          points={[-openingWidthPx / 2, -3, openingWidthPx / 2, -3]}
+          stroke={isSelectedOpening ? '#2563EB' : '#2F343B'}
+          strokeWidth={1.4}
+          lineCap="square"
+        />
+        <Line
+          points={[-openingWidthPx / 2, 3, openingWidthPx / 2, 3]}
+          stroke={isSelectedOpening ? '#2563EB' : '#2F343B'}
+          strokeWidth={1.4}
+          lineCap="square"
+        />
+      </>
     )
   }
 
@@ -43,15 +56,15 @@ export function TwoDOpeningShape({
     <>
       <Line
         points={[-openingWidthPx / 2, 0, openingWidthPx / 2, 0]}
-        stroke="white"
+        stroke="#FDFBF7"
         strokeWidth={Math.max(wallStrokePx + 1, 5)}
-        lineCap="round"
+        lineCap="square"
       />
-      <Circle x={hingeX} y={0} radius={2} fill="#3B45B3" />
+      <Circle x={hingeX} y={0} radius={2} fill={isSelectedOpening ? '#2563EB' : '#2F343B'} />
       {doorSwingDirection === 'sliding' ? (
         <Line
           points={[-openingWidthPx / 2, -6, openingWidthPx / 2, -6]}
-          stroke={isSelectedOpening ? '#4C57D3' : '#3B45B3'}
+          stroke={isSelectedOpening ? '#2563EB' : '#2F343B'}
           strokeWidth={1.5}
           dash={[8, 4]}
         />
@@ -59,7 +72,7 @@ export function TwoDOpeningShape({
         <>
           <Line
             points={[hingeX, 0, doorLeafEndX, doorLeafEndY]}
-            stroke={isSelectedOpening ? '#4C57D3' : '#3B45B3'}
+            stroke={isSelectedOpening ? '#2563EB' : '#2F343B'}
             strokeWidth={1.4}
           />
           <Arc
@@ -69,9 +82,8 @@ export function TwoDOpeningShape({
             outerRadius={openingWidthPx}
             angle={90}
             rotation={arcRotation}
-            stroke={isSelectedOpening ? '#4C57D3' : '#3B45B3'}
-            strokeWidth={isSelectedOpening ? 2 : 1.5}
-            fill="rgba(59,69,179,0.07)"
+            stroke={isSelectedOpening ? '#2563EB' : '#2F343B'}
+            strokeWidth={isSelectedOpening ? 1.8 : 1.2}
           />
         </>
       )}

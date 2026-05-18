@@ -1,4 +1,4 @@
-import uuid
+﻿import uuid
 import logging
 import re
 from typing import Any
@@ -21,7 +21,12 @@ import ai_authoring.operations  # noqa: F401
 from ai_authoring.operations.registry import get as get_operation
 
 # 검증 모듈 및 컨텍스트 추출기 임포트
-from .clarification import ClarificationGenerator, ClarificationQuestion
+from .clarification import (
+    ClarificationGenerator,
+    ClarificationOption,
+    ClarificationQuestion,
+    ClarificationTrigger,
+)
 from .context_extractor import IFCContextExtractor
 from .validators import (
     CollisionValidator,
@@ -70,7 +75,7 @@ class PreviewSession:
 
 
 class LLM3DPipeline:
-    def __init__(self, ifc_path: str | None = None, model_name: str = "qwen2.5:7b"):
+    def __init__(self, ifc_path: str | None = None, model_name: str = "gemma3:4b"):
         self.engine = LLM3DEngine(model=model_name)
         ifc_model = None
         if ifc_path:
@@ -101,7 +106,16 @@ class LLM3DPipeline:
     @staticmethod
     def split_chat_commands(user_text: str) -> list[str]:
         decimal_dot = "__BATANG_DECIMAL_DOT__"
+        dimension_comma = "__BATANG_DIMENSION_COMMA__"
+        dimension_value = (
+            r"(?:[가-힣A-Za-z]+\s*)?\d+(?:\.\d+)?\s*(?:mm|cm|m)(?![A-Za-z0-9])"
+        )
         user_text = re.sub(r"(?<=\d)\.(?=\d)", decimal_dot, user_text)
+        user_text = re.sub(
+            rf"({dimension_value})\s*,\s*(?={dimension_value})",
+            rf"\1{dimension_comma} ",
+            user_text,
+        )
         normalized = re.sub(
             r"((?:만들|생성|추가|배치|넣|달|바꾸|변경|수정|삭제|제거|없애|지우|빼))고(?=\s|[,.;])\s*",
             lambda match: f"{LLM3DPipeline._complete_connected_verb(match.group(1))}.\n",
@@ -120,7 +134,7 @@ class LLM3DPipeline:
         parts = re.split(r"(?:그리고|\.|,|\n|;)", normalized)
         commands: list[str] = []
         for part in parts:
-            part = part.replace(decimal_dot, ".").strip()
+            part = part.replace(decimal_dot, ".").replace(dimension_comma, ",").strip()
             if part:
                 commands.extend(LLM3DPipeline._expand_direction_pair_command(part))
         return LLM3DPipeline._carry_forward_command_subjects(commands or [user_text])
@@ -320,7 +334,7 @@ class LLM3DPipeline:
         host_wall = None
         if model and ci.get("host_wall_global_id"):
             host_wall = model.by_guid(ci["host_wall_global_id"])
-        if host_wall is not None:
+        if model is not None and host_wall is not None:
             fraction = (copy_index + 1) / (repeat_count + 1)
             target_storey = None
             target_name = normalize_storey_name(str(ci.get("storey") or "1F"))
@@ -463,7 +477,12 @@ class LLM3DPipeline:
         coords = tuple(getattr(location, "Coordinates", ()) or ())
         while len(coords) < 3:
             coords += (0.0,)
-        return tuple(self._model_units_to_mm(float(v)) for v in coords[:3])
+        x, y, z = coords[:3]
+        return (
+            self._model_units_to_mm(float(x)),
+            self._model_units_to_mm(float(y)),
+            self._model_units_to_mm(float(z)),
+        )
 
     def _element_size_mm(self, element: ifcopenshell.entity_instance) -> tuple[float, float, float]:
         representation = getattr(element, "Representation", None)
@@ -542,6 +561,60 @@ class LLM3DPipeline:
                         walls.append(element)
         return walls
 
+    def _host_wall_clarification_options(
+        self,
+        storey: ifcopenshell.entity_instance,
+        min_height_mm: float,
+    ) -> tuple[ClarificationOption, ...]:
+        options: list[ClarificationOption] = []
+        for wall in self._storey_walls(storey):
+            global_id = str(getattr(wall, "GlobalId", "") or "")
+            if not global_id:
+                continue
+            name = str(getattr(wall, "Name", "") or "").strip()
+            wall_name = name or wall.is_a()
+            lower_name = wall_name.lower()
+            if any(token in lower_name for token in ("rail", "fence")):
+                continue
+            length_mm, width_mm, height_mm = self._element_size_mm(wall)
+            if min_height_mm > 0.0 and height_mm > 0.0 and height_mm < min_height_mm:
+                continue
+            label = (
+                f"{wall_name} / {global_id} "
+                f"({length_mm:.0f}x{width_mm:.0f}x{height_mm:.0f}mm)"
+            )
+            options.append(ClarificationOption(id=global_id, label=label, value=global_id))
+        return tuple(options)
+
+    def _host_wall_clarification_question(
+        self,
+        storey: ifcopenshell.entity_instance,
+        ci_dump: dict[str, Any],
+        min_height_mm: float,
+    ) -> ClarificationQuestion:
+        options = self._host_wall_clarification_options(storey, min_height_mm)
+        question_ko = (
+            "문/창문을 설치할 벽을 선택해 주세요."
+            if options
+            else (
+                "설치 가능한 벽을 자동으로 찾지 못했습니다. "
+                "벽 이름이나 방향(남/북/동/서)을 더 구체적으로 입력해 주세요."
+            )
+        )
+        return ClarificationQuestion(
+            trigger=ClarificationTrigger.CUSTOM,
+            question_ko=question_ko,
+            options=options,
+            context={
+                "reason": "host_wall_not_found" if options else "no_eligible_host_wall_options",
+                "apply_field": "host_wall_global_id",
+                "element_type": str(ci_dump.get("element_type") or ""),
+                "storey_global_id": str(getattr(storey, "GlobalId", "") or ""),
+                "storey_name": str(getattr(storey, "Name", "") or ""),
+            },
+            is_blocking=True,
+        )
+
     def _bbox_for_elements(self, elements: list[Any]) -> dict[str, float] | None:
         xs: list[float] = []
         ys: list[float] = []
@@ -572,6 +645,8 @@ class LLM3DPipeline:
             return None
         wanted = space_name.replace(" ", "").lower()
         model = self.query_engine.get_model()
+        if model is None:
+            return None
         spaces = self._storey_spaces(storey) or model.by_type("IfcSpace")
         candidates: list[Any] = []
         for space in spaces:
@@ -908,6 +983,69 @@ class LLM3DPipeline:
                     best_wall = wall
         return best_wall
 
+    def _build_host_wall_clarification_question(
+        self,
+        storey: ifcopenshell.entity_instance,
+        direction: Any,
+    ) -> ClarificationQuestion:
+        normalized_direction = str(direction or "").strip().lower()
+        options: list[ClarificationOption] = []
+        for wall in self._storey_walls(storey):
+            wall_id = getattr(wall, "GlobalId", None)
+            if not wall_id:
+                continue
+            wall_name = str(getattr(wall, "Name", "") or "").strip() or str(wall_id)
+            label = wall_name
+            axis = self._wall_axis_info_mm(wall)
+            if axis:
+                projected_length_x = abs(
+                    float(axis.get("axis_x", 0.0)) * float(axis.get("length", 0.0))
+                )
+                projected_length_y = abs(
+                    float(axis.get("axis_y", 0.0)) * float(axis.get("length", 0.0))
+                )
+                orientation = (
+                    "North/South" if projected_length_x >= projected_length_y else "East/West"
+                )
+                label = f"{wall_name} ({orientation})"
+            options.append(
+                ClarificationOption(
+                    id=str(wall_id),
+                    label=label,
+                    value=str(wall_id),
+                )
+            )
+
+        if normalized_direction:
+            options.sort(
+                key=lambda option: (
+                    normalized_direction not in option.label.lower(),
+                    option.label.lower(),
+                )
+            )
+        else:
+            options.sort(key=lambda option: option.label.lower())
+
+        if not options:
+            options.append(
+                ClarificationOption(
+                    id="manual",
+                    label="벽을 직접 지정해 주세요.",
+                    value="manual",
+                )
+            )
+
+        return ClarificationQuestion(
+            trigger=ClarificationTrigger.CUSTOM,
+            question_ko="문/창문을 설치할 벽을 선택해 주세요.",
+            options=tuple(options[:8]),
+            context={
+                "storey": getattr(storey, "Name", None),
+                "direction": direction,
+            },
+            is_blocking=True,
+        )
+
     def _wall_local_u_mm(self, wall: Any, point: dict[str, Any]) -> float | None:
         placement = getattr(wall, "ObjectPlacement", None)
         if not placement or not placement.is_a("IfcLocalPlacement"):
@@ -1018,11 +1156,15 @@ class LLM3DPipeline:
         storey_z = self._storey_elevation_mm(target_storey)
 
         if element_type == LLM3DElementType.ROOF:
+            # Place the roof on top of existing walls, not at the storey floor elevation.
+            # storey_z is the floor elevation (e.g. 0mm for 1F), but we need the wall tops.
+            # storey_bbox max_z is the highest point of any element in the storey (≈ wall height).
+            roof_z = storey_bbox["max_z"] if storey_bbox else storey_z
             return {
                 "start_point": {
                     "x": center_x,
                     "y": center_y,
-                    "z": storey_z,
+                    "z": roof_z,
                 },
                 "length_mm": max(span_x * 1.05, 4000.0),
                 "width_mm": max(span_y * 1.05, 3000.0),
@@ -1291,13 +1433,52 @@ class LLM3DPipeline:
                     float(start_point.get("y", 0.0)),
                 )
             if host_wall is None:
+                min_host_height_mm = float(ci_dump.get("height_mm") or 0.0) + float(
+                    ci_dump.get("sill_height_mm") or 0.0
+                )
+                question: ClarificationQuestion | None = self._host_wall_clarification_question(
+                    target_storey,
+                    ci_dump,
+                    min_host_height_mm,
+                )
+                if question is None:
+                    # 방어 코드: 정상적으로는 도달하지 않음
+                    question = ClarificationQuestion(
+                        trigger=ClarificationTrigger.CUSTOM,
+                        question_ko=(
+                            "문/창문을 붙일 벽을 찾지 못했습니다. "
+                            "벽 이름이나 방향을 더 구체적으로 입력해 주세요."
+                        ),
+                        options=(),
+                        context={"reason": "host_wall_not_found_fallback"},
+                        is_blocking=True,
+                    )
+                session = PreviewSession(
+                    session_id=str(uuid.uuid4()),
+                    command=command,
+                    matched=[
+                        {
+                            "create_info": ci_dump,
+                            "storey_guid": target_storey.GlobalId,
+                            "start_point": start_point,
+                        }
+                    ],
+                    quality_ok=True,
+                    collision_warnings=[
+                        "Door/window creation requires a wall position or host_wall_global_id."
+                    ],
+                    structural_warnings=[],
+                )
+                session.clarification_questions = [question]
+                self.store[session.session_id] = session
                 return {
                     "status": "needs_clarification",
+                    "session_id": session.session_id,
                     "command": command.model_dump(),
                     "summary": "문/창문을 붙일 host wall을 찾지 못해 IFC를 생성하지 않았습니다.",
-                    "clarification_questions": [],
+                    "clarification_questions": [question.to_dict()],
                     "collision_warnings": [
-                        "문/창문 생성에는 벽 위치 또는 host_wall_global_id가 필요합니다."
+                        "Door/window creation requires a wall position or host_wall_global_id."
                     ],
                     "structural_warnings": [],
                 }
@@ -1435,6 +1616,8 @@ class LLM3DPipeline:
         if not session:
             return {"status": "error", "summary": "세션을 찾을 수 없습니다."}
         model = self.query_engine.get_model()
+        if model is None:
+            return {"status": "error", "summary": "IFC model is not loaded."}
         info = session.matched[0]
         ci = info["create_info"]
         storey = model.by_guid(info["storey_guid"])

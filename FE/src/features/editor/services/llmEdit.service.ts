@@ -1,7 +1,7 @@
 // 자연어 BIM 편집 API와 작업 상태 조회를 담당합니다.
-import { isAxiosError } from 'axios'
+import axios, { isAxiosError } from 'axios'
 import { api } from '@/shared/lib/axios'
-import type { LlmChatLogItem } from '../types/llmEdit.types'
+import type { ClarificationArtifact, LlmChatLogItem } from '../types/llmEdit.types'
 import type {
   ChatCommandRequestDto,
   IfcEditJobResponseDto,
@@ -41,6 +41,13 @@ export function extractLlmEditErrorMessage(error: unknown): string {
   return 'AI 편집 요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.'
 }
 
+export function isJobConflictError(error: unknown): boolean {
+  if (!isAxiosError(error)) return false
+  if (error.response?.status === 409) return true
+  const code = error.response?.data?.code
+  return typeof code === 'string' && code === 'IFC_EDIT_JOB_CONFLICT'
+}
+
 export async function submitLlmChatCommand({
   projectId,
   ...body
@@ -55,6 +62,20 @@ export async function submitLlmChatCommand({
 export async function fetchLlmJobStatus(jobId: string): Promise<JobStatusResponseDto> {
   const response = await api.get<ApiResponse<JobStatusResponseDto>>(`/jobs/${jobId}`)
   return response.data.data
+}
+
+export async function fetchClarificationArtifact(url: string): Promise<ClarificationArtifact> {
+  const response = await axios.get<unknown>(url)
+  const data = response.data
+  if (
+    typeof data !== 'object' ||
+    data === null ||
+    typeof (data as Record<string, unknown>).question !== 'string' ||
+    !Array.isArray((data as Record<string, unknown>).alternatives)
+  ) {
+    throw new Error('invalid clarification artifact schema')
+  }
+  return data as ClarificationArtifact
 }
 
 export async function fetchLlmChatLogs({

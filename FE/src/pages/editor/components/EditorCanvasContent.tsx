@@ -14,6 +14,7 @@ import CanvasZoomControls from './canvas-content/CanvasZoomControls'
 export default function EditorCanvasContent(props: EditorCanvasContentProps) {
   const { containerRef, ...canvasRenderProps } = props
   const renderProps: EditorCanvasRenderProps = canvasRenderProps
+  const { isWorkspaceBootstrapping } = renderProps
   const {
     isViewMode,
     modeRendererSectionProps,
@@ -31,12 +32,18 @@ export default function EditorCanvasContent(props: EditorCanvasContentProps) {
           : 'rounded-3xl border border-[#E2E6EF] bg-[linear-gradient(180deg,#ffffff_0%,#f9fbff_100%)] shadow-[0_16px_36px_rgba(32,44,94,0.12)]'
       }`}
     >
-      <Suspense fallback={<ModeCanvasLoadingFallback mode={renderProps.mode} />}>
-        <CanvasModeRenderer {...modeRendererSectionProps} />
-      </Suspense>
-      <CanvasLabelOverlay {...labelOverlaySectionProps} />
-      <CanvasZoomControls {...zoomControlsSectionProps} />
-      <CanvasCollaborationBar {...collaborationBarSectionProps} />
+      {isWorkspaceBootstrapping ? (
+        <ModeCanvasLoadingFallback mode={renderProps.mode} />
+      ) : (
+        <>
+          <Suspense fallback={<ModeCanvasLoadingFallback mode={renderProps.mode} />}>
+            <CanvasModeRenderer {...modeRendererSectionProps} />
+          </Suspense>
+          <CanvasLabelOverlay {...labelOverlaySectionProps} />
+          <CanvasZoomControls {...zoomControlsSectionProps} />
+          <CanvasCollaborationBar {...collaborationBarSectionProps} />
+        </>
+      )}
     </main>
   )
 }

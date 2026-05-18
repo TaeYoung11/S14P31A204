@@ -30,8 +30,28 @@
       "type": "array"
     },
     "planner_options": {
-      "description": "deprecated: 워커는 무시한다. FE가 보내고 BE가 전달할 수 있어 optional로 허용.",
-      "type": "object"
+      "description": "FE가 선택한 벽 정보 등 워커 동작을 제어하는 추가 옵션.",
+      "$ref": "#/$defs/plannerOptions"
+    }
+  },
+  "$defs": {
+    "plannerOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "selectedWallId": {
+          "description": "FE가 선택한 벽의 IFC GlobalId. 문/창 생성 단축 경로에 사용.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "host_wall_global_id": {
+          "description": "3D 워커와 동일한 키 이름. selectedWallId의 대체 키 (우선순위 높음).",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
     }
   }
 }

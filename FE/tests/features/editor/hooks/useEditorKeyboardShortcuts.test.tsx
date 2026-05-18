@@ -2,8 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { useEditorKeyboardShortcuts } from './useEditorKeyboardShortcuts'
-import type { EditorMode } from '../types'
+import { useEditorKeyboardShortcuts } from '@/features/editor/hooks/useEditorKeyboardShortcuts'
+import type { EditorMode } from '@/features/editor/types'
 
 interface HarnessProps {
   mode: EditorMode
@@ -132,3 +132,5 @@ describe('useEditorKeyboardShortcuts', () => {
     expect(onToggleLayerOverlay).toHaveBeenCalledTimes(1)
   })
 })
+
+

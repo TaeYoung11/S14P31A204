@@ -3,11 +3,11 @@ import EditorLeftSidebar from '../../features/editor/components/layout/EditorLef
 import EditorToolbar from '../../features/editor/components/layout/EditorToolbar'
 import { useEditorPage } from '../../features/editor/hooks/useEditorPage'
 import { useEditorProjectSwitcher } from '../../features/editor/hooks/useEditorProjectSwitcher'
-import { useFloatingPanelDrag } from '../../features/editor/hooks/useFloatingPanelDrag'
 import EditorCanvasContent from './components/EditorCanvasContent'
 import EditorModalLayer from './components/EditorModalLayer'
 import EditorProjectSwitchSidebar from './components/EditorProjectSwitchSidebar'
 import EditorRightPanelSection from './components/EditorRightPanelSection'
+import { useEditorPageLayout } from './hooks/useEditorPageLayout'
 import ProjectCommentToast from '@/features/project/components/ProjectCommentToast'
 import {
   buildEditorCanvasContentProps,
@@ -26,13 +26,13 @@ export default function EditorPage() {
   const modalLayerProps = buildEditorModalLayerProps(vm)
   const sidebarProps = buildEditorLeftSidebarProps(vm)
   const rightPanelProps = buildEditorRightPanelProps(vm)
-  const shouldLiftRightPanel = (vm.isCollaborationMode || vm.isAgentPanelMode) && vm.mode !== 'view'
-  const shouldShowLeftToolbar = vm.mode !== 'view' && !vm.isEditorReadOnly
   const {
-    panelRef: leftToolbarRef,
-    offset: leftToolbarOffset,
-    startDrag: startLeftToolbarDrag,
-  } = useFloatingPanelDrag({ x: 28, y: 84 }, 16)
+    shouldLiftRightPanel,
+    shouldShowLeftToolbar,
+    leftToolbarRef,
+    leftToolbarOffset,
+    startLeftToolbarDrag,
+  } = useEditorPageLayout(vm)
 
   return (
     <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-[radial-gradient(circle_at_12%_10%,#f8f9ff_0%,#edf1fb_36%,#e8edf9_70%,#e6ebf8_100%)] text-[#1D1E20] font-sans">
@@ -65,6 +65,8 @@ export default function EditorPage() {
             mode={vm.mode}
             projectName={vm.currentProjectName}
             onModeChange={vm.setMode}
+            isTrueNorthView={vm.isTrueNorthView}
+            onToggleTrueNorthView={() => vm.setIsTrueNorthView(!vm.isTrueNorthView)}
             onUndo={vm.handleUndo}
             onRedo={vm.handleRedo}
             canUndo={vm.canUndo}

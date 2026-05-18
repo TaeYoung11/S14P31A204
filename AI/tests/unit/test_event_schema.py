@@ -27,7 +27,7 @@ def _event(status: str) -> dict[str, object]:
         "schema_version": "v1",
         "message_type": "EVENT",
         "event_type": f"TWO_D_LLM_{status.upper()}",
-        "routing_key": f"event.2d-llm.{status.replace('_', '-')}",
+        "routing_key": f"event.two-d-llm.{status.replace('_', '-')}",
         "job_id": "job-001",
         "job_step_id": "job-step-001",
         "step_no": 1,
@@ -62,7 +62,7 @@ def _context() -> WorkerContext:
     return WorkerContext(
         message_id="cmd-001",
         command_type="TWO_D_LLM_GENERATE",
-        routing_key="command.2d-llm.generate",
+        routing_key="command.two-d-llm.generate",
         job_id="job-001",
         job_step_id="job-step-001",
         step_no=1,
