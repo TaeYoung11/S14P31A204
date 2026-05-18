@@ -5,6 +5,7 @@ import json
 import ifcopenshell
 import ifcopenshell.api.aggregate
 import ifcopenshell.api.root
+import ifcopenshell.guid
 import pytest
 
 from ai_authoring import apply_ifc_edit_payload
@@ -411,6 +412,49 @@ def test_transform_handler_does_not_mutate_shared_location_point() -> None:
     )
     assert tuple(space_b.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
         (0.0, 0.0, 0.0)
+    )
+
+
+def test_transform_space_moves_boundary_wall() -> None:
+    bundle = _make_model()
+    create_handler = get("create_element")
+    transform_handler = get("transform_elements")
+    space = create_handler.execute(
+        bundle["model"],
+        None,
+        {
+            "element_type": "IfcSpace",
+            "storey_id": bundle["storey"].GlobalId,
+            "start_mm": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "dimensions_mm": {"width": 3000, "height": 4000},
+            "properties": {"name": "Bathroom", "space_type": "bathroom"},
+        },
+    )
+    wall = _make_wall(bundle["model"], bundle["storey"], start=(0.0, 0.0), end=(3000.0, 0.0))
+    assert space is not None
+    bundle["model"].create_entity(
+        "IfcRelSpaceBoundary",
+        GlobalId=ifcopenshell.guid.new(),
+        Name="Bathroom boundary",
+        RelatingSpace=space,
+        RelatedBuildingElement=wall,
+        PhysicalOrVirtualBoundary="PHYSICAL",
+        InternalOrExternalBoundary="INTERNAL",
+    )
+
+    moved = transform_handler.execute(
+        bundle["model"],
+        None,
+        {"translate_mm": {"x": 1000.0, "y": 2000.0, "z": 0.0}},
+        {"global_ids": [space.GlobalId]},
+    )
+
+    assert moved == [space.GlobalId, wall.GlobalId]
+    assert tuple(space.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
+        (1000.0, 2000.0, 0.0)
+    )
+    assert tuple(wall.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
+        (1000.0, 2000.0, 0.0)
     )
 
 

@@ -404,7 +404,7 @@ def translate_product(
     placement = getattr(product, "ObjectPlacement", None)
     relative = getattr(placement, "RelativePlacement", None) if placement else None
     location = getattr(relative, "Location", None) if relative else None
-    if location is None:
+    if relative is None or location is None:
         return False
     coords = list(tuple(getattr(location, "Coordinates", ()) or ()))
     while len(coords) < 3:
@@ -425,6 +425,36 @@ def is_product_host_relative(product: ifcopenshell.entity_instance) -> bool:
         if parent.is_a("IfcWall") or parent.is_a("IfcOpeningElement"):
             return True
     return False
+
+
+def transform_scope_for_product(
+    model: ifcopenshell.file,
+    product: ifcopenshell.entity_instance,
+) -> list[ifcopenshell.entity_instance]:
+    products: list[ifcopenshell.entity_instance] = [product]
+    if not product.is_a("IfcSpace"):
+        return products
+
+    def append_once(candidate: ifcopenshell.entity_instance | None) -> None:
+        if candidate is None or not candidate.is_a("IfcProduct"):
+            return
+        if candidate not in products:
+            products.append(candidate)
+
+    for rel in model.get_inverse(product):
+        if rel.is_a("IfcRelSpaceBoundary"):
+            append_once(getattr(rel, "RelatedBuildingElement", None))
+        elif rel.is_a("IfcRelContainedInSpatialStructure"):
+            for element in getattr(rel, "RelatedElements", []) or []:
+                append_once(element)
+
+    for rel in getattr(product, "ContainsElements", []) or []:
+        if not rel.is_a("IfcRelContainedInSpatialStructure"):
+            continue
+        for element in getattr(rel, "RelatedElements", []) or []:
+            append_once(element)
+
+    return products
 
 
 def assign_space_to_storey(

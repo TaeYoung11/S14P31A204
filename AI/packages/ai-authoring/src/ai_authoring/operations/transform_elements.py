@@ -12,6 +12,7 @@ from ai_authoring.operations.space_support import (
     is_product_host_relative,
     mm_to_model_units,
     translate_product,
+    transform_scope_for_product,
 )
 
 
@@ -49,19 +50,20 @@ class TransformElementsHandler:
         skip_if_host_relative = bool(parameters.get("skip_if_host_relative"))
         transformed_ids: list[str] = []
         for product in _selected_products(model, selector):
-            if skip_if_host_relative and is_product_host_relative(product):
-                continue
-            changed = False
-            if translation:
-                changed |= translate_product(
-                    model,
-                    product,
-                    x_m=mm_to_model_units(model, translation.get("x"), 0.0),
-                    y_m=mm_to_model_units(model, translation.get("y"), 0.0),
-                    z_m=mm_to_model_units(model, translation.get("z"), 0.0),
-                )
-            if rotation.get("z") is not None:
-                changed |= modify_rotation(model, product, float(rotation["z"]))
-            if changed:
-                transformed_ids.append(product.GlobalId)
+            for scoped_product in transform_scope_for_product(model, product):
+                if skip_if_host_relative and is_product_host_relative(scoped_product):
+                    continue
+                changed = False
+                if translation:
+                    changed |= translate_product(
+                        model,
+                        scoped_product,
+                        x_m=mm_to_model_units(model, translation.get("x"), 0.0),
+                        y_m=mm_to_model_units(model, translation.get("y"), 0.0),
+                        z_m=mm_to_model_units(model, translation.get("z"), 0.0),
+                    )
+                if rotation.get("z") is not None:
+                    changed |= modify_rotation(model, scoped_product, float(rotation["z"]))
+                if changed and scoped_product.GlobalId not in transformed_ids:
+                    transformed_ids.append(scoped_product.GlobalId)
         return transformed_ids

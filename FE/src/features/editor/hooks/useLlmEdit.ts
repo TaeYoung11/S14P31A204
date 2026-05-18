@@ -181,6 +181,7 @@ export function useLlmEdit({
     }
     const effectivePrompt = (promptOverride ?? prompt).trim()
     if (!effectivePrompt || isLoading) return
+    setPrompt('')
 
     // selectAlternative()는 항상 promptOverride를 넘긴다.
     // 완전히 새로운 명령(clarification 문맥 밖의 직접 입력)이면 문맥을 버린다.

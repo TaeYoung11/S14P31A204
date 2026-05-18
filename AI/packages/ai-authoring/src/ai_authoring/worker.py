@@ -30,7 +30,7 @@ from ai_authoring.engine_3d import (
 )
 # operations/__init__ 경유 → create_element @register 실행
 from ai_authoring.operations.registry import get as get_op_handler
-from ai_authoring.operations.space_support import update_space
+from ai_authoring.operations.space_support import transform_scope_for_product, update_space
 from ai_authoring.post_validator import PostEditValidator
 from ai_authoring.utils import normalize_space_name, normalize_storey_name
 from ai_common.adapters.storage.s3_client import S3Client, parse_s3_url
@@ -399,6 +399,13 @@ class AuthoringWorker(BaseWorker):
         selector: dict[str, Any],
     ) -> dict[str, Any]:
         applied, issues = [], []
+        if op_type == "transform_elements":
+            scoped_elements: list[ifcopenshell.entity_instance] = []
+            for el in elements:
+                for scoped_el in transform_scope_for_product(model, el):
+                    if scoped_el not in scoped_elements:
+                        scoped_elements.append(scoped_el)
+            elements = scoped_elements
         for el in elements:
             matched = {
                 "global_id": el.GlobalId,
