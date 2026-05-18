@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Object3D } from 'three'
-import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, IfcElementChange, IfcElementInfo } from '../../types'
+import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayer, FloorLayerOverlay, IfcElementChange, IfcElementInfo } from '../../types'
 import { FLOOR_MM_PER_PX } from '../../constants'
 import { patchIfcTextForMaterialDefaults } from '../../services/ifcChange.service'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
@@ -89,6 +89,10 @@ interface ThatOpenIfcCanvasProps {
   ifcUrl: string
   /** 현재 프로젝트 ID. 씬 내 모델 ID 생성에 사용된다. */
   projectId?: string | null
+  /** 3D 층 필터링 기준이 되는 전체 층 목록 */
+  floorLayers?: FloorLayer[]
+  /** 현재 활성 층 */
+  activeFloorLayerId?: string | null
   /** 2D 층 겹쳐보기에서 선택된 오버레이 레이어 */
   overlayLayers?: FloorLayerOverlay[]
   /** 씬에 배치된 라이브러리 프리셋 목록 */
@@ -151,6 +155,7 @@ type IfcProductReferenceIndex = {
 type IfcStoreyLocalIdIndex = {
   byStoreyGlobalId: Record<string, number[]>
   byStoreyName: Record<string, number[]>
+  byFloorNumber: Record<number, number[]>
 }
 type IfcEditHitCandidate = {
   distance: number
@@ -240,10 +245,18 @@ const buildIfcProductReferenceIndex = (ifcText: string): IfcProductReferenceInde
 const buildIfcStoreyLocalIdIndex = (ifcText: string): IfcStoreyLocalIdIndex => {
   const byStoreyGlobalId: Record<string, number[]> = {}
   const byStoreyName: Record<string, number[]> = {}
+  const byFloorNumber: Record<number, number[]> = {}
   const storeyGlobalIdByRef: Record<number, string> = {}
   const storeyNameByRef: Record<number, string> = {}
+  const storeyFloorNumberByRef: Record<number, number> = {}
   const normalizeStoreyName = (value: string) =>
     value.trim().toLowerCase().replace(/\s+/g, '')
+  const resolveFloorNumber = (value: string): number | null => {
+    const match = value.match(/(?:^|[^0-9])(\d+)(?:\s*f|\s*층)?(?:[^0-9]|$)/i)
+    if (!match?.[1]) return null
+    const parsed = Number(match[1])
+    return Number.isFinite(parsed) ? parsed : null
+  }
 
   Array.from(ifcText.matchAll(/#(\d+)=IFCBUILDINGSTOREY\('([^']+)'[^,]*,[^,]*,'([^']*)'/gi)).forEach((match) => {
     const storeyRef = Number(match[1])
@@ -251,7 +264,11 @@ const buildIfcStoreyLocalIdIndex = (ifcText: string): IfcStoreyLocalIdIndex => {
     const storeyName = match[3]?.trim()
     if (!Number.isFinite(storeyRef) || !storeyGlobalId) return
     storeyGlobalIdByRef[storeyRef] = storeyGlobalId
-    if (storeyName) storeyNameByRef[storeyRef] = normalizeStoreyName(storeyName)
+    if (storeyName) {
+      storeyNameByRef[storeyRef] = normalizeStoreyName(storeyName)
+      const floorNumber = resolveFloorNumber(storeyName)
+      if (floorNumber !== null) storeyFloorNumberByRef[storeyRef] = floorNumber
+    }
   })
 
   Array.from(
@@ -262,24 +279,30 @@ const buildIfcStoreyLocalIdIndex = (ifcText: string): IfcStoreyLocalIdIndex => {
     const storeyGlobalId = storeyGlobalIdByRef[storeyRef]
     if (!storeyGlobalId) return
     const storeyName = storeyNameByRef[storeyRef]
+    const floorNumber = storeyFloorNumberByRef[storeyRef]
     const current = byStoreyGlobalId[storeyGlobalId] ?? []
     const currentByName = storeyName ? (byStoreyName[storeyName] ?? []) : []
+    const currentByFloorNumber = typeof floorNumber === 'number' ? (byFloorNumber[floorNumber] ?? []) : []
     relatedRefs.match(/#\d+/g)?.forEach((token) => {
       const localId = Number(token.slice(1))
       if (!Number.isFinite(localId) || current.includes(localId)) return
       current.push(localId)
       if (storeyName && !currentByName.includes(localId)) currentByName.push(localId)
+      if (typeof floorNumber === 'number' && !currentByFloorNumber.includes(localId)) currentByFloorNumber.push(localId)
     })
     byStoreyGlobalId[storeyGlobalId] = current
     if (storeyName) byStoreyName[storeyName] = currentByName
+    if (typeof floorNumber === 'number') byFloorNumber[floorNumber] = currentByFloorNumber
   })
 
-  return { byStoreyGlobalId, byStoreyName }
+  return { byStoreyGlobalId, byStoreyName, byFloorNumber }
 }
 
 export default function ThatOpenIfcCanvas({
   ifcUrl,
   projectId,
+  floorLayers = [],
+  activeFloorLayerId = null,
   overlayLayers = [],
   libraryElements,
   commentPins = [],
@@ -330,8 +353,9 @@ export default function ThatOpenIfcCanvas({
   const onPinDeleteRef = useRef(onPinDelete)
   const ifcPsetMetricsRef = useRef<IfcPsetMetricMaps>({ byId: {}, byName: {} })
   const ifcProductReferenceIndexRef = useRef<IfcProductReferenceIndex>({ byGlobalId: {} })
-  const ifcStoreyLocalIdIndexRef = useRef<IfcStoreyLocalIdIndex>({ byStoreyGlobalId: {}, byStoreyName: {} })
+  const ifcStoreyLocalIdIndexRef = useRef<IfcStoreyLocalIdIndex>({ byStoreyGlobalId: {}, byStoreyName: {}, byFloorNumber: {} })
   const overlayOpacityLocalIdsRef = useRef<Set<number>>(new Set())
+  const floorVisibilityHiddenLocalIdsRef = useRef<Set<number>>(new Set())
   const selectedTargetRef = useRef<Selected3DTarget>(null)
   const handledLibraryDropTokenRef = useRef(0)
   const handledCameraPresetTokenRef = useRef(0)
@@ -404,6 +428,19 @@ export default function ThatOpenIfcCanvas({
     opacityInput: number,
   ) => {
     if (localIds.length === 0) return
+    const opacity = Math.min(Math.max(opacityInput, 0.05), 1)
+    const model = sceneState.fragments.list.get(sceneState.modelId)
+    if (model) {
+      if (opacity >= 0.999) {
+        await model.resetOpacity(localIds)
+      } else {
+        await model.setOpacity(localIds, opacity)
+      }
+      await sceneState.fragments.core.update(true)
+      sceneState.renderer.render(sceneState.scene, sceneState.camera)
+      return
+    }
+
     const fragmentsApi = sceneState.fragments as unknown as {
       highlight?: (
         style: Record<string, unknown>,
@@ -414,21 +451,52 @@ export default function ThatOpenIfcCanvas({
       ) => Promise<void> | void
     }
     if (typeof fragmentsApi.highlight !== 'function') return
-    const opacity = Math.min(Math.max(opacityInput, 0.05), 1)
-    if (typeof fragmentsApi.resetHighlight === 'function') {
-      await fragmentsApi.resetHighlight({
-        [sceneState.modelId]: new Set(localIds),
-      })
+    const items = {
+      [sceneState.modelId]: new Set(localIds),
     }
-    const style = {
+    if (typeof fragmentsApi.resetHighlight === 'function') {
+      await fragmentsApi.resetHighlight(items)
+    }
+    if (opacity >= 0.999) return
+    await fragmentsApi.highlight({
       opacity,
-      transparent: opacity < 0.999,
+      transparent: true,
       renderedFaces: 2,
       preserveOriginalMaterial: true,
+    }, items)
+  }, [])
+
+  const resolveStoreyLocalIds = useCallback((
+    layer: Pick<FloorLayer, 'storeyGlobalId' | 'storeyName' | 'name'> | Pick<FloorLayerOverlay, 'storeyGlobalId' | 'storeyName' | 'layerName'>,
+  ): number[] => {
+    const { byStoreyGlobalId, byStoreyName, byFloorNumber } = ifcStoreyLocalIdIndexRef.current
+    const normalizeStoreyName = (value: string) =>
+      value.trim().toLowerCase().replace(/\s+/g, '')
+    const resolveFloorNumber = (value: string): number | null => {
+      const match = value.match(/(?:^|[^0-9])(\d+)(?:\s*f|\s*층)?(?:[^0-9]|$)/i)
+      if (!match?.[1]) return null
+      const parsed = Number(match[1])
+      return Number.isFinite(parsed) ? parsed : null
     }
-    await fragmentsApi.highlight(style, {
-      [sceneState.modelId]: new Set(localIds),
-    })
+    const storeyGlobalId = layer.storeyGlobalId?.trim()
+    const storeyName = (
+      layer.storeyName ??
+      ('layerName' in layer ? layer.layerName : layer.name) ??
+      ''
+    ).trim()
+    const localIdsByGlobalId = storeyGlobalId
+      ? (byStoreyGlobalId[storeyGlobalId] ?? [])
+      : []
+    const localIdsByName = storeyName ? (byStoreyName[normalizeStoreyName(storeyName)] ?? []) : []
+    const floorNumber = storeyName ? resolveFloorNumber(storeyName) : null
+    const localIdsByFloorNumber = floorNumber !== null ? (byFloorNumber[floorNumber] ?? []) : []
+    return Array.from(new Set(
+      localIdsByGlobalId.length > 0
+        ? localIdsByGlobalId
+        : localIdsByName.length > 0
+          ? localIdsByName
+          : localIdsByFloorNumber,
+    ))
   }, [])
 
   const getTargetKey = useCallback((target: MultiSelectedTarget) => {
@@ -1580,20 +1648,22 @@ export default function ThatOpenIfcCanvas({
                   effectiveElement = bestIfcEditHit.element
                 }
                 const hiddenSpaceLocalIds = new Set<number>([effectiveLocalId])
-                if (typeof effectiveElement?.expressId === 'number') {
+                const effectiveExpressId = effectiveElement?.expressId
+                const effectiveGlobalId = effectiveElement?.globalId
+                if (typeof effectiveExpressId === 'number') {
                   Object.entries(ifcPsetMetricsRef.current.byId).forEach(([rawLocalId, parsed]) => {
                     const localId = Number(rawLocalId)
                     if (!Number.isFinite(localId)) return
-                    if (parsed.expressId === effectiveElement.expressId) hiddenSpaceLocalIds.add(localId)
+                    if (parsed.expressId === effectiveExpressId) hiddenSpaceLocalIds.add(localId)
                   })
                 }
-                if (effectiveElement?.globalId) {
+                if (effectiveGlobalId) {
                   Object.entries(ifcPsetMetricsRef.current.byId).forEach(([rawLocalId, parsed]) => {
                     const localId = Number(rawLocalId)
                     if (!Number.isFinite(localId)) return
-                    if (parsed.globalId === effectiveElement.globalId) hiddenSpaceLocalIds.add(localId)
+                    if (parsed.globalId === effectiveGlobalId) hiddenSpaceLocalIds.add(localId)
                   })
-                  const indexedLocalIds = ifcProductReferenceIndexRef.current.byGlobalId[effectiveElement.globalId] ?? []
+                  const indexedLocalIds = ifcProductReferenceIndexRef.current.byGlobalId[effectiveGlobalId] ?? []
                   indexedLocalIds.forEach((localId) => {
                     if (Number.isFinite(localId)) hiddenSpaceLocalIds.add(localId)
                   })
@@ -1996,8 +2066,9 @@ export default function ThatOpenIfcCanvas({
       pinMarkerGroupRef.current = null
       ifcPsetMetricsRef.current = { byId: {}, byName: {} }
       ifcProductReferenceIndexRef.current = { byGlobalId: {} }
-      ifcStoreyLocalIdIndexRef.current = { byStoreyGlobalId: {}, byStoreyName: {} }
+      ifcStoreyLocalIdIndexRef.current = { byStoreyGlobalId: {}, byStoreyName: {}, byFloorNumber: {} }
       overlayOpacityLocalIdsRef.current = new Set()
+      floorVisibilityHiddenLocalIdsRef.current = new Set()
       selectedTargetRef.current = null
       selectedTargetsRef.current = []
       multiDragSnapshotRef.current = null
@@ -2017,33 +2088,88 @@ export default function ThatOpenIfcCanvas({
     const sceneState = sceneRef.current
     if (!sceneState || status !== 'ready') return
 
-    const previouslyAppliedLocalIds = Array.from(overlayOpacityLocalIdsRef.current)
-    if (previouslyAppliedLocalIds.length > 0) {
-      void applyIfcOpacityByLocalIds(sceneState, previouslyAppliedLocalIds, 1)
-      overlayOpacityLocalIdsRef.current = new Set()
+    const previouslyHiddenLocalIds = Array.from(floorVisibilityHiddenLocalIdsRef.current)
+    const deletedLocalIds = new Set(
+      ifcElementChanges
+        .filter((change) => change.deleted && Number.isFinite(change.expressId))
+        .map((change) => change.expressId),
+    )
+    const restorableLocalIds = previouslyHiddenLocalIds.filter((localId) => !deletedLocalIds.has(localId))
+    if (restorableLocalIds.length > 0) {
+      void sceneState.hider.set(true, {
+        [sceneState.modelId]: new Set(restorableLocalIds),
+      })
+    }
+    floorVisibilityHiddenLocalIdsRef.current = new Set()
+
+    if (!activeFloorLayerId || floorLayers.length === 0) return
+    const activeLayer = floorLayers.find((layer) => layer.id === activeFloorLayerId)
+    if (!activeLayer) return
+    const activeLayerLocalIds = resolveStoreyLocalIds(activeLayer)
+    if (activeLayerLocalIds.length === 0) {
+      if (import.meta.env.DEV) {
+        console.warn('[3d-floor-filter] active floor did not match IFC storey; skip hiding floors', {
+          activeFloorLayerId,
+          activeLayer,
+          availableStoreyNames: Object.keys(ifcStoreyLocalIdIndexRef.current.byStoreyName),
+          availableFloorNumbers: Object.keys(ifcStoreyLocalIdIndexRef.current.byFloorNumber),
+        })
+      }
+      return
     }
 
-    if (overlayLayers.length === 0) return
-
-    const { byStoreyGlobalId, byStoreyName } = ifcStoreyLocalIdIndexRef.current
-    const normalizeStoreyName = (value: string) =>
-      value.trim().toLowerCase().replace(/\s+/g, '')
-    const nextApplied = new Set<number>()
+    const overlayVisibleLocalIds = new Set<number>()
     overlayLayers.forEach((overlayLayer) => {
-      const storeyGlobalId = overlayLayer.storeyGlobalId?.trim()
-      const storeyName = (overlayLayer.storeyName ?? overlayLayer.layerName ?? '').trim()
-      const localIdsByGlobalId = storeyGlobalId
-        ? (byStoreyGlobalId[storeyGlobalId] ?? [])
-        : []
-      const localIdsByName = storeyName ? (byStoreyName[normalizeStoreyName(storeyName)] ?? []) : []
-      const localIds = localIdsByGlobalId.length > 0 ? localIdsByGlobalId : localIdsByName
-      const appliedOpacity = Math.min(Math.max(overlayLayer.opacity, 0.05), 1)
-      if (localIds.length === 0) return
-      localIds.forEach((localId) => nextApplied.add(localId))
-      void applyIfcOpacityByLocalIds(sceneState, localIds, appliedOpacity)
+      resolveStoreyLocalIds(overlayLayer).forEach((localId) => overlayVisibleLocalIds.add(localId))
     })
-    overlayOpacityLocalIdsRef.current = nextApplied
-  }, [overlayLayers, applyIfcOpacityByLocalIds, status])
+
+    const hiddenLocalIds = new Set<number>()
+    floorLayers.forEach((layer) => {
+      if (layer.id === activeFloorLayerId) return
+      resolveStoreyLocalIds(layer).forEach((localId) => {
+        if (!overlayVisibleLocalIds.has(localId)) hiddenLocalIds.add(localId)
+      })
+    })
+
+    if (hiddenLocalIds.size === 0) return
+    activeLayerLocalIds.forEach((localId) => hiddenLocalIds.delete(localId))
+    if (hiddenLocalIds.size === 0) return
+    void sceneState.hider.set(false, {
+      [sceneState.modelId]: hiddenLocalIds,
+    })
+    floorVisibilityHiddenLocalIdsRef.current = hiddenLocalIds
+  }, [activeFloorLayerId, floorLayers, ifcElementChanges, overlayLayers, resolveStoreyLocalIds, status])
+
+  useEffect(() => {
+    const sceneState = sceneRef.current
+    if (!sceneState || status !== 'ready') return
+
+    let cancelled = false
+    void (async () => {
+      const previouslyAppliedLocalIds = Array.from(overlayOpacityLocalIdsRef.current)
+      if (previouslyAppliedLocalIds.length > 0) {
+        await applyIfcOpacityByLocalIds(sceneState, previouslyAppliedLocalIds, 1)
+        if (cancelled) return
+        overlayOpacityLocalIdsRef.current = new Set()
+      }
+
+      if (overlayLayers.length === 0) return
+
+      const nextApplied = new Set<number>()
+      for (const overlayLayer of overlayLayers) {
+        const localIds = resolveStoreyLocalIds(overlayLayer)
+        const appliedOpacity = Math.min(Math.max(overlayLayer.opacity, 0.05), 1)
+        if (localIds.length === 0) continue
+        localIds.forEach((localId) => nextApplied.add(localId))
+        await applyIfcOpacityByLocalIds(sceneState, localIds, appliedOpacity)
+        if (cancelled) return
+      }
+      overlayOpacityLocalIdsRef.current = nextApplied
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [overlayLayers, applyIfcOpacityByLocalIds, resolveStoreyLocalIds, status])
 
   useEffect(() => {
     if (deleteRequestToken <= 0) return
@@ -2478,6 +2604,21 @@ export default function ThatOpenIfcCanvas({
     selectedIfcElement,
     updateSelectionTargets,
   ])
+
+  useEffect(() => {
+    const preferredId = preferredSelectedElementId?.trim() || null
+    if (selectedIfcElement || preferredId) return
+    const sceneState = sceneRef.current
+    const currentTarget = selectedTargetRef.current
+    if (!sceneState && selectedTargetsRef.current.length === 0 && !currentTarget) return
+
+    if (sceneState && currentTarget) {
+      void clearSelectedTarget(sceneState, currentTarget)
+    }
+    selectedTargetRef.current = null
+    selectedTargetsRef.current = []
+    updateSelectionTargets()
+  }, [preferredSelectedElementId, selectedIfcElement, updateSelectionTargets])
 
   useEffect(() => {
     const sceneState = sceneRef.current

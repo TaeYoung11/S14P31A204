@@ -118,6 +118,8 @@ export default function ThreeDModeCanvas({
       onToggleLibrary={() => editorProps.setIsLibraryOpen(!editorProps.isLibraryOpen)}
       isGridVisible={editorProps.isGridVisible}
       rooms={editorProps.floorRooms}
+      floorLayers={editorProps.floorLayers}
+      activeFloorLayerId={editorProps.activeFloorLayerId}
       overlayLayers={editorProps.floorLayerOverlayItems}
       selectedId={editorProps.selectedId}
       preferredSelectedElementId={preferredSelectedElementId}

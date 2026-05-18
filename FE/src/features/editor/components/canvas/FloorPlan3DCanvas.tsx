@@ -1354,6 +1354,15 @@ export function FloorPlan3DCanvas({
   }, [matchesTargetSelection, preferredSelectedElementId, selectedIfcElement, updateTransformSelection])
 
   useEffect(() => {
+    const preferredId = preferredSelectedElementId?.trim() || null
+    if (selectedIfcElement || preferredId) return
+    if (selectedEntriesRef.current.length === 0 && !selectedPresetRef.current && !multiAnchorRef.current) return
+    selectedEntriesRef.current = []
+    selectedPresetRef.current = null
+    updateTransformSelection()
+  }, [preferredSelectedElementId, selectedIfcElement, updateTransformSelection])
+
+  useEffect(() => {
     const THREE = threeRef.current
     if (!THREE || !selectedIfcElement) return
     const selectedEntry = selectedEntriesRef.current[selectedEntriesRef.current.length - 1]

@@ -9,7 +9,7 @@
  *  2. 그 외 → ThatOpenIfcCanvas (ifcUrl 없을 시 mock IFC로 폴백)
  */
 import { useRef } from 'react'
-import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '../../types'
+import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayer, FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '../../types'
 import { useCtrlWheelZoom } from '../../hooks/useCtrlWheelZoom'
 import { useThreeDLibraryPresets } from '../../hooks/useThreeDLibraryPresets'
 import ThreeDCanvasCollaborationOverlay from './ThreeDCanvasCollaborationOverlay'
@@ -41,6 +41,8 @@ interface ThreeDCanvasProps {
   onToggleLibrary?: () => void
   isGridVisible?: boolean
   rooms?: FloorRoom[]
+  floorLayers?: FloorLayer[]
+  activeFloorLayerId?: string | null
   overlayLayers?: FloorLayerOverlay[]
   /** 현재 줌 스케일 (1.0 = 100%) */
   scale?: number
@@ -110,6 +112,8 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         ifcUrl={props.ifcUrl}
         rawIfcUrl={props.ifcUrl}
         localFloorData={props.localFloorData}
+        floorLayers={props.floorLayers ?? []}
+        activeFloorLayerId={props.activeFloorLayerId ?? null}
         overlayLayers={props.overlayLayers ?? []}
         libraryElements={libraryElements}
         commentPins={props.commentPins ?? []}

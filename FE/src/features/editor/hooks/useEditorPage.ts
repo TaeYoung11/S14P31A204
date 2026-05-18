@@ -3171,11 +3171,11 @@ export function useEditorPage() {
   }, [openingTargetWallById, mergedFloorWalls])
 
   const floorLayerOverlayItems = useMemo<FloorLayerOverlay[]>(() => {
-    const shouldApplyOverlay = mode === '3d' ? true : isLayerOverlayMode
-    if (!shouldApplyOverlay) return []
+    if (!isLayerOverlayMode) return []
     if (!activeFloorLayerId) return []
+    const selectedOverlayLayerIdSet = new Set(overlayLayerIds)
     return floorLayers
-      .filter((layer) => layer.id !== activeFloorLayerId)
+      .filter((layer) => layer.id !== activeFloorLayerId && selectedOverlayLayerIdSet.has(layer.id))
       .map((layer) => ({
         layerId: layer.id,
         layerName: layer.name,
@@ -3184,7 +3184,7 @@ export function useEditorPage() {
         opacity: overlayOpacityByLayerId[layer.id] ?? 0.35,
         rooms: layer.rooms,
       }))
-  }, [mode, isLayerOverlayMode, activeFloorLayerId, floorLayers, overlayOpacityByLayerId])
+  }, [isLayerOverlayMode, activeFloorLayerId, floorLayers, overlayLayerIds, overlayOpacityByLayerId])
 
   useEffect(() => {
     const normalizeTimer = window.setTimeout(() => {
@@ -3392,6 +3392,27 @@ export function useEditorPage() {
   // 3D 생성 모달
   const [isGenerate3DModalOpen, setIsGenerate3DModalOpen] = useState(false)
   const [localFloorData, setLocalFloorData] = useState<FloorPlan3DData | null>(null)
+  const effectiveLocalFloorData = useMemo<FloorPlan3DData | null>(() => {
+    if (currentIfcUrl) return localFloorData
+    if (!isFloorPlanGenerated && !localFloorData) return null
+    const activeLayer = floorLayers.find((layer) => layer.id === activeFloorLayerId)
+    const renderRooms = activeFloorLayerId
+      ? floorRooms
+      : floorLayers.flatMap((layer) => layer.rooms)
+    return {
+      rooms: renderRooms,
+      walls: activeLayerVisibleFloorWalls,
+      storyHeightMm: activeLayer?.ceilingHeightMm ?? localFloorData?.storyHeightMm ?? 3000,
+    }
+  }, [
+    activeFloorLayerId,
+    activeLayerVisibleFloorWalls,
+    currentIfcUrl,
+    floorLayers,
+    floorRooms,
+    isFloorPlanGenerated,
+    localFloorData,
+  ])
 
   // ── 핸들러 ────────────────────────────────────────────────────────────────
 
@@ -4166,25 +4187,46 @@ export function useEditorPage() {
     setIsLayerOverlayMode((prev) => {
       const next = !prev
       if (next) {
+        const baseLayerId = activeFloorLayerId ?? (mode === '3d' ? (floorLayers[0]?.id ?? null) : null)
+        if (!activeFloorLayerId && baseLayerId) {
+          setActiveFloorLayerId(baseLayerId)
+          clearSelection()
+          clearConnectionAndTwoDSelection()
+          setSelectedIfcElement(null)
+        }
         setOverlayLayerIds((current) => {
-          const validCurrent = current.filter((layerId) => layerId !== activeFloorLayerId)
+          const validCurrent = current.filter((layerId) => layerId !== baseLayerId)
           if (validCurrent.length > 0) return validCurrent
           return floorLayers
             .map((layer) => layer.id)
-            .filter((layerId) => layerId !== activeFloorLayerId)
+            .filter((layerId) => layerId !== baseLayerId)
         })
       }
       return next
     })
   }
   const handleToggleOverlayLayer = (layerId: string) => {
-    if (!activeFloorLayerId || layerId === activeFloorLayerId) return
+    const baseLayerId = activeFloorLayerId ?? (mode === '3d' ? floorLayers.find((layer) => layer.id !== layerId)?.id ?? null : null)
+    if (!baseLayerId || layerId === baseLayerId) return
+    if (!activeFloorLayerId) {
+      setActiveFloorLayerId(baseLayerId)
+      clearSelection()
+      clearConnectionAndTwoDSelection()
+      setSelectedIfcElement(null)
+    }
     setOverlayLayerIds((prev) =>
       prev.includes(layerId) ? prev.filter((id) => id !== layerId) : [...prev, layerId],
     )
   }
   const handleSelectSingleOverlayLayer = (layerId: string) => {
-    if (!activeFloorLayerId || layerId === activeFloorLayerId) return
+    const baseLayerId = activeFloorLayerId ?? (mode === '3d' ? floorLayers.find((layer) => layer.id !== layerId)?.id ?? null : null)
+    if (!baseLayerId || layerId === baseLayerId) return
+    if (!activeFloorLayerId) {
+      setActiveFloorLayerId(baseLayerId)
+      clearSelection()
+      clearConnectionAndTwoDSelection()
+      setSelectedIfcElement(null)
+    }
     setIsLayerOverlayMode(true)
     setOverlayLayerIds((prev) => (prev.length === 1 && prev[0] === layerId ? [] : [layerId]))
   }
@@ -4229,6 +4271,16 @@ export function useEditorPage() {
     })
     markLocalFloorPlanSnapshotChanged()
   }, [deleteFloorLayer, floorLayers.length, floorOpenings, floorWalls, markLocalFloorPlanSnapshotChanged])
+
+  const handleSelectFloorLayer = useCallback((layerId: string) => {
+    if (!floorLayers.some((layer) => layer.id === layerId)) return
+    const nextLayerId = mode === '3d' && activeFloorLayerId === layerId ? null : layerId
+    setActiveFloorLayerId(nextLayerId)
+    clearSelection()
+    clearConnectionAndTwoDSelection()
+    setSelectedIfcElement(null)
+    setOverlayLayerIds((prev) => nextLayerId ? prev.filter((id) => id !== nextLayerId) : prev)
+  }, [activeFloorLayerId, clearConnectionAndTwoDSelection, clearSelection, floorLayers, mode, setActiveFloorLayerId])
 
   const {
     handleCreateFloorWall: baseHandleCreateFloorWall,
@@ -5382,7 +5434,7 @@ export function useEditorPage() {
     addFloorLayer: handleAddFloorLayer,
     renameFloorLayer: handleRenameFloorLayer,
     deleteFloorLayer: handleDeleteFloorLayer,
-    setActiveFloorLayerId,
+    setActiveFloorLayerId: handleSelectFloorLayer,
     toggleLayerOverlayMode,
     handleToggleOverlayLayer,
     handleSelectSingleOverlayLayer,
@@ -5471,7 +5523,7 @@ export function useEditorPage() {
     handleOpenGenerate3DModal,
     handleCloseGenerate3DModal,
     handleConfirmGenerate3D,
-    localFloorData,
+    localFloorData: effectiveLocalFloorData,
     // AI 어시스턴트
     llmProvider: llmEdit.provider,
     llmPrompt: llmEdit.prompt,

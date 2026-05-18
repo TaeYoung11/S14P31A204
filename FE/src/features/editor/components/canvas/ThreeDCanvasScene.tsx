@@ -1,4 +1,4 @@
-import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, IfcElementChange, IfcElementInfo } from '../../types'
+import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayer, FloorLayerOverlay, IfcElementChange, IfcElementInfo } from '../../types'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
@@ -11,6 +11,8 @@ interface ThreeDCanvasSceneProps {
   ifcUrl?: string | null
   rawIfcUrl?: string | null
   localFloorData?: FloorPlan3DData | null
+  floorLayers: FloorLayer[]
+  activeFloorLayerId: string | null
   overlayLayers: FloorLayerOverlay[]
   libraryElements: ThreeDLibraryPreset[]
   commentPins: FloorCommentPin[]
@@ -50,6 +52,8 @@ export default function ThreeDCanvasScene({
   ifcUrl,
   rawIfcUrl,
   localFloorData,
+  floorLayers,
+  activeFloorLayerId,
   overlayLayers,
   libraryElements,
   commentPins,
@@ -135,6 +139,8 @@ export default function ThreeDCanvasScene({
     <ThatOpenIfcCanvas
       ifcUrl={ifcUrl}
       projectId={projectId}
+      floorLayers={floorLayers}
+      activeFloorLayerId={activeFloorLayerId}
       overlayLayers={overlayLayers}
       libraryElements={libraryElements}
       commentPins={commentPins}
