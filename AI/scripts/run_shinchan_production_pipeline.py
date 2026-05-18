@@ -500,6 +500,21 @@ def _write_manifest(
             f"{tod}|{view}": path.as_posix()
             for (tod, view), path in h3_outputs.items()
         },
+        "h1FidelityGateSummary": {
+            "totalViews": len(gate_log),
+            "acceptedViews": sum(
+                1
+                for entry in gate_log.values()
+                if entry["decision"]["accepted"]
+            ),
+            "fallbackViews": sum(
+                1 for entry in gate_log.values() if entry.get("fallbackUsed")
+            ),
+            "perViewAcceptance": {
+                f"{tod}|{view}": bool(entry["decision"]["accepted"])
+                for (tod, view), entry in gate_log.items()
+            },
+        },
         "h1FidelityGate": {
             f"{tod}|{view}": entry for (tod, view), entry in gate_log.items()
         },
