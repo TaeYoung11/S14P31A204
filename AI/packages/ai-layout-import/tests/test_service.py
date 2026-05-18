@@ -1025,7 +1025,7 @@ def test_convert_layout_to_ifc_dedupes_fractional_shared_room_boundary_wall(
     }
 
 
-def test_convert_layout_to_ifc_generates_shared_wall_for_same_floor_adjacency(
+def test_convert_layout_to_ifc_generates_shared_room_boundary_for_same_floor_adjacency(
     tmp_path: Path,
 ) -> None:
     request = _make_request(
@@ -1082,13 +1082,13 @@ def test_convert_layout_to_ifc_generates_shared_wall_for_same_floor_adjacency(
 
     model = _open_generated_ifc(tmp_path, request, "v2-shared-wall.ifc")
 
-    assert len(model.by_type("IfcWall")) == 12
+    assert len(model.by_type("IfcWall")) == 11
     assert len(_boundary_walls(model)) == 4
-    assert len(_shared_walls(model)) == 1
+    assert len(_shared_walls(model)) == 0
     assert len(_room_boundary_walls(model)) == 6
     assert len(_shared_room_boundary_walls(model)) == 1
     assert len(model.by_type("IfcRelSpaceBoundary")) == 8
-    shared_wall = _shared_walls(model)["Shared Wall 1-1"]
+    shared_wall = next(iter(_shared_room_boundary_walls(model).values()))
     shared_wall_body = _body_item(shared_wall)
     assert shared_wall_body.is_a("IfcExtrudedAreaSolid")
     assert shared_wall_body.Depth == pytest.approx(3.0)
@@ -1099,8 +1099,9 @@ def test_convert_layout_to_ifc_generates_shared_wall_for_same_floor_adjacency(
 
     containment = _containment_map_for_types(model, {"IfcWall", "IfcSlab", "IfcRoof"})
     assert sum(1 for name in containment if name.startswith("Boundary Wall ")) == 4
-    assert sum(1 for name in containment if name.startswith("Shared Wall ")) == 1
-    assert containment["Shared Wall 1-1"] == "1F"
+    assert sum(1 for name in containment if name.startswith("Shared Wall ")) == 0
+    assert sum(1 for name in containment if name.startswith("Shared Room Wall ")) == 1
+    assert containment["Shared Room Wall 1-room-left-01-room-right-01"] == "1F"
 
     project = model.by_type("IfcProject")[0]
     project_pset = _property_sets_by_name(project)["Pset_BatangLayoutImportProject"]
@@ -1117,7 +1118,7 @@ def test_convert_layout_to_ifc_generates_shared_wall_for_same_floor_adjacency(
     shared_wall_psets = _property_sets_by_name(shared_wall)
     assert "Pset_WallCommon" in shared_wall_psets
     assert "Pset_BatangWall" in shared_wall_psets
-    shared_room_wall = next(iter(_shared_room_boundary_walls(model).values()))
+    shared_room_wall = shared_wall
     shared_room_wall_pset = _property_sets_by_name(shared_room_wall)["Pset_BatangWall"]
     shared_room_wall_props = _properties_by_name(shared_room_wall_pset)
     assert _unwrap_property_value(shared_room_wall_props["WallKind"]) == "SHARED_ROOM_BOUNDARY"
@@ -1322,7 +1323,8 @@ def test_convert_layout_to_ifc_optimizes_strong_adjacency_before_shared_wall_gen
     spaces = {space.Name: space for space in model.by_type("IfcSpace")}
     right_room_location = _local_placement_location(spaces["Right Room"])
     assert right_room_location == pytest.approx((6.3, 1.9, 0.0))
-    assert len(_shared_walls(model)) == 1
+    assert len(_shared_walls(model)) == 0
+    assert len(_shared_room_boundary_walls(model)) == 1
     assert summary.hasWarnings is True
     assert summary.to_report_warnings() == {
         "defaultsApplied": {},
@@ -1510,11 +1512,11 @@ def test_convert_layout_to_ifc_keeps_shared_wall_unstyled_when_zones_differ(
 
     model = _open_generated_ifc(tmp_path, request, "v2-shared-wall-different-zone.ifc")
 
-    shared_wall = _shared_walls(model)["Shared Wall 1-1"]
+    shared_wall = next(iter(_shared_room_boundary_walls(model).values()))
     _assert_no_style(shared_wall)
 
 
-def test_convert_layout_to_ifc_dedupes_bidirectional_shared_wall_adjacency(
+def test_convert_layout_to_ifc_dedupes_bidirectional_shared_room_boundary_adjacency(
     tmp_path: Path,
 ) -> None:
     request = _make_request(
@@ -1567,11 +1569,11 @@ def test_convert_layout_to_ifc_dedupes_bidirectional_shared_wall_adjacency(
 
     model = _open_generated_ifc(tmp_path, request, "v2-shared-wall-dedupe.ifc")
 
-    assert len(model.by_type("IfcWall")) == 12
+    assert len(model.by_type("IfcWall")) == 11
     assert len(_boundary_walls(model)) == 4
-    assert len(_shared_walls(model)) == 1
+    assert len(_shared_walls(model)) == 0
     assert len(_shared_room_boundary_walls(model)) == 1
-    assert "Shared Wall 1-1" in _shared_walls(model)
+    assert "Shared Room Wall 1-room-left-01-room-right-01" in _shared_room_boundary_walls(model)
 
 
 def test_convert_layout_to_ifc_warns_for_v2_adjacency_without_shared_segment(
@@ -2219,7 +2221,7 @@ def test_convert_layout_to_ifc_generates_v3_explicit_door_and_window_entities(
     assert summary.defaultsApplied == {}
     assert summary.degradedFeatures == []
     assert summary.hasWarnings is False
-    assert len(model.by_type("IfcWall")) == 12
+    assert len(model.by_type("IfcWall")) == 11
     assert len(model.by_type("IfcOpeningElement")) == 2
     assert len(model.by_type("IfcDoor")) == 1
     assert len(model.by_type("IfcWindow")) == 1
@@ -2317,7 +2319,7 @@ def test_convert_layout_to_ifc_accepts_v3_reversed_shared_wall_ref(tmp_path: Pat
 
     model = _open_generated_ifc(tmp_path, request, "v3-reversed-shared-ref.ifc")
 
-    assert len(model.by_type("IfcWall")) == 12
+    assert len(model.by_type("IfcWall")) == 11
     assert len(model.by_type("IfcOpeningElement")) == 1
     assert len(model.by_type("IfcDoor")) == 1
     assert len(model.by_type("IfcRelVoidsElement")) == 1
