@@ -680,6 +680,51 @@ def test_layout_import_v2_accepts_semantic_metadata_for_inferred_openings() -> N
     assert request.adjacency[0].intent.value == "open_passage"
     assert request.adjacency[0].connection_strength is not None
     assert request.adjacency[0].connection_strength.value == "strong"
+    assert request.adjacency[0].source_bubble_id == "room-1"
+    assert request.adjacency[0].target_bubble_id == "room-2"
+
+
+@pytest.mark.parametrize(
+    ("bubble_metadata", "message"),
+    [
+        (
+            {"source_bubble_id": "bubble-1"},
+            "source_bubble_id and target_bubble_id must both be provided together",
+        ),
+        (
+            {"target_bubble_id": "bubble-2"},
+            "source_bubble_id and target_bubble_id must both be provided together",
+        ),
+        (
+            {"source_bubble_id": "bubble-1", "target_bubble_id": "bubble-1"},
+            "source_bubble_id and target_bubble_id must be different",
+        ),
+    ],
+)
+def test_layout_import_v2_rejects_invalid_adjacency_bubble_id_pair(
+    bubble_metadata: dict[str, str],
+    message: str,
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        LayoutImportV2.model_validate(
+            {
+                "schema_version": "v2",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "sample-project",
+                "rooms": [
+                    {**_base_room(), "id": "room-1"},
+                    {**_base_room(), "id": "room-2", "x": 4200.0},
+                ],
+                "adjacency": [
+                    {
+                        "from_room_id": "room-1",
+                        "to_room_id": "room-2",
+                        "strength": 1.0,
+                        **bubble_metadata,
+                    }
+                ],
+            }
+        )
 
 
 def test_layout_import_v2_rejects_generate_spaces_false() -> None:
