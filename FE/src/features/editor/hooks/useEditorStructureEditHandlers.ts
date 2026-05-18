@@ -30,6 +30,8 @@ interface WorkspaceCommandPublisherLike {
     height?: number
     material?: string
   }) => void
+  hasPendingCommand: () => boolean
+  markSnapshotOnlyChange: (reason: string, id?: string, metadata?: Record<string, unknown>) => void
 }
 
 export interface FloorWallCreateStorey {
@@ -39,6 +41,16 @@ export interface FloorWallCreateStorey {
 
 const hasStorey = (storey: FloorWallCreateStorey): boolean =>
   Boolean(storey.storeyGlobalId || storey.storeyName)
+
+const ensureSnapshotCommandIfNeeded = (
+  workspaceCommandPublisher: WorkspaceCommandPublisherLike,
+  reason: string,
+  id: string,
+  metadata: Record<string, unknown> = {},
+): void => {
+  if (workspaceCommandPublisher.hasPendingCommand()) return
+  workspaceCommandPublisher.markSnapshotOnlyChange(reason, id, metadata)
+}
 
 export function resolveActiveFloorLayerStorey(
   floorLayers: FloorLayer[],
@@ -309,6 +321,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
       ),
     )
     workspaceCommandPublisher.updateWallGeometry(wallId, nextStart, nextEnd, nextStartMm, nextEndMm)
+    ensureSnapshotCommandIfNeeded(workspaceCommandPublisher, 'wall-geometry', wallId, { wallId })
   }, [getEditableWallById, estimateMmDelta, isWallEditBlockedByRoomCollision, onFloorPlanChanged, ensureFloorWallInManual, setFloorWalls, workspaceCommandPublisher])
 
   const handleUpdateFloorWallEndpoint = useCallback((
@@ -333,6 +346,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     ensureFloorWallInManual(wallId)
     setFloorWalls((prev) => prev.map((wall) => (wall.id === wallId ? { ...wall, [endpoint]: point, [`${endpoint}Mm`]: pointMm } : wall)))
     workspaceCommandPublisher.updateWallEndpoint(wallId, endpoint, point, pointMm)
+    ensureSnapshotCommandIfNeeded(workspaceCommandPublisher, 'wall-endpoint', wallId, { wallId, endpoint })
   }, [getEditableWallById, estimateMmDelta, isWallEditBlockedByRoomCollision, onFloorPlanChanged, ensureFloorWallInManual, setFloorWalls, workspaceCommandPublisher])
 
   const handleDeleteFloorWall = useCallback((wallId: string) => {
@@ -488,6 +502,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
       return [...prev, newOpening]
     })
     workspaceCommandPublisher.upsertOpening(newOpening, shouldUpdateExistingOpening)
+    ensureSnapshotCommandIfNeeded(workspaceCommandPublisher, 'opening-upsert', newOpening.id, { openingId: newOpening.id })
     setHiddenAutoOpeningIds((prev) => prev.filter((id) => id !== newOpening.id))
     setSelectedFloorWallId(null)
     setSelectedFloorWallIds([])
@@ -576,6 +591,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
       storeyName: nextOpening.storeyName,
       centerMm: nextOpening.centerMm ? [nextOpening.centerMm.x, nextOpening.centerMm.y] : undefined,
     })
+    ensureSnapshotCommandIfNeeded(workspaceCommandPublisher, 'opening-move', openingId, { openingId })
   }, [getEditableWallById, mergedFloorOpenings, normalizeOpeningByCurrentWall, onFloorPlanChanged, updateFloorOpeningFromEditable, workspaceCommandPublisher])
 
   const handleUpdateFloorOpeningSize = useCallback((openingId: string, widthMm: number, heightMm: number) => {
@@ -597,6 +613,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
       height: nextOpening.heightMm,
       wall_position: nextOpening.wallPosition,
     })
+    ensureSnapshotCommandIfNeeded(workspaceCommandPublisher, 'opening-size', openingId, { openingId })
   }, [mergedFloorOpenings, normalizeOpeningByCurrentWall, onFloorPlanChanged, updateFloorOpeningFromEditable, workspaceCommandPublisher])
 
   const handleUpdateFloorWindowSillHeight = useCallback((openingId: string, sillHeightMm: number) => {
@@ -609,6 +626,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     workspaceCommandPublisher.updateOpening('window', openingId, {
       sill_height: next,
     })
+    ensureSnapshotCommandIfNeeded(workspaceCommandPublisher, 'opening-sill-height', openingId, { openingId })
   }, [mergedFloorOpenings, onFloorPlanChanged, updateFloorOpeningFromEditable, workspaceCommandPublisher])
 
   const handleUpdateFloorDoorSwingDirection = useCallback((
@@ -622,6 +640,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     workspaceCommandPublisher.updateOpening('door', openingId, {
       door_swing_direction: swingDirection,
     })
+    ensureSnapshotCommandIfNeeded(workspaceCommandPublisher, 'opening-swing-direction', openingId, { openingId })
   }, [mergedFloorOpenings, onFloorPlanChanged, updateFloorOpeningFromEditable, workspaceCommandPublisher])
 
   const handleUpdateFloorDoorHingeSide = useCallback((
@@ -635,6 +654,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     workspaceCommandPublisher.updateOpening('door', openingId, {
       door_hinge_side: hingeSide,
     })
+    ensureSnapshotCommandIfNeeded(workspaceCommandPublisher, 'opening-hinge-side', openingId, { openingId })
   }, [mergedFloorOpenings, onFloorPlanChanged, updateFloorOpeningFromEditable, workspaceCommandPublisher])
 
   const handleDeleteFloorOpening = useCallback((openingId: string) => {
@@ -650,6 +670,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     if (targetOpening) {
       workspaceCommandPublisher.deleteOpening(targetOpening)
     }
+    ensureSnapshotCommandIfNeeded(workspaceCommandPublisher, 'opening-delete', openingId, { openingId })
     setSelectedFloorOpeningId((prev) => (prev === openingId ? null : prev))
     setSelectedFloorOpeningIds((prev) => prev.filter((id) => id !== openingId))
   }, [mergedFloorOpenings, onFloorPlanChanged, setFloorOpenings, setHiddenAutoOpeningIds, workspaceCommandPublisher, setSelectedFloorOpeningId, setSelectedFloorOpeningIds])
@@ -658,6 +679,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     onFloorPlanChanged()
     updateFloorWallFromEditable(wallId, (wall) => ({ ...wall, type }))
     workspaceCommandPublisher.updateWallStyle(wallId, { wallType: type })
+    ensureSnapshotCommandIfNeeded(workspaceCommandPublisher, 'wall-style', wallId, { wallId, field: 'type' })
     setWallCreatePreset((prev) => ({ ...prev, type }))
   }, [onFloorPlanChanged, updateFloorWallFromEditable, workspaceCommandPublisher, setWallCreatePreset])
 
@@ -671,6 +693,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     onFloorPlanChanged()
     updateFloorWallFromEditable(wallId, (wall) => ({ ...wall, thickness: next }))
     workspaceCommandPublisher.updateWallStyle(wallId, { thickness: next })
+    ensureSnapshotCommandIfNeeded(workspaceCommandPublisher, 'wall-style', wallId, { wallId, field: 'thickness' })
     setWallCreatePreset((prev) => ({ ...prev, thickness: next }))
   }, [onFloorPlanChanged, updateFloorWallFromEditable, workspaceCommandPublisher, setWallCreatePreset])
 
@@ -684,6 +707,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     onFloorPlanChanged()
     updateFloorWallFromEditable(wallId, (wall) => ({ ...wall, heightMm: next }))
     workspaceCommandPublisher.updateWallStyle(wallId, { height: next })
+    ensureSnapshotCommandIfNeeded(workspaceCommandPublisher, 'wall-style', wallId, { wallId, field: 'height' })
     setWallCreatePreset((prev) => ({ ...prev, heightMm: next }))
   }, [onFloorPlanChanged, updateFloorWallFromEditable, workspaceCommandPublisher, setWallCreatePreset])
 
@@ -693,6 +717,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     onFloorPlanChanged()
     updateFloorWallFromEditable(wallId, (wall) => ({ ...wall, material: next }))
     workspaceCommandPublisher.updateWallStyle(wallId, { material: next })
+    ensureSnapshotCommandIfNeeded(workspaceCommandPublisher, 'wall-style', wallId, { wallId, field: 'material' })
   }, [onFloorPlanChanged, updateFloorWallFromEditable, workspaceCommandPublisher])
 
   return {

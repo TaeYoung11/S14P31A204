@@ -26,6 +26,7 @@ const IFC_MOVE_DEBUG = import.meta.env.VITE_3D_MOVE_DEBUG === 'true'
 const IFC_MOVE_USE_MODEL_OPACITY_API = false
 const IFC_MOVE_USE_MODEL_VISIBILITY_API = true
 const traceIfcMoveVisibility = (event: string, payload?: Record<string, unknown>) => {
+  if (!IFC_MOVE_DEBUG) return
   try {
     if (payload) {
       console.log(`[IFC_MOVE][TRACE] ${event}`, payload)

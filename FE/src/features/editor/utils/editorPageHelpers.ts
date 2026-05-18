@@ -80,13 +80,13 @@ function toPositiveMillimeter(value: number): number {
   return rounded > 0 ? rounded : 0
 }
 
-function toOptionalNonBlankString(value: string | null | undefined): string | undefined {
+function toOptionalNonBlankString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : undefined
 }
 
-function toLayoutImportWallType(value: string | null | undefined): 'general' | 'exterior' | 'load_bearing' | 'partition' | undefined {
+function toLayoutImportWallType(value: unknown): 'general' | 'exterior' | 'load_bearing' | 'partition' | undefined {
   if (typeof value !== 'string') return undefined
   const normalized = value.trim().replace(/[-\s]/g, '_').toLowerCase()
   switch (normalized) {
@@ -419,7 +419,7 @@ export function buildFloorPlanLayoutImportPayload(
       generate_walls: true,
       generate_slabs: true,
       generate_roof: true,
-      generate_openings: true,
+      generate_openings: false,
     },
     ...(options.spaceHeightMm ? { modeling_defaults: { space_height_mm: Math.round(options.spaceHeightMm) } } : {}),
     generation_policy: {

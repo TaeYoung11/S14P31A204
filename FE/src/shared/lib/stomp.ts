@@ -6,6 +6,10 @@ export let stompClient: Client | null = null
 
 const DEFAULT_API_BASE_URL = '/api/v1'
 const STOMP_ENDPOINT_PATH = '/ws-ifc'
+const STOMP_SOCKET_OPEN = 1
+const STOMP_CONNECT_TIMEOUT_MS = 5000
+
+let stompConnectPromise: Promise<void> | null = null
 
 interface StoredAuthState {
   state?: {
@@ -88,28 +92,41 @@ export const getStompClient = (): Client => {
   return stompClient
 }
 
-export const ensureStompConnected = async (): Promise<Client> => {
-  const client = getStompClient()
-  if (client.connected) return client
+const isStompSocketOpen = (client: Client): boolean =>
+  client.connected && client.webSocket?.readyState === STOMP_SOCKET_OPEN
 
-  if (!client.active) {
-    client.activate()
-  }
-
-  await new Promise<void>((resolve, reject) => {
+const waitForStompConnection = (client: Client): Promise<void> =>
+  new Promise<void>((resolve, reject) => {
     let intervalId = 0
     const timeoutId = window.setTimeout(() => {
       window.clearInterval(intervalId)
       reject(new Error('STOMP client connection timed out.'))
-    }, 5000)
+    }, STOMP_CONNECT_TIMEOUT_MS)
 
     intervalId = window.setInterval(() => {
-      if (!client.connected) return
+      if (!isStompSocketOpen(client)) return
       window.clearTimeout(timeoutId)
       window.clearInterval(intervalId)
       resolve()
     }, 50)
   })
+
+export const ensureStompConnected = async (): Promise<Client> => {
+  const client = getStompClient()
+  if (isStompSocketOpen(client)) return client
+
+  if (client.connected && client.webSocket?.readyState !== STOMP_SOCKET_OPEN) {
+    client.forceDisconnect()
+  }
+
+  if (!client.active) {
+    client.activate()
+  }
+
+  stompConnectPromise ??= waitForStompConnection(client).finally(() => {
+    stompConnectPromise = null
+  })
+  await stompConnectPromise
 
   return client
 }

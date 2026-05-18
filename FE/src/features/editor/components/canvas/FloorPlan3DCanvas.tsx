@@ -716,6 +716,11 @@ export function FloorPlan3DCanvas({
                 rotationX: floorElement.rotationX,
                 rotationY: floorElement.rotationY,
                 rotationZ: floorElement.rotationZ,
+                lengthMm: floorElement.lengthMm,
+                heightMm: floorElement.heightMm,
+                thicknessMm: floorElement.thicknessMm,
+                startMm: floorElement.startMm,
+                endMm: floorElement.endMm,
               })
               entry.element = floorElement
               return
@@ -747,6 +752,11 @@ export function FloorPlan3DCanvas({
               rotationX: floorElement.rotationX,
               rotationY: floorElement.rotationY,
               rotationZ: floorElement.rotationZ,
+              lengthMm: floorElement.lengthMm,
+              heightMm: floorElement.heightMm,
+              thicknessMm: floorElement.thicknessMm,
+              startMm: floorElement.startMm,
+              endMm: floorElement.endMm,
             })
             primary.element = floorElement
             onIfcElementSelectRef.current?.(floorElement)

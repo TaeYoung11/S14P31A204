@@ -148,6 +148,17 @@ interface ThatOpenIfcCanvasProps {
   isEditingLocked?: boolean
 }
 
+const syncTransformControlAxisVisibility = (
+  transformControls: object,
+  _target: Selected3DTarget | null | undefined,
+  _transformMode: string,
+) => {
+  const controls = transformControls as { showX?: boolean; showY?: boolean; showZ?: boolean }
+  controls.showX = true
+  controls.showY = true
+  controls.showZ = true
+}
+
 interface LoadedFragmentModel {
   object: Object3D
   useCamera: (camera: unknown) => void
@@ -190,100 +201,17 @@ type IfcRaycastPick = {
 } | null
 
 const IFC_MOVE_DEBUG = import.meta.env.VITE_3D_MOVE_DEBUG === 'true'
+const IFC_DIRECT_TRACE_EVENTS = new Set<string>(['drag_end_enter'])
 const IFC_MOVE_ALWAYS_TRACE_EVENTS = new Set<string>([
-  'drag_start',
-  'drag_end',
-  'commit_queue_schedule',
-  'commit_queue_execute_immediate',
-  'commit_queue_execute',
-  'commit_start',
-  'commit_success',
-  'commit_failure',
-  'commit_timing',
-  'commit_apply_changes_start',
-  'commit_apply_changes_done',
-  'commit_core_update_start',
-  'commit_core_update_done',
-  'commit_core_update_failed',
-  'commit_visibility_strategy',
-  'commit_visibility_rehide_start',
-  'commit_visibility_rehide_done',
-  'commit_visibility_rehide_failed',
-  'pending_unpersisted_color_reapply_start',
-  'pending_unpersisted_color_reapply_done',
-  'pending_unpersisted_color_reapply_failed',
-  'commit_visibility_scope',
-  'canonical_alias_expansion',
-  'visibility_scope_suspicious',
-  'drag_end_schedule_commit',
-  'transform_attach_skip_detached',
-  'transform_attach_rebind_start',
-  'transform_attach_rebind_done',
-  'transform_attach_rebind_failed',
-  'selection_switch_clear_previous',
-  'selection_switch_commit_decision',
-  'selection_switch_clear_timing',
-  'selection_switch_atomic_defer_restore',
-  'selection_switch_atomic_restore_apply',
-  'selection_switch_atomic_restore_skip',
-  'pick_ifc_previous_target_decision',
-  'pick_ifc_previous_proxy_kept_until_swap',
-  'pick_ifc_previous_restore_decision',
-  'pick_ifc_previous_restore_deferred',
-  'pick_ifc_previous_proxy_cleanup_after_swap',
-  'pick_ifc_previous_proxy_cleanup_deferred_done',
-  'pick_ifc_previous_proxy_cleanup_deferred_cancelled',
-  'pick_ifc_defer_previous_proxy_cleanup',
-  'pick_ifc_skip_previous_restore_moved_registry',
-  'pick_ifc_transaction_core_update_start',
-  'pick_ifc_transaction_core_update_done',
-  'pick_ifc_transaction_core_update_failed',
-  'pick_ifc_emit_selection',
-  'selected_ifc_element_color_effect',
-  'selected_ifc_element_material_effect',
-  'selected_ifc_element_dimension_effect',
-  'moved_proxy_registry_rehide_start',
-  'moved_proxy_registry_rehide_done',
-  'moved_proxy_registry_rehide_skip_duplicate',
-  'storey_visibility_effect_apply',
-  'storey_visibility_effect_skip_same_signature',
-  'window_blur_flush_skip_clean',
-  'window_blur_save_flush_skip_active_ifc_selection',
-  'commit_save_mark_pending',
-  'commit_save_flush_pending',
-  'commit_save_flush_skip_none',
-  'commit_save_auto_disabled_skip_flush',
-  'commit_save_deferred_schedule',
-  'commit_save_deferred_idle_schedule',
-  'commit_save_deferred_skip_inflight',
-  'commit_save_deferred_postpone_active_selection',
-  'commit_save_deferred_force_after_postpone_limit',
-  'commit_save_deferred_success',
-  'commit_save_deferred_failed',
-  'commit_save_force_sync_start',
-  'commit_save_force_sync_success',
-  'commit_save_force_sync_failed',
-  'commit_save_force_sync_skip_none',
-  'commit_save_force_sync_skip_auto_enabled',
-  'selection_switch_force_sync_saved',
-  'local3d_canvas_mounted',
-  'pick_candidates',
-  'pick_floor_object',
-  'pick_ifc_raycast_status',
-  'pick_ifc_raycast_retry_without_proxy',
   'pick_blocked_by_transform_helper_hit',
-  'pick_skipped_while_transform_dragging',
-  'pick_transform_dragging_stale_recovered',
-  'pick_transform_dragging_force_release',
-  'pick_blocked_by_transform_dragging',
+  'drag_start',
   'transform_dragging_force_release_on_pointerup',
-  'transform_dragging_force_release_on_blur',
-  'transform_interaction_state_reset',
+  'drag_end',
+  'drag_end_schedule_commit',
+  'commit_start',
+  'commit_apply_changes_done',
+  'commit_success',
   'transform_mode_rebind',
-  'pick_no_hit',
-  'library_sync_start',
-  'library_sync_rebuild_done',
-  'transform_commit',
 ])
 const IFC_AUTO_SAVE_ON_MOVE = false
 const IFC_SAVE_DEBOUNCE_MS = 1200
@@ -321,6 +249,7 @@ const getFirstMeshColorHex = (THREE: ThreeModule, object?: Object3D) => {
   return resolved
 }
 const traceIfcMove = (event: string, payload?: Record<string, unknown>) => {
+  if (!IFC_MOVE_DEBUG && !IFC_DIRECT_TRACE_EVENTS.has(event)) return
   try {
     if (payload) {
       console.log(`[IFC_MOVE][TRACE] ${event}`, payload)
@@ -407,6 +336,7 @@ export default function ThatOpenIfcCanvas({
   const currentUserIdRef = useRef(currentUserId)
   const isCollaborationModeRef = useRef(isCollaborationMode)
   const deletingPinIdRef = useRef(deletingPinId)
+  const transformModeRef = useRef(transformMode)
   const onPinClickRef = useRef(onPinClick)
   const onPinCreateRef = useRef(onPinCreate)
   const onPinDeleteRef = useRef(onPinDelete)
@@ -2217,6 +2147,7 @@ export default function ThatOpenIfcCanvas({
   useEffect(() => { currentUserIdRef.current = currentUserId }, [currentUserId])
   useEffect(() => { isCollaborationModeRef.current = isCollaborationMode }, [isCollaborationMode])
   useEffect(() => { deletingPinIdRef.current = deletingPinId }, [deletingPinId])
+  useEffect(() => { transformModeRef.current = transformMode }, [transformMode])
   useEffect(() => { onPinClickRef.current = onPinClick }, [onPinClick])
   useEffect(() => { onPinCreateRef.current = onPinCreate }, [onPinCreate])
   useEffect(() => { onPinDeleteRef.current = onPinDelete }, [onPinDelete])
@@ -2443,6 +2374,7 @@ export default function ThatOpenIfcCanvas({
           world.renderer.three.domElement,
         )
         transformControls.setMode('translate')
+        syncTransformControlAxisVisibility(transformControls, null, 'translate')
         transformControls.visible = false
         transformControls.enabled = false
         const transformHelper = transformControls.getHelper()
@@ -2451,6 +2383,8 @@ export default function ThatOpenIfcCanvas({
         let transformPointerActiveSince = 0
         let lastTransformAxis: string | null = null
         let lastDragStartPosition: { x: number; y: number; z: number } | null = null
+        let lastDragStartRotation: { x: number; y: number; z: number } | null = null
+        let lastDragStartWorldRotation: { x: number; y: number; z: number } | null = null
         let isTransformDragging = false
         let activeDragSessionId: string | null = null
         const isObjectInSceneGraph = (object: Object3D | undefined | null) => {
@@ -2471,6 +2405,11 @@ export default function ThatOpenIfcCanvas({
           const object = target.source === 'ifc'
             ? (target.object as IfcEditableObject3D | undefined)
             : (target.object as Object3D | undefined)
+          syncTransformControlAxisVisibility(
+            activeScene.transformControls,
+            target,
+            transformModeRef.current,
+          )
           if (object && isObjectInSceneGraph(object)) {
             activeScene.transformControls.attach(object)
             activeScene.transformControls.visible = true
@@ -2852,19 +2791,119 @@ export default function ThatOpenIfcCanvas({
                   editable.getWorldPosition(worldPosition)
                   editable.getWorldQuaternion(worldQuaternion)
                   worldEuler.setFromQuaternion(worldQuaternion, 'XYZ')
-                  const sizeMm = getObjectSizeMm(activeScene.three, editable, activeScene.worldUnitsPerMm)
+                  const currentTransformMode = transformModeRef.current
+                  const previousWorldMatrixElements = (editable.userData as { ifcEditProxyWorldMatrix?: number[] })
+                    .ifcEditProxyWorldMatrix
+                  const deltaTransform = (() => {
+                    if (!Array.isArray(previousWorldMatrixElements) || previousWorldMatrixElements.length !== 16) return null
+                    editable.updateMatrixWorld(true)
+                    const previousWorldMatrix = new activeScene.three.Matrix4().fromArray(previousWorldMatrixElements)
+                    const deltaMatrix = editable.matrixWorld.clone().multiply(previousWorldMatrix.clone().invert())
+                    if (hasIdentityMatrixDelta(deltaMatrix.elements)) return null
+                    const deltaPosition = new activeScene.three.Vector3()
+                    const deltaQuaternion = new activeScene.three.Quaternion()
+                    const deltaScale = new activeScene.three.Vector3()
+                    deltaMatrix.decompose(deltaPosition, deltaQuaternion, deltaScale)
+                    const deltaEuler = new activeScene.three.Euler().setFromQuaternion(deltaQuaternion, 'XYZ')
+                    return {
+                      position: deltaPosition,
+                      rotation: deltaEuler,
+                      scale: deltaScale,
+                    }
+                  })()
+                  const sizeMm = currentTransformMode === 'scale'
+                    ? getObjectSizeMm(activeScene.three, editable, activeScene.worldUnitsPerMm)
+                    : null
+                  const rotationX = (worldEuler.x * 180) / Math.PI
+                  const rotationY = (worldEuler.y * 180) / Math.PI
+                  const rotationZ = (worldEuler.z * 180) / Math.PI
+                  const rotationDegrees = deltaTransform
+                    ? {
+                        x: (deltaTransform.rotation.x * 180) / Math.PI,
+                        y: (deltaTransform.rotation.y * 180) / Math.PI,
+                        z: (deltaTransform.rotation.z * 180) / Math.PI,
+                      }
+                    : lastDragStartWorldRotation
+                    ? {
+                        x: ((worldEuler.x - lastDragStartWorldRotation.x) * 180) / Math.PI,
+                        y: ((worldEuler.y - lastDragStartWorldRotation.y) * 180) / Math.PI,
+                        z: ((worldEuler.z - lastDragStartWorldRotation.z) * 180) / Math.PI,
+                      }
+                    : undefined
+                  const translationMm = lastDragStartPosition && activeScene.worldUnitsPerMm > 0
+                    ? {
+                        x: (worldPosition.x - lastDragStartPosition.x) / activeScene.worldUnitsPerMm,
+                        y: (worldPosition.z - lastDragStartPosition.z) / activeScene.worldUnitsPerMm,
+                        z: (worldPosition.y - lastDragStartPosition.y) / activeScene.worldUnitsPerMm,
+                      }
+                    : deltaTransform && activeScene.worldUnitsPerMm > 0
+                    ? {
+                        x: deltaTransform.position.x / activeScene.worldUnitsPerMm,
+                        y: deltaTransform.position.z / activeScene.worldUnitsPerMm,
+                        z: deltaTransform.position.y / activeScene.worldUnitsPerMm,
+                      }
+                    : undefined
+                  const dimensionPatch = currentTransformMode === 'scale'
+                    ? {
+                        lengthMm: sizeMm?.lengthMm ?? element.lengthMm,
+                        heightMm: sizeMm?.heightMm ?? element.heightMm,
+                        thicknessMm: sizeMm?.thicknessMm ?? element.thicknessMm,
+                      }
+                    : {}
+                  if (import.meta.env.DEV && currentTransformMode === 'rotate') {
+                    console.log('[ifc-transform-save][canvas-commit-patch]', {
+                      transformMode: currentTransformMode,
+                      elementId: element.id,
+                      expressId: element.expressId,
+                      globalId: element.globalId ?? element.properties?.GlobalId ?? null,
+                      translationMm,
+                      startRotationRad: lastDragStartRotation,
+                      startWorldRotationRad: lastDragStartWorldRotation,
+                      currentRotationRad: {
+                        x: editable.rotation.x,
+                        y: editable.rotation.y,
+                        z: editable.rotation.z,
+                      },
+                      deltaMatrixRotationRad: deltaTransform
+                        ? {
+                            x: deltaTransform.rotation.x,
+                            y: deltaTransform.rotation.y,
+                            z: deltaTransform.rotation.z,
+                          }
+                        : null,
+                      deltaMatrixPosition: deltaTransform
+                        ? {
+                            x: deltaTransform.position.x,
+                            y: deltaTransform.position.y,
+                            z: deltaTransform.position.z,
+                          }
+                        : null,
+                      worldRotationDeg: { x: rotationX, y: rotationY, z: rotationZ },
+                      rotationDegrees,
+                      patchKeys: [
+                        'positionX',
+                        'positionY',
+                        'positionZ',
+                        'translationMm',
+                        'rotationX',
+                        'rotationY',
+                        'rotationZ',
+                        'rotationDegrees',
+                      ],
+                    })
+                  }
                   return {
                     element,
                     patch: {
-                      lengthMm: sizeMm?.lengthMm ?? element.lengthMm,
-                      heightMm: sizeMm?.heightMm ?? element.heightMm,
-                      thicknessMm: sizeMm?.thicknessMm ?? element.thicknessMm,
+                      ...dimensionPatch,
                       positionX: worldPosition.x,
                       positionY: worldPosition.y,
                       positionZ: worldPosition.z,
-                      rotationX: worldEuler.x,
-                      rotationY: worldEuler.y,
-                      rotationZ: worldEuler.z,
+                      translationMm,
+                      rotationX,
+                      rotationY,
+                      rotationZ,
+                      rotationDegrees,
                     },
                   }
                 })()
@@ -2886,6 +2925,18 @@ export default function ThatOpenIfcCanvas({
                 const moveState = ifcMoveLifecycleRef.current
                 if (!moveState.lastError) {
                   if (transformCommit) {
+                    if (import.meta.env.DEV && transformModeRef.current === 'rotate') {
+                      const patchSnapshot = { ...transformCommit.patch }
+                      console.log('[ifc-transform-save][emit-transform-commit]', {
+                        transformMode: transformModeRef.current,
+                        elementId: transformCommit.element.id,
+                        expressId: transformCommit.element.expressId,
+                        globalId: transformCommit.element.globalId ?? transformCommit.element.properties?.GlobalId ?? null,
+                        patch: patchSnapshot,
+                        patchKeys: Object.keys(patchSnapshot),
+                        patchJson: JSON.stringify(patchSnapshot),
+                      })
+                    }
                     onIfcElementTransformCommitRef.current?.(transformCommit.element, transformCommit.patch)
                   }
                   if (queuedSessionId) {
@@ -3114,6 +3165,7 @@ export default function ThatOpenIfcCanvas({
           const selectedTarget = selectedTargetRef.current
           const selectedObject = selectedTarget?.object
           transformControls.detach()
+          syncTransformControlAxisVisibility(transformControls, selectedTarget, transformModeRef.current)
           if (selectedObject && isObjectInSceneGraph(selectedObject as Object3D)) {
             transformControls.attach(selectedObject as Object3D)
             transformControls.visible = true
@@ -3351,11 +3403,27 @@ export default function ThatOpenIfcCanvas({
                   y: dragObject.position.y,
                   z: dragObject.position.z,
                 }
+                lastDragStartRotation = {
+                  x: dragObject.rotation.x,
+                  y: dragObject.rotation.y,
+                  z: dragObject.rotation.z,
+                }
                 dragObject.updateMatrixWorld(true)
+                const startWorldQuaternion = new THREE.Quaternion()
+                const startWorldEuler = new THREE.Euler()
+                dragObject.getWorldQuaternion(startWorldQuaternion)
+                startWorldEuler.setFromQuaternion(startWorldQuaternion, 'XYZ')
+                lastDragStartWorldRotation = {
+                  x: startWorldEuler.x,
+                  y: startWorldEuler.y,
+                  z: startWorldEuler.z,
+                }
                 ;(dragObject.userData as { ifcEditProxyWorldMatrix?: number[] }).ifcEditProxyWorldMatrix =
                   Array.from(dragObject.matrixWorld.elements)
               } else {
                 lastDragStartPosition = null
+                lastDragStartRotation = null
+                lastDragStartWorldRotation = null
               }
               ifcMoveLifecycleRef.current = nextIfcMoveLifecycleState(ifcMoveLifecycleRef.current, {
                 type: 'start_drag',
@@ -4181,6 +4249,7 @@ export default function ThatOpenIfcCanvas({
                 selectedMaterialSignature: getElementMaterialSignature(selectedElement),
               }
               clickedIfcProxy.visible = true
+              syncTransformControlAxisVisibility(transformControls, nextTarget, transformModeRef.current)
               transformControls.attach(clickedIfcProxy)
               transformControls.visible = true
               transformControls.enabled = true
@@ -4256,6 +4325,7 @@ export default function ThatOpenIfcCanvas({
               `selection_switch_atomic_restore_${params.reason}`,
             )
             await rehideMovedIfcProxyRegistry(activeScene, params.reason, { forceRender: false })
+            syncTransformControlAxisVisibility(transformControls, nextTarget, transformModeRef.current)
             transformControls.attach(clickedIfcProxy)
             transformControls.visible = true
             transformControls.enabled = true
@@ -4480,6 +4550,7 @@ export default function ThatOpenIfcCanvas({
                     registryLocalIds: currentMovedProxyRecord.hideLocalIds,
                   })
                 } else {
+                  syncTransformControlAxisVisibility(transformControls, currentSelectedTarget, transformModeRef.current)
                   transformControls.attach(currentSelectedProxy)
                   transformControls.visible = true
                   transformControls.enabled = true
@@ -4896,6 +4967,7 @@ export default function ThatOpenIfcCanvas({
                   skipCoreUpdate: true,
                 })
               }
+              syncTransformControlAxisVisibility(transformControls, nextTarget, transformModeRef.current)
               transformControls.attach(editableObject)
               transformControls.visible = true
               transformControls.enabled = true
@@ -5001,6 +5073,7 @@ export default function ThatOpenIfcCanvas({
               selectedMaterialSignature: getElementMaterialSignature(libraryElement),
             }
             syncTransformSelectionState(selectedTargetRef.current, 'pick_library_attach_success', { attachGizmo: true })
+            syncTransformControlAxisVisibility(transformControls, selectedTargetRef.current, transformModeRef.current)
             transformControls.attach(libraryRoot)
             transformControls.visible = true
             transformControls.enabled = true
@@ -5123,34 +5196,10 @@ export default function ThatOpenIfcCanvas({
       )
       dispatchTransformRuntimeAction({ type: 'CLEANUP' }, 'scene_dispose_cleanup')
     }
-  }, [
-    commitIfcProxyTransformToModel,
-    cancelDeferredIfcProxyCleanupForObject,
-    createTransformSessionId,
-    deleteSelectedTarget,
-    dispatchTransformRuntimeAction,
-    findMovedIfcProxyRecord,
-    findMovedIfcProxyRecordByCandidateIds,
-    flushPendingIfcSave,
-    flushPendingIfcSaveSync,
-    ifcUrl,
-    isMovedIfcProxyObject,
-    logIfcMove,
-    purgeIfcEditOverlays,
-    projectId,
-    reapplyPendingUnpersistedIfcColors,
-    rehideMovedIfcProxyRegistry,
-    resetIfcLocalRevisionState,
-    resolveEditableIfcTargets,
-    resolveLocalIdsFromItemIds,
-    resolveTargetOwnerId,
-    registerCanonicalIds,
-    sanitizeMappedLocalIds,
-    scheduleDeferredIfcProxyCleanup,
-    showIfcEditFeedback,
-    syncTransformSelectionState,
-    transformRuntimeStateRef,
-  ])
+    // IFC scene setup is intentionally keyed only by the loaded model identity.
+    // Runtime handlers above read current values through refs to avoid rebuilding the scene.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ifcUrl, projectId])
 
   // 활성 층 또는 겹쳐보기 층 변경 시 가시성을 갱신한다.
   // activeStoreyExpressId가 null이면 전체 표시한다.
@@ -5673,6 +5722,7 @@ export default function ThatOpenIfcCanvas({
             reason: 'requested_select_proxy',
             forceRender: false,
           })
+          syncTransformControlAxisVisibility(sceneState.transformControls, nextTarget, transformModeRef.current)
           sceneState.transformControls.attach(editableObject)
           sceneState.transformControls.visible = true
           sceneState.transformControls.enabled = true
@@ -5799,6 +5849,7 @@ export default function ThatOpenIfcCanvas({
         }
         selectedTargetRef.current = nextTarget
         syncTransformSelectionState(nextTarget, 'requested_select_library_success', { attachGizmo: true })
+        syncTransformControlAxisVisibility(sceneState.transformControls, nextTarget, transformModeRef.current)
         sceneState.transformControls.attach(libraryRoot)
         sceneState.transformControls.visible = true
         sceneState.transformControls.enabled = true
@@ -6228,6 +6279,7 @@ export default function ThatOpenIfcCanvas({
       : selectedTarget?.source === 'ifc'
         ? selectedTarget.object
         : undefined
+    syncTransformControlAxisVisibility(sceneState.transformControls, selectedTarget, transformMode)
     if (selectedObject && (selectedObject as Object3D).parent) {
       sceneState.transformControls.attach(selectedObject as Object3D)
       sceneState.transformControls.visible = true
@@ -6300,6 +6352,7 @@ export default function ThatOpenIfcCanvas({
           selectedMaterialSignature: getElementMaterialSignature(libraryElement),
         }
         syncTransformSelectionState(selectedTargetRef.current, 'library_sync_reselect', { attachGizmo: true })
+        syncTransformControlAxisVisibility(sceneState.transformControls, selectedTargetRef.current, transformModeRef.current)
         sceneState.transformControls.attach(nextRoot)
         sceneState.transformControls.visible = true
         sceneState.transformControls.enabled = true
