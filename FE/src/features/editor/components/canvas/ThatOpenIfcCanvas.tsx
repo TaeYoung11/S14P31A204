@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Object3D } from 'three'
-import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '../../types'
+import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, IfcElementChange, IfcElementInfo } from '../../types'
 import { FLOOR_MM_PER_PX } from '../../constants'
 import { patchIfcTextForMaterialDefaults } from '../../services/ifcChange.service'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
@@ -89,6 +89,8 @@ interface ThatOpenIfcCanvasProps {
   ifcUrl: string
   /** 현재 프로젝트 ID. 씬 내 모델 ID 생성에 사용된다. */
   projectId?: string | null
+  /** 2D 층 겹쳐보기에서 선택된 오버레이 레이어 */
+  overlayLayers?: FloorLayerOverlay[]
   /** 씬에 배치된 라이브러리 프리셋 목록 */
   libraryElements: ThreeDLibraryPreset[]
   commentPins?: FloorCommentPin[]
@@ -109,6 +111,7 @@ interface ThatOpenIfcCanvasProps {
   zoomScale: number
   /** 현재 선택된 IFC 요소 */
   selectedIfcElement?: IfcElementInfo | null
+  preferredSelectedElementId?: string | null
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
   onLibraryElementChange?: (id: string, patch: Partial<ThreeDLibraryPreset>) => void
@@ -142,10 +145,57 @@ type IfcRaycastPick = {
 } | null
 type MultiSelectedTarget = Extract<Selected3DTarget, { source: 'ifc' | 'library' }>
 type ResolvedMultiSelectedTarget = MultiSelectedTarget & { object: Object3D }
+type IfcProductReferenceIndex = {
+  byGlobalId: Record<string, number[]>
+}
+type IfcStoreyLocalIdIndex = {
+  byStoreyGlobalId: Record<string, number[]>
+  byStoreyName: Record<string, number[]>
+}
+type IfcEditHitCandidate = {
+  distance: number
+  root: IfcEditableObject3D
+  element: IfcElementInfo
+}
+type RawIfcHitCandidate = {
+  distance: number
+  localId: number
+  object: Object3D
+  element: IfcElementInfo
+}
 
 const logRoofDebug = (...args: unknown[]) => {
   if (!import.meta.env.DEV) return
   console.log('[roof-debug][ThatOpenIfcCanvas]', ...args)
+}
+
+const logSelectionDebug = (...args: unknown[]) => {
+  if (!import.meta.env.DEV) return
+  console.log('[3d-select][ThatOpenIfcCanvas]', ...args)
+}
+
+const normalizeSelectionToken = (value?: string | null) => value
+  ?.trim()
+  .toLowerCase()
+  .replace(/[_-]+/g, ' ')
+  .replace(/\s+/g, ' ')
+
+const getIfcSelectionPriority = (element: IfcElementInfo): number => {
+  const category = normalizeSelectionToken(element.category) ?? ''
+  const ifcClass = normalizeSelectionToken(element.ifcClass)?.replace(/\s+/g, '') ?? ''
+  if (
+    category.includes('door') ||
+    category.includes('window') ||
+    category.includes('opening') ||
+    ifcClass.includes('ifcdoor') ||
+    ifcClass.includes('ifcwindow') ||
+    ifcClass.includes('ifcopening')
+  ) {
+    return 0
+  }
+  if (category.includes('wall') || ifcClass.includes('ifcwall')) return 1
+  if (category.includes('space') || category.includes('room') || ifcClass.includes('ifcspace')) return 9
+  return 4
 }
 
 const disposeMaybeThreeResource = (resource: unknown) => {
@@ -174,9 +224,63 @@ const removeDuplicateSceneGridHelpers = (scene: Object3D) => {
   })
 }
 
+const buildIfcProductReferenceIndex = (ifcText: string): IfcProductReferenceIndex => {
+  const byGlobalId: Record<string, number[]> = {}
+  Array.from(ifcText.matchAll(/#(\d+)=IFC[A-Z0-9_]+\('([^']+)'/gi)).forEach((match) => {
+    const localId = Number(match[1])
+    const globalId = match[2]?.trim()
+    if (!Number.isFinite(localId) || !globalId) return
+    const current = byGlobalId[globalId] ?? []
+    if (!current.includes(localId)) current.push(localId)
+    byGlobalId[globalId] = current
+  })
+  return { byGlobalId }
+}
+
+const buildIfcStoreyLocalIdIndex = (ifcText: string): IfcStoreyLocalIdIndex => {
+  const byStoreyGlobalId: Record<string, number[]> = {}
+  const byStoreyName: Record<string, number[]> = {}
+  const storeyGlobalIdByRef: Record<number, string> = {}
+  const storeyNameByRef: Record<number, string> = {}
+  const normalizeStoreyName = (value: string) =>
+    value.trim().toLowerCase().replace(/\s+/g, '')
+
+  Array.from(ifcText.matchAll(/#(\d+)=IFCBUILDINGSTOREY\('([^']+)'[^,]*,[^,]*,'([^']*)'/gi)).forEach((match) => {
+    const storeyRef = Number(match[1])
+    const storeyGlobalId = match[2]?.trim()
+    const storeyName = match[3]?.trim()
+    if (!Number.isFinite(storeyRef) || !storeyGlobalId) return
+    storeyGlobalIdByRef[storeyRef] = storeyGlobalId
+    if (storeyName) storeyNameByRef[storeyRef] = normalizeStoreyName(storeyName)
+  })
+
+  Array.from(
+    ifcText.matchAll(/#\d+=IFCRELCONTAINEDINSPATIALSTRUCTURE\([^;]+,\(((?:#\d+,?)+)\),#(\d+)\);/gi),
+  ).forEach((match) => {
+    const relatedRefs = match[1] ?? ''
+    const storeyRef = Number(match[2])
+    const storeyGlobalId = storeyGlobalIdByRef[storeyRef]
+    if (!storeyGlobalId) return
+    const storeyName = storeyNameByRef[storeyRef]
+    const current = byStoreyGlobalId[storeyGlobalId] ?? []
+    const currentByName = storeyName ? (byStoreyName[storeyName] ?? []) : []
+    relatedRefs.match(/#\d+/g)?.forEach((token) => {
+      const localId = Number(token.slice(1))
+      if (!Number.isFinite(localId) || current.includes(localId)) return
+      current.push(localId)
+      if (storeyName && !currentByName.includes(localId)) currentByName.push(localId)
+    })
+    byStoreyGlobalId[storeyGlobalId] = current
+    if (storeyName) byStoreyName[storeyName] = currentByName
+  })
+
+  return { byStoreyGlobalId, byStoreyName }
+}
+
 export default function ThatOpenIfcCanvas({
   ifcUrl,
   projectId,
+  overlayLayers = [],
   libraryElements,
   commentPins = [],
   isCollaborationMode = false,
@@ -191,6 +295,7 @@ export default function ThatOpenIfcCanvas({
   isRotationLocked,
   zoomScale,
   selectedIfcElement,
+  preferredSelectedElementId = null,
   onIfcElementSelect,
   onIfcElementDelete,
   onLibraryElementChange,
@@ -224,6 +329,9 @@ export default function ThatOpenIfcCanvas({
   const onPinCreateRef = useRef(onPinCreate)
   const onPinDeleteRef = useRef(onPinDelete)
   const ifcPsetMetricsRef = useRef<IfcPsetMetricMaps>({ byId: {}, byName: {} })
+  const ifcProductReferenceIndexRef = useRef<IfcProductReferenceIndex>({ byGlobalId: {} })
+  const ifcStoreyLocalIdIndexRef = useRef<IfcStoreyLocalIdIndex>({ byStoreyGlobalId: {}, byStoreyName: {} })
+  const overlayOpacityLocalIdsRef = useRef<Set<number>>(new Set())
   const selectedTargetRef = useRef<Selected3DTarget>(null)
   const handledLibraryDropTokenRef = useRef(0)
   const handledCameraPresetTokenRef = useRef(0)
@@ -290,6 +398,39 @@ export default function ThatOpenIfcCanvas({
     })
   }, [])
 
+  const applyIfcOpacityByLocalIds = useCallback(async (
+    sceneState: ThatOpenSceneState,
+    localIds: number[],
+    opacityInput: number,
+  ) => {
+    if (localIds.length === 0) return
+    const fragmentsApi = sceneState.fragments as unknown as {
+      highlight?: (
+        style: Record<string, unknown>,
+        items?: Record<string, Set<number>>,
+      ) => Promise<void> | void
+      resetHighlight?: (
+        items?: Record<string, Set<number>>,
+      ) => Promise<void> | void
+    }
+    if (typeof fragmentsApi.highlight !== 'function') return
+    const opacity = Math.min(Math.max(opacityInput, 0.05), 1)
+    if (typeof fragmentsApi.resetHighlight === 'function') {
+      await fragmentsApi.resetHighlight({
+        [sceneState.modelId]: new Set(localIds),
+      })
+    }
+    const style = {
+      opacity,
+      transparent: opacity < 0.999,
+      renderedFaces: 2,
+      preserveOriginalMaterial: true,
+    }
+    await fragmentsApi.highlight(style, {
+      [sceneState.modelId]: new Set(localIds),
+    })
+  }, [])
+
   const getTargetKey = useCallback((target: MultiSelectedTarget) => {
     if (target.source === 'library') {
       const preset = getLibraryPresetFromObject(target.object as LibraryObject3D)
@@ -338,8 +479,13 @@ export default function ThatOpenIfcCanvas({
 
     if (entries.length === 1) {
       if (isEditingLockedRef.current) {
+        if (multiAnchorRef.current) {
+          sceneState.contentGroup.remove(multiAnchorRef.current)
+        }
+        multiAnchorRef.current = null
         tc.detach()
-        tc.visible = false
+        tc.attach(primary.object)
+        tc.visible = true
         tc.enabled = false
         return
       }
@@ -358,9 +504,21 @@ export default function ThatOpenIfcCanvas({
       sceneState.contentGroup.remove(multiAnchorRef.current)
     }
     if (isEditingLockedRef.current) {
-      multiAnchorRef.current = null
+      const lockedAnchor = new THREE.Object3D()
+      const lockedCenter = new THREE.Vector3()
+      const lockedWorldPosition = new THREE.Vector3()
+      entries.forEach((entry) => {
+        entry.object.getWorldPosition(lockedWorldPosition)
+        lockedCenter.add(lockedWorldPosition)
+      })
+      lockedCenter.multiplyScalar(1 / entries.length)
+      lockedAnchor.position.copy(lockedCenter)
+      sceneState.contentGroup.add(lockedAnchor)
+      multiAnchorRef.current = lockedAnchor
+
       tc.detach()
-      tc.visible = false
+      tc.attach(lockedAnchor)
+      tc.visible = true
       tc.enabled = false
       return
     }
@@ -381,6 +539,106 @@ export default function ThatOpenIfcCanvas({
     tc.visible = true
     tc.enabled = true
   }, [resolveTargetElement])
+
+  const matchesTargetSelection = useCallback(
+    (element: IfcElementInfo, targetIds: Set<string>, targetGlobalId: string | null) => {
+      if (targetIds.has(element.id)) return true
+      if (element.globalId && targetIds.has(element.globalId)) return true
+      if (targetGlobalId && element.globalId === targetGlobalId) return true
+      const properties = element.properties ?? {}
+      const idLikeKeys = [
+        'RoomId',
+        'WallId',
+        'BubbleId',
+        'OpeningId',
+        'HostWallGlobalId',
+        'GlobalId',
+        'globalId',
+        'global_id',
+        'guid',
+        'Id',
+        'id',
+      ]
+      for (const key of idLikeKeys) {
+        const value = properties[key]
+        if (typeof value === 'string' && targetIds.has(value)) return true
+      }
+      return false
+    },
+    [],
+  )
+
+  const resolveIfcMetricLocalIdCandidates = useCallback(
+    (targetIds: Set<string>, selectedElement?: IfcElementInfo | null): number[] => {
+      const normalizedTargetIds = new Set(
+        Array.from(targetIds)
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0),
+      )
+      const metricsById = ifcPsetMetricsRef.current.byId
+      const matchedExpressIds = new Set<number>()
+      const candidateIds: number[] = []
+
+      Object.entries(metricsById).forEach(([rawLocalId, parsed]) => {
+        const localId = Number(rawLocalId)
+        if (!Number.isFinite(localId)) return
+        const hasGlobalIdMatch = Boolean(parsed.globalId && normalizedTargetIds.has(parsed.globalId))
+        const hasNameMatch = Boolean(parsed.name && normalizedTargetIds.has(parsed.name))
+        const hasExpressIdMatch = normalizedTargetIds.has(String(parsed.expressId))
+        if (!hasGlobalIdMatch && !hasNameMatch && !hasExpressIdMatch) return
+        matchedExpressIds.add(parsed.expressId)
+        candidateIds.push(localId)
+      })
+
+      if (typeof selectedElement?.expressId === 'number') {
+        matchedExpressIds.add(selectedElement.expressId)
+      }
+      if (selectedElement?.globalId) {
+        Object.entries(metricsById).forEach(([_, parsed]) => {
+          if (parsed.globalId === selectedElement.globalId) {
+            matchedExpressIds.add(parsed.expressId)
+          }
+        })
+      }
+
+      if (matchedExpressIds.size > 0) {
+        Object.entries(metricsById).forEach(([rawLocalId, parsed]) => {
+          const localId = Number(rawLocalId)
+          if (!Number.isFinite(localId)) return
+          if (!matchedExpressIds.has(parsed.expressId)) return
+          candidateIds.push(localId)
+        })
+      }
+
+      return Array.from(new Set(candidateIds))
+    },
+    [],
+  )
+
+  const resolveIfcIndexedLocalIdCandidates = useCallback(
+    (targetIds: Set<string>, selectedElement?: IfcElementInfo | null): number[] => {
+      const candidates = new Set<number>()
+      const byGlobalId = ifcProductReferenceIndexRef.current.byGlobalId
+      targetIds.forEach((targetId) => {
+        const ids = byGlobalId[targetId.trim()]
+        if (!ids) return
+        ids.forEach((id) => {
+          if (Number.isFinite(id)) candidates.add(id)
+        })
+      })
+      if (selectedElement?.globalId) {
+        const ids = byGlobalId[selectedElement.globalId]
+        ids?.forEach((id) => {
+          if (Number.isFinite(id)) candidates.add(id)
+        })
+      }
+      if (typeof selectedElement?.expressId === 'number' && Number.isFinite(selectedElement.expressId)) {
+        candidates.add(selectedElement.expressId)
+      }
+      return Array.from(candidates)
+    },
+    [],
+  )
   const deleteSelectedTarget = useCallback(async () => {
     if (isEditingLockedRef.current) return
     const sceneState = sceneRef.current
@@ -601,6 +859,8 @@ export default function ThatOpenIfcCanvas({
         const patchedIfcText = patchIfcTextForMaterialDefaults(ifcText)
         const data = new TextEncoder().encode(patchedIfcText)
         ifcPsetMetricsRef.current = parseBatangDimensionProperties(patchedIfcText)
+        ifcProductReferenceIndexRef.current = buildIfcProductReferenceIndex(patchedIfcText)
+        ifcStoreyLocalIdIndexRef.current = buildIfcStoreyLocalIdIndex(patchedIfcText)
         const model = await ifcLoader.load(data, true, modelId)
         if (disposed) return
 
@@ -990,10 +1250,43 @@ export default function ThatOpenIfcCanvas({
           if (event.button !== 0) return
           const isDeleteMode = isDeleteTool(selectedToolRef.current)
           const isSelectionMode = isSelectionTool(selectedToolRef.current)
-          if (!isCollaborationModeRef.current && !isSelectionInteractionTool(selectedToolRef.current)) return
+          const isEditLocked = isEditingLockedRef.current
+          const isDeleteEnabled = isDeleteMode && !isEditLocked
+          const isSelectionEnabledTool =
+            isSelectionInteractionTool(selectedToolRef.current) ||
+            selectedToolRef.current === 'hand' ||
+            selectedToolRef.current === 'rotate' ||
+            selectedToolRef.current === 'scale'
+          logSelectionDebug('pointerdown:start', {
+            tool: selectedToolRef.current,
+            isDeleteMode,
+            isDeleteEnabled,
+            isSelectionMode,
+            isCollaborationMode: isCollaborationModeRef.current,
+            isEditingLocked: isEditLocked,
+            shiftKey: event.shiftKey,
+            clientX: event.clientX,
+            clientY: event.clientY,
+          })
+          if (!isCollaborationModeRef.current && !isSelectionEnabledTool) {
+            logSelectionDebug('pointerdown:skip-not-selection-tool', {
+              tool: selectedToolRef.current,
+            })
+            return
+          }
           container.focus()
           const bounds = renderer.domElement.getBoundingClientRect()
           if (!isPointerInsideBounds(bounds, event.clientX, event.clientY)) {
+            logSelectionDebug('pointerdown:skip-outside-canvas', {
+              clientX: event.clientX,
+              clientY: event.clientY,
+              bounds: {
+                left: bounds.left,
+                right: bounds.right,
+                top: bounds.top,
+                bottom: bounds.bottom,
+              },
+            })
             return
           }
           const isAppend = isSelectionMode && event.shiftKey
@@ -1006,12 +1299,19 @@ export default function ThatOpenIfcCanvas({
           const normalizedMouse = toNormalizedMouse(THREE, bounds, event.clientX, event.clientY)
           const screenMouse = new THREE.Vector2(event.clientX, event.clientY)
           const raycaster = new THREE.Raycaster()
+          const getFirstIntersection = <T,>(hits: T[] | null | undefined): T | undefined =>
+            Array.isArray(hits) && hits.length > 0 ? hits[0] : undefined
           raycaster.setFromCamera(normalizedMouse, camera)
           const pinHit = pinMarkerGroupRef.current
-            ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)[0]
+            ? getFirstIntersection(raycaster.intersectObjects(pinMarkerGroupRef.current.children, true))
             : undefined
           const pinMarkerHit = getThreeDPinMarkerHit(pinHit?.object)
           if (pinMarkerHit) {
+            logSelectionDebug('pointerdown:pin-hit', {
+              pinId: pinMarkerHit.pinId,
+              action: pinMarkerHit.action,
+              deletingPinId: deletingPinIdRef.current,
+            })
             if (pinMarkerHit.action === 'delete') {
               if (deletingPinIdRef.current === pinMarkerHit.pinId) return
               onPinDeleteRef.current?.(pinMarkerHit.pinId)
@@ -1023,10 +1323,43 @@ export default function ThatOpenIfcCanvas({
           const wasTransformActive = transformControls.visible && transformControls.enabled
           const transformState = transformControls as unknown as { dragging?: boolean }
           if (transformState.dragging || (wasTransformActive && isTransformPointerActive)) {
+            logSelectionDebug('pointerdown:skip-transform-dragging', {
+              dragging: Boolean(transformState.dragging),
+              wasTransformActive,
+              isTransformPointerActive,
+            })
             return
           }
-          const ifcEditHit = raycaster.intersectObjects(ifcEditGroup.children, true)[0]
-          const libraryHit = raycaster.intersectObjects(presetGroup.children, true)[0]
+          const ifcEditHits = raycaster.intersectObjects(ifcEditGroup.children, true)
+          const ifcEditHitCandidates: IfcEditHitCandidate[] = ifcEditHits
+            .map((hit) => {
+              const editableRoot = findIfcEditableRoot(hit.object, ifcEditGroup)
+              const editTarget = editableRoot?.userData.ifcEditTarget
+              if (!editableRoot || !editTarget || !isSelectableThreeDComponent(editTarget.element)) return null
+              return {
+                distance: hit.distance,
+                root: editableRoot,
+                element: editTarget.element,
+              } satisfies IfcEditHitCandidate
+            })
+            .filter((candidate): candidate is IfcEditHitCandidate => Boolean(candidate))
+          ifcEditHitCandidates.sort((left, right) => {
+            const priorityDiff = getIfcSelectionPriority(left.element) - getIfcSelectionPriority(right.element)
+            if (priorityDiff !== 0) return priorityDiff
+            return left.distance - right.distance
+          })
+          const bestIfcEditHit = ifcEditHitCandidates[0] ?? null
+          const libraryHit = getFirstIntersection(raycaster.intersectObjects(presetGroup.children, true))
+          const bestIfcEditHitPriority = bestIfcEditHit ? getIfcSelectionPriority(bestIfcEditHit.element) : null
+          logSelectionDebug('pointerdown:ray-hits', {
+            ifcEditHitDistance: bestIfcEditHit?.distance ?? null,
+            libraryHitDistance: libraryHit?.distance ?? null,
+            ifcEditHitObject: bestIfcEditHit?.root?.name ?? bestIfcEditHit?.root?.type ?? null,
+            ifcEditHitCategory: bestIfcEditHit?.element?.category ?? null,
+            ifcEditHitIfcClass: bestIfcEditHit?.element?.ifcClass ?? null,
+            ifcEditHitPriority: bestIfcEditHitPriority,
+            libraryHitObject: libraryHit?.object?.name ?? libraryHit?.object?.type ?? null,
+          })
           if (isCollaborationModeRef.current) {
             const fragmentPick = await fragments.raycast({
               camera,
@@ -1038,15 +1371,21 @@ export default function ThatOpenIfcCanvas({
             const ifcHit = ifcPick?.point
               ? { distance: ifcPick.distance ?? Number.POSITIVE_INFINITY, point: ifcPick.point }
               : ifcPick?.object
-                ? raycaster.intersectObject(ifcPick.object, true)[0]
-                : raycaster.intersectObject(fragmentModel.object, true)[0]
-            const collaborationHit = [libraryHit, ifcEditHit, ifcHit]
+                ? getFirstIntersection(raycaster.intersectObject(ifcPick.object, true))
+                : getFirstIntersection(raycaster.intersectObject(fragmentModel.object, true))
+            const collaborationHit = [libraryHit, ifcEditHits[0], ifcHit]
               .filter((hit): hit is import('three').Intersection => Boolean(hit))
               .sort((a, b) => a.distance - b.distance)[0]
             if (collaborationHit?.point) createCommentPinAtWorldPoint(collaborationHit.point)
+            logSelectionDebug('pointerdown:collaboration-mode-hit', {
+              hasHitPoint: Boolean(collaborationHit?.point),
+              hitDistance: collaborationHit?.distance ?? null,
+            })
             return
           }
-          if (isEditingLockedRef.current) return
+          if (isEditLocked) {
+            logSelectionDebug('pointerdown:editing-locked-selection-only')
+          }
           // 이전 선택을 해제한다. 동일 객체/로컬ID이면 아무 처리도 하지 않는다.
           const clearPreviousSelection = async (nextObject?: Object3D, nextIfcLocalId?: number) => {
             if (isAppend) return
@@ -1060,10 +1399,18 @@ export default function ThatOpenIfcCanvas({
             selectedTargetRef.current = null
           }
 
-          if (ifcEditHit?.object) {
-            const editableRoot = findIfcEditableRoot(ifcEditHit.object, ifcEditGroup)
-            const editTarget = editableRoot?.userData.ifcEditTarget
-            if (editableRoot && editTarget && isSelectableThreeDComponent(editTarget.element)) {
+          const shouldDeferIfcEditHitToFragmentPick = bestIfcEditHitPriority !== null && bestIfcEditHitPriority >= 9
+          if (shouldDeferIfcEditHitToFragmentPick) {
+            logSelectionDebug('pointerdown:defer-space-hit-to-fragment-pick', {
+              category: bestIfcEditHit?.element?.category ?? null,
+              ifcClass: bestIfcEditHit?.element?.ifcClass ?? null,
+              priority: bestIfcEditHitPriority,
+            })
+          }
+          if (bestIfcEditHit && !shouldDeferIfcEditHitToFragmentPick) {
+            const editableRoot = bestIfcEditHit.root
+            const editTarget = editableRoot.userData.ifcEditTarget
+            if (editTarget && isSelectableThreeDComponent(editTarget.element)) {
               const editableWorldPosition = new THREE.Vector3()
               const editableWorldQuaternion = new THREE.Quaternion()
               const editableWorldEuler = new THREE.Euler()
@@ -1103,14 +1450,14 @@ export default function ThatOpenIfcCanvas({
                 ...editTarget,
                 element: nextElement,
               }
-              if (isDeleteMode) {
+              if (isDeleteEnabled) {
                 await applyDeleteTarget(nextTarget)
               } else if (isAppend) {
                 appendSelection(nextTarget)
               } else {
                 commitSelection([nextTarget])
               }
-              if (!isDeleteMode) emitCoordinates(editableWorldPosition)
+              if (!isDeleteEnabled) emitCoordinates(editableWorldPosition)
               return
             }
           }
@@ -1122,24 +1469,232 @@ export default function ThatOpenIfcCanvas({
           })
           const fastPick = await thatOpenRaycaster.castRay({ position: normalizedMouse })
           const ifcPick = fragmentPick ?? (fastPick as unknown as IfcRaycastPick)
-          if (ifcPick?.fragments?.modelId && typeof ifcPick.localId === 'number') {
-            const ifcDistance = typeof ifcPick.distance === 'number' ? ifcPick.distance : Number.POSITIVE_INFINITY
+          let rawIfcHits: import('three').Intersection[]
+          try {
+            const rawHits = raycaster.intersectObject(fragmentModel.object, true)
+            rawIfcHits = Array.isArray(rawHits) ? rawHits : []
+          } catch (error) {
+            logSelectionDebug('pointerdown:raw-ifc-raycast-error', {
+              message: error instanceof Error ? error.message : String(error),
+            })
+            const fallbackRawHits: import('three').Intersection[] = []
+            fragmentModel.object.children.forEach((child) => {
+              try {
+                const childHits = raycaster.intersectObject(child, true)
+                if (Array.isArray(childHits) && childHits.length > 0) {
+                  fallbackRawHits.push(...childHits)
+                }
+              } catch (childError) {
+                logSelectionDebug('pointerdown:raw-ifc-raycast-child-error', {
+                  childName: child.name || child.type,
+                  message: childError instanceof Error ? childError.message : String(childError),
+                })
+              }
+            })
+            fallbackRawHits.sort((left, right) => left.distance - right.distance)
+            rawIfcHits = fallbackRawHits
+            logSelectionDebug('pointerdown:raw-ifc-raycast-fallback', {
+              fallbackHitCount: fallbackRawHits.length,
+            })
+          }
+          const rawIfcHitCandidates: RawIfcHitCandidate[] = rawIfcHits
+            .map((hit) => {
+              const element = normalizeIfcElement(hit.object, modelId)
+              if (!isSelectableThreeDComponent(element)) return null
+              const localId = typeof element.expressId === 'number' ? element.expressId : null
+              if (localId === null) return null
+              return {
+                distance: hit.distance,
+                localId,
+                object: hit.object,
+                element,
+              } satisfies RawIfcHitCandidate
+            })
+            .filter((candidate): candidate is RawIfcHitCandidate => Boolean(candidate))
+          rawIfcHitCandidates.sort((left, right) => {
+            const priorityDiff = getIfcSelectionPriority(left.element) - getIfcSelectionPriority(right.element)
+            if (priorityDiff !== 0) return priorityDiff
+            return left.distance - right.distance
+          })
+          const bestRawIfcHit = rawIfcHitCandidates[0] ?? null
+          const resolvedModelId = ifcPick?.fragments?.modelId ?? (bestRawIfcHit ? modelId : null)
+          const resolvedLocalId = typeof ifcPick?.localId === 'number'
+            ? ifcPick.localId
+            : bestRawIfcHit?.localId ?? null
+          const resolvedIfcDistance = typeof ifcPick?.distance === 'number'
+            ? ifcPick.distance
+            : bestRawIfcHit?.distance ?? Number.POSITIVE_INFINITY
+          const resolvedIfcObject = ifcPick?.object ?? bestRawIfcHit?.object
+          const resolvedIfcElementFromRaw = bestRawIfcHit?.element ?? null
+          const hasFragmentResolvedPick = Boolean(
+            fragmentPick?.fragments?.modelId && typeof fragmentPick.localId === 'number',
+          )
+          const fastIfcPick = fastPick as IfcRaycastPick
+          const hasFastResolvedPick = !hasFragmentResolvedPick && Boolean(
+            fastIfcPick?.fragments?.modelId && typeof fastIfcPick.localId === 'number',
+          )
+          const resolvedSource = hasFragmentResolvedPick
+            ? 'fragment'
+            : hasFastResolvedPick
+              ? 'fast'
+              : bestRawIfcHit
+                ? 'raw'
+                : null
+          logSelectionDebug('pointerdown:ifc-pick', {
+            fragmentPickModelId: fragmentPick?.fragments?.modelId ?? null,
+            fragmentPickLocalId: typeof fragmentPick?.localId === 'number' ? fragmentPick.localId : null,
+            fastPickModelId: fastIfcPick?.fragments?.modelId ?? null,
+            fastPickLocalId: typeof fastIfcPick?.localId === 'number'
+              ? fastIfcPick.localId
+              : null,
+            rawIfcHitCount: rawIfcHits.length,
+            rawIfcCandidateCount: rawIfcHitCandidates.length,
+            rawIfcBestLocalId: bestRawIfcHit?.localId ?? null,
+            rawIfcBestCategory: bestRawIfcHit?.element?.category ?? null,
+            rawIfcBestIfcClass: bestRawIfcHit?.element?.ifcClass ?? null,
+            resolvedModelId,
+            resolvedLocalId,
+            resolvedIfcDistance,
+            resolvedSource,
+          })
+          if (resolvedModelId && typeof resolvedLocalId === 'number') {
+            const ifcDistance = resolvedIfcDistance
             const libraryDistance = typeof (libraryHit as unknown as { distance?: unknown } | undefined)?.distance === 'number'
               ? (libraryHit as unknown as { distance: number }).distance
               : Number.POSITIVE_INFINITY
             if (!libraryHit || ifcDistance <= libraryDistance) {
-              if (!isDeleteMode) {
-                await clearPreviousSelection(undefined, ifcPick.localId)
-              }
-              const element = await getIfcElementFromFragments(fragments, {
-                modelId: ifcPick.fragments.modelId,
-                localId: ifcPick.localId,
+              let effectiveLocalId = resolvedLocalId
+              let effectiveIfcObject = resolvedIfcObject
+              let effectiveElement = await getIfcElementFromFragments(fragments, {
+                modelId: resolvedModelId,
+                localId: effectiveLocalId,
               }, ifcPsetMetricsRef.current)
-              const selectedLocalId = typeof element?.expressId === 'number' ? element.expressId : ifcPick.localId
-              let selectedElement = element ?? (ifcPick.object
-                ? normalizeIfcElement(ifcPick.object, `${ifcPick.fragments.modelId}:${ifcPick.localId}`)
+              const effectivePriority = effectiveElement ? getIfcSelectionPriority(effectiveElement) : null
+              const shouldRunSpaceRepick =
+                (effectivePriority !== null && effectivePriority >= 9) ||
+                (bestIfcEditHitPriority !== null && bestIfcEditHitPriority >= 9)
+              if (shouldRunSpaceRepick) {
+                // SPACE/ROOM이 먼저 맞으면 해당 로컬 ID를 숨기고 같은 레이로 한 번 더 집어
+                // 벽/문/창 같은 전면 요소를 우선 선택한다.
+                if (!effectiveElement && bestIfcEditHit?.element) {
+                  effectiveElement = bestIfcEditHit.element
+                }
+                const hiddenSpaceLocalIds = new Set<number>([effectiveLocalId])
+                if (typeof effectiveElement?.expressId === 'number') {
+                  Object.entries(ifcPsetMetricsRef.current.byId).forEach(([rawLocalId, parsed]) => {
+                    const localId = Number(rawLocalId)
+                    if (!Number.isFinite(localId)) return
+                    if (parsed.expressId === effectiveElement.expressId) hiddenSpaceLocalIds.add(localId)
+                  })
+                }
+                if (effectiveElement?.globalId) {
+                  Object.entries(ifcPsetMetricsRef.current.byId).forEach(([rawLocalId, parsed]) => {
+                    const localId = Number(rawLocalId)
+                    if (!Number.isFinite(localId)) return
+                    if (parsed.globalId === effectiveElement.globalId) hiddenSpaceLocalIds.add(localId)
+                  })
+                  const indexedLocalIds = ifcProductReferenceIndexRef.current.byGlobalId[effectiveElement.globalId] ?? []
+                  indexedLocalIds.forEach((localId) => {
+                    if (Number.isFinite(localId)) hiddenSpaceLocalIds.add(localId)
+                  })
+                }
+                const hiddenSpaceLocalIdList = Array.from(hiddenSpaceLocalIds)
+                try {
+                  await hider.set(false, {
+                    [resolvedModelId]: new Set(hiddenSpaceLocalIdList),
+                  })
+                  const repick = await fragments.raycast({
+                    camera,
+                    mouse: screenMouse,
+                    dom: renderer.domElement,
+                  })
+                  const repickLocalId = typeof repick?.localId === 'number' ? repick.localId : null
+                  const repickElement = repickLocalId !== null
+                    ? await getIfcElementFromFragments(fragments, {
+                      modelId: resolvedModelId,
+                      localId: repickLocalId,
+                    }, ifcPsetMetricsRef.current)
+                    : null
+                  const repickPriority = repickElement ? getIfcSelectionPriority(repickElement) : null
+                  logSelectionDebug('pointerdown:space-repick-attempt', {
+                    hiddenSpaceLocalIds: hiddenSpaceLocalIdList,
+                    repickLocalId,
+                    repickCategory: repickElement?.category ?? null,
+                    repickIfcClass: repickElement?.ifcClass ?? null,
+                    repickPriority,
+                  })
+                  if (repickLocalId !== null && repickLocalId !== effectiveLocalId) {
+                    if (repickPriority !== null && repickPriority < 9) {
+                      logSelectionDebug('pointerdown:switch-space-to-repick', {
+                        fromLocalId: effectiveLocalId,
+                        fromCategory: effectiveElement?.category ?? null,
+                        toLocalId: repickLocalId,
+                        toCategory: repickElement?.category ?? null,
+                        toIfcClass: repickElement?.ifcClass ?? null,
+                      })
+                      effectiveLocalId = repickLocalId
+                      effectiveIfcObject = repick?.object ?? effectiveIfcObject
+                      effectiveElement = repickElement
+                    }
+                  } else {
+                    logSelectionDebug('pointerdown:space-repick-no-switch', {
+                      fromLocalId: effectiveLocalId,
+                      repickLocalId,
+                    })
+                  }
+                } catch (error) {
+                  logSelectionDebug('pointerdown:space-repick-error', {
+                    localId: effectiveLocalId,
+                    message: error instanceof Error ? error.message : String(error),
+                  })
+                } finally {
+                  try {
+                    await hider.set(true, {
+                      [resolvedModelId]: new Set(hiddenSpaceLocalIdList),
+                    })
+                  } catch (restoreError) {
+                    logSelectionDebug('pointerdown:space-repick-restore-error', {
+                      localIds: hiddenSpaceLocalIdList,
+                      message: restoreError instanceof Error ? restoreError.message : String(restoreError),
+                    })
+                  }
+                }
+                const bestNonSpaceRawCandidate = rawIfcHitCandidates.find((candidate) => (
+                  candidate.localId !== effectiveLocalId &&
+                  getIfcSelectionPriority(candidate.element) < 9
+                ))
+                if (bestNonSpaceRawCandidate) {
+                  logSelectionDebug('pointerdown:switch-space-to-raw-candidate', {
+                    fromLocalId: effectiveLocalId,
+                    fromCategory: effectiveElement?.category ?? null,
+                    toLocalId: bestNonSpaceRawCandidate.localId,
+                    toCategory: bestNonSpaceRawCandidate.element.category,
+                    toIfcClass: bestNonSpaceRawCandidate.element.ifcClass,
+                  })
+                  effectiveLocalId = bestNonSpaceRawCandidate.localId
+                  effectiveIfcObject = bestNonSpaceRawCandidate.object
+                  effectiveElement = await getIfcElementFromFragments(fragments, {
+                    modelId: resolvedModelId,
+                    localId: effectiveLocalId,
+                  }, ifcPsetMetricsRef.current) ?? bestNonSpaceRawCandidate.element
+                }
+              } else {
+                logSelectionDebug('pointerdown:space-repick-skipped', {
+                  localId: effectiveLocalId,
+                  effectivePriority,
+                  ifcEditHitPriority: bestIfcEditHitPriority ?? null,
+                  effectiveCategory: effectiveElement?.category ?? null,
+                  effectiveIfcClass: effectiveElement?.ifcClass ?? null,
+                })
+              }
+              if (!isDeleteEnabled) {
+                await clearPreviousSelection(undefined, effectiveLocalId)
+              }
+              const selectedLocalId = typeof effectiveElement?.expressId === 'number' ? effectiveElement.expressId : effectiveLocalId
+              let selectedElement = effectiveElement ?? resolvedIfcElementFromRaw ?? (effectiveIfcObject
+                ? normalizeIfcElement(effectiveIfcObject, `${resolvedModelId}:${effectiveLocalId}`)
                 : {
-                    id: `${ifcPick.fragments.modelId}:${ifcPick.localId}`,
+                    id: `${resolvedModelId}:${effectiveLocalId}`,
                     name: 'IFC Element',
                     ifcClass: 'IfcElement',
                     category: 'Element',
@@ -1149,23 +1704,23 @@ export default function ThatOpenIfcCanvas({
                   })
               const nextTarget: Extract<Selected3DTarget, { source: 'ifc' }> = {
                 source: 'ifc',
-                modelId: ifcPick.fragments.modelId,
+                modelId: resolvedModelId,
                 localId: selectedLocalId,
-                hitLocalId: ifcPick.localId,
+                hitLocalId: effectiveLocalId,
                 selectedSignature: getElementDimensionSignature(selectedElement),
                 selectedColorSignature: getElementColorSignature(selectedElement),
                 selectedMaterialSignature: getElementMaterialSignature(selectedElement),
               }
-              const pickedObjectSize = getObjectSizeMm(THREE, ifcPick.object, worldUnitsPerMm)
+              const pickedObjectSize = getObjectSizeMm(THREE, effectiveIfcObject, worldUnitsPerMm)
               const editableObject = await attachIfcTransformProxy(
                 THREE,
                 fragments,
                 hider,
                 transformControls,
                 ifcEditGroup,
-                ifcPick.fragments.modelId,
-                [selectedLocalId, ifcPick.localId],
-                ifcPick.localId,
+                resolvedModelId,
+                [selectedLocalId, effectiveLocalId],
+                effectiveLocalId,
                 selectedElement,
                 materialsManager,
               )
@@ -1227,12 +1782,17 @@ export default function ThatOpenIfcCanvas({
               if (!isSelectableThreeDComponent(selectedElement)) {
                 // 선택 허용 대상이 아니면 다른 hit 검사(라이브러리/빈 공간)로 넘어간다.
                 // return 하지 않는다.
+                logSelectionDebug('pointerdown:ifc-hit-not-selectable', {
+                  elementId: selectedElement.id,
+                  ifcClass: selectedElement.ifcClass,
+                  category: selectedElement.category,
+                })
               } else {
               nextTarget.selectedSignature = getElementDimensionSignature(selectedElement)
               nextTarget.selectedColorSignature = getElementColorSignature(selectedElement)
               nextTarget.selectedMaterialSignature = getElementMaterialSignature(selectedElement)
               nextTarget.object = editableObject ?? undefined
-              if (isDeleteMode) {
+              if (isDeleteEnabled) {
                 await applyDeleteTarget(nextTarget)
               } else if (nextTarget.object) {
                 if (isAppend) {
@@ -1243,7 +1803,7 @@ export default function ThatOpenIfcCanvas({
               } else if (!isAppend) {
                 commitSelection([])
               }
-              if (!isDeleteMode) {
+              if (!isDeleteEnabled) {
                 onIfcElementSelectRef.current?.(selectedElement)
                 if (editableObject) {
                   const editableWorldPosition = new THREE.Vector3()
@@ -1260,15 +1820,20 @@ export default function ThatOpenIfcCanvas({
 
           if (libraryHit?.object) {
             const libraryRoot = findLibraryRoot(libraryHit.object, presetGroup) ?? (libraryHit.object as LibraryObject3D)
-            if (!isDeleteMode) {
+            if (!isDeleteEnabled) {
               await clearPreviousSelection(libraryRoot)
             }
             const libraryElement = getLibraryElementInfo(libraryRoot) ?? normalizeIfcElement(libraryRoot, 'library-preset')
             if (!isSelectableThreeDComponent(libraryElement)) {
-              if (!isAppend && !isDeleteMode) {
+              logSelectionDebug('pointerdown:library-hit-not-selectable', {
+                elementId: libraryElement.id,
+                ifcClass: libraryElement.ifcClass,
+                category: libraryElement.category,
+              })
+              if (!isAppend && !isDeleteEnabled) {
                 commitSelection([])
               }
-              if (!isDeleteMode) emitCoordinates(world.camera.three.position)
+              if (!isDeleteEnabled) emitCoordinates(world.camera.three.position)
               return
             }
             const nextTarget: MultiSelectedTarget = {
@@ -1278,24 +1843,25 @@ export default function ThatOpenIfcCanvas({
               selectedColorSignature: getElementColorSignature(libraryElement),
               selectedMaterialSignature: getElementMaterialSignature(libraryElement),
             }
-            if (isDeleteMode) {
+            if (isDeleteEnabled) {
               await applyDeleteTarget(nextTarget)
             } else if (isAppend) {
               appendSelection(nextTarget)
             } else {
               commitSelection([nextTarget])
             }
-            if (!isDeleteMode) {
+            if (!isDeleteEnabled) {
               const libraryWorldPosition = new THREE.Vector3()
               libraryRoot.getWorldPosition(libraryWorldPosition)
               emitCoordinates(libraryWorldPosition)
             }
             return
           }
-          if (!isAppend && !isDeleteMode) {
+          if (!isAppend && !isDeleteEnabled) {
             await clearPreviousSelection()
             commitSelection([])
             emitCoordinates(world.camera.three.position)
+            logSelectionDebug('pointerdown:clear-selection-no-hit')
             return
           }
 
@@ -1429,6 +1995,9 @@ export default function ThatOpenIfcCanvas({
       presetGroupRef.current = null
       pinMarkerGroupRef.current = null
       ifcPsetMetricsRef.current = { byId: {}, byName: {} }
+      ifcProductReferenceIndexRef.current = { byGlobalId: {} }
+      ifcStoreyLocalIdIndexRef.current = { byStoreyGlobalId: {}, byStoreyName: {} }
+      overlayOpacityLocalIdsRef.current = new Set()
       selectedTargetRef.current = null
       selectedTargetsRef.current = []
       multiDragSnapshotRef.current = null
@@ -1443,6 +2012,38 @@ export default function ThatOpenIfcCanvas({
       prevZoomScaleRef.current = null
     }
   }, [deleteSelectedTarget, getTargetKey, ifcUrl, projectId, syncTransformSnap, updateSelectionTargets])
+
+  useEffect(() => {
+    const sceneState = sceneRef.current
+    if (!sceneState || status !== 'ready') return
+
+    const previouslyAppliedLocalIds = Array.from(overlayOpacityLocalIdsRef.current)
+    if (previouslyAppliedLocalIds.length > 0) {
+      void applyIfcOpacityByLocalIds(sceneState, previouslyAppliedLocalIds, 1)
+      overlayOpacityLocalIdsRef.current = new Set()
+    }
+
+    if (overlayLayers.length === 0) return
+
+    const { byStoreyGlobalId, byStoreyName } = ifcStoreyLocalIdIndexRef.current
+    const normalizeStoreyName = (value: string) =>
+      value.trim().toLowerCase().replace(/\s+/g, '')
+    const nextApplied = new Set<number>()
+    overlayLayers.forEach((overlayLayer) => {
+      const storeyGlobalId = overlayLayer.storeyGlobalId?.trim()
+      const storeyName = (overlayLayer.storeyName ?? overlayLayer.layerName ?? '').trim()
+      const localIdsByGlobalId = storeyGlobalId
+        ? (byStoreyGlobalId[storeyGlobalId] ?? [])
+        : []
+      const localIdsByName = storeyName ? (byStoreyName[normalizeStoreyName(storeyName)] ?? []) : []
+      const localIds = localIdsByGlobalId.length > 0 ? localIdsByGlobalId : localIdsByName
+      const appliedOpacity = Math.min(Math.max(overlayLayer.opacity, 0.05), 1)
+      if (localIds.length === 0) return
+      localIds.forEach((localId) => nextApplied.add(localId))
+      void applyIfcOpacityByLocalIds(sceneState, localIds, appliedOpacity)
+    })
+    overlayOpacityLocalIdsRef.current = nextApplied
+  }, [overlayLayers, applyIfcOpacityByLocalIds, status])
 
   useEffect(() => {
     if (deleteRequestToken <= 0) return
@@ -1602,6 +2203,281 @@ export default function ThatOpenIfcCanvas({
 
     sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
   }, [cameraViewPresetCommand])
+
+  useEffect(() => {
+    const preferredId = preferredSelectedElementId?.trim() || null
+    const fallbackSelectedId = selectedIfcElement?.id?.trim() || null
+    const targetIds = new Set<string>()
+    if (preferredId) {
+      targetIds.add(preferredId)
+    } else if (fallbackSelectedId) {
+      targetIds.add(fallbackSelectedId)
+    }
+    if (targetIds.size === 0) return
+
+    const targetGlobalId = preferredId ? null : (selectedIfcElement?.globalId ?? null)
+    const selectedTarget = selectedTargetRef.current
+    if (selectedTarget) {
+      const selectedElement = resolveTargetElement(selectedTarget)
+      if (selectedElement && matchesTargetSelection(selectedElement, targetIds, targetGlobalId)) {
+        if (import.meta.env.DEV) {
+          console.log('[3d-select-sync][ThatOpen] keep-current-selection', {
+            preferredId,
+            fallbackSelectedId,
+            targetIds: Array.from(targetIds),
+            targetGlobalId,
+            selectedElementId: selectedElement.id,
+            selectedElementGlobalId: selectedElement.globalId ?? null,
+          })
+        }
+        return
+      }
+    }
+
+    const sceneState = sceneRef.current
+    const presetGroup = presetGroupRef.current
+    if (!sceneState || !presetGroup) return
+
+    let cancelled = false
+
+    const syncSelection = async () => {
+      if (import.meta.env.DEV) {
+        console.log('[3d-select-sync][ThatOpen] start', {
+          preferredId,
+          fallbackSelectedId,
+          targetIds: Array.from(targetIds),
+          targetGlobalId,
+          selectedIfcElement: selectedIfcElement
+            ? { id: selectedIfcElement.id, globalId: selectedIfcElement.globalId ?? null, ifcClass: selectedIfcElement.ifcClass }
+            : null,
+        })
+      }
+      let nextTarget: MultiSelectedTarget | null = null
+
+      presetGroup.children.some((child) => {
+        const root = findLibraryRoot(child as import('three').Object3D, presetGroup)
+        if (!root) return false
+        const element = getLibraryElementInfo(root)
+        if (!element || !matchesTargetSelection(element, targetIds, targetGlobalId)) return false
+        nextTarget = {
+          source: 'library',
+          object: root,
+          selectedSignature: getElementDimensionSignature(element),
+          selectedColorSignature: getElementColorSignature(element),
+          selectedMaterialSignature: getElementMaterialSignature(element),
+        }
+        return true
+      })
+
+      if (!nextTarget) {
+        sceneState.ifcEditGroup.children.some((child) => {
+          const editable = child as IfcEditableObject3D
+          const editTarget = editable.userData?.ifcEditTarget
+          const element = editTarget?.element
+          if (!editTarget || !element) return false
+          if (!matchesTargetSelection(element, targetIds, targetGlobalId)) return false
+          nextTarget = {
+            source: 'ifc',
+            modelId: editTarget.modelId,
+            localId: editTarget.localId,
+            hitLocalId: editTarget.hitLocalId,
+            object: editable,
+            selectedSignature: getElementDimensionSignature(element),
+            selectedColorSignature: getElementColorSignature(element),
+            selectedMaterialSignature: getElementMaterialSignature(element),
+          }
+          return true
+        })
+      }
+
+      // 패널 선택 대상이 아직 프록시로 생성되지 않았다면,
+      // IFC 메트릭 + IFC 본문(GlobalId 인덱스)에서 localId 후보를 찾아 프록시를 즉시 생성한다.
+      if (!nextTarget) {
+        const metricCandidateLocalIds = resolveIfcMetricLocalIdCandidates(targetIds, selectedIfcElement)
+        const indexedCandidateLocalIds = resolveIfcIndexedLocalIdCandidates(targetIds, selectedIfcElement)
+        const indexedCandidateLocalIdSet = new Set(indexedCandidateLocalIds)
+        const candidateLocalIds = Array.from(new Set([
+          ...metricCandidateLocalIds,
+          ...indexedCandidateLocalIds,
+        ]))
+        if (import.meta.env.DEV) {
+          console.log('[3d-select-sync][ThatOpen] ifc-candidates', {
+            preferredId,
+            targetIds: Array.from(targetIds),
+            candidateLocalIds,
+            metricCandidateLocalIds,
+            indexedCandidateLocalIds,
+          })
+        }
+        for (const candidateLocalId of candidateLocalIds) {
+          if (cancelled) return
+          const metricById = ifcPsetMetricsRef.current.byId
+          const probeLocalIdSet = new Set<number>([candidateLocalId])
+          const seedMetric = metricById[candidateLocalId]
+          Object.entries(metricById).forEach(([rawLocalId, parsed]) => {
+            const localId = Number(rawLocalId)
+            if (!Number.isFinite(localId)) return
+            if (seedMetric) {
+              if (parsed.expressId === seedMetric.expressId) probeLocalIdSet.add(localId)
+              if (seedMetric.globalId && parsed.globalId === seedMetric.globalId) probeLocalIdSet.add(localId)
+              return
+            }
+            if (parsed.expressId === candidateLocalId) probeLocalIdSet.add(localId)
+            if (parsed.globalId && targetIds.has(parsed.globalId)) probeLocalIdSet.add(localId)
+          })
+          const probeLocalIds = Array.from(probeLocalIdSet)
+
+          for (const probeLocalId of probeLocalIds) {
+            if (cancelled) return
+            const candidateElement = await getIfcElementFromFragments(
+              sceneState.fragments,
+              { modelId: sceneState.modelId, localId: probeLocalId },
+              ifcPsetMetricsRef.current,
+            )
+            if (!candidateElement) {
+              if (import.meta.env.DEV) {
+                console.log('[3d-select-sync][ThatOpen] probe-skip:no-element', {
+                  candidateLocalId,
+                  probeLocalId,
+                })
+              }
+              continue
+            }
+            if (!isSelectableThreeDComponent(candidateElement)) {
+              if (import.meta.env.DEV) {
+                console.log('[3d-select-sync][ThatOpen] probe-skip:not-selectable', {
+                  candidateLocalId,
+                  probeLocalId,
+                  ifcClass: candidateElement.ifcClass,
+                  category: candidateElement.category,
+                })
+              }
+              continue
+            }
+            const hasDirectMatch = matchesTargetSelection(candidateElement, targetIds, targetGlobalId)
+            const canForceMatchByIndexedCandidate = indexedCandidateLocalIdSet.has(probeLocalId)
+            if (!hasDirectMatch && !canForceMatchByIndexedCandidate) {
+              if (import.meta.env.DEV) {
+                console.log('[3d-select-sync][ThatOpen] probe-skip:mismatch', {
+                  candidateLocalId,
+                  probeLocalId,
+                  candidateElementId: candidateElement.id,
+                  candidateElementGlobalId: candidateElement.globalId ?? null,
+                })
+              }
+              continue
+            }
+            if (!hasDirectMatch && canForceMatchByIndexedCandidate && import.meta.env.DEV) {
+              console.log('[3d-select-sync][ThatOpen] probe-force-match:indexed-candidate', {
+                candidateLocalId,
+                probeLocalId,
+                candidateElementId: candidateElement.id,
+                candidateElementGlobalId: candidateElement.globalId ?? null,
+              })
+            }
+
+            const metricEntry = ifcPsetMetricsRef.current.byId[probeLocalId]
+            const aliasIdSet = new Set<number>([probeLocalId])
+            if (metricEntry) {
+              Object.entries(ifcPsetMetricsRef.current.byId).forEach(([rawLocalId, parsed]) => {
+                const localId = Number(rawLocalId)
+                if (!Number.isFinite(localId)) return
+                if (parsed.expressId === metricEntry.expressId) aliasIdSet.add(localId)
+                if (metricEntry.globalId && parsed.globalId === metricEntry.globalId) aliasIdSet.add(localId)
+              })
+            }
+            if (typeof candidateElement.expressId === 'number') {
+              aliasIdSet.add(candidateElement.expressId)
+            }
+            const localIds = Array.from(aliasIdSet)
+
+            const editableObject = await attachIfcTransformProxy(
+              sceneState.three,
+              sceneState.fragments,
+              sceneState.hider,
+              sceneState.transformControls,
+              sceneState.ifcEditGroup,
+              sceneState.modelId,
+              localIds,
+              probeLocalId,
+              candidateElement,
+              sceneState.materialsManager,
+            )
+            if (!editableObject) {
+              if (import.meta.env.DEV) {
+                console.warn('[3d-select-sync][ThatOpen] probe-skip:attach-failed', {
+                  candidateLocalId,
+                  probeLocalId,
+                  localIds,
+                  candidateElementId: candidateElement.id,
+                  candidateElementGlobalId: candidateElement.globalId ?? null,
+                })
+              }
+              continue
+            }
+
+            nextTarget = {
+              source: 'ifc',
+              modelId: sceneState.modelId,
+              localId: probeLocalId,
+              hitLocalId: probeLocalId,
+              object: editableObject,
+              selectedSignature: getElementDimensionSignature(candidateElement),
+              selectedColorSignature: getElementColorSignature(candidateElement),
+              selectedMaterialSignature: getElementMaterialSignature(candidateElement),
+            }
+            if (import.meta.env.DEV) {
+              console.log('[3d-select-sync][ThatOpen] proxy-selected', {
+                candidateLocalId,
+                probeLocalId,
+                candidateElementId: candidateElement.id,
+                candidateElementGlobalId: candidateElement.globalId ?? null,
+                candidateElementClass: candidateElement.ifcClass,
+              })
+            }
+            break
+          }
+          if (nextTarget) break
+        }
+      }
+
+      if (!nextTarget || cancelled) {
+        if (import.meta.env.DEV) {
+          console.warn('[3d-select-sync][ThatOpen] selection-not-found', {
+            preferredId,
+            fallbackSelectedId,
+            targetIds: Array.from(targetIds),
+            targetGlobalId,
+          })
+        }
+        return
+      }
+      selectedTargetsRef.current = [nextTarget]
+      updateSelectionTargets()
+      if (import.meta.env.DEV) {
+        console.log('[3d-select-sync][ThatOpen] selection-applied', {
+          localId: nextTarget.source === 'ifc' ? nextTarget.localId : null,
+          source: nextTarget.source,
+          selectedTargetExists: Boolean(selectedTargetRef.current),
+          transformVisible: sceneState.transformControls.visible,
+          transformEnabled: sceneState.transformControls.enabled,
+        })
+      }
+    }
+
+    void syncSelection()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    matchesTargetSelection,
+    preferredSelectedElementId,
+    resolveIfcIndexedLocalIdCandidates,
+    resolveIfcMetricLocalIdCandidates,
+    resolveTargetElement,
+    selectedIfcElement,
+    updateSelectionTargets,
+  ])
 
   useEffect(() => {
     const sceneState = sceneRef.current

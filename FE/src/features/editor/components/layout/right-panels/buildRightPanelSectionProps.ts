@@ -12,7 +12,14 @@ import type { PanelKey } from '../../../types'
 export type AttributesSectionProps = ComponentProps<typeof AttributesPanel>
 export type ZoningSectionProps = ComponentProps<typeof ZoningSection>
 export type FloorViewSectionProps = ComponentProps<typeof FloorViewPanel>
-export type HierarchySectionProps = ComponentProps<typeof HierarchyPanel>
+export type HierarchySectionProps = ComponentProps<typeof HierarchyPanel> & {
+  selectedRoomId?: string | null
+  selectedFloorWallId?: string | null
+  selectedFloorOpeningId?: string | null
+  onSelectRoom?: (id: string) => void
+  onSelectWall?: (id: string) => void
+  onSelectOpening?: (id: string) => void
+}
 export type AssistantSectionProps = ComponentProps<typeof AssistantPanel>
 
 function isFloorWorkspaceMode(mode: EditorRightPanelsProps['mode']): boolean {
@@ -136,6 +143,12 @@ export function buildHierarchySectionProps(vm: EditorRightPanelsProps): Hierarch
   return {
     ...buildCommonPanelFrameProps(vm, 'hierarchy'),
     ...hierarchySource,
+    selectedRoomId: vm.selectedRoomId,
+    selectedFloorWallId: vm.selectedFloorWallId,
+    selectedFloorOpeningId: vm.selectedFloorOpeningId,
+    onSelectRoom: vm.onSelectRoom,
+    onSelectWall: vm.onSelectWall,
+    onSelectOpening: vm.onSelectOpening,
     groups: buildHierarchyGroups(hierarchySource),
   }
 }

@@ -100,10 +100,14 @@ export interface EditorRightPanelsProps {
   onDeleteFloorLayer?: (layerId: string) => void
   onSelectFloorLayer?: (id: string) => void
   onSelectRoom?: (id: string) => void
+  onSelectWall?: (id: string) => void
+  onSelectOpening?: (id: string) => void
   onToggleLayerOverlayMode?: () => void
   onToggleOverlayLayer?: (layerId: string) => void
   onSelectSingleOverlayLayer?: (layerId: string) => void
   onChangeOverlayLayerOpacity?: (layerId: string, opacity: number) => void
+  selectedFloorWallId?: string | null
+  selectedFloorOpeningId?: string | null
   floorWalls?: FloorWall[]
   ifcElementHierarchy?: unknown
   onOpenZoningModal: () => void

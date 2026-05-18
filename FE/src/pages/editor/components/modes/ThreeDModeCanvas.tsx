@@ -18,6 +18,16 @@ interface ThreeDModeCanvasProps {
   cameraViewPresetCommand: ThreeDCameraViewPresetCommand
 }
 
+const isLikelyLocalEditorId = (value: string | null | undefined): boolean => {
+  if (!value) return true
+  const normalized = value.trim().toLowerCase()
+  return (
+    normalized.startsWith('opening-') ||
+    normalized.startsWith('wall-') ||
+    normalized.startsWith('auto-')
+  )
+}
+
 /**
  * 3D 모드 캔버스 렌더링 전용 컴포넌트.
  *
@@ -31,6 +41,38 @@ export default function ThreeDModeCanvas({
   onThreeDCoordinatesChange,
   cameraViewPresetCommand,
 }: ThreeDModeCanvasProps) {
+  const selectedOpening = editorProps.selectedFloorOpeningId
+    ? (editorProps.floorOpenings.find((opening) => opening.id === editorProps.selectedFloorOpeningId) ?? null)
+    : null
+  const selectedOpeningWall = selectedOpening
+    ? (editorProps.floorWallsForHierarchy.find((wall) => wall.id === selectedOpening.wallId) ?? null)
+    : null
+  const selectedOpeningPreferredElementId = selectedOpening
+    ? (
+      selectedOpening.globalId ??
+      (!isLikelyLocalEditorId(selectedOpening.hostWallGlobalId) ? selectedOpening.hostWallGlobalId : null) ??
+      (!isLikelyLocalEditorId(selectedOpeningWall?.globalId) ? selectedOpeningWall?.globalId ?? null : null) ??
+      (!isLikelyLocalEditorId(selectedOpening.wallId) ? selectedOpening.wallId : null) ??
+      (!isLikelyLocalEditorId(selectedOpening.id) ? selectedOpening.id : null)
+    )
+    : null
+  const selectedWallPreferredElementId = editorProps.selectedFloorWallId
+    ? (
+      editorProps.floorWallsForHierarchy.find((wall) => wall.id === editorProps.selectedFloorWallId)?.globalId ??
+      editorProps.selectedFloorWallId
+    )
+    : null
+  const shouldUseRoomPreferredElementId =
+    Boolean(editorProps.selectedId) &&
+    !editorProps.selectedFloorOpeningId &&
+    !editorProps.selectedFloorWallId &&
+    !editorProps.selectedIfcElement
+  const preferredSelectedElementId =
+    selectedOpeningPreferredElementId ??
+    selectedWallPreferredElementId ??
+    (shouldUseRoomPreferredElementId ? editorProps.selectedId : null) ??
+    null
+
   // mount 시마다 fresh presigned URL 발급 (만료된 URL로 인한 403 방지)
   // assetId가 없거나 재발급 실패 시 mock IFC로 폴백
   const freshIfcUrl = useFreshIfcUrl(
@@ -44,8 +86,20 @@ export default function ThreeDModeCanvas({
       currentIfcUrl: editorProps.currentIfcUrl,
       currentIfcAssetId: editorProps.currentIfcAssetId,
       freshIfcUrl,
+      selectedFloorOpeningId: editorProps.selectedFloorOpeningId,
+      selectedFloorWallId: editorProps.selectedFloorWallId,
+      selectedId: editorProps.selectedId,
+      preferredSelectedElementId,
     })
-  }, [editorProps.currentIfcAssetId, editorProps.currentIfcUrl, freshIfcUrl])
+  }, [
+    editorProps.currentIfcAssetId,
+    editorProps.currentIfcUrl,
+    editorProps.selectedFloorOpeningId,
+    editorProps.selectedFloorWallId,
+    editorProps.selectedId,
+    freshIfcUrl,
+    preferredSelectedElementId,
+  ])
 
   return (
     <ThreeDCanvas
@@ -66,6 +120,7 @@ export default function ThreeDModeCanvas({
       rooms={editorProps.floorRooms}
       overlayLayers={editorProps.floorLayerOverlayItems}
       selectedId={editorProps.selectedId}
+      preferredSelectedElementId={preferredSelectedElementId}
       onSelect={(id) => (id ? editorProps.handleBubbleSelect(id) : editorProps.clearSelection())}
       selectedTool={editorProps.selectedTool}
       scale={scale}

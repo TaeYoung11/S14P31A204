@@ -3171,18 +3171,20 @@ export function useEditorPage() {
   }, [openingTargetWallById, mergedFloorWalls])
 
   const floorLayerOverlayItems = useMemo<FloorLayerOverlay[]>(() => {
-    if (!isLayerOverlayMode) return []
+    const shouldApplyOverlay = mode === '3d' ? true : isLayerOverlayMode
+    if (!shouldApplyOverlay) return []
     if (!activeFloorLayerId) return []
-    const selectedSet = new Set(overlayLayerIds)
     return floorLayers
-      .filter((layer) => layer.id !== activeFloorLayerId && selectedSet.has(layer.id))
+      .filter((layer) => layer.id !== activeFloorLayerId)
       .map((layer) => ({
         layerId: layer.id,
         layerName: layer.name,
+        storeyGlobalId: layer.storeyGlobalId,
+        storeyName: layer.storeyName,
         opacity: overlayOpacityByLayerId[layer.id] ?? 0.35,
         rooms: layer.rooms,
       }))
-  }, [isLayerOverlayMode, activeFloorLayerId, overlayLayerIds, floorLayers, overlayOpacityByLayerId])
+  }, [mode, isLayerOverlayMode, activeFloorLayerId, floorLayers, overlayOpacityByLayerId])
 
   useEffect(() => {
     const normalizeTimer = window.setTimeout(() => {
@@ -3864,8 +3866,10 @@ export function useEditorPage() {
     })
     if (!element) return
     clearSelection()
-    clearConnectionAndTwoDSelection()
-  }, [clearSelection, clearConnectionAndTwoDSelection, mode])
+    // 3D 계층(벽/개구부)에서 선택한 상태를 유지해야 하므로
+    // IFC 요소 선택 시 2D 구조물 선택 상태는 초기화하지 않는다.
+    setSelectedConnectionPair(null)
+  }, [clearSelection, mode])
 
   const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId'>) => {
     if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return

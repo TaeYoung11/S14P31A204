@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementInfo } from '../../types'
+import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, IfcElementInfo } from '../../types'
 import { FLOOR_MM_PER_PX } from '../../constants'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
@@ -43,6 +43,7 @@ import { getThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
 
 interface FloorPlan3DCanvasProps {
   data: FloorPlan3DData
+  overlayLayers?: FloorLayerOverlay[]
   libraryElements?: ThreeDLibraryPreset[]
   commentPins?: FloorCommentPin[]
   isCollaborationMode?: boolean
@@ -53,6 +54,7 @@ interface FloorPlan3DCanvasProps {
   onPinDelete?: (id: string) => void
   deletingPinId?: string | null
   selectedIfcElement?: IfcElementInfo | null
+  preferredSelectedElementId?: string | null
   deleteRequestToken?: number
   isRotationLocked?: boolean
   transformMode?: 'translate' | 'rotate' | 'scale'
@@ -81,9 +83,44 @@ type MultiSelectionEntry = {
   element: IfcElementInfo
 }
 
+type FloorHitCandidate = {
+  distance: number
+  root: import('three').Object3D
+  element: IfcElementInfo
+}
+
 const logRoofDebug = (...args: unknown[]) => {
   if (!import.meta.env.DEV) return
   console.log('[roof-debug][FloorPlan3DCanvas]', ...args)
+}
+
+const logSelectionDebug = (...args: unknown[]) => {
+  if (!import.meta.env.DEV) return
+  console.log('[3d-select][FloorPlan3DCanvas]', ...args)
+}
+
+const normalizeSelectionToken = (value?: string | null) => value
+  ?.trim()
+  .toLowerCase()
+  .replace(/[_-]+/g, ' ')
+  .replace(/\s+/g, ' ')
+
+const getFloorSelectionPriority = (element: IfcElementInfo): number => {
+  const category = normalizeSelectionToken(element.category) ?? ''
+  const ifcClass = normalizeSelectionToken(element.ifcClass)?.replace(/\s+/g, '') ?? ''
+  if (
+    category.includes('door') ||
+    category.includes('window') ||
+    category.includes('opening') ||
+    ifcClass.includes('ifcdoor') ||
+    ifcClass.includes('ifcwindow') ||
+    ifcClass.includes('ifcopening')
+  ) {
+    return 0
+  }
+  if (category.includes('wall') || ifcClass.includes('ifcwall')) return 1
+  if (category.includes('space') || category.includes('room') || ifcClass.includes('ifcspace')) return 9
+  return 4
 }
 
 /**
@@ -94,6 +131,7 @@ const logRoofDebug = (...args: unknown[]) => {
  */
 export function FloorPlan3DCanvas({
   data,
+  overlayLayers = [],
   libraryElements,
   commentPins = [],
   isCollaborationMode = false,
@@ -104,6 +142,7 @@ export function FloorPlan3DCanvas({
   onPinDelete,
   deletingPinId = null,
   selectedIfcElement,
+  preferredSelectedElementId = null,
   deleteRequestToken = 0,
   isRotationLocked = false,
   transformMode = 'translate',
@@ -121,6 +160,7 @@ export function FloorPlan3DCanvas({
   const containerRef = useRef<HTMLDivElement | null>(null)
   // 렌더 루프/비동기 초기화에서 최신 data를 참조하기 위한 ref 캐시
   const dataRef = useRef(data)
+  const overlayLayersRef = useRef(overlayLayers)
   const threeRef = useRef<ThreeModule | null>(null)
   const sceneRef = useRef<import('three').Scene | null>(null)
   const cameraRef = useRef<import('three').PerspectiveCamera | null>(null)
@@ -182,6 +222,7 @@ export function FloorPlan3DCanvas({
   useEffect(() => { currentUserIdRef.current = currentUserId }, [currentUserId])
   useEffect(() => { isCollaborationModeRef.current = isCollaborationMode }, [isCollaborationMode])
   useEffect(() => { deletingPinIdRef.current = deletingPinId }, [deletingPinId])
+  useEffect(() => { overlayLayersRef.current = overlayLayers }, [overlayLayers])
 
   const syncOrbitPanBinding = useCallback(() => {
     const controls = controlsRef.current as OrbitControlsInstance & {
@@ -234,7 +275,8 @@ export function FloorPlan3DCanvas({
     if (entries.length === 1) {
       if (isEditingLockedRef.current) {
         tc.detach()
-        tc.visible = false
+        tc.attach(primary.object)
+        tc.visible = true
         tc.enabled = false
         if (multiAnchorRef.current) {
           scene.remove(multiAnchorRef.current)
@@ -257,10 +299,22 @@ export function FloorPlan3DCanvas({
       scene.remove(multiAnchorRef.current)
     }
     if (isEditingLockedRef.current) {
+      const lockedAnchor = new THREE.Object3D()
+      const lockedCenter = new THREE.Vector3()
+      const lockedWorldPosition = new THREE.Vector3()
+      entries.forEach((entry) => {
+        entry.object.getWorldPosition(lockedWorldPosition)
+        lockedCenter.add(lockedWorldPosition)
+      })
+      lockedCenter.multiplyScalar(1 / entries.length)
+      lockedAnchor.position.copy(lockedCenter)
+      scene.add(lockedAnchor)
+      multiAnchorRef.current = lockedAnchor
+
       tc.detach()
-      tc.visible = false
+      tc.attach(lockedAnchor)
+      tc.visible = true
       tc.enabled = false
-      multiAnchorRef.current = null
       return
     }
     const anchor = new THREE.Object3D()
@@ -280,6 +334,34 @@ export function FloorPlan3DCanvas({
     tc.visible = true
     tc.enabled = true
   }, [])
+
+  const matchesTargetSelection = useCallback(
+    (element: IfcElementInfo, targetIds: Set<string>, targetGlobalId: string | null) => {
+      if (targetIds.has(element.id)) return true
+      if (element.globalId && targetIds.has(element.globalId)) return true
+      if (targetGlobalId && element.globalId === targetGlobalId) return true
+      const properties = element.properties ?? {}
+      const idLikeKeys = [
+        'RoomId',
+        'WallId',
+        'BubbleId',
+        'OpeningId',
+        'HostWallGlobalId',
+        'GlobalId',
+        'globalId',
+        'global_id',
+        'guid',
+        'Id',
+        'id',
+      ]
+      for (const key of idLikeKeys) {
+        const value = properties[key]
+        if (typeof value === 'string' && targetIds.has(value)) return true
+      }
+      return false
+    },
+    [],
+  )
 
   useEffect(() => {
     isEditingLockedRef.current = isEditingLocked
@@ -342,7 +424,7 @@ export function FloorPlan3DCanvas({
       disposeObject3DResources(floorGroupRef.current)
     }
 
-    const nextFloorGroup = buildFloorPlan3DGroup(THREE, dataRef.current)
+    const nextFloorGroup = buildFloorPlan3DGroup(THREE, dataRef.current, overlayLayersRef.current)
     floorGroupRef.current = nextFloorGroup
     scene.add(nextFloorGroup)
 
@@ -369,7 +451,7 @@ export function FloorPlan3DCanvas({
   useEffect(() => {
     dataRef.current = data
     rebuildFloorGroup()
-  }, [data, rebuildFloorGroup])
+  }, [data, overlayLayers, rebuildFloorGroup])
 
   useEffect(() => {
     const container = containerRef.current
@@ -700,9 +782,44 @@ export function FloorPlan3DCanvas({
         if (event.button !== 0) return
         const isDeleteMode = isDeleteTool(selectedToolRef.current)
         const isSelectionMode = isSelectionTool(selectedToolRef.current)
-        if (!isCollaborationModeRef.current && !isSelectionInteractionTool(selectedToolRef.current)) return
+        const isEditLocked = isEditingLockedRef.current
+        const isDeleteEnabled = isDeleteMode && !isEditLocked
+        const isSelectionEnabledTool =
+          isSelectionInteractionTool(selectedToolRef.current) ||
+          selectedToolRef.current === 'hand' ||
+          selectedToolRef.current === 'rotate' ||
+          selectedToolRef.current === 'scale'
+        logSelectionDebug('pointerdown:start', {
+          tool: selectedToolRef.current,
+          isDeleteMode,
+          isDeleteEnabled,
+          isSelectionMode,
+          isCollaborationMode: isCollaborationModeRef.current,
+          isEditingLocked: isEditLocked,
+          shiftKey: event.shiftKey,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        })
+        if (!isCollaborationModeRef.current && !isSelectionEnabledTool) {
+          logSelectionDebug('pointerdown:skip-not-selection-tool', {
+            tool: selectedToolRef.current,
+          })
+          return
+        }
         const bounds = renderer.domElement.getBoundingClientRect()
-        if (!isPointerInsideBounds(bounds, event.clientX, event.clientY)) return
+        if (!isPointerInsideBounds(bounds, event.clientX, event.clientY)) {
+          logSelectionDebug('pointerdown:skip-outside-canvas', {
+            clientX: event.clientX,
+            clientY: event.clientY,
+            bounds: {
+              left: bounds.left,
+              right: bounds.right,
+              top: bounds.top,
+              bottom: bounds.bottom,
+            },
+          })
+          return
+        }
 
         const normalizedMouse = toNormalizedMouse(THREE, bounds, event.clientX, event.clientY)
         const raycaster = new THREE.Raycaster()
@@ -712,6 +829,11 @@ export function FloorPlan3DCanvas({
           : undefined
         const pinMarkerHit = getThreeDPinMarkerHit(pinHit?.object)
         if (pinMarkerHit) {
+          logSelectionDebug('pointerdown:pin-hit', {
+            pinId: pinMarkerHit.pinId,
+            action: pinMarkerHit.action,
+            deletingPinId: deletingPinIdRef.current,
+          })
           if (pinMarkerHit.action === 'delete') {
             if (deletingPinIdRef.current === pinMarkerHit.pinId) return
             onPinDeleteRef.current?.(pinMarkerHit.pinId)
@@ -721,37 +843,76 @@ export function FloorPlan3DCanvas({
           return
         }
         const libraryHit = raycaster.intersectObjects(presetGroup.children, true)[0]
-        const floorHit = floorGroupRef.current
-          ? raycaster.intersectObjects(floorGroupRef.current.children, true)[0]
-          : undefined
+        const floorHits = floorGroupRef.current
+          ? raycaster.intersectObjects(floorGroupRef.current.children, true)
+          : []
+        const floorHitCandidates: FloorHitCandidate[] = floorHits
+          .map((hit) => {
+            if (!floorGroupRef.current) return null
+            const root = findGroupRootFromObject(hit.object, floorGroupRef.current)
+            if (!root) return null
+            const element = getFloorPlanElementInfo(root)
+            if (!element || !isSelectableThreeDComponent(element)) return null
+            return {
+              distance: hit.distance,
+              root,
+              element,
+            } satisfies FloorHitCandidate
+          })
+          .filter((candidate): candidate is FloorHitCandidate => Boolean(candidate))
+        floorHitCandidates.sort((left, right) => {
+          const priorityDiff = getFloorSelectionPriority(left.element) - getFloorSelectionPriority(right.element)
+          if (priorityDiff !== 0) return priorityDiff
+          return left.distance - right.distance
+        })
+        const bestFloorHit = floorHitCandidates[0] ?? null
+        logSelectionDebug('pointerdown:ray-hits', {
+          libraryHitDistance: libraryHit?.distance ?? null,
+          floorHitDistance: bestFloorHit?.distance ?? null,
+          libraryHitObject: libraryHit?.object?.name ?? libraryHit?.object?.type ?? null,
+          floorHitObject: bestFloorHit?.root?.name ?? bestFloorHit?.root?.type ?? null,
+          floorHitCategory: bestFloorHit?.element?.category ?? null,
+          floorHitIfcClass: bestFloorHit?.element?.ifcClass ?? null,
+        })
         if (isCollaborationModeRef.current) {
-          const collaborationHit = [libraryHit, floorHit]
+          const collaborationHit = [libraryHit, floorHits[0]]
             .filter((hit): hit is import('three').Intersection => Boolean(hit))
             .sort((a, b) => a.distance - b.distance)[0]
           if (collaborationHit?.point) createCommentPinAtWorldPoint(collaborationHit.point)
+          logSelectionDebug('pointerdown:collaboration-mode-hit', {
+            hasHitPoint: Boolean(collaborationHit?.point),
+            hitDistance: collaborationHit?.distance ?? null,
+          })
           return
         }
-        if (isEditingLockedRef.current) return
+        if (isEditLocked) {
+          logSelectionDebug('pointerdown:editing-locked-selection-only')
+        }
 
         const libraryDistance = typeof (libraryHit as { distance?: unknown } | undefined)?.distance === 'number'
           ? (libraryHit as { distance: number }).distance
           : Number.POSITIVE_INFINITY
-        const floorDistance = typeof (floorHit as { distance?: unknown } | undefined)?.distance === 'number'
-          ? (floorHit as { distance: number }).distance
-          : Number.POSITIVE_INFINITY
+        const floorDistance = bestFloorHit?.distance ?? Number.POSITIVE_INFINITY
 
         const isAppend = isSelectionMode && event.shiftKey
         if (libraryHit?.object && libraryDistance <= floorDistance) {
           const root = findLibraryRoot(libraryHit.object, presetGroup) ?? (libraryHit.object as LibraryObject3D)
           const elementInfo = getLibraryElementInfo(root)
-          if (!elementInfo || !isSelectableThreeDComponent(elementInfo)) return
+          if (!elementInfo || !isSelectableThreeDComponent(elementInfo)) {
+            logSelectionDebug('pointerdown:library-hit-not-selectable', {
+              elementId: elementInfo?.id ?? null,
+              ifcClass: elementInfo?.ifcClass ?? null,
+              category: elementInfo?.category ?? null,
+            })
+            return
+          }
           const nextEntry: MultiSelectionEntry = {
             key: `library:${elementInfo.id}`,
             object: root,
             source: 'library',
             element: elementInfo,
           }
-          if (isDeleteMode) {
+          if (isDeleteEnabled) {
             commitSelection([nextEntry])
             deleteSelectedEntry()
             return
@@ -760,11 +921,10 @@ export function FloorPlan3DCanvas({
           return
         }
 
-        if (floorHit?.object && floorGroupRef.current) {
-          const root = findGroupRootFromObject(floorHit.object, floorGroupRef.current)
-          const elementInfo = root ? getFloorPlanElementInfo(root) : null
-          if (!root || !elementInfo || !isSelectableThreeDComponent(elementInfo)) return
-          if (isDeleteMode) {
+        if (bestFloorHit) {
+          const root = bestFloorHit.root
+          const elementInfo = bestFloorHit.element
+          if (isDeleteEnabled) {
             commitSelection([{
               key: `floor:${elementInfo.id}`,
               object: root,
@@ -783,8 +943,9 @@ export function FloorPlan3DCanvas({
           return
         }
 
-        if (!isAppend && !isDeleteMode) {
+        if (!isAppend && !isDeleteEnabled) {
           commitSelection([])
+          logSelectionDebug('pointerdown:clear-selection-no-hit')
           return
         }
 
@@ -1134,6 +1295,63 @@ export function FloorPlan3DCanvas({
     if (deleteRequestToken <= 0) return
     deleteSelectedEntry()
   }, [deleteRequestToken, deleteSelectedEntry])
+
+  useEffect(() => {
+    const preferredId = preferredSelectedElementId?.trim() || null
+    const fallbackSelectedId = selectedIfcElement?.id?.trim() || null
+    const targetIds = new Set<string>()
+    if (preferredId) {
+      targetIds.add(preferredId)
+    } else if (fallbackSelectedId) {
+      targetIds.add(fallbackSelectedId)
+    }
+    if (targetIds.size === 0) return
+
+    const targetGlobalId = preferredId ? null : (selectedIfcElement?.globalId ?? null)
+    const selectedEntry = selectedEntriesRef.current[selectedEntriesRef.current.length - 1]
+    if (selectedEntry && matchesTargetSelection(selectedEntry.element, targetIds, targetGlobalId)) return
+
+    const floorGroup = floorGroupRef.current
+    const presetGroup = presetGroupRef.current
+    if (!floorGroup && !presetGroup) return
+
+    let nextEntry: MultiSelectionEntry | null = null
+
+    if (floorGroup) {
+      floorGroup.children.some((child) => {
+        const element = getFloorPlanElementInfo(child)
+        if (!element || !isSelectableThreeDComponent(element)) return false
+        if (!matchesTargetSelection(element, targetIds, targetGlobalId)) return false
+        nextEntry = {
+          key: `floor:${element.id}`,
+          object: child,
+          source: 'floor',
+          element,
+        }
+        return true
+      })
+    }
+
+    if (!nextEntry && presetGroup) {
+      presetGroup.children.some((child) => {
+        const root = findLibraryRoot(child as import('three').Object3D, presetGroup)
+        if (!root) return false
+        const element = getLibraryElementInfo(root)
+        if (!element || !matchesTargetSelection(element, targetIds, targetGlobalId)) return false
+        nextEntry = {
+          key: `library:${element.id}`,
+          object: root,
+          source: 'library',
+          element,
+        }
+        return true
+      })
+    }
+
+    if (!nextEntry) return
+    selectedEntriesRef.current = [nextEntry]
+    updateTransformSelection()
+  }, [matchesTargetSelection, preferredSelectedElementId, selectedIfcElement, updateTransformSelection])
 
   useEffect(() => {
     const THREE = threeRef.current

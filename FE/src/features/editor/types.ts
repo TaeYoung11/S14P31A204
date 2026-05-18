@@ -232,6 +232,8 @@ export interface FloorLayer {
 export interface FloorLayerOverlay {
   layerId: string
   layerName: string
+  storeyGlobalId?: string
+  storeyName?: string
   opacity: number
   rooms: FloorRoom[]
 }

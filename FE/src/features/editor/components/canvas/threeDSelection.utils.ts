@@ -18,11 +18,14 @@ type FloorPlanElementMeta = {
 const FLOOR_PLAN_WORLD_UNITS_PER_MM = 0.001
 
 const SELECTABLE_CATEGORY_KEYS = new Set([
+  'space',
+  'room',
   'wall',
   'exterior wall',
   'interior wall',
   'window',
   'door',
+  'opening',
   'room door',
   'front door',
   'roof',
@@ -35,10 +38,13 @@ const SELECTABLE_CATEGORY_KEYS = new Set([
 ])
 
 const SELECTABLE_IFC_CLASS_KEYS = new Set([
+  'ifcspace',
   'ifcwall',
   'ifcwallstandardcase',
   'ifcwindow',
   'ifcdoor',
+  'ifcopeningelement',
+  'ifcopeningstandardcase',
   'ifcroof',
   'ifccovering',
   'ifcslab',

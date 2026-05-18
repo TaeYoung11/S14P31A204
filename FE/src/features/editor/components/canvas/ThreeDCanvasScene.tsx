@@ -1,4 +1,4 @@
-import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '../../types'
+import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, IfcElementChange, IfcElementInfo } from '../../types'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
@@ -11,6 +11,7 @@ interface ThreeDCanvasSceneProps {
   ifcUrl?: string | null
   rawIfcUrl?: string | null
   localFloorData?: FloorPlan3DData | null
+  overlayLayers: FloorLayerOverlay[]
   libraryElements: ThreeDLibraryPreset[]
   commentPins: FloorCommentPin[]
   isCollaborationMode: boolean
@@ -25,6 +26,7 @@ interface ThreeDCanvasSceneProps {
   zoomScale: number
   selectedTool?: string
   selectedIfcElement?: IfcElementInfo | null
+  preferredSelectedElementId: string | null
   deleteRequestToken: number
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
@@ -48,6 +50,7 @@ export default function ThreeDCanvasScene({
   ifcUrl,
   rawIfcUrl,
   localFloorData,
+  overlayLayers,
   libraryElements,
   commentPins,
   isCollaborationMode,
@@ -62,6 +65,7 @@ export default function ThreeDCanvasScene({
   zoomScale,
   selectedTool,
   selectedIfcElement,
+  preferredSelectedElementId,
   deleteRequestToken,
   onIfcElementSelect,
   onIfcElementDelete,
@@ -91,6 +95,7 @@ export default function ThreeDCanvasScene({
     return (
       <FloorPlan3DCanvas
         data={localFloorData}
+        overlayLayers={overlayLayers}
         libraryElements={libraryElements}
         commentPins={commentPins}
         isCollaborationMode={isCollaborationMode}
@@ -101,6 +106,7 @@ export default function ThreeDCanvasScene({
         onPinDelete={onPinDelete}
         deletingPinId={deletingPinId}
         selectedIfcElement={selectedIfcElement}
+        preferredSelectedElementId={preferredSelectedElementId}
         deleteRequestToken={deleteRequestToken}
         isRotationLocked={isRotationLocked}
         onLibraryElementChange={onLibraryElementChange}
@@ -129,6 +135,7 @@ export default function ThreeDCanvasScene({
     <ThatOpenIfcCanvas
       ifcUrl={ifcUrl}
       projectId={projectId}
+      overlayLayers={overlayLayers}
       libraryElements={libraryElements}
       commentPins={commentPins}
       isCollaborationMode={isCollaborationMode}
@@ -142,6 +149,7 @@ export default function ThreeDCanvasScene({
       isRotationLocked={isRotationLocked}
       zoomScale={zoomScale}
       selectedIfcElement={selectedIfcElement}
+      preferredSelectedElementId={preferredSelectedElementId}
       deleteRequestToken={deleteRequestToken}
       onIfcElementSelect={onIfcElementSelect}
       onIfcElementDelete={onIfcElementDelete}

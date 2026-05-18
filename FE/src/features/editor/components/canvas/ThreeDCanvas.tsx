@@ -45,6 +45,7 @@ interface ThreeDCanvasProps {
   /** 현재 줌 스케일 (1.0 = 100%) */
   scale?: number
   selectedId?: string | null
+  preferredSelectedElementId?: string | null
   onSelect?: (id: string | null) => void
   /** 현재 선택 도구 (selection / hand / rotate / scale) */
   selectedTool?: string
@@ -109,6 +110,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         ifcUrl={props.ifcUrl}
         rawIfcUrl={props.ifcUrl}
         localFloorData={props.localFloorData}
+        overlayLayers={props.overlayLayers ?? []}
         libraryElements={libraryElements}
         commentPins={props.commentPins ?? []}
         isCollaborationMode={Boolean(props.isCollaborationMode)}
@@ -123,6 +125,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         zoomScale={props.scale ?? 1}
         selectedTool={props.selectedTool}
         selectedIfcElement={props.selectedIfcElement}
+        preferredSelectedElementId={props.preferredSelectedElementId ?? null}
         deleteRequestToken={props.threeDDeleteRequestToken ?? 0}
         onIfcElementSelect={props.onIfcElementSelect}
         onIfcElementDelete={props.onIfcElementDelete}

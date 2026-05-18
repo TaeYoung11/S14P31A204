@@ -20,11 +20,28 @@ function pickIfcElementHierarchy(lastIfcContext: unknown): unknown {
  */
 export function buildHierarchyRightPanelProps(
   vm: RightPanelViewModel,
-): RightPanelPropsSubset<'floorRooms' | 'floorWalls' | 'floorOpenings' | 'ifcElementHierarchy'> {
+): RightPanelPropsSubset<
+  | 'floorRooms'
+  | 'floorWalls'
+  | 'floorOpenings'
+  | 'selectedRoomId'
+  | 'selectedFloorWallId'
+  | 'selectedFloorOpeningId'
+  | 'onSelectRoom'
+  | 'onSelectWall'
+  | 'onSelectOpening'
+  | 'ifcElementHierarchy'
+> {
   return {
     floorRooms: vm.floorRooms,
     floorWalls: vm.floorWallsForHierarchy,
     floorOpenings: vm.floorOpenings,
+    selectedRoomId: vm.selectedId,
+    selectedFloorWallId: vm.selectedFloorWallId,
+    selectedFloorOpeningId: vm.selectedFloorOpeningId,
+    onSelectRoom: vm.handleBubbleSelect,
+    onSelectWall: vm.handleSelectFloorWall,
+    onSelectOpening: vm.handleSelectFloorOpening,
     ifcElementHierarchy: pickIfcElementHierarchy(vm.lastIfcContext),
   }
 }
