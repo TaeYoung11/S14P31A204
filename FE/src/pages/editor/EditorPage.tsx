@@ -65,8 +65,6 @@ export default function EditorPage() {
             mode={vm.mode}
             projectName={vm.currentProjectName}
             onModeChange={vm.setMode}
-            isTrueNorthView={vm.isTrueNorthView}
-            onToggleTrueNorthView={() => vm.setIsTrueNorthView(!vm.isTrueNorthView)}
             onUndo={vm.handleUndo}
             onRedo={vm.handleRedo}
             canUndo={vm.canUndo}

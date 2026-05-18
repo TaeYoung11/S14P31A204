@@ -27,7 +27,6 @@ const WORKSPACE_GENERATE_COORDINATE_FRAME_ENV = getRuntimeEnvString(
 interface UseWorkspaceCoordinateFramePolicyParams {
   bubbleSitePoints: number[]
   sharedSitePlanPoints: number[]
-  isTrueNorthView: boolean
 }
 
 /**
@@ -39,14 +38,13 @@ interface UseWorkspaceCoordinateFramePolicyParams {
 export function useWorkspaceCoordinateFramePolicy({
   bubbleSitePoints,
   sharedSitePlanPoints,
-  isTrueNorthView,
 }: UseWorkspaceCoordinateFramePolicyParams) {
   /**
    * canonical 좌표계를 project north 기준으로 정렬할 때 재사용되는 기준 변환.
    * 저장/생성 경계에서 true_north ↔ project_north 매핑 기준점으로 사용한다.
    */
   const projectNorthViewTransform = useMemo(
-    () => resolveCanvasViewTransform(sharedSitePlanPoints, false),
+    () => resolveCanvasViewTransform(sharedSitePlanPoints),
     [sharedSitePlanPoints],
   )
 
@@ -104,12 +102,12 @@ export function useWorkspaceCoordinateFramePolicy({
    * - canonical 편집 데이터는 건드리지 않고 렌더 계층에서만 적용한다.
    */
   const bubbleCanvasViewTransform = useMemo(
-    () => resolveCanvasViewTransform(bubbleSitePoints, isTrueNorthView),
-    [bubbleSitePoints, isTrueNorthView],
+    () => resolveCanvasViewTransform(bubbleSitePoints),
+    [bubbleSitePoints],
   )
   const floorCanvasViewTransform = useMemo(
-    () => resolveCanvasViewTransform(sharedSitePlanPoints, isTrueNorthView),
-    [isTrueNorthView, sharedSitePlanPoints],
+    () => resolveCanvasViewTransform(sharedSitePlanPoints),
+    [sharedSitePlanPoints],
   )
 
   return {

@@ -788,7 +788,6 @@ export function useEditorPage() {
   const [commentNotifications, setCommentNotifications] = useState<FloorCommentNotification[]>([])
   const [isLibraryOpen, setIsLibraryOpen] = useState(false)
   const [libraryElements, setLibraryElements] = useState<ThreeDLibraryPreset[]>([])
-  const [isTrueNorthView, setIsTrueNorthView] = useState(false)
   const [isGridVisible, setIsGridVisible] = useState(false)
   /** 연결 도구에서 첫 번째로 선택된 버블 id */
   /** 인라인 라벨 편집 상태 */
@@ -3329,7 +3328,6 @@ export function useEditorPage() {
   } = useWorkspaceCoordinateFramePolicy({
     bubbleSitePoints,
     sharedSitePlanPoints,
-    isTrueNorthView,
   })
   // layout effect에서 먼저 ref를 갱신해 bootstrap 초기 publish 경로도 최신 매핑을 사용하게 한다.
   useLayoutEffect(() => {
@@ -5460,8 +5458,6 @@ export function useEditorPage() {
   return {
     // 모드
     mode,
-    isTrueNorthView,
-    setIsTrueNorthView,
     projectId,
     currentProjectName,
     latestFloorPlanJobId,
