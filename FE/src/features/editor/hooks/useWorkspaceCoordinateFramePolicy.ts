@@ -1,8 +1,8 @@
 import { useCallback, useMemo } from 'react'
-import type { BubbleData, WorkspaceSnapshot } from '../types'
+import type { BubbleData, CanvasViewTransform, WorkspaceSnapshot } from '../types'
 import type { LayoutImportBoundaryInput } from '../utils/editorPageHelpers'
 import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
-import { resolveCanvasViewTransform } from '../utils/canvasViewTransform'
+import { resolveCanvasRotationCenter, resolveCanvasViewTransform } from '../utils/canvasViewTransform'
 import {
   mapBubblesCoordinateFrame,
   mapFlatPointsCoordinateFrame,
@@ -27,6 +27,7 @@ const WORKSPACE_GENERATE_COORDINATE_FRAME_ENV = getRuntimeEnvString(
 interface UseWorkspaceCoordinateFramePolicyParams {
   bubbleSitePoints: number[]
   sharedSitePlanPoints: number[]
+  userViewRotationRadians: number
 }
 
 /**
@@ -38,6 +39,7 @@ interface UseWorkspaceCoordinateFramePolicyParams {
 export function useWorkspaceCoordinateFramePolicy({
   bubbleSitePoints,
   sharedSitePlanPoints,
+  userViewRotationRadians,
 }: UseWorkspaceCoordinateFramePolicyParams) {
   /**
    * canonical 좌표계를 project north 기준으로 정렬할 때 재사용되는 기준 변환.
@@ -101,14 +103,18 @@ export function useWorkspaceCoordinateFramePolicy({
    * 보기 전용 회전 변환.
    * - canonical 편집 데이터는 건드리지 않고 렌더 계층에서만 적용한다.
    */
-  const bubbleCanvasViewTransform = useMemo(
-    () => resolveCanvasViewTransform(bubbleSitePoints),
-    [bubbleSitePoints],
-  )
-  const floorCanvasViewTransform = useMemo(
-    () => resolveCanvasViewTransform(sharedSitePlanPoints),
-    [sharedSitePlanPoints],
-  )
+  const bubbleCanvasViewTransform = useMemo<CanvasViewTransform | null>(() => {
+    if (userViewRotationRadians === 0) return null
+    const center = resolveCanvasRotationCenter(bubbleSitePoints)
+    if (!center) return null
+    return { rotationRadians: userViewRotationRadians, ...center }
+  }, [bubbleSitePoints, userViewRotationRadians])
+  const floorCanvasViewTransform = useMemo<CanvasViewTransform | null>(() => {
+    if (userViewRotationRadians === 0) return null
+    const center = resolveCanvasRotationCenter(sharedSitePlanPoints)
+    if (!center) return null
+    return { rotationRadians: userViewRotationRadians, ...center }
+  }, [sharedSitePlanPoints, userViewRotationRadians])
 
   return {
     bubbleCanvasViewTransform,

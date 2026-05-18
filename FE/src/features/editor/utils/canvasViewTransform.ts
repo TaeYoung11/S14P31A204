@@ -16,6 +16,15 @@ export function resolveCanvasViewTransform(points: number[]): CanvasViewTransfor
   }
 }
 
+export function resolveCanvasRotationCenter(sitePoints: number[]): { centerX: number; centerY: number } | null {
+  const bounds = getFlatPointsBounds(sitePoints)
+  if (!bounds) return null
+  return {
+    centerX: bounds.cx,
+    centerY: bounds.cy,
+  }
+}
+
 /**
  * 점을 임의 중심점 기준으로 회전한다.
  * - 편집 상태(canonical)와 렌더 상태(view) 좌표를 상호 변환할 때 사용한다.

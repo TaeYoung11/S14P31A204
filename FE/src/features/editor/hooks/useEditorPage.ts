@@ -789,6 +789,7 @@ export function useEditorPage() {
   const [isLibraryOpen, setIsLibraryOpen] = useState(false)
   const [libraryElements, setLibraryElements] = useState<ThreeDLibraryPreset[]>([])
   const [isGridVisible, setIsGridVisible] = useState(false)
+  const [userViewRotationRadians, setUserViewRotationRadians] = useState(0)
   /** 연결 도구에서 첫 번째로 선택된 버블 id */
   /** 인라인 라벨 편집 상태 */
   const [labelEditState, setLabelEditState] = useState<{
@@ -3328,6 +3329,7 @@ export function useEditorPage() {
   } = useWorkspaceCoordinateFramePolicy({
     bubbleSitePoints,
     sharedSitePlanPoints,
+    userViewRotationRadians,
   })
   // layout effect에서 먼저 ref를 갱신해 bootstrap 초기 publish 경로도 최신 매핑을 사용하게 한다.
   useLayoutEffect(() => {
@@ -5480,6 +5482,8 @@ export function useEditorPage() {
     sitePlanPoints: sharedSitePlanPoints,
     bubbleCanvasViewTransform,
     floorCanvasViewTransform,
+    userViewRotationRadians,
+    setUserViewRotationRadians,
     siteAreaM2,
     siteAreaPyeong,
     bubbleFloors,
