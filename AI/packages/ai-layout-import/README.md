@@ -68,6 +68,13 @@ When enabled, generated elements follow these rules:
 - slab: one `IfcSlab` per floor boundary
 - roof: one `IfcRoof` from the top-floor boundary
 
+`generate_openings` has version-specific meaning:
+
+- V2: inferred openings from adjacency and connection intent. V2 does not accept
+  explicit `openings[]` entries.
+- V3: explicit openings from `openings[]` entries with host wall refs, positions,
+  and dimensions.
+
 Shared wall generation rules are currently:
 
 - only `axis-aligned` rooms with `angle = 0`
@@ -83,6 +90,7 @@ V2 inferred opening rules:
 - normal circulation creates `IfcOpeningElement + IfcDoor`
 - weak relation or `strength < 0.5` records adjacency metadata only; no opening is generated
 - an opening is never generated unless the final room geometry produced a host shared room boundary wall
+- V2 does not accept explicit `openings[]`; explicit openings remain a V3 contract
 - space merge is never inferred from a strong connection; merge requires an explicit future contract
 
 Generated IFC semantic property sets:
