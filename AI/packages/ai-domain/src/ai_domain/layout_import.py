@@ -174,6 +174,20 @@ class AdjacencyInput(LayoutImportBaseModel):
             raise ValueError("from_room_id and to_room_id must be different")
         return self
 
+    @model_validator(mode="after")
+    def validate_bubble_id_pair(self) -> AdjacencyInput:
+        if self.source_bubble_id is None and self.target_bubble_id is None:
+            return self
+
+        if self.source_bubble_id is None or self.target_bubble_id is None:
+            raise ValueError(
+                "source_bubble_id and target_bubble_id must both be provided together"
+            )
+
+        if self.source_bubble_id == self.target_bubble_id:
+            raise ValueError("source_bubble_id and target_bubble_id must be different")
+        return self
+
 
 class BoundaryInput(LayoutImportBaseModel):
     """Floor boundary polygon input."""
