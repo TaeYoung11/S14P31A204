@@ -22,7 +22,6 @@ import {
 import { toCanvasPolygon } from '../../utils/siteBoundaryValidation'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
 import { FloorPlanEmpty, FloorPlanLoading } from './TwoDCanvasOverlays'
-import { TwoDSiteValidationBanner } from './TwoDSiteValidationBanner'
 import type { RoomDragState } from './TwoDRoomsLayer'
 import { TwoDCanvasStage } from './TwoDCanvasStage'
 import { useCanvasGridLines } from './useCanvasGridLines'
@@ -578,6 +577,7 @@ export function TwoDCanvas({
         openings={openings}
         selectedOpeningId={selectedOpeningId}
         selectedOpeningIds={selectedOpeningIds}
+        outsideOpeningIds={siteValidation.outsideOpeningIds}
         createOpeningOnWall={createOpeningOnWall}
         onOpeningDelete={onOpeningDelete}
         onOpeningDragStart={setOpeningDragState}
@@ -594,7 +594,6 @@ export function TwoDCanvas({
         deletingPinId={deletingPinId ?? null}
         marquee={marquee}
       />
-      <TwoDSiteValidationBanner siteValidation={siteValidation} />
       {wallContextMenu && (
         <div
           className="fixed z-[9999] min-w-[140px] rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg"

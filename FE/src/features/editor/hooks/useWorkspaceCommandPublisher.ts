@@ -441,6 +441,15 @@ export function useWorkspaceCommandPublisher({
     updateWall(wallId, patch)
   }, [updateWall])
 
+  const markFloorPlanLayoutChanged = useCallback((patch: Record<string, unknown>) => {
+    const normalizedPatch = compactRecord({
+      ...patch,
+      clientUpdatedAtMs: Date.now(),
+    })
+    if (!hasMeaningfulValue(normalizedPatch)) return
+    pendingCommandRef.current = updateEntityCommand('floor_plan_layout', 'layout', normalizedPatch)
+  }, [])
+
   return useMemo(() => ({
     createWall,
     updateWall,
@@ -452,6 +461,7 @@ export function useWorkspaceCommandPublisher({
     updateWallGeometry,
     updateWallEndpoint,
     updateWallStyle,
+    markFloorPlanLayoutChanged,
     updateIfcElement,
     deleteIfcElement,
     updateRoom,
@@ -474,6 +484,7 @@ export function useWorkspaceCommandPublisher({
     updateWallEndpoint,
     updateWallGeometry,
     updateWallStyle,
+    markFloorPlanLayoutChanged,
     upsertOpening,
   ])
 }

@@ -356,7 +356,7 @@ export function buildFloorPlanLayoutImportPayload(
   bubbles: BubbleData[],
   connections: ConnectionData[],
   boundaryInput: LayoutImportBoundaryInput,
-  options: { spaceHeightMm?: number } = {},
+  options: { spaceHeightMm?: number; additionalFloors?: number[] } = {},
 ): LayoutImportV2 {
   const mmPerPx = resolveMmPerPxForFloorPlan(bubbles)
   const uniqueBubbles = getUniqueBubbles(bubbles)
@@ -402,7 +402,12 @@ export function buildFloorPlanLayoutImportPayload(
       target_bubble_id: connection.to,
     }))
 
-  const floors = Array.from(new Set(rooms.map((room) => room.floor))).sort((a, b) => a - b)
+  const additionalFloors = (options.additionalFloors ?? [])
+    .map((floor) => normalizeFloorPlanFloor(floor))
+  const floors = Array.from(new Set([
+    ...rooms.map((room) => room.floor),
+    ...additionalFloors,
+  ])).sort((a, b) => a - b)
   const boundaries = floors
     .map((floor) => toLayoutImportBoundaryFromInput(boundaryInput, uniqueBubbles, mmPerPx, floor).boundary)
     .filter((boundary): boundary is LayoutImportV2Boundary => Boolean(boundary))

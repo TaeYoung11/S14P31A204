@@ -4227,7 +4227,60 @@ export function useEditorPage() {
         return
       }
       const latestSnapshot = latestBubbleSnapshotRef.current
-      const generationBubbles = mapBubblesForFloorPlanGenerate(latestSnapshot.bubbles)
+      // 2D 레이어 편집이 버블 원본과 분리되어 있을 수 있어(예: canSyncBubbleStateFrom2D=false),
+      // 생성 직전에는 레이어 Room 정보를 버블 스냅샷에 우선 병합해 층/치수/좌표 드리프트를 줄인다.
+      const roomByBubbleId = new Map<string, {
+        floor: number
+        x: number
+        y: number
+        width: number
+        height: number
+        widthMm: number
+        heightMm: number
+        label: string
+        type: string
+        material?: string
+        color: string
+      }>()
+      floorLayers.forEach((layer, index) => {
+        const floorNumber = index + 1
+        layer.rooms.forEach((room) => {
+          roomByBubbleId.set(room.bubbleId, {
+            floor: floorNumber,
+            x: room.x,
+            y: room.y,
+            width: room.width,
+            height: room.height,
+            widthMm: room.widthMm,
+            heightMm: room.heightMm,
+            label: room.label,
+            type: room.type,
+            material: room.material,
+            color: room.color,
+          })
+        })
+      })
+
+      const mergedGenerationBubbles = latestSnapshot.bubbles.map((bubble) => {
+        const room = roomByBubbleId.get(bubble.id)
+        if (!room) return bubble
+        return {
+          ...bubble,
+          floor: room.floor,
+          x: room.x,
+          y: room.y,
+          width: room.width,
+          height: room.height,
+          widthMm: room.widthMm,
+          heightMm: room.heightMm,
+          label: room.label,
+          type: room.type,
+          material: room.material ?? bubble.material,
+          color: room.color,
+        }
+      })
+
+      const generationBubbles = mapBubblesForFloorPlanGenerate(mergedGenerationBubbles)
       const generationBoundaryInput = mapLayoutBoundaryInputForFloorPlanGenerate(layoutBoundaryInput)
       const layoutImport = buildFloorPlanLayoutImportPayload(
         projectId,
@@ -4235,7 +4288,10 @@ export function useEditorPage() {
         generationBubbles,
         latestSnapshot.connections,
         generationBoundaryInput,
-        { spaceHeightMm: options.spaceHeightMm },
+        {
+          spaceHeightMm: options.spaceHeightMm,
+          additionalFloors: floorLayers.map((_, index) => index + 1),
+        },
       )
       const response = await requestFloorPlanGenerate({
         projectId,
@@ -4280,6 +4336,7 @@ export function useEditorPage() {
     bubbles.length,
     clearFloorPlanGenerateTimeout,
     currentProjectName,
+    floorLayers,
     flushBubbleSnapshotSaveToDb,
     isCurrentProjectOwner,
     isCurrentProjectOwnerKnown,
@@ -4413,16 +4470,25 @@ export function useEditorPage() {
   }
   const handleAddFloorLayer = useCallback(() => {
     addFloorLayer()
+    workspaceCommandPublisher.markFloorPlanLayoutChanged({
+      action: 'add_floor_layer',
+    })
     markLocalFloorPlanSnapshotChanged()
-  }, [addFloorLayer, markLocalFloorPlanSnapshotChanged])
+  }, [addFloorLayer, markLocalFloorPlanSnapshotChanged, workspaceCommandPublisher])
   const handleRenameFloorLayer = useCallback((layerId: string, name: string) => {
     if (!name.trim()) return
     renameFloorLayer(layerId, name)
+    workspaceCommandPublisher.markFloorPlanLayoutChanged({
+      action: 'rename_floor_layer',
+      layerId,
+      name: name.trim(),
+    })
     markLocalFloorPlanSnapshotChanged()
-  }, [markLocalFloorPlanSnapshotChanged, renameFloorLayer])
+  }, [markLocalFloorPlanSnapshotChanged, renameFloorLayer, workspaceCommandPublisher])
   const handleDeleteFloorLayer = useCallback((layerId: string) => {
     if (floorLayers.length <= 1) return
     const deletedWallIds = new Set(floorWalls.filter((wall) => wall.floorLayerId === layerId).map((wall) => wall.id))
+    const deletedLayerName = floorLayers.find((layer) => layer.id === layerId)?.name ?? null
     deleteFloorLayer(layerId)
     setFloorWalls((prev) => prev.filter((wall) => wall.floorLayerId !== layerId))
     setFloorOpenings((prev) => prev.filter((opening) => !deletedWallIds.has(opening.wallId)))
@@ -4446,8 +4512,20 @@ export function useEditorPage() {
       delete next[layerId]
       return next
     })
+    workspaceCommandPublisher.markFloorPlanLayoutChanged({
+      action: 'delete_floor_layer',
+      layerId,
+      layerName: deletedLayerName,
+    })
     markLocalFloorPlanSnapshotChanged()
-  }, [deleteFloorLayer, floorLayers.length, floorOpenings, floorWalls, markLocalFloorPlanSnapshotChanged])
+  }, [
+    deleteFloorLayer,
+    floorLayers,
+    floorOpenings,
+    floorWalls,
+    markLocalFloorPlanSnapshotChanged,
+    workspaceCommandPublisher,
+  ])
 
   const {
     handleCreateFloorWall: baseHandleCreateFloorWall,
