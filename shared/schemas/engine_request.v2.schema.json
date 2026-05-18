@@ -174,20 +174,54 @@
       }
     },
     "rotationDeg3": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["x", "y", "z"],
-      "properties": {
-        "x": {
-          "type": "number"
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "z": {
+              "type": "number"
+            }
+          }
         },
-        "y": {
-          "type": "number"
-        },
-        "z": {
-          "type": "number"
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["axis", "angle", "pivot"],
+          "properties": {
+            "axis": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["x", "y", "z"],
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "z": {
+                  "type": "number"
+                }
+              }
+            },
+            "angle": {
+              "type": "number"
+            },
+            "pivot": {
+              "type": "string",
+              "enum": ["BBOX_CENTER"]
+            }
+          }
         }
-      }
+      ]
     },
     "rect2dMm": {
       "type": "object",
