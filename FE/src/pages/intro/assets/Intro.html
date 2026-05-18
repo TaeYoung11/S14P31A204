@@ -646,6 +646,576 @@
         transform: translateX(350%);
       }
     }
+
+    /* modern landing refresh */
+    :root {
+      --bg: #eef2f7;
+      --bg-2: #ede9fe;
+      --accent: #5b46e8;
+      --accent-2: #7c3aed;
+      --accent-soft: rgba(91, 70, 232, 0.12);
+      --accent-glow: rgba(124, 58, 237, 0.28);
+    }
+
+    body {
+      background:
+        radial-gradient(900px 520px at 72% 18%, rgba(139, 92, 246, 0.18), transparent 65%),
+        linear-gradient(135deg, #f8fafc 0%, #f1efff 46%, #f5f3ff 100%);
+      letter-spacing: 0;
+    }
+
+    .veil {
+      background:
+        linear-gradient(90deg, rgba(248, 250, 252, 0.99) 0%, rgba(248, 250, 252, 0.95) 31%, rgba(248, 250, 252, 0.72) 39%, rgba(248, 250, 252, 0.18) 54%, rgba(248, 250, 252, 0.02) 70%),
+        radial-gradient(900px 600px at 81% 44%, rgba(91, 70, 232, 0.1), transparent 74%),
+        radial-gradient(620px 520px at 42% 52%, rgba(255, 255, 255, 0.88), transparent 72%);
+    }
+
+    .grid-overlay {
+      opacity: 0.2;
+      animation: gridDrift 18s linear infinite;
+    }
+
+    .motion-layer,
+    .beam-layer,
+    .scanline-layer {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .motion-layer {
+      overflow: hidden;
+      mix-blend-mode: multiply;
+    }
+
+    .motion-layer::before,
+    .motion-layer::after {
+      content: "";
+      position: absolute;
+      width: 56vw;
+      height: 56vw;
+      min-width: 560px;
+      min-height: 560px;
+      border-radius: 38% 62% 54% 46%;
+      filter: blur(46px);
+      opacity: .22;
+      transform: translateZ(0);
+      animation: meshMove 13s ease-in-out infinite alternate;
+    }
+
+    .motion-layer::before {
+      right: -12vw;
+      top: -18vw;
+      background: conic-gradient(from 120deg, rgba(91, 70, 232, .7), rgba(124, 58, 237, .55), rgba(167, 139, 250, .42), rgba(91, 70, 232, .7));
+    }
+
+    .motion-layer::after {
+      right: 16vw;
+      bottom: -30vw;
+      background: conic-gradient(from 20deg, rgba(139, 92, 246, .44), rgba(244, 114, 182, .24), rgba(91, 70, 232, .38), rgba(139, 92, 246, .44));
+      animation-delay: -4s;
+    }
+
+    .beam-layer {
+      background:
+        linear-gradient(116deg, transparent 0 45%, rgba(255,255,255,.58) 49%, transparent 53% 100%),
+        linear-gradient(72deg, transparent 0 62%, rgba(91,70,232,.09) 66%, transparent 70% 100%);
+      opacity: .65;
+      animation: beamSweep 7.5s ease-in-out infinite;
+    }
+
+    .scanline-layer {
+      background: linear-gradient(180deg, transparent, rgba(91,70,232,.08), transparent);
+      height: 34vh;
+      inset: -34vh 0 auto;
+      opacity: .45;
+      animation: scanDrop 6.5s cubic-bezier(.2,.8,.2,1) infinite;
+    }
+
+    header.nav {
+      padding: clamp(18px, 2.4vw, 30px) clamp(20px, 3.4vw, 44px);
+    }
+
+    .nav-link {
+      display: none;
+    }
+
+    .nav-cta {
+      min-height: 48px;
+      padding: 0 24px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #5b46e8, #7c3aed);
+      box-shadow:
+        0 18px 44px rgba(91,70,232,.28),
+        0 0 0 10px rgba(255,255,255,.72);
+      font-weight: 700;
+      font-size: 15px;
+    }
+
+    .nav-cta:hover {
+      background: linear-gradient(135deg, #4f46e5, #6d28d9);
+      transform: translateY(-2px);
+    }
+
+    .hero {
+      left: clamp(28px, 5vw, 72px);
+      top: 52%;
+      max-width: min(470px, 31vw);
+      animation: heroReveal .8s cubic-bezier(.2, .8, .2, 1) both;
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: -38px -42px -34px -34px;
+      z-index: -1;
+      border-radius: 30px;
+      background: linear-gradient(105deg, rgba(255,255,255,.82), rgba(255,255,255,.48));
+      box-shadow: 0 28px 90px rgba(91,70,232,.08);
+      backdrop-filter: blur(10px);
+      opacity: .72;
+    }
+
+    .eyebrow {
+      border-color: rgba(91, 70, 232, 0.18);
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: 0 12px 36px rgba(15, 23, 42, 0.08);
+    }
+
+    h1.title {
+      font-size: clamp(48px, 5.9vw, 92px);
+      line-height: 0.98;
+      letter-spacing: 0;
+      filter: drop-shadow(0 18px 42px rgba(15, 23, 42, 0.10));
+    }
+
+    h1.title .accent {
+      background: linear-gradient(110deg, #4f46e5 0%, #7c3aed 36%, #8b5cf6 62%, #5b46e8 100%);
+      background-size: 220% auto;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: titleShine 5s ease-in-out infinite;
+      text-shadow: 0 0 34px rgba(124, 58, 237, 0.18);
+    }
+
+    .hero p.lead {
+      max-width: 460px;
+      font-size: clamp(16px, 1.38vw, 19px);
+      color: #334155;
+      margin-bottom: 30px;
+    }
+
+    .ctas {
+      flex-wrap: wrap;
+      margin-bottom: 26px;
+    }
+
+    .btn {
+      min-height: 48px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 18px 40px rgba(91, 70, 232, 0.26);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-primary::after {
+      content: "";
+      position: absolute;
+      inset: -40% auto -40% -70%;
+      width: 56%;
+      transform: rotate(18deg);
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.72), transparent);
+      animation: ctaShine 3.4s ease-in-out infinite;
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #4f46e5, #6d28d9);
+      box-shadow: 0 22px 52px rgba(91, 70, 232, 0.34);
+    }
+
+    .btn-ghost {
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }
+
+    .watermark {
+      background: linear-gradient(90deg, rgba(91, 70, 232, 0.1), rgba(124, 58, 237, 0.08));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .stage-frame {
+      position: fixed;
+      right: clamp(18px, 3.2vw, 54px);
+      top: 50%;
+      width: min(47vw, 780px);
+      height: min(64vh, 620px);
+      transform: translateY(-50%);
+      z-index: 3;
+      pointer-events: none;
+      border-radius: 38px;
+      border: 1px solid rgba(124, 58, 237, .16);
+      background:
+        linear-gradient(135deg, rgba(255,255,255,.14), rgba(124,58,237,.035)),
+        radial-gradient(circle at 68% 26%, rgba(124,58,237,.16), transparent 42%);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.72),
+        0 34px 110px rgba(91,70,232,.11);
+      animation: stageFloat 6s ease-in-out infinite;
+    }
+
+    .stage-frame::before,
+    .stage-frame::after {
+      content: "";
+      position: absolute;
+      border-radius: inherit;
+      pointer-events: none;
+    }
+
+    .stage-frame::before {
+      inset: 18px;
+      border: 1px solid rgba(91,70,232,.09);
+      background-image:
+        linear-gradient(to right, rgba(91,70,232,.06) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(91,70,232,.06) 1px, transparent 1px);
+      background-size: 54px 54px;
+      mask-image: linear-gradient(90deg, transparent, black 18%, black 86%, transparent);
+    }
+
+    .stage-frame::after {
+      left: 8%;
+      right: 8%;
+      bottom: 11%;
+      height: 18px;
+      background: radial-gradient(ellipse at center, rgba(91,70,232,.22), transparent 70%);
+      filter: blur(12px);
+      animation: stageShadow 4.2s ease-in-out infinite;
+    }
+
+    .workflow-pills {
+      position: fixed;
+      right: clamp(32px, 4.4vw, 76px);
+      bottom: clamp(26px, 5vh, 58px);
+      z-index: 6;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(72px, 1fr));
+      width: min(43vw, 650px);
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    .workflow-pills span {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.68);
+      border: 1px solid rgba(124,58,237,.12);
+      color: #64748b;
+      font-weight: 700;
+      box-shadow: 0 16px 48px rgba(15,23,42,.07);
+      backdrop-filter: blur(12px);
+      animation: pillGlow 16.8s ease-in-out infinite;
+    }
+
+    .workflow-pills span:nth-child(2) {
+      animation-delay: 4.2s;
+    }
+
+    .workflow-pills span:nth-child(3) {
+      animation-delay: 8.4s;
+    }
+
+    .workflow-pills span:nth-child(4) {
+      animation-delay: 12.6s;
+    }
+
+    .foot {
+      padding-inline: clamp(24px, 5vw, 64px);
+      display: none;
+    }
+
+    @keyframes heroReveal {
+      from {
+        opacity: 0;
+        transform: translateY(calc(-50% + 18px));
+      }
+      to {
+        opacity: 1;
+        transform: translateY(-50%);
+      }
+    }
+
+    @keyframes panelFloat {
+      0%, 100% {
+        transform: translateY(-50%);
+      }
+      50% {
+        transform: translateY(calc(-50% - 10px));
+      }
+    }
+
+    @keyframes gridDrift {
+      from {
+        background-position: 0 0;
+      }
+      to {
+        background-position: 64px 64px;
+      }
+    }
+
+    @keyframes meshMove {
+      from {
+        transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+      }
+      to {
+        transform: translate3d(-6vw, 4vh, 0) rotate(18deg) scale(1.08);
+      }
+    }
+
+    @keyframes beamSweep {
+      0%, 100% {
+        transform: translateX(-8%);
+        opacity: .28;
+      }
+      45%, 60% {
+        transform: translateX(8%);
+        opacity: .72;
+      }
+    }
+
+    @keyframes scanDrop {
+      0% {
+        transform: translateY(0);
+      }
+      72%, 100% {
+        transform: translateY(150vh);
+      }
+    }
+
+    @keyframes titleShine {
+      0%, 100% {
+        background-position: 0% center;
+      }
+      50% {
+        background-position: 100% center;
+      }
+    }
+
+    @keyframes ctaShine {
+      0%, 58% {
+        left: -70%;
+      }
+      100% {
+        left: 120%;
+      }
+    }
+
+    @keyframes metricRise {
+      from {
+        opacity: 0;
+        transform: translateY(16px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes cardDrift {
+      0%, 100% {
+        transform: translateY(0);
+      }
+      50% {
+        transform: translateY(12px);
+      }
+    }
+
+    @keyframes progressBreath {
+      0%, 100% {
+        width: 72%;
+      }
+      50% {
+        width: 88%;
+      }
+    }
+
+    @keyframes boardReveal {
+      from {
+        opacity: 0;
+        transform: translateY(calc(-50% + 22px)) scale(.98);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(-50%) scale(1);
+      }
+    }
+
+    @keyframes boardFloat {
+      0%, 100% {
+        transform: translateY(-50%);
+      }
+      50% {
+        transform: translateY(calc(-50% - 12px));
+      }
+    }
+
+    @keyframes roomPulse {
+      0%, 100% {
+        box-shadow: 0 18px 45px rgba(91,70,232,.1);
+      }
+      50% {
+        box-shadow: 0 18px 55px rgba(91,70,232,.22);
+      }
+    }
+
+    @keyframes modelRise {
+      0%, 100% {
+        transform: rotateX(58deg) rotateZ(-18deg) translateY(0);
+      }
+      50% {
+        transform: rotateX(58deg) rotateZ(-18deg) translateY(-8px);
+      }
+    }
+
+    @keyframes stageFloat {
+      0%, 100% {
+        transform: translateY(-50%) translateX(0);
+      }
+      50% {
+        transform: translateY(calc(-50% - 8px)) translateX(4px);
+      }
+    }
+
+    @keyframes stageShadow {
+      0%, 100% {
+        opacity: .42;
+        transform: scaleX(.92);
+      }
+      50% {
+        opacity: .72;
+        transform: scaleX(1.06);
+      }
+    }
+
+    @keyframes pillGlow {
+      0%, 19%, 100% {
+        background: rgba(255,255,255,.68);
+        color: #64748b;
+        box-shadow: 0 16px 48px rgba(15,23,42,.07);
+      }
+      6%, 16% {
+        background: linear-gradient(135deg, #5b46e8, #7c3aed);
+        color: #fff;
+        box-shadow: 0 18px 48px rgba(91,70,232,.28);
+      }
+    }
+
+    @media (max-width: 980px) {
+      .hero {
+        top: 42%;
+        max-width: min(560px, 78vw);
+      }
+
+      .hero::before {
+        inset: -28px -26px -28px -26px;
+      }
+
+      .stage-frame {
+        right: 18px;
+        left: 18px;
+        top: auto;
+        bottom: 22px;
+        width: auto;
+        height: 44vh;
+        transform: none;
+      }
+
+      .workflow-pills {
+        left: 26px;
+        right: 26px;
+        bottom: 30px;
+        width: auto;
+      }
+    }
+
+    @media (max-width: 720px) {
+      body,
+      html {
+        overflow: hidden;
+      }
+
+      .hero {
+        top: 38%;
+        left: 22px;
+        right: 22px;
+        max-width: none;
+      }
+
+      h1.title {
+        font-size: clamp(40px, 14vw, 64px);
+      }
+
+      .hero p.lead {
+        max-width: 320px;
+      }
+
+      .btn {
+        width: auto;
+        max-width: 280px;
+      }
+
+      .ctas {
+        gap: 10px;
+      }
+
+      .stage-frame {
+        display: none;
+      }
+
+      .workflow-pills {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+        left: 16px;
+        right: 16px;
+        bottom: 20px;
+      }
+
+      .workflow-pills span {
+        min-height: 34px;
+        font-size: 12px;
+      }
+
+      .side-marker,
+      .ticks,
+      .watermark {
+        display: none;
+      }
+
+      footer.foot {
+        padding: 22px;
+        font-size: 10px;
+      }
+
+      .keywords {
+        gap: 16px;
+        max-width: 100%;
+        overflow: hidden;
+      }
+
+      .keywords span:not(:last-child)::after {
+        display: none;
+      }
+    }
   </style>
 </head>
 
@@ -653,6 +1223,10 @@
   <canvas id="scene-canvas"></canvas>
   <div class="grid-overlay"></div>
   <div class="veil"></div>
+  <div class="motion-layer"></div>
+  <div class="beam-layer"></div>
+  <div class="scanline-layer"></div>
+  <div class="stage-frame"></div>
 
   <div class="ticks tl"></div>
   <div class="ticks tr"></div>
@@ -671,30 +1245,36 @@
 
   <main>
     <section class="hero">
+      <div class="eyebrow">
+        <span class="dot"></span>
+        <span>AI DESIGN WORKFLOW</span>
+      </div>
       <h1 class="title">
-        <span class="accent">설계</span>의 언어를<br>
-        바꾸다.
+        아이디어를<br>
+        <span class="accent">공간</span>으로.
       </h1>
       <p class="lead">
-        건축사의 초기 설계, 이제 AI와 함께 시작합니다.
+        버블 다이어그램에서 2D, 3D, 실사 렌더까지 이어지는 AI 기반 건축 설계 흐름.
       </p>
       <div class="ctas">
         <a id="go-login" class="btn btn-primary" href="Login.html">
           시작하기 <span class="arrow">→</span>
         </a>
+        <a class="btn btn-ghost" href="About.html">
+          서비스 보기
+        </a>
       </div>
     </section>
   </main>
 
-  <footer class="foot">
-    <div class="keywords">
-      <span>PRECISION</span>
-      <span>CLARITY</span>
-      <span>STRUCTURE</span>
-    </div>
-  </footer>
-
   <div class="watermark">BATANG</div>
+
+  <div class="workflow-pills" aria-hidden="true">
+    <span>버블</span>
+    <span>2D</span>
+    <span>3D</span>
+    <span>실사</span>
+  </div>
 
   <!-- Tweaks panel -->
   <div class="tweaks" id="tweaks-panel">
@@ -756,8 +1336,8 @@
     scene.background = null;
 
     const W = () => window.innerWidth, H = () => window.innerHeight;
-    const camera = new THREE.PerspectiveCamera(28, W() / H(), 0.1, 200);
-    const camTarget = new THREE.Vector3(0, 1.4, 0);
+    const camera = new THREE.PerspectiveCamera(30, W() / H(), 0.1, 200);
+    const camTarget = new THREE.Vector3(6.05, 1.45, -0.35);
 
     /* ─── Lights ─── */
     const ambient = new THREE.AmbientLight(0xffffff, 0.55);
@@ -784,49 +1364,29 @@
     fill.position.set(-6, 4, -4);
     scene.add(fill);
 
-    /* ─── Ground (blueprint) ─── */
-    function makeBlueprintTexture() {
+    /* ─── Ground (clean presentation plane) ─── */
+    function makeGroundTexture() {
       const c = document.createElement('canvas');
       c.width = c.height = 1024;
       const ctx = c.getContext('2d');
       ctx.fillStyle = '#fafbff';
       ctx.fillRect(0, 0, 1024, 1024);
 
-      // fine grid
-      ctx.strokeStyle = 'rgba(17,24,39,0.05)';
+      ctx.strokeStyle = 'rgba(91,70,232,0.035)';
       ctx.lineWidth = 1;
       for (let i = 0; i <= 32; i++) {
         const p = (i / 32) * 1024;
         ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, 1024); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(1024, p); ctx.stroke();
       }
-      // major grid
-      ctx.strokeStyle = 'rgba(17,24,39,0.10)';
+
+      ctx.strokeStyle = 'rgba(91,70,232,0.055)';
       ctx.lineWidth = 1.5;
       for (let i = 0; i <= 8; i++) {
         const p = (i / 8) * 1024;
         ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, 1024); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(1024, p); ctx.stroke();
       }
-      // floor plan sketch
-      ctx.strokeStyle = 'rgba(17,24,39,0.18)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(180, 220, 660, 580);
-      ctx.strokeRect(220, 260, 280, 240);
-      ctx.strokeRect(540, 260, 260, 200);
-      ctx.strokeRect(220, 540, 580, 220);
-      // dashed dimensions
-      ctx.setLineDash([8, 8]);
-      ctx.strokeStyle = 'rgba(79,70,229,0.45)';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(140, 180, 740, 660);
-      ctx.setLineDash([]);
-      // tiny labels
-      ctx.fillStyle = 'rgba(17,24,39,0.35)';
-      ctx.font = '14px monospace';
-      ctx.fillText('A-01', 188, 210);
-      ctx.fillText('+0.000', 545, 252);
-      ctx.fillText('PLAN · 1F', 222, 800);
 
       const tex = new THREE.CanvasTexture(c);
       tex.colorSpace = THREE.SRGBColorSpace;
@@ -835,7 +1395,7 @@
     }
 
     const groundMat = new THREE.MeshStandardMaterial({
-      map: makeBlueprintTexture(),
+      map: makeGroundTexture(),
       roughness: 0.95,
       metalness: 0.0,
     });
@@ -844,23 +1404,345 @@
     ground.receiveShadow = true;
     scene.add(ground);
 
+    /* ─── Three.js workflow: bubble → 2D → 3D → realistic render ─── */
+    const workflowGroup = new THREE.Group();
+    workflowGroup.position.set(8.35, 0.05, -0.45);
+    scene.add(workflowGroup);
+
+    const bubbleGroup = new THREE.Group();
+    const planGroup = new THREE.Group();
+    const renderGroup = new THREE.Group();
+    bubbleGroup.scale.setScalar(1.02);
+    planGroup.scale.setScalar(0.9);
+    renderGroup.scale.setScalar(0.95);
+    workflowGroup.add(bubbleGroup, planGroup, renderGroup);
+
+    const clamp01 = v => Math.max(0, Math.min(1, v));
+    const smooth01 = v => {
+      const t = clamp01(v);
+      return t * t * (3 - 2 * t);
+    };
+
+    function setObjectOpacity(object, opacity) {
+      object.visible = opacity > 0.015;
+      object.traverse((node) => {
+        const materials = node.material ? (Array.isArray(node.material) ? node.material : [node.material]) : [];
+        materials.forEach((material) => {
+          material.transparent = true;
+          material.opacity = opacity;
+          if (material.depthTest === false) {
+            material.depthWrite = false;
+          } else {
+            material.depthWrite = opacity > 0.65;
+          }
+        });
+      });
+    }
+
+    function makeLine(points, color = 0x7c3aed, opacity = 1) {
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const material = new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+      });
+      return new THREE.Line(geometry, material);
+    }
+
+    function makeTube(points, radius = 0.025, color = 0x7c3aed, opacity = 0.72) {
+      const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.35);
+      const geometry = new THREE.TubeGeometry(curve, 48, radius, 10, false);
+      const material = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+        depthTest: false,
+      });
+      return new THREE.Mesh(geometry, material);
+    }
+
+    function makeWorkflowPlanTexture() {
+      const c = document.createElement('canvas');
+      c.width = 1600;
+      c.height = 1100;
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.fillRect(0, 0, c.width, c.height);
+
+      ctx.strokeStyle = 'rgba(15,23,42,0.06)';
+      ctx.lineWidth = 1;
+      for (let x = 0; x <= c.width; x += 40) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, c.height); ctx.stroke();
+      }
+      for (let y = 0; y <= c.height; y += 40) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(c.width, y); ctx.stroke();
+      }
+
+      const wall = 'rgba(15,23,42,0.82)';
+      const thin = 'rgba(15,23,42,0.48)';
+      const dim = 'rgba(91,70,232,0.5)';
+      ctx.strokeStyle = wall;
+      ctx.lineWidth = 14;
+      ctx.lineJoin = 'round';
+      ctx.strokeRect(210, 170, 1080, 720);
+      ctx.beginPath();
+      ctx.moveTo(650, 170); ctx.lineTo(650, 890);
+      ctx.moveTo(210, 520); ctx.lineTo(650, 520);
+      ctx.moveTo(650, 475); ctx.lineTo(1290, 475);
+      ctx.moveTo(930, 475); ctx.lineTo(930, 890);
+      ctx.moveTo(210, 690); ctx.lineTo(470, 690);
+      ctx.moveTo(1090, 475); ctx.lineTo(1090, 890);
+      ctx.stroke();
+
+      ctx.strokeStyle = thin;
+      ctx.lineWidth = 4;
+      ctx.strokeRect(260, 230, 300, 210);
+      ctx.strokeRect(735, 230, 310, 150);
+      ctx.strokeRect(760, 570, 120, 210);
+      ctx.strokeRect(1130, 570, 100, 220);
+
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(650, 520, 92, Math.PI, Math.PI * 1.5);
+      ctx.arc(930, 475, 86, Math.PI * 0.5, Math.PI);
+      ctx.arc(1090, 690, 80, Math.PI * 1.5, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(15,23,42,0.3)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 8; i++) {
+        ctx.strokeRect(300 + i * 34, 580, 28, 58);
+      }
+      ctx.strokeRect(320, 745, 190, 88);
+      ctx.strokeRect(745, 260, 260, 82);
+      ctx.strokeRect(1000, 610, 66, 180);
+
+      ctx.strokeStyle = dim;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([16, 12]);
+      ctx.strokeRect(160, 120, 1180, 820);
+      ctx.setLineDash([]);
+
+      ctx.strokeStyle = dim;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(210, 980); ctx.lineTo(1290, 980);
+      ctx.moveTo(210, 960); ctx.lineTo(210, 1000);
+      ctx.moveTo(1290, 960); ctx.lineTo(1290, 1000);
+      ctx.moveTo(1420, 170); ctx.lineTo(1420, 890);
+      ctx.moveTo(1400, 170); ctx.lineTo(1440, 170);
+      ctx.moveTo(1400, 890); ctx.lineTo(1440, 890);
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(15,23,42,0.55)';
+      ctx.font = '24px monospace';
+      ctx.fillText('12,535', 710, 1018);
+      ctx.save();
+      ctx.translate(1460, 560);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText('7,130', 0, 0);
+      ctx.restore();
+
+      const texture = new THREE.CanvasTexture(c);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 8;
+      return texture;
+    }
+
+    const bubblePoints = [
+      { x: -2.55, y: 2.25, z: -1.48, r: 1.0, sx: 1.5, sy: 0.95 },
+      { x: -0.25, y: 3.35, z: -1.02, r: 0.76, sx: 1.28, sy: 0.9 },
+      { x: 2.1, y: 2.2, z: -1.28, r: 1.15, sx: 1.55, sy: 0.9 },
+      { x: 0.0, y: 1.05, z: -0.34, r: 0.82, sx: 1.32, sy: 0.78 },
+    ];
+    const bubbleBoard = new THREE.Mesh(
+      new THREE.BoxGeometry(6.8, 4.25, 0.08),
+      new THREE.MeshPhysicalMaterial({
+        color: 0xf8f7ff,
+        transparent: true,
+        opacity: 0,
+        roughness: 0.22,
+        metalness: 0.04,
+        transmission: 0.22,
+        thickness: 0.32,
+        depthWrite: false,
+        depthTest: false,
+      })
+    );
+    bubbleBoard.position.set(0, 1.82, -1.72);
+    const bubbleShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(6.95, 4.4),
+      new THREE.MeshBasicMaterial({
+        color: 0x7c3aed,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: false,
+        side: THREE.DoubleSide,
+      })
+    );
+    bubbleShadow.position.set(0, 1.68, -1.84);
+    const bubbleMaterial = new THREE.MeshPhysicalMaterial({
+      color: 0x7c3aed,
+      transparent: true,
+      opacity: 0.42,
+      roughness: 0.26,
+      metalness: 0.04,
+      transmission: 0.18,
+      thickness: 0.5,
+      clearcoat: 0.6,
+      clearcoatRoughness: 0.2,
+      depthWrite: false,
+    });
+    const bubbleRimMaterial = new THREE.MeshPhysicalMaterial({
+      color: 0x5b46e8,
+      transparent: true,
+      opacity: 0,
+      roughness: 0.22,
+      metalness: 0.08,
+      transmission: 0.08,
+      thickness: 0.35,
+      clearcoat: 0.55,
+      depthWrite: false,
+    });
+    bubblePoints.forEach((point, index) => {
+      const node = new THREE.Group();
+      node.position.set(point.x, point.y, point.z);
+      node.rotation.set(-0.16, 0.18, -0.08);
+      node.userData.baseY = point.y;
+      node.userData.bubbleIndex = index;
+      node.userData.isBubbleNode = true;
+
+      const body = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), bubbleMaterial.clone());
+      body.scale.set(point.r * point.sx, point.r * point.sy, point.r * 0.42);
+      body.userData.isBubbleBody = true;
+      body.castShadow = true;
+      node.add(body);
+
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.035, 12, 80), bubbleRimMaterial.clone());
+      rim.scale.set(point.r * point.sx * 1.02, point.r * point.sy * 1.02, point.r * 0.16);
+      rim.userData.isBubbleRim = true;
+      node.add(rim);
+
+      bubbleGroup.add(node);
+    });
+    const bubbleConnector = makeTube([
+      new THREE.Vector3(-2.55, 2.25, -1.48),
+      new THREE.Vector3(-0.25, 3.35, -1.02),
+      new THREE.Vector3(2.1, 2.2, -1.28),
+      new THREE.Vector3(0.0, 1.05, -0.34),
+      new THREE.Vector3(-2.55, 2.25, -1.48),
+    ], 0.036, 0x8b5cf6, 0.72);
+    bubbleConnector.userData.isBubbleConnector = true;
+    bubbleGroup.add(bubbleConnector);
+
+    const planFrame = new THREE.Mesh(
+      new THREE.BoxGeometry(7.55, 5.05, 0.1),
+      new THREE.MeshPhysicalMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+        roughness: 0.2,
+        metalness: 0.02,
+        transmission: 0.14,
+        thickness: 0.28,
+        depthWrite: false,
+        depthTest: false,
+      })
+    );
+    const planPlane = new THREE.Mesh(
+      new THREE.PlaneGeometry(7.25, 4.75),
+      new THREE.MeshBasicMaterial({
+        map: makeWorkflowPlanTexture(),
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: false,
+        side: THREE.DoubleSide,
+      })
+    );
+    planFrame.position.set(0, 1.88, -1.7);
+    planPlane.position.set(0, 1.88, -1.56);
+    const planShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(7.8, 5.3),
+      new THREE.MeshBasicMaterial({
+        color: 0x7c3aed,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: false,
+        side: THREE.DoubleSide,
+      })
+    );
+    planShadow.position.set(0, 1.72, -1.82);
+    planGroup.add(planShadow, planFrame, planPlane);
+    const renderMats = {
+      grass: new THREE.MeshStandardMaterial({ color: 0x7f9f68, roughness: 0.9 }),
+      wall: new THREE.MeshStandardMaterial({ color: 0xf5f1ea, roughness: 0.62 }),
+      roof: new THREE.MeshStandardMaterial({ color: 0x30323a, roughness: 0.58 }),
+      wood: new THREE.MeshStandardMaterial({ color: 0xb88652, roughness: 0.68 }),
+      glass: new THREE.MeshStandardMaterial({ color: 0x26364f, roughness: 0.18, metalness: 0.18 }),
+      path: new THREE.MeshStandardMaterial({ color: 0xd8d2c6, roughness: 0.86 }),
+      shrub: new THREE.MeshStandardMaterial({ color: 0x6d8d5d, roughness: 0.82 }),
+    };
+
+    function addRenderBox(w, h, d, x, y, z, mat, parent = renderGroup) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      parent.add(mesh);
+      return mesh;
+    }
+
+    const renderYard = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 4.8), renderMats.grass);
+    renderYard.rotation.x = -Math.PI / 2;
+    renderYard.position.y = 0.02;
+    renderYard.receiveShadow = true;
+    renderGroup.add(renderYard);
+    addRenderBox(3.15, 1.42, 1.9, -0.55, 0.74, -0.2, renderMats.wall);
+    addRenderBox(1.45, 1.12, 1.55, 1.65, 0.58, 0.1, renderMats.wall);
+    addRenderBox(3.45, 0.32, 2.18, -0.55, 1.58, -0.2, renderMats.roof);
+    addRenderBox(1.7, 0.28, 1.78, 1.65, 1.25, 0.1, renderMats.roof);
+    addRenderBox(3.8, 0.08, 1.05, -0.1, 0.08, 1.25, renderMats.wood);
+    addRenderBox(0.55, 0.95, 0.04, -1.65, 0.58, 0.78, renderMats.glass);
+    addRenderBox(0.72, 0.62, 0.04, -0.55, 0.72, 0.78, renderMats.glass);
+    addRenderBox(0.68, 0.78, 0.04, 1.25, 0.62, 0.9, renderMats.glass);
+    addRenderBox(0.48, 1.08, 0.05, 0.25, 0.56, 0.79, renderMats.wood);
+    addRenderBox(0.72, 0.04, 2.4, 0.28, 0.045, 2.0, renderMats.path);
+    [-2.8, -2.35, 2.65, 3.05].forEach((x, i) => {
+      const shrub = new THREE.Mesh(new THREE.SphereGeometry(0.26 + (i % 2) * 0.08, 18, 12), renderMats.shrub);
+      shrub.position.set(x, 0.28, 1.65 - (i % 2) * 0.5);
+      shrub.castShadow = true;
+      renderGroup.add(shrub);
+    });
+    renderGroup.position.set(0, 0.05, -0.65);
+    renderGroup.rotation.y = -0.18;
+
+    setObjectOpacity(bubbleGroup, 0);
+    setObjectOpacity(planGroup, 0);
+    setObjectOpacity(renderGroup, 0);
+
     /* ─── Building blocks (architectural massing) ─── */
     const blocksGroup = new THREE.Group();
-    scene.add(blocksGroup);
+    workflowGroup.add(blocksGroup);
 
-    let ACCENT = new THREE.Color('#4f46e5');
+    let ACCENT = new THREE.Color('#5b46e8');
 
-    const concreteColors = [0xeceef3, 0xdfe1e8, 0xd0d2dc, 0xc1c4cf];
+    const concreteColors = [0xf8fafc, 0xf1f5f9, 0xe8eef6, 0xe2e8f0];
 
     function makeBlock(x, z, w, h, d, opts = {}) {
       const isAccent = opts.accent || false;
       const baseColor = isAccent ? ACCENT.clone() : new THREE.Color(concreteColors[Math.floor(Math.random() * concreteColors.length)]);
 
-      // Main concrete mass — clean solid box, no flat texture
+      // Main architectural mass: pale mineral/glass tone instead of toy-like blocks.
       const mainMat = new THREE.MeshStandardMaterial({
         color: baseColor,
-        roughness: isAccent ? 0.55 : 0.86,
-        metalness: isAccent ? 0.08 : 0.02,
+        roughness: isAccent ? 0.38 : 0.64,
+        metalness: isAccent ? 0.22 : 0.08,
       });
       const geo = new THREE.BoxGeometry(w, h, d);
       const m = new THREE.Mesh(geo, mainMat);
@@ -873,33 +1755,38 @@
       details.scale.y = 0.001;
       m.add(details);
 
-      // Window grid — individual recessed window panes (real 3D)
+      // Facade grid — larger glass panes and calmer mullions for a premium architectural model.
       const darkGlass = new THREE.MeshStandardMaterial({
-        color: isAccent ? 0x1e1b4b : 0x1a2030,
-        roughness: 0.18, metalness: 0.55,
+        color: isAccent ? 0x3b2f78 : 0x27445e,
+        roughness: 0.16,
+        metalness: 0.38,
       });
       const litGlass = new THREE.MeshStandardMaterial({
-        color: 0xffe7a8,
-        roughness: 0.3, metalness: 0.0,
-        emissive: 0xffc764, emissiveIntensity: 0.7,
+        color: 0xdff7ff,
+        roughness: 0.22,
+        metalness: 0.18,
+        emissive: 0xa78bfa,
+        emissiveIntensity: 0.32,
       });
       const accentLit = new THREE.MeshStandardMaterial({
-        color: 0xfff0d0,
-        roughness: 0.3, metalness: 0.0,
-        emissive: 0xffd97a, emissiveIntensity: 0.85,
+        color: 0xf1efff,
+        roughness: 0.18,
+        metalness: 0.2,
+        emissive: 0xc4b5fd,
+        emissiveIntensity: 0.38,
       });
       const sillMat = new THREE.MeshStandardMaterial({
-        color: isAccent ? 0x3730a3 : 0x6b7280,
-        roughness: 0.7,
+        color: isAccent ? 0xddd6fe : 0xcbd5e1,
+        roughness: 0.62,
       });
 
-      const floorH = 0.5;
+      const floorH = 0.72;
       const floors = Math.max(1, Math.floor((h - 0.4) / floorH));
-      const winH = 0.28;
-      const winW = 0.22;
-      const colSpacing = 0.34;
+      const winH = 0.44;
+      const winW = 0.36;
+      const colSpacing = 0.58;
       const inset = 0.045;
-      const litChance = isAccent ? 0.42 : 0.28;
+      const litChance = isAccent ? 0.34 : 0.2;
       // deterministic-ish pseudo random per building
       const seed = (x * 1000 + z * 100 + w * 10) | 0;
       const rand = (i) => {
@@ -952,13 +1839,13 @@
       }
       // floor slab bands between window rows (subtle horizontal lines)
       const slabMat = new THREE.MeshStandardMaterial({
-        color: isAccent ? 0x312e81 : 0x9ca3af,
-        roughness: 0.85,
+        color: isAccent ? 0xc4b5fd : 0xdbe4ee,
+        roughness: 0.78,
       });
       for (let i = 1; i < floors; i++) {
         const cy = -h / 2 + 0.45 + i * floorH - winH / 2 - 0.06;
         const slab = new THREE.Mesh(
-          new THREE.BoxGeometry(w + 0.02, 0.04, d + 0.02),
+          new THREE.BoxGeometry(w + 0.025, 0.025, d + 0.025),
           slabMat
         );
         slab.position.y = cy;
@@ -971,7 +1858,8 @@
         new THREE.BoxGeometry(roofW, roofH, roofD),
         new THREE.MeshStandardMaterial({
           color: isAccent ? 0x4338ca : 0x9aa0ad,
-          roughness: 0.7,
+          roughness: 0.58,
+          metalness: 0.1,
         })
       );
       roofMesh.position.set(w * 0.1, h / 2 + roofH / 2, -d * 0.1);
@@ -983,8 +1871,8 @@
         const portal = new THREE.Mesh(
           new THREE.BoxGeometry(0.42, 0.5, 0.04),
           new THREE.MeshStandardMaterial({
-            color: isAccent ? 0x1e1b4b : 0x1f2937,
-            roughness: 0.4,
+            color: isAccent ? 0x5b46e8 : 0x334155,
+            roughness: 0.34,
             metalness: 0.3,
           })
         );
@@ -1006,9 +1894,9 @@
       // wireframe edge for crisp architectural look
       const edges = new THREE.EdgesGeometry(geo);
       const lineMat = new THREE.LineBasicMaterial({
-        color: isAccent ? 0x312e81 : 0x111827,
+        color: isAccent ? 0x8b5cf6 : 0x94a3b8,
         transparent: true,
-        opacity: isAccent ? 0.4 : 0.2,
+        opacity: isAccent ? 0.18 : 0.12,
       });
       const wf = new THREE.LineSegments(edges, lineMat);
       m.add(wf);
@@ -1034,14 +1922,14 @@
     /* compositions */
     const COMPOSITIONS = {
       city: [
-        { x: -4.0, z: -1.5, w: 1.4, h: 2.6, d: 1.4 },
-        { x: -2.3, z: 0.5, w: 1.6, h: 4.2, d: 1.6, accent: true },
-        { x: 0.0, z: -2.0, w: 2.0, h: 1.6, d: 1.6 },
-        { x: 0.6, z: 1.6, w: 1.2, h: 3.4, d: 1.8 },
-        { x: 2.6, z: 0.2, w: 1.8, h: 2.4, d: 1.4 },
-        { x: 2.4, z: -2.4, w: 1.2, h: 1.2, d: 1.2 },
-        { x: 4.4, z: 1.2, w: 1.4, h: 3.0, d: 1.4 },
-        { x: -1.0, z: 3.4, w: 1.6, h: 1.2, d: 1.2 },
+        { x: -4.0, z: -1.5, w: 1.15, h: 3.1, d: 1.3 },
+        { x: -2.25, z: 0.45, w: 1.32, h: 5.2, d: 1.38, accent: true },
+        { x: -0.15, z: -2.05, w: 2.7, h: 0.9, d: 1.35 },
+        { x: 0.75, z: 1.45, w: 1.0, h: 4.3, d: 1.55 },
+        { x: 2.65, z: 0.1, w: 1.45, h: 3.1, d: 1.2 },
+        { x: 2.35, z: -2.45, w: 2.2, h: 0.75, d: 1.1 },
+        { x: 4.35, z: 1.15, w: 1.1, h: 3.8, d: 1.12 },
+        { x: -1.15, z: 3.35, w: 2.1, h: 0.8, d: 1.15 },
       ],
       tower: [
         { x: 0.0, z: 0.0, w: 2.4, h: 6.6, d: 2.4, accent: true },
@@ -1197,6 +2085,79 @@
     /* ─── Animation loop ─── */
     let autoOrbit = true;
     let baseAngle = 0;
+    const workflowStart = performance.now() / 1000;
+    const WORKFLOW_STEP = 4.2;
+    const WORKFLOW_TOTAL = WORKFLOW_STEP * 4;
+
+    function workflowAlpha(phase, stage, fade = 0.8) {
+      let local = phase - stage * WORKFLOW_STEP;
+      if (local < 0) local += WORKFLOW_TOTAL;
+      if (local > WORKFLOW_STEP) return 0;
+      return Math.min(smooth01(local / fade), smooth01((WORKFLOW_STEP - local) / fade));
+    }
+
+    function workflowLocal(phase, stage) {
+      let local = phase - stage * WORKFLOW_STEP;
+      if (local < 0) local += WORKFLOW_TOTAL;
+      return local;
+    }
+
+    function updateWorkflowScene(now) {
+      const phase = (now - workflowStart) % WORKFLOW_TOTAL;
+      const bubbleAlpha = workflowAlpha(phase, 0);
+      const planAlpha = workflowAlpha(phase, 1);
+      const buildingAlpha = workflowAlpha(phase, 2, 0.95);
+      const renderAlpha = workflowAlpha(phase, 3, 0.95);
+      const buildingLocal = workflowLocal(phase, 2);
+      const buildingProgress = buildingAlpha > 0 ? smooth01(buildingLocal / 1.25) : 0;
+
+      setObjectOpacity(bubbleGroup, bubbleAlpha);
+      setObjectOpacity(planGroup, planAlpha);
+      setObjectOpacity(renderGroup, renderAlpha);
+      setObjectOpacity(blocksGroup, buildingAlpha);
+
+      bubbleGroup.lookAt(camera.position);
+      bubbleGroup.rotateX(-0.08);
+      bubbleGroup.rotateY(-0.24);
+      bubbleGroup.children.forEach((child) => {
+        if (child.userData.isBubbleConnector && child.material) {
+          child.material.opacity = bubbleAlpha * 0.72;
+          return;
+        }
+        if (!child.userData.isBubbleNode) return;
+
+        const index = child.userData.bubbleIndex || 0;
+        const pulse = 1 + Math.sin(now * 2.2 + index * 0.9) * 0.045;
+        child.scale.setScalar(pulse);
+        child.position.y = child.userData.baseY + Math.sin(now * 1.3 + index) * 0.08;
+        child.traverse((node) => {
+          if (!node.material) return;
+          const materials = Array.isArray(node.material) ? node.material : [node.material];
+          materials.forEach((material) => {
+            const baseOpacity = node.userData.isBubbleRim ? 0.74 : 0.5 + index * 0.04;
+            material.transparent = true;
+            material.depthWrite = false;
+            material.opacity = bubbleAlpha * baseOpacity;
+          });
+        });
+      });
+
+      planGroup.lookAt(camera.position);
+      planFrame.scale.setScalar(0.86 + planAlpha * 0.08);
+      planPlane.scale.setScalar(0.86 + planAlpha * 0.08);
+      planFrame.material.opacity = planAlpha * 0.62;
+      planPlane.material.opacity = planAlpha;
+      planShadow.material.opacity = planAlpha * 0.09;
+      planFrame.position.y = 1.86 + planAlpha * 0.16 + Math.sin(now * 1.1) * 0.03;
+      planPlane.position.y = planFrame.position.y;
+
+      renderGroup.position.y = 0.05 + renderAlpha * 0.22 + Math.sin(now * 1.2) * 0.025;
+      renderGroup.rotation.y = -0.22 + Math.sin(now * 0.55) * 0.035;
+      renderGroup.scale.setScalar(0.88 + renderAlpha * 0.12);
+
+      return { buildingProgress };
+    }
+
     function tick(t) {
       // ease mouse
       mouse.x += (mouse.tx - mouse.x) * 0.06;
@@ -1217,7 +2178,7 @@
 
       if (!userInteracted) baseAngle += 0.0014;
 
-      const radius = 18 * zoom;
+      const radius = 14.2 * zoom;
       const yaw = userInteracted
         ? (manualRot + mouse.x * 0.6)
         : baseAngle;
@@ -1227,21 +2188,18 @@
       camera.position.x = Math.sin(yaw) * radius;
       camera.position.z = Math.cos(yaw) * radius;
       camera.position.y = Math.max(2, 9 - pitchOffset * 10);
+      camera.position.x += 5.8;
       camera.lookAt(camTarget);
 
-      // morph + hover
       const now = performance.now() / 1000;
+      const workflow = updateWorkflowScene(now);
       blocksGroup.children.forEach(m => {
         const ud = m.userData;
-        // morph scale
-        if (!ud.morphDone) {
-          const sy = morphScale(now - ud.morphStart, ud.flatRatio, ud.cubeRatio);
-          m.scale.y = sy;
-          ud.baseY = (ud.finalH * sy) / 2;
-          if (sy >= 1) ud.morphDone = true;
-        } else if (ud.details) {
-          // reveal 3D detail only after morph completes
-          ud.detailReveal += (1 - ud.detailReveal) * 0.08;
+        const sy = ud.flatRatio + (1 - ud.flatRatio) * workflow.buildingProgress;
+        m.scale.y = sy;
+        ud.baseY = (ud.finalH * sy) / 2;
+        if (ud.details) {
+          ud.detailReveal += (smooth01((workflow.buildingProgress - 0.46) / 0.54) - ud.detailReveal) * 0.1;
           if (!ud.details.visible) ud.details.visible = true;
           ud.details.scale.y = ud.detailReveal;
           ud.details.scale.x = 0.5 + 0.5 * ud.detailReveal;
