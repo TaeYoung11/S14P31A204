@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
-import type { FloorLayer, FloorOpening, FloorWall, IfcElementInfo, Point2D } from '../types'
+import type { FloorLayer, FloorOpening, FloorRoom, FloorWall, IfcElementInfo, Point2D } from '../types'
 import type { ThreeDLibraryPreset } from '../components/canvas/threeDLibrary.types'
 import type { WorkspaceCommand, WorkspaceCommandSource } from '../types/workspaceCommand.types'
 import {
@@ -396,6 +396,25 @@ export function useWorkspaceCommandPublisher({
     pendingCommandRef.current = deleteEntityCommand(openingEntity(opening.type), globalId)
   }, [cancelPendingCreate])
 
+  const createRoom = useCallback((room: FloorRoom, options?: {
+    storeyGlobalId?: string
+    storeyName?: string
+  }) => {
+    if (issuedLocalCreateIdsRef.current.has(room.id)) return
+
+    pendingCommandRef.current = createEntityCommand('room', room.id, compactRecord({
+      ifcClass: 'IfcSpace',
+      storeyGlobalId: options?.storeyGlobalId,
+      storeyName: options?.storeyName,
+      widthMm: getFiniteNumber(room.widthMm),
+      heightMm: getFiniteNumber(room.heightMm),
+      label: room.label,
+      type: room.type,
+      material: room.material,
+      color: room.color,
+    }))
+  }, [])
+
   const updateIfcElement = useCallback((element: IfcElementInfo, patch: Record<string, unknown>) => {
     const commandId = toIfcElementCommandId(element)
     if (!commandId) return
@@ -589,6 +608,15 @@ export function useWorkspaceCommandPublisher({
     updateWall(wallId, patch)
   }, [updateWall])
 
+  const markFloorPlanLayoutChanged = useCallback((patch: Record<string, unknown>) => {
+    const normalizedPatch = compactRecord({
+      ...patch,
+      clientUpdatedAtMs: Date.now(),
+    })
+    if (!hasMeaningfulValue(normalizedPatch)) return
+    pendingCommandRef.current = updateEntityCommand('floor_plan_layout', 'layout', normalizedPatch)
+  }, [])
+
   return useMemo(() => ({
     createWall,
     updateWall,
@@ -597,9 +625,11 @@ export function useWorkspaceCommandPublisher({
     updateOpening,
     upsertOpening,
     deleteOpening,
+    createRoom,
     updateWallGeometry,
     updateWallEndpoint,
     updateWallStyle,
+    markFloorPlanLayoutChanged,
     updateIfcElement,
     deleteIfcElement,
     createLibraryElement,
@@ -617,6 +647,7 @@ export function useWorkspaceCommandPublisher({
     createFloorLayer,
     createOpening,
     createLibraryElement,
+    createRoom,
     createWall,
     deleteFloorLayer,
     deleteIfcElement,
@@ -634,6 +665,7 @@ export function useWorkspaceCommandPublisher({
     updateWallEndpoint,
     updateWallGeometry,
     updateWallStyle,
+    markFloorPlanLayoutChanged,
     upsertOpening,
   ])
 }
