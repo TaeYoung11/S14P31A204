@@ -12,13 +12,13 @@ export default function EditorRightPanelsAgentDock({ props }: AgentDockProps) {
   if (!assistantPanelProps) return null
 
   return (
-    <div className="relative z-[120] flex w-[280px] min-h-0 shrink-0 flex-col overflow-hidden border-l border-[#DFE4F0] bg-white">
+    <div className="relative z-[120] flex h-full min-h-0 w-[320px] shrink-0 flex-col overflow-hidden rounded-2xl border border-[#E2E6EF] bg-white shadow-sm">
       <AssistantPanel
         {...assistantPanelProps}
         isDocked
         isOpen
         offset={{ x: 0, y: 0 }}
-        width={280}
+        width={320}
         height={0}
       />
     </div>
