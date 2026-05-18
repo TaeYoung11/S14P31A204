@@ -169,6 +169,10 @@ type DeferredIfcProxyCleanupRecord = {
   scheduledAt: number
 }
 
+type DeferredHierarchySelectionRequest =
+  | { kind: 'ifc'; token: number; localId: number }
+  | { kind: 'library'; token: number; id: string }
+
 type ComponentsModule = typeof import('@thatopen/components')
 type TransformControlsModule = typeof import('three/examples/jsm/controls/TransformControls.js')
 type IfcRaycastPick = {
@@ -404,6 +408,10 @@ export default function ThatOpenIfcCanvas({
   const deferredIfcProxyCleanupRecordsRef = useRef<Map<number, DeferredIfcProxyCleanupRecord>>(new Map())
   const deferredIfcProxyCleanupTokenRef = useRef(0)
   const deletedIfcLocalIdSetRef = useRef<Set<number>>(new Set())
+  const deferredHierarchySelectionRef = useRef<DeferredHierarchySelectionRequest | null>(null)
+  const deferredHierarchySelectionTimerRef = useRef<number | null>(null)
+  const handledIfcSelectionRequestTokenRef = useRef(0)
+  const handledLibrarySelectionRequestTokenRef = useRef(0)
   const resetTransformInteractionRef = useRef<((reason: string) => void) | null>(null)
   const storeyVisibilitySignatureRef = useRef<string | null>(null)
   const ifcMoveTraceSeqRef = useRef(0)
@@ -420,6 +428,7 @@ export default function ThatOpenIfcCanvas({
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMessage, setErrorMessage] = useState('')
   const [ifcEditFeedback, setIfcEditFeedback] = useState<{ kind: 'info' | 'error'; text: string } | null>(null)
+  const [hierarchySelectionRetryTick, setHierarchySelectionRetryTick] = useState(0)
   const isIfcMoveDebugEnabled = useCallback(() => {
     if (IFC_MOVE_DEBUG) return true
     if (typeof window === 'undefined') return false
@@ -679,6 +688,24 @@ export default function ThatOpenIfcCanvas({
       deferredSaveModelId,
     })
   }, [logIfcMove])
+  const scheduleDeferredHierarchySelectionFlush = useCallback((reason: string) => {
+    if (!deferredHierarchySelectionRef.current) return
+    if (typeof window === 'undefined') {
+      setHierarchySelectionRetryTick((prev) => prev + 1)
+      return
+    }
+    if (deferredHierarchySelectionTimerRef.current !== null) {
+      window.clearTimeout(deferredHierarchySelectionTimerRef.current)
+    }
+    deferredHierarchySelectionTimerRef.current = window.setTimeout(() => {
+      deferredHierarchySelectionTimerRef.current = null
+      logIfcMove('requested_select_deferred_retry', {
+        reason,
+        pendingKind: deferredHierarchySelectionRef.current?.kind ?? null,
+      })
+      setHierarchySelectionRetryTick((prev) => prev + 1)
+    }, 0)
+  }, [logIfcMove])
   const logTransformRuntimeAction = useCallback((payload: {
     [key: string]: unknown
     reason: string
@@ -694,7 +721,12 @@ export default function ThatOpenIfcCanvas({
     pendingCommitSessionId: string | null
   }) => {
     logIfcMove('transform_runtime_action', payload)
-  }, [logIfcMove])
+    const wasLocked = ['dragging', 'commit', 'cleanup'].includes(payload.prevPhase)
+    const isLocked = ['dragging', 'commit', 'cleanup'].includes(payload.nextPhase)
+    if (wasLocked && !isLocked) {
+      scheduleDeferredHierarchySelectionFlush('transform_runtime_unlocked')
+    }
+  }, [logIfcMove, scheduleDeferredHierarchySelectionFlush])
   const resolveCanonicalOwnerLocalId = useCallback((target: Selected3DTarget): number | null => {
     if (!target || target.source !== 'ifc') return null
     const editTarget = (target.object as IfcEditableObject3D | undefined)?.userData?.ifcEditTarget
@@ -4959,7 +4991,7 @@ export default function ThatOpenIfcCanvas({
         // 최초 로드 시에는 고정 패딩으로 맞추고, 이후 줌 반영은 zoomScale effect에서 처리한다.
         fitObjectWithPadding(THREE, world.camera.three, world.camera.controls, fragmentModel.object, 1.55)
         // 파싱된 IFC 층 목록을 상위 컴포넌트로 전달한다.
-        if (storeysWithElements.length > 0) onStoreysLoadRef.current?.(storeysWithElements)
+        onStoreysLoadRef.current?.(storeysWithElements)
         setStatus('ready')
       } catch (error) {
         if (disposed) return
@@ -5002,6 +5034,13 @@ export default function ThatOpenIfcCanvas({
       presetGroupRef.current = null
       pinMarkerGroupRef.current = null
       resetTransformInteractionRef.current = null
+      if (deferredHierarchySelectionTimerRef.current !== null) {
+        window.clearTimeout(deferredHierarchySelectionTimerRef.current)
+        deferredHierarchySelectionTimerRef.current = null
+      }
+      deferredHierarchySelectionRef.current = null
+      handledIfcSelectionRequestTokenRef.current = 0
+      handledLibrarySelectionRequestTokenRef.current = 0
       ifcPsetMetricsRef.current = { byId: {}, byName: {} }
       elementIdsByStoreyRef.current = new Map()
       canonicalIdMapRef.current = createEmptyIfcCanonicalIdMap()
@@ -5420,6 +5459,11 @@ export default function ThatOpenIfcCanvas({
     if (ifcElementSelectionRequestToken <= 0) return
     if (requestedIfcElementLocalId == null) return
     if (deletedIfcLocalIdSetRef.current.has(requestedIfcElementLocalId)) return
+    const pendingRequest = deferredHierarchySelectionRef.current
+    const isDeferredRetry = pendingRequest?.kind === 'ifc'
+      && pendingRequest.token === ifcElementSelectionRequestToken
+      && pendingRequest.localId === requestedIfcElementLocalId
+    if (ifcElementSelectionRequestToken <= handledIfcSelectionRequestTokenRef.current && !isDeferredRetry) return
     const sceneState = sceneRef.current
     if (!sceneState) return
     let isCancelled = false
@@ -5428,12 +5472,23 @@ export default function ThatOpenIfcCanvas({
           try {
             const runtimeState = transformRuntimeStateRef.current
             if (isRuntimeTransformLocked()) {
+              deferredHierarchySelectionRef.current = {
+                kind: 'ifc',
+                token: ifcElementSelectionRequestToken,
+                localId: requestedIfcElementLocalId,
+              }
+              handledLibrarySelectionRequestTokenRef.current = libraryElementSelectionRequestToken
               logIfcMove('requested_select_ifc_deferred_transform_active', {
                 requestedIfcElementLocalId,
+                token: ifcElementSelectionRequestToken,
                 phase: runtimeState.phase,
               })
               return
             }
+            if (isDeferredRetry) {
+              deferredHierarchySelectionRef.current = null
+            }
+            handledIfcSelectionRequestTokenRef.current = ifcElementSelectionRequestToken
             const currentTarget = selectedTargetRef.current
             if (currentTarget?.source === 'ifc' && currentTarget.hitLocalId === requestedIfcElementLocalId) return
 
@@ -5582,7 +5637,9 @@ export default function ThatOpenIfcCanvas({
   }, [
     ifcElementSelectionRequestToken,
     findMovedIfcProxyRecord,
+    hierarchySelectionRetryTick,
     isMovedIfcProxyObject,
+    libraryElementSelectionRequestToken,
     purgeIfcEditOverlays,
     reapplyPendingUnpersistedIfcColors,
     rehideMovedIfcProxyRegistry,
@@ -5599,6 +5656,11 @@ export default function ThatOpenIfcCanvas({
   useEffect(() => {
     if (libraryElementSelectionRequestToken <= 0) return
     if (!requestedLibraryElementId) return
+    const pendingRequest = deferredHierarchySelectionRef.current
+    const isDeferredRetry = pendingRequest?.kind === 'library'
+      && pendingRequest.token === libraryElementSelectionRequestToken
+      && pendingRequest.id === requestedLibraryElementId
+    if (libraryElementSelectionRequestToken <= handledLibrarySelectionRequestTokenRef.current && !isDeferredRetry) return
     const sceneState = sceneRef.current
     const presetGroup = presetGroupRef.current
     if (!sceneState || !presetGroup) return
@@ -5608,12 +5670,23 @@ export default function ThatOpenIfcCanvas({
       try {
         const runtimeState = transformRuntimeStateRef.current
         if (isRuntimeTransformLocked()) {
+          deferredHierarchySelectionRef.current = {
+            kind: 'library',
+            token: libraryElementSelectionRequestToken,
+            id: requestedLibraryElementId,
+          }
+          handledIfcSelectionRequestTokenRef.current = ifcElementSelectionRequestToken
           logIfcMove('requested_select_library_deferred_transform_active', {
             requestedLibraryElementId,
+            token: libraryElementSelectionRequestToken,
             phase: runtimeState.phase,
           })
           return
         }
+        if (isDeferredRetry) {
+          deferredHierarchySelectionRef.current = null
+        }
+        handledLibrarySelectionRequestTokenRef.current = libraryElementSelectionRequestToken
         const currentTarget = selectedTargetRef.current
         if (currentTarget?.source === 'library') {
           const selectedPreset = getLibraryPresetFromObject(currentTarget.object as LibraryObject3D)
@@ -5675,6 +5748,8 @@ export default function ThatOpenIfcCanvas({
     }
   }, [
     libraryElementSelectionRequestToken,
+    hierarchySelectionRetryTick,
+    ifcElementSelectionRequestToken,
     logIfcMove,
     isRuntimeTransformLocked,
     isMovedIfcProxyObject,
