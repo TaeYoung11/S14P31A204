@@ -376,7 +376,7 @@ export function buildFloorPlanLayoutImportPayload(
       id: sourceBubbleId,
       source_bubble_id: sourceBubbleId,
       original_label: bubble.label.trim() || sourceBubbleId,
-      original_type: toOptionalNonBlankString(bubble.originalType) ?? bubble.type,
+      original_type: toOptionalNonBlankString(bubble.originalType) ?? toOptionalNonBlankString(bubble.type) ?? 'other',
       name: bubble.label.trim() || sourceBubbleId,
       type: normalizeFloorPlanRoomType(bubble.type),
       width: toPositiveMillimeter(bubble.widthMm),
