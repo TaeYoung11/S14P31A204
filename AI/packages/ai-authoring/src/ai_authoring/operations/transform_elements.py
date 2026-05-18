@@ -14,6 +14,25 @@ from ai_authoring.operations.space_support import (
     translate_product,
 )
 
+LEGACY_ROTATION_XY_ERROR = (
+    "legacy rotation_deg only supports z; use axis-angle for x/y rotation"
+)
+
+
+def has_unsupported_legacy_rotation_xy(rotation: Any) -> bool:
+    if not isinstance(rotation, dict) or "axis" in rotation:
+        return False
+    for key in ("x", "y"):
+        value = rotation.get(key)
+        if value is None:
+            continue
+        try:
+            if abs(float(value)) > 1.0e-6:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
 
 def _rotation_axis_angle(rotation: Any) -> tuple[dict[str, Any], float, str] | None:
     if not isinstance(rotation, dict):
@@ -92,6 +111,8 @@ class TransformElementsHandler:
                 for target in rotation_targets(product):
                     changed |= modify_rotation_axis_angle(model, target, axis, angle, pivot)
             else:
+                if has_unsupported_legacy_rotation_xy(rotation):
+                    raise ValueError(LEGACY_ROTATION_XY_ERROR)
                 legacy_z = _legacy_rotation_z(rotation)
                 if legacy_z is not None:
                     for target in rotation_targets(product):

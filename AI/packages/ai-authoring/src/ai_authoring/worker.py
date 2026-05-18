@@ -32,6 +32,10 @@ from ai_authoring.engine_3d import (
 )
 # operations/__init__ 경유 → create_element @register 실행
 from ai_authoring.operations.registry import get as get_op_handler
+from ai_authoring.operations.transform_elements import (
+    LEGACY_ROTATION_XY_ERROR,
+    has_unsupported_legacy_rotation_xy,
+)
 from ai_authoring.operations.space_support import update_space
 from ai_authoring.post_validator import PostEditValidator
 from ai_authoring.utils import normalize_space_name, normalize_storey_name
@@ -246,6 +250,9 @@ class AuthoringWorker(BaseWorker):
                     if pivot != "BBOX_CENTER":
                         issues.append(f"{op_id}: rotation_deg.pivot only supports BBOX_CENTER")
                 else:
+                    if has_unsupported_legacy_rotation_xy(rotation):
+                        issues.append(f"{op_id}: {LEGACY_ROTATION_XY_ERROR}")
+                        continue
                     legacy_z = _legacy_rotation_z(rotation)
                     if legacy_z is not None:
                         self._validate_finite_number(op_id, "rotation_deg.z", legacy_z, issues)
