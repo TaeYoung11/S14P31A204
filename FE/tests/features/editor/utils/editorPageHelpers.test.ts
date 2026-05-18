@@ -203,6 +203,29 @@ describe('buildFloorPlanLayoutImportPayload', () => {
     expectNoBoundaryMetadata(payload)
     assertLayoutImportV2(payload)
   })
+
+  it('null optional bubble metadata is omitted from layoutImport rooms', () => {
+    const payload = buildPayload(
+      [
+        createBubble({
+          originalType: null,
+          material: null,
+          wallType: null,
+        } as Partial<BubbleData>),
+      ],
+      { source: 'none', reason: 'empty-bubbles' },
+    )
+
+    expect(payload.rooms[0]).toMatchObject({
+      id: 'room-a',
+      source_bubble_id: 'room-a',
+      original_label: 'Room A',
+      original_type: 'living',
+    })
+    expect(payload.rooms[0]).not.toHaveProperty('material')
+    expect(payload.rooms[0]).not.toHaveProperty('wall_type')
+    assertLayoutImportV2(payload)
+  })
 })
 
 describe('getLayoutImportBoundaryLogMetadata', () => {
