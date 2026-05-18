@@ -621,7 +621,7 @@ def test_layout_import_v2_rejects_unsupported_generation_policy() -> None:
         )
 
 
-def test_layout_import_v2_accepts_semantic_bim_seed_metadata() -> None:
+def test_layout_import_v2_accepts_semantic_metadata_for_inferred_openings() -> None:
     request = LayoutImportV2.model_validate(
         {
             "schema_version": "v2",
@@ -678,6 +678,8 @@ def test_layout_import_v2_accepts_semantic_bim_seed_metadata() -> None:
     assert request.adjacency is not None
     assert request.adjacency[0].intent is not None
     assert request.adjacency[0].intent.value == "open_passage"
+    assert request.adjacency[0].connection_strength is not None
+    assert request.adjacency[0].connection_strength.value == "strong"
 
 
 def test_layout_import_v2_rejects_generate_spaces_false() -> None:
