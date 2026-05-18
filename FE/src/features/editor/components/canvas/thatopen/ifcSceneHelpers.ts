@@ -280,6 +280,7 @@ export type ThatOpenSceneState = {
   camera: import('three').PerspectiveCamera | import('three').OrthographicCamera
   renderer: import('three').WebGLRenderer
   fragments: import('@thatopen/components').FragmentsManager
+  ifcLoader: import('@thatopen/components').IfcLoader
   hider: import('@thatopen/components').Hider
   raycaster: import('@thatopen/components').SimpleRaycaster
   transformControls: import('three/examples/jsm/controls/TransformControls.js').TransformControls

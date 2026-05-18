@@ -23,6 +23,11 @@ const toIfcGlobalId = (id: string): string | null => {
   return IFC_GLOBAL_ID_PATTERN.test(candidate) ? candidate : null
 }
 
+const toIfcElementCommandId = (element: IfcElementInfo): string | null => {
+  if (element.globalId && element.globalId.trim()) return element.globalId.trim()
+  return null
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -192,15 +197,13 @@ export function useWorkspaceCommandPublisher({
     const translationZ = getFiniteNumber(translationMm?.z)
     if (translationX !== null || translationY !== null || translationZ !== null) {
       if (!hasNonZeroTranslation(translationX, translationY, translationZ)) return
-      const maxAbs = Math.max(Math.abs(translationX ?? 0), Math.abs(translationY ?? 0), Math.abs(translationZ ?? 0))
-      const scale = maxAbs > 0 && maxAbs < 1000 ? 1000 : 1
       pendingCommandRef.current = updateEntityCommand('wall', globalId, compactRecord({
         storeyGlobalId,
         storeyName,
         translationMm: compactRecord({
-          x: translationX !== null ? translationX * scale : undefined,
-          y: translationY !== null ? translationY * scale : undefined,
-          z: translationZ !== null ? translationZ * scale : undefined,
+          x: translationX !== null ? translationX : undefined,
+          y: translationY !== null ? translationY : undefined,
+          z: translationZ !== null ? translationZ : undefined,
         }),
       }))
       return
@@ -308,18 +311,22 @@ export function useWorkspaceCommandPublisher({
   }, [cancelPendingCreate])
 
   const updateIfcElement = useCallback((element: IfcElementInfo, patch: Record<string, unknown>) => {
-    if (!element.globalId) return
+    const commandId = toIfcElementCommandId(element)
+    if (!commandId) return
     const translationMm = isRecord(patch.translationMm) ? patch.translationMm : null
     const translationX = getFiniteNumber(translationMm?.x)
     const translationY = getFiniteNumber(translationMm?.y)
     const translationZ = getFiniteNumber(translationMm?.z)
     if (translationX !== null || translationY !== null || translationZ !== null) {
       if (!hasNonZeroTranslation(translationX, translationY, translationZ)) return
-      pendingCommandRef.current = updateEntityCommand('ifcElement', element.globalId, {
+      pendingCommandRef.current = updateEntityCommand('ifcElement', commandId, {
+        globalId: element.globalId,
+        expressId: element.expressId,
+        ifcClass: element.ifcClass,
         translationMm: compactRecord({
-          x: translationX,
-          y: translationY,
-          z: translationZ,
+          x: translationX !== null ? translationX : undefined,
+          y: translationY !== null ? translationY : undefined,
+          z: translationZ !== null ? translationZ : undefined,
         }),
       })
       return
@@ -341,13 +348,19 @@ export function useWorkspaceCommandPublisher({
       delete nextPatch.rotation_degrees
     }
     if (hasMeaningfulValue(nextPatch)) {
-      pendingCommandRef.current = updateEntityCommand('ifcElement', element.globalId, nextPatch)
+      pendingCommandRef.current = updateEntityCommand('ifcElement', commandId, compactRecord({
+        globalId: element.globalId,
+        expressId: element.expressId,
+        ifcClass: element.ifcClass,
+        ...nextPatch,
+      }))
     }
   }, [])
 
   const deleteIfcElement = useCallback((element: IfcElementInfo) => {
-    if (!element.globalId) return
-    pendingCommandRef.current = deleteEntityCommand('ifcElement', element.globalId)
+    const commandId = toIfcElementCommandId(element)
+    if (!commandId) return
+    pendingCommandRef.current = deleteEntityCommand('ifcElement', commandId)
   }, [])
 
   const updateRoom = useCallback((roomId: string, patch: Record<string, unknown>) => {

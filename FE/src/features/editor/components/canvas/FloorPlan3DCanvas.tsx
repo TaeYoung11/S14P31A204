@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementInfo } from '../../types'
+import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '../../types'
 import { FLOOR_MM_PER_PX } from '../../constants'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
@@ -60,6 +60,10 @@ interface FloorPlan3DCanvasProps {
   onLibraryElementChange?: (id: string, patch: Partial<ThreeDLibraryPreset>) => void
   onLibraryElementDelete?: (id: string) => void
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
+  onIfcElementTransformCommit?: (
+    element: IfcElementInfo,
+    patch: Omit<IfcElementChange, 'expressId'>,
+  ) => void
   libraryDropRequest?: ThreeDLibraryDropRequest | null
   onResolveLibraryDrop?: (token: number, patch?: Partial<ThreeDLibraryPreset>) => void
   cameraViewPresetCommand?: ThreeDCameraViewPresetCommand
@@ -120,6 +124,7 @@ export function FloorPlan3DCanvas({
   onLibraryElementChange,
   onLibraryElementDelete,
   onIfcElementSelect,
+  onIfcElementTransformCommit,
   libraryDropRequest,
   onResolveLibraryDrop,
   cameraViewPresetCommand,
@@ -172,6 +177,7 @@ export function FloorPlan3DCanvas({
   const onLibraryElementChangeRef = useRef(onLibraryElementChange)
   const onLibraryElementDeleteRef = useRef(onLibraryElementDelete)
   const onIfcElementSelectRef = useRef(onIfcElementSelect)
+  const onIfcElementTransformCommitRef = useRef(onIfcElementTransformCommit)
   const onPinClickRef = useRef(onPinClick)
   const onPinCreateRef = useRef(onPinCreate)
   const onPinDeleteRef = useRef(onPinDelete)
@@ -179,6 +185,7 @@ export function FloorPlan3DCanvas({
   useEffect(() => { onLibraryElementChangeRef.current = onLibraryElementChange }, [onLibraryElementChange])
   useEffect(() => { onLibraryElementDeleteRef.current = onLibraryElementDelete }, [onLibraryElementDelete])
   useEffect(() => { onIfcElementSelectRef.current = onIfcElementSelect }, [onIfcElementSelect])
+  useEffect(() => { onIfcElementTransformCommitRef.current = onIfcElementTransformCommit }, [onIfcElementTransformCommit])
   useEffect(() => { onPinClickRef.current = onPinClick }, [onPinClick])
   useEffect(() => { onPinCreateRef.current = onPinCreate }, [onPinCreate])
   useEffect(() => { onPinDeleteRef.current = onPinDelete }, [onPinDelete])
@@ -699,7 +706,20 @@ export function FloorPlan3DCanvas({
         const entries = selectedEntriesRef.current
         if (entries.length > 1) {
           entries.forEach((entry) => {
-            if (entry.source !== 'library') return
+            if (entry.source === 'floor') {
+              const floorElement = getFloorPlanElementInfo(entry.object)
+              if (!floorElement) return
+              onIfcElementTransformCommitRef.current?.(entry.element, {
+                positionX: floorElement.positionX,
+                positionY: floorElement.positionY,
+                positionZ: floorElement.positionZ,
+                rotationX: floorElement.rotationX,
+                rotationY: floorElement.rotationY,
+                rotationZ: floorElement.rotationZ,
+              })
+              entry.element = floorElement
+              return
+            }
             const libraryObject = entry.object as LibraryObject3D
             const preset = getLibraryPresetFromObject(libraryObject)
             if (!preset) return
@@ -720,6 +740,14 @@ export function FloorPlan3DCanvas({
         if (primary.source === 'floor') {
           const floorElement = getFloorPlanElementInfo(primary.object)
           if (floorElement) {
+            onIfcElementTransformCommitRef.current?.(primary.element, {
+              positionX: floorElement.positionX,
+              positionY: floorElement.positionY,
+              positionZ: floorElement.positionZ,
+              rotationX: floorElement.rotationX,
+              rotationY: floorElement.rotationY,
+              rotationZ: floorElement.rotationZ,
+            })
             primary.element = floorElement
             onIfcElementSelectRef.current?.(floorElement)
           }

@@ -77,6 +77,7 @@ export type FloorPlanCanvasProps = Pick<
   | 'handleBubbleSelect'
   | 'handleSelectIfcElement'
   | 'handleDeleteIfcElement'
+  | 'handleCommitIfcElementTransform'
   | 'selectedIfcElement'
   | 'threeDDeleteRequestToken'
   | 'ifcElementChanges'
