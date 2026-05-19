@@ -21,8 +21,8 @@ interface ThreeDModeCanvasProps {
 /**
  * 3D 모드 캔버스 렌더링 전용 컴포넌트.
  *
- * 탭 전환 시 컴포넌트가 언마운트·리마운트되는 구조이므로,
- * `useFreshIfcUrl`을 통해 mount 시마다 presigned URL을 재발급해 만료 오류를 방지한다.
+ * 탭 전환 등으로 3D 캔버스가 다시 마운트될 때 현재 IFC URL을 우선 사용하고,
+ * 직접 fetch 불가능한 IFC source는 최신 IFC URL로 보강한다.
  */
 export default function ThreeDModeCanvas({
   editorProps,
@@ -31,11 +31,12 @@ export default function ThreeDModeCanvas({
   onThreeDCoordinatesChange,
   cameraViewPresetCommand,
 }: ThreeDModeCanvasProps) {
-  // mount 시마다 fresh presigned URL 발급 (만료된 URL로 인한 403 방지)
-  // assetId가 없거나 재발급 실패 시 mock IFC로 폴백
+  // 현재 IFC URL이 직접 fetch 가능하면 그대로 쓰고, 만료되었거나 접근 불가능하면 최신 IFC source로 보강한다.
+  // IFC source가 없으면 mock IFC를 fallback으로 사용한다.
   const freshIfcUrl = useFreshIfcUrl(
     editorProps.currentIfcAssetId,
     editorProps.currentIfcUrl ?? '/mock/shinchan_house.ifc',
+    editorProps.projectId ?? null,
   )
 
   useEffect(() => {

@@ -49,6 +49,16 @@ const formatChatType = (type: LlmChatLogItem['type']) => {
   return 'You'
 }
 
+const getChatLogKey = (log: LlmChatLogItem) => [
+  log.id,
+  log.type,
+  log.subType ?? 'none',
+  log.timestamp,
+  log.jobId ?? 'no-job',
+  log.jobStatus ?? 'no-status',
+  log.content.slice(0, 64),
+].join('|')
+
 export function AssistantPanel({
   isOpen,
   isDocked = false,
@@ -99,7 +109,7 @@ export function AssistantPanel({
           {chatLogs.map((log) => {
             const isUser = log.type?.toUpperCase() === 'USER'
             return (
-              <div key={log.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+              <div key={getChatLogKey(log)} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
                 <div
                   className={`max-w-[88%] rounded-2xl px-3 py-2 text-[12px] leading-5 ${
                     isUser

@@ -38,7 +38,9 @@ dev = [
 [tool.uv.workspace]
 members = ["packages/*"]
 
-# PyTorch CUDA 12.6 wheel index — torch 만 이 인덱스에서 당김 (explicit=true)
+# PyTorch CUDA 12.6 wheel index — torch / torchvision 모두 이 인덱스에서 당김
+# (explicit=true). Docker 빌드의 pip --index-url 과 동일한 wheel 조합을
+# 강제해 로컬/CI/컨테이너 환경 간 PyTorch ABI drift 를 막는다.
 [[tool.uv.index]]
 name = "pytorch-cu126"
 url = "https://download.pytorch.org/whl/cu126"
@@ -55,6 +57,7 @@ ai-planning-2d = { workspace = true }
 ai-planning-3d = { workspace = true }
 ai-rendering = { workspace = true }
 torch = { index = "pytorch-cu126" }
+torchvision = { index = "pytorch-cu126" }
 
 [tool.ruff]
 line-length = 100

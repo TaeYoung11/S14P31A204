@@ -2385,6 +2385,21 @@ async def test_pipeline_apply_create_door_on_house_kr_reuses_template(tmp_path):
     assert len(getattr(created_door, "ContainedInStructure", []) or []) == 1
     assert float(created_door.OverallWidth or 0.0) > 0.0
     assert float(created_door.OverallHeight or 0.0) > 0.0
+    updated_wall = applied_model.by_guid(wall["id"])
+    wall_body_reps = [
+        rep
+        for rep in getattr(updated_wall.Representation, "Representations", []) or []
+        if getattr(rep, "RepresentationIdentifier", None) == "Body"
+    ]
+    assert {
+        rep.RepresentationType
+        for rep in wall_body_reps
+    } == {"SweptSolid"}
+    assert all(
+        item.is_a("IfcExtrudedAreaSolid")
+        for rep in wall_body_reps
+        for item in getattr(rep, "Items", []) or []
+    )
     rep_types = {
         rep.RepresentationType
         for rep in getattr(created_door.Representation, "Representations", []) or []

@@ -7,6 +7,7 @@ exactly (no diffusion). Cheap and predictable sharpness/detail boost.
 from __future__ import annotations
 
 import hashlib
+import os
 import sys
 import types
 from pathlib import Path
@@ -26,7 +27,16 @@ DEFAULT_REALESRGAN_WEIGHT_URL = (
 REALESRGAN_X4PLUS_SHA256 = (
     "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"
 )
-DEFAULT_REALESRGAN_CACHE = Path.home() / ".cache" / "realesrgan"
+# Real-ESRGAN weight cache location.
+# Override via the `IFC2IMG_REALESRGAN_CACHE_DIR` environment variable so a
+# container can persist the weight on a mounted volume (the runtime user is
+# typically root, so the home-based default would otherwise live at
+# `/root/.cache/realesrgan` and be lost when the container is recreated).
+_REALESRGAN_CACHE_ENV = "IFC2IMG_REALESRGAN_CACHE_DIR"
+DEFAULT_REALESRGAN_CACHE = Path(
+    os.environ.get(_REALESRGAN_CACHE_ENV)
+    or (Path.home() / ".cache" / "realesrgan")
+)
 DEFAULT_REALESRGAN_WEIGHT = DEFAULT_REALESRGAN_CACHE / "RealESRGAN_x4plus.pth"
 DEFAULT_TILE = 256
 DEFAULT_TILE_PAD = 32
