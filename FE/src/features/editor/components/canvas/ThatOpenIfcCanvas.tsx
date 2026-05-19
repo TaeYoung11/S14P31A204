@@ -45,6 +45,7 @@ import {
   findLibraryRoot,
   getLibraryElementInfo,
   getLibraryPresetFromObject,
+  isPendingIfcAssetPlaceholder,
   refreshIfcAssetPresetMeshLayout,
   updateLibraryPresetData,
   type LibraryObject3D,
@@ -5935,11 +5936,7 @@ export default function ThatOpenIfcCanvas({
         libraryObject.visible = true
         return
       }
-      const isPendingIfcAssetPlaceholder =
-        libraryObject.userData?.ifcAssetPlaceholder === true &&
-        libraryObject.userData?.ifcAssetLoaded !== true &&
-        Boolean(preset.assetIfcUrl || preset.assetIfc)
-      if (isPendingIfcAssetPlaceholder) {
+      if (isPendingIfcAssetPlaceholder(libraryObject)) {
         libraryObject.visible = false
         return
       }
@@ -6726,6 +6723,7 @@ export default function ThatOpenIfcCanvas({
   }, [
     ifcElementSelectionRequestToken,
     commitActiveIfcBeforeHierarchySelection,
+    dispatchTransformRuntimeAction,
     findMovedIfcProxyRecord,
     hierarchySelectionRetryTick,
     isMovedIfcProxyObject,
@@ -6898,6 +6896,7 @@ export default function ThatOpenIfcCanvas({
   }, [
     libraryElementSelectionRequestToken,
     commitActiveIfcBeforeHierarchySelection,
+    dispatchTransformRuntimeAction,
     hierarchySelectionRetryTick,
     ifcElementSelectionRequestToken,
     logIfcMove,

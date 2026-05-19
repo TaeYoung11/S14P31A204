@@ -4130,11 +4130,11 @@ export function useEditorPage() {
     setSelectedConnectionPair(null)
   }
 
-  const handleClearCanvasSelection = () => {
+  const handleClearCanvasSelection = useCallback(() => {
     clearSelection()
     clearConnectionAndTwoDSelection()
     setSelectedIfcElement(null)
-  }
+  }, [clearConnectionAndTwoDSelection, clearSelection])
 
   const handleSelectIfcElement = useCallback((element: IfcElementInfo | null) => {
     setSelectedIfcElement((previous) => {
