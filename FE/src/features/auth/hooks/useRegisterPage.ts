@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import {
+  buildEmail,
+  DEFAULT_EMAIL_DOMAIN,
+  EMAIL_DOMAIN_OPTIONS,
+  EMAIL_PATTERN,
+  sanitizeEmailSegment,
+  type EmailDomainOption,
+} from '@/features/auth/constants/email'
 import { authService } from '@/features/auth/services/auth.service'
 import { useAuthStore } from '@/shared/stores/authStore'
-
-const EMAIL_PATTERN = /\S+@\S+\.\S+/
-const EMAIL_DOMAIN_OPTIONS = ['gmail.com', 'naver.com', 'kakao.com'] as const
-type EmailDomainOption = (typeof EMAIL_DOMAIN_OPTIONS)[number]
 
 const toExpiresAt = (expiresInSeconds: number) => Date.now() + Math.max(expiresInSeconds, 0) * 1000
 
@@ -22,13 +26,6 @@ const formatRemainingTime = (seconds: number) => {
   return `${minutes}분 ${restSeconds.toString().padStart(2, '0')}초`
 }
 
-const buildEmail = (localPart: string, domain: string) => {
-  const normalizedLocalPart = localPart.trim()
-  const normalizedDomain = domain.trim()
-  if (!normalizedLocalPart || !normalizedDomain) return ''
-  return `${normalizedLocalPart}@${normalizedDomain}`.toLowerCase()
-}
-
 export const useRegisterPage = () => {
   const navigate = useNavigate()
   const { setUser, setToken, setRefreshToken } = useAuthStore()
@@ -40,7 +37,7 @@ export const useRegisterPage = () => {
     userType: 'DESIGNER' as 'DESIGNER' | 'CUSTOMER',
   })
   const [emailLocalPart, setEmailLocalPart] = useState('')
-  const [emailDomain, setEmailDomain] = useState('gmail.com')
+  const [emailDomain, setEmailDomain] = useState<string>(DEFAULT_EMAIL_DOMAIN)
   const [isCustomEmailDomain, setIsCustomEmailDomain] = useState(false)
   const [validationError, setValidationError] = useState('')
   const [isEmailVerificationOpen, setIsEmailVerificationOpen] = useState(false)
@@ -141,14 +138,14 @@ export const useRegisterPage = () => {
   }
 
   const handleEmailLocalPartChange = (value: string) => {
-    const nextLocalPart = value.replace(/\s/g, '')
+    const nextLocalPart = sanitizeEmailSegment(value)
     setEmailLocalPart(nextLocalPart)
     setForm((prev) => ({ ...prev, email: buildEmail(nextLocalPart, emailDomain) }))
     resetEmailVerification()
   }
 
   const handleEmailDomainChange = (value: string) => {
-    const nextDomain = value.replace(/\s/g, '')
+    const nextDomain = sanitizeEmailSegment(value)
     setEmailDomain(nextDomain)
     setForm((prev) => ({ ...prev, email: buildEmail(emailLocalPart, nextDomain) }))
     resetEmailVerification()
