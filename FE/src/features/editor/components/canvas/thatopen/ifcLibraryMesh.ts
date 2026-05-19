@@ -154,7 +154,11 @@ const isIdentityPresetScale = (scale: ThreeDLibraryPreset['scale']) => (
   Math.abs((scale?.z ?? 1) - 1) < 1e-6
 )
 
-const cloneMaterialsForLibraryInstance = (object: Object3D) => {
+/**
+ * IFC 에셋 템플릿을 여러 인스턴스로 재사용할 때 재질 참조를 분리한다.
+ * 색상/재질 편집이 한 인스턴스에서 다른 인스턴스로 번지는 것을 막는다.
+ */
+export const cloneMaterialsForLibraryInstance = (object: Object3D) => {
   object.traverse((child) => {
     const materialTarget = child as Object3D & {
       material?: unknown

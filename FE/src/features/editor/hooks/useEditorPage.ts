@@ -317,6 +317,7 @@ const writeCachedIfcSource = (
 }
 
 const logBootstrapFloor = (label: string, payload: Record<string, unknown>) => {
+  if (!isBubbleDebugEnabled()) return
   console.info(`[bootstrap-floor] ${label}`, payload)
 }
 
@@ -2667,7 +2668,7 @@ export function useEditorPage() {
           })
         }
         clearFloorPlanGenerateTimeout()
-        setFloorPlanGenerateStatusText('?ë°ãˆƒ???ì•¹ê½¦???ê¾¨ì¦º?ì„ë¿€?ë“¬ë•²??')
+        setFloorPlanGenerateStatusText('평면도 생성 상태를 확인하는 중입니다.')
         setWorkspacePhaseStatus('IFC_EDIT')
         setSaveStatus('synced')
         setMode('3d')
@@ -4206,6 +4207,10 @@ export function useEditorPage() {
     setIfcElementSelectionRequestToken((prev) => prev + 1)
   }, [clearSelection, clearConnectionAndTwoDSelection])
 
+  /**
+   * 3D 라이브러리 프리셋을 현재 활성 IFC 층에 새 인스턴스로 추가한다.
+   * 협업/저장 동기화를 위해 React 상태 변경 전에 workspace command를 먼저 기록한다.
+   */
   const handleAddLibraryPreset = useCallback((preset: ThreeDLibraryPreset, options?: { closePanel?: boolean }) => {
     const storeyExpressId = activeIfcStoreyExpressId ?? null
 
@@ -4239,6 +4244,10 @@ export function useEditorPage() {
     workspaceCommandPublisher,
   ])
 
+  /**
+   * 배치된 3D 라이브러리 요소의 위치, 회전, 치수, 색상 같은 속성을 갱신한다.
+   * 층 정보가 누락된 과거 데이터는 현재 활성 층 또는 첫 번째 IFC 층으로 보정한다.
+   */
   const handleChangeLibraryElement = useCallback((id: string, patch: Partial<ThreeDLibraryPreset>) => {
     const target = libraryElements.find((element) => element.id === id)
     if (!target) return
@@ -4267,6 +4276,9 @@ export function useEditorPage() {
     workspaceCommandPublisher,
   ])
 
+  /**
+   * 배치된 3D 라이브러리 요소를 삭제하고 선택 상태 및 workspace command를 함께 정리한다.
+   */
   const handleDeleteLibraryElement = useCallback((id: string) => {
     const target = libraryElements.find((element) => element.id === id)
     if (target) {

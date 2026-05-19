@@ -12,14 +12,12 @@ interface DropResolveParams {
  * 실제 배치는 캔버스 동기화 단계에서 모델 바깥 기본 위치로 보정한다.
  */
 export function resolveLibraryDropPositionPatch({
-  THREE,
-  raycaster,
-  hitPoint,
-  toLocal,
+  THREE: _THREE,
+  raycaster: _raycaster,
+  hitPoint: _hitPoint,
+  toLocal: _toLocal,
 }: DropResolveParams): Partial<ThreeDLibraryPreset> | undefined {
-  void THREE
-  void raycaster
-  void hitPoint
-  void toLocal
+  // 현재 3D 라이브러리 추가는 드롭 지점이 아니라 IFC 모델 바깥 자동 배치 규칙을 따른다.
+  // 인자는 향후 표면 스냅 배치 확장을 위해 함수 계약에 남겨 둔다.
   return {}
 }

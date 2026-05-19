@@ -23,11 +23,13 @@ import { patchIfcTextForMaterialDefaults } from '../../services/ifcChange.servic
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import {
   PRESETS,
+} from './threeDLibraryPresets'
+import {
   applyIfcLibraryManifestToPresets,
   loadIfcLibraryManifest,
   toIfcLibraryAssetUrl,
   type IfcLibraryManifest,
-} from './threeDLibraryPresets'
+} from './threeDLibraryManifest'
 import { resolveThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import {
@@ -41,6 +43,7 @@ import {
   createIfcAssetPresetPlaceholder,
   createIfcAssetPresetMesh,
   createPresetMesh,
+  cloneMaterialsForLibraryInstance,
   findLibraryRoot,
   formatLibraryPresetDimensions,
   getLibraryElementInfo,
@@ -102,6 +105,16 @@ import {
   isTransformOwnerMismatch,
   isTransformSessionLocked,
 } from './thatopen/transformSessionGuards'
+import {
+  detachAndHideObjectTree,
+  getLibraryAssetCacheKey,
+  hasRenderableObject,
+  isObjectInSceneGraph,
+  setIfcAssetPlaceholderPending,
+  shouldUseIfcAssetForPreset,
+  toLibraryAssetModelId,
+  translateIfcLibraryAssetPlacements,
+} from './thatopen/ifcLibraryAssetHelpers'
 
 /** ThatOpenIfcCanvas 컴포넌트 props */
 interface ThatOpenIfcCanvasProps {
@@ -246,7 +259,6 @@ type IfcRaycastPick = {
 } | null
 
 const IFC_MOVE_DEBUG = import.meta.env.VITE_3D_MOVE_DEBUG === 'true'
-const IFC_DIRECT_TRACE_EVENTS = new Set<string>(['drag_end_enter'])
 const IFC_MOVE_ALWAYS_TRACE_EVENTS = new Set<string>([
   'pick_blocked_by_transform_helper_hit',
   'drag_start',
@@ -259,100 +271,9 @@ const IFC_MOVE_ALWAYS_TRACE_EVENTS = new Set<string>([
   'transform_mode_rebind',
 ])
 
-const toLibraryAssetModelId = (preset: ThreeDLibraryPreset, instanceId?: string) => {
-  const source = preset.sourceAssetId ?? preset.id
-  const normalizedSource = source.replace(/[^0-9A-Za-z_-]/g, '-')
-  const normalizedInstance = instanceId?.replace(/[^0-9A-Za-z_-]/g, '-')
-  return normalizedInstance
-    ? `library-asset-${normalizedSource}-${normalizedInstance}`
-    : `library-asset-${normalizedSource}`
-}
 const IFC_AUTO_SAVE_ON_MOVE = false
 const IFC_SAVE_DEBOUNCE_MS = 1200
 const IFC_SAVE_MAX_POSTPONE_MS = 6000
-
-const IFC_LIBRARY_PLACEMENT_NORMALIZER_VERSION = 'placement-normalizer-v3'
-
-const translateIfcLibraryAssetPlacements = (ifcText: string, preset: ThreeDLibraryPreset) => {
-  const axisPointById = new Map<string, string>()
-  const pointReferenceCount = new Map<string, number>()
-  for (const match of ifcText.matchAll(/#(\d+)=IFCAXIS2PLACEMENT3D\(#(\d+),/g)) {
-    axisPointById.set(match[1], match[2])
-    pointReferenceCount.set(match[2], (pointReferenceCount.get(match[2]) ?? 0) + 1)
-  }
-  const axisPlacementPointIds = new Set(axisPointById.values())
-
-  const placementPointIds = new Set<string>()
-  for (const match of ifcText.matchAll(/#(\d+)=IFCLOCALPLACEMENT\(\$,#(\d+)\);/g)) {
-    const pointId = axisPointById.get(match[2])
-    if (!pointId) continue
-    // Shared origin points are usually project/context placements. Moving them also moves profile definitions.
-    if ((pointReferenceCount.get(pointId) ?? 0) > 1) continue
-    placementPointIds.add(pointId)
-  }
-
-  const pointRegex = /#(\d+)=IFCCARTESIANPOINT\(\(([-+0-9.Ee]+),([-+0-9.Ee]+),([-+0-9.Ee]+)\)\);/g
-  const placementPoints = new Map<string, { x: number; y: number; z: number }>()
-  const geometryPoints = new Map<string, { x: number; y: number; z: number }>()
-  for (const match of ifcText.matchAll(pointRegex)) {
-    const [, pointId, rawX, rawY, rawZ] = match
-    const point = {
-      x: Number(rawX),
-      y: Number(rawY),
-      z: Number(rawZ),
-    }
-    if (![point.x, point.y, point.z].every(Number.isFinite)) continue
-    if (placementPointIds.has(pointId)) {
-      placementPoints.set(pointId, point)
-    } else if (!axisPlacementPointIds.has(pointId)) {
-      geometryPoints.set(pointId, point)
-    }
-  }
-  if (placementPoints.size === 0 && geometryPoints.size === 0) return ifcText
-
-  const resolveOffset = (points: Iterable<{ x: number; y: number; z: number }>, fallbackToPreset = false) => {
-    const list = Array.from(points)
-    if (list.length === 0) return null
-    const xs = list.map((point) => point.x)
-    const ys = list.map((point) => point.y)
-    const zs = list.map((point) => point.z)
-    const minX = Math.min(...xs)
-    const maxX = Math.max(...xs)
-    const minY = Math.min(...ys)
-    const maxY = Math.max(...ys)
-    const minZ = Math.min(...zs)
-    const fallbackOffsetX = Number.isFinite(preset.lengthMm) ? -Number(preset.lengthMm) / 2 : 0
-    const fallbackOffsetY = Number.isFinite(preset.thicknessMm) ? -Number(preset.thicknessMm) / 2 : 0
-    return {
-      x: Number.isFinite(minX) && Number.isFinite(maxX)
-        ? -((minX + maxX) / 2)
-        : fallbackToPreset
-          ? fallbackOffsetX
-          : 0,
-      y: Number.isFinite(minY) && Number.isFinite(maxY)
-        ? -((minY + maxY) / 2)
-        : fallbackToPreset
-          ? fallbackOffsetY
-          : 0,
-      z: Number.isFinite(minZ) ? -minZ : 0,
-    }
-  }
-  const placementOffset = resolveOffset(placementPoints.values(), true)
-  const geometryOffset = resolveOffset(geometryPoints.values())
-
-  return ifcText.replace(
-    pointRegex,
-    (line, pointId: string, rawX: string, rawY: string, rawZ: string) => {
-      const offset = placementPointIds.has(pointId) ? placementOffset : geometryOffset
-      if (!offset) return line
-      const x = Number(rawX)
-      const y = Number(rawY)
-      const z = Number(rawZ)
-      if (![x, y, z].every(Number.isFinite)) return line
-      return `#${pointId}=IFCCARTESIANPOINT((${x + offset.x},${y + offset.y},${z + offset.z}));`
-    },
-  )
-}
 const IFC_COMMIT_QUEUE_DELAY_MS = 0
 const IFC_COMMIT_QUIET_WINDOW_MS = 0
 const DELTA_MODEL_TOKEN = '-DELTA-MODEL-'
@@ -385,26 +306,8 @@ const getFirstMeshColorHex = (THREE: ThreeModule, object?: Object3D) => {
   })
   return resolved
 }
-const cloneLibraryAssetMeshMaterials = (THREE: ThreeModule, object: Object3D) => {
-  object.traverse((child) => {
-    if (!(child instanceof THREE.Mesh)) return
-    const materialTarget = child as Object3D & { material?: unknown }
-    const material = materialTarget.material
-    if (Array.isArray(material)) {
-      materialTarget.material = material.map((entry) => (
-        entry && typeof (entry as { clone?: () => unknown }).clone === 'function'
-          ? (entry as { clone: () => unknown }).clone()
-          : entry
-      ))
-      return
-    }
-    if (material && typeof (material as { clone?: () => unknown }).clone === 'function') {
-      materialTarget.material = (material as { clone: () => unknown }).clone()
-    }
-  })
-}
 const traceIfcMove = (event: string, payload?: Record<string, unknown>) => {
-  if (!IFC_MOVE_DEBUG && !IFC_DIRECT_TRACE_EVENTS.has(event)) return
+  if (!IFC_MOVE_DEBUG) return
   try {
     if (payload) {
       console.log(`[IFC_MOVE][TRACE] ${event}`, payload)
@@ -448,47 +351,6 @@ const removeDuplicateSceneGridHelpers = (scene: Object3D) => {
   })
 }
 
-const isObjectInSceneGraph = (scene: Object3D, object: Object3D | undefined | null) => {
-  if (!object) return false
-  let cursor: Object3D | null = object
-  while (cursor) {
-    if (cursor === scene) return true
-    cursor = (cursor.parent ?? null) as Object3D | null
-  }
-  return false
-}
-
-const detachAndHideObjectTree = (object: Object3D | undefined | null) => {
-  if (!object) return
-  object.visible = false
-  object.traverse((child) => {
-    child.visible = false
-  })
-  object.parent?.remove(object)
-}
-
-const setObjectTreeVisible = (object: Object3D | undefined | null, visible: boolean) => {
-  if (!object) return
-  object.visible = visible
-  object.traverse((child) => {
-    child.visible = visible
-  })
-}
-
-const setIfcAssetPlaceholderPending = (object: LibraryObject3D, pending: boolean) => {
-  object.userData = {
-    ...object.userData,
-    ifcAssetPlaceholderPending: pending,
-  }
-  object.traverse((child) => {
-    ;(child as LibraryObject3D).userData = {
-      ...(child as LibraryObject3D).userData,
-      ifcAssetPlaceholderPending: pending,
-    }
-  })
-  setObjectTreeVisible(object, !pending)
-}
-
 const getElementTransformSignature = (element?: IfcElementInfo | null) => {
   if (!element) return ''
   return [
@@ -519,24 +381,6 @@ const updateTransformControlsIfSupported = (transformControls: unknown) => {
   if (typeof controls?.updateMatrixWorld === 'function') {
     controls.updateMatrixWorld(true)
   }
-}
-
-const shouldUseIfcAssetForPreset = (preset: ThreeDLibraryPreset) => {
-  const hasIfcAsset = Boolean(preset.assetIfcUrl || preset.assetIfc)
-  return hasIfcAsset
-}
-
-const getLibraryAssetCacheKey = (preset: ThreeDLibraryPreset) => {
-  const assetIfcUrl = preset.assetIfcUrl?.trim() || toIfcLibraryAssetUrl(preset.assetIfc)
-  if (!assetIfcUrl) return null
-  return [
-    assetIfcUrl,
-    IFC_LIBRARY_PLACEMENT_NORMALIZER_VERSION,
-    preset.sourceAssetId ?? preset.id,
-    preset.lengthMm ?? '',
-    preset.heightMm ?? '',
-    preset.thicknessMm ?? '',
-  ].join('|')
 }
 
 export default function ThatOpenIfcCanvas({
@@ -796,8 +640,8 @@ export default function ThatOpenIfcCanvas({
       }
       win.__IFC_MOVE_TRACE__ = ifcMoveTraceBufferRef.current
     }
-    if (!isDebugEnabled && !IFC_MOVE_ALWAYS_TRACE_EVENTS.has(event)) return
-    const logPrefix = isDebugEnabled ? '[IFC_MOVE]' : '[IFC_MOVE][TRACE]'
+    if (!isDebugEnabled) return
+    const logPrefix = '[IFC_MOVE]'
     if (snapshotPayload) {
       console.log(`${logPrefix}[${entry.seq}] ${event}`, { at: entry.at, ...snapshotPayload })
       return
@@ -7197,6 +7041,10 @@ export default function ThatOpenIfcCanvas({
     })
   }, [logIfcMove, transformMode])
 
+  /**
+   * 라이브러리 IFC 원본 파일을 fetch하고 배치 기준점을 보정한 뒤 Uint8Array로 캐시한다.
+   * 같은 에셋을 여러 번 배치해도 네트워크 요청과 텍스트 보정은 한 번만 수행한다.
+   */
   const loadLibraryAssetBytes = useCallback((preset: ThreeDLibraryPreset): Promise<Uint8Array | null> => {
     const assetIfcUrl = preset.assetIfcUrl?.trim() || toIfcLibraryAssetUrl(preset.assetIfc)
     const cacheKey = getLibraryAssetCacheKey(preset)
@@ -7227,6 +7075,10 @@ export default function ThatOpenIfcCanvas({
     return loadPromise
   }, [])
 
+  /**
+   * ThatOpen fragments 모델을 직접 씬에 노출하지 않고 Three.js mesh 템플릿으로 변환한다.
+   * 템플릿은 숨겨진 fragments 모델을 즉시 폐기한 뒤 clone 가능한 Object3D로 캐시에 보관한다.
+   */
   const loadLibraryAssetTemplate = useCallback(async (
     sceneState: ThatOpenSceneState,
     preset: ThreeDLibraryPreset,
@@ -7286,7 +7138,7 @@ export default function ThatOpenIfcCanvas({
             const meshes = meshesPromise ? await meshesPromise.catch(() => null) : null
             if (!meshes) continue
             const cloned = meshes.clone(true)
-            cloneLibraryAssetMeshMaterials(sceneState.three, cloned)
+            cloneMaterialsForLibraryInstance(cloned)
             assetGroup.add(cloned)
           }
         }
@@ -7309,6 +7161,10 @@ export default function ThatOpenIfcCanvas({
     return loadPromise
   }, [disposeLibraryAssetModel, loadLibraryAssetBytes])
 
+  /**
+   * 캐시된 IFC 에셋 템플릿에서 씬 배치용 인스턴스를 생성한다.
+   * 인스턴스별 재질을 복제해 색상/재질 편집이 다른 배치 객체에 전파되지 않도록 한다.
+   */
   const loadLibraryAssetInstance = useCallback(async (
     sceneState: ThatOpenSceneState,
     preset: ThreeDLibraryPreset,
@@ -7316,11 +7172,15 @@ export default function ThatOpenIfcCanvas({
     const template = await loadLibraryAssetTemplate(sceneState, preset)
     if (!template) return null
     const instance = template.clone(true)
-    cloneLibraryAssetMeshMaterials(sceneState.three, instance)
+    cloneMaterialsForLibraryInstance(instance)
     instance.name = `${preset.name} IFC asset mesh clone`
     return instance
   }, [loadLibraryAssetTemplate])
 
+  /**
+   * 패널에 노출되는 기본 IFC 에셋을 미리 로드한다.
+   * 실제 배치 시 placeholder가 오래 보이는 시간을 줄이기 위한 성능 보조 effect다.
+   */
   useEffect(() => {
     const sceneState = sceneRef.current
     if (status !== 'ready' || !sceneState) return
@@ -7342,37 +7202,10 @@ export default function ThatOpenIfcCanvas({
     }
   }, [ifcLibraryManifest, loadLibraryAssetTemplate, status])
 
-  const hasRenderableObject = useCallback((THREE: ThreeModule, object: Object3D) => {
-    let hasRenderableGeometry = false
-    let childCount = 0
-    object.traverse((child) => {
-      if (child !== object) childCount += 1
-      const candidate = child as Object3D & {
-        geometry?: {
-          getAttribute?: (name: string) => {
-            array?: unknown
-            count?: number
-            data?: { array?: unknown }
-          } | undefined
-        }
-      }
-      const position = candidate.geometry?.getAttribute?.('position')
-      const positionArray = position?.array ?? position?.data?.array
-      if (position && positionArray && Number.isFinite(position.count) && (position.count ?? 0) > 0) {
-        hasRenderableGeometry = true
-      }
-    })
-    try {
-      const box = new THREE.Box3().setFromObject(object)
-      if (box.isEmpty()) return hasRenderableGeometry || childCount > 0
-      const size = new THREE.Vector3()
-      box.getSize(size)
-      return [size.x, size.y, size.z].every((value) => Number.isFinite(value) && value > 1e-8)
-    } catch {
-      return hasRenderableGeometry || childCount > 0
-    }
-  }, [])
-
+  /**
+   * React 상태의 라이브러리 프리셋 목록을 Three.js 씬과 동기화한다.
+   * 먼저 placeholder를 배치하고, 비동기 IFC mesh 변환이 끝나면 같은 index의 실제 에셋으로 교체한다.
+   */
   useEffect(() => {
     const sceneState = sceneRef.current
     const presetGroup = presetGroupRef.current
@@ -7684,7 +7517,6 @@ export default function ThatOpenIfcCanvas({
     applyLibraryVisibilityByStorey,
     disposeLibraryAssetModel,
     disposeLoadedLibraryAssetModels,
-    hasRenderableObject,
     ifcLibraryManifest,
     libraryElements,
     loadLibraryAssetInstance,

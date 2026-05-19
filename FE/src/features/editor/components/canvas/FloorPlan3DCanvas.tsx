@@ -87,13 +87,6 @@ type MultiSelectionEntry = {
 }
 
 const PRESET_MOVE_DEBUG = import.meta.env.DEV || import.meta.env.VITE_3D_MOVE_DEBUG === 'true'
-const ALWAYS_TRACE_LOCAL3D_EVENTS = new Set<string>([
-  'pick_candidates',
-  'pick_floor_object',
-  'library_sync_start',
-  'library_sync_rebuild_done',
-  'transform_commit',
-])
 
 const logRoofDebug = (...args: unknown[]) => {
   if (!import.meta.env.DEV) return
@@ -320,7 +313,7 @@ export function FloorPlan3DCanvas({
         return false
       }
     })()
-    const shouldTrace = PRESET_MOVE_DEBUG || runtimeDebugEnabled || ALWAYS_TRACE_LOCAL3D_EVENTS.has(event)
+    const shouldTrace = PRESET_MOVE_DEBUG || runtimeDebugEnabled
     if (!shouldTrace) return
     if (payload) {
       console.log(`[LOCAL3D_PRESET] ${event}`, payload)

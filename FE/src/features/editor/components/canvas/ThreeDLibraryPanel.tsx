@@ -19,12 +19,14 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   PRESETS,
-  applyIfcLibraryManifestToPresets,
   buildPresetPreviewDataUri,
   getLibraryPresetDisplayName,
+} from './threeDLibraryPresets'
+import {
+  applyIfcLibraryManifestToPresets,
   loadIfcLibraryManifest,
   type IfcLibraryManifest,
-} from './threeDLibraryPresets'
+} from './threeDLibraryManifest'
 import { writeLibraryPresetToDataTransfer } from './threeDLibraryDnd'
 import type { ThreeDLibraryPreset } from './threeDLibrary.types'
 

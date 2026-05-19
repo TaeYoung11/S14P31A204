@@ -245,7 +245,7 @@ export function useProjectViewRender(
     if (!projectId) {
       setRenderStateProjectId(null)
       setStatus('failed')
-      setErrorMessage('?ê¾¨ì¤ˆ?ì•ºë“ƒ ?ëº£ë‚«ç‘œ??ëº¤ì”¤?????ë†ë¼± ?ëš®ëœ‘ï§ê³¸ì“£ ?ë¶¿ê»Œ?????ë†ë’¿?ëˆë–Ž.')
+      setErrorMessage('프로젝트 정보를 확인할 수 없어 렌더링을 선택할 수 없습니다.')
       return
     }
 
