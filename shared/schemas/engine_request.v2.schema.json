@@ -732,6 +732,19 @@
         "face_offset_mm": {
           "type": "number"
         },
+        "segment_mm": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start", "end"],
+          "properties": {
+            "start": {
+              "$ref": "#/$defs/point2Mm"
+            },
+            "end": {
+              "$ref": "#/$defs/point2Mm"
+            }
+          }
+        },
         "name": {
           "type": "string",
           "minLength": 1,
