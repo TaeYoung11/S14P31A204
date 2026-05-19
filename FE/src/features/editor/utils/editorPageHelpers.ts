@@ -420,7 +420,7 @@ export function buildFloorPlanLayoutImportPayload(
       generate_walls: true,
       generate_slabs: true,
       generate_roof: true,
-      generate_openings: false,
+      generate_openings: true,
     },
     ...(options.spaceHeightMm ? { modeling_defaults: { space_height_mm: Math.round(options.spaceHeightMm) } } : {}),
     generation_policy: {
