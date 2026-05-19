@@ -256,10 +256,15 @@ services:
       S3_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minio}}
       S3_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minio123}}
       S3_REGION: ${AWS_REGION:-us-east-1}
-      # HuggingFace 모델 캐시를 named volume 에 영속화 (SD 1.5 / ControlNet /
-      # Realistic Vision V6 / Real-ESRGAN 약 5GB). 인스턴스 재기동 후에도
-      # 다시 다운로드하지 않도록 한다.
+      # 모델 캐시를 named volume `hf-cache` 에 영속화.
+      # - HF_HOME: SD 1.5 / ControlNet / Realistic Vision V6 등 HuggingFace
+      #   기반 모델 (~5GB) → /models/huggingface
+      # - IFC2IMG_REALESRGAN_CACHE_DIR: Real-ESRGAN x4plus weight (~70MB) →
+      #   /models/realesrgan (코드 기본값 `~/.cache/realesrgan` 을 override).
+      # 두 캐시 모두 같은 볼륨의 하위 디렉토리에 두므로 인스턴스 재기동 /
+      # 컨테이너 재생성 후에도 재다운로드 없이 첫 잡부터 캐시 hit.
       HF_HOME: /models/huggingface
+      IFC2IMG_REALESRGAN_CACHE_DIR: /models/realesrgan
     volumes:
       - hf-cache:/models
     depends_on:
