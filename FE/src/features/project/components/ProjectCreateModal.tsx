@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { FilePlus2, PencilLine } from 'lucide-react'
 import Modal from '@/shared/components/Modal'
 import Spinner from '@/shared/components/Spinner'
 import type { Project } from '@/shared/types'
@@ -16,51 +17,83 @@ export default function ProjectCreateModal({
 }: ProjectCreateModalProps) {
   const [name, setName] = useState(editProject?.name ?? '')
   const [description, setDescription] = useState(editProject?.description ?? '')
+  const [nameError, setNameError] = useState('')
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    if (!name.trim()) {
+      setNameError('프로젝트 이름을 입력해 주세요.')
+      return
+    }
+    setNameError('')
     onSubmit({ name, description })
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={editProject ? '프로젝트 수정' : '새 프로젝트'}>
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={(
+        <span className="project-create-title">
+          {editProject ? <PencilLine className="h-5 w-5" /> : <FilePlus2 className="h-5 w-5" />}
+          <span className="min-w-0">
+            <span className="block text-xs font-black text-[#64748b]">
+              {editProject ? '프로젝트 정보 수정' : '프로젝트 설정'}
+            </span>
+            <span className="block truncate text-[26px] font-black tracking-tight text-[#111827]">
+              {editProject ? '프로젝트 수정' : '새 프로젝트'}
+            </span>
+          </span>
+        </span>
+      )}
+    >
+      <form onSubmit={handleSubmit} className="project-form space-y-5" noValidate>
         <div>
-          <label htmlFor="project-name" className="block text-xs font-medium text-[#374151] mb-1.5">
+          <label htmlFor="project-name" className="project-label">
             프로젝트 이름 <span className="text-[#dc2626]">*</span>
           </label>
           <input
             id="project-name"
             type="text"
-            className="input-base"
+            className="project-input"
             placeholder="예: 강남 근린생활시설"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value)
+              if (nameError) setNameError('')
+            }}
             required
             autoFocus
+            aria-invalid={Boolean(nameError)}
+            aria-describedby={nameError ? 'project-name-error' : undefined}
           />
+          {nameError && (
+            <p id="project-name-error" className="project-field-error" role="alert">
+              {nameError}
+            </p>
+          )}
         </div>
         <div>
-          <label htmlFor="project-description" className="block text-xs font-medium text-[#374151] mb-1.5">
+          <label htmlFor="project-description" className="project-label">
             설명
           </label>
           <textarea
             id="project-description"
-            className="input-base resize-none"
+            className="project-input resize-none"
             rows={3}
             placeholder="프로젝트에 대한 간단한 설명"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
         </div>
-        <div className="flex gap-2 pt-1">
-          <button type="button" className="btn-secondary flex-1" onClick={onClose}>
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          <button type="button" className="project-secondary-button h-11" onClick={onClose}>
             취소
           </button>
           <button
             id="project-create-submit"
             type="submit"
-            className="btn-primary flex-1 flex items-center justify-center gap-2"
+            className="project-primary-button h-11"
             disabled={isPending}
           >
             {isPending ? <><Spinner size="sm" /> 저장 중...</> : editProject ? '저장' : '다음'}

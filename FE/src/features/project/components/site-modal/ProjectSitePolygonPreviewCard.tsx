@@ -25,10 +25,10 @@ export function ProjectSitePolygonPreviewCard({
   polygonCoords,
 }: ProjectSitePolygonPreviewCardProps) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-3xl border border-[#dbe2f0] bg-[#f8fafc] p-4">
+    <div className="project-site-preview-card">
       {polygonCoords ? (
         <>
-          <p className="mb-2 text-xs font-semibold text-[#6366f1]">필지 경계</p>
+          <p className="mb-2 text-xs font-black text-[#4f46e5]">필지 경계</p>
           <svg viewBox="0 0 260 240" className="w-full">
             <polygon
               points={toPreviewPath(polygonCoords)}
@@ -40,11 +40,12 @@ export function ProjectSitePolygonPreviewCard({
           </svg>
         </>
       ) : (
-        <p className="text-center text-sm text-[#9ca3af]">
-          주소 선택 후
-          <br />
-          필지 경계가 표시됩니다.
-        </p>
+        <div className="text-center">
+          <p className="text-sm font-black text-[#64748b]">필지 경계 대기 중</p>
+          <p className="mt-1 text-xs font-semibold leading-5 text-[#9ca3af]">
+            주소를 선택하면 경계가 표시됩니다.
+          </p>
+        </div>
       )}
     </div>
   )

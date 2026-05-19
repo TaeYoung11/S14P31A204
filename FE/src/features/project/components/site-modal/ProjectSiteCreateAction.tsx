@@ -12,7 +12,7 @@ export function ProjectSiteCreateAction({ isProcessing, onComplete }: ProjectSit
     <div className="flex items-center justify-end">
       <button
         type="button"
-        className="rounded-2xl border border-[#dbe2f0] px-5 py-3 text-sm font-medium text-[#475569] transition-colors hover:bg-[#f8fafc]"
+        className="project-primary-button px-5 py-3"
         onClick={onComplete}
         disabled={isProcessing}
       >
