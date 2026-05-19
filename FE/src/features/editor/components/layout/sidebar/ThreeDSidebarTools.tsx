@@ -5,10 +5,12 @@ import SidebarToolButton from './SidebarToolButton'
 interface ThreeDSidebarToolsProps {
   selectedTool: string
   isLibraryOpen?: boolean
+  isGridVisible?: boolean
   hasDeletableSelection: boolean
   isDeleteActionLocked?: boolean
   onToolSelect: (tool: string) => void
   onToggleLibrary?: () => void
+  onToggleGrid?: () => void
   onDeleteSelected?: () => void
   onExportIFC?: () => void
 }
@@ -19,10 +21,12 @@ interface ThreeDSidebarToolsProps {
 export default function ThreeDSidebarTools({
   selectedTool,
   isLibraryOpen = false,
+  isGridVisible,
   hasDeletableSelection,
   isDeleteActionLocked = false,
   onToolSelect,
   onToggleLibrary,
+  onToggleGrid,
   onDeleteSelected,
   onExportIFC,
 }: ThreeDSidebarToolsProps) {
@@ -34,6 +38,9 @@ export default function ThreeDSidebarTools({
         isDeleteDisabled={isDeleteActionLocked}
         onToolSelect={onToolSelect}
         onDeleteSelected={onDeleteSelected}
+        showGridToggle
+        isGridVisible={isGridVisible}
+        onToggleGrid={onToggleGrid}
       />
 
       <SidebarToolButton
