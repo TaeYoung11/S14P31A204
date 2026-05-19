@@ -305,10 +305,10 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     const mmDelta = estimateMmDelta(targetWall, dx, dy)
     const nextStartMm = targetWall.startMm && mmDelta
       ? { x: targetWall.startMm.x + mmDelta.x, y: targetWall.startMm.y + mmDelta.y }
-      : targetWall.startMm
+      : estimateMmPoint(nextStart)
     const nextEndMm = targetWall.endMm && mmDelta
       ? { x: targetWall.endMm.x + mmDelta.x, y: targetWall.endMm.y + mmDelta.y }
-      : targetWall.endMm
+      : estimateMmPoint(nextEnd)
     if (isWallEditBlockedByRoomCollision(targetWall, nextStart, nextEnd)) return
 
     onFloorPlanChanged()
@@ -322,7 +322,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     )
     workspaceCommandPublisher.updateWallGeometry(wallId, nextStart, nextEnd, nextStartMm, nextEndMm)
     ensureSnapshotCommandIfNeeded(workspaceCommandPublisher, 'wall-geometry', wallId, { wallId })
-  }, [getEditableWallById, estimateMmDelta, isWallEditBlockedByRoomCollision, onFloorPlanChanged, ensureFloorWallInManual, setFloorWalls, workspaceCommandPublisher])
+  }, [getEditableWallById, estimateMmDelta, estimateMmPoint, isWallEditBlockedByRoomCollision, onFloorPlanChanged, ensureFloorWallInManual, setFloorWalls, workspaceCommandPublisher])
 
   const handleUpdateFloorWallEndpoint = useCallback((
     wallId: string,
@@ -338,10 +338,10 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
       : { x: point.x - targetWall.end.x, y: point.y - targetWall.end.y }
     const mmDelta = estimateMmDelta(targetWall, pxDelta.x, pxDelta.y)
     const pointMm = endpoint === 'start'
-      ? (targetWall.startMm && mmDelta ? { x: targetWall.startMm.x + mmDelta.x, y: targetWall.startMm.y + mmDelta.y } : targetWall.startMm)
-      : (targetWall.endMm && mmDelta ? { x: targetWall.endMm.x + mmDelta.x, y: targetWall.endMm.y + mmDelta.y } : targetWall.endMm)
-    const nextStartMm = endpoint === 'start' ? pointMm : targetWall.startMm
-    const nextEndMm = endpoint === 'end' ? pointMm : targetWall.endMm
+      ? (targetWall.startMm && mmDelta ? { x: targetWall.startMm.x + mmDelta.x, y: targetWall.startMm.y + mmDelta.y } : estimateMmPoint(point))
+      : (targetWall.endMm && mmDelta ? { x: targetWall.endMm.x + mmDelta.x, y: targetWall.endMm.y + mmDelta.y } : estimateMmPoint(point))
+    const nextStartMm = endpoint === 'start' ? pointMm : targetWall.startMm ?? estimateMmPoint(nextStart)
+    const nextEndMm = endpoint === 'end' ? pointMm : targetWall.endMm ?? estimateMmPoint(nextEnd)
     if (isWallEditBlockedByRoomCollision(targetWall, nextStart, nextEnd)) return
 
     onFloorPlanChanged()
@@ -349,7 +349,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     setFloorWalls((prev) => prev.map((wall) => (wall.id === wallId ? { ...wall, [endpoint]: point, [`${endpoint}Mm`]: pointMm } : wall)))
     workspaceCommandPublisher.updateWallGeometry(wallId, nextStart, nextEnd, nextStartMm, nextEndMm)
     ensureSnapshotCommandIfNeeded(workspaceCommandPublisher, 'wall-endpoint', wallId, { wallId, endpoint })
-  }, [getEditableWallById, estimateMmDelta, isWallEditBlockedByRoomCollision, onFloorPlanChanged, ensureFloorWallInManual, setFloorWalls, workspaceCommandPublisher])
+  }, [getEditableWallById, estimateMmDelta, estimateMmPoint, isWallEditBlockedByRoomCollision, onFloorPlanChanged, ensureFloorWallInManual, setFloorWalls, workspaceCommandPublisher])
 
   const handleDeleteFloorWall = useCallback((wallId: string) => {
     onFloorPlanChanged()

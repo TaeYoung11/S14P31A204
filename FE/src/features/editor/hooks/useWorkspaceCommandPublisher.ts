@@ -332,7 +332,7 @@ export function useWorkspaceCommandPublisher({
       return
     }
 
-    if (startMm || endMm) {
+    if (startMm && endMm) {
       pendingCommandRef.current = updateEntityCommand('wall', globalId, compactRecord({
         storeyGlobalId,
         storeyName,
