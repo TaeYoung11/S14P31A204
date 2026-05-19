@@ -3401,7 +3401,7 @@ def _get_wall_local_coords(model, host_wall, x_mm, y_mm, z_mm):
 
 
 def _apply_opening(model, host_wall, u, v, z, length, thickness, height, ew_wall):
-    """벽체에 개구부를 생성하고 차집합 연산(Boolean) 수행 (잔상 방지 로직 포함)"""
+    """IfcOpeningElement/IfcRelVoidsElement 관계로 벽체 개구부를 생성한다."""
     if not host_wall.Representation:
         return None
     body = next(

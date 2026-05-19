@@ -326,7 +326,7 @@ export default function ThatOpenIfcCanvas({
   const currentUserIdRef = useRef(currentUserId)
   const isCollaborationModeRef = useRef(isCollaborationMode)
   const deletingPinIdRef = useRef(deletingPinId)
-  const isGridVisibleRef = useRef(true)
+  const isGridVisibleRef = useRef(isGridVisible)
   const transformModeRef = useRef(transformMode)
   const onPinClickRef = useRef(onPinClick)
   const onPinCreateRef = useRef(onPinCreate)
@@ -2199,10 +2199,10 @@ export default function ThatOpenIfcCanvas({
   useEffect(() => { isCollaborationModeRef.current = isCollaborationMode }, [isCollaborationMode])
   useEffect(() => { deletingPinIdRef.current = deletingPinId }, [deletingPinId])
   useEffect(() => {
-    isGridVisibleRef.current = true
+    isGridVisibleRef.current = isGridVisible
     const grid = floorGridRef.current
     if (!grid) return
-    grid.visible = true
+    grid.visible = isGridVisible
     const sceneState = sceneRef.current
     sceneState?.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
   }, [isGridVisible])
