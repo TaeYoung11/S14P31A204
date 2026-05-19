@@ -371,6 +371,48 @@ def test_authoring_worker_rejects_zero_scale_dimension_before_mutation():
     assert "op-invalid-scale.length" in str(exc_info.value)
 
 
+@pytest.mark.parametrize("axis", ["x", "y"])
+def test_authoring_worker_rejects_legacy_xy_rotation_before_mutation(axis: str):
+    root_dir = Path(__file__).resolve().parents[3]
+    ifc_path = root_dir / "tests" / "sample_batang.ifc"
+    worker, _ = _make_worker(ifc_path.read_bytes())
+    engine_req = {
+        "operations": [
+            {
+                "id": f"op-legacy-{axis}-rotation",
+                "type": "transform_elements",
+                "selector": {"element_type": "IfcWall", "select_all": True},
+                "parameters": {"rotation_deg": {axis: 30.0}},
+            }
+        ]
+    }
+
+    with pytest.raises(NonRetryableWorkerError) as exc_info:
+        worker._validate_operations_before_mutation(engine_req)
+
+    assert exc_info.value.code == "INVALID_OPERATION_PARAMETERS"
+    assert "legacy rotation_deg only supports z" in str(exc_info.value)
+    assert "use axis-angle for x/y rotation" in str(exc_info.value)
+
+
+def test_authoring_worker_accepts_legacy_zero_xy_z_rotation_before_mutation():
+    root_dir = Path(__file__).resolve().parents[3]
+    ifc_path = root_dir / "tests" / "sample_batang.ifc"
+    worker, _ = _make_worker(ifc_path.read_bytes())
+    engine_req = {
+        "operations": [
+            {
+                "id": "op-legacy-yaw-rotation",
+                "type": "transform_elements",
+                "selector": {"element_type": "IfcWall", "select_all": True},
+                "parameters": {"rotation_deg": {"x": 0.0, "y": 0.0, "z": 15.0}},
+            }
+        ]
+    }
+
+    worker._validate_operations_before_mutation(engine_req)
+
+
 def test_authoring_worker_updates_space_with_wrapped_dimensions():
     model, space = _make_space_model()
     worker, _ = _make_worker(b"")

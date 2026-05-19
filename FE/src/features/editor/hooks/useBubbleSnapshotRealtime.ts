@@ -191,7 +191,10 @@ export function useBubbleSnapshotRealtime({
       } else if (action === WORKSPACE_SYNC_ACTION.floorPlanRedo) {
         floorPlanBaseIndexRef.current = Math.min(WORKSPACE_HISTORY_MAX_INDEX, floorPlanBaseIndexRef.current + 1)
         floorPlanRedoDepthRef.current = Math.max(0, floorPlanRedoDepthRef.current - 1)
-      } else if (action === WORKSPACE_SYNC_ACTION.floorPlanUpdated) {
+      } else if (
+        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
+        action === WORKSPACE_SYNC_ACTION.floorPlanGenerateCompleted
+      ) {
         floorPlanBaseIndexRef.current = payloadBaseIndex !== null
           ? Math.min(WORKSPACE_HISTORY_MAX_INDEX, payloadBaseIndex + 1)
           : floorPlanBaseIndexRef.current + 1
@@ -222,12 +225,17 @@ export function useBubbleSnapshotRealtime({
       if (!parsed) return
       const action = normalizeAction(parsed)
       const floorPlanSnapshot = extractFloorPlanSnapshot(parsed)
+      const shouldSyncFloorPlanHistoryCursor =
+        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
+        action === WORKSPACE_SYNC_ACTION.floorPlanGenerateCompleted ||
+        action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
+        action === WORKSPACE_SYNC_ACTION.floorPlanRedo
       const shouldApplyFloorPlanHistoryEvent =
         action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
 
-      const status = shouldApplyFloorPlanHistoryEvent
+      const status = shouldSyncFloorPlanHistoryCursor
         ? normalizePhaseStatus(floorPlanSnapshot?.layout?.phaseStatus)
           ?? normalizePhaseStatus(parsed.status)
           ?? (isObjectRecord(parsed.payload) ? normalizePhaseStatus(parsed.payload.status) : null)
@@ -284,7 +292,7 @@ export function useBubbleSnapshotRealtime({
       // 따라서, IFC URL이 포함되지 않은 업데이트 이벤트는 최종적인 평면도
       // 히스토리 승인(ack)으로 간주하지 않습니다.
 
-      if (shouldApplyFloorPlanHistoryEvent) {
+      if (shouldSyncFloorPlanHistoryCursor) {
         syncFloorPlanHistoryCursor(action, extractFloorPlanBaseIndex(parsed))
       }
 

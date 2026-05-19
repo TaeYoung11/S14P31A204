@@ -45,6 +45,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -176,7 +177,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         assertThat(directRequest.engineRequest().op()).isEqualTo("create");
         assertThat(directRequest.engineRequest().entity()).isEqualTo("ifcBatch");
         JsonNode engineRequest = directRequest.engineRequest().data();
-        assertThat(engineRequest.get("schema_version").asText()).isEqualTo("v1");
+        assertThat(engineRequest.get("schema_version").asText()).isEqualTo("v2");
         assertThat(engineRequest.get("operations")).hasSize(1);
         assertThat(engineRequest.get("operations").get(0).get("type").asText()).isEqualTo("create_element");
         JsonNode params = engineRequest.get("operations").get(0).get("parameters");
@@ -292,7 +293,7 @@ class WorkspaceFloorPlanRealtimeServiceTest {
     }
 
     @Test
-    void relayFloorPlanDraft_doesNotCreateIfcEditJobWhenMappedOperationsAreEmpty() throws Exception {
+    void relayFloorPlanDraft_rejectsWhenMappedOperationsAreEmpty() throws Exception {
         FloorPlanRealtimeUpdateRequest request = new FloorPlanRealtimeUpdateRequest(
                 List.of(new BubbleUpdateRequest.BubbleData(
                         "bubble-1",
@@ -337,13 +338,22 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
 
         verifyNoInteractions(directIfcEditCommandService);
+        verifyNoInteractions(workspaceBubbleSnapshotRedisRepository);
 
-        ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
-        verify(simpMessagingTemplate).convertAndSend(
-                eq("/topic/project/%s/floor-plan/sync".formatted(projectId)),
-                responseCaptor.capture()
+        ArgumentCaptor<Object> userErrorCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(simpMessagingTemplate).convertAndSendToUser(
+                eq(currentUserId.toString()),
+                eq("/queue/errors"),
+                userErrorCaptor.capture()
         );
-        assertThat(responseCaptor.getValue().action()).isEqualTo("FLOOR_PLAN_UPDATED");
+        assertThat(userErrorCaptor.getValue()).isInstanceOf(ErrorResponse.class);
+        ErrorResponse errorResponse = (ErrorResponse) userErrorCaptor.getValue();
+        assertThat(errorResponse.getCode()).isEqualTo(ErrorCode.INVALID_REQUEST.getCode());
+        assertThat(errorResponse.getMessage()).contains("IFC에 반영할 수 없는 편집 요청");
+        verify(simpMessagingTemplate, never()).convertAndSend(
+                eq("/topic/project/%s/floor-plan/sync".formatted(projectId)),
+                any(Object.class)
+        );
     }
 
     @Test

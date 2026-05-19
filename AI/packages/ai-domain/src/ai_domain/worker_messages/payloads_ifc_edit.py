@@ -26,7 +26,7 @@ class EngineOperationInlineRef(BaseModel):
 class EngineRequestInlineRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = Field(pattern="^v1$")
+    schema_version: str = Field(pattern="^(v1|v2)$")
     request_id: str = Field(min_length=1, max_length=128)
     mode: str = Field(pattern="^(preview|apply)$")
     project_id: str = Field(min_length=1, max_length=128)
