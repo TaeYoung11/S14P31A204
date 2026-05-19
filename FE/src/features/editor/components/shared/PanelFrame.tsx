@@ -2,6 +2,10 @@ import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react'
 import type { PanelKey, PanelOffset, PanelResizeAxis } from '../../types'
 
+const SHOW_PANEL_MOVE_HANDLE: boolean = false
+const SHOW_PANEL_TOGGLE_CONTROL: boolean = false
+const SHOW_PANEL_RESIZE_HANDLES: boolean = false
+
 interface ResizeHandlesProps {
   panelKey: PanelKey
   theme: 'light' | 'dark'
@@ -122,11 +126,11 @@ export function PanelFrame({
       {isOpen ? (
         <>
           <div
-            className={`${headerClass} cursor-grab active:cursor-grabbing`}
-            onMouseDown={(e) => onDragStart(panelKey, e)}
+            className={`${headerClass}${SHOW_PANEL_MOVE_HANDLE ? ' cursor-grab active:cursor-grabbing' : ''}`}
+            onMouseDown={SHOW_PANEL_MOVE_HANDLE ? (e) => onDragStart(panelKey, e) : undefined}
           >
             <div className={titleClass}>
-              {!titleIcon && (
+              {SHOW_PANEL_MOVE_HANDLE && !titleIcon && (
                 <button
                   onMouseDown={(e) => e.stopPropagation()}
                   className={dragBtnClass}
@@ -140,35 +144,41 @@ export function PanelFrame({
             </div>
             <div className="flex items-center gap-2" onMouseDown={(e) => e.stopPropagation()}>
               {headerExtra}
-              <button
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={() => onToggle(panelKey)}
-                className={toggleBtnClass}
+              {SHOW_PANEL_TOGGLE_CONTROL && (
+                <button
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => onToggle(panelKey)}
+                  className={toggleBtnClass}
                 aria-label={`${title} 닫기`}
-              >
-                <ChevronRight size={14} />
-              </button>
+                >
+                  <ChevronRight size={14} />
+                </button>
+              )}
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
             {children}
           </div>
-          <ResizeHandles panelKey={panelKey} theme={theme} onResizeStart={onResizeStart} />
+          {SHOW_PANEL_RESIZE_HANDLES && (
+            <ResizeHandles panelKey={panelKey} theme={theme} onResizeStart={onResizeStart} />
+          )}
         </>
       ) : (
         <div
-          onMouseDown={(e) => onDragStart(panelKey, e)}
-          className="h-full w-full flex items-center justify-center cursor-grab active:cursor-grabbing"
+          onMouseDown={SHOW_PANEL_MOVE_HANDLE ? (e) => onDragStart(panelKey, e) : undefined}
+          className={`h-full w-full flex items-center justify-center${SHOW_PANEL_MOVE_HANDLE ? ' cursor-grab active:cursor-grabbing' : ''}`}
           title={`${title} 이동`}
         >
-          <button
-            onClick={() => onToggle(panelKey)}
-            className={collapsedButtonClass}
+          {SHOW_PANEL_TOGGLE_CONTROL && (
+            <button
+              onClick={() => onToggle(panelKey)}
+              className={collapsedButtonClass}
             aria-label={`${title} 열기`}
             title={title}
-          >
-            {titleIcon ?? <ChevronLeft size={16} />}
-          </button>
+            >
+              {titleIcon ?? <ChevronLeft size={16} />}
+            </button>
+          )}
         </div>
       )}
     </section>

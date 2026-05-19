@@ -3,6 +3,7 @@ import type Konva from 'konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import type { FloorRoom, Point2D } from '../../types'
 import type { AxisAlignedRect } from '../../utils/geometry2d'
+import { radiansToDegrees } from '../../utils/canvasViewTransform'
 import { isPointInsidePolygon, isRectInsidePolygon } from '../../utils/siteBoundaryValidation'
 import {
   ROOM_POLYGON_MIN_VERTEX_COUNT,
@@ -63,6 +64,7 @@ interface TwoDRoomsLayerProps {
   onResizingRoomBubbleIdChange: (bubbleId: string | null) => void
   onMouseEnter: (e: KonvaEventObject<MouseEvent>) => void
   onMouseLeave: (e: KonvaEventObject<MouseEvent>) => void
+  viewRotationRadians?: number
 }
 
 /**
@@ -103,7 +105,10 @@ export function TwoDRoomsLayer({
   onResizingRoomBubbleIdChange,
   onMouseEnter,
   onMouseLeave,
+  viewRotationRadians = 0,
 }: TwoDRoomsLayerProps) {
+  const inverseViewRotationDegrees = -radiansToDegrees(viewRotationRadians)
+
   return (
     <>
       {rooms.map((room) => {
@@ -154,7 +159,8 @@ export function TwoDRoomsLayer({
         const labelLineHeight = labelFontSize * 1.15
         const areaLineHeight = areaFontSize * 1.15
         const labelGroupHeight = labelLineHeight + labelAreaGap + areaLineHeight
-        const labelY = room.y + room.height / 2 - labelGroupHeight / 2
+        const labelCenterX = room.x + room.width / 2
+        const labelCenterY = room.y + room.height / 2
 
         /**
          * 다각형 편집 결과를 검증한 뒤 상위 상태에 반영한다.
@@ -328,32 +334,38 @@ export function TwoDRoomsLayer({
                   lineJoin="round"
                 />
               )}
-              <Text
-                x={room.x + labelPaddingX}
-                y={labelY}
-                width={labelWidth}
-                height={labelLineHeight}
-                align="center"
-                verticalAlign="middle"
-                text={room.label}
-                fontSize={labelFontSize}
-                lineHeight={1.15}
-                fontStyle="bold"
-                fill={isSelected ? '#3B45B3' : '#1C1C1E'}
-              />
-              <Text
-                x={room.x + labelPaddingX}
-                y={labelY + labelLineHeight + labelAreaGap}
-                width={labelWidth}
-                height={areaLineHeight}
-                align="center"
-                verticalAlign="middle"
-                text={areaText}
-                fontSize={areaFontSize}
-                lineHeight={1.15}
-                fontStyle="bold"
-                fill="#ADB5BD"
-              />
+              <Group
+                x={labelCenterX}
+                y={labelCenterY}
+                rotation={inverseViewRotationDegrees}
+              >
+                <Text
+                  x={-labelWidth / 2}
+                  y={-labelGroupHeight / 2}
+                  width={labelWidth}
+                  height={labelLineHeight}
+                  align="center"
+                  verticalAlign="middle"
+                  text={room.label}
+                  fontSize={labelFontSize}
+                  lineHeight={1.15}
+                  fontStyle="bold"
+                  fill={isSelected ? '#3B45B3' : '#1C1C1E'}
+                />
+                <Text
+                  x={-labelWidth / 2}
+                  y={-labelGroupHeight / 2 + labelLineHeight + labelAreaGap}
+                  width={labelWidth}
+                  height={areaLineHeight}
+                  align="center"
+                  verticalAlign="middle"
+                  text={areaText}
+                  fontSize={areaFontSize}
+                  lineHeight={1.15}
+                  fontStyle="bold"
+                  fill="#ADB5BD"
+                />
+              </Group>
             </Group>
 
             {(canResizeSelectedRoom || canResizePolygonRoom) && (

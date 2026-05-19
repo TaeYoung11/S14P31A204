@@ -46,6 +46,14 @@ export function useCanvasCoordinateHelpers({
     )
   }, [viewTransform])
 
+  const getStagePoint = useCallback((stage: Konva.Stage): Point2D | null => {
+    const pointer = stage.getPointerPosition()
+    if (!pointer) return null
+    const transform = stage.getAbsoluteTransform().copy()
+    transform.invert()
+    return transform.point(pointer)
+  }, [])
+
   /**
    * canonical 캔버스 좌표를 화면 좌표로 변환한다.
    * 라벨 오버레이처럼 DOM 레이어 배치가 필요한 경우 사용한다.
@@ -77,6 +85,7 @@ export function useCanvasCoordinateHelpers({
 
   return {
     getCanvasPoint,
+    getStagePoint,
     toScreenPoint,
     syncHandlePosition,
     handleMouseEnter,

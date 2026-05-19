@@ -44,6 +44,7 @@ export function InspectorPanel({
       offset={inspectorLayout.offset}
       width={inspectorLayout.width}
       height={inspectorLayout.height}
+      fillHeight
       zIndex={attributesPanelProps.zIndex}
       onDragStart={attributesPanelProps.onDragStart}
       onResizeStart={attributesPanelProps.onResizeStart}

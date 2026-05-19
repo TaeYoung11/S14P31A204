@@ -18,7 +18,6 @@ const CANVAS_CONTEXT_KEYS = [
   'handleDeletePin',
   'deletingPinId',
   'isGridVisible',
-  'isTrueNorthView',
   'selectedTool',
   'handleWheelZoom',
   'canvasZoom',
@@ -45,7 +44,6 @@ export function buildCanvasContextProps(
   | 'handleDeletePin'
   | 'deletingPinId'
   | 'isGridVisible'
-  | 'isTrueNorthView'
   | 'selectedTool'
   | 'handleWheelZoom'
   | 'canvasZoom'
