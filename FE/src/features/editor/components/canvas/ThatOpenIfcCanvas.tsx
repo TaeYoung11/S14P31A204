@@ -10,6 +10,7 @@
  *  - 카메라 회전 잠금 및 줌 스케일 반영
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { Object3D } from 'three'
 import type {
   CommentPin3DCreatePosition,
@@ -20,7 +21,7 @@ import type {
 import { FLOOR_MM_PER_PX } from '../../constants'
 import { patchIfcTextForMaterialDefaults } from '../../services/ifcChange.service'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
-import { getThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
+import { resolveThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import {
   applyObjectColor,
@@ -116,6 +117,7 @@ interface ThatOpenIfcCanvasProps {
   selectedIfcElement?: IfcElementInfo | null
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
+  onSelectWallForChat?: (wallId: string) => void
   onIfcElementTransformCommit?: (
     element: IfcElementInfo,
     patch: Omit<IfcElementChange, 'expressId'>,
@@ -298,6 +300,7 @@ export default function ThatOpenIfcCanvas({
   selectedIfcElement,
   onIfcElementSelect,
   onIfcElementDelete,
+  onSelectWallForChat,
   onIfcElementTransformCommit,
   onLibraryElementChange,
   onLibraryElementDelete,
@@ -380,6 +383,66 @@ export default function ThatOpenIfcCanvas({
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMessage, setErrorMessage] = useState('')
   const [ifcEditFeedback, setIfcEditFeedback] = useState<{ kind: 'info' | 'error'; text: string } | null>(null)
+  const [wallContextMenu, setWallContextMenu] = useState<{
+    wallId: string
+    label: string
+    x: number
+    y: number
+  } | null>(null)
+
+  const resolveSelectedWallForChat = useCallback(() => {
+    const target = selectedTargetRef.current
+    if (target?.source !== 'ifc') return null
+
+    const proxyElement = target.object
+      ? (target.object as IfcEditableObject3D).userData.ifcEditTarget?.element
+      : undefined
+    const metricElement = ifcPsetMetricsRef.current.byId[target.localId]
+      ?? ifcPsetMetricsRef.current.byId[target.hitLocalId]
+    const element = proxyElement ?? metricElement ?? selectedIfcElement ?? null
+    const ifcClass = String(element?.ifcClass ?? '')
+    if (!ifcClass.toLowerCase().includes('wall')) return null
+
+    const wallId = element?.globalId ?? String(target.localId)
+    const label = element?.name?.trim() || `IfcWall ${target.localId}`
+    return { wallId, label }
+  }, [selectedIfcElement])
+
+  const handleIfcContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!onSelectWallForChat || isCollaborationModeRef.current) {
+      setWallContextMenu(null)
+      return
+    }
+
+    const x = event.clientX
+    const y = event.clientY
+    const openWhenSelectionReady = (attempt = 0) => {
+      const wall = resolveSelectedWallForChat()
+      if (!wall) {
+        if (attempt < 4) {
+          window.setTimeout(() => openWhenSelectionReady(attempt + 1), 80)
+          return
+        }
+        setWallContextMenu(null)
+        return
+      }
+      setWallContextMenu({ ...wall, x, y })
+    }
+    window.setTimeout(openWhenSelectionReady, 80)
+  }, [onSelectWallForChat, resolveSelectedWallForChat])
+
+  useEffect(() => {
+    if (!wallContextMenu) return
+    const close = () => setWallContextMenu(null)
+    window.addEventListener('click', close)
+    window.addEventListener('keydown', close)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('keydown', close)
+    }
+  }, [wallContextMenu])
   const [hierarchySelectionRetryTick, setHierarchySelectionRetryTick] = useState(0)
   const isIfcMoveDebugEnabled = useCallback(() => {
     if (IFC_MOVE_DEBUG) return true
@@ -2184,6 +2247,7 @@ export default function ThatOpenIfcCanvas({
     let pointerDownDom: HTMLCanvasElement | null = null
     let components: import('@thatopen/components').Components | null = null
         let handlePointerDown: ((event: PointerEvent) => void) | null = null
+        let handleDoubleClick: ((event: MouseEvent) => void) | null = null
         let handleKeyDown: ((event: KeyboardEvent) => void) | null = null
         let handleGlobalPointerUp: ((event: PointerEvent) => void) | null = null
     let handleWindowBlur: (() => void) | null = null
@@ -3651,6 +3715,68 @@ export default function ThatOpenIfcCanvas({
         pointerDownDom = renderer.domElement
         const camera = world.camera.three
 
+        const createCommentPinAtWorldPoint = (point: import('three').Vector3) => {
+          const cameraPosition = camera.position
+          const threeDPosition: CommentPin3DCreatePosition = {
+            worldX: point.x / worldUnitsPerMm,
+            worldY: point.z / worldUnitsPerMm,
+            worldZ: point.y / worldUnitsPerMm,
+            cameraX: cameraPosition.x / worldUnitsPerMm,
+            cameraY: cameraPosition.z / worldUnitsPerMm,
+            cameraZ: cameraPosition.y / worldUnitsPerMm,
+          }
+          onPinCreateRef.current?.(
+            threeDPosition.worldX / FLOOR_MM_PER_PX,
+            threeDPosition.worldY / FLOOR_MM_PER_PX,
+            undefined,
+            threeDPosition,
+          )
+        }
+
+        const createCommentPinFromPointer = async (event: MouseEvent) => {
+          if (!isCollaborationModeRef.current) return
+          const bounds = renderer.domElement.getBoundingClientRect()
+          if (
+            event.clientX < bounds.left ||
+            event.clientX > bounds.right ||
+            event.clientY < bounds.top ||
+            event.clientY > bounds.bottom
+          ) {
+            return
+          }
+
+          const normalizedMouse = new THREE.Vector2(
+            ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
+            -((event.clientY - bounds.top) / bounds.height) * 2 + 1,
+          )
+          const screenMouse = new THREE.Vector2(event.clientX, event.clientY)
+          const raycaster = new THREE.Raycaster()
+          raycaster.setFromCamera(normalizedMouse, camera)
+          const pinHits = pinMarkerGroupRef.current
+            ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)
+            : []
+          if (resolveThreeDPinMarkerHit(pinHits)) return
+
+          const ifcEditHit = raycaster.intersectObjects(ifcEditGroup.children, true)[0]
+          const libraryHit = raycaster.intersectObjects(presetGroup.children, true)[0]
+          type WithPoint = { point?: import('three').Vector3; distance?: number }
+          const fragmentRaycastRaw = await fragments.raycast({ camera, mouse: screenMouse, dom: renderer.domElement }) as WithPoint | null
+          const castRayRaw = fragmentRaycastRaw?.point
+            ? null
+            : await thatOpenRaycaster.castRay({ position: normalizedMouse }) as WithPoint | null
+          const ifcRaw = fragmentRaycastRaw ?? castRayRaw
+          const ifcModelHit = ifcRaw?.point
+            ? { point: ifcRaw.point, distance: ifcRaw.distance ?? Number.POSITIVE_INFINITY }
+            : null
+          const collaborationHit = [libraryHit, ifcEditHit, ifcModelHit]
+            .filter((hit): hit is { point: import('three').Vector3; distance: number } => Boolean(hit?.point))
+            .sort((a, b) => a.distance - b.distance)[0]
+          if (!collaborationHit?.point) return
+          event.preventDefault()
+          event.stopPropagation()
+          createCommentPinAtWorldPoint(collaborationHit.point)
+        }
+
         handlePointerDown = async (event: PointerEvent) => {
           lastInteractionAt = performance.now()
           const transformStateNow = transformControls as unknown as { dragging?: boolean; axis?: string | null }
@@ -3837,13 +3963,14 @@ export default function ThatOpenIfcCanvas({
             })
             return
           }
-          const pinHit = pinMarkerGroupRef.current
-            ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)[0]
-            : undefined
-          const pinMarkerHit = getThreeDPinMarkerHit(pinHit?.object)
+          const pinHits = pinMarkerGroupRef.current
+            ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)
+            : []
+          const pinMarkerHit = resolveThreeDPinMarkerHit(pinHits)
           if (pinMarkerHit) {
             if (pinMarkerHit.action === 'delete') {
               if (deletingPinIdRef.current === pinMarkerHit.pinId) return
+              renderer.domElement.style.cursor = 'default'
               onPinDeleteRef.current?.(pinMarkerHit.pinId)
               return
             }
@@ -3853,6 +3980,8 @@ export default function ThatOpenIfcCanvas({
 
           const ifcEditHit = raycaster.intersectObjects(ifcEditGroup.children, true)[0]
           const libraryHit = raycaster.intersectObjects(presetGroup.children, true)[0]
+
+          if (isCollaborationModeRef.current) return
 
           if (isCollaborationModeRef.current) {
             const createCommentPinAtWorldPoint = (point: import('three').Vector3) => {
@@ -5126,6 +5255,10 @@ export default function ThatOpenIfcCanvas({
           emitCoordinates(world.camera.three.position)
         }
         pointerDownDom.addEventListener('pointerdown', handlePointerDown, true)
+        handleDoubleClick = (event: MouseEvent) => {
+          void createCommentPinFromPointer(event)
+        }
+        pointerDownDom.addEventListener('dblclick', handleDoubleClick, true)
 
         handleKeyDown = async (event: KeyboardEvent) => {
           const isDeleteKey =
@@ -5209,6 +5342,9 @@ export default function ThatOpenIfcCanvas({
       }
       if (handlePointerDown && pointerDownDom) {
         pointerDownDom.removeEventListener('pointerdown', handlePointerDown, true)
+      }
+      if (handleDoubleClick && pointerDownDom) {
+        pointerDownDom.removeEventListener('dblclick', handleDoubleClick, true)
       }
       if (handleKeyDown) window.removeEventListener('keydown', handleKeyDown, true)
       if (handleGlobalPointerUp) {
@@ -6420,7 +6556,7 @@ export default function ThatOpenIfcCanvas({
   }, [applyLibraryVisibilityByStorey, libraryElements, logIfcMove, syncTransformSelectionState])
 
   return (
-    <div className="absolute inset-0 overflow-hidden bg-[#F0F2F9]">
+    <div className="absolute inset-0 overflow-hidden bg-[#F0F2F9]" onContextMenu={handleIfcContextMenu}>
       <div ref={containerRef} tabIndex={0} className="h-full w-full outline-none" />
 
       {status !== 'ready' && (
@@ -6445,6 +6581,32 @@ export default function ThatOpenIfcCanvas({
           }`}
         >
           {ifcEditFeedback.text}
+        </div>
+      )}
+
+      {wallContextMenu && (
+        <div
+          className="fixed z-[9999] min-w-[150px] rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg"
+          style={{ top: wallContextMenu.y, left: wallContextMenu.x }}
+          onClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+          }}
+        >
+          <div className="max-w-[220px] truncate border-b border-[#E2E8F0] px-3 py-1.5 text-[11px] font-semibold text-[#64748B]">
+            {wallContextMenu.label}
+          </div>
+          <button
+            type="button"
+            className="w-full px-3 py-2 text-left text-[12px] text-[#1F2937] hover:bg-[#F0F2FF] hover:text-[#3B45B3]"
+            onClick={() => {
+              onSelectWallForChat?.(wallContextMenu.wallId)
+              setWallContextMenu(null)
+            }}
+          >
+            채팅에서 선택
+          </button>
         </div>
       )}
     </div>

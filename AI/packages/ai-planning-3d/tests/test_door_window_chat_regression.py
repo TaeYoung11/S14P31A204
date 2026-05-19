@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import ifcopenshell
@@ -71,6 +72,34 @@ def test_door_window_delete_select_all_requires_explicit_all_expression():
 
     assert single.target.select_all is False
     assert all_windows.target.select_all is True
+
+
+def test_directionless_space_boundary_host_wall_requires_unambiguous_match(monkeypatch):
+    pipeline = LLM3DPipeline()
+    walls = [
+        SimpleNamespace(Name="Bathroom boundary east"),
+        SimpleNamespace(Name="Bathroom boundary west"),
+    ]
+    monkeypatch.setattr(pipeline, "_element_size_mm", lambda _wall: (3000.0, 200.0, 2400.0))
+    monkeypatch.setattr(
+        pipeline,
+        "_wall_length_model_units",
+        lambda _wall: pytest.fail("ambiguous boundary walls must not use longest fallback"),
+    )
+
+    assert pipeline._find_directional_host_wall(
+        SimpleNamespace(),
+        None,
+        preferred_name_tokens=("bathroom",),
+        candidate_walls=walls,
+    ) is None
+
+    assert pipeline._find_directional_host_wall(
+        SimpleNamespace(),
+        None,
+        preferred_name_tokens=("east",),
+        candidate_walls=walls,
+    ) is walls[0]
 
 
 @pytest.mark.asyncio

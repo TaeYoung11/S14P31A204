@@ -140,6 +140,50 @@ class LLM3DPipeline:
         return LLM3DPipeline._carry_forward_command_subjects(commands or [user_text])
 
     @staticmethod
+    def _dimension_value_to_mm(value: str, unit: str) -> float:
+        number = float(value)
+        normalized_unit = unit.lower()
+        if normalized_unit == "m":
+            return number * 1000.0
+        if normalized_unit == "cm":
+            return number * 10.0
+        return number
+
+    @staticmethod
+    def _extract_labeled_dimension_mm(text: str, labels: tuple[str, ...]) -> float | None:
+        label_pattern = "|".join(re.escape(label) for label in labels)
+        match = re.search(
+            rf"(?:{label_pattern})\s*(\d+(?:\.\d+)?)\s*(mm|cm|m)(?![A-Za-z0-9])",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+        return LLM3DPipeline._dimension_value_to_mm(match.group(1), match.group(2))
+
+    @staticmethod
+    def _apply_explicit_opening_dimensions(
+        create_info: dict[str, Any],
+        raw_instruction: str,
+    ) -> None:
+        element_type = str(create_info.get("element_type") or "")
+        if element_type not in {"IfcDoor", "IfcWindow"} or not raw_instruction:
+            return
+
+        length_mm = LLM3DPipeline._extract_labeled_dimension_mm(
+            raw_instruction,
+            ("폭", "너비", "가로", "width"),
+        )
+        height_mm = LLM3DPipeline._extract_labeled_dimension_mm(
+            raw_instruction,
+            ("높이", "세로", "height"),
+        )
+        if length_mm is not None:
+            create_info["length_mm"] = length_mm
+        if height_mm is not None:
+            create_info["height_mm"] = height_mm
+
+    @staticmethod
     def _carry_forward_command_subjects(commands: list[str]) -> list[str]:
         contextualized: list[str] = []
         previous_subject: str | None = None
@@ -682,6 +726,70 @@ class LLM3DPipeline:
                         }
         return self._bbox_for_elements(candidates)
 
+    @staticmethod
+    def _space_match_terms(space_name: str | None) -> tuple[str, ...]:
+        if not space_name:
+            return ()
+        normalized = space_name.replace(" ", "").lower()
+        aliases: dict[str, tuple[str, ...]] = {
+            "livingroom": ("livingroom", "living", "liv", "거실"),
+            "bathroom": ("bathroom", "bath", "toilet", "restroom", "wc", "화장실", "욕실"),
+            "masterbedroom": ("masterbedroom", "master", "bedroom", "bed", "안방"),
+            "bedroom": ("bedroom", "bed", "침실"),
+            "entrance": ("entrance", "entry", "현관"),
+            "hall": ("hall", "corridor", "복도"),
+        }
+        terms = set(aliases.get(normalized, (normalized,)))
+        terms.add(normalized)
+        return tuple(term for term in terms if term)
+
+    def _space_matches_name(self, candidate_name: str, space_name: str | None) -> bool:
+        normalized = candidate_name.replace(" ", "").lower()
+        if not normalized:
+            return False
+        return any(
+            term in normalized or normalized in term
+            for term in self._space_match_terms(space_name)
+        )
+
+    def _space_boundary_walls(
+        self,
+        storey: ifcopenshell.entity_instance,
+        space_name: str | None,
+    ) -> list[Any]:
+        if not space_name:
+            return []
+        model = self.query_engine.get_model()
+        if model is None:
+            return []
+        spaces = self._storey_spaces(storey) or model.by_type("IfcSpace")
+        matched_spaces = [
+            space
+            for space in spaces
+            if self._space_matches_name(str(getattr(space, "Name", "") or ""), space_name)
+        ]
+        walls: list[Any] = []
+        seen: set[str] = set()
+        for space in matched_spaces:
+            for rel in model.get_inverse(space):
+                if not rel.is_a("IfcRelSpaceBoundary"):
+                    continue
+                wall = getattr(rel, "RelatedBuildingElement", None)
+                if wall is None or not wall.is_a("IfcWall"):
+                    continue
+                wall_id = str(getattr(wall, "GlobalId", "") or wall.id())
+                if wall_id in seen:
+                    continue
+                seen.add(wall_id)
+                walls.append(wall)
+        if walls:
+            return walls
+
+        for wall in self._storey_walls(storey):
+            if self._space_matches_name(str(getattr(wall, "Name", "") or ""), space_name):
+                walls.append(wall)
+        return walls
+
     def _model_bbox_mm(self) -> dict[str, float] | None:
         model = self.query_engine.get_model()
         if not model:
@@ -889,12 +997,16 @@ class LLM3DPipeline:
         direction: str | None,
         min_height_mm: float = 0.0,
         preferred_name_tokens: tuple[str, ...] = (),
+        candidate_walls: list[Any] | None = None,
     ) -> Any | None:
         direction = (direction or "").lower()
-        if direction not in {"north", "south", "east", "west"}:
-            return None
         walls = []
-        for wall in self._storey_walls(storey):
+        source_walls = (
+            candidate_walls
+            if candidate_walls is not None
+            else self._storey_walls(storey)
+        )
+        for wall in source_walls:
             name = str(getattr(wall, "Name", "") or "").lower()
             if any(token in name for token in ("rail", "fence")):
                 continue
@@ -902,6 +1014,23 @@ class LLM3DPipeline:
             if min_height_mm > 0.0 and wall_height > 0.0 and wall_height < min_height_mm:
                 continue
             walls.append(wall)
+        if not walls:
+            return None
+        if direction not in {"north", "south", "east", "west"}:
+            if not preferred_name_tokens:
+                return None
+            preferred = [
+                wall for wall in walls
+                if any(
+                    token in str(getattr(wall, "Name", "") or "").lower()
+                    for token in preferred_name_tokens
+                )
+            ]
+            if candidate_walls is not None:
+                return preferred[0] if len(preferred) == 1 else None
+            if not preferred:
+                return None
+            return max(preferred, key=lambda wall: self._wall_length_model_units(wall))
         direction_in_name = {
             "north": ("north", "북"),
             "south": ("south", "남"),
@@ -1369,6 +1498,7 @@ class LLM3DPipeline:
         target_storey = storeys[0] if storeys else model.by_type("IfcBuildingStorey")[0]
 
         ci_dump = ci.model_dump()
+        self._apply_explicit_opening_dimensions(ci_dump, command.raw_instruction)
         inferred = self._infer_create_geometry(ci_dump, target_storey)
         explicit_create_fields = ci.model_fields_set
         for key, value in inferred.items():
@@ -1394,6 +1524,7 @@ class LLM3DPipeline:
 
         if self._is_door_window(ci.element_type):
             host_wall = None
+            space_boundary_walls: list[Any] = []
             if ci_dump.get("host_wall_global_id"):
                 host_wall = self._find_host_wall_in_storey(
                     model,
@@ -1407,11 +1538,15 @@ class LLM3DPipeline:
                     ci_dump.get("sill_height_mm") or 0.0
                 )
                 space_name = str(ci_dump.get("space_name") or "").lower()
+                space_boundary_walls = self._space_boundary_walls(
+                    target_storey,
+                    ci_dump.get("space_name"),
+                )
                 preferred_name_tokens: list[str] = []
                 if "living" in space_name:
                     preferred_name_tokens.extend(("living", "liv"))
                 if "bath" in space_name:
-                    preferred_name_tokens.append("bath")
+                    preferred_name_tokens.extend(("bath", "toilet", "wc"))
                 if "bed" in space_name:
                     preferred_name_tokens.append("bed")
                 if "entrance" in space_name:
@@ -1423,8 +1558,14 @@ class LLM3DPipeline:
                     ci_dump.get("direction"),
                     min_height_mm=min_host_height_mm,
                     preferred_name_tokens=tuple(preferred_name_tokens),
+                    candidate_walls=space_boundary_walls or None,
                 )
-            if host_wall is None:
+            has_ambiguous_space_boundary_walls = (
+                bool(space_boundary_walls)
+                and not ci_dump.get("direction")
+                and not ci_dump.get("host_wall_global_id")
+            )
+            if host_wall is None and not has_ambiguous_space_boundary_walls:
                 host_wall = self._find_host_wall_in_storey(
                     model,
                     target_storey,
@@ -1762,7 +1903,7 @@ class LLM3DPipeline:
 
     # ── 요약 생성 헬퍼 ────────────────────────────────────────────────────
 
-    def _generate_summary(self, command, count, errors) -> str:
+    def _generate_summary(self, command: LLM3DCommand, count: int, errors: list[str]) -> str:
         if errors:
             return f"품질 검증 실패: {errors[0]}"
         return f"[{command.command_type.value}] {count}개 요소 준비 완료"

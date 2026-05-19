@@ -36,7 +36,8 @@ from ai_authoring.operations.transform_elements import (
     LEGACY_ROTATION_XY_ERROR,
     has_unsupported_legacy_rotation_xy,
 )
-from ai_authoring.operations.space_support import update_space
+from ai_authoring.operations.space_support import transform_scope_for_product, update_space
+from ai_authoring.operations.wall_support import update_wall_segment
 from ai_authoring.post_validator import PostEditValidator
 from ai_authoring.utils import normalize_space_name, normalize_storey_name
 from ai_common.adapters.storage.s3_client import S3Client, parse_s3_url
@@ -472,6 +473,13 @@ class AuthoringWorker(BaseWorker):
         selector: dict[str, Any],
     ) -> dict[str, Any]:
         applied, issues = [], []
+        if op_type == "transform_elements":
+            scoped_elements: list[ifcopenshell.entity_instance] = []
+            for el in elements:
+                for scoped_el in transform_scope_for_product(model, el):
+                    if scoped_el not in scoped_elements:
+                        scoped_elements.append(scoped_el)
+            elements = scoped_elements
         for el in elements:
             matched = {
                 "global_id": el.GlobalId,
@@ -520,6 +528,23 @@ class AuthoringWorker(BaseWorker):
                     pset_updates=pset_updates,
                     pset_name=pset_name,
                 )
+            segment_mm = params.get("segment_mm") or {}
+            if el.is_a("IfcWall") and segment_mm:
+                start = segment_mm.get("start") or {}
+                end = segment_mm.get("end") or {}
+                if update_wall_segment(
+                    model=model,
+                    wall=el,
+                    start_m=(
+                        float(start.get("x", 0.0)) / 1000.0,
+                        float(start.get("y", 0.0)) / 1000.0,
+                    ),
+                    end_m=(
+                        float(end.get("x", 0.0)) / 1000.0,
+                        float(end.get("y", 0.0)) / 1000.0,
+                    ),
+                ):
+                    changed = True
             # dimensionChangesMm values are authored in millimeters.
             if dims.get("width"):
                 changed |= bool(modify_thickness(el, dims["width"], scale=1000.0))
