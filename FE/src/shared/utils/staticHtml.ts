@@ -17,12 +17,18 @@ const HIDDEN_STATIC_HEADER_STYLE = 'header.nav{display:none!important}'
 const LOGIN_BUTTON_SCRIPT = 'document.getElementById(\'go-login\').click()'
 const ROUTER_LOGIN_SCRIPT = 'window.top.location.href = \'/login\''
 
-const appendStyleBeforeClosingTag = (html: string, style: string) => {
-  if (!html.includes('</style>')) {
-    return html
+const injectStaticStyle = (html: string, style: string) => {
+  if (/<\/style>/i.test(html)) {
+    return html.replace(/<\/style>/i, `${style}</style>`)
   }
 
-  return html.replace('</style>', `${style}</style>`)
+  const styleTag = `<style>${style}</style>`
+
+  if (/<\/head>/i.test(html)) {
+    return html.replace(/<\/head>/i, `${styleTag}</head>`)
+  }
+
+  return `${styleTag}${html}`
 }
 
 /**
@@ -37,7 +43,7 @@ export const buildStaticHtmlSource = (
   }: StaticHtmlRouteOptions = {},
 ) => {
   const source = shouldHideStaticHeader
-    ? appendStyleBeforeClosingTag(html, HIDDEN_STATIC_HEADER_STYLE)
+    ? injectStaticStyle(html, HIDDEN_STATIC_HEADER_STYLE)
     : html
 
   const routedSource = STATIC_ROUTE_REPLACEMENTS.reduce(

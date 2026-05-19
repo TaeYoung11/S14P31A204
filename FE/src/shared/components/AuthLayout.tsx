@@ -4,6 +4,7 @@ import AuthFooterLinks from '@/shared/components/auth/AuthFooterLinks'
 
 interface AuthLayoutProps {
   children: ReactNode
+  /** 기본 인증 화면은 한 뷰포트 안에 맞추고, 긴 화면만 명시적으로 false를 전달한다. */
   fitViewport?: boolean
 }
 
@@ -11,7 +12,7 @@ interface AuthLayoutProps {
  * 인증 화면의 좌측 브랜드 패널과 우측 폼 영역을 조립하는 공용 레이아웃.
  * 로그인/회원가입 페이지는 폼만 전달하고, 브랜드 문맥과 하단 링크는 여기서 일관되게 관리한다.
  */
-export default function AuthLayout({ children, fitViewport = false }: AuthLayoutProps) {
+export default function AuthLayout({ children, fitViewport = true }: AuthLayoutProps) {
   return (
     <div
       className={`grid grid-cols-1 overflow-hidden bg-white lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] ${
