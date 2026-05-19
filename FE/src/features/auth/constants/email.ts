@@ -1,6 +1,6 @@
 export const EMAIL_DOMAIN_OPTIONS = ['gmail.com', 'naver.com', 'kakao.com'] as const
 export const DEFAULT_EMAIL_DOMAIN = EMAIL_DOMAIN_OPTIONS[0]
-export const EMAIL_PATTERN = /\S+@\S+\.\S+/
+export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export type EmailDomainOption = (typeof EMAIL_DOMAIN_OPTIONS)[number]
 

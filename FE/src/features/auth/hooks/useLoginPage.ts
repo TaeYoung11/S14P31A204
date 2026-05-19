@@ -41,6 +41,16 @@ export const useLoginPage = () => {
 
   const email = useMemo(() => buildEmail(emailLocalPart, emailDomain), [emailDomain, emailLocalPart])
 
+  const validateEmailInput = (localPart: string, domain: string) => {
+    const nextEmail = buildEmail(localPart, domain)
+    if (!nextEmail || EMAIL_PATTERN.test(nextEmail)) {
+      setLoginValidationError('')
+      return
+    }
+
+    setLoginValidationError('올바른 이메일 형식으로 입력해 주세요.')
+  }
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
     const normalizedEmail = email.trim().toLowerCase()
@@ -86,22 +96,25 @@ export const useLoginPage = () => {
     isLoggingIn,
     loginNotice: locationState?.withdrawn ? '회원 탈퇴가 완료되었습니다. 다시 로그인해 주세요.' : '',
     setEmailLocalPart: (value: string) => {
-      setLoginValidationError('')
-      setEmailLocalPart(sanitizeEmailSegment(value))
+      const nextLocalPart = sanitizeEmailSegment(value)
+      setEmailLocalPart(nextLocalPart)
+      validateEmailInput(nextLocalPart, emailDomain)
     },
     setEmailDomain: (value: string) => {
-      setLoginValidationError('')
-      setEmailDomain(sanitizeEmailSegment(value))
+      const nextDomain = sanitizeEmailSegment(value)
+      setEmailDomain(nextDomain)
+      validateEmailInput(emailLocalPart, nextDomain)
     },
     selectEmailDomain: (domain: EmailDomainOption | 'custom') => {
-      setLoginValidationError('')
       if (domain === 'custom') {
         setIsCustomEmailDomain(true)
         setEmailDomain('')
+        validateEmailInput(emailLocalPart, '')
         return
       }
       setIsCustomEmailDomain(false)
       setEmailDomain(domain)
+      validateEmailInput(emailLocalPart, domain)
     },
     setPassword: (value: string) => {
       setLoginValidationError('')

@@ -76,6 +76,9 @@ export default function EmailDomainField<T extends string>({
             onChange={(e) => onSelectDomain(e.target.value as T | 'custom')}
             aria-label="이메일 도메인 선택"
           >
+            <option value="" disabled>
+              도메인 선택
+            </option>
             {domainOptions.map((domainOption) => (
               <option key={domainOption} value={domainOption}>
                 {domainOption}
