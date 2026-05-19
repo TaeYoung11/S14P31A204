@@ -350,7 +350,7 @@ def test_apply_operation_dispatches_delete_wall_void_handler():
     assert len(model.by_type("IfcRelFillsElement")) == 0
 
 
-def test_apply_transform_space_moves_boundary_wall():
+def test_apply_transform_space_does_not_move_boundary_wall():
     model, space = _make_space_model()
     storey = model.by_type("IfcBuildingStorey")[0]
     wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
@@ -375,15 +375,12 @@ def test_apply_transform_space_moves_boundary_wall():
     )
 
     assert result["status"] == "applied"
-    assert {item["global_id"] for item in result["matched_elements"]} == {
-        space.GlobalId,
-        wall.GlobalId,
-    }
+    assert {item["global_id"] for item in result["matched_elements"]} == {space.GlobalId}
     assert tuple(space.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
         (1.0, 0.0, 0.0)
     )
     assert tuple(wall.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
-        (1.0, 0.0, 0.0)
+        (0.0, 0.0, 0.0)
     )
 
 

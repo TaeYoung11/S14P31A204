@@ -1017,7 +1017,7 @@ class LLM3DPipeline:
         if not walls:
             return None
         if direction not in {"north", "south", "east", "west"}:
-            if candidate_walls is None and not preferred_name_tokens:
+            if not preferred_name_tokens:
                 return None
             preferred = [
                 wall for wall in walls
@@ -1026,8 +1026,11 @@ class LLM3DPipeline:
                     for token in preferred_name_tokens
                 )
             ]
-            walls = preferred or walls
-            return max(walls, key=lambda wall: self._wall_length_model_units(wall))
+            if candidate_walls is not None:
+                return preferred[0] if len(preferred) == 1 else None
+            if not preferred:
+                return None
+            return max(preferred, key=lambda wall: self._wall_length_model_units(wall))
         direction_in_name = {
             "north": ("north", "북"),
             "south": ("south", "남"),
@@ -1521,6 +1524,7 @@ class LLM3DPipeline:
 
         if self._is_door_window(ci.element_type):
             host_wall = None
+            space_boundary_walls: list[Any] = []
             if ci_dump.get("host_wall_global_id"):
                 host_wall = self._find_host_wall_in_storey(
                     model,
@@ -1556,7 +1560,12 @@ class LLM3DPipeline:
                     preferred_name_tokens=tuple(preferred_name_tokens),
                     candidate_walls=space_boundary_walls or None,
                 )
-            if host_wall is None:
+            has_ambiguous_space_boundary_walls = (
+                bool(space_boundary_walls)
+                and not ci_dump.get("direction")
+                and not ci_dump.get("host_wall_global_id")
+            )
+            if host_wall is None and not has_ambiguous_space_boundary_walls:
                 host_wall = self._find_host_wall_in_storey(
                     model,
                     target_storey,

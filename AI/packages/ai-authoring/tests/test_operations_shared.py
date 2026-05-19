@@ -549,7 +549,7 @@ def test_transform_handler_does_not_mutate_shared_location_point() -> None:
     )
 
 
-def test_transform_space_moves_boundary_wall() -> None:
+def test_transform_space_does_not_move_boundary_wall() -> None:
     bundle = _make_model()
     create_handler = get("create_element")
     transform_handler = get("transform_elements")
@@ -583,12 +583,12 @@ def test_transform_space_moves_boundary_wall() -> None:
         {"global_ids": [space.GlobalId]},
     )
 
-    assert moved == [space.GlobalId, wall.GlobalId]
+    assert moved == [space.GlobalId]
     assert tuple(space.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
         (1000.0, 2000.0, 0.0)
     )
     assert tuple(wall.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
-        (1000.0, 2000.0, 0.0)
+        (0.0, 0.0, 0.0)
     )
 
 

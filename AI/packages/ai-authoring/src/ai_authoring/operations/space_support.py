@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 import ifcopenshell
 import ifcopenshell.api.aggregate
@@ -63,7 +63,7 @@ def ensure_body_context(model: ifcopenshell.file) -> ifcopenshell.entity_instanc
         project = projects[0]
         for context in getattr(project, "RepresentationContexts", []) or []:
             if getattr(context, "ContextIdentifier", None) == "Body":
-                return context
+                return cast(ifcopenshell.entity_instance, context)
 
     context = model.create_entity(
         "IfcGeometricRepresentationContext",
@@ -387,7 +387,7 @@ def body_context(
     if representation:
         for rep in getattr(representation, "Representations", []) or []:
             if getattr(rep, "ContextOfItems", None) is not None:
-                return rep.ContextOfItems
+                return cast(ifcopenshell.entity_instance, rep.ContextOfItems)
     return ensure_body_context(model)
 
 
@@ -449,9 +449,7 @@ def transform_scope_for_product(
             products.append(candidate)
 
     for rel in model.get_inverse(product):
-        if rel.is_a("IfcRelSpaceBoundary"):
-            append_once(getattr(rel, "RelatedBuildingElement", None))
-        elif rel.is_a("IfcRelContainedInSpatialStructure"):
+        if rel.is_a("IfcRelContainedInSpatialStructure"):
             for element in getattr(rel, "RelatedElements", []) or []:
                 append_once(element)
 
