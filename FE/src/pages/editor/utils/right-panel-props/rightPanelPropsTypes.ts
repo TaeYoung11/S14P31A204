@@ -89,6 +89,7 @@ export type RightPanelViewModel = Pick<
   | 'overlayIfcStoreyExpressIds'
   | 'handleSelectIfcStorey'
   | 'handleToggleIfcStoreyOverlay'
+  | 'handleRenameIfcStorey'
   | 'libraryElements'
   | 'openZoningModal'
   | 'openEditModal'

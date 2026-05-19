@@ -55,6 +55,7 @@ export type Selected3DTarget =
       selectedSignature?: string
       selectedColorSignature?: string
       selectedMaterialSignature?: string
+      selectedTransformSignature?: string
     }
   | {
       source: 'library'
@@ -62,6 +63,7 @@ export type Selected3DTarget =
       selectedSignature?: string
       selectedColorSignature?: string
       selectedMaterialSignature?: string
+      selectedTransformSignature?: string
     }
   | null
 
@@ -149,6 +151,16 @@ export type TransformStateAction =
   | { type: 'COMMIT_FAIL'; transformSessionId: string; message: string }
   | { type: 'CANCEL_TRANSFORM'; reason: string }
   | { type: 'CLEANUP'; transformSessionId?: string }
+
+export const getTransformAxisVisibility = (
+  source: NonNullable<Selected3DTarget>['source'] | undefined,
+  transformMode: string,
+) => {
+  if (source === 'ifc' && transformMode === 'rotate') {
+    return { showX: false, showY: true, showZ: false }
+  }
+  return { showX: true, showY: true, showZ: true }
+}
 
 /** 초기 transform runtime state */
 export const createInitialTransformRuntimeState = (): TransformRuntimeState => ({
@@ -621,11 +633,14 @@ export const findIfcEditableRoot = (object: Object3D, editGroup: import('three')
 export const disposeObjectMaterials = (THREE: ThreeModule, object: Object3D) => {
   object.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return
-    child.geometry.dispose()
+    const disposableGeometry = child.geometry as { dispose?: () => void } | undefined
+    disposableGeometry?.dispose?.()
     if (Array.isArray(child.material)) {
-      child.material.forEach((material) => material.dispose())
+      child.material.forEach((material) => {
+        ;(material as { dispose?: () => void } | undefined)?.dispose?.()
+      })
     } else {
-      child.material.dispose()
+      ;(child.material as { dispose?: () => void } | undefined)?.dispose?.()
     }
   })
 }

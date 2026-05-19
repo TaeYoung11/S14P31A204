@@ -3,6 +3,7 @@ import { Generate3DModal } from '@/features/editor/components/modals/Generate3DM
 import ExportModals from './modal-sections/ExportModals'
 import LineAndInviteModals from './modal-sections/LineAndInviteModals'
 import SpaceAndZoningModals from './modal-sections/SpaceAndZoningModals'
+import Modal from '@/shared/components/Modal'
 
 /**
  * 공간/조닝 모달 블록 입력 props를 구성한다.
@@ -90,6 +91,28 @@ export default function EditorModalLayer(props: EditorModalLayerProps) {
       <LineAndInviteModals {...lineAndInviteModalProps} />
 
       <ExportModals {...exportModalProps} />
+
+      <Modal
+        isOpen={Boolean(props.noticeModal)}
+        title={props.noticeModal?.title ?? '알림'}
+        onClose={props.onCloseNoticeModal}
+      >
+        <div className="space-y-4">
+          <div>
+            <p className="text-sm font-medium text-[#111827]">{props.noticeModal?.message ?? ''}</p>
+            {props.noticeModal?.description && (
+              <p className="mt-2 whitespace-pre-line text-sm text-[#4B5563]">
+                {props.noticeModal.description}
+              </p>
+            )}
+          </div>
+          <div className="flex justify-end">
+            <button className="btn-primary" onClick={props.onCloseNoticeModal}>
+              {props.noticeModal?.confirmLabel ?? '확인'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </>
   )
 }

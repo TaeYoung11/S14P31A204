@@ -31,6 +31,7 @@ export const DEFAULT_LIBRARY_MATERIAL_BY_TYPE: Record<ThreeDLibraryPreset['type'
   'room-door': 'Wood',
   'front-door': 'Steel',
   stairs: 'Concrete',
+  terrace: 'Concrete',
   column: 'Stone',
   floor: 'Concrete',
   ceiling: 'Concrete',
@@ -259,9 +260,9 @@ export const createElementMaterial = (
 ) => {
   const style = MATERIAL_VISUAL_STYLE[normalizeVisualMaterialName(materialName)]
   const isGlassLike = style?.opacity !== undefined && style.opacity < 1
-  const material = new THREE.MeshPhysicalMaterial({
+  const texture = createMaterialTexture(THREE, materialName)
+  const materialParameters: import('three').MeshPhysicalMaterialParameters = {
     color: color ?? style?.color ?? '#BEC4D1',
-    map: createMaterialTexture(THREE, materialName),
     metalness: style?.metalness ?? 0,
     roughness: style?.roughness ?? 0.55,
     transparent: typeof style?.opacity === 'number',
@@ -271,7 +272,11 @@ export const createElementMaterial = (
     thickness: isGlassLike ? 0.02 : 0,
     clearcoat: isGlassLike ? 0.05 : 0,
     clearcoatRoughness: isGlassLike ? 0.1 : 0,
-  })
+  }
+  if (texture) {
+    materialParameters.map = texture
+  }
+  const material = new THREE.MeshPhysicalMaterial(materialParameters)
   const managerKey = `editor-${normalizeVisualMaterialName(materialName)}-${color ?? 'default'}`
   registerMaterialWithManager(materialsManager, managerKey, material)
   return material

@@ -153,7 +153,7 @@ export function buildFloorViewSectionProps(vm: EditorRightPanelsProps): FloorVie
     libraryCountByLayerId,
     onSelectLayer,
     onAddLayer: vm.onAddFloorLayer,
-    onRenameLayer: vm.onRenameFloorLayer,
+    onRenameLayer: hasIfcStoreys ? vm.onRenameIfcStorey : vm.onRenameFloorLayer,
     onDeleteLayer: vm.onDeleteFloorLayer,
     onToggleLayerOverlayMode: vm.onToggleLayerOverlayMode,
     onToggleOverlayLayer,

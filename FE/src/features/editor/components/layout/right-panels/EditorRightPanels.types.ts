@@ -115,6 +115,8 @@ export interface EditorRightPanelsProps {
   overlayIfcStoreyExpressIds?: number[]
   /** IFC 층 겹쳐보기 토글 핸들러 */
   onToggleIfcStoreyOverlay?: (id: string) => void
+  /** IFC 층 이름 수정 핸들러 */
+  onRenameIfcStorey?: (id: string, name: string) => void
   /** 3D 계층구조 요소(localId) 선택 핸들러 */
   onSelectIfcElementByLocalId?: (localId: number) => void
   /** 3D 계층구조 라이브러리 요소 선택 핸들러 */

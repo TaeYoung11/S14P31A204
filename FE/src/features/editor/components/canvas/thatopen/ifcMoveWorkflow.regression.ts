@@ -13,7 +13,7 @@ const assert = (condition: boolean, message: string) => {
 }
 
 /**
- * shinchan_house.ifc 기반 이동 회귀 케이스.
+ * sample_final.ifc 기반 이동 회귀 케이스.
  * - IFCWALL #408 / ObjectPlacement #407 조합을 대표 케이스로 사용한다.
  */
 export const runIfcMoveWorkflowRegressionCases = () => {

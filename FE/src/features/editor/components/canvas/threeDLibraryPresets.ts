@@ -4,7 +4,8 @@
  * 이 파일에는 다음 세 가지가 포함된다.
  *  1. PRESETS            — 라이브러리에 노출되는 건축 요소 프리셋 목록
  *  2. 미리보기 관련 상수   — SVG 도형 마크업·색상 테마 등
- *  3. buildPresetPreviewDataUri — SVG 인라인 data URI 생성 유틸
+ *  3. IFC manifest 연동 유틸 — 실물 IFC 에셋의 bbox/색상/재질 보강
+ *  4. buildPresetPreviewDataUri — SVG 인라인 data URI 생성 유틸
  */
 
 import type { ThreeDLibraryPreset, ThreeDLibraryPresetType } from './threeDLibrary.types'
@@ -21,6 +22,7 @@ export const PREVIEW_SHAPE_BY_TYPE: Record<ThreeDLibraryPresetType, string> = {
   'room-door': '<path d="M34 84V28H92V84" fill="none" stroke="currentColor" stroke-width="8" stroke-linejoin="round" /><circle cx="80" cy="57" r="4" />',
   'front-door': '<rect x="38" y="24" width="52" height="60" rx="8" /><rect x="72" y="50" width="6" height="14" rx="3" fill="#F8FAFF" />',
   stairs: '<path d="M26 84V72H42V60H58V48H74V36H90V24H102V84Z" />',
+  terrace: '<rect x="22" y="62" width="84" height="18" rx="6" /><path d="M28 62V34H100V62M44 34V62M64 34V62M84 34V62" fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round" />',
   column: '<rect x="42" y="22" width="44" height="62" rx="10" />',
   floor: '<rect x="22" y="58" width="84" height="24" rx="8" />',
   ceiling: '<rect x="22" y="24" width="84" height="24" rx="8" />',
@@ -64,6 +66,7 @@ export const SHAPE_FILL_BY_TYPE: Record<ThreeDLibraryPresetType, string> = {
   'room-door': '#F6E9DC',
   'front-door': '#E5ECF8',
   stairs: '#F5EADB',
+  terrace: '#F1F4F0',
   column: '#EEF2F8',
   floor: '#F3E7D9',
   ceiling: '#F3F6FA',
@@ -99,6 +102,127 @@ export const PRESET_THEME_BY_ID: Record<string, { bgStart: string; bgEnd: string
 }
 
 // ─────────────────────────────────────────────
+// IFC manifest 연동 유틸
+// ─────────────────────────────────────────────
+
+export const IFC_LIBRARY_BASE_PATH = '/ifc-library'
+export const IFC_LIBRARY_MANIFEST_URL = `${IFC_LIBRARY_BASE_PATH}/manifest.json`
+
+export interface IfcLibraryManifestColor {
+  name?: string | null
+  r: number
+  g: number
+  b: number
+}
+
+export interface IfcLibraryManifestAsset {
+  id: string
+  label?: string
+  category?: string
+  assetIfc?: string | null
+  materials?: string[]
+  colors?: IfcLibraryManifestColor[]
+  bbox?: {
+    sizeMm?: number[]
+  }
+}
+
+export interface IfcLibraryManifest {
+  assets?: IfcLibraryManifestAsset[]
+}
+
+let ifcLibraryManifestPromise: Promise<IfcLibraryManifest | null> | null = null
+
+const toHexColorPart = (value: number) => (
+  Math.round(Math.max(0, Math.min(1, value)) * 255)
+    .toString(16)
+    .padStart(2, '0')
+    .toUpperCase()
+)
+
+const toHexColor = (color?: IfcLibraryManifestColor) => (
+  color ? `#${toHexColorPart(color.r)}${toHexColorPart(color.g)}${toHexColorPart(color.b)}` : undefined
+)
+
+const normalizeManifestMaterial = (
+  category?: string,
+  materials?: string[],
+) => {
+  const rawMaterial = materials?.find((entry) => entry && entry !== '<Unnamed>')
+  const rawLower = rawMaterial?.toLowerCase()
+  if (rawLower?.includes('glass') || rawMaterial?.includes('유리')) return 'Glass'
+  if (rawLower?.includes('wood') || rawMaterial?.includes('문')) return 'Wood'
+  if (rawLower?.includes('steel') || rawLower?.includes('metal')) return 'Steel'
+  if (rawLower?.includes('tile')) return 'Tile'
+  if (rawLower?.includes('brick')) return 'Brick'
+
+  if (category === 'roof') return 'Tile'
+  if (category === 'door') return 'Wood'
+  if (category === 'window') return 'Glass'
+  if (category === 'stair' || category === 'terrace' || category === 'wall') return 'Concrete'
+  return rawMaterial
+}
+
+export const toIfcLibraryAssetUrl = (assetIfc?: string | null) => {
+  const value = assetIfc?.trim()
+  if (!value) return undefined
+  if (/^(https?:)?\/\//.test(value) || value.startsWith('/')) return value
+  return `${IFC_LIBRARY_BASE_PATH}/${value.replace(/^\/+/, '')}`
+}
+
+export const loadIfcLibraryManifest = () => {
+  if (ifcLibraryManifestPromise) return ifcLibraryManifestPromise
+  ifcLibraryManifestPromise = fetch(IFC_LIBRARY_MANIFEST_URL, { cache: 'force-cache' })
+    .then((response) => (response.ok ? response.json() as Promise<IfcLibraryManifest> : null))
+    .catch(() => null)
+  return ifcLibraryManifestPromise
+}
+
+export const buildIfcLibraryManifestMap = (manifest: IfcLibraryManifest | null) => (
+  new Map((manifest?.assets ?? []).map((asset) => [asset.id, asset]))
+)
+
+export const applyIfcLibraryManifestToPreset = (
+  preset: ThreeDLibraryPreset,
+  manifestAsset?: IfcLibraryManifestAsset | null,
+): ThreeDLibraryPreset => {
+  if (!manifestAsset) return preset
+
+  const [lengthMm, thicknessMm, heightMm] = manifestAsset.bbox?.sizeMm ?? []
+  const assetIfc = manifestAsset.assetIfc ?? preset.assetIfc
+  const assetIfcUrl = toIfcLibraryAssetUrl(assetIfc) ?? preset.assetIfcUrl
+  const color = toHexColor(manifestAsset.colors?.[0]) ?? preset.color
+  const material = normalizeManifestMaterial(manifestAsset.category, manifestAsset.materials) ?? preset.material
+
+  return {
+    ...preset,
+    name: preset.name || manifestAsset.label || preset.id,
+    dimensions: Number.isFinite(lengthMm) && Number.isFinite(heightMm) && Number.isFinite(thicknessMm)
+      ? `${Math.round(lengthMm)} x ${Math.round(heightMm)} x ${Math.round(thicknessMm)}`
+      : preset.dimensions,
+    lengthMm: Number.isFinite(lengthMm) ? Math.round(lengthMm) : preset.lengthMm,
+    heightMm: Number.isFinite(heightMm) ? Math.round(heightMm) : preset.heightMm,
+    thicknessMm: Number.isFinite(thicknessMm) ? Math.round(thicknessMm) : preset.thicknessMm,
+    color,
+    material,
+    assetIfc: assetIfc ?? preset.assetIfc,
+    assetIfcUrl,
+    sourceAssetId: manifestAsset.id,
+  }
+}
+
+export const applyIfcLibraryManifestToPresets = (
+  presets: ThreeDLibraryPreset[],
+  manifest: IfcLibraryManifest | null,
+) => {
+  const manifestMap = buildIfcLibraryManifestMap(manifest)
+  return presets.map((preset) => applyIfcLibraryManifestToPreset(
+    preset,
+    manifestMap.get(preset.sourceAssetId ?? preset.id),
+  ))
+}
+
+// ─────────────────────────────────────────────
 // 프리셋 목록
 // ─────────────────────────────────────────────
 
@@ -126,6 +250,70 @@ export const PRESETS: ThreeDLibraryPreset[] = [
     color: '#6B7280',
   },
   {
+    id: 'roof-178223',
+    type: 'roof',
+    roofShape: 'flat',
+    name: 'IFC 지붕 178223',
+    description: 'roof-178223.ifc에서 추출한 기본 지붕 에셋',
+    dimensions: '16725 x 1200 x 6500',
+    lengthMm: 16725,
+    heightMm: 1200,
+    thicknessMm: 6500,
+    color: '#E8808B',
+    material: 'Tile',
+    sourceAssetId: 'roof-178223',
+    assetIfc: 'assets/roof-178223.ifc',
+    assetIfcUrl: '/ifc-library/assets/roof-178223.ifc',
+  },
+  {
+    id: 'roof-180558',
+    type: 'roof',
+    roofShape: 'flat',
+    name: 'IFC 지붕 180558',
+    description: 'roof-180558.ifc에서 추출한 다중 지붕 에셋',
+    dimensions: '6714 x 600 x 1984',
+    lengthMm: 6714,
+    heightMm: 600,
+    thicknessMm: 1984,
+    color: '#E8808B',
+    material: 'Tile',
+    sourceAssetId: 'roof-180558',
+    assetIfc: 'assets/roof-180558.ifc',
+    assetIfcUrl: '/ifc-library/assets/roof-180558.ifc',
+  },
+  {
+    id: 'roof-181099',
+    type: 'roof',
+    roofShape: 'flat',
+    name: 'IFC 지붕 181099',
+    description: 'roof-181099.ifc에서 추출한 소형 지붕 에셋',
+    dimensions: '3525 x 650 x 1180',
+    lengthMm: 3525,
+    heightMm: 650,
+    thicknessMm: 1180,
+    color: '#E8808B',
+    material: 'Tile',
+    sourceAssetId: 'roof-181099',
+    assetIfc: 'assets/roof-181099.ifc',
+    assetIfcUrl: '/ifc-library/assets/roof-181099.ifc',
+  },
+  {
+    id: 'roof-187335',
+    type: 'roof',
+    roofShape: 'gable',
+    name: 'IFC 지붕 187335',
+    description: 'roof-187335.ifc에서 추출한 대형 상부 지붕 에셋',
+    dimensions: '10239 x 1500 x 10379',
+    lengthMm: 10239,
+    heightMm: 1500,
+    thicknessMm: 10379,
+    color: '#E8808B',
+    material: 'Tile',
+    sourceAssetId: 'roof-187335',
+    assetIfc: 'assets/roof-187335.ifc',
+    assetIfcUrl: '/ifc-library/assets/roof-187335.ifc',
+  },
+  {
     id: 'exterior-wall-200',
     type: 'exterior-wall',
     name: '외벽 200T',
@@ -140,6 +328,21 @@ export const PRESETS: ThreeDLibraryPreset[] = [
     description: '적벽돌 마감 외벽',
     dimensions: '3200 x 2600 x 220',
     color: '#9E5A45',
+  },
+  {
+    id: 'wall-139029',
+    type: 'exterior-wall',
+    name: 'IFC 벽 139029',
+    description: 'wall-139029.ifc에서 추출한 일반 200mm 벽 에셋',
+    dimensions: '12000 x 2500 x 200',
+    lengthMm: 12000,
+    heightMm: 2500,
+    thicknessMm: 200,
+    color: '#DED9D9',
+    material: 'Concrete',
+    sourceAssetId: 'wall-139029',
+    assetIfc: 'assets/wall-139029.ifc',
+    assetIfcUrl: '/ifc-library/assets/wall-139029.ifc',
   },
   {
     id: 'interior-wall-100',
@@ -174,6 +377,21 @@ export const PRESETS: ThreeDLibraryPreset[] = [
     color: '#9BD5FF',
   },
   {
+    id: 'window-189252',
+    type: 'window',
+    name: 'IFC 창 189252',
+    description: 'window-189252.ifc에서 추출한 고정창 에셋',
+    dimensions: '1900 x 2000 x 200',
+    lengthMm: 1900,
+    heightMm: 2000,
+    thicknessMm: 200,
+    color: '#8FD3FF',
+    material: 'Glass',
+    sourceAssetId: 'window-189252',
+    assetIfc: 'assets/window-189252.ifc',
+    assetIfcUrl: '/ifc-library/assets/window-189252.ifc',
+  },
+  {
     id: 'room-door-basic',
     type: 'room-door',
     name: '기본 방문',
@@ -188,6 +406,21 @@ export const PRESETS: ThreeDLibraryPreset[] = [
     description: '공간 절약형 미닫이 방문',
     dimensions: '900 x 2100',
     color: '#A06A42',
+  },
+  {
+    id: 'door-152970',
+    type: 'room-door',
+    name: 'IFC 문 152970',
+    description: 'door-152970.ifc에서 추출한 단일 플러시 문 에셋',
+    dimensions: '1067 x 2210 x 250',
+    lengthMm: 1067,
+    heightMm: 2210,
+    thicknessMm: 250,
+    color: '#A46744',
+    material: 'Wood',
+    sourceAssetId: 'door-152970',
+    assetIfc: 'assets/door-152970.ifc',
+    assetIfcUrl: '/ifc-library/assets/door-152970.ifc',
   },
   {
     id: 'front-door-steel',
@@ -220,6 +453,36 @@ export const PRESETS: ThreeDLibraryPreset[] = [
     description: '중간참이 있는 ㄱ자 계단',
     dimensions: '1800 x 2600',
     color: '#B78A60',
+  },
+  {
+    id: 'stair-145090',
+    type: 'stairs',
+    name: 'IFC 계단 145090',
+    description: 'stair-145090.ifc에서 추출한 조합 계단과 난간 에셋',
+    dimensions: '1700 x 3039 x 2762',
+    lengthMm: 1700,
+    heightMm: 3039,
+    thicknessMm: 2762,
+    color: '#A8A29E',
+    material: 'Concrete',
+    sourceAssetId: 'stair-145090',
+    assetIfc: 'assets/stair-145090.ifc',
+    assetIfcUrl: '/ifc-library/assets/stair-145090.ifc',
+  },
+  {
+    id: 'terrace',
+    type: 'terrace',
+    name: 'IFC 테라스',
+    description: 'terrace.ifc에서 추출한 테라스 벽체와 바닥 에셋',
+    dimensions: '6494 x 1620 x 1380',
+    lengthMm: 6494,
+    heightMm: 1620,
+    thicknessMm: 1380,
+    color: '#DED9D9',
+    material: 'Concrete',
+    sourceAssetId: 'terrace',
+    assetIfc: 'assets/terrace.ifc',
+    assetIfcUrl: '/ifc-library/assets/terrace.ifc',
   },
   {
     id: 'column-square',

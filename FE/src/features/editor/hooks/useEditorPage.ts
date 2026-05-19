@@ -813,6 +813,23 @@ export function useEditorPage() {
   const [commentPins, setCommentPins] = useState<FloorCommentPin[]>([])
   const [commentNotifications, setCommentNotifications] = useState<FloorCommentNotification[]>([])
   const [isLibraryOpen, setIsLibraryOpen] = useState(false)
+  const [noticeModal, setNoticeModal] = useState<{
+    title?: string
+    message: string
+    description?: string
+    confirmLabel?: string
+  } | null>(null)
+  const openNoticeModal = useCallback((notice: {
+    title?: string
+    message: string
+    description?: string
+    confirmLabel?: string
+  }) => {
+    setNoticeModal(notice)
+  }, [])
+  const onCloseNoticeModal = useCallback(() => {
+    setNoticeModal(null)
+  }, [])
   const [libraryElements, setLibraryElements] = useState<ThreeDLibraryPreset[]>([])
   const [isTrueNorthView, setIsTrueNorthView] = useState(false)
   const [isGridVisible, setIsGridVisible] = useState(false)
@@ -830,6 +847,7 @@ export function useEditorPage() {
   const [overlayLayerIds, setOverlayLayerIds] = useState<string[]>([])
   const [overlayOpacityByLayerId, setOverlayOpacityByLayerId] = useState<Record<string, number>>({})
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const saveStatusRef = useRef<SaveStatus>(saveStatus)
   const [latestFloorPlanJobId, setLatestFloorPlanJobId] = useState<string | null>(null)
   const [floorPlanGenerateStatusText, setFloorPlanGenerateStatusText] = useState<string>('')
   const [autosaveReadyProjectId, setAutosaveReadyProjectId] = useState<string | null>(null)
@@ -914,6 +932,10 @@ export function useEditorPage() {
   const lastWorkspaceSnapshotTransactionAtRef = useRef(0)
   const readingCommentPinIdsRef = useRef<Set<string>>(new Set())
   const readCommentFailureAtRef = useRef<Map<string, number>>(new Map())
+
+  useEffect(() => {
+    saveStatusRef.current = saveStatus
+  }, [saveStatus])
 
   useEffect(() => {
     lastLoadedIfcStorageUrlRef.current = null
@@ -2409,6 +2431,26 @@ export function useEditorPage() {
       ? workspaceCommandPublisher.consumePendingCommand()
       : null
 
+    const isIfcRotationCommand = workspaceCommand?.entity === 'ifcElement'
+      && workspaceCommand.op === 'update'
+      && workspaceCommand.patch != null
+      && typeof workspaceCommand.patch === 'object'
+      && !Array.isArray(workspaceCommand.patch)
+      && 'rotation_degrees' in workspaceCommand.patch
+    if (import.meta.env.DEV && mode === '3d' && isIfcRotationCommand) {
+      const workspaceCommandJson = workspaceCommand ? JSON.stringify(workspaceCommand) : null
+      console.log('[ifc-rotate-save][publish-check]', {
+        projectId,
+        historyDomain,
+        hasPendingFloorPlanCommand,
+        consumedWorkspaceCommand: workspaceCommand,
+        consumedWorkspaceCommandJson: workspaceCommandJson,
+        hasUserEdited: hasUserEditedRef.current,
+        saveStatus: saveStatusRef.current,
+        currentIfcRevisionId,
+      })
+    }
+
     if (historyDomain === 'floorPlan' && !workspaceCommand) {
       pendingServerPublishRef.current = null
       awaitingServerSyncRef.current = null
@@ -3376,6 +3418,7 @@ export function useEditorPage() {
     sitePolygonQueryEnabled: false,
     siteBoundaryHydrated: isWorkspaceSiteBoundaryHydrated,
     setSaveStatus,
+    onNotice: openNoticeModal,
   })
   const bubbleSitePoints = fixedScaleSitePoints
   const sharedSitePlanPoints = bubbles.length > 0 ? bubbleSitePoints : sitePlanPoints
@@ -4143,7 +4186,10 @@ export function useEditorPage() {
 
     // IFC 층이 있는데 현재 활성 층이 없으면 추가를 중단하고 설정 방법을 안내한다.
     if (storeyExpressId == null && ifcStoreys.length > 0) {
-      window.alert('활성 층이 없습니다.\n우측 "층보기" 패널에서 층 이름을 클릭해 활성 층을 먼저 설정한 뒤 라이브러리를 추가하세요.')
+      openNoticeModal({
+        title: '층 선택 필요',
+        message: '층보기에서 층을 선택한 뒤 추가하세요.',
+      })
       return
     }
 
@@ -4156,7 +4202,7 @@ export function useEditorPage() {
       },
     ])
     setIsLibraryOpen(false)
-  }, [activeIfcStoreyExpressId, ifcStoreys])
+  }, [activeIfcStoreyExpressId, ifcStoreys, openNoticeModal])
 
   const handleChangeLibraryElement = useCallback((id: string, patch: Partial<ThreeDLibraryPreset>) => {
     setLibraryElements((prev) =>
@@ -5641,6 +5687,17 @@ export function useEditorPage() {
     )
   }, [activeIfcStoreyExpressId, validIfcStoreyIdSet, setOverlayIfcStoreyExpressIds])
 
+  const handleRenameIfcStorey = useCallback((id: string, name: string) => {
+    const expressId = Number(id)
+    const trimmedName = name.trim()
+    if (!Number.isFinite(expressId) || !trimmedName) return
+    setIfcStoreys((prev) =>
+      prev.map((storey) => (
+        storey.expressId === expressId ? { ...storey, name: trimmedName } : storey
+      )),
+    )
+  }, [setIfcStoreys])
+
   const handleAutoLayoutBubbles = useCallback(() => {
     if (mode !== 'bubble') return
     if (isBubbleReadOnly) return
@@ -5951,6 +6008,9 @@ export function useEditorPage() {
     isNotificationModalOpen,
     handleOpenNotificationModal: () => setIsNotificationModalOpen(true),
     onCloseNotificationModal: () => setIsNotificationModalOpen(false),
+    // 공통 안내 모달
+    noticeModal,
+    onCloseNoticeModal,
     // 내보내기 모달
     isExportModalOpen,
     handleOpenExportModal,
@@ -5975,6 +6035,7 @@ export function useEditorPage() {
     handleIfcStoreysLoad,
     handleSelectIfcStorey,
     handleToggleIfcStoreyOverlay,
+    handleRenameIfcStorey,
     // AI 어시스턴트
     llmProvider: llmEdit.provider,
     llmPrompt: llmEdit.prompt,

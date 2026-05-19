@@ -1,6 +1,6 @@
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
 
-export const DEFAULT_MOCK_IFC_URL = '/mock/shinchan_house.ifc'
+export const DEFAULT_MOCK_IFC_URL = '/mock/sample_final_semantic.ifc'
 
 /** 선택 도구 문자열을 TransformControls 모드로 변환한다. */
 export const resolveTransformMode = (selectedTool?: string): 'translate' | 'rotate' | 'scale' => {
