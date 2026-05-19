@@ -1576,10 +1576,22 @@ def modify_rotation(
             ratios[0], ratios[1] = rotate_xy(float(ratios[0]), float(ratios[1]))
             direction.DirectionRatios = tuple(ratios[:size])
 
+        def rotate_object_placement() -> bool:
+            placement = getattr(element, "ObjectPlacement", None)
+            relative = getattr(placement, "RelativePlacement", None) if placement else None
+            if relative is None or not relative.is_a("IfcAxis2Placement3D"):
+                return False
+            ref_dir = getattr(relative, "RefDirection", None)
+            if ref_dir is None:
+                ref_dir = model.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0, 0.0))
+                relative.RefDirection = ref_dir
+            rotate_direction(ref_dir, 3)
+            return True
+
         changed = False
         representation = getattr(element, "Representation", None)
         if not representation:
-            return False
+            return rotate_object_placement()
 
         kept_reps = []
         for rep in list(getattr(representation, "Representations", []) or []):

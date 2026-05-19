@@ -431,6 +431,13 @@ def transform_scope_for_product(
     model: ifcopenshell.file,
     product: ifcopenshell.entity_instance,
 ) -> list[ifcopenshell.entity_instance]:
+    for rel in getattr(product, "Decomposes", []) or []:
+        if not rel.is_a("IfcRelAggregates"):
+            continue
+        parent = getattr(rel, "RelatingObject", None)
+        if parent is not None and parent.is_a("IfcRoof"):
+            return [parent]
+
     products: list[ifcopenshell.entity_instance] = [product]
     if not product.is_a("IfcSpace"):
         return products
