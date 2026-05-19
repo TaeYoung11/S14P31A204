@@ -64,12 +64,12 @@ class FloorPlanIfcEditEngineRequestMapperTest {
                 "request-translation",
                 projectId,
                 baseRevisionId,
-                List.of(envelope(projectId, baseRevisionId, "update", "wall", "2FStoreyGlobalId00001", null, patch))
+                List.of(envelope(projectId, baseRevisionId, "update", "wall", "2HlybO1QH4A9HpWyE9qInJ", null, patch))
         );
 
         JsonNode operation = engineRequest.get("operations").get(0);
         assertThat(operation.get("type").asText()).isEqualTo("transform_elements");
-        assertThat(operation.get("selector").get("global_ids").get(0).asText()).isEqualTo("2FStoreyGlobalId00001");
+        assertThat(operation.get("selector").get("global_ids").get(0).asText()).isEqualTo("2HlybO1QH4A9HpWyE9qInJ");
         assertThat(operation.get("parameters").get("translation_mm").get("x").asDouble()).isEqualTo(1000.0);
     }
 
@@ -133,6 +133,56 @@ class FloorPlanIfcEditEngineRequestMapperTest {
     }
 
     @Test
+    void toEngineRequest_mapsWallSegmentAndPropertiesTogether() {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode patch = objectMapper.createObjectNode()
+                .put("material", "concrete")
+                .put("color", "#ffffff")
+                .put("type", "load-bearing");
+        patch.putObject("startMm")
+                .put("x", 1000.0)
+                .put("y", 2000.0);
+        patch.putObject("endMm")
+                .put("x", 4000.0)
+                .put("y", 2000.0);
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-wall-segment-with-properties",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "update", "wall", "2HlybO1QH4A9HpWyE9qInJ", null, patch))
+        );
+
+        JsonNode params = engineRequest.get("operations").get(0).get("parameters");
+        assertThat(params.get("segment_mm").get("start").get("x").asDouble()).isEqualTo(1000.0);
+        assertThat(params.get("segment_mm").get("end").get("x").asDouble()).isEqualTo(4000.0);
+        assertThat(params.get("material").asText()).isEqualTo("concrete");
+        assertThat(params.get("color").asText()).isEqualTo("#ffffff");
+        assertThat(params.get("wall_type").asText()).isEqualTo("load-bearing");
+    }
+
+    @Test
+    void toEngineRequest_skipsWallPartialSegmentPatch() {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode patch = objectMapper.createObjectNode()
+                .put("material", "concrete");
+        patch.putObject("startMm")
+                .put("x", 1000.0)
+                .put("y", 2000.0);
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-wall-partial-segment",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "update", "wall", "2HlybO1QH4A9HpWyE9qInJ", null, patch))
+        );
+
+        assertThat(engineRequest.get("operations")).isEmpty();
+    }
+
+    @Test
     void toEngineRequest_prioritizesTranslationMmOverPropertyPatch() {
         UUID projectId = UUID.randomUUID();
         UUID baseRevisionId = UUID.randomUUID();
@@ -147,7 +197,7 @@ class FloorPlanIfcEditEngineRequestMapperTest {
                 "request-translation-priority",
                 projectId,
                 baseRevisionId,
-                List.of(envelope(projectId, baseRevisionId, "update", "wall", "2FStoreyGlobalId00001", null, patch))
+                List.of(envelope(projectId, baseRevisionId, "update", "wall", "2HlybO1QH4A9HpWyE9qInJ", null, patch))
         );
 
         JsonNode operations = engineRequest.get("operations");
@@ -172,13 +222,37 @@ class FloorPlanIfcEditEngineRequestMapperTest {
                 "request-rotation",
                 projectId,
                 baseRevisionId,
-                List.of(envelope(projectId, baseRevisionId, "update", "wall", "2FStoreyGlobalId00001", null, patch))
+                List.of(envelope(projectId, baseRevisionId, "update", "wall", "2HlybO1QH4A9HpWyE9qInJ", null, patch))
         );
 
         JsonNode operation = engineRequest.get("operations").get(0);
         assertThat(operation.get("type").asText()).isEqualTo("transform_elements");
         assertThat(operation.get("parameters").has("rotation_degrees")).isFalse();
         assertThat(operation.get("parameters").get("rotation_deg").get("z").asDouble()).isEqualTo(15.0);
+    }
+
+    @Test
+    void toEngineRequest_mapsRotationAffectedIdsToTransformSelector() {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode patch = objectMapper.createObjectNode();
+        patch.putObject("rotation_degrees")
+                .put("z", 15.0);
+        patch.putArray("affected_global_ids")
+                .add("3s2uah2CP65OGApQS50SKQ")
+                .add("local-wall-1");
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-rotation-affected",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "update", "wall", "2HlybO1QH4A9HpWyE9qInJ", null, patch))
+        );
+
+        JsonNode globalIds = engineRequest.get("operations").get(0).get("selector").get("global_ids");
+        assertThat(globalIds).hasSize(2);
+        assertThat(globalIds.get(0).asText()).isEqualTo("2HlybO1QH4A9HpWyE9qInJ");
+        assertThat(globalIds.get(1).asText()).isEqualTo("3s2uah2CP65OGApQS50SKQ");
     }
 
     @Test
@@ -347,6 +421,26 @@ class FloorPlanIfcEditEngineRequestMapperTest {
                 projectId,
                 baseRevisionId,
                 List.of(envelope(projectId, baseRevisionId, "update", "room", "bubble-1", null, patch))
+        );
+
+        assertThat(engineRequest.get("operations")).isEmpty();
+    }
+
+    @Test
+    void toEngineRequest_skipsUpdateWhenPrimaryIdIsNotIfcGlobalId() {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode patch = objectMapper.createObjectNode();
+        patch.putObject("translationMm")
+                .put("x", 1000.0)
+                .put("y", 0.0)
+                .put("z", 0.0);
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-local-wall",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "update", "wall", "local-wall-1", null, patch))
         );
 
         assertThat(engineRequest.get("operations")).isEmpty();

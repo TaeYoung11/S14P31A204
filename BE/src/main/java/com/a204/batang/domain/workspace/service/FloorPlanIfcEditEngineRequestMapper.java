@@ -92,7 +92,7 @@ public class FloorPlanIfcEditEngineRequestMapper {
         if (globalId == null || globalId.isBlank()) {
             return null;
         }
-        if ("room".equals(entity) && !isIfcGlobalId(globalId)) {
+        if (!isIfcGlobalId(globalId)) {
             return null;
         }
 
@@ -113,25 +113,26 @@ public class FloorPlanIfcEditEngineRequestMapper {
         if (rotationAxisAngle != null) {
             ObjectNode params = objectMapper.createObjectNode();
             params.set("rotation_deg", toIfcRotationAxisAngle(rotationAxisAngle));
-            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
+            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId, patch), params);
         }
         if (rotationDegrees != null) {
             ObjectNode params = objectMapper.createObjectNode();
             params.set("rotation_deg", toIfcRotationDeg(rotationDegrees));
-            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
-        }
-
-        JsonNode startMm = firstPoint(patch, "startMm", "start_mm");
-        JsonNode endMm = firstPoint(patch, "endMm", "end_mm");
-        if ("wall".equals(entity) && startMm != null && endMm != null) {
-            ObjectNode params = objectMapper.createObjectNode();
-            ObjectNode segment = params.putObject("segment_mm");
-            putPoint(segment, "start", startMm);
-            putPoint(segment, "end", endMm);
-            return operation(envelope.commandId().toString(), "update_element_properties", selector(globalId), params);
+            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId, patch), params);
         }
 
         ObjectNode params = objectMapper.createObjectNode();
+        JsonNode startMm = firstPoint(patch, "startMm", "start_mm");
+        JsonNode endMm = firstPoint(patch, "endMm", "end_mm");
+        if ("wall".equals(entity) && (startMm != null || endMm != null)) {
+            if (startMm == null || endMm == null) {
+                return null;
+            }
+            ObjectNode segment = params.putObject("segment_mm");
+            putPoint(segment, "start", startMm);
+            putPoint(segment, "end", endMm);
+        }
+
         putDimensions(params, patch, !"room".equals(entity));
         putText(params, "material", text(patch, "material"));
         putText(params, "color", text(patch, "color"));
@@ -139,7 +140,8 @@ public class FloorPlanIfcEditEngineRequestMapper {
             putText(params, "wall_type", firstText(patch, "wall_type", "wallType", "type"));
         }
         putRoomProperties(params, patch, entity);
-        if (!params.has("dimensions_mm")
+        if (!params.has("segment_mm")
+                && !params.has("dimensions_mm")
                 && !params.has("material")
                 && !params.has("color")
                 && !params.has("wall_type")
@@ -184,8 +186,11 @@ public class FloorPlanIfcEditEngineRequestMapper {
         LinkedHashSet<String> ids = new LinkedHashSet<>();
         ids.add(globalId);
         addSelectorGlobalIds(ids, patch, "affectedElementGlobalIds");
+        addSelectorGlobalIds(ids, patch, "affected_element_global_ids");
         addSelectorGlobalIds(ids, patch, "affectedGlobalIds");
+        addSelectorGlobalIds(ids, patch, "affected_global_ids");
         addSelectorGlobalIds(ids, patch, "affectedWallGlobalIds");
+        addSelectorGlobalIds(ids, patch, "affected_wall_global_ids");
 
         ObjectNode selector = objectMapper.createObjectNode();
         ArrayNode globalIds = selector.putArray("global_ids");
