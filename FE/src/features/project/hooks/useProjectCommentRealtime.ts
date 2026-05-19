@@ -8,6 +8,7 @@ import type { Project } from '@/shared/types'
 import { useProjectNotificationToastStore } from '@/features/project/stores/projectNotificationToastStore'
 import { notificationStreamService } from '@/features/project/services/notificationStream.service'
 import { projectQueryKeys } from '@/features/project/constants/projectQueryKeys'
+import { parseBackendDateAsKst } from '@/shared/utils/format'
 
 export interface ProjectCommentToastState {
   projectId: string
@@ -43,7 +44,7 @@ const parseCommentCreatedEvent = (data: string): ProjectCommentCreatedEvent | nu
 }
 
 const compareCommentTimeDesc = (left: ProjectCommentListItem, right: ProjectCommentListItem): number => {
-  return new Date(right.lastCommentAt).getTime() - new Date(left.lastCommentAt).getTime()
+  return parseBackendDateAsKst(right.lastCommentAt).getTime() - parseBackendDateAsKst(left.lastCommentAt).getTime()
 }
 
 const mergeRealtimeComment = (

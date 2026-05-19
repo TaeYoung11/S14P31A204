@@ -2,6 +2,7 @@
 import { MessageSquareText, X } from 'lucide-react'
 import type { ProjectCommentListItem } from '@/features/project/services/projectComment.service'
 import Spinner from '@/shared/components/Spinner'
+import { parseBackendDateAsKst } from '@/shared/utils/format'
 
 interface ProjectCommentNotificationModalProps {
   isOpen: boolean
@@ -11,13 +12,18 @@ interface ProjectCommentNotificationModalProps {
   onCommentClick: (comment: ProjectCommentListItem) => void
 }
 
-const formatCommentTime = (createdAt: string): string =>
-  new Date(createdAt).toLocaleDateString('ko-KR', {
+const formatCommentTime = (createdAt: string): string => {
+  const timestamp = parseBackendDateAsKst(createdAt)
+  if (Number.isNaN(timestamp.getTime())) return '-'
+
+  return timestamp.toLocaleDateString('ko-KR', {
+    timeZone: 'Asia/Seoul',
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
   })
+}
 
 export default function ProjectCommentNotificationModal({
   isOpen,
