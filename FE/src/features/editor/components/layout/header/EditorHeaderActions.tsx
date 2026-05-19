@@ -37,7 +37,6 @@ const SAVE_STATUS_STYLES: Record<SaveStatus, string> = {
  * - 저장/IFC 내보내기 버튼
  */
 export default function EditorHeaderActions({
-  mode,
   isViewer,
   userType,
   onOpenInvite,
@@ -47,18 +46,16 @@ export default function EditorHeaderActions({
   siteAreaLabel,
 }: EditorHeaderActionsProps) {
   const canSave = userType !== 'CUSTOMER'
-  const iconButtonClass = `rounded-xl p-2 transition-colors ${
-    isViewer
-      ? 'text-white/75 hover:bg-white/10 hover:text-white'
-      : 'text-[#7A859A] hover:bg-[#F0F2F9] hover:text-[#2F3A90]'
-  }`
+  const iconButtonClass = `rounded-xl p-2 transition-colors ${isViewer
+    ? 'text-white/75 hover:bg-white/10 hover:text-white'
+    : 'text-[#7A859A] hover:bg-[#F0F2F9] hover:text-[#2F3A90]'
+    }`
 
   return (
     <div className="flex items-center gap-4">
       {siteAreaLabel && (
-        <div className={`rounded-full px-3 py-1 text-[11px] font-bold ${
-          isViewer ? 'bg-white/15 text-white' : 'bg-[#EEF0FF] text-[#2F3A90]'
-        }`}>
+        <div className={`rounded-full px-3 py-1 text-[11px] font-bold ${isViewer ? 'bg-white/15 text-white' : 'bg-[#EEF0FF] text-[#2F3A90]'
+          }`}>
           대지 {siteAreaLabel}
         </div>
       )}
@@ -93,18 +90,17 @@ export default function EditorHeaderActions({
       )}
 
       {canSave && (
-      <button
-        type="button"
-        onClick={onSave}
-        className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold text-white shadow-md transition-all ${
-          isViewer
+        <button
+          type="button"
+          onClick={onSave}
+          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold text-white shadow-md transition-all ${isViewer
             ? 'bg-white/20 shadow-black/20 hover:bg-white/25'
             : 'bg-[#3B45B3] shadow-[#3B45B3]/20 hover:bg-[#2D3691]'
-        }`}
-      >
-        <Save size={14} />
-        {mode === '3d' ? 'IFC 내보내기' : '저장'}
-      </button>
+            }`}
+        >
+          <Save size={14} />
+          저장
+        </button>
       )}
     </div>
   )
