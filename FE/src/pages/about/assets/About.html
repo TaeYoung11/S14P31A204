@@ -7,7 +7,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
 <style>
   :root{
@@ -23,7 +22,7 @@
     --accent: #4f46e5;
     --accent-soft: rgba(79, 70, 229, 0.08);
     --serif: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    --mono: var(--serif);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
@@ -42,6 +41,14 @@
   h1, h2, h3, p, a, span, button, .tag{
     word-break: keep-all;
     overflow-wrap: break-word;
+  }
+
+  h1, h2, h3, h4, h5, h6, p, li, dt, dd, blockquote, figcaption{
+    text-wrap: pretty;
+  }
+
+  h1, h2, h3, h4, h5, h6{
+    text-wrap: balance;
   }
 
   /* faint grid backdrop */
@@ -1778,6 +1785,42 @@
     .about-process-card {
       min-height: 168px;
     }
+  }
+
+  /* readable mid-size text tuning */
+  body{
+    font-size: 15px;
+  }
+
+  .nav-link,
+  .eyebrow,
+  .meta-row .k,
+  .section-head .num,
+  .mcard .badge,
+  .value .num,
+  .member .name .num,
+  .tag,
+  footer.foot{
+    font-size: 12.5px;
+  }
+
+  .nav-cta{
+    font-size: 14px;
+  }
+
+  .section-head .desc,
+  .hero-side p,
+  .mcard p,
+  .value p{
+    font-size: 16px;
+  }
+
+  .about-process-head span{
+    font-size: 14px;
+  }
+
+  .about-process-label em{
+    font-size: 12.5px;
   }
 </style>
 </head>

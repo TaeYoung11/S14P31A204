@@ -55,19 +55,19 @@ function BlueprintPreview({ compact = false }: { compact?: boolean }) {
           strokeWidth="1.5"
           strokeDasharray="4 4"
         />
-        <text x="334" y="102" fontFamily="JetBrains Mono, monospace" fontSize="9" fill="rgba(79,70,229,0.9)">
+        <text x="334" y="102" fontFamily="Pretendard Variable, Pretendard, sans-serif" fontSize="9" fill="rgba(79,70,229,0.9)">
           AI · STUDIO
         </text>
         <line x1="40" y1="172" x2="500" y2="172" stroke="rgba(17,24,39,0.3)" strokeWidth="1" />
         <line x1="40" y1="168" x2="40" y2="176" stroke="rgba(17,24,39,0.3)" strokeWidth="1" />
         <line x1="500" y1="168" x2="500" y2="176" stroke="rgba(17,24,39,0.3)" strokeWidth="1" />
-        <text x="270" y="168" textAnchor="middle" fontFamily="JetBrains Mono, monospace" fontSize="8" fill="rgba(17,24,39,0.45)">
+        <text x="270" y="168" textAnchor="middle" fontFamily="Pretendard Variable, Pretendard, sans-serif" fontSize="8" fill="rgba(17,24,39,0.45)">
           12,400
         </text>
-        <text x="50" y="36" fontFamily="JetBrains Mono, monospace" fontSize="8" fill="rgba(17,24,39,0.35)">
+        <text x="50" y="36" fontFamily="Pretendard Variable, Pretendard, sans-serif" fontSize="8" fill="rgba(17,24,39,0.35)">
           A-01
         </text>
-        <text x="190" y="36" fontFamily="JetBrains Mono, monospace" fontSize="8" fill="rgba(17,24,39,0.35)">
+        <text x="190" y="36" fontFamily="Pretendard Variable, Pretendard, sans-serif" fontSize="8" fill="rgba(17,24,39,0.35)">
           +0.000
         </text>
         <rect x="60" y="120" width="40" height="24" fill="none" stroke="rgba(17,24,39,0.25)" strokeWidth="1" />

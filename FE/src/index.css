@@ -81,12 +81,75 @@ html, body, #root {
 
 body {
   font-family: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.5;
   color: var(--color-text-primary);
   background-color: var(--color-bg);
+  word-break: keep-all;
+  overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.font-mono {
+  font-family: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+li,
+dt,
+dd,
+blockquote,
+figcaption {
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  text-wrap: pretty;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  text-wrap: balance;
+}
+
+/* Keep dense app/editor UI readable without enlarging display titles. */
+.text-\[8px\] {
+  font-size: 10px;
+}
+
+.text-\[9px\] {
+  font-size: 11px;
+}
+
+.text-\[10px\] {
+  font-size: 11.5px;
+}
+
+.text-\[11px\],
+.text-xs {
+  font-size: 12.5px;
+}
+
+.text-\[12px\] {
+  font-size: 13.5px;
+}
+
+.text-\[13px\] {
+  font-size: 14px;
+}
+
+.text-\[14px\],
+.text-sm {
+  font-size: 15px;
 }
 
 /* =====================

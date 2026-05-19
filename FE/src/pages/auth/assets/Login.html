@@ -10,7 +10,6 @@
   <link
     href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css"
     rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg: #f4f5f9;
@@ -30,7 +29,7 @@
       --success-border: #bbf7d0;
       --error: #dc2626;
       --serif: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-      --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+      --mono: var(--serif);
     }
 
     * {
@@ -48,10 +47,38 @@
       font-family: var(--serif);
       color: var(--ink);
       background: var(--paper);
+      word-break: keep-all;
+      overflow-wrap: break-word;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
       letter-spacing: -0.005em;
       overflow: hidden;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    li,
+    dt,
+    dd,
+    blockquote,
+    figcaption {
+      word-break: keep-all;
+      overflow-wrap: break-word;
+      text-wrap: pretty;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+      text-wrap: balance;
     }
 
     .auth-wrap {
@@ -717,6 +744,41 @@
         min-height: 100vh;
       }
     }
+
+    /* readable mid-size text tuning */
+    body {
+      font-size: 15px;
+    }
+
+    .top-row .crumb,
+    .stat .k,
+    .mini-label,
+    .form-meta,
+    .right-foot {
+      font-size: 12.5px;
+    }
+
+    .label,
+    .forgot,
+    .notice,
+    .error-msg {
+      font-size: 13px;
+    }
+
+    .form-head p,
+    .field input,
+    .field select,
+    .domain-sep,
+    .check,
+    .signup,
+    .social-btn,
+    .submit {
+      font-size: 15px;
+    }
+
+    .desc {
+      font-size: 15px;
+    }
   </style>
 </head>
 
@@ -762,18 +824,18 @@
             <!-- accent room -->
             <rect x="324" y="84" width="172" height="72" fill="rgba(79,70,229,0.08)" stroke="rgba(79,70,229,0.6)"
               stroke-width="1.5" stroke-dasharray="4 4" />
-            <text x="334" y="102" font-family="JetBrains Mono, monospace" font-size="9" fill="rgba(79,70,229,0.9)">AI ·
+            <text x="334" y="102" font-family="Pretendard Variable, Pretendard, sans-serif" font-size="9" fill="rgba(79,70,229,0.9)">AI ·
               STUDIO</text>
             <!-- dimensions -->
             <line x1="40" y1="172" x2="500" y2="172" stroke="rgba(17,24,39,0.3)" stroke-width="1" />
             <line x1="40" y1="168" x2="40" y2="176" stroke="rgba(17,24,39,0.3)" stroke-width="1" />
             <line x1="500" y1="168" x2="500" y2="176" stroke="rgba(17,24,39,0.3)" stroke-width="1" />
-            <text x="270" y="170" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="8"
+            <text x="270" y="170" text-anchor="middle" font-family="Pretendard Variable, Pretendard, sans-serif" font-size="8"
               fill="rgba(17,24,39,0.45)" dy="-2">12,400</text>
             <!-- notes -->
-            <text x="50" y="36" font-family="JetBrains Mono, monospace" font-size="8"
+            <text x="50" y="36" font-family="Pretendard Variable, Pretendard, sans-serif" font-size="8"
               fill="rgba(17,24,39,0.35)">A-01</text>
-            <text x="190" y="36" font-family="JetBrains Mono, monospace" font-size="8"
+            <text x="190" y="36" font-family="Pretendard Variable, Pretendard, sans-serif" font-size="8"
               fill="rgba(17,24,39,0.35)">+0.000</text>
             <!-- furniture hint -->
             <rect x="60" y="120" width="40" height="24" fill="none" stroke="rgba(17,24,39,0.25)" stroke-width="1" />
