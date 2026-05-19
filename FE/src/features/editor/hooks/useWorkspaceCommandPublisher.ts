@@ -539,14 +539,10 @@ export function useWorkspaceCommandPublisher({
       pendingCommandRef.current = null
       return
     }
-    if (issuedLocalCreateIdsRef.current.has(preset.id)) {
-      pendingCommandRef.current = null
-      issuedLocalCreateIdsRef.current.delete(preset.id)
-      return
-    }
-    const globalId = toIfcGlobalId(preset.id)
-    if (!globalId) return
-    pendingCommandRef.current = deleteEntityCommand('ifcElement', globalId)
+    const commandId = toIfcGlobalId(preset.id) ?? preset.id
+    if (!commandId) return
+    issuedLocalCreateIdsRef.current.delete(preset.id)
+    pendingCommandRef.current = deleteEntityCommand(LIBRARY_ENTITY_BY_TYPE[preset.type], commandId)
   }, [])
 
   const updateRoom = useCallback((roomId: string, patch: Record<string, unknown>) => {

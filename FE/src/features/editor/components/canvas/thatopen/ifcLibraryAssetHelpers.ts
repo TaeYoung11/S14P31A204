@@ -176,7 +176,6 @@ export const setIfcAssetPlaceholderPending = (
       ifcAssetPlaceholderPending: pending,
     }
   })
-  setObjectTreeVisible(object, !pending)
 }
 
 /**

@@ -5829,7 +5829,6 @@ export default function ThatOpenIfcCanvas({
       }
       const normalizedStoreyId = Number.isFinite(preset.storeyExpressId) ? Number(preset.storeyExpressId) : null
       const isVisible = isLibraryVisibleForStorey(normalizedStoreyId)
-      const isAssetPlaceholderPending = libraryObject.userData?.ifcAssetPlaceholderPending === true
       let opacity = 1
       if (
         isVisible &&
@@ -5841,7 +5840,7 @@ export default function ThatOpenIfcCanvas({
         const clampedTransparency = Math.min(Math.max(rawTransparency, 0), 1)
         opacity = 1 - clampedTransparency
       }
-      libraryObject.visible = isVisible && !isAssetPlaceholderPending
+      libraryObject.visible = isVisible
       setLibraryObjectOpacity(libraryObject, opacity)
       if (!isVisible && selectedLibraryId && preset.id === selectedLibraryId) {
         shouldClearLibrarySelection = true
