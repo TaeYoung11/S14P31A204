@@ -254,6 +254,7 @@ const PRODUCT_TYPE_BY_STEP_ENTITY: Record<string, string> = {
   STAIRFLIGHT: 'IfcStairFlight',
   COLUMN: 'IfcColumn',
   BEAM: 'IfcBeam',
+  SPACE: 'IfcSpace',
 }
 
 const splitIfcStepArguments = (text: string): string[] => {
@@ -309,7 +310,7 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
   const metricsByElementId: Record<number, ParsedIfcElementInfo> = {}
   const metricsByElementName: Record<string, ParsedIfcElementInfo> = {}
 
-  Array.from(ifcText.matchAll(/#(\d+)=IFC(WALLSTANDARDCASE|WALL|SLAB|ROOF|DOOR|WINDOW|STAIRFLIGHT|STAIR|COLUMN|BEAM)\(([^;]*)\);/gi)).forEach((match) => {
+  Array.from(ifcText.matchAll(/#(\d+)=IFC(WALLSTANDARDCASE|WALL|SLAB|ROOF|DOOR|WINDOW|STAIRFLIGHT|STAIR|COLUMN|BEAM|SPACE)\(([^;]*)\);/gi)).forEach((match) => {
     const productId = Number(match[1])
     const ifcClass = PRODUCT_TYPE_BY_STEP_ENTITY[match[2].toUpperCase()]
     if (!ifcClass) return

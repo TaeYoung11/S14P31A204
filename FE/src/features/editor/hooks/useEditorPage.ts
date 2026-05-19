@@ -227,12 +227,20 @@ const IFC_SOURCE_CACHE_KEY_PREFIX = 'batang:editor:ifc-source:'
 const PRESIGNED_IFC_CACHE_TTL_MS = 4 * 60 * 1000
 const IFC_EDIT_COMMAND_DLQ_CODE = 'IFC_EDIT_COMMAND_DLQ'
 const UUID_LIKE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const IFC_GLOBAL_ID_PATTERN = /^[0-9A-Za-z_$]{22}$/
+const ROOM_PERIMETER_WALL_TOLERANCE_PX = 12
 interface CachedIfcSource {
   url: string
   storageUrl: string | null
   assetId: string | null
   revisionId: string | null
   savedAt: number
+}
+
+interface FloorRoomMoveSession {
+  key: string
+  baselineRoomsByBubbleId: Map<string, FloorRoom>
+  affectedElementGlobalIds: string[]
 }
 
 const clampBubbleDbSaveDebounceMs = (value: number): number =>
@@ -256,6 +264,108 @@ const resolveBubbleDbSaveDebounceMs = (): number => {
 const logRoofDebug = (...args: unknown[]) => {
   if (!import.meta.env.DEV) return
   console.log('[roof-debug][useEditorPage]', ...args)
+}
+
+const toIfcGlobalId = (value: string | null | undefined): string | null => {
+  const trimmed = value?.trim()
+  if (!trimmed) return null
+  if (IFC_GLOBAL_ID_PATTERN.test(trimmed)) return trimmed
+  const candidate = trimmed.split('-floor-')[0]
+  return IFC_GLOBAL_ID_PATTERN.test(candidate) ? candidate : null
+}
+
+const resolveFloorRoomGlobalId = (room: FloorRoom): string | null =>
+  toIfcGlobalId(room.globalId) ?? toIfcGlobalId(room.id)
+
+const resolveFloorWallGlobalId = (wall: FloorWall): string | null =>
+  toIfcGlobalId(wall.globalId) ?? toIfcGlobalId(wall.id)
+
+const getRoomAxisMmPerPx = (room: FloorRoom, axis: 'x' | 'y'): number => {
+  const px = axis === 'x' ? room.width : room.height
+  const mm = axis === 'x' ? room.widthMm : room.heightMm
+  return Number.isFinite(px) && px > 0 && Number.isFinite(mm) && mm > 0
+    ? mm / px
+    : FLOOR_MM_PER_PX
+}
+
+const getRoomBoundsRect = (room: FloorRoom): AxisAlignedRect => {
+  if (room.polygon && room.polygon.length >= 3) {
+    const bounds = getPolygonBounds(room.polygon)
+    return {
+      x: bounds.minX,
+      y: bounds.minY,
+      width: Math.max(bounds.maxX - bounds.minX, 1),
+      height: Math.max(bounds.maxY - bounds.minY, 1),
+    }
+  }
+  return {
+    x: room.x,
+    y: room.y,
+    width: room.width,
+    height: room.height,
+  }
+}
+
+const rangesOverlapWithTolerance = (
+  a1: number,
+  a2: number,
+  b1: number,
+  b2: number,
+  tolerance = ROOM_PERIMETER_WALL_TOLERANCE_PX,
+): boolean =>
+  Math.min(Math.max(a1, a2), Math.max(b1, b2)) -
+    Math.max(Math.min(a1, a2), Math.min(b1, b2)) >= -tolerance
+
+const isWallAlignedWithRoomPerimeter = (
+  wall: FloorWall,
+  room: FloorRoom,
+  tolerance = ROOM_PERIMETER_WALL_TOLERANCE_PX,
+): boolean => {
+  const rect = getRoomBoundsRect(room)
+  const left = rect.x
+  const right = rect.x + rect.width
+  const top = rect.y
+  const bottom = rect.y + rect.height
+  const near = (a: number, b: number) => Math.abs(a - b) <= tolerance
+  const sx = wall.start.x
+  const sy = wall.start.y
+  const ex = wall.end.x
+  const ey = wall.end.y
+  const isVertical = Math.abs(sx - ex) <= tolerance
+  const isHorizontal = Math.abs(sy - ey) <= tolerance
+
+  if (isVertical) {
+    const wallX = (sx + ex) / 2
+    return (near(wallX, left) || near(wallX, right)) &&
+      rangesOverlapWithTolerance(sy, ey, top, bottom, tolerance)
+  }
+
+  if (isHorizontal) {
+    const wallY = (sy + ey) / 2
+    return (near(wallY, top) || near(wallY, bottom)) &&
+      rangesOverlapWithTolerance(sx, ex, left, right, tolerance)
+  }
+
+  return false
+}
+
+const collectRoomMoveAffectedElementGlobalIds = (
+  rooms: FloorRoom[],
+  walls: FloorWall[],
+  activeLayerId: string | null,
+): string[] => {
+  const ids = new Set<string>()
+  rooms.forEach((room) => {
+    const roomGlobalId = resolveFloorRoomGlobalId(room)
+    if (roomGlobalId) ids.add(roomGlobalId)
+  })
+  walls.forEach((wall) => {
+    if (activeLayerId && wall.floorLayerId && wall.floorLayerId !== activeLayerId) return
+    if (!rooms.some((room) => isWallAlignedWithRoomPerimeter(wall, room))) return
+    const wallGlobalId = resolveFloorWallGlobalId(wall)
+    if (wallGlobalId) ids.add(wallGlobalId)
+  })
+  return Array.from(ids)
 }
 
 const getIfcSourceCacheKey = (projectId: string): string => `${IFC_SOURCE_CACHE_KEY_PREFIX}${projectId}`
@@ -610,6 +720,7 @@ export function useEditorPage() {
   ) => Promise<boolean>>(async () => false)
   const workspaceCommandPublisherRef = useRef<ReturnType<typeof useWorkspaceCommandPublisher> | null>(null)
   const mergedFloorOpeningsRef = useRef<FloorOpening[]>([])
+  const floorRoomMoveSessionRef = useRef<FloorRoomMoveSession | null>(null)
   const isFloorPlanGenerating = isFloorPlanGeneratingLocal || workspacePhaseStatus === 'CONVERTING'
 
   /**
@@ -2912,6 +3023,7 @@ export function useEditorPage() {
     hasUserEditedRef.current = true
     workspaceEditTransactionDepthRef.current += 1
     lastWorkspaceSnapshotTransactionAtRef.current = Date.now()
+    floorRoomMoveSessionRef.current = null
     setSaveStatus('dirty')
   }, [])
 
@@ -2928,6 +3040,7 @@ export function useEditorPage() {
   const commitWorkspaceSnapshotTransaction = useCallback(() => {
     workspaceEditTransactionDepthRef.current = Math.max(0, workspaceEditTransactionDepthRef.current - 1)
     if (workspaceEditTransactionDepthRef.current > 0) return
+    floorRoomMoveSessionRef.current = null
     requestWorkspaceSnapshotCommit()
   }, [requestWorkspaceSnapshotCommit])
 
@@ -4984,21 +5097,44 @@ export function useEditorPage() {
     if (!moveState) return
     markLocalFloorPlanSnapshotChanged()
     const { nextRooms, shouldMoveMulti } = moveState
+    const selectedSet = new Set(selectedIds)
+    const movedSourceRooms = shouldMoveMulti
+      ? floorRooms.filter((room) => selectedSet.has(room.bubbleId))
+      : floorRooms.filter((room) => room.bubbleId === bubbleId)
+    const moveSessionKey = shouldMoveMulti
+      ? movedSourceRooms.map((room) => room.bubbleId).sort().join('|')
+      : bubbleId
+    let moveSession = floorRoomMoveSessionRef.current
+    if (!moveSession || moveSession.key !== moveSessionKey) {
+      moveSession = {
+        key: moveSessionKey,
+        baselineRoomsByBubbleId: new Map(movedSourceRooms.map((room) => [room.bubbleId, room] as const)),
+        affectedElementGlobalIds: collectRoomMoveAffectedElementGlobalIds(
+          movedSourceRooms,
+          floorWalls,
+          activeFloorLayerId,
+        ),
+      }
+      floorRoomMoveSessionRef.current = moveSession
+    }
+    const toRoomMoveTranslationMm = (baselineRoom: FloorRoom, nextX: number, nextY: number) => ({
+      x: (nextX - baselineRoom.x) * getRoomAxisMmPerPx(baselineRoom, 'x'),
+      y: (nextY - baselineRoom.y) * getRoomAxisMmPerPx(baselineRoom, 'y'),
+      z: 0,
+    })
 
     if (shouldMoveMulti) {
       nextRooms.forEach((room) => {
         const current = floorRooms.find((item) => item.bubbleId === room.bubbleId)
         if (!current) return
         if (current.x === room.x && current.y === room.y) return
+        const baselineRoom = moveSession.baselineRoomsByBubbleId.get(room.bubbleId) ?? current
         workspaceCommandPublisher.updateRoom(current.id ?? room.bubbleId, {
           globalId: current.globalId,
           x: room.x,
           y: room.y,
-          translationMm: {
-            x: (room.x - current.x) * FLOOR_MM_PER_PX,
-            y: (room.y - current.y) * FLOOR_MM_PER_PX,
-            z: 0,
-          },
+          translationMm: toRoomMoveTranslationMm(baselineRoom, room.x, room.y),
+          affectedElementGlobalIds: moveSession.affectedElementGlobalIds,
         })
         if (!workspaceCommandPublisher.hasPendingCommand()) {
           workspaceCommandPublisher.markSnapshotOnlyChange('room-move', current.id ?? room.bubbleId, {
@@ -5013,15 +5149,13 @@ export function useEditorPage() {
       })
     } else {
       const current = floorRooms.find((room) => room.bubbleId === bubbleId)
+      const baselineRoom = current ? moveSession.baselineRoomsByBubbleId.get(bubbleId) ?? current : null
       workspaceCommandPublisher.updateRoom(current?.id ?? bubbleId, {
         globalId: current?.globalId,
         x,
         y,
-        translationMm: {
-          x: ((current ? x - current.x : 0) * FLOOR_MM_PER_PX),
-          y: ((current ? y - current.y : 0) * FLOOR_MM_PER_PX),
-          z: 0,
-        },
+        translationMm: baselineRoom ? toRoomMoveTranslationMm(baselineRoom, x, y) : { x: 0, y: 0, z: 0 },
+        affectedElementGlobalIds: moveSession.affectedElementGlobalIds,
       })
       if (!workspaceCommandPublisher.hasPendingCommand()) {
         workspaceCommandPublisher.markSnapshotOnlyChange('room-move', current?.id ?? bubbleId, {
@@ -5410,8 +5544,11 @@ export function useEditorPage() {
         action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
+      const shouldUseEventIfcStorageUrl =
+        action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
+        action === WORKSPACE_SYNC_ACTION.floorPlanRedo
 
-      if (!assetId && isIfcObjectStorageKey(normalizedIfcStorageUrl)) {
+      if (!assetId && isIfcObjectStorageKey(normalizedIfcStorageUrl) && !shouldUseEventIfcStorageUrl) {
         const refreshed = await refreshIfcSource()
         resolvedUrl = refreshed.url
         resolvedStorageUrl = refreshed.storageUrl
@@ -5423,11 +5560,15 @@ export function useEditorPage() {
       }
 
       if (isExpiredPresignedIfcUrl(resolvedUrl)) {
-        const refreshed = await refreshIfcSource()
-        resolvedUrl = refreshed.url
-        resolvedStorageUrl = refreshed.storageUrl
-        resolvedAssetId = refreshed.assetId
-        resolvedRevisionId = refreshed.revisionId
+        if (shouldUseEventIfcStorageUrl) {
+          resolvedUrl = await resolveIfcPresignedUrl(resolvedStorageUrl, resolvedAssetId ?? undefined)
+        } else {
+          const refreshed = await refreshIfcSource()
+          resolvedUrl = refreshed.url
+          resolvedStorageUrl = refreshed.storageUrl
+          resolvedAssetId = refreshed.assetId
+          resolvedRevisionId = refreshed.revisionId
+        }
       }
       // 2D 파싱 완료 후 3D 캔버스로 presigned URL과 assetId 전달
       setIfcSourceByProjectId((prev) => ({
@@ -5456,11 +5597,15 @@ export function useEditorPage() {
         const message = loadError instanceof Error ? loadError.message : ''
         if (!message.includes('(403)')) throw loadError
 
-        const refreshed = await refreshIfcSource()
-        resolvedUrl = refreshed.url
-        resolvedStorageUrl = refreshed.storageUrl
-        resolvedAssetId = refreshed.assetId
-        resolvedRevisionId = refreshed.revisionId
+        if (shouldUseEventIfcStorageUrl) {
+          resolvedUrl = await resolveIfcPresignedUrl(resolvedStorageUrl, resolvedAssetId ?? undefined)
+        } else {
+          const refreshed = await refreshIfcSource()
+          resolvedUrl = refreshed.url
+          resolvedStorageUrl = refreshed.storageUrl
+          resolvedAssetId = refreshed.assetId
+          resolvedRevisionId = refreshed.revisionId
+        }
         setIfcSourceByProjectId((prev) => ({
           ...prev,
           [projectId]: {

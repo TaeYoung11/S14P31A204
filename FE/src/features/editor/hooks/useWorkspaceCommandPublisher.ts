@@ -19,9 +19,21 @@ const IFC_GLOBAL_ID_PATTERN = /^[0-9A-Za-z_$]{22}$/
 const TRANSLATION_EPSILON = 1e-6
 
 const toIfcGlobalId = (id: string): string | null => {
-  if (IFC_GLOBAL_ID_PATTERN.test(id)) return id
-  const candidate = id.split('-floor-')[0]
+  const trimmed = id.trim()
+  if (IFC_GLOBAL_ID_PATTERN.test(trimmed)) return trimmed
+  const candidate = trimmed.split('-floor-')[0]
   return IFC_GLOBAL_ID_PATTERN.test(candidate) ? candidate : null
+}
+
+const toIfcGlobalIdList = (value: unknown): string[] => {
+  const values = Array.isArray(value) ? value : [value]
+  const ids = new Set<string>()
+  values.forEach((item) => {
+    if (typeof item !== 'string') return
+    const globalId = toIfcGlobalId(item)
+    if (globalId) ids.add(globalId)
+  })
+  return Array.from(ids)
 }
 
 const toIfcElementCommandId = (element: IfcElementInfo): string | null => {
@@ -574,13 +586,17 @@ export function useWorkspaceCommandPublisher({
     const translationZ = getFiniteNumber(translationMm?.z)
     if (translationX !== null || translationY !== null || translationZ !== null) {
       if (!hasNonZeroTranslation(translationX, translationY, translationZ)) return
-      pendingCommandRef.current = updateEntityCommand('room', globalId, {
+      const affectedElementGlobalIds = toIfcGlobalIdList(
+        patch.affectedElementGlobalIds ?? patch.affectedGlobalIds ?? patch.affectedWallGlobalIds,
+      )
+      pendingCommandRef.current = updateEntityCommand('room', globalId, compactRecord({
         translationMm: compactRecord({
           x: translationX,
           y: translationY,
           z: translationZ,
         }),
-      })
+        affectedElementGlobalIds: affectedElementGlobalIds.length > 0 ? affectedElementGlobalIds : undefined,
+      }))
       return
     }
 
