@@ -2036,15 +2036,14 @@ export function useEditorPage() {
       setBubbleHistoryCursor({ baseIndex: bubbleBaseIndex, redoDepth: bubbleRedoDepth })
       setFloorPlanHistoryCursor({ baseIndex: floorPlanBaseIndex, redoDepth: floorPlanRedoDepth })
 
-      const nextPhaseStatus = history.phaseStatus ?? 'BUBBLE_DRAFT'
-      setWorkspacePhaseStatus(nextPhaseStatus)
-
       const bubbleSnapshot = history.bubble?.snapshot
       const hasBubbleSnapshot = isBubbleSnapshotPayload(bubbleSnapshot)
 
       const floorPlanSnapshotRaw = history.floorPlan?.snapshot
       const floorPlanSnapshot: SavedFloorPlanSnapshotPayload | null | undefined = floorPlanSnapshotRaw
       const floorPlanBubbleSnapshot = isBubbleSnapshotPayload(floorPlanSnapshotRaw) ? floorPlanSnapshotRaw : null
+      const nextPhaseStatus = floorPlanSnapshot?.layout?.phaseStatus ?? history.phaseStatus ?? 'BUBBLE_DRAFT'
+      setWorkspacePhaseStatus(nextPhaseStatus)
 
       const resolvedHistoryBubbleSnapshot = hasBubbleSnapshot
         ? bubbleSnapshot
@@ -2409,6 +2408,26 @@ export function useEditorPage() {
       ? workspaceCommandPublisher.consumePendingCommand()
       : null
 
+    const isIfcRotationCommand = workspaceCommand?.entity === 'ifcElement'
+      && workspaceCommand.op === 'update'
+      && workspaceCommand.patch != null
+      && typeof workspaceCommand.patch === 'object'
+      && !Array.isArray(workspaceCommand.patch)
+      && 'rotation_degrees' in workspaceCommand.patch
+    if (import.meta.env.DEV && mode === '3d' && isIfcRotationCommand) {
+      const workspaceCommandJson = workspaceCommand ? JSON.stringify(workspaceCommand) : null
+      console.log('[ifc-rotate-save][publish-check]', {
+        projectId,
+        historyDomain,
+        hasPendingFloorPlanCommand,
+        consumedWorkspaceCommand: workspaceCommand,
+        consumedWorkspaceCommandJson: workspaceCommandJson,
+        hasUserEdited: hasUserEditedRef.current,
+        saveStatus,
+        currentIfcRevisionId,
+      })
+    }
+
     if (historyDomain === 'floorPlan' && !workspaceCommand) {
       pendingServerPublishRef.current = null
       awaitingServerSyncRef.current = null
@@ -2453,6 +2472,25 @@ export function useEditorPage() {
       summary: publishDebugSummary,
       floorMeta: extractBubbleFloorMetaFromWorkspaceSnapshot(publishSnapshot),
     })
+    const isServerIfcRotationCommand = serverPublishRecord.workspaceCommand?.entity === 'ifcElement'
+      && serverPublishRecord.workspaceCommand.op === 'update'
+      && serverPublishRecord.workspaceCommand.patch != null
+      && typeof serverPublishRecord.workspaceCommand.patch === 'object'
+      && !Array.isArray(serverPublishRecord.workspaceCommand.patch)
+      && 'rotation_degrees' in serverPublishRecord.workspaceCommand.patch
+    if (import.meta.env.DEV && mode === '3d' && isServerIfcRotationCommand) {
+      const workspaceCommandJson = serverPublishRecord.workspaceCommand
+        ? JSON.stringify(serverPublishRecord.workspaceCommand)
+        : null
+      console.log('[ifc-rotate-save][send-floor-plan-update]', {
+        projectId,
+        baseIndex: serverPublishRecord.baseIndex,
+        revisionId: serverPublishRecord.revisionId,
+        sceneType: serverPublishRecord.sceneType,
+        workspaceCommand: serverPublishRecord.workspaceCommand,
+        workspaceCommandJson,
+      })
+    }
     if (isBubbleDebugEnabled()) {
       console.table(publishDebugSummary.bubbleFloorRows)
     }
@@ -2577,15 +2615,43 @@ export function useEditorPage() {
     onRemoteFloorPlanSnapshot: applyRemoteFloorPlanSnapshot,
     onPhaseStatusChanged: setWorkspacePhaseStatus,
     onIfcStorageUrlReceived: (ifcStorageUrl, action, assetId, revisionId) => {
-      handleIfcSyncMessageRef.current(ifcStorageUrl, action, assetId, revisionId)
       if (
         pendingOpenThreeDOnGenerateCompleteRef.current &&
-        action &&
-        IFC_COMPLETED_ACTION_SET.has(action)
+        action === WORKSPACE_SYNC_ACTION.floorPlanGenerateCompleted &&
+        projectId
       ) {
         pendingOpenThreeDOnGenerateCompleteRef.current = false
+        const normalizedIfcUrl = ifcStorageUrl.trim()
+        if (revisionId !== undefined) {
+          setIfcRevisionByProjectId((prev) => ({
+            ...prev,
+            [projectId]: revisionId ?? null,
+          }))
+        }
+        if (normalizedIfcUrl) {
+          setIfcSourceByProjectId((prev) => ({
+            ...prev,
+            [projectId]: {
+              url: normalizedIfcUrl,
+              storageUrl: normalizedIfcUrl,
+              assetId: assetId ?? null,
+            },
+          }))
+          writeCachedIfcSource(projectId, {
+            url: normalizedIfcUrl,
+            storageUrl: normalizedIfcUrl,
+            assetId: assetId ?? null,
+            revisionId: revisionId ?? null,
+          })
+        }
+        clearFloorPlanGenerateTimeout()
+        setFloorPlanGenerateStatusText('?ë°ãˆƒ???ì•¹ê½¦???ê¾¨ì¦º?ì„ë¿€?ë“¬ë•²??')
+        setWorkspacePhaseStatus('IFC_EDIT')
+        setSaveStatus('synced')
         setMode('3d')
+        return
       }
+      handleIfcSyncMessageRef.current(ifcStorageUrl, action, assetId, revisionId)
     },
     onBubbleHistoryCursorChanged: updateBubbleHistoryCursor,
     onFloorPlanHistoryCursorChanged: updateFloorPlanHistoryCursor,
@@ -4161,7 +4227,25 @@ export function useEditorPage() {
 
   const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId' | 'localId' | 'localIds'>) => {
     if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return
+    markLocalFloorPlanSnapshotChanged()
     const expressId = element.expressId
+    const hasRotationPatch =
+      'rotationDegrees' in patch ||
+      'rotation_degrees' in patch ||
+      'rotationX' in patch ||
+      'rotationY' in patch ||
+      'rotationZ' in patch
+    if (import.meta.env.DEV && mode === '3d' && hasRotationPatch) {
+      const patchSnapshot = { ...patch }
+      console.log('[ifc-transform-save][record-change]', {
+        elementId: element.id,
+        expressId,
+        globalId: element.globalId ?? element.properties?.GlobalId ?? null,
+        patch: patchSnapshot,
+        patchKeys: Object.keys(patchSnapshot),
+        patchJson: JSON.stringify(patchSnapshot),
+      })
+    }
     if (shouldPublishIfcElementPatch(element, patch)) {
       const commandPatch: Record<string, unknown> = { ...patch }
       const nextX = typeof patch.positionX === 'number' ? patch.positionX : null
@@ -4223,7 +4307,7 @@ export function useEditorPage() {
         { globalId: element.globalId, ifcClass: element.ifcClass },
       )
     })
-  }, [workspaceCommandPublisher])
+  }, [markLocalFloorPlanSnapshotChanged, mode, workspaceCommandPublisher])
 
   const handleDeleteIfcElement = useCallback((element: IfcElementInfo) => {
     workspaceCommandPublisher.deleteIfcElement(element)
@@ -5268,6 +5352,7 @@ export function useEditorPage() {
       lastLoadedIfcStorageUrlRef.current = dedupeKey
       if (
         action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
+        action === WORKSPACE_SYNC_ACTION.floorPlanGenerateCompleted ||
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
       ) {

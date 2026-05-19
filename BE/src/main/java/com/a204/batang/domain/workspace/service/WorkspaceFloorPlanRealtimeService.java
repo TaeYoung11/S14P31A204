@@ -58,6 +58,8 @@ public class WorkspaceFloorPlanRealtimeService {
     private static final String ACTION_FLOOR_PLAN_UNDO = "FLOOR_PLAN_UNDO";
     private static final String ACTION_FLOOR_PLAN_REDO = "FLOOR_PLAN_REDO";
     private static final String DIRECT_IFC_SCHEMA_VERSION = "v1";
+    private static final String EMPTY_IFC_EDIT_OPERATIONS_MESSAGE =
+            "IFC에 반영할 수 없는 편집 요청입니다. 요소 ID 또는 편집 타입을 확인해 주세요.";
     private static final int UNKNOWN_FLOOR_PLAN_BASE_INDEX = -1;
 
     private final ProjectWorkspaceRepository projectWorkspaceRepository;
@@ -108,12 +110,14 @@ public class WorkspaceFloorPlanRealtimeService {
             );
             return;
         }
-        if (queueResult == FloorPlanIfcEditQueueResult.SKIPPED_EMPTY_OPERATIONS) {
-            saveFloorPlanSnapshotToRedisOrThrow(
+        if (queueResult == FloorPlanIfcEditQueueResult.REJECTED_EMPTY_OPERATIONS) {
+            notifyIfcEditFailureToUser(currentUserId, ErrorCode.INVALID_REQUEST, EMPTY_IFC_EDIT_OPERATIONS_MESSAGE);
+            log.info(
+                    "Reject floor-plan realtime sync because mapped IFC edit operations are empty. projectId={}, revisionId={}",
                     projectId,
-                    buildFloorPlanHistorySnapshot(syncPayload, null),
-                    request.baseIndex()
+                    resolvedRevisionId
             );
+            return;
         }
 
         broadcastFloorPlanSync(
@@ -235,6 +239,8 @@ public class WorkspaceFloorPlanRealtimeService {
     ) {
         ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
         JsonNode payload = buildGenerateCompletionPayload(revisionId, parentRevisionId);
+        JsonNode floorPlanHistorySnapshot = buildFloorPlanHistorySnapshot(payload, normalizeS3Url(s3Url));
+        saveFloorPlanSnapshotToRedisOrThrow(projectId, floorPlanHistorySnapshot, UNKNOWN_FLOOR_PLAN_BASE_INDEX);
 
         broadcastFloorPlanSync(
                 projectId,
@@ -522,7 +528,7 @@ public class WorkspaceFloorPlanRealtimeService {
                     workspaceCommand.op(),
                     workspaceCommand.entity()
             );
-            return FloorPlanIfcEditQueueResult.SKIPPED_EMPTY_OPERATIONS;
+            return FloorPlanIfcEditQueueResult.REJECTED_EMPTY_OPERATIONS;
         }
         JsonNode operations = engineRequest.get("operations");
         if (operations == null || !operations.isArray() || operations.isEmpty()) {
@@ -533,7 +539,7 @@ public class WorkspaceFloorPlanRealtimeService {
                     workspaceCommand.op(),
                     workspaceCommand.entity()
             );
-            return FloorPlanIfcEditQueueResult.SKIPPED_EMPTY_OPERATIONS;
+            return FloorPlanIfcEditQueueResult.REJECTED_EMPTY_OPERATIONS;
         }
 
         DirectIfcEditRequest directRequest = new DirectIfcEditRequest(
@@ -1041,7 +1047,7 @@ public class WorkspaceFloorPlanRealtimeService {
 
     private enum FloorPlanIfcEditQueueResult {
         QUEUED,
-        SKIPPED_EMPTY_OPERATIONS,
+        REJECTED_EMPTY_OPERATIONS,
         CONFLICT
     }
 
