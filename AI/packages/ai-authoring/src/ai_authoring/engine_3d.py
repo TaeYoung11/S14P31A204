@@ -3012,14 +3012,10 @@ def create_door_with_opening(
         if opening is None:
             logger.error("Door 생성 실패: opening을 생성할 수 없습니다.")
             return None
-        dt = _mm_to_model_units(model, 40.0, 40.0)
-        margin = _mm_to_model_units(model, 20.0, 20.0)
-        off_t = (margin + (_mm_to_model_units(model, width_mm, 200) - dt)) / 2.0
-        door_loc = (0.0, off_t, 0.0) if ew_wall else (off_t, 0.0, 0.0)
         placement = model.create_entity(
             "IfcLocalPlacement",
             PlacementRelTo=opening.ObjectPlacement,
-            RelativePlacement=_axis_placement_3d(model, location=door_loc),
+            RelativePlacement=_axis_placement_3d(model, location=(0.0, 0.0, 0.0)),
         )
 
         door = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcDoor")
@@ -3027,13 +3023,15 @@ def create_door_with_opening(
         _assign_to_storey(model, door, storey)
         door.ObjectPlacement = placement
         dt = _mm_to_model_units(model, 40, 40)
+        door.OverallWidth = _mm_to_model_units(model, length_mm, 900)
+        door.OverallHeight = _mm_to_model_units(model, height_mm, 2100)
         bx, by = (
-            (_mm_to_model_units(model, length_mm, 900), dt)
+            (door.OverallWidth, dt)
             if ew_wall
-            else (dt, _mm_to_model_units(model, length_mm, 900))
+            else (dt, door.OverallWidth)
         )
         door.Representation, _ = _box_representation(
-            model, bx, by, _mm_to_model_units(model, height_mm, 2100), center_origin=False
+            model, bx, by, door.OverallHeight, center_origin=False
         )
         _apply_color_and_material(model, door, color or "#8B4513", material_name)
         if opening:
