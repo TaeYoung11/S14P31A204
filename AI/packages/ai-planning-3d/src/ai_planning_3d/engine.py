@@ -35,6 +35,8 @@ DEFAULT_LLM_API_KEY = "ollama"
 DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
 DEFAULT_RAW_JSON_FALLBACK_ENABLED = True
 DEFAULT_RAW_JSON_FALLBACK_TIMEOUT_SECONDS = 10.0
+DEFAULT_LLM_REASONING_EFFORT = "none"
+DISABLED_LLM_REASONING_EFFORT_VALUES = {"", "off", "false", "disabled"}
 
 
 def _env_float(name: str, default: float) -> float:
@@ -89,7 +91,7 @@ SYSTEM_PROMPT = (
     "\uae30\ub465 column -> IfcColumn, \ubcf4 beam -> IfcBeam, "
     "\uacc4\ub2e8 stair -> IfcStair.\n"
     "When the user writes a bare HEX value like #AABBCC near a target object, infer "
-    "MODIFY changes.color=\"#AABBCC\" even if the word color is omitted.\n"
+    'MODIFY changes.color="#AABBCC" even if the word color is omitted.\n'
     "For short assignment-style requests such as 'target is #RRGGBB' or 'target #RRGGBB', "
     "treat them as MODIFY color commands, not clarification requests.\n"
     "If one message names several independent target/value pairs and one JSON command "
@@ -100,13 +102,13 @@ SYSTEM_PROMPT = (
     "\n"
     "### RULES\n"
     "MODIFY dimension fields must be objects: "
-    "{\"mode\":\"ABSOLUTE|RELATIVE|SCALE\",\"value\":number}.\n"
-    "\"2배\" and other multiplier expressions must use mode SCALE.\n"
+    '{"mode":"ABSOLUTE|RELATIVE|SCALE","value":number}.\n'
+    '"2배" and other multiplier expressions must use mode SCALE.\n'
     "두껍게/더/올려/높게 without fixed final size means RELATIVE. 설정/맞춰/로 means ABSOLUTE.\n"
-    "DELETE must include changes {\"deletion\":true}.\n"
+    'DELETE must include changes {"deletion":true}.\n'
     "CREATE must fill create_info. If storey or direction is missing, ask ambiguity_question, "
     "except roof on 옥상 may use storey RF and direction North.\n"
-    "박공지붕 means create_info.shape_preset=\"GABLED\".\n"
+    '박공지붕 means create_info.shape_preset="GABLED".\n'
     "If target or numeric value is too vague, set ambiguity_question and confidence 0.1.\n"
     "\n"
     "### DEMO SHORTCUT REQUESTS\n"
@@ -124,22 +126,22 @@ SYSTEM_PROMPT = (
     "/계단생성 style prompts create IfcStair and may default direction to North.\n"
     "\n"
     "### EXAMPLES\n"
-    "{\"command_type\":\"MODIFY\",\"target\":{\"element_type\":\"IfcWall\",\"storey\":\"1F\"},"
-    "\"changes\":{\"width_mm\":{\"mode\":\"RELATIVE\",\"value\":50}},"
-    "\"create_info\":null,\"confidence\":1,\"raw_instruction\":\"1층 외벽 두께 50mm 더\","
-    "\"ambiguity_question\":null}\n"
-    "{\"command_type\":\"CREATE\",\"target\":{\"element_type\":\"IfcRoof\"},\"changes\":null,"
-    "\"create_info\":{\"element_type\":\"IfcRoof\",\"storey\":\"RF\",\"direction\":\"North\","
-    "\"color\":\"#EF4444\",\"shape_preset\":\"GABLED\"},\"confidence\":1,"
-    "\"raw_instruction\":\"옥상에 빨간색 박공지붕 만들어줘\",\"ambiguity_question\":null}\n"
-    "{\"command_type\":\"MODIFY\",\"target\":{\"element_type\":\"IfcRoof\",\"select_all\":true},"
-    "\"changes\":{\"color\":\"#AABBCC\"},\"create_info\":null,\"confidence\":1,"
-    "\"raw_instruction\":\"\uc9c0\ubd95 \uc0c9\uc0c1\uc744 #AABBCC\ub85c "
-    "\ubc14\uafd4\uc918\",\"ambiguity_question\":null}\n"
-    "{\"command_type\":\"MODIFY\",\"target\":{\"element_type\":\"IfcDoor\",\"select_all\":true},"
-    "\"changes\":{\"color\":\"#884422\"},\"create_info\":null,\"confidence\":1,"
-    "\"raw_instruction\":\"\ubb38\uc740 #884422\ub85c \ubc14\uafd4\uc918\","
-    "\"ambiguity_question\":null}\n"
+    '{"command_type":"MODIFY","target":{"element_type":"IfcWall","storey":"1F"},'
+    '"changes":{"width_mm":{"mode":"RELATIVE","value":50}},'
+    '"create_info":null,"confidence":1,"raw_instruction":"1층 외벽 두께 50mm 더",'
+    '"ambiguity_question":null}\n'
+    '{"command_type":"CREATE","target":{"element_type":"IfcRoof"},"changes":null,'
+    '"create_info":{"element_type":"IfcRoof","storey":"RF","direction":"North",'
+    '"color":"#EF4444","shape_preset":"GABLED"},"confidence":1,'
+    '"raw_instruction":"옥상에 빨간색 박공지붕 만들어줘","ambiguity_question":null}\n'
+    '{"command_type":"MODIFY","target":{"element_type":"IfcRoof","select_all":true},'
+    '"changes":{"color":"#AABBCC"},"create_info":null,"confidence":1,'
+    '"raw_instruction":"\uc9c0\ubd95 \uc0c9\uc0c1\uc744 #AABBCC\ub85c '
+    '\ubc14\uafd4\uc918","ambiguity_question":null}\n'
+    '{"command_type":"MODIFY","target":{"element_type":"IfcDoor","select_all":true},'
+    '"changes":{"color":"#884422"},"create_info":null,"confidence":1,'
+    '"raw_instruction":"\ubb38\uc740 #884422\ub85c \ubc14\uafd4\uc918",'
+    '"ambiguity_question":null}\n'
 )
 
 
@@ -154,9 +156,13 @@ class LLM3DEngine:
         resolved_model = model or os.getenv("LLM_MODEL_NAME") or DEFAULT_LLM_MODEL
         resolved_base_url = base_url or os.getenv("LLM_BASE_URL") or DEFAULT_LLM_BASE_URL
         resolved_api_key = api_key or os.getenv("LLM_API_KEY") or DEFAULT_LLM_API_KEY
-        resolved_timeout = timeout if timeout is not None else _env_float(
-            "LLM_TIMEOUT_SECONDS",
-            DEFAULT_LLM_TIMEOUT_SECONDS,
+        resolved_timeout = (
+            timeout
+            if timeout is not None
+            else _env_float(
+                "LLM_TIMEOUT_SECONDS",
+                DEFAULT_LLM_TIMEOUT_SECONDS,
+            )
         )
         self.raw_json_fallback_enabled = _env_bool(
             "LLM_RAW_JSON_FALLBACK_ENABLED",
@@ -166,6 +172,10 @@ class LLM3DEngine:
             "LLM_RAW_JSON_FALLBACK_TIMEOUT_SECONDS",
             DEFAULT_RAW_JSON_FALLBACK_TIMEOUT_SECONDS,
         )
+        self.reasoning_effort = os.getenv(
+            "LLM_REASONING_EFFORT",
+            DEFAULT_LLM_REASONING_EFFORT,
+        ).strip()
         self._raw_client = AsyncOpenAI(
             base_url=resolved_base_url,
             api_key=resolved_api_key,
@@ -178,24 +188,56 @@ class LLM3DEngine:
     async def aclose(self) -> None:
         await self._raw_client.close()
 
-    async def parse_command(
-        self, user_text: str, ifc_context: str | None = None
+    def _reasoning_extra_body(self) -> dict[str, str] | None:
+        if self.reasoning_effort.lower() in DISABLED_LLM_REASONING_EFFORT_VALUES:
+            return None
+        return {"reasoning_effort": self.reasoning_effort}
+
+    async def _create_structured_completion(
+        self,
+        user_text: str,
+        system_content: str,
+        extra_body: dict[str, str] | None,
     ) -> LLM3DCommand:
-        system_content = (
-            SYSTEM_PROMPT + "\n\n" + ifc_context if ifc_context else SYSTEM_PROMPT
-        )
+        kwargs = {
+            "model": self.model,
+            "response_model": LLM3DCommand,
+            "messages": [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": user_text},
+            ],
+            "temperature": 0.0,
+            "top_p": 0.1,
+            "max_retries": 1,
+        }
+        if extra_body is not None:
+            kwargs["extra_body"] = extra_body
+        return await self.client.chat.completions.create(**kwargs)
+
+    async def parse_command(self, user_text: str, ifc_context: str | None = None) -> LLM3DCommand:
+        system_content = SYSTEM_PROMPT + "\n\n" + ifc_context if ifc_context else SYSTEM_PROMPT
+        extra_body = self._reasoning_extra_body()
         try:
-            command: LLM3DCommand = await self.client.chat.completions.create(
-                model=self.model,
-                response_model=LLM3DCommand,
-                messages=[
-                    {"role": "system", "content": system_content},
-                    {"role": "user", "content": user_text},
-                ],
-                temperature=0.0,
-                top_p=0.1,
-                max_retries=1,
-            )
+            try:
+                command = await self._create_structured_completion(
+                    user_text,
+                    system_content,
+                    extra_body=extra_body,
+                )
+            except InstructorRetryException:
+                raise
+            except Exception:
+                if extra_body is None:
+                    raise
+                logger.warning(
+                    "[LLM3DEngine] structured_completion_reasoning_retry_without_extra_body",
+                    exc_info=True,
+                )
+                command = await self._create_structured_completion(
+                    user_text,
+                    system_content,
+                    extra_body=None,
+                )
             return self._repair_or_replace(user_text, command)
         except InstructorRetryException:
             if self.raw_json_fallback_enabled:
@@ -212,26 +254,55 @@ class LLM3DEngine:
         """Parse a command without calling the LLM, for deterministic local tests."""
         return self._heuristic_parse(user_text)
 
+    async def _create_raw_json_completion(
+        self,
+        user_text: str,
+        system_content: str,
+        extra_body: dict[str, str] | None,
+    ):
+        kwargs = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": system_content
+                    + "\nReturn exactly one strict JSON object matching the schema.",
+                },
+                {"role": "user", "content": user_text},
+            ],
+            "temperature": 0.0,
+            "top_p": 0.1,
+            "timeout": self.raw_json_fallback_timeout,
+        }
+        if extra_body is not None:
+            kwargs["extra_body"] = extra_body
+        return await self._raw_client.chat.completions.create(**kwargs)
+
     async def _parse_command_raw_json(
         self,
         user_text: str,
         system_content: str,
     ) -> LLM3DCommand | None:
+        extra_body = self._reasoning_extra_body()
         try:
-            response = await self._raw_client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_content
-                        + "\nReturn exactly one strict JSON object matching the schema.",
-                    },
-                    {"role": "user", "content": user_text},
-                ],
-                temperature=0.0,
-                top_p=0.1,
-                timeout=self.raw_json_fallback_timeout,
-            )
+            try:
+                response = await self._create_raw_json_completion(
+                    user_text,
+                    system_content,
+                    extra_body=extra_body,
+                )
+            except Exception:
+                if extra_body is None:
+                    raise
+                logger.warning(
+                    "[LLM3DEngine] raw_json_reasoning_retry_without_extra_body",
+                    exc_info=True,
+                )
+                response = await self._create_raw_json_completion(
+                    user_text,
+                    system_content,
+                    extra_body=None,
+                )
             content = response.choices[0].message.content or ""
             command = LLM3DCommand.model_validate(self._json_object_from_text(content))
             return self._repair_or_replace(user_text, command)
@@ -294,8 +365,7 @@ class LLM3DEngine:
             if create_info is not command.create_info:
                 command = command.model_copy(update={"create_info": create_info})
             if create_info.storey is None or (
-                create_info.direction is None
-                and create_info.element_type != LLM3DElementType.STAIR
+                create_info.direction is None and create_info.element_type != LLM3DElementType.STAIR
             ):
                 return self._ambiguous(user_text, "CREATE에는 층과 방향 정보가 필요합니다.")
             if command.ambiguity_question:
@@ -436,8 +506,7 @@ class LLM3DEngine:
             ),
             ("\ucc3d\ubb38|\uc708\ub3c4\uc6b0|\\bwindow\\b", re.IGNORECASE),
             (
-                "\ubc14\ub2e5|\ub300\uc9c0|\uc2ac[\ub798\ub77c]\ube0c|"
-                "\\b(?:floor|slab|site)\\b",
+                "\ubc14\ub2e5|\ub300\uc9c0|\uc2ac[\ub798\ub77c]\ube0c|\\b(?:floor|slab|site)\\b",
                 re.IGNORECASE,
             ),
             ("\uae30\ub465|\\bcolumn\\b", re.IGNORECASE),
@@ -810,9 +879,8 @@ class LLM3DEngine:
             return "East"
         if "west" in lower_text:
             return "West"
-        lateral_rotation = (
-            any(word in text for word in ("회전", "돌려"))
-            and ("오른쪽으로" in text or "왼쪽으로" in text)
+        lateral_rotation = any(word in text for word in ("회전", "돌려")) and (
+            "오른쪽으로" in text or "왼쪽으로" in text
         )
         if "북쪽" in text or "북측" in text:
             return "North"
