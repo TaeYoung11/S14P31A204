@@ -12,16 +12,6 @@
     href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css"
     rel="stylesheet">
 
-  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js"
-    integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L"
-    crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"
-    integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm"
-    crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"
-    integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"
-    crossorigin="anonymous"></script>
-
   <style>
     :root {
       --bg: #f4f5f9;
@@ -112,7 +102,7 @@
       cursor: grabbing;
     }
 
-    /* faint gradient veil over the scene to lift text */
+    /* 텍스트 가독성을 높이는 은은한 장면 오버레이 */
     .veil {
       position: fixed;
       inset: 0;
@@ -123,7 +113,7 @@
         radial-gradient(40% 40% at 90% 10%, rgba(79, 70, 229, 0.06) 0%, rgba(79, 70, 229, 0) 70%);
     }
 
-    /* tiny grid overlay */
+    /* 얇은 그리드 오버레이 */
     .grid-overlay {
       position: fixed;
       inset: 0;
@@ -136,7 +126,7 @@
       mask-image: radial-gradient(ellipse 100% 80% at 50% 50%, black 30%, transparent 80%);
     }
 
-    /* ── HEADER ────────────────────────────────── */
+    /* ── 헤더 ─────────────────────────────────── */
     header.nav {
       position: fixed;
       top: 0;
@@ -198,7 +188,7 @@
       transform: translateY(-1px);
     }
 
-    /* ── HERO TEXT ─────────────────────────────── */
+    /* ── 히어로 텍스트 ─────────────────────────── */
     main {
       position: relative;
       z-index: 5;
@@ -341,7 +331,7 @@
       transform: translateX(3px);
     }
 
-    /* readout panel (data tag floating over scene) */
+    /* 장면 위에 떠 있는 데이터 표시 패널 */
     .readout {
       position: fixed;
       right: 40px;
@@ -407,7 +397,7 @@
       font-weight: 500;
     }
 
-    /* ── FOOTER STRIP ──────────────────────────── */
+    /* ── 하단 정보 바 ─────────────────────────── */
     footer.foot {
       position: fixed;
       left: 0;
@@ -464,7 +454,7 @@
       font-size: 10px;
     }
 
-    /* ── SIDE MARKER ─────────────────────────── */
+    /* ── 측면 마커 ───────────────────────────── */
     .side-marker {
       position: fixed;
       right: 40px;
@@ -478,7 +468,7 @@
       transform: rotate(180deg);
     }
 
-    /* big watermark */
+    /* 큰 워터마크 */
     .watermark {
       position: fixed;
       right: -4px;
@@ -494,7 +484,7 @@
       user-select: none;
     }
 
-    /* tweaks */
+    /* 시각 옵션 패널 */
     .tweaks {
       position: fixed;
       bottom: 80px;
@@ -590,7 +580,7 @@
       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
     }
 
-    /* tiny corner ticks */
+    /* 모서리 눈금 */
     .ticks {
       position: fixed;
       pointer-events: none;
@@ -628,7 +618,7 @@
       border-right: 1px solid;
     }
 
-    /* loading curtain */
+    /* 초기 로딩 화면 */
     .loader {
       position: fixed;
       inset: 0;
@@ -674,7 +664,7 @@
       }
     }
 
-    /* modern landing refresh */
+    /* 메인 랜딩 최신 스타일 보정 */
     :root {
       --bg: #eef2f7;
       --bg-2: #ede9fe;
@@ -1230,7 +1220,7 @@
       }
     }
 
-    /* readable mid-size text tuning */
+    /* 중간 크기 텍스트 가독성 보정 */
     body {
       font-size: 15px;
     }
@@ -1262,7 +1252,7 @@
       font-size: 13.5px;
     }
 
-    /* main visual composition refinement */
+    /* 메인 비주얼 구성 정돈 */
     .veil {
       background:
         linear-gradient(90deg, rgba(248, 250, 252, 0.98) 0%, rgba(248, 250, 252, 0.91) 26%, rgba(248, 250, 252, 0.46) 41%, rgba(248, 250, 252, 0.04) 61%, rgba(248, 250, 252, 0) 78%),
@@ -1499,7 +1489,7 @@
 
   <div class="watermark">BATANG</div>
 
-  <!-- Tweaks panel -->
+  <!-- 시각 옵션 패널 -->
   <div class="tweaks" id="tweaks-panel">
     <h4>
       TWEAKS
@@ -1535,7 +1525,7 @@
     <div class="bar"></div>
   </div>
 
-  <!-- Three.js (importmap) -->
+  <!-- Three.js 모듈 로더 -->
   <script type="importmap">
   {
     "imports": {
@@ -1547,7 +1537,7 @@
   <script type="module">
     import * as THREE from 'three';
 
-    /* ─── Scene setup ─── */
+    /* ─── 장면 초기화 ─── */
     const canvas = document.getElementById('scene-canvas');
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -1562,7 +1552,7 @@
     const camera = new THREE.PerspectiveCamera(30, W() / H(), 0.1, 200);
     const camTarget = new THREE.Vector3(6.05, 1.45, -0.35);
 
-    /* ─── Lights ─── */
+    /* ─── 조명 설정 ─── */
     const ambient = new THREE.AmbientLight(0xffffff, 0.55);
     scene.add(ambient);
 
@@ -1587,7 +1577,7 @@
     fill.position.set(-6, 4, -4);
     scene.add(fill);
 
-    /* ─── Ground (clean presentation plane) ─── */
+    /* ─── 바닥면 설정 ─── */
     function makeGroundTexture() {
       const c = document.createElement('canvas');
       c.width = c.height = 1024;
@@ -1627,7 +1617,7 @@
     ground.receiveShadow = true;
     scene.add(ground);
 
-    /* ─── Three.js workflow: bubble → 2D → 3D → realistic render ─── */
+    /* ─── 버블 → 2D → 3D → 실사 렌더 워크플로우 ─── */
     const workflowGroup = new THREE.Group();
     workflowGroup.position.set(8.35, 0.05, -0.45);
     scene.add(workflowGroup);
@@ -1647,6 +1637,7 @@
       return t * t * (3 - 2 * t);
     };
 
+    // Three.js 그룹 전체의 표시 상태를 동기화한다. 불투명 매스는 depthWrite를 유지해 뒤쪽 디테일 비침을 막는다.
     function setObjectOpacity(object, opacity) {
       object.visible = opacity > 0.015;
       object.traverse((node) => {
@@ -2133,11 +2124,12 @@
 
     function makeBlock(x, z, w, h, d, opts = {}) {
       const isAccent = opts.accent || false;
+      const blockSeed = Math.abs(Math.round(x * 1000 + z * 100 + w * 10 + h * 7 + d * 13));
       const baseColor = isAccent
         ? ACCENT.clone().lerp(new THREE.Color(0xffffff), 0.34)
-        : new THREE.Color(concreteColors[Math.floor(Math.random() * concreteColors.length)]);
+        : new THREE.Color(concreteColors[blockSeed % concreteColors.length]);
 
-      // Main architectural mass: pale mineral/glass tone instead of toy-like blocks.
+      // 건물의 기본 매스. 창문/문은 별도 details 그룹으로 붙여 매스 애니메이션과 동기화한다.
       const mainMat = new THREE.MeshStandardMaterial({
         color: baseColor,
         roughness: isAccent ? 0.38 : 0.64,
@@ -2148,12 +2140,12 @@
       m.castShadow = true;
       m.receiveShadow = true;
 
-      // Detail group — real 3D geometry, bound to the building body morph.
+      // 창문, 창턱, 출입구처럼 건물 표면에 붙는 디테일 묶음.
       const details = new THREE.Group();
       details.visible = false;
       m.add(details);
 
-      // Facade grid — larger glass panes and calmer mullions for a premium architectural model.
+      // 파사드 재질은 낮은 채도와 얇은 프레임을 사용해 미니어처 블록 느낌을 줄인다.
       const darkGlass = new THREE.MeshStandardMaterial({
         color: isAccent ? 0x251f4f : 0x17233b,
         roughness: 0.16,
@@ -2199,12 +2191,18 @@
         details.add(mesh);
         return mesh;
       };
-      // deterministic-ish pseudo random per building
-      const seed = (x * 1000 + z * 100 + w * 10) | 0;
+
+      // 같은 건물은 새로고침해도 같은 조명 창 패턴을 갖도록 좌표 기반 시드를 사용한다.
+      const seed = blockSeed | 0;
       const rand = (i) => {
         const v = Math.sin((seed + i) * 12.9898) * 43758.5453;
         return v - Math.floor(v);
       };
+      const makeFacadePosition = (localX, faceY, normalAxis, sign, offset) => (
+        normalAxis === 'z'
+          ? new THREE.Vector3(localX, faceY, sign * (d / 2 + offset))
+          : new THREE.Vector3(sign * (w / 2 + offset), faceY, localX)
+      );
       let winIdx = 0;
       const placeFace = (faceW, faceY, normalAxis, sign, floorIndex) => {
         const isPrimaryFace = normalAxis === 'z' && sign === 1;
@@ -2220,10 +2218,11 @@
         for (let c = 0; c < cols; c++) {
           const localX = startX + c * colSpacing;
           if (isSideFace && (floorIndex + c + (isAccent ? 1 : 0)) % 3 === 2) continue;
+          // 출입구가 있는 1층 중앙부는 창문을 비워 문과 겹치지 않게 한다.
           if (hasPortal && normalAxis === 'z' && sign === 1 && floorIndex === 0 && Math.abs(localX) < 0.48) {
             continue;
           }
-          // glass pane
+
           const isLit = rand(winIdx++) < litChance;
           const glassMat = isLit ? (isAccent ? accentLit : litGlass) : darkGlass;
           let geomW, geomD;
@@ -2242,11 +2241,11 @@
             glassMat
           );
           if (normalAxis === 'z') {
-            frame.position.set(localX, faceY, sign * (d / 2 + 0.009 + facadeGap));
-            pane.position.set(localX, faceY, sign * (d / 2 + geomD / 2 + facadeGap + 0.016));
+            frame.position.copy(makeFacadePosition(localX, faceY, normalAxis, sign, 0.009 + facadeGap));
+            pane.position.copy(makeFacadePosition(localX, faceY, normalAxis, sign, geomD / 2 + facadeGap + 0.016));
           } else {
-            frame.position.set(sign * (w / 2 + 0.009 + facadeGap), faceY, localX);
-            pane.position.set(sign * (w / 2 + geomW / 2 + facadeGap + 0.016), faceY, localX);
+            frame.position.copy(makeFacadePosition(localX, faceY, normalAxis, sign, 0.009 + facadeGap));
+            pane.position.copy(makeFacadePosition(localX, faceY, normalAxis, sign, geomW / 2 + facadeGap + 0.016));
           }
           addDetail(frame, faceY);
           addDetail(pane, faceY);
@@ -2260,22 +2259,17 @@
             frameMat
           );
           mullion.position.copy(pane.position);
-          if (normalAxis === 'z') {
-            mullion.position.z = sign * (d / 2 + 0.044 + facadeGap);
-          } else {
-            mullion.position.x = sign * (w / 2 + 0.044 + facadeGap);
-          }
+          mullion.position.copy(makeFacadePosition(localX, faceY, normalAxis, sign, 0.044 + facadeGap));
           addDetail(mullion, faceY);
 
-          // sill (thin lip below window)
           const sill = new THREE.Mesh(
             new THREE.BoxGeometry(geomW + 0.12, 0.018, normalAxis === 'z' ? 0.048 : geomD + 0.02),
             sillMat
           );
           if (normalAxis === 'z') {
-            sill.position.set(localX, faceY - winH / 2 - 0.02, sign * (d / 2 + 0.03 + facadeGap));
+            sill.position.copy(makeFacadePosition(localX, faceY - winH / 2 - 0.02, normalAxis, sign, 0.03 + facadeGap));
           } else {
-            sill.position.set(sign * (w / 2 + 0.03 + facadeGap), faceY - winH / 2 - 0.02, localX);
+            sill.position.copy(makeFacadePosition(localX, faceY - winH / 2 - 0.02, normalAxis, sign, 0.03 + facadeGap));
             sill.geometry = new THREE.BoxGeometry(0.06, 0.025, geomD + 0.04);
           }
           addDetail(sill, faceY - winH / 2 - 0.02);
@@ -2286,7 +2280,7 @@
         placeFace(w, cy, 'z', 1, i);
         placeFace(d, cy, 'x', 1, i);
       }
-      // floor slab bands between window rows (subtle horizontal lines)
+      // 층 경계선을 얇게 표현해 창문이 적어도 빌딩 층수가 읽히게 한다.
       const slabMat = new THREE.MeshStandardMaterial({
         color: isAccent ? 0xc4b5fd : 0xdbe4ee,
         roughness: 0.78,
@@ -2301,7 +2295,7 @@
         addDetail(slab, cy);
       }
 
-      // Rooftop volume (smaller box on top — parapet/penthouse)
+      // 옥상부 매스는 본체보다 작게 두어 파라펫과 펜트하우스 느낌을 만든다.
       const roofW = w * 0.55, roofD = d * 0.55, roofH = 0.18;
       const roofMesh = new THREE.Mesh(
         new THREE.BoxGeometry(roofW, roofH, roofD),
@@ -2315,7 +2309,7 @@
       roofMesh.castShadow = true;
       addDetail(roofMesh, h * 0.42);
 
-      // Entry portal at ground level (only on wider buildings)
+      // 폭이 충분한 건물에만 별도 출입구를 두고, 주변 창문은 위에서 제외한다.
       if (hasPortal) {
         const portalFrame = new THREE.Mesh(
           new THREE.BoxGeometry(0.56, 0.62, 0.035),
@@ -2336,7 +2330,7 @@
         addDetail(portal, -h / 2 + 0.25);
       }
 
-      // Antenna for tall accent buildings
+      // 높은 강조 건물에는 얇은 안테나를 추가해 실루엣을 구분한다.
       if (isAccent && h >= 3.5) {
         const pole = new THREE.Mesh(
           new THREE.CylinderGeometry(0.025, 0.025, 0.8, 6),
@@ -2347,7 +2341,7 @@
         addDetail(pole, h * 0.5);
       }
 
-      // wireframe edge for crisp architectural look
+      // 얇은 엣지 라인으로 매스 경계를 정리해 낮은 폴리곤 모델에서도 건축 모형처럼 보이게 한다.
       const edges = new THREE.EdgesGeometry(geo);
       const lineMat = new THREE.LineBasicMaterial({
         color: isAccent ? 0x8b5cf6 : 0x94a3b8,
@@ -2357,7 +2351,7 @@
       const wf = new THREE.LineSegments(edges, lineMat);
       m.add(wf);
 
-      // morph state — start flat on floor, animate to cube, then to building
+      // 3D 단계에서 평면 블록이 건물 높이로 올라오는 애니메이션 상태.
       const finalH = h;
       const flatRatio = Math.max(0.04 / finalH, 0.02);
       const cubeRatio = Math.min(w, d) / finalH;
@@ -2375,7 +2369,7 @@
       return m;
     }
 
-    /* compositions */
+    /* 장면 구성 */
     const COMPOSITIONS = {
       city: [
         { x: -3.4, z: -1.9, w: 1.15, h: 3.0, d: 1.3 },
@@ -2407,7 +2401,7 @@
     };
 
     function loadComposition(name) {
-      // clear existing
+      // 기존 구성 요소를 비우고 선택된 구성으로 다시 채운다.
       while (blocksGroup.children.length) {
         const c = blocksGroup.children.pop();
         c.geometry?.dispose();
@@ -2418,9 +2412,9 @@
       updateReadout(name);
     }
 
-    /* ─── Morph easing ─── */
+    /* ─── 워크플로우 단계 보간 ─── */
     const easeInOut = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-    // Phase A: flat → cube (1.0s), Phase B: hold cube (0.25s), Phase C: cube → building (1.4s)
+    // Phase A: 평면 → 큐브, Phase B: 큐브 유지, Phase C: 큐브 → 건물.
     const PHASE_A = 1.0, PHASE_HOLD = 0.25, PHASE_C = 1.4;
     function morphScale(elapsed, flatR, cubeR) {
       if (elapsed <= 0) return flatR;
@@ -2446,7 +2440,7 @@
       if (gfaNode) gfaNode.textContent = gfa;
     }
 
-    /* ─── Mouse interaction ─── */
+    /* ─── 마우스 상호작용 ─── */
     const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
     let dragging = false, dragStart = { x: 0, y: 0 }, manualRot = 0, manualRotTarget = 0, manualTilt = 0, manualTiltTarget = 0;
     let dragVelX = 0, dragVelY = 0;
@@ -2484,14 +2478,14 @@
       mouse.tx = 0; mouse.ty = 0;
     });
 
-    /* wheel to zoom */
+    /* 휠 확대/축소 */
     canvas.addEventListener('wheel', (e) => {
       if (!userInteracted) return;
       e.preventDefault();
       zoomTarget = Math.max(0.6, Math.min(1.8, zoomTarget + e.deltaY * 0.0012));
     }, { passive: false });
 
-    /* touch (basic) */
+    /* 기본 터치 조작 */
     let touchStart = null;
     canvas.addEventListener('touchstart', (e) => {
       if (e.touches.length === 1) {
@@ -2515,7 +2509,7 @@
     }, { passive: true });
     canvas.addEventListener('touchend', () => touchStart = null);
 
-    /* hover picking */
+    /* 호버 대상 감지 */
     const ray = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
     let hovered = null;
@@ -2530,7 +2524,7 @@
         hovered = newHovered;
         if (hovered) {
           hovered.userData.hoverTarget = 1;
-          // update azimuth read for fun
+          // 현재 회전값을 읽을 수 있도록 방위각 표시를 갱신한다.
           const conf = 84 + Math.round(((hovered.position.x + hovered.position.z) * 31 + 100) % 16);
           const azimuth = document.getElementById('ro-azi');
           if (azimuth) azimuth.textContent = conf + '%';
@@ -2538,7 +2532,7 @@
       }
     }
 
-    /* ─── Animation loop ─── */
+    /* ─── 애니메이션 루프 ─── */
     let autoOrbit = true;
     const WORKFLOW_CAMERA_YAW = -0.13;
     let baseAngle = WORKFLOW_CAMERA_YAW;
@@ -2606,6 +2600,7 @@
       const renderAlpha = workflowAlpha(phase, 3, 0.95);
       const buildingLocal = workflowLocal(phase, 2);
       const buildingDuration = WORKFLOW_DURATIONS[2];
+      // 창문이 반투명 매스 뒤로 비쳐 보이지 않도록 3D 빌딩은 끝 구간에서 빠르게 숨긴다.
       const buildingInStage = buildingLocal >= 0 && buildingLocal <= buildingDuration - 0.22;
       const buildingDisplayAlpha = buildingInStage
         ? (buildingLocal < 0.45 ? smooth01(buildingLocal / 0.45) : 1)
@@ -2669,14 +2664,14 @@
     }
 
     function tick(t) {
-      // ease mouse
+      // 마우스 입력을 부드럽게 보간한다.
       mouse.x += (mouse.tx - mouse.x) * 0.06;
       mouse.y += (mouse.ty - mouse.y) * 0.06;
       manualRot += (manualRotTarget - manualRot) * 0.12;
       manualTilt += (manualTiltTarget - manualTilt) * 0.12;
       zoom += (zoomTarget - zoom) * 0.08;
 
-      // momentum after release
+      // 드래그 해제 후 관성 회전을 적용한다.
       if (!dragging) {
         manualRotTarget += dragVelX * 0.92;
         manualTiltTarget = Math.max(-0.35, Math.min(0.55, manualTiltTarget + dragVelY * 0.92));
@@ -2715,6 +2710,7 @@
           ud.details.scale.setScalar(1);
           ud.details.children.forEach((detail) => {
             const revealAt = detail.userData.revealAt ?? 0;
+            // 각 디테일은 자신이 붙은 층 높이에 맞춰 건물 상승과 함께 나타난다.
             const reveal = detailsVisible ? smooth01((workflow.buildingProgress - revealAt + 0.08) / 0.12) : 0;
             detail.visible = reveal > 0.02;
             detail.scale.setScalar(Math.max(0.72, reveal));
@@ -2740,13 +2736,13 @@
 
     requestAnimationFrame(tick);
 
-    // hide loader
+    // 첫 렌더 이후 로딩 화면을 숨긴다.
     setTimeout(() => {
       document.getElementById('loader').classList.add('hide');
     }, 350);
 
-    /* ─── Tweaks ─── */
-    // accent
+    /* ─── 시각 옵션 ─── */
+    // 강조 색상
     document.querySelectorAll('#sw-accent .sw').forEach(el => {
       el.addEventListener('click', () => {
         document.querySelectorAll('#sw-accent .sw').forEach(s => s.classList.remove('active'));
@@ -2754,7 +2750,7 @@
         const c = el.dataset.color;
         ACCENT = new THREE.Color(c);
         document.documentElement.style.setProperty('--accent', c);
-        // recolor accent blocks
+        // 강조 블록 색상을 선택한 색으로 갱신한다.
         blocksGroup.children.forEach(m => {
           if (m.userData.isAccent) {
             if (Array.isArray(m.material)) m.material.forEach(mm => mm.color?.set(c));
@@ -2763,7 +2759,7 @@
         });
       });
     });
-    // composition
+    // 장면 구성
     document.querySelectorAll('#seg-comp button').forEach(b => {
       b.addEventListener('click', () => {
         document.querySelectorAll('#seg-comp button').forEach(x => x.classList.remove('active'));
@@ -2771,7 +2767,7 @@
         loadComposition(b.dataset.comp);
       });
     });
-    // orbit
+    // 자동 회전
     document.querySelectorAll('#seg-orbit button').forEach(b => {
       b.addEventListener('click', () => {
         document.querySelectorAll('#seg-orbit button').forEach(x => x.classList.remove('active'));
@@ -2780,7 +2776,7 @@
       });
     });
 
-    /* ─── Tweaks panel (host protocol) ─── */
+    /* ─── 시각 옵션 패널 연동 ─── */
     const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
       "accent": "#4f46e5",
       "composition": "city"

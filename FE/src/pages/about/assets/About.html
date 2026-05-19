@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8" />
@@ -51,7 +51,7 @@
     text-wrap: balance;
   }
 
-  /* faint grid backdrop */
+  /* 은은한 그리드 배경 */
   body::before{
     content: "";
     position: fixed; inset: 0;
@@ -75,7 +75,7 @@
 
   main, header, footer{ position: relative; z-index: 1; }
 
-  /* ── HEADER ────────────────────────────────── */
+  /* ── 헤더 ─────────────────────────────────── */
   header.nav{
     position: fixed; top: 0; left: 0; right: 0;
     z-index: 10;
@@ -115,7 +115,7 @@
   }
   .nav-cta:hover{ background: #1f2937; transform: translateY(-1px); }
 
-  /* ── HERO ───────────────────────────────────── */
+  /* ── 히어로 영역 ───────────────────────────── */
   .hero{
     max-width: 1280px;
     margin: 0 auto;
@@ -192,7 +192,7 @@
     margin-left: 4px;
   }
 
-  /* ── SECTION HEADER ─────────────────────────── */
+  /* ── 섹션 헤더 ─────────────────────────────── */
   .section{
     max-width: 1280px;
     margin: 0 auto;
@@ -225,7 +225,7 @@
     text-align: right;
   }
 
-  /* ── MISSION ──────────────────────────────── */
+  /* ── 서비스 가치 ───────────────────────────── */
   .mission-grid{
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -264,7 +264,7 @@
     text-wrap: pretty;
   }
 
-  /* ── TEAM ─────────────────────────────────── */
+  /* ── 팀 소개 ───────────────────────────────── */
   .team-grid{
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -319,7 +319,7 @@
   .tag.t-AI{ background: var(--accent-soft); color: var(--accent); border-color: rgba(79,70,229,0.18); }
   .tag.t-PD, .tag.t-PM{ background: rgba(17,24,39,0.06); color: var(--ink); border-color: rgba(17,24,39,0.12); font-weight: 600; }
 
-  /* ── VALUES ────────────────────────────────── */
+  /* ── 제품 원칙 ─────────────────────────────── */
   .values{
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -363,7 +363,7 @@
     max-width: 320px;
   }
 
-  /* ── CTA ────────────────────────────────── */
+  /* ── CTA ──────────────────────────────────── */
   .cta-block{
     max-width: 1280px;
     margin: 80px auto 0;
@@ -403,7 +403,7 @@
     background: #4338ca;
   }
 
-  /* ── FOOTER ────────────────────────────────── */
+  /* ── 푸터 ─────────────────────────────────── */
   footer.foot{
     margin-top: 40px;
     padding: 32px 40px;
@@ -415,7 +415,7 @@
     letter-spacing: 0.14em;
   }
 
-  /* responsive */
+  /* 반응형 레이아웃 */
   @media (max-width: 900px){
     .hero{ grid-template-columns: 1fr; padding-top: 140px; gap: 40px; }
     .meta-row{ grid-template-columns: 1fr; gap: 16px; }
@@ -427,7 +427,7 @@
     .section-head .desc{ flex: initial; margin-left: 0; max-width: none; text-align: left; }
   }
 
-  /* modern about refresh */
+  /* About 화면 최신 스타일 보정 */
   :root {
     --bg: #f8fafc;
     --bg-2: #ede9fe;
@@ -1165,7 +1165,7 @@
     }
   }
 
-  /* polished about layout */
+  /* About 화면 레이아웃 정돈 */
   body {
     background:
       radial-gradient(980px 640px at 86% 8%, rgba(124, 58, 237, 0.18), transparent 62%),
@@ -1582,7 +1582,7 @@
     }
   }
 
-  /* typography and spacing balance */
+  /* 타이포그래피와 여백 균형 */
   .hero {
     min-height: auto;
     padding-top: clamp(108px, 11vh, 148px);
@@ -1787,7 +1787,7 @@
     }
   }
 
-  /* readable mid-size text tuning */
+  /* 중간 크기 텍스트 가독성 보정 */
   body{
     font-size: 15px;
   }
@@ -1841,7 +1841,7 @@
 
 <main>
 
-  <!-- HERO -->
+  <!-- 히어로 영역 -->
   <section class="hero">
     <div class="hero-copy">
       <h1 class="title">
@@ -1875,7 +1875,7 @@
     </div>
   </section>
 
-  <!-- MISSION -->
+  <!-- 서비스 가치 -->
   <section class="section">
     <div class="section-head">
       <span class="num">01 / DESIGN SPEED</span>
@@ -1898,7 +1898,7 @@
     </div>
   </section>
 
-  <!-- VALUES -->
+  <!-- 제품 원칙 -->
   <section class="section" style="padding-bottom: 0;">
     <div class="section-head">
       <span class="num">02 / PRINCIPLES</span>
@@ -1923,7 +1923,7 @@
     </div>
   </div>
 
-  <!-- TEAM -->
+  <!-- 팀 소개 -->
   <section class="section">
     <div class="section-head">
       <span class="num">03 / TEAM</span>

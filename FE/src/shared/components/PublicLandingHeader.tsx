@@ -1,9 +1,9 @@
-﻿// 공개 랜딩 페이지의 고정 오버레이 헤더를 렌더링합니다.
 import { Link, useLocation } from 'react-router-dom'
 import logoSrc from '@/assets/logo.svg'
 
 const PUBLIC_LANDING_PATHS = new Set(['/', '/about'])
 
+/** 공개 랜딩 화면에서만 노출되는 고정 헤더. */
 export default function PublicLandingHeader() {
   const { pathname } = useLocation()
 
