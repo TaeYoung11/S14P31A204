@@ -538,6 +538,7 @@ export const createIfcAssetPresetPlaceholder = (
   preset: ThreeDLibraryPreset,
   index: number,
   worldUnitsPerMm = PROJECT_WORLD_UNITS_PER_MM,
+  options: { visible?: boolean } = {},
 ) => {
   const group = new THREE.Group()
   const parsedDimensions = parsePresetDimensions(preset)
@@ -591,6 +592,7 @@ export const createIfcAssetPresetPlaceholder = (
     ifcAssetPlaceholder: true,
     ifcAssetLoaded: false,
   }
+  group.visible = options.visible ?? true
   return group
 }
 

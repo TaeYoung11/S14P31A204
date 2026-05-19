@@ -31,6 +31,7 @@ import {
 import { getThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import {
+  DEFAULT_LIBRARY_MATERIAL_BY_TYPE,
   applyObjectColor,
   applyObjectMaterial,
   getMaterialDefaultColor,
@@ -655,6 +656,7 @@ export default function ThatOpenIfcCanvas({
   const regressionCheckedRef = useRef(false)
   const ifcCommitInFlightRef = useRef(false)
   const ifcMoveDirtyRef = useRef(false)
+  const lastIfcTransformCommitSignatureRef = useRef<string | null>(null)
   const feedbackTimeoutRef = useRef<number | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMessage, setErrorMessage] = useState('')
@@ -754,6 +756,47 @@ export default function ThatOpenIfcCanvas({
     }
     console.log(`${logPrefix}[${entry.seq}] ${event}`, { at: entry.at })
   }, [isIfcMoveDebugEnabled])
+  const emitIfcTransformCommit = useCallback((
+    payload: ReturnType<typeof buildIfcTransformCommitPayload>,
+    reason: string,
+  ) => {
+    if (!payload) return
+    const signature = [
+      payload.element.id,
+      payload.element.expressId,
+      payload.patch.positionX,
+      payload.patch.positionY,
+      payload.patch.positionZ,
+      payload.patch.rotationX,
+      payload.patch.rotationY,
+      payload.patch.rotationZ,
+      payload.patch.lengthMm,
+      payload.patch.heightMm,
+      payload.patch.thicknessMm,
+    ].map((value) => (
+      typeof value === 'number' && Number.isFinite(value)
+        ? value.toFixed(6)
+        : String(value ?? 'null')
+    )).join('|')
+    if (lastIfcTransformCommitSignatureRef.current === signature) {
+      logIfcMove('ifc_transform_commit_emit_skip_duplicate', {
+        reason,
+        elementId: payload.element.id,
+        expressId: payload.element.expressId ?? null,
+      })
+      return
+    }
+    lastIfcTransformCommitSignatureRef.current = signature
+    onIfcElementTransformCommitRef.current?.(payload.element, payload.patch)
+    logIfcMove('ifc_transform_commit_emit', {
+      reason,
+      elementId: payload.element.id,
+      expressId: payload.element.expressId ?? null,
+      positionX: payload.patch.positionX,
+      positionY: payload.patch.positionY,
+      positionZ: payload.patch.positionZ,
+    })
+  }, [logIfcMove])
 
   const applyIfcOpacityByLocalIds = useCallback(async (
     sceneState: ThatOpenSceneState,
@@ -2585,9 +2628,7 @@ export default function ThatOpenIfcCanvas({
         )
       }
       ifcMoveDirtyRef.current = false
-      if (transformCommit) {
-        onIfcElementTransformCommitRef.current?.(transformCommit.element, transformCommit.patch)
-      }
+      emitIfcTransformCommit(transformCommit, reason)
       const editable = target.object as IfcEditableObject3D
       const resolvedModelId = editable.userData.ifcEditTarget?.modelId ?? target.modelId
       const normalizedResolvedModelId = normalizeRootModelId(resolvedModelId, sceneState.modelId)
@@ -2638,6 +2679,7 @@ export default function ThatOpenIfcCanvas({
   }, [
     commitIfcProxyTransformToModel,
     dispatchTransformRuntimeAction,
+    emitIfcTransformCommit,
     logIfcMove,
     resolveTargetOwnerId,
     waitForIfcCommitInFlightToSettle,
@@ -3229,9 +3271,7 @@ export default function ThatOpenIfcCanvas({
               )
             }
             ifcMoveDirtyRef.current = false
-            if (transformCommit) {
-              onIfcElementTransformCommitRef.current?.(transformCommit.element, transformCommit.patch)
-            }
+            emitIfcTransformCommit(transformCommit, reason)
             if (options?.keepSelectionAttached && selectedTargetRef.current?.source === 'ifc') {
               const currentSelected = selectedTargetRef.current
               if (currentSelected.object === target.object) {
@@ -3416,9 +3456,7 @@ export default function ThatOpenIfcCanvas({
                 }
                 const moveState = ifcMoveLifecycleRef.current
                 if (!moveState.lastError) {
-                  if (transformCommit) {
-                    onIfcElementTransformCommitRef.current?.(transformCommit.element, transformCommit.patch)
-                  }
+                  emitIfcTransformCommit(transformCommit, 'runQueuedIfcCommit_success')
                   if (queuedSessionId) {
                     dispatchTransformRuntimeAction(
                       {
@@ -4027,6 +4065,13 @@ export default function ThatOpenIfcCanvas({
               hasTransformDelta,
               note: 'commit scheduled immediately after drag end',
             })
+            const activeSceneForImmediateCommit = sceneRef.current
+            if (activeSceneForImmediateCommit) {
+              emitIfcTransformCommit(
+                buildIfcTransformCommitPayload(activeSceneForImmediateCommit, selectedTarget),
+                'drag_end_ifc_immediate',
+              )
+            }
             if (activeDragSessionId) {
               dispatchTransformRuntimeAction(
                 { type: 'REQUEST_COMMIT', transformSessionId: activeDragSessionId },
@@ -5890,6 +5935,14 @@ export default function ThatOpenIfcCanvas({
         libraryObject.visible = true
         return
       }
+      const isPendingIfcAssetPlaceholder =
+        libraryObject.userData?.ifcAssetPlaceholder === true &&
+        libraryObject.userData?.ifcAssetLoaded !== true &&
+        Boolean(preset.assetIfcUrl || preset.assetIfc)
+      if (isPendingIfcAssetPlaceholder) {
+        libraryObject.visible = false
+        return
+      }
       const normalizedStoreyId = Number.isFinite(preset.storeyExpressId) ? Number(preset.storeyExpressId) : null
       const isVisible = isLibraryVisibleForStorey(normalizedStoreyId)
       let opacity = 1
@@ -7419,6 +7472,7 @@ export default function ThatOpenIfcCanvas({
       libraryAssetModelIdsRef.current.add(modelId)
       const fragmentModel = model as unknown as LoadedFragmentModel
       fragmentModel.useCamera(sceneState.camera)
+      fragmentModel.object.visible = false
       return fragmentModel.object
     } catch (error) {
       console.warn('[editor] IFC 라이브러리 에셋 인스턴스 생성 실패', {
@@ -7502,7 +7556,7 @@ export default function ThatOpenIfcCanvas({
           PROJECT_WORLD_UNITS_PER_MM,
         )
         : hasIfcAsset
-          ? createIfcAssetPresetPlaceholder(THREE, preset, index, PROJECT_WORLD_UNITS_PER_MM)
+          ? createIfcAssetPresetPlaceholder(THREE, preset, index, PROJECT_WORLD_UNITS_PER_MM, { visible: false })
           : createPresetMesh(THREE, preset, index, sceneState.worldUnitsPerMm)
       if (canReuseLoadedIfcAsset && existingChild) {
         updateLibraryPresetData(existingChild, preset)
@@ -7607,6 +7661,7 @@ export default function ThatOpenIfcCanvas({
           PROJECT_WORLD_UNITS_PER_MM,
           false,
         )
+        assetMesh.visible = false
         assetMesh.userData = {
           ...assetMesh.userData,
           libraryAssetModelId: assetModelId,
@@ -7617,11 +7672,8 @@ export default function ThatOpenIfcCanvas({
             libraryAssetModelId: assetModelId,
           }
         })
-        if (preset.material) {
-          applyObjectMaterial(THREE, assetMesh, preset.material, preset.color, sceneState.materialsManager)
-        } else {
-          applyObjectColor(THREE, assetMesh, preset.color)
-        }
+        const assetMaterialName = preset.material ?? DEFAULT_LIBRARY_MATERIAL_BY_TYPE[preset.type]
+        applyObjectMaterial(THREE, assetMesh, assetMaterialName, preset.color, sceneState.materialsManager)
         const isReplacingSelectedLibraryTarget =
           selectedTargetRef.current?.source === 'library' &&
           getLibraryPresetFromObject(selectedTargetRef.current.object as LibraryObject3D)?.id === preset.id
@@ -7691,6 +7743,10 @@ export default function ThatOpenIfcCanvas({
           }
           continue
         }
+        assetMesh.traverse((child) => {
+          child.visible = true
+        })
+        assetMesh.visible = true
 
         if (selectedTargetRef.current?.source === 'library') {
           const selectedPreset = getLibraryPresetFromObject(selectedTargetRef.current.object as LibraryObject3D)
@@ -7717,6 +7773,8 @@ export default function ThatOpenIfcCanvas({
             }
           }
         }
+        applyLibraryVisibilityByStorey()
+        sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
       }
       if (libraryAssetSyncTokenRef.current !== syncToken) return
       applyLibraryVisibilityByStorey()
