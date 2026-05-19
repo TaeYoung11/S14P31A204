@@ -35,7 +35,7 @@ export default function ThreeDModeCanvas({
   // IFC source가 없으면 mock IFC를 fallback으로 사용한다.
   const freshIfcUrl = useFreshIfcUrl(
     editorProps.currentIfcAssetId,
-    editorProps.currentIfcUrl ?? '/mock/shinchan_house.ifc',
+    editorProps.currentIfcUrl ?? '/mock/sample_final_semantic.ifc',
     editorProps.projectId ?? null,
   )
 

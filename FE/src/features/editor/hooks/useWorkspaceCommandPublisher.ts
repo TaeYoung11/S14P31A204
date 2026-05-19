@@ -84,6 +84,7 @@ const LIBRARY_ENTITY_BY_TYPE: Record<ThreeDLibraryPreset['type'], string> = {
   'room-door': 'door',
   'front-door': 'door',
   stairs: 'stair',
+  terrace: 'ifcElement',
   column: 'column',
   floor: 'slab',
   ceiling: 'slab',
@@ -98,6 +99,7 @@ const LIBRARY_IFC_CLASS_BY_TYPE: Record<ThreeDLibraryPreset['type'], string> = {
   'room-door': 'IfcDoor',
   'front-door': 'IfcDoor',
   stairs: 'IfcStair',
+  terrace: 'IfcElementAssembly',
   column: 'IfcColumn',
   floor: 'IfcSlab',
   ceiling: 'IfcSlab',
@@ -113,9 +115,14 @@ const toLibraryElementCommandData = (preset: ThreeDLibraryPreset): Record<string
   thicknessMm: preset.thicknessMm,
   material: preset.material,
   color: preset.color,
+  assetIfc: preset.assetIfc,
+  assetIfcUrl: preset.assetIfcUrl,
+  sourceAssetId: preset.sourceAssetId,
+  storeyExpressId: preset.storeyExpressId,
   roofShape: preset.roofShape,
   position: preset.position,
   rotation: preset.rotation,
+  scale: preset.scale,
 })
 
 const hasMeaningfulValue = (value: unknown): boolean => {
@@ -514,20 +521,28 @@ export function useWorkspaceCommandPublisher({
     pendingCommandRef.current = createEntityCommand(entity, preset.id, toLibraryElementCommandData(preset))
   }, [])
 
+  const updateLibraryElement = useCallback((preset: ThreeDLibraryPreset, patch: Partial<ThreeDLibraryPreset>) => {
+    const nextPatch = toLibraryElementCommandData({ ...preset, ...patch })
+    if (updatePendingCreate(preset.id, nextPatch)) return
+
+    const commandId = toIfcGlobalId(preset.id) ?? preset.id
+    pendingCommandRef.current = updateEntityCommand(
+      LIBRARY_ENTITY_BY_TYPE[preset.type],
+      commandId,
+      nextPatch,
+    )
+  }, [updatePendingCreate])
+
   const deleteLibraryElement = useCallback((preset: ThreeDLibraryPreset) => {
     const pendingCommand = pendingCommandRef.current
     if (pendingCommand?.op === 'create' && pendingCommand.id === preset.id) {
       pendingCommandRef.current = null
       return
     }
-    if (issuedLocalCreateIdsRef.current.has(preset.id)) {
-      pendingCommandRef.current = null
-      issuedLocalCreateIdsRef.current.delete(preset.id)
-      return
-    }
-    const globalId = toIfcGlobalId(preset.id)
-    if (!globalId) return
-    pendingCommandRef.current = deleteEntityCommand('ifcElement', globalId)
+    const commandId = toIfcGlobalId(preset.id) ?? preset.id
+    if (!commandId) return
+    issuedLocalCreateIdsRef.current.delete(preset.id)
+    pendingCommandRef.current = deleteEntityCommand(LIBRARY_ENTITY_BY_TYPE[preset.type], commandId)
   }, [])
 
   const updateRoom = useCallback((roomId: string, patch: Record<string, unknown>) => {
@@ -623,6 +638,7 @@ export function useWorkspaceCommandPublisher({
     updateIfcElement,
     deleteIfcElement,
     createLibraryElement,
+    updateLibraryElement,
     deleteLibraryElement,
     updateRoom,
     deleteRoom,
@@ -642,6 +658,7 @@ export function useWorkspaceCommandPublisher({
     hasPendingCommand,
     updateIfcElement,
     updateOpening,
+    updateLibraryElement,
     updateRoom,
     updateWall,
     updateWallEndpoint,

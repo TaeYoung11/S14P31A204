@@ -1,6 +1,6 @@
 /**
  * 3D 라이브러리 프리셋 타입 분류
- * - 지붕, 외벽, 내벽, 창문, 방문, 현관문, 계단, 기둥, 바닥, 천장, 가구
+ * - 지붕, 외벽, 내벽, 창문, 방문, 현관문, 계단, 테라스, 기둥, 바닥, 천장, 가구
  */
 export type ThreeDLibraryPresetType =
   | 'roof'
@@ -10,6 +10,7 @@ export type ThreeDLibraryPresetType =
   | 'room-door'
   | 'front-door'
   | 'stairs'
+  | 'terrace'
   | 'column'
   | 'floor'
   | 'ceiling'
@@ -21,6 +22,8 @@ export type ThreeDLibraryPresetType =
  * - type: 프리셋 분류
  * - dimensions: 치수 문자열 (mm 단위 표시용)
  * - color: 기본 표시 색상 (HEX)
+ * - assetIfc: public/ifc-library 기준 IFC 에셋 상대 경로
+ * - assetIfcUrl: IFC 에셋 직접 URL (assetIfc에서 파생 가능)
  * - lengthMm / heightMm / thicknessMm: 실제 치수값 (없으면 dimensions 파싱으로 산출)
  * - position: 씬 내 배치 위치 (사용자 이동 후 저장됨)
  * - rotation: 씬 내 회전값(Euler, radian)
@@ -35,6 +38,9 @@ export interface ThreeDLibraryPreset {
   dimensions: string
   color: string
   previewImageUrl?: string
+  assetIfc?: string
+  assetIfcUrl?: string
+  sourceAssetId?: string
   material?: string
   lengthMm?: number
   heightMm?: number
