@@ -35,6 +35,8 @@ DEFAULT_LLM_API_KEY = "ollama"
 DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
 DEFAULT_RAW_JSON_FALLBACK_ENABLED = True
 DEFAULT_RAW_JSON_FALLBACK_TIMEOUT_SECONDS = 10.0
+DEFAULT_LLM_REASONING_EFFORT = "none"
+DISABLED_LLM_REASONING_EFFORT_VALUES = {"", "off", "false", "disabled"}
 
 
 def _env_float(name: str, default: float) -> float:
@@ -170,6 +172,10 @@ class LLM3DEngine:
             "LLM_RAW_JSON_FALLBACK_TIMEOUT_SECONDS",
             DEFAULT_RAW_JSON_FALLBACK_TIMEOUT_SECONDS,
         )
+        self.reasoning_effort = os.getenv(
+            "LLM_REASONING_EFFORT",
+            DEFAULT_LLM_REASONING_EFFORT,
+        ).strip()
         self._raw_client = AsyncOpenAI(
             base_url=resolved_base_url,
             api_key=resolved_api_key,
@@ -182,21 +188,56 @@ class LLM3DEngine:
     async def aclose(self) -> None:
         await self._raw_client.close()
 
+    def _reasoning_extra_body(self) -> dict[str, str] | None:
+        if self.reasoning_effort.lower() in DISABLED_LLM_REASONING_EFFORT_VALUES:
+            return None
+        return {"reasoning_effort": self.reasoning_effort}
+
+    async def _create_structured_completion(
+        self,
+        user_text: str,
+        system_content: str,
+        extra_body: dict[str, str] | None,
+    ) -> LLM3DCommand:
+        kwargs = {
+            "model": self.model,
+            "response_model": LLM3DCommand,
+            "messages": [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": user_text},
+            ],
+            "temperature": 0.0,
+            "top_p": 0.1,
+            "max_retries": 1,
+        }
+        if extra_body is not None:
+            kwargs["extra_body"] = extra_body
+        return await self.client.chat.completions.create(**kwargs)
+
     async def parse_command(self, user_text: str, ifc_context: str | None = None) -> LLM3DCommand:
         system_content = SYSTEM_PROMPT + "\n\n" + ifc_context if ifc_context else SYSTEM_PROMPT
+        extra_body = self._reasoning_extra_body()
         try:
-            command: LLM3DCommand = await self.client.chat.completions.create(
-                model=self.model,
-                response_model=LLM3DCommand,
-                messages=[
-                    {"role": "system", "content": system_content},
-                    {"role": "user", "content": user_text},
-                ],
-                temperature=0.0,
-                top_p=0.1,
-                max_retries=1,
-                extra_body={"reasoning_effort": "none"},
-            )
+            try:
+                command = await self._create_structured_completion(
+                    user_text,
+                    system_content,
+                    extra_body=extra_body,
+                )
+            except InstructorRetryException:
+                raise
+            except Exception:
+                if extra_body is None:
+                    raise
+                logger.warning(
+                    "[LLM3DEngine] structured_completion_reasoning_retry_without_extra_body",
+                    exc_info=True,
+                )
+                command = await self._create_structured_completion(
+                    user_text,
+                    system_content,
+                    extra_body=None,
+                )
             return self._repair_or_replace(user_text, command)
         except InstructorRetryException:
             if self.raw_json_fallback_enabled:
@@ -213,27 +254,55 @@ class LLM3DEngine:
         """Parse a command without calling the LLM, for deterministic local tests."""
         return self._heuristic_parse(user_text)
 
+    async def _create_raw_json_completion(
+        self,
+        user_text: str,
+        system_content: str,
+        extra_body: dict[str, str] | None,
+    ):
+        kwargs = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": system_content
+                    + "\nReturn exactly one strict JSON object matching the schema.",
+                },
+                {"role": "user", "content": user_text},
+            ],
+            "temperature": 0.0,
+            "top_p": 0.1,
+            "timeout": self.raw_json_fallback_timeout,
+        }
+        if extra_body is not None:
+            kwargs["extra_body"] = extra_body
+        return await self._raw_client.chat.completions.create(**kwargs)
+
     async def _parse_command_raw_json(
         self,
         user_text: str,
         system_content: str,
     ) -> LLM3DCommand | None:
+        extra_body = self._reasoning_extra_body()
         try:
-            response = await self._raw_client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_content
-                        + "\nReturn exactly one strict JSON object matching the schema.",
-                    },
-                    {"role": "user", "content": user_text},
-                ],
-                temperature=0.0,
-                top_p=0.1,
-                timeout=self.raw_json_fallback_timeout,
-                extra_body={"reasoning_effort": "none"},
-            )
+            try:
+                response = await self._create_raw_json_completion(
+                    user_text,
+                    system_content,
+                    extra_body=extra_body,
+                )
+            except Exception:
+                if extra_body is None:
+                    raise
+                logger.warning(
+                    "[LLM3DEngine] raw_json_reasoning_retry_without_extra_body",
+                    exc_info=True,
+                )
+                response = await self._create_raw_json_completion(
+                    user_text,
+                    system_content,
+                    extra_body=None,
+                )
             content = response.choices[0].message.content or ""
             command = LLM3DCommand.model_validate(self._json_object_from_text(content))
             return self._repair_or_replace(user_text, command)
