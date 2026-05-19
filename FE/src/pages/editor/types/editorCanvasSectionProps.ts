@@ -73,6 +73,7 @@ export type FloorPlanCanvasProps = Pick<
   | 'isFloorPlanGenerating'
   | 'handleGenerateFloorPlan'
   | 'canGenerateFloorPlanFromBubble'
+  | 'isIfcSourceHydrationPending'
   | 'handleBubbleSelect'
   | 'handleSelectIfcElement'
   | 'handleDeleteIfcElement'

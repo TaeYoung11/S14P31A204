@@ -12,6 +12,7 @@ const FLOOR_PLAN_CANVAS_KEYS = [
   'isFloorPlanGenerating',
   'handleGenerateFloorPlan',
   'canGenerateFloorPlanFromBubble',
+  'isIfcSourceHydrationPending',
   'handleBubbleSelect',
   'handleSelectIfcElement',
   'handleDeleteIfcElement',
@@ -51,6 +52,7 @@ export function buildFloorPlanCanvasProps(
   | 'isFloorPlanGenerating'
   | 'handleGenerateFloorPlan'
   | 'canGenerateFloorPlanFromBubble'
+  | 'isIfcSourceHydrationPending'
   | 'handleBubbleSelect'
   | 'handleSelectIfcElement'
   | 'handleDeleteIfcElement'

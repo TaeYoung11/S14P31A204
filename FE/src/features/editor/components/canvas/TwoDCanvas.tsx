@@ -78,6 +78,8 @@ interface TwoDCanvasProps {
   onGenerate?: () => void
   /** 생성 가능 여부(버블 존재 여부) */
   canGenerate?: boolean
+  /** 기존 IFC source 조회 대기 중이면 생성 버튼을 비활성화한다. */
+  isCheckingIfcSource?: boolean
   isGridVisible?: boolean
   selectedId?: string | null
   selectedIds?: string[]
@@ -189,6 +191,7 @@ export function TwoDCanvas({
   isGenerating = false,
   onGenerate,
   canGenerate = true,
+  isCheckingIfcSource = false,
   isGridVisible = false,
   selectedId,
   selectedIds = [],
@@ -503,7 +506,7 @@ export function TwoDCanvas({
   }, [wallContextMenu])
 
   // ── 생성 전 / 생성 중 화면 ───────────────────────────────────────────────
-  if (!isGenerated && !isGenerating) return <FloorPlanEmpty onGenerate={onGenerate} canGenerate={canGenerate} />
+  if (!isGenerated && !isGenerating) return <FloorPlanEmpty onGenerate={onGenerate} canGenerate={canGenerate} isCheckingIfcSource={isCheckingIfcSource} />
   if (isGenerating) return <FloorPlanLoading />
 
   // ── 생성 완료: Konva 평면도 렌더링 ───────────────────────────────────────

@@ -838,6 +838,8 @@ export function useEditorPage() {
   const [floorPlanHistoryCursor, setFloorPlanHistoryCursor] = useState({ baseIndex: -1, redoDepth: 0 })
   const attemptedInitialIfcImportProjectIdRef = useRef<string | null>(null)
   const [historyIfcHydratedProjectIds, setHistoryIfcHydratedProjectIds] = useState<string[]>([])
+  /** 2D/3D 진입 시 IFC source 조회를 1회 완료한 projectId 목록 (성공/없음 둘 다 포함) */
+  const [ifcSourceHydrationAttemptedProjectIds, setIfcSourceHydrationAttemptedProjectIds] = useState<string[]>([])
   const bubbleHistoryBaseIndexRef = useRef(-1)
   const bubbleHistoryRedoDepthRef = useRef(0)
   const floorPlanHistoryBaseIndexRef = useRef(-1)
@@ -4429,6 +4431,13 @@ export function useEditorPage() {
       return
     }
     if (bubbles.length === 0) return
+    // 기존 IFC가 이미 존재하는 프로젝트에서 사용자가 실수로 자동 생성을 트리거하면
+    // current revision pointer가 새 revision으로 덮여 기존 IFC가 사라진다.
+    // 명시적 재생성 UX가 도입되기 전까지는 여기서 차단한다.
+    if (currentIfcUrl || currentIfcRevisionId) {
+      setFloorPlanGenerateStatusText('이미 생성된 IFC가 있어 자동 생성을 중단했습니다. 기존 IFC를 3D로 열거나 새 프로젝트에서 시도하세요.')
+      return
+    }
     if (workspacePhaseStatus === 'CONVERTING') {
       setFloorPlanGenerateStatusText('이미 평면도 생성 중입니다. 잠시만 기다려주세요.')
       return
@@ -4493,6 +4502,8 @@ export function useEditorPage() {
     authUser?.user_type,
     bubbles.length,
     clearFloorPlanGenerateTimeout,
+    currentIfcRevisionId,
+    currentIfcUrl,
     currentProjectName,
     flushBubbleSnapshotSaveToDb,
     isCurrentProjectOwner,
@@ -4506,8 +4517,17 @@ export function useEditorPage() {
     workspacePhaseStatus,
   ])
 
+  // 2D/3D 진입 시 IFC source 조회가 아직 끝나지 않은 경우, 자동 생성 버튼 활성화를 막는다.
+  // 이 윈도우에서 사용자가 버튼을 누르면 기존 IFC가 새 revision으로 덮일 수 있다.
+  const isIfcSourceHydrationPending =
+    Boolean(projectId)
+    && !currentIfcUrl
+    && (mode === '2d' || mode === '3d')
+    && !ifcSourceHydrationAttemptedProjectIds.includes(projectId ?? '')
+
   const canGenerateFloorPlanFromBubble = bubbles.length > 0
     && !currentIfcUrl
+    && !isIfcSourceHydrationPending
     && authUser?.user_type === 'DESIGNER'
     && (!isCurrentProjectOwnerKnown || isCurrentProjectOwner)
 
@@ -5422,10 +5442,13 @@ export function useEditorPage() {
     }
   }, [handleOutputIfcStorageUrl])
 
-  // 에디터 첫 진입 시 프로젝트 IFC 소스를 1회 조회해 handleOutputIfcStorageUrl로 로드한다.
+  // 에디터 첫 진입 시 프로젝트 IFC 소스를 1회 조회한다.
+  // - 3D 모드: handleOutputIfcStorageUrl로 IFC 파싱/로드까지 수행한다.
+  // - 2D 모드: state(currentIfcUrl/revisionId)만 채워 자동 생성 버튼이 활성화되지 않도록 한다.
+  //   2D에서 IFC 파싱은 사용자가 3D로 진입할 때 수행한다 (위 3D 분기 또는 useInitialIfcImport).
   useEffect(() => {
-    if (mode !== '3d') return
     if (!projectId) return
+    if (mode !== '2d' && mode !== '3d') return
     if (currentIfcUrl) return
     if (threeDIfcSourceHydrationInFlightRef.current === projectId) return
 
@@ -5435,36 +5458,61 @@ export function useEditorPage() {
     const hydrateLatestIfcSource = async () => {
       const source = await projectService.getIfcSource(projectId).catch((error: unknown) => {
         if (import.meta.env.DEV) {
-          console.warn('[3d-ifc-source][hydrate-failed]', error)
+          console.warn('[ifc-source][hydrate-failed]', { projectId, mode, error })
         }
         return null
       })
       if (cancelled) return
       if (!source?.currentIfcUrl) {
         if (import.meta.env.DEV) {
-          console.warn('[3d-ifc-source][hydrate-empty]', { projectId })
+          console.warn('[ifc-source][hydrate-empty]', { projectId, mode })
         }
         return
       }
       if (import.meta.env.DEV) {
-        console.log('[3d-ifc-source][hydrate]', {
+        console.log('[ifc-source][hydrate]', {
           projectId,
+          mode,
           currentIfcUrl: source.currentIfcUrl,
           currentIfcAssetId: source.currentIfcAssetId,
           currentRevision: source.currentRevision,
         })
       }
-      handleIfcSyncMessageRef.current(
-        source.currentIfcStorageUrl ?? source.currentIfcUrl,
-        null,
-        source.currentIfcAssetId,
-        source.currentRevision,
-      )
+      if (mode === '3d') {
+        handleIfcSyncMessageRef.current(
+          source.currentIfcStorageUrl ?? source.currentIfcUrl,
+          null,
+          source.currentIfcAssetId,
+          source.currentRevision,
+        )
+        return
+      }
+      // 2D: floor project를 IFC로 덮지 않도록 state만 채운다.
+      const resolvedUrl = source.currentIfcUrl
+      setIfcSourceByProjectId((prev) => ({
+        ...prev,
+        [projectId]: {
+          url: resolvedUrl,
+          storageUrl: source.currentIfcStorageUrl ?? resolvedUrl,
+          assetId: source.currentIfcAssetId ?? null,
+        },
+      }))
+      if (source.currentRevision !== undefined) {
+        setIfcRevisionByProjectId((prev) => ({
+          ...prev,
+          [projectId]: source.currentRevision ?? null,
+        }))
+      }
     }
 
     void hydrateLatestIfcSource().finally(() => {
       if (threeDIfcSourceHydrationInFlightRef.current === projectId) {
         threeDIfcSourceHydrationInFlightRef.current = null
+      }
+      if (!cancelled) {
+        setIfcSourceHydrationAttemptedProjectIds((prev) =>
+          prev.includes(projectId) ? prev : [...prev, projectId],
+        )
       }
     })
 
@@ -5895,6 +5943,7 @@ export function useEditorPage() {
     handleGenerateFloorPlan,
     handleAutoLayoutBubbles,
     canGenerateFloorPlanFromBubble,
+    isIfcSourceHydrationPending,
     canAutoLayoutBubbles: bubbles.length > 1,
     handleEditIfc,
     handleIfcUndo,
