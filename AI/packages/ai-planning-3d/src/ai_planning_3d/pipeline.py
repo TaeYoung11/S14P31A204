@@ -75,7 +75,7 @@ class PreviewSession:
 
 
 class LLM3DPipeline:
-    def __init__(self, ifc_path: str | None = None, model_name: str = "gemma3:4b"):
+    def __init__(self, ifc_path: str | None = None, model_name: str | None = None):
         self.engine = LLM3DEngine(model=model_name)
         ifc_model = None
         if ifc_path:
@@ -110,9 +110,7 @@ class LLM3DPipeline:
     def split_chat_commands(user_text: str) -> list[str]:
         decimal_dot = "__BATANG_DECIMAL_DOT__"
         dimension_comma = "__BATANG_DIMENSION_COMMA__"
-        dimension_value = (
-            r"(?:[가-힣A-Za-z]+\s*)?\d+(?:\.\d+)?\s*(?:mm|cm|m)(?![A-Za-z0-9])"
-        )
+        dimension_value = r"(?:[가-힣A-Za-z]+\s*)?\d+(?:\.\d+)?\s*(?:mm|cm|m)(?![A-Za-z0-9])"
         user_text = re.sub(r"(?<=\d)\.(?=\d)", decimal_dot, user_text)
         user_text = re.sub(
             rf"({dimension_value})\s*,\s*(?={dimension_value})",
@@ -626,10 +624,7 @@ class LLM3DPipeline:
             length_mm, width_mm, height_mm = self._element_size_mm(wall)
             if min_height_mm > 0.0 and height_mm > 0.0 and height_mm < min_height_mm:
                 continue
-            label = (
-                f"{wall_name} / {global_id} "
-                f"({length_mm:.0f}x{width_mm:.0f}x{height_mm:.0f}mm)"
-            )
+            label = f"{wall_name} / {global_id} ({length_mm:.0f}x{width_mm:.0f}x{height_mm:.0f}mm)"
             options.append(ClarificationOption(id=global_id, label=label, value=global_id))
         return tuple(options)
 
@@ -675,9 +670,12 @@ class LLM3DPipeline:
         if not xs or not ys or not zs:
             return None
         return {
-            "min_x": min(xs), "max_x": max(xs),
-            "min_y": min(ys), "max_y": max(ys),
-            "min_z": min(zs), "max_z": max(zs),
+            "min_x": min(xs),
+            "max_x": max(xs),
+            "min_y": min(ys),
+            "max_y": max(ys),
+            "min_z": min(zs),
+            "max_z": max(zs),
         }
 
     def _storey_bbox_mm(self, storey: ifcopenshell.entity_instance) -> dict[str, float] | None:
@@ -751,8 +749,7 @@ class LLM3DPipeline:
         if not normalized:
             return False
         return any(
-            term in normalized or normalized in term
-            for term in self._space_match_terms(space_name)
+            term in normalized or normalized in term for term in self._space_match_terms(space_name)
         )
 
     def _space_boundary_walls(
@@ -1005,9 +1002,7 @@ class LLM3DPipeline:
         direction = (direction or "").lower()
         walls = []
         source_walls = (
-            candidate_walls
-            if candidate_walls is not None
-            else self._storey_walls(storey)
+            candidate_walls if candidate_walls is not None else self._storey_walls(storey)
         )
         for wall in source_walls:
             name = str(getattr(wall, "Name", "") or "").lower()
@@ -1023,7 +1018,8 @@ class LLM3DPipeline:
             if not preferred_name_tokens:
                 return None
             preferred = [
-                wall for wall in walls
+                wall
+                for wall in walls
                 if any(
                     token in str(getattr(wall, "Name", "") or "").lower()
                     for token in preferred_name_tokens
@@ -1041,15 +1037,16 @@ class LLM3DPipeline:
             "west": ("west", "서"),
         }[direction]
         named = [
-            wall for wall in walls
+            wall
+            for wall in walls
             if any(
-                token in str(getattr(wall, "Name", "") or "").lower()
-                for token in direction_in_name
+                token in str(getattr(wall, "Name", "") or "").lower() for token in direction_in_name
             )
         ]
         if named:
             preferred = [
-                wall for wall in named
+                wall
+                for wall in named
                 if any(
                     token in str(getattr(wall, "Name", "") or "").lower()
                     for token in preferred_name_tokens
@@ -1418,9 +1415,7 @@ class LLM3DPipeline:
                     all_errors.append(e)
 
         quality_ok = len(all_errors) == 0
-        session = PreviewSession(
-            str(uuid.uuid4()), command, matched, quality_ok, all_errors
-        )
+        session = PreviewSession(str(uuid.uuid4()), command, matched, quality_ok, all_errors)
         self.store[session.session_id] = session
 
         # ── MODIFY/DELETE: 구조 경고 수집 (차단 없음) ─────────────
@@ -1734,18 +1729,18 @@ class LLM3DPipeline:
         sp = start_point or ci.get("start_point") or {}
         mat = ci.get("material") or {}
         return {
-            "length_mm":      ci.get("length_mm"),
-            "width_mm":       ci.get("width_mm"),
-            "height_mm":      ci.get("height_mm"),
+            "length_mm": ci.get("length_mm"),
+            "width_mm": ci.get("width_mm"),
+            "height_mm": ci.get("height_mm"),
             "ridge_height_mm": ci.get("ridge_height_mm"),
-            "x_mm":           sp.get("x", 0.0),
-            "y_mm":           sp.get("y", 0.0),
-            "z_mm":           sp.get("z", 0.0),
-            "direction":      str(ci.get("direction") or "north"),
-            "shape_preset":   str(ci.get("shape_preset") or "FLAT"),
-            "color":          ci.get("color"),
-            "material_name":  mat.get("name") if mat else None,
-            "step_count":     ci.get("step_count"),
+            "x_mm": sp.get("x", 0.0),
+            "y_mm": sp.get("y", 0.0),
+            "z_mm": sp.get("z", 0.0),
+            "direction": str(ci.get("direction") or "north"),
+            "shape_preset": str(ci.get("shape_preset") or "FLAT"),
+            "color": ci.get("color"),
+            "material_name": mat.get("name") if mat else None,
+            "step_count": ci.get("step_count"),
             "riser_height_mm": ci.get("riser_height_mm"),
             "tread_depth_mm": ci.get("tread_depth_mm"),
             "host_wall_global_id": ci.get("host_wall_global_id"),
@@ -1753,9 +1748,7 @@ class LLM3DPipeline:
             "opening_offset_mm": ci.get("opening_offset_mm"),
         }
 
-    async def _execute_create_apply(
-        self, session_id: str, output_path: str
-    ) -> dict[str, Any]:
+    async def _execute_create_apply(self, session_id: str, output_path: str) -> dict[str, Any]:
         session = self.store.get(session_id)
         if not session:
             return {"status": "error", "summary": "세션을 찾을 수 없습니다."}
@@ -1768,8 +1761,10 @@ class LLM3DPipeline:
         params = self._unpack_create_info(ci, start_point=info.get("start_point"))
         # roof 전용 키를 제외한 공통 파라미터
         base_params = {
-            k: v for k, v in params.items()
-            if k not in (
+            k: v
+            for k, v in params.items()
+            if k
+            not in (
                 "ridge_height_mm",
                 "shape_preset",
                 "step_count",
@@ -1790,7 +1785,8 @@ class LLM3DPipeline:
             entity = create_roof(model, storey, **params)
         elif etype == LLM3DElementType.STAIR:
             stair_params = {
-                k: v for k, v in params.items()
+                k: v
+                for k, v in params.items()
                 if k not in ("ridge_height_mm", "shape_preset") and v is not None
             }
             entity = create_stair_preset(model, storey, **stair_params)
@@ -1831,9 +1827,7 @@ class LLM3DPipeline:
 
     # ── DELETE 구조 검사 헬퍼 ─────────────────────────────────────
 
-    def _run_structural_delete_check(
-        self, matched: list[dict[str, Any]]
-    ) -> StructuralCheckResult:
+    def _run_structural_delete_check(self, matched: list[dict[str, Any]]) -> StructuralCheckResult:
         """
         DELETE 대상 부재 목록에 내력벽이 포함되어 있는지 검사한다.
         하나라도 blocked이면 전체를 차단한다.
