@@ -111,7 +111,7 @@ export default function RegisterPage() {
                 domainOptions={emailDomainOptions}
                 isCustomDomain={isCustomEmailDomain}
                 isVerified={isEmailVerificationValid}
-                className={isEmailVerified ? 'border-[#22c55e] bg-[#f0fdf4]' : 'border-[#d1d5db]'}
+                className={isEmailVerificationValid ? 'border-[#22c55e] bg-[#f0fdf4]' : 'border-[#d1d5db]'}
                 inputClassName="text-[#111827] placeholder:text-[#9ca3af]"
                 selectClassName="text-[#334155]"
                 onLocalPartChange={handleEmailLocalPartChange}

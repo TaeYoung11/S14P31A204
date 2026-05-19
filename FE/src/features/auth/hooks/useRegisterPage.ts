@@ -3,7 +3,6 @@ import { useMutation } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
   buildEmail,
-  DEFAULT_EMAIL_DOMAIN,
   EMAIL_DOMAIN_OPTIONS,
   EMAIL_PATTERN,
   sanitizeEmailSegment,
@@ -37,7 +36,7 @@ export const useRegisterPage = () => {
     userType: 'DESIGNER' as 'DESIGNER' | 'CUSTOMER',
   })
   const [emailLocalPart, setEmailLocalPart] = useState('')
-  const [emailDomain, setEmailDomain] = useState<string>(DEFAULT_EMAIL_DOMAIN)
+  const [emailDomain, setEmailDomain] = useState('')
   const [isCustomEmailDomain, setIsCustomEmailDomain] = useState(false)
   const [validationError, setValidationError] = useState('')
   const [isEmailVerificationOpen, setIsEmailVerificationOpen] = useState(false)
