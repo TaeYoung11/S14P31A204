@@ -159,6 +159,8 @@ services:
         condition: service_completed_successfully
     networks:
       - batang-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   worker-planning-3d:
     build:
@@ -195,6 +197,8 @@ services:
         condition: service_completed_successfully
     networks:
       - batang-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   worker-authoring:
     build:
