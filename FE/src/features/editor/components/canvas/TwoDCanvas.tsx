@@ -238,6 +238,7 @@ export function TwoDCanvas({
   const marqueeStart = useRef<Point2D | null>(null)
   const marqueeAppendRef = useRef(false)
   const skipStageClickClearRef = useRef(false)
+  const workspaceDragTransactionRef = useRef(false)
   const isPanMode = selectedTool === 'hand' || isSpacePressed || isMiddlePanning
   const baseOffsetX = (stageSize.width * (1 - scale)) / 2
   const baseOffsetY = (stageSize.height * (1 - scale)) / 2
@@ -441,6 +442,8 @@ export function TwoDCanvas({
     onWallCreate,
     onWallMove,
     onOpeningMove,
+    onWorkspaceEditStart,
+    onWorkspaceEditCommit,
     onTwoDMarqueeSelect,
     onMarqueeSelect,
     onWheelZoom,
@@ -457,6 +460,7 @@ export function TwoDCanvas({
     marqueeStart,
     marqueeAppendRef,
     skipStageClickClearRef,
+    workspaceDragTransactionRef,
   })
 
   const findContextMenuWallId = (point: Point2D): string | null => {

@@ -394,6 +394,8 @@ export function TwoDCanvasStage({
             onWallSelect={onWallSelect}
             onWallEndpointChange={onWallEndpointChange}
             onWallDragStart={onWallDragStart}
+            onWorkspaceEditStart={beginRoomResize}
+            onWorkspaceEditCommit={commitRoomResize}
           />
 
           <TwoDOpeningsLayer

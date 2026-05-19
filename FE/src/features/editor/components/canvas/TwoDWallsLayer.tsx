@@ -48,6 +48,8 @@ interface TwoDWallsLayerProps {
   onWallSelect?: (wallId: string | null, append?: boolean) => void
   onWallEndpointChange?: (wallId: string, endpoint: 'start' | 'end', point: Point2D) => void
   onWallDragStart: (state: { wallId: string; lastPoint: Point2D }) => void
+  onWorkspaceEditStart?: () => void
+  onWorkspaceEditCommit?: () => void
 }
 
 const SITE_OUTSIDE_WARNING = '#DC2626'
@@ -91,6 +93,8 @@ export function TwoDWallsLayer({
   onWallSelect,
   onWallEndpointChange,
   onWallDragStart,
+  onWorkspaceEditStart,
+  onWorkspaceEditCommit,
 }: TwoDWallsLayerProps) {
   const openingGuideWall = openingSnapGuide ? wallById.get(openingSnapGuide.wallId) ?? null : null
 
@@ -244,6 +248,8 @@ export function TwoDWallsLayer({
                   isGridSnapEnabled={isGridSnapEnabled}
                   gridSnapStepPx={gridSnapStepPx}
                   onWallEndpointChange={onWallEndpointChange}
+                  onWorkspaceEditStart={onWorkspaceEditStart}
+                  onWorkspaceEditCommit={onWorkspaceEditCommit}
                 />
                 <TwoDWallEndpointHandle
                   wallId={wall.id}
@@ -252,6 +258,8 @@ export function TwoDWallsLayer({
                   isGridSnapEnabled={isGridSnapEnabled}
                   gridSnapStepPx={gridSnapStepPx}
                   onWallEndpointChange={onWallEndpointChange}
+                  onWorkspaceEditStart={onWorkspaceEditStart}
+                  onWorkspaceEditCommit={onWorkspaceEditCommit}
                 />
               </>
             )}
