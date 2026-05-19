@@ -103,6 +103,9 @@ class LLM3DPipeline:
         _ctx = IFCContextExtractor(ifc_model, scale_to_mm=self._scale).extract()
         self._ifc_context_text: str | None = _ctx.context_text if _ctx else None
 
+    async def aclose(self) -> None:
+        await self.engine.aclose()
+
     @staticmethod
     def split_chat_commands(user_text: str) -> list[str]:
         decimal_dot = "__BATANG_DECIMAL_DOT__"
