@@ -37,6 +37,7 @@ from ai_authoring.operations.transform_elements import (
     has_unsupported_legacy_rotation_xy,
 )
 from ai_authoring.operations.space_support import update_space
+from ai_authoring.operations.wall_support import update_wall_segment
 from ai_authoring.post_validator import PostEditValidator
 from ai_authoring.utils import normalize_space_name, normalize_storey_name
 from ai_common.adapters.storage.s3_client import S3Client, parse_s3_url
@@ -520,6 +521,23 @@ class AuthoringWorker(BaseWorker):
                     pset_updates=pset_updates,
                     pset_name=pset_name,
                 )
+            segment_mm = params.get("segment_mm") or {}
+            if el.is_a("IfcWall") and segment_mm:
+                start = segment_mm.get("start") or {}
+                end = segment_mm.get("end") or {}
+                if update_wall_segment(
+                    model=model,
+                    wall=el,
+                    start_m=(
+                        float(start.get("x", 0.0)) / 1000.0,
+                        float(start.get("y", 0.0)) / 1000.0,
+                    ),
+                    end_m=(
+                        float(end.get("x", 0.0)) / 1000.0,
+                        float(end.get("y", 0.0)) / 1000.0,
+                    ),
+                ):
+                    changed = True
             # dimensionChangesMm values are authored in millimeters.
             if dims.get("width"):
                 changed |= bool(modify_thickness(el, dims["width"], scale=1000.0))
