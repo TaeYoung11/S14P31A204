@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import logoSrc from '@/assets/logo.svg'
+import BrandLogo from '@/shared/components/BrandLogo'
 
 const PUBLIC_LANDING_PATHS = new Set(['/', '/about'])
 
@@ -16,10 +16,10 @@ export default function PublicLandingHeader() {
         className="pointer-events-auto inline-flex items-center gap-2.5 no-underline"
         aria-label="바탕 홈으로 이동"
       >
-        <img src={logoSrc} alt="바탕 : BATANG" className="h-8 w-auto drop-shadow-sm sm:h-9" />
-        <span className="font-mono text-[14px] font-semibold tracking-[0.18em] text-slate-900 drop-shadow-sm sm:text-[15px]">
-          BATANG
-        </span>
+        <BrandLogo
+          logoClassName="h-8 w-auto drop-shadow-sm sm:h-9"
+          textClassName="text-[14px] drop-shadow-sm sm:text-[15px]"
+        />
       </Link>
 
       <nav className="pointer-events-auto flex items-center">

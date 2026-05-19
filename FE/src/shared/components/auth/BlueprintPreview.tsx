@@ -4,6 +4,7 @@ interface BlueprintPreviewProps {
 
 const BLUEPRINT_FONT_FAMILY = 'Pretendard Variable, Pretendard, sans-serif'
 
+/** 실제 도면 편집기가 아닌, 인증 화면에서 제품 맥락을 전달하는 정적 SVG 프리뷰. */
 export default function BlueprintPreview({ compact = false }: BlueprintPreviewProps) {
   return (
     <div

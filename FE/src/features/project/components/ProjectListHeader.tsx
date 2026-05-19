@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Bell, KeyRound, LogOut, MessageSquareText, ShieldAlert, UserRoundX } from 'lucide-react'
+import BrandLogo from '@/shared/components/BrandLogo'
 import Modal from '@/shared/components/Modal'
-import logoSrc from '@/assets/logo.svg'
 
 interface ProjectListHeaderProps {
   userId?: string
@@ -37,12 +37,14 @@ export default function ProjectListHeader({
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false)
   const [withdrawPassword, setWithdrawPassword] = useState('')
 
+  /** 프로필 모달을 닫고 회원탈퇴 확인 모달을 연다. */
   const handleOpenWithdraw = () => {
     setIsProfileModalOpen(false)
     setWithdrawPassword('')
     setIsWithdrawModalOpen(true)
   }
 
+  /** 입력된 비밀번호를 상위 탈퇴 요청 핸들러로 전달한다. */
   const handleConfirmWithdraw = () => {
     onWithdraw(withdrawPassword)
   }
@@ -59,10 +61,7 @@ export default function ProjectListHeader({
             className="flex items-center gap-2 text-sm font-black tracking-tight no-underline transition-opacity hover:opacity-80"
             aria-label="BATANG 프로젝트 목록으로 이동"
           >
-            <img src={logoSrc} alt="BATANG" className="h-[24px] w-auto drop-shadow-sm" />
-            <span className="font-mono text-[13px] font-semibold tracking-[0.18em] text-slate-900">
-              BATANG
-            </span>
+            <BrandLogo />
           </a>
         </div>
 

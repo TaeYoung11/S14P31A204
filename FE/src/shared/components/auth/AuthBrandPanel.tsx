@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom'
-import logoSrc from '@/assets/logo.svg'
+import BrandLogo from '@/shared/components/BrandLogo'
 import BlueprintPreview from '@/shared/components/auth/BlueprintPreview'
 
 interface AuthBrandPanelProps {
   fitViewport: boolean
 }
 
+/** 로그인/회원가입 화면에서 서비스 맥락과 설계 협업 프리뷰를 보여주는 브랜드 패널. */
 export default function AuthBrandPanel({ fitViewport }: AuthBrandPanelProps) {
   return (
     <section
@@ -18,10 +19,7 @@ export default function AuthBrandPanel({ fitViewport }: AuthBrandPanelProps) {
 
       <div className="relative z-10 flex shrink-0 items-center justify-between">
         <Link to="/" className="inline-flex items-center gap-2.5 no-underline" aria-label="바탕 홈으로 이동">
-          <img src={logoSrc} alt="바탕 : BATANG" className="h-[24px] w-auto drop-shadow-sm" />
-          <span className="font-mono text-[13px] font-semibold tracking-[0.18em] text-slate-900 drop-shadow-sm">
-            BATANG
-          </span>
+          <BrandLogo textClassName="text-[13px] drop-shadow-sm" />
         </Link>
       </div>
 

@@ -7,6 +7,7 @@ interface AuthLayoutProps {
   fitViewport?: boolean
 }
 
+/** 인증 페이지 공통 레이아웃: 좌측 브랜드 패널과 우측 폼 영역을 고정된 구조로 조립한다. */
 export default function AuthLayout({ children, fitViewport = true }: AuthLayoutProps) {
   return (
     <div
