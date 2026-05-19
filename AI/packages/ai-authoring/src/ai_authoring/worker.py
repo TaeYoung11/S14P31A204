@@ -36,7 +36,7 @@ from ai_authoring.operations.transform_elements import (
     LEGACY_ROTATION_XY_ERROR,
     has_unsupported_legacy_rotation_xy,
 )
-from ai_authoring.operations.space_support import update_space
+from ai_authoring.operations.space_support import transform_scope_for_product, update_space
 from ai_authoring.operations.wall_support import update_wall_segment
 from ai_authoring.post_validator import PostEditValidator
 from ai_authoring.utils import normalize_space_name, normalize_storey_name
@@ -473,6 +473,13 @@ class AuthoringWorker(BaseWorker):
         selector: dict[str, Any],
     ) -> dict[str, Any]:
         applied, issues = [], []
+        if op_type == "transform_elements":
+            scoped_elements: list[ifcopenshell.entity_instance] = []
+            for el in elements:
+                for scoped_el in transform_scope_for_product(model, el):
+                    if scoped_el not in scoped_elements:
+                        scoped_elements.append(scoped_el)
+            elements = scoped_elements
         for el in elements:
             matched = {
                 "global_id": el.GlobalId,

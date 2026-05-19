@@ -34,6 +34,17 @@ interface StableSiteAnchor {
 const siteAnchorCacheByProjectId = new Map<string, StableSiteAnchor>()
 const MAX_SITE_ANCHOR_CACHE_ENTRIES = 100
 
+function hasUsableSiteBoundary(points: number[]): boolean {
+  if (points.length < 6) return false
+  let validPairCount = 0
+  for (let index = 0; index + 1 < points.length; index += 2) {
+    if (Number.isFinite(points[index]) && Number.isFinite(points[index + 1])) {
+      validPairCount += 1
+    }
+  }
+  return validPairCount >= 3
+}
+
 function getCachedSiteAnchor(projectId: string): StableSiteAnchor | null {
   return siteAnchorCacheByProjectId.get(projectId) ?? null
 }
@@ -277,11 +288,18 @@ export function useEditorSiteBoundary({
   }, [bubbleMmPerPx, cachedSiteRing, siteAnchorCenter, sitePoints])
 
   const layoutBoundaryInput = useMemo<LayoutImportBoundaryInput>(() => {
+    if (cachedSiteRing && hasUsableSiteBoundary(sitePlanPoints)) {
+      return {
+        source: 'site',
+        sitePlanPoints,
+      }
+    }
     return {
       source: 'default',
       paddingMm: DEFAULT_LAYOUT_BOUNDARY_PADDING_MM,
+      fallbackReason: cachedSiteRing ? 'site-mapping-failed' : 'missing-site',
     }
-  }, [])
+  }, [cachedSiteRing, sitePlanPoints])
 
   const getSiteBoundaryBlockReason = useCallback((): string | null => {
     return buildSiteBoundaryBlockReason({

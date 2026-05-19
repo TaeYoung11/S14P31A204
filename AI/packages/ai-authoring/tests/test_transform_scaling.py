@@ -16,6 +16,7 @@ from ai_authoring.engine_3d import (
     modify_rotation_axis_angle,
     modify_thickness,
 )
+from ai_authoring.operations.space_support import transform_scope_for_product
 
 
 def _make_model():
@@ -426,6 +427,35 @@ def test_brep_roof_rotation_updates_vertices_about_center():
         tuple(brep.Outer.CfsFaces[0].Bounds[0].Bound.Polygon[0].Coordinates)
         != before_first_point
     )
+
+
+def test_aggregate_roof_child_transform_rotates_parent_placement():
+    model, _storey = _make_model()
+    parent_placement = model.create_entity(
+        "IfcLocalPlacement",
+        RelativePlacement=model.create_entity(
+            "IfcAxis2Placement3D",
+            Location=model.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0, 0.0)),
+        ),
+    )
+    roof = ifcopenshell.api.root.create_entity(model, ifc_class="IfcRoof", name="GroupedRoof")
+    roof.ObjectPlacement = parent_placement
+    slab = ifcopenshell.api.root.create_entity(model, ifc_class="IfcSlab", name="RoofPart")
+    slab.ObjectPlacement = model.create_entity(
+        "IfcLocalPlacement",
+        PlacementRelTo=parent_placement,
+        RelativePlacement=model.create_entity(
+            "IfcAxis2Placement3D",
+            Location=model.create_entity("IfcCartesianPoint", Coordinates=(10.0, 0.0, 0.0)),
+        ),
+    )
+    ifcopenshell.api.aggregate.assign_object(model, products=[slab], relating_object=roof)
+
+    assert transform_scope_for_product(model, slab) == [roof]
+    assert modify_rotation(model, roof, 90.0)
+
+    ref_dir = roof.ObjectPlacement.RelativePlacement.RefDirection
+    assert tuple(ref_dir.DirectionRatios) == pytest.approx((0.0, 1.0, 0.0))
 
 
 def test_arbitrary_profile_roof_rotation_updates_profile_about_center():

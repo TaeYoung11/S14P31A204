@@ -29,6 +29,7 @@ interface ThreeDCanvasSceneProps {
   deleteRequestToken: number
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
+  onSelectWallForChat?: (wallId: string) => void
   onIfcElementTransformCommit?: (
     element: IfcElementInfo,
     patch: Omit<IfcElementChange, 'expressId'>,
@@ -84,6 +85,7 @@ export default function ThreeDCanvasScene({
   deleteRequestToken,
   onIfcElementSelect,
   onIfcElementDelete,
+  onSelectWallForChat,
   onIfcElementTransformCommit,
   onLibraryElementChange,
   onLibraryElementDelete,
@@ -164,6 +166,7 @@ export default function ThreeDCanvasScene({
       deleteRequestToken={deleteRequestToken}
       onIfcElementSelect={onIfcElementSelect}
       onIfcElementDelete={onIfcElementDelete}
+      onSelectWallForChat={onSelectWallForChat}
       onIfcElementTransformCommit={onIfcElementTransformCommit}
       onLibraryElementChange={onLibraryElementChange}
       onLibraryElementDelete={onLibraryElementDelete}

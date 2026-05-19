@@ -20,6 +20,7 @@ from ai_authoring.engine_3d import (
     modify_rotation,
     modify_thickness,
 )
+from ai_authoring.operations.space_support import transform_scope_for_product
 from ai_authoring.operations.registry import get as get_operation
 
 
@@ -136,28 +137,41 @@ def apply_llm3d_modify_delete_to_ifc(
                 failed_ids.append(global_id)
             continue
 
-        applied_any = False
+        applied_ids: set[str] = set()
         length_mm = changes.get("length_mm")
         if length_mm and modify_length(element, length_mm, scale=scale):
-            applied_any = True
+            applied_ids.add(global_id)
         width_mm = changes.get("width_mm")
         if width_mm and modify_thickness(element, width_mm, scale=scale):
-            applied_any = True
+            applied_ids.add(global_id)
         height_mm = changes.get("height_mm")
         if height_mm and modify_height(element, height_mm, scale=scale):
-            applied_any = True
-        position_mm = changes.get("position_mm")
-        if position_mm and modify_position(element, position_mm, scale=scale):
-            applied_any = True
+            applied_ids.add(global_id)
         material = changes.get("material")
         if material and modify_material(model, element, material):
-            applied_any = True
+            applied_ids.add(global_id)
         color = changes.get("color")
         if color and modify_color(model, element, str(color)):
-            applied_any = True
+            applied_ids.add(global_id)
+
+        position_mm = changes.get("position_mm")
         rotation_deg = changes.get("rotation_deg")
-        if rotation_deg is not None and modify_rotation(model, element, float(rotation_deg)):
-            applied_any = True
+        transform_targets = (
+            transform_scope_for_product(model, element)
+            if position_mm or rotation_deg is not None
+            else [element]
+        )
+        for transform_target in transform_targets:
+            transform_id = str(getattr(transform_target, "GlobalId", "") or "")
+            if position_mm and modify_position(transform_target, position_mm, scale=scale):
+                applied_ids.add(transform_id)
+            if rotation_deg is not None and modify_rotation(
+                model,
+                transform_target,
+                float(rotation_deg),
+            ):
+                applied_ids.add(transform_id)
+
         face_offset_mm = changes.get("face_offset_mm")
         if face_offset_mm is not None and modify_face_offset(
             element,
@@ -165,10 +179,10 @@ def apply_llm3d_modify_delete_to_ifc(
             str(target.get("direction") or ""),
             scale=scale,
         ):
-            applied_any = True
+            applied_ids.add(global_id)
 
-        if applied_any:
-            applied_count += 1
+        if applied_ids:
+            applied_count += len(applied_ids)
         else:
             failed_ids.append(global_id)
 

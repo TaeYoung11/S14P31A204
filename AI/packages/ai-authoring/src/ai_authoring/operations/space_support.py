@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 import ifcopenshell
 import ifcopenshell.api.aggregate
@@ -63,7 +63,7 @@ def ensure_body_context(model: ifcopenshell.file) -> ifcopenshell.entity_instanc
         project = projects[0]
         for context in getattr(project, "RepresentationContexts", []) or []:
             if getattr(context, "ContextIdentifier", None) == "Body":
-                return context
+                return cast(ifcopenshell.entity_instance, context)
 
     context = model.create_entity(
         "IfcGeometricRepresentationContext",
@@ -387,7 +387,7 @@ def body_context(
     if representation:
         for rep in getattr(representation, "Representations", []) or []:
             if getattr(rep, "ContextOfItems", None) is not None:
-                return rep.ContextOfItems
+                return cast(ifcopenshell.entity_instance, rep.ContextOfItems)
     return ensure_body_context(model)
 
 
@@ -404,7 +404,7 @@ def translate_product(
     placement = getattr(product, "ObjectPlacement", None)
     relative = getattr(placement, "RelativePlacement", None) if placement else None
     location = getattr(relative, "Location", None) if relative else None
-    if location is None:
+    if relative is None or location is None:
         return False
     coords = list(tuple(getattr(location, "Coordinates", ()) or ()))
     while len(coords) < 3:
@@ -425,6 +425,41 @@ def is_product_host_relative(product: ifcopenshell.entity_instance) -> bool:
         if parent.is_a("IfcWall") or parent.is_a("IfcOpeningElement"):
             return True
     return False
+
+
+def transform_scope_for_product(
+    model: ifcopenshell.file,
+    product: ifcopenshell.entity_instance,
+) -> list[ifcopenshell.entity_instance]:
+    for rel in getattr(product, "Decomposes", []) or []:
+        if not rel.is_a("IfcRelAggregates"):
+            continue
+        parent = getattr(rel, "RelatingObject", None)
+        if parent is not None and parent.is_a("IfcRoof"):
+            return [parent]
+
+    products: list[ifcopenshell.entity_instance] = [product]
+    if not product.is_a("IfcSpace"):
+        return products
+
+    def append_once(candidate: ifcopenshell.entity_instance | None) -> None:
+        if candidate is None or not candidate.is_a("IfcProduct"):
+            return
+        if candidate not in products:
+            products.append(candidate)
+
+    for rel in model.get_inverse(product):
+        if rel.is_a("IfcRelContainedInSpatialStructure"):
+            for element in getattr(rel, "RelatedElements", []) or []:
+                append_once(element)
+
+    for rel in getattr(product, "ContainsElements", []) or []:
+        if not rel.is_a("IfcRelContainedInSpatialStructure"):
+            continue
+        for element in getattr(rel, "RelatedElements", []) or []:
+            append_once(element)
+
+    return products
 
 
 def assign_space_to_storey(

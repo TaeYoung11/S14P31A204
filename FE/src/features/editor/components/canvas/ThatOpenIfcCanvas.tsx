@@ -10,6 +10,7 @@
  *  - 카메라 회전 잠금 및 줌 스케일 반영
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { Object3D } from 'three'
 import type {
   CommentPin3DCreatePosition,
@@ -115,6 +116,7 @@ interface ThatOpenIfcCanvasProps {
   selectedIfcElement?: IfcElementInfo | null
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
+  onSelectWallForChat?: (wallId: string) => void
   onIfcElementTransformCommit?: (
     element: IfcElementInfo,
     patch: Omit<IfcElementChange, 'expressId'>,
@@ -323,6 +325,7 @@ export default function ThatOpenIfcCanvas({
   selectedIfcElement,
   onIfcElementSelect,
   onIfcElementDelete,
+  onSelectWallForChat,
   onIfcElementTransformCommit,
   onLibraryElementChange,
   onLibraryElementDelete,
@@ -403,6 +406,66 @@ export default function ThatOpenIfcCanvas({
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMessage, setErrorMessage] = useState('')
   const [ifcEditFeedback, setIfcEditFeedback] = useState<{ kind: 'info' | 'error'; text: string } | null>(null)
+  const [wallContextMenu, setWallContextMenu] = useState<{
+    wallId: string
+    label: string
+    x: number
+    y: number
+  } | null>(null)
+
+  const resolveSelectedWallForChat = useCallback(() => {
+    const target = selectedTargetRef.current
+    if (target?.source !== 'ifc') return null
+
+    const proxyElement = target.object
+      ? (target.object as IfcEditableObject3D).userData.ifcEditTarget?.element
+      : undefined
+    const metricElement = ifcPsetMetricsRef.current.byId[target.localId]
+      ?? ifcPsetMetricsRef.current.byId[target.hitLocalId]
+    const element = proxyElement ?? metricElement ?? selectedIfcElement ?? null
+    const ifcClass = String(element?.ifcClass ?? '')
+    if (!ifcClass.toLowerCase().includes('wall')) return null
+
+    const wallId = element?.globalId ?? String(target.localId)
+    const label = element?.name?.trim() || `IfcWall ${target.localId}`
+    return { wallId, label }
+  }, [selectedIfcElement])
+
+  const handleIfcContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!onSelectWallForChat || isCollaborationModeRef.current) {
+      setWallContextMenu(null)
+      return
+    }
+
+    const x = event.clientX
+    const y = event.clientY
+    const openWhenSelectionReady = (attempt = 0) => {
+      const wall = resolveSelectedWallForChat()
+      if (!wall) {
+        if (attempt < 4) {
+          window.setTimeout(() => openWhenSelectionReady(attempt + 1), 80)
+          return
+        }
+        setWallContextMenu(null)
+        return
+      }
+      setWallContextMenu({ ...wall, x, y })
+    }
+    window.setTimeout(openWhenSelectionReady, 80)
+  }, [onSelectWallForChat, resolveSelectedWallForChat])
+
+  useEffect(() => {
+    if (!wallContextMenu) return
+    const close = () => setWallContextMenu(null)
+    window.addEventListener('click', close)
+    window.addEventListener('keydown', close)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('keydown', close)
+    }
+  }, [wallContextMenu])
   const [hierarchySelectionRetryTick, setHierarchySelectionRetryTick] = useState(0)
   const isIfcMoveDebugEnabled = useCallback(() => {
     if (IFC_MOVE_DEBUG) return true
@@ -6410,7 +6473,7 @@ export default function ThatOpenIfcCanvas({
   }, [applyLibraryVisibilityByStorey, libraryElements, logIfcMove, syncTransformSelectionState])
 
   return (
-    <div className="absolute inset-0 overflow-hidden bg-[#F0F2F9]">
+    <div className="absolute inset-0 overflow-hidden bg-[#F0F2F9]" onContextMenu={handleIfcContextMenu}>
       <div ref={containerRef} tabIndex={0} className="h-full w-full outline-none" />
 
       {status !== 'ready' && (
@@ -6435,6 +6498,32 @@ export default function ThatOpenIfcCanvas({
           }`}
         >
           {ifcEditFeedback.text}
+        </div>
+      )}
+
+      {wallContextMenu && (
+        <div
+          className="fixed z-[9999] min-w-[150px] rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg"
+          style={{ top: wallContextMenu.y, left: wallContextMenu.x }}
+          onClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+          }}
+        >
+          <div className="max-w-[220px] truncate border-b border-[#E2E8F0] px-3 py-1.5 text-[11px] font-semibold text-[#64748B]">
+            {wallContextMenu.label}
+          </div>
+          <button
+            type="button"
+            className="w-full px-3 py-2 text-left text-[12px] text-[#1F2937] hover:bg-[#F0F2FF] hover:text-[#3B45B3]"
+            onClick={() => {
+              onSelectWallForChat?.(wallContextMenu.wallId)
+              setWallContextMenu(null)
+            }}
+          >
+            채팅에서 선택
+          </button>
         </div>
       )}
     </div>
