@@ -2793,9 +2793,9 @@ export default function ThatOpenIfcCanvas({
         let lastDragStartWorldPosition: { x: number; y: number; z: number } | null = null
         let lastDragStartWorldQuaternion: { x: number; y: number; z: number; w: number } | null = null
         let activeDragSessionId: string | null = null
-        const emittedSpaceTransformSessionIds = new Set<string>()
-        const emittedSpaceTransformTargetKeys = new Set<string>()
-        const emitSpaceTransformCommitFromDragEnd = (
+        const emittedTransformSessionIds = new Set<string>()
+        const emittedTransformTargetKeys = new Set<string>()
+        const emitTranslateTransformCommitFromDragEnd = (
           target: Extract<Selected3DTarget, { source: 'ifc' }>,
           _reason: string,
         ): boolean => {
@@ -2803,7 +2803,7 @@ export default function ThatOpenIfcCanvas({
           const activeScene = sceneRef.current
           const editable = target.object as IfcEditableObject3D | undefined
           const element = editable?.userData.ifcEditTarget?.element
-          if (!activeScene || !editable || !isIfcSpaceElementInfo(element)) return false
+          if (!activeScene || !editable || !element) return false
           if (!lastDragStartWorldPosition || activeScene.worldUnitsPerMm <= 0) return false
 
           const worldPosition = new activeScene.three.Vector3()
@@ -2821,12 +2821,12 @@ export default function ThatOpenIfcCanvas({
 
           const sessionId = activeDragSessionId
           const targetKey = getIfcMoveTargetKey(target.modelId, target.localId)
-          if (sessionId && emittedSpaceTransformSessionIds.has(sessionId)) return false
-          if (emittedSpaceTransformTargetKeys.has(targetKey)) return false
+          if (sessionId && emittedTransformSessionIds.has(sessionId)) return false
+          if (emittedTransformTargetKeys.has(targetKey)) return false
           if (sessionId) {
-            rememberBoundedSetValue(emittedSpaceTransformSessionIds, sessionId, SPACE_TRANSFORM_DEDUP_LIMIT)
+            rememberBoundedSetValue(emittedTransformSessionIds, sessionId, SPACE_TRANSFORM_DEDUP_LIMIT)
           }
-          rememberBoundedSetValue(emittedSpaceTransformTargetKeys, targetKey, SPACE_TRANSFORM_DEDUP_LIMIT)
+          rememberBoundedSetValue(emittedTransformTargetKeys, targetKey, SPACE_TRANSFORM_DEDUP_LIMIT)
 
           const patch = {
             positionX: worldPosition.x,
@@ -3383,22 +3383,20 @@ export default function ThatOpenIfcCanvas({
                     : null
                 let didEmitTransformCommit = Boolean(
                   queuedSessionId &&
-                  emittedSpaceTransformSessionIds.has(queuedSessionId) &&
-                  isIfcSpaceElementInfo(transformCommit?.element),
+                  emittedTransformSessionIds.has(queuedSessionId),
                 ) || Boolean(
                   transformCommitTargetKey &&
-                  emittedSpaceTransformTargetKeys.has(transformCommitTargetKey) &&
-                  isIfcSpaceElementInfo(transformCommit?.element),
+                  emittedTransformTargetKeys.has(transformCommitTargetKey),
                 )
                 const emitTransformCommit = (_reason: string) => {
                   if (!transformCommit || didEmitTransformCommit) return
                   didEmitTransformCommit = true
-                  if (queuedSessionId && isIfcSpaceElementInfo(transformCommit.element)) {
-                    rememberBoundedSetValue(emittedSpaceTransformSessionIds, queuedSessionId, SPACE_TRANSFORM_DEDUP_LIMIT)
+                  if (queuedSessionId) {
+                    rememberBoundedSetValue(emittedTransformSessionIds, queuedSessionId, SPACE_TRANSFORM_DEDUP_LIMIT)
                   }
-                  if (transformCommitTargetKey && isIfcSpaceElementInfo(transformCommit.element)) {
+                  if (transformCommitTargetKey) {
                     rememberBoundedSetValue(
-                      emittedSpaceTransformTargetKeys,
+                      emittedTransformTargetKeys,
                       transformCommitTargetKey,
                       SPACE_TRANSFORM_DEDUP_LIMIT,
                     )
@@ -3923,7 +3921,7 @@ export default function ThatOpenIfcCanvas({
             if (selectedTarget?.source === 'ifc') {
               const dragObject = selectedTarget.object as Object3D | undefined
               if (dragObject) {
-                emittedSpaceTransformTargetKeys.delete(getIfcMoveTargetKey(selectedTarget.modelId, selectedTarget.localId))
+                emittedTransformTargetKeys.delete(getIfcMoveTargetKey(selectedTarget.modelId, selectedTarget.localId))
                 lastDragStartPosition = {
                   x: dragObject.position.x,
                   y: dragObject.position.y,
@@ -4076,9 +4074,9 @@ export default function ThatOpenIfcCanvas({
             }
             ifcMoveDirtyRef.current = true
             lastIfcDragEndAt = performance.now()
-            const didEmitSpaceTransformCommit = emitSpaceTransformCommitFromDragEnd(
+            const didEmitTranslateTransformCommit = emitTranslateTransformCommitFromDragEnd(
               selectedTarget,
-              'drag_end_space_translate',
+              'drag_end_translate',
             )
             logIfcMove('drag_end_schedule_commit', {
               modelId: selectedTarget.modelId,
@@ -4087,7 +4085,7 @@ export default function ThatOpenIfcCanvas({
               deltaRaw: dragDeltaRaw,
               deltaRounded: dragDelta,
               hasTransformDelta,
-              didEmitSpaceTransformCommit,
+              didEmitTranslateTransformCommit,
               note: 'commit scheduled immediately after drag end',
             })
             if (activeDragSessionId) {
