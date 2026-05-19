@@ -59,6 +59,7 @@ export type Selected3DTarget =
       selectedSignature?: string;
       selectedColorSignature?: string;
       selectedMaterialSignature?: string;
+      selectedShapeSignature?: string;
       selectedTransformSignature?: string;
     }
   | {
@@ -67,6 +68,7 @@ export type Selected3DTarget =
       selectedSignature?: string;
       selectedColorSignature?: string;
       selectedMaterialSignature?: string;
+      selectedShapeSignature?: string;
       selectedTransformSignature?: string
     }
   | null;
@@ -1396,6 +1398,43 @@ export const positionPresetGroupBesideIfc = (
   (
     presetGroup as Object3D & { updateMatrixWorld?: (force?: boolean) => void }
   ).updateMatrixWorld?.(true);
+};
+
+/**
+ * 저장 위치가 없는 라이브러리 프리셋은 항상 기준 모델의 바깥쪽에 보이도록 보정한다.
+ * 드롭/클릭 추가 시 모델 내부 히트 지점에 묻히는 것을 막기 위한 마지막 배치 가드다.
+ */
+export const ensureLibraryPresetOutsideIfc = (
+  THREE: ThreeModule,
+  ifcObject: Object3D,
+  presetObject: Object3D,
+  worldUnitsPerMm = PROJECT_WORLD_UNITS_PER_MM,
+) => {
+  const ifcBox = new THREE.Box3().setFromObject(ifcObject);
+  if (ifcBox.isEmpty()) return;
+
+  presetObject.updateMatrixWorld(true);
+  const presetBox = new THREE.Box3().setFromObject(presetObject);
+  if (presetBox.isEmpty()) return;
+
+  const gap = 600 * worldUnitsPerMm;
+  const targetMinX = ifcBox.max.x + gap;
+  const deltaX = presetBox.min.x < targetMinX ? targetMinX - presetBox.min.x : 0;
+  const deltaY = ifcBox.min.y - presetBox.min.y;
+
+  if (Math.abs(deltaX) < 1e-8 && Math.abs(deltaY) < 1e-8) return;
+
+  const nextWorldPosition = new THREE.Vector3();
+  presetObject.getWorldPosition(nextWorldPosition);
+  nextWorldPosition.x += deltaX;
+  nextWorldPosition.y += deltaY;
+
+  if (presetObject.parent) {
+    presetObject.position.copy(presetObject.parent.worldToLocal(nextWorldPosition));
+  } else {
+    presetObject.position.copy(nextWorldPosition);
+  }
+  presetObject.updateMatrixWorld(true);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

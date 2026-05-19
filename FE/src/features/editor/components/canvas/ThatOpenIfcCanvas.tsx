@@ -41,8 +41,10 @@ import {
   createIfcAssetPresetMesh,
   createPresetMesh,
   findLibraryRoot,
+  formatLibraryPresetDimensions,
   getLibraryElementInfo,
   getLibraryPresetFromObject,
+  getLibraryScaleDimensionPatch,
   refreshIfcAssetPresetMeshLayout,
   updateLibraryPresetData,
   type LibraryObject3D,
@@ -77,6 +79,7 @@ import {
   fitObjectWithPadding,
   disposeObjectMaterials,
   clearSelectedTarget,
+  ensureLibraryPresetOutsideIfc,
   positionPresetGroupBesideIfc,
   inferWorldUnitsPerMm,
   getObjectSizeMm,
@@ -454,6 +457,15 @@ const isObjectInSceneGraph = (scene: Object3D, object: Object3D | undefined | nu
   return false
 }
 
+const detachAndHideObjectTree = (object: Object3D | undefined | null) => {
+  if (!object) return
+  object.visible = false
+  object.traverse((child) => {
+    child.visible = false
+  })
+  object.parent?.remove(object)
+}
+
 const getElementTransformSignature = (element?: IfcElementInfo | null) => {
   if (!element) return ''
   return [
@@ -466,6 +478,34 @@ const getElementTransformSignature = (element?: IfcElementInfo | null) => {
   ].map((value) => (
     Number.isFinite(value) ? Number((value as number).toFixed(6)) : 'null'
   )).join('|')
+}
+
+const getElementShapeSignature = (element?: IfcElementInfo | null) => (
+  [element?.id ?? '', element?.roofShape ?? ''].join(':')
+)
+
+const updateTransformControlsIfSupported = (transformControls: unknown) => {
+  const controls = transformControls as {
+    update?: () => void
+    updateMatrixWorld?: (force?: boolean) => void
+  } | null
+  if (typeof controls?.update === 'function') {
+    controls.update()
+    return
+  }
+  if (typeof controls?.updateMatrixWorld === 'function') {
+    controls.updateMatrixWorld(true)
+  }
+}
+
+const shouldUseIfcAssetForPreset = (preset: ThreeDLibraryPreset) => {
+  const hasIfcAsset = Boolean(preset.assetIfcUrl || preset.assetIfc)
+  if (!hasIfcAsset) return false
+  // IFC roof assets are fixed mesh extracts. When the inspector switches the
+  // roof shape to gable, use the existing procedural roof path so the shape
+  // control has an immediate visible effect without changing other asset types.
+  if (preset.type === 'roof' && preset.roofShape === 'gable') return false
+  return true
 }
 
 export default function ThatOpenIfcCanvas({
@@ -1071,11 +1111,15 @@ export default function ThatOpenIfcCanvas({
     const core = sceneState.fragments.core as import('@thatopen/fragments').FragmentsModels & {
       disposeModel?: (targetModelId: string) => Promise<void> | void
     }
+    const model = modelList.get(modelId) as {
+      object?: Object3D
+      dispose?: () => Promise<void> | void
+    } | undefined
+    detachAndHideObjectTree(model?.object)
     try {
       if (typeof core.disposeModel === 'function') {
         await Promise.resolve(core.disposeModel(modelId))
       } else {
-        const model = modelList.get(modelId) as { dispose?: () => Promise<void> | void } | undefined
         await Promise.resolve(model?.dispose?.())
       }
       logIfcMove('library_asset_model_disposed', { modelId, reason })
@@ -3463,7 +3507,7 @@ export default function ThatOpenIfcCanvas({
             const preset = getLibraryPresetFromObject(libraryObject)
             if (preset) {
               const libraryElement = getLibraryElementInfo(libraryObject)
-              onLibraryElementChangeRef.current?.(preset.id, {
+              const patch: Partial<ThreeDLibraryPreset> = {
                 position: {
                   x: libraryObject.position.x,
                   y: libraryObject.position.y,
@@ -3479,10 +3523,25 @@ export default function ThatOpenIfcCanvas({
                   y: libraryObject.scale.y,
                   z: libraryObject.scale.z,
                 },
-              })
+              }
+              if (transformModeRef.current === 'scale') {
+                const scalePatch = getLibraryScaleDimensionPatch(
+                  libraryObject,
+                  sceneRef.current?.worldUnitsPerMm ?? PROJECT_WORLD_UNITS_PER_MM,
+                )
+                if (scalePatch) {
+                  patch.lengthMm = scalePatch.lengthMm
+                  patch.heightMm = scalePatch.heightMm
+                  patch.thicknessMm = scalePatch.thicknessMm
+                  updateLibraryPresetData(libraryObject, scalePatch)
+                }
+              }
+              onLibraryElementChangeRef.current?.(preset.id, patch)
               if (libraryElement) {
-                selectedTarget.selectedTransformSignature = getElementTransformSignature(libraryElement)
-                onIfcElementSelectRef.current?.(libraryElement)
+                const nextLibraryElement = getLibraryElementInfo(libraryObject) ?? libraryElement
+                selectedTarget.selectedTransformSignature = getElementTransformSignature(nextLibraryElement)
+                selectedTarget.selectedSignature = getElementDimensionSignature(nextLibraryElement)
+                onIfcElementSelectRef.current?.(nextLibraryElement)
               }
               logIfcMove('transform_commit', {
                 source: 'library',
@@ -6722,6 +6781,8 @@ export default function ThatOpenIfcCanvas({
         const preset = getLibraryPresetFromObject(target.object as LibraryObject3D)
         if (preset) onLibraryElementChangeRef.current?.(preset.id, { color: selectedIfcElement.color })
       }
+      applyLibraryVisibilityByStorey()
+      sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
       return
     }
 
@@ -6748,7 +6809,7 @@ export default function ThatOpenIfcCanvas({
     }
 
     void applyIfcItemColor(sceneState.three, sceneState.fragments, target, selectedIfcElement?.color).catch(() => undefined)
-  }, [logIfcMove, selectedIfcElement])
+  }, [applyLibraryVisibilityByStorey, logIfcMove, selectedIfcElement])
 
   useEffect(() => {
     const sceneState = sceneRef.current
@@ -6808,6 +6869,47 @@ export default function ThatOpenIfcCanvas({
       }
     }
   }, [applyLibraryVisibilityByStorey, logIfcMove, selectedIfcElement])
+
+  useEffect(() => {
+    const sceneState = sceneRef.current
+    const target = selectedTargetRef.current
+    if (!sceneState || !target || !selectedIfcElement?.roofShape) return
+    const currentShapeSignature = getElementShapeSignature(selectedIfcElement)
+    if (target.selectedShapeSignature === currentShapeSignature) return
+
+    if (target.source === 'library') {
+      if (selectedIfcElement.source !== 'library') return
+      const libraryObject = target.object as LibraryObject3D
+      const preset = getLibraryPresetFromObject(libraryObject)
+      target.selectedShapeSignature = currentShapeSignature
+      if (!preset || preset.roofShape === selectedIfcElement.roofShape) return
+
+      updateLibraryPresetData(libraryObject, { roofShape: selectedIfcElement.roofShape })
+      onLibraryElementChangeRef.current?.(preset.id, { roofShape: selectedIfcElement.roofShape })
+      applyLibraryVisibilityByStorey()
+      sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
+      return
+    }
+
+    if (target.source === 'ifc' && target.object) {
+      target.selectedShapeSignature = currentShapeSignature
+      const editable = target.object as IfcEditableObject3D
+      const editTarget = editable.userData.ifcEditTarget
+      const element = editTarget?.element
+      if (!editTarget || !element) return
+      editable.userData.ifcEditTarget = {
+        ...editTarget,
+        element: {
+          ...element,
+          roofShape: selectedIfcElement.roofShape,
+          properties: {
+            ...element.properties,
+            RoofShape: selectedIfcElement.roofShape,
+          },
+        },
+      }
+    }
+  }, [applyLibraryVisibilityByStorey, selectedIfcElement])
 
   useEffect(() => {
     const sceneState = sceneRef.current
@@ -6890,7 +6992,7 @@ export default function ThatOpenIfcCanvas({
       })
     }
     target.selectedTransformSignature = currentTransformSignature
-    sceneState.transformControls.updateMatrixWorld(true)
+    updateTransformControlsIfSupported(sceneState.transformControls)
     sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
   }, [selectedIfcElement])
 
@@ -6918,6 +7020,7 @@ export default function ThatOpenIfcCanvas({
     const { three: THREE } = sceneState
     if (target.source === 'library') {
       const libraryObject = target.object as LibraryObject3D
+      const preset = getLibraryPresetFromObject(libraryObject)
       const fallbackSize = new THREE.Vector3()
       new THREE.Box3().setFromObject(target.object).getSize(fallbackSize)
       const baseWorldSize = libraryObject.userData?.libraryBaseWorldSize ?? {
@@ -6934,20 +7037,26 @@ export default function ThatOpenIfcCanvas({
       const nextScaleZ = selectedIfcElement.thicknessMm
         ? (selectedIfcElement.thicknessMm * sceneState.worldUnitsPerMm) / baseWorldSize.z
         : target.object.scale.z
+      if (![nextScaleX, nextScaleY, nextScaleZ].every((value) => Number.isFinite(value) && value > 0)) return
       target.object.scale.set(nextScaleX, nextScaleY, nextScaleZ)
-      updateLibraryPresetData(target.object, {
+      target.object.updateMatrixWorld(true)
+      const dimensions = formatLibraryPresetDimensions(
+        selectedIfcElement.lengthMm,
+        selectedIfcElement.heightMm,
+        selectedIfcElement.thicknessMm,
+      )
+      const libraryPatch: Partial<ThreeDLibraryPreset> = {
         lengthMm: selectedIfcElement.lengthMm,
         heightMm: selectedIfcElement.heightMm,
         thicknessMm: selectedIfcElement.thicknessMm,
-      })
-      const preset = getLibraryPresetFromObject(libraryObject)
-      if (preset) {
-        onLibraryElementChangeRef.current?.(preset.id, {
-          lengthMm: selectedIfcElement.lengthMm,
-          heightMm: selectedIfcElement.heightMm,
-          thicknessMm: selectedIfcElement.thicknessMm,
-        })
+        scale: { x: nextScaleX, y: nextScaleY, z: nextScaleZ },
+        ...(dimensions ? { dimensions } : {}),
       }
+      updateLibraryPresetData(target.object, libraryPatch)
+      if (preset) onLibraryElementChangeRef.current?.(preset.id, libraryPatch)
+      applyLibraryVisibilityByStorey()
+      updateTransformControlsIfSupported(sceneState.transformControls)
+      sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
       return
     }
 
@@ -7008,7 +7117,7 @@ export default function ThatOpenIfcCanvas({
         },
       }
     }
-  }, [logIfcMove, selectedIfcElement?.lengthMm, selectedIfcElement?.heightMm, selectedIfcElement?.thicknessMm, selectedIfcElement])
+  }, [applyLibraryVisibilityByStorey, logIfcMove, selectedIfcElement?.lengthMm, selectedIfcElement?.heightMm, selectedIfcElement?.thicknessMm, selectedIfcElement])
 
   useEffect(() => {
     rotationLockedRef.current = isRotationLocked
@@ -7118,6 +7227,7 @@ export default function ThatOpenIfcCanvas({
       )
       libraryAssetModelIdsRef.current.add(modelId)
       const fragmentModel = model as unknown as LoadedLibraryFragmentModel
+      detachAndHideObjectTree(fragmentModel.object)
       fragmentModel.useCamera(sceneState.camera)
 
       const editor = (sceneState.fragments.core as import('@thatopen/fragments').FragmentsModels & {
@@ -7223,25 +7333,33 @@ export default function ThatOpenIfcCanvas({
     presetGroup.clear()
 
     manifestLibraryElements.forEach((preset, index) => {
-      const hasIfcAsset = Boolean(preset.assetIfcUrl || preset.assetIfc)
+      const shouldUseIfcAsset = shouldUseIfcAssetForPreset(preset)
       const existingChild = existingChildByPresetId.get(preset.id)
-      const canReuseLoadedIfcAsset = hasIfcAsset && existingChild?.userData?.ifcAssetLoaded === true
+      const canReuseLoadedIfcAsset = shouldUseIfcAsset && existingChild?.userData?.ifcAssetLoaded === true
       const presetMesh = canReuseLoadedIfcAsset && existingChild
         ? refreshIfcAssetPresetMeshLayout(
           THREE,
           existingChild as import('three').Group,
           preset,
           index,
-          PROJECT_WORLD_UNITS_PER_MM,
+          sceneState.worldUnitsPerMm,
         )
-        : hasIfcAsset
-          ? createIfcAssetPresetPlaceholder(THREE, preset, index, PROJECT_WORLD_UNITS_PER_MM)
+        : shouldUseIfcAsset
+          ? createIfcAssetPresetPlaceholder(THREE, preset, index, sceneState.worldUnitsPerMm)
           : createPresetMesh(THREE, preset, index, sceneState.worldUnitsPerMm)
       if (canReuseLoadedIfcAsset && existingChild) {
         updateLibraryPresetData(existingChild, preset)
         preservedChildren.add(existingChild)
       }
       presetGroup.add(presetMesh)
+      if (!preset.position) {
+        ensureLibraryPresetOutsideIfc(
+          THREE,
+          sceneState.ifcObject,
+          presetMesh,
+          sceneState.worldUnitsPerMm,
+        )
+      }
     })
     existingChildren.forEach((child) => {
       if (preservedChildren.has(child)) return
@@ -7296,7 +7414,7 @@ export default function ThatOpenIfcCanvas({
 
     const assetPresets = manifestLibraryElements
       .map((preset, index) => ({ preset, index }))
-      .filter(({ preset }) => Boolean(preset.assetIfcUrl || preset.assetIfc))
+      .filter(({ preset }) => shouldUseIfcAssetForPreset(preset))
     if (assetPresets.length === 0) {
       void disposeLoadedLibraryAssetModels(sceneState, 'library_sync_no_assets')
       return
@@ -7335,7 +7453,7 @@ export default function ThatOpenIfcCanvas({
           preset,
           assetObject,
           index,
-          PROJECT_WORLD_UNITS_PER_MM,
+          sceneState.worldUnitsPerMm,
           false,
         )
         assetMesh.userData = {
@@ -7382,8 +7500,16 @@ export default function ThatOpenIfcCanvas({
           assetMesh,
           preset,
           index,
-          PROJECT_WORLD_UNITS_PER_MM,
+          sceneState.worldUnitsPerMm,
         )
+        if (!preset.position) {
+          ensureLibraryPresetOutsideIfc(
+            THREE,
+            sceneState.ifcObject,
+            assetMesh,
+            sceneState.worldUnitsPerMm,
+          )
+        }
         assetMesh.updateMatrixWorld(true)
 
         if (!hasRenderableObject(THREE, assetMesh)) {
@@ -7396,7 +7522,15 @@ export default function ThatOpenIfcCanvas({
           presetGroup.remove(assetMesh)
           disposeObjectMaterials(THREE, assetMesh)
           await disposeLibraryAssetModel(sceneState, assetModelId, 'library_asset_not_renderable')
-          const placeholder = createIfcAssetPresetPlaceholder(THREE, preset, index, PROJECT_WORLD_UNITS_PER_MM)
+          const placeholder = createIfcAssetPresetPlaceholder(THREE, preset, index, sceneState.worldUnitsPerMm)
+          if (!preset.position) {
+            ensureLibraryPresetOutsideIfc(
+              THREE,
+              sceneState.ifcObject,
+              placeholder,
+              sceneState.worldUnitsPerMm,
+            )
+          }
           presetGroup.add(placeholder)
           const placeholderAppended = presetGroup.children.pop()
           if (placeholderAppended) {

@@ -113,6 +113,15 @@ export const parsePresetDimensions = (preset: ThreeDLibraryPreset) => {
   }
 }
 
+export const formatLibraryPresetDimensions = (
+  lengthMm?: number,
+  heightMm?: number,
+  thicknessMm?: number,
+) => {
+  if (![lengthMm, heightMm, thicknessMm].every((value) => Number.isFinite(value))) return undefined
+  return `${Math.round(lengthMm as number)} x ${Math.round(heightMm as number)} x ${Math.round(thicknessMm as number)}`
+}
+
 const getPresetWorldScale = (
   presetDimensions: ReturnType<typeof parsePresetDimensions>,
   baseWorldSize: { x: number; y: number; z: number },

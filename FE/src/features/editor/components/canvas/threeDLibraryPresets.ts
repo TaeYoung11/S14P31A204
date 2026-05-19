@@ -201,20 +201,37 @@ export const applyIfcLibraryManifestToPreset = (
   if (!manifestAsset) return preset
 
   const [lengthMm, thicknessMm, heightMm] = manifestAsset.bbox?.sizeMm ?? []
+  const manifestLengthMm = Number.isFinite(lengthMm) ? Math.round(lengthMm) : undefined
+  const manifestHeightMm = Number.isFinite(heightMm) ? Math.round(heightMm) : undefined
+  const manifestThicknessMm = Number.isFinite(thicknessMm) ? Math.round(thicknessMm) : undefined
+  const isSceneInstance = Boolean(preset.sourceAssetId && preset.id !== preset.sourceAssetId)
+  const nextLengthMm = isSceneInstance && Number.isFinite(preset.lengthMm)
+    ? preset.lengthMm
+    : manifestLengthMm ?? preset.lengthMm
+  const nextHeightMm = isSceneInstance && Number.isFinite(preset.heightMm)
+    ? preset.heightMm
+    : manifestHeightMm ?? preset.heightMm
+  const nextThicknessMm = isSceneInstance && Number.isFinite(preset.thicknessMm)
+    ? preset.thicknessMm
+    : manifestThicknessMm ?? preset.thicknessMm
   const assetIfc = manifestAsset.assetIfc ?? preset.assetIfc
   const assetIfcUrl = toIfcLibraryAssetUrl(assetIfc) ?? preset.assetIfcUrl
-  const color = toHexColor(manifestAsset.colors?.[0]) ?? preset.color
-  const material = normalizeManifestMaterial(manifestAsset.category, manifestAsset.materials) ?? preset.material
+  const color = isSceneInstance
+    ? preset.color
+    : toHexColor(manifestAsset.colors?.[0]) ?? preset.color
+  const material = isSceneInstance
+    ? preset.material
+    : normalizeManifestMaterial(manifestAsset.category, manifestAsset.materials) ?? preset.material
 
   return {
     ...preset,
     name: preset.name || manifestAsset.label || preset.id,
-    dimensions: Number.isFinite(lengthMm) && Number.isFinite(heightMm) && Number.isFinite(thicknessMm)
-      ? `${Math.round(lengthMm)} x ${Math.round(heightMm)} x ${Math.round(thicknessMm)}`
+    dimensions: Number.isFinite(nextLengthMm) && Number.isFinite(nextHeightMm) && Number.isFinite(nextThicknessMm)
+      ? `${Math.round(nextLengthMm as number)} x ${Math.round(nextHeightMm as number)} x ${Math.round(nextThicknessMm as number)}`
       : preset.dimensions,
-    lengthMm: Number.isFinite(lengthMm) ? Math.round(lengthMm) : preset.lengthMm,
-    heightMm: Number.isFinite(heightMm) ? Math.round(heightMm) : preset.heightMm,
-    thicknessMm: Number.isFinite(thicknessMm) ? Math.round(thicknessMm) : preset.thicknessMm,
+    lengthMm: nextLengthMm,
+    heightMm: nextHeightMm,
+    thicknessMm: nextThicknessMm,
     color,
     material,
     assetIfc: assetIfc ?? preset.assetIfc,
@@ -233,6 +250,22 @@ export const applyIfcLibraryManifestToPresets = (
     manifestMap.get(preset.sourceAssetId ?? preset.id),
   ))
 }
+
+const LIBRARY_PRESET_DISPLAY_NAME_BY_ID: Record<string, string> = {
+  'roof-178223': '기본 박공지붕',
+  'roof-180558': '복합 경사지붕',
+  'roof-181099': '소형 박공지붕',
+  'roof-187335': '대형 복합지붕',
+  'wall-139029': '기본 외벽 200T',
+  'window-189252': '와이드 고정창',
+  'door-152970': '프레임 방문',
+  'stair-145090': '조합 계단',
+  terrace: '옥외 테라스',
+}
+
+export const getLibraryPresetDisplayName = (preset: ThreeDLibraryPreset) => (
+  LIBRARY_PRESET_DISPLAY_NAME_BY_ID[preset.sourceAssetId ?? preset.id] ?? preset.name
+)
 
 // ─────────────────────────────────────────────
 // 프리셋 목록
