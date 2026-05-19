@@ -14,6 +14,7 @@ from ai_planning_3d.command import (
     LLM3DCreateInfo,
     LLM3DElementType,
 )
+from ai_planning_3d.engine import LLM3DEngine
 from ai_planning_3d.pipeline import LLM3DPipeline
 from ai_planning_3d.worker import (
     PlanningWorker,
@@ -267,6 +268,15 @@ def test_apply_explicit_opening_dimensions_prefers_raw_instruction_labels() -> N
     assert create_info["height_mm"] == 2100.0
 
 
+def test_heuristic_parser_recognizes_bare_hex_color_assignment() -> None:
+    engine = LLM3DEngine()
+
+    parsed = engine._heuristic_parse("wall is #2385db")
+
+    assert parsed.changes is not None
+    assert parsed.changes.color == "#2385DB"
+
+
 def test_planning_worker_stores_engine_operations_for_modify_and_delete() -> None:
     command = _with_user_instruction(_load_sample_command(), "modify and delete")
     mock_s3 = MagicMock()
@@ -377,6 +387,55 @@ def test_planning_worker_split_chat_fails_fast_without_partial_commands() -> Non
     Draft202012Validator(_planner_3d_schema()).validate(stored_payload)
     assert stored_payload["status"] == "clarification_required"
     assert stored_payload["commands"] == []
+
+
+def test_planning_worker_split_not_found_returns_clarification_artifact() -> None:
+    command = _with_user_instruction(
+        _load_sample_command(),
+        "roof is #E8808B, delete bathroom door",
+    )
+    mock_s3 = MagicMock()
+    mock_s3.read_bytes.return_value = _sample_ifc_bytes()
+    mock_s3.write_text.return_value = "s3://mock-bucket/output.json"
+
+    worker = PlanningWorker(
+        worker_id="test-worker-1",
+        event_publisher=MagicMock(),
+        s3=mock_s3,
+    )
+
+    with patch(
+        "ai_planning_3d.worker.LLM3DPipeline.execute_preview",
+        new_callable=AsyncMock,
+    ) as mock_execute:
+        mock_execute.side_effect = [
+            _preview_ready_create("roof is #E8808B", "IfcRoof"),
+            {
+                "status": "not_found",
+                "summary": "Target door was not found.",
+            },
+        ]
+
+        result = worker.process(command)
+
+    assert isinstance(result, ClarificationResult)
+    assert result.error.message.startswith("Command 2 failed:")
+    assert [call.args for call in mock_execute.await_args_list] == [
+        ("roof is #E8808B",),
+        ("delete bathroom door",),
+    ]
+
+    stored_payload = json.loads(mock_s3.write_text.call_args_list[0].kwargs["text"])
+    Draft202012Validator(_planner_3d_schema()).validate(stored_payload)
+    assert stored_payload["status"] == "clarification_required"
+    assert stored_payload["commands"] == []
+    assert stored_payload["clarification"]["context"]["failed_instruction"] == (
+        "delete bathroom door"
+    )
+
+    artifact = json.loads(mock_s3.write_text.call_args_list[1].kwargs["text"])
+    assert artifact["kind"] == "open_ended"
+    assert "delete bathroom door" in artifact["question"]
 
 
 def test_planning_worker_returns_clarification_without_downstream_publish() -> None:

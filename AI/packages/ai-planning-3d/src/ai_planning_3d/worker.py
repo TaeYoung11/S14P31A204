@@ -73,7 +73,7 @@ class PlanningWorker(BaseWorker):
             pipeline = LLM3DPipeline(ifc_path=str(ifc_path))
             try:
                 result = asyncio.run(
-                    _execute_preview_for_instruction(
+                    _run_pipeline_preview(
                         pipeline,
                         user_instruction,
                         payload.plannerOptions,
@@ -185,6 +185,17 @@ class PlanningWorker(BaseWorker):
 # ── planner_3d_result.v1.schema.json 변환 헬퍼 ───────────────────────────────
 
 
+async def _run_pipeline_preview(
+    pipeline: LLM3DPipeline,
+    user_instruction: str,
+    planner_options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    try:
+        return await _execute_preview_for_instruction(pipeline, user_instruction, planner_options)
+    finally:
+        await pipeline.aclose()
+
+
 async def _execute_preview_for_instruction(
     pipeline: LLM3DPipeline,
     user_instruction: str,
@@ -194,12 +205,16 @@ async def _execute_preview_for_instruction(
         planner_options.get("host_wall_global_id"),
         str,
     ) and bool(str(planner_options.get("host_wall_global_id")).strip())
+    host_wall_global_id = (
+        str(planner_options.get("host_wall_global_id", "")).strip()
+        if isinstance(planner_options, dict)
+        else ""
+    )
 
     command_texts = pipeline.split_chat_commands(user_instruction)
     if len(command_texts) <= 1:
         if not has_host_wall_override:
             return await pipeline.execute_preview(user_instruction)
-        host_wall_global_id = str(planner_options.get("host_wall_global_id", "")).strip()
         if _is_stale_host_wall(pipeline, host_wall_global_id):
             return _stale_host_wall_result(host_wall_global_id)
         command = await pipeline.engine.parse_command(
@@ -219,16 +234,7 @@ async def _execute_preview_for_instruction(
             previews.append(preview)
 
             if preview.get("status") != "preview_ready":
-                summary = (
-                    preview.get("summary")
-                    or preview.get("message")
-                    or "Preview generation failed."
-                )
-                return {
-                    **preview,
-                    "summary": f"Command {index} failed: {summary}",
-                    "split_results": previews,
-                }
+                return _split_command_blocked_result(preview, index, command_text, previews)
             continue
 
         command = await pipeline.engine.parse_command(
@@ -236,7 +242,6 @@ async def _execute_preview_for_instruction(
             ifc_context=pipeline._ifc_context_text,
         )
         if index == 1:
-            host_wall_global_id = str(planner_options.get("host_wall_global_id", "")).strip()
             if _is_stale_host_wall(pipeline, host_wall_global_id):
                 return _stale_host_wall_result(host_wall_global_id)
         preview = await pipeline.execute_command_preview(
@@ -247,16 +252,7 @@ async def _execute_preview_for_instruction(
         previews.append(preview)
 
         if preview.get("status") != "preview_ready":
-            summary = (
-                preview.get("summary")
-                or preview.get("message")
-                or "Preview generation failed."
-            )
-            return {
-                **preview,
-                "summary": f"Command {index} failed: {summary}",
-                "split_results": previews,
-            }
+            return _split_command_blocked_result(preview, index, command_text, previews)
 
     return {
         "status": "preview_ready",
@@ -266,6 +262,45 @@ async def _execute_preview_for_instruction(
             for preview in previews
             if isinstance(preview.get("command"), dict)
         ],
+        "split_results": previews,
+    }
+
+
+def _split_command_blocked_result(
+    preview: dict[str, Any],
+    index: int,
+    command_text: str,
+    previews: list[dict[str, Any]],
+) -> dict[str, Any]:
+    summary = preview.get("summary") or preview.get("message") or "Preview generation failed."
+    blocked_summary = f"Command {index} failed: {summary}"
+    successful_count = sum(1 for item in previews if item.get("status") == "preview_ready")
+    questions = preview.get("clarification_questions")
+
+    if not questions:
+        questions = [
+            {
+                "trigger": "custom",
+                "question_ko": (
+                    f"{index}번째 명령 '{command_text}'을 처리하지 못했습니다. "
+                    "대상 층/공간/객체를 더 구체적으로 알려주세요."
+                ),
+                "options": [],
+                "context": {
+                    "reason": "split_command_failed",
+                    "failed_status": str(preview.get("status") or "unknown"),
+                    "failed_index": index,
+                    "failed_instruction": command_text,
+                    "successful_count": successful_count,
+                },
+            }
+        ]
+
+    return {
+        **preview,
+        "status": "needs_clarification",
+        "summary": blocked_summary,
+        "clarification_questions": questions,
         "split_results": previews,
     }
 

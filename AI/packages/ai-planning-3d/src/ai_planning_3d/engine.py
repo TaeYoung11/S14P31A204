@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 
 import instructor
 from instructor.core.exceptions import InstructorRetryException
@@ -173,6 +174,9 @@ class LLM3DEngine:
         self.client = instructor.from_openai(self._raw_client, mode=instructor.Mode.JSON)
         self.model = resolved_model
         self.base_url = resolved_base_url
+
+    async def aclose(self) -> None:
+        await self._raw_client.close()
 
     async def parse_command(
         self, user_text: str, ifc_context: str | None = None
@@ -821,6 +825,10 @@ class LLM3DEngine:
         return None
 
     def _color(self, text: str) -> str | None:
+        hex_match = re.search(r"#[0-9A-Fa-f]{6}\b", text)
+        if hex_match:
+            return hex_match.group(0).upper()
+
         lower_text = text.lower()
         for alias, color_name in sorted(
             COLOR_ALIASES.items(),
