@@ -93,7 +93,14 @@ export const subscribeStompTopicsWithPolling = ({
 
       topic.sharedSubscription.subscription = client.subscribe(topic.destination, (message) => {
         Array.from(topic.sharedSubscription.listeners).forEach((listener) => {
-          listener(message)
+          try {
+            listener(message)
+          } catch (error) {
+            console.error('[stomp-subscription] listener failed', {
+              destination: topic.destination,
+              error,
+            })
+          }
         })
       })
     })

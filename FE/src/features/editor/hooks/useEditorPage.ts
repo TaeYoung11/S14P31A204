@@ -174,7 +174,6 @@ import {
   mergeIfcElementChangeByExpressId,
   shouldPublishIfcElementPatch,
 } from '../utils/ifcElementChangeSync'
-import { markIfcMovePerformance } from '../utils/ifcMovePerformance'
 import { resolveWorkspaceSiteAreaM2 } from '../utils/numberUtils'
 import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
 import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
@@ -262,10 +261,7 @@ const resolveBubbleDbSaveDebounceMs = (): number => {
   return clampBubbleDbSaveDebounceMs(storageSeconds * 1000)
 }
 
-const logRoofDebug = (...args: unknown[]) => {
-  if (!import.meta.env.DEV) return
-  console.log('[roof-debug][useEditorPage]', ...args)
-}
+const logRoofDebug = (..._args: unknown[]) => {}
 
 const toIfcGlobalId = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim()
@@ -2561,25 +2557,6 @@ export function useEditorPage() {
       ? workspaceCommandPublisher.consumePendingCommand()
       : null
 
-    const isIfcRotationCommand = workspaceCommand?.entity === 'ifcElement'
-      && workspaceCommand.op === 'update'
-      && workspaceCommand.patch != null
-      && typeof workspaceCommand.patch === 'object'
-      && !Array.isArray(workspaceCommand.patch)
-      && 'rotation_degrees' in workspaceCommand.patch
-    if (import.meta.env.DEV && mode === '3d' && isIfcRotationCommand) {
-      const workspaceCommandJson = workspaceCommand ? JSON.stringify(workspaceCommand) : null
-      console.log('[ifc-rotate-save][publish-check]', {
-        projectId,
-        historyDomain,
-        hasPendingFloorPlanCommand,
-        consumedWorkspaceCommand: workspaceCommand,
-        consumedWorkspaceCommandJson: workspaceCommandJson,
-        hasUserEdited: hasUserEditedRef.current,
-        currentIfcRevisionId,
-      })
-    }
-
     if (historyDomain === 'floorPlan' && !workspaceCommand) {
       pendingServerPublishRef.current = null
       awaitingServerSyncRef.current = null
@@ -2624,25 +2601,6 @@ export function useEditorPage() {
       summary: publishDebugSummary,
       floorMeta: extractBubbleFloorMetaFromWorkspaceSnapshot(publishSnapshot),
     })
-    const isServerIfcRotationCommand = serverPublishRecord.workspaceCommand?.entity === 'ifcElement'
-      && serverPublishRecord.workspaceCommand.op === 'update'
-      && serverPublishRecord.workspaceCommand.patch != null
-      && typeof serverPublishRecord.workspaceCommand.patch === 'object'
-      && !Array.isArray(serverPublishRecord.workspaceCommand.patch)
-      && 'rotation_degrees' in serverPublishRecord.workspaceCommand.patch
-    if (import.meta.env.DEV && mode === '3d' && isServerIfcRotationCommand) {
-      const workspaceCommandJson = serverPublishRecord.workspaceCommand
-        ? JSON.stringify(serverPublishRecord.workspaceCommand)
-        : null
-      console.log('[ifc-rotate-save][send-floor-plan-update]', {
-        projectId,
-        baseIndex: serverPublishRecord.baseIndex,
-        revisionId: serverPublishRecord.revisionId,
-        sceneType: serverPublishRecord.sceneType,
-        workspaceCommand: serverPublishRecord.workspaceCommand,
-        workspaceCommandJson,
-      })
-    }
     if (isBubbleDebugEnabled()) {
       console.table(publishDebugSummary.bubbleFloorRows)
     }
@@ -5547,29 +5505,9 @@ export function useEditorPage() {
         return true
       }
 
-      const source = await projectService.getIfcSource(projectId).catch((error: unknown) => {
-        if (import.meta.env.DEV) {
-          console.warn('[ifc-sync][refresh-without-s3-url-failed]', {
-            projectId,
-            action,
-            revisionId,
-            error,
-          })
-        }
-        return null
-      })
+      const source = await projectService.getIfcSource(projectId).catch(() => null)
 
       if (source?.currentIfcUrl) {
-        if (import.meta.env.DEV) {
-          console.log('[ifc-sync][refresh-without-s3-url]', {
-            projectId,
-            action,
-            revisionId,
-            currentIfcUrl: source.currentIfcUrl,
-            currentIfcAssetId: source.currentIfcAssetId,
-            currentRevision: source.currentRevision,
-          })
-        }
         return handleIfcSyncMessageRef.current(
           source.currentIfcStorageUrl ?? source.currentIfcUrl,
           action,
@@ -5675,12 +5613,6 @@ export function useEditorPage() {
           assetId: resolvedAssetId,
         },
       }))
-      markIfcMovePerformance('ifc-url-applied', {
-        action,
-        assetId: resolvedAssetId,
-        revisionId: resolvedRevisionId,
-        hasResolvedUrl: Boolean(resolvedUrl),
-      })
       // IFC가 정상 로드되면 완료 action 문자열과 무관하게 편집 상태로 복귀해 무한 로딩을 방지한다.
       const shouldSuppressGeneratedFloorPlanAutosave = action === 'FLOOR_PLAN_GENERATE_COMPLETED'
       if (shouldSuppressGeneratedFloorPlanAutosave) {
@@ -5716,13 +5648,6 @@ export function useEditorPage() {
             assetId: resolvedAssetId,
           },
         }))
-        markIfcMovePerformance('ifc-url-applied', {
-          action,
-          assetId: resolvedAssetId,
-          revisionId: resolvedRevisionId,
-          hasResolvedUrl: Boolean(resolvedUrl),
-          retry: true,
-        })
         await loadIfcFromStorageUrl(resolvedUrl, {
           webIfcWasmPath: '/',
           skipFloorProjectImport: shouldSkipFloorProjectImport,
@@ -5814,26 +5739,10 @@ export function useEditorPage() {
     threeDIfcSourceHydrationInFlightRef.current = projectId
 
     const hydrateLatestIfcSource = async () => {
-      const source = await projectService.getIfcSource(projectId).catch((error: unknown) => {
-        if (import.meta.env.DEV) {
-          console.warn('[3d-ifc-source][hydrate-failed]', error)
-        }
-        return null
-      })
+      const source = await projectService.getIfcSource(projectId).catch(() => null)
       if (cancelled) return
       if (!source?.currentIfcUrl) {
-        if (import.meta.env.DEV) {
-          console.warn('[3d-ifc-source][hydrate-empty]', { projectId })
-        }
         return
-      }
-      if (import.meta.env.DEV) {
-        console.log('[3d-ifc-source][hydrate]', {
-          projectId,
-          currentIfcUrl: source.currentIfcUrl,
-          currentIfcAssetId: source.currentIfcAssetId,
-          currentRevision: source.currentRevision,
-        })
       }
       handleIfcSyncMessageRef.current(
         source.currentIfcStorageUrl ?? source.currentIfcUrl,

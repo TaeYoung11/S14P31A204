@@ -218,17 +218,6 @@ const publishJson = async (destination: string, body: unknown): Promise<void> =>
       })
     }
   }
-  if (
-    import.meta.env.DEV &&
-    isFloorPlanUpdate &&
-    bodyJson.includes('"entity":"ifcElement"') &&
-    bodyJson.includes('"rotation_degrees"')
-  ) {
-    console.log('[ifc-rotate-save][stomp-publish-json]', {
-      destination,
-      bodyJson,
-    })
-  }
   client.publish({
     destination,
     headers: {

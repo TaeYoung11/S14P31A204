@@ -15,7 +15,6 @@
  */
 import type { Object3D } from "three";
 import type { IfcElementInfo } from "../../../types";
-import { markIfcMovePerformance } from "../../../utils/ifcMovePerformance";
 import type { IfcPsetMetricMaps } from "./ifcPropertyParser";
 import {
   PROJECT_WORLD_UNITS_PER_MM,
@@ -23,24 +22,13 @@ import {
   type MaybeThatOpenMaterialsManager,
   type ThreeModule,
 } from "./ifcMaterials";
-const IFC_MOVE_DEBUG = import.meta.env.VITE_3D_MOVE_DEBUG === "true";
+const IFC_MOVE_DEBUG = false;
 const IFC_MOVE_USE_MODEL_OPACITY_API = false;
 const IFC_MOVE_USE_MODEL_VISIBILITY_API = true;
 const traceIfcMoveVisibility = (
-  event: string,
-  payload?: Record<string, unknown>,
-) => {
-  if (!IFC_MOVE_DEBUG) return;
-  try {
-    if (payload) {
-      console.log(`[IFC_MOVE][TRACE] ${event}`, payload);
-      return;
-    }
-    console.log(`[IFC_MOVE][TRACE] ${event}`);
-  } catch {
-    // no-op
-  }
-};
+  _event: string,
+  _payload?: Record<string, unknown>,
+) => {};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 공유 타입 정의
@@ -652,29 +640,11 @@ export const fetchIfcText = async (ifcUrl: string) => {
   let lastError: unknown = null;
 
   for (const candidate of candidates) {
-    if (import.meta.env.DEV) {
-      console.log("[3d-ifc-fetch][request]", { ifcUrl: candidate });
-    }
-
     try {
       const response = await fetch(candidate);
 
-      if (import.meta.env.DEV) {
-        console.log("[3d-ifc-fetch][response]", {
-          ifcUrl: candidate,
-          ok: response.ok,
-          status: response.status,
-          contentType: response.headers.get("content-type"),
-        });
-      }
-
       if (response.ok) {
-        const text = await response.text();
-        markIfcMovePerformance("ifc-fetch-done", {
-          status: response.status,
-          contentType: response.headers.get("content-type") ?? null,
-        });
-        return text;
+        return response.text();
       }
 
       lastStatus = response.status;

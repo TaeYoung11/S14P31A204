@@ -20,10 +20,7 @@ const THREE_D_MATERIAL_COLOR: Record<string, string> = {
   타일: '#C56F45',
 }
 
-const logRoofDebug = (...args: unknown[]) => {
-  if (!import.meta.env.DEV) return
-  console.log('[roof-debug][useThreeDIfcAttributeHandlers]', ...args)
-}
+const logRoofDebug = (..._args: unknown[]) => {}
 
 interface UseThreeDIfcAttributeHandlersParams {
   mode: EditorMode

@@ -94,10 +94,7 @@ const ALWAYS_TRACE_LOCAL3D_EVENTS = new Set<string>([
   'transform_commit',
 ])
 
-const logRoofDebug = (...args: unknown[]) => {
-  if (!import.meta.env.DEV) return
-  console.log('[roof-debug][FloorPlan3DCanvas]', ...args)
-}
+const logRoofDebug = (..._args: unknown[]) => {}
 
 /**
  * 2D 평면도 데이터를 Three.js로 즉시 3D 변환하여 표시하는 캔버스.

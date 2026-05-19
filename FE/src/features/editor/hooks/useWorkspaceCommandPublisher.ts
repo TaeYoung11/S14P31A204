@@ -489,21 +489,6 @@ export function useWorkspaceCommandPublisher({
       patch.rotationAxisAngle ?? patch.rotation_axis_angle,
     )
     const hasCommandRotation = commandRotationAxisAngle !== null || hasNonZeroRotation(commandRotationDegrees)
-    if (import.meta.env.DEV && (commandRotationAxisAngle || Object.keys(commandRotationDegrees).length > 0)) {
-      console.log('[ifc-rotate-save][command-publisher]', {
-        commandId,
-        elementId: element.id,
-        expressId: element.expressId,
-        globalId: element.globalId ?? commandId,
-        patchRotationAxisAngle: patch.rotationAxisAngle ?? patch.rotation_axis_angle ?? null,
-        commandRotationAxisAngle,
-        patchRotationDegrees: patch.rotationDegrees ?? patch.rotation_degrees ?? null,
-        inferredRotationDegrees: rotationDegrees,
-        commandRotationDegrees,
-        hasCommandRotation,
-        commandRotationJson: JSON.stringify(commandRotationDegrees),
-      })
-    }
     if (
       (translationX !== null || translationY !== null || translationZ !== null) &&
       hasNonZeroTranslation(translationX, translationY, translationZ)
@@ -539,12 +524,6 @@ export function useWorkspaceCommandPublisher({
         ifcClass: element.ifcClass,
         ...nextPatch,
       }))
-      if (import.meta.env.DEV && hasCommandRotation) {
-        console.log('[ifc-rotate-save][pending-command]', {
-          command: pendingCommandRef.current,
-          commandJson: JSON.stringify(pendingCommandRef.current),
-        })
-      }
     }
   }, [])
 

@@ -87,7 +87,6 @@ import {
   isTransformOwnerMismatch,
   isTransformSessionLocked,
 } from './thatopen/transformSessionGuards'
-import { markIfcMovePerformance } from '../../utils/ifcMovePerformance'
 
 /** ThatOpenIfcCanvas 컴포넌트 props */
 interface ThatOpenIfcCanvasProps {
@@ -317,7 +316,6 @@ type IfcRaycastPick = {
 } | null
 
 const IFC_MOVE_DEBUG = import.meta.env.VITE_3D_MOVE_DEBUG === 'true'
-const IFC_DIRECT_TRACE_EVENTS = new Set<string>(['drag_end_enter'])
 const IFC_MOVE_ALWAYS_TRACE_EVENTS = new Set<string>([
   'pick_blocked_by_transform_helper_hit',
   'drag_start',
@@ -368,18 +366,7 @@ const getFirstMeshColorHex = (THREE: ThreeModule, object?: Object3D) => {
   })
   return resolved
 }
-const traceIfcMove = (event: string, payload?: Record<string, unknown>) => {
-  if (!IFC_MOVE_DEBUG && !IFC_DIRECT_TRACE_EVENTS.has(event)) return
-  try {
-    if (payload) {
-      console.log(`[IFC_MOVE][TRACE] ${event}`, payload)
-      return
-    }
-    console.log(`[IFC_MOVE][TRACE] ${event}`)
-  } catch {
-    // no-op
-  }
-}
+const traceIfcMove = (_event: string, _payload?: Record<string, unknown>) => {}
 const IFC_MOVE_BUILD_MARKER = 'ifc-move-debug-build-2026-05-11-09'
 const rememberBoundedSetValue = (set: Set<string>, value: string, limit: number) => {
   set.add(value)
@@ -647,13 +634,6 @@ export default function ThatOpenIfcCanvas({
       }
       win.__IFC_MOVE_TRACE__ = ifcMoveTraceBufferRef.current
     }
-    if (!isDebugEnabled && !IFC_MOVE_ALWAYS_TRACE_EVENTS.has(event)) return
-    const logPrefix = isDebugEnabled ? '[IFC_MOVE]' : '[IFC_MOVE][TRACE]'
-    if (snapshotPayload) {
-      console.log(`${logPrefix}[${entry.seq}] ${event}`, { at: entry.at, ...snapshotPayload })
-      return
-    }
-    console.log(`${logPrefix}[${entry.seq}] ${event}`, { at: entry.at })
   }, [isIfcMoveDebugEnabled])
   const cancelDeferredIfcProxyCleanupForObject = useCallback((
     object: IfcEditableObject3D,
@@ -2563,8 +2543,6 @@ export default function ThatOpenIfcCanvas({
         let lastTransformAxis: string | null = null
         let lastDragStartPosition: { x: number; y: number; z: number } | null = null
         let lastDragStartWorldPosition: { x: number; y: number; z: number } | null = null
-        let lastDragStartRotation: { x: number; y: number; z: number } | null = null
-        let lastDragStartWorldRotation: { x: number; y: number; z: number } | null = null
         let lastDragStartWorldQuaternion: { x: number; y: number; z: number; w: number } | null = null
         let activeDragSessionId: string | null = null
         const emittedSpaceTransformSessionIds = new Set<string>()
@@ -2580,7 +2558,7 @@ export default function ThatOpenIfcCanvas({
         }
         const emitSpaceTransformCommitFromDragEnd = (
           target: Extract<Selected3DTarget, { source: 'ifc' }>,
-          reason: string,
+          _reason: string,
         ): boolean => {
           if (transformModeRef.current !== 'translate') return false
           const activeScene = sceneRef.current
@@ -2616,19 +2594,6 @@ export default function ThatOpenIfcCanvas({
             positionY: worldPosition.y,
             positionZ: worldPosition.z,
             translationMm,
-          }
-          if (import.meta.env.DEV) {
-            console.log('[ifc-transform-save][emit-transform-commit]', {
-              reason,
-              transformMode: transformModeRef.current,
-              elementId: element.id,
-              expressId: element.expressId,
-              globalId: element.globalId ?? element.properties?.GlobalId ?? null,
-              ifcClass: element.ifcClass,
-              patch,
-              patchKeys: Object.keys(patch),
-              patchJson: JSON.stringify(patch),
-            })
           }
           onIfcElementTransformCommitRef.current?.(element, patch)
           return true
@@ -2936,8 +2901,6 @@ export default function ThatOpenIfcCanvas({
             ifcCommitInFlightRef.current = false
             lastDragStartPosition = null
             lastDragStartWorldPosition = null
-            lastDragStartRotation = null
-            lastDragStartWorldRotation = null
             lastDragStartWorldQuaternion = null
             if (commitSessionId) {
               dispatchTransformRuntimeAction(
@@ -3155,51 +3118,6 @@ export default function ThatOpenIfcCanvas({
                         thicknessMm: sizeMm?.thicknessMm ?? element.thicknessMm,
                       }
                     : {}
-                  if (import.meta.env.DEV && currentTransformMode === 'rotate') {
-                    console.log('[ifc-transform-save][canvas-commit-patch]', {
-                      transformMode: currentTransformMode,
-                      elementId: element.id,
-                      expressId: element.expressId,
-                      globalId: element.globalId ?? element.properties?.GlobalId ?? null,
-                      translationMm,
-                      startRotationRad: lastDragStartRotation,
-                      startWorldRotationRad: lastDragStartWorldRotation,
-                      currentRotationRad: {
-                        x: editable.rotation.x,
-                        y: editable.rotation.y,
-                        z: editable.rotation.z,
-                      },
-                      deltaMatrixRotationRad: deltaTransform
-                        ? {
-                            x: deltaTransform.rotation.x,
-                            y: deltaTransform.rotation.y,
-                            z: deltaTransform.rotation.z,
-                          }
-                        : null,
-                      deltaMatrixPosition: deltaTransform
-                        ? {
-                            x: deltaTransform.position.x,
-                            y: deltaTransform.position.y,
-                            z: deltaTransform.position.z,
-                          }
-                        : null,
-                      worldRotationDeg: { x: rotationX, y: rotationY, z: rotationZ },
-                      rotationDegrees,
-                      persistedRotationAxisAngle,
-                      persistedRotationDegrees,
-                      patchKeys: [
-                        'positionX',
-                        'positionY',
-                        'positionZ',
-                        'translationMm',
-                        'rotationX',
-                        'rotationY',
-                        'rotationZ',
-                        'rotationDegrees',
-                        'rotationAxisAngle',
-                      ],
-                    })
-                  }
                   return {
                     element,
                     patch: {
@@ -3245,23 +3163,6 @@ export default function ThatOpenIfcCanvas({
                       transformCommitTargetKey,
                       SPACE_TRANSFORM_DEDUP_LIMIT,
                     )
-                  }
-                  if (import.meta.env.DEV && (
-                    transformModeRef.current === 'rotate' ||
-                    isIfcSpaceElementInfo(transformCommit.element)
-                  )) {
-                    const patchSnapshot = { ...transformCommit.patch }
-                    console.log('[ifc-transform-save][emit-transform-commit]', {
-                      reason,
-                      transformMode: transformModeRef.current,
-                      elementId: transformCommit.element.id,
-                      expressId: transformCommit.element.expressId,
-                      globalId: transformCommit.element.globalId ?? transformCommit.element.properties?.GlobalId ?? null,
-                      ifcClass: transformCommit.element.ifcClass,
-                      patch: patchSnapshot,
-                      patchKeys: Object.keys(patchSnapshot),
-                      patchJson: JSON.stringify(patchSnapshot),
-                    })
                   }
                   onIfcElementTransformCommitRef.current?.(transformCommit.element, transformCommit.patch)
                 }
@@ -3421,8 +3322,6 @@ export default function ThatOpenIfcCanvas({
               ifcCommitInFlightRef.current = false
               lastDragStartPosition = null
               lastDragStartWorldPosition = null
-              lastDragStartRotation = null
-              lastDragStartWorldRotation = null
               lastDragStartWorldQuaternion = null
               if (queuedSessionId) {
                 dispatchTransformRuntimeAction(
@@ -3771,27 +3670,15 @@ export default function ThatOpenIfcCanvas({
                   y: dragObject.position.y,
                   z: dragObject.position.z,
                 }
-                lastDragStartRotation = {
-                  x: dragObject.rotation.x,
-                  y: dragObject.rotation.y,
-                  z: dragObject.rotation.z,
-                }
                 dragObject.updateMatrixWorld(true)
                 const startWorldPosition = new THREE.Vector3()
                 const startWorldQuaternion = new THREE.Quaternion()
-                const startWorldEuler = new THREE.Euler()
                 dragObject.getWorldPosition(startWorldPosition)
                 dragObject.getWorldQuaternion(startWorldQuaternion)
                 lastDragStartWorldPosition = {
                   x: startWorldPosition.x,
                   y: startWorldPosition.y,
                   z: startWorldPosition.z,
-                }
-                startWorldEuler.setFromQuaternion(startWorldQuaternion, 'XYZ')
-                lastDragStartWorldRotation = {
-                  x: startWorldEuler.x,
-                  y: startWorldEuler.y,
-                  z: startWorldEuler.z,
                 }
                 lastDragStartWorldQuaternion = {
                   x: startWorldQuaternion.x,
@@ -3804,8 +3691,6 @@ export default function ThatOpenIfcCanvas({
               } else {
                 lastDragStartPosition = null
                 lastDragStartWorldPosition = null
-                lastDragStartRotation = null
-                lastDragStartWorldRotation = null
                 lastDragStartWorldQuaternion = null
               }
               ifcMoveLifecycleRef.current = nextIfcMoveLifecycleState(ifcMoveLifecycleRef.current, {
@@ -3931,12 +3816,6 @@ export default function ThatOpenIfcCanvas({
               return
             }
             ifcMoveDirtyRef.current = true
-            markIfcMovePerformance('drag-end', {
-              source: 'ifc',
-              modelId: selectedTarget.modelId,
-              localId: selectedTarget.localId,
-              hitLocalId: selectedTarget.hitLocalId,
-            })
             lastIfcDragEndAt = performance.now()
             const didEmitSpaceTransformCommit = emitSpaceTransformCommitFromDragEnd(
               selectedTarget,
@@ -5637,11 +5516,6 @@ export default function ThatOpenIfcCanvas({
           world.renderer.three.render(world.scene.three, world.camera.three)
         }
         // 파싱된 IFC 층 목록을 상위 컴포넌트로 전달한다.
-        markIfcMovePerformance('render-done', {
-          source: 'ifc',
-          modelId,
-          projectId: projectId ?? null,
-        })
         onStoreysLoadRef.current?.(storeysWithElements)
         setHasEverBeenReady(true)
         setStatus('ready')

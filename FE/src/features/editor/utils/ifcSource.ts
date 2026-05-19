@@ -98,6 +98,18 @@ export const isExpiredPresignedIfcUrl = (url: string, skewMs = 30_000): boolean 
   return expiresAt !== null && Date.now() + skewMs >= expiresAt
 }
 
+export const normalizeIfcSourceDedupeKey = (sourceUrl: string): string => {
+  const normalized = sourceUrl.trim()
+  if (!normalized) return ''
+
+  try {
+    const parsed = new URL(normalized)
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname}`
+  } catch {
+    return normalized.split(/[?#]/, 1)[0] ?? normalized
+  }
+}
+
 export const normalizeIfcSourceName = (sourceUrl: string, fallback = 'model.ifc'): string => {
   try {
     const parsed = new URL(sourceUrl)

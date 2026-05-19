@@ -4,7 +4,6 @@ import { getStompClient } from '@/shared/lib/stomp'
 import { getRuntimeEnvBoolean } from '@/shared/lib/runtimeEnv'
 import type { BubbleData, ConnectionData, PhaseStatus } from '../types'
 import { normalizeIfcSourceDedupeKey } from '../utils/ifcSource'
-import { markIfcMovePerformance } from '../utils/ifcMovePerformance'
 import { subscribeStompTopicsWithPolling } from '../utils/stompSubscription'
 import {
   CURSOR_INVALID_CODE,
@@ -254,12 +253,6 @@ export function useBubbleSnapshotRealtime({
         const assetId = extractIfcAssetId(parsed)
         const revisionId = extractRevisionId(parsed)
         const floorPlanSnapshot = extractFloorPlanSnapshot(parsed)
-        markIfcMovePerformance('sync-received', {
-          action,
-          assetId,
-          revisionId,
-          hasIfcStorageUrl: Boolean(ifcStorageUrl),
-        })
         const dedupRaw = assetId
           ?? (revisionId ? `revision:${revisionId}` : null)
           ?? (ifcStorageUrl ? normalizeIfcSourceDedupeKey(ifcStorageUrl) : null)
