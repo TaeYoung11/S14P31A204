@@ -24,6 +24,12 @@ export function buildHierarchyRightPanelProps(
   | 'floorRooms'
   | 'floorWalls'
   | 'floorOpenings'
+  | 'elementRegistry'
+  | 'elementHierarchyTree'
+  | 'selectedElementId'
+  | 'hiddenElementIds'
+  | 'onSelectRegistryElement'
+  | 'onToggleElementVisibility'
   | 'selectedRoomId'
   | 'selectedFloorWallId'
   | 'selectedFloorOpeningId'
@@ -36,6 +42,12 @@ export function buildHierarchyRightPanelProps(
     floorRooms: vm.floorRooms,
     floorWalls: vm.floorWallsForHierarchy,
     floorOpenings: vm.floorOpenings,
+    elementRegistry: vm.elementRegistry,
+    elementHierarchyTree: vm.elementHierarchyTree,
+    selectedElementId: vm.selectedElementId,
+    hiddenElementIds: vm.hiddenElementIds,
+    onSelectRegistryElement: vm.handleSelectRegistryElement,
+    onToggleElementVisibility: vm.handleToggleElementVisibility,
     selectedRoomId: vm.selectedId,
     selectedFloorWallId: vm.selectedFloorWallId,
     selectedFloorOpeningId: vm.selectedFloorOpeningId,

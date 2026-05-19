@@ -46,6 +46,7 @@ interface ThreeDCanvasSceneProps {
   overlayIfcStoreyExpressIds?: number[]
   /** IFC 겹쳐보기 층별 투명도 (0.1~1) */
   overlayIfcStoreyOpacityByExpressId?: Record<number, number>
+  hiddenIfcElementLocalIds?: number[]
   /** 계층구조에서 선택 요청한 IFC 요소 localId */
   requestedIfcElementLocalId?: number | null
   /** 계층구조 IFC 요소 선택 요청 토큰 */
@@ -100,6 +101,7 @@ export default function ThreeDCanvasScene({
   activeStoreyExpressId,
   overlayIfcStoreyExpressIds,
   overlayIfcStoreyOpacityByExpressId,
+  hiddenIfcElementLocalIds,
   requestedIfcElementLocalId,
   ifcElementSelectionRequestToken,
   requestedLibraryElementId,
@@ -186,6 +188,7 @@ export default function ThreeDCanvasScene({
       activeStoreyExpressId={activeStoreyExpressId}
       overlayIfcStoreyExpressIds={overlayIfcStoreyExpressIds}
       overlayIfcStoreyOpacityByExpressId={overlayIfcStoreyOpacityByExpressId}
+      hiddenIfcElementLocalIds={hiddenIfcElementLocalIds}
       requestedIfcElementLocalId={requestedIfcElementLocalId}
       ifcElementSelectionRequestToken={ifcElementSelectionRequestToken}
       requestedLibraryElementId={requestedLibraryElementId}

@@ -150,6 +150,8 @@ interface ThatOpenIfcCanvasProps {
   overlayIfcStoreyExpressIds?: number[]
   /** 겹쳐보기 층별 투명도 (0.1~1) */
   overlayIfcStoreyOpacityByExpressId?: Record<number, number>
+  /** 계층구조에서 개별 숨김 처리한 IFC localId 목록 */
+  hiddenIfcElementLocalIds?: number[]
   /** 계층구조에서 선택 요청한 IFC 요소 localId */
   requestedIfcElementLocalId?: number | null
   /** 계층구조 IFC 요소 선택 요청 토큰 */
@@ -542,6 +544,7 @@ export default function ThatOpenIfcCanvas({
   activeStoreyExpressId,
   overlayIfcStoreyExpressIds,
   overlayIfcStoreyOpacityByExpressId,
+  hiddenIfcElementLocalIds = [],
   requestedIfcElementLocalId,
   ifcElementSelectionRequestToken = 0,
   requestedLibraryElementId,
@@ -964,7 +967,7 @@ export default function ThatOpenIfcCanvas({
       deferredSaveModelId,
     })
   }, [logIfcMove])
-  const scheduleDeferredHierarchySelectionFlush = useCallback((reason: string) => {
+  const scheduleDeferredHierarchySelectionFlush = useCallback((reason: string, delayMs = 0) => {
     if (!deferredHierarchySelectionRef.current) return
     if (typeof window === 'undefined') {
       setHierarchySelectionRetryTick((prev) => prev + 1)
@@ -980,7 +983,7 @@ export default function ThatOpenIfcCanvas({
         pendingKind: deferredHierarchySelectionRef.current?.kind ?? null,
       })
       setHierarchySelectionRetryTick((prev) => prev + 1)
-    }, 0)
+    }, delayMs)
   }, [logIfcMove])
   const logTransformRuntimeAction = useCallback((payload: {
     [key: string]: unknown
@@ -1782,7 +1785,8 @@ export default function ThatOpenIfcCanvas({
       hitItemId: target.hitItemId,
     })
     logCommitTiming('start')
-    if (!editor) {
+    const isFallbackProxy = Boolean((target.object as IfcEditableObject3D).userData.ifcEditFallbackProxy)
+    if (!editor && !isFallbackProxy) {
       ifcMoveLifecycleRef.current = nextIfcMoveLifecycleState(ifcMoveLifecycleRef.current, {
         type: 'commit_failure',
         targetKey,
@@ -1890,6 +1894,43 @@ export default function ThatOpenIfcCanvas({
       modelIdsTried: editability?.modelIdsTried ?? [],
     })
     if (!editability || !editability.modelId || editability.editableLocalIds.length === 0) {
+      if (isFallbackProxy) {
+        const fallbackHideLocalIds = Array.from(new Set<number>((
+          moveScopeLocalIds.length > 0
+            ? moveScopeLocalIds
+            : [target.hitLocalId, target.localId]
+        ).filter(Number.isFinite)))
+        ;(target.object as IfcEditableObject3D).userData.ifcEditTarget = {
+          ...(target.object as IfcEditableObject3D).userData.ifcEditTarget!,
+          modelId: normalizedTargetModelId,
+          localIds: fallbackHideLocalIds,
+          hitLocalId: Number.isFinite(target.hitLocalId) ? target.hitLocalId : fallbackHideLocalIds[0],
+        }
+        ;(target.object.userData as { ifcEditProxyWorldMatrix?: number[] }).ifcEditProxyWorldMatrix =
+          Array.from(worldMatrix.elements)
+        ;(target.object as IfcEditableObject3D).userData.ifcKeepModelHiddenAfterCommit = true
+        registerMovedIfcProxy(sceneState, {
+          modelId: normalizedTargetModelId,
+          hideLocalIds: fallbackHideLocalIds,
+          object: target.object as IfcEditableObject3D,
+          element: editTarget?.element,
+        })
+        await rehideMovedIfcProxyRegistry(sceneState, 'commit_fallback_bounds_proxy', { forceRender: false })
+        sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
+        ifcMoveLifecycleRef.current = nextIfcMoveLifecycleState(ifcMoveLifecycleRef.current, {
+          type: 'commit_success',
+          targetKey,
+        })
+        logIfcMove('commit_fallback_bounds_proxy_success', {
+          targetKey,
+          modelId: normalizedTargetModelId,
+          hideLocalIds: fallbackHideLocalIds,
+          reason: 'no_editor_editability_for_ifc_element',
+        })
+        logCommitTiming('fallback_bounds_proxy_success')
+        ifcMoveLifecycleRef.current = nextIfcMoveLifecycleState(ifcMoveLifecycleRef.current, { type: 'cleanup_done' })
+        return
+      }
       ifcMoveLifecycleRef.current = nextIfcMoveLifecycleState(ifcMoveLifecycleRef.current, {
         type: 'commit_failure',
         targetKey,
@@ -5061,6 +5102,58 @@ export default function ThatOpenIfcCanvas({
                   moveScopeLocalIds,
                   modelIdsTried: editability?.modelIdsTried ?? [],
                 })
+                const fallbackLocalIds = moveScopeLocalIds.length > 0
+                  ? moveScopeLocalIds
+                  : [resolvedIfcPick.localId, selectedLocalId].filter(Number.isFinite)
+                const fallbackObject = activeScene
+                  ? await attachIfcTransformProxy(
+                    THREE,
+                    fragments,
+                    hider,
+                    transformControls,
+                    ifcEditGroup,
+                    pickedModelId,
+                    fallbackLocalIds,
+                    resolvedIfcPick.localId,
+                    Number.isFinite(resolvedIfcPick.itemId) ? resolvedIfcPick.itemId : undefined,
+                    selectedElement,
+                    {
+                      deferVisibility: true,
+                      deferTransformAttach: true,
+                      allowBoundsFallback: true,
+                    },
+                  )
+                  : null
+                if (isStalePick()) {
+                  if (fallbackObject) {
+                    fallbackObject.parent?.remove(fallbackObject)
+                    disposeObjectMaterials(THREE, fallbackObject)
+                  }
+                  return
+                }
+                if (activeScene && fallbackObject) {
+                  fallbackObject.visible = true
+                  await applyIfcSelectionVisibility(activeScene, {
+                    modelId: pickedModelId,
+                    localIds: fallbackLocalIds,
+                    proxyObject: fallbackObject,
+                    mode: 'proxy',
+                    proxyOpacity: 1,
+                    reason: 'pick_fallback_bounds_proxy',
+                    forceRender: false,
+                  })
+                  transformControls.attach(fallbackObject)
+                  transformControls.visible = true
+                  transformControls.enabled = true
+                  nextTarget.modelId = pickedModelId
+                  nextTarget.object = fallbackObject
+                  selectedTargetRef.current = nextTarget
+                  syncTransformSelectionState(nextTarget, 'pick_fallback_bounds_proxy', { attachGizmo: true })
+                  onIfcElementSelectRef.current?.(selectedElement)
+                  emitCoordinates(fallbackObject.position)
+                  activeScene.renderer.render(activeScene.scene, activeScene.camera as import('three').PerspectiveCamera)
+                  return
+                }
                 selectedTargetRef.current = nextTarget
                 syncTransformSelectionState(nextTarget, 'pick_non_editable', { attachGizmo: false })
                 transformControls.detach()
@@ -5774,6 +5867,8 @@ export default function ThatOpenIfcCanvas({
         }),
     )).sort((a, b) => a - b)
     const deletedIfcIdSignature = deletedIfcIds.join(',')
+    const hiddenIfcIds = Array.from(new Set(hiddenIfcElementLocalIds.filter(Number.isFinite))).sort((a, b) => a - b)
+    const hiddenIfcIdSignature = hiddenIfcIds.join(',')
     const libraryStoreySignature = libraryElements
       .map((preset) => `${preset.id}:${Number.isFinite(preset.storeyExpressId) ? Number(preset.storeyExpressId) : 'none'}`)
       .sort()
@@ -5783,6 +5878,7 @@ export default function ThatOpenIfcCanvas({
       overlayIdsNormalized.join(','),
       overlayOpacitySignature,
       deletedIfcIdSignature,
+      hiddenIfcIdSignature,
       libraryStoreySignature,
     ].join('|')
     if (storeyVisibilitySignatureRef.current === visibilitySignature) {
@@ -5805,6 +5901,7 @@ export default function ThatOpenIfcCanvas({
     let selectedTarget = selectedTargetRef.current
     const isTransformLocked = isRuntimeTransformLocked()
     const deletedIfcIdSet = new Set<number>(deletedIfcIds)
+    const hiddenIfcIdSet = new Set<number>(hiddenIfcIds)
     const movedIfcHideIdSet = getMovedIfcProxyHideLocalIds()
     if (
       selectedTarget?.source === 'ifc' &&
@@ -5815,6 +5912,19 @@ export default function ThatOpenIfcCanvas({
         void clearSelectedTarget(sceneState, selectedTarget, selectedTarget.source === 'ifc')
         selectedTargetRef.current = null
         syncTransformSelectionState(null, 'storey_visibility_deleted_target_clear')
+        selectedTarget = null
+        onIfcElementSelectRef.current?.(null)
+      }
+    }
+    if (
+      selectedTarget?.source === 'ifc' &&
+      Number.isFinite(selectedTarget.hitLocalId) &&
+      hiddenIfcIdSet.has(selectedTarget.hitLocalId)
+    ) {
+      if (!isTransformLocked) {
+        void clearSelectedTarget(sceneState, selectedTarget, selectedTarget.source === 'ifc')
+        selectedTargetRef.current = null
+        syncTransformSelectionState(null, 'storey_visibility_hidden_target_clear')
         selectedTarget = null
         onIfcElementSelectRef.current?.(null)
       }
@@ -5848,6 +5958,7 @@ export default function ThatOpenIfcCanvas({
     })
     const forcedHiddenIdsInModel = new Set<number>([
       ...Array.from(deletedIdsInModel),
+      ...hiddenIfcIds.filter((id) => allIds.has(id)),
       ...Array.from(movedHiddenIdsInModel),
     ])
 
@@ -6008,6 +6119,7 @@ export default function ThatOpenIfcCanvas({
     activeStoreyExpressId,
     applyLibraryVisibilityByStorey,
     ifcElementChanges,
+    hiddenIfcElementLocalIds,
     isRuntimeTransformLocked,
     libraryElements,
     logIfcMove,
@@ -6133,6 +6245,7 @@ export default function ThatOpenIfcCanvas({
                 token: ifcElementSelectionRequestToken,
                 phase: runtimeState.phase,
               })
+              scheduleDeferredHierarchySelectionFlush('requested_select_ifc_deferred_transform_active', 120)
               return
             }
             if (isDeferredRetry) {
@@ -6140,7 +6253,18 @@ export default function ThatOpenIfcCanvas({
             }
             handledIfcSelectionRequestTokenRef.current = ifcElementSelectionRequestToken
             const currentTarget = selectedTargetRef.current
-            if (currentTarget?.source === 'ifc' && currentTarget.hitLocalId === requestedIfcElementLocalId) return
+            if (currentTarget?.source === 'ifc' && currentTarget.hitLocalId === requestedIfcElementLocalId) {
+              if (currentTarget.object && isObjectInSceneGraph(sceneState.scene, currentTarget.object)) {
+                sceneState.transformControls.attach(currentTarget.object)
+                sceneState.transformControls.visible = true
+                sceneState.transformControls.enabled = true
+                syncTransformSelectionState(currentTarget, 'requested_select_ifc_same_target_reattach', {
+                  attachGizmo: true,
+                })
+                onThreeDCoordinatesChangeRef.current?.(toDisplayCoordinates(currentTarget.object.position))
+                return
+              }
+            }
 
             if (currentTarget) {
               const preserveMovedIfcProxy = currentTarget.source === 'ifc'
@@ -6191,6 +6315,58 @@ export default function ThatOpenIfcCanvas({
         registerCanonicalIds(selectedExpressId, proxyLocalIds)
         const editability = await resolveEditableIfcTargets(sceneState, sceneState.modelId, proxyLocalIds)
         if (!editability || !editability.modelId || editability.editableLocalIds.length === 0) {
+          const fallbackLocalIds = proxyLocalIds.length > 0
+            ? proxyLocalIds
+            : [requestedIfcElementLocalId].filter(Number.isFinite)
+          const fallbackObject = await attachIfcTransformProxy(
+            sceneState.three,
+            sceneState.fragments,
+            sceneState.hider,
+            sceneState.transformControls,
+            sceneState.ifcEditGroup,
+            sceneState.modelId,
+            fallbackLocalIds,
+            requestedIfcElementLocalId,
+            undefined,
+            selectedElement,
+            {
+              deferVisibility: true,
+              deferTransformAttach: true,
+              allowBoundsFallback: true,
+            },
+          )
+          if (isCancelled) return
+          if (fallbackObject) {
+            fallbackObject.visible = true
+            await applyIfcSelectionVisibility(sceneState, {
+              modelId: sceneState.modelId,
+              localIds: fallbackLocalIds,
+              proxyObject: fallbackObject,
+              mode: 'proxy',
+              proxyOpacity: 1,
+              reason: 'requested_select_fallback_bounds_proxy',
+              forceRender: false,
+            })
+            sceneState.transformControls.attach(fallbackObject)
+            sceneState.transformControls.visible = true
+            sceneState.transformControls.enabled = true
+            const nextTarget: Extract<Selected3DTarget, { source: 'ifc' }> = {
+              source: 'ifc',
+              modelId: sceneState.modelId,
+              localId: selectedLocalId,
+              hitLocalId: requestedIfcElementLocalId,
+              object: fallbackObject,
+              selectedSignature: getElementDimensionSignature(selectedElement),
+              selectedColorSignature: getElementColorSignature(selectedElement),
+              selectedMaterialSignature: getElementMaterialSignature(selectedElement),
+            }
+            selectedTargetRef.current = nextTarget
+            syncTransformSelectionState(nextTarget, 'requested_select_ifc_fallback_bounds_proxy', { attachGizmo: true })
+            onIfcElementSelectRef.current?.(selectedElement)
+            onThreeDCoordinatesChangeRef.current?.(toDisplayCoordinates(fallbackObject.position))
+            sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
+            return
+          }
           selectedTargetRef.current = {
             source: 'ifc',
             modelId: sceneState.modelId,
@@ -6298,6 +6474,7 @@ export default function ThatOpenIfcCanvas({
     isRuntimeTransformLocked,
     requestedIfcElementLocalId,
     resolveEditableIfcTargets,
+    scheduleDeferredHierarchySelectionFlush,
     showIfcEditFeedback,
     syncTransformSelectionState,
     transformRuntimeStateRef,
@@ -6331,6 +6508,7 @@ export default function ThatOpenIfcCanvas({
             token: libraryElementSelectionRequestToken,
             phase: runtimeState.phase,
           })
+          scheduleDeferredHierarchySelectionFlush('requested_select_library_deferred_transform_active', 120)
           return
         }
         if (isDeferredRetry) {
@@ -6414,6 +6592,7 @@ export default function ThatOpenIfcCanvas({
     purgeIfcEditOverlays,
     rehideMovedIfcProxyRegistry,
     requestedLibraryElementId,
+    scheduleDeferredHierarchySelectionFlush,
     syncTransformSelectionState,
     transformRuntimeStateRef,
   ])

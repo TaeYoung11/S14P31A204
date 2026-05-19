@@ -26,6 +26,72 @@ export interface IfcElementInfo {
   properties: Record<string, string | number | boolean>
 }
 
+export type ElementSourceType = 'IFC_MOCK' | 'FROM_2D' | 'LIBRARY'
+
+export interface ElementRegistryItem {
+  elementId: string
+  sourceType: ElementSourceType
+  floorId: string | null
+  parentId: string | null
+  category: string
+  name: string
+  geometryId: string
+  properties: Record<string, string | number | boolean | null>
+  source2dId?: string
+  ifcLocalId?: number
+  libraryId?: string
+  isLocked?: boolean
+}
+
+export interface ElementRegistryFloor {
+  floorId: string
+  name: string
+  sourceType: ElementSourceType | 'MIXED'
+  elevationMm?: number | null
+  elementCount: number
+}
+
+export interface ElementRegistryState {
+  elements: ElementRegistryItem[]
+  floors: ElementRegistryFloor[]
+  selectedElementId: string | null
+  selectedFloorId: string | null
+  visibleFloorIds: string[]
+  hiddenElementIds: string[]
+}
+
+export interface ElementHierarchyNode {
+  id: string
+  label: string
+  kind: 'project' | 'building' | 'floor' | 'category' | 'element' | 'unassigned'
+  elementId?: string
+  floorId?: string | null
+  category?: string
+  sourceType?: ElementSourceType | 'MIXED'
+  isSelected?: boolean
+  isVisible?: boolean
+  isLocked?: boolean
+  children: ElementHierarchyNode[]
+}
+
+export type SceneUpdateEventType =
+  | 'ELEMENT_ADDED'
+  | 'ELEMENT_UPDATED'
+  | 'ELEMENT_REMOVED'
+  | 'ELEMENT_SELECTED'
+  | 'FLOOR_SELECTED'
+  | 'FLOOR_VISIBILITY_CHANGED'
+  | 'TREE_NODE_SELECTED'
+  | 'SOURCE_2D_UPDATED'
+
+export interface SceneUpdateEvent {
+  type: SceneUpdateEventType
+  elementId?: string
+  floorId?: string | null
+  source2dId?: string
+  payload?: Record<string, unknown>
+}
+
 export interface IfcElementChange {
   expressId: number
   localId?: number

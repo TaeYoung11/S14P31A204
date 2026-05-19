@@ -7,7 +7,7 @@ import { buildHierarchyGroups } from '../../panels/hierarchyPanelData'
 import type { BubbleFloorSectionProps } from '../../panels/sections/BubbleFloorSection'
 import { ZoningSection } from '../../panels/sections/ZoningSection'
 import type { EditorRightPanelsProps } from './EditorRightPanels.types'
-import type { FloorLayer, PanelKey } from '../../../types'
+import type { ElementHierarchyNode, FloorLayer, PanelKey } from '../../../types'
 
 export type AttributesSectionProps = ComponentProps<typeof AttributesPanel>
 export type ZoningSectionProps = ComponentProps<typeof ZoningSection>
@@ -29,6 +29,10 @@ function isFloorWorkspaceMode(mode: EditorRightPanelsProps['mode']): boolean {
 
 function coalesceArray<T>(items: T[] | null | undefined): T[] {
   return items ?? []
+}
+
+function hasTreeNodes(nodes: ElementHierarchyNode[] | null | undefined): nodes is ElementHierarchyNode[] {
+  return Array.isArray(nodes) && nodes.length > 0
 }
 
 /**
@@ -213,6 +217,12 @@ export function buildHierarchySectionProps(vm: EditorRightPanelsProps): Hierarch
 
   return {
     ...buildCommonPanelFrameProps(vm, 'hierarchy'),
+    elementRegistry: vm.elementRegistry,
+    elementHierarchyTree: vm.elementHierarchyTree,
+    selectedElementId: vm.selectedElementId,
+    hiddenElementIds: vm.hiddenElementIds,
+    onSelectRegistryElement: vm.onSelectRegistryElement,
+    onToggleElementVisibility: vm.onToggleElementVisibility,
     ifcStoreys: filteredIfcStoreys,
     activeIfcStoreyId: vm.activeIfcStoreyId,
     overlayIfcStoreyExpressIds: vm.overlayIfcStoreyExpressIds,
@@ -231,7 +241,7 @@ export function buildHierarchySectionProps(vm: EditorRightPanelsProps): Hierarch
     onSelectRoom: vm.onSelectRoom,
     onSelectWall: vm.onSelectWall,
     onSelectOpening: vm.onSelectOpening,
-    groups: buildHierarchyGroups(hierarchySource),
+    groups: hasTreeNodes(vm.elementHierarchyTree) ? undefined : buildHierarchyGroups(hierarchySource),
   }
 }
 

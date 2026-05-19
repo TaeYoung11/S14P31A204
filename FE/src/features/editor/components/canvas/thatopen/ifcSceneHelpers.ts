@@ -1323,10 +1323,12 @@ export const attachIfcTransformProxy = async (
   options: {
     deferVisibility?: boolean
     deferTransformAttach?: boolean
+    allowBoundsFallback?: boolean
   } = {},
 ) => {
   const deferVisibility = options.deferVisibility === true
   const deferTransformAttach = options.deferTransformAttach === true
+  const allowBoundsFallback = options.allowBoundsFallback === true
   const orderedLocalIds = Array.from(
     new Set<number>([
       ...(Number.isFinite(visibleLocalId) ? [visibleLocalId] : []),
@@ -1338,7 +1340,6 @@ export const attachIfcTransformProxy = async (
   const editor = (fragments.core as import('@thatopen/fragments').FragmentsModels & {
     editor?: import('@thatopen/fragments').Editor
   }).editor
-  if (!editor) return null
 
   const boxes = await fragments.getBBoxes({ [modelId]: new Set(orderedLocalIds) })
   const unionBox = new THREE.Box3()
@@ -1355,9 +1356,6 @@ export const attachIfcTransformProxy = async (
   unionBox.getCenter(center)
   if (size.x <= 0 || size.y <= 0 || size.z <= 0) return null
 
-  const elements = await editor.getElements(modelId, orderedLocalIds).catch(() => [])
-  if (elements.length === 0) return null
-
   const stableLocalId = Number.isFinite(visibleLocalId) ? visibleLocalId : orderedLocalIds[0]
   const objectName = `ifc-edit-${modelId}-${stableLocalId}`
   const existing = editGroup.children.find((child) => child.name === objectName) as IfcEditableObject3D | undefined
@@ -1371,15 +1369,40 @@ export const attachIfcTransformProxy = async (
     })
   }
 
-  for (const editableElement of elements) {
-    const meshes = await editableElement.getMeshes().catch(() => null)
-    if (!meshes) continue
-    const cloned = meshes.clone(true)
-    cloneObjectMaterialsForEditProxy(THREE, cloned)
-    cloned.applyMatrix4(pivotToLocal)
-    editable.add(cloned)
+  const attachBoundsFallback = () => {
+    const geometry = new THREE.BoxGeometry(size.x, size.y, size.z)
+    const material = createElementMaterial(
+      THREE,
+      element.material,
+      element.color ?? '#9CA3AF',
+    )
+    const fallbackMesh = new THREE.Mesh(geometry, material)
+    fallbackMesh.name = `${objectName}-bounds`
+    editable.add(fallbackMesh)
+    editable.userData.ifcEditFallbackProxy = true
   }
 
+  const elements = editor
+    ? await editor.getElements(modelId, orderedLocalIds).catch(() => [])
+    : []
+  if (elements.length === 0 && allowBoundsFallback) {
+    attachBoundsFallback()
+  } else if (elements.length === 0) {
+    return null
+  } else {
+    editable.userData.ifcEditFallbackProxy = false
+    for (const editableElement of elements) {
+      const meshes = await editableElement.getMeshes().catch(() => null)
+      if (!meshes) continue
+      const cloned = meshes.clone(true)
+      cloneObjectMaterialsForEditProxy(THREE, cloned)
+      cloned.applyMatrix4(pivotToLocal)
+      editable.add(cloned)
+    }
+    if (editable.children.length === 0 && allowBoundsFallback) {
+      attachBoundsFallback()
+    }
+  }
   if (editable.children.length === 0) return null
 
   editable.name = objectName

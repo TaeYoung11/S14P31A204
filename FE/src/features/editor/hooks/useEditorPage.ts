@@ -174,6 +174,12 @@ import {
   mergeIfcElementChangeByExpressId,
   shouldPublishIfcElementPatch,
 } from '../utils/ifcElementChangeSync'
+import {
+  buildElementHierarchyTree,
+  buildElementRegistry,
+  findRegistryElement,
+  resolveRegistryElementSelectionTarget,
+} from '../utils/editorElementRegistry'
 import { resolveWorkspaceSiteAreaM2 } from '../utils/numberUtils'
 import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
 import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
@@ -831,6 +837,7 @@ export function useEditorPage() {
     setNoticeModal(null)
   }, [])
   const [libraryElements, setLibraryElements] = useState<ThreeDLibraryPreset[]>([])
+  const [hiddenElementIds, setHiddenElementIds] = useState<string[]>([])
   const [isTrueNorthView, setIsTrueNorthView] = useState(false)
   const [isGridVisible, setIsGridVisible] = useState(false)
   /** 연결 도구에서 첫 번째로 선택된 버블 id */
@@ -1392,15 +1399,6 @@ export function useEditorPage() {
     resetForbiddenFlag: () => {
       floorPlanGenerateForbiddenRef.current = false
     },
-  })
-
-  useEditorKeyboardShortcuts({
-    mode,
-    isEditorReadOnly,
-    isDeleteEnabled: !isTwoDOrThreeDConverting,
-    onDeleteSelected: handleDeleteSelected,
-    onToggleLayerOverlay: () => setIsLayerOverlayMode((prev) => !prev),
-    onSetTool: handleSetSelectedTool,
   })
 
   useEffect(() => {
@@ -3504,6 +3502,7 @@ export function useEditorPage() {
   // 3D 생성 모달
   const [isGenerate3DModalOpen, setIsGenerate3DModalOpen] = useState(false)
   const [localFloorData, setLocalFloorData] = useState<FloorPlan3DData | null>(null)
+  const hiddenElementIdSetForRender = useMemo(() => new Set(hiddenElementIds), [hiddenElementIds])
   const effectiveLocalFloorData = useMemo<FloorPlan3DData | null>(() => {
     if (currentIfcUrl) return localFloorData
     if (!isFloorPlanGenerated && !localFloorData) return null
@@ -3511,9 +3510,14 @@ export function useEditorPage() {
     const renderRooms = activeFloorLayerId
       ? floorRooms
       : floorLayers.flatMap((layer) => layer.rooms)
+    const visibleRooms = renderRooms.filter((room) => (
+      !hiddenElementIdSetForRender.has(`2d:room:${room.id}`) &&
+      !hiddenElementIdSetForRender.has(`2d:room:${room.bubbleId}`)
+    ))
+    const visibleWalls = activeLayerVisibleFloorWalls.filter((wall) => !hiddenElementIdSetForRender.has(`2d:wall:${wall.id}`))
     return {
-      rooms: renderRooms,
-      walls: activeLayerVisibleFloorWalls,
+      rooms: visibleRooms,
+      walls: visibleWalls,
       storyHeightMm: activeLayer?.ceilingHeightMm ?? localFloorData?.storyHeightMm ?? 3000,
     }
   }, [
@@ -3522,6 +3526,7 @@ export function useEditorPage() {
     currentIfcUrl,
     floorLayers,
     floorRooms,
+    hiddenElementIdSetForRender,
     isFloorPlanGenerated,
     localFloorData,
   ])
@@ -4627,6 +4632,15 @@ export function useEditorPage() {
     setOverlayIfcStoreyExpressIds,
   ])
 
+  useEditorKeyboardShortcuts({
+    mode,
+    isEditorReadOnly,
+    isDeleteEnabled: !isTwoDOrThreeDConverting,
+    onDeleteSelected: handleDeleteSelected,
+    onToggleLayerOverlay: toggleLayerOverlayMode,
+    onSetTool: handleSetSelectedTool,
+  })
+
   const handleToggleOverlayLayer = (layerId: string) => {
     const baseLayerId = activeFloorLayerId ?? (mode === '3d' ? floorLayers.find((layer) => layer.id !== layerId)?.id ?? null : null)
     if (!baseLayerId || layerId === baseLayerId) return
@@ -4819,6 +4833,41 @@ export function useEditorPage() {
     if (!canEditFloorPlan) return
     baseHandleUpdateFloorWallMaterial(...args)
   }, [baseHandleUpdateFloorWallMaterial, canEditFloorPlan])
+
+  useEffect(() => {
+    if (mode !== '3d' || !selectedIfcElement) return
+    if (selectedIfcElement.source === 'library') return
+    const roomId = typeof selectedIfcElement.properties?.BubbleId === 'string'
+      ? selectedIfcElement.properties.BubbleId
+      : null
+    const wallId = typeof selectedIfcElement.properties?.WallId === 'string'
+      ? selectedIfcElement.properties.WallId
+      : null
+    const openingId = typeof selectedIfcElement.properties?.OpeningId === 'string'
+      ? selectedIfcElement.properties.OpeningId
+      : null
+
+    if (openingId && selectedFloorOpeningId !== openingId) {
+      handleSelectFloorOpening(openingId)
+      return
+    }
+    if (wallId && selectedFloorWallId !== wallId) {
+      handleSelectFloorWall(wallId)
+      return
+    }
+    if (roomId && selectedId !== roomId) {
+      handleBubbleSelect(roomId)
+    }
+  }, [
+    handleBubbleSelect,
+    handleSelectFloorOpening,
+    handleSelectFloorWall,
+    mode,
+    selectedFloorOpeningId,
+    selectedFloorWallId,
+    selectedId,
+    selectedIfcElement,
+  ])
 
   const handleResizeFloorRoom = (bubbleId: string, x: number, y: number, width: number, height: number) => {
     if (!canEditFloorPlan || isWallFirstEditing) return
@@ -5734,6 +5783,124 @@ export function useEditorPage() {
     markLocalBubbleSnapshotChanged,
   ])
 
+  const elementRegistry = useMemo(
+    () => buildElementRegistry({
+      ifcStoreys,
+      floorLayers,
+      floorRooms,
+      floorWalls: activeLayerVisibleFloorWalls,
+      floorOpenings: mergedFloorOpenings,
+      libraryElements,
+      ifcElementChanges,
+      selectedIfcElement,
+      selectedRoomId: selectedId,
+      selectedFloorWallId,
+      selectedFloorOpeningId,
+      activeIfcStoreyId: activeIfcStoreyExpressId,
+      activeFloorLayerId,
+      overlayIfcStoreyIds: overlayIfcStoreyExpressIds,
+      overlayFloorLayerIds: overlayLayerIds,
+      hiddenElementIds,
+    }),
+    [
+      activeFloorLayerId,
+      activeIfcStoreyExpressId,
+      activeLayerVisibleFloorWalls,
+      floorLayers,
+      floorRooms,
+      hiddenElementIds,
+      ifcElementChanges,
+      ifcStoreys,
+      libraryElements,
+      mergedFloorOpenings,
+      overlayIfcStoreyExpressIds,
+      overlayLayerIds,
+      selectedFloorOpeningId,
+      selectedFloorWallId,
+      selectedId,
+      selectedIfcElement,
+    ],
+  )
+
+  const elementHierarchyTree = useMemo(
+    () => buildElementHierarchyTree(elementRegistry),
+    [elementRegistry],
+  )
+
+  const visibleLibraryElements = useMemo(
+    () => libraryElements.filter((element) => !hiddenElementIds.includes(`library:${element.id}`)),
+    [hiddenElementIds, libraryElements],
+  )
+  const hiddenIfcElementLocalIds = useMemo(
+    () => hiddenElementIds
+      .map((elementId) => {
+        const match = elementId.match(/^ifc:(\d+)$/)
+        if (!match?.[1]) return null
+        const localId = Number(match[1])
+        return Number.isFinite(localId) ? localId : null
+      })
+      .filter((localId): localId is number => localId != null),
+    [hiddenElementIds],
+  )
+
+  const handleSelectRegistryElement = useCallback((elementId: string) => {
+    const element = findRegistryElement(elementRegistry, elementId)
+    if (!element) return
+    const target = resolveRegistryElementSelectionTarget(element)
+    if (element.floorId) {
+      if (target.kind === 'ifc') {
+        const floorExpressId = Number(element.floorId)
+        if (Number.isFinite(floorExpressId) && activeIfcStoreyExpressId !== floorExpressId) {
+          handleSelectIfcStorey(element.floorId)
+        }
+      } else if (target.kind === 'room' || target.kind === 'wall' || target.kind === 'opening') {
+        if (activeFloorLayerId !== element.floorId) handleSelectFloorLayer(element.floorId)
+      }
+    }
+    if (target.kind === 'ifc') {
+      handleSelectIfcElementByLocalId(target.localId)
+      return
+    }
+    if (target.kind === 'library') {
+      handleSelectLibraryElementById(target.id)
+      return
+    }
+    if (target.kind === 'room') {
+      handleBubbleSelect(target.id)
+      return
+    }
+    if (target.kind === 'wall') {
+      handleSelectFloorWall(target.id)
+      return
+    }
+    if (target.kind === 'opening') {
+      handleSelectFloorOpening(target.id)
+    }
+  }, [
+    activeFloorLayerId,
+    activeIfcStoreyExpressId,
+    elementRegistry,
+    handleBubbleSelect,
+    handleSelectFloorLayer,
+    handleSelectFloorOpening,
+    handleSelectFloorWall,
+    handleSelectIfcElementByLocalId,
+    handleSelectIfcStorey,
+    handleSelectLibraryElementById,
+  ])
+
+  const handleToggleElementVisibility = useCallback((elementId: string) => {
+    const willHide = !hiddenElementIds.includes(elementId)
+    if (willHide && elementRegistry.selectedElementId === elementId) {
+      handleClearCanvasSelection()
+    }
+    setHiddenElementIds((prev) => (
+      prev.includes(elementId)
+        ? prev.filter((id) => id !== elementId)
+        : [...prev, elementId]
+    ))
+  }, [elementRegistry.selectedElementId, handleClearCanvasSelection, hiddenElementIds])
+
   return {
     // 모드
     mode,
@@ -5779,6 +5946,13 @@ export function useEditorPage() {
     selectedFloorWall,
     selectedFloorOpening,
     selectedIfcElement: mode === '3d' ? selectedIfcElement : null,
+    elementRegistry,
+    elementHierarchyTree,
+    selectedElementId: elementRegistry.selectedElementId,
+    hiddenElementIds,
+    hiddenIfcElementLocalIds,
+    handleSelectRegistryElement,
+    handleToggleElementVisibility,
     threeDDeleteRequestToken,
     handleBubbleSelect,
     handleSelectIfcElement,
@@ -5904,7 +6078,7 @@ export function useEditorPage() {
     // 라이브러리
     isLibraryOpen,
     setIsLibraryOpen,
-    libraryElements,
+    libraryElements: visibleLibraryElements,
     handleAddLibraryPreset,
     handleChangeLibraryElement,
     handleDeleteLibraryElement,

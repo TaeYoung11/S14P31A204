@@ -163,6 +163,7 @@ export default function ThreeDModeCanvas({
       activeStoreyExpressId={editorProps.activeIfcStoreyExpressId}
       overlayIfcStoreyExpressIds={editorProps.overlayIfcStoreyExpressIds}
       overlayIfcStoreyOpacityByExpressId={overlayIfcStoreyOpacityByExpressId}
+      hiddenIfcElementLocalIds={editorProps.hiddenIfcElementLocalIds}
       requestedIfcElementLocalId={editorProps.requestedIfcElementLocalId}
       ifcElementSelectionRequestToken={editorProps.ifcElementSelectionRequestToken}
       requestedLibraryElementId={editorProps.requestedLibraryElementId}

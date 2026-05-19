@@ -3,6 +3,8 @@ import type {
   CollaborationUserType,
   BubbleFloor,
   BubbleFloorSummary,
+  ElementHierarchyNode,
+  ElementRegistryState,
   EditorMode,
   FloorCommentNotification,
   FloorCommentPin,
@@ -132,6 +134,12 @@ export interface EditorRightPanelsProps {
   selectedFloorOpeningId?: string | null
   floorWalls?: FloorWall[]
   ifcElementHierarchy?: unknown
+  elementRegistry?: ElementRegistryState
+  elementHierarchyTree?: ElementHierarchyNode[]
+  selectedElementId?: string | null
+  hiddenElementIds?: string[]
+  onSelectRegistryElement?: (elementId: string) => void
+  onToggleElementVisibility?: (elementId: string) => void
   onOpenZoningModal: () => void
   onOpenEditZoningModal: (zone: ZoneData) => void
   onDeleteZoning: (zoneId: string) => void
