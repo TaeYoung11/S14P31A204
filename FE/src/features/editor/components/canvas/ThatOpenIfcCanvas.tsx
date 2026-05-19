@@ -9,7 +9,7 @@
  *  - Delete/Backspace 키로 선택 요소 삭제
  *  - 카메라 회전 잠금 및 줌 스케일 반영
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { Object3D } from 'three'
 import type {
@@ -352,6 +352,10 @@ type DeferredHierarchySelectionRequest =
 type ComponentsModule = typeof import('@thatopen/components')
 type TransformControlsModule = typeof import('three/examples/jsm/controls/TransformControls.js')
 type DisposableThreeResource = { dispose?: () => void }
+type RetainedVisualScene = {
+  components: import('@thatopen/components').Components
+  canvas: HTMLCanvasElement | null
+}
 type IfcRaycastPick = {
   fragments?: { modelId: string }
   localId?: number
@@ -525,6 +529,10 @@ export default function ThatOpenIfcCanvas({
   isEditingLocked = false,
 }: ThatOpenIfcCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const currentSceneIdentity = `${projectId ?? ''}|${ifcUrl}`
+  const latestSceneIdentityRef = useRef(currentSceneIdentity)
+  const latestIfcUrlRef = useRef(ifcUrl)
+  const retainedVisualSceneRef = useRef<RetainedVisualScene | null>(null)
   const [ifcLibraryManifest, setIfcLibraryManifest] = useState<IfcLibraryManifest | null>(null)
   const sceneRef = useRef<ThatOpenSceneState | null>(null)
   const presetGroupRef = useRef<import('three').Group | null>(null)
@@ -608,6 +616,34 @@ export default function ThatOpenIfcCanvas({
     x: number
     y: number
   } | null>(null)
+
+  useLayoutEffect(() => {
+    latestSceneIdentityRef.current = currentSceneIdentity
+    latestIfcUrlRef.current = ifcUrl
+  }, [currentSceneIdentity, ifcUrl])
+
+  const disposeRetainedVisualScene = useCallback((_reason: string) => {
+    const retained = retainedVisualSceneRef.current
+    if (!retained) return
+    retainedVisualSceneRef.current = null
+    try {
+      retained.components.dispose()
+    } catch {
+      // ThatOpen can throw during renderer cleanup if React has already detached the canvas container.
+    }
+    retained.canvas?.remove()
+  }, [])
+
+  const prepareRendererCanvasForSwap = useCallback((canvas: HTMLCanvasElement | null, visible: boolean) => {
+    if (!canvas) return
+    canvas.style.position = 'absolute'
+    canvas.style.inset = '0'
+    canvas.style.width = '100%'
+    canvas.style.height = '100%'
+    canvas.style.opacity = visible ? '1' : '0'
+    canvas.style.pointerEvents = visible ? '' : 'none'
+    canvas.style.transition = 'opacity 80ms ease-out'
+  }, [])
 
   const resolveSelectedWallForChat = useCallback(() => {
     const target = selectedTargetRef.current
@@ -2588,6 +2624,7 @@ export default function ThatOpenIfcCanvas({
     const container = containerRef.current
     if (!container) return
 
+    const sceneIdentity = currentSceneIdentity
     let disposed = false
     let pointerDownDom: HTMLCanvasElement | null = null
     let components: import('@thatopen/components').Components | null = null
@@ -2611,6 +2648,7 @@ export default function ThatOpenIfcCanvas({
         }
       | null = null
     let isTransformDragging = false
+    let sceneBecameVisible = false
 
     const loadIfc = async () => {
       if (!ifcUrl) return
@@ -2644,6 +2682,7 @@ export default function ThatOpenIfcCanvas({
         world.renderer = new OBC.SimpleRenderer(components, container)
         world.renderer.showLogo = false
         world.camera = new OBC.SimpleCamera(components)
+        prepareRendererCanvasForSwap(world.renderer.three.domElement, false)
 
         components.init()
         world.scene.setup()
@@ -5891,6 +5930,9 @@ export default function ThatOpenIfcCanvas({
         }
         // 파싱된 IFC 층 목록을 상위 컴포넌트로 전달한다.
         onStoreysLoadRef.current?.(storeysWithElements)
+        prepareRendererCanvasForSwap(world.renderer.three.domElement, true)
+        sceneBecameVisible = true
+        disposeRetainedVisualScene('ifc_load_ready')
         setHasEverBeenReady(true)
         setStatus('ready')
       } catch (error) {
@@ -5912,6 +5954,9 @@ export default function ThatOpenIfcCanvas({
       if (cameraState) {
         preservedCameraStateRef.current = cameraState
       }
+      const isSceneReplacement =
+        latestIfcUrlRef.current.trim().length > 0 &&
+        latestSceneIdentityRef.current !== sceneIdentity
       disposed = true
       if (pendingIfcCommitTimer) {
         window.clearTimeout(pendingIfcCommitTimer)
@@ -5935,10 +5980,24 @@ export default function ThatOpenIfcCanvas({
       if (cameraControlsWithEvents && cameraControlsRestListener) {
         cameraControlsWithEvents.removeEventListener?.('rest', cameraControlsRestListener)
       }
-      try {
-        components?.dispose()
-      } catch {
-        // ThatOpen can throw during renderer cleanup if React has already detached the canvas container.
+      if (isSceneReplacement && components && sceneBecameVisible) {
+        disposeRetainedVisualScene('ifc_replace_previous_retained')
+        prepareRendererCanvasForSwap(pointerDownDom, true)
+        if (pointerDownDom) pointerDownDom.style.pointerEvents = 'none'
+        retainedVisualSceneRef.current = {
+          components,
+          canvas: pointerDownDom,
+        }
+        components = null
+      } else {
+        try {
+          components?.dispose()
+        } catch {
+          // ThatOpen can throw during renderer cleanup if React has already detached the canvas container.
+        }
+        if (!isSceneReplacement) {
+          disposeRetainedVisualScene('ifc_scene_unmount')
+        }
       }
       sceneRef.current = null
       presetGroupRef.current = null
@@ -7765,7 +7824,7 @@ export default function ThatOpenIfcCanvas({
 
   return (
     <div className="absolute inset-0 overflow-hidden bg-[#F0F2F9]" onContextMenu={handleIfcContextMenu}>
-      <div ref={containerRef} tabIndex={0} className="h-full w-full outline-none" />
+      <div ref={containerRef} tabIndex={0} className="relative h-full w-full overflow-hidden outline-none" />
 
       {status === 'error' && (
         <div className="absolute inset-0 flex items-center justify-center bg-white/70 px-6 text-center backdrop-blur-sm">
