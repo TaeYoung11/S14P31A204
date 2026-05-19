@@ -9,7 +9,7 @@ import {
   splitEmail,
   type EmailDomainOption,
 } from '@/features/auth/constants/email'
-import { WITHDRAW_NOTICE_KEY } from '@/features/auth/constants/storage'
+import { clearWithdrawNotice, readWithdrawNotice } from '@/features/auth/constants/storage'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 
 const REMEMBERED_EMAIL_KEY = 'batang-remembered-email'
@@ -22,11 +22,6 @@ interface LoginLocationState {
 const readRememberedEmail = () => {
   if (typeof window === 'undefined') return ''
   return window.localStorage.getItem(REMEMBERED_EMAIL_KEY) ?? ''
-}
-
-const readWithdrawNotice = () => {
-  if (typeof window === 'undefined') return false
-  return window.sessionStorage.getItem(WITHDRAW_NOTICE_KEY) === 'true'
 }
 
 export const useLoginPage = () => {
@@ -44,13 +39,13 @@ export const useLoginPage = () => {
   const [showPw, setShowPw] = useState(false)
   const [rememberEmail, setRememberEmail] = useState(Boolean(initialEmail))
   const [loginValidationError, setLoginValidationError] = useState('')
-  const [hasWithdrawNotice] = useState(() => Boolean(locationState?.withdrawn) || readWithdrawNotice())
+  const [hasWithdrawNotice] = useState(() => readWithdrawNotice() || Boolean(locationState?.withdrawn))
 
   const email = useMemo(() => buildEmail(emailLocalPart, emailDomain), [emailDomain, emailLocalPart])
 
   useEffect(() => {
-    if (!hasWithdrawNotice || typeof window === 'undefined') return
-    window.sessionStorage.removeItem(WITHDRAW_NOTICE_KEY)
+    if (!hasWithdrawNotice) return
+    clearWithdrawNotice()
   }, [hasWithdrawNotice])
 
   const validateEmailInput = (localPart: string, domain: string) => {

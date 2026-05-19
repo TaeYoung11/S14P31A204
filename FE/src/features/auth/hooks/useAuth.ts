@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { WITHDRAW_NOTICE_KEY } from '@/features/auth/constants/storage'
+import { saveWithdrawNotice } from '@/features/auth/constants/storage'
 import type { LoginDto, WithdrawDto } from '@/features/auth/services/auth.service'
 import { authService } from '@/features/auth/services/auth.service'
 import { useAuthStore } from '@/shared/stores/authStore'
@@ -48,9 +48,7 @@ export const useAuth = () => {
   const withdrawMutation = useMutation({
     mutationFn: authService.withdraw,
     onSuccess: () => {
-      if (typeof window !== 'undefined') {
-        window.sessionStorage.setItem(WITHDRAW_NOTICE_KEY, 'true')
-      }
+      saveWithdrawNotice()
       storeLogout()
       queryClient.clear()
       navigate('/login', {
