@@ -51,11 +51,38 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
+# Install PyTorch with CUDA 12.6 support first so the subsequent
+# `pip install -e ./packages/ai-rendering` reuses these wheels instead of
+# pulling the default CPU wheel from PyPI. Target hardware: NVIDIA L4 / Ada
+# (compute capability 8.9). Falls back to CPU at runtime when CUDA is absent.
+#
+# Pinned versions — the combination is verified against basicsr/realesrgan
+# compatibility on g6.2xlarge. basicsr historically depends on
+# `torchvision.transforms.functional_tensor` which was removed in newer
+# torchvision releases; a runtime shim in postprocess.py handles that, but
+# we still pin the wheel pair so a rebuild can never silently pull a torch
+# release that re-introduces ABI breakage with basicsr.
+RUN pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cu126 \
+        torch==2.11.0+cu126 \
+        torchvision==0.26.0+cu126
+
 COPY packages/ai-rendering ./packages/ai-rendering
 COPY scripts ./scripts
 
 RUN pip install --no-cache-dir \
         -e ./packages/ai-rendering
+
+# Build-time smoke test: fail fast if any rendering dependency cannot be
+# imported (matches the original incident where torchvision was missing).
+RUN python -c "import torch, torchvision; \
+from ai_rendering.ifc2img.postprocess import _install_basicsr_torchvision_shim; \
+_install_basicsr_torchvision_shim(); \
+from basicsr.archs.rrdbnet_arch import RRDBNet; \
+from realesrgan import RealESRGANer; \
+print('torch:', torch.__version__, '/ cuda:', torch.version.cuda); \
+print('torchvision:', torchvision.__version__); \
+print('RealESRGAN import path ok:', RRDBNet.__name__, RealESRGANer.__name__)"
 
 ENTRYPOINT ["sh", "-c", "mkdir -p \"$XDG_RUNTIME_DIR\" && chmod 700 \"$XDG_RUNTIME_DIR\"; Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp & export DISPLAY=:99; exec python main.py \"$@\"", "--"]
 CMD []

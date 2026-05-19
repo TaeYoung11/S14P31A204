@@ -139,6 +139,7 @@ interface ThatOpenIfcCanvasProps {
   deleteRequestToken?: number
   /** 카메라 회전 잠금 여부 */
   isRotationLocked: boolean
+  isGridVisible?: boolean
   /** 현재 줌 스케일 (1.0 = 100%) */
   zoomScale: number
   /** 현재 선택된 IFC 요소 */
@@ -398,6 +399,7 @@ export default function ThatOpenIfcCanvas({
   ifcElementChanges,
   deleteRequestToken = 0,
   isRotationLocked,
+  isGridVisible = false,
   zoomScale,
   selectedIfcElement,
   onIfcElementSelect,
@@ -431,11 +433,13 @@ export default function ThatOpenIfcCanvas({
   const libraryAssetSyncQueueRef = useRef<Promise<void>>(Promise.resolve())
   const libraryAssetModelIdsRef = useRef<Set<string>>(new Set())
   const pinMarkerGroupRef = useRef<import('three').Group | null>(null)
+  const floorGridRef = useRef<Object3D | null>(null)
   const commentPinsRef = useRef(commentPins)
   const selectedPinIdRef = useRef(selectedPinId)
   const currentUserIdRef = useRef(currentUserId)
   const isCollaborationModeRef = useRef(isCollaborationMode)
   const deletingPinIdRef = useRef(deletingPinId)
+  const isGridVisibleRef = useRef(isGridVisible)
   const transformModeRef = useRef(transformMode)
   const onPinClickRef = useRef(onPinClick)
   const onPinCreateRef = useRef(onPinCreate)
@@ -2428,6 +2432,14 @@ export default function ThatOpenIfcCanvas({
   useEffect(() => { currentUserIdRef.current = currentUserId }, [currentUserId])
   useEffect(() => { isCollaborationModeRef.current = isCollaborationMode }, [isCollaborationMode])
   useEffect(() => { deletingPinIdRef.current = deletingPinId }, [deletingPinId])
+  useEffect(() => {
+    isGridVisibleRef.current = isGridVisible
+    const grid = floorGridRef.current
+    if (!grid) return
+    grid.visible = isGridVisible
+    const sceneState = sceneRef.current
+    sceneState?.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
+  }, [isGridVisible])
   useEffect(() => { transformModeRef.current = transformMode }, [transformMode])
   useEffect(() => { onPinClickRef.current = onPinClick }, [onPinClick])
   useEffect(() => { onPinCreateRef.current = onPinCreate }, [onPinCreate])
@@ -2569,10 +2581,6 @@ export default function ThatOpenIfcCanvas({
         }
         cameraControlsWithEvents?.addEventListener?.('change', cameraControlsChangeListener)
         cameraControlsWithEvents?.addEventListener?.('rest', cameraControlsRestListener)
-
-        const grids = components.get(OBC.Grids)
-        grids.create(world)
-        removeDuplicateSceneGridHelpers(world.scene.three)
 
         const fragments = components.get(OBC.FragmentsManager)
         // MIME 이슈를 피하기 위해 .js 워커 엔트리를 사용한다.
@@ -5655,6 +5663,35 @@ export default function ThatOpenIfcCanvas({
 
         await fragments.core.update(true)
         resetIfcLocalRevisionState('ifc_revision_load_success')
+        // fragments.core.update 가 끝난 시점에 web-ifc 메시가 실제로 채워지므로,
+        // 이 시점에서 모델 박스를 측정하고 그 floor 위치에 그리드를 깐다.
+        const fragmentBox = new THREE.Box3().setFromObject(fragmentModel.object)
+        const fragmentSize = new THREE.Vector3()
+        const fragmentCenter = new THREE.Vector3()
+        if (!fragmentBox.isEmpty()) {
+          fragmentBox.getSize(fragmentSize)
+          fragmentBox.getCenter(fragmentCenter)
+        } else {
+          fragmentSize.set(1, 1, 1)
+          fragmentCenter.set(0, 0, 0)
+        }
+        // 카메라 시야 안에서 가장자리가 보이지 않도록 충분히 크게 깔되 셀 크기는 일정하게 유지한다.
+        const gridFootprint = Math.max(fragmentSize.x, fragmentSize.z, 1)
+        const gridSize = Math.max(gridFootprint * 20, 60)
+        const gridDivisions = 100
+        const floorGrid = new THREE.GridHelper(gridSize, gridDivisions, 0x9aa3c7, 0xd9ddee)
+        floorGrid.name = 'ifc-floor-grid'
+        floorGrid.position.set(
+          fragmentCenter.x,
+          (fragmentBox.isEmpty() ? 0 : fragmentBox.min.y) + 0.01,
+          fragmentCenter.z,
+        )
+        floorGrid.visible = isGridVisibleRef.current
+        floorGrid.userData.ignoreRaycast = true
+        floorGrid.raycast = () => undefined
+        contentGroup.add(floorGrid)
+        removeDuplicateSceneGridHelpers(world.scene.three)
+        floorGridRef.current = floorGrid
         onIfcElementSelectRef.current?.(null)
         // 최초 로드 시에는 고정 패딩으로 맞추고, 이후 줌 반영은 zoomScale effect에서 처리한다.
         fitObjectWithPadding(THREE, world.camera.three, world.camera.controls, fragmentModel.object, 1.55)
@@ -5706,6 +5743,7 @@ export default function ThatOpenIfcCanvas({
       presetGroupRef.current = null
       libraryAssetModelIds.clear()
       pinMarkerGroupRef.current = null
+      floorGridRef.current = null
       resetTransformInteractionRef.current = null
       if (deferredHierarchySelectionTimerRef.current !== null) {
         window.clearTimeout(deferredHierarchySelectionTimerRef.current)
