@@ -56,9 +56,15 @@ export default function EditorHeaderBrandAndMode({
           <img
             src={logoSrc}
             alt="바탕 : BATANG"
-            className={`h-5 w-auto ${isViewer ? 'brightness-0 invert opacity-80' : 'opacity-80'}`}
+            className={`h-[22px] w-auto ${isViewer ? 'brightness-0 invert opacity-80' : 'opacity-80'}`}
           />
-          <span className={isViewer ? 'text-white' : 'text-[#1C1C1E]'}>바탕</span>
+          <span
+            className={`font-mono text-[13px] font-semibold tracking-[0.18em] ${
+              isViewer ? 'text-white' : 'text-slate-900'
+            }`}
+          >
+            BATANG
+          </span>
         </Link>
       </div>
 
