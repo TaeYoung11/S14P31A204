@@ -236,7 +236,10 @@ def test_door_opening_uses_solid_position_when_profile_has_no_position():
     opening_y = float(opening.ObjectPlacement.RelativePlacement.Location.Coordinates[1])
     door_y = float(door.ObjectPlacement.RelativePlacement.Location.Coordinates[1])
     assert opening_y == pytest.approx(-10.0)
-    assert door_y == pytest.approx(90.0)
+    assert door_y == pytest.approx(0.0)
+    assert door.ObjectPlacement.PlacementRelTo == opening.ObjectPlacement
+    assert door.OverallWidth == pytest.approx(900.0)
+    assert door.OverallHeight == pytest.approx(2100.0)
 
 
 def test_door_opening_clamps_to_host_wall_height():

@@ -17,7 +17,6 @@ export type CanvasContextProps = Pick<
   | 'handleDeletePin'
   | 'deletingPinId'
   | 'isGridVisible'
-  | 'isTrueNorthView'
   | 'selectedTool'
   | 'zoom'
   | 'canvasZoom'

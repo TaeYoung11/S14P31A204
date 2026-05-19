@@ -249,6 +249,24 @@ def test_split_chat_commands_keeps_color_commands_split_on_comma() -> None:
     assert commands == ["1층 외벽 색상 #E5E7EB", "2층 외벽 색상 #CBD5E1로 바꿔줘"]
 
 
+def test_apply_explicit_opening_dimensions_prefers_raw_instruction_labels() -> None:
+    create_info: dict[str, Any] = {
+        "element_type": "IfcDoor",
+        "length_mm": 900.0,
+        "height_mm": 2400.0,
+    }
+    raw_instruction = (
+        "1\uce35 \uac70\uc2e4 \ubd81\ucabd \ubcbd \uc911\uc559\uc5d0 "
+        "\ud3ed 900mm, \ub192\uc774 2100mm\uc758 \ub098\ubb34 \ubb38\uc744 "
+        "\uc124\uce58\ud574\uc918"
+    )
+
+    LLM3DPipeline._apply_explicit_opening_dimensions(create_info, raw_instruction)
+
+    assert create_info["length_mm"] == 900.0
+    assert create_info["height_mm"] == 2100.0
+
+
 def test_planning_worker_stores_engine_operations_for_modify_and_delete() -> None:
     command = _with_user_instruction(_load_sample_command(), "modify and delete")
     mock_s3 = MagicMock()

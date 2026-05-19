@@ -936,8 +936,8 @@ export function useEditorPage() {
   const [commentNotifications, setCommentNotifications] = useState<FloorCommentNotification[]>([])
   const [isLibraryOpen, setIsLibraryOpen] = useState(false)
   const [libraryElements, setLibraryElements] = useState<ThreeDLibraryPreset[]>([])
-  const [isTrueNorthView, setIsTrueNorthView] = useState(false)
   const [isGridVisible, setIsGridVisible] = useState(false)
+  const [userViewRotationRadians, setUserViewRotationRadians] = useState(0)
   /** 연결 도구에서 첫 번째로 선택된 버블 id */
   /** 인라인 라벨 편집 상태 */
   const [labelEditState, setLabelEditState] = useState<{
@@ -3569,14 +3569,22 @@ export function useEditorPage() {
   const {
     bubbleCanvasViewTransform,
     floorCanvasViewTransform,
+    projectNorthViewRotationRadians,
     mapSnapshotForPersistence,
     mapBubblesForFloorPlanGenerate,
     mapLayoutBoundaryInputForFloorPlanGenerate,
   } = useWorkspaceCoordinateFramePolicy({
     bubbleSitePoints,
     sharedSitePlanPoints,
-    isTrueNorthView,
+    userViewRotationRadians,
   })
+  const toggleProjectNorthViewRotation = useCallback(() => {
+    setUserViewRotationRadians((current) => (
+      Math.abs(current - projectNorthViewRotationRadians) < 1e-9
+        ? 0
+        : projectNorthViewRotationRadians
+    ))
+  }, [projectNorthViewRotationRadians])
   // layout effect에서 먼저 ref를 갱신해 bootstrap 초기 publish 경로도 최신 매핑을 사용하게 한다.
   useLayoutEffect(() => {
     mapSnapshotForPersistenceRef.current = mapSnapshotForPersistence
@@ -4066,10 +4074,6 @@ export function useEditorPage() {
 
   /** 협업 핀 클릭 — 해당 핀의 스레드 탭으로 이동 */
   const handlePinClick = useCallback((pinId: string) => {
-    if (selectedPinId === pinId) {
-      setSelectedPinId(null)
-      return
-    }
     setSelectedPinId(pinId)
     markPinNotificationsRead(pinId)
     const targetPin = commentPins.find((pin) => pin.id === pinId)
@@ -4083,7 +4087,7 @@ export function useEditorPage() {
         },
       })
     }
-  }, [commentPins, markPinCommentsRead, markPinNotificationsRead, selectedPinId])
+  }, [commentPins, markPinCommentsRead, markPinNotificationsRead])
 
   /** 2D 평면도 핀 생성 + 첫 댓글 작성 */
   const resolveActiveFloorPinElevationMm = useCallback(() => {
@@ -5973,8 +5977,6 @@ export function useEditorPage() {
   return {
     // 모드
     mode,
-    isTrueNorthView,
-    setIsTrueNorthView,
     projectId,
     currentProjectName,
     latestFloorPlanJobId,
@@ -5997,6 +5999,10 @@ export function useEditorPage() {
     sitePlanPoints: sharedSitePlanPoints,
     bubbleCanvasViewTransform,
     floorCanvasViewTransform,
+    userViewRotationRadians,
+    setUserViewRotationRadians,
+    projectNorthViewRotationRadians,
+    toggleProjectNorthViewRotation,
     siteAreaM2,
     siteAreaPyeong,
     bubbleFloors,

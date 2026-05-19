@@ -334,14 +334,7 @@ export function useTwoDCanvasStageHandlers({
 
   const onClick = (e: KonvaEventObject<MouseEvent>) => {
     if (isPanMode) return
-    if (isInteractionLockedByCollaboration) {
-      const stage = e.target.getStage()
-      if (!stage) return
-      const point = getCanvasPoint(stage)
-      if (!point) return
-      startPinDraftAt(point)
-      return
-    }
+    if (isInteractionLockedByCollaboration) return
     if (e.target.getType() !== 'Stage') return
     if (skipStageClickClearRef.current) {
       skipStageClickClearRef.current = false
@@ -353,7 +346,16 @@ export function useTwoDCanvasStageHandlers({
     setOpeningSnapGuide(null)
   }
 
-  const onDblClick = () => {
+  const onDblClick = (e: KonvaEventObject<MouseEvent>) => {
+    if (isInteractionLockedByCollaboration) {
+      const stage = e.target.getStage()
+      if (!stage) return
+      const point = getCanvasPoint(stage)
+      if (!point) return
+      e.cancelBubble = true
+      startPinDraftAt(point)
+      return
+    }
     if (!isWallTool || !isDrawingWall) return
     cancelWallDraft()
   }

@@ -6,6 +6,7 @@ import type { CanvasViewTransform, FloorCommentPin, FloorLayerOverlay, FloorOpen
 import { SITE_BOUNDARY_LISTENING } from '../../constants'
 import type { AxisAlignedRect } from '../../utils/geometry2d'
 import type { DoorInfo } from '../../utils/floorPlanLayout'
+import { rotatePointAround } from '../../utils/canvasViewTransform'
 import { DimensionGuidesLayer } from './DimensionGuidesLayer'
 import CanvasViewTransformGroup from './CanvasViewTransformGroup'
 import { CollaborationPinOverlay } from './TwoDCanvasOverlays'
@@ -198,6 +199,99 @@ export function TwoDCanvasStage({
   deletingPinId,
   marquee,
 }: TwoDCanvasStageProps) {
+  const pinMarkerScale = Math.min(Math.max(1 / Math.max(scale, 0.01), 0.65), 2.2)
+
+  const getStagePoint = (stage: Konva.Stage): Point2D | null => {
+    const pointer = stage.getPointerPosition()
+    if (!pointer) return null
+    const transform = stage.getAbsoluteTransform().copy()
+    transform.invert()
+    return transform.point(pointer)
+  }
+
+  const getPinDisplayPosition = (pin: FloorCommentPin): Point2D => (
+    viewTransform
+      ? rotatePointAround(
+        { x: pin.x, y: pin.y },
+        viewTransform.rotationRadians,
+        viewTransform.centerX,
+        viewTransform.centerY,
+      )
+      : { x: pin.x, y: pin.y }
+  )
+
+  const findCommentPinHit = (point: Point2D): { pin: FloorCommentPin; action: 'select' | 'delete' } | null => {
+    for (let i = commentPins.length - 1; i >= 0; i -= 1) {
+      const pin = commentPins[i]
+      const base = getPinDisplayPosition(pin)
+      const canDeletePin =
+        selectedPinId === pin.id &&
+        Boolean(onPinDelete) &&
+        Boolean(currentUserId) &&
+        pin.createdById === currentUserId
+      if (canDeletePin) {
+        const deleteX = base.x + 26 * pinMarkerScale
+        const deleteY = base.y - 24 * pinMarkerScale
+        if (Math.hypot(point.x - deleteX, point.y - deleteY) <= 16 * pinMarkerScale) {
+          return { pin, action: 'delete' }
+        }
+      }
+
+      const headHit = Math.hypot(point.x - base.x, point.y - base.y) <= 22 * pinMarkerScale
+      const stemHit =
+        point.x >= base.x - 10 * pinMarkerScale &&
+        point.x <= base.x + 10 * pinMarkerScale &&
+        point.y >= base.y + 10 * pinMarkerScale &&
+        point.y <= base.y + 36 * pinMarkerScale
+      if (headHit || stemHit) return { pin, action: 'select' }
+    }
+    return null
+  }
+
+  const handleCollaborationPinFallback = (e: KonvaEventObject<MouseEvent>): boolean => {
+    if (!isCollaborationMode) return false
+    const stage = e.target.getStage()
+    if (!stage) return false
+    const point = getStagePoint(stage)
+    if (!point) return false
+    const hit = findCommentPinHit(point)
+    if (!hit) return false
+    e.cancelBubble = true
+    if (hit.action === 'delete') {
+      const container = stage.container()
+      container.style.cursor = 'default'
+      if (deletingPinId !== hit.pin.id) onPinDelete?.(hit.pin.id)
+      return true
+    }
+    onPinClick?.(hit.pin.id)
+    return true
+  }
+
+  const syncCollaborationPinCursor = (e: KonvaEventObject<MouseEvent>) => {
+    if (!isCollaborationMode) return
+    const stage = e.target.getStage()
+    if (!stage) return
+    const point = getStagePoint(stage)
+    if (!point) return
+    const hit = findCommentPinHit(point)
+    stage.container().style.cursor = hit ? 'pointer' : (isPanMode ? 'grab' : 'default')
+  }
+
+  const handleStageMouseMove = (e: KonvaEventObject<MouseEvent>) => {
+    stageHandlers.onMouseMove(e)
+    syncCollaborationPinCursor(e)
+  }
+
+  const handleStageClick = (e: KonvaEventObject<MouseEvent>) => {
+    if (handleCollaborationPinFallback(e)) return
+    stageHandlers.onClick(e)
+  }
+
+  const handleStageDblClick = (e: KonvaEventObject<MouseEvent>) => {
+    if (handleCollaborationPinFallback(e)) return
+    stageHandlers.onDblClick(e)
+  }
+
   return (
     <Stage
       ref={stageRef}
@@ -213,10 +307,10 @@ export function TwoDCanvasStage({
       onDragStart={onStageDragStart}
       onDragEnd={onStageDragEnd}
       onMouseDown={stageHandlers.onMouseDown}
-      onMouseMove={stageHandlers.onMouseMove}
+      onMouseMove={handleStageMouseMove}
       onMouseUp={stageHandlers.onMouseUp}
-      onClick={stageHandlers.onClick}
-      onDblClick={stageHandlers.onDblClick}
+      onClick={handleStageClick}
+      onDblClick={handleStageDblClick}
       onContextMenu={stageHandlers.onContextMenu}
       onWheel={stageHandlers.onWheel}
     >
@@ -230,7 +324,10 @@ export function TwoDCanvasStage({
             listening={SITE_BOUNDARY_LISTENING}
           />
           <DimensionGuidesLayer guides={dimensionGuides} />
-          <TwoDOverlayLayers overlayLayers={overlayLayers} />
+          <TwoDOverlayLayers
+            overlayLayers={overlayLayers}
+            viewRotationRadians={viewTransform?.rotationRadians ?? 0}
+          />
 
           <TwoDRoomsLayer
             rooms={rooms}
@@ -266,6 +363,7 @@ export function TwoDCanvasStage({
             onResizingRoomBubbleIdChange={onResizingRoomBubbleIdChange}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
+            viewRotationRadians={viewTransform?.rotationRadians ?? 0}
           />
 
           <TwoDWallsLayer
@@ -332,20 +430,6 @@ export function TwoDCanvasStage({
             onSelect={onSelect}
           />
 
-          {isCollaborationMode && (
-            <CollaborationPinOverlay
-              pins={commentPins}
-              viewportScale={scale}
-              selectedPinId={selectedPinId}
-              currentUserId={currentUserId}
-              onPinClick={onPinClick}
-              onPinDelete={onPinDelete}
-              deletingPinId={deletingPinId}
-              onMouseEnter={onMouseEnter}
-              onMouseLeave={onMouseLeave}
-            />
-          )}
-
           {marquee && (
             <Rect
               x={marquee.x}
@@ -360,6 +444,17 @@ export function TwoDCanvasStage({
             />
           )}
         </CanvasViewTransformGroup>
+        {isCollaborationMode && (
+          <CollaborationPinOverlay
+            pins={commentPins}
+            viewportScale={scale}
+            selectedPinId={selectedPinId}
+            currentUserId={currentUserId}
+            viewTransform={viewTransform}
+            onPinDelete={onPinDelete}
+            deletingPinId={deletingPinId}
+          />
+        )}
       </Layer>
     </Stage>
   )

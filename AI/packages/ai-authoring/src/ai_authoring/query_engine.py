@@ -81,6 +81,9 @@ class IFCQueryEngine:
         storey_lower = storey.lower() if storey else None
         space_lower = space.lower() if space else None
         direction_lower = direction.lower() if direction else None
+        space_boundary_ids = (
+            self._space_boundary_element_ids(space, storey, type_str) if space else None
+        )
 
         for el in self._model.by_type(type_str):
             total += 1
@@ -95,18 +98,17 @@ class IFCQueryEngine:
                 rejected["storey"] += 1
                 continue
             if space_lower:
-                space_nospace = space_lower.replace(" ", "")
-                hits = [
-                    s_sp and space_nospace in s_sp.lower().replace(" ", ""),
-                    spl and space_nospace in spl.lower().replace(" ", ""),
-                    space_nospace in element_name.replace(" ", ""),
-                ]
-                if not any(hits):
-                    # space 매칭 실패 시 storey 필터만으로 fallback (층이 지정된 경우)
-                    if not storey_lower:
-                        rejected["space"] += 1
-                        continue
-                    logger.info(f"space '{space_lower}' 매칭 실패, storey fallback")
+                hits = self._element_matches_space(
+                    el,
+                    element_name,
+                    s_sp,
+                    spl,
+                    space_lower,
+                    space_boundary_ids,
+                )
+                if not hits:
+                    rejected["space"] += 1
+                    continue
             if direction_lower and direction_lower not in element_name:
                 rejected["direction"] += 1
                 continue
@@ -126,6 +128,88 @@ class IFCQueryEngine:
                 name,
             )
         return matched
+
+    def _element_matches_space(
+        self,
+        element: ifcopenshell.entity_instance,
+        element_name: str,
+        space: str | None,
+        space_long_name: str | None,
+        requested_space_lower: str,
+        boundary_element_ids: set[int] | None,
+    ) -> bool:
+        if boundary_element_ids is not None and int(element.id()) in boundary_element_ids:
+            return True
+
+        space_nospace = requested_space_lower.replace(" ", "")
+        return any(
+            [
+                space and space_nospace in space.lower().replace(" ", ""),
+                space_long_name and space_nospace in space_long_name.lower().replace(" ", ""),
+                space_nospace in element_name.replace(" ", ""),
+            ]
+        )
+
+    def _space_boundary_element_ids(
+        self,
+        space: str | None,
+        storey: str | None,
+        type_str: str,
+    ) -> set[int]:
+        if not self._model or not space:
+            return set()
+        element_ids: set[int] = set()
+        for matched_space in self._matching_spaces(space, storey):
+            for rel in self._model.get_inverse(matched_space):
+                if not rel.is_a("IfcRelSpaceBoundary"):
+                    continue
+                element = getattr(rel, "RelatedBuildingElement", None)
+                if element is None or not element.is_a(type_str):
+                    continue
+                element_ids.add(int(element.id()))
+        return element_ids
+
+    def _matching_spaces(
+        self,
+        space: str,
+        storey: str | None,
+    ) -> list[ifcopenshell.entity_instance]:
+        requested = normalize_space_name(space) or space
+        requested_key = requested.lower().replace(" ", "")
+        storey_key = storey.lower() if storey else None
+        spaces: list[ifcopenshell.entity_instance] = []
+        for candidate in self._model.by_type("IfcSpace"):
+            name = str(getattr(candidate, "Name", "") or "")
+            long_name = str(getattr(candidate, "LongName", "") or "")
+            normalized_name = normalize_space_name(name) or name
+            haystacks = {
+                name.lower().replace(" ", ""),
+                long_name.lower().replace(" ", ""),
+                normalized_name.lower().replace(" ", ""),
+            }
+            if not any(
+                requested_key in value or value in requested_key
+                for value in haystacks
+                if value
+            ):
+                continue
+            if storey_key:
+                candidate_storey = self._space_storey_name(candidate)
+                if not candidate_storey or storey_key not in candidate_storey.lower():
+                    continue
+            spaces.append(candidate)
+        return spaces
+
+    def _space_storey_name(self, space: ifcopenshell.entity_instance) -> str | None:
+        for rel in getattr(space, "Decomposes", []):
+            if rel.is_a("IfcRelAggregates") and rel.RelatingObject.is_a("IfcBuildingStorey"):
+                return normalize_storey_name(rel.RelatingObject.Name)
+        for rel in getattr(space, "ContainedInStructure", []):
+            if rel.is_a("IfcRelContainedInSpatialStructure") and rel.RelatingStructure.is_a(
+                "IfcBuildingStorey"
+            ):
+                return normalize_storey_name(rel.RelatingStructure.Name)
+        return None
 
     def _format_miss_reason(
         self,

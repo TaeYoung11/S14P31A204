@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import ifcopenshell
 import ifcopenshell.api.aggregate
 import ifcopenshell.api.root
+import ifcopenshell.guid
 import pytest
 
 from ai_authoring.worker import AuthoringWorker
@@ -347,6 +348,40 @@ def test_apply_operation_dispatches_delete_wall_void_handler():
     assert len(model.by_type("IfcOpeningElement")) == 0
     assert len(model.by_type("IfcRelVoidsElement")) == 0
     assert len(model.by_type("IfcRelFillsElement")) == 0
+
+
+def test_apply_transform_space_does_not_move_boundary_wall():
+    model, space = _make_space_model()
+    storey = model.by_type("IfcBuildingStorey")[0]
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    assert wall is not None
+    model.create_entity(
+        "IfcRelSpaceBoundary",
+        GlobalId=ifcopenshell.guid.new(),
+        Name="Worker Space boundary",
+        RelatingSpace=space,
+        RelatedBuildingElement=wall,
+        PhysicalOrVirtualBoundary="PHYSICAL",
+        InternalOrExternalBoundary="INTERNAL",
+    )
+    worker, _ = _make_worker(b"")
+
+    result = worker._apply_operation(
+        model,
+        "op-move-space",
+        "transform_elements",
+        {"global_ids": [space.GlobalId]},
+        {"translation_mm": {"x": 1000.0, "y": 0.0, "z": 0.0}},
+    )
+
+    assert result["status"] == "applied"
+    assert {item["global_id"] for item in result["matched_elements"]} == {space.GlobalId}
+    assert tuple(space.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
+        (1.0, 0.0, 0.0)
+    )
+    assert tuple(wall.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
+        (0.0, 0.0, 0.0)
+    )
 
 
 def test_authoring_worker_rejects_zero_scale_dimension_before_mutation():
