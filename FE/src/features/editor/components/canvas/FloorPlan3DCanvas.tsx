@@ -31,6 +31,7 @@ import {
 import {
   createPresetMesh,
   findLibraryRoot,
+  formatLibraryPresetDimensions,
   getLibraryElementInfo,
   getLibraryScaleDimensionPatch,
   getLibraryPresetFromObject,
@@ -38,7 +39,7 @@ import {
   type LibraryObject3D,
 } from './thatopen/ifcLibraryMesh'
 import { applyObjectColor, applyObjectMaterial, PROJECT_WORLD_UNITS_PER_MM } from './thatopen/ifcMaterials'
-import { disposeObjectMaterials, positionPresetGroupBesideIfc } from './thatopen/ifcSceneHelpers'
+import { disposeObjectMaterials, ensureLibraryPresetOutsideIfc, positionPresetGroupBesideIfc } from './thatopen/ifcSceneHelpers'
 import { resolveThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
 
 interface FloorPlan3DCanvasProps {
@@ -86,13 +87,6 @@ type MultiSelectionEntry = {
 }
 
 const PRESET_MOVE_DEBUG = import.meta.env.DEV || import.meta.env.VITE_3D_MOVE_DEBUG === 'true'
-const ALWAYS_TRACE_LOCAL3D_EVENTS = new Set<string>([
-  'pick_candidates',
-  'pick_floor_object',
-  'library_sync_start',
-  'library_sync_rebuild_done',
-  'transform_commit',
-])
 
 const logRoofDebug = (..._args: unknown[]) => {}
 
@@ -316,7 +310,7 @@ export function FloorPlan3DCanvas({
         return false
       }
     })()
-    const shouldTrace = PRESET_MOVE_DEBUG || runtimeDebugEnabled || ALWAYS_TRACE_LOCAL3D_EVENTS.has(event)
+    const shouldTrace = PRESET_MOVE_DEBUG || runtimeDebugEnabled
     if (!shouldTrace) return
     if (payload) {
       console.log(`[LOCAL3D_PRESET] ${event}`, payload)
@@ -1198,6 +1192,9 @@ export function FloorPlan3DCanvas({
         mesh.position.set(preset.position.x, preset.position.y, preset.position.z)
       }
       presetGroup.add(mesh)
+      if (!preset.position && floorGroupRef.current) {
+        ensureLibraryPresetOutsideIfc(THREE, floorGroupRef.current, mesh)
+      }
     })
     logPresetMove('library_sync_rebuild_done', {
       scenePresetCount: presetGroup.children.length,
@@ -1368,7 +1365,25 @@ export function FloorPlan3DCanvas({
       const nextScaleX = selectedIfcElement.lengthMm ? (selectedIfcElement.lengthMm * 0.001) / baseWorldSize.x : selected.scale.x
       const nextScaleY = selectedIfcElement.heightMm ? (selectedIfcElement.heightMm * 0.001) / baseWorldSize.y : selected.scale.y
       const nextScaleZ = selectedIfcElement.thicknessMm ? (selectedIfcElement.thicknessMm * 0.001) / baseWorldSize.z : selected.scale.z
+      if (![nextScaleX, nextScaleY, nextScaleZ].every((value) => Number.isFinite(value) && value > 0)) return
       selected.scale.set(nextScaleX, nextScaleY, nextScaleZ)
+      selected.updateMatrixWorld(true)
+      const dimensions = formatLibraryPresetDimensions(
+        selectedIfcElement.lengthMm,
+        selectedIfcElement.heightMm,
+        selectedIfcElement.thicknessMm,
+      )
+      const libraryPatch: Partial<ThreeDLibraryPreset> = {
+        lengthMm: selectedIfcElement.lengthMm,
+        heightMm: selectedIfcElement.heightMm,
+        thicknessMm: selectedIfcElement.thicknessMm,
+        scale: { x: nextScaleX, y: nextScaleY, z: nextScaleZ },
+        ...(dimensions ? { dimensions } : {}),
+      }
+      updateLibraryPresetData(selected, libraryPatch)
+      if (selectedPreset) onLibraryElementChangeRef.current?.(selectedPreset.id, libraryPatch)
+      const nextLibraryElement = getLibraryElementInfo(selected)
+      if (nextLibraryElement) selectedEntry.element = nextLibraryElement
 
       if (
         Number.isFinite(selectedIfcElement.positionX) &&

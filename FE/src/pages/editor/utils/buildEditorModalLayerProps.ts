@@ -34,6 +34,8 @@ type ModalLayerViewModel = Pick<
   | 'projectId'
   | 'isNotificationModalOpen'
   | 'onCloseNotificationModal'
+  | 'noticeModal'
+  | 'onCloseNoticeModal'
   | 'isExportModalOpen'
   | 'onCloseExportModal'
   | 'isExportSelectionModalOpen'
@@ -180,5 +182,7 @@ export function buildEditorModalLayerProps(vm: ModalLayerViewModel): EditorModal
     ...buildLineAndInviteModalProps(vm),
     ...buildExportModalProps(vm),
     ...buildGenerateThreeDModalProps(vm),
+    noticeModal: vm.noticeModal,
+    onCloseNoticeModal: vm.onCloseNoticeModal,
   }
 }
