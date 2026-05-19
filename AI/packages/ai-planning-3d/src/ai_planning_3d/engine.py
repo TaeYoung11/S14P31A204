@@ -825,7 +825,7 @@ class LLM3DEngine:
         return None
 
     def _color(self, text: str) -> str | None:
-        hex_match = re.search(r"#[0-9A-Fa-f]{6}\b", text)
+        hex_match = re.search(r"#[0-9A-Fa-f]{6}(?![0-9A-Fa-f])", text)
         if hex_match:
             return hex_match.group(0).upper()
 

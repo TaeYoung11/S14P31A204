@@ -193,7 +193,10 @@ async def _run_pipeline_preview(
     try:
         return await _execute_preview_for_instruction(pipeline, user_instruction, planner_options)
     finally:
-        await pipeline.aclose()
+        try:
+            await pipeline.aclose()
+        except Exception:
+            _logger.warning("planning_pipeline_close_failed", exc_info=True)
 
 
 async def _execute_preview_for_instruction(
