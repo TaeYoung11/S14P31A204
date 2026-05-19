@@ -87,6 +87,7 @@ import {
   isTransformOwnerMismatch,
   isTransformSessionLocked,
 } from './thatopen/transformSessionGuards'
+import { markIfcMovePerformance } from '../../utils/ifcMovePerformance'
 
 /** ThatOpenIfcCanvas 컴포넌트 props */
 interface ThatOpenIfcCanvasProps {
@@ -333,6 +334,10 @@ const IFC_SAVE_DEBOUNCE_MS = 1200
 const IFC_SAVE_MAX_POSTPONE_MS = 6000
 const IFC_COMMIT_QUEUE_DELAY_MS = 0
 const IFC_COMMIT_QUIET_WINDOW_MS = 0
+const IFC_COMMIT_INFLIGHT_RETRY_MS = 250
+const IFC_COMMIT_INFLIGHT_STALE_RECOVERY_MS = 1500
+const IFC_COMMIT_INFLIGHT_TIMEOUT_MS = 35_000
+const SPACE_TRANSFORM_DEDUP_LIMIT = 128
 const DELTA_MODEL_TOKEN = '-DELTA-MODEL-'
 const LEGACY_DELTA_MODEL_TOKEN = '-DELTADEL-'
 const containsAllIds = (allIds: number[], subset: number[]) => {
@@ -376,6 +381,12 @@ const traceIfcMove = (event: string, payload?: Record<string, unknown>) => {
   }
 }
 const IFC_MOVE_BUILD_MARKER = 'ifc-move-debug-build-2026-05-11-09'
+const rememberBoundedSetValue = (set: Set<string>, value: string, limit: number) => {
+  set.add(value)
+  if (set.size <= limit) return
+  const oldest = set.keys().next().value
+  if (oldest !== undefined) set.delete(oldest)
+}
 const TRANSFORM_GIZMO_AXIS_NAMES = new Set([
   'X', 'Y', 'Z', 'E',
   'XY', 'YZ', 'XZ',
@@ -2595,8 +2606,10 @@ export default function ThatOpenIfcCanvas({
           const targetKey = getIfcMoveTargetKey(target.modelId, target.localId)
           if (sessionId && emittedSpaceTransformSessionIds.has(sessionId)) return false
           if (emittedSpaceTransformTargetKeys.has(targetKey)) return false
-          if (sessionId) emittedSpaceTransformSessionIds.add(sessionId)
-          emittedSpaceTransformTargetKeys.add(targetKey)
+          if (sessionId) {
+            rememberBoundedSetValue(emittedSpaceTransformSessionIds, sessionId, SPACE_TRANSFORM_DEDUP_LIMIT)
+          }
+          rememberBoundedSetValue(emittedSpaceTransformTargetKeys, targetKey, SPACE_TRANSFORM_DEDUP_LIMIT)
 
           const patch = {
             positionX: worldPosition.x,
@@ -2734,7 +2747,7 @@ export default function ThatOpenIfcCanvas({
           pendingCommitSessionByToken.clear()
           logIfcMove('commit_queue_clear', { reason })
         }
-        const waitForCommitInFlightToSettle = async (reason: string, timeoutMs = 1400) => {
+        const waitForCommitInFlightToSettle = async (reason: string, timeoutMs = 1800) => {
           if (typeof window === 'undefined') return
           if (!ifcCommitInFlightRef.current) return
           const startedAt = performance.now()
@@ -2745,6 +2758,21 @@ export default function ThatOpenIfcCanvas({
                   reason,
                   elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
                 })
+                resolve()
+                return
+              }
+              const stuckLatencyMs = lastIfcDragEndAt > 0
+                ? performance.now() - lastIfcDragEndAt
+                : 0
+              if (stuckLatencyMs > IFC_COMMIT_INFLIGHT_STALE_RECOVERY_MS) {
+                logIfcMove('commit_wait_recover_stale_local_inflight', {
+                  reason,
+                  elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+                  stuckLatencyMs,
+                  recoveryMs: IFC_COMMIT_INFLIGHT_STALE_RECOVERY_MS,
+                  movePhase: ifcMoveLifecycleRef.current.phase,
+                })
+                ifcCommitInFlightRef.current = false
                 resolve()
                 return
               }
@@ -2994,20 +3022,46 @@ export default function ThatOpenIfcCanvas({
               return
             }
             if (ifcCommitInFlightRef.current) {
-              // 이전 commit이 어떤 경로에서 in-flight 상태로 stuck되면
-              // setTimeout 재시도가 무한 루프를 돌면서 새 commit이 영원히 진행 못 한다.
-              // drag_end 이후 일정 시간이 지났는데도 풀리지 않으면 강제 reset해서
-              // 새 commit이 진행될 수 있도록 한다.
+              // This flag guards the local proxy commit, not a BE/worker ack. If it gets stale,
+              // recover quickly so the moved proxy is committed before selection cleanup can restore it.
               const stuckLatencyMs = lastIfcDragEndAt > 0
                 ? performance.now() - lastIfcDragEndAt
                 : 0
-              const INFLIGHT_STUCK_LIMIT_MS = 1500
-              if (stuckLatencyMs > INFLIGHT_STUCK_LIMIT_MS) {
-                logIfcMove('commit_queue_force_reset_stuck_inflight', {
+              if (stuckLatencyMs > IFC_COMMIT_INFLIGHT_TIMEOUT_MS) {
+                logIfcMove('commit_queue_timeout_inflight', {
                   token,
                   modelId: selectedTarget.modelId,
                   localId: selectedTarget.localId,
                   stuckLatencyMs,
+                  timeoutMs: IFC_COMMIT_INFLIGHT_TIMEOUT_MS,
+                })
+                pendingIfcCommitTimer = null
+                if (queuedSessionId) {
+                  dispatchTransformRuntimeAction(
+                    {
+                      type: 'COMMIT_FAIL',
+                      transformSessionId: queuedSessionId,
+                      message: 'Previous IFC commit is still in flight.',
+                    },
+                    'runQueuedIfcCommit_inflight_timeout',
+                  )
+                  dispatchTransformRuntimeAction(
+                    { type: 'CLEANUP', transformSessionId: queuedSessionId },
+                    'runQueuedIfcCommit_inflight_timeout_cleanup',
+                  )
+                  if (activeDragSessionId === queuedSessionId) activeDragSessionId = null
+                }
+                pendingCommitSessionByToken.delete(token)
+                showIfcEditFeedback('error', '이전 3D 편집 저장이 아직 완료되지 않았습니다. 잠시 후 다시 시도해 주세요.')
+                return
+              } else if (stuckLatencyMs > IFC_COMMIT_INFLIGHT_STALE_RECOVERY_MS) {
+                logIfcMove('commit_queue_recover_stale_local_inflight', {
+                  token,
+                  modelId: selectedTarget.modelId,
+                  localId: selectedTarget.localId,
+                  stuckLatencyMs,
+                  recoveryMs: IFC_COMMIT_INFLIGHT_STALE_RECOVERY_MS,
+                  movePhase: ifcMoveLifecycleRef.current.phase,
                 })
                 ifcCommitInFlightRef.current = false
               } else {
@@ -3016,10 +3070,12 @@ export default function ThatOpenIfcCanvas({
                   modelId: selectedTarget.modelId,
                   localId: selectedTarget.localId,
                   stuckLatencyMs,
+                  retryMs: IFC_COMMIT_INFLIGHT_RETRY_MS,
                 })
                 pendingIfcCommitTimer = window.setTimeout(() => {
+                  pendingIfcCommitTimer = null
                   void runQueuedIfcCommit(token)
-                }, 120)
+                }, IFC_COMMIT_INFLIGHT_RETRY_MS)
                 return
               }
             }
@@ -3065,19 +3121,6 @@ export default function ThatOpenIfcCanvas({
                   const rotationX = (worldEuler.x * 180) / Math.PI
                   const rotationY = (worldEuler.y * 180) / Math.PI
                   const rotationZ = (worldEuler.z * 180) / Math.PI
-                  const rotationDegrees = deltaTransform
-                    ? {
-                        x: (deltaTransform.rotation.x * 180) / Math.PI,
-                        y: (deltaTransform.rotation.y * 180) / Math.PI,
-                        z: (deltaTransform.rotation.z * 180) / Math.PI,
-                      }
-                    : lastDragStartWorldRotation
-                    ? {
-                        x: ((worldEuler.x - lastDragStartWorldRotation.x) * 180) / Math.PI,
-                        y: ((worldEuler.y - lastDragStartWorldRotation.y) * 180) / Math.PI,
-                        z: ((worldEuler.z - lastDragStartWorldRotation.z) * 180) / Math.PI,
-                      }
-                    : undefined
                   const fallbackDeltaQuaternion = lastDragStartWorldQuaternion
                     ? worldQuaternion.clone().multiply(
                         new activeScene.three.Quaternion(
@@ -3190,14 +3233,18 @@ export default function ThatOpenIfcCanvas({
                   emittedSpaceTransformTargetKeys.has(transformCommitTargetKey) &&
                   isIfcSpaceElementInfo(transformCommit?.element),
                 )
-                const emitTransformCommit = (reason: string) => {
+                const emitTransformCommit = (_reason: string) => {
                   if (!transformCommit || didEmitTransformCommit) return
                   didEmitTransformCommit = true
                   if (queuedSessionId && isIfcSpaceElementInfo(transformCommit.element)) {
-                    emittedSpaceTransformSessionIds.add(queuedSessionId)
+                    rememberBoundedSetValue(emittedSpaceTransformSessionIds, queuedSessionId, SPACE_TRANSFORM_DEDUP_LIMIT)
                   }
                   if (transformCommitTargetKey && isIfcSpaceElementInfo(transformCommit.element)) {
-                    emittedSpaceTransformTargetKeys.add(transformCommitTargetKey)
+                    rememberBoundedSetValue(
+                      emittedSpaceTransformTargetKeys,
+                      transformCommitTargetKey,
+                      SPACE_TRANSFORM_DEDUP_LIMIT,
+                    )
                   }
                   if (import.meta.env.DEV && (
                     transformModeRef.current === 'rotate' ||
@@ -3884,6 +3931,12 @@ export default function ThatOpenIfcCanvas({
               return
             }
             ifcMoveDirtyRef.current = true
+            markIfcMovePerformance('drag-end', {
+              source: 'ifc',
+              modelId: selectedTarget.modelId,
+              localId: selectedTarget.localId,
+              hitLocalId: selectedTarget.hitLocalId,
+            })
             lastIfcDragEndAt = performance.now()
             const didEmitSpaceTransformCommit = emitSpaceTransformCommitFromDragEnd(
               selectedTarget,
@@ -5581,8 +5634,14 @@ export default function ThatOpenIfcCanvas({
           world.renderer.three.render(world.scene.three, world.camera.three)
         } else {
           fitObjectWithPadding(THREE, world.camera.three, world.camera.controls, fragmentModel.object, 1.55)
+          world.renderer.three.render(world.scene.three, world.camera.three)
         }
         // 파싱된 IFC 층 목록을 상위 컴포넌트로 전달한다.
+        markIfcMovePerformance('render-done', {
+          source: 'ifc',
+          modelId,
+          projectId: projectId ?? null,
+        })
         onStoreysLoadRef.current?.(storeysWithElements)
         setHasEverBeenReady(true)
         setStatus('ready')

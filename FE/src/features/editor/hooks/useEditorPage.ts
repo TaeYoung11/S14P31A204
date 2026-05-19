@@ -163,7 +163,7 @@ import {
   type FloorPlanSnapshotPayload,
 } from '../utils/workspaceSyncMessage'
 import { isToolAllowedDuringConverting, isTwoDOrThreeDConverting as isTwoDOrThreeDConvertingByPhase } from '../utils/editorModeLocks'
-import { isExpiredPresignedIfcUrl, resolveIfcPresignedUrl } from '../utils/ifcSource'
+import { isExpiredPresignedIfcUrl, normalizeIfcSourceDedupeKey, resolveIfcPresignedUrl } from '../utils/ifcSource'
 import {
   buildPinAuthorNameByUserId,
   buildUnreadCommentNotifications,
@@ -174,6 +174,7 @@ import {
   mergeIfcElementChangeByExpressId,
   shouldPublishIfcElementPatch,
 } from '../utils/ifcElementChangeSync'
+import { markIfcMovePerformance } from '../utils/ifcMovePerformance'
 import { resolveWorkspaceSiteAreaM2 } from '../utils/numberUtils'
 import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
 import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
@@ -722,6 +723,7 @@ export function useEditorPage() {
     removeActiveRooms,
     clearFloorPlan,
     replaceFloorPlanState,
+    updateFloorLayers,
   } = useFloorPlan(projectId)
   /** 버블 편집 잠금은 현재 비활성 상태(false 고정) */
   const isBubbleEditLocked = false
@@ -743,6 +745,14 @@ export function useEditorPage() {
   const mergedFloorOpeningsRef = useRef<FloorOpening[]>([])
   const floorRoomMoveSessionRef = useRef<FloorRoomMoveSession | null>(null)
   const isFloorPlanGenerating = isFloorPlanGeneratingLocal || workspacePhaseStatus === 'CONVERTING'
+  const floorRoomSyncStateRef = useRef<{
+    floorLayers: FloorLayer[]
+    floorWalls: FloorWall[]
+  }>({ floorLayers, floorWalls })
+
+  useEffect(() => {
+    floorRoomSyncStateRef.current = { floorLayers, floorWalls }
+  }, [floorLayers, floorWalls])
 
   /**
    * 2D 구조물(벽/개구부) 선택 상태만 초기화한다.
@@ -4397,63 +4407,49 @@ export function useEditorPage() {
     candidateIds.add(element.id)
     if (typeof element.expressId === 'number') candidateIds.add(String(element.expressId))
 
-    let didUpdateRoom = false
+    const { floorLayers: latestFloorLayers, floorWalls: latestFloorWalls } = floorRoomSyncStateRef.current
     const affectedElementGlobalIds = new Set<string>()
-    const nextLayers = floorLayers.map((layer) => {
-      let didUpdateLayer = false
-      const nextRooms = layer.rooms.map((room) => {
+    const hasTargetRoom = latestFloorLayers.some((layer) =>
+      layer.rooms.some((room) => {
         const isTargetRoom =
           candidateIds.has(room.globalId ?? '') ||
           candidateIds.has(room.id) ||
           candidateIds.has(room.bubbleId)
-        if (!isTargetRoom) return room
-        didUpdateRoom = true
-        didUpdateLayer = true
-        collectRoomMoveAffectedElementGlobalIds([room], floorWalls, layer.id)
+        if (!isTargetRoom) return false
+        collectRoomMoveAffectedElementGlobalIds([room], latestFloorWalls, layer.id)
           .forEach((id) => affectedElementGlobalIds.add(id))
-        return translateFloorRoom(room, dx, dy)
-      })
-      return didUpdateLayer ? { ...layer, rooms: nextRooms } : layer
-    })
+        return true
+      }),
+    )
 
-    if (!didUpdateRoom) return []
-    replaceFloorPlanState({
-      isGenerated: isFloorPlanGenerated,
-      layoutSource: floorPlanLayoutSource,
-      layers: nextLayers,
-      activeLayerId: activeFloorLayerId,
+    if (!hasTargetRoom) return []
+    updateFloorLayers((currentLayers) => {
+      let didUpdateRoom = false
+      const nextLayers = currentLayers.map((layer) => {
+        let didUpdateLayer = false
+        const nextRooms = layer.rooms.map((room) => {
+          const isTargetRoom =
+            candidateIds.has(room.globalId ?? '') ||
+            candidateIds.has(room.id) ||
+            candidateIds.has(room.bubbleId)
+          if (!isTargetRoom) return room
+          didUpdateRoom = true
+          didUpdateLayer = true
+          return translateFloorRoom(room, dx, dy)
+        })
+        return didUpdateLayer ? { ...layer, rooms: nextRooms } : layer
+      })
+      return didUpdateRoom ? nextLayers : currentLayers
     })
     return Array.from(affectedElementGlobalIds)
   }, [
-    activeFloorLayerId,
-    floorLayers,
-    floorWalls,
-    floorPlanLayoutSource,
-    isFloorPlanGenerated,
-    replaceFloorPlanState,
+    updateFloorLayers,
   ])
 
   const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId' | 'localId' | 'localIds'>) => {
     if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return
     markLocalFloorPlanSnapshotChanged()
     const expressId = element.expressId
-    const hasRotationPatch =
-      'rotationDegrees' in patch ||
-      'rotation_degrees' in patch ||
-      'rotationX' in patch ||
-      'rotationY' in patch ||
-      'rotationZ' in patch
-    if (import.meta.env.DEV && mode === '3d' && hasRotationPatch) {
-      const patchSnapshot = { ...patch }
-      console.log('[ifc-transform-save][record-change]', {
-        elementId: element.id,
-        expressId,
-        globalId: element.globalId ?? element.properties?.GlobalId ?? null,
-        patch: patchSnapshot,
-        patchKeys: Object.keys(patchSnapshot),
-        patchJson: JSON.stringify(patchSnapshot),
-      })
-    }
     let resolvedTranslationMm = toFiniteTranslationMm(patch.translationMm)
     if (shouldPublishIfcElementPatch(element, patch)) {
       const commandPatch: Record<string, unknown> = { ...patch }
@@ -4481,18 +4477,6 @@ export function useEditorPage() {
       const affectedElementGlobalIds = isSpaceTranslation
         ? syncFloorRoomFromIfcSpaceTranslation(element, resolvedTranslationMm)
         : []
-      if (import.meta.env.DEV && mode === '3d' && isIfcSpaceElement(element)) {
-        console.log('[ifc-space-move][record-change]', {
-          elementId: element.id,
-          expressId,
-          globalId: resolveIfcElementGlobalId(element),
-          ifcClass: element.ifcClass,
-          resolvedTranslationMm,
-          affectedElementGlobalIds,
-          commandPatch,
-          commandPatchJson: JSON.stringify(commandPatch),
-        })
-      }
       const spaceGlobalId = isSpaceTranslation ? resolveIfcElementGlobalId(element) : null
       if (isSpaceTranslation && spaceGlobalId) {
         workspaceCommandPublisher.updateRoom(spaceGlobalId, {
@@ -4558,7 +4542,7 @@ export function useEditorPage() {
         ifcClass: element.ifcClass,
       })
     }
-  }, [markLocalFloorPlanSnapshotChanged, mode, syncFloorRoomFromIfcSpaceTranslation, workspaceCommandPublisher])
+  }, [markLocalFloorPlanSnapshotChanged, syncFloorRoomFromIfcSpaceTranslation, workspaceCommandPublisher])
 
   const handleDeleteIfcElement = useCallback((element: IfcElementInfo) => {
     workspaceCommandPublisher.deleteIfcElement(element)
@@ -5552,7 +5536,11 @@ export function useEditorPage() {
       }
     }
 
-    const normalizedSourceKey = assetId?.trim() || ifcStorageUrl.trim()
+    const normalizedRevisionKey = revisionId?.trim() || ''
+    const normalizedStorageSourceKey = ifcStorageUrl.trim()
+      ? normalizeIfcSourceDedupeKey(ifcStorageUrl)
+      : ''
+    const normalizedSourceKey = assetId?.trim() || normalizedStorageSourceKey
     if (!normalizedSourceKey && revisionId) {
       if (currentIfcUrl && currentIfcRevisionId === revisionId) {
         setWorkspacePhaseStatus('IFC_EDIT')
@@ -5591,9 +5579,10 @@ export function useEditorPage() {
       }
       return false
     }
-    const normalizedRevisionKey = revisionId?.trim() || ''
-    const dedupeKey = normalizedSourceKey
-      ? `${projectId}:${normalizedSourceKey}:${normalizedRevisionKey || 'no-revision'}`
+    const dedupeSourceKey = assetId?.trim()
+      || (normalizedRevisionKey ? `revision:${normalizedRevisionKey}` : normalizedSourceKey)
+    const dedupeKey = dedupeSourceKey
+      ? `${projectId}:${dedupeSourceKey}:${normalizedRevisionKey || 'no-revision'}`
       : ''
     if (!dedupeKey) return false
 
@@ -5686,6 +5675,12 @@ export function useEditorPage() {
           assetId: resolvedAssetId,
         },
       }))
+      markIfcMovePerformance('ifc-url-applied', {
+        action,
+        assetId: resolvedAssetId,
+        revisionId: resolvedRevisionId,
+        hasResolvedUrl: Boolean(resolvedUrl),
+      })
       // IFC가 정상 로드되면 완료 action 문자열과 무관하게 편집 상태로 복귀해 무한 로딩을 방지한다.
       const shouldSuppressGeneratedFloorPlanAutosave = action === 'FLOOR_PLAN_GENERATE_COMPLETED'
       if (shouldSuppressGeneratedFloorPlanAutosave) {
@@ -5721,6 +5716,13 @@ export function useEditorPage() {
             assetId: resolvedAssetId,
           },
         }))
+        markIfcMovePerformance('ifc-url-applied', {
+          action,
+          assetId: resolvedAssetId,
+          revisionId: resolvedRevisionId,
+          hasResolvedUrl: Boolean(resolvedUrl),
+          retry: true,
+        })
         await loadIfcFromStorageUrl(resolvedUrl, {
           webIfcWasmPath: '/',
           skipFloorProjectImport: shouldSkipFloorProjectImport,

@@ -1,8 +1,7 @@
 import { Bell, Save, Share2 } from 'lucide-react'
-import type { CollaborationUserType, EditorMode, SaveStatus } from '@/features/editor/types'
+import type { CollaborationUserType, SaveStatus } from '@/features/editor/types'
 
 interface EditorHeaderActionsProps {
-  mode: EditorMode
   isViewer: boolean
   userType?: CollaborationUserType
   onOpenInvite?: () => void

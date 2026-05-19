@@ -15,6 +15,7 @@
  */
 import type { Object3D } from "three";
 import type { IfcElementInfo } from "../../../types";
+import { markIfcMovePerformance } from "../../../utils/ifcMovePerformance";
 import type { IfcPsetMetricMaps } from "./ifcPropertyParser";
 import {
   PROJECT_WORLD_UNITS_PER_MM,
@@ -668,7 +669,12 @@ export const fetchIfcText = async (ifcUrl: string) => {
       }
 
       if (response.ok) {
-        return response.text();
+        const text = await response.text();
+        markIfcMovePerformance("ifc-fetch-done", {
+          status: response.status,
+          contentType: response.headers.get("content-type") ?? null,
+        });
+        return text;
       }
 
       lastStatus = response.status;
@@ -1309,8 +1315,24 @@ export const clearSelectedTarget = async (
     }
     if (!shouldRestoreModelVisibility) {
       if (target.object) {
+        target.object.visible = true;
         setObjectOpacity(sceneState.three, target.object, 1);
         if (removeObject) {
+          if (target.keepModelHiddenAfterCommit) {
+            traceIfcMoveVisibility("clear_target_keep_proxy_visible", {
+              modelId: target.modelId,
+              hitLocalId: target.hitLocalId,
+              localId: target.localId,
+              reason: "model_hidden_after_commit",
+            });
+            if (sceneState.renderer && sceneState.camera) {
+              sceneState.renderer.render(
+                sceneState.scene,
+                sceneState.camera as import("three").PerspectiveCamera,
+              );
+            }
+            return;
+          }
           target.object.parent?.remove(target.object);
           disposeObjectMaterials(sceneState.three, target.object);
         }
