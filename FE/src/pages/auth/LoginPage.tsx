@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { CheckCircle2 } from 'lucide-react'
 import { useLoginPage } from '@/features/auth/hooks/useLoginPage'
 import AuthLayout from '@/shared/components/AuthLayout'
 import EmailDomainField from '@/shared/components/auth/EmailDomainField'
@@ -46,9 +47,15 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-3.5" autoComplete="on" noValidate>
           {loginNotice && (
-            <p className="rounded-lg border border-[#bbf7d0] bg-[#f0fdf4] px-3 py-2.5 text-xs text-[#15803d]">
-              {loginNotice}
-            </p>
+            <div className="auth-notice-success" role="status">
+              <span className="auth-notice-success-icon" aria-hidden="true">
+                <CheckCircle2 className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-black text-[#14532d]">회원 탈퇴 완료</p>
+                <p className="mt-1 text-xs leading-5 text-[#166534]/80">{loginNotice}</p>
+              </div>
+            </div>
           )}
 
           <div>
