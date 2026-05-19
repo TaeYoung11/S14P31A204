@@ -13,7 +13,6 @@ import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, Fl
 import type { IfcStoreyInfo } from './thatopen/ifcPropertyParser'
 import { useCtrlWheelZoom } from '../../hooks/useCtrlWheelZoom'
 import ThreeDCanvasCollaborationOverlay from './ThreeDCanvasCollaborationOverlay'
-import ThreeDCanvasGridOverlay from './ThreeDCanvasGridOverlay'
 import ThreeDCanvasScene from './ThreeDCanvasScene'
 import ThreeDLibraryPanel from './ThreeDLibraryPanel'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
@@ -145,6 +144,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         deletingPinId={props.deletingPinId ?? null}
         ifcElementChanges={props.ifcElementChanges ?? []}
         isRotationLocked={props.isRotationLocked ?? false}
+        isGridVisible={Boolean(props.isGridVisible)}
         zoomScale={props.scale ?? 1}
         selectedTool={props.selectedTool}
         selectedIfcElement={props.selectedIfcElement}
@@ -170,8 +170,6 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         transformSnapIntervalMm={props.transformSnapIntervalMm ?? 100}
         isEditingLocked={isEditingLocked}
       />
-
-      <ThreeDCanvasGridOverlay isVisible={Boolean(props.isGridVisible)} />
 
       <ThreeDCanvasCollaborationOverlay isVisible={Boolean(props.isCollaborationMode)} />
 

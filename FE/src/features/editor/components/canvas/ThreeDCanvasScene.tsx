@@ -23,6 +23,7 @@ interface ThreeDCanvasSceneProps {
   deletingPinId: string | null
   ifcElementChanges: IfcElementChange[]
   isRotationLocked: boolean
+  isGridVisible: boolean
   zoomScale: number
   selectedTool?: string
   selectedIfcElement?: IfcElementInfo | null
@@ -78,6 +79,7 @@ export default function ThreeDCanvasScene({
   deletingPinId,
   ifcElementChanges,
   isRotationLocked,
+  isGridVisible,
   zoomScale,
   selectedTool,
   selectedIfcElement,
@@ -159,6 +161,7 @@ export default function ThreeDCanvasScene({
       deletingPinId={deletingPinId}
       ifcElementChanges={ifcElementChanges}
       isRotationLocked={isRotationLocked}
+      isGridVisible={isGridVisible}
       zoomScale={zoomScale}
       selectedIfcElement={selectedIfcElement}
       deleteRequestToken={deleteRequestToken}
