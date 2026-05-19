@@ -2968,20 +2968,7 @@ def _apply_opening(model, host_wall, u, v, z, length, thickness, height, ew_wall
     opening.Representation, _ = _box_representation(
         model, box_l, box_t, height, center_origin=False
     )
-    _, tool_solid = _box_representation(
-        model, box_l, box_t, height, loc=(loc_u, loc_v, z), center_origin=False
-    )
     ifcopenshell.api.run("feature.add_feature", model, feature=opening, element=host_wall)
-
-    current_shape = body.Items[0]
-    boolean_res = model.create_entity(
-        "IfcBooleanResult",
-        Operator="DIFFERENCE",
-        FirstOperand=current_shape,
-        SecondOperand=tool_solid,
-    )
-    body.Items = [boolean_res]
-    body.RepresentationType = "CSG"
     return opening
 
 

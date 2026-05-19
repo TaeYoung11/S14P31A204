@@ -209,7 +209,7 @@ def test_door_creates_opening_and_relations_with_host_wall():
     assert rel_fill.is_a("IfcRelFillsElement")
     assert rel_fill.RelatedBuildingElement == door
     assert list(door.FillsVoids)[0] == rel_fill
-    assert _single_body_item(wall).is_a("IfcBooleanResult")
+    assert _single_body_item(wall).is_a("IfcExtrudedAreaSolid")
 
 
 def test_door_opening_uses_solid_position_when_profile_has_no_position():
@@ -920,7 +920,7 @@ def test_ifc_persists_relations_after_save(tmp_path):
     assert filling.is_a("IfcDoor")
 
 
-def test_delete_window_removes_only_its_opening_boolean():
+def test_delete_window_removes_only_its_opening_relation():
     model, storey, _ = _make_model()
     wall = create_wall(model, storey, length_mm=4000, width_mm=200, height_mm=2400)
     first = create_window_with_opening(model, storey, host_wall=wall, x_mm=900)
@@ -931,12 +931,12 @@ def test_delete_window_removes_only_its_opening_boolean():
     assert delete_element(model, first)
     assert len(model.by_type("IfcWindow")) == 1
     assert len(model.by_type("IfcOpeningElement")) == 1
-    assert _single_body_item(wall).is_a("IfcBooleanResult")
+    assert _single_body_item(wall).is_a("IfcExtrudedAreaSolid")
 
     assert delete_element(model, second)
     assert len(model.by_type("IfcWindow")) == 0
     assert len(model.by_type("IfcOpeningElement")) == 0
-    assert not _single_body_item(wall).is_a("IfcBooleanResult")
+    assert _single_body_item(wall).is_a("IfcExtrudedAreaSolid")
 
 
 def test_delete_wall_void_handler_deletes_parametric_door_pair():
