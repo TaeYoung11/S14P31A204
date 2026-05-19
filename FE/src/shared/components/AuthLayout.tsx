@@ -25,11 +25,11 @@ export default function AuthLayout({ children, fitViewport = true }: AuthLayoutP
         <div
           className={`flex flex-col items-center ${
             fitViewport
-              ? 'min-h-0 flex-1 justify-center py-[clamp(20px,4.5vh,48px)]'
-              : 'min-h-0 flex-1 justify-center py-2'
+              ? 'min-h-full flex-1 py-[clamp(20px,4.5vh,48px)]'
+              : 'min-h-0 flex-1 py-2'
           }`}
         >
-          <div className="w-full max-w-[430px]">{children}</div>
+          <div className="my-auto w-full max-w-[430px]">{children}</div>
         </div>
 
         <AuthFooterLinks fitViewport={fitViewport} />
