@@ -1,6 +1,7 @@
 // 뷰어 모드의 렌더링 목록 사이드바를 표시한다.
 import type { MouseEvent as ReactMouseEvent, Ref } from 'react'
 import { GripVertical, Image, Info, WandSparkles } from 'lucide-react'
+import { parseBackendDateAsKst } from '@/shared/utils/format'
 import type { ProjectRenderResponse } from '../../services/projectRender.service'
 
 interface RenderHistorySidebarProps {
@@ -53,11 +54,8 @@ const normalizeProgress = (progress: number | null | undefined, status: string):
   return 0
 }
 
-const hasTimezoneSuffix = (value: string): boolean => /[zZ]$|[+-]\d{2}:\d{2}$/.test(value)
-
 const formatRenderCreatedAt = (createdAt: string): string => {
-  const normalized = createdAt.trim()
-  const timestamp = new Date(hasTimezoneSuffix(normalized) ? normalized : `${normalized}Z`)
+  const timestamp = parseBackendDateAsKst(createdAt)
   if (Number.isNaN(timestamp.getTime())) return '-'
   return timestamp.toLocaleString('ko-KR', {
     timeZone: 'Asia/Seoul',
