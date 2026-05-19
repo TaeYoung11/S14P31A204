@@ -63,7 +63,7 @@ interface ThreeDCanvasProps {
     patch: Omit<IfcElementChange, 'expressId'>,
   ) => void
   libraryElements: ThreeDLibraryPreset[]
-  onAddLibraryPreset: (preset: ThreeDLibraryPreset) => void
+  onAddLibraryPreset: (preset: ThreeDLibraryPreset, options?: { closePanel?: boolean }) => void
   onLibraryElementChange: (id: string, patch: Partial<ThreeDLibraryPreset>) => void
   onLibraryElementDelete: (id: string) => void
   /** 2D 평면도에서 직접 생성한 로컬 3D 데이터. 있으면 IFC 대신 이를 렌더링한다. */
@@ -101,9 +101,9 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
 
   const { onAddLibraryPreset } = props
   const addLibraryPreset = useCallback(
-    (preset: ThreeDLibraryPreset) => {
+    (preset: ThreeDLibraryPreset, options?: { closePanel?: boolean }) => {
       if (isEditingLocked) return
-      onAddLibraryPreset(preset)
+      onAddLibraryPreset(preset, options)
     },
     [isEditingLocked, onAddLibraryPreset],
   )
@@ -185,8 +185,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
           isEditingLocked={isEditingLocked}
           onAddPreset={(preset) => {
             if (isEditingLocked) return
-            addLibraryPreset(preset)
-            props.onToggleLibrary?.()
+            addLibraryPreset(preset, { closePanel: true })
           }}
         />
       )}

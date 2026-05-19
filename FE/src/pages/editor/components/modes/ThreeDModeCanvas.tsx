@@ -35,7 +35,7 @@ export default function ThreeDModeCanvas({
   // assetId가 없거나 재발급 실패 시 mock IFC로 폴백
   const freshIfcUrl = useFreshIfcUrl(
     editorProps.currentIfcAssetId,
-    editorProps.currentIfcUrl ?? '/mock/shinchan_house.ifc',
+    editorProps.currentIfcUrl ?? '/mock/sample_final_semantic.ifc',
   )
 
   useEffect(() => {

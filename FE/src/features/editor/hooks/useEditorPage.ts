@@ -813,6 +813,23 @@ export function useEditorPage() {
   const [commentPins, setCommentPins] = useState<FloorCommentPin[]>([])
   const [commentNotifications, setCommentNotifications] = useState<FloorCommentNotification[]>([])
   const [isLibraryOpen, setIsLibraryOpen] = useState(false)
+  const [noticeModal, setNoticeModal] = useState<{
+    title?: string
+    message: string
+    description?: string
+    confirmLabel?: string
+  } | null>(null)
+  const openNoticeModal = useCallback((notice: {
+    title?: string
+    message: string
+    description?: string
+    confirmLabel?: string
+  }) => {
+    setNoticeModal(notice)
+  }, [])
+  const onCloseNoticeModal = useCallback(() => {
+    setNoticeModal(null)
+  }, [])
   const [libraryElements, setLibraryElements] = useState<ThreeDLibraryPreset[]>([])
   const [isGridVisible, setIsGridVisible] = useState(false)
   const [userViewRotationRadians, setUserViewRotationRadians] = useState(0)
@@ -830,6 +847,7 @@ export function useEditorPage() {
   const [overlayLayerIds, setOverlayLayerIds] = useState<string[]>([])
   const [overlayOpacityByLayerId, setOverlayOpacityByLayerId] = useState<Record<string, number>>({})
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const saveStatusRef = useRef<SaveStatus>(saveStatus)
   const [latestFloorPlanJobId, setLatestFloorPlanJobId] = useState<string | null>(null)
   const [floorPlanGenerateStatusText, setFloorPlanGenerateStatusText] = useState<string>('')
   const [autosaveReadyProjectId, setAutosaveReadyProjectId] = useState<string | null>(null)
@@ -914,6 +932,10 @@ export function useEditorPage() {
   const lastWorkspaceSnapshotTransactionAtRef = useRef(0)
   const readingCommentPinIdsRef = useRef<Set<string>>(new Set())
   const readCommentFailureAtRef = useRef<Map<string, number>>(new Map())
+
+  useEffect(() => {
+    saveStatusRef.current = saveStatus
+  }, [saveStatus])
 
   useEffect(() => {
     lastLoadedIfcStorageUrlRef.current = null
@@ -2423,7 +2445,7 @@ export function useEditorPage() {
         consumedWorkspaceCommand: workspaceCommand,
         consumedWorkspaceCommandJson: workspaceCommandJson,
         hasUserEdited: hasUserEditedRef.current,
-        saveStatus,
+        saveStatus: saveStatusRef.current,
         currentIfcRevisionId,
       })
     }
@@ -3440,6 +3462,7 @@ export function useEditorPage() {
     sitePolygonQueryEnabled: false,
     siteBoundaryHydrated: isWorkspaceSiteBoundaryHydrated,
     setSaveStatus,
+    onNotice: openNoticeModal,
   })
   const bubbleSitePoints = fixedScaleSitePoints
   const sharedSitePlanPoints = bubbles.length > 0 ? bubbleSitePoints : sitePlanPoints
@@ -4183,42 +4206,76 @@ export function useEditorPage() {
     setIfcElementSelectionRequestToken((prev) => prev + 1)
   }, [clearSelection, clearConnectionAndTwoDSelection])
 
-  const handleAddLibraryPreset = useCallback((preset: ThreeDLibraryPreset) => {
+  const handleAddLibraryPreset = useCallback((preset: ThreeDLibraryPreset, options?: { closePanel?: boolean }) => {
     const storeyExpressId = activeIfcStoreyExpressId ?? null
 
     // IFC 층이 있는데 현재 활성 층이 없으면 추가를 중단하고 설정 방법을 안내한다.
     if (storeyExpressId == null && ifcStoreys.length > 0) {
-      window.alert('활성 층이 없습니다.\n우측 "층보기" 패널에서 층 이름을 클릭해 활성 층을 먼저 설정한 뒤 라이브러리를 추가하세요.')
+      openNoticeModal({
+        title: '층 선택 필요',
+        message: '층보기에서 층을 선택한 뒤 추가하세요.',
+      })
       return
     }
 
+    const nextPreset = {
+      ...preset,
+      id: `${preset.id}-${Date.now()}-${libraryElements.length}`,
+      storeyExpressId,
+    }
+    workspaceCommandPublisher.createLibraryElement(nextPreset)
+    markLocalFloorPlanSnapshotChanged()
     setLibraryElements((prev) => [
       ...prev,
-      {
-        ...preset,
-        id: `${preset.id}-${Date.now()}-${prev.length}`,
-        storeyExpressId,
-      },
+      nextPreset,
     ])
-    setIsLibraryOpen(false)
-  }, [activeIfcStoreyExpressId, ifcStoreys])
+    if (options?.closePanel !== false) setIsLibraryOpen(false)
+  }, [
+    activeIfcStoreyExpressId,
+    ifcStoreys,
+    libraryElements.length,
+    markLocalFloorPlanSnapshotChanged,
+    openNoticeModal,
+    workspaceCommandPublisher,
+  ])
 
   const handleChangeLibraryElement = useCallback((id: string, patch: Partial<ThreeDLibraryPreset>) => {
+    const target = libraryElements.find((element) => element.id === id)
+    if (!target) return
+    const mergedTarget = { ...target, ...patch }
+    const commandElement = Number.isFinite(mergedTarget.storeyExpressId)
+      ? mergedTarget
+      : {
+          ...mergedTarget,
+          storeyExpressId: activeIfcStoreyExpressId ?? ifcStoreys[0]?.expressId ?? null,
+        }
+    workspaceCommandPublisher.updateLibraryElement(target, commandElement)
+    markLocalFloorPlanSnapshotChanged()
     setLibraryElements((prev) =>
       prev.map((element) => {
         if (element.id !== id) return element
         const merged = { ...element, ...patch }
         if (Number.isFinite(merged.storeyExpressId)) return merged
-        const fallbackStoreyId = activeIfcStoreyExpressId ?? ifcStoreys[0]?.expressId ?? null
-        return { ...merged, storeyExpressId: fallbackStoreyId }
+        return { ...merged, storeyExpressId: activeIfcStoreyExpressId ?? ifcStoreys[0]?.expressId ?? null }
       }),
     )
-  }, [activeIfcStoreyExpressId, ifcStoreys])
+  }, [
+    activeIfcStoreyExpressId,
+    ifcStoreys,
+    libraryElements,
+    markLocalFloorPlanSnapshotChanged,
+    workspaceCommandPublisher,
+  ])
 
   const handleDeleteLibraryElement = useCallback((id: string) => {
+    const target = libraryElements.find((element) => element.id === id)
+    if (target) {
+      workspaceCommandPublisher.deleteLibraryElement(target)
+      markLocalFloorPlanSnapshotChanged()
+    }
     setLibraryElements((prev) => prev.filter((element) => element.id !== id))
     setSelectedIfcElement((prev) => (prev?.source === 'library' ? null : prev))
-  }, [])
+  }, [libraryElements, markLocalFloorPlanSnapshotChanged, workspaceCommandPublisher])
 
   const handleSelectLibraryElementById = useCallback((id: string) => {
     const normalizedId = id.trim()
@@ -5974,6 +6031,9 @@ export function useEditorPage() {
     isNotificationModalOpen,
     handleOpenNotificationModal: () => setIsNotificationModalOpen(true),
     onCloseNotificationModal: () => setIsNotificationModalOpen(false),
+    // 공통 안내 모달
+    noticeModal,
+    onCloseNoticeModal,
     // 내보내기 모달
     isExportModalOpen,
     handleOpenExportModal,

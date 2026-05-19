@@ -41,6 +41,14 @@ export interface EditorModalLayerProps {
   isNotificationModalOpen: boolean
   onCloseNotificationModal: () => void
 
+  noticeModal: {
+    title?: string
+    message: string
+    description?: string
+    confirmLabel?: string
+  } | null
+  onCloseNoticeModal: () => void
+
   isExportModalOpen: boolean
   onCloseExportModal: () => void
 

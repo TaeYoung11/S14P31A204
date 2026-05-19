@@ -826,7 +826,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input",
         type=Path,
-        default=Path.home() / "Downloads" / "sample_final.ifc",
+        default=Path.home() / "Downloads" / "sample_final_semantic.ifc",
     )
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--limit", type=int, default=None)

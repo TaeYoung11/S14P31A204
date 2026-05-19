@@ -59,6 +59,7 @@ export type Selected3DTarget =
       selectedSignature?: string;
       selectedColorSignature?: string;
       selectedMaterialSignature?: string;
+      selectedTransformSignature?: string;
     }
   | {
       source: "library";
@@ -66,6 +67,7 @@ export type Selected3DTarget =
       selectedSignature?: string;
       selectedColorSignature?: string;
       selectedMaterialSignature?: string;
+      selectedTransformSignature?: string
     }
   | null;
 
@@ -797,11 +799,16 @@ export const disposeObjectMaterials = (
 ) => {
   object.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
-    child.geometry.dispose();
+    const disposableGeometry = child.geometry as
+      | { dispose?: () => void }
+      | undefined;
+    disposableGeometry?.dispose?.();
     if (Array.isArray(child.material)) {
-      child.material.forEach((material) => material.dispose());
+      child.material.forEach((material) => {
+        (material as { dispose?: () => void } | undefined)?.dispose?.();
+      });
     } else {
-      child.material.dispose();
+      (child.material as { dispose?: () => void } | undefined)?.dispose?.();
     }
   });
 };
