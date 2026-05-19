@@ -629,13 +629,6 @@ export function useWorkspaceCommandPublisher({
     })
   }, [updateWall])
 
-  const updateWallEndpoint = useCallback((wallId: string, endpoint: 'start' | 'end', point: Point2D, pointMm?: Point2D) => {
-    updateWall(wallId, {
-      [endpoint]: point,
-      [`${endpoint}Mm`]: pointMm,
-    })
-  }, [updateWall])
-
   const updateWallStyle = useCallback((wallId: string, next: {
     wallType?: FloorWall['type']
     thickness?: number
@@ -670,7 +663,6 @@ export function useWorkspaceCommandPublisher({
     deleteOpening,
     createRoom,
     updateWallGeometry,
-    updateWallEndpoint,
     updateWallStyle,
     markFloorPlanLayoutChanged,
     updateIfcElement,
@@ -707,7 +699,6 @@ export function useWorkspaceCommandPublisher({
     updateLibraryElement,
     updateRoom,
     updateWall,
-    updateWallEndpoint,
     updateWallGeometry,
     updateWallStyle,
     markFloorPlanLayoutChanged,

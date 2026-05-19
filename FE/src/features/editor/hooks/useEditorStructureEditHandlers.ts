@@ -19,7 +19,6 @@ import { clampWallHeightMm, clampWallThicknessMm } from '../utils/wallSync'
 interface WorkspaceCommandPublisherLike {
   createWall: (wall: FloorWall) => void
   updateWallGeometry: (wallId: string, start: Point2D, end: Point2D, startMm?: Point2D, endMm?: Point2D) => void
-  updateWallEndpoint: (wallId: string, endpoint: 'start' | 'end', point: Point2D, pointMm?: Point2D) => void
   deleteWall: (wallId: string) => void
   upsertOpening: (opening: FloorOpening, exists: boolean) => void
   updateOpening: (openingType: FloorOpening['type'], openingId: string, patch: Record<string, unknown>) => void

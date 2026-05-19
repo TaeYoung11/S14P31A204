@@ -43,7 +43,7 @@ interface UseBubbleSnapshotRealtimeParams {
   ) => void
   onRemoteFloorPlanSnapshot?: (
     snapshot: FloorPlanSnapshotPayload,
-    meta?: { layoutOnly?: boolean },
+    meta?: { action?: string | null; layoutOnly?: boolean },
   ) => void
   onPhaseStatusChanged?: (status: PhaseStatus) => void
   onIfcStorageUrlReceived?: (
@@ -218,7 +218,7 @@ export function useBubbleSnapshotRealtime({
 
     const applyFloorPlanSnapshot = (
       snapshot: FloorPlanSnapshotPayload,
-      meta?: { layoutOnly?: boolean },
+      meta?: { action?: string | null; layoutOnly?: boolean },
     ) => {
       if (floorPlanSnapshotHandlerRef.current) {
         floorPlanSnapshotHandlerRef.current(snapshot, meta)
@@ -307,7 +307,10 @@ export function useBubbleSnapshotRealtime({
 
       if (shouldApplyFloorPlanHistoryEvent) {
         if (floorPlanSnapshot) {
-          applyFloorPlanSnapshot(floorPlanSnapshot, { layoutOnly: shouldApplyFloorPlanLayoutOnly })
+          applyFloorPlanSnapshot(floorPlanSnapshot, {
+            action,
+            layoutOnly: shouldApplyFloorPlanLayoutOnly,
+          })
         }
       }
 

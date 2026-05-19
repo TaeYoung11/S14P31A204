@@ -800,7 +800,7 @@ export function useEditorPage() {
     floorWalls: FloorWall[]
   }>({ floorLayers, floorWalls })
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     floorRoomSyncStateRef.current = { floorLayers, floorWalls }
   }, [floorLayers, floorWalls])
 
@@ -1095,6 +1095,8 @@ export function useEditorPage() {
   const lastLoadedIfcStorageUrlRef = useRef<string | null>(null)
   const ifcLoadInFlightStorageUrlRef = useRef<string | null>(null)
   const threeDIfcSourceHydrationInFlightRef = useRef<string | null>(null)
+  const modeSwitchFloorPlanHydrationInFlightRef = useRef<string | null>(null)
+  const previousEditorModeRef = useRef<EditorMode>(mode)
   /**
    * 프로젝트별 IFC 소스 캐시.
    * - projectId 전환 시 effect로 상태를 초기화하지 않고, 렌더 단계에서 현재 프로젝트 값만 노출한다.
@@ -5938,11 +5940,135 @@ export function useEditorPage() {
     }
   }, [handleOutputIfcStorageUrl])
 
+  useEffect(() => {
+    const previousMode = previousEditorModeRef.current
+    previousEditorModeRef.current = mode
+    if (previousMode === mode) return
+    if (mode !== '2d' && mode !== '3d') return
+    if (!projectId) return
+    if (workspaceEditTransactionDepthRef.current > 0) return
+
+    const requestKey = `${projectId}:${previousMode}->${mode}`
+    if (modeSwitchFloorPlanHydrationInFlightRef.current === requestKey) return
+
+    let cancelled = false
+    modeSwitchFloorPlanHydrationInFlightRef.current = requestKey
+
+    const waitForPendingWorkspaceSync = async () => {
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        if (!pendingWorkspaceSnapshotCommitRef.current && !awaitingServerSyncRef.current) return
+        await new Promise((resolve) => window.setTimeout(resolve, 250))
+        if (cancelled) return
+      }
+    }
+
+    const hydrateLatestFloorPlanOnModeSwitch = async () => {
+      await waitForPendingWorkspaceSync()
+      if (cancelled) return
+
+      const [history, source] = await Promise.all([
+        workspaceSaveService.loadHistorySnapshot(projectId).catch(() => null),
+        projectService.getIfcSource(projectId).catch(() => null),
+      ])
+      if (cancelled) return
+
+      const floorPlanHistory = history?.floorPlan ?? null
+      const floorPlanSnapshot = floorPlanHistory?.snapshot ?? null
+      const floorPlanRevision = floorPlanSnapshot?.revisionId?.trim() || null
+      const sourceRevision = source?.currentRevision?.trim() || null
+      const currentRevision = currentIfcRevisionId?.trim() || null
+      const resolvedRevision = floorPlanRevision ?? sourceRevision ?? null
+      const historyBaseIndex =
+        typeof floorPlanHistory?.baseIndex === 'number' ? floorPlanHistory.baseIndex : null
+      const shouldAcceptHistoryCursor =
+        historyBaseIndex === null ||
+        historyBaseIndex >= floorPlanHistoryBaseIndexRef.current ||
+        (floorPlanRevision !== null && floorPlanRevision !== currentRevision)
+      const floorPlanIfcUrl = floorPlanHistory?.s3Url?.trim() || null
+      const sourceIfcUrl = source?.currentIfcUrl?.trim() || null
+      const sourceIfcStorageUrl = source?.currentIfcStorageUrl?.trim() || sourceIfcUrl
+      const resolvedIfcUrl = floorPlanIfcUrl ?? sourceIfcStorageUrl ?? null
+
+      if (floorPlanSnapshot?.layout && shouldAcceptHistoryCursor) {
+        suppressNextAutosaveRef.current = true
+        applyFloorPlanLayoutState({
+          layout: floorPlanSnapshot.layout,
+          replaceLayoutState: replaceFloorPlanState,
+          fallback: floorPlanSnapshotFallback,
+        })
+
+        const nextBaseIndex = floorPlanHistory?.baseIndex ?? floorPlanHistoryBaseIndexRef.current
+        const nextRedoDepth = floorPlanHistory?.redoDepth ?? floorPlanHistoryRedoDepthRef.current
+        floorPlanHistoryBaseIndexRef.current = nextBaseIndex
+        floorPlanHistoryRedoDepthRef.current = nextRedoDepth
+        setFloorPlanHistoryCursor({ baseIndex: nextBaseIndex, redoDepth: nextRedoDepth })
+        pendingWorkspaceSnapshotCommitRef.current = false
+        pendingServerPublishRef.current = null
+        awaitingServerSyncRef.current = null
+        setSaveStatus(resolveSnapshotSyncStatus())
+      }
+
+      if (resolvedRevision !== null) {
+        setIfcRevisionByProjectId((prev) => ({
+          ...prev,
+          [projectId]: resolvedRevision,
+        }))
+      }
+
+      if (sourceIfcUrl) {
+        setIfcSourceByProjectId((prev) => ({
+          ...prev,
+          [projectId]: {
+            url: sourceIfcUrl,
+            storageUrl: sourceIfcStorageUrl,
+            assetId: source?.currentIfcAssetId ?? null,
+          },
+        }))
+        writeCachedIfcSource(projectId, {
+          url: sourceIfcUrl,
+          storageUrl: sourceIfcStorageUrl,
+          assetId: source?.currentIfcAssetId ?? null,
+          revisionId: sourceRevision ?? resolvedRevision,
+        })
+      }
+
+      if (mode !== '3d' || !resolvedIfcUrl) return
+      if (currentIfcUrl && resolvedRevision !== null && resolvedRevision === currentRevision) return
+
+      await handleIfcSyncMessageRef.current(
+        resolvedIfcUrl,
+        WORKSPACE_SYNC_ACTION.floorPlanUpdated,
+        floorPlanIfcUrl ? undefined : source?.currentIfcAssetId,
+        resolvedRevision,
+      )
+    }
+
+    void hydrateLatestFloorPlanOnModeSwitch().finally(() => {
+      if (modeSwitchFloorPlanHydrationInFlightRef.current === requestKey) {
+        modeSwitchFloorPlanHydrationInFlightRef.current = null
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    applyFloorPlanLayoutState,
+    currentIfcRevisionId,
+    currentIfcUrl,
+    floorPlanSnapshotFallback,
+    mode,
+    projectId,
+    replaceFloorPlanState,
+    resolveSnapshotSyncStatus,
+  ])
+
   // 에디터 첫 진입 시 프로젝트 IFC 소스를 1회 조회해 handleOutputIfcStorageUrl로 로드한다.
   useEffect(() => {
     if (mode !== '3d') return
     if (!projectId) return
     if (saveStatus === 'syncing') return
+    if (modeSwitchFloorPlanHydrationInFlightRef.current?.startsWith(`${projectId}:`)) return
     if (threeDIfcSourceHydrationInFlightRef.current === projectId) return
 
     let cancelled = false

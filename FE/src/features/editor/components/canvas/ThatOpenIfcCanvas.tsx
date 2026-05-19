@@ -385,6 +385,7 @@ const IFC_COMMIT_QUEUE_DELAY_MS = 0
 const IFC_COMMIT_QUIET_WINDOW_MS = 0
 const IFC_COMMIT_INFLIGHT_RETRY_MS = 250
 const IFC_COMMIT_INFLIGHT_STALE_RECOVERY_MS = 1500
+// This timeout protects the local proxy-to-model commit path, not the BE/worker IFC edit ack.
 const IFC_COMMIT_INFLIGHT_TIMEOUT_MS = 35_000
 const SPACE_TRANSFORM_DEDUP_LIMIT = 128
 const DELTA_MODEL_TOKEN = '-DELTA-MODEL-'
@@ -5938,6 +5939,7 @@ export default function ThatOpenIfcCanvas({
       } catch (error) {
         if (disposed) return
         console.error('[editor] IFC load failed', { ifcUrl, error })
+        disposeRetainedVisualScene('ifc_load_error')
         setStatus('error')
         setErrorMessage(error instanceof Error ? error.message : 'IFC model load failed.')
       }
