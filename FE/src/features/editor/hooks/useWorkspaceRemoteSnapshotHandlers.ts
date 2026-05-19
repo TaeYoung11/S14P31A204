@@ -39,6 +39,10 @@ interface FloorPlanLayoutState {
   activeLayerId: string | null
 }
 
+interface ApplyRemoteFloorPlanSnapshotMeta {
+  layoutOnly?: boolean
+}
+
 interface UseWorkspaceRemoteSnapshotHandlersInput {
   projectId: string | null | undefined
   latestBubbleSnapshotRef: MutableRefObject<LatestBubbleSnapshotState>
@@ -272,7 +276,10 @@ export function useWorkspaceRemoteSnapshotHandlers({
     workspaceEditTransactionDepthRef,
   ])
 
-  const applyRemoteFloorPlanSnapshot = useCallback((snapshot: FloorPlanSnapshotPayload) => {
+  const applyRemoteFloorPlanSnapshot = useCallback((
+    snapshot: FloorPlanSnapshotPayload,
+    meta?: ApplyRemoteFloorPlanSnapshotMeta,
+  ) => {
     const hasLocalFloorPlanEditInFlight =
       workspaceEditTransactionDepthRef.current > 0 ||
       pendingWorkspaceSnapshotCommitRef.current
@@ -291,7 +298,7 @@ export function useWorkspaceRemoteSnapshotHandlers({
       }))
     }
 
-    if (isBubbleSnapshotPayload(snapshot)) {
+    if (!meta?.layoutOnly && isBubbleSnapshotPayload(snapshot)) {
       const { normalizedBubbles, floorMeta, availableFloors } =
         resolveNormalizedBubbleSnapshotState(snapshot)
       applyNormalizedBubbleSnapshotState({

@@ -41,7 +41,10 @@ interface UseBubbleSnapshotRealtimeParams {
     snapshot: BubbleSnapshotPayload,
     meta?: { action: string | null; payloadBaseIndex: number | null },
   ) => void
-  onRemoteFloorPlanSnapshot?: (snapshot: FloorPlanSnapshotPayload) => void
+  onRemoteFloorPlanSnapshot?: (
+    snapshot: FloorPlanSnapshotPayload,
+    meta?: { layoutOnly?: boolean },
+  ) => void
   onPhaseStatusChanged?: (status: PhaseStatus) => void
   onIfcStorageUrlReceived?: (
     ifcStorageUrl: string,
@@ -213,9 +216,12 @@ export function useBubbleSnapshotRealtime({
       syncBubbleHistoryCursor(action, payloadBaseIndex)
     }
 
-    const applyFloorPlanSnapshot = (snapshot: FloorPlanSnapshotPayload) => {
+    const applyFloorPlanSnapshot = (
+      snapshot: FloorPlanSnapshotPayload,
+      meta?: { layoutOnly?: boolean },
+    ) => {
       if (floorPlanSnapshotHandlerRef.current) {
-        floorPlanSnapshotHandlerRef.current(snapshot)
+        floorPlanSnapshotHandlerRef.current(snapshot, meta)
       } else {
         remoteSnapshotHandlerRef.current(snapshot)
       }
@@ -286,7 +292,7 @@ export function useBubbleSnapshotRealtime({
         return
       }
 
-      const shouldSkipFloorPlanSnapshotForIfcUpdate =
+      const shouldApplyFloorPlanLayoutOnly =
         action === WORKSPACE_SYNC_ACTION.floorPlanUpdated && extractIfcStorageUrl(parsed) !== null
 
       // 평면도 저장 완료가 곧 발행(publish) 응답(echo)은 아닙니다. 백엔드는 먼저
@@ -299,9 +305,9 @@ export function useBubbleSnapshotRealtime({
         syncFloorPlanHistoryCursor(action, extractFloorPlanBaseIndex(parsed))
       }
 
-      if (shouldApplyFloorPlanHistoryEvent && !shouldSkipFloorPlanSnapshotForIfcUpdate) {
+      if (shouldApplyFloorPlanHistoryEvent) {
         if (floorPlanSnapshot) {
-          applyFloorPlanSnapshot(floorPlanSnapshot)
+          applyFloorPlanSnapshot(floorPlanSnapshot, { layoutOnly: shouldApplyFloorPlanLayoutOnly })
         }
       }
 
