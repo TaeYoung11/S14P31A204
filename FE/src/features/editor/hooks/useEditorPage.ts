@@ -3380,6 +3380,7 @@ export function useEditorPage() {
   const {
     bubbleCanvasViewTransform,
     floorCanvasViewTransform,
+    projectNorthViewRotationRadians,
     mapSnapshotForPersistence,
     mapBubblesForFloorPlanGenerate,
     mapLayoutBoundaryInputForFloorPlanGenerate,
@@ -3388,6 +3389,13 @@ export function useEditorPage() {
     sharedSitePlanPoints,
     userViewRotationRadians,
   })
+  const toggleProjectNorthViewRotation = useCallback(() => {
+    setUserViewRotationRadians((current) => (
+      Math.abs(current - projectNorthViewRotationRadians) < 1e-9
+        ? 0
+        : projectNorthViewRotationRadians
+    ))
+  }, [projectNorthViewRotationRadians])
   // layout effect에서 먼저 ref를 갱신해 bootstrap 초기 publish 경로도 최신 매핑을 사용하게 한다.
   useLayoutEffect(() => {
     mapSnapshotForPersistenceRef.current = mapSnapshotForPersistence
@@ -5632,6 +5640,8 @@ export function useEditorPage() {
     floorCanvasViewTransform,
     userViewRotationRadians,
     setUserViewRotationRadians,
+    projectNorthViewRotationRadians,
+    toggleProjectNorthViewRotation,
     siteAreaM2,
     siteAreaPyeong,
     bubbleFloors,

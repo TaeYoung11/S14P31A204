@@ -190,14 +190,19 @@ export function BubbleCanvas({
   const bubbleDisplayPositions = useMemo(() => {
     const map = new Map<string, { x: number; y: number }>()
     for (const b of bubbles) {
-      map.set(b.id, viewTransform
+      const center = { x: b.x + b.width / 2, y: b.y + b.height / 2 }
+      const displayCenter = viewTransform
         ? rotatePointAround(
-            { x: b.x, y: b.y },
+            center,
             viewTransform.rotationRadians,
             viewTransform.centerX,
             viewTransform.centerY,
           )
-        : { x: b.x, y: b.y })
+        : center
+      map.set(b.id, {
+        x: displayCenter.x - b.width / 2,
+        y: displayCenter.y - b.height / 2,
+      })
     }
     return map
   }, [bubbles, viewTransform])
@@ -263,7 +268,7 @@ export function BubbleCanvas({
   }, [projectId])
 
   // 스케일/패닝이 적용된 Stage에서도 항상 동일한 로컬 캔버스 좌표를 얻기 위한 변환 헬퍼.
-  const { getCanvasPoint, getStagePoint, toScreenPoint } = useCanvasCoordinateHelpers({
+  const { getCanvasPoint, getStagePoint } = useCanvasCoordinateHelpers({
     scale,
     baseOffsetX,
     baseOffsetY,
@@ -420,14 +425,22 @@ export function BubbleCanvas({
     if (!drag) return
     wasResizingRef.current = true
     const preview = resizePreviewRef.current ?? drag
-    const canonicalPos = viewTransform
+    const previewCenter = {
+      x: preview.x + preview.width / 2,
+      y: preview.y + preview.height / 2,
+    }
+    const canonicalCenter = viewTransform
       ? rotatePointAround(
-          { x: preview.x, y: preview.y },
+          previewCenter,
           -viewTransform.rotationRadians,
           viewTransform.centerX,
           viewTransform.centerY,
         )
-      : { x: preview.x, y: preview.y }
+      : previewCenter
+    const canonicalPos = {
+      x: canonicalCenter.x - preview.width / 2,
+      y: canonicalCenter.y - preview.height / 2,
+    }
 
     bubbleResizeDragRef.current = null
     resizePreviewRef.current = null
@@ -725,25 +738,18 @@ export function BubbleCanvas({
         marqueeStart.current = null
         // 마퀴 영역과 겹치는 버블 선택
         if (marquee.width > 5 || marquee.height > 5) {
-          const corners = [
-            { x: marquee.x, y: marquee.y },
-            { x: marquee.x + marquee.width, y: marquee.y },
-            { x: marquee.x, y: marquee.y + marquee.height },
-            { x: marquee.x + marquee.width, y: marquee.y + marquee.height },
-          ]
-          const cCorners = viewTransform
-            ? corners.map((c) =>
-                rotatePointAround(c, -viewTransform.rotationRadians, viewTransform.centerX, viewTransform.centerY),
-              )
-            : corners
-          const cMinX = Math.min(...cCorners.map((c) => c.x))
-          const cMaxX = Math.max(...cCorners.map((c) => c.x))
-          const cMinY = Math.min(...cCorners.map((c) => c.y))
-          const cMaxY = Math.max(...cCorners.map((c) => c.y))
+          const mRight = marquee.x + marquee.width
+          const mBottom = marquee.y + marquee.height
           const selected = bubbles.filter((b) => {
-            const bRight = b.x + b.width
-            const bBottom = b.y + b.height
-            return b.x < cMaxX && bRight > cMinX && b.y < cMaxY && bBottom > cMinY
+            const displayRect = getBubbleDisplayRect(b)
+            const bRight = displayRect.x + displayRect.width
+            const bBottom = displayRect.y + displayRect.height
+            return (
+              displayRect.x < mRight &&
+              bRight > marquee.x &&
+              displayRect.y < mBottom &&
+              bBottom > marquee.y
+            )
           }).map((b) => b.id)
           onMarqueeSelect?.(selected, e.evt.shiftKey)
         }
@@ -994,15 +1000,14 @@ export function BubbleCanvas({
               onDblClick={(e) => {
                 if (!isBubbleEditable) return
                 e.cancelBubble = true
-                const topLeft = toScreenPoint({ x: bubble.x, y: bubble.y })
-                const bottomRight = toScreenPoint({ x: bubble.x + bubble.width, y: bubble.y + bubble.height })
+                const labelEditRect = getBubbleDisplayRect(bubble)
                 onBubbleLabelEdit?.({
                   id: bubble.id,
                   label: bubble.label,
-                  x: Math.min(topLeft.x, bottomRight.x),
-                  y: Math.min(topLeft.y, bottomRight.y),
-                  width: Math.abs(bottomRight.x - topLeft.x),
-                  height: Math.abs(bottomRight.y - topLeft.y),
+                  x: labelEditRect.x * scale + baseOffsetX + panOffset.x,
+                  y: labelEditRect.y * scale + baseOffsetY + panOffset.y,
+                  width: labelEditRect.width * scale,
+                  height: labelEditRect.height * scale,
                 })
               }}
               onMouseEnter={handleMouseEnter}

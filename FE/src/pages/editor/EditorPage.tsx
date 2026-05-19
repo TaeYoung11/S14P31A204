@@ -82,6 +82,8 @@ export default function EditorPage() {
               <div className="absolute right-6 top-6 z-[125]">
                 <CompassControl
                   rotationRadians={vm.userViewRotationRadians}
+                  projectNorthRotationRadians={vm.projectNorthViewRotationRadians}
+                  onToggleProjectNorth={vm.toggleProjectNorthViewRotation}
                 />
               </div>
             )}

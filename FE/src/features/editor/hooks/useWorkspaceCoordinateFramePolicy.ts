@@ -49,6 +49,7 @@ export function useWorkspaceCoordinateFramePolicy({
     () => resolveCanvasViewTransform(sharedSitePlanPoints),
     [sharedSitePlanPoints],
   )
+  const projectNorthViewRotationRadians = projectNorthViewTransform?.rotationRadians ?? 0
 
   const workspaceCanonicalCoordinateFrame = useMemo(
     () => resolveWorkspaceCoordinateFrame(WORKSPACE_CANONICAL_COORDINATE_FRAME_ENV, 'project_north'),
@@ -119,6 +120,7 @@ export function useWorkspaceCoordinateFramePolicy({
   return {
     bubbleCanvasViewTransform,
     floorCanvasViewTransform,
+    projectNorthViewRotationRadians,
     mapSnapshotForPersistence,
     mapBubblesForFloorPlanGenerate,
     mapLayoutBoundaryInputForFloorPlanGenerate,

@@ -322,7 +322,10 @@ export function TwoDCanvasStage({
             listening={SITE_BOUNDARY_LISTENING}
           />
           <DimensionGuidesLayer guides={dimensionGuides} />
-          <TwoDOverlayLayers overlayLayers={overlayLayers} />
+          <TwoDOverlayLayers
+            overlayLayers={overlayLayers}
+            viewRotationRadians={viewTransform?.rotationRadians ?? 0}
+          />
 
           <TwoDRoomsLayer
             rooms={rooms}
@@ -358,6 +361,7 @@ export function TwoDCanvasStage({
             onResizingRoomBubbleIdChange={onResizingRoomBubbleIdChange}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
+            viewRotationRadians={viewTransform?.rotationRadians ?? 0}
           />
 
           <TwoDWallsLayer
