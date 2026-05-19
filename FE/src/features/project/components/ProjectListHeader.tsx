@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertCircle, Bell, KeyRound, LogOut, MessageSquareText, ShieldAlert, UserRoundX } from 'lucide-react'
+import { AlertCircle, Bell, KeyRound, LogOut, MessageSquareText, UserRoundX } from 'lucide-react'
 import BrandLogo from '@/shared/components/BrandLogo'
 import Modal from '@/shared/components/Modal'
 
@@ -54,7 +54,7 @@ export default function ProjectListHeader({
 
   return (
     <>
-      <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b border-[#e5e7eb] bg-white px-8">
+      <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b border-white/80 bg-white/88 px-5 shadow-[0_10px_30px_rgba(15,23,42,0.05)] backdrop-blur md:px-8">
         <div className="flex items-center gap-2">
           <a
             href="/projects"
@@ -67,7 +67,7 @@ export default function ProjectListHeader({
 
         <div className="flex items-center gap-3">
           {userType === 'CUSTOMER' && (
-            <button id="notification-btn" className="btn-icon" title="알림" onClick={onNotificationOpen}>
+            <button id="notification-btn" className="project-icon-button" title="알림" onClick={onNotificationOpen}>
               <span className="relative">
                 <Bell className="h-[18px] w-[18px]" />
                 {invitationNotificationCount > 0 && (
@@ -79,7 +79,7 @@ export default function ProjectListHeader({
 
           <button
             id="comment-notification-btn"
-            className="btn-icon relative"
+            className="project-icon-button relative"
             title="댓글 알림"
             onClick={onCommentNotificationOpen}
           >
@@ -90,11 +90,11 @@ export default function ProjectListHeader({
           </button>
 
           <button
-            className="flex items-center gap-2 rounded-full border border-[#e5e7eb] bg-white px-2 py-1.5 transition-all hover:border-[#c7d2fe] hover:bg-[#f8faff]"
+            className="flex items-center gap-2 rounded-2xl border border-[#e5e7eb] bg-white px-2 py-1.5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-[#c7d2fe] hover:bg-[#f8faff]"
             title={userName}
             onClick={() => setIsProfileModalOpen(true)}
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#111827] text-xs font-medium text-white">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#111827] text-xs font-black text-white">
               {userInitial}
             </span>
           </button>
@@ -105,27 +105,25 @@ export default function ProjectListHeader({
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
         title="프로필"
-        maxWidth="max-w-[360px]"
+        maxWidth="max-w-[380px]"
       >
-        <div className="space-y-3">
-          <div className="account-modal-card">
-            <div className="flex items-center gap-4">
-              <span className="account-modal-avatar">
-                {userInitial}
-              </span>
-              <div className="min-w-0 flex-1">
+        <div className="space-y-4">
+          <div className="account-profile-panel">
+            <div className="flex items-start gap-3">
+              <span className="account-profile-avatar">{userInitial}</span>
+              <div className="min-w-0 flex-1 pt-0.5">
                 <div className="flex min-w-0 items-center gap-2">
-                  <p className="truncate text-xl font-black text-[#111827]">{userName ?? '사용자'}</p>
-                  <span className="shrink-0 rounded-full bg-white/90 px-2.5 py-1 text-xs font-bold text-[#5b45e8] shadow-sm">
+                  <p className="truncate text-lg font-black leading-6 text-[#111827]">{userName ?? '사용자'}</p>
+                  <span className="account-role-badge">
                     {userRoleLabel}
                   </span>
                 </div>
-                <p className="mt-1 truncate text-sm font-semibold text-[#667085]">{userEmail ?? '-'}</p>
+                <p className="mt-1 truncate text-sm font-semibold text-[#64748b]">{userEmail ?? '-'}</p>
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2.5">
             <button
               className="account-modal-action account-modal-action-neutral"
               onClick={() => {
@@ -154,22 +152,12 @@ export default function ProjectListHeader({
         maxWidth="max-w-[420px]"
       >
         <div className="space-y-3.5">
-          <div className="withdraw-modal-panel">
-            <div className="flex items-start gap-3">
-              <span className="withdraw-modal-icon">
-                <ShieldAlert className="h-6 w-6" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="withdraw-modal-title">삭제할 계정을 확인해 주세요.</p>
-                <p className="withdraw-modal-description">
-                  탈퇴 후 계정 정보는 복구할 수 없습니다.
-                </p>
-                <div className="withdraw-modal-user">
-                  <p className="truncate text-sm font-black leading-5 text-[#111827]">{userName ?? '사용자'}</p>
-                  <p className="mt-0.5 truncate text-xs font-semibold text-[#667085]">{userEmail ?? '-'}</p>
-                </div>
-              </div>
+          <div className="withdraw-account-card">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-black leading-5 text-[#111827]">{userName ?? '사용자'}</p>
+              <p className="mt-0.5 truncate text-xs font-semibold text-[#667085]">{userEmail ?? '-'}</p>
             </div>
+            <span className="withdraw-account-badge">복구 불가</span>
           </div>
 
           <div className="withdraw-modal-field">

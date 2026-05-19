@@ -71,14 +71,14 @@ export default function ProjectCommentToast({ onOpenProject }: ProjectCommentToa
   if (toasts.length === 0) return null
 
   return (
-    <div className="fixed right-6 top-20 z-[120] flex w-[340px] flex-col gap-3">
+    <div className="fixed right-6 top-20 z-[120] flex w-[340px] max-w-[calc(100vw-48px)] flex-col gap-3">
       {toasts.map((currentToast) => {
         const canOpenProject = currentToast.type === 'comment' || currentToast.type === 'invitation'
 
         return (
           <div
             key={currentToast.id}
-            className="overflow-hidden rounded-xl border border-[#e5e7eb] bg-white shadow-[0_16px_48px_rgba(15,23,42,0.18)]"
+            className="overflow-hidden rounded-2xl border border-white/80 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]"
           >
             <div className="flex items-start gap-3 p-4">
               <span
@@ -107,7 +107,7 @@ export default function ProjectCommentToast({ onOpenProject }: ProjectCommentToa
               </button>
               <button
                 type="button"
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[#9ca3af] transition-colors hover:bg-[#f3f4f6] hover:text-[#374151]"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[#9ca3af] transition-colors hover:bg-[#f3f4f6] hover:text-[#374151]"
                 onClick={() => dismissToast(currentToast.id)}
                 title="\uD1A0\uC2A4\uD2B8 \uB2EB\uAE30"
               >

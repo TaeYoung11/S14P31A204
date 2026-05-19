@@ -37,8 +37,8 @@ export default function ProjectCommentNotificationModal({
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-end pr-6 pt-16">
       <button className="absolute inset-0 cursor-default" onClick={onClose} aria-label="댓글 알림 닫기" />
-      <div className="relative w-[420px] overflow-hidden rounded-2xl bg-white shadow-[0_8px_40px_rgba(0,0,0,0.16)]">
-        <div className="flex items-center justify-between border-b border-[#f0f2f9] px-5 py-4">
+      <div className="relative w-[420px] overflow-hidden rounded-2xl border border-white/80 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
+        <div className="flex items-center justify-between border-b border-[#eef2f7] bg-white px-5 py-4">
           <div className="flex min-w-0 items-center gap-2">
             <MessageSquareText className="h-[18px] w-[18px] text-[#4f46e5]" />
             <h3 className="truncate text-[15px] font-black text-[#111827]">안 읽은 댓글</h3>
@@ -51,7 +51,7 @@ export default function ProjectCommentNotificationModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-1 text-[#9ca3af] transition-colors hover:text-[#111827]"
+            className="project-icon-button h-8 w-8"
             title="닫기"
           >
             <X className="h-[18px] w-[18px]" />

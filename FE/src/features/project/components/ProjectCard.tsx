@@ -48,8 +48,8 @@ export default function ProjectCard({
 
   return (
     <div
-      className={`group relative cursor-pointer rounded-xl border bg-white transition-all duration-300 hover:shadow-lg ${
-        isSelected ? 'border-[#2563eb]' : 'border-[#e5e7eb]'
+      className={`group project-surface relative cursor-pointer rounded-2xl transition-colors hover:border-[#c7d2fe] hover:shadow-[0_16px_42px_rgba(15,23,42,0.10)] ${
+        isSelected ? 'border-[#4f46e5]' : ''
       }`}
       onClick={
         isSelectionMode
@@ -60,7 +60,7 @@ export default function ProjectCard({
       }
     >
       {isSelected && (
-        <div className="pointer-events-none absolute inset-0 z-10 rounded-xl ring-2 ring-[#93c5fd]" />
+        <div className="pointer-events-none absolute inset-0 z-10 rounded-2xl ring-2 ring-[#93c5fd]" />
       )}
       {!isListView && (
         <Link
@@ -68,7 +68,7 @@ export default function ProjectCard({
           className={`block ${isSelectionMode ? 'pointer-events-none' : ''}`}
           onClick={handleOpenProject}
         >
-          <div className="relative h-44 overflow-hidden bg-gradient-to-br from-[#f1f3f5] to-[#e5e7eb]">
+          <div className="relative h-40 overflow-hidden bg-gradient-to-br from-[#eef2ff] via-[#f8fafc] to-[#e0f2fe]">
             {project.thumbnail_url ? (
               <img
                 src={project.thumbnail_url}
@@ -76,8 +76,8 @@ export default function ProjectCard({
                 className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#f8f9fa] to-[#e5e7eb]">
-                <Box className="h-12 w-12 text-[#d1d5db]" />
+              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#eef2ff] via-white to-[#e0f2fe]">
+                <Box className="h-12 w-12 text-[#c7d2fe]" />
               </div>
             )}
 
@@ -86,8 +86,8 @@ export default function ProjectCard({
                 type="button"
                 className={`absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
                   isSelected
-                    ? 'border-[#2563eb] bg-[#2563eb] text-white'
-                    : 'border-white/80 bg-white/90 text-transparent backdrop-blur-sm hover:border-[#2563eb] hover:text-[#2563eb]'
+                    ? 'border-[#4f46e5] bg-[#4f46e5] text-white'
+                    : 'border-white/80 bg-white/90 text-transparent backdrop-blur-sm hover:border-[#4f46e5] hover:text-[#4f46e5]'
                 }`}
                 onClick={handleToggleSelect}
                 title={isSelected ? '선택 해제' : '선택'}
@@ -97,7 +97,7 @@ export default function ProjectCard({
             ) : (
               isDesigner && (
                 <button
-                  className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-lg bg-white/90 opacity-0 shadow-sm backdrop-blur-sm transition-opacity duration-200 hover:bg-white group-hover:opacity-100"
+                  className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-xl bg-white/90 opacity-0 shadow-sm backdrop-blur-sm transition-opacity duration-200 hover:bg-white group-hover:opacity-100"
                   onClick={(e) => {
                     e.preventDefault()
                     onEdit(project)
@@ -120,8 +120,8 @@ export default function ProjectCard({
                 type="button"
                 className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors ${
                   isSelected
-                    ? 'border-[#2563eb] bg-[#2563eb] text-white'
-                    : 'border-[#cbd5e1] bg-white text-transparent hover:border-[#2563eb] hover:text-[#2563eb]'
+                    ? 'border-[#4f46e5] bg-[#4f46e5] text-white'
+                    : 'border-[#cbd5e1] bg-white text-transparent hover:border-[#4f46e5] hover:text-[#4f46e5]'
                 }`}
                 onClick={handleToggleSelect}
                 title={isSelected ? '선택 해제' : '선택'}
@@ -135,7 +135,7 @@ export default function ProjectCard({
               className={`min-w-0 flex-1 ${isSelectionMode ? 'pointer-events-none' : ''}`}
               onClick={handleOpenProject}
             >
-              <h3 className="truncate text-sm font-bold text-[#111827] transition-colors group-hover:text-[#4f46e5]">
+              <h3 className="truncate text-[15px] font-black text-[#111827] transition-colors group-hover:text-[#4f46e5]">
                 {project.name}
               </h3>
             </Link>
@@ -143,7 +143,7 @@ export default function ProjectCard({
 
           {isListView && isDesigner && !isSelectionMode && (
             <button
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f8fafc] text-[#374151] transition-colors hover:bg-[#eef2ff] hover:text-[#4f46e5]"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#f8fafc] text-[#374151] transition-colors hover:bg-[#eef2ff] hover:text-[#4f46e5]"
               onClick={(e) => {
                 e.preventDefault()
                 onEdit(project)
@@ -155,16 +155,16 @@ export default function ProjectCard({
           )}
         </div>
 
-        <p className={`mb-3 text-xs text-[#6b7280] ${isListView ? 'line-clamp-2' : 'truncate'}`}>{project.description}</p>
+        <p className={`mb-3 text-xs font-medium text-[#64748b] ${isListView ? 'line-clamp-2' : 'truncate'}`}>{project.description}</p>
 
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center -space-x-1.5">
             {Array.from({ length: Math.min(project.member_count, 3) }).map((_, i) => (
               <div
                 key={i}
-                className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-[#e5e7eb]"
+                className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-[#eef2ff]"
               >
-                <span className="text-[10px] font-medium text-[#6b7280]">
+                <span className="text-[10px] font-black text-[#4f46e5]">
                   {String.fromCharCode(65 + i)}
                 </span>
               </div>
@@ -185,7 +185,7 @@ export default function ProjectCard({
               <div className="relative shrink-0">
                 <button
                   id={`project-menu-${project.id}`}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-[#9ca3af] transition-all hover:bg-[#f3f4f6] hover:text-[#374151]"
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-[#9ca3af] transition-all hover:bg-[#f3f4f6] hover:text-[#374151]"
                   onClick={(e) => {
                     e.preventDefault()
                     setMenuOpen(!menuOpen)
@@ -195,7 +195,7 @@ export default function ProjectCard({
                   <MoreHorizontal className="h-4 w-4" />
                 </button>
                 {menuOpen && (
-                  <div className="absolute right-0 top-8 z-10 w-44 rounded-lg border border-[#e5e7eb] bg-white py-1 shadow-[0_4px_12px_rgba(0,0,0,0.1)]">
+                  <div className="absolute right-0 top-8 z-20 w-44 overflow-hidden rounded-xl border border-[#e5e7eb] bg-white py-1 shadow-[0_18px_42px_rgba(15,23,42,0.16)]">
                     <button
                       className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[#374151] hover:bg-[#f3f4f6]"
                       onClick={() => {
