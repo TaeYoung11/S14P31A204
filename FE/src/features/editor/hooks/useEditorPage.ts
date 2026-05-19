@@ -4605,7 +4605,7 @@ export function useEditorPage() {
         color: string
       }>()
       floorLayers.forEach((layer, index) => {
-        const floorNumber = index + 1
+        const floorNumber = resolveBubbleFloorFromLayer(layer, index)
         layer.rooms.forEach((room) => {
           roomByBubbleId.set(room.bubbleId, {
             floor: floorNumber,
@@ -4652,7 +4652,7 @@ export function useEditorPage() {
         generationBoundaryInput,
         {
           spaceHeightMm: options.spaceHeightMm,
-          additionalFloors: floorLayers.map((_, index) => index + 1),
+          additionalFloors: floorLayers.map((layer, index) => resolveBubbleFloorFromLayer(layer, index)),
         },
       )
       const response = await requestFloorPlanGenerate({
