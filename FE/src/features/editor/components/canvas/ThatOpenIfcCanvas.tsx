@@ -1057,6 +1057,34 @@ export default function ThatOpenIfcCanvas({
     const runtimeState = transformRuntimeStateRef.current
     return isTransformSessionLocked(runtimeState)
   }, [transformRuntimeStateRef])
+  const waitForIfcCommitInFlightToSettle = useCallback(async (reason: string, timeoutMs = 1400) => {
+    if (typeof window === 'undefined') return
+    if (!ifcCommitInFlightRef.current) return
+    const startedAt = performance.now()
+    await new Promise<void>((resolve) => {
+      const poll = () => {
+        if (!ifcCommitInFlightRef.current) {
+          logIfcMove('commit_wait_settled', {
+            reason,
+            elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+          })
+          resolve()
+          return
+        }
+        if (performance.now() - startedAt >= timeoutMs) {
+          logIfcMove('commit_wait_timeout', {
+            reason,
+            elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+            timeoutMs,
+          })
+          resolve()
+          return
+        }
+        window.setTimeout(poll, 16)
+      }
+      poll()
+    })
+  }, [logIfcMove])
   useEffect(() => {
     logIfcMove('local3d_canvas_mounted', {
       mode: 'ifc',
@@ -2458,6 +2486,81 @@ export default function ThatOpenIfcCanvas({
     resolveLocalIdsFromItemIds,
     sanitizeMappedLocalIds,
     transformRuntimeStateRef,
+  ])
+  const commitActiveIfcBeforeHierarchySelection = useCallback(async (
+    sceneState: ThatOpenSceneState,
+    target: Extract<Selected3DTarget, { source: 'ifc' }>,
+    nextLocalId: number | null,
+    reason: string,
+  ) => {
+    if (ifcCommitInFlightRef.current) {
+      await waitForIfcCommitInFlightToSettle(`${reason}_precheck`)
+    }
+    const shouldCommit = ifcMoveDirtyRef.current || ifcCommitInFlightRef.current
+    logIfcMove('hierarchy_selection_commit_decision', {
+      reason,
+      shouldCommit,
+      ifcMoveDirty: ifcMoveDirtyRef.current,
+      commitInFlight: ifcCommitInFlightRef.current,
+      fromLocalId: target.localId,
+      fromHitLocalId: target.hitLocalId,
+      toLocalId: Number.isFinite(nextLocalId) ? nextLocalId : null,
+    })
+    if (!shouldCommit) return target
+    if (!target.object) {
+      ifcMoveDirtyRef.current = false
+      return target
+    }
+
+    ifcCommitInFlightRef.current = true
+    try {
+      await commitIfcProxyTransformToModel(sceneState, target, {
+        keepProxyVisibleAfterCommit: true,
+      })
+      const moveState = ifcMoveLifecycleRef.current
+      if (moveState.lastError) {
+        logIfcMove('hierarchy_selection_commit_failed', {
+          reason,
+          modelId: target.modelId,
+          localId: target.localId,
+          error: moveState.lastError,
+        })
+        return target
+      }
+      ifcMoveDirtyRef.current = false
+      const editable = target.object as IfcEditableObject3D
+      const resolvedModelId = editable.userData.ifcEditTarget?.modelId ?? target.modelId
+      const normalizedResolvedModelId = normalizeRootModelId(resolvedModelId, sceneState.modelId)
+      const committedTarget: Extract<Selected3DTarget, { source: 'ifc' }> = {
+        ...target,
+        modelId: normalizedResolvedModelId,
+        object: target.object,
+        keepModelHiddenAfterCommit: Boolean(editable.userData.ifcKeepModelHiddenAfterCommit),
+        visibilityRestoredAtCommit: false,
+      }
+      selectedTargetRef.current = committedTarget
+      logIfcMove('hierarchy_selection_commit_success', {
+        reason,
+        modelId: normalizedResolvedModelId,
+        localId: committedTarget.localId,
+        hitLocalId: committedTarget.hitLocalId,
+      })
+      return committedTarget
+    } catch (error) {
+      logIfcMove('hierarchy_selection_commit_exception', {
+        reason,
+        modelId: target.modelId,
+        localId: target.localId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return target
+    } finally {
+      ifcCommitInFlightRef.current = false
+    }
+  }, [
+    commitIfcProxyTransformToModel,
+    logIfcMove,
+    waitForIfcCommitInFlightToSettle,
   ])
   const deleteSelectedTarget = useCallback(async () => {
     const sceneState = sceneRef.current
@@ -6252,7 +6355,7 @@ export default function ThatOpenIfcCanvas({
               deferredHierarchySelectionRef.current = null
             }
             handledIfcSelectionRequestTokenRef.current = ifcElementSelectionRequestToken
-            const currentTarget = selectedTargetRef.current
+            let currentTarget = selectedTargetRef.current
             if (currentTarget?.source === 'ifc' && currentTarget.hitLocalId === requestedIfcElementLocalId) {
               if (currentTarget.object && isObjectInSceneGraph(sceneState.scene, currentTarget.object)) {
                 sceneState.transformControls.attach(currentTarget.object)
@@ -6264,6 +6367,16 @@ export default function ThatOpenIfcCanvas({
                 onThreeDCoordinatesChangeRef.current?.(toDisplayCoordinates(currentTarget.object.position))
                 return
               }
+            }
+
+            if (currentTarget?.source === 'ifc') {
+              currentTarget = await commitActiveIfcBeforeHierarchySelection(
+                sceneState,
+                currentTarget,
+                requestedIfcElementLocalId,
+                'requested_select_ifc',
+              )
+              if (isCancelled) return
             }
 
             if (currentTarget) {
@@ -6462,6 +6575,7 @@ export default function ThatOpenIfcCanvas({
     }
   }, [
     ifcElementSelectionRequestToken,
+    commitActiveIfcBeforeHierarchySelection,
     findMovedIfcProxyRecord,
     hierarchySelectionRetryTick,
     isMovedIfcProxyObject,
@@ -6515,10 +6629,20 @@ export default function ThatOpenIfcCanvas({
           deferredHierarchySelectionRef.current = null
         }
         handledLibrarySelectionRequestTokenRef.current = libraryElementSelectionRequestToken
-        const currentTarget = selectedTargetRef.current
+        let currentTarget = selectedTargetRef.current
         if (currentTarget?.source === 'library') {
           const selectedPreset = getLibraryPresetFromObject(currentTarget.object as LibraryObject3D)
           if (selectedPreset?.id === requestedLibraryElementId) return
+        }
+
+        if (currentTarget?.source === 'ifc') {
+          currentTarget = await commitActiveIfcBeforeHierarchySelection(
+            sceneState,
+            currentTarget,
+            null,
+            'requested_select_library',
+          )
+          if (isCancelled) return
         }
 
         if (currentTarget) {
@@ -6584,6 +6708,7 @@ export default function ThatOpenIfcCanvas({
     }
   }, [
     libraryElementSelectionRequestToken,
+    commitActiveIfcBeforeHierarchySelection,
     hierarchySelectionRetryTick,
     ifcElementSelectionRequestToken,
     logIfcMove,
