@@ -120,6 +120,25 @@ def test_ifc_generate_payload_accepts_v2_layout_import() -> None:
     assert model.commandType == "IFC_GENERATE_FROM_BUBBLE"
 
 
+def test_ifc_generate_payload_accepts_v2_layout_import_room_metadata() -> None:
+    data = load_json(SAMPLE_ROOT / "command_ifc_generate.json")
+    data["payload"]["layoutImport"]["rooms"][0].update(
+        {
+            "source_bubble_id": "1779068324499-d1o9",
+            "original_label": "Living Room",
+            "original_type": "living",
+            "material": "wood",
+            "color": "#FF5733",
+            "wall_type": "general",
+        }
+    )
+
+    model = CommandMessage.model_validate(data)
+
+    assert model.commandType == "IFC_GENERATE_FROM_BUBBLE"
+    assert model.payload.layoutImport.rooms[0].source_bubble_id == "1779068324499-d1o9"
+
+
 def test_ifc_generate_payload_accepts_snake_case_layout_import_from_be() -> None:
     data = load_json(SAMPLE_ROOT / "command_ifc_generate.json")
     payload = data.pop("payload")
@@ -196,6 +215,37 @@ def test_ifc_edit_accepts_current_ai_authoring_engine_request_key() -> None:
     model = CommandMessage.model_validate(data)
 
     assert model.payload.engineRequest.schema_version == "v1"
+
+
+def test_ifc_edit_accepts_v2_axis_angle_engine_request_key() -> None:
+    data = load_json(SAMPLE_ROOT / "command_ifc_edit.json")
+    data["payload"] = {
+        "engineRequest": {
+            "schema_version": "v2",
+            "request_id": "direct-axis-angle-001",
+            "mode": "apply",
+            "project_id": "project-001",
+            "base_revision_id": "revision-001",
+            "operations": [
+                {
+                    "id": "op-rotate-roof",
+                    "type": "transform_elements",
+                    "selector": {"global_ids": ["0J$w4y0HD2Gv9QfKZ6B9s1"]},
+                    "parameters": {
+                        "rotation_deg": {
+                            "axis": {"x": 0.0, "y": 0.0, "z": 1.0},
+                            "angle": 90.0,
+                            "pivot": "BBOX_CENTER",
+                        }
+                    },
+                }
+            ],
+        }
+    }
+
+    model = CommandMessage.model_validate(data)
+
+    assert model.payload.engineRequest.schema_version == "v2"
 
 
 def test_ifc_edit_rejects_snake_case_engine_request_key() -> None:

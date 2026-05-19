@@ -17,9 +17,9 @@ import ThreeDCanvasScene from './ThreeDCanvasScene'
 import ThreeDLibraryPanel from './ThreeDLibraryPanel'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
 import { DEFAULT_MOCK_IFC_URL } from './threeDCanvas.utils'
-import type { ThreeDLibraryPreset } from './threeDLibrary.types'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import { useThreeDLibraryDrop } from './useThreeDLibraryDrop'
+import type { ThreeDLibraryPreset } from './threeDLibrary.types'
 
 type ThreeDCoordinates = { x: number; y: number; z: number }
 
@@ -99,12 +99,12 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
 
   const { onAddLibraryPreset } = props
   const addLibraryPreset = useCallback(
-  (preset: ThreeDLibraryPreset) => {
-    if (isEditingLocked) return
-    onAddLibraryPreset(preset)
-  },
-  [isEditingLocked, onAddLibraryPreset],
-)
+    (preset: ThreeDLibraryPreset) => {
+      if (isEditingLocked) return
+      onAddLibraryPreset(preset)
+    },
+    [isEditingLocked, onAddLibraryPreset],
+  )
 
   useCtrlWheelZoom({
     rootRef,
@@ -181,7 +181,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
           isEditingLocked={isEditingLocked}
           onAddPreset={(preset) => {
             if (isEditingLocked) return
-            props.onAddLibraryPreset(preset)
+            addLibraryPreset(preset)
             props.onToggleLibrary?.()
           }}
         />
