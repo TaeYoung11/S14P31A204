@@ -1,5 +1,5 @@
 // 로그인 페이지의 이메일 조합, 기억하기, 제출 상태를 관리합니다.
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   buildEmail,
@@ -9,6 +9,7 @@ import {
   splitEmail,
   type EmailDomainOption,
 } from '@/features/auth/constants/email'
+import { clearWithdrawNotice, readWithdrawNotice } from '@/features/auth/constants/storage'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 
 const REMEMBERED_EMAIL_KEY = 'batang-remembered-email'
@@ -38,8 +39,14 @@ export const useLoginPage = () => {
   const [showPw, setShowPw] = useState(false)
   const [rememberEmail, setRememberEmail] = useState(Boolean(initialEmail))
   const [loginValidationError, setLoginValidationError] = useState('')
+  const [hasWithdrawNotice] = useState(() => readWithdrawNotice() || Boolean(locationState?.withdrawn))
 
   const email = useMemo(() => buildEmail(emailLocalPart, emailDomain), [emailDomain, emailLocalPart])
+
+  useEffect(() => {
+    if (!hasWithdrawNotice) return
+    clearWithdrawNotice()
+  }, [hasWithdrawNotice])
 
   const validateEmailInput = (localPart: string, domain: string) => {
     const nextEmail = buildEmail(localPart, domain)
@@ -94,7 +101,7 @@ export const useLoginPage = () => {
     loginError,
     loginValidationError,
     isLoggingIn,
-    loginNotice: locationState?.withdrawn ? '회원 탈퇴가 완료되었습니다. 다시 로그인해 주세요.' : '',
+    loginNotice: hasWithdrawNotice ? '회원 탈퇴가 완료되었습니다. 다시 로그인해 주세요.' : '',
     setEmailLocalPart: (value: string) => {
       const nextLocalPart = sanitizeEmailSegment(value)
       setEmailLocalPart(nextLocalPart)

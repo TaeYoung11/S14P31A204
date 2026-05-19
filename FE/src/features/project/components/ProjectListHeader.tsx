@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Bell, KeyRound, LogOut, MessageSquareText, ShieldAlert, UserRoundX } from 'lucide-react'
+import { AlertCircle, Bell, KeyRound, LogOut, MessageSquareText, ShieldAlert, UserRoundX } from 'lucide-react'
 import BrandLogo from '@/shared/components/BrandLogo'
 import Modal from '@/shared/components/Modal'
 
@@ -108,9 +108,9 @@ export default function ProjectListHeader({
         maxWidth="max-w-[360px]"
       >
         <div className="space-y-3">
-          <div className="rounded-[28px] border border-[#e5e7f6] bg-[linear-gradient(145deg,#ffffff_0%,#f8f6ff_58%,#f0edff_100%)] p-5 shadow-[0_18px_48px_rgba(79,70,229,0.14)]">
+          <div className="account-modal-card">
             <div className="flex items-center gap-4">
-              <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[22px] bg-[#111827] text-2xl font-black text-white shadow-[0_18px_34px_rgba(17,24,39,0.24)]">
+              <span className="account-modal-avatar">
                 {userInitial}
               </span>
               <div className="min-w-0 flex-1">
@@ -127,7 +127,7 @@ export default function ProjectListHeader({
 
           <div className="grid grid-cols-2 gap-2">
             <button
-              className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-[#e6e8f2] bg-white text-sm font-bold text-[#334155] shadow-sm transition-all hover:-translate-y-0.5 hover:border-[#c7d2fe] hover:text-[#4f46e5] hover:shadow-md"
+              className="account-modal-action account-modal-action-neutral"
               onClick={() => {
                 setIsProfileModalOpen(false)
                 onLogout()
@@ -137,7 +137,7 @@ export default function ProjectListHeader({
               로그아웃
             </button>
             <button
-              className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-[#fecaca] bg-[#fff7f7] text-sm font-bold text-[#dc2626] shadow-sm transition-all hover:-translate-y-0.5 hover:bg-[#fef2f2] hover:shadow-md"
+              className="account-modal-action account-modal-action-danger"
               onClick={handleOpenWithdraw}
             >
               <UserRoundX className="h-4 w-4" />
@@ -151,32 +151,36 @@ export default function ProjectListHeader({
         isOpen={isWithdrawModalOpen}
         onClose={() => setIsWithdrawModalOpen(false)}
         title="회원탈퇴"
-        maxWidth="max-w-[460px]"
+        maxWidth="max-w-[420px]"
       >
-        <div className="space-y-5">
-          <div className="rounded-2xl border border-[#fecaca] bg-[linear-gradient(135deg,#fff7f7,#ffffff)] p-4">
-            <div className="flex gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#fee2e2] text-[#dc2626]">
-                <ShieldAlert className="h-5 w-5" />
+        <div className="space-y-3.5">
+          <div className="withdraw-modal-panel">
+            <div className="flex items-start gap-3">
+              <span className="withdraw-modal-icon">
+                <ShieldAlert className="h-6 w-6" />
               </span>
-              <div>
-                <p className="text-sm font-bold text-[#991b1b]">계정 삭제 전 확인이 필요합니다.</p>
-                <p className="mt-1 text-xs leading-5 text-[#7f1d1d]/80">
-                  탈퇴를 진행하면 계정과 관련된 정보가 삭제되며 복구할 수 없습니다. 계속하려면 비밀번호를 입력해 주세요.
+              <div className="min-w-0 flex-1">
+                <p className="withdraw-modal-title">삭제할 계정을 확인해 주세요.</p>
+                <p className="withdraw-modal-description">
+                  탈퇴 후 계정 정보는 복구할 수 없습니다.
                 </p>
+                <div className="withdraw-modal-user">
+                  <p className="truncate text-sm font-black leading-5 text-[#111827]">{userName ?? '사용자'}</p>
+                  <p className="mt-0.5 truncate text-xs font-semibold text-[#667085]">{userEmail ?? '-'}</p>
+                </div>
               </div>
             </div>
           </div>
 
-          <div>
+          <div className="withdraw-modal-field">
             <label htmlFor="withdraw-password" className="auth-label">
-              비밀번호
+              비밀번호로 본인 확인
             </label>
             <div className="relative">
               <input
                 id="withdraw-password"
                 type="password"
-                className="input-auth pr-11"
+                className="input-auth withdraw-modal-input pr-11"
                 placeholder="비밀번호를 입력해 주세요"
                 value={withdrawPassword}
                 onChange={(e) => setWithdrawPassword(e.target.value)}
@@ -185,12 +189,22 @@ export default function ProjectListHeader({
             </div>
           </div>
 
-          {withdrawError && <p className="form-error">{withdrawError}</p>}
+          {withdrawError && (
+            <div className="withdraw-error-box" role="alert">
+              <span className="withdraw-error-icon" aria-hidden="true">
+                <AlertCircle className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-black text-[#991b1b]">회원탈퇴에 실패했습니다.</p>
+                <p className="mt-1 text-xs leading-5 text-[#b91c1c]/80">{withdrawError}</p>
+              </div>
+            </div>
+          )}
 
-          <div className="grid grid-cols-2 gap-2 pt-1">
+          <div className="withdraw-modal-actions">
             <button
               type="button"
-              className="min-h-11 rounded-xl border border-[#e5e7eb] bg-white px-4 text-sm font-semibold text-[#334155] transition-all hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-60"
+              className="account-modal-action account-modal-action-neutral"
               onClick={() => setIsWithdrawModalOpen(false)}
               disabled={isWithdrawing}
             >
@@ -198,7 +212,7 @@ export default function ProjectListHeader({
             </button>
             <button
               type="button"
-              className="min-h-11 rounded-xl bg-[#dc2626] px-4 text-sm font-semibold text-white shadow-[0_14px_30px_rgba(220,38,38,0.20)] transition-all hover:bg-[#b91c1c] disabled:cursor-not-allowed disabled:opacity-50"
+              className="withdraw-submit-button"
               onClick={handleConfirmWithdraw}
               disabled={isWithdrawing || withdrawPassword.trim().length === 0}
             >

@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { AlertCircle, MailCheck, Timer } from 'lucide-react'
 import { useRegisterPage } from '@/features/auth/hooks/useRegisterPage'
 import AuthLayout from '@/shared/components/AuthLayout'
 import EmailDomainField from '@/shared/components/auth/EmailDomainField'
@@ -217,20 +218,40 @@ export default function RegisterPage() {
           isOpen={isEmailVerificationOpen}
           onClose={closeEmailVerificationModal}
           title="이메일 인증"
-          maxWidth="max-w-[460px]"
+          maxWidth="max-w-[420px]"
         >
-          <div className="space-y-4">
-            <div className="rounded-xl border border-[#e5e7eb] bg-[#f8fafc] px-4 py-3">
-              <p className="text-xs font-medium text-[#64748b]">전송 이메일</p>
-              <p className="mt-1 text-sm font-semibold text-[#111827]">{form.email}</p>
+          <div className="space-y-3.5">
+            <div className="email-verify-panel">
+              <div className="flex items-start gap-3">
+                <span className="email-verify-icon" aria-hidden="true">
+                  <MailCheck className="h-6 w-6" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="email-verify-title">인증 코드를 보냈습니다.</p>
+                  <p className="email-verify-description">
+                    받은 메일함에서 6자리 인증 코드를 확인해 주세요.
+                  </p>
+                </div>
+              </div>
+
+              <div className="email-verify-address">
+                <p className="text-[11px] font-bold text-[#64748b]">전송 이메일</p>
+                <p className="mt-1 truncate text-sm font-black leading-5 text-[#111827]">{form.email}</p>
+              </div>
+
               {emailVerificationNotice && (
-                <p className={`mt-2 text-xs ${isEmailCodeExpired ? 'text-[#dc2626]' : 'text-[#4b5563]'}`}>
+                <div
+                  className={`email-verify-notice ${
+                    isEmailCodeExpired ? 'email-verify-notice-danger' : 'email-verify-notice-active'
+                  }`}
+                >
+                  <Timer className="h-4 w-4 shrink-0" />
                   {emailVerificationNotice}
-                </p>
+                </div>
               )}
             </div>
 
-            <div>
+            <div className="email-verify-code-card">
               <label htmlFor="email-verification-code" className="auth-label">
                 인증 코드
               </label>
@@ -239,7 +260,7 @@ export default function RegisterPage() {
                 type="text"
                 inputMode="numeric"
                 maxLength={6}
-                className="input-base"
+                className="input-base email-verify-input"
                 placeholder="6자리 코드"
                 value={emailVerificationInput}
                 onChange={(e) => {
@@ -248,15 +269,18 @@ export default function RegisterPage() {
                 }}
               />
               {emailVerificationError && (
-                <p className="mt-1 text-[11px] leading-4 text-[#dc2626]">{emailVerificationError}</p>
+                <div className="email-verify-error" role="alert">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  {emailVerificationError}
+                </div>
               )}
             </div>
 
-            <div className="flex gap-2">
+            <div className="email-verify-actions">
               <button
                 type="button"
                 onClick={handleOpenEmailVerification}
-                className="btn-secondary flex-1"
+                className="email-verify-button border-[#e6e8f2] bg-white text-[#334155] hover:border-[#c7d2fe] hover:text-[#4f46e5]"
                 disabled={isSendingEmailCode}
               >
                 {isSendingEmailCode ? '재전송 중...' : '재전송'}
@@ -264,7 +288,7 @@ export default function RegisterPage() {
               <button
                 type="button"
                 onClick={handleConfirmEmailVerification}
-                className="btn-primary flex-1"
+                className="email-verify-button border-[#4f46e5] bg-[#4f46e5] text-white shadow-[0_14px_30px_rgba(79,70,229,0.20)] hover:bg-[#4338ca]"
                 disabled={isVerifyingEmailCode || isEmailCodeExpired}
               >
                 {isVerifyingEmailCode ? '확인 중...' : '확인'}
