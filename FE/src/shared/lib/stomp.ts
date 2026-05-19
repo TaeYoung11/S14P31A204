@@ -2,14 +2,29 @@ import { Client } from '@stomp/stompjs'
 import { useAuthStore } from '@/shared/stores/authStore'
 import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
 
-export let stompClient: Client | null = null
-
 const DEFAULT_API_BASE_URL = '/api/v1'
 const STOMP_ENDPOINT_PATH = '/ws-ifc'
 const STOMP_SOCKET_OPEN = 1
 const STOMP_CONNECT_TIMEOUT_MS = 5000
+const STOMP_GLOBAL_STATE_KEY = '__batangStompClientState__'
 
-let stompConnectPromise: Promise<void> | null = null
+interface StompClientGlobalState {
+  client: Client | null
+  connectPromise: Promise<void> | null
+}
+
+const getStompGlobalState = (): StompClientGlobalState => {
+  const scope = globalThis as typeof globalThis & Record<string, StompClientGlobalState | undefined>
+  scope[STOMP_GLOBAL_STATE_KEY] ??= {
+    client: null,
+    connectPromise: null,
+  }
+  return scope[STOMP_GLOBAL_STATE_KEY]
+}
+
+const stompGlobalState = getStompGlobalState()
+
+export let stompClient: Client | null = stompGlobalState.client
 
 interface StoredAuthState {
   state?: {
@@ -56,9 +71,16 @@ export const hasStompAccessToken = (): boolean => {
 
 /** 앱 전역에서 공유하는 STOMP 클라이언트를 생성한다. */
 export const createStompClient = (): Client => {
+  if (stompGlobalState.client) {
+    stompClient = stompGlobalState.client
+    return stompGlobalState.client
+  }
+
   const client = new Client({
     brokerURL: resolveStompBrokerUrlFromApi(),
     reconnectDelay: 3000,
+    heartbeatIncoming: 10000,
+    heartbeatOutgoing: 10000,
     beforeConnect: async () => {
       const accessToken = resolveAccessToken()
       if (!accessToken) {
@@ -75,21 +97,29 @@ export const createStompClient = (): Client => {
     onDisconnect: () => {
       console.log('[STOMP] Disconnected')
     },
+    onWebSocketClose: (event) => {
+      console.log('[STOMP] WS closed', { code: event?.code, reason: event?.reason, wasClean: event?.wasClean })
+    },
+    onWebSocketError: (event) => {
+      console.warn('[STOMP] WS error', event)
+    },
     onStompError: (frame) => {
       console.error('[STOMP] Error:', frame)
     },
   })
 
+  stompGlobalState.client = client
   stompClient = client
   return client
 }
 
 /** 단일 STOMP 클라이언트 인스턴스를 반환한다. */
 export const getStompClient = (): Client => {
-  if (!stompClient) {
+  if (!stompGlobalState.client) {
     return createStompClient()
   }
-  return stompClient
+  stompClient = stompGlobalState.client
+  return stompGlobalState.client
 }
 
 const isStompSocketOpen = (client: Client): boolean =>
@@ -115,18 +145,29 @@ export const ensureStompConnected = async (): Promise<Client> => {
   const client = getStompClient()
   if (isStompSocketOpen(client)) return client
 
-  if (client.connected && client.webSocket?.readyState !== STOMP_SOCKET_OPEN) {
-    client.forceDisconnect()
-  }
-
+  // 끊긴 상태에서 명시적으로 forceDisconnect를 호출하면 stomp.js 내부의
+  // 자동 재연결 흐름과 경합해 매 publish마다 새 WebSocket이 열리는 증상이 있었다.
+  // reconnectDelay에 의한 자동 재연결을 신뢰하고, 아직 활성화 전이라면 activate만 호출한다.
   if (!client.active) {
     client.activate()
   }
 
-  stompConnectPromise ??= waitForStompConnection(client).finally(() => {
-    stompConnectPromise = null
+  stompGlobalState.connectPromise ??= waitForStompConnection(client).finally(() => {
+    stompGlobalState.connectPromise = null
   })
-  await stompConnectPromise
+  await stompGlobalState.connectPromise
 
   return client
+}
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    const client = stompGlobalState.client
+    stompGlobalState.client = null
+    stompGlobalState.connectPromise = null
+    stompClient = null
+    if (client?.active || client?.connected) {
+      void client.deactivate()
+    }
+  })
 }

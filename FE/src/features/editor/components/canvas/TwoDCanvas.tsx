@@ -506,8 +506,11 @@ export function TwoDCanvas({
   }, [wallContextMenu])
 
   // ── 생성 전 / 생성 중 화면 ───────────────────────────────────────────────
+  // 첫 generation일 때만 FloorPlanLoading을 표시한다.
+  // 이미 생성된 평면도에 대한 IFC 편집 후속 처리(CONVERTING) 중에는
+  // 기존 캔버스를 유지해 매 편집마다 깜빡이는 현상을 막는다.
   if (!isGenerated && !isGenerating) return <FloorPlanEmpty onGenerate={onGenerate} canGenerate={canGenerate} />
-  if (isGenerating) return <FloorPlanLoading />
+  if (isGenerating && !isGenerated) return <FloorPlanLoading />
 
   // ── 생성 완료: Konva 평면도 렌더링 ───────────────────────────────────────
   return (

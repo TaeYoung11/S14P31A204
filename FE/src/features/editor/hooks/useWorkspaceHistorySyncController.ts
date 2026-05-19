@@ -181,13 +181,21 @@ export function useWorkspaceHistorySyncController({
 
     if (
       awaitingSync.projectId === projectId &&
-      awaitingSync.historyDomain === 'floorPlan' &&
-      workspaceEditTransactionDepthRef.current === 0 &&
-      !pendingWorkspaceSnapshotCommitRef.current
+      awaitingSync.historyDomain === 'floorPlan'
     ) {
       previousSnapshotRef.current = awaitingSync.serializedSnapshot
       pendingServerPublishRef.current = null
       awaitingServerSyncRef.current = null
+      if (workspaceEditTransactionDepthRef.current > 0) {
+        setSaveStatus('dirty')
+        return
+      }
+      if (pendingWorkspaceSnapshotCommitRef.current) {
+        pendingWorkspaceSnapshotCommitRef.current = false
+        setSaveStatus('dirty')
+        requestRepublishSnapshotCommit()
+        return
+      }
       setSaveStatus('synced')
     }
   }, [
@@ -199,6 +207,7 @@ export function useWorkspaceHistorySyncController({
     pendingWorkspaceSnapshotCommitRef,
     previousSnapshotRef,
     projectId,
+    requestRepublishSnapshotCommit,
     setFloorPlanHistoryCursor,
     setSaveStatus,
     workspaceEditTransactionDepthRef,
@@ -310,10 +319,12 @@ export function useWorkspaceHistorySyncController({
     if (saveStatus !== 'syncing') return
     const awaitingSync = awaitingServerSyncRef.current
     if (!awaitingSync || awaitingSync.projectId !== projectId) return
+    if (awaitingSync.historyDomain === 'floorPlan') return
 
     const timerId = window.setTimeout(() => {
       const currentAwaitingSync = awaitingServerSyncRef.current
       if (!currentAwaitingSync || currentAwaitingSync.projectId !== projectId) return
+      if (currentAwaitingSync.historyDomain === 'floorPlan') return
       if (Date.now() - currentAwaitingSync.startedAt < 5000) return
       void refreshHistoryCursorFromServer()
     }, 5200)

@@ -55,7 +55,7 @@ import {
 } from '../utils/floorProjectMapper'
 import { deriveAutoWallsFromRooms } from '../utils/autoWalls'
 import type { AxisAlignedRect } from '../utils/geometry2d'
-import { toRectFloorRoom } from '../utils/floorRoomTransform'
+import { toRectFloorRoom, translateFloorRoom } from '../utils/floorRoomTransform'
 import { deriveAutoOpeningsFromConnections, normalizeOpeningWithinWall } from '../utils/floorOpeningSync'
 import {
   buildMovedFloorRoomsState,
@@ -279,6 +279,27 @@ const resolveFloorRoomGlobalId = (room: FloorRoom): string | null =>
 
 const resolveFloorWallGlobalId = (wall: FloorWall): string | null =>
   toIfcGlobalId(wall.globalId) ?? toIfcGlobalId(wall.id)
+
+const resolveIfcElementGlobalId = (element: IfcElementInfo): string | null => {
+  const propertyGlobalId = element.properties?.GlobalId
+  return toIfcGlobalId(element.globalId) ??
+    (typeof propertyGlobalId === 'string' ? toIfcGlobalId(propertyGlobalId) : null) ??
+    toIfcGlobalId(element.id)
+}
+
+const isIfcSpaceElement = (element: IfcElementInfo): boolean =>
+  element.ifcClass.toLowerCase() === 'ifcspace' ||
+  element.category.toLowerCase() === 'space'
+
+const toFiniteTranslationMm = (
+  translation: IfcElementChange['translationMm'] | undefined,
+): { x: number; y: number; z: number } | null => {
+  if (!translation) return null
+  const { x, y, z } = translation
+  return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)
+    ? { x, y, z }
+    : null
+}
 
 const getRoomAxisMmPerPx = (room: FloorRoom, axis: 'x' | 'y'): number => {
   const px = axis === 'x' ? room.width : room.height
@@ -4361,6 +4382,57 @@ export function useEditorPage() {
     setLibraryElementSelectionRequestToken((prev) => prev + 1)
   }, [clearSelection, clearConnectionAndTwoDSelection])
 
+  const syncFloorRoomFromIfcSpaceTranslation = useCallback((
+    element: IfcElementInfo,
+    translationMm: { x: number; y: number; z: number } | null,
+  ): string[] => {
+    if (!isIfcSpaceElement(element) || !translationMm) return []
+    const dx = translationMm.x / FLOOR_MM_PER_PX
+    const dy = -translationMm.y / FLOOR_MM_PER_PX
+    if (Math.abs(dx) < 0.0001 && Math.abs(dy) < 0.0001) return []
+
+    const candidateIds = new Set<string>()
+    const globalId = resolveIfcElementGlobalId(element)
+    if (globalId) candidateIds.add(globalId)
+    candidateIds.add(element.id)
+    if (typeof element.expressId === 'number') candidateIds.add(String(element.expressId))
+
+    let didUpdateRoom = false
+    const affectedElementGlobalIds = new Set<string>()
+    const nextLayers = floorLayers.map((layer) => {
+      let didUpdateLayer = false
+      const nextRooms = layer.rooms.map((room) => {
+        const isTargetRoom =
+          candidateIds.has(room.globalId ?? '') ||
+          candidateIds.has(room.id) ||
+          candidateIds.has(room.bubbleId)
+        if (!isTargetRoom) return room
+        didUpdateRoom = true
+        didUpdateLayer = true
+        collectRoomMoveAffectedElementGlobalIds([room], floorWalls, layer.id)
+          .forEach((id) => affectedElementGlobalIds.add(id))
+        return translateFloorRoom(room, dx, dy)
+      })
+      return didUpdateLayer ? { ...layer, rooms: nextRooms } : layer
+    })
+
+    if (!didUpdateRoom) return []
+    replaceFloorPlanState({
+      isGenerated: isFloorPlanGenerated,
+      layoutSource: floorPlanLayoutSource,
+      layers: nextLayers,
+      activeLayerId: activeFloorLayerId,
+    })
+    return Array.from(affectedElementGlobalIds)
+  }, [
+    activeFloorLayerId,
+    floorLayers,
+    floorWalls,
+    floorPlanLayoutSource,
+    isFloorPlanGenerated,
+    replaceFloorPlanState,
+  ])
+
   const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId' | 'localId' | 'localIds'>) => {
     if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return
     markLocalFloorPlanSnapshotChanged()
@@ -4382,13 +4454,14 @@ export function useEditorPage() {
         patchJson: JSON.stringify(patchSnapshot),
       })
     }
+    let resolvedTranslationMm = toFiniteTranslationMm(patch.translationMm)
     if (shouldPublishIfcElementPatch(element, patch)) {
       const commandPatch: Record<string, unknown> = { ...patch }
       const nextX = typeof patch.positionX === 'number' ? patch.positionX : null
       const nextY = typeof patch.positionY === 'number' ? patch.positionY : null
       const nextZ = typeof patch.positionZ === 'number' ? patch.positionZ : null
-      if (patch.translationMm) {
-        commandPatch.translationMm = patch.translationMm
+      if (resolvedTranslationMm) {
+        commandPatch.translationMm = resolvedTranslationMm
       } else if (
         nextX !== null &&
         nextY !== null &&
@@ -4397,13 +4470,39 @@ export function useEditorPage() {
         typeof element.positionY === 'number' &&
         typeof element.positionZ === 'number'
       ) {
-        commandPatch.translationMm = {
+        resolvedTranslationMm = {
           x: nextX - element.positionX,
           y: element.positionZ - nextZ,
           z: nextY - element.positionY,
         }
+        commandPatch.translationMm = resolvedTranslationMm
       }
-      workspaceCommandPublisher.updateIfcElement(element, commandPatch)
+      const isSpaceTranslation = isIfcSpaceElement(element) && resolvedTranslationMm !== null
+      const affectedElementGlobalIds = isSpaceTranslation
+        ? syncFloorRoomFromIfcSpaceTranslation(element, resolvedTranslationMm)
+        : []
+      if (import.meta.env.DEV && mode === '3d' && isIfcSpaceElement(element)) {
+        console.log('[ifc-space-move][record-change]', {
+          elementId: element.id,
+          expressId,
+          globalId: resolveIfcElementGlobalId(element),
+          ifcClass: element.ifcClass,
+          resolvedTranslationMm,
+          affectedElementGlobalIds,
+          commandPatch,
+          commandPatchJson: JSON.stringify(commandPatch),
+        })
+      }
+      const spaceGlobalId = isSpaceTranslation ? resolveIfcElementGlobalId(element) : null
+      if (isSpaceTranslation && spaceGlobalId) {
+        workspaceCommandPublisher.updateRoom(spaceGlobalId, {
+          ...commandPatch,
+          translationMm: resolvedTranslationMm,
+          affectedElementGlobalIds,
+        })
+      } else {
+        workspaceCommandPublisher.updateIfcElement(element, commandPatch)
+      }
       if (!workspaceCommandPublisher.hasPendingCommand()) {
         workspaceCommandPublisher.markSnapshotOnlyChange('ifc-element-change', String(expressId), {
           expressId,
@@ -4459,7 +4558,7 @@ export function useEditorPage() {
         ifcClass: element.ifcClass,
       })
     }
-  }, [markLocalFloorPlanSnapshotChanged, mode, workspaceCommandPublisher])
+  }, [markLocalFloorPlanSnapshotChanged, mode, syncFloorRoomFromIfcSpaceTranslation, workspaceCommandPublisher])
 
   const handleDeleteIfcElement = useCallback((element: IfcElementInfo) => {
     workspaceCommandPublisher.deleteIfcElement(element)

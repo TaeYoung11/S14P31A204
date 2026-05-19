@@ -266,6 +266,14 @@ const syncTransformControlAxisVisibility = (
   }
 }
 
+const isIfcSpaceElementInfo = (
+  element: IfcElementInfo | null | undefined,
+): element is IfcElementInfo => {
+  if (!element) return false
+  return element.ifcClass.toLowerCase() === 'ifcspace' ||
+    element.category.toLowerCase() === 'space'
+}
+
 interface LoadedFragmentModel {
   object: Object3D
   useCamera: (camera: unknown) => void
@@ -499,6 +507,9 @@ export default function ThatOpenIfcCanvas({
   const ifcMoveDirtyRef = useRef(false)
   const feedbackTimeoutRef = useRef<number | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  // 첫 IFC 로드가 완료된 이후의 재로드(편집 결과로 새 revision이 들어오는 경우 등)에서는
+  // 흰색 로딩 오버레이가 깜빡이지 않도록 추적한다.
+  const [hasEverBeenReady, setHasEverBeenReady] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [ifcEditFeedback, setIfcEditFeedback] = useState<{ kind: 'info' | 'error'; text: string } | null>(null)
   const [wallContextMenu, setWallContextMenu] = useState<{
@@ -2375,6 +2386,7 @@ export default function ThatOpenIfcCanvas({
           removeEventListener?: (type: 'change' | 'rest', listener: () => void) => void
         }
       | null = null
+    let isTransformDragging = false
 
     const loadIfc = async () => {
       if (!ifcUrl) return
@@ -2562,8 +2574,9 @@ export default function ThatOpenIfcCanvas({
         let lastDragStartRotation: { x: number; y: number; z: number } | null = null
         let lastDragStartWorldRotation: { x: number; y: number; z: number } | null = null
         let lastDragStartWorldQuaternion: { x: number; y: number; z: number; w: number } | null = null
-        let isTransformDragging = false
         let activeDragSessionId: string | null = null
+        const emittedSpaceTransformSessionIds = new Set<string>()
+        const emittedSpaceTransformTargetKeys = new Set<string>()
         const isObjectInSceneGraph = (object: Object3D | undefined | null) => {
           if (!object) return false
           let cursor: Object3D | null = object
@@ -2572,6 +2585,59 @@ export default function ThatOpenIfcCanvas({
             cursor = (cursor.parent ?? null) as Object3D | null
           }
           return false
+        }
+        const emitSpaceTransformCommitFromDragEnd = (
+          target: Extract<Selected3DTarget, { source: 'ifc' }>,
+          reason: string,
+        ): boolean => {
+          if (transformModeRef.current !== 'translate') return false
+          const activeScene = sceneRef.current
+          const editable = target.object as IfcEditableObject3D | undefined
+          const element = editable?.userData.ifcEditTarget?.element
+          if (!activeScene || !editable || !isIfcSpaceElementInfo(element)) return false
+          if (!lastDragStartWorldPosition || activeScene.worldUnitsPerMm <= 0) return false
+
+          const worldPosition = new activeScene.three.Vector3()
+          editable.getWorldPosition(worldPosition)
+          const translationMm = {
+            x: (worldPosition.x - lastDragStartWorldPosition.x) / activeScene.worldUnitsPerMm,
+            y: (lastDragStartWorldPosition.z - worldPosition.z) / activeScene.worldUnitsPerMm,
+            z: (worldPosition.y - lastDragStartWorldPosition.y) / activeScene.worldUnitsPerMm,
+          }
+          const hasTranslation =
+            Math.abs(translationMm.x) > 1e-6 ||
+            Math.abs(translationMm.y) > 1e-6 ||
+            Math.abs(translationMm.z) > 1e-6
+          if (!hasTranslation) return false
+
+          const sessionId = activeDragSessionId
+          const targetKey = getIfcMoveTargetKey(target.modelId, target.localId)
+          if (sessionId && emittedSpaceTransformSessionIds.has(sessionId)) return false
+          if (emittedSpaceTransformTargetKeys.has(targetKey)) return false
+          if (sessionId) emittedSpaceTransformSessionIds.add(sessionId)
+          emittedSpaceTransformTargetKeys.add(targetKey)
+
+          const patch = {
+            positionX: worldPosition.x,
+            positionY: worldPosition.y,
+            positionZ: worldPosition.z,
+            translationMm,
+          }
+          if (import.meta.env.DEV) {
+            console.log('[ifc-transform-save][emit-transform-commit]', {
+              reason,
+              transformMode: transformModeRef.current,
+              elementId: element.id,
+              expressId: element.expressId,
+              globalId: element.globalId ?? element.properties?.GlobalId ?? null,
+              ifcClass: element.ifcClass,
+              patch,
+              patchKeys: Object.keys(patch),
+              patchJson: JSON.stringify(patch),
+            })
+          }
+          onIfcElementTransformCommitRef.current?.(element, patch)
+          return true
         }
         const safelyAttachTransformControls = async (
           activeScene: ThatOpenSceneState,
@@ -2947,15 +3013,34 @@ export default function ThatOpenIfcCanvas({
               return
             }
             if (ifcCommitInFlightRef.current) {
-              logIfcMove('commit_queue_defer_inflight', {
-                token,
-                modelId: selectedTarget.modelId,
-                localId: selectedTarget.localId,
-              })
-              pendingIfcCommitTimer = window.setTimeout(() => {
-                void runQueuedIfcCommit(token)
-              }, 120)
-              return
+              // 이전 commit이 어떤 경로에서 in-flight 상태로 stuck되면
+              // setTimeout 재시도가 무한 루프를 돌면서 새 commit이 영원히 진행 못 한다.
+              // drag_end 이후 일정 시간이 지났는데도 풀리지 않으면 강제 reset해서
+              // 새 commit이 진행될 수 있도록 한다.
+              const stuckLatencyMs = lastIfcDragEndAt > 0
+                ? performance.now() - lastIfcDragEndAt
+                : 0
+              const INFLIGHT_STUCK_LIMIT_MS = 1500
+              if (stuckLatencyMs > INFLIGHT_STUCK_LIMIT_MS) {
+                logIfcMove('commit_queue_force_reset_stuck_inflight', {
+                  token,
+                  modelId: selectedTarget.modelId,
+                  localId: selectedTarget.localId,
+                  stuckLatencyMs,
+                })
+                ifcCommitInFlightRef.current = false
+              } else {
+                logIfcMove('commit_queue_defer_inflight', {
+                  token,
+                  modelId: selectedTarget.modelId,
+                  localId: selectedTarget.localId,
+                  stuckLatencyMs,
+                })
+                pendingIfcCommitTimer = window.setTimeout(() => {
+                  void runQueuedIfcCommit(token)
+                }, 120)
+                return
+              }
             }
             ifcCommitInFlightRef.current = true
             try {
@@ -3111,6 +3196,64 @@ export default function ThatOpenIfcCanvas({
                     },
                   }
                 })()
+                const transformCommitTargetKey =
+                  transformCommit && selectedTarget.source === 'ifc'
+                    ? getIfcMoveTargetKey(selectedTarget.modelId, selectedTarget.localId)
+                    : null
+                let didEmitTransformCommit = Boolean(
+                  queuedSessionId &&
+                  emittedSpaceTransformSessionIds.has(queuedSessionId) &&
+                  isIfcSpaceElementInfo(transformCommit?.element),
+                ) || Boolean(
+                  transformCommitTargetKey &&
+                  emittedSpaceTransformTargetKeys.has(transformCommitTargetKey) &&
+                  isIfcSpaceElementInfo(transformCommit?.element),
+                )
+                const emitTransformCommit = (reason: string) => {
+                  if (!transformCommit || didEmitTransformCommit) return
+                  didEmitTransformCommit = true
+                  if (queuedSessionId && isIfcSpaceElementInfo(transformCommit.element)) {
+                    emittedSpaceTransformSessionIds.add(queuedSessionId)
+                  }
+                  if (transformCommitTargetKey && isIfcSpaceElementInfo(transformCommit.element)) {
+                    emittedSpaceTransformTargetKeys.add(transformCommitTargetKey)
+                  }
+                  if (import.meta.env.DEV && (
+                    transformModeRef.current === 'rotate' ||
+                    isIfcSpaceElementInfo(transformCommit.element)
+                  )) {
+                    const patchSnapshot = { ...transformCommit.patch }
+                    console.log('[ifc-transform-save][emit-transform-commit]', {
+                      reason,
+                      transformMode: transformModeRef.current,
+                      elementId: transformCommit.element.id,
+                      expressId: transformCommit.element.expressId,
+                      globalId: transformCommit.element.globalId ?? transformCommit.element.properties?.GlobalId ?? null,
+                      ifcClass: transformCommit.element.ifcClass,
+                      patch: patchSnapshot,
+                      patchKeys: Object.keys(patchSnapshot),
+                      patchJson: JSON.stringify(patchSnapshot),
+                    })
+                  }
+                  onIfcElementTransformCommitRef.current?.(transformCommit.element, transformCommit.patch)
+                }
+                if (
+                  transformModeRef.current === 'translate' &&
+                  transformCommit
+                ) {
+                  // 로컬 IFC commit(commitIfcProxyTransformToModel)이 실패하면
+                  // lastError가 세팅돼 after_local_commit emit이 차단된다.
+                  // 그러면 워크스페이스/BE/worker로 가는 patch도 함께 유실되어
+                  // 사용자 입장에서는 이동 후 history가 남지 않는 증상이 발생한다.
+                  // IfcSpace에 대해서만 pre-commit emit을 보호하던 분기를
+                  // 모든 translate 대상으로 확장해 wall/door/window 등도 동일하게
+                  // 로컬 commit 실패와 무관하게 publish가 보장되도록 한다.
+                  emitTransformCommit(
+                    isIfcSpaceElementInfo(transformCommit.element)
+                      ? 'space_translate_before_local_commit'
+                      : 'translate_before_local_commit',
+                  )
+                }
                 await commitIfcProxyTransformToModel(activeScene, selectedTarget, {
                   keepProxyVisibleAfterCommit: true,
                   transformSessionId: queuedSessionId,
@@ -3129,19 +3272,7 @@ export default function ThatOpenIfcCanvas({
                 const moveState = ifcMoveLifecycleRef.current
                 if (!moveState.lastError) {
                   if (transformCommit) {
-                    if (import.meta.env.DEV && transformModeRef.current === 'rotate') {
-                      const patchSnapshot = { ...transformCommit.patch }
-                      console.log('[ifc-transform-save][emit-transform-commit]', {
-                        transformMode: transformModeRef.current,
-                        elementId: transformCommit.element.id,
-                        expressId: transformCommit.element.expressId,
-                        globalId: transformCommit.element.globalId ?? transformCommit.element.properties?.GlobalId ?? null,
-                        patch: patchSnapshot,
-                        patchKeys: Object.keys(patchSnapshot),
-                        patchJson: JSON.stringify(patchSnapshot),
-                      })
-                    }
-                    onIfcElementTransformCommitRef.current?.(transformCommit.element, transformCommit.patch)
+                    emitTransformCommit('after_local_commit')
                   }
                   if (queuedSessionId) {
                     dispatchTransformRuntimeAction(
@@ -3606,6 +3737,7 @@ export default function ThatOpenIfcCanvas({
             if (selectedTarget?.source === 'ifc') {
               const dragObject = selectedTarget.object as Object3D | undefined
               if (dragObject) {
+                emittedSpaceTransformTargetKeys.delete(getIfcMoveTargetKey(selectedTarget.modelId, selectedTarget.localId))
                 lastDragStartPosition = {
                   x: dragObject.position.x,
                   y: dragObject.position.y,
@@ -3772,6 +3904,10 @@ export default function ThatOpenIfcCanvas({
             }
             ifcMoveDirtyRef.current = true
             lastIfcDragEndAt = performance.now()
+            const didEmitSpaceTransformCommit = emitSpaceTransformCommitFromDragEnd(
+              selectedTarget,
+              'drag_end_space_translate',
+            )
             logIfcMove('drag_end_schedule_commit', {
               modelId: selectedTarget.modelId,
               localId: selectedTarget.localId,
@@ -3779,6 +3915,7 @@ export default function ThatOpenIfcCanvas({
               deltaRaw: dragDeltaRaw,
               deltaRounded: dragDelta,
               hasTransformDelta,
+              didEmitSpaceTransformCommit,
               note: 'commit scheduled immediately after drag end',
             })
             if (activeDragSessionId) {
@@ -5438,6 +5575,7 @@ export default function ThatOpenIfcCanvas({
         }
         // 파싱된 IFC 층 목록을 상위 컴포넌트로 전달한다.
         onStoreysLoadRef.current?.(storeysWithElements)
+        setHasEverBeenReady(true)
         setStatus('ready')
       } catch (error) {
         if (disposed) return
@@ -6683,16 +6821,17 @@ export default function ThatOpenIfcCanvas({
     <div className="absolute inset-0 overflow-hidden bg-[#F0F2F9]" onContextMenu={handleIfcContextMenu}>
       <div ref={containerRef} tabIndex={0} className="h-full w-full outline-none" />
 
-      {status !== 'ready' && (
+      {status === 'error' && (
         <div className="absolute inset-0 flex items-center justify-center bg-white/70 px-6 text-center backdrop-blur-sm">
-          {status === 'loading' ? (
-            <p className="text-[13px] font-black text-[#3B45B3]">IFC 모델을 불러오는 중입니다.</p>
-          ) : (
-            <div>
-              <p className="text-[13px] font-black text-[#991B1B]">IFC 모델을 표시하지 못했습니다.</p>
-              <p className="mt-2 text-[11px] font-medium text-[#6B7A99]">{errorMessage}</p>
-            </div>
-          )}
+          <div>
+            <p className="text-[13px] font-black text-[#991B1B]">IFC 모델을 표시하지 못했습니다.</p>
+            <p className="mt-2 text-[11px] font-medium text-[#6B7A99]">{errorMessage}</p>
+          </div>
+        </div>
+      )}
+      {status === 'loading' && !hasEverBeenReady && (
+        <div className="absolute inset-0 flex items-center justify-center bg-white/70 px-6 text-center backdrop-blur-sm">
+          <p className="text-[13px] font-black text-[#3B45B3]">IFC 모델을 불러오는 중입니다.</p>
         </div>
       )}
 
