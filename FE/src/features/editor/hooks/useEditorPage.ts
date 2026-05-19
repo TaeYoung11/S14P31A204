@@ -288,6 +288,59 @@ const isIfcSpaceElement = (element: IfcElementInfo): boolean =>
   element.ifcClass.toLowerCase() === 'ifcspace' ||
   element.category.toLowerCase() === 'space'
 
+const isIfcWallElement = (element: IfcElementInfo): boolean => {
+  const ifcClass = element.ifcClass.toLowerCase()
+  return ifcClass === 'ifcwall' ||
+    ifcClass === 'ifcwallstandardcase' ||
+    element.category.toLowerCase() === 'wall'
+}
+
+const isIfcOpeningElement = (element: IfcElementInfo): boolean => {
+  const ifcClass = element.ifcClass.toLowerCase()
+  const category = element.category.toLowerCase()
+  return ifcClass === 'ifcdoor' ||
+    ifcClass === 'ifcwindow' ||
+    ifcClass === 'ifcopeningelement' ||
+    category === 'door' ||
+    category === 'window' ||
+    category === 'opening'
+}
+
+const addElementCandidateId = (
+  ids: Set<string>,
+  value: string | number | boolean | null | undefined,
+) => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (trimmed) ids.add(trimmed)
+    return
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    ids.add(String(value))
+  }
+}
+
+const buildIfcElementCandidateIds = (element: IfcElementInfo): Set<string> => {
+  const ids = new Set<string>()
+  addElementCandidateId(ids, resolveIfcElementGlobalId(element))
+  addElementCandidateId(ids, element.globalId)
+  addElementCandidateId(ids, element.id)
+  addElementCandidateId(ids, element.expressId)
+  addElementCandidateId(ids, element.properties?.GlobalId)
+  addElementCandidateId(ids, element.properties?.LocalID)
+  return ids
+}
+
+const hasCandidateId = (
+  ids: Set<string>,
+  ...values: Array<string | number | null | undefined>
+): boolean =>
+  values.some((value) => {
+    if (typeof value === 'string') return ids.has(value.trim())
+    if (typeof value === 'number' && Number.isFinite(value)) return ids.has(String(value))
+    return false
+  })
+
 const toFiniteTranslationMm = (
   translation: IfcElementChange['translationMm'] | undefined,
 ): { x: number; y: number; z: number } | null => {
@@ -4473,6 +4526,93 @@ export function useEditorPage() {
     updateFloorLayers,
   ])
 
+  const syncFloorPlanFromIfcElementDelete = useCallback((element: IfcElementInfo): boolean => {
+    const candidateIds = buildIfcElementCandidateIds(element)
+    let didSync = false
+
+    if (isIfcSpaceElement(element)) {
+      const matchesRoom = (room: FloorRoom) =>
+        hasCandidateId(candidateIds, resolveFloorRoomGlobalId(room), room.globalId, room.id, room.bubbleId)
+      const hasTargetRoom = floorLayers.some((layer) => layer.rooms.some(matchesRoom))
+
+      if (hasTargetRoom) {
+        updateFloorLayers((currentLayers) => {
+          let didRemoveRoom = false
+          const nextLayers = currentLayers.map((layer) => {
+            const nextRooms = layer.rooms.filter((room) => {
+              const shouldRemove = matchesRoom(room)
+              if (shouldRemove) didRemoveRoom = true
+              return !shouldRemove
+            })
+            return nextRooms.length === layer.rooms.length ? layer : { ...layer, rooms: nextRooms }
+          })
+          return didRemoveRoom ? nextLayers : currentLayers
+        })
+        didSync = true
+      }
+    }
+
+    const wallIdsToDelete = new Set<string>()
+    if (isIfcWallElement(element)) {
+      floorWalls.forEach((wall) => {
+        const wallGlobalId = resolveFloorWallGlobalId(wall)
+        if (!hasCandidateId(candidateIds, wallGlobalId, wall.globalId, wall.id)) return
+        addElementCandidateId(wallIdsToDelete, wallGlobalId)
+        addElementCandidateId(wallIdsToDelete, wall.globalId)
+        addElementCandidateId(wallIdsToDelete, wall.id)
+      })
+
+      if (wallIdsToDelete.size > 0) {
+        setFloorWalls((prev) => {
+          const next = prev.filter((wall) =>
+            !hasCandidateId(wallIdsToDelete, resolveFloorWallGlobalId(wall), wall.globalId, wall.id),
+          )
+          return next.length === prev.length ? prev : next
+        })
+        setSelectedFloorWallId((prev) => (prev && wallIdsToDelete.has(prev) ? null : prev))
+        setSelectedFloorWallIds((prev) => prev.filter((wallId) => !wallIdsToDelete.has(wallId)))
+        didSync = true
+      }
+    }
+
+    const openingIdsToDelete = new Set<string>()
+    if (isIfcOpeningElement(element)) {
+      floorOpenings.forEach((opening) => {
+        if (!hasCandidateId(candidateIds, opening.globalId, opening.id)) return
+        addElementCandidateId(openingIdsToDelete, opening.globalId)
+        addElementCandidateId(openingIdsToDelete, opening.id)
+      })
+    }
+    if (wallIdsToDelete.size > 0) {
+      floorOpenings.forEach((opening) => {
+        if (!hasCandidateId(wallIdsToDelete, opening.hostWallGlobalId, opening.wallId)) return
+        addElementCandidateId(openingIdsToDelete, opening.globalId)
+        addElementCandidateId(openingIdsToDelete, opening.id)
+      })
+    }
+
+    if (openingIdsToDelete.size > 0) {
+      setFloorOpenings((prev) => {
+        const next = prev.filter((opening) => !hasCandidateId(openingIdsToDelete, opening.globalId, opening.id))
+        return next.length === prev.length ? prev : next
+      })
+      setSelectedFloorOpeningId((prev) => (prev && openingIdsToDelete.has(prev) ? null : prev))
+      setSelectedFloorOpeningIds((prev) => prev.filter((openingId) => !openingIdsToDelete.has(openingId)))
+      didSync = true
+    }
+
+    if (didSync) {
+      markLocalFloorPlanSnapshotChanged()
+    }
+    return didSync
+  }, [
+    floorLayers,
+    floorOpenings,
+    floorWalls,
+    markLocalFloorPlanSnapshotChanged,
+    updateFloorLayers,
+  ])
+
   const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId' | 'localId' | 'localIds'>) => {
     if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return
     markLocalFloorPlanSnapshotChanged()
@@ -4573,9 +4713,10 @@ export function useEditorPage() {
 
   const handleDeleteIfcElement = useCallback((element: IfcElementInfo) => {
     workspaceCommandPublisher.deleteIfcElement(element)
+    syncFloorPlanFromIfcElementDelete(element)
     recordIfcElementChange(element, { deleted: true })
     setSelectedIfcElement((prev) => (prev?.id === element.id ? null : prev))
-  }, [recordIfcElementChange, workspaceCommandPublisher])
+  }, [recordIfcElementChange, syncFloorPlanFromIfcElementDelete, workspaceCommandPublisher])
 
   const handleCommitIfcElementTransform = useCallback((
     element: IfcElementInfo,
@@ -5801,7 +5942,7 @@ export function useEditorPage() {
   useEffect(() => {
     if (mode !== '3d') return
     if (!projectId) return
-    if (currentIfcUrl) return
+    if (saveStatus === 'syncing') return
     if (threeDIfcSourceHydrationInFlightRef.current === projectId) return
 
     let cancelled = false
@@ -5813,7 +5954,15 @@ export function useEditorPage() {
       if (!source?.currentIfcUrl) {
         return
       }
-      handleIfcSyncMessageRef.current(
+      const sourceRevision = source.currentRevision?.trim() || null
+      const currentRevision = currentIfcRevisionId?.trim() || null
+      const shouldApplyLatestIfc =
+        !currentIfcUrl ||
+        (sourceRevision !== null && sourceRevision !== currentRevision)
+      if (!shouldApplyLatestIfc) {
+        return
+      }
+      await handleIfcSyncMessageRef.current(
         source.currentIfcStorageUrl ?? source.currentIfcUrl,
         null,
         source.currentIfcAssetId,
@@ -5830,7 +5979,7 @@ export function useEditorPage() {
     return () => {
       cancelled = true
     }
-  }, [currentIfcUrl, mode, projectId])
+  }, [currentIfcRevisionId, currentIfcUrl, mode, projectId, saveStatus])
 
   useInitialIfcImport({
     projectId,
