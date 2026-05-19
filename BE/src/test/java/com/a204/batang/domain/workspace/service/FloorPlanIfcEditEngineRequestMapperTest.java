@@ -74,6 +74,65 @@ class FloorPlanIfcEditEngineRequestMapperTest {
     }
 
     @Test
+    void toEngineRequest_mapsRoomTranslationAffectedElementsToTransformSelector() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode patch = objectMapper.createObjectNode();
+        patch.putObject("translationMm")
+                .put("x", 1000.0)
+                .put("y", -2000.0)
+                .put("z", 0.0);
+        patch.putArray("affectedElementGlobalIds")
+                .add("2HlybO1QH4A9HpWyE9qInJ")
+                .add("3s2uah2CP65OGApQS50SKQ")
+                .add("local-wall-1");
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-room-translation-with-walls",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "update", "room", "0uZx9kVq18Uem5tVw8JkQ$", null, patch))
+        );
+
+        JsonNode operation = engineRequest.get("operations").get(0);
+        assertThat(operation.get("type").asText()).isEqualTo("transform_elements");
+        JsonNode globalIds = operation.get("selector").get("global_ids");
+        assertThat(globalIds).hasSize(3);
+        assertThat(globalIds.get(0).asText()).isEqualTo("0uZx9kVq18Uem5tVw8JkQ$");
+        assertThat(globalIds.get(1).asText()).isEqualTo("2HlybO1QH4A9HpWyE9qInJ");
+        assertThat(globalIds.get(2).asText()).isEqualTo("3s2uah2CP65OGApQS50SKQ");
+        assertValidEngineRequestV2(engineRequest);
+    }
+
+    @Test
+    void toEngineRequest_mapsWallSegmentToUpdateElementProperties() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode patch = objectMapper.createObjectNode();
+        patch.putObject("startMm")
+                .put("x", 1000.0)
+                .put("y", 2000.0);
+        patch.putObject("endMm")
+                .put("x", 4000.0)
+                .put("y", 2000.0);
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-wall-segment",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "update", "wall", "2HlybO1QH4A9HpWyE9qInJ", null, patch))
+        );
+
+        JsonNode operation = engineRequest.get("operations").get(0);
+        assertThat(operation.get("type").asText()).isEqualTo("update_element_properties");
+        assertThat(operation.get("selector").get("global_ids").get(0).asText()).isEqualTo("2HlybO1QH4A9HpWyE9qInJ");
+        JsonNode segment = operation.get("parameters").get("segment_mm");
+        assertThat(segment.get("start").get("x").asDouble()).isEqualTo(1000.0);
+        assertThat(segment.get("end").get("x").asDouble()).isEqualTo(4000.0);
+        assertValidEngineRequestV2(engineRequest);
+    }
+
+    @Test
     void toEngineRequest_prioritizesTranslationMmOverPropertyPatch() {
         UUID projectId = UUID.randomUUID();
         UUID baseRevisionId = UUID.randomUUID();

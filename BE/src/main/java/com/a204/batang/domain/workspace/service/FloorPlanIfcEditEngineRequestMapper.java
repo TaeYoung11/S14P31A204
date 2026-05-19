@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -107,7 +108,7 @@ public class FloorPlanIfcEditEngineRequestMapper {
             } else if (rotationDegrees != null) {
                 params.set("rotation_deg", toIfcRotationDeg(rotationDegrees));
             }
-            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
+            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId, patch), params);
         }
         if (rotationAxisAngle != null) {
             ObjectNode params = objectMapper.createObjectNode();
@@ -122,11 +123,12 @@ public class FloorPlanIfcEditEngineRequestMapper {
 
         JsonNode startMm = firstPoint(patch, "startMm", "start_mm");
         JsonNode endMm = firstPoint(patch, "endMm", "end_mm");
-        if (startMm != null || endMm != null) {
+        if ("wall".equals(entity) && startMm != null && endMm != null) {
             ObjectNode params = objectMapper.createObjectNode();
-            putPoint(params, "start_mm", startMm);
-            putPoint(params, "end_mm", endMm);
-            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
+            ObjectNode segment = params.putObject("segment_mm");
+            putPoint(segment, "start", startMm);
+            putPoint(segment, "end", endMm);
+            return operation(envelope.commandId().toString(), "update_element_properties", selector(globalId), params);
         }
 
         ObjectNode params = objectMapper.createObjectNode();
@@ -176,6 +178,45 @@ public class FloorPlanIfcEditEngineRequestMapper {
         ArrayNode ids = selector.putArray("global_ids");
         ids.add(globalId);
         return selector;
+    }
+
+    private ObjectNode selector(String globalId, JsonNode patch) {
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        ids.add(globalId);
+        addSelectorGlobalIds(ids, patch, "affectedElementGlobalIds");
+        addSelectorGlobalIds(ids, patch, "affectedGlobalIds");
+        addSelectorGlobalIds(ids, patch, "affectedWallGlobalIds");
+
+        ObjectNode selector = objectMapper.createObjectNode();
+        ArrayNode globalIds = selector.putArray("global_ids");
+        ids.forEach(globalIds::add);
+        return selector;
+    }
+
+    private void addSelectorGlobalIds(LinkedHashSet<String> ids, JsonNode source, String key) {
+        JsonNode value = source == null ? null : source.get(key);
+        if (value == null || value.isNull()) {
+            return;
+        }
+        if (value.isTextual()) {
+            String globalId = value.asText();
+            if (isIfcGlobalId(globalId)) {
+                ids.add(globalId);
+            }
+            return;
+        }
+        if (!value.isArray()) {
+            return;
+        }
+        value.forEach((item) -> {
+            if (!item.isTextual()) {
+                return;
+            }
+            String globalId = item.asText();
+            if (isIfcGlobalId(globalId)) {
+                ids.add(globalId);
+            }
+        });
     }
 
     private void putDimensions(ObjectNode params, JsonNode source, boolean wrapMode) {
