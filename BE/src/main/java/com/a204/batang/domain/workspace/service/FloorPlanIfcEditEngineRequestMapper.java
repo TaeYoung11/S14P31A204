@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -91,7 +92,7 @@ public class FloorPlanIfcEditEngineRequestMapper {
         if (globalId == null || globalId.isBlank()) {
             return null;
         }
-        if ("room".equals(entity) && !isIfcGlobalId(globalId)) {
+        if (!isIfcGlobalId(globalId)) {
             return null;
         }
 
@@ -107,29 +108,31 @@ public class FloorPlanIfcEditEngineRequestMapper {
             } else if (rotationDegrees != null) {
                 params.set("rotation_deg", toIfcRotationDeg(rotationDegrees));
             }
-            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
+            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId, patch), params);
         }
         if (rotationAxisAngle != null) {
             ObjectNode params = objectMapper.createObjectNode();
             params.set("rotation_deg", toIfcRotationAxisAngle(rotationAxisAngle));
-            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
+            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId, patch), params);
         }
         if (rotationDegrees != null) {
             ObjectNode params = objectMapper.createObjectNode();
             params.set("rotation_deg", toIfcRotationDeg(rotationDegrees));
-            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
-        }
-
-        JsonNode startMm = firstPoint(patch, "startMm", "start_mm");
-        JsonNode endMm = firstPoint(patch, "endMm", "end_mm");
-        if (startMm != null || endMm != null) {
-            ObjectNode params = objectMapper.createObjectNode();
-            putPoint(params, "start_mm", startMm);
-            putPoint(params, "end_mm", endMm);
-            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
+            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId, patch), params);
         }
 
         ObjectNode params = objectMapper.createObjectNode();
+        JsonNode startMm = firstPoint(patch, "startMm", "start_mm");
+        JsonNode endMm = firstPoint(patch, "endMm", "end_mm");
+        if ("wall".equals(entity) && (startMm != null || endMm != null)) {
+            if (startMm == null || endMm == null) {
+                return null;
+            }
+            ObjectNode segment = params.putObject("segment_mm");
+            putPoint(segment, "start", startMm);
+            putPoint(segment, "end", endMm);
+        }
+
         putDimensions(params, patch, !"room".equals(entity));
         putText(params, "material", text(patch, "material"));
         putText(params, "color", text(patch, "color"));
@@ -137,7 +140,8 @@ public class FloorPlanIfcEditEngineRequestMapper {
             putText(params, "wall_type", firstText(patch, "wall_type", "wallType", "type"));
         }
         putRoomProperties(params, patch, entity);
-        if (!params.has("dimensions_mm")
+        if (!params.has("segment_mm")
+                && !params.has("dimensions_mm")
                 && !params.has("material")
                 && !params.has("color")
                 && !params.has("wall_type")
@@ -176,6 +180,48 @@ public class FloorPlanIfcEditEngineRequestMapper {
         ArrayNode ids = selector.putArray("global_ids");
         ids.add(globalId);
         return selector;
+    }
+
+    private ObjectNode selector(String globalId, JsonNode patch) {
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        ids.add(globalId);
+        addSelectorGlobalIds(ids, patch, "affectedElementGlobalIds");
+        addSelectorGlobalIds(ids, patch, "affected_element_global_ids");
+        addSelectorGlobalIds(ids, patch, "affectedGlobalIds");
+        addSelectorGlobalIds(ids, patch, "affected_global_ids");
+        addSelectorGlobalIds(ids, patch, "affectedWallGlobalIds");
+        addSelectorGlobalIds(ids, patch, "affected_wall_global_ids");
+
+        ObjectNode selector = objectMapper.createObjectNode();
+        ArrayNode globalIds = selector.putArray("global_ids");
+        ids.forEach(globalIds::add);
+        return selector;
+    }
+
+    private void addSelectorGlobalIds(LinkedHashSet<String> ids, JsonNode source, String key) {
+        JsonNode value = source == null ? null : source.get(key);
+        if (value == null || value.isNull()) {
+            return;
+        }
+        if (value.isTextual()) {
+            String globalId = value.asText();
+            if (isIfcGlobalId(globalId)) {
+                ids.add(globalId);
+            }
+            return;
+        }
+        if (!value.isArray()) {
+            return;
+        }
+        value.forEach((item) -> {
+            if (!item.isTextual()) {
+                return;
+            }
+            String globalId = item.asText();
+            if (isIfcGlobalId(globalId)) {
+                ids.add(globalId);
+            }
+        });
     }
 
     private void putDimensions(ObjectNode params, JsonNode source, boolean wrapMode) {
