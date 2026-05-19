@@ -1,7 +1,64 @@
 from __future__ import annotations
 
-from ai_planning_3d.command import LLM3DElementType, LLM3DTarget
+from types import SimpleNamespace
+
+import pytest
+
+from ai_planning_3d.command import (
+    LLM3DChanges,
+    LLM3DCommand,
+    LLM3DCommandType,
+    LLM3DElementType,
+    LLM3DTarget,
+)
 from ai_planning_3d.engine import LLM3DEngine, SYSTEM_PROMPT
+from ai_planning_3d.pipeline import LLM3DPipeline
+
+
+class _AsyncCreateRecorder:
+    def __init__(self, results):
+        self.results = list(results)
+        self.calls = []
+
+    async def __call__(self, **kwargs):
+        self.calls.append(kwargs)
+        result = self.results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+def _sample_modify_command(raw_instruction: str = "wall is #AABBCC") -> LLM3DCommand:
+    return LLM3DCommand(
+        command_type=LLM3DCommandType.MODIFY,
+        target=LLM3DTarget(element_type=LLM3DElementType.WALL),
+        changes=LLM3DChanges(color="#AABBCC"),
+        create_info=None,
+        confidence=1.0,
+        raw_instruction=raw_instruction,
+    )
+
+
+def _set_structured_create(engine: LLM3DEngine, recorder: _AsyncCreateRecorder) -> None:
+    engine.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=recorder))
+    )
+
+
+def _set_raw_create(engine: LLM3DEngine, recorder: _AsyncCreateRecorder) -> None:
+    engine._raw_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=recorder))
+    )
+
+
+def _raw_json_response(content: str):
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content=content),
+            )
+        ],
+    )
 
 
 def test_llm_3d_engine_uses_llm_env(monkeypatch):
@@ -68,6 +125,86 @@ def test_llm_3d_engine_ignores_invalid_timeout_env(monkeypatch):
 
     assert engine.model == "gemma3:4b"
     assert engine._raw_client.timeout == 30.0
+
+
+@pytest.mark.asyncio
+async def test_parse_command_sends_default_reasoning_effort(monkeypatch):
+    monkeypatch.delenv("LLM_REASONING_EFFORT", raising=False)
+    engine = LLM3DEngine()
+    recorder = _AsyncCreateRecorder([_sample_modify_command()])
+    _set_structured_create(engine, recorder)
+
+    parsed = await engine.parse_command("wall is #AABBCC")
+
+    assert parsed.changes is not None
+    assert parsed.changes.color == "#AABBCC"
+    assert recorder.calls[0]["extra_body"] == {"reasoning_effort": "none"}
+
+
+@pytest.mark.asyncio
+async def test_parse_command_omits_reasoning_effort_when_disabled(monkeypatch):
+    monkeypatch.setenv("LLM_REASONING_EFFORT", "off")
+    engine = LLM3DEngine()
+    recorder = _AsyncCreateRecorder([_sample_modify_command()])
+    _set_structured_create(engine, recorder)
+
+    await engine.parse_command("wall is #AABBCC")
+
+    assert "extra_body" not in recorder.calls[0]
+
+
+@pytest.mark.asyncio
+async def test_parse_command_retries_without_reasoning_extra_body(monkeypatch):
+    monkeypatch.delenv("LLM_REASONING_EFFORT", raising=False)
+    engine = LLM3DEngine()
+    recorder = _AsyncCreateRecorder(
+        [
+            RuntimeError("unsupported reasoning_effort"),
+            _sample_modify_command(),
+        ]
+    )
+    _set_structured_create(engine, recorder)
+
+    parsed = await engine.parse_command("wall is #AABBCC")
+
+    assert parsed.changes is not None
+    assert parsed.changes.color == "#AABBCC"
+    assert recorder.calls[0]["extra_body"] == {"reasoning_effort": "none"}
+    assert "extra_body" not in recorder.calls[1]
+
+
+@pytest.mark.asyncio
+async def test_raw_json_fallback_retries_without_reasoning_extra_body(monkeypatch):
+    monkeypatch.delenv("LLM_REASONING_EFFORT", raising=False)
+    engine = LLM3DEngine()
+    content = (
+        '{"command_type":"MODIFY","target":{"element_type":"IfcWall"},'
+        '"changes":{"color":"#AABBCC"},"create_info":null,"confidence":1,'
+        '"raw_instruction":"wall is #AABBCC","ambiguity_question":null}'
+    )
+    recorder = _AsyncCreateRecorder(
+        [
+            RuntimeError("unsupported reasoning_effort"),
+            _raw_json_response(content),
+        ]
+    )
+    _set_raw_create(engine, recorder)
+
+    parsed = await engine._parse_command_raw_json("wall is #AABBCC", "system")
+
+    assert parsed is not None
+    assert parsed.changes is not None
+    assert parsed.changes.color == "#AABBCC"
+    assert recorder.calls[0]["extra_body"] == {"reasoning_effort": "none"}
+    assert "extra_body" not in recorder.calls[1]
+
+
+def test_pipeline_model_name_none_uses_llm_model_env(monkeypatch):
+    monkeypatch.setenv("LLM_MODEL_NAME", "qwen2.5:7b")
+
+    pipeline = LLM3DPipeline(model_name=None)
+
+    assert pipeline.engine.model == "qwen2.5:7b"
 
 
 def test_llm_3d_engine_extracts_raw_json_object():
