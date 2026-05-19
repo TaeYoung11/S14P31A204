@@ -75,11 +75,14 @@ RUN pip install --no-cache-dir \
 
 # Build-time smoke test: fail fast if any rendering dependency cannot be
 # imported (matches the original incident where torchvision was missing).
-RUN python -c "import torch, torchvision, basicsr, realesrgan; \
+RUN python -c "import torch, torchvision; \
+from ai_rendering.ifc2img.postprocess import _install_basicsr_torchvision_shim; \
+_install_basicsr_torchvision_shim(); \
+from basicsr.archs.rrdbnet_arch import RRDBNet; \
+from realesrgan import RealESRGANer; \
 print('torch:', torch.__version__, '/ cuda:', torch.version.cuda); \
 print('torchvision:', torchvision.__version__); \
-print('basicsr:', basicsr.__version__); \
-print('realesrgan:', realesrgan.__version__)"
+print('RealESRGAN import path ok:', RRDBNet.__name__, RealESRGANer.__name__)"
 
 ENTRYPOINT ["sh", "-c", "mkdir -p \"$XDG_RUNTIME_DIR\" && chmod 700 \"$XDG_RUNTIME_DIR\"; Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp & export DISPLAY=:99; exec python main.py \"$@\"", "--"]
 CMD []
