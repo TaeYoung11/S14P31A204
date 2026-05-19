@@ -4,9 +4,11 @@ import com.a204.batang.domain.ifcedit.dto.DirectIfcEditRequest;
 import com.a204.batang.domain.ifcedit.dto.IfcEditJobResponse;
 import com.a204.batang.domain.ifcedit.entity.IfcEditJob;
 import com.a204.batang.domain.ifcedit.entity.IfcEditJobStep;
+import com.a204.batang.domain.ifcedit.entity.IfcEditArtifact;
 import com.a204.batang.domain.ifcedit.messaging.dto.IfcEditCommandMessage;
 import com.a204.batang.domain.ifcedit.messaging.event.IfcEditCommandPublishRequestedEvent;
 import com.a204.batang.domain.ifcedit.messaging.event.IfcEditStatusChangedEvent;
+import com.a204.batang.domain.ifcedit.repository.IfcEditArtifactRepository;
 import com.a204.batang.domain.ifcedit.repository.IfcEditJobRepository;
 import com.a204.batang.domain.ifcedit.repository.IfcEditJobStepRepository;
 import com.a204.batang.domain.project.entity.Project;
@@ -33,6 +35,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.time.LocalDateTime;
 
 import static com.a204.batang.domain.ifcedit.IfcEditConstants.COMMAND_TYPE_IFC_EDIT_APPLY;
 import static com.a204.batang.domain.ifcedit.IfcEditConstants.JOB_TYPE_IFC_EDIT;
@@ -54,6 +57,7 @@ class DirectIfcEditCommandServiceTest {
     @Mock private ProjectAccessService projectAccessService;
     @Mock private IfcEditJobRepository ifcEditJobRepository;
     @Mock private IfcEditJobStepRepository ifcEditJobStepRepository;
+    @Mock private IfcEditArtifactRepository ifcEditArtifactRepository;
     @Mock private IfcEditActiveJobGuard ifcEditActiveJobGuard;
     @Mock private IfcEditStoragePathBuilder pathBuilder;
     @Mock private ApplicationEventPublisher eventPublisher;
@@ -211,6 +215,60 @@ class DirectIfcEditCommandServiceTest {
         verify(revisionRepository, never()).save(any());
     }
 
+    @Test
+    void createDirectIfcEdit_usesAncestorIfcArtifactWhenBaseRevisionHasNoIfcFile() throws Exception {
+        UUID artifactRevisionId = UUID.randomUUID();
+        Revision parentRevision = newRevision(artifactRevisionId, projectId, null, 1);
+        ReflectionTestUtils.setField(sourceRevision, "parentRevisionId", artifactRevisionId);
+        IfcEditArtifact artifact = IfcEditArtifact.createIfcModel(
+                UUID.randomUUID(),
+                projectId,
+                artifactRevisionId,
+                UUID.randomUUID(),
+                "projects/%s/revisions/%s/ifc/model.v1.ifc".formatted(projectId, artifactRevisionId),
+                LocalDateTime.now()
+        );
+        DirectIfcEditRequest request = new DirectIfcEditRequest(
+                "v1", UUID.randomUUID(), baseRevisionId,
+                UUID.randomUUID(), "IFC_MODEL",
+                createWorkspaceCommand("update")
+        );
+
+        given(projectRepository.findByProjectIdAndDeletedAtIsNullForUpdate(projectId))
+                .willReturn(Optional.of(project));
+        given(ifcEditActiveJobGuard.hasBlockingActiveJob(projectId)).willReturn(false);
+        given(revisionRepository.findById(baseRevisionId)).willReturn(Optional.of(sourceRevision));
+        given(revisionRepository.findById(artifactRevisionId)).willReturn(Optional.of(parentRevision));
+        given(ifcEditArtifactRepository.findTopByProjectIdAndRevisionIdAndArtifactTypeOrderByCreatedAtDescArtifactIdDesc(
+                projectId,
+                baseRevisionId,
+                "IFC_MODEL"
+        )).willReturn(Optional.empty());
+        given(ifcEditArtifactRepository.findTopByProjectIdAndRevisionIdAndArtifactTypeOrderByCreatedAtDescArtifactIdDesc(
+                projectId,
+                artifactRevisionId,
+                "IFC_MODEL"
+        )).willReturn(Optional.of(artifact));
+        given(revisionRepository.findTopByProjectIdOrderByRevisionNoDesc(projectId))
+                .willReturn(Optional.of(parentRevision));
+        given(pathBuilder.buildOutputIfcStorageUrl(any(), any())).willReturn("projects/p/revisions/new/ifc/model.v1.ifc");
+        given(pathBuilder.buildValidationReportStorageUrl(any(), any(), anyInt()))
+                .willReturn("projects/p/jobs/j/steps/001/engine/validation-report.v1.json");
+        given(pathBuilder.buildSceneSnapshotStorageUrl(any(), any(), any())).willReturn("projects/p/revisions/new/ifc/snapshot.v1.json");
+        given(pathBuilder.toWorkerStorageUrl(artifact.getStorageUrl()))
+                .willReturn("s3://bucket/" + artifact.getStorageUrl());
+
+        service.createDirectIfcEdit(projectId, userId, request);
+
+        ArgumentCaptor<IfcEditCommandPublishRequestedEvent> publishEventCaptor =
+                ArgumentCaptor.forClass(IfcEditCommandPublishRequestedEvent.class);
+        verify(eventPublisher).publishEvent(publishEventCaptor.capture());
+
+        IfcEditCommandMessage cmd = publishEventCaptor.getValue().message();
+        assertThat(cmd.input().get("source_ifc_storage_url")).isEqualTo("s3://bucket/" + artifact.getStorageUrl());
+        verify(pathBuilder, never()).buildSourceIfcStorageUrl(projectId, baseRevisionId);
+    }
+
     private WorkspaceCommand createWorkspaceCommand(String op) {
         return new WorkspaceCommand(
                 op,
@@ -220,5 +278,16 @@ class DirectIfcEditCommandServiceTest {
                 "update".equals(op) ? objectMapper.createObjectNode().put("lengthMm", 3000.0) : null,
                 System.currentTimeMillis()
         );
+    }
+
+    private Revision newRevision(UUID revisionId, UUID projectId, UUID parentRevisionId, int revisionNo) throws Exception {
+        var revisionConstructor = Revision.class.getDeclaredConstructor();
+        revisionConstructor.setAccessible(true);
+        Revision revision = revisionConstructor.newInstance();
+        ReflectionTestUtils.setField(revision, "revisionId", revisionId);
+        ReflectionTestUtils.setField(revision, "projectId", projectId);
+        ReflectionTestUtils.setField(revision, "parentRevisionId", parentRevisionId);
+        ReflectionTestUtils.setField(revision, "revisionNo", revisionNo);
+        return revision;
     }
 }
