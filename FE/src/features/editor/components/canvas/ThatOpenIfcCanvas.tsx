@@ -22,6 +22,7 @@ import { FLOOR_MM_PER_PX } from '../../constants'
 import { patchIfcTextForMaterialDefaults } from '../../services/ifcChange.service'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import {
+  PRESETS,
   applyIfcLibraryManifestToPresets,
   loadIfcLibraryManifest,
   toIfcLibraryAssetUrl,
@@ -466,6 +467,28 @@ const detachAndHideObjectTree = (object: Object3D | undefined | null) => {
   object.parent?.remove(object)
 }
 
+const setObjectTreeVisible = (object: Object3D | undefined | null, visible: boolean) => {
+  if (!object) return
+  object.visible = visible
+  object.traverse((child) => {
+    child.visible = visible
+  })
+}
+
+const setIfcAssetPlaceholderPending = (object: LibraryObject3D, pending: boolean) => {
+  object.userData = {
+    ...object.userData,
+    ifcAssetPlaceholderPending: pending,
+  }
+  object.traverse((child) => {
+    ;(child as LibraryObject3D).userData = {
+      ...(child as LibraryObject3D).userData,
+      ifcAssetPlaceholderPending: pending,
+    }
+  })
+  setObjectTreeVisible(object, !pending)
+}
+
 const getElementTransformSignature = (element?: IfcElementInfo | null) => {
   if (!element) return ''
   return [
@@ -500,12 +523,20 @@ const updateTransformControlsIfSupported = (transformControls: unknown) => {
 
 const shouldUseIfcAssetForPreset = (preset: ThreeDLibraryPreset) => {
   const hasIfcAsset = Boolean(preset.assetIfcUrl || preset.assetIfc)
-  if (!hasIfcAsset) return false
-  // IFC roof assets are fixed mesh extracts. When the inspector switches the
-  // roof shape to gable, use the existing procedural roof path so the shape
-  // control has an immediate visible effect without changing other asset types.
-  if (preset.type === 'roof' && preset.roofShape === 'gable') return false
-  return true
+  return hasIfcAsset
+}
+
+const getLibraryAssetCacheKey = (preset: ThreeDLibraryPreset) => {
+  const assetIfcUrl = preset.assetIfcUrl?.trim() || toIfcLibraryAssetUrl(preset.assetIfc)
+  if (!assetIfcUrl) return null
+  return [
+    assetIfcUrl,
+    IFC_LIBRARY_PLACEMENT_NORMALIZER_VERSION,
+    preset.sourceAssetId ?? preset.id,
+    preset.lengthMm ?? '',
+    preset.heightMm ?? '',
+    preset.thicknessMm ?? '',
+  ].join('|')
 }
 
 export default function ThatOpenIfcCanvas({
@@ -551,6 +582,7 @@ export default function ThatOpenIfcCanvas({
   const sceneRef = useRef<ThatOpenSceneState | null>(null)
   const presetGroupRef = useRef<import('three').Group | null>(null)
   const libraryAssetBytesCacheRef = useRef<Map<string, Promise<Uint8Array | null>>>(new Map())
+  const libraryAssetObjectCacheRef = useRef<Map<string, Promise<Object3D | null>>>(new Map())
   const libraryAssetSyncTokenRef = useRef(0)
   const libraryAssetSyncQueueRef = useRef<Promise<void>>(Promise.resolve())
   const libraryAssetModelIdsRef = useRef<Set<string>>(new Set())
@@ -5915,6 +5947,7 @@ export default function ThatOpenIfcCanvas({
       }
       const normalizedStoreyId = Number.isFinite(preset.storeyExpressId) ? Number(preset.storeyExpressId) : null
       const isVisible = isLibraryVisibleForStorey(normalizedStoreyId)
+      const isAssetPlaceholderPending = libraryObject.userData?.ifcAssetPlaceholderPending === true
       let opacity = 1
       if (
         isVisible &&
@@ -5926,7 +5959,7 @@ export default function ThatOpenIfcCanvas({
         const clampedTransparency = Math.min(Math.max(rawTransparency, 0), 1)
         opacity = 1 - clampedTransparency
       }
-      libraryObject.visible = isVisible
+      libraryObject.visible = isVisible && !isAssetPlaceholderPending
       setLibraryObjectOpacity(libraryObject, opacity)
       if (!isVisible && selectedLibraryId && preset.id === selectedLibraryId) {
         shouldClearLibrarySelection = true
@@ -7166,16 +7199,8 @@ export default function ThatOpenIfcCanvas({
 
   const loadLibraryAssetBytes = useCallback((preset: ThreeDLibraryPreset): Promise<Uint8Array | null> => {
     const assetIfcUrl = preset.assetIfcUrl?.trim() || toIfcLibraryAssetUrl(preset.assetIfc)
-    if (!assetIfcUrl) return Promise.resolve(null)
-
-    const cacheKey = [
-      assetIfcUrl,
-      IFC_LIBRARY_PLACEMENT_NORMALIZER_VERSION,
-      preset.sourceAssetId ?? preset.id,
-      preset.lengthMm ?? '',
-      preset.heightMm ?? '',
-      preset.thicknessMm ?? '',
-    ].join('|')
+    const cacheKey = getLibraryAssetCacheKey(preset)
+    if (!assetIfcUrl || !cacheKey) return Promise.resolve(null)
     const cached = libraryAssetBytesCacheRef.current.get(cacheKey)
     if (cached) return cached
 
@@ -7202,76 +7227,120 @@ export default function ThatOpenIfcCanvas({
     return loadPromise
   }, [])
 
-  const loadLibraryAssetInstance = useCallback(async (
+  const loadLibraryAssetTemplate = useCallback(async (
     sceneState: ThatOpenSceneState,
     preset: ThreeDLibraryPreset,
   ): Promise<Object3D | null> => {
     const assetIfcUrl = preset.assetIfcUrl?.trim() || toIfcLibraryAssetUrl(preset.assetIfc)
-    const assetBytes = await loadLibraryAssetBytes(preset)
-    if (!assetBytes || !assetIfcUrl) return null
-    const modelId = toLibraryAssetModelId(preset, preset.id)
+    const cacheKey = getLibraryAssetCacheKey(preset)
+    if (!assetIfcUrl || !cacheKey) return null
 
-    try {
-      const model = await sceneState.ifcLoader.load(
-        new Uint8Array(assetBytes),
-        true,
-        modelId,
-        {
-          userData: {
-            libraryAsset: true,
-            sourceAssetId: preset.sourceAssetId ?? preset.id,
-            assetIfcUrl,
-            instanceId: preset.id,
+    const cached = libraryAssetObjectCacheRef.current.get(cacheKey)
+    if (cached) return cached
+
+    const loadPromise = (async () => {
+      const assetBytes = await loadLibraryAssetBytes(preset)
+      if (!assetBytes) return null
+      const modelId = toLibraryAssetModelId(preset, `template-${preset.sourceAssetId ?? preset.id}`)
+
+      try {
+        const model = await sceneState.ifcLoader.load(
+          new Uint8Array(assetBytes),
+          true,
+          modelId,
+          {
+            userData: {
+              libraryAsset: true,
+              sourceAssetId: preset.sourceAssetId ?? preset.id,
+              assetIfcUrl,
+              instanceId: preset.id,
+            },
           },
-        },
-      )
-      libraryAssetModelIdsRef.current.add(modelId)
-      const fragmentModel = model as unknown as LoadedLibraryFragmentModel
-      detachAndHideObjectTree(fragmentModel.object)
-      fragmentModel.useCamera(sceneState.camera)
+        )
+        const fragmentModel = model as unknown as LoadedLibraryFragmentModel
+        detachAndHideObjectTree(fragmentModel.object)
+        fragmentModel.useCamera(sceneState.camera)
 
-      const editor = (sceneState.fragments.core as import('@thatopen/fragments').FragmentsModels & {
-        editor?: import('@thatopen/fragments').Editor
-      }).editor
-      const localIds = await (
-        fragmentModel.getItemsIdsWithGeometry?.()
-        ?? fragmentModel.getLocalIds?.()
-        ?? Promise.resolve([])
-      )
-      const uniqueLocalIds = Array.from(new Set(localIds.filter(Number.isFinite)))
-      if (!editor || uniqueLocalIds.length === 0) {
-        await disposeLibraryAssetModel(sceneState, modelId, 'library_asset_no_mesh_conversion_source')
+        const editor = (sceneState.fragments.core as import('@thatopen/fragments').FragmentsModels & {
+          editor?: import('@thatopen/fragments').Editor
+        }).editor
+        const localIds = await (
+          fragmentModel.getItemsIdsWithGeometry?.()
+          ?? fragmentModel.getLocalIds?.()
+          ?? Promise.resolve([])
+        )
+        const uniqueLocalIds = Array.from(new Set(localIds.filter(Number.isFinite)))
+        if (!editor || uniqueLocalIds.length === 0) {
+          await disposeLibraryAssetModel(sceneState, modelId, 'library_asset_no_mesh_conversion_source')
+          return null
+        }
+
+        const assetGroup = new sceneState.three.Group()
+        assetGroup.name = `${preset.name} IFC asset mesh template`
+        const chunkSize = 80
+        for (let start = 0; start < uniqueLocalIds.length; start += chunkSize) {
+          const chunk = uniqueLocalIds.slice(start, start + chunkSize)
+          const elements = await editor.getElements(modelId, chunk).catch(() => [])
+          for (const element of elements) {
+            const meshesPromise = (element as { getMeshes?: () => Promise<Object3D | null> }).getMeshes?.()
+            const meshes = meshesPromise ? await meshesPromise.catch(() => null) : null
+            if (!meshes) continue
+            const cloned = meshes.clone(true)
+            cloneLibraryAssetMeshMaterials(sceneState.three, cloned)
+            assetGroup.add(cloned)
+          }
+        }
+
+        await disposeLibraryAssetModel(sceneState, modelId, 'library_asset_converted_to_three_mesh_template')
+        return assetGroup.children.length > 0 ? assetGroup : null
+      } catch (error) {
+        await disposeLibraryAssetModel(sceneState, modelId, 'library_asset_template_error')
+        libraryAssetObjectCacheRef.current.delete(cacheKey)
+        console.warn('[editor] IFC 라이브러리 에셋 템플릿 생성 실패', {
+          presetId: preset.id,
+          assetIfcUrl,
+          error,
+        })
         return null
       }
+    })()
 
-      const assetGroup = new sceneState.three.Group()
-      assetGroup.name = `${preset.name} IFC asset mesh clone`
-      const chunkSize = 80
-      for (let start = 0; start < uniqueLocalIds.length; start += chunkSize) {
-        const chunk = uniqueLocalIds.slice(start, start + chunkSize)
-        const elements = await editor.getElements(modelId, chunk).catch(() => [])
-        for (const element of elements) {
-          const meshesPromise = (element as { getMeshes?: () => Promise<Object3D | null> }).getMeshes?.()
-          const meshes = meshesPromise ? await meshesPromise.catch(() => null) : null
-          if (!meshes) continue
-          const cloned = meshes.clone(true)
-          cloneLibraryAssetMeshMaterials(sceneState.three, cloned)
-          assetGroup.add(cloned)
-        }
-      }
-
-      await disposeLibraryAssetModel(sceneState, modelId, 'library_asset_converted_to_three_mesh')
-      return assetGroup.children.length > 0 ? assetGroup : null
-    } catch (error) {
-      await disposeLibraryAssetModel(sceneState, modelId, 'library_asset_instance_error')
-      console.warn('[editor] IFC 라이브러리 에셋 인스턴스 생성 실패', {
-        presetId: preset.id,
-        assetIfcUrl,
-        error,
-      })
-      return null
-    }
+    libraryAssetObjectCacheRef.current.set(cacheKey, loadPromise)
+    return loadPromise
   }, [disposeLibraryAssetModel, loadLibraryAssetBytes])
+
+  const loadLibraryAssetInstance = useCallback(async (
+    sceneState: ThatOpenSceneState,
+    preset: ThreeDLibraryPreset,
+  ): Promise<Object3D | null> => {
+    const template = await loadLibraryAssetTemplate(sceneState, preset)
+    if (!template) return null
+    const instance = template.clone(true)
+    cloneLibraryAssetMeshMaterials(sceneState.three, instance)
+    instance.name = `${preset.name} IFC asset mesh clone`
+    return instance
+  }, [loadLibraryAssetTemplate])
+
+  useEffect(() => {
+    const sceneState = sceneRef.current
+    if (status !== 'ready' || !sceneState) return
+
+    let cancelled = false
+    const preloadPresets = applyIfcLibraryManifestToPresets(PRESETS, ifcLibraryManifest)
+      .filter(shouldUseIfcAssetForPreset)
+
+    const preloadAssets = async () => {
+      for (const preset of preloadPresets) {
+        if (cancelled) return
+        await loadLibraryAssetTemplate(sceneState, preset)
+      }
+    }
+
+    void preloadAssets()
+    return () => {
+      cancelled = true
+    }
+  }, [ifcLibraryManifest, loadLibraryAssetTemplate, status])
 
   const hasRenderableObject = useCallback((THREE: ThreeModule, object: Object3D) => {
     let hasRenderableGeometry = false
@@ -7347,6 +7416,9 @@ export default function ThatOpenIfcCanvas({
         : shouldUseIfcAsset
           ? createIfcAssetPresetPlaceholder(THREE, preset, index, sceneState.worldUnitsPerMm)
           : createPresetMesh(THREE, preset, index, sceneState.worldUnitsPerMm)
+      if (shouldUseIfcAsset && !canReuseLoadedIfcAsset) {
+        setIfcAssetPlaceholderPending(presetMesh as LibraryObject3D, true)
+      }
       if (canReuseLoadedIfcAsset && existingChild) {
         updateLibraryPresetData(existingChild, preset)
         preservedChildren.add(existingChild)
@@ -7436,7 +7508,16 @@ export default function ThatOpenIfcCanvas({
         }
 
         const assetObject = await loadLibraryAssetInstance(sceneState, preset)
-        if (!assetObject) continue
+        if (!assetObject) {
+          const fallbackChild = presetGroup.children[index] as LibraryObject3D | undefined
+          const fallbackPreset = fallbackChild ? getLibraryPresetFromObject(fallbackChild) : null
+          if (fallbackChild && fallbackPreset?.id === preset.id && fallbackChild.userData?.ifcAssetPlaceholder === true) {
+            setIfcAssetPlaceholderPending(fallbackChild, false)
+            applyLibraryVisibilityByStorey()
+            sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
+          }
+          continue
+        }
         if (libraryAssetSyncTokenRef.current !== syncToken || presetGroupRef.current !== presetGroup) {
           await disposeLibraryAssetModel(sceneState, assetModelId, 'library_sync_stale_asset')
           return
@@ -7523,6 +7604,7 @@ export default function ThatOpenIfcCanvas({
           disposeObjectMaterials(THREE, assetMesh)
           await disposeLibraryAssetModel(sceneState, assetModelId, 'library_asset_not_renderable')
           const placeholder = createIfcAssetPresetPlaceholder(THREE, preset, index, sceneState.worldUnitsPerMm)
+          setIfcAssetPlaceholderPending(placeholder as LibraryObject3D, false)
           if (!preset.position) {
             ensureLibraryPresetOutsideIfc(
               THREE,
